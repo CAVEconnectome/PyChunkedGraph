@@ -18,7 +18,7 @@ import SocketServer
 import json #To parse JSON system configuration file
 import ssl #For SSL encryption
 import os #To make directories as appropriate and to execute terminal commands
-
+from pathlib2 import Path #To check if certificate exists
 
 class S(BaseHTTPRequestHandler):
     def _set_headers(self):
@@ -38,11 +38,11 @@ class S(BaseHTTPRequestHandler):
         self._set_headers()
         self.wfile.write("<html><body><h1>POST!</h1></body></html>")
         
-def run(server_class=HTTPServer, handler_class=S, port=9100, certfile='./server.pem'):
+def run(server_class=HTTPServer, handler_class=S, port=9100):
     server_address = ('', port)
     httpd = server_class(server_address, handler_class)
-    #TODO: implement SSL wrapping
-    httpd.socket = ssl.wrap_socket (httpd.socket, certfile = certfile, server_side=True)
+    #Wrap socket in SSL context
+    #httpd.socket = ssl.wrap_socket (httpd.socket, keyfile = keyfile, certfile = certfile, server_side=True)
     print 'Starting httpd...'
     httpd.serve_forever()
 
@@ -56,9 +56,18 @@ if __name__ == "__main__":
     os.system(('mkdir -p ' + settings['logpath']))
     os.system(('mkdir -p ' + settings['certpath']))
 
-    # TODO: obtain SSL certificate and key; if don't already exist, create these
+    # Certificate and keyfile for SSL encryption
+    certfile = settings['certpath']+'/server.crt'
+    keyfile = settings['certpath']+'/server.key'
+
+    # Check if certificate and key exist; if not, create these
+    if not Path(certfile).is_file():
+        create_command = 'openssl req -x509 -nodes -days 365 -newkey rsa:2048 -keyout ' + keyfile + ' -out ' + certfile
+        os.system(create_command)
 
     if len(argv) == 2:
         run(port=int(argv[1]))
     else:
         run()
+
+
