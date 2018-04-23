@@ -96,7 +96,7 @@ class ChunkedGraph(object):
         """ Creates atomic edges between supervoxels and first
             abstraction layer """
         if time_stamp is None:
-            time_stamp = time.time()
+            time_stamp = int(time.time())
 
         # Catch trivial case
         if len(edge_ids) == 0:
@@ -131,7 +131,7 @@ class ChunkedGraph(object):
             parent_id[0] = i_cc
             parent_id = np.frombuffer(parent_id, dtype=np.uint64)[0]
 
-            parent_ids = np.array([[parent_id, time_stamp]]).tobytes()
+            parent_ids = np.array([[parent_id, time_stamp]], dtype=np.uint64).tobytes()
 
             parent_cross_edges = np.array([], dtype=np.uint64).reshape(0, 2)
 
@@ -186,7 +186,7 @@ class ChunkedGraph(object):
                                         time_stamp=None):
         """ Creates all hierarchy layers above the first abstract layer """
         if time_stamp is None:
-            time_stamp = time.time()
+            time_stamp = int(time.time())
 
         # 1 ----------
         # The first part is concerned with reading data from the child nodes
@@ -298,7 +298,7 @@ class ChunkedGraph(object):
             parent_id[0] = i_cc
             parent_id = np.frombuffer(parent_id, dtype=np.uint64)[0]
 
-            parent_ids = np.array([[parent_id, time_stamp]]).tobytes()
+            parent_ids = np.array([[parent_id, time_stamp]], dtype=np.uint64).tobytes()
 
             parent_cross_edges = np.array([], dtype=np.uint64).reshape(0, 2)
 
@@ -342,7 +342,7 @@ class ChunkedGraph(object):
         :return: int
         """
         if time_stamp is None:
-            time_stamp = time.time()
+            time_stamp = int(time.time())
 
         parent_id = atomic_id
         parent_key = serialize_key("parents")
@@ -350,10 +350,12 @@ class ChunkedGraph(object):
         while True:
             row = self.table.read_row(serialize_node_id(parent_id))
 
+            # print(parent_id)
             if parent_key in row.cells[self.family_id]:
-                parent_ids = np.frombuffer(row.cells[self.family_id][parent_key][0].value, dtype=np.uint64)[0].reshape(-1, 2)
+                parent_ids = np.frombuffer(row.cells[self.family_id][parent_key][0].value, dtype=np.uint64).reshape(-1, 2)
                 m_parent_ids = parent_ids[:, 1] < time_stamp
                 parent_id = parent_ids[m_parent_ids, 0][np.argmax(parent_ids[m_parent_ids, 1])]
+                # print(parent_id, parent_ids)
             else:
                 break
 
