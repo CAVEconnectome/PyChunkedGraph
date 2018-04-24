@@ -92,15 +92,27 @@ class ChunkedGraph(object):
         return self._chunk_size
 
     def add_atomic_edges_in_chunks(self, edge_ids, cross_edge_ids, edge_affs,
-                                   cross_edge_affs, time_stamp=None):
+                                   cross_edge_affs, cg2rg_dict, rg2cg_dict,
+                                   time_stamp=None):
         """ Creates atomic edges between supervoxels and first
             abstraction layer """
         if time_stamp is None:
-            time_stamp = int(time.time())
+            time_stamp = time.time()
+        time_stamp = int(time_stamp)
 
         # Catch trivial case
         if len(edge_ids) == 0:
             return 0
+
+        # Write rg2cg mapping to table
+        rows = []
+        for rg_id in rg2cg_dict.keys():
+            # Create node
+            val_dict = {"cg_id": np.array([rg2cg_dict[rg_id]]).tobytes()}
+
+            rows.append(mutate_row(self.table, serialize_node_id(rg_id),
+                                   self.family_id, val_dict))
+        status = self.table.mutate_rows(rows)
 
         # Make parent id creation easier
         z, y, x, l = np.frombuffer(edge_ids[0, 0], dtype=np.uint8)[4:]
@@ -108,6 +120,7 @@ class ChunkedGraph(object):
 
         # Get connected component within the chunk
         chunk_g = nx.from_edgelist(edge_ids)
+        chunk_g.add_nodes_from(np.unique(cross_edge_ids[:, 0]))
         ccs = list(nx.connected_components(chunk_g))
 
         # print("%d ccs detected" % (len(ccs)))
@@ -158,7 +171,8 @@ class ChunkedGraph(object):
                 # Create node
                 val_dict = {"atomic_partners": connected_partner_ids,
                             "atomic_affinities": connected_partner_affs,
-                            "parents": parent_ids}
+                            "parents": parent_ids,
+                            "rg_id": np.array([cg2rg_dict[node_id]]).tobytes()}
 
                 rows.append(mutate_row(self.table, serialize_node_id(node_id),
                                        self.family_id, val_dict))
@@ -186,7 +200,9 @@ class ChunkedGraph(object):
                                         time_stamp=None):
         """ Creates all hierarchy layers above the first abstract layer """
         if time_stamp is None:
-            time_stamp = int(time.time())
+            time_stamp = time.time()
+        time_stamp = int(time_stamp)
+
 
         # 1 ----------
         # The first part is concerned with reading data from the child nodes
@@ -333,7 +349,8 @@ class ChunkedGraph(object):
         except:
             print("WARNING: NOTHING HAPPENED")
 
-    def read_agglomeration_id_with_atomic_id(self, atomic_id, time_stamp=None):
+    def read_agglomeration_id_with_atomic_id(self, atomic_id, time_stamp=None,
+                                             is_cg_id=False):
         """ Takes an atomic id and returns the associated agglomeration ids
 
         :param atomic_id: int
@@ -342,7 +359,15 @@ class ChunkedGraph(object):
         :return: int
         """
         if time_stamp is None:
-            time_stamp = int(time.time())
+            time_stamp = time.time()
+
+        if not is_cg_id:
+            # There might be multiple chunk ids for a single rag id becaause
+            # rag supervoxels get split at chunk boundaries. Here, only one
+            # chunk id needs to be traced to the top to retrieve the
+            # agglomeration id that they both belong to
+            r = self.table.read_row(serialize_node_id(atomic_id))
+            atomic_id = np.frombuffer(r.cells[self.family_id][serialize_key("cg_id")][0].value, dtype=np.uint64)[0]
 
         parent_id = atomic_id
         parent_key = serialize_key("parents")
@@ -355,7 +380,7 @@ class ChunkedGraph(object):
                 parent_ids = np.frombuffer(row.cells[self.family_id][parent_key][0].value, dtype=np.uint64).reshape(-1, 2)
                 m_parent_ids = parent_ids[:, 1] < time_stamp
                 parent_id = parent_ids[m_parent_ids, 0][np.argmax(parent_ids[m_parent_ids, 1])]
-                # print(parent_id, parent_ids)
+                print(parent_id, parent_ids)
             else:
                 break
 
@@ -364,6 +389,22 @@ class ChunkedGraph(object):
     def read_atomic_id_with_agglomeration_id(self, agglomeration_id):
         pass
 
+    def read_agglomeration_id_history(self, agglomeration_id, time_stamp):
+        """ Returns all agglomeration ids agglomeration_id was part of
 
-    def get_agglomeration_id_history(self):
+        :param agglomeration_id: int
+        :param time_stamp: int
+            restrict search to ids created after this time_stamp
+        :return: array of int
+        """
+
+        return np.array([agglomeration_id])
+
+    def add_atomic_edges(self, atomic_edge_ids):
         pass
+
+
+    def remove_atomic_edges(self, atomic_edge_ids):
+        pass
+
+
