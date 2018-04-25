@@ -9,12 +9,12 @@ by Zoe Ashwood (April 2018)
 
 Usage::
     ./BasicHTTPServer.py [<port>]
-Send a GET request::
-    curl --insecure https://localhost:9100
-Send a HEAD request::
+Send a GET request via the terminal (assuming server running locally on port 9100)::
+    curl --insecure -i https://localhost:9100/1.0/segment/1000/root/?   
+Send a HEAD request via the terminal (assuming server running locally on port 9100)::
     curl -I --insecure https://localhost:9100
-Send a POST request::
-    curl -d --insecure "foo=bar&bin=baz" https://localhost:9100
+Send a POST request (assuming server running locally on port 9100)::
+    curl -d "foo=bar&bin=baz" --insecure -i https://localhost:9100/1.0/graph/split/?
 """
 from BaseHTTPServer import BaseHTTPRequestHandler, HTTPServer
 import SocketServer
@@ -22,6 +22,7 @@ import json #To parse JSON system configuration file
 import ssl #For SSL encryption
 import os #To make directories as appropriate and to execute terminal commands
 from pathlib2 import Path #To check if certificate exists
+import re #For regular expressions
 
 class S(BaseHTTPRequestHandler):
     def _set_headers(self):
@@ -29,19 +30,63 @@ class S(BaseHTTPRequestHandler):
         self.send_header('Content-type', 'text/html')
         self.end_headers()
 
-    # Serve read requests immediately with server    
-    def do_GET(self):
-        self._set_headers()
-        self.wfile.write("<html><body><h1>hi!</h1></body></html>")
-
+    # Returns information describing server: e.g. server, content type, data, request version (e.g. HTTP/1.0)      
     def do_HEAD(self):
         self._set_headers()
+
+    # Handle HTTP GET requests  
+    def do_GET(self):
+    	# handle each type of HTTP GET request. NB self.path is request
+    	# Get root request:
+    	if(re.match(r"/1.0/segment/(\d+)/root/?", self.path)):
+    		print "Get root request received" #Return root ID as body of HTTP response
+        	self._set_headers()
+        	self.send_response(200, "Test response")
+        	#self.wfile.write("<html><body><h1>hi!</h1></body></html>")
+        # Get active operations (items in write queue)
+        elif(re.match(r"/1.0/graph/active/?", self.path)):	
+        	print "Get active operations request received"
+        	# Return list of active write operations
+        	self._set_headers()
+        	self.wfile.write("<html><body><h1>hi!</h1></body></html>")
+        else:
+        	print "could not parse " + self.path
+        	self._set_headers()
+        	# TODO: return error message
+
      
     # Handle merge and split operations by appending these to an outside DB    
     def do_POST(self):
-        # Doesn't do anything with posted data
-        self._set_headers()
-        self.wfile.write("<html><body><h1>POST!</h1></body></html>")
+        # handle each type of HTTP POST request. NB self.path is request
+    	# Merge supervoxels:
+    	if(re.match(r"/1.0/graph/merge/?", self.path)):
+    		print "Merge request received" #Return root ID as body of HTTP response
+        	self._set_headers()
+        	self.wfile.write("<html><body><h1>hi!</h1></body></html>")
+        # Handle split
+        elif(re.match(r"/1.0/graph/split/?", self.path)):
+    		print "Split request received" #Return root ID as body of HTTP response
+        	self._set_headers()
+        	self.wfile.write("<html><body><h1>hi!</h1></body></html>")	
+        # Subscribe edges request:	
+        elif(re.match(r"/1.0/segment/(\d+)/subscribe/?", self.path)):
+        	print "Subscribe edges request received"
+        	self._set_headers()
+        	self.wfile.write("<html><body><h1>hi!</h1></body></html>")
+        # Unsubscribe edges request:		
+        elif(re.match(r"/1.0/segment/(\d+)/unsubscribe/?", self.path)):	
+        	print "Unsubscribe edges request received"
+        	self._set_headers()
+        	self.wfile.write("<html><body><h1>hi!</h1></body></html>")
+        # Save graph	
+        elif(re.match(r"/1.0/graph/save/?", self.path)):	
+        	print "Save request received"
+        	self._set_headers()
+        	self.wfile.write("<html><body><h1>hi!</h1></body></html>")
+        else:
+        	print "could not parse " + self.path
+        	self._set_headers()
+        	#TODO: return error message			
         
 def run(certfile, server_class=HTTPServer, handler_class=S, port=9100):
     server_address = ('', port)
