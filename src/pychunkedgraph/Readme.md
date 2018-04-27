@@ -1,5 +1,20 @@
 # ChunkedGraph
 
+## Installation
+
+You need `google-cloud` to use the ChunkedGraph
+
+```
+pip install google-cloud
+```
+
+as well as `cloud-volume`
+
+```
+pip install cloud-volume
+```
+
+
 ## Credentials
 
 The ChunkedGraph is essentially hosted by Google (BigTable). Currently, the credentials to access the data of 
