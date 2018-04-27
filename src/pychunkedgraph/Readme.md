@@ -54,14 +54,14 @@ an additional read from the database.
 
 `get_root` can also be used to acquire the root id  for a supervoxel on other hierarchy levels.
 
-#### Example
+#### Minimal example
 
 ```
 from src.pychunkedgraph import chunkedgraph
-cg = chunkedgraph.ChunkedGraph(non_dev=True)
+cg = chunkedgraph.ChunkedGraph(dev_mode=False)
 
 atomic_id = 1028242092029
-root_id = cg.get_root(atomic_id, time_stamp=time_stamp, is_cg_id=False)
+root_id = cg.get_root(atomic_id)
 ```
 
 ### Historic agglomeration ids
