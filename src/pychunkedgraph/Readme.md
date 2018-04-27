@@ -28,7 +28,7 @@ any ChunkedGraph need to be stored at:
 Currently, **only** supervoxels contained in `gs://nkem/pinky40_agglomeration_test_1024_2/region_graph` are included in the
 ChunkedGraph. The chunk size is `[512, 512, 64]`. 
 
-**WARNING**: There are many false edges in the chunkedgraph due to a bug in the ingested data. This leads to an overly merged. As soon as the problem is fixed by Nico, the ChunkedGraph will be updated to the new data and will cover all of pinky40.
+**WARNING**: There are many false edges in the ChunkedGraph due to a bug in the ingested data. This leads to an overly merged dataset. As soon as the problem is fixed by Nico, the ChunkedGraph will be updated to the new data and will cover all of pinky40.
 
 
 ## Usage
