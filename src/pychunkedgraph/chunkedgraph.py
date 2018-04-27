@@ -23,6 +23,7 @@ def serialize_node_id(node_id):
     s_node_id = serialize_key(s_node_id)
     return s_node_id
 
+
 def serialize_key(key):
     """ Serializes a key to be ingested by a bigtable table row
 
@@ -196,13 +197,11 @@ class ChunkedGraph(object):
         except:
             print("WARNING: NOTHING HAPPENED")
 
-    def add_atomic_edges_between_chunks(self, layer_id, child_chunk_coords,
-                                        time_stamp=None):
+    def add_layer(self, layer_id, child_chunk_coords, time_stamp=None):
         """ Creates all hierarchy layers above the first abstract layer """
         if time_stamp is None:
             time_stamp = time.time()
         time_stamp = int(time_stamp)
-
 
         # 1 ----------
         # The first part is concerned with reading data from the child nodes
@@ -349,8 +348,7 @@ class ChunkedGraph(object):
         except:
             print("WARNING: NOTHING HAPPENED")
 
-    def read_agglomeration_id_with_atomic_id(self, atomic_id, time_stamp=None,
-                                             is_cg_id=False):
+    def get_root(self, atomic_id, time_stamp=None, is_cg_id=False):
         """ Takes an atomic id and returns the associated agglomeration ids
 
         :param atomic_id: int
@@ -362,7 +360,7 @@ class ChunkedGraph(object):
             time_stamp = time.time()
 
         if not is_cg_id:
-            # There might be multiple chunk ids for a single rag id becaause
+            # There might be multiple chunk ids for a single rag id because
             # rag supervoxels get split at chunk boundaries. Here, only one
             # chunk id needs to be traced to the top to retrieve the
             # agglomeration id that they both belong to
@@ -389,16 +387,22 @@ class ChunkedGraph(object):
     def read_atomic_id_with_agglomeration_id(self, agglomeration_id):
         pass
 
-    def read_agglomeration_id_history(self, agglomeration_id, time_stamp):
+    def read_agglomeration_id_history(self, agglomeration_id, time_stamp=None):
         """ Returns all agglomeration ids agglomeration_id was part of
 
         :param agglomeration_id: int
         :param time_stamp: int
             restrict search to ids created after this time_stamp
+            None=search whole history
         :return: array of int
         """
 
         return np.array([agglomeration_id])
+
+    def read_atomic_ids_with_agglomeration_id(self, agglomeration_id):
+
+        child_ids = []
+
 
     def add_atomic_edges(self, atomic_edge_ids):
         pass

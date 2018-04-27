@@ -166,5 +166,5 @@ def _add_layer_thread(args):
     dev_mode, layer_id, chunk_coords = args
 
     cg = chunkedgraph.ChunkedGraph(dev_mode=dev_mode)
-    cg.add_atomic_edges_between_chunks(layer_id, chunk_coords)
+    cg.add_layer(layer_id, chunk_coords)
 
