@@ -35,7 +35,7 @@ ChunkedGraph. The chunk size is `[512, 512, 64]`.
 
 ### Initialization
 ```
-import chunkedgraph
+from src.pychunkedgraph import chunkedgraph
 cg = chunkedgraph.ChunkedGraph(dev_mode=False)
 ```
 
@@ -57,7 +57,7 @@ an additional read from the database.
 #### Example
 
 ```
-import chunkedgraph
+from src.pychunkedgraph import chunkedgraph
 cg = chunkedgraph.ChunkedGraph(non_dev=True)
 
 atomic_id = 1028242092029
