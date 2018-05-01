@@ -10,7 +10,8 @@ from . import multiprocessing_utils
 from . import utils
 
 
-def create_chunked_graph(cv_url="gs://nkem/pinky40_agglomeration_test_1024_2/region_graph",
+# def create_chunked_graph(cv_url="gs://nkem/pinky40_agglomeration_test_1024_2/region_graph",
+def create_chunked_graph(cv_url="gs://nkem/basil_4k_oldnet/region_graph/",
                          dev_mode=False, nb_cpus=1):
 
     # Currently no multiprocessing...
