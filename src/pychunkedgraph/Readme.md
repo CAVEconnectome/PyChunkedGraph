@@ -1,5 +1,11 @@
 # ChunkedGraph
 
+## Missing features
+
+- remove_edge()
+- get_subgraph()
+
+
 ## Installation
 
 You need `google-cloud` to use the ChunkedGraph
@@ -25,10 +31,7 @@ any ChunkedGraph need to be stored at:
 
 ## Data
 
-Currently, **only** supervoxels contained in `gs://nkem/pinky40_agglomeration_test_1024_2/region_graph` are included in the
-ChunkedGraph. The chunk size is `[512, 512, 64]`. 
-
-**WARNING**: There are many false edges in the ChunkedGraph due to a bug in the ingested data. This leads to an overly merged dataset. As soon as the problem is fixed by Nico, the ChunkedGraph will be updated to the new data and will cover all of pinky40.
+The current version of the ChunkedGraph contains supervoxels from `gs://nkem/basil_4k_oldnet/region_graph/`. The chunk size is `[512, 512, 64]`. 
 
 
 ## Usage
@@ -47,7 +50,7 @@ developmental level as the version on github.
 ```
 root_id = cg.get_root(atomic_id, time_stamp=time_stamp, is_cg_id=False)
 ```
-To get the most recent data `time_stamp` should be set to `None` (default option). Otherwise, use the `time` package to create an `int`  representing the time of the desired checkpoint. There is a discrepancy between the ids used in neuroglancer which correspond to the ones in the region graph and the ids used in the ChunkedGraph. The ChunkedGraph is able to map these ids onto each other. 
+To get the most recent data `time_stamp` should be set to `None` (default option). Otherwise, use the `datetime` package to create a date representing the time of the desired checkpoint. There is a discrepancy between the ids used in neuroglancer which correspond to the ones in the region graph and the ids used in the ChunkedGraph. The ChunkedGraph is able to map these ids onto each other. 
 
 The user has to specificy whether the given id is from the region graph (`is_cg_id=False`, default option) or from the ChunkedGraph (`is_cg_id=True`). Mapping the region graph id to the chunked graph id (`is_cg_id=False`) incurs
 an additional read from the database.
@@ -60,9 +63,29 @@ an additional read from the database.
 from src.pychunkedgraph import chunkedgraph
 cg = chunkedgraph.ChunkedGraph(dev_mode=False)
 
-atomic_id = 1028242092029
+atomic_id = 537753696
 root_id = cg.get_root(atomic_id)
 ```
+
+### Adding an atomic edge
+
+```
+cg.add_edge(edge_ids, is_cg_id=False)
+```
+
+To add an atomic edge, the user defines the two atomic segments that are connected. The ChunkedGraph will automatically set the `time_stamp` of the change to the current time point.
+
+
+#### Minimal example
+
+```
+from src.pychunkedgraph import chunkedgraph
+cg = chunkedgraph.ChunkedGraph(dev_mode=False)
+
+edge = np.array([537753696, 537544567], dtype=np.uint64)
+cg.add_edge(edge)
+```
+
 
 ### Historic agglomeration ids
 
