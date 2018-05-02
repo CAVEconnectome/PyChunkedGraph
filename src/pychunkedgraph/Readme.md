@@ -28,9 +28,6 @@ any ChunkedGraph need to be stored at:
 Currently, **only** supervoxels contained in `gs://nkem/pinky40_agglomeration_test_1024_2/region_graph` are included in the
 ChunkedGraph. The chunk size is `[512, 512, 64]`. 
 
-**WARNING**: There are many false edges in the ChunkedGraph due to a bug in the ingested data. This leads to an overly merged dataset. As soon as the problem is fixed by Nico, the ChunkedGraph will be updated to the new data and will cover all of pinky40.
-
-
 ## Usage
 
 ### Initialization
@@ -74,6 +71,13 @@ historical_agglomeration_ids = cg.read_agglomeration_id_history(agglomeration_id
 ```
 
 The user can limit the time window in which historical agglomeration ids should be retrived 
-(`time_stamp=earliest_time`). 
+(`time_stamp=earliest_time`).
 
-While the ChunkedGraph does not support writes, this simply returns the given agglomeration id.
+#### Minimal example
+```
+from src.pychunkedgraph import chunkedgraph
+cg = chunkedgraph.ChunkedGraph(dev_mode=False)
+
+root_id = 432345564227584182
+id_history = cg.read_agglomeration_id_history(root_id)
+```
