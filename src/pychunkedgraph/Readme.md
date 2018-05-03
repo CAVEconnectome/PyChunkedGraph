@@ -2,8 +2,7 @@
 
 ## Missing features
 
-- remove_edge()
-- get_subgraph()
+- remove_edge(): A dummy function for remove_edge is in place. Development using the ChunkedGraph should be possible.
 
 
 ## Installation
@@ -107,3 +106,23 @@ cg = chunkedgraph.ChunkedGraph(dev_mode=False)
 root_id = 432345564227584182
 id_history = cg.read_agglomeration_id_history(root_id)
 ```
+
+
+### Read the local ChunkedGraph
+
+To read the edge list and edge affinities of all atmic super voxels belonging to a root node do
+```
+cg.get_subgraph(root_id, bounding_box, bb_is_coordinate=True)
+```
+
+The user can define a `bounding_box=[[x_l, y_l, z_l], [x_h, y_h, z_h]]` as either coordinates or chunk id range (use `bb_is_coordinate`). The `bounding_box` feature is currently not working, the parameter is ignored. The current datset is small enough to all reads of atomic supervoxels. Hence, this should not hinder any development.
+
+#### Minimal example
+```
+from src.pychunkedgraph import chunkedgraph
+cg = chunkedgraph.ChunkedGraph(dev_mode=False)
+
+root_id = 432345564227567621
+id_history = cg.get_subgraph(root, [[0, 0, 0], [10, 10, 10]])
+```
+
