@@ -445,7 +445,6 @@ class ChunkedGraph(object):
 
         :param atomic_id: int
         :param time_stamp: None or datetime
-            None = time.time()
         :return: int
         """
         if time_stamp is None:
@@ -604,6 +603,15 @@ class ChunkedGraph(object):
 
     def get_subgraph(self, agglomeration_id, bounding_box,
                      bb_is_coordinate=False, time_stamp=None):
+        """ Returns all edges between supervoxels belonging to the specified
+            agglomeration id within the defined bouning box
+
+        :param agglomeration_id: int
+        :param bounding_box: [[x_l, y_l, z_l], [x_h, y_h, z_h]]
+        :param bb_is_coordinate: bool
+        :param time_stamp: datetime or None
+        :return: edge list
+        """
         if time_stamp is None:
             time_stamp = datetime.datetime.min
 
@@ -656,7 +664,6 @@ class ChunkedGraph(object):
 
         :param parent_id: int
         :param time_stamp: None or datetime
-            None = time.time()
         :return: edge list
         """
         if time_stamp is None:
