@@ -147,6 +147,20 @@ class ChunkedGraph(object):
 
         return node_id
 
+    def read_row(self, node_id, key, idx=0, dtype=np.uint64):
+        row = self.table.read_row(serialize_node_id(node_id))
+        return np.frombuffer(row.cells[self.family_id][serialize_key(key)][idx].value, dtype=dtype)
+
+    def read_rows(self, node_ids, key, dtype=np.uint64):
+        results = []
+
+        for node_id in node_ids:
+            results.append(np.frombuffer(self.table.read_row(
+                serialize_node_id(node_id).cells[self.family_id][
+                serialize_key(key)]), dtype=dtype))
+
+        return results
+
     def add_atomic_edges_in_chunks(self, edge_ids, cross_edge_ids, edge_affs,
                                    cross_edge_affs, cg2rg_dict, rg2cg_dict,
                                    time_stamp=None):
@@ -588,37 +602,99 @@ class ChunkedGraph(object):
 
         status = self.table.mutate_rows(rows)
 
+    def get_subgraph(self, agglomeration_id, bounding_box,
+                     bb_is_coordinate=False, time_stamp=None):
+        if time_stamp is None:
+            time_stamp = datetime.datetime.min
 
-    def get_subgraph(self, agglomeration_id, bounding_box):
-        bounding_box = np.array(bounding_box, dtype=np.float32) / cg.chunk_size
-        bounding_box[0] = np.floor(bounding_box[0])
-        bounding_box[1] = np.ceil(bounding_box[1])
-        bounding_box = bounding_box.astype(np.int)
+        if time_stamp.tzinfo is None:
+            time_stamp = UTC.localize(time_stamp)
 
-        edges = np.array([])
-        affinities = np.array([])
+        if bb_is_coordinate:
+            bounding_box = np.array(bounding_box, dtype=np.float32) / self.chunk_size
+            bounding_box[0] = np.floor(bounding_box[0])
+            bounding_box[1] = np.ceil(bounding_box[1])
+            
+        bounding_box = np.array(bounding_box, dtype=np.int)
+
+        edges = np.array([], dtype=np.uint64).reshape(0, 2)
+        affinities = np.array([], dtype=np.float32)
         child_ids = [agglomeration_id]
 
         while len(child_ids) > 0:
             new_childs = []
             layer = get_chunk_id_from_node_id(child_ids[0])[-1]
 
+            print(layer, len(child_ids))
             for child_id in child_ids:
-                if layer == 1:
-                    this_edges, this_affinities = get_most_recent_edges(child_id)
+                if layer == 2:
+                    this_edges, this_affinities = self.get_subgraph_chunk(child_id, time_stamp=time_stamp)
 
                     affinities = np.concatenate([affinities, this_affinities])
                     edges = np.concatenate([edges, this_edges])
                 else:
-                    r = self.table.read_row(serialize_node_id(child_id))
-                    this_children = np.frombuffer(
-                        r.cells[self.family_id][serialize_key("children")],
-                        dtype=np.uint64)
+                    this_children = self.read_row(child_id, "children",
+                                                  dtype=np.uint64)
 
+                    # cids_min = np.frombuffer(this_children, dtype=np.uint8).reshape(-1, 8)[:, 4:-1][:, ::-1] * self.fan_out ** np.max([0, (layer - 2)])
+                    # cids_max = cids_min + self.fan_out * np.max([0, (layer - 2)])
+                    #
+                    # child_id_mask_min_upper = np.all(cids_min <= bounding_box[1], axis=1)
+                    # child_id_mask_max_lower = np.all(cids_max > bounding_box[0], axis=1)
+                    #
+                    # m = np.logical_and(child_id_mask_min_upper, child_id_mask_max_lower)
+                    # this_children = this_children[m]
 
                     new_childs.extend(this_children)
 
             child_ids = new_childs
+
+        return edges, affinities
+
+    def get_subgraph_chunk(self, parent_id, time_stamp=None):
+        """ Takes an atomic id and returns the associated agglomeration ids
+
+        :param parent_id: int
+        :param time_stamp: None or datetime
+            None = time.time()
+        :return: edge list
+        """
+        if time_stamp is None:
+            time_stamp = datetime.datetime.now()
+
+        if time_stamp.tzinfo is None:
+            time_stamp = UTC.localize(time_stamp)
+
+        child_ids = self.read_row(parent_id, "children", dtype=np.uint64)
+        edge_key = serialize_key("atomic_partners")
+        affinity_key = serialize_key("atomic_affinities")
+
+        edges = np.array([], dtype=np.uint64).reshape(0, 2)
+        affinities = np.array([], dtype=np.float32)
+        for child_id in child_ids:
+            node_edges = np.array([], dtype=np.uint64)
+            node_affinities = np.array([], dtype=np.float32)
+
+            r = self.table.read_row(serialize_node_id(child_id))
+            for i_edgelist in range(len(r.cells[self.family_id][edge_key])):
+                if time_stamp < r.cells[self.family_id][edge_key][i_edgelist].timestamp:
+                    edge_batch = np.frombuffer(r.cells[self.family_id][edge_key][i_edgelist].value, dtype=np.uint64)
+                    affinity_batch = np.frombuffer(r.cells[self.family_id][affinity_key][i_edgelist].value, dtype=np.float32)
+                    edge_batch_m = ~np.in1d(edge_batch, node_edges)
+
+                    node_edges = np.concatenate([node_edges, edge_batch[edge_batch_m]])
+                    node_affinities = np.concatenate([node_affinities,
+                                                      affinity_batch[edge_batch_m]])
+
+            node_edge_m = node_affinities > 0
+            node_edges = node_edges[node_edge_m]
+            node_affinities = node_affinities[node_edge_m]
+
+            if len(node_edges) > 0:
+                node_edges = np.concatenate([np.ones((len(node_edges), 1), dtype=np.uint64) * child_id,  node_edges[:, None]], axis=1)
+
+                edges = np.concatenate([edges, node_edges])
+                affinities = np.concatenate([affinities, node_affinities])
 
         return edges, affinities
 
