@@ -19,6 +19,10 @@ as well as `cloud-volume`
 pip install cloud-volume
 ```
 
+## Multiprocessing
+
+Check out [multiprocessing.md](https://github.com/seung-lab/PyChunkedGraph/blob/master/src/pychunkedgraph/multiprocessing.md) for how to use the multiprocessing tools implemented for the ChunkedGraph
+
 
 ## Credentials
 
