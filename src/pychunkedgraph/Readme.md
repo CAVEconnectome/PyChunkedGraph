@@ -39,6 +39,11 @@ The current version of the ChunkedGraph contains supervoxels from `gs://nkem/bas
 
 ## Usage
 
+### Building the graph
+
+[buildgraph.md](https://github.com/seung-lab/PyChunkedGraph/blob/master/src/pychunkedgraph/buildgraph.md) explains how to build a graph from scratch.
+
+
 ### Initialization
 ```
 from src.pychunkedgraph import chunkedgraph
