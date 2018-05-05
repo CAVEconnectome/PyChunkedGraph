@@ -1,4 +1,6 @@
+import glob
 import numpy as np
+import os
 import re
 import time
 
@@ -10,6 +12,18 @@ from . import multiprocessing_utils
 from . import utils
 
 
+def download_and_store_cv_files(cv_url="gs://nkem/basil_4k_oldnet/region_graph/"):
+    with storage.SimpleStorage(cv_url) as cv_st:
+        file_paths = cv_st.list_files()
+
+        for fp in file_paths:
+            print(fp)
+            if "rg2cg" in fp:
+                utils.download_and_store_mapping_file(cv_st, fp)
+            else:
+                utils.download_and_store_edge_file(cv_st, fp)
+
+
 # def create_chunked_graph(cv_url="gs://nkem/pinky40_agglomeration_test_1024_2/region_graph",
 def create_chunked_graph(cv_url="gs://nkem/basil_4k_oldnet/region_graph/",
                          dev_mode=False, nb_cpus=1):
@@ -17,8 +31,7 @@ def create_chunked_graph(cv_url="gs://nkem/basil_4k_oldnet/region_graph/",
     # Currently no multiprocessing...
     # assert nb_cpus == 1
 
-    with storage.SimpleStorage(cv_url) as cv_st:
-        file_paths = cv_st.list_files()
+    file_paths = np.sort(glob.glob(utils.dir_from_layer_name(utils.layer_name_from_cv_url(cv_url)) + "/*"))
 
     cg = chunkedgraph.ChunkedGraph()
 
@@ -32,8 +45,10 @@ def create_chunked_graph(cv_url="gs://nkem/basil_4k_oldnet/region_graph/",
 
     # Read file paths - gather chunk ids and in / out properties
     for i_fp, fp in enumerate(file_paths):
+        file_name = os.path.basename(fp).split(".")[0]
+
         # Read coordinates from file path
-        x1, x2, y1, y2, z1, z2 = np.array(re.findall("[\d]+", fp), dtype=np.int)[:6]
+        x1, x2, y1, y2, z1, z2 = np.array(re.findall("[\d]+", file_name), dtype=np.int)[:6]
         dx = x2 - x1
         dy = y2 - y1
         dz = z2 - z1
@@ -43,7 +58,7 @@ def create_chunked_graph(cv_url="gs://nkem/basil_4k_oldnet/region_graph/",
 
         # if there is a 2 in d then the file contains edges that cross chunks
         if 2 in d:
-            if "atomicedges" in fp:
+            if "atomicedges" in file_name:
                 s_c = np.where(d == 2)[0]
                 chunk_coord = c.copy()
                 chunk_coord[s_c] += 1 - cg.chunk_size[s_c]
@@ -56,9 +71,9 @@ def create_chunked_graph(cv_url="gs://nkem/basil_4k_oldnet/region_graph/",
             else:
                 continue
         else:
-            if "rg2cg" in fp:
+            if "rg2cg" in file_name:
                 mapping_paths.append(fp)
-            elif "atomicedges" in fp:
+            elif "atomicedges" in file_name:
                 chunk_coord = c.copy()
                 in_chunk_ids.append(np.array(chunk_coord / cg.chunk_size, dtype=np.int8))
                 in_chunk_paths.append(fp)
@@ -75,7 +90,7 @@ def create_chunked_graph(cv_url="gs://nkem/basil_4k_oldnet/region_graph/",
         out_paths_mask = np.sum(np.abs(between_chunk_ids[:, 0] - in_chunk_ids[i_chunk]), axis=1) == 0
         in_paths_mask = np.sum(np.abs(between_chunk_ids[:, 1] - in_chunk_ids[i_chunk]), axis=1) == 0
 
-        multi_args.append([dev_mode, cv_url,
+        multi_args.append([dev_mode,
                            chunk_path,
                            between_chunk_paths[in_paths_mask],
                            between_chunk_paths[out_paths_mask],
@@ -131,30 +146,31 @@ def _create_atomic_layer_thread(args):
     # storage.reset_connection_pools()
 
     # Load args
-    dev_mode, cv_url, chunk_path, in_paths, out_paths, mapping_path = args
+    dev_mode, chunk_path, in_paths, out_paths, mapping_path = args
     # edge_ids, edge_affs, cross_edge_ids, cross_edge_affs = args
 
-    # Download files from cloud volume and read edge information
-    with storage.SimpleStorage(cv_url) as cv_st:
-        edge_ids, edge_affs = utils.read_edge_file_cv(cv_st, chunk_path)
-        cross_edge_ids = np.array([], dtype=np.uint64).reshape(0, 2)
-        cross_edge_affs = np.array([], dtype=np.float32)
+    # Load edge information
+    edge_ids, edge_affs = utils.read_edge_file_h5(chunk_path)
+    cross_edge_ids = np.array([], dtype=np.uint64).reshape(0, 2)
+    cross_edge_affs = np.array([], dtype=np.float32)
 
-        for fp in in_paths:
-            this_edge_ids, this_edge_affs = utils.read_edge_file_cv(cv_st, fp)
-            cross_edge_ids = np.concatenate([cross_edge_ids, this_edge_ids[:, [1, 0]]])
-            cross_edge_affs = np.concatenate([cross_edge_affs, this_edge_affs])
+    for fp in in_paths:
+        this_edge_ids, this_edge_affs = utils.read_edge_file_h5(fp)
 
-        for fp in out_paths:
-            this_edge_ids, this_edge_affs = utils.read_edge_file_cv(cv_st, fp)
+        # Cross edges are always ordered to point OUT of the chunk
+        cross_edge_ids = np.concatenate([cross_edge_ids, this_edge_ids[:, [1, 0]]])
+        cross_edge_affs = np.concatenate([cross_edge_affs, this_edge_affs])
 
-            # Cross edges are always ordered to point OUT of the chunk
-            cross_edge_ids = np.concatenate([cross_edge_ids, this_edge_ids])
-            cross_edge_affs = np.concatenate([cross_edge_affs, this_edge_affs])
+    for fp in out_paths:
+        this_edge_ids, this_edge_affs = utils.read_edge_file_h5(fp)
 
-        mappings = utils.read_mapping(cv_st, mapping_path)
-        cg2rg = dict(zip(mappings[:, 1], mappings[:, 0]))
-        rg2cg = dict(zip(mappings[:, 0], mappings[:, 1]))
+        cross_edge_ids = np.concatenate([cross_edge_ids, this_edge_ids])
+        cross_edge_affs = np.concatenate([cross_edge_affs, this_edge_affs])
+
+    # Load mapping between region and chunkedgraph
+    mappings = utils.read_mapping_h5(mapping_path)
+    cg2rg = dict(zip(mappings[:, 1], mappings[:, 0]))
+    rg2cg = dict(zip(mappings[:, 0], mappings[:, 1]))
 
     # Initialize an ChunkedGraph instance and write to it
     cg = chunkedgraph.ChunkedGraph(dev_mode=dev_mode)

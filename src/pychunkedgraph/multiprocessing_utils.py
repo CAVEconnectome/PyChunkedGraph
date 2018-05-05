@@ -84,9 +84,9 @@ def multisubprocess_func(func, params, wait_delay_s=5, n_subprocesses=1):
                                                      python_path,
                                                      path_to_script,
                                                      this_storage_path,
-                                                     this_out_path),
-                             shell=True)
+                                                     this_out_path), shell=True)
         processes.append(p)
+        time.sleep(.01)  # Avoid OS hickups
 
     for p in processes:
         p.wait()

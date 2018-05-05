@@ -188,7 +188,9 @@ class ChunkedGraph(object):
 
         # Make parent id creation easier
         z, y, x, l = get_chunk_id_from_node_id(edge_ids[0, 0])
-        parent_id_base = np.frombuffer(np.array([0, 0, 0, 0, z, y, x, l+1], dtype=np.uint8), dtype=np.uint32)
+        parent_id_base = np.frombuffer(np.array([0, 0, 0, 0, z, y, x, l+1],
+                                                dtype=np.uint8),
+                                       dtype=np.uint32)
 
         # Get connected component within the chunk
         chunk_g = nx.from_edgelist(edge_ids)
@@ -214,7 +216,8 @@ class ChunkedGraph(object):
             # Create parent id
             parent_id = parent_id_base.copy()
             parent_id[0] = i_cc
-            parent_ids = np.frombuffer(parent_id, dtype=np.uint64).tobytes()
+            parent_id = np.frombuffer(parent_id, dtype=np.uint64)
+            parent_id_b = parent_id.tobytes()
 
             parent_cross_edges = np.array([], dtype=np.uint64).reshape(0, 2)
 
@@ -241,7 +244,7 @@ class ChunkedGraph(object):
                 # Create node
                 val_dict = {"atomic_partners": connected_partner_ids,
                             "atomic_affinities": connected_partner_affs,
-                            "parents": parent_ids,
+                            "parents": parent_id_b,
                             "rg_id": np.array([cg2rg_dict[node_id]]).tobytes()}
 
                 rows.append(mutate_row(self.table, serialize_node_id(node_id),
@@ -382,7 +385,8 @@ class ChunkedGraph(object):
             # Create parent id
             parent_id = parent_id_base.copy()
             parent_id[0] = i_cc
-            parent_ids = np.frombuffer(parent_id, dtype=np.uint64).tobytes()
+            parent_id = np.frombuffer(parent_id, dtype=np.uint64)
+            parent_id_b = parent_id.tobytes()
 
             parent_cross_edges = np.array([], dtype=np.uint64).reshape(0, 2)
 
@@ -393,7 +397,7 @@ class ChunkedGraph(object):
                                                      leftover_atomic_edges[node_id]])
 
                 # Create node
-                val_dict = {"parents": parent_ids}
+                val_dict = {"parents": parent_id_b}
 
                 rows.append(mutate_row(self.table, serialize_node_id(node_id),
                                        self.family_id, val_dict))
