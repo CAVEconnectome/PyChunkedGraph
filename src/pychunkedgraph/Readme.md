@@ -84,6 +84,8 @@ To add an atomic edge, the user defines the two atomic segments that are connect
 
 ```
 from src.pychunkedgraph import chunkedgraph
+import numpy as np
+
 cg = chunkedgraph.ChunkedGraph(dev_mode=False)
 
 edge = np.array([537753696, 537544567], dtype=np.uint64)
@@ -128,6 +130,6 @@ from src.pychunkedgraph import chunkedgraph
 cg = chunkedgraph.ChunkedGraph(dev_mode=False)
 
 root_id = 432345564227567621
-id_history = cg.get_subgraph(root, [[0, 0, 0], [10, 10, 10]])
+edges, affinities = cg.get_subgraph(root_id, [[0, 0, 0], [10, 10, 10]])
 ```
 
