@@ -23,6 +23,9 @@ import ssl #For SSL encryption
 import os #To make directories as appropriate and to execute terminal commands
 from pathlib2 import Path #To check if certificate exists
 import re #For regular expressions
+import sys #To add '../pychunkedgraph' directory as source of python code  
+sys.path.insert(0, '/home/zashwood/PyChunkedGraph/src/pychunkedgraph') #Include Sven's pychunkedgraph code
+import chunkedgraph #Import chunkedgraph script 
 
 class S(BaseHTTPRequestHandler):
     def _set_headers(self):
@@ -34,16 +37,22 @@ class S(BaseHTTPRequestHandler):
     def do_HEAD(self):
         self._set_headers()
 
-    # Handle HTTP GET requests  
+    # Handle HTTPS GET requests  
     def do_GET(self):
         # handle each type of HTTP GET request. NB self.path is request
         # Get root request:
         if(re.match(r"/1.0/segment/(\d+)/root/?", self.path)):
             print("Get root request received") #Return root ID as body of HTTP response
             self._set_headers()
-            self.send_response(200, "Test response")
+            # First extract atomic ID from request:
+            match = re.search('/segment/(\d+)', self.path)
+            atomic_id = int(match.group(1))
+            # Now extract Root ID from chunked graph
+            root_id = cg.get_root(atomic_id)
+            inner_out_str = 'Root ID = ' + str(root_id)
+            self.send_response(200, inner_out_str)
             self.end_headers()
-            out_str = "<html><body><h1>Hello!</h1></body></html>"
+            out_str = "<html><body><h1>" + inner_out_str + "</h1></body></html>"
             self.wfile.write(out_str.encode("utf-8"))
             #self.wfile.write("<html><body><h1>hi!</h1></body></html>")
         # Get active operations (items in write queue)
@@ -99,7 +108,7 @@ class S(BaseHTTPRequestHandler):
             self.end_headers()
             #TODO: return error message
         
-def run(certfile, server_class=HTTPServer, handler_class=S, port=9100):
+def run(certfile, server_class=HTTPServer, handler_class=S, port=4000):
     server_address = ('', port)
     httpd = server_class(server_address, handler_class)
     #Wrap socket in SSL context
@@ -122,6 +131,9 @@ if __name__ == "__main__":
     if not Path(certfile).is_file():
         create_command = 'openssl req -x509 -nodes -days 365 -newkey rsa:2048 -keyout ' + certfile + ' -out ' + certfile
         os.system(create_command)
+
+    # Initialize chunkedgraph:
+    cg = chunkedgraph.ChunkedGraph(dev_mode=False)
 
     if len(argv) == 2:
         run(certfile, port=int(argv[1]))
