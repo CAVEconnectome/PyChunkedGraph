@@ -62,7 +62,7 @@ def get_chunk_id_from_node_id(node_id):
     :return: list of ints
     """
 
-    return np.frombuffer(node_id, dtype=np.uint8)[4:]
+    return np.frombuffer(np.uint64(node_id), dtype=np.uint8)[4:]
 
 
 def test_if_nodes_are_in_same_chunk(node_ids):
@@ -444,6 +444,9 @@ class ChunkedGraph(object):
         raise Exception("Did not find a valid parent for %d with"
                         " the given time stamp" % node_id)
 
+    def get_children(self, node_id):
+        return self.read_row(node_id, "children", dtype=np.uint64)
+
     def get_root(self, atomic_id, time_stamp=None, is_cg_id=False):
         """ Takes an atomic id and returns the associated agglomeration ids
 
@@ -529,6 +532,10 @@ class ChunkedGraph(object):
 
         rows = []
 
+        if is_cg_id:
+            atomic_edge = [self.get_cg_id_from_rg_id(atomic_edge[0]),
+                           self.get_cg_id_from_rg_id(atomic_edge[1])]
+
         # Walk up the hierarchy until a parent in the same chunk is found
         parent_ids = [self.get_parent(atomic_edge[0]),
                       self.get_parent(atomic_edge[1])]
@@ -592,15 +599,9 @@ class ChunkedGraph(object):
 
         # Atomic edge
         for i_atomic_id in range(2):
-            if is_cg_id:
-                atomic_id = atomic_edge[i_atomic_id]
-            else:
-                atomic_id = self.get_cg_id_from_rg_id(
-                    atomic_edge[i_atomic_id])
-
             val_dict = {"atomic_partners": np.array([atomic_edge[(i_atomic_id + 1) % 2]]).tobytes(),
                         "atomic_affinities": np.array([affinity]).tobytes()}
-            rows.append(mutate_row(self.table, serialize_node_id(atomic_id),
+            rows.append(mutate_row(self.table, serialize_node_id(atomic_edge[i_atomic_id]),
                                    self.family_id, val_dict, time_stamp))
 
         status = self.table.mutate_rows(rows)
@@ -688,7 +689,7 @@ class ChunkedGraph(object):
 
             r = self.table.read_row(serialize_node_id(child_id))
             for i_edgelist in range(len(r.cells[self.family_id][edge_key])):
-                if time_stamp < r.cells[self.family_id][edge_key][i_edgelist].timestamp:
+                if time_stamp > r.cells[self.family_id][edge_key][i_edgelist].timestamp:
                     edge_batch = np.frombuffer(r.cells[self.family_id][edge_key][i_edgelist].value, dtype=np.uint64)
                     affinity_batch = np.frombuffer(r.cells[self.family_id][affinity_key][i_edgelist].value, dtype=np.float32)
                     edge_batch_m = ~np.in1d(edge_batch, node_edges)
@@ -709,9 +710,40 @@ class ChunkedGraph(object):
 
         return edges, affinities
 
-    def remove_edge(self, atomic_edge, is_cg_id=False):
+    def remove_edge(self, atomic_edges, is_cg_id=False):
         pass
-
-
-
-
+        # time_stamp = datetime.datetime.now()
+        # time_stamp = UTC.localize(time_stamp)
+        #
+        # if not is_cg_id:
+        #     for i_atomic_edge in range(len(atomic_edges)):
+        #         atomic_edge = [self.get_cg_id_from_rg_id(atomic_edge[0]),
+        #                        self.get_cg_id_from_rg_id(atomic_edge[1])]
+        # atomic_edge = np.array(atomic_edge)
+        #
+        # # Remove atomic edge
+        # rows = []
+        # for i_atomic_id in range(2):
+        #     if is_cg_id:
+        #         atomic_id = atomic_edge[i_atomic_id]
+        #     else:
+        #         atomic_id = self.get_cg_id_from_rg_id(
+        #             atomic_edge[i_atomic_id])
+        #
+        #     val_dict = {"atomic_partners": np.array([atomic_edge[(i_atomic_id + 1) % 2]]).tobytes(),
+        #                 "atomic_affinities": np.array([-1]).tobytes()}
+        #     rows.append(mutate_row(self.table, serialize_node_id(atomic_id),
+        #                            self.family_id, val_dict, time_stamp))
+        # # self.table.mutate_rows(rows)
+        #
+        # chunk_ids = np.frombuffer(atomic_edge, dtype=np.uint32)[1::2]
+        # in_chunk_removal = chunk_ids[0] == chunk_ids[1]
+        #
+        # # Connected component if removed edge is within an atomic chunk
+        # if in_chunk_removal:
+        #     parent_id = self.get_parent(atomic_edge[0])
+        #     edges, affinities = self.get_subgraph_chunk(parent_id)
+        #
+        #
+        #
+        # return edges
