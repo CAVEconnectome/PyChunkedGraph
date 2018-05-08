@@ -15,7 +15,7 @@ Send a HEAD request via the terminal (assuming server running locally on port 40
     curl -I --insecure https://localhost:4000
 Send a POST request (assuming server running locally on port 4000)::
 # SPLIT:
-    curl -d '{"edges":"537753696, 537544567"}' --insecure -i https://localhost:4000/1.0/graph/split/?
+    curl -d '{"edge":"537753696"}' --insecure -i https://localhost:4000/1.0/graph/split/?
 # MERGE:
     curl -d '{"edges":"537753696, 537544567"}' --insecure -i https://localhost:4000/1.0/graph/merge/?
 # GET SUBGRAPH 
@@ -100,8 +100,8 @@ class S(BaseHTTPRequestHandler):
             request = request.decode("utf-8") #Decode byte string object
             request = ast.literal_eval(request) #Convert to dictionary object
             # Obtain edges from request dictionary, and convert to numpy array with uint64s
-            edges = np.fromstring(request["edges"], sep = ',', dtype = np.uint64)
-            out = cg.remove_edge(edges)
+            edge = np.fromstring(request["edge"], sep = ',', dtype = np.uint64)
+            out = cg.remove_edge(edge)
             self._set_headers()
             self.send_response(200, out)
             self.end_headers()
