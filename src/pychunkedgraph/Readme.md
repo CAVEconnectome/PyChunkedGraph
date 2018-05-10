@@ -50,6 +50,12 @@ Currently, this initializes a ChunkedGraph corresponding to (1k, 1k, 1k) voxel v
 in the `dev_mode=True` version of the ChunkedGraph and try to keep the `dev_mode=False` (default option) version on the same 
 developmental level as the version on github.
 
+
+### ChunkedGraph versus region graph ids
+
+The region graph is the original data representation defining edges between all supervoxels. The ids shown in neuroglancer are region graph ids. The ChunkedGraph reassignes ids to all supervoxels (internal representation). This is necessary because supervoxels are cut at chunk borders and supervoxels in the CHunkedGraph carry information about the chunk they are in. To transform the ids from the region graph to the ChunkedGraph when calling a function, define `is_cg_id=False`. The ChunkedGraph maintains entries for all region graph ids as lookups.
+
+
 ### Acquiring the root id for an atomic supervoxel id
 ```
 root_id = cg.get_root(atomic_id, time_stamp=time_stamp, is_cg_id=False)
@@ -130,6 +136,21 @@ from src.pychunkedgraph import chunkedgraph
 cg = chunkedgraph.ChunkedGraph(dev_mode=False)
 
 root_id = 432345564227567621
-edges, affinities = cg.get_subgraph(root_id, [[0, 0, 0], [10, 10, 10]])
+edges, affinities = cg.get_subgraph(root_id)
 ```
+
+
+### Time stamp
+
+Several functions of the ChunkedGraph take a `time_stamp` as argument. The `time_stamp` is a [`datetime`](https://docs.python.org/2/library/datetime.html) object that can be created as follows:
+
+```
+import datetime
+
+time_stamp = datetime.datetime.now()
+```
+
+`UTC` is set as timezone if none is defined.
+
+
 
