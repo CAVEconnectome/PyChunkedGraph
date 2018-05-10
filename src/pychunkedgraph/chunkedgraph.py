@@ -532,7 +532,7 @@ class ChunkedGraph(object):
 
         rows = []
 
-        if is_cg_id:
+        if not is_cg_id:
             atomic_edge = [self.get_cg_id_from_rg_id(atomic_edge[0]),
                            self.get_cg_id_from_rg_id(atomic_edge[1])]
 
@@ -717,33 +717,33 @@ class ChunkedGraph(object):
         #
         # if not is_cg_id:
         #     for i_atomic_edge in range(len(atomic_edges)):
-        #         atomic_edge = [self.get_cg_id_from_rg_id(atomic_edge[0]),
-        #                        self.get_cg_id_from_rg_id(atomic_edge[1])]
-        # atomic_edge = np.array(atomic_edge)
+        #         atomic_edges[i_atomic_edge] = [self.get_cg_id_from_rg_id(atomic_edges[i_atomic_edge][0]),
+        #                                        self.get_cg_id_from_rg_id(atomic_edges[i_atomic_edge][1])]
+        #
+        # atomic_edges = np.array(atomic_edges)
         #
         # # Remove atomic edge
         # rows = []
-        # for i_atomic_id in range(2):
-        #     if is_cg_id:
+        # for atomic_edge in atomic_edges:
+        #     for i_atomic_id in range(2):
         #         atomic_id = atomic_edge[i_atomic_id]
-        #     else:
-        #         atomic_id = self.get_cg_id_from_rg_id(
-        #             atomic_edge[i_atomic_id])
         #
-        #     val_dict = {"atomic_partners": np.array([atomic_edge[(i_atomic_id + 1) % 2]]).tobytes(),
-        #                 "atomic_affinities": np.array([-1]).tobytes()}
-        #     rows.append(mutate_row(self.table, serialize_node_id(atomic_id),
-        #                            self.family_id, val_dict, time_stamp))
+        #         val_dict = {"atomic_partners": np.array([atomic_edge[(i_atomic_id + 1) % 2]]).tobytes(),
+        #                     "atomic_affinities": np.array([-1]).tobytes()}
+        #         rows.append(mutate_row(self.table, serialize_node_id(atomic_id),
+        #                                self.family_id, val_dict, time_stamp))
         # # self.table.mutate_rows(rows)
         #
-        # chunk_ids = np.frombuffer(atomic_edge, dtype=np.uint32)[1::2]
-        # in_chunk_removal = chunk_ids[0] == chunk_ids[1]
+        # chunk_ids = np.frombuffer(atomic_edges, dtype=np.uint32)[1::2].reshape(-1, 2)
+        # u_chunk_ids = np.unique(chunk_ids)
         #
         # # Connected component if removed edge is within an atomic chunk
-        # if in_chunk_removal:
-        #     parent_id = self.get_parent(atomic_edge[0])
+        # for u_chunk_id in u_chunk_ids:
+        #     node_id = atomic_edges[chunk_ids == u_chunk_id][0]
+        #     parent_id = self.get_parent(node_id)
         #     edges, affinities = self.get_subgraph_chunk(parent_id)
         #
+        #     g = nx.from_edgelist(edges)
+        #     nx.connected_components(g)
         #
-        #
-        # return edges
+        # return atomic_edges, chunk_ids
