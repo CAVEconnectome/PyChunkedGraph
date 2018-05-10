@@ -136,7 +136,7 @@ from src.pychunkedgraph import chunkedgraph
 cg = chunkedgraph.ChunkedGraph(dev_mode=False)
 
 root_id = 432345564227567621
-edges, affinities = cg.get_subgraph(root_id, [[0, 0, 0], [10, 10, 10]])
+edges, affinities = cg.get_subgraph(root_id)
 ```
 
 
@@ -147,7 +147,7 @@ Several functions of the ChunkedGraph take a `time_stamp` as argument. The `time
 ```
 import datetime
 
-time_stamp = datetime.now()
+time_stamp = datetime.datetime.now()
 ```
 
 `UTC` is set as timezone if none is defined.
