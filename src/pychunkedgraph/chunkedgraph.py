@@ -55,14 +55,19 @@ def mutate_row(table, row_key, column_family_id, val_dict, time_stamp=None):
     return row
 
 
-def get_chunk_id_from_node_id(node_id):
+def get_chunk_id_from_node_id(node_id, dtype=np.uint8):
     """ Extracts z, y, x, l
 
     :param node_id: int
     :return: list of ints
     """
 
-    return np.frombuffer(np.uint64(node_id), dtype=np.uint8)[4:]
+    if dtype == np.uint8:
+        return np.frombuffer(np.uint64(node_id), dtype=np.uint8)[4:]
+    elif dtype == np.uint32:
+        return np.frombuffer(np.uint64(node_id), dtype=np.uint32)[:1]
+    else:
+        raise NotImplementedError()
 
 
 def test_if_nodes_are_in_same_chunk(node_ids):
@@ -130,6 +135,14 @@ class ChunkedGraph(object):
         r = self.table.read_row(serialize_node_id(atomic_id))
         return np.frombuffer(r.cells[self.family_id][serialize_key("cg_id")][0].value,
                              dtype=np.uint64)[0]
+
+    def get_rg_id_from_cg_id(self, atomic_id):
+        """ Extracts RegionGraph id from ChunkedGraph id
+
+        :param atomic_id: int
+        :return: int
+        """
+        return self.read_row(atomic_id, "rg_id")[0]
 
     def find_unique_node_id(self, chunk_id):
         """ Finds a unique node id for the given chunk
@@ -447,10 +460,12 @@ class ChunkedGraph(object):
     def get_children(self, node_id):
         return self.read_row(node_id, "children", dtype=np.uint64)
 
-    def get_root(self, atomic_id, time_stamp=None, is_cg_id=False):
+    def get_root(self, atomic_id, collect_all_parents=False,
+                 time_stamp=None, is_cg_id=False):
         """ Takes an atomic id and returns the associated agglomeration ids
 
         :param atomic_id: int
+        :param collect_all_parents: bool
         :param time_stamp: None or datetime
         :return: int
         """
@@ -465,14 +480,19 @@ class ChunkedGraph(object):
 
         parent_id = atomic_id
 
+        parent_ids = []
         while True:
             temp_parent_id = self.get_parent(parent_id, time_stamp)
             if temp_parent_id is None:
                 break
             else:
                 parent_id = temp_parent_id
+                parent_ids.append(parent_id)
 
-        return parent_id
+        if collect_all_parents:
+            return parent_ids
+        else:
+            return parent_id
 
     def read_agglomeration_id_history(self, agglomeration_id, time_stamp=None):
         """ Returns all agglomeration ids agglomeration_id was part of
@@ -489,33 +509,41 @@ class ChunkedGraph(object):
         if time_stamp.tzinfo is None:
             time_stamp = UTC.localize(time_stamp)
 
-        id_working_set = [agglomeration_id]
+        id_working_set = np.array([agglomeration_id], dtype=np.uint64)
+        visited_ids = []
         id_history = [agglomeration_id]
 
         former_parent_key = serialize_key("former_parents")
         new_parent_key = serialize_key("new_parents")
 
+        i = 0
         while len(id_working_set) > 0:
-            next_id = id_working_set[0]
-            del id_working_set[0]
+            i += 1
 
+            next_id = id_working_set[0]
+            visited_ids.append(id_working_set[0])
+
+            # Get current row
             r = self.table.read_row(serialize_node_id(next_id))
+
+            # Check if there is a newer parent and append
             if new_parent_key in r.cells[self.family_id]:
-                new_parent_ids = np.frombuffer(
-                    r.cells[self.family_id][new_parent_key][0].value,
-                    dtype=np.uint64)
-                id_working_set.extend(new_parent_ids)
+                new_parent_ids = np.frombuffer(r.cells[self.family_id][new_parent_key][0].value, dtype=np.uint64)
+
+                id_working_set = np.concatenate([id_working_set, new_parent_ids])
                 id_history.extend(new_parent_ids)
 
+            # Check if there is an older parent and append if not too old
             if former_parent_key in r.cells[self.family_id]:
-                if time_stamp < r.cells[self.family_id][new_parent_key][0].timestamp:
-                    former_parent_ids = np.frombuffer(
-                        r.cells[self.family_id][new_parent_key][0].value,
-                        dtype=np.uint64)
-                    id_working_set.extend(former_parent_ids)
+                if time_stamp < r.cells[self.family_id][former_parent_key][0].timestamp:
+                    former_parent_ids = np.frombuffer(r.cells[self.family_id][former_parent_key][0].value, dtype=np.uint64)
+
+                    id_working_set = np.concatenate([id_working_set, former_parent_ids])
                     id_history.extend(former_parent_ids)
 
-        return np.array(id_history)
+            id_working_set = id_working_set[~np.in1d(id_working_set, visited_ids)]
+
+        return np.unique(id_history)
 
     def add_edge(self, atomic_edge, affinity=None, is_cg_id=False):
         """ Adds an atomic edge to the ChunkedGraph
@@ -537,61 +565,86 @@ class ChunkedGraph(object):
                            self.get_cg_id_from_rg_id(atomic_edge[1])]
 
         # Walk up the hierarchy until a parent in the same chunk is found
-        parent_ids = [self.get_parent(atomic_edge[0]),
-                      self.get_parent(atomic_edge[1])]
+        original_parent_ids = [self.get_root(atomic_edge[0], is_cg_id=True,
+                                             collect_all_parents=True),
+                               self.get_root(atomic_edge[1], is_cg_id=True,
+                                             collect_all_parents=True)]
 
-        while not test_if_nodes_are_in_same_chunk(parent_ids):
-            parent_ids = [self.get_parent(parent_ids[0]),
-                          self.get_parent(parent_ids[1])]
+        original_parent_ids = np.array(original_parent_ids).T
 
-        original_parents = [self.get_root(parent_ids[0], is_cg_id=True),
-                            self.get_root(parent_ids[1], is_cg_id=True)]
+        merge_layer = None
+        for i_layer in range(len(original_parent_ids)):
+            if test_if_nodes_are_in_same_chunk(original_parent_ids[i_layer]):
+                merge_layer = i_layer
+                break
+
+        if merge_layer is None:
+            raise Exception("No parents found. Did you set is_cg_id correctly?")
+
+        original_root = original_parent_ids[-1]
 
         # Find a new node id and update all children
-        circumnvented_nodes = parent_ids.copy()
-
-        chunk_id = np.frombuffer(parent_ids[0], dtype=np.uint32)[1]
+        # circumvented_nodes = current_parent_ids.copy()
+        chunk_id = get_chunk_id_from_node_id(original_parent_ids[merge_layer][0],
+                                             dtype=np.uint32)
         new_parent_id = self.find_unique_node_id(chunk_id)
         new_parent_id_b = np.array(new_parent_id).tobytes()
-        while parent_ids[0] is not None and parent_ids[1] is not None:
-            combined_child_ids = np.array([], dtype=np.uint64)
-            for prior_parent_id in parent_ids:
-                r = self.table.read_row(serialize_node_id(prior_parent_id))
-                child_ids = np.frombuffer(r.cells[self.family_id][serialize_key("children")][0].value,
-                                          dtype=np.uint64)
-                child_ids = child_ids[~np.in1d(child_ids, circumnvented_nodes)]
-                combined_child_ids = np.concatenate([combined_child_ids, child_ids])
 
+        for i_layer in range(merge_layer, len(original_parent_ids)):
+            current_parent_ids = original_parent_ids[i_layer]
+
+            # Collect child ids of all nodes --> childs of new node
+            combined_child_ids = np.array([], dtype=np.uint64)
+
+            for prior_parent_id in current_parent_ids:
+                child_ids = self.read_row(prior_parent_id, "children")
+
+                # Exclude parent nodes from old hierarchy path
+                child_ids = child_ids[~np.in1d(child_ids, original_parent_ids)]
+                combined_child_ids = np.concatenate([combined_child_ids,
+                                                     child_ids])
+
+                # Append new parent entry for all children
                 for child_id in child_ids:
                     val_dict = {"parents": new_parent_id_b}
-                    rows.append(mutate_row(self.table, serialize_node_id(child_id),
-                                           self.family_id, val_dict, time_stamp))
+                    rows.append(mutate_row(self.table,
+                                           serialize_node_id(child_id),
+                                           self.family_id,
+                                           val_dict, time_stamp))
 
             # Create new parent node
             val_dict = {"children": combined_child_ids.tobytes()}
+            current_node_id = new_parent_id.copy()  # Store for later
 
-            parent_ids = [self.get_parent(parent_ids[0]),
-                          self.get_parent(parent_ids[1])]
+            if i_layer < len(original_parent_ids) - 1:
+                chunk_id = get_chunk_id_from_node_id(original_parent_ids[i_layer + 1][0],
+                                                     dtype=np.uint32)
 
-            current_node_id = new_parent_id
-            if parent_ids[0] is not None and parent_ids[1] is not None:
-                chunk_id = np.frombuffer(parent_ids[0], dtype=np.uint32)[1]
                 new_parent_id = self.find_unique_node_id(chunk_id)
                 new_parent_id_b = np.array(new_parent_id).tobytes()
 
                 val_dict["parents"] = new_parent_id_b
             else:
-                val_dict["former_parents"] = np.array(original_parents).tobytes()
+                val_dict["former_parents"] = np.array(original_root).tobytes()
 
                 rows.append(mutate_row(self.table,
-                                       serialize_node_id(original_parents[0]),
+                                       serialize_node_id(original_root[0]),
                                        self.family_id,
                                        {"new_parents": new_parent_id_b}))
 
                 rows.append(mutate_row(self.table,
-                                       serialize_node_id(original_parents[1]),
+                                       serialize_node_id(original_root[1]),
                                        self.family_id,
                                        {"new_parents": new_parent_id_b}))
+
+            # Read original cross chunk edges
+            atomic_cross_edges = np.array([], dtype=np.uint64).reshape(0, 2)
+            for original_parent_id in original_parent_ids[i_layer]:
+                this_atomic_cross_edges = self.read_row(original_parent_id, "atomic_cross_edges").reshape(-1, 2)
+                atomic_cross_edges = np.concatenate([atomic_cross_edges,
+                                                     this_atomic_cross_edges])
+
+            val_dict["atomic_cross_edges"] = atomic_cross_edges.tobytes()
 
             rows.append(mutate_row(self.table,
                                    serialize_node_id(current_node_id),
