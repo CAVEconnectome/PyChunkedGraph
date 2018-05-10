@@ -51,9 +51,9 @@ in the `dev_mode=True` version of the ChunkedGraph and try to keep the `dev_mode
 developmental level as the version on github.
 
 
-### ChunkedGraph version region graph
+### ChunkedGraph versus region graph ids
 
-The region graph is the original data representation defining edges between all supervoxels. The ids shown in neuroglancer are region graph ids. The ChunkedGraph reassignes ids to all supervoxels. This is necessary because supervoxels are cut at chunk borders and supervoxels in the CHunkedGraph carry information about the chunk they are in. To transform the ids from the region graph to the ChunkedGraph when calling a function, define `is_cg_id=False`. The ChunkedGraph maintains entries for all region graph ids as lookups.
+The region graph is the original data representation defining edges between all supervoxels. The ids shown in neuroglancer are region graph ids. The ChunkedGraph reassignes ids to all supervoxels (internal representation). This is necessary because supervoxels are cut at chunk borders and supervoxels in the CHunkedGraph carry information about the chunk they are in. To transform the ids from the region graph to the ChunkedGraph when calling a function, define `is_cg_id=False`. The ChunkedGraph maintains entries for all region graph ids as lookups.
 
 
 ### Acquiring the root id for an atomic supervoxel id
