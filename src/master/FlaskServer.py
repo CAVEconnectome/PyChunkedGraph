@@ -19,18 +19,26 @@ import redis
 app = Flask(__name__)
 CORS(app)
 
+# Global variables:
+# Maximum number of allowed tries for add edge/remove edge command before giving up (either command itself cannot be implemented or
+# a root id is locked for all tries)
+max_tries = 10
+# Time in seconds before retry (add edge/remove edge)
+sleep_time = 10
+
+#Redis host
 redis_conn = redis.StrictRedis(
-   host="redis", port=6379, charset="utf-8", decode_responses=True)
+   host="localhost", port=6379, charset="utf-8", decode_responses=True)
 
 @app.route('/')
 def index():
     return ""
 
-@app.route('/1.0/segment/<atomic_id>/root', methods=['GET'])
+@app.route('/1.0/segment/<atomic_id>/root/', methods=['GET'])
 def handle_root(atomic_id):
 	#Read and write to redis
-    redis_conn.get("/id/%s"%str(atomic_id),"busy")
-    redis_conn.set("/id/%s"%str(atomic_id),"busy")
+    #redis_conn.get("/id/%s"%str(atomic_id),"busy")
+    #redis_conn.set("/id/%s"%str(atomic_id),"busy")
 
     root_id = cg.get_root(int(atomic_id))
     print(root_id)
@@ -43,34 +51,57 @@ def handle_merge():
         edge = request.get_json()['edge']
     # Obtain edges from request dictionary, and convert to numpy array with uint64s
         edge = np.fromstring(edge, sep = ',', dtype = np.uint64)
-        try: 
-        	#Check if either of the root_IDs are being processed by any of the threads currently: 
-        	# Get root IDs for both supervoxels:
-        	root1 = cg.get_root(int(edge[0]))
-        	root2 = cg.get_root(int(edge[1]))
-        	print(root1)
-        	# Furthermore, get historical agglomeration IDs for these
-        	historical1 = cg.read_agglomeration_id_history(root1)
-        	historical2 = cg.read_agglomeration_id_history(root2)
-        	all_historical_ids = np.append(historical1, historical2)
-        	print(all_historical_ids)
-        	# Now check if any of the historical IDs are being processed in redis DB: (inefficient - will not scale to large #s of historical IDs)
-        	for i, historic_id in enumerate(all_historical_ids):
-        		redis_conn.set(str(historic_id),"busy")
-        		print(redis_conn.get(str(historic_id)))
-    		# If not, proceed with request and append current ID to redis
-    		#redis_conn.get("/id/%s"%str(atomic_id),"busy")
-    		#redis_conn.set("/id/%s"%str(atomic_id),"busy")	
-        	#out = cg.add_edge(edge)
-        	out = 'Happy'
-        	# remove element from redis since we have now performed update to graph
-        except:
-        	out = 'NaN'
-        	# remove
+        # Now try, for a maximum of max_tries, to add edge
+        attempts = 0 
+        while attempts < max_tries:
+        	try:
+        		#Check if either of the root_IDs are being processed by any of the threads currently: 
+        		# Get root IDs for both supervoxels:
+        		root1 = cg.get_root(int(edge[0]))
+        		root2 = cg.get_root(int(edge[1]))
+        	
+        		# TODO: update these when cg.read_agglomeration_id_history() is working again
+        		historical1 = cg.read_agglomeration_id_history(root1)
+        		historical2 = cg.read_agglomeration_id_history(root2)
+        		#historical1 = [root1]
+        		#historical2 = [root2]
+        		all_historical_ids = np.append(historical1, historical2)
+        		print(all_historical_ids)
+        		# Now check if any of the historical IDs are being processed in redis DB: (inefficient - will not scale to large #s of historical IDs)
+        		for i, historic_id in enumerate(all_historical_ids):
+        			status = redis_conn.get(str(historic_id))
+        			if status == 'busy':
+        				print(status)
+        				# Come out of loop and wait sleep_time seconds before rechecking all_historical_ids
+        				raise Exception('locked_id')
+        		# If have made it through without raising exception, IDs are not locked and add_edge can be performed safely
+        		# First add root1 and root2 to locked list:
+        		redis_conn.set(str(root1), "busy")
+        		redis_conn.set(str(root2), "busy")
+        		# Now try to perform write
+        		try:
+        			out = cg.add_edge(edge)
+        			# Now remove root1 and root2 from redis (unlock these root IDs)
+        			redis_conn.delete(str(root1))
+        			redis_conn.delete(str(root2))
+        			return jsonify({"new_root_id": str(out)})
+        		except Exception as e: # Raises exception if problem with add_edge function and provided IDs
+        			print(e)
+        			# Now remove root1 and root2 from redis (unlock these root IDs) even if exception raised
+        			redis_conn.delete(str(root1))
+        			redis_conn.delete(str(root2))
+        			out = 'NaN'
+        			return jsonify({"new_root_id": str(out)})        		
+        	except Exception as inst:
+        		attempts += 1
+        		time.sleep(sleep_time)
+        # If make it to this point, while loop has failed and user should try again		
+        out = 'NaN'
         return jsonify({"new_root_id": str(out)})
-    else: 
+    else:
     	return '', 400
 
+        
 @app.route('/1.0/graph/split/', methods=['POST'])
 def handle_split():
     #Read and write to redis
