@@ -606,7 +606,7 @@ class ChunkedGraph(object):
 
         status = self.table.mutate_rows(rows)
 
-    def get_subgraph(self, agglomeration_id, bounding_box,
+    def get_subgraph(self, agglomeration_id, bounding_box=None,
                      bb_is_coordinate=False, time_stamp=None):
         """ Returns all edges between supervoxels belonging to the specified
             agglomeration id within the defined bouning box
@@ -618,7 +618,7 @@ class ChunkedGraph(object):
         :return: edge list
         """
         if time_stamp is None:
-            time_stamp = datetime.datetime.min
+            time_stamp = datetime.datetime.now()
 
         if time_stamp.tzinfo is None:
             time_stamp = UTC.localize(time_stamp)
@@ -628,7 +628,7 @@ class ChunkedGraph(object):
             bounding_box[0] = np.floor(bounding_box[0])
             bounding_box[1] = np.ceil(bounding_box[1])
             
-        bounding_box = np.array(bounding_box, dtype=np.int)
+        # bounding_box = np.array(bounding_box, dtype=np.int)
 
         edges = np.array([], dtype=np.uint64).reshape(0, 2)
         affinities = np.array([], dtype=np.float32)
@@ -638,7 +638,6 @@ class ChunkedGraph(object):
             new_childs = []
             layer = get_chunk_id_from_node_id(child_ids[0])[-1]
 
-            print(layer, len(child_ids))
             for child_id in child_ids:
                 if layer == 2:
                     this_edges, this_affinities = self.get_subgraph_chunk(child_id, time_stamp=time_stamp)
@@ -693,6 +692,8 @@ class ChunkedGraph(object):
                     edge_batch = np.frombuffer(r.cells[self.family_id][edge_key][i_edgelist].value, dtype=np.uint64)
                     affinity_batch = np.frombuffer(r.cells[self.family_id][affinity_key][i_edgelist].value, dtype=np.float32)
                     edge_batch_m = ~np.in1d(edge_batch, node_edges)
+
+                    affinity_batch = affinity_batch[:len(edge_batch)] # TEMPORARY HACK
 
                     node_edges = np.concatenate([node_edges, edge_batch[edge_batch_m]])
                     node_affinities = np.concatenate([node_affinities,
