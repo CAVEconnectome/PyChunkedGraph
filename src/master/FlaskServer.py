@@ -30,7 +30,7 @@ sleep_time = 10
 
 #Redis host
 redis_conn = redis.StrictRedis(
-   host="localhost", port=6379, charset="utf-8", decode_responses=True)
+   host="redis", port=6379, charset="utf-8", decode_responses=True)
 
 @app.route('/')
 def index():
@@ -61,54 +61,61 @@ def handle_merge():
         # Now try, for a maximum of max_tries, to add edge
         attempts = 0 
         while attempts < max_tries:
-        	try:
-        		#Check if either of the root_IDs are being processed by any of the threads currently: 
-        		# Get root IDs for both supervoxels:
-        		root1 = cg.get_root(int(edge[0]))
-        		root2 = cg.get_root(int(edge[1]))
-        		# Numpy arrays of historical root IDs 
-        		historical1 = cg.read_agglomeration_id_history(root1)
-        		historical2 = cg.read_agglomeration_id_history(root2)
-        		all_historical_ids = np.append(historical1, historical2)
-        		print(all_historical_ids)
-        		# Now check if any of the historical IDs are being processed in redis DB: (inefficient - will not scale to large #s of historical IDs)
-        		for i, historic_id in enumerate(all_historical_ids):
-        			status = redis_conn.get(str(historic_id))
-        			if status == 'busy':
-        				print(status)
-        				# Come out of loop and wait sleep_time seconds before rechecking all_historical_ids
-        				raise Exception('locked_id')
-        		# If have made it through without raising exception, IDs are not locked and add_edge can be performed safely
-        		# First add root1 and root2 to locked list:
-        		redis_conn.set(str(root1), "busy")
-        		redis_conn.set(str(root2), "busy")
-        		# Now try to perform write
-        		try:
-        			time_graph_start = strftime("%Y-%m-%d %H:%M:%S", gmtime())
-        			out = cg.add_edge(edge)
-        			time_graph_end = strftime("%Y-%m-%d %H:%M:%S", gmtime())
-        			# Now remove root1 and root2 from redis (unlock these root IDs)
-        			redis_conn.delete(str(root1))
-        			redis_conn.delete(str(root2))
-        			return jsonify({"new_root_id": str(out), "time_server_start": time_server_start, "time_graph_start": time_graph_start, "time_graph_end":time_graph_end})  
-        		except Exception as e: # Raises exception if problem with add_edge function and provided IDs
-        			time_graph_end = 'NaN'
-        			print(e)
-        			# Now remove root1 and root2 from redis (unlock these root IDs) even if exception raised
-        			redis_conn.delete(str(root1))
-        			redis_conn.delete(str(root2))
-        			out = 'NaN'
-        			return jsonify({"new_root_id": str(out), "time_server_start": time_server_start, "time_graph_start": time_graph_start, "time_graph_end":time_graph_end})        		
-        	except Exception as inst:
-        		time_graph_start = 'NaN'
-        		time_graph_end = 'NaN'
-        		attempts += 1
-        		time.sleep(sleep_time)
+            try:
+                #Check if either of the root_IDs are being processed by any of the threads currently: 
+                # Get root IDs for both supervoxels:
+                root1 = cg.get_root(int(edge[0]))
+                root2 = cg.get_root(int(edge[1]))
+                # Numpy arrays of historical root IDs 
+                historical1 = cg.read_agglomeration_id_history(root1)
+                historical2 = cg.read_agglomeration_id_history(root2)
+                all_historical_ids = np.append(historical1, historical2)
+                print(all_historical_ids)
+                # Now check if any of the historical IDs are being processed in redis DB: (inefficient - will not scale to large #s of historical IDs)
+                for i, historic_id in enumerate(all_historical_ids):
+                    status = redis_conn.get(str(historic_id))
+                    print(status)
+                    if status == 'busy':
+                        #print(status)
+                        # Come out of loop and wait sleep_time seconds before rechecking all_historical_ids
+                        raise Exception('locked_id')
+                        
+                
+                # Now try to perform write (providing exception has not been raised)
+                try:
+                    # If have made it through without raising exception, IDs are not locked and add_edge can be performed safely
+                    # First add root1 and root2 to locked list:
+                    redis_conn.set(str(root1), "busy")
+                    redis_conn.set(str(root2), "busy")
+                    time_graph_start = strftime("%Y-%m-%d %H:%M:%S", gmtime())
+                    print('trying write')
+                    out = cg.add_edge(edge)
+                    print('write successful')
+                    time_graph_end = strftime("%Y-%m-%d %H:%M:%S", gmtime())
+                    # Now remove root1 and root2 from redis (unlock these root IDs)
+                    redis_conn.delete(str(root1))
+                    redis_conn.delete(str(root2))
+                    return jsonify({"new_root_id": str(out), "time_server_start": time_server_start, "time_graph_start": time_graph_start, "time_graph_end":time_graph_end})  
+                except Exception as e: # Raises exception if problem with add_edge function and provided IDs
+                    print('unsuccessful write')
+                    time_graph_end = 'NaN'
+                    print(e)
+                    # Now remove root1 and root2 from redis (unlock these root IDs) even if exception raised
+                    redis_conn.delete(str(root1))
+                    redis_conn.delete(str(root2))
+                    out = 'NaN'
+                    return jsonify({"new_root_id": str(out), "time_server_start": time_server_start, "time_graph_start": time_graph_start, "time_graph_end":time_graph_end})        		
+            except Exception as inst:
+                print(inst.args)
+                time_graph_start = 'NaN'
+                time_graph_end = 'NaN'
+                attempts += 1
+                time.sleep(sleep_time)
         # If make it to this point, while loop has failed and user should try again		
         out = 'NaN'
         return jsonify({"new_root_id": str(out), "time_server_start": time_server_start, "time_graph_start": time_graph_start, "time_graph_end":time_graph_end})  
     else: #Client has not entered valid supervoxel IDs
-    	return '', 400
+        return '', 400
 
         
 @app.route('/1.0/graph/split/', methods=['POST'])
