@@ -9,13 +9,13 @@ import numpy as np
 import time
 from time import gmtime, strftime
 import redis
-# curl -i http://localhost:4000/1.0/segment/537753696/root/
+# curl -i https://localhost:4000/1.0/segment/537753696/root/
 # SPLIT:
-  #  curl -X POST -H "Content-Type: application/json" -d  '{"edge":"537753696, 537544567"}' http://localhost:4000/1.0/graph/split/
+  #  curl -X POST -H "Content-Type: application/json" -d  '{"edge":"537753696, 537544567"}' --insecure -i https://localhost:4000/1.0/graph/split/
 # MERGE:
-    #curl -X POST -H "Content-Type: application/json" -d '{"edge":"537753696, 537544567"}' http://localhost:4000/1.0/graph/merge/
+    #curl -X POST -H "Content-Type: application/json" -d '{"edge":"537753696, 537544567"}' --insecure -i https://localhost:4000/1.0/graph/merge/
 # GET SUBGRAPH 
-   # curl -X POST -H "Content-Type: application/json" -d '{"root_id":"432345564227567621","bbox":"0, 0, 0, 10, 10, 10"}' http://localhost:4000/1.0/graph/subgraph/ >> subgraph.txt
+   # curl -X POST -H "Content-Type: application/json" -d '{"root_id":"432345564227567621","bbox":"0, 0, 0, 10, 10, 10"}' --insecure -i https://localhost:4000/1.0/graph/subgraph/ >> subgraph.txt
 
 app = Flask(__name__)
 CORS(app)
@@ -194,4 +194,4 @@ def get_subgraph():
 if __name__ == '__main__':
     # Initialize chunkedgraph:
     cg = chunkedgraph.ChunkedGraph(dev_mode=False)
-    app.run(host = 'localhost', port = 4000, debug = True, threaded=True)
+    app.run(host = 'localhost', port = 4000, debug = True, threaded=True, ssl_context = ('keys/server.crt', 'keys/server.key'))
