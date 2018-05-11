@@ -2,9 +2,11 @@ version: '3'
 services:
   web:
     build: .
+    restart: always
     ports:
-     - "5000:5000"
+     - "4000:4000"
     volumes:
      - .:/code
+     - ~/.cloudvolume/secrets/google-secret.json:/root/.cloudvolume/secrets/google-secret.json
   redis:
     image: "redis:alpine"

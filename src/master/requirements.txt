@@ -1,2 +1,9 @@
 flask 
 redis
+pytz==2017.3
+cloud_volume==0.20.0
+numpy==1.14.0
+networkx==2.1
+protobuf==3.5.2.post1
+google-cloud
+flask_cors

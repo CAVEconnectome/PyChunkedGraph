@@ -2,8 +2,9 @@ from flask import Flask, jsonify, Response, request
 from threading import Lock
 from flask_cors import CORS
 import sys
-#sys.path.insert(0, '/home/zashwood/PyChunkedGraph/src/pychunkedgraph') #Include Sven's pychunkedgraph code
-sys.path.insert(0, '/usr/people/zashwood/Documents/PyChunkedGraph/src/pychunkedgraph') #Include Sven's pychunkedgraph code
+#sys.path.insert(0, '/home/zashwood/PyChunkedGraph/src/pychunkedgraph') 
+sys.path.insert(0, '/code/src/pychunkedgraph') #Include Sven's pychunkedgraph code
+#sys.path.insert(0, '/usr/people/zashwood/Documents/PyChunkedGraph/src/pychunkedgraph') #Include Sven's pychunkedgraph code
 import chunkedgraph #Import chunkedgraph script 
 import numpy as np
 import time
@@ -33,7 +34,7 @@ redis_conn = redis.StrictRedis(
 
 @app.route('/')
 def index():
-    return ""
+    return "Zoe is running this server yo!"
 
 @app.route('/1.0/segment/<atomic_id>/root/', methods=['GET'])
 def handle_root(atomic_id):
@@ -194,4 +195,4 @@ def get_subgraph():
 if __name__ == '__main__':
     # Initialize chunkedgraph:
     cg = chunkedgraph.ChunkedGraph(dev_mode=False)
-    app.run(host = 'localhost', port = 4000, debug = True, threaded=True, ssl_context = ('keys/server.crt', 'keys/server.key'))
+    app.run(host = '0.0.0.0', port = 4000, debug = True, threaded=True)#, ssl_context = ('keys/server.crt', 'keys/server.key'))
