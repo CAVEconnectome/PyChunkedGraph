@@ -10,3 +10,7 @@ services:
      - ~/.cloudvolume/secrets/google-secret.json:/root/.cloudvolume/secrets/google-secret.json
   redis:
     image: "redis:alpine"
+    expose:
+     - "6379"
+    ports:
+     - "6379:6379"
