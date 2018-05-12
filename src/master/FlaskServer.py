@@ -206,8 +206,8 @@ def get_subgraph():
     if 'root_id' in request.get_json() and 'bbox' in request.get_json():
         time_graph_start = strftime("%Y-%m-%d %H:%M:%S", gmtime())
         try:
-            root_id = int(request.get_json()['root_id'])
-            bounding_box  = np.reshape(np.array(request.get_json()['bbox'].split(','), dtype = int), (2,3))
+            root_id = request.get_json()['root_id']
+            bounding_box  = np.array(request.get_json()['bbox'], dtype = int)
             edges, affinities = cg.get_subgraph(root_id, bounding_box)
             time_graph_end = strftime("%Y-%m-%d %H:%M:%S", gmtime())
             return jsonify({"edges":edges.tolist(), 'affinities':affinities.tolist(), "time_server_start": time_server_start, "time_graph_start": time_graph_start, "time_graph_end":time_graph_end})   
@@ -222,7 +222,7 @@ def get_subgraph():
 
 if __name__ == '__main__':
     # Initialize chunkedgraph:
-    cg = chunkedgraph.ChunkedGraph(dev_mode=False)
+    cg = chunkedgraph.ChunkedGraph(dev_mode=True)
     # Initialize google pubsub publisher
     publisher = pubsub_v1.PublisherClient()
     topic_path = publisher.topic_path('neuromancer-seung-import', 'pychunkedgraph')
