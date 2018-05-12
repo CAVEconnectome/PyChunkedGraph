@@ -187,16 +187,18 @@ def get_subgraph():
     time_server_start = strftime("%Y-%m-%d %H:%M:%S", gmtime())	
     # Collect edges from json:
     if 'root_id' in request.get_json() and 'bbox' in request.get_json():
-    	root_id = int(request.get_json()['root_id'])
-    	bounding_box  = np.reshape(np.array(request.get_json()['bbox'].split(','), dtype = int), (2,3))
     	try:
+            root_id = int(request.get_json()['root_id'])
+            bounding_box  = np.reshape(np.array(request.get_json()['bbox'].split(','), dtype = int), (2,3))
     		time_graph_start = strftime("%Y-%m-%d %H:%M:%S", gmtime())
     		edges, affinities = cg.get_subgraph(root_id, bounding_box)
     		time_graph_end = strftime("%Y-%m-%d %H:%M:%S", gmtime())
-    	except:
+            return jsonify({"edges":edges.tolist(), 'affinities':affinities.tolist(), "time_server_start": time_server_start, "time_graph_start": time_graph_start, "time_graph_end":time_graph_end})   
+    	except Exception as e:
+            print(e)
     		edges, affinities = 'NaN', 'NaN'
     		time_graph_end = 'NaN'
-    	return jsonify({"edges":edges.tolist(), 'affinities':affinities.tolist(), "time_server_start": time_server_start, "time_graph_start": time_graph_start, "time_graph_end":time_graph_end})	
+            return jsonify({"edges":edges, 'affinities':affinities, "time_server_start": time_server_start, "time_graph_start": time_graph_start, "time_graph_end":time_graph_end})
     else: # Case where client has supplied inappropriate root_id/bbox
     	return '', 400
 
