@@ -1,8 +1,11 @@
 from urllib import request
 import random
 import time
+import threading
 
-class MultiClientSimulator():
+from google.cloud import pubsub_v1
+
+class NeuromniSimulator():
 	"""Simulate multiple clients making simultaneous requests of the master.
 
 	This class sets up multiple clients that will execute reads and writes to
@@ -33,18 +36,39 @@ class MultiClientSimulator():
 		self.write_frequency = write_frequency
 		self.fraction_write_splits = fraction_write_splits
 		self.clients = []
+		self.receiver = None
 
-class Client():
+	def init_clients(self):
+		for i in range(self.num_clients):
+			root = 432345564227567621
+			bbox = (0,0,0,10,10,10)
+			self.clients.append(Client(i, root, bbox))
+		self.receiver = Receiver('neuromancer-seung-import', 'pychunkedgraph')
+
+	def run(self):
+		self.receiver.start()
+		for c in self.clients:
+			c.start()
+		self.receiver.join()
+	
+	def get_logs(self):
+
+
+
+
+class Client(threading.Thread):
 	"""Single client simulator.
 	"""
 
-	def __init__(self, id, read_frequency=1, write_frequency=10, 
-											fraction_write_splits=0.5):
+	def __init__(self, id, root, bbox, read_frequency=1, write_frequency=2, 
+								fraction_write_splits=0.5, runtime=10):
+		threading.Thread.__init__(self)
 		self.id = id
 		self.read_frequency = read_frequency
 		self.write_frequency = write_frequency
 		self.fraction_write_splits = fraction_write_splits
-		self.root = 10
+		self.runtime = runtime
+		self.root = 432345564227567621
 		self.bbox = (0,0,0,10,10,10)
 		self.subgraph = None
 		self.log = []
@@ -61,7 +85,7 @@ class Client():
 
 	def write(self, edge):
 		op = 'merge'
-		if random() < self.fraction_write_splits:
+		if random.random() < self.fraction_write_splits:
 			op = 'split'
 		url = 'https://35.231.236.20:4000/1.0/graph/{0}/?'.format(op)
 		data = '{{"edges":[["{0}, {1}"]]}}'.format(edge[0], edge[1])
@@ -77,9 +101,9 @@ class Client():
 		# return two random nodes from subgraph
 		return (5,6)
 
-	def exec(self, runtime=20):
+	def run(self):
 		start_time = time.time()
-		while time.time() - start_time < runtime:
+		while time.time() - start_time < self.runtime:
 			if self.read_frequency > 0:
 				time.sleep(self.read_frequency)
 				self.subgraph = self.read(self.root, self.bbox)
@@ -87,6 +111,38 @@ class Client():
 				time.sleep(self.write_frequency)
 				edge = self.pick_edge(self.subgraph)
 				self.write(edge)
+
+class Receiver(threading.Thread):
+	"""Simulator of a no-op client that's listening to the pub/sub channel
+	"""
+
+	def __init__(self, project, subscription_name):
+		self.project = project
+		self.subscription_name = subscription_name
+		self.log = []
+
+	def update_log(self, message):
+		self.log.append(message)
+
+	def run(self, runtime=60):
+	    """Receives messages from a pull subscription."""
+	    subscriber = pubsub_v1.SubscriberClient()
+	    subscription_path = subscriber.subscription_path(
+	        self.project, self.subscription_name)
+
+	    def callback(message):
+	        print('Received message: {}'.format(message))
+	        self.update_log(message)
+	        message.ack()
+
+	    subscriber.subscribe(subscription_path, callback=callback)
+
+	    # The subscriber is non-blocking, so we must keep the main thread from
+	    # exiting to allow it to process messages in the background.
+	    print('Listening for messages on {}'.format(subscription_path))
+	    start_time = time.time()
+		while time.time() - start_time < self.runtime:
+	        time.sleep(60)
 
 
 
