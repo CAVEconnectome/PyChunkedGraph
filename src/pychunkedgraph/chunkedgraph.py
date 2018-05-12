@@ -65,7 +65,22 @@ def get_chunk_id_from_node_id(node_id, dtype=np.uint8):
     if dtype == np.uint8:
         return np.frombuffer(np.uint64(node_id), dtype=np.uint8)[4:]
     elif dtype == np.uint32:
-        return np.frombuffer(np.uint64(node_id), dtype=np.uint32)[:1]
+        return np.frombuffer(np.uint64(node_id), dtype=np.uint32)[1:]
+    else:
+        raise NotImplementedError()
+
+
+def get_chunk_ids_from_node_ids(node_id, dtype=np.uint8):
+    """ Extracts z, y, x, l
+
+    :param node_id: array of ints
+    :return: list of ints
+    """
+
+    if dtype == np.uint8:
+        return np.frombuffer(np.uint64(node_id), dtype=np.uint8).reshape(-1, 8)[:, 4:]
+    elif dtype == np.uint32:
+        return np.frombuffer(np.uint64(node_id), dtype=np.uint32).reshape(-1, 2)[:, 1:]
     else:
         raise NotImplementedError()
 
@@ -776,6 +791,21 @@ class ChunkedGraph(object):
         #
         # atomic_edges = np.array(atomic_edges)
         #
+        # rows = []
+        # # Walk up the hierarchy until a parent in the same chunk is found
+        # original_parent_id_dict = {}
+        # u_atomic_ids = np.unique(atomic_edges)
+        # for atomic_id in u_atomic_ids:
+        #     original_parent_id_dict[atomic_id] = \
+        #         self.get_root(atomic_id, is_cg_id=True,
+        #                       collect_all_parents=True)
+        #
+        # # chunk_ids =
+        # involved_chunk_ids = {}
+        #
+        #
+        #
+        #
         # # Remove atomic edge
         # rows = []
         # for atomic_edge in atomic_edges:
@@ -786,6 +816,7 @@ class ChunkedGraph(object):
         #                     "atomic_affinities": np.array([-1]).tobytes()}
         #         rows.append(mutate_row(self.table, serialize_node_id(atomic_id),
         #                                self.family_id, val_dict, time_stamp))
+        #
         # # self.table.mutate_rows(rows)
         #
         # chunk_ids = np.frombuffer(atomic_edges, dtype=np.uint32)[1::2].reshape(-1, 2)
