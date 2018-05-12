@@ -1,0 +1,8 @@
+{
+  "graphpath": "ssd/pinky40",
+  "cloudpath": "gs://neuroglancer/pinky40_v11/watershed",
+  "logpath": "logs",
+  "certpath": "keys",
+  "host": "127.0.0.1",
+  "port": 9100
+}
