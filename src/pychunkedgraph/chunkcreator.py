@@ -25,14 +25,14 @@ def download_and_store_cv_files(cv_url="gs://nkem/basil_4k_oldnet/region_graph/"
 
 
 def create_chunked_graph(cv_url="gs://nkem/basil_4k_oldnet/region_graph/",
-                         dev_mode=False, nb_cpus=1):
+                         dev_mode=False, table_id=None, nb_cpus=1):
 
     # Currently no multiprocessing...
     # assert nb_cpus == 1
 
     file_paths = np.sort(glob.glob(utils.dir_from_layer_name(utils.layer_name_from_cv_url(cv_url)) + "/*"))
 
-    cg = chunkedgraph.ChunkedGraph()
+    cg = chunkedgraph.ChunkedGraph(dev_mode=dev_mode, table_id=table_id)
 
     multi_args = []
 
@@ -90,6 +90,7 @@ def create_chunked_graph(cv_url="gs://nkem/basil_4k_oldnet/region_graph/",
         in_paths_mask = np.sum(np.abs(between_chunk_ids[:, 1] - in_chunk_ids[i_chunk]), axis=1) == 0
 
         multi_args.append([dev_mode,
+                           table_id,
                            chunk_path,
                            between_chunk_paths[in_paths_mask],
                            between_chunk_paths[out_paths_mask],
@@ -107,12 +108,17 @@ def create_chunked_graph(cv_url="gs://nkem/basil_4k_oldnet/region_graph/",
                                                    multi_args,
                                                    n_subprocesses=nb_cpus)
 
+    # nb_cpus = 1 ## -----------------------------------------------------------------------------
+
+
     # Fill higher abstraction layers
     layer_id = 2
     child_chunk_ids = in_chunk_ids.copy()
     last_run = False
     while not last_run:
         layer_id += 1
+
+        print("\n\n\n --- LAYER %d --- \n\n\n" % layer_id)
 
         if len(child_chunk_ids) == 1:
             last_run = True
@@ -124,7 +130,7 @@ def create_chunked_graph(cv_url="gs://nkem/basil_4k_oldnet/region_graph/",
 
         multi_args = []
         for ind in range(len(u_pcids)):
-            multi_args.append([dev_mode, layer_id, child_chunk_ids[inds == ind]])
+            multi_args.append([dev_mode, table_id, layer_id, child_chunk_ids[inds == ind]])
 
         child_chunk_ids = u_pcids * cg.fan_out ** (layer_id - 2)
 
@@ -145,7 +151,7 @@ def _create_atomic_layer_thread(args):
     # storage.reset_connection_pools()
 
     # Load args
-    dev_mode, chunk_path, in_paths, out_paths, mapping_path = args
+    dev_mode, table_id, chunk_path, in_paths, out_paths, mapping_path = args
     # edge_ids, edge_affs, cross_edge_ids, cross_edge_affs = args
 
     # Load edge information
@@ -172,15 +178,15 @@ def _create_atomic_layer_thread(args):
     rg2cg = dict(zip(mappings[:, 0], mappings[:, 1]))
 
     # Initialize an ChunkedGraph instance and write to it
-    cg = chunkedgraph.ChunkedGraph(dev_mode=dev_mode)
+    cg = chunkedgraph.ChunkedGraph(dev_mode=dev_mode, table_id=table_id)
     cg.add_atomic_edges_in_chunks(edge_ids, cross_edge_ids,
                                   edge_affs, cross_edge_affs,
                                   cg2rg, rg2cg)
 
 
 def _add_layer_thread(args):
-    dev_mode, layer_id, chunk_coords = args
+    dev_mode, table_id, layer_id, chunk_coords = args
 
-    cg = chunkedgraph.ChunkedGraph(dev_mode=dev_mode)
+    cg = chunkedgraph.ChunkedGraph(dev_mode=dev_mode, table_id=table_id)
     cg.add_layer(layer_id, chunk_coords)
 
