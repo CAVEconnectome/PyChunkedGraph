@@ -9,4 +9,4 @@ A rough system design:
 
 ![alt text][system_design]
 
-[system_design]: https://github.com/seung-lab/PyChunkedGraph/blob/master/SystemDesign.png "System Design"
+[system_design]: https://github.com/seung-lab/PyChunkedGraph/blob/master/SystemDesign_v2.png "System Design"
