@@ -79,8 +79,7 @@ This returns the new root ID for the merged supervoxels as a string in a JSON fi
   "new_root_id": "NaN",
   "time_graph_end": "NaN",
   "time_graph_start": "2018-05-11 01:07:59"
-  "time_server_start": "2018-05-11 01:07:58"
-		
+  "time_server_start": "2018-05-11 01:07:58"	
 }
 
 ```
@@ -100,6 +99,16 @@ This returns the new root IDs for the supervoxels affected by the edge removal (
   "time_server_start": "2018-05-11 01:18:15"
 }
 
+```
+
+### Pub-Sub System:
+The pub-sub system is based on Google Cloud's pubsub system. Subscribers should go to 
+```
+https://console.cloud.google.com/cloudpubsub/topics/pychunkedgraph?project=neuromancer-seung-import
+```
+and go through the process of creating a subscription.  After creating a subscription called 'MySub', subscribers can pull published messages from the topic and send acknowledgements via the command line:
+```
+gcloud pubsub subscriptions pull --auto-ack MySub
 ```
 
 
