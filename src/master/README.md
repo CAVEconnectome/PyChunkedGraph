@@ -106,7 +106,7 @@ The pub-sub system is based on Google Cloud's pubsub system. Subscribers should 
 ```
 https://console.cloud.google.com/cloudpubsub/topics/pychunkedgraph?project=neuromancer-seung-import
 ```
-and go through the process of creating a subscription.  After creating a subscription called 'MySub', subscribers can pull published messages from the topic and send acknowledgements via the command line using the command:
+and go through the process of creating a subscription.  After creating a subscription called 'MySub', subscribers can pull published messages from the topic and send acknowledgements via the command line:
 ```
 gcloud pubsub subscriptions pull --auto-ack MySub
 ```
