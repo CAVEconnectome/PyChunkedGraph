@@ -81,13 +81,13 @@ def handle_merge():
                         # Come out of loop and wait sleep_time seconds before rechecking all_historical_ids
                         raise Exception('locked_id')
                 # Now try to perform write (providing exception has not been raised)
+                time_graph_start = strftime("%Y-%m-%d %H:%M:%S", gmtime())
                 try:
                     # If have made it through without raising exception, IDs are not locked and add_edge can be performed safely
                     # First add root1 and root2 to locked list:
                     redis_conn.set(str(root1), "busy")
                     redis_conn.set(str(root2), "busy")
                     # Perform edit on graph
-                    time_graph_start = strftime("%Y-%m-%d %H:%M:%S", gmtime())
                     out = cg.add_edge(edge)
                     time_graph_end = strftime("%Y-%m-%d %H:%M:%S", gmtime())
                     # Now remove root1 and root2 from redis (unlock these root IDs)
@@ -156,12 +156,12 @@ def handle_split():
                         # Come out of loop and wait sleep_time seconds before rechecking all_historical_ids
                         raise Exception('locked_id')
                 # Now try to perform write (providing exception has not been raised)
+                time_graph_start = strftime("%Y-%m-%d %H:%M:%S", gmtime())
                 try:
                     # If have made it through without raising exception, IDs are not locked and add_edge can be performed safely
                     # First add root1 and root2 to locked list:
                     redis_conn.set(str(root1), "busy")
                     redis_conn.set(str(root2), "busy")
-                    time_graph_start = strftime("%Y-%m-%d %H:%M:%S", gmtime())
                     out = cg.remove_edge(edge)
                     time_graph_end = strftime("%Y-%m-%d %H:%M:%S", gmtime())
                     # Now remove root1 and root2 from redis (unlock these root IDs)
@@ -204,10 +204,10 @@ def get_subgraph():
     time_server_start = strftime("%Y-%m-%d %H:%M:%S", gmtime())
     # Collect edges from json:
     if 'root_id' in request.get_json() and 'bbox' in request.get_json():
+        time_graph_start = strftime("%Y-%m-%d %H:%M:%S", gmtime())
         try:
             root_id = int(request.get_json()['root_id'])
             bounding_box  = np.reshape(np.array(request.get_json()['bbox'].split(','), dtype = int), (2,3))
-            time_graph_start = strftime("%Y-%m-%d %H:%M:%S", gmtime())
             edges, affinities = cg.get_subgraph(root_id, bounding_box)
             time_graph_end = strftime("%Y-%m-%d %H:%M:%S", gmtime())
             return jsonify({"edges":edges.tolist(), 'affinities':affinities.tolist(), "time_server_start": time_server_start, "time_graph_start": time_graph_start, "time_graph_end":time_graph_end})   
