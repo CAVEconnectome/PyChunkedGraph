@@ -1,6 +1,8 @@
 version: '3'
 services:
   web:
+    environment: 
+     - GOOGLE_APPLICATION_CREDENTIALS="/root/.cloudvolume/secrets/google-secret.json"
     build: .
     restart: always
     ports:
