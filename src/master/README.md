@@ -29,7 +29,7 @@ This returns JSON containing the root ID (if a valid supervoxel ID is presented)
 ### Get Subgraph:
 This is a HTTPS POST command, so additional data must be submitted with the request. Until this point, I have tested my server with cURL:
 ```
-curl -X POST -H "Content-Type: application/json" -d '{"root_id":"432345564227567621","bbox":"0, 0, 0, 10, 10, 10"}' --insecure -i https://35.231.236.20:4000/1.0/graph/subgraph/
+curl -X POST -H "Content-Type: application/json" -d '{"root_id":432345564227567621,"bbox":[[0, 0, 0], [10, 10, 10]]}' --insecure -i https://35.231.236.20:4000/1.0/graph/subgraph/
 ```
 This returns a json file, with entries "edges", "affinities", "time_graph_end", "time_graph_start" and "time_server_start". Example output (warning: not a complete subgraph; subgraphs are normally much larger):
 ```
@@ -71,7 +71,7 @@ This returns a json file, with entries "edges", "affinities", "time_graph_end", 
 ### Add Edge:
 This is another HTTPS POST command:
 ```
-curl -X POST -H "Content-Type: application/json" -d '{"edge":"537753696, 537544567"}' --insecure -i https://35.231.236.20:4000/1.0/graph/merge/
+curl -X POST -H "Content-Type: application/json" -d '{"edge":[537753696, 537544567]}' --insecure -i https://35.231.236.20:4000/1.0/graph/merge/
 ```
 This returns the new root ID for the merged supervoxels as a string in a JSON file, or returns "NaN" if either the edge cannot be added due to such an edge already existing, or if at least one of the root IDs for the implicated supervoxels is locked for the whole duration of the request (up to 100 seconds - the master attempts to fulfil the merge request 10 times, with each try separated by 10 seconds, but gives up after that).  In this latter case, the user may want to resend the request. The client also receives back the times (in UTC) recorded by the master when the initial HTTPS request was received ("time_server_start"), the time at which the edit to the graph started ("time_graph_start"), and the time when the edit to the graph concluded ("time_graph_end"). If the edit to the graph was unsuccessful, this latter field will be "NaN"; if the root ID for at least one of the implicated supervoxels was locked for the full duration of the request, and no edit to the graph ever started, both the "time_graph_start" and "time_graph_end" fields will be "NaN". Example response:
 ```
@@ -87,7 +87,7 @@ This returns the new root ID for the merged supervoxels as a string in a JSON fi
 ### Remove Edge:
 
 ```
-curl -X POST -H "Content-Type: application/json" -d  '{"edge":"537753696, 537544567"}' --insecure -i https://35.231.236.20:4000/1.0/graph/split/
+curl -X POST -H "Content-Type: application/json" -d  '{"edge":[537753696, 537544567]}' --insecure -i https://35.231.236.20:4000/1.0/graph/split/
 ```
 This returns the new root IDs for the supervoxels affected by the edge removal (as a string with the two root IDs separated by comma and space), or returns "None" if the edge cannot be split due to it not existing in the first place, or "NaN" if one of the root IDs for the implicated supervoxels is locked for the whole duration of the request (up to 100 seconds - the master attempts to fulfil the split request 10 times, with each try separated by 10 seconds, but gives up after that).  In this latter case, the user may want to resend the request.  The client also receives back the times (in UTC) recorded by the master when the initial HTTPS request was received ("time_server_start"), the time at which the edit to the graph started ("time_graph_start"), and the time when the edit to the graph concluded ("time_graph_end"). If the edit to the graph was unsuccessful, this latter field will be "NaN"; if the root ID for at least one of the implicated supervoxels was locked for the full duration of the request, and no edit to the graph ever started, both the "time_graph_start" and "time_graph_end" fields will be "NaN". Example response:
 
