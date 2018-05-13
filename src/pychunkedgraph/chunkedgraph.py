@@ -171,14 +171,16 @@ class ChunkedGraph(object):
         :param chunk_id: uint32
         :return: uint64
         """
-        chunk_id = chunk_id.astype(np.uint64)
 
-        randint = np.random.randint(np.iinfo(np.uint32).max, dtype=np.uint32)
-        node_id = (chunk_id << 32) + randint
+        chunk_id = np.frombuffer(chunk_id.astype(np.uint32), dtype=np.uint8)
+        node_id = np.frombuffer(np.random.randint(np.iinfo(np.uint32).max, dtype=np.uint64), dtype=np.uint8).copy()
+        node_id[4:] = chunk_id
+        node_id = np.frombuffer(node_id, dtype=np.uint64)
 
         while self.table.read_row(serialize_node_id(node_id)) is not None:
-            randint = np.random.randint(np.iinfo(np.uint32).max, dtype=np.uint32)
-            node_id = (chunk_id << 32) + randint
+            node_id = np.frombuffer(np.random.randint(np.iinfo(np.uint32).max, dtype=np.uint64), dtype=np.uint8).copy()
+            nnode_id[4:] = chunk_id
+            node_id = np.frombuffer(node_id, dtype=np.uint64)
 
         return node_id
 
@@ -815,7 +817,6 @@ class ChunkedGraph(object):
 
     def remove_edge(self, atomic_edges, is_cg_id=False):
         return
-
         time_stamp = datetime.datetime.now()
         time_stamp = UTC.localize(time_stamp)
 
@@ -825,6 +826,7 @@ class ChunkedGraph(object):
 
         if not is_cg_id:
             for i_atomic_edge in range(len(atomic_edges)):
+                print(atomic_edges[i_atomic_edge])
                 atomic_edges[i_atomic_edge] = [self.get_cg_id_from_rg_id(atomic_edges[i_atomic_edge][0]),
                                                self.get_cg_id_from_rg_id(atomic_edges[i_atomic_edge][1])]
 
@@ -915,6 +917,7 @@ class ChunkedGraph(object):
                                            serialize_node_id(cc_node_id),
                                            self.family_id, val_dict))
 
+        # raise()
         # Similar to add_layer we
         for new_layer_2_parent in new_layer_2_parent_dict.keys():
             print("----")
