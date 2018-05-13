@@ -327,7 +327,7 @@ class ChunkedGraph(object):
             x, y, z = chunk_coord
             node_id_base = np.array([0, 0, 0, 0, z, y, x, layer_id - 1], dtype=np.uint8)
             node_id_base_next = node_id_base.copy()
-            node_id_base_next[-2] += 1
+            node_id_base_next[-4] += 1
 
             start_key = serialize_node_id(np.frombuffer(node_id_base, dtype=np.uint64)[0])
             end_key = serialize_node_id(np.frombuffer(node_id_base_next, dtype=np.uint64)[0])
@@ -472,9 +472,9 @@ class ChunkedGraph(object):
 
         row = self.table.read_row(serialize_node_id(node_id))
 
-        if parent_key in row.cells[self.family_id]:
-            for parent_entry in row.cells[self.family_id][parent_key]:
-                print(parent_entry.timestamp)
+        # if parent_key in row.cells[self.family_id]:
+        #     for parent_entry in row.cells[self.family_id][parent_key]:
+        #         print(parent_entry.timestamp)
 
         if parent_key in row.cells[self.family_id]:
             for parent_entry in row.cells[self.family_id][parent_key]:
@@ -690,6 +690,8 @@ class ChunkedGraph(object):
 
         status = self.table.mutate_rows(rows)
 
+        return new_parent_id[0]
+
     def get_subgraph(self, agglomeration_id, bounding_box=None,
                      bb_is_coordinate=False, time_stamp=None):
         """ Returns all edges between supervoxels belonging to the specified
@@ -896,6 +898,7 @@ class ChunkedGraph(object):
         #
         # # Similar to add_layer we
         # for new_layer_2_parent in new_layer_2_parent_dict.keys():
+        #     print("----")
         #     old_parent_id, cross_edges = new_layer_2_parent_dict[new_layer_2_parent]
         #
         #     old_next_layer_parent = self.get_parent(old_parent_id)
@@ -904,16 +907,14 @@ class ChunkedGraph(object):
         #     old_chunk_neighbors_atomic_children = np.array([], dtype=np.uint64)
         #     old_chunk_neighbors_atomic_id_map = np.array([], dtype=np.uint64)
         #     for old_chunk_neighbor in old_chunk_neighbors:
-        #         # row = self.table.read_row(serialize_node_id(old_chunk_neighbor))
-        #         # row = self.table.read_row(serialize_node_id(self.get_parent(old_chunk_neighbor)))
+        #         row = self.table.read_row(serialize_node_id(old_chunk_neighbor))
+        #         row = self.table.read_row(serialize_node_id(self.get_parent(old_chunk_neighbor)))
         #
-        #         print(old_chunk_neighbor, self.get_parent(old_chunk_neighbor))
+        #         print(old_next_layer_parent, old_chunk_neighbor, self.get_parent(old_chunk_neighbor))
         #
         #         # old_chunk_neighbor_cross_edges = self.read_row(old_chunk_neighbor, "atomic_cross_edges")
         #         # old_chunk_neighbors_atomic_children = np.concatenate([old_chunk_neighbors_atomic_children, old_chunk_neighbor_cross_edges[:, 0]])
         #         # old_chunk_neighbors_atomic_id_map = np.concatenate([old_chunk_neighbors_atomic_id_map, ])
-        #
-        #
         #
         # # self.table.mutate_rows(rows)
         # return edges, rows, new_layer_2_parent_dict
