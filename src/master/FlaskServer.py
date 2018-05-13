@@ -56,9 +56,7 @@ def handle_merge():
     time_server_start = strftime("%Y-%m-%d %H:%M:%S", gmtime())
     # Collect edges from json:
     if 'edge' in request.get_json():
-        edge = request.get_json()['edge']
-    # Obtain edges from request dictionary, and convert to numpy array with uint64s
-        edge = np.fromstring(edge, sep = ',', dtype = np.uint64)
+        edge = np.array(request.get_json()['edge'], dtype = np.uint64)
         # Now try, for a maximum of max_tries, to add edge
         attempts = 0 
         while attempts < max_tries:
@@ -131,9 +129,7 @@ def handle_split():
     time_server_start = strftime("%Y-%m-%d %H:%M:%S", gmtime())
     # Collect edges from json:
     if 'edge' in request.get_json():
-        edge = request.get_json()['edge']
-    # Obtain edges from request dictionary, and convert to numpy array with uint64s
-        edge = np.fromstring(edge, sep = ',', dtype = np.uint64)
+        edge = np.array(request.get_json()['edge'], dtype = np.uint64)
         # Now try, for a maximum of max_tries, to add edge
         attempts = 0 
         while attempts < max_tries:
