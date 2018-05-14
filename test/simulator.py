@@ -1,9 +1,14 @@
-import numpy as np
+from datetime import datetime
 import random
 import time
+import ast
 import json
 import requests
 import threading
+from os.path import expanduser, join
+
+import numpy as np
+import pandas as pd
 
 from google.cloud import pubsub_v1
 
@@ -29,52 +34,61 @@ class NeuromniSimulator():
       are handled differently by the graph server.
   """
   
-  def __init__(self, num_clients=1, num_client_readers_only=1, 
-            read_frequency=1, write_frequency=10, 
-            fraction_write_splits=0.5):
-    self.num_clients = num_clients
-    self.num_client_readers_only = num_client_readers_only
+  def __init__(self, supervoxels, num_readers=1, num_writers=1, read_frequency=5, 
+                      write_frequency=5, runtime=60, dir=expanduser('~')):
+    self.num_readers = num_readers
+    self.num_writers = num_writers
     self.read_frequency = read_frequency
     self.write_frequency = write_frequency
-    self.fraction_write_splits = fraction_write_splits
     self.clients = []
     self.receiver = None
+    self.dir = dir
+    self.supervoxels = supervoxels
 
   def init_clients(self):
-    for i in range(self.num_clients):
-      root = 432345564227567621
-      bbox = (0,0,0,10,10,10)
-      self.clients.append(Client(i, root, bbox))
-    self.receiver = Receiver('neuromancer-seung-import', 'pychunkedgraph')
+    for i, sv in enumerate(np.array_split(self.supervoxels, self.num_writers)):
+      c = Client(i, sv, read_frequency=self.read_frequency, 
+                    write_frequency=self.write_frequency, runtime=self.runtime)
+      self.clients.append(c)
+    for i, sv in enumerate(np.array_split(self.supervoxels, self.num_readers)):
+      c = Client(i, sv, read_frequency=self.read_frequency, write_frequency=0,
+                                                          runtime=self.runtime)
+      self.clients.append(c)
+    self.receiver = Receiver('neuromancer-seung-import', 'MySub')
 
   def run(self):
+    self.receiver.reset_log()
     self.receiver.start()
     for c in self.clients:
       c.start()
-    self.receiver.join()
   
   def get_logs(self):
     logs = []
     for c in self.clients:
-      logs.extend(c.log)
-    return logs
+      logs.append(c.export_log())
+    c_df = pd.concat(logs)
+    r_df = c.receiver.export_log()
+    return pd.merge(c_df, r_df, how='outer', on=['op','v1','v2'])
 
+  def save_logs(self):
+    fn = 'NeuromniSimulator_{0}_readers_{1}_writers_{2}_seconds'.format(self.num_readers, self.num_writers, self.runtime)
+    path = join(self.dir, fn)
+    df = self.get_logs()
+    df.to_csv(path)
 
 class Client(threading.Thread):
   """Single client simulator.
   """
 
-  def __init__(self, id, bbox, rootA, rootB, 
-          read_frequency=1, write_frequency=2, 
-                fraction_splits=0.5, runtime=10):
+  def __init__(self, id, supervoxels, bbox=[[0,0,0],[10,10,10]],
+                        read_frequency=5, write_frequency=5, runtime=30):
     threading.Thread.__init__(self)
     self.id = id
     self.read_frequency = read_frequency
     self.write_frequency = write_frequency
-    self.fraction_splits = fraction_splits
     self.runtime = runtime
-    self.bbox = [[0,0,0],[10,10,10]]
-    self.supervoxels = [] 
+    self.bbox = bbox
+    self.supervoxels = supervoxels 
     self.subgraphs = {}
     self.edge = None
     self.log = []
@@ -85,89 +99,136 @@ class Client(threading.Thread):
 
   def get_root(self, supervoxel):
     op = '{0}/root'.format(supervoxel)
-    data = {}
-    response = self.request(op, data)
-    return response['id']
+    response = self.request(op, post=False)
+    return int(response['id'])
 
   def get_subgraph(self, root):
     op = 'subgraph'
     data = {"root_id": root, "bbox": self.bbox}
     response = self.request(op, data)
-    self.subgraphs[root] = np.array(response['edges'])
+    self.subgraphs[root] = response['edges']
 
-  def split(self, edge):
+  def split(self):
     op = 'split'
-    data = {'edge': edge}
+    data = {'edge': self.edge}
     response = self.request(op, data)
 
-  def merge(self, edge, root1, root2):
+  def merge(self):
     op = 'merge'
-    data = {'edge': edge}
+    data = {'edge': self.edge}
     response = self.request(op, data)
 
-  def request(self, op, data):
-    print((op, data))
-    url = 'https://35.231.236.20:4000/1.0/graph/{0}/'.format(op)
-    data = json.dumps(data)
-    headers = {'Content-Type': 'application/json'}
-    request_time = time.time()
-    response = requests.post(url, verify=False, data=data, headers=headers)
-    response_time = time.time()
-    self.update_log(op, data, response, request_time, response_time)
-    return response.json()
+  def request(self, op, data_dict={}, post=True):
+    print('{0}; {1}'.format(self.id, (op, data_dict)))
+    if post:
+      url = 'https://35.231.236.20:4000/1.0/graph/{0}/'.format(op)
+      data = json.dumps(data_dict)
+      headers = {'Content-Type': 'application/json'}
+      request_time = datetime.now().timestamp()
+      response = requests.post(url, verify=False, data=data, headers=headers)
+    else:
+      url = 'https://35.231.236.20:4000/1.0/segment/{0}/'.format(op)
+      request_time = datetime.now().timestamp()
+      response = requests.get(url, verify=False)
+      # dummy response data
+      # response = {'time_server_start': 0,
+      #             'time_graph_start':0,
+      #             'time_graph_end':0,
+      #             'edges': np.random.randint(200,300,(3,2)).tolist(),
+      #             'id': random.randint(1,100)}
+    response_time = datetime.now().timestamp()
+    response = response.json()
+    if op in ['merge', 'split']:
+      self.update_log(op, data_dict['edge'], response, request_time, response_time)
+    return response
 
-  def update_log(self, op, data, response, request_time, response_time):
-    master_start = r['time_server_start']
-    graph_start = r['time_graph_start']
-    graph_stop = r['time_graph_end']    
-    entry = [self.id, data, request_time, master_start, graph_start, graph_stop, response_time]
+  def update_log(self, op, edge, response, request_time, response_time):
+    master_start = datetime_to_float(response['time_server_start'])
+    graph_start = datetime_to_float(response['time_graph_start'])
+    graph_stop = datetime_to_float(response['time_graph_end'])
+    entry = [self.id, op, edge[0], edge[1], request_time, master_start, 
+                                      graph_start, graph_stop, response_time]
     self.log.append(entry)
 
-  def select_edge(self):
-    v1 = np.random.choice(self.subgraphs.values[0].flatten()) 
-    v1 = np.random.choice(self.subgraphs.values[1].flatten())
-    self.edge = np.array(v1, v2)
+  def export_log(self):
+    c = ['id','op','v1','v2','client_request','master_start', 'graph_start', 
+                                                'graph_stop','client_receipt']
+    return pd.DataFrame(self.log, columns=c)
+
+  def select_edge(self, vertices1, vertices2):
+    v1 = np.random.choice(vertices1)
+    v2 = v1
+    while v2 == v1: 
+      v2 = np.random.choice(vertices2)
+    self.edge = [int(v1), int(v2)]
+    print('{0}; select_edge: {1}'.format(self.id, self.edge))
+
+  def get_vertices(self, subgraph):
+    return np.unique([v for edge in subgraph for v in edge])
+
+  def load_subgraphs(self, n=2):
+    self.subgraphs = {}
+    supervoxels = np.random.choice(self.supervoxels, n, replace=False)
+    for sv in supervoxels:
+      self.read(sv)
+
+  def select_edge_to_merge(self):
+    vertices1 = self.get_vertices(list(self.subgraphs.values())[0])
+    vertices2 = self.get_vertices(list(self.subgraphs.values())[1])
+    self.select_edge(vertices1, vertices2)
+
+  def select_edge_to_split(self):
+    vertices = self.get_vertices(list(self.subgraphs.values())[0])
+    self.select_edge(vertices, vertices)
 
   def run(self):
+    # stagger start randomly
+    time.sleep(random.random()*10)
+    print('{0}; starting'.format(self.id))
     # start simulation runtime    
     start_time = time.time()
-    merge_flag = True
     while time.time() - start_time < self.runtime:
-      # always read in the graphs for the same two supervoxels
-      # we'll merge then split the same edge from here on out
+      # always read in the subgraphs for two supervoxels
+      # we'll then merge the two subgraphs, then we'll split them
       if self.read_frequency > 0:
         time.sleep(self.read_frequency)
-        supervoxel1 = np.random.choice(self.supervoxels)
-        supervoxel2 = np.random.choice(self.supervoxels)
-        self.read(supervoxel1)
-        self.read(supervoxel2)
-        if len(self.subgraphs.keys()) == 1:
-          merge_flag = False
+        self.load_subgraphs()
       if self.write_frequency > 0:       
         time.sleep(self.write_frequency)
-        if merge_flag:         
-          self.select_edge()
-          self.merge(self.edge)
-        else:
-          self.split(self.edge)
-          self.subgraphs = {}
-        merge_flag = !merge_flag
+        # if we've selected two supervoxels with the same root, then skip merge
+        if len(self.subgraphs.keys()) == 1:
+          print('{0}; same root, selecting edge to split'.format(self.id))
+          self.select_edge_to_split()
+        else: 
+          print('{0}; different roots, select_edge_to_merge'.format(self.id))
+          self.select_edge_to_merge()
+          self.merge()
+          time.sleep(self.write_frequency)
+        self.split()
 
-class Receiver(threading.Thread):
+class Receiver():
   """Simulator of a no-op client that's listening to the pub/sub channel
   """
 
-  def __init__(self, project, subscription_name, runtime=20):
-    threading.Thread.__init__(self)
+  def __init__(self, project, subscription_name):
     self.project = project
     self.subscription_name = subscription_name
     self.log = []
-    self.runtime = runtime
 
-  def update_log(self, message):
-    self.log.append(message)
+  def reset_log(self):
+    self.log = []
 
-  def run(self, runtime=60):
+  def export_log(self):
+    return pd.DataFrame(self.log, columns=['op','v1','v2','receiver_receipt'])
+
+  def update_log(self, m, timestamp):
+    data = m.data.decode('utf-8').split(' ')
+    op = data[0]
+    edge = ast.literal_eval(data[1] + ',' + data[2])
+    self.log.append([op, edge[0], edge[1], timestamp])
+    # self.log.append([m, timestamp])
+
+  def start(self, runtime=60):
       """Receives messages from a pull subscription."""
       subscriber = pubsub_v1.SubscriberClient()
       subscription_path = subscriber.subscription_path(
@@ -175,14 +236,22 @@ class Receiver(threading.Thread):
 
       def callback(message):
           print('Received message: {}'.format(message))
-          self.update_log(message)
+          timestamp = datetime.now().timestamp()
           message.ack()
+          self.update_log(message, timestamp)
 
-      subscriber.subscribe(subscription_path, callback=callback)
+      print('Start listening for messages on {}'.format(subscription_path))
+      future = subscriber.subscribe(subscription_path, callback=callback)
 
-      # The subscriber is non-blocking, so we must keep the main thread from
-      # exiting to allow it to process messages in the background.
-      print('Listening for messages on {}'.format(subscription_path))
-      start_time = time.time()
-      while time.time() - start_time < self.runtime:
-        time.sleep(2)
+def datetime_to_float(dt):
+  return datetime.strptime(dt, '%Y-%m-%d %H:%M:%S.%f').timestamp()
+
+
+def __main__():
+  supervoxels = np.array([2147603517, 268547006, 268566302, 41599, 50826, 
+                          536956195, 536960272, 536965549, 60658, 74108, 
+                          805421377, 805452817, 805482929])
+  ns = NeuromniSimulator(supervoxels)
+  ns.init_clients()
+  ns.run()
+  ns.save_logs()
