@@ -639,11 +639,10 @@ class ChunkedGraph(object):
             child_ids = new_childs
 
         if return_rg_ids:
-            rg_edges = []
+            rg_edges = np.zeros_like(edges, dtype=np.uint64)
 
-            for edge in edges:
-                rg_edges.append([self.get_rg_id_from_cg_id(edge[0]),
-                                 self.get_rg_id_from_cg_id(edge[1])])
+            for u_id in np.unique(edges):
+                rg_edges[edges == u_id] = self.get_rg_id_from_cg_id(u_id)
 
             return np.array(rg_edges), affinities
         else:
