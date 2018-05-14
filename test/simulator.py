@@ -1,3 +1,4 @@
+import numpy as np
 import random
 import time
 import json
@@ -63,60 +64,94 @@ class Client(threading.Thread):
   """Single client simulator.
   """
 
-  def __init__(self, id, root, bbox, read_frequency=1, write_frequency=2, 
-                fraction_write_splits=0.5, runtime=10):
+  def __init__(self, id, bbox, rootA, rootB, 
+          read_frequency=1, write_frequency=2, 
+                fraction_splits=0.5, runtime=10):
     threading.Thread.__init__(self)
     self.id = id
     self.read_frequency = read_frequency
     self.write_frequency = write_frequency
-    self.fraction_write_splits = fraction_write_splits
+    self.fraction_splits = fraction_splits
     self.runtime = runtime
-    self.root = 432345564227567621
     self.bbox = [[0,0,0],[10,10,10]]
-    self.subgraph = None
+    self.supervoxels = [] 
+    self.subgraphs = {}
+    self.edge = None
     self.log = []
 
+  def read(self, supervoxel):
+    root = self.get_root(supervoxel)
+    self.get_subgraph(root)
 
-  def read(self, root, bbox):
+  def get_root(self, supervoxel):
+    op = '{0}/root'.format(supervoxel)
+    data = {}
+    response = self.request(op, data)
+    return response['id']
+
+  def get_subgraph(self, root):
     op = 'subgraph'
-    url = 'https://35.231.236.20:4000/1.0/graph/{0}/'.format(op)
-    data = json.dumps({"root_id":root, "bbox": bbox})
-    headers = {'Content-Type': 'application/json'}
-    self.update_log(url + data)
-    r = requests.post(url, verify=False, data=data, headers=headers)
-    response = r.json()
-    self.subgraph = r['edges']
-    print(url+data)
-    return 
+    data = {"root_id": root, "bbox": self.bbox}
+    response = self.request(op, data)
+    self.subgraphs[root] = np.array(response['edges'])
 
-  def write(self, edge):
+  def split(self, edge):
+    op = 'split'
+    data = {'edge': edge}
+    response = self.request(op, data)
+
+  def merge(self, edge, root1, root2):
     op = 'merge'
-    if random.random() < self.fraction_write_splits:
-      op = 'split'
-    url = 'https://35.231.236.20:4000/1.0/graph/{0}/?'.format(op)
-    data = '{{"edges":[["{0}, {1}"]]}}'.format(edge[0], edge[1])
-    self.update_log(url + data)
-    # request.urlopen(url, data=data)
-    print(url+data)
+    data = {'edge': edge}
+    response = self.request(op, data)
 
-  def update_log(self, request):
-    entry = [self.id, request, time.time()]
+  def request(self, op, data):
+    print((op, data))
+    url = 'https://35.231.236.20:4000/1.0/graph/{0}/'.format(op)
+    data = json.dumps(data)
+    headers = {'Content-Type': 'application/json'}
+    request_time = time.time()
+    response = requests.post(url, verify=False, data=data, headers=headers)
+    response_time = time.time()
+    self.update_log(op, data, response, request_time, response_time)
+    return response.json()
+
+  def update_log(self, op, data, response, request_time, response_time):
+    master_start = r['time_server_start']
+    graph_start = r['time_graph_start']
+    graph_stop = r['time_graph_end']    
+    entry = [self.id, data, request_time, master_start, graph_start, graph_stop, response_time]
     self.log.append(entry)
 
-  def pick_edge(self, subgraph):
-    # return two random nodes from subgraph
-    return (5,6)
+  def select_edge(self):
+    v1 = np.random.choice(self.subgraphs.values[0].flatten()) 
+    v1 = np.random.choice(self.subgraphs.values[1].flatten())
+    self.edge = np.array(v1, v2)
 
   def run(self):
+    # start simulation runtime    
     start_time = time.time()
+    merge_flag = True
     while time.time() - start_time < self.runtime:
+      # always read in the graphs for the same two supervoxels
+      # we'll merge then split the same edge from here on out
       if self.read_frequency > 0:
         time.sleep(self.read_frequency)
-        self.subgraph = self.read(self.root, self.bbox)
-      if self.write_frequency > 0:
+        supervoxel1 = np.random.choice(self.supervoxels)
+        supervoxel2 = np.random.choice(self.supervoxels)
+        self.read(supervoxel1)
+        self.read(supervoxel2)
+        if len(self.subgraphs.keys()) == 1:
+          merge_flag = False
+      if self.write_frequency > 0:       
         time.sleep(self.write_frequency)
-        edge = self.pick_edge(self.subgraph)
-        self.write(edge)
+        if merge_flag:         
+          self.select_edge()
+          self.merge(self.edge)
+        else:
+          self.split(self.edge)
+          self.subgraphs = {}
+        merge_flag = !merge_flag
 
 class Receiver(threading.Thread):
   """Simulator of a no-op client that's listening to the pub/sub channel
