@@ -1,6 +1,7 @@
 # Creating a ChunkedGraph
 
 There are two steps to creating a ChunkedGraph for a region graph:
+
 0. Creating the table and BigTable family
 1. Downloading files from `cloudvolume` and storing them on disk
 2. Creating the ChunkedGraph from these files
