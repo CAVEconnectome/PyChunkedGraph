@@ -2,12 +2,10 @@
 
 ## Installation
 
-You need `google-cloud`, `cloud-volume` and `networkx` to use the ChunkedGraph
+The ChunkedGraph requires `google-cloud`, `cloud-volume` and `networkx`.
 
 ```
-pip install google-cloud
-pip install cloud-volume
-pip install networkx
+pip install -r requirements.txt
 ```
 
 ## Multiprocessing
