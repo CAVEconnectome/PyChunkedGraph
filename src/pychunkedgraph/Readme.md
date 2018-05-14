@@ -1,18 +1,11 @@
 # ChunkedGraph
 
-## Missing features
-
-- remove_edge(): A dummy function for remove_edge is in place. Development using the ChunkedGraph should be possible.
-
-
 ## Installation
 
-You need `google-cloud`, `cloud-volume` and `networkx` to use the ChunkedGraph
+The ChunkedGraph requires `google-cloud`, `cloud-volume` and `networkx`.
 
 ```
-pip install google-cloud
-pip install cloud-volume
-pip install networkx
+pip install -r requirements.txt
 ```
 
 ## Multiprocessing
@@ -30,7 +23,7 @@ any ChunkedGraph need to be stored at:
 
 ## Data
 
-The current version of the ChunkedGraph contains supervoxels from `gs://nkem/basil_4k_oldnet/region_graph/`. The chunk size is `[512, 512, 64]`.
+The current version of the ChunkedGraph contains supervoxels from `gs://nkem/basil_4k_oldnet/region_graph/`. The chunk size is `[512, 512, 64]`. 
 
 
 ## Usage
@@ -67,7 +60,7 @@ an additional read from the database.
 
 `get_root` can also be used to acquire the root id  for a supervoxel on other hierarchy levels.
 
-#### Minimal example
+##### Minimal example
 
 ```
 from src.pychunkedgraph import chunkedgraph
@@ -86,7 +79,7 @@ cg.add_edge(edge_ids, is_cg_id=False)
 To add an atomic edge, the user defines the two atomic segments that are connected. The ChunkedGraph will automatically set the `time_stamp` of the change to the current time point.
 
 
-#### Minimal example
+##### Minimal example
 
 ```
 from src.pychunkedgraph import chunkedgraph
@@ -98,6 +91,28 @@ edge = np.array([537753696, 537544567], dtype=np.uint64)
 cg.add_edge(edge)
 ```
 
+### Removing edges
+
+```
+cg.remove_edge(edge_ids, is_cg_id=False)
+```
+
+`remove_edge` takes either a list of edges or a single edge as input. The ChunkedGraph will automatically set the `time_stamp` of the change to the current time point.
+
+##### Minimal example
+
+```
+from src.pychunkedgraph import chunkedgraph
+import numpy as np
+
+cg = chunkedgraph.ChunkedGraph(dev_mode=False)
+
+edge = np.array([2953055848, 2953047401], dtype=np.uint64)
+cg.add_edge(edge)
+cg.remove_edge(edge)
+```
+
+The easiest way to test this function is to add and then remove an edge.
 
 ### Historic agglomeration ids
 
@@ -111,7 +126,7 @@ historical_agglomeration_ids = cg.read_agglomeration_id_history(agglomeration_id
 The user can limit the time window in which historical agglomeration ids should be retrived 
 (`time_stamp=earliest_time`).
 
-#### Minimal example
+##### Minimal example
 ```
 from src.pychunkedgraph import chunkedgraph
 cg = chunkedgraph.ChunkedGraph(dev_mode=False)
@@ -130,7 +145,7 @@ cg.get_subgraph(root_id, bounding_box, bb_is_coordinate=True)
 
 The user can define a `bounding_box=[[x_l, y_l, z_l], [x_h, y_h, z_h]]` as either coordinates or chunk id range (use `bb_is_coordinate`). The `bounding_box` feature is currently not working, the parameter is ignored. The current datset is small enough to all reads of atomic supervoxels. Hence, this should not hinder any development.
 
-#### Minimal example
+##### Minimal example
 ```
 from src.pychunkedgraph import chunkedgraph
 cg = chunkedgraph.ChunkedGraph(dev_mode=False)

@@ -26,10 +26,6 @@ def download_and_store_cv_files(cv_url="gs://nkem/basil_4k_oldnet/region_graph/"
 
 def create_chunked_graph(cv_url="gs://nkem/basil_4k_oldnet/region_graph/",
                          dev_mode=False, table_id=None, nb_cpus=1):
-
-    # Currently no multiprocessing...
-    # assert nb_cpus == 1
-
     file_paths = np.sort(glob.glob(utils.dir_from_layer_name(utils.layer_name_from_cv_url(cv_url)) + "/*"))
 
     cg = chunkedgraph.ChunkedGraph(dev_mode=dev_mode, table_id=table_id)
@@ -97,8 +93,6 @@ def create_chunked_graph(cv_url="gs://nkem/basil_4k_oldnet/region_graph/",
                            mapping_paths[i_chunk]])
 
     # Run multiprocessing
-    # storage.S3_POOL.reset_pool()
-    # storage.GC_POOL["neuroglancer"].reset_pool()
     if nb_cpus == 1:
         multiprocessing_utils.multiprocess_func(_create_atomic_layer_thread,
                                                 multi_args, nb_cpus=nb_cpus,
@@ -144,12 +138,8 @@ def create_chunked_graph(cv_url="gs://nkem/basil_4k_oldnet/region_graph/",
 
 def _create_atomic_layer_thread(args):
     """ Fills lowest layer and create first abstraction layer """
-    # Reset connection pool to make cloud-volume compatible with multiprocessing
-    # storage.reset_connection_pools()
-
     # Load args
     dev_mode, table_id, chunk_path, in_paths, out_paths, mapping_path = args
-    # edge_ids, edge_affs, cross_edge_ids, cross_edge_affs = args
 
     # Load edge information
     edge_ids, edge_affs = utils.read_edge_file_h5(chunk_path)
