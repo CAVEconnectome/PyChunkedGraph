@@ -711,6 +711,8 @@ class ChunkedGraph(object):
         :param atomic_edge: list of two ints
         :param affinity: float
         :param is_cg_id: bool
+        :return: int
+            new root id
         """
         time_stamp = datetime.datetime.now()
         time_stamp = UTC.localize(time_stamp)
@@ -827,6 +829,13 @@ class ChunkedGraph(object):
         return new_parent_id[0]
 
     def remove_edge(self, atomic_edges, is_cg_id=False):
+        """ Removes atomic edges from the ChunkedGraph
+
+        :param atomic_edges: list of two ints
+        :param is_cg_id: bool
+        :return: list of ints
+            new root ids
+        """
         time_stamp = datetime.datetime.now()
         time_stamp = UTC.localize(time_stamp)
 
