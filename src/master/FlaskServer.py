@@ -28,7 +28,7 @@ CORS(app)
 # a root id is locked for all tries)
 max_tries = 10
 # Time in seconds before retry (add edge/remove edge)
-sleep_time = 10
+sleep_time = 1
 
 #Redis host
 redis_conn = redis.StrictRedis(
