@@ -108,9 +108,6 @@ def create_chunked_graph(cv_url="gs://nkem/basil_4k_oldnet/region_graph/",
                                                    multi_args,
                                                    n_subprocesses=nb_cpus)
 
-    # nb_cpus = 1 ## -----------------------------------------------------------------------------
-
-
     # Fill higher abstraction layers
     layer_id = 2
     child_chunk_ids = in_chunk_ids.copy()
