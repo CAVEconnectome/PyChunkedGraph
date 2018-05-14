@@ -75,7 +75,7 @@ def handle_merge():
                     status = redis_conn.get(str(historic_id))
                     print(status)
                     if status == 'busy':
-                        #print(status)
+                        print(status)
                         # Come out of loop and wait sleep_time seconds before rechecking all_historical_ids
                         raise Exception('locked_id')
                 # Now try to perform write (providing exception has not been raised)
@@ -148,7 +148,7 @@ def handle_split():
                     status = redis_conn.get(str(historic_id))
                     print(status)
                     if status == 'busy':
-                        #print(status)
+                        print(status)
                         # Come out of loop and wait sleep_time seconds before rechecking all_historical_ids
                         raise Exception('locked_id')
                 # Now try to perform write (providing exception has not been raised)
