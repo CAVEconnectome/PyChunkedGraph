@@ -7,8 +7,9 @@ sys.path.insert(0, '/code/src/pychunkedgraph') #Include Sven's pychunkedgraph co
 #sys.path.insert(0, '/usr/people/zashwood/Documents/PyChunkedGraph/src/pychunkedgraph') #Include Sven's pychunkedgraph code
 import chunkedgraph #Import chunkedgraph script 
 import numpy as np
-import time
-from time import gmtime, strftime
+#import time
+#from time import gmtime, strftime
+import datetime
 import redis
 from google.cloud import pubsub_v1
 # curl -i https://localhost:4000/1.0/segment/537753696/root/
@@ -39,11 +40,11 @@ def index():
 
 @app.route('/1.0/segment/<atomic_id>/root/', methods=['GET'])
 def handle_root(atomic_id):
-    time_server_start = strftime("%Y-%m-%d %H:%M:%S.%f", gmtime())
+    time_server_start = str(datetime.datetime.now())
     try:
-    	time_graph_start = strftime("%Y-%m-%d %H:%M:%S.%f", gmtime())
+    	time_graph_start = str(datetime.datetime.now())
     	root_id = cg.get_root(int(atomic_id))
-    	time_graph_end = strftime("%Y-%m-%d %H:%M:%S.%f", gmtime())
+    	time_graph_end = str(datetime.datetime.now())
     	return jsonify({"id": str(root_id), "time_server_start":time_server_start, "time_graph_start":time_graph_start, "time_graph_end":time_graph_end})
     except Exception as e:
     	print(e)
@@ -53,7 +54,7 @@ def handle_root(atomic_id):
 @app.route('/1.0/graph/merge/', methods=['POST'])
 def handle_merge():
 	# Record time when request received by master
-    time_server_start = strftime("%Y-%m-%d %H:%M:%S.%f", gmtime())
+    time_server_start = str(datetime.datetime.now())
     # Collect edges from json:
     if 'edge' in request.get_json():
         edge = np.array(request.get_json()['edge'], dtype = np.uint64)
@@ -79,7 +80,7 @@ def handle_merge():
                         # Come out of loop and wait sleep_time seconds before rechecking all_historical_ids
                         raise Exception('locked_id')
                 # Now try to perform write (providing exception has not been raised)
-                time_graph_start = strftime("%Y-%m-%d %H:%M:%S.%f", gmtime())
+                time_graph_start = str(datetime.datetime.now())
                 try:
                     # If have made it through without raising exception, IDs are not locked and add_edge can be performed safely
                     # First add root1 and root2 to locked list:
@@ -87,7 +88,7 @@ def handle_merge():
                     redis_conn.set(str(root2), "busy")
                     # Perform edit on graph
                     out = cg.add_edge(edge)
-                    time_graph_end = strftime("%Y-%m-%d %H:%M:%S.%f", gmtime())
+                    time_graph_end = str(datetime.datetime.now())
                     # Now remove root1 and root2 from redis (unlock these root IDs)
                     redis_conn.delete(str(root1))
                     redis_conn.delete(str(root2))
@@ -126,7 +127,7 @@ def handle_merge():
 @app.route('/1.0/graph/split/', methods=['POST'])
 def handle_split():
     # Record time when request received by master
-    time_server_start = strftime("%Y-%m-%d %H:%M:%S.%f", gmtime())
+    time_server_start = str(datetime.datetime.now())
     # Collect edges from json:
     if 'edge' in request.get_json():
         edge = np.array(request.get_json()['edge'], dtype = np.uint64)
@@ -152,14 +153,14 @@ def handle_split():
                         # Come out of loop and wait sleep_time seconds before rechecking all_historical_ids
                         raise Exception('locked_id')
                 # Now try to perform write (providing exception has not been raised)
-                time_graph_start = strftime("%Y-%m-%d %H:%M:%S.%f", gmtime())
+                time_graph_start = str(datetime.datetime.now())
                 try:
                     # If have made it through without raising exception, IDs are not locked and add_edge can be performed safely
                     # First add root1 and root2 to locked list:
                     redis_conn.set(str(root1), "busy")
                     redis_conn.set(str(root2), "busy")
                     out = cg.remove_edge(edge)
-                    time_graph_end = strftime("%Y-%m-%d %H:%M:%S.%f", gmtime())
+                    time_graph_end = str(datetime.datetime.now())
                     # Now remove root1 and root2 from redis (unlock these root IDs)
                     redis_conn.delete(str(root1))
                     redis_conn.delete(str(root2))
@@ -197,15 +198,15 @@ def handle_split():
 @app.route('/1.0/graph/subgraph/', methods=['POST'])
 def get_subgraph():
 # Record time when request received by master
-    time_server_start = strftime("%Y-%m-%d %H:%M:%S.%f", gmtime())
+    time_server_start = str(datetime.datetime.now())
     # Collect edges from json:
     if 'root_id' in request.get_json() and 'bbox' in request.get_json():
-        time_graph_start = strftime("%Y-%m-%d %H:%M:%S.%f", gmtime())
+        time_graph_start = str(datetime.datetime.now())
         try:
             root_id = request.get_json()['root_id']
             bounding_box  = np.array(request.get_json()['bbox'], dtype = int)
             edges, affinities = cg.get_subgraph(root_id, bounding_box, return_rg_ids = True)
-            time_graph_end = strftime("%Y-%m-%d %H:%M:%S.%f", gmtime())
+            time_graph_end = str(datetime.datetime.now())
             return jsonify({"edges":edges.tolist(), 'affinities':affinities.tolist(), "time_server_start": time_server_start, "time_graph_start": time_graph_start, "time_graph_end":time_graph_end})   
         except Exception as e:
             print(e)
