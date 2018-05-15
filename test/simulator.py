@@ -1,11 +1,14 @@
+from os.path import expanduser, join
 from datetime import datetime
 import random
 import time
 import ast
 import json
-import requests
 import threading
-from os.path import expanduser, join
+import requests
+
+import urllib3
+# urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 import numpy as np
 import pandas as pd
@@ -22,52 +25,58 @@ class NeuromniSimulator():
   request has been executed.
 
   Attributes:
+    supervoxels: [int] list of supervoxel IDs to split across the clients
     num_clients: number of clients issuing requests to the master server.
-    num_client_readers_only: number of clients that will only issue read
-      requests to the master server. If 
-      num_clients == num_client_readers_only, this would be a low-load
-      scenario.
+    num_readers: number of clients that will only issue read
+      requests to the master server.
+    num_writers: number of clients that will issue both read and write 
+      requests to the master server.
     read_frequency: time in seconds between read requests for each client.
     write_frequency: time in seconds between write requests for each client.
-    fraction_write_splits: the fraction of write requests issued that will
-      be split requests, as opposed to merge requests. The two requests
-      are handled differently by the graph server.
+    runtime: (int) seconds for which the simulation will run
   """
   
-  def __init__(self, supervoxels, num_readers=1, num_writers=1, read_frequency=5, 
-                      write_frequency=5, runtime=60, dir=expanduser('~')):
+  def __init__(self, supervoxels, num_readers=1, num_writers=1, read_frequency=2, 
+                      write_frequency=2, runtime=20, dir=expanduser('~')):
     self.num_readers = num_readers
     self.num_writers = num_writers
     self.read_frequency = read_frequency
     self.write_frequency = write_frequency
+    self.runtime = runtime
     self.clients = []
     self.receiver = None
     self.dir = dir
     self.supervoxels = supervoxels
+    self.init_clients()
 
   def init_clients(self):
     for i, sv in enumerate(np.array_split(self.supervoxels, self.num_writers)):
       c = Client(i, sv, read_frequency=self.read_frequency, 
                     write_frequency=self.write_frequency, runtime=self.runtime)
       self.clients.append(c)
-    for i, sv in enumerate(np.array_split(self.supervoxels, self.num_readers)):
-      c = Client(i, sv, read_frequency=self.read_frequency, write_frequency=0,
-                                                          runtime=self.runtime)
-      self.clients.append(c)
+    if self.num_readers > 0:
+      for i, sv in enumerate(np.array_split(self.supervoxels, self.num_readers)):
+        c = Client(i+self.num_writers, sv, read_frequency=self.read_frequency, 
+                                          write_frequency=0, runtime=self.runtime)
+        self.clients.append(c)
     self.receiver = Receiver('neuromancer-seung-import', 'MySub')
+
+  def start_receiver(self):
+    self.receiver.start()
 
   def run(self):
     self.receiver.reset_log()
-    self.receiver.start()
     for c in self.clients:
       c.start()
+    for c in self.clients:
+      c.join()
   
   def get_logs(self):
     logs = []
     for c in self.clients:
       logs.append(c.export_log())
     c_df = pd.concat(logs)
-    r_df = c.receiver.export_log()
+    r_df = self.receiver.export_log()
     return pd.merge(c_df, r_df, how='outer', on=['op','v1','v2'])
 
   def save_logs(self):
@@ -78,6 +87,17 @@ class NeuromniSimulator():
 
 class Client(threading.Thread):
   """Single client simulator.
+
+  Attributes:
+    id: (int) unique identifier for the client
+    supervoxels: [int] list of supervoxel IDs to execute actions between
+    bbox: chunk from which to request the subgraph
+    read_frequency: time in seconds between read requests for each client.
+    write_frequency: time in seconds between write requests for each client.
+    runtime: (int) seconds for which the simulation will run 
+    subgraphs: dict of subgraphs (list of vertex pairs) indexed by root ID
+    edge: tuple of ints, that represent a saved edge for merging, then splitting
+    log: list of edits made   
   """
 
   def __init__(self, id, supervoxels, bbox=[[0,0,0],[10,10,10]],
@@ -219,16 +239,25 @@ class Receiver():
     self.log = []
 
   def export_log(self):
-    return pd.DataFrame(self.log, columns=['op','v1','v2','receiver_receipt'])
+    log = []
+    for entry in self.log:
+      m, timestamp = entry
+      data = m.data.decode('utf-8').split(' ')
+      op = data[0]
+      edge = []
+      for d in data[1:]:
+        for x in d.split('['):
+          for y in x.split(']'):
+            if len(y) > 1:
+              edge.append(int(y))
+      log.append([op, edge[0], edge[1], timestamp])    
+    return pd.DataFrame(log, columns=['op','v1','v2','receiver_receipt'])
 
   def update_log(self, m, timestamp):
-    data = m.data.decode('utf-8').split(' ')
-    op = data[0]
-    edge = ast.literal_eval(data[1] + ',' + data[2])
-    self.log.append([op, edge[0], edge[1], timestamp])
-    # self.log.append([m, timestamp])
+    # self.log.append([op, edge[0], edge[1], timestamp])
+    self.log.append([m, timestamp])
 
-  def start(self, runtime=60):
+  def start(self):
       """Receives messages from a pull subscription."""
       subscriber = pubsub_v1.SubscriberClient()
       subscription_path = subscriber.subscription_path(
@@ -236,9 +265,8 @@ class Receiver():
 
       def callback(message):
           print('Received message: {}'.format(message))
-          timestamp = datetime.now().timestamp()
+          # self.update_log(message, datetime.now().timestamp())
           message.ack()
-          self.update_log(message, timestamp)
 
       print('Start listening for messages on {}'.format(subscription_path))
       future = subscriber.subscribe(subscription_path, callback=callback)
@@ -247,11 +275,27 @@ def datetime_to_float(dt):
   return datetime.strptime(dt, '%Y-%m-%d %H:%M:%S.%f').timestamp()
 
 
-def __main__():
-  supervoxels = np.array([2147603517, 268547006, 268566302, 41599, 50826, 
-                          536956195, 536960272, 536965549, 60658, 74108, 
-                          805421377, 805452817, 805482929])
-  ns = NeuromniSimulator(supervoxels)
-  ns.init_clients()
-  ns.run()
-  ns.save_logs()
+
+# if __name__ == '__main__':
+supervoxels = np.array([2147603517, 268566302, 41599, 50826, 
+                        536956195, 536960272, 536965549, 60658, 74108, 
+                        805421377, 805452817, 805482929])
+  #   # low load
+  #   n = 2
+  #   num_low_readers = [i for i in range(1,n)]
+  #   num_low_writers = [1 for i in range(1,n)]
+
+  #   # high load
+  #   num_high_readers = [0 for i in range(1,n)]
+  #   num_high_writers = [i for i in range(1,n)]  
+
+  #   scenarios = zip(num_low_readers + num_high_readers, 
+  #                                     num_low_writers + num_high_writers)
+  #   for num_readers, num_writers in scenarios:
+num_readers = 0
+num_writers = 2
+ns = NeuromniSimulator(supervoxels, num_readers=num_readers, 
+              num_writers=num_writers, dir='data')
+ns.start_receiver()
+ns.run()
+ns.save_logs()
