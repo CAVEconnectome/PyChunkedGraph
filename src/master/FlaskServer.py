@@ -7,7 +7,7 @@ sys.path.insert(0, '/code/src/pychunkedgraph') #Include Sven's pychunkedgraph co
 #sys.path.insert(0, '/usr/people/zashwood/Documents/PyChunkedGraph/src/pychunkedgraph') #Include Sven's pychunkedgraph code
 import chunkedgraph #Import chunkedgraph script 
 import numpy as np
-#import time
+import time
 #from time import gmtime, strftime
 import datetime
 import redis
