@@ -67,8 +67,10 @@ def handle_merge():
                 root1 = cg.get_root(int(edge[0]))
                 root2 = cg.get_root(int(edge[1]))
                 # Numpy arrays of historical root IDs 
-                historical1 = cg.read_agglomeration_id_history(root1)
-                historical2 = cg.read_agglomeration_id_history(root2)
+                # Only collect historical IDs from at most 20s ago
+                time_stamp = datetime.datetime.now() - datetime.timedelta(seconds=20)
+                historical1 = cg.read_agglomeration_id_history(root1, time_stamp)
+                historical2 = cg.read_agglomeration_id_history(root2, time_stamp)
                 all_historical_ids = np.append(historical1, historical2)
                 print(all_historical_ids)
                 # Now check if any of the historical IDs are being processed in redis DB: (inefficient - will not scale to large #s of historical IDs)
@@ -140,8 +142,10 @@ def handle_split():
                 root1 = cg.get_root(int(edge[0]))
                 root2 = cg.get_root(int(edge[1]))
                 # Numpy arrays of historical root IDs 
-                historical1 = cg.read_agglomeration_id_history(root1)
-                historical2 = cg.read_agglomeration_id_history(root2)
+                # Only collect historical IDs from at most 20s ago
+                time_stamp = datetime.datetime.now() - datetime.timedelta(seconds=20)
+                historical1 = cg.read_agglomeration_id_history(root1, time_stamp)
+                historical2 = cg.read_agglomeration_id_history(root2, time_stamp)
                 all_historical_ids = np.append(historical1, historical2)
                 print(all_historical_ids)
                 # Now check if any of the historical IDs are being processed in redis DB: (inefficient - will not scale to large #s of historical IDs)
