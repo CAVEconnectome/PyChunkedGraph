@@ -284,7 +284,7 @@ def datetime_to_float(dt):
 
 
 
-if __name__ == '__main__':
+def project_simulations():
   axons = np.array([1073872745,1073877767,1342259501,1342265089,1342265248,
                     1342282778,1610757848,1610757930,1610758328,1610763716,
                     1879163963,1879172639,2147608833,2147609338,2147613253,
@@ -319,3 +319,6 @@ if __name__ == '__main__':
     ns.run()
     time.sleep(30)
     ns.save_logs()
+
+if __name__ == '__main__':
+  project_simulations()
