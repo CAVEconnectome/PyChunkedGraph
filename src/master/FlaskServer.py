@@ -209,7 +209,7 @@ def get_subgraph():
         try:
             root_id = request.get_json()['root_id']
             bounding_box  = np.array(request.get_json()['bbox'], dtype = int)
-            edges, affinities = cg.get_subgraph(root_id, bounding_box, return_rg_ids = True)
+            edges, affinities = cg.get_subgraph(root_id, bounding_box, return_rg_ids = False)
             time_graph_end = str(datetime.datetime.now())
             return jsonify({"edges":edges.tolist(), 'affinities':affinities.tolist(), "time_server_start": time_server_start, "time_graph_start": time_graph_start, "time_graph_end":time_graph_end})   
         except Exception as e:
