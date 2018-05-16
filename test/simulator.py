@@ -8,7 +8,7 @@ import threading
 import requests
 
 import urllib3
-# urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 import numpy as np
 import pandas as pd
@@ -36,15 +36,15 @@ class NeuromniSimulator():
     runtime: (int) seconds for which the simulation will run
   """
   
-  def __init__(self, supervoxels, num_readers=1, num_writers=1, read_frequency=2, 
-                      write_frequency=2, runtime=20, dir=expanduser('~')):
+  def __init__(self, receiver, supervoxels, num_readers=1, num_writers=1, read_frequency=5, 
+                      write_frequency=5, runtime=120, dir=expanduser('~')):
     self.num_readers = num_readers
     self.num_writers = num_writers
     self.read_frequency = read_frequency
     self.write_frequency = write_frequency
     self.runtime = runtime
     self.clients = []
-    self.receiver = None
+    self.receiver = receiver
     self.dir = dir
     self.supervoxels = supervoxels
     self.init_clients()
@@ -59,10 +59,6 @@ class NeuromniSimulator():
         c = Client(i+self.num_writers, sv, read_frequency=self.read_frequency, 
                                           write_frequency=0, runtime=self.runtime)
         self.clients.append(c)
-    self.receiver = Receiver('neuromancer-seung-import', 'MySub')
-
-  def start_receiver(self):
-    self.receiver.start()
 
   def run(self):
     self.receiver.reset_log()
@@ -77,13 +73,17 @@ class NeuromniSimulator():
       logs.append(c.export_log())
     c_df = pd.concat(logs)
     r_df = self.receiver.export_log()
-    return pd.merge(c_df, r_df, how='outer', on=['op','v1','v2'])
+    # return pd.merge(c_df, r_df, how='outer', on=['op','v1','v2'])
+    return c_df, r_df
 
   def save_logs(self):
-    fn = 'NeuromniSimulator_{0}_readers_{1}_writers_{2}_seconds'.format(self.num_readers, self.num_writers, self.runtime)
-    path = join(self.dir, fn)
-    df = self.get_logs()
-    df.to_csv(path)
+    c_df, r_df = self.get_logs()
+    c_fn = 'NeuromniSimulator_{0}_readers_{1}_writers_{2}_seconds_clients'.format(self.num_readers, self.num_writers, self.runtime)
+    c_path = join(self.dir, c_fn)
+    c_df.to_csv(c_path)
+    r_fn = 'NeuromniSimulator_{0}_readers_{1}_writers_{2}_seconds_receiver'.format(self.num_readers, self.num_writers, self.runtime)
+    r_path = join(self.dir, r_fn)
+    r_df.to_csv(r_path)
 
 class Client(threading.Thread):
   """Single client simulator.
@@ -101,7 +101,7 @@ class Client(threading.Thread):
   """
 
   def __init__(self, id, supervoxels, bbox=[[0,0,0],[10,10,10]],
-                        read_frequency=5, write_frequency=5, runtime=30):
+                        read_frequency=5, write_frequency=5, runtime=60):
     threading.Thread.__init__(self)
     self.id = id
     self.read_frequency = read_frequency
@@ -150,6 +150,8 @@ class Client(threading.Thread):
       url = 'https://35.231.236.20:4000/1.0/segment/{0}/'.format(op)
       request_time = datetime.now().timestamp()
       response = requests.get(url, verify=False)
+      data_dict = op
+      op = 'root'
       # dummy response data
       # response = {'time_server_start': 0,
       #             'time_graph_start':0,
@@ -158,8 +160,14 @@ class Client(threading.Thread):
       #             'id': random.randint(1,100)}
     response_time = datetime.now().timestamp()
     response = response.json()
+    edge = [0,0]
     if op in ['merge', 'split']:
-      self.update_log(op, data_dict['edge'], response, request_time, response_time)
+      edge = data_dict['edge']
+    elif op == 'subgraph':
+      edge = [data_dict['root_id'], 0]
+    elif op == 'root':
+      edge = [data_dict.split('/')[0], 0]
+    self.update_log(op, edge, response, request_time, response_time)
     return response
 
   def update_log(self, op, edge, response, request_time, response_time):
@@ -250,11 +258,11 @@ class Receiver():
           for y in x.split(']'):
             if len(y) > 1:
               edge.append(int(y))
+      # log.append([op, data, timestamp])    
       log.append([op, edge[0], edge[1], timestamp])    
     return pd.DataFrame(log, columns=['op','v1','v2','receiver_receipt'])
 
   def update_log(self, m, timestamp):
-    # self.log.append([op, edge[0], edge[1], timestamp])
     self.log.append([m, timestamp])
 
   def start(self):
@@ -265,7 +273,7 @@ class Receiver():
 
       def callback(message):
           print('Received message: {}'.format(message))
-          # self.update_log(message, datetime.now().timestamp())
+          self.update_log(message, datetime.now().timestamp())
           message.ack()
 
       print('Start listening for messages on {}'.format(subscription_path))
@@ -276,26 +284,38 @@ def datetime_to_float(dt):
 
 
 
-# if __name__ == '__main__':
-supervoxels = np.array([2147603517, 268566302, 41599, 50826, 
-                        536956195, 536960272, 536965549, 60658, 74108, 
-                        805421377, 805452817, 805482929])
-  #   # low load
-  #   n = 2
-  #   num_low_readers = [i for i in range(1,n)]
-  #   num_low_writers = [1 for i in range(1,n)]
+if __name__ == '__main__':
+  axons = np.array([1073872745,1073877767,1342259501,1342265089,1342265248,
+                    1342282778,1610757848,1610757930,1610758328,1610763716,
+                    1879163963,1879172639,2147608833,2147609338,2147613253,
+                    2147629746,2416061756,2416091572,2416091701,268546551,
+                    268566391,268567659,268574828,2952856782,3221345314,
+                    3221347192,3221356706,3221362581,3221364254,3489761217,
+                    3489764604,3489779429,3758208023,3758208753,4026600005,
+                    4026615577,4026627905,536951520,536956914,536960992,
+                    536965629,536970379,60231,63927,70458,805453908,
+                    805459674,805475912,805481910])
+  mixed_supervoxels = np.array([1073866276,1073884365,1610758466,1610758483,
+                        1610758848,1879167187,1879172874,2684416363,
+                        268583651,3758198161,3758212775,4026604416,4026618602])
+  # low load
+  n = 17
+  k = 2
+  num_low_readers = [i for i in range(1,n,k)]
+  num_low_writers = [1 for i in range(1,n,k)]
 
-  #   # high load
-  #   num_high_readers = [0 for i in range(1,n)]
-  #   num_high_writers = [i for i in range(1,n)]  
+  # high load
+  num_high_readers = [0 for i in range(2,n,k)]
+  num_high_writers = [i for i in range(2,n,k)]  
 
-  #   scenarios = zip(num_low_readers + num_high_readers, 
-  #                                     num_low_writers + num_high_writers)
-  #   for num_readers, num_writers in scenarios:
-num_readers = 0
-num_writers = 2
-ns = NeuromniSimulator(supervoxels, num_readers=num_readers, 
-              num_writers=num_writers, dir='data')
-ns.start_receiver()
-ns.run()
-ns.save_logs()
+  scenarios = zip(num_high_readers + num_low_readers, 
+                                    num_high_writers + num_low_writers)
+  receiver = Receiver('neuromancer-seung-import', 'MySub')
+  receiver.start()
+  for num_readers, num_writers in scenarios:
+    print((num_readers, num_writers))
+    ns = NeuromniSimulator(receiver, axons, num_readers=num_readers, 
+                  num_writers=num_writers, dir='data/axons')
+    ns.run()
+    time.sleep(30)
+    ns.save_logs()
