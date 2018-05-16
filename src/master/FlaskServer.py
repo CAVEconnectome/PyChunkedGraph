@@ -89,7 +89,7 @@ def handle_merge():
                     redis_conn.set(str(root1), "busy")
                     redis_conn.set(str(root2), "busy")
                     # Perform edit on graph
-                    out = cg.add_edge(edge)
+                    out = cg.add_edge(edge, is_cg_id = True)
                     time_graph_end = str(datetime.datetime.now())
                     # Now remove root1 and root2 from redis (unlock these root IDs)
                     redis_conn.delete(str(root1))
@@ -163,7 +163,7 @@ def handle_split():
                     # First add root1 and root2 to locked list:
                     redis_conn.set(str(root1), "busy")
                     redis_conn.set(str(root2), "busy")
-                    out = cg.remove_edge(edge)
+                    out = cg.remove_edge(edge, is_cg_id = True)
                     time_graph_end = str(datetime.datetime.now())
                     # Now remove root1 and root2 from redis (unlock these root IDs)
                     redis_conn.delete(str(root1))
