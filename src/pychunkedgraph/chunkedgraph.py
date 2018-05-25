@@ -583,7 +583,7 @@ class ChunkedGraph(object):
 
     def get_subgraph(self, agglomeration_id, bounding_box=None,
                      bb_is_coordinate=False, return_rg_ids=False,
-                     time_stamp=None):
+                     get_edges=False, time_stamp=None):
         """ Returns all edges between supervoxels belonging to the specified
             agglomeration id within the defined bouning box
 
@@ -608,6 +608,7 @@ class ChunkedGraph(object):
         # bounding_box = np.array(bounding_box, dtype=np.int)
 
         edges = np.array([], dtype=np.uint64).reshape(0, 2)
+        atomic_ids = np.array([], dtype=np.uint64)
         affinities = np.array([], dtype=np.float32)
         child_ids = [agglomeration_id]
 
@@ -617,11 +618,15 @@ class ChunkedGraph(object):
             # print(layer, get_chunk_id_from_node_id(child_ids[0]))
             for child_id in child_ids:
                 if layer == 2:
-                    this_edges, this_affinities = self.get_subgraph_chunk(
-                        child_id, time_stamp=time_stamp)
+                    if get_edges:
+                        this_edges, this_affinities = self.get_subgraph_chunk(
+                            child_id, time_stamp=time_stamp)
 
-                    affinities = np.concatenate([affinities, this_affinities])
-                    edges = np.concatenate([edges, this_edges])
+                        affinities = np.concatenate([affinities, this_affinities])
+                        edges = np.concatenate([edges, this_edges])
+                    else:
+                        this_atomic_ids = self.get_children(child_id)
+                        atomic_ids = np.concatenate([atomic_ids, this_atomic_ids])
                 else:
                     this_children = self.get_children(child_id)
 
@@ -638,15 +643,26 @@ class ChunkedGraph(object):
 
             child_ids = new_childs
 
-        if return_rg_ids:
-            rg_edges = np.zeros_like(edges, dtype=np.uint64)
+        if get_edges:
+            if return_rg_ids:
+                rg_edges = np.zeros_like(edges, dtype=np.uint64)
 
-            for u_id in np.unique(edges):
-                rg_edges[edges == u_id] = self.get_rg_id_from_cg_id(u_id)
+                for u_id in np.unique(edges):
+                    rg_edges[edges == u_id] = self.get_rg_id_from_cg_id(u_id)
 
-            return np.array(rg_edges), affinities
+                return np.array(rg_edges), affinities
+            else:
+                return edges, affinities
         else:
-            return edges, affinities
+            if return_rg_ids:
+                rg_atomic_ids = []
+
+                for u_id in np.unique(atomic_ids):
+                    rg_atomic_ids.append(self.get_rg_id_from_cg_id(u_id))
+
+                return np.array(rg_atomic_ids)
+            else:
+                return atomic_ids
 
     def get_subgraph_chunk(self, parent_id, time_stamp=None):
         """ Takes an atomic id and returns the associated agglomeration ids
@@ -1076,3 +1092,9 @@ class ChunkedGraph(object):
 
         status = self.table.mutate_rows(rows)
         return new_roots
+
+    def remove_edges_mincut(self):
+        pass
+
+    def mincut(self):
+        pass

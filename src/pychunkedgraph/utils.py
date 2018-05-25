@@ -39,12 +39,12 @@ def read_edge_file_h5(path, layer_name=None):
     return edge_ids, edge_affs
 
 
-def download_and_store_edge_file(cv_st, path):
+def download_and_store_edge_file(cv_st, path, create_dir=True):
     edge_ids, edge_affs = read_edge_file_cv(cv_st, path)
 
     dir_path = dir_from_layer_name(layer_name_from_cv_url(cv_st.layer_path))
 
-    if not os.path.exists(dir_path):
+    if not os.path.exists(dir_path) and create_dir:
         os.makedirs(dir_path)
 
     with h5py.File(dir_path + path[:-4] + ".h5", "w") as f:

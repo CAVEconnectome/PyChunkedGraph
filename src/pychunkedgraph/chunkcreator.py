@@ -12,19 +12,82 @@ from . import multiprocessing_utils
 from . import utils
 
 
-def download_and_store_cv_files(cv_url="gs://nkem/basil_4k_oldnet/region_graph/"):
+# def download_and_store_cv_files(cv_url="gs://nkem/basil_4k_oldnet/region_graph/"):
+def download_and_store_cv_files(cv_url="gs://nkem/pinky40_v11/mst_trimmed_sem_remap/region_graph/", nb_cpus=10):
     with storage.SimpleStorage(cv_url) as cv_st:
-        file_paths = cv_st.list_files()
+        dir_path = utils.dir_from_layer_name(utils.layer_name_from_cv_url(cv_st.layer_path))
 
-        for fp in file_paths:
-            print(fp)
+        if not os.path.exists(dir_path):
+            os.makedirs(dir_path)
+
+        file_paths = list(cv_st.list_files())
+
+    file_chunks = np.array_split(file_paths, nb_cpus * 3)
+    multi_args = []
+    for i_file_chunk, file_chunk in enumerate(file_chunks):
+        multi_args.append([i_file_chunk, cv_url, file_chunk])
+
+    # Run multiprocessing
+    if nb_cpus == 1:
+        multiprocessing_utils.multiprocess_func(_download_and_store_cv_files_thread,
+                                                multi_args, nb_cpus=nb_cpus,
+                                                verbose=True, debug=nb_cpus==1)
+    else:
+        multiprocessing_utils.multisubprocess_func(_download_and_store_cv_files_thread,
+                                                   multi_args,
+                                                   n_subprocesses=nb_cpus)
+
+
+def _download_and_store_cv_files_thread(args):
+    chunk_id, cv_url, file_paths = args
+
+    # Reset connection pool to make cloud-volume compatible with multiprocessing
+    storage.reset_connection_pools()
+
+    n_file_paths = len(file_paths)
+    time_start = time.time()
+    with storage.SimpleStorage(cv_url) as cv_st:
+        for i_fp, fp in enumerate(file_paths):
+            if i_fp % 100 == 1:
+                dt = time.time() - time_start
+                eta = dt / i_fp * n_file_paths - dt
+                print("%d: %d / %d - dt: %.3fs - eta: %.3fs" % (chunk_id, i_fp, n_file_paths, dt, eta))
+
             if "rg2cg" in fp:
                 utils.download_and_store_mapping_file(cv_st, fp)
             else:
                 utils.download_and_store_edge_file(cv_st, fp)
 
 
-def create_chunked_graph(cv_url="gs://nkem/basil_4k_oldnet/region_graph/",
+def check_stored_cv_files(cv_url="gs://nkem/pinky40_v11/mst_trimmed_sem_remap/region_graph/"):
+    with storage.SimpleStorage(cv_url) as cv_st:
+        dir_path = utils.dir_from_layer_name(utils.layer_name_from_cv_url(cv_st.layer_path))
+
+        file_paths = list(cv_st.list_files())
+
+    c = 0
+    n_file_paths = len(file_paths)
+    time_start = time.time()
+    for i_fp, fp in enumerate(file_paths):
+        if i_fp % 1000 == 1:
+            dt = time.time() - time_start
+            eta = dt / i_fp * n_file_paths - dt
+            print("%d / %d - dt: %.3fs - eta: %.3fs" % (i_fp, n_file_paths, dt, eta))
+
+        if not os.path.exists(dir_path + fp[:-4] + ".h5"):
+            # print(dir_path + fp[:-4] + ".h5")
+            c += 1
+
+        #
+        # if "rg2cg" in fp:
+        #     utils.download_and_store_mapping_file(cv_st, fp)
+        # else:
+        #     utils.download_and_store_edge_file(cv_st, fp)
+    print(c)
+
+
+# def create_chunked_graph(cv_url="gs://nkem/basil_4k_oldnet/region_graph/",
+def create_chunked_graph(cv_url="gs://nkem/pinky40_v11/mst_trimmed_sem_remap/region_graph/",
                          dev_mode=False, table_id=None, nb_cpus=1):
     file_paths = np.sort(glob.glob(utils.dir_from_layer_name(utils.layer_name_from_cv_url(cv_url)) + "/*"))
 
@@ -111,9 +174,6 @@ def create_chunked_graph(cv_url="gs://nkem/basil_4k_oldnet/region_graph/",
 
         print("\n\n\n --- LAYER %d --- \n\n\n" % layer_id)
 
-        if len(child_chunk_ids) == 1:
-            last_run = True
-
         parent_chunk_ids = child_chunk_ids // cg.fan_out ** (layer_id - 2)
 
         u_pcids, inds = np.unique(parent_chunk_ids,
@@ -134,6 +194,9 @@ def create_chunked_graph(cv_url="gs://nkem/basil_4k_oldnet/region_graph/",
             multiprocessing_utils.multisubprocess_func(_add_layer_thread,
                                                        multi_args,
                                                        n_subprocesses=nb_cpus)
+
+        if len(child_chunk_ids) == 1:
+            last_run = True
 
 
 def _create_atomic_layer_thread(args):
