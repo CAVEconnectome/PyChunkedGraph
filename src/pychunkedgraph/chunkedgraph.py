@@ -100,6 +100,25 @@ def test_if_nodes_are_in_same_chunk(node_ids):
            np.frombuffer(node_ids[1], dtype=np.uint32)[1]
 
 
+def mincut(edges, affs, source, sink):
+    """ Computes the min cut on a local graph
+
+    :param edges: n x 2 array of uint64s
+    :param affs: float array of length n
+    :param source: uint64
+    :param sink: uint64
+    :return: m x 2 array of uint64s
+        edges that should be removed
+    """
+    weighted_graph = nx.Graph()
+    weighted_graph.add_weighted_edges_from(
+        np.concatenate((edges, affs[:, None]), axis=1))
+
+    cutset = nx.minimum_edge_cut(weighted_graph, float(source), float(sink))
+
+    return np.array(list(cutset), dtype=np.int)
+
+
 class ChunkedGraph(object):
     def __init__(self, instance_id="pychunkedgraph",
                  project_id="neuromancer-seung-import",
@@ -599,13 +618,16 @@ class ChunkedGraph(object):
         if time_stamp.tzinfo is None:
             time_stamp = UTC.localize(time_stamp)
 
-        if bb_is_coordinate:
-            bounding_box = np.array(bounding_box,
-                                    dtype=np.float32) / self.chunk_size
-            bounding_box[0] = np.floor(bounding_box[0])
-            bounding_box[1] = np.ceil(bounding_box[1])
+        if bounding_box is not None:
 
-        # bounding_box = np.array(bounding_box, dtype=np.int)
+            if bb_is_coordinate:
+                bounding_box = np.array(bounding_box,
+                                        dtype=np.float32) / self.chunk_size
+                bounding_box = bounding_box.astype(np.int)
+                bounding_box[0] = np.floor(bounding_box[0])
+                bounding_box[1] = np.ceil(bounding_box[1])
+            else:
+                bounding_box = np.array(bounding_box, dtype=np.int)
 
         edges = np.array([], dtype=np.uint64).reshape(0, 2)
         atomic_ids = np.array([], dtype=np.uint64)
@@ -616,6 +638,7 @@ class ChunkedGraph(object):
             new_childs = []
             layer = get_chunk_id_from_node_id(child_ids[0])[-1]
             # print(layer, get_chunk_id_from_node_id(child_ids[0]))
+            # print(layer, len(child_ids), get_chunk_ids_from_node_ids(child_ids)[:, :3]*self.chunk_size)
             for child_id in child_ids:
                 if layer == 2:
                     if get_edges:
@@ -629,6 +652,13 @@ class ChunkedGraph(object):
                         atomic_ids = np.concatenate([atomic_ids, this_atomic_ids])
                 else:
                     this_children = self.get_children(child_id)
+
+                    # if bounding_box is not None:
+                    #     chunk_ids = get_chunk_ids_from_node_ids(this_children)[:, :3]
+                    #
+                    #     chunk_id_bounds = [chunk_ids, chunk_ids + self.fan_out ** np.max([0, (layer - 3)])]
+
+
 
                     # cids_min = np.frombuffer(this_children, dtype=np.uint8).reshape(-1, 8)[:, 4:-1][:, ::-1] * self.fan_out ** np.max([0, (layer - 2)])
                     # cids_max = cids_min + self.fan_out * np.max([0, (layer - 2)])
@@ -847,9 +877,9 @@ class ChunkedGraph(object):
     def remove_edge(self, atomic_edges, is_cg_id=False):
         """ Removes atomic edges from the ChunkedGraph
 
-        :param atomic_edges: list of two ints
+        :param atomic_edges: list of two uint64s
         :param is_cg_id: bool
-        :return: list of ints
+        :return: list of uint64s
             new root ids
         """
         time_stamp = datetime.datetime.now()
@@ -1093,8 +1123,25 @@ class ChunkedGraph(object):
         status = self.table.mutate_rows(rows)
         return new_roots
 
-    def remove_edges_mincut(self):
-        pass
+    def remove_edges_mincut(self, source_id, sink_id, is_cg_id=False):
+        """ Computes mincut and removes edges
 
-    def mincut(self):
-        pass
+        :param source_id: uint64
+        :param sink_id: uint64
+        :param is_cg_id: bool
+        :return: list of uint64s
+            new root ids
+        """
+
+        if not is_cg_id:
+            source_id = self.get_cg_id_from_rg_id(source_id)
+            sink_id = self.get_cg_id_from_rg_id(sink_id)
+
+
+        agglomeration_id = self.get_root(source_id, is_cg_id=True)
+        edges, affs = self.get_subgraph(agglomeration_id, get_edges=True)
+
+        atomic_edges = mincut(edges, affs, source_id, sink_id)
+        new_roots = self.remove_edge(atomic_edges, is_cg_id=True)
+
+        return new_roots
