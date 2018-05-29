@@ -86,12 +86,12 @@ def check_stored_cv_files(cv_url="gs://nkem/pinky40_v11/mst_trimmed_sem_remap/re
     print(c)
 
 
-# def create_chunked_graph(cv_url="gs://nkem/basil_4k_oldnet/region_graph/",
-def create_chunked_graph(cv_url="gs://nkem/pinky40_v11/mst_trimmed_sem_remap/region_graph/",
-                         dev_mode=False, table_id=None, nb_cpus=1):
+def create_chunked_graph(cv_url="gs://nkem/basil_4k_oldnet/region_graph/",
+# def create_chunked_graph(cv_url="gs://nkem/pinky40_v11/mst_trimmed_sem_remap/region_graph/",
+                         table_id=None, nb_cpus=1):
     file_paths = np.sort(glob.glob(utils.dir_from_layer_name(utils.layer_name_from_cv_url(cv_url)) + "/*"))
 
-    cg = chunkedgraph.ChunkedGraph(dev_mode=dev_mode, table_id=table_id)
+    cg = chunkedgraph.ChunkedGraph(table_id=table_id)
 
     multi_args = []
 
@@ -148,8 +148,7 @@ def create_chunked_graph(cv_url="gs://nkem/pinky40_v11/mst_trimmed_sem_remap/reg
         out_paths_mask = np.sum(np.abs(between_chunk_ids[:, 0] - in_chunk_ids[i_chunk]), axis=1) == 0
         in_paths_mask = np.sum(np.abs(between_chunk_ids[:, 1] - in_chunk_ids[i_chunk]), axis=1) == 0
 
-        multi_args.append([dev_mode,
-                           table_id,
+        multi_args.append([table_id,
                            chunk_path,
                            between_chunk_paths[in_paths_mask],
                            between_chunk_paths[out_paths_mask],
@@ -176,12 +175,18 @@ def create_chunked_graph(cv_url="gs://nkem/pinky40_v11/mst_trimmed_sem_remap/reg
 
         parent_chunk_ids = child_chunk_ids // cg.fan_out ** (layer_id - 2)
 
+        # print(parent_chunk_ids)
+        # print(child_chunk_ids)
+
         u_pcids, inds = np.unique(parent_chunk_ids,
                                   axis=0, return_inverse=True)
 
         multi_args = []
         for ind in range(len(u_pcids)):
-            multi_args.append([dev_mode, table_id, layer_id, child_chunk_ids[inds == ind]])
+            multi_args.append([table_id, layer_id, child_chunk_ids[inds == ind]])
+
+        if len(child_chunk_ids) == 1:
+            last_run = True
 
         child_chunk_ids = u_pcids * cg.fan_out ** (layer_id - 2)
 
@@ -195,14 +200,11 @@ def create_chunked_graph(cv_url="gs://nkem/pinky40_v11/mst_trimmed_sem_remap/reg
                                                        multi_args,
                                                        n_subprocesses=nb_cpus)
 
-        if len(child_chunk_ids) == 1:
-            last_run = True
-
 
 def _create_atomic_layer_thread(args):
     """ Fills lowest layer and create first abstraction layer """
     # Load args
-    dev_mode, table_id, chunk_path, in_paths, out_paths, mapping_path = args
+    table_id, chunk_path, in_paths, out_paths, mapping_path = args
 
     # Load edge information
     edge_ids, edge_affs = utils.read_edge_file_h5(chunk_path)
@@ -228,15 +230,15 @@ def _create_atomic_layer_thread(args):
     rg2cg = dict(zip(mappings[:, 0], mappings[:, 1]))
 
     # Initialize an ChunkedGraph instance and write to it
-    cg = chunkedgraph.ChunkedGraph(dev_mode=dev_mode, table_id=table_id)
+    cg = chunkedgraph.ChunkedGraph(table_id=table_id)
     cg.add_atomic_edges_in_chunks(edge_ids, cross_edge_ids,
                                   edge_affs, cross_edge_affs,
                                   cg2rg, rg2cg)
 
 
 def _add_layer_thread(args):
-    dev_mode, table_id, layer_id, chunk_coords = args
+    table_id, layer_id, chunk_coords = args
 
-    cg = chunkedgraph.ChunkedGraph(dev_mode=dev_mode, table_id=table_id)
+    cg = chunkedgraph.ChunkedGraph(table_id=table_id)
     cg.add_layer(layer_id, chunk_coords)
 
