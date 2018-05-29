@@ -639,8 +639,7 @@ class ChunkedGraph(object):
         while len(child_ids) > 0:
             new_childs = []
             layer = get_chunk_id_from_node_id(child_ids[0])[-1]
-            # print(layer, get_chunk_id_from_node_id(child_ids[0]))
-            # print(layer, len(child_ids), get_chunk_ids_from_node_ids(child_ids)[:, :3]*self.chunk_size)
+
             for child_id in child_ids:
                 if layer == 2:
                     if get_edges:
@@ -655,19 +654,17 @@ class ChunkedGraph(object):
                 else:
                     this_children = self.get_children(child_id)
 
-                    # if bounding_box is not None:
-                    #     chunk_ids = get_chunk_ids_from_node_ids(this_children)[:, :3]
-                    #
-                    #     chunk_id_bounds = [chunk_ids, chunk_ids + self.fan_out ** np.max([0, (layer - 3)])]
+                    if bounding_box is not None:
+                        chunk_ids = get_chunk_ids_from_node_ids(this_children)[:, :3]
 
-                    # cids_min = np.frombuffer(this_children, dtype=np.uint8).reshape(-1, 8)[:, 4:-1][:, ::-1] * self.fan_out ** np.max([0, (layer - 2)])
-                    # cids_max = cids_min + self.fan_out * np.max([0, (layer - 2)])
-                    #
-                    # child_id_mask_min_upper = np.all(cids_min <= bounding_box[1], axis=1)
-                    # child_id_mask_max_lower = np.all(cids_max > bounding_box[0], axis=1)
-                    #
-                    # m = np.logical_and(child_id_mask_min_upper, child_id_mask_max_lower)
-                    # this_children = this_children[m]
+                        chunk_id_bounds = np.array([chunk_ids,
+                                                    chunk_ids + self.fan_out ** np.max([0, (layer - 3)])])
+
+                        bound_check = np.array([np.all(chunk_id_bounds[0] < bounding_box[1], axis=1),
+                                                np.all(chunk_id_bounds[1] > bounding_box[0], axis=1)]).T
+
+                        bound_check_mask = np.all(bound_check, axis=1)
+                        this_children = this_children[bound_check_mask]
 
                     new_childs.extend(this_children)
 

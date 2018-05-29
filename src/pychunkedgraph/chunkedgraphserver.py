@@ -1,5 +1,6 @@
 from flask import Flask, jsonify, Response, request, make_response
 from flask_cors import CORS
+from werkzeug.serving import WSGIRequestHandler
 from google.cloud import pubsub_v1
 import json
 import os
@@ -23,13 +24,13 @@ def tobinary(ids):
     return np.array(ids).tobytes()
 
 
-@app.after_request
-def apply_caching(resp):
-    resp.headers['Access-Control-Allow-Origin'] = '*'
-    resp.headers["Access-Control-Allow-Headers"] = "Origin, X-Requested-With," \
-                                                   " Content-Type, Accept"
-    resp.headers["Access-Control-Allow-Methods"] = "POST, GET, OPTIONS"
-    return resp
+# @app.after_request
+# def apply_caching(resp):
+#     resp.headers['Access-Control-Allow-Origin'] = '*'
+#     resp.headers["Access-Control-Allow-Headers"] = "Origin, X-Requested-With," \
+#                                                    " Content-Type, Accept"
+#     resp.headers["Access-Control-Allow-Methods"] = "POST, GET, OPTIONS"
+#     return resp
 
 
 @app.route
@@ -39,6 +40,7 @@ def home():
     resp.headers["Access-Control-Allow-Headers"] = "Origin, X-Requested-With," \
                                                    " Content-Type, Accept"
     resp.headers["Access-Control-Allow-Methods"] = "POST, GET, OPTIONS"
+    resp.headers["Connection"] = "keep-alive"
     return resp
 
 
@@ -103,6 +105,7 @@ def handle_children(parent_id):
     #     atomic_ids = cg.get_children(int(parent_id))
     # except:
     #     atomic_ids = np.array([])
+
     atomic_ids = cg.get_subgraph(int(parent_id), return_rg_ids=False)
 
     dt = time.time() - time_start
@@ -114,12 +117,21 @@ def handle_children(parent_id):
 
 @app.route('/1.0/segment/<root_id>/leaves', methods=['POST', 'GET'])
 def handle_leaves(root_id):
+
+    if "bounds" in request.args:
+        bounds = request.args["bounds"]
+        bounding_box = np.array([b.split("-") for b in bounds.split("_")],
+                                dtype=np.int).T
+    else:
+        bounding_box = None
     # root_id = int(json.loads(request.data)[0])
 
     time_start = time.time()
 
     # Call ChunkedGraph
-    atomic_ids = cg.get_subgraph(int(root_id), return_rg_ids=False)
+    atomic_ids = cg.get_subgraph(int(root_id), return_rg_ids=False,
+                                 bounding_box=bounding_box,
+                                 bb_is_coordinate=True)
 
     dt = time.time() - time_start
     print("LEAVES: %3fms" % (dt * 1000))
@@ -132,29 +144,48 @@ def handle_leaves(root_id):
 def handle_leaves_from_leave(atomic_id):
     # root_id = int(json.loads(request.data)[0])
 
+    if "bounds" in request.args:
+        bounds = request.args["bounds"]
+        bounding_box = np.array([b.split("-") for b in bounds.split("_")],
+                                dtype=np.int).T
+    else:
+        bounding_box = None
+
     time_start = time.time()
 
     # Call ChunkedGraph
-    atomic_ids = cg.get_subgraph(cg.get_root(int(atomic_id), is_cg_id=True),
-                                 return_rg_ids=False)
+    root_id = cg.get_root(int(atomic_id), is_cg_id=True)
+
+    atomic_ids = cg.get_subgraph(root_id, return_rg_ids=False,
+                                 bounding_box=bounding_box,
+                                 bb_is_coordinate=True)
 
     dt = time.time() - time_start
     print("LEAVES FROM LEAVES: %3fms" % (dt * 1000))
 
     # Return binary
-    return tobinary(atomic_ids)
+    return tobinary(np.concatenate([np.array([root_id]), atomic_ids]))
 
 
 @app.route('/1.0/segment/<root_id>/subgraph', methods=['POST', 'GET'])
 def handle_subgraph(root_id):
     # root_id = int(json.loads(request.data)[0])
 
+    if "bounds" in request.args:
+        bounds = request.args["bounds"]
+        bounding_box = np.array([b.split("-") for b in bounds.split("_")],
+                                dtype=np.int).T
+    else:
+        bounding_box = None
+
     time_start = time.time()
 
     # Call ChunkedGraph
     atomic_edges = cg.get_subgraph(int(root_id),
                                    return_rg_ids=False,
-                                   get_edges=True)[0]
+                                   get_edges=True,
+                                   bounding_box=bounding_box,
+                                   bb_is_coordinate=True)[0]
 
     dt = time.time() - time_start
     print("SUBGRAPH: %3fms" % (dt * 1000))
@@ -171,6 +202,8 @@ if __name__ == '__main__':
     publisher = pubsub_v1.PublisherClient()
     topic_path = publisher.topic_path('neuromancer-seung-import',
                                       'pychunkedgraph')
+
+    WSGIRequestHandler.protocol_version = "HTTP/1.1"
 
     app.run(host='0.0.0.0',
             port=4000,
