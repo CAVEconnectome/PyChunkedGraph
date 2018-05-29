@@ -12,7 +12,7 @@ Deleting the current table:
 
 ```
 from src.pychunkedgraph import chunkedgraph
-cg = chunkedgraph.ChunkedGraph(dev_mode=True)
+cg = chunkedgraph.ChunkedGraph(table_id="mytableid")
 
 cg.table.delete()
 ```
@@ -20,7 +20,7 @@ cg.table.delete()
 Creating a new table and family:
 
 ```
-cg = chunkedgraph.ChunkedGraph(dev_mode=True)
+cg = chunkedgraph.ChunkedGraph(table_id="mytableid")
 
 cg.table.create()
 f = cg.table.column_family(cg.family_id) 
@@ -42,10 +42,10 @@ The files are stored as h5's in a directory in `home`. The directory name is cho
 ## Building the ChunkedGraph
 
 ```
-chunkcreator.create_chunked_graph(cv_url, dev_mode=False, nb_cpus=1)
+chunkcreator.create_chunked_graph(cv_url, table_id="mytableid", nb_cpus=1)
 ```
 
-`dev_mode` is an easy way to switch between two different tables, one meant for production and one for development. `nb_cpus` 
+`nb_cpus` 
 allows the user to run this process in parallel using `subprocesses` (see [multiprocessing.md](https://github.com/seung-lab/PyChunkedGraph/blob/master/src/pychunkedgraph/multiprocessing.md)).
 
 
