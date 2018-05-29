@@ -122,19 +122,15 @@ def mincut(edges, affs, source, sink):
 class ChunkedGraph(object):
     def __init__(self, instance_id="pychunkedgraph",
                  project_id="neuromancer-seung-import",
-                 chunk_size=(512, 512, 64), dev_mode=False,
-                 table_id=None):
+                 chunk_size=(512, 512, 64), table_id=None):
 
         self._client = bigtable.Client(project=project_id, admin=True)
         self._instance = self.client.instance(instance_id)
 
         if table_id is None:
-            if dev_mode:
-                self._table = self.instance.table("pychgtable_dev")
-            else:
-                self._table = self.instance.table("pychgtable")
-        else:
-            self._table = self.instance.table(table_id)
+            table_id = "test"
+
+        self._table = self.instance.table(table_id)
 
         self._fan_out = 2
         self._chunk_size = np.array(chunk_size)
@@ -346,17 +342,23 @@ class ChunkedGraph(object):
         for chunk_coord in child_chunk_coords:
             # Get start and end key
             x, y, z = chunk_coord
-            node_id_base = np.array([0, 0, 0, 0, z, y, x, layer_id - 1], dtype=np.uint8)
+            node_id_base = np.array([0, 0, 0, 0, z, y, x, layer_id - 1],
+                                    dtype=np.uint8)
+
             node_id_base_next = node_id_base.copy()
 
             step = self.fan_out ** (layer_id - 3)
             node_id_base_next[-4] += step
 
-            start_key = serialize_node_id(np.frombuffer(node_id_base, dtype=np.uint64)[0])
-            end_key = serialize_node_id(np.frombuffer(node_id_base_next, dtype=np.uint64)[0])
+            start_key = serialize_node_id(np.frombuffer(node_id_base,
+                                                        dtype=np.uint64)[0])
+            end_key = serialize_node_id(np.frombuffer(node_id_base_next,
+                                                      dtype=np.uint64)[0])
 
             # Set up read
-            range_read = self.table.read_rows(start_key=start_key, end_key=end_key, end_inclusive=False)
+            range_read = self.table.read_rows(start_key=start_key,
+                                              end_key=end_key,
+                                              end_inclusive=False)
             # Execute read
             range_read.consume_all()
 
@@ -657,8 +659,6 @@ class ChunkedGraph(object):
                     #     chunk_ids = get_chunk_ids_from_node_ids(this_children)[:, :3]
                     #
                     #     chunk_id_bounds = [chunk_ids, chunk_ids + self.fan_out ** np.max([0, (layer - 3)])]
-
-
 
                     # cids_min = np.frombuffer(this_children, dtype=np.uint8).reshape(-1, 8)[:, 4:-1][:, ::-1] * self.fan_out ** np.max([0, (layer - 2)])
                     # cids_max = cids_min + self.fan_out * np.max([0, (layer - 2)])

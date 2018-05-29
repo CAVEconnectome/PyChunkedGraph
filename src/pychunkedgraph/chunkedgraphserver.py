@@ -81,8 +81,8 @@ def handle_split():
     time_start = time.time()
 
     # Call ChunkedGraph
-    new_roots = cg.remove_edges_mincut(int(data["source"]),
-                                       int(data["sink"]),
+    new_roots = cg.remove_edges_mincut(int(data["sources"][0]),
+                                       int(data["sinks"][0]),
                                        is_cg_id=True)
 
     dt = time.time() - time_start
@@ -165,7 +165,7 @@ def handle_subgraph(root_id):
 
 if __name__ == '__main__':
     # Initialize chunkedgraph:
-    cg = chunkedgraph.ChunkedGraph(dev_mode=False)
+    cg = chunkedgraph.ChunkedGraph(table_id="basil")
 
     # Initialize google pubsub publisher
     publisher = pubsub_v1.PublisherClient()
