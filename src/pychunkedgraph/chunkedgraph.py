@@ -603,14 +603,17 @@ class ChunkedGraph(object):
         return np.unique(id_history)
 
     def get_subgraph(self, agglomeration_id, bounding_box=None,
-                     bb_is_coordinate=False, return_rg_ids=False,
-                     get_edges=False, time_stamp=None):
+                     bb_is_coordinate=False, bb_is_zyx=False,
+                     return_rg_ids=False, get_edges=False, time_stamp=None):
         """ Returns all edges between supervoxels belonging to the specified
             agglomeration id within the defined bouning box
 
         :param agglomeration_id: int
         :param bounding_box: [[x_l, y_l, z_l], [x_h, y_h, z_h]]
         :param bb_is_coordinate: bool
+        :param bb_is_zyx: bool
+        :param return_rg_ids: bool
+        :param get_edges: bool
         :param time_stamp: datetime or None
         :return: edge list
         """
@@ -630,6 +633,11 @@ class ChunkedGraph(object):
                 bounding_box[1] = np.ceil(bounding_box[1])
             else:
                 bounding_box = np.array(bounding_box, dtype=np.int)
+
+            if not bb_is_zyx:
+                temp = bounding_box[:, 0].copy()
+                bounding_box[:, 0] = bounding_box[:, 2]
+                bounding_box[:, 2] = temp
 
         edges = np.array([], dtype=np.uint64).reshape(0, 2)
         atomic_ids = np.array([], dtype=np.uint64)
