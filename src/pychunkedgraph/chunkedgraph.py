@@ -110,13 +110,33 @@ def mincut(edges, affs, source, sink):
     :return: m x 2 array of uint64s
         edges that should be removed
     """
+
+    time_start = time.time()
+
     weighted_graph = nx.Graph()
-    weighted_graph.add_weighted_edges_from(
-        np.concatenate((edges, affs[:, None]), axis=1))
+    weighted_graph.add_edges_from(edges)
 
-    cutset = nx.minimum_edge_cut(weighted_graph, float(source), float(sink))
+    for i_edge, edge in enumerate(edges):
+        weighted_graph[edge[0]][edge[1]]['weight'] = affs[i_edge]
 
-    return np.array(list(cutset), dtype=np.int)
+    dt = time.time() - time_start
+    print("Graph creation: %.2fms" % (dt * 1000))
+    time_start = time.time()
+
+    cutset = nx.minimum_edge_cut(weighted_graph, source, sink)
+
+    dt = time.time() - time_start
+    print("Mincut: %.2fms" % (dt * 1000))
+
+    time_start = time.time()
+
+    weighted_graph.remove_edges_from(cutset)
+    print(len(list(nx.connected_components(weighted_graph))))
+
+    dt = time.time() - time_start
+    print("Test: %.2fms" % (dt * 1000))
+
+    return np.array(list(cutset), dtype=np.uint64)
 
 
 class ChunkedGraph(object):
@@ -202,6 +222,7 @@ class ChunkedGraph(object):
 
     def read_row(self, node_id, key, idx=0, dtype=np.uint64):
         row = self.table.read_row(serialize_node_id(node_id))
+        print(row.cells[self.family_id][serialize_key(key)][idx].timestamp)
         return np.frombuffer(row.cells[self.family_id][serialize_key(key)][idx].value, dtype=dtype)
 
     def read_rows(self, node_ids, key, dtype=np.uint64):
@@ -604,7 +625,8 @@ class ChunkedGraph(object):
 
     def get_subgraph(self, agglomeration_id, bounding_box=None,
                      bb_is_coordinate=False, bb_is_zyx=False,
-                     return_rg_ids=False, get_edges=False, time_stamp=None):
+                     stop_lvl=1, return_rg_ids=False, get_edges=False,
+                     time_stamp=None):
         """ Returns all edges between supervoxels belonging to the specified
             agglomeration id within the defined bouning box
 
@@ -612,11 +634,16 @@ class ChunkedGraph(object):
         :param bounding_box: [[x_l, y_l, z_l], [x_h, y_h, z_h]]
         :param bb_is_coordinate: bool
         :param bb_is_zyx: bool
+        :param stop_lvl return_rg_ids: int
         :param return_rg_ids: bool
         :param get_edges: bool
         :param time_stamp: datetime or None
         :return: edge list
         """
+        # Make sure that edges are not requested if we should stop on an
+        # intermediate level
+        assert stop_lvl == 1 or not get_edges
+
         if time_stamp is None:
             time_stamp = datetime.datetime.now()
 
@@ -628,9 +655,9 @@ class ChunkedGraph(object):
             if bb_is_coordinate:
                 bounding_box = np.array(bounding_box,
                                         dtype=np.float32) / self.chunk_size
-                bounding_box = bounding_box.astype(np.int)
                 bounding_box[0] = np.floor(bounding_box[0])
                 bounding_box[1] = np.ceil(bounding_box[1])
+                bounding_box = bounding_box.astype(np.int)
             else:
                 bounding_box = np.array(bounding_box, dtype=np.int)
 
@@ -647,6 +674,10 @@ class ChunkedGraph(object):
         while len(child_ids) > 0:
             new_childs = []
             layer = get_chunk_id_from_node_id(child_ids[0])[-1]
+
+            if stop_lvl == layer:
+                atomic_ids = child_ids
+                break
 
             for child_id in child_ids:
                 if layer == 2:
@@ -699,7 +730,7 @@ class ChunkedGraph(object):
             else:
                 return atomic_ids
 
-    def get_subgraph_chunk(self, parent_id, time_stamp=None):
+    def get_subgraph_chunk(self, parent_id, make_unique=True, time_stamp=None):
         """ Takes an atomic id and returns the associated agglomeration ids
 
         :param parent_id: int
@@ -716,6 +747,7 @@ class ChunkedGraph(object):
         edge_key = serialize_key("atomic_partners")
         affinity_key = serialize_key("atomic_affinities")
 
+        # Iterate through all children of this parent and retrieve their edges
         edges = np.array([], dtype=np.uint64).reshape(0, 2)
         affinities = np.array([], dtype=np.float32)
         for child_id in child_ids:
@@ -723,36 +755,49 @@ class ChunkedGraph(object):
             node_affinities = np.array([], dtype=np.float32)
 
             r = self.table.read_row(serialize_node_id(child_id))
+
+            # Shortcut for the trivial case that there have been no changes to
+            # the edges of this child:
+            if len(r.cells[self.family_id][edge_key]) == 0:
+                node_edges = np.frombuffer(r.cells[self.family_id][edge_key][0].value, dtype=np.uint64)
+                node_affinities = np.frombuffer(r.cells[self.family_id][affinity_key][0].value, dtype=np.float32)
+
+            # From new to old: Add partners (here called edges) that are not
+            # in the edge list of this child. This assures that more recent
+            # changes are prioritized. Everytime, check if the time_stamp
+            # is acknowledged.
+            # Note: The creator writes one list of partners (edges) and
+            # affinities. Each edit makes only single edits (yet), hence,
+            # all but the oldest entry are lists of length 1.
             for i_edgelist in range(len(r.cells[self.family_id][edge_key])):
                 if time_stamp > r.cells[self.family_id][edge_key][i_edgelist].timestamp:
-                    edge_batch = np.frombuffer(
-                        r.cells[self.family_id][edge_key][i_edgelist].value,
-                        dtype=np.uint64)
-                    affinity_batch = np.frombuffer(
-                        r.cells[self.family_id][affinity_key][i_edgelist].value,
-                        dtype=np.float32)
+                    edge_batch = np.frombuffer(r.cells[self.family_id][edge_key][i_edgelist].value, dtype=np.uint64)
+                    affinity_batch = np.frombuffer(r.cells[self.family_id][affinity_key][i_edgelist].value, dtype=np.float32)
                     edge_batch_m = ~np.in1d(edge_batch, node_edges)
 
-                    affinity_batch = affinity_batch[
-                                     :len(edge_batch)]  # TEMPORARY HACK
+                    node_edges = np.concatenate([node_edges, edge_batch[edge_batch_m]])
+                    node_affinities = np.concatenate([node_affinities, affinity_batch[edge_batch_m]])
 
-                    node_edges = np.concatenate(
-                        [node_edges, edge_batch[edge_batch_m]])
-                    node_affinities = np.concatenate([node_affinities,
-                                                      affinity_batch[
-                                                          edge_batch_m]])
-
+            # Take care of removed edges (affinity == 0)
             node_edge_m = node_affinities > 0
             node_edges = node_edges[node_edge_m]
             node_affinities = node_affinities[node_edge_m]
 
+            # If we have edges add them to the chunk global edge list
             if len(node_edges) > 0:
-                node_edges = np.concatenate(
-                    [np.ones((len(node_edges), 1), dtype=np.uint64) * child_id,
-                     node_edges[:, None]], axis=1)
+                # Build n x 2 edge list from partner list
+                node_edges = np.concatenate([np.ones((len(node_edges), 1), dtype=np.uint64) * child_id, node_edges[:, None]], axis=1)
 
                 edges = np.concatenate([edges, node_edges])
                 affinities = np.concatenate([affinities, node_affinities])
+
+        # If requested, remove duplicate edges. Every edge is stored in each
+        # participating node. Hence, we have many edge pairs that look
+        # like [x, y], [y, x]. We solve this by sorting and calling np.unique
+        # row-wise
+        if make_unique:
+            # edges = np.sort(edges, axis=1)
+            pass
 
         return edges, affinities
 
@@ -907,8 +952,10 @@ class ChunkedGraph(object):
         original_root = original_parent_ids[-1]
 
         # Find lowest level chunks that might have changed
-        chunk_ids = get_chunk_ids_from_node_ids(u_atomic_ids, dtype=np.uint32)[:, 0]
-        u_chunk_ids, u_chunk_ids_idx = np.unique(chunk_ids, return_index=True)
+        chunk_ids = get_chunk_ids_from_node_ids(u_atomic_ids,
+                                                dtype=np.uint32)[:, 0]
+        u_chunk_ids, u_chunk_ids_idx = np.unique(chunk_ids,
+                                                 return_index=True)
 
         involved_chunk_id_dict = dict(zip(u_chunk_ids, u_atomic_ids[u_chunk_ids_idx]))
 
@@ -926,12 +973,17 @@ class ChunkedGraph(object):
 
                 val_dict = {"atomic_partners": np.array([atomic_edge[(i_atomic_id + 1) % 2]]).tobytes(),
                             "atomic_affinities": np.zeros(1, dtype=np.float32).tobytes()}
+
+                print(atomic_id, atomic_edge[(i_atomic_id + 1) % 2])
                 rows.append(mutate_row(self.table, serialize_node_id(atomic_id),
                                        self.family_id, val_dict, time_stamp))
 
         # Execute the removal of the atomic edges - we cannot wait for that
         # until the end because we want to compute connected components on the
         # subgraph
+
+        return rows, involved_chunk_id_dict
+
 
         self.table.mutate_rows(rows)
         rows = []
@@ -956,8 +1008,8 @@ class ChunkedGraph(object):
             cross_edge_mask = get_chunk_ids_from_node_ids(edges[:, 1], dtype=np.uint32)[:, 0] != get_chunk_id_from_node_id(node_id, dtype=np.uint32)
             cross_edges = edges[cross_edge_mask]
 
-            g = nx.from_edgelist(edges)
-            ccs = nx.connected_components(g)
+            G = nx.from_edgelist(edges)
+            ccs = nx.connected_components(G)
 
             # For each connected component we create one new parent
             for cc in ccs:
@@ -1128,25 +1180,58 @@ class ChunkedGraph(object):
         status = self.table.mutate_rows(rows)
         return new_roots
 
-    def remove_edges_mincut(self, source_id, sink_id, is_cg_id=False):
+    def remove_edges_mincut(self, source_id, sink_id, source_coord,
+                            sink_coord, bb_offset=(120, 120, 12),
+                            is_cg_id=False):
         """ Computes mincut and removes edges
 
         :param source_id: uint64
         :param sink_id: uint64
+        :param source_coord: list of 3 ints
+            [x, y, z] coordinate of source supervoxel
+        :param sink_coord: list of 3 ints
+            [x, y, z] coordinate of sink supervoxel
+        :param bb_offset: list of 3 ints
+            [x, y, z] bounding box padding beyond box spanned by coordinates
         :param is_cg_id: bool
         :return: list of uint64s
             new root ids
         """
 
+        bb_offset = np.array(list(bb_offset))
+        source_coord = np.array(source_coord)
+        sink_coord = np.array(sink_coord)
+
         if not is_cg_id:
             source_id = self.get_cg_id_from_rg_id(source_id)
             sink_id = self.get_cg_id_from_rg_id(sink_id)
 
+        # Decide a reasonable bounding box
+        #TODO: improve by iteratively using a bigger context if no path between source and sink exists
 
+        coords = np.concatenate([source_coord[:, None], sink_coord[:, None]],
+                                axis=1).T
+        bounding_box = [np.min(coords, axis=0), np.max(coords, axis=0)]
+
+        bounding_box[0] -= bb_offset
+        bounding_box[1] += bb_offset
+
+        print(bounding_box)
+
+        # Get edges between local supervoxels
         agglomeration_id = self.get_root(source_id, is_cg_id=True)
-        edges, affs = self.get_subgraph(agglomeration_id, get_edges=True)
+        edges, affs = self.get_subgraph(agglomeration_id, get_edges=True,
+                                        bounding_box=bounding_box,
+                                        bb_is_coordinate=True)
 
+        # Compute mincut
         atomic_edges = mincut(edges, affs, source_id, sink_id)
+
+        # Remove edges
         new_roots = self.remove_edge(atomic_edges, is_cg_id=True)
+        # new_roots = [agglomeration_id]
+
+        print(atomic_edges)
+        print(new_roots)
 
         return new_roots
