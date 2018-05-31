@@ -97,12 +97,20 @@ def handle_children(parent_id):
     time_start = time.time()
 
     # Call ChunkedGraph
-    try:
-        # atomic_ids = cg.get_children(int(parent_id))
-        atomic_ids = cg.get_subgraph(int(parent_id), return_rg_ids=False,
-                                     stop_lvl=2)
-    except:
-        atomic_ids = np.array([])
+    if chunkedgraph.get_chunk_id_from_node_id(parent_id)[-1] > 2:
+        print("MIP1 meshes")
+        try:
+            # atomic_ids = cg.get_children(int(parent_id))
+            atomic_ids = cg.get_subgraph(int(parent_id), return_rg_ids=False,
+                                         stop_lvl=2)
+        except:
+            atomic_ids = np.array([])
+    else:
+        print("MIP0 meshes")
+        try:
+            atomic_ids = cg.get_subgraph(int(parent_id), return_rg_ids=False)
+        except:
+            atomic_ids = np.array([])
 
     dt = time.time() - time_start
     print("CHILDREN: %.3fms" % (dt * 1000))
