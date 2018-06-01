@@ -221,16 +221,30 @@ class ChunkedGraph(object):
         return node_id
 
     def read_row(self, node_id, key, idx=0, dtype=np.uint64):
+        """ Reads row from BigTable and takes care of serializations
+
+        :param node_id: uint64
+        :param key: table column
+        :param idx: column list index
+        :param dtype: datatype
+        :return: row entry
+        """
         row = self.table.read_row(serialize_node_id(node_id))
         return np.frombuffer(row.cells[self.family_id][serialize_key(key)][idx].value, dtype=dtype)
 
-    def read_rows(self, node_ids, key, dtype=np.uint64):
+    def read_rows(self, node_ids, key, idx=0, dtype=np.uint64):
+        """ Applies read_row to many ids
+
+        :param node_ids: list of uint64
+        :param key: table column
+        :param idx: column list index
+        :param dtype: datatype
+        :return: row entry
+        """
         results = []
 
         for node_id in node_ids:
-            results.append(np.frombuffer(self.table.read_row(
-                serialize_node_id(node_id).cells[self.family_id][
-                serialize_key(key)]), dtype=dtype))
+            results.append(self.read_row(node_id, key, idx, dtype))
 
         return results
 
@@ -507,6 +521,12 @@ class ChunkedGraph(object):
             print("WARNING: NOTHING HAPPENED")
 
     def get_parent(self, node_id, time_stamp=None):
+        """ Acquires parent of a node at a specific time stamp
+
+        :param node_id: uint64
+        :param time_stamp: datetime or None
+        :return: uint64 or None
+        """
         if time_stamp is None:
             time_stamp = datetime.datetime.now()
 
@@ -516,10 +536,6 @@ class ChunkedGraph(object):
         parent_key = serialize_key("parents")
 
         row = self.table.read_row(serialize_node_id(node_id))
-
-        # if parent_key in row.cells[self.family_id]:
-        #     for parent_entry in row.cells[self.family_id][parent_key]:
-        #         print(parent_entry.timestamp)
 
         if parent_key in row.cells[self.family_id]:
             for parent_entry in row.cells[self.family_id][parent_key]:
@@ -534,6 +550,11 @@ class ChunkedGraph(object):
                         " the given time stamp" % node_id)
 
     def get_children(self, node_id):
+        """ Returns all children of a node
+
+        :param node_id: uint64
+        :return: list of uint64
+        """
         return self.read_row(node_id, "children", dtype=np.uint64)
 
     def get_root(self, atomic_id, collect_all_parents=False,
@@ -639,6 +660,7 @@ class ChunkedGraph(object):
         :param time_stamp: datetime or None
         :return: edge list
         """
+
         # Make sure that edges are not requested if we should stop on an
         # intermediate level
         assert stop_lvl == 1 or not get_edges
@@ -1087,7 +1109,6 @@ class ChunkedGraph(object):
                 atomic_id_map = np.ones(len(cross_edges), dtype=np.uint64) * new_layer_parent
                 partner_cross_edges = {new_layer_parent: cross_edges}
 
-                # print(old_chunk_neighbors)
                 for old_chunk_neighbor in old_chunk_neighbors:
                     if old_chunk_neighbor in old_id_dict:
                         for new_neighbor in old_id_dict[old_chunk_neighbor]:
