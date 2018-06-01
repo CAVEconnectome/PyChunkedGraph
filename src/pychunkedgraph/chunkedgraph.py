@@ -883,8 +883,6 @@ class ChunkedGraph(object):
             for prior_parent_id in current_parent_ids:
                 child_ids = self.get_children(prior_parent_id)
 
-                # Exclude parent nodes from old hierarchy path
-                child_ids = child_ids[~np.in1d(child_ids, original_parent_ids)]
                 combined_child_ids = np.concatenate([combined_child_ids,
                                                      child_ids])
 
