@@ -255,6 +255,73 @@ class ChunkedGraph(object):
 
         return results
 
+    def range_read_chunk(self, z, y, x, layer_id):
+        """ Reads all ids within a chunk
+
+        :param z: int
+        :param y: int
+        :param x: int
+        :param layer_id: int
+        :return: list of rows
+        """
+        node_id_base = np.array([0, 0, 0, 0, z, y, x, layer_id],
+                                dtype=np.uint8)
+
+        node_id_base_next = node_id_base.copy()
+
+        # Reading a chunk --> One step in fastest changing coordinate (z)
+        step = self.fan_out ** np.max([0, layer_id - 2])
+
+        node_id_base_next[-4] += step
+
+        # Define BigTable keys
+        start_key = serialize_node_id(np.frombuffer(node_id_base,
+                                                    dtype=np.uint64)[0])
+        end_key = serialize_node_id(np.frombuffer(node_id_base_next,
+                                                  dtype=np.uint64)[0])
+
+        # Set up read
+        range_read = self.table.read_rows(start_key=start_key,
+                                          end_key=end_key,
+                                          end_inclusive=False)
+
+        # Execute read
+        range_read.consume_all()
+
+        return range_read.rows
+
+    def range_read_layer(self, layer_id):
+        """ Reads all ids within a layer
+
+        This can take a while depending on the size of the graph
+
+        :param layer_id: int
+        :return: list of rows
+        """
+        node_id_base = np.array([0, 0, 0, 0, 0, 0, 0, layer_id],
+                                dtype=np.uint8)
+
+        node_id_base_next = node_id_base.copy()
+
+        # Reading a layer --> One step in layer
+        node_id_base_next[-1] += 1
+
+        # Define BigTable keys
+        start_key = serialize_node_id(np.frombuffer(node_id_base,
+                                                    dtype=np.uint64)[0])
+        end_key = serialize_node_id(np.frombuffer(node_id_base_next,
+                                                  dtype=np.uint64)[0])
+
+        # Set up read
+        range_read = self.table.read_rows(start_key=start_key,
+                                          end_key=end_key,
+                                          end_inclusive=False)
+
+        # Execute read
+        range_read.consume_all()
+
+        return range_read.rows
+
     def add_atomic_edges_in_chunks(self, edge_ids, cross_edge_ids, edge_affs,
                                    cross_edge_affs, cg2rg_dict, rg2cg_dict,
                                    time_stamp=None):
@@ -383,28 +450,11 @@ class ChunkedGraph(object):
         for chunk_coord in child_chunk_coords:
             # Get start and end key
             x, y, z = chunk_coord
-            node_id_base = np.array([0, 0, 0, 0, z, y, x, layer_id - 1],
-                                    dtype=np.uint8)
 
-            node_id_base_next = node_id_base.copy()
-
-            step = self.fan_out ** (layer_id - 3)
-            node_id_base_next[-4] += step
-
-            start_key = serialize_node_id(np.frombuffer(node_id_base,
-                                                        dtype=np.uint64)[0])
-            end_key = serialize_node_id(np.frombuffer(node_id_base_next,
-                                                      dtype=np.uint64)[0])
-
-            # Set up read
-            range_read = self.table.read_rows(start_key=start_key,
-                                              end_key=end_key,
-                                              end_inclusive=False)
-            # Execute read
-            range_read.consume_all()
+            range_read = self.range_read_chunk(z, y, x, layer_id-1)
 
             # Loop through nodes from this chunk
-            for row_key, row_data in range_read.rows.items():
+            for row_key, row_data in range_read.items():
                 atomic_edges = np.frombuffer(row_data.cells[self.family_id][serialize_key("atomic_cross_edges")][0].value, dtype=np.uint64).reshape(-1, 2)
                 atomic_partner_id_dict[int(row_key)] = atomic_edges[:, 1]
                 atomic_child_id_dict[int(row_key)] = atomic_edges[:, 0]

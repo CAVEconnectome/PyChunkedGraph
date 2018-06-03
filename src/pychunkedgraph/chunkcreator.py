@@ -172,7 +172,7 @@ def create_chunked_graph(table_id=None, cv_url=None, n_threads=1):
             _create_atomic_layer_thread, multi_args, n_threads=n_threads,
             verbose=True, debug=n_threads==1)
     else:
-        multiprocessing_utils.multiprocess_func(
+        multiprocessing_utils.multisubprocess_func(
             _create_atomic_layer_thread, multi_args, n_threads=n_threads)
 
     times.append(["Layers 1 + 2", time.time() - time_start])
@@ -211,7 +211,7 @@ def create_chunked_graph(table_id=None, cv_url=None, n_threads=1):
                 _add_layer_thread, multi_args, n_threads=n_threads, verbose=True,
                 debug=n_threads==1)
         else:
-            multiprocessing_utils.multiprocess_func(
+            multiprocessing_utils.multisubprocess_func(
                 _add_layer_thread, multi_args, n_threads=n_threads)
 
         times.append(["Layer %d" % layer_id, time.time() - time_start])
