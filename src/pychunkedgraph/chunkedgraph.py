@@ -4,8 +4,10 @@ import time
 import datetime
 import os
 import networkx as nx
+from networkx.algorithms.flow import shortest_augmenting_path
 import pytz
 
+from . import multiprocessing_utils as mu
 from google.cloud import bigtable
 
 # global variables
@@ -123,10 +125,15 @@ def mincut(edges, affs, source, sink):
     print("Graph creation: %.2fms" % (dt * 1000))
     time_start = time.time()
 
-    cutset = nx.minimum_edge_cut(weighted_graph, source, sink)
+    # cutset = nx.minimum_edge_cut(weighted_graph, source, sink)
+    cutset = nx.minimum_edge_cut(weighted_graph, source, sink,
+                                 flow_func=shortest_augmenting_path)
 
     dt = time.time() - time_start
     print("Mincut: %.2fms" % (dt * 1000))
+
+    if cutset is None:
+        return []
 
     time_start = time.time()
 
@@ -188,7 +195,7 @@ class ChunkedGraph(object):
         # There might be multiple chunk ids for a single rag id because
         # rag supervoxels get split at chunk boundaries. Here, only one
         # chunk id needs to be traced to the top to retrieve the
-        # agglomeration id that they both belong to
+        # agglomeration id that they all belong to
         r = self.table.read_row(serialize_node_id(atomic_id))
         return np.frombuffer(r.cells[self.family_id][serialize_key("cg_id")][0].value,
                              dtype=np.uint64)[0]
@@ -263,15 +270,15 @@ class ChunkedGraph(object):
         if len(edge_ids) == 0:
             return 0
 
-        # Write rg2cg mapping to table
-        rows = []
-        for rg_id in rg2cg_dict.keys():
-            # Create node
-            val_dict = {"cg_id": np.array([rg2cg_dict[rg_id]]).tobytes()}
-
-            rows.append(mutate_row(self.table, serialize_node_id(rg_id),
-                                   self.family_id, val_dict))
-        status = self.table.mutate_rows(rows)
+        # # Write rg2cg mapping to table
+        # rows = []
+        # for rg_id in rg2cg_dict.keys():
+        #     # Create node
+        #     val_dict = {"cg_id": np.array([rg2cg_dict[rg_id]]).tobytes()}
+        #
+        #     rows.append(mutate_row(self.table, serialize_node_id(rg_id),
+        #                            self.family_id, val_dict))
+        # status = self.table.mutate_rows(rows)
 
         # Make parent id creation easier
         z, y, x, l = get_chunk_id_from_node_id(edge_ids[0, 0])
@@ -520,10 +527,15 @@ class ChunkedGraph(object):
         except:
             print("WARNING: NOTHING HAPPENED")
 
-    def get_parent(self, node_id, time_stamp=None):
+    def get_parent(self, node_id, get_only_relevant_parent=True,
+                   time_stamp=None):
         """ Acquires parent of a node at a specific time stamp
 
         :param node_id: uint64
+        :param get_only_relevant_parent: bool
+            True: return single parent according to time_stamp
+            False: return n x 2 list of all parents
+                   ((parent_id, time_stamp), ...)
         :param time_stamp: datetime or None
         :return: uint64 or None
         """
@@ -534,20 +546,28 @@ class ChunkedGraph(object):
             time_stamp = UTC.localize(time_stamp)
 
         parent_key = serialize_key("parents")
+        all_parents = []
 
         row = self.table.read_row(serialize_node_id(node_id))
 
         if parent_key in row.cells[self.family_id]:
             for parent_entry in row.cells[self.family_id][parent_key]:
-                if parent_entry.timestamp > time_stamp:
-                    continue
+                if get_only_relevant_parent:
+                    if parent_entry.timestamp > time_stamp:
+                        continue
+                    else:
+                        return np.frombuffer(parent_entry.value, dtype=np.uint64)[0]
                 else:
-                    return np.frombuffer(parent_entry.value, dtype=np.uint64)[0]
+                    all_parents.append([np.frombuffer(parent_entry.value, dtype=np.uint64)[0],
+                                        parent_entry.timestamp])
         else:
             return None
 
-        raise Exception("Did not find a valid parent for %d with"
-                        " the given time stamp" % node_id)
+        if len(all_parents) == 0:
+            raise Exception("Did not find a valid parent for %d with"
+                            " the given time stamp" % node_id)
+        else:
+            return all_parents
 
     def get_children(self, node_id):
         """ Returns all children of a node
@@ -564,6 +584,7 @@ class ChunkedGraph(object):
         :param atomic_id: int
         :param collect_all_parents: bool
         :param time_stamp: None or datetime
+        :param is_cg_id: bool
         :return: int
         """
         if time_stamp is None:
@@ -646,7 +667,7 @@ class ChunkedGraph(object):
     def get_subgraph(self, agglomeration_id, bounding_box=None,
                      bb_is_coordinate=False, bb_is_zyx=False,
                      stop_lvl=1, return_rg_ids=False, get_edges=False,
-                     time_stamp=None):
+                     n_threads=5, time_stamp=None):
         """ Returns all edges between supervoxels belonging to the specified
             agglomeration id within the defined bouning box
 
@@ -654,12 +675,36 @@ class ChunkedGraph(object):
         :param bounding_box: [[x_l, y_l, z_l], [x_h, y_h, z_h]]
         :param bb_is_coordinate: bool
         :param bb_is_zyx: bool
-        :param stop_lvl return_rg_ids: int
+        :param stop_lvl: int
         :param return_rg_ids: bool
         :param get_edges: bool
         :param time_stamp: datetime or None
+        :param n_threads: int
         :return: edge list
         """
+        # Helper functions for multithreading
+        #TODO: do this more elagantly
+        def _handle_subgraph_children_layer2_edges_thread(child_id):
+            return self.get_subgraph_chunk(child_id, time_stamp=time_stamp)
+
+        def _handle_subgraph_children_layer2_thread(child_id):
+            return self.get_children(child_id)
+
+        def _handle_subgraph_children_higher_layers_thread(child_id):
+            this_children = self.get_children(child_id)
+
+            if bounding_box is not None:
+                chunk_ids = get_chunk_ids_from_node_ids(this_children)[:, :3]
+
+                chunk_id_bounds = np.array([chunk_ids, chunk_ids + self.fan_out ** np.max([0, (layer - 3)])])
+
+                bound_check = np.array([np.all(chunk_id_bounds[0] < bounding_box[1], axis=1),
+                                        np.all(chunk_id_bounds[1] > bounding_box[0], axis=1)]).T
+
+                bound_check_mask = np.all(bound_check, axis=1)
+                this_children = this_children[bound_check_mask]
+
+            return this_children
 
         # Make sure that edges are not requested if we should stop on an
         # intermediate level
@@ -700,18 +745,26 @@ class ChunkedGraph(object):
                 atomic_ids = child_ids
                 break
 
-            for child_id in child_ids:
-                if layer == 2:
-                    if get_edges:
-                        this_edges, this_affinities = self.get_subgraph_chunk(
-                            child_id, time_stamp=time_stamp)
+            if layer == 2:
+                if get_edges:
+                    edges_and_affinities = mu.multithread_func(_handle_subgraph_children_layer2_edges_thread,
+                                                               child_ids, nb_cpus=n_threads)
 
-                        affinities = np.concatenate([affinities, this_affinities])
-                        edges = np.concatenate([edges, this_edges])
-                    else:
-                        this_atomic_ids = self.get_children(child_id)
-                        atomic_ids = np.concatenate([atomic_ids, this_atomic_ids])
+                    for edges_and_affinities_pair in edges_and_affinities:
+                        affinities = np.concatenate([affinities,
+                                                     edges_and_affinities_pair[1]])
+                        edges = np.concatenate([edges,
+                                                edges_and_affinities_pair[0]])
                 else:
+                    n_threads = int(np.min([n_threads, np.ceil(len(child_ids) / 10)]))
+                    collected_atomic_ids = mu.multithread_func(_handle_subgraph_children_layer2_thread,
+                                                               child_ids, nb_cpus=n_threads)
+
+                    for this_atomic_ids in collected_atomic_ids:
+                        atomic_ids = np.concatenate([atomic_ids,
+                                                     this_atomic_ids])
+            else:
+                for child_id in child_ids:
                     this_children = self.get_children(child_id)
 
                     if bounding_box is not None:
@@ -725,7 +778,6 @@ class ChunkedGraph(object):
 
                         bound_check_mask = np.all(bound_check, axis=1)
                         this_children = this_children[bound_check_mask]
-
                     new_childs.extend(this_children)
 
             child_ids = new_childs
@@ -804,13 +856,32 @@ class ChunkedGraph(object):
 
         return partners, affinities
 
-    def get_subgraph_chunk(self, parent_id, make_unique=True, time_stamp=None):
+    def get_subgraph_chunk(self, parent_id, make_unique=True, time_stamp=None,
+                           max_n_threads=5):
         """ Takes an atomic id and returns the associated agglomeration ids
 
         :param parent_id: int
         :param time_stamp: None or datetime
+        :param max_n_threads: int
         :return: edge list
         """
+        def _read_atomic_partners(child_id_block):
+            thread_edges = np.array([], dtype=np.uint64).reshape(0, 2)
+            thread_affinities = np.array([], dtype=np.float32)
+
+            for child_id in child_id_block:
+                node_edges, node_affinities = self.get_atomic_partners(child_id, time_stamp=time_stamp)
+
+                # If we have edges add them to the chunk global edge list
+                if len(node_edges) > 0:
+                    # Build n x 2 edge list from partner list
+                    node_edges = np.concatenate([np.ones((len(node_edges), 1), dtype=np.uint64) * child_id, node_edges[:, None]], axis=1)
+
+                    thread_edges = np.concatenate([thread_edges, node_edges])
+                    thread_affinities = np.concatenate([thread_affinities, node_affinities])
+
+            return thread_edges, thread_affinities
+
         if time_stamp is None:
             time_stamp = datetime.datetime.now()
 
@@ -822,17 +893,17 @@ class ChunkedGraph(object):
         # Iterate through all children of this parent and retrieve their edges
         edges = np.array([], dtype=np.uint64).reshape(0, 2)
         affinities = np.array([], dtype=np.float32)
-        for child_id in child_ids:
 
-            node_edges, node_affinities = self.get_atomic_partners(child_id, time_stamp=time_stamp)
+        n_threads = int(np.min([max_n_threads, np.ceil(len(child_ids) / 10)]))
 
-            # If we have edges add them to the chunk global edge list
-            if len(node_edges) > 0:
-                # Build n x 2 edge list from partner list
-                node_edges = np.concatenate([np.ones((len(node_edges), 1), dtype=np.uint64) * child_id, node_edges[:, None]], axis=1)
+        child_id_blocks = np.array_split(child_ids, n_threads)
+        edges_and_affinities = mu.multithread_func(_read_atomic_partners,
+                                                   child_id_blocks,
+                                                   nb_cpus=n_threads)
 
-                edges = np.concatenate([edges, node_edges])
-                affinities = np.concatenate([affinities, node_affinities])
+        for edges_and_affinities_pairs in edges_and_affinities:
+            edges = np.concatenate([edges, edges_and_affinities_pairs[0]])
+            affinities = np.concatenate([affinities, edges_and_affinities_pairs[1]])
 
         # If requested, remove duplicate edges. Every edge is stored in each
         # participating node. Hence, we have many edge pairs that look
@@ -904,6 +975,10 @@ class ChunkedGraph(object):
 
             for prior_parent_id in current_parent_ids:
                 child_ids = self.get_children(prior_parent_id)
+
+                # Exclude parent nodes from old hierarchy path
+                if i_layer > merge_layer:
+                    child_ids = child_ids[~np.in1d(child_ids, original_parent_ids)]
 
                 combined_child_ids = np.concatenate([combined_child_ids,
                                                      child_ids])
@@ -1219,7 +1294,7 @@ class ChunkedGraph(object):
         return new_roots
 
     def remove_edges_mincut(self, source_id, sink_id, source_coord,
-                            sink_coord, bb_offset=(120, 120, 12),
+                            sink_coord, bb_offset=(240, 240, 24),
                             is_cg_id=True):
         """ Computes mincut and removes edges
 
@@ -1265,6 +1340,10 @@ class ChunkedGraph(object):
         # Compute mincut
         atomic_edges = mincut(edges, affs, source_id, sink_id)
         print(atomic_edges)
+
+        if len(atomic_edges) == 0:
+            print("WARNING: Mincut failed. Try again...")
+            return [source_id, sink_id]
 
         # Remove edges
         new_roots = self.remove_edge(atomic_edges, is_cg_id=True)
