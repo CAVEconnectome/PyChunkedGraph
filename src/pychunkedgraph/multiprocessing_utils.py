@@ -1,6 +1,6 @@
 import numpy as np
 from multiprocessing import cpu_count, Process
-from multiprocessing.pool import Pool
+from multiprocessing.pool import Pool, ThreadPool
 import time
 import os
 import shutil
@@ -15,20 +15,20 @@ src_folder_path = file_path.split("src")[0] + "src/"
 subp_work_folder = home + "/pychg_subp_workdir/"
 
 
-def multiprocess_func(func, params, debug=False, verbose=False, nb_cpus=None):
+def multiprocess_func(func, params, debug=False, verbose=False, n_threads=None):
 
-    if nb_cpus is None:
-        nb_cpus = max(cpu_count(), 1)
+    if n_threads is None:
+        n_threads = max(cpu_count(), 1)
 
     if debug:
-        nb_cpus = 1
+        n_threads = 1
 
     if verbose:
-        print("Computing %d parameters with %d cpus." % (len(params), nb_cpus))
+        print("Computing %d parameters with %d cpus." % (len(params), n_threads))
 
     start = time.time()
     if not debug:
-        pool = Pool(nb_cpus)
+        pool = Pool(n_threads)
         result = pool.map(func, params)
         pool.close()
         pool.join()
@@ -43,7 +43,35 @@ def multiprocess_func(func, params, debug=False, verbose=False, nb_cpus=None):
     return result
 
 
-def multisubprocess_func(func, params, wait_delay_s=5, n_subprocesses=1):
+def multithread_func(func, params, debug=False, verbose=False, n_threads=None):
+
+    if n_threads is None:
+        n_threads = max(cpu_count(), 1)
+
+    if debug:
+        n_threads = 1
+
+    if verbose:
+        print("Computing %d parameters with %d cpus." % (len(params), n_threads))
+
+    start = time.time()
+    if not debug:
+        pool = ThreadPool(n_threads)
+        result = pool.map(func, params)
+        pool.close()
+        pool.join()
+    else:
+        result = []
+        for p in params:
+            result.append(func(p))
+
+    if verbose:
+        print("\nTime to compute grid: %.3fs" % (time.time() - start))
+
+    return result
+
+
+def multisubprocess_func(func, params, wait_delay_s=5, n_threads=1):
     name = func.__name__.strip("_")
 
     if os.path.exists(subp_work_folder + "/%s_folder/" % (name)):
@@ -63,7 +91,7 @@ def multisubprocess_func(func, params, wait_delay_s=5, n_subprocesses=1):
 
     processes = []
     for ii in range(len(params)):
-        while len(processes) >= n_subprocesses:
+        while len(processes) >= n_threads:
             for i_p, p in enumerate(processes):
                 poll = p.poll()
                 # print("Poll", p)
@@ -71,7 +99,7 @@ def multisubprocess_func(func, params, wait_delay_s=5, n_subprocesses=1):
                     del(processes[i_p])
                     break
 
-            if len(processes) >= n_subprocesses:
+            if len(processes) >= n_threads:
                 time.sleep(wait_delay_s)
 
         this_storage_path = path_to_storage + "job_%d.pkl" % ii

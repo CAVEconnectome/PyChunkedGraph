@@ -86,9 +86,18 @@ def check_stored_cv_files(cv_url="gs://nkem/pinky40_v11/mst_trimmed_sem_remap/re
     print(c)
 
 
-def create_chunked_graph(cv_url="gs://nkem/basil_4k_oldnet/region_graph/",
-# def create_chunked_graph(cv_url="gs://nkem/pinky40_v11/mst_trimmed_sem_remap/region_graph/",
-                         table_id=None, nb_cpus=1):
+def create_chunked_graph(table_id=None, cv_url=None, n_threads=1):
+    if cv_url is None:
+        if "basil" in table_id:
+            cv_url = "gs://nkem/basil_4k_oldnet/region_graph/"
+        elif "pinky40" in table_id:
+            cv_url = "gs://nkem/pinky40_v11/mst_trimmed_sem_remap/region_graph/"
+        else:
+            raise Exception("Could not identify region graph ressource")
+
+    times = []
+    time_start = time.time()
+
     file_paths = np.sort(glob.glob(utils.dir_from_layer_name(utils.layer_name_from_cv_url(cv_url)) + "/*"))
 
     cg = chunkedgraph.ChunkedGraph(table_id=table_id)
@@ -154,21 +163,27 @@ def create_chunked_graph(cv_url="gs://nkem/basil_4k_oldnet/region_graph/",
                            between_chunk_paths[out_paths_mask],
                            mapping_paths[i_chunk]])
 
+    times.append(["Preprocessing", time.time() - time_start])
+    time_start = time.time()
+
     # Run multiprocessing
-    if nb_cpus == 1:
-        multiprocessing_utils.multiprocess_func(_create_atomic_layer_thread,
-                                                multi_args, nb_cpus=nb_cpus,
-                                                verbose=True, debug=nb_cpus==1)
+    if n_threads == 1:
+        multiprocessing_utils.multiprocess_func(
+            _create_atomic_layer_thread, multi_args, n_threads=n_threads,
+            verbose=True, debug=n_threads==1)
     else:
-        multiprocessing_utils.multisubprocess_func(_create_atomic_layer_thread,
-                                                   multi_args,
-                                                   n_subprocesses=nb_cpus)
+        multiprocessing_utils.multiprocess_func(
+            _create_atomic_layer_thread, multi_args, n_threads=n_threads)
+
+    times.append(["Layers 1 + 2", time.time() - time_start])
 
     # Fill higher abstraction layers
     layer_id = 2
     child_chunk_ids = in_chunk_ids.copy()
     last_run = False
     while not last_run:
+        time_start = time.time()
+
         layer_id += 1
 
         print("\n\n\n --- LAYER %d --- \n\n\n" % layer_id)
@@ -191,14 +206,20 @@ def create_chunked_graph(cv_url="gs://nkem/basil_4k_oldnet/region_graph/",
         child_chunk_ids = u_pcids * cg.fan_out ** (layer_id - 2)
 
         # Run multiprocessing
-        if nb_cpus == 1:
-            multiprocessing_utils.multiprocess_func(_add_layer_thread, multi_args,
-                                                    nb_cpus=nb_cpus, verbose=True,
-                                                    debug=nb_cpus==1)
+        if n_threads == 1:
+            multiprocessing_utils.multiprocess_func(
+                _add_layer_thread, multi_args, n_threads=n_threads, verbose=True,
+                debug=n_threads==1)
         else:
-            multiprocessing_utils.multisubprocess_func(_add_layer_thread,
-                                                       multi_args,
-                                                       n_subprocesses=nb_cpus)
+            multiprocessing_utils.multiprocess_func(
+                _add_layer_thread, multi_args, n_threads=n_threads)
+
+        times.append(["Layer %d" % layer_id, time.time() - time_start])
+
+    for time_entry in times:
+        print("%s: %.2fs = %.2fmin = %.2fh" % (time_entry[0], time_entry[1],
+                                               time_entry[1] / 60,
+                                               time_entry[1] / 3600))
 
 
 def _create_atomic_layer_thread(args):
