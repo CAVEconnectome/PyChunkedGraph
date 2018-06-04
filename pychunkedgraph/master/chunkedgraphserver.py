@@ -262,7 +262,7 @@ if __name__ == '__main__':
     # Initialize google pubsub publisher
     publisher = pubsub_v1.PublisherClient()
     topic_path = publisher.topic_path('neuromancer-seung-import',
-                                      'backend')
+                                      'pychunkedgraph')
 
     # Set HTTP protocol
     WSGIRequestHandler.protocol_version = "HTTP/1.1"
