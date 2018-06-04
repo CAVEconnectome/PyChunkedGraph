@@ -14,7 +14,7 @@ import config
 
 # Hack the imports for now
 sys.path.append("..")
-import pychunkedgraph.chunkedgraph as chunkedgraph
+from pychunkedgraph.backend import chunkedgraph
 
 HOME = os.path.expanduser("~")
 
