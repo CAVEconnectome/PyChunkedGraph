@@ -147,7 +147,7 @@ def mincut(edges, affs, source, sink):
 
 
 class ChunkedGraph(object):
-    def __init__(self, instance_id="backend",
+    def __init__(self, instance_id="pychunkedgraph",
                  project_id="neuromancer-seung-import",
                  chunk_size=(512, 512, 64), table_id=None):
 
