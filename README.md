@@ -1,9 +1,10 @@
 # PyChunkedGraph
 
 PyChunkedGraph consists of three parts:
-1. [Client interface](https://github.com/seung-lab/neuroglancer/tree/concurrency/src/neuroglancer/chunked_graph)
-2. [Master](https://github.com/seung-lab/PyChunkedGraph/tree/master/src/master) 
-3. [ChunkedGraph backend](https://github.com/seung-lab/PyChunkedGraph/tree/master/src/pychunkedgraph)
+1. [Client interface](https://github.com/seung-lab/neuroglancer/)
+2. [Master](https://github.com/seung-lab/PyChunkedGraph/tree/master/pychunkedgraph/master) 
+3. [ChunkedGraph backend](https://github.com/seung-lab/PyChunkedGraph/tree/master/pychunkedgraph/backend)
+<!---
 4. [Simulator](https://github.com/seung-lab/PyChunkedGraph/tree/master/test)
 
 
