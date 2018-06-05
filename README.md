@@ -6,7 +6,7 @@ PyChunkedGraph consists of three parts:
 3. [ChunkedGraph backend](https://github.com/seung-lab/PyChunkedGraph/tree/master/pychunkedgraph/backend)
 <!---
 4. [Simulator](https://github.com/seung-lab/PyChunkedGraph/tree/master/test)
-
+-->
 
 ![alt text][system_design]
 
