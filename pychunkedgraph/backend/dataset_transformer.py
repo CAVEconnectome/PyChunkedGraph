@@ -14,6 +14,8 @@ def _rewrite_segmentation_thread(args):
     from_cv = cloudvolume.CloudVolume(from_url)
     to_cv = cloudvolume.CloudVolume(to_url, bounded=False)
 
+    assert 'svenmd' in to_cv
+
     for fp in file_paths:
         print(fp)
         dx, dy, dz, _ = os.path.basename(fp).split("_")
