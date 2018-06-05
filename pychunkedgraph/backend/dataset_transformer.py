@@ -5,16 +5,14 @@ import os
 import cloudvolume
 
 from . import utils
+from . import multiprocessing_utils as mu
 
 
-def rewrite_segmentation(cv_url="gs://nkem/basil_4k_oldnet/region_graph/",
-                         from_url="gs://neuroglancer/ranl/basil_4k_oldnet/ws",
-                         to_url="gs://neuroglancer/svenmd/basil_4k_oldnet_cg/watershed"):
+def _rewrite_segmentation_thread(args):
+    file_paths, from_url, to_url = args
 
     from_cv = cloudvolume.CloudVolume(from_url)
     to_cv = cloudvolume.CloudVolume(to_url, bounded=False)
-
-    file_paths = np.sort(glob.glob(utils.dir_from_layer_name(utils.layer_name_from_cv_url(cv_url)) + "/*rg2cg*"))
 
     for fp in file_paths:
         print(fp)
@@ -46,3 +44,24 @@ def rewrite_segmentation(cv_url="gs://nkem/basil_4k_oldnet/region_graph/",
         to_cv[x_start: x_end, y_start: y_end, z_start: z_end] = out
 
 
+def rewrite_segmentation(cv_url="gs://nkem/pinky40_v11/mst_trimmed_sem_remap/region_graph/",
+                         from_url="gs://neuroglancer/pinky40_v11/watershed/",
+                         to_url="gs://neuroglancer/svenmd/pinky40_v11/watershed/",
+                         n_threads=64):
+
+    file_paths = np.sort(glob.glob(utils.dir_from_layer_name(utils.layer_name_from_cv_url(cv_url)) + "/*rg2cg*"))
+
+    file_path_blocks = np.array_split(file_paths, n_threads*3)
+
+    multi_args = []
+    for fp_block in file_path_blocks:
+        multi_args.append([fp_block, from_url, to_url])
+
+    # Run multiprocessing
+    if n_threads == 1:
+        mu.multiprocess_func(_rewrite_segmentation_thread, multi_args,
+                             n_threads=n_threads, verbose=True,
+                             debug=n_threads == 1)
+    else:
+        mu.multisubprocess_func(_rewrite_segmentation_thread, multi_args,
+                                n_threads=n_threads)
