@@ -250,11 +250,14 @@ def _create_atomic_layer_thread(args):
     cg2rg = dict(zip(mappings[:, 1], mappings[:, 0]))
     rg2cg = dict(zip(mappings[:, 0], mappings[:, 1]))
 
+    # Get isolated nodes
+    isolated_node_ids = mappings[:, 1][~np.in1d(mappings[:, 1], np.concatenate(edge_ids[:, 0], cross_edge_ids[:, 0]))]
+
     # Initialize an ChunkedGraph instance and write to it
     cg = chunkedgraph.ChunkedGraph(table_id=table_id)
     cg.add_atomic_edges_in_chunks(edge_ids, cross_edge_ids,
                                   edge_affs, cross_edge_affs,
-                                  cg2rg, rg2cg)
+                                  isolated_node_ids, cg2rg, rg2cg)
 
 
 def _add_layer_thread(args):

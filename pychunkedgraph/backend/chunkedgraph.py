@@ -323,10 +323,27 @@ class ChunkedGraph(object):
         return range_read.rows
 
     def add_atomic_edges_in_chunks(self, edge_ids, cross_edge_ids, edge_affs,
-                                   cross_edge_affs, cg2rg_dict, rg2cg_dict,
-                                   time_stamp=None):
-        """ Creates atomic edges between supervoxels and first
-            abstraction layer """
+                                   cross_edge_affs, isolated_node_ids,
+                                   cg2rg_dict, rg2cg_dict,
+                                   verbose=False, time_stamp=None):
+        """ Creates atomic nodes in first abstraction layer for a SINGLE chunk
+
+        Alle edges (edge_ids) need to be from one chunk and no nodes should
+        exist for this chunk prior to calling this function. All cross edges
+        (cross_edge_ids) have to point out the chunk (first entry is the id
+        within the chunk)
+
+        :param edge_ids: n x 2 array of uint64s
+        :param cross_edge_ids: m x 2 array of uint64s
+        :param edge_affs: float array of length n
+        :param cross_edge_affs: float array of length m
+        :param isolated_node_ids: list of uint64s
+            ids of nodes that have no edge in the chunked graph
+        :param cg2rg_dict: dict
+        :param rg2cg_dict: dict
+        :param verbose: bool
+        :param time_stamp: datetime
+        """
         if time_stamp is None:
             time_stamp = datetime.datetime.now()
 
@@ -358,6 +375,7 @@ class ChunkedGraph(object):
         # Get connected component within the chunk
         chunk_g = nx.from_edgelist(edge_ids)
         chunk_g.add_nodes_from(np.unique(cross_edge_ids[:, 0]))
+        chunk_g.add_nodes_from(np.unique(isolated_node_ids))
         ccs = list(nx.connected_components(chunk_g))
 
         # print("%d ccs detected" % (len(ccs)))
@@ -367,7 +385,7 @@ class ChunkedGraph(object):
         node_c = 0  # Just a counter for the print / speed measurement
         time_start = time.time()
         for i_cc, cc in enumerate(ccs):
-            if node_c > 0:
+            if verbose and node_c > 0:
                 dt = time.time() - time_start
                 print("%5d at %5d - %.5fs             " %
                       (i_cc, node_c, dt / node_c), end="\r")
@@ -425,15 +443,24 @@ class ChunkedGraph(object):
 
             status = self.table.mutate_rows(rows)
 
-        try:
-            dt = time.time() - time_start
-            print("Average time: %.5fs / node; %.5fs / edge - Number of edges: %6d, %6d" %
-                  (dt / node_c, dt / len(edge_ids), len(edge_ids), len(cross_edge_ids)))
-        except:
-            print("WARNING: NOTHING HAPPENED")
+        if verbose:
+            try:
+                dt = time.time() - time_start
+                print("Average time: %.5fs / node; %.5fs / edge - Number of edges: %6d, %6d" %
+                      (dt / node_c, dt / len(edge_ids), len(edge_ids), len(cross_edge_ids)))
+            except:
+                print("WARNING: NOTHING HAPPENED")
 
-    def add_layer(self, layer_id, child_chunk_coords, time_stamp=None):
-        """ Creates all hierarchy layers above the first abstract layer """
+    def add_layer(self, layer_id, child_chunk_coords, verbose=True,
+                  time_stamp=None):
+        """ Creates the abstract nodes for a given chunk in a given layer
+
+        :param layer_id: int
+        :param child_chunk_coords: int array of length 3
+            coords in chunk space
+        :param verbose: bool
+        :param time_stamp: datetime
+        """
         if time_stamp is None:
             time_stamp = datetime.datetime.now()
 
@@ -478,7 +505,7 @@ class ChunkedGraph(object):
 
         time_segs = [[], [], []]
         for i_child_key, child_key in enumerate(atomic_partner_id_dict_keys):
-            if i_child_key % 20 == 1:
+            if verbose and i_child_key % 20 == 1:
                 dt = time.time() - time_start
                 eta = dt / i_child_key * len(atomic_partner_id_dict_keys) - dt
                 print("%5d - dt: %.3fs - eta: %.3fs - %.4fs - %.4fs - %.4fs           " %
@@ -533,7 +560,7 @@ class ChunkedGraph(object):
         node_c = 0  # Just a counter for the print / speed measurement
         time_start = time.time()
         for i_cc, cc in enumerate(ccs):
-            if node_c > 0:
+            if verbose and node_c > 0:
                 dt = time.time() - time_start
                 print("%5d at %5d - %.5fs             " %
                       (i_cc, node_c, dt / node_c), end="\r")
@@ -574,12 +601,13 @@ class ChunkedGraph(object):
 
             status = self.table.mutate_rows(rows)
 
-        try:
-            dt = time.time() - time_start
-            print("Average time: %.5fs / node; %.5fs / edge - Number of edges: %6d" %
-                  (dt / node_c, dt / len(edge_ids), len(edge_ids)))
-        except:
-            print("WARNING: NOTHING HAPPENED")
+        if verbose:
+            try:
+                dt = time.time() - time_start
+                print("Average time: %.5fs / node; %.5fs / edge - Number of edges: %6d" %
+                      (dt / node_c, dt / len(edge_ids), len(edge_ids)))
+            except:
+                print("WARNING: NOTHING HAPPENED")
 
     def get_parent(self, node_id, get_only_relevant_parent=True,
                    time_stamp=None):
