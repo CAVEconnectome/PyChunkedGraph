@@ -48,7 +48,7 @@ class TestCoreUtils:
         assert chunkedgraph.serialize_node_id(0x01102001000000FF) == b'00076596382332354815'
 
 
-class TestBuildGraph:
+class TestGraphBuild:
     def test_build_single_node(self, cgraph):
         """
         Add single RG node 1 to chunk A
@@ -109,7 +109,8 @@ class TestBuildGraph:
         assert len(children) == 1 and children[0] == 0x0100000000000000
 
         # Make sure there are not any more entries in the table
-        assert len(res.rows) == 3
+        # assert len(res.rows) == 3
+        assert len(res.rows) == 2
 
     def test_build_single_edge(self, cgraph):
         """
