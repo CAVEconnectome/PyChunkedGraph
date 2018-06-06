@@ -16,6 +16,16 @@ subp_work_folder = home + "/pychg_subp_workdir/"
 
 
 def multiprocess_func(func, params, debug=False, verbose=False, n_threads=None):
+    """ Processes data independent functions in parallel using multiprocessing
+
+    :param func: function
+    :param params: list
+        list of arguments to function
+    :param debug: bool
+    :param verbose: bool
+    :param n_threads: int
+    :return: list of returns of function
+    """
 
     if n_threads is None:
         n_threads = max(cpu_count(), 1)
@@ -44,6 +54,16 @@ def multiprocess_func(func, params, debug=False, verbose=False, n_threads=None):
 
 
 def multithread_func(func, params, debug=False, verbose=False, n_threads=None):
+    """ Processes data independent functions in parallel using multithreading
+
+    :param func: function
+    :param params: list
+        list of arguments to function
+    :param debug: bool
+    :param verbose: bool
+    :param n_threads: int
+    :return: list of returns of function
+    """
 
     if n_threads is None:
         n_threads = max(cpu_count(), 1)
@@ -72,6 +92,16 @@ def multithread_func(func, params, debug=False, verbose=False, n_threads=None):
 
 
 def multisubprocess_func(func, params, wait_delay_s=5, n_threads=1):
+    """ Processes data independent functions in parallel using multithreading
+
+    :param func: function
+    :param params: list
+        list of arguments to function
+    :param wait_delay_s: float
+    :param n_threads: int
+    :return: list of returns of function
+    """
+
     name = func.__name__.strip("_")
 
     if os.path.exists(subp_work_folder + "/%s_folder/" % (name)):
@@ -79,23 +109,34 @@ def multisubprocess_func(func, params, wait_delay_s=5, n_threads=1):
 
     path_to_storage = subp_work_folder + "/%s_folder/storage/" % name
     path_to_out = subp_work_folder + "/%s_folder/out/" % name
+    path_to_err = subp_work_folder + "/%s_folder/err/" % name
     path_to_src = subp_work_folder + "/%s_folder/pychunkedgraph/" % name
     path_to_script = subp_work_folder + "/%s_folder/main.py" % name
 
     os.makedirs(subp_work_folder + "/%s_folder/" % (name))
     os.makedirs(path_to_storage)
     os.makedirs(path_to_out)
+    os.makedirs(path_to_err)
 
     shutil.copytree(src_folder_path, path_to_src)
-    write_multisubprocess_script(func, path_to_script, path_to_src)
+    _write_multisubprocess_script(func, path_to_script, path_to_src)
 
     processes = []
     for ii in range(len(params)):
         while len(processes) >= n_threads:
             for i_p, p in enumerate(processes):
-                poll = p.poll()
+                poll = p[0].poll()
                 # print("Poll", p)
-                if poll is not None:
+                if poll == 0:
+                    del(processes[i_p])
+                    break
+                elif poll == 1:
+                    _, err_msg = p[0].communicate()
+                    err_msg = err_msg.decode()
+
+                    _write_error_to_file(err_msg,
+                                         path_to_err + "job_%d.pkl" % p[1])
+
                     del(processes[i_p])
                     break
 
@@ -108,23 +149,36 @@ def multisubprocess_func(func, params, wait_delay_s=5, n_threads=1):
         with open(this_storage_path, "wb") as f:
             pkl.dump(params[ii], f)
 
-        p = subprocess.Popen("cd %s; %s -W ignore %s  %s %s" % (path_to_src,
-                                                     python_path,
-                                                     path_to_script,
-                                                     this_storage_path,
-                                                     this_out_path), shell=True)
-        processes.append(p)
+        p = subprocess.Popen("cd %s; %s -W ignore %s  %s %s" %
+                             (path_to_src, python_path, path_to_script,
+                              this_storage_path, this_out_path), shell=True,
+                             stderr=subprocess.PIPE)
+        processes.append([p, ii])
         time.sleep(.01)  # Avoid OS hickups
 
     for p in processes:
-        p.wait()
+        p[0].wait()
+
+    for i_p, p in enumerate(processes):
+        poll = p[0].poll()
+
+        if poll == 0:
+            pass
+        elif poll == 1:
+            _, err_msg = p[0].communicate()
+            err_msg = err_msg.decode()
+
+            _write_error_to_file(err_msg, path_to_err + "job_%d.pkl" % p[1])
+        else:
+            raise Exception("All jobs should have terminated")
 
     return path_to_out
 
 
-def write_multisubprocess_script(func, path_to_script, path_to_src):
+def _write_multisubprocess_script(func, path_to_script):
+    """ Helper script to write python file called by subprocess """
+
     module = sys.modules.get(func.__module__)
-    module_path = path_to_src + module.__file__.split("pychunkedgraph")[1]
     module_h = module.__file__.split("pychunkedgraph")[1].strip("/").split("/")
     module_h[-1] = module_h[-1][:-3]
 
@@ -144,6 +198,13 @@ def write_multisubprocess_script(func, path_to_script, path_to_src):
 
     with open(path_to_script, "w") as f:
         f.writelines(lines)
+
+
+def _write_error_to_file(err_msg, path_to_err):
+    """ Helper script to write error message to file """
+
+    with open(path_to_err, "w") as f:
+        f.write(err_msg)
 
 
 
