@@ -119,7 +119,7 @@ def multisubprocess_func(func, params, wait_delay_s=5, n_threads=1):
     os.makedirs(path_to_err)
 
     shutil.copytree(src_folder_path, path_to_src)
-    _write_multisubprocess_script(func, path_to_script, path_to_src)
+    _write_multisubprocess_script(func, path_to_script)
 
     processes = []
     for ii in range(len(params)):
