@@ -13,7 +13,8 @@ from . import utils
 
 
 # def download_and_store_cv_files(cv_url="gs://nkem/basil_4k_oldnet/region_graph/"):
-def download_and_store_cv_files(cv_url="gs://nkem/pinky40_v11/mst_trimmed_sem_remap/region_graph/", nb_cpus=10):
+def download_and_store_cv_files(cv_url="gs://nkem/pinky40_v11/mst_trimmed_sem_remap/region_graph/",
+                                n_threads=10):
     with storage.SimpleStorage(cv_url) as cv_st:
         dir_path = utils.dir_from_layer_name(utils.layer_name_from_cv_url(cv_st.layer_path))
 
@@ -22,20 +23,20 @@ def download_and_store_cv_files(cv_url="gs://nkem/pinky40_v11/mst_trimmed_sem_re
 
         file_paths = list(cv_st.list_files())
 
-    file_chunks = np.array_split(file_paths, nb_cpus * 3)
+    file_chunks = np.array_split(file_paths, n_threads * 3)
     multi_args = []
     for i_file_chunk, file_chunk in enumerate(file_chunks):
         multi_args.append([i_file_chunk, cv_url, file_chunk])
 
     # Run multiprocessing
-    if nb_cpus == 1:
+    if n_threads == 1:
         multiprocessing_utils.multiprocess_func(_download_and_store_cv_files_thread,
-                                                multi_args, nb_cpus=nb_cpus,
-                                                verbose=True, debug=nb_cpus==1)
+                                                multi_args, n_threads=n_threads,
+                                                verbose=True, debug=n_threads==1)
     else:
         multiprocessing_utils.multisubprocess_func(_download_and_store_cv_files_thread,
                                                    multi_args,
-                                                   n_subprocesses=nb_cpus)
+                                                   n_threads=n_threads)
 
 
 def _download_and_store_cv_files_thread(args):
