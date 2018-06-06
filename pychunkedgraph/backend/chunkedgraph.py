@@ -351,7 +351,7 @@ class ChunkedGraph(object):
             time_stamp = UTC.localize(time_stamp)
 
         # Catch trivial case
-        if edge_ids.size == 0 and cross_edge_ids.size == 0:
+        if edge_ids.size == 0 and cross_edge_ids.size == 0 and len(isolated_node_ids) == 0:
             return 0
 
         # # Write rg2cg mapping to table
@@ -368,8 +368,10 @@ class ChunkedGraph(object):
         # Make parent id creation easier
         if edge_ids.size > 0:
             z, y, x, l = get_chunk_id_from_node_id(edge_ids[0, 0])
-        else:
+        elif cross_edge_ids.size > 0:
             z, y, x, l = get_chunk_id_from_node_id(cross_edge_ids[0, 0])
+        else:
+            z, y, x, l = get_chunk_id_from_node_id(isolated_node_ids[0])
 
         parent_id_base = np.frombuffer(np.array([0, 0, 0, 0, z, y, x, l+1], dtype=np.uint8), dtype=np.uint32)
 
