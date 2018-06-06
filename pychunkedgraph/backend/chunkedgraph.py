@@ -354,15 +354,15 @@ class ChunkedGraph(object):
         if edge_ids.size == 0 and cross_edge_ids.size == 0:
             return 0
 
-        # Write rg2cg mapping to table
-        rows = []
-        for rg_id in rg2cg_dict.keys():
-            # Create node
-            val_dict = {"cg_id": np.array([rg2cg_dict[rg_id]]).tobytes()}
-
-            rows.append(mutate_row(self.table, serialize_node_id(rg_id),
-                                   self.family_id, val_dict))
-        status = self.table.mutate_rows(rows)
+        # # Write rg2cg mapping to table
+        # rows = []
+        # for rg_id in rg2cg_dict.keys():
+        #     # Create node
+        #     val_dict = {"cg_id": np.array([rg2cg_dict[rg_id]]).tobytes()}
+        #
+        #     rows.append(mutate_row(self.table, serialize_node_id(rg_id),
+        #                            self.family_id, val_dict))
+        # status = self.table.mutate_rows(rows)
 
         # Make parent id creation easier
         if edge_ids.size > 0:
