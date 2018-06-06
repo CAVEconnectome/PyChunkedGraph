@@ -26,31 +26,45 @@ def _rewrite_segmentation_thread(args):
             eta = dt / i_fp * n_file_paths - dt
             print("%d / %d - dt: %.3fs - eta: %.3fs" % (i_fp, n_file_paths, dt, eta))
 
-        dx, dy, dz, _ = os.path.basename(fp).split("_")
+        rewrite_single_block(fp, from_cv=from_cv, to_cv=to_cv)
 
-        x_start, x_end = np.array(dx.split("-"), dtype=np.int)
-        y_start, y_end = np.array(dy.split("-"), dtype=np.int)
-        z_start, z_end = np.array(dz.split("-"), dtype=np.int)
 
-        bbox = to_cv.bounds.to_list()[3:]
-        if x_end > bbox[0]:
-            x_end = bbox[0]
+def rewrite_single_block(file_path, from_cv=None, to_cv=None, from_url=None,
+                         to_url=None):
+    if from_cv is None:
+        assert from_url is not None
+        from_cv = cloudvolume.CloudVolume(from_url)
 
-        if y_end > bbox[1]:
-            y_end = bbox[1]
+    if to_cv is None:
+        assert to_url is not None
+        assert 'svenmd' in to_url
+        to_cv = cloudvolume.CloudVolume(to_url, bounded=False)
 
-        if z_end > bbox[2]:
-            z_end = bbox[2]
+    dx, dy, dz, _ = os.path.basename(file_path).split("_")
 
-        seg = from_cv[x_start: x_end, y_start: y_end, z_start: z_end]
-        mapping = utils.read_mapping_h5(fp)
+    x_start, x_end = np.array(dx.split("-"), dtype=np.int)
+    y_start, y_end = np.array(dy.split("-"), dtype=np.int)
+    z_start, z_end = np.array(dz.split("-"), dtype=np.int)
 
-        sort_idx = np.argsort(mapping[:, 0])
-        idx = np.searchsorted(mapping[:, 0], seg, sorter=sort_idx)
-        out = np.asarray(mapping[:, 1])[sort_idx][idx]
+    bbox = to_cv.bounds.to_list()[3:]
+    if x_end > bbox[0]:
+        x_end = bbox[0]
 
-        # print(out.shape, x_end, y_end, z_end)
-        to_cv[x_start: x_end, y_start: y_end, z_start: z_end] = out
+    if y_end > bbox[1]:
+        y_end = bbox[1]
+
+    if z_end > bbox[2]:
+        z_end = bbox[2]
+
+    seg = from_cv[x_start: x_end, y_start: y_end, z_start: z_end]
+    mapping = utils.read_mapping_h5(file_path)
+
+    sort_idx = np.argsort(mapping[:, 0])
+    idx = np.searchsorted(mapping[:, 0], seg, sorter=sort_idx)
+    out = np.asarray(mapping[:, 1])[sort_idx][idx]
+
+    # print(out.shape, x_end, y_end, z_end)
+    to_cv[x_start: x_end, y_start: y_end, z_start: z_end] = out
 
 
 def rewrite_segmentation(cv_url="gs://nkem/pinky40_v11/mst_trimmed_sem_remap/region_graph/",

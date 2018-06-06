@@ -1329,7 +1329,7 @@ class ChunkedGraph(object):
 
                             partner_cross_edges[new_neighbor] = neigh_cross_edges
                             atomic_id_map = np.concatenate([atomic_id_map,
-                                                            np.ones(len(neigh_cross_edges), dtype=np.uint64) * new_neighbor])
+                                                             np.ones(len(neigh_cross_edges), dtype=np.uint64) * new_neighbor])
                     else:
                         neigh_cross_edges = self.read_row(old_chunk_neighbor, "atomic_cross_edges").reshape(-1, 2)
                         atomic_children = np.concatenate([atomic_children,

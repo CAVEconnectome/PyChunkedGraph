@@ -14,7 +14,7 @@ from . import utils
 
 # def download_and_store_cv_files(cv_url="gs://nkem/basil_4k_oldnet/region_graph/"):
 def download_and_store_cv_files(cv_url="gs://nkem/pinky40_v11/mst_trimmed_sem_remap/region_graph/",
-                                n_threads=10):
+                                n_threads=10, olduint32=False):
     with storage.SimpleStorage(cv_url) as cv_st:
         dir_path = utils.dir_from_layer_name(utils.layer_name_from_cv_url(cv_st.layer_path))
 
@@ -26,7 +26,7 @@ def download_and_store_cv_files(cv_url="gs://nkem/pinky40_v11/mst_trimmed_sem_re
     file_chunks = np.array_split(file_paths, n_threads * 3)
     multi_args = []
     for i_file_chunk, file_chunk in enumerate(file_chunks):
-        multi_args.append([i_file_chunk, cv_url, file_chunk])
+        multi_args.append([i_file_chunk, cv_url, file_chunk, olduint32])
 
     # Run multiprocessing
     if n_threads == 1:
@@ -40,7 +40,7 @@ def download_and_store_cv_files(cv_url="gs://nkem/pinky40_v11/mst_trimmed_sem_re
 
 
 def _download_and_store_cv_files_thread(args):
-    chunk_id, cv_url, file_paths = args
+    chunk_id, cv_url, file_paths, olduint32 = args
 
     # Reset connection pool to make cloud-volume compatible with multiprocessing
     storage.reset_connection_pools()
@@ -55,7 +55,7 @@ def _download_and_store_cv_files_thread(args):
                 print("%d: %d / %d - dt: %.3fs - eta: %.3fs" % (chunk_id, i_fp, n_file_paths, dt, eta))
 
             if "rg2cg" in fp:
-                utils.download_and_store_mapping_file(cv_st, fp)
+                utils.download_and_store_mapping_file(cv_st, fp, olduint32)
             else:
                 utils.download_and_store_edge_file(cv_st, fp)
 
