@@ -69,17 +69,20 @@ class TestBuildGraph:
         cross_edge_ids = np.empty((0, 2), dtype=np.uint64)
         cross_edge_affs = np.empty((0, 1), dtype=np.float32)
 
+        isolated_node_ids = np.array([0x0100000000000000], dtype=np.uint64)
+
         cgraph.add_atomic_edges_in_chunks(edge_ids, cross_edge_ids,
                                           edge_affs, cross_edge_affs,
+                                          isolated_node_ids,
                                           cg2rg, rg2cg)
 
         res = cgraph.table.read_rows()
         res.consume_all()
 
         # Check for the RG-to-CG mapping:
-        assert chunkedgraph.serialize_node_id(1) in res.rows
-        row = res.rows[chunkedgraph.serialize_node_id(1)].cells[cgraph.family_id]
-        assert np.frombuffer(row[b'cg_id'][0].value, np.uint64)[0] == 0x0100000000000000
+        # assert chunkedgraph.serialize_node_id(1) in res.rows
+        # row = res.rows[chunkedgraph.serialize_node_id(1)].cells[cgraph.family_id]
+        # assert np.frombuffer(row[b'cg_id'][0].value, np.uint64)[0] == 0x0100000000000000
 
         # Check for the Level 1 CG supervoxel:
         # 0x0100000000000000
@@ -128,21 +131,24 @@ class TestBuildGraph:
         cross_edge_ids = np.empty((0, 2), dtype=np.uint64)
         cross_edge_affs = np.empty((0, 1), dtype=np.float32)
 
+        isolated_node_ids = np.empty((0), dtype=np.uint64)
+
         cgraph.add_atomic_edges_in_chunks(edge_ids, cross_edge_ids,
                                           edge_affs, cross_edge_affs,
+                                          isolated_node_ids,
                                           cg2rg, rg2cg)
 
         res = cgraph.table.read_rows()
         res.consume_all()
 
         # Check for the two RG-to-CG mappings:
-        assert chunkedgraph.serialize_node_id(1) in res.rows
-        row = res.rows[chunkedgraph.serialize_node_id(1)].cells[cgraph.family_id]
-        assert np.frombuffer(row[b'cg_id'][0].value, np.uint64)[0] == 0x0100000000000000
+        # assert chunkedgraph.serialize_node_id(1) in res.rows
+        # row = res.rows[chunkedgraph.serialize_node_id(1)].cells[cgraph.family_id]
+        # assert np.frombuffer(row[b'cg_id'][0].value, np.uint64)[0] == 0x0100000000000000
 
-        assert chunkedgraph.serialize_node_id(2) in res.rows
-        row = res.rows[chunkedgraph.serialize_node_id(2)].cells[cgraph.family_id]
-        assert np.frombuffer(row[b'cg_id'][0].value, np.uint64)[0] == 0x0100000000000001
+        # assert chunkedgraph.serialize_node_id(2) in res.rows
+        # row = res.rows[chunkedgraph.serialize_node_id(2)].cells[cgraph.family_id]
+        # assert np.frombuffer(row[b'cg_id'][0].value, np.uint64)[0] == 0x0100000000000001
 
         # Check for the two original Level 1 CG supervoxels
         # 0x0100000000000000
@@ -181,7 +187,8 @@ class TestBuildGraph:
         assert len(children) == 2 and 0x0100000000000000 in children and 0x0100000000000001 in children
 
         # Make sure there are not any more entries in the table
-        assert len(res.rows) == 5
+        # assert len(res.rows) == 5
+        assert len(res.rows) == 3
 
     def test_build_single_across_edge(self, cgraph):
         """
@@ -203,8 +210,11 @@ class TestBuildGraph:
         cross_edge_ids = np.array([[0x0100000000000000, 0x0101000000000000]], dtype=np.uint64)
         cross_edge_affs = np.array([inf], dtype=np.float32, ndmin=2)
 
+        isolated_node_ids = np.empty((0), dtype=np.uint64)
+
         cgraph.add_atomic_edges_in_chunks(edge_ids, cross_edge_ids,
                                           edge_affs, cross_edge_affs,
+                                          isolated_node_ids,
                                           cg2rg, rg2cg)
 
         # Chunk B
@@ -217,8 +227,11 @@ class TestBuildGraph:
         cross_edge_ids = np.array([[0x0101000000000000, 0x0100000000000000]], dtype=np.uint64)
         cross_edge_affs = np.array([inf], dtype=np.float32, ndmin=2)
 
+        isolated_node_ids = np.empty((0), dtype=np.uint64)
+
         cgraph.add_atomic_edges_in_chunks(edge_ids, cross_edge_ids,
                                           edge_affs, cross_edge_affs,
+                                          isolated_node_ids,
                                           cg2rg, rg2cg)
 
         cgraph.add_layer(3, np.array([[0, 0, 0], [1, 0, 0]]))
@@ -227,13 +240,13 @@ class TestBuildGraph:
         res.consume_all()
 
         # Check for the two RG-to-CG mappings:
-        assert chunkedgraph.serialize_node_id(1) in res.rows
-        row = res.rows[chunkedgraph.serialize_node_id(1)].cells[cgraph.family_id]
-        assert np.frombuffer(row[b'cg_id'][0].value, np.uint64)[0] == 0x0100000000000000
+        # assert chunkedgraph.serialize_node_id(1) in res.rows
+        # row = res.rows[chunkedgraph.serialize_node_id(1)].cells[cgraph.family_id]
+        # assert np.frombuffer(row[b'cg_id'][0].value, np.uint64)[0] == 0x0100000000000000
 
-        assert chunkedgraph.serialize_node_id(2) in res.rows
-        row = res.rows[chunkedgraph.serialize_node_id(2)].cells[cgraph.family_id]
-        assert np.frombuffer(row[b'cg_id'][0].value, np.uint64)[0] == 0x0101000000000000
+        # assert chunkedgraph.serialize_node_id(2) in res.rows
+        # row = res.rows[chunkedgraph.serialize_node_id(2)].cells[cgraph.family_id]
+        # assert np.frombuffer(row[b'cg_id'][0].value, np.uint64)[0] == 0x0101000000000000
 
         # Check for the two original Level 1 CG supervoxels
         # 0x0100000000000000
@@ -294,7 +307,8 @@ class TestBuildGraph:
         assert len(children) == 2 and 0x0200000000000000 in children and 0x0201000000000000 in children
 
         # Make sure there are not any more entries in the table
-        assert len(res.rows) == 7
+        # assert len(res.rows) == 7
+        assert len(res.rows) == 5
 
     def test_build_single_edge_and_single_across_edge(self, cgraph):
         """
@@ -314,11 +328,14 @@ class TestBuildGraph:
         cross_edge_ids = np.array([[0x0100000000000000, 0x0101000000000000]], dtype=np.uint64)
         cross_edge_affs = np.array([inf], dtype=np.float32, ndmin=2)
 
+        isolated_node_ids = np.empty((0), dtype=np.uint64)
+
         cg2rg = {0x0100000000000000: 1, 0x0100000000000001: 2, 0x0101000000000000: 3}
         rg2cg = {v: k for k, v in cg2rg.items()}
 
         cgraph.add_atomic_edges_in_chunks(edge_ids, cross_edge_ids,
                                           edge_affs, cross_edge_affs,
+                                          isolated_node_ids,
                                           cg2rg, rg2cg)
 
         # Chunk B
@@ -328,11 +345,14 @@ class TestBuildGraph:
         cross_edge_ids = np.array([[0x0101000000000000, 0x0100000000000000]], dtype=np.uint64)
         cross_edge_affs = np.array([inf], dtype=np.float32, ndmin=2)
 
+        isolated_node_ids = np.empty((0), dtype=np.uint64)
+
         cg2rg = {0x0100000000000000: 1, 0x0101000000000000: 3}
         rg2cg = {v: k for k, v in cg2rg.items()}
 
         cgraph.add_atomic_edges_in_chunks(edge_ids, cross_edge_ids,
                                           edge_affs, cross_edge_affs,
+                                          isolated_node_ids,
                                           cg2rg, rg2cg)
 
         cgraph.add_layer(3, np.array([[0, 0, 0], [1, 0, 0]]))
@@ -341,17 +361,17 @@ class TestBuildGraph:
         res.consume_all()
 
         # Check for the three RG-to-CG mappings:
-        assert chunkedgraph.serialize_node_id(1) in res.rows
-        row = res.rows[chunkedgraph.serialize_node_id(1)].cells[cgraph.family_id]
-        assert np.frombuffer(row[b'cg_id'][0].value, np.uint64)[0] == 0x0100000000000000
+        # assert chunkedgraph.serialize_node_id(1) in res.rows
+        # row = res.rows[chunkedgraph.serialize_node_id(1)].cells[cgraph.family_id]
+        # assert np.frombuffer(row[b'cg_id'][0].value, np.uint64)[0] == 0x0100000000000000
 
-        assert chunkedgraph.serialize_node_id(2) in res.rows
-        row = res.rows[chunkedgraph.serialize_node_id(2)].cells[cgraph.family_id]
-        assert np.frombuffer(row[b'cg_id'][0].value, np.uint64)[0] == 0x0100000000000001
+        # assert chunkedgraph.serialize_node_id(2) in res.rows
+        # row = res.rows[chunkedgraph.serialize_node_id(2)].cells[cgraph.family_id]
+        # assert np.frombuffer(row[b'cg_id'][0].value, np.uint64)[0] == 0x0100000000000001
 
-        assert chunkedgraph.serialize_node_id(3) in res.rows
-        row = res.rows[chunkedgraph.serialize_node_id(3)].cells[cgraph.family_id]
-        assert np.frombuffer(row[b'cg_id'][0].value, np.uint64)[0] == 0x0101000000000000
+        # assert chunkedgraph.serialize_node_id(3) in res.rows
+        # row = res.rows[chunkedgraph.serialize_node_id(3)].cells[cgraph.family_id]
+        # assert np.frombuffer(row[b'cg_id'][0].value, np.uint64)[0] == 0x0101000000000000
 
         # Check for the three original Level 1 CG supervoxels
         # 0x0100000000000000
@@ -429,7 +449,8 @@ class TestBuildGraph:
         assert len(children) == 2 and 0x0200000000000000 in children and 0x0201000000000000 in children
 
         # Make sure there are not any more entries in the table
-        assert len(res.rows) == 9
+        # assert len(res.rows) == 9
+        assert len(res.rows) == 6
 
 
 class TestGraphMerge:
@@ -489,8 +510,11 @@ class TestGraphMerge:
         cross_edge_ids = np.empty((0, 2), dtype=np.uint64)
         cross_edge_affs = np.empty((0, 1), dtype=np.float32)
 
+        isolated_node_ids = np.empty((0), dtype=np.uint64)
+
         cgraph.add_atomic_edges_in_chunks(edge_ids, cross_edge_ids,
                                           edge_affs, cross_edge_affs,
+                                          isolated_node_ids,
                                           cg2rg, rg2cg)
 
         # Merge
