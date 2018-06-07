@@ -10,6 +10,8 @@ import pytz
 from . import multiprocessing_utils as mu
 from google.cloud import bigtable
 from google.api_core.retry import Retry, if_exception_type
+from google.api_core.exceptions import Aborted, DeadlineExceeded, \
+    ServiceUnavailable
 
 # global variables
 HOME = os.path.expanduser("~")
@@ -18,11 +20,6 @@ UTC = pytz.UTC
 
 # Setting environment wide credential path
 os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = HOME + "/.cloudvolume/secrets/google-secret.json"
-
-class _BigtableRetryableError(Exception):
-    """Retry-able error expected by the default retry strategy.
-    see: http://google-cloud-python.readthedocs.io/en/latest/_modules/google/cloud/bigtable/table.html
-    """
 
 
 def serialize_node_id(node_id):
@@ -259,20 +256,27 @@ class ChunkedGraph(object):
                          value=value, timestamp=time_stamp)
         return row
 
-    def bulk_write(self, rows):
+    def bulk_write(self, rows, slow_retry=True):
         """
 
         :param rows: list
             list of mutated rows
         """
-        # retry = Retry(
-        #     predicate=if_exception_type(_BigtableRetryableError),
-        #     initial=1.0,
-        #     maximum=15.0,
-        #     multiplier=2.0,
-        #     deadline=180.0,
-        # )
-        status = self.table.mutate_rows(rows)
+        if slow_retry:
+            initial = 5
+        else:
+            initial = 1
+
+        retry_policy = Retry(
+            predicate=if_exception_type((Aborted,
+                                         DeadlineExceeded,
+                                         ServiceUnavailable)),
+            initial=initial,
+            maximum=15.0,
+            multiplier=2.0,
+            deadline=60.0 * 5.0)
+
+        status = self.table.mutate_rows(rows, retry=retry_policy)
 
     def range_read_chunk(self, z, y, x, layer_id):
         """ Reads all ids within a chunk
@@ -1156,7 +1160,7 @@ class ChunkedGraph(object):
                                         self.family_id, val_dict,
                                         time_stamp=time_stamp))
 
-        self.bulk_write(rows)
+        self.bulk_write(rows, slow_retry=False)
 
         return new_parent_id[0]
 
@@ -1226,7 +1230,7 @@ class ChunkedGraph(object):
         # until the end because we want to compute connected components on the
         # subgraph
 
-        self.bulk_write(rows)
+        self.bulk_write(rows, slow_retry=False)
         rows = []
 
         # Dictionaries keeping temporary information about the ChunkedGraph
@@ -1469,7 +1473,7 @@ class ChunkedGraph(object):
                                             {"new_parents": np.array(new_roots, dtype=np.uint64).tobytes()},
                                             time_stamp=time_stamp))
 
-        self.bulk_write(rows)
+        self.bulk_write(rows, slow_retry=False)
         return new_roots
 
     def remove_edges_mincut(self, source_id, sink_id, source_coord,
