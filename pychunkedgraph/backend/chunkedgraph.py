@@ -9,6 +9,7 @@ import pytz
 
 from . import multiprocessing_utils as mu
 from google.cloud import bigtable
+# from google.api_core.retry import Retry, if_exception_type
 
 # global variables
 HOME = os.path.expanduser("~")
@@ -17,6 +18,11 @@ UTC = pytz.UTC
 
 # Setting environment wide credential path
 os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = HOME + "/.cloudvolume/secrets/google-secret.json"
+
+class _BigtableRetryableError(Exception):
+    """Retry-able error expected by the default retry strategy.
+    see: http://google-cloud-python.readthedocs.io/en/latest/_modules/google/cloud/bigtable/table.html
+    """
 
 
 def serialize_node_id(node_id):
@@ -37,25 +43,6 @@ def serialize_key(key):
     :return: str
     """
     return key.encode("utf-8")
-
-
-def mutate_row(table, row_key, column_family_id, val_dict, time_stamp=None):
-    """
-
-    :param table: bigtable table instance
-    :param row_key: serialized bigtable row key
-    :param column_family_id: str
-        serialized column family id
-    :param val_dict: dict
-    :param time_stamp: None or datetime
-    :return: list
-    """
-    row = table.row(row_key)
-
-    for column, value in val_dict.items():
-        row.set_cell(column_family_id=column_family_id, column=column,
-                     value=value, timestamp=time_stamp)
-    return row
 
 
 def get_chunk_id_from_node_id(node_id, dtype=np.uint8):
@@ -255,6 +242,39 @@ class ChunkedGraph(object):
 
         return results
 
+    def mutate_row(self, row_key, column_family_id, val_dict, time_stamp=None):
+        """
+
+        :param table: bigtable table instance
+        :param row_key: serialized bigtable row key
+        :param column_family_id: str
+            serialized column family id
+        :param val_dict: dict
+        :param time_stamp: None or datetime
+        :return: list
+        """
+        row = self.table.row(row_key)
+
+        for column, value in val_dict.items():
+            row.set_cell(column_family_id=column_family_id, column=column,
+                         value=value, timestamp=time_stamp)
+        return row
+
+    def bulk_write(self, rows):
+        """
+
+        :param rows: list
+            list of mutated rows
+        """
+        # retry = Retry(
+        #     predicate=if_exception_type(_BigtableRetryableError),
+        #     initial=1.0,
+        #     maximum=15.0,
+        #     multiplier=2.0,
+        #     deadline=180.0,
+        # )
+        status = self.table.mutate_rows(rows)
+
     def range_read_chunk(self, z, y, x, layer_id):
         """ Reads all ids within a chunk
 
@@ -282,8 +302,8 @@ class ChunkedGraph(object):
 
         # Set up read
         range_read = self.table.read_rows(start_key=start_key,
-                                          end_key=end_key,
-                                          end_inclusive=False)
+                                          end_key=end_key)
+                                          # end_inclusive=False)
 
         # Execute read
         range_read.consume_all()
@@ -314,8 +334,8 @@ class ChunkedGraph(object):
 
         # Set up read
         range_read = self.table.read_rows(start_key=start_key,
-                                          end_key=end_key,
-                                          end_inclusive=False)
+                                          end_key=end_key)
+                                          # end_inclusive=False)
 
         # Execute read
         range_read.consume_all()
@@ -360,9 +380,9 @@ class ChunkedGraph(object):
         #     # Create node
         #     val_dict = {"cg_id": np.array([rg2cg_dict[rg_id]]).tobytes()}
         #
-        #     rows.append(mutate_row(self.table, serialize_node_id(rg_id),
-        #                            self.family_id, val_dict))
-        # status = self.table.mutate_rows(rows)
+        #     rows.append(self.mutate_row(serialize_node_id(rg_id),
+        #                                 self.family_id, val_dict))
+        # self.bulk_write(rows)
 
         # Make parent id creation easier
         if edge_ids.size > 0:
@@ -375,7 +395,7 @@ class ChunkedGraph(object):
         # Get connected component within the chunk
         chunk_g = nx.from_edgelist(edge_ids)
         chunk_g.add_nodes_from(np.unique(cross_edge_ids[:, 0]))
-        chunk_g.add_nodes_from(np.unique(isolated_node_ids))
+        # chunk_g.add_nodes_from(np.unique(isolated_node_ids))
         ccs = list(nx.connected_components(chunk_g))
 
         # print("%d ccs detected" % (len(ccs)))
@@ -428,20 +448,20 @@ class ChunkedGraph(object):
                             "parents": parent_id_b,
                             "rg_id": np.array([cg2rg_dict[node_id]]).tobytes()}
 
-                rows.append(mutate_row(self.table, serialize_node_id(node_id),
-                                       self.family_id, val_dict))
+                rows.append(self.mutate_row(serialize_node_id(node_id),
+                                            self.family_id, val_dict))
                 node_c += 1
 
             # Create parent node
             val_dict = {"children": node_ids.tobytes(),
                         "atomic_cross_edges": parent_cross_edges.tobytes()}
 
-            rows.append(mutate_row(self.table, serialize_node_id(parent_id),
-                                   self.family_id, val_dict))
+            rows.append(self.mutate_row(serialize_node_id(parent_id),
+                                        self.family_id, val_dict))
 
             node_c += 1
 
-            status = self.table.mutate_rows(rows)
+            self.bulk_write(rows)
 
         if verbose:
             try:
@@ -451,7 +471,7 @@ class ChunkedGraph(object):
             except:
                 print("WARNING: NOTHING HAPPENED")
 
-    def add_layer(self, layer_id, child_chunk_coords, verbose=True,
+    def add_layer(self, layer_id, child_chunk_coords, verbose=False,
                   time_stamp=None):
         """ Creates the abstract nodes for a given chunk in a given layer
 
@@ -586,20 +606,20 @@ class ChunkedGraph(object):
                 # Create node
                 val_dict = {"parents": parent_id_b}
 
-                rows.append(mutate_row(self.table, serialize_node_id(node_id),
-                                       self.family_id, val_dict))
+                rows.append(self.mutate_row(serialize_node_id(node_id),
+                                            self.family_id, val_dict))
                 node_c += 1
 
             # Create parent node
             val_dict = {"children": node_ids.tobytes(),
                         "atomic_cross_edges": parent_cross_edges.tobytes()}
 
-            rows.append(mutate_row(self.table, serialize_node_id(parent_id),
-                                   self.family_id, val_dict))
+            rows.append(self.mutate_row(serialize_node_id(parent_id),
+                                        self.family_id, val_dict))
 
             node_c += 1
 
-            status = self.table.mutate_rows(rows)
+            self.bulk_write(rows)
 
         if verbose:
             try:
@@ -671,6 +691,9 @@ class ChunkedGraph(object):
         """
         if time_stamp is None:
             time_stamp = datetime.datetime.now()
+
+            # Give potentially overlapping writes a head start
+            time_stamp - datetime.timedelta(seconds=5)
 
         if time_stamp.tzinfo is None:
             time_stamp = UTC.localize(time_stamp)
@@ -819,6 +842,8 @@ class ChunkedGraph(object):
         affinities = np.array([], dtype=np.float32)
         child_ids = [agglomeration_id]
 
+        times = []
+        time_start = time.time()
         while len(child_ids) > 0:
             new_childs = []
             layer = get_chunk_id_from_node_id(child_ids[0])[-1]
@@ -865,6 +890,9 @@ class ChunkedGraph(object):
                     new_childs.extend(this_children)
 
             child_ids = new_childs
+
+            print("Layer %d: %.3fms" % (layer, (time.time() - time_start) * 1000))
+            time_start = time.time()
 
         if get_edges:
             if return_rg_ids:
@@ -1070,10 +1098,9 @@ class ChunkedGraph(object):
                 # Append new parent entry for all children
                 for child_id in child_ids:
                     val_dict = {"parents": new_parent_id_b}
-                    rows.append(mutate_row(self.table,
-                                           serialize_node_id(child_id),
-                                           self.family_id,
-                                           val_dict, time_stamp))
+                    rows.append(self.mutate_row(serialize_node_id(child_id),
+                                                self.family_id,
+                                                val_dict, time_stamp))
 
             # Create new parent node
             val_dict = {"children": combined_child_ids.tobytes()}
@@ -1090,15 +1117,13 @@ class ChunkedGraph(object):
             else:
                 val_dict["former_parents"] = np.array(original_root).tobytes()
 
-                rows.append(mutate_row(self.table,
-                                       serialize_node_id(original_root[0]),
-                                       self.family_id,
-                                       {"new_parents": new_parent_id_b}))
+                rows.append(self.mutate_row(serialize_node_id(original_root[0]),
+                                            self.family_id,
+                                            {"new_parents": new_parent_id_b}))
 
-                rows.append(mutate_row(self.table,
-                                       serialize_node_id(original_root[1]),
-                                       self.family_id,
-                                       {"new_parents": new_parent_id_b}))
+                rows.append(self.mutate_row(serialize_node_id(original_root[1]),
+                                            self.family_id,
+                                            {"new_parents": new_parent_id_b}))
 
             # Read original cross chunk edges
             atomic_cross_edges = np.array([], dtype=np.uint64).reshape(0, 2)
@@ -1110,18 +1135,17 @@ class ChunkedGraph(object):
 
             val_dict["atomic_cross_edges"] = atomic_cross_edges.tobytes()
 
-            rows.append(mutate_row(self.table,
-                                   serialize_node_id(current_node_id),
-                                   self.family_id, val_dict))
+            rows.append(self.mutate_row(serialize_node_id(current_node_id),
+                                        self.family_id, val_dict))
 
         # Atomic edge
         for i_atomic_id in range(2):
             val_dict = {"atomic_partners": np.array([atomic_edge[(i_atomic_id + 1) % 2]]).tobytes(),
                         "atomic_affinities": np.array([affinity], dtype=np.float32).tobytes()}
-            rows.append(mutate_row(self.table, serialize_node_id(atomic_edge[i_atomic_id]),
-                                   self.family_id, val_dict, time_stamp))
+            rows.append(self.mutate_row(serialize_node_id(atomic_edge[i_atomic_id]),
+                                        self.family_id, val_dict, time_stamp))
 
-        status = self.table.mutate_rows(rows)
+        self.bulk_write(rows)
 
         return new_parent_id[0]
 
@@ -1183,14 +1207,14 @@ class ChunkedGraph(object):
             val_dict = {"atomic_partners": partners.tobytes(),
                         "atomic_affinities": np.zeros(len(partners), dtype=np.float32).tobytes()}
 
-            rows.append(mutate_row(self.table, serialize_node_id(u_atomic_id),
-                                   self.family_id, val_dict, time_stamp))
+            rows.append(self.mutate_row(serialize_node_id(u_atomic_id),
+                                        self.family_id, val_dict, time_stamp))
 
         # Execute the removal of the atomic edges - we cannot wait for that
         # until the end because we want to compute connected components on the
         # subgraph
 
-        self.table.mutate_rows(rows)
+        self.bulk_write(rows)
         rows = []
 
         # Dictionaries keeping temporary information about the ChunkedGraph
@@ -1249,16 +1273,14 @@ class ChunkedGraph(object):
                 val_dict = {"children": cc_node_ids.tobytes(),
                             "atomic_cross_edges": cc_cross_edges.tobytes()}
 
-                rows.append(mutate_row(self.table,
-                                       serialize_node_id(new_parent_id),
-                                       self.family_id, val_dict))
+                rows.append(self.mutate_row(serialize_node_id(new_parent_id),
+                                            self.family_id, val_dict))
 
                 for cc_node_id in cc_node_ids:
                     val_dict = {"parents": new_parent_id_b}
 
-                    rows.append(mutate_row(self.table,
-                                           serialize_node_id(cc_node_id),
-                                           self.family_id, val_dict))
+                    rows.append(self.mutate_row(serialize_node_id(cc_node_id),
+                                                self.family_id, val_dict))
 
         # Now that the lowest layer has been updated, we need to walk through
         # all layers and move our new parents forward
@@ -1412,9 +1434,8 @@ class ChunkedGraph(object):
                 for cc_node_id in cc_node_ids:
                     val_dict = {"parents": new_parent_id_b}
 
-                    rows.append(mutate_row(self.table,
-                                           serialize_node_id(cc_node_id),
-                                           self.family_id, val_dict))
+                    rows.append(self.mutate_row(serialize_node_id(cc_node_id),
+                                                self.family_id, val_dict))
 
                 val_dict = {"children": cc_node_ids.tobytes(),
                             "atomic_cross_edges": cc_cross_edges.tobytes()}
@@ -1423,17 +1444,15 @@ class ChunkedGraph(object):
                     new_roots.append(new_parent_id)
                     val_dict["former_parents"] = np.array(original_root).tobytes()
 
-                rows.append(mutate_row(self.table,
-                                       serialize_node_id(new_parent_id),
-                                       self.family_id, val_dict))
+                rows.append(self.mutate_row(serialize_node_id(new_parent_id),
+                                            self.family_id, val_dict))
 
             if i_layer == n_layers - 2:
-                rows.append(mutate_row(self.table,
-                                       serialize_node_id(original_root),
-                                       self.family_id,
-                                       {"new_parents": np.array(new_roots, dtype=np.uint64).tobytes()}))
+                rows.append(self.mutate_row(serialize_node_id(original_root),
+                                            self.family_id,
+                                            {"new_parents": np.array(new_roots, dtype=np.uint64).tobytes()}))
 
-        status = self.table.mutate_rows(rows)
+        self.bulk_write(rows)
         return new_roots
 
     def remove_edges_mincut(self, source_id, sink_id, source_coord,
@@ -1454,6 +1473,8 @@ class ChunkedGraph(object):
             new root ids
         """
 
+        time_start = time.time()    # ------------------------------------------
+
         bb_offset = np.array(list(bb_offset))
         source_coord = np.array(source_coord)
         sink_coord = np.array(sink_coord)
@@ -1472,25 +1493,42 @@ class ChunkedGraph(object):
         bounding_box[0] -= bb_offset
         bounding_box[1] += bb_offset
 
-        print(bounding_box)
+        root_id_source = self.get_root(source_id, is_cg_id=True)
+        root_id_sink = self.get_root(source_id, is_cg_id=True)
+
+        # Verify that sink and source are from the same root object
+        if root_id_source != root_id_sink:
+            return [root_id_source, root_id_sink]
+
+        print("Get roots and check: %.3fms" % ((time.time() - time_start)*1000))
+        time_start = time.time()    # ------------------------------------------
+
+        root_id = root_id_source
 
         # Get edges between local supervoxels
-        agglomeration_id = self.get_root(source_id, is_cg_id=True)
-        edges, affs = self.get_subgraph(agglomeration_id, get_edges=True,
+        edges, affs = self.get_subgraph(root_id, get_edges=True,
                                         bounding_box=bounding_box,
                                         bb_is_coordinate=True)
 
+        print("Get edges and affs: %.3fms" % ((time.time() - time_start)*1000))
+        time_start = time.time()  # ------------------------------------------
+
         # Compute mincut
         atomic_edges = mincut(edges, affs, source_id, sink_id)
-        print(atomic_edges)
+
+        print("Mincut: %.3fms" % ((time.time() - time_start)*1000))
+        time_start = time.time()  # ------------------------------------------
 
         if len(atomic_edges) == 0:
             print("WARNING: Mincut failed. Try again...")
-            return [agglomeration_id]
+            return [root_id]
 
         # Remove edges
         new_roots = self.remove_edges(atomic_edges, is_cg_id=True)
         # new_roots = [agglomeration_id]
+
+        print("Remove edges: %.3fms" % ((time.time() - time_start)*1000))
+        time_start = time.time()  # ------------------------------------------
 
         print(new_roots)
 
