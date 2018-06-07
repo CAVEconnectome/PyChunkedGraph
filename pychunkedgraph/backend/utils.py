@@ -52,10 +52,17 @@ def download_and_store_edge_file(cv_st, path, create_dir=True):
         f["edge_affs"] = edge_affs
 
 
-def read_mapping_cv(cv_st, path):
+def read_mapping_cv(cv_st, path, olduint32=False):
     """ Reads the mapping information from a file """
 
-    return np.frombuffer(cv_st.get_file(path), dtype=np.uint64).reshape(-1, 2)
+    if olduint32:
+        mapping = np.frombuffer(cv_st.get_file(path),
+                                dtype=np.uint64).reshape(-1, 2)
+        mapping_to = mapping[:, 1]
+        mapping_from = np.frombuffer(np.ascontiguousarray(mapping[:, 0]), dtype=np.uint32)[::2].astype(np.uint64)
+        return np.concatenate([mapping_from[:, None], mapping_to[:, None]], axis=1)
+    else:
+        return np.frombuffer(cv_st.get_file(path), dtype=np.uint64).reshape(-1, 2)
 
 
 def read_mapping_h5(path, layer_name=None):
@@ -71,8 +78,8 @@ def read_mapping_h5(path, layer_name=None):
     return mapping
 
 
-def download_and_store_mapping_file(cv_st, path):
-    mapping = read_mapping_cv(cv_st, path)
+def download_and_store_mapping_file(cv_st, path, olduint32=False):
+    mapping = read_mapping_cv(cv_st, path, olduint32=olduint32)
 
     dir_path = dir_from_layer_name(layer_name_from_cv_url(cv_st.layer_path))
 
