@@ -6,6 +6,7 @@ import pytest
 import numpy as np
 from google.cloud import bigtable, exceptions
 from math import inf
+from datetime import datetime, timedelta
 from time import sleep
 from signal import SIGTERM
 from warnings import warn
@@ -67,7 +68,7 @@ def cgraph(request):
     return graph
 
 
-def create_chunk(cgraph, vertices=None, edges=None):
+def create_chunk(cgraph, vertices=None, edges=None, timestamp=None):
     """
     Helper function to add vertices and edges to the chunkedgraph - no safety checks!
     """
@@ -533,8 +534,6 @@ class TestGraphMerge:
 
         # Merge
         new_root_id = cgraph.add_edge([0x0100000000000001, 0x0100000000000000], affinity=0.3, is_cg_id=True)
-        res = cgraph.table.read_rows()
-        res.consume_all()
 
         # Check
         assert cgraph.get_parent(0x0100000000000000) == new_root_id
@@ -571,8 +570,6 @@ class TestGraphMerge:
 
         # Merge
         new_root_id = cgraph.add_edge([0x0101000000000000, 0x0100000000000000], affinity=0.3, is_cg_id=True)
-        res = cgraph.table.read_rows()
-        res.consume_all()
 
         # Check
         assert cgraph.get_root(0x0100000000000000) == new_root_id
@@ -623,8 +620,6 @@ class TestGraphMerge:
 
         # Merge
         new_root_id = cgraph.add_edge([0x017F7F7F00000000, 0x0100000000000000], affinity=0.3, is_cg_id=True)
-        res = cgraph.table.read_rows()
-        res.consume_all()
 
         # Check
         assert cgraph.get_root(0x0100000000000000) == new_root_id
@@ -662,8 +657,9 @@ class TestGraphMerge:
         res_new.consume_all()
 
         # Check
-        if res_old != res_new:
-            warn("Rows were modified when merging a pair of already connected supervoxels. While not an error, this is an unnecessary operation.")
+        if res_old.rows != res_new.rows:
+            warn("Rows were modified when merging a pair of already connected supervoxels. "
+                 "While probably not an error, it is an unnecessary operation.")
         # assert res_old == res_new
 
     def test_merge_triple_chain_to_full_circle_same_chunk(self, cgraph):
@@ -684,23 +680,25 @@ class TestGraphMerge:
 
         # Merge
         new_root_id = cgraph.add_edge([0x0100000000000001, 0x0100000000000000], affinity=0.3, is_cg_id=True)
-        res_new = cgraph.table.read_rows()
-        res_new.consume_all()
 
         # Check
         assert cgraph.get_root(0x0100000000000000) == new_root_id
         assert cgraph.get_root(0x0100000000000001) == new_root_id
         assert cgraph.get_root(0x0100000000000002) == new_root_id
         partners, affinities = cgraph.get_atomic_partners(0x0100000000000000)
+        assert len(partners) == 2
         assert 0x0100000000000001 in partners
         assert 0x0100000000000002 in partners
         partners, affinities = cgraph.get_atomic_partners(0x0100000000000001)
+        assert len(partners) == 2
         assert 0x0100000000000000 in partners
         assert 0x0100000000000002 in partners
         partners, affinities = cgraph.get_atomic_partners(0x0100000000000002)
+        assert len(partners) == 2
         assert 0x0100000000000000 in partners
         assert 0x0100000000000001 in partners
         children = cgraph.get_children(new_root_id)
+        assert len(children) == 3
         assert 0x0100000000000000 in children
         assert 0x0100000000000001 in children
         assert 0x0100000000000002 in children
@@ -730,20 +728,21 @@ class TestGraphMerge:
 
         # Merge
         new_root_id = cgraph.add_edge([0x0101000000000000, 0x0100000000000000], affinity=1.0, is_cg_id=True)
-        res_new = cgraph.table.read_rows()
-        res_new.consume_all()
 
         # Check
         assert cgraph.get_root(0x0100000000000000) == new_root_id
         assert cgraph.get_root(0x0100000000000001) == new_root_id
         assert cgraph.get_root(0x0101000000000000) == new_root_id
         partners, affinities = cgraph.get_atomic_partners(0x0100000000000000)
+        assert len(partners) == 2
         assert 0x0100000000000001 in partners
         assert 0x0101000000000000 in partners
         partners, affinities = cgraph.get_atomic_partners(0x0100000000000001)
+        assert len(partners) == 2
         assert 0x0100000000000000 in partners
         assert 0x0101000000000000 in partners
         partners, affinities = cgraph.get_atomic_partners(0x0101000000000000)
+        assert len(partners) == 2
         assert 0x0100000000000000 in partners
         assert 0x0100000000000001 in partners
         # children = cgraph.get_children(new_root_id)
@@ -790,20 +789,21 @@ class TestGraphMerge:
 
         # Merge
         new_root_id = cgraph.add_edge([0x017F7F7F00000000, 0x0100000000000000], affinity=1.0, is_cg_id=True)
-        res_new = cgraph.table.read_rows()
-        res_new.consume_all()
 
         # Check
         assert cgraph.get_root(0x0100000000000000) == new_root_id
         assert cgraph.get_root(0x0100000000000001) == new_root_id
         assert cgraph.get_root(0x017F7F7F00000000) == new_root_id
         partners, affinities = cgraph.get_atomic_partners(0x0100000000000000)
+        assert len(partners) == 2
         assert 0x0100000000000001 in partners
         assert 0x017F7F7F00000000 in partners
         partners, affinities = cgraph.get_atomic_partners(0x0100000000000001)
+        assert len(partners) == 2
         assert 0x0100000000000000 in partners
         assert 0x017F7F7F00000000 in partners
         partners, affinities = cgraph.get_atomic_partners(0x017F7F7F00000000)
+        assert len(partners) == 2
         assert 0x0100000000000000 in partners
         assert 0x0100000000000001 in partners
         # children = cgraph.get_children(new_root_id)
@@ -820,7 +820,22 @@ class TestGraphMerge:
         │     │
         └─────┘
         """
-        pass
+
+        # Preparation: Build Chunk A
+        create_chunk(cgraph,
+                     vertices=[0x0100000000000000],
+                     edges=[])
+
+        res_old = cgraph.table.read_rows()
+        res_old.consume_all()
+
+        # Merge
+        assert cgraph.add_edge([0x0100000000000000, 0x0100000000000000], is_cg_id=True) == []
+
+        res_new = cgraph.table.read_rows()
+        res_new.consume_all()
+
+        assert res_new.rows == res_old.rows
 
     def test_merge_pair_abstract_nodes(self, cgraph):  # This should fail
         """
@@ -838,6 +853,29 @@ class TestGraphMerge:
         """
         pass
 
+        # Preparation: Build Chunk A
+        create_chunk(cgraph,
+                     vertices=[0x0100000000000000],
+                     edges=[])
+
+        # Preparation: Build Chunk B
+        create_chunk(cgraph,
+                     vertices=[0x0101000000000000],
+                     edges=[])
+
+        cgraph.add_layer(3, np.array([[0, 0, 0], [1, 0, 0]]))
+
+        res_old = cgraph.table.read_rows()
+        res_old.consume_all()
+
+        # Merge
+        assert cgraph.add_edge([0x0100000000000000, 0x0201000000000000], is_cg_id=True) == []
+
+        res_new = cgraph.table.read_rows()
+        res_new.consume_all()
+
+        assert res_new.rows == res_old.rows
+
 
 class TestGraphSplit:
     def test_split_pair_same_chunk(self, cgraph):
@@ -850,7 +888,31 @@ class TestGraphSplit:
         │     │      │     │
         └─────┘      └─────┘
         """
-        pass
+
+        # Preparation: Build Chunk A
+        fake_timestamp = datetime.now() - timedelta(days=10)
+        create_chunk(cgraph,
+                     vertices=[0x0100000000000000, 0x0100000000000001],
+                     edges=[(0x0100000000000000, 0x0100000000000001, 0.5)],
+                     timestamp=fake_timestamp)
+
+        # Split
+        new_root_ids = cgraph.remove_edges([[0x0100000000000001, 0x0100000000000000]], is_cg_id=True)
+
+        # Check New State
+        assert len(new_root_ids) == 2
+        assert cgraph.get_root(0x0100000000000000) != cgraph.get_root(0x0100000000000001)
+        partners, affinities = cgraph.get_atomic_partners(0x0100000000000000)
+        assert len(partners) == 0
+        partners, affinities = cgraph.get_atomic_partners(0x0100000000000001)
+        assert len(partners) == 0
+
+        # Check Old State
+        assert cgraph.get_root(0x0100000000000000, time_stamp=fake_timestamp) == cgraph.get_root(0x0100000000000001)
+        partners, affinities = cgraph.get_atomic_partners(0x0100000000000000)
+        assert len(partners) == 1 and partners[0] == 0x0100000000000001
+        partners, affinities = cgraph.get_atomic_partners(0x0100000000000001)
+        assert len(partners) == 1 and partners[0] == 0x0100000000000000
 
     def test_split_pair_neighboring_chunks(self, cgraph):
         """
@@ -861,7 +923,39 @@ class TestGraphSplit:
         │     │     │      │     │     │
         └─────┴─────┘      └─────┴─────┘
         """
-        pass
+
+        # Preparation: Build Chunk A
+        fake_timestamp = datetime.now() - timedelta(days=10)
+        create_chunk(cgraph,
+                     vertices=[0x0100000000000000],
+                     edges=[(0x0100000000000000, 0x0101000000000000, 1.0)],
+                     timestamp=fake_timestamp)
+
+        # Preparation: Build Chunk B
+        create_chunk(cgraph,
+                     vertices=[0x0101000000000000],
+                     edges=[(0x0101000000000000, 0x0100000000000000, 1.0)],
+                     timestamp=fake_timestamp)
+
+        cgraph.add_layer(3, np.array([[0, 0, 0], [1, 0, 0]]))
+
+        # Split
+        new_root_ids = cgraph.remove_edges([[0x0101000000000000, 0x0100000000000000]], is_cg_id=True)
+
+        # Check New State
+        assert len(new_root_ids) == 2
+        assert cgraph.get_root(0x0100000000000000) != cgraph.get_root(0x0101000000000000)
+        partners, affinities = cgraph.get_atomic_partners(0x0100000000000000)
+        assert len(partners) == 0
+        partners, affinities = cgraph.get_atomic_partners(0x0101000000000000)
+        assert len(partners) == 0
+
+        # Check Old State
+        assert cgraph.get_root(0x0100000000000000, time_stamp=fake_timestamp) == cgraph.get_root(0x0101000000000000)
+        partners, affinities = cgraph.get_atomic_partners(0x0100000000000000)
+        assert len(partners) == 1 and partners[0] == 0x0101000000000000
+        partners, affinities = cgraph.get_atomic_partners(0x0101000000000000)
+        assert len(partners) == 1 and partners[0] == 0x0100000000000000
 
     def test_split_pair_disconnected_chunks(self, cgraph):
         """
@@ -872,7 +966,53 @@ class TestGraphSplit:
         │     │     │     │      │     │     │     │
         └─────┘     └─────┘      └─────┘     └─────┘
         """
-        pass
+
+        # Preparation: Build Chunk A
+        fake_timestamp = datetime.now() - timedelta(days=10)
+        create_chunk(cgraph,
+                     vertices=[0x0100000000000000],
+                     edges=[(0x0100000000000000, 0x017F7F7F00000000, 1.0)],
+                     timestamp=fake_timestamp)
+
+        # Preparation: Build Chunk Z
+        create_chunk(cgraph,
+                     vertices=[0x017F7F7F00000000],
+                     edges=[(0x017F7F7F00000000, 0x0100000000000000, 1.0)],
+                     timestamp=fake_timestamp)
+
+        cgraph.add_layer(3, np.array([[0x00, 0x00, 0x00]]))
+        cgraph.add_layer(3, np.array([[0x7F, 0x7F, 0x7F]]))
+        cgraph.add_layer(4, np.array([[0x00, 0x00, 0x00]]))
+        cgraph.add_layer(4, np.array([[0x7E, 0x7E, 0x7E], [0x7F, 0x7F, 0x7F]]))
+        cgraph.add_layer(5, np.array([[0x00, 0x00, 0x00]]))
+        cgraph.add_layer(5, np.array([[0x7C, 0x7C, 0x7C], [0x7E, 0x7E, 0x7E]]))
+        cgraph.add_layer(6, np.array([[0x00, 0x00, 0x00]]))
+        cgraph.add_layer(6, np.array([[0x78, 0x78, 0x78], [0x7C, 0x7C, 0x7C]]))
+        cgraph.add_layer(7, np.array([[0x00, 0x00, 0x00]]))
+        cgraph.add_layer(7, np.array([[0x70, 0x70, 0x70], [0x78, 0x78, 0x78]]))
+        cgraph.add_layer(8, np.array([[0x00, 0x00, 0x00]]))
+        cgraph.add_layer(8, np.array([[0x60, 0x60, 0x60], [0x70, 0x70, 0x70]]))
+        cgraph.add_layer(9, np.array([[0x00, 0x00, 0x00]]))
+        cgraph.add_layer(9, np.array([[0x40, 0x40, 0x40], [0x60, 0x60, 0x60]]))
+        cgraph.add_layer(10, np.array([[0x00, 0x00, 0x00], [0x40, 0x40, 0x40]]))
+
+        # Split
+        new_roots = cgraph.remove_edges([[0x017F7F7F00000000, 0x0100000000000000]], is_cg_id=True)
+
+        # Check New State
+        assert len(new_roots) == 2
+        assert cgraph.get_root(0x0100000000000000) != cgraph.get_root(0x017F7F7F00000000)
+        partners, affinities = cgraph.get_atomic_partners(0x0100000000000000)
+        assert len(partners) == 0
+        partners, affinities = cgraph.get_atomic_partners(0x017F7F7F00000000)
+        assert len(partners) == 0
+
+        # Check Old State
+        assert cgraph.get_root(0x0100000000000000, time_stamp=fake_timestamp) == cgraph.get_root(0x017F7F7F00000000)
+        partners, affinities = cgraph.get_atomic_partners(0x0100000000000000)
+        assert len(partners) == 1 and partners[0] == 0x017F7F7F00000000
+        partners, affinities = cgraph.get_atomic_partners(0x017F7F7F00000000)
+        assert len(partners) == 1 and partners[0] == 0x0100000000000000
 
     def test_split_pair_already_disconnected(self, cgraph):
         """
@@ -884,7 +1024,27 @@ class TestGraphSplit:
         │     │      │     │
         └─────┘      └─────┘
         """
-        pass
+
+        # Preparation: Build Chunk A
+        fake_timestamp = datetime.now() - timedelta(days=10)
+        create_chunk(cgraph,
+                     vertices=[0x0100000000000000, 0x0100000000000001],
+                     edges=[],
+                     timestamp=fake_timestamp)
+
+        res_old = cgraph.table.read_rows()
+        res_old.consume_all()
+
+        # Split
+        cgraph.remove_edges([[0x0100000000000001, 0x0100000000000000]], is_cg_id=True)
+        res_new = cgraph.table.read_rows()
+        res_new.consume_all()
+
+        # Check
+        if res_old.rows != res_new.rows:
+            warn("Rows were modified when splitting a pair of already disconnected supervoxels. "
+                 "While probably not an error, it is an unnecessary operation.")
+        # assert res_old == res_new
 
     def test_split_full_circle_to_triple_chain_same_chunk(self, cgraph):
         """
@@ -895,7 +1055,40 @@ class TestGraphSplit:
         │ ┗3┛ │      │ ┗3┛ │
         └─────┘      └─────┘
         """
-        pass
+        # Preparation: Build Chunk A
+        fake_timestamp = datetime.now() - timedelta(days=10)
+        create_chunk(cgraph,
+                     vertices=[0x0100000000000000, 0x0100000000000001, 0x0100000000000002],
+                     edges=[(0x0100000000000000, 0x0100000000000002, 0.5),
+                            (0x0100000000000001, 0x0100000000000002, 0.5),
+                            (0x0100000000000000, 0x0100000000000001, 0.3)],
+                     timestamp=fake_timestamp)
+
+        # Split
+        new_root_ids = cgraph.remove_edges([[0x0100000000000001, 0x0100000000000000]], is_cg_id=True)
+
+        # Check New State
+        assert len(new_root_ids) == 1
+        assert cgraph.get_root(0x0100000000000000) == new_root_ids[0]
+        assert cgraph.get_root(0x0100000000000001) == new_root_ids[0]
+        assert cgraph.get_root(0x0100000000000002) == new_root_ids[0]
+        partners, affinities = cgraph.get_atomic_partners(0x0100000000000000)
+        assert len(partners) == 1 and partners[0] == 0x0100000000000002
+        partners, affinities = cgraph.get_atomic_partners(0x0100000000000001)
+        assert len(partners) == 1 and partners[0] == 0x0100000000000002
+        partners, affinities = cgraph.get_atomic_partners(0x0100000000000002)
+        assert len(partners) == 2
+        assert 0x0100000000000000 in partners
+        assert 0x0100000000000001 in partners
+        children = cgraph.get_children(new_root_ids[0])
+        assert len(children) == 3
+        assert 0x0100000000000000 in children
+        assert 0x0100000000000001 in children
+        assert 0x0100000000000002 in children
+
+        # Check Old State
+        old_root_id = cgraph.get_root(0x0100000000000000, time_stamp=fake_timestamp)
+        assert new_root_ids[0] != old_root_id
 
     def test_split_full_circle_to_triple_chain_neighboring_chunks(self, cgraph):
         """
@@ -906,7 +1099,49 @@ class TestGraphSplit:
         │  ┗3━┿━━┛  │      │  ┗3━┿━━┛  │
         └─────┴─────┘      └─────┴─────┘
         """
-        pass
+
+        # Preparation: Build Chunk A
+        fake_timestamp = datetime.now() - timedelta(days=10)
+        create_chunk(cgraph,
+                     vertices=[0x0100000000000000, 0x0100000000000001],
+                     edges=[(0x0100000000000000, 0x0100000000000001, 0.5),
+                            (0x0100000000000001, 0x0101000000000000, 0.5),
+                            (0x0100000000000000, 0x0101000000000000, 0.3)],
+                     timestamp=fake_timestamp)
+
+        # Preparation: Build Chunk B
+        create_chunk(cgraph,
+                     vertices=[0x0101000000000000],
+                     edges=[(0x0101000000000000, 0x0100000000000001, 0.5),
+                            (0x0101000000000000, 0x0100000000000000, 0.3)],
+                     timestamp=fake_timestamp)
+
+        cgraph.add_layer(3, np.array([[0, 0, 0], [1, 0, 0]]))
+
+        # Split
+        new_root_ids = cgraph.remove_edges([[0x0101000000000000, 0x0100000000000000]], is_cg_id=True)
+
+        # Check New State
+        assert len(new_root_ids) == 1
+        assert cgraph.get_root(0x0100000000000000) == new_root_ids[0]
+        assert cgraph.get_root(0x0100000000000001) == new_root_ids[0]
+        assert cgraph.get_root(0x0101000000000000) == new_root_ids[0]
+        partners, affinities = cgraph.get_atomic_partners(0x0100000000000000)
+        assert len(partners) == 1 and partners[0] == 0x0100000000000001
+        partners, affinities = cgraph.get_atomic_partners(0x0101000000000000)
+        assert len(partners) == 1 and partners[0] == 0x0100000000000001
+        partners, affinities = cgraph.get_atomic_partners(0x0100000000000001)
+        assert len(partners) == 2
+        assert 0x0100000000000000 in partners
+        assert 0x0101000000000000 in partners
+        # children = cgraph.get_children(new_root_ids[0])
+        # assert 0x0100000000000000 in children
+        # assert 0x0100000000000001 in children
+        # assert 0x0101000000000000 in children
+
+        # Check Old State
+        old_root_id = cgraph.get_root(0x0100000000000000, time_stamp=fake_timestamp)
+        assert new_root_ids[0] != old_root_id
 
     def test_split_full_circle_to_triple_chain_disconnected_chunks(self, cgraph):
         """
@@ -917,7 +1152,62 @@ class TestGraphSplit:
         │  ┗3━┿━━━━━┿━━┛  │      │  ┗3━┿━━━━━┿━━┛  │
         └─────┘     └─────┘      └─────┘     └─────┘
         """
-        pass
+        # Preparation: Build Chunk A
+        fake_timestamp = datetime.now() - timedelta(days=10)
+        create_chunk(cgraph,
+                     vertices=[0x0100000000000000, 0x0100000000000001],
+                     edges=[(0x0100000000000000, 0x0100000000000001, 0.5),
+                            (0x0100000000000001, 0x017F7F7F00000000, 0.5),
+                            (0x0100000000000000, 0x017F7F7F00000000, 0.3)],
+                     timestamp=fake_timestamp)
+
+        # Preparation: Build Chunk Z
+        create_chunk(cgraph,
+                     vertices=[0x017F7F7F00000000],
+                     edges=[(0x017F7F7F00000000, 0x0100000000000001, 0.5),
+                            (0x017F7F7F00000000, 0x0100000000000000, 0.3)],
+                     timestamp=fake_timestamp)
+
+        cgraph.add_layer(3, np.array([[0x00, 0x00, 0x00]]))
+        cgraph.add_layer(3, np.array([[0x7F, 0x7F, 0x7F]]))
+        cgraph.add_layer(4, np.array([[0x00, 0x00, 0x00]]))
+        cgraph.add_layer(4, np.array([[0x7E, 0x7E, 0x7E], [0x7F, 0x7F, 0x7F]]))
+        cgraph.add_layer(5, np.array([[0x00, 0x00, 0x00]]))
+        cgraph.add_layer(5, np.array([[0x7C, 0x7C, 0x7C], [0x7E, 0x7E, 0x7E]]))
+        cgraph.add_layer(6, np.array([[0x00, 0x00, 0x00]]))
+        cgraph.add_layer(6, np.array([[0x78, 0x78, 0x78], [0x7C, 0x7C, 0x7C]]))
+        cgraph.add_layer(7, np.array([[0x00, 0x00, 0x00]]))
+        cgraph.add_layer(7, np.array([[0x70, 0x70, 0x70], [0x78, 0x78, 0x78]]))
+        cgraph.add_layer(8, np.array([[0x00, 0x00, 0x00]]))
+        cgraph.add_layer(8, np.array([[0x60, 0x60, 0x60], [0x70, 0x70, 0x70]]))
+        cgraph.add_layer(9, np.array([[0x00, 0x00, 0x00]]))
+        cgraph.add_layer(9, np.array([[0x40, 0x40, 0x40], [0x60, 0x60, 0x60]]))
+        cgraph.add_layer(10, np.array([[0x00, 0x00, 0x00], [0x40, 0x40, 0x40]]))
+
+        # Split
+        new_root_ids = cgraph.remove_edges([[0x017F7F7F00000000, 0x0100000000000000]], is_cg_id=True)
+
+        # Check New State
+        assert len(new_root_ids) == 1
+        assert cgraph.get_root(0x0100000000000000) == new_root_ids[0]
+        assert cgraph.get_root(0x0100000000000001) == new_root_ids[0]
+        assert cgraph.get_root(0x017F7F7F00000000) == new_root_ids[0]
+        partners, affinities = cgraph.get_atomic_partners(0x0100000000000000)
+        assert len(partners) == 1 and partners[0] == 0x0100000000000001
+        partners, affinities = cgraph.get_atomic_partners(0x017F7F7F00000000)
+        assert len(partners) == 1 and partners[0] == 0x0100000000000001
+        partners, affinities = cgraph.get_atomic_partners(0x0100000000000001)
+        assert len(partners) == 2
+        assert 0x0100000000000000 in partners
+        assert 0x017F7F7F00000000 in partners
+        # children = cgraph.get_children(new_root_ids[0])
+        # assert 0x0100000000000000 in children
+        # assert 0x0100000000000001 in children
+        # assert 0x017F7F7F00000000 in children
+
+        # Check Old State
+        old_root_id = cgraph.get_root(0x0100000000000000, time_stamp=fake_timestamp)
+        assert new_root_ids[0] != old_root_id
 
     def test_split_same_node(self, cgraph):  # This should fail
         """
@@ -928,7 +1218,21 @@ class TestGraphSplit:
         │     │
         └─────┘
         """
-        pass
+        # Preparation: Build Chunk A
+        create_chunk(cgraph,
+                     vertices=[0x0100000000000000],
+                     edges=[])
+
+        res_old = cgraph.table.read_rows()
+        res_old.consume_all()
+
+        # Split
+        assert cgraph.remove_edges([[0x0100000000000000, 0x0100000000000000]], is_cg_id=True) == []
+
+        res_new = cgraph.table.read_rows()
+        res_new.consume_all()
+
+        assert res_new.rows == res_old.rows
 
     def test_split_pair_abstract_nodes(self, cgraph):  # This should fail
         """
@@ -944,7 +1248,28 @@ class TestGraphSplit:
         │     │
         └─────┘
         """
-        pass
+        # Preparation: Build Chunk A
+        create_chunk(cgraph,
+                     vertices=[0x0100000000000000],
+                     edges=[])
+
+        # Preparation: Build Chunk B
+        create_chunk(cgraph,
+                     vertices=[0x0101000000000000],
+                     edges=[])
+
+        cgraph.add_layer(3, np.array([[0, 0, 0], [1, 0, 0]]))
+
+        res_old = cgraph.table.read_rows()
+        res_old.consume_all()
+
+        # Split
+        assert cgraph.remove_edges([[0x0100000000000000, 0x0201000000000000]], is_cg_id=True) == []
+
+        res_new = cgraph.table.read_rows()
+        res_new.consume_all()
+
+        assert res_new.rows == res_old.rows
 
 
 class TestGraphMinCut:
