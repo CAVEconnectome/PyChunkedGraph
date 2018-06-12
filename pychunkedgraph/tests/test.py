@@ -1306,17 +1306,165 @@ class TestGraphSplit:
 
 
 class TestGraphMinCut:
-    def test_cut_low_affinity_chain(self, cgraph):
-        pass
+    # TODO: Ideally, those tests should focus only on mincut retrieving the correct edges.
+    #       The edge removal part should be tested exhaustively in TestGraphSplit
+    def test_cut_regular_link(self, cgraph):
+        """
+        Regular link between 1 and 2
+        ┌─────┬─────┐
+        │  A¹ │  B¹ │
+        │  1━━┿━━2  │
+        │     │     │
+        └─────┴─────┘
+        """
+        # Preparation: Build Chunk A
+        fake_timestamp = datetime.now() - timedelta(days=10)
+        create_chunk(cgraph,
+                     vertices=[0x0100000000000000],
+                     edges=[(0x0100000000000000, 0x0101000000000000, 0.5)],
+                     timestamp=fake_timestamp)
 
-    def test_cut_zero_affinity_chain(self, cgraph):
-        pass
+        # Preparation: Build Chunk B
+        create_chunk(cgraph,
+                     vertices=[0x0101000000000000],
+                     edges=[(0x0101000000000000, 0x0100000000000000, 0.5)],
+                     timestamp=fake_timestamp)
 
-    def test_cut_inf_affinity_chain(self, cgraph):
-        pass
+        cgraph.add_layer(3, np.array([[0, 0, 0], [1, 0, 0]]))
 
-    def test_cut_no_path(self, cgraph):
-        pass
+        # Mincut
+        new_root_ids = cgraph.remove_edges_mincut(
+                0x0100000000000000, 0x0101000000000000,
+                [0, 0, 0], [2*cgraph.chunk_size[0], 2*cgraph.chunk_size[1], cgraph.chunk_size[2]],
+                is_cg_id=True)
+
+        # Check New State
+        assert len(new_root_ids) == 2
+        assert cgraph.get_root(0x0100000000000000) != cgraph.get_root(0x0101000000000000)
+        partners, affinities = cgraph.get_atomic_partners(0x0100000000000000)
+        assert len(partners) == 0
+        partners, affinities = cgraph.get_atomic_partners(0x0101000000000000)
+        assert len(partners) == 0
+        leaves = cgraph.get_subgraph(cgraph.get_root(0x0100000000000000))
+        assert len(leaves) == 1 and 0x0100000000000000 in leaves
+        leaves = cgraph.get_subgraph(cgraph.get_root(0x0101000000000000))
+        assert len(leaves) == 1 and 0x0101000000000000 in leaves
+
+    def test_cut_no_link(self, cgraph):
+        """
+        No connection between 1 and 2
+        ┌─────┬─────┐
+        │  A¹ │  B¹ │
+        │  1  │  2  │
+        │     │     │
+        └─────┴─────┘
+        """
+        # Preparation: Build Chunk A
+        fake_timestamp = datetime.now() - timedelta(days=10)
+        create_chunk(cgraph,
+                     vertices=[0x0100000000000000],
+                     edges=[],
+                     timestamp=fake_timestamp)
+
+        # Preparation: Build Chunk B
+        create_chunk(cgraph,
+                     vertices=[0x0101000000000000],
+                     edges=[],
+                     timestamp=fake_timestamp)
+
+        cgraph.add_layer(3, np.array([[0, 0, 0], [1, 0, 0]]))
+
+        res_old = cgraph.table.read_rows()
+        res_old.consume_all()
+
+        # Mincut
+        assert cgraph.remove_edges_mincut(
+                0x0100000000000000, 0x0101000000000000,
+                [0, 0, 0], [2*cgraph.chunk_size[0], 2*cgraph.chunk_size[1], cgraph.chunk_size[2]],
+                is_cg_id=True) == []
+
+        res_new = cgraph.table.read_rows()
+        res_new.consume_all()
+
+        assert res_new.rows == res_old.rows
+
+    def test_cut_old_link(self, cgraph):
+        """
+        Link between 1 and 2 got removed previously (aff = 0.0)
+        ┌─────┬─────┐
+        │  A¹ │  B¹ │
+        │  1┅┅╎┅┅2  │
+        │     │     │
+        └─────┴─────┘
+        """
+        # Preparation: Build Chunk A
+        fake_timestamp = datetime.now() - timedelta(days=10)
+        create_chunk(cgraph,
+                     vertices=[0x0100000000000000],
+                     edges=[(0x0100000000000000, 0x0101000000000000, 0.5)],
+                     timestamp=fake_timestamp)
+
+        # Preparation: Build Chunk B
+        create_chunk(cgraph,
+                     vertices=[0x0101000000000000],
+                     edges=[(0x0101000000000000, 0x0100000000000000, 0.5)],
+                     timestamp=fake_timestamp)
+
+        cgraph.add_layer(3, np.array([[0, 0, 0], [1, 0, 0]]))
+        cgraph.remove_edges([[0x0101000000000000, 0x0100000000000000]], is_cg_id=True)
+
+        res_old = cgraph.table.read_rows()
+        res_old.consume_all()
+
+        # Mincut
+        assert cgraph.remove_edges_mincut(
+                0x0100000000000000, 0x0101000000000000,
+                [0, 0, 0], [2*cgraph.chunk_size[0], 2*cgraph.chunk_size[1], cgraph.chunk_size[2]],
+                is_cg_id=True) == []
+
+        res_new = cgraph.table.read_rows()
+        res_new.consume_all()
+
+        assert res_new.rows == res_old.rows
+
+    def test_cut_indivisible_link(self, cgraph):
+        """
+        Sink: 1, Source: 2
+        Link between 1 and 2 is set to `inf` and must not be cut.
+        ┌─────┬─────┐
+        │  A¹ │  B¹ │
+        │  1══╪══2  │
+        │     │     │
+        └─────┴─────┘
+        """
+        # Preparation: Build Chunk A
+        fake_timestamp = datetime.now() - timedelta(days=10)
+        create_chunk(cgraph,
+                     vertices=[0x0100000000000000],
+                     edges=[(0x0100000000000000, 0x0101000000000000, inf)],
+                     timestamp=fake_timestamp)
+
+        # Preparation: Build Chunk B
+        create_chunk(cgraph,
+                     vertices=[0x0101000000000000],
+                     edges=[(0x0101000000000000, 0x0100000000000000, inf)],
+                     timestamp=fake_timestamp)
+
+        cgraph.add_layer(3, np.array([[0, 0, 0], [1, 0, 0]]))
+
+        res_old = cgraph.table.read_rows()
+        res_old.consume_all()
+
+        # Mincut
+        assert cgraph.remove_edges_mincut(
+                0x0100000000000000, 0x0101000000000000,
+                [0, 0, 0], [2*cgraph.chunk_size[0], 2*cgraph.chunk_size[1], cgraph.chunk_size[2]],
+                is_cg_id=True) == []
+
+        res_new = cgraph.table.read_rows()
+        res_new.consume_all()
+
+        assert res_new.rows == res_old.rows
 
 
 class TestGraphMultiCut:
