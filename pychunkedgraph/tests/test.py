@@ -505,6 +505,10 @@ class TestGraphQueries:
     def test_get_children(self, cgraph):
         pass
 
+    def test_get_subgraph(self, cgraph):
+        # Reminder: Check for duplicates
+        pass
+
     def test_get_atomic_partners(self, cgraph):
         pass
 
@@ -542,9 +546,10 @@ class TestGraphMerge:
         assert partners[0] == 0x0100000000000001 and affinities[0] == np.float32(0.3)
         partners, affinities = cgraph.get_atomic_partners(0x0100000000000001)
         assert partners[0] == 0x0100000000000000 and affinities[0] == np.float32(0.3)
-        children = cgraph.get_children(new_root_id)
-        assert 0x0100000000000000 in children
-        assert 0x0100000000000001 in children
+        leaves = np.unique(cgraph.get_subgraph(new_root_id))
+        assert len(leaves) == 2
+        assert 0x0100000000000000 in leaves
+        assert 0x0100000000000001 in leaves
 
     def test_merge_pair_neighboring_chunks(self, cgraph):
         """
@@ -578,9 +583,10 @@ class TestGraphMerge:
         assert partners[0] == 0x0101000000000000 and affinities[0] == np.float32(0.3)
         partners, affinities = cgraph.get_atomic_partners(0x0101000000000000)
         assert partners[0] == 0x0100000000000000 and affinities[0] == np.float32(0.3)
-        # children = cgraph.get_children(new_root_id)
-        # assert 0x0100000000000000 in children
-        # assert 0x0101000000000000 in children
+        leaves = np.unique(cgraph.get_subgraph(new_root_id))
+        assert len(leaves) == 2
+        assert 0x0100000000000000 in leaves
+        assert 0x0101000000000000 in leaves
 
     def test_merge_pair_disconnected_chunks(self, cgraph):
         """
@@ -628,9 +634,10 @@ class TestGraphMerge:
         assert partners[0] == 0x017F7F7F00000000 and affinities[0] == np.float32(0.3)
         partners, affinities = cgraph.get_atomic_partners(0x017F7F7F00000000)
         assert partners[0] == 0x0100000000000000 and affinities[0] == np.float32(0.3)
-        # children = cgraph.get_children(new_root_id)
-        # assert 0x0100000000000000 in children
-        # assert 0x017F7F7F00000000 in children
+        leaves = np.unique(cgraph.get_subgraph(new_root_id))
+        assert len(leaves) == 2
+        assert 0x0100000000000000 in leaves
+        assert 0x017F7F7F00000000 in leaves
 
     def test_merge_pair_already_connected(self, cgraph):
         """
@@ -660,7 +667,6 @@ class TestGraphMerge:
         if res_old.rows != res_new.rows:
             warn("Rows were modified when merging a pair of already connected supervoxels. "
                  "While probably not an error, it is an unnecessary operation.")
-        # assert res_old == res_new
 
     def test_merge_triple_chain_to_full_circle_same_chunk(self, cgraph):
         """
@@ -697,11 +703,11 @@ class TestGraphMerge:
         assert len(partners) == 2
         assert 0x0100000000000000 in partners
         assert 0x0100000000000001 in partners
-        children = cgraph.get_children(new_root_id)
-        assert len(children) == 3
-        assert 0x0100000000000000 in children
-        assert 0x0100000000000001 in children
-        assert 0x0100000000000002 in children
+        leaves = np.unique(cgraph.get_subgraph(new_root_id))
+        assert len(leaves) == 3
+        assert 0x0100000000000000 in leaves
+        assert 0x0100000000000001 in leaves
+        assert 0x0100000000000002 in leaves
 
     def test_merge_triple_chain_to_full_circle_neighboring_chunks(self, cgraph):
         """
@@ -745,10 +751,11 @@ class TestGraphMerge:
         assert len(partners) == 2
         assert 0x0100000000000000 in partners
         assert 0x0100000000000001 in partners
-        # children = cgraph.get_children(new_root_id)
-        # assert 0x0100000000000000 in children
-        # assert 0x0100000000000001 in children
-        # assert 0x0100000000000002 in children
+        leaves = np.unique(cgraph.get_subgraph(new_root_id))
+        assert len(leaves) == 3
+        assert 0x0100000000000000 in leaves
+        assert 0x0100000000000001 in leaves
+        assert 0x0101000000000000 in leaves
 
     def test_merge_triple_chain_to_full_circle_disconnected_chunks(self, cgraph):
         """
@@ -806,12 +813,13 @@ class TestGraphMerge:
         assert len(partners) == 2
         assert 0x0100000000000000 in partners
         assert 0x0100000000000001 in partners
-        # children = cgraph.get_children(new_root_id)
-        # assert 0x0100000000000000 in children
-        # assert 0x0100000000000001 in children
-        # assert 0x0100000000000002 in children
+        leaves = np.unique(cgraph.get_subgraph(new_root_id))
+        assert len(leaves) == 3
+        assert 0x0100000000000000 in leaves
+        assert 0x0100000000000001 in leaves
+        assert 0x017F7F7F00000000 in leaves
 
-    def test_merge_same_node(self, cgraph):  # This should fail
+    def test_merge_same_node(self, cgraph):
         """
         Try to add loop edge between RG supervoxel 1 and itself
         ┌─────┐
@@ -837,7 +845,7 @@ class TestGraphMerge:
 
         assert res_new.rows == res_old.rows
 
-    def test_merge_pair_abstract_nodes(self, cgraph):  # This should fail
+    def test_merge_pair_abstract_nodes(self, cgraph):
         """
         Try to add edge between RG supervoxel 1 and abstract node "2"
                     ┌─────┐
@@ -906,13 +914,21 @@ class TestGraphSplit:
         assert len(partners) == 0
         partners, affinities = cgraph.get_atomic_partners(0x0100000000000001)
         assert len(partners) == 0
+        leaves = cgraph.get_subgraph(cgraph.get_root(0x0100000000000000))
+        assert len(leaves) == 1 and 0x0100000000000000 in leaves
+        leaves = cgraph.get_subgraph(cgraph.get_root(0x0100000000000001))
+        assert len(leaves) == 1 and 0x0100000000000001 in leaves
 
-        # Check Old State
-        assert cgraph.get_root(0x0100000000000000, time_stamp=fake_timestamp) == cgraph.get_root(0x0100000000000001)
-        partners, affinities = cgraph.get_atomic_partners(0x0100000000000000)
+        # Check Old State still accessible
+        assert cgraph.get_root(0x0100000000000000, time_stamp=fake_timestamp) == cgraph.get_root(0x0100000000000001, time_stamp=fake_timestamp)
+        partners, affinities = cgraph.get_atomic_partners(0x0100000000000000, time_stamp=fake_timestamp)
         assert len(partners) == 1 and partners[0] == 0x0100000000000001
-        partners, affinities = cgraph.get_atomic_partners(0x0100000000000001)
+        partners, affinities = cgraph.get_atomic_partners(0x0100000000000001, time_stamp=fake_timestamp)
         assert len(partners) == 1 and partners[0] == 0x0100000000000000
+        leaves = cgraph.get_subgraph(cgraph.get_root(0x0100000000000000, time_stamp=fake_timestamp), time_stamp=fake_timestamp)
+        assert len(leaves) == 2
+        assert 0x0100000000000000 in leaves
+        assert 0x0100000000000001 in leaves
 
     def test_split_pair_neighboring_chunks(self, cgraph):
         """
@@ -949,13 +965,21 @@ class TestGraphSplit:
         assert len(partners) == 0
         partners, affinities = cgraph.get_atomic_partners(0x0101000000000000)
         assert len(partners) == 0
+        leaves = cgraph.get_subgraph(cgraph.get_root(0x0100000000000000))
+        assert len(leaves) == 1 and 0x0100000000000000 in leaves
+        leaves = cgraph.get_subgraph(cgraph.get_root(0x0101000000000000))
+        assert len(leaves) == 1 and 0x0101000000000000 in leaves
 
-        # Check Old State
-        assert cgraph.get_root(0x0100000000000000, time_stamp=fake_timestamp) == cgraph.get_root(0x0101000000000000)
-        partners, affinities = cgraph.get_atomic_partners(0x0100000000000000)
+        # Check Old State still accessible
+        assert cgraph.get_root(0x0100000000000000, time_stamp=fake_timestamp) == cgraph.get_root(0x0101000000000000, time_stamp=fake_timestamp)
+        partners, affinities = cgraph.get_atomic_partners(0x0100000000000000, time_stamp=fake_timestamp)
         assert len(partners) == 1 and partners[0] == 0x0101000000000000
-        partners, affinities = cgraph.get_atomic_partners(0x0101000000000000)
+        partners, affinities = cgraph.get_atomic_partners(0x0101000000000000, time_stamp=fake_timestamp)
         assert len(partners) == 1 and partners[0] == 0x0100000000000000
+        leaves = cgraph.get_subgraph(cgraph.get_root(0x0100000000000000, time_stamp=fake_timestamp), time_stamp=fake_timestamp)
+        assert len(leaves) == 2
+        assert 0x0100000000000000 in leaves
+        assert 0x0101000000000000 in leaves
 
     def test_split_pair_disconnected_chunks(self, cgraph):
         """
@@ -1006,13 +1030,21 @@ class TestGraphSplit:
         assert len(partners) == 0
         partners, affinities = cgraph.get_atomic_partners(0x017F7F7F00000000)
         assert len(partners) == 0
+        leaves = cgraph.get_subgraph(cgraph.get_root(0x0100000000000000))
+        assert len(leaves) == 1 and 0x0100000000000000 in leaves
+        leaves = cgraph.get_subgraph(cgraph.get_root(0x017F7F7F00000000))
+        assert len(leaves) == 1 and 0x017F7F7F00000000 in leaves
 
-        # Check Old State
-        assert cgraph.get_root(0x0100000000000000, time_stamp=fake_timestamp) == cgraph.get_root(0x017F7F7F00000000)
-        partners, affinities = cgraph.get_atomic_partners(0x0100000000000000)
+        # Check Old State still accessible
+        assert cgraph.get_root(0x0100000000000000, time_stamp=fake_timestamp) == cgraph.get_root(0x017F7F7F00000000, time_stamp=fake_timestamp)
+        partners, affinities = cgraph.get_atomic_partners(0x0100000000000000, time_stamp=fake_timestamp)
         assert len(partners) == 1 and partners[0] == 0x017F7F7F00000000
-        partners, affinities = cgraph.get_atomic_partners(0x017F7F7F00000000)
+        partners, affinities = cgraph.get_atomic_partners(0x017F7F7F00000000, time_stamp=fake_timestamp)
         assert len(partners) == 1 and partners[0] == 0x0100000000000000
+        leaves = cgraph.get_subgraph(cgraph.get_root(0x0100000000000000, time_stamp=fake_timestamp), time_stamp=fake_timestamp)
+        assert len(leaves) == 2
+        assert 0x0100000000000000 in leaves
+        assert 0x017F7F7F00000000 in leaves
 
     def test_split_pair_already_disconnected(self, cgraph):
         """
@@ -1044,7 +1076,6 @@ class TestGraphSplit:
         if res_old.rows != res_new.rows:
             warn("Rows were modified when splitting a pair of already disconnected supervoxels. "
                  "While probably not an error, it is an unnecessary operation.")
-        # assert res_old == res_new
 
     def test_split_full_circle_to_triple_chain_same_chunk(self, cgraph):
         """
@@ -1080,13 +1111,13 @@ class TestGraphSplit:
         assert len(partners) == 2
         assert 0x0100000000000000 in partners
         assert 0x0100000000000001 in partners
-        children = cgraph.get_children(new_root_ids[0])
-        assert len(children) == 3
-        assert 0x0100000000000000 in children
-        assert 0x0100000000000001 in children
-        assert 0x0100000000000002 in children
+        leaves = np.unique(cgraph.get_subgraph(new_root_ids[0]))
+        assert len(leaves) == 3
+        assert 0x0100000000000000 in leaves
+        assert 0x0100000000000001 in leaves
+        assert 0x0100000000000002 in leaves
 
-        # Check Old State
+        # Check Old State still accessible
         old_root_id = cgraph.get_root(0x0100000000000000, time_stamp=fake_timestamp)
         assert new_root_ids[0] != old_root_id
 
@@ -1134,12 +1165,13 @@ class TestGraphSplit:
         assert len(partners) == 2
         assert 0x0100000000000000 in partners
         assert 0x0101000000000000 in partners
-        # children = cgraph.get_children(new_root_ids[0])
-        # assert 0x0100000000000000 in children
-        # assert 0x0100000000000001 in children
-        # assert 0x0101000000000000 in children
+        leaves = np.unique(cgraph.get_subgraph(new_root_ids[0]))
+        assert len(leaves) == 3
+        assert 0x0100000000000000 in leaves
+        assert 0x0100000000000001 in leaves
+        assert 0x0101000000000000 in leaves
 
-        # Check Old State
+        # Check Old State still accessible
         old_root_id = cgraph.get_root(0x0100000000000000, time_stamp=fake_timestamp)
         assert new_root_ids[0] != old_root_id
 
@@ -1200,16 +1232,17 @@ class TestGraphSplit:
         assert len(partners) == 2
         assert 0x0100000000000000 in partners
         assert 0x017F7F7F00000000 in partners
-        # children = cgraph.get_children(new_root_ids[0])
-        # assert 0x0100000000000000 in children
-        # assert 0x0100000000000001 in children
-        # assert 0x017F7F7F00000000 in children
+        leaves = np.unique(cgraph.get_subgraph(new_root_ids[0]))
+        assert len(leaves) == 3
+        assert 0x0100000000000000 in leaves
+        assert 0x0100000000000001 in leaves
+        assert 0x017F7F7F00000000 in leaves
 
-        # Check Old State
+        # Check Old State still accessible
         old_root_id = cgraph.get_root(0x0100000000000000, time_stamp=fake_timestamp)
         assert new_root_ids[0] != old_root_id
 
-    def test_split_same_node(self, cgraph):  # This should fail
+    def test_split_same_node(self, cgraph):
         """
         Try to remove (non-existing) edge between RG supervoxel 1 and itself
         ┌─────┐
@@ -1234,7 +1267,7 @@ class TestGraphSplit:
 
         assert res_new.rows == res_old.rows
 
-    def test_split_pair_abstract_nodes(self, cgraph):  # This should fail
+    def test_split_pair_abstract_nodes(self, cgraph):
         """
         Try to remove (non-existing) edge between RG supervoxel 1 and abstract node "2"
                     ┌─────┐
