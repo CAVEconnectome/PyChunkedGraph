@@ -7,12 +7,27 @@ import shutil
 import pickle as pkl
 import sys
 import subprocess
+import glob
 
 python_path = sys.executable
 home = os.path.expanduser("~")
 file_path = os.path.dirname(os.path.abspath(__file__))
 src_folder_path = file_path.split("pychunkedgraph")[0] + "pychunkedgraph/"
 subp_work_folder = home + "/pychg_subp_workdir/"
+
+
+def _load_multifunc_out_thread(out_file_path):
+    """ Reads the outputs from any multi func from disk
+
+    :param results_folder: str
+    :return: list of returns
+    """
+    # results = []
+    # for out_fp in out_file_path:
+    with open(out_file_path, "rb") as f:
+        return pkl.load(f)
+
+    # return results
 
 
 def multiprocess_func(func, params, debug=False, verbose=False, n_threads=None):
@@ -91,7 +106,64 @@ def multithread_func(func, params, debug=False, verbose=True, n_threads=None):
     return result
 
 
-def multisubprocess_func(func, params, wait_delay_s=5, n_threads=1):
+def _start_subprocess(ii, path_to_script, path_to_storage, path_to_src,
+                   path_to_out, params=None):
+
+    this_storage_path = path_to_storage + "job_%d.pkl" % ii
+    this_out_path = path_to_out + "job_%d.pkl" % ii
+
+    if params is not None:
+        with open(this_storage_path, "wb") as f:
+            pkl.dump(params[ii], f)
+    else:
+        assert os.path.exists(this_storage_path)
+
+    p = subprocess.Popen("cd %s; %s -W ignore %s  %s %s" %
+                         (path_to_src, python_path, path_to_script,
+                          this_storage_path, this_out_path), shell=True,
+                         stderr=subprocess.PIPE)
+    return p
+
+
+def _poll_running_subprocesses(processes, runtimes, path_to_script,
+                               path_to_storage, path_to_src,  path_to_out,
+                               path_to_err, min_n_meas, kill_tol_factor):
+    if len(runtimes) > min_n_meas:
+        avg_runtime = np.mean(runtimes)
+    else:
+        avg_runtime = 0
+
+    for i_p, p in enumerate(processes):
+        poll = p[0].poll()
+        # print("Poll", p)
+        if poll == 0:
+            runtimes.append(time.time() - processes[i_p][2])
+            del (processes[i_p])
+            break
+        elif poll == 1:
+            _, err_msg = p[0].communicate()
+            err_msg = err_msg.decode()
+
+            _write_error_to_file(err_msg, path_to_err + "job_%d.pkl" % p[1])
+
+            del (processes[i_p])
+            break
+        elif kill_tol_factor is not None and avg_runtime > 0:
+            if time.time() - processes[i_p][2] > \
+                    avg_runtime * kill_tol_factor:
+                processes[i_p][0].kill()
+
+                p = _start_subprocess(i_p, path_to_script, path_to_storage,
+                                      path_to_src,  path_to_out, params=None)
+
+                processes[i_p][0] = p
+                processes[i_p][2] = time.time()
+                time.sleep(.01)  # Avoid OS hickups
+    return processes, runtimes
+
+
+def multisubprocess_func(func, params, wait_delay_s=5, n_threads=1,
+                         kill_tol_factor=10, min_n_meas=100):
     """ Processes data independent functions in parallel using multithreading
 
     :param func: function
@@ -99,6 +171,10 @@ def multisubprocess_func(func, params, wait_delay_s=5, n_threads=1):
         list of arguments to function
     :param wait_delay_s: float
     :param n_threads: int
+    :param kill_tol_factor: int or None
+        kill_tol_factor x mean_run_time sets a threshold after which a process
+        is restarted. If None: Processes are not restarted.
+    :param min_n_meas: int
     :return: list of returns of function
     """
 
@@ -122,57 +198,50 @@ def multisubprocess_func(func, params, wait_delay_s=5, n_threads=1):
     _write_multisubprocess_script(func, path_to_script)
 
     processes = []
+    runtimes = []
     for ii in range(len(params)):
         while len(processes) >= n_threads:
-            for i_p, p in enumerate(processes):
-                poll = p[0].poll()
-                # print("Poll", p)
-                if poll == 0:
-                    del(processes[i_p])
-                    break
-                elif poll == 1:
-                    _, err_msg = p[0].communicate()
-                    err_msg = err_msg.decode()
-
-                    _write_error_to_file(err_msg,
-                                         path_to_err + "job_%d.pkl" % p[1])
-
-                    del(processes[i_p])
-                    break
+            processes, runtimes = _poll_running_subprocesses(processes,
+                                                             runtimes,
+                                                             path_to_script,
+                                                             path_to_storage,
+                                                             path_to_src,
+                                                             path_to_out,
+                                                             path_to_err,
+                                                             min_n_meas,
+                                                             kill_tol_factor)
 
             if len(processes) >= n_threads:
                 time.sleep(wait_delay_s)
 
-        this_storage_path = path_to_storage + "job_%d.pkl" % ii
-        this_out_path = path_to_out + "job_%d.pkl" % ii
-
-        with open(this_storage_path, "wb") as f:
-            pkl.dump(params[ii], f)
-
-        p = subprocess.Popen("cd %s; %s -W ignore %s  %s %s" %
-                             (path_to_src, python_path, path_to_script,
-                              this_storage_path, this_out_path), shell=True,
-                             stderr=subprocess.PIPE)
-        processes.append([p, ii])
+        p = _start_subprocess(ii, path_to_script, path_to_storage, path_to_src,
+                              path_to_out, params=params)
+        processes.append([p, ii, time.time()])
         time.sleep(.01)  # Avoid OS hickups
 
-    for p in processes:
-        p[0].wait()
+    while len(processes) > 0:
+        processes, runtimes = _poll_running_subprocesses(processes,
+                                                         runtimes,
+                                                         path_to_script,
+                                                         path_to_storage,
+                                                         path_to_src,
+                                                         path_to_out,
+                                                         path_to_err,
+                                                         min_n_meas,
+                                                         kill_tol_factor)
 
-    for i_p, p in enumerate(processes):
-        poll = p[0].poll()
+        if len(processes) >= n_threads:
+            time.sleep(wait_delay_s)
 
-        if poll == 0:
-            pass
-        elif poll == 1:
-            _, err_msg = p[0].communicate()
-            err_msg = err_msg.decode()
+    out_file_paths = glob.glob(path_to_out + "/*")
 
-            _write_error_to_file(err_msg, path_to_err + "job_%d.pkl" % p[1])
-        else:
-            raise Exception("All jobs should have terminated")
+    if len(out_file_paths) > 0:
+        result = multithread_func(_load_multifunc_out_thread, out_file_paths,
+                                  n_threads=n_threads, verbose=False)
+    else:
+        result = None
 
-    return path_to_out
+    return result
 
 
 def _write_multisubprocess_script(func, path_to_script):

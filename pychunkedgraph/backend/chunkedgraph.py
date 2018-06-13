@@ -19,7 +19,41 @@ N_DIGITS_UINT64 = len(str(np.iinfo(np.uint64).max))
 UTC = pytz.UTC
 
 # Setting environment wide credential path
-os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = HOME + "/.cloudvolume/secrets/google-secret.json"
+os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = \
+    HOME + "/.cloudvolume/secrets/google-secret.json"
+
+
+def get_clean_cg_object(table_id, instance_id="pychunkedgraph",
+                        project_id="neuromancer-seung-import",
+                        chunk_size=(512, 512, 64)):
+    """ Creates clean chunkedgraph object
+
+    deletes old table and creates new one
+
+    :param table_id: str
+    :param instance_id: str
+    :param project_id: str
+    :param chunk_size: list of 3 ints
+    :return: ChunkedGraph object
+    """
+    cg = ChunkedGraph(table_id=table_id, instance_id=instance_id,
+                      project_id=project_id, chunk_size=chunk_size)
+
+    try:
+        cg.table.delete()
+        print("Deleted existing table")
+        time.sleep(1)
+    except:
+        pass
+
+    cg = ChunkedGraph(table_id=table_id, instance_id=instance_id,
+                      project_id=project_id, chunk_size=chunk_size)
+
+    cg.table.create()
+    f = cg.table.column_family(cg.family_id)
+    f.create()
+
+    return cg
 
 
 def serialize_node_id(node_id):
@@ -84,6 +118,29 @@ def test_if_nodes_are_in_same_chunk(node_ids):
 
     return np.frombuffer(node_ids[0], dtype=np.uint32)[1] == \
            np.frombuffer(node_ids[1], dtype=np.uint32)[1]
+
+
+def compute_bitmasks(n_layers, fan_out):
+    """
+
+    :param n_layers: int
+    :return: dict
+        layer -> bits for layer id
+    """
+
+    bitmask_dict = {}
+    for i_layer in range(n_layers, 0, -1):
+
+        if i_layer == 1:
+            n_bits_for_layers = np.ceil(np.log2(fan_out**(n_layers - 2)))
+        else:
+            n_bits_for_layers = np.ceil(np.log2(fan_out**(n_layers - i_layer)))
+
+        n_bits_for_layers = int(n_bits_for_layers)
+
+        bitmask_dict[i_layer] = n_bits_for_layers
+        print(i_layer, n_bits_for_layers*3 + 4)
+    return bitmask_dict
 
 
 def mincut(edges, affs, source, sink):
@@ -180,6 +237,7 @@ class ChunkedGraph(object):
         # rag supervoxels get split at chunk boundaries. Here, only one
         # chunk id needs to be traced to the top to retrieve the
         # agglomeration id that they all belong to
+
         r = self.table.read_row(serialize_node_id(atomic_id))
         return np.frombuffer(r.cells[self.family_id][serialize_key("cg_id")][0].value,
                              dtype=np.uint64)[0]
@@ -1479,7 +1537,8 @@ class ChunkedGraph(object):
     def remove_edges_mincut(self, source_id, sink_id, source_coord,
                             sink_coord, bb_offset=(240, 240, 24),
                             is_cg_id=True):
-        """ Computes mincut and removes edges
+        """ Computes mincut and removes
+
 
         :param source_id: uint64
         :param sink_id: uint64
