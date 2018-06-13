@@ -16,6 +16,7 @@ from google.api_core.exceptions import Aborted, DeadlineExceeded, \
 # global variables
 HOME = os.path.expanduser("~")
 N_DIGITS_UINT64 = len(str(np.iinfo(np.uint64).max))
+LOCK_EXPIRED_TIME_DELTA = datetime.timedelta(minutes=5)
 UTC = pytz.UTC
 
 # Setting environment wide credential path
@@ -269,7 +270,8 @@ class ChunkedGraph(object):
 
         return node_id
 
-    def read_row(self, node_id, key, idx=0, dtype=np.uint64):
+    def read_row(self, node_id, key, idx=0, dtype=np.uint64,
+                 get_time_stamp=False):
         """ Reads row from BigTable and takes care of serializations
 
         :param node_id: uint64
@@ -279,7 +281,18 @@ class ChunkedGraph(object):
         :return: row entry
         """
         row = self.table.read_row(serialize_node_id(node_id))
-        return np.frombuffer(row.cells[self.family_id][serialize_key(key)][idx].value, dtype=dtype)
+        key = serialize_key(key)
+
+        if key not in row.cells[self.family_id]:
+            return None
+
+        cell_entries = row.cells[self.family_id][key]
+        cell_value = np.frombuffer(cell_entries[idx].value, dtype=dtype)
+
+        if get_time_stamp:
+            return cell_value, cell_entries[idx].timestamp
+        else:
+            return cell_value
 
     def read_rows(self, node_ids, key, idx=0, dtype=np.uint64):
         """ Applies read_row to many ids
@@ -772,6 +785,7 @@ class ChunkedGraph(object):
         parent_id = atomic_id
 
         parent_ids = []
+
         while True:
             # print(parent_id)
             temp_parent_id = self.get_parent(parent_id, time_stamp)
@@ -785,6 +799,136 @@ class ChunkedGraph(object):
             return parent_ids
         else:
             return parent_id
+
+    def lock_root_loop(self, root_ids, thread_id, max_tries=100,
+                       waittime_s=0.5):
+        """ Attempts to lock multiple roots at the same time
+
+        :param root_ids: list of uint64
+        :param thread_id: uint64
+        :param max_tries: int
+        :param waittime_s: float
+        :return: bool, list of uint64s
+            success, latest root ids
+        """
+
+        i_try = 0
+        while i_try < max_tries:
+            lock_acquired = False
+
+            # Collect latest root ids
+            new_root_ids = []
+            for i_root_id in range(len(root_ids)):
+                latest_root_ids = self.get_latest_root_id(root_ids[i_root_id])
+
+                new_root_ids.extend(latest_root_ids)
+
+            # Attempt to lock all latest root ids
+            root_ids = new_root_ids
+            for i_root_id in range(len(root_ids)):
+                lock_acquired = self.lock_single_root(root_ids[i_root_id],
+                                                      thread_id)
+
+                # Roll back locks if one root cannot be locked
+                if not lock_acquired:
+                    for j_root_id in range(i_root_id):
+                        self.unlock_root(root_ids[j_root_id])
+                    break
+
+            if lock_acquired:
+                return True, root_ids
+
+            time.sleep(waittime_s)
+            i_try += 1
+            print(i_try)
+
+        return False, root_ids
+
+    def lock_single_root(self, root_id, thread_id):
+        """ Attempts to lock the latest version of a root node
+
+        :param root_id: uint64
+        :param thread_id: uint64
+            an id that is unique to the process asking to lock the root node
+        :return: bool
+            success
+        """
+        thread_id = np.array(thread_id, dtype=np.uint64)
+        thread_id_b = thread_id.tobytes()
+
+        lock_key = "lock"
+
+        # Check root row
+        rr = self.read_row(root_id, lock_key, idx=0, dtype=np.uint64,
+                           get_time_stamp=True)
+
+        unlocked = False
+        if rr is None:
+            # Noe lock
+            unlocked = True
+        else:
+            # Check if lock expired
+            dt = datetime.datetime.now() - rr[1]
+            if dt < LOCK_EXPIRED_TIME_DELTA:
+                self.unlock_root(root_id)
+                unlocked = True
+
+        # Try to set your own lock
+        lock_acquired = False
+        if unlocked:
+            time_stamp = datetime.datetime.now()
+            time_stamp = UTC.localize(time_stamp)
+
+            val_dict = {lock_key: thread_id_b}
+            rows = [self.mutate_row(serialize_node_id(root_id),
+                                    self.family_id, val_dict,
+                                    time_stamp=time_stamp)]
+            self.bulk_write(rows)
+
+            # Check if locking was successful
+            locked_thread_id = self.read_row(root_id, lock_key, idx=-1,
+                                             dtype=np.uint64)
+            if locked_thread_id == thread_id:
+                lock_acquired = True
+
+        return lock_acquired
+
+    def unlock_root(self, root_id):
+        """ Unlocks a root
+
+        This is mainly used for cases where multiple roots need to be locked and
+        locking was not sucessful for all of them
+
+        :param root_id: uint64
+        """
+        row = self.table.row(serialize_node_id(root_id))
+        row.delete_cell(self.family_id, serialize_key("lock"))
+        row.commit()
+
+    def get_latest_root_id(self, root_id):
+        """ Returns the latest root id associated with the provided root id
+
+        :param root_id: uint64
+        :return: list of uint64s
+        """
+
+        id_working_set = [root_id]
+        new_parent_key = serialize_key("new_parents")
+        latest_root_ids = []
+
+        while len(id_working_set) > 0:
+
+            next_id = id_working_set[0]
+            del(id_working_set[0])
+            r = self.table.read_row(serialize_node_id(next_id))
+
+            # Check if a new root id was attached to this root id
+            if new_parent_key in r.cells[self.family_id]:
+                id_working_set.extend(np.frombuffer(r.cells[self.family_id][new_parent_key][0].value, dtype=np.uint64))
+            else:
+                latest_root_ids.append(next_id)
+
+        return np.unique(latest_root_ids)
 
     def read_agglomeration_id_history(self, agglomeration_id, time_stamp=None):
         """ Returns all agglomeration ids agglomeration_id was part of
