@@ -1,0 +1,38 @@
+sudo: false
+language: python
+python:
+  - "3.6"
+cache: 
+  - pip
+  - directories:
+    - $HOME/google-cloud-sdk
+env:
+  global:
+    - CLOUDSDK_CORE_DISABLE_PROMPTS=1
+before_install:
+  - if [ ! -d $HOME/google-cloud-sdk/bin ]; then
+      rm -rf $HOME/google-cloud-sdk;
+      curl https://sdk.cloud.google.com | bash > /dev/null;
+    fi
+  - source $HOME/google-cloud-sdk/path.bash.inc
+  - gcloud components update beta
+  - gcloud components install bigtable
+  - gcloud version
+  - python --version
+  - uname -a
+  - lsb_release -a
+install:
+  - pip install tox
+  - virtualenv --version
+  - easy_install --version
+  - pip --version
+  - tox --version
+script:
+  - tox -v -- pychunkedgraph/tests/test.py
+after_failure:
+  - more .tox/log/* | cat
+  - more .tox/*/log/* | cat
+notifications:
+  email:
+    on_success: never
+    on_failure: always

@@ -5,6 +5,7 @@ import grpc
 import pytest
 import numpy as np
 from google.cloud import bigtable, exceptions
+from google.auth import credentials
 from math import inf
 from datetime import datetime, timedelta
 from time import sleep
@@ -16,6 +17,11 @@ sys.path.insert(0, os.path.join(sys.path[0], '..'))
 from backend import chunkedgraph # noqa
 
 
+class DoNothingCreds(credentials.Credentials):
+    def refresh(self, request):
+        pass
+
+
 @pytest.fixture(scope='session', autouse=True)
 def bigtable_emulator(request):
     # setup Emulator
@@ -25,7 +31,7 @@ def bigtable_emulator(request):
     os.environ["BIGTABLE_EMULATOR_HOST"] = bt_env_init.stdout.decode("utf-8").strip().split('=')[-1]
 
     print("Waiting for BigTables Emulator to start up...", end='')
-    c = bigtable.Client(project='', admin=True)
+    c = bigtable.Client(project='', credentials=DoNothingCreds(), admin=True)
     retries = 5
     while retries > 0:
         try:
@@ -53,7 +59,9 @@ def bigtable_emulator(request):
 @pytest.fixture(scope='function')
 def cgraph(request):
     # setup Chunked Graph
-    graph = chunkedgraph.ChunkedGraph(project_id='emulated', instance_id="chunkedgraph", table_id=request.function.__name__)
+    graph = chunkedgraph.ChunkedGraph(project_id='emulated', credentials=DoNothingCreds(),
+                                      instance_id="chunkedgraph",
+                                      table_id=request.function.__name__)
     graph.table.create()
 
     column_family = graph.table.column_family(graph.family_id)

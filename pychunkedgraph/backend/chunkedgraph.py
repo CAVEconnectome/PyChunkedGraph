@@ -191,9 +191,10 @@ def mincut(edges, affs, source, sink):
 class ChunkedGraph(object):
     def __init__(self, instance_id="pychunkedgraph",
                  project_id="neuromancer-seung-import",
-                 chunk_size=(512, 512, 64), table_id=None):
+                 chunk_size=(512, 512, 64), table_id=None,
+                 credentials=None):
 
-        self._client = bigtable.Client(project=project_id, admin=True)
+        self._client = bigtable.Client(project=project_id, admin=True, credentials=credentials)
         self._instance = self.client.instance(instance_id)
 
         if table_id is None:
