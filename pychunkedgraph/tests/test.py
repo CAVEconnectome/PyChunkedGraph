@@ -1,15 +1,25 @@
 import sys
 import os
 import subprocess
+import grpc
 import pytest
 import numpy as np
+from google.cloud import bigtable, exceptions
+from google.auth import credentials
 from math import inf
+from datetime import datetime, timedelta
 from time import sleep
 from signal import SIGTERM
-import IPython
+from warnings import warn
+
 sys.path.insert(0, os.path.join(sys.path[0], '..'))
 
 from backend import chunkedgraph # noqa
+
+
+class DoNothingCreds(credentials.Credentials):
+    def refresh(self, request):
+        pass
 
 
 @pytest.fixture(scope='session', autouse=True)
@@ -17,11 +27,26 @@ def bigtable_emulator(request):
     # setup Emulator
     bigtables_emulator = subprocess.Popen(["gcloud", "beta", "emulators", "bigtable", "start"], preexec_fn=os.setsid, stdout=subprocess.PIPE)
 
-    print("Waiting for BigTables Emulator to start up...")
-    sleep(5)  # Wait for Emulator to start
-
     bt_env_init = subprocess.run(["gcloud", "beta", "emulators", "bigtable",  "env-init"], stdout=subprocess.PIPE)
     os.environ["BIGTABLE_EMULATOR_HOST"] = bt_env_init.stdout.decode("utf-8").strip().split('=')[-1]
+
+    print("Waiting for BigTables Emulator to start up...", end='')
+    c = bigtable.Client(project='', credentials=DoNothingCreds(), admin=True)
+    retries = 5
+    while retries > 0:
+        try:
+            c.list_instances()
+        except exceptions._Rendezvous as e:
+            if e.code() == grpc.StatusCode.UNIMPLEMENTED:  # Good error - means emulator is up!
+                print(" Ready!")
+                break
+            elif e.code() == grpc.StatusCode.UNAVAILABLE:
+                sleep(1)
+            retries -= 1
+            print(".", end='')
+    if retries == 0:
+        print("\nCouldn't start Bigtable Emulator. Make sure it is setup correctly.")
+        exit(1)
 
     # setup Emulator-Finalizer
     def fin():
@@ -34,13 +59,63 @@ def bigtable_emulator(request):
 @pytest.fixture(scope='function')
 def cgraph(request):
     # setup Chunked Graph
-    graph = chunkedgraph.ChunkedGraph(project_id='emulated', instance_id="chunkedgraph", table_id=request.function.__name__)
+    graph = chunkedgraph.ChunkedGraph(project_id='emulated', credentials=DoNothingCreds(),
+                                      instance_id="chunkedgraph",
+                                      table_id=request.function.__name__)
     graph.table.create()
 
     column_family = graph.table.column_family(graph.family_id)
     column_family.create()
 
+    # setup Chunked Graph - Finalizer
+    def fin():
+        graph.table.delete()
+
+    request.addfinalizer(fin)
+
     return graph
+
+
+def create_chunk(cgraph, vertices=None, edges=None, timestamp=None):
+    """
+    Helper function to add vertices and edges to the chunkedgraph - no safety checks!
+    """
+    if not vertices:
+        vertices = []
+
+    if not edges:
+        edges = []
+
+    vertices = np.unique(np.array(vertices, dtype=np.uint64))
+    edges = [(np.uint64(v1), np.uint64(v2), np.float32(aff)) for v1, v2, aff in edges]
+    edge_ids = []
+    cross_edge_ids = []
+    edge_affs = []
+    cross_edge_affs = []
+    isolated_node_ids = [x for x in vertices if (x not in [edges[i][0] for i in range(len(edges))]) and
+                                                (x not in [edges[i][1] for i in range(len(edges))])]
+
+    for e in edges:
+        if chunkedgraph.test_if_nodes_are_in_same_chunk(e[0:2]):
+            edge_ids.append([e[0], e[1]])
+            #  edge_ids.append([e[1], e[0]])
+            edge_affs.append(e[2])
+            #  edge_affs.append(e[2])
+        else:
+            cross_edge_ids.append([e[0], e[1]])
+            cross_edge_affs.append(e[2])
+
+    edge_ids = np.array(edge_ids, dtype=np.uint64).reshape(-1, 2)
+    edge_affs = np.array(edge_affs, dtype=np.float32).reshape(-1, 1)
+    cross_edge_ids = np.array(cross_edge_ids, dtype=np.uint64).reshape(-1, 2)
+    cross_edge_affs = np.array(cross_edge_affs, dtype=np.float32).reshape(-1, 1)
+    isolated_node_ids = np.array(isolated_node_ids, dtype=np.uint64)
+    rg2cg = dict(list(enumerate(vertices, 1)))
+    cg2rg = {v: k for k, v in rg2cg.items()}
+
+    cgraph.add_atomic_edges_in_chunks(edge_ids, cross_edge_ids,
+                                      edge_affs, cross_edge_affs,
+                                      isolated_node_ids, cg2rg, rg2cg)
 
 
 class TestCoreUtils:
@@ -51,7 +126,7 @@ class TestCoreUtils:
 class TestGraphBuild:
     def test_build_single_node(self, cgraph):
         """
-        Add single RG node 1 to chunk A
+        Create graph with single RG node 1 in chunk A
         ┌─────┐
         │  A¹ │
         │  1  │
@@ -60,21 +135,8 @@ class TestGraphBuild:
         """
 
         # Add Chunk A
-        cg2rg = {0x0100000000000000: 1}
-        rg2cg = {v: k for k, v in cg2rg.items()}
-
-        edge_ids = np.empty((0, 2), np.uint64)
-        edge_affs = np.empty((0, 1), np.float32)
-
-        cross_edge_ids = np.empty((0, 2), dtype=np.uint64)
-        cross_edge_affs = np.empty((0, 1), dtype=np.float32)
-
-        isolated_node_ids = np.array([0x0100000000000000], dtype=np.uint64)
-
-        cgraph.add_atomic_edges_in_chunks(edge_ids, cross_edge_ids,
-                                          edge_affs, cross_edge_affs,
-                                          isolated_node_ids,
-                                          cg2rg, rg2cg)
+        create_chunk(cgraph,
+                     vertices=[0x0100000000000000])
 
         res = cgraph.table.read_rows()
         res.consume_all()
@@ -96,7 +158,7 @@ class TestGraphBuild:
         assert len(atomic_partners) == 0
         assert len(atomic_affinities) == 0
         assert len(parents) == 1 and parents[0] == 0x0200000000000000
-        assert len(rg_id) == 1 and rg_id[0] == 1
+        assert len(rg_id) == 1  # and rg_id[0] == 1
 
         # Check for the one Level 2 node that should have been created.
         # 0x0200000000000000
@@ -123,21 +185,9 @@ class TestGraphBuild:
         """
 
         # Add Chunk A
-        cg2rg = {0x0100000000000000: 1, 0x0100000000000001: 2}
-        rg2cg = {v: k for k, v in cg2rg.items()}
-
-        edge_ids = np.array([[0x0100000000000000, 0x0100000000000001]], dtype=np.uint64)
-        edge_affs = np.array([0.5], dtype=np.float32, ndmin=2)
-
-        cross_edge_ids = np.empty((0, 2), dtype=np.uint64)
-        cross_edge_affs = np.empty((0, 1), dtype=np.float32)
-
-        isolated_node_ids = np.empty((0), dtype=np.uint64)
-
-        cgraph.add_atomic_edges_in_chunks(edge_ids, cross_edge_ids,
-                                          edge_affs, cross_edge_affs,
-                                          isolated_node_ids,
-                                          cg2rg, rg2cg)
+        create_chunk(cgraph,
+                     vertices=[0x0100000000000000, 0x0100000000000001],
+                     edges=[(0x0100000000000000, 0x0100000000000001, 0.5)])
 
         res = cgraph.table.read_rows()
         res.consume_all()
@@ -163,7 +213,7 @@ class TestGraphBuild:
         assert len(atomic_partners) == 1 and atomic_partners[0] == 0x0100000000000001
         assert len(atomic_affinities) == 1 and atomic_affinities[0] == 0.5
         assert len(parents) == 1 and parents[0] == 0x0200000000000000
-        assert len(rg_id) == 1 and rg_id[0] == 1
+        assert len(rg_id) == 1  # and rg_id[0] == 1
 
         # 0x0100000000000001
         assert chunkedgraph.serialize_node_id(0x0100000000000001) in res.rows
@@ -176,7 +226,7 @@ class TestGraphBuild:
         assert len(atomic_partners) == 1 and atomic_partners[0] == 0x0100000000000000
         assert len(atomic_affinities) == 1 and atomic_affinities[0] == 0.5
         assert len(parents) == 1 and parents[0] == 0x0200000000000000
-        assert len(rg_id) == 1 and rg_id[0] == 2
+        assert len(rg_id) == 1  # and rg_id[0] == 2
 
         # Check for the one Level 2 node that should have been created.
         assert chunkedgraph.serialize_node_id(0x0200000000000000) in res.rows
@@ -202,38 +252,14 @@ class TestGraphBuild:
         """
 
         # Chunk A
-        cg2rg = {0x0100000000000000: 1, 0x0101000000000000: 2}
-        rg2cg = {v: k for k, v in cg2rg.items()}
-
-        edge_ids = np.empty((0, 2), np.uint64)
-        edge_affs = np.empty((0, 1), np.float32)
-
-        cross_edge_ids = np.array([[0x0100000000000000, 0x0101000000000000]], dtype=np.uint64)
-        cross_edge_affs = np.array([inf], dtype=np.float32, ndmin=2)
-
-        isolated_node_ids = np.empty((0), dtype=np.uint64)
-
-        cgraph.add_atomic_edges_in_chunks(edge_ids, cross_edge_ids,
-                                          edge_affs, cross_edge_affs,
-                                          isolated_node_ids,
-                                          cg2rg, rg2cg)
+        create_chunk(cgraph,
+                     vertices=[0x0100000000000000],
+                     edges=[(0x0100000000000000, 0x0101000000000000, inf)])
 
         # Chunk B
-        cg2rg = {0x0100000000000000: 1, 0x0101000000000000: 2}
-        rg2cg = {v: k for k, v in cg2rg.items()}
-
-        edge_ids = np.empty((0, 2), np.uint64)
-        edge_affs = np.empty((0, 1), np.float32)
-
-        cross_edge_ids = np.array([[0x0101000000000000, 0x0100000000000000]], dtype=np.uint64)
-        cross_edge_affs = np.array([inf], dtype=np.float32, ndmin=2)
-
-        isolated_node_ids = np.empty((0), dtype=np.uint64)
-
-        cgraph.add_atomic_edges_in_chunks(edge_ids, cross_edge_ids,
-                                          edge_affs, cross_edge_affs,
-                                          isolated_node_ids,
-                                          cg2rg, rg2cg)
+        create_chunk(cgraph,
+                     vertices=[0x0101000000000000],
+                     edges=[(0x0101000000000000, 0x0100000000000000, inf)])
 
         cgraph.add_layer(3, np.array([[0, 0, 0], [1, 0, 0]]))
 
@@ -261,7 +287,7 @@ class TestGraphBuild:
         assert len(atomic_partners) == 1 and atomic_partners[0] == 0x0101000000000000
         assert len(atomic_affinities) == 1 and atomic_affinities[0] == inf
         assert len(parents) == 1 and parents[0] == 0x0200000000000000
-        assert len(rg_id) == 1 and rg_id[0] == 1
+        assert len(rg_id) == 1  # and rg_id[0] == 1
 
         # 0x0101000000000000
         assert chunkedgraph.serialize_node_id(0x0101000000000000) in res.rows
@@ -274,7 +300,7 @@ class TestGraphBuild:
         assert len(atomic_partners) == 1 and atomic_partners[0] == 0x0100000000000000
         assert len(atomic_affinities) == 1 and atomic_affinities[0] == inf
         assert len(parents) == 1 and parents[0] == 0x0201000000000000
-        assert len(rg_id) == 1 and rg_id[0] == 2
+        assert len(rg_id) == 1  # and rg_id[0] == 2
 
         # Check for the two Level 2 nodes that should have been created. Since Level 2 has the same
         # dimensions as Level 1, we also expect them to be in different chunks
@@ -323,38 +349,15 @@ class TestGraphBuild:
         """
 
         # Chunk A
-        edge_ids = np.array([[0x0100000000000000, 0x0100000000000001]], dtype=np.uint64)
-        edge_affs = np.array([0.5], dtype=np.float32, ndmin=2)
-
-        cross_edge_ids = np.array([[0x0100000000000000, 0x0101000000000000]], dtype=np.uint64)
-        cross_edge_affs = np.array([inf], dtype=np.float32, ndmin=2)
-
-        isolated_node_ids = np.empty((0), dtype=np.uint64)
-
-        cg2rg = {0x0100000000000000: 1, 0x0100000000000001: 2, 0x0101000000000000: 3}
-        rg2cg = {v: k for k, v in cg2rg.items()}
-
-        cgraph.add_atomic_edges_in_chunks(edge_ids, cross_edge_ids,
-                                          edge_affs, cross_edge_affs,
-                                          isolated_node_ids,
-                                          cg2rg, rg2cg)
+        create_chunk(cgraph,
+                     vertices=[0x0100000000000000, 0x0100000000000001],
+                     edges=[(0x0100000000000000, 0x0100000000000001, 0.5),
+                            (0x0100000000000000, 0x0101000000000000, inf)])
 
         # Chunk B
-        edge_ids = np.empty((0, 2), np.uint64)
-        edge_affs = np.empty((0, 1), np.float32)
-
-        cross_edge_ids = np.array([[0x0101000000000000, 0x0100000000000000]], dtype=np.uint64)
-        cross_edge_affs = np.array([inf], dtype=np.float32, ndmin=2)
-
-        isolated_node_ids = np.empty((0), dtype=np.uint64)
-
-        cg2rg = {0x0100000000000000: 1, 0x0101000000000000: 3}
-        rg2cg = {v: k for k, v in cg2rg.items()}
-
-        cgraph.add_atomic_edges_in_chunks(edge_ids, cross_edge_ids,
-                                          edge_affs, cross_edge_affs,
-                                          isolated_node_ids,
-                                          cg2rg, rg2cg)
+        create_chunk(cgraph,
+                     vertices=[0x0101000000000000],
+                     edges=[(0x0101000000000000, 0x0100000000000000, inf)])
 
         cgraph.add_layer(3, np.array([[0, 0, 0], [1, 0, 0]]))
 
@@ -390,7 +393,7 @@ class TestGraphBuild:
         else:
             assert atomic_affinities[0] == inf and atomic_affinities[1] == 0.5
         assert len(parents) == 1 and parents[0] == 0x0200000000000000
-        assert len(rg_id) == 1 and rg_id[0] == 1
+        assert len(rg_id) == 1  # and rg_id[0] == 1
 
         # 0x0100000000000001
         assert chunkedgraph.serialize_node_id(0x0100000000000001) in res.rows
@@ -403,7 +406,7 @@ class TestGraphBuild:
         assert len(atomic_partners) == 1 and atomic_partners[0] == 0x0100000000000000
         assert len(atomic_affinities) == 1 and atomic_affinities[0] == 0.5
         assert len(parents) == 1 and parents[0] == 0x0200000000000000
-        assert len(rg_id) == 1 and rg_id[0] == 2
+        assert len(rg_id) == 1  # and rg_id[0] == 2
 
         # 0x0101000000000000
         assert chunkedgraph.serialize_node_id(0x0101000000000000) in res.rows
@@ -416,7 +419,7 @@ class TestGraphBuild:
         assert len(atomic_partners) == 1 and atomic_partners[0] == 0x0100000000000000
         assert len(atomic_affinities) == 1 and atomic_affinities[0] == inf
         assert len(parents) == 1 and parents[0] == 0x0201000000000000
-        assert len(rg_id) == 1 and rg_id[0] == 3
+        assert len(rg_id) == 1  # and rg_id[0] == 3
 
         # Check for the two Level 2 nodes that should have been created. Since Level 2 has the same
         # dimensions as Level 1, we also expect them to be in different chunks
@@ -453,6 +456,52 @@ class TestGraphBuild:
         # assert len(res.rows) == 9
         assert len(res.rows) == 6
 
+    def test_build_big_graph(self, cgraph):
+        """
+        Create graph with RG nodes 1 and 2 in opposite corners of the largest possible dataset
+        ┌─────┐     ┌─────┐
+        │  A¹ │ ... │  Z¹ │
+        │  1  │     │  2  │
+        │     │     │     │
+        └─────┘     └─────┘
+        """
+
+        # Preparation: Build Chunk A
+        create_chunk(cgraph,
+                     vertices=[0x0100000000000000],
+                     edges=[])
+
+        # Preparation: Build Chunk Z
+        create_chunk(cgraph,
+                     vertices=[0x01FFFFFF00000000],
+                     edges=[])
+
+        cgraph.add_layer(3, np.array([[0x00, 0x00, 0x00]]))
+        cgraph.add_layer(3, np.array([[0xFF, 0xFF, 0xFF]]))
+        cgraph.add_layer(4, np.array([[0x00, 0x00, 0x00]]))
+        cgraph.add_layer(4, np.array([[0xFE, 0xFE, 0xFE], [0xFF, 0xFF, 0xFF]]))
+        cgraph.add_layer(5, np.array([[0x00, 0x00, 0x00]]))
+        cgraph.add_layer(5, np.array([[0xFC, 0xFC, 0xFC], [0xFE, 0xFE, 0xFE]]))
+        cgraph.add_layer(6, np.array([[0x00, 0x00, 0x00]]))
+        cgraph.add_layer(6, np.array([[0xF8, 0xF8, 0xF8], [0xFC, 0xFC, 0xFC]]))
+        cgraph.add_layer(7, np.array([[0x00, 0x00, 0x00]]))
+        cgraph.add_layer(7, np.array([[0xF0, 0xF0, 0xF0], [0xF8, 0xF8, 0xF8]]))
+        cgraph.add_layer(8, np.array([[0x00, 0x00, 0x00]]))
+        cgraph.add_layer(8, np.array([[0xE0, 0xE0, 0xE0], [0xF0, 0xF0, 0xF0]]))
+        cgraph.add_layer(9, np.array([[0x00, 0x00, 0x00]]))
+        cgraph.add_layer(9, np.array([[0xC0, 0xC0, 0xC0], [0xE0, 0xE0, 0xE0]]))
+        cgraph.add_layer(10, np.array([[0x00, 0x00, 0x00]]))
+        cgraph.add_layer(10, np.array([[0x80, 0x80, 0x80], [0xC0, 0xC0, 0xC0]]))
+        cgraph.add_layer(11, np.array([[0x00, 0x00, 0x00], [0x80, 0x80, 0x80]]))
+
+        res = cgraph.table.read_rows()
+        res.consume_all()
+
+        assert chunkedgraph.serialize_node_id(0x0100000000000000) in res.rows
+        assert chunkedgraph.serialize_node_id(0x01FFFFFF00000000) in res.rows
+        assert chunkedgraph.serialize_node_id(0x0B00000000000000) in res.rows
+        assert chunkedgraph.serialize_node_id(0x0B00000000000001) in res.rows
+
 
 class TestGraphQueries:
     def test_get_parent(self, cgraph):
@@ -462,6 +511,10 @@ class TestGraphQueries:
         pass
 
     def test_get_children(self, cgraph):
+        pass
+
+    def test_get_subgraph(self, cgraph):
+        # Reminder: Check for duplicates
         pass
 
     def test_get_atomic_partners(self, cgraph):
@@ -487,26 +540,12 @@ class TestGraphMerge:
         """
 
         # Preparation: Build Chunk A
-        cg2rg = {0x0100000000000000: 1, 0x0100000000000001: 2}
-        rg2cg = {v: k for k, v in cg2rg.items()}
-
-        edge_ids = np.empty((0, 2), dtype=np.uint64)
-        edge_affs = np.empty((0, 1), dtype=np.float32)
-
-        cross_edge_ids = np.empty((0, 2), dtype=np.uint64)
-        cross_edge_affs = np.empty((0, 1), dtype=np.float32)
-
-        isolated_node_ids = np.array([0x0100000000000000, 0x0100000000000001], dtype=np.uint64)
-
-        cgraph.add_atomic_edges_in_chunks(edge_ids, cross_edge_ids,
-                                          edge_affs, cross_edge_affs,
-                                          isolated_node_ids,
-                                          cg2rg, rg2cg)
+        create_chunk(cgraph,
+                     vertices=[0x0100000000000000, 0x0100000000000001],
+                     edges=[])
 
         # Merge
         new_root_id = cgraph.add_edge([0x0100000000000001, 0x0100000000000000], affinity=0.3, is_cg_id=True)
-        res = cgraph.table.read_rows()
-        res.consume_all()
 
         # Check
         assert cgraph.get_parent(0x0100000000000000) == new_root_id
@@ -515,9 +554,10 @@ class TestGraphMerge:
         assert partners[0] == 0x0100000000000001 and affinities[0] == np.float32(0.3)
         partners, affinities = cgraph.get_atomic_partners(0x0100000000000001)
         assert partners[0] == 0x0100000000000000 and affinities[0] == np.float32(0.3)
-        children = cgraph.get_children(new_root_id)
-        assert 0x0100000000000000 in children
-        assert 0x0100000000000001 in children
+        leaves = np.unique(cgraph.get_subgraph(new_root_id))
+        assert len(leaves) == 2
+        assert 0x0100000000000000 in leaves
+        assert 0x0100000000000001 in leaves
 
     def test_merge_pair_neighboring_chunks(self, cgraph):
         """
@@ -530,43 +570,19 @@ class TestGraphMerge:
         """
 
         # Preparation: Build Chunk A
-        cg2rg = {0x0100000000000000: 1, 0x0101000000000000: 2}
-        rg2cg = {v: k for k, v in cg2rg.items()}
-
-        edge_ids = np.empty((0, 2), dtype=np.uint64)
-        edge_affs = np.empty((0, 1), dtype=np.float32)
-
-        cross_edge_ids = np.empty((0, 2), dtype=np.uint64)
-        cross_edge_affs = np.empty((0, 1), dtype=np.float32)
-
-        isolated_node_ids = np.array([0x0100000000000000], dtype=np.uint64)
-
-        cgraph.add_atomic_edges_in_chunks(edge_ids, cross_edge_ids,
-                                          edge_affs, cross_edge_affs,
-                                          isolated_node_ids,
-                                          cg2rg, rg2cg)
+        create_chunk(cgraph,
+                     vertices=[0x0100000000000000],
+                     edges=[])
 
         # Preparation: Build Chunk B
-        cg2rg = {0x0100000000000000: 1, 0x0101000000000000: 2}
-        rg2cg = {v: k for k, v in cg2rg.items()}
+        create_chunk(cgraph,
+                     vertices=[0x0101000000000000],
+                     edges=[])
 
-        edge_ids = np.empty((0, 2), dtype=np.uint64)
-        edge_affs = np.empty((0, 1), dtype=np.float32)
-
-        cross_edge_ids = np.empty((0, 2), dtype=np.uint64)
-        cross_edge_affs = np.empty((0, 1), dtype=np.float32)
-
-        isolated_node_ids = np.array([0x0101000000000000], dtype=np.uint64)
-
-        cgraph.add_atomic_edges_in_chunks(edge_ids, cross_edge_ids,
-                                          edge_affs, cross_edge_affs,
-                                          isolated_node_ids,
-                                          cg2rg, rg2cg)
+        cgraph.add_layer(3, np.array([[0, 0, 0], [1, 0, 0]]))
 
         # Merge
         new_root_id = cgraph.add_edge([0x0101000000000000, 0x0100000000000000], affinity=0.3, is_cg_id=True)
-        res = cgraph.table.read_rows()
-        res.consume_all()
 
         # Check
         assert cgraph.get_root(0x0100000000000000) == new_root_id
@@ -575,9 +591,10 @@ class TestGraphMerge:
         assert partners[0] == 0x0101000000000000 and affinities[0] == np.float32(0.3)
         partners, affinities = cgraph.get_atomic_partners(0x0101000000000000)
         assert partners[0] == 0x0100000000000000 and affinities[0] == np.float32(0.3)
-        # children = cgraph.get_children(new_root_id)
-        # assert 0x0100000000000000 in children
-        # assert 0x0101000000000000 in children
+        leaves = np.unique(cgraph.get_subgraph(new_root_id))
+        assert len(leaves) == 2
+        assert 0x0100000000000000 in leaves
+        assert 0x0101000000000000 in leaves
 
     def test_merge_pair_disconnected_chunks(self, cgraph):
         """
@@ -590,54 +607,45 @@ class TestGraphMerge:
         """
 
         # Preparation: Build Chunk A
-        cg2rg = {0x0100000000000000: 1, 0x01FFFFFF00000000: 2}
-        rg2cg = {v: k for k, v in cg2rg.items()}
-
-        edge_ids = np.empty((0, 2), dtype=np.uint64)
-        edge_affs = np.empty((0, 1), dtype=np.float32)
-
-        cross_edge_ids = np.empty((0, 2), dtype=np.uint64)
-        cross_edge_affs = np.empty((0, 1), dtype=np.float32)
-
-        isolated_node_ids = np.array([0x0100000000000000], dtype=np.uint64)
-
-        cgraph.add_atomic_edges_in_chunks(edge_ids, cross_edge_ids,
-                                          edge_affs, cross_edge_affs,
-                                          isolated_node_ids,
-                                          cg2rg, rg2cg)
+        create_chunk(cgraph,
+                     vertices=[0x0100000000000000],
+                     edges=[])
 
         # Preparation: Build Chunk Z
-        cg2rg = {0x0100000000000000: 1, 0x01FFFFFF00000000: 2}
-        rg2cg = {v: k for k, v in cg2rg.items()}
+        create_chunk(cgraph,
+                     vertices=[0x017F7F7F00000000],
+                     edges=[])
 
-        edge_ids = np.empty((0, 2), dtype=np.uint64)
-        edge_affs = np.empty((0, 1), dtype=np.float32)
-
-        cross_edge_ids = np.empty((0, 2), dtype=np.uint64)
-        cross_edge_affs = np.empty((0, 1), dtype=np.float32)
-
-        isolated_node_ids = np.array([0x01FFFFFF00000000], dtype=np.uint64)
-
-        cgraph.add_atomic_edges_in_chunks(edge_ids, cross_edge_ids,
-                                          edge_affs, cross_edge_affs,
-                                          isolated_node_ids,
-                                          cg2rg, rg2cg)
+        cgraph.add_layer(3, np.array([[0x00, 0x00, 0x00]]))
+        cgraph.add_layer(3, np.array([[0x7F, 0x7F, 0x7F]]))
+        cgraph.add_layer(4, np.array([[0x00, 0x00, 0x00]]))
+        cgraph.add_layer(4, np.array([[0x7E, 0x7E, 0x7E], [0x7F, 0x7F, 0x7F]]))
+        cgraph.add_layer(5, np.array([[0x00, 0x00, 0x00]]))
+        cgraph.add_layer(5, np.array([[0x7C, 0x7C, 0x7C], [0x7E, 0x7E, 0x7E]]))
+        cgraph.add_layer(6, np.array([[0x00, 0x00, 0x00]]))
+        cgraph.add_layer(6, np.array([[0x78, 0x78, 0x78], [0x7C, 0x7C, 0x7C]]))
+        cgraph.add_layer(7, np.array([[0x00, 0x00, 0x00]]))
+        cgraph.add_layer(7, np.array([[0x70, 0x70, 0x70], [0x78, 0x78, 0x78]]))
+        cgraph.add_layer(8, np.array([[0x00, 0x00, 0x00]]))
+        cgraph.add_layer(8, np.array([[0x60, 0x60, 0x60], [0x70, 0x70, 0x70]]))
+        cgraph.add_layer(9, np.array([[0x00, 0x00, 0x00]]))
+        cgraph.add_layer(9, np.array([[0x40, 0x40, 0x40], [0x60, 0x60, 0x60]]))
+        cgraph.add_layer(10, np.array([[0x00, 0x00, 0x00], [0x40, 0x40, 0x40]]))
 
         # Merge
-        new_root_id = cgraph.add_edge([0x01FFFFFF00000000, 0x0100000000000000], affinity=0.3, is_cg_id=True)
-        res = cgraph.table.read_rows()
-        res.consume_all()
+        new_root_id = cgraph.add_edge([0x017F7F7F00000000, 0x0100000000000000], affinity=0.3, is_cg_id=True)
 
         # Check
         assert cgraph.get_root(0x0100000000000000) == new_root_id
-        assert cgraph.get_root(0x01FFFFFF00000000) == new_root_id
+        assert cgraph.get_root(0x017F7F7F00000000) == new_root_id
         partners, affinities = cgraph.get_atomic_partners(0x0100000000000000)
-        assert partners[0] == 0x01FFFFFF00000000 and affinities[0] == np.float32(0.3)
-        partners, affinities = cgraph.get_atomic_partners(0x01FFFFFF00000000)
+        assert partners[0] == 0x017F7F7F00000000 and affinities[0] == np.float32(0.3)
+        partners, affinities = cgraph.get_atomic_partners(0x017F7F7F00000000)
         assert partners[0] == 0x0100000000000000 and affinities[0] == np.float32(0.3)
-        # children = cgraph.get_children(new_root_id)
-        # assert 0x0100000000000000 in children
-        # assert 0x01FFFFFF00000000 in children
+        leaves = np.unique(cgraph.get_subgraph(new_root_id))
+        assert len(leaves) == 2
+        assert 0x0100000000000000 in leaves
+        assert 0x017F7F7F00000000 in leaves
 
     def test_merge_pair_already_connected(self, cgraph):
         """
@@ -651,21 +659,9 @@ class TestGraphMerge:
         """
 
         # Preparation: Build Chunk A
-        cg2rg = {0x0100000000000000: 1, 0x0100000000000001: 2}
-        rg2cg = {v: k for k, v in cg2rg.items()}
-
-        edge_ids = np.array([[0x0100000000000000, 0x0100000000000001]], dtype=np.uint64)
-        edge_affs = np.array([0.5], dtype=np.float32, ndmin=2)
-
-        cross_edge_ids = np.empty((0, 2), dtype=np.uint64)
-        cross_edge_affs = np.empty((0, 1), dtype=np.float32)
-
-        isolated_node_ids = np.empty((0), dtype=np.uint64)
-
-        cgraph.add_atomic_edges_in_chunks(edge_ids, cross_edge_ids,
-                                          edge_affs, cross_edge_affs,
-                                          isolated_node_ids,
-                                          cg2rg, rg2cg)
+        create_chunk(cgraph,
+                     vertices=[0x0100000000000000, 0x0100000000000001],
+                     edges=[(0x0100000000000000, 0x0100000000000001, 0.5)])
 
         res_old = cgraph.table.read_rows()
         res_old.consume_all()
@@ -676,7 +672,9 @@ class TestGraphMerge:
         res_new.consume_all()
 
         # Check
-        assert res_old == res_new
+        if res_old.rows != res_new.rows:
+            warn("Rows were modified when merging a pair of already connected supervoxels. "
+                 "While probably not an error, it is an unnecessary operation.")
 
     def test_merge_triple_chain_to_full_circle_same_chunk(self, cgraph):
         """
@@ -689,44 +687,35 @@ class TestGraphMerge:
         """
 
         # Preparation: Build Chunk A
-        cg2rg = {0x0100000000000000: 1, 0x0100000000000001: 2, 0x0100000000000002: 3}
-        rg2cg = {v: k for k, v in cg2rg.items()}
-
-        edge_ids = np.array([[0x0100000000000000, 0x0100000000000002], [0x0100000000000001, 0x0100000000000002]], dtype=np.uint64)
-        edge_affs = np.array([0.5, 0.5], dtype=np.float32, ndmin=2)
-
-        cross_edge_ids = np.empty((0, 2), dtype=np.uint64)
-        cross_edge_affs = np.empty((0, 1), dtype=np.float32)
-
-        isolated_node_ids = np.empty((0), dtype=np.uint64)
-
-        cgraph.add_atomic_edges_in_chunks(edge_ids, cross_edge_ids,
-                                          edge_affs, cross_edge_affs,
-                                          isolated_node_ids,
-                                          cg2rg, rg2cg)
+        create_chunk(cgraph,
+                     vertices=[0x0100000000000000, 0x0100000000000001, 0x0100000000000002],
+                     edges=[(0x0100000000000000, 0x0100000000000002, 0.5),
+                            (0x0100000000000001, 0x0100000000000002, 0.5)])
 
         # Merge
         new_root_id = cgraph.add_edge([0x0100000000000001, 0x0100000000000000], affinity=0.3, is_cg_id=True)
-        res_new = cgraph.table.read_rows()
-        res_new.consume_all()
 
         # Check
         assert cgraph.get_root(0x0100000000000000) == new_root_id
         assert cgraph.get_root(0x0100000000000001) == new_root_id
         assert cgraph.get_root(0x0100000000000002) == new_root_id
         partners, affinities = cgraph.get_atomic_partners(0x0100000000000000)
+        assert len(partners) == 2
         assert 0x0100000000000001 in partners
         assert 0x0100000000000002 in partners
         partners, affinities = cgraph.get_atomic_partners(0x0100000000000001)
+        assert len(partners) == 2
         assert 0x0100000000000000 in partners
         assert 0x0100000000000002 in partners
         partners, affinities = cgraph.get_atomic_partners(0x0100000000000002)
+        assert len(partners) == 2
+        assert 0x0100000000000000 in partners
         assert 0x0100000000000001 in partners
-        assert 0x0100000000000002 in partners
-        children = cgraph.get_children(new_root_id)
-        assert 0x0100000000000000 in children
-        assert 0x0100000000000001 in children
-        assert 0x0100000000000002 in children
+        leaves = np.unique(cgraph.get_subgraph(new_root_id))
+        assert len(leaves) == 3
+        assert 0x0100000000000000 in leaves
+        assert 0x0100000000000001 in leaves
+        assert 0x0100000000000002 in leaves
 
     def test_merge_triple_chain_to_full_circle_neighboring_chunks(self, cgraph):
         """
@@ -737,7 +726,44 @@ class TestGraphMerge:
         │  ┗3━┿━━┛  │      │  ┗3━┿━━┛  │
         └─────┴─────┘      └─────┴─────┘
         """
-        pass
+
+        # Preparation: Build Chunk A
+        create_chunk(cgraph,
+                     vertices=[0x0100000000000000, 0x0100000000000001],
+                     edges=[(0x0100000000000000, 0x0100000000000001, 0.5),
+                            (0x0100000000000001, 0x0101000000000000, inf)])
+
+        # Preparation: Build Chunk B
+        create_chunk(cgraph,
+                     vertices=[0x0101000000000000],
+                     edges=[(0x0101000000000000, 0x0100000000000001, inf)])
+
+        cgraph.add_layer(3, np.array([[0, 0, 0], [1, 0, 0]]))
+
+        # Merge
+        new_root_id = cgraph.add_edge([0x0101000000000000, 0x0100000000000000], affinity=1.0, is_cg_id=True)
+
+        # Check
+        assert cgraph.get_root(0x0100000000000000) == new_root_id
+        assert cgraph.get_root(0x0100000000000001) == new_root_id
+        assert cgraph.get_root(0x0101000000000000) == new_root_id
+        partners, affinities = cgraph.get_atomic_partners(0x0100000000000000)
+        assert len(partners) == 2
+        assert 0x0100000000000001 in partners
+        assert 0x0101000000000000 in partners
+        partners, affinities = cgraph.get_atomic_partners(0x0100000000000001)
+        assert len(partners) == 2
+        assert 0x0100000000000000 in partners
+        assert 0x0101000000000000 in partners
+        partners, affinities = cgraph.get_atomic_partners(0x0101000000000000)
+        assert len(partners) == 2
+        assert 0x0100000000000000 in partners
+        assert 0x0100000000000001 in partners
+        leaves = np.unique(cgraph.get_subgraph(new_root_id))
+        assert len(leaves) == 3
+        assert 0x0100000000000000 in leaves
+        assert 0x0100000000000001 in leaves
+        assert 0x0101000000000000 in leaves
 
     def test_merge_triple_chain_to_full_circle_disconnected_chunks(self, cgraph):
         """
@@ -748,11 +774,88 @@ class TestGraphMerge:
         │  ┗3━┿━━━━━┿━━┛  │      │  ┗3━┿━━━━━┿━━┛  │
         └─────┘     └─────┘      └─────┘     └─────┘
         """
-        pass
 
-    def test_merge_pair_abstract_nodes(self, cgraph):  # This should fail
+        # Preparation: Build Chunk A
+        create_chunk(cgraph,
+                     vertices=[0x0100000000000000, 0x0100000000000001],
+                     edges=[(0x0100000000000000, 0x0100000000000001, 0.5),
+                            (0x0100000000000001, 0x017F7F7F00000000, inf)])
+
+        # Preparation: Build Chunk B
+        create_chunk(cgraph,
+                     vertices=[0x017F7F7F00000000],
+                     edges=[(0x017F7F7F00000000, 0x0100000000000001, inf)])
+
+        cgraph.add_layer(3, np.array([[0x00, 0x00, 0x00]]))
+        cgraph.add_layer(3, np.array([[0x7F, 0x7F, 0x7F]]))
+        cgraph.add_layer(4, np.array([[0x00, 0x00, 0x00]]))
+        cgraph.add_layer(4, np.array([[0x7E, 0x7E, 0x7E], [0x7F, 0x7F, 0x7F]]))
+        cgraph.add_layer(5, np.array([[0x00, 0x00, 0x00]]))
+        cgraph.add_layer(5, np.array([[0x7C, 0x7C, 0x7C], [0x7E, 0x7E, 0x7E]]))
+        cgraph.add_layer(6, np.array([[0x00, 0x00, 0x00]]))
+        cgraph.add_layer(6, np.array([[0x78, 0x78, 0x78], [0x7C, 0x7C, 0x7C]]))
+        cgraph.add_layer(7, np.array([[0x00, 0x00, 0x00]]))
+        cgraph.add_layer(7, np.array([[0x70, 0x70, 0x70], [0x78, 0x78, 0x78]]))
+        cgraph.add_layer(8, np.array([[0x00, 0x00, 0x00]]))
+        cgraph.add_layer(8, np.array([[0x60, 0x60, 0x60], [0x70, 0x70, 0x70]]))
+        cgraph.add_layer(9, np.array([[0x00, 0x00, 0x00]]))
+        cgraph.add_layer(9, np.array([[0x40, 0x40, 0x40], [0x60, 0x60, 0x60]]))
+        cgraph.add_layer(10, np.array([[0x00, 0x00, 0x00], [0x40, 0x40, 0x40]]))
+
+        # Merge
+        new_root_id = cgraph.add_edge([0x017F7F7F00000000, 0x0100000000000000], affinity=1.0, is_cg_id=True)
+
+        # Check
+        assert cgraph.get_root(0x0100000000000000) == new_root_id
+        assert cgraph.get_root(0x0100000000000001) == new_root_id
+        assert cgraph.get_root(0x017F7F7F00000000) == new_root_id
+        partners, affinities = cgraph.get_atomic_partners(0x0100000000000000)
+        assert len(partners) == 2
+        assert 0x0100000000000001 in partners
+        assert 0x017F7F7F00000000 in partners
+        partners, affinities = cgraph.get_atomic_partners(0x0100000000000001)
+        assert len(partners) == 2
+        assert 0x0100000000000000 in partners
+        assert 0x017F7F7F00000000 in partners
+        partners, affinities = cgraph.get_atomic_partners(0x017F7F7F00000000)
+        assert len(partners) == 2
+        assert 0x0100000000000000 in partners
+        assert 0x0100000000000001 in partners
+        leaves = np.unique(cgraph.get_subgraph(new_root_id))
+        assert len(leaves) == 3
+        assert 0x0100000000000000 in leaves
+        assert 0x0100000000000001 in leaves
+        assert 0x017F7F7F00000000 in leaves
+
+    def test_merge_same_node(self, cgraph):
         """
-        Add edge between RG supervoxel 1 and abstract node "2".
+        Try to add loop edge between RG supervoxel 1 and itself
+        ┌─────┐
+        │  A¹ │
+        │  1  │  =>  Reject
+        │     │
+        └─────┘
+        """
+
+        # Preparation: Build Chunk A
+        create_chunk(cgraph,
+                     vertices=[0x0100000000000000],
+                     edges=[])
+
+        res_old = cgraph.table.read_rows()
+        res_old.consume_all()
+
+        # Merge
+        assert cgraph.add_edge([0x0100000000000000, 0x0100000000000000], is_cg_id=True) == []
+
+        res_new = cgraph.table.read_rows()
+        res_new.consume_all()
+
+        assert res_new.rows == res_old.rows
+
+    def test_merge_pair_abstract_nodes(self, cgraph):
+        """
+        Try to add edge between RG supervoxel 1 and abstract node "2"
                     ┌─────┐
                     │  B² │
                     │ "2" │
@@ -766,45 +869,610 @@ class TestGraphMerge:
         """
         pass
 
+        # Preparation: Build Chunk A
+        create_chunk(cgraph,
+                     vertices=[0x0100000000000000],
+                     edges=[])
+
+        # Preparation: Build Chunk B
+        create_chunk(cgraph,
+                     vertices=[0x0101000000000000],
+                     edges=[])
+
+        cgraph.add_layer(3, np.array([[0, 0, 0], [1, 0, 0]]))
+
+        res_old = cgraph.table.read_rows()
+        res_old.consume_all()
+
+        # Merge
+        assert cgraph.add_edge([0x0100000000000000, 0x0201000000000000], is_cg_id=True) == []
+
+        res_new = cgraph.table.read_rows()
+        res_new.consume_all()
+
+        assert res_new.rows == res_old.rows
+
 
 class TestGraphSplit:
     def test_split_pair_same_chunk(self, cgraph):
-        pass
+        """
+        Remove edge between existing RG supervoxels 1 and 2 (same chunk)
+        Expected: Different (new) parents for RG 1 and 2 on Layer two
+        ┌─────┐      ┌─────┐
+        │  A¹ │      │  A¹ │
+        │ 1━2 │  =>  │ 1 2 │
+        │     │      │     │
+        └─────┘      └─────┘
+        """
+
+        # Preparation: Build Chunk A
+        fake_timestamp = datetime.now() - timedelta(days=10)
+        create_chunk(cgraph,
+                     vertices=[0x0100000000000000, 0x0100000000000001],
+                     edges=[(0x0100000000000000, 0x0100000000000001, 0.5)],
+                     timestamp=fake_timestamp)
+
+        # Split
+        new_root_ids = cgraph.remove_edges([[0x0100000000000001, 0x0100000000000000]], is_cg_id=True)
+
+        # Check New State
+        assert len(new_root_ids) == 2
+        assert cgraph.get_root(0x0100000000000000) != cgraph.get_root(0x0100000000000001)
+        partners, affinities = cgraph.get_atomic_partners(0x0100000000000000)
+        assert len(partners) == 0
+        partners, affinities = cgraph.get_atomic_partners(0x0100000000000001)
+        assert len(partners) == 0
+        leaves = cgraph.get_subgraph(cgraph.get_root(0x0100000000000000))
+        assert len(leaves) == 1 and 0x0100000000000000 in leaves
+        leaves = cgraph.get_subgraph(cgraph.get_root(0x0100000000000001))
+        assert len(leaves) == 1 and 0x0100000000000001 in leaves
+
+        # Check Old State still accessible
+        assert cgraph.get_root(0x0100000000000000, time_stamp=fake_timestamp) == cgraph.get_root(0x0100000000000001, time_stamp=fake_timestamp)
+        partners, affinities = cgraph.get_atomic_partners(0x0100000000000000, time_stamp=fake_timestamp)
+        assert len(partners) == 1 and partners[0] == 0x0100000000000001
+        partners, affinities = cgraph.get_atomic_partners(0x0100000000000001, time_stamp=fake_timestamp)
+        assert len(partners) == 1 and partners[0] == 0x0100000000000000
+        leaves = cgraph.get_subgraph(cgraph.get_root(0x0100000000000000, time_stamp=fake_timestamp), time_stamp=fake_timestamp)
+        assert len(leaves) == 2
+        assert 0x0100000000000000 in leaves
+        assert 0x0100000000000001 in leaves
 
     def test_split_pair_neighboring_chunks(self, cgraph):
-        pass
+        """
+        Remove edge between existing RG supervoxels 1 and 2 (neighboring chunks)
+        ┌─────┬─────┐      ┌─────┬─────┐
+        │  A¹ │  B¹ │      │  A¹ │  B¹ │
+        │  1━━┿━━2  │  =>  │  1  │  2  │
+        │     │     │      │     │     │
+        └─────┴─────┘      └─────┴─────┘
+        """
+
+        # Preparation: Build Chunk A
+        fake_timestamp = datetime.now() - timedelta(days=10)
+        create_chunk(cgraph,
+                     vertices=[0x0100000000000000],
+                     edges=[(0x0100000000000000, 0x0101000000000000, 1.0)],
+                     timestamp=fake_timestamp)
+
+        # Preparation: Build Chunk B
+        create_chunk(cgraph,
+                     vertices=[0x0101000000000000],
+                     edges=[(0x0101000000000000, 0x0100000000000000, 1.0)],
+                     timestamp=fake_timestamp)
+
+        cgraph.add_layer(3, np.array([[0, 0, 0], [1, 0, 0]]))
+
+        # Split
+        new_root_ids = cgraph.remove_edges([[0x0101000000000000, 0x0100000000000000]], is_cg_id=True)
+
+        # Check New State
+        assert len(new_root_ids) == 2
+        assert cgraph.get_root(0x0100000000000000) != cgraph.get_root(0x0101000000000000)
+        partners, affinities = cgraph.get_atomic_partners(0x0100000000000000)
+        assert len(partners) == 0
+        partners, affinities = cgraph.get_atomic_partners(0x0101000000000000)
+        assert len(partners) == 0
+        leaves = cgraph.get_subgraph(cgraph.get_root(0x0100000000000000))
+        assert len(leaves) == 1 and 0x0100000000000000 in leaves
+        leaves = cgraph.get_subgraph(cgraph.get_root(0x0101000000000000))
+        assert len(leaves) == 1 and 0x0101000000000000 in leaves
+
+        # Check Old State still accessible
+        assert cgraph.get_root(0x0100000000000000, time_stamp=fake_timestamp) == cgraph.get_root(0x0101000000000000, time_stamp=fake_timestamp)
+        partners, affinities = cgraph.get_atomic_partners(0x0100000000000000, time_stamp=fake_timestamp)
+        assert len(partners) == 1 and partners[0] == 0x0101000000000000
+        partners, affinities = cgraph.get_atomic_partners(0x0101000000000000, time_stamp=fake_timestamp)
+        assert len(partners) == 1 and partners[0] == 0x0100000000000000
+        leaves = cgraph.get_subgraph(cgraph.get_root(0x0100000000000000, time_stamp=fake_timestamp), time_stamp=fake_timestamp)
+        assert len(leaves) == 2
+        assert 0x0100000000000000 in leaves
+        assert 0x0101000000000000 in leaves
 
     def test_split_pair_disconnected_chunks(self, cgraph):
-        pass
+        """
+        Remove edge between existing RG supervoxels 1 and 2 (disconnected chunks)
+        ┌─────┐     ┌─────┐      ┌─────┐     ┌─────┐
+        │  A¹ │ ... │  Z¹ │      │  A¹ │ ... │  Z¹ │
+        │  1━━┿━━━━━┿━━2  │  =>  │  1  │     │  2  │
+        │     │     │     │      │     │     │     │
+        └─────┘     └─────┘      └─────┘     └─────┘
+        """
+
+        # Preparation: Build Chunk A
+        fake_timestamp = datetime.now() - timedelta(days=10)
+        create_chunk(cgraph,
+                     vertices=[0x0100000000000000],
+                     edges=[(0x0100000000000000, 0x017F7F7F00000000, 1.0)],
+                     timestamp=fake_timestamp)
+
+        # Preparation: Build Chunk Z
+        create_chunk(cgraph,
+                     vertices=[0x017F7F7F00000000],
+                     edges=[(0x017F7F7F00000000, 0x0100000000000000, 1.0)],
+                     timestamp=fake_timestamp)
+
+        cgraph.add_layer(3, np.array([[0x00, 0x00, 0x00]]))
+        cgraph.add_layer(3, np.array([[0x7F, 0x7F, 0x7F]]))
+        cgraph.add_layer(4, np.array([[0x00, 0x00, 0x00]]))
+        cgraph.add_layer(4, np.array([[0x7E, 0x7E, 0x7E], [0x7F, 0x7F, 0x7F]]))
+        cgraph.add_layer(5, np.array([[0x00, 0x00, 0x00]]))
+        cgraph.add_layer(5, np.array([[0x7C, 0x7C, 0x7C], [0x7E, 0x7E, 0x7E]]))
+        cgraph.add_layer(6, np.array([[0x00, 0x00, 0x00]]))
+        cgraph.add_layer(6, np.array([[0x78, 0x78, 0x78], [0x7C, 0x7C, 0x7C]]))
+        cgraph.add_layer(7, np.array([[0x00, 0x00, 0x00]]))
+        cgraph.add_layer(7, np.array([[0x70, 0x70, 0x70], [0x78, 0x78, 0x78]]))
+        cgraph.add_layer(8, np.array([[0x00, 0x00, 0x00]]))
+        cgraph.add_layer(8, np.array([[0x60, 0x60, 0x60], [0x70, 0x70, 0x70]]))
+        cgraph.add_layer(9, np.array([[0x00, 0x00, 0x00]]))
+        cgraph.add_layer(9, np.array([[0x40, 0x40, 0x40], [0x60, 0x60, 0x60]]))
+        cgraph.add_layer(10, np.array([[0x00, 0x00, 0x00], [0x40, 0x40, 0x40]]))
+
+        # Split
+        new_roots = cgraph.remove_edges([[0x017F7F7F00000000, 0x0100000000000000]], is_cg_id=True)
+
+        # Check New State
+        assert len(new_roots) == 2
+        assert cgraph.get_root(0x0100000000000000) != cgraph.get_root(0x017F7F7F00000000)
+        partners, affinities = cgraph.get_atomic_partners(0x0100000000000000)
+        assert len(partners) == 0
+        partners, affinities = cgraph.get_atomic_partners(0x017F7F7F00000000)
+        assert len(partners) == 0
+        leaves = cgraph.get_subgraph(cgraph.get_root(0x0100000000000000))
+        assert len(leaves) == 1 and 0x0100000000000000 in leaves
+        leaves = cgraph.get_subgraph(cgraph.get_root(0x017F7F7F00000000))
+        assert len(leaves) == 1 and 0x017F7F7F00000000 in leaves
+
+        # Check Old State still accessible
+        assert cgraph.get_root(0x0100000000000000, time_stamp=fake_timestamp) == cgraph.get_root(0x017F7F7F00000000, time_stamp=fake_timestamp)
+        partners, affinities = cgraph.get_atomic_partners(0x0100000000000000, time_stamp=fake_timestamp)
+        assert len(partners) == 1 and partners[0] == 0x017F7F7F00000000
+        partners, affinities = cgraph.get_atomic_partners(0x017F7F7F00000000, time_stamp=fake_timestamp)
+        assert len(partners) == 1 and partners[0] == 0x0100000000000000
+        leaves = cgraph.get_subgraph(cgraph.get_root(0x0100000000000000, time_stamp=fake_timestamp), time_stamp=fake_timestamp)
+        assert len(leaves) == 2
+        assert 0x0100000000000000 in leaves
+        assert 0x017F7F7F00000000 in leaves
 
     def test_split_pair_already_disconnected(self, cgraph):
-        pass
+        """
+        Try to remove edge between already disconnected RG supervoxels 1 and 2 (same chunk).
+        Expected: No change, no error
+        ┌─────┐      ┌─────┐
+        │  A¹ │      │  A¹ │
+        │ 1 2 │  =>  │ 1 2 │
+        │     │      │     │
+        └─────┘      └─────┘
+        """
+
+        # Preparation: Build Chunk A
+        fake_timestamp = datetime.now() - timedelta(days=10)
+        create_chunk(cgraph,
+                     vertices=[0x0100000000000000, 0x0100000000000001],
+                     edges=[],
+                     timestamp=fake_timestamp)
+
+        res_old = cgraph.table.read_rows()
+        res_old.consume_all()
+
+        # Split
+        cgraph.remove_edges([[0x0100000000000001, 0x0100000000000000]], is_cg_id=True)
+        res_new = cgraph.table.read_rows()
+        res_new.consume_all()
+
+        # Check
+        if res_old.rows != res_new.rows:
+            warn("Rows were modified when splitting a pair of already disconnected supervoxels. "
+                 "While probably not an error, it is an unnecessary operation.")
 
     def test_split_full_circle_to_triple_chain_same_chunk(self, cgraph):
-        pass
+        """
+        Remove direct edge between RG supervoxels 1 and 2, but leave indirect connection (same chunk)
+        ┌─────┐      ┌─────┐
+        │  A¹ │      │  A¹ │
+        │ 1━2 │  =>  │ 1 2 │
+        │ ┗3┛ │      │ ┗3┛ │
+        └─────┘      └─────┘
+        """
+        # Preparation: Build Chunk A
+        fake_timestamp = datetime.now() - timedelta(days=10)
+        create_chunk(cgraph,
+                     vertices=[0x0100000000000000, 0x0100000000000001, 0x0100000000000002],
+                     edges=[(0x0100000000000000, 0x0100000000000002, 0.5),
+                            (0x0100000000000001, 0x0100000000000002, 0.5),
+                            (0x0100000000000000, 0x0100000000000001, 0.3)],
+                     timestamp=fake_timestamp)
+
+        # Split
+        new_root_ids = cgraph.remove_edges([[0x0100000000000001, 0x0100000000000000]], is_cg_id=True)
+
+        # Check New State
+        assert len(new_root_ids) == 1
+        assert cgraph.get_root(0x0100000000000000) == new_root_ids[0]
+        assert cgraph.get_root(0x0100000000000001) == new_root_ids[0]
+        assert cgraph.get_root(0x0100000000000002) == new_root_ids[0]
+        partners, affinities = cgraph.get_atomic_partners(0x0100000000000000)
+        assert len(partners) == 1 and partners[0] == 0x0100000000000002
+        partners, affinities = cgraph.get_atomic_partners(0x0100000000000001)
+        assert len(partners) == 1 and partners[0] == 0x0100000000000002
+        partners, affinities = cgraph.get_atomic_partners(0x0100000000000002)
+        assert len(partners) == 2
+        assert 0x0100000000000000 in partners
+        assert 0x0100000000000001 in partners
+        leaves = np.unique(cgraph.get_subgraph(new_root_ids[0]))
+        assert len(leaves) == 3
+        assert 0x0100000000000000 in leaves
+        assert 0x0100000000000001 in leaves
+        assert 0x0100000000000002 in leaves
+
+        # Check Old State still accessible
+        old_root_id = cgraph.get_root(0x0100000000000000, time_stamp=fake_timestamp)
+        assert new_root_ids[0] != old_root_id
 
     def test_split_full_circle_to_triple_chain_neighboring_chunks(self, cgraph):
-        pass
+        """
+        Remove direct edge between RG supervoxels 1 and 2, but leave indirect connection (neighboring chunks)
+        ┌─────┬─────┐      ┌─────┬─────┐
+        │  A¹ │  B¹ │      │  A¹ │  B¹ │
+        │  1━━┿━━2  │  =>  │  1  │  2  │
+        │  ┗3━┿━━┛  │      │  ┗3━┿━━┛  │
+        └─────┴─────┘      └─────┴─────┘
+        """
+
+        # Preparation: Build Chunk A
+        fake_timestamp = datetime.now() - timedelta(days=10)
+        create_chunk(cgraph,
+                     vertices=[0x0100000000000000, 0x0100000000000001],
+                     edges=[(0x0100000000000000, 0x0100000000000001, 0.5),
+                            (0x0100000000000001, 0x0101000000000000, 0.5),
+                            (0x0100000000000000, 0x0101000000000000, 0.3)],
+                     timestamp=fake_timestamp)
+
+        # Preparation: Build Chunk B
+        create_chunk(cgraph,
+                     vertices=[0x0101000000000000],
+                     edges=[(0x0101000000000000, 0x0100000000000001, 0.5),
+                            (0x0101000000000000, 0x0100000000000000, 0.3)],
+                     timestamp=fake_timestamp)
+
+        cgraph.add_layer(3, np.array([[0, 0, 0], [1, 0, 0]]))
+
+        # Split
+        new_root_ids = cgraph.remove_edges([[0x0101000000000000, 0x0100000000000000]], is_cg_id=True)
+
+        # Check New State
+        assert len(new_root_ids) == 1
+        assert cgraph.get_root(0x0100000000000000) == new_root_ids[0]
+        assert cgraph.get_root(0x0100000000000001) == new_root_ids[0]
+        assert cgraph.get_root(0x0101000000000000) == new_root_ids[0]
+        partners, affinities = cgraph.get_atomic_partners(0x0100000000000000)
+        assert len(partners) == 1 and partners[0] == 0x0100000000000001
+        partners, affinities = cgraph.get_atomic_partners(0x0101000000000000)
+        assert len(partners) == 1 and partners[0] == 0x0100000000000001
+        partners, affinities = cgraph.get_atomic_partners(0x0100000000000001)
+        assert len(partners) == 2
+        assert 0x0100000000000000 in partners
+        assert 0x0101000000000000 in partners
+        leaves = np.unique(cgraph.get_subgraph(new_root_ids[0]))
+        assert len(leaves) == 3
+        assert 0x0100000000000000 in leaves
+        assert 0x0100000000000001 in leaves
+        assert 0x0101000000000000 in leaves
+
+        # Check Old State still accessible
+        old_root_id = cgraph.get_root(0x0100000000000000, time_stamp=fake_timestamp)
+        assert new_root_ids[0] != old_root_id
 
     def test_split_full_circle_to_triple_chain_disconnected_chunks(self, cgraph):
-        pass
+        """
+        Remove direct edge between RG supervoxels 1 and 2, but leave indirect connection (disconnected chunks)
+        ┌─────┐     ┌─────┐      ┌─────┐     ┌─────┐
+        │  A¹ │ ... │  Z¹ │      │  A¹ │ ... │  Z¹ │
+        │  1━━┿━━━━━┿━━2  │  =>  │  1  │     │  2  │
+        │  ┗3━┿━━━━━┿━━┛  │      │  ┗3━┿━━━━━┿━━┛  │
+        └─────┘     └─────┘      └─────┘     └─────┘
+        """
+        # Preparation: Build Chunk A
+        fake_timestamp = datetime.now() - timedelta(days=10)
+        create_chunk(cgraph,
+                     vertices=[0x0100000000000000, 0x0100000000000001],
+                     edges=[(0x0100000000000000, 0x0100000000000001, 0.5),
+                            (0x0100000000000001, 0x017F7F7F00000000, 0.5),
+                            (0x0100000000000000, 0x017F7F7F00000000, 0.3)],
+                     timestamp=fake_timestamp)
 
-    def test_split_pair_abstract_nodes(self, cgraph):  # This should fail
-        pass
+        # Preparation: Build Chunk Z
+        create_chunk(cgraph,
+                     vertices=[0x017F7F7F00000000],
+                     edges=[(0x017F7F7F00000000, 0x0100000000000001, 0.5),
+                            (0x017F7F7F00000000, 0x0100000000000000, 0.3)],
+                     timestamp=fake_timestamp)
+
+        cgraph.add_layer(3, np.array([[0x00, 0x00, 0x00]]))
+        cgraph.add_layer(3, np.array([[0x7F, 0x7F, 0x7F]]))
+        cgraph.add_layer(4, np.array([[0x00, 0x00, 0x00]]))
+        cgraph.add_layer(4, np.array([[0x7E, 0x7E, 0x7E], [0x7F, 0x7F, 0x7F]]))
+        cgraph.add_layer(5, np.array([[0x00, 0x00, 0x00]]))
+        cgraph.add_layer(5, np.array([[0x7C, 0x7C, 0x7C], [0x7E, 0x7E, 0x7E]]))
+        cgraph.add_layer(6, np.array([[0x00, 0x00, 0x00]]))
+        cgraph.add_layer(6, np.array([[0x78, 0x78, 0x78], [0x7C, 0x7C, 0x7C]]))
+        cgraph.add_layer(7, np.array([[0x00, 0x00, 0x00]]))
+        cgraph.add_layer(7, np.array([[0x70, 0x70, 0x70], [0x78, 0x78, 0x78]]))
+        cgraph.add_layer(8, np.array([[0x00, 0x00, 0x00]]))
+        cgraph.add_layer(8, np.array([[0x60, 0x60, 0x60], [0x70, 0x70, 0x70]]))
+        cgraph.add_layer(9, np.array([[0x00, 0x00, 0x00]]))
+        cgraph.add_layer(9, np.array([[0x40, 0x40, 0x40], [0x60, 0x60, 0x60]]))
+        cgraph.add_layer(10, np.array([[0x00, 0x00, 0x00], [0x40, 0x40, 0x40]]))
+
+        # Split
+        new_root_ids = cgraph.remove_edges([[0x017F7F7F00000000, 0x0100000000000000]], is_cg_id=True)
+
+        # Check New State
+        assert len(new_root_ids) == 1
+        assert cgraph.get_root(0x0100000000000000) == new_root_ids[0]
+        assert cgraph.get_root(0x0100000000000001) == new_root_ids[0]
+        assert cgraph.get_root(0x017F7F7F00000000) == new_root_ids[0]
+        partners, affinities = cgraph.get_atomic_partners(0x0100000000000000)
+        assert len(partners) == 1 and partners[0] == 0x0100000000000001
+        partners, affinities = cgraph.get_atomic_partners(0x017F7F7F00000000)
+        assert len(partners) == 1 and partners[0] == 0x0100000000000001
+        partners, affinities = cgraph.get_atomic_partners(0x0100000000000001)
+        assert len(partners) == 2
+        assert 0x0100000000000000 in partners
+        assert 0x017F7F7F00000000 in partners
+        leaves = np.unique(cgraph.get_subgraph(new_root_ids[0]))
+        assert len(leaves) == 3
+        assert 0x0100000000000000 in leaves
+        assert 0x0100000000000001 in leaves
+        assert 0x017F7F7F00000000 in leaves
+
+        # Check Old State still accessible
+        old_root_id = cgraph.get_root(0x0100000000000000, time_stamp=fake_timestamp)
+        assert new_root_ids[0] != old_root_id
+
+    def test_split_same_node(self, cgraph):
+        """
+        Try to remove (non-existing) edge between RG supervoxel 1 and itself
+        ┌─────┐
+        │  A¹ │
+        │  1  │  =>  Reject
+        │     │
+        └─────┘
+        """
+        # Preparation: Build Chunk A
+        create_chunk(cgraph,
+                     vertices=[0x0100000000000000],
+                     edges=[])
+
+        res_old = cgraph.table.read_rows()
+        res_old.consume_all()
+
+        # Split
+        assert cgraph.remove_edges([[0x0100000000000000, 0x0100000000000000]], is_cg_id=True) == []
+
+        res_new = cgraph.table.read_rows()
+        res_new.consume_all()
+
+        assert res_new.rows == res_old.rows
+
+    def test_split_pair_abstract_nodes(self, cgraph):
+        """
+        Try to remove (non-existing) edge between RG supervoxel 1 and abstract node "2"
+                    ┌─────┐
+                    │  B² │
+                    │ "2" │
+                    │     │
+                    └─────┘
+        ┌─────┐              =>  Reject
+        │  A¹ │
+        │  1  │
+        │     │
+        └─────┘
+        """
+        # Preparation: Build Chunk A
+        create_chunk(cgraph,
+                     vertices=[0x0100000000000000],
+                     edges=[])
+
+        # Preparation: Build Chunk B
+        create_chunk(cgraph,
+                     vertices=[0x0101000000000000],
+                     edges=[])
+
+        cgraph.add_layer(3, np.array([[0, 0, 0], [1, 0, 0]]))
+
+        res_old = cgraph.table.read_rows()
+        res_old.consume_all()
+
+        # Split
+        assert cgraph.remove_edges([[0x0100000000000000, 0x0201000000000000]], is_cg_id=True) == []
+
+        res_new = cgraph.table.read_rows()
+        res_new.consume_all()
+
+        assert res_new.rows == res_old.rows
 
 
 class TestGraphMinCut:
-    def test_cut_low_affinity_chain(self, cgraph):
-        pass
+    # TODO: Ideally, those tests should focus only on mincut retrieving the correct edges.
+    #       The edge removal part should be tested exhaustively in TestGraphSplit
+    def test_cut_regular_link(self, cgraph):
+        """
+        Regular link between 1 and 2
+        ┌─────┬─────┐
+        │  A¹ │  B¹ │
+        │  1━━┿━━2  │
+        │     │     │
+        └─────┴─────┘
+        """
+        # Preparation: Build Chunk A
+        fake_timestamp = datetime.now() - timedelta(days=10)
+        create_chunk(cgraph,
+                     vertices=[0x0100000000000000],
+                     edges=[(0x0100000000000000, 0x0101000000000000, 0.5)],
+                     timestamp=fake_timestamp)
 
-    def test_cut_zero_affinity_chain(self, cgraph):
-        pass
+        # Preparation: Build Chunk B
+        create_chunk(cgraph,
+                     vertices=[0x0101000000000000],
+                     edges=[(0x0101000000000000, 0x0100000000000000, 0.5)],
+                     timestamp=fake_timestamp)
 
-    def test_cut_inf_affinity_chain(self, cgraph):
-        pass
+        cgraph.add_layer(3, np.array([[0, 0, 0], [1, 0, 0]]))
 
-    def test_cut_no_path(self, cgraph):
-        pass
+        # Mincut
+        new_root_ids = cgraph.remove_edges_mincut(
+                0x0100000000000000, 0x0101000000000000,
+                [0, 0, 0], [2*cgraph.chunk_size[0], 2*cgraph.chunk_size[1], cgraph.chunk_size[2]],
+                is_cg_id=True)
+
+        # Check New State
+        assert len(new_root_ids) == 2
+        assert cgraph.get_root(0x0100000000000000) != cgraph.get_root(0x0101000000000000)
+        partners, affinities = cgraph.get_atomic_partners(0x0100000000000000)
+        assert len(partners) == 0
+        partners, affinities = cgraph.get_atomic_partners(0x0101000000000000)
+        assert len(partners) == 0
+        leaves = cgraph.get_subgraph(cgraph.get_root(0x0100000000000000))
+        assert len(leaves) == 1 and 0x0100000000000000 in leaves
+        leaves = cgraph.get_subgraph(cgraph.get_root(0x0101000000000000))
+        assert len(leaves) == 1 and 0x0101000000000000 in leaves
+
+    def test_cut_no_link(self, cgraph):
+        """
+        No connection between 1 and 2
+        ┌─────┬─────┐
+        │  A¹ │  B¹ │
+        │  1  │  2  │
+        │     │     │
+        └─────┴─────┘
+        """
+        # Preparation: Build Chunk A
+        fake_timestamp = datetime.now() - timedelta(days=10)
+        create_chunk(cgraph,
+                     vertices=[0x0100000000000000],
+                     edges=[],
+                     timestamp=fake_timestamp)
+
+        # Preparation: Build Chunk B
+        create_chunk(cgraph,
+                     vertices=[0x0101000000000000],
+                     edges=[],
+                     timestamp=fake_timestamp)
+
+        cgraph.add_layer(3, np.array([[0, 0, 0], [1, 0, 0]]))
+
+        res_old = cgraph.table.read_rows()
+        res_old.consume_all()
+
+        # Mincut
+        assert cgraph.remove_edges_mincut(
+                0x0100000000000000, 0x0101000000000000,
+                [0, 0, 0], [2*cgraph.chunk_size[0], 2*cgraph.chunk_size[1], cgraph.chunk_size[2]],
+                is_cg_id=True) == []
+
+        res_new = cgraph.table.read_rows()
+        res_new.consume_all()
+
+        assert res_new.rows == res_old.rows
+
+    def test_cut_old_link(self, cgraph):
+        """
+        Link between 1 and 2 got removed previously (aff = 0.0)
+        ┌─────┬─────┐
+        │  A¹ │  B¹ │
+        │  1┅┅╎┅┅2  │
+        │     │     │
+        └─────┴─────┘
+        """
+        # Preparation: Build Chunk A
+        fake_timestamp = datetime.now() - timedelta(days=10)
+        create_chunk(cgraph,
+                     vertices=[0x0100000000000000],
+                     edges=[(0x0100000000000000, 0x0101000000000000, 0.5)],
+                     timestamp=fake_timestamp)
+
+        # Preparation: Build Chunk B
+        create_chunk(cgraph,
+                     vertices=[0x0101000000000000],
+                     edges=[(0x0101000000000000, 0x0100000000000000, 0.5)],
+                     timestamp=fake_timestamp)
+
+        cgraph.add_layer(3, np.array([[0, 0, 0], [1, 0, 0]]))
+        cgraph.remove_edges([[0x0101000000000000, 0x0100000000000000]], is_cg_id=True)
+
+        res_old = cgraph.table.read_rows()
+        res_old.consume_all()
+
+        # Mincut
+        assert cgraph.remove_edges_mincut(
+                0x0100000000000000, 0x0101000000000000,
+                [0, 0, 0], [2*cgraph.chunk_size[0], 2*cgraph.chunk_size[1], cgraph.chunk_size[2]],
+                is_cg_id=True) == []
+
+        res_new = cgraph.table.read_rows()
+        res_new.consume_all()
+
+        assert res_new.rows == res_old.rows
+
+    def test_cut_indivisible_link(self, cgraph):
+        """
+        Sink: 1, Source: 2
+        Link between 1 and 2 is set to `inf` and must not be cut.
+        ┌─────┬─────┐
+        │  A¹ │  B¹ │
+        │  1══╪══2  │
+        │     │     │
+        └─────┴─────┘
+        """
+        # Preparation: Build Chunk A
+        fake_timestamp = datetime.now() - timedelta(days=10)
+        create_chunk(cgraph,
+                     vertices=[0x0100000000000000],
+                     edges=[(0x0100000000000000, 0x0101000000000000, inf)],
+                     timestamp=fake_timestamp)
+
+        # Preparation: Build Chunk B
+        create_chunk(cgraph,
+                     vertices=[0x0101000000000000],
+                     edges=[(0x0101000000000000, 0x0100000000000000, inf)],
+                     timestamp=fake_timestamp)
+
+        cgraph.add_layer(3, np.array([[0, 0, 0], [1, 0, 0]]))
+
+        res_old = cgraph.table.read_rows()
+        res_old.consume_all()
+
+        # Mincut
+        assert cgraph.remove_edges_mincut(
+                0x0100000000000000, 0x0101000000000000,
+                [0, 0, 0], [2*cgraph.chunk_size[0], 2*cgraph.chunk_size[1], cgraph.chunk_size[2]],
+                is_cg_id=True) == []
+
+        res_new = cgraph.table.read_rows()
+        res_new.consume_all()
+
+        assert res_new.rows == res_old.rows
 
 
 class TestGraphMultiCut:

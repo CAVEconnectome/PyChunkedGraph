@@ -249,9 +249,11 @@ def mincut(edges, affs, source, sink):
 class ChunkedGraph(object):
     def __init__(self, table_id, instance_id="pychunkedgraph",
                  project_id="neuromancer-seung-import",
-                 chunk_size=(512, 512, 64), fan_out=None, n_layers=None):
+                 chunk_size=(512, 512, 64), fan_out=None, n_layers=None,
+                 credentials=None):
 
-        self._client = bigtable.Client(project=project_id, admin=True)
+        self._client = bigtable.Client(project=project_id, admin=True,
+                                       credentials=credentials)
         self._instance = self.client.instance(instance_id)
 
         self._table = self.instance.table(table_id)
@@ -1387,7 +1389,7 @@ class ChunkedGraph(object):
             if stop_lvl == layer:
                 atomic_ids = child_ids
                 break
-                
+
             if layer == 2:
                 if get_edges:
                     edges_and_affinities = mu.multithread_func(
