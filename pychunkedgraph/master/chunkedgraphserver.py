@@ -155,7 +155,7 @@ def handle_split():
 @app.route('/1.0/segment/<parent_id>/children', methods=['POST', 'GET'])
 def handle_children(parent_id):
     # Call ChunkedGraph
-    if chunkedgraph.get_chunk_id_from_node_id(parent_id)[-1] > 2:
+    if False or cg.get_chunk_id_from_node_id(parent_id)[0] > 2:
         print("MIP1 meshes")
         try:
             # atomic_ids = cg.get_children(int(parent_id))
@@ -188,7 +188,6 @@ def handle_leaves(root_id):
     atomic_ids = cg.get_subgraph(int(root_id), return_rg_ids=False,
                                  bounding_box=bounding_box,
                                  bb_is_coordinate=True)
-
     # Return binary
     return tobinary(atomic_ids)
 

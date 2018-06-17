@@ -8,10 +8,10 @@ IP = "10.240.0.50"
 def request(op, body, post=True):
 
     if post:
-        url = 'https://{0}:4000/1.0/segment/{1}/{2}/'.format(IP, body[0], op)
+        url = 'https://{0}:4000/1.0/segment/{1}/{2}'.format(IP, body[0], op)
         body = []
     else:
-        url = 'https://{0}:4000/1.0/graph/{1}/'.format(IP, op)
+        url = 'https://{0}:4000/1.0/graph/{1}'.format(IP, op)
 
     print(url)
     time_start = time.time()
