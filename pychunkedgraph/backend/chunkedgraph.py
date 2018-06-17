@@ -875,7 +875,7 @@ class ChunkedGraph(object):
                 print("WARNING: NOTHING HAPPENED")
 
     def add_layer(self, layer_id, child_chunk_coords, verbose=False,
-                  time_stamp=None):
+                  time_stamp=None, n_threads=20):
         """ Creates the abstract nodes for a given chunk in a given layer
 
         :param layer_id: int
@@ -884,6 +884,58 @@ class ChunkedGraph(object):
         :param verbose: bool
         :param time_stamp: datetime
         """
+        def _resolve_cross_chunk_edges_thread(args):
+            start, end = args
+            for i_child_key, child_key in enumerate(atomic_partner_id_dict_keys[start: end]):
+                this_atomic_partner_ids = atomic_partner_id_dict[child_key]
+                this_atomic_child_ids = atomic_child_id_dict[child_key]
+
+                leftover_mask = ~np.in1d(this_atomic_partner_ids, u_atomic_child_ids)
+                leftover_atomic_edges[child_key] = np.concatenate([this_atomic_child_ids[leftover_mask, None],
+                                                                   this_atomic_partner_ids[leftover_mask, None]], axis=1)
+
+                partners = np.unique(child_ids[np.in1d(atomic_child_ids, this_atomic_partner_ids)])
+
+                if len(partners) > 0:
+                    these_edges = np.concatenate([np.array([child_key] * len(partners), dtype=np.uint64)[:, None], partners[:, None]], axis=1)
+                    edge_ids.extend(these_edges)
+
+        def _write_out_connected_components(args):
+            start, end = args
+            for i_cc, cc in enumerate(ccs[start: end]):
+                    rows = []
+
+                    node_ids = np.array(list(cc))
+
+                    parent_id = self.find_next_node_id(chunk_id)
+                    parent_id_b = np.array(parent_id, dtype=np.uint64).tobytes()
+
+                    parent_cross_edges = np.array([], dtype=np.uint64).reshape(0, 2)
+
+                    # Add rows for nodes that are in this chunk
+                    for i_node_id, node_id in enumerate(node_ids):
+                        # Extract edges relevant to this node
+                        parent_cross_edges = np.concatenate([parent_cross_edges,
+                                                             leftover_atomic_edges[
+                                                                 node_id]])
+
+                        # Create node
+                        val_dict = {"parents": parent_id_b}
+
+                        rows.append(self.mutate_row(serialize_node_id(node_id),
+                                                    self.family_id, val_dict,
+                                                    time_stamp=time_stamp))
+
+                    # Create parent node
+                    val_dict = {"children": node_ids.tobytes(),
+                                "atomic_cross_edges": parent_cross_edges.tobytes()}
+
+                    rows.append(self.mutate_row(serialize_node_id(parent_id),
+                                                self.family_id, val_dict,
+                                                time_stamp=time_stamp))
+
+                    self.bulk_write(rows)
+
         if time_stamp is None:
             time_stamp = datetime.datetime.now()
 
@@ -922,42 +974,23 @@ class ChunkedGraph(object):
 
         # Extract edges from remaining cross chunk edges
         # and maintain unused cross chunk edges
-        edge_ids = np.array([], np.uint64).reshape(0, 2)
-
+        edge_ids = []
         u_atomic_child_ids = np.unique(atomic_child_ids)
         atomic_partner_id_dict_keys = np.array(list(atomic_partner_id_dict.keys()), dtype=np.uint64)
-        time_start = time.time()
 
-        time_segs = [[], [], []]
-        for i_child_key, child_key in enumerate(atomic_partner_id_dict_keys):
-            if verbose and i_child_key % 20 == 1:
-                dt = time.time() - time_start
-                eta = dt / i_child_key * len(atomic_partner_id_dict_keys) - dt
-                print("%5d - dt: %.3fs - eta: %.3fs - %.4fs - %.4fs - %.4fs           " %
-                      (i_child_key, dt, eta, np.mean(time_segs[0]), np.mean(time_segs[1]), np.mean(time_segs[2])), end="\r")
+        if n_threads > 1:
+            n_jobs = n_threads * 3
+        else:
+            n_jobs = 1
 
-            this_atomic_partner_ids = atomic_partner_id_dict[child_key]
-            this_atomic_child_ids = atomic_child_id_dict[child_key]
+        spacing = np.linspace(0, len(atomic_partner_id_dict_keys), n_jobs+1).astype(np.int)
+        starts = spacing[:-1]
+        ends = spacing[1:]
 
-            time_seg = time.time()
+        multi_args = list(zip(starts, ends))
 
-            leftover_mask = ~np.in1d(this_atomic_partner_ids, u_atomic_child_ids)
-
-            time_segs[0].append(time.time() - time_seg)
-            time_seg = time.time()
-            leftover_atomic_edges[child_key] = np.concatenate([this_atomic_child_ids[leftover_mask, None],
-                                                               this_atomic_partner_ids[leftover_mask, None]], axis=1)
-
-            time_segs[1].append(time.time() - time_seg)
-            time_seg = time.time()
-
-            partners = np.unique(child_ids[np.in1d(atomic_child_ids, this_atomic_partner_ids)])
-            these_edges = np.concatenate([np.array([child_key] * len(partners), dtype=np.uint64)[:, None], partners[:, None]], axis=1)
-
-            edge_ids = np.concatenate([edge_ids, these_edges])
-
-            time_segs[2].append(time.time() - time_seg)
-
+        mu.multithread_func(_resolve_cross_chunk_edges_thread, multi_args,
+                            n_threads=n_threads)
 
         # 2 ----------
         # The second part finds connected components, writes the parents to
@@ -981,62 +1014,15 @@ class ChunkedGraph(object):
 
         # Add rows for nodes that are in this chunk
         # a connected component at a time
-        node_c = 0  # Just a counter for the print / speed measurement
-        time_start = time.time()
-        for i_cc, cc in enumerate(ccs):
-            if verbose and node_c > 0:
-                dt = time.time() - time_start
-                print("%5d at %5d - %.5fs             " %
-                      (i_cc, node_c, dt / node_c), end="\r")
 
-            rows = []
+        spacing = np.linspace(0, len(ccs), n_jobs+1).astype(np.int)
+        starts = spacing[:-1]
+        ends = spacing[1:]
 
-            node_ids = np.array(list(cc))
+        multi_args = list(zip(starts, ends))
 
-            # Create parent id
-            # parent_id = parent_id_base.copy()
-            # parent_id[0] = i_cc
-            # parent_id = np.frombuffer(parent_id, dtype=np.uint64)
-            # parent_id_b = parent_id.tobytes()
-
-            parent_id = self.find_next_node_id(chunk_id)
-            parent_id_b = np.array(parent_id, dtype=np.uint64).tobytes()
-
-            parent_cross_edges = np.array([], dtype=np.uint64).reshape(0, 2)
-
-            # Add rows for nodes that are in this chunk
-            for i_node_id, node_id in enumerate(node_ids):
-                # Extract edges relevant to this node
-                parent_cross_edges = np.concatenate([parent_cross_edges,
-                                                     leftover_atomic_edges[node_id]])
-
-                # Create node
-                val_dict = {"parents": parent_id_b}
-
-                rows.append(self.mutate_row(serialize_node_id(node_id),
-                                            self.family_id, val_dict,
-                                            time_stamp=time_stamp))
-                node_c += 1
-
-            # Create parent node
-            val_dict = {"children": node_ids.tobytes(),
-                        "atomic_cross_edges": parent_cross_edges.tobytes()}
-
-            rows.append(self.mutate_row(serialize_node_id(parent_id),
-                                        self.family_id, val_dict,
-                                        time_stamp=time_stamp))
-
-            node_c += 1
-
-            self.bulk_write(rows)
-
-        if verbose:
-            try:
-                dt = time.time() - time_start
-                print("Average time: %.5fs / node; %.5fs / edge - Number of edges: %6d" %
-                      (dt / node_c, dt / len(edge_ids), len(edge_ids)))
-            except:
-                print("WARNING: NOTHING HAPPENED")
+        mu.multithread_func(_write_out_connected_components, multi_args,
+                            n_threads=n_threads)
 
     def get_parent(self, node_id, get_only_relevant_parent=True,
                    time_stamp=None):
