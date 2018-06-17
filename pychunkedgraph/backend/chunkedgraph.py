@@ -112,22 +112,7 @@ def get_clean_cg_object(table_id, n_layers, fan_out,
                       project_id=project_id, chunk_size=chunk_size,
                       n_layers=n_layers, fan_out=fan_out)
 
-    # cg.table.create()
-    # f = cg.table.column_family(cg.family_id)
-    # f.create()
-
     return cg
-
-
-# def serialize_node_id(node_id):
-#     """ Serializes an id to be ingested by a bigtable table row
-#
-#     :param node_id: int
-#     :return: str
-#     """
-#     s_node_id = "%.20d" % node_id
-#     s_node_id = serialize_key(s_node_id)
-#     return s_node_id
 
 
 def bitinv_int(node_id, check_bit_width=64):
@@ -250,21 +235,17 @@ class ChunkedGraph(object):
     def __init__(self, table_id, instance_id="pychunkedgraph",
                  project_id="neuromancer-seung-import",
                  chunk_size=(512, 512, 64), fan_out=None, n_layers=None,
-                 credentials=None):
+                 credentials=None, is_new=False):
 
         self._client = bigtable.Client(project=project_id, admin=True,
                                        credentials=credentials)
         self._instance = self.client.instance(instance_id)
+        self._table_id = table_id
 
-        self._table = self.instance.table(table_id)
+        self._table = self.instance.table(self.table_id)
 
-        try:
-            self.table.create()
-            f = self.table.column_family(self.family_id)
-            f.create()
-            print("Table created")
-        except:
-            pass
+        if is_new:
+            self.check_and_create_table()
 
         self._n_layers = self.check_and_write_table_parameters("n_layers",
                                                                n_layers)
@@ -288,6 +269,10 @@ class ChunkedGraph(object):
         return self._table
 
     @property
+    def table_id(self):
+        return self._table_id
+
+    @property
     def family_id(self):
         return "0"
 
@@ -306,6 +291,13 @@ class ChunkedGraph(object):
     @property
     def bitmasks(self):
         return self._bitmasks
+
+    def check_and_create_table(self):
+        " Checks if table exists and creates new one if necessary "
+        table_ids = [t.table_id for t in self.instance.list_tables()]
+
+        if not self.table_id in table_ids:
+            self.table.create()
 
     def check_and_write_table_parameters(self, param_key, value=None):
         """ Checks if a parameter already exists in the table. If it already
@@ -502,9 +494,12 @@ class ChunkedGraph(object):
         bits_per_dim = self.bitmasks[layer_id]
         chunk_id_dim_step = int(self.fan_out ** np.max([0, layer_id - 2]))
 
-        assert x % chunk_id_dim_step == 0
-        assert y % chunk_id_dim_step == 0
-        assert z % chunk_id_dim_step == 0
+        if x % chunk_id_dim_step != 0:
+            print("Wrong stride in x. coord: [%d, %d, %d], stride: %d" % (x, y, z, chunk_id_dim_step))
+        if y % chunk_id_dim_step != 0:
+            print("Wrong stride in y. coord: [%d, %d, %d], stride: %d" % (x, y, z, chunk_id_dim_step))
+        if z % chunk_id_dim_step != 0:
+            print("Wrong stride in z. coord: [%d, %d, %d], stride: %d" % (x, y, z, chunk_id_dim_step))
 
         # Convert chunk id components to bits
         x_b = to_bitstring(int(x / chunk_id_dim_step), bit_width=bits_per_dim,

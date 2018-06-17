@@ -234,7 +234,7 @@ def create_chunked_graph(table_id=None, cv_url=None, n_threads=1):
 
         multi_args = []
         for ind in range(len(u_pcids)):
-            multi_args.append([table_id, layer_id, child_chunk_ids[inds == ind]])
+            multi_args.append([table_id, layer_id, child_chunk_ids[inds == ind].astype(np.int)])
 
         if len(child_chunk_ids) == 1:
             last_run = True
