@@ -59,11 +59,14 @@ def rewrite_single_block(file_path, from_cv=None, to_cv=None, from_url=None,
     seg = from_cv[x_start: x_end, y_start: y_end, z_start: z_end]
     mapping = utils.read_mapping_h5(file_path)
 
+    if 0 in seg and not 0 in mapping[:, 0]:
+        mapping = np.concatenate(([np.array([[0, 0]], dtype=np.uint64), mapping]))
+
     sort_idx = np.argsort(mapping[:, 0])
     idx = np.searchsorted(mapping[:, 0], seg, sorter=sort_idx)
     out = np.asarray(mapping[:, 1])[sort_idx][idx]
 
-    # print(out.shape, x_end, y_end, z_end)
+    # print(out.shape, x_start, x_end, y_start, y_end, z_start, z_end)
     to_cv[x_start: x_end, y_start: y_end, z_start: z_end] = out
 
 
