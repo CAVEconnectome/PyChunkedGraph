@@ -499,11 +499,11 @@ class ChunkedGraph(object):
         chunk_id_dim_step = int(self.fan_out ** np.max([0, layer_id - 2]))
 
         if x % chunk_id_dim_step != 0:
-            print("Wrong stride in x. coord: [%d, %d, %d], stride: %d" % (x, y, z, chunk_id_dim_step))
+            raise Exception("Wrong stride in x. coord: [%d, %d, %d], stride: %d" % (x, y, z, chunk_id_dim_step))
         if y % chunk_id_dim_step != 0:
-            print("Wrong stride in y. coord: [%d, %d, %d], stride: %d" % (x, y, z, chunk_id_dim_step))
+            raise Exception("Wrong stride in y. coord: [%d, %d, %d], stride: %d" % (x, y, z, chunk_id_dim_step))
         if z % chunk_id_dim_step != 0:
-            print("Wrong stride in z. coord: [%d, %d, %d], stride: %d" % (x, y, z, chunk_id_dim_step))
+            raise Exception("Wrong stride in z. coord: [%d, %d, %d], stride: %d" % (x, y, z, chunk_id_dim_step))
 
         # Convert chunk id components to bits
         x_b = to_bitstring(int(x / chunk_id_dim_step), bit_width=bits_per_dim,
