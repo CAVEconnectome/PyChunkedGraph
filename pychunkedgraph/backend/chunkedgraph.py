@@ -614,7 +614,7 @@ class ChunkedGraph(object):
 
         status = self.table.mutate_rows(rows, retry=retry_policy)
 
-    def range_read_chunk(self, x, y, z, layer_id):
+    def range_read_chunk(self, x, y, z, layer_id, n_retries=10):
         """ Reads all ids within a chunk
 
         :param x: int
@@ -674,7 +674,12 @@ class ChunkedGraph(object):
                                           end_inclusive=False)
 
         # Execute read
-        range_read.consume_all()
+        consume_success = False
+        i_tries = 0
+        while not consume_success and i_tries < n_retries:
+            range_read.consume_all()
+            consume_success = True
+            i_tries += 1
 
         return range_read.rows
 

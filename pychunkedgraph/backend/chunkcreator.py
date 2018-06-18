@@ -248,7 +248,8 @@ def create_chunked_graph(table_id=None, cv_url=None, n_threads=1):
                 debug=n_threads==1)
         else:
             multiprocessing_utils.multisubprocess_func(
-                _add_layer_thread, multi_args, n_threads=n_threads)
+                _add_layer_thread, multi_args, n_threads=n_threads,
+                suffix=str(layer_id))
 
         times.append(["Layer %d" % layer_id, time.time() - time_start])
 

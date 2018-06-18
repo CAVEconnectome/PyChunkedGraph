@@ -163,7 +163,7 @@ def _poll_running_subprocesses(processes, runtimes, path_to_script,
 
 
 def multisubprocess_func(func, params, wait_delay_s=5, n_threads=1,
-                         kill_tol_factor=10, min_n_meas=100):
+                         kill_tol_factor=10, min_n_meas=100, suffix=""):
     """ Processes data independent functions in parallel using multithreading
 
     :param func: function
@@ -180,16 +180,21 @@ def multisubprocess_func(func, params, wait_delay_s=5, n_threads=1,
 
     name = func.__name__.strip("_")
 
-    if os.path.exists(subp_work_folder + "/%s_folder/" % (name)):
-        shutil.rmtree(subp_work_folder + "/%s_folder/" % (name))
+    if len(suffix) > 0 and not suffix.startswith("_"):
+        suffix = "_" + suffix
 
-    path_to_storage = subp_work_folder + "/%s_folder/storage/" % name
-    path_to_out = subp_work_folder + "/%s_folder/out/" % name
-    path_to_err = subp_work_folder + "/%s_folder/err/" % name
-    path_to_src = subp_work_folder + "/%s_folder/pychunkedgraph/" % name
-    path_to_script = subp_work_folder + "/%s_folder/main.py" % name
+    subp_job_folder = subp_work_folder + "/%s%s_folder/" % (name, suffix)
 
-    os.makedirs(subp_work_folder + "/%s_folder/" % (name))
+    if os.path.exists(subp_job_folder):
+        shutil.rmtree(subp_job_folder)
+
+    path_to_storage = subp_job_folder + "/storage/"
+    path_to_out = subp_job_folder + "/out/"
+    path_to_err = subp_job_folder + "/err/"
+    path_to_src = subp_job_folder + "/pychunkedgraph/"
+    path_to_script = subp_job_folder + "/main.py"
+
+    os.makedirs(subp_job_folder)
     os.makedirs(path_to_storage)
     os.makedirs(path_to_out)
     os.makedirs(path_to_err)
