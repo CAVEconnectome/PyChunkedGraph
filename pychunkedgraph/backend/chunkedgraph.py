@@ -298,6 +298,9 @@ class ChunkedGraph(object):
 
         if not self.table_id in table_ids:
             self.table.create()
+            f = self.table.column_family(self.family_id)
+            f.create()
+            print("Table created")
 
     def check_and_write_table_parameters(self, param_key, value=None):
         """ Checks if a parameter already exists in the table. If it already
@@ -319,6 +322,7 @@ class ChunkedGraph(object):
             val_dict = {param_key: np.array(value, dtype=np.uint64).tobytes()}
             row = self.mutate_row(serialize_key("params"), self.family_id,
                                   val_dict)
+
             self.bulk_write([row])
         else:
             value = row.cells[self.family_id][ser_param_key][0].value
@@ -613,6 +617,9 @@ class ChunkedGraph(object):
             deadline=60.0 * 5.0)
 
         status = self.table.mutate_rows(rows, retry=retry_policy)
+
+        if not any(status):
+            raise Exception(status)
 
     def range_read_chunk(self, x, y, z, layer_id, n_retries=10):
         """ Reads all ids within a chunk
@@ -1182,7 +1189,7 @@ class ChunkedGraph(object):
             unlocked = True
         else:
             # Check if lock expired
-            dt = datetime.datetime.now() - rr[1]
+            dt = UTC.localize(datetime.datetime.now()) - rr[1]
             if dt < LOCK_EXPIRED_TIME_DELTA:
                 self.unlock_root(root_id)
                 unlocked = True
@@ -1556,6 +1563,18 @@ class ChunkedGraph(object):
             affinities = affinities[idx]
 
         return edges, affinities
+
+    def add_edge_locked(self, thread_id, atomic_edge, affinity=None,
+                        root_ids=None):
+
+        if root_ids is None:
+            root_ids = [self.get_root(atomic_edge[0]),
+                        self.get_root(atomic_edge[1])]
+
+        if self.lock_root_loop(root_ids=root_ids, thread_id=thread_id)[0]:
+            return self.add_edge(atomic_edge=atomic_edge, affinity=affinity)
+        else:
+            return root_ids
 
     def add_edge(self, atomic_edge, affinity=None, is_cg_id=True):
         """ Adds an atomic edge to the ChunkedGraph
@@ -1988,8 +2007,28 @@ class ChunkedGraph(object):
         self.bulk_write(rows, slow_retry=False)
         return new_roots
 
+    def remove_edges_mincut_locked(self, thread_id, source_id, sink_id,
+                                   source_coord, sink_coord,
+                                   bb_offset=(240, 240, 24), root_ids=None):
+
+        if root_ids is None:
+            root_ids = [self.get_root(source_id),
+                        self.get_root(sink_id)]
+
+        if root_ids[0] != root_ids[1]:
+            return root_ids
+
+        if self.lock_root_loop(root_ids=root_ids[:1], thread_id=thread_id)[0]:
+            return self.remove_edges_mincut(source_id=source_id,
+                                            sink_id=sink_id,
+                                            source_coord=source_coord,
+                                            sink_coord=sink_coord,
+                                            bb_offset=bb_offset)
+        else:
+            return root_ids
+
     def remove_edges_mincut(self, source_id, sink_id, source_coord,
-                            sink_coord, bb_offset=(240, 240, 24),
+                            sink_coord, bb_offset=(120, 120, 12),
                             is_cg_id=True):
         """ Computes mincut and removes
 

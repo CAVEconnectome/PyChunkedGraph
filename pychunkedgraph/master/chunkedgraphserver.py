@@ -130,11 +130,12 @@ def handle_root():
 def handle_merge():
     node_1, node_2 = json.loads(request.data)\
 
+    thread_id = np.random.randint(0, 2**52)
+
     # Call ChunkedGraph
-    new_root = cg.add_edge([int(node_1[0]), int(node_2[0])], is_cg_id=True)\
+    new_root = cg.add_edge_locked(thread_id, [int(node_1[0]), int(node_2[0])])
 
     # Return binary
-
     return tobinary(new_root)
 
 
@@ -142,12 +143,14 @@ def handle_merge():
 def handle_split():
     data = json.loads(request.data)
 
+    thread_id = np.random.randint(0, 2**52)
+
     # Call ChunkedGraph
-    new_roots = cg.remove_edges_mincut(int(data["sources"][0][0]),
-                                       int(data["sinks"][0][0]),
-                                       data["sources"][0][1:],
-                                       data["sinks"][0][1:],
-                                       is_cg_id=True)
+    new_roots = cg.remove_edges_mincut_locked(thread_id,
+                                              int(data["sources"][0][0]),
+                                              int(data["sinks"][0][0]),
+                                              data["sources"][0][1:],
+                                              data["sinks"][0][1:])
     # Return binary
     return tobinary(new_roots)
 
@@ -188,6 +191,9 @@ def handle_leaves(root_id):
     atomic_ids = cg.get_subgraph(int(root_id), return_rg_ids=False,
                                  bounding_box=bounding_box,
                                  bb_is_coordinate=True)
+
+    # print(atomic_ids)
+
     # Return binary
     return tobinary(atomic_ids)
 
