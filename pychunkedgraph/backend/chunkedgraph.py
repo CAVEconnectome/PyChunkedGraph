@@ -26,6 +26,13 @@ os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = \
 
 
 def log_n(arr, n):
+    """ Computes log to base n
+
+    :param arr: array or float
+    :param n: int
+        base
+    :return: return log_n(arr)
+    """
     if n == 2:
         return np.log2(arr)
     elif n == 10:
@@ -35,6 +42,16 @@ def log_n(arr, n):
 
 
 def to_bitstring(node_id, bit_width=None, is_bytes=False, endian="little"):
+    """ Transforms int to a series of bits
+
+    :param node_id: int
+    :param bit_width: int
+    :param is_bytes: bool
+    :param endian: str
+        "big" or "little"
+    :return: str
+        bitstring
+    """
     if not is_bytes:
         node_id_b = int(node_id).to_bytes((int(node_id).bit_length() + 7) // 8,
                                           byteorder=endian, signed=False)
@@ -54,6 +71,14 @@ def to_bitstring(node_id, bit_width=None, is_bytes=False, endian="little"):
 
 
 def to_int(node_id_bits, endian):
+    """ Transforms bitstring to int
+
+    :param node_id_bits: str
+        bitstring
+    :param endian: str
+        "big" ir "little"
+    :return: int
+    """
     node_id_size = len(node_id_bits)
 
     assert node_id_size <= 64
@@ -64,6 +89,15 @@ def to_int(node_id_bits, endian):
 
 
 def bitwise_inc(node_id_b, from_start=True):
+    """ increments a bitstring by one
+
+    :param node_id_b: str
+        bitstring
+    :param from_start: bool
+    :return: str
+        bitstring
+    """
+
     assert "0" in node_id_b
 
     inc_node_id_b = list(node_id_b)
@@ -293,7 +327,7 @@ class ChunkedGraph(object):
         return self._bitmasks
 
     def check_and_create_table(self):
-        " Checks if table exists and creates new one if necessary "
+        """ Checks if table exists and creates new one if necessary """
         table_ids = [t.table_id for t in self.instance.list_tables()]
 
         if not self.table_id in table_ids:
@@ -363,18 +397,17 @@ class ChunkedGraph(object):
         # Use big-endian to get the layer id in the correct format
         return to_int(node_id_b[-self._n_bits_for_layer_id:], endian="big")
 
-    def find_next_node_id(self, example_id, as_bits=False):
+    def find_next_node_id(self, example_id):
         """ Finds a unique node id for the given chunk
 
         :param example_id: int
             chunk id or node id from the chunk
-        :param as_bits: bool
         :return: uint64
         """
         example_id_b = to_bitstring(example_id, bit_width=None, endian="little")
         layer_id = self.get_layer_id(node_id_b=example_id_b)
 
-        # Lookup the number of bits reserved for the chunk coordiantes
+        # Lookup the number of bits reserved for the chunk coordinates
         bits_per_dim = self.bitmasks[layer_id]
 
         # Pad bin string (resolve problems with leading 8bit 0)
@@ -406,6 +439,12 @@ class ChunkedGraph(object):
         return to_int(combined_id_bits, endian="little")
 
     def combine_node_id_chunk_id(self, node_id, chunk_id):
+        """ Creates full id from node and chunk id parts
+
+        :param node_id: int
+        :param chunk_id: int
+        :return: int
+        """
         chunk_id_b = to_bitstring(chunk_id, bit_width=None)
 
         # The layer id occupies the last byte
@@ -632,43 +671,12 @@ class ChunkedGraph(object):
         """
         bits_per_dim = self.bitmasks[layer_id]
 
-        chunk_id = self.get_chunk_id_from_coordinates(x, y, z, layer_id, bit_width=64)
-        chunk_id_b = to_bitstring(chunk_id)[- (bits_per_dim * 3 + self._n_bits_for_layer_id):]
-        chunk_id_size = len(chunk_id_b)
+        chunk_id = self.get_chunk_id_from_coordinates(x, y, z, layer_id,
+                                                      bit_width=64)
+        chunk_id_b = to_bitstring(chunk_id)[- (bits_per_dim * 3 +
+                                               self._n_bits_for_layer_id):]
 
-        # Take a step in the fast changing dimension (z) - the step size
-        # depends on the layer
-        step = int(self.fan_out ** np.max([0, layer_id - 2]))
-
-        # if z + step < 2**bits_per_dim:
-        #     z_next = z + step
-        #     y_next = y
-        #     x_next = x
-        #     layer_id_next = layer_id
-        # elif y + step < 2**bits_per_dim:
-        #     z_next = 2**bits_per_dim - 1
-        #     y_next = y + 1
-        #     x_next = x
-        #     layer_id_next = layer_id
-        # elif x + step < 2**bits_per_dim:
-        #     z_next = 2**bits_per_dim - 1
-        #     y_next = 2**bits_per_dim - 1
-        #     x_next = x + 1
-        #     layer_id_next = layer_id
-        # else:
-        #     z_next = 0
-        #     y_next = 0
-        #     x_next = 0
-        #     layer_id_next = layer_id + 1
-
-        # print(x, x_next, y, y_next, z, z_next, layer_id, layer_id_next)
-
-        # next_chunk_id = self.get_chunk_id_from_coordinates(x_next,
-        #                                                    y_next,
-        #                                                    z_next,
-        #                                                    layer_id_next,
-        #                                                    bit_width=64)
-
+        # Increae chunk id by 1 to surpass all ids in the chunk
         chunk_id_b_inc = bitwise_inc(chunk_id_b, from_start=True)
 
         # Define BigTable keys
@@ -682,11 +690,21 @@ class ChunkedGraph(object):
 
         # Execute read
         consume_success = False
+
+        # Retry reading if any of the writes failed
         i_tries = 0
         while not consume_success and i_tries < n_retries:
-            range_read.consume_all()
-            consume_success = True
+            try:
+                range_read.consume_all()
+                consume_success = True
+            except:
+                pass
             i_tries += 1
+
+        if not consume_success:
+            raise Exception("Unable to consume chunk range read: [%d, %d, %d], "
+                            "l = %d, n_retries = %d" %
+                            (x, y, z, layer_id, n_retries))
 
         return range_read.rows
 
@@ -1305,7 +1323,7 @@ class ChunkedGraph(object):
     def get_subgraph(self, agglomeration_id, bounding_box=None,
                      bb_is_coordinate=False,
                      stop_lvl=1, return_rg_ids=False, get_edges=False,
-                     n_threads=5, time_stamp=None):
+                     n_threads=5):
         """ Returns all edges between supervoxels belonging to the specified
             agglomeration id within the defined bouning box
 
@@ -1315,47 +1333,46 @@ class ChunkedGraph(object):
         :param stop_lvl: int
         :param return_rg_ids: bool
         :param get_edges: bool
-        :param time_stamp: datetime or None
         :param n_threads: int
         :return: edge list
         """
         # Helper functions for multithreading
+
         #TODO: do this more elagantly
+
         def _handle_subgraph_children_layer2_edges_thread(child_id):
             return self.get_subgraph_chunk(child_id, time_stamp=time_stamp)
 
         def _handle_subgraph_children_layer2_thread(child_id):
             return self.get_children(child_id)
 
-        def _handle_subgraph_children_higher_layers_thread(child_id):
-            this_children = self.get_children(child_id)
-
-            if bounding_box is not None:
-                chunk_ids = self.get_chunk_ids_from_node_ids(this_children)
-                chunk_ids = np.array([self.get_coordinates_from_chunk_id(c)
-                                      for c in np.unique(chunk_ids)])
-                chunk_ids = np.array(chunk_ids)
-
-                chunk_id_bounds = np.array([chunk_ids, chunk_ids +
-                                            self.fan_out ** np.max([0, (layer - 3)])])
-
-                bound_check = np.array([np.all(chunk_id_bounds[0] <= bounding_box[1], axis=1),
-                                        np.all(chunk_id_bounds[1] >= bounding_box[0], axis=1)]).T
-
-                bound_check_mask = np.all(bound_check, axis=1)
-                this_children = this_children[bound_check_mask]
-
-            return this_children
+        # def _handle_subgraph_children_higher_layers_thread(child_id):
+        #     this_children = self.get_children(child_id)
+        #
+        #     if bounding_box is not None:
+        #         chunk_ids = self.get_chunk_ids_from_node_ids(this_children)
+        #         chunk_ids = np.array([self.get_coordinates_from_chunk_id(c)
+        #                               for c in np.unique(chunk_ids)])
+        #         chunk_ids = np.array(chunk_ids)
+        #
+        #         chunk_id_bounds = np.array([chunk_ids, chunk_ids +
+        #                                     self.fan_out ** np.max([0, (layer - 3)])])
+        #
+        #         bound_check = np.array([np.all(chunk_id_bounds[0] <= bounding_box[1], axis=1),
+        #                                 np.all(chunk_id_bounds[1] >= bounding_box[0], axis=1)]).T
+        #
+        #         bound_check_mask = np.all(bound_check, axis=1)
+        #         this_children = this_children[bound_check_mask]
+        #
+        #     return this_children
 
         # Make sure that edges are not requested if we should stop on an
         # intermediate level
         assert stop_lvl == 1 or not get_edges
 
-        if time_stamp is None:
-            time_stamp = datetime.datetime.now()
-
-        if time_stamp.tzinfo is None:
-            time_stamp = UTC.localize(time_stamp)
+        if get_edges:
+            time_stamp = self.read_row(agglomeration_id, "children",
+                                       get_time_stamp=True)[0]
 
         if bounding_box is not None:
 
@@ -1373,7 +1390,6 @@ class ChunkedGraph(object):
         affinities = np.array([], dtype=np.float32)
         child_ids = [agglomeration_id]
 
-        times = []
         time_start = time.time()
         while len(child_ids) > 0:
             new_childs = []
@@ -1489,7 +1505,7 @@ class ChunkedGraph(object):
         # affinities. Each edit makes only small edits (yet), hence,
         # all but the oldest entry are short lists of length ~ 1-10
         for i_edgelist in range(len(r.cells[self.family_id][edge_key])):
-            if time_stamp > r.cells[self.family_id][edge_key][i_edgelist].timestamp:
+            if time_stamp >= r.cells[self.family_id][edge_key][i_edgelist].timestamp:
                 partner_batch = np.frombuffer(r.cells[self.family_id][edge_key][i_edgelist].value, dtype=np.uint64)
                 affinity_batch = np.frombuffer(r.cells[self.family_id][affinity_key][i_edgelist].value, dtype=np.float32)
                 partner_batch_m = ~np.in1d(partner_batch, partners)
@@ -2106,3 +2122,7 @@ class ChunkedGraph(object):
         print(new_roots)
 
         return new_roots
+
+
+    def create_split_log_row(self):
+        pass
