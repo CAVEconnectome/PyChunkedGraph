@@ -538,11 +538,14 @@ class ChunkedGraph(object):
         chunk_id_dim_step = int(self.fan_out ** np.max([0, layer_id - 2]))
 
         if x % chunk_id_dim_step != 0:
-            raise Exception("Wrong stride in x. coord: [%d, %d, %d], stride: %d" % (x, y, z, chunk_id_dim_step))
+            raise Exception("Wrong stride in x. coord: [%d, %d, %d], stride: %d"
+                            % (x, y, z, chunk_id_dim_step))
         if y % chunk_id_dim_step != 0:
-            raise Exception("Wrong stride in y. coord: [%d, %d, %d], stride: %d" % (x, y, z, chunk_id_dim_step))
+            raise Exception("Wrong stride in y. coord: [%d, %d, %d], stride: %d"
+                            % (x, y, z, chunk_id_dim_step))
         if z % chunk_id_dim_step != 0:
-            raise Exception("Wrong stride in z. coord: [%d, %d, %d], stride: %d" % (x, y, z, chunk_id_dim_step))
+            raise Exception("Wrong stride in z. coord: [%d, %d, %d], stride: %d"
+                            % (x, y, z, chunk_id_dim_step))
 
         # Convert chunk id components to bits
         x_b = to_bitstring(int(x / chunk_id_dim_step), bit_width=bits_per_dim,
@@ -602,21 +605,20 @@ class ChunkedGraph(object):
         else:
             return cell_value
 
-    def read_rows(self, node_ids, key, idx=0, dtype=np.uint64):
-        """ Applies read_row to many ids
-
-        :param node_ids: list of uint64
-        :param key: table column
-        :param idx: column list index
-        :param dtype: datatype
-        :return: row entry
-        """
-        results = []
-
-        for node_id in node_ids:
-            results.append(self.read_row(node_id, key, idx, dtype))
-
-        return results
+    # def read_rows(self, node_ids, key, idx=0, dtype=np.uint64):
+    #     """ Applies read_row to many ids
+    #
+    #     :param node_ids: list of uint64
+    #     :param key: table column
+    #     :param idx: column list index
+    #     :return: row entry
+    #     """
+    #     results = {}
+    #
+    #     for node_id in node_ids:
+    #         results[node_id] = self.read_row(node_id, key, idx, dtype)
+    #
+    #     return results
 
     def mutate_row(self, row_key, column_family_id, val_dict, time_stamp=None):
         """ Mutates a single row
@@ -660,14 +662,17 @@ class ChunkedGraph(object):
         if not any(status):
             raise Exception(status)
 
-    def range_read_chunk(self, x, y, z, layer_id, n_retries=10):
+    def range_read_chunk(self, x, y, z, layer_id, n_retries=100,
+                         yield_rows=False):
         """ Reads all ids within a chunk
 
         :param x: int
         :param y: int
         :param z: int
         :param layer_id: int
-        :return: list of rows
+        :param n_retries: int
+        :param yield_rows: bool
+        :return: list or yield of rows
         """
         bits_per_dim = self.bitmasks[layer_id]
 
@@ -683,30 +688,90 @@ class ChunkedGraph(object):
         start_key = serialize_node_id(chunk_id)
         end_key = serialize_node_id(to_int(chunk_id_b_inc, endian="little"))
 
-        # Set up read
-        range_read = self.table.read_rows(start_key=start_key,
-                                          end_key=end_key,
-                                          end_inclusive=False)
+        if yield_rows:
+            # range_read_yield = self.table.yield_rows(start_key=start_key,
+            #                                          end_key=end_key)
+            range_read_yield = self.table.read_rows(start_key=start_key,
+                                              end_key=end_key,
+                                              # allow_row_interleaving=True,
+                                              end_inclusive=False)
+            return range_read_yield
+        else:
+            # Set up read
+            range_read = self.table.read_rows(start_key=start_key,
+                                              end_key=end_key,
+                                              # allow_row_interleaving=True,
+                                              end_inclusive=False)
+            # Execute read
+            consume_success = False
 
-        # Execute read
-        consume_success = False
+            # Retry reading if any of the writes failed
+            i_tries = 0
+            while not consume_success and i_tries < n_retries:
+                try:
+                    range_read.consume_all()
+                    consume_success = True
+                except:
+                    time.sleep(i_tries)
+                i_tries += 1
 
-        # Retry reading if any of the writes failed
-        i_tries = 0
-        while not consume_success and i_tries < n_retries:
-            try:
-                range_read.consume_all()
-                consume_success = True
-            except:
-                pass
-            i_tries += 1
+            if not consume_success:
+                raise Exception("Unable to consume chunk range read: [%d, %d, %d], "
+                                "l = %d, n_retries = %d" %
+                                (x, y, z, layer_id, n_retries))
 
-        if not consume_success:
-            raise Exception("Unable to consume chunk range read: [%d, %d, %d], "
-                            "l = %d, n_retries = %d" %
-                            (x, y, z, layer_id, n_retries))
+            return range_read.rows
 
-        return range_read.rows
+    def range_read_chunk_iter(self, x, y, z, layer_id, n_retries=100):
+        """ Reads all ids within a chunk
+
+        :param x: int
+        :param y: int
+        :param z: int
+        :param layer_id: int
+        :param n_retries: int
+        :return: list or yield of rows
+        """
+        row_dict = {}
+
+        chunk_id = self.get_chunk_id_from_coordinates(x, y, z, layer_id,
+                                                      bit_width=64)
+
+        # Read counter
+        counter_row_key = serialize_key("i%d" % chunk_id)
+        row = self.table.read_row(counter_row_key)
+
+        if row is None:
+            return row_dict
+
+        if not serialize_key("counter") in row.cells:
+            return row_dict
+
+        chunk_counter = row.cells[self.family_id][serialize_key("counter")]
+
+        for i_node in range(1, chunk_counter + 1):
+            node_id = self.combine_node_id_chunk_id(i_node, chunk_id)
+            # Execute read
+            consume_success = False
+
+            # Retry reading if any of the writes failed
+            i_tries = 0
+            while not consume_success and i_tries < n_retries:
+                try:
+                    row_dict[node_id] = \
+                        self.table.read_row(serialize_node_id(node_id))
+                    consume_success = True
+                except:
+                    time.sleep(i_tries)
+                i_tries += 1
+
+            if not consume_success:
+                raise Exception(
+                    "Unable to consume chunk range read: [%d, %d, %d], "
+                    "l = %d, node_id = %d, n_retries = %d" %
+                    (x, y, z, layer_id, node_id, n_retries))
+
+        return row_dict
 
     # def range_read_layer(self, layer_id):
     #     """ Reads all ids within a layer
@@ -899,15 +964,15 @@ class ChunkedGraph(object):
             except:
                 print("WARNING: NOTHING HAPPENED")
 
-    def add_layer(self, layer_id, child_chunk_coords, verbose=False,
-                  time_stamp=None, n_threads=20):
+    def add_layer(self, layer_id, child_chunk_coords, time_stamp=None,
+                  n_threads=20):
         """ Creates the abstract nodes for a given chunk in a given layer
 
         :param layer_id: int
         :param child_chunk_coords: int array of length 3
             coords in chunk space
-        :param verbose: bool
         :param time_stamp: datetime
+        :param n_threads: int
         """
         def _resolve_cross_chunk_edges_thread(args):
             start, end = args
@@ -939,6 +1004,7 @@ class ChunkedGraph(object):
 
                     # Add rows for nodes that are in this chunk
                     for i_node_id, node_id in enumerate(node_ids):
+
                         # Extract edges relevant to this node
                         parent_cross_edges = np.concatenate([parent_cross_edges,
                                                              leftover_atomic_edges[
@@ -971,6 +1037,8 @@ class ChunkedGraph(object):
         # The first part is concerned with reading data from the child nodes
         # of this layer and pre-processing it for the second part
 
+        time_start = time.time()
+
         atomic_child_ids = np.array([], dtype=np.uint64)    # ids in lowest layer
         child_ids = np.array([], dtype=np.uint64)   # ids in layer one below this one
         atomic_partner_id_dict = {}
@@ -982,11 +1050,12 @@ class ChunkedGraph(object):
             # Get start and end key
             x, y, z = chunk_coord
 
-            range_read = self.range_read_chunk(x, y, z, layer_id-1)
+            range_read = self.range_read_chunk_iter(x, y, z, layer_id-1)
 
             # Loop through nodes from this chunk
             for row_key, row_data in range_read.items():
-                row_key = deserialize_node_id(row_key)
+            # for row in range_read:
+            #     row_key = deserialize_node_id(row_key)
 
                 atomic_edges = np.frombuffer(row_data.cells[self.family_id][serialize_key("atomic_cross_edges")][0].value, dtype=np.uint64).reshape(-1, 2)
                 atomic_partner_id_dict[int(row_key)] = atomic_edges[:, 1]
@@ -996,6 +1065,9 @@ class ChunkedGraph(object):
                 child_ids = np.concatenate([child_ids, np.array([row_key] * len(atomic_edges[:, 0]), dtype=np.uint64)])
 
             # print(chunk_coord, start_key, end_key, np.unique(self.get_chunk_ids_from_node_ids(atomic_child_ids)))
+
+        print("Time iterating through subchunks: %.3fs" % (time.time() - time_start))
+        time_start = time.time()
 
         # Extract edges from remaining cross chunk edges
         # and maintain unused cross chunk edges
@@ -1017,12 +1089,16 @@ class ChunkedGraph(object):
         mu.multithread_func(_resolve_cross_chunk_edges_thread, multi_args,
                             n_threads=n_threads)
 
+        print("Time resolving cross chunk edges: %.3fs" % (time.time() - time_start))
+        time_start = time.time()
+
         # 2 ----------
         # The second part finds connected components, writes the parents to
         # BigTable and updates the childs
 
         # Make parent id creation easier
-        x, y, z = np.min(child_chunk_coords, axis=0)
+        chunk_id_dim_step = int(self.fan_out ** np.max([0, layer_id - 2]))
+        x, y, z = (np.min(child_chunk_coords, axis=0) // chunk_id_dim_step) * chunk_id_dim_step
         chunk_id = self.get_chunk_id_from_coordinates(x, y, z, layer_id)
         # parent_id_base = np.frombuffer(np.array([0, 0, 0, 0, z, y, x, layer_id], dtype=np.uint8), dtype=np.uint32)
 
@@ -1048,6 +1124,8 @@ class ChunkedGraph(object):
 
         mu.multithread_func(_write_out_connected_components, multi_args,
                             n_threads=n_threads)
+
+        print("Time connected components: %.3fs" % (time.time() - time_start))
 
     def get_parent(self, node_id, get_only_relevant_parent=True,
                    time_stamp=None):
