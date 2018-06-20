@@ -111,7 +111,8 @@ def check_stored_cv_files(dataset_name="basil"):
     print("%d files were missing" % c)
 
 
-def create_chunked_graph(table_id=None, cv_url=None, n_threads=1):
+def create_chunked_graph(table_id=None, cv_url=None, fan_out=2,
+                         chunk_size=(512, 512, 64), n_threads=1):
     """ Creates chunked graph from downloaded files
 
     :param table_id: str
@@ -126,8 +127,6 @@ def create_chunked_graph(table_id=None, cv_url=None, n_threads=1):
         else:
             raise Exception("Could not identify region graph ressource")
 
-    cg = chunkedgraph.ChunkedGraph(table_id=table_id)
-
     times = []
     time_start = time.time()
 
@@ -137,7 +136,7 @@ def create_chunked_graph(table_id=None, cv_url=None, n_threads=1):
 
     multi_args = []
     for fp_block in file_path_blocks:
-        multi_args.append([fp_block, table_id])
+        multi_args.append([fp_block, table_id, chunk_size])
 
     if n_threads == 1:
         results = multiprocessing_utils.multiprocess_func(
@@ -187,6 +186,13 @@ def create_chunked_graph(table_id=None, cv_url=None, n_threads=1):
         results = multiprocessing_utils.multiprocess_func(
             _between_chunk_masks_thread, multi_args, n_threads=n_threads)
 
+    n_layers = int(np.ceil(chunkedgraph.log_n(np.max(in_chunk_ids), fan_out))) + 1
+
+    print("N layers: %d" % n_layers)
+    cg = chunkedgraph.ChunkedGraph(table_id=table_id, n_layers=n_layers,
+                                   fan_out=fan_out, chunk_size=chunk_size,
+                                   is_new=True)
+
     # Fill lowest layer and create first abstraction layer
     # Create arguments for multiprocessing
 
@@ -232,9 +238,16 @@ def create_chunked_graph(table_id=None, cv_url=None, n_threads=1):
         u_pcids, inds = np.unique(parent_chunk_ids,
                                   axis=0, return_inverse=True)
 
+        if len(u_pcids) > n_threads:
+            n_threads_per_process = 1
+        else:
+            n_threads_per_process = int(np.ceil(n_threads / len(u_pcids)))
+
         multi_args = []
         for ind in range(len(u_pcids)):
-            multi_args.append([table_id, layer_id, child_chunk_ids[inds == ind].astype(np.int)])
+            multi_args.append([table_id, layer_id,
+                               child_chunk_ids[inds == ind].astype(np.int),
+                               n_threads_per_process])
 
         if len(child_chunk_ids) == 1:
             last_run = True
@@ -242,10 +255,11 @@ def create_chunked_graph(table_id=None, cv_url=None, n_threads=1):
         child_chunk_ids = u_pcids * cg.fan_out ** (layer_id - 2)
 
         # Run multiprocessing
+
         if n_threads == 1:
             multiprocessing_utils.multiprocess_func(
                 _add_layer_thread, multi_args, n_threads=n_threads, verbose=True,
-                debug=n_threads==1)
+                debug=n_threads == 1)
         else:
             multiprocessing_utils.multisubprocess_func(
                 _add_layer_thread, multi_args, n_threads=n_threads,
@@ -261,9 +275,9 @@ def create_chunked_graph(table_id=None, cv_url=None, n_threads=1):
 
 def _preprocess_chunkedgraph_data_thread(args):
     """ Reads downloaded files and formats them """
-    file_paths, table_id = args
+    file_paths, table_id, chunk_size = args
 
-    cg = chunkedgraph.ChunkedGraph(table_id=table_id)
+    chunk_size = np.array(list(chunk_size))
 
     mapping_paths = np.array([])
     mapping_chunk_ids = np.array([], dtype=np.int).reshape(-1, 3)
@@ -290,10 +304,10 @@ def _preprocess_chunkedgraph_data_thread(args):
             if "atomicedges" in file_name:
                 s_c = np.where(d == 2)[0]
                 chunk_coord = c.copy()
-                chunk_coord[s_c] += 1 - cg.chunk_size[s_c]
-                chunk1_id = np.array(chunk_coord / cg.chunk_size, dtype=np.int8)
-                chunk_coord[s_c] += cg.chunk_size[s_c]
-                chunk2_id = np.array(chunk_coord / cg.chunk_size, dtype=np.int8)
+                chunk_coord[s_c] += 1 - chunk_size[s_c]
+                chunk1_id = np.array(chunk_coord / chunk_size, dtype=np.int8)
+                chunk_coord[s_c] += chunk_size[s_c]
+                chunk2_id = np.array(chunk_coord / chunk_size, dtype=np.int8)
 
                 between_chunk_ids = np.concatenate([between_chunk_ids,
                                                     np.array([chunk1_id, chunk2_id])[None]])
@@ -301,7 +315,7 @@ def _preprocess_chunkedgraph_data_thread(args):
             else:
                 continue
         else:
-            chunk_coord = np.array(c / cg.chunk_size, dtype=np.int8)
+            chunk_coord = np.array(c / chunk_size, dtype=np.int8)
 
             if "rg2cg" in file_name:
                 mapping_paths = np.concatenate([mapping_paths, [fp]])
@@ -394,8 +408,8 @@ def _create_atomic_layer_thread(args):
 
 def _add_layer_thread(args):
     """ Creates abstraction layer """
-    table_id, layer_id, chunk_coords = args
+    table_id, layer_id, chunk_coords, n_threads_per_process = args
 
     cg = chunkedgraph.ChunkedGraph(table_id=table_id)
-    cg.add_layer(layer_id, chunk_coords)
+    cg.add_layer(layer_id, chunk_coords, n_threads=n_threads_per_process)
 
