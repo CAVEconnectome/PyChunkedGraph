@@ -127,7 +127,8 @@ def _start_subprocess(ii, path_to_script, path_to_storage, path_to_src,
 
 def _poll_running_subprocesses(processes, runtimes, path_to_script,
                                path_to_storage, path_to_src,  path_to_out,
-                               path_to_err, min_n_meas, kill_tol_factor):
+                               path_to_err, min_n_meas, kill_tol_factor,
+                               n_retries):
     if len(runtimes) > min_n_meas:
         avg_runtime = np.mean(runtimes)
     else:
@@ -135,21 +136,32 @@ def _poll_running_subprocesses(processes, runtimes, path_to_script,
 
     for i_p, p in enumerate(processes):
         poll = p[0].poll()
-        # print("Poll", p)
+
         if poll == 0:
-            runtimes.append(time.time() - processes[i_p][2])
+            runtimes.append(time.time() - processes[i_p][3])
             del (processes[i_p])
             break
         elif poll == 1:
             _, err_msg = p[0].communicate()
             err_msg = err_msg.decode()
 
-            _write_error_to_file(err_msg, path_to_err + "job_%d.pkl" % p[1])
+            _write_error_to_file(err_msg, path_to_err + "job_%d_%d.pkl" %
+                                 (p[1], p[2]))
 
-            del (processes[i_p])
-            break
+            if p[2] >= n_retries:
+                del (processes[i_p])
+                break
+            else:
+                p = _start_subprocess(i_p, path_to_script, path_to_storage,
+                                      path_to_src,  path_to_out, params=None)
+
+                processes[i_p][0] = p
+                processes[i_p][2] += 1
+                processes[i_p][3] = time.time()
+                time.sleep(.01)  # Avoid OS hickups
+
         elif kill_tol_factor is not None and avg_runtime > 0:
-            if time.time() - processes[i_p][2] > \
+            if time.time() - processes[i_p][3] > \
                     avg_runtime * kill_tol_factor:
                 processes[i_p][0].kill()
 
@@ -157,13 +169,14 @@ def _poll_running_subprocesses(processes, runtimes, path_to_script,
                                       path_to_src,  path_to_out, params=None)
 
                 processes[i_p][0] = p
-                processes[i_p][2] = time.time()
+                processes[i_p][3] = time.time()
                 time.sleep(.01)  # Avoid OS hickups
     return processes, runtimes
 
 
 def multisubprocess_func(func, params, wait_delay_s=5, n_threads=1,
-                         kill_tol_factor=10, min_n_meas=100, suffix=""):
+                         n_retries=10, kill_tol_factor=10, min_n_meas=100,
+                         suffix=""):
     """ Processes data independent functions in parallel using multithreading
 
     :param func: function
@@ -171,6 +184,7 @@ def multisubprocess_func(func, params, wait_delay_s=5, n_threads=1,
         list of arguments to function
     :param wait_delay_s: float
     :param n_threads: int
+    :param n_retries: int
     :param kill_tol_factor: int or None
         kill_tol_factor x mean_run_time sets a threshold after which a process
         is restarted. If None: Processes are not restarted.
@@ -214,14 +228,15 @@ def multisubprocess_func(func, params, wait_delay_s=5, n_threads=1,
                                                              path_to_out,
                                                              path_to_err,
                                                              min_n_meas,
-                                                             kill_tol_factor)
+                                                             kill_tol_factor,
+                                                             n_retries)
 
             if len(processes) >= n_threads:
                 time.sleep(wait_delay_s)
 
         p = _start_subprocess(ii, path_to_script, path_to_storage, path_to_src,
                               path_to_out, params=params)
-        processes.append([p, ii, time.time()])
+        processes.append([p, ii, 0, time.time()])
         time.sleep(.01)  # Avoid OS hickups
 
     while len(processes) > 0:
@@ -233,7 +248,8 @@ def multisubprocess_func(func, params, wait_delay_s=5, n_threads=1,
                                                          path_to_out,
                                                          path_to_err,
                                                          min_n_meas,
-                                                         kill_tol_factor)
+                                                         kill_tol_factor,
+                                                         n_retries)
 
         if len(processes) >= n_threads:
             time.sleep(wait_delay_s)

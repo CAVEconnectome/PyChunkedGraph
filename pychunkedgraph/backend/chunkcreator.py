@@ -186,9 +186,10 @@ def create_chunked_graph(table_id=None, cv_url=None, fan_out=2,
         results = multiprocessing_utils.multiprocess_func(
             _between_chunk_masks_thread, multi_args, n_threads=n_threads)
 
-    n_layers = int(np.ceil(chunkedgraph.log_n(np.max(in_chunk_ids), fan_out))) + 1
+    n_layers = int(np.ceil(chunkedgraph.log_n(np.max(in_chunk_ids) + 1, fan_out))) + 2
 
     print("N layers: %d" % n_layers)
+
     cg = chunkedgraph.ChunkedGraph(table_id=table_id, n_layers=n_layers,
                                    fan_out=fan_out, chunk_size=chunk_size,
                                    is_new=True)
@@ -223,13 +224,9 @@ def create_chunked_graph(table_id=None, cv_url=None, fan_out=2,
     times.append(["Layers 1 + 2", time.time() - time_start])
 
     # Fill higher abstraction layers
-    layer_id = 2
     child_chunk_ids = in_chunk_ids.copy()
-    last_run = False
-    while not last_run:
+    for layer_id in range(3, n_layers + 1):
         time_start = time.time()
-
-        layer_id += 1
 
         print("\n\n\n --- LAYER %d --- \n\n\n" % layer_id)
 
@@ -249,13 +246,13 @@ def create_chunked_graph(table_id=None, cv_url=None, fan_out=2,
                                child_chunk_ids[inds == ind].astype(np.int),
                                n_threads_per_process])
 
-        if len(child_chunk_ids) == 1:
-            last_run = True
-
+        # print(multi_args)
+        # print(u_pcids, len(multi_args))
+        # print(layer_id, np.unique(child_chunk_ids), np.unique(parent_chunk_ids))
         child_chunk_ids = u_pcids * cg.fan_out ** (layer_id - 2)
+        # print(layer_id, np.unique(child_chunk_ids), np.unique(parent_chunk_ids))
 
         # Run multiprocessing
-
         if n_threads == 1:
             multiprocessing_utils.multiprocess_func(
                 _add_layer_thread, multi_args, n_threads=n_threads, verbose=True,

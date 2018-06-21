@@ -15,6 +15,7 @@ from google.api_core.exceptions import Aborted, DeadlineExceeded, \
 from google.cloud import bigtable
 from google.cloud.bigtable.row_filters import TimestampRange, \
     TimestampRangeFilter, ColumnRangeFilter, ValueRangeFilter, RowFilterChain
+from google.cloud.bigtable.column_family import MaxVersionsGCRule
 
 # global variables
 HOME = os.path.expanduser("~")
@@ -173,7 +174,7 @@ def serialize_node_id(node_id):
     :param node_id: int
     :return: str
     """
-    return serialize_key(str(bitinv_int(node_id)))
+    return serialize_key("%.20d" % bitinv_int(node_id))
 
 
 def deserialize_node_id(node_id):
@@ -313,6 +314,10 @@ class ChunkedGraph(object):
         return "0"
 
     @property
+    def incrementer_family_id(self):
+        return b"inc"
+
+    @property
     def fan_out(self):
         return self._fan_out
 
@@ -336,6 +341,11 @@ class ChunkedGraph(object):
             self.table.create()
             f = self.table.column_family(self.family_id)
             f.create()
+
+            f_inc = self.table.column_family(self.incrementer_family_id,
+                                             gc_rule=MaxVersionsGCRule(1))
+            f_inc.create()
+
             print("Table created")
 
     def check_and_write_table_parameters(self, param_key, value=None):
@@ -424,15 +434,16 @@ class ChunkedGraph(object):
         node_id_size = 64 - chunk_id_size
 
         # Incrementer row keys start with an "i" followed by the chunk id
-        row_key = serialize_key("i%d" % chunk_id)
+        row_key = serialize_node_id(chunk_id)
         append_row = self.table.row(row_key, append=True)
-        append_row.increment_cell_value(self.family_id, "counter", 1)
+        append_row.increment_cell_value(self.incrementer_family_id,
+                                        b"counter", 1)
 
         # This increments the row entry and returns the value AFTER incrementing
         latest_row = append_row.commit()
 
-        node_id = int.from_bytes(latest_row[self.family_id][serialize_key('counter')][0][0], byteorder="big")
-
+        node_id = int.from_bytes(latest_row[self.incrementer_family_id][serialize_key('counter')][0][0], byteorder="big")
+        print(node_id)
         # x, y, z = self.get_coordinates_from_chunk_id(chunk_id)
         # print("Next node id in %d / [%d, %d, %d, %d]: %d" % (chunk_id, x, y, z, layer_id, node_id))
 
@@ -733,12 +744,8 @@ class ChunkedGraph(object):
         end_key = serialize_node_id(to_int(chunk_id_b_inc, endian="little"))
 
         if yield_rows:
-            # range_read_yield = self.table.yield_rows(start_key=start_key,
-            #                                          end_key=end_key)
-            range_read_yield = self.table.read_rows(start_key=start_key,
-                                              end_key=end_key,
-                                              # allow_row_interleaving=True,
-                                              end_inclusive=False)
+            range_read_yield = self.table.yield_rows(start_key=start_key,
+                                                     end_key=end_key)
             return range_read_yield
         else:
             # Set up read
@@ -1118,14 +1125,15 @@ class ChunkedGraph(object):
             # Get start and end key
             x, y, z = chunk_coord
 
-            range_read = self.range_read_chunk_iter(x, y, z, layer_id-1)
+            range_read = self.range_read_chunk(x, y, z, layer_id-1,
+                                               yield_rows=False)
 
             # Loop through nodes from this chunk
-            for row_key, row_data in range_read.items():
-            # for row in range_read:
-            #     row_key = deserialize_node_id(row_key)
+            # for row_key, row_data in range_read.items():
+            for row in range_read:
+                row_key = deserialize_node_id(row.row_key)
 
-                atomic_edges = np.frombuffer(row_data.cells[self.family_id][serialize_key("atomic_cross_edges")][0].value, dtype=np.uint64).reshape(-1, 2)
+                atomic_edges = np.frombuffer(row.cells[self.family_id][serialize_key("atomic_cross_edges")][0].value, dtype=np.uint64).reshape(-1, 2)
                 atomic_partner_id_dict[int(row_key)] = atomic_edges[:, 1]
                 atomic_child_id_dict[int(row_key)] = atomic_edges[:, 0]
 
