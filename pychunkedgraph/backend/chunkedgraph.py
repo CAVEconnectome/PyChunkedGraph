@@ -9,15 +9,17 @@ from networkx.algorithms.flow import shortest_augmenting_path
 import pytz
 
 from . import multiprocessing_utils as mu
-from google.cloud import bigtable
 from google.api_core.retry import Retry, if_exception_type
 from google.api_core.exceptions import Aborted, DeadlineExceeded, \
     ServiceUnavailable
+from google.cloud import bigtable
+from google.cloud.bigtable.row_filters import TimestampRange, \
+    TimestampRangeFilter, ColumnRangeFilter, ValueRangeFilter, RowFilterChain
 
 # global variables
 HOME = os.path.expanduser("~")
 N_DIGITS_UINT64 = len(str(np.iinfo(np.uint64).max))
-LOCK_EXPIRED_TIME_DELTA = datetime.timedelta(minutes=5)
+LOCK_EXPIRED_TIME_DELTA = datetime.timedelta(minutes=5, seconds=0)
 UTC = pytz.UTC
 
 # Setting environment wide credential path
@@ -400,6 +402,8 @@ class ChunkedGraph(object):
     def find_next_node_id(self, example_id):
         """ Finds a unique node id for the given chunk
 
+        atomic counter
+
         :param example_id: int
             chunk id or node id from the chunk
         :return: uint64
@@ -437,6 +441,24 @@ class ChunkedGraph(object):
         combined_id_bits = "".join([node_id_bits, chunk_id_bits])
 
         return to_int(combined_id_bits, endian="little")
+
+    def find_next_operation_id(self):
+        """ Finds a unique operation id
+
+        atomic counter
+
+        :return: int
+        """
+
+        # Incrementer row keys start with an "i"
+        row_key = serialize_key("ioperations")
+        append_row = self.table.row(row_key, append=True)
+        append_row.increment_cell_value(self.family_id, "counter", 1)
+
+        # This increments the row entry and returns the value AFTER incrementing
+        latest_row = append_row.commit()
+
+        return int.from_bytes(latest_row[self.family_id][serialize_key('counter')][0][0], byteorder="big")
 
     def combine_node_id_chunk_id(self, node_id, chunk_id):
         """ Creates full id from node and chunk id parts
@@ -508,8 +530,9 @@ class ChunkedGraph(object):
                 if as_bits:
                     coords.append(node_id_b[- (offset + bits_per_dim): -offset])
                 else:
-                    coords.append(to_int(node_id_b[- (offset + bits_per_dim): -offset],
-                                         endian="big") * chunk_id_dim_step)
+                    coords.append(to_int(
+                        node_id_b[- (offset + bits_per_dim): -offset],
+                        endian="big") * chunk_id_dim_step)
 
                 offset += bits_per_dim
 
@@ -598,6 +621,10 @@ class ChunkedGraph(object):
             return None
 
         cell_entries = row.cells[self.family_id][key]
+
+        for e in cell_entries:
+            print(np.frombuffer(e.value, dtype=dtype))
+
         cell_value = np.frombuffer(cell_entries[idx].value, dtype=dtype)
 
         if get_time_stamp:
@@ -637,11 +664,22 @@ class ChunkedGraph(object):
                          value=value, timestamp=time_stamp)
         return row
 
-    def bulk_write(self, rows, slow_retry=True):
-        """
+    def bulk_write(self, rows, root_ids=None, operation_id=None,
+                   slow_retry=True):
+        """ Writes a list of mutated rows in bulk
+
+        WARNING: If <rows> contains the same row (same row_key) two times only
+        the last one is effectively written to the BigTable (even when the
+        mutations were applied to different columns)
 
         :param rows: list
             list of mutated rows
+        :param root_ids: list if uint64
+        :param operation_id: int or None
+            operation_id (or other unique id) that *was* used to lock the root
+            the bulk write is only executed if the root is still locked with
+            the same id.
+        :param slow_retry: bool
         """
         if slow_retry:
             initial = 5
@@ -655,12 +693,18 @@ class ChunkedGraph(object):
             initial=initial,
             maximum=15.0,
             multiplier=2.0,
-            deadline=60.0 * 5.0)
+            deadline=LOCK_EXPIRED_TIME_DELTA.seconds)
+
+        if root_ids is not None and operation_id is not None:
+            if not self.check_and_renew_root_locks(root_ids, operation_id):
+                return False
 
         status = self.table.mutate_rows(rows, retry=retry_policy)
 
         if not any(status):
             raise Exception(status)
+
+        return True
 
     def range_read_chunk(self, x, y, z, layer_id, n_retries=100,
                          yield_rows=False):
@@ -827,6 +871,30 @@ class ChunkedGraph(object):
 
         return self.get_chunk_id_from_node_id(node_ids[0], full=True) ==\
                self.get_chunk_id_from_node_id(node_ids[1], full=True)
+
+    def _create_split_log_row(self, operation_id, user_id, root_ids,
+                              selected_atomic_ids, removed_edges, time_stamp):
+        val_dict = {serialize_key("user"): serialize_key(user_id),
+                    serialize_key("roots"): np.array(root_ids, dtype=np.uint64).tobytes(),
+                    serialize_key("atomic_ids"): np.array(selected_atomic_ids).tobytes(),
+                    serialize_key("removed_edges"): np.array(removed_edges, dtype=np.uint64).tobytes()}
+
+        row = self.mutate_row(serialize_key(str(operation_id)),
+                              self.family_id, val_dict, time_stamp)
+
+        return row
+
+    def _create_merge_log_row(self, operation_id, user_id, root_ids,
+                              selected_atomic_ids, time_stamp):
+
+        val_dict = {serialize_key("user"): serialize_key(user_id),
+                    serialize_key("roots"): np.array(root_ids, dtype=np.uint64).tobytes(),
+                    serialize_key("atomic_ids"): np.array(selected_atomic_ids).tobytes()}
+
+        row = self.mutate_row(serialize_key(str(operation_id)),
+                              self.family_id, val_dict, time_stamp)
+
+        return row
 
     def add_atomic_edges_in_chunks(self, edge_ids, cross_edge_ids, edge_affs,
                                    cross_edge_affs, isolated_node_ids,
@@ -1217,12 +1285,12 @@ class ChunkedGraph(object):
         else:
             return parent_id
 
-    def lock_root_loop(self, root_ids, thread_id, max_tries=100,
+    def lock_root_loop(self, root_ids, operation_id, max_tries=100,
                        waittime_s=0.5):
         """ Attempts to lock multiple roots at the same time
 
         :param root_ids: list of uint64
-        :param thread_id: uint64
+        :param operation_id: uint64
         :param max_tries: int
         :param waittime_s: float
         :return: bool, list of uint64s
@@ -1244,7 +1312,7 @@ class ChunkedGraph(object):
             root_ids = new_root_ids
             for i_root_id in range(len(root_ids)):
                 lock_acquired = self.lock_single_root(root_ids[i_root_id],
-                                                      thread_id)
+                                                      operation_id)
 
                 # Roll back locks if one root cannot be locked
                 if not lock_acquired:
@@ -1261,66 +1329,171 @@ class ChunkedGraph(object):
 
         return False, root_ids
 
-    def lock_single_root(self, root_id, thread_id):
+    def lock_single_root(self, root_id, operation_id):
         """ Attempts to lock the latest version of a root node
 
         :param root_id: uint64
-        :param thread_id: uint64
+        :param operation_id: uint64
             an id that is unique to the process asking to lock the root node
         :return: bool
             success
         """
-        thread_id = np.array(thread_id, dtype=np.uint64)
-        thread_id_b = thread_id.tobytes()
+        operation_id = np.array(operation_id, dtype=np.uint64)
+        operation_id_b = operation_id.tobytes()
 
-        lock_key = "lock"
+        lock_key = serialize_key("lock")
 
-        # Check root row
-        rr = self.read_row(root_id, lock_key, idx=0, dtype=np.uint64,
-                           get_time_stamp=True)
+        # Build a column filter which tests if a lock was set (== lock column
+        # exists) and if it is still valid (timestamp younger than
+        # LOCK_EXPIRED_TIME_DELTA)
 
-        unlocked = False
-        if rr is None:
-            # Noe lock
-            unlocked = True
-        else:
-            # Check if lock expired
-            dt = UTC.localize(datetime.datetime.now()) - rr[1]
-            if dt < LOCK_EXPIRED_TIME_DELTA:
-                self.unlock_root(root_id)
-                unlocked = True
+        time_cutoff = datetime.datetime.now(UTC) - LOCK_EXPIRED_TIME_DELTA
 
-        # Try to set your own lock
-        lock_acquired = False
-        if unlocked:
-            time_stamp = datetime.datetime.now()
-            time_stamp = UTC.localize(time_stamp)
+        # Comply to resolution of BigTables TimeRange
+        time_cutoff -= datetime.timedelta(
+            microseconds=time_cutoff.microsecond % 1000)
 
-            val_dict = {lock_key: thread_id_b}
-            rows = [self.mutate_row(serialize_node_id(root_id),
-                                    self.family_id, val_dict,
-                                    time_stamp=time_stamp)]
-            self.bulk_write(rows)
+        time_filter = TimestampRangeFilter(TimestampRange(start=time_cutoff))
 
-            # Check if locking was successful
-            locked_thread_id = self.read_row(root_id, lock_key, idx=-1,
-                                             dtype=np.uint64)
-            if locked_thread_id == thread_id:
-                lock_acquired = True
+        column_key_filter = ColumnRangeFilter(column_family_id=self.family_id,
+                                              start_column=lock_key,
+                                              end_column=lock_key,
+                                              inclusive_start=True,
+                                              inclusive_end=True)
+
+        # Chain these filters together
+        chained_filter = RowFilterChain([time_filter, column_key_filter])
+
+        # Get conditional row using the chained filter
+        root_row = self.table.row(serialize_node_id(root_id),
+                                  filter_=chained_filter)
+
+        # Set row lock if condition returns no results (state == False)
+        root_row.set_cell(self.family_id, lock_key, operation_id_b, state=False)
+
+        # The lock was acquired when set_cell returns False (state)
+        lock_acquired = not root_row.commit()
 
         return lock_acquired
 
-    def unlock_root(self, root_id):
+    def unlock_root(self, root_id, operation_id):
         """ Unlocks a root
 
         This is mainly used for cases where multiple roots need to be locked and
         locking was not sucessful for all of them
 
         :param root_id: uint64
+        :param operation_id: uint64
+            an id that is unique to the process asking to lock the root node
+        :return: bool
+            success
         """
-        row = self.table.row(serialize_node_id(root_id))
-        row.delete_cell(self.family_id, serialize_key("lock"))
-        row.commit()
+        operation_id = np.array(operation_id, dtype=np.uint64)
+        operation_id_b = operation_id.tobytes()
+
+        lock_key = serialize_key("lock")
+
+        # Build a column filter which tests if a lock was set (== lock column
+        # exists) and if it is still valid (timestamp younger than
+        # LOCK_EXPIRED_TIME_DELTA) and if the given operation_id is still
+        # the active lock holder
+
+        time_cutoff = datetime.datetime.now(UTC) - LOCK_EXPIRED_TIME_DELTA
+
+        # Comply to resolution of BigTables TimeRange
+        time_cutoff -= datetime.timedelta(
+            microseconds=time_cutoff.microsecond % 1000)
+
+        time_filter = TimestampRangeFilter(TimestampRange(start=time_cutoff))
+
+        column_key_filter = ColumnRangeFilter(column_family_id=self.family_id,
+                                              start_column=lock_key,
+                                              end_column=lock_key,
+                                              inclusive_start=True,
+                                              inclusive_end=True)
+
+        value_filter = ValueRangeFilter(start_value=operation_id_b,
+                                        end_value=operation_id_b,
+                                        inclusive_start=True,
+                                        inclusive_end=True)
+
+        # Chain these filters together
+        chained_filter = RowFilterChain([time_filter, column_key_filter,
+                                         value_filter])
+
+        # Get conditional row using the chained filter
+        root_row = self.table.row(serialize_node_id(root_id),
+                                  filter_=chained_filter)
+
+        # Delete row if conditions are met (state == True)
+        root_row.delete_cell(self.family_id, lock_key, operation_id_b,
+                             state=True)
+
+        root_row.commit()
+
+    def check_and_renew_root_locks(self, root_ids, operation_id):
+        """ Tests if the roots are locked with the provided operation_id and
+        renews the lock to reset the time_stam
+
+        This is mainly used before executing a bulk write
+
+        :param root_ids: uint64
+        :param operation_id: uint64
+            an id that is unique to the process asking to lock the root node
+        :return: bool
+            success
+        """
+
+        for root_id in root_ids:
+            if not self.check_and_renew_root_lock_single(root_id, operation_id):
+                return False
+
+        return True
+
+    def check_and_renew_root_lock_single(self, root_id, operation_id):
+        """ Tests if the root is locked with the provided operation_id and
+        renews the lock to reset the time_stam
+
+        This is mainly used before executing a bulk write
+
+        :param root_id: uint64
+        :param operation_id: uint64
+            an id that is unique to the process asking to lock the root node
+        :return: bool
+            success
+        """
+        operation_id = np.array(operation_id, dtype=np.uint64)
+        operation_id_b = operation_id.tobytes()
+
+        lock_key = serialize_key("lock")
+
+        # Build a column filter which tests if a lock was set (== lock column
+        # exists) and if the given operation_id is still the active lock holder
+        column_key_filter = ColumnRangeFilter(column_family_id=self.family_id,
+                                              start_column=lock_key,
+                                              end_column=lock_key,
+                                              inclusive_start=True,
+                                              inclusive_end=True)
+
+        value_filter = ValueRangeFilter(start_value=operation_id_b,
+                                        end_value=operation_id_b,
+                                        inclusive_start=True,
+                                        inclusive_end=True)
+
+        # Chain these filters together
+        chained_filter = RowFilterChain([column_key_filter, value_filter])
+
+        # Get conditional row using the chained filter
+        root_row = self.table.row(serialize_node_id(root_id),
+                                  filter_=chained_filter)
+
+        # Set row lock if condition returns a result (state == True)
+        root_row.set_cell(self.family_id, lock_key, operation_id_b, state=True)
+
+        # The lock was acquired when set_cell returns True (state)
+        lock_acquired = root_row.commit()
+
+        return lock_acquired
 
     def get_latest_root_id(self, root_id):
         """ Returns the latest root id associated with the provided root id
@@ -1658,19 +1831,29 @@ class ChunkedGraph(object):
 
         return edges, affinities
 
-    def add_edge_locked(self, thread_id, atomic_edge, affinity=None,
+    def add_edge_locked(self, user_id, atomic_edge, affinity=None,
                         root_ids=None):
+
+        operation_id = self.find_next_operation_id()
 
         if root_ids is None:
             root_ids = [self.get_root(atomic_edge[0]),
                         self.get_root(atomic_edge[1])]
 
-        if self.lock_root_loop(root_ids=root_ids, thread_id=thread_id)[0]:
-            return self.add_edge(atomic_edge=atomic_edge, affinity=affinity)
+        if self.lock_root_loop(root_ids=root_ids,
+                               operation_id=operation_id)[0]:
+            new_root_ids, rows, time_stamp = \
+                self._add_edge(atomic_edge=atomic_edge, affinity=affinity)
         else:
             return root_ids
 
-    def add_edge(self, atomic_edge, affinity=None, is_cg_id=True):
+        rows.append(self._create_merge_log_row(operation_id, user_id,
+                                               new_root_ids, atomic_edge,
+                                               time_stamp))
+
+        self.bulk_write(rows, root_ids, operation_id, slow_retry=False)
+
+    def _add_edge(self, atomic_edge, affinity=None, is_cg_id=True):
         """ Adds an atomic edge to the ChunkedGraph
 
         :param atomic_edge: list of two ints
@@ -1791,11 +1974,131 @@ class ChunkedGraph(object):
                                         self.family_id, val_dict,
                                         time_stamp=time_stamp))
 
-        self.bulk_write(rows, slow_retry=False)
+        # self.bulk_write(rows, slow_retry=False)
 
-        return new_parent_id
+        return new_parent_id, rows, time_stamp
 
-    def remove_edges(self, atomic_edges, is_cg_id=True):
+    def remove_edges(self, user_id, source_id, sink_id,
+                     source_coord=None, sink_coord=None, mincut=True,
+                     bb_offset=(240, 240, 24), root_ids=None):
+        if mincut:
+            assert source_coord is not None
+            assert sink_coord is not None
+
+        operation_id = self.find_next_operation_id()
+
+        if root_ids is None:
+            root_ids = [self.get_root(source_id),
+                        self.get_root(sink_id)]
+
+        if root_ids[0] != root_ids[1]:
+            return root_ids
+
+        if self.lock_root_loop(root_ids=root_ids[:1],
+                               operation_id=operation_id)[0]:
+            if mincut:
+                new_root_ids, rows, removed_edges, time_stamp = \
+                    self._remove_edges_mincut(
+                        source_id=source_id, sink_id=sink_id,
+                        source_coord=source_coord, sink_coord=sink_coord,
+                        bb_offset=bb_offset)
+            else:
+                new_root_ids, rows, time_stamp = \
+                    self._remove_edges([[source_id, sink_id]])
+                removed_edges = [[source_id, sink_id]]
+        else:
+            return root_ids
+
+        rows.append(self._create_split_log_row(operation_id, user_id,
+                                               new_root_ids,
+                                               [source_id, sink_id],
+                                               removed_edges, time_stamp))
+
+        self.bulk_write(rows, [root_ids[0]], operation_id=operation_id,
+                        slow_retry=False)
+
+    def _remove_edges_mincut(self, source_id, sink_id, source_coord,
+                             sink_coord, bb_offset=(120, 120, 12),
+                             is_cg_id=True):
+        """ Computes mincut and removes
+
+
+        :param source_id: uint64
+        :param sink_id: uint64
+        :param source_coord: list of 3 ints
+            [x, y, z] coordinate of source supervoxel
+        :param sink_coord: list of 3 ints
+            [x, y, z] coordinate of sink supervoxel
+        :param bb_offset: list of 3 ints
+            [x, y, z] bounding box padding beyond box spanned by coordinates
+        :param is_cg_id: bool
+        :return: list of uint64s
+            new root ids
+        """
+
+        time_start = time.time()  # ------------------------------------------
+
+        bb_offset = np.array(list(bb_offset))
+        source_coord = np.array(source_coord)
+        sink_coord = np.array(sink_coord)
+
+        if not is_cg_id:
+            source_id = self.get_cg_id_from_rg_id(source_id)
+            sink_id = self.get_cg_id_from_rg_id(sink_id)
+
+        # Decide a reasonable bounding box (NOT guaranteed to be successful!)
+        coords = np.concatenate([source_coord[:, None], sink_coord[:, None]],
+                                axis=1).T
+        bounding_box = [np.min(coords, axis=0), np.max(coords, axis=0)]
+
+        bounding_box[0] -= bb_offset
+        bounding_box[1] += bb_offset
+
+        root_id_source = self.get_root(source_id, is_cg_id=True)
+        root_id_sink = self.get_root(source_id, is_cg_id=True)
+
+        # Verify that sink and source are from the same root object
+        if root_id_source != root_id_sink:
+            return [root_id_source, root_id_sink]
+
+        print(
+            "Get roots and check: %.3fms" % ((time.time() - time_start) * 1000))
+        time_start = time.time()  # ------------------------------------------
+
+        root_id = root_id_source
+
+        # Get edges between local supervoxels
+        edges, affs = self.get_subgraph(root_id, get_edges=True,
+                                        bounding_box=bounding_box,
+                                        bb_is_coordinate=True)
+
+        print(
+            "Get edges and affs: %.3fms" % ((time.time() - time_start) * 1000))
+        time_start = time.time()  # ------------------------------------------
+
+        # Compute mincut
+        atomic_edges = mincut(edges, affs, source_id, sink_id)
+
+        print("Mincut: %.3fms" % ((time.time() - time_start) * 1000))
+        time_start = time.time()  # ------------------------------------------
+
+        if len(atomic_edges) == 0:
+            print("WARNING: Mincut failed. Try again...")
+            return [root_id]
+
+        # Remove edges
+        new_roots, rows, time_stamp = self._remove_edges(atomic_edges,
+                                                         is_cg_id=True)
+        # new_roots = [agglomeration_id]
+
+        print("Remove edges: %.3fms" % ((time.time() - time_start) * 1000))
+        time_start = time.time()  # ------------------------------------------
+
+        print(new_roots)
+
+        return new_roots, rows, atomic_edges, time_stamp
+
+    def _remove_edges(self, atomic_edges, is_cg_id=True):
         """ Removes atomic edges from the ChunkedGraph
 
         :param atomic_edges: list of two uint64s
@@ -1938,6 +2241,7 @@ class ChunkedGraph(object):
             leftover_edges = {}
             old_parent_dict = {}
 
+
             # print(new_layer_parent_dict)
             # print(cross_edge_dict)
 
@@ -1950,11 +2254,6 @@ class ChunkedGraph(object):
                 old_next_layer_parent = self.get_parent(old_parent_id)
                 old_chunk_neighbors = self.get_children(old_next_layer_parent)
                 old_chunk_neighbors = old_chunk_neighbors[old_chunk_neighbors != old_parent_id]
-
-                # z, y, x, l = self.get_chunk_id_from_node_id(old_next_layer_parent)
-                # parent_id_base = np.frombuffer(np.array([0, 0, 0, 0, z, y, x, l],
-                #                                         dtype=np.uint8),
-                #                                dtype=np.uint32)[1]
 
                 old_parent_dict[new_layer_parent] = old_next_layer_parent
 
@@ -2072,7 +2371,6 @@ class ChunkedGraph(object):
 
                 new_layer_parent_dict[new_parent_id] = parent_cc_old_parent_list[i_cc]
                 cross_edge_dict[new_parent_id] = cc_cross_edges
-                # old_id_dict[old_parent_id].append(new_parent_id)
 
                 for cc_node_id in cc_node_ids:
                     val_dict = {"parents": new_parent_id_b}
@@ -2098,109 +2396,6 @@ class ChunkedGraph(object):
                                             {"new_parents": np.array(new_roots, dtype=np.uint64).tobytes()},
                                             time_stamp=time_stamp))
 
-        self.bulk_write(rows, slow_retry=False)
-        return new_roots
+        # self.bulk_write(rows, slow_retry=False)
+        return new_roots, rows, time_stamp
 
-    def remove_edges_mincut_locked(self, thread_id, source_id, sink_id,
-                                   source_coord, sink_coord,
-                                   bb_offset=(240, 240, 24), root_ids=None):
-
-        if root_ids is None:
-            root_ids = [self.get_root(source_id),
-                        self.get_root(sink_id)]
-
-        if root_ids[0] != root_ids[1]:
-            return root_ids
-
-        if self.lock_root_loop(root_ids=root_ids[:1], thread_id=thread_id)[0]:
-            return self.remove_edges_mincut(source_id=source_id,
-                                            sink_id=sink_id,
-                                            source_coord=source_coord,
-                                            sink_coord=sink_coord,
-                                            bb_offset=bb_offset)
-        else:
-            return root_ids
-
-    def remove_edges_mincut(self, source_id, sink_id, source_coord,
-                            sink_coord, bb_offset=(120, 120, 12),
-                            is_cg_id=True):
-        """ Computes mincut and removes
-
-
-        :param source_id: uint64
-        :param sink_id: uint64
-        :param source_coord: list of 3 ints
-            [x, y, z] coordinate of source supervoxel
-        :param sink_coord: list of 3 ints
-            [x, y, z] coordinate of sink supervoxel
-        :param bb_offset: list of 3 ints
-            [x, y, z] bounding box padding beyond box spanned by coordinates
-        :param is_cg_id: bool
-        :return: list of uint64s
-            new root ids
-        """
-
-        time_start = time.time()    # ------------------------------------------
-
-        bb_offset = np.array(list(bb_offset))
-        source_coord = np.array(source_coord)
-        sink_coord = np.array(sink_coord)
-
-        if not is_cg_id:
-            source_id = self.get_cg_id_from_rg_id(source_id)
-            sink_id = self.get_cg_id_from_rg_id(sink_id)
-
-        # Decide a reasonable bounding box
-        #TODO: improve by iteratively using a bigger context if no path between source and sink exists
-
-        coords = np.concatenate([source_coord[:, None], sink_coord[:, None]],
-                                axis=1).T
-        bounding_box = [np.min(coords, axis=0), np.max(coords, axis=0)]
-
-        bounding_box[0] -= bb_offset
-        bounding_box[1] += bb_offset
-
-        root_id_source = self.get_root(source_id, is_cg_id=True)
-        root_id_sink = self.get_root(source_id, is_cg_id=True)
-
-        # Verify that sink and source are from the same root object
-        if root_id_source != root_id_sink:
-            return [root_id_source, root_id_sink]
-
-        print("Get roots and check: %.3fms" % ((time.time() - time_start)*1000))
-        time_start = time.time()    # ------------------------------------------
-
-        root_id = root_id_source
-
-        # Get edges between local supervoxels
-        edges, affs = self.get_subgraph(root_id, get_edges=True,
-                                        bounding_box=bounding_box,
-                                        bb_is_coordinate=True)
-
-        print("Get edges and affs: %.3fms" % ((time.time() - time_start)*1000))
-        time_start = time.time()  # ------------------------------------------
-
-        # Compute mincut
-        atomic_edges = mincut(edges, affs, source_id, sink_id)
-
-        print("Mincut: %.3fms" % ((time.time() - time_start)*1000))
-        time_start = time.time()  # ------------------------------------------
-
-        if len(atomic_edges) == 0:
-            print("WARNING: Mincut failed. Try again...")
-            return [root_id]
-
-        # Remove edges
-        new_roots = self.remove_edges(atomic_edges, is_cg_id=True)
-        # new_roots = [agglomeration_id]
-
-        print("Remove edges: %.3fms" % ((time.time() - time_start)*1000))
-        time_start = time.time()  # ------------------------------------------
-
-        print(new_roots)
-
-        return new_roots
-
-
-    def create_split_log_row(self):
-        pass

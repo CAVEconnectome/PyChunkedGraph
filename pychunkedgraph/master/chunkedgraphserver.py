@@ -1,7 +1,7 @@
 from flask import Flask, jsonify, Response, request, make_response, g
 from flask_cors import CORS
 from werkzeug.serving import WSGIRequestHandler
-from google.cloud import pubsub_v1
+# from google.cloud import pubsub_v1
 import json
 import os
 import numpy as np
@@ -265,9 +265,9 @@ if __name__ == '__main__':
     cg = chunkedgraph.ChunkedGraph(table_id=table_id)
 
     # Initialize google pubsub publisher
-    publisher = pubsub_v1.PublisherClient()
-    topic_path = publisher.topic_path('neuromancer-seung-import',
-                                      'pychunkedgraph')
+    # publisher = pubsub_v1.PublisherClient()
+    # topic_path = publisher.topic_path('neuromancer-seung-import',
+    #                                   'pychunkedgraph')
 
     # Set HTTP protocol
     WSGIRequestHandler.protocol_version = "HTTP/1.1"
