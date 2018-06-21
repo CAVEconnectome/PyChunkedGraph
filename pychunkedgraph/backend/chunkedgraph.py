@@ -172,7 +172,7 @@ def serialize_node_id(node_id):
     :param node_id: int
     :return: str
     """
-    return serialize_key(str(bitinv_int(node_id)))
+    return serialize_key("%.20d" % bitinv_int(node_id))
 
 
 def deserialize_node_id(node_id):
@@ -340,7 +340,7 @@ class ChunkedGraph(object):
             f = self.table.column_family(self.family_id)
             f.create()
 
-            f_inc = self.table.column_family(self.family_id,
+            f_inc = self.table.column_family(self.incrementer_family_id,
                                              gc_rule=MaxVersionsGCRule(1))
             f_inc.create()
 
@@ -1058,7 +1058,7 @@ class ChunkedGraph(object):
             x, y, z = chunk_coord
 
             range_read = self.range_read_chunk(x, y, z, layer_id-1,
-                                               yield_rows=True)
+                                               yield_rows=False)
 
             # Loop through nodes from this chunk
             # for row_key, row_data in range_read.items():
