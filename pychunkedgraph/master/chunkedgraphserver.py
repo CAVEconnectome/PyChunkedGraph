@@ -130,10 +130,11 @@ def handle_root():
 def handle_merge():
     node_1, node_2 = json.loads(request.data)\
 
-    thread_id = np.random.randint(0, 2**52)
+    user_id = str(request.remote_addr)
 
     # Call ChunkedGraph
-    new_root = cg.add_edge_locked(thread_id, [int(node_1[0]), int(node_2[0])])
+    new_root = cg.add_edge(user_id=user_id,
+                           atomic_edge=[int(node_1[0]), int(node_2[0])])
 
     # Return binary
     return tobinary(new_root)
@@ -143,14 +144,14 @@ def handle_merge():
 def handle_split():
     data = json.loads(request.data)
 
-    thread_id = np.random.randint(0, 2**52)
+    user_id = str(request.remote_addr)
 
     # Call ChunkedGraph
-    new_roots = cg.remove_edges_mincut_locked(thread_id,
-                                              int(data["sources"][0][0]),
-                                              int(data["sinks"][0][0]),
-                                              data["sources"][0][1:],
-                                              data["sinks"][0][1:])
+    new_roots = cg.remove_edges(user_id=user_id,
+                                source_id=int(data["sources"][0][0]),
+                                sink_id=int(data["sinks"][0][0]),
+                                source_coord=data["sources"][0][1:],
+                                sink_coord=data["sinks"][0][1:])
     # Return binary
     return tobinary(new_roots)
 

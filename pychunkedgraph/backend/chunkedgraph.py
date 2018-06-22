@@ -14,13 +14,14 @@ from google.api_core.exceptions import Aborted, DeadlineExceeded, \
     ServiceUnavailable
 from google.cloud import bigtable
 from google.cloud.bigtable.row_filters import TimestampRange, \
-    TimestampRangeFilter, ColumnRangeFilter, ValueRangeFilter, RowFilterChain
+    TimestampRangeFilter, ColumnRangeFilter, ValueRangeFilter, RowFilterChain, \
+    ColumnQualifierRegexFilter, RowFilterUnion
 from google.cloud.bigtable.column_family import MaxVersionsGCRule
 
 # global variables
 HOME = os.path.expanduser("~")
 N_DIGITS_UINT64 = len(str(np.iinfo(np.uint64).max))
-LOCK_EXPIRED_TIME_DELTA = datetime.timedelta(minutes=5, seconds=0)
+LOCK_EXPIRED_TIME_DELTA = datetime.timedelta(minutes=3, seconds=00)
 UTC = pytz.UTC
 
 # Setting environment wide credential path
@@ -315,7 +316,7 @@ class ChunkedGraph(object):
 
     @property
     def incrementer_family_id(self):
-        return b"inc"
+        return "1"
 
     @property
     def fan_out(self):
@@ -443,7 +444,7 @@ class ChunkedGraph(object):
         latest_row = append_row.commit()
 
         node_id = int.from_bytes(latest_row[self.incrementer_family_id][serialize_key('counter')][0][0], byteorder="big")
-        print(node_id)
+        # print(node_id)
         # x, y, z = self.get_coordinates_from_chunk_id(chunk_id)
         # print("Next node id in %d / [%d, %d, %d, %d]: %d" % (chunk_id, x, y, z, layer_id, node_id))
 
@@ -458,18 +459,21 @@ class ChunkedGraph(object):
 
         atomic counter
 
-        :return: int
+        :return: str
         """
 
         # Incrementer row keys start with an "i"
         row_key = serialize_key("ioperations")
         append_row = self.table.row(row_key, append=True)
-        append_row.increment_cell_value(self.family_id, "counter", 1)
+        append_row.increment_cell_value(self.incrementer_family_id,
+                                        "counter", 1)
 
-        # This increments the row entry and returns the value AFTER incrementing
+        # Commit ncrements the row entry and returns the value AFTER incrementing
         latest_row = append_row.commit()
 
-        return int.from_bytes(latest_row[self.family_id][serialize_key('counter')][0][0], byteorder="big")
+        operation_id = "op%d" % int.from_bytes(latest_row[self.incrementer_family_id][serialize_key('counter')][0][0], byteorder="big")
+
+        return operation_id
 
     def combine_node_id_chunk_id(self, node_id, chunk_id):
         """ Creates full id from node and chunk id parts
@@ -633,10 +637,10 @@ class ChunkedGraph(object):
 
         cell_entries = row.cells[self.family_id][key]
 
-        for e in cell_entries:
-            print(np.frombuffer(e.value, dtype=dtype))
-
-        cell_value = np.frombuffer(cell_entries[idx].value, dtype=dtype)
+        if dtype is None:
+            cell_value = cell_entries[idx].value
+        else:
+            cell_value = np.frombuffer(cell_entries[idx].value, dtype=dtype)
 
         if get_time_stamp:
             return cell_value, cell_entries[idx].timestamp
@@ -679,14 +683,15 @@ class ChunkedGraph(object):
                    slow_retry=True):
         """ Writes a list of mutated rows in bulk
 
-        WARNING: If <rows> contains the same row (same row_key) two times only
-        the last one is effectively written to the BigTable (even when the
-        mutations were applied to different columns)
+        WARNING: If <rows> contains the same row (same row_key) and column
+        key two times only the last one is effectively written to the BigTable
+        (even when the mutations were applied to different columns)
+        --> no versioning!
 
         :param rows: list
             list of mutated rows
         :param root_ids: list if uint64
-        :param operation_id: int or None
+        :param operation_id: str or None
             operation_id (or other unique id) that *was* used to lock the root
             the bulk write is only executed if the root is still locked with
             the same id.
@@ -707,6 +712,9 @@ class ChunkedGraph(object):
             deadline=LOCK_EXPIRED_TIME_DELTA.seconds)
 
         if root_ids is not None and operation_id is not None:
+            if isinstance(root_ids, int):
+                root_ids = [root_ids]
+
             if not self.check_and_renew_root_locks(root_ids, operation_id):
                 return False
 
@@ -718,7 +726,7 @@ class ChunkedGraph(object):
         return True
 
     def range_read_chunk(self, x, y, z, layer_id, n_retries=100,
-                         yield_rows=False):
+                         row_keys=None, yield_rows=False):
         """ Reads all ids within a chunk
 
         :param x: int
@@ -726,9 +734,27 @@ class ChunkedGraph(object):
         :param z: int
         :param layer_id: int
         :param n_retries: int
+        :param row_keys: list of str
+            more efficient read trhough row filters
         :param yield_rows: bool
         :return: list or yield of rows
         """
+        if row_keys is not None:
+            filters = []
+            for k in row_keys:
+                filters.append(ColumnRangeFilter(column_family_id=self.family_id,
+                                                 start_column=serialize_key(k),
+                                                 end_column=serialize_key(k),
+                                                 inclusive_start=True,
+                                                 inclusive_end=True))
+
+            if len(filters) > 1:
+                row_filter = RowFilterUnion(filters)
+            else:
+                row_filter = filters[0]
+        else:
+            row_filter = None
+
         bits_per_dim = self.bitmasks[layer_id]
 
         chunk_id = self.get_chunk_id_from_coordinates(x, y, z, layer_id,
@@ -745,14 +771,17 @@ class ChunkedGraph(object):
 
         if yield_rows:
             range_read_yield = self.table.yield_rows(start_key=start_key,
-                                                     end_key=end_key)
+                                                     end_key=end_key,
+                                                     filter_=row_filter)
             return range_read_yield
         else:
             # Set up read
             range_read = self.table.read_rows(start_key=start_key,
                                               end_key=end_key,
                                               # allow_row_interleaving=True,
-                                              end_inclusive=False)
+                                              end_inclusive=False,
+                                              filter_=row_filter)
+            range_read.consume_all()
             # Execute read
             consume_success = False
 
@@ -886,7 +915,7 @@ class ChunkedGraph(object):
                     serialize_key("atomic_ids"): np.array(selected_atomic_ids).tobytes(),
                     serialize_key("removed_edges"): np.array(removed_edges, dtype=np.uint64).tobytes()}
 
-        row = self.mutate_row(serialize_key(str(operation_id)),
+        row = self.mutate_row(serialize_key(operation_id),
                               self.family_id, val_dict, time_stamp)
 
         return row
@@ -898,7 +927,7 @@ class ChunkedGraph(object):
                     serialize_key("roots"): np.array(root_ids, dtype=np.uint64).tobytes(),
                     serialize_key("atomic_ids"): np.array(selected_atomic_ids).tobytes()}
 
-        row = self.mutate_row(serialize_key(str(operation_id)),
+        row = self.mutate_row(serialize_key(operation_id),
                               self.family_id, val_dict, time_stamp)
 
         return row
@@ -1126,14 +1155,15 @@ class ChunkedGraph(object):
             x, y, z = chunk_coord
 
             range_read = self.range_read_chunk(x, y, z, layer_id-1,
+                                               row_keys=["atomic_cross_edges"],
                                                yield_rows=False)
 
             # Loop through nodes from this chunk
-            # for row_key, row_data in range_read.items():
-            for row in range_read:
-                row_key = deserialize_node_id(row.row_key)
+            for row_key, row_data in range_read.items():
+            # for row in range_read:
+                row_key = deserialize_node_id(row_key)
 
-                atomic_edges = np.frombuffer(row.cells[self.family_id][serialize_key("atomic_cross_edges")][0].value, dtype=np.uint64).reshape(-1, 2)
+                atomic_edges = np.frombuffer(row_data.cells[self.family_id][serialize_key("atomic_cross_edges")][0].value, dtype=np.uint64).reshape(-1, 2)
                 atomic_partner_id_dict[int(row_key)] = atomic_edges[:, 1]
                 atomic_child_id_dict[int(row_key)] = atomic_edges[:, 0]
 
@@ -1298,7 +1328,7 @@ class ChunkedGraph(object):
         """ Attempts to lock multiple roots at the same time
 
         :param root_ids: list of uint64
-        :param operation_id: uint64
+        :param operation_id: str
         :param max_tries: int
         :param waittime_s: float
         :return: bool, list of uint64s
@@ -1317,15 +1347,17 @@ class ChunkedGraph(object):
                 new_root_ids.extend(latest_root_ids)
 
             # Attempt to lock all latest root ids
-            root_ids = new_root_ids
+            root_ids = np.unique(new_root_ids)
             for i_root_id in range(len(root_ids)):
+
+                print(i_root_id, root_ids[i_root_id])
                 lock_acquired = self.lock_single_root(root_ids[i_root_id],
                                                       operation_id)
 
                 # Roll back locks if one root cannot be locked
                 if not lock_acquired:
                     for j_root_id in range(i_root_id):
-                        self.unlock_root(root_ids[j_root_id])
+                        self.unlock_root(root_ids[j_root_id], operation_id)
                     break
 
             if lock_acquired:
@@ -1341,13 +1373,12 @@ class ChunkedGraph(object):
         """ Attempts to lock the latest version of a root node
 
         :param root_id: uint64
-        :param operation_id: uint64
+        :param operation_id: str
             an id that is unique to the process asking to lock the root node
         :return: bool
             success
         """
-        operation_id = np.array(operation_id, dtype=np.uint64)
-        operation_id_b = operation_id.tobytes()
+        operation_id_b = serialize_key(operation_id)
 
         lock_key = serialize_key("lock")
 
@@ -1382,6 +1413,10 @@ class ChunkedGraph(object):
         # The lock was acquired when set_cell returns False (state)
         lock_acquired = not root_row.commit()
 
+        if not lock_acquired:
+            c = self.table.read_row(serialize_node_id(root_id)).cells["0"][lock_key]
+            print(operation_id_b, len(c), c[0].value, c[0].timestamp)
+
         return lock_acquired
 
     def unlock_root(self, root_id, operation_id):
@@ -1391,13 +1426,12 @@ class ChunkedGraph(object):
         locking was not sucessful for all of them
 
         :param root_id: uint64
-        :param operation_id: uint64
+        :param operation_id: str
             an id that is unique to the process asking to lock the root node
         :return: bool
             success
         """
-        operation_id = np.array(operation_id, dtype=np.uint64)
-        operation_id_b = operation_id.tobytes()
+        operation_id_b = serialize_key(operation_id)
 
         lock_key = serialize_key("lock")
 
@@ -1434,8 +1468,7 @@ class ChunkedGraph(object):
                                   filter_=chained_filter)
 
         # Delete row if conditions are met (state == True)
-        root_row.delete_cell(self.family_id, lock_key, operation_id_b,
-                             state=True)
+        root_row.delete_cell(self.family_id, lock_key, state=True)
 
         root_row.commit()
 
@@ -1446,7 +1479,7 @@ class ChunkedGraph(object):
         This is mainly used before executing a bulk write
 
         :param root_ids: uint64
-        :param operation_id: uint64
+        :param operation_id: str
             an id that is unique to the process asking to lock the root node
         :return: bool
             success
@@ -1465,13 +1498,12 @@ class ChunkedGraph(object):
         This is mainly used before executing a bulk write
 
         :param root_id: uint64
-        :param operation_id: uint64
+        :param operation_id: str
             an id that is unique to the process asking to lock the root node
         :return: bool
             success
         """
-        operation_id = np.array(operation_id, dtype=np.uint64)
-        operation_id_b = operation_id.tobytes()
+        operation_id_b = serialize_key(operation_id)
 
         lock_key = serialize_key("lock")
 
@@ -1631,7 +1663,7 @@ class ChunkedGraph(object):
 
         if get_edges:
             time_stamp = self.read_row(agglomeration_id, "children",
-                                       get_time_stamp=True)[0]
+                                       get_time_stamp=True)[1]
 
         if bounding_box is not None:
 
@@ -1839,31 +1871,72 @@ class ChunkedGraph(object):
 
         return edges, affinities
 
-    def add_edge_locked(self, user_id, atomic_edge, affinity=None,
-                        root_ids=None):
+    def add_edge(self, user_id, atomic_edge, affinity=None,
+                 root_ids=None, n_tries=10):
+        """ Adds an edge to the chunkedgraph
 
+            Multi-user safe through locking of the root node
+
+            This function acquires a lock and ensures that it still owns the
+            lock before executing the write.
+
+        :param user_id: str
+            unique id - do not just make something up, use the same id for the
+            same user every time
+        :param atomic_edge: list of two uint64s
+        :param affinity: float or None
+            will eventually be set to 1 if None
+        :param root_ids: list of uint64s
+            avoids reading the root ids again if already computed
+        :return: uint64
+            if successful the new root id is send
+            else one of the old root ids is returned
+        """
+
+        # Get a unique id for this operation
         operation_id = self.find_next_operation_id()
 
+        # Lookup root ids
         if root_ids is None:
             root_ids = [self.get_root(atomic_edge[0]),
                         self.get_root(atomic_edge[1])]
 
-        if self.lock_root_loop(root_ids=root_ids,
-                               operation_id=operation_id)[0]:
-            new_root_ids, rows, time_stamp = \
-                self._add_edge(atomic_edge=atomic_edge, affinity=affinity)
-        else:
-            return root_ids
+        i_try = 0
 
-        rows.append(self._create_merge_log_row(operation_id, user_id,
-                                               new_root_ids, atomic_edge,
-                                               time_stamp))
+        while i_try < n_tries:
+            # Try to acquire lock and only continue if successful
+            if self.lock_root_loop(root_ids=root_ids,
+                                   operation_id=operation_id)[0]:
 
-        self.bulk_write(rows, root_ids, operation_id, slow_retry=False)
+                # Add edge and change hierarchy
+                new_root_id, rows, time_stamp = \
+                    self._add_edge(operation_id=operation_id,
+                                   atomic_edge=atomic_edge, affinity=affinity)
 
-    def _add_edge(self, atomic_edge, affinity=None, is_cg_id=True):
+                # time.sleep(10)
+
+                # Add a row to the log
+                rows.append(self._create_merge_log_row(operation_id, user_id,
+                                                       [new_root_id], atomic_edge,
+                                                       time_stamp))
+
+                # Execute write (makes sure that we are still owning the lock)
+                if self.bulk_write(rows, root_ids,
+                                   operation_id=operation_id, slow_retry=False):
+                    return new_root_id
+
+            i_try += 1
+
+            print("Waiting - %d" % i_try)
+            time.sleep(1)
+
+        return root_ids[0]
+
+    def _add_edge(self, operation_id, atomic_edge, affinity=None,
+                  is_cg_id=True):
         """ Adds an atomic edge to the ChunkedGraph
 
+        :param operation_id: str
         :param atomic_edge: list of two ints
         :param affinity: float
         :param is_cg_id: bool
@@ -1949,6 +2022,7 @@ class ChunkedGraph(object):
                 val_dict["parents"] = new_parent_id_b
             else:
                 val_dict["former_parents"] = np.array(original_root).tobytes()
+                val_dict["operation_id"] = serialize_key(operation_id)
 
                 rows.append(self.mutate_row(serialize_node_id(original_root[0]),
                                             self.family_id,
@@ -1988,12 +2062,37 @@ class ChunkedGraph(object):
 
     def remove_edges(self, user_id, source_id, sink_id,
                      source_coord=None, sink_coord=None, mincut=True,
-                     bb_offset=(240, 240, 24), root_ids=None):
+                     bb_offset=(240, 240, 24), root_ids=None,
+                     n_tries=10):
+        """ Removes edges - either directly or after applying a mincut
+
+            Multi-user safe through locking of the root node
+
+            This function acquires a lock and ensures that it still owns the
+            lock before executing the write.
+
+        :param user_id: str
+            unique id - do not just make something up, use the same id for the
+            same user every time
+        :param source_id: uint64
+        :param sink_id: uint64
+        :param source_coord: list of 3 ints
+            [x, y, z] coordinate of source supervoxel
+        :param sink_coord: list of 3 ints
+            [x, y, z] coordinate of sink supervoxel
+        :param mincut:
+        :param bb_offset: list of 3 ints
+            [x, y, z] bounding box padding beyond box spanned by coordinates
+        :param root_ids: list of uint64s
+        :return: list of uint64s
+        """
+
+        # Get a unique id for this operation
+        operation_id = self.find_next_operation_id()
+
         if mincut:
             assert source_coord is not None
             assert sink_coord is not None
-
-        operation_id = self.find_next_operation_id()
 
         if root_ids is None:
             root_ids = [self.get_root(source_id),
@@ -2002,35 +2101,54 @@ class ChunkedGraph(object):
         if root_ids[0] != root_ids[1]:
             return root_ids
 
-        if self.lock_root_loop(root_ids=root_ids[:1],
-                               operation_id=operation_id)[0]:
-            if mincut:
-                new_root_ids, rows, removed_edges, time_stamp = \
-                    self._remove_edges_mincut(
-                        source_id=source_id, sink_id=sink_id,
-                        source_coord=source_coord, sink_coord=sink_coord,
-                        bb_offset=bb_offset)
-            else:
-                new_root_ids, rows, time_stamp = \
-                    self._remove_edges([[source_id, sink_id]])
-                removed_edges = [[source_id, sink_id]]
-        else:
-            return root_ids
+        i_try = 0
 
-        rows.append(self._create_split_log_row(operation_id, user_id,
-                                               new_root_ids,
-                                               [source_id, sink_id],
-                                               removed_edges, time_stamp))
+        while i_try < n_tries:
+            # Try to acquire lock and only continue if successful
+            if self.lock_root_loop(root_ids=root_ids[:1],
+                                   operation_id=operation_id)[0]:
 
-        self.bulk_write(rows, [root_ids[0]], operation_id=operation_id,
-                        slow_retry=False)
+                # (run mincut) and remove edges + update hierarchy
+                if mincut:
+                    new_root_ids, rows, removed_edges, time_stamp = \
+                        self._remove_edges_mincut(operation_id=operation_id,
+                                                  source_id=source_id,
+                                                  sink_id=sink_id,
+                                                  source_coord=source_coord,
+                                                  sink_coord=sink_coord,
+                                                  bb_offset=bb_offset)
+                else:
+                    new_root_ids, rows, time_stamp = \
+                        self._remove_edges(operation_id=operation_id,
+                                           atomic_edges=[[source_id, sink_id]])
+                    removed_edges = [[source_id, sink_id]]
 
-    def _remove_edges_mincut(self, source_id, sink_id, source_coord,
-                             sink_coord, bb_offset=(120, 120, 12),
+                # Add a row to the log
+                rows.append(self._create_split_log_row(operation_id, user_id,
+                                                       new_root_ids,
+                                                       [source_id, sink_id],
+                                                       removed_edges,
+                                                       time_stamp))
+
+                # Execute write (makes sure that we are still owning the lock)
+                if self.bulk_write(rows, root_ids[:1],
+                                   operation_id=operation_id, slow_retry=False):
+                    return new_root_ids
+
+            i_try += 1
+
+            print("Waiting - %d" % i_try)
+            time.sleep(1)
+
+        return root_ids[:1]
+
+    def _remove_edges_mincut(self, operation_id, source_id, sink_id,
+                             source_coord, sink_coord, bb_offset=(120, 120, 12),
                              is_cg_id=True):
         """ Computes mincut and removes
 
 
+        :param operation_id: str
         :param source_id: uint64
         :param sink_id: uint64
         :param source_coord: list of 3 ints
@@ -2095,7 +2213,8 @@ class ChunkedGraph(object):
             return [root_id]
 
         # Remove edges
-        new_roots, rows, time_stamp = self._remove_edges(atomic_edges,
+        new_roots, rows, time_stamp = self._remove_edges(operation_id,
+                                                         atomic_edges,
                                                          is_cg_id=True)
         # new_roots = [agglomeration_id]
 
@@ -2106,9 +2225,10 @@ class ChunkedGraph(object):
 
         return new_roots, rows, atomic_edges, time_stamp
 
-    def _remove_edges(self, atomic_edges, is_cg_id=True):
+    def _remove_edges(self, operation_id, atomic_edges, is_cg_id=True):
         """ Removes atomic edges from the ChunkedGraph
 
+        :param operation_id: str
         :param atomic_edges: list of two uint64s
         :param is_cg_id: bool
         :return: list of uint64s
@@ -2148,8 +2268,9 @@ class ChunkedGraph(object):
         # can use to acquire the parent that knows about all atomic nodes in the
         # chunk.
 
-        # Remove atomic edges
         rows = []
+
+        # Remove atomic edges
 
         # Removing edges nodewise. We cannot remove edges edgewise because that
         # would add up multiple changes to each node (row). Unfortunately,
@@ -2167,26 +2288,35 @@ class ChunkedGraph(object):
                                         self.family_id, val_dict,
                                         time_stamp=time_stamp))
 
-        # Execute the removal of the atomic edges - we cannot wait for that
-        # until the end because we want to compute connected components on the
-        # subgraph
-
-        self.bulk_write(rows, slow_retry=False)
-        rows = []
-
         # Dictionaries keeping temporary information about the ChunkedGraph
         # while updates are not written to BigTable yet
         new_layer_parent_dict = {}
         cross_edge_dict = {}
         old_id_dict = collections.defaultdict(list)
 
+        # This view of the to be removed edges helps us to compute the mask
+        # of the retained edges in each chunk
+        double_atomic_edges = np.concatenate([atomic_edges,
+                                              atomic_edges[:, ::-1]],
+                                             axis=0)
+        double_atomic_edges_view = double_atomic_edges.view(dtype='f8,f8')
+        double_atomic_edges_view = double_atomic_edges_view.reshape(double_atomic_edges.shape[0])
+
         # For each involved chunk we need to compute connected components
         for chunk_id in involved_chunk_id_dict.keys():
             # Get the local subgraph
             node_id = involved_chunk_id_dict[chunk_id]
             old_parent_id = self.get_parent(node_id)
-            edges, affinities = self.get_subgraph_chunk(old_parent_id,
-                                                        make_unique=False)
+            edges, _ = self.get_subgraph_chunk(old_parent_id, make_unique=False)
+
+            # These edges still contain the removed edges.
+            # For consistency reasons we can only write to BigTable one time.
+            # Hence, we have to evict the to be removed "atomic_edges" from the
+            # queried edges.
+            retained_edges_mask = ~np.in1d(edges.view(dtype='f8,f8').reshape(edges.shape[0]),
+                                           double_atomic_edges_view)
+
+            edges = edges[retained_edges_mask]
 
             # The cross chunk edges are passed on to the parents to compute
             # connected components in higher layers.
@@ -2248,10 +2378,6 @@ class ChunkedGraph(object):
             parent_cc_mapping = {}
             leftover_edges = {}
             old_parent_dict = {}
-
-
-            # print(new_layer_parent_dict)
-            # print(cross_edge_dict)
 
             for new_layer_parent in new_layer_parent_dict.keys():
                 old_parent_id = new_layer_parent_dict[new_layer_parent]
@@ -2393,6 +2519,7 @@ class ChunkedGraph(object):
                 if i_layer == n_layers - 2:
                     new_roots.append(new_parent_id)
                     val_dict["former_parents"] = np.array(original_root).tobytes()
+                    val_dict["operation_id"] = serialize_key(operation_id)
 
                 rows.append(self.mutate_row(serialize_node_id(new_parent_id),
                                             self.family_id, val_dict,
