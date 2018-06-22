@@ -16,7 +16,8 @@ setup(
     install_requires=[
         "google-cloud-bigtable",
         "networkx",
-        "cloud-volume"
+        "cloud-volume",
+        "bitstring"
     ],
     classifiers=(
         "Programming Language :: Python :: 3",
