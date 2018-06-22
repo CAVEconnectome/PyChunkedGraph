@@ -70,10 +70,17 @@ def rewrite_single_block(file_path, from_cv=None, to_cv=None, from_url=None,
     to_cv[x_start: x_end, y_start: y_end, z_start: z_end] = out
 
 
-def rewrite_segmentation(cv_url="gs://nkem/pinky40_v11/mst_trimmed_sem_remap/region_graph/",
-                         from_url="gs://neuroglancer/pinky40_v11/watershed/",
-                         to_url="gs://neuroglancer/svenmd/pinky40_v11/watershed/",
-                         n_threads=64, n_units_per_thread=None):
+def rewrite_segmentation(dataset_name, n_threads=64, n_units_per_thread=None):
+    if dataset_name == "pinky":
+        cv_url = "gs://nkem/pinky40_v11/mst_trimmed_sem_remap/region_graph/"
+        from_url = "gs://neuroglancer/pinky40_v11/watershed/"
+        to_url = "gs://neuroglancer/svenmd/pinky40_v11/watershed/"
+    elif dataset_name == "basil":
+        cv_url = "gs://nkem/basil_4k_oldnet/region_graph/"
+        from_url = "gs://neuroglancer/ranl/basil_4k_oldnet/ws/"
+        to_url = "gs://neuroglancer/svenmd/basil_4k_oldnet_cg/watershed/"
+    else:
+        raise Exception("Dataset unknown")
 
     file_paths = np.sort(glob.glob(utils.dir_from_layer_name(utils.layer_name_from_cv_url(cv_url)) + "/*rg2cg*"))
 
