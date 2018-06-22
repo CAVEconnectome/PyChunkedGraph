@@ -15,7 +15,8 @@ from google.api_core.exceptions import Aborted, DeadlineExceeded, \
 from google.cloud import bigtable
 from google.cloud.bigtable.row_filters import TimestampRange, \
     TimestampRangeFilter, ColumnRangeFilter, ValueRangeFilter, RowFilterChain, \
-    ColumnQualifierRegexFilter, RowFilterUnion
+    ColumnQualifierRegexFilter, RowFilterUnion, ConditionalRowFilter, \
+    PassAllFilter, BlockAllFilter
 from google.cloud.bigtable.column_family import MaxVersionsGCRule
 
 # global variables
@@ -1305,25 +1306,32 @@ class ChunkedGraph(object):
         if not is_cg_id:
             atomic_id = self.get_cg_id_from_rg_id(atomic_id)
 
-        parent_id = atomic_id
-
+        early_finish = True
         parent_ids = []
+        while early_finish:
+            parent_id = atomic_id
+            parent_ids = []
 
-        while True:
-            # print(parent_id)
-            temp_parent_id = self.get_parent(parent_id, time_stamp)
-            if temp_parent_id is None:
-                break
-            else:
-                parent_id = temp_parent_id
-                parent_ids.append(parent_id)
+            early_finish = False
+
+            for i_layer in range(2, int(self.n_layers)+1):
+                temp_parent_id = self.get_parent(parent_id, time_stamp)
+
+                if temp_parent_id is None:
+                    early_finish = True
+                    break
+                else:
+                    parent_id = temp_parent_id
+                    parent_ids.append(parent_id)
+            print(parent_ids)
+
 
         if collect_all_parents:
             return parent_ids
         else:
-            return parent_id
+            return parent_ids[-1]
 
-    def lock_root_loop(self, root_ids, operation_id, max_tries=100,
+    def lock_root_loop(self, root_ids, operation_id, max_tries=1,
                        waittime_s=0.5):
         """ Attempts to lock multiple roots at the same time
 
@@ -1378,13 +1386,21 @@ class ChunkedGraph(object):
         :return: bool
             success
         """
+
         operation_id_b = serialize_key(operation_id)
 
         lock_key = serialize_key("lock")
+        new_parents_key = serialize_key("new_parents")
+
+        c = self.table.read_row(serialize_node_id(root_id)).cells[self.family_id]
+        print(c)
+        if lock_key in c:
+            print(len(c[lock_key]), c[lock_key][0].timestamp)
 
         # Build a column filter which tests if a lock was set (== lock column
         # exists) and if it is still valid (timestamp younger than
-        # LOCK_EXPIRED_TIME_DELTA)
+        # LOCK_EXPIRED_TIME_DELTA) and if there is no new parent (== new_parents
+        # exists)
 
         time_cutoff = datetime.datetime.now(UTC) - LOCK_EXPIRED_TIME_DELTA
 
@@ -1394,18 +1410,26 @@ class ChunkedGraph(object):
 
         time_filter = TimestampRangeFilter(TimestampRange(start=time_cutoff))
 
-        column_key_filter = ColumnRangeFilter(column_family_id=self.family_id,
-                                              start_column=lock_key,
-                                              end_column=lock_key,
-                                              inclusive_start=True,
-                                              inclusive_end=True)
+        lock_key_filter = ColumnRangeFilter(column_family_id=self.family_id,
+                                            start_column=lock_key,
+                                            end_column=lock_key,
+                                            inclusive_start=True,
+                                            inclusive_end=True)
 
-        # Chain these filters together
-        chained_filter = RowFilterChain([time_filter, column_key_filter])
+        new_parents_key_filter = ColumnRangeFilter(
+            column_family_id=self.family_id, start_column=new_parents_key,
+            end_column=new_parents_key, inclusive_start=True,
+            inclusive_end=True)
+
+        # Combine filters together
+        chained_filter = RowFilterChain([time_filter, lock_key_filter])
+        combined_filter = ConditionalRowFilter(base_filter=chained_filter,
+                                               true_filter=PassAllFilter(True),
+                                               false_filter=new_parents_key_filter)
 
         # Get conditional row using the chained filter
         root_row = self.table.row(serialize_node_id(root_id),
-                                  filter_=chained_filter)
+                                  filter_=combined_filter)
 
         # Set row lock if condition returns no results (state == False)
         root_row.set_cell(self.family_id, lock_key, operation_id_b, state=False)
@@ -1506,9 +1530,14 @@ class ChunkedGraph(object):
         operation_id_b = serialize_key(operation_id)
 
         lock_key = serialize_key("lock")
+        new_parents_key = serialize_key("new_parents")
 
         # Build a column filter which tests if a lock was set (== lock column
         # exists) and if the given operation_id is still the active lock holder
+        # and there is no new parent (== new_parents column exists). The latter
+        # is not necessary but we include it as a backup to prevent things
+        # from going really bad.
+
         column_key_filter = ColumnRangeFilter(column_family_id=self.family_id,
                                               start_column=lock_key,
                                               end_column=lock_key,
@@ -1520,18 +1549,26 @@ class ChunkedGraph(object):
                                         inclusive_start=True,
                                         inclusive_end=True)
 
+        new_parents_key_filter = ColumnRangeFilter(
+            column_family_id=self.family_id, start_column=new_parents_key,
+            end_column=new_parents_key, inclusive_start=True,
+            inclusive_end=True)
+
         # Chain these filters together
         chained_filter = RowFilterChain([column_key_filter, value_filter])
+        combined_filter = ConditionalRowFilter(base_filter=chained_filter,
+                                               true_filter=new_parents_key_filter,
+                                               false_filter=PassAllFilter(True),)
 
         # Get conditional row using the chained filter
         root_row = self.table.row(serialize_node_id(root_id),
-                                  filter_=chained_filter)
+                                  filter_=combined_filter)
 
         # Set row lock if condition returns a result (state == True)
-        root_row.set_cell(self.family_id, lock_key, operation_id_b, state=True)
+        root_row.set_cell(self.family_id, lock_key, operation_id_b, state=False)
 
         # The lock was acquired when set_cell returns True (state)
-        lock_acquired = root_row.commit()
+        lock_acquired = not root_row.commit()
 
         return lock_acquired
 
@@ -1872,7 +1909,7 @@ class ChunkedGraph(object):
         return edges, affinities
 
     def add_edge(self, user_id, atomic_edge, affinity=None,
-                 root_ids=None, n_tries=10):
+                 root_ids=None, n_tries=20):
         """ Adds an edge to the chunkedgraph
 
             Multi-user safe through locking of the root node
@@ -1888,6 +1925,7 @@ class ChunkedGraph(object):
             will eventually be set to 1 if None
         :param root_ids: list of uint64s
             avoids reading the root ids again if already computed
+        :param n_tries: int
         :return: uint64
             if successful the new root id is send
             else one of the old root ids is returned
@@ -1912,8 +1950,6 @@ class ChunkedGraph(object):
                 new_root_id, rows, time_stamp = \
                     self._add_edge(operation_id=operation_id,
                                    atomic_edge=atomic_edge, affinity=affinity)
-
-                # time.sleep(10)
 
                 # Add a row to the log
                 rows.append(self._create_merge_log_row(operation_id, user_id,
@@ -2063,7 +2099,7 @@ class ChunkedGraph(object):
     def remove_edges(self, user_id, source_id, sink_id,
                      source_coord=None, sink_coord=None, mincut=True,
                      bb_offset=(240, 240, 24), root_ids=None,
-                     n_tries=10):
+                     n_tries=20):
         """ Removes edges - either directly or after applying a mincut
 
             Multi-user safe through locking of the root node
@@ -2084,6 +2120,7 @@ class ChunkedGraph(object):
         :param bb_offset: list of 3 ints
             [x, y, z] bounding box padding beyond box spanned by coordinates
         :param root_ids: list of uint64s
+        :param n_tries: int
         :return: list of uint64s
         """
 
