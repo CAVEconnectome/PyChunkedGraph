@@ -62,7 +62,7 @@ def gen_graph(request):
         # setup Chunked Graph
         graph = chunkedgraph.ChunkedGraph(request.function.__name__, project_id='emulated',
                                           credentials=DoNothingCreds(), instance_id="chunkedgraph",
-                                          is_new=True, fan_out=2, n_layers=10)
+                                          is_new=True, fan_out=fan_out, n_layers=n_layers)
 
         # setup Chunked Graph - Finalizer
         def fin():
