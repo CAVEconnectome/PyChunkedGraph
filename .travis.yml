@@ -28,7 +28,7 @@ install:
   - pip --version
   - tox --version
 script:
-  - tox -v -- pychunkedgraph/tests/test.py
+  - tox -v
 after_failure:
   - more .tox/log/* | cat
   - more .tox/*/log/* | cat

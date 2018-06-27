@@ -120,12 +120,14 @@ def to_label(cgraph, l, x, y, z, segment_id):
 
 
 class TestCoreUtils:
+    @pytest.mark.timeout(30)
     def test_serialize_valid_label_id(self):
         label = 0x01FF031234556789
         assert chunkedgraph.deserialize_node_id(chunkedgraph.serialize_node_id(label)) == label
 
 
 class TestGraphBuild:
+    @pytest.mark.timeout(30)
     def test_build_single_node(self, gen_graph):
         """
         Create graph with single RG node 1 in chunk A
@@ -178,6 +180,7 @@ class TestGraphBuild:
         assert len(res.rows) == 1 + 1 + 1 + 1
         print("Testing done")
 
+    @pytest.mark.timeout(30)
     def test_build_single_edge(self, gen_graph):
         """
         Create graph with edge between RG supervoxels 1 and 2 (same chunk)
@@ -246,6 +249,7 @@ class TestGraphBuild:
         # Make sure there are not any more entries in the table
         assert len(res.rows) == 2 + 1 + 1 + 1
 
+    @pytest.mark.timeout(30)
     def test_build_single_across_edge(self, gen_graph):
         """
         Create graph with edge between RG supervoxels 1 and 2 (neighboring chunks)
@@ -343,6 +347,7 @@ class TestGraphBuild:
         # Make sure there are not any more entries in the table
         assert len(res.rows) == 2 + 2 + 1 + 3 + 1
 
+    @pytest.mark.timeout(30)
     def test_build_single_edge_and_single_across_edge(self, gen_graph):
         """
         Create graph with edge between RG supervoxels 1 and 2 (same chunk)
@@ -463,6 +468,7 @@ class TestGraphBuild:
         # Make sure there are not any more entries in the table
         assert len(res.rows) == 3 + 2 + 1 + 3 + 1
 
+    @pytest.mark.timeout(30)
     def test_build_big_graph(self, gen_graph):
         """
         Create graph with RG nodes 1 and 2 in opposite corners of the largest possible dataset
@@ -512,30 +518,38 @@ class TestGraphBuild:
 
 
 class TestGraphQueries:
+    @pytest.mark.timeout(30)
     def test_get_parent(self, gen_graph):
         pass
 
+    @pytest.mark.timeout(30)
     def test_get_root(self, gen_graph):
         pass
 
+    @pytest.mark.timeout(30)
     def test_get_children(self, gen_graph):
         pass
 
+    @pytest.mark.timeout(30)
     def test_get_subgraph(self, gen_graph):
         # Reminder: Check for duplicates
         pass
 
+    @pytest.mark.timeout(30)
     def test_get_atomic_partners(self, gen_graph):
         pass
 
+    @pytest.mark.timeout(30)
     def test_get_cg_id_from_rg_id(self, gen_graph):
         pass
 
+    @pytest.mark.timeout(30)
     def test_get_rg_id_from_cg_id(self, gen_graph):
         pass
 
 
 class TestGraphMerge:
+    @pytest.mark.timeout(30)
     def test_merge_pair_same_chunk(self, gen_graph):
         """
         Add edge between existing RG supervoxels 1 and 2 (same chunk)
@@ -569,6 +583,7 @@ class TestGraphMerge:
         assert to_label(cgraph, 1, 0, 0, 0, 0) in leaves
         assert to_label(cgraph, 1, 0, 0, 0, 1) in leaves
 
+    @pytest.mark.timeout(30)
     def test_merge_pair_neighboring_chunks(self, gen_graph):
         """
         Add edge between existing RG supervoxels 1 and 2 (neighboring chunks)
@@ -608,6 +623,7 @@ class TestGraphMerge:
         assert to_label(cgraph, 1, 0, 0, 0, 0) in leaves
         assert to_label(cgraph, 1, 1, 0, 0, 0) in leaves
 
+    @pytest.mark.timeout(30)
     def test_merge_pair_disconnected_chunks(self, gen_graph):
         """
         Add edge between existing RG supervoxels 1 and 2 (disconnected chunks)
@@ -660,6 +676,7 @@ class TestGraphMerge:
         assert to_label(cgraph, 1, 0, 0, 0, 0) in leaves
         assert to_label(cgraph, 1, 127, 127, 127, 0) in leaves
 
+    @pytest.mark.timeout(30)
     def test_merge_pair_already_connected(self, gen_graph):
         """
         Add edge between already connected RG supervoxels 1 and 2 (same chunk).
@@ -691,6 +708,7 @@ class TestGraphMerge:
             warn("Rows were modified when merging a pair of already connected supervoxels. "
                  "While probably not an error, it is an unnecessary operation.")
 
+    @pytest.mark.timeout(30)
     def test_merge_triple_chain_to_full_circle_same_chunk(self, gen_graph):
         """
         Add edge between indirectly connected RG supervoxels 1 and 2 (same chunk)
@@ -734,6 +752,7 @@ class TestGraphMerge:
         assert to_label(cgraph, 1, 0, 0, 0, 1) in leaves
         assert to_label(cgraph, 1, 0, 0, 0, 2) in leaves
 
+    @pytest.mark.timeout(30)
     def test_merge_triple_chain_to_full_circle_neighboring_chunks(self, gen_graph):
         """
         Add edge between indirectly connected RG supervoxels 1 and 2 (neighboring chunks)
@@ -784,6 +803,7 @@ class TestGraphMerge:
         assert to_label(cgraph, 1, 0, 0, 0, 1) in leaves
         assert to_label(cgraph, 1, 1, 0, 0, 0) in leaves
 
+    @pytest.mark.timeout(30)
     def test_merge_triple_chain_to_full_circle_disconnected_chunks(self, gen_graph):
         """
         Add edge between indirectly connected RG supervoxels 1 and 2 (disconnected chunks)
@@ -848,6 +868,7 @@ class TestGraphMerge:
         assert to_label(cgraph, 1, 0, 0, 0, 1) in leaves
         assert to_label(cgraph, 1, 127, 127, 127, 0) in leaves
 
+    @pytest.mark.timeout(30)
     def test_merge_same_node(self, gen_graph):
         """
         Try to add loop edge between RG supervoxel 1 and itself
@@ -876,6 +897,7 @@ class TestGraphMerge:
 
         assert res_new.rows == res_old.rows
 
+    @pytest.mark.timeout(30)
     def test_merge_pair_abstract_nodes(self, gen_graph):
         """
         Try to add edge between RG supervoxel 1 and abstract node "2"
@@ -918,6 +940,7 @@ class TestGraphMerge:
 
 
 class TestGraphSplit:
+    @pytest.mark.timeout(30)
     def test_split_pair_same_chunk(self, gen_graph):
         """
         Remove edge between existing RG supervoxels 1 and 2 (same chunk)
@@ -964,6 +987,7 @@ class TestGraphSplit:
         assert to_label(cgraph, 1, 0, 0, 0, 0) in leaves
         assert to_label(cgraph, 1, 0, 0, 0, 1) in leaves
 
+    @pytest.mark.timeout(30)
     def test_split_pair_neighboring_chunks(self, gen_graph):
         """
         Remove edge between existing RG supervoxels 1 and 2 (neighboring chunks)
@@ -1017,6 +1041,7 @@ class TestGraphSplit:
         assert to_label(cgraph, 1, 0, 0, 0, 0) in leaves
         assert to_label(cgraph, 1, 1, 0, 0, 0) in leaves
 
+    @pytest.mark.timeout(30)
     def test_split_pair_disconnected_chunks(self, gen_graph):
         """
         Remove edge between existing RG supervoxels 1 and 2 (disconnected chunks)
@@ -1083,6 +1108,7 @@ class TestGraphSplit:
         assert to_label(cgraph, 1, 0, 0, 0, 0) in leaves
         assert to_label(cgraph, 1, 127, 127, 127, 0) in leaves
 
+    @pytest.mark.timeout(30)
     def test_split_pair_already_disconnected(self, gen_graph):
         """
         Try to remove edge between already disconnected RG supervoxels 1 and 2 (same chunk).
@@ -1116,6 +1142,7 @@ class TestGraphSplit:
             warn("Rows were modified when splitting a pair of already disconnected supervoxels. "
                  "While probably not an error, it is an unnecessary operation.")
 
+    @pytest.mark.timeout(30)
     def test_split_full_circle_to_triple_chain_same_chunk(self, gen_graph):
         """
         Remove direct edge between RG supervoxels 1 and 2, but leave indirect connection (same chunk)
@@ -1163,6 +1190,7 @@ class TestGraphSplit:
         old_root_id = cgraph.get_root(to_label(cgraph, 1, 0, 0, 0, 0), time_stamp=fake_timestamp)
         assert new_root_ids[0] != old_root_id
 
+    @pytest.mark.timeout(30)
     def test_split_full_circle_to_triple_chain_neighboring_chunks(self, gen_graph):
         """
         Remove direct edge between RG supervoxels 1 and 2, but leave indirect connection (neighboring chunks)
@@ -1219,6 +1247,7 @@ class TestGraphSplit:
         old_root_id = cgraph.get_root(to_label(cgraph, 1, 0, 0, 0, 0), time_stamp=fake_timestamp)
         assert new_root_ids[0] != old_root_id
 
+    @pytest.mark.timeout(30)
     def test_split_full_circle_to_triple_chain_disconnected_chunks(self, gen_graph):
         """
         Remove direct edge between RG supervoxels 1 and 2, but leave indirect connection (disconnected chunks)
@@ -1289,6 +1318,7 @@ class TestGraphSplit:
         old_root_id = cgraph.get_root(to_label(cgraph, 1, 0, 0, 0, 0), time_stamp=fake_timestamp)
         assert new_root_ids[0] != old_root_id
 
+    @pytest.mark.timeout(30)
     def test_split_same_node(self, gen_graph):
         """
         Try to remove (non-existing) edge between RG supervoxel 1 and itself
@@ -1317,6 +1347,7 @@ class TestGraphSplit:
 
         assert res_new.rows == res_old.rows
 
+    @pytest.mark.timeout(30)
     def test_split_pair_abstract_nodes(self, gen_graph):
         """
         Try to remove (non-existing) edge between RG supervoxel 1 and abstract node "2"
@@ -1361,6 +1392,7 @@ class TestGraphSplit:
 class TestGraphMinCut:
     # TODO: Ideally, those tests should focus only on mincut retrieving the correct edges.
     #       The edge removal part should be tested exhaustively in TestGraphSplit
+    @pytest.mark.timeout(30)
     def test_cut_regular_link(self, gen_graph):
         """
         Regular link between 1 and 2
@@ -1389,10 +1421,10 @@ class TestGraphMinCut:
         cgraph.add_layer(3, np.array([[0, 0, 0], [1, 0, 0]]))
 
         # Mincut
-        new_root_ids = cgraph.remove_edges_mincut(
-                to_label(cgraph, 1, 0, 0, 0, 0), to_label(cgraph, 1, 1, 0, 0, 0),
+        new_root_ids = cgraph.remove_edges(
+                "Jane Doe", to_label(cgraph, 1, 0, 0, 0, 0), to_label(cgraph, 1, 1, 0, 0, 0),
                 [0, 0, 0], [2*cgraph.chunk_size[0], 2*cgraph.chunk_size[1], cgraph.chunk_size[2]],
-                is_cg_id=True)
+                mincut=True)
 
         # Check New State
         assert len(new_root_ids) == 2
@@ -1406,6 +1438,7 @@ class TestGraphMinCut:
         leaves = cgraph.get_subgraph(cgraph.get_root(to_label(cgraph, 1, 1, 0, 0, 0)))
         assert len(leaves) == 1 and to_label(cgraph, 1, 1, 0, 0, 0) in leaves
 
+    @pytest.mark.timeout(30)
     def test_cut_no_link(self, gen_graph):
         """
         No connection between 1 and 2
@@ -1437,16 +1470,17 @@ class TestGraphMinCut:
         res_old.consume_all()
 
         # Mincut
-        assert cgraph.remove_edges_mincut(
-                to_label(cgraph, 1, 0, 0, 0, 0), to_label(cgraph, 1, 1, 0, 0, 0),
+        assert cgraph.remove_edges(
+                "Jane Doe", to_label(cgraph, 1, 0, 0, 0, 0), to_label(cgraph, 1, 1, 0, 0, 0),
                 [0, 0, 0], [2*cgraph.chunk_size[0], 2*cgraph.chunk_size[1], cgraph.chunk_size[2]],
-                is_cg_id=True) == []
+                mincut=True) == []
 
         res_new = cgraph.table.read_rows()
         res_new.consume_all()
 
         assert res_new.rows == res_old.rows
 
+    @pytest.mark.timeout(30)
     def test_cut_old_link(self, gen_graph):
         """
         Link between 1 and 2 got removed previously (aff = 0.0)
@@ -1473,22 +1507,23 @@ class TestGraphMinCut:
                      timestamp=fake_timestamp)
 
         cgraph.add_layer(3, np.array([[0, 0, 0], [1, 0, 0]]))
-        cgraph.remove_edges([[to_label(cgraph, 1, 1, 0, 0, 0), to_label(cgraph, 1, 0, 0, 0, 0)]], is_cg_id=True)
+        cgraph.remove_edges("John Doe", to_label(cgraph, 1, 1, 0, 0, 0), to_label(cgraph, 1, 0, 0, 0, 0), mincut=False)
 
         res_old = cgraph.table.read_rows()
         res_old.consume_all()
 
         # Mincut
-        assert cgraph.remove_edges_mincut(
-                to_label(cgraph, 1, 0, 0, 0, 0), to_label(cgraph, 1, 1, 0, 0, 0),
+        assert cgraph.remove_edges(
+                "Jane Doe", to_label(cgraph, 1, 0, 0, 0, 0), to_label(cgraph, 1, 1, 0, 0, 0),
                 [0, 0, 0], [2*cgraph.chunk_size[0], 2*cgraph.chunk_size[1], cgraph.chunk_size[2]],
-                is_cg_id=True) == []
+                mincut=True) == []
 
         res_new = cgraph.table.read_rows()
         res_new.consume_all()
 
         assert res_new.rows == res_old.rows
 
+    @pytest.mark.timeout(30)
     def test_cut_indivisible_link(self, gen_graph):
         """
         Sink: 1, Source: 2
@@ -1521,10 +1556,10 @@ class TestGraphMinCut:
         res_old.consume_all()
 
         # Mincut
-        assert cgraph.remove_edges_mincut(
-                to_label(cgraph, 1, 0, 0, 0, 0), to_label(cgraph, 1, 1, 0, 0, 0),
+        assert cgraph.remove_edges(
+                "Jane Doe", to_label(cgraph, 1, 0, 0, 0, 0), to_label(cgraph, 1, 1, 0, 0, 0),
                 [0, 0, 0], [2*cgraph.chunk_size[0], 2*cgraph.chunk_size[1], cgraph.chunk_size[2]],
-                is_cg_id=True) == []
+                mincut=True) == []
 
         res_new = cgraph.table.read_rows()
         res_new.consume_all()
@@ -1533,5 +1568,6 @@ class TestGraphMinCut:
 
 
 class TestGraphMultiCut:
+    @pytest.mark.timeout(30)
     def test_cut_multi_tree(self, gen_graph):
         pass
