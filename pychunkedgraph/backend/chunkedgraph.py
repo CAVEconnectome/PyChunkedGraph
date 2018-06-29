@@ -1,3 +1,5 @@
+import asyncio
+from concurrent.futures import ThreadPoolExecutor
 from bitstring import BitArray
 import collections
 import numpy as np
