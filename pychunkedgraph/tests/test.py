@@ -74,6 +74,41 @@ def gen_graph(request):
     return partial(_cgraph, request)
 
 
+@pytest.fixture(scope='function')
+def gen_graph_simplequerytest(request, gen_graph):
+    """
+    ┌─────┬─────┬─────┐
+    │  A¹ │  B¹ │  C¹ │
+    │  1  │ 3━2━┿━━4  │
+    │     │     │     │
+    └─────┴─────┴─────┘
+    """
+
+    graph = gen_graph(n_layers=4)
+
+    # Chunk A
+    create_chunk(graph,
+                 vertices=[to_label(graph, 1, 0, 0, 0, 0)],
+                 edges=[])
+
+    # Chunk B
+    create_chunk(graph,
+                 vertices=[to_label(graph, 1, 1, 0, 0, 0), to_label(graph, 1, 1, 0, 0, 1)],
+                 edges=[(to_label(graph, 1, 1, 0, 0, 0), to_label(graph, 1, 1, 0, 0, 1), 0.5),
+                        (to_label(graph, 1, 1, 0, 0, 0), to_label(graph, 1, 2, 0, 0, 0), inf)])
+
+    # Chunk C
+    create_chunk(graph,
+                 vertices=[to_label(graph, 1, 2, 0, 0, 0)],
+                 edges=[(to_label(graph, 1, 2, 0, 0, 0), to_label(graph, 1, 1, 0, 0, 0), inf)])
+
+    graph.add_layer(3, np.array([[0, 0, 0], [1, 0, 0]]))
+    graph.add_layer(3, np.array([[2, 0, 0]]))
+    graph.add_layer(4, np.array([[0, 0, 0], [1, 0, 0]]))
+
+    return graph
+
+
 def create_chunk(cgraph, vertices=None, edges=None, timestamp=None):
     """
     Helper function to add vertices and edges to the chunkedgraph - no safety checks!
@@ -115,11 +150,57 @@ def create_chunk(cgraph, vertices=None, edges=None, timestamp=None):
 
 
 def to_label(cgraph, l, x, y, z, segment_id):
-    chunk_id = cgraph.get_chunk_id_from_coordinates(x, y, z, l)
-    return cgraph.combine_node_id_chunk_id(segment_id, chunk_id)
+    return cgraph.get_node_id(segment_id, layer=l, x=x, y=y, z=z)
 
 
-class TestCoreUtils:
+class TestGraphNodeConversion:
+    @pytest.mark.timeout(30)
+    def test_compute_bitmasks(self):
+        pass
+
+    @pytest.mark.timeout(30)
+    def test_node_conversion(self, gen_graph):
+        cgraph = gen_graph(n_layers=10)
+
+        node_id = cgraph.get_node_id(4, layer=2, x=3, y=1, z=0)
+        assert cgraph.get_chunk_layer(node_id) == 2
+        assert cgraph.get_chunk_coordinates(node_id) == (3, 1, 0)
+
+        chunk_id = cgraph.get_chunk_id(layer=2, x=3, y=1, z=0)
+        assert cgraph.get_chunk_layer(chunk_id) == 2
+        assert cgraph.get_chunk_coordinates(chunk_id) == (3, 1, 0)
+
+        assert cgraph.get_chunk_id(node_id=node_id) == chunk_id
+        assert cgraph.get_node_id(4, chunk_id=chunk_id) == node_id
+
+    @pytest.mark.timeout(30)
+    def test_node_id_adjacency(self, gen_graph):
+        cgraph = gen_graph(n_layers=10)
+
+        cgraph.get_node_id(0, layer=2, x=3, y=1, z=0) + 1 == \
+            cgraph.get_node_id(1, layer=2, x=3, y=1, z=0)
+
+        cgraph.get_node_id(2**53 - 2, layer=10, x=0, y=0, z=0) + 1 == \
+            cgraph.get_node_id(2**53 - 1, layer=10, x=0, y=0, z=0)
+
+    @pytest.mark.timeout(30)
+    def test_serialize_node_id(self, gen_graph):
+        cgraph = gen_graph(n_layers=10)
+
+        chunkedgraph.serialize_node_id(cgraph.get_node_id(0, layer=2, x=3, y=1, z=0)) < \
+            chunkedgraph.serialize_node_id(cgraph.get_node_id(1, layer=2, x=3, y=1, z=0))
+
+        chunkedgraph.serialize_node_id(cgraph.get_node_id(2**53 - 2, layer=10, x=0, y=0, z=0)) < \
+            chunkedgraph.serialize_node_id(cgraph.get_node_id(2**53 - 1, layer=10, x=0, y=0, z=0))
+
+    @pytest.mark.timeout(30)
+    def test_deserialize_node_id(self):
+        pass
+
+    @pytest.mark.timeout(30)
+    def test_serialization_roundtrip(self):
+        pass
+
     @pytest.mark.timeout(30)
     def test_serialize_valid_label_id(self):
         label = 0x01FF031234556789
@@ -494,19 +575,18 @@ class TestGraphBuild:
         cgraph.add_layer(3, np.array([[0x00, 0x00, 0x00]]))
         cgraph.add_layer(3, np.array([[0xFF, 0xFF, 0xFF]]))
         cgraph.add_layer(4, np.array([[0x00, 0x00, 0x00]]))
-        cgraph.add_layer(4, np.array([[0xFE, 0xFE, 0xFE]]))
+        cgraph.add_layer(4, np.array([[0x7F, 0x7F, 0x7F]]))
         cgraph.add_layer(5, np.array([[0x00, 0x00, 0x00]]))
-        cgraph.add_layer(5, np.array([[0xFC, 0xFC, 0xFC]]))
+        cgraph.add_layer(5, np.array([[0x3F, 0x3F, 0x3F]]))
         cgraph.add_layer(6, np.array([[0x00, 0x00, 0x00]]))
-        cgraph.add_layer(6, np.array([[0xF8, 0xF8, 0xF8]]))
+        cgraph.add_layer(6, np.array([[0x1F, 0x1F, 0x1F]]))
         cgraph.add_layer(7, np.array([[0x00, 0x00, 0x00]]))
-        cgraph.add_layer(7, np.array([[0xF0, 0xF0, 0xF0]]))
+        cgraph.add_layer(7, np.array([[0x0F, 0x0F, 0x0F]]))
         cgraph.add_layer(8, np.array([[0x00, 0x00, 0x00]]))
-        cgraph.add_layer(8, np.array([[0xE0, 0xE0, 0xE0]]))
+        cgraph.add_layer(8, np.array([[0x07, 0x07, 0x07]]))
         cgraph.add_layer(9, np.array([[0x00, 0x00, 0x00]]))
-        cgraph.add_layer(9, np.array([[0xC0, 0xC0, 0xC0]]))
-        cgraph.add_layer(10, np.array([[0x00, 0x00, 0x00]]))
-        cgraph.add_layer(10, np.array([[0x80, 0x80, 0x80]]))
+        cgraph.add_layer(9, np.array([[0x03, 0x03, 0x03]]))
+        cgraph.add_layer(10, np.array([[0x00, 0x00, 0x00], [0x01, 0x01, 0x01]]))
 
         res = cgraph.table.read_rows()
         res.consume_all()
@@ -517,35 +597,99 @@ class TestGraphBuild:
         assert chunkedgraph.serialize_node_id(to_label(cgraph, 10, 0, 0, 0, 2)) in res.rows
 
 
-class TestGraphQueries:
+class TestGraphSimpleQueries:
+    """
+    ┌─────┬─────┬─────┐        L X Y Z S     L X Y Z S     L X Y Z S     L X Y Z S
+    │  A¹ │  B¹ │  C¹ │     1: 1 0 0 0 0 ─── 2 0 0 0 1 ─── 3 0 0 0 1 ─── 4 0 0 0 1
+    │  1  │ 3━2━┿━━4  │     2: 1 1 0 0 0 ─┬─ 2 1 0 0 1 ─── 3 0 0 0 2 ─┬─ 4 0 0 0 2
+    │     │     │     │     3: 1 1 0 0 1 ─┘                           │
+    └─────┴─────┴─────┘     4: 1 2 0 0 0 ─── 2 2 0 0 1 ─── 3 1 0 0 1 ─┘
+    """
     @pytest.mark.timeout(30)
-    def test_get_parent(self, gen_graph):
-        pass
+    def test_get_parent(self, gen_graph_simplequerytest):
+        cgraph = gen_graph_simplequerytest
+
+        assert cgraph.get_parent(to_label(cgraph, 1, 0, 0, 0, 0),
+                                 get_only_relevant_parent=True,
+                                 time_stamp=None) == to_label(cgraph, 2, 0, 0, 0, 1)
+
+        assert cgraph.get_parent(to_label(cgraph, 1, 1, 0, 0, 0),
+                                 get_only_relevant_parent=True,
+                                 time_stamp=None) == to_label(cgraph, 2, 1, 0, 0, 1)
+
+        assert cgraph.get_parent(to_label(cgraph, 1, 1, 0, 0, 1),
+                                 get_only_relevant_parent=True,
+                                 time_stamp=None) == to_label(cgraph, 2, 1, 0, 0, 1)
+
+        assert cgraph.get_parent(to_label(cgraph, 1, 2, 0, 0, 0),
+                                 get_only_relevant_parent=True,
+                                 time_stamp=None) == to_label(cgraph, 2, 2, 0, 0, 1)
+
+        assert cgraph.get_parent(to_label(cgraph, 2, 0, 0, 0, 1),
+                                 get_only_relevant_parent=True,
+                                 time_stamp=None) == to_label(cgraph, 3, 0, 0, 0, 1)
+
+        assert cgraph.get_parent(to_label(cgraph, 2, 1, 0, 0, 1),
+                                 get_only_relevant_parent=True,
+                                 time_stamp=None) == to_label(cgraph, 3, 0, 0, 0, 2)
+
+        assert cgraph.get_parent(to_label(cgraph, 2, 2, 0, 0, 1),
+                                 get_only_relevant_parent=True,
+                                 time_stamp=None) == to_label(cgraph, 3, 1, 0, 0, 1)
+
+        assert cgraph.get_parent(to_label(cgraph, 3, 0, 0, 0, 1),
+                                 get_only_relevant_parent=True,
+                                 time_stamp=None) == to_label(cgraph, 4, 0, 0, 0, 1)
+
+        assert cgraph.get_parent(to_label(cgraph, 3, 0, 0, 0, 2),
+                                 get_only_relevant_parent=True,
+                                 time_stamp=None) == to_label(cgraph, 4, 0, 0, 0, 2)
+
+        assert cgraph.get_parent(to_label(cgraph, 3, 1, 0, 0, 1),
+                                 get_only_relevant_parent=True,
+                                 time_stamp=None) == to_label(cgraph, 4, 0, 0, 0, 2)
 
     @pytest.mark.timeout(30)
-    def test_get_root(self, gen_graph):
-        pass
+    def test_get_root(self, gen_graph_simplequerytest):
+        cgraph = gen_graph_simplequerytest
+
+        assert cgraph.get_root(to_label(cgraph, 1, 0, 0, 0, 0),
+                               collect_all_parents=False,
+                               time_stamp=None) == to_label(cgraph, 4, 0, 0, 0, 1)
+
+        assert cgraph.get_root(to_label(cgraph, 1, 1, 0, 0, 0),
+                               collect_all_parents=False,
+                               time_stamp=None) == to_label(cgraph, 4, 0, 0, 0, 2)
+
+        assert cgraph.get_root(to_label(cgraph, 1, 1, 0, 0, 1),
+                               collect_all_parents=False,
+                               time_stamp=None) == to_label(cgraph, 4, 0, 0, 0, 2)
+
+        assert cgraph.get_root(to_label(cgraph, 1, 2, 0, 0, 0),
+                               collect_all_parents=False,
+                               time_stamp=None) == to_label(cgraph, 4, 0, 0, 0, 2)
 
     @pytest.mark.timeout(30)
-    def test_get_children(self, gen_graph):
-        pass
+    def test_get_children(self, gen_graph_simplequerytest):
+        cgraph = gen_graph_simplequerytest
+
+        assert cgraph.get_children(to_label(cgraph, 1, 0, 0, 0, 0)) == []
+        assert cgraph.get_children(to_label(cgraph, 1, 1, 0, 0, 0)) == []
+        assert cgraph.get_children(to_label(cgraph, 1, 1, 0, 0, 1)) == []
+        assert cgraph.get_children(to_label(cgraph, 1, 2, 0, 0, 0)) == []
+
+        assert cgraph.get_children(to_label(cgraph, 2, 0, 0, 0, 1)) == [to_label(cgraph, 1, 0, 0, 0, 0)]
+        assert cgraph.get_children(to_label(cgraph, 2, 1, 0, 0, 1)) == [to_label(cgraph, 1, 1, 0, 0, 0)]
+        assert cgraph.get_children(to_label(cgraph, 2, 1, 0, 0, 2)) == [to_label(cgraph, 1, 1, 0, 0, 1)]
+        assert cgraph.get_children(to_label(cgraph, 2, 2, 0, 0, 1)) == [to_label(cgraph, 1, 2, 0, 0, 0)]
 
     @pytest.mark.timeout(30)
-    def test_get_subgraph(self, gen_graph):
-        # Reminder: Check for duplicates
-        pass
+    def test_get_subgraph(self, gen_graph_simplequerytest):
+        cgraph = gen_graph_simplequerytest
 
     @pytest.mark.timeout(30)
-    def test_get_atomic_partners(self, gen_graph):
-        pass
-
-    @pytest.mark.timeout(30)
-    def test_get_cg_id_from_rg_id(self, gen_graph):
-        pass
-
-    @pytest.mark.timeout(30)
-    def test_get_rg_id_from_cg_id(self, gen_graph):
-        pass
+    def test_get_atomic_partners(self, gen_graph_simplequerytest):
+        cgraph = gen_graph_simplequerytest
 
 
 class TestGraphMerge:
@@ -649,17 +793,16 @@ class TestGraphMerge:
         cgraph.add_layer(3, np.array([[0x00, 0x00, 0x00]]))
         cgraph.add_layer(3, np.array([[0x7F, 0x7F, 0x7F]]))
         cgraph.add_layer(4, np.array([[0x00, 0x00, 0x00]]))
-        cgraph.add_layer(4, np.array([[0x7E, 0x7E, 0x7E]]))
+        cgraph.add_layer(4, np.array([[0x3F, 0x3F, 0x3F]]))
         cgraph.add_layer(5, np.array([[0x00, 0x00, 0x00]]))
-        cgraph.add_layer(5, np.array([[0x7C, 0x7C, 0x7C]]))
+        cgraph.add_layer(5, np.array([[0x1F, 0x1F, 0x1F]]))
         cgraph.add_layer(6, np.array([[0x00, 0x00, 0x00]]))
-        cgraph.add_layer(6, np.array([[0x78, 0x78, 0x78]]))
+        cgraph.add_layer(6, np.array([[0x0F, 0x0F, 0x0F]]))
         cgraph.add_layer(7, np.array([[0x00, 0x00, 0x00]]))
-        cgraph.add_layer(7, np.array([[0x70, 0x70, 0x70]]))
+        cgraph.add_layer(7, np.array([[0x07, 0x07, 0x07]]))
         cgraph.add_layer(8, np.array([[0x00, 0x00, 0x00]]))
-        cgraph.add_layer(8, np.array([[0x60, 0x60, 0x60]]))
-        cgraph.add_layer(9, np.array([[0x00, 0x00, 0x00]]))
-        cgraph.add_layer(9, np.array([[0x40, 0x40, 0x40]]))
+        cgraph.add_layer(8, np.array([[0x03, 0x03, 0x03]]))
+        cgraph.add_layer(9, np.array([[0x00, 0x00, 0x00], [0x01, 0x01, 0x01]]))
 
         # Merge
         new_root_id = cgraph.add_edge("Jane Doe", [to_label(cgraph, 1, 127, 127, 127, 0), to_label(cgraph, 1, 0, 0, 0, 0)], affinity=0.3)
@@ -830,18 +973,16 @@ class TestGraphMerge:
         cgraph.add_layer(3, np.array([[0x00, 0x00, 0x00]]))
         cgraph.add_layer(3, np.array([[0x7F, 0x7F, 0x7F]]))
         cgraph.add_layer(4, np.array([[0x00, 0x00, 0x00]]))
-        cgraph.add_layer(4, np.array([[0x7E, 0x7E, 0x7E]]))
+        cgraph.add_layer(4, np.array([[0x3F, 0x3F, 0x3F]]))
         cgraph.add_layer(5, np.array([[0x00, 0x00, 0x00]]))
-        cgraph.add_layer(5, np.array([[0x7C, 0x7C, 0x7C]]))
+        cgraph.add_layer(5, np.array([[0x1F, 0x1F, 0x1F]]))
         cgraph.add_layer(6, np.array([[0x00, 0x00, 0x00]]))
-        cgraph.add_layer(6, np.array([[0x78, 0x78, 0x78]]))
+        cgraph.add_layer(6, np.array([[0x0F, 0x0F, 0x0F]]))
         cgraph.add_layer(7, np.array([[0x00, 0x00, 0x00]]))
-        cgraph.add_layer(7, np.array([[0x70, 0x70, 0x70]]))
+        cgraph.add_layer(7, np.array([[0x07, 0x07, 0x07]]))
         cgraph.add_layer(8, np.array([[0x00, 0x00, 0x00]]))
-        cgraph.add_layer(8, np.array([[0x60, 0x60, 0x60]]))
-        cgraph.add_layer(9, np.array([[0x00, 0x00, 0x00]]))
-        cgraph.add_layer(9, np.array([[0x40, 0x40, 0x40]]))
-        # cgraph.add_layer(10, np.array([[0x00, 0x00, 0x00], [0x40, 0x40, 0x40]]))
+        cgraph.add_layer(8, np.array([[0x03, 0x03, 0x03]]))
+        cgraph.add_layer(9, np.array([[0x00, 0x00, 0x00], [0x01, 0x01, 0x01]]))
 
         # Merge
         new_root_id = cgraph.add_edge("Jane Doe", [to_label(cgraph, 1, 127, 127, 127, 0), to_label(cgraph, 1, 0, 0, 0, 0)], affinity=1.0)
@@ -940,7 +1081,7 @@ class TestGraphMerge:
 
 
 class TestGraphSplit:
-    @pytest.mark.timeout(30)
+    @pytest.mark.timeout(0)
     def test_split_pair_same_chunk(self, gen_graph):
         """
         Remove edge between existing RG supervoxels 1 and 2 (same chunk)
@@ -977,7 +1118,8 @@ class TestGraphSplit:
         assert len(leaves) == 1 and to_label(cgraph, 1, 0, 0, 0, 1) in leaves
 
         # Check Old State still accessible
-        assert cgraph.get_root(to_label(cgraph, 1, 0, 0, 0, 0), time_stamp=fake_timestamp) == cgraph.get_root(to_label(cgraph, 1, 0, 0, 0, 1), time_stamp=fake_timestamp)
+        assert cgraph.get_root(to_label(cgraph, 1, 0, 0, 0, 0), time_stamp=fake_timestamp) == \
+            cgraph.get_root(to_label(cgraph, 1, 0, 0, 0, 1), time_stamp=fake_timestamp)
         partners, affinities = cgraph.get_atomic_partners(to_label(cgraph, 1, 0, 0, 0, 0), time_stamp=fake_timestamp)
         assert len(partners) == 1 and partners[0] == to_label(cgraph, 1, 0, 0, 0, 1)
         partners, affinities = cgraph.get_atomic_partners(to_label(cgraph, 1, 0, 0, 0, 1), time_stamp=fake_timestamp)
@@ -1031,7 +1173,8 @@ class TestGraphSplit:
         assert len(leaves) == 1 and to_label(cgraph, 1, 1, 0, 0, 0) in leaves
 
         # Check Old State still accessible
-        assert cgraph.get_root(to_label(cgraph, 1, 0, 0, 0, 0), time_stamp=fake_timestamp) == cgraph.get_root(to_label(cgraph, 1, 1, 0, 0, 0), time_stamp=fake_timestamp)
+        assert cgraph.get_root(to_label(cgraph, 1, 0, 0, 0, 0), time_stamp=fake_timestamp) == \
+            cgraph.get_root(to_label(cgraph, 1, 1, 0, 0, 0), time_stamp=fake_timestamp)
         partners, affinities = cgraph.get_atomic_partners(to_label(cgraph, 1, 0, 0, 0, 0), time_stamp=fake_timestamp)
         assert len(partners) == 1 and partners[0] == to_label(cgraph, 1, 1, 0, 0, 0)
         partners, affinities = cgraph.get_atomic_partners(to_label(cgraph, 1, 1, 0, 0, 0), time_stamp=fake_timestamp)
@@ -1070,17 +1213,16 @@ class TestGraphSplit:
         cgraph.add_layer(3, np.array([[0x00, 0x00, 0x00]]))
         cgraph.add_layer(3, np.array([[0x7F, 0x7F, 0x7F]]))
         cgraph.add_layer(4, np.array([[0x00, 0x00, 0x00]]))
-        cgraph.add_layer(4, np.array([[0x7E, 0x7E, 0x7E]]))
+        cgraph.add_layer(4, np.array([[0x3F, 0x3F, 0x3F]]))
         cgraph.add_layer(5, np.array([[0x00, 0x00, 0x00]]))
-        cgraph.add_layer(5, np.array([[0x7C, 0x7C, 0x7C]]))
+        cgraph.add_layer(5, np.array([[0x1F, 0x1F, 0x1F]]))
         cgraph.add_layer(6, np.array([[0x00, 0x00, 0x00]]))
-        cgraph.add_layer(6, np.array([[0x78, 0x78, 0x78]]))
+        cgraph.add_layer(6, np.array([[0x0F, 0x0F, 0x0F]]))
         cgraph.add_layer(7, np.array([[0x00, 0x00, 0x00]]))
-        cgraph.add_layer(7, np.array([[0x70, 0x70, 0x70]]))
+        cgraph.add_layer(7, np.array([[0x07, 0x07, 0x07]]))
         cgraph.add_layer(8, np.array([[0x00, 0x00, 0x00]]))
-        cgraph.add_layer(8, np.array([[0x60, 0x60, 0x60]]))
-        cgraph.add_layer(9, np.array([[0x00, 0x00, 0x00]]))
-        cgraph.add_layer(9, np.array([[0x40, 0x40, 0x40]]))
+        cgraph.add_layer(8, np.array([[0x03, 0x03, 0x03]]))
+        cgraph.add_layer(9, np.array([[0x00, 0x00, 0x00], [0x01, 0x01, 0x01]]))
 
         # Split
         new_roots = cgraph.remove_edges("Jane Doe", to_label(cgraph, 1, 127, 127, 127, 0), to_label(cgraph, 1, 0, 0, 0, 0), mincut=False)
@@ -1098,7 +1240,8 @@ class TestGraphSplit:
         assert len(leaves) == 1 and to_label(cgraph, 1, 127, 127, 127, 0) in leaves
 
         # Check Old State still accessible
-        assert cgraph.get_root(to_label(cgraph, 1, 0, 0, 0, 0), time_stamp=fake_timestamp) == cgraph.get_root(to_label(cgraph, 1, 127, 127, 127, 0), time_stamp=fake_timestamp)
+        assert cgraph.get_root(to_label(cgraph, 1, 0, 0, 0, 0), time_stamp=fake_timestamp) == \
+            cgraph.get_root(to_label(cgraph, 1, 127, 127, 127, 0), time_stamp=fake_timestamp)
         partners, affinities = cgraph.get_atomic_partners(to_label(cgraph, 1, 0, 0, 0, 0), time_stamp=fake_timestamp)
         assert len(partners) == 1 and partners[0] == to_label(cgraph, 1, 127, 127, 127, 0)
         partners, affinities = cgraph.get_atomic_partners(to_label(cgraph, 1, 127, 127, 127, 0), time_stamp=fake_timestamp)
@@ -1279,18 +1422,16 @@ class TestGraphSplit:
         cgraph.add_layer(3, np.array([[0x00, 0x00, 0x00]]))
         cgraph.add_layer(3, np.array([[0x7F, 0x7F, 0x7F]]))
         cgraph.add_layer(4, np.array([[0x00, 0x00, 0x00]]))
-        cgraph.add_layer(4, np.array([[0x7E, 0x7E, 0x7E], [0x7F, 0x7F, 0x7F]]))
+        cgraph.add_layer(4, np.array([[0x3F, 0x3F, 0x3F]]))
         cgraph.add_layer(5, np.array([[0x00, 0x00, 0x00]]))
-        cgraph.add_layer(5, np.array([[0x7C, 0x7C, 0x7C], [0x7E, 0x7E, 0x7E]]))
+        cgraph.add_layer(5, np.array([[0x1F, 0x1F, 0x1F]]))
         cgraph.add_layer(6, np.array([[0x00, 0x00, 0x00]]))
-        cgraph.add_layer(6, np.array([[0x78, 0x78, 0x78], [0x7C, 0x7C, 0x7C]]))
+        cgraph.add_layer(6, np.array([[0x0F, 0x0F, 0x0F]]))
         cgraph.add_layer(7, np.array([[0x00, 0x00, 0x00]]))
-        cgraph.add_layer(7, np.array([[0x70, 0x70, 0x70], [0x78, 0x78, 0x78]]))
+        cgraph.add_layer(7, np.array([[0x07, 0x07, 0x07]]))
         cgraph.add_layer(8, np.array([[0x00, 0x00, 0x00]]))
-        cgraph.add_layer(8, np.array([[0x60, 0x60, 0x60], [0x70, 0x70, 0x70]]))
-        cgraph.add_layer(9, np.array([[0x00, 0x00, 0x00]]))
-        cgraph.add_layer(9, np.array([[0x40, 0x40, 0x40], [0x60, 0x60, 0x60]]))
-        cgraph.add_layer(10, np.array([[0x00, 0x00, 0x00], [0x40, 0x40, 0x40]]))
+        cgraph.add_layer(8, np.array([[0x03, 0x03, 0x03]]))
+        cgraph.add_layer(9, np.array([[0x00, 0x00, 0x00], [0x01, 0x01, 0x01]]))
 
         # Split
         new_root_ids = cgraph.remove_edges("Jane Doe", to_label(cgraph, 1, 127, 127, 127, 0), to_label(cgraph, 1, 0, 0, 0, 0), mincut=False)
