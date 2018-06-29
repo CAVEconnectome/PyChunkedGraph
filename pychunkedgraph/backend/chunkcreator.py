@@ -3,12 +3,13 @@ import numpy as np
 import os
 import re
 import time
+import itertools
 
 from cloudvolume import Storage, storage
 
 # from chunkedgraph import ChunkedGraph
 from . import chunkedgraph
-from . import multiprocessing_utils
+from . import multiprocessing_utils as mu
 from . import utils
 
 
@@ -42,11 +43,11 @@ def download_and_store_cv_files(dataset_name="basil",
 
     # Run multiprocessing
     if n_threads == 1:
-        multiprocessing_utils.multiprocess_func(_download_and_store_cv_files_thread,
+        mu.multiprocess_func(_download_and_store_cv_files_thread,
                                                 multi_args, n_threads=n_threads,
                                                 verbose=True, debug=n_threads==1)
     else:
-        multiprocessing_utils.multisubprocess_func(_download_and_store_cv_files_thread,
+        mu.multisubprocess_func(_download_and_store_cv_files_thread,
                                                    multi_args,
                                                    n_threads=n_threads)
 
@@ -111,6 +112,79 @@ def check_stored_cv_files(dataset_name="basil"):
     print("%d files were missing" % c)
 
 
+def _family_consistency_test_thread(args):
+    """ Helper to test family consistency """
+
+    table_id, coord, layer_id = args
+    
+    x, y, z = coord
+
+    cg = chunkedgraph.ChunkedGraph(table_id)
+
+    rows = cg.range_read_chunk(x, y, z, layer_id)
+
+    failed_node_ids = []
+
+    time_start = time.time()
+    for i_k, k in enumerate(rows.keys()):
+        if i_k % 100 == 1:
+            dt = time.time() - time_start
+            eta = dt / i_k * len(rows) - dt
+            print("%d / %d - %.3fs -> %.3fs      " % (i_k, len(rows), dt, eta),
+                  end="\r")
+
+        node_id = chunkedgraph.deserialize_node_id(k)
+        parent_id = np.frombuffer(rows[k].cells["0"][b'parents'][0].value,
+                                  dtype=np.uint64)
+        if not node_id in cg.get_children(parent_id):
+            failed_node_ids.append([node_id, parent_id])
+
+    return failed_node_ids
+
+
+def family_consistency_test(table_id, n_threads=64):
+    """ Runs a simple test on the WHOLE graph
+
+    tests: id in children(parent(id))
+
+    :param table_id: str
+    :param n_threads: int
+    :return: dict
+        n x 2 per layer
+        each failed pair: (node_id, parent_id)
+    """
+
+    assert "basil" in table_id
+
+    cg = chunkedgraph.ChunkedGraph(table_id)
+
+    failed_node_id_dict = {}
+    for layer_id in range(1, cg.n_layers):
+        print("\n\n Layer %d \n\n" % layer_id)
+
+        step = int(cg.fan_out ** np.max([0, layer_id - 2]))
+        coords = list(itertools.product(range(0, 8, step),
+                                        range(0, 8, step),
+                                        range(0, 4, step)))
+
+        multi_args = []
+        for coord in coords:
+            multi_args.append([table_id, coord, layer_id])
+
+        collected_failed_node_ids = mu.multisubprocess_func(
+            _family_consistency_test_thread, multi_args, n_threads=n_threads)
+
+        failed_node_ids = []
+        for _failed_node_ids in collected_failed_node_ids:
+            failed_node_ids.extend(_failed_node_ids)
+
+        failed_node_id_dict[layer_id] = np.array(failed_node_ids)
+
+        print("\n%d nodes rows failed\n" % len(failed_node_ids))
+
+    return failed_node_id_dict
+
+
 def create_chunked_graph(table_id=None, cv_url=None, fan_out=2,
                          chunk_size=(512, 512, 64), n_threads=1):
     """ Creates chunked graph from downloaded files
@@ -139,12 +213,12 @@ def create_chunked_graph(table_id=None, cv_url=None, fan_out=2,
         multi_args.append([fp_block, table_id, chunk_size])
 
     if n_threads == 1:
-        results = multiprocessing_utils.multiprocess_func(
+        results = mu.multiprocess_func(
             _preprocess_chunkedgraph_data_thread, multi_args,
             n_threads=n_threads,
             verbose=True, debug=n_threads == 1)
     else:
-        results = multiprocessing_utils.multisubprocess_func(
+        results = mu.multisubprocess_func(
             _preprocess_chunkedgraph_data_thread, multi_args,
             n_threads=n_threads)
 
@@ -169,7 +243,7 @@ def create_chunked_graph(table_id=None, cv_url=None, fan_out=2,
     multi_args = []
 
     in_chunk_id_blocks = np.array_split(in_chunk_ids,
-                                        max(1, multiprocessing_utils.cpu_count()))
+                                        max(1, mu.cpu_count()))
     cumsum = 0
     for in_chunk_id_block in in_chunk_id_blocks:
         multi_args.append([between_chunk_ids, between_chunk_paths,
@@ -179,11 +253,11 @@ def create_chunked_graph(table_id=None, cv_url=None, fan_out=2,
 
     # Run multiprocessing
     if n_threads == 1:
-        results = multiprocessing_utils.multiprocess_func(
+        results = mu.multiprocess_func(
             _between_chunk_masks_thread, multi_args, n_threads=n_threads,
             verbose=True, debug=n_threads == 1)
     else:
-        results = multiprocessing_utils.multiprocess_func(
+        results = mu.multiprocess_func(
             _between_chunk_masks_thread, multi_args, n_threads=n_threads)
 
     n_layers = int(np.ceil(chunkedgraph.log_n(np.max(in_chunk_ids) + 1, fan_out))) + 2
@@ -214,11 +288,11 @@ def create_chunked_graph(table_id=None, cv_url=None, fan_out=2,
 
     # Run multiprocessing
     if n_threads == 1:
-        multiprocessing_utils.multiprocess_func(
+        mu.multiprocess_func(
             _create_atomic_layer_thread, multi_args, n_threads=n_threads,
             verbose=True, debug=n_threads == 1)
     else:
-        multiprocessing_utils.multisubprocess_func(
+        mu.multisubprocess_func(
             _create_atomic_layer_thread, multi_args, n_threads=n_threads)
 
     times.append(["Layers 1 + 2", time.time() - time_start])
@@ -254,11 +328,11 @@ def create_chunked_graph(table_id=None, cv_url=None, fan_out=2,
 
         # Run multiprocessing
         if n_threads == 1:
-            multiprocessing_utils.multiprocess_func(
+            mu.multiprocess_func(
                 _add_layer_thread, multi_args, n_threads=n_threads, verbose=True,
                 debug=n_threads == 1)
         else:
-            multiprocessing_utils.multisubprocess_func(
+            mu.multisubprocess_func(
                 _add_layer_thread, multi_args, n_threads=n_threads,
                 suffix=str(layer_id))
 
@@ -388,13 +462,7 @@ def _create_atomic_layer_thread(args):
     rg2cg = dict(zip(mappings[:, 0], mappings[:, 1]))
 
     # Get isolated nodes
-    isolated_node_ids = mappings[:, 1][~np.in1d(mappings[:, 1], np.concatenate([edge_ids[:, 0], cross_edge_ids[:, 0]]))]
-
-    # node_ids = np.unique(np.concatenate([np.unique(edge_ids), np.unique(cross_edge_ids[:, 0]), isolated_node_ids]))
-    # if np.sum(~np.in1d(node_ids, mappings[:, 1])) > 0:
-    #     raise()
-    #
-    # print("Valid")
+    isolated_node_ids = mappings[:, 1][~np.in1d(mappings[:, 1], np.concatenate([np.unique(edge_ids), cross_edge_ids[:, 0]]))]
 
     # Initialize an ChunkedGraph instance and write to it
     cg = chunkedgraph.ChunkedGraph(table_id=table_id)
