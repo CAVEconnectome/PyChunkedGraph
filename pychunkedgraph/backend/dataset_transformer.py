@@ -132,7 +132,8 @@ def rewrite_single_image_block(coordinate, block_size, from_cv=None, to_cv=None,
     if to_cv is None:
         assert to_url is not None and mip is not None
         assert 'svenmd' in to_url
-        to_cv = cloudvolume.CloudVolume(to_url, bounded=False, mip=mip)
+        to_cv = cloudvolume.CloudVolume(to_url, bounded=False, mip=mip,
+                                        compress=False)
 
     x_start = coordinate[0]
     x_end = coordinate[0] + block_size[0]
@@ -157,11 +158,11 @@ def rewrite_single_image_block(coordinate, block_size, from_cv=None, to_cv=None,
     to_cv[x_start: x_end, y_start: y_end, z_start: z_end] = img
 
 
-def rewrite_image(dataset_name, block_size=(512, 512, 64), n_threads=64,
+def rewrite_image(dataset_name, block_size=(1024, 1024, 64), n_threads=64,
                   mip=0):
     if dataset_name == "pinky":
         from_url = "gs://neuroglancer/pinky40_v11/image_rechunked/"
-        to_url = "gs://neuroglancer/svenmd/pinky40_v11/image_256_256_8/"
+        to_url = "gs://neuroglancer/svenmd/pinky40_v11/image_512_512_32/"
     elif dataset_name == "basil":
         raise()
     else:
