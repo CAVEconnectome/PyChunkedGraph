@@ -159,7 +159,7 @@ def handle_split():
 @app.route('/1.0/segment/<parent_id>/children', methods=['POST', 'GET'])
 def handle_children(parent_id):
     # Call ChunkedGraph
-    if False or cg.get_chunk_id_from_node_id(parent_id)[0] > 2:
+    if False or cg.get_chunk_layer(parent_id) > 2:
         print("MIP1 meshes")
         try:
             # atomic_ids = cg.get_children(int(parent_id))

@@ -125,7 +125,7 @@ def _family_consistency_test_thread(args):
 
     cg = chunkedgraph.ChunkedGraph(table_id)
 
-    rows = cg.range_read_chunk(x, y, z, layer_id)
+    rows = cg.range_read_chunk(layer_id, x, y, z)
 
     failed_node_ids = []
 
@@ -310,7 +310,7 @@ def create_chunked_graph(table_id=None, cv_url=None, fan_out=2,
 
         print("\n\n\n --- LAYER %d --- \n\n\n" % layer_id)
 
-        parent_chunk_ids = child_chunk_ids // cg.fan_out ** (layer_id - 2)
+        parent_chunk_ids = child_chunk_ids // cg.fan_out
 
         u_pcids, inds = np.unique(parent_chunk_ids,
                                   axis=0, return_inverse=True)
@@ -329,7 +329,7 @@ def create_chunked_graph(table_id=None, cv_url=None, fan_out=2,
         # print(multi_args)
         # print(u_pcids, len(multi_args))
         # print(layer_id, np.unique(child_chunk_ids), np.unique(parent_chunk_ids))
-        child_chunk_ids = u_pcids * cg.fan_out ** (layer_id - 2)
+        child_chunk_ids = u_pcids * cg.fan_out
         # print(layer_id, np.unique(child_chunk_ids), np.unique(parent_chunk_ids))
 
         # Run multiprocessing
