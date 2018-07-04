@@ -1,6 +1,5 @@
 import asyncio
 from concurrent.futures import ThreadPoolExecutor
-from bitstring import BitArray
 import collections
 import numpy as np
 import time
@@ -48,82 +47,6 @@ def log_n(arr, n):
         return np.log(arr) / np.log(n)
 
 
-def to_bitstring(node_id, bit_width=None, is_bytes=False, endian="little"):
-    """ Transforms int to a series of bits
-
-    :param node_id: int
-    :param bit_width: int
-    :param is_bytes: bool
-    :param endian: str
-        "big" or "little"
-    :return: str
-        bitstring
-    """
-    if not is_bytes:
-        node_id_b = int(node_id).to_bytes((int(node_id).bit_length() + 7) // 8, byteorder=endian, signed=False)
-    else:
-        node_id_b = int(node_id)
-
-    node_id_b = BitArray(node_id_b).bin
-
-    if bit_width is not None:
-        if bit_width > len(node_id_b):
-            node_id_b = "".join(["0" * (bit_width - len(node_id_b)),
-                                 node_id_b])
-        elif bit_width < len(node_id_b):
-            node_id_b = node_id_b[len(node_id_b) - bit_width:]
-
-    return node_id_b
-
-
-def to_int(node_id_bits, endian):
-    """ Transforms bitstring to int
-
-    :param node_id_bits: str
-        bitstring
-    :param endian: str
-        "big" ir "little"
-    :return: int
-    """
-    node_id_size = len(node_id_bits)
-
-    assert node_id_size <= 64
-
-    node_id_bits = "".join(['0' * (64 - node_id_size), node_id_bits])
-
-    return int.from_bytes(BitArray("".join(['0b', node_id_bits])).tobytes(), byteorder=endian)
-
-
-def bitwise_inc(node_id_b, from_start=True):
-    """ increments a bitstring by one
-
-    :param node_id_b: str
-        bitstring
-    :param from_start: bool
-    :return: str
-        bitstring
-    """
-
-    assert "0" in node_id_b
-
-    inc_node_id_b = list(node_id_b)
-
-    if not from_start:
-        inc_node_id_b = inc_node_id_b[::-1]
-
-    loc = 0
-    while(inc_node_id_b[loc]) == "1":
-        inc_node_id_b[loc] = "0"
-        loc += 1
-
-    inc_node_id_b[loc] = "1"
-
-    if not from_start:
-        inc_node_id_b = inc_node_id_b[::-1]
-
-    return "".join(inc_node_id_b)
-
-
 def get_clean_cg_object(table_id, n_layers, fan_out,
                         instance_id="pychunkedgraph",
                         project_id="neuromancer-seung-import",
@@ -155,29 +78,13 @@ def get_clean_cg_object(table_id, n_layers, fan_out,
     return cg
 
 
-def bitinv_int(node_id, check_bit_width=64):
-    """ Inverts bit order
-
-    :param node_id: int
-    :param check_bit_width: int or None
-        if not None: asserts bit width to given int
-    :return: int
-    """
-    node_id_bitinv = to_bitstring(node_id, endian="little")[::-1]
-
-    if check_bit_width is not None:
-        assert len(node_id_bitinv) == check_bit_width
-
-    return int(node_id_bitinv, 2)
-
-
 def serialize_node_id(node_id):
     """ Serializes an id to be ingested by a bigtable table row
 
     :param node_id: int
     :return: str
     """
-    return serialize_key("%.20d" % bitinv_int(node_id))
+    return serialize_key("%.20d" % node_id)
 
 
 def deserialize_node_id(node_id):
@@ -186,7 +93,7 @@ def deserialize_node_id(node_id):
     :param node_id: int
     :return: str
     """
-    return int(bitinv_int(node_id.decode()))
+    return int(node_id.decode())
 
 
 def serialize_key(key):
@@ -402,59 +309,141 @@ class ChunkedGraph(object):
         """
         return self.read_row(atomic_id, "rg_id")[0]
 
-    def get_layer_id(self, node_id=None, node_id_b=None):
-        assert node_id is not None or node_id_b is not None
+    def get_chunk_layer(self, node_or_chunk_id):
+        """ Extract Layer from Node ID or Chunk ID
+
+        :param node_or_chunk_id: int
+        :return: int
+        """
+        return int(node_or_chunk_id) >> 64 - self._n_bits_for_layer_id
+
+    def get_chunk_coordinates(self, node_or_chunk_id):
+        """ Extract X, Y and Z coordinate from Node ID or Chunk ID
+
+        :param node_or_chunk_id: int
+        :return: Tuple(int, int, int)
+        """
+        layer = self.get_chunk_layer(node_or_chunk_id)
+        bits_per_dim = self.bitmasks[layer]
+
+        x_offset = 64 - self._n_bits_for_layer_id - bits_per_dim
+        y_offset = x_offset - bits_per_dim
+        z_offset = y_offset - bits_per_dim
+
+        x = int(node_or_chunk_id) >> x_offset & 2 ** bits_per_dim - 1
+        y = int(node_or_chunk_id) >> y_offset & 2 ** bits_per_dim - 1
+        z = int(node_or_chunk_id) >> z_offset & 2 ** bits_per_dim - 1
+        return x, y, z
+
+    def get_chunk_id(self, node_id=None, layer=None, x=None, y=None, z=None):
+        """ (1) Extract Chunk ID from Node ID
+            (2) Build Chunk ID from Layer, X, Y and Z components
+
+        :param node_id: int
+        :param layer: int
+        :param x: int
+        :param y: int
+        :param z: int
+        :return: int
+        """
+        assert node_id is not None or all(v is not None for v in [layer, x, y, z])
 
         if node_id is not None:
-            node_id_b = to_bitstring(node_id, bit_width=None, endian="little")
+            layer = self.get_chunk_layer(node_id)
+        bits_per_dim = self.bitmasks[layer]
 
-        # The layer id occupies the last byte
-        # Use big-endian to get the layer id in the correct format
-        return to_int(node_id_b[-self._n_bits_for_layer_id:], endian="big")
+        if node_id is not None:
+            chunk_offset = 64 - self._n_bits_for_layer_id - 3 * bits_per_dim
+            return (int(node_id) >> chunk_offset) << chunk_offset
+        else:
+            layer_offset = 64 - self._n_bits_for_layer_id
+            x_offset = layer_offset - bits_per_dim
+            y_offset = x_offset - bits_per_dim
+            z_offset = y_offset - bits_per_dim
+            return layer << layer_offset | x << x_offset | y << y_offset | z << z_offset
 
-    def find_next_node_id(self, example_id):
-        """ Finds a unique node id for the given chunk
+    def get_chunk_ids_from_node_ids(self, node_ids):
+        """ Extract a list of Chunk IDs from a list of Node IDs
+
+        :param node_ids: array-like int
+        :return: np.array of np.uint64
+        """
+
+        return np.array(list(map(lambda x: self.get_chunk_id(node_id=x), node_ids)), dtype=np.uint64)
+
+        # b = np.unpackbits(np.frombuffer(node_ids, dtype=np.uint8).reshape(len(node_ids), -1), axis=-1)
+
+        # layer_ids = np.unique(np.frombuffer(np.packbits(b[:, -self._n_bits_for_layer_id:], axis=-1), dtype=np.uint8))
+
+        # assert len(layer_ids) == 1
+        # layer_id = layer_ids[0]
+
+        # bits_per_dim = self.bitmasks[layer_id]
+        # chunk_ids_b = b[:, -(self._n_bits_for_layer_id + 3 * bits_per_dim):]
+
+        # padded_chunk_ids_b = np.pad(chunk_ids_b, [[0, 0], [64 - chunk_ids_b.shape[1], 0]], mode="constant", constant_values=0)
+        # return np.frombuffer(np.packbits(padded_chunk_ids_b, axis=-1), dtype=np.uint64)
+
+    def get_segment_id_limit(self, node_or_chunk_id):
+        """ Get maximum possible Segment ID for given Node ID or Chunk ID
+
+        :param node_or_chunk_id: int
+        :return: int
+        """
+
+        layer = self.get_chunk_layer(node_or_chunk_id)
+        bits_per_dim = self.bitmasks[layer]
+        chunk_offset = 64 - self._n_bits_for_layer_id - 3 * bits_per_dim
+        return 2 ** chunk_offset - 1
+
+    def get_segment_id(self, node_id):
+        """ Extract Segment ID from Node ID
+
+        :param node_id: int
+        :return: int
+        """
+
+        return node_id & self.get_segment_id_limit(node_id)
+
+    def get_node_id(self, segment_id, chunk_id=None, layer=None, x=None, y=None, z=None):
+        """ (1) Build Node ID from Segment ID and Chunk ID
+            (2) Build Node ID from Segment ID, Layer, X, Y and Z components
+
+        :param segment_id: int
+        :param chunk_id: int
+        :param layer: int
+        :param x: int
+        :param y: int
+        :param z: int
+        :return: int
+        """
+
+        if chunk_id is not None:
+            return chunk_id | segment_id
+        else:
+            return self.get_chunk_id(layer=layer, x=x, y=y, z=z) | segment_id
+
+    def get_unique_node_id(self, chunk_id):
+        """ Return unique Node ID for given Chunk ID
 
         atomic counter
 
-        :param example_id: int
-            chunk id or node id from the chunk
+        :param chunk_id: int
         :return: uint64
         """
-        example_id_b = to_bitstring(example_id, bit_width=None, endian="little")
-        layer_id = self.get_layer_id(node_id_b=example_id_b)
-
-        # Lookup the number of bits reserved for the chunk coordinates
-        bits_per_dim = self.bitmasks[layer_id]
-
-        # Pad bin string (resolve problems with leading 8bit 0)
-        example_id_b = "".join(["0" * (self._n_bits_for_layer_id + 3 * bits_per_dim - len(example_id_b)), example_id_b])
-
-        chunk_id_size = self._n_bits_for_layer_id + 3 * bits_per_dim
-        chunk_id_bits = example_id_b[-chunk_id_size:]
-        chunk_id = to_int(example_id_b[-chunk_id_size:], endian="little")
-
-        node_id_size = 64 - chunk_id_size
 
         # Incrementer row keys start with an "i" followed by the chunk id
-        row_key = serialize_key("i%d" % chunk_id)
+        row_key = b"i" + serialize_node_id(chunk_id)
         append_row = self.table.row(row_key, append=True)
-        append_row.increment_cell_value(self.incrementer_family_id,
-                                        b"counter", 1)
+        append_row.increment_cell_value(self.incrementer_family_id, b"counter", 1)
 
         # This increments the row entry and returns the value AFTER incrementing
         latest_row = append_row.commit()
+        segment_id = int.from_bytes(latest_row[self.incrementer_family_id][serialize_key('counter')][0][0], byteorder="big")
 
-        node_id = int.from_bytes(latest_row[self.incrementer_family_id][serialize_key('counter')][0][0], byteorder="big")
+        return self.get_node_id(segment_id=segment_id, chunk_id=chunk_id)
 
-        node_id_bits = to_bitstring(node_id, bit_width=node_id_size,
-                                    endian="big")
-
-        combined_id_bits = "".join([node_id_bits, chunk_id_bits])
-
-        return to_int(combined_id_bits, endian="little")
-
-    def find_next_operation_id(self):
+    def get_unique_operation_id(self):
         """ Finds a unique operation id
 
         atomic counter
@@ -474,171 +463,6 @@ class ChunkedGraph(object):
         operation_id = "op%d" % int.from_bytes(latest_row[self.incrementer_family_id][serialize_key('counter')][0][0], byteorder="big")
 
         return operation_id
-
-    def combine_node_id_chunk_id(self, node_id, chunk_id):
-        """ Creates full id from node and chunk id parts
-
-        :param node_id: int
-        :param chunk_id: int
-        :return: int
-        """
-        chunk_id_b = to_bitstring(chunk_id, bit_width=None)
-
-        # The layer id occupies the last byte
-        layer_id = self.get_layer_id(node_id_b=chunk_id_b)
-
-        # Lookup the number of bits reserved for the chunk coordiantes
-        bits_per_dim = self.bitmasks[layer_id]
-
-        # Pad bin string (resolve problems with leading 8bit 0)
-        example_id_b = "".join(["0" * (self._n_bits_for_layer_id +
-                                       3 * bits_per_dim - len(chunk_id_b)),
-                                chunk_id_b])
-
-        chunk_id_size = self._n_bits_for_layer_id + 3 * bits_per_dim
-        chunk_id_bits = example_id_b[-chunk_id_size:]
-
-        node_id_size = 64 - chunk_id_size
-
-        node_id_bits = to_bitstring(node_id, bit_width=node_id_size)
-
-        combined_id_bits = "".join([node_id_bits, chunk_id_bits])
-
-        return to_int(combined_id_bits, endian="little")
-
-    def get_chunk_unique_id_from_node_id(self, node_id, as_bits=False):
-        node_id_b = to_bitstring(node_id, bit_width=None, endian="little")
-
-        layer_id = self.get_layer_id(node_id_b=node_id_b)
-
-        chunk_id_dim_step = int(self.fan_out ** np.max([0, layer_id - 2]))
-
-        # Lookup the number of bits reserved for the chunk coordiantes
-        bits_per_dim = self.bitmasks[layer_id]
-
-        # Pad bin string (resolve problems with leading 8bit 0)
-        n_pad = (self._n_bits_for_layer_id + 3 * bits_per_dim - len(node_id_b))
-        node_id_b = "".join(["0" * n_pad, node_id_b])
-
-        chunk_id_size = self._n_bits_for_layer_id + 3 * bits_per_dim
-
-        if as_bits:
-            return node_id_b[:-chunk_id_size]
-        else:
-            return to_int(node_id_b[:-chunk_id_size], endian="little")
-
-
-    def get_chunk_id_from_node_id(self, node_id, as_bits=False, full=False):
-        """ Extracts l, x, y, z
-
-        :param node_id: int
-        :param as_bits: bool
-        :param full: bool
-        :return: list of ints
-        """
-        node_id_b = to_bitstring(node_id, bit_width=None, endian="little")
-
-        layer_id = self.get_layer_id(node_id_b=node_id_b)
-
-        chunk_id_dim_step = int(self.fan_out ** np.max([0, layer_id - 2]))
-
-        # Lookup the number of bits reserved for the chunk coordiantes
-        bits_per_dim = self.bitmasks[layer_id]
-
-        # Pad bin string (resolve problems with leading 8bit 0)
-        n_pad = (self._n_bits_for_layer_id + 3 * bits_per_dim - len(node_id_b))
-        node_id_b = "".join(["0" * n_pad, node_id_b])
-
-        if full:
-            chunk_id_size = self._n_bits_for_layer_id + 3 * bits_per_dim
-
-            if as_bits:
-                return node_id_b[-chunk_id_size:]
-            else:
-                return to_int(node_id_b[-chunk_id_size:], endian="little")
-        else:
-            if as_bits:
-                coords = [node_id_b[-self._n_bits_for_layer_id:]]
-            else:
-                coords = [layer_id]
-
-            offset = self._n_bits_for_layer_id
-            for i_dim in range(3):
-                if as_bits:
-                    coords.append(node_id_b[- (offset + bits_per_dim): -offset])
-                else:
-                    coords.append(to_int(
-                        node_id_b[- (offset + bits_per_dim): -offset],
-                        endian="big") * chunk_id_dim_step)
-
-                offset += bits_per_dim
-
-            return np.array(coords)
-
-    def get_coordinates_from_chunk_id(self, chunk_id):
-        """ Extracts coordinate from chunk id (x, y, z)
-
-        :param chunk_id: int
-        :return: list of three ints
-        """
-
-        return self.get_chunk_id_from_node_id(chunk_id, full=False)[1:]
-
-    def get_chunk_id_from_coordinates(self, x, y, z, layer_id, bit_width=None):
-        """ Creates chunk id from coordinates
-
-        :param x: int
-        :param y: int
-        :param z: int
-        :param layer_id: int
-        :return: int
-            chunk id
-        """
-        bits_per_dim = self.bitmasks[layer_id]
-        chunk_id_dim_step = int(self.fan_out ** np.max([0, layer_id - 2]))
-
-        if x % chunk_id_dim_step != 0:
-            raise Exception("Wrong stride in x. coord: [%d, %d, %d], stride: %d"
-                            % (x, y, z, chunk_id_dim_step))
-        if y % chunk_id_dim_step != 0:
-            raise Exception("Wrong stride in y. coord: [%d, %d, %d], stride: %d"
-                            % (x, y, z, chunk_id_dim_step))
-        if z % chunk_id_dim_step != 0:
-            raise Exception("Wrong stride in z. coord: [%d, %d, %d], stride: %d"
-                            % (x, y, z, chunk_id_dim_step))
-
-        # Convert chunk id components to bits
-        x_b = to_bitstring(int(x / chunk_id_dim_step), bit_width=bits_per_dim,
-                           endian="big")
-        y_b = to_bitstring(int(y / chunk_id_dim_step), bit_width=bits_per_dim,
-                           endian="big")
-        z_b = to_bitstring(int(z / chunk_id_dim_step), bit_width=bits_per_dim,
-                           endian="big")
-        layer_id_b = to_bitstring(layer_id, bit_width=self._n_bits_for_layer_id,
-                                  endian="big")
-
-        chunk_id_b = "".join([z_b, y_b, x_b, layer_id_b])
-
-        return to_int(chunk_id_b, endian="little")
-
-    def get_chunk_ids_from_node_ids(self, node_ids):
-        """ Extracts z, y, x, l
-
-        :param node_ids: array of ints
-        :return: list of ints
-        """
-        b = np.unpackbits(np.frombuffer(node_ids, dtype=np.uint8).reshape(len(node_ids), -1), axis=-1)
-
-        layer_ids = np.unique(np.frombuffer(np.packbits(b[:, -self._n_bits_for_layer_id:], axis=-1), dtype=np.uint8))
-
-        assert len(layer_ids) == 1
-        layer_id = layer_ids[0]
-
-        bits_per_dim = self.bitmasks[layer_id]
-        chunk_ids_b = b[:, -(self._n_bits_for_layer_id + 3 * bits_per_dim):]
-
-        padded_chunk_ids_b = np.pad(chunk_ids_b, [[0, 0], [64 - chunk_ids_b.shape[1], 0]], mode="constant", constant_values=0)
-        return np.frombuffer(np.packbits(padded_chunk_ids_b, axis=-1), dtype=np.uint64)
 
     def read_row(self, node_id, key, idx=0, dtype=np.uint64,
                  get_time_stamp=False):
@@ -749,14 +573,14 @@ class ChunkedGraph(object):
 
         return True
 
-    def range_read_chunk(self, x, y, z, layer_id, n_retries=100,
+    def range_read_chunk(self, layer, x, y, z, n_retries=100,
                          row_keys=None, yield_rows=False):
         """ Reads all ids within a chunk
 
+        :param layer: int
         :param x: int
         :param y: int
         :param z: int
-        :param layer_id: int
         :param n_retries: int
         :param row_keys: list of str
             more efficient read through row filters
@@ -780,32 +604,27 @@ class ChunkedGraph(object):
         else:
             row_filter = None
 
-        bits_per_dim = self.bitmasks[layer_id]
-
-        chunk_id = self.get_chunk_id_from_coordinates(x, y, z, layer_id,
-                                                      bit_width=64)
-        chunk_id_b = to_bitstring(chunk_id)[- (bits_per_dim * 3 +
-                                               self._n_bits_for_layer_id):]
-
-        # Increae chunk id by 1 to surpass all ids in the chunk
-        chunk_id_b_inc = bitwise_inc(chunk_id_b, from_start=True)
+        chunk_id = self.get_chunk_id(layer=layer, x=x, y=y, z=z)
+        max_segment_id = self.get_segment_id_limit(chunk_id)
 
         # Define BigTable keys
-        start_key = serialize_node_id(chunk_id)
-        end_key = serialize_node_id(to_int(chunk_id_b_inc, endian="little"))
+        start_id = self.get_node_id(0, chunk_id=chunk_id)
+        end_id = self.get_node_id(max_segment_id, chunk_id=chunk_id)
 
         if yield_rows:
-            range_read_yield = self.table.yield_rows(start_key=start_key,
-                                                     end_key=end_key,
-                                                     filter_=row_filter)
+            range_read_yield = self.table.yield_rows(
+                start_key=serialize_node_id(start_id),
+                end_key=serialize_node_id(end_id),
+                filter_=row_filter)
             return range_read_yield
         else:
             # Set up read
-            range_read = self.table.read_rows(start_key=start_key,
-                                              end_key=end_key,
-                                              # allow_row_interleaving=True,
-                                              end_inclusive=False,
-                                              filter_=row_filter)
+            range_read = self.table.read_rows(
+                start_key=serialize_node_id(start_id),
+                end_key=serialize_node_id(end_id),
+                # allow_row_interleaving=True,
+                end_inclusive=False,
+                filter_=row_filter)
             range_read.consume_all()
             # Execute read
             consume_success = False
@@ -823,60 +642,9 @@ class ChunkedGraph(object):
             if not consume_success:
                 raise Exception("Unable to consume chunk range read: [%d, %d, %d], "
                                 "l = %d, n_retries = %d" %
-                                (x, y, z, layer_id, n_retries))
+                                (x, y, z, layer, n_retries))
 
             return range_read.rows
-
-    def range_read_chunk_iter(self, x, y, z, layer_id, n_retries=100):
-        """ Reads all ids within a chunk
-
-        :param x: int
-        :param y: int
-        :param z: int
-        :param layer_id: int
-        :param n_retries: int
-        :return: list or yield of rows
-        """
-        row_dict = {}
-
-        chunk_id = self.get_chunk_id_from_coordinates(x, y, z, layer_id,
-                                                      bit_width=64)
-
-        # Read counter
-        counter_row_key = serialize_key("i%d" % chunk_id)
-        row = self.table.read_row(counter_row_key)
-
-        if row is None:
-            return row_dict
-
-        if not serialize_key("counter") in row.cells:
-            return row_dict
-
-        chunk_counter = row.cells[self.family_id][serialize_key("counter")]
-
-        for i_node in range(1, chunk_counter + 1):
-            node_id = self.combine_node_id_chunk_id(i_node, chunk_id)
-            # Execute read
-            consume_success = False
-
-            # Retry reading if any of the writes failed
-            i_tries = 0
-            while not consume_success and i_tries < n_retries:
-                try:
-                    row_dict[node_id] = \
-                        self.table.read_row(serialize_node_id(node_id))
-                    consume_success = True
-                except:
-                    time.sleep(i_tries)
-                i_tries += 1
-
-            if not consume_success:
-                raise Exception(
-                    "Unable to consume chunk range read: [%d, %d, %d], "
-                    "l = %d, node_id = %d, n_retries = %d" %
-                    (x, y, z, layer_id, node_id, n_retries))
-
-        return row_dict
 
     # def range_read_layer(self, layer_id):
     #     """ Reads all ids within a layer
@@ -886,7 +654,7 @@ class ChunkedGraph(object):
     #     :param layer_id: int
     #     :return: list of rows
     #     """
-    #     chunk_id = self.get_chunk_id_from_coordinates(0, 0, 0, layer_id)
+    #     chunk_id = self.get_chunk_id(layer=layer_id, x=0, y=0, z=0)
     #
     #     if layer_id + 1 not in self.bitmasks:
     #         bits_per_dim = self.bitmasks[layer_id]
@@ -901,10 +669,10 @@ class ChunkedGraph(object):
     #         z_next = 0
     #         layer_id_next = layer_id + 1
     #
-    #     next_chunk_id = self.get_chunk_id_from_coordinates(x_next,
-    #                                                        y_next,
-    #                                                        z_next,
-    #                                                        layer_id_next)
+    #     next_chunk_id = self.get_chunk_id(layer=layer_id_next,
+    #                                       x=x_next,
+    #                                       y=y_next,
+    #                                       z=z_next)
     #
     #     print(chunk_id, next_chunk_id)
     #
@@ -929,9 +697,8 @@ class ChunkedGraph(object):
         :return: bool
         """
         assert len(node_ids) == 2
-
-        return self.get_chunk_id_from_node_id(node_ids[0], full=True) ==\
-               self.get_chunk_id_from_node_id(node_ids[1], full=True)
+        return self.get_chunk_id(node_id=node_ids[0]) == \
+            self.get_chunk_id(node_id=node_ids[1])
 
     def _create_split_log_row(self, operation_id, user_id, root_ids,
                               selected_atomic_ids, removed_edges, time_stamp):
@@ -1002,13 +769,13 @@ class ChunkedGraph(object):
 
         # Make parent id creation easier
         if edge_ids.size > 0:
-            chunk_id_c = self.get_coordinates_from_chunk_id(edge_ids[0, 0])
+            chunk_id_c = self.get_chunk_coordinates(edge_ids[0, 0])
         elif cross_edge_ids.size > 0:
-            chunk_id_c = self.get_coordinates_from_chunk_id(cross_edge_ids[0, 0])
+            chunk_id_c = self.get_chunk_coordinates(cross_edge_ids[0, 0])
         else:
-            chunk_id_c = self.get_coordinates_from_chunk_id(isolated_node_ids[0])
+            chunk_id_c = self.get_chunk_coordinates(isolated_node_ids[0])
 
-        parent_chunk_id = self.get_chunk_id_from_coordinates(chunk_id_c[0], chunk_id_c[1], chunk_id_c[2], 2)
+        parent_chunk_id = self.get_chunk_id(layer=2, x=chunk_id_c[0], y=chunk_id_c[1], z=chunk_id_c[2])
 
         # Get connected component within the chunk
         chunk_g = nx.from_edgelist(edge_ids)
@@ -1032,7 +799,7 @@ class ChunkedGraph(object):
             node_ids = np.array(list(cc))
 
             # Create parent id
-            parent_id = self.find_next_node_id(parent_chunk_id)
+            parent_id = self.get_unique_node_id(parent_chunk_id)
             parent_id_b = np.array(parent_id, dtype=np.uint64).tobytes()
 
             parent_cross_edges = np.array([], dtype=np.uint64).reshape(0, 2)
@@ -1120,7 +887,7 @@ class ChunkedGraph(object):
 
                     node_ids = np.array(list(cc))
 
-                    parent_id = self.find_next_node_id(chunk_id)
+                    parent_id = self.get_unique_node_id(chunk_id)
                     parent_id_b = np.array(parent_id, dtype=np.uint64).tobytes()
 
                     parent_cross_edges = np.array([], dtype=np.uint64).reshape(0, 2)
@@ -1172,7 +939,7 @@ class ChunkedGraph(object):
             # Get start and end key
             x, y, z = chunk_coord
 
-            range_read = self.range_read_chunk(x, y, z, layer_id-1,
+            range_read = self.range_read_chunk(layer_id - 1, x, y, z,
                                                row_keys=["atomic_cross_edges"],
                                                yield_rows=False)
 
@@ -1218,9 +985,8 @@ class ChunkedGraph(object):
         # BigTable and updates the childs
 
         # Make parent id creation easier
-        chunk_id_dim_step = int(self.fan_out ** np.max([0, layer_id - 2]))
-        x, y, z = (np.min(child_chunk_coords, axis=0) // chunk_id_dim_step) * chunk_id_dim_step
-        chunk_id = self.get_chunk_id_from_coordinates(x, y, z, layer_id)
+        x, y, z = np.min(child_chunk_coords, axis=0) // self.fan_out
+        chunk_id = self.get_chunk_id(layer=layer_id, x=x, y=y, z=z)
 
         # Extract connected components
         chunk_g = nx.from_edgelist(edge_ids)
@@ -1690,7 +1456,7 @@ class ChunkedGraph(object):
 
                 if bounding_box is not None:
                     chunk_ids = self.get_chunk_ids_from_node_ids(_children)
-                    chunk_ids = np.array([self.get_coordinates_from_chunk_id(c)
+                    chunk_ids = np.array([self.get_chunk_coordinates(c)
                                           for c in chunk_ids])
                     chunk_ids = np.array(chunk_ids)
 
@@ -1732,7 +1498,7 @@ class ChunkedGraph(object):
         time_start = time.time()
         while len(child_ids) > 0:
             new_childs = []
-            layer = self.get_chunk_id_from_node_id(child_ids[0])[0]
+            layer = self.get_chunk_layer(child_ids[0])
 
             if stop_lvl == layer:
                 atomic_ids = child_ids
@@ -1939,7 +1705,7 @@ class ChunkedGraph(object):
         """
 
         # Get a unique id for this operation
-        operation_id = self.find_next_operation_id()
+        operation_id = self.get_unique_operation_id()
 
         # Lookup root ids
         if root_ids is None:
@@ -2019,9 +1785,10 @@ class ChunkedGraph(object):
 
         # Find a new node id and update all children
         # circumvented_nodes = current_parent_ids.copy()
-        # chunk_id = self.get_chunk_id_from_node_id(original_parent_ids[merge_layer][0], full=True)
+        # chunk_id = self.get_chunk_id(node_id=original_parent_ids[merge_layer][0])
 
-        new_parent_id = self.find_next_node_id(original_parent_ids[merge_layer][0])
+        new_parent_id = self.get_unique_node_id(
+            self.get_chunk_id(node_id=original_parent_ids[merge_layer][0]))
         new_parent_id_b = np.array(new_parent_id).tobytes()
         current_node_id = None
 
@@ -2057,9 +1824,10 @@ class ChunkedGraph(object):
             current_node_id = new_parent_id  # Store for later
 
             if i_layer < len(original_parent_ids) - 1:
-                # chunk_id = self.get_chunk_id_from_node_id(original_parent_ids[i_layer + 1][0], full=True)
+                # chunk_id = self.get_chunk_id(node_id=original_parent_ids[i_layer + 1][0])
 
-                new_parent_id = self.find_next_node_id(original_parent_ids[i_layer + 1][0])
+                new_parent_id = self.get_unique_node_id(
+                    self.get_chunk_id(node_id=original_parent_ids[i_layer + 1][0]))
                 new_parent_id_b = np.array(new_parent_id).tobytes()
 
                 val_dict["parents"] = new_parent_id_b
@@ -2132,7 +1900,7 @@ class ChunkedGraph(object):
         """
 
         # Get a unique id for this operation
-        operation_id = self.find_next_operation_id()
+        operation_id = self.get_unique_operation_id()
 
         if mincut:
             assert source_coord is not None
@@ -2366,7 +2134,7 @@ class ChunkedGraph(object):
             # connected components in higher layers.
 
             cross_edge_mask = self.get_chunk_ids_from_node_ids(np.ascontiguousarray(edges[:, 1])) != \
-                              self.get_chunk_id_from_node_id(node_id, full=True)
+                              self.get_chunk_id(node_id=node_id)
 
             cross_edges = edges[cross_edge_mask]
             edges = edges[~cross_edge_mask]
@@ -2384,7 +2152,7 @@ class ChunkedGraph(object):
                                                      cc_node_ids)]
 
                 # Get a new parent id
-                new_parent_id = self.find_next_node_id(old_parent_id)
+                new_parent_id = self.get_unique_node_id(self.get_chunk_id(node_id=old_parent_id))
                 new_parent_id_b = np.array(new_parent_id).tobytes()
                 new_parent_id = new_parent_id
 
@@ -2543,7 +2311,7 @@ class ChunkedGraph(object):
                     cc_cross_edges = np.concatenate([cc_cross_edges,
                                                      leftover_edges[parent_id]])
 
-                new_parent_id = self.find_next_node_id(old_next_layer_parent)
+                new_parent_id = self.get_unique_node_id(self.get_chunk_id(node_id=old_next_layer_parent))
                 new_parent_id_b = np.array(new_parent_id).tobytes()
                 new_parent_id = new_parent_id
 
