@@ -678,10 +678,31 @@ class TestGraphSimpleQueries:
         assert cgraph.get_children(to_label(cgraph, 1, 1, 0, 0, 1)) == []
         assert cgraph.get_children(to_label(cgraph, 1, 2, 0, 0, 0)) == []
 
-        assert cgraph.get_children(to_label(cgraph, 2, 0, 0, 0, 1)) == [to_label(cgraph, 1, 0, 0, 0, 0)]
-        assert cgraph.get_children(to_label(cgraph, 2, 1, 0, 0, 1)) == [to_label(cgraph, 1, 1, 0, 0, 0)]
-        assert cgraph.get_children(to_label(cgraph, 2, 1, 0, 0, 2)) == [to_label(cgraph, 1, 1, 0, 0, 1)]
-        assert cgraph.get_children(to_label(cgraph, 2, 2, 0, 0, 1)) == [to_label(cgraph, 1, 2, 0, 0, 0)]
+        children = cgraph.get_children(to_label(cgraph, 2, 0, 0, 0, 1))
+        assert len(children) == 1 and to_label(cgraph, 1, 0, 0, 0, 0) in children
+
+        children = cgraph.get_children(to_label(cgraph, 2, 1, 0, 0, 1))
+        assert len(children) == 2 and to_label(cgraph, 1, 1, 0, 0, 0) in children and \
+            to_label(cgraph, 1, 1, 0, 0, 1) in children
+
+        children = cgraph.get_children(to_label(cgraph, 2, 2, 0, 0, 1))
+        assert len(children) == 1 and to_label(cgraph, 1, 2, 0, 0, 0) in children
+
+        children = cgraph.get_children(to_label(cgraph, 3, 0, 0, 0, 1))
+        assert len(children) == 1 and to_label(cgraph, 2, 0, 0, 0, 1) in children
+
+        children = cgraph.get_children(to_label(cgraph, 3, 0, 0, 0, 2))
+        assert len(children) == 1 and to_label(cgraph, 2, 1, 0, 0, 1) in children
+
+        children = cgraph.get_children(to_label(cgraph, 3, 1, 0, 0, 1))
+        assert len(children) == 1 and to_label(cgraph, 2, 2, 0, 0, 1) in children
+
+        children = cgraph.get_children(to_label(cgraph, 4, 0, 0, 0, 1))
+        assert len(children) == 1 and to_label(cgraph, 3, 0, 0, 0, 1) in children
+
+        children = cgraph.get_children(to_label(cgraph, 4, 0, 0, 0, 2))
+        assert len(children) == 2 and to_label(cgraph, 3, 0, 0, 0, 2) in children and \
+            to_label(cgraph, 3, 1, 0, 0, 1) in children
 
     @pytest.mark.timeout(30)
     def test_get_subgraph(self, gen_graph_simplequerytest):
