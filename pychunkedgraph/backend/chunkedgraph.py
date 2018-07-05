@@ -13,12 +13,15 @@ from . import multiprocessing_utils as mu
 from google.api_core.retry import Retry, if_exception_type
 from google.api_core.exceptions import Aborted, DeadlineExceeded, \
     ServiceUnavailable
+from google.auth import credentials
 from google.cloud import bigtable
 from google.cloud.bigtable.row_filters import TimestampRange, \
     TimestampRangeFilter, ColumnRangeFilter, ValueRangeFilter, RowFilterChain, \
     ColumnQualifierRegexFilter, RowFilterUnion, ConditionalRowFilter, \
     PassAllFilter, BlockAllFilter
 from google.cloud.bigtable.column_family import MaxVersionsGCRule
+
+from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple, Union
 
 # global variables
 HOME = os.path.expanduser("~")
@@ -47,10 +50,10 @@ def log_n(arr, n):
         return np.log(arr) / np.log(n)
 
 
-def get_clean_cg_object(table_id, n_layers, fan_out,
-                        instance_id="pychunkedgraph",
-                        project_id="neuromancer-seung-import",
-                        chunk_size=(512, 512, 64)):
+def get_clean_cg_object(table_id: str, n_layers: int, fan_out: int,
+                        instance_id: str = "pychunkedgraph",
+                        project_id: str = "neuromancer-seung-import",
+                        chunk_size: Tuple[int, int, int] = (512, 512, 64)) -> 'ChunkedGraph':
     """ Creates clean chunkedgraph object
 
     deletes old table and creates new one
@@ -78,34 +81,34 @@ def get_clean_cg_object(table_id, n_layers, fan_out,
     return cg
 
 
-def serialize_node_id(node_id):
+def serialize_node_id(node_id: np.uint64) -> bytes:
     """ Serializes an id to be ingested by a bigtable table row
 
     :param node_id: int
     :return: str
     """
-    return serialize_key("%.20d" % node_id)
+    return serialize_key("%.20d" % node_id)  # type: ignore
 
 
-def deserialize_node_id(node_id):
+def deserialize_node_id(node_id: bytes) -> np.uint64:
     """ De-serializes a node id from a BigTable row
 
-    :param node_id: int
-    :return: str
+    :param node_id: bytes
+    :return: np.uint64
     """
-    return int(node_id.decode())
+    return np.uint64(node_id.decode())  # type: ignore
 
 
-def serialize_key(key):
+def serialize_key(key: str) -> bytes:
     """ Serializes a key to be ingested by a bigtable table row
 
     :param key: str
-    :return: str
+    :return: bytes
     """
     return key.encode("utf-8")
 
 
-def compute_bitmasks(n_layers, fan_out):
+def compute_bitmasks(n_layers: int, fan_out: int) -> Dict[int, int]:
     """
 
     :param n_layers: int
@@ -134,7 +137,8 @@ def compute_bitmasks(n_layers, fan_out):
     return bitmask_dict
 
 
-def mincut(edges, affs, source, sink):
+def mincut(edges: Iterable[Sequence[np.uint64]], affs: Sequence[np.uint64],
+           source: np.uint64, sink: np.uint64) -> np.ndarray:
     """ Computes the min cut on a local graph
 
     :param edges: n x 2 array of uint64s
@@ -179,10 +183,15 @@ def mincut(edges, affs, source, sink):
 
 
 class ChunkedGraph(object):
-    def __init__(self, table_id, instance_id="pychunkedgraph",
-                 project_id="neuromancer-seung-import",
-                 chunk_size=(512, 512, 64), fan_out=None, n_layers=None,
-                 credentials=None, is_new=False):
+    def __init__(self,
+                 table_id: str,
+                 instance_id: str = "pychunkedgraph",
+                 project_id: str = "neuromancer-seung-import",
+                 chunk_size: Tuple[int, int, int] = (512, 512, 64),
+                 fan_out: Optional[int] = None,
+                 n_layers: Optional[int] = None,
+                 credentials: Optional[credentials.Credentials] = None,
+                 is_new: bool = False) -> None:
 
         self._client = bigtable.Client(project=project_id, admin=True,
                                        credentials=credentials)
@@ -204,46 +213,46 @@ class ChunkedGraph(object):
         self._n_bits_for_layer_id = 8
 
     @property
-    def client(self):
+    def client(self) -> bigtable.Client:
         return self._client
 
     @property
-    def instance(self):
+    def instance(self) -> bigtable.instance.Instance:
         return self._instance
 
     @property
-    def table(self):
+    def table(self) -> bigtable.table.Table:
         return self._table
 
     @property
-    def table_id(self):
+    def table_id(self) -> str:
         return self._table_id
 
     @property
-    def family_id(self):
+    def family_id(self) -> str:
         return "0"
 
     @property
-    def incrementer_family_id(self):
+    def incrementer_family_id(self) -> str:
         return "1"
 
     @property
-    def fan_out(self):
+    def fan_out(self) -> int:
         return self._fan_out
 
     @property
-    def chunk_size(self):
+    def chunk_size(self) -> np.ndarray:
         return self._chunk_size
 
     @property
-    def n_layers(self):
+    def n_layers(self) -> int:
         return self._n_layers
 
     @property
-    def bitmasks(self):
+    def bitmasks(self) -> Dict[int, int]:
         return self._bitmasks
 
-    def check_and_create_table(self):
+    def check_and_create_table(self) -> None:
         """ Checks if table exists and creates new one if necessary """
         table_ids = [t.table_id for t in self.instance.list_tables()]
 
@@ -258,15 +267,16 @@ class ChunkedGraph(object):
 
             print("Table created")
 
-    def check_and_write_table_parameters(self, param_key, value=None):
+    def check_and_write_table_parameters(self, param_key: str,
+                                         value: Optional[np.uint64] = None) -> np.uint64:
         """ Checks if a parameter already exists in the table. If it already
         exists it returns the stored value, else it stores the given value. It
         raises an exception if no value is passed and the parameter does not
         exist, yet.
 
         :param param_key: str
-        :param value: uint64
-        :return: uint64
+        :param value: np.uint64
+        :return: np.uint64
             value
         """
         ser_param_key = serialize_key(param_key)
@@ -286,11 +296,11 @@ class ChunkedGraph(object):
 
         return value
 
-    def get_cg_id_from_rg_id(self, atomic_id):
+    def get_cg_id_from_rg_id(self, atomic_id: np.uint64) -> np.uint64:
         """ Extracts ChunkedGraph id from RegionGraph id
 
-        :param atomic_id: int
-        :return: int
+        :param atomic_id: np.uint64
+        :return: np.uint64
         """
         # There might be multiple chunk ids for a single rag id because
         # rag supervoxels get split at chunk boundaries. Here, only one
@@ -301,26 +311,26 @@ class ChunkedGraph(object):
         return np.frombuffer(r.cells[self.family_id][serialize_key("cg_id")][0].value,
                              dtype=np.uint64)[0]
 
-    def get_rg_id_from_cg_id(self, atomic_id):
+    def get_rg_id_from_cg_id(self, atomic_id: np.uint64) -> np.uint64:
         """ Extracts RegionGraph id from ChunkedGraph id
 
-        :param atomic_id: int
-        :return: int
+        :param atomic_id: np.uint64
+        :return: np.uint64
         """
         return self.read_row(atomic_id, "rg_id")[0]
 
-    def get_chunk_layer(self, node_or_chunk_id):
+    def get_chunk_layer(self, node_or_chunk_id: np.uint64) -> int:
         """ Extract Layer from Node ID or Chunk ID
 
-        :param node_or_chunk_id: int
+        :param node_or_chunk_id: np.uint64
         :return: int
         """
         return int(node_or_chunk_id) >> 64 - self._n_bits_for_layer_id
 
-    def get_chunk_coordinates(self, node_or_chunk_id):
+    def get_chunk_coordinates(self, node_or_chunk_id: np.uint64) -> Tuple[int, int, int]:
         """ Extract X, Y and Z coordinate from Node ID or Chunk ID
 
-        :param node_or_chunk_id: int
+        :param node_or_chunk_id: np.uint64
         :return: Tuple(int, int, int)
         """
         layer = self.get_chunk_layer(node_or_chunk_id)
@@ -335,16 +345,20 @@ class ChunkedGraph(object):
         z = int(node_or_chunk_id) >> z_offset & 2 ** bits_per_dim - 1
         return x, y, z
 
-    def get_chunk_id(self, node_id=None, layer=None, x=None, y=None, z=None):
+    def get_chunk_id(self, node_id: Optional[np.uint64] = None,
+                     layer: Optional[int] = None,
+                     x: Optional[int] = None,
+                     y: Optional[int] = None,
+                     z: Optional[int] = None) -> np.uint64:
         """ (1) Extract Chunk ID from Node ID
             (2) Build Chunk ID from Layer, X, Y and Z components
 
-        :param node_id: int
+        :param node_id: np.uint64
         :param layer: int
         :param x: int
         :param y: int
         :param z: int
-        :return: int
+        :return: np.uint64
         """
         assert node_id is not None or all(v is not None for v in [layer, x, y, z])
 
@@ -354,19 +368,19 @@ class ChunkedGraph(object):
 
         if node_id is not None:
             chunk_offset = 64 - self._n_bits_for_layer_id - 3 * bits_per_dim
-            return (int(node_id) >> chunk_offset) << chunk_offset
+            return np.uint64((int(node_id) >> chunk_offset) << chunk_offset)
         else:
             layer_offset = 64 - self._n_bits_for_layer_id
             x_offset = layer_offset - bits_per_dim
             y_offset = x_offset - bits_per_dim
             z_offset = y_offset - bits_per_dim
-            return layer << layer_offset | x << x_offset | y << y_offset | z << z_offset
+            return np.uint64(layer << layer_offset | x << x_offset | y << y_offset | z << z_offset)
 
-    def get_chunk_ids_from_node_ids(self, node_ids):
+    def get_chunk_ids_from_node_ids(self, node_ids: Iterable[np.uint64]) -> np.ndarray:
         """ Extract a list of Chunk IDs from a list of Node IDs
 
-        :param node_ids: array-like int
-        :return: np.array of np.uint64
+        :param node_ids: np.ndarray(dtype=np.uint64)
+        :return: np.ndarray(dtype=np.uint64)
         """
 
         return np.array(list(map(lambda x: self.get_chunk_id(node_id=x), node_ids)), dtype=np.uint64)
@@ -384,38 +398,43 @@ class ChunkedGraph(object):
         # padded_chunk_ids_b = np.pad(chunk_ids_b, [[0, 0], [64 - chunk_ids_b.shape[1], 0]], mode="constant", constant_values=0)
         # return np.frombuffer(np.packbits(padded_chunk_ids_b, axis=-1), dtype=np.uint64)
 
-    def get_segment_id_limit(self, node_or_chunk_id):
+    def get_segment_id_limit(self, node_or_chunk_id: np.uint64) -> np.uint64:
         """ Get maximum possible Segment ID for given Node ID or Chunk ID
 
-        :param node_or_chunk_id: int
-        :return: int
+        :param node_or_chunk_id: np.uint64
+        :return: np.uint64
         """
 
         layer = self.get_chunk_layer(node_or_chunk_id)
         bits_per_dim = self.bitmasks[layer]
         chunk_offset = 64 - self._n_bits_for_layer_id - 3 * bits_per_dim
-        return 2 ** chunk_offset - 1
+        return np.uint64(2 ** chunk_offset - 1)
 
-    def get_segment_id(self, node_id):
+    def get_segment_id(self, node_id: np.uint64) -> np.uint64:
         """ Extract Segment ID from Node ID
 
-        :param node_id: int
-        :return: int
+        :param node_id: np.uint64
+        :return: np.uint64
         """
 
         return node_id & self.get_segment_id_limit(node_id)
 
-    def get_node_id(self, segment_id, chunk_id=None, layer=None, x=None, y=None, z=None):
+    def get_node_id(self, segment_id: np.uint64,
+                    chunk_id: Optional[np.uint64] = None,
+                    layer: Optional[int] = None,
+                    x: Optional[int] = None,
+                    y: Optional[int] = None,
+                    z: Optional[int] = None) -> np.uint64:
         """ (1) Build Node ID from Segment ID and Chunk ID
             (2) Build Node ID from Segment ID, Layer, X, Y and Z components
 
-        :param segment_id: int
-        :param chunk_id: int
+        :param segment_id: np.uint64
+        :param chunk_id: np.uint64
         :param layer: int
         :param x: int
         :param y: int
         :param z: int
-        :return: int
+        :return: np.uint64
         """
 
         if chunk_id is not None:
@@ -423,13 +442,13 @@ class ChunkedGraph(object):
         else:
             return self.get_chunk_id(layer=layer, x=x, y=y, z=z) | segment_id
 
-    def get_unique_node_id(self, chunk_id):
+    def get_unique_node_id(self, chunk_id: np.uint64) -> np.uint64:
         """ Return unique Node ID for given Chunk ID
 
         atomic counter
 
-        :param chunk_id: int
-        :return: uint64
+        :param chunk_id: np.uint64
+        :return: np.uint64
         """
 
         # Incrementer row keys start with an "i" followed by the chunk id
@@ -441,9 +460,9 @@ class ChunkedGraph(object):
         latest_row = append_row.commit()
         segment_id = int.from_bytes(latest_row[self.incrementer_family_id][serialize_key('counter')][0][0], byteorder="big")
 
-        return self.get_node_id(segment_id=segment_id, chunk_id=chunk_id)
+        return self.get_node_id(np.uint64(segment_id), chunk_id=chunk_id)
 
-    def get_unique_operation_id(self):
+    def get_unique_operation_id(self) -> str:
         """ Finds a unique operation id
 
         atomic counter
@@ -464,8 +483,8 @@ class ChunkedGraph(object):
 
         return operation_id
 
-    def read_row(self, node_id, key, idx=0, dtype=np.uint64,
-                 get_time_stamp=False):
+    def read_row(self, node_id: np.uint64, key: str, idx: int = 0, dtype: type = np.uint64,
+                 get_time_stamp: bool = False) -> Any:
         """ Reads row from BigTable and takes care of serializations
 
         :param node_id: uint64
@@ -479,9 +498,6 @@ class ChunkedGraph(object):
 
         row = self.table.read_row(serialize_node_id(node_id),
                                   filter_=ColumnQualifierRegexFilter(key))
-
-        if row is None:
-            return None
 
         if key not in row.cells[self.family_id]:
             return None
@@ -513,7 +529,8 @@ class ChunkedGraph(object):
     #
     #     return results
 
-    def mutate_row(self, row_key, column_family_id, val_dict, time_stamp=None):
+    def mutate_row(self, row_key: bytes, column_family_id: str, val_dict: dict,
+                   time_stamp: Optional[datetime.datetime] = None) -> bigtable.row.Row:
         """ Mutates a single row
 
         :param row_key: serialized bigtable row key
@@ -530,8 +547,10 @@ class ChunkedGraph(object):
                          value=value, timestamp=time_stamp)
         return row
 
-    def bulk_write(self, rows, root_ids=None, operation_id=None,
-                   slow_retry=True):
+    def bulk_write(self, rows: Iterable[bigtable.row.DirectRow],
+                   root_ids: Optional[Union[np.uint64, Iterable[np.uint64]]] = None,
+                   operation_id: Optional[str] = None,
+                   slow_retry: bool = True) -> bool:
         """ Writes a list of mutated rows in bulk
 
         WARNING: If <rows> contains the same row (same row_key) and column
@@ -576,8 +595,11 @@ class ChunkedGraph(object):
 
         return True
 
-    def range_read_chunk(self, layer, x, y, z, n_retries=100,
-                         row_keys=None, yield_rows=False):
+    def range_read_chunk(self, layer: int, x: int, y: int, z: int, n_retries: int = 100,
+                         row_keys: Optional[Iterable[str]] = None,
+                         yield_rows: bool = False) -> Union[
+                                bigtable.row_data.PartialRowData,
+                                Dict[bytes, bigtable.row_data.PartialRowData]]:
         """ Reads all ids within a chunk
 
         :param layer: int
@@ -611,7 +633,7 @@ class ChunkedGraph(object):
         max_segment_id = self.get_segment_id_limit(chunk_id)
 
         # Define BigTable keys
-        start_id = self.get_node_id(0, chunk_id=chunk_id)
+        start_id = self.get_node_id(np.uint64(0), chunk_id=chunk_id)
         end_id = self.get_node_id(max_segment_id, chunk_id=chunk_id)
 
         if yield_rows:
@@ -693,7 +715,7 @@ class ChunkedGraph(object):
     #
     #     return range_read.rows
 
-    def test_if_nodes_are_in_same_chunk(self, node_ids):
+    def test_if_nodes_are_in_same_chunk(self, node_ids: Sequence[np.uint64]) -> bool:
         """ Test whether two nodes are in the same chunk
 
         :param node_ids: list of two ints
@@ -703,8 +725,10 @@ class ChunkedGraph(object):
         return self.get_chunk_id(node_id=node_ids[0]) == \
             self.get_chunk_id(node_id=node_ids[1])
 
-    def _create_split_log_row(self, operation_id, user_id, root_ids,
-                              selected_atomic_ids, removed_edges, time_stamp):
+    def _create_split_log_row(self, operation_id: str, user_id: str, root_ids: Sequence[np.uint64],
+                              selected_atomic_ids: Sequence[np.uint64],
+                              removed_edges: Sequence[np.uint64],
+                              time_stamp: datetime.datetime) -> bigtable.row.Row:
         val_dict = {serialize_key("user"): serialize_key(user_id),
                     serialize_key("roots"): np.array(root_ids, dtype=np.uint64).tobytes(),
                     serialize_key("atomic_ids"): np.array(selected_atomic_ids).tobytes(),
@@ -715,8 +739,9 @@ class ChunkedGraph(object):
 
         return row
 
-    def _create_merge_log_row(self, operation_id, user_id, root_ids,
-                              selected_atomic_ids, time_stamp):
+    def _create_merge_log_row(self, operation_id: str, user_id: str, root_ids: Sequence[np.uint64],
+                              selected_atomic_ids: Sequence[np.uint64],
+                              time_stamp: datetime.datetime) -> bigtable.row.Row:
 
         val_dict = {serialize_key("user"): serialize_key(user_id),
                     serialize_key("roots"): np.array(root_ids, dtype=np.uint64).tobytes(),
@@ -727,10 +752,15 @@ class ChunkedGraph(object):
 
         return row
 
-    def add_atomic_edges_in_chunks(self, edge_ids, cross_edge_ids, edge_affs,
-                                   cross_edge_affs, isolated_node_ids,
-                                   cg2rg_dict, rg2cg_dict,
-                                   verbose=False, time_stamp=None):
+    def add_atomic_edges_in_chunks(self, edge_ids: np.ndarray,
+                                   cross_edge_ids: np.ndarray,
+                                   edge_affs: Sequence[np.float32],
+                                   cross_edge_affs: Sequence[np.float32],
+                                   isolated_node_ids: Sequence[np.uint64],
+                                   cg2rg_dict: Mapping[np.uint64, np.uint64],
+                                   rg2cg_dict: Mapping[np.uint64, np.uint64],
+                                   verbose: bool = False,
+                                   time_stamp: Optional[datetime.datetime] = None):
         """ Creates atomic nodes in first abstraction layer for a SINGLE chunk
 
         Alle edges (edge_ids) need to be from one chunk and no nodes should
@@ -857,8 +887,9 @@ class ChunkedGraph(object):
             except:
                 print("WARNING: NOTHING HAPPENED")
 
-    def add_layer(self, layer_id, child_chunk_coords, time_stamp=None,
-                  n_threads=20):
+    def add_layer(self, layer_id: int, child_chunk_coords: Sequence[Sequence[int]],
+                  time_stamp: Optional[datetime.datetime] = None,
+                  n_threads: int = 20) -> None:
         """ Creates the abstract nodes for a given chunk in a given layer
 
         :param layer_id: int
@@ -867,7 +898,7 @@ class ChunkedGraph(object):
         :param time_stamp: datetime
         :param n_threads: int
         """
-        def _resolve_cross_chunk_edges_thread(args):
+        def _resolve_cross_chunk_edges_thread(args) -> None:
             start, end = args
             for i_child_key, child_key in enumerate(atomic_partner_id_dict_keys[start: end]):
                 this_atomic_partner_ids = atomic_partner_id_dict[child_key]
@@ -883,7 +914,7 @@ class ChunkedGraph(object):
                     these_edges = np.concatenate([np.array([child_key] * len(partners), dtype=np.uint64)[:, None], partners[:, None]], axis=1)
                     edge_ids.extend(these_edges)
 
-        def _write_out_connected_components(args):
+        def _write_out_connected_components(args) -> None:
             start, end = args
             for i_cc, cc in enumerate(ccs[start: end]):
                     rows = []
@@ -1016,8 +1047,9 @@ class ChunkedGraph(object):
 
         print("Time connected components: %.3fs" % (time.time() - time_start))
 
-    def get_parent(self, node_id, get_only_relevant_parent=True,
-                   time_stamp=None):
+    def get_parent(self, node_id: np.uint64, get_only_relevant_parent: bool = True,
+                   time_stamp: Optional[datetime.datetime] = None) -> Union[
+                       List[Tuple[np.uint64, datetime.datetime]], np.uint64, None]:
         """ Acquires parent of a node at a specific time stamp
 
         :param node_id: uint64
@@ -1048,8 +1080,8 @@ class ChunkedGraph(object):
                     else:
                         return np.frombuffer(parent_entry.value, dtype=np.uint64)[0]
                 else:
-                    all_parents.append([np.frombuffer(parent_entry.value, dtype=np.uint64)[0],
-                                        parent_entry.timestamp])
+                    all_parents.append((np.frombuffer(parent_entry.value, dtype=np.uint64)[0],
+                                        parent_entry.timestamp))
         else:
             return None
 
@@ -1059,24 +1091,24 @@ class ChunkedGraph(object):
         else:
             return all_parents
 
-    def get_children(self, node_id):
+    def get_children(self, node_id: np.uint64) -> np.ndarray:
         """ Returns all children of a node
 
-        :param node_id: uint64
-        :return: list of uint64
+        :param node_id: np.uint64
+        :return: np.ndarray[np.uint64]
         """
-        children = self.read_row(node_id, "children", dtype=np.uint64)
-        return children if children is not None else []
+        return self.read_row(node_id, "children", dtype=np.uint64)
 
-    def get_root(self, atomic_id, collect_all_parents=False,
-                 time_stamp=None, is_cg_id=True):
+    def get_root(self, atomic_id: np.uint64, collect_all_parents: bool = False,
+                 time_stamp: Optional[datetime.datetime] = None,
+                 is_cg_id: bool = True) -> Union[List[np.uint64], np.uint64]:
         """ Takes an atomic id and returns the associated agglomeration ids
 
-        :param atomic_id: int
+        :param atomic_id: np.uint64
         :param collect_all_parents: bool
         :param time_stamp: None or datetime
         :param is_cg_id: bool
-        :return: int
+        :return: np.uint64
         """
         if time_stamp is None:
             time_stamp = datetime.datetime.now()
@@ -1091,7 +1123,7 @@ class ChunkedGraph(object):
             atomic_id = self.get_cg_id_from_rg_id(atomic_id)
 
         early_finish = True
-        parent_ids = []
+        parent_ids: List[np.uint64] = []
         while early_finish:
             parent_id = atomic_id
             parent_ids = []
@@ -1099,7 +1131,7 @@ class ChunkedGraph(object):
             early_finish = False
 
             for i_layer in range(2, int(self.n_layers)+1):
-                temp_parent_id = self.get_parent(parent_id, time_stamp)
+                temp_parent_id = self.get_parent(parent_id, time_stamp=time_stamp)
 
                 if temp_parent_id is None:
                     early_finish = True
@@ -1114,8 +1146,8 @@ class ChunkedGraph(object):
         else:
             return parent_ids[-1]
 
-    def lock_root_loop(self, root_ids, operation_id, max_tries=1,
-                       waittime_s=0.5):
+    def lock_root_loop(self, root_ids: Sequence[np.uint64], operation_id: str,
+                       max_tries: int = 1, waittime_s: float = 0.5) -> Tuple[bool, np.ndarray]:
         """ Attempts to lock multiple roots at the same time
 
         :param root_ids: list of uint64
@@ -1131,7 +1163,7 @@ class ChunkedGraph(object):
             lock_acquired = False
 
             # Collect latest root ids
-            new_root_ids = []
+            new_root_ids: List[np.uint64] = []
             for i_root_id in range(len(root_ids)):
                 latest_root_ids = self.get_latest_root_id(root_ids[i_root_id])
 
@@ -1160,7 +1192,7 @@ class ChunkedGraph(object):
 
         return False, root_ids
 
-    def lock_single_root(self, root_id, operation_id):
+    def lock_single_root(self, root_id: np.uint64, operation_id: str) -> bool:
         """ Attempts to lock the latest version of a root node
 
         :param root_id: uint64
@@ -1217,13 +1249,13 @@ class ChunkedGraph(object):
 
         return lock_acquired
 
-    def unlock_root(self, root_id, operation_id):
+    def unlock_root(self, root_id: np.uint64, operation_id: str) -> bool:
         """ Unlocks a root
 
         This is mainly used for cases where multiple roots need to be locked and
         locking was not sucessful for all of them
 
-        :param root_id: uint64
+        :param root_id: np.uint64
         :param operation_id: str
             an id that is unique to the process asking to lock the root node
         :return: bool
@@ -1270,7 +1302,7 @@ class ChunkedGraph(object):
 
         root_row.commit()
 
-    def check_and_renew_root_locks(self, root_ids, operation_id):
+    def check_and_renew_root_locks(self, root_ids: Iterable[np.uint64], operation_id: str) -> bool:
         """ Tests if the roots are locked with the provided operation_id and
         renews the lock to reset the time_stam
 
@@ -1289,7 +1321,7 @@ class ChunkedGraph(object):
 
         return True
 
-    def check_and_renew_root_lock_single(self, root_id, operation_id):
+    def check_and_renew_root_lock_single(self, root_id: np.uint64, operation_id: str) -> bool:
         """ Tests if the root is locked with the provided operation_id and
         renews the lock to reset the time_stam
 
@@ -1346,7 +1378,7 @@ class ChunkedGraph(object):
 
         return lock_acquired
 
-    def get_latest_root_id(self, root_id):
+    def get_latest_root_id(self, root_id: np.uint64) -> np.ndarray:
         """ Returns the latest root id associated with the provided root id
 
         :param root_id: uint64
@@ -1371,10 +1403,11 @@ class ChunkedGraph(object):
 
         return np.unique(latest_root_ids)
 
-    def read_agglomeration_id_history(self, agglomeration_id, time_stamp=None):
+    def read_agglomeration_id_history(self, agglomeration_id: np.uint64,
+                                      time_stamp: Optional[datetime.datetime] = None) -> np.ndarray:
         """ Returns all agglomeration ids agglomeration_id was part of
 
-        :param agglomeration_id: int
+        :param agglomeration_id: np.uint64
         :param time_stamp: None or datetime
             restrict search to ids created after this time_stamp
             None=search whole history
@@ -1422,9 +1455,11 @@ class ChunkedGraph(object):
 
         return np.unique(id_history)
 
-    def get_subgraph(self, agglomeration_id, bounding_box=None,
-                     bb_is_coordinate=False,
-                     stop_lvl=1, return_rg_ids=False, get_edges=False):
+    def get_subgraph(self, agglomeration_id: np.uint64,
+                     bounding_box: Optional[Sequence[Sequence[int]]] = None,
+                     bb_is_coordinate: bool = False, stop_lvl: int = 1,
+                     return_rg_ids: bool = False, get_edges: bool = False) -> Union[
+                         Tuple[np.ndarray, np.ndarray], np.ndarray]:
         """ Returns all edges between supervoxels belonging to the specified
             agglomeration id within the defined bouning box
 
@@ -1438,7 +1473,8 @@ class ChunkedGraph(object):
         :return: edge list
         """
         # Helper functions for multithreading
-        def _handle_subgraph_children_layer2_edges_thread(child_ids):
+        def _handle_subgraph_children_layer2_edges_thread(child_ids: Iterable[np.uint64]) -> Tuple[
+                List[np.ndarray], List[np.float32]]:
             _edges = []
             _affinities = []
             for child_id in child_ids:
@@ -1448,13 +1484,13 @@ class ChunkedGraph(object):
                 _affinities.extend(this_affinities)
             return _edges, _affinities
 
-        def _handle_subgraph_children_layer2_thread(child_ids):
+        def _handle_subgraph_children_layer2_thread(child_ids: Iterable[np.uint64]) -> None:
             # _atomic_ids = []
             for child_id in child_ids:
                 atomic_ids.extend(self.get_children(child_id))
             # return _atomic_ids
 
-        def _handle_subgraph_children_higher_layers_thread(child_ids):
+        def _handle_subgraph_children_higher_layers_thread(child_ids: Iterable[np.uint64]) -> None:
             for child_id in child_ids:
                 _children = self.get_children(child_id)
 
@@ -1562,10 +1598,12 @@ class ChunkedGraph(object):
             else:
                 return atomic_ids
 
-    def get_atomic_partners(self, atomic_id, time_stamp=None):
+    def get_atomic_partners(self, atomic_id: np.uint64,
+                            time_stamp: Optional[datetime.datetime] = None) -> Tuple[
+                                np.ndarray, np.ndarray]:
         """ Extracts the atomic partners and affinities for a given timestamp
 
-        :param atomic_id: uitn64
+        :param atomic_id: np.uint64
         :param time_stamp: None or datetime
         :return: list of uint64, list of float32
         """
@@ -1622,16 +1660,18 @@ class ChunkedGraph(object):
 
         return partners, affinities
 
-    def get_subgraph_chunk(self, parent_id, make_unique=True, time_stamp=None,
-                           max_n_threads=5):
+    def get_subgraph_chunk(self, parent_id: np.uint64, make_unique: bool = True,
+                           time_stamp: Optional[datetime.datetime] = None,
+                           max_n_threads: int = 5) -> Tuple[np.ndarray, np.ndarray]:
         """ Takes an atomic id and returns the associated agglomeration ids
 
-        :param parent_id: int
+        :param parent_id: np.uint64
         :param time_stamp: None or datetime
         :param max_n_threads: int
         :return: edge list
         """
-        def _read_atomic_partners(child_id_block):
+        def _read_atomic_partners(child_id_block: Iterable[np.uint64]) -> Tuple[
+                np.ndarray, np.ndarray]:
             thread_edges = np.array([], dtype=np.uint64).reshape(0, 2)
             thread_affinities = np.array([], dtype=np.float32)
 
@@ -1685,8 +1725,9 @@ class ChunkedGraph(object):
 
         return edges, affinities
 
-    def add_edge(self, user_id, atomic_edge, affinity=None,
-                 root_ids=None, n_tries=20):
+    def add_edge(self, user_id: str, atomic_edge: Sequence[np.uint64],
+                 affinity: Optional[np.float32] = None,
+                 root_ids: Optional[Sequence[np.uint64]] = None, n_tries: int = 20) -> np.uint64:
         """ Adds an edge to the chunkedgraph
 
             Multi-user safe through locking of the root node
@@ -1745,8 +1786,9 @@ class ChunkedGraph(object):
 
         return root_ids[0]
 
-    def _add_edge(self, operation_id, atomic_edge, affinity=None,
-                  is_cg_id=True):
+    def _add_edge(self, operation_id: str, atomic_edge: Sequence[np.uint64],
+                  affinity: Optional[np.float32] = None, is_cg_id: bool = True) -> Tuple[
+                      np.uint64, List[bigtable.row.Row], datetime.datetime]:
         """ Adds an atomic edge to the ChunkedGraph
 
         :param operation_id: str
@@ -1760,7 +1802,7 @@ class ChunkedGraph(object):
         time_stamp = UTC.localize(time_stamp)
 
         if affinity is None:
-            affinity = 1
+            affinity = np.float32(1.0)
 
         rows = []
 
@@ -1875,10 +1917,12 @@ class ChunkedGraph(object):
 
         return new_parent_id, rows, time_stamp
 
-    def remove_edges(self, user_id, source_id, sink_id,
-                     source_coord=None, sink_coord=None, mincut=True,
-                     bb_offset=(240, 240, 24), root_ids=None,
-                     n_tries=20):
+    def remove_edges(self, user_id: str, source_id: np.uint64, sink_id: np.uint64,
+                     source_coord: Optional[Sequence[int]] = None,
+                     sink_coord: Optional[Sequence[int]] = None, mincut: bool = True,
+                     bb_offset: Tuple[int, int, int] = (240, 240, 24),
+                     root_ids: Optional[Sequence[np.uint64]] = None,
+                     n_tries: int = 20) -> Sequence[np.uint64]:
         """ Removes edges - either directly or after applying a mincut
 
             Multi-user safe through locking of the root node
@@ -1958,9 +2002,10 @@ class ChunkedGraph(object):
 
         return root_ids[:1]
 
-    def _remove_edges_mincut(self, operation_id, source_id, sink_id,
-                             source_coord, sink_coord, bb_offset=(120, 120, 12),
-                             is_cg_id=True):
+    def _remove_edges_mincut(self, operation_id: str, source_id: np.uint64, sink_id: np.uint64,
+                             source_coord: Sequence[int], sink_coord: Sequence[int],
+                             bb_offset: Tuple[int, int, int] = (120, 120, 12),
+                             is_cg_id: bool = True) -> List[np.uint64]:
         """ Computes mincut and removes
 
 
@@ -2041,7 +2086,9 @@ class ChunkedGraph(object):
 
         return new_roots, rows, atomic_edges, time_stamp
 
-    def _remove_edges(self, operation_id, atomic_edges, is_cg_id=True):
+    def _remove_edges(self, operation_id: str, atomic_edges: Sequence[Tuple[np.uint64, np.uint64]],
+                      is_cg_id: bool = True) -> Tuple[
+                          List[np.uint64], bigtable.row.Row, datetime.datetime]:
         """ Removes atomic edges from the ChunkedGraph
 
         :param operation_id: str
@@ -2349,4 +2396,3 @@ class ChunkedGraph(object):
 
         # self.bulk_write(rows, slow_retry=False)
         return new_roots, rows, time_stamp
-
