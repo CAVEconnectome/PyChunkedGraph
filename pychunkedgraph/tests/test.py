@@ -150,7 +150,7 @@ def create_chunk(cgraph, vertices=None, edges=None, timestamp=None):
 
 
 def to_label(cgraph, l, x, y, z, segment_id):
-    return cgraph.get_node_id(segment_id, layer=l, x=x, y=y, z=z)
+    return cgraph.get_node_id(np.uint64(segment_id), layer=l, x=x, y=y, z=z)
 
 
 class TestGraphNodeConversion:
@@ -162,7 +162,7 @@ class TestGraphNodeConversion:
     def test_node_conversion(self, gen_graph):
         cgraph = gen_graph(n_layers=10)
 
-        node_id = cgraph.get_node_id(4, layer=2, x=3, y=1, z=0)
+        node_id = cgraph.get_node_id(np.uint64(4), layer=2, x=3, y=1, z=0)
         assert cgraph.get_chunk_layer(node_id) == 2
         assert cgraph.get_chunk_coordinates(node_id) == (3, 1, 0)
 
@@ -171,27 +171,27 @@ class TestGraphNodeConversion:
         assert cgraph.get_chunk_coordinates(chunk_id) == (3, 1, 0)
 
         assert cgraph.get_chunk_id(node_id=node_id) == chunk_id
-        assert cgraph.get_node_id(4, chunk_id=chunk_id) == node_id
+        assert cgraph.get_node_id(np.uint64(4), chunk_id=chunk_id) == node_id
 
     @pytest.mark.timeout(30)
     def test_node_id_adjacency(self, gen_graph):
         cgraph = gen_graph(n_layers=10)
 
-        cgraph.get_node_id(0, layer=2, x=3, y=1, z=0) + 1 == \
-            cgraph.get_node_id(1, layer=2, x=3, y=1, z=0)
+        cgraph.get_node_id(np.uint64(0), layer=2, x=3, y=1, z=0) + np.uint64(1) == \
+            cgraph.get_node_id(np.uint64(1), layer=2, x=3, y=1, z=0)
 
-        cgraph.get_node_id(2**53 - 2, layer=10, x=0, y=0, z=0) + 1 == \
-            cgraph.get_node_id(2**53 - 1, layer=10, x=0, y=0, z=0)
+        cgraph.get_node_id(np.uint64(2**53 - 2), layer=10, x=0, y=0, z=0) + np.uint64(1) == \
+            cgraph.get_node_id(np.uint64(2**53 - 1), layer=10, x=0, y=0, z=0)
 
     @pytest.mark.timeout(30)
     def test_serialize_node_id(self, gen_graph):
         cgraph = gen_graph(n_layers=10)
 
-        chunkedgraph.serialize_node_id(cgraph.get_node_id(0, layer=2, x=3, y=1, z=0)) < \
-            chunkedgraph.serialize_node_id(cgraph.get_node_id(1, layer=2, x=3, y=1, z=0))
+        chunkedgraph.serialize_node_id(cgraph.get_node_id(np.uint64(0), layer=2, x=3, y=1, z=0)) < \
+            chunkedgraph.serialize_node_id(cgraph.get_node_id(np.uint64(1), layer=2, x=3, y=1, z=0))
 
-        chunkedgraph.serialize_node_id(cgraph.get_node_id(2**53 - 2, layer=10, x=0, y=0, z=0)) < \
-            chunkedgraph.serialize_node_id(cgraph.get_node_id(2**53 - 1, layer=10, x=0, y=0, z=0))
+        chunkedgraph.serialize_node_id(cgraph.get_node_id(np.uint64(2**53 - 2), layer=10, x=0, y=0, z=0)) < \
+            chunkedgraph.serialize_node_id(cgraph.get_node_id(np.uint64(2**53 - 1), layer=10, x=0, y=0, z=0))
 
     @pytest.mark.timeout(30)
     def test_deserialize_node_id(self):
@@ -203,7 +203,7 @@ class TestGraphNodeConversion:
 
     @pytest.mark.timeout(30)
     def test_serialize_valid_label_id(self):
-        label = 0x01FF031234556789
+        label = np.uint64(0x01FF031234556789)
         assert chunkedgraph.deserialize_node_id(chunkedgraph.serialize_node_id(label)) == label
 
 
