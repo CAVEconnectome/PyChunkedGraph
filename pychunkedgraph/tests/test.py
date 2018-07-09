@@ -606,48 +606,94 @@ class TestGraphSimpleQueries:
     └─────┴─────┴─────┘     4: 1 2 0 0 0 ─── 2 2 0 0 1 ─── 3 1 0 0 1 ─┘
     """
     @pytest.mark.timeout(30)
-    def test_get_parent(self, gen_graph_simplequerytest):
+    def test_get_parent_and_children(self, gen_graph_simplequerytest):
         cgraph = gen_graph_simplequerytest
 
-        assert cgraph.get_parent(to_label(cgraph, 1, 0, 0, 0, 0),
-                                 get_only_relevant_parent=True,
-                                 time_stamp=None) == to_label(cgraph, 2, 0, 0, 0, 1)
+        children10000 = cgraph.get_children(to_label(cgraph, 1, 0, 0, 0, 0))
+        children11000 = cgraph.get_children(to_label(cgraph, 1, 1, 0, 0, 0))
+        children11001 = cgraph.get_children(to_label(cgraph, 1, 1, 0, 0, 1))
+        children12000 = cgraph.get_children(to_label(cgraph, 1, 2, 0, 0, 0))
 
-        assert cgraph.get_parent(to_label(cgraph, 1, 1, 0, 0, 0),
-                                 get_only_relevant_parent=True,
-                                 time_stamp=None) == to_label(cgraph, 2, 1, 0, 0, 1)
+        parent10000 = cgraph.get_parent(to_label(cgraph, 1, 0, 0, 0, 0), get_only_relevant_parent=True, time_stamp=None)
+        parent11000 = cgraph.get_parent(to_label(cgraph, 1, 1, 0, 0, 0), get_only_relevant_parent=True, time_stamp=None)
+        parent11001 = cgraph.get_parent(to_label(cgraph, 1, 1, 0, 0, 1), get_only_relevant_parent=True, time_stamp=None)
+        parent12000 = cgraph.get_parent(to_label(cgraph, 1, 2, 0, 0, 0), get_only_relevant_parent=True, time_stamp=None)
 
-        assert cgraph.get_parent(to_label(cgraph, 1, 1, 0, 0, 1),
-                                 get_only_relevant_parent=True,
-                                 time_stamp=None) == to_label(cgraph, 2, 1, 0, 0, 1)
+        children20001 = cgraph.get_children(to_label(cgraph, 2, 0, 0, 0, 1))
+        children21001 = cgraph.get_children(to_label(cgraph, 2, 1, 0, 0, 1))
+        children22001 = cgraph.get_children(to_label(cgraph, 2, 2, 0, 0, 1))
 
-        assert cgraph.get_parent(to_label(cgraph, 1, 2, 0, 0, 0),
-                                 get_only_relevant_parent=True,
-                                 time_stamp=None) == to_label(cgraph, 2, 2, 0, 0, 1)
+        parent20001 = cgraph.get_parent(to_label(cgraph, 2, 0, 0, 0, 1), get_only_relevant_parent=True, time_stamp=None)
+        parent21001 = cgraph.get_parent(to_label(cgraph, 2, 1, 0, 0, 1), get_only_relevant_parent=True, time_stamp=None)
+        parent22001 = cgraph.get_parent(to_label(cgraph, 2, 2, 0, 0, 1), get_only_relevant_parent=True, time_stamp=None)
 
-        assert cgraph.get_parent(to_label(cgraph, 2, 0, 0, 0, 1),
-                                 get_only_relevant_parent=True,
-                                 time_stamp=None) == to_label(cgraph, 3, 0, 0, 0, 1)
+        children30001 = cgraph.get_children(to_label(cgraph, 3, 0, 0, 0, 1))
+        children30002 = cgraph.get_children(to_label(cgraph, 3, 0, 0, 0, 2))
+        children31001 = cgraph.get_children(to_label(cgraph, 3, 1, 0, 0, 1))
 
-        assert cgraph.get_parent(to_label(cgraph, 2, 1, 0, 0, 1),
-                                 get_only_relevant_parent=True,
-                                 time_stamp=None) == to_label(cgraph, 3, 0, 0, 0, 2)
+        parent30001 = cgraph.get_parent(to_label(cgraph, 3, 0, 0, 0, 1), get_only_relevant_parent=True, time_stamp=None)
+        parent30002 = cgraph.get_parent(to_label(cgraph, 3, 0, 0, 0, 2), get_only_relevant_parent=True, time_stamp=None)
+        parent31001 = cgraph.get_parent(to_label(cgraph, 3, 1, 0, 0, 1), get_only_relevant_parent=True, time_stamp=None)
 
-        assert cgraph.get_parent(to_label(cgraph, 2, 2, 0, 0, 1),
-                                 get_only_relevant_parent=True,
-                                 time_stamp=None) == to_label(cgraph, 3, 1, 0, 0, 1)
+        children40001 = cgraph.get_children(to_label(cgraph, 4, 0, 0, 0, 1))
+        children40002 = cgraph.get_children(to_label(cgraph, 4, 0, 0, 0, 2))
 
-        assert cgraph.get_parent(to_label(cgraph, 3, 0, 0, 0, 1),
-                                 get_only_relevant_parent=True,
-                                 time_stamp=None) == to_label(cgraph, 4, 0, 0, 0, 1)
+        parent40001 = cgraph.get_parent(to_label(cgraph, 4, 0, 0, 0, 1), get_only_relevant_parent=True, time_stamp=None)
+        parent40002 = cgraph.get_parent(to_label(cgraph, 4, 0, 0, 0, 2), get_only_relevant_parent=True, time_stamp=None)
 
-        assert cgraph.get_parent(to_label(cgraph, 3, 0, 0, 0, 2),
-                                 get_only_relevant_parent=True,
-                                 time_stamp=None) == to_label(cgraph, 4, 0, 0, 0, 2)
+        # (non-existing) Children of L1
+        assert np.array_equal(children10000, []) is True
+        assert np.array_equal(children11000, []) is True
+        assert np.array_equal(children11001, []) is True
+        assert np.array_equal(children12000, []) is True
 
-        assert cgraph.get_parent(to_label(cgraph, 3, 1, 0, 0, 1),
-                                 get_only_relevant_parent=True,
-                                 time_stamp=None) == to_label(cgraph, 4, 0, 0, 0, 2)
+        # Parent of L1
+        assert parent10000 == to_label(cgraph, 2, 0, 0, 0, 1)
+        assert parent11000 == to_label(cgraph, 2, 1, 0, 0, 1)
+        assert parent11001 == to_label(cgraph, 2, 1, 0, 0, 1)
+        assert parent12000 == to_label(cgraph, 2, 2, 0, 0, 1)
+
+        # Children of L2
+        assert len(children20001) == 1 and to_label(cgraph, 1, 0, 0, 0, 0) in children20001
+        assert len(children21001) == 2 and to_label(cgraph, 1, 1, 0, 0, 0) in children21001 and to_label(cgraph, 1, 1, 0, 0, 1) in children21001
+        assert len(children22001) == 1 and to_label(cgraph, 1, 2, 0, 0, 0) in children22001
+
+        # Parent of L2
+        assert parent20001 == to_label(cgraph, 3, 0, 0, 0, 1) and parent21001 == to_label(cgraph, 3, 0, 0, 0, 2) or \
+            parent20001 == to_label(cgraph, 3, 0, 0, 0, 2) and parent21001 == to_label(cgraph, 3, 0, 0, 0, 1)
+        assert parent22001 == to_label(cgraph, 3, 1, 0, 0, 1)
+
+        # Children of L3
+        assert len(children30001) == 1 and len(children30002) == 1 and len(children31001) == 1
+        assert to_label(cgraph, 2, 0, 0, 0, 1) in children30001 and to_label(cgraph, 2, 1, 0, 0, 1) in children30002 or \
+            to_label(cgraph, 2, 0, 0, 0, 1) in children30002 and to_label(cgraph, 2, 1, 0, 0, 1) in children30001
+        assert to_label(cgraph, 2, 2, 0, 0, 1) in children31001
+
+        # Parent of L3
+        assert (parent30001 == to_label(cgraph, 4, 0, 0, 0, 1) and parent30002 == to_label(cgraph, 4, 0, 0, 0, 2) and
+                parent31001 == to_label(cgraph, 4, 0, 0, 0, 2)) or \
+               (parent30001 == to_label(cgraph, 4, 0, 0, 0, 2) and parent30002 == to_label(cgraph, 4, 0, 0, 0, 1) and
+                parent31001 == to_label(cgraph, 4, 0, 0, 0, 1))
+
+        # Children of L4
+        if len(children40001) == 1:
+            assert parent20001 in children40001
+            assert len(children40002) == 2 and parent21001 in children40002 and parent22001 in children40002
+        elif len(children40001) == 2:
+            assert parent21001 in children40001 and parent22001 in children40001
+            assert len(children40002) == 1 and parent20001 in children40002
+
+        # (non-existing) Parent of L4
+        assert np.array_equal(parent40001, []) is True
+        assert np.array_equal(parent40002, []) is True
+
+        # Children of (non-existing) L5
+        with pytest.raises(IndexError):
+            cgraph.get_children(to_label(cgraph, 5, 0, 0, 0, 1))
+
+        # Parent of (non-existing) L5
+        with pytest.raises(IndexError):
+            cgraph.get_parent(to_label(cgraph, 5, 0, 0, 0, 1), get_only_relevant_parent=True, time_stamp=None)
 
     @pytest.mark.timeout(30)
     def test_get_root(self, gen_graph_simplequerytest):
@@ -668,20 +714,6 @@ class TestGraphSimpleQueries:
         assert cgraph.get_root(to_label(cgraph, 1, 2, 0, 0, 0),
                                collect_all_parents=False,
                                time_stamp=None) == to_label(cgraph, 4, 0, 0, 0, 2)
-
-    @pytest.mark.timeout(30)
-    def test_get_children(self, gen_graph_simplequerytest):
-        cgraph = gen_graph_simplequerytest
-
-        assert cgraph.get_children(to_label(cgraph, 1, 0, 0, 0, 0)) == []
-        assert cgraph.get_children(to_label(cgraph, 1, 1, 0, 0, 0)) == []
-        assert cgraph.get_children(to_label(cgraph, 1, 1, 0, 0, 1)) == []
-        assert cgraph.get_children(to_label(cgraph, 1, 2, 0, 0, 0)) == []
-
-        assert cgraph.get_children(to_label(cgraph, 2, 0, 0, 0, 1)) == [to_label(cgraph, 1, 0, 0, 0, 0)]
-        assert cgraph.get_children(to_label(cgraph, 2, 1, 0, 0, 1)) == [to_label(cgraph, 1, 1, 0, 0, 0)]
-        assert cgraph.get_children(to_label(cgraph, 2, 1, 0, 0, 2)) == [to_label(cgraph, 1, 1, 0, 0, 1)]
-        assert cgraph.get_children(to_label(cgraph, 2, 2, 0, 0, 1)) == [to_label(cgraph, 1, 2, 0, 0, 0)]
 
     @pytest.mark.timeout(30)
     def test_get_subgraph(self, gen_graph_simplequerytest):
@@ -1096,7 +1128,7 @@ class TestGraphSplit:
         cgraph = gen_graph(n_layers=2)
 
         # Preparation: Build Chunk A
-        fake_timestamp = datetime.now() - timedelta(days=10)
+        fake_timestamp = datetime.utcnow() - timedelta(days=10)
         create_chunk(cgraph,
                      vertices=[to_label(cgraph, 1, 0, 0, 0, 0), to_label(cgraph, 1, 0, 0, 0, 1)],
                      edges=[(to_label(cgraph, 1, 0, 0, 0, 0), to_label(cgraph, 1, 0, 0, 0, 1), 0.5)],
@@ -1143,7 +1175,7 @@ class TestGraphSplit:
         cgraph = gen_graph(n_layers=3)
 
         # Preparation: Build Chunk A
-        fake_timestamp = datetime.now() - timedelta(days=10)
+        fake_timestamp = datetime.utcnow() - timedelta(days=10)
         create_chunk(cgraph,
                      vertices=[to_label(cgraph, 1, 0, 0, 0, 0)],
                      edges=[(to_label(cgraph, 1, 0, 0, 0, 0), to_label(cgraph, 1, 1, 0, 0, 0), 1.0)],
@@ -1198,7 +1230,7 @@ class TestGraphSplit:
         cgraph = gen_graph(n_layers=9)
 
         # Preparation: Build Chunk A
-        fake_timestamp = datetime.now() - timedelta(days=10)
+        fake_timestamp = datetime.utcnow() - timedelta(days=10)
         create_chunk(cgraph,
                      vertices=[to_label(cgraph, 1, 0, 0, 0, 0)],
                      edges=[(to_label(cgraph, 1, 0, 0, 0, 0), to_label(cgraph, 1, 127, 127, 127, 0), 1.0)],
@@ -1266,7 +1298,7 @@ class TestGraphSplit:
         cgraph = gen_graph(n_layers=2)
 
         # Preparation: Build Chunk A
-        fake_timestamp = datetime.now() - timedelta(days=10)
+        fake_timestamp = datetime.utcnow() - timedelta(days=10)
         create_chunk(cgraph,
                      vertices=[to_label(cgraph, 1, 0, 0, 0, 0), to_label(cgraph, 1, 0, 0, 0, 1)],
                      edges=[],
@@ -1299,7 +1331,7 @@ class TestGraphSplit:
         cgraph = gen_graph(n_layers=2)
 
         # Preparation: Build Chunk A
-        fake_timestamp = datetime.now() - timedelta(days=10)
+        fake_timestamp = datetime.utcnow() - timedelta(days=10)
         create_chunk(cgraph,
                      vertices=[to_label(cgraph, 1, 0, 0, 0, 0), to_label(cgraph, 1, 0, 0, 0, 1), to_label(cgraph, 1, 0, 0, 0, 2)],
                      edges=[(to_label(cgraph, 1, 0, 0, 0, 0), to_label(cgraph, 1, 0, 0, 0, 2), 0.5),
@@ -1347,7 +1379,7 @@ class TestGraphSplit:
         cgraph = gen_graph(n_layers=3)
 
         # Preparation: Build Chunk A
-        fake_timestamp = datetime.now() - timedelta(days=10)
+        fake_timestamp = datetime.utcnow() - timedelta(days=10)
         create_chunk(cgraph,
                      vertices=[to_label(cgraph, 1, 0, 0, 0, 0), to_label(cgraph, 1, 0, 0, 0, 1)],
                      edges=[(to_label(cgraph, 1, 0, 0, 0, 0), to_label(cgraph, 1, 0, 0, 0, 1), 0.5),
@@ -1404,7 +1436,7 @@ class TestGraphSplit:
         cgraph = gen_graph(n_layers=9)
 
         # Preparation: Build Chunk A
-        fake_timestamp = datetime.now() - timedelta(days=10)
+        fake_timestamp = datetime.utcnow() - timedelta(days=10)
         create_chunk(cgraph,
                      vertices=[to_label(cgraph, 1, 0, 0, 0, 0), to_label(cgraph, 1, 0, 0, 0, 1)],
                      edges=[(to_label(cgraph, 1, 0, 0, 0, 0), to_label(cgraph, 1, 0, 0, 0, 1), 0.5),
@@ -1547,7 +1579,7 @@ class TestGraphMinCut:
         cgraph = gen_graph(n_layers=3)
 
         # Preparation: Build Chunk A
-        fake_timestamp = datetime.now() - timedelta(days=10)
+        fake_timestamp = datetime.utcnow() - timedelta(days=10)
         create_chunk(cgraph,
                      vertices=[to_label(cgraph, 1, 0, 0, 0, 0)],
                      edges=[(to_label(cgraph, 1, 0, 0, 0, 0), to_label(cgraph, 1, 1, 0, 0, 0), 0.5)],
@@ -1593,7 +1625,7 @@ class TestGraphMinCut:
         cgraph = gen_graph(n_layers=3)
 
         # Preparation: Build Chunk A
-        fake_timestamp = datetime.now() - timedelta(days=10)
+        fake_timestamp = datetime.utcnow() - timedelta(days=10)
         create_chunk(cgraph,
                      vertices=[to_label(cgraph, 1, 0, 0, 0, 0)],
                      edges=[],
@@ -1635,7 +1667,7 @@ class TestGraphMinCut:
         cgraph = gen_graph(n_layers=3)
 
         # Preparation: Build Chunk A
-        fake_timestamp = datetime.now() - timedelta(days=10)
+        fake_timestamp = datetime.utcnow() - timedelta(days=10)
         create_chunk(cgraph,
                      vertices=[to_label(cgraph, 1, 0, 0, 0, 0)],
                      edges=[(to_label(cgraph, 1, 0, 0, 0, 0), to_label(cgraph, 1, 1, 0, 0, 0), 0.5)],
@@ -1679,7 +1711,7 @@ class TestGraphMinCut:
         cgraph = gen_graph(n_layers=3)
 
         # Preparation: Build Chunk A
-        fake_timestamp = datetime.now() - timedelta(days=10)
+        fake_timestamp = datetime.utcnow() - timedelta(days=10)
         create_chunk(cgraph,
                      vertices=[to_label(cgraph, 1, 0, 0, 0, 0)],
                      edges=[(to_label(cgraph, 1, 0, 0, 0, 0), to_label(cgraph, 1, 1, 0, 0, 0), inf)],

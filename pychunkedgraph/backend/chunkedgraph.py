@@ -499,7 +499,7 @@ class ChunkedGraph(object):
         row = self.table.read_row(serialize_node_id(node_id),
                                   filter_=ColumnQualifierRegexFilter(key))
 
-        if key not in row.cells[self.family_id]:
+        if row is None or key not in row.cells[self.family_id]:
             return None
 
         cell_entries = row.cells[self.family_id][key]
@@ -1097,7 +1097,8 @@ class ChunkedGraph(object):
         :param node_id: np.uint64
         :return: np.ndarray[np.uint64]
         """
-        return self.read_row(node_id, "children", dtype=np.uint64)
+        children = self.read_row(node_id, "children", dtype=np.uint64)
+        return children if children is not None else np.empty(0, dtype=np.uint64)
 
     def get_root(self, atomic_id: np.uint64, collect_all_parents: bool = False,
                  time_stamp: Optional[datetime.datetime] = None,
