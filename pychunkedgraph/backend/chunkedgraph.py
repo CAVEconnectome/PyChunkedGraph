@@ -1502,7 +1502,7 @@ class ChunkedGraph(object):
                                                 self.fan_out ** np.max([0, (layer - 3)])])
 
                     bound_check = np.array([np.all(chunk_id_bounds[0] <= bounding_box[1], axis=1),
-                                            np.all(chunk_id_bounds[1] >= bounding_box[0], axis=1)]).T
+                                            np.all(chunk_id_bounds[1] > bounding_box[0], axis=1)]).T
 
                     bound_check_mask = np.all(bound_check, axis=1)
                     _children = _children[bound_check_mask]
