@@ -1114,9 +1114,6 @@ class ChunkedGraph(object):
         if time_stamp is None:
             time_stamp = datetime.datetime.now()
 
-            # Give potentially overlapping writes a head start
-            time_stamp -= datetime.timedelta(seconds=5)
-
         if time_stamp.tzinfo is None:
             time_stamp = UTC.localize(time_stamp)
 
