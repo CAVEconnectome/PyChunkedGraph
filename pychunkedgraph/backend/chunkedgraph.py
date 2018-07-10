@@ -2162,6 +2162,7 @@ class ChunkedGraph(object):
                                              axis=0)
         double_atomic_edges_view = double_atomic_edges.view(dtype='u8,u8')
         double_atomic_edges_view = double_atomic_edges_view.reshape(double_atomic_edges.shape[0])
+        nodes_in_removed_edges = np.unique(atomic_edges)
 
         # For each involved chunk we need to compute connected components
         for chunk_id in involved_chunk_id_dict.keys():
@@ -2187,9 +2188,13 @@ class ChunkedGraph(object):
 
             cross_edges = edges[cross_edge_mask]
             edges = edges[~cross_edge_mask]
+            isolated_nodes = list(filter(
+                lambda x: x not in edges and self.get_chunk_id(x) == chunk_id, nodes_in_removed_edges
+            ))
 
             # Build the local subgraph and compute connected components
             G = nx.from_edgelist(edges)
+            G.add_nodes_from(isolated_nodes)
             ccs = nx.connected_components(G)
 
             # For each connected component we create one new parent
@@ -2231,6 +2236,9 @@ class ChunkedGraph(object):
         # all layers and move our new parents forward
         # new_layer_parent_dict stores all newly created parents. We first
         # empty it and then fill it with the new parents in the next layer
+        if n_layers == 1:
+            return list(new_layer_parent_dict.keys()), rows, time_stamp
+
         new_roots = []
         for i_layer in range(n_layers - 1):
 
