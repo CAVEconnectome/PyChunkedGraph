@@ -667,36 +667,43 @@ class TestGraphSimpleQueries:
             assert len(children40002) == 1 and parent20001 in children40002
 
         # (non-existing) Parent of L4
-        assert np.array_equal(parent40001, []) is True
-        assert np.array_equal(parent40002, []) is True
+        assert parent40001 is None
+        assert parent40002 is None
 
-        # Children of (non-existing) L5
-        with pytest.raises(IndexError):
-            cgraph.get_children(to_label(cgraph, 5, 0, 0, 0, 1))
+        # # Children of (non-existing) L5
+        # with pytest.raises(IndexError):
+        #     cgraph.get_children(to_label(cgraph, 5, 0, 0, 0, 1))
 
-        # Parent of (non-existing) L5
-        with pytest.raises(IndexError):
-            cgraph.get_parent(to_label(cgraph, 5, 0, 0, 0, 1), get_only_relevant_parent=True, time_stamp=None)
+        # # Parent of (non-existing) L5
+        # with pytest.raises(IndexError):
+        #     cgraph.get_parent(to_label(cgraph, 5, 0, 0, 0, 1), get_only_relevant_parent=True, time_stamp=None)
 
     @pytest.mark.timeout(30)
     def test_get_root(self, gen_graph_simplequerytest):
         cgraph = gen_graph_simplequerytest
 
-        assert cgraph.get_root(to_label(cgraph, 1, 0, 0, 0, 0),
-                               collect_all_parents=False,
-                               time_stamp=None) == to_label(cgraph, 4, 0, 0, 0, 1)
+        root10000 = cgraph.get_root(to_label(cgraph, 1, 0, 0, 0, 0),
+                                    collect_all_parents=False,
+                                    time_stamp=None)
 
-        assert cgraph.get_root(to_label(cgraph, 1, 1, 0, 0, 0),
-                               collect_all_parents=False,
-                               time_stamp=None) == to_label(cgraph, 4, 0, 0, 0, 2)
+        root11000 = cgraph.get_root(to_label(cgraph, 1, 1, 0, 0, 0),
+                                    collect_all_parents=False,
+                                    time_stamp=None)
 
-        assert cgraph.get_root(to_label(cgraph, 1, 1, 0, 0, 1),
-                               collect_all_parents=False,
-                               time_stamp=None) == to_label(cgraph, 4, 0, 0, 0, 2)
+        root11001 = cgraph.get_root(to_label(cgraph, 1, 1, 0, 0, 1),
+                                    collect_all_parents=False,
+                                    time_stamp=None)
 
-        assert cgraph.get_root(to_label(cgraph, 1, 2, 0, 0, 0),
-                               collect_all_parents=False,
-                               time_stamp=None) == to_label(cgraph, 4, 0, 0, 0, 2)
+        root12000 = cgraph.get_root(to_label(cgraph, 1, 2, 0, 0, 0),
+                                    collect_all_parents=False,
+                                    time_stamp=None)
+
+        assert (root10000 == to_label(cgraph, 4, 0, 0, 0, 1) and
+                root11000 == root11001 == root12000 == to_label(
+                    cgraph, 4, 0, 0, 0, 2)) or \
+               (root10000 == to_label(cgraph, 4, 0, 0, 0, 2) and
+                root11000 == root11001 == root12000 == to_label(
+                    cgraph, 4, 0, 0, 0, 1))
 
     @pytest.mark.timeout(30)
     def test_get_subgraph(self, gen_graph_simplequerytest):

@@ -1017,7 +1017,7 @@ class ChunkedGraph(object):
         p_filter_ = ColumnQualifierRegexFilter(parent_key)
         row = self.table.read_row(serialize_node_id(node_id), filter_=p_filter_)
 
-        if parent_key in row.cells[self.family_id]:
+        if row and parent_key in row.cells[self.family_id]:
             for parent_entry in row.cells[self.family_id][parent_key]:
                 if get_only_relevant_parent:
                     if parent_entry.timestamp > time_stamp:
