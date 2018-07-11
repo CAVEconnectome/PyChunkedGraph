@@ -329,7 +329,7 @@ def create_chunked_graph(table_id=None, cv_url=None, fan_out=2,
         # print(multi_args)
         # print(u_pcids, len(multi_args))
         # print(layer_id, np.unique(child_chunk_ids), np.unique(parent_chunk_ids))
-        child_chunk_ids = u_pcids * cg.fan_out
+        child_chunk_ids = u_pcids
         # print(layer_id, np.unique(child_chunk_ids), np.unique(parent_chunk_ids))
 
         # Run multiprocessing
