@@ -141,12 +141,10 @@ def create_chunk(cgraph, vertices=None, edges=None, timestamp=None):
     cross_edge_ids = np.array(cross_edge_ids, dtype=np.uint64).reshape(-1, 2)
     cross_edge_affs = np.array(cross_edge_affs, dtype=np.float32).reshape(-1, 1)
     isolated_node_ids = np.array(isolated_node_ids, dtype=np.uint64)
-    rg2cg = dict(list(enumerate(vertices, 1)))
-    cg2rg = {v: k for k, v in rg2cg.items()}
 
     cgraph.add_atomic_edges_in_chunks(edge_ids, cross_edge_ids,
                                       edge_affs, cross_edge_affs,
-                                      isolated_node_ids, cg2rg, rg2cg,
+                                      isolated_node_ids,
                                       time_stamp=timestamp)
 
 
@@ -178,20 +176,20 @@ class TestGraphNodeConversion:
     def test_node_id_adjacency(self, gen_graph):
         cgraph = gen_graph(n_layers=10)
 
-        cgraph.get_node_id(np.uint64(0), layer=2, x=3, y=1, z=0) + np.uint64(1) == \
+        assert cgraph.get_node_id(np.uint64(0), layer=2, x=3, y=1, z=0) + np.uint64(1) == \
             cgraph.get_node_id(np.uint64(1), layer=2, x=3, y=1, z=0)
 
-        cgraph.get_node_id(np.uint64(2**53 - 2), layer=10, x=0, y=0, z=0) + np.uint64(1) == \
+        assert cgraph.get_node_id(np.uint64(2**53 - 2), layer=10, x=0, y=0, z=0) + np.uint64(1) == \
             cgraph.get_node_id(np.uint64(2**53 - 1), layer=10, x=0, y=0, z=0)
 
     @pytest.mark.timeout(30)
     def test_serialize_node_id(self, gen_graph):
         cgraph = gen_graph(n_layers=10)
 
-        chunkedgraph.serialize_node_id(cgraph.get_node_id(np.uint64(0), layer=2, x=3, y=1, z=0)) < \
+        assert chunkedgraph.serialize_node_id(cgraph.get_node_id(np.uint64(0), layer=2, x=3, y=1, z=0)) < \
             chunkedgraph.serialize_node_id(cgraph.get_node_id(np.uint64(1), layer=2, x=3, y=1, z=0))
 
-        chunkedgraph.serialize_node_id(cgraph.get_node_id(np.uint64(2**53 - 2), layer=10, x=0, y=0, z=0)) < \
+        assert chunkedgraph.serialize_node_id(cgraph.get_node_id(np.uint64(2**53 - 2), layer=10, x=0, y=0, z=0)) < \
             chunkedgraph.serialize_node_id(cgraph.get_node_id(np.uint64(2**53 - 1), layer=10, x=0, y=0, z=0))
 
     @pytest.mark.timeout(30)
@@ -241,12 +239,10 @@ class TestGraphBuild:
         atomic_affinities = np.frombuffer(row[b'atomic_affinities'][0].value, np.float32)
         atomic_partners = np.frombuffer(row[b'atomic_partners'][0].value, np.uint64)
         parents = np.frombuffer(row[b'parents'][0].value, np.uint64)
-        rg_id = np.frombuffer(row[b'rg_id'][0].value, np.uint64)
 
         assert len(atomic_partners) == 0
         assert len(atomic_affinities) == 0
         assert len(parents) == 1 and parents[0] == to_label(cgraph, 2, 0, 0, 0, 1)
-        assert len(rg_id) == 1  # and rg_id[0] == 1
 
         # Check for the one Level 2 node that should have been created.
         # to_label(cgraph, 2, 0, 0, 0, 1)
@@ -299,12 +295,10 @@ class TestGraphBuild:
         atomic_affinities = np.frombuffer(row[b'atomic_affinities'][0].value, np.float32)
         atomic_partners = np.frombuffer(row[b'atomic_partners'][0].value, np.uint64)
         parents = np.frombuffer(row[b'parents'][0].value, np.uint64)
-        rg_id = np.frombuffer(row[b'rg_id'][0].value, np.uint64)
 
         assert len(atomic_partners) == 1 and atomic_partners[0] == to_label(cgraph, 1, 0, 0, 0, 1)
         assert len(atomic_affinities) == 1 and atomic_affinities[0] == 0.5
         assert len(parents) == 1 and parents[0] == to_label(cgraph, 2, 0, 0, 0, 1)
-        assert len(rg_id) == 1  # and rg_id[0] == 1
 
         # to_label(cgraph, 1, 0, 0, 0, 1)
         assert chunkedgraph.serialize_node_id(to_label(cgraph, 1, 0, 0, 0, 1)) in res.rows
@@ -312,12 +306,10 @@ class TestGraphBuild:
         atomic_affinities = np.frombuffer(row[b'atomic_affinities'][0].value, np.float32)
         atomic_partners = np.frombuffer(row[b'atomic_partners'][0].value, np.uint64)
         parents = np.frombuffer(row[b'parents'][0].value, np.uint64)
-        rg_id = np.frombuffer(row[b'rg_id'][0].value, np.uint64)
 
         assert len(atomic_partners) == 1 and atomic_partners[0] == to_label(cgraph, 1, 0, 0, 0, 0)
         assert len(atomic_affinities) == 1 and atomic_affinities[0] == 0.5
         assert len(parents) == 1 and parents[0] == to_label(cgraph, 2, 0, 0, 0, 1)
-        assert len(rg_id) == 1  # and rg_id[0] == 2
 
         # Check for the one Level 2 node that should have been created.
         assert chunkedgraph.serialize_node_id(to_label(cgraph, 2, 0, 0, 0, 1)) in res.rows
@@ -375,12 +367,10 @@ class TestGraphBuild:
         atomic_affinities = np.frombuffer(row[b'atomic_affinities'][0].value, np.float32)
         atomic_partners = np.frombuffer(row[b'atomic_partners'][0].value, np.uint64)
         parents = np.frombuffer(row[b'parents'][0].value, np.uint64)
-        rg_id = np.frombuffer(row[b'rg_id'][0].value, np.uint64)
 
         assert len(atomic_partners) == 1 and atomic_partners[0] == to_label(cgraph, 1, 1, 0, 0, 0)
         assert len(atomic_affinities) == 1 and atomic_affinities[0] == inf
         assert len(parents) == 1 and parents[0] == to_label(cgraph, 2, 0, 0, 0, 1)
-        assert len(rg_id) == 1  # and rg_id[0] == 1
 
         # to_label(cgraph, 1, 1, 0, 0, 0)
         assert chunkedgraph.serialize_node_id(to_label(cgraph, 1, 1, 0, 0, 0)) in res.rows
@@ -388,12 +378,10 @@ class TestGraphBuild:
         atomic_affinities = np.frombuffer(row[b'atomic_affinities'][0].value, np.float32)
         atomic_partners = np.frombuffer(row[b'atomic_partners'][0].value, np.uint64)
         parents = np.frombuffer(row[b'parents'][0].value, np.uint64)
-        rg_id = np.frombuffer(row[b'rg_id'][0].value, np.uint64)
 
         assert len(atomic_partners) == 1 and atomic_partners[0] == to_label(cgraph, 1, 0, 0, 0, 0)
         assert len(atomic_affinities) == 1 and atomic_affinities[0] == inf
         assert len(parents) == 1 and parents[0] == to_label(cgraph, 2, 1, 0, 0, 1)
-        assert len(rg_id) == 1  # and rg_id[0] == 2
 
         # Check for the two Level 2 nodes that should have been created. Since Level 2 has the same
         # dimensions as Level 1, we also expect them to be in different chunks
@@ -479,7 +467,6 @@ class TestGraphBuild:
         atomic_affinities = np.frombuffer(row[b'atomic_affinities'][0].value, np.float32)
         atomic_partners = np.frombuffer(row[b'atomic_partners'][0].value, np.uint64)
         parents = np.frombuffer(row[b'parents'][0].value, np.uint64)
-        rg_id = np.frombuffer(row[b'rg_id'][0].value, np.uint64)
 
         assert len(atomic_partners) == 2 and to_label(cgraph, 1, 0, 0, 0, 1) in atomic_partners and to_label(cgraph, 1, 1, 0, 0, 0) in atomic_partners
         assert len(atomic_affinities) == 2
@@ -488,7 +475,6 @@ class TestGraphBuild:
         else:
             assert atomic_affinities[0] == inf and atomic_affinities[1] == 0.5
         assert len(parents) == 1 and parents[0] == to_label(cgraph, 2, 0, 0, 0, 1)
-        assert len(rg_id) == 1  # and rg_id[0] == 1
 
         # to_label(cgraph, 1, 0, 0, 0, 1)
         assert chunkedgraph.serialize_node_id(to_label(cgraph, 1, 0, 0, 0, 1)) in res.rows
@@ -496,12 +482,10 @@ class TestGraphBuild:
         atomic_affinities = np.frombuffer(row[b'atomic_affinities'][0].value, np.float32)
         atomic_partners = np.frombuffer(row[b'atomic_partners'][0].value, np.uint64)
         parents = np.frombuffer(row[b'parents'][0].value, np.uint64)
-        rg_id = np.frombuffer(row[b'rg_id'][0].value, np.uint64)
 
         assert len(atomic_partners) == 1 and atomic_partners[0] == to_label(cgraph, 1, 0, 0, 0, 0)
         assert len(atomic_affinities) == 1 and atomic_affinities[0] == 0.5
         assert len(parents) == 1 and parents[0] == to_label(cgraph, 2, 0, 0, 0, 1)
-        assert len(rg_id) == 1  # and rg_id[0] == 2
 
         # to_label(cgraph, 1, 1, 0, 0, 0)
         assert chunkedgraph.serialize_node_id(to_label(cgraph, 1, 1, 0, 0, 0)) in res.rows
@@ -509,12 +493,10 @@ class TestGraphBuild:
         atomic_affinities = np.frombuffer(row[b'atomic_affinities'][0].value, np.float32)
         atomic_partners = np.frombuffer(row[b'atomic_partners'][0].value, np.uint64)
         parents = np.frombuffer(row[b'parents'][0].value, np.uint64)
-        rg_id = np.frombuffer(row[b'rg_id'][0].value, np.uint64)
 
         assert len(atomic_partners) == 1 and atomic_partners[0] == to_label(cgraph, 1, 0, 0, 0, 0)
         assert len(atomic_affinities) == 1 and atomic_affinities[0] == inf
         assert len(parents) == 1 and parents[0] == to_label(cgraph, 2, 1, 0, 0, 1)
-        assert len(rg_id) == 1  # and rg_id[0] == 3
 
         # Check for the two Level 2 nodes that should have been created. Since Level 2 has the same
         # dimensions as Level 1, we also expect them to be in different chunks

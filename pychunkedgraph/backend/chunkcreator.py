@@ -329,7 +329,7 @@ def create_chunked_graph(table_id=None, cv_url=None, fan_out=2,
         # print(multi_args)
         # print(u_pcids, len(multi_args))
         # print(layer_id, np.unique(child_chunk_ids), np.unique(parent_chunk_ids))
-        child_chunk_ids = u_pcids * cg.fan_out
+        child_chunk_ids = u_pcids
         # print(layer_id, np.unique(child_chunk_ids), np.unique(parent_chunk_ids))
 
         # Run multiprocessing
@@ -473,8 +473,6 @@ def _create_atomic_layer_thread(args):
 
     # Load mapping between region and chunkedgraph
     mappings = utils.read_mapping_h5(mapping_path)
-    cg2rg = dict(zip(mappings[:, 1], mappings[:, 0]))
-    rg2cg = dict(zip(mappings[:, 0], mappings[:, 1]))
 
     # Get isolated nodes
     isolated_node_ids = mappings[:, 1][~np.in1d(mappings[:, 1], np.concatenate(
@@ -484,7 +482,7 @@ def _create_atomic_layer_thread(args):
     cg = chunkedgraph.ChunkedGraph(table_id=table_id)
     cg.add_atomic_edges_in_chunks(edge_ids, cross_edge_ids,
                                   edge_affs, cross_edge_affs,
-                                  isolated_node_ids, cg2rg, rg2cg)
+                                  isolated_node_ids)
 
 
 def _add_layer_thread(args):
