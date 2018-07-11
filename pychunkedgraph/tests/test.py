@@ -1066,7 +1066,7 @@ class TestGraphMerge:
         res_old.consume_all()
 
         # Merge
-        assert cgraph.add_edge("Jane Doe", [to_label(cgraph, 1, 0, 0, 0, 0), to_label(cgraph, 1, 0, 0, 0, 0)]) == []
+        assert cgraph.add_edge("Jane Doe", [to_label(cgraph, 1, 0, 0, 0, 0), to_label(cgraph, 1, 0, 0, 0, 0)]) is None
 
         res_new = cgraph.table.read_rows()
         res_new.consume_all()
@@ -1104,13 +1104,13 @@ class TestGraphMerge:
                      edges=[],
                      timestamp=fake_timestamp)
 
-        cgraph.add_layer(3, np.array([[0, 0, 0], [1, 0, 0]]), timestamp=fake_timestamp)
+        cgraph.add_layer(3, np.array([[0, 0, 0], [1, 0, 0]]), time_stamp=fake_timestamp)
 
         res_old = cgraph.table.read_rows()
         res_old.consume_all()
 
         # Merge
-        assert cgraph.add_edge("Jane Doe", [to_label(cgraph, 1, 0, 0, 0, 0), to_label(cgraph, 2, 1, 0, 0, 1)]) == []
+        assert cgraph.add_edge("Jane Doe", [to_label(cgraph, 1, 0, 0, 0, 0), to_label(cgraph, 2, 1, 0, 0, 1)]) is None
 
         res_new = cgraph.table.read_rows()
         res_new.consume_all()
@@ -1521,7 +1521,7 @@ class TestGraphSplit:
         res_old.consume_all()
 
         # Split
-        assert cgraph.remove_edges("Jane Doe", to_label(cgraph, 1, 0, 0, 0, 0), to_label(cgraph, 1, 0, 0, 0, 0), mincut=False) == []
+        assert cgraph.remove_edges("Jane Doe", to_label(cgraph, 1, 0, 0, 0, 0), to_label(cgraph, 1, 0, 0, 0, 0), mincut=False) is None
 
         res_new = cgraph.table.read_rows()
         res_new.consume_all()
@@ -1565,7 +1565,7 @@ class TestGraphSplit:
         res_old.consume_all()
 
         # Split
-        assert cgraph.remove_edges("Jane Doe", to_label(cgraph, 1, 0, 0, 0, 0), to_label(cgraph, 2, 1, 0, 0, 1), mincut=False) == []
+        assert cgraph.remove_edges("Jane Doe", to_label(cgraph, 1, 0, 0, 0, 0), to_label(cgraph, 2, 1, 0, 0, 1), mincut=False) is None
 
         res_new = cgraph.table.read_rows()
         res_new.consume_all()
@@ -1657,7 +1657,7 @@ class TestGraphMinCut:
         assert cgraph.remove_edges(
                 "Jane Doe", to_label(cgraph, 1, 0, 0, 0, 0), to_label(cgraph, 1, 1, 0, 0, 0),
                 [0, 0, 0], [2*cgraph.chunk_size[0], 2*cgraph.chunk_size[1], cgraph.chunk_size[2]],
-                mincut=True) == []
+                mincut=True) is None
 
         res_new = cgraph.table.read_rows()
         res_new.consume_all()
@@ -1700,7 +1700,7 @@ class TestGraphMinCut:
         assert cgraph.remove_edges(
                 "Jane Doe", to_label(cgraph, 1, 0, 0, 0, 0), to_label(cgraph, 1, 1, 0, 0, 0),
                 [0, 0, 0], [2*cgraph.chunk_size[0], 2*cgraph.chunk_size[1], cgraph.chunk_size[2]],
-                mincut=True) == []
+                mincut=True) is None
 
         res_new = cgraph.table.read_rows()
         res_new.consume_all()
@@ -1743,7 +1743,7 @@ class TestGraphMinCut:
         assert cgraph.remove_edges(
                 "Jane Doe", to_label(cgraph, 1, 0, 0, 0, 0), to_label(cgraph, 1, 1, 0, 0, 0),
                 [0, 0, 0], [2*cgraph.chunk_size[0], 2*cgraph.chunk_size[1], cgraph.chunk_size[2]],
-                mincut=True) == []
+                mincut=True) is None
 
         res_new = cgraph.table.read_rows()
         res_new.consume_all()
