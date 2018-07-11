@@ -1017,7 +1017,7 @@ class ChunkedGraph(object):
         p_filter_ = ColumnQualifierRegexFilter(parent_key)
         row = self.table.read_row(serialize_node_id(node_id), filter_=p_filter_)
 
-        if parent_key in row.cells[self.family_id]:
+        if row and parent_key in row.cells[self.family_id]:
             for parent_entry in row.cells[self.family_id][parent_key]:
                 if get_only_relevant_parent:
                     if parent_entry.timestamp > time_stamp:
@@ -1715,16 +1715,24 @@ class ChunkedGraph(object):
         :param n_tries: int
         :return: uint64
             if successful the new root id is send
-            else one of the old root ids is returned
+            else None
         """
 
-        # Get a unique id for this operation
-        operation_id = self.get_unique_operation_id()
+        # Sanity Checks
+        if atomic_edge[0] == atomic_edge[1]:
+            return None
+
+        if self.get_chunk_layer(atomic_edge[0]) != \
+                self.get_chunk_layer(atomic_edge[1]):
+            return None
 
         # Lookup root ids
         if root_ids is None:
             root_ids = [self.get_root(atomic_edge[0]),
                         self.get_root(atomic_edge[1])]
+
+        # Get a unique id for this operation
+        operation_id = self.get_unique_operation_id()
 
         i_try = 0
 
@@ -1753,7 +1761,7 @@ class ChunkedGraph(object):
             print("Waiting - %d" % i_try)
             time.sleep(1)
 
-        return root_ids[0]
+        return None
 
     def _add_edge(self, operation_id: str, atomic_edge: Sequence[np.uint64],
                   affinity: Optional[np.float32] = None
@@ -1918,11 +1926,16 @@ class ChunkedGraph(object):
             [x, y, z] bounding box padding beyond box spanned by coordinates
         :param root_ids: list of uint64s
         :param n_tries: int
-        :return: list of uint64s
+        :return: list of uint64s or None if no split was performed
         """
 
-        # Get a unique id for this operation
-        operation_id = self.get_unique_operation_id()
+        # Sanity Checks
+        if source_id == sink_id:
+            return None
+
+        if self.get_chunk_layer(source_id) != \
+                self.get_chunk_layer(sink_id):
+            return None
 
         if mincut:
             assert source_coord is not None
@@ -1933,7 +1946,10 @@ class ChunkedGraph(object):
                         self.get_root(sink_id)]
 
         if root_ids[0] != root_ids[1]:
-            return root_ids
+            return None
+
+        # Get a unique id for this operation
+        operation_id = self.get_unique_operation_id()
 
         i_try = 0
 
@@ -1944,18 +1960,26 @@ class ChunkedGraph(object):
 
                 # (run mincut) and remove edges + update hierarchy
                 if mincut:
-                    new_root_ids, rows, removed_edges, time_stamp = \
+                    success, result = \
                         self._remove_edges_mincut(operation_id=operation_id,
                                                   source_id=source_id,
                                                   sink_id=sink_id,
                                                   source_coord=source_coord,
                                                   sink_coord=sink_coord,
                                                   bb_offset=bb_offset)
+                    if success:
+                        new_root_ids, rows, removed_edges, time_stamp = result
+                    else:
+                        return None
                 else:
-                    new_root_ids, rows, time_stamp = \
+                    success, result = \
                         self._remove_edges(operation_id=operation_id,
                                            atomic_edges=[[source_id, sink_id]])
-                    removed_edges = [[source_id, sink_id]]
+                    if success:
+                        new_root_ids, rows, time_stamp = result
+                        removed_edges = [[source_id, sink_id]]
+                    else:
+                        return None
 
                 # Add a row to the log
                 rows.append(self._create_split_log_row(operation_id, user_id,
@@ -1980,9 +2004,14 @@ class ChunkedGraph(object):
                              sink_id: np.uint64, source_coord: Sequence[int],
                              sink_coord: Sequence[int],
                              bb_offset: Tuple[int, int, int] = (120, 120, 12)
-                             ) -> List[np.uint64]:
-        """ Computes mincut and removes
-
+                             ) -> Tuple[
+                                 bool,                         # success
+                                 Optional[Tuple[
+                                    List[np.uint64],           # new_roots
+                                    List[bigtable.row.Row],    # rows
+                                    np.ndarray,                # removed_edges
+                                    datetime.datetime]]]:      # timestamp
+        """ Computes mincut and removes edges accordingly
 
         :param operation_id: str
         :param source_id: uint64
@@ -1993,7 +2022,7 @@ class ChunkedGraph(object):
             [x, y, z] coordinate of sink supervoxel
         :param bb_offset: list of 3 ints
             [x, y, z] bounding box padding beyond box spanned by coordinates
-        :return: list of uint64s
+        :return: list of uint64s if successful, or None if no valid split
             new root ids
         """
 
@@ -2016,7 +2045,7 @@ class ChunkedGraph(object):
 
         # Verify that sink and source are from the same root object
         if root_id_source != root_id_sink:
-            return [root_id_source, root_id_sink]
+            return False, None
 
         print(
             "Get roots and check: %.3fms" % ((time.time() - time_start) * 1000))
@@ -2041,24 +2070,33 @@ class ChunkedGraph(object):
 
         if len(atomic_edges) == 0:
             print("WARNING: Mincut failed. Try again...")
-            return [root_id]
+            return False, None
+
+        if any(affinity == np.inf for affinity in affs) is True:
+            return False, None
 
         # Remove edges
-        new_roots, rows, time_stamp = self._remove_edges(operation_id,
-                                                         atomic_edges)
-        # new_roots = [agglomeration_id]
+        success, result = self._remove_edges(operation_id, atomic_edges)
+
+        if not success:
+            return False, None
+
+        new_roots, rows, time_stamp = result
 
         print("Remove edges: %.3fms" % ((time.time() - time_start) * 1000))
         time_start = time.time()  # ------------------------------------------
 
         print(new_roots)
 
-        return new_roots, rows, atomic_edges, time_stamp
+        return True, (new_roots, rows, atomic_edges, time_stamp)
 
     def _remove_edges(self, operation_id: str,
                       atomic_edges: Sequence[Tuple[np.uint64, np.uint64]]
-                      ) -> Tuple[List[np.uint64], bigtable.row.Row,
-                                 datetime.datetime]:
+                      ) -> Tuple[bool,                          # success
+                                 Optional[Tuple[
+                                     List[np.uint64],           # new_roots
+                                     List[bigtable.row.Row],    # rows
+                                     datetime.datetime]]]:      # timestamp
         """ Removes atomic edges from the ChunkedGraph
 
         :param operation_id: str
@@ -2213,7 +2251,7 @@ class ChunkedGraph(object):
         # new_layer_parent_dict stores all newly created parents. We first
         # empty it and then fill it with the new parents in the next layer
         if n_layers == 1:
-            return list(new_layer_parent_dict.keys()), rows, time_stamp
+            return True, (list(new_layer_parent_dict.keys()), rows, time_stamp)
 
         new_roots = []
         for i_layer in range(n_layers - 1):
@@ -2399,4 +2437,4 @@ class ChunkedGraph(object):
                                             self.family_id, val_dict,
                                             time_stamp=time_stamp))
 
-        return new_roots, rows, time_stamp
+        return True, (new_roots, rows, time_stamp)
