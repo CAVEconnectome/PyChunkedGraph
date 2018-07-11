@@ -120,7 +120,7 @@ def handle_root():
     atomic_id = int(json.loads(request.data)[0])
 
     # Call ChunkedGraph
-    root_id = cg.get_root(atomic_id, is_cg_id=True)
+    root_id = cg.get_root(atomic_id)
 
     # Return binary
     return tobinary(root_id)
@@ -163,14 +163,13 @@ def handle_children(parent_id):
         print("MIP1 meshes")
         try:
             # atomic_ids = cg.get_children(int(parent_id))
-            atomic_ids = cg.get_subgraph(int(parent_id), return_rg_ids=False,
-                                         stop_lvl=2)
+            atomic_ids = cg.get_subgraph(int(parent_id), stop_lvl=2)
         except:
             atomic_ids = np.array([])
     else:
         print("MIP0 meshes")
         try:
-            atomic_ids = cg.get_subgraph(int(parent_id), return_rg_ids=False)
+            atomic_ids = cg.get_subgraph(int(parent_id))
         except:
             atomic_ids = np.array([])
 
@@ -189,7 +188,7 @@ def handle_leaves(root_id):
         bounding_box = None
 
     # Call ChunkedGraph
-    atomic_ids = cg.get_subgraph(int(root_id), return_rg_ids=False,
+    atomic_ids = cg.get_subgraph(int(root_id),
                                  bounding_box=bounding_box,
                                  bb_is_coordinate=True)
 
@@ -211,9 +210,9 @@ def handle_leaves_from_leave(atomic_id):
         bounding_box = None
 
     # Call ChunkedGraph
-    root_id = cg.get_root(int(atomic_id), is_cg_id=True)
+    root_id = cg.get_root(int(atomic_id))
 
-    atomic_ids = cg.get_subgraph(root_id, return_rg_ids=False,
+    atomic_ids = cg.get_subgraph(root_id,
                                  bounding_box=bounding_box,
                                  bb_is_coordinate=True)
     # Return binary
@@ -233,7 +232,6 @@ def handle_subgraph(root_id):
 
     # Call ChunkedGraph
     atomic_edges = cg.get_subgraph(int(root_id),
-                                   return_rg_ids=False,
                                    get_edges=True,
                                    bounding_box=bounding_box,
                                    bb_is_coordinate=True)[0]
