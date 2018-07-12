@@ -897,6 +897,24 @@ class ChunkedGraph(object):
         return self.get_chunk_id(node_id=node_ids[0]) == \
             self.get_chunk_id(node_id=node_ids[1])
 
+    def get_chunk_id_from_coord(self, layer: int,
+                                x: int, y: int, z: int) -> np.uint64:
+        """ Return ChunkID for given chunked graph layer and voxel coordinates.
+
+        :param layer: int -- ChunkedGraph layer
+        :param x: int -- X coordinate in voxel
+        :param y: int -- Y coordinate in voxel
+        :param z: int -- Z coordinate in voxel
+        :return: np.uint64 -- ChunkID
+        """
+        base_chunk_span = int(self.fan_out) ** max(0, layer - 2)
+
+        return self.get_chunk_id(
+            layer=layer,
+            x=x // (int(self.chunk_size[0]) * base_chunk_span),
+            y=y // (int(self.chunk_size[1]) * base_chunk_span),
+            z=z // (int(self.chunk_size[2]) * base_chunk_span))
+
     def get_atomic_id_from_coord(self, x: int, y: int, z: int,
                                  parent_id: np.uint64, n_tries: int=5
                                  ) -> np.uint64:
