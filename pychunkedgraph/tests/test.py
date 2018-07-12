@@ -667,36 +667,43 @@ class TestGraphSimpleQueries:
             assert len(children40002) == 1 and parent20001 in children40002
 
         # (non-existing) Parent of L4
-        assert np.array_equal(parent40001, []) is True
-        assert np.array_equal(parent40002, []) is True
+        assert parent40001 is None
+        assert parent40002 is None
 
-        # Children of (non-existing) L5
-        with pytest.raises(IndexError):
-            cgraph.get_children(to_label(cgraph, 5, 0, 0, 0, 1))
+        # # Children of (non-existing) L5
+        # with pytest.raises(IndexError):
+        #     cgraph.get_children(to_label(cgraph, 5, 0, 0, 0, 1))
 
-        # Parent of (non-existing) L5
-        with pytest.raises(IndexError):
-            cgraph.get_parent(to_label(cgraph, 5, 0, 0, 0, 1), get_only_relevant_parent=True, time_stamp=None)
+        # # Parent of (non-existing) L5
+        # with pytest.raises(IndexError):
+        #     cgraph.get_parent(to_label(cgraph, 5, 0, 0, 0, 1), get_only_relevant_parent=True, time_stamp=None)
 
     @pytest.mark.timeout(30)
     def test_get_root(self, gen_graph_simplequerytest):
         cgraph = gen_graph_simplequerytest
 
-        assert cgraph.get_root(to_label(cgraph, 1, 0, 0, 0, 0),
-                               collect_all_parents=False,
-                               time_stamp=None) == to_label(cgraph, 4, 0, 0, 0, 1)
+        root10000 = cgraph.get_root(to_label(cgraph, 1, 0, 0, 0, 0),
+                                    collect_all_parents=False,
+                                    time_stamp=None)
 
-        assert cgraph.get_root(to_label(cgraph, 1, 1, 0, 0, 0),
-                               collect_all_parents=False,
-                               time_stamp=None) == to_label(cgraph, 4, 0, 0, 0, 2)
+        root11000 = cgraph.get_root(to_label(cgraph, 1, 1, 0, 0, 0),
+                                    collect_all_parents=False,
+                                    time_stamp=None)
 
-        assert cgraph.get_root(to_label(cgraph, 1, 1, 0, 0, 1),
-                               collect_all_parents=False,
-                               time_stamp=None) == to_label(cgraph, 4, 0, 0, 0, 2)
+        root11001 = cgraph.get_root(to_label(cgraph, 1, 1, 0, 0, 1),
+                                    collect_all_parents=False,
+                                    time_stamp=None)
 
-        assert cgraph.get_root(to_label(cgraph, 1, 2, 0, 0, 0),
-                               collect_all_parents=False,
-                               time_stamp=None) == to_label(cgraph, 4, 0, 0, 0, 2)
+        root12000 = cgraph.get_root(to_label(cgraph, 1, 2, 0, 0, 0),
+                                    collect_all_parents=False,
+                                    time_stamp=None)
+
+        assert (root10000 == to_label(cgraph, 4, 0, 0, 0, 1) and
+                root11000 == root11001 == root12000 == to_label(
+                    cgraph, 4, 0, 0, 0, 2)) or \
+               (root10000 == to_label(cgraph, 4, 0, 0, 0, 2) and
+                root11000 == root11001 == root12000 == to_label(
+                    cgraph, 4, 0, 0, 0, 1))
 
     @pytest.mark.timeout(30)
     def test_get_subgraph(self, gen_graph_simplequerytest):
@@ -1066,7 +1073,7 @@ class TestGraphMerge:
         res_old.consume_all()
 
         # Merge
-        assert cgraph.add_edge("Jane Doe", [to_label(cgraph, 1, 0, 0, 0, 0), to_label(cgraph, 1, 0, 0, 0, 0)]) == []
+        assert cgraph.add_edge("Jane Doe", [to_label(cgraph, 1, 0, 0, 0, 0), to_label(cgraph, 1, 0, 0, 0, 0)]) is None
 
         res_new = cgraph.table.read_rows()
         res_new.consume_all()
@@ -1104,13 +1111,13 @@ class TestGraphMerge:
                      edges=[],
                      timestamp=fake_timestamp)
 
-        cgraph.add_layer(3, np.array([[0, 0, 0], [1, 0, 0]]), timestamp=fake_timestamp)
+        cgraph.add_layer(3, np.array([[0, 0, 0], [1, 0, 0]]), time_stamp=fake_timestamp)
 
         res_old = cgraph.table.read_rows()
         res_old.consume_all()
 
         # Merge
-        assert cgraph.add_edge("Jane Doe", [to_label(cgraph, 1, 0, 0, 0, 0), to_label(cgraph, 2, 1, 0, 0, 1)]) == []
+        assert cgraph.add_edge("Jane Doe", [to_label(cgraph, 1, 0, 0, 0, 0), to_label(cgraph, 2, 1, 0, 0, 1)]) is None
 
         res_new = cgraph.table.read_rows()
         res_new.consume_all()
@@ -1521,7 +1528,7 @@ class TestGraphSplit:
         res_old.consume_all()
 
         # Split
-        assert cgraph.remove_edges("Jane Doe", to_label(cgraph, 1, 0, 0, 0, 0), to_label(cgraph, 1, 0, 0, 0, 0), mincut=False) == []
+        assert cgraph.remove_edges("Jane Doe", to_label(cgraph, 1, 0, 0, 0, 0), to_label(cgraph, 1, 0, 0, 0, 0), mincut=False) is None
 
         res_new = cgraph.table.read_rows()
         res_new.consume_all()
@@ -1565,7 +1572,7 @@ class TestGraphSplit:
         res_old.consume_all()
 
         # Split
-        assert cgraph.remove_edges("Jane Doe", to_label(cgraph, 1, 0, 0, 0, 0), to_label(cgraph, 2, 1, 0, 0, 1), mincut=False) == []
+        assert cgraph.remove_edges("Jane Doe", to_label(cgraph, 1, 0, 0, 0, 0), to_label(cgraph, 2, 1, 0, 0, 1), mincut=False) is None
 
         res_new = cgraph.table.read_rows()
         res_new.consume_all()
@@ -1657,7 +1664,7 @@ class TestGraphMinCut:
         assert cgraph.remove_edges(
                 "Jane Doe", to_label(cgraph, 1, 0, 0, 0, 0), to_label(cgraph, 1, 1, 0, 0, 0),
                 [0, 0, 0], [2*cgraph.chunk_size[0], 2*cgraph.chunk_size[1], cgraph.chunk_size[2]],
-                mincut=True) == []
+                mincut=True) is None
 
         res_new = cgraph.table.read_rows()
         res_new.consume_all()
@@ -1700,7 +1707,7 @@ class TestGraphMinCut:
         assert cgraph.remove_edges(
                 "Jane Doe", to_label(cgraph, 1, 0, 0, 0, 0), to_label(cgraph, 1, 1, 0, 0, 0),
                 [0, 0, 0], [2*cgraph.chunk_size[0], 2*cgraph.chunk_size[1], cgraph.chunk_size[2]],
-                mincut=True) == []
+                mincut=True) is None
 
         res_new = cgraph.table.read_rows()
         res_new.consume_all()
@@ -1743,7 +1750,7 @@ class TestGraphMinCut:
         assert cgraph.remove_edges(
                 "Jane Doe", to_label(cgraph, 1, 0, 0, 0, 0), to_label(cgraph, 1, 1, 0, 0, 0),
                 [0, 0, 0], [2*cgraph.chunk_size[0], 2*cgraph.chunk_size[1], cgraph.chunk_size[2]],
-                mincut=True) == []
+                mincut=True) is None
 
         res_new = cgraph.table.read_rows()
         res_new.consume_all()

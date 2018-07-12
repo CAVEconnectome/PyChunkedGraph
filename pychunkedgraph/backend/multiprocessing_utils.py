@@ -68,7 +68,7 @@ def multiprocess_func(func, params, debug=False, verbose=False, n_threads=None):
     return result
 
 
-def multithread_func(func, params, debug=False, verbose=True, n_threads=None):
+def multithread_func(func, params, debug=False, verbose=False, n_threads=None):
     """ Processes data independent functions in parallel using multithreading
 
     :param func: function
