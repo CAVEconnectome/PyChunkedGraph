@@ -1464,12 +1464,15 @@ class ChunkedGraph(object):
                                           for c in chunk_ids])
                     chunk_ids = np.array(chunk_ids)
 
-                    chunk_id_bounds = np.array([chunk_ids, chunk_ids +
+                    scaled_chunk_ids = chunk_ids * self.fan_out ** np.max([0, (layer - 3)])
+
+                    chunk_id_bounds = np.array([scaled_chunk_ids,
+                                                scaled_chunk_ids +
                                                 self.fan_out **
                                                 np.max([0, (layer - 3)])])
 
                     bound_check = np.array([
-                        np.all(chunk_id_bounds[0] <= bounding_box[1], axis=1),
+                        np.all(chunk_id_bounds[0] < bounding_box[1], axis=1),
                         np.all(chunk_id_bounds[1] > bounding_box[0], axis=1)]).T
 
                     bound_check_mask = np.all(bound_check, axis=1)
@@ -2072,7 +2075,14 @@ class ChunkedGraph(object):
             print("WARNING: Mincut failed. Try again...")
             return False, None
 
-        if any(affinity == np.inf for affinity in affs) is True:
+        # Check if any edge in the cutset is infinite (== between chunks)
+        # We would prevent such a cut
+
+        atomic_edges_flattened_view = atomic_edges.view(dtype='u8,u8')
+        edges_flattened_view = edges.view(dtype='u8,u8')
+
+        cutset_mask = np.in1d(edges_flattened_view, atomic_edges_flattened_view)
+        if np.any(np.isinf(affs[cutset_mask])):
             return False, None
 
         # Remove edges
@@ -2085,8 +2095,6 @@ class ChunkedGraph(object):
 
         print("Remove edges: %.3fms" % ((time.time() - time_start) * 1000))
         time_start = time.time()  # ------------------------------------------
-
-        print(new_roots)
 
         return True, (new_roots, rows, atomic_edges, time_stamp)
 
