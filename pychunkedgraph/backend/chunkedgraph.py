@@ -171,10 +171,15 @@ class ChunkedGraph(object):
                  fan_out: Optional[int] = None,
                  n_layers: Optional[int] = None,
                  credentials: Optional[credentials.Credentials] = None,
+                 client: bigtable.Client = None,
                  is_new: bool = False) -> None:
 
-        self._client = bigtable.Client(project=project_id, admin=True,
-                                       credentials=credentials)
+        if client is not None:
+            self._client = client
+        else:
+            self._client = bigtable.Client(project=project_id, admin=True,
+                                           credentials=credentials)
+
         self._instance = self.client.instance(instance_id)
         self._table_id = table_id
 
@@ -207,6 +212,14 @@ class ChunkedGraph(object):
     @property
     def table_id(self) -> str:
         return self._table_id
+
+    @property
+    def instance_id(self):
+        return self.instance.instance_id
+
+    @property
+    def project_id(self):
+        return self.client.project
 
     @property
     def family_id(self) -> str:
@@ -276,6 +289,17 @@ class ChunkedGraph(object):
             value = np.frombuffer(value, dtype=np.uint64)[0]
 
         return value
+
+    def get_serialized_info(self):
+        """ Rerturns dictionary that can be used to load this AnnotationMetaDB
+
+        :return: dict
+        """
+        amdb_info = {"instance_id": self.instance_id,
+                     "project_id": self.project_id,
+                     "credentials": self.client.credentials}
+
+        return amdb_info
 
     def get_chunk_layer(self, node_or_chunk_id: np.uint64) -> int:
         """ Extract Layer from Node ID or Chunk ID
