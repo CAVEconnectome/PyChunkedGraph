@@ -1241,8 +1241,22 @@ class ChunkedGraph(object):
 
         time_filter = TimestampRangeFilter(TimestampRange(start=time_cutoff))
 
-        lock_key_filter = ColumnQualifierRegexFilter(lock_key)
-        new_parents_key_filter = ColumnQualifierRegexFilter(new_parents_key)
+        # lock_key_filter = ColumnQualifierRegexFilter(lock_key)
+        # new_parents_key_filter = ColumnQualifierRegexFilter(new_parents_key)
+
+        lock_key_filter = ColumnRangeFilter(
+            column_family_id=self.family_id,
+            start_column=lock_key,
+            end_column=lock_key,
+            inclusive_start=True,
+            inclusive_end=True)
+
+        new_parents_key_filter = ColumnRangeFilter(
+            column_family_id=self.family_id,
+            start_column=new_parents_key,
+            end_column=new_parents_key,
+            inclusive_start=True,
+            inclusive_end=True)
 
         # Combine filters together
         chained_filter = RowFilterChain([time_filter, lock_key_filter])
@@ -1292,8 +1306,21 @@ class ChunkedGraph(object):
 
         time_filter = TimestampRangeFilter(TimestampRange(start=time_cutoff))
 
-        column_key_filter = ColumnQualifierRegexFilter(lock_key)
-        value_filter = ColumnQualifierRegexFilter(operation_id_b)
+        # column_key_filter = ColumnQualifierRegexFilter(lock_key)
+        # value_filter = ColumnQualifierRegexFilter(operation_id_b)
+
+        column_key_filter = ColumnRangeFilter(
+            column_family_id=self.family_id,
+            start_column=lock_key,
+            end_column=lock_key,
+            inclusive_start=True,
+            inclusive_end=True)
+
+        value_filter = ValueRangeFilter(
+            start_value=operation_id_b,
+            end_value=operation_id_b,
+            inclusive_start=True,
+            inclusive_end=True)
 
         # Chain these filters together
         chained_filter = RowFilterChain([time_filter, column_key_filter,
@@ -1352,8 +1379,21 @@ class ChunkedGraph(object):
         # is not necessary but we include it as a backup to prevent things
         # from going really bad.
 
-        column_key_filter = ColumnQualifierRegexFilter(lock_key)
-        value_filter = ColumnQualifierRegexFilter(operation_id_b)
+        # column_key_filter = ColumnQualifierRegexFilter(lock_key)
+        # value_filter = ColumnQualifierRegexFilter(operation_id_b)
+
+        column_key_filter = ColumnRangeFilter(
+            column_family_id=self.family_id,
+            start_column=lock_key,
+            end_column=lock_key,
+            inclusive_start=True,
+            inclusive_end=True)
+
+        value_filter = ValueRangeFilter(
+            start_value=operation_id_b,
+            end_value=operation_id_b,
+            inclusive_start=True,
+            inclusive_end=True)
 
         new_parents_key_filter = ColumnRangeFilter(
             column_family_id=self.family_id, start_column=new_parents_key,
