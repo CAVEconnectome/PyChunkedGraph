@@ -440,6 +440,32 @@ class ChunkedGraph(object):
 
         return self.get_node_id(np.uint64(segment_id), chunk_id=chunk_id)
 
+    def get_max_node_id(self, chunk_id: np.uint64) -> np.uint64:
+        """  Gets maximal node id in a chunk based on the atomic counter
+
+        This is an approximation. It is not guaranteed that all ids smaller or
+        equal to this id exists. However, it is guaranteed that no larger id
+        exist at the time this function is executed.
+
+
+        :return: uint64
+        """
+
+        counter_key = serialize_key('counter')
+
+        # Incrementer row keys start with an "i"
+        row_key = serialize_key("i%s" % pad_node_id(chunk_id))
+        row = self.table.read_row(row_key)
+
+        # Read incrementer value
+        if row is not None:
+            max_node_id_b = row.cells[self.incrementer_family_id][counter_key][0].value
+            max_node_id = int.from_bytes(max_node_id_b, byteorder="big")
+        else:
+            max_node_id = 0
+
+        return np.uint64(max_node_id)
+
     def get_unique_operation_id(self) -> str:
         """ Finds a unique operation id
 
@@ -463,6 +489,32 @@ class ChunkedGraph(object):
         operation_id = "op%d" % int.from_bytes(operation_id_b, byteorder="big")
 
         return operation_id
+
+    def get_max_operation_id(self) -> str:
+        """  Gets maximal operation id based on the atomic counter
+
+        This is an approximation. It is not guaranteed that all ids smaller or
+        equal to this id exists. However, it is guaranteed that no larger id
+        exist at the time this function is executed.
+
+
+        :return: uint64
+        """
+
+        counter_key = serialize_key('counter')
+
+        # Incrementer row keys start with an "i"
+        row_key = serialize_key("ioperations")
+        row = self.table.read_row(row_key)
+
+        # Read incrementer value
+        if row is not None:
+            max_operation_id_b = row.cells[self.incrementer_family_id][counter_key][0].value
+            # max_operation_id = deserialize_
+        else:
+            max_operation_id_b = b"op0"
+
+        return max_operation_id_b
 
     def read_row(self, node_id: np.uint64, key: str, idx: int = 0,
                  dtype: type = np.uint64, get_time_stamp: bool = False) -> Any:
