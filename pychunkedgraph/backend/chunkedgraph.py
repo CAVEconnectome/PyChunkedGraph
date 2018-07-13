@@ -1075,10 +1075,10 @@ class ChunkedGraph(object):
         else:
             return children
 
-    def get_root(self, atomic_id: np.uint64, collect_all_parents: bool = False,
+    def get_root(self, node_id: np.uint64, collect_all_parents: bool = False,
                  time_stamp: Optional[datetime.datetime] = None
                  ) -> Union[List[np.uint64], np.uint64]:
-        """ Takes an atomic id and returns the associated agglomeration ids
+        """ Takes a node id and returns the associated agglomeration ids
 
         :param atomic_id: np.uint64
         :param collect_all_parents: bool
@@ -1094,12 +1094,12 @@ class ChunkedGraph(object):
         early_finish = True
         parent_ids: List[np.uint64] = []
         while early_finish:
-            parent_id = atomic_id
+            parent_id = node_id
             parent_ids = []
 
             early_finish = False
 
-            for i_layer in range(2, int(self.n_layers)+1):
+            for i_layer in range(self.get_chunk_layer(node_id)+1, int(self.n_layers)+1):
                 temp_parent_id = self.get_parent(parent_id, time_stamp=time_stamp)
 
                 if temp_parent_id is None:
