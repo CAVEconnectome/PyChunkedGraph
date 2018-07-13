@@ -230,6 +230,10 @@ class ChunkedGraph(object):
         return "1"
 
     @property
+    def log_family_id(self) -> str:
+        return "2"
+
+    @property
     def fan_out(self) -> int:
         return self._fan_out
 
@@ -257,6 +261,9 @@ class ChunkedGraph(object):
             f_inc = self.table.column_family(self.incrementer_family_id,
                                              gc_rule=MaxVersionsGCRule(1))
             f_inc.create()
+
+            f_log = self.table.column_family(self.log_family_id)
+            f_log.create()
 
             print("Table created")
 
@@ -466,10 +473,15 @@ class ChunkedGraph(object):
 
         return np.uint64(max_node_id)
 
-    def get_unique_operation_id(self) -> str:
+    def get_unique_operation_id(self) -> np.uint64:
         """ Finds a unique operation id
 
         atomic counter
+
+        Operations essentially live in layer 0. Even if segmentation ids might
+        live in layer 0 one day, they would not collide with the operation ids
+        because we write information belonging to operations in a separate
+        family id.
 
         :return: str
         """
@@ -485,12 +497,11 @@ class ChunkedGraph(object):
         # This increments the row entry and returns the value AFTER incrementing
         latest_row = append_row.commit()
         operation_id_b = latest_row[self.incrementer_family_id][counter_key][0][0]
+        operation_id = int.from_bytes(operation_id_b, byteorder="big")
 
-        operation_id = "op%d" % int.from_bytes(operation_id_b, byteorder="big")
+        return np.uint64(operation_id)
 
-        return operation_id
-
-    def get_max_operation_id(self) -> str:
+    def get_max_operation_id(self) -> np.uint64:
         """  Gets maximal operation id based on the atomic counter
 
         This is an approximation. It is not guaranteed that all ids smaller or
@@ -510,11 +521,12 @@ class ChunkedGraph(object):
         # Read incrementer value
         if row is not None:
             max_operation_id_b = row.cells[self.incrementer_family_id][counter_key][0].value
-            # max_operation_id = deserialize_
+            max_operation_id = int.from_bytes(max_operation_id_b,
+                                              byteorder="big")
         else:
-            max_operation_id_b = b"op0"
+            max_operation_id = 0
 
-        return max_operation_id_b
+        return np.uint64(max_operation_id)
 
     def read_row(self, node_id: np.uint64, key: str, idx: int = 0,
                  dtype: type = np.uint64, get_time_stamp: bool = False) -> Any:
@@ -569,7 +581,7 @@ class ChunkedGraph(object):
     def bulk_write(self, rows: Iterable[bigtable.row.DirectRow],
                    root_ids: Optional[Union[np.uint64,
                                             Iterable[np.uint64]]] = None,
-                   operation_id: Optional[str] = None,
+                   operation_id: Optional[np.uint64] = None,
                    slow_retry: bool = True) -> bool:
         """ Writes a list of mutated rows in bulk
 
@@ -581,7 +593,7 @@ class ChunkedGraph(object):
         :param rows: list
             list of mutated rows
         :param root_ids: list if uint64
-        :param operation_id: str or None
+        :param operation_id: uint64 or None
             operation_id (or other unique id) that *was* used to lock the root
             the bulk write is only executed if the root is still locked with
             the same id.
@@ -708,7 +720,7 @@ class ChunkedGraph(object):
         return self.get_chunk_id(node_id=node_ids[0]) == \
             self.get_chunk_id(node_id=node_ids[1])
 
-    def _create_split_log_row(self, operation_id: str, user_id: str,
+    def _create_split_log_row(self, operation_id: np.uint64, user_id: str,
                               root_ids: Sequence[np.uint64],
                               selected_atomic_ids: Sequence[np.uint64],
                               removed_edges: Sequence[np.uint64],
@@ -723,12 +735,12 @@ class ChunkedGraph(object):
                     serialize_key("removed_edges"):
                         np.array(removed_edges, dtype=np.uint64).tobytes()}
 
-        row = self.mutate_row(serialize_key(operation_id),
-                              self.family_id, val_dict, time_stamp)
+        row = self.mutate_row(serialize_node_id(operation_id),
+                              self.log_family_id, val_dict, time_stamp)
 
         return row
 
-    def _create_merge_log_row(self, operation_id: str, user_id: str,
+    def _create_merge_log_row(self, operation_id: np.uint64, user_id: str,
                               root_ids: Sequence[np.uint64],
                               selected_atomic_ids: Sequence[np.uint64],
                               time_stamp: datetime.datetime
@@ -741,8 +753,8 @@ class ChunkedGraph(object):
                     serialize_key("atomic_ids"):
                         np.array(selected_atomic_ids).tobytes()}
 
-        row = self.mutate_row(serialize_key(operation_id),
-                              self.family_id, val_dict, time_stamp)
+        row = self.mutate_row(serialize_node_id(operation_id),
+                              self.log_family_id, val_dict, time_stamp)
 
         return row
 
@@ -1193,7 +1205,8 @@ class ChunkedGraph(object):
 
             for i_layer in range(self.get_chunk_layer(node_id)+1,
                                  int(self.n_layers + 1)):
-                temp_parent_id = self.get_parent(parent_id, time_stamp=time_stamp)
+                temp_parent_id = self.get_parent(parent_id,
+                                                 time_stamp=time_stamp)
 
                 if temp_parent_id is None:
                     early_finish = True
@@ -1204,13 +1217,13 @@ class ChunkedGraph(object):
 
         return parent_ids
 
-    def lock_root_loop(self, root_ids: Sequence[np.uint64], operation_id: str,
-                       max_tries: int = 1, waittime_s: float = 0.5
-                       ) -> Tuple[bool, np.ndarray]:
+    def lock_root_loop(self, root_ids: Sequence[np.uint64],
+                       operation_id: np.uint64, max_tries: int = 1,
+                       waittime_s: float = 0.5) -> Tuple[bool, np.ndarray]:
         """ Attempts to lock multiple roots at the same time
 
         :param root_ids: list of uint64
-        :param operation_id: str
+        :param operation_id: uint64
         :param max_tries: int
         :param waittime_s: float
         :return: bool, list of uint64s
@@ -1251,17 +1264,18 @@ class ChunkedGraph(object):
 
         return False, root_ids
 
-    def lock_single_root(self, root_id: np.uint64, operation_id: str) -> bool:
+    def lock_single_root(self, root_id: np.uint64, operation_id: np.uint64
+                         ) -> bool:
         """ Attempts to lock the latest version of a root node
 
         :param root_id: uint64
-        :param operation_id: str
+        :param operation_id: uint64
             an id that is unique to the process asking to lock the root node
         :return: bool
             success
         """
 
-        operation_id_b = serialize_key(operation_id)
+        operation_id_b = serialize_node_id(operation_id)
 
         lock_key = serialize_key("lock")
         new_parents_key = serialize_key("new_parents")
@@ -1315,19 +1329,19 @@ class ChunkedGraph(object):
 
         return lock_acquired
 
-    def unlock_root(self, root_id: np.uint64, operation_id: str) -> bool:
+    def unlock_root(self, root_id: np.uint64, operation_id: np.uint64) -> bool:
         """ Unlocks a root
 
         This is mainly used for cases where multiple roots need to be locked and
         locking was not sucessful for all of them
 
         :param root_id: np.uint64
-        :param operation_id: str
+        :param operation_id: uint64
             an id that is unique to the process asking to lock the root node
         :return: bool
             success
         """
-        operation_id_b = serialize_key(operation_id)
+        operation_id_b = serialize_node_id(operation_id)
 
         lock_key = serialize_key("lock")
 
@@ -1374,14 +1388,14 @@ class ChunkedGraph(object):
         return root_row.commit()
 
     def check_and_renew_root_locks(self, root_ids: Iterable[np.uint64],
-                                   operation_id: str) -> bool:
+                                   operation_id: np.uint64) -> bool:
         """ Tests if the roots are locked with the provided operation_id and
         renews the lock to reset the time_stam
 
         This is mainly used before executing a bulk write
 
         :param root_ids: uint64
-        :param operation_id: str
+        :param operation_id: uint64
             an id that is unique to the process asking to lock the root node
         :return: bool
             success
@@ -1394,19 +1408,19 @@ class ChunkedGraph(object):
         return True
 
     def check_and_renew_root_lock_single(self, root_id: np.uint64,
-                                         operation_id: str) -> bool:
+                                         operation_id: np.uint64) -> bool:
         """ Tests if the root is locked with the provided operation_id and
         renews the lock to reset the time_stam
 
         This is mainly used before executing a bulk write
 
         :param root_id: uint64
-        :param operation_id: str
+        :param operation_id: uint64
             an id that is unique to the process asking to lock the root node
         :return: bool
             success
         """
-        operation_id_b = serialize_key(operation_id)
+        operation_id_b = serialize_node_id(operation_id)
 
         lock_key = serialize_key("lock")
         new_parents_key = serialize_key("new_parents")
@@ -1897,13 +1911,13 @@ class ChunkedGraph(object):
 
         return None
 
-    def _add_edge(self, operation_id: str, atomic_edge: Sequence[np.uint64],
+    def _add_edge(self, operation_id: np.uint64, atomic_edge: Sequence[np.uint64],
                   affinity: Optional[np.float32] = None
                   ) -> Tuple[np.uint64, List[bigtable.row.Row],
                              datetime.datetime]:
         """ Adds an atomic edge to the ChunkedGraph
 
-        :param operation_id: str
+        :param operation_id: uint64
         :param atomic_edge: list of two ints
         :param affinity: float
         :return: int
@@ -1986,7 +2000,7 @@ class ChunkedGraph(object):
                 val_dict["parents"] = new_parent_id_b
             else:
                 val_dict["former_parents"] = np.array(original_root).tobytes()
-                val_dict["operation_id"] = serialize_key(operation_id)
+                val_dict["operation_id"] = serialize_node_id(operation_id)
 
                 rows.append(self.mutate_row(serialize_node_id(original_root[0]),
                                             self.family_id,
@@ -2132,7 +2146,7 @@ class ChunkedGraph(object):
 
         return root_ids[:1]
 
-    def _remove_edges_mincut(self, operation_id: str, source_id: np.uint64,
+    def _remove_edges_mincut(self, operation_id: np.uint64, source_id: np.uint64,
                              sink_id: np.uint64, source_coord: Sequence[int],
                              sink_coord: Sequence[int],
                              bb_offset: Tuple[int, int, int] = (120, 120, 12)
@@ -2145,7 +2159,7 @@ class ChunkedGraph(object):
                                     datetime.datetime]]]:      # timestamp
         """ Computes mincut and removes edges accordingly
 
-        :param operation_id: str
+        :param operation_id: uint64
         :param source_id: uint64
         :param sink_id: uint64
         :param source_coord: list of 3 ints
@@ -2227,7 +2241,7 @@ class ChunkedGraph(object):
 
         return True, (new_roots, rows, atomic_edges, time_stamp)
 
-    def _remove_edges(self, operation_id: str,
+    def _remove_edges(self, operation_id: np.uint64,
                       atomic_edges: Sequence[Tuple[np.uint64, np.uint64]]
                       ) -> Tuple[bool,                          # success
                                  Optional[Tuple[
@@ -2236,7 +2250,7 @@ class ChunkedGraph(object):
                                      datetime.datetime]]]:      # timestamp
         """ Removes atomic edges from the ChunkedGraph
 
-        :param operation_id: str
+        :param operation_id: uint64
         :param atomic_edges: list of two uint64s
         :return: list of uint64s
             new root ids
@@ -2560,7 +2574,7 @@ class ChunkedGraph(object):
                     val_dict["former_parents"] = \
                         np.array(original_root).tobytes()
                     val_dict["operation_id"] = \
-                        serialize_key(operation_id)
+                        serialize_node_id(operation_id)
 
                 rows.append(self.mutate_row(serialize_node_id(new_parent_id),
                                             self.family_id, val_dict,
