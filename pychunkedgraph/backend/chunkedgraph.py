@@ -1093,13 +1093,18 @@ class ChunkedGraph(object):
 
         early_finish = True
         parent_ids: List[np.uint64] = []
+
+        if self.get_chunk_layer(node_id) == self.n_layers:
+            raise Exception("node is already root")
+
         while early_finish:
             parent_id = node_id
             parent_ids = []
 
             early_finish = False
 
-            for i_layer in range(self.get_chunk_layer(node_id)+1, int(self.n_layers)+1):
+            for i_layer in range(self.get_chunk_layer(node_id)+1,
+                                 int(self.n_layers + 1)):
                 temp_parent_id = self.get_parent(parent_id, time_stamp=time_stamp)
 
                 if temp_parent_id is None:
