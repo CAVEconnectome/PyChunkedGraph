@@ -699,6 +699,65 @@ class ChunkedGraph(object):
 
             return range_read.rows
 
+    def range_read_operations(self, time_start: datetime.datetime = None,
+                              time_end: datetime.datetime = None,
+                              start_id: np.uint64 = None,
+                              end_id: np.uint64 = None,
+                              n_retries: int = 100,
+                              row_keys: Optional[Iterable[str]] = None
+                              ) -> Dict[bytes, bigtable.row_data.PartialRowData]:
+        """ Reads all ids within a chunk
+
+        :param n_retries: int
+        :param row_keys: list of str
+            more efficient read through row filters
+        :return: list or yield of rows
+        """
+        if row_keys is not None:
+            filters = []
+            for k in row_keys:
+                filters.append(ColumnQualifierRegexFilter(serialize_key(k)))
+
+            if len(filters) > 1:
+                row_filter = RowFilterUnion(filters)
+            else:
+                row_filter = filters[0]
+        else:
+            row_filter = None
+
+        if start_id is None:
+            start_id = 0
+
+        if end_id is None:
+            end_id = self.get_max_operation_id()
+
+        # Set up read
+        range_read = self.table.read_rows(
+            start_key=serialize_node_id(start_id),
+            end_key=serialize_node_id(end_id),
+            # allow_row_interleaving=True,
+            end_inclusive=False,
+            filter_=row_filter)
+        range_read.consume_all()
+        # Execute read
+        consume_success = False
+
+        # Retry reading if any of the writes failed
+        i_tries = 0
+        while not consume_success and i_tries < n_retries:
+            try:
+                range_read.consume_all()
+                consume_success = True
+            except:
+                time.sleep(i_tries)
+            i_tries += 1
+
+        if not consume_success:
+            raise Exception("Unable to consume chunk range read: "
+                            "n_retries = %d" % (n_retries))
+
+        return range_read.rows
+
     def range_read_layer(self, layer_id):
         """ Reads all ids within a layer
 
