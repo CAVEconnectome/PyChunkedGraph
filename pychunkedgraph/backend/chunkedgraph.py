@@ -708,13 +708,44 @@ class ChunkedGraph(object):
                               ) -> Dict[bytes, bigtable.row_data.PartialRowData]:
         """ Reads all ids within a chunk
 
+        :param time_start: datetime
+        :param time_end: datetime
+        :param start_id: uint64
+        :param end_id: uint64
         :param n_retries: int
         :param row_keys: list of str
             more efficient read through row filters
         :return: list or yield of rows
         """
+
+        # Set defaults
+        if start_id is None:
+            start_id = 0
+
+        if end_id is None:
+            end_id = self.get_max_operation_id()
+
+        if end_id < start_id:
+            return {}
+
+        if time_start is None:
+            time_start = datetime.datetime(1, 1, 1)
+
+        if time_end is None:
+            time_end = datetime.datetime.utcnow()
+
+        time_start -= datetime.timedelta(
+            microseconds=time_start.microsecond % 1000)
+
+        time_end -= datetime.timedelta(
+            microseconds=time_end.microsecond % 1000)
+
+        # Create filters: time and id range
+        time_filter = TimestampRangeFilter(TimestampRange(start=time_start,
+                                                          end=time_end))
+
+        filters = [time_filter]
         if row_keys is not None:
-            filters = []
             for k in row_keys:
                 filters.append(ColumnQualifierRegexFilter(serialize_key(k)))
 
@@ -725,20 +756,16 @@ class ChunkedGraph(object):
         else:
             row_filter = None
 
-        if start_id is None:
-            start_id = 0
-
-        if end_id is None:
-            end_id = self.get_max_operation_id()
+        print(start_id, end_id, time_start, time_end)
 
         # Set up read
         range_read = self.table.read_rows(
             start_key=serialize_node_id(start_id),
             end_key=serialize_node_id(end_id),
-            # allow_row_interleaving=True,
             end_inclusive=False,
             filter_=row_filter)
         range_read.consume_all()
+
         # Execute read
         consume_success = False
 
