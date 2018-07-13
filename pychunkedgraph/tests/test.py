@@ -683,19 +683,15 @@ class TestGraphSimpleQueries:
         cgraph = gen_graph_simplequerytest
 
         root10000 = cgraph.get_root(to_label(cgraph, 1, 0, 0, 0, 0),
-                                    collect_all_parents=False,
                                     time_stamp=None)
 
         root11000 = cgraph.get_root(to_label(cgraph, 1, 1, 0, 0, 0),
-                                    collect_all_parents=False,
                                     time_stamp=None)
 
         root11001 = cgraph.get_root(to_label(cgraph, 1, 1, 0, 0, 1),
-                                    collect_all_parents=False,
                                     time_stamp=None)
 
         root12000 = cgraph.get_root(to_label(cgraph, 1, 2, 0, 0, 0),
-                                    collect_all_parents=False,
                                     time_stamp=None)
 
         assert (root10000 == to_label(cgraph, 4, 0, 0, 0, 1) and

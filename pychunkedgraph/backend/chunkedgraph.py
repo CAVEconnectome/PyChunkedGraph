@@ -1075,13 +1075,52 @@ class ChunkedGraph(object):
         else:
             return children
 
-    def get_root(self, atomic_id: np.uint64, collect_all_parents: bool = False,
+    def get_root(self, node_id: np.uint64,
                  time_stamp: Optional[datetime.datetime] = None
                  ) -> Union[List[np.uint64], np.uint64]:
-        """ Takes an atomic id and returns the associated agglomeration ids
+        """ Takes a node id and returns the associated agglomeration ids
 
-        :param atomic_id: np.uint64
-        :param collect_all_parents: bool
+        :param atomic_id: uint64
+        :param time_stamp: None or datetime
+        :return: np.uint64
+        """
+        if time_stamp is None:
+            time_stamp = datetime.datetime.now()
+
+        if time_stamp.tzinfo is None:
+            time_stamp = UTC.localize(time_stamp)
+
+        early_finish = True
+
+        if self.get_chunk_layer(node_id) == self.n_layers:
+            raise Exception("node is already root")
+
+        parent_id = node_id
+
+        while early_finish:
+            parent_id = node_id
+
+            early_finish = False
+
+            for i_layer in range(self.get_chunk_layer(node_id)+1,
+                                 int(self.n_layers + 1)):
+                temp_parent_id = self.get_parent(parent_id, time_stamp=time_stamp)
+
+                if temp_parent_id is None:
+                    early_finish = True
+                    break
+                else:
+                    parent_id = temp_parent_id
+
+        return parent_id
+
+    def get_all_parents(self, node_id: np.uint64,
+                        time_stamp: Optional[datetime.datetime] = None
+                        ) -> Union[List[np.uint64], np.uint64]:
+        """ Takes a node id and returns all parents and parents' parents up to
+            the top
+
+        :param atomic_id: uint64
         :param time_stamp: None or datetime
         :return: np.uint64
         """
@@ -1093,13 +1132,15 @@ class ChunkedGraph(object):
 
         early_finish = True
         parent_ids: List[np.uint64] = []
+
         while early_finish:
-            parent_id = atomic_id
+            parent_id = node_id
             parent_ids = []
 
             early_finish = False
 
-            for i_layer in range(2, int(self.n_layers)+1):
+            for i_layer in range(self.get_chunk_layer(node_id)+1,
+                                 int(self.n_layers + 1)):
                 temp_parent_id = self.get_parent(parent_id, time_stamp=time_stamp)
 
                 if temp_parent_id is None:
@@ -1109,10 +1150,7 @@ class ChunkedGraph(object):
                     parent_id = temp_parent_id
                     parent_ids.append(parent_id)
 
-        if collect_all_parents:
-            return parent_ids
-        else:
-            return parent_ids[-1]
+        return parent_ids
 
     def lock_root_loop(self, root_ids: Sequence[np.uint64], operation_id: str,
                        max_tries: int = 1, waittime_s: float = 0.5
@@ -1828,10 +1866,8 @@ class ChunkedGraph(object):
         rows = []
 
         # Walk up the hierarchy until a parent in the same chunk is found
-        original_parent_ids = [self.get_root(atomic_edge[0],
-                                             collect_all_parents=True),
-                               self.get_root(atomic_edge[1],
-                                             collect_all_parents=True)]
+        original_parent_ids = [self.get_all_parents(atomic_edge[0]),
+                               self.get_all_parents(atomic_edge[1])]
 
         original_parent_ids = np.array(original_parent_ids).T
 
@@ -2164,8 +2200,7 @@ class ChunkedGraph(object):
         u_atomic_ids = np.unique(atomic_edges)
 
         # Get number of layers and the original root
-        original_parent_ids = self.get_root(atomic_edges[0, 0],
-                                            collect_all_parents=True)
+        original_parent_ids = self.get_all_parents(atomic_edges[0, 0])
         n_layers = len(original_parent_ids)
         original_root = original_parent_ids[-1]
 
