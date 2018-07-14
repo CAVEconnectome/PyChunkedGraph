@@ -192,7 +192,7 @@ class ChunkedGraph(object):
                                                                n_layers)
         self._fan_out = self.check_and_write_table_parameters("fan_out",
                                                               fan_out)
-        self._chunk_size = np.array(chunk_size)
+        self._chunk_size = np.array(chunk_size, dtype=np.int)
         self._bitmasks = compute_bitmasks(self.n_layers, self.fan_out)
 
         self._n_bits_for_layer_id = 8
@@ -361,6 +361,11 @@ class ChunkedGraph(object):
             chunk_offset = 64 - self._n_bits_for_layer_id - 3 * bits_per_dim
             return np.uint64((int(node_id) >> chunk_offset) << chunk_offset)
         else:
+
+            assert x < 2 ** bits_per_dim
+            assert y < 2 ** bits_per_dim
+            assert z < 2 ** bits_per_dim
+
             layer_offset = 64 - self._n_bits_for_layer_id
             x_offset = layer_offset - bits_per_dim
             y_offset = x_offset - bits_per_dim
