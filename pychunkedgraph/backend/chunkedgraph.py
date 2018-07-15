@@ -534,32 +534,6 @@ class ChunkedGraph(object):
 
         return np.uint64(max_operation_id)
 
-    def get_max_operation_id(self) -> str:
-        """  Gets maximal operation id based on the atomic counter
-
-        This is an approximation. It is not guaranteed that all ids smaller or
-        equal to this id exists. However, it is guaranteed that no larger id
-        exist at the time this function is executed.
-
-
-        :return: uint64
-        """
-
-        counter_key = serialize_key('counter')
-
-        # Incrementer row keys start with an "i"
-        row_key = serialize_key("ioperations")
-        row = self.table.read_row(row_key)
-
-        # Read incrementer value
-        if row is not None:
-            max_operation_id_b = row.cells[self.incrementer_family_id][counter_key][0].value
-            # max_operation_id = deserialize_
-        else:
-            max_operation_id_b = b"op0"
-
-        return max_operation_id_b
-
     def read_row(self, node_id: np.uint64, key: str, idx: int = 0,
                  dtype: type = np.uint64, get_time_stamp: bool = False) -> Any:
         """ Reads row from BigTable and takes care of serializations
