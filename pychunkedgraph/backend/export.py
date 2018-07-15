@@ -26,8 +26,7 @@ def get_sv_to_root_id_mapping_chunk(cg, chunk_coords):
     print(bb)
 
     atomic_rows = cg.range_read_chunk(layer=1, x=chunk_coords[0],
-                                      y=chunk_coords[1], z=chunk_coords[2])
-
+                                      y=chunk_coords[1], z=chunk_coords[2])It
     for atomic_key in atomic_rows.keys():
         atomic_id = chunkedgraph.deserialize_node_id(atomic_key)
 
