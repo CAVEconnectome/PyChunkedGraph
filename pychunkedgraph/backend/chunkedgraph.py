@@ -26,8 +26,7 @@ from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
 # global variables
 HOME = os.path.expanduser("~")
 N_DIGITS_UINT64 = len(str(np.iinfo(np.uint64).max))
-# LOCK_EXPIRED_TIME_DELTA = datetime.timedelta(minutes=3, seconds=00)
-LOCK_EXPIRED_TIME_DELTA = datetime.timedelta(minutes=3, seconds=0)
+LOCK_EXPIRED_TIME_DELTA = datetime.timedelta(minutes=3, seconds=00)
 UTC = pytz.UTC
 
 # Setting environment wide credential path
@@ -894,7 +893,7 @@ class ChunkedGraph(object):
         :param time_stamp: datetime
         """
         if time_stamp is None:
-            time_stamp = datetime.datetime.now()
+            time_stamp = datetime.datetime.utcnow()
 
         if time_stamp.tzinfo is None:
             time_stamp = UTC.localize(time_stamp)
@@ -1076,7 +1075,7 @@ class ChunkedGraph(object):
                     self.bulk_write(rows)
 
         if time_stamp is None:
-            time_stamp = datetime.datetime.now()
+            time_stamp = datetime.datetime.utcnow()
 
         if time_stamp.tzinfo is None:
             time_stamp = UTC.localize(time_stamp)
@@ -1206,7 +1205,7 @@ class ChunkedGraph(object):
         :return: uint64 or None
         """
         if time_stamp is None:
-            time_stamp = datetime.datetime.now()
+            time_stamp = datetime.datetime.utcnow()
 
         if time_stamp.tzinfo is None:
             time_stamp = UTC.localize(time_stamp)
@@ -1261,7 +1260,7 @@ class ChunkedGraph(object):
         :return: np.uint64
         """
         if time_stamp is None:
-            time_stamp = datetime.datetime.now()
+            time_stamp = datetime.datetime.utcnow()
 
         if time_stamp.tzinfo is None:
             time_stamp = UTC.localize(time_stamp)
@@ -1301,7 +1300,7 @@ class ChunkedGraph(object):
         :return: np.uint64
         """
         if time_stamp is None:
-            time_stamp = datetime.datetime.now()
+            time_stamp = datetime.datetime.utcnow()
 
         if time_stamp.tzinfo is None:
             time_stamp = UTC.localize(time_stamp)
@@ -1464,7 +1463,7 @@ class ChunkedGraph(object):
         # LOCK_EXPIRED_TIME_DELTA) and if the given operation_id is still
         # the active lock holder
 
-        time_cutoff = datetime.datetime.now(UTC) - LOCK_EXPIRED_TIME_DELTA
+        time_cutoff = datetime.datetime.utcnow() - LOCK_EXPIRED_TIME_DELTA
 
         # Comply to resolution of BigTables TimeRange
         time_cutoff -= datetime.timedelta(
