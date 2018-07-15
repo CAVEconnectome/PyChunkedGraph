@@ -26,7 +26,8 @@ from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
 # global variables
 HOME = os.path.expanduser("~")
 N_DIGITS_UINT64 = len(str(np.iinfo(np.uint64).max))
-LOCK_EXPIRED_TIME_DELTA = datetime.timedelta(minutes=3, seconds=00)
+# LOCK_EXPIRED_TIME_DELTA = datetime.timedelta(minutes=3, seconds=00)
+LOCK_EXPIRED_TIME_DELTA = datetime.timedelta(minutes=3, seconds=0)
 UTC = pytz.UTC
 
 # Setting environment wide credential path
@@ -1271,7 +1272,7 @@ class ChunkedGraph(object):
         # LOCK_EXPIRED_TIME_DELTA) and if there is no new parent (== new_parents
         # exists)
 
-        time_cutoff = datetime.datetime.now(UTC) - LOCK_EXPIRED_TIME_DELTA
+        time_cutoff = datetime.datetime.utcnow() - LOCK_EXPIRED_TIME_DELTA
 
         # Comply to resolution of BigTables TimeRange
         time_cutoff -= datetime.timedelta(
@@ -1308,7 +1309,9 @@ class ChunkedGraph(object):
                                   filter_=combined_filter)
 
         # Set row lock if condition returns no results (state == False)
-        root_row.set_cell(self.family_id, lock_key, operation_id_b, state=False)
+        time_stamp = datetime.datetime.utcnow()
+        root_row.set_cell(self.family_id, lock_key, operation_id_b, state=False,
+                          timestamp=time_stamp)
 
         # The lock was acquired when set_cell returns False (state)
         lock_acquired = not root_row.commit()
@@ -1694,7 +1697,7 @@ class ChunkedGraph(object):
         :return: list of uint64, list of float32
         """
         if time_stamp is None:
-            time_stamp = datetime.datetime.now()
+            time_stamp = datetime.datetime.utcnow()
 
         if time_stamp.tzinfo is None:
             time_stamp = UTC.localize(time_stamp)
@@ -1790,7 +1793,7 @@ class ChunkedGraph(object):
             return thread_edges, thread_affinities
 
         if time_stamp is None:
-            time_stamp = datetime.datetime.now()
+            time_stamp = datetime.datetime.utcnow()
 
         if time_stamp.tzinfo is None:
             time_stamp = UTC.localize(time_stamp)
@@ -1852,6 +1855,8 @@ class ChunkedGraph(object):
             else None
         """
 
+        print(atomic_edge)
+
         # Sanity Checks
         if atomic_edge[0] == atomic_edge[1]:
             return None
@@ -1909,8 +1914,7 @@ class ChunkedGraph(object):
         :return: int
             new root id
         """
-        time_stamp = datetime.datetime.now()
-        time_stamp = UTC.localize(time_stamp)
+        time_stamp = datetime.datetime.utcnow()
 
         if affinity is None:
             affinity = np.float32(1.0)
@@ -2241,8 +2245,7 @@ class ChunkedGraph(object):
         :return: list of uint64s
             new root ids
         """
-        time_stamp = datetime.datetime.now()
-        time_stamp = UTC.localize(time_stamp)
+        time_stamp = datetime.datetime.utcnow()
 
         # Make sure that we have a list of edges
         if isinstance(atomic_edges[0], np.uint64):
