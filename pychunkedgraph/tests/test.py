@@ -186,11 +186,11 @@ class TestGraphNodeConversion:
     def test_serialize_node_id(self, gen_graph):
         cgraph = gen_graph(n_layers=10)
 
-        assert chunkedgraph.serialize_node_id(cgraph.get_node_id(np.uint64(0), layer=2, x=3, y=1, z=0)) < \
-            chunkedgraph.serialize_node_id(cgraph.get_node_id(np.uint64(1), layer=2, x=3, y=1, z=0))
+        assert chunkedgraph.serialize_uint64(cgraph.get_node_id(np.uint64(0), layer=2, x=3, y=1, z=0)) < \
+            chunkedgraph.serialize_uint64(cgraph.get_node_id(np.uint64(1), layer=2, x=3, y=1, z=0))
 
-        assert chunkedgraph.serialize_node_id(cgraph.get_node_id(np.uint64(2**53 - 2), layer=10, x=0, y=0, z=0)) < \
-            chunkedgraph.serialize_node_id(cgraph.get_node_id(np.uint64(2**53 - 1), layer=10, x=0, y=0, z=0))
+        assert chunkedgraph.serialize_uint64(cgraph.get_node_id(np.uint64(2**53 - 2), layer=10, x=0, y=0, z=0)) < \
+            chunkedgraph.serialize_uint64(cgraph.get_node_id(np.uint64(2**53 - 1), layer=10, x=0, y=0, z=0))
 
     @pytest.mark.timeout(30)
     def test_deserialize_node_id(self):
@@ -203,7 +203,7 @@ class TestGraphNodeConversion:
     @pytest.mark.timeout(30)
     def test_serialize_valid_label_id(self):
         label = np.uint64(0x01FF031234556789)
-        assert chunkedgraph.deserialize_node_id(chunkedgraph.serialize_node_id(label)) == label
+        assert chunkedgraph.deserialize_uint64(chunkedgraph.serialize_uint64(label)) == label
 
 
 class TestGraphBuild:
@@ -228,14 +228,14 @@ class TestGraphBuild:
         res.consume_all()
 
         # Check for the RG-to-CG mapping:
-        # assert chunkedgraph.serialize_node_id(1) in res.rows
-        # row = res.rows[chunkedgraph.serialize_node_id(1)].cells[cgraph.family_id]
+        # assert chunkedgraph.serialize_uint64(1) in res.rows
+        # row = res.rows[chunkedgraph.serialize_uint64(1)].cells[cgraph.family_id]
         # assert np.frombuffer(row[b'cg_id'][0].value, np.uint64)[0] == to_label(cgraph, 1, 0, 0, 0, 0)
 
         # Check for the Level 1 CG supervoxel:
         # to_label(cgraph, 1, 0, 0, 0, 0)
-        assert chunkedgraph.serialize_node_id(to_label(cgraph, 1, 0, 0, 0, 0)) in res.rows
-        row = res.rows[chunkedgraph.serialize_node_id(to_label(cgraph, 1, 0, 0, 0, 0))].cells[cgraph.family_id]
+        assert chunkedgraph.serialize_uint64(to_label(cgraph, 1, 0, 0, 0, 0)) in res.rows
+        row = res.rows[chunkedgraph.serialize_uint64(to_label(cgraph, 1, 0, 0, 0, 0))].cells[cgraph.family_id]
         atomic_affinities = np.frombuffer(row[b'atomic_affinities'][0].value, np.float32)
         atomic_partners = np.frombuffer(row[b'atomic_partners'][0].value, np.uint64)
         parents = np.frombuffer(row[b'parents'][0].value, np.uint64)
@@ -246,8 +246,8 @@ class TestGraphBuild:
 
         # Check for the one Level 2 node that should have been created.
         # to_label(cgraph, 2, 0, 0, 0, 1)
-        assert chunkedgraph.serialize_node_id(to_label(cgraph, 2, 0, 0, 0, 1)) in res.rows
-        row = res.rows[chunkedgraph.serialize_node_id(to_label(cgraph, 2, 0, 0, 0, 1))].cells[cgraph.family_id]
+        assert chunkedgraph.serialize_uint64(to_label(cgraph, 2, 0, 0, 0, 1)) in res.rows
+        row = res.rows[chunkedgraph.serialize_uint64(to_label(cgraph, 2, 0, 0, 0, 1))].cells[cgraph.family_id]
         atomic_cross_edges = np.frombuffer(row[b'atomic_cross_edges'][0].value, np.uint64).reshape(-1, 2)
         children = np.frombuffer(row[b'children'][0].value, np.uint64)
 
@@ -280,18 +280,18 @@ class TestGraphBuild:
         res.consume_all()
 
         # Check for the two RG-to-CG mappings:
-        # assert chunkedgraph.serialize_node_id(1) in res.rows
-        # row = res.rows[chunkedgraph.serialize_node_id(1)].cells[cgraph.family_id]
+        # assert chunkedgraph.serialize_uint64(1) in res.rows
+        # row = res.rows[chunkedgraph.serialize_uint64(1)].cells[cgraph.family_id]
         # assert np.frombuffer(row[b'cg_id'][0].value, np.uint64)[0] == to_label(cgraph, 1, 0, 0, 0, 0)
 
-        # assert chunkedgraph.serialize_node_id(2) in res.rows
-        # row = res.rows[chunkedgraph.serialize_node_id(2)].cells[cgraph.family_id]
+        # assert chunkedgraph.serialize_uint64(2) in res.rows
+        # row = res.rows[chunkedgraph.serialize_uint64(2)].cells[cgraph.family_id]
         # assert np.frombuffer(row[b'cg_id'][0].value, np.uint64)[0] == to_label(cgraph, 1, 0, 0, 0, 1)
 
         # Check for the two original Level 1 CG supervoxels
         # to_label(cgraph, 1, 0, 0, 0, 0)
-        assert chunkedgraph.serialize_node_id(to_label(cgraph, 1, 0, 0, 0, 0)) in res.rows
-        row = res.rows[chunkedgraph.serialize_node_id(to_label(cgraph, 1, 0, 0, 0, 0))].cells[cgraph.family_id]
+        assert chunkedgraph.serialize_uint64(to_label(cgraph, 1, 0, 0, 0, 0)) in res.rows
+        row = res.rows[chunkedgraph.serialize_uint64(to_label(cgraph, 1, 0, 0, 0, 0))].cells[cgraph.family_id]
         atomic_affinities = np.frombuffer(row[b'atomic_affinities'][0].value, np.float32)
         atomic_partners = np.frombuffer(row[b'atomic_partners'][0].value, np.uint64)
         parents = np.frombuffer(row[b'parents'][0].value, np.uint64)
@@ -301,8 +301,8 @@ class TestGraphBuild:
         assert len(parents) == 1 and parents[0] == to_label(cgraph, 2, 0, 0, 0, 1)
 
         # to_label(cgraph, 1, 0, 0, 0, 1)
-        assert chunkedgraph.serialize_node_id(to_label(cgraph, 1, 0, 0, 0, 1)) in res.rows
-        row = res.rows[chunkedgraph.serialize_node_id(to_label(cgraph, 1, 0, 0, 0, 1))].cells[cgraph.family_id]
+        assert chunkedgraph.serialize_uint64(to_label(cgraph, 1, 0, 0, 0, 1)) in res.rows
+        row = res.rows[chunkedgraph.serialize_uint64(to_label(cgraph, 1, 0, 0, 0, 1))].cells[cgraph.family_id]
         atomic_affinities = np.frombuffer(row[b'atomic_affinities'][0].value, np.float32)
         atomic_partners = np.frombuffer(row[b'atomic_partners'][0].value, np.uint64)
         parents = np.frombuffer(row[b'parents'][0].value, np.uint64)
@@ -312,8 +312,8 @@ class TestGraphBuild:
         assert len(parents) == 1 and parents[0] == to_label(cgraph, 2, 0, 0, 0, 1)
 
         # Check for the one Level 2 node that should have been created.
-        assert chunkedgraph.serialize_node_id(to_label(cgraph, 2, 0, 0, 0, 1)) in res.rows
-        row = res.rows[chunkedgraph.serialize_node_id(to_label(cgraph, 2, 0, 0, 0, 1))].cells[cgraph.family_id]
+        assert chunkedgraph.serialize_uint64(to_label(cgraph, 2, 0, 0, 0, 1)) in res.rows
+        row = res.rows[chunkedgraph.serialize_uint64(to_label(cgraph, 2, 0, 0, 0, 1))].cells[cgraph.family_id]
         atomic_cross_edges = np.frombuffer(row[b'atomic_cross_edges'][0].value, np.uint64).reshape(-1, 2)
         children = np.frombuffer(row[b'children'][0].value, np.uint64)
 
@@ -352,18 +352,18 @@ class TestGraphBuild:
         res.consume_all()
 
         # Check for the two RG-to-CG mappings:
-        # assert chunkedgraph.serialize_node_id(1) in res.rows
-        # row = res.rows[chunkedgraph.serialize_node_id(1)].cells[cgraph.family_id]
+        # assert chunkedgraph.serialize_uint64(1) in res.rows
+        # row = res.rows[chunkedgraph.serialize_uint64(1)].cells[cgraph.family_id]
         # assert np.frombuffer(row[b'cg_id'][0].value, np.uint64)[0] == to_label(cgraph, 1, 0, 0, 0, 0)
 
-        # assert chunkedgraph.serialize_node_id(2) in res.rows
-        # row = res.rows[chunkedgraph.serialize_node_id(2)].cells[cgraph.family_id]
+        # assert chunkedgraph.serialize_uint64(2) in res.rows
+        # row = res.rows[chunkedgraph.serialize_uint64(2)].cells[cgraph.family_id]
         # assert np.frombuffer(row[b'cg_id'][0].value, np.uint64)[0] == to_label(cgraph, 1, 1, 0, 0, 0)
 
         # Check for the two original Level 1 CG supervoxels
         # to_label(cgraph, 1, 0, 0, 0, 0)
-        assert chunkedgraph.serialize_node_id(to_label(cgraph, 1, 0, 0, 0, 0)) in res.rows
-        row = res.rows[chunkedgraph.serialize_node_id(to_label(cgraph, 1, 0, 0, 0, 0))].cells[cgraph.family_id]
+        assert chunkedgraph.serialize_uint64(to_label(cgraph, 1, 0, 0, 0, 0)) in res.rows
+        row = res.rows[chunkedgraph.serialize_uint64(to_label(cgraph, 1, 0, 0, 0, 0))].cells[cgraph.family_id]
         atomic_affinities = np.frombuffer(row[b'atomic_affinities'][0].value, np.float32)
         atomic_partners = np.frombuffer(row[b'atomic_partners'][0].value, np.uint64)
         parents = np.frombuffer(row[b'parents'][0].value, np.uint64)
@@ -373,8 +373,8 @@ class TestGraphBuild:
         assert len(parents) == 1 and parents[0] == to_label(cgraph, 2, 0, 0, 0, 1)
 
         # to_label(cgraph, 1, 1, 0, 0, 0)
-        assert chunkedgraph.serialize_node_id(to_label(cgraph, 1, 1, 0, 0, 0)) in res.rows
-        row = res.rows[chunkedgraph.serialize_node_id(to_label(cgraph, 1, 1, 0, 0, 0))].cells[cgraph.family_id]
+        assert chunkedgraph.serialize_uint64(to_label(cgraph, 1, 1, 0, 0, 0)) in res.rows
+        row = res.rows[chunkedgraph.serialize_uint64(to_label(cgraph, 1, 1, 0, 0, 0))].cells[cgraph.family_id]
         atomic_affinities = np.frombuffer(row[b'atomic_affinities'][0].value, np.float32)
         atomic_partners = np.frombuffer(row[b'atomic_partners'][0].value, np.uint64)
         parents = np.frombuffer(row[b'parents'][0].value, np.uint64)
@@ -386,8 +386,8 @@ class TestGraphBuild:
         # Check for the two Level 2 nodes that should have been created. Since Level 2 has the same
         # dimensions as Level 1, we also expect them to be in different chunks
         # to_label(cgraph, 2, 0, 0, 0, 1)
-        assert chunkedgraph.serialize_node_id(to_label(cgraph, 2, 0, 0, 0, 1)) in res.rows
-        row = res.rows[chunkedgraph.serialize_node_id(to_label(cgraph, 2, 0, 0, 0, 1))].cells[cgraph.family_id]
+        assert chunkedgraph.serialize_uint64(to_label(cgraph, 2, 0, 0, 0, 1)) in res.rows
+        row = res.rows[chunkedgraph.serialize_uint64(to_label(cgraph, 2, 0, 0, 0, 1))].cells[cgraph.family_id]
         atomic_cross_edges = np.frombuffer(row[b'atomic_cross_edges'][0].value, np.uint64).reshape(-1, 2)
         children = np.frombuffer(row[b'children'][0].value, np.uint64)
 
@@ -395,8 +395,8 @@ class TestGraphBuild:
         assert len(children) == 1 and to_label(cgraph, 1, 0, 0, 0, 0) in children
 
         # to_label(cgraph, 2, 1, 0, 0, 1)
-        assert chunkedgraph.serialize_node_id(to_label(cgraph, 2, 1, 0, 0, 1)) in res.rows
-        row = res.rows[chunkedgraph.serialize_node_id(to_label(cgraph, 2, 1, 0, 0, 1))].cells[cgraph.family_id]
+        assert chunkedgraph.serialize_uint64(to_label(cgraph, 2, 1, 0, 0, 1)) in res.rows
+        row = res.rows[chunkedgraph.serialize_uint64(to_label(cgraph, 2, 1, 0, 0, 1))].cells[cgraph.family_id]
         atomic_cross_edges = np.frombuffer(row[b'atomic_cross_edges'][0].value, np.uint64).reshape(-1, 2)
         children = np.frombuffer(row[b'children'][0].value, np.uint64)
 
@@ -406,8 +406,8 @@ class TestGraphBuild:
         # Check for the one Level 3 node that should have been created. This one combines the two
         # connected components of Level 2
         # to_label(cgraph, 3, 0, 0, 0, 1)
-        assert chunkedgraph.serialize_node_id(to_label(cgraph, 3, 0, 0, 0, 1)) in res.rows
-        row = res.rows[chunkedgraph.serialize_node_id(to_label(cgraph, 3, 0, 0, 0, 1))].cells[cgraph.family_id]
+        assert chunkedgraph.serialize_uint64(to_label(cgraph, 3, 0, 0, 0, 1)) in res.rows
+        row = res.rows[chunkedgraph.serialize_uint64(to_label(cgraph, 3, 0, 0, 0, 1))].cells[cgraph.family_id]
         atomic_cross_edges = np.frombuffer(row[b'atomic_cross_edges'][0].value, np.uint64).reshape(-1, 2)
         children = np.frombuffer(row[b'children'][0].value, np.uint64)
 
@@ -448,22 +448,22 @@ class TestGraphBuild:
         res.consume_all()
 
         # Check for the three RG-to-CG mappings:
-        # assert chunkedgraph.serialize_node_id(1) in res.rows
-        # row = res.rows[chunkedgraph.serialize_node_id(1)].cells[cgraph.family_id]
+        # assert chunkedgraph.serialize_uint64(1) in res.rows
+        # row = res.rows[chunkedgraph.serialize_uint64(1)].cells[cgraph.family_id]
         # assert np.frombuffer(row[b'cg_id'][0].value, np.uint64)[0] == to_label(cgraph, 1, 0, 0, 0, 0)
 
-        # assert chunkedgraph.serialize_node_id(2) in res.rows
-        # row = res.rows[chunkedgraph.serialize_node_id(2)].cells[cgraph.family_id]
+        # assert chunkedgraph.serialize_uint64(2) in res.rows
+        # row = res.rows[chunkedgraph.serialize_uint64(2)].cells[cgraph.family_id]
         # assert np.frombuffer(row[b'cg_id'][0].value, np.uint64)[0] == to_label(cgraph, 1, 0, 0, 0, 1)
 
-        # assert chunkedgraph.serialize_node_id(3) in res.rows
-        # row = res.rows[chunkedgraph.serialize_node_id(3)].cells[cgraph.family_id]
+        # assert chunkedgraph.serialize_uint64(3) in res.rows
+        # row = res.rows[chunkedgraph.serialize_uint64(3)].cells[cgraph.family_id]
         # assert np.frombuffer(row[b'cg_id'][0].value, np.uint64)[0] == to_label(cgraph, 1, 1, 0, 0, 0)
 
         # Check for the three original Level 1 CG supervoxels
         # to_label(cgraph, 1, 0, 0, 0, 0)
-        assert chunkedgraph.serialize_node_id(to_label(cgraph, 1, 0, 0, 0, 0)) in res.rows
-        row = res.rows[chunkedgraph.serialize_node_id(to_label(cgraph, 1, 0, 0, 0, 0))].cells[cgraph.family_id]
+        assert chunkedgraph.serialize_uint64(to_label(cgraph, 1, 0, 0, 0, 0)) in res.rows
+        row = res.rows[chunkedgraph.serialize_uint64(to_label(cgraph, 1, 0, 0, 0, 0))].cells[cgraph.family_id]
         atomic_affinities = np.frombuffer(row[b'atomic_affinities'][0].value, np.float32)
         atomic_partners = np.frombuffer(row[b'atomic_partners'][0].value, np.uint64)
         parents = np.frombuffer(row[b'parents'][0].value, np.uint64)
@@ -477,8 +477,8 @@ class TestGraphBuild:
         assert len(parents) == 1 and parents[0] == to_label(cgraph, 2, 0, 0, 0, 1)
 
         # to_label(cgraph, 1, 0, 0, 0, 1)
-        assert chunkedgraph.serialize_node_id(to_label(cgraph, 1, 0, 0, 0, 1)) in res.rows
-        row = res.rows[chunkedgraph.serialize_node_id(to_label(cgraph, 1, 0, 0, 0, 1))].cells[cgraph.family_id]
+        assert chunkedgraph.serialize_uint64(to_label(cgraph, 1, 0, 0, 0, 1)) in res.rows
+        row = res.rows[chunkedgraph.serialize_uint64(to_label(cgraph, 1, 0, 0, 0, 1))].cells[cgraph.family_id]
         atomic_affinities = np.frombuffer(row[b'atomic_affinities'][0].value, np.float32)
         atomic_partners = np.frombuffer(row[b'atomic_partners'][0].value, np.uint64)
         parents = np.frombuffer(row[b'parents'][0].value, np.uint64)
@@ -488,8 +488,8 @@ class TestGraphBuild:
         assert len(parents) == 1 and parents[0] == to_label(cgraph, 2, 0, 0, 0, 1)
 
         # to_label(cgraph, 1, 1, 0, 0, 0)
-        assert chunkedgraph.serialize_node_id(to_label(cgraph, 1, 1, 0, 0, 0)) in res.rows
-        row = res.rows[chunkedgraph.serialize_node_id(to_label(cgraph, 1, 1, 0, 0, 0))].cells[cgraph.family_id]
+        assert chunkedgraph.serialize_uint64(to_label(cgraph, 1, 1, 0, 0, 0)) in res.rows
+        row = res.rows[chunkedgraph.serialize_uint64(to_label(cgraph, 1, 1, 0, 0, 0))].cells[cgraph.family_id]
         atomic_affinities = np.frombuffer(row[b'atomic_affinities'][0].value, np.float32)
         atomic_partners = np.frombuffer(row[b'atomic_partners'][0].value, np.uint64)
         parents = np.frombuffer(row[b'parents'][0].value, np.uint64)
@@ -501,8 +501,8 @@ class TestGraphBuild:
         # Check for the two Level 2 nodes that should have been created. Since Level 2 has the same
         # dimensions as Level 1, we also expect them to be in different chunks
         # to_label(cgraph, 2, 0, 0, 0, 1)
-        assert chunkedgraph.serialize_node_id(to_label(cgraph, 2, 0, 0, 0, 1)) in res.rows
-        row = res.rows[chunkedgraph.serialize_node_id(to_label(cgraph, 2, 0, 0, 0, 1))].cells[cgraph.family_id]
+        assert chunkedgraph.serialize_uint64(to_label(cgraph, 2, 0, 0, 0, 1)) in res.rows
+        row = res.rows[chunkedgraph.serialize_uint64(to_label(cgraph, 2, 0, 0, 0, 1))].cells[cgraph.family_id]
         atomic_cross_edges = np.frombuffer(row[b'atomic_cross_edges'][0].value, np.uint64).reshape(-1, 2)
         children = np.frombuffer(row[b'children'][0].value, np.uint64)
 
@@ -510,8 +510,8 @@ class TestGraphBuild:
         assert len(children) == 2 and to_label(cgraph, 1, 0, 0, 0, 0) in children and to_label(cgraph, 1, 0, 0, 0, 1) in children
 
         # to_label(cgraph, 2, 1, 0, 0, 1)
-        assert chunkedgraph.serialize_node_id(to_label(cgraph, 2, 1, 0, 0, 1)) in res.rows
-        row = res.rows[chunkedgraph.serialize_node_id(to_label(cgraph, 2, 1, 0, 0, 1))].cells[cgraph.family_id]
+        assert chunkedgraph.serialize_uint64(to_label(cgraph, 2, 1, 0, 0, 1)) in res.rows
+        row = res.rows[chunkedgraph.serialize_uint64(to_label(cgraph, 2, 1, 0, 0, 1))].cells[cgraph.family_id]
         atomic_cross_edges = np.frombuffer(row[b'atomic_cross_edges'][0].value, np.uint64).reshape(-1, 2)
         children = np.frombuffer(row[b'children'][0].value, np.uint64)
 
@@ -521,8 +521,8 @@ class TestGraphBuild:
         # Check for the one Level 3 node that should have been created. This one combines the two
         # connected components of Level 2
         # to_label(cgraph, 3, 0, 0, 0, 1)
-        assert chunkedgraph.serialize_node_id(to_label(cgraph, 3, 0, 0, 0, 1)) in res.rows
-        row = res.rows[chunkedgraph.serialize_node_id(to_label(cgraph, 3, 0, 0, 0, 1))].cells[cgraph.family_id]
+        assert chunkedgraph.serialize_uint64(to_label(cgraph, 3, 0, 0, 0, 1)) in res.rows
+        row = res.rows[chunkedgraph.serialize_uint64(to_label(cgraph, 3, 0, 0, 0, 1))].cells[cgraph.family_id]
         atomic_cross_edges = np.frombuffer(row[b'atomic_cross_edges'][0].value, np.uint64).reshape(-1, 2)
         children = np.frombuffer(row[b'children'][0].value, np.uint64)
 
@@ -574,10 +574,10 @@ class TestGraphBuild:
         res = cgraph.table.read_rows()
         res.consume_all()
 
-        assert chunkedgraph.serialize_node_id(to_label(cgraph, 1, 0, 0, 0, 0)) in res.rows
-        assert chunkedgraph.serialize_node_id(to_label(cgraph, 1, 255, 255, 255, 0)) in res.rows
-        assert chunkedgraph.serialize_node_id(to_label(cgraph, 10, 0, 0, 0, 1)) in res.rows
-        assert chunkedgraph.serialize_node_id(to_label(cgraph, 10, 0, 0, 0, 2)) in res.rows
+        assert chunkedgraph.serialize_uint64(to_label(cgraph, 1, 0, 0, 0, 0)) in res.rows
+        assert chunkedgraph.serialize_uint64(to_label(cgraph, 1, 255, 255, 255, 0)) in res.rows
+        assert chunkedgraph.serialize_uint64(to_label(cgraph, 10, 0, 0, 0, 1)) in res.rows
+        assert chunkedgraph.serialize_uint64(to_label(cgraph, 10, 0, 0, 0, 2)) in res.rows
 
 
 class TestGraphSimpleQueries:

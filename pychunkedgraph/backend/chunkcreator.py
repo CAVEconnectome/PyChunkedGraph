@@ -137,7 +137,7 @@ def _family_consistency_test_thread(args):
             print("%d / %d - %.3fs -> %.3fs      " % (i_k, len(rows), dt, eta),
                   end="\r")
 
-        node_id = chunkedgraph.deserialize_node_id(k)
+        node_id = chunkedgraph.deserialize_uint64(k)
         parent_id = np.frombuffer(rows[k].cells["0"][b'parents'][0].value,
                                   dtype=np.uint64)
         if not node_id in cg.get_children(parent_id):
