@@ -57,6 +57,23 @@ def bigtable_emulator(request):
 
 
 @pytest.fixture(scope='function')
+def lock_expired_timedelta_override(request):
+    # HACK: For the duration of the test, set global LOCK_EXPIRED_TIME_DELTA
+    # to 1 second (otherwise test would have to run for several minutes)
+
+    original_timedelta = chunkedgraph.LOCK_EXPIRED_TIME_DELTA
+
+    chunkedgraph.LOCK_EXPIRED_TIME_DELTA = timedelta(seconds=1)
+
+    # Ensure that we restore the original value, even if the test fails.
+    def fin():
+        chunkedgraph.LOCK_EXPIRED_TIME_DELTA = original_timedelta
+
+    request.addfinalizer(fin)
+    return chunkedgraph.LOCK_EXPIRED_TIME_DELTA
+
+
+@pytest.fixture(scope='function')
 def gen_graph(request):
     def _cgraph(request, fan_out=2, n_layers=10):
         # setup Chunked Graph
@@ -1812,7 +1829,7 @@ class TestGraphLocks:
                                      operation_id=operation_id_2)[0]
 
     @pytest.mark.timeout(30)
-    def test_lock_expiration(self, gen_graph):
+    def test_lock_expiration(self, gen_graph, lock_expired_timedelta_override):
         """
         No connection between 1, 2 and 3
         ┌─────┬─────┐
