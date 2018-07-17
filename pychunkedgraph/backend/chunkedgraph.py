@@ -893,7 +893,7 @@ class ChunkedGraph(object):
         :param time_stamp: datetime
         """
         if time_stamp is None:
-            time_stamp = datetime.datetime.now()
+            time_stamp = datetime.datetime.utcnow()
 
         if time_stamp.tzinfo is None:
             time_stamp = UTC.localize(time_stamp)
@@ -1075,7 +1075,7 @@ class ChunkedGraph(object):
                     self.bulk_write(rows)
 
         if time_stamp is None:
-            time_stamp = datetime.datetime.now()
+            time_stamp = datetime.datetime.utcnow()
 
         if time_stamp.tzinfo is None:
             time_stamp = UTC.localize(time_stamp)
@@ -1205,7 +1205,7 @@ class ChunkedGraph(object):
         :return: uint64 or None
         """
         if time_stamp is None:
-            time_stamp = datetime.datetime.now()
+            time_stamp = datetime.datetime.utcnow()
 
         if time_stamp.tzinfo is None:
             time_stamp = UTC.localize(time_stamp)
@@ -1260,7 +1260,7 @@ class ChunkedGraph(object):
         :return: np.uint64
         """
         if time_stamp is None:
-            time_stamp = datetime.datetime.now()
+            time_stamp = datetime.datetime.utcnow()
 
         if time_stamp.tzinfo is None:
             time_stamp = UTC.localize(time_stamp)
@@ -1300,7 +1300,7 @@ class ChunkedGraph(object):
         :return: np.uint64
         """
         if time_stamp is None:
-            time_stamp = datetime.datetime.now()
+            time_stamp = datetime.datetime.utcnow()
 
         if time_stamp.tzinfo is None:
             time_stamp = UTC.localize(time_stamp)
@@ -1396,7 +1396,7 @@ class ChunkedGraph(object):
         # LOCK_EXPIRED_TIME_DELTA) and if there is no new parent (== new_parents
         # exists)
 
-        time_cutoff = datetime.datetime.now(UTC) - LOCK_EXPIRED_TIME_DELTA
+        time_cutoff = datetime.datetime.utcnow() - LOCK_EXPIRED_TIME_DELTA
 
         # Comply to resolution of BigTables TimeRange
         time_cutoff -= datetime.timedelta(
@@ -1433,7 +1433,9 @@ class ChunkedGraph(object):
                                   filter_=combined_filter)
 
         # Set row lock if condition returns no results (state == False)
-        root_row.set_cell(self.family_id, lock_key, operation_id_b, state=False)
+        time_stamp = datetime.datetime.utcnow()
+        root_row.set_cell(self.family_id, lock_key, operation_id_b, state=False,
+                          timestamp=time_stamp)
 
         # The lock was acquired when set_cell returns False (state)
         lock_acquired = not root_row.commit()
@@ -1461,7 +1463,7 @@ class ChunkedGraph(object):
         # LOCK_EXPIRED_TIME_DELTA) and if the given operation_id is still
         # the active lock holder
 
-        time_cutoff = datetime.datetime.now(UTC) - LOCK_EXPIRED_TIME_DELTA
+        time_cutoff = datetime.datetime.utcnow() - LOCK_EXPIRED_TIME_DELTA
 
         # Comply to resolution of BigTables TimeRange
         time_cutoff -= datetime.timedelta(
@@ -1819,7 +1821,7 @@ class ChunkedGraph(object):
         :return: list of uint64, list of float32
         """
         if time_stamp is None:
-            time_stamp = datetime.datetime.now()
+            time_stamp = datetime.datetime.utcnow()
 
         if time_stamp.tzinfo is None:
             time_stamp = UTC.localize(time_stamp)
@@ -1915,7 +1917,7 @@ class ChunkedGraph(object):
             return thread_edges, thread_affinities
 
         if time_stamp is None:
-            time_stamp = datetime.datetime.now()
+            time_stamp = datetime.datetime.utcnow()
 
         if time_stamp.tzinfo is None:
             time_stamp = UTC.localize(time_stamp)
@@ -2034,8 +2036,7 @@ class ChunkedGraph(object):
         :return: int
             new root id
         """
-        time_stamp = datetime.datetime.now()
-        time_stamp = UTC.localize(time_stamp)
+        time_stamp = datetime.datetime.utcnow()
 
         if affinity is None:
             affinity = np.float32(1.0)
@@ -2366,8 +2367,7 @@ class ChunkedGraph(object):
         :return: list of uint64s
             new root ids
         """
-        time_stamp = datetime.datetime.now()
-        time_stamp = UTC.localize(time_stamp)
+        time_stamp = datetime.datetime.utcnow()
 
         # Make sure that we have a list of edges
         if isinstance(atomic_edges[0], np.uint64):

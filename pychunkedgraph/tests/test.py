@@ -57,6 +57,23 @@ def bigtable_emulator(request):
 
 
 @pytest.fixture(scope='function')
+def lock_expired_timedelta_override(request):
+    # HACK: For the duration of the test, set global LOCK_EXPIRED_TIME_DELTA
+    # to 1 second (otherwise test would have to run for several minutes)
+
+    original_timedelta = chunkedgraph.LOCK_EXPIRED_TIME_DELTA
+
+    chunkedgraph.LOCK_EXPIRED_TIME_DELTA = timedelta(seconds=1)
+
+    # Ensure that we restore the original value, even if the test fails.
+    def fin():
+        chunkedgraph.LOCK_EXPIRED_TIME_DELTA = original_timedelta
+
+    request.addfinalizer(fin)
+    return chunkedgraph.LOCK_EXPIRED_TIME_DELTA
+
+
+@pytest.fixture(scope='function')
 def gen_graph(request):
     def _cgraph(request, fan_out=2, n_layers=10):
         # setup Chunked Graph
@@ -1758,3 +1775,192 @@ class TestGraphMultiCut:
     @pytest.mark.timeout(30)
     def test_cut_multi_tree(self, gen_graph):
         pass
+
+
+class TestGraphLocks:
+    @pytest.mark.timeout(30)
+    def test_lock_unlock(self, gen_graph):
+        """
+        No connection between 1, 2 and 3
+        ┌─────┬─────┐
+        │  A¹ │  B¹ │
+        │  1  │  3  │
+        │  2  │     │
+        └─────┴─────┘
+
+        (1) Try lock (opid = 1)
+        (2) Try lock (opid = 2)
+        (3) Try unlock (opid = 1)
+        (4) Try lock (opid = 2)
+        """
+
+        cgraph = gen_graph(n_layers=3)
+
+        # Preparation: Build Chunk A
+        fake_timestamp = datetime.utcnow() - timedelta(days=10)
+        create_chunk(cgraph,
+                     vertices=[to_label(cgraph, 1, 0, 0, 0, 1),
+                               to_label(cgraph, 1, 0, 0, 0, 2)],
+                     edges=[],
+                     timestamp=fake_timestamp)
+
+        # Preparation: Build Chunk B
+        create_chunk(cgraph,
+                     vertices=[to_label(cgraph, 1, 1, 0, 0, 1)],
+                     edges=[],
+                     timestamp=fake_timestamp)
+
+        cgraph.add_layer(3, np.array([[0, 0, 0], [1, 0, 0]]),
+                         time_stamp=fake_timestamp)
+
+        operation_id_1 = cgraph.get_unique_operation_id()
+        root_id = cgraph.get_root(to_label(cgraph, 1, 0, 0, 0, 1))
+        assert cgraph.lock_root_loop(root_ids=[root_id],
+                                     operation_id=operation_id_1)[0]
+
+        operation_id_2 = cgraph.get_unique_operation_id()
+        assert not cgraph.lock_root_loop(root_ids=[root_id],
+                                         operation_id=operation_id_2)[0]
+
+        assert cgraph.unlock_root(root_id=root_id,
+                                  operation_id=operation_id_1)
+
+        assert cgraph.lock_root_loop(root_ids=[root_id],
+                                     operation_id=operation_id_2)[0]
+
+    @pytest.mark.timeout(30)
+    def test_lock_expiration(self, gen_graph, lock_expired_timedelta_override):
+        """
+        No connection between 1, 2 and 3
+        ┌─────┬─────┐
+        │  A¹ │  B¹ │
+        │  1  │  3  │
+        │  2  │     │
+        └─────┴─────┘
+
+        (1) Try lock (opid = 1)
+        (2) Try lock (opid = 2)
+        (3) Try lock (opid = 2) with retries
+        """
+
+        cgraph = gen_graph(n_layers=3)
+
+        # Preparation: Build Chunk A
+        fake_timestamp = datetime.utcnow() - timedelta(days=10)
+        create_chunk(cgraph,
+                     vertices=[to_label(cgraph, 1, 0, 0, 0, 1),
+                               to_label(cgraph, 1, 0, 0, 0, 2)],
+                     edges=[],
+                     timestamp=fake_timestamp)
+
+        # Preparation: Build Chunk B
+        create_chunk(cgraph,
+                     vertices=[to_label(cgraph, 1, 1, 0, 0, 1)],
+                     edges=[],
+                     timestamp=fake_timestamp)
+
+        cgraph.add_layer(3, np.array([[0, 0, 0], [1, 0, 0]]),
+                         time_stamp=fake_timestamp)
+
+        operation_id_1 = cgraph.get_unique_operation_id()
+        root_id = cgraph.get_root(to_label(cgraph, 1, 0, 0, 0, 1))
+        assert cgraph.lock_root_loop(root_ids=[root_id],
+                                     operation_id=operation_id_1)[0]
+
+        operation_id_2 = cgraph.get_unique_operation_id()
+        assert not cgraph.lock_root_loop(root_ids=[root_id],
+                                         operation_id=operation_id_2)[0]
+
+        assert cgraph.lock_root_loop(root_ids=[root_id],
+                                     operation_id=operation_id_2,
+                                     max_tries=10, waittime_s=.5)[0]
+
+    @pytest.mark.timeout(30)
+    def test_lock_renew(self, gen_graph):
+        """
+        No connection between 1, 2 and 3
+        ┌─────┬─────┐
+        │  A¹ │  B¹ │
+        │  1  │  3  │
+        │  2  │     │
+        └─────┴─────┘
+
+        (1) Try lock (opid = 1)
+        (2) Try lock (opid = 2)
+        (3) Try lock (opid = 2) with retries
+        """
+
+        cgraph = gen_graph(n_layers=3)
+
+        # Preparation: Build Chunk A
+        fake_timestamp = datetime.utcnow() - timedelta(days=10)
+        create_chunk(cgraph,
+                     vertices=[to_label(cgraph, 1, 0, 0, 0, 1),
+                               to_label(cgraph, 1, 0, 0, 0, 2)],
+                     edges=[],
+                     timestamp=fake_timestamp)
+
+        # Preparation: Build Chunk B
+        create_chunk(cgraph,
+                     vertices=[to_label(cgraph, 1, 1, 0, 0, 1)],
+                     edges=[],
+                     timestamp=fake_timestamp)
+
+        cgraph.add_layer(3, np.array([[0, 0, 0], [1, 0, 0]]),
+                         time_stamp=fake_timestamp)
+
+        operation_id_1 = cgraph.get_unique_operation_id()
+        root_id = cgraph.get_root(to_label(cgraph, 1, 0, 0, 0, 1))
+        assert cgraph.lock_root_loop(root_ids=[root_id],
+                                     operation_id=operation_id_1)[0]
+
+        assert cgraph.check_and_renew_root_locks(root_ids=[root_id],
+                                                 operation_id=operation_id_1)
+
+    @pytest.mark.timeout(30)
+    def test_lock_merge_lock_old_id(self, gen_graph):
+        """
+        No connection between 1, 2 and 3
+        ┌─────┬─────┐
+        │  A¹ │  B¹ │
+        │  1  │  3  │
+        │  2  │     │
+        └─────┴─────┘
+
+        (1) Merge (includes lock opid 1)
+        (2) Try lock opid 2 --> should be successful and return new root id
+        """
+
+        cgraph = gen_graph(n_layers=3)
+
+        # Preparation: Build Chunk A
+        fake_timestamp = datetime.utcnow() - timedelta(days=10)
+        create_chunk(cgraph,
+                     vertices=[to_label(cgraph, 1, 0, 0, 0, 1),
+                               to_label(cgraph, 1, 0, 0, 0, 2)],
+                     edges=[],
+                     timestamp=fake_timestamp)
+
+        # Preparation: Build Chunk B
+        create_chunk(cgraph,
+                     vertices=[to_label(cgraph, 1, 1, 0, 0, 1)],
+                     edges=[],
+                     timestamp=fake_timestamp)
+
+        cgraph.add_layer(3, np.array([[0, 0, 0], [1, 0, 0]]),
+                         time_stamp=fake_timestamp)
+
+        root_id = cgraph.get_root(to_label(cgraph, 1, 0, 0, 0, 1))
+
+        new_root_id = cgraph.add_edge("Chuck Norris", [to_label(cgraph, 1, 0, 0, 0, 1),
+                                                       to_label(cgraph, 1, 0, 0, 0, 2)], affinity=1.)
+
+        assert new_root_id is not None
+
+        operation_id_2 = cgraph.get_unique_operation_id()
+        success, new_root_ids = cgraph.lock_root_loop(root_ids=[root_id],
+                                                      operation_id=operation_id_2,
+                                                      max_tries=10, waittime_s=.5)
+        assert success
+        assert new_root_ids[0] == new_root_id
+
