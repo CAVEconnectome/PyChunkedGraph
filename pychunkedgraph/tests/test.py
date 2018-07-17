@@ -1829,7 +1829,7 @@ class TestGraphLocks:
                                      operation_id=operation_id_2)[0]
 
     @pytest.mark.timeout(30)
-    def test_lock_expiration(self, gen_graph):
+    def test_lock_expiration(self, gen_graph, lock_expired_timedelta_override):
         """
         No connection between 1, 2 and 3
         ┌─────┬─────┐

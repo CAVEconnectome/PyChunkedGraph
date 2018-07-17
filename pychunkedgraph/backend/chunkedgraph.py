@@ -26,8 +26,7 @@ from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
 # global variables
 HOME = os.path.expanduser("~")
 N_DIGITS_UINT64 = len(str(np.iinfo(np.uint64).max))
-# LOCK_EXPIRED_TIME_DELTA = datetime.timedelta(minutes=3, seconds=00)
-LOCK_EXPIRED_TIME_DELTA = datetime.timedelta(minutes=3, seconds=0)
+LOCK_EXPIRED_TIME_DELTA = datetime.timedelta(minutes=3, seconds=00)
 UTC = pytz.UTC
 
 # Setting environment wide credential path
@@ -1994,8 +1993,6 @@ class ChunkedGraph(object):
             if successful the new root id is send
             else None
         """
-
-        print(atomic_edge)
 
         # Sanity Checks
         if atomic_edge[0] == atomic_edge[1]:
