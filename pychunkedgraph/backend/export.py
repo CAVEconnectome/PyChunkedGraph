@@ -1,6 +1,7 @@
 import numpy as np
 import cloudvolume
 import itertools
+import pickle as pkl
 
 from . import chunkedgraph
 from . import multiprocessing_utils as mu
@@ -36,7 +37,7 @@ def get_sv_to_root_id_mapping_chunk(cg, chunk_coords, vol=None):
     atomic_rows = cg.range_read_chunk(layer=1, x=chunk_coords[0],
                                       y=chunk_coords[1], z=chunk_coords[2])
     for atomic_key in atomic_rows.keys():
-        atomic_id = chunkedgraph.deserialize_node_id(atomic_key)
+        atomic_id = chunkedgraph.deserialize_uint64(atomic_key)
 
         # Check if already found the root for this supervoxel
         if atomic_id in sv_to_root_mapping:
@@ -102,8 +103,9 @@ def write_flat_segmentation(cg, dataset_name, bounding_box=None, block_factor=2,
     :param cg: chunkedgraph instance
     :param dataset_name: str
     :param bounding_box: np.array
-    :param block_size: int
+    :param block_factor: int
     :param n_threads: int
+    :param mip: int
     :return: bool
     """
 
@@ -167,11 +169,37 @@ def write_flat_segmentation(cg, dataset_name, bounding_box=None, block_factor=2,
                                 n_threads=n_threads)
 
 
-def export_changelog(cg):
-    """ Exports all changes to binary json
+def export_changelog(cg, path=None):
+    """ Exports all changes to binary pickle file
 
     :param cg: ChunkedGraph instance
+    :param path: str
     :return: bool
     """
 
     operations = cg.range_read_operations()
+
+    deserialized_operations = {}
+    for operation_k in operations.keys():
+        k = str(chunkedgraph.deserialize_uint64(operation_k))
+        deserialized_operations[k] = \
+            chunkedgraph.row_to_byte_dict(operations[operation_k],
+                                          f_id=cg.log_family_id,
+                                          idx=0)
+
+    if path is not None:
+        with open(path, "wb") as f:
+            pkl.dump(deserialized_operations, f)
+    else:
+        return deserialized_operations
+
+
+def load_changelog(path):
+    """ Loads stored changelog
+
+    :param path: str
+    :return:
+    """
+
+    with open(path, "rb") as f:
+        return pkl.load(f)
