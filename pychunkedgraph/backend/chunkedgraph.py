@@ -87,6 +87,45 @@ def serialize_key(key: str) -> bytes:
     return key.encode("utf-8")
 
 
+def deserialize_key(key: bytes) -> str:
+    """ Deserializes a row key
+
+    :param key: bytes
+    :return: str
+    """
+    return key.decode()
+
+
+def row_to_byte_dict(row: bigtable.row.Row, f_id: str = None, idx: int = None
+                     ) -> Dict[int, Dict]:
+    """ Reads row entries to a dictionary
+
+    :param row: row
+    :param f_id: str
+    :param idx: int
+    :return: dict
+    """
+    row_dict = {}
+
+    for fam_id in row.cells.keys():
+        row_dict[fam_id] = {}
+
+        for row_k in row.cells[fam_id].keys():
+            if idx is None:
+                row_dict[fam_id][deserialize_key(row_k)] = \
+                    [c.value for c in row.cells[fam_id][row_k]]
+            else:
+                row_dict[fam_id][deserialize_key(row_k)] = \
+                    row.cells[fam_id][row_k][idx].value
+
+    if f_id is not None and f_id in row_dict:
+        return row_dict[f_id]
+    elif f_id is None:
+        return row_dict
+    else:
+        raise Exception("Family id not found")
+
+
 def compute_bitmasks(n_layers: int, fan_out: int) -> Dict[int, int]:
     """
 
@@ -155,7 +194,8 @@ def mincut(edges: Iterable[Sequence[np.uint64]], affs: Sequence[np.uint64],
     time_start = time.time()
 
     weighted_graph.remove_edges_from(cutset)
-    print(len(list(nx.connected_components(weighted_graph))))
+    print("Graph split up in %d parts" %
+          (len(list(nx.connected_components(weighted_graph)))))
 
     dt = time.time() - time_start
     print("Test: %.2fms" % (dt * 1000))
@@ -296,7 +336,8 @@ class ChunkedGraph(object):
 
         :return: dict
         """
-        amdb_info = {"instance_id": self.instance_id,
+        amdb_info = {"table_id": self.table_id,
+                     "instance_id": self.instance_id,
                      "project_id": self.project_id,
                      "credentials": self.client.credentials}
 
