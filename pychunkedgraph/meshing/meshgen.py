@@ -17,25 +17,24 @@ def chunk_mesh_task(cg, chunk_id, ws_path, mip=3):
     layer = cg.get_chunk_layer(chunk_id)
 
     sv_to_node_mapping = {}
-    for seg_id in range(1, cg.get_max_node_id + 1):
-        node_id = cg.get_node_id(seg_id, chunk_id)
+    for seg_id in range(1, cg.get_max_node_id(chunk_id) + np.uint64(1)):
+        node_id = cg.get_node_id(np.uint64(seg_id), chunk_id)
 
-        atomic_ids = cg.get_subgraph(node_id)
-
+        atomic_ids = cg.get_subgraph(node_id, verbose=False)
+        
         sv_to_node_mapping.update(dict(zip(atomic_ids,
                                            [node_id] * len(atomic_ids))))
 
     mesh_block_shape = cg.chunk_size // np.array([2**mip, 2**mip, 1])
-    chunk_offset = cg.get_chunk_coordinates(chunk_id) * \
-                   cg.fan_out ** np.max([0, (layer - 2)]) * cg.chunk_size
+    chunk_offset = cg.get_chunk_coordinates(chunk_id) * mesh_block_shape
 
     task = MeshTask(
         mesh_block_shape,
         chunk_offset,
         ws_path,
         mip=mip,
-        simplification_factor=400,
-        max_simplification_error=20,
+        simplification_factor=100,
+        max_simplification_error=5,
         remap_table=sv_to_node_mapping,
         generate_manifests=True,
         low_padding=1,
@@ -49,20 +48,12 @@ def _mesh_dataset_thread(args):
 
     cg = chunkedgraph.ChunkedGraph(table_id=cg_info["table_id"],
                                    instance_id=cg_info["instance_id"],
-                                   project_id=cg_info["project_id"],
-                                   credentials=cg_info["credentials"])
+                                   project_id=cg_info["project_id"])
 
     for block_z in range(start_block[2], end_block[2]):
-        z_start = block_z * cg.chunk_size[2]
-        z_end = (block_z + 1) * cg.chunk_size[2]
         for block_y in range(start_block[1], end_block[1]):
-            y_start = block_y * cg.chunk_size[1]
-            y_end = (block_y + 1) * cg.chunk_size[1]
             for block_x in range(start_block[0], end_block[0]):
-                x_start = block_x * cg.chunk_size[0]
-                x_end = (block_x + 1) * cg.chunk_size[0]
-
-                chunk_id = cg.get_chunk_id(x=x_start, y=y_start, z=z_start,
+                chunk_id = cg.get_chunk_id(x=block_x, y=block_y, z=block_z,
                                            layer=layer)
 
                 chunk_mesh_task(cg=cg, chunk_id=chunk_id, ws_path=ws_path,
@@ -80,9 +71,8 @@ def mesh_dataset(table_id, layer, mip=3, bounding_box=None, block_factor=1,
 
     cg = chunkedgraph.ChunkedGraph(table_id=table_id)
 
-    ws_cv = cloudvolume.CloudVolume(ws_path, mip=mip)
-
-    dataset_bounding_box = np.array(ws_cv.bounds.to_list())
+    ws_cv_mip1 = cloudvolume.CloudVolume(ws_path, mip=1)
+    dataset_bounding_box = np.array(ws_cv_mip1.bounds.to_list())
 
     block_bounding_box_cg = \
         [np.floor(dataset_bounding_box[:3] / cg.chunk_size).astype(np.int),
@@ -111,6 +101,7 @@ def mesh_dataset(table_id, layer, mip=3, bounding_box=None, block_factor=1,
 
     blocks = np.array(list(block_iter))
     cg_info = cg.get_serialized_info()
+    del(cg_info['credentials'])
 
     multi_args = []
     for start_block in blocks:
@@ -120,8 +111,6 @@ def mesh_dataset(table_id, layer, mip=3, bounding_box=None, block_factor=1,
 
         multi_args.append([cg_info, start_block, end_block, ws_path, mip,
                            layer])
-
-    raise()
 
     # Run multiprocessing
     if n_threads == 1:
