@@ -1745,30 +1745,38 @@ class TestGraphMinCut:
         fake_timestamp = datetime.utcnow() - timedelta(days=10)
         create_chunk(cgraph,
                      vertices=[to_label(cgraph, 1, 0, 0, 0, 0)],
-                     edges=[(to_label(cgraph, 1, 0, 0, 0, 0), to_label(cgraph, 1, 1, 0, 0, 0), inf)],
+                     edges=[(to_label(cgraph, 1, 0, 0, 0, 0),
+                             to_label(cgraph, 1, 1, 0, 0, 0), inf)],
                      timestamp=fake_timestamp)
 
         # Preparation: Build Chunk B
         create_chunk(cgraph,
                      vertices=[to_label(cgraph, 1, 1, 0, 0, 0)],
-                     edges=[(to_label(cgraph, 1, 1, 0, 0, 0), to_label(cgraph, 1, 0, 0, 0, 0), inf)],
+                     edges=[(to_label(cgraph, 1, 1, 0, 0, 0),
+                             to_label(cgraph, 1, 0, 0, 0, 0), inf)],
                      timestamp=fake_timestamp)
 
-        cgraph.add_layer(3, np.array([[0, 0, 0], [1, 0, 0]]), time_stamp=fake_timestamp)
+        cgraph.add_layer(3, np.array([[0, 0, 0], [1, 0, 0]]),
+                         time_stamp=fake_timestamp)
 
-        res_old = cgraph.table.read_rows()
-        res_old.consume_all()
+        original_parents_1 = cgraph.get_all_parents(
+            to_label(cgraph, 1, 0, 0, 0, 0))
+        original_parents_2 = cgraph.get_all_parents(
+            to_label(cgraph, 1, 1, 0, 0, 0))
 
         # Mincut
         assert cgraph.remove_edges(
-                "Jane Doe", to_label(cgraph, 1, 0, 0, 0, 0), to_label(cgraph, 1, 1, 0, 0, 0),
-                [0, 0, 0], [2*cgraph.chunk_size[0], 2*cgraph.chunk_size[1], cgraph.chunk_size[2]],
-                mincut=True) is None
+            "Jane Doe", to_label(cgraph, 1, 0, 0, 0, 0),
+            to_label(cgraph, 1, 1, 0, 0, 0),
+            [0, 0, 0], [2 * cgraph.chunk_size[0], 2 * cgraph.chunk_size[1],
+                        cgraph.chunk_size[2]],
+            mincut=True) is None
 
-        res_new = cgraph.table.read_rows()
-        res_new.consume_all()
+        new_parents_1 = cgraph.get_all_parents(to_label(cgraph, 1, 0, 0, 0, 0))
+        new_parents_2 = cgraph.get_all_parents(to_label(cgraph, 1, 1, 0, 0, 0))
 
-        assert res_new.rows == res_old.rows
+        assert np.all(np.array(original_parents_1) == np.array(new_parents_1))
+        assert np.all(np.array(original_parents_2) == np.array(new_parents_2))
 
 
 class TestGraphMultiCut:
