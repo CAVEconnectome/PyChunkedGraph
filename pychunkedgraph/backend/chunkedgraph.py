@@ -207,11 +207,12 @@ class ChunkedGraph(object):
                  table_id: str,
                  instance_id: str = "pychunkedgraph",
                  project_id: str = "neuromancer-seung-import",
-                 chunk_size: Tuple[int, int, int] = (512, 512, 64),
+                 chunk_size: Tuple[int, int, int] = None,
                  fan_out: Optional[int] = None,
                  n_layers: Optional[int] = None,
                  credentials: Optional[credentials.Credentials] = None,
                  client: bigtable.Client = None,
+                 cv_path: str = None,
                  is_new: bool = False) -> None:
 
         if client is not None:
@@ -232,7 +233,11 @@ class ChunkedGraph(object):
                                                                n_layers)
         self._fan_out = self.check_and_write_table_parameters("fan_out",
                                                               fan_out)
-        self._chunk_size = np.array(chunk_size, dtype=np.int)
+        self._cv_path = self.check_and_write_table_parameters("cv_path",
+                                                              cv_path)
+        self._chunk_size = self.check_and_write_table_parameters("chunk_size",
+                                                                 chunk_size)
+
         self._bitmasks = compute_bitmasks(self.n_layers, self.fan_out)
 
         self._n_bits_for_layer_id = 8
@@ -282,6 +287,10 @@ class ChunkedGraph(object):
         return self._chunk_size
 
     @property
+    def cv_path(self) -> str:
+        return self._cv_path
+
+    @property
     def n_layers(self) -> int:
         return self._n_layers
 
@@ -326,28 +335,46 @@ class ChunkedGraph(object):
         if row is None or ser_param_key not in row.cells[self.family_id]:
             assert value is not None
 
-            val_dict = {param_key: np.array(value, dtype=np.uint64).tobytes()}
+            if param_key in ["fan_out", "n_layers"]:
+                val_dict = {param_key: np.array(value,
+                                                dtype=np.uint64).tobytes()}
+            elif param_key in ["cv_path"]:
+                val_dict = {param_key: serialize_key(value)}
+            elif param_key in ["chunk_size"]:
+                val_dict = {param_key: np.array(value,
+                                                dtype=np.uint64).tobytes()}
+            else:
+                raise Exception("Unknown type for parameter")
+
             row = self.mutate_row(serialize_key("params"), self.family_id,
                                   val_dict)
 
             self.bulk_write([row])
         else:
             value = row.cells[self.family_id][ser_param_key][0].value
-            value = np.frombuffer(value, dtype=np.uint64)[0]
+
+            if param_key in ["fan_out", "n_layers"]:
+                value = np.frombuffer(value, dtype=np.uint64)[0]
+            elif param_key in ["cv_path"]:
+                value = deserialize_key(value)
+            elif param_key in ["chunk_size"]:
+                value = np.frombuffer(value, dtype=np.uint64)
+            else:
+                raise Exception("Unknown key")
 
         return value
 
     def get_serialized_info(self):
-        """ Rerturns dictionary that can be used to load this AnnotationMetaDB
+        """ Rerturns dictionary that can be used to load this ChunkedGraph
 
         :return: dict
         """
-        amdb_info = {"table_id": self.table_id,
-                     "instance_id": self.instance_id,
-                     "project_id": self.project_id,
-                     "credentials": self.client.credentials}
+        info = {"table_id": self.table_id,
+                "instance_id": self.instance_id,
+                "project_id": self.project_id,
+                "credentials": self.client.credentials}
 
-        return amdb_info
+        return info
 
     def get_chunk_layer(self, node_or_chunk_id: np.uint64) -> int:
         """ Extract Layer from Node ID or Chunk ID
