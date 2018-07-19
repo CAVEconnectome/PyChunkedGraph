@@ -8,6 +8,7 @@ import os
 import networkx as nx
 from networkx.algorithms.flow import shortest_augmenting_path
 import pytz
+import cloudvolume
 
 from . import multiprocessing_utils as mu
 from google.api_core.retry import Retry, if_exception_type
@@ -240,7 +241,11 @@ class ChunkedGraph(object):
 
         self._bitmasks = compute_bitmasks(self.n_layers, self.fan_out)
 
+        self._cv = None
+
+        # Hardcoded parameters
         self._n_bits_for_layer_id = 8
+        self._cv_mip = 3
 
     @property
     def client(self) -> bigtable.Client:
@@ -287,16 +292,26 @@ class ChunkedGraph(object):
         return self._chunk_size
 
     @property
-    def cv_path(self) -> str:
-        return self._cv_path
-
-    @property
     def n_layers(self) -> int:
         return self._n_layers
 
     @property
     def bitmasks(self) -> Dict[int, int]:
         return self._bitmasks
+
+    @property
+    def cv_path(self) -> str:
+        return self._cv_path
+
+    @property
+    def cv_mip(self) -> int:
+        return self._cv_mip
+
+    @property
+    def cv(self) -> cloudvolume.CloudVolume:
+        if self._cv is None:
+            self._cv = cloudvolume.CloudVolume(self.cv_path, mip=self._cv_mip)
+        return self._cv
 
     def check_and_create_table(self) -> None:
         """ Checks if table exists and creates new one if necessary """
@@ -852,7 +867,7 @@ class ChunkedGraph(object):
 
         return range_read.rows
 
-    def range_read_layer(self, layer_id):
+    def range_read_layer(self, layer_id: int):
         """ Reads all ids within a layer
 
         This can take a while depending on the size of the graph
@@ -872,6 +887,69 @@ class ChunkedGraph(object):
         assert len(node_ids) == 2
         return self.get_chunk_id(node_id=node_ids[0]) == \
             self.get_chunk_id(node_id=node_ids[1])
+
+    def get_atomic_id_from_coord(self, x: int, y: int, z: int,
+                                 root_id: np.uint64, n_tries: int=5
+                                 ) -> np.uint64:
+        """ Determines atomic id given a coordinate
+
+        :param x: int
+        :param y: int
+        :param z: int
+        :param root_id: np.uint64
+        :param n_tries: int
+        :return: np.uint64 or None
+        """
+
+        x /= 2**self.cv_mip
+        y /= 2**self.cv_mip
+
+        x = int(x)
+        y = int(y)
+
+        checked = []
+        atomic_id = None
+        for i_try in range(n_tries):
+
+            # Define block size -- increase by one each try
+            x_l = x - i_try
+            y_l = y - i_try
+            z_l = z - i_try
+
+            x_h = x + 1 + i_try
+            y_h = y + 1 + i_try
+            z_h = z + 1 + i_try
+
+            # Get atomic ids from cloudvolume
+            atomic_id_block = self.cv[x_l: x_h, y_l: y_h, z_l: z_h]
+            atomic_ids, atomic_id_count = np.unique(atomic_id_block,
+                                                    return_counts=True)
+
+            # sort by frequency and discard those ids that have been checked
+            # previously
+            sorted_atomic_ids = atomic_ids[np.argsort(atomic_id_count)]
+            sorted_atomic_ids = sorted_atomic_ids[~np.in1d(sorted_atomic_ids,
+                                                           checked)]
+
+            # For each candidate id check whether its root id corresponds to the
+            # given root id
+            for candidate_atomic_id in sorted_atomic_ids:
+                ass_root_id = self.get_root(candidate_atomic_id)
+
+                if ass_root_id == root_id:
+                    # atomic_id is not None will be our indicator that the
+                    # search was successful
+
+                    atomic_id = candidate_atomic_id
+                    break
+                else:
+                    checked.append(candidate_atomic_id)
+
+            if atomic_id is not None:
+                break
+
+        # Returns None if unsuccessful
+        return atomic_id
 
     def _create_split_log_row(self, operation_id: np.uint64, user_id: str,
                               root_ids: Sequence[np.uint64],
