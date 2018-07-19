@@ -14,8 +14,13 @@ from pychunkedgraph.backend import multiprocessing_utils as mu
 
 
 def chunk_mesh_task(cg, chunk_id, ws_path, mip=3):
-    layer = cg.get_chunk_layer(chunk_id)
+    """ Computes the meshes for a single chunk
 
+    :param cg: ChunkedGraph instance
+    :param chunk_id: int
+    :param ws_path: str
+    :param mip: int
+    """
     sv_to_node_mapping = {}
     for seg_id in range(1, cg.get_max_node_id(chunk_id) + np.uint64(1)):
         node_id = cg.get_node_id(np.uint64(seg_id), chunk_id)
@@ -25,6 +30,9 @@ def chunk_mesh_task(cg, chunk_id, ws_path, mip=3):
         sv_to_node_mapping.update(dict(zip(atomic_ids,
                                            [node_id] * len(atomic_ids))))
 
+    if len(sv_to_node_mapping):
+        return
+
     mesh_block_shape = cg.chunk_size // np.array([2**mip, 2**mip, 1])
     chunk_offset = cg.get_chunk_coordinates(chunk_id) * mesh_block_shape
 
@@ -33,8 +41,8 @@ def chunk_mesh_task(cg, chunk_id, ws_path, mip=3):
         chunk_offset,
         ws_path,
         mip=mip,
-        simplification_factor=100,
-        max_simplification_error=5,
+        simplification_factor=10,
+        max_simplification_error=1,
         remap_table=sv_to_node_mapping,
         generate_manifests=True,
         low_padding=1,
@@ -44,6 +52,7 @@ def chunk_mesh_task(cg, chunk_id, ws_path, mip=3):
 
 
 def _mesh_dataset_thread(args):
+    """ Helper for mesh_dataset """
     cg_info, start_block, end_block, ws_path, mip, layer = args
 
     cg = chunkedgraph.ChunkedGraph(table_id=cg_info["table_id"],
@@ -60,8 +69,20 @@ def _mesh_dataset_thread(args):
                                 mip=mip)
 
 
-def mesh_dataset(table_id, layer, mip=3, bounding_box=None, block_factor=1,
+def mesh_dataset(table_id, layer, mip=3, bounding_box=None, block_factor=2,
                  n_threads=1):
+    """ Computes meshes for a single layer in a chunkedgraph
+
+    :param table_id: str
+    :param mip: int
+        mip used for meshes
+    :param bounding_box: 2 x 3 array or None
+        [[x_low, y_low, z_low], [x_high, y_high, z_high]]
+    :param block_factor: int
+        scales workload per thread (goes with block_factor^3)
+    :param n_threads: int
+    """
+
     if "pinky" in table_id:
         ws_path = "gs://neuroglancer/svenmd/pinky40_v11/watershed/"
     elif "basil" in table_id:
@@ -120,3 +141,28 @@ def mesh_dataset(table_id, layer, mip=3, bounding_box=None, block_factor=1,
     else:
         mu.multisubprocess_func(_mesh_dataset_thread, multi_args,
                                 n_threads=n_threads)
+
+
+def mesh_dataset_all_layers(table_id, excempt_layers=[1], mip=3,
+                            bounding_box=None, block_factor=2, n_threads=1):
+    """ Computes meshes for all layers in a chunkedgraph
+
+    :param table_id: str
+    :param excempt_layers: list of ints
+        list layer ids for which meshes should not be computed
+    :param mip: int
+        mip used for meshes
+    :param bounding_box: 2 x 3 array or None
+        [[x_low, y_low, z_low], [x_high, y_high, z_high]]
+    :param block_factor: int
+        scales workload per thread (goes with block_factor^3)
+    :param n_threads: int
+    """
+    cg = chunkedgraph.ChunkedGraph(table_id=table_id)
+
+    for layer in range(1, cg.n_layers):
+        if layer in excempt_layers:
+            continue
+
+        mesh_dataset(table_id, layer, mip=mip, bounding_box=bounding_box,
+                     block_factor=block_factor, n_threads=n_threads)
