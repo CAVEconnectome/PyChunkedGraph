@@ -6,8 +6,8 @@ import time
 
 import cloudvolume
 
-from . import utils
-from . import multiprocessing_utils as mu
+from pychunkedgraph.backend import utils
+from pychunkedgraph.backend import multiprocessing_utils as mu
 
 
 def _rewrite_segmentation_thread(args):
