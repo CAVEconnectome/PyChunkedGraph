@@ -16,7 +16,6 @@ from warnings import warn
 sys.path.insert(0, os.path.join(sys.path[0], '..'))
 from backend import chunkedgraph # noqa
 
-
 class DoNothingCreds(credentials.Credentials):
     def refresh(self, request):
         pass
@@ -79,6 +78,7 @@ def gen_graph(request):
         # setup Chunked Graph
         graph = chunkedgraph.ChunkedGraph(request.function.__name__, project_id='emulated',
                                           credentials=DoNothingCreds(), instance_id="chunkedgraph",
+                                          cv_path="", chunk_size=(512, 512, 64),
                                           is_new=True, fan_out=fan_out, n_layers=n_layers)
 
         # setup Chunked Graph - Finalizer
