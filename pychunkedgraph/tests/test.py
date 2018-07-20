@@ -16,7 +16,6 @@ from warnings import warn
 sys.path.insert(0, os.path.join(sys.path[0], '..'))
 from backend import chunkedgraph # noqa
 
-
 class DoNothingCreds(credentials.Credentials):
     def refresh(self, request):
         pass
@@ -79,6 +78,7 @@ def gen_graph(request):
         # setup Chunked Graph
         graph = chunkedgraph.ChunkedGraph(request.function.__name__, project_id='emulated',
                                           credentials=DoNothingCreds(), instance_id="chunkedgraph",
+                                          cv_path="", chunk_size=(512, 512, 64),
                                           is_new=True, fan_out=fan_out, n_layers=n_layers)
 
         # setup Chunked Graph - Finalizer
@@ -1745,25 +1745,32 @@ class TestGraphMinCut:
         fake_timestamp = datetime.utcnow() - timedelta(days=10)
         create_chunk(cgraph,
                      vertices=[to_label(cgraph, 1, 0, 0, 0, 0)],
-                     edges=[(to_label(cgraph, 1, 0, 0, 0, 0), to_label(cgraph, 1, 1, 0, 0, 0), inf)],
+                     edges=[(to_label(cgraph, 1, 0, 0, 0, 0),
+                             to_label(cgraph, 1, 1, 0, 0, 0), inf)],
                      timestamp=fake_timestamp)
 
         # Preparation: Build Chunk B
         create_chunk(cgraph,
                      vertices=[to_label(cgraph, 1, 1, 0, 0, 0)],
-                     edges=[(to_label(cgraph, 1, 1, 0, 0, 0), to_label(cgraph, 1, 0, 0, 0, 0), inf)],
+                     edges=[(to_label(cgraph, 1, 1, 0, 0, 0),
+                             to_label(cgraph, 1, 0, 0, 0, 0), inf)],
                      timestamp=fake_timestamp)
 
-        cgraph.add_layer(3, np.array([[0, 0, 0], [1, 0, 0]]), time_stamp=fake_timestamp)
+        cgraph.add_layer(3, np.array([[0, 0, 0], [1, 0, 0]]),
+                         time_stamp=fake_timestamp)
 
-        original_parents_1 = cgraph.get_all_parents(to_label(cgraph, 1, 0, 0, 0, 0))
-        original_parents_2 = cgraph.get_all_parents(to_label(cgraph, 1, 1, 0, 0, 0))
+        original_parents_1 = cgraph.get_all_parents(
+            to_label(cgraph, 1, 0, 0, 0, 0))
+        original_parents_2 = cgraph.get_all_parents(
+            to_label(cgraph, 1, 1, 0, 0, 0))
 
         # Mincut
         assert cgraph.remove_edges(
-                "Jane Doe", to_label(cgraph, 1, 0, 0, 0, 0), to_label(cgraph, 1, 1, 0, 0, 0),
-                [0, 0, 0], [2*cgraph.chunk_size[0], 2*cgraph.chunk_size[1], cgraph.chunk_size[2]],
-                mincut=True) is None
+            "Jane Doe", to_label(cgraph, 1, 0, 0, 0, 0),
+            to_label(cgraph, 1, 1, 0, 0, 0),
+            [0, 0, 0], [2 * cgraph.chunk_size[0], 2 * cgraph.chunk_size[1],
+                        cgraph.chunk_size[2]],
+            mincut=True) is None
 
         new_parents_1 = cgraph.get_all_parents(to_label(cgraph, 1, 0, 0, 0, 0))
         new_parents_2 = cgraph.get_all_parents(to_label(cgraph, 1, 1, 0, 0, 0))

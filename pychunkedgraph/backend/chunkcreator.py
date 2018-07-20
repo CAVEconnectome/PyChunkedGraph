@@ -189,7 +189,7 @@ def family_consistency_test(table_id, n_threads=64):
     return failed_node_id_dict
 
 
-def create_chunked_graph(table_id=None, cv_url=None, fan_out=2,
+def create_chunked_graph(table_id=None, cv_url=None, ws_url=None, fan_out=2,
                          chunk_size=(512, 512, 64), n_threads=1):
     """ Creates chunked graph from downloaded files
 
@@ -197,11 +197,13 @@ def create_chunked_graph(table_id=None, cv_url=None, fan_out=2,
     :param cv_url: str
     :param n_threads: int
     """
-    if cv_url is None:
+    if cv_url is None or ws_url is None:
         if "basil" in table_id:
             cv_url = "gs://nkem/basil_4k_oldnet/region_graph/"
+            ws_url = "gs://neuroglancer/svenmd/pinky40_v11/watershed/"
         elif "pinky40" in table_id:
             cv_url = "gs://nkem/pinky40_v11/mst_trimmed_sem_remap/region_graph/"
+            ws_url = "gs://neuroglancer/svenmd/basil_4k_oldnet_cg/watershed/"
         else:
             raise Exception("Could not identify region graph ressource")
 
@@ -272,7 +274,7 @@ def create_chunked_graph(table_id=None, cv_url=None, fan_out=2,
 
     cg = chunkedgraph.ChunkedGraph(table_id=table_id, n_layers=n_layers,
                                    fan_out=fan_out, chunk_size=chunk_size,
-                                   is_new=True)
+                                   cv_path=ws_url, is_new=True)
 
     # Fill lowest layer and create first abstraction layer
     # Create arguments for multiprocessing

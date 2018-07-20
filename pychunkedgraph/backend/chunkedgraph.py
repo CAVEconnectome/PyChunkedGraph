@@ -8,6 +8,7 @@ import os
 import networkx as nx
 from networkx.algorithms.flow import shortest_augmenting_path
 import pytz
+import cloudvolume
 
 from . import multiprocessing_utils as mu
 from google.api_core.retry import Retry, if_exception_type
@@ -215,11 +216,12 @@ class ChunkedGraph(object):
                  table_id: str,
                  instance_id: str = "pychunkedgraph",
                  project_id: str = "neuromancer-seung-import",
-                 chunk_size: Tuple[int, int, int] = (512, 512, 64),
+                 chunk_size: Tuple[int, int, int] = None,
                  fan_out: Optional[int] = None,
                  n_layers: Optional[int] = None,
                  credentials: Optional[credentials.Credentials] = None,
                  client: bigtable.Client = None,
+                 cv_path: str = None,
                  is_new: bool = False) -> None:
 
         if client is not None:
@@ -240,10 +242,18 @@ class ChunkedGraph(object):
                                                                n_layers)
         self._fan_out = self.check_and_write_table_parameters("fan_out",
                                                               fan_out)
-        self._chunk_size = np.array(chunk_size, dtype=np.int)
+        self._cv_path = self.check_and_write_table_parameters("cv_path",
+                                                              cv_path)
+        self._chunk_size = self.check_and_write_table_parameters("chunk_size",
+                                                                 chunk_size)
+
         self._bitmasks = compute_bitmasks(self.n_layers, self.fan_out)
 
+        self._cv = None
+
+        # Hardcoded parameters
         self._n_bits_for_layer_id = 8
+        self._cv_mip = 3
 
     @property
     def client(self) -> bigtable.Client:
@@ -297,6 +307,20 @@ class ChunkedGraph(object):
     def bitmasks(self) -> Dict[int, int]:
         return self._bitmasks
 
+    @property
+    def cv_path(self) -> str:
+        return self._cv_path
+
+    @property
+    def cv_mip(self) -> int:
+        return self._cv_mip
+
+    @property
+    def cv(self) -> cloudvolume.CloudVolume:
+        if self._cv is None:
+            self._cv = cloudvolume.CloudVolume(self.cv_path, mip=self._cv_mip)
+        return self._cv
+
     def check_and_create_table(self) -> None:
         """ Checks if table exists and creates new one if necessary """
         table_ids = [t.table_id for t in self.instance.list_tables()]
@@ -334,28 +358,46 @@ class ChunkedGraph(object):
         if row is None or ser_param_key not in row.cells[self.family_id]:
             assert value is not None
 
-            val_dict = {param_key: np.array(value, dtype=np.uint64).tobytes()}
+            if param_key in ["fan_out", "n_layers"]:
+                val_dict = {param_key: np.array(value,
+                                                dtype=np.uint64).tobytes()}
+            elif param_key in ["cv_path"]:
+                val_dict = {param_key: serialize_key(value)}
+            elif param_key in ["chunk_size"]:
+                val_dict = {param_key: np.array(value,
+                                                dtype=np.uint64).tobytes()}
+            else:
+                raise Exception("Unknown type for parameter")
+
             row = self.mutate_row(serialize_key("params"), self.family_id,
                                   val_dict)
 
             self.bulk_write([row])
         else:
             value = row.cells[self.family_id][ser_param_key][0].value
-            value = np.frombuffer(value, dtype=np.uint64)[0]
+
+            if param_key in ["fan_out", "n_layers"]:
+                value = np.frombuffer(value, dtype=np.uint64)[0]
+            elif param_key in ["cv_path"]:
+                value = deserialize_key(value)
+            elif param_key in ["chunk_size"]:
+                value = np.frombuffer(value, dtype=np.uint64)
+            else:
+                raise Exception("Unknown key")
 
         return value
 
     def get_serialized_info(self):
-        """ Rerturns dictionary that can be used to load this AnnotationMetaDB
+        """ Rerturns dictionary that can be used to load this ChunkedGraph
 
         :return: dict
         """
-        amdb_info = {"table_id": self.table_id,
-                     "instance_id": self.instance_id,
-                     "project_id": self.project_id,
-                     "credentials": self.client.credentials}
+        info = {"table_id": self.table_id,
+                "instance_id": self.instance_id,
+                "project_id": self.project_id,
+                "credentials": self.client.credentials}
 
-        return amdb_info
+        return info
 
     def get_chunk_layer(self, node_or_chunk_id: np.uint64) -> int:
         """ Extract Layer from Node ID or Chunk ID
@@ -836,7 +878,7 @@ class ChunkedGraph(object):
 
         return range_read.rows
 
-    def range_read_layer(self, layer_id):
+    def range_read_layer(self, layer_id: int):
         """ Reads all ids within a layer
 
         This can take a while depending on the size of the graph
@@ -856,6 +898,69 @@ class ChunkedGraph(object):
         assert len(node_ids) == 2
         return self.get_chunk_id(node_id=node_ids[0]) == \
             self.get_chunk_id(node_id=node_ids[1])
+
+    def get_atomic_id_from_coord(self, x: int, y: int, z: int,
+                                 root_id: np.uint64, n_tries: int=5
+                                 ) -> np.uint64:
+        """ Determines atomic id given a coordinate
+
+        :param x: int
+        :param y: int
+        :param z: int
+        :param root_id: np.uint64
+        :param n_tries: int
+        :return: np.uint64 or None
+        """
+
+        x /= 2**self.cv_mip
+        y /= 2**self.cv_mip
+
+        x = int(x)
+        y = int(y)
+
+        checked = []
+        atomic_id = None
+        for i_try in range(n_tries):
+
+            # Define block size -- increase by one each try
+            x_l = x - i_try
+            y_l = y - i_try
+            z_l = z - i_try
+
+            x_h = x + 1 + i_try
+            y_h = y + 1 + i_try
+            z_h = z + 1 + i_try
+
+            # Get atomic ids from cloudvolume
+            atomic_id_block = self.cv[x_l: x_h, y_l: y_h, z_l: z_h]
+            atomic_ids, atomic_id_count = np.unique(atomic_id_block,
+                                                    return_counts=True)
+
+            # sort by frequency and discard those ids that have been checked
+            # previously
+            sorted_atomic_ids = atomic_ids[np.argsort(atomic_id_count)]
+            sorted_atomic_ids = sorted_atomic_ids[~np.in1d(sorted_atomic_ids,
+                                                           checked)]
+
+            # For each candidate id check whether its root id corresponds to the
+            # given root id
+            for candidate_atomic_id in sorted_atomic_ids:
+                ass_root_id = self.get_root(candidate_atomic_id)
+
+                if ass_root_id == root_id:
+                    # atomic_id is not None will be our indicator that the
+                    # search was successful
+
+                    atomic_id = candidate_atomic_id
+                    break
+                else:
+                    checked.append(candidate_atomic_id)
+
+            if atomic_id is not None:
+                break
+
+        # Returns None if unsuccessful
+        return atomic_id
 
     def _create_split_log_row(self, operation_id: np.uint64, user_id: str,
                               root_ids: Sequence[np.uint64],
