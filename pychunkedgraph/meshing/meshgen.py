@@ -50,6 +50,18 @@ def chunk_mesh_task(cg, chunk_id, ws_path, mip=3):
     )
     task.execute()
 
+    cv = cloudvolume.CloudVolume(ws_path)
+
+    mesh_dir = cv.info['mesh']
+
+    with cloudvolume.Storage(cv.layer_cloudpath, progress=cv.progress) as stor:
+        for seg_id in sv_to_node_mapping.keys():
+            mesh_json_file_name = str(seg_id) + ':0'
+            path = os.path.join(mesh_dir, mesh_json_file_name)
+
+            if not stor.files_exist([path]):
+                raise Exception("Missing mesh for %d" % seg_id)
+
 
 def _mesh_dataset_thread(args):
     """ Helper for mesh_dataset """
