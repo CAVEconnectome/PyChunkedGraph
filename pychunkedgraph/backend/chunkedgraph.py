@@ -599,7 +599,10 @@ class ChunkedGraph(object):
                                   filter_=ColumnQualifierRegexFilter(key))
 
         if row is None or key not in row.cells[self.family_id]:
-            return None
+            if get_time_stamp:
+                return None, None
+            else:
+                return None
 
         cell_entries = row.cells[self.family_id][key]
 
@@ -1635,68 +1638,133 @@ class ChunkedGraph(object):
 
         return np.unique(latest_root_ids)
 
-    def read_agglomeration_id_history(self, agglomeration_id: np.uint64,
-                                      time_stamp:
-                                      Optional[datetime.datetime] = None
-                                      ) -> np.ndarray:
-        """ Returns all agglomeration ids agglomeration_id was part of
+    def get_future_root_ids(self, root_id: np.uint64,
+                            time_stamp: Optional[datetime.datetime] =
+                            datetime.datetime.max)-> np.ndarray:
+        """ Returns all future root ids emerging from this root
 
-        :param agglomeration_id: np.uint64
+        This search happens in a monotic fashion. At no point are past root
+        ids of future root ids taken into account.
+
+        :param root_id: np.uint64
         :param time_stamp: None or datetime
-            restrict search to ids created after this time_stamp
-            None=search whole history
-        :return: array of int
+            restrict search to ids created before this time_stamp
+            None=search whole future
+        :return: array of uint64
         """
-        if time_stamp is None:
-            time_stamp = datetime.datetime.min
-
         if time_stamp.tzinfo is None:
             time_stamp = UTC.localize(time_stamp)
 
-        id_working_set = np.array([agglomeration_id], dtype=np.uint64)
-        visited_ids = []
-        id_history = [agglomeration_id]
+        id_history = []
 
-        former_parent_key = serialize_key("former_parents")
-        new_parent_key = serialize_key("new_parents")
+        next_ids = [root_id]
+        while len(next_ids):
+            temp_next_ids = []
 
-        i = 0
-        while len(id_working_set) > 0:
-            i += 1
+            for next_id in next_ids:
+                ids, row_time_stamp = self.read_row(next_id,
+                                                    key="new_parents",
+                                                    dtype=np.uint64,
+                                                    get_time_stamp=True)
+                if ids is None:
+                    _, row_time_stamp = self.read_row(next_id,
+                                                      key="children",
+                                                      dtype=np.uint64,
+                                                      get_time_stamp=True)
 
-            next_id = id_working_set[0]
-            visited_ids.append(id_working_set[0])
+                    if row_time_stamp is None:
+                        raise Exception("Something went wrong...")
 
-            # Get current row
-            r = self.table.read_row(serialize_uint64(next_id))
+                if row_time_stamp < time_stamp:
+                    if ids is not None:
+                        temp_next_ids.extend(ids)
 
-            # Check if there is a newer parent and append
-            if new_parent_key in r.cells[self.family_id]:
-                new_parent_ids_b = \
-                    r.cells[self.family_id][new_parent_key][0].value
-                new_parent_ids = np.frombuffer(new_parent_ids_b,
-                                               dtype=np.uint64)
+                    if next_id != root_id:
+                        id_history.append(next_id)
 
-                id_working_set = np.concatenate([id_working_set,
-                                                 new_parent_ids])
-                id_history.extend(new_parent_ids)
+            next_ids = temp_next_ids
 
-            # Check if there is an older parent and append if not too old
-            if former_parent_key in r.cells[self.family_id]:
-                cell = r.cells[self.family_id][former_parent_key][0]
-                if time_stamp < cell.timestamp:
-                    former_parent_ids_b = \
-                        r.cells[self.family_id][former_parent_key][0].value
-                    former_parent_ids = np.frombuffer(former_parent_ids_b,
-                                                      dtype=np.uint64)
+        return np.unique(np.array(id_history, dtype=np.uint64))
 
-                    id_working_set = np.concatenate([id_working_set,
-                                                     former_parent_ids])
-                    id_history.extend(former_parent_ids)
+    def get_past_root_ids(self, root_id: np.uint64,
+                          time_stamp: Optional[datetime.datetime] =
+                          datetime.datetime.min) -> np.ndarray:
+        """ Returns all future root ids emerging from this root
 
-            id_working_set = id_working_set[~np.in1d(id_working_set, visited_ids)]
+        This search happens in a monotic fashion. At no point are future root
+        ids of past root ids taken into account.
 
-        return np.unique(id_history)
+        :param root_id: np.uint64
+        :param time_stamp: None or datetime
+            restrict search to ids created after this time_stamp
+            None=search whole future
+        :return: array of uint64
+        """
+        if time_stamp.tzinfo is None:
+            time_stamp = UTC.localize(time_stamp)
+
+        id_history = []
+
+        next_ids = [root_id]
+        while len(next_ids):
+            temp_next_ids = []
+
+            for next_id in next_ids:
+                ids, row_time_stamp = self.read_row(next_id,
+                                                    key="former_parents",
+                                                    dtype=np.uint64,
+                                                    get_time_stamp=True)
+                if ids is None:
+                    _, row_time_stamp = self.read_row(next_id,
+                                                      key="children",
+                                                      dtype=np.uint64,
+                                                      get_time_stamp=True)
+
+                    if row_time_stamp is None:
+                        raise Exception("Something went wrong...")
+
+                if row_time_stamp > time_stamp:
+                    if ids is not None:
+                        temp_next_ids.extend(ids)
+
+                    if next_id != root_id:
+                        id_history.append(next_id)
+
+            next_ids = temp_next_ids
+
+        return np.unique(np.array(id_history, dtype=np.uint64))
+
+    def get_root_id_history(self, root_id: np.uint64,
+                            time_stamp_past:
+                            Optional[datetime.datetime] = datetime.datetime.min,
+                            time_stamp_future:
+                            Optional[datetime.datetime] = datetime.datetime.max
+                            ) -> np.ndarray:
+        """ Returns all future root ids emerging from this root
+
+        This search happens in a monotic fashion. At no point are future root
+        ids of past root ids or past root ids of future root ids taken into 
+        account.
+
+        :param root_id: np.uint64
+        :param time_stamp_past: None or datetime
+            restrict search to ids created after this time_stamp
+            None=search whole future
+        :param time_stamp_future: None or datetime
+            restrict search to ids created before this time_stamp
+            None=search whole future
+        :return: array of uint64
+        """
+        past_ids = self.get_past_root_ids(root_id=root_id,
+                                          time_stamp=time_stamp_past)
+        future_ids = self.get_future_root_ids(root_id=root_id,
+                                              time_stamp=time_stamp_future)
+
+        history_ids = np.concatenate([past_ids,
+                                      np.array([root_id], dtype=np.uint64),
+                                      future_ids])
+
+        return history_ids
 
     def get_subgraph(self, agglomeration_id: np.uint64,
                      bounding_box: Optional[Sequence[Sequence[int]]] = None,

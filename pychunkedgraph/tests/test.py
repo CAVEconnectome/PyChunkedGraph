@@ -1778,6 +1778,70 @@ class TestGraphMultiCut:
         pass
 
 
+class TestGraphHistory:
+    """ These test inadvertantly also test merge and split operations """
+    @pytest.mark.timeout(30)
+    def test_cut_merge_history(self, gen_graph):
+        """
+        Regular link between 1 and 2
+        ┌─────┬─────┐
+        │  A¹ │  B¹ │
+        │  1━━┿━━2  │
+        │     │     │
+        └─────┴─────┘
+        (1) Split 1 and 2
+        (2) Merge 1 and 2
+        """
+
+        cgraph = gen_graph(n_layers=3)
+
+        # Preparation: Build Chunk A
+        fake_timestamp = datetime.utcnow() - timedelta(days=10)
+        create_chunk(cgraph,
+                     vertices=[to_label(cgraph, 1, 0, 0, 0, 0)],
+                     edges=[(to_label(cgraph, 1, 0, 0, 0, 0),
+                             to_label(cgraph, 1, 1, 0, 0, 0), 0.5)],
+                     timestamp=fake_timestamp)
+
+        # Preparation: Build Chunk B
+        create_chunk(cgraph,
+                     vertices=[to_label(cgraph, 1, 1, 0, 0, 0)],
+                     edges=[(to_label(cgraph, 1, 1, 0, 0, 0),
+                             to_label(cgraph, 1, 0, 0, 0, 0), 0.5)],
+                     timestamp=fake_timestamp)
+
+        cgraph.add_layer(3, np.array([[0, 0, 0], [1, 0, 0]]),
+                         time_stamp=fake_timestamp)
+
+        first_root = cgraph.get_root(to_label(cgraph, 1, 0, 0, 0, 0))
+        assert first_root == cgraph.get_root(to_label(cgraph, 1, 1, 0, 0, 0))
+
+        split_roots = cgraph.remove_edges("Jane Doe",
+                                          to_label(cgraph, 1, 0, 0, 0, 0),
+                                          to_label(cgraph, 1, 1, 0, 0, 0),
+                                          mincut=False)
+
+        assert len(split_roots) == 2
+
+        merge_root = cgraph.add_edge("Jane Doe",
+                                     [to_label(cgraph, 1, 0, 0, 0, 0),
+                                      to_label(cgraph, 1, 1, 0, 0, 0)],
+                                     affinity=.4)
+
+        assert len(cgraph.get_root_id_history(first_root,
+                                              time_stamp_past=datetime.min,
+                                              time_stamp_future=datetime.max)) == 4
+        assert len(cgraph.get_root_id_history(split_roots[0],
+                                              time_stamp_past=datetime.min,
+                                              time_stamp_future=datetime.max)) == 3
+        assert len(cgraph.get_root_id_history(split_roots[1],
+                                              time_stamp_past=datetime.min,
+                                              time_stamp_future=datetime.max)) == 3
+        assert len(cgraph.get_root_id_history(merge_root,
+                                              time_stamp_past=datetime.min,
+                                              time_stamp_future=datetime.max)) == 4
+
+
 class TestGraphLocks:
     @pytest.mark.timeout(30)
     def test_lock_unlock(self, gen_graph):
