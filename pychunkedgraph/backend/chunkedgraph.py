@@ -175,11 +175,16 @@ def mincut(edges: Iterable[Sequence[np.uint64]], affs: Sequence[np.uint64],
     weighted_graph.add_edges_from(edges)
 
     for i_edge, edge in enumerate(edges):
-        weighted_graph[edge[0]][edge[1]]['weight'] = affs[i_edge]
+        weighted_graph[edge[0]][edge[1]]['capacity'] = affs[i_edge]
 
     dt = time.time() - time_start
     print("Graph creation: %.2fms" % (dt * 1000))
     time_start = time.time()
+
+    ccs = list(nx.connected_components(weighted_graph))
+    for cc in ccs:
+        if not (source in cc and sink in cc):
+            weighted_graph.remove_nodes_from(cc)
 
     # cutset = nx.minimum_edge_cut(weighted_graph, source, sink)
     cutset = nx.minimum_edge_cut(weighted_graph, source, sink,
@@ -194,8 +199,12 @@ def mincut(edges: Iterable[Sequence[np.uint64]], affs: Sequence[np.uint64],
     time_start = time.time()
 
     weighted_graph.remove_edges_from(cutset)
-    print("Graph split up in %d parts" %
-          (len(list(nx.connected_components(weighted_graph)))))
+
+    ccs = list(nx.connected_components(weighted_graph))
+    print("Graph split up in %d parts" % (len(ccs)))
+
+    for cc in ccs:
+        print("CC size = %d" % len(cc))
 
     dt = time.time() - time_start
     print("Test: %.2fms" % (dt * 1000))
@@ -1842,16 +1851,11 @@ class ChunkedGraph(object):
                                           for c in chunk_ids])
                     chunk_ids = np.array(chunk_ids)
 
-                    scaled_chunk_ids = chunk_ids * self.fan_out ** np.max([0, (layer - 3)])
-
-                    chunk_id_bounds = np.array([scaled_chunk_ids,
-                                                scaled_chunk_ids +
-                                                self.fan_out **
-                                                np.max([0, (layer - 3)])])
+                    bounding_box_layer = bounding_box / self.fan_out ** np.max([0, (layer - 3)])
 
                     bound_check = np.array([
-                        np.all(chunk_id_bounds[0] < bounding_box[1], axis=1),
-                        np.all(chunk_id_bounds[1] > bounding_box[0], axis=1)]).T
+                        np.all(chunk_ids < bounding_box_layer[1], axis=1),
+                        np.all(chunk_ids + 1 > bounding_box_layer[0], axis=1)]).T
 
                     bound_check_mask = np.all(bound_check, axis=1)
                     _children = _children[bound_check_mask]
@@ -2309,10 +2313,12 @@ class ChunkedGraph(object):
 
         # Sanity Checks
         if source_id == sink_id:
+            print("source == sink")
             return None
 
         if self.get_chunk_layer(source_id) != \
                 self.get_chunk_layer(sink_id):
+            print("layer(source) !== layer(sink)")
             return None
 
         if mincut:
@@ -2324,6 +2330,7 @@ class ChunkedGraph(object):
                         self.get_root(sink_id)]
 
         if root_ids[0] != root_ids[1]:
+            print("root(source) != root(sink)")
             return None
 
         # Get a unique id for this operation
@@ -2423,6 +2430,7 @@ class ChunkedGraph(object):
 
         # Verify that sink and source are from the same root object
         if root_id_source != root_id_sink:
+            print("root(source) != root(sink)")
             return False, None
 
         print(
@@ -2432,6 +2440,10 @@ class ChunkedGraph(object):
         root_id = root_id_source
 
         # Get edges between local supervoxels
+        n_chunks_affected = np.product((np.ceil(bounding_box[1] / self.chunk_size)).astype(np.int) -
+                                       (np.floor(bounding_box[0] / self.chunk_size)).astype(np.int))
+        print("Number of affected chunks: %d" % n_chunks_affected)
+
         edges, affs = self.get_subgraph(root_id, get_edges=True,
                                         bounding_box=bounding_box,
                                         bb_is_coordinate=True)
@@ -2458,12 +2470,14 @@ class ChunkedGraph(object):
 
         cutset_mask = np.in1d(edges_flattened_view, atomic_edges_flattened_view)
         if np.any(np.isinf(affs[cutset_mask])):
+            print("inf in cutset")
             return False, None
 
         # Remove edges
         success, result = self._remove_edges(operation_id, atomic_edges)
 
         if not success:
+            print("remove edges failed")
             return False, None
 
         new_roots, rows, time_stamp = result
