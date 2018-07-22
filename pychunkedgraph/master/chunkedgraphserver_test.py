@@ -1,21 +1,42 @@
-import requests
 import time
-import json
+import pytest
+from pychunkedgraph.master import create_app
 
-IP = "10.240.0.50"
+
+@pytest.fixture
+def app():
+    app = create_app(
+        {
+            'TESTING': True,
+            'BIGTABLE_CONFIG': {
+                'emulate': True
+            }
+        }
+    )
+    yield app
 
 
-def request(op, body, post=True):
+@pytest.fixture
+def client(app):
+    return app.test_client()
+
+# TODO convert this to an actual self contained test with emulated backend
+# and use app factory to create testing app and client objects
+
+# TODO setup fixture that puts data in backend before running client tests
+
+
+def request(test_client, op, body, post=True):
 
     if post:
-        url = 'https://{0}:4000/1.0/segment/{1}/{2}'.format(IP, body[0], op)
+        url = '/1.0/segment/{1}/{2}'.format(body[0], op)
         body = []
     else:
-        url = 'https://{0}:4000/1.0/graph/{1}'.format(IP, op)
+        url = '/1.0/graph/{1}'.format(op)
 
     print(url)
     time_start = time.time()
-    response = requests.get(url, verify=False, data=json.dumps(body))
+    response = test_client.get(url, verify=False, json=body)
 
     dt = (time.time() - time_start) * 1000
     print("%.3fms" % dt)
@@ -23,31 +44,31 @@ def request(op, body, post=True):
     return response
 
 
-def get_root(atomic_id):
+def get_root(client, atomic_id):
     body = [str(atomic_id), 0, 0, 0]
 
     print(body)
-    r = request("root", body, post=False)
+    r = request(client, "root", body, post=False)
 
     print(r.content)
     return r
 
 
-def get_children(parent_id):
+def get_children(client, parent_id):
     body = [str(parent_id), 0, 0, 0]
 
     print(body)
-    r = request("children", body, post=True)
+    r = request(client, "children", body, post=True)
 
     # print(r.content)
     return r
 
 
-def get_leaves(atomic_id):
+def get_leaves(client, atomic_id):
     body = [str(atomic_id), 0, 0, 0]
 
     print(body)
-    r = request("leaves", body, post=True)
+    r = request(client, "leaves", body, post=True)
 
     # print(r.content)
     return r
@@ -83,5 +104,3 @@ def split(atomic_ids):
 
     # print(r.content)
     return r
-
-
