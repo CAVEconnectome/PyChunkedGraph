@@ -1,7 +1,9 @@
-from pychunkedgraph.master import create_app
 import sys
 from werkzeug.serving import WSGIRequestHandler
 import os
+
+from pychunkedgraph.app import create_app
+
 app = create_app()
 
 if __name__ == '__main__':
@@ -11,7 +13,8 @@ if __name__ == '__main__':
 
     table_id = sys.argv[1]
     port = int(sys.argv[2])
-    app.config['table_id'] = table_id
+    app.config['CHUNKGRAPH_TABLE_ID'] = table_id
+
     # Initialize chunkedgraph:
     # cg = chunkedgraph.ChunkedGraph(table_id=table_id)
 

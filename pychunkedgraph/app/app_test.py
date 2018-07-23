@@ -1,6 +1,6 @@
 import time
 import pytest
-from pychunkedgraph.master import create_app
+from pychunkedgraph.app import create_app
 
 
 @pytest.fixture

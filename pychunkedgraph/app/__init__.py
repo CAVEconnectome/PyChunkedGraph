@@ -1,17 +1,24 @@
 from flask import Flask
 from flask_cors import CORS
-import config
-from chunkedgraph_blueprint import bp as cg_bp
+
+from . import config
+
+# from pychunkedgraph.app import app_blueprint
+from .app_blueprint import bp as cg_bp
 import logging
 
 
 def create_app(test_config=None):
     app = Flask(__name__)
     CORS(app)
-    app = configure_app(app)
+
+    configure_app(app)
+
     if test_config is not None:
         app.config.update(test_config)
+
     app.register_blueprint(cg_bp)
+    # app.register_blueprint(app_blueprint.bp)
 
     return app
 
@@ -27,3 +34,5 @@ def configure_app(app):
     formatter = logging.Formatter(app.config['LOGGING_FORMAT'])
     handler.setFormatter(formatter)
     app.logger.addHandler(handler)
+
+

@@ -2,6 +2,8 @@ from flask import g, current_app
 from google.auth import credentials, default as default_creds
 from google.cloud import bigtable
 
+import numpy as np
+
 # Hack the imports for now
 from pychunkedgraph.backend import chunkedgraph
 
@@ -13,10 +15,12 @@ class DoNothingCreds(credentials.Credentials):
 
 def get_client(config):
     project_id = config.get('project_id', 'pychunkedgraph')
+
     if config.get('emulate', False):
         credentials = DoNothingCreds()
     else:
         credentials, project_id = default_creds()
+
     client = bigtable.Client(admin=True,
                              project=project_id,
                              credentials=credentials)
@@ -30,3 +34,12 @@ def get_cg():
         g.cg = chunkedgraph.ChunkedGraph(table_id=table_id,
                                          client=client)
     return g.cg
+
+
+def tobinary(ids):
+    """ Transform id(s) to binary format
+
+    :param ids: uint64 or list of uint64s
+    :return: binary
+    """
+    return np.array(ids).tobytes()
