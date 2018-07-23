@@ -1381,6 +1381,42 @@ class ChunkedGraph(object):
         else:
             return children
 
+    def get_latest_edge_affinity(self, atomic_edge: [np.uint64, np.uint64],
+                                 check: bool = False) -> np.float32:
+        """ Looks up the LATEST affinity of an edge
+
+        Future work should add a timestamp option
+
+        :param atomic_edge: [uint64, uint64]
+        :param check: bool
+            whether to look up affinity from both sides and compare
+        :return: float32
+        """
+
+        edge_affinities = []
+
+        if check:
+            iter_max = 2
+        else:
+            iter_max = 1
+
+        for i in range(iter_max):
+            row = self.table.read_row(serialize_uint64(atomic_edge[i % 2]))
+            atomic_partners_b = row.cells[self.family_id][serialize_key("atomic_partners")][0].value
+            atomic_partners = np.frombuffer(atomic_partners_b, dtype=np.uint64)
+
+            atomic_affinities_b = row.cells[self.family_id][serialize_key("atomic_affinities")][0].value
+            atomic_affinities = np.frombuffer(atomic_affinities_b, dtype=np.float32)
+
+            edge_mask = atomic_partners == atomic_edge[(i + 1) % 2]
+            edge_affinities.append(atomic_affinities[edge_mask][0])
+
+        if len(np.unique(edge_affinities)) == 1:
+            return edge_affinities[0]
+        else:
+            raise Exception("Different edge affinities found... Something went "
+                            "horribly wrong.")
+
     def get_root(self, node_id: np.uint64,
                  time_stamp: Optional[datetime.datetime] = None
                  ) -> Union[List[np.uint64], np.uint64]:
@@ -1990,9 +2026,10 @@ class ChunkedGraph(object):
 
             child_ids = new_childs
 
-            print("Layer %d: %.3fms for %d chunks with %d threads" %
+            print("Layer %d: %.3fms for %d children with %d threads" %
                   (layer, (time.time() - time_start) * 1000, n_child_ids,
                    this_n_threads))
+
             time_start = time.time()
 
         atomic_ids = np.array(atomic_ids, np.uint64)
@@ -2485,8 +2522,8 @@ class ChunkedGraph(object):
         sink_coord = np.array(sink_coord)
 
         # Decide a reasonable bounding box (NOT guaranteed to be successful!)
-        coords = np.concatenate([source_coord[:, None], sink_coord[:, None]],
-                                axis=1).T
+        coords = np.concatenate([source_coord[:, None],
+                                 sink_coord[:, None]], axis=1).T
         bounding_box = [np.min(coords, axis=0), np.max(coords, axis=0)]
 
         bounding_box[0] -= bb_offset
@@ -2510,6 +2547,10 @@ class ChunkedGraph(object):
         n_chunks_affected = np.product((np.ceil(bounding_box[1] / self.chunk_size)).astype(np.int) -
                                        (np.floor(bounding_box[0] / self.chunk_size)).astype(np.int))
         print("Number of affected chunks: %d" % n_chunks_affected)
+        print("Bounding box:", bounding_box)
+        print("Bounding box padding:", bb_offset)
+        print("Atomic ids: %d - %d" % (source_id, sink_id))
+        print("Root id:", root_id)
 
         edges, affs = self.get_subgraph(root_id, get_edges=True,
                                         bounding_box=bounding_box,
@@ -2573,6 +2614,9 @@ class ChunkedGraph(object):
         # Make sure that we have a list of edges
         if isinstance(atomic_edges[0], np.uint64):
             atomic_edges = [atomic_edges]
+
+        for atomic_edge in atomic_edges:
+            assert ~np.isinf(self.get_latest_edge_affinity(atomic_edge))
 
         atomic_edges = np.array(atomic_edges)
         u_atomic_ids = np.unique(atomic_edges)
@@ -2784,8 +2828,6 @@ class ChunkedGraph(object):
 
                 u_atomic_children = np.unique(atomic_children)
                 edge_ids = np.array([], dtype=np.uint64).reshape(-1, 2)
-
-                # raise()
 
                 # For each potential neighbor (now, adjusted for changes in
                 # neighboring chunks), compare cross edges and extract edges
