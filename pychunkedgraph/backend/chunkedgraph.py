@@ -1848,7 +1848,7 @@ class ChunkedGraph(object):
         """ Returns all future root ids emerging from this root
 
         This search happens in a monotic fashion. At no point are future root
-        ids of past root ids or past root ids of future root ids taken into 
+        ids of past root ids or past root ids of future root ids taken into
         account.
 
         :param root_id: np.uint64
