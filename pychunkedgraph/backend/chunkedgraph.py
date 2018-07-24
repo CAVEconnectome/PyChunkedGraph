@@ -2030,6 +2030,8 @@ class ChunkedGraph(object):
                   (layer, (time.time() - time_start) * 1000, n_child_ids,
                    this_n_threads))
 
+            assert len(child_ids) == len(np.unique(child_ids))
+
             time_start = time.time()
 
         atomic_ids = np.array(atomic_ids, np.uint64)
@@ -2616,7 +2618,8 @@ class ChunkedGraph(object):
             atomic_edges = [atomic_edges]
 
         for atomic_edge in atomic_edges:
-            assert ~np.isinf(self.get_latest_edge_affinity(atomic_edge))
+            if np.isinf(self.get_latest_edge_affinity(atomic_edge)):
+                return False, None
 
         atomic_edges = np.array(atomic_edges)
         u_atomic_ids = np.unique(atomic_edges)
@@ -2809,7 +2812,7 @@ class ChunkedGraph(object):
 
                             ps = np.ones(len(neigh_cross_edges),
                                          dtype=np.uint64) * new_neighbor
-                            atomic_id_map =  np.concatenate([atomic_id_map, ps])
+                            atomic_id_map = np.concatenate([atomic_id_map, ps])
                     else:
                         neigh_cross_edges = self.read_row(old_chunk_neighbor,
                                                           "atomic_cross_edges")
@@ -2879,7 +2882,6 @@ class ChunkedGraph(object):
                 else:
                     parent_cc_id = len(parent_cc_list)
                     parent_cc_list.append(list(partners))
-                    parent_cc_list[parent_cc_id].append(new_layer_parent)
                     parent_cc_old_parent_list.append(old_next_layer_parent)
 
                 # Inverse mapping
@@ -2895,7 +2897,8 @@ class ChunkedGraph(object):
                     if parent_id in old_parent_dict:
                         old_next_layer_parent = old_parent_dict[parent_id]
 
-                assert old_next_layer_parent is not None
+                if old_next_layer_parent is None:
+                    return False, None
 
                 cc_node_ids = np.array(list(parent_cc), dtype=np.uint64)
                 cc_cross_edges = np.array([], dtype=np.uint64).reshape(0, 2)
