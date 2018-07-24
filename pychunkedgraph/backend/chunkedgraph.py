@@ -1254,8 +1254,8 @@ class ChunkedGraph(object):
                                     np.array([row_key] * len(atomic_edges[:, 0]),
                                              dtype=np.uint64)])
 
-        print("Time iterating through subchunks: %.3fs" %
-              (time.time() - time_start))
+        # print("Time iterating through subchunks: %.3fs" %
+        #       (time.time() - time_start))
         time_start = time.time()
 
         # Extract edges from remaining cross chunk edges
@@ -1280,8 +1280,8 @@ class ChunkedGraph(object):
         mu.multithread_func(_resolve_cross_chunk_edges_thread, multi_args,
                             n_threads=n_threads)
 
-        print("Time resolving cross chunk edges: %.3fs" %
-              (time.time() - time_start))
+        # print("Time resolving cross chunk edges: %.3fs" %
+        #       (time.time() - time_start))
         time_start = time.time()
 
         # 2 ----------
@@ -1318,7 +1318,7 @@ class ChunkedGraph(object):
         mu.multithread_func(_write_out_connected_components, multi_args,
                             n_threads=n_threads)
 
-        print("Time connected components: %.3fs" % (time.time() - time_start))
+        # print("Time connected components: %.3fs" % (time.time() - time_start))
 
     def get_parent(self, node_id: np.uint64,
                    get_only_relevant_parent: bool = True,
@@ -2030,6 +2030,10 @@ class ChunkedGraph(object):
                   (layer, (time.time() - time_start) * 1000, n_child_ids,
                    this_n_threads))
 
+            if len(child_ids) != len(np.unique(child_ids)):
+                print("N children %d - %d" % (len(child_ids), len(np.unique(child_ids))))
+                print(agglomeration_id, child_ids)
+
             assert len(child_ids) == len(np.unique(child_ids))
 
             time_start = time.time()
@@ -2235,6 +2239,7 @@ class ChunkedGraph(object):
                 # Add edge and change hierarchy
                 new_root_id, rows, time_stamp = \
                     self._add_edge(operation_id=operation_id,
+                                   root_ids=root_ids,
                                    atomic_edge=atomic_edge, affinity=affinity)
 
                 # Add a row to the log
@@ -2252,9 +2257,13 @@ class ChunkedGraph(object):
             print("Waiting - %d" % i_try)
             time.sleep(1)
 
+        self.unlock_root(root_ids[0], operation_id)
+        self.unlock_root(root_ids[1], operation_id)
         return None
 
-    def _add_edge(self, operation_id: np.uint64, atomic_edge: Sequence[np.uint64],
+    def _add_edge(self, operation_id: np.uint64,
+                  atomic_edge: Sequence[np.uint64],
+                  root_ids: Sequence[np.uint64],
                   affinity: Optional[np.float32] = None
                   ) -> Tuple[np.uint64, List[bigtable.row.Row],
                              datetime.datetime]:
@@ -2272,6 +2281,8 @@ class ChunkedGraph(object):
             affinity = np.float32(1.0)
 
         rows = []
+
+        assert len(root_ids) == len(atomic_edge) == 2
 
         # Walk up the hierarchy until a parent in the same chunk is found
         original_parent_ids = [self.get_all_parents(atomic_edge[0]),
@@ -2293,14 +2304,16 @@ class ChunkedGraph(object):
         # Find a new node id and update all children
         # circumvented_nodes = current_parent_ids.copy()
         # chunk_id = self.get_chunk_id(node_id=original_parent_ids[merge_layer][0])
-
         new_parent_id = self.get_unique_node_id(
             self.get_chunk_id(node_id=original_parent_ids[merge_layer][0]))
         new_parent_id_b = np.array(new_parent_id).tobytes()
         current_node_id = None
 
         for i_layer in range(merge_layer, len(original_parent_ids)):
-            current_parent_ids = original_parent_ids[i_layer]
+            # If an edge connects two supervoxel that were already conntected
+            # through another path, we will reach a point where we find the same
+            # parent twice.
+            current_parent_ids = np.unique(original_parent_ids[i_layer])
 
             # Collect child ids of all nodes --> childs of new node
             if current_node_id is None:
@@ -2461,15 +2474,17 @@ class ChunkedGraph(object):
                     if success:
                         new_root_ids, rows, removed_edges, time_stamp = result
                     else:
+                        self.unlock_root(root_ids[0], operation_id)
                         return None
                 else:
                     success, result = \
                         self._remove_edges(operation_id=operation_id,
-                                           atomic_edges=[[source_id, sink_id]])
+                                           atomic_edges=[(source_id, sink_id)])
                     if success:
                         new_root_ids, rows, time_stamp = result
                         removed_edges = [[source_id, sink_id]]
                     else:
+                        self.unlock_root(root_ids[0], operation_id)
                         return None
 
                 # Add a row to the log
@@ -2626,7 +2641,6 @@ class ChunkedGraph(object):
 
         # Get number of layers and the original root
         original_parent_ids = self.get_all_parents(atomic_edges[0, 0])
-        n_layers = len(original_parent_ids)
         original_root = original_parent_ids[-1]
 
         # Find lowest level chunks that might have changed
@@ -2759,11 +2773,11 @@ class ChunkedGraph(object):
         # all layers and move our new parents forward
         # new_layer_parent_dict stores all newly created parents. We first
         # empty it and then fill it with the new parents in the next layer
-        if n_layers == 1:
+        if self.n_layers == 2:
             return True, (list(new_layer_parent_dict.keys()), rows, time_stamp)
 
         new_roots = []
-        for i_layer in range(n_layers - 1):
+        for i_layer in range(2, self.n_layers):
 
             parent_cc_list = []
             parent_cc_old_parent_list = []
@@ -2877,8 +2891,8 @@ class ChunkedGraph(object):
                 # Check if the parent has already been "created"
                 if new_layer_parent in parent_cc_mapping:
                     parent_cc_id = parent_cc_mapping[new_layer_parent]
-                    parent_cc_list[parent_cc_id].extend(partners)
-                    parent_cc_list[parent_cc_id].append(new_layer_parent)
+                    parent_cc_list[parent_cc_id] = \
+                        np.unique(parent_cc_list[parent_cc_id] + list(partners))
                 else:
                     parent_cc_id = len(parent_cc_list)
                     parent_cc_list.append(list(partners))
@@ -2910,7 +2924,6 @@ class ChunkedGraph(object):
                 this_chunk_id = self.get_chunk_id(node_id=old_next_layer_parent)
                 new_parent_id = self.get_unique_node_id(this_chunk_id)
                 new_parent_id_b = np.array(new_parent_id).tobytes()
-                new_parent_id = new_parent_id
 
                 new_layer_parent_dict[new_parent_id] = \
                     parent_cc_old_parent_list[i_cc]
@@ -2926,7 +2939,7 @@ class ChunkedGraph(object):
                 val_dict = {"children": cc_node_ids.tobytes(),
                             "atomic_cross_edges": cc_cross_edges.tobytes()}
 
-                if i_layer == n_layers - 2:
+                if i_layer == self.n_layers-1:
                     new_roots.append(new_parent_id)
                     val_dict["former_parents"] = \
                         np.array(original_root).tobytes()
@@ -2937,7 +2950,7 @@ class ChunkedGraph(object):
                                             self.family_id, val_dict,
                                             time_stamp=time_stamp))
 
-            if i_layer == n_layers - 2:
+            if i_layer == self.n_layers-1:
                 val_dict = {"new_parents": np.array(new_roots,
                                                     dtype=np.uint64).tobytes()}
                 rows.append(self.mutate_row(serialize_uint64(original_root),
