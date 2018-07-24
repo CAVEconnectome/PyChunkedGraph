@@ -1462,57 +1462,58 @@ class TestGraphSplit:
 
         cgraph = gen_graph(n_layers=9)
 
+        loc = 2
+
         # Preparation: Build Chunk A
         fake_timestamp = datetime.utcnow() - timedelta(days=10)
         create_chunk(cgraph,
                      vertices=[to_label(cgraph, 1, 0, 0, 0, 0), to_label(cgraph, 1, 0, 0, 0, 1)],
                      edges=[(to_label(cgraph, 1, 0, 0, 0, 0), to_label(cgraph, 1, 0, 0, 0, 1), 0.5),
-                            (to_label(cgraph, 1, 0, 0, 0, 1), to_label(cgraph, 1, 127, 127, 127, 0), 0.5),
-                            (to_label(cgraph, 1, 0, 0, 0, 0), to_label(cgraph, 1, 127, 127, 127, 0), 0.3)],
+                            (to_label(cgraph, 1, 0, 0, 0, 1), to_label(cgraph, 1, loc, loc, loc, 0), 0.5),
+                            (to_label(cgraph, 1, 0, 0, 0, 0), to_label(cgraph, 1, loc, loc, loc, 0), 0.3)],
                      timestamp=fake_timestamp)
 
         # Preparation: Build Chunk Z
         create_chunk(cgraph,
-                     vertices=[to_label(cgraph, 1, 127, 127, 127, 0)],
-                     edges=[(to_label(cgraph, 1, 127, 127, 127, 0), to_label(cgraph, 1, 0, 0, 0, 1), 0.5),
-                            (to_label(cgraph, 1, 127, 127, 127, 0), to_label(cgraph, 1, 0, 0, 0, 0), 0.3)],
+                     vertices=[to_label(cgraph, 1, loc, loc, loc, 0)],
+                     edges=[(to_label(cgraph, 1, loc, loc, loc, 0), to_label(cgraph, 1, 0, 0, 0, 1), 0.5),
+                            (to_label(cgraph, 1, loc, loc, loc, 0), to_label(cgraph, 1, 0, 0, 0, 0), 0.3)],
                      timestamp=fake_timestamp)
 
-        cgraph.add_layer(3, np.array([[0x00, 0x00, 0x00]]), time_stamp=fake_timestamp)
-        cgraph.add_layer(3, np.array([[0x7F, 0x7F, 0x7F]]), time_stamp=fake_timestamp)
-        cgraph.add_layer(4, np.array([[0x00, 0x00, 0x00]]), time_stamp=fake_timestamp)
-        cgraph.add_layer(4, np.array([[0x3F, 0x3F, 0x3F]]), time_stamp=fake_timestamp)
-        cgraph.add_layer(5, np.array([[0x00, 0x00, 0x00]]), time_stamp=fake_timestamp)
-        cgraph.add_layer(5, np.array([[0x1F, 0x1F, 0x1F]]), time_stamp=fake_timestamp)
-        cgraph.add_layer(6, np.array([[0x00, 0x00, 0x00]]), time_stamp=fake_timestamp)
-        cgraph.add_layer(6, np.array([[0x0F, 0x0F, 0x0F]]), time_stamp=fake_timestamp)
-        cgraph.add_layer(7, np.array([[0x00, 0x00, 0x00]]), time_stamp=fake_timestamp)
-        cgraph.add_layer(7, np.array([[0x07, 0x07, 0x07]]), time_stamp=fake_timestamp)
-        cgraph.add_layer(8, np.array([[0x00, 0x00, 0x00]]), time_stamp=fake_timestamp)
-        cgraph.add_layer(8, np.array([[0x03, 0x03, 0x03]]), time_stamp=fake_timestamp)
-        cgraph.add_layer(9, np.array([[0x00, 0x00, 0x00], [0x01, 0x01, 0x01]]), time_stamp=fake_timestamp)
+        for i_layer in range(3, 10):
+            if loc // 2**(i_layer - 3) == 1:
+                cgraph.add_layer(i_layer, np.array([[0, 0, 0], [1, 1, 1]]), time_stamp=fake_timestamp)
+            elif loc // 2**(i_layer - 3) == 0:
+                cgraph.add_layer(i_layer, np.array([[0, 0, 0]]), time_stamp=fake_timestamp)
+            else:
+                cgraph.add_layer(i_layer, np.array([[0, 0, 0]]), time_stamp=fake_timestamp)
+                cgraph.add_layer(i_layer, np.array([[loc // 2**(i_layer - 3), loc // 2**(i_layer - 3), loc // 2**(i_layer - 3)]]), time_stamp=fake_timestamp)
+
+        assert cgraph.get_root(to_label(cgraph, 1, loc, loc, loc, 0)) == \
+               cgraph.get_root(to_label(cgraph, 1, 0, 0, 0, 0)) == \
+               cgraph.get_root(to_label(cgraph, 1, 0, 0, 0, 1))
 
         # Split
-        new_root_ids = cgraph.remove_edges("Jane Doe", to_label(cgraph, 1, 127, 127, 127, 0), to_label(cgraph, 1, 0, 0, 0, 0), mincut=False)
+        new_root_ids = cgraph.remove_edges("Jane Doe", to_label(cgraph, 1, loc, loc, loc, 0), to_label(cgraph, 1, 0, 0, 0, 0), mincut=False)
 
         # Check New State
         assert len(new_root_ids) == 1
         assert cgraph.get_root(to_label(cgraph, 1, 0, 0, 0, 0)) == new_root_ids[0]
         assert cgraph.get_root(to_label(cgraph, 1, 0, 0, 0, 1)) == new_root_ids[0]
-        assert cgraph.get_root(to_label(cgraph, 1, 127, 127, 127, 0)) == new_root_ids[0]
+        assert cgraph.get_root(to_label(cgraph, 1, loc, loc, loc, 0)) == new_root_ids[0]
         partners, affinities = cgraph.get_atomic_partners(to_label(cgraph, 1, 0, 0, 0, 0))
         assert len(partners) == 1 and partners[0] == to_label(cgraph, 1, 0, 0, 0, 1)
-        partners, affinities = cgraph.get_atomic_partners(to_label(cgraph, 1, 127, 127, 127, 0))
+        partners, affinities = cgraph.get_atomic_partners(to_label(cgraph, 1, loc, loc, loc, 0))
         assert len(partners) == 1 and partners[0] == to_label(cgraph, 1, 0, 0, 0, 1)
         partners, affinities = cgraph.get_atomic_partners(to_label(cgraph, 1, 0, 0, 0, 1))
         assert len(partners) == 2
         assert to_label(cgraph, 1, 0, 0, 0, 0) in partners
-        assert to_label(cgraph, 1, 127, 127, 127, 0) in partners
+        assert to_label(cgraph, 1, loc, loc, loc, 0) in partners
         leaves = np.unique(cgraph.get_subgraph(new_root_ids[0]))
         assert len(leaves) == 3
         assert to_label(cgraph, 1, 0, 0, 0, 0) in leaves
         assert to_label(cgraph, 1, 0, 0, 0, 1) in leaves
-        assert to_label(cgraph, 1, 127, 127, 127, 0) in leaves
+        assert to_label(cgraph, 1, loc, loc, loc, 0) in leaves
 
         # Check Old State still accessible
         old_root_id = cgraph.get_root(to_label(cgraph, 1, 0, 0, 0, 0), time_stamp=fake_timestamp)
