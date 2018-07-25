@@ -1,5 +1,3 @@
-import asyncio
-from concurrent.futures import ThreadPoolExecutor
 import collections
 import numpy as np
 import time
@@ -27,7 +25,7 @@ from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
 # global variables
 HOME = os.path.expanduser("~")
 N_DIGITS_UINT64 = len(str(np.iinfo(np.uint64).max))
-LOCK_EXPIRED_TIME_DELTA = datetime.timedelta(minutes=0, seconds=30)
+LOCK_EXPIRED_TIME_DELTA = datetime.timedelta(minutes=2, seconds=00)
 UTC = pytz.UTC
 
 # Setting environment wide credential path
