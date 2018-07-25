@@ -1246,24 +1246,25 @@ class ChunkedGraph(object):
             # comparison
 
             segment_ids = np.array([], dtype=np.uint64)
-            row_keys = np.array([])
+            row_ids_b = np.array([])
             max_child_ids = np.array([], dtype=np.uint64)
-            for row_key, row_data in range_read.items():
-                d_row_key = deserialize_uint64(row_key)
-                segment_id = self.get_segment_id(d_row_key)
+            for row_id_b, row_data in range_read.items():
+                row_id = deserialize_uint64(row_id_b)
+                segment_id = self.get_segment_id(row_id)
 
                 cell = row_data.cells[self.family_id]
 
-                child_ids_b = cell[serialize_key("children")][0].value
-                child_ids = np.frombuffer(child_ids_b, dtype=np.uint64)
+                node_child_ids_b = cell[serialize_key("children")][0].value
+                node_child_ids = np.frombuffer(node_child_ids_b,
+                                               dtype=np.uint64)
 
                 max_child_ids = np.concatenate([max_child_ids,
-                                                [np.max(child_ids)]])
+                                                [np.max(node_child_ids)]])
                 segment_ids = np.concatenate([segment_ids, [segment_id]])
-                row_keys = np.concatenate([row_keys, [row_key]])
+                row_ids_b = np.concatenate([row_ids_b, [row_id_b]])
 
             sorting = np.argsort(segment_ids)[::-1]
-            row_keys = row_keys[sorting]
+            row_ids_b = row_ids_b[sorting]
             max_child_ids = max_child_ids[sorting]
 
             counter = collections.defaultdict(int)
@@ -1276,27 +1277,27 @@ class ChunkedGraph(object):
 
             # Filter last occurences (we inverted the list) of each node
             m = max_child_ids_occ_so_far == 0
-            row_keys = row_keys[m]
+            row_ids_b = row_ids_b[m]
 
             # Loop through nodes from this chunk
-            for row_key in row_keys:
-                d_row_key = deserialize_uint64(row_key)
+            for row_id_b in row_ids_b:
+                row_id = deserialize_uint64(row_id_b)
 
-                cell = range_read[row_key].cells[self.family_id]
-                atomic_cross_edges = cell[serialize_key("atomic_cross_edges")]
-
-                atomic_edges_b = atomic_cross_edges[0].value
+                cell = range_read[row_id_b].cells[self.family_id][
+                    serialize_key("atomic_cross_edges")]
+                atomic_edges_b = cell[0].value
                 atomic_edges = np.frombuffer(atomic_edges_b,
                                              dtype=np.uint64).reshape(-1, 2)
 
-                atomic_partner_id_dict[int(d_row_key)] = atomic_edges[:, 1]
-                atomic_child_id_dict[int(d_row_key)] = atomic_edges[:, 0]
+                atomic_partner_id_dict[row_id] = atomic_edges[:, 1]
+                atomic_child_id_dict[row_id] = atomic_edges[:, 0]
 
                 atomic_child_ids = np.concatenate([atomic_child_ids,
                                                    atomic_edges[:, 0]])
-                this_ids = np.array([int(d_row_key)] * len(atomic_edges[:, 0]),
-                                    dtype=np.uint64)
-                child_ids = np.concatenate([child_ids, this_ids])
+                child_ids =\
+                    np.concatenate([child_ids,
+                                    np.array([row_id] * len(atomic_edges[:, 0]),
+                                             dtype=np.uint64)])
 
         # print("Time iterating through subchunks: %.3fs" %
         #       (time.time() - time_start))
