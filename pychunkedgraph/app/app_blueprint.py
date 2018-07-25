@@ -111,6 +111,9 @@ def handle_merge():
                            atomic_edge=[np.uint64(node_1[0]),
                                         np.uint64(node_2[0])])
 
+    if new_root is None:
+        return None
+
     # Return binary
     return app_utils.tobinary(new_root)
 
@@ -127,7 +130,8 @@ def handle_split():
                                 source_id=np.uint64(data["sources"][0][0]),
                                 sink_id=np.uint64(data["sinks"][0][0]),
                                 source_coord=data["sources"][0][1:],
-                                sink_coord=data["sinks"][0][1:])
+                                sink_coord=data["sinks"][0][1:],
+                                mincut=True)
 
     if new_roots is None:
         return None
@@ -176,8 +180,6 @@ def handle_leaves(root_id):
     atomic_ids = cg.get_subgraph(int(root_id),
                                  bounding_box=bounding_box,
                                  bb_is_coordinate=True)
-
-    # print(atomic_ids)
 
     # Return binary
     return app_utils.tobinary(atomic_ids)
