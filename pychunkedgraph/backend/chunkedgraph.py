@@ -1232,27 +1232,71 @@ class ChunkedGraph(object):
             x, y, z = chunk_coord
 
             range_read = self.range_read_chunk(layer_id - 1, x, y, z,
-                                               row_keys=["atomic_cross_edges"],
+                                               row_keys=["atomic_cross_edges",
+                                                         "children"],
                                                yield_rows=False)
 
-            # Loop through nodes from this chunk
-            for row_key, row_data in range_read.items():
-                row_key = deserialize_uint64(row_key)
+            # Due to restarted jobs some parents might be duplicated. We can
+            # find these duplicates only by comparing their children because
+            # each node has a unique id. However, we can use that more recently
+            # created nodes have higher segment ids. We are only interested in
+            # the latest version of any duplicated parents.
 
-                cell = row_data.cells[self.family_id][serialize_key("atomic_cross_edges")]
-                atomic_edges_b = cell[0].value
+            # Deserialize row keys and store child with highest id for
+            # comparison
+
+            segment_ids = np.array([], dtype=np.uint64)
+            row_keys = np.array([])
+            max_child_ids = np.array([], dtype=np.uint64)
+            for row_key, row_data in range_read.items():
+                d_row_key = deserialize_uint64(row_key)
+                segment_id = self.get_segment_id(d_row_key)
+
+                cell = row_data.cells[self.family_id]
+
+                child_ids_b = cell[serialize_key("children")][0].value
+                child_ids = np.frombuffer(child_ids_b, dtype=np.uint64)
+
+                max_child_ids = np.concatenate([max_child_ids,
+                                                [np.max(child_ids)]])
+                segment_ids = np.concatenate([segment_ids, [segment_id]])
+                row_keys = np.concatenate([row_keys, [row_key]])
+
+            sorting = np.argsort(segment_ids)[::-1]
+            row_keys = row_keys[sorting]
+            max_child_ids = max_child_ids[sorting]
+
+            counter = collections.defaultdict(int)
+
+            max_child_ids_occ_so_far = np.zeros(len(max_child_ids),
+                                                dtype=np.int)
+            for i_row in range(len(max_child_ids)):
+                max_child_ids_occ_so_far[i_row] = counter[max_child_ids[i_row]]
+                counter[max_child_ids[i_row]] += 1
+
+            # Filter last occurences (we inverted the list) of each node
+            m = max_child_ids_occ_so_far == 0
+            row_keys = row_keys[m]
+
+            # Loop through nodes from this chunk
+            for row_key in row_keys:
+                d_row_key = deserialize_uint64(row_key)
+
+                cell = range_read[row_key].cells[self.family_id]
+                atomic_cross_edges = cell[serialize_key("atomic_cross_edges")]
+
+                atomic_edges_b = atomic_cross_edges[0].value
                 atomic_edges = np.frombuffer(atomic_edges_b,
                                              dtype=np.uint64).reshape(-1, 2)
 
-                atomic_partner_id_dict[int(row_key)] = atomic_edges[:, 1]
-                atomic_child_id_dict[int(row_key)] = atomic_edges[:, 0]
+                atomic_partner_id_dict[int(d_row_key)] = atomic_edges[:, 1]
+                atomic_child_id_dict[int(d_row_key)] = atomic_edges[:, 0]
 
                 atomic_child_ids = np.concatenate([atomic_child_ids,
                                                    atomic_edges[:, 0]])
-                child_ids =\
-                    np.concatenate([child_ids,
-                                    np.array([row_key] * len(atomic_edges[:, 0]),
-                                             dtype=np.uint64)])
+                this_ids = np.array([int(d_row_key)] * len(atomic_edges[:, 0]),
+                                    dtype=np.uint64)
+                child_ids = np.concatenate([child_ids, this_ids])
 
         # print("Time iterating through subchunks: %.3fs" %
         #       (time.time() - time_start))
