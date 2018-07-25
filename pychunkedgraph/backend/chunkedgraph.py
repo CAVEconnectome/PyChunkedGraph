@@ -1,5 +1,3 @@
-import asyncio
-from concurrent.futures import ThreadPoolExecutor
 import collections
 import numpy as np
 import time
@@ -27,7 +25,7 @@ from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
 # global variables
 HOME = os.path.expanduser("~")
 N_DIGITS_UINT64 = len(str(np.iinfo(np.uint64).max))
-LOCK_EXPIRED_TIME_DELTA = datetime.timedelta(minutes=3, seconds=00)
+LOCK_EXPIRED_TIME_DELTA = datetime.timedelta(minutes=2, seconds=00)
 UTC = pytz.UTC
 
 # Setting environment wide credential path
@@ -1560,21 +1558,26 @@ class ChunkedGraph(object):
             # Collect latest root ids
             new_root_ids: List[np.uint64] = []
             for i_root_id in range(len(root_ids)):
-                latest_root_ids = self.get_latest_root_id(root_ids[i_root_id])
+                future_root_ids = self.get_future_root_ids(root_ids[i_root_id])
 
-                new_root_ids.extend(latest_root_ids)
+                if len(future_root_ids) == 0:
+                    new_root_ids.append(root_ids[i_root_id])
+                else:
+                    new_root_ids.extend(future_root_ids)
 
             # Attempt to lock all latest root ids
             root_ids = np.unique(new_root_ids)
+
             for i_root_id in range(len(root_ids)):
 
-                print(i_root_id, root_ids[i_root_id])
+                print("operation id: %d - root id: %d" %
+                      (operation_id, root_ids[i_root_id]))
                 lock_acquired = self.lock_single_root(root_ids[i_root_id],
                                                       operation_id)
 
                 # Roll back locks if one root cannot be locked
                 if not lock_acquired:
-                    for j_root_id in range(i_root_id):
+                    for j_root_id in range(len(root_ids)):
                         self.unlock_root(root_ids[j_root_id], operation_id)
                     break
 
@@ -1652,6 +1655,15 @@ class ChunkedGraph(object):
         # The lock was acquired when set_cell returns False (state)
         lock_acquired = not root_row.commit()
 
+        if not lock_acquired:
+            r = self.table.read_row(serialize_uint64(root_id))
+
+            l_operation_ids = []
+            for cell in r.cells[self.family_id][lock_key]:
+                l_operation_id = deserialize_uint64(cell.value)
+                l_operation_ids.append(l_operation_id)
+            print("Locked operation ids:", l_operation_ids)
+
         return lock_acquired
 
     def unlock_root(self, root_id: np.uint64, operation_id: np.uint64) -> bool:
@@ -1728,6 +1740,7 @@ class ChunkedGraph(object):
 
         for root_id in root_ids:
             if not self.check_and_renew_root_lock_single(root_id, operation_id):
+                print("check_and_renew_root_locks failed - %d" % root_id)
                 return False
 
         return True
@@ -2075,11 +2088,11 @@ class ChunkedGraph(object):
                   (layer, (time.time() - time_start) * 1000, n_child_ids,
                    this_n_threads))
 
-            if len(child_ids) != len(np.unique(child_ids)):
-                print("N children %d - %d" % (len(child_ids), len(np.unique(child_ids))))
-                print(agglomeration_id, child_ids)
-
-            assert len(child_ids) == len(np.unique(child_ids))
+            # if len(child_ids) != len(np.unique(child_ids)):
+            #     print("N children %d - %d" % (len(child_ids), len(np.unique(child_ids))))
+            #     # print(agglomeration_id, child_ids)
+            #
+            # assert len(child_ids) == len(np.unique(child_ids))
 
             time_start = time.time()
 
@@ -2275,16 +2288,17 @@ class ChunkedGraph(object):
         operation_id = self.get_unique_operation_id()
 
         i_try = 0
-
+        lock_root_ids = np.unique(root_ids)
         while i_try < n_tries:
             # Try to acquire lock and only continue if successful
-            if self.lock_root_loop(root_ids=root_ids,
-                                   operation_id=operation_id)[0]:
+            lock_acquired, lock_root_ids = \
+                self.lock_root_loop(root_ids=lock_root_ids,
+                                    operation_id=operation_id)
 
+            if lock_acquired:
                 # Add edge and change hierarchy
                 new_root_id, rows, time_stamp = \
                     self._add_edge(operation_id=operation_id,
-                                   root_ids=root_ids,
                                    atomic_edge=atomic_edge, affinity=affinity)
 
                 # Add a row to the log
@@ -2293,22 +2307,22 @@ class ChunkedGraph(object):
                                                        atomic_edge, time_stamp))
 
                 # Execute write (makes sure that we are still owning the lock)
-                if self.bulk_write(rows, root_ids,
+                if self.bulk_write(rows, lock_root_ids,
                                    operation_id=operation_id, slow_retry=False):
                     return new_root_id
+
+            for lock_root_id in lock_root_ids:
+                self.unlock_root(lock_root_id, operation_id)
 
             i_try += 1
 
             print("Waiting - %d" % i_try)
             time.sleep(1)
 
-        self.unlock_root(root_ids[0], operation_id)
-        self.unlock_root(root_ids[1], operation_id)
         return None
 
     def _add_edge(self, operation_id: np.uint64,
                   atomic_edge: Sequence[np.uint64],
-                  root_ids: Sequence[np.uint64],
                   affinity: Optional[np.float32] = None
                   ) -> Tuple[np.uint64, List[bigtable.row.Row],
                              datetime.datetime]:
@@ -2327,7 +2341,7 @@ class ChunkedGraph(object):
 
         rows = []
 
-        assert len(root_ids) == len(atomic_edge) == 2
+        assert len(atomic_edge) == 2
 
         # Walk up the hierarchy until a parent in the same chunk is found
         original_parent_ids = [self.get_all_parents(atomic_edge[0]),
@@ -2504,9 +2518,13 @@ class ChunkedGraph(object):
 
         while i_try < n_tries:
             # Try to acquire lock and only continue if successful
-            if self.lock_root_loop(root_ids=root_ids[:1],
-                                   operation_id=operation_id)[0]:
+            lock_root_ids = np.unique(root_ids)
 
+            lock_acquired, lock_root_ids = \
+                self.lock_root_loop(root_ids=lock_root_ids,
+                                    operation_id=operation_id)
+
+            if lock_acquired:
                 # (run mincut) and remove edges + update hierarchy
                 if mincut:
                     success, result = \
@@ -2519,7 +2537,9 @@ class ChunkedGraph(object):
                     if success:
                         new_root_ids, rows, removed_edges, time_stamp = result
                     else:
-                        self.unlock_root(root_ids[0], operation_id)
+                        for lock_root_id in lock_root_ids:
+                            self.unlock_root(lock_root_id,
+                                             operation_id=operation_id)
                         return None
                 else:
                     success, result = \
@@ -2529,7 +2549,9 @@ class ChunkedGraph(object):
                         new_root_ids, rows, time_stamp = result
                         removed_edges = [[source_id, sink_id]]
                     else:
-                        self.unlock_root(root_ids[0], operation_id)
+                        for lock_root_id in lock_root_ids:
+                            self.unlock_root(lock_root_id,
+                                             operation_id=operation_id)
                         return None
 
                 # Add a row to the log
@@ -2540,16 +2562,19 @@ class ChunkedGraph(object):
                                                        time_stamp))
 
                 # Execute write (makes sure that we are still owning the lock)
-                if self.bulk_write(rows, root_ids[:1],
+                if self.bulk_write(rows, lock_root_ids,
                                    operation_id=operation_id, slow_retry=False):
                     return new_root_ids
+
+                for lock_root_id in lock_root_ids:
+                    self.unlock_root(lock_root_id, operation_id=operation_id)
 
             i_try += 1
 
             print("Waiting - %d" % i_try)
             time.sleep(1)
 
-        return root_ids[:1]
+        return None
 
     def _remove_edges_mincut(self, operation_id: np.uint64, source_id: np.uint64,
                              sink_id: np.uint64, source_coord: Sequence[int],
