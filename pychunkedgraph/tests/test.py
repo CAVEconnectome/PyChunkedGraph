@@ -597,6 +597,56 @@ class TestGraphBuild:
         assert chunkedgraph.serialize_uint64(to_label(cgraph, 10, 0, 0, 0, 1)) in res.rows
         assert chunkedgraph.serialize_uint64(to_label(cgraph, 10, 0, 0, 0, 2)) in res.rows
 
+    @pytest.mark.timeout(30)
+    def test_double_chunk_creation(self, gen_graph):
+        """
+        No connection between 1, 2 and 3
+        ┌─────┬─────┐
+        │  A¹ │  B¹ │
+        │  1  │  3  │
+        │  2  │     │
+        └─────┴─────┘
+        """
+
+        cgraph = gen_graph(n_layers=4)
+
+        # Preparation: Build Chunk A
+        fake_timestamp = datetime.utcnow() - timedelta(days=10)
+        create_chunk(cgraph,
+                     vertices=[to_label(cgraph, 1, 0, 0, 0, 1),
+                               to_label(cgraph, 1, 0, 0, 0, 2)],
+                     edges=[],
+                     timestamp=fake_timestamp)
+
+        # Preparation: Build Chunk B
+        create_chunk(cgraph,
+                     vertices=[to_label(cgraph, 1, 1, 0, 0, 1)],
+                     edges=[],
+                     timestamp=fake_timestamp)
+
+        cgraph.add_layer(3, np.array([[0, 0, 0], [1, 0, 0]]),
+                         time_stamp=fake_timestamp)
+        cgraph.add_layer(3, np.array([[0, 0, 0], [1, 0, 0]]),
+                         time_stamp=fake_timestamp)
+        cgraph.add_layer(4, np.array([[0, 0, 0]]),
+                         time_stamp=fake_timestamp)
+
+        assert len(cgraph.range_read_chunk(layer=3, x=0, y=0, z=0)) == 6
+        assert len(cgraph.range_read_chunk(layer=4, x=0, y=0, z=0)) == 3
+
+        assert cgraph.get_chunk_layer(cgraph.get_root(to_label(cgraph, 1, 0, 0, 0, 1))) == 4
+        assert cgraph.get_chunk_layer(cgraph.get_root(to_label(cgraph, 1, 0, 0, 0, 2))) == 4
+        assert cgraph.get_chunk_layer(cgraph.get_root(to_label(cgraph, 1, 1, 0, 0, 1))) == 4
+
+        lvl_3_child_ids = [cgraph.get_segment_id(cgraph.read_row(cgraph.get_root(to_label(cgraph, 1, 0, 0, 0, 1)), "children")[0]),
+                           cgraph.get_segment_id(cgraph.read_row(cgraph.get_root(to_label(cgraph, 1, 0, 0, 0, 2)), "children")[0]),
+                           cgraph.get_segment_id(cgraph.read_row(cgraph.get_root(to_label(cgraph, 1, 1, 0, 0, 1)), "children")[0])]
+
+        assert 4 in lvl_3_child_ids
+        assert 5 in lvl_3_child_ids
+        assert 6 in lvl_3_child_ids
+
+
 
 class TestGraphSimpleQueries:
     """
@@ -2037,4 +2087,3 @@ class TestGraphLocks:
                                                       max_tries=10, waittime_s=.5)
         assert success
         assert new_root_ids[0] == new_root_id
-
