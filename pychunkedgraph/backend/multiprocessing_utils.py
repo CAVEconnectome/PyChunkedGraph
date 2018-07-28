@@ -137,7 +137,7 @@ def _poll_running_subprocesses(processes, runtimes, path_to_script,
     for i_p, p in enumerate(processes):
         poll = p[0].poll()
 
-        if poll == 0:
+        if poll == 0 and os.path.exists(path_to_out):
             runtimes.append(time.time() - processes[i_p][3])
             del (processes[i_p])
             break
