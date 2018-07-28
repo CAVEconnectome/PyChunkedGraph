@@ -1435,7 +1435,6 @@ class ChunkedGraph(object):
             whether to look up affinity from both sides and compare
         :return: float32
         """
-
         edge_affinities = []
 
         if check:
@@ -1444,14 +1443,14 @@ class ChunkedGraph(object):
             iter_max = 1
 
         for i in range(iter_max):
-            row = self.table.read_row(serialize_uint64(atomic_edge[i % 2]))
-            atomic_partners_b = row.cells[self.family_id][serialize_key("atomic_partners")][0].value
-            atomic_partners = np.frombuffer(atomic_partners_b, dtype=np.uint64)
-
-            atomic_affinities_b = row.cells[self.family_id][serialize_key("atomic_affinities")][0].value
-            atomic_affinities = np.frombuffer(atomic_affinities_b, dtype=np.float32)
+            atomic_partners, atomic_affinities = \
+                self.get_atomic_partners(atomic_edge[i % 2])
 
             edge_mask = atomic_partners == atomic_edge[(i + 1) % 2]
+
+            if len(edge_mask) == 0:
+                raise Exception("Edge does not exist")
+
             edge_affinities.append(atomic_affinities[edge_mask][0])
 
         if len(np.unique(edge_affinities)) == 1:
