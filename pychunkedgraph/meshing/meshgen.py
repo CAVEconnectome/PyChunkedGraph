@@ -1,7 +1,7 @@
 import sys
 import os
 import numpy as np
-import itertools
+import json
 
 import cloudvolume
 from igneous.tasks import MeshTask
@@ -13,59 +13,106 @@ from pychunkedgraph.backend import chunkedgraph
 from pychunkedgraph.backend import multiprocessing_utils as mu
 
 
-def chunk_mesh_task(cg, chunk_id, ws_path, mip=3):
+def get_sv_to_node_mapping(cg, chunk_id):
+    """ Reads sv_id -> root_id mapping for a chunk from the chunkedgraph
+
+    :param cg: chunkedgraph instance
+    :param chunk_id: uint64
+    :return: dict
+    """
+
+    layer = cg.get_chunk_layer(chunk_id)
+
+    sv_to_node_mapping = {}
+
+    if layer > 1:
+        seg_ids = []
+        for seg_id in range(1, cg.get_max_node_id(chunk_id) + np.uint64(1)):
+            node_id = cg.get_node_id(np.uint64(seg_id), chunk_id)
+
+            atomic_ids = cg.get_subgraph(node_id, verbose=False)
+
+            if len(atomic_ids):
+                sv_to_node_mapping.update(
+                    dict(zip(atomic_ids, [node_id] * len(atomic_ids))))
+                seg_ids.append(node_id)
+    else:
+        x, y, z = cg.get_chunk_coordinates(chunk_id)
+        seg_ids = cg.range_read_chunk(1, x, y, z)
+        sv_to_node_mapping = dict(zip(seg_ids, seg_ids))
+
+    return sv_to_node_mapping
+
+
+def chunk_mesh_task(sv_to_node_mapping, cg, chunk_id, cv_path,
+                    cv_mesh_dir=None, mip=3):
     """ Computes the meshes for a single chunk
 
+    :param get_sv_to_node_mapping: dict
     :param cg: ChunkedGraph instance
     :param chunk_id: int
-    :param ws_path: str
+    :param cv_path: str
+    :param cv_mesh_dir: str or None
     :param mip: int
     """
-    sv_to_node_mapping = {}
-    for seg_id in range(1, cg.get_max_node_id(chunk_id) + np.uint64(1)):
-        node_id = cg.get_node_id(np.uint64(seg_id), chunk_id)
 
-        atomic_ids = cg.get_subgraph(node_id, verbose=False)
-        
-        sv_to_node_mapping.update(dict(zip(atomic_ids,
-                                           [node_id] * len(atomic_ids))))
+    layer = cg.get_chunk_layer(chunk_id)
 
-    if len(sv_to_node_mapping):
+    if len(sv_to_node_mapping) == 0:
+        print("Nothing to do", cg.get_chunk_coordinates(chunk_id))
         return
+    # else:
+        # print("Something to do", cg.get_chunk_coordinates(chunk_id))
 
-    mesh_block_shape = cg.chunk_size // np.array([2**mip, 2**mip, 1])
+    mesh_block_shape = cg.chunk_size * 2 ** np.max([0, layer-2]) // \
+                            np.array([2 ** mip, 2 ** mip, 1])
+
     chunk_offset = cg.get_chunk_coordinates(chunk_id) * mesh_block_shape
 
     task = MeshTask(
         mesh_block_shape,
         chunk_offset,
-        ws_path,
+        cv_path,
         mip=mip,
-        simplification_factor=10,
-        max_simplification_error=1,
+        simplification_factor=100,
+        max_simplification_error=5,
         remap_table=sv_to_node_mapping,
         generate_manifests=True,
-        low_padding=1,
-        high_padding=1
+        low_padding=5,
+        high_padding=5,
+        mesh_dir=cv_mesh_dir
     )
     task.execute()
 
-    cv = cloudvolume.CloudVolume(ws_path)
-
-    mesh_dir = cv.info['mesh']
-
-    with cloudvolume.Storage(cv.layer_cloudpath, progress=cv.progress) as stor:
-        for seg_id in sv_to_node_mapping.keys():
-            mesh_json_file_name = str(seg_id) + ':0'
-            path = os.path.join(mesh_dir, mesh_json_file_name)
-
-            if not stor.files_exist([path]):
-                raise Exception("Missing mesh for %d" % seg_id)
+    print("Layer %d -- finished:" % layer, cg.get_chunk_coordinates(chunk_id))
 
 
-def _mesh_dataset_thread(args):
-    """ Helper for mesh_dataset """
-    cg_info, start_block, end_block, ws_path, mip, layer = args
+def mesh_single_component(node_id, cg, cv_path, cv_mesh_dir=None, mip=3):
+    """ Computes the mesh for a single component
+
+    :param node_id: uint64
+    :param cg: chunkedgraph instance
+    :param cv_path: str
+    :param cv_mesh_dir: str
+    :param mip: int
+    """
+    layer = cg.get_chunk_layer(node_id)
+
+    assert layer > 1
+
+    atomic_ids = cg.get_subgraph(node_id, verbose=False)
+
+    if len(atomic_ids):
+        sv_to_node_mapping = dict(zip(atomic_ids, [node_id] * len(atomic_ids)))
+        chunk_mesh_task(sv_to_node_mapping, cg, cg.get_chunk_id(node_id),
+                        cv_path, cv_mesh_dir=cv_mesh_dir, mip=mip)
+    else:
+        raise Exception("Could not find atomic nodes -- does this node id "
+                        "exist?")
+
+
+def _mesh_layer_thread(args):
+    cg_info, start_block, end_block, cv_path, cv_mesh_dir, mip, layer = args
 
     cg = chunkedgraph.ChunkedGraph(table_id=cg_info["table_id"],
                                    instance_id=cg_info["instance_id"],
@@ -77,104 +124,111 @@ def _mesh_dataset_thread(args):
                 chunk_id = cg.get_chunk_id(x=block_x, y=block_y, z=block_z,
                                            layer=layer)
 
-                chunk_mesh_task(cg=cg, chunk_id=chunk_id, ws_path=ws_path,
-                                mip=mip)
+                chunk_mesh_task(get_sv_to_node_mapping(cg, chunk_id),
+                                cg=cg, chunk_id=chunk_id, cv_path=cv_path,
+                                mip=mip, cv_mesh_dir=cv_mesh_dir)
 
 
-def mesh_dataset(table_id, layer, mip=3, bounding_box=None, block_factor=2,
-                 n_threads=1):
-    """ Computes meshes for a single layer in a chunkedgraph
+def mesh_node_and_parents(node_id, cg, cv_path, cv_mesh_dir=None, mip=3,
+                          highest_mesh_level=1, create_manifest_root=True,
+                          lod=0):
+    layer = cg.get_chunk_layer(node_id)
 
-    :param table_id: str
+    parents = [node_id] + list(cg.get_all_parents(node_id))
+    for i_layer in range(layer, highest_mesh_level + 1):
+        mesh_single_component(parents[i_layer], cg=cg, cv_path=cv_path,
+                              cv_mesh_dir=cv_mesh_dir, mip=mip)
+
+    if create_manifest_root:
+        with cloudvolume.Storage(cv_path) as cv_storage:
+            create_manifest_file(cg=cg, cv_storage=cv_storage,
+                                 cv_mesh_dir=cv_mesh_dir, node_id=parents[-1],
+                                 highest_mesh_level=highest_mesh_level,
+                                 mip=mip, lod=lod)
+
+
+def create_manifest_file(cg, cv_storage, cv_mesh_dir, node_id,
+                         highest_mesh_level=1, mip=3, lod=0):
+    """ Createst the manifest file for any node
+
+    :param cg: chunkedgraph instance
+    :param cv_storage: cloudvolume.Storage instance
+    :param cv_mesh_dir: str
+    :param node_id: uint64
     :param mip: int
-        mip used for meshes
-    :param bounding_box: 2 x 3 array or None
-        [[x_low, y_low, z_low], [x_high, y_high, z_high]]
-    :param block_factor: int
-        scales workload per thread (goes with block_factor^3)
-    :param n_threads: int
+    :param highest_mesh_level: int
+    :param lod: int
     """
+    highest_mesh_level_children = _find_highest_children_with_mesh(
+        cg, cv_storage, cv_mesh_dir, [],
+        cg.get_subgraph(node_id, stop_lvl=highest_mesh_level).tolist())
 
-    if "pinky" in table_id:
-        ws_path = "gs://neuroglancer/svenmd/pinky40_v11/watershed/"
-    elif "basil" in table_id:
-        ws_path = "gs://neuroglancer/svenmd/basil_4k_oldnet_cg/watershed/"
+    mesh_block_shape = cg.chunk_size * 2 ** np.max([0, highest_mesh_level-2]) // np.array([2 ** mip, 2 ** mip, 1])
+
+    frags = []
+    for child_id in highest_mesh_level_children:
+        lower_b = cg.get_chunk_coordinates(child_id) * mesh_block_shape
+        upper_b = lower_b + mesh_block_shape
+        bounds = '{}-{}_{}-{}_{}-{}'.format(lower_b[0], upper_b[0],
+                                            lower_b[1], upper_b[1],
+                                            lower_b[2], upper_b[2])
+
+        frags.append('{}:{}:{}'.format(child_id, lod, bounds))
+
+    cv_storage.put_file(file_path='{}/{}:{}'.format(cv_mesh_dir, node_id, lod),
+                        content=json.dumps({"fragments": frags}),
+                        content_type='application/json')
+
+
+def _find_highest_children_with_mesh(cg, cv_storage, cv_mesh_dir,
+                                     validated_children, test_children):
+    if len(test_children) == 0:
+        return validated_children
+
+    next_child_id = test_children[0]
+    del test_children[0]
+
+    manifest_file_name = str(next_child_id) + ':0'
+    existence_test = cv_storage.files_exist([os.path.join(cv_mesh_dir,
+                                                          manifest_file_name)])
+
+    if list(existence_test.values())[0]:
+        validated_children.append(next_child_id)
     else:
-        raise Exception("Dataset unknown")
+        if cg.get_chunk_layer(next_child_id) > 2:
+            test_children.append(next_child_id)
 
-    cg = chunkedgraph.ChunkedGraph(table_id=table_id)
-
-    ws_cv_mip1 = cloudvolume.CloudVolume(ws_path, mip=1)
-    dataset_bounding_box = np.array(ws_cv_mip1.bounds.to_list())
-
-    block_bounding_box_cg = \
-        [np.floor(dataset_bounding_box[:3] / cg.chunk_size).astype(np.int),
-         np.ceil(dataset_bounding_box[3:] / cg.chunk_size).astype(np.int)]
-
-    if bounding_box is not None:
-        bounding_box_cg = \
-            [np.floor(bounding_box[0] / cg.chunk_size).astype(np.int),
-             np.ceil(bounding_box[1] / cg.chunk_size).astype(np.int)]
-
-        m = block_bounding_box_cg[0] < bounding_box_cg[0]
-        block_bounding_box_cg[0][m] = bounding_box_cg[0][m]
-
-        m = block_bounding_box_cg[1] > bounding_box_cg[1]
-        block_bounding_box_cg[1][m] = bounding_box_cg[1][m]
-
-    block_iter = itertools.product(np.arange(block_bounding_box_cg[0][0],
-                                             block_bounding_box_cg[1][0],
-                                             block_factor),
-                                   np.arange(block_bounding_box_cg[0][1],
-                                             block_bounding_box_cg[1][1],
-                                             block_factor),
-                                   np.arange(block_bounding_box_cg[0][2],
-                                             block_bounding_box_cg[1][2],
-                                             block_factor))
-
-    blocks = np.array(list(block_iter))
-    cg_info = cg.get_serialized_info()
-    del(cg_info['credentials'])
-
-    multi_args = []
-    for start_block in blocks:
-        end_block = start_block + block_factor
-        m = end_block > block_bounding_box_cg[1]
-        end_block[m] = block_bounding_box_cg[1][m]
-
-        multi_args.append([cg_info, start_block, end_block, ws_path, mip,
-                           layer])
-
-    # Run multiprocessing
-    if n_threads == 1:
-        mu.multiprocess_func(_mesh_dataset_thread, multi_args,
-                             n_threads=n_threads, verbose=True,
-                             debug=n_threads == 1)
+    if len(test_children) == 0:
+        return validated_children
     else:
-        mu.multisubprocess_func(_mesh_dataset_thread, multi_args,
-                                n_threads=n_threads)
+        _find_highest_children_with_mesh(cg, cv_storage, cv_mesh_dir,
+                                         validated_children, test_children)
 
 
-def mesh_dataset_all_layers(table_id, excempt_layers=[1], mip=3,
-                            bounding_box=None, block_factor=2, n_threads=1):
-    """ Computes meshes for all layers in a chunkedgraph
+def _create_manifest_files_thread(args):
+    cg_info, cv_path, cv_mesh_dir, mip, root_id_start, root_id_end, \
+        highest_mesh_level = args
 
-    :param table_id: str
-    :param excempt_layers: list of ints
-        list layer ids for which meshes should not be computed
-    :param mip: int
-        mip used for meshes
-    :param bounding_box: 2 x 3 array or None
-        [[x_low, y_low, z_low], [x_high, y_high, z_high]]
-    :param block_factor: int
-        scales workload per thread (goes with block_factor^3)
-    :param n_threads: int
-    """
-    cg = chunkedgraph.ChunkedGraph(table_id=table_id)
+    cg = chunkedgraph.ChunkedGraph(**cg_info)
 
-    for layer in range(1, cg.n_layers):
-        if layer in excempt_layers:
-            continue
+    with cloudvolume.Storage(cv_path) as cv_storage:
+        for root_id in range(root_id_start, root_id_end):
+            create_manifest_file(cg, cv_storage, cv_mesh_dir, root_id,
+                                 highest_mesh_level=highest_mesh_level)
 
-        mesh_dataset(table_id, layer, mip=mip, bounding_box=bounding_box,
-                     block_factor=block_factor, n_threads=n_threads)
+
+    # cv = cloudvolume.CloudVolume(cv_path)
+    #
+    # # mesh_dir = cv.info['mesh']
+    #
+    # paths = []
+    # for seg_id in seg_ids:
+    #     mesh_json_file_name = str(seg_id) + ':0'
+    #     paths.append(os.path.join(mesh_dir, mesh_json_file_name))
+    #
+    # with cloudvolume.Storage(cv.layer_cloudpath, progress=cv.progress) as stor:
+    #     existence_test = stor.files_exist(paths)
+    #
+    # print("Success rate: %d / %d @" %
+    #       (np.sum(list(existence_test.values())), len(seg_ids)),
+    #       cg.get_chunk_coordinates(chunk_id))
