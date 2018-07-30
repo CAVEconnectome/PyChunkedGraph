@@ -163,12 +163,18 @@ def create_manifest_file(cg, cv_storage, cv_mesh_dir, node_id,
         cg, cv_storage, cv_mesh_dir, [],
         cg.get_subgraph(node_id, stop_lvl=highest_mesh_level).tolist())
 
+    print("number of children: %d" % (len(highest_mesh_level_children)))
+
     mesh_block_shape = cg.chunk_size * 2 ** np.max([0, highest_mesh_level-2]) // np.array([2 ** mip, 2 ** mip, 1])
 
     frags = []
     for child_id in highest_mesh_level_children:
         lower_b = cg.get_chunk_coordinates(child_id) * mesh_block_shape
         upper_b = lower_b + mesh_block_shape
+
+        lower_b = np.array(lower_b, dtype=np.int)
+        upper_b = np.array(upper_b, dtype=np.int)
+
         bounds = '{}-{}_{}-{}_{}-{}'.format(lower_b[0], upper_b[0],
                                             lower_b[1], upper_b[1],
                                             lower_b[2], upper_b[2])
@@ -189,20 +195,24 @@ def _find_highest_children_with_mesh(cg, cv_storage, cv_mesh_dir,
     del test_children[0]
 
     manifest_file_name = str(next_child_id) + ':0'
-    existence_test = cv_storage.files_exist([os.path.join(cv_mesh_dir,
-                                                          manifest_file_name)])
+    test_path = "".join([cv_mesh_dir, "/", manifest_file_name])
+    existence_test = cv_storage.files_exist([test_path])
 
     if list(existence_test.values())[0]:
         validated_children.append(next_child_id)
     else:
         if cg.get_chunk_layer(next_child_id) > 2:
-            test_children.append(next_child_id)
+            test_children.extend(cg.get_children(next_child_id))
+
+    print(len(test_children), len(validated_children), cv_mesh_dir, test_path,
+          list(existence_test.values())[0])
 
     if len(test_children) == 0:
         return validated_children
     else:
-        _find_highest_children_with_mesh(cg, cv_storage, cv_mesh_dir,
-                                         validated_children, test_children)
+        return _find_highest_children_with_mesh(cg, cv_storage, cv_mesh_dir,
+                                                validated_children,
+                                                test_children)
 
 
 def _create_manifest_files_thread(args):

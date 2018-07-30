@@ -200,10 +200,10 @@ def create_chunked_graph(table_id=None, cv_url=None, ws_url=None, fan_out=2,
     if cv_url is None or ws_url is None:
         if "basil" in table_id:
             cv_url = "gs://nkem/basil_4k_oldnet/region_graph/"
-            ws_url = "gs://neuroglancer/svenmd/pinky40_v11/watershed/"
+            ws_url = "gs://neuroglancer/svenmd/basil_4k_oldnet_cg/watershed/"
         elif "pinky40" in table_id:
             cv_url = "gs://nkem/pinky40_v11/mst_trimmed_sem_remap/region_graph/"
-            ws_url = "gs://neuroglancer/svenmd/basil_4k_oldnet_cg/watershed/"
+            ws_url = "gs://neuroglancer/svenmd/pinky40_v11/watershed/"
         else:
             raise Exception("Could not identify region graph ressource")
 

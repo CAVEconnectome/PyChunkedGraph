@@ -76,7 +76,7 @@ class MeshEngine(object):
     def mesh_multiple_layers(self, layers=None, bounding_box=None,
                              block_factor=2, n_threads=128):
         if layers is None:
-            layers = range(1, self.cg.n_layers + 1)
+            layers = range(1, int(self.cg.n_layers + 1))
 
         layers = np.array(layers, dtype=np.int)
 
@@ -151,8 +151,9 @@ class MeshEngine(object):
 
     def create_manifests_for_higher_layers(self, n_threads=1):
         root_id_max = self.cg.get_max_node_id(
-            self.cg.get_chunk_id(layer=self.cg.n_layers,
-                                 x=0, y=0, z=0))
+            self.cg.get_chunk_id(layer=np.int(self.cg.n_layers),
+                                 x=np.int(0), y=np.int(0),
+                                 z=np.int(0)))
 
         root_id_blocks = np.linspace(1, root_id_max, n_threads*3)
         cg_info = self.cg.get_serialized_info()
