@@ -189,6 +189,7 @@ def multisubprocess_func(func, params, wait_delay_s=5, n_threads=1,
         kill_tol_factor x mean_run_time sets a threshold after which a process
         is restarted. If None: Processes are not restarted.
     :param min_n_meas: int
+    :param suffix: str
     :return: list of returns of function
     """
 

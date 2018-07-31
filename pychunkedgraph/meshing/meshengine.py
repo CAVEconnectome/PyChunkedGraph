@@ -31,7 +31,12 @@ class MeshEngine(object):
 
     @property
     def table_name(self):
-        return "".join(self.table_id.split("_")[1:])
+        name_parts = self.table_id.split("_")[1:]
+        table_name = name_parts[0]
+        for name_part in name_parts[1:]:
+            table_name += "_" + name_part
+
+        return table_name
 
     @property
     def instance_id(self):
@@ -83,14 +88,17 @@ class MeshEngine(object):
         layers = layers[layers > 0]
         layers = layers[layers < self.highest_mesh_layer + 1]
 
+        print("Meshing layers:", layers)
+
         for layer in layers:
+            print("Now: layer %d" % layer)
             self.mesh_single_layer(layer, bounding_box=bounding_box,
                                    block_factor=block_factor,
                                    n_threads=n_threads)
 
     def mesh_single_layer(self, layer, bounding_box=None, block_factor=2,
                           n_threads=128):
-        assert layer < self.highest_mesh_layer
+        assert layer <= self.highest_mesh_layer
 
         dataset_bounding_box = np.array(self.cv.bounds.to_list())
 
@@ -128,6 +136,7 @@ class MeshEngine(object):
                                                  block_factor))
 
         blocks = np.array(list(block_iter), dtype=np.int)
+
         cg_info = self.cg.get_serialized_info()
         del (cg_info['credentials'])
 
@@ -147,7 +156,8 @@ class MeshEngine(object):
                                  debug=n_threads == 1)
         else:
             mu.multisubprocess_func(meshgen._mesh_layer_thread, multi_args,
-                                    n_threads=n_threads)
+                                    n_threads=n_threads,
+                                    suffix="%s_%d" % (self.table_id, layer))
 
     def create_manifests_for_higher_layers(self, n_threads=1):
         root_id_max = self.cg.get_max_node_id(

@@ -1967,7 +1967,7 @@ class ChunkedGraph(object):
     def get_subgraph(self, agglomeration_id: np.uint64,
                      bounding_box: Optional[Sequence[Sequence[int]]] = None,
                      bb_is_coordinate: bool = False, stop_lvl: int = 1,
-                     get_edges: bool = False
+                     get_edges: bool = False, verbose: bool = True
                      ) -> Union[Tuple[np.ndarray, np.ndarray], np.ndarray]:
         """ Returns all edges between supervoxels belonging to the specified
             agglomeration id within the defined bouning box
@@ -1977,6 +1977,7 @@ class ChunkedGraph(object):
         :param bb_is_coordinate: bool
         :param stop_lvl: int
         :param get_edges: bool
+        :param verbose: bool
         :return: edge list
         """
         # Helper functions for multithreading
@@ -2083,9 +2084,10 @@ class ChunkedGraph(object):
 
             child_ids = new_childs
 
-            print("Layer %d: %.3fms for %d children with %d threads" %
-                  (layer, (time.time() - time_start) * 1000, n_child_ids,
-                   this_n_threads))
+            if verbose:
+                print("Layer %d: %.3fms for %d children with %d threads" %
+                      (layer, (time.time() - time_start) * 1000, n_child_ids,
+                       this_n_threads))
 
             # if len(child_ids) != len(np.unique(child_ids)):
             #     print("N children %d - %d" % (len(child_ids), len(np.unique(child_ids))))
