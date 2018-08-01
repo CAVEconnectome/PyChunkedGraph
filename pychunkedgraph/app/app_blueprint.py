@@ -101,15 +101,34 @@ def handle_root():
 
 @bp.route('/1.0/graph/merge', methods=['POST', 'GET'])
 def handle_merge():
-    node_1, node_2 = json.loads(request.data)\
+    nodes = json.loads(request.data)\
 
     user_id = str(request.remote_addr)
 
     # Call ChunkedGraph
     cg = app_utils.get_cg()
+
+    atomic_edge = []
+    for node in nodes:
+        node_id = node[0]
+        x, y, z = node[1:]
+
+        atomic_id = cg.get_atomic_id_from_coord(x, y, z,
+                                                parent_id=np.uint64(node_id))
+        if atomic_id is None:
+            return None
+
+        atomic_edge.append(atomic_id)
+
+    # Protection from long range mergers
+    chunk_coord_delta = cg.get_chunk_coordinates(atomic_edge[0]) - \
+                        cg.get_chunk_coordinates(atomic_edge[1])
+
+    if np.any(np.abs(chunk_coord_delta) > 1):
+        return None
+
     new_root = cg.add_edge(user_id=user_id,
-                           atomic_edge=[np.uint64(node_1[0]),
-                                        np.uint64(node_2[0])])
+                           atomic_edge=np.array(atomic_edge, dtype=np.uint64))
 
     if new_root is None:
         return None
@@ -126,11 +145,29 @@ def handle_split():
 
     # Call ChunkedGraph
     cg = app_utils.get_cg()
+
+    data_dict = {}
+    for k in ["sources", "sinks"]:
+        data_dict[k] = []
+
+        for node in data[k]:
+            node_id = node[0]
+            x, y, z = node[1:]
+
+            atomic_id = cg.get_atomic_id_from_coord(x, y, z,
+                                                    parent_id=np.uint64(node_id))
+            if atomic_id is None:
+                return None
+
+            data_dict[k].append({"id": atomic_id,
+                                 "coord": np.array([x, y, z])})
+
+    print(data_dict)
     new_roots = cg.remove_edges(user_id=user_id,
-                                source_id=np.uint64(data["sources"][0][0]),
-                                sink_id=np.uint64(data["sinks"][0][0]),
-                                source_coord=data["sources"][0][1:],
-                                sink_coord=data["sinks"][0][1:],
+                                source_id=data_dict["sources"][0]["id"],
+                                sink_id=data_dict["sinks"][0]["id"],
+                                source_coord=data_dict["sources"][0]["coord"],
+                                sink_coord=data_dict["sinks"][0]["coord"],
                                 mincut=True)
 
     if new_roots is None:

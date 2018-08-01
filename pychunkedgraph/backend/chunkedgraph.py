@@ -422,7 +422,7 @@ class ChunkedGraph(object):
         x = int(node_or_chunk_id) >> x_offset & 2 ** bits_per_dim - 1
         y = int(node_or_chunk_id) >> y_offset & 2 ** bits_per_dim - 1
         z = int(node_or_chunk_id) >> z_offset & 2 ** bits_per_dim - 1
-        return x, y, z
+        return np.array([x, y, z])
 
     def get_chunk_id(self, node_id: Optional[np.uint64] = None,
                      layer: Optional[int] = None,
@@ -898,17 +898,20 @@ class ChunkedGraph(object):
             self.get_chunk_id(node_id=node_ids[1])
 
     def get_atomic_id_from_coord(self, x: int, y: int, z: int,
-                                 root_id: np.uint64, n_tries: int=5
+                                 parent_id: np.uint64, n_tries: int=5
                                  ) -> np.uint64:
         """ Determines atomic id given a coordinate
 
         :param x: int
         :param y: int
         :param z: int
-        :param root_id: np.uint64
+        :param parent_id: np.uint64
         :param n_tries: int
         :return: np.uint64 or None
         """
+        if self.get_chunk_layer(parent_id) == 1:
+            return parent_id
+
 
         x /= 2**self.cv_mip
         y /= 2**self.cv_mip
@@ -918,16 +921,27 @@ class ChunkedGraph(object):
 
         checked = []
         atomic_id = None
+        root_id = self.get_root(parent_id)
+
         for i_try in range(n_tries):
 
             # Define block size -- increase by one each try
-            x_l = x - i_try
-            y_l = y - i_try
-            z_l = z - i_try
+            x_l = x - (i_try - 1)**2
+            y_l = y - (i_try - 1)**2
+            z_l = z - (i_try - 1)**2
 
-            x_h = x + 1 + i_try
-            y_h = y + 1 + i_try
-            z_h = z + 1 + i_try
+            x_h = x + 1 + (i_try - 1)**2
+            y_h = y + 1 + (i_try - 1)**2
+            z_h = z + 1 + (i_try - 1)**2
+
+            if x_l < 0:
+                x_l = 0
+
+            if y_l < 0:
+                y_l = 0
+
+            if z_l < 0:
+                z_l = 0
 
             # Get atomic ids from cloudvolume
             atomic_id_block = self.cv[x_l: x_h, y_l: y_h, z_l: z_h]
