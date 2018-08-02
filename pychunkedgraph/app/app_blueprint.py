@@ -164,7 +164,6 @@ def handle_split():
             data_dict[k].append({"id": atomic_id,
                                  "coord": np.array([x, y, z])})
 
-    print(data_dict)
     new_roots = cg.remove_edges(user_id=user_id,
                                 source_id=data_dict["sources"][0]["id"],
                                 sink_id=data_dict["sinks"][0]["id"],
