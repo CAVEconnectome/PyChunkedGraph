@@ -101,7 +101,9 @@ def handle_root():
 
 @bp.route('/1.0/graph/merge', methods=['POST', 'GET'])
 def handle_merge():
-    nodes = json.loads(request.data)\
+    nodes = json.loads(request.data)
+
+    assert len(nodes) == 2
 
     user_id = str(request.remote_addr)
 

@@ -406,7 +406,7 @@ class ChunkedGraph(object):
         return int(node_or_chunk_id) >> 64 - self._n_bits_for_layer_id
 
     def get_chunk_coordinates(self, node_or_chunk_id: np.uint64
-                              ) -> Tuple[int, int, int]:
+                              ) -> np.ndarray:
         """ Extract X, Y and Z coordinate from Node ID or Chunk ID
 
         :param node_or_chunk_id: np.uint64
