@@ -181,11 +181,11 @@ class TestGraphNodeConversion:
 
         node_id = cgraph.get_node_id(np.uint64(4), layer=2, x=3, y=1, z=0)
         assert cgraph.get_chunk_layer(node_id) == 2
-        assert cgraph.get_chunk_coordinates(node_id) == (3, 1, 0)
+        assert np.all(cgraph.get_chunk_coordinates(node_id) == np.array([3, 1, 0]))
 
         chunk_id = cgraph.get_chunk_id(layer=2, x=3, y=1, z=0)
         assert cgraph.get_chunk_layer(chunk_id) == 2
-        assert cgraph.get_chunk_coordinates(chunk_id) == (3, 1, 0)
+        assert np.all(cgraph.get_chunk_coordinates(chunk_id) == np.array([3, 1, 0]))
 
         assert cgraph.get_chunk_id(node_id=node_id) == chunk_id
         assert cgraph.get_node_id(np.uint64(4), chunk_id=chunk_id) == node_id
