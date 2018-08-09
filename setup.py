@@ -17,7 +17,9 @@ setup(
         "google-cloud-bigtable",
         "networkx",
         "cloud-volume",
-        "bitstring"
+        "bitstring",
+        "flask",
+        "flask_cors"
     ],
     classifiers=(
         "Programming Language :: Python :: 3",
