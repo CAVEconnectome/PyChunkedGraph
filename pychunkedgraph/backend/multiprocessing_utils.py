@@ -176,7 +176,7 @@ def _poll_running_subprocesses(processes, runtimes, path_to_script,
 
 def multisubprocess_func(func, params, wait_delay_s=5, n_threads=1,
                          n_retries=10, kill_tol_factor=10, min_n_meas=100,
-                         suffix=""):
+                         suffix="", package_name="pychunkedgraph"):
     """ Processes data independent functions in parallel using multithreading
 
     :param func: function
@@ -190,6 +190,7 @@ def multisubprocess_func(func, params, wait_delay_s=5, n_threads=1,
         is restarted. If None: Processes are not restarted.
     :param min_n_meas: int
     :param suffix: str
+    :param package_name: str
     :return: list of returns of function
     """
 
@@ -206,7 +207,7 @@ def multisubprocess_func(func, params, wait_delay_s=5, n_threads=1,
     path_to_storage = subp_job_folder + "/storage/"
     path_to_out = subp_job_folder + "/out/"
     path_to_err = subp_job_folder + "/err/"
-    path_to_src = subp_job_folder + "/pychunkedgraph/"
+    path_to_src = subp_job_folder + "/%s/" % package_name
     path_to_script = subp_job_folder + "/main.py"
 
     os.makedirs(subp_job_folder)
@@ -215,7 +216,8 @@ def multisubprocess_func(func, params, wait_delay_s=5, n_threads=1,
     os.makedirs(path_to_err)
 
     shutil.copytree(src_folder_path, path_to_src)
-    _write_multisubprocess_script(func, path_to_script)
+    _write_multisubprocess_script(func, path_to_script,
+                                  package_name=package_name)
 
     processes = []
     runtimes = []
@@ -266,16 +268,19 @@ def multisubprocess_func(func, params, wait_delay_s=5, n_threads=1,
     return result
 
 
-def _write_multisubprocess_script(func, path_to_script):
+def _write_multisubprocess_script(func, path_to_script,
+                                  package_name="pychunkedgraph"):
     """ Helper script to write python file called by subprocess """
 
     module = sys.modules.get(func.__module__)
-    module_h = module.__file__.split("pychunkedgraph")[1].strip("/").split("/")
+    module_h = module.__file__.split(package_name)[1].strip("/").split("/")
     module_h[-1] = module_h[-1][:-3]
 
     lines = []
-    lines.append("".join(["from pychunkedgraph."] + [f for f in module_h[:-1]] +
-                         [" import %s" % module_h[-1]] + ["\n"]))
+    lines.append("".join(["from %s." % package_name] +
+                         [f for f in module_h[:-1]] +
+                         [" import %s" % module_h[-1]] +
+                         ["\n"]))
     lines.extend(["import pickle as pkl\n",
                   "import sys\n\n\n"
                   "def main(p_params, p_out):\n\n",
