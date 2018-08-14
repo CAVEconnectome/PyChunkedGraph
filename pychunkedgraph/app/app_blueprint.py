@@ -87,9 +87,17 @@ def unhandled_exception(e):
 # -------------------
 
 
+@bp.route('/1.0/table', methods=['GET'])
+def handle_table():
+    # Call ChunkedGraph
+    cg = app_utils.get_cg()
+
+    # Return binary
+    return cg.table_id
+
 @bp.route('/1.0/graph/root', methods=['POST', 'GET'])
 def handle_root():
-    atomic_id = int(json.loads(request.data)[0])
+    atomic_id = np.uint64(json.loads(request.data)[0])
 
     # Call ChunkedGraph
     cg = app_utils.get_cg()
