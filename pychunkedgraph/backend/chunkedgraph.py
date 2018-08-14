@@ -4,11 +4,12 @@ import time
 import datetime
 import os
 import networkx as nx
-from networkx.algorithms.flow import shortest_augmenting_path
 import pytz
 import cloudvolume
 
-from . import multiprocessing_utils as mu
+from pychunkedgraph.multiprocessing import multiprocessing_utils as mu
+from . import mincut
+
 from google.api_core.retry import Retry, if_exception_type
 from google.api_core.exceptions import Aborted, DeadlineExceeded, \
     ServiceUnavailable
@@ -17,10 +18,10 @@ from google.cloud import bigtable
 from google.cloud.bigtable.row_filters import TimestampRange, \
     TimestampRangeFilter, ColumnRangeFilter, ValueRangeFilter, RowFilterChain, \
     ColumnQualifierRegexFilter, RowFilterUnion, ConditionalRowFilter, \
-    PassAllFilter, BlockAllFilter
+    PassAllFilter
 from google.cloud.bigtable.column_family import MaxVersionsGCRule
 
-from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple, Union
+from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple, Union
 
 # global variables
 HOME = os.path.expanduser("~")
@@ -153,60 +154,6 @@ def compute_bitmasks(n_layers: int, fan_out: int) -> Dict[int, int]:
 
         bitmask_dict[i_layer] = n_bits_for_layers
     return bitmask_dict
-
-
-def mincut(edges: Iterable[Sequence[np.uint64]], affs: Sequence[np.uint64],
-           source: np.uint64, sink: np.uint64) -> np.ndarray:
-    """ Computes the min cut on a local graph
-
-    :param edges: n x 2 array of uint64s
-    :param affs: float array of length n
-    :param source: uint64
-    :param sink: uint64
-    :return: m x 2 array of uint64s
-        edges that should be removed
-    """
-
-    time_start = time.time()
-
-    weighted_graph = nx.Graph()
-    weighted_graph.add_edges_from(edges)
-
-    for i_edge, edge in enumerate(edges):
-        weighted_graph[edge[0]][edge[1]]['capacity'] = affs[i_edge]
-
-    dt = time.time() - time_start
-    print("Graph creation: %.2fms" % (dt * 1000))
-    time_start = time.time()
-
-    ccs = list(nx.connected_components(weighted_graph))
-    for cc in ccs:
-        if not (source in cc and sink in cc):
-            weighted_graph.remove_nodes_from(cc)
-
-    # cutset = nx.minimum_edge_cut(weighted_graph, source, sink)
-    cutset = nx.minimum_edge_cut(weighted_graph, source, sink,
-                                 flow_func=shortest_augmenting_path)
-
-    dt = time.time() - time_start
-    print("Mincut: %.2fms" % (dt * 1000))
-
-    if cutset is None:
-        return []
-
-    time_start = time.time()
-
-    weighted_graph.remove_edges_from(cutset)
-    ccs = list(nx.connected_components(weighted_graph))
-    print("Graph split up in %d parts" % (len(ccs)))
-
-    for cc in ccs:
-        print("CC size = %d" % len(cc))
-
-    dt = time.time() - time_start
-    print("Test: %.2fms" % (dt * 1000))
-
-    return np.array(list(cutset), dtype=np.uint64)
 
 
 class ChunkedGraph(object):
@@ -2196,6 +2143,7 @@ class ChunkedGraph(object):
         """ Takes an atomic id and returns the associated agglomeration ids
 
         :param parent_id: np.uint64
+        :param make_unique: bool
         :param time_stamp: None or datetime
         :return: edge list
         """
@@ -2663,7 +2611,7 @@ class ChunkedGraph(object):
         time_start = time.time()  # ------------------------------------------
 
         # Compute mincut
-        atomic_edges = mincut(edges, affs, source_id, sink_id)
+        atomic_edges = mincut.mincut(edges, affs, source_id, sink_id)
 
         print("Mincut: %.3fms" % ((time.time() - time_start) * 1000))
         time_start = time.time()  # ------------------------------------------

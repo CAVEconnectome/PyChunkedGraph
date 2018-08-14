@@ -3,9 +3,8 @@ import cloudvolume
 import itertools
 import pickle as pkl
 
-from . import chunkedgraph
-from . import multiprocessing_utils as mu
-from . import utils
+from pychunkedgraph.backend import chunkedgraph
+from pychunkedgraph.multiprocessing import multiprocessing_utils as mu
 
 
 def get_sv_to_root_id_mapping_chunk(cg, chunk_coords, vol=None):
