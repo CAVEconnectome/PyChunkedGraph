@@ -215,7 +215,7 @@ def multisubprocess_func(func, params, wait_delay_s=5, n_threads=1,
     os.makedirs(path_to_out)
     os.makedirs(path_to_err)
 
-    shutil.copytree(src_folder_path, path_to_src)
+    # shutil.copytree(src_folder_path, path_to_src)
     _write_multisubprocess_script(func, path_to_script,
                                   package_name=package_name)
 
@@ -277,8 +277,8 @@ def _write_multisubprocess_script(func, path_to_script,
     module_h[-1] = module_h[-1][:-3]
 
     lines = []
-    lines.append("".join(["from %s." % package_name] +
-                         [f for f in module_h[:-1]] +
+    lines.append("".join(["from %s" % package_name] +
+                         ["%s." % f for f in module_h[:-1]] +
                          [" import %s" % module_h[-1]] +
                          ["\n"]))
     lines.extend(["import pickle as pkl\n",
