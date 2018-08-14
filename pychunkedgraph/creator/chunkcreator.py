@@ -72,9 +72,6 @@ def _download_and_store_cv_files_thread(args):
                 print("%d: %d / %d - dt: %.3fs - eta: %.3fs" % (
                 chunk_id, i_fp, n_file_paths, dt, eta))
 
-            # if "rg2cg" in fp:
-            #     creator_utils.download_and_store_mapping_file(cv_st, fp, olduint32)
-            # else:
             creator_utils.download_and_store_edge_file(cv_st, fp)
 
 
@@ -87,6 +84,8 @@ def check_stored_cv_files(dataset_name="basil"):
         cv_url = "gs://nkem/basil_4k_oldnet/region_graph/"
     elif "pinky40" == dataset_name:
         cv_url = "gs://nkem/pinky40_v11/mst_trimmed_sem_remap/region_graph/"
+    elif "pinky100" == dataset_name:
+        cv_url = "gs://nkem/pinky100_v0/region_graph/"
     else:
         raise Exception("Could not identify region graph ressource")
 
@@ -110,85 +109,7 @@ def check_stored_cv_files(dataset_name="basil"):
             print(dir_path + fp[:-4] + ".h5")
             c += 1
 
-        #
-        # if "rg2cg" in fp:
-        #     utils.download_and_store_mapping_file(cv_st, fp)
-        # else:
-        #     utils.download_and_store_edge_file(cv_st, fp)
     print("%d files were missing" % c)
-
-
-def _family_consistency_test_thread(args):
-    """ Helper to test family consistency """
-
-    table_id, coord, layer_id = args
-
-    x, y, z = coord
-
-    cg = chunkedgraph.ChunkedGraph(table_id)
-
-    rows = cg.range_read_chunk(layer_id, x, y, z)
-
-    failed_node_ids = []
-
-    time_start = time.time()
-    for i_k, k in enumerate(rows.keys()):
-        if i_k % 100 == 1:
-            dt = time.time() - time_start
-            eta = dt / i_k * len(rows) - dt
-            print("%d / %d - %.3fs -> %.3fs      " % (i_k, len(rows), dt, eta),
-                  end="\r")
-
-        node_id = chunkedgraph.deserialize_uint64(k)
-        parent_id = np.frombuffer(rows[k].cells["0"][b'parents'][0].value,
-                                  dtype=np.uint64)
-        if not node_id in cg.get_children(parent_id):
-            failed_node_ids.append([node_id, parent_id])
-
-    return failed_node_ids
-
-
-def family_consistency_test(table_id, n_threads=64):
-    """ Runs a simple test on the WHOLE graph
-
-    tests: id in children(parent(id))
-
-    :param table_id: str
-    :param n_threads: int
-    :return: dict
-        n x 2 per layer
-        each failed pair: (node_id, parent_id)
-    """
-
-    assert "basil" in table_id
-
-    cg = chunkedgraph.ChunkedGraph(table_id)
-
-    failed_node_id_dict = {}
-    for layer_id in range(1, cg.n_layers):
-        print("\n\n Layer %d \n\n" % layer_id)
-
-        step = int(cg.fan_out ** np.max([0, layer_id - 2]))
-        coords = list(itertools.product(range(0, 8, step),
-                                        range(0, 8, step),
-                                        range(0, 4, step)))
-
-        multi_args = []
-        for coord in coords:
-            multi_args.append([table_id, coord, layer_id])
-
-        collected_failed_node_ids = mu.multisubprocess_func(
-            _family_consistency_test_thread, multi_args, n_threads=n_threads)
-
-        failed_node_ids = []
-        for _failed_node_ids in collected_failed_node_ids:
-            failed_node_ids.extend(_failed_node_ids)
-
-        failed_node_id_dict[layer_id] = np.array(failed_node_ids)
-
-        print("\n%d nodes rows failed\n" % len(failed_node_ids))
-
-    return failed_node_id_dict
 
 
 def create_chunked_graph(table_id=None, cv_url=None, ws_url=None, fan_out=2,
