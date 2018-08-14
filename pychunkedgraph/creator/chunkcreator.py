@@ -5,12 +5,12 @@ import re
 import time
 import itertools
 
-from cloudvolume import Storage, storage
+from cloudvolume import storage
 
 # from chunkedgraph import ChunkedGraph
-from . import chunkedgraph
-from . import multiprocessing_utils as mu
-from . import utils
+from pychunkedgraph.backend import chunkedgraph
+from pychunkedgraph.multiprocessing import multiprocessing_utils as mu
+from pychunkedgraph.creator import creator_utils
 
 
 def download_and_store_cv_files(dataset_name="basil",
@@ -25,12 +25,14 @@ def download_and_store_cv_files(dataset_name="basil",
         cv_url = "gs://nkem/basil_4k_oldnet/region_graph/"
     elif "pinky40" == dataset_name:
         cv_url = "gs://nkem/pinky40_v11/mst_trimmed_sem_remap/region_graph/"
+    elif "pinky100" == dataset_name:
+        cv_url = "gs://nkem/pinky100_v0/region_graph/"
     else:
         raise Exception("Could not identify region graph ressource")
 
     with storage.SimpleStorage(cv_url) as cv_st:
-        dir_path = utils.dir_from_layer_name(
-            utils.layer_name_from_cv_url(cv_st.layer_path))
+        dir_path = creator_utils.dir_from_layer_name(
+            creator_utils.layer_name_from_cv_url(cv_st.layer_path))
 
         if not os.path.exists(dir_path):
             os.makedirs(dir_path)
@@ -70,10 +72,10 @@ def _download_and_store_cv_files_thread(args):
                 print("%d: %d / %d - dt: %.3fs - eta: %.3fs" % (
                 chunk_id, i_fp, n_file_paths, dt, eta))
 
-            if "rg2cg" in fp:
-                utils.download_and_store_mapping_file(cv_st, fp, olduint32)
-            else:
-                utils.download_and_store_edge_file(cv_st, fp)
+            # if "rg2cg" in fp:
+            #     creator_utils.download_and_store_mapping_file(cv_st, fp, olduint32)
+            # else:
+            creator_utils.download_and_store_edge_file(cv_st, fp)
 
 
 def check_stored_cv_files(dataset_name="basil"):
@@ -89,8 +91,8 @@ def check_stored_cv_files(dataset_name="basil"):
         raise Exception("Could not identify region graph ressource")
 
     with storage.SimpleStorage(cv_url) as cv_st:
-        dir_path = utils.dir_from_layer_name(
-            utils.layer_name_from_cv_url(cv_st.layer_path))
+        dir_path = creator_utils.dir_from_layer_name(
+            creator_utils.layer_name_from_cv_url(cv_st.layer_path))
 
         file_paths = list(cv_st.list_files())
 
@@ -211,7 +213,7 @@ def create_chunked_graph(table_id=None, cv_url=None, ws_url=None, fan_out=2,
     time_start = time.time()
 
     file_paths = np.sort(glob.glob(
-        utils.dir_from_layer_name(utils.layer_name_from_cv_url(cv_url)) + "/*"))
+        creator_utils.dir_from_layer_name(creator_utils.layer_name_from_cv_url(cv_url)) + "/*"))
 
     file_path_blocks = np.array_split(file_paths, n_threads * 3)
 
@@ -455,12 +457,12 @@ def _create_atomic_layer_thread(args):
     table_id, chunk_path, in_paths, out_paths, mapping_path = args
 
     # Load edge information
-    edge_ids, edge_affs = utils.read_edge_file_h5(chunk_path)
+    edge_ids, edge_affs = creator_utils.read_edge_file_h5(chunk_path)
     cross_edge_ids = np.array([], dtype=np.uint64).reshape(0, 2)
     cross_edge_affs = np.array([], dtype=np.float32)
 
     for fp in in_paths:
-        this_edge_ids, this_edge_affs = utils.read_edge_file_h5(fp)
+        this_edge_ids, this_edge_affs = creator_utils.read_edge_file_h5(fp)
 
         # Cross edges are always ordered to point OUT of the chunk
         cross_edge_ids = np.concatenate(
@@ -468,13 +470,13 @@ def _create_atomic_layer_thread(args):
         cross_edge_affs = np.concatenate([cross_edge_affs, this_edge_affs])
 
     for fp in out_paths:
-        this_edge_ids, this_edge_affs = utils.read_edge_file_h5(fp)
+        this_edge_ids, this_edge_affs = creator_utils.read_edge_file_h5(fp)
 
         cross_edge_ids = np.concatenate([cross_edge_ids, this_edge_ids])
         cross_edge_affs = np.concatenate([cross_edge_affs, this_edge_affs])
 
     # Load mapping between region and chunkedgraph
-    mappings = utils.read_mapping_h5(mapping_path)
+    mappings = creator_utils.read_mapping_h5(mapping_path)
 
     # Get isolated nodes
     isolated_node_ids = mappings[:, 1][~np.in1d(mappings[:, 1], np.concatenate(
