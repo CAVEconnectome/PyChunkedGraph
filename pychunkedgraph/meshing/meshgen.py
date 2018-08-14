@@ -10,7 +10,6 @@ sys.path.insert(0, os.path.join(sys.path[0], '../..'))
 os.environ['TRAVIS_BRANCH'] = "IDONTKNOWWHYINEEDTHIS"
 
 from pychunkedgraph.backend import chunkedgraph
-from pychunkedgraph.backend import multiprocessing_utils as mu
 
 
 def get_sv_to_node_mapping(cg, chunk_id):
