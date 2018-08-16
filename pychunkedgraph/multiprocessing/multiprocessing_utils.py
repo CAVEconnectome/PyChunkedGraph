@@ -278,7 +278,7 @@ def _write_multisubprocess_script(func, path_to_script,
 
     lines = []
     lines.append("".join(["from %s" % package_name] +
-                         ["%s." % f for f in module_h[:-1]] +
+                         [".%s" % f for f in module_h[:-1]] +
                          [" import %s" % module_h[-1]] +
                          ["\n"]))
     lines.extend(["import pickle as pkl\n",
