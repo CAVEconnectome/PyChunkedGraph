@@ -113,7 +113,7 @@ def check_stored_cv_files(dataset_name="basil"):
 
 
 def create_chunked_graph(table_id=None, cv_url=None, ws_url=None, fan_out=2,
-                         chunk_size=(512, 512, 64), n_threads=1):
+                         chunk_size=(512, 512, 128), n_threads=1):
     """ Creates chunked graph from downloaded files
 
     :param table_id: str
@@ -127,14 +127,19 @@ def create_chunked_graph(table_id=None, cv_url=None, ws_url=None, fan_out=2,
         elif "pinky40" in table_id:
             cv_url = "gs://nkem/pinky40_v11/mst_trimmed_sem_remap/region_graph/"
             ws_url = "gs://neuroglancer/svenmd/pinky40_v11/watershed/"
+        elif "pinky100" in table_id:
+            cv_url = "gs://nkem/pinky100_v0/region_graph/"
+            ws_url = "gs://neuroglancer/nkem/pinky100_v0/ws/lost_no-random/bbox1_0/"
         else:
             raise Exception("Could not identify region graph ressource")
 
     times = []
     time_start = time.time()
 
-    file_paths = np.sort(glob.glob(
-        creator_utils.dir_from_layer_name(creator_utils.layer_name_from_cv_url(cv_url)) + "/*"))
+    chunk_size = np.array(list(chunk_size))
+
+    file_paths = np.sort(glob.glob(creator_utils.dir_from_layer_name(
+        creator_utils.layer_name_from_cv_url(cv_url)) + "/*"))
 
     file_path_blocks = np.array_split(file_paths, n_threads * 3)
 
@@ -152,33 +157,40 @@ def create_chunked_graph(table_id=None, cv_url=None, ws_url=None, fan_out=2,
             _preprocess_chunkedgraph_data_thread, multi_args,
             n_threads=n_threads)
 
-    mapping_paths = np.array([])
-    mapping_chunk_ids = np.array([]).reshape(-1, 3)
-    in_chunk_paths = np.array([])
-    in_chunk_ids = np.array([]).reshape(-1, 3)
+    in_chunk_connected_paths = np.array([])
+    in_chunk_connected_ids = np.array([], dtype=np.uint64).reshape(-1, 3)
+    in_chunk_disconnected_paths = np.array([])
+    in_chunk_disconnected_ids = np.array([], dtype=np.uint64).reshape(-1, 3)
     between_chunk_paths = np.array([])
-    between_chunk_ids = np.array([]).reshape(-1, 2, 3)
+    between_chunk_ids = np.array([], dtype=np.uint64).reshape(-1, 2, 3)
+    isolated_paths = np.array([])
+    isolated_ids = np.array([], dtype=np.uint64).reshape(-1, 3)
 
     for result in results:
-        mapping_paths = np.concatenate([mapping_paths, result[0]])
-        mapping_chunk_ids = np.concatenate([mapping_chunk_ids, result[1]])
-        in_chunk_paths = np.concatenate([in_chunk_paths, result[2]])
-        in_chunk_ids = np.concatenate([in_chunk_ids, result[3]])
+        in_chunk_connected_paths = np.concatenate([in_chunk_connected_paths, result[0]])
+        in_chunk_connected_ids = np.concatenate([in_chunk_connected_ids, result[1]])
+        in_chunk_disconnected_paths = np.concatenate([in_chunk_disconnected_paths, result[2]])
+        in_chunk_disconnected_ids = np.concatenate([in_chunk_disconnected_ids, result[3]])
         between_chunk_paths = np.concatenate([between_chunk_paths, result[4]])
         between_chunk_ids = np.concatenate([between_chunk_ids, result[5]])
+        isolated_paths = np.concatenate([isolated_paths, result[6]])
+        isolated_ids = np.concatenate([isolated_ids, result[7]])
+
+    assert len(in_chunk_connected_ids) == len(in_chunk_connected_paths) == \
+           len(in_chunk_disconnected_ids) == len(in_chunk_disconnected_paths)
+           # len(isolated_ids) == len(isolated_paths)
 
     times.append(["Preprocessing", time.time() - time_start])
     time_start = time.time()
 
     multi_args = []
 
-    in_chunk_id_blocks = np.array_split(in_chunk_ids,
-                                        max(1, mu.cpu_count()))
+    in_chunk_id_blocks = np.array_split(in_chunk_connected_ids, max(1, n_threads) * 3)
     cumsum = 0
+
     for in_chunk_id_block in in_chunk_id_blocks:
         multi_args.append([between_chunk_ids, between_chunk_paths,
-                           in_chunk_id_block, mapping_chunk_ids, mapping_paths,
-                           cumsum])
+                           in_chunk_id_block, cumsum])
         cumsum += len(in_chunk_id_block)
 
     # Run multiprocessing
@@ -190,13 +202,13 @@ def create_chunked_graph(table_id=None, cv_url=None, ws_url=None, fan_out=2,
         results = mu.multiprocess_func(
             _between_chunk_masks_thread, multi_args, n_threads=n_threads)
 
-    n_layers = int(
-        np.ceil(chunkedgraph.log_n(np.max(in_chunk_ids) + 1, fan_out))) + 2
+    n_layers = int(np.ceil(chunkedgraph.log_n(np.max(in_chunk_connected_ids) + 1, fan_out))) + 2
 
     print("N layers: %d" % n_layers)
 
     cg = chunkedgraph.ChunkedGraph(table_id=table_id, n_layers=n_layers,
-                                   fan_out=fan_out, chunk_size=chunk_size,
+                                   fan_out=fan_out,
+                                   chunk_size=tuple(chunk_size),
                                    cv_path=ws_url, is_new=True)
 
     # Fill lowest layer and create first abstraction layer
@@ -204,15 +216,16 @@ def create_chunked_graph(table_id=None, cv_url=None, ws_url=None, fan_out=2,
 
     multi_args = []
     for result in results:
-        offset, between_chunk_paths_out_masked, \
-        between_chunk_paths_in_masked, masked_mapping_paths = result
+        offset, between_chunk_paths_out_masked, between_chunk_paths_in_masked = result
 
         for i_chunk in range(len(between_chunk_paths_out_masked)):
             multi_args.append([table_id,
-                               in_chunk_paths[offset + i_chunk],
+                               in_chunk_connected_paths[offset + i_chunk],
+                               in_chunk_disconnected_paths[offset + i_chunk],
+                               "",
+                               # isolated_paths[offset + i_chunk],
                                between_chunk_paths_in_masked[i_chunk],
-                               between_chunk_paths_out_masked[i_chunk],
-                               masked_mapping_paths[i_chunk]])
+                               between_chunk_paths_out_masked[i_chunk]])
 
     times.append(["Data sorting", time.time() - time_start])
     time_start = time.time()
@@ -229,7 +242,7 @@ def create_chunked_graph(table_id=None, cv_url=None, ws_url=None, fan_out=2,
     times.append(["Layers 1 + 2", time.time() - time_start])
 
     # Fill higher abstraction layers
-    child_chunk_ids = in_chunk_ids.copy()
+    child_chunk_ids = in_chunk_connected_ids.copy()
     for layer_id in range(3, n_layers + 1):
         time_start = time.time()
 
@@ -277,17 +290,18 @@ def create_chunked_graph(table_id=None, cv_url=None, ws_url=None, fan_out=2,
 
 
 def _preprocess_chunkedgraph_data_thread(args):
-    """ Reads downloaded files and formats them """
+    """ Reads downloaded files and sorts them in _in_ and _between_ chunks """
+
     file_paths, table_id, chunk_size = args
 
-    chunk_size = np.array(list(chunk_size))
-
-    mapping_paths = np.array([])
-    mapping_chunk_ids = np.array([], dtype=np.int).reshape(-1, 3)
-    in_chunk_paths = np.array([])
-    in_chunk_ids = np.array([], dtype=np.int).reshape(-1, 3)
+    in_chunk_connected_paths = np.array([])
+    in_chunk_connected_ids = np.array([], dtype=np.uint64).reshape(-1, 3)
+    in_chunk_disconnected_paths = np.array([])
+    in_chunk_disconnected_ids = np.array([], dtype=np.uint64).reshape(-1, 3)
     between_chunk_paths = np.array([])
-    between_chunk_ids = np.array([], dtype=np.int).reshape(-1, 2, 3)
+    between_chunk_ids = np.array([], dtype=np.uint64).reshape(-1, 2, 3)
+    isolated_paths = np.array([])
+    isolated_ids = np.array([], dtype=np.uint64).reshape(-1, 3)
 
     # Read file paths - gather chunk ids and in / out properties
     for i_fp, fp in enumerate(file_paths):
@@ -304,45 +318,44 @@ def _preprocess_chunkedgraph_data_thread(args):
         c = np.array([x1, y1, z1])
 
         # if there is a 2 in d then the file contains edges that cross chunks
-        if 2 in d:
-            if "atomicedges" in file_name:
-                s_c = np.where(d == 2)[0]
-                chunk_coord = c.copy()
-                chunk_coord[s_c] += 1 - chunk_size[s_c]
-                chunk1_id = np.array(chunk_coord / chunk_size, dtype=np.int8)
-                chunk_coord[s_c] += chunk_size[s_c]
-                chunk2_id = np.array(chunk_coord / chunk_size, dtype=np.int8)
+        gap = 2
 
-                between_chunk_ids = np.concatenate([between_chunk_ids,
-                                                    np.array(
-                                                        [chunk1_id, chunk2_id])[
-                                                        None]])
-                between_chunk_paths = np.concatenate(
-                    [between_chunk_paths, [fp]])
-            else:
-                continue
+        if gap in d:
+            s_c = np.where(d == gap)[0]
+            chunk_coord = c.copy()
+            chunk_coord[s_c] -= chunk_size[s_c]
+            chunk1_id = np.array(chunk_coord / chunk_size, dtype=np.uint8)
+            chunk_coord[s_c] += chunk_size[s_c]
+            chunk2_id = np.array(chunk_coord / chunk_size, dtype=np.uint8)
+
+            between_chunk_ids = np.concatenate([between_chunk_ids,
+                                                np.array([chunk1_id, chunk2_id])[None]])
+            between_chunk_paths = np.concatenate([between_chunk_paths, [fp]])
         else:
-            chunk_coord = np.array(c / chunk_size, dtype=np.int8)
+            chunk_coord = np.array(c / chunk_size, dtype=np.uint8)
 
-            if "rg2cg" in file_name:
-                mapping_paths = np.concatenate([mapping_paths, [fp]])
-                mapping_chunk_ids = np.concatenate(
-                    [mapping_chunk_ids, chunk_coord[None]])
-            elif "atomicedges" in file_name:
-                in_chunk_ids = np.concatenate([in_chunk_ids, chunk_coord[None]])
-                in_chunk_paths = np.concatenate([in_chunk_paths, [fp]])
+            if "disconnected" in file_name:
+                in_chunk_disconnected_ids = np.concatenate([in_chunk_disconnected_ids, chunk_coord[None]])
+                in_chunk_disconnected_paths = np.concatenate([in_chunk_disconnected_paths, [fp]])
+            elif "isolated" in file_name:
+                isolated_ids = np.concatenate([isolated_ids, chunk_coord[None]])
+                isolated_paths = np.concatenate([isolated_paths, [fp]])
+            else:
+                in_chunk_connected_ids = np.concatenate([in_chunk_connected_ids, chunk_coord[None]])
+                in_chunk_connected_paths = np.concatenate([in_chunk_connected_paths, [fp]])
 
-    return mapping_paths, mapping_chunk_ids, in_chunk_paths, in_chunk_ids, \
-           between_chunk_paths, between_chunk_ids
+    return in_chunk_connected_paths, in_chunk_connected_ids, \
+           in_chunk_disconnected_paths, in_chunk_disconnected_ids, \
+           between_chunk_paths, between_chunk_ids, \
+           isolated_paths, isolated_ids
 
 
 def _between_chunk_masks_thread(args):
-    between_chunk_ids, between_chunk_paths, in_chunk_id_block, \
-    mapping_chunk_ids, mapping_paths, offset = args
+    """"""
+    between_chunk_ids, between_chunk_paths, in_chunk_id_block, offset = args
 
     between_chunk_paths_out_masked = []
     between_chunk_paths_in_masked = []
-    masked_mapping_paths = []
 
     n_blocks = len(in_chunk_id_block)
 
@@ -359,55 +372,75 @@ def _between_chunk_masks_thread(args):
         in_paths_masks = np.sum(np.abs(between_chunk_ids[:, 1] -
                                        in_chunk_id), axis=1) == 0
 
-        mapping_path_masks = np.sum(np.abs(mapping_chunk_ids -
-                                           in_chunk_id), axis=1) == 0
-
         between_chunk_paths_out_masked.append(
             between_chunk_paths[out_paths_mask])
         between_chunk_paths_in_masked.append(
             between_chunk_paths[in_paths_masks])
-        masked_mapping_paths.append(mapping_paths[mapping_path_masks][0])
 
     return offset, between_chunk_paths_out_masked, \
-           between_chunk_paths_in_masked, masked_mapping_paths
+           between_chunk_paths_in_masked
 
 
 def _create_atomic_layer_thread(args):
     """ Fills lowest layer and create first abstraction layer """
     # Load args
-    table_id, chunk_path, in_paths, out_paths, mapping_path = args
+    table_id, chunk_connected_path, chunk_disconnected_path, isolated_path,\
+        in_paths, out_paths = args
 
     # Load edge information
-    edge_ids, edge_affs = creator_utils.read_edge_file_h5(chunk_path)
-    cross_edge_ids = np.array([], dtype=np.uint64).reshape(0, 2)
-    cross_edge_affs = np.array([], dtype=np.float32)
+    edge_ids = {"in_connected": np.array([], dtype=np.uint64).reshape(0, 2),
+                "in_disconnected": np.array([], dtype=np.uint64).reshape(0, 2),
+                "cross": np.array([], dtype=np.uint64).reshape(0, 2),
+                "between_connected": np.array([], dtype=np.uint64).reshape(0, 2),
+                "between_disconnected": np.array([], dtype=np.uint64).reshape(0, 2)}
+    edge_affs = {"in_connected": np.array([], dtype=np.float32),
+                 "in_disconnected": np.array([], dtype=np.float32),
+                 "between_connected": np.array([], dtype=np.float32),
+                 "between_disconnected": np.array([], dtype=np.float32)}
+
+    in_connected_dict = creator_utils.read_edge_file_h5(chunk_connected_path)
+    in_disconnected_dict = creator_utils.read_edge_file_h5(chunk_disconnected_path)
+
+    edge_ids["in_connected"] = in_connected_dict["edge_ids"]
+    edge_affs["in_connected"] = in_connected_dict["edge_affs"]
+
+    edge_ids["in_disconnected"] = in_disconnected_dict["edge_ids"]
+    edge_affs["in_disconnected"] = in_disconnected_dict["edge_affs"]
+
+    if os.path.exists(isolated_path):
+        isolated_ids = creator_utils.read_edge_file_h5(isolated_path)["node_ids"]
+    else:
+        isolated_ids = np.array([], dtype=np.uint64)
 
     for fp in in_paths:
-        this_edge_ids, this_edge_affs = creator_utils.read_edge_file_h5(fp)
+        edge_dict = creator_utils.read_edge_file_h5(fp)
 
         # Cross edges are always ordered to point OUT of the chunk
-        cross_edge_ids = np.concatenate(
-            [cross_edge_ids, this_edge_ids[:, [1, 0]]])
-        cross_edge_affs = np.concatenate([cross_edge_affs, this_edge_affs])
+        if "unbreakable" in fp:
+            edge_ids["cross"] = np.concatenate([edge_ids["cross"], edge_dict["edge_ids"][:, [1, 0]]])
+        elif "disconnected" in fp:
+            edge_ids["between_disconnected"] = np.concatenate([edge_ids["between_disconnected"], edge_dict["edge_ids"][:, [1, 0]]])
+            edge_affs["between_disconnected"] = np.concatenate([edge_affs["between_disconnected"], edge_dict["edge_affs"]])
+        else:
+            edge_ids["between_connected"] = np.concatenate([edge_ids["between_connected"], edge_dict["edge_ids"][:, [1, 0]]])
+            edge_affs["between_connected"] = np.concatenate([edge_affs["between_connected"], edge_dict["edge_affs"]])
 
     for fp in out_paths:
-        this_edge_ids, this_edge_affs = creator_utils.read_edge_file_h5(fp)
+        edge_dict = creator_utils.read_edge_file_h5(fp)
 
-        cross_edge_ids = np.concatenate([cross_edge_ids, this_edge_ids])
-        cross_edge_affs = np.concatenate([cross_edge_affs, this_edge_affs])
-
-    # Load mapping between region and chunkedgraph
-    mappings = creator_utils.read_mapping_h5(mapping_path)
-
-    # Get isolated nodes
-    isolated_node_ids = mappings[:, 1][~np.in1d(mappings[:, 1], np.concatenate(
-        [np.unique(edge_ids), cross_edge_ids[:, 0]]))]
+        if "unbreakable" in fp:
+            edge_ids["cross"] = np.concatenate([edge_ids["cross"], edge_dict["edge_ids"]])
+        elif "disconnected" in fp:
+            edge_ids["between_disconnected"] = np.concatenate([edge_ids["between_disconnected"], edge_dict["edge_ids"]])
+            edge_affs["between_disconnected"] = np.concatenate([edge_affs["between_disconnected"], edge_dict["edge_affs"]])
+        else:
+            edge_ids["between_connected"] = np.concatenate([edge_ids["between_connected"], edge_dict["edge_ids"]])
+            edge_affs["between_connected"] = np.concatenate([edge_affs["between_connected"], edge_dict["edge_affs"]])
 
     # Initialize an ChunkedGraph instance and write to it
     cg = chunkedgraph.ChunkedGraph(table_id=table_id)
-    cg.add_atomic_edges_in_chunks(edge_ids, cross_edge_ids,
-                                  edge_affs, cross_edge_affs,
-                                  isolated_node_ids)
+    cg.add_atomic_edges_in_chunks(edge_ids, edge_affs,
+                                  isolated_node_ids=isolated_ids)
 
 
 def _add_layer_thread(args):
