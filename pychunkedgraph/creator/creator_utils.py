@@ -18,16 +18,21 @@ def read_edge_file_cv(cv_st, path):
 
     if 'unbreakable' in path:
         dt = 'uint64, uint64'
+    elif 'isolated' in path:
+        dt = 'uint64'
     else:
         dt = 'uint64, uint64, float32, uint64'
 
     buf = cv_st.get_file(path)
     edge_data = np.frombuffer(buf, dtype=dt)
 
-    edge_ids = np.concatenate([edge_data["f0"].reshape(-1, 1),
-                               edge_data["f1"].reshape(-1, 1)], axis=1)
+    if 'isolated' in path:
+        edge_dict = {"node_ids": edge_data["f0"]}
+    else:
+        edge_ids = np.concatenate([edge_data["f0"].reshape(-1, 1),
+                                   edge_data["f1"].reshape(-1, 1)], axis=1)
 
-    edge_dict = {"edge_ids": edge_ids}
+        edge_dict = {"edge_ids": edge_ids}
 
     if not "unbreakable" in path:
         edge_dict['edge_affs'] = edge_data['f2']
