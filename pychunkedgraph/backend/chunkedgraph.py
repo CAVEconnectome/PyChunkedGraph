@@ -727,6 +727,8 @@ class ChunkedGraph(object):
     def range_read_chunk(self, layer: int, x: int, y: int, z: int,
                          n_retries: int = 100,
                          row_keys: Optional[Iterable[str]] = None,
+                         row_key_filters: Optional[Iterable[str]] = None,
+                         time_stamp: datetime.datetime = datetime.datetime.max,
                          yield_rows: bool = False) -> Union[
                                 bigtable.row_data.PartialRowData,
                                 Dict[bytes, bigtable.row_data.PartialRowData]]:
@@ -739,9 +741,19 @@ class ChunkedGraph(object):
         :param n_retries: int
         :param row_keys: list of str
             more efficient read through row filters
+        :param row_key_filters: list of str
+            rows *with* this column will be ignored
+        :param time_stamp: datetime.datetime
         :param yield_rows: bool
         :return: list or yield of rows
         """
+        # Comply to resolution of BigTables TimeRange
+        time_stamp -= datetime.timedelta(
+            microseconds=time_stamp.microsecond % 1000)
+
+        # Create filters: time and id range
+        time_filter = TimestampRangeFilter(TimestampRange(end=time_stamp))
+
         if row_keys is not None:
             filters = []
             for k in row_keys:
@@ -753,6 +765,25 @@ class ChunkedGraph(object):
                 row_filter = filters[0]
         else:
             row_filter = None
+
+        if row_filter is None:
+            row_filter = time_filter
+        else:
+            row_filter = RowFilterChain([time_filter, row_filter])
+
+        if row_key_filters is not None:
+            for row_key in row_key_filters:
+                key_filter = ColumnRangeFilter(
+                    column_family_id=self.family_id,
+                    start_column=row_key,
+                    end_column=row_key,
+                    inclusive_start=True,
+                    inclusive_end=True)
+
+                row_filter = ConditionalRowFilter(base_filter=key_filter,
+                                                  false_filter=row_filter,
+                                                  true_filter=BlockAllFilter(True))
+
 
         chunk_id = self.get_chunk_id(layer=layer, x=x, y=y, z=z)
         max_segment_id = self.get_segment_id_limit(chunk_id)
@@ -837,8 +868,8 @@ class ChunkedGraph(object):
         time_filter = TimestampRangeFilter(TimestampRange(start=time_start,
                                                           end=time_end))
 
-        filters = [time_filter]
         if row_keys is not None:
+            filters = []
             for k in row_keys:
                 filters.append(ColumnQualifierRegexFilter(serialize_key(k)))
 
@@ -848,6 +879,11 @@ class ChunkedGraph(object):
                 row_filter = filters[0]
         else:
             row_filter = None
+
+        if row_filter is None:
+            row_filter = time_filter
+        else:
+            row_filter = RowFilterChain([time_filter, row_filter])
 
         # Set up read
         range_read = self.table.read_rows(
