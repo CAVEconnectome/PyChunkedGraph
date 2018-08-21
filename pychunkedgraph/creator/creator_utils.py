@@ -26,15 +26,24 @@ def read_edge_file_cv(cv_st, path):
     buf = cv_st.get_file(path)
     edge_data = np.frombuffer(buf, dtype=dt)
 
+    if len(edge_data) == 0:
+        if len(dt.split(",")) == 1:
+            edge_data = np.array([], dtype=np.uint64)
+        else:
+            edge_data = {"f0": np.array([], dtype=np.uint64),
+                         "f1": np.array([], dtype=np.uint64),
+                         "f2": np.array([], dtype=np.float32),
+                         "f3": np.array([], dtype=np.uint64)}
+
     if 'isolated' in path:
-        edge_dict = {"node_ids": edge_data["f0"]}
+        edge_dict = {"node_ids": edge_data}
     else:
         edge_ids = np.concatenate([edge_data["f0"].reshape(-1, 1),
                                    edge_data["f1"].reshape(-1, 1)], axis=1)
 
         edge_dict = {"edge_ids": edge_ids}
 
-    if not "unbreakable" in path:
+    if "connected" in path:
         edge_dict['edge_affs'] = edge_data['f2']
         edge_dict['edge_areas'] = edge_data['f3']
 

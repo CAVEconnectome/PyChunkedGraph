@@ -177,15 +177,18 @@ def create_chunked_graph(table_id=None, cv_url=None, ws_url=None, fan_out=2,
         isolated_ids = np.concatenate([isolated_ids, result[7]])
 
     assert len(in_chunk_connected_ids) == len(in_chunk_connected_paths) == \
-           len(in_chunk_disconnected_ids) == len(in_chunk_disconnected_paths)
-           # len(isolated_ids) == len(isolated_paths)
+           len(in_chunk_disconnected_ids) == len(in_chunk_disconnected_paths) == \
+           len(isolated_ids) == len(isolated_paths)
 
     times.append(["Preprocessing", time.time() - time_start])
+
+    print("Preprocessing took %.3fs = %.2fh" % (times[-1][1], times[-1][1]/3600))
+
     time_start = time.time()
 
     multi_args = []
 
-    in_chunk_id_blocks = np.array_split(in_chunk_connected_ids, max(1, n_threads) * 3)
+    in_chunk_id_blocks = np.array_split(in_chunk_connected_ids, max(1, n_threads))
     cumsum = 0
 
     for in_chunk_id_block in in_chunk_id_blocks:
@@ -199,8 +202,14 @@ def create_chunked_graph(table_id=None, cv_url=None, ws_url=None, fan_out=2,
             _between_chunk_masks_thread, multi_args, n_threads=n_threads,
             verbose=True, debug=n_threads == 1)
     else:
-        results = mu.multiprocess_func(
+        results = mu.multisubprocess_func(
             _between_chunk_masks_thread, multi_args, n_threads=n_threads)
+
+    times.append(["Data sorting", time.time() - time_start])
+
+    print("Data sorting took %.3fs = %.2fh" % (times[-1][1], times[-1][1]/3600))
+
+    time_start = time.time()
 
     n_layers = int(np.ceil(chunkedgraph.log_n(np.max(in_chunk_connected_ids) + 1, fan_out))) + 2
 
@@ -222,13 +231,9 @@ def create_chunked_graph(table_id=None, cv_url=None, ws_url=None, fan_out=2,
             multi_args.append([table_id,
                                in_chunk_connected_paths[offset + i_chunk],
                                in_chunk_disconnected_paths[offset + i_chunk],
-                               "",
-                               # isolated_paths[offset + i_chunk],
+                               isolated_paths[offset + i_chunk],
                                between_chunk_paths_in_masked[i_chunk],
                                between_chunk_paths_out_masked[i_chunk]])
-
-    times.append(["Data sorting", time.time() - time_start])
-    time_start = time.time()
 
     # Run multiprocessing
     if n_threads == 1:
@@ -308,8 +313,7 @@ def _preprocess_chunkedgraph_data_thread(args):
         file_name = os.path.basename(fp).split(".")[0]
 
         # Read coordinates from file path
-        x1, x2, y1, y2, z1, z2 = np.array(re.findall("[\d]+", file_name),
-                                          dtype=np.int)[:6]
+        x1, x2, y1, y2, z1, z2 = np.array(re.findall("[\d]+", file_name), dtype=np.int)[:6]
         dx = x2 - x1
         dy = y2 - y1
         dz = z2 - z1
@@ -323,16 +327,16 @@ def _preprocess_chunkedgraph_data_thread(args):
         if gap in d:
             s_c = np.where(d == gap)[0]
             chunk_coord = c.copy()
-            chunk_coord[s_c] -= chunk_size[s_c]
-            chunk1_id = np.array(chunk_coord / chunk_size, dtype=np.uint8)
+
+            chunk1_id = np.array(chunk_coord / chunk_size, dtype=np.int)
             chunk_coord[s_c] += chunk_size[s_c]
-            chunk2_id = np.array(chunk_coord / chunk_size, dtype=np.uint8)
+            chunk2_id = np.array(chunk_coord / chunk_size, dtype=np.int)
 
             between_chunk_ids = np.concatenate([between_chunk_ids,
                                                 np.array([chunk1_id, chunk2_id])[None]])
             between_chunk_paths = np.concatenate([between_chunk_paths, [fp]])
         else:
-            chunk_coord = np.array(c / chunk_size, dtype=np.uint8)
+            chunk_coord = np.array(c / chunk_size, dtype=np.int)
 
             if "disconnected" in file_name:
                 in_chunk_disconnected_ids = np.concatenate([in_chunk_disconnected_ids, chunk_coord[None]])
@@ -357,28 +361,14 @@ def _between_chunk_masks_thread(args):
     between_chunk_paths_out_masked = []
     between_chunk_paths_in_masked = []
 
-    n_blocks = len(in_chunk_id_block)
-
-    time_start = time.time()
     for i_in_chunk_id, in_chunk_id in enumerate(in_chunk_id_block):
-        # if i_in_chunk_id % 500 == 1:
-        #     dt = time.time() - time_start
-        #     eta = dt / i_in_chunk_id * n_blocks - dt
-        #     print("%d: %d / %d - dt: %.3fs - eta: %.3fs" %
-        #           (i_in_chunk_id + offset, i_in_chunk_id, n_blocks, dt, eta))
+        out_paths_mask = np.sum(np.abs(between_chunk_ids[:, 0] - in_chunk_id), axis=1) == 0
+        in_paths_masks = np.sum(np.abs(between_chunk_ids[:, 1] - in_chunk_id), axis=1) == 0
 
-        out_paths_mask = np.sum(np.abs(between_chunk_ids[:, 0] -
-                                       in_chunk_id), axis=1) == 0
-        in_paths_masks = np.sum(np.abs(between_chunk_ids[:, 1] -
-                                       in_chunk_id), axis=1) == 0
+        between_chunk_paths_out_masked.append(between_chunk_paths[out_paths_mask])
+        between_chunk_paths_in_masked.append(between_chunk_paths[in_paths_masks])
 
-        between_chunk_paths_out_masked.append(
-            between_chunk_paths[out_paths_mask])
-        between_chunk_paths_in_masked.append(
-            between_chunk_paths[in_paths_masks])
-
-    return offset, between_chunk_paths_out_masked, \
-           between_chunk_paths_in_masked
+    return offset, between_chunk_paths_out_masked, between_chunk_paths_in_masked
 
 
 def _create_atomic_layer_thread(args):
@@ -422,6 +412,7 @@ def _create_atomic_layer_thread(args):
             edge_ids["between_disconnected"] = np.concatenate([edge_ids["between_disconnected"], edge_dict["edge_ids"][:, [1, 0]]])
             edge_affs["between_disconnected"] = np.concatenate([edge_affs["between_disconnected"], edge_dict["edge_affs"]])
         else:
+            # connected
             edge_ids["between_connected"] = np.concatenate([edge_ids["between_connected"], edge_dict["edge_ids"][:, [1, 0]]])
             edge_affs["between_connected"] = np.concatenate([edge_affs["between_connected"], edge_dict["edge_affs"]])
 
@@ -434,6 +425,7 @@ def _create_atomic_layer_thread(args):
             edge_ids["between_disconnected"] = np.concatenate([edge_ids["between_disconnected"], edge_dict["edge_ids"]])
             edge_affs["between_disconnected"] = np.concatenate([edge_affs["between_disconnected"], edge_dict["edge_affs"]])
         else:
+            # connected
             edge_ids["between_connected"] = np.concatenate([edge_ids["between_connected"], edge_dict["edge_ids"]])
             edge_affs["between_connected"] = np.concatenate([edge_affs["between_connected"], edge_dict["edge_affs"]])
 
