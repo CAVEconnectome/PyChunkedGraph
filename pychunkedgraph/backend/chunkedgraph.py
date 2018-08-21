@@ -1,10 +1,11 @@
 import collections
 import numpy as np
 import time
+import itertools
 import datetime
 import os
 import networkx as nx
-from networkx.algorithms.flow import shortest_augmenting_path
+from networkx.algorithms.flow import shortest_augmenting_path, edmonds_karp
 import pytz
 import cloudvolume
 
@@ -155,6 +156,53 @@ def compute_bitmasks(n_layers: int, fan_out: int) -> Dict[int, int]:
     return bitmask_dict
 
 
+def merge_cross_chunk_edges(edges: Iterable[Sequence[np.uint64]],
+                            affs: Sequence[np.uint64]):
+    """ Merges cross chunk edges
+
+    :param edges: n x 2 array of uint64s
+    :param affs: float array of length n
+    :return:
+    """
+
+    cross_chunk_edge_mask = np.isinf(affs)
+
+    cross_chunk_graph = nx.Graph()
+    cross_chunk_graph.add_edges_from(edges[cross_chunk_edge_mask])
+
+    ccs = nx.connected_components(cross_chunk_graph)
+
+    remapping = {}
+    mapping = np.array([], dtype=np.uint64).reshape(-1, 2)
+
+    for cc in ccs:
+        nodes = np.array(list(cc))
+        rep_node = np.min(nodes)
+
+        remapping[rep_node] = nodes
+
+        rep_nodes = np.ones(len(nodes), dtype=np.uint64).reshape(-1, 1) * rep_node
+        m = np.concatenate([nodes.reshape(-1, 1), rep_nodes], axis=1)
+
+        mapping = np.concatenate([mapping, m], axis=0)
+
+    u_nodes = np.unique(edges)
+    u_unmapped_nodes = u_nodes[~np.in1d(u_nodes, mapping)]
+
+    unmapped_mapping = np.concatenate([u_unmapped_nodes.reshape(-1, 1),
+                                       u_unmapped_nodes.reshape(-1, 1)], axis=1)
+    mapping = np.concatenate([mapping, unmapped_mapping], axis=0)
+
+    sort_idx = np.argsort(mapping[:, 0])
+    idx = np.searchsorted(mapping[:, 0], edges, sorter=sort_idx)
+    remapped_edges = np.asarray(mapping[:, 1])[sort_idx][idx]
+
+    remapped_edges = remapped_edges[~cross_chunk_edge_mask]
+    remapped_affs = affs[~cross_chunk_edge_mask]
+
+    return remapped_edges, remapped_affs, mapping, remapping
+
+
 def mincut(edges: Iterable[Sequence[np.uint64]], affs: Sequence[np.uint64],
            source: np.uint64, sink: np.uint64) -> np.ndarray:
     """ Computes the min cut on a local graph
@@ -169,44 +217,117 @@ def mincut(edges: Iterable[Sequence[np.uint64]], affs: Sequence[np.uint64],
 
     time_start = time.time()
 
+    original_edges = edges.copy()
+    original_affs = affs.copy()
+
+    edges, affs, mapping, remapping = merge_cross_chunk_edges(edges.copy(), affs.copy())
+
+    sink_map = np.where(mapping[:, 0] == sink)[0]
+    source_map = np.where(mapping[:, 0] == source)[0]
+
+    print(sink, source)
+
+    if len(sink_map) == 0:
+        pass
+    elif len(sink_map) == 1:
+        sink = mapping[sink_map[0]][1]
+    else:
+        raise Exception("Sink appears to be overmerged")
+
+    if len(source_map) == 0:
+        pass
+    elif len(source_map) == 1:
+        source = mapping[source_map[0]][1]
+    else:
+        raise Exception("Source appears to be overmerged")
+
+    print(sink, source)
+
     weighted_graph = nx.Graph()
     weighted_graph.add_edges_from(edges)
 
     for i_edge, edge in enumerate(edges):
         weighted_graph[edge[0]][edge[1]]['capacity'] = affs[i_edge]
+        weighted_graph[edge[0]][edge[1]]['weight'] = affs[i_edge]
+
+    mst_weighted_graph = nx.minimum_spanning_tree(weighted_graph, weight="weight")
 
     dt = time.time() - time_start
     print("Graph creation: %.2fms" % (dt * 1000))
     time_start = time.time()
 
-    ccs = list(nx.connected_components(weighted_graph))
+    ccs = list(nx.connected_components(mst_weighted_graph))
     for cc in ccs:
         if not (source in cc and sink in cc):
-            weighted_graph.remove_nodes_from(cc)
+            mst_weighted_graph.remove_nodes_from(cc)
 
     # cutset = nx.minimum_edge_cut(weighted_graph, source, sink)
-    cutset = nx.minimum_edge_cut(weighted_graph, source, sink,
-                                 flow_func=shortest_augmenting_path)
+    min_cut_set = nx.minimum_edge_cut(mst_weighted_graph, source, sink,
+                                  flow_func=shortest_augmenting_path)
 
     dt = time.time() - time_start
     print("Mincut: %.2fms" % (dt * 1000))
 
-    if cutset is None:
+    if min_cut_set is None:
         return []
+
+    if len(min_cut_set) != 1:
+        raise  Exception("Too many or too few cuts: %d" %
+                         len(min_cut_set))
 
     time_start = time.time()
 
-    weighted_graph.remove_edges_from(cutset)
-    ccs = list(nx.connected_components(weighted_graph))
-    print("Graph split up in %d parts" % (len(ccs)))
+    edge_cut = list(list(min_cut_set)[0])
+
+    print(edge_cut)
+
+    mst_weighted_graph.remove_edges_from([edge_cut])
+    # mst_weighted_graph.add_nodes_from(edge_cut)
+    ccs = list(nx.connected_components(mst_weighted_graph))
 
     for cc in ccs:
         print("CC size = %d" % len(cc))
 
-    dt = time.time() - time_start
-    print("Test: %.2fms" % (dt * 1000))
+    if len(ccs) != 2:
+        raise  Exception("Too many or too few connected components: %d" %
+                         len(ccs))
 
-    return np.array(list(cutset), dtype=np.uint64)
+    flat_edges = edges.flatten()
+
+    cc0 = np.array(list(ccs[0]), dtype=np.uint64)
+    cc0_edge_mask = np.sum(np.in1d(flat_edges, cc0).reshape(-1, 2), axis=1) == 1
+
+    cc1 = np.array(list(ccs[1]), dtype=np.uint64)
+    cc1_edge_mask = np.sum(np.in1d(flat_edges, cc1).reshape(-1, 2), axis=1) == 1
+
+    cutset = edges[np.where(np.logical_and(cc0_edge_mask, cc1_edge_mask))]
+
+    dt = time.time() - time_start
+    print("Splitting: %.2fms" % (dt * 1000))
+
+    remapped_cutset = []
+    for cut in cutset:
+        if cut[0] in remapping:
+            pre_cut = remapping[cut[0]]
+        else:
+            pre_cut = [cut[0]]
+
+        if cut[1] in remapping:
+            post_cut = remapping[cut[1]]
+        else:
+            post_cut = [cut[1]]
+
+        remapped_cutset.extend(list(itertools.product(pre_cut, post_cut)))
+        remapped_cutset.extend(list(itertools.product(post_cut, pre_cut)))
+
+    remapped_cutset = np.array(remapped_cutset, dtype=np.uint64)
+
+    remapped_cutset_flattened_view = remapped_cutset.view(dtype='u8,u8')
+    edges_flattened_view = original_edges.view(dtype='u8,u8')
+
+    cutset_mask = np.in1d(remapped_cutset_flattened_view, edges_flattened_view)
+
+    return remapped_cutset[cutset_mask]
 
 
 class ChunkedGraph(object):
@@ -1527,6 +1648,68 @@ class ChunkedGraph(object):
             raise Exception("Different edge affinities found... Something went "
                             "horribly wrong.")
 
+    def get_latest_roots(self, time_stamp: Optional[datetime.datetime] = datetime.datetime.max,
+                         n_threads: int = 1):
+        """
+
+        :param time_stamp:
+        :return:
+        """
+
+        def _read_root_rows(args) -> None:
+            start_id, end_id = args
+
+            # print(start_id, end_id)
+
+            range_read = self.table.read_rows(
+                start_key=serialize_uint64(start_id),
+                end_key=serialize_uint64(end_id),
+                # allow_row_interleaving=True,
+                end_inclusive=False,
+                filter_=time_filter)
+
+            range_read.consume_all()
+
+            rows = range_read.rows
+
+            for row_id, row_data in rows.items():
+                row_keys = row_data.cells[self.family_id]
+
+                if not serialize_key("new_parents") in row_keys:
+                    root_ids.append(deserialize_uint64(row_id))
+
+
+        time_stamp -= datetime.timedelta(microseconds=time_stamp.microsecond % 1000)
+
+        time_filter = TimestampRangeFilter(TimestampRange(end=time_stamp))
+
+        max_seg_id = self.get_max_node_id(
+            self.get_chunk_id(layer=int(self.n_layers), x=0, y=0, z=0))
+        max_root_id = self.get_node_id(layer=int(self.n_layers), x=0, y=0, z=0,
+                                       segment_id=max_seg_id)
+        min_root_id = self.get_node_id(layer=int(self.n_layers), x=0, y=0, z=0,
+                                       segment_id=np.uint64(1))
+
+        root_ids = []
+
+        id_blocks = np.linspace(min_root_id, max_root_id, n_threads*3+1,
+                                dtype=np.uint64)
+
+        multi_args = []
+
+        for i_id_block in range(0, len(id_blocks) - 1):
+            multi_args.append([id_blocks[i_id_block],
+                               id_blocks[i_id_block + 1]])
+
+        multi_args = multi_args[:10]
+
+        mu.multithread_func(
+            _read_root_rows, multi_args, n_threads=n_threads,
+            debug=False, verbose=True)
+
+        return root_ids
+
+
     def get_root(self, node_id: np.uint64,
                  time_stamp: Optional[datetime.datetime] = None
                  ) -> Union[List[np.uint64], np.uint64]:
@@ -2577,7 +2760,7 @@ class ChunkedGraph(object):
                         self.get_root(sink_id)]
 
         if root_ids[0] != root_ids[1]:
-            print("root(source) != root(sink)")
+            print("root(source) != root(sink):", root_ids)
             return None
 
         # Get a unique id for this operation
