@@ -75,7 +75,7 @@ def chunk_mesh_task(sv_to_node_mapping, cg, chunk_id, cv_path,
         cv_path,
         mip=mip,
         simplification_factor=100,
-        max_simplification_error=5,
+        max_simplification_error=40,
         remap_table=sv_to_node_mapping,
         generate_manifests=True,
         low_padding=5,
@@ -149,7 +149,7 @@ def mesh_node_and_parents(node_id, cg, cv_path, cv_mesh_dir=None, mip=3,
 
 def create_manifest_file(cg, cv_storage, cv_mesh_dir, node_id,
                          highest_mesh_level=1, mip=3, lod=0):
-    """ Createst the manifest file for any node
+    """ Creates the manifest file for any node
 
     :param cg: chunkedgraph instance
     :param cv_storage: cloudvolume.Storage instance
@@ -161,9 +161,10 @@ def create_manifest_file(cg, cv_storage, cv_mesh_dir, node_id,
     """
     highest_mesh_level_children = _find_highest_children_with_mesh(
         cg, cv_storage, cv_mesh_dir, [],
-        cg.get_subgraph(node_id, stop_lvl=highest_mesh_level).tolist())
+        cg.get_subgraph(node_id, stop_lvl=highest_mesh_level, verbose=False).tolist())
 
-    print("number of children: %d" % (len(highest_mesh_level_children)))
+    print("%d -- number of children: %d" %
+          (node_id, len(highest_mesh_level_children)))
 
     mesh_block_shape = cg.chunk_size * 2 ** np.max([0, highest_mesh_level-2]) // np.array([2 ** mip, 2 ** mip, 1])
 
@@ -204,8 +205,8 @@ def _find_highest_children_with_mesh(cg, cv_storage, cv_mesh_dir,
         if cg.get_chunk_layer(next_child_id) > 2:
             test_children.extend(cg.get_children(next_child_id))
 
-    print(len(test_children), len(validated_children), cv_mesh_dir, test_path,
-          list(existence_test.values())[0])
+    # print(len(test_children), len(validated_children), cv_mesh_dir, test_path,
+    #       list(existence_test.values())[0])
 
     if len(test_children) == 0:
         return validated_children
@@ -216,13 +217,18 @@ def _find_highest_children_with_mesh(cg, cv_storage, cv_mesh_dir,
 
 
 def _create_manifest_files_thread(args):
-    cg_info, cv_path, cv_mesh_dir, mip, root_id_start, root_id_end, \
+    cg_info, cv_path, cv_mesh_dir, root_id_start, root_id_end, \
         highest_mesh_level = args
 
     cg = chunkedgraph.ChunkedGraph(**cg_info)
 
     with cloudvolume.Storage(cv_path) as cv_storage:
-        for root_id in range(root_id_start, root_id_end):
+        for root_seg_id in range(root_id_start, root_id_end):
+
+            root_id = cg.get_node_id(np.uint64(root_seg_id),
+                                     cg.get_chunk_id(layer=int(cg.n_layers),
+                                                     x=0, y=0, z=0))
+
             create_manifest_file(cg, cv_storage, cv_mesh_dir, root_id,
                                  highest_mesh_level=highest_mesh_level)
 

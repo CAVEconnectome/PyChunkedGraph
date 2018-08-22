@@ -1,6 +1,7 @@
 import cloudvolume
 import numpy as np
 import itertools
+import random
 
 from pychunkedgraph.backend import chunkedgraph, multiprocessing_utils as mu
 
@@ -13,7 +14,7 @@ class MeshEngine(object):
                  instance_id: str = "pychunkedgraph",
                  project_id: str = "neuromancer-seung-import",
                  mesh_mip: int = 3,
-                 highest_mesh_layer: int = 4):
+                 highest_mesh_layer: int = 5):
 
         self._table_id = table_id
         self._instance_id = instance_id
@@ -122,8 +123,18 @@ class MeshEngine(object):
             block_bounding_box_cg[1][m] = bounding_box_cg[1][m]
 
         block_bounding_box_cg /= 2 ** np.max([0, layer - 2])
-
         block_bounding_box_cg = np.ceil(block_bounding_box_cg)
+
+        n_jobs = np.product(block_bounding_box_cg[1] -
+                            block_bounding_box_cg[0]) / \
+                 block_factor ** 2 < n_threads
+
+        while n_jobs < n_threads and block_factor > 1:
+            block_factor -= 1
+
+            n_jobs = np.product(block_bounding_box_cg[1] -
+                                block_bounding_box_cg[0]) / \
+                     block_factor ** 2 < n_threads
 
         block_iter = itertools.product(np.arange(block_bounding_box_cg[0][0],
                                                  block_bounding_box_cg[1][0],
@@ -149,6 +160,8 @@ class MeshEngine(object):
             multi_args.append([cg_info, start_block, end_block, self.cg.cv_path,
                                self.cv_mesh_dir, self.mesh_mip, layer])
 
+        random.shuffle(multi_args)
+
         # Run multiprocessing
         if n_threads == 1:
             mu.multiprocess_func(meshgen._mesh_layer_thread, multi_args,
@@ -165,16 +178,15 @@ class MeshEngine(object):
                                  x=np.int(0), y=np.int(0),
                                  z=np.int(0)))
 
-        root_id_blocks = np.linspace(1, root_id_max, n_threads*3)
+        root_id_blocks = np.linspace(1, root_id_max, n_threads*3).astype(np.int)
         cg_info = self.cg.get_serialized_info()
         del (cg_info['credentials'])
 
         multi_args = []
         for i_block in range(len(root_id_blocks) - 1):
             multi_args.append([cg_info, self.cv_path, self.cv_mesh_dir,
-                               self.mesh_mip, root_id_blocks[i_block],
+                               root_id_blocks[i_block],
                                root_id_blocks[i_block + 1],
-                               self.cv_mesh_dir, self.mesh_mip,
                                self.highest_mesh_layer])
 
         # Run multiprocessing
