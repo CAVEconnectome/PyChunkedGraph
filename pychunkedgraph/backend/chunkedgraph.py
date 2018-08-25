@@ -1701,8 +1701,6 @@ class ChunkedGraph(object):
             multi_args.append([id_blocks[i_id_block],
                                id_blocks[i_id_block + 1]])
 
-        multi_args = multi_args[:10]
-
         mu.multithread_func(
             _read_root_rows, multi_args, n_threads=n_threads,
             debug=False, verbose=True)
