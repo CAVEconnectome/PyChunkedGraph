@@ -440,6 +440,10 @@ class ChunkedGraph(object):
             self._cv = cloudvolume.CloudVolume(self.cv_path, mip=self._cv_mip)
         return self._cv
 
+    @property
+    def root_chunk_id(self):
+        return self.get_chunk_id(layer=int(self.n_layers), x=0, y=0, z=0)
+
     def check_and_create_table(self) -> None:
         """ Checks if table exists and creates new one if necessary """
         table_ids = [t.table_id for t in self.instance.list_tables()]
@@ -1657,9 +1661,12 @@ class ChunkedGraph(object):
         """
 
         def _read_root_rows(args) -> None:
-            start_id, end_id = args
+            start_seg_id, end_seg_id = args
 
-            # print(start_id, end_id)
+            start_id = self.get_node_id(segment_id=start_seg_id,
+                                        chunk_id=self.root_chunk_id)
+            end_id = self.get_node_id(segment_id=end_seg_id,
+                                      chunk_id=self.root_chunk_id)
 
             range_read = self.table.read_rows(
                 start_key=serialize_uint64(start_id),
@@ -1683,23 +1690,18 @@ class ChunkedGraph(object):
 
         time_filter = TimestampRangeFilter(TimestampRange(end=time_stamp))
 
-        max_seg_id = self.get_max_node_id(
-            self.get_chunk_id(layer=int(self.n_layers), x=0, y=0, z=0))
-        max_root_id = self.get_node_id(layer=int(self.n_layers), x=0, y=0, z=0,
-                                       segment_id=max_seg_id)
-        min_root_id = self.get_node_id(layer=int(self.n_layers), x=0, y=0, z=0,
-                                       segment_id=np.uint64(1))
+        max_seg_id = self.get_max_node_id(self.root_chunk_id) + 1
 
         root_ids = []
 
-        id_blocks = np.linspace(min_root_id, max_root_id, n_threads*3+1,
-                                dtype=np.uint64)
+        n_blocks = np.min([n_threads*3+1, max_seg_id])
+        seg_id_blocks = np.linspace(1, max_seg_id, n_blocks, dtype=np.uint64)
 
         multi_args = []
 
-        for i_id_block in range(0, len(id_blocks) - 1):
-            multi_args.append([id_blocks[i_id_block],
-                               id_blocks[i_id_block + 1]])
+        for i_id_block in range(0, len(seg_id_blocks) - 1):
+            multi_args.append([seg_id_blocks[i_id_block],
+                               seg_id_blocks[i_id_block + 1]])
 
         mu.multithread_func(
             _read_root_rows, multi_args, n_threads=n_threads,
