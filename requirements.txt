@@ -1,0 +1,10 @@
+google-cloud
+cloud-volume
+networkx
+google-cloud-bigtable==0.28.1
+networkx
+cloud-volume
+bitstring
+flask
+flask_cors
+codecov
