@@ -31,7 +31,7 @@ UTC = pytz.UTC
 
 # Setting environment wide credential path
 os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = \
-    HOME + "/.cloudvolume/secrets/google-secret.json"
+           HOME + "/.cloudvolume/secrets/google-secret.json"
 
 
 def log_n(arr, n):
@@ -237,6 +237,10 @@ class ChunkedGraph(object):
         return "2"
 
     @property
+    def cross_edge_family_id(self) -> str:
+        return "3"
+
+    @property
     def fan_out(self) -> int:
         return self._fan_out
 
@@ -281,6 +285,10 @@ class ChunkedGraph(object):
 
             f_log = self.table.column_family(self.log_family_id)
             f_log.create()
+
+            f_ce = self.table.column_family(self.cross_edge_family_id,
+                                            gc_rule=MaxVersionsGCRule(1))
+            f_ce.create()
 
             print("Table created")
 
@@ -569,8 +577,53 @@ class ChunkedGraph(object):
 
         return np.uint64(max_operation_id)
 
+    def get_cross_chunk_edges_layer(self, cross_edges):
+        if len(cross_edges) == 0:
+            return np.array([], dtype=np.int)
+
+        cross_chunk_edge_layers = np.ones(len(cross_edges), dtype=np.int) * 2
+
+        cross_edge_coordinates = []
+        for cross_edge in cross_edges:
+            cross_edge_coordinates.append(
+                [self.get_chunk_coordinates(cross_edge[0]),
+                 self.get_chunk_coordinates(cross_edge[1])])
+
+        cross_edge_coordinates = np.array(cross_edge_coordinates, dtype=np.int)
+
+        print("cross_edge_coordinates", cross_edge_coordinates)
+
+        for layer in range(3, self.n_layers):
+            cross_edge_coordinates = cross_edge_coordinates // self.fan_out
+            edge_diff = np.sum(np.abs(cross_edge_coordinates[:, 0] -
+                                      cross_edge_coordinates[:, 1]), axis=1)
+            cross_chunk_edge_layers[edge_diff > 0] += 1
+
+        return cross_chunk_edge_layers
+
+    def get_cross_chunk_edge_dict(self, cross_edges):
+        cce_layers = self.get_cross_chunk_edges_layer(cross_edges)
+        u_cce_layers = np.unique(cce_layers)
+        cross_edge_dict = {}
+
+        for l in range(2, self.n_layers):
+            cross_edge_dict[l] = \
+                np.array([], dtype=np.uint64).reshape(-1, 2)
+
+        val_dict = {}
+        for cc_layer in u_cce_layers:
+            layer_cross_edges = cross_edges[cce_layers == cc_layer]
+
+            print("layer_cross_edges", layer_cross_edges)
+            if len(layer_cross_edges) > 0:
+                val_dict["atomic_cross_edges_%d" % cc_layer] = \
+                    layer_cross_edges.tobytes()
+                cross_edge_dict[cc_layer] = layer_cross_edges
+        return cross_edge_dict
+
     def read_row(self, node_id: np.uint64, key: str, idx: int = 0,
-                 dtype: type = np.uint64, get_time_stamp: bool = False) -> Any:
+                 dtype: type = np.uint64, get_time_stamp: bool = False,
+                 fam_id: str = None) -> Any:
         """ Reads row from BigTable and takes care of serializations
 
         :param node_id: uint64
@@ -578,20 +631,24 @@ class ChunkedGraph(object):
         :param idx: column list index
         :param dtype: np.dtype
         :param get_time_stamp: bool
+        :param fam_id: str
         :return: row entry
         """
         key = serialize_key(key)
 
+        if fam_id is None:
+            fam_id = self.family_id
+
         row = self.table.read_row(serialize_uint64(node_id),
                                   filter_=ColumnQualifierRegexFilter(key))
 
-        if row is None or key not in row.cells[self.family_id]:
+        if row is None or key not in row.cells[fam_id]:
             if get_time_stamp:
                 return None, None
             else:
                 return None
 
-        cell_entries = row.cells[self.family_id][key]
+        cell_entries = row.cells[fam_id][key]
 
         if dtype is None:
             cell_value = cell_entries[idx].value
@@ -1195,12 +1252,30 @@ class ChunkedGraph(object):
                 node_c += 1
 
             # Create parent node
-            val_dict = {"children": node_ids.tobytes(),
-                        "atomic_cross_edges": parent_cross_edges.tobytes()}
-
             rows.append(self.mutate_row(serialize_uint64(parent_id),
-                                        self.family_id, val_dict,
+                                        self.family_id,
+                                        {"children": node_ids.tobytes()},
                                         time_stamp=time_stamp))
+
+            cce_layers = self.get_cross_chunk_edges_layer(parent_cross_edges)
+            u_cce_layers = np.unique(cce_layers)
+
+            print("cross edges", parent_cross_edges, cce_layers)
+
+            val_dict = {}
+            for cc_layer in u_cce_layers:
+                layer_cross_edges = parent_cross_edges[cce_layers == cc_layer]
+
+                print("layer_cross_edges", layer_cross_edges)
+                if len(layer_cross_edges) > 0:
+                    val_dict["atomic_cross_edges_%d" % cc_layer] = \
+                        layer_cross_edges.tobytes()
+
+            if len(val_dict) > 0:
+                print("val_dict", val_dict)
+                rows.append(self.mutate_row(serialize_uint64(parent_id),
+                                            self.cross_edge_family_id, val_dict,
+                                            time_stamp=time_stamp))
 
             node_c += 1
 
@@ -1221,17 +1296,10 @@ class ChunkedGraph(object):
         """
         def _resolve_cross_chunk_edges_thread(args) -> None:
             start, end = args
+
             for i_child_key, child_key in\
                     enumerate(atomic_partner_id_dict_keys[start: end]):
                 this_atomic_partner_ids = atomic_partner_id_dict[child_key]
-                this_atomic_child_ids = atomic_child_id_dict[child_key]
-
-                leftover_mask = ~np.in1d(this_atomic_partner_ids,
-                                         u_atomic_child_ids)
-                leftover_atomic_edges[child_key] = \
-                    np.concatenate([this_atomic_child_ids[leftover_mask, None],
-                                    this_atomic_partner_ids[leftover_mask, None]],
-                                   axis=1)
 
                 partners = np.unique(child_ids[np.in1d(atomic_child_ids,
                                                        this_atomic_partner_ids)])
@@ -1246,42 +1314,55 @@ class ChunkedGraph(object):
         def _write_out_connected_components(args) -> None:
             start, end = args
             for i_cc, cc in enumerate(ccs[start: end]):
-                    rows = []
+                rows = []
 
-                    node_ids = np.array(list(cc))
+                node_ids = np.array(list(cc))
 
-                    parent_id = self.get_unique_node_id(chunk_id)
-                    parent_id_b = np.array(parent_id, dtype=np.uint64).tobytes()
+                parent_id = self.get_unique_node_id(chunk_id)
+                parent_id_b = np.array(parent_id, dtype=np.uint64).tobytes()
 
-                    parent_cross_edges = np.array([],
-                                                  dtype=np.uint64).reshape(0, 2)
+                parent_cross_edges_b = {}
+                for l in range(layer_id, self.n_layers):
+                    parent_cross_edges_b[l] = b""
 
-                    # Add rows for nodes that are in this chunk
-                    for i_node_id, node_id in enumerate(node_ids):
 
-                        # Extract edges relevant to this node
-                        parent_cross_edges =\
-                            np.concatenate([parent_cross_edges,
-                                            leftover_atomic_edges[node_id]])
+                # Add rows for nodes that are in this chunk
+                for i_node_id, node_id in enumerate(node_ids):
 
-                        # Create node
-                        val_dict = {"parents": parent_id_b}
+                    # Extract edges relevant to this node
+                    for l in range(layer_id, self.n_layers):
+                        if l in cross_edge_dict[node_id]:
+                            parent_cross_edges_b[l] += \
+                                cross_edge_dict[node_id][l]
 
-                        rows.append(self.mutate_row(serialize_uint64(node_id),
-                                                    self.family_id, val_dict,
-                                                    time_stamp=time_stamp))
+                    # Create node
+                    val_dict = {"parents": parent_id_b}
 
-                    # Create parent node
-                    val_dict = {"children":
-                                    node_ids.tobytes(),
-                                "atomic_cross_edges":
-                                    parent_cross_edges.tobytes()}
-
-                    rows.append(self.mutate_row(serialize_uint64(parent_id),
+                    rows.append(self.mutate_row(serialize_uint64(node_id),
                                                 self.family_id, val_dict,
                                                 time_stamp=time_stamp))
 
-                    self.bulk_write(rows)
+                # Create parent node
+                val_dict = {"children": node_ids.tobytes()}
+
+                rows.append(self.mutate_row(serialize_uint64(parent_id),
+                                            self.family_id, val_dict,
+                                            time_stamp=time_stamp))
+
+                val_dict = {}
+
+                for l in range(layer_id, self.n_layers):
+                    if l in parent_cross_edges_b:
+                        val_dict["atomic_cross_edges_%d" % l] =\
+                            parent_cross_edges_b[l]
+
+                if len(val_dict) > 0:
+                    rows.append(self.mutate_row(serialize_uint64(parent_id),
+                                                self.cross_edge_family_id,
+                                                val_dict,
+                                                time_stamp=time_stamp))
+
+                self.bulk_write(rows)
 
         if time_stamp is None:
             time_stamp = datetime.datetime.utcnow()
@@ -1301,17 +1382,21 @@ class ChunkedGraph(object):
         # ids in layer one below this one
         child_ids = np.array([], dtype=np.uint64)
         atomic_partner_id_dict = {}
+        cross_edge_dict = {}
         atomic_child_id_dict = {}
 
-        leftover_atomic_edges = {}
+        # leftover_atomic_edges = {}
 
         for chunk_coord in child_chunk_coords:
+            print(chunk_coord)
+
             # Get start and end key
             x, y, z = chunk_coord
 
+            row_keys = ["children"] + ["atomic_cross_edges_%d" % l
+                                       for l in range(layer_id - 1, self.n_layers)]
             range_read = self.range_read_chunk(layer_id - 1, x, y, z,
-                                               row_keys=["atomic_cross_edges",
-                                                         "children"],
+                                               row_keys=row_keys,
                                                yield_rows=False)
 
             # Due to restarted jobs some parents might be duplicated. We can
@@ -1361,50 +1446,67 @@ class ChunkedGraph(object):
             for row_id_b in row_ids_b:
                 row_id = deserialize_uint64(row_id_b)
 
-                cell = range_read[row_id_b].cells[self.family_id][
-                    serialize_key("atomic_cross_edges")]
-                atomic_edges_b = cell[0].value
-                atomic_edges = np.frombuffer(atomic_edges_b,
-                                             dtype=np.uint64).reshape(-1, 2)
+                cross_edge_dict[row_id] = {}
 
-                atomic_partner_id_dict[row_id] = atomic_edges[:, 1]
-                atomic_child_id_dict[row_id] = atomic_edges[:, 0]
+                if self.cross_edge_family_id in range_read[row_id_b].cells:
+                    cell_family = range_read[row_id_b].cells[self.cross_edge_family_id]
 
-                atomic_child_ids = np.concatenate([atomic_child_ids,
-                                                   atomic_edges[:, 0]])
-                child_ids =\
-                    np.concatenate([child_ids,
-                                    np.array([row_id] * len(atomic_edges[:, 0]),
-                                             dtype=np.uint64)])
+                    for l in range(layer_id - 1, self.n_layers):
+                        row_key = serialize_key("atomic_cross_edges_%d" % l)
+                        if row_key in cell_family:
+                            cross_edge_dict[row_id][l] = cell_family[row_key][0].value
 
-        # print("Time iterating through subchunks: %.3fs" %
-        #       (time.time() - time_start))
+                    if int(layer_id - 1) in cross_edge_dict[row_id]:
+                        atomic_edges_b = cross_edge_dict[row_id][layer_id - 1]
+
+                        atomic_edges = np.frombuffer(atomic_edges_b,
+                                                     dtype=np.uint64).reshape(-1, 2)
+
+                        atomic_partner_id_dict[row_id] = atomic_edges[:, 1]
+                        atomic_child_id_dict[row_id] = atomic_edges[:, 0]
+
+                        atomic_child_ids = np.concatenate([atomic_child_ids,
+                                                           atomic_edges[:, 0]])
+                        child_ids =\
+                            np.concatenate([child_ids,
+                                            np.array([row_id] * len(atomic_edges[:, 0]),
+                                                     dtype=np.uint64)])
+
+        print("Time iterating through subchunks: %.3fs" %
+              (time.time() - time_start))
         time_start = time.time()
 
         # Extract edges from remaining cross chunk edges
         # and maintain unused cross chunk edges
         edge_ids = []
-        u_atomic_child_ids = np.unique(atomic_child_ids)
+        # u_atomic_child_ids = np.unique(atomic_child_ids)
         atomic_partner_id_dict_keys = \
             np.array(list(atomic_partner_id_dict.keys()), dtype=np.uint64)
+        ll_node_ids = \
+            np.array(list(cross_edge_dict.keys()), dtype=np.uint64)
 
         if n_threads > 1:
             n_jobs = n_threads * 3 # Heuristic
         else:
             n_jobs = 1
 
-        spacing = np.linspace(0, len(atomic_partner_id_dict_keys),
-                              n_jobs+1).astype(np.int)
-        starts = spacing[:-1]
-        ends = spacing[1:]
+        n_jobs = np.min([n_jobs, len(atomic_partner_id_dict_keys)])
 
-        multi_args = list(zip(starts, ends))
+        if n_jobs > 0:
+            spacing = np.linspace(0, len(atomic_partner_id_dict_keys),
+                                  n_jobs+1).astype(np.int)
+            starts = spacing[:-1]
+            ends = spacing[1:]
 
-        mu.multithread_func(_resolve_cross_chunk_edges_thread, multi_args,
-                            n_threads=n_threads)
+            print(starts, ends, n_jobs)
 
-        # print("Time resolving cross chunk edges: %.3fs" %
-        #       (time.time() - time_start))
+            multi_args = list(zip(starts, ends))
+
+            mu.multithread_func(_resolve_cross_chunk_edges_thread, multi_args,
+                                n_threads=n_threads)
+
+        print("Time resolving cross chunk edges: %.3fs" %
+              (time.time() - time_start))
         time_start = time.time()
 
         # 2 ----------
@@ -1422,15 +1524,20 @@ class ChunkedGraph(object):
         # Add single node objects that have no edges
         add_ccs = []
 
-        isolated_node_mask = ~np.in1d(atomic_partner_id_dict_keys,
-                                      np.unique(edge_ids))
-        for node_id in atomic_partner_id_dict_keys[isolated_node_mask]:
+        isolated_node_mask = ~np.in1d(ll_node_ids, np.unique(edge_ids))
+        for node_id in ll_node_ids[isolated_node_mask]:
             add_ccs.append([node_id])
 
         ccs = list(nx.connected_components(chunk_g)) + add_ccs
 
         # Add rows for nodes that are in this chunk
         # a connected component at a time
+        if n_threads > 1:
+            n_jobs = n_threads * 3 # Heuristic
+        else:
+            n_jobs = 1
+
+        n_jobs = np.min([n_jobs, len(ccs)])
 
         spacing = np.linspace(0, len(ccs), n_jobs+1).astype(np.int)
         starts = spacing[:-1]
@@ -1441,7 +1548,7 @@ class ChunkedGraph(object):
         mu.multithread_func(_write_out_connected_components, multi_args,
                             n_threads=n_threads)
 
-        # print("Time connected components: %.3fs" % (time.time() - time_start))
+        print("Time connected components: %.3fs" % (time.time() - time_start))
 
     def get_parent(self, node_id: np.uint64,
                    get_only_relevant_parent: bool = True,
@@ -1947,7 +2054,7 @@ class ChunkedGraph(object):
                                                     dtype=np.uint64,
                                                     get_time_stamp=True)
                 if ids is None:
-                    _, row_time_stamp = self.read_row(next_id,
+                    r, row_time_stamp = self.read_row(next_id,
                                                       key="children",
                                                       dtype=np.uint64,
                                                       get_time_stamp=True)
@@ -2538,20 +2645,36 @@ class ChunkedGraph(object):
                                             {"new_parents": new_parent_id_b},
                                             time_stamp=time_stamp))
 
-            # Read original cross chunk edges
-            atomic_cross_edges = np.array([], dtype=np.uint64).reshape(0, 2)
-            for original_parent_id in original_parent_ids[i_layer]:
-                this_atomic_cross_edges = \
-                    self.read_row(original_parent_id,
-                                  "atomic_cross_edges").reshape(-1, 2)
-                atomic_cross_edges = np.concatenate([atomic_cross_edges,
-                                                     this_atomic_cross_edges])
-
-            val_dict["atomic_cross_edges"] = atomic_cross_edges.tobytes()
-
             rows.append(self.mutate_row(serialize_uint64(current_node_id),
                                         self.family_id, val_dict,
                                         time_stamp=time_stamp))
+
+            # Read original cross chunk edges
+            atomic_cross_edges_b = {}
+
+            for l in range(i_layer + 2, self.n_layers):
+                atomic_cross_edges_b[l] = b""
+
+            for original_parent_id in original_parent_ids[i_layer]:
+                this_atomic_cross_edges = \
+                    self.table.read_row(serialize_uint64(original_parent_id))
+
+                if self.cross_edge_family_id in this_atomic_cross_edges.cells:
+                    for l in range(i_layer + 2, self.n_layers):
+                        key = serialize_key("atomic_cross_edges_%d" % l)
+
+                        if key in this_atomic_cross_edges.cells[self.cross_edge_family_id]:
+                            atomic_cross_edges_b[l] += this_atomic_cross_edges.cells[self.cross_edge_family_id][key][0].value
+
+            val_dict = {}
+            for l in range(i_layer + 2, self.n_layers):
+                if len(atomic_cross_edges_b[l]) > 0:
+                    val_dict["atomic_cross_edges_%d" % l] = atomic_cross_edges_b[l]
+
+            if len(val_dict):
+                rows.append(self.mutate_row(serialize_uint64(current_node_id),
+                                            self.cross_edge_family_id, val_dict,
+                                            time_stamp=time_stamp))
 
         # Atomic edge
         for i_atomic_id in range(2):
@@ -2946,12 +3069,10 @@ class ChunkedGraph(object):
                 # are changed by the split. We need this information when
                 # processing the next layer
                 new_layer_parent_dict[new_parent_id] = old_parent_id
-                cross_edge_dict[new_parent_id] = cc_cross_edges
                 old_id_dict[old_parent_id].append(new_parent_id)
 
                 # Make changes to the rows of the lowest layer
-                val_dict = {"children": cc_node_ids.tobytes(),
-                            "atomic_cross_edges": cc_cross_edges.tobytes()}
+                val_dict = {"children": cc_node_ids.tobytes()}
 
                 rows.append(self.mutate_row(serialize_uint64(new_parent_id),
                                             self.family_id, val_dict,
@@ -2963,6 +3084,33 @@ class ChunkedGraph(object):
                     rows.append(self.mutate_row(serialize_uint64(cc_node_id),
                                                 self.family_id, val_dict,
                                                 time_stamp=time_stamp))
+
+                cce_layers = self.get_cross_chunk_edges_layer(cc_cross_edges)
+                u_cce_layers = np.unique(cce_layers)
+                cross_edge_dict[new_parent_id] = {}
+
+                for l in range(2, self.n_layers):
+                    cross_edge_dict[new_parent_id][l] = \
+                        np.array([], dtype=np.uint64).reshape(-1, 2)
+
+                val_dict = {}
+                for cc_layer in u_cce_layers:
+                    layer_cross_edges = cc_cross_edges[cce_layers == cc_layer]
+
+                    print("layer_cross_edges", layer_cross_edges)
+                    if len(layer_cross_edges) > 0:
+                        val_dict["atomic_cross_edges_%d" % cc_layer] = \
+                            layer_cross_edges.tobytes()
+                        cross_edge_dict[new_parent_id][cc_layer] = layer_cross_edges
+
+                if len(val_dict) > 0:
+                    print("val_dict", val_dict)
+                    rows.append(self.mutate_row(serialize_uint64(new_parent_id),
+                                                self.cross_edge_family_id,
+                                                val_dict,
+                                                time_stamp=time_stamp))
+
+
 
         # Now that the lowest layer has been updated, we need to walk through
         # all layers and move our new parents forward
@@ -2982,6 +3130,7 @@ class ChunkedGraph(object):
 
             for new_layer_parent in new_layer_parent_dict.keys():
                 old_parent_id = new_layer_parent_dict[new_layer_parent]
+                print(i_layer, new_layer_parent, cross_edge_dict)
                 cross_edges = cross_edge_dict[new_layer_parent]
 
                 # Using the old parent's parents: get all nodes in the
@@ -2998,10 +3147,12 @@ class ChunkedGraph(object):
                 # that all future neighbors are among the old neighbors
                 # (old_chunk_neighbors) or their new replacements due to this
                 # split.
-                atomic_children = cross_edges[:, 0]
-                atomic_id_map = np.ones(len(cross_edges), dtype=np.uint64) * \
-                                new_layer_parent
-                partner_cross_edges = {new_layer_parent: cross_edges}
+                print("------", self.n_layers, cross_edges, i_layer)
+
+                atomic_children = cross_edges[i_layer][:, 0]
+                atomic_id_map = np.ones(len(cross_edges[i_layer]),
+                                        dtype=np.uint64) * new_layer_parent
+                partner_cross_edges = {new_layer_parent: cross_edges[i_layer]}
 
                 for old_chunk_neighbor in old_chunk_neighbors:
                     # For each neighbor we need to check whether this neighbor
@@ -3011,7 +3162,7 @@ class ChunkedGraph(object):
                     # the atomic_cross_edges from BigTable
                     if old_chunk_neighbor in old_id_dict:
                         for new_neighbor in old_id_dict[old_chunk_neighbor]:
-                            neigh_cross_edges = cross_edge_dict[new_neighbor]
+                            neigh_cross_edges = cross_edge_dict[new_neighbor][i_layer]
                             atomic_children = \
                                 np.concatenate([atomic_children,
                                                 neigh_cross_edges[:, 0]])
@@ -3024,7 +3175,11 @@ class ChunkedGraph(object):
                             atomic_id_map = np.concatenate([atomic_id_map, ps])
                     else:
                         neigh_cross_edges = self.read_row(old_chunk_neighbor,
-                                                          "atomic_cross_edges")
+                                                          "atomic_cross_edges_%d" % i_layer,
+                                                          fam_id=self.cross_edge_family_id)
+                        if neigh_cross_edges is None:
+                            neigh_cross_edges = np.array([], dtype=np.uint64)
+
                         neigh_cross_edges = neigh_cross_edges.reshape(-1, 2)
 
                         atomic_children = \
@@ -3122,7 +3277,8 @@ class ChunkedGraph(object):
 
                 new_layer_parent_dict[new_parent_id] = \
                     parent_cc_old_parent_list[i_cc]
-                cross_edge_dict[new_parent_id] = cc_cross_edges
+
+                cross_edge_dict[new_parent_id] = self.get_cross_chunk_edge_dict(cc_cross_edges)
 
                 for cc_node_id in cc_node_ids:
                     val_dict = {"parents": new_parent_id_b}
@@ -3131,8 +3287,7 @@ class ChunkedGraph(object):
                                                 self.family_id, val_dict,
                                                 time_stamp=time_stamp))
 
-                val_dict = {"children": cc_node_ids.tobytes(),
-                            "atomic_cross_edges": cc_cross_edges.tobytes()}
+                val_dict = {"children": cc_node_ids.tobytes()}
 
                 if i_layer == self.n_layers-1:
                     new_roots.append(new_parent_id)
@@ -3143,6 +3298,12 @@ class ChunkedGraph(object):
 
                 rows.append(self.mutate_row(serialize_uint64(new_parent_id),
                                             self.family_id, val_dict,
+                                            time_stamp=time_stamp))
+
+                val_dict = {"atomic_cross_edges_%d" % i_layer:
+                                cc_cross_edges.tobytes()}
+                rows.append(self.mutate_row(serialize_uint64(new_parent_id),
+                                            self.cross_edge_family_id, val_dict,
                                             time_stamp=time_stamp))
 
             if i_layer == self.n_layers-1:
