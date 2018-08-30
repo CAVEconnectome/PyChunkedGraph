@@ -160,7 +160,6 @@ class MeshEngine(object):
 
             multi_args.append([cg_info, start_block, end_block, self.cg.cv_path,
                                self.cv_mesh_dir, self.mesh_mip, layer])
-
         random.shuffle(multi_args)
 
         # Run parallelizing
