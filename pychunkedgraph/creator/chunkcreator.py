@@ -113,7 +113,7 @@ def check_stored_cv_files(dataset_name="basil"):
 
 
 def create_chunked_graph(table_id=None, cv_url=None, ws_url=None, fan_out=2,
-                         chunk_size=(512, 512, 128), n_threads=1):
+                         bbox=None, chunk_size=(512, 512, 128), n_threads=1):
     """ Creates chunked graph from downloaded files
 
     :param table_id: str
@@ -145,7 +145,7 @@ def create_chunked_graph(table_id=None, cv_url=None, ws_url=None, fan_out=2,
 
     multi_args = []
     for fp_block in file_path_blocks:
-        multi_args.append([fp_block, table_id, chunk_size])
+        multi_args.append([fp_block, table_id, chunk_size, bbox])
 
     if n_threads == 1:
         results = mu.multiprocess_func(
@@ -297,7 +297,12 @@ def create_chunked_graph(table_id=None, cv_url=None, ws_url=None, fan_out=2,
 def _preprocess_chunkedgraph_data_thread(args):
     """ Reads downloaded files and sorts them in _in_ and _between_ chunks """
 
-    file_paths, table_id, chunk_size = args
+    file_paths, table_id, chunk_size, bbox = args
+
+    if bbox is None:
+        bbox = [[0, 0, 0], [np.inf, np.inf, np.inf]]
+
+    bbox = np.array(bbox)
 
     in_chunk_connected_paths = np.array([])
     in_chunk_connected_ids = np.array([], dtype=np.uint64).reshape(-1, 3)
@@ -314,6 +319,11 @@ def _preprocess_chunkedgraph_data_thread(args):
 
         # Read coordinates from file path
         x1, x2, y1, y2, z1, z2 = np.array(re.findall("[\d]+", file_name), dtype=np.int)[:6]
+
+        if np.any((bbox[0] - np.array([x2, y2, z2])) >= 0) or \
+                np.any((bbox[1] - np.array([x1, y1, z1])) <= 0):
+            continue
+
         dx = x2 - x1
         dy = y2 - y1
         dz = z2 - z1
