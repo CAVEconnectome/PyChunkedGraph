@@ -3,7 +3,7 @@ import numpy as np
 import itertools
 
 from pychunkedgraph.backend import chunkedgraph
-from pychunkedgraph.multiprocessing import multiprocessing_utils as mu
+from pychunkedgraph.parallelizing import multiprocessing_utils as mu
 
 from . import meshgen
 
@@ -150,7 +150,7 @@ class MeshEngine(object):
             multi_args.append([cg_info, start_block, end_block, self.cg.cv_path,
                                self.cv_mesh_dir, self.mesh_mip, layer])
 
-        # Run multiprocessing
+        # Run parallelizing
         if n_threads == 1:
             mu.multiprocess_func(meshgen._mesh_layer_thread, multi_args,
                                  n_threads=n_threads, verbose=True,
@@ -178,7 +178,7 @@ class MeshEngine(object):
                                self.cv_mesh_dir, self.mesh_mip,
                                self.highest_mesh_layer])
 
-        # Run multiprocessing
+        # Run parallelizing
         if n_threads == 1:
             mu.multiprocess_func(meshgen._create_manifest_files_thread,
                                  multi_args, n_threads=n_threads, verbose=True,
