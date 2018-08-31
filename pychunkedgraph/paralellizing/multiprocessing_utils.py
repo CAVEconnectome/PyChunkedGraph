@@ -31,7 +31,7 @@ def _load_multifunc_out_thread(out_file_path):
 
 
 def multiprocess_func(func, params, debug=False, verbose=False, n_threads=None):
-    """ Processes data independent functions in parallel using multiprocessing
+    """ Processes data independent functions in parallel using paralellizing
 
     :param func: function
     :param params: list

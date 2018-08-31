@@ -9,7 +9,7 @@ from cloudvolume import storage
 
 # from chunkedgraph import ChunkedGraph
 from pychunkedgraph.backend import chunkedgraph
-from pychunkedgraph.multiprocessing import multiprocessing_utils as mu
+from pychunkedgraph.paralellizing import multiprocessing_utils as mu
 from pychunkedgraph.creator import creator_utils
 
 
@@ -44,7 +44,7 @@ def download_and_store_cv_files(dataset_name="basil",
     for i_file_chunk, file_chunk in enumerate(file_chunks):
         multi_args.append([i_file_chunk, cv_url, file_chunk, olduint32])
 
-    # Run multiprocessing
+    # Run paralellizing
     if n_threads == 1:
         mu.multiprocess_func(_download_and_store_cv_files_thread,
                                                 multi_args, n_threads=n_threads,
@@ -59,7 +59,7 @@ def _download_and_store_cv_files_thread(args):
     """ Helper thread to download files from google cloud """
     chunk_id, cv_url, file_paths, olduint32 = args
 
-    # Reset connection pool to make cloud-volume compatible with multiprocessing
+    # Reset connection pool to make cloud-volume compatible with paralellizing
     storage.reset_connection_pools()
 
     n_file_paths = len(file_paths)
@@ -196,7 +196,7 @@ def create_chunked_graph(table_id=None, cv_url=None, ws_url=None, fan_out=2,
                            in_chunk_id_block, cumsum])
         cumsum += len(in_chunk_id_block)
 
-    # Run multiprocessing
+    # Run paralellizing
     if n_threads == 1:
         results = mu.multiprocess_func(
             _between_chunk_masks_thread, multi_args, n_threads=n_threads,
@@ -221,7 +221,7 @@ def create_chunked_graph(table_id=None, cv_url=None, ws_url=None, fan_out=2,
                                    cv_path=ws_url, is_new=True)
 
     # Fill lowest layer and create first abstraction layer
-    # Create arguments for multiprocessing
+    # Create arguments for paralellizing
 
     multi_args = []
     for result in results:
@@ -235,7 +235,7 @@ def create_chunked_graph(table_id=None, cv_url=None, ws_url=None, fan_out=2,
                                between_chunk_paths_in_masked[i_chunk],
                                between_chunk_paths_out_masked[i_chunk]])
 
-    # Run multiprocessing
+    # Run paralellizing
     if n_threads == 1:
         mu.multiprocess_func(
             _create_atomic_layer_thread, multi_args, n_threads=n_threads,
@@ -275,7 +275,7 @@ def create_chunked_graph(table_id=None, cv_url=None, ws_url=None, fan_out=2,
         child_chunk_ids = u_pcids
         # print(layer_id, np.unique(child_chunk_ids), np.unique(parent_chunk_ids))
 
-        # Run multiprocessing
+        # Run paralellizing
         if n_threads == 1:
             mu.multiprocess_func(
                 _add_layer_thread, multi_args, n_threads=n_threads,
