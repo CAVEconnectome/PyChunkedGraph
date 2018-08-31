@@ -7,7 +7,7 @@ import networkx as nx
 import pytz
 import cloudvolume
 
-from pychunkedgraph.multiprocessing import multiprocessing_utils as mu
+from pychunkedgraph.paralellizing import multiprocessing_utils as mu
 from . import mincut
 
 from google.api_core.retry import Retry, if_exception_type
