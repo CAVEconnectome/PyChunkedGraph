@@ -17,6 +17,9 @@ import zstandard as zstd
 sys.path.insert(0, os.path.join(sys.path[0], '..'))
 from backend import chunkedgraph  # noqa
 
+UINT64_ZERO = np.uint64(0)
+UINT64_ONE = np.uint64(1)
+
 
 class EdgeTask:
     def __init__(self,
@@ -136,7 +139,7 @@ class EdgeTask:
         assigned_node_ids = {node_id for chunk_edges in self.__watershed["rg2cg_complete"].values() for node_id in chunk_edges.values()}
 
         def relabel_chunk(chunk_id: np.uint64, view_range: Tuple[slice, slice, slice]):
-            next_segment_id = np.uint64(1)
+            next_segment_id = UINT64_ONE
 
             original = np.nditer(
                 self.__watershed["original"][view_range], flags=['multi_index'])
@@ -144,27 +147,31 @@ class EdgeTask:
 
             print("Starting Loop for chunk %i" % chunk_id)
             while not original.finished:
-                original_val = original[0].item()
+                original_val = np.uint64(original[0])
 
-                if original_val == 0:
+                if original_val == UINT64_ZERO:
                     # Don't relabel cell boundary (ID 0)
-                    relabeled[0] = 0
+                    relabeled[0] = UINT64_ZERO
                 elif original_val in self.__watershed["rg2cg_complete"][chunk_id]:
                     # Already encountered this ID before.
-                    relabeled[0] = self.__watershed["rg2cg_complete"][chunk_id][original_val]
+                    relabeled[0] = relabeled_val = self.__watershed["rg2cg_complete"][chunk_id][original_val]
+                    if original.multi_index[0] == 0 or \
+                       original.multi_index[1] == 0 or \
+                       original.multi_index[2] == 0:
+                        self.__watershed["rg2cg_boundary"][chunk_id][original_val] = relabeled_val
                 else:
                     # Find new, unused node ID for this chunk.
                     while self.__cgraph.get_node_id(
                             segment_id=next_segment_id,
                             chunk_id=chunk_id) in assigned_node_ids:
-                        next_segment_id += np.uint64(1)
+                        next_segment_id += UINT64_ONE
 
                     relabeled_val = self.__cgraph.get_node_id(
                             segment_id=next_segment_id,
                             chunk_id=chunk_id)
 
                     relabeled[0] = relabeled_val
-                    next_segment_id += np.uint64(1)
+                    next_segment_id += UINT64_ONE
                     assigned_node_ids.add(relabeled_val)
 
                     self.__watershed["rg2cg_complete"][chunk_id][original_val] = relabeled_val
@@ -194,202 +201,218 @@ class EdgeTask:
         self.__save_cutout_labels_to_db()
 
     def __compute_cutout_regiongraph(self):
-        # Download all region graph edges covering this part of the dataset
-        regiongraph_edges = self.__load_rg_chunkhierarchy_affinities()
+        edges_center_connected = np.array([])
+        edges_center_disconnected = np.array([])
+        isolated_sv = np.array([])
+        edges_xplus_connected = np.array([])
+        edges_xplus_disconnected = np.array([])
+        edges_xplus_unbreakable = np.array([])
+        edges_yplus_connected = np.array([])
+        edges_yplus_disconnected = np.array([])
+        edges_yplus_unbreakable = np.array([])
+        edges_zplus_connected = np.array([])
+        edges_zplus_disconnected = np.array([])
+        edges_zplus_unbreakable = np.array([])
 
-        print("Calculating RegionGraph...")
+        if np.any(self.__watershed["original"]):
+            # Download all region graph edges covering this part of the dataset
+            regiongraph_edges = self.__load_rg_chunkhierarchy_affinities()
 
-        original = self.__watershed["original"]
-        agglomeration = self.__agglomeration["original"]
+            print("Calculating RegionGraph...")
 
-        # Shortcut to Original -> Relabeled supervoxel lookup table for the
-        # center chunk
-        rg2cg_center = self.__watershed["rg2cg_complete"][
-            self.__cgraph.get_chunk_id_from_coord(
-                layer=1,
-                x=self.__roi[0].start,
-                y=self.__roi[1].start,
-                z=self.__roi[2].start)]
+            original = self.__watershed["original"]
+            agglomeration = self.__agglomeration["original"]
 
-        # Original -> Relabeled supervoxel lookup table for chunk in X+ dir
-        rg2cg_xplus = self.__watershed["rg2cg_complete"][
-            self.__cgraph.get_chunk_id_from_coord(
-                layer=1,
-                x=self.__roi[0].start + int(self.__cgraph.chunk_size[0]),
-                y=self.__roi[1].start,
-                z=self.__roi[2].start)]
+            # Shortcut to Original -> Relabeled supervoxel lookup table for the
+            # center chunk
+            rg2cg_center = self.__watershed["rg2cg_complete"][
+                self.__cgraph.get_chunk_id_from_coord(
+                    layer=1,
+                    x=self.__roi[0].start,
+                    y=self.__roi[1].start,
+                    z=self.__roi[2].start)]
 
-        # Original -> Relabeled supervoxel lookup table for chunk in Y+ dir
-        rg2cg_yplus = self.__watershed["rg2cg_complete"][
-            self.__cgraph.get_chunk_id_from_coord(
-                layer=1,
-                x=self.__roi[0].start,
-                y=self.__roi[1].start + int(self.__cgraph.chunk_size[1]),
-                z=self.__roi[2].start)]
+            # Original -> Relabeled supervoxel lookup table for chunk in X+ dir
+            rg2cg_xplus = self.__watershed["rg2cg_complete"][
+                self.__cgraph.get_chunk_id_from_coord(
+                    layer=1,
+                    x=self.__roi[0].start + int(self.__cgraph.chunk_size[0]),
+                    y=self.__roi[1].start,
+                    z=self.__roi[2].start)]
 
-        # Original -> Relabeled supervoxel lookup table for chunk in Z+ dir
-        rg2cg_zplus = self.__watershed["rg2cg_complete"][
-            self.__cgraph.get_chunk_id_from_coord(
-                layer=1,
-                x=self.__roi[0].start,
-                y=self.__roi[1].start,
-                z=self.__roi[2].start + int(self.__cgraph.chunk_size[2]))]
+            # Original -> Relabeled supervoxel lookup table for chunk in Y+ dir
+            rg2cg_yplus = self.__watershed["rg2cg_complete"][
+                self.__cgraph.get_chunk_id_from_coord(
+                    layer=1,
+                    x=self.__roi[0].start,
+                    y=self.__roi[1].start + int(self.__cgraph.chunk_size[1]),
+                    z=self.__roi[2].start)]
 
-        # Mask unsegmented voxel (ID=0) and voxel not at a supervoxel
-        # boundary in X-direction
-        sv_boundaries_x = \
-            (original[:-1, :, :] != 0) & (original[1:, :, :] != 0) & \
-            (original[:-1, :, :] != original[1:, :, :])
+            # Original -> Relabeled supervoxel lookup table for chunk in Z+ dir
+            rg2cg_zplus = self.__watershed["rg2cg_complete"][
+                self.__cgraph.get_chunk_id_from_coord(
+                    layer=1,
+                    x=self.__roi[0].start,
+                    y=self.__roi[1].start,
+                    z=self.__roi[2].start + int(self.__cgraph.chunk_size[2]))]
 
-        # Mask voxel that are not at an agglomeration boundary in X-direction
-        agg_boundaries_x = (agglomeration[:-1, :, :] == agglomeration[1:, :, :])
+            # Mask unsegmented voxel (ID=0) and voxel not at a supervoxel
+            # boundary in X-direction
+            sv_boundaries_x = \
+                (original[:-1, :, :] != UINT64_ZERO) & (original[1:, :, :] != UINT64_ZERO) & \
+                (original[:-1, :, :] != original[1:, :, :])
 
-        # Mask unsegmented voxel (ID=0) and voxel not at a supervoxel
-        # boundary in Y-direction
-        sv_boundaries_y = \
-            (original[:, :-1, :] != 0) & (original[:, 1:, :] != 0) & \
-            (original[:, :-1, :] != original[:, 1:, :])
+            # Mask voxel that are not at an agglomeration boundary in X-direction
+            agg_boundaries_x = (agglomeration[:-1, :, :] == agglomeration[1:, :, :])
 
-        # Mask voxel that are not at an agglomeration boundary in Y-direction
-        agg_boundaries_y = (agglomeration[:, :-1, :] == agglomeration[:, 1:, :])
+            # Mask unsegmented voxel (ID=0) and voxel not at a supervoxel
+            # boundary in Y-direction
+            sv_boundaries_y = \
+                (original[:, :-1, :] != UINT64_ZERO) & (original[:, 1:, :] != UINT64_ZERO) & \
+                (original[:, :-1, :] != original[:, 1:, :])
 
-        # Mask unsegmented voxel (ID=0) and voxel not at a supervoxel
-        # boundary in Z-direction
-        sv_boundaries_z = \
-            (original[:, :, :-1] != 0) & (original[:, :, 1:] != 0) & \
-            (original[:, :, :-1] != original[:, :, 1:])
+            # Mask voxel that are not at an agglomeration boundary in Y-direction
+            agg_boundaries_y = (agglomeration[:, :-1, :] == agglomeration[:, 1:, :])
 
-        # Mask voxel that are not at an agglomeration boundary in Z-direction
-        agg_boundaries_z = (agglomeration[:, :, :-1] == agglomeration[:, :, 1:])
+            # Mask unsegmented voxel (ID=0) and voxel not at a supervoxel
+            # boundary in Z-direction
+            sv_boundaries_z = \
+                (original[:, :, :-1] != UINT64_ZERO) & (original[:, :, 1:] != UINT64_ZERO) & \
+                (original[:, :, :-1] != original[:, :, 1:])
 
-        # Center Chunk:
-        # Collect all unique pairs of adjacent supervoxel IDs from the original
-        # watershed labeling that are part of the same agglomeration.
-        # Note that edges are sorted (lower supervoxel ID comes first).
-        edges_center_connected = {x if x[0] < x[1] else (x[1], x[0]) for x in chain(
-            zip(original[:-2, :-1, :-1][sv_boundaries_x[:-1, :-1, :-1] & agg_boundaries_x[:-1, :-1, :-1]],
-                original[1:-1, :-1, :-1][sv_boundaries_x[:-1, :-1, :-1] & agg_boundaries_x[:-1, :-1, :-1]]),
-            zip(original[:-1, :-2, :-1][sv_boundaries_y[:-1, :-1, :-1] & agg_boundaries_y[:-1, :-1, :-1]],
-                original[:-1, 1:-1, :-1][sv_boundaries_y[:-1, :-1, :-1] & agg_boundaries_y[:-1, :-1, :-1]]),
-            zip(original[:-1, :-1, :-2][sv_boundaries_z[:-1, :-1, :-1] & agg_boundaries_z[:-1, :-1, :-1]],
-                original[:-1, :-1, 1:-1][sv_boundaries_z[:-1, :-1, :-1] & agg_boundaries_z[:-1, :-1, :-1]]))}
+            # Mask voxel that are not at an agglomeration boundary in Z-direction
+            agg_boundaries_z = (agglomeration[:, :, :-1] == agglomeration[:, :, 1:])
 
-        # Look up the affinity information for each edge and replace
-        # original supervoxel IDs with relabeled IDs
-        if edges_center_connected:
-            edges_center_connected = np.array([
-                (*sorted(itemgetter(x[0], x[1])(rg2cg_center)), x[2], x[3])
-                for x in [regiongraph_edges[e] for e in edges_center_connected]
-            ], dtype='uint64, uint64, float32, uint64')
+            # Center Chunk:
+            # Collect all unique pairs of adjacent supervoxel IDs from the original
+            # watershed labeling that are part of the same agglomeration.
+            # Note that edges are sorted (lower supervoxel ID comes first).
+            edges_center_connected = {x if x[0] < x[1] else (x[1], x[0]) for x in chain(
+                zip(original[:-2, :-1, :-1][sv_boundaries_x[:-1, :-1, :-1] & agg_boundaries_x[:-1, :-1, :-1]],
+                    original[1:-1, :-1, :-1][sv_boundaries_x[:-1, :-1, :-1] & agg_boundaries_x[:-1, :-1, :-1]]),
+                zip(original[:-1, :-2, :-1][sv_boundaries_y[:-1, :-1, :-1] & agg_boundaries_y[:-1, :-1, :-1]],
+                    original[:-1, 1:-1, :-1][sv_boundaries_y[:-1, :-1, :-1] & agg_boundaries_y[:-1, :-1, :-1]]),
+                zip(original[:-1, :-1, :-2][sv_boundaries_z[:-1, :-1, :-1] & agg_boundaries_z[:-1, :-1, :-1]],
+                    original[:-1, :-1, 1:-1][sv_boundaries_z[:-1, :-1, :-1] & agg_boundaries_z[:-1, :-1, :-1]]))}
+
+            # Look up the affinity information for each edge and replace
+            # original supervoxel IDs with relabeled IDs
+            if edges_center_connected:
+                edges_center_connected = np.array([
+                    (*sorted(itemgetter(x[0], x[1])(rg2cg_center)), x[2], x[3])
+                    for x in [regiongraph_edges[e] for e in edges_center_connected]
+                ], dtype='uint64, uint64, float32, uint64')
+            else:
+                edges_center_connected = np.array([], dtype='uint64, uint64, float32, uint64')
+
+            # Collect all unique pairs of adjacent supervoxel IDs from the original
+            # watershed labeling that are NOT part of the same agglomeration.
+            edges_center_disconnected = {x if x[0] < x[1] else (x[1], x[0]) for x in chain(
+                zip(original[:-2, :-1, :-1][sv_boundaries_x[:-1, :-1, :-1] & ~agg_boundaries_x[:-1, :-1, :-1]],
+                    original[1:-1, :-1, :-1][sv_boundaries_x[:-1, :-1, :-1] & ~agg_boundaries_x[:-1, :-1, :-1]]),
+                zip(original[:-1, :-2, :-1][sv_boundaries_y[:-1, :-1, :-1] & ~agg_boundaries_y[:-1, :-1, :-1]],
+                    original[:-1, 1:-1, :-1][sv_boundaries_y[:-1, :-1, :-1] & ~agg_boundaries_y[:-1, :-1, :-1]]),
+                zip(original[:-1, :-1, :-2][sv_boundaries_z[:-1, :-1, :-1] & ~agg_boundaries_z[:-1, :-1, :-1]],
+                    original[:-1, :-1, 1:-1][sv_boundaries_z[:-1, :-1, :-1] & ~agg_boundaries_z[:-1, :-1, :-1]]))}
+
+            # Look up the affinity information for each edge and replace
+            # original supervoxel IDs with relabeled IDs
+            if edges_center_disconnected:
+                edges_center_disconnected = np.array([
+                    (*sorted(itemgetter(x[0], x[1])(rg2cg_center)), x[2], x[3])
+                    for x in [regiongraph_edges[e] for e in edges_center_disconnected]
+                ], dtype='uint64, uint64, float32, uint64')
+            else:
+                edges_center_disconnected = np.array([], dtype='uint64, uint64, float32, uint64')
+
+            # Check if there are supervoxel that are not connected to any other
+            # supervoxel - surrounded by ID 0
+            isolated_sv = set(rg2cg_center.values())
+            for e in chain(edges_center_connected, edges_center_disconnected):
+                isolated_sv.discard(e[0])
+                isolated_sv.discard(e[1])
+            isolated_sv = np.array(list(isolated_sv), dtype=np.uint64)
+
+            # XPlus Chunk:
+            # Collect edges between center chunk and the chunk in X+ direction.
+            # Slightly different approach because the relabeling lookup needs
+            # to be done for two different dictionaries. Slower, but fast enough
+            # due to far fewer edges near the boundary.
+            # Node ID layout guarantees that center chunk IDs are always smaller
+            # than IDs of positive neighboring chunks.
+            edges_xplus_connected = np.array(list({
+                (rg2cg_center[x[0]],
+                 rg2cg_xplus[x[1]],
+                 *regiongraph_edges[x if x[0] < x[1] else (x[1], x[0])].item()[2:]) for x in zip(
+                    original[-2:-1, :-1, :-1][sv_boundaries_x[-1:, :-1, :-1] & agg_boundaries_x[-1:, :-1, :-1]],
+                    original[-1:, :-1, :-1][sv_boundaries_x[-1:, :-1, :-1] & agg_boundaries_x[-1:, :-1, :-1]])
+            }), dtype='uint64, uint64, float32, uint64')
+
+            edges_xplus_disconnected = np.array(list({
+                (rg2cg_center[x[0]],
+                 rg2cg_xplus[x[1]],
+                 *regiongraph_edges[x if x[0] < x[1] else (x[1], x[0])].item()[2:]) for x in zip(
+                    original[-2:-1, :-1, :-1][sv_boundaries_x[-1:, :-1, :-1] & ~agg_boundaries_x[-1:, :-1, :-1]],
+                    original[-1:, :-1, :-1][sv_boundaries_x[-1:, :-1, :-1] & ~agg_boundaries_x[-1:, :-1, :-1]])
+            }), dtype='uint64, uint64, float32, uint64')
+
+            # Unbreakable edges (caused by relabeling and chunking) don't have
+            # sum of area or affinity values
+            edges_xplus_unbreakable = np.array(list({
+                (rg2cg_center[x], rg2cg_xplus[x]) for x in np.unique(
+                    original[-2:-1, :-1, :-1][(original[-2:-1, :-1, :-1] != UINT64_ZERO) &
+                                              (original[-2:-1, :-1, :-1] == original[-1:, :-1, :-1])])
+            }), dtype='uint64, uint64')
+
+            # YPlus Chunk:
+            # Collect edges between center chunk and the chunk in Y+ direction.
+            edges_yplus_connected = np.array(list({
+                (rg2cg_center[x[0]],
+                 rg2cg_yplus[x[1]],
+                 *regiongraph_edges[x if x[0] < x[1] else (x[1], x[0])].item()[2:]) for x in zip(
+                    original[:-1, -2:-1, :-1][sv_boundaries_y[:-1, -1:, :-1] & agg_boundaries_y[:-1, -1:, :-1]],
+                    original[:-1, -1:, :-1][sv_boundaries_y[:-1, -1:, :-1] & agg_boundaries_y[:-1, -1:, :-1]])
+            }), dtype='uint64, uint64, float32, uint64')
+
+            edges_yplus_disconnected = np.array(list({
+                (rg2cg_center[x[0]],
+                 rg2cg_yplus[x[1]],
+                 *regiongraph_edges[x if x[0] < x[1] else (x[1], x[0])].item()[2:]) for x in zip(
+                    original[:-1, -2:-1, :-1][sv_boundaries_y[:-1, -1:, :-1] & ~agg_boundaries_y[:-1, -1:, :-1]],
+                    original[:-1, -1:, :-1][sv_boundaries_y[:-1, -1:, :-1] & ~agg_boundaries_y[:-1, -1:, :-1]])
+            }), dtype='uint64, uint64, float32, uint64')
+
+            edges_yplus_unbreakable = np.array(list({
+                (rg2cg_center[x], rg2cg_yplus[x]) for x in np.unique(
+                    original[:-1, -2:-1, :-1][(original[:-1, -2:-1, :-1] != UINT64_ZERO) &
+                                              (original[:-1, -2:-1, :-1] == original[:-1, -1:, :-1])])
+            }), dtype='uint64, uint64')
+
+            # ZPlus Chunk
+            # Collect edges between center chunk and the chunk in Z+ direction.
+            edges_zplus_connected = np.array(list({
+                (rg2cg_center[x[0]],
+                 rg2cg_zplus[x[1]],
+                 *regiongraph_edges[x if x[0] < x[1] else (x[1], x[0])].item()[2:]) for x in zip(
+                    original[:-1, :-1, -2:-1][sv_boundaries_z[:-1, :-1, -1:] & agg_boundaries_z[:-1, :-1, -1:]],
+                    original[:-1, :-1, -1:][sv_boundaries_z[:-1, :-1, -1:] & agg_boundaries_z[:-1, :-1, -1:]])
+            }), dtype='uint64, uint64, float32, uint64')
+
+            edges_zplus_disconnected = np.array(list({
+                (rg2cg_center[x[0]],
+                 rg2cg_zplus[x[1]],
+                 *regiongraph_edges[x if x[0] < x[1] else (x[1], x[0])].item()[2:]) for x in zip(
+                    original[:-1, :-1, -2:-1][sv_boundaries_z[:-1, :-1, -1:] & ~agg_boundaries_z[:-1, :-1, -1:]],
+                    original[:-1, :-1, -1:][sv_boundaries_z[:-1, :-1, -1:] & ~agg_boundaries_z[:-1, :-1, -1:]])
+            }), dtype='uint64, uint64, float32, uint64')
+
+            edges_zplus_unbreakable = np.array(list({
+                (rg2cg_center[x], rg2cg_zplus[x]) for x in np.unique(
+                    original[:-1, :-1, -2:-1][(original[:-1, :-1, -2:-1] != UINT64_ZERO) &
+                                              (original[:-1, :-1, -2:-1] == original[:-1, :-1, -1:])])
+            }), dtype='uint64, uint64')
         else:
-            edges_center_connected = np.array([], dtype='uint64, uint64, float32, uint64')
-
-        # Collect all unique pairs of adjacent supervoxel IDs from the original
-        # watershed labeling that are NOT part of the same agglomeration.
-        edges_center_disconnected = {x if x[0] < x[1] else (x[1], x[0]) for x in chain(
-            zip(original[:-2, :-1, :-1][sv_boundaries_x[:-1, :-1, :-1] & ~agg_boundaries_x[:-1, :-1, :-1]],
-                original[1:-1, :-1, :-1][sv_boundaries_x[:-1, :-1, :-1] & ~agg_boundaries_x[:-1, :-1, :-1]]),
-            zip(original[:-1, :-2, :-1][sv_boundaries_y[:-1, :-1, :-1] & ~agg_boundaries_y[:-1, :-1, :-1]],
-                original[:-1, 1:-1, :-1][sv_boundaries_y[:-1, :-1, :-1] & ~agg_boundaries_y[:-1, :-1, :-1]]),
-            zip(original[:-1, :-1, :-2][sv_boundaries_z[:-1, :-1, :-1] & ~agg_boundaries_z[:-1, :-1, :-1]],
-                original[:-1, :-1, 1:-1][sv_boundaries_z[:-1, :-1, :-1] & ~agg_boundaries_z[:-1, :-1, :-1]]))}
-
-        # Look up the affinity information for each edge and replace
-        # original supervoxel IDs with relabeled IDs
-        if edges_center_disconnected:
-            edges_center_disconnected = np.array([
-                (*sorted(itemgetter(x[0], x[1])(rg2cg_center)), x[2], x[3])
-                for x in [regiongraph_edges[e] for e in edges_center_disconnected]
-            ], dtype='uint64, uint64, float32, uint64')
-        else:
-            edges_center_disconnected = np.array([], dtype='uint64, uint64, float32, uint64')
-
-        # Check if there are supervoxel that are not connected to any other
-        # supervoxel - surrounded by ID 0
-        isolated_sv = set(rg2cg_center.values())
-        for e in chain(edges_center_connected, edges_center_disconnected):
-            isolated_sv.discard(e[0])
-            isolated_sv.discard(e[1])
-        isolated_sv = np.array(list(isolated_sv), dtype=np.uint64)
-
-        # XPlus Chunk:
-        # Collect edges between center chunk and the chunk in X+ direction.
-        # Slightly different approach because the relabeling lookup needs
-        # to be done for two different dictionaries. Slower, but fast enough
-        # due to far fewer edges near the boundary.
-        # Node ID layout guarantees that center chunk IDs are always smaller
-        # than IDs of positive neighboring chunks.
-        edges_xplus_connected = np.array(list({
-            (rg2cg_center[x[0]],
-             rg2cg_xplus[x[1]],
-             *regiongraph_edges[x if x[0] < x[1] else (x[1], x[0])].item()[2:]) for x in zip(
-                 original[-2:-1, :-1, :-1][sv_boundaries_x[-1:, :-1, :-1] & agg_boundaries_x[-1:, :-1, :-1]],
-                 original[-1:, :-1, :-1][sv_boundaries_x[-1:, :-1, :-1] & agg_boundaries_x[-1:, :-1, :-1]])
-        }), dtype='uint64, uint64, float32, uint64')
-
-        edges_xplus_disconnected = np.array(list({
-            (rg2cg_center[x[0]],
-             rg2cg_xplus[x[1]],
-             *regiongraph_edges[x if x[0] < x[1] else (x[1], x[0])].item()[2:]) for x in zip(
-                 original[-2:-1, :-1, :-1][sv_boundaries_x[-1:, :-1, :-1] & ~agg_boundaries_x[-1:, :-1, :-1]],
-                 original[-1:, :-1, :-1][sv_boundaries_x[-1:, :-1, :-1] & ~agg_boundaries_x[-1:, :-1, :-1]])
-        }), dtype='uint64, uint64, float32, uint64')
-
-        # Unbreakable edges (caused by relabeling and chunking) don't have
-        # sum of area or affinity values
-        edges_xplus_unbreakable = np.array(list({
-            (rg2cg_center[x], rg2cg_xplus[x]) for x in np.unique(
-                original[-2:-1, :-1, :-1][(original[-2:-1, :-1, :-1] != 0) &
-                                          (original[-2:-1, :-1, :-1] == original[-1:, :-1, :-1])])
-        }), dtype='uint64, uint64')
-
-        # YPlus Chunk:
-        # Collect edges between center chunk and the chunk in Y+ direction.
-        edges_yplus_connected = np.array(list({
-            (rg2cg_center[x[0]],
-             rg2cg_yplus[x[1]],
-             *regiongraph_edges[x if x[0] < x[1] else (x[1], x[0])].item()[2:]) for x in zip(
-                original[:-1, -2:-1, :-1][sv_boundaries_y[:-1, -1:, :-1] & agg_boundaries_y[:-1, -1:, :-1]],
-                original[:-1, -1:, :-1][sv_boundaries_y[:-1, -1:, :-1] & agg_boundaries_y[:-1, -1:, :-1]])
-        }), dtype='uint64, uint64, float32, uint64')
-
-        edges_yplus_disconnected = np.array(list({
-            (rg2cg_center[x[0]],
-             rg2cg_yplus[x[1]],
-             *regiongraph_edges[x if x[0] < x[1] else (x[1], x[0])].item()[2:]) for x in zip(
-                original[:-1, -2:-1, :-1][sv_boundaries_y[:-1, -1:, :-1] & ~agg_boundaries_y[:-1, -1:, :-1]],
-                original[:-1, -1:, :-1][sv_boundaries_y[:-1, -1:, :-1] & ~agg_boundaries_y[:-1, -1:, :-1]])
-        }), dtype='uint64, uint64, float32, uint64')
-
-        edges_yplus_unbreakable = np.array(list({
-            (rg2cg_center[x], rg2cg_yplus[x]) for x in np.unique(
-                original[:-1, -2:-1, :-1][(original[:-1, -2:-1, :-1] != 0) &
-                                          (original[:-1, -2:-1, :-1] == original[:-1, -1:, :-1])])
-        }), dtype='uint64, uint64')
-
-        # ZPlus Chunk
-        # Collect edges between center chunk and the chunk in Z+ direction.
-        edges_zplus_connected = np.array(list({
-            (rg2cg_center[x[0]],
-             rg2cg_zplus[x[1]],
-             *regiongraph_edges[x if x[0] < x[1] else (x[1], x[0])].item()[2:]) for x in zip(
-                original[:-1, :-1, -2:-1][sv_boundaries_z[:-1, :-1, -1:] & agg_boundaries_z[:-1, :-1, -1:]],
-                original[:-1, :-1, -1:][sv_boundaries_z[:-1, :-1, -1:] & agg_boundaries_z[:-1, :-1, -1:]])
-        }), dtype='uint64, uint64, float32, uint64')
-
-        edges_zplus_disconnected = np.array(list({
-            (rg2cg_center[x[0]],
-             rg2cg_zplus[x[1]],
-             *regiongraph_edges[x if x[0] < x[1] else (x[1], x[0])].item()[2:]) for x in zip(
-                original[:-1, :-1, -2:-1][sv_boundaries_z[:-1, :-1, -1:] & ~agg_boundaries_z[:-1, :-1, -1:]],
-                original[:-1, :-1, -1:][sv_boundaries_z[:-1, :-1, -1:] & ~agg_boundaries_z[:-1, :-1, -1:]])
-        }), dtype='uint64, uint64, float32, uint64')
-
-        edges_zplus_unbreakable = np.array(list({
-            (rg2cg_center[x], rg2cg_zplus[x]) for x in np.unique(
-                original[:-1, :-1, -2:-1][(original[:-1, :-1, -2:-1] != 0) &
-                                          (original[:-1, :-1, -2:-1] == original[:-1, :-1, -1:])])
-        }), dtype='uint64, uint64')
+            print("Fast skipping Regiongraph calculation - empty block")
 
         # Prepare upload
         rg2cg_center_str = slice_to_str(
