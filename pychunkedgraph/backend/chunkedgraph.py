@@ -7,7 +7,7 @@ import networkx as nx
 import pytz
 import cloudvolume
 
-from pychunkedgraph.paralellizing import multiprocessing_utils as mu
+from pychunkedgraph.parallelizing import multiprocessing_utils as mu
 from . import mincut
 
 from google.api_core.retry import Retry, if_exception_type
@@ -680,7 +680,8 @@ class ChunkedGraph(object):
                    root_ids: Optional[Union[np.uint64,
                                             Iterable[np.uint64]]] = None,
                    operation_id: Optional[np.uint64] = None,
-                   slow_retry: bool = True) -> bool:
+                   slow_retry: bool = True,
+                   block_size: int = 1000) -> bool:
         """ Writes a list of mutated rows in bulk
 
         WARNING: If <rows> contains the same row (same row_key) and column
@@ -696,6 +697,7 @@ class ChunkedGraph(object):
             the bulk write is only executed if the root is still locked with
             the same id.
         :param slow_retry: bool
+        :param block_size: int
         """
         if slow_retry:
             initial = 5
@@ -718,10 +720,12 @@ class ChunkedGraph(object):
             if not self.check_and_renew_root_locks(root_ids, operation_id):
                 return False
 
-        status = self.table.mutate_rows(rows, retry=retry_policy)
+        for i_row in range(0, len(rows), block_size):
+            status = self.table.mutate_rows(rows[i_row: i_row + block_size],
+                                            retry=retry_policy)
 
-        if not any(status):
-            raise Exception(status)
+            if not all(status):
+                raise Exception(status)
 
         return True
 
@@ -1046,6 +1050,7 @@ class ChunkedGraph(object):
         edge_aff_keys = ["in_connected", "in_disconnected", "between_connected",
                          "between_disconnected"]
 
+        time_start = time.time()
         # Check if keys exist and include an empty array if not
         n_edge_ids = 0
         chunk_id_c = None
@@ -1062,6 +1067,9 @@ class ChunkedGraph(object):
         for edge_aff_key in edge_aff_keys:
             if not edge_aff_key in edge_aff_dict:
                 edge_aff_dict[edge_aff_key] = np.array([], dtype=np.float32)
+
+        # print("Time keys: %.3fs" % (time.time() - time_start))
+        time_start = time.time()
 
         # Catch trivial case
         if n_edge_ids == 0 and len(isolated_node_ids) == 0:
@@ -1083,11 +1091,15 @@ class ChunkedGraph(object):
                 np.unique(edge_id_dict["between_connected"][:, 0]),
                 np.unique(edge_id_dict["between_disconnected"][:, 0])])
 
+        chunk_node_ids = np.unique(chunk_node_ids)
+
         chunk_g = nx.Graph()
         chunk_g.add_nodes_from(chunk_node_ids)
         chunk_g.add_edges_from(edge_id_dict["in_connected"])
 
         ccs = list(nx.connected_components(chunk_g))
+
+        # print("CC in chunk: %.3fs" % (time.time() - time_start))
 
         # Add rows for nodes that are in this chunk
         # a connected component at a time
@@ -1116,69 +1128,73 @@ class ChunkedGraph(object):
 
 
                 # in chunk + connected
-                edge_col1_mask = edge_id_dict["in_connected"][:, 0] == node_id
-                edge_col2_mask = edge_id_dict["in_connected"][:, 1] == node_id
+                ec1_mask = edge_id_dict["in_connected"][:, 0] == node_id
+                ec2_mask = edge_id_dict["in_connected"][:, 1] == node_id
+                ec1_ids = np.where(ec1_mask)
+                ec2_ids = np.where(ec2_mask)
 
                 connected_ids = np.concatenate([
-                    edge_id_dict["in_connected"][:, 1][edge_col1_mask],
-                    edge_id_dict["in_connected"][:, 0][edge_col2_mask]])
+                    edge_id_dict["in_connected"][:, 1][ec1_ids],
+                    edge_id_dict["in_connected"][:, 0][ec2_ids]])
                 connected_affs = np.concatenate([
-                    edge_aff_dict["in_connected"][edge_col1_mask],
-                    edge_aff_dict["in_connected"][edge_col2_mask]])
+                    edge_aff_dict["in_connected"][ec1_ids],
+                    edge_aff_dict["in_connected"][ec2_ids]])
 
 
                 # out chunk + connected
-                edge_col_mask = \
-                    edge_id_dict["between_connected"][:, 0] == node_id
+                ec_mask = edge_id_dict["between_connected"][:, 0] == node_id
+                ec_ids = np.where(ec_mask)
 
                 connected_ids = np.concatenate([
                     connected_ids,
-                    edge_id_dict["between_connected"][:, 1][edge_col_mask]])
+                    edge_id_dict["between_connected"][:, 1][ec_ids]])
                 connected_affs = np.concatenate([
                     connected_affs,
-                    edge_aff_dict["between_connected"][edge_col_mask]])
+                    edge_aff_dict["between_connected"][ec_ids]])
 
                 parent_cross_edges = np.concatenate([
                     parent_cross_edges,
-                    edge_id_dict["between_connected"][edge_col_mask]])
+                    edge_id_dict["between_connected"][ec_ids]])
 
                 # cross
-                edge_col_mask = edge_id_dict["cross"][:, 0] == node_id
+                ec_mask = edge_id_dict["cross"][:, 0] == node_id
+                ec_ids = np.where(ec_mask)
+
                 connected_ids = np.concatenate([
                     connected_ids,
-                    edge_id_dict["cross"][:, 1][edge_col_mask]])
+                    edge_id_dict["cross"][:, 1][ec_ids]])
                 connected_affs = np.concatenate([
-                    connected_affs, np.full((np.sum(edge_col_mask)), np.inf,
+                    connected_affs, np.full((len(ec_ids[0])), np.inf,
                                             dtype=np.float32)])
 
                 parent_cross_edges = np.concatenate([
-                    parent_cross_edges, edge_id_dict["cross"][edge_col_mask]])
+                    parent_cross_edges, edge_id_dict["cross"][ec_ids]])
 
 
                 # in chunk + disconnected
-                edge_col1_mask = \
-                    edge_id_dict["in_disconnected"][:, 0] == node_id
-                edge_col2_mask = \
-                    edge_id_dict["in_disconnected"][:, 1] == node_id
+                ec1_mask = edge_id_dict["in_disconnected"][:, 0] == node_id
+                ec2_mask = edge_id_dict["in_disconnected"][:, 1] == node_id
+                ec1_ids = np.where(ec1_mask)
+                ec2_ids = np.where(ec2_mask)
 
                 disconnected_ids = np.concatenate([
-                    edge_id_dict["in_disconnected"][:, 1][edge_col1_mask],
-                    edge_id_dict["in_disconnected"][:, 0][edge_col2_mask]])
+                    edge_id_dict["in_disconnected"][:, 1][ec1_ids],
+                    edge_id_dict["in_disconnected"][:, 0][ec2_ids]])
                 disconnected_affs = np.concatenate([
-                    edge_aff_dict["in_disconnected"][edge_col1_mask],
-                    edge_aff_dict["in_disconnected"][edge_col2_mask]])
+                    edge_aff_dict["in_disconnected"][ec1_ids],
+                    edge_aff_dict["in_disconnected"][ec2_ids]])
 
 
                 # out chunk + disconnected
-                edge_col_mask =\
-                    edge_id_dict["between_disconnected"][:, 0] == node_id
+                ec_mask = edge_id_dict["between_disconnected"][:, 0] == node_id
+                ec_ids = np.where(ec_mask)
 
                 disconnected_ids = np.concatenate([
                     disconnected_ids,
-                    edge_id_dict["between_disconnected"][:, 1][edge_col_mask]])
+                    edge_id_dict["between_disconnected"][:, 1][ec_ids]])
                 disconnected_affs = np.concatenate([
                     disconnected_affs,
-                    edge_aff_dict["between_disconnected"][edge_col_mask]])
+                    edge_aff_dict["between_disconnected"][ec_ids]])
 
 
                 # Create node
@@ -1219,6 +1235,8 @@ class ChunkedGraph(object):
             node_c += 1
 
             self.bulk_write(rows)
+
+        # print("Time creating rows: %.3fs for %d ccs with %d nodes" % (time.time() - time_start, len(ccs), node_c))
 
 
     def add_layer(self, layer_id: int,
@@ -1409,8 +1427,8 @@ class ChunkedGraph(object):
                                             np.array([row_id] * len(atomic_edges[:, 0]),
                                                      dtype=np.uint64)])
 
-        print("Time iterating through subchunks: %.3fs" %
-              (time.time() - time_start))
+        # print("Time iterating through subchunks: %.3fs" %
+        #       (time.time() - time_start))
         time_start = time.time()
 
         # Extract edges from remaining cross chunk edges
@@ -1419,8 +1437,7 @@ class ChunkedGraph(object):
         # u_atomic_child_ids = np.unique(atomic_child_ids)
         atomic_partner_id_dict_keys = \
             np.array(list(atomic_partner_id_dict.keys()), dtype=np.uint64)
-        ll_node_ids = \
-            np.array(list(cross_edge_dict.keys()), dtype=np.uint64)
+        ll_node_ids = np.array(list(cross_edge_dict.keys()), dtype=np.uint64)
 
         if n_threads > 1:
             n_jobs = n_threads * 3 # Heuristic
@@ -1440,8 +1457,8 @@ class ChunkedGraph(object):
             mu.multithread_func(_resolve_cross_chunk_edges_thread, multi_args,
                                 n_threads=n_threads)
 
-        print("Time resolving cross chunk edges: %.3fs" %
-              (time.time() - time_start))
+        # print("Time resolving cross chunk edges: %.3fs" %
+        #       (time.time() - time_start))
         time_start = time.time()
 
         # 2 ----------
@@ -1483,7 +1500,7 @@ class ChunkedGraph(object):
         mu.multithread_func(_write_out_connected_components, multi_args,
                             n_threads=n_threads)
 
-        print("Time connected components: %.3fs" % (time.time() - time_start))
+        # print("Time connected components: %.3fs" % (time.time() - time_start))
 
     def get_parent(self, node_id: np.uint64,
                    get_only_relevant_parent: bool = True,
@@ -2090,7 +2107,8 @@ class ChunkedGraph(object):
 
     def get_subgraph(self, agglomeration_id: np.uint64,
                      bounding_box: Optional[Sequence[Sequence[int]]] = None,
-                     bb_is_coordinate: bool = False, stop_lvl: int = 1,
+                     bb_is_coordinate: bool = False,
+                     stop_lvl: int = 1,
                      get_edges: bool = False, verbose: bool = True
                      ) -> Union[Tuple[np.ndarray, np.ndarray], np.ndarray]:
         """ Returns all edges between supervoxels belonging to the specified
@@ -2182,7 +2200,7 @@ class ChunkedGraph(object):
 
             # Use heuristic to guess the optimal number of threads
             n_child_ids = len(child_ids)
-            this_n_threads = int(n_child_ids // 20) + 1
+            this_n_threads = np.min([int(n_child_ids // 20) + 1, mu.n_cpus])
 
             if layer == 2:
                 if get_edges:
@@ -2376,7 +2394,7 @@ class ChunkedGraph(object):
         affinities = np.array([], dtype=np.float32)
 
         n_child_ids = len(child_ids)
-        this_n_threads = int(n_child_ids // 20) + 1
+        this_n_threads = np.min([int(n_child_ids // 20) + 1, mu.n_cpus])
 
         child_id_blocks = np.array_split(child_ids, this_n_threads)
         edges_and_affinities = mu.multithread_func(_read_atomic_partners,
