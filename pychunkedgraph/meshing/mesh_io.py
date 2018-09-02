@@ -201,12 +201,19 @@ class Mesh(object):
         plyfile.PlyData([vertex_element]).write(out_fname)
 
     def get_local_view(self, n_points, pc_align=False, center_node_id=None,
-                       method="kdtree"):
-        if center_node_id is None:
+                       center_coord=None, method="kdtree", verbose=False):
+        if center_node_id is None and center_coord is None:
             center_node_id = np.random.randint(len(self.vertices))
 
+        if center_coord is None:
+            center_coord = self.vertices[center_node_id]
+
+        n_samples = np.min([n_points, len(self.vertices)])
+
         if method == "kdtree":
-            _, node_ids = self.kdtree.query(self.vertices[center_node_id], n_points)
+            dists, node_ids = self.kdtree.query(center_coord, n_samples)
+            if verbose:
+                print(np.mean(dists), np.max(dists), np.min(dists))
         elif method == "graph":
            dist_dict = nx.single_source_dijkstra_path_length(self.graph,
                                                              center_node_id,
@@ -220,7 +227,6 @@ class Mesh(object):
 
         if pc_align:
             local_vertices = self.calc_pc_align(local_vertices)
-
         return local_vertices, center_node_id
 
     def calc_pc_align(self, vertices):
