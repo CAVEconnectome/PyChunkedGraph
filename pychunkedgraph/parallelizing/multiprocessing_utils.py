@@ -15,6 +15,7 @@ file_path = os.path.dirname(os.path.abspath(__file__))
 src_folder_path = file_path.split("pychunkedgraph")[0] + "pychunkedgraph/"
 subp_work_folder = home + "/pychg_subp_workdir/"
 
+n_cpus = cpu_count()
 
 def _load_multifunc_out_thread(out_file_path):
     """ Reads the outputs from any multi func from disk
@@ -31,7 +32,7 @@ def _load_multifunc_out_thread(out_file_path):
 
 
 def multiprocess_func(func, params, debug=False, verbose=False, n_threads=None):
-    """ Processes data independent functions in parallel using paralellizing
+    """ Processes data independent functions in parallel using parallelizing
 
     :param func: function
     :param params: list
@@ -107,7 +108,7 @@ def multithread_func(func, params, debug=False, verbose=False, n_threads=None):
 
 
 def _start_subprocess(ii, path_to_script, path_to_storage, path_to_src,
-                   path_to_out, params=None):
+                      path_to_out, params=None):
 
     this_storage_path = path_to_storage + "job_%d.pkl" % ii
     this_out_path = path_to_out + "job_%d.pkl" % ii
@@ -161,14 +162,24 @@ def _poll_running_subprocesses(processes, runtimes, path_to_script,
                 time.sleep(.01)  # Avoid OS hickups
 
         elif kill_tol_factor is not None and avg_runtime > 0:
+            if processes[i_p][2] == 0:
+                this_kill_tol_factor = 2
+            elif processes[i_p][2] == n_retries - 1:
+                this_kill_tol_factor = kill_tol_factor * 10
+            else:
+                this_kill_tol_factor = kill_tol_factor
+
             if time.time() - processes[i_p][3] > \
-                    avg_runtime * kill_tol_factor:
+                    avg_runtime * this_kill_tol_factor:
                 processes[i_p][0].kill()
+                print("\n\nKILLED PROCESS %d -- it was simply too slow... "
+                      "-- %s\n\n" % (i_p, path_to_storage))
 
                 p = _start_subprocess(i_p, path_to_script, path_to_storage,
                                       path_to_src,  path_to_out, params=None)
 
                 processes[i_p][0] = p
+                processes[i_p][2] += 1
                 processes[i_p][3] = time.time()
                 time.sleep(.01)  # Avoid OS hickups
     return processes, runtimes

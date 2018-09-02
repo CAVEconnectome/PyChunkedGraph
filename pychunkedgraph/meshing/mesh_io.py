@@ -7,7 +7,7 @@ import os
 import networkx as nx
 
 import cloudvolume
-from pychunkedgraph.paralellizing import multiprocessing_utils as mu
+from pychunkedgraph.parallelizing import multiprocessing_utils as mu
 
 def read_mesh_h5():
     pass

@@ -10,7 +10,7 @@ import datetime
 from pychunkedgraph.app import app_utils
 
 
-bp = Blueprint('pychunkedgraph', __name__, url_prefix="/segmentation/")
+bp = Blueprint('pychunkedgraph', __name__, url_prefix="/segmentation")
 
 # -------------------------------
 # ------ Access control and index
