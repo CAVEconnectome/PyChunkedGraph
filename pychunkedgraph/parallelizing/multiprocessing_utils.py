@@ -131,9 +131,9 @@ def _poll_running_subprocesses(processes, runtimes, path_to_script,
                                path_to_err, min_n_meas, kill_tol_factor,
                                n_retries):
     if len(runtimes) > min_n_meas:
-        median_runtime = np.median(runtimes)
+        avg_runtime = np.mean(runtimes)
     else:
-        median_runtime = 0
+        avg_runtime = 0
 
     for i_p, p in enumerate(processes):
         poll = p[0].poll()
@@ -161,20 +161,19 @@ def _poll_running_subprocesses(processes, runtimes, path_to_script,
                 processes[i_p][3] = time.time()
                 time.sleep(.01)  # Avoid OS hickups
 
-        elif kill_tol_factor is not None and median_runtime > 0:
+        elif kill_tol_factor is not None and avg_runtime > 0:
             if processes[i_p][2] == 0:
-                this_kill_tol_factor = 5
+                this_kill_tol_factor = 2
             elif processes[i_p][2] == n_retries - 1:
                 this_kill_tol_factor = kill_tol_factor * 10
             else:
                 this_kill_tol_factor = kill_tol_factor
 
-            p_run_time = time.time() - processes[i_p][3]
-            if p_run_time > median_runtime * this_kill_tol_factor:
+            if time.time() - processes[i_p][3] > \
+                    avg_runtime * this_kill_tol_factor:
                 processes[i_p][0].kill()
                 print("\n\nKILLED PROCESS %d -- it was simply too slow... "
-                      "(.%3fs), median is %.3fs -- %s\n\n" %
-                      (p_run_time, median_runtime, i_p, path_to_storage))
+                      "-- %s\n\n" % (i_p, path_to_storage))
 
                 p = _start_subprocess(i_p, path_to_script, path_to_storage,
                                       path_to_src,  path_to_out, params=None)
@@ -187,7 +186,7 @@ def _poll_running_subprocesses(processes, runtimes, path_to_script,
 
 
 def multisubprocess_func(func, params, wait_delay_s=5, n_threads=1,
-                         n_retries=10, kill_tol_factor=10,
+                         n_retries=10, kill_tol_factor=10, min_n_meas=100,
                          suffix="", package_name="pychunkedgraph"):
     """ Processes data independent functions in parallel using multithreading
 
@@ -230,8 +229,6 @@ def multisubprocess_func(func, params, wait_delay_s=5, n_threads=1,
     # shutil.copytree(src_folder_path, path_to_src)
     _write_multisubprocess_script(func, path_to_script,
                                   package_name=package_name)
-
-    min_n_meas = int(len(params) * .9)
 
     processes = []
     runtimes = []
