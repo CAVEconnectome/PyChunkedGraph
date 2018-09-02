@@ -7,7 +7,7 @@ import time
 import cloudvolume
 
 from pychunkedgraph.creator import creator_utils
-from pychunkedgraph.paralellizing import multiprocessing_utils as mu
+from pychunkedgraph.parallelizing import multiprocessing_utils as mu
 
 
 def _rewrite_segmentation_thread(args):
@@ -97,7 +97,7 @@ def rewrite_segmentation(dataset_name, n_threads=64, n_units_per_thread=None):
     for fp_block in file_path_blocks:
         multi_args.append([fp_block, from_url, to_url])
 
-    # Run paralellizing
+    # Run parallelizing
     if n_threads == 1:
         mu.multiprocess_func(_rewrite_segmentation_thread, multi_args,
                              n_threads=n_threads, verbose=True,
@@ -196,7 +196,7 @@ def rewrite_image(dataset_name, block_size=(1024, 1024, 64), n_threads=64,
         multi_args.append([coordinate, end_coordinate, block_size,
                            from_url, to_url, mip])
 
-    # Run paralellizing
+    # Run parallelizing
     if n_threads == 1:
         mu.multiprocess_func(_rewrite_image_thread, multi_args,
                              n_threads=n_threads, verbose=True,
