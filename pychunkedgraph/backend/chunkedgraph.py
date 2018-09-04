@@ -681,7 +681,7 @@ class ChunkedGraph(object):
                                             Iterable[np.uint64]]] = None,
                    operation_id: Optional[np.uint64] = None,
                    slow_retry: bool = True,
-                   block_size: int = 1000) -> bool:
+                   block_size: int = 3000) -> bool:
         """ Writes a list of mutated rows in bulk
 
         WARNING: If <rows> contains the same row (same row_key) and column
