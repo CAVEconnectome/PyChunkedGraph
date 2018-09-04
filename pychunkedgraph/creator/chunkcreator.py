@@ -4,6 +4,7 @@ import os
 import re
 import time
 import itertools
+import random
 
 from cloudvolume import storage
 
@@ -234,6 +235,10 @@ def create_chunked_graph(table_id=None, cv_url=None, ws_url=None, fan_out=2,
                                isolated_paths[offset + i_chunk],
                                between_chunk_paths_in_masked[i_chunk],
                                between_chunk_paths_out_masked[i_chunk]])
+
+    random.shuffle(multi_args)
+
+    print("%d jobs for creating layer 1 + 2" % len(multi_args))
 
     # Run parallelizing
     if n_threads == 1:
