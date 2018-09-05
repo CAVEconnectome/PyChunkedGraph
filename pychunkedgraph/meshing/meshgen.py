@@ -14,8 +14,8 @@ from pychunkedgraph.backend.chunkedgraph import ChunkedGraph  # noqa
 
 @lru_cache(maxsize=None)
 def get_segmentation_info(cg: ChunkedGraph) -> dict:
-    with CloudVolume(cg.cv_path) as cv:
-        return cv.info
+    cv = CloudVolume(cg.cv_path)
+    return cv.info
 
 
 def get_mesh_block_shape(cg: ChunkedGraph, graphlayer: int, source_mip: int) -> np.ndarray:

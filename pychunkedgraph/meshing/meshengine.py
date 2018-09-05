@@ -1,6 +1,7 @@
 import cloudvolume
 import numpy as np
 import itertools
+import random
 
 from pychunkedgraph.backend import chunkedgraph
 from pychunkedgraph.parallelizing import multiprocessing_utils as mu
@@ -149,6 +150,8 @@ class MeshEngine(object):
 
             multi_args.append([cg_info, start_block, end_block, self.cg.cv_path,
                                self.cv_mesh_dir, self.mesh_mip, layer])
+
+        random.shuffle(multi_args)
 
         # Run parallelizing
         if n_threads == 1:
