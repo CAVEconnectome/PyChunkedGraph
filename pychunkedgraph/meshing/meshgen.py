@@ -3,13 +3,36 @@ import os
 import numpy as np
 import json
 
-import cloudvolume
+from cloudvolume import CloudVolume, Storage
+from functools import lru_cache
 from igneous.tasks import MeshTask
 
 sys.path.insert(0, os.path.join(sys.path[0], '../..'))
 os.environ['TRAVIS_BRANCH'] = "IDONTKNOWWHYINEEDTHIS"
 
-from pychunkedgraph.backend import chunkedgraph
+from pychunkedgraph.backend.chunkedgraph import ChunkedGraph  # noqa
+
+@lru_cache(maxsize=None)
+def get_segmentation_info(cg: ChunkedGraph) -> dict:
+    with CloudVolume(cg.cv_path) as cv:
+        return cv.info
+
+
+def get_mesh_block_shape(cg: ChunkedGraph, graphlayer: int, source_mip: int) -> np.ndarray:
+    """
+    Calculate the dimensions of a segmentation block at `source_mip` that covers
+    the same region as a ChunkedGraph chunk at layer `graphlayer`.
+    """
+    info = get_segmentation_info(cg)
+
+    # Segmentation is not always uniformly downsampled in all directions.
+    scale_0 = info['scales'][0]
+    scale_mip = info['scales'][source_mip]
+    distortion = np.floor_divide(scale_mip['resolution'], scale_0['resolution'])
+
+    graphlayer_chunksize = cg.chunk_size * cg.fan_out ** np.max([0, graphlayer - 2])
+
+    return np.floor_divide(graphlayer_chunksize, distortion)
 
 
 def get_sv_to_node_mapping(cg, chunk_id):
@@ -63,8 +86,7 @@ def chunk_mesh_task(sv_to_node_mapping, cg, chunk_id, cv_path,
     # else:
         # print("Something to do", cg.get_chunk_coordinates(chunk_id))
 
-    mesh_block_shape = cg.chunk_size * 2 ** np.max([0, layer-2]) // \
-                            np.array([2 ** mip, 2 ** mip, 1])
+    mesh_block_shape = get_mesh_block_shape(cg, layer, mip)
 
     chunk_offset = cg.get_chunk_coordinates(chunk_id) * mesh_block_shape
 
@@ -113,9 +135,9 @@ def mesh_single_component(node_id, cg, cv_path, cv_mesh_dir=None, mip=3):
 def _mesh_layer_thread(args):
     cg_info, start_block, end_block, cv_path, cv_mesh_dir, mip, layer = args
 
-    cg = chunkedgraph.ChunkedGraph(table_id=cg_info["table_id"],
-                                   instance_id=cg_info["instance_id"],
-                                   project_id=cg_info["project_id"])
+    cg = ChunkedGraph(table_id=cg_info["table_id"],
+                      instance_id=cg_info["instance_id"],
+                      project_id=cg_info["project_id"])
 
     for block_z in range(start_block[2], end_block[2]):
         for block_y in range(start_block[1], end_block[1]):
@@ -139,7 +161,7 @@ def mesh_node_and_parents(node_id, cg, cv_path, cv_mesh_dir=None, mip=3,
                               cv_mesh_dir=cv_mesh_dir, mip=mip)
 
     if create_manifest_root:
-        with cloudvolume.Storage(cv_path) as cv_storage:
+        with Storage(cv_path) as cv_storage:
             create_manifest_file(cg=cg, cv_storage=cv_storage,
                                  cv_mesh_dir=cv_mesh_dir, node_id=parents[-1],
                                  highest_mesh_level=highest_mesh_level,
@@ -219,9 +241,9 @@ def _create_manifest_files_thread(args):
     cg_info, cv_path, cv_mesh_dir, root_id_start, root_id_end, \
         highest_mesh_level = args
 
-    cg = chunkedgraph.ChunkedGraph(**cg_info)
+    cg = ChunkedGraph(**cg_info)
 
-    with cloudvolume.Storage(cv_path) as cv_storage:
+    with Storage(cv_path) as cv_storage:
         for root_seg_id in range(root_id_start, root_id_end):
 
             root_id = cg.get_node_id(np.uint64(root_seg_id),
