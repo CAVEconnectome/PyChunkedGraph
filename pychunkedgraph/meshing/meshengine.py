@@ -162,6 +162,8 @@ class MeshEngine(object):
                                self.cv_mesh_dir, self.mesh_mip, layer])
         random.shuffle(multi_args)
 
+        random.shuffle(multi_args)
+
         # Run parallelizing
         if n_threads == 1:
             mu.multiprocess_func(meshgen._mesh_layer_thread, multi_args,
