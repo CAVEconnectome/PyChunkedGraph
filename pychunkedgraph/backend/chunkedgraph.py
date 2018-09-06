@@ -1561,11 +1561,13 @@ class ChunkedGraph(object):
         # print("Time connected components: %.3fs" % (time.time() - time_start))
 
     def get_atomic_cross_edge_dict(self, node_id: np.uint64,
-                                   deserialize_node_ids: bool =False,
+                                   layer_ids: Sequence[int] = None,
+                                   deserialize_node_ids: bool = False,
                                    reshape: bool = False):
         """ Extracts all atomic cross edges and serves them as a dictionary
 
         :param node_id: np.uitn64
+        :param layer_ids: list of ints
         :param deserialize_node_ids: bool
         :param reshape: bool
             reshapes the list of node ids to an edge list (n x 2)
@@ -1576,8 +1578,14 @@ class ChunkedGraph(object):
 
         atomic_cross_edges = {}
 
+        if isinstance(layer_ids, int):
+            layer_ids = [layer_ids]
+
+        if layer_ids is None:
+            layer_ids = range(2, self.n_layers)
+
         if self.cross_edge_family_id in row.cells:
-            for l in range(2, self.n_layers):
+            for l in layer_ids:
                 key = serialize_key("atomic_cross_edges_%d" % l)
                 row_cell = row.cells[self.cross_edge_family_id]
 
