@@ -12,7 +12,7 @@ class BaseConfig(object):
     LOGGING_LOCATION = HOME + '/pychg_log/bookshelf.log'
     LOGGING_LEVEL = logging.DEBUG
     # TODO what is this suppose to be by default?
-    CHUNKGRAPH_TABLE_ID = "pinky40_fanout2"
+    CHUNKGRAPH_TABLE_ID = "pinky100_v6"
 
     if not os.path.exists(os.path.dirname(LOGGING_LOCATION)):
         os.makedirs(os.path.dirname(LOGGING_LOCATION))
