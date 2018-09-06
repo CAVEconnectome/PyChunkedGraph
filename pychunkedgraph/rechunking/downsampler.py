@@ -5,7 +5,7 @@ import igneous.task_creation as tc
 
 
 def downsample_dataset(dataset_name, from_mip=-1, num_mips=1, local=False,
-                       n_threads=32):
+                       n_download_workers=1, n_threads=32):
     if dataset_name == "pinky":
         ws_path = "gs://neuroglancer/svenmd/pinky40_v11/watershed/"
     elif dataset_name == "basil":
@@ -20,26 +20,31 @@ def downsample_dataset(dataset_name, from_mip=-1, num_mips=1, local=False,
             with MockTaskQueue() as task_queue:
                 tc.create_downsampling_tasks(task_queue, ws_path, mip=from_mip,
                                              fill_missing=True, num_mips=num_mips,
+                                             n_download_workers=n_download_workers,
                                              preserve_chunk_size=True)
         else:
             with LocalTaskQueue(parallel=n_threads) as task_queue:
                 tc.create_downsampling_tasks(task_queue, ws_path, mip=from_mip,
                                              fill_missing=True, num_mips=num_mips,
+                                             n_download_workers=n_download_workers,
                                              preserve_chunk_size=True)
     else:
         with TaskQueue(queue_server='sqs',
                        qurl="https://sqs.us-east-1.amazonaws.com/098703261575/nkem-igneous") as task_queue:
             tc.create_downsampling_tasks(task_queue, ws_path, mip=from_mip,
                                          fill_missing=True, num_mips=num_mips,
+                                         n_download_workers=n_download_workers,
                                          preserve_chunk_size=True)
 
 
 def downsample_dataset_multiple_mips_memory_efficient(dataset_name,
                                                       num_mips,
                                                       mip_step=3,
+                                                      n_download_workers=1,
                                                       n_threads=32,
                                                       local=False):
     for i_mip in range(0, num_mips, mip_step):
         print("\n\nMIP %d\n\n" % (i_mip + 1))
         downsample_dataset(dataset_name, from_mip=i_mip, num_mips=mip_step,
-                           local=local, n_threads=n_threads)
+                           local=local, n_download_workers=n_download_workers,
+                           n_threads=n_threads)
