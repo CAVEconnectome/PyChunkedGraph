@@ -296,10 +296,12 @@ class TestGraphBuild:
         # to_label(cgraph, 2, 0, 0, 0, 1)
         assert chunkedgraph.serialize_uint64(to_label(cgraph, 2, 0, 0, 0, 1)) in res.rows
         row = res.rows[chunkedgraph.serialize_uint64(to_label(cgraph, 2, 0, 0, 0, 1))].cells[cgraph.family_id]
-        atomic_cross_edges = np.frombuffer(row[b'atomic_cross_edges'][0].value, np.uint64).reshape(-1, 2)
+        atomic_cross_edge_dict = cgraph.get_atomic_cross_edge_dict(to_label(cgraph, 2, 0, 0, 0, 1))
         children = np.frombuffer(row[b'children'][0].value, np.uint64)
 
-        assert len(atomic_cross_edges) == 0
+        for aces in atomic_cross_edge_dict.values():
+            assert len(aces) == 0
+
         assert len(children) == 1 and children[0] == to_label(cgraph, 1, 0, 0, 0, 0)
 
         # Make sure there are not any more entries in the table
@@ -362,10 +364,14 @@ class TestGraphBuild:
         # Check for the one Level 2 node that should have been created.
         assert chunkedgraph.serialize_uint64(to_label(cgraph, 2, 0, 0, 0, 1)) in res.rows
         row = res.rows[chunkedgraph.serialize_uint64(to_label(cgraph, 2, 0, 0, 0, 1))].cells[cgraph.family_id]
-        atomic_cross_edges = np.frombuffer(row[b'atomic_cross_edges'][0].value, np.uint64).reshape(-1, 2)
+
+        atomic_cross_edge_dict = cgraph.get_atomic_cross_edge_dict(to_label(cgraph, 2, 0, 0, 0, 1))
         children = np.frombuffer(row[b'children'][0].value, np.uint64)
 
-        assert len(atomic_cross_edges) == 0
+
+        for aces in atomic_cross_edge_dict.values():
+            assert len(aces) == 0
+
         assert len(children) == 2 and to_label(cgraph, 1, 0, 0, 0, 0) in children and to_label(cgraph, 1, 0, 0, 0, 1) in children
 
         # Make sure there are not any more entries in the table
@@ -438,19 +444,26 @@ class TestGraphBuild:
         # to_label(cgraph, 2, 0, 0, 0, 1)
         assert chunkedgraph.serialize_uint64(to_label(cgraph, 2, 0, 0, 0, 1)) in res.rows
         row = res.rows[chunkedgraph.serialize_uint64(to_label(cgraph, 2, 0, 0, 0, 1))].cells[cgraph.family_id]
-        atomic_cross_edges = np.frombuffer(row[b'atomic_cross_edges'][0].value, np.uint64).reshape(-1, 2)
+
+        atomic_cross_edge_dict = cgraph.get_atomic_cross_edge_dict(to_label(cgraph, 2, 0, 0, 0, 1), deserialize_node_ids=True, reshape=True)
         children = np.frombuffer(row[b'children'][0].value, np.uint64)
 
-        assert len(atomic_cross_edges) == 1 and [to_label(cgraph, 1, 0, 0, 0, 0), to_label(cgraph, 1, 1, 0, 0, 0)] in atomic_cross_edges
+
+        test_ace = np.array([to_label(cgraph, 1, 0, 0, 0, 0), to_label(cgraph, 1, 1, 0, 0, 0)], dtype=np.uint64)
+        assert len(atomic_cross_edge_dict[2]) == 1
+        assert test_ace in atomic_cross_edge_dict[2]
         assert len(children) == 1 and to_label(cgraph, 1, 0, 0, 0, 0) in children
 
         # to_label(cgraph, 2, 1, 0, 0, 1)
         assert chunkedgraph.serialize_uint64(to_label(cgraph, 2, 1, 0, 0, 1)) in res.rows
         row = res.rows[chunkedgraph.serialize_uint64(to_label(cgraph, 2, 1, 0, 0, 1))].cells[cgraph.family_id]
-        atomic_cross_edges = np.frombuffer(row[b'atomic_cross_edges'][0].value, np.uint64).reshape(-1, 2)
+
+        atomic_cross_edge_dict = cgraph.get_atomic_cross_edge_dict(to_label(cgraph, 2, 1, 0, 0, 1), deserialize_node_ids=True, reshape=True)
         children = np.frombuffer(row[b'children'][0].value, np.uint64)
 
-        assert len(atomic_cross_edges) == 1 and [to_label(cgraph, 1, 1, 0, 0, 0), to_label(cgraph, 1, 0, 0, 0, 0)] in atomic_cross_edges
+        test_ace = np.array([to_label(cgraph, 1, 1, 0, 0, 0), to_label(cgraph, 1, 0, 0, 0, 0)], dtype=np.uint64)
+        assert len(atomic_cross_edge_dict[2]) == 1
+        assert test_ace in atomic_cross_edge_dict[2]
         assert len(children) == 1 and to_label(cgraph, 1, 1, 0, 0, 0) in children
 
         # Check for the one Level 3 node that should have been created. This one combines the two
@@ -458,10 +471,12 @@ class TestGraphBuild:
         # to_label(cgraph, 3, 0, 0, 0, 1)
         assert chunkedgraph.serialize_uint64(to_label(cgraph, 3, 0, 0, 0, 1)) in res.rows
         row = res.rows[chunkedgraph.serialize_uint64(to_label(cgraph, 3, 0, 0, 0, 1))].cells[cgraph.family_id]
-        atomic_cross_edges = np.frombuffer(row[b'atomic_cross_edges'][0].value, np.uint64).reshape(-1, 2)
+        atomic_cross_edge_dict = cgraph.get_atomic_cross_edge_dict(to_label(cgraph, 3, 0, 0, 0, 1))
         children = np.frombuffer(row[b'children'][0].value, np.uint64)
 
-        assert len(atomic_cross_edges) == 0
+
+        for aces in atomic_cross_edge_dict.values():
+            assert len(aces) == 0
         assert len(children) == 2 and to_label(cgraph, 2, 0, 0, 0, 1) in children and to_label(cgraph, 2, 1, 0, 0, 1) in children
 
         # Make sure there are not any more entries in the table
@@ -553,19 +568,23 @@ class TestGraphBuild:
         # to_label(cgraph, 2, 0, 0, 0, 1)
         assert chunkedgraph.serialize_uint64(to_label(cgraph, 2, 0, 0, 0, 1)) in res.rows
         row = res.rows[chunkedgraph.serialize_uint64(to_label(cgraph, 2, 0, 0, 0, 1))].cells[cgraph.family_id]
-        atomic_cross_edges = np.frombuffer(row[b'atomic_cross_edges'][0].value, np.uint64).reshape(-1, 2)
+        atomic_cross_edge_dict = cgraph.get_atomic_cross_edge_dict(to_label(cgraph, 2, 0, 0, 0, 1), deserialize_node_ids=True, reshape=True)
         children = np.frombuffer(row[b'children'][0].value, np.uint64)
 
-        assert len(atomic_cross_edges) == 1 and [to_label(cgraph, 1, 0, 0, 0, 0), to_label(cgraph, 1, 1, 0, 0, 0)] in atomic_cross_edges
+        test_ace = np.array([to_label(cgraph, 1, 0, 0, 0, 0), to_label(cgraph, 1, 1, 0, 0, 0)], dtype=np.uint64)
+        assert len(atomic_cross_edge_dict[2]) == 1
+        assert test_ace in atomic_cross_edge_dict[2]
         assert len(children) == 2 and to_label(cgraph, 1, 0, 0, 0, 0) in children and to_label(cgraph, 1, 0, 0, 0, 1) in children
 
         # to_label(cgraph, 2, 1, 0, 0, 1)
         assert chunkedgraph.serialize_uint64(to_label(cgraph, 2, 1, 0, 0, 1)) in res.rows
         row = res.rows[chunkedgraph.serialize_uint64(to_label(cgraph, 2, 1, 0, 0, 1))].cells[cgraph.family_id]
-        atomic_cross_edges = np.frombuffer(row[b'atomic_cross_edges'][0].value, np.uint64).reshape(-1, 2)
+        atomic_cross_edge_dict = cgraph.get_atomic_cross_edge_dict(to_label(cgraph, 2, 1, 0, 0, 1), deserialize_node_ids=True, reshape=True)
         children = np.frombuffer(row[b'children'][0].value, np.uint64)
 
-        assert len(atomic_cross_edges) == 1 and [to_label(cgraph, 1, 1, 0, 0, 0), to_label(cgraph, 1, 0, 0, 0, 0)] in atomic_cross_edges
+        test_ace = np.array([to_label(cgraph, 1, 1, 0, 0, 0), to_label(cgraph, 1, 0, 0, 0, 0)], dtype=np.uint64)
+        assert len(atomic_cross_edge_dict[2]) == 1
+        assert test_ace in atomic_cross_edge_dict[2]
         assert len(children) == 1 and to_label(cgraph, 1, 1, 0, 0, 0) in children
 
         # Check for the one Level 3 node that should have been created. This one combines the two
@@ -573,10 +592,11 @@ class TestGraphBuild:
         # to_label(cgraph, 3, 0, 0, 0, 1)
         assert chunkedgraph.serialize_uint64(to_label(cgraph, 3, 0, 0, 0, 1)) in res.rows
         row = res.rows[chunkedgraph.serialize_uint64(to_label(cgraph, 3, 0, 0, 0, 1))].cells[cgraph.family_id]
-        atomic_cross_edges = np.frombuffer(row[b'atomic_cross_edges'][0].value, np.uint64).reshape(-1, 2)
+        atomic_cross_edge_dict = cgraph.get_atomic_cross_edge_dict(to_label(cgraph, 3, 0, 0, 0, 1))
         children = np.frombuffer(row[b'children'][0].value, np.uint64)
 
-        assert len(atomic_cross_edges) == 0
+        for ace in atomic_cross_edge_dict.values():
+            assert len(ace) == 0
         assert len(children) == 2 and to_label(cgraph, 2, 0, 0, 0, 1) in children and to_label(cgraph, 2, 1, 0, 0, 1) in children
 
         # Make sure there are not any more entries in the table
