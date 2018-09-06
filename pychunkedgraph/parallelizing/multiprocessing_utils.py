@@ -15,6 +15,7 @@ file_path = os.path.dirname(os.path.abspath(__file__))
 src_folder_path = file_path.split("pychunkedgraph")[0] + "pychunkedgraph/"
 subp_work_folder = home + "/pychg_subp_workdir/"
 
+n_cpus = cpu_count()
 
 def _load_multifunc_out_thread(out_file_path):
     """ Reads the outputs from any multi func from disk
@@ -31,7 +32,7 @@ def _load_multifunc_out_thread(out_file_path):
 
 
 def multiprocess_func(func, params, debug=False, verbose=False, n_threads=None):
-    """ Processes data independent functions in parallel using multiprocessing
+    """ Processes data independent functions in parallel using parallelizing
 
     :param func: function
     :param params: list
@@ -107,7 +108,7 @@ def multithread_func(func, params, debug=False, verbose=False, n_threads=None):
 
 
 def _start_subprocess(ii, path_to_script, path_to_storage, path_to_src,
-                   path_to_out, params=None):
+                      path_to_out, params=None):
 
     this_storage_path = path_to_storage + "job_%d.pkl" % ii
     this_out_path = path_to_out + "job_%d.pkl" % ii
@@ -130,9 +131,9 @@ def _poll_running_subprocesses(processes, runtimes, path_to_script,
                                path_to_err, min_n_meas, kill_tol_factor,
                                n_retries):
     if len(runtimes) > min_n_meas:
-        avg_runtime = np.mean(runtimes)
+        median_runtime = np.median(runtimes)
     else:
-        avg_runtime = 0
+        median_runtime = 0
 
     for i_p, p in enumerate(processes):
         poll = p[0].poll()
@@ -160,22 +161,33 @@ def _poll_running_subprocesses(processes, runtimes, path_to_script,
                 processes[i_p][3] = time.time()
                 time.sleep(.01)  # Avoid OS hickups
 
-        elif kill_tol_factor is not None and avg_runtime > 0:
-            if time.time() - processes[i_p][3] > \
-                    avg_runtime * kill_tol_factor:
+        elif kill_tol_factor is not None and median_runtime > 0:
+            if processes[i_p][2] == 0:
+                this_kill_tol_factor = 5
+            elif processes[i_p][2] == n_retries - 1:
+                this_kill_tol_factor = kill_tol_factor * 10
+            else:
+                this_kill_tol_factor = kill_tol_factor
+
+            p_run_time = time.time() - processes[i_p][3]
+            if p_run_time > median_runtime * this_kill_tol_factor:
                 processes[i_p][0].kill()
+                print("\n\nKILLED PROCESS %d -- it was simply too slow... "
+                      "(.%3fs), median is %.3fs -- %s\n\n" %
+                      (p_run_time, median_runtime, i_p, path_to_storage))
 
                 p = _start_subprocess(i_p, path_to_script, path_to_storage,
                                       path_to_src,  path_to_out, params=None)
 
                 processes[i_p][0] = p
+                processes[i_p][2] += 1
                 processes[i_p][3] = time.time()
                 time.sleep(.01)  # Avoid OS hickups
     return processes, runtimes
 
 
 def multisubprocess_func(func, params, wait_delay_s=5, n_threads=1,
-                         n_retries=10, kill_tol_factor=10, min_n_meas=100,
+                         n_retries=10, kill_tol_factor=10,
                          suffix="", package_name="pychunkedgraph"):
     """ Processes data independent functions in parallel using multithreading
 
@@ -215,9 +227,11 @@ def multisubprocess_func(func, params, wait_delay_s=5, n_threads=1,
     os.makedirs(path_to_out)
     os.makedirs(path_to_err)
 
-    shutil.copytree(src_folder_path, path_to_src)
+    # shutil.copytree(src_folder_path, path_to_src)
     _write_multisubprocess_script(func, path_to_script,
                                   package_name=package_name)
+
+    min_n_meas = int(len(params) * .9)
 
     processes = []
     runtimes = []
@@ -277,8 +291,8 @@ def _write_multisubprocess_script(func, path_to_script,
     module_h[-1] = module_h[-1][:-3]
 
     lines = []
-    lines.append("".join(["from %s." % package_name] +
-                         [f for f in module_h[:-1]] +
+    lines.append("".join(["from %s" % package_name] +
+                         [".%s" % f for f in module_h[:-1]] +
                          [" import %s" % module_h[-1]] +
                          ["\n"]))
     lines.extend(["import pickle as pkl\n",

@@ -6,8 +6,8 @@ import time
 
 import cloudvolume
 
-from pychunkedgraph.backend import utils
-from pychunkedgraph.backend import multiprocessing_utils as mu
+from pychunkedgraph.creator import creator_utils
+from pychunkedgraph.parallelizing import multiprocessing_utils as mu
 
 
 def _rewrite_segmentation_thread(args):
@@ -59,7 +59,7 @@ def rewrite_single_segmentation_block(file_path, from_cv=None, to_cv=None,
         z_end = bbox[2]
 
     seg = from_cv[x_start: x_end, y_start: y_end, z_start: z_end]
-    mapping = utils.read_mapping_h5(file_path)
+    mapping = creator_utils.read_mapping_h5(file_path)
 
     if 0 in seg and not 0 in mapping[:, 0]:
         mapping = np.concatenate(([np.array([[0, 0]], dtype=np.uint64), mapping]))
@@ -84,7 +84,8 @@ def rewrite_segmentation(dataset_name, n_threads=64, n_units_per_thread=None):
     else:
         raise Exception("Dataset unknown")
 
-    file_paths = np.sort(glob.glob(utils.dir_from_layer_name(utils.layer_name_from_cv_url(cv_url)) + "/*rg2cg*"))
+    file_paths = np.sort(glob.glob(creator_utils.dir_from_layer_name(
+        creator_utils.layer_name_from_cv_url(cv_url)) + "/*rg2cg*"))
 
     if n_units_per_thread is None:
         file_path_blocks = np.array_split(file_paths, n_threads*3)
@@ -96,7 +97,7 @@ def rewrite_segmentation(dataset_name, n_threads=64, n_units_per_thread=None):
     for fp_block in file_path_blocks:
         multi_args.append([fp_block, from_url, to_url])
 
-    # Run multiprocessing
+    # Run parallelizing
     if n_threads == 1:
         mu.multiprocess_func(_rewrite_segmentation_thread, multi_args,
                              n_threads=n_threads, verbose=True,
@@ -195,7 +196,7 @@ def rewrite_image(dataset_name, block_size=(1024, 1024, 64), n_threads=64,
         multi_args.append([coordinate, end_coordinate, block_size,
                            from_url, to_url, mip])
 
-    # Run multiprocessing
+    # Run parallelizing
     if n_threads == 1:
         mu.multiprocess_func(_rewrite_image_thread, multi_args,
                              n_threads=n_threads, verbose=True,

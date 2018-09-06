@@ -3,9 +3,8 @@ import cloudvolume
 import itertools
 import pickle as pkl
 
-from . import chunkedgraph
-from . import multiprocessing_utils as mu
-from . import utils
+from pychunkedgraph.backend import chunkedgraph
+from pychunkedgraph.parallelizing import multiprocessing_utils as mu
 
 
 def get_sv_to_root_id_mapping_chunk(cg, chunk_coords, vol=None):
@@ -159,7 +158,7 @@ def write_flat_segmentation(cg, dataset_name, bounding_box=None, block_factor=2,
         multi_args.append([cg_info, start_block, end_block,
                            from_url, to_url, mip])
 
-    # Run multiprocessing
+    # Run parallelizing
     if n_threads == 1:
         mu.multiprocess_func(_write_flat_segmentation_thread, multi_args,
                              n_threads=n_threads, verbose=True,
