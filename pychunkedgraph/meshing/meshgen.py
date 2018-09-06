@@ -12,10 +12,10 @@ os.environ['TRAVIS_BRANCH'] = "IDONTKNOWWHYINEEDTHIS"
 
 from pychunkedgraph.backend.chunkedgraph import ChunkedGraph  # noqa
 
+
 @lru_cache(maxsize=None)
 def get_segmentation_info(cg: ChunkedGraph) -> dict:
-    cv = CloudVolume(cg.cv_path)
-    return cv.info
+    return CloudVolume(cg.cv_path).info
 
 
 def get_mesh_block_shape(cg: ChunkedGraph, graphlayer: int, source_mip: int) -> np.ndarray:
@@ -48,20 +48,46 @@ def get_sv_to_node_mapping(cg, chunk_id):
     sv_to_node_mapping = {}
 
     if layer > 1:
-        seg_ids = []
+        # Mapping a chunk containing agglomeration IDs - need to retrieve
+        # atomic IDs within the chunk, as well as all connected or unbreakable
+        # cross_chunk_edges to adjacent chunks.
         for seg_id in range(1, cg.get_max_node_id(chunk_id) + np.uint64(1)):
             node_id = cg.get_node_id(np.uint64(seg_id), chunk_id)
 
             atomic_ids = cg.get_subgraph(node_id, verbose=False)
+            cross_chunk_edges = cg.get_atomic_cross_edge_dict(
+                node_id,
+                deserialize_node_ids=True)
 
-            if len(atomic_ids):
-                sv_to_node_mapping.update(
-                    dict(zip(atomic_ids, [node_id] * len(atomic_ids))))
-                seg_ids.append(node_id)
+            # Collects every 2nd element of every cross_edge list in the
+            # dictionary (the atomic partner IDs in adjacent chunks)
+            cross_chunk_partners = {n: node_id for
+                                    arr in cross_chunk_edges.values() for
+                                    n in arr[1::2]}
+
+            sv_to_node_mapping.update(
+                dict(zip(atomic_ids, [node_id] * len(atomic_ids))))
+            sv_to_node_mapping.update(cross_chunk_partners)
     else:
+        # Mapping a chunk containing supervoxels - need to retrieve
+        # potential unbreakable counterparts for each supervoxel
+        # (Look for atomic edges with infinite edge weight)
         x, y, z = cg.get_chunk_coordinates(chunk_id)
         seg_ids = cg.range_read_chunk(1, x, y, z)
-        sv_to_node_mapping = dict(zip(seg_ids, seg_ids))
+
+        sv_to_node_mapping = {seg_id: seg_id for seg_id in
+                              [np.uint64(x) for x in seg_ids.keys()]}
+
+        for seg_id, data in seg_ids.items():
+            partners = np.frombuffer(
+                data.cells['0'][b'atomic_connected_partners'][0].value,
+                dtype=np.uint64)
+            affinities = np.frombuffer(
+                data.cells['0'][b'atomic_connected_affinities'][0].value,
+                dtype=np.float32)
+            partners = partners[affinities == np.inf]
+            sv_to_node_mapping.update(
+                dict(zip(partners, [seg_id] * len(partners))))
 
     return sv_to_node_mapping
 
@@ -95,12 +121,12 @@ def chunk_mesh_task(sv_to_node_mapping, cg, chunk_id, cv_path,
         chunk_offset,
         cv_path,
         mip=mip,
-        simplification_factor=100,
-        max_simplification_error=40,
+        simplification_factor=999999,  # Simplify as much as possible ...
+        max_simplification_error=40,    # ... staying below max error.
         remap_table=sv_to_node_mapping,
         generate_manifests=True,
-        low_padding=5,
-        high_padding=5,
+        low_padding=0,                 # One voxel overlap to exactly line up
+        high_padding=1,                # vertex boundaries.
         mesh_dir=cv_mesh_dir
     )
     task.execute()
@@ -119,9 +145,9 @@ def mesh_single_component(node_id, cg, cv_path, cv_mesh_dir=None, mip=3):
     """
     layer = cg.get_chunk_layer(node_id)
 
-    assert layer > 1
-
-    atomic_ids = cg.get_subgraph(node_id, verbose=False)
+    atomic_ids = [node_id]
+    if layer > 1:
+        atomic_ids = cg.get_subgraph(node_id, verbose=False)
 
     if len(atomic_ids):
         sv_to_node_mapping = dict(zip(atomic_ids, [node_id] * len(atomic_ids)))
@@ -172,8 +198,8 @@ def create_manifest_file(cg, cv_storage, cv_mesh_dir, node_id,
                          highest_mesh_level=1, mip=3, lod=0):
     """ Creates the manifest file for any node
 
-    :param cg: chunkedgraph instance
-    :param cv_storage: cloudvolume.Storage instance
+    :param cg: ChunkedGraph instance
+    :param cv_storage: Storage instance
     :param cv_mesh_dir: str
     :param node_id: uint64
     :param mip: int
@@ -187,7 +213,7 @@ def create_manifest_file(cg, cv_storage, cv_mesh_dir, node_id,
     print("%d -- number of children: %d" %
           (node_id, len(highest_mesh_level_children)))
 
-    mesh_block_shape = cg.chunk_size * 2 ** np.max([0, highest_mesh_level-2]) // np.array([2 ** mip, 2 ** mip, 1])
+    mesh_block_shape = get_mesh_block_shape(cg, highest_mesh_level, mip)
 
     frags = []
     for child_id in highest_mesh_level_children:
@@ -250,7 +276,7 @@ def _create_manifest_files_thread(args):
                                      cg.get_chunk_id(layer=int(cg.n_layers),
                                                      x=0, y=0, z=0))
 
-    # cv = cloudvolume.CloudVolume(cv_path)
+    # cv = CloudVolume(cv_path)
     #
     # # mesh_dir = cv.info['mesh']
     #
@@ -259,7 +285,7 @@ def _create_manifest_files_thread(args):
     #     mesh_json_file_name = str(seg_id) + ':0'
     #     paths.append(os.path.join(mesh_dir, mesh_json_file_name))
     #
-    # with cloudvolume.Storage(cv.layer_cloudpath, progress=cv.progress) as stor:
+    # with Storage(cv.layer_cloudpath, progress=cv.progress) as stor:
     #     existence_test = stor.files_exist(paths)
     #
     # print("Success rate: %d / %d @" %
