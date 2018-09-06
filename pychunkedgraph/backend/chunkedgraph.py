@@ -270,6 +270,10 @@ class ChunkedGraph(object):
             self._cv = cloudvolume.CloudVolume(self.cv_path, mip=self._cv_mip)
         return self._cv
 
+    @property
+    def root_chunk_id(self):
+        return self.get_chunk_id(layer=int(self.n_layers), x=0, y=0, z=0)
+
     def check_and_create_table(self) -> None:
         """ Checks if table exists and creates new one if necessary """
         table_ids = [t.table_id for t in self.instance.list_tables()]
@@ -1502,6 +1506,44 @@ class ChunkedGraph(object):
 
         # print("Time connected components: %.3fs" % (time.time() - time_start))
 
+    def get_atomic_cross_edge_dict(self, node_id: np.uint64,
+                                   deserialize_node_ids: bool =False,
+                                   reshape: bool = False):
+        """ Extracts all atomic cross edges and serves them as a dictionary
+
+        :param node_id: np.uitn64
+        :param deserialize_node_ids: bool
+        :param reshape: bool
+            reshapes the list of node ids to an edge list (n x 2)
+            Only available when deserializing
+        :return: dict
+        """
+        row = self.table.read_row(serialize_uint64(node_id))
+
+        atomic_cross_edges = {}
+
+        if self.cross_edge_family_id in row.cells:
+            for l in range(2, self.n_layers):
+                key = serialize_key("atomic_cross_edges_%d" % l)
+                row_cell = row.cells[self.cross_edge_family_id]
+
+                atomic_cross_edges[l] = []
+
+                if key in row_cell:
+                    row_val = row_cell[key][0].value
+
+                    if deserialize_node_ids:
+                        atomic_cross_edges[l] = np.frombuffer(row_val,
+                                                              dtype=np.uint64)
+
+                        if reshape:
+                            atomic_cross_edges[l] = atomic_cross_edges[l].reshape(-1, 2)
+                    else:
+                        atomic_cross_edges[l] = row_val
+
+
+        return atomic_cross_edges
+
     def get_parent(self, node_id: np.uint64,
                    get_only_relevant_parent: bool = True,
                    time_stamp: Optional[datetime.datetime] = None) -> Union[
@@ -1599,6 +1641,54 @@ class ChunkedGraph(object):
         else:
             raise Exception("Different edge affinities found... Something went "
                             "horribly wrong.")
+
+    def get_latest_roots(self, time_stamp: Optional[datetime.datetime] = datetime.datetime.max,
+                         n_threads: int = 1):
+        """
+         :param time_stamp:
+        :return:
+        """
+        def _read_root_rows(args) -> None:
+            start_seg_id, end_seg_id = args
+            start_id = self.get_node_id(segment_id=start_seg_id,
+                                        chunk_id=self.root_chunk_id)
+            end_id = self.get_node_id(segment_id=end_seg_id,
+                                      chunk_id=self.root_chunk_id)
+            range_read = self.table.read_rows(
+                start_key=serialize_uint64(start_id),
+                end_key=serialize_uint64(end_id),
+                # allow_row_interleaving=True,
+                end_inclusive=False,
+                filter_=time_filter)
+
+            range_read.consume_all()
+            rows = range_read.rows
+            for row_id, row_data in rows.items():
+                row_keys = row_data.cells[self.family_id]
+                if not serialize_key("new_parents") in row_keys:
+                    root_ids.append(deserialize_uint64(row_id))
+
+
+        time_stamp -= datetime.timedelta(microseconds=time_stamp.microsecond % 1000)
+        time_filter = TimestampRangeFilter(TimestampRange(end=time_stamp))
+
+        max_seg_id = self.get_max_node_id(self.root_chunk_id) + 1
+
+        root_ids = []
+
+        n_blocks = np.min([n_threads*3+1, max_seg_id])
+        seg_id_blocks = np.linspace(1, max_seg_id, n_blocks, dtype=np.uint64)
+
+        multi_args = []
+        for i_id_block in range(0, len(seg_id_blocks) - 1):
+            multi_args.append([seg_id_blocks[i_id_block],
+                               seg_id_blocks[i_id_block + 1]])
+
+        mu.multithread_func(
+            _read_root_rows, multi_args, n_threads=n_threads,
+            debug=False, verbose=True)
+
+        return root_ids
 
     def get_root(self, node_id: np.uint64,
                  time_stamp: Optional[datetime.datetime] = None
@@ -2701,7 +2791,7 @@ class ChunkedGraph(object):
                         self.get_root(sink_id)]
 
         if root_ids[0] != root_ids[1]:
-            print("root(source) != root(sink)")
+            print("root(source) != root(sink):", root_ids)
             return None
 
         # Get a unique id for this operation
