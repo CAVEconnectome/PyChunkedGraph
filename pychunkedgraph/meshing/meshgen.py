@@ -2,8 +2,9 @@ import sys
 import os
 import numpy as np
 import json
+import re
 
-from cloudvolume import CloudVolume, Storage
+from cloudvolume import CloudVolume, Storage, EmptyVolumeException
 from functools import lru_cache
 from igneous.tasks import MeshTask
 
@@ -93,7 +94,7 @@ def get_sv_to_node_mapping(cg, chunk_id):
 
 
 def chunk_mesh_task(sv_to_node_mapping, cg, chunk_id, cv_path,
-                    cv_mesh_dir=None, mip=3):
+                    cv_mesh_dir=None, mip=3, max_err=40):
     """ Computes the meshes for a single chunk
 
     :param get_sv_to_node_mapping: dict
@@ -102,6 +103,7 @@ def chunk_mesh_task(sv_to_node_mapping, cg, chunk_id, cv_path,
     :param cv_path: str
     :param cv_mesh_dir: str or None
     :param mip: int
+    :param max_err: float
     """
 
     layer = cg.get_chunk_layer(chunk_id)
@@ -121,12 +123,12 @@ def chunk_mesh_task(sv_to_node_mapping, cg, chunk_id, cv_path,
         chunk_offset,
         cv_path,
         mip=mip,
-        simplification_factor=999999,  # Simplify as much as possible ...
-        max_simplification_error=40,    # ... staying below max error.
+        simplification_factor=999999,     # Simplify as much as possible ...
+        max_simplification_error=max_err,  # ... staying below max error.
         remap_table=sv_to_node_mapping,
         generate_manifests=True,
-        low_padding=0,                 # One voxel overlap to exactly line up
-        high_padding=1,                # vertex boundaries.
+        low_padding=0,                    # One voxel overlap to exactly line up
+        high_padding=1,                   # vertex boundaries.
         mesh_dir=cv_mesh_dir
     )
     task.execute()
@@ -134,7 +136,8 @@ def chunk_mesh_task(sv_to_node_mapping, cg, chunk_id, cv_path,
     print("Layer %d -- finished:" % layer, cg.get_chunk_coordinates(chunk_id))
 
 
-def mesh_single_component(node_id, cg, cv_path, cv_mesh_dir=None, mip=3):
+def mesh_single_component(node_id, cg, cv_path,
+                          cv_mesh_dir=None, mip=3, max_err=40):
     """ Computes the mesh for a single component
 
     :param node_id: uint64
@@ -142,6 +145,7 @@ def mesh_single_component(node_id, cg, cv_path, cv_mesh_dir=None, mip=3):
     :param cv_path: str
     :param cv_mesh_dir: str
     :param mip: int
+    :param max_err: float
     """
     layer = cg.get_chunk_layer(node_id)
 
@@ -152,7 +156,8 @@ def mesh_single_component(node_id, cg, cv_path, cv_mesh_dir=None, mip=3):
     if len(atomic_ids):
         sv_to_node_mapping = dict(zip(atomic_ids, [node_id] * len(atomic_ids)))
         chunk_mesh_task(sv_to_node_mapping, cg, cg.get_chunk_id(node_id),
-                        cv_path, cv_mesh_dir=cv_mesh_dir, mip=mip)
+                        cv_path, cv_mesh_dir=cv_mesh_dir, mip=mip,
+                        max_err=max_err)
     else:
         raise Exception("Could not find atomic nodes -- does this node id "
                         "exist?")
@@ -291,3 +296,46 @@ def _create_manifest_files_thread(args):
     # print("Success rate: %d / %d @" %
     #       (np.sum(list(existence_test.values())), len(seg_ids)),
     #       cg.get_chunk_coordinates(chunk_id))
+
+
+def run_task_bundle(settings, layer, roi):
+    cgraph = ChunkedGraph(
+        table_id=settings['chunkedgraph']['table_id'],
+        instance_id=settings['chunkedgraph']['instance_id']
+    )
+    meshing = settings['meshing']
+    mip = meshing.get('mip', 2)
+    max_err = meshing.get('max_simplification_error', 40)
+    mesh_dir = meshing.get('mesh_dir', None)
+
+    base_chunk_span = int(cgraph.fan_out) ** max(0, layer - 2)
+    chunksize = np.array(cgraph.chunk_size, dtype=np.int) * base_chunk_span
+
+    for x in range(roi[0].start, roi[0].stop, chunksize[0]):
+        for y in range(roi[1].start, roi[1].stop, chunksize[1]):
+            for z in range(roi[2].start, roi[2].stop, chunksize[2]):
+                chunk_id = cgraph.get_chunk_id_from_coord(layer, x, y, z)
+                cx, cy, cz = cgraph.get_chunk_coordinates(chunk_id)
+
+                print("Retrieving remap table for chunk %s -- (%s, %s, %s, %s)" % (chunk_id, layer, cx, cy, cz))
+                remap_table = get_sv_to_node_mapping(cgraph, chunk_id)
+
+                print("Remapped %s segments to %s agglomerations. Start meshing..." % (len(remap_table), len(np.unique(remap_table.values()))))
+                try:
+                    chunk_mesh_task(remap_table, cgraph, chunk_id, cgraph.cv_path,
+                                    cv_mesh_dir=mesh_dir, mip=mip, max_err=max_err)
+                except EmptyVolumeException as e:
+                    print("Warning: Empty segmentation encountered: %s" % e)
+
+
+def str_to_slice(slice_str: str):
+    match = re.match(r"(\d+)-(\d+)_(\d+)-(\d+)_(\d+)-(\d+)", slice_str)
+    return (slice(int(match.group(1)), int(match.group(2))),
+            slice(int(match.group(3)), int(match.group(4))),
+            slice(int(match.group(5)), int(match.group(6))))
+
+
+if __name__ == "__main__":
+    params = json.loads(sys.argv[1])
+    layer = int(sys.argv[2])
+    run_task_bundle(params, layer, str_to_slice(sys.argv[3]))
