@@ -1576,6 +1576,9 @@ class ChunkedGraph(object):
         """
         row = self.table.read_row(serialize_uint64(node_id))
 
+        if row is None:
+            return {}
+
         atomic_cross_edges = {}
 
         if isinstance(layer_ids, int):
@@ -1599,7 +1602,8 @@ class ChunkedGraph(object):
                                                               dtype=np.uint64)
 
                         if reshape:
-                            atomic_cross_edges[l] = atomic_cross_edges[l].reshape(-1, 2)
+                            atomic_cross_edges[l] = \
+                                atomic_cross_edges[l].reshape(-1, 2)
                     else:
                         atomic_cross_edges[l] = row_val
 
