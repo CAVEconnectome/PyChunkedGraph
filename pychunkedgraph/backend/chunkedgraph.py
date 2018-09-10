@@ -1335,7 +1335,12 @@ class ChunkedGraph(object):
 
                 partners = set()
                 for atomic_cross_id in this_atomic_partner_ids:
-                    partners.add(atomic_child_id_dict[atomic_cross_id])
+                    partner = atomic_child_id_dict[atomic_cross_id]
+
+                    if partner != 0:
+                        # is default and means that the id does not exist in
+                        # this dict
+                        partners.add(partner)
 
                 if len(partners) > 0:
                     partners = np.array(list(partners), dtype=np.uint64)[:, None]
@@ -1417,7 +1422,7 @@ class ChunkedGraph(object):
         child_ids = np.array([], dtype=np.uint64)
         atomic_partner_id_dict = {}
         cross_edge_dict = {}
-        atomic_child_id_dict = {}
+        atomic_child_id_dict = collections.defaultdict(np.uint64)
 
         for chunk_coord in child_chunk_coords:
             # Get start and end key
@@ -1492,7 +1497,12 @@ class ChunkedGraph(object):
                                                            dtype=np.uint64).reshape(-1, 2)
 
                         atomic_partner_id_dict[row_id] = atomic_cross_edges[:, 1]
-                        atomic_child_id_dict.update(dict(zip(atomic_cross_edges[:, 0], [row_id] * len(atomic_cross_edges))))
+
+                        if len(atomic_cross_edges) > 0:
+                            update_dict = dict(zip(atomic_cross_edges[:, 0],
+                                                   [row_id] * len(atomic_cross_edges)))
+
+                            atomic_child_id_dict.update(update_dict)
 
         print("Time iterating through subchunks: %.3fs" %
               (time.time() - time_start))
