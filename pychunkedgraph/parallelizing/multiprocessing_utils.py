@@ -143,7 +143,7 @@ def _poll_running_subprocesses(processes, runtimes, path_to_script,
             runtimes.append(time.time() - processes[i_p][3])
             del (processes[i_p])
 
-            logger.info("process %d finished after %.3s" % (i_p, runtimes[-1]))
+            logger.info("process %d finished after %.3fs" % (p[1], runtimes[-1]))
 
             break
         elif poll == 1:
@@ -153,12 +153,12 @@ def _poll_running_subprocesses(processes, runtimes, path_to_script,
             _write_error_to_file(err_msg, path_to_err + "job_%d_%d.pkl" %
                                  (p[1], p[2]))
 
-            logger.warning("process %d failed" % i_p)
+            logger.warning("process %d failed" % p[1])
 
             if p[2] >= n_retries:
                 del (processes[i_p])
 
-                logger.error("no retries left for process %d" % i_p)
+                logger.error("no retries left for process %d" % p[1])
 
                 break
             else:
