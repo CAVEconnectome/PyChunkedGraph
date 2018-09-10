@@ -260,7 +260,7 @@ def multisubprocess_func(func, params, wait_delay_s=5, n_threads=1,
     logger = logging.Logger(name)
     logger.setLevel(logging.DEBUG)
     # create file handler which logs even debug messages
-    fh = logging.FileHandler('spam.log')
+    fh = logging.FileHandler('%s/logger.log' % subp_job_folder)
     fh.setLevel(logging.DEBUG)
     # create console handler with a higher log level
     ch = logging.StreamHandler()
