@@ -1126,7 +1126,7 @@ class ChunkedGraph(object):
             if not edge_aff_key in edge_aff_dict:
                 edge_aff_dict[edge_aff_key] = np.array([], dtype=np.float32)
 
-        # print("Time keys: %.3fs" % (time.time() - time_start))
+        print("Time keys: %.3fs" % (time.time() - time_start))
         time_start = time.time()
 
         # Catch trivial case
@@ -1157,7 +1157,7 @@ class ChunkedGraph(object):
 
         ccs = list(nx.connected_components(chunk_g))
 
-        # print("CC in chunk: %.3fs" % (time.time() - time_start))
+        print("CC in chunk: %.3fs" % (time.time() - time_start))
 
         # Add rows for nodes that are in this chunk
         # a connected component at a time
@@ -1311,7 +1311,7 @@ class ChunkedGraph(object):
 
             self.bulk_write(rows)
 
-        # print("Time creating rows: %.3fs for %d ccs with %d nodes" % (time.time() - time_start, len(ccs), node_c))
+        print("Time creating rows: %.3fs for %d ccs with %d nodes" % (time.time() - time_start, len(ccs), node_c))
 
 
     def add_layer(self, layer_id: int,
