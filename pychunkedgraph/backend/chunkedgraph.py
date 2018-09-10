@@ -1076,7 +1076,7 @@ class ChunkedGraph(object):
         return row
 
     def add_atomic_edges_in_chunks(self, edge_id_dict: dict,
-                                   edge_aff_dict: dict,
+                                   edge_aff_dict: dict, edge_area_dict: dict,
                                    isolated_node_ids: Sequence[np.uint64],
                                    verbose: bool = False,
                                    time_stamp: Optional[datetime.datetime] = None):
@@ -1197,6 +1197,9 @@ class ChunkedGraph(object):
                 connected_affs = np.concatenate([
                     edge_aff_dict["in_connected"][ec1_ids],
                     edge_aff_dict["in_connected"][ec2_ids]])
+                connected_areas = np.concatenate([
+                    edge_area_dict["in_connected"][ec1_ids],
+                    edge_area_dict["in_connected"][ec2_ids]])
 
 
                 # out chunk + connected
@@ -1209,6 +1212,9 @@ class ChunkedGraph(object):
                 connected_affs = np.concatenate([
                     connected_affs,
                     edge_aff_dict["between_connected"][ec_ids]])
+                connected_areas = np.concatenate([
+                    connected_areas,
+                    edge_area_dict["between_connected"][ec_ids]])
 
                 parent_cross_edges = np.concatenate([
                     parent_cross_edges,
@@ -1224,6 +1230,9 @@ class ChunkedGraph(object):
                 connected_affs = np.concatenate([
                     connected_affs, np.full((len(ec_ids[0])), np.inf,
                                             dtype=np.float32)])
+                connected_areas = np.concatenate([
+                    connected_areas, np.full((len(ec_ids[0])), np.inf,
+                                             dtype=np.float32)])
 
                 parent_cross_edges = np.concatenate([
                     parent_cross_edges, edge_id_dict["cross"][ec_ids]])
@@ -1241,6 +1250,9 @@ class ChunkedGraph(object):
                 disconnected_affs = np.concatenate([
                     edge_aff_dict["in_disconnected"][ec1_ids],
                     edge_aff_dict["in_disconnected"][ec2_ids]])
+                disconnected_areas = np.concatenate([
+                    edge_area_dict["in_disconnected"][ec1_ids],
+                    edge_area_dict["in_disconnected"][ec2_ids]])
 
 
                 # out chunk + disconnected
@@ -1253,14 +1265,19 @@ class ChunkedGraph(object):
                 disconnected_affs = np.concatenate([
                     disconnected_affs,
                     edge_aff_dict["between_disconnected"][ec_ids]])
+                disconnected_areas = np.concatenate([
+                    disconnected_areas,
+                    edge_area_dict["between_disconnected"][ec_ids]])
 
 
                 # Create node
                 val_dict = \
                     {"atomic_connected_partners": connected_ids.tobytes(),
                      "atomic_connected_affinities": connected_affs.tobytes(),
+                     "atomic_connected_areas": connected_areas.tobytes(),
                      "atomic_disconnected_partners": disconnected_ids.tobytes(),
                      "atomic_disconnected_affinities": disconnected_affs.tobytes(),
+                     "atomic_disconnected_areas": disconnected_areas.tobytes(),
                      "parents": parent_id_b}
 
                 rows.append(self.mutate_row(serialize_uint64(node_id),
@@ -1405,8 +1422,6 @@ class ChunkedGraph(object):
         atomic_partner_id_dict = {}
         cross_edge_dict = {}
         atomic_child_id_dict = {}
-
-        # leftover_atomic_edges = {}
 
         for chunk_coord in child_chunk_coords:
             # Get start and end key

@@ -403,15 +403,21 @@ def _create_atomic_layer_thread(args):
                  "in_disconnected": np.array([], dtype=np.float32),
                  "between_connected": np.array([], dtype=np.float32),
                  "between_disconnected": np.array([], dtype=np.float32)}
+    edge_areas = {"in_connected": np.array([], dtype=np.float32),
+                  "in_disconnected": np.array([], dtype=np.float32),
+                  "between_connected": np.array([], dtype=np.float32),
+                  "between_disconnected": np.array([], dtype=np.float32)}
 
     in_connected_dict = creator_utils.read_edge_file_h5(chunk_connected_path)
     in_disconnected_dict = creator_utils.read_edge_file_h5(chunk_disconnected_path)
 
     edge_ids["in_connected"] = in_connected_dict["edge_ids"]
     edge_affs["in_connected"] = in_connected_dict["edge_affs"]
+    edge_areas["in_connected"] = in_connected_dict["edge_areas"]
 
     edge_ids["in_disconnected"] = in_disconnected_dict["edge_ids"]
     edge_affs["in_disconnected"] = in_disconnected_dict["edge_affs"]
+    edge_areas["in_disconnected"] = in_disconnected_dict["edge_areas"]
 
     if os.path.exists(isolated_path):
         isolated_ids = creator_utils.read_edge_file_h5(isolated_path)["node_ids"]
@@ -427,10 +433,12 @@ def _create_atomic_layer_thread(args):
         elif "disconnected" in fp:
             edge_ids["between_disconnected"] = np.concatenate([edge_ids["between_disconnected"], edge_dict["edge_ids"][:, [1, 0]]])
             edge_affs["between_disconnected"] = np.concatenate([edge_affs["between_disconnected"], edge_dict["edge_affs"]])
+            edge_areas["between_disconnected"] = np.concatenate([edge_areas["between_disconnected"], edge_dict["edge_areas"]])
         else:
             # connected
             edge_ids["between_connected"] = np.concatenate([edge_ids["between_connected"], edge_dict["edge_ids"][:, [1, 0]]])
             edge_affs["between_connected"] = np.concatenate([edge_affs["between_connected"], edge_dict["edge_affs"]])
+            edge_areas["between_connected"] = np.concatenate([edge_areas["between_connected"], edge_dict["edge_areas"]])
 
     for fp in out_paths:
         edge_dict = creator_utils.read_edge_file_h5(fp)
@@ -440,14 +448,16 @@ def _create_atomic_layer_thread(args):
         elif "disconnected" in fp:
             edge_ids["between_disconnected"] = np.concatenate([edge_ids["between_disconnected"], edge_dict["edge_ids"]])
             edge_affs["between_disconnected"] = np.concatenate([edge_affs["between_disconnected"], edge_dict["edge_affs"]])
+            edge_areas["between_disconnected"] = np.concatenate([edge_areas["between_disconnected"], edge_dict["edge_areas"]])
         else:
             # connected
             edge_ids["between_connected"] = np.concatenate([edge_ids["between_connected"], edge_dict["edge_ids"]])
             edge_affs["between_connected"] = np.concatenate([edge_affs["between_connected"], edge_dict["edge_affs"]])
+            edge_areas["between_connected"] = np.concatenate([edge_areas["between_connected"], edge_dict["edge_areas"]])
 
     # Initialize an ChunkedGraph instance and write to it
     cg = chunkedgraph.ChunkedGraph(table_id=table_id)
-    cg.add_atomic_edges_in_chunks(edge_ids, edge_affs,
+    cg.add_atomic_edges_in_chunks(edge_ids, edge_affs, edge_areas,
                                   isolated_node_ids=isolated_ids)
 
 
