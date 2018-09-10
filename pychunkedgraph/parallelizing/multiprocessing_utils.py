@@ -8,6 +8,7 @@ import pickle as pkl
 import sys
 import subprocess
 import glob
+import logging
 
 python_path = sys.executable
 home = os.path.expanduser("~")
@@ -129,7 +130,7 @@ def _start_subprocess(ii, path_to_script, path_to_storage, path_to_src,
 def _poll_running_subprocesses(processes, runtimes, path_to_script,
                                path_to_storage, path_to_src,  path_to_out,
                                path_to_err, min_n_meas, kill_tol_factor,
-                               n_retries):
+                               n_retries, logger):
     if len(runtimes) > min_n_meas:
         median_runtime = np.median(runtimes)
     else:
@@ -141,6 +142,9 @@ def _poll_running_subprocesses(processes, runtimes, path_to_script,
         if poll == 0 and os.path.exists(path_to_out):
             runtimes.append(time.time() - processes[i_p][3])
             del (processes[i_p])
+
+            logger.info("process %d finished after %.3s" % (i_p, runtimes[-1]))
+
             break
         elif poll == 1:
             _, err_msg = p[0].communicate()
@@ -149,8 +153,13 @@ def _poll_running_subprocesses(processes, runtimes, path_to_script,
             _write_error_to_file(err_msg, path_to_err + "job_%d_%d.pkl" %
                                  (p[1], p[2]))
 
+            logger.warning("process %d failed" % i_p)
+
             if p[2] >= n_retries:
                 del (processes[i_p])
+
+                logger.error("no retries left for process %d" % i_p)
+
                 break
             else:
                 p = _start_subprocess(i_p, path_to_script, path_to_storage,
@@ -159,6 +168,10 @@ def _poll_running_subprocesses(processes, runtimes, path_to_script,
                 processes[i_p][0] = p
                 processes[i_p][2] += 1
                 processes[i_p][3] = time.time()
+
+                logger.info("restarted process %d -- n(restarts) = %d" %
+                            (i_p, processes[i_p][2]))
+
                 time.sleep(.01)  # Avoid OS hickups
 
         elif kill_tol_factor is not None and median_runtime > 0:
@@ -176,12 +189,20 @@ def _poll_running_subprocesses(processes, runtimes, path_to_script,
                       "(.%3fs), median is %.3fs -- %s\n\n" %
                       (p_run_time, median_runtime, i_p, path_to_storage))
 
+                logger.warning("killed process %d -- (.%3fs), "
+                               "median is %.3fs" % (i_p, p_run_time,
+                                                    median_runtime))
+
                 p = _start_subprocess(i_p, path_to_script, path_to_storage,
                                       path_to_src,  path_to_out, params=None)
 
                 processes[i_p][0] = p
                 processes[i_p][2] += 1
                 processes[i_p][3] = time.time()
+
+                logger.info("restarted process %d -- n(restarts) = %d" %
+                            (i_p, processes[i_p][2]))
+
                 time.sleep(.01)  # Avoid OS hickups
     return processes, runtimes
 
@@ -233,6 +254,32 @@ def multisubprocess_func(func, params, wait_delay_s=5, n_threads=1,
 
     min_n_meas = int(len(params) * .9)
 
+    # Add logging
+    # https: // docs.python.org / 3 / howto / logging - cookbook.html
+
+    logger = logging.Logger(name)
+    logger.setLevel(logging.DEBUG)
+    # create file handler which logs even debug messages
+    fh = logging.FileHandler('spam.log')
+    fh.setLevel(logging.DEBUG)
+    # create console handler with a higher log level
+    ch = logging.StreamHandler()
+    ch.setLevel(logging.ERROR)
+    # create formatter and add it to the handlers
+    formatter = logging.Formatter('%(asctime)s - %(name)s - '
+                                  '%(levelname)s - %(message)s')
+    fh.setFormatter(formatter)
+    ch.setFormatter(formatter)
+    # add the handlers to the logger
+    logger.addHandler(fh)
+    logger.addHandler(ch)
+
+    logger.info("Parameters: wait_delay_s={}, n_threads={},  n_retries={},  "
+                "kill_tol_factor={},  suffix={}, package_name={}, "
+                "min_n_meas={}".format(wait_delay_s, n_threads, n_retries,
+                                       kill_tol_factor, suffix, package_name,
+                                       min_n_meas))
+
     processes = []
     runtimes = []
     for ii in range(len(params)):
@@ -246,13 +293,17 @@ def multisubprocess_func(func, params, wait_delay_s=5, n_threads=1,
                                                              path_to_err,
                                                              min_n_meas,
                                                              kill_tol_factor,
-                                                             n_retries)
+                                                             n_retries,
+                                                             logger)
 
             if len(processes) >= n_threads:
                 time.sleep(wait_delay_s)
 
         p = _start_subprocess(ii, path_to_script, path_to_storage, path_to_src,
                               path_to_out, params=params)
+
+        logger.info("started process %d" % ii)
+
         processes.append([p, ii, 0, time.time()])
         time.sleep(.01)  # Avoid OS hickups
 
@@ -266,7 +317,8 @@ def multisubprocess_func(func, params, wait_delay_s=5, n_threads=1,
                                                          path_to_err,
                                                          min_n_meas,
                                                          kill_tol_factor,
-                                                         n_retries)
+                                                         n_retries,
+                                                         logger)
 
         if len(processes) >= n_threads:
             time.sleep(wait_delay_s)
