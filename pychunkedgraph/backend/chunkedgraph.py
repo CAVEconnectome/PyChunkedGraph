@@ -1316,14 +1316,21 @@ class ChunkedGraph(object):
                     enumerate(atomic_partner_id_dict_keys[start: end]):
                 this_atomic_partner_ids = atomic_partner_id_dict[child_key]
 
+                partners = set()
+                for atomic_cross_id in this_atomic_partner_ids:
+                    partners.add(atomic_child_id_dict[atomic_cross_id])
+
                 partners = np.unique(child_ids[np.in1d(atomic_child_ids,
                                                        this_atomic_partner_ids)])
 
                 if len(partners) > 0:
+                    partners = np.array(list(partners), dtype=np.uint64)[:, None]
+
                     these_edges =\
                         np.concatenate([np.array([child_key] * len(partners),
                                                  dtype=np.uint64)[:, None],
                                         partners[:, None]], axis=1)
+
                     edge_ids.extend(these_edges)
 
         def _write_out_connected_components(args) -> None:
@@ -1393,7 +1400,6 @@ class ChunkedGraph(object):
 
         # ids in lowest layer
         atomic_child_ids = np.array([], dtype=np.uint64)
-
         # ids in layer one below this one
         child_ids = np.array([], dtype=np.uint64)
         atomic_partner_id_dict = {}
@@ -1470,23 +1476,15 @@ class ChunkedGraph(object):
                             cross_edge_dict[row_id][l] = cell_family[row_key][0].value
 
                     if int(layer_id - 1) in cross_edge_dict[row_id]:
-                        atomic_edges_b = cross_edge_dict[row_id][layer_id - 1]
+                        atomic_cross_edges_b = cross_edge_dict[row_id][layer_id - 1]
+                        atomic_cross_edges = np.frombuffer(atomic_cross_edges_b,
+                                                           dtype=np.uint64).reshape(-1, 2)
 
-                        atomic_edges = np.frombuffer(atomic_edges_b,
-                                                     dtype=np.uint64).reshape(-1, 2)
+                        atomic_partner_id_dict[row_id] = atomic_cross_edges[:, 1]
+                        atomic_child_id_dict.update(dict(zip(atomic_cross_edges[:, 0], [row_id] * len(atomic_cross_edges))))
 
-                        atomic_partner_id_dict[row_id] = atomic_edges[:, 1]
-                        atomic_child_id_dict[row_id] = atomic_edges[:, 0]
-
-                        atomic_child_ids = np.concatenate([atomic_child_ids,
-                                                           atomic_edges[:, 0]])
-                        child_ids =\
-                            np.concatenate([child_ids,
-                                            np.array([row_id] * len(atomic_edges[:, 0]),
-                                                     dtype=np.uint64)])
-
-        # print("Time iterating through subchunks: %.3fs" %
-        #       (time.time() - time_start))
+        print("Time iterating through subchunks: %.3fs" %
+              (time.time() - time_start))
         time_start = time.time()
 
         # Extract edges from remaining cross chunk edges
@@ -1515,8 +1513,8 @@ class ChunkedGraph(object):
             mu.multithread_func(_resolve_cross_chunk_edges_thread, multi_args,
                                 n_threads=n_threads)
 
-        # print("Time resolving cross chunk edges: %.3fs" %
-        #       (time.time() - time_start))
+        print("Time resolving cross chunk edges: %.3fs" %
+              (time.time() - time_start))
         time_start = time.time()
 
         # 2 ----------
@@ -1558,7 +1556,7 @@ class ChunkedGraph(object):
         mu.multithread_func(_write_out_connected_components, multi_args,
                             n_threads=n_threads)
 
-        # print("Time connected components: %.3fs" % (time.time() - time_start))
+        print("Time connected components: %.3fs" % (time.time() - time_start))
 
     def get_atomic_cross_edge_dict(self, node_id: np.uint64,
                                    layer_ids: Sequence[int] = None,
