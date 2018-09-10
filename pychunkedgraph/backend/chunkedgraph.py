@@ -1559,6 +1559,9 @@ class ChunkedGraph(object):
 
         ccs = list(nx.connected_components(chunk_g)) + add_ccs
 
+        print("Time connected components: %.3fs" % (time.time() - time_start))
+        time_start = time.time()
+
         # Add rows for nodes that are in this chunk
         # a connected component at a time
         if n_threads > 1:
@@ -1577,7 +1580,7 @@ class ChunkedGraph(object):
         mu.multithread_func(_write_out_connected_components, multi_args,
                             n_threads=n_threads)
 
-        print("Time connected components: %.3fs" % (time.time() - time_start))
+        print("Time write connected components: %.3fs" % (time.time() - time_start))
 
     def get_atomic_cross_edge_dict(self, node_id: np.uint64,
                                    layer_ids: Sequence[int] = None,
