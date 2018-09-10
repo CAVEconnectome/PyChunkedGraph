@@ -1337,16 +1337,12 @@ class ChunkedGraph(object):
                 for atomic_cross_id in this_atomic_partner_ids:
                     partners.add(atomic_child_id_dict[atomic_cross_id])
 
-                partners = np.unique(child_ids[np.in1d(atomic_child_ids,
-                                                       this_atomic_partner_ids)])
-
                 if len(partners) > 0:
                     partners = np.array(list(partners), dtype=np.uint64)[:, None]
 
-                    these_edges =\
-                        np.concatenate([np.array([child_key] * len(partners),
-                                                 dtype=np.uint64)[:, None],
-                                        partners[:, None]], axis=1)
+                    this_ids = np.array([child_key] * len(partners),
+                                        dtype=np.uint64)[:, None]
+                    these_edges = np.concatenate([this_ids, partners], axis=1)
 
                     edge_ids.extend(these_edges)
 
