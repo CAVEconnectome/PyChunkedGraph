@@ -191,7 +191,8 @@ def create_chunk(cgraph, vertices=None, edges=None, timestamp=None):
     print(edge_ids)
     print(edge_affs)
 
-    cgraph.add_atomic_edges_in_chunks(edge_ids, edge_affs,
+    # Use affinities as areas
+    cgraph.add_atomic_edges_in_chunks(edge_ids, edge_affs, edge_affs,
                                       isolated_node_ids,
                                       time_stamp=timestamp)
 
