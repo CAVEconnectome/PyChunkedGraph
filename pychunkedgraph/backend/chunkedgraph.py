@@ -751,15 +751,15 @@ class ChunkedGraph(object):
 
         return True
 
-    def range_read_chunk(self, layer: int, x: int, y: int, z: int,
-                         n_retries: int = 100,
-                         row_keys: Optional[Iterable[str]] = None,
-                         row_key_filters: Optional[Iterable[str]] = None,
-                         time_stamp: datetime.datetime = datetime.datetime.max,
-                         yield_rows: bool = False) -> Union[
-                                bigtable.row_data.PartialRowData,
-                                Dict[bytes, bigtable.row_data.PartialRowData]]:
-        """ Reads all ids within a chunk
+    def range_read(self, start_id: np.uint64, end_id: np.uint64,
+                   n_retries: int = 100,
+                   row_keys: Optional[Iterable[str]] = None,
+                   row_key_filters: Optional[Iterable[str]] = None,
+                   time_stamp: datetime.datetime = datetime.datetime.max,
+                   yield_rows: bool = False) -> Union[
+                          bigtable.row_data.PartialRowData,
+                          Dict[bytes, bigtable.row_data.PartialRowData]]:
+        """ Reads all ids within a given range
 
         :param layer: int
         :param x: int
@@ -774,6 +774,7 @@ class ChunkedGraph(object):
         :param yield_rows: bool
         :return: list or yield of rows
         """
+
         # Comply to resolution of BigTables TimeRange
         time_stamp -= datetime.timedelta(
             microseconds=time_stamp.microsecond % 1000)
@@ -811,14 +812,6 @@ class ChunkedGraph(object):
                                                   false_filter=row_filter,
                                                   true_filter=BlockAllFilter(True))
 
-
-        chunk_id = self.get_chunk_id(layer=layer, x=x, y=y, z=z)
-        max_segment_id = self.get_segment_id_limit(chunk_id)
-
-        # Define BigTable keys
-        start_id = self.get_node_id(np.uint64(0), chunk_id=chunk_id)
-        end_id = self.get_node_id(max_segment_id, chunk_id=chunk_id)
-
         if yield_rows:
             range_read_yield = self.table.yield_rows(
                 start_key=serialize_uint64(start_id),
@@ -834,6 +827,7 @@ class ChunkedGraph(object):
                 end_inclusive=False,
                 filter_=row_filter)
             range_read.consume_all()
+
             # Execute read
             consume_success = False
 
@@ -848,11 +842,52 @@ class ChunkedGraph(object):
                 i_tries += 1
 
             if not consume_success:
-                raise Exception("Unable to consume chunk range read: "
-                                "[%d, %d, %d], l = %d, n_retries = %d" %
-                                (x, y, z, layer, n_retries))
+                raise Exception("Unable to consume range read: "
+                                "%d - %d -- n_retries = %d" %
+                                (start_id, end_id, n_retries))
 
             return range_read.rows
+
+
+    def range_read_chunk(self, layer: int, x: int, y: int, z: int,
+                         n_retries: int = 100,
+                         row_keys: Optional[Iterable[str]] = None,
+                         row_key_filters: Optional[Iterable[str]] = None,
+                         time_stamp: datetime.datetime = datetime.datetime.max,
+                         yield_rows: bool = False) -> Union[
+                                bigtable.row_data.PartialRowData,
+                                Dict[bytes, bigtable.row_data.PartialRowData]]:
+        """ Reads all ids within a chunk
+
+        :param layer: int
+        :param x: int
+        :param y: int
+        :param z: int
+        :param n_retries: int
+        :param row_keys: list of str
+            more efficient read through row filters
+        :param row_key_filters: list of str
+            rows *with* this column will be ignored
+        :param time_stamp: datetime.datetime
+        :param yield_rows: bool
+        :return: list or yield of rows
+        """
+        chunk_id = self.get_chunk_id(layer=layer, x=x, y=y, z=z)
+        max_segment_id = self.get_segment_id_limit(chunk_id)
+
+        # Define BigTable keys
+        start_id = self.get_node_id(np.uint64(0), chunk_id=chunk_id)
+        end_id = self.get_node_id(max_segment_id, chunk_id=chunk_id)
+        try:
+            rr = self.range_read(start_id, end_id, n_retries=n_retries,
+                                 row_keys=row_keys,
+                                 row_key_filters=row_key_filters,
+                                 time_stamp=time_stamp, yield_rows=yield_rows)
+        except:
+            raise Exception("Unable to consume range read: "
+                            "[%d, %d, %d], l = %d, n_retries = %d" %
+                            (x, y, z, layer, n_retries))
+        return rr
 
     def range_read_operations(self,
                               time_start: datetime.datetime = datetime.datetime.min,
@@ -1376,18 +1411,24 @@ class ChunkedGraph(object):
 
         def _write_out_connected_components(args) -> None:
             start, end = args
+
+            n_ccs = int(end - start)
+            u_id_range_start = self.get_unique_segment_id(chunk_id, n_ccs) \
+                               - np.uint64(n_ccs - 1)
+            rows = []
             for i_cc, cc in enumerate(ccs[start: end]):
-                rows = []
 
                 node_ids = np.array(list(cc))
 
-                parent_id = self.get_unique_node_id(chunk_id)
+                parent_id = self.get_node_id(segment_id=np.uint64(i_cc) +
+                                                        u_id_range_start,
+                                             chunk_id=chunk_id)
+
                 parent_id_b = np.array(parent_id, dtype=np.uint64).tobytes()
 
                 parent_cross_edges_b = {}
                 for l in range(layer_id, self.n_layers):
                     parent_cross_edges_b[l] = b""
-
 
                 # Add rows for nodes that are in this chunk
                 for i_node_id, node_id in enumerate(node_ids):
@@ -1416,7 +1457,7 @@ class ChunkedGraph(object):
 
                 for l in range(layer_id, self.n_layers):
                     if l in parent_cross_edges_b:
-                        val_dict["atomic_cross_edges_%d" % l] =\
+                        val_dict["atomic_cross_edges_%d" % l] = \
                             parent_cross_edges_b[l]
 
                 if len(val_dict) > 0:
@@ -1425,6 +1466,11 @@ class ChunkedGraph(object):
                                                 val_dict,
                                                 time_stamp=time_stamp))
 
+                if len(rows) > 100000:
+                    self.bulk_write(rows)
+                    rows = []
+
+            if len(rows) > 0:
                 self.bulk_write(rows)
 
         if time_stamp is None:
@@ -1602,15 +1648,10 @@ class ChunkedGraph(object):
 
         # Extract connected components
         chunk_g = nx.from_edgelist(edge_ids)
-        # chunk_g.add_nodes_from(atomic_partner_id_dict_keys)
 
         # Add single node objects that have no edges
-        add_ccs = []
-
         isolated_node_mask = ~np.in1d(ll_node_ids, np.unique(edge_ids))
         add_ccs = list(ll_node_ids[isolated_node_mask][:, None])
-        # for node_id in ll_node_ids[isolated_node_mask]:
-        #     add_ccs.append([node_id])
 
         ccs = list(nx.connected_components(chunk_g)) + add_ccs
 
@@ -1619,118 +1660,24 @@ class ChunkedGraph(object):
 
         # Add rows for nodes that are in this chunk
         # a connected component at a time
-        # if n_threads > 1:
-        #     n_jobs = n_threads * 3 # Heuristic
-        # else:
-        #     n_jobs = 1
-        #
-        # n_jobs = np.min([n_jobs, len(ccs)])
-        #
-        # spacing = np.linspace(0, len(ccs), n_jobs+1).astype(np.int)
-        # starts = spacing[:-1]
-        # ends = spacing[1:]
-        #
-        # multi_args = list(zip(starts, ends))
-        #
-        # mu.multithread_func(_write_out_connected_components, multi_args,
-        #                     n_threads=n_threads)
+        if n_threads > 1:
+            n_jobs = n_threads * 3 # Heuristic
+        else:
+            n_jobs = 1
 
-        d_times = collections.defaultdict(float)
-        d_counter = collections.Counter()
+        n_jobs = np.min([n_jobs, len(ccs)])
 
-        u_id_range_start = self.get_unique_segment_id(chunk_id, len(ccs)) \
-                           - np.uint64(len(ccs) - 1)
-        rows = []
-        for i_cc, cc in enumerate(ccs):
-            time_start_1 = time.time()
+        spacing = np.linspace(0, len(ccs), n_jobs+1).astype(np.int)
+        starts = spacing[:-1]
+        ends = spacing[1:]
 
-            node_ids = np.array(list(cc))
+        multi_args = list(zip(starts, ends))
 
-            d_times["cc"] += (time.time() - time_start_1)
-            d_counter["cc"] += 1
-            time_start_1 = time.time()
+        mu.multithread_func(_write_out_connected_components, multi_args,
+                            n_threads=n_threads)
 
-            parent_id = self.get_node_id(segment_id=np.uint64(i_cc) +
-                                                    u_id_range_start,
-                                         chunk_id=chunk_id)
+        print("Time writing connected components: %.3fs" % (time.time() - time_start))
 
-            d_times["unique_id"] += (time.time() - time_start_1)
-            d_counter["unique_id"] += 1
-
-            time_start_1 = time.time()
-            parent_id_b = np.array(parent_id, dtype=np.uint64).tobytes()
-            d_times["bin"] += (time.time() - time_start_1)
-            d_counter["bin"] += 1
-
-            time_start_1 = time.time()
-            parent_cross_edges_b = {}
-            for l in range(layer_id, self.n_layers):
-                parent_cross_edges_b[l] = b""
-
-            d_times["prep"] += (time.time() - time_start_1)
-            d_counter["prep"] += 1
-            time_start_1 = time.time()
-            # Add rows for nodes that are in this chunk
-            for i_node_id, node_id in enumerate(node_ids):
-
-                time_start_2 = time.time()
-                # Extract edges relevant to this node
-                for l in range(layer_id, self.n_layers):
-                    if l in cross_edge_dict[node_id]:
-                        parent_cross_edges_b[l] += \
-                            cross_edge_dict[node_id][l]
-                d_times["add_cross_edges"] += (time.time() - time_start_2)
-                d_counter["add_cross_edges"] += 1
-
-                # Create node
-                val_dict = {"parents": parent_id_b}
-
-                time_start_2 = time.time()
-                rows.append(self.mutate_row(serialize_uint64(node_id),
-                                            self.family_id, val_dict,
-                                            time_stamp=time_stamp))
-                d_times["add_cross_edges"] += (time.time() - time_start_2)
-                d_counter["add_cross_edges"] += 1
-
-            d_times["parents"] += (time.time() - time_start_1)
-            d_counter["parents"] += 1
-            time_start_1 = time.time()
-
-            # Create parent node
-            val_dict = {"children": node_ids.tobytes()}
-
-
-            rows.append(self.mutate_row(serialize_uint64(parent_id),
-                                        self.family_id, val_dict,
-                                        time_stamp=time_stamp))
-
-            val_dict = {}
-
-            for l in range(layer_id, self.n_layers):
-                if l in parent_cross_edges_b:
-                    val_dict["atomic_cross_edges_%d" % l] = \
-                        parent_cross_edges_b[l]
-
-            if len(val_dict) > 0:
-                rows.append(self.mutate_row(serialize_uint64(parent_id),
-                                            self.cross_edge_family_id,
-                                            val_dict,
-                                            time_stamp=time_stamp))
-
-            d_times["add_parent_row"] += (time.time() - time_start_1)
-            d_counter["add_parent_row"] += 1
-
-        # for k in d_times.keys():
-        #     print("%s: total = %.3fms, ni = %d, pi = %.3fms" %
-        #           (k, 1000 * d_times[k], d_counter[k],
-        #            1000 * d_times[k] / d_counter[k]))
-        print("Time build %d connected components rows: %.3fs" % (len(rows), time.time() - time_start))
-
-        time_start = time.time()
-
-        self.bulk_write(rows)
-
-        print("Time write connected components: %.3fs" % (time.time() - time_start))
 
     def get_atomic_cross_edge_dict(self, node_id: np.uint64,
                                    layer_ids: Sequence[int] = None,
