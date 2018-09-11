@@ -1519,9 +1519,9 @@ class ChunkedGraph(object):
             d_counter["range_read"] += 1
             time_start_1 = time.time()
 
-            segment_ids = np.array([], dtype=np.uint64)
-            row_ids_b = np.array([])
-            max_child_ids = np.array([], dtype=np.uint64)
+            segment_ids = []
+            row_ids_b = []
+            max_child_ids = []
             for row_id_b, row_data in range_read.items():
                 row_id = deserialize_uint64(row_id_b)
                 segment_id = self.get_segment_id(row_id)
@@ -1532,29 +1532,43 @@ class ChunkedGraph(object):
                 node_child_ids = np.frombuffer(node_child_ids_b,
                                                dtype=np.uint64)
 
-                max_child_ids = np.concatenate([max_child_ids,
-                                                [np.max(node_child_ids)]])
-                segment_ids = np.concatenate([segment_ids, [segment_id]])
-                row_ids_b = np.concatenate([row_ids_b, [row_id_b]])
+                max_child_ids.append(np.max(node_child_ids))
+                segment_ids.append(segment_id)
+                row_ids_b.append(row_id_b)
+
+            segment_ids = np.array(segment_ids, dtype=np.uint64)
+            row_ids_b = np.array(row_ids_b)
+            max_child_ids = np.array(max_child_ids, dtype=np.uint64)
+
+            d_times["read_elements"] += (time.time() - time_start_1)
+            d_counter["read_elements"] += 1
+            time_start_1 = time.time()
 
             sorting = np.argsort(segment_ids)[::-1]
             row_ids_b = row_ids_b[sorting]
             max_child_ids = max_child_ids[sorting]
 
-            counter = collections.defaultdict(int)
+            d_times["sorting"] += (time.time() - time_start_1)
+            d_counter["sorting"] += 1
+            time_start_1 = time.time()
 
+            counter = collections.defaultdict(int)
             max_child_ids_occ_so_far = np.zeros(len(max_child_ids),
                                                 dtype=np.int)
             for i_row in range(len(max_child_ids)):
                 max_child_ids_occ_so_far[i_row] = counter[max_child_ids[i_row]]
                 counter[max_child_ids[i_row]] += 1
 
+            d_times["counting"] += (time.time() - time_start_1)
+            d_counter["counting"] += 1
+            time_start_1 = time.time()
+
             # Filter last occurences (we inverted the list) of each node
             m = max_child_ids_occ_so_far == 0
             row_ids_b = row_ids_b[m]
 
-            d_times["repeat"] += (time.time() - time_start_1)
-            d_counter["repeat"] += 1
+            d_times["filtering"] += (time.time() - time_start_1)
+            d_counter["filtering"] += 1
             time_start_1 = time.time()
 
             # Loop through nodes from this chunk
