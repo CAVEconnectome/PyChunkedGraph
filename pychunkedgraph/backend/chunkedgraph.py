@@ -1181,7 +1181,7 @@ class ChunkedGraph(object):
         # a connected component at a time
         node_c = 0  # Just a counter for the print / speed measurement
 
-        u_id_range_start = self.get_unique_segment_id(parent_chunk_id, len(ccs)) - np.uint64(len(ccs) + 1)
+        u_id_range_start = self.get_unique_segment_id(parent_chunk_id, len(ccs)) - np.uint64(len(ccs) - 1)
 
         time_start = time.time()
 
@@ -1608,8 +1608,9 @@ class ChunkedGraph(object):
         add_ccs = []
 
         isolated_node_mask = ~np.in1d(ll_node_ids, np.unique(edge_ids))
-        for node_id in ll_node_ids[isolated_node_mask]:
-            add_ccs.append([node_id])
+        add_ccs = list(ll_node_ids[isolated_node_mask][:, None])
+        # for node_id in ll_node_ids[isolated_node_mask]:
+        #     add_ccs.append([node_id])
 
         ccs = list(nx.connected_components(chunk_g)) + add_ccs
 
@@ -1638,7 +1639,7 @@ class ChunkedGraph(object):
         d_counter = collections.Counter()
 
         u_id_range_start = self.get_unique_segment_id(chunk_id, len(ccs)) \
-                           - np.uint64(len(ccs) + 1)
+                           - np.uint64(len(ccs) - 1)
         rows = []
         for i_cc, cc in enumerate(ccs):
             time_start_1 = time.time()
