@@ -11,7 +11,7 @@ from igneous.tasks import MeshTask
 sys.path.insert(0, os.path.join(sys.path[0], '../..'))
 os.environ['TRAVIS_BRANCH'] = "IDONTKNOWWHYINEEDTHIS"
 
-from pychunkedgraph.backend.chunkedgraph import ChunkedGraph  # noqa
+from pychunkedgraph.backend.chunkedgraph import ChunkedGraph, serialize_uint64  # noqa
 
 
 @lru_cache(maxsize=None)
@@ -45,59 +45,122 @@ def get_sv_to_node_mapping(cg, chunk_id):
     """
 
     layer = cg.get_chunk_layer(chunk_id)
+    assert layer <= 2
 
     sv_to_node_mapping = {}
 
-    if layer > 1:
-        # Mapping a chunk containing agglomeration IDs - need to retrieve
-        # atomic IDs within the chunk, as well as all connected or unbreakable
-        # cross_chunk_edges to adjacent chunks.
-        for seg_id in range(1, cg.get_max_node_id(chunk_id) + np.uint64(1)):
-            node_id = cg.get_node_id(np.uint64(seg_id), chunk_id)
-
-            atomic_ids = cg.get_subgraph(node_id, verbose=False)
-            cross_chunk_edges = cg.get_atomic_cross_edge_dict(
-                node_id,
-                deserialize_node_ids=True)
-
-            # Collects every 2nd element of every cross_edge list in the
-            # dictionary (the atomic partner IDs in adjacent chunks)
-            cross_chunk_partners = {n: node_id for
-                                    arr in cross_chunk_edges.values() for
-                                    n in arr[1::2]}
-
-            sv_to_node_mapping.update(
-                dict(zip(atomic_ids, [node_id] * len(atomic_ids))))
-            sv_to_node_mapping.update(cross_chunk_partners)
-    else:
+    if layer == 1:
         # Mapping a chunk containing supervoxels - need to retrieve
         # potential unbreakable counterparts for each supervoxel
         # (Look for atomic edges with infinite edge weight)
+        # Also need to check the edges and the corner!
         x, y, z = cg.get_chunk_coordinates(chunk_id)
-        seg_ids = cg.range_read_chunk(1, x, y, z)
 
-        sv_to_node_mapping = {seg_id: seg_id for seg_id in
-                              [np.uint64(x) for x in seg_ids.keys()]}
+        center_chunk_max_node_id = cg.get_node_id(
+            segment_id=cg.get_segment_id_limit(chunk_id), chunk_id=chunk_id)
+        xyz_plus_chunk_min_node_id = cg.get_chunk_id(
+            layer=1, x=x + 1, y=y + 1, z=z + 1)
 
-        for seg_id, data in seg_ids.items():
+        seg_ids_center = cg.range_read_chunk(1, x, y, z)
+
+        seg_ids_face_neighbors = {}
+        seg_ids_face_neighbors.update(
+            cg.range_read_chunk(1, x + 1, y, z, row_keys=['atomic_connected_partners', 'atomic_connected_affinities']))
+        seg_ids_face_neighbors.update(
+            cg.range_read_chunk(1, x, y + 1, z, row_keys=['atomic_connected_partners', 'atomic_connected_affinities']))
+        seg_ids_face_neighbors.update(
+            cg.range_read_chunk(1, x, y, z + 1, row_keys=['atomic_connected_partners', 'atomic_connected_affinities']))
+
+        seg_ids_edge_neighbors = {}
+        seg_ids_edge_neighbors.update(
+            cg.range_read_chunk(1, x + 1, y + 1, z, row_keys=['atomic_connected_partners', 'atomic_connected_affinities']))
+        seg_ids_edge_neighbors.update(
+            cg.range_read_chunk(1, x, y + 1, z + 1, row_keys=['atomic_connected_partners', 'atomic_connected_affinities']))
+        seg_ids_edge_neighbors.update(
+            cg.range_read_chunk(1, x + 1, y, z + 1, row_keys=['atomic_connected_partners', 'atomic_connected_affinities']))
+
+        # Retrieve all face-adjacent, unbreakable supervoxel
+        one_hop_neighbors = {}
+        for seg_id_b, data in seg_ids_center.items():
             partners = np.frombuffer(
                 data.cells['0'][b'atomic_connected_partners'][0].value,
                 dtype=np.uint64)
+
             affinities = np.frombuffer(
                 data.cells['0'][b'atomic_connected_affinities'][0].value,
                 dtype=np.float32)
-            partners = partners[affinities == np.inf]
-            sv_to_node_mapping.update(
-                dict(zip(partners, [seg_id] * len(partners))))
+
+            # Only keep unbreakable segments, and only within the "positive" adjacent chunks
+            partners = partners[(affinities == np.inf) &
+                                (partners > chunk_id)]
+            one_hop_neighbors.update(dict(zip(partners, [seg_id_b] * len(partners))))
+
+        # Retrieve all edge-adjacent, unbreakable supervoxel
+        two_hop_neighbors = {}
+        for seg_id, base_id in one_hop_neighbors.items():
+            seg_id_b = serialize_uint64(seg_id)
+            partners = np.frombuffer(
+                seg_ids_face_neighbors[seg_id_b].cells['0'][b'atomic_connected_partners'][0].value,
+                dtype=np.uint64)
+            affinities = np.frombuffer(
+                seg_ids_face_neighbors[seg_id_b].cells['0'][b'atomic_connected_affinities'][0].value,
+                dtype=np.float32)
+
+            # Only keep unbreakable segments, doesn't completely exclude unnecessary chunks,
+            # but is good/fast enough to cut down the number of segments
+            partners = partners[(affinities == np.inf) &
+                                (partners > center_chunk_max_node_id) &
+                                (partners < xyz_plus_chunk_min_node_id)]
+            two_hop_neighbors.update(dict(zip(partners, [base_id] * len(partners))))
+
+        # Retrieve all corner-adjacent, unbreakable supervoxel
+        three_hop_neighbors = {}
+        for seg_id, base_id in two_hop_neighbors.items():
+            seg_id_b = serialize_uint64(seg_id)
+            if seg_id_b not in seg_ids_edge_neighbors:
+                continue
+
+            partners = np.frombuffer(
+                seg_ids_edge_neighbors[seg_id_b].cells['0'][b'atomic_connected_partners'][0].value,
+                dtype=np.uint64)
+            affinities = np.frombuffer(
+                seg_ids_edge_neighbors[seg_id_b].cells['0'][b'atomic_connected_affinities'][0].value,
+                dtype=np.float32)
+
+            # Only keep unbreakable segments - we are only interested in the single corner voxel,
+            # but based on the neighboring supervoxels, there might be a few more supervoxel - doesn't matter.
+            partners = partners[(affinities == np.inf) &
+                                (partners > xyz_plus_chunk_min_node_id)]
+            three_hop_neighbors.update(dict(zip(partners, [base_id] * len(partners))))
+
+        sv_to_node_mapping = {seg_id: seg_id for seg_id in
+                              [np.uint64(x) for x in seg_ids_center.keys()]}
+        sv_to_node_mapping.update(one_hop_neighbors)
+        sv_to_node_mapping.update(two_hop_neighbors)
+        sv_to_node_mapping.update(three_hop_neighbors)
+        sv_to_node_mapping = {np.uint64(k): np.uint64(v) for k, v in sv_to_node_mapping.items()}
+
+    elif layer == 2:
+        # Get supervoxel mapping
+        x, y, z = cg.get_chunk_coordinates(chunk_id)
+        sv_to_node_mapping = get_sv_to_node_mapping(cg, chunk_id=cg.get_chunk_id(layer=1, x=x, y=y, z=z))
+
+        # Update supervoxel with their parents
+        seg_ids = cg.range_read_chunk(1, x, y, z, row_keys=['parents'])
+
+        for sv_id, base_sv_id in sv_to_node_mapping.items():
+            base_sv_id = serialize_uint64(base_sv_id)
+            agg_id = np.frombuffer(seg_ids[base_sv_id].cells['0'][b'parents'][0].value, dtype=np.uint64)[0]
+
+            sv_to_node_mapping[sv_id] = agg_id
 
     return sv_to_node_mapping
 
 
-def chunk_mesh_task(sv_to_node_mapping, cg, chunk_id, cv_path,
+def chunk_mesh_task(cg, chunk_id, cv_path,
                     cv_mesh_dir=None, mip=3, max_err=40):
     """ Computes the meshes for a single chunk
 
-    :param get_sv_to_node_mapping: dict
     :param cg: ChunkedGraph instance
     :param chunk_id: int
     :param cv_path: str
@@ -107,16 +170,19 @@ def chunk_mesh_task(sv_to_node_mapping, cg, chunk_id, cv_path,
     """
 
     layer = cg.get_chunk_layer(chunk_id)
+    cx, cy, cz = cg.get_chunk_coordinates(chunk_id)
+
+    print("Retrieving remap table for chunk %s -- (%s, %s, %s, %s)" % (chunk_id, layer, cx, cy, cz))
+    sv_to_node_mapping = get_sv_to_node_mapping(cg, chunk_id)
+    print("Remapped %s segments to %s agglomerations. Start meshing..." % (len(sv_to_node_mapping), len(np.unique(list(sv_to_node_mapping.values())))))
 
     if len(sv_to_node_mapping) == 0:
-        print("Nothing to do", cg.get_chunk_coordinates(chunk_id))
+        print("Nothing to do", cx, cy, cz)
         return
-    # else:
-        # print("Something to do", cg.get_chunk_coordinates(chunk_id))
 
     mesh_block_shape = get_mesh_block_shape(cg, layer, mip)
 
-    chunk_offset = cg.get_chunk_coordinates(chunk_id) * mesh_block_shape
+    chunk_offset = (cx, cy, cz) * mesh_block_shape
 
     task = MeshTask(
         mesh_block_shape,
@@ -133,7 +199,7 @@ def chunk_mesh_task(sv_to_node_mapping, cg, chunk_id, cv_path,
     )
     task.execute()
 
-    print("Layer %d -- finished:" % layer, cg.get_chunk_coordinates(chunk_id))
+    print("Layer %d -- finished:" % layer, cx, cy, cz)
 
 
 def mesh_single_component(node_id, cg, cv_path,
@@ -315,14 +381,9 @@ def run_task_bundle(settings, layer, roi):
         for y in range(roi[1].start, roi[1].stop, chunksize[1]):
             for z in range(roi[2].start, roi[2].stop, chunksize[2]):
                 chunk_id = cgraph.get_chunk_id_from_coord(layer, x, y, z)
-                cx, cy, cz = cgraph.get_chunk_coordinates(chunk_id)
 
-                print("Retrieving remap table for chunk %s -- (%s, %s, %s, %s)" % (chunk_id, layer, cx, cy, cz))
-                remap_table = get_sv_to_node_mapping(cgraph, chunk_id)
-
-                print("Remapped %s segments to %s agglomerations. Start meshing..." % (len(remap_table), len(np.unique(remap_table.values()))))
                 try:
-                    chunk_mesh_task(remap_table, cgraph, chunk_id, cgraph.cv_path,
+                    chunk_mesh_task(cgraph, chunk_id, cgraph.cv_path,
                                     cv_mesh_dir=mesh_dir, mip=mip, max_err=max_err)
                 except EmptyVolumeException as e:
                     print("Warning: Empty segmentation encountered: %s" % e)
