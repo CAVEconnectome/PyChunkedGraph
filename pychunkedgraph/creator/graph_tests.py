@@ -3,7 +3,7 @@ import numpy as np
 import time
 
 from pychunkedgraph.backend import chunkedgraph
-from pychunkedgraph.parallelizing import multiprocessing_utils as mu
+from multiwrapper import multiprocessing_utils as mu
 
 
 def _family_consistency_test_thread(args):

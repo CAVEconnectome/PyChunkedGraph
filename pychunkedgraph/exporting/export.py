@@ -4,7 +4,7 @@ import itertools
 import pickle as pkl
 
 from pychunkedgraph.backend import chunkedgraph
-from pychunkedgraph.parallelizing import multiprocessing_utils as mu
+from multiwrapper import multiprocessing_utils as mu
 
 
 def get_sv_to_root_id_mapping_chunk(cg, chunk_coords, vol=None):
