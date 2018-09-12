@@ -10,7 +10,7 @@ from cloudvolume import storage
 
 # from chunkedgraph import ChunkedGraph
 from pychunkedgraph.backend import chunkedgraph
-from pychunkedgraph.parallelizing import multiprocessing_utils as mu
+from multiwrapper import multiprocessing_utils as mu
 from pychunkedgraph.creator import creator_utils
 
 

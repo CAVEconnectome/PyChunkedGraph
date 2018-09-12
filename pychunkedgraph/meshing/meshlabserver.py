@@ -3,7 +3,7 @@ import subprocess
 import glob
 import numpy as np
 
-from pychunkedgraph.parallelizing import multiprocessing_utils as mu
+from multiwrapper import multiprocessing_utils as mu
 
 HOME = os.path.expanduser("~")
 

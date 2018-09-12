@@ -7,7 +7,7 @@ import time
 import cloudvolume
 
 from pychunkedgraph.creator import creator_utils
-from pychunkedgraph.parallelizing import multiprocessing_utils as mu
+from multiwrapper import multiprocessing_utils as mu
 
 
 def _rewrite_segmentation_thread(args):
