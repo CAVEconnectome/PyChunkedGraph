@@ -114,11 +114,17 @@ def check_stored_cv_files(dataset_name="basil"):
 
 
 def create_chunked_graph(table_id=None, cv_url=None, ws_url=None, fan_out=2,
-                         bbox=None, chunk_size=(512, 512, 128), n_threads=1):
+                         bbox=None, chunk_size=(512, 512, 128), verbose=False,
+                         n_threads=1):
     """ Creates chunked graph from downloaded files
 
     :param table_id: str
     :param cv_url: str
+    :param ws_url: str
+    :param fan_out: int
+    :param bbox: [[x_, y_, z_], [_x, _y, _z]]
+    :param chunk_size: tuple
+    :param verbose: bool
     :param n_threads: int
     """
     if cv_url is None or ws_url is None:
@@ -234,7 +240,8 @@ def create_chunked_graph(table_id=None, cv_url=None, ws_url=None, fan_out=2,
                                in_chunk_disconnected_paths[offset + i_chunk],
                                isolated_paths[offset + i_chunk],
                                between_chunk_paths_in_masked[i_chunk],
-                               between_chunk_paths_out_masked[i_chunk]])
+                               between_chunk_paths_out_masked[i_chunk],
+                               verbose])
 
     random.shuffle(multi_args)
 
@@ -391,7 +398,7 @@ def _create_atomic_layer_thread(args):
     """ Fills lowest layer and create first abstraction layer """
     # Load args
     table_id, chunk_connected_path, chunk_disconnected_path, isolated_path,\
-        in_paths, out_paths = args
+        in_paths, out_paths, verbose = args
 
     # Load edge information
     edge_ids = {"in_connected": np.array([], dtype=np.uint64).reshape(0, 2),
@@ -458,7 +465,8 @@ def _create_atomic_layer_thread(args):
     # Initialize an ChunkedGraph instance and write to it
     cg = chunkedgraph.ChunkedGraph(table_id=table_id)
     cg.add_atomic_edges_in_chunks(edge_ids, edge_affs, edge_areas,
-                                  isolated_node_ids=isolated_ids)
+                                  isolated_node_ids=isolated_ids,
+                                  verbose=verbose)
 
 
 def _add_layer_thread(args):
