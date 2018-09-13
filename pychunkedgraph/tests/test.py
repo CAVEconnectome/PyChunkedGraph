@@ -645,6 +645,12 @@ class TestGraphBuild:
         res = cgraph.table.read_rows()
         res.consume_all()
 
+        # print(len(res.rows))
+        # for row_key in res.rows.keys():
+        #     print(row_key)
+        #     print(cgraph.get_chunk_layer(chunkedgraph.deserialize_uint64(row_key)))
+        #     print(cgraph.get_chunk_coordinates(chunkedgraph.deserialize_uint64(row_key)))
+
         assert chunkedgraph.serialize_uint64(to_label(cgraph, 1, 0, 0, 0, 0)) in res.rows
         assert chunkedgraph.serialize_uint64(to_label(cgraph, 1, 255, 255, 255, 0)) in res.rows
         assert chunkedgraph.serialize_uint64(to_label(cgraph, 10, 0, 0, 0, 1)) in res.rows
@@ -774,10 +780,9 @@ class TestGraphSimpleQueries:
         assert to_label(cgraph, 2, 2, 0, 0, 1) in children31001
 
         # Parent of L3
-        assert (parent30001 == to_label(cgraph, 4, 0, 0, 0, 1) and parent30002 == to_label(cgraph, 4, 0, 0, 0, 2) and
-                parent31001 == to_label(cgraph, 4, 0, 0, 0, 2)) or \
-               (parent30001 == to_label(cgraph, 4, 0, 0, 0, 2) and parent30002 == to_label(cgraph, 4, 0, 0, 0, 1) and
-                parent31001 == to_label(cgraph, 4, 0, 0, 0, 1))
+        assert parent30001 == parent31001 or parent30002 == parent31001
+        assert (parent30001 == to_label(cgraph, 4, 0, 0, 0, 1) and parent30002 == to_label(cgraph, 4, 0, 0, 0, 2)) or \
+               (parent30001 == to_label(cgraph, 4, 0, 0, 0, 2) and parent30002 == to_label(cgraph, 4, 0, 0, 0, 1))
 
         # Children of L4
         if len(children40001) == 1:
