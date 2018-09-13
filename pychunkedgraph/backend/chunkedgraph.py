@@ -7,7 +7,7 @@ import networkx as nx
 import pytz
 import cloudvolume
 
-from pychunkedgraph.parallelizing import multiprocessing_utils as mu
+from multiwrapper import multiprocessing_utils as mu
 from . import mincut
 
 from google.api_core.retry import Retry, if_exception_type
@@ -351,8 +351,12 @@ class ChunkedGraph(object):
         """
         info = {"table_id": self.table_id,
                 "instance_id": self.instance_id,
-                "project_id": self.project_id,
-                "credentials": self.client.credentials}
+                "project_id": self.project_id}
+
+        try:
+            info["credentials"] = self.client.credentials
+        except:
+            info["credentials"] = self.client._credentials
 
         return info
 
@@ -476,9 +480,8 @@ class ChunkedGraph(object):
         else:
             return self.get_chunk_id(layer=layer, x=x, y=y, z=z) | segment_id
 
-
-    def get_unique_segment_id(self, chunk_id: np.uint64, step: int = 1
-                              ) -> np.uint64:
+    def get_unique_segment_id_range(self, chunk_id: np.uint64, step: int = 1
+                                    ) -> np.ndarray:
         """ Return unique Segment ID for given Chunk ID
 
         atomic counter
@@ -498,14 +501,16 @@ class ChunkedGraph(object):
 
         # This increments the row entry and returns the value AFTER incrementing
         latest_row = append_row.commit()
-        segment_id_b = latest_row[self.incrementer_family_id][counter_key][0][0]
-        segment_id = int.from_bytes(segment_id_b, byteorder="big")
+        max_segment_id_b = latest_row[self.incrementer_family_id][counter_key][0][0]
+        max_segment_id = int.from_bytes(max_segment_id_b, byteorder="big")
 
-        return np.uint64(segment_id)
+        min_segment_id = max_segment_id + 1 - step
+        segment_id_range = np.array(range(min_segment_id, max_segment_id + 1),
+                                    dtype=np.uint64)
+        return segment_id_range
 
-    def get_unique_node_id(self, chunk_id: np.uint64, step: int = 1
-                           ) -> np.uint64:
-        """ Return unique Node ID for given Chunk ID
+    def get_unique_segment_id(self, chunk_id: np.uint64) -> np.uint64:
+        """ Return unique Segment ID for given Chunk ID
 
         atomic counter
 
@@ -514,9 +519,37 @@ class ChunkedGraph(object):
         :return: np.uint64
         """
 
-        segment_id = self.get_unique_segment_id(chunk_id=chunk_id, step=step)
+        return self.get_unique_segment_id_range(chunk_id=chunk_id, step=1)[0]
 
-        return self.get_node_id(segment_id, chunk_id=chunk_id)
+    def get_unique_node_id_range(self, chunk_id: np.uint64, step: int = 1
+                                 )  -> np.ndarray:
+        """ Return unique Node ID range for given Chunk ID
+
+        atomic counter
+
+        :param chunk_id: np.uint64
+        :param step: int
+        :return: np.uint64
+        """
+
+        segment_ids = self.get_unique_segment_id_range(chunk_id=chunk_id,
+                                                       step=step)
+
+        print("-----SEGMENTIDS", segment_ids)
+        node_ids = np.array([self.get_node_id(segment_id, chunk_id)
+                             for segment_id in segment_ids], dtype=np.uint64)
+        return node_ids
+
+    def get_unique_node_id(self, chunk_id: np.uint64) -> np.uint64:
+        """ Return unique Node ID for given Chunk ID
+
+        atomic counter
+
+        :param chunk_id: np.uint64
+        :return: np.uint64
+        """
+
+        return self.get_unique_node_id_range(chunk_id=chunk_id, step=1)[0]
 
     def get_max_node_id(self, chunk_id: np.uint64) -> np.uint64:
         """  Gets maximal node id in a chunk based on the atomic counter
@@ -751,15 +784,15 @@ class ChunkedGraph(object):
 
         return True
 
-    def range_read_chunk(self, layer: int, x: int, y: int, z: int,
-                         n_retries: int = 100,
-                         row_keys: Optional[Iterable[str]] = None,
-                         row_key_filters: Optional[Iterable[str]] = None,
-                         time_stamp: datetime.datetime = datetime.datetime.max,
-                         yield_rows: bool = False) -> Union[
-                                bigtable.row_data.PartialRowData,
-                                Dict[bytes, bigtable.row_data.PartialRowData]]:
-        """ Reads all ids within a chunk
+    def range_read(self, start_id: np.uint64, end_id: np.uint64,
+                   n_retries: int = 100,
+                   row_keys: Optional[Iterable[str]] = None,
+                   row_key_filters: Optional[Iterable[str]] = None,
+                   time_stamp: datetime.datetime = datetime.datetime.max,
+                   yield_rows: bool = False) -> Union[
+                          bigtable.row_data.PartialRowData,
+                          Dict[bytes, bigtable.row_data.PartialRowData]]:
+        """ Reads all ids within a given range
 
         :param layer: int
         :param x: int
@@ -774,6 +807,7 @@ class ChunkedGraph(object):
         :param yield_rows: bool
         :return: list or yield of rows
         """
+
         # Comply to resolution of BigTables TimeRange
         time_stamp -= datetime.timedelta(
             microseconds=time_stamp.microsecond % 1000)
@@ -811,14 +845,6 @@ class ChunkedGraph(object):
                                                   false_filter=row_filter,
                                                   true_filter=BlockAllFilter(True))
 
-
-        chunk_id = self.get_chunk_id(layer=layer, x=x, y=y, z=z)
-        max_segment_id = self.get_segment_id_limit(chunk_id)
-
-        # Define BigTable keys
-        start_id = self.get_node_id(np.uint64(0), chunk_id=chunk_id)
-        end_id = self.get_node_id(max_segment_id, chunk_id=chunk_id)
-
         if yield_rows:
             range_read_yield = self.table.yield_rows(
                 start_key=serialize_uint64(start_id),
@@ -834,6 +860,7 @@ class ChunkedGraph(object):
                 end_inclusive=False,
                 filter_=row_filter)
             range_read.consume_all()
+
             # Execute read
             consume_success = False
 
@@ -848,11 +875,52 @@ class ChunkedGraph(object):
                 i_tries += 1
 
             if not consume_success:
-                raise Exception("Unable to consume chunk range read: "
-                                "[%d, %d, %d], l = %d, n_retries = %d" %
-                                (x, y, z, layer, n_retries))
+                raise Exception("Unable to consume range read: "
+                                "%d - %d -- n_retries = %d" %
+                                (start_id, end_id, n_retries))
 
             return range_read.rows
+
+
+    def range_read_chunk(self, layer: int, x: int, y: int, z: int,
+                         n_retries: int = 100,
+                         row_keys: Optional[Iterable[str]] = None,
+                         row_key_filters: Optional[Iterable[str]] = None,
+                         time_stamp: datetime.datetime = datetime.datetime.max,
+                         yield_rows: bool = False) -> Union[
+                                bigtable.row_data.PartialRowData,
+                                Dict[bytes, bigtable.row_data.PartialRowData]]:
+        """ Reads all ids within a chunk
+
+        :param layer: int
+        :param x: int
+        :param y: int
+        :param z: int
+        :param n_retries: int
+        :param row_keys: list of str
+            more efficient read through row filters
+        :param row_key_filters: list of str
+            rows *with* this column will be ignored
+        :param time_stamp: datetime.datetime
+        :param yield_rows: bool
+        :return: list or yield of rows
+        """
+        chunk_id = self.get_chunk_id(layer=layer, x=x, y=y, z=z)
+        max_segment_id = self.get_segment_id_limit(chunk_id)
+
+        # Define BigTable keys
+        start_id = self.get_node_id(np.uint64(0), chunk_id=chunk_id)
+        end_id = self.get_node_id(max_segment_id, chunk_id=chunk_id)
+        try:
+            rr = self.range_read(start_id, end_id, n_retries=n_retries,
+                                 row_keys=row_keys,
+                                 row_key_filters=row_key_filters,
+                                 time_stamp=time_stamp, yield_rows=yield_rows)
+        except:
+            raise Exception("Unable to consume range read: "
+                            "[%d, %d, %d], l = %d, n_retries = %d" %
+                            (x, y, z, layer, n_retries))
+        return rr
 
     def range_read_operations(self,
                               time_start: datetime.datetime = datetime.datetime.min,
@@ -1144,7 +1212,8 @@ class ChunkedGraph(object):
             if not edge_aff_key in edge_aff_dict:
                 edge_aff_dict[edge_aff_key] = np.array([], dtype=np.float32)
 
-        print("Time keys: %.3fs" % (time.time() - time_start))
+        if verbose:
+            print("Time keys: %.3fs" % (time.time() - time_start))
         time_start = time.time()
 
         # Catch trivial case
@@ -1175,14 +1244,16 @@ class ChunkedGraph(object):
 
         ccs = list(nx.connected_components(chunk_g))
 
-        print("CC in chunk: %.3fs" % (time.time() - time_start))
+        if verbose:
+            print("CC in chunk: %.3fs" % (time.time() - time_start))
 
         # Add rows for nodes that are in this chunk
         # a connected component at a time
         node_c = 0  # Just a counter for the print / speed measurement
 
-        u_id_range_start = self.get_unique_segment_id(parent_chunk_id, len(ccs)) - np.uint64(len(ccs) - 1)
+        n_ccs = len(ccs)
 
+        parent_ids = self.get_unique_node_id_range(parent_chunk_id, step=n_ccs)
         time_start = time.time()
 
         for i_cc, cc in enumerate(ccs):
@@ -1196,9 +1267,7 @@ class ChunkedGraph(object):
             node_ids = np.array(list(cc))
 
             # Create parent id
-            parent_id = self.get_node_id(segment_id=np.uint64(i_cc) +
-                                                    u_id_range_start,
-                                         chunk_id=parent_chunk_id)
+            parent_id = parent_ids[i_cc]
             parent_id_b = np.array(parent_id, dtype=np.uint64).tobytes()
 
             parent_cross_edges = np.array([], dtype=np.uint64).reshape(0, 2)
@@ -1334,7 +1403,8 @@ class ChunkedGraph(object):
 
             self.bulk_write(rows)
 
-        print("Time creating rows: %.3fs for %d ccs with %d nodes" % (time.time() - time_start, len(ccs), node_c))
+        if verbose:
+            print("Time creating rows: %.3fs for %d ccs with %d nodes" % (time.time() - time_start, len(ccs), node_c))
 
 
     def add_layer(self, layer_id: int,
@@ -1349,6 +1419,95 @@ class ChunkedGraph(object):
         :param time_stamp: datetime
         :param n_threads: int
         """
+        def _read_subchunks_thread(chunk_coord):
+            # Get start and end key
+            x, y, z = chunk_coord
+
+            row_keys = ["children"] + \
+                       ["atomic_cross_edges_%d" % l
+                        for l in range(layer_id - 1, self.n_layers)]
+            range_read = self.range_read_chunk(layer_id - 1, x, y, z,
+                                               row_keys=row_keys,
+                                               yield_rows=False)
+
+            # Due to restarted jobs some parents might be duplicated. We can
+            # find these duplicates only by comparing their children because
+            # each node has a unique id. However, we can use that more recently
+            # created nodes have higher segment ids. We are only interested in
+            # the latest version of any duplicated parents.
+
+            # Deserialize row keys and store child with highest id for
+            # comparison
+            row_cell_dict = {}
+            segment_ids = []
+            row_ids = []
+            max_child_ids = []
+            for row_id_b, row_data in range_read.items():
+                row_id = deserialize_uint64(row_id_b)
+
+                segment_id = self.get_segment_id(row_id)
+
+                cells = row_data.cells
+
+                cell_family = cells[self.family_id]
+
+                if self.cross_edge_family_id in cells:
+                    row_cell_dict[row_id] = cells[self.cross_edge_family_id]
+
+                node_child_ids_b = cell_family[children_key][0].value
+                node_child_ids = np.frombuffer(node_child_ids_b,
+                                               dtype=np.uint64)
+
+                max_child_ids.append(np.max(node_child_ids))
+                segment_ids.append(segment_id)
+                row_ids.append(row_id)
+
+            segment_ids = np.array(segment_ids, dtype=np.uint64)
+            row_ids = np.array(row_ids)
+            max_child_ids = np.array(max_child_ids, dtype=np.uint64)
+
+            sorting = np.argsort(segment_ids)[::-1]
+            row_ids = row_ids[sorting]
+            max_child_ids = max_child_ids[sorting]
+
+            counter = collections.defaultdict(int)
+            max_child_ids_occ_so_far = np.zeros(len(max_child_ids),
+                                                dtype=np.int)
+            for i_row in range(len(max_child_ids)):
+                max_child_ids_occ_so_far[i_row] = counter[max_child_ids[i_row]]
+                counter[max_child_ids[i_row]] += 1
+
+            # Filter last occurences (we inverted the list) of each node
+            m = max_child_ids_occ_so_far == 0
+            row_ids = row_ids[m]
+            ll_node_ids.extend(row_ids)
+
+            # Loop through nodes from this chunk
+            for row_id in row_ids:
+                if row_id in row_cell_dict:
+                    cross_edge_dict[row_id] = {}
+
+                    cell_family = row_cell_dict[row_id]
+
+                    for l in range(layer_id - 1, self.n_layers):
+                        row_key = serialize_key("atomic_cross_edges_%d" % l)
+                        if row_key in cell_family:
+                            cross_edge_dict[row_id][l] = cell_family[row_key][0].value
+
+                    if int(layer_id - 1) in cross_edge_dict[row_id]:
+                        atomic_cross_edges_b = cross_edge_dict[row_id][layer_id - 1]
+                        atomic_cross_edges = \
+                            np.frombuffer(atomic_cross_edges_b,
+                                          dtype=np.uint64).reshape(-1, 2)
+
+                        if len(atomic_cross_edges) > 0:
+                            atomic_partner_id_dict[row_id] = \
+                                atomic_cross_edges[:, 1]
+
+                            new_pairs = zip(atomic_cross_edges[:, 0],
+                                            [row_id] * len(atomic_cross_edges))
+                            atomic_child_id_dict_pairs.extend(new_pairs)
+
         def _resolve_cross_chunk_edges_thread(args) -> None:
             start, end = args
 
@@ -1356,14 +1515,9 @@ class ChunkedGraph(object):
                     enumerate(atomic_partner_id_dict_keys[start: end]):
                 this_atomic_partner_ids = atomic_partner_id_dict[child_key]
 
-                partners = set()
-                for atomic_cross_id in this_atomic_partner_ids:
-                    partner = atomic_child_id_dict[atomic_cross_id]
-
-                    if partner != 0:
-                        # is default and means that the id does not exist in
-                        # this dict
-                        partners.add(partner)
+                partners = {atomic_child_id_dict[atomic_cross_id]
+                            for atomic_cross_id in this_atomic_partner_ids
+                            if atomic_child_id_dict[atomic_cross_id] != 0}
 
                 if len(partners) > 0:
                     partners = np.array(list(partners), dtype=np.uint64)[:, None]
@@ -1376,27 +1530,29 @@ class ChunkedGraph(object):
 
         def _write_out_connected_components(args) -> None:
             start, end = args
-            for i_cc, cc in enumerate(ccs[start: end]):
-                rows = []
 
+            n_ccs = int(end - start)
+            parent_ids = self.get_unique_node_id_range(chunk_id, step=n_ccs)
+            rows = []
+            for i_cc, cc in enumerate(ccs[start: end]):
                 node_ids = np.array(list(cc))
 
-                parent_id = self.get_unique_node_id(chunk_id)
+                parent_id = parent_ids[i_cc]
                 parent_id_b = np.array(parent_id, dtype=np.uint64).tobytes()
 
                 parent_cross_edges_b = {}
                 for l in range(layer_id, self.n_layers):
                     parent_cross_edges_b[l] = b""
 
-
                 # Add rows for nodes that are in this chunk
                 for i_node_id, node_id in enumerate(node_ids):
 
-                    # Extract edges relevant to this node
-                    for l in range(layer_id, self.n_layers):
-                        if l in cross_edge_dict[node_id]:
-                            parent_cross_edges_b[l] += \
-                                cross_edge_dict[node_id][l]
+                    if node_id in cross_edge_dict:
+                        # Extract edges relevant to this node
+                        for l in range(layer_id, self.n_layers):
+                            if l in cross_edge_dict[node_id]:
+                                parent_cross_edges_b[l] += \
+                                    cross_edge_dict[node_id][l]
 
                     # Create node
                     val_dict = {"parents": parent_id_b}
@@ -1416,7 +1572,7 @@ class ChunkedGraph(object):
 
                 for l in range(layer_id, self.n_layers):
                     if l in parent_cross_edges_b:
-                        val_dict["atomic_cross_edges_%d" % l] =\
+                        val_dict["atomic_cross_edges_%d" % l] = \
                             parent_cross_edges_b[l]
 
                 if len(val_dict) > 0:
@@ -1425,6 +1581,11 @@ class ChunkedGraph(object):
                                                 val_dict,
                                                 time_stamp=time_stamp))
 
+                if len(rows) > 100000:
+                    self.bulk_write(rows)
+                    rows = []
+
+            if len(rows) > 0:
                 self.bulk_write(rows)
 
         if time_stamp is None:
@@ -1433,130 +1594,28 @@ class ChunkedGraph(object):
         if time_stamp.tzinfo is None:
             time_stamp = UTC.localize(time_stamp)
 
-        # 1 ----------
+        # 1 --------------------------------------------------------------------
         # The first part is concerned with reading data from the child nodes
         # of this layer and pre-processing it for the second part
 
         time_start = time.time()
 
+        children_key = serialize_key("children")
         atomic_partner_id_dict = {}
         cross_edge_dict = {}
         atomic_child_id_dict_pairs = []
+        ll_node_ids = []
 
-        d_times = collections.defaultdict(float)
-        d_counter = collections.Counter()
+        multi_args = child_chunk_coords
+        n_jobs = np.min([n_threads, len(multi_args)])
 
-        for chunk_coord in child_chunk_coords:
-            time_start_1 = time.time()
-            # Get start and end key
-            x, y, z = chunk_coord
+        if n_jobs > 0:
+            mu.multithread_func(_read_subchunks_thread, multi_args,
+                                n_threads=n_jobs)
 
-            row_keys = ["children"] + ["atomic_cross_edges_%d" % l
-                                       for l in range(layer_id - 1, self.n_layers)]
-            range_read = self.range_read_chunk(layer_id - 1, x, y, z,
-                                               row_keys=row_keys,
-                                               yield_rows=False)
-            d_times["range_read"] += (time.time() - time_start_1)
-            d_counter["range_read"] += 1
-            time_start_1 = time.time()
-
-            # Due to restarted jobs some parents might be duplicated. We can
-            # find these duplicates only by comparing their children because
-            # each node has a unique id. However, we can use that more recently
-            # created nodes have higher segment ids. We are only interested in
-            # the latest version of any duplicated parents.
-
-            # Deserialize row keys and store child with highest id for
-            # comparison
-
-            d_times["range_read"] += (time.time() - time_start_1)
-            d_counter["range_read"] += 1
-            time_start_1 = time.time()
-
-            segment_ids = np.array([], dtype=np.uint64)
-            row_ids_b = np.array([])
-            max_child_ids = np.array([], dtype=np.uint64)
-            for row_id_b, row_data in range_read.items():
-                row_id = deserialize_uint64(row_id_b)
-                segment_id = self.get_segment_id(row_id)
-
-                cell = row_data.cells[self.family_id]
-
-                node_child_ids_b = cell[serialize_key("children")][0].value
-                node_child_ids = np.frombuffer(node_child_ids_b,
-                                               dtype=np.uint64)
-
-                max_child_ids = np.concatenate([max_child_ids,
-                                                [np.max(node_child_ids)]])
-                segment_ids = np.concatenate([segment_ids, [segment_id]])
-                row_ids_b = np.concatenate([row_ids_b, [row_id_b]])
-
-            sorting = np.argsort(segment_ids)[::-1]
-            row_ids_b = row_ids_b[sorting]
-            max_child_ids = max_child_ids[sorting]
-
-            counter = collections.defaultdict(int)
-
-            max_child_ids_occ_so_far = np.zeros(len(max_child_ids),
-                                                dtype=np.int)
-            for i_row in range(len(max_child_ids)):
-                max_child_ids_occ_so_far[i_row] = counter[max_child_ids[i_row]]
-                counter[max_child_ids[i_row]] += 1
-
-            # Filter last occurences (we inverted the list) of each node
-            m = max_child_ids_occ_so_far == 0
-            row_ids_b = row_ids_b[m]
-
-            d_times["repeat"] += (time.time() - time_start_1)
-            d_counter["repeat"] += 1
-            time_start_1 = time.time()
-
-            # Loop through nodes from this chunk
-            for row_id_b in row_ids_b:
-                row_id = deserialize_uint64(row_id_b)
-
-                cross_edge_dict[row_id] = {}
-
-                if self.cross_edge_family_id in range_read[row_id_b].cells:
-                    cell_family = range_read[row_id_b].cells[self.cross_edge_family_id]
-
-                    time_start_3 = time.time()
-                    for l in range(layer_id - 1, self.n_layers):
-                        row_key = serialize_key("atomic_cross_edges_%d" % l)
-                        if row_key in cell_family:
-                            cross_edge_dict[row_id][l] = cell_family[row_key][0].value
-
-                    d_times["read_cross_edges"] += (time.time() - time_start_3)
-                    d_counter["read_cross_edges"] += 1
-                    time_start_3 = time.time()
-
-                    if int(layer_id - 1) in cross_edge_dict[row_id]:
-                        atomic_cross_edges_b = cross_edge_dict[row_id][layer_id - 1]
-                        atomic_cross_edges = np.frombuffer(atomic_cross_edges_b,
-                                                           dtype=np.uint64).reshape(-1, 2)
-
-                        if len(atomic_cross_edges) > 0:
-                            atomic_partner_id_dict[row_id] = atomic_cross_edges[:, 1]
-
-                            new_pairs = zip(atomic_cross_edges[:, 0],
-                                            [row_id] * len(atomic_cross_edges))
-                            atomic_child_id_dict_pairs.extend(new_pairs)
-                    d_times["move_cross_edges"] += (time.time() - time_start_3)
-                    d_counter["move_cross_edges"] += 1
-
-            d_times["loop_through_subchunks"] += (time.time() - time_start_1)
-            d_counter["loop_through_subchunks"] += 1
-
-        time_start_1 = time.time()
         d = dict(atomic_child_id_dict_pairs)
         atomic_child_id_dict = collections.defaultdict(np.uint64, d)
-        d_times["build_dict"] += (time.time() - time_start_1)
-        d_counter["build_dict"] += 1
-
-        for k in d_times.keys():
-            print("%s: total = %.3fms, ni = %d, pi = %.3fms" %
-                  (k, 1000 * d_times[k], d_counter[k],
-                   1000 * d_times[k] / d_counter[k]))
+        ll_node_ids = np.array(ll_node_ids, dtype=np.uint64)
 
         print("Time iterating through subchunks: %.3fs" %
               (time.time() - time_start))
@@ -1568,7 +1627,6 @@ class ChunkedGraph(object):
         # u_atomic_child_ids = np.unique(atomic_child_ids)
         atomic_partner_id_dict_keys = \
             np.array(list(atomic_partner_id_dict.keys()), dtype=np.uint64)
-        ll_node_ids = np.array(list(cross_edge_dict.keys()), dtype=np.uint64)
 
         if n_threads > 1:
             n_jobs = n_threads * 3 # Heuristic
@@ -1592,25 +1650,21 @@ class ChunkedGraph(object):
               (time.time() - time_start))
         time_start = time.time()
 
-        # 2 ----------
+        # 2 --------------------------------------------------------------------
         # The second part finds connected components, writes the parents to
         # BigTable and updates the childs
 
         # Make parent id creation easier
         x, y, z = np.min(child_chunk_coords, axis=0) // self.fan_out
+
         chunk_id = self.get_chunk_id(layer=layer_id, x=x, y=y, z=z)
 
         # Extract connected components
         chunk_g = nx.from_edgelist(edge_ids)
-        # chunk_g.add_nodes_from(atomic_partner_id_dict_keys)
 
         # Add single node objects that have no edges
-        add_ccs = []
-
         isolated_node_mask = ~np.in1d(ll_node_ids, np.unique(edge_ids))
         add_ccs = list(ll_node_ids[isolated_node_mask][:, None])
-        # for node_id in ll_node_ids[isolated_node_mask]:
-        #     add_ccs.append([node_id])
 
         ccs = list(nx.connected_components(chunk_g)) + add_ccs
 
@@ -1619,118 +1673,25 @@ class ChunkedGraph(object):
 
         # Add rows for nodes that are in this chunk
         # a connected component at a time
-        # if n_threads > 1:
-        #     n_jobs = n_threads * 3 # Heuristic
-        # else:
-        #     n_jobs = 1
-        #
-        # n_jobs = np.min([n_jobs, len(ccs)])
-        #
-        # spacing = np.linspace(0, len(ccs), n_jobs+1).astype(np.int)
-        # starts = spacing[:-1]
-        # ends = spacing[1:]
-        #
-        # multi_args = list(zip(starts, ends))
-        #
-        # mu.multithread_func(_write_out_connected_components, multi_args,
-        #                     n_threads=n_threads)
+        if n_threads > 1:
+            n_jobs = n_threads * 3 # Heuristic
+        else:
+            n_jobs = 1
 
-        d_times = collections.defaultdict(float)
-        d_counter = collections.Counter()
+        n_jobs = np.min([n_jobs, len(ccs)])
 
-        u_id_range_start = self.get_unique_segment_id(chunk_id, len(ccs)) \
-                           - np.uint64(len(ccs) - 1)
-        rows = []
-        for i_cc, cc in enumerate(ccs):
-            time_start_1 = time.time()
+        spacing = np.linspace(0, len(ccs), n_jobs+1).astype(np.int)
+        starts = spacing[:-1]
+        ends = spacing[1:]
 
-            node_ids = np.array(list(cc))
+        multi_args = list(zip(starts, ends))
 
-            d_times["cc"] += (time.time() - time_start_1)
-            d_counter["cc"] += 1
-            time_start_1 = time.time()
+        mu.multithread_func(_write_out_connected_components, multi_args,
+                            n_threads=n_threads)
 
-            parent_id = self.get_node_id(segment_id=np.uint64(i_cc) +
-                                                    u_id_range_start,
-                                         chunk_id=chunk_id)
+        print("Time writing %d connected components in layer %d: %.3fs" %
+              (len(ccs), layer_id, time.time() - time_start))
 
-            d_times["unique_id"] += (time.time() - time_start_1)
-            d_counter["unique_id"] += 1
-
-            time_start_1 = time.time()
-            parent_id_b = np.array(parent_id, dtype=np.uint64).tobytes()
-            d_times["bin"] += (time.time() - time_start_1)
-            d_counter["bin"] += 1
-
-            time_start_1 = time.time()
-            parent_cross_edges_b = {}
-            for l in range(layer_id, self.n_layers):
-                parent_cross_edges_b[l] = b""
-
-            d_times["prep"] += (time.time() - time_start_1)
-            d_counter["prep"] += 1
-            time_start_1 = time.time()
-            # Add rows for nodes that are in this chunk
-            for i_node_id, node_id in enumerate(node_ids):
-
-                time_start_2 = time.time()
-                # Extract edges relevant to this node
-                for l in range(layer_id, self.n_layers):
-                    if l in cross_edge_dict[node_id]:
-                        parent_cross_edges_b[l] += \
-                            cross_edge_dict[node_id][l]
-                d_times["add_cross_edges"] += (time.time() - time_start_2)
-                d_counter["add_cross_edges"] += 1
-
-                # Create node
-                val_dict = {"parents": parent_id_b}
-
-                time_start_2 = time.time()
-                rows.append(self.mutate_row(serialize_uint64(node_id),
-                                            self.family_id, val_dict,
-                                            time_stamp=time_stamp))
-                d_times["add_cross_edges"] += (time.time() - time_start_2)
-                d_counter["add_cross_edges"] += 1
-
-            d_times["parents"] += (time.time() - time_start_1)
-            d_counter["parents"] += 1
-            time_start_1 = time.time()
-
-            # Create parent node
-            val_dict = {"children": node_ids.tobytes()}
-
-
-            rows.append(self.mutate_row(serialize_uint64(parent_id),
-                                        self.family_id, val_dict,
-                                        time_stamp=time_stamp))
-
-            val_dict = {}
-
-            for l in range(layer_id, self.n_layers):
-                if l in parent_cross_edges_b:
-                    val_dict["atomic_cross_edges_%d" % l] = \
-                        parent_cross_edges_b[l]
-
-            if len(val_dict) > 0:
-                rows.append(self.mutate_row(serialize_uint64(parent_id),
-                                            self.cross_edge_family_id,
-                                            val_dict,
-                                            time_stamp=time_stamp))
-
-            d_times["add_parent_row"] += (time.time() - time_start_1)
-            d_counter["add_parent_row"] += 1
-
-        # for k in d_times.keys():
-        #     print("%s: total = %.3fms, ni = %d, pi = %.3fms" %
-        #           (k, 1000 * d_times[k], d_counter[k],
-        #            1000 * d_times[k] / d_counter[k]))
-        print("Time build %d connected components rows: %.3fs" % (len(rows), time.time() - time_start))
-
-        time_start = time.time()
-
-        self.bulk_write(rows)
-
-        print("Time write connected components: %.3fs" % (time.time() - time_start))
 
     def get_atomic_cross_edge_dict(self, node_id: np.uint64,
                                    layer_ids: Sequence[int] = None,
@@ -2978,10 +2939,14 @@ class ChunkedGraph(object):
                      np.array([atomic_edge[(i_atomic_id + 1) % 2]]).tobytes(),
                  "atomic_connected_affinities":
                      np.array([affinity], dtype=np.float32).tobytes(),
+                 "atomic_connected_areas":
+                     np.array([1], dtype=np.uint64).tobytes(),
                  "atomic_disconnected_partners":
                      np.array([atomic_edge[(i_atomic_id + 1) % 2]]).tobytes(),
                  "atomic_disconnected_affinities":
-                     np.array([0], dtype=np.float32).tobytes()
+                     np.array([0], dtype=np.float32).tobytes(),
+                 "atomic_disconnected_areas":
+                     np.array([0], dtype=np.uint64).tobytes()
                  }
 
             rows.append(self.mutate_row(serialize_uint64(

@@ -4,7 +4,7 @@ import itertools
 import random
 
 from pychunkedgraph.backend import chunkedgraph
-from pychunkedgraph.parallelizing import multiprocessing_utils as mu
+from multiwrapper import multiprocessing_utils as mu
 
 from . import meshgen
 
