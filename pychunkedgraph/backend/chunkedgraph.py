@@ -1218,7 +1218,7 @@ class ChunkedGraph(object):
     def add_atomic_edges_in_chunks(self, edge_id_dict: dict,
                                    edge_aff_dict: dict, edge_area_dict: dict,
                                    isolated_node_ids: Sequence[np.uint64],
-                                   verbose: bool = False,
+                                   verbose: bool = True,
                                    time_stamp: Optional[datetime.datetime] = None):
         """ Creates atomic nodes in first abstraction layer for a SINGLE chunk
             and all abstract nodes in the second for the same chunk
@@ -1277,8 +1277,10 @@ class ChunkedGraph(object):
             chunk_id = self.get_chunk_id(isolated_node_ids[0])
 
         chunk_id_c = self.get_chunk_coordinates(chunk_id)
+        print("chunk_id_c", chunk_id_c)
         parent_chunk_id = self.get_chunk_id(layer=2, x=chunk_id_c[0],
                                             y=chunk_id_c[1], z=chunk_id_c[2])
+        print("parent_chunk_id", parent_chunk_id)
 
         # Get connected component within the chunk
         chunk_node_ids = np.concatenate([
@@ -1295,8 +1297,10 @@ class ChunkedGraph(object):
                                    for c in chunk_node_ids],
                                   dtype=np.uint64)
 
+        assert len(np.unique(node_chunk_ids)) == 1
+
         chunk_g = nx.Graph()
-        chunk_g.add_nodes_from(chunk_node_ids[node_chunk_ids == chunk_id])
+        chunk_g.add_nodes_from(chunk_node_ids)
         chunk_g.add_edges_from(edge_id_dict["in_connected"])
 
         ccs = list(nx.connected_components(chunk_g))
@@ -1349,6 +1353,8 @@ class ChunkedGraph(object):
             # Create parent id
             parent_id = parent_ids[i_cc]
             parent_id_b = np.array(parent_id, dtype=np.uint64).tobytes()
+
+            print("nodes and parent:", node_ids, parent_id, self.get_chunk_coordinates(parent_id), self.get_chunk_layer(parent_id))
 
             parent_cross_edges = np.array([], dtype=np.uint64).reshape(0, 2)
 
@@ -1488,11 +1494,13 @@ class ChunkedGraph(object):
             time_dict["adding_cross_edges"].append(time.time() - time_start_1)
 
             if len(rows) > 100000:
+                print("ROWS", rows)
                 time_start_1 = time.time()
                 self.bulk_write(rows)
                 time_dict["writing"].append(time.time() - time_start_1)
 
         if len(rows) > 0:
+            print("ROWS", rows)
             time_start_1 = time.time()
             self.bulk_write(rows)
             time_dict["writing"].append(time.time() - time_start_1)
@@ -1508,7 +1516,7 @@ class ChunkedGraph(object):
     def add_layer(self, layer_id: int,
                   child_chunk_coords: Sequence[Sequence[int]],
                   time_stamp: Optional[datetime.datetime] = None,
-                  verbose: bool = False, n_threads: int = 20) -> None:
+                  verbose: bool = True, n_threads: int = 20) -> None:
         """ Creates the abstract nodes for a given chunk in a given layer
 
         :param layer_id: int
@@ -1527,6 +1535,8 @@ class ChunkedGraph(object):
                         for l in range(layer_id - 1, self.n_layers)]
             range_read = self.range_read_chunk(layer_id - 1, x, y, z,
                                                row_keys=row_keys)
+
+            print("RANGE READ", range_read, layer_id - 1, x, y, z, row_keys)
 
             # Due to restarted jobs some parents might be duplicated. We can
             # find these duplicates only by comparing their children because
@@ -1715,8 +1725,9 @@ class ChunkedGraph(object):
         atomic_child_id_dict = collections.defaultdict(np.uint64, d)
         ll_node_ids = np.array(ll_node_ids, dtype=np.uint64)
 
-        print("Time iterating through subchunks: %.3fs" %
-              (time.time() - time_start))
+        if verbose:
+            print("Time iterating through subchunks: %.3fs" %
+                  (time.time() - time_start))
         time_start = time.time()
 
         # Extract edges from remaining cross chunk edges
@@ -1744,8 +1755,9 @@ class ChunkedGraph(object):
             mu.multithread_func(_resolve_cross_chunk_edges_thread, multi_args,
                                 n_threads=n_threads)
 
-        print("Time resolving cross chunk edges: %.3fs" %
-              (time.time() - time_start))
+        if verbose:
+            print("Time resolving cross chunk edges: %.3fs" %
+                  (time.time() - time_start))
         time_start = time.time()
 
         # 2 --------------------------------------------------------------------
@@ -1766,7 +1778,9 @@ class ChunkedGraph(object):
 
         ccs = list(nx.connected_components(chunk_g)) + add_ccs
 
-        print("Time connected components: %.3fs" % (time.time() - time_start))
+        if verbose:
+            print("Time connected components: %.3fs" %
+                  (time.time() - time_start))
         time_start = time.time()
 
         # Add rows for nodes that are in this chunk
@@ -1787,8 +1801,9 @@ class ChunkedGraph(object):
         mu.multithread_func(_write_out_connected_components, multi_args,
                             n_threads=n_threads)
 
-        print("Time writing %d connected components in layer %d: %.3fs" %
-              (len(ccs), layer_id, time.time() - time_start))
+        if verbose:
+            print("Time writing %d connected components in layer %d: %.3fs" %
+                  (len(ccs), layer_id, time.time() - time_start))
 
 
     def get_atomic_cross_edge_dict(self, node_id: np.uint64,
