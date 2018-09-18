@@ -267,6 +267,7 @@ def create_chunked_graph(table_id=None, cv_url=None, ws_url=None, fan_out=2,
         print("\n\n\n --- LAYER %d --- \n\n\n" % layer_id)
 
         parent_chunk_ids = child_chunk_ids // cg.fan_out
+        parent_chunk_ids = parent_chunk_ids.astype(np.int)
 
         u_pcids, inds = np.unique(parent_chunk_ids,
                                   axis=0, return_inverse=True)
@@ -282,11 +283,7 @@ def create_chunked_graph(table_id=None, cv_url=None, ws_url=None, fan_out=2,
                                child_chunk_ids[inds == ind].astype(np.int),
                                n_threads_per_process])
 
-        # print(multi_args)
-        # print(u_pcids, len(multi_args))
-        # print(layer_id, np.unique(child_chunk_ids), np.unique(parent_chunk_ids))
         child_chunk_ids = u_pcids
-        # print(layer_id, np.unique(child_chunk_ids), np.unique(parent_chunk_ids))
 
         # Run parallelizing
         if n_threads == 1:

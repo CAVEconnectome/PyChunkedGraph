@@ -75,3 +75,31 @@ def family_consistency_test(table_id, n_threads=64):
         print("\n%d nodes rows failed\n" % len(failed_node_ids))
 
     return failed_node_id_dict
+
+def children_test(table_id, layer, coord_list):
+
+    cg = chunkedgraph.ChunkedGraph(table_id)
+
+    for coords in coord_list:
+        x, y, z = coords
+
+        node_ids = cg.range_read_chunk(layer, x, y, z, row_keys=['children'])
+        all_children = []
+        children_chunks = []
+        for node_id_b, data in node_ids.items():
+            children = np.frombuffer(data.cells['0'][b'children'][0].value,
+                                     dtype=np.uint64)
+            for child in children:
+                all_children.append(child)
+                children_chunks.append(cg.get_chunk_id(child))
+
+        u_children_chunks, c_children_chunks = np.unique(children_chunks,
+                                                         return_counts=True)
+        u_chunk_coords = [cg.get_chunk_coordinates(c) for c in u_children_chunks]
+
+        print("\n--- Layer %d ---- [%d, %d, %d] ---" % (layer, x, y, z))
+        print("N(all children): %d" % len(all_children))
+        print("N(unique children): %d" % len(np.unique(all_children)))
+        print("N(unique children chunks): %d" % len(u_children_chunks))
+        print("Unique children chunk coords", u_chunk_coords)
+        print("N(ids per unique children chunk):", c_children_chunks)
