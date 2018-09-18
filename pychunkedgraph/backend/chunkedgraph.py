@@ -1347,17 +1347,15 @@ class ChunkedGraph(object):
 
             node_ids = np.array(list(cc))
 
-            # u_chunk_ids = np.unique([self.get_chunk_id(n) for n in node_ids])
-            #
-            # if len(u_chunk_ids) > 1:
-            #     print("Found multiple chunk ids:", u_chunk_ids)
-            #     raise Exception()
+            u_chunk_ids = np.unique([self.get_chunk_id(n) for n in node_ids])
+
+            if len(u_chunk_ids) > 1:
+                print("Found multiple chunk ids:", u_chunk_ids)
+                raise Exception()
 
             # Create parent id
             parent_id = parent_ids[i_cc]
             parent_id_b = np.array(parent_id, dtype=np.uint64).tobytes()
-
-            print("nodes and parent:", node_ids, parent_id, self.get_chunk_coordinates(parent_id), self.get_chunk_layer(parent_id))
 
             parent_cross_edges = np.array([], dtype=np.uint64).reshape(0, 2)
 
@@ -1497,19 +1495,18 @@ class ChunkedGraph(object):
             time_dict["adding_cross_edges"].append(time.time() - time_start_1)
 
             if len(rows) > 100000:
-                print("ROWS", rows)
                 time_start_1 = time.time()
                 self.bulk_write(rows)
                 time_dict["writing"].append(time.time() - time_start_1)
 
         if len(rows) > 0:
-            print("ROWS", rows)
             time_start_1 = time.time()
             self.bulk_write(rows)
             time_dict["writing"].append(time.time() - time_start_1)
 
         if verbose:
-            print("Time creating rows: %.3fs for %d ccs with %d nodes" % (time.time() - time_start, len(ccs), node_c))
+            print("Time creating rows: %.3fs for %d ccs with %d nodes" %
+                  (time.time() - time_start, len(ccs), node_c))
 
             for k in time_dict.keys():
                 print("%s -- %.3fms for %d instances -- avg = %.3fms" %
@@ -3238,8 +3235,8 @@ class ChunkedGraph(object):
             print("root(source) != root(sink)")
             return False, None
 
-        print(
-            "Get roots and check: %.3fms" % ((time.time() - time_start) * 1000))
+        print("Get roots and check: %.3fms" %
+              ((time.time() - time_start) * 1000))
         time_start = time.time()  # ------------------------------------------
 
         root_id = root_id_source
