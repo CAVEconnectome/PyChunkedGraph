@@ -1298,9 +1298,10 @@ class ChunkedGraph(object):
         u_node_chunk_ids, c_node_chunk_ids = np.unique(node_chunk_ids,
                                                        return_counts=True)
         if len(u_node_chunk_ids) > 1:
-            raise Exception("%d chunk ids found in node id list."
-                            "Some edges might be in the wrong order."
-                            " Number of occurences:", c_node_chunk_ids)
+            raise Exception("%d: %d chunk ids found in node id list. "
+                            "Some edges might be in the wrong order. "
+                            "Number of occurences:" %
+                            (chunk_id, len(u_node_chunk_ids)), c_node_chunk_ids)
 
         chunk_g = nx.Graph()
         chunk_g.add_nodes_from(chunk_node_ids)
