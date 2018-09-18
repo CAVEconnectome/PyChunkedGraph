@@ -20,7 +20,7 @@ from google.cloud import bigtable
 from google.cloud.bigtable.row_filters import TimestampRange, \
     TimestampRangeFilter, ColumnRangeFilter, ValueRangeFilter, RowFilterChain, \
     ColumnQualifierRegexFilter, RowFilterUnion, ConditionalRowFilter, \
-    PassAllFilter, BlockAllFilter
+    PassAllFilter, BlockAllFilter, RowFilter
 from google.cloud.bigtable.column_family import MaxVersionsGCRule
 
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple, Union
@@ -429,8 +429,8 @@ class ChunkedGraph(object):
         :param z: int
         :return: np.uint64
         """
-        assert node_id is not None or all(v is not None
-                                          for v in [layer, x, y, z])
+        assert node_id is not None or \
+               all(v is not None for v in [layer, x, y, z])
 
         if node_id is not None:
             layer = self.get_chunk_layer(node_id)
@@ -441,9 +441,14 @@ class ChunkedGraph(object):
             return np.uint64((int(node_id) >> chunk_offset) << chunk_offset)
         else:
 
-            assert x < 2 ** bits_per_dim
-            assert y < 2 ** bits_per_dim
-            assert z < 2 ** bits_per_dim
+            if not(x < 2 ** bits_per_dim and
+                   y < 2 ** bits_per_dim and
+                   z < 2 ** bits_per_dim):
+                raise Exception("Chunk coordinate is out of range for"
+                                "this graph on layer %d with %d bits/dim."
+                                "[%d, %d, %d]; max = %d."
+                                % (layer, bits_per_dim, x, y, z,
+                                   2 ** bits_per_dim))
 
             layer_offset = 64 - self._n_bits_for_layer_id
             x_offset = layer_offset - bits_per_dim
@@ -810,28 +815,66 @@ class ChunkedGraph(object):
 
         return True
 
+    def _range_read_execution(self, start_id, end_id,
+                              row_filter: RowFilter = None,
+                              n_retries: int = 100):
+        """ Executes predefined range read (read_rows)
+
+        :param start_id: np.uint64
+        :param end_id: np.uint64
+        :param row_filter: BigTable RowFilter
+        :param n_retries: int
+        :return: dict
+        """
+        # Set up read
+        range_read = self.table.read_rows(
+            start_key=serialize_uint64(start_id),
+            end_key=serialize_uint64(end_id),
+            # allow_row_interleaving=True,
+            end_inclusive=False,
+            filter_=row_filter)
+        range_read.consume_all()
+
+        # Execute read
+        consume_success = False
+
+        # Retry reading if any of the writes failed
+        i_tries = 0
+        while not consume_success and i_tries < n_retries:
+            try:
+                range_read.consume_all()
+                consume_success = True
+            except:
+                time.sleep(i_tries)
+            i_tries += 1
+
+        if not consume_success:
+            raise Exception("Unable to consume range read: "
+                            "%d - %d -- n_retries = %d" %
+                            (start_id, end_id, n_retries))
+
+        return range_read.rows
+
     def range_read(self, start_id: np.uint64, end_id: np.uint64,
-                   n_retries: int = 100,
+                   n_retries: int = 100, max_block_size: int = 50000,
                    row_keys: Optional[Iterable[str]] = None,
                    row_key_filters: Optional[Iterable[str]] = None,
-                   time_stamp: datetime.datetime = datetime.datetime.max,
-                   yield_rows: bool = False) -> Union[
+                   time_stamp: datetime.datetime = datetime.datetime.max
+                   ) -> Union[
                           bigtable.row_data.PartialRowData,
                           Dict[bytes, bigtable.row_data.PartialRowData]]:
         """ Reads all ids within a given range
 
-        :param layer: int
-        :param x: int
-        :param y: int
-        :param z: int
+        :param start_id: np.uint64
+        :param end_id: np.uint64
         :param n_retries: int
+        :param max_block_size: int
         :param row_keys: list of str
             more efficient read through row filters
         :param row_key_filters: list of str
             rows *with* this column will be ignored
         :param time_stamp: datetime.datetime
-        :param yield_rows: bool
-        :return: list or yield of rows
+        :return: dict
         """
 
         # Comply to resolution of BigTables TimeRange
@@ -871,49 +914,31 @@ class ChunkedGraph(object):
                                                   false_filter=row_filter,
                                                   true_filter=BlockAllFilter(True))
 
-        if yield_rows:
-            range_read_yield = self.table.yield_rows(
-                start_key=serialize_uint64(start_id),
-                end_key=serialize_uint64(end_id),
-                filter_=row_filter)
-            return range_read_yield
-        else:
-            # Set up read
-            range_read = self.table.read_rows(
-                start_key=serialize_uint64(start_id),
-                end_key=serialize_uint64(end_id),
-                # allow_row_interleaving=True,
-                end_inclusive=False,
-                filter_=row_filter)
-            range_read.consume_all()
+        max_block_size = np.uint64(max_block_size)
 
-            # Execute read
-            consume_success = False
+        block_start_ids = range(start_id, end_id, max_block_size)
 
-            # Retry reading if any of the writes failed
-            i_tries = 0
-            while not consume_success and i_tries < n_retries:
-                try:
-                    range_read.consume_all()
-                    consume_success = True
-                except:
-                    time.sleep(i_tries)
-                i_tries += 1
+        row_dict = {}
+        for block_start_id in block_start_ids:
+            block_end_id = np.uint64(block_start_id + max_block_size)
+            if block_end_id > end_id:
+                block_end_id = end_id
 
-            if not consume_success:
-                raise Exception("Unable to consume range read: "
-                                "%d - %d -- n_retries = %d" %
-                                (start_id, end_id, n_retries))
+            block_row_dict = self._range_read_execution(start_id=block_start_id,
+                                                        end_id=block_end_id,
+                                                        row_filter=row_filter,
+                                                        n_retries=n_retries)
 
-            return range_read.rows
+            row_dict.update(block_row_dict)
 
+        return row_dict
 
     def range_read_chunk(self, layer: int, x: int, y: int, z: int,
-                         n_retries: int = 100,
+                         n_retries: int = 100, max_block_size: int = 1000000,
                          row_keys: Optional[Iterable[str]] = None,
                          row_key_filters: Optional[Iterable[str]] = None,
                          time_stamp: datetime.datetime = datetime.datetime.max,
-                         yield_rows: bool = False) -> Union[
+                         ) -> Union[
                                 bigtable.row_data.PartialRowData,
                                 Dict[bytes, bigtable.row_data.PartialRowData]]:
         """ Reads all ids within a chunk
@@ -923,25 +948,28 @@ class ChunkedGraph(object):
         :param y: int
         :param z: int
         :param n_retries: int
+        :param max_block_size: int
         :param row_keys: list of str
             more efficient read through row filters
         :param row_key_filters: list of str
             rows *with* this column will be ignored
         :param time_stamp: datetime.datetime
-        :param yield_rows: bool
-        :return: list or yield of rows
+        :return: dict
         """
         chunk_id = self.get_chunk_id(layer=layer, x=x, y=y, z=z)
-        max_segment_id = self.get_segment_id_limit(chunk_id)
+
+        # max_segment_id = self.get_segment_id_limit(chunk_id)
+        max_segment_id = self.get_max_node_id(chunk_id=chunk_id)
 
         # Define BigTable keys
         start_id = self.get_node_id(np.uint64(0), chunk_id=chunk_id)
         end_id = self.get_node_id(max_segment_id, chunk_id=chunk_id)
         try:
             rr = self.range_read(start_id, end_id, n_retries=n_retries,
+                                 max_block_size=max_block_size,
                                  row_keys=row_keys,
                                  row_key_filters=row_key_filters,
-                                 time_stamp=time_stamp, yield_rows=yield_rows)
+                                 time_stamp=time_stamp)
         except:
             raise Exception("Unable to consume range read: "
                             "[%d, %d, %d], l = %d, n_retries = %d" %
@@ -1222,16 +1250,17 @@ class ChunkedGraph(object):
 
         # Check if keys exist and include an empty array if not
         n_edge_ids = 0
-        chunk_id_c = None
+        chunk_id = None
         for edge_id_key in edge_id_keys:
             if not edge_id_key in edge_id_dict:
-                edge_id_dict[edge_id_key] = np.array([], dtype=np.uint64).reshape(0, 2)
+                empty_edges = np.array([], dtype=np.uint64).reshape(0, 2)
+                edge_id_dict[edge_id_key] = empty_edges
             else:
                 n_edge_ids += len(edge_id_dict[edge_id_key])
 
                 if len(edge_id_dict[edge_id_key]) > 0:
-                    chunk_id_c = self.get_chunk_coordinates(
-                                            edge_id_dict[edge_id_key][0, 0])
+                    node_id = edge_id_dict[edge_id_key][0, 0]
+                    chunk_id = self.get_chunk_id(node_id)
 
         for edge_aff_key in edge_aff_keys:
             if not edge_aff_key in edge_aff_dict:
@@ -1244,9 +1273,10 @@ class ChunkedGraph(object):
             return 0
 
         # Make parent id creation easier
-        if chunk_id_c is None:
-            chunk_id_c = self.get_chunk_coordinates(isolated_node_ids[0])
+        if chunk_id is None:
+            chunk_id = self.get_chunk_id(isolated_node_ids[0])
 
+        chunk_id_c = self.get_chunk_coordinates(chunk_id)
         parent_chunk_id = self.get_chunk_id(layer=2, x=chunk_id_c[0],
                                             y=chunk_id_c[1], z=chunk_id_c[2])
 
@@ -1261,8 +1291,12 @@ class ChunkedGraph(object):
 
         chunk_node_ids = np.unique(chunk_node_ids)
 
+        node_chunk_ids = np.array([self.get_chunk_id(c)
+                                   for c in chunk_node_ids],
+                                  dtype=np.uint64)
+
         chunk_g = nx.Graph()
-        chunk_g.add_nodes_from(chunk_node_ids)
+        chunk_g.add_nodes_from(chunk_node_ids[node_chunk_ids == chunk_id])
         chunk_g.add_edges_from(edge_id_dict["in_connected"])
 
         ccs = list(nx.connected_components(chunk_g))
@@ -1305,6 +1339,12 @@ class ChunkedGraph(object):
             #           (i_cc, node_c, dt / node_c), end="\r")
 
             node_ids = np.array(list(cc))
+
+            # u_chunk_ids = np.unique([self.get_chunk_id(n) for n in node_ids])
+            #
+            # if len(u_chunk_ids) > 1:
+            #     print("Found multiple chunk ids:", u_chunk_ids)
+            #     raise Exception()
 
             # Create parent id
             parent_id = parent_ids[i_cc]
@@ -1396,7 +1436,7 @@ class ChunkedGraph(object):
 
                     connected_ids = np.concatenate([connected_ids, edge_id_dict["cross"][row_ids, inv_column_ids]])
                     connected_affs = np.concatenate([connected_affs, np.full((len(row_ids)), np.inf, dtype=np.float32)])
-                    connected_areas = np.concatenate([connected_areas, np.full((len(row_ids)), np.inf, dtype=np.uint64)])
+                    connected_areas = np.concatenate([connected_areas, np.zeros((len(row_ids)), dtype=np.uint64)])
 
                     parent_cross_edges = np.concatenate([parent_cross_edges, edge_id_dict["cross"][row_ids]])
                     time_dict["cross"].append(time.time() - time_start_2)
@@ -1460,21 +1500,22 @@ class ChunkedGraph(object):
         if verbose:
             print("Time creating rows: %.3fs for %d ccs with %d nodes" % (time.time() - time_start, len(ccs), node_c))
 
-        for k in time_dict.keys():
-            print("%s -- %.3fms for %d instances -- avg = %.3fms" %
-                  (k, np.sum(time_dict[k])*1000, len(time_dict[k]),
-                   np.mean(time_dict[k])*1000))
+            for k in time_dict.keys():
+                print("%s -- %.3fms for %d instances -- avg = %.3fms" %
+                      (k, np.sum(time_dict[k])*1000, len(time_dict[k]),
+                       np.mean(time_dict[k])*1000))
 
     def add_layer(self, layer_id: int,
                   child_chunk_coords: Sequence[Sequence[int]],
                   time_stamp: Optional[datetime.datetime] = None,
-                  n_threads: int = 20) -> None:
+                  verbose: bool = False, n_threads: int = 20) -> None:
         """ Creates the abstract nodes for a given chunk in a given layer
 
         :param layer_id: int
         :param child_chunk_coords: int array of length 3
             coords in chunk space
         :param time_stamp: datetime
+        :param verbose: bool
         :param n_threads: int
         """
         def _read_subchunks_thread(chunk_coord):
@@ -1485,8 +1526,7 @@ class ChunkedGraph(object):
                        ["atomic_cross_edges_%d" % l
                         for l in range(layer_id - 1, self.n_layers)]
             range_read = self.range_read_chunk(layer_id - 1, x, y, z,
-                                               row_keys=row_keys,
-                                               yield_rows=False)
+                                               row_keys=row_keys)
 
             # Due to restarted jobs some parents might be duplicated. We can
             # find these duplicates only by comparing their children because
@@ -2659,7 +2699,7 @@ class ChunkedGraph(object):
 
                 if area_key is None:
                     areas = np.concatenate([
-                        areas, np.full((len(this_partners)), np.inf)])
+                        areas, np.full((len(this_partners)), 0)])
                 else:
                     this_areas = \
                         np.frombuffer(r.cells[self.family_id][area_key][0].value,
