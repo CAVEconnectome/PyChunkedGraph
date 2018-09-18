@@ -831,7 +831,7 @@ class ChunkedGraph(object):
             start_key=serialize_uint64(start_id),
             end_key=serialize_uint64(end_id),
             # allow_row_interleaving=True,
-            end_inclusive=False,
+            end_inclusive=True,
             filter_=row_filter)
         range_read.consume_all()
 
@@ -1277,10 +1277,8 @@ class ChunkedGraph(object):
             chunk_id = self.get_chunk_id(isolated_node_ids[0])
 
         chunk_id_c = self.get_chunk_coordinates(chunk_id)
-        print("chunk_id_c", chunk_id_c)
         parent_chunk_id = self.get_chunk_id(layer=2, x=chunk_id_c[0],
                                             y=chunk_id_c[1], z=chunk_id_c[2])
-        print("parent_chunk_id", parent_chunk_id)
 
         # Get connected component within the chunk
         chunk_node_ids = np.concatenate([
@@ -1297,7 +1295,12 @@ class ChunkedGraph(object):
                                    for c in chunk_node_ids],
                                   dtype=np.uint64)
 
-        assert len(np.unique(node_chunk_ids)) == 1
+        u_node_chunk_ids, c_node_chunk_ids = np.unique(node_chunk_ids,
+                                                       return_counts=True)
+        if len(u_node_chunk_ids) > 1:
+            raise Exception("%d chunk ids found in node id list."
+                            "Some edges might be in the wrong order."
+                            " Number of occurences:", c_node_chunk_ids)
 
         chunk_g = nx.Graph()
         chunk_g.add_nodes_from(chunk_node_ids)
@@ -1535,8 +1538,6 @@ class ChunkedGraph(object):
                         for l in range(layer_id - 1, self.n_layers)]
             range_read = self.range_read_chunk(layer_id - 1, x, y, z,
                                                row_keys=row_keys)
-
-            print("RANGE READ", range_read, layer_id - 1, x, y, z, row_keys)
 
             # Due to restarted jobs some parents might be duplicated. We can
             # find these duplicates only by comparing their children because
