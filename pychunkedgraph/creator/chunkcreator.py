@@ -113,6 +113,10 @@ def check_stored_cv_files(dataset_name="basil"):
     print("%d files were missing" % c)
 
 
+def _sort_arrays(coords, paths):
+    sorting = np.lexsort((coords[..., 2], coords[..., 1], coords[..., 0]))
+    return coords[sorting], paths[sorting]
+
 def create_chunked_graph(table_id=None, cv_url=None, ws_url=None, fan_out=2,
                          bbox=None, chunk_size=(512, 512, 128), verbose=False,
                          n_threads=1):
@@ -186,6 +190,15 @@ def create_chunked_graph(table_id=None, cv_url=None, ws_url=None, fan_out=2,
     assert len(in_chunk_connected_ids) == len(in_chunk_connected_paths) == \
            len(in_chunk_disconnected_ids) == len(in_chunk_disconnected_paths) == \
            len(isolated_ids) == len(isolated_paths)
+
+    in_chunk_connected_ids, in_chunk_connected_paths = \
+        _sort_arrays(in_chunk_connected_ids, in_chunk_connected_paths)
+
+    in_chunk_disconnected_ids, in_chunk_disconnected_paths = \
+        _sort_arrays(in_chunk_disconnected_ids, in_chunk_disconnected_paths)
+
+    isolated_ids, isolated_paths = \
+        _sort_arrays(isolated_ids, isolated_paths)
 
     times.append(["Preprocessing", time.time() - time_start])
 
@@ -461,6 +474,7 @@ def _create_atomic_layer_thread(args):
 
     # Initialize an ChunkedGraph instance and write to it
     cg = chunkedgraph.ChunkedGraph(table_id=table_id)
+
     cg.add_atomic_edges_in_chunks(edge_ids, edge_affs, edge_areas,
                                   isolated_node_ids=isolated_ids,
                                   verbose=verbose)
