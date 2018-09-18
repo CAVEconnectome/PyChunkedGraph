@@ -255,6 +255,10 @@ def chunk_mesh_task(cg, chunk_id, cv_path,
         # 2a) Merge mesh fragments of child chunks (3 <= layer < n_layers-3), or
         # 2b) Combine the manifests without creating new meshes
 
+        create_new_fragments: bool = layer < cg.n_layers - 2
+
+        node_ids = cg.range_read_chunk(layer, cx, cy, cz, row_keys=['children'])
+
         manifests_to_fetch = {np.uint64(x): [] for x in node_ids.keys()}
 
         mesh_dir = cv_mesh_dir or get_segmentation_info(cg)['mesh']
@@ -275,21 +279,22 @@ def chunk_mesh_task(cg, chunk_id, cv_path,
             print("Decoding Manifests...")
             manifest_content = {x['filename']: json.loads(x['content']) for x in manifest_content if x['content'] is not None and x['error'] is None}
 
-            # Only collect fragment filenames for nodes which consist of
-            # more than one fragment, skipping the ones without a manifest
-            print("Collect fragments to download...")
-            fragments_to_fetch = [
-                fragment for manifests in manifests_to_fetch.values()
-                if len(manifests) > 1
-                for manifest in manifests
-                if manifest in manifest_content
-                for fragment in manifest_content[manifest]['fragments']]
+            if create_new_fragments:
+                # Only collect fragment filenames for nodes which consist of
+                # more than one fragment, skipping the ones without a manifest
+                print("Collect fragments to download...")
+                fragments_to_fetch = [
+                    fragment for manifests in manifests_to_fetch.values()
+                    if len(manifests) > 1
+                    for manifest in manifests
+                    if manifest in manifest_content
+                    for fragment in manifest_content[manifest]['fragments']]
 
-            print("Downloading Fragments...")
-            fragments_content = storage.get_files(fragments_to_fetch)
+                print("Downloading Fragments...")
+                fragments_content = storage.get_files(fragments_to_fetch)
 
-            print("Decoding Fragments...")
-            fragments_content = {x['filename']: decode_mesh_buffer(x['filename'], x['content']) for x in fragments_content if x['content'] is not None and x['error'] is None}
+                print("Decoding Fragments...")
+                fragments_content = {x['filename']: decode_mesh_buffer(x['filename'], x['content']) for x in fragments_content if x['content'] is not None and x['error'] is None}
 
         fragments_to_upload = []
         manifests_to_upload = []
@@ -302,21 +307,25 @@ def chunk_mesh_task(cg, chunk_id, cv_path,
                 if manifest in manifest_content
                 for fragment in manifest_content[manifest]['fragments']]
 
-            if len(fragments) == 0:
-                # No fragments - could be caused by tiny supervoxels near the
-                # chunk boundary that were lost when meshing a downsampled
-                # layer 1 chunk.
-                print(f"Skipped {node_id} - no mesh fragments (node probably near chunk boundary)")
-                continue
-            elif len(fragments) == 1:
-                # Only a single fragment - new manifest will simply point to
-                # existing fragment, to save storage
+            if len(fragments) < 2 or not create_new_fragments:
+                # Create a single new manifest without creating any new
+                # mesh fragments (point to existing fragments instead)
+
+                # Note: An empty list of fragments might have been caused by
+                #       tiny supervoxels/agglomerations near chunk boundaries,
+                #       when those "disappeared" during meshing of _downsampled_
+                #       layer 1 or 2 chunks.
+                fragments_str = ''
+                if len(fragments) > 0:
+                    fragments_str = '"' + '","'.join(fragments) + '"'
+
                 manifests_to_upload.append((
                     manifest_filename,
-                    '{"fragments": ["%s"]}' % fragments[0]
+                    '{"fragments": [%s]}' % fragments_str
                 ))
             else:
-                # Merge fragments into one file, removing duplicate vertices
+                # Merge mesh fragments into one new mesh, removing duplicate
+                # vertices
                 mesh = merge_meshes(map(lambda x: fragments_content[x] if x in fragments_content else {'num_vertices': 0, 'vertices': [], 'faces': []}, fragments))
 
                 fragments_to_upload.append((
@@ -333,6 +342,7 @@ def chunk_mesh_task(cg, chunk_id, cv_path,
                     '{"fragments": ["%s"]}' % fragment_filename
                 ))
 
+        print("Uploading new manifests and fragments...")
         with Storage(os.path.join(cg.cv_path, mesh_dir)) as storage:
             storage.put_files(fragments_to_upload, content_type='application/octet-stream', compress=True, cache_control=False)
             storage.put_files(manifests_to_upload, content_type='application/json', compress=False, cache_control=False)
