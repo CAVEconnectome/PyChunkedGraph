@@ -945,8 +945,11 @@ class ChunkedGraph(object):
         """
         chunk_id = self.get_chunk_id(layer=layer, x=x, y=y, z=z)
 
-        # max_segment_id = self.get_segment_id_limit(chunk_id)
-        max_segment_id = self.get_max_node_id(chunk_id=chunk_id)
+        if layer == 1:
+            max_segment_id = self.get_segment_id_limit(chunk_id)
+            max_block_size = max_segment_id + 1
+        else:
+            max_segment_id = self.get_max_node_id(chunk_id=chunk_id)
 
         # Define BigTable keys
         start_id = self.get_node_id(np.uint64(0), chunk_id=chunk_id)
