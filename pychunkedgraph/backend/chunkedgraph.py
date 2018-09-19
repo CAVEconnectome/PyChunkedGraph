@@ -6,7 +6,6 @@ import os
 import networkx as nx
 import pytz
 import cloudvolume
-from scipy import sparse
 import pandas as pd
 
 from multiwrapper import multiprocessing_utils as mu
@@ -34,18 +33,6 @@ UTC = pytz.UTC
 # Setting environment wide credential path
 os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = \
            HOME + "/.cloudvolume/secrets/google-secret.json"
-
-
-def compute_sparse_indices(arr: np.ndarray) -> sparse.csr_matrix:
-    """ Computes indices of all unique entries
-
-    https://stackoverflow.com/questions/33281957/faster-alternative-to-numpy-where
-
-    :param arr: np.ndarray
-    :return: scipy sparse csr matrix
-    """
-    cols = np.arange(arr.size)
-    return sparse.csr_matrix((cols, (arr.ravel(), cols)), shape=(arr.max() + 1, arr.size))
 
 def compute_indices_pandas(data) -> pd.Series:
     """ Computes indices of all unique entries
