@@ -21,8 +21,10 @@ RUN apk add --no-cache --virtual .build-deps \
     && pip install --no-cache-dir --upgrade \
         cloud-volume \
         networkx \
+        pandas \
         google-cloud-bigtable \
         google-api-python-client \
+        git+https://github.com/sdorkenw/MultiWrapper.git#egg=multiwrapper \
     && pip install --no-cache-dir --upgrade --no-deps \
         task-queue \
     && mkdir /root/.cloudvolume \
