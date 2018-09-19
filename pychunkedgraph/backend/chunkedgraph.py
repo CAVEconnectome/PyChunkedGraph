@@ -1441,14 +1441,20 @@ class ChunkedGraph(object):
                     time_start_2 = time.time()
 
                 # Create node
-                val_dict = \
-                    {"atomic_connected_partners": connected_ids.tobytes(),
-                     "atomic_connected_affinities": connected_affs.tobytes(),
-                     "atomic_connected_areas": connected_areas.tobytes(),
-                     "atomic_disconnected_partners": disconnected_ids.tobytes(),
-                     "atomic_disconnected_affinities": disconnected_affs.tobytes(),
-                     "atomic_disconnected_areas": disconnected_areas.tobytes(),
-                     "parents": parent_id_b}
+                # val_dict = \
+                #     {"atomic_connected_partners": connected_ids.tobytes(),
+                #      "atomic_connected_affinities": connected_affs.tobytes(),
+                #      "atomic_connected_areas": connected_areas.tobytes(),
+                #      "atomic_disconnected_partners": disconnected_ids.tobytes(),
+                #      "atomic_disconnected_affinities": disconnected_affs.tobytes(),
+                #      "atomic_disconnected_areas": disconnected_areas.tobytes(),
+                #      "parents": parent_id_b}
+
+                val_dict = {"atomic_partners": np.concatenate([connected_ids, disconnected_ids]).tobytes(),
+                            "affinities": np.concatenate([connected_affs, disconnected_affs]).tobytes(),
+                            "areas": np.concatenate([connected_areas, disconnected_areas]).tobytes(),
+                            "connected": np.arange(len(connected_ids), dtype=np.int).tobytes(),
+                            "parents": parent_id_b}
 
                 rows.append(self.mutate_row(serialize_uint64(node_id),
                                             self.family_id, val_dict,
