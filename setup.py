@@ -22,5 +22,5 @@ setup(
         "License :: OSI Approved :: MIT License",
         "Operating System :: POSIX :: Linux",
     ],
-    dependency_links=['git+https://github.com/sdorkenw/MultiWrapper']
+    dependency_links=['git+https://github.com/sdorkenw/MultiWrapper.git#egg=multiwrapper']
 )
