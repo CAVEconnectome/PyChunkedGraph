@@ -51,6 +51,138 @@ def get_mesh_block_shape(cg: ChunkedGraph, graphlayer: int, source_mip: int) -> 
     return np.floor_divide(graphlayer_chunksize, distortion, dtype=np.int, casting='unsafe')
 
 
+def _get_sv_to_node_mapping_internal(cg, chunk_id, unbreakable_only):
+    x, y, z = cg.get_chunk_coordinates(chunk_id)
+
+    center_chunk_max_node_id = cg.get_node_id(
+        segment_id=cg.get_segment_id_limit(chunk_id), chunk_id=chunk_id)
+    xyz_plus_chunk_min_node_id = cg.get_chunk_id(
+        layer=1, x=x + 1, y=y + 1, z=z + 1)
+
+    row_keys = ['atomic_partners', 'connected']
+    if unbreakable_only:
+        row_keys.append('affinities')
+
+    seg_ids_center = cg.range_read_chunk(1, x, y, z, row_keys=row_keys)
+
+    seg_ids_face_neighbors = {}
+    seg_ids_face_neighbors.update(
+        cg.range_read_chunk(1, x + 1, y, z, row_keys=row_keys))
+    seg_ids_face_neighbors.update(
+        cg.range_read_chunk(1, x, y + 1, z, row_keys=row_keys))
+    seg_ids_face_neighbors.update(
+        cg.range_read_chunk(1, x, y, z + 1, row_keys=row_keys))
+
+    seg_ids_edge_neighbors = {}
+    seg_ids_edge_neighbors.update(
+        cg.range_read_chunk(1, x + 1, y + 1, z, row_keys=row_keys))
+    seg_ids_edge_neighbors.update(
+        cg.range_read_chunk(1, x, y + 1, z + 1, row_keys=row_keys))
+    seg_ids_edge_neighbors.update(
+        cg.range_read_chunk(1, x + 1, y, z + 1, row_keys=row_keys))
+
+    # Retrieve all face-adjacent supervoxel
+    one_hop_neighbors = {}
+    for seg_id_b, data in seg_ids_center.items():
+        partners = np.frombuffer(
+            data.cells['0'][b'atomic_partners'][0].value,
+            dtype=np.uint64)
+        connected = np.frombuffer(
+            data.cells['0'][b'connected'][0].value,
+            dtype=np.uint64)
+
+        partners = partners[connected]
+
+        # Only keep supervoxel within the "positive" adjacent chunks
+        # (and if specified only the unbreakable counterparts)
+        if unbreakable_only:
+            affinities = np.frombuffer(
+                data.cells['0'][b'affinities'][0].value,
+                dtype=np.float32)
+            affinities = affinities[connected]
+
+            partners = partners[(affinities == np.inf) &
+                                (partners > center_chunk_max_node_id)]
+        else:
+            partners = partners[partners > center_chunk_max_node_id]
+
+        one_hop_neighbors.update(dict(zip(partners, [seg_id_b] * len(partners))))
+
+    # Retrieve all edge-adjacent supervoxel
+    two_hop_neighbors = {}
+    for seg_id, base_id in one_hop_neighbors.items():
+        seg_id_b = serialize_uint64(seg_id)
+        partners = np.frombuffer(
+            seg_ids_face_neighbors[seg_id_b].cells['0'][b'atomic_partners'][0].value,
+            dtype=np.uint64)
+        connected = np.frombuffer(
+            seg_ids_face_neighbors[seg_id_b].cells['0'][b'connected'][0].value,
+            dtype=np.uint64)
+
+        partners = partners[connected]
+
+        # FIXME: The partners filter also keeps some connections to within the
+        # face_adjacent chunk itself and to "negative", face-adjacent chunks.
+        # That's OK for now, since the filters are only there to keep the
+        # number of connections low
+        if unbreakable_only:
+            affinities = np.frombuffer(
+                seg_ids_face_neighbors[seg_id_b].cells['0'][b'affinities'][0].value,
+                dtype=np.float32)
+            affinities = affinities[connected]
+
+            partners = partners[(affinities == np.inf) &
+                                (partners > center_chunk_max_node_id) &
+                                (partners < xyz_plus_chunk_min_node_id)]
+        else:
+            partners = partners[(partners > center_chunk_max_node_id) &
+                                (partners < xyz_plus_chunk_min_node_id)]
+
+        two_hop_neighbors.update(dict(zip(partners, [base_id] * len(partners))))
+
+    # Retrieve all corner-adjacent supervoxel
+    three_hop_neighbors = {}
+    for seg_id, base_id in list(two_hop_neighbors.items()):
+        seg_id_b = serialize_uint64(seg_id)
+        if seg_id_b not in seg_ids_edge_neighbors:
+            # See FIXME for edge-adjacent supervoxel - need to ignore those
+            del two_hop_neighbors[seg_id]
+            continue
+
+        partners = np.frombuffer(
+            seg_ids_edge_neighbors[seg_id_b].cells['0'][b'atomic_partners'][0].value,
+            dtype=np.uint64)
+        connected = np.frombuffer(
+            seg_ids_edge_neighbors[seg_id_b].cells['0'][b'connected'][0].value,
+            dtype=np.uint64)
+
+        partners = partners[connected]
+
+        # We are only interested in the single corner voxel, but based on the
+        # neighboring supervoxels, there might be a few more - doesn't matter.
+        if unbreakable_only:
+            affinities = np.frombuffer(
+                seg_ids_edge_neighbors[seg_id_b].cells['0'][b'affinities'][0].value,
+                dtype=np.float32)
+            affinities = affinities[connected]
+
+            partners = partners[(affinities == np.inf) &
+                                (partners > xyz_plus_chunk_min_node_id)]
+        else:
+            partners = partners[partners > xyz_plus_chunk_min_node_id]
+
+        three_hop_neighbors.update(dict(zip(partners, [base_id] * len(partners))))
+
+    sv_to_node_mapping = {seg_id: seg_id for seg_id in
+                          [np.uint64(x) for x in seg_ids_center.keys()]}
+    sv_to_node_mapping.update(one_hop_neighbors)
+    sv_to_node_mapping.update(two_hop_neighbors)
+    sv_to_node_mapping.update(three_hop_neighbors)
+    sv_to_node_mapping = {np.uint64(k): np.uint64(v) for k, v in sv_to_node_mapping.items()}
+
+    return sv_to_node_mapping
+
+
 def get_sv_to_node_mapping(cg, chunk_id):
     """ Reads sv_id -> root_id mapping for a chunk from the chunkedgraph
 
@@ -62,103 +194,18 @@ def get_sv_to_node_mapping(cg, chunk_id):
     layer = cg.get_chunk_layer(chunk_id)
     assert layer <= 2
 
-    sv_to_node_mapping = {}
-
     if layer == 1:
         # Mapping a chunk containing supervoxels - need to retrieve
         # potential unbreakable counterparts for each supervoxel
         # (Look for atomic edges with infinite edge weight)
         # Also need to check the edges and the corner!
-        x, y, z = cg.get_chunk_coordinates(chunk_id)
+        return _get_sv_to_node_mapping_internal(cg, chunk_id, True)
 
-        center_chunk_max_node_id = cg.get_node_id(
-            segment_id=cg.get_segment_id_limit(chunk_id), chunk_id=chunk_id)
-        xyz_plus_chunk_min_node_id = cg.get_chunk_id(
-            layer=1, x=x + 1, y=y + 1, z=z + 1)
-
-        seg_ids_center = cg.range_read_chunk(1, x, y, z)
-
-        seg_ids_face_neighbors = {}
-        seg_ids_face_neighbors.update(
-            cg.range_read_chunk(1, x + 1, y, z, row_keys=['atomic_connected_partners', 'atomic_connected_affinities']))
-        seg_ids_face_neighbors.update(
-            cg.range_read_chunk(1, x, y + 1, z, row_keys=['atomic_connected_partners', 'atomic_connected_affinities']))
-        seg_ids_face_neighbors.update(
-            cg.range_read_chunk(1, x, y, z + 1, row_keys=['atomic_connected_partners', 'atomic_connected_affinities']))
-
-        seg_ids_edge_neighbors = {}
-        seg_ids_edge_neighbors.update(
-            cg.range_read_chunk(1, x + 1, y + 1, z, row_keys=['atomic_connected_partners', 'atomic_connected_affinities']))
-        seg_ids_edge_neighbors.update(
-            cg.range_read_chunk(1, x, y + 1, z + 1, row_keys=['atomic_connected_partners', 'atomic_connected_affinities']))
-        seg_ids_edge_neighbors.update(
-            cg.range_read_chunk(1, x + 1, y, z + 1, row_keys=['atomic_connected_partners', 'atomic_connected_affinities']))
-
-        # Retrieve all face-adjacent, unbreakable supervoxel
-        one_hop_neighbors = {}
-        for seg_id_b, data in seg_ids_center.items():
-            partners = np.frombuffer(
-                data.cells['0'][b'atomic_connected_partners'][0].value,
-                dtype=np.uint64)
-
-            affinities = np.frombuffer(
-                data.cells['0'][b'atomic_connected_affinities'][0].value,
-                dtype=np.float32)
-
-            # Only keep unbreakable segments, and only within the "positive" adjacent chunks
-            partners = partners[(affinities == np.inf) &
-                                (partners > chunk_id)]
-            one_hop_neighbors.update(dict(zip(partners, [seg_id_b] * len(partners))))
-
-        # Retrieve all edge-adjacent, unbreakable supervoxel
-        two_hop_neighbors = {}
-        for seg_id, base_id in one_hop_neighbors.items():
-            seg_id_b = serialize_uint64(seg_id)
-            partners = np.frombuffer(
-                seg_ids_face_neighbors[seg_id_b].cells['0'][b'atomic_connected_partners'][0].value,
-                dtype=np.uint64)
-            affinities = np.frombuffer(
-                seg_ids_face_neighbors[seg_id_b].cells['0'][b'atomic_connected_affinities'][0].value,
-                dtype=np.float32)
-
-            # Only keep unbreakable segments, doesn't completely exclude unnecessary chunks,
-            # but is good/fast enough to cut down the number of segments
-            partners = partners[(affinities == np.inf) &
-                                (partners > center_chunk_max_node_id) &
-                                (partners < xyz_plus_chunk_min_node_id)]
-            two_hop_neighbors.update(dict(zip(partners, [base_id] * len(partners))))
-
-        # Retrieve all corner-adjacent, unbreakable supervoxel
-        three_hop_neighbors = {}
-        for seg_id, base_id in two_hop_neighbors.items():
-            seg_id_b = serialize_uint64(seg_id)
-            if seg_id_b not in seg_ids_edge_neighbors:
-                continue
-
-            partners = np.frombuffer(
-                seg_ids_edge_neighbors[seg_id_b].cells['0'][b'atomic_connected_partners'][0].value,
-                dtype=np.uint64)
-            affinities = np.frombuffer(
-                seg_ids_edge_neighbors[seg_id_b].cells['0'][b'atomic_connected_affinities'][0].value,
-                dtype=np.float32)
-
-            # Only keep unbreakable segments - we are only interested in the single corner voxel,
-            # but based on the neighboring supervoxels, there might be a few more supervoxel - doesn't matter.
-            partners = partners[(affinities == np.inf) &
-                                (partners > xyz_plus_chunk_min_node_id)]
-            three_hop_neighbors.update(dict(zip(partners, [base_id] * len(partners))))
-
-        sv_to_node_mapping = {seg_id: seg_id for seg_id in
-                              [np.uint64(x) for x in seg_ids_center.keys()]}
-        sv_to_node_mapping.update(one_hop_neighbors)
-        sv_to_node_mapping.update(two_hop_neighbors)
-        sv_to_node_mapping.update(three_hop_neighbors)
-        sv_to_node_mapping = {np.uint64(k): np.uint64(v) for k, v in sv_to_node_mapping.items()}
-
-    elif layer == 2:
+    else:  # layer == 2
         # Get supervoxel mapping
         x, y, z = cg.get_chunk_coordinates(chunk_id)
-        sv_to_node_mapping = get_sv_to_node_mapping(cg, chunk_id=cg.get_chunk_id(layer=1, x=x, y=y, z=z))
+        sv_to_node_mapping = _get_sv_to_node_mapping_internal(
+                cg, cg.get_chunk_id(layer=1, x=x, y=y, z=z), False)
 
         # Update supervoxel with their parents
         seg_ids = cg.range_read_chunk(1, x, y, z, row_keys=['parents'])
@@ -169,7 +216,7 @@ def get_sv_to_node_mapping(cg, chunk_id):
 
             sv_to_node_mapping[sv_id] = agg_id
 
-    return sv_to_node_mapping
+        return sv_to_node_mapping
 
 
 def merge_meshes(meshes):
