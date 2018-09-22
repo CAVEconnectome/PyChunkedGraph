@@ -1,4 +1,4 @@
-from flask import Blueprint, request, make_response, g
+from flask import Blueprint, request, make_response
 from flask import current_app
 # from google.cloud import pubsub_v1
 import json
@@ -40,12 +40,12 @@ def home():
 @bp.before_request
 def before_request():
     print("NEW REQUEST:", datetime.datetime.now(), request.url)
-    g.request_start_time = time.time()
+    current_app.request_start_time = time.time()
 
 
 @bp.after_request
 def after_request(response):
-    dt = (time.time() - g.request_start_time) * 1000
+    dt = (time.time() - current_app.request_start_time) * 1000
 
     url_split = request.url.split("/")
     current_app.logger.info("%s - %s - %s - %s - %f.3" %
@@ -59,7 +59,7 @@ def after_request(response):
 
 @bp.errorhandler(500)
 def internal_server_error(error):
-    dt = (time.time() - g.request_start_time) * 1000
+    dt = (time.time() - current_app.request_start_time) * 1000
 
     url_split = request.url.split("/")
     current_app.logger.error("%s - %s - %s - %s - %f.3" %
@@ -72,7 +72,7 @@ def internal_server_error(error):
 
 @bp.errorhandler(Exception)
 def unhandled_exception(e):
-    dt = (time.time() - g.request_start_time) * 1000
+    dt = (time.time() - current_app.request_start_time) * 1000
 
     url_split = request.url.split("/")
     current_app.logger.error("%s - %s - %s - %s - %f.3" %
@@ -123,6 +123,9 @@ def handle_merge():
         node_id = node[0]
         x, y, z = node[1:]
 
+        x /= 2
+        y /= 2
+
         atomic_id = cg.get_atomic_id_from_coord(x, y, z,
                                                 parent_id=np.uint64(node_id))
         if atomic_id is None:
@@ -164,6 +167,9 @@ def handle_split():
             node_id = node[0]
             x, y, z = node[1:]
 
+            x /= 2
+            y /= 2
+
             atomic_id = cg.get_atomic_id_from_coord(x, y, z,
                                                     parent_id=np.uint64(node_id))
             if atomic_id is None:
@@ -181,6 +187,8 @@ def handle_split():
 
     if new_roots is None:
         return None
+
+    print("NEW ROOTS", new_roots)
 
     # Return binary
     return app_utils.tobinary(new_roots)

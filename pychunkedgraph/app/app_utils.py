@@ -7,6 +7,7 @@ import numpy as np
 # Hack the imports for now
 from pychunkedgraph.backend import chunkedgraph
 
+cache = {}
 
 class DoNothingCreds(credentials.Credentials):
     def refresh(self, request):
@@ -14,6 +15,7 @@ class DoNothingCreds(credentials.Credentials):
 
 
 def get_client(config):
+    print("GET CLIENT")
     project_id = config.get('project_id', 'pychunkedgraph')
 
     if config.get('emulate', False):
@@ -28,12 +30,13 @@ def get_client(config):
 
 
 def get_cg():
-    if 'cg' not in g:
+    if 'cg' not in cache:
         table_id = current_app.config['CHUNKGRAPH_TABLE_ID']
         client = get_client(current_app.config)
-        g.cg = chunkedgraph.ChunkedGraph(table_id=table_id,
-                                         client=client)
-    return g.cg
+        cache["cg"] = chunkedgraph.ChunkedGraph(table_id=table_id,
+                                                client=client)
+
+    return cache["cg"]
 
 
 def tobinary(ids):
