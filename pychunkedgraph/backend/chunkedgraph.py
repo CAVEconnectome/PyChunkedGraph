@@ -7,6 +7,7 @@ import networkx as nx
 import pytz
 import cloudvolume
 import pandas as pd
+import re
 
 from multiwrapper import multiprocessing_utils as mu
 from pychunkedgraph.backend import cutting
@@ -34,6 +35,7 @@ UTC = pytz.UTC
 os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = \
            HOME + "/.cloudvolume/secrets/google-secret.json"
 
+
 def compute_indices_pandas(data) -> pd.Series:
     """ Computes indices of all unique entries
 
@@ -47,6 +49,7 @@ def compute_indices_pandas(data) -> pd.Series:
     d = data.ravel()
     f = lambda x: np.unravel_index(x.index, data.shape)
     return pd.Series(d).groupby(d).apply(f)
+
 
 def log_n(arr, n):
     """ Computes log to base n
@@ -170,6 +173,33 @@ def compute_bitmasks(n_layers: int, fan_out: int) -> Dict[int, int]:
     return bitmask_dict
 
 
+def get_google_compatible_time_stamp(time_stamp: datetime.datetime,
+                                     round_up: bool =False
+                                     ) -> datetime.datetime:
+    micro_s_gap = datetime.timedelta(microseconds=time_stamp.microsecond % 1000)
+
+    if micro_s_gap == 0:
+        return time_stamp
+
+    if round_up:
+        time_stamp += (datetime.timedelta(microseconds=1000) - micro_s_gap)
+    else:
+        time_stamp -= micro_s_gap
+
+    return time_stamp
+
+
+def get_inclusive_time_range_filter(start=None, end=None):
+    if end is not None:
+        end += (datetime.timedelta(microseconds=1000))
+
+    return TimestampRangeFilter(TimestampRange(start=start, end=end))
+
+
+def get_max_time():
+    return datetime.datetime(9999, 12, 31, 23, 59, 59, 0)
+
+
 # DEFINE GLOBAL COLUMN KEYS
 partner_key = 'atomic_partners'
 partner_key_s = serialize_key(partner_key)
@@ -183,6 +213,8 @@ disconnected_key = 'disconnected'
 disconnected_key_s = serialize_key(disconnected_key)
 parent_key = 'parents'
 parent_key_s = serialize_key(parent_key)
+cross_chunk_edge_keyformat = 'atomic_cross_edges_%d'
+
 
 dtype_dict = {partner_key: np.uint64,
               partner_key_s: np.uint64,
@@ -193,7 +225,8 @@ dtype_dict = {partner_key: np.uint64,
               connected_key: np.uint64,
               connected_key_s: np.uint64,
               parent_key: np.int,
-              parent_key_s: np.int}
+              parent_key_s: np.int,
+              "cross_chunk_edges": np.uint64}
 
 
 class ChunkedGraph(object):
@@ -712,7 +745,7 @@ class ChunkedGraph(object):
             layer_cross_edges = cross_edges[cce_layers == cc_layer]
 
             if len(layer_cross_edges) > 0:
-                val_dict["atomic_cross_edges_%d" % cc_layer] = \
+                val_dict[cross_chunk_edge_keyformat % cc_layer] = \
                     layer_cross_edges.tobytes()
                 cross_edge_dict[cc_layer] = layer_cross_edges
         return cross_edge_dict
@@ -757,7 +790,7 @@ class ChunkedGraph(object):
             return cell_value
 
     def read_row_multi_key(self, node_id: np.uint64, keys: str = None,
-                           time_stamp: datetime.datetime = datetime.datetime.max
+                           time_stamp: datetime.datetime = get_max_time()
                            ) -> Any:
         """ Reads row from BigTable and takes care of serializations
 
@@ -767,11 +800,11 @@ class ChunkedGraph(object):
         :return: row entry
         """
         # Comply to resolution of BigTables TimeRange
-        time_stamp -= datetime.timedelta(
-            microseconds=time_stamp.microsecond % 1000)
+        time_stamp = get_google_compatible_time_stamp(time_stamp,
+                                                      round_up=False)
 
         # Create filters: time and id range
-        time_filter = TimestampRangeFilter(TimestampRange(end=time_stamp))
+        time_filter = get_inclusive_time_range_filter(end=time_stamp)
 
         if keys is not None:
             if not isinstance(keys, list):
@@ -797,6 +830,32 @@ class ChunkedGraph(object):
             return {}
 
         return row.cells
+
+    def read_cross_chunk_edges(self, node_id: np.uint64, start_layer: int = 2
+                               ) -> Dict:
+        """
+
+        :param node_id:
+        :param start_layer:
+        :return:
+        """
+
+        assert start_layer >= 2 and start_layer < self.n_layers
+
+        start_layer = np.max([self.get_chunk_layer(node_id), start_layer])
+
+        keys = [cross_chunk_edge_keyformat % l
+                for l in range(start_layer, self.n_layers)]
+        row_dict = self.read_row_multi_key(node_id, keys=keys)
+        row_dict = row_dict[self.cross_edge_family_id]
+
+        cross_edge_dict = {}
+        for k in row_dict.keys():
+            l = int(re.findall("[\d]+", deserialize_key(k))[-1])
+            cross_edge_dict[l] = np.frombuffer(row_dict[k][0].value,
+                                               dtype=dtype_dict["cross_chunk_edges"])
+
+        return cross_edge_dict
 
     def mutate_row(self, row_key: bytes, column_family_id: str, val_dict: dict,
                    time_stamp: Optional[datetime.datetime] = None
@@ -914,7 +973,7 @@ class ChunkedGraph(object):
                    n_retries: int = 100, max_block_size: int = 50000,
                    row_keys: Optional[Iterable[str]] = None,
                    row_key_filters: Optional[Iterable[str]] = None,
-                   time_stamp: datetime.datetime = datetime.datetime.max
+                   time_stamp: datetime.datetime = get_max_time()
                    ) -> Union[
                           bigtable.row_data.PartialRowData,
                           Dict[bytes, bigtable.row_data.PartialRowData]]:
@@ -933,11 +992,11 @@ class ChunkedGraph(object):
         """
 
         # Comply to resolution of BigTables TimeRange
-        time_stamp -= datetime.timedelta(
-            microseconds=time_stamp.microsecond % 1000)
+        time_stamp = get_google_compatible_time_stamp(time_stamp,
+                                                      round_up=False)
 
         # Create filters: time and id range
-        time_filter = TimestampRangeFilter(TimestampRange(end=time_stamp))
+        time_filter = get_inclusive_time_range_filter(end=time_stamp)
 
         if row_keys is not None:
             filters = []
@@ -992,7 +1051,7 @@ class ChunkedGraph(object):
                          n_retries: int = 100, max_block_size: int = 1000000,
                          row_keys: Optional[Iterable[str]] = None,
                          row_key_filters: Optional[Iterable[str]] = None,
-                         time_stamp: datetime.datetime = datetime.datetime.max,
+                         time_stamp: datetime.datetime = get_max_time(),
                          ) -> Union[
                                 bigtable.row_data.PartialRowData,
                                 Dict[bytes, bigtable.row_data.PartialRowData]]:
@@ -1301,6 +1360,10 @@ class ChunkedGraph(object):
         if time_stamp.tzinfo is None:
             time_stamp = UTC.localize(time_stamp)
 
+        # Comply to resolution of BigTables TimeRange
+        time_stamp = get_google_compatible_time_stamp(time_stamp,
+                                                      round_up=False)
+
         edge_id_keys = ["in_connected", "in_disconnected", "cross",
                         "between_connected", "between_disconnected"]
         edge_aff_keys = ["in_connected", "in_disconnected", "between_connected",
@@ -1483,9 +1546,9 @@ class ChunkedGraph(object):
                     time_dict["out_disconnected_mask"].append(time.time() - time_start_2)
                     time_start_2 = time.time()
 
-                    connected_ids = np.concatenate([connected_ids, edge_id_dict["between_disconnected"][row_ids, inv_column_ids]])
-                    connected_affs = np.concatenate([connected_affs, edge_aff_dict["between_disconnected"][row_ids]])
-                    connected_areas = np.concatenate([connected_areas, edge_area_dict["between_disconnected"][row_ids]])
+                    disconnected_ids = np.concatenate([disconnected_ids, edge_id_dict["between_disconnected"][row_ids, inv_column_ids]])
+                    disconnected_affs = np.concatenate([disconnected_affs, edge_aff_dict["between_disconnected"][row_ids]])
+                    disconnected_areas = np.concatenate([disconnected_areas, edge_area_dict["between_disconnected"][row_ids]])
 
                     time_dict["out_disconnected"].append(time.time() - time_start_2)
                     time_start_2 = time.time()
@@ -1502,22 +1565,13 @@ class ChunkedGraph(object):
 
                     connected_ids = np.concatenate([connected_ids, edge_id_dict["cross"][row_ids, inv_column_ids]])
                     connected_affs = np.concatenate([connected_affs, np.full((len(row_ids)), np.inf, dtype=np.float32)])
-                    connected_areas = np.concatenate([connected_areas, np.zeros((len(row_ids)), dtype=np.uint64)])
+                    connected_areas = np.concatenate([connected_areas, np.ones((len(row_ids)), dtype=np.uint64)])
 
                     parent_cross_edges = np.concatenate([parent_cross_edges, edge_id_dict["cross"][row_ids]])
                     time_dict["cross"].append(time.time() - time_start_2)
                     time_start_2 = time.time()
 
                 # Create node
-                # val_dict = \
-                #     {"atomic_connected_partners": connected_ids.tobytes(),
-                #      "atomic_connected_affinities": connected_affs.tobytes(),
-                #      "atomic_connected_areas": connected_areas.tobytes(),
-                #      "atomic_disconnected_partners": disconnected_ids.tobytes(),
-                #      "atomic_disconnected_affinities": disconnected_affs.tobytes(),
-                #      "atomic_disconnected_areas": disconnected_areas.tobytes(),
-                #      "parents": parent_id_b}
-
                 partners = np.concatenate([connected_ids, disconnected_ids])
                 partners_b = partners.tobytes()
                 affinities = np.concatenate([connected_affs, disconnected_affs])
@@ -1557,7 +1611,7 @@ class ChunkedGraph(object):
                 layer_cross_edges = parent_cross_edges[cce_layers == cc_layer]
 
                 if len(layer_cross_edges) > 0:
-                    val_dict["atomic_cross_edges_%d" % cc_layer] = \
+                    val_dict[cross_chunk_edge_keyformat % cc_layer] = \
                         layer_cross_edges.tobytes()
 
             if len(val_dict) > 0:
@@ -1605,7 +1659,7 @@ class ChunkedGraph(object):
             x, y, z = chunk_coord
 
             row_keys = ["children"] + \
-                       ["atomic_cross_edges_%d" % l
+                       [cross_chunk_edge_keyformat % l
                         for l in range(layer_id - 1, self.n_layers)]
             range_read = self.range_read_chunk(layer_id - 1, x, y, z,
                                                row_keys=row_keys)
@@ -1670,7 +1724,7 @@ class ChunkedGraph(object):
                     cell_family = row_cell_dict[row_id]
 
                     for l in range(layer_id - 1, self.n_layers):
-                        row_key = serialize_key("atomic_cross_edges_%d" % l)
+                        row_key = serialize_key(cross_chunk_edge_keyformat % l)
                         if row_key in cell_family:
                             cross_edge_dict[row_id][l] = cell_family[row_key][0].value
 
@@ -1752,7 +1806,7 @@ class ChunkedGraph(object):
 
                 for l in range(layer_id, self.n_layers):
                     if l in parent_cross_edges_b:
-                        val_dict["atomic_cross_edges_%d" % l] = \
+                        val_dict[cross_chunk_edge_keyformat % l] = \
                             parent_cross_edges_b[l]
 
                 if len(val_dict) > 0:
@@ -1773,6 +1827,10 @@ class ChunkedGraph(object):
 
         if time_stamp.tzinfo is None:
             time_stamp = UTC.localize(time_stamp)
+
+        # Comply to resolution of BigTables TimeRange
+        time_stamp = get_google_compatible_time_stamp(time_stamp,
+                                                      round_up=False)
 
         # 1 --------------------------------------------------------------------
         # The first part is concerned with reading data from the child nodes
@@ -1907,7 +1965,7 @@ class ChunkedGraph(object):
 
         if self.cross_edge_family_id in row.cells:
             for l in layer_ids:
-                key = serialize_key("atomic_cross_edges_%d" % l)
+                key = serialize_key(cross_chunk_edge_keyformat % l)
                 row_cell = row.cells[self.cross_edge_family_id]
 
                 atomic_cross_edges[l] = []
@@ -1949,6 +2007,10 @@ class ChunkedGraph(object):
         if time_stamp.tzinfo is None:
             time_stamp = UTC.localize(time_stamp)
 
+        # Comply to resolution of BigTables TimeRange
+        time_stamp = get_google_compatible_time_stamp(time_stamp,
+                                                      round_up=False)
+
         parent_key = serialize_key("parents")
         all_parents = []
 
@@ -1989,7 +2051,7 @@ class ChunkedGraph(object):
         else:
             return children
 
-    def get_latest_roots(self, time_stamp: Optional[datetime.datetime] = datetime.datetime.max,
+    def get_latest_roots(self, time_stamp: Optional[datetime.datetime] = get_max_time(),
                          n_threads: int = 1):
         """
          :param time_stamp:
@@ -2016,8 +2078,12 @@ class ChunkedGraph(object):
                     root_ids.append(deserialize_uint64(row_id))
 
 
-        time_stamp -= datetime.timedelta(microseconds=time_stamp.microsecond % 1000)
-        time_filter = TimestampRangeFilter(TimestampRange(end=time_stamp))
+        # Comply to resolution of BigTables TimeRange
+        time_stamp = get_google_compatible_time_stamp(time_stamp,
+                                                      round_up=False)
+
+        # Create filters: time and id range
+        time_filter = get_inclusive_time_range_filter(end=time_stamp)
 
         max_seg_id = self.get_max_node_id(self.root_chunk_id) + 1
 
@@ -2051,6 +2117,10 @@ class ChunkedGraph(object):
 
         if time_stamp.tzinfo is None:
             time_stamp = UTC.localize(time_stamp)
+
+        # Comply to resolution of BigTables TimeRange
+        time_stamp = get_google_compatible_time_stamp(time_stamp,
+                                                      round_up=False)
 
         early_finish = True
 
@@ -2226,6 +2296,11 @@ class ChunkedGraph(object):
 
         # Set row lock if condition returns no results (state == False)
         time_stamp = datetime.datetime.utcnow()
+
+        # Comply to resolution of BigTables TimeRange
+        time_stamp = get_google_compatible_time_stamp(time_stamp,
+                                                      round_up=False)
+
         root_row.set_cell(self.family_id, lock_key, operation_id_b, state=False,
                           timestamp=time_stamp)
 
@@ -2416,7 +2491,7 @@ class ChunkedGraph(object):
 
     def get_future_root_ids(self, root_id: np.uint64,
                             time_stamp: Optional[datetime.datetime] =
-                            datetime.datetime.max)-> np.ndarray:
+                            get_max_time())-> np.ndarray:
         """ Returns all future root ids emerging from this root
 
         This search happens in a monotic fashion. At no point are past root
@@ -2430,6 +2505,10 @@ class ChunkedGraph(object):
         """
         if time_stamp.tzinfo is None:
             time_stamp = UTC.localize(time_stamp)
+
+        # Comply to resolution of BigTables TimeRange
+        time_stamp = get_google_compatible_time_stamp(time_stamp,
+                                                      round_up=False)
 
         id_history = []
 
@@ -2479,6 +2558,10 @@ class ChunkedGraph(object):
         if time_stamp.tzinfo is None:
             time_stamp = UTC.localize(time_stamp)
 
+        # Comply to resolution of BigTables TimeRange
+        time_stamp = get_google_compatible_time_stamp(time_stamp,
+                                                      round_up=False)
+
         id_history = []
 
         next_ids = [root_id]
@@ -2514,7 +2597,7 @@ class ChunkedGraph(object):
                             time_stamp_past:
                             Optional[datetime.datetime] = datetime.datetime.min,
                             time_stamp_future:
-                            Optional[datetime.datetime] = datetime.datetime.max
+                            Optional[datetime.datetime] = get_max_time()
                             ) -> np.ndarray:
         """ Returns all future root ids emerging from this root
 
@@ -2611,6 +2694,7 @@ class ChunkedGraph(object):
         if get_edges:
             time_stamp = self.read_row(agglomeration_id, "children",
                                        get_time_stamp=True)[1]
+            print("TIME STAMP", time_stamp)
 
         if bounding_box is not None:
 
@@ -2688,7 +2772,7 @@ class ChunkedGraph(object):
             return atomic_ids
 
     def get_flattened_row_dict(self, node_id: np.uint64, keys: list,
-                               time_stamp: datetime.datetime = datetime.datetime.max
+                               time_stamp: datetime.datetime = get_max_time()
                                ) -> Dict:
         row_dict = self.read_row_multi_key(node_id, keys=keys,
                                            time_stamp=time_stamp)
@@ -2717,7 +2801,7 @@ class ChunkedGraph(object):
         return flattened_row_dict
 
     def get_atomic_node_partners(self, atomic_id: np.uint64,
-                                time_stamp: datetime.datetime = datetime.datetime.max
+                                time_stamp: datetime.datetime = get_max_time()
                                 ) -> Dict:
         """ Reads register partner ids
 
@@ -2732,7 +2816,7 @@ class ChunkedGraph(object):
         return flattened_row_dict[partner_key]
 
     def get_atomic_node_info(self, atomic_id: np.uint64,
-                             time_stamp: datetime.datetime = datetime.datetime.max
+                             time_stamp: datetime.datetime = get_max_time()
                              ) -> Dict:
         """ Reads connectivity information for a single node
 
@@ -2790,7 +2874,7 @@ class ChunkedGraph(object):
     def get_atomic_partners(self, atomic_id: np.uint64,
                             include_connected_partners=True,
                             include_disconnected_partners=False,
-                            time_stamp: Optional[datetime.datetime] = datetime.datetime.max
+                            time_stamp: Optional[datetime.datetime] = get_max_time()
                             ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
         """ Extracts the atomic partners and affinities for a given timestamp
 
@@ -2867,6 +2951,10 @@ class ChunkedGraph(object):
 
         if time_stamp.tzinfo is None:
             time_stamp = UTC.localize(time_stamp)
+
+        # Comply to resolution of BigTables TimeRange
+        time_stamp = get_google_compatible_time_stamp(time_stamp,
+                                                      round_up=False)
 
         child_ids = self.get_children(parent_id)
 
@@ -2992,6 +3080,10 @@ class ChunkedGraph(object):
         """
         time_stamp = datetime.datetime.utcnow()
 
+        # Comply to resolution of BigTables TimeRange
+        time_stamp = get_google_compatible_time_stamp(time_stamp,
+                                                      round_up=False)
+
         if affinity is None:
             affinity = np.float32(1.0)
 
@@ -3098,7 +3190,7 @@ class ChunkedGraph(object):
 
                 if self.cross_edge_family_id in this_atomic_cross_edges.cells:
                     for l in range(i_layer + 2, self.n_layers):
-                        key = serialize_key("atomic_cross_edges_%d" % l)
+                        key = serialize_key(cross_chunk_edge_keyformat % l)
 
                         if key in this_atomic_cross_edges.cells[self.cross_edge_family_id]:
                             atomic_cross_edges_b[l] += this_atomic_cross_edges.cells[self.cross_edge_family_id][key][0].value
@@ -3106,7 +3198,7 @@ class ChunkedGraph(object):
             val_dict = {}
             for l in range(i_layer + 2, self.n_layers):
                 if len(atomic_cross_edges_b[l]) > 0:
-                    val_dict["atomic_cross_edges_%d" % l] = atomic_cross_edges_b[l]
+                    val_dict[cross_chunk_edge_keyformat % l] = atomic_cross_edges_b[l]
 
             if len(val_dict):
                 rows.append(self.mutate_row(serialize_uint64(current_node_id),
@@ -3383,6 +3475,10 @@ class ChunkedGraph(object):
         """
         time_stamp = datetime.datetime.utcnow()
 
+        # Comply to resolution of BigTables TimeRange
+        time_stamp = get_google_compatible_time_stamp(time_stamp,
+                                                      round_up=False)
+
         # Make sure that we have a list of edges
         if isinstance(atomic_edges[0], np.uint64):
             atomic_edges = [atomic_edges]
@@ -3427,12 +3523,17 @@ class ChunkedGraph(object):
         # changes to the same row within a batch write and only executes
         # one of them.
         for u_atomic_id in np.unique(atomic_edges):
+            atomic_node_info = self.get_atomic_node_info(u_atomic_id)
+
             partners = np.concatenate([atomic_edges[atomic_edges[:, 0] ==
                                                     u_atomic_id][:, 1],
                                        atomic_edges[atomic_edges[:, 1] ==
                                                     u_atomic_id][:, 0]])
 
-            val_dict = {connected_key: partners.tobytes()}
+            partner_ids = np.where(np.in1d(atomic_node_info[partner_key], partners))[0]
+            partner_ids_b = np.array(partner_ids, dtype=dtype_dict[connected_key]).tobytes()
+
+            val_dict = {connected_key: partner_ids_b}
 
             rows.append(self.mutate_row(serialize_uint64(u_atomic_id),
                                         self.family_id, val_dict,
@@ -3450,8 +3551,8 @@ class ChunkedGraph(object):
                                               atomic_edges[:, ::-1]],
                                              axis=0)
         double_atomic_edges_view = double_atomic_edges.view(dtype='u8,u8')
-        double_atomic_edges_view = \
-            double_atomic_edges_view.reshape(double_atomic_edges.shape[0])
+        n_edges = double_atomic_edges.shape[0]
+        double_atomic_edges_view = double_atomic_edges_view.reshape(n_edges)
         nodes_in_removed_edges = np.unique(atomic_edges)
 
         # For each involved chunk we need to compute connected components
@@ -3459,8 +3560,7 @@ class ChunkedGraph(object):
             # Get the local subgraph
             node_id = involved_chunk_id_dict[chunk_id]
             old_parent_id = self.get_parent(node_id)
-            edges, _, _ = self.get_subgraph_chunk(old_parent_id,
-                                                  make_unique=False)
+            edges, _, _ = self.get_subgraph_chunk(old_parent_id, make_unique=False)
 
             # These edges still contain the removed edges.
             # For consistency reasons we can only write to BigTable one time.
@@ -3475,12 +3575,12 @@ class ChunkedGraph(object):
             # The cross chunk edges are passed on to the parents to compute
             # connected components in higher layers.
 
-            cross_edge_mask = self.get_chunk_ids_from_node_ids(
-                np.ascontiguousarray(edges[:, 1])) != \
-                              self.get_chunk_id(node_id=node_id)
+            terminal_chunk_ids = self.get_chunk_ids_from_node_ids(np.ascontiguousarray(edges[:, 1]))
+            cross_edge_mask = terminal_chunk_ids != chunk_id
 
             cross_edges = edges[cross_edge_mask]
             edges = edges[~cross_edge_mask]
+
             isolated_nodes = list(filter(
                 lambda x: x not in edges and self.get_chunk_id(x) == chunk_id,
                 nodes_in_removed_edges))
@@ -3495,8 +3595,7 @@ class ChunkedGraph(object):
                 cc_node_ids = np.array(list(cc), dtype=np.uint64)
 
                 # Get the associated cross edges
-                cc_cross_edges = cross_edges[np.in1d(cross_edges[:, 0],
-                                                     cc_node_ids)]
+                cc_cross_edges = cross_edges[np.in1d(cross_edges[:, 0], cc_node_ids)]
 
                 # Get a new parent id
                 new_parent_id = self.get_unique_node_id(
@@ -3530,15 +3629,15 @@ class ChunkedGraph(object):
                 cross_edge_dict[new_parent_id] = {}
 
                 for l in range(2, self.n_layers):
-                    cross_edge_dict[new_parent_id][l] = \
-                        np.array([], dtype=np.uint64).reshape(-1, 2)
+                    empty_edges = np.array([], dtype=np.uint64).reshape(-1, 2)
+                    cross_edge_dict[new_parent_id][l] = empty_edges
 
                 val_dict = {}
                 for cc_layer in u_cce_layers:
                     layer_cross_edges = cc_cross_edges[cce_layers == cc_layer]
 
                     if len(layer_cross_edges) > 0:
-                        val_dict["atomic_cross_edges_%d" % cc_layer] = \
+                        val_dict[cross_chunk_edge_keyformat % cc_layer] = \
                             layer_cross_edges.tobytes()
                         cross_edge_dict[new_parent_id][cc_layer] = layer_cross_edges
 
@@ -3547,8 +3646,6 @@ class ChunkedGraph(object):
                                                 self.cross_edge_family_id,
                                                 val_dict,
                                                 time_stamp=time_stamp))
-
-
 
         # Now that the lowest layer has been updated, we need to walk through
         # all layers and move our new parents forward
@@ -3611,7 +3708,7 @@ class ChunkedGraph(object):
                             atomic_id_map = np.concatenate([atomic_id_map, ps])
                     else:
                         neigh_cross_edges = self.read_row(old_chunk_neighbor,
-                                                          "atomic_cross_edges_%d" % i_layer,
+                                                          cross_chunk_edge_keyformat % i_layer,
                                                           fam_id=self.cross_edge_family_id)
                         if neigh_cross_edges is None:
                             neigh_cross_edges = np.array([], dtype=np.uint64)
@@ -3714,7 +3811,17 @@ class ChunkedGraph(object):
                 new_layer_parent_dict[new_parent_id] = \
                     parent_cc_old_parent_list[i_cc]
 
-                cross_edge_dict[new_parent_id] = self.get_cross_chunk_edge_dict(cc_cross_edges)
+                cross_edge_dict[new_parent_id] = {}
+                for parent_id in parent_cc:
+                    if parent_id in cross_edge_dict:
+                        parent_cross_edge_dict = cross_edge_dict[parent_id]
+                        for l in range(i_layer + 1, self.n_layers):
+                            if not l in cross_edge_dict[new_parent_id]:
+                                cross_edge_dict[new_parent_id][l] = parent_cross_edge_dict[l]
+                            else:
+                                cross_edge_dict[new_parent_id][l] = np.concatenate([cross_edge_dict[new_parent_id][l], parent_cross_edge_dict[l]])
+
+                # cross_edge_dict[new_parent_id] = self.get_cross_chunk_edge_dict(cc_cross_edges) # -------------------------------
 
                 for cc_node_id in cc_node_ids:
                     val_dict = {"parents": new_parent_id_b}
@@ -3736,7 +3843,7 @@ class ChunkedGraph(object):
                                             self.family_id, val_dict,
                                             time_stamp=time_stamp))
 
-                val_dict = {"atomic_cross_edges_%d" % i_layer:
+                val_dict = {cross_chunk_edge_keyformat % i_layer:
                                 cc_cross_edges.tobytes()}
                 rows.append(self.mutate_row(serialize_uint64(new_parent_id),
                                             self.cross_edge_family_id, val_dict,
