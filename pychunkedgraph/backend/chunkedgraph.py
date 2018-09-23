@@ -1332,6 +1332,13 @@ class ChunkedGraph(object):
 
         return row
 
+    def read_log_row(self, operation_id: np.uint64):
+        row_dict = self.read_row_multi_key(operation_id,
+                                           keys=["user", "roots", "atomic_ids",
+                                                 "removed_edges"])
+        return row_dict
+
+
     def add_atomic_edges_in_chunks(self, edge_id_dict: dict,
                                    edge_aff_dict: dict, edge_area_dict: dict,
                                    isolated_node_ids: Sequence[np.uint64],
@@ -2786,7 +2793,7 @@ class ChunkedGraph(object):
             col = row_dict[self.family_id][key_s]
             flattened_row_dict[key] = []
 
-            for col_entry in col:
+            for col_entry in col[::-1]:
                 deserialized_entry = np.frombuffer(col_entry.value,
                                                    dtype=dtype_dict[key])
                 flattened_row_dict[key].extend(deserialized_entry)
@@ -3525,10 +3532,8 @@ class ChunkedGraph(object):
         for u_atomic_id in np.unique(atomic_edges):
             atomic_node_info = self.get_atomic_node_info(u_atomic_id)
 
-            partners = np.concatenate([atomic_edges[atomic_edges[:, 0] ==
-                                                    u_atomic_id][:, 1],
-                                       atomic_edges[atomic_edges[:, 1] ==
-                                                    u_atomic_id][:, 0]])
+            partners = np.concatenate([atomic_edges[atomic_edges[:, 0] == u_atomic_id][:, 1],
+                                       atomic_edges[atomic_edges[:, 1] == u_atomic_id][:, 0]])
 
             partner_ids = np.where(np.in1d(atomic_node_info[partner_key], partners))[0]
             partner_ids_b = np.array(partner_ids, dtype=dtype_dict[connected_key]).tobytes()
