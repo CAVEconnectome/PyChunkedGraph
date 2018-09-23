@@ -71,12 +71,14 @@ def mincut(edges: Iterable[Sequence[np.uint64]], affs: Sequence[np.uint64],
     original_edges = edges.copy()
     original_affs = affs.copy()
 
-    edges, affs, mapping, remapping = merge_cross_chunk_edges(edges.copy(), affs.copy())
+    edges, affs, mapping, remapping = merge_cross_chunk_edges(edges.copy(),
+                                                              affs.copy())
+
+    if len(edges) == 0:
+        return []
 
     sink_map = np.where(mapping[:, 0] == sink)[0]
     source_map = np.where(mapping[:, 0] == source)[0]
-
-    print(sink, source)
 
     if len(sink_map) == 0:
         pass
@@ -92,16 +94,12 @@ def mincut(edges: Iterable[Sequence[np.uint64]], affs: Sequence[np.uint64],
     else:
         raise Exception("Source appears to be overmerged")
 
-    print(sink, source)
-
     weighted_graph = nx.Graph()
     weighted_graph.add_edges_from(edges)
 
     for i_edge, edge in enumerate(edges):
         weighted_graph[edge[0]][edge[1]]['capacity'] = affs[i_edge]
         weighted_graph[edge[0]][edge[1]]['weight'] = affs[i_edge]
-
-    # mst_weighted_graph = nx.minimum_spanning_tree(weighted_graph, weight="weight")
 
     dt = time.time() - time_start
     print("Graph creation: %.2fms" % (dt * 1000))
@@ -116,7 +114,6 @@ def mincut(edges: Iterable[Sequence[np.uint64]], affs: Sequence[np.uint64],
                 raise Exception("source and sink are in different "
                                 "connected components")
 
-    # cutset = nx.minimum_edge_cut(weighted_graph, source, sink)
     cutset = nx.minimum_edge_cut(weighted_graph, source, sink,
                                  flow_func=edmonds_karp)
 
@@ -126,10 +123,6 @@ def mincut(edges: Iterable[Sequence[np.uint64]], affs: Sequence[np.uint64],
     if cutset is None:
         return []
 
-    # if len(cutset) != 1:
-    #     raise Exception("Too many or too few cuts: %d" %
-    #                     len(min_cut_set))
-
     time_start = time.time()
 
     edge_cut = list(list(cutset)[0])
@@ -137,25 +130,10 @@ def mincut(edges: Iterable[Sequence[np.uint64]], affs: Sequence[np.uint64],
     print(edge_cut)
 
     weighted_graph.remove_edges_from([edge_cut])
-    # mst_weighted_graph.add_nodes_from(edge_cut)
     ccs = list(nx.connected_components(weighted_graph))
 
     for cc in ccs:
         print("CC size = %d" % len(cc))
-
-    # if len(ccs) != 2:
-    #     raise  Exception("Too many or too few connected components: %d" %
-    #                      len(ccs))
-    #
-    # flat_edges = edges.flatten()
-    #
-    # cc0 = np.array(list(ccs[0]), dtype=np.uint64)
-    # cc0_edge_mask = np.sum(np.in1d(flat_edges, cc0).reshape(-1, 2), axis=1) == 1
-    #
-    # cc1 = np.array(list(ccs[1]), dtype=np.uint64)
-    # cc1_edge_mask = np.sum(np.in1d(flat_edges, cc1).reshape(-1, 2), axis=1) == 1
-    #
-    # cutset = edges[np.where(np.logical_and(cc0_edge_mask, cc1_edge_mask))]
 
     dt = time.time() - time_start
     print("Splitting: %.2fms" % (dt * 1000))

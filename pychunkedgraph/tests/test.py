@@ -864,9 +864,9 @@ class TestGraphMerge:
         # Check
         assert cgraph.get_parent(to_label(cgraph, 1, 0, 0, 0, 0)) == new_root_id
         assert cgraph.get_parent(to_label(cgraph, 1, 0, 0, 0, 1)) == new_root_id
-        partners, affinities = cgraph.get_atomic_partners(to_label(cgraph, 1, 0, 0, 0, 0))
+        partners, affinities, areas = cgraph.get_atomic_partners(to_label(cgraph, 1, 0, 0, 0, 0))
         assert partners[0] == to_label(cgraph, 1, 0, 0, 0, 1) and affinities[0] == np.float32(0.3)
-        partners, affinities = cgraph.get_atomic_partners(to_label(cgraph, 1, 0, 0, 0, 1))
+        partners, affinities, areas = cgraph.get_atomic_partners(to_label(cgraph, 1, 0, 0, 0, 1))
         assert partners[0] == to_label(cgraph, 1, 0, 0, 0, 0) and affinities[0] == np.float32(0.3)
         leaves = np.unique(cgraph.get_subgraph(new_root_id))
         assert len(leaves) == 2
@@ -907,9 +907,9 @@ class TestGraphMerge:
         # Check
         assert cgraph.get_root(to_label(cgraph, 1, 0, 0, 0, 0)) == new_root_id
         assert cgraph.get_root(to_label(cgraph, 1, 1, 0, 0, 0)) == new_root_id
-        partners, affinities = cgraph.get_atomic_partners(to_label(cgraph, 1, 0, 0, 0, 0))
+        partners, affinities, areas = cgraph.get_atomic_partners(to_label(cgraph, 1, 0, 0, 0, 0))
         assert partners[0] == to_label(cgraph, 1, 1, 0, 0, 0) and affinities[0] == np.float32(0.3)
-        partners, affinities = cgraph.get_atomic_partners(to_label(cgraph, 1, 1, 0, 0, 0))
+        partners, affinities, areas = cgraph.get_atomic_partners(to_label(cgraph, 1, 1, 0, 0, 0))
         assert partners[0] == to_label(cgraph, 1, 0, 0, 0, 0) and affinities[0] == np.float32(0.3)
         leaves = np.unique(cgraph.get_subgraph(new_root_id))
         assert len(leaves) == 2
@@ -962,9 +962,9 @@ class TestGraphMerge:
         # Check
         assert cgraph.get_root(to_label(cgraph, 1, 0, 0, 0, 0)) == new_root_id
         assert cgraph.get_root(to_label(cgraph, 1, 127, 127, 127, 0)) == new_root_id
-        partners, affinities = cgraph.get_atomic_partners(to_label(cgraph, 1, 0, 0, 0, 0))
+        partners, affinities, areas = cgraph.get_atomic_partners(to_label(cgraph, 1, 0, 0, 0, 0))
         assert partners[0] == to_label(cgraph, 1, 127, 127, 127, 0) and affinities[0] == np.float32(0.3)
-        partners, affinities = cgraph.get_atomic_partners(to_label(cgraph, 1, 127, 127, 127, 0))
+        partners, affinities, areas = cgraph.get_atomic_partners(to_label(cgraph, 1, 127, 127, 127, 0))
         assert partners[0] == to_label(cgraph, 1, 0, 0, 0, 0) and affinities[0] == np.float32(0.3)
         leaves = np.unique(cgraph.get_subgraph(new_root_id))
         assert len(leaves) == 2
@@ -1033,15 +1033,15 @@ class TestGraphMerge:
         assert cgraph.get_root(to_label(cgraph, 1, 0, 0, 0, 0)) == new_root_id
         assert cgraph.get_root(to_label(cgraph, 1, 0, 0, 0, 1)) == new_root_id
         assert cgraph.get_root(to_label(cgraph, 1, 0, 0, 0, 2)) == new_root_id
-        partners, affinities = cgraph.get_atomic_partners(to_label(cgraph, 1, 0, 0, 0, 0))
+        partners, affinities, areas = cgraph.get_atomic_partners(to_label(cgraph, 1, 0, 0, 0, 0))
         assert len(partners) == 2
         assert to_label(cgraph, 1, 0, 0, 0, 1) in partners
         assert to_label(cgraph, 1, 0, 0, 0, 2) in partners
-        partners, affinities = cgraph.get_atomic_partners(to_label(cgraph, 1, 0, 0, 0, 1))
+        partners, affinities, areas = cgraph.get_atomic_partners(to_label(cgraph, 1, 0, 0, 0, 1))
         assert len(partners) == 2
         assert to_label(cgraph, 1, 0, 0, 0, 0) in partners
         assert to_label(cgraph, 1, 0, 0, 0, 2) in partners
-        partners, affinities = cgraph.get_atomic_partners(to_label(cgraph, 1, 0, 0, 0, 2))
+        partners, affinities, areas = cgraph.get_atomic_partners(to_label(cgraph, 1, 0, 0, 0, 2))
         assert len(partners) == 2
         assert to_label(cgraph, 1, 0, 0, 0, 0) in partners
         assert to_label(cgraph, 1, 0, 0, 0, 1) in partners
@@ -1087,15 +1087,15 @@ class TestGraphMerge:
         assert cgraph.get_root(to_label(cgraph, 1, 0, 0, 0, 0)) == new_root_id
         assert cgraph.get_root(to_label(cgraph, 1, 0, 0, 0, 1)) == new_root_id
         assert cgraph.get_root(to_label(cgraph, 1, 1, 0, 0, 0)) == new_root_id
-        partners, affinities = cgraph.get_atomic_partners(to_label(cgraph, 1, 0, 0, 0, 0))
+        partners, affinities, areas = cgraph.get_atomic_partners(to_label(cgraph, 1, 0, 0, 0, 0))
         assert len(partners) == 2
         assert to_label(cgraph, 1, 0, 0, 0, 1) in partners
         assert to_label(cgraph, 1, 1, 0, 0, 0) in partners
-        partners, affinities = cgraph.get_atomic_partners(to_label(cgraph, 1, 0, 0, 0, 1))
+        partners, affinities, areas = cgraph.get_atomic_partners(to_label(cgraph, 1, 0, 0, 0, 1))
         assert len(partners) == 2
         assert to_label(cgraph, 1, 0, 0, 0, 0) in partners
         assert to_label(cgraph, 1, 1, 0, 0, 0) in partners
-        partners, affinities = cgraph.get_atomic_partners(to_label(cgraph, 1, 1, 0, 0, 0))
+        partners, affinities, areas = cgraph.get_atomic_partners(to_label(cgraph, 1, 1, 0, 0, 0))
         assert len(partners) == 2
         assert to_label(cgraph, 1, 0, 0, 0, 0) in partners
         assert to_label(cgraph, 1, 0, 0, 0, 1) in partners
@@ -1153,15 +1153,15 @@ class TestGraphMerge:
         assert cgraph.get_root(to_label(cgraph, 1, 0, 0, 0, 0)) == new_root_id
         assert cgraph.get_root(to_label(cgraph, 1, 0, 0, 0, 1)) == new_root_id
         assert cgraph.get_root(to_label(cgraph, 1, 127, 127, 127, 0)) == new_root_id
-        partners, affinities = cgraph.get_atomic_partners(to_label(cgraph, 1, 0, 0, 0, 0))
+        partners, affinities, areas = cgraph.get_atomic_partners(to_label(cgraph, 1, 0, 0, 0, 0))
         assert len(partners) == 2
         assert to_label(cgraph, 1, 0, 0, 0, 1) in partners
         assert to_label(cgraph, 1, 127, 127, 127, 0) in partners
-        partners, affinities = cgraph.get_atomic_partners(to_label(cgraph, 1, 0, 0, 0, 1))
+        partners, affinities, areas = cgraph.get_atomic_partners(to_label(cgraph, 1, 0, 0, 0, 1))
         assert len(partners) == 2
         assert to_label(cgraph, 1, 0, 0, 0, 0) in partners
         assert to_label(cgraph, 1, 127, 127, 127, 0) in partners
-        partners, affinities = cgraph.get_atomic_partners(to_label(cgraph, 1, 127, 127, 127, 0))
+        partners, affinities, areas = cgraph.get_atomic_partners(to_label(cgraph, 1, 127, 127, 127, 0))
         assert len(partners) == 2
         assert to_label(cgraph, 1, 0, 0, 0, 0) in partners
         assert to_label(cgraph, 1, 0, 0, 0, 1) in partners
@@ -1275,9 +1275,9 @@ class TestGraphSplit:
         # Check New State
         assert len(new_root_ids) == 2
         assert cgraph.get_root(to_label(cgraph, 1, 0, 0, 0, 0)) != cgraph.get_root(to_label(cgraph, 1, 0, 0, 0, 1))
-        partners, affinities = cgraph.get_atomic_partners(to_label(cgraph, 1, 0, 0, 0, 0))
+        partners, affinities, areas = cgraph.get_atomic_partners(to_label(cgraph, 1, 0, 0, 0, 0))
         assert len(partners) == 0
-        partners, affinities = cgraph.get_atomic_partners(to_label(cgraph, 1, 0, 0, 0, 1))
+        partners, affinities, areas = cgraph.get_atomic_partners(to_label(cgraph, 1, 0, 0, 0, 1))
         assert len(partners) == 0
         leaves = np.unique(cgraph.get_subgraph(cgraph.get_root(to_label(cgraph, 1, 0, 0, 0, 0))))
         assert len(leaves) == 1 and to_label(cgraph, 1, 0, 0, 0, 0) in leaves
@@ -1287,9 +1287,9 @@ class TestGraphSplit:
         # Check Old State still accessible
         assert cgraph.get_root(to_label(cgraph, 1, 0, 0, 0, 0), time_stamp=fake_timestamp) == \
             cgraph.get_root(to_label(cgraph, 1, 0, 0, 0, 1), time_stamp=fake_timestamp)
-        partners, affinities = cgraph.get_atomic_partners(to_label(cgraph, 1, 0, 0, 0, 0), time_stamp=fake_timestamp)
+        partners, affinities, areas = cgraph.get_atomic_partners(to_label(cgraph, 1, 0, 0, 0, 0), time_stamp=fake_timestamp)
         assert len(partners) == 1 and partners[0] == to_label(cgraph, 1, 0, 0, 0, 1)
-        partners, affinities = cgraph.get_atomic_partners(to_label(cgraph, 1, 0, 0, 0, 1), time_stamp=fake_timestamp)
+        partners, affinities, areas = cgraph.get_atomic_partners(to_label(cgraph, 1, 0, 0, 0, 1), time_stamp=fake_timestamp)
         assert len(partners) == 1 and partners[0] == to_label(cgraph, 1, 0, 0, 0, 0)
         leaves = np.unique(cgraph.get_subgraph(cgraph.get_root(to_label(cgraph, 1, 0, 0, 0, 0), time_stamp=fake_timestamp)))
         assert len(leaves) == 2
@@ -1330,9 +1330,9 @@ class TestGraphSplit:
         # Check New State
         assert len(new_root_ids) == 2
         assert cgraph.get_root(to_label(cgraph, 1, 0, 0, 0, 0)) != cgraph.get_root(to_label(cgraph, 1, 1, 0, 0, 0))
-        partners, affinities = cgraph.get_atomic_partners(to_label(cgraph, 1, 0, 0, 0, 0))
+        partners, affinities, areas = cgraph.get_atomic_partners(to_label(cgraph, 1, 0, 0, 0, 0))
         assert len(partners) == 0
-        partners, affinities = cgraph.get_atomic_partners(to_label(cgraph, 1, 1, 0, 0, 0))
+        partners, affinities, areas = cgraph.get_atomic_partners(to_label(cgraph, 1, 1, 0, 0, 0))
         assert len(partners) == 0
         leaves = np.unique(cgraph.get_subgraph(cgraph.get_root(to_label(cgraph, 1, 0, 0, 0, 0))))
         assert len(leaves) == 1 and to_label(cgraph, 1, 0, 0, 0, 0) in leaves
@@ -1342,9 +1342,9 @@ class TestGraphSplit:
         # Check Old State still accessible
         assert cgraph.get_root(to_label(cgraph, 1, 0, 0, 0, 0), time_stamp=fake_timestamp) == \
             cgraph.get_root(to_label(cgraph, 1, 1, 0, 0, 0), time_stamp=fake_timestamp)
-        partners, affinities = cgraph.get_atomic_partners(to_label(cgraph, 1, 0, 0, 0, 0), time_stamp=fake_timestamp)
+        partners, affinities, areas = cgraph.get_atomic_partners(to_label(cgraph, 1, 0, 0, 0, 0), time_stamp=fake_timestamp)
         assert len(partners) == 1 and partners[0] == to_label(cgraph, 1, 1, 0, 0, 0)
-        partners, affinities = cgraph.get_atomic_partners(to_label(cgraph, 1, 1, 0, 0, 0), time_stamp=fake_timestamp)
+        partners, affinities, areas = cgraph.get_atomic_partners(to_label(cgraph, 1, 1, 0, 0, 0), time_stamp=fake_timestamp)
         assert len(partners) == 1 and partners[0] == to_label(cgraph, 1, 0, 0, 0, 0)
         leaves = np.unique(cgraph.get_subgraph(cgraph.get_root(to_label(cgraph, 1, 0, 0, 0, 0), time_stamp=fake_timestamp)))
         assert len(leaves) == 2
@@ -1397,9 +1397,9 @@ class TestGraphSplit:
         # Check New State
         assert len(new_roots) == 2
         assert cgraph.get_root(to_label(cgraph, 1, 0, 0, 0, 0)) != cgraph.get_root(to_label(cgraph, 1, 127, 127, 127, 0))
-        partners, affinities = cgraph.get_atomic_partners(to_label(cgraph, 1, 0, 0, 0, 0))
+        partners, affinities, areas = cgraph.get_atomic_partners(to_label(cgraph, 1, 0, 0, 0, 0))
         assert len(partners) == 0
-        partners, affinities = cgraph.get_atomic_partners(to_label(cgraph, 1, 127, 127, 127, 0))
+        partners, affinities, areas = cgraph.get_atomic_partners(to_label(cgraph, 1, 127, 127, 127, 0))
         assert len(partners) == 0
         leaves = np.unique(cgraph.get_subgraph(cgraph.get_root(to_label(cgraph, 1, 0, 0, 0, 0))))
         assert len(leaves) == 1 and to_label(cgraph, 1, 0, 0, 0, 0) in leaves
@@ -1409,9 +1409,9 @@ class TestGraphSplit:
         # Check Old State still accessible
         assert cgraph.get_root(to_label(cgraph, 1, 0, 0, 0, 0), time_stamp=fake_timestamp) == \
             cgraph.get_root(to_label(cgraph, 1, 127, 127, 127, 0), time_stamp=fake_timestamp)
-        partners, affinities = cgraph.get_atomic_partners(to_label(cgraph, 1, 0, 0, 0, 0), time_stamp=fake_timestamp)
+        partners, affinities, areas = cgraph.get_atomic_partners(to_label(cgraph, 1, 0, 0, 0, 0), time_stamp=fake_timestamp)
         assert len(partners) == 1 and partners[0] == to_label(cgraph, 1, 127, 127, 127, 0)
-        partners, affinities = cgraph.get_atomic_partners(to_label(cgraph, 1, 127, 127, 127, 0), time_stamp=fake_timestamp)
+        partners, affinities, areas = cgraph.get_atomic_partners(to_label(cgraph, 1, 127, 127, 127, 0), time_stamp=fake_timestamp)
         assert len(partners) == 1 and partners[0] == to_label(cgraph, 1, 0, 0, 0, 0)
         leaves = np.unique(cgraph.get_subgraph(cgraph.get_root(to_label(cgraph, 1, 0, 0, 0, 0), time_stamp=fake_timestamp)))
         assert len(leaves) == 2
@@ -1482,11 +1482,11 @@ class TestGraphSplit:
         assert cgraph.get_root(to_label(cgraph, 1, 0, 0, 0, 0)) == new_root_ids[0]
         assert cgraph.get_root(to_label(cgraph, 1, 0, 0, 0, 1)) == new_root_ids[0]
         assert cgraph.get_root(to_label(cgraph, 1, 0, 0, 0, 2)) == new_root_ids[0]
-        partners, affinities = cgraph.get_atomic_partners(to_label(cgraph, 1, 0, 0, 0, 0))
+        partners, affinities, areas = cgraph.get_atomic_partners(to_label(cgraph, 1, 0, 0, 0, 0))
         assert len(partners) == 1 and partners[0] == to_label(cgraph, 1, 0, 0, 0, 2)
-        partners, affinities = cgraph.get_atomic_partners(to_label(cgraph, 1, 0, 0, 0, 1))
+        partners, affinities, areas = cgraph.get_atomic_partners(to_label(cgraph, 1, 0, 0, 0, 1))
         assert len(partners) == 1 and partners[0] == to_label(cgraph, 1, 0, 0, 0, 2)
-        partners, affinities = cgraph.get_atomic_partners(to_label(cgraph, 1, 0, 0, 0, 2))
+        partners, affinities, areas = cgraph.get_atomic_partners(to_label(cgraph, 1, 0, 0, 0, 2))
         assert len(partners) == 2
         assert to_label(cgraph, 1, 0, 0, 0, 0) in partners
         assert to_label(cgraph, 1, 0, 0, 0, 1) in partners
@@ -1539,11 +1539,11 @@ class TestGraphSplit:
         assert cgraph.get_root(to_label(cgraph, 1, 0, 0, 0, 0)) == new_root_ids[0]
         assert cgraph.get_root(to_label(cgraph, 1, 0, 0, 0, 1)) == new_root_ids[0]
         assert cgraph.get_root(to_label(cgraph, 1, 1, 0, 0, 0)) == new_root_ids[0]
-        partners, affinities = cgraph.get_atomic_partners(to_label(cgraph, 1, 0, 0, 0, 0))
+        partners, affinities, areas = cgraph.get_atomic_partners(to_label(cgraph, 1, 0, 0, 0, 0))
         assert len(partners) == 1 and partners[0] == to_label(cgraph, 1, 0, 0, 0, 1)
-        partners, affinities = cgraph.get_atomic_partners(to_label(cgraph, 1, 1, 0, 0, 0))
+        partners, affinities, areas = cgraph.get_atomic_partners(to_label(cgraph, 1, 1, 0, 0, 0))
         assert len(partners) == 1 and partners[0] == to_label(cgraph, 1, 0, 0, 0, 1)
-        partners, affinities = cgraph.get_atomic_partners(to_label(cgraph, 1, 0, 0, 0, 1))
+        partners, affinities, areas = cgraph.get_atomic_partners(to_label(cgraph, 1, 0, 0, 0, 1))
         assert len(partners) == 2
         assert to_label(cgraph, 1, 0, 0, 0, 0) in partners
         assert to_label(cgraph, 1, 1, 0, 0, 0) in partners
@@ -1609,11 +1609,11 @@ class TestGraphSplit:
     #     assert cgraph.get_root(to_label(cgraph, 1, 0, 0, 0, 0)) == new_root_ids[0]
     #     assert cgraph.get_root(to_label(cgraph, 1, 0, 0, 0, 1)) == new_root_ids[0]
     #     assert cgraph.get_root(to_label(cgraph, 1, loc, loc, loc, 0)) == new_root_ids[0]
-    #     partners, affinities = cgraph.get_atomic_partners(to_label(cgraph, 1, 0, 0, 0, 0))
+    #     partners, affinities, areas = cgraph.get_atomic_partners(to_label(cgraph, 1, 0, 0, 0, 0))
     #     assert len(partners) == 1 and partners[0] == to_label(cgraph, 1, 0, 0, 0, 1)
-    #     partners, affinities = cgraph.get_atomic_partners(to_label(cgraph, 1, loc, loc, loc, 0))
+    #     partners, affinities, areas = cgraph.get_atomic_partners(to_label(cgraph, 1, loc, loc, loc, 0))
     #     assert len(partners) == 1 and partners[0] == to_label(cgraph, 1, 0, 0, 0, 1)
-    #     partners, affinities = cgraph.get_atomic_partners(to_label(cgraph, 1, 0, 0, 0, 1))
+    #     partners, affinities, areas = cgraph.get_atomic_partners(to_label(cgraph, 1, 0, 0, 0, 1))
     #     assert len(partners) == 2
     #     assert to_label(cgraph, 1, 0, 0, 0, 0) in partners
     #     assert to_label(cgraph, 1, loc, loc, loc, 0) in partners
@@ -1743,9 +1743,9 @@ class TestGraphMinCut:
         # Check New State
         assert len(new_root_ids) == 2
         assert cgraph.get_root(to_label(cgraph, 1, 0, 0, 0, 0)) != cgraph.get_root(to_label(cgraph, 1, 1, 0, 0, 0))
-        partners, affinities = cgraph.get_atomic_partners(to_label(cgraph, 1, 0, 0, 0, 0))
+        partners, affinities, areas = cgraph.get_atomic_partners(to_label(cgraph, 1, 0, 0, 0, 0))
         assert len(partners) == 0
-        partners, affinities = cgraph.get_atomic_partners(to_label(cgraph, 1, 1, 0, 0, 0))
+        partners, affinities, areas = cgraph.get_atomic_partners(to_label(cgraph, 1, 1, 0, 0, 0))
         assert len(partners) == 0
         leaves = np.unique(cgraph.get_subgraph(cgraph.get_root(to_label(cgraph, 1, 0, 0, 0, 0))))
         assert len(leaves) == 1 and to_label(cgraph, 1, 0, 0, 0, 0) in leaves
