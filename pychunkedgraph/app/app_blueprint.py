@@ -140,8 +140,8 @@ def handle_merge():
     if np.any(np.abs(chunk_coord_delta) > 1):
         return None
 
-    new_root = cg.add_edge(user_id=user_id,
-                           atomic_edge=np.array(atomic_edge, dtype=np.uint64))
+    new_root = cg.add_edges(user_id=user_id,
+                            atomic_edges=np.array(atomic_edge, dtype=np.uint64))
 
     if new_root is None:
         return None
