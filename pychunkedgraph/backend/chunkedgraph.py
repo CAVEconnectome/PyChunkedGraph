@@ -4269,7 +4269,11 @@ class ChunkedGraph(object):
                                           atomic_children)):
                             edges.append([old_chunk_neighbor, new_layer_parent])
 
-
+            for old_chunk_neighbor in cross_edge_dict.keys():
+                if not old_chunk_neighbor in old_id_dict and not old_chunk_neighbor in new_layer_parent_dict:
+                    for old_chunk_neighbor_cross_partner in cross_edge_dict[old_chunk_neighbor]:
+                        if not old_chunk_neighbor_cross_partner in old_id_dict:
+                            edges.append([old_chunk_neighbor, old_chunk_neighbor_cross_partner])
 
             # Create graph and run connected components
             chunk_g = nx.from_edgelist(edges)
