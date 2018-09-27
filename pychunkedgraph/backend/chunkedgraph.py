@@ -4270,10 +4270,24 @@ class ChunkedGraph(object):
                             edges.append([old_chunk_neighbor, new_layer_parent])
 
             for old_chunk_neighbor in cross_edge_dict.keys():
-                if not old_chunk_neighbor in old_id_dict and not old_chunk_neighbor in new_layer_parent_dict:
-                    for old_chunk_neighbor_cross_partner in cross_edge_dict[old_chunk_neighbor]:
-                        if not old_chunk_neighbor_cross_partner in old_id_dict:
-                            edges.append([old_chunk_neighbor, old_chunk_neighbor_cross_partner])
+                print("Try", old_chunk_neighbor)
+
+                if old_chunk_neighbor in new_layer_parent_dict:
+                    continue
+
+                atomic_ids = cross_edge_dict[old_chunk_neighbor][i_layer][:0]
+
+                for old_chunk_neighbor_partner in cross_edge_dict.keys():
+                    if old_chunk_neighbor_partner in new_layer_parent_dict:
+                        continue
+
+                    neigh_cross_edges = cross_edge_dict[old_chunk_neighbor_partner][i_layer]
+
+                    if np.any(np.in1d(atomic_ids, neigh_cross_edges[:, 1])):
+                        edges.append([old_chunk_neighbor,
+                                      old_chunk_neighbor_partner])
+
+            print("edges", edges)
 
             # Create graph and run connected components
             chunk_g = nx.from_edgelist(edges)
@@ -4308,8 +4322,11 @@ class ChunkedGraph(object):
 
                 new_layer_parent_dict[new_parent_id] = old_next_layer_parent
 
+                print(new_parent_id, cross_edge_dict)
+
                 cross_edge_dict[new_parent_id] = {}
                 for partner in partners:
+                    print("partner", partner)
                     cross_edge_dict[new_parent_id] = combine_cross_chunk_edge_dicts(cross_edge_dict[new_parent_id],
                                                                                     cross_edge_dict[partner])
 
