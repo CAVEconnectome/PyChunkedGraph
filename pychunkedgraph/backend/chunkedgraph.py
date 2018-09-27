@@ -4235,6 +4235,10 @@ class ChunkedGraph(object):
                 old_chunk_neighbors = \
                     old_chunk_neighbors[old_chunk_neighbors != old_parent_id]
 
+                print("old_chunk_neighbors", old_chunk_neighbors)
+                for old_neighbor in old_chunk_neighbors:
+                    print(self.get_chunk_coordinates(old_neighbor))
+
                 old_parent_dict[new_layer_parent] = old_next_layer_parent
 
                 # In analogy to `add_layer`, we need to compare
@@ -4245,8 +4249,6 @@ class ChunkedGraph(object):
 
                 atomic_children = cross_edges[i_layer][:, 0]
                 partner_cross_edges = {new_layer_parent: cross_edges[i_layer]}
-                print("initial partner_cross_edges", partner_cross_edges)
-
                 for old_chunk_neighbor in old_chunk_neighbors:
                     # For each neighbor we need to check whether this neighbor
                     # was affected by a split as well (and was updated):
@@ -4270,22 +4272,30 @@ class ChunkedGraph(object):
                             edges.append([old_chunk_neighbor, new_layer_parent])
 
             for old_chunk_neighbor in cross_edge_dict.keys():
-                print("Try", old_chunk_neighbor)
+                print("Try", old_chunk_neighbor, self.get_chunk_coordinates(old_chunk_neighbor))
 
                 if old_chunk_neighbor in new_layer_parent_dict:
+                    print("Newer version detected")
                     continue
 
-                atomic_ids = cross_edge_dict[old_chunk_neighbor][i_layer][:0]
+                atomic_ids = cross_edge_dict[old_chunk_neighbor][i_layer][:, 0]
 
                 for old_chunk_neighbor_partner in cross_edge_dict.keys():
+                    print("partner", old_chunk_neighbor_partner, self.get_chunk_coordinates(old_chunk_neighbor_partner))
                     if old_chunk_neighbor_partner in new_layer_parent_dict:
+                        print("Newer partner detected")
                         continue
 
                     neigh_cross_edges = cross_edge_dict[old_chunk_neighbor_partner][i_layer]
 
                     if np.any(np.in1d(atomic_ids, neigh_cross_edges[:, 1])):
+                        print("Partner shares edge")
                         edges.append([old_chunk_neighbor,
                                       old_chunk_neighbor_partner])
+                    else:
+                        print("No common edge")
+                        print(atomic_ids)
+                        print(neigh_cross_edges[:, 1])
 
             print("edges", edges)
 
