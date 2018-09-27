@@ -1720,6 +1720,73 @@ class TestGraphSplit:
 
         assert res_new.rows == res_old.rows
 
+    @pytest.mark.timeout(30)
+    def test_diagonal_connections(self, gen_graph):
+        """
+        Create graph with edge between RG supervoxels 1 and 2 (same chunk)
+        and edge between RG supervoxels 1 and 3 (neighboring chunks)
+        ┌─────┬─────┐
+        │  A¹ │  B¹ │
+        │ 2━1━┿━━3  │
+        │  /  │     │
+        ┌─────┬─────┐
+        │  |  │     │
+        │  4━━┿━━5  │
+        │  C¹ │  D¹ │
+        └─────┴─────┘
+        """
+
+        cgraph = gen_graph(n_layers=3)
+
+        # Chunk A
+        create_chunk(cgraph,
+                     vertices=[to_label(cgraph, 1, 0, 0, 0, 0), to_label(cgraph, 1, 0, 0, 0, 1)],
+                     edges=[(to_label(cgraph, 1, 0, 0, 0, 0), to_label(cgraph, 1, 0, 0, 0, 1), 0.5),
+                            (to_label(cgraph, 1, 0, 0, 0, 0), to_label(cgraph, 1, 1, 0, 0, 0), inf)])
+
+        # Chunk B
+        create_chunk(cgraph,
+                     vertices=[to_label(cgraph, 1, 1, 0, 0, 0)],
+                     edges=[(to_label(cgraph, 1, 1, 0, 0, 0), to_label(cgraph, 1, 0, 0, 0, 0), inf)])
+
+        # Chunk C
+        create_chunk(cgraph,
+                     vertices=[to_label(cgraph, 1, 0, 1, 0, 0)],
+                     edges=[(to_label(cgraph, 1, 0, 1, 0, 0), to_label(cgraph, 1, 1, 1, 0, 0), inf),
+                            (to_label(cgraph, 1, 0, 1, 0, 0), to_label(cgraph, 1, 0, 0, 0, 0), inf)])
+
+        # Chunk D
+        create_chunk(cgraph,
+                     vertices=[to_label(cgraph, 1, 1, 1, 0, 0)],
+                     edges=[(to_label(cgraph, 1, 1, 1, 0, 0), to_label(cgraph, 1, 0, 1, 0, 0), inf)])
+
+        cgraph.add_layer(3, np.array([[0, 0, 0], [1, 0, 0], [0, 1, 0], [1, 1, 0]]))
+
+        rr = cgraph.range_read_chunk(chunk_id=cgraph.get_chunk_id(layer=3, x=0, y=0, z=0))
+        root_ids_t0 = [chunkedgraph.deserialize_uint64(k) for k in rr.keys()]
+
+        assert len(root_ids_t0) == 1
+
+        child_ids = []
+        for root_id in root_ids_t0:
+            print("root_id", root_id)
+            child_ids.extend(cgraph.get_subgraph(root_id))
+
+
+
+        new_roots = cgraph.remove_edges("Jane Doe",
+                                        to_label(cgraph, 1, 0, 0, 0, 0),
+                                        to_label(cgraph, 1, 0, 0, 0, 1),
+                                        mincut=False)
+
+        assert len(new_roots) == 2
+        assert cgraph.get_root(to_label(cgraph, 1, 1, 1, 0, 0)) == \
+               cgraph.get_root(to_label(cgraph, 1, 0, 1, 0, 0))
+        assert cgraph.get_root(to_label(cgraph, 1, 0, 0, 0, 0)) == \
+               cgraph.get_root(to_label(cgraph, 1, 0, 0, 0, 0))
+
+
+
 
 class TestGraphMergeSplit:
     @pytest.mark.timeout(30)
@@ -1740,8 +1807,8 @@ class TestGraphMergeSplit:
             print("root_id", root_id)
             child_ids.extend(cgraph.get_subgraph(root_id))
 
-        for i in range(2):
-            print("\n\nITERATION %d/20" % i)
+        for i in range(10):
+            print("\n\nITERATION %d/10" % i)
 
             print("\n\nMERGE 1 & 3\n\n")
             new_roots = cgraph.add_edges("Jane Doe",
@@ -1773,17 +1840,23 @@ class TestGraphMergeSplit:
 
             assert len(np.unique(new_roots)) == 2
 
+            for root in new_roots:
+                print("SUBGRAPH", cgraph.get_subgraph(root))
+
+            print("test children")
             root_ids = []
             for child_id in child_ids:
                 root_ids.append(cgraph.get_root(child_id))
                 print(child_id, cgraph.get_chunk_coordinates(child_id), cgraph.get_segment_id(child_id), root_ids[-1])
                 print(cgraph.get_atomic_node_info(child_id))
 
+            print("test root")
             u_root_ids = np.unique(root_ids)
             these_child_ids = []
             for root_id in u_root_ids:
                 these_child_ids.extend(cgraph.get_subgraph(root_id, verbose=False))
                 print(root_id, cgraph.get_subgraph(root_id, verbose=False))
+
             assert len(these_child_ids) == 4
             assert len(u_root_ids) == 2
 
