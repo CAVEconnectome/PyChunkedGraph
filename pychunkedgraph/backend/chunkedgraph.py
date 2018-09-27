@@ -4309,6 +4309,8 @@ class ChunkedGraph(object):
                     cross_edge_dict[new_parent_id] = combine_cross_chunk_edge_dicts(cross_edge_dict[new_parent_id],
                                                                                     cross_edge_dict[partner])
 
+                print("cross_edge_dict -----", cross_edge_dict[new_parent_id])
+
                 for partner in partners:
                     val_dict = {"parents": new_parent_id_b}
 
@@ -4330,16 +4332,23 @@ class ChunkedGraph(object):
                                             self.family_id, val_dict,
                                             time_stamp=time_stamp))
 
-                val_dict = {}
-                for l in range(i_layer, self.n_layers):
-                    if len(cross_edge_dict[new_parent_id][l]) > 0:
+                if i_layer < self.n_layers - 1:
+                    val_dict = {}
+                    for l in range(i_layer, self.n_layers):
                         val_dict[cross_chunk_edge_keyformat % l] = \
                             cross_edge_dict[new_parent_id][l].tobytes()
 
-                rows.append(self.mutate_row(serialize_uint64(new_parent_id),
-                                            self.cross_edge_family_id,
-                                            val_dict,
-                                            time_stamp=time_stamp))
+                    if len(val_dict) == 0:
+                        print("Cross chunk edges are missing")
+                        return False, None
+
+                    print("cross edge val_dict", val_dict)
+
+
+                    rows.append(self.mutate_row(serialize_uint64(new_parent_id),
+                                                self.cross_edge_family_id,
+                                                val_dict,
+                                                time_stamp=time_stamp))
 
             if i_layer == self.n_layers - 1:
                 val_dict = {"new_parents": np.array(new_roots,
