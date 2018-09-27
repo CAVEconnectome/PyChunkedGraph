@@ -1127,7 +1127,7 @@ class ChunkedGraph(object):
                          z: int = None, chunk_id: np.uint64 = None,
                          n_retries: int = 100, max_block_size: int = 1000000,
                          row_keys: Optional[Iterable[str]] = None,
-                         row_key_filters: Optional[Iterable[str]] = None,
+                         # row_key_filters: Optional[Iterable[str]] = None,
                          time_stamp: datetime.datetime = get_max_time(),
                          ) -> Union[
                                 bigtable.row_data.PartialRowData,
@@ -1170,7 +1170,7 @@ class ChunkedGraph(object):
             rr = self.range_read(start_id, end_id, n_retries=n_retries,
                                  max_block_size=max_block_size,
                                  row_keys=row_keys,
-                                 row_key_filters=row_key_filters,
+                                 # row_key_filters=row_key_filters,
                                  time_stamp=time_stamp)
         except:
             raise Exception("Unable to consume range read: "
@@ -3872,6 +3872,7 @@ class ChunkedGraph(object):
                                                   source_coord=source_coord,
                                                   sink_coord=sink_coord,
                                                   bb_offset=bb_offset)
+                    print("RESULT:", success, result)
                     if success:
                         new_root_ids, rows, removed_edges, time_stamp = result
                     else:
@@ -3883,6 +3884,7 @@ class ChunkedGraph(object):
                     success, result = \
                         self._remove_edges(operation_id=operation_id,
                                            atomic_edges=[(source_id, sink_id)])
+                    print("RESULT:", success, result)
                     if success:
                         new_root_ids, rows, time_stamp = result
                         removed_edges = [[source_id, sink_id]]
@@ -4125,7 +4127,7 @@ class ChunkedGraph(object):
 
             # The cross chunk edges are passed on to the parents to compute
             # connected components in higher layers.
-            terminal_chunk_ids = self.get_chunk_ids_from_node_ids(np.ascontiguousarray(edges[:, 1]))
+            terminal_chunk_ids = self.get_chunk_ids_from_node_ids(np.ascontiguousarray(chunk_edges[:, 1]))
             cross_edge_mask = terminal_chunk_ids != chunk_id
 
             cross_edges = chunk_edges[cross_edge_mask]
@@ -4215,10 +4217,13 @@ class ChunkedGraph(object):
 
         new_roots = []
         for i_layer in range(2, self.n_layers):
+            print("\n\nLAYER %d\n\n" % i_layer)
+
             old_parent_dict = {}
 
             edges = []
 
+            print("new_layer_parent_dict", new_layer_parent_dict)
             for new_layer_parent in new_layer_parent_dict.keys():
                 old_parent_id = new_layer_parent_dict[new_layer_parent]
                 cross_edges = cross_edge_dict[new_layer_parent]
@@ -4266,84 +4271,84 @@ class ChunkedGraph(object):
 
 
 
-                # Create graph and run connected components
-                chunk_g = nx.from_edgelist(edges)
-                chunk_g.add_nodes_from(np.array(list(new_layer_parent_dict.keys()),
-                                                dtype=np.uint64))
-                ccs = list(nx.connected_components(chunk_g))
+            # Create graph and run connected components
+            chunk_g = nx.from_edgelist(edges)
+            chunk_g.add_nodes_from(np.array(list(new_layer_parent_dict.keys()),
+                                            dtype=np.uint64))
+            ccs = list(nx.connected_components(chunk_g))
 
-                new_layer_parent_dict = {}
-                # Filter the connected component that is relevant to the
-                # current new_layer_parent
-                for cc in ccs:
-                    partners = list(cc)
+            new_layer_parent_dict = {}
+            # Filter the connected component that is relevant to the
+            # current new_layer_parent
+            for cc in ccs:
+                partners = list(cc)
 
-                    # Create the new_layer_parent_dict for the next layer and write
-                    # nodes (lazy)
+                # Create the new_layer_parent_dict for the next layer and write
+                # nodes (lazy)
 
-                    old_next_layer_parent = None
-                    for partner in partners:
-                        if partner in old_parent_dict:
-                            old_next_layer_parent = old_parent_dict[partner]
+                old_next_layer_parent = None
+                for partner in partners:
+                    if partner in old_parent_dict:
+                        old_next_layer_parent = old_parent_dict[partner]
 
-                    if old_next_layer_parent is None:
-                        return False, None
+                if old_next_layer_parent is None:
+                    print("No next parent")
+                    return False, None
 
-                    cc_node_ids = np.array(partners, dtype=np.uint64)
-                    cc_cross_edges = np.array([], dtype=np.uint64).reshape(0, 2)
+                partners = np.array(partners, dtype=np.uint64)
 
-                    this_chunk_id = self.get_chunk_id(
-                        node_id=old_next_layer_parent)
-                    new_parent_id = self.get_unique_node_id(this_chunk_id)
-                    new_parent_id_b = np.array(new_parent_id).tobytes()
+                this_chunk_id = self.get_chunk_id(
+                    node_id=old_next_layer_parent)
+                new_parent_id = self.get_unique_node_id(this_chunk_id)
+                new_parent_id_b = np.array(new_parent_id).tobytes()
 
-                    new_layer_parent_dict[new_parent_id] = old_next_layer_parent
+                new_layer_parent_dict[new_parent_id] = old_next_layer_parent
 
-                    cross_edge_dict[new_parent_id] = {}
-                    for partner in partners:
-                        cross_edge_dict[new_parent_id] = combine_cross_chunk_edge_dicts(cross_edge_dict[new_parent_id],
-                                                                                        cross_edge_dict[partner])
+                cross_edge_dict[new_parent_id] = {}
+                for partner in partners:
+                    cross_edge_dict[new_parent_id] = combine_cross_chunk_edge_dicts(cross_edge_dict[new_parent_id],
+                                                                                    cross_edge_dict[partner])
 
-                    for partner in partners:
-                        val_dict = {"parents": new_parent_id_b}
+                for partner in partners:
+                    val_dict = {"parents": new_parent_id_b}
 
-                        rows.append(
-                            self.mutate_row(serialize_uint64(partner),
+                    rows.append(
+                        self.mutate_row(serialize_uint64(partner),
+                                        self.family_id, val_dict,
+                                        time_stamp=time_stamp))
+
+                val_dict = {"children": partners.tobytes()}
+
+                if i_layer == self.n_layers - 1:
+                    new_roots.append(new_parent_id)
+                    val_dict["former_parents"] = \
+                        np.array(original_root).tobytes()
+                    val_dict["operation_id"] = \
+                        serialize_uint64(operation_id)
+
+                rows.append(self.mutate_row(serialize_uint64(new_parent_id),
                                             self.family_id, val_dict,
                                             time_stamp=time_stamp))
 
-                    val_dict = {"children": cc_node_ids.tobytes()}
+                val_dict = {}
+                for l in range(i_layer, self.n_layers):
+                    if len(cross_edge_dict[new_parent_id][l]) > 0:
+                        val_dict[cross_chunk_edge_keyformat % l] = \
+                            cross_edge_dict[new_parent_id][l].tobytes()
 
-                    if i_layer == self.n_layers - 1:
-                        new_roots.append(new_parent_id)
-                        val_dict["former_parents"] = \
-                            np.array(original_root).tobytes()
-                        val_dict["operation_id"] = \
-                            serialize_uint64(operation_id)
+                rows.append(self.mutate_row(serialize_uint64(new_parent_id),
+                                            self.cross_edge_family_id,
+                                            val_dict,
+                                            time_stamp=time_stamp))
 
-                    rows.append(self.mutate_row(serialize_uint64(new_parent_id),
-                                                self.family_id, val_dict,
-                                                time_stamp=time_stamp))
+            if i_layer == self.n_layers - 1:
+                val_dict = {"new_parents": np.array(new_roots,
+                                                    dtype=np.uint64).tobytes()}
+                rows.append(self.mutate_row(serialize_uint64(original_root),
+                                            self.family_id, val_dict,
+                                            time_stamp=time_stamp))
 
-                    val_dict = {}
-                    for l in range(i_layer, self.n_layers):
-                        if len(cross_edge_dict[new_parent_id][l]) > 0:
-                            val_dict[cross_chunk_edge_keyformat % l] = \
-                                cross_edge_dict[new_parent_id][l].tobytes()
-
-                    rows.append(self.mutate_row(serialize_uint64(new_parent_id),
-                                                self.cross_edge_family_id,
-                                                val_dict,
-                                                time_stamp=time_stamp))
-
-                if i_layer == self.n_layers - 1:
-                    val_dict = {"new_parents": np.array(new_roots,
-                                                        dtype=np.uint64).tobytes()}
-                    rows.append(self.mutate_row(serialize_uint64(original_root),
-                                                self.family_id, val_dict,
-                                                time_stamp=time_stamp))
-
-            return True, (new_roots, rows, time_stamp)
+        return True, (new_roots, rows, time_stamp)
 
 
 
