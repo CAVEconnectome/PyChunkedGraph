@@ -1,4 +1,3 @@
-google-cloud
 cloud-volume
 pandas
 networkx
