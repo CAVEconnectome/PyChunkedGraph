@@ -204,15 +204,6 @@ def handle_children(parent_id):
 
     stop_lvl = layer - 1
 
-    # if layer > 4:
-    #     stop_lvl = 4
-    # elif layer > 3:
-    #     stop_lvl = 3
-    # elif layer == 3:
-    #     stop_lvl = 2
-    # else:
-    #     stop_lvl = 1
-
     try:
         children = cg.get_subgraph(parent_id, stop_lvl=stop_lvl)
     except:

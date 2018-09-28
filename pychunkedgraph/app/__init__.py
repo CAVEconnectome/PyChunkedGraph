@@ -1,11 +1,12 @@
 from flask import Flask
 from flask_cors import CORS
+import sys
+import logging
 
 from . import config
 
 # from pychunkedgraph.app import app_blueprint
 from pychunkedgraph.app import app_blueprint
-import logging
 
 
 def create_app(test_config=None):
@@ -28,7 +29,8 @@ def configure_app(app):
     app.config.from_object(config.BaseConfig)
 
     # Configure logging
-    handler = logging.FileHandler(app.config['LOGGING_LOCATION'])
+    # handler = logging.FileHandler(app.config['LOGGING_LOCATION'])
+    handler = logging.StreamHandler(sys.stdout)
     handler.setLevel(app.config['LOGGING_LEVEL'])
     formatter = logging.Formatter(app.config['LOGGING_FORMAT'])
     handler.setFormatter(formatter)
