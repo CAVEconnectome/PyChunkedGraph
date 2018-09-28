@@ -6,6 +6,12 @@ steps:
   args:
   - '-c'
   - |
-    [[ "$BRANCH_NAME" == "master" ]] && docker build -t gcr.io/$PROJECT_ID/pychunkedgraph .
+    docker build -t gcr.io/$PROJECT_ID/pychunkedgraph:$TAG_NAME .
+#- name: 'gcr.io/cloud-builders/docker'
+#  entrypoint: 'bash'
+#  args:
+#  - '-c'
+#  - |
+#    [[ "$BRANCH_NAME" == "master" ]] && docker build -t gcr.io/$PROJECT_ID/pychunkedgraph .
 images:
-- 'gcr.io/$PROJECT_ID/pychunkedgraph'
+- 'gcr.io/$PROJECT_ID/pychunkedgraph:$TAG_NAME'
