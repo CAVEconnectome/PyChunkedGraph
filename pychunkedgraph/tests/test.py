@@ -17,7 +17,8 @@ import pychunkedgraph.backend.key_utils
 
 sys.path.insert(0, os.path.join(sys.path[0], '..'))
 from pychunkedgraph.backend import chunkedgraph # noqa
-from pychunkedgraph.backend import table_info
+from pychunkedgraph.backend import table_info # noqa
+
 
 class DoNothingCreds(credentials.Credentials):
     def refresh(self, request):
@@ -34,7 +35,7 @@ def bigtable_emulator(request):
 
     print("Waiting for BigTables Emulator to start up...", end='')
     c = bigtable.Client(project='', credentials=DoNothingCreds(), admin=True)
-    retries = 5
+    retries = 10
     while retries > 0:
         try:
             c.list_instances()
@@ -43,7 +44,7 @@ def bigtable_emulator(request):
                 print(" Ready!")
                 break
             elif e.code() == grpc.StatusCode.UNAVAILABLE:
-                sleep(1)
+                sleep(2)
             retries -= 1
             print(".", end='')
     if retries == 0:

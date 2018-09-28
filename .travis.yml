@@ -1,7 +1,7 @@
 sudo: false
 language: python
 python:
-  - 3.6
+  - "3.6-dev"
 cache: 
   - pip
   - directories:
@@ -22,19 +22,19 @@ before_install:
   - uname -a
   - lsb_release -a
 install:
-  - pip install tox
+  - pip install tox-travis
   - virtualenv --version
   - easy_install --version
   - pip --version
   - tox --version
 script:
-  - pytest pychunkedgraph/tests/test.py
+  - tox -v
 after_failure:
   - more .tox/log/* | cat
   - more .tox/*/log/* | cat
 notifications:
   email:
-    on_success: never
-    on_failure: never
+    on_success: change
+    on_failure: always
 after_success:
   - codecov
