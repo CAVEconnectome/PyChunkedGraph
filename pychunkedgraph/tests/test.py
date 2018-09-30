@@ -1379,47 +1379,115 @@ class TestGraphSplit:
 
 
     @pytest.mark.timeout(30)
-    def test_split_cross_chunk_edges(self, gen_graph):
+    def test_split_verify_cross_chunk_edges(self, gen_graph):
         """
         Remove edge between existing RG supervoxels 1 and 2 (neighboring chunks)
-        ┌─────┬─────┐      ┌─────┬─────┐
-        │  A¹ │  B¹ │      │  A¹ │  B¹ │
-        │  1━━┿━━3  │  =>  │  1━━┿━━3  │
-        │  |  │     │      │     │     │
-        │  2  │     │      │  2  │     │
-        └─────┴─────┘      └─────┴─────┘
+        ┌─────┬─────┬─────┐      ┌─────┬─────┬─────┐
+        |     │  A¹ │  B¹ │      |     │  A¹ │  B¹ │
+        |     │  1━━┿━━3  │  =>  |     │  1━━┿━━3  │
+        |     │  |  │     │      |     │     │     │
+        |     │  2  │     │      |     │  2  │     │
+        └─────┴─────┴─────┘      └─────┴─────┴─────┘
         """
 
-        cgraph = gen_graph(n_layers=3)
+        cgraph = gen_graph(n_layers=4)
 
         # Preparation: Build Chunk A
         fake_timestamp = datetime.utcnow() - timedelta(days=10)
         create_chunk(cgraph,
-                     vertices=[to_label(cgraph, 1, 0, 0, 0, 0), to_label(cgraph, 1, 0, 0, 0, 1)],
-                     edges=[(to_label(cgraph, 1, 0, 0, 0, 0), to_label(cgraph, 1, 1, 0, 0, 0), inf),
-                            (to_label(cgraph, 1, 0, 0, 0, 0), to_label(cgraph, 1, 0, 0, 0, 1), .5)],
+                     vertices=[to_label(cgraph, 1, 1, 0, 0, 0), to_label(cgraph, 1, 1, 0, 0, 1)],
+                     edges=[(to_label(cgraph, 1, 1, 0, 0, 0), to_label(cgraph, 1, 2, 0, 0, 0), inf),
+                            (to_label(cgraph, 1, 1, 0, 0, 0), to_label(cgraph, 1, 1, 0, 0, 1), .5)],
                      timestamp=fake_timestamp)
 
         # Preparation: Build Chunk B
         create_chunk(cgraph,
-                     vertices=[to_label(cgraph, 1, 1, 0, 0, 0)],
-                     edges=[(to_label(cgraph, 1, 1, 0, 0, 0), to_label(cgraph, 1, 0, 0, 0, 0), 1.0)],
+                     vertices=[to_label(cgraph, 1, 2, 0, 0, 0)],
+                     edges=[(to_label(cgraph, 1, 2, 0, 0, 0), to_label(cgraph, 1, 1, 0, 0, 0), inf)],
                      timestamp=fake_timestamp)
 
         cgraph.add_layer(3, np.array([[0, 0, 0], [1, 0, 0]]), time_stamp=fake_timestamp)
+        cgraph.add_layer(3, np.array([[2, 0, 0], [3, 0, 0]]), time_stamp=fake_timestamp)
+        cgraph.add_layer(4, np.array([[0, 0, 0], [1, 0, 0]]), time_stamp=fake_timestamp)
+
+        assert cgraph.get_root(to_label(cgraph, 1, 1, 0, 0, 0)) == cgraph.get_root(to_label(cgraph, 1, 1, 0, 0, 1))
+        assert cgraph.get_root(to_label(cgraph, 1, 1, 0, 0, 0)) == cgraph.get_root(to_label(cgraph, 1, 2, 0, 0, 0))
 
         # Split
-        new_root_ids = cgraph.remove_edges("Jane Doe", to_label(cgraph, 1, 1, 0, 0, 0), to_label(cgraph, 1, 0, 0, 0, 0), mincut=False)
+        new_root_ids = cgraph.remove_edges("Jane Doe", to_label(cgraph, 1, 1, 0, 0, 0), to_label(cgraph, 1, 1, 0, 0, 1), mincut=False)
+
+        svs2 = cgraph.get_subgraph(new_root_ids[0])
+        svs1 = cgraph.get_subgraph(new_root_ids[1])
+        len_set = {1, 2}
+        assert len(svs1) in len_set
+        len_set.remove(len(svs1))
+        assert len(svs2) in len_set
+
 
         # Check New State
         assert len(new_root_ids) == 2
-        assert cgraph.get_root(to_label(cgraph, 1, 0, 0, 0, 0)) != cgraph.get_root(to_label(cgraph, 1, 0, 0, 0, 1))
-        assert cgraph.get_root(to_label(cgraph, 1, 0, 0, 0, 0)) == cgraph.get_root(to_label(cgraph, 1, 1, 0, 0, 0))
+        assert cgraph.get_root(to_label(cgraph, 1, 1, 0, 0, 0)) != cgraph.get_root(to_label(cgraph, 1, 1, 0, 0, 1))
+        assert cgraph.get_root(to_label(cgraph, 1, 1, 0, 0, 0)) == cgraph.get_root(to_label(cgraph, 1, 2, 0, 0, 0))
 
-        cc_dict = cgraph.get_atomic_cross_edge_dict(cgraph.get_parent(to_label(cgraph, 1, 0, 0, 0, 0)), deserialize_node_ids=True, reshape=True)
-        assert len(cc_dict[2]) == 1
-        assert cc_dict[2][0] == to_label(cgraph, 1, 0, 0, 0, 0)
-        assert cc_dict[2][1] == to_label(cgraph, 1, 1, 0, 0, 0)
+        cc_dict = cgraph.get_atomic_cross_edge_dict(cgraph.get_parent(to_label(cgraph, 1, 1, 0, 0, 0)), deserialize_node_ids=True, reshape=True)
+        assert len(cc_dict[3]) == 1
+        assert cc_dict[3][0][0] == to_label(cgraph, 1, 1, 0, 0, 0)
+        assert cc_dict[3][0][1] == to_label(cgraph, 1, 2, 0, 0, 0)
+
+
+    @pytest.mark.timeout(30)
+    def test_split_verify_loop(self, gen_graph):
+        """
+        Remove edge between existing RG supervoxels 1 and 2 (neighboring chunks)
+        ┌─────┬────────┬─────┐      ┌─────┬────────┬─────┐
+        |     │     A¹ │  B¹ │      |     │     A¹ │  B¹ │
+        |     │  4━━1━━┿━━5  │  =>  |     │  4  1━━┿━━5  │
+        |     │   /    │  |  │      |     │        │  |  │
+        |     │  3  2━━┿━━6  │      |     │  3  2━━┿━━6  │
+        └─────┴────────┴─────┘      └─────┴────────┴─────┘
+        """
+
+        cgraph = gen_graph(n_layers=4)
+
+        # Preparation: Build Chunk A
+        fake_timestamp = datetime.utcnow() - timedelta(days=10)
+        create_chunk(cgraph,
+                     vertices=[to_label(cgraph, 1, 1, 0, 0, 0), to_label(cgraph, 1, 1, 0, 0, 1),
+                               to_label(cgraph, 1, 1, 0, 0, 2), to_label(cgraph, 1, 1, 0, 0, 3)],
+                     edges=[(to_label(cgraph, 1, 1, 0, 0, 0), to_label(cgraph, 1, 2, 0, 0, 0), inf),
+                            (to_label(cgraph, 1, 1, 0, 0, 1), to_label(cgraph, 1, 2, 0, 0, 1), inf),
+                            (to_label(cgraph, 1, 1, 0, 0, 0), to_label(cgraph, 1, 1, 0, 0, 2), .5),
+                            (to_label(cgraph, 1, 1, 0, 0, 0), to_label(cgraph, 1, 1, 0, 0, 3), .5)],
+                     timestamp=fake_timestamp)
+
+        # Preparation: Build Chunk B
+        create_chunk(cgraph,
+                     vertices=[to_label(cgraph, 1, 2, 0, 0, 0), to_label(cgraph, 1, 2, 0, 0, 1)],
+                     edges=[(to_label(cgraph, 1, 2, 0, 0, 0), to_label(cgraph, 1, 1, 0, 0, 0), inf),
+                            (to_label(cgraph, 1, 2, 0, 0, 1), to_label(cgraph, 1, 1, 0, 0, 1), inf),
+                            (to_label(cgraph, 1, 2, 0, 0, 1), to_label(cgraph, 1, 2, 0, 0, 0), .5)],
+                     timestamp=fake_timestamp)
+
+        cgraph.add_layer(3, np.array([[0, 0, 0], [1, 0, 0]]), time_stamp=fake_timestamp)
+        cgraph.add_layer(3, np.array([[2, 0, 0], [3, 0, 0]]), time_stamp=fake_timestamp)
+        cgraph.add_layer(4, np.array([[0, 0, 0], [1, 0, 0]]), time_stamp=fake_timestamp)
+
+        assert cgraph.get_root(to_label(cgraph, 1, 1, 0, 0, 0)) == cgraph.get_root(to_label(cgraph, 1, 1, 0, 0, 1))
+        assert cgraph.get_root(to_label(cgraph, 1, 1, 0, 0, 0)) == cgraph.get_root(to_label(cgraph, 1, 2, 0, 0, 0))
+
+        # Split
+        new_root_ids = cgraph.remove_edges("Jane Doe", to_label(cgraph, 1, 1, 0, 0, 0), to_label(cgraph, 1, 1, 0, 0, 2), mincut=False)
+
+        assert len(new_root_ids) == 2
+
+        new_root_ids = cgraph.remove_edges("Jane Doe", to_label(cgraph, 1, 1, 0, 0, 0), to_label(cgraph, 1, 1, 0, 0, 3), mincut=False)
+
+        assert len(new_root_ids) == 2
+
+        cc_dict = cgraph.get_atomic_cross_edge_dict(cgraph.get_parent(to_label(cgraph, 1, 1, 0, 0, 0)), deserialize_node_ids=True, reshape=True)
+        assert len(cc_dict[3]) == 1
+        cc_dict = cgraph.get_atomic_cross_edge_dict(cgraph.get_parent(to_label(cgraph, 1, 1, 0, 0, 0)), deserialize_node_ids=True, reshape=True)
+        assert len(cc_dict[3]) == 1
 
     @pytest.mark.timeout(30)
     def test_split_pair_disconnected_chunks(self, gen_graph):
