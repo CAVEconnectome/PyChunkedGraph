@@ -1321,6 +1321,7 @@ class TestGraphSplit:
         assert to_label(cgraph, 1, 0, 0, 0, 0) in leaves
         assert to_label(cgraph, 1, 0, 0, 0, 1) in leaves
 
+
     @pytest.mark.timeout(30)
     def test_split_pair_neighboring_chunks(self, gen_graph):
         """
@@ -1375,6 +1376,50 @@ class TestGraphSplit:
         assert len(leaves) == 2
         assert to_label(cgraph, 1, 0, 0, 0, 0) in leaves
         assert to_label(cgraph, 1, 1, 0, 0, 0) in leaves
+
+
+    @pytest.mark.timeout(30)
+    def test_split_cross_chunk_edges(self, gen_graph):
+        """
+        Remove edge between existing RG supervoxels 1 and 2 (neighboring chunks)
+        ┌─────┬─────┐      ┌─────┬─────┐
+        │  A¹ │  B¹ │      │  A¹ │  B¹ │
+        │  1━━┿━━3  │  =>  │  1━━┿━━3  │
+        │  |  │     │      │     │     │
+        │  2  │     │      │  2  │     │
+        └─────┴─────┘      └─────┴─────┘
+        """
+
+        cgraph = gen_graph(n_layers=3)
+
+        # Preparation: Build Chunk A
+        fake_timestamp = datetime.utcnow() - timedelta(days=10)
+        create_chunk(cgraph,
+                     vertices=[to_label(cgraph, 1, 0, 0, 0, 0), to_label(cgraph, 1, 0, 0, 0, 1)],
+                     edges=[(to_label(cgraph, 1, 0, 0, 0, 0), to_label(cgraph, 1, 1, 0, 0, 0), inf),
+                            (to_label(cgraph, 1, 0, 0, 0, 0), to_label(cgraph, 1, 0, 0, 0, 1), .5)],
+                     timestamp=fake_timestamp)
+
+        # Preparation: Build Chunk B
+        create_chunk(cgraph,
+                     vertices=[to_label(cgraph, 1, 1, 0, 0, 0)],
+                     edges=[(to_label(cgraph, 1, 1, 0, 0, 0), to_label(cgraph, 1, 0, 0, 0, 0), 1.0)],
+                     timestamp=fake_timestamp)
+
+        cgraph.add_layer(3, np.array([[0, 0, 0], [1, 0, 0]]), time_stamp=fake_timestamp)
+
+        # Split
+        new_root_ids = cgraph.remove_edges("Jane Doe", to_label(cgraph, 1, 1, 0, 0, 0), to_label(cgraph, 1, 0, 0, 0, 0), mincut=False)
+
+        # Check New State
+        assert len(new_root_ids) == 2
+        assert cgraph.get_root(to_label(cgraph, 1, 0, 0, 0, 0)) != cgraph.get_root(to_label(cgraph, 1, 0, 0, 0, 1))
+        assert cgraph.get_root(to_label(cgraph, 1, 0, 0, 0, 0)) == cgraph.get_root(to_label(cgraph, 1, 1, 0, 0, 0))
+
+        cc_dict = cgraph.get_atomic_cross_edge_dict(cgraph.get_parent(to_label(cgraph, 1, 0, 0, 0, 0)), deserialize_node_ids=True, reshape=True)
+        assert len(cc_dict[2]) == 1
+        assert cc_dict[2][0] == to_label(cgraph, 1, 0, 0, 0, 0)
+        assert cc_dict[2][1] == to_label(cgraph, 1, 1, 0, 0, 0)
 
     @pytest.mark.timeout(30)
     def test_split_pair_disconnected_chunks(self, gen_graph):
