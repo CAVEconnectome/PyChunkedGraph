@@ -1695,75 +1695,75 @@ class TestGraphSplit:
         old_root_id = cgraph.get_root(to_label(cgraph, 1, 0, 0, 0, 0), time_stamp=fake_timestamp)
         assert new_root_ids[0] != old_root_id
 
-    # @pytest.mark.timeout(30)
-    # def test_split_full_circle_to_triple_chain_disconnected_chunks(self, gen_graph):
-    #     """
-    #     Remove direct edge between RG supervoxels 1 and 2, but leave indirect connection (disconnected chunks)
-    #     ┌─────┐     ┌─────┐      ┌─────┐     ┌─────┐
-    #     │  A¹ │ ... │  Z¹ │      │  A¹ │ ... │  Z¹ │
-    #     │  1━━┿━━━━━┿━━2  │  =>  │  1  │     │  2  │
-    #     │  ┗3━┿━━━━━┿━━┛  │      │  ┗3━┿━━━━━┿━━┛  │
-    #     └─────┘     └─────┘      └─────┘     └─────┘
-    #     """
-    #
-    #     cgraph = gen_graph(n_layers=9)
-    #
-    #     loc = 2
-    #
-    #     # Preparation: Build Chunk A
-    #     fake_timestamp = datetime.utcnow() - timedelta(days=10)
-    #     create_chunk(cgraph,
-    #                  vertices=[to_label(cgraph, 1, 0, 0, 0, 0), to_label(cgraph, 1, 0, 0, 0, 1)],
-    #                  edges=[(to_label(cgraph, 1, 0, 0, 0, 0), to_label(cgraph, 1, 0, 0, 0, 1), 0.5),
-    #                         (to_label(cgraph, 1, 0, 0, 0, 1), to_label(cgraph, 1, loc, loc, loc, 0), 0.5),
-    #                         (to_label(cgraph, 1, 0, 0, 0, 0), to_label(cgraph, 1, loc, loc, loc, 0), 0.3)],
-    #                  timestamp=fake_timestamp)
-    #
-    #     # Preparation: Build Chunk Z
-    #     create_chunk(cgraph,
-    #                  vertices=[to_label(cgraph, 1, loc, loc, loc, 0)],
-    #                  edges=[(to_label(cgraph, 1, loc, loc, loc, 0), to_label(cgraph, 1, 0, 0, 0, 1), 0.5),
-    #                         (to_label(cgraph, 1, loc, loc, loc, 0), to_label(cgraph, 1, 0, 0, 0, 0), 0.3)],
-    #                  timestamp=fake_timestamp)
-    #
-    #     for i_layer in range(3, 10):
-    #         if loc // 2**(i_layer - 3) == 1:
-    #             cgraph.add_layer(i_layer, np.array([[0, 0, 0], [1, 1, 1]]), time_stamp=fake_timestamp)
-    #         elif loc // 2**(i_layer - 3) == 0:
-    #             cgraph.add_layer(i_layer, np.array([[0, 0, 0]]), time_stamp=fake_timestamp)
-    #         else:
-    #             cgraph.add_layer(i_layer, np.array([[0, 0, 0]]), time_stamp=fake_timestamp)
-    #             cgraph.add_layer(i_layer, np.array([[loc // 2**(i_layer - 3), loc // 2**(i_layer - 3), loc // 2**(i_layer - 3)]]), time_stamp=fake_timestamp)
-    #
-    #     assert cgraph.get_root(to_label(cgraph, 1, loc, loc, loc, 0)) == \
-    #            cgraph.get_root(to_label(cgraph, 1, 0, 0, 0, 0)) == \
-    #            cgraph.get_root(to_label(cgraph, 1, 0, 0, 0, 1))
-    #
-    #     # Split
-    #     new_root_ids = cgraph.remove_edges("Jane Doe", to_label(cgraph, 1, loc, loc, loc, 0), to_label(cgraph, 1, 0, 0, 0, 0), mincut=False)
-    #
-    #     # Check New State
-    #     assert len(new_root_ids) == 1
-    #     assert cgraph.get_root(to_label(cgraph, 1, 0, 0, 0, 0)) == new_root_ids[0]
-    #     assert cgraph.get_root(to_label(cgraph, 1, 0, 0, 0, 1)) == new_root_ids[0]
-    #     assert cgraph.get_root(to_label(cgraph, 1, loc, loc, loc, 0)) == new_root_ids[0]
-    #     partners, affinities, areas = cgraph.get_atomic_partners(to_label(cgraph, 1, 0, 0, 0, 0))
-    #     assert len(partners) == 1 and partners[0] == to_label(cgraph, 1, 0, 0, 0, 1)
-    #     partners, affinities, areas = cgraph.get_atomic_partners(to_label(cgraph, 1, loc, loc, loc, 0))
-    #     assert len(partners) == 1 and partners[0] == to_label(cgraph, 1, 0, 0, 0, 1)
-    #     partners, affinities, areas = cgraph.get_atomic_partners(to_label(cgraph, 1, 0, 0, 0, 1))
-    #     assert len(partners) == 2
-    #     assert to_label(cgraph, 1, 0, 0, 0, 0) in partners
-    #     assert to_label(cgraph, 1, loc, loc, loc, 0) in partners
-    #     leaves = np.unique(cgraph.get_subgraph(new_root_ids[0]))
-    #     assert len(leaves) == 3
-    #     assert to_label(cgraph, 1, 0, 0, 0, 0) in leaves
-    #     assert to_label(cgraph, 1, 0, 0, 0, 1) in leaves
-    #     assert to_label(cgraph, 1, loc, loc, loc, 0) in leaves
-    #
-    #     # Check Old State still accessible
-    #     old_root_id = cgraph.get_root(to_label(cgraph, 1, 0, 0, 0, 0), time_stamp=fake_timestamp)
-    #     assert new_root_ids[0] != old_root_id
+    @pytest.mark.timeout(30)
+    def test_split_full_circle_to_triple_chain_disconnected_chunks(self, gen_graph):
+        """
+        Remove direct edge between RG supervoxels 1 and 2, but leave indirect connection (disconnected chunks)
+        ┌─────┐     ┌─────┐      ┌─────┐     ┌─────┐
+        │  A¹ │ ... │  Z¹ │      │  A¹ │ ... │  Z¹ │
+        │  1━━┿━━━━━┿━━2  │  =>  │  1  │     │  2  │
+        │  ┗3━┿━━━━━┿━━┛  │      │  ┗3━┿━━━━━┿━━┛  │
+        └─────┘     └─────┘      └─────┘     └─────┘
+        """
+
+        cgraph = gen_graph(n_layers=9)
+
+        loc = 2
+
+        # Preparation: Build Chunk A
+        fake_timestamp = datetime.utcnow() - timedelta(days=10)
+        create_chunk(cgraph,
+                     vertices=[to_label(cgraph, 1, 0, 0, 0, 0), to_label(cgraph, 1, 0, 0, 0, 1)],
+                     edges=[(to_label(cgraph, 1, 0, 0, 0, 0), to_label(cgraph, 1, 0, 0, 0, 1), 0.5),
+                            (to_label(cgraph, 1, 0, 0, 0, 1), to_label(cgraph, 1, loc, loc, loc, 0), 0.5),
+                            (to_label(cgraph, 1, 0, 0, 0, 0), to_label(cgraph, 1, loc, loc, loc, 0), 0.3)],
+                     timestamp=fake_timestamp)
+
+        # Preparation: Build Chunk Z
+        create_chunk(cgraph,
+                     vertices=[to_label(cgraph, 1, loc, loc, loc, 0)],
+                     edges=[(to_label(cgraph, 1, loc, loc, loc, 0), to_label(cgraph, 1, 0, 0, 0, 1), 0.5),
+                            (to_label(cgraph, 1, loc, loc, loc, 0), to_label(cgraph, 1, 0, 0, 0, 0), 0.3)],
+                     timestamp=fake_timestamp)
+
+        for i_layer in range(3, 10):
+            if loc // 2**(i_layer - 3) == 1:
+                cgraph.add_layer(i_layer, np.array([[0, 0, 0], [1, 1, 1]]), time_stamp=fake_timestamp)
+            elif loc // 2**(i_layer - 3) == 0:
+                cgraph.add_layer(i_layer, np.array([[0, 0, 0]]), time_stamp=fake_timestamp)
+            else:
+                cgraph.add_layer(i_layer, np.array([[0, 0, 0]]), time_stamp=fake_timestamp)
+                cgraph.add_layer(i_layer, np.array([[loc // 2**(i_layer - 3), loc // 2**(i_layer - 3), loc // 2**(i_layer - 3)]]), time_stamp=fake_timestamp)
+
+        assert cgraph.get_root(to_label(cgraph, 1, loc, loc, loc, 0)) == \
+               cgraph.get_root(to_label(cgraph, 1, 0, 0, 0, 0)) == \
+               cgraph.get_root(to_label(cgraph, 1, 0, 0, 0, 1))
+
+        # Split
+        new_root_ids = cgraph.remove_edges("Jane Doe", to_label(cgraph, 1, loc, loc, loc, 0), to_label(cgraph, 1, 0, 0, 0, 0), mincut=False)
+
+        # Check New State
+        assert len(new_root_ids) == 1
+        assert cgraph.get_root(to_label(cgraph, 1, 0, 0, 0, 0)) == new_root_ids[0]
+        assert cgraph.get_root(to_label(cgraph, 1, 0, 0, 0, 1)) == new_root_ids[0]
+        assert cgraph.get_root(to_label(cgraph, 1, loc, loc, loc, 0)) == new_root_ids[0]
+        partners, affinities, areas = cgraph.get_atomic_partners(to_label(cgraph, 1, 0, 0, 0, 0))
+        assert len(partners) == 1 and partners[0] == to_label(cgraph, 1, 0, 0, 0, 1)
+        partners, affinities, areas = cgraph.get_atomic_partners(to_label(cgraph, 1, loc, loc, loc, 0))
+        assert len(partners) == 1 and partners[0] == to_label(cgraph, 1, 0, 0, 0, 1)
+        partners, affinities, areas = cgraph.get_atomic_partners(to_label(cgraph, 1, 0, 0, 0, 1))
+        assert len(partners) == 2
+        assert to_label(cgraph, 1, 0, 0, 0, 0) in partners
+        assert to_label(cgraph, 1, loc, loc, loc, 0) in partners
+        leaves = np.unique(cgraph.get_subgraph(new_root_ids[0]))
+        assert len(leaves) == 3
+        assert to_label(cgraph, 1, 0, 0, 0, 0) in leaves
+        assert to_label(cgraph, 1, 0, 0, 0, 1) in leaves
+        assert to_label(cgraph, 1, loc, loc, loc, 0) in leaves
+
+        # Check Old State still accessible
+        old_root_id = cgraph.get_root(to_label(cgraph, 1, 0, 0, 0, 0), time_stamp=fake_timestamp)
+        assert new_root_ids[0] != old_root_id
 
     @pytest.mark.timeout(30)
     def test_split_same_node(self, gen_graph):
