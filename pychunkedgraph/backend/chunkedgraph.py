@@ -31,7 +31,7 @@ from pychunkedgraph.backend import table_info, key_utils
 
 HOME = os.path.expanduser("~")
 N_DIGITS_UINT64 = len(str(np.iinfo(np.uint64).max))
-LOCK_EXPIRED_TIME_DELTA = datetime.timedelta(minutes=1, seconds=00)
+LOCK_EXPIRED_TIME_DELTA = datetime.timedelta(minutes=0, seconds=1)
 UTC = pytz.UTC
 
 # Setting environment wide credential path
@@ -128,15 +128,27 @@ def get_max_time():
     return datetime.datetime(9999, 12, 31, 23, 59, 59, 0)
 
 
-def combine_cross_chunk_edge_dicts(d1, d2):
-    print(d1, d2)
-    new_d = d1.copy()
+def combine_cross_chunk_edge_dicts(d1, d2, start_layer=2):
+    assert start_layer >= 2
+
+    new_d = {}
 
     for l in d2:
-        if l in new_d:
-            new_d[l] = np.concatenate([new_d[l], d2[l]])
-        else:
+        if l < start_layer:
+            continue
+
+    layers = np.unique(list(d1.keys()) + list(d2.keys()))
+    layers = layers[layers >= start_layer]
+
+    for l in layers:
+        if l in d1 and l in d2:
+            new_d[l] = np.concatenate([d1[l], d2[l]])
+        elif l in d1:
+            new_d[l] = d1[l]
+        elif l in d2:
             new_d[l] = d2[l]
+        else:
+            raise Exception()
 
     return new_d
 
@@ -3916,7 +3928,7 @@ class ChunkedGraph(object):
             print("inf in cutset")
             return False, None
 
-        # Remove edges
+        # Remove edgesc
         success, result = self._remove_edges(operation_id, atomic_edges)
 
         if not success:
@@ -4056,6 +4068,7 @@ class ChunkedGraph(object):
 
             # For each connected component we create one new parent
             for cc in ccs:
+                print("CC", cc)
                 cc_node_ids = np.array(list(cc), dtype=np.uint64)
 
                 # Get the associated cross edges
@@ -4124,7 +4137,6 @@ class ChunkedGraph(object):
         if self.n_layers == 2:
             return True, (list(new_layer_parent_dict.keys()), rows, time_stamp)
 
-        leftover_old_parents = set()
         new_roots = []
         for i_layer in range(2, self.n_layers):
             print("\n\nLAYER %d\n\n" % i_layer)
@@ -4132,7 +4144,7 @@ class ChunkedGraph(object):
             old_parent_dict = {}
 
             edges = []
-
+            leftover_old_parents = set()
             print("new_layer_parent_dict", new_layer_parent_dict)
             for new_layer_parent in new_layer_parent_dict.keys():
                 old_parent_id = new_layer_parent_dict[new_layer_parent]
@@ -4158,6 +4170,9 @@ class ChunkedGraph(object):
                 # split.
 
                 atomic_children = cross_edges[i_layer][:, 0]
+
+                print("atomic_children", atomic_children)
+
                 partner_cross_edges = {new_layer_parent: cross_edges[i_layer]}
                 for old_chunk_neighbor in old_chunk_neighbors:
                     # For each neighbor we need to check whether this neighbor
@@ -4168,9 +4183,11 @@ class ChunkedGraph(object):
                     print("old_chunk_neighbor", old_chunk_neighbor)
                     if old_chunk_neighbor in old_id_dict:
                         for new_neighbor in old_id_dict[old_chunk_neighbor]:
+                            print("is new")
                             neigh_cross_edges = cross_edge_dict[new_neighbor][i_layer]
 
                             if np.any(np.in1d(neigh_cross_edges[:, 1], atomic_children)):
+                                print("Common children:", atomic_children[np.in1d(atomic_children, neigh_cross_edges[:, 1])])
                                 edges.append([new_neighbor, new_layer_parent])
                     else:
                         cross_edge_dict_neigh = self.read_cross_chunk_edges(old_chunk_neighbor)
@@ -4180,41 +4197,34 @@ class ChunkedGraph(object):
 
                         if np.any(np.in1d(neigh_cross_edges[:, 1],
                                           atomic_children)):
+                            print("Common children:", atomic_children[np.in1d(atomic_children, neigh_cross_edges[:, 1])])
                             edges.append([old_chunk_neighbor, new_layer_parent])
 
-                            if old_chunk_neighbor in leftover_old_parents:
-                                leftover_old_parents.remove(old_chunk_neighbor)
-                        else:
-                            leftover_old_parents.add(old_chunk_neighbor)
-                    print("edges", edges)
+                            # if old_chunk_neighbor in leftover_old_parents:
+                            #     leftover_old_parents.remove(old_chunk_neighbor)
+                            #     print("REMOVE FROM LIST")
+                        # else:
 
-            # replaced_old_parents = new_layer_parent_dict.values()
-            # new_parents = new_layer_parent_dict.keys()
-            #
-            # leftover_parents = np.array(list(cross_edge_dict.keys()))
-            # leftover_parents = leftover_parents[~np.in1d(leftover_parents,
-            #                                              replaced_old_parents)]
-            # leftover_parents = leftover_parents[~np.in1d(leftover_parents,
-            #                                              new_parents)]
+                        leftover_old_parents.add(old_chunk_neighbor)
 
             for old_chunk_neighbor in leftover_old_parents:
-                print("Try", old_chunk_neighbor, self.get_chunk_coordinates(old_chunk_neighbor))
+                # print("Try", old_chunk_neighbor, self.get_chunk_coordinates(old_chunk_neighbor))
 
                 atomic_ids = cross_edge_dict[old_chunk_neighbor][i_layer][:, 0]
 
                 for old_chunk_neighbor_partner in leftover_old_parents:
-                    print("partner", old_chunk_neighbor_partner, self.get_chunk_coordinates(old_chunk_neighbor_partner))
+                    # print("partner", old_chunk_neighbor_partner, self.get_chunk_coordinates(old_chunk_neighbor_partner))
 
                     neigh_cross_edges = cross_edge_dict[old_chunk_neighbor_partner][i_layer]
 
                     if np.any(np.in1d(atomic_ids, neigh_cross_edges[:, 1])):
-                        print("Partner shares edge")
+                        # print("Partner shares edge")
                         edges.append([old_chunk_neighbor,
                                       old_chunk_neighbor_partner])
-                    else:
-                        print("No common edge")
-                        print(atomic_ids)
-                        print(neigh_cross_edges[:, 1])
+                    # else:
+                    #     print("No common edge")
+                    #     print(atomic_ids)
+                    #     print(neigh_cross_edges[:, 1])
 
             print("\n\nedges", edges)
 
@@ -4242,7 +4252,12 @@ class ChunkedGraph(object):
 
                 if old_next_layer_parent is None:
                     print("No next parent for", cc)
+
+                    for n in cc:
+                        print(self.get_chunk_layer(n))
+
                     print("old_parent_dict", old_parent_dict)
+                    raise()
                     return False, None
 
                 partners = np.array(partners, dtype=np.uint64)
@@ -4261,7 +4276,7 @@ class ChunkedGraph(object):
                 for partner in partners:
                     print("partner", partner)
                     cross_edge_dict[new_parent_id] = combine_cross_chunk_edge_dicts(cross_edge_dict[new_parent_id],
-                                                                                    cross_edge_dict[partner])
+                                                                                    cross_edge_dict[partner], start_layer=i_layer+1)
 
                 # print("cross_edge_dict -----", cross_edge_dict[new_parent_id])
 
@@ -4288,7 +4303,7 @@ class ChunkedGraph(object):
 
                 if i_layer < self.n_layers - 1:
                     val_dict = {}
-                    for l in range(i_layer, self.n_layers):
+                    for l in range(i_layer + 1, self.n_layers):
                         val_dict[table_info.cross_chunk_edge_keyformat % l] = \
                             cross_edge_dict[new_parent_id][l].tobytes()
 
