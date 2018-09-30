@@ -146,8 +146,6 @@ def mincut(edges: Iterable[Sequence[np.uint64]], affs: Sequence[np.uint64],
 
     edge_cut = list(list(cutset)[0])
 
-    print(edge_cut)
-
     weighted_graph.remove_edges_from([edge_cut])
     ccs = list(nx.connected_components(weighted_graph))
 

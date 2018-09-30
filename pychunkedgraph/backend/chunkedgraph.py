@@ -695,7 +695,6 @@ class ChunkedGraph(object):
         for layer in range(2, self.n_layers):
             edge_diff = np.sum(np.abs(cross_edge_coordinates[:, 0] -
                                       cross_edge_coordinates[:, 1]), axis=1)
-            print("edge_diff", edge_diff)
             cross_chunk_edge_layers[edge_diff > 0] += 1
             cross_edge_coordinates = cross_edge_coordinates // self.fan_out
 
@@ -1065,7 +1064,6 @@ class ChunkedGraph(object):
         start_id = self.get_node_id(np.uint64(0), chunk_id=chunk_id)
         end_id = self.get_node_id(max_segment_id, chunk_id=chunk_id)
 
-        print(start_id, end_id)
         try:
             rr = self.range_read(start_id, end_id, n_retries=n_retries,
                                  max_block_size=max_block_size,
@@ -2261,7 +2259,7 @@ class ChunkedGraph(object):
 
             time.sleep(waittime_s)
             i_try += 1
-            print(i_try)
+            print("Try", i_try)
 
         return False, root_ids
 
@@ -2792,7 +2790,6 @@ class ChunkedGraph(object):
                 print("Layer %d: %.3fms for %d children with %d threads" %
                       (layer, (time.time() - time_start) * 1000, n_child_ids,
                        this_n_threads))
-                print(child_ids)
 
             time_start = time.time()
 
@@ -3264,10 +3261,6 @@ class ChunkedGraph(object):
             for parent_id in parent_ids:
                 parent_node_id_dict[parent_id].append(node_id)
 
-        print("atomic_edges", atomic_edges)
-        print("node_id_parent_dict", node_id_parent_dict)
-        print("parent_node_id_dict", parent_node_id_dict)
-
         # Layer 1 --------------------------------------------------------------
 
         # Look up when the edges in question "become relevant"
@@ -3278,8 +3271,6 @@ class ChunkedGraph(object):
         future_links = collections.defaultdict(list)
 
         for atomic_edge, edge_layer in zip(atomic_edges, edge_layers):
-            print("edge_layer", edge_layer, atomic_edge)
-
             # Test if edge is cross chunk edge
             if edge_layer == 1:
                 # Level 1 edge
@@ -3302,9 +3293,6 @@ class ChunkedGraph(object):
 
                 future_links[edge_layer].append([node_id_parent_dict[atomic_edge[0]][edge_layer - 1],
                                                  node_id_parent_dict[atomic_edge[1]][edge_layer - 1]])
-
-        print("LEVEL 1-- parental_edges / cross_chunk_edges", parental_edges, cross_chunk_edges)
-
         # resolve edges with same parent
         G = nx.Graph()
         G.add_edges_from(parental_edges)
@@ -3315,8 +3303,6 @@ class ChunkedGraph(object):
         old_parent_mapping = collections.defaultdict(list)
         for cc in ccs:
             old_parent_ids = list(cc)
-
-            print("old_parent_ids", old_parent_ids)
 
             atomic_ids = []
             involved_atomic_ids = []
@@ -3329,26 +3315,16 @@ class ChunkedGraph(object):
                 involved_atomic_ids.extend(parent_node_id_dict[old_parent_id])
 
                 child_ids = self.get_children(old_parent_id)
-                print("child_ids", child_ids)
                 atomic_ids.extend(child_ids)
 
                 cross_chunk_edge_dict = \
                     combine_cross_chunk_edge_dicts(cross_chunk_edge_dict,
                                                    self.read_cross_chunk_edges(old_parent_id))
-                print("self.read_cross_chunk_edges(child_id)", old_parent_id, self.get_chunk_coordinates(old_parent_id), self.get_segment_id(old_parent_id), self.read_cross_chunk_edges(old_parent_id))
-                print("cross_chunk_edge_dict -- 1:", cross_chunk_edge_dict)
 
             involved_atomic_ids = np.unique(involved_atomic_ids)
             for involved_atomic_id in involved_atomic_ids:
                 if involved_atomic_id in cross_chunk_edges:
-                    print("Loaded cross chunk edges")
                     cross_chunk_edge_dict = combine_cross_chunk_edge_dicts(cross_chunk_edge_dict, cross_chunk_edges[involved_atomic_id])
-
-            print("involved_atomic_ids", involved_atomic_ids)
-            print("cross_chunk_edges", cross_chunk_edges)
-
-
-            print("cross_chunk_edge_dict -- 2:", cross_chunk_edge_dict)
 
             atomic_ids = np.array(atomic_ids, dtype=np.uint64)
 
@@ -3385,7 +3361,6 @@ class ChunkedGraph(object):
                                     next_old_parents,
                                     old_parent_ids,
                                     cross_chunk_edge_dict])
-        print("next_cc_storage", next_cc_storage)
 
         # Higher Layers --------------------------------------------------------
 
@@ -3396,8 +3371,6 @@ class ChunkedGraph(object):
                 new_root_ids.append(cc_storage[0])
 
         for i_layer in range(2, self.n_layers):
-            print("\n\nLAYER", i_layer)
-
             cc_storage = list(next_cc_storage) # copy
             next_cc_storage = []
 
@@ -3415,19 +3388,12 @@ class ChunkedGraph(object):
 
             old_parent_mapping = collections.defaultdict(list)
 
-            print("future_links[i_layer]", future_links[i_layer])
-            print("parental_edges", parental_edges)
-
             G = nx.Graph()
             G.add_edges_from(parental_edges)
             ccs = list(nx.connected_components(G))
 
-            print("N(CCS):", len(ccs))
-
             for cc in ccs:
                 cc_storage_ids = list(cc)
-
-                print("cc_storage_ids", cc_storage_ids)
 
                 new_child_ids = [] # new_parent_id
                 old_parent_ids = [] # next_old_parents
@@ -3435,7 +3401,6 @@ class ChunkedGraph(object):
                 cross_chunk_edge_dict = {}
 
                 for cc_storage_id in cc_storage_ids:
-                    print("STORAGE:", cc_storage_id, cc_storage[cc_storage_id])
                     cc_storage_entry = cc_storage[cc_storage_id]
 
                     new_child_ids.append(cc_storage_entry[0])
@@ -3492,11 +3457,6 @@ class ChunkedGraph(object):
                     next_old_parents = np.unique([self.get_parent(n)
                                                   for n in old_parent_ids])
 
-                    print("next_old_parents", next_old_parents)
-                    print("old_parent_ids", old_parent_ids)
-                    print("new_parent_id", new_parent_id)
-                    print("new_parent_id layer", self.get_chunk_layer(new_parent_id))
-
                     for p in next_old_parents:
                         old_parent_mapping[p].append(len(next_cc_storage))
 
@@ -3514,7 +3474,6 @@ class ChunkedGraph(object):
                                                 time_stamp=time_stamp))
 
                     new_root_ids.append(new_parent_id)
-                    print("NEW ROOT", new_parent_id)
 
                     for p in old_parent_ids:
                         rows.append(self.mutate_row(key_utils.serialize_uint64(p),
@@ -4101,9 +4060,6 @@ class ChunkedGraph(object):
             cross_edges = chunk_edges[cross_edge_mask]
             chunk_edges = chunk_edges[~cross_edge_mask]
 
-            # print("cross_edges", cross_edges)
-            # print("edges", chunk_edges)
-
             isolated_nodes = list(filter(
                 lambda x: x not in chunk_edges and self.get_chunk_id(x) == chunk_id,
                 nodes_in_removed_edges))
@@ -4115,7 +4071,6 @@ class ChunkedGraph(object):
 
             # For each connected component we create one new parent
             for cc in ccs:
-                print("CC", cc)
                 cc_node_ids = np.array(list(cc), dtype=np.uint64)
 
                 # Get the associated cross edges
@@ -4148,11 +4103,8 @@ class ChunkedGraph(object):
                                                 self.family_id, val_dict,
                                                 time_stamp=time_stamp))
 
-                # print("cc_cross_edges", cc_cross_edges)
-
                 cce_layers = self.get_cross_chunk_edges_layer(cc_cross_edges)
                 u_cce_layers = np.unique(cce_layers)
-                print("u_cce_layers", u_cce_layers)
 
                 cross_edge_dict[new_parent_id] = {}
 
@@ -4175,8 +4127,6 @@ class ChunkedGraph(object):
                                                 val_dict,
                                                 time_stamp=time_stamp))
 
-                # print("cross_edge_dict", cross_edge_dict)
-
         # Now that the lowest layer has been updated, we need to walk through
         # all layers and move our new parents forward
         # new_layer_parent_dict stores all newly created parents. We first
@@ -4186,13 +4136,10 @@ class ChunkedGraph(object):
 
         new_roots = []
         for i_layer in range(2, self.n_layers):
-            print("\n\nLAYER %d\n\n" % i_layer)
-
             old_parent_dict = {}
 
             edges = []
             leftover_old_parents = set()
-            print("new_layer_parent_dict", new_layer_parent_dict)
             for new_layer_parent in new_layer_parent_dict.keys():
                 old_parent_id = new_layer_parent_dict[new_layer_parent]
                 cross_edges = cross_edge_dict[new_layer_parent]
@@ -4204,10 +4151,6 @@ class ChunkedGraph(object):
                 old_chunk_neighbors = \
                     old_chunk_neighbors[old_chunk_neighbors != old_parent_id]
 
-                print("old_chunk_neighbors", old_chunk_neighbors)
-                for old_neighbor in old_chunk_neighbors:
-                    print(self.get_chunk_coordinates(old_neighbor))
-
                 old_parent_dict[new_layer_parent] = old_next_layer_parent
 
                 # In analogy to `add_layer`, we need to compare
@@ -4218,23 +4161,17 @@ class ChunkedGraph(object):
 
                 atomic_children = cross_edges[i_layer][:, 0]
 
-                print("atomic_children", atomic_children)
-
-                partner_cross_edges = {new_layer_parent: cross_edges[i_layer]}
                 for old_chunk_neighbor in old_chunk_neighbors:
                     # For each neighbor we need to check whether this neighbor
                     # was affected by a split as well (and was updated):
                     # neighbor_id in old_id_dict. If so, we take the new atomic
                     # cross edges (temporary data) into account, else, we load
                     # the atomic_cross_edges from BigTable
-                    print("old_chunk_neighbor", old_chunk_neighbor)
                     if old_chunk_neighbor in old_id_dict:
                         for new_neighbor in old_id_dict[old_chunk_neighbor]:
-                            print("is new")
                             neigh_cross_edges = cross_edge_dict[new_neighbor][i_layer]
 
                             if np.any(np.in1d(neigh_cross_edges[:, 1], atomic_children)):
-                                print("Common children:", atomic_children[np.in1d(atomic_children, neigh_cross_edges[:, 1])])
                                 edges.append([new_neighbor, new_layer_parent])
                     else:
                         cross_edge_dict_neigh = self.read_cross_chunk_edges(old_chunk_neighbor)
@@ -4244,44 +4181,25 @@ class ChunkedGraph(object):
 
                         if np.any(np.in1d(neigh_cross_edges[:, 1],
                                           atomic_children)):
-                            print("Common children:", atomic_children[np.in1d(atomic_children, neigh_cross_edges[:, 1])])
                             edges.append([old_chunk_neighbor, new_layer_parent])
-
-                            # if old_chunk_neighbor in leftover_old_parents:
-                            #     leftover_old_parents.remove(old_chunk_neighbor)
-                            #     print("REMOVE FROM LIST")
-                        # else:
 
                         leftover_old_parents.add(old_chunk_neighbor)
 
             for old_chunk_neighbor in leftover_old_parents:
-                # print("Try", old_chunk_neighbor, self.get_chunk_coordinates(old_chunk_neighbor))
-
                 atomic_ids = cross_edge_dict[old_chunk_neighbor][i_layer][:, 0]
 
                 for old_chunk_neighbor_partner in leftover_old_parents:
-                    # print("partner", old_chunk_neighbor_partner, self.get_chunk_coordinates(old_chunk_neighbor_partner))
-
                     neigh_cross_edges = cross_edge_dict[old_chunk_neighbor_partner][i_layer]
 
                     if np.any(np.in1d(atomic_ids, neigh_cross_edges[:, 1])):
-                        # print("Partner shares edge")
                         edges.append([old_chunk_neighbor,
                                       old_chunk_neighbor_partner])
-                    # else:
-                    #     print("No common edge")
-                    #     print(atomic_ids)
-                    #     print(neigh_cross_edges[:, 1])
-
-            print("\n\nedges", edges)
 
             # Create graph and run connected components
             chunk_g = nx.from_edgelist(edges)
             chunk_g.add_nodes_from(np.array(list(new_layer_parent_dict.keys()),
                                             dtype=np.uint64))
             ccs = list(nx.connected_components(chunk_g))
-
-            print("N CCs: %d" % len(ccs), ccs)
 
             new_layer_parent_dict = {}
             # Filter the connected component that is relevant to the
@@ -4298,12 +4216,7 @@ class ChunkedGraph(object):
                         old_next_layer_parent = old_parent_dict[partner]
 
                 if old_next_layer_parent is None:
-                    print("No next parent for", cc)
-
-                    for n in cc:
-                        print(self.get_chunk_layer(n))
-
-                    print("old_parent_dict", old_parent_dict)
+                    print("No old parents for any member of the cc")
                     return False, None
 
                 partners = np.array(partners, dtype=np.uint64)
@@ -4316,15 +4229,10 @@ class ChunkedGraph(object):
                 new_layer_parent_dict[new_parent_id] = old_next_layer_parent
                 old_id_dict[old_next_layer_parent].append(new_parent_id)
 
-                # print(new_parent_id, cross_edge_dict)
-
                 cross_edge_dict[new_parent_id] = {}
                 for partner in partners:
-                    print("partner", partner)
                     cross_edge_dict[new_parent_id] = combine_cross_chunk_edge_dicts(cross_edge_dict[new_parent_id],
                                                                                     cross_edge_dict[partner], start_layer=i_layer+1)
-
-                # print("cross_edge_dict -----", cross_edge_dict[new_parent_id])
 
                 for partner in partners:
                     val_dict = {"parents": new_parent_id_b}
