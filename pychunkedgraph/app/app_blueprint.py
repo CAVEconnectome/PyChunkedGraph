@@ -41,6 +41,7 @@ def home():
 def before_request():
     # print("NEW REQUEST:", datetime.datetime.now(), request.url)
     current_app.request_start_time = time.time()
+    current_app.request_start_date = datetime.datetime.utcnow()
 
 
 @bp.after_request
@@ -51,7 +52,7 @@ def after_request(response):
 
     log_db = app_utils.get_log_db()
     log_db.add_success_log(user_id=user_ip, user_ip=user_ip,
-                           request_time=current_app.request_start_time,
+                           request_time=current_app.request_start_date,
                            response_time=dt, url=request.url,
                            request_data=request.data)
 
@@ -67,7 +68,7 @@ def internal_server_error(error):
 
     log_db = app_utils.get_log_db()
     log_db.add_success_log(user_id=user_ip, user_ip=user_ip,
-                           request_time=current_app.request_start_time,
+                           request_time=current_app.request_start_date,
                            response_time=dt, url=request.url,
                            request_data=request.data, err_msg=error)
 
@@ -83,7 +84,7 @@ def unhandled_exception(e):
 
     log_db = app_utils.get_log_db()
     log_db.add_success_log(user_id=user_ip, user_ip=user_ip,
-                           request_time=current_app.request_start_time,
+                           request_time=current_app.request_start_date,
                            response_time=dt, url=request.url,
                            request_data=request.data, err_msg=str(e))
 
@@ -195,8 +196,6 @@ def handle_split():
 
     if new_roots is None:
         return None
-
-    print("NEW ROOTS", new_roots)
 
     # Return binary
     return app_utils.tobinary(new_roots)

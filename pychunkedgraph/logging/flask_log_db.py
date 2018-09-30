@@ -1,5 +1,5 @@
 import os
-import datetime
+import json
 from google.cloud import datastore
 
 HOME = os.path.expanduser('~')
@@ -69,6 +69,11 @@ class FlaskLogDatabase(object):
         else:
             request_type = url_split[-1]
             request_opt_arg = None
+
+        if len(request_data) == 0:
+            request_data = None
+        else:
+            request_data = json.loads(request_data)
 
         entity['type'] = log_type
         entity['user_id'] = user_id
