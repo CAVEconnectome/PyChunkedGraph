@@ -82,7 +82,7 @@ class FlaskLogDatabase(object):
         entity['response_time(ms)'] = response_time
         entity['request_type'] = request_type
         entity['request_arg'] = request_arg
-        entity['request_data'] = request_data
+        entity['request_data'] = str(request_data)
         entity['request_opt_arg'] = request_opt_arg
         entity['url'] = url
         entity['msg'] = msg

@@ -67,11 +67,11 @@ def internal_server_error(error):
     user_ip = str(request.remote_addr)
 
     log_db = app_utils.get_log_db()
-    log_db.add_success_log(user_id=user_ip, user_ip=user_ip,
-                           request_time=current_app.request_start_date,
-                           response_time=dt, url=request.url,
-                           request_data=request.data, err_msg=error)
-
+    log_db.add_internal_error_log(user_id=user_ip, user_ip=user_ip,
+                                  request_time=current_app.request_start_date,
+                                  response_time=dt, url=request.url,
+                                  request_data=request.data, err_msg=error)
+    print(error)
     print("Response time: %.3fms" % dt)
     return 500
 
@@ -82,12 +82,14 @@ def unhandled_exception(e):
 
     user_ip = str(request.remote_addr)
 
-    log_db = app_utils.get_log_db()
-    log_db.add_success_log(user_id=user_ip, user_ip=user_ip,
-                           request_time=current_app.request_start_date,
-                           response_time=dt, url=request.url,
-                           request_data=request.data, err_msg=str(e))
 
+    log_db = app_utils.get_log_db()
+    log_db.add_unhandled_exception_log(user_id=user_ip, user_ip=user_ip,
+                                       request_time=current_app.request_start_date,
+                                       response_time=dt, url=request.url,
+                                       request_data=request.data, err_msg=str(e))
+
+    print(str(e))
     print("Response time: %.3fms" % dt)
     return 500
 
@@ -128,6 +130,7 @@ def handle_merge():
     cg = app_utils.get_cg()
 
     atomic_edge = []
+    coords = []
     for node in nodes:
         node_id = node[0]
         x, y, z = node[1:]
@@ -140,6 +143,8 @@ def handle_merge():
         if atomic_id is None:
             return None
 
+
+        coords.append(np.array([x, y, z]))
         atomic_edge.append(atomic_id)
 
     # Protection from long range mergers
@@ -150,7 +155,9 @@ def handle_merge():
         return None
 
     new_root = cg.add_edges(user_id=user_id,
-                            atomic_edges=np.array(atomic_edge, dtype=np.uint64))
+                            atomic_edges=np.array(atomic_edge, dtype=np.uint64),
+                            source_coord=coords[:1],
+                            sink_coord=coords[1:])
 
     if new_root is None:
         return None
