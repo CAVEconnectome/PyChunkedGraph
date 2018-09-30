@@ -1,7 +1,7 @@
 import numpy as np
 import networkx as nx
 import itertools
-from networkx.algorithms.flow import shortest_augmenting_path, edmonds_karp
+from networkx.algorithms.flow import shortest_augmenting_path, edmonds_karp, preflow_push
 import time
 
 
@@ -100,6 +100,25 @@ def mincut(edges: Iterable[Sequence[np.uint64]], affs: Sequence[np.uint64],
     for i_edge, edge in enumerate(edges):
         weighted_graph[edge[0]][edge[1]]['capacity'] = affs[i_edge]
         weighted_graph[edge[0]][edge[1]]['weight'] = affs[i_edge]
+        weighted_graph[edge[1]][edge[0]]['capacity'] = affs[i_edge]
+        weighted_graph[edge[1]][edge[0]]['weight'] = affs[i_edge]
+
+    # sink_neighbors = weighted_graph.neighbors(sink)
+    # source_neighbors = weighted_graph.neighbors(source)
+    #
+    # if np.all(~np.in1d(sink_neighbors, source_neighbors)):
+    #     print(sink_neighbors)
+    #     print(source_neighbors)
+    #     for sink_neighbor in sink_neighbors:
+    #         weighted_graph[sink_neighbor][sink]['capacity'] = 1e9
+    #         weighted_graph[sink][sink_neighbor]['capacity'] = 1e9
+    #         weighted_graph[sink_neighbor][sink]['weight'] = 1e9
+    #         weighted_graph[sink][sink_neighbor]['weight'] = 1e9
+    #     for source_neighbor in source_neighbors:
+    #         weighted_graph[source_neighbor][source]['capacity'] = 1e9
+    #         weighted_graph[source][source_neighbor]['capacity'] = 1e9
+    #         weighted_graph[source_neighbor][source]['weight'] = 1e9
+    #         weighted_graph[source][source_neighbor]['weight'] = 1e9
 
     dt = time.time() - time_start
     print("Graph creation: %.2fms" % (dt * 1000))
