@@ -39,7 +39,7 @@ def home():
 
 @bp.before_request
 def before_request():
-    print("NEW REQUEST:", datetime.datetime.now(), request.url)
+    # print("NEW REQUEST:", datetime.datetime.now(), request.url)
     current_app.request_start_time = time.time()
 
 
@@ -47,13 +47,15 @@ def before_request():
 def after_request(response):
     dt = (time.time() - current_app.request_start_time) * 1000
 
-    url_split = request.url.split("/")
-    current_app.logger.info("%s - %s - %s - %s - %f.3" %
-                            (request.path.split("/")[-1], "1",
-                             "".join([url_split[-2], "/", url_split[-1]]),
-                             str(request.data), dt))
+    user_ip = str(request.remote_addr)
 
-    print("Response time: %.3fms" % (dt))
+    log_db = app_utils.get_log_db()
+    log_db.add_success_log(user_id=user_ip, user_ip=user_ip,
+                           request_time=current_app.request_start_time,
+                           response_time=dt, url=request.url,
+                           request_data=request.data)
+
+    print("Response time: %.3fms" % dt)
     return response
 
 
@@ -61,12 +63,15 @@ def after_request(response):
 def internal_server_error(error):
     dt = (time.time() - current_app.request_start_time) * 1000
 
-    url_split = request.url.split("/")
-    current_app.logger.error("%s - %s - %s - %s - %f.3" %
-                             (request.path.split("/")[-1],
-                              "Server Error: " + error,
-                              "".join([url_split[-2], "/", url_split[-1]]),
-                              str(request.data), dt))
+    user_ip = str(request.remote_addr)
+
+    log_db = app_utils.get_log_db()
+    log_db.add_success_log(user_id=user_ip, user_ip=user_ip,
+                           request_time=current_app.request_start_time,
+                           response_time=dt, url=request.url,
+                           request_data=request.data, err_msg=error)
+
+    print("Response time: %.3fms" % dt)
     return 500
 
 
@@ -74,12 +79,15 @@ def internal_server_error(error):
 def unhandled_exception(e):
     dt = (time.time() - current_app.request_start_time) * 1000
 
-    url_split = request.url.split("/")
-    current_app.logger.error("%s - %s - %s - %s - %f.3" %
-                             (request.path.split("/")[-1],
-                              "Exception: " + str(e),
-                              "".join([url_split[-2], "/", url_split[-1]]),
-                              str(request.data), dt))
+    user_ip = str(request.remote_addr)
+
+    log_db = app_utils.get_log_db()
+    log_db.add_success_log(user_id=user_ip, user_ip=user_ip,
+                           request_time=current_app.request_start_time,
+                           response_time=dt, url=request.url,
+                           request_data=request.data, err_msg=str(e))
+
+    print("Response time: %.3fms" % dt)
     return 500
 
 # -------------------
