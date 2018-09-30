@@ -31,7 +31,7 @@ from pychunkedgraph.backend import table_info, key_utils
 
 HOME = os.path.expanduser("~")
 N_DIGITS_UINT64 = len(str(np.iinfo(np.uint64).max))
-LOCK_EXPIRED_TIME_DELTA = datetime.timedelta(minutes=0, seconds=1)
+LOCK_EXPIRED_TIME_DELTA = datetime.timedelta(minutes=1, seconds=00)
 UTC = pytz.UTC
 
 # Setting environment wide credential path
@@ -1281,16 +1281,28 @@ class ChunkedGraph(object):
 
     def _create_split_log_row(self, operation_id: np.uint64, user_id: str,
                               root_ids: Sequence[np.uint64],
-                              selected_atomic_ids: Sequence[np.uint64],
+                              source_ids: Sequence[np.uint64],
+                              sink_ids: Sequence[np.uint64],
+                              source_coords: Sequence[Sequence[np.int]],
+                              sink_coords: Sequence[Sequence[np.int]],
                               removed_edges: Sequence[np.uint64],
+                              bb_offset: Sequence[Sequence[np.int]],
                               time_stamp: datetime.datetime
                               ) -> bigtable.row.Row:
 
         val_dict = {key_utils.serialize_key("user"): key_utils.serialize_key(user_id),
                     key_utils.serialize_key("roots"):
                         np.array(root_ids, dtype=np.uint64).tobytes(),
-                    key_utils.serialize_key("atomic_ids"):
-                        np.array(selected_atomic_ids).tobytes(),
+                    key_utils.serialize_key("source_ids"):
+                        np.array(source_ids).tobytes(),
+                    key_utils.serialize_key("sink_ids"):
+                        np.array(sink_ids).tobytes(),
+                    key_utils.serialize_key("source_coords"):
+                        np.array(source_coords).tobytes(),
+                    key_utils.serialize_key("sink_coords"):
+                        np.array(sink_coords).tobytes(),
+                    key_utils.serialize_key("bb_offset"):
+                        np.array(bb_offset).tobytes(),
                     key_utils.serialize_key("removed_edges"):
                         np.array(removed_edges, dtype=np.uint64).tobytes()}
 
@@ -1301,16 +1313,35 @@ class ChunkedGraph(object):
 
     def _create_merge_log_row(self, operation_id: np.uint64, user_id: str,
                               root_ids: Sequence[np.uint64],
-                              selected_atomic_ids: Sequence[np.uint64],
+                              source_ids: Sequence[np.uint64],
+                              sink_ids: Sequence[np.uint64],
+                              source_coords: Sequence[Sequence[np.int]],
+                              sink_coords: Sequence[Sequence[np.int]],
+                              added_edges: Sequence[np.uint64],
+                              affinities: Sequence[np.float32],
                               time_stamp: datetime.datetime
                               ) -> bigtable.row.Row:
 
-        val_dict = {key_utils.serialize_key("user"):
-                        key_utils.serialize_key(user_id),
+        if affinities is None:
+            affinities_b = b''
+        else:
+            affinities_b = np.array(affinities, dtype=np.float32).tobytes()
+
+        val_dict = {key_utils.serialize_key("user"): key_utils.serialize_key(user_id),
                     key_utils.serialize_key("roots"):
                         np.array(root_ids, dtype=np.uint64).tobytes(),
-                    key_utils.serialize_key("atomic_ids"):
-                        np.array(selected_atomic_ids).tobytes()}
+                    key_utils.serialize_key("source_ids"):
+                        np.array(source_ids).tobytes(),
+                    key_utils.serialize_key("sink_ids"):
+                        np.array(sink_ids).tobytes(),
+                    key_utils.serialize_key("source_coords"):
+                        np.array(source_coords).tobytes(),
+                    key_utils.serialize_key("sink_coords"):
+                        np.array(sink_coords).tobytes(),
+                    key_utils.serialize_key("added_edges"):
+                        np.array(added_edges, dtype=np.uint64).tobytes(),
+                    key_utils.serialize_key("affinities"):
+                        affinities_b}
 
         row = self.mutate_row(key_utils.serialize_uint64(operation_id),
                               self.log_family_id, val_dict, time_stamp)
@@ -1319,8 +1350,11 @@ class ChunkedGraph(object):
 
     def read_log_row(self, operation_id: np.uint64):
         row_dict = self.read_row_multi_key(operation_id,
-                                           keys=["user", "roots", "atomic_ids",
-                                                 "removed_edges"])
+                                           keys=["user", "roots", "sink_ids",
+                                                 "source_ids", "source_coords",
+                                                 "sink_coords", "added_edges",
+                                                 "affinities", "removed_edges",
+                                                 "bb_offset"])
         return row_dict
 
 
@@ -3096,7 +3130,8 @@ class ChunkedGraph(object):
 
     def add_edges(self, user_id: str, atomic_edges: Sequence[np.uint64],
                   affinities: Sequence[np.float32] = None,
-                  # root_ids: Optional[Sequence[np.uint64]] = None,
+                  source_coord: Sequence[int] = None,
+                  sink_coord: Sequence[int] = None,
                   n_tries: int = 20) -> np.uint64:
         """ Adds an edge to the chunkedgraph
 
@@ -3122,6 +3157,8 @@ class ChunkedGraph(object):
 
         if not (isinstance(atomic_edges[0], list) or isinstance(atomic_edges[0], np.ndarray)):
             atomic_edges = [atomic_edges]
+
+        atomic_edges = np.array(atomic_edges)
 
         if affinities is not None:
             if not (isinstance(affinities, list) or
@@ -3174,7 +3211,12 @@ class ChunkedGraph(object):
                 rows.append(self._create_merge_log_row(operation_id,
                                                        user_id,
                                                        new_root_ids,
+                                                       atomic_edges[:, 0],
+                                                       atomic_edges[:, 1],
+                                                       [source_coord],
+                                                       [sink_coord],
                                                        atomic_edges,
+                                                       affinities,
                                                        time_stamp))
 
                 # Execute write (makes sure that we are still owning the lock)
@@ -3815,10 +3857,15 @@ class ChunkedGraph(object):
                         return None
 
                 # Add a row to the log
-                rows.append(self._create_split_log_row(operation_id, user_id,
+                rows.append(self._create_split_log_row(operation_id,
+                                                       user_id,
                                                        new_root_ids,
-                                                       [source_id, sink_id],
+                                                       [source_id],
+                                                       [sink_id],
+                                                       [source_coord],
+                                                       [sink_coord],
                                                        removed_edges,
+                                                       bb_offset,
                                                        time_stamp))
 
                 # Execute write (makes sure that we are still owning the lock)
@@ -4257,7 +4304,6 @@ class ChunkedGraph(object):
                         print(self.get_chunk_layer(n))
 
                     print("old_parent_dict", old_parent_dict)
-                    raise()
                     return False, None
 
                 partners = np.array(partners, dtype=np.uint64)

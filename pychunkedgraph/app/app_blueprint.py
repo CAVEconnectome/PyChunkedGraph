@@ -5,7 +5,9 @@ import json
 import numpy as np
 import time
 import datetime
-# import pymongo
+import sys
+import os
+import traceback
 
 from pychunkedgraph.app import app_utils
 
@@ -82,12 +84,14 @@ def unhandled_exception(e):
 
     user_ip = str(request.remote_addr)
 
+    tb = ''.join(traceback.format_exception(etype=type(e), value=e,
+                                            tb=e.__traceback__))
 
     log_db = app_utils.get_log_db()
     log_db.add_unhandled_exception_log(user_id=user_ip, user_ip=user_ip,
                                        request_time=current_app.request_start_date,
                                        response_time=dt, url=request.url,
-                                       request_data=request.data, err_msg=str(e))
+                                       request_data=request.data, err_msg=tb)
 
     print(str(e))
     print("Response time: %.3fms" % dt)
