@@ -220,11 +220,9 @@ def handle_children(parent_id):
     parent_id = np.uint64(parent_id)
     layer = cg.get_chunk_layer(parent_id)
 
-    stop_lvl = layer - 1
-
-    try:
-        children = cg.get_subgraph(parent_id, stop_lvl=stop_lvl)
-    except:
+    if layer > 1:
+        children = cg.get_children(parent_id)
+    else:
         children = np.array([])
 
     # Return binary

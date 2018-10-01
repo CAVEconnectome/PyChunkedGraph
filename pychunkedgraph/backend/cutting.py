@@ -130,8 +130,9 @@ def mincut(edges: Iterable[Sequence[np.uint64]], affs: Sequence[np.uint64],
             weighted_graph.remove_nodes_from(cc)
         else:
             if not (source in cc and sink in cc):
-                raise Exception("source and sink are in different "
-                                "connected components")
+                print("source and sink are in different "
+                      "connected components")
+                return []
 
     cutset = nx.minimum_edge_cut(weighted_graph, source, sink,
                                  flow_func=edmonds_karp)
