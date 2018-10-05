@@ -16,7 +16,7 @@ stages:
 
 notifications:
   email:
-    on_success: never
+    on_success: change
     on_failure: always
 
 jobs:
@@ -37,7 +37,7 @@ jobs:
       script:
         - tox -v
       install:
-        - pip install tox
+        - pip install tox-travis
         - virtualenv --version
         - easy_install --version
         - pip --version
