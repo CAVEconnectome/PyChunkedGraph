@@ -6,7 +6,8 @@ import logging
 from . import config
 
 # from pychunkedgraph.app import app_blueprint
-from pychunkedgraph.app import app_blueprint
+from pychunkedgraph.app import cg_app_blueprint
+from pychunkedgraph.app import manifest_app_blueprint
 
 
 def create_app(test_config=None):
@@ -18,7 +19,8 @@ def create_app(test_config=None):
     if test_config is not None:
         app.config.update(test_config)
 
-    app.register_blueprint(app_blueprint.bp)
+    app.register_blueprint(cg_app_blueprint.bp)
+    app.register_blueprint(manifest_app_blueprint.bp)
 
     return app
 
