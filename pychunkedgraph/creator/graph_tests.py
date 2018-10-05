@@ -77,6 +77,7 @@ def family_consistency_test(table_id, n_threads=64):
 
     return failed_node_id_dict
 
+
 def children_test(table_id, layer, coord_list):
 
     cg = chunkedgraph.ChunkedGraph(table_id)
@@ -104,3 +105,26 @@ def children_test(table_id, layer, coord_list):
         print("N(unique children chunks): %d" % len(u_children_chunks))
         print("Unique children chunk coords", u_chunk_coords)
         print("N(ids per unique children chunk):", c_children_chunks)
+
+
+def root_cross_edge_test(node_id, table_id=None, cg=None):
+    if cg is None:
+        assert isinstance(table_id, str)
+        cg = chunkedgraph.ChunkedGraph(table_id)
+
+    cross_edge_dict_layers = {}
+    for layer in range(2, cg.n_layers):
+        child_ids = cg.get_subgraph(node_id, stop_lvl=layer)
+
+        cross_edge_dict = {}
+        for child_id in child_ids:
+            cross_edge_dict = chunkedgraph.combine_cross_chunk_edge_dicts(cross_edge_dict, cg.read_cross_chunk_edges(child_id))
+
+        cross_edge_dict_layers[layer] = cross_edge_dict
+
+    for layer in cross_edge_dict_layers.keys():
+        print("\n--------\n")
+        for i_layer in cross_edge_dict_layers[layer].keys():
+            print(layer, i_layer, len(cross_edge_dict_layers[layer][i_layer]))
+
+    return cross_edge_dict_layers

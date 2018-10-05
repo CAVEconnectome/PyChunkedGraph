@@ -5,6 +5,7 @@ import grpc
 import pytest
 import numpy as np
 from functools import partial
+import collections
 from google.cloud import bigtable, exceptions
 from google.auth import credentials
 from math import inf
@@ -18,6 +19,7 @@ import pychunkedgraph.backend.key_utils
 sys.path.insert(0, os.path.join(sys.path[0], '..'))
 from pychunkedgraph.backend import chunkedgraph # noqa
 from pychunkedgraph.backend import table_info # noqa
+from pychunkedgraph.creator import graph_tests # noqa
 
 
 class DoNothingCreds(credentials.Credentials):
@@ -1127,6 +1129,16 @@ class TestGraphMerge:
         assert to_label(cgraph, 1, 0, 0, 0, 1) in leaves
         assert to_label(cgraph, 1, 1, 0, 0, 0) in leaves
 
+        cross_edge_dict_layers = graph_tests.root_cross_edge_test(new_root_id, cg=cgraph) # dict: layer -> cross_edge_dict
+        n_cross_edges_layer = collections.defaultdict(list)
+
+        for child_layer in cross_edge_dict_layers.keys():
+            for layer in cross_edge_dict_layers[child_layer].keys():
+                n_cross_edges_layer[layer].append(len(cross_edge_dict_layers[child_layer][layer]))
+
+        for layer in n_cross_edges_layer.keys():
+            assert len(np.unique(n_cross_edges_layer[layer])) == 1
+
     @pytest.mark.timeout(30)
     def test_merge_triple_chain_to_full_circle_disconnected_chunks(self, gen_graph):
         """
@@ -1195,6 +1207,16 @@ class TestGraphMerge:
         assert to_label(cgraph, 1, 0, 0, 0, 0) in leaves
         assert to_label(cgraph, 1, 0, 0, 0, 1) in leaves
         assert to_label(cgraph, 1, 127, 127, 127, 0) in leaves
+
+        cross_edge_dict_layers = graph_tests.root_cross_edge_test(new_root_id, cg=cgraph) # dict: layer -> cross_edge_dict
+        n_cross_edges_layer = collections.defaultdict(list)
+
+        for child_layer in cross_edge_dict_layers.keys():
+            for layer in cross_edge_dict_layers[child_layer].keys():
+                n_cross_edges_layer[layer].append(len(cross_edge_dict_layers[child_layer][layer]))
+
+        for layer in n_cross_edges_layer.keys():
+            assert len(np.unique(n_cross_edges_layer[layer])) == 1
 
     @pytest.mark.timeout(30)
     def test_merge_same_node(self, gen_graph):
@@ -1270,6 +1292,151 @@ class TestGraphMerge:
         res_new.consume_all()
 
         assert res_new.rows == res_old.rows
+
+    @pytest.mark.timeout(30)
+    def test_diagonal_connections(self, gen_graph):
+        """
+        Create graph with edge between RG supervoxels 1 and 2 (same chunk)
+        and edge between RG supervoxels 1 and 3 (neighboring chunks)
+        ┌─────┬─────┐
+        │  A¹ │  B¹ │
+        │ 2 1━┿━━3  │
+        │  /  │     │
+        ┌─────┬─────┐
+        │  |  │     │
+        │  4━━┿━━5  │
+        │  C¹ │  D¹ │
+        └─────┴─────┘
+        """
+
+        cgraph = gen_graph(n_layers=3)
+
+        # Chunk A
+        create_chunk(cgraph,
+                     vertices=[to_label(cgraph, 1, 0, 0, 0, 0),
+                               to_label(cgraph, 1, 0, 0, 0, 1)],
+                     edges=[(to_label(cgraph, 1, 0, 0, 0, 0),
+                             to_label(cgraph, 1, 1, 0, 0, 0), inf),
+                            (to_label(cgraph, 1, 0, 0, 0, 0),
+                             to_label(cgraph, 1, 0, 1, 0, 0), inf)])
+
+        # Chunk B
+        create_chunk(cgraph,
+                     vertices=[to_label(cgraph, 1, 1, 0, 0, 0)],
+                     edges=[(to_label(cgraph, 1, 1, 0, 0, 0),
+                             to_label(cgraph, 1, 0, 0, 0, 0), inf)])
+
+        # Chunk C
+        create_chunk(cgraph,
+                     vertices=[to_label(cgraph, 1, 0, 1, 0, 0)],
+                     edges=[(to_label(cgraph, 1, 0, 1, 0, 0),
+                             to_label(cgraph, 1, 1, 1, 0, 0), inf),
+                            (to_label(cgraph, 1, 0, 1, 0, 0),
+                             to_label(cgraph, 1, 0, 0, 0, 0), inf)])
+
+        # Chunk D
+        create_chunk(cgraph,
+                     vertices=[to_label(cgraph, 1, 1, 1, 0, 0)],
+                     edges=[(to_label(cgraph, 1, 1, 1, 0, 0),
+                             to_label(cgraph, 1, 0, 1, 0, 0), inf)])
+
+        cgraph.add_layer(3,
+                         np.array([[0, 0, 0], [1, 0, 0], [0, 1, 0], [1, 1, 0]]))
+
+        rr = cgraph.range_read_chunk(
+            chunk_id=cgraph.get_chunk_id(layer=3, x=0, y=0, z=0))
+        root_ids_t0 = [pychunkedgraph.backend.key_utils.deserialize_uint64(k)
+                       for k in rr.keys()]
+
+        assert len(root_ids_t0) == 2
+
+        child_ids = []
+        for root_id in root_ids_t0:
+            print("root_id", root_id)
+            child_ids.extend(cgraph.get_subgraph(root_id))
+
+        new_roots = cgraph.add_edges("Jane Doe",
+                                     [to_label(cgraph, 1, 0, 0, 0, 0),
+                                      to_label(cgraph, 1, 0, 0, 0, 1)],
+                                     affinities=[.5])
+
+        root_ids = []
+        for child_id in child_ids:
+            root_ids.append(cgraph.get_root(child_id))
+
+        assert len(np.unique(root_ids)) == 1
+
+        root_id = root_ids[0]
+        assert root_id == new_roots[0]
+
+        cross_edge_dict_layers = graph_tests.root_cross_edge_test(root_id,
+                                                                  cg=cgraph)  # dict: layer -> cross_edge_dict
+        n_cross_edges_layer = collections.defaultdict(list)
+
+        for child_layer in cross_edge_dict_layers.keys():
+            for layer in cross_edge_dict_layers[child_layer].keys():
+                n_cross_edges_layer[layer].append(
+                    len(cross_edge_dict_layers[child_layer][layer]))
+
+        for layer in n_cross_edges_layer.keys():
+            assert len(np.unique(n_cross_edges_layer[layer])) == 1
+
+    @pytest.mark.timeout(30)
+    def test_cross_edges(self, gen_graph):
+        """
+        Remove edge between existing RG supervoxels 1 and 2 (neighboring chunks)
+        ┌─────┬────────┬─────┐      ┌─────┬────────┬─────┐
+        |     │     A¹ │  B¹ │      |     │     A¹ │  B¹ │
+        |     │  4  1━━┿━━5  │  =>  |     │  4━━1━━┿━━5  │
+        |     │   /    │  |  │      |     │   /    │  |  │
+        |     │  3  2━━┿━━6  │      |     │  3  2━━┿━━6  │
+        └─────┴────────┴─────┘      └─────┴────────┴─────┘
+        """
+
+        cgraph = gen_graph(n_layers=4)
+
+        # Preparation: Build Chunk A
+        fake_timestamp = datetime.utcnow() - timedelta(days=10)
+        create_chunk(cgraph,
+                     vertices=[to_label(cgraph, 1, 1, 0, 0, 0), to_label(cgraph, 1, 1, 0, 0, 1),
+                               to_label(cgraph, 1, 1, 0, 0, 2), to_label(cgraph, 1, 1, 0, 0, 3)],
+                     edges=[(to_label(cgraph, 1, 1, 0, 0, 0), to_label(cgraph, 1, 2, 0, 0, 0), inf),
+                            (to_label(cgraph, 1, 1, 0, 0, 1), to_label(cgraph, 1, 2, 0, 0, 1), inf),
+                            (to_label(cgraph, 1, 1, 0, 0, 0), to_label(cgraph, 1, 1, 0, 0, 2), .5)],
+                     timestamp=fake_timestamp)
+
+        # Preparation: Build Chunk B
+        create_chunk(cgraph,
+                     vertices=[to_label(cgraph, 1, 2, 0, 0, 0), to_label(cgraph, 1, 2, 0, 0, 1)],
+                     edges=[(to_label(cgraph, 1, 2, 0, 0, 0), to_label(cgraph, 1, 1, 0, 0, 0), inf),
+                            (to_label(cgraph, 1, 2, 0, 0, 1), to_label(cgraph, 1, 1, 0, 0, 1), inf),
+                            (to_label(cgraph, 1, 2, 0, 0, 1), to_label(cgraph, 1, 2, 0, 0, 0), .5)],
+                     timestamp=fake_timestamp)
+
+        cgraph.add_layer(3, np.array([[0, 0, 0], [1, 0, 0]]), time_stamp=fake_timestamp)
+        cgraph.add_layer(3, np.array([[2, 0, 0], [3, 0, 0]]), time_stamp=fake_timestamp)
+        cgraph.add_layer(4, np.array([[0, 0, 0], [1, 0, 0]]), time_stamp=fake_timestamp)
+
+
+        new_roots = cgraph.add_edges("Jane Doe",
+                                     [to_label(cgraph, 1, 1, 0, 0, 0),
+                                      to_label(cgraph, 1, 1, 0, 0, 3)],
+                                     affinities=.9)
+
+        assert len(new_roots) == 1
+        root_id = new_roots[0]
+
+        cross_edge_dict_layers = graph_tests.root_cross_edge_test(root_id,
+                                                                  cg=cgraph)  # dict: layer -> cross_edge_dict
+        n_cross_edges_layer = collections.defaultdict(list)
+
+        for child_layer in cross_edge_dict_layers.keys():
+            for layer in cross_edge_dict_layers[child_layer].keys():
+                n_cross_edges_layer[layer].append(
+                    len(cross_edge_dict_layers[child_layer][layer]))
+
+        for layer in n_cross_edges_layer.keys():
+            assert len(np.unique(n_cross_edges_layer[layer])) == 1
 
 
 class TestGraphSplit:
@@ -1862,7 +2029,8 @@ class TestGraphSplit:
         create_chunk(cgraph,
                      vertices=[to_label(cgraph, 1, 0, 0, 0, 0), to_label(cgraph, 1, 0, 0, 0, 1)],
                      edges=[(to_label(cgraph, 1, 0, 0, 0, 0), to_label(cgraph, 1, 0, 0, 0, 1), 0.5),
-                            (to_label(cgraph, 1, 0, 0, 0, 0), to_label(cgraph, 1, 1, 0, 0, 0), inf)])
+                            (to_label(cgraph, 1, 0, 0, 0, 0), to_label(cgraph, 1, 1, 0, 0, 0), inf),
+                            (to_label(cgraph, 1, 0, 0, 0, 0), to_label(cgraph, 1, 0, 1, 0, 0), inf)])
 
         # Chunk B
         create_chunk(cgraph,
@@ -2021,6 +2189,17 @@ class TestGraphMergeSplit:
             u_root_ids = np.unique(root_ids)
             assert len(u_root_ids) == 2
 
+
+            for root_id in root_ids:
+                cross_edge_dict_layers = graph_tests.root_cross_edge_test(root_id, cg=cgraph) # dict: layer -> cross_edge_dict
+                n_cross_edges_layer = collections.defaultdict(list)
+
+                for child_layer in cross_edge_dict_layers.keys():
+                    for layer in cross_edge_dict_layers[child_layer].keys():
+                        n_cross_edges_layer[layer].append(len(cross_edge_dict_layers[child_layer][layer]))
+
+                for layer in n_cross_edges_layer.keys():
+                    assert len(np.unique(n_cross_edges_layer[layer])) == 1
 
 class TestGraphMinCut:
     # TODO: Ideally, those tests should focus only on mincut retrieving the correct edges.
