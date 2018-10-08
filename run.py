@@ -8,8 +8,8 @@ if __name__ == "__main__":
     WSGIRequestHandler.protocol_version = "HTTP/1.1"
 
     application.run(host='0.0.0.0',
-                    port=4000,
-                    debug=True,
+                    port=80,
+                    debug=False,
                     threaded=True,
                     ssl_context='adhoc')
 
