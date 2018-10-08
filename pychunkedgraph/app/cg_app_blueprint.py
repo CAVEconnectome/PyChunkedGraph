@@ -8,12 +8,11 @@ import datetime
 import sys
 import os
 import traceback
-import collections
 
 from pychunkedgraph.app import app_utils
 
-__version__ = '0.1.17'
-bp = Blueprint('pychunkedgraph', __name__, url_prefix="/segmentation")
+__version__ = '0.1.6'
+bp = Blueprint('pychunkedgraph', __name__, url_prefix="/")
 
 # -------------------------------
 # ------ Access control and index
@@ -143,22 +142,13 @@ def handle_merge():
         x /= 2
         y /= 2
 
-        coordinate = np.array([x, y, z])
-
-        if not cg.is_in_bounds(coordinate):
-            coordinate /= cg.segmentation_resolution
-
-            coordinate[0] *= 2
-            coordinate[1] *= 2
-
-        atomic_id = cg.get_atomic_id_from_coord(coordinate[0],
-                                                coordinate[1],
-                                                coordinate[2],
+        atomic_id = cg.get_atomic_id_from_coord(x, y, z,
                                                 parent_id=np.uint64(node_id))
         if atomic_id is None:
             return None
 
-        coords.append(coordinate)
+
+        coords.append(np.array([x, y, z]))
         atomic_edge.append(atomic_id)
 
     # Protection from long range mergers
@@ -186,14 +176,12 @@ def handle_split():
 
     user_id = str(request.remote_addr)
 
-    print(data)
-
     # Call ChunkedGraph
     cg = app_utils.get_cg()
 
     data_dict = {}
     for k in ["sources", "sinks"]:
-        data_dict[k] = collections.defaultdict(list)
+        data_dict[k] = []
 
         for node in data[k]:
             node_id = node[0]
@@ -202,37 +190,19 @@ def handle_split():
             x /= 2
             y /= 2
 
-            coordinate = np.array([x, y, z])
-
-            print("before", coordinate)
-
-            if not cg.is_in_bounds(coordinate):
-                coordinate /= cg.segmentation_resolution
-
-                coordinate[0] *= 2
-                coordinate[1] *= 2
-
-            print("after", coordinate)
-
-            atomic_id = cg.get_atomic_id_from_coord(coordinate[0],
-                                                    coordinate[1],
-                                                    coordinate[2],
-                                                    parent_id=np.uint64(
-                                                        node_id))
-
+            atomic_id = cg.get_atomic_id_from_coord(x, y, z,
+                                                    parent_id=np.uint64(node_id))
             if atomic_id is None:
                 return None
 
-            data_dict[k]["id"].append(atomic_id)
-            data_dict[k]["coord"].append(coordinate)
-
-    print(data_dict)
+            data_dict[k].append({"id": atomic_id,
+                                 "coord": np.array([x, y, z])})
 
     new_roots = cg.remove_edges(user_id=user_id,
-                                source_ids=data_dict["sources"]["id"],
-                                sink_ids=data_dict["sinks"]["id"],
-                                source_coords=data_dict["sources"]["coord"],
-                                sink_coords=data_dict["sinks"]["coord"],
+                                source_id=data_dict["sources"][0]["id"],
+                                sink_id=data_dict["sinks"][0]["id"],
+                                source_coord=data_dict["sources"][0]["coord"],
+                                sink_coord=data_dict["sinks"][0]["coord"],
                                 mincut=True)
 
     if new_roots is None:
