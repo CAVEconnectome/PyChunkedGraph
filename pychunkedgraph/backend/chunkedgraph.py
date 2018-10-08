@@ -183,6 +183,10 @@ def combine_cross_chunk_edge_dicts(d1, d2, start_layer=2):
         else:
             raise Exception()
 
+        edges_flattened_view = new_d[l].view(dtype='u8,u8')
+        m = np.unique(edges_flattened_view, return_index=True)[1]
+        new_d[l] = new_d[l][m]
+
     return new_d
 
 class ChunkedGraph(object):
@@ -3439,6 +3443,12 @@ class ChunkedGraph(object):
                                             maintained_child_ids])
 
                 for child_id in child_ids:
+                    child_cross_chunk_edges = self.read_cross_chunk_edges(child_id)
+                    cross_chunk_edge_dict = combine_cross_chunk_edge_dicts(cross_chunk_edge_dict,
+                                                                           child_cross_chunk_edges)
+                # ----------------------------------------------------------------------------------------------
+
+                for child_id in child_ids:
                     val_dict = {"parents": new_parent_id_b}
                     rows.append(self.mutate_row(key_utils.serialize_uint64(child_id),
                                                 self.family_id,
@@ -3454,6 +3464,7 @@ class ChunkedGraph(object):
 
                 for l in range(i_layer, self.n_layers):
                     if len(cross_chunk_edge_dict[l]) > 0:
+                        print(cross_chunk_edge_dict[l])
                         val_dict[table_info.cross_chunk_edge_keyformat % l] = \
                             cross_chunk_edge_dict[l].tobytes()
 
@@ -3463,9 +3474,8 @@ class ChunkedGraph(object):
                                                 time_stamp=time_stamp))
 
                 if i_layer < self.n_layers - 1:
-
                     next_old_parents = np.unique([self.get_parent(n)
-                                                  for n in old_parent_ids])
+                                                  for n in old_parent_ids]) # ---------------------------------
 
                     for p in next_old_parents:
                         old_parent_mapping[p].append(len(next_cc_storage))
@@ -3529,6 +3539,7 @@ class ChunkedGraph(object):
                     rows.append(self.mutate_row(key_utils.serialize_uint64(
                         atomic_edge[i_atomic_id]), self.family_id, val_dict,
                         time_stamp=time_stamp))
+
         return new_root_ids, rows
 
     def remove_edges(self,

@@ -113,10 +113,12 @@ def root_cross_edge_test(node_id, table_id=None, cg=None):
         cg = chunkedgraph.ChunkedGraph(table_id)
 
     cross_edge_dict_layers = {}
+    cross_edge_dict_children = {}
     for layer in range(2, cg.n_layers):
         child_ids = cg.get_subgraph(node_id, stop_lvl=layer)
 
         cross_edge_dict = {}
+        child_reference_ids = []
         for child_id in child_ids:
             cross_edge_dict = chunkedgraph.combine_cross_chunk_edge_dicts(cross_edge_dict, cg.read_cross_chunk_edges(child_id))
 

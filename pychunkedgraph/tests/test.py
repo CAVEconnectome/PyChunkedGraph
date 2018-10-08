@@ -1385,49 +1385,81 @@ class TestGraphMerge:
     def test_cross_edges(self, gen_graph):
         """
         Remove edge between existing RG supervoxels 1 and 2 (neighboring chunks)
-        ┌─────┬────────┬─────┐      ┌─────┬────────┬─────┐
+        ┌─...─┬────────┬─────┐      ┌─...─┬────────┬─────┐
         |     │     A¹ │  B¹ │      |     │     A¹ │  B¹ │
         |     │  4  1━━┿━━5  │  =>  |     │  4━━1━━┿━━5  │
-        |     │   /    │  |  │      |     │   /    │  |  │
+        |     │   /    │  |  │      |     │   /    │     │
         |     │  3  2━━┿━━6  │      |     │  3  2━━┿━━6  │
-        └─────┴────────┴─────┘      └─────┴────────┴─────┘
+        └─...─┴────────┴─────┘      └─...─┴────────┴─────┘
         """
 
-        cgraph = gen_graph(n_layers=4)
+        cgraph = gen_graph(n_layers=6)
+
+        chunk_offset = 6
 
         # Preparation: Build Chunk A
         fake_timestamp = datetime.utcnow() - timedelta(days=10)
         create_chunk(cgraph,
-                     vertices=[to_label(cgraph, 1, 1, 0, 0, 0), to_label(cgraph, 1, 1, 0, 0, 1),
-                               to_label(cgraph, 1, 1, 0, 0, 2), to_label(cgraph, 1, 1, 0, 0, 3)],
-                     edges=[(to_label(cgraph, 1, 1, 0, 0, 0), to_label(cgraph, 1, 2, 0, 0, 0), inf),
-                            (to_label(cgraph, 1, 1, 0, 0, 1), to_label(cgraph, 1, 2, 0, 0, 1), inf),
-                            (to_label(cgraph, 1, 1, 0, 0, 0), to_label(cgraph, 1, 1, 0, 0, 2), .5)],
+                     vertices=[to_label(cgraph, 1, chunk_offset, 0, 0, 0), to_label(cgraph, 1, chunk_offset, 0, 0, 1),
+                               to_label(cgraph, 1, chunk_offset, 0, 0, 2), to_label(cgraph, 1, chunk_offset, 0, 0, 3)],
+                     edges=[(to_label(cgraph, 1, chunk_offset, 0, 0, 0), to_label(cgraph, 1, chunk_offset+1, 0, 0, 0), inf),
+                            (to_label(cgraph, 1, chunk_offset, 0, 0, 1), to_label(cgraph, 1, chunk_offset+1, 0, 0, 1), inf),
+                            (to_label(cgraph, 1, chunk_offset, 0, 0, 0), to_label(cgraph, 1, chunk_offset, 0, 0, 2), .5)],
                      timestamp=fake_timestamp)
 
         # Preparation: Build Chunk B
         create_chunk(cgraph,
-                     vertices=[to_label(cgraph, 1, 2, 0, 0, 0), to_label(cgraph, 1, 2, 0, 0, 1)],
-                     edges=[(to_label(cgraph, 1, 2, 0, 0, 0), to_label(cgraph, 1, 1, 0, 0, 0), inf),
-                            (to_label(cgraph, 1, 2, 0, 0, 1), to_label(cgraph, 1, 1, 0, 0, 1), inf),
-                            (to_label(cgraph, 1, 2, 0, 0, 1), to_label(cgraph, 1, 2, 0, 0, 0), .5)],
+                     vertices=[to_label(cgraph, 1, chunk_offset+1, 0, 0, 0), to_label(cgraph, 1, chunk_offset+1, 0, 0, 1)],
+                     edges=[(to_label(cgraph, 1, chunk_offset+1, 0, 0, 0), to_label(cgraph, 1, chunk_offset, 0, 0, 0), inf),
+                            (to_label(cgraph, 1, chunk_offset+1, 0, 0, 1), to_label(cgraph, 1, chunk_offset, 0, 0, 1), inf),
+                            (to_label(cgraph, 1, chunk_offset+1, 0, 0, 0), to_label(cgraph, 1, chunk_offset+2, 0, 0, 0), inf),
+                            (to_label(cgraph, 1, chunk_offset+1, 0, 0, 1), to_label(cgraph, 1, chunk_offset+2, 0, 0, 1), inf)],
                      timestamp=fake_timestamp)
 
-        cgraph.add_layer(3, np.array([[0, 0, 0], [1, 0, 0]]), time_stamp=fake_timestamp)
-        cgraph.add_layer(3, np.array([[2, 0, 0], [3, 0, 0]]), time_stamp=fake_timestamp)
-        cgraph.add_layer(4, np.array([[0, 0, 0], [1, 0, 0]]), time_stamp=fake_timestamp)
+        # Preparation: Build Chunk C
+        create_chunk(cgraph,
+                     vertices=[to_label(cgraph, 1, chunk_offset+2, 0, 0, 0), to_label(cgraph, 1, chunk_offset+2, 0, 0, 1)],
+                     edges=[(to_label(cgraph, 1, chunk_offset+2, 0, 0, 0), to_label(cgraph, 1, chunk_offset+1, 0, 0, 0), inf),
+                            (to_label(cgraph, 1, chunk_offset+2, 0, 0, 1), to_label(cgraph, 1, chunk_offset+1, 0, 0, 1), inf),
+                            (to_label(cgraph, 1, chunk_offset+2, 0, 0, 0), to_label(cgraph, 1, chunk_offset+3, 0, 0, 0), inf),
+                            (to_label(cgraph, 1, chunk_offset+2, 0, 0, 0), to_label(cgraph, 1, chunk_offset+2, 0, 0, 1), .5)],
+                     timestamp=fake_timestamp)
+
+        # Preparation: Build Chunk D
+        create_chunk(cgraph,
+                     vertices=[to_label(cgraph, 1, chunk_offset+3, 0, 0, 0)],
+                     edges=[(to_label(cgraph, 1, chunk_offset+3, 0, 0, 0), to_label(cgraph, 1, chunk_offset+2, 0, 0, 0), inf),
+                            (to_label(cgraph, 1, chunk_offset+3, 0, 0, 0), to_label(cgraph, 1, chunk_offset+4, 0, 0, 0), inf)],
+                     timestamp=fake_timestamp)
+
+        # Preparation: Build Chunk E
+        create_chunk(cgraph,
+                     vertices=[to_label(cgraph, 1, chunk_offset+4, 0, 0, 0)],
+                     edges=[(to_label(cgraph, 1, chunk_offset+4, 0, 0, 0), to_label(cgraph, 1, chunk_offset+3, 0, 0, 0), inf),
+                            (to_label(cgraph, 1, chunk_offset+4, 0, 0, 0), to_label(cgraph, 1, chunk_offset+5, 0, 0, 0), inf)],
+                     timestamp=fake_timestamp)
+
+        # Preparation: Build Chunk F
+        create_chunk(cgraph,
+                     vertices=[to_label(cgraph, 1, chunk_offset+5, 0, 0, 0)],
+                     edges=[(to_label(cgraph, 1, chunk_offset+5, 0, 0, 0), to_label(cgraph, 1, chunk_offset+4, 0, 0, 0), inf)],
+                     timestamp=fake_timestamp)
+
+
+        for i_layer in range(3, 7):
+            for i_chunk in range(0, 2 ** (7 - i_layer), 2):
+                cgraph.add_layer(i_layer, np.array([[i_chunk, 0, 0], [i_chunk+1, 0, 0]]), time_stamp=fake_timestamp)
 
 
         new_roots = cgraph.add_edges("Jane Doe",
-                                     [to_label(cgraph, 1, 1, 0, 0, 0),
-                                      to_label(cgraph, 1, 1, 0, 0, 3)],
+                                     [to_label(cgraph, 1, chunk_offset, 0, 0, 0),
+                                      to_label(cgraph, 1, chunk_offset, 0, 0, 3)],
                                      affinities=.9)
 
         assert len(new_roots) == 1
         root_id = new_roots[0]
 
-        cross_edge_dict_layers = graph_tests.root_cross_edge_test(root_id,
-                                                                  cg=cgraph)  # dict: layer -> cross_edge_dict
+        cross_edge_dict_layers = graph_tests.root_cross_edge_test(root_id, cg=cgraph)  # dict: layer -> cross_edge_dict
         n_cross_edges_layer = collections.defaultdict(list)
 
         for child_layer in cross_edge_dict_layers.keys():
@@ -1436,6 +1468,7 @@ class TestGraphMerge:
                     len(cross_edge_dict_layers[child_layer][layer]))
 
         for layer in n_cross_edges_layer.keys():
+            print("LAYER %d" % layer)
             assert len(np.unique(n_cross_edges_layer[layer])) == 1
 
 
