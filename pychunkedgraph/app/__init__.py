@@ -20,7 +20,7 @@ def create_app(test_config=None):
         app.config.update(test_config)
 
     app.register_blueprint(cg_app_blueprint.bp)
-    app.register_blueprint(manifest_app_blueprint.bp)
+    # app.register_blueprint(manifest_app_blueprint.bp)
 
     return app
 
