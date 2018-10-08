@@ -1,11 +1,13 @@
-from flask import Blueprint, request, make_response, g
+from flask import Blueprint, request, make_response
 from flask import current_app
 # from google.cloud import pubsub_v1
 import json
 import numpy as np
 import time
 import datetime
-# import pymongo
+import sys
+import os
+import traceback
 
 from pychunkedgraph.app import app_utils
 
@@ -39,47 +41,60 @@ def home():
 
 @bp.before_request
 def before_request():
-    print("NEW REQUEST:", datetime.datetime.now(), request.url)
-    g.request_start_time = time.time()
+    # print("NEW REQUEST:", datetime.datetime.now(), request.url)
+    current_app.request_start_time = time.time()
+    current_app.request_start_date = datetime.datetime.utcnow()
 
 
 @bp.after_request
 def after_request(response):
-    dt = (time.time() - g.request_start_time) * 1000
+    dt = (time.time() - current_app.request_start_time) * 1000
 
-    url_split = request.url.split("/")
-    current_app.logger.info("%s - %s - %s - %s - %f.3" %
-                            (request.path.split("/")[-1], "1",
-                             "".join([url_split[-2], "/", url_split[-1]]),
-                             str(request.data), dt))
+    user_ip = str(request.remote_addr)
 
-    print("Response time: %.3fms" % (dt))
+    log_db = app_utils.get_log_db()
+    log_db.add_success_log(user_id=user_ip, user_ip=user_ip,
+                           request_time=current_app.request_start_date,
+                           response_time=dt, url=request.url,
+                           request_data=request.data)
+
+    print("Response time: %.3fms" % dt)
     return response
 
 
 @bp.errorhandler(500)
 def internal_server_error(error):
-    dt = (time.time() - g.request_start_time) * 1000
+    dt = (time.time() - current_app.request_start_time) * 1000
 
-    url_split = request.url.split("/")
-    current_app.logger.error("%s - %s - %s - %s - %f.3" %
-                             (request.path.split("/")[-1],
-                              "Server Error: " + error,
-                              "".join([url_split[-2], "/", url_split[-1]]),
-                              str(request.data), dt))
+    user_ip = str(request.remote_addr)
+
+    log_db = app_utils.get_log_db()
+    log_db.add_internal_error_log(user_id=user_ip, user_ip=user_ip,
+                                  request_time=current_app.request_start_date,
+                                  response_time=dt, url=request.url,
+                                  request_data=request.data, err_msg=error)
+    print(error)
+    print("Response time: %.3fms" % dt)
     return 500
 
 
 @bp.errorhandler(Exception)
 def unhandled_exception(e):
-    dt = (time.time() - g.request_start_time) * 1000
+    dt = (time.time() - current_app.request_start_time) * 1000
 
-    url_split = request.url.split("/")
-    current_app.logger.error("%s - %s - %s - %s - %f.3" %
-                             (request.path.split("/")[-1],
-                              "Exception: " + str(e),
-                              "".join([url_split[-2], "/", url_split[-1]]),
-                              str(request.data), dt))
+    user_ip = str(request.remote_addr)
+
+    tb = ''.join(traceback.format_exception(etype=type(e), value=e,
+                                            tb=e.__traceback__))
+
+    log_db = app_utils.get_log_db()
+    log_db.add_unhandled_exception_log(user_id=user_ip, user_ip=user_ip,
+                                       request_time=current_app.request_start_date,
+                                       response_time=dt, url=request.url,
+                                       request_data=request.data, err_msg=tb)
+
+    print(str(e))
+    print("Response time: %.3fms" % dt)
     return 500
 
 # -------------------
@@ -119,15 +134,21 @@ def handle_merge():
     cg = app_utils.get_cg()
 
     atomic_edge = []
+    coords = []
     for node in nodes:
         node_id = node[0]
         x, y, z = node[1:]
+
+        x /= 2
+        y /= 2
 
         atomic_id = cg.get_atomic_id_from_coord(x, y, z,
                                                 parent_id=np.uint64(node_id))
         if atomic_id is None:
             return None
 
+
+        coords.append(np.array([x, y, z]))
         atomic_edge.append(atomic_id)
 
     # Protection from long range mergers
@@ -137,8 +158,10 @@ def handle_merge():
     if np.any(np.abs(chunk_coord_delta) > 1):
         return None
 
-    new_root = cg.add_edge(user_id=user_id,
-                           atomic_edge=np.array(atomic_edge, dtype=np.uint64))
+    new_root = cg.add_edges(user_id=user_id,
+                            atomic_edges=np.array(atomic_edge, dtype=np.uint64),
+                            source_coord=coords[:1],
+                            sink_coord=coords[1:])
 
     if new_root is None:
         return None
@@ -163,6 +186,9 @@ def handle_split():
         for node in data[k]:
             node_id = node[0]
             x, y, z = node[1:]
+
+            x /= 2
+            y /= 2
 
             atomic_id = cg.get_atomic_id_from_coord(x, y, z,
                                                     parent_id=np.uint64(node_id))
@@ -194,18 +220,9 @@ def handle_children(parent_id):
     parent_id = np.uint64(parent_id)
     layer = cg.get_chunk_layer(parent_id)
 
-    if layer > 4:
-        stop_lvl = 4
-    elif layer > 3:
-        stop_lvl = 3
-    elif layer == 3:
-        stop_lvl = 2
+    if layer > 1:
+        children = cg.get_children(parent_id)
     else:
-        stop_lvl = 1
-
-    try:
-        children = cg.get_subgraph(parent_id, stop_lvl=stop_lvl)
-    except:
         children = np.array([])
 
     # Return binary

@@ -15,24 +15,15 @@ if __name__ == '__main__':
     port = int(sys.argv[2])
     app.config['CHUNKGRAPH_TABLE_ID'] = table_id
 
-    # Initialize chunkedgraph:
-    # cg = chunkedgraph.ChunkedGraph(table_id=table_id)
-
-    # Initialize google pubsub publisher
-    # publisher = pubsub_v1.PublisherClient()
-    # topic_path = publisher.topic_path('neuromancer-seung-import',
-    #                                   'pychunkedgraph')
-
     # Set HTTP protocol
     WSGIRequestHandler.protocol_version = "HTTP/1.1"
     # WSGIRequestHandler.protocol_version = "HTTP/2.0"
 
-    print("Table: %s; Port: %d; Log-Path: %s" %
-          (table_id, port, app.config['LOGGING_LOCATION']))
+    print("Table: %s; Port: %d" %
+          (app.config['CHUNKGRAPH_TABLE_ID'], port))
 
     app.run(host='0.0.0.0',
             port=port,
             debug=True,
             threaded=True,
-            ssl_context=(HOME + '/keys/server.crt',
-                         HOME + '/keys/server.key'))
+            ssl_context='adhoc')

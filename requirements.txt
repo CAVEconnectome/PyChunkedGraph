@@ -1,11 +1,11 @@
-google-cloud
-cloud-volume
+numpy
 pandas
 networkx
 google-cloud-bigtable==0.28.1
+google-cloud-datastore
 networkx
-bitstring
 flask
 flask_cors
 codecov
 multiwrapper
+cloud-volume

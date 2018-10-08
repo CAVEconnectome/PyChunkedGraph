@@ -48,12 +48,11 @@ def download_and_store_cv_files(dataset_name="basil",
     # Run parallelizing
     if n_threads == 1:
         mu.multiprocess_func(_download_and_store_cv_files_thread,
-                                                multi_args, n_threads=n_threads,
-                                                verbose=True, debug=n_threads==1)
+                             multi_args, n_threads=n_threads,
+                             verbose=True, debug=n_threads==1)
     else:
         mu.multisubprocess_func(_download_and_store_cv_files_thread,
-                                                   multi_args,
-                                                   n_threads=n_threads)
+                                multi_args, n_threads=n_threads)
 
 
 def _download_and_store_cv_files_thread(args):
