@@ -11,7 +11,7 @@ import traceback
 
 from pychunkedgraph.app import app_utils
 
-
+__version__ = '0.1.6'
 bp = Blueprint('pychunkedgraph', __name__, url_prefix="/")
 
 # -------------------------------
@@ -21,7 +21,7 @@ bp = Blueprint('pychunkedgraph', __name__, url_prefix="/")
 @bp.route('/')
 @bp.route("/index")
 def index():
-    return "PyChunkedGraph Server -- 0.2"
+    return "PyChunkedGraph Server -- " + __version__
 
 
 @bp.route
