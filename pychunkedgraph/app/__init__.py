@@ -7,7 +7,7 @@ from . import config
 
 # from pychunkedgraph.app import app_blueprint
 from pychunkedgraph.app import cg_app_blueprint
-from pychunkedgraph.app import manifest_app_blueprint
+# from pychunkedgraph.app import manifest_app_blueprint
 
 
 def create_app(test_config=None):
