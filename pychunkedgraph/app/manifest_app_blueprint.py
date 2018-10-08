@@ -22,7 +22,7 @@ bp = Blueprint('pychunkedgraph_manifest', __name__, url_prefix="/manifest")
 @bp.route('/')
 @bp.route("/index")
 def index():
-    return "Manifest Server -- 0.2"
+    return "Manifest Server -- 0.1"
 
 
 @bp.route
