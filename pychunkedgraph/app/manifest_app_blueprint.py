@@ -1,15 +1,15 @@
 from flask import Blueprint, request, make_response
-from flask import current_app
+# from flask import current_app
 # from google.cloud import pubsub_v1
-import json
-import numpy as np
-import time
-import datetime
-import sys
-import os
-import traceback
+# import json
+# import numpy as np
+# import time
+# import datetime
+# import sys
+# import os
+# import traceback
 
-from pychunkedgraph.meshing import meshgen
+from pychunkedgraph.meshing import meshgen_utils
 from pychunkedgraph.app import app_utils
 
 
@@ -44,6 +44,7 @@ def home():
 def handle_children_meshes(node_id):
     cg = app_utils.get_cg()
 
-    child = meshgen.get_downstream_multi_child_node(cg, node_id, stop_layer=2)
+    child = meshgen_utils.get_downstream_multi_child_node(cg, node_id,
+                                                          stop_layer=2)
 
     return child
