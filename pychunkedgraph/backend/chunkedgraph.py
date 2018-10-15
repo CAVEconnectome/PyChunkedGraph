@@ -407,6 +407,8 @@ class ChunkedGraph(object):
                              end_id=np.iinfo(np.uint64).max - np.uint64(2),
                              time_filter=time_filter, max_block_size=np.iinfo(np.uint64).max)
 
+
+        raise()
         rows = list(rr.values())
         for row in rows:
             for fam_id in row.keys():
