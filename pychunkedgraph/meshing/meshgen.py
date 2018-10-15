@@ -6,6 +6,7 @@ import re
 
 from cloudvolume import CloudVolume, Storage, EmptyVolumeException
 from cloudvolume.meshservice import decode_mesh_buffer
+
 from functools import lru_cache
 from igneous.tasks import MeshTask
 
@@ -102,22 +103,15 @@ def _get_sv_to_node_mapping_internal(cg, chunk_id, unbreakable_only):
     # Retrieve all face-adjacent supervoxel
     one_hop_neighbors = {}
     for seg_id_b, data in seg_ids_center.items():
-        partners = np.frombuffer(
-            data.cells['0'][b'atomic_partners'][0].value,
-            dtype=np.uint64)
-        connected = np.frombuffer(
-            data.cells['0'][b'connected'][0].value,
-            dtype=np.uint64)
-        connected = get_connected(connected)
-
+        data = cg.flatten_row_dict(data.cells['0'])
+        partners = data['atomic_partners']
+        connected = get_connected(data['connected'])
         partners = partners[connected]
 
         # Only keep supervoxel within the "positive" adjacent chunks
         # (and if specified only the unbreakable counterparts)
         if unbreakable_only:
-            affinities = np.frombuffer(
-                data.cells['0'][b'affinities'][0].value,
-                dtype=np.float32)
+            affinities = data['affinities']
             affinities = affinities[connected]
 
             partners = partners[(affinities == np.inf) &
@@ -131,14 +125,9 @@ def _get_sv_to_node_mapping_internal(cg, chunk_id, unbreakable_only):
     two_hop_neighbors = {}
     for seg_id, base_id in one_hop_neighbors.items():
         seg_id_b = serialize_uint64(seg_id)
-        partners = np.frombuffer(
-            seg_ids_face_neighbors[seg_id_b].cells['0'][b'atomic_partners'][0].value,
-            dtype=np.uint64)
-        connected = np.frombuffer(
-            seg_ids_face_neighbors[seg_id_b].cells['0'][b'connected'][0].value,
-            dtype=np.uint64)
-        connected = get_connected(connected)
-
+        data = cg.flatten_row_dict(seg_ids_face_neighbors[seg_id_b].cells['0'])
+        partners = data['atomic_partners']
+        connected = get_connected(data['connected'])
         partners = partners[connected]
 
         # FIXME: The partners filter also keeps some connections to within the
@@ -146,9 +135,7 @@ def _get_sv_to_node_mapping_internal(cg, chunk_id, unbreakable_only):
         # That's OK for now, since the filters are only there to keep the
         # number of connections low
         if unbreakable_only:
-            affinities = np.frombuffer(
-                seg_ids_face_neighbors[seg_id_b].cells['0'][b'affinities'][0].value,
-                dtype=np.float32)
+            affinities = data['affinities']
             affinities = affinities[connected]
 
             partners = partners[(affinities == np.inf) &
@@ -169,22 +156,15 @@ def _get_sv_to_node_mapping_internal(cg, chunk_id, unbreakable_only):
             del two_hop_neighbors[seg_id]
             continue
 
-        partners = np.frombuffer(
-            seg_ids_edge_neighbors[seg_id_b].cells['0'][b'atomic_partners'][0].value,
-            dtype=np.uint64)
-        connected = np.frombuffer(
-            seg_ids_edge_neighbors[seg_id_b].cells['0'][b'connected'][0].value,
-            dtype=np.uint64)
-        connected = get_connected(connected)
-
+        data = cg.flatten_row_dict(seg_ids_edge_neighbors[seg_id_b].cells['0'])
+        partners = data['atomic_partners']
+        connected = get_connected(data['connected'])
         partners = partners[connected]
 
         # We are only interested in the single corner voxel, but based on the
         # neighboring supervoxels, there might be a few more - doesn't matter.
         if unbreakable_only:
-            affinities = np.frombuffer(
-                seg_ids_edge_neighbors[seg_id_b].cells['0'][b'affinities'][0].value,
-                dtype=np.float32)
+            affinities = data['affinities']
             affinities = affinities[connected]
 
             partners = partners[(affinities == np.inf) &
@@ -233,7 +213,8 @@ def get_sv_to_node_mapping(cg, chunk_id):
 
         for sv_id, base_sv_id in sv_to_node_mapping.items():
             base_sv_id = serialize_uint64(base_sv_id)
-            agg_id = np.frombuffer(seg_ids[base_sv_id].cells['0'][b'parents'][0].value, dtype=np.uint64)[0]
+            data = cg.flatten_row_dict(seg_ids[base_sv_id].cells['0'])
+            agg_id = data['parents'][-1]  # latest parent
 
             sv_to_node_mapping[sv_id] = agg_id
 
