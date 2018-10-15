@@ -12,7 +12,8 @@ from igneous.tasks import MeshTask
 sys.path.insert(0, os.path.join(sys.path[0], '../..'))
 os.environ['TRAVIS_BRANCH'] = "IDONTKNOWWHYINEEDTHIS"
 
-from pychunkedgraph.backend.chunkedgraph import ChunkedGraph, serialize_uint64  # noqa
+from pychunkedgraph.backend.chunkedgraph import ChunkedGraph  # noqa
+from pychunkedgraph.backend.key_utils import serialize_uint64  # noqa
 
 
 def str_to_slice(slice_str: str):
@@ -27,6 +28,23 @@ def slice_to_str(slices) -> str:
         return "%d-%d" % (slices.start, slices.stop)
     else:
         return '_'.join(map(slice_to_str, slices))
+
+
+def get_connected(connectivity):
+    u_ids, c_ids = np.unique(connectivity, return_counts=True)
+    return u_ids[(c_ids % 2) == 1].astype(np.uint64)
+
+
+def get_chunk_bbox(cg: ChunkedGraph, chunk_id: np.uint64, mip: int):
+    layer = cg.get_chunk_layer(chunk_id)
+    chunk_block_shape = get_mesh_block_shape(cg, layer, mip)
+    bbox_start = cg.get_chunk_coordinates(chunk_id) * chunk_block_shape
+    bbox_end = bbox_start + chunk_block_shape
+    return tuple(slice(bbox_start[i], bbox_end[i]) for i in range(3))
+
+
+def get_chunk_bbox_str(cg: ChunkedGraph, chunk_id: np.uint64, mip: int) -> str:
+    return slice_to_str(get_chunk_bbox(cg, chunk_id, mip))
 
 
 @lru_cache(maxsize=None)
@@ -90,6 +108,7 @@ def _get_sv_to_node_mapping_internal(cg, chunk_id, unbreakable_only):
         connected = np.frombuffer(
             data.cells['0'][b'connected'][0].value,
             dtype=np.uint64)
+        connected = get_connected(connected)
 
         partners = partners[connected]
 
@@ -118,6 +137,7 @@ def _get_sv_to_node_mapping_internal(cg, chunk_id, unbreakable_only):
         connected = np.frombuffer(
             seg_ids_face_neighbors[seg_id_b].cells['0'][b'connected'][0].value,
             dtype=np.uint64)
+        connected = get_connected(connected)
 
         partners = partners[connected]
 
@@ -155,6 +175,7 @@ def _get_sv_to_node_mapping_internal(cg, chunk_id, unbreakable_only):
         connected = np.frombuffer(
             seg_ids_edge_neighbors[seg_id_b].cells['0'][b'connected'][0].value,
             dtype=np.uint64)
+        connected = get_connected(connected)
 
         partners = partners[connected]
 
