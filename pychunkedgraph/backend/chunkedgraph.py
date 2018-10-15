@@ -189,6 +189,14 @@ def combine_cross_chunk_edge_dicts(d1, d2, start_layer=2):
 
     return new_d
 
+def time_min():
+    """ Returns a minimal time stamp that still works with google
+
+    :return: datetime.datetime
+    """
+    return datetime.datetime.strptime("01/01/00 00:00", "%d/%m/%y %H:%M")
+
+
 class ChunkedGraph(object):
     def __init__(self,
                  table_id: str,
@@ -399,6 +407,8 @@ class ChunkedGraph(object):
                              end_id=np.iinfo(np.uint64).max - np.uint64(2),
                              time_filter=time_filter, max_block_size=np.iinfo(np.uint64).max)
 
+
+        raise()
         rows = list(rr.values())
         for row in rows:
             for fam_id in row.keys():
@@ -1128,7 +1138,7 @@ class ChunkedGraph(object):
         return rr
 
     def range_read_operations(self,
-                              time_start: datetime.datetime = datetime.datetime.min,
+                              time_start: datetime.datetime = time_min(),
                               time_end: datetime.datetime = None,
                               start_id: np.uint64 = 0,
                               end_id: np.uint64 = None,
@@ -1158,11 +1168,8 @@ class ChunkedGraph(object):
             return {}
 
         # Comply to resolution of BigTables TimeRange
-        time_start -= datetime.timedelta(
-            microseconds=time_start.microsecond % 1000)
-
-        time_end -= datetime.timedelta(
-            microseconds=time_end.microsecond % 1000)
+        time_start = get_google_compatible_time_stamp(time_start)
+        time_end = get_google_compatible_time_stamp(time_end)
 
         # Create filters: time and id range
         time_filter = TimestampRangeFilter(TimestampRange(start=time_start,
@@ -2654,7 +2661,7 @@ class ChunkedGraph(object):
 
     def get_past_root_ids(self, root_id: np.uint64,
                           time_stamp: Optional[datetime.datetime] =
-                          datetime.datetime.min) -> np.ndarray:
+                          time_min()) -> np.ndarray:
         """ Returns all future root ids emerging from this root
 
         This search happens in a monotic fashion. At no point are future root
@@ -2706,7 +2713,7 @@ class ChunkedGraph(object):
 
     def get_root_id_history(self, root_id: np.uint64,
                             time_stamp_past:
-                            Optional[datetime.datetime] = datetime.datetime.min,
+                            Optional[datetime.datetime] = time_min(),
                             time_stamp_future:
                             Optional[datetime.datetime] = get_max_time()
                             ) -> np.ndarray:
