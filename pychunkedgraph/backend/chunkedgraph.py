@@ -1342,7 +1342,7 @@ class ChunkedGraph(object):
                               source_coords: Sequence[Sequence[np.int]],
                               sink_coords: Sequence[Sequence[np.int]],
                               removed_edges: Sequence[np.uint64],
-                              bb_offset: Sequence[Sequence[np.int]],
+                              bb_offset: Sequence[np.int],
                               time_stamp: datetime.datetime
                               ) -> bigtable.row.Row:
         """ Creates log row for a split
@@ -3551,10 +3551,10 @@ class ChunkedGraph(object):
 
     def remove_edges(self,
                      user_id: str,
-                     source_id: np.uint64,
-                     sink_id: np.uint64,
-                     source_coord: Optional[Sequence[int]] = None,
-                     sink_coord: Optional[Sequence[int]] = None,
+                     source_ids: Sequence[np.uint64],
+                     sink_ids: Sequence[np.uint64],
+                     source_coords: Sequence[Sequence[int]] = None,
+                     sink_coords: Sequence[Sequence[int]] = None,
                      mincut: bool = True,
                      bb_offset: Tuple[int, int, int] = (240, 240, 24),
                      root_ids: Optional[Sequence[np.uint64]] = None,
@@ -3569,11 +3569,11 @@ class ChunkedGraph(object):
         :param user_id: str
             unique id - do not just make something up, use the same id for the
             same user every time
-        :param source_id: uint64
-        :param sink_id: uint64
-        :param source_coord: list of 3 ints
+        :param source_ids: uint64
+        :param sink_ids: uint64
+        :param source_coords: list of 3 ints
             [x, y, z] coordinate of source supervoxel
-        :param sink_coord: list of 3 ints
+        :param sink_coords: list of 3 ints
             [x, y, z] coordinate of sink supervoxel
         :param mincut:
         :param bb_offset: list of 3 ints
@@ -3583,27 +3583,42 @@ class ChunkedGraph(object):
         :return: list of uint64s or None if no split was performed
         """
 
+        if not (isinstance(source_ids, list) or isinstance(source_ids, np.ndarray)):
+            source_ids = [source_ids]
+
+        if not (isinstance(sink_ids, list) or isinstance(sink_ids, np.ndarray)):
+            sink_ids = [sink_ids]
+
         # Sanity Checks
-        if source_id == sink_id:
+        if np.any(np.in1d(sink_ids, source_ids)):
             print("source == sink")
             return None
 
-        if self.get_chunk_layer(source_id) != \
-                self.get_chunk_layer(sink_id):
-            print("layer(source) !== layer(sink)")
-            return None
+        for source_id in source_ids:
+            if self.get_chunk_layer(source_id) != 1:
+                print("layer(source) !== 1")
+                return None
+
+        for sink_id in sink_ids:
+            if self.get_chunk_layer(sink_id) != 1:
+                print("layer(sink) !== 1")
+                return None
 
         if mincut:
-            assert source_coord is not None
-            assert sink_coord is not None
+            assert source_coords is not None
+            assert sink_coords is not None
 
-        if root_ids is None:
-            root_ids = [self.get_root(source_id),
-                        self.get_root(sink_id)]
+        root_ids = set()
+        for source_id in source_ids:
+            root_ids.add(self.get_root(source_id))
+        for sink_id in sink_ids:
+            root_ids.add(self.get_root(sink_id))
 
-        if root_ids[0] != root_ids[1]:
-            print("root(source) != root(sink):", root_ids)
+        if len(root_ids) > 1:
+            print("Multiple root ids:", root_ids)
             return None
+
+        root_ids = list(root_ids)
 
         # Get a unique id for this operation
         operation_id = self.get_unique_operation_id()
@@ -3623,10 +3638,10 @@ class ChunkedGraph(object):
                 if mincut:
                     success, result = \
                         self._remove_edges_mincut(operation_id=operation_id,
-                                                  source_id=source_id,
-                                                  sink_id=sink_id,
-                                                  source_coord=source_coord,
-                                                  sink_coord=sink_coord,
+                                                  source_ids=source_ids,
+                                                  sink_ids=sink_ids,
+                                                  source_coords=source_coords,
+                                                  sink_coords=sink_coords,
                                                   bb_offset=bb_offset)
                     if success:
                         new_root_ids, rows, removed_edges, time_stamp = result
@@ -3636,12 +3651,15 @@ class ChunkedGraph(object):
                                              operation_id=operation_id)
                         return None
                 else:
+                    atomic_edges = np.array(list(itertools.product(source_ids,
+                                                                   sink_ids)))
+
                     success, result = \
                         self._remove_edges(operation_id=operation_id,
-                                           atomic_edges=[(source_id, sink_id)])
+                                           atomic_edges=atomic_edges)
                     if success:
                         new_root_ids, rows, time_stamp = result
-                        removed_edges = [[source_id, sink_id]]
+                        removed_edges = atomic_edges
                     else:
                         for lock_root_id in lock_root_ids:
                             self.unlock_root(lock_root_id,
@@ -3652,18 +3670,21 @@ class ChunkedGraph(object):
                 rows.append(self._create_split_log_row(operation_id,
                                                        user_id,
                                                        new_root_ids,
-                                                       [source_id],
-                                                       [sink_id],
-                                                       [source_coord],
-                                                       [sink_coord],
+                                                       source_ids,
+                                                       sink_ids,
+                                                       source_coords,
+                                                       sink_coords,
                                                        removed_edges,
                                                        bb_offset,
                                                        time_stamp))
 
                 # Execute write (makes sure that we are still owning the lock)
-                if self.bulk_write(rows, lock_root_ids,
-                                   operation_id=operation_id, slow_retry=False):
-                    return new_root_ids
+                if len(sink_ids) > 1 or len(source_ids) > 1:
+                    print(removed_edges)
+                else:
+                    if self.bulk_write(rows, lock_root_ids,
+                                       operation_id=operation_id, slow_retry=False):
+                        return new_root_ids
 
                 for lock_root_id in lock_root_ids:
                     self.unlock_root(lock_root_id, operation_id=operation_id)
@@ -3675,9 +3696,11 @@ class ChunkedGraph(object):
 
         return None
 
-    def _remove_edges_mincut(self, operation_id: np.uint64, source_id: np.uint64,
-                             sink_id: np.uint64, source_coord: Sequence[int],
-                             sink_coord: Sequence[int],
+    def _remove_edges_mincut(self, operation_id: np.uint64,
+                             source_ids: Sequence[np.uint64],
+                             sink_ids: Sequence[np.uint64],
+                             source_coords: Sequence[Sequence[int]],
+                             sink_coords: Sequence[Sequence[int]],
                              bb_offset: Tuple[int, int, int] = (120, 120, 12)
                              ) -> Tuple[
                                  bool,                         # success
@@ -3689,11 +3712,11 @@ class ChunkedGraph(object):
         """ Computes mincut and removes edges accordingly
 
         :param operation_id: uint64
-        :param source_id: uint64
-        :param sink_id: uint64
-        :param source_coord: list of 3 ints
+        :param source_ids: uint64
+        :param sink_ids: uint64
+        :param source_coords: list of 3 ints
             [x, y, z] coordinate of source supervoxel
-        :param sink_coord: list of 3 ints
+        :param sink_coords: list of 3 ints
             [x, y, z] coordinate of sink supervoxel
         :param bb_offset: list of 3 ints
             [x, y, z] bounding box padding beyond box spanned by coordinates
@@ -3701,33 +3724,35 @@ class ChunkedGraph(object):
             new root ids
         """
 
-        time_start = time.time()  # ------------------------------------------
+        time_start = time.time()
 
         bb_offset = np.array(list(bb_offset))
-        source_coord = np.array(source_coord)
-        sink_coord = np.array(sink_coord)
+        source_coords = np.array(source_coords)
+        sink_coords = np.array(sink_coords)
 
         # Decide a reasonable bounding box (NOT guaranteed to be successful!)
-        coords = np.concatenate([source_coord[:, None],
-                                 sink_coord[:, None]], axis=1).T
+        coords = np.concatenate([source_coords, sink_coords])
         bounding_box = [np.min(coords, axis=0), np.max(coords, axis=0)]
 
         bounding_box[0] -= bb_offset
         bounding_box[1] += bb_offset
 
-        root_id_source = self.get_root(source_id)
-        root_id_sink = self.get_root(source_id)
-
         # Verify that sink and source are from the same root object
-        if root_id_source != root_id_sink:
-            print("root(source) != root(sink)")
-            return False, None
+        root_ids = set()
+        for source_id in source_ids:
+            root_ids.add(self.get_root(source_id))
+        for sink_id in sink_ids:
+            root_ids.add(self.get_root(sink_id))
+
+        if len(root_ids) > 1:
+            print("Multiple root ids:", root_ids)
+            return None
 
         print("Get roots and check: %.3fms" %
               ((time.time() - time_start) * 1000))
         time_start = time.time()  # ------------------------------------------
 
-        root_id = root_id_source
+        root_id = root_ids.pop()
 
         # Get edges between local supervoxels
         n_chunks_affected = np.product((np.ceil(bounding_box[1] / self.chunk_size)).astype(np.int) -
@@ -3735,7 +3760,8 @@ class ChunkedGraph(object):
         print("Number of affected chunks: %d" % n_chunks_affected)
         print("Bounding box:", bounding_box)
         print("Bounding box padding:", bb_offset)
-        print("Atomic ids: %d - %d" % (source_id, sink_id))
+        print("Source ids:", source_ids)
+        print("Sink ids:", sink_ids)
         print("Root id:", root_id)
 
         edges, affs, areas = self.get_subgraph(root_id, get_edges=True,
@@ -3747,7 +3773,7 @@ class ChunkedGraph(object):
         time_start = time.time()  # ------------------------------------------
 
         # Compute mincut
-        atomic_edges = cutting.mincut(edges, affs, source_id, sink_id)
+        atomic_edges = cutting.mincut(edges, affs, source_ids, sink_ids)
 
         print("Mincut: %.3fms" % ((time.time() - time_start) * 1000))
         time_start = time.time()  # ------------------------------------------

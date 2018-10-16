@@ -8,6 +8,7 @@ import datetime
 import sys
 import os
 import traceback
+import collections
 
 from pychunkedgraph.app import app_utils
 
@@ -181,7 +182,7 @@ def handle_split():
 
     data_dict = {}
     for k in ["sources", "sinks"]:
-        data_dict[k] = []
+        data_dict[k] = collections.defaultdict(list)
 
         for node in data[k]:
             node_id = node[0]
@@ -195,14 +196,14 @@ def handle_split():
             if atomic_id is None:
                 return None
 
-            data_dict[k].append({"id": atomic_id,
-                                 "coord": np.array([x, y, z])})
+            data_dict[k]["id"].append(atomic_id)
+            data_dict[k]["coord"].append(atomic_id)
 
     new_roots = cg.remove_edges(user_id=user_id,
-                                source_id=data_dict["sources"][0]["id"],
-                                sink_id=data_dict["sinks"][0]["id"],
-                                source_coord=data_dict["sources"][0]["coord"],
-                                sink_coord=data_dict["sinks"][0]["coord"],
+                                source_ids=data_dict["sources"]["id"],
+                                sink_ids=data_dict["sinks"]["id"],
+                                source_coords=data_dict["sources"]["coord"],
+                                sink_coords=data_dict["sinks"]["coord"],
                                 mincut=True)
 
     if new_roots is None:
