@@ -7,6 +7,7 @@ import time
 
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple, Union
 
+float_max = np.finfo(np.float32).max
 
 
 def merge_cross_chunk_edges(edges: Iterable[Sequence[np.uint64]],
@@ -56,12 +57,13 @@ def merge_cross_chunk_edges(edges: Iterable[Sequence[np.uint64]],
 
 
 def mincut(edges: Iterable[Sequence[np.uint64]], affs: Sequence[np.uint64],
-           source: np.uint64, sink: np.uint64) -> np.ndarray:
+           sources: Sequence[np.uint64],
+           sinks: Sequence[np.uint64]) -> np.ndarray:
     """ Computes the min cut on a local graph
     :param edges: n x 2 array of uint64s
     :param affs: float array of length n
-    :param source: uint64
-    :param sink: uint64
+    :param sources: uint64
+    :param sinks: uint64
     :return: m x 2 array of uint64s
         edges that should be removed
     """
@@ -69,7 +71,6 @@ def mincut(edges: Iterable[Sequence[np.uint64]], affs: Sequence[np.uint64],
     time_start = time.time()
 
     original_edges = edges.copy()
-    original_affs = affs.copy()
 
     edges, affs, mapping, remapping = merge_cross_chunk_edges(edges.copy(),
                                                               affs.copy())
@@ -77,48 +78,52 @@ def mincut(edges: Iterable[Sequence[np.uint64]], affs: Sequence[np.uint64],
     if len(edges) == 0:
         return []
 
-    sink_map = np.where(mapping[:, 0] == sink)[0]
-    source_map = np.where(mapping[:, 0] == source)[0]
+    assert np.unique(mapping[:, 0], return_counts=True)[1].max() == 1
 
-    if len(sink_map) == 0:
-        pass
-    elif len(sink_map) == 1:
-        sink = mapping[sink_map[0]][1]
-    else:
-        raise Exception("Sink appears to be overmerged")
+    mapping_dict = dict(mapping)
 
-    if len(source_map) == 0:
-        pass
-    elif len(source_map) == 1:
-        source = mapping[source_map[0]][1]
-    else:
-        raise Exception("Source appears to be overmerged")
+    remapped_sinks = []
+    remapped_sources = []
+
+    for sink in sinks:
+        if sink in mapping_dict:
+            remapped_sinks.append(mapping_dict[sink])
+        else:
+            remapped_sinks.append(sink)
+
+    for source in sources:
+        if source in mapping_dict:
+            remapped_sources.append(mapping_dict[source])
+        else:
+            remapped_sources.append(source)
+
+    sinks = remapped_sinks
+    sources = remapped_sources
+
+    sink_connections = np.array(list(itertools.product(sinks, sinks)))
+    source_connections = np.array(list(itertools.product(sources, sources)))
 
     weighted_graph = nx.Graph()
     weighted_graph.add_edges_from(edges)
+    weighted_graph.add_edges_from(sink_connections)
+    weighted_graph.add_edges_from(source_connections)
 
     for i_edge, edge in enumerate(edges):
         weighted_graph[edge[0]][edge[1]]['capacity'] = affs[i_edge]
-        weighted_graph[edge[0]][edge[1]]['weight'] = affs[i_edge]
         weighted_graph[edge[1]][edge[0]]['capacity'] = affs[i_edge]
-        weighted_graph[edge[1]][edge[0]]['weight'] = affs[i_edge]
 
-    # sink_neighbors = weighted_graph.neighbors(sink)
-    # source_neighbors = weighted_graph.neighbors(source)
-    #
-    # if np.all(~np.in1d(sink_neighbors, source_neighbors)):
-    #     print(sink_neighbors)
-    #     print(source_neighbors)
-    #     for sink_neighbor in sink_neighbors:
-    #         weighted_graph[sink_neighbor][sink]['capacity'] = 1e9
-    #         weighted_graph[sink][sink_neighbor]['capacity'] = 1e9
-    #         weighted_graph[sink_neighbor][sink]['weight'] = 1e9
-    #         weighted_graph[sink][sink_neighbor]['weight'] = 1e9
-    #     for source_neighbor in source_neighbors:
-    #         weighted_graph[source_neighbor][source]['capacity'] = 1e9
-    #         weighted_graph[source][source_neighbor]['capacity'] = 1e9
-    #         weighted_graph[source_neighbor][source]['weight'] = 1e9
-    #         weighted_graph[source][source_neighbor]['weight'] = 1e9
+    print(weighted_graph.nodes())
+
+    # Add infinity edges for multicut
+    for sink_i in sinks:
+        for sink_j in sinks:
+            print(weighted_graph[sink_i])
+            weighted_graph[sink_i][sink_j]['capacity'] = float_max
+
+    for source_i in sources:
+        for source_j in sources:
+            weighted_graph[source_i][source_j]['capacity'] = float_max
+
 
     dt = time.time() - time_start
     print("Graph creation: %.2fms" % (dt * 1000))
@@ -126,15 +131,19 @@ def mincut(edges: Iterable[Sequence[np.uint64]], affs: Sequence[np.uint64],
 
     ccs = list(nx.connected_components(weighted_graph))
     for cc in ccs:
-        if not (source in cc or sink in cc):
+        cc_list = list(cc)
+
+        print(cc_list, sources, sinks)
+        if not (np.any(np.in1d(sources, cc_list)) or
+                       np.any(np.in1d(sinks, cc_list))):
             weighted_graph.remove_nodes_from(cc)
         else:
-            if not (source in cc and sink in cc):
-                print("source and sink are in different "
-                      "connected components")
+            if np.any(~np.in1d(sources, cc_list)) or \
+                    np.any(~np.in1d(sinks, cc_list)):
+                print("sources and sinks are in different connected components")
                 return []
 
-    cutset = nx.minimum_edge_cut(weighted_graph, source, sink,
+    cutset = nx.minimum_edge_cut(weighted_graph, sources[0], sinks[0],
                                  flow_func=edmonds_karp)
 
     dt = time.time() - time_start
@@ -154,7 +163,7 @@ def mincut(edges: Iterable[Sequence[np.uint64]], affs: Sequence[np.uint64],
         print("CC size = %d" % len(cc))
 
     dt = time.time() - time_start
-    print("Splitting: %.2fms" % (dt * 1000))
+    print("Splitting local graph: %.2fms" % (dt * 1000))
 
     remapped_cutset = []
     for cut in cutset:
