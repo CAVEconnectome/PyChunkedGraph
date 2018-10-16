@@ -407,26 +407,20 @@ def chunk_mesh_task(cg, chunk_id, cv_path,
                      len(manifests_to_upload) - len(fragments_to_upload)))
 
 
-def mesh_lvl2_preview(cg, lvl2_node_id, supervoxel_ids=None, cv_path=None,
-                      cv_mesh_dir=None, mip=2, simplification_factor=999999,
-                      max_err=40, parallel_download=8, verbose=True,
-                      cache_control=None):
+def mesh_lvl2_preview(cg, lvl2_node_id, cv_path=None, cv_mesh_dir=None,
+                      mip=3, simplification_factor=999999, max_err=40,
+                      verbose=True, cache_control=None):
     """ Compute a mesh for a level 2 node without hierarchy and without
         consistency beyond the chunk boundary. Useful to give the user a quick
         preview. A proper mesh hierarchy should be generated using
         `mesh_node_hierarchy()`
 
     :param cg: ChunkedGraph instance
-    :param lvl2_node_id: int
-    :param supervoxel_ids: list of np.uint64
+    :param node_id: int
     :param cv_path: str or None (cg.cv_path)
     :param cv_mesh_dir: str or None
     :param mip: int
-    :param simplification_factor: int
     :param max_err: float
-    :param parallel_download: int
-    :param verbose: bool
-    :param cache_control: cache_control
     """
 
     layer = cg.get_chunk_layer(lvl2_node_id)
@@ -435,9 +429,7 @@ def mesh_lvl2_preview(cg, lvl2_node_id, supervoxel_ids=None, cv_path=None,
     if cv_path is None:
         cv_path = cg.cv_path
 
-    if supervoxel_ids is None:
-        supervoxel_ids = cg.get_subgraph(lvl2_node_id, verbose=verbose)
-
+    supervoxel_ids = cg.get_subgraph_nodes(lvl2_node_id, verbose=verbose)
     remap_table = dict(zip(supervoxel_ids, [lvl2_node_id] * len(supervoxel_ids)))
 
     mesh_block_shape = get_mesh_block_shape(cg, layer, mip)
@@ -457,7 +449,7 @@ def mesh_lvl2_preview(cg, lvl2_node_id, supervoxel_ids=None, cv_path=None,
         low_padding=0,
         high_padding=0,
         mesh_dir=cv_mesh_dir,
-        parallel_download=parallel_download,
+        parallel_download=8,
         cache_control=cache_control
     )
     if verbose:

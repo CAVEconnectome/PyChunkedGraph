@@ -270,9 +270,9 @@ def handle_leaves(root_id):
 
     # Call ChunkedGraph
     cg = app_utils.get_cg()
-    atomic_ids = cg.get_subgraph(int(root_id),
-                                 bounding_box=bounding_box,
-                                 bb_is_coordinate=True)
+    atomic_ids = cg.get_subgraph_nodes(int(root_id),
+                                       bounding_box=bounding_box,
+                                       bb_is_coordinate=True)
 
     # Return binary
     return app_utils.tobinary(atomic_ids)
@@ -292,9 +292,9 @@ def handle_leaves_from_leave(atomic_id):
     cg = app_utils.get_cg()
     root_id = cg.get_root(int(atomic_id))
 
-    atomic_ids = cg.get_subgraph(root_id,
-                                 bounding_box=bounding_box,
-                                 bb_is_coordinate=True)
+    atomic_ids = cg.get_subgraph_nodes(root_id,
+                                       bounding_box=bounding_box,
+                                       bb_is_coordinate=True)
     # Return binary
     return app_utils.tobinary(np.concatenate([np.array([root_id]), atomic_ids]))
 
@@ -310,9 +310,8 @@ def handle_subgraph(root_id):
 
     # Call ChunkedGraph
     cg = app_utils.get_cg()
-    atomic_edges = cg.get_subgraph(int(root_id),
-                                   get_edges=True,
-                                   bounding_box=bounding_box,
-                                   bb_is_coordinate=True)[0]
+    atomic_edges = cg.get_subgraph_edges(int(root_id),
+                                         bounding_box=bounding_box,
+                                         bb_is_coordinate=True)[0]
     # Return binary
     return app_utils.tobinary(atomic_edges)
