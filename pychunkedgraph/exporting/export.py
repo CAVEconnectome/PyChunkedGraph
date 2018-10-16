@@ -182,16 +182,30 @@ def export_changelog(cg, path=None):
     deserialized_operations = {}
     for operation_k in operations.keys():
         k = str(pychunkedgraph.backend.key_utils.deserialize_uint64(operation_k))
-        deserialized_operations[k] = \
-            pychunkedgraph.backend.key_utils.row_to_byte_dict(operations[operation_k],
-                                                              f_id=cg.log_family_id,
-                                                              idx=0)
+        log = pychunkedgraph.backend.key_utils.row_to_byte_dict(
+            operations[operation_k], f_id=cg.log_family_id, idx=0)
+        deserialized_operations[k] = deserialize_single_log(log)
 
     if path is not None:
         with open(path, "wb") as f:
             pkl.dump(deserialized_operations, f)
     else:
         return deserialized_operations
+
+
+def deserialize_single_log(log_dict):
+    des_log_dict = {}
+
+    for k in log_dict:
+        if k == "user":
+            des_log_dict[k] = log_dict[k]
+        elif "coord" in k:
+            des_log_dict[k] = np.frombuffer(log_dict[k]).reshape(-1, 3)
+        elif "edges" in k:
+            des_log_dict[k] = np.frombuffer(log_dict[k], dtype=np.uint64).reshape(-1, 2)
+        else:
+            des_log_dict[k] = np.frombuffer(log_dict[k], dtype=np.uint64)
+    return des_log_dict
 
 
 def load_changelog(path):
