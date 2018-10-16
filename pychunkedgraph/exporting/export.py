@@ -48,8 +48,8 @@ def get_sv_to_root_id_mapping_chunk(cg, chunk_coords, vol=None):
         sv_to_root_mapping[atomic_id] = root_id
 
         # Add atomic children of root_id
-        atomic_ids = cg.get_subgraph(root_id, bounding_box=bb,
-                                     bb_is_coordinate=False)
+        atomic_ids = cg.get_subgraph_nodes(root_id, bounding_box=bb,
+                                           bb_is_coordinate=False)
         sv_to_root_mapping.update(dict(zip(atomic_ids,
                                            [root_id] * len(atomic_ids))))
 

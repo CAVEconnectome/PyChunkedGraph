@@ -715,7 +715,6 @@ class TestGraphBuild:
         assert 6 in lvl_3_child_ids
 
 
-
 class TestGraphSimpleQueries:
     """
     ┌─────┬─────┬─────┐        L X Y Z S     L X Y Z S     L X Y Z S     L X Y Z S
@@ -837,8 +836,96 @@ class TestGraphSimpleQueries:
                     cgraph, 4, 0, 0, 0, 1))
 
     @pytest.mark.timeout(30)
-    def test_get_subgraph(self, gen_graph_simplequerytest):
+    def test_get_subgraph_nodes(self, gen_graph_simplequerytest):
         cgraph = gen_graph_simplequerytest
+        root1 = cgraph.get_root(to_label(cgraph, 1, 0, 0, 0, 0))
+        root2 = cgraph.get_root(to_label(cgraph, 1, 1, 0, 0, 0))
+
+        lvl1_nodes_1 = cgraph.get_subgraph_nodes(root1)
+        lvl1_nodes_2 = cgraph.get_subgraph_nodes(root2)
+        assert len(lvl1_nodes_1) == 1
+        assert len(lvl1_nodes_2) == 3
+        assert to_label(cgraph, 1, 0, 0, 0, 0) in lvl1_nodes_1
+        assert to_label(cgraph, 1, 1, 0, 0, 0) in lvl1_nodes_2
+        assert to_label(cgraph, 1, 1, 0, 0, 1) in lvl1_nodes_2
+        assert to_label(cgraph, 1, 2, 0, 0, 0) in lvl1_nodes_2
+
+        lvl2_nodes_1 = cgraph.get_subgraph_nodes(root1, return_layers=[2])
+        lvl2_nodes_2 = cgraph.get_subgraph_nodes(root2, return_layers=[2])
+        assert len(lvl2_nodes_1) == 1
+        assert len(lvl2_nodes_2) == 2
+        assert to_label(cgraph, 2, 0, 0, 0, 1) in lvl2_nodes_1
+        assert to_label(cgraph, 2, 1, 0, 0, 1) in lvl2_nodes_2
+        assert to_label(cgraph, 2, 2, 0, 0, 1) in lvl2_nodes_2
+
+        lvl3_nodes_1 = cgraph.get_subgraph_nodes(root1, return_layers=[3])
+        lvl3_nodes_2 = cgraph.get_subgraph_nodes(root2, return_layers=[3])
+        assert len(lvl3_nodes_1) == 1
+        assert len(lvl3_nodes_2) == 2
+        assert to_label(cgraph, 3, 0, 0, 0, 1) in lvl3_nodes_1
+        assert to_label(cgraph, 3, 0, 0, 0, 2) in lvl3_nodes_2
+        assert to_label(cgraph, 3, 1, 0, 0, 1) in lvl3_nodes_2
+
+        lvl4_node = cgraph.get_subgraph_nodes(root1, return_layers=[4])
+        assert len(lvl4_node) == 1
+        assert root1 in lvl4_node
+
+        layers = cgraph.get_subgraph_nodes(root2, return_layers=[1, 4])
+        assert len(layers) == 2 and 1 in layers and 4 in layers
+        assert len(layers[4]) == 1 and root2 in layers[4]
+        assert len(layers[1]) == 3
+        assert to_label(cgraph, 1, 1, 0, 0, 0) in layers[1]
+        assert to_label(cgraph, 1, 1, 0, 0, 1) in layers[1]
+        assert to_label(cgraph, 1, 2, 0, 0, 0) in layers[1]
+
+        lvl2_nodes = cgraph.get_subgraph_nodes(root2, return_layers=[2],
+                                               bounding_box=[[1, 0, 0], [2, 1, 1]],
+                                               bb_is_coordinate=False)
+        assert len(lvl2_nodes) == 1
+        assert to_label(cgraph, 2, 1, 0, 0, 1) in lvl2_nodes
+
+        lvl2_parent = cgraph.get_parent(to_label(cgraph, 1, 1, 0, 0, 0))
+        lvl1_nodes = cgraph.get_subgraph_nodes(lvl2_parent)
+        assert len(lvl1_nodes) == 2
+        assert to_label(cgraph, 1, 1, 0, 0, 0) in lvl1_nodes
+        assert to_label(cgraph, 1, 1, 0, 0, 1) in lvl1_nodes
+
+    @pytest.mark.timeout(30)
+    def test_get_subgraph_edges(self, gen_graph_simplequerytest):
+        cgraph = gen_graph_simplequerytest
+        root1 = cgraph.get_root(to_label(cgraph, 1, 0, 0, 0, 0))
+        root2 = cgraph.get_root(to_label(cgraph, 1, 1, 0, 0, 0))
+
+        edges, affinities, areas = cgraph.get_subgraph_edges(root1)
+        assert len(edges) == 0 and len(affinities) == 0 and len(areas) == 0
+
+        edges, affinities, areas = cgraph.get_subgraph_edges(root2)
+
+        assert [to_label(cgraph, 1, 1, 0, 0, 0),
+                to_label(cgraph, 1, 1, 0, 0, 1)] in edges or \
+               [to_label(cgraph, 1, 1, 0, 0, 1),
+                to_label(cgraph, 1, 1, 0, 0, 0)] in edges
+
+        assert [to_label(cgraph, 1, 1, 0, 0, 0),
+                to_label(cgraph, 1, 2, 0, 0, 0)] in edges or \
+               [to_label(cgraph, 1, 2, 0, 0, 0),
+                to_label(cgraph, 1, 1, 0, 0, 0)] in edges
+
+        # assert len(edges) == 2 and len(affinities) == 2 and len(areas) == 2
+
+        lvl2_parent = cgraph.get_parent(to_label(cgraph, 1, 1, 0, 0, 0))
+        edges, affinities, areas = cgraph.get_subgraph_edges(lvl2_parent)
+        assert [to_label(cgraph, 1, 1, 0, 0, 0),
+                to_label(cgraph, 1, 1, 0, 0, 1)] in edges or \
+               [to_label(cgraph, 1, 1, 0, 0, 1),
+                to_label(cgraph, 1, 1, 0, 0, 0)] in edges
+
+        assert [to_label(cgraph, 1, 1, 0, 0, 0),
+                to_label(cgraph, 1, 2, 0, 0, 0)] in edges or \
+               [to_label(cgraph, 1, 2, 0, 0, 0),
+                to_label(cgraph, 1, 1, 0, 0, 0)] in edges
+
+        assert len(edges) == 2
 
     @pytest.mark.timeout(30)
     def test_get_atomic_partners(self, gen_graph_simplequerytest):
@@ -880,7 +967,7 @@ class TestGraphMerge:
         assert partners[0] == to_label(cgraph, 1, 0, 0, 0, 1) and affinities[0] == np.float32(0.3)
         partners, affinities, areas = cgraph.get_atomic_partners(to_label(cgraph, 1, 0, 0, 0, 1))
         assert partners[0] == to_label(cgraph, 1, 0, 0, 0, 0) and affinities[0] == np.float32(0.3)
-        leaves = np.unique(cgraph.get_subgraph(new_root_id))
+        leaves = np.unique(cgraph.get_subgraph_nodes(new_root_id))
         assert len(leaves) == 2
         assert to_label(cgraph, 1, 0, 0, 0, 0) in leaves
         assert to_label(cgraph, 1, 0, 0, 0, 1) in leaves
@@ -926,7 +1013,7 @@ class TestGraphMerge:
         assert partners[0] == to_label(cgraph, 1, 1, 0, 0, 0) and affinities[0] == np.float32(0.3)
         partners, affinities, areas = cgraph.get_atomic_partners(to_label(cgraph, 1, 1, 0, 0, 0))
         assert partners[0] == to_label(cgraph, 1, 0, 0, 0, 0) and affinities[0] == np.float32(0.3)
-        leaves = np.unique(cgraph.get_subgraph(new_root_id))
+        leaves = np.unique(cgraph.get_subgraph_nodes(new_root_id))
         assert len(leaves) == 2
         assert to_label(cgraph, 1, 0, 0, 0, 0) in leaves
         assert to_label(cgraph, 1, 1, 0, 0, 0) in leaves
@@ -984,7 +1071,7 @@ class TestGraphMerge:
         assert partners[0] == to_label(cgraph, 1, 127, 127, 127, 0) and affinities[0] == np.float32(0.3)
         partners, affinities, areas = cgraph.get_atomic_partners(to_label(cgraph, 1, 127, 127, 127, 0))
         assert partners[0] == to_label(cgraph, 1, 0, 0, 0, 0) and affinities[0] == np.float32(0.3)
-        leaves = np.unique(cgraph.get_subgraph(new_root_id))
+        leaves = np.unique(cgraph.get_subgraph_nodes(new_root_id))
         assert len(leaves) == 2
         assert to_label(cgraph, 1, 0, 0, 0, 0) in leaves
         assert to_label(cgraph, 1, 127, 127, 127, 0) in leaves
@@ -1066,7 +1153,7 @@ class TestGraphMerge:
         assert len(partners) == 2
         assert to_label(cgraph, 1, 0, 0, 0, 0) in partners
         assert to_label(cgraph, 1, 0, 0, 0, 1) in partners
-        leaves = np.unique(cgraph.get_subgraph(new_root_id))
+        leaves = np.unique(cgraph.get_subgraph_nodes(new_root_id))
         assert len(leaves) == 3
         assert to_label(cgraph, 1, 0, 0, 0, 0) in leaves
         assert to_label(cgraph, 1, 0, 0, 0, 1) in leaves
@@ -1123,7 +1210,7 @@ class TestGraphMerge:
         assert len(partners) == 2
         assert to_label(cgraph, 1, 0, 0, 0, 0) in partners
         assert to_label(cgraph, 1, 0, 0, 0, 1) in partners
-        leaves = np.unique(cgraph.get_subgraph(new_root_id))
+        leaves = np.unique(cgraph.get_subgraph_nodes(new_root_id))
         assert len(leaves) == 3
         assert to_label(cgraph, 1, 0, 0, 0, 0) in leaves
         assert to_label(cgraph, 1, 0, 0, 0, 1) in leaves
@@ -1202,7 +1289,7 @@ class TestGraphMerge:
         assert len(partners) == 2
         assert to_label(cgraph, 1, 0, 0, 0, 0) in partners
         assert to_label(cgraph, 1, 0, 0, 0, 1) in partners
-        leaves = np.unique(cgraph.get_subgraph(new_root_id))
+        leaves = np.unique(cgraph.get_subgraph_nodes(new_root_id))
         assert len(leaves) == 3
         assert to_label(cgraph, 1, 0, 0, 0, 0) in leaves
         assert to_label(cgraph, 1, 0, 0, 0, 1) in leaves
@@ -1353,7 +1440,7 @@ class TestGraphMerge:
         child_ids = []
         for root_id in root_ids_t0:
             print("root_id", root_id)
-            child_ids.extend(cgraph.get_subgraph(root_id))
+            child_ids.extend(cgraph.get_subgraph_nodes(root_id))
 
         new_roots = cgraph.add_edges("Jane Doe",
                                      [to_label(cgraph, 1, 0, 0, 0, 0),
@@ -1504,9 +1591,9 @@ class TestGraphSplit:
         assert len(partners) == 0
         partners, affinities, areas = cgraph.get_atomic_partners(to_label(cgraph, 1, 0, 0, 0, 1))
         assert len(partners) == 0
-        leaves = np.unique(cgraph.get_subgraph(cgraph.get_root(to_label(cgraph, 1, 0, 0, 0, 0))))
+        leaves = np.unique(cgraph.get_subgraph_nodes(cgraph.get_root(to_label(cgraph, 1, 0, 0, 0, 0))))
         assert len(leaves) == 1 and to_label(cgraph, 1, 0, 0, 0, 0) in leaves
-        leaves = np.unique(cgraph.get_subgraph(cgraph.get_root(to_label(cgraph, 1, 0, 0, 0, 1))))
+        leaves = np.unique(cgraph.get_subgraph_nodes(cgraph.get_root(to_label(cgraph, 1, 0, 0, 0, 1))))
         assert len(leaves) == 1 and to_label(cgraph, 1, 0, 0, 0, 1) in leaves
 
         # Check Old State still accessible
@@ -1516,7 +1603,7 @@ class TestGraphSplit:
         assert len(partners) == 1 and partners[0] == to_label(cgraph, 1, 0, 0, 0, 1)
         partners, affinities, areas = cgraph.get_atomic_partners(to_label(cgraph, 1, 0, 0, 0, 1), time_stamp=fake_timestamp)
         assert len(partners) == 1 and partners[0] == to_label(cgraph, 1, 0, 0, 0, 0)
-        leaves = np.unique(cgraph.get_subgraph(cgraph.get_root(to_label(cgraph, 1, 0, 0, 0, 0), time_stamp=fake_timestamp)))
+        leaves = np.unique(cgraph.get_subgraph_nodes(cgraph.get_root(to_label(cgraph, 1, 0, 0, 0, 0), time_stamp=fake_timestamp)))
         assert len(leaves) == 2
         assert to_label(cgraph, 1, 0, 0, 0, 0) in leaves
         assert to_label(cgraph, 1, 0, 0, 0, 1) in leaves
@@ -1588,9 +1675,9 @@ class TestGraphSplit:
         assert len(partners) == 0
         partners, affinities, areas = cgraph.get_atomic_partners(to_label(cgraph, 1, 1, 0, 0, 0))
         assert len(partners) == 0
-        leaves = np.unique(cgraph.get_subgraph(cgraph.get_root(to_label(cgraph, 1, 0, 0, 0, 0))))
+        leaves = np.unique(cgraph.get_subgraph_nodes(cgraph.get_root(to_label(cgraph, 1, 0, 0, 0, 0))))
         assert len(leaves) == 1 and to_label(cgraph, 1, 0, 0, 0, 0) in leaves
-        leaves = np.unique(cgraph.get_subgraph(cgraph.get_root(to_label(cgraph, 1, 1, 0, 0, 0))))
+        leaves = np.unique(cgraph.get_subgraph_nodes(cgraph.get_root(to_label(cgraph, 1, 1, 0, 0, 0))))
         assert len(leaves) == 1 and to_label(cgraph, 1, 1, 0, 0, 0) in leaves
 
         # Check Old State still accessible
@@ -1600,7 +1687,7 @@ class TestGraphSplit:
         assert len(partners) == 1 and partners[0] == to_label(cgraph, 1, 1, 0, 0, 0)
         partners, affinities, areas = cgraph.get_atomic_partners(to_label(cgraph, 1, 1, 0, 0, 0), time_stamp=fake_timestamp)
         assert len(partners) == 1 and partners[0] == to_label(cgraph, 1, 0, 0, 0, 0)
-        leaves = np.unique(cgraph.get_subgraph(cgraph.get_root(to_label(cgraph, 1, 0, 0, 0, 0), time_stamp=fake_timestamp)))
+        leaves = np.unique(cgraph.get_subgraph_nodes(cgraph.get_root(to_label(cgraph, 1, 0, 0, 0, 0), time_stamp=fake_timestamp)))
         assert len(leaves) == 2
         assert to_label(cgraph, 1, 0, 0, 0, 0) in leaves
         assert to_label(cgraph, 1, 1, 0, 0, 0) in leaves
@@ -1644,8 +1731,8 @@ class TestGraphSplit:
         # Split
         new_root_ids = cgraph.remove_edges("Jane Doe", to_label(cgraph, 1, 1, 0, 0, 0), to_label(cgraph, 1, 1, 0, 0, 1), mincut=False)
 
-        svs2 = cgraph.get_subgraph(new_root_ids[0])
-        svs1 = cgraph.get_subgraph(new_root_ids[1])
+        svs2 = cgraph.get_subgraph_nodes(new_root_ids[0])
+        svs1 = cgraph.get_subgraph_nodes(new_root_ids[1])
         len_set = {1, 2}
         assert len(svs1) in len_set
         len_set.remove(len(svs1))
@@ -1767,9 +1854,9 @@ class TestGraphSplit:
         assert len(partners) == 0
         partners, affinities, areas = cgraph.get_atomic_partners(to_label(cgraph, 1, 127, 127, 127, 0))
         assert len(partners) == 0
-        leaves = np.unique(cgraph.get_subgraph(cgraph.get_root(to_label(cgraph, 1, 0, 0, 0, 0))))
+        leaves = np.unique(cgraph.get_subgraph_nodes(cgraph.get_root(to_label(cgraph, 1, 0, 0, 0, 0))))
         assert len(leaves) == 1 and to_label(cgraph, 1, 0, 0, 0, 0) in leaves
-        leaves = np.unique(cgraph.get_subgraph(cgraph.get_root(to_label(cgraph, 1, 127, 127, 127, 0))))
+        leaves = np.unique(cgraph.get_subgraph_nodes(cgraph.get_root(to_label(cgraph, 1, 127, 127, 127, 0))))
         assert len(leaves) == 1 and to_label(cgraph, 1, 127, 127, 127, 0) in leaves
 
         # Check Old State still accessible
@@ -1779,7 +1866,7 @@ class TestGraphSplit:
         assert len(partners) == 1 and partners[0] == to_label(cgraph, 1, 127, 127, 127, 0)
         partners, affinities, areas = cgraph.get_atomic_partners(to_label(cgraph, 1, 127, 127, 127, 0), time_stamp=fake_timestamp)
         assert len(partners) == 1 and partners[0] == to_label(cgraph, 1, 0, 0, 0, 0)
-        leaves = np.unique(cgraph.get_subgraph(cgraph.get_root(to_label(cgraph, 1, 0, 0, 0, 0), time_stamp=fake_timestamp)))
+        leaves = np.unique(cgraph.get_subgraph_nodes(cgraph.get_root(to_label(cgraph, 1, 0, 0, 0, 0), time_stamp=fake_timestamp)))
         assert len(leaves) == 2
         assert to_label(cgraph, 1, 0, 0, 0, 0) in leaves
         assert to_label(cgraph, 1, 127, 127, 127, 0) in leaves
@@ -1856,7 +1943,7 @@ class TestGraphSplit:
         assert len(partners) == 2
         assert to_label(cgraph, 1, 0, 0, 0, 0) in partners
         assert to_label(cgraph, 1, 0, 0, 0, 1) in partners
-        leaves = np.unique(cgraph.get_subgraph(new_root_ids[0]))
+        leaves = np.unique(cgraph.get_subgraph_nodes(new_root_ids[0]))
         assert len(leaves) == 3
         assert to_label(cgraph, 1, 0, 0, 0, 0) in leaves
         assert to_label(cgraph, 1, 0, 0, 0, 1) in leaves
@@ -1913,7 +2000,7 @@ class TestGraphSplit:
         assert len(partners) == 2
         assert to_label(cgraph, 1, 0, 0, 0, 0) in partners
         assert to_label(cgraph, 1, 1, 0, 0, 0) in partners
-        leaves = np.unique(cgraph.get_subgraph(new_root_ids[0]))
+        leaves = np.unique(cgraph.get_subgraph_nodes(new_root_ids[0]))
         assert len(leaves) == 3
         assert to_label(cgraph, 1, 0, 0, 0, 0) in leaves
         assert to_label(cgraph, 1, 0, 0, 0, 1) in leaves
@@ -1983,7 +2070,7 @@ class TestGraphSplit:
         assert len(partners) == 2
         assert to_label(cgraph, 1, 0, 0, 0, 0) in partners
         assert to_label(cgraph, 1, loc, loc, loc, 0) in partners
-        leaves = np.unique(cgraph.get_subgraph(new_root_ids[0]))
+        leaves = np.unique(cgraph.get_subgraph_nodes(new_root_ids[0]))
         assert len(leaves) == 3
         assert to_label(cgraph, 1, 0, 0, 0, 0) in leaves
         assert to_label(cgraph, 1, 0, 0, 0, 1) in leaves
@@ -2119,7 +2206,7 @@ class TestGraphSplit:
         child_ids = []
         for root_id in root_ids_t0:
             print("root_id", root_id)
-            child_ids.extend(cgraph.get_subgraph(root_id))
+            child_ids.extend(cgraph.get_subgraph_nodes(root_id))
 
 
 
@@ -2154,7 +2241,7 @@ class TestGraphMergeSplit:
         child_ids = []
         for root_id in root_ids_t0:
             print("root_id", root_id)
-            child_ids.extend(cgraph.get_subgraph(root_id))
+            child_ids.extend(cgraph.get_subgraph_nodes(root_id))
 
         for i in range(10):
             print("\n\nITERATION %d/10" % i)
@@ -2165,7 +2252,7 @@ class TestGraphMergeSplit:
                                           to_label(cgraph, 1, 1, 0, 0, 1)],
                                          affinities=.9)
             assert len(new_roots) == 1
-            assert len(cgraph.get_subgraph(new_roots[0])) == 4
+            assert len(cgraph.get_subgraph_nodes(new_roots[0])) == 4
 
             root_ids = []
             for child_id in child_ids:
@@ -2190,7 +2277,7 @@ class TestGraphMergeSplit:
             assert len(np.unique(new_roots)) == 2
 
             for root in new_roots:
-                print("SUBGRAPH", cgraph.get_subgraph(root))
+                print("SUBGRAPH", cgraph.get_subgraph_nodes(root))
 
             print("test children")
             root_ids = []
@@ -2203,8 +2290,8 @@ class TestGraphMergeSplit:
             u_root_ids = np.unique(root_ids)
             these_child_ids = []
             for root_id in u_root_ids:
-                these_child_ids.extend(cgraph.get_subgraph(root_id, verbose=False))
-                print(root_id, cgraph.get_subgraph(root_id, verbose=False))
+                these_child_ids.extend(cgraph.get_subgraph_nodes(root_id, verbose=False))
+                print(root_id, cgraph.get_subgraph_nodes(root_id, verbose=False))
 
             assert len(these_child_ids) == 4
             assert len(u_root_ids) == 2
@@ -2306,9 +2393,9 @@ class TestGraphMinCut:
         assert len(partners) == 0
         partners, affinities, areas = cgraph.get_atomic_partners(to_label(cgraph, 1, 1, 0, 0, 0))
         assert len(partners) == 0
-        leaves = np.unique(cgraph.get_subgraph(cgraph.get_root(to_label(cgraph, 1, 0, 0, 0, 0))))
+        leaves = np.unique(cgraph.get_subgraph_nodes(cgraph.get_root(to_label(cgraph, 1, 0, 0, 0, 0))))
         assert len(leaves) == 1 and to_label(cgraph, 1, 0, 0, 0, 0) in leaves
-        leaves = np.unique(cgraph.get_subgraph(cgraph.get_root(to_label(cgraph, 1, 1, 0, 0, 0))))
+        leaves = np.unique(cgraph.get_subgraph_nodes(cgraph.get_root(to_label(cgraph, 1, 1, 0, 0, 0))))
         assert len(leaves) == 1 and to_label(cgraph, 1, 1, 0, 0, 0) in leaves
 
     @pytest.mark.timeout(30)
