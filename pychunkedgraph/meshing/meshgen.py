@@ -6,7 +6,6 @@ import re
 
 from cloudvolume import CloudVolume, Storage, EmptyVolumeException
 from cloudvolume.meshservice import decode_mesh_buffer
-
 from functools import lru_cache
 from igneous.tasks import MeshTask
 
@@ -125,6 +124,10 @@ def _get_sv_to_node_mapping_internal(cg, chunk_id, unbreakable_only):
     two_hop_neighbors = {}
     for seg_id, base_id in one_hop_neighbors.items():
         seg_id_b = serialize_uint64(seg_id)
+        if seg_id_b not in seg_ids_face_neighbors:
+            # FIXME: Those are non-face-adjacent atomic partners caused by human
+            #        proofreaders. They're crazy. Watch out for them.
+            continue
         data = cg.flatten_row_dict(seg_ids_face_neighbors[seg_id_b].cells['0'])
         partners = data['atomic_partners']
         connected = get_connected(data['connected'])
@@ -153,6 +156,8 @@ def _get_sv_to_node_mapping_internal(cg, chunk_id, unbreakable_only):
         seg_id_b = serialize_uint64(seg_id)
         if seg_id_b not in seg_ids_edge_neighbors:
             # See FIXME for edge-adjacent supervoxel - need to ignore those
+            # FIXME 2: Those might also be non-face-adjacent atomic partners
+            # caused by human proofreaders.
             del two_hop_neighbors[seg_id]
             continue
 
