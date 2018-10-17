@@ -177,6 +177,8 @@ def handle_split():
 
     user_id = str(request.remote_addr)
 
+    print(data)
+
     # Call ChunkedGraph
     cg = app_utils.get_cg()
 
@@ -197,7 +199,9 @@ def handle_split():
                 return None
 
             data_dict[k]["id"].append(atomic_id)
-            data_dict[k]["coord"].append(atomic_id)
+            data_dict[k]["coord"].append(np.array([x, y, z]))
+
+    print(data_dict)
 
     new_roots = cg.remove_edges(user_id=user_id,
                                 source_ids=data_dict["sources"]["id"],
