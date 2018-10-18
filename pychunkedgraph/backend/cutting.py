@@ -2,6 +2,7 @@ import numpy as np
 import networkx as nx
 import itertools
 from networkx.algorithms.flow import shortest_augmenting_path, edmonds_karp, preflow_push
+from networkx.algorithms.connectivity import minimum_st_edge_cut
 import time
 
 
@@ -18,11 +19,14 @@ def merge_cross_chunk_edges(edges: Iterable[Sequence[np.uint64]],
     :return:
     """
 
+    # mask for edges that have to be merged
     cross_chunk_edge_mask = np.isinf(affs)
 
+    # graph with edges that have to be merged
     cross_chunk_graph = nx.Graph()
     cross_chunk_graph.add_edges_from(edges[cross_chunk_edge_mask])
 
+    # connected components in this graph will be combined in one component
     ccs = nx.connected_components(cross_chunk_graph)
 
     remapping = {}
@@ -38,6 +42,7 @@ def merge_cross_chunk_edges(edges: Iterable[Sequence[np.uint64]],
         m = np.concatenate([nodes.reshape(-1, 1), rep_nodes], axis=1)
 
         mapping = np.concatenate([mapping, m], axis=0)
+        print(m)
 
     u_nodes = np.unique(edges)
     u_unmapped_nodes = u_nodes[~np.in1d(u_nodes, mapping)]
@@ -86,16 +91,10 @@ def mincut(edges: Iterable[Sequence[np.uint64]], affs: Sequence[np.uint64],
     remapped_sources = []
 
     for sink in sinks:
-        if sink in mapping_dict:
-            remapped_sinks.append(mapping_dict[sink])
-        else:
-            remapped_sinks.append(sink)
+        remapped_sinks.append(mapping_dict[sink])
 
     for source in sources:
-        if source in mapping_dict:
-            remapped_sources.append(mapping_dict[source])
-        else:
-            remapped_sources.append(source)
+        remapped_sources.append(mapping_dict[source])
 
     sinks = remapped_sinks
     sources = remapped_sources
@@ -115,10 +114,12 @@ def mincut(edges: Iterable[Sequence[np.uint64]], affs: Sequence[np.uint64],
     # Add infinity edges for multicut
     for sink_i in sinks:
         for sink_j in sinks:
+            print(sink_i, sink_j)
             weighted_graph[sink_i][sink_j]['capacity'] = float_max
 
     for source_i in sources:
         for source_j in sources:
+            print(source_i, source_j)
             weighted_graph[source_i][source_j]['capacity'] = float_max
 
 
@@ -138,10 +139,13 @@ def mincut(edges: Iterable[Sequence[np.uint64]], affs: Sequence[np.uint64],
             if np.any(~np.in1d(sources, cc_list)) or \
                     np.any(~np.in1d(sinks, cc_list)):
                 print("sources and sinks are in different connected components")
-                return []
+                # return []
 
-    cutset = nx.minimum_edge_cut(weighted_graph, sources[0], sinks[0],
-                                 flow_func=edmonds_karp)
+    r_flow = edmonds_karp(weighted_graph, sinks[0], sources[0])
+    cutset = minimum_st_edge_cut(weighted_graph, sources[0], sinks[0],
+                                 residual=r_flow)
+
+    # cutset = nx.minimum_edge_cut(weighted_graph, sources[0], sinks[0], flow_func=edmonds_karp)
 
     dt = time.time() - time_start
     print("Mincut comp: %.2fms" % (dt * 1000))
@@ -151,9 +155,9 @@ def mincut(edges: Iterable[Sequence[np.uint64]], affs: Sequence[np.uint64],
 
     time_start = time.time()
 
-    edge_cut = list(list(cutset)[0])
+    edge_cut = list(list(cutset))
 
-    weighted_graph.remove_edges_from([edge_cut])
+    weighted_graph.remove_edges_from(edge_cut)
     ccs = list(nx.connected_components(weighted_graph))
 
     for cc in ccs:
