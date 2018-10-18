@@ -3704,12 +3704,12 @@ class ChunkedGraph(object):
                                                        time_stamp))
 
                 # Execute write (makes sure that we are still owning the lock)
-                if len(sink_ids) > 1 or len(source_ids) > 1:
-                    print(removed_edges)
-                else:
-                    if self.bulk_write(rows, lock_root_ids,
-                                       operation_id=operation_id, slow_retry=False):
-                        return new_root_ids
+                # if len(sink_ids) > 1 or len(source_ids) > 1:
+                #     print(removed_edges)
+                # else:
+                if self.bulk_write(rows, lock_root_ids,
+                                   operation_id=operation_id, slow_retry=False):
+                    return new_root_ids
 
                 for lock_root_id in lock_root_ids:
                     self.unlock_root(lock_root_id, operation_id=operation_id)
