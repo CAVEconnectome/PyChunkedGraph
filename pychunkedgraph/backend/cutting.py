@@ -157,7 +157,16 @@ def mincut(edges: Iterable[Sequence[np.uint64]], affs: Sequence[np.uint64],
     ccs = list(nx.connected_components(weighted_graph))
 
     for cc in ccs:
-        print("CC size = %d" % len(cc))
+        cc_list = list(cc)
+        print("CC size = %d" % len(cc_list))
+
+        if np.any(np.in1d(sources, cc_list)):
+            assert np.all(np.in1d(sources, cc_list))
+            assert ~np.any(np.in1d(sinks, cc_list))
+
+        if np.any(np.in1d(sinks, cc_list)):
+            assert np.all(np.in1d(sinks, cc_list))
+            assert ~np.any(np.in1d(sources, cc_list))
 
     dt = time.time() - time_start
     print("Splitting local graph: %.2fms" % (dt * 1000))
