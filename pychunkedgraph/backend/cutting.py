@@ -112,12 +112,9 @@ def mincut(edges: Iterable[Sequence[np.uint64]], affs: Sequence[np.uint64],
         weighted_graph[edge[0]][edge[1]]['capacity'] = affs[i_edge]
         weighted_graph[edge[1]][edge[0]]['capacity'] = affs[i_edge]
 
-    print(weighted_graph.nodes())
-
     # Add infinity edges for multicut
     for sink_i in sinks:
         for sink_j in sinks:
-            print(weighted_graph[sink_i])
             weighted_graph[sink_i][sink_j]['capacity'] = float_max
 
     for source_i in sources:
