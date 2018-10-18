@@ -1521,6 +1521,34 @@ class TestGraphSplit:
         assert to_label(cgraph, 1, 0, 0, 0, 0) in leaves
         assert to_label(cgraph, 1, 0, 0, 0, 1) in leaves
 
+    def test_split_nonexisting_edge(self, gen_graph):
+        """
+        Remove edge between existing RG supervoxels 1 and 2 (same chunk)
+        Expected: Different (new) parents for RG 1 and 2 on Layer two
+        ┌─────┐      ┌─────┐
+        │  A¹ │      │  A¹ │
+        │ 1━2 │  =>  │ 1━2 │
+        │   | │      │   | │
+        │   3 │      │   3 │
+        └─────┘      └─────┘
+        """
+
+        cgraph = gen_graph(n_layers=2)
+
+        # Preparation: Build Chunk A
+        fake_timestamp = datetime.utcnow() - timedelta(days=10)
+        create_chunk(cgraph,
+                     vertices=[to_label(cgraph, 1, 0, 0, 0, 0), to_label(cgraph, 1, 0, 0, 0, 1)],
+                     edges=[(to_label(cgraph, 1, 0, 0, 0, 0), to_label(cgraph, 1, 0, 0, 0, 1), 0.5),
+                            (to_label(cgraph, 1, 0, 0, 0, 2), to_label(cgraph, 1, 0, 0, 0, 1), 0.5)],
+                     timestamp=fake_timestamp)
+
+        # Split
+        new_root_ids = cgraph.remove_edges("Jane Doe", to_label(cgraph, 1, 0, 0, 0, 0), to_label(cgraph, 1, 0, 0, 0, 2), mincut=False)
+
+        assert len(new_root_ids) == 1
+        assert len(cgraph.get_atomic_node_partners(to_label(cgraph, 1, 0, 0, 0, 0))) == 1
+
 
     @pytest.mark.timeout(30)
     def test_split_pair_neighboring_chunks(self, gen_graph):
