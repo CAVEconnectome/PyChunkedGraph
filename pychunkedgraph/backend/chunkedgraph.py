@@ -222,7 +222,7 @@ class ChunkedGraph(object):
         self._table = self.instance.table(self.table_id)
 
         if is_new:
-            self.check_and_create_table()
+            self._check_and_create_table()
 
         self._n_layers = self.check_and_write_table_parameters("n_layers",
                                                                n_layers)
@@ -239,7 +239,7 @@ class ChunkedGraph(object):
 
         # Hardcoded parameters
         self._n_bits_for_layer_id = 8
-        self._cv_mip = 3
+        self._cv_mip = 0
 
     @property
     def client(self) -> bigtable.Client:
@@ -295,6 +295,18 @@ class ChunkedGraph(object):
         return self._chunk_size
 
     @property
+    def segmentation_chunk_size(self) -> np.ndarray:
+        return self.cv.scale["chunk_size"]
+
+    @property
+    def segmentation_resolution(self) -> np.ndarray:
+        return np.array(self.cv.scale["resolution"])
+
+    @property
+    def segmentation_bounds(self) -> np.ndarray:
+        return np.array(self.cv.bounds.to_list()).reshape(2, 3)
+
+    @property
     def n_layers(self) -> int:
         return self._n_layers
 
@@ -320,7 +332,7 @@ class ChunkedGraph(object):
     def root_chunk_id(self):
         return self.get_chunk_id(layer=int(self.n_layers), x=0, y=0, z=0)
 
-    def check_and_create_table(self) -> None:
+    def _check_and_create_table(self) -> None:
         """ Checks if table exists and creates new one if necessary """
         table_ids = [t.table_id for t in self.instance.list_tables()]
 
@@ -389,6 +401,21 @@ class ChunkedGraph(object):
                 raise Exception("Unknown key")
 
         return value
+
+    def is_in_bounds(self, coordinate: Sequence[int]):
+        """ Checks whether a coordinate is within the segmentation bounds
+
+        :param coordinate: [int, int, int]
+        :return bool
+        """
+        coordinate = np.array(coordinate)
+
+        if np.any(coordinate < self.segmentation_bounds[0]):
+            return False
+        elif np.any(coordinate > self.segmentation_bounds[1]):
+            return False
+        else:
+            return True
 
     def clear_changes(self, time_stamp: datetime.datetime):
         """ Clears everything after this time_stamp

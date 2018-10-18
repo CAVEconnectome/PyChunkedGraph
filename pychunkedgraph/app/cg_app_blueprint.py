@@ -143,13 +143,19 @@ def handle_merge():
         x /= 2
         y /= 2
 
-        atomic_id = cg.get_atomic_id_from_coord(x, y, z,
+        coordinate = np.array([x, y, z])
+
+        if not cg.is_in_bounds(coordinate):
+            coordinate /= cg.segmentation_resolution
+
+        atomic_id = cg.get_atomic_id_from_coord(coordinate[0],
+                                                coordinate[1],
+                                                coordinate[2],
                                                 parent_id=np.uint64(node_id))
         if atomic_id is None:
             return None
 
-
-        coords.append(np.array([x, y, z]))
+        coords.append(coordinate)
         atomic_edge.append(atomic_id)
 
     # Protection from long range mergers
@@ -193,8 +199,17 @@ def handle_split():
             x /= 2
             y /= 2
 
-            atomic_id = cg.get_atomic_id_from_coord(x, y, z,
-                                                    parent_id=np.uint64(node_id))
+            coordinate = np.array([x, y, z])
+
+            if not cg.is_in_bounds(coordinate):
+                coordinate /= cg.segmentation_resolution
+
+            atomic_id = cg.get_atomic_id_from_coord(coordinate[0],
+                                                    coordinate[1],
+                                                    coordinate[2],
+                                                    parent_id=np.uint64(
+                                                        node_id))
+
             if atomic_id is None:
                 return None
 
