@@ -11,7 +11,7 @@ import traceback
 
 from pychunkedgraph.app import app_utils
 
-__version__ = '0.1.17'
+__version__ = '0.1.18'
 bp = Blueprint('pychunkedgraph', __name__, url_prefix="/segmentation")
 
 # -------------------------------
