@@ -3,6 +3,7 @@ import os
 import numpy as np
 import json
 import re
+import time
 
 from cloudvolume import CloudVolume, Storage, EmptyVolumeException
 from cloudvolume.meshservice import decode_mesh_buffer
@@ -566,6 +567,59 @@ def _create_manifest_files_thread(args):
     # print("Success rate: %d / %d @" %
     #       (np.sum(list(existence_test.values())), len(seg_ids)),
     #       cg.get_chunk_coordinates(chunk_id))
+
+
+def mesh_lvl2_preview(cg, lvl2_node_id, cv_path=None, cv_mesh_dir=None,
+                      mip=3, max_err=40, verbose=True):
+    """ Compute a mesh for a level 2 node without hierarchy and without
+        consistency beyond the chunk boundary. Useful to give the user a quick
+        preview. A proper mesh hierarchy should be generated using
+        `mesh_node_hierarchy()`
+
+    :param cg: ChunkedGraph instance
+    :param node_id: int
+    :param cv_path: str or None (cg.cv_path)
+    :param cv_mesh_dir: str or None
+    :param mip: int
+    :param max_err: float
+    """
+
+    layer = cg.get_chunk_layer(lvl2_node_id)
+    assert layer == 2
+
+    if cv_path is None:
+        cv_path = cg.cv_path
+
+    supervoxel_ids = cg.get_subgraph(lvl2_node_id, verbose=verbose)
+    remap_table = dict(zip(supervoxel_ids, [lvl2_node_id] * len(supervoxel_ids)))
+
+    mesh_block_shape = get_mesh_block_shape(cg, layer, mip)
+
+    cx, cy, cz = cg.get_chunk_coordinates(lvl2_node_id)
+    chunk_offset = (cx, cy, cz) * mesh_block_shape
+
+    task = MeshTask(
+        mesh_block_shape,
+        chunk_offset,
+        cv_path,
+        mip=mip,
+        simplification_factor=999999,     # Simplify as much as possible ...
+        max_simplification_error=max_err,  # ... staying below max error.
+        remap_table=remap_table,
+        generate_manifests=True,
+        low_padding=0,                    # One voxel overlap to exactly line up
+        high_padding=0,                   # vertex boundaries.
+        mesh_dir=cv_mesh_dir
+    )
+    if verbose:
+        time_start = time.time()
+
+    task.execute()
+
+    if verbose:
+        print("Preview Mesh for layer 2 Node ID %d: %.3fms (%d supervoxel)" %
+              (lvl2_node_id, (time.time() - time_start) * 1000, len(supervoxel_ids)))
+    return
 
 
 def run_task_bundle(settings, layer, roi):
