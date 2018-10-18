@@ -148,6 +148,9 @@ def handle_merge():
         if not cg.is_in_bounds(coordinate):
             coordinate /= cg.segmentation_resolution
 
+            coordinate[0] *= 2
+            coordinate[1] *= 2
+
         atomic_id = cg.get_atomic_id_from_coord(coordinate[0],
                                                 coordinate[1],
                                                 coordinate[2],
@@ -205,6 +208,9 @@ def handle_split():
 
             if not cg.is_in_bounds(coordinate):
                 coordinate /= cg.segmentation_resolution
+
+                coordinate[0] *= 2
+                coordinate[1] *= 2
 
             print("after", coordinate)
 
