@@ -42,7 +42,6 @@ def merge_cross_chunk_edges(edges: Iterable[Sequence[np.uint64]],
         m = np.concatenate([nodes.reshape(-1, 1), rep_nodes], axis=1)
 
         mapping = np.concatenate([mapping, m], axis=0)
-        print(m)
 
     u_nodes = np.unique(edges)
     u_unmapped_nodes = u_nodes[~np.in1d(u_nodes, mapping)]
@@ -114,12 +113,10 @@ def mincut(edges: Iterable[Sequence[np.uint64]], affs: Sequence[np.uint64],
     # Add infinity edges for multicut
     for sink_i in sinks:
         for sink_j in sinks:
-            print(sink_i, sink_j)
             weighted_graph[sink_i][sink_j]['capacity'] = float_max
 
     for source_i in sources:
         for source_j in sources:
-            print(source_i, source_j)
             weighted_graph[source_i][source_j]['capacity'] = float_max
 
 
@@ -131,7 +128,6 @@ def mincut(edges: Iterable[Sequence[np.uint64]], affs: Sequence[np.uint64],
     for cc in ccs:
         cc_list = list(cc)
 
-        print(cc_list, sources, sinks)
         if not (np.any(np.in1d(sources, cc_list)) or
                        np.any(np.in1d(sinks, cc_list))):
             weighted_graph.remove_nodes_from(cc)
@@ -159,6 +155,8 @@ def mincut(edges: Iterable[Sequence[np.uint64]], affs: Sequence[np.uint64],
 
     weighted_graph.remove_edges_from(edge_cut)
     ccs = list(nx.connected_components(weighted_graph))
+
+    # assert len(ccs) == 2
 
     for cc in ccs:
         cc_list = list(cc)
