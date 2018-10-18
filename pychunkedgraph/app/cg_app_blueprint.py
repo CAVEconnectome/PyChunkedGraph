@@ -201,8 +201,12 @@ def handle_split():
 
             coordinate = np.array([x, y, z])
 
+            print("before", coordinate)
+
             if not cg.is_in_bounds(coordinate):
                 coordinate /= cg.segmentation_resolution
+
+            print("after", coordinate)
 
             atomic_id = cg.get_atomic_id_from_coord(coordinate[0],
                                                     coordinate[1],
@@ -214,7 +218,7 @@ def handle_split():
                 return None
 
             data_dict[k]["id"].append(atomic_id)
-            data_dict[k]["coord"].append(np.array([x, y, z]))
+            data_dict[k]["coord"].append(coordinate)
 
     print(data_dict)
 
