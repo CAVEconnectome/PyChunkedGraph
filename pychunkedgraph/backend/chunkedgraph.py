@@ -3237,16 +3237,19 @@ class ChunkedGraph(object):
                 new_root_ids.append(new_root_id)
 
                 # Add a row to the log
-                rows.append(self._create_merge_log_row(operation_id,
-                                                       user_id,
-                                                       new_root_ids,
-                                                       atomic_edges[:, 0],
-                                                       atomic_edges[:, 1],
-                                                       [source_coord],
-                                                       [sink_coord],
-                                                       atomic_edges,
-                                                       affinities,
-                                                       time_stamp))
+                log_row = self._create_merge_log_row(operation_id,
+                                                     user_id,
+                                                     new_root_ids,
+                                                     atomic_edges[:, 0],
+                                                     atomic_edges[:, 1],
+                                                     [source_coord],
+                                                     [sink_coord],
+                                                     atomic_edges,
+                                                     affinities,
+                                                     time_stamp)
+
+                # Put log row first!
+                rows = [log_row] + rows
 
                 # Execute write (makes sure that we are still owning the lock)
                 if self.bulk_write(rows, lock_root_ids,
@@ -3692,16 +3695,18 @@ class ChunkedGraph(object):
                         return None
 
                 # Add a row to the log
-                rows.append(self._create_split_log_row(operation_id,
-                                                       user_id,
-                                                       new_root_ids,
-                                                       source_ids,
-                                                       sink_ids,
-                                                       source_coords,
-                                                       sink_coords,
-                                                       removed_edges,
-                                                       bb_offset,
-                                                       time_stamp))
+                log_row = self._create_split_log_row(operation_id,
+                                                     user_id,
+                                                     new_root_ids,
+                                                     source_ids,
+                                                     sink_ids,
+                                                     source_coords,
+                                                     sink_coords,
+                                                     removed_edges,
+                                                     bb_offset,
+                                                     time_stamp)
+                # Put log row first!
+                rows = [log_row] + rows
 
                 # Execute write (makes sure that we are still owning the lock)
                 # if len(sink_ids) > 1 or len(source_ids) > 1:
