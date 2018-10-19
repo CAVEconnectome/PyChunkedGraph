@@ -296,7 +296,7 @@ class ChunkedGraph(object):
 
     @property
     def segmentation_chunk_size(self) -> np.ndarray:
-        return self.cv.scale["chunk_size"]
+        return self.cv.scale["chunk_sizes"][0]
 
     @property
     def segmentation_resolution(self) -> np.ndarray:

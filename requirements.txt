@@ -8,4 +8,4 @@ flask
 flask_cors
 codecov
 multiwrapper
-cloud-volume
+cloud-volume==0.34.0
