@@ -408,7 +408,8 @@ def chunk_mesh_task(cg, chunk_id, cv_path,
 
 
 def mesh_lvl2_preview(cg, lvl2_node_id, cv_path=None, cv_mesh_dir=None,
-                      mip=3, max_err=40, verbose=True):
+                      mip=3, simplification_factor=999999, max_err=40,
+                      verbose=True, cache_control=None):
     """ Compute a mesh for a level 2 node without hierarchy and without
         consistency beyond the chunk boundary. Useful to give the user a quick
         preview. A proper mesh hierarchy should be generated using
@@ -441,13 +442,15 @@ def mesh_lvl2_preview(cg, lvl2_node_id, cv_path=None, cv_mesh_dir=None,
         chunk_offset,
         cv_path,
         mip=mip,
-        simplification_factor=999999,     # Simplify as much as possible ...
-        max_simplification_error=max_err,  # ... staying below max error.
+        simplification_factor=simplification_factor,
+        max_simplification_error=max_err,
         remap_table=remap_table,
         generate_manifests=True,
-        low_padding=0,                    # One voxel overlap to exactly line up
-        high_padding=0,                   # vertex boundaries.
-        mesh_dir=cv_mesh_dir
+        low_padding=0,
+        high_padding=0,
+        mesh_dir=cv_mesh_dir,
+        parallel_download=8,
+        cache_control=cache_control
     )
     if verbose:
         time_start = time.time()
