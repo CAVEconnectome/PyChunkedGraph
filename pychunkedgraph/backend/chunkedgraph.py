@@ -3693,10 +3693,8 @@ class ChunkedGraph(object):
         shattered_edges = np.array(shattered_edges)
         shattered_edges = np.unique(np.sort(shattered_edges, axis=1), axis=0)
 
-        return shattered_edges
-
-        # return self.remove_edges(user_id=user_id, atomic_edges=shattered_edges,
-        #                          mincut=False)
+        return self.remove_edges(user_id=user_id, atomic_edges=shattered_edges,
+                                 mincut=False)
 
     def remove_edges(self,
                      user_id: str,
