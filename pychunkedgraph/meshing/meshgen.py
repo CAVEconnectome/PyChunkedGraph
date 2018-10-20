@@ -436,7 +436,7 @@ def mesh_lvl2_preview(cg, lvl2_node_id, supervoxel_ids=None, cv_path=None,
         cv_path = cg.cv_path
 
     if supervoxel_ids is None:
-        supervoxel_ids = cg.get_subgraph(lvl2_node_id, verbose=verbose)
+        supervoxel_ids = cg.get_subgraph_nodes(lvl2_node_id, verbose=verbose)
 
     remap_table = dict(zip(supervoxel_ids, [lvl2_node_id] * len(supervoxel_ids)))
 
