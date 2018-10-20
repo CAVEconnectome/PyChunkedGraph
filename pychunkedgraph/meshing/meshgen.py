@@ -429,7 +429,7 @@ def mesh_lvl2_preview(cg, lvl2_node_id, cv_path=None, cv_mesh_dir=None,
     if cv_path is None:
         cv_path = cg.cv_path
 
-    supervoxel_ids = cg.get_subgraph(lvl2_node_id, verbose=verbose)
+    supervoxel_ids = cg.get_subgraph_nodes(lvl2_node_id, verbose=verbose)
     remap_table = dict(zip(supervoxel_ids, [lvl2_node_id] * len(supervoxel_ids)))
 
     mesh_block_shape = get_mesh_block_shape(cg, layer, mip)

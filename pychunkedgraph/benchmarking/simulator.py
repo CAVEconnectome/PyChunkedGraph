@@ -133,9 +133,12 @@ class ChunkedGraphSimulator(object):
         np.random.shuffle(root_ids)
 
         for root_id in root_ids[: n_tests]:
-            dt, _ = measure_command(self.cg.get_subgraph,
-                                    {"agglomeration_id": int(root_id),
-                                     "get_edges": get_edges})
+            if get_edges:
+                dt, _ = measure_command(self.cg.get_subgraph_edges,
+                                        {"agglomeration_id": int(root_id)})
+            else:
+                dt, _ = measure_command(self.cg.get_subgraph_nodes,
+                                        {"agglomeration_id": int(root_id)})
 
             times.append(dt)
 

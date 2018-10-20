@@ -115,7 +115,7 @@ def root_cross_edge_test(node_id, table_id=None, cg=None):
     cross_edge_dict_layers = {}
     cross_edge_dict_children = {}
     for layer in range(2, cg.n_layers):
-        child_ids = cg.get_subgraph(node_id, stop_lvl=layer)
+        child_ids = cg.get_subgraph_nodes(node_id, return_layers=[layer])
 
         cross_edge_dict = {}
         child_reference_ids = []
