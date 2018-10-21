@@ -297,7 +297,7 @@ class ChunkedGraph(object):
 
     @property
     def segmentation_chunk_size(self) -> np.ndarray:
-        return self.cv.scale["chunk_size"]
+        return self.cv.scale["chunk_sizes"][0]
 
     @property
     def segmentation_resolution(self) -> np.ndarray:
@@ -3024,6 +3024,64 @@ class ChunkedGraph(object):
                 flattened_row_dict[key] = u_ids[(c_ids % 2) == 1].astype(np.int)
         return flattened_row_dict
 
+    def get_chunk_split_partners(self, atomic_id: np.uint64):
+        """ Finds all atomic nodes beloning to the same supervoxel before
+            chunking (affs == inf)
+
+        :param atomic_id: np.uint64
+        :return: list of np.uint64
+        """
+
+        chunk_split_partners = [atomic_id]
+        atomic_ids = [atomic_id]
+
+        while len(atomic_ids) > 0:
+            atomic_id = atomic_ids[0]
+            del atomic_ids[0]
+
+            partners, affs, _ = self.get_atomic_partners(atomic_id,
+                                                         include_connected_partners=True,
+                                                         include_disconnected_partners=False)
+
+            m = np.isinf(affs)
+
+            inf_partners = partners[m]
+            new_chunk_split_partners = inf_partners[~np.in1d(inf_partners, chunk_split_partners)]
+            atomic_ids.extend(new_chunk_split_partners)
+            chunk_split_partners.extend(new_chunk_split_partners)
+
+        return chunk_split_partners
+
+    def get_all_original_partners(self, atomic_id: np.uint64):
+        """ Finds all partners from the unchunked region graph
+            Merges split supervoxels over chunk boundaries first (affs == inf)
+
+        :param atomic_id: np.uint64
+        :return: dict np.uint64 -> np.uint64
+        """
+
+        atomic_ids = [atomic_id]
+        partner_dict = {}
+
+        while len(atomic_ids) > 0:
+            atomic_id = atomic_ids[0]
+            del atomic_ids[0]
+
+            partners, affs, _ = self.get_atomic_partners(atomic_id,
+                                                         include_connected_partners=True,
+                                                         include_disconnected_partners=False)
+
+            m = np.isinf(affs)
+            partner_dict[atomic_id] = partners[~m]
+
+            inf_partners = partners[m]
+            new_chunk_split_partners = inf_partners[
+                ~np.in1d(inf_partners, list(partner_dict.keys()))]
+            atomic_ids.extend(new_chunk_split_partners)
+
+        return partner_dict
+
+
     def get_atomic_node_partners(self, atomic_id: np.uint64,
                                  time_stamp: datetime.datetime = get_max_time()
                                  ) -> Dict:
@@ -3312,16 +3370,19 @@ class ChunkedGraph(object):
                 new_root_ids.append(new_root_id)
 
                 # Add a row to the log
-                rows.append(self._create_merge_log_row(operation_id,
-                                                       user_id,
-                                                       new_root_ids,
-                                                       atomic_edges[:, 0],
-                                                       atomic_edges[:, 1],
-                                                       [source_coord],
-                                                       [sink_coord],
-                                                       atomic_edges,
-                                                       affinities,
-                                                       time_stamp))
+                log_row = self._create_merge_log_row(operation_id,
+                                                     user_id,
+                                                     new_root_ids,
+                                                     atomic_edges[:, 0],
+                                                     atomic_edges[:, 1],
+                                                     [source_coord],
+                                                     [sink_coord],
+                                                     atomic_edges,
+                                                     affinities,
+                                                     time_stamp)
+
+                # Put log row first!
+                rows = [log_row] + rows
 
                 # Execute write (makes sure that we are still owning the lock)
                 if self.bulk_write(rows, lock_root_ids,
@@ -3649,12 +3710,74 @@ class ChunkedGraph(object):
 
         return new_root_ids, rows
 
+    def shatter_nodes_bbox(self, user_id: str,
+                           bounding_box: Optional[Sequence[Sequence[int]]]):
+        """ Removes all edges (except inf edges) of supervoxels (partly)
+            inside the bounding box
+
+        :param user_id: str
+        :param bounding_box: [[x_l, y_l, z_l], [x_h, y_h, z_h]]
+            voxels
+        :return: list of uint64s or None if no split was performed
+        """
+
+        vol = self.cv[bounding_box[0][0]: bounding_box[1][0],
+                      bounding_box[0][1]: bounding_box[1][1],
+                      bounding_box[0][2]: bounding_box[1][2]]
+
+        atomic_node_ids = np.unique(vol)
+        return self. shatter_nodes(user_id=user_id,
+                                   atomic_node_ids=atomic_node_ids,
+                                   radius=1)
+
+    def shatter_nodes(self, user_id: str, atomic_node_ids: Sequence[np.uint64],
+                      radius: int = 1):
+        """ Removes all edges (except inf edges) in radius around nodes
+
+        :param user_id: str
+        :param atomic_node_ids: list of np.uint64
+        :param radius: int
+        :return: list of uint64s or None if no split was performed
+        """
+        shattered_edges = []
+
+        # kepp track of which partners were visited already
+        visited_partners = list(atomic_node_ids)
+
+        for i_neighbors in range(radius):
+
+            next_partners = []
+            for atomic_node_id in atomic_node_ids:
+                partner_dict = self.get_all_original_partners(atomic_node_id)
+
+                # Iterate over inf partners
+                for k in partner_dict:
+                    partners = partner_dict[k]
+
+                    edges = np.zeros([len(partners), 2], dtype=np.uint64)
+                    edges[:, 0] = k
+                    edges[:, 1] = partners
+                    shattered_edges.extend(edges)
+
+                    unvisited_partners = partners[~np.in1d(partners, visited_partners)]
+                    next_partners.extend(unvisited_partners)
+                    visited_partners.extend(unvisited_partners)
+
+            atomic_node_ids = list(next_partners)
+
+        shattered_edges = np.array(shattered_edges)
+        shattered_edges = np.unique(np.sort(shattered_edges, axis=1), axis=0)
+
+        return self.remove_edges(user_id=user_id, atomic_edges=shattered_edges,
+                                 mincut=False)
+
     def remove_edges(self,
                      user_id: str,
-                     source_ids: Sequence[np.uint64],
-                     sink_ids: Sequence[np.uint64],
+                     source_ids: Sequence[np.uint64] = None,
+                     sink_ids: Sequence[np.uint64] = None,
                      source_coords: Sequence[Sequence[int]] = None,
                      sink_coords: Sequence[Sequence[int]] = None,
+                     atomic_edges: Sequence[Tuple[np.uint64, np.uint64]] = None,
                      mincut: bool = True,
                      bb_offset: Tuple[int, int, int] = (240, 240, 24),
                      root_ids: Optional[Sequence[np.uint64]] = None,
@@ -3671,6 +3794,7 @@ class ChunkedGraph(object):
             same user every time
         :param source_ids: uint64
         :param sink_ids: uint64
+        :param atomic_edges: list of 2 uint64
         :param source_coords: list of 3 ints
             [x, y, z] coordinate of source supervoxel
         :param sink_coords: list of 3 ints
@@ -3683,36 +3807,59 @@ class ChunkedGraph(object):
         :return: list of uint64s or None if no split was performed
         """
 
-        if not (isinstance(source_ids, list) or isinstance(source_ids, np.ndarray)):
-            source_ids = [source_ids]
+        if source_ids is not None and sink_ids is not None:
+            if not (isinstance(source_ids, list) or isinstance(source_ids,
+                                                               np.ndarray)):
+                source_ids = [source_ids]
 
-        if not (isinstance(sink_ids, list) or isinstance(sink_ids, np.ndarray)):
-            sink_ids = [sink_ids]
+            if not (isinstance(sink_ids, list) or isinstance(sink_ids,
+                                                             np.ndarray)):
+                sink_ids = [sink_ids]
 
-        # Sanity Checks
-        if np.any(np.in1d(sink_ids, source_ids)):
-            print("source == sink")
-            return None
-
-        for source_id in source_ids:
-            if self.get_chunk_layer(source_id) != 1:
-                print("layer(source) !== 1")
+            # Sanity Checks
+            if np.any(np.in1d(sink_ids, source_ids)):
+                print("source == sink")
                 return None
 
-        for sink_id in sink_ids:
-            if self.get_chunk_layer(sink_id) != 1:
-                print("layer(sink) !== 1")
-                return None
+            for source_id in source_ids:
+                if self.get_chunk_layer(source_id) != 1:
+                    print("layer(source) !== 1")
+                    return None
+
+            for sink_id in sink_ids:
+                if self.get_chunk_layer(sink_id) != 1:
+                    print("layer(sink) !== 1")
+                    return None
+
+            root_ids = set()
+            for source_id in source_ids:
+                root_ids.add(self.get_root(source_id))
+            for sink_id in sink_ids:
+                root_ids.add(self.get_root(sink_id))
 
         if mincut:
             assert source_coords is not None
             assert sink_coords is not None
+            assert sink_ids is not None
+            assert source_ids is not None
 
-        root_ids = set()
-        for source_id in source_ids:
-            root_ids.add(self.get_root(source_id))
-        for sink_id in sink_ids:
-            root_ids.add(self.get_root(sink_id))
+            root_ids = set()
+            for source_id in source_ids:
+                root_ids.add(self.get_root(source_id))
+            for sink_id in sink_ids:
+                root_ids.add(self.get_root(sink_id))
+        else:
+            if atomic_edges is None:
+                assert source_ids is not None
+                assert sink_ids is not None
+
+                atomic_edges = np.array(list(itertools.product(source_ids,
+                                                               sink_ids)))
+
+            root_ids = set()
+            for atomic_edge in atomic_edges:
+                root_ids.add(self.get_root(atomic_edge[0]))
+                root_ids.add(self.get_root(atomic_edge[1]))
 
         if len(root_ids) > 1:
             print("Multiple root ids:", root_ids)
@@ -3751,9 +3898,6 @@ class ChunkedGraph(object):
                                              operation_id=operation_id)
                         return None
                 else:
-                    atomic_edges = np.array(list(itertools.product(source_ids,
-                                                                   sink_ids)))
-
                     success, result = \
                         self._remove_edges(operation_id=operation_id,
                                            atomic_edges=atomic_edges)
@@ -3767,16 +3911,18 @@ class ChunkedGraph(object):
                         return None
 
                 # Add a row to the log
-                rows.append(self._create_split_log_row(operation_id,
-                                                       user_id,
-                                                       new_root_ids,
-                                                       source_ids,
-                                                       sink_ids,
-                                                       source_coords,
-                                                       sink_coords,
-                                                       removed_edges,
-                                                       bb_offset,
-                                                       time_stamp))
+                log_row = self._create_split_log_row(operation_id,
+                                                     user_id,
+                                                     new_root_ids,
+                                                     source_ids,
+                                                     sink_ids,
+                                                     source_coords,
+                                                     sink_coords,
+                                                     removed_edges,
+                                                     bb_offset,
+                                                     time_stamp)
+                # Put log row first!
+                rows = [log_row] + rows
 
                 # Execute write (makes sure that we are still owning the lock)
                 # if len(sink_ids) > 1 or len(source_ids) > 1:
