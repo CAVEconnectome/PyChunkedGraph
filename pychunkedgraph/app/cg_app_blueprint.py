@@ -103,6 +103,11 @@ def unhandled_exception(e):
 # -------------------
 
 
+@bp.route("/sleep/<int:sleep>")
+def sleep_me(sleep):
+    time.sleep(sleep)
+    return "zzz... {} ... awake".format(sleep)
+
 @bp.route('/1.0/table', methods=['GET'])
 def handle_table():
     # Call ChunkedGraph
