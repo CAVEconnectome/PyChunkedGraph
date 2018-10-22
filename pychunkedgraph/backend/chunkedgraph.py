@@ -2870,11 +2870,12 @@ class ChunkedGraph(object):
         time_stamp = self.read_row(agglomeration_id, "children",
                                    get_time_stamp=True)[1]
 
+        bounding_box = self.normalize_bounding_box(bounding_box, bb_is_coordinate)
+
         # Layer 3+
         child_ids = self._get_subgraph_higher_layer_nodes(
             node_id=agglomeration_id, bounding_box=bounding_box,
-            bb_is_coordinate=bb_is_coordinate, return_layers=[2],
-            verbose=verbose)[2]
+            return_layers=[2], verbose=verbose)[2]
 
         # Layer 2
         if verbose:
@@ -2939,12 +2940,8 @@ class ChunkedGraph(object):
 
             return all_children_ids
 
-        print("BOUNDING BOX BEFORE", bounding_box)
-
         stop_layer = np.min(return_layers)
         bounding_box = self.normalize_bounding_box(bounding_box, bb_is_coordinate)
-
-        print("BOUNDING BOX AFTER", bounding_box)
 
         # Layer 3+
         nodes_per_layer = self._get_subgraph_higher_layer_nodes(
