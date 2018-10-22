@@ -142,7 +142,7 @@ def handle_merge():
     atomic_edge = []
     coords = []
     for node in nodes:
-        atomic_id = node[0]
+        node_id = node[0]
         x, y, z = node[1:]
 
         x /= 2
