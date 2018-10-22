@@ -108,6 +108,7 @@ def sleep_me(sleep):
     time.sleep(sleep)
     return "zzz... {} ... awake".format(sleep)
 
+
 @bp.route('/1.0/table', methods=['GET'])
 def handle_table():
     # Call ChunkedGraph
@@ -115,6 +116,7 @@ def handle_table():
 
     # Return binary
     return cg.table_id
+
 
 @bp.route('/1.0/graph/root', methods=['POST', 'GET'])
 def handle_root():
@@ -247,6 +249,7 @@ def handle_split():
     # Return binary
     return app_utils.tobinary(new_roots)
 
+
 @bp.route('/1.0/graph/shatter', methods=['POST', 'GET'])
 def handle_shatter():
     data = json.loads(request.data)
@@ -291,18 +294,19 @@ def handle_shatter():
     if atomic_id is None:
         return None
 
-    data_dict[k]["id"].append(atomic_id)
-    data_dict[k]["coord"].append(coordinate)
+    data_dict["id"].append(atomic_id)
+    data_dict["coord"].append(coordinate)
 
     print(data_dict)
     new_roots = cg.shatter_nodes(user_id=user_id,
-                                 atomic_node_ids=data_dict['sources']['id'],
+                                 atomic_node_ids=data_dict['id'],
                                  radius=radius)
     if new_roots is None:
         return None
 
     # Return binary
     return app_utils.tobinary(new_roots)
+
 
 @bp.route('/1.0/segment/<parent_id>/children', methods=['POST', 'GET'])
 def handle_children(parent_id):

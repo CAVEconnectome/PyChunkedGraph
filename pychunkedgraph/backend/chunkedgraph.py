@@ -2985,7 +2985,7 @@ class ChunkedGraph(object):
 
         :param row_dict_fam: dict
             family key has to be resolved
-        :return:
+        :return: dict
         """
 
         flattened_row_dict = {}
