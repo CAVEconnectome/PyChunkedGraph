@@ -709,18 +709,13 @@ class ChunkedGraph(object):
 
         :return: str
         """
-
-        counter_key = key_utils.serialize_key('counter')
-
-        # Incrementer row keys start with an "i"
-        row_key = key_utils.serialize_key("ioperations")
-        append_row = self.table.row(row_key, append=True)
+        append_row = self.table.row(table_info.operation_id_key_s, append=True)
         append_row.increment_cell_value(self.incrementer_family_id,
-                                        counter_key, 1)
+                                        table_info.counter_keys_s, 1)
 
         # This increments the row entry and returns the value AFTER incrementing
         latest_row = append_row.commit()
-        operation_id_b = latest_row[self.incrementer_family_id][counter_key][0][0]
+        operation_id_b = latest_row[self.incrementer_family_id][table_info.counter_keys_s][0][0]
         operation_id = int.from_bytes(operation_id_b, byteorder="big")
 
         return np.uint64(operation_id)
@@ -735,16 +730,11 @@ class ChunkedGraph(object):
 
         :return: uint64
         """
-
-        counter_key = key_utils.serialize_key('counter')
-
-        # Incrementer row keys start with an "i"
-        row_key = key_utils.serialize_key("ioperations")
-        row = self.table.read_row(row_key)
+        row = self.table.read_row(table_info.operation_id_key_s)
 
         # Read incrementer value
         if row is not None:
-            max_operation_id_b = row.cells[self.incrementer_family_id][counter_key][0].value
+            max_operation_id_b = row.cells[self.incrementer_family_id][table_info.counter_key_s][0].value
             max_operation_id = int.from_bytes(max_operation_id_b,
                                               byteorder="big")
         else:
