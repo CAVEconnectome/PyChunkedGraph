@@ -2778,11 +2778,9 @@ class ChunkedGraph(object):
     def _get_subgraph_higher_layer_nodes(
             self, node_id: np.uint64,
             bounding_box: Optional[Sequence[Sequence[int]]],
-            bb_is_coordinate: bool,
             return_layers: Sequence[int],
             verbose: bool):
 
-        bounding_box = self.normalize_bounding_box(bounding_box, bb_is_coordinate)
         layer = self.get_chunk_layer(node_id)
         assert layer > 1
 
@@ -2941,13 +2939,16 @@ class ChunkedGraph(object):
 
             return all_children_ids
 
+        print("BOUNDING BOX BEFORE", bounding_box)
+
         stop_layer = np.min(return_layers)
         bounding_box = self.normalize_bounding_box(bounding_box, bb_is_coordinate)
+
+        print("BOUNDING BOX AFTER", bounding_box)
 
         # Layer 3+
         nodes_per_layer = self._get_subgraph_higher_layer_nodes(
             node_id=agglomeration_id, bounding_box=bounding_box,
-            bb_is_coordinate=bb_is_coordinate,
             return_layers=return_layers+[2], verbose=verbose)
 
         if 2 in nodes_per_layer:
