@@ -137,7 +137,7 @@ def handle_merge():
     atomic_edge = []
     coords = []
     for node in nodes:
-        node_id = node[0]
+        atomic_id = node[0]
         x, y, z = node[1:]
 
         x /= 2
@@ -155,6 +155,7 @@ def handle_merge():
                                                 coordinate[1],
                                                 coordinate[2],
                                                 parent_id=np.uint64(node_id))
+
         if atomic_id is None:
             return None
 
@@ -241,6 +242,62 @@ def handle_split():
     # Return binary
     return app_utils.tobinary(new_roots)
 
+@bp.route('/1.0/graph/shatter', methods=['POST', 'GET'])
+def handle_shatter():
+    data = json.loads(request.data)
+
+    user_id = str(request.remote_addr)
+
+    print(data)
+
+    # Call ChunkedGraph
+    cg = app_utils.get_cg()
+
+    data_dict = collections.defaultdict(list)
+
+    k = "sources"
+    node = data[k][0]
+
+    node_id = node[0]
+    radius = node[1]
+    x, y, z = node[2:]
+
+    x /= 2
+    y /= 2
+
+    coordinate = np.array([x, y, z])
+
+    print("before", coordinate)
+
+    if not cg.is_in_bounds(coordinate):
+        coordinate /= cg.segmentation_resolution
+
+        coordinate[0] *= 2
+        coordinate[1] *= 2
+
+    print("after", coordinate)
+
+    atomic_id = cg.get_atomic_id_from_coord(coordinate[0],
+                                            coordinate[1],
+                                            coordinate[2],
+                                            parent_id=np.uint64(
+                                                node_id))
+
+    if atomic_id is None:
+        return None
+
+    data_dict[k]["id"].append(atomic_id)
+    data_dict[k]["coord"].append(coordinate)
+
+    print(data_dict)
+    new_roots = cg.shatter_nodes(user_id=user_id,
+                                 atomic_node_ids=data_dict['sources']['id'],
+                                 radius=radius)
+    if new_roots is None:
+        return None
+
+    # Return binary
+    return app_utils.tobinary(new_roots)
 
 @bp.route('/1.0/segment/<parent_id>/children', methods=['POST', 'GET'])
 def handle_children(parent_id):

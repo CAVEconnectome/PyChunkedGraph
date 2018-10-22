@@ -711,11 +711,11 @@ class ChunkedGraph(object):
         """
         append_row = self.table.row(table_info.operation_id_key_s, append=True)
         append_row.increment_cell_value(self.incrementer_family_id,
-                                        table_info.counter_keys_s, 1)
+                                        table_info.counter_key_s, 1)
 
         # This increments the row entry and returns the value AFTER incrementing
         latest_row = append_row.commit()
-        operation_id_b = latest_row[self.incrementer_family_id][table_info.counter_keys_s][0][0]
+        operation_id_b = latest_row[self.incrementer_family_id][table_info.counter_key_s][0][0]
         operation_id = int.from_bytes(operation_id_b, byteorder="big")
 
         return np.uint64(operation_id)
