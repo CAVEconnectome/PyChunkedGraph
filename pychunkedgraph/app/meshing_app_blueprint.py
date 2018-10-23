@@ -6,11 +6,13 @@ import json
 # import time
 # import datetime
 # import sys
-# import os
+import os
 # import traceback
 
 from pychunkedgraph.meshing import meshgen
 from pychunkedgraph.app import app_utils
+
+os.environ['TRAVIS_BRANCH'] = "IDONTKNOWWHYINEEDTHIS"
 
 __version__ = '0.1.35'
 bp = Blueprint('pychunkedgraph_meshing', __name__, url_prefix="/meshing")
