@@ -2,13 +2,14 @@ from flask import Flask
 from flask_cors import CORS
 import sys
 import logging
+import os
 
 from . import config
 
 # from pychunkedgraph.app import app_blueprint
 from pychunkedgraph.app import cg_app_blueprint, meshing_app_blueprint
 # from pychunkedgraph.app import manifest_app_blueprint
-
+os.environ['TRAVIS_BRANCH'] = "IDONTKNOWWHYINEEDTHIS"
 
 def create_app(test_config=None):
     app = Flask(__name__)
