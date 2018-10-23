@@ -40,7 +40,7 @@ def home():
 
 
 
-@bp.route('/1.0/<node_id>/childmeshes', method=['POST', 'GET'])
+@bp.route('/1.0/<node_id>/childmeshes', methods=['POST', 'GET'])
 def handle_children_meshes(node_id):
     cg = app_utils.get_cg()
 

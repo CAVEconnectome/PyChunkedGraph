@@ -41,7 +41,7 @@ def home():
 # ------------------------------------------------------------------------------
 
 
-@bp.route('/1.0/mesh_lvl', method=['POST'])
+@bp.route('/1.0/mesh_lvl', methods=['POST'])
 def mesh_():
     data = json.loads(request.data)
 
