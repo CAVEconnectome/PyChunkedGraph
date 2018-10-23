@@ -12,7 +12,7 @@ import json
 from pychunkedgraph.meshing import meshgen
 from pychunkedgraph.app import app_utils
 
-
+__version__ = '0.1.28'
 bp = Blueprint('pychunkedgraph_meshing', __name__, url_prefix="/meshing")
 
 # -------------------------------
@@ -22,7 +22,7 @@ bp = Blueprint('pychunkedgraph_meshing', __name__, url_prefix="/meshing")
 @bp.route('/')
 @bp.route("/index")
 def index():
-    return "Manifest Server -- 0.1"
+    return "Meshing Server -- " + __version__
 
 
 @bp.route
