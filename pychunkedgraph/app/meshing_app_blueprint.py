@@ -12,7 +12,7 @@ import json
 from pychunkedgraph.meshing import meshgen
 from pychunkedgraph.app import app_utils
 
-__version__ = '0.1.33'
+__version__ = '0.1.34'
 bp = Blueprint('pychunkedgraph_meshing', __name__, url_prefix="/meshing")
 
 # -------------------------------
