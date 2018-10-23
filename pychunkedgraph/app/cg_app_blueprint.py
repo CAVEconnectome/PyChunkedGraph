@@ -12,7 +12,7 @@ import collections
 
 from pychunkedgraph.app import app_utils
 
-__version__ = '0.1.35'
+__version__ = '0.1.36'
 bp = Blueprint('pychunkedgraph', __name__, url_prefix="/segmentation")
 
 # -------------------------------
