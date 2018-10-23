@@ -6,6 +6,7 @@ RUN pip install numpy \
   && pip install -r requirements.txt \
   && apt-get update \
   && apt-get install -y build-essential libboost-dev \
+  && pip install --no-cache-dir --upgrade --no-deps google-api-python-client \
   && pip install --no-cache-dir --upgrade --no-deps task-queue \
   && git clone https://github.com/seung-lab/igneous.git \
   && cd igneous \
