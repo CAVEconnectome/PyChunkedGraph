@@ -9,3 +9,4 @@ flask_cors
 codecov
 multiwrapper
 cloud-volume
+taskqueue
