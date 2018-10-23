@@ -40,8 +40,11 @@ def home():
 
 
 @bp.route('/1.0/mesh_lvl', method=['POST'])
-def mesh_(node_id):
+def mesh_():
     data = json.loads(request.data)
+
+    assert "node_id" in data
+    node_id = data["node_id"]
 
     if "sv_ids" in data:
         sv_ids = data["sv_ids"]
