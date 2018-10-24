@@ -1,8 +1,8 @@
-from flask import Blueprint, request, make_response
+from flask import Blueprint, request, make_response, jsonify
 # from flask import current_app
 # from google.cloud import pubsub_v1
 import json
-# import numpy as np
+import numpy as np
 # import time
 # import datetime
 # import sys
@@ -62,7 +62,8 @@ def mesh_():
 def handle_valid_frags(node_id):
     cg = app_utils.get_cg()
 
-    seg_ids = meshgen_utils.get_highest_child_nodes_with_meshes(cg, node_id,
+    seg_ids = meshgen_utils.get_highest_child_nodes_with_meshes(cg,
+                                                                np.uint64(node_id),
                                                                 stop_layer=1)
 
-    return seg_ids
+    return app_utils.tobinary(seg_ids)
