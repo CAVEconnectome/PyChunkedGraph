@@ -1,14 +1,13 @@
 import datetime
-from typing import Dict
+from typing import Dict, Iterable, Optional, Union
 
 import numpy as np
 import pandas as pd
 
 from google.cloud import bigtable
 from google.cloud.bigtable.row_filters import TimestampRange, \
-    TimestampRangeFilter, ColumnRangeFilter, ValueRangeFilter, RowFilterChain, \
-    ColumnQualifierRegexFilter, RowFilterUnion, ConditionalRowFilter, \
-    PassAllFilter, RowFilter, RowKeyRegexFilter, FamilyNameRegexFilter
+    TimestampRangeFilter, ColumnRangeFilter, RowFilterChain, \
+    RowFilterUnion, RowFilter
 from pychunkedgraph.backend.utils import column_keys, serializers
 
 
@@ -105,17 +104,58 @@ def get_google_compatible_time_stamp(time_stamp: datetime.datetime,
     return time_stamp
 
 
-def get_inclusive_time_range_filter(start=None, end=None):
-    """ Generates a TimeStampRangeFilter which is inclusive for start and end.
+def get_column_filter(
+        columns: Union[Iterable[column_keys._Column], column_keys._Column] = None) -> RowFilter:
+    """ Generates a RowFilter that accepts the specified columns """
+
+    if isinstance(columns, column_keys._Column):
+        return ColumnRangeFilter(columns.family_id,
+                                 start_column=columns.key,
+                                 end_column=columns.key)
+    elif len(columns) == 1:
+        return ColumnRangeFilter(columns[0].family_id,
+                                 start_column=columns[0].key,
+                                 end_column=columns[0].key)
+
+    return RowFilterUnion([ColumnRangeFilter(col.family_id,
+                                             start_column=col.key,
+                                             end_column=col.key) for col in columns])
+
+
+def get_time_range_filter(
+        start_time: Optional[datetime.datetime] = None,
+        end_time: Optional[datetime.datetime] = None,
+        end_inclusive: bool = True) -> RowFilter:
+    """ Generates a TimeStampRangeFilter which is inclusive for start and (optionally) end.
 
     :param start:
     :param end:
     :return:
     """
-    if end is not None:
-        end += (datetime.timedelta(microseconds=1000))
+    # Comply to resolution of BigTables TimeRange
+    if start_time is not None:
+        start_time = get_google_compatible_time_stamp(start_time, round_up=False)
+    if end_time is not None:
+        end_time = get_google_compatible_time_stamp(end_time, round_up=end_inclusive)
 
-    return TimestampRangeFilter(TimestampRange(start=start, end=end))
+    return TimestampRangeFilter(TimestampRange(start=start_time, end=end_time))
+
+
+def get_time_range_and_column_filter(
+        columns: Optional[Union[Iterable[column_keys._Column], column_keys._Column]] = None,
+        start_time: Optional[datetime.datetime] = None,
+        end_time: Optional[datetime.datetime] = None,
+        end_inclusive: bool = False) -> RowFilter:
+
+    time_filter = get_time_range_filter(start_time=start_time,
+                                        end_time=end_time,
+                                        end_inclusive=end_inclusive)
+
+    if columns is not None:
+        column_filter = get_column_filter(columns)
+        return RowFilterChain([column_filter, time_filter])
+    else:
+        return time_filter
 
 
 def get_max_time():
@@ -171,42 +211,8 @@ def time_min():
     return datetime.datetime.strptime("01/01/00 00:00", "%d/%m/%y %H:%M")
 
 
-def row_to_byte_dict(row: bigtable.row.Row, f_id: str = None, idx: int = None,
-                     timestamp_row=None) -> Dict[int, Dict]:
-    """ Reads row entries to a dictionary
-
-    :param row: row
-    :param f_id: str
-    :param idx: int
-    :return: dict
-    """
-    row_dict = {}
-
-    for fam_id in row.cells.keys():
-        row_dict[fam_id] = {}
-
-        cells = row.cells[fam_id]
-
-        for row_k in row.cells[fam_id].keys():
-            if idx is None:
-                row_dict[fam_id][serializers.deserialize_key(row_k)] = \
-                    [c.value for c in cells[row_k]]
-            else:
-                row_dict[fam_id][serializers.deserialize_key(row_k)] = \
-                    cells[row_k][idx].value
-
-            if serializers.deserialize_key(row_k) == timestamp_row:
-                row_dict[fam_id]["timestamp"] = cells[row_k].timestamp
-
-    if f_id is not None and f_id in row_dict:
-        return row_dict[f_id]
-    elif f_id is None:
-        return row_dict
-    else:
-        raise Exception("Family id not found")
-
-
-def partial_row_data_to_column_dict(partial_row_data: bigtable.row_data.PartialRowData):
+def partial_row_data_to_column_dict(partial_row_data: bigtable.row_data.PartialRowData) \
+        -> Dict[column_keys._Column, bigtable.row_data.PartialRowData]:
     new_column_dict = {}
 
     for family_id, column_dict in partial_row_data.cells.items():

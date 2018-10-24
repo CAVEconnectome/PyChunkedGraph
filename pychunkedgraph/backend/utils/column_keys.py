@@ -2,10 +2,6 @@ from typing import NamedTuple
 from pychunkedgraph.backend.utils import basetypes, serializers
 
 
-_columns = {}
-_columnarrays = {}
-
-
 class _ColumnType(NamedTuple):
     key: bytes
     family_id: str
@@ -14,18 +10,17 @@ class _ColumnType(NamedTuple):
 
 class _Column(_ColumnType):
     __slots__ = ()
+    _columns = {}
 
     def __init__(self, **kwargs):
         super().__init__()
-        _columns[(kwargs['family_id'], kwargs['key'])] = self
+        _Column._columns[(kwargs['family_id'], kwargs['key'])] = self
 
-    @property
-    def serialize(self):
-        return self.serializer.serialize
+    def serialize(self, obj):
+        return self.serializer.serialize(obj)
 
-    @property
-    def deserialize(self):
-        return self.serializer.deserialize
+    def deserialize(self, stream):
+        return self.serializer.deserialize(stream)
 
     @property
     def basetype(self):
@@ -33,11 +28,13 @@ class _Column(_ColumnType):
 
 
 class _ColumnArray():
+    _columnarrays = {}
+
     def __init__(self, pattern, family_id, serializer):
         self._pattern = pattern
         self._family_id = family_id
         self._serializer = serializer
-        _columnarrays[(family_id, pattern)] = self
+        _ColumnArray._columnarrays[(family_id, pattern)] = self
 
         # TODO: Add missing check in `fromkey(family_id, key)` and remove this
         #       loop (pre-creates `_Columns`, so that the inverse lookup works)
@@ -79,7 +76,7 @@ class Concurrency:
     Lock = _Column(
         key=b'lock',
         family_id='0',
-        serializer=serializers.NumPyValue(dtype=basetypes.ROW_LOCK))
+        serializer=serializers.UInt64String())
 
 
 class Connectivity:
@@ -212,7 +209,7 @@ class OperationLogs:
 
 def from_key(family_id: str, key: bytes):
     try:
-        return _columns[(family_id, key)]
+        return _Column._columns[(family_id, key)]
     except KeyError:
         # FIXME: Look if the key matches a columnarray pattern and
         #        remove loop initialization in _ColumnArray.__init__()

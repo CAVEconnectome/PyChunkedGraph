@@ -3,7 +3,7 @@ import numpy as np
 import time
 
 import pychunkedgraph.backend.chunkedgraph_utils
-from pychunkedgraph.backend.utils import serializers, column_keys
+from pychunkedgraph.backend.utils import column_keys
 from pychunkedgraph.backend import chunkedgraph
 from multiwrapper import multiprocessing_utils as mu
 
@@ -23,18 +23,16 @@ def _family_consistency_test_thread(args):
     failed_node_ids = []
 
     time_start = time.time()
-    for i_k, k in enumerate(rows.keys()):
+    for i_k, node_id in enumerate(rows.keys()):
         if i_k % 100 == 1:
             dt = time.time() - time_start
             eta = dt / i_k * len(rows) - dt
             print("%d / %d - %.3fs -> %.3fs      " % (i_k, len(rows), dt, eta),
                   end="\r")
 
-        node_id = serializers.deserialize_uint64(k)
-        parent_id = parent_column.deserialize(
-            rows[k].cells[parent_column.family_id][parent_column.key][0].value)
+        parent_id = rows[node_id][parent_column][0].value
 
-        if not node_id in cg.get_children(parent_id):
+        if node_id not in cg.get_children(parent_id):
             failed_node_ids.append([node_id, parent_id])
 
     return failed_node_ids
@@ -89,11 +87,11 @@ def children_test(table_id, layer, coord_list):
     for coords in coord_list:
         x, y, z = coords
 
-        node_ids = cg.range_read_chunk(layer, x, y, z, columns=[child_column])
+        node_ids = cg.range_read_chunk(layer, x, y, z, columns=child_column)
         all_children = []
         children_chunks = []
-        for node_id_b, data in node_ids.items():
-            children = child_column.deserialize(data.cells[child_column.family_id][child_column.key][0].value)
+        for children in node_ids.values():
+            children = children[0].value
             for child in children:
                 all_children.append(child)
                 children_chunks.append(cg.get_chunk_id(child))

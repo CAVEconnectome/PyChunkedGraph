@@ -8,13 +8,11 @@ class _Serializer():
         self._deserializer = deserializer
         self._basetype = basetype
 
-    @property
-    def serialize(self):
-        return self._serializer
+    def serialize(self, obj):
+        return self._serializer(obj)
 
-    @property
-    def deserialize(self):
-        return self._deserializer
+    def deserialize(self, obj):
+        return self._deserializer(obj)
 
     @property
     def basetype(self):
@@ -27,7 +25,7 @@ class NumPyArray(_Serializer):
         data = np.frombuffer(val, dtype=dtype)
         if shape is not None:
             return data.reshape(shape, order=order)
-        elif order is not None:
+        if order is not None:
             return data.reshape(data.shape, order=order)
         return data
 
@@ -54,6 +52,15 @@ class String(_Serializer):
             serializer=lambda x: x.encode(encoding),
             deserializer=lambda x: x.decode(),
             basetype=str
+        )
+
+
+class UInt64String(_Serializer):
+    def __init__(self):
+        super().__init__(
+            serializer=serialize_uint64,
+            deserializer=deserialize_uint64,
+            basetype=np.uint64
         )
 
 

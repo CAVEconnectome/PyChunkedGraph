@@ -16,7 +16,7 @@ from multiwrapper import multiprocessing_utils as mu
 from pychunkedgraph.backend import cutting, chunkedgraph_comp
 from pychunkedgraph.backend.chunkedgraph_utils import compute_indices_pandas, \
     compute_bitmasks, get_google_compatible_time_stamp, \
-    get_inclusive_time_range_filter, get_max_time, \
+    get_time_range_filter, get_time_range_and_column_filter, get_max_time, \
     combine_cross_chunk_edge_dicts, time_min, partial_row_data_to_column_dict
 from pychunkedgraph.backend.utils import serializers, column_keys, row_keys, basetypes
 from pychunkedgraph.backend import chunkedgraph_exceptions as cg_exceptions
@@ -31,6 +31,7 @@ from google.cloud.bigtable.row_filters import TimestampRange, \
     TimestampRangeFilter, ColumnRangeFilter, ValueRangeFilter, RowFilterChain, \
     ColumnQualifierRegexFilter, RowFilterUnion, ConditionalRowFilter, \
     PassAllFilter, RowFilter, RowKeyRegexFilter, FamilyNameRegexFilter
+from google.cloud.bigtable.row_set import RowSet
 from google.cloud.bigtable.column_family import MaxVersionsGCRule
 
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple, Union, NamedTuple
@@ -227,31 +228,14 @@ class ChunkedGraph(object):
         :return: Union[str, np.uint64]
             value
         """
-        row = self.table.read_row(row_keys.GraphSettings)
-        if row is None or column.key not in row.cells[column.family_id]:
+        setting = self.read_byte_row(row_key=row_keys.GraphSettings, columns=column)
+        if not setting:
             assert value is not None
 
-            if column in [column_keys.GraphSettings.FanOut,
-                          column_keys.GraphSettings.LayerCount,
-                          column_keys.GraphSettings.ChunkSize,
-                          column_keys.GraphSettings.SegmentationPath]:
-                val_dict = {column: value}
-            else:
-                raise Exception("Unknown type for parameter")
-
-            row = self.mutate_row(row_keys.GraphSettings, val_dict)
-
+            row = self.mutate_row(row_keys.GraphSettings, {column: value})
             self.bulk_write([row])
         else:
-            value = row.cells[column.family_id][column.key][0].value
-
-            if column in [column_keys.GraphSettings.FanOut,
-                          column_keys.GraphSettings.LayerCount,
-                          column_keys.GraphSettings.ChunkSize,
-                          column_keys.GraphSettings.SegmentationPath]:
-                value = column.deserialize(value)
-            else:
-                raise Exception("Unknown key")
+            value = setting[0].value
 
         return value
 
@@ -490,19 +474,12 @@ class ChunkedGraph(object):
         :return: uint64
         """
 
-        column = column_keys.Concurrency.OperationID
-
         # Incrementer row keys start with an "i"
         row_key = serializers.serialize_key("i%s" % serializers.pad_node_id(chunk_id))
-        row = self.table.read_row(row_key)
+        row = self.read_byte_row(row_key, columns=column_keys.Concurrency.OperationID)
 
-        # Read incrementer value and interpret is as Segment ID
-        if row is not None:
-            max_seg_id = column.deserialize(row.cells[column.family_id][column.key][0].value)
-        else:
-            max_seg_id = 0
-
-        return basetypes.SEGMENT_ID.type(max_seg_id)
+        # Read incrementer value (default to 0) and interpret is as Segment ID
+        return basetypes.SEGMENT_ID.type(row[0].value if row else 0)
 
     def get_max_node_id(self, chunk_id: np.uint64) -> np.uint64:
         """  Gets maximal node id in a chunk based on the atomic counter
@@ -552,17 +529,10 @@ class ChunkedGraph(object):
 
         :return: int64
         """
-        row = self.table.read_row(row_keys.OperationID)
         column = column_keys.Concurrency.OperationID
+        row = self.read_byte_row(row_keys.OperationID, columns=column)
 
-        # Read incrementer value
-        if row is not None:
-            max_operation_id_b = row.cells[column.family_id][column.key][0].value
-            max_operation_id = column.deserialize(max_operation_id_b)
-        else:
-            max_operation_id = column.deserialize(0)
-
-        return max_operation_id
+        return row[0].value if row else column.basetype(0)
 
     def get_cross_chunk_edges_layer(self, cross_edges):
         """ Computes the layer in which a cross chunk edge becomes relevant.
@@ -618,74 +588,233 @@ class ChunkedGraph(object):
                 cross_edge_dict[cc_layer] = layer_cross_edges
         return cross_edge_dict
 
-    def read_row(self, node_id: np.uint64,
-                 column: column_keys._Column,
-                 get_time_stamp: bool = False
-                 ) -> Any:
-        """ Reads row from BigTable and takes care of serializations
+    def read_byte_rows(
+            self,
+            start_key: Optional[bytes] = None,
+            end_key: Optional[bytes] = None,
+            end_key_inclusive: bool = False,
+            row_keys: Optional[Iterable[bytes]] = None,
+            columns: Optional[Union[Iterable[column_keys._Column], column_keys._Column]] = None,
+            start_time: Optional[datetime.datetime] = None,
+            end_time: Optional[datetime.datetime] = None,
+            end_time_inclusive: bool = False) -> Dict[bytes, Union[
+                Dict[column_keys._Column, List[bigtable.row_data.Cell]],
+                List[bigtable.row_data.Cell]
+            ]]:
+        """Main function for reading a row range or non-contiguous row sets from Bigtable using
+        `bytes` keys.
 
-        :param node_id: uint64
-        :param column: table column
-        :param get_time_stamp: bool
-        :param fam_id: str
-        :return: row entry
+        Keyword Arguments:
+            start_key {Optional[bytes]} -- The first row to be read, ignored if `row_keys` is set.
+                If None, no lower boundary is used. (default: {None})
+            end_key {Optional[bytes]} -- The end of the row range, ignored if `row_keys` is set.
+                If None, no upper boundary is used. (default: {None})
+            end_key_inclusive {bool} -- Whether or not `end_key` itself should be included in the
+                request, ignored if `row_keys` is set or `end_key` is None. (default: {False})
+            row_keys {Optional[Iterable[bytes]]} -- An `Iterable` containing possibly
+                non-contiguous row keys. Takes precedence over `start_key` and `end_key`.
+                (default: {None})
+            columns {Optional[Union[Iterable[column_keys._Column], column_keys._Column]]} --
+                Optional filtering by columns to speed up the query. If `columns` is a single
+                column (not iterable), the column key will be omitted from the result.
+                (default: {None})
+            start_time {Optional[datetime.datetime]} -- Ignore cells with timestamp before
+                `start_time`. If None, no lower bound. (default: {None})
+            end_time {Optional[datetime.datetime]} -- Ignore cells with timestamp after `end_time`.
+                If None, no upper bound. (default: {None})
+            end_time_inclusive {bool} -- Whether or not `end_time` itself should be included in the
+                request, ignored if `end_time` is None. (default: {False})
+
+        Returns:
+            Dict[bytes, Union[Dict[column_keys._Column, List[bigtable.row_data.Cell]],
+                              List[bigtable.row_data.Cell]]] --
+                Returns a dictionary of `byte` rows as keys. Their value will be a mapping of
+                columns to a List of cells (one cell per timestamp). Each cell has a `value`
+                property, which returns the deserialized field, and a `timestamp` property, which
+                returns the timestamp as `datetime.datetime` object.
+                If only a single `column_keys._Column` was requested, the List of cells will be
+                attached to the row dictionary directly (skipping the column dictionary).
         """
-        row = self.table.read_row(serializers.serialize_uint64(node_id),
-                                  filter_=ColumnQualifierRegexFilter(column.key))
 
-        if row is None or column.key not in row.cells[column.family_id]:
-            if get_time_stamp:
-                return None, None
-            else:
-                return None
+        # Create filters: Column and Time
+        filter_ = get_time_range_and_column_filter(
+            columns=columns,
+            start_time=start_time,
+            end_time=end_time,
+            end_inclusive=end_time_inclusive)
 
-        cell_entries = partial_row_data_to_column_dict(row)[column]
+        # Create filters: Rows
+        row_set = RowSet()
 
-        cell_value = column.deserialize(cell_entries[0].value)
+        if row_keys is not None:
+            for row_key in row_keys:
+                row_set.add_row_key(row_key)
+        elif start_key is not None or end_key is not None:
+            row_set.add_row_range_from_keys(
+                start_key=start_key,
+                start_inclusive=True,
+                end_key=end_key,
+                end_inclusive=end_key_inclusive)
 
-        if get_time_stamp:
-            return cell_value, cell_entries[0].timestamp
-        else:
-            return cell_value
+        # Bigtable read with retries
+        rows = self._execute_read(row_set=row_set, row_filter=filter_)
 
-    def read_row_multicolumn(self, node_id: np.uint64,
-                             columns: Optional[Iterable[column_keys._Column]],
-                             time_stamp: datetime.datetime = get_max_time()) -> Any:
-        """ Reads row from BigTable and takes care of serializations
+        # Deserialize cells
+        for row_key, column_dict in rows.items():
+            for column, cell_entries in column_dict.items():
+                for cell_entry in cell_entries:
+                    cell_entry.value = column.deserialize(cell_entry.value)
+            # If no column array was requested, reattach single column's values directly to the row
+            if isinstance(columns, column_keys._Column):
+                rows[row_key] = cell_entries
 
-        :param node_id: uint64
-        :param columns: table columns
-        :param time_stamp: datetime.datetime
-        :return: row entry
+        return rows
+
+    def read_byte_row(
+            self,
+            row_key: bytes,
+            columns: Optional[Union[Iterable[column_keys._Column], column_keys._Column]] = None,
+            start_time: Optional[datetime.datetime] = None,
+            end_time: Optional[datetime.datetime] = None,
+            end_time_inclusive: bool = False) -> \
+                Union[Dict[column_keys._Column, List[bigtable.row_data.Cell]],
+                      List[bigtable.row_data.Cell]]:
+        """Convenience function for reading a single row from Bigtable using its `bytes` keys.
+
+        Arguments:
+            row_key {bytes} -- The row to be read.
+
+        Keyword Arguments:
+            columns {Optional[Union[Iterable[column_keys._Column], column_keys._Column]]} --
+                Optional filtering by columns to speed up the query. If `columns` is a single
+                column (not iterable), the column key will be omitted from the result.
+                (default: {None})
+            start_time {Optional[datetime.datetime]} -- Ignore cells with timestamp before
+                `start_time`. If None, no lower bound. (default: {None})
+            end_time {Optional[datetime.datetime]} -- Ignore cells with timestamp after `end_time`.
+                If None, no upper bound. (default: {None})
+            end_time_inclusive {bool} -- Whether or not `end_time` itself should be included in the
+                request, ignored if `end_time` is None. (default: {False})
+
+        Returns:
+            Union[Dict[column_keys._Column, List[bigtable.row_data.Cell]],
+                  List[bigtable.row_data.Cell]] --
+                Returns a mapping of columns to a List of cells (one cell per timestamp). Each cell
+                has a `value` property, which returns the deserialized field, and a `timestamp`
+                property, which returns the timestamp as `datetime.datetime` object.
+                If only a single `column_keys._Column` was requested, the List of cells is returned
+                directly.
         """
-        # Comply to resolution of BigTables TimeRange
-        time_stamp = get_google_compatible_time_stamp(time_stamp,
-                                                      round_up=False)
+        row = self.read_byte_rows(row_keys=[row_key], columns=columns, start_time=start_time,
+                                  end_time=end_time, end_time_inclusive=end_time_inclusive)
 
-        # Create filters: time and id range
-        time_filter = get_inclusive_time_range_filter(end=time_stamp)
-
-        if columns is not None:
-            if not isinstance(columns, list):
-                columns = [columns]
-
-            filters = [ColumnQualifierRegexFilter(column.key) for column in columns]
-
-            if len(filters) > 1:
-                filter_ = RowFilterUnion(filters)
-            else:
-                filter_ = filters[0]
-
-            filter_ = RowFilterChain([filter_, time_filter])
+        if isinstance(columns, column_keys._Column):
+            return row.get(row_key, [])
         else:
-            filter_ = time_filter
+            return row.get(row_key, {})
 
-        row = self.table.read_row(serializers.serialize_uint64(node_id), filter_=filter_)
+    def read_node_id_rows(
+            self,
+            start_id: Optional[np.uint64] = None,
+            end_id: Optional[np.uint64] = None,
+            end_id_inclusive: bool = False,
+            node_ids: Optional[Iterable[np.uint64]] = None,
+            columns: Optional[Union[Iterable[column_keys._Column], column_keys._Column]] = None,
+            start_time: Optional[datetime.datetime] = None,
+            end_time: Optional[datetime.datetime] = None,
+            end_time_inclusive: bool = False) -> Dict[np.uint64, Union[
+                Dict[column_keys._Column, List[bigtable.row_data.Cell]],
+                List[bigtable.row_data.Cell]
+            ]]:
+        """Convenience function for reading a row range or non-contiguous row sets from Bigtable
+        representing NodeIDs.
 
-        if row is None:
-            return {}
+        Keyword Arguments:
+            start_id {Optional[np.uint64]} -- The first row to be read, ignored if `node_ids` is
+                set. If None, no lower boundary is used. (default: {None})
+            end_id {Optional[np.uint64]} -- The end of the row range, ignored if `node_ids` is set.
+                If None, no upper boundary is used. (default: {None})
+            end_id_inclusive {bool} -- Whether or not `end_id` itself should be included in the
+                request, ignored if `node_ids` is set or `end_id` is None. (default: {False})
+            node_ids {Optional[Iterable[np.uint64]]} -- An `Iterable` containing possibly
+                non-contiguous row keys. Takes precedence over `start_id` and `end_id`.
+                (default: {None})
+            columns {Optional[Union[Iterable[column_keys._Column], column_keys._Column]]} --
+                Optional filtering by columns to speed up the query. If `columns` is a single
+                column (not iterable), the column key will be omitted from the result.
+                (default: {None})
+            start_time {Optional[datetime.datetime]} -- Ignore cells with timestamp before
+                `start_time`. If None, no lower bound. (default: {None})
+            end_time {Optional[datetime.datetime]} -- Ignore cells with timestamp after `end_time`.
+                If None, no upper bound. (default: {None})
+            end_time_inclusive {bool} -- Whether or not `end_time` itself should be included in the
+                request, ignored if `end_time` is None. (default: {False})
 
-        return partial_row_data_to_column_dict(row)
+        Returns:
+            Dict[np.uint64, Union[Dict[column_keys._Column, List[bigtable.row_data.Cell]],
+                                  List[bigtable.row_data.Cell]]] --
+                Returns a dictionary of NodeID rows as keys. Their value will be a mapping of
+                columns to a List of cells (one cell per timestamp). Each cell has a `value`
+                property, which returns the deserialized field, and a `timestamp` property, which
+                returns the timestamp as `datetime.datetime` object.
+                If only a single `column_keys._Column` was requested, the List of cells will be
+                attached to the row dictionary directly (skipping the column dictionary).
+        """
+        to_bytes = serializers.serialize_uint64
+        from_bytes = serializers.deserialize_uint64
+
+        # Read rows (convert Node IDs to row_keys)
+        rows = self.read_byte_rows(
+            start_key=to_bytes(start_id) if start_id is not None else None,
+            end_key=to_bytes(end_id) if end_id is not None else None,
+            end_key_inclusive=end_id_inclusive,
+            row_keys=(to_bytes(node_id) for node_id in node_ids) if node_ids is not None else None,
+            columns=columns,
+            start_time=start_time,
+            end_time=end_time,
+            end_time_inclusive=end_time_inclusive)
+
+        # Convert row_keys back to Node IDs
+        return {from_bytes(row_key): data for (row_key, data) in rows.items()}
+
+    def read_node_id_row(
+            self,
+            node_id: np.uint64,
+            columns: Optional[Union[Iterable[column_keys._Column], column_keys._Column]] = None,
+            start_time: Optional[datetime.datetime] = None,
+            end_time: Optional[datetime.datetime] = None,
+            end_time_inclusive: bool = False) -> \
+                Union[Dict[column_keys._Column, List[bigtable.row_data.Cell]],
+                      List[bigtable.row_data.Cell]]:
+        """Convenience function for reading a single row from Bigtable, representing a NodeID.
+
+        Arguments:
+            node_id {np.uint64} -- the NodeID of the row to be read.
+
+        Keyword Arguments:
+            columns {Optional[Union[Iterable[column_keys._Column], column_keys._Column]]} --
+                Optional filtering by columns to speed up the query. If `columns` is a single
+                column (not iterable), the column key will be omitted from the result.
+                (default: {None})
+            start_time {Optional[datetime.datetime]} -- Ignore cells with timestamp before
+                `start_time`. If None, no lower bound. (default: {None})
+            end_time {Optional[datetime.datetime]} -- Ignore cells with timestamp after `end_time`.
+                If None, no upper bound. (default: {None})
+            end_time_inclusive {bool} -- Whether or not `end_time` itself should be included in the
+                request, ignored if `end_time` is None. (default: {False})
+
+        Returns:
+            Union[Dict[column_keys._Column, List[bigtable.row_data.Cell]],
+                  List[bigtable.row_data.Cell]] --
+                Returns a mapping of columns to a List of cells (one cell per timestamp). Each cell
+                has a `value` property, which returns the deserialized field, and a `timestamp`
+                property, which returns the timestamp as `datetime.datetime` object.
+                If only a single `column_keys._Column` was requested, the List of cells is returned
+                directly.
+        """
+        return self.read_byte_row(row_key=serializers.serialize_uint64(node_id), columns=columns,
+                                  start_time=start_time, end_time=end_time,
+                                  end_time_inclusive=end_time_inclusive)
 
     def read_cross_chunk_edges(self, node_id: np.uint64, start_layer: int = 2,
                                end_layer: int = None) -> Dict:
@@ -709,13 +838,13 @@ class ChunkedGraph(object):
 
         columns = [column_keys.Connectivity.CrossChunkEdge[l]
                    for l in range(start_layer, end_layer)]
-        row_dict = self.read_row_multicolumn(node_id, columns=columns)
+        row_dict = self.read_node_id_row(node_id, columns=columns)
 
         cross_edge_dict = {}
         for l in range(start_layer, end_layer):
             col = column_keys.Connectivity.CrossChunkEdge[l]
             if col in row_dict:
-                cross_edge_dict[l] = col.deserialize(row_dict[col][0].value)
+                cross_edge_dict[l] = row_dict[col][0].value
             else:
                 cross_edge_dict[l] = col.deserialize(b'')
 
@@ -798,23 +927,17 @@ class ChunkedGraph(object):
 
         return True
 
-    def _range_read_execution(self, start_id, end_id,
-                              row_filter: RowFilter = None,
-                              n_retries: int = 100):
-        """ Executes predefined range read (read_rows)
-
-        :param start_id: np.uint64
-        :param end_id: np.uint64
+    def _execute_read(self, row_set: RowSet, row_filter: RowFilter = None,
+                      n_retries: int = 100) \
+            -> Dict[bytes, Dict[column_keys._Column, bigtable.row_data.PartialRowData]]:
+        """ Core function to read rows from Bigtable. Contains basic retry logic.
+        :param row_set: BigTable RowSet
         :param row_filter: BigTable RowFilter
         :param n_retries: int
-        :return: dict
+        :return: Dict[bytes, Dict[column_keys._Column, bigtable.row_data.PartialRowData]]
         """
         # Set up read
-        range_read = self.table.read_rows(
-            start_key=serializers.serialize_uint64(start_id),
-            end_key=serializers.serialize_uint64(end_id),
-            end_inclusive=True,
-            filter_=row_filter)
+        range_read = self.table.read_rows(row_set=row_set, filter_=row_filter)
 
         # Execute read
         consume_success = False
@@ -825,122 +948,69 @@ class ChunkedGraph(object):
             try:
                 range_read.consume_all()
                 consume_success = True
-            except:
-                self.logger.warning("Range read execution unsuccessful - retrying")
+            except Exception as e:
+                self.logger.warning("Range read execution unsuccessful (%s) - retrying" % e)
                 time.sleep(i_tries)
             i_tries += 1
 
         if not consume_success:
-            self.logger.error(f"Unable to consume range read from {start_id} to {end_id} using {n_retries} retries.")
-            raise Exception("Unable to consume range read: "
-                            "%d - %d -- n_retries = %d" %
-                            (start_id, end_id, n_retries))
+            raise cg_exceptions.ChunkedGraphError(
+                "Unable to consume range read after %d retries" % n_retries)
 
         return {k: partial_row_data_to_column_dict(v) for (k, v) in range_read.rows.items()}
 
-    def range_read(self, start_id: np.uint64, end_id: np.uint64,
-                   n_retries: int = 100, max_block_size: int = 50000,
-                   columns: Optional[Iterable[column_keys._Column]] = None,
-                   time_filter: TimestampRangeFilter = None,
-                   default_filters: Optional[Iterable[RowFilter]] = [],
-                   time_stamp: datetime.datetime = get_max_time()
-                   ) -> Union[
-                          bigtable.row_data.PartialRowData,
-                          Dict[bytes, bigtable.row_data.PartialRowData]]:
-        """ Reads all ids within a given range
+    def range_read_chunk(
+            self,
+            layer: Optional[int] = None,
+            x: Optional[int] = None,
+            y: Optional[int] = None,
+            z: Optional[int] = None,
+            chunk_id: Optional[np.uint64] = None,
+            columns: Optional[Union[Iterable[column_keys._Column], column_keys._Column]] = None,
+            time_stamp: Optional[datetime.datetime] = None) -> Dict[np.uint64, Union[
+                Dict[column_keys._Column, List[bigtable.row_data.Cell]],
+                List[bigtable.row_data.Cell]
+            ]]:
+        """Convenience function for reading all NodeID rows of a single chunk from Bigtable.
+        Chunk can either be specified by its (layer, x, y, and z coordinate), or by the chunk ID.
 
-        :param start_id: np.uint64
-        :param end_id: np.uint64
-        :param n_retries: int
-        :param max_block_size: int
-        :param columns: list of column_keys._Column
-            more efficient read through row filters
-        :param time_filter: TimestampRangeFilter
-        :param default_filters: list of RowFilters or None
-        :param time_stamp: datetime.datetime
-        :return: dict
-        """
+        Keyword Arguments:
+            layer {Optional[int]} -- The layer of the chunk within the graph (default: {None})
+            x {Optional[int]} -- The xth chunk in x dimension within the graph, within `layer`.
+                (default: {None})
+            y {Optional[int]} -- The yth chunk in y dimension within the graph, within `layer`.
+                (default: {None})
+            z {Optional[int]} -- The zth chunk in z dimension within the graph, within `layer`.
+                (default: {None})
+            chunk_id {Optional[np.uint64]} -- Alternative way to specify the chunk, if the Chunk ID
+                is already known. (default: {None})
+            columns {Optional[Union[Iterable[column_keys._Column], column_keys._Column]]} --
+                Optional filtering by columns to speed up the query. If `columns` is a single
+                column (not iterable), the column key will be omitted from the result.
+                (default: {None})
+            time_stamp {Optional[datetime.datetime]} -- Ignore cells with timestamp after `end_time`.
+                If None, no upper bound. (default: {None})
 
-        if time_filter is None:
-            # Comply to resolution of BigTables TimeRange
-            time_stamp = get_google_compatible_time_stamp(time_stamp,
-                                                          round_up=False)
-
-            # Create filters: time and id range
-            time_filter = get_inclusive_time_range_filter(end=time_stamp)
-
-        if columns is not None:
-            column_filters = []
-            for column in columns:
-                column_filters.append(ColumnQualifierRegexFilter(column.key))
-
-            if len(column_filters) > 1:
-                column_filter = [RowFilterUnion(column_filters)]
-            else:
-                column_filter = [column_filters[0]]
-        else:
-            column_filter = []
-
-        filter_list = default_filters + [time_filter] + column_filter
-
-        if len(filter_list) > 1:
-            row_filter = RowFilterChain(filter_list)
-        else:
-            row_filter = filter_list[0]
-
-        max_block_size = np.uint64(max_block_size)
-
-        row_dict = {}
-        block_start_id = start_id
-        while block_start_id < end_id + np.uint64(1):
-            block_end_id = np.uint64(block_start_id + max_block_size)
-            if block_end_id > end_id:
-                block_end_id = end_id
-
-            block_row_dict = self._range_read_execution(start_id=block_start_id,
-                                                        end_id=block_end_id,
-                                                        row_filter=row_filter,
-                                                        n_retries=n_retries)
-
-            row_dict.update(block_row_dict)
-
-            block_start_id += max_block_size
-
-        return row_dict
-
-    def range_read_chunk(self, layer: int = None, x: int = None, y: int = None,
-                         z: int = None, chunk_id: np.uint64 = None,
-                         n_retries: int = 100, max_block_size: int = 1000000,
-                         columns: Optional[Iterable[column_keys._Column]] = None,
-                         time_stamp: datetime.datetime = get_max_time(),
-                         ) -> Union[
-                                bigtable.row_data.PartialRowData,
-                                Dict[bytes, bigtable.row_data.PartialRowData]]:
-        """ Reads all ids within a chunk
-
-        :param layer: int
-        :param x: int
-        :param y: int
-        :param z: int
-        :param chunk_id: np.uint64
-        :param n_retries: int
-        :param max_block_size: int
-        :param columns: column_keys._Column
-            more efficient read through row filters
-        :param time_stamp: datetime.datetime
-        :return: dict
+        Returns:
+            Dict[np.uint64, Union[Dict[column_keys._Column, List[bigtable.row_data.Cell]],
+                                  List[bigtable.row_data.Cell]]] --
+                Returns a dictionary of NodeID rows as keys. Their value will be a mapping of
+                columns to a List of cells (one cell per timestamp). Each cell has a `value`
+                property, which returns the deserialized field, and a `timestamp` property, which
+                returns the timestamp as `datetime.datetime` object.
+                If only a single `column_keys._Column` was requested, the List of cells will be
+                attached to the row dictionary directly (skipping the column dictionary).
         """
         if chunk_id is not None:
             x, y, z = self.get_chunk_coordinates(chunk_id)
             layer = self.get_chunk_layer(chunk_id)
-        elif x is not None and y is not None and z is not None:
+        elif layer is not None and x is not None and y is not None and z is not None:
             chunk_id = self.get_chunk_id(layer=layer, x=x, y=y, z=z)
         else:
-            raise Exception("Either chunk_id or coordinates have to be defined")
+            raise Exception("Either chunk_id or layer and coordinates have to be defined")
 
         if layer == 1:
             max_segment_id = self.get_segment_id_limit(chunk_id)
-            max_block_size = max_segment_id + 1
         else:
             max_segment_id = self.get_max_seg_id(chunk_id=chunk_id)
 
@@ -949,97 +1019,18 @@ class ChunkedGraph(object):
         end_id = self.get_node_id(max_segment_id, chunk_id=chunk_id)
 
         try:
-            rr = self.range_read(start_id, end_id, n_retries=n_retries,
-                                 max_block_size=max_block_size,
-                                 columns=columns,
-                                 time_stamp=time_stamp)
-        except:
-            raise Exception("Unable to consume range read: "
-                            "[%d, %d, %d], l = %d, n_retries = %d" %
-                            (x, y, z, layer, n_retries))
+            rr = self.read_node_id_rows(
+                start_id=start_id,
+                end_id=end_id,
+                end_id_inclusive=True,
+                columns=columns,
+                end_time=time_stamp,
+                end_time_inclusive=True)
+        except Exception as err:
+            raise Exception("Unable to consume chunk read: "
+                            "[%d, %d, %d], l = %d: %s" %
+                            (x, y, z, layer, err))
         return rr
-
-    def range_read_operations(self,
-                              time_start: datetime.datetime = time_min(),
-                              time_end: datetime.datetime = None,
-                              start_id: np.uint64 = 0,
-                              end_id: np.uint64 = None,
-                              n_retries: int = 100,
-                              columns: Optional[Iterable[column_keys._Column]] = None
-                              ) -> Dict[bytes, bigtable.row_data.PartialRowData]:
-        """ Reads all ids within a chunk
-
-        :param time_start: datetime
-        :param time_end: datetime
-        :param start_id: uint64
-        :param end_id: uint64
-        :param n_retries: int
-        :param columns: list of column_keys._Column
-            more efficient read through row filters
-        :return: list or yield of rows
-        """
-
-        # Set defaults
-        if end_id is None:
-            end_id = self.get_max_operation_id()
-
-        if time_end is None:
-            time_end = datetime.datetime.utcnow()
-
-        if end_id < start_id:
-            return {}
-
-        # Comply to resolution of BigTables TimeRange
-        time_start = get_google_compatible_time_stamp(time_start)
-        time_end = get_google_compatible_time_stamp(time_end)
-
-        # Create filters: time and id range
-        time_filter = TimestampRangeFilter(TimestampRange(start=time_start,
-                                                          end=time_end))
-
-        if columns is not None:
-            filters = []
-            for column in columns:
-                filters.append(ColumnQualifierRegexFilter(column.key))
-
-            if len(filters) > 1:
-                row_filter = RowFilterUnion(filters)
-            else:
-                row_filter = filters[0]
-        else:
-            row_filter = None
-
-        if row_filter is None:
-            row_filter = time_filter
-        else:
-            row_filter = RowFilterChain([time_filter, row_filter])
-
-        # Set up read
-        range_read = self.table.read_rows(
-            start_key=serializers.serialize_uint64(start_id),
-            end_key=serializers.serialize_uint64(end_id),
-            end_inclusive=False,
-            filter_=row_filter)
-        range_read.consume_all()
-
-        # Execute read
-        consume_success = False
-
-        # Retry reading if any of the writes failed
-        i_tries = 0
-        while not consume_success and i_tries < n_retries:
-            try:
-                range_read.consume_all()
-                consume_success = True
-            except:
-                time.sleep(i_tries)
-            i_tries += 1
-
-        if not consume_success:
-            raise Exception("Unable to consume chunk range read: "
-                            "n_retries = %d" % (n_retries))
-
-        return {k: partial_row_data_to_column_dict(v) for (k, v) in range_read.rows.items()}
 
     def range_read_layer(self, layer_id: int):
         """ Reads all ids within a layer
@@ -1265,7 +1256,7 @@ class ChunkedGraph(object):
                    column_keys.OperationLogs.SinkCoordinate, column_keys.OperationLogs.AddedEdge,
                    column_keys.OperationLogs.Affinity, column_keys.OperationLogs.RemovedEdge,
                    column_keys.OperationLogs.BoundingBoxOffset]
-        row_dict = self.read_row_multicolumn(operation_id, columns=columns)
+        row_dict = self.read_node_id_row(operation_id, columns=columns)
         return row_dict
 
     def add_atomic_edges_in_chunks(self, edge_id_dict: dict,
@@ -1603,9 +1594,7 @@ class ChunkedGraph(object):
             segment_ids = []
             row_ids = []
             max_child_ids = []
-            for row_id_b, row_data in range_read.items():
-                row_id = serializers.deserialize_uint64(row_id_b)
-
+            for row_id, row_data in range_read.items():
                 segment_id = self.get_segment_id(row_id)
 
                 cross_edge_columns = {k: v for (k, v) in row_data.items()
@@ -1613,8 +1602,7 @@ class ChunkedGraph(object):
                 if cross_edge_columns:
                     row_cell_dict[row_id] = cross_edge_columns
 
-                node_child_ids = column_keys.Hierarchy.Child.deserialize(
-                    row_data[column_keys.Hierarchy.Child][0].value)
+                node_child_ids = row_data[column_keys.Hierarchy.Child][0].value
 
                 max_child_ids.append(np.max(node_child_ids))
                 segment_ids.append(segment_id)
@@ -1653,8 +1641,7 @@ class ChunkedGraph(object):
                             cross_edge_dict[row_id][l] = cell_family[row_key][0].value
 
                     if int(layer_id - 1) in cross_edge_dict[row_id]:
-                        atomic_cross_edges = column_keys.Connectivity.CrossChunkEdge.deserialize(
-                            cross_edge_dict[row_id][layer_id - 1])
+                        atomic_cross_edges = cross_edge_dict[row_id][layer_id - 1]
 
                         if len(atomic_cross_edges) > 0:
                             atomic_partner_id_dict[row_id] = \
@@ -1694,20 +1681,15 @@ class ChunkedGraph(object):
                 node_ids = np.array(list(cc))
 
                 parent_id = parent_ids[i_cc]
-
-                parent_cross_edges_b = {}
-                for l in range(layer_id, self.n_layers):
-                    parent_cross_edges_b[l] = b""
+                parent_cross_edges = {l: [] for l in range(layer_id, self.n_layers)}
 
                 # Add rows for nodes that are in this chunk
-                for i_node_id, node_id in enumerate(node_ids):
-
+                for node_id in node_ids:
                     if node_id in cross_edge_dict:
                         # Extract edges relevant to this node
                         for l in range(layer_id, self.n_layers):
-                            if l in cross_edge_dict[node_id]:
-                                parent_cross_edges_b[l] += \
-                                    cross_edge_dict[node_id][l]
+                            if l in cross_edge_dict[node_id] and len(cross_edge_dict[node_id][l]) > 0:
+                                parent_cross_edges[l].append(cross_edge_dict[node_id][l])
 
                     # Create node
                     val_dict = {column_keys.Hierarchy.Parent: parent_id}
@@ -1724,13 +1706,13 @@ class ChunkedGraph(object):
                 val_dict = {}
 
                 for l in range(layer_id, self.n_layers):
-                    if l in parent_cross_edges_b:
+                    if l in parent_cross_edges and len(parent_cross_edges[l]) > 0:
                         val_dict[column_keys.Connectivity.CrossChunkEdge[l]] = \
-                            parent_cross_edges_b[l]
+                            np.concatenate(parent_cross_edges[l])
 
                 if len(val_dict) > 0:
                     rows.append(self.mutate_row(serializers.serialize_uint64(parent_id),
-                                                val_dict, time_stamp=time_stamp, isbytes=True))
+                                                val_dict, time_stamp=time_stamp))
 
                 if len(rows) > 100000:
                     self.bulk_write(rows)
@@ -1852,13 +1834,11 @@ class ChunkedGraph(object):
                               (len(ccs), layer_id, time.time() - time_start))
 
     def get_atomic_cross_edge_dict(self, node_id: np.uint64,
-                                   layer_ids: Sequence[int] = None,
-                                   deserialize_node_ids: bool = False):
+                                   layer_ids: Sequence[int] = None):
         """ Extracts all atomic cross edges and serves them as a dictionary
 
-        :param node_id: np.uitn64
+        :param node_id: np.uint64
         :param layer_ids: list of ints
-        :param deserialize_node_ids: bool
         :return: dict
         """
         if isinstance(layer_ids, int):
@@ -1872,9 +1852,9 @@ class ChunkedGraph(object):
 
         columns = [column_keys.Connectivity.CrossChunkEdge[l] for l in layer_ids]
 
-        row = self.read_row_multicolumn(node_id, columns=columns)
+        row = self.read_node_id_row(node_id, columns=columns)
 
-        if row is None:
+        if not row:
             return {}
 
         atomic_cross_edges = {}
@@ -1885,21 +1865,14 @@ class ChunkedGraph(object):
             atomic_cross_edges[l] = []
 
             if column in row:
-                row_val = row[column][0].value
-
-                if deserialize_node_ids:
-                    atomic_cross_edges[l] = \
-                        column_keys.Connectivity.CrossChunkEdge.deserialize(row_val)
-                else:
-                    atomic_cross_edges[l] = row_val
+                atomic_cross_edges[l] = row[column][0].value
 
         return atomic_cross_edges
 
     def get_parent(self, node_id: np.uint64,
                    get_only_relevant_parent: bool = True,
                    time_stamp: Optional[datetime.datetime] = None) -> Union[
-                       List[Tuple[np.uint64, datetime.datetime]],
-                       np.uint64, None]:
+                       List[Tuple[np.uint64, datetime.datetime]], np.uint64]:
         """ Acquires parent of a node at a specific time stamp
 
         :param node_id: uint64
@@ -1910,43 +1883,24 @@ class ChunkedGraph(object):
         :param time_stamp: datetime or None
         :return: uint64 or None
         """
-        column = column_keys.Hierarchy.Parent
-
         if time_stamp is None:
             time_stamp = datetime.datetime.utcnow()
 
         if time_stamp.tzinfo is None:
             time_stamp = UTC.localize(time_stamp)
 
-        # Comply to resolution of BigTables TimeRange
-        time_stamp = get_google_compatible_time_stamp(time_stamp,
-                                                      round_up=False)
+        parents = self.read_node_id_row(node_id,
+                                        columns=column_keys.Hierarchy.Parent,
+                                        end_time=time_stamp,
+                                        end_time_inclusive=True)
 
-        all_parents = []
-
-        p_filter_ = ColumnQualifierRegexFilter(column.key)
-        row = self.table.read_row(serializers.serialize_uint64(node_id), filter_=p_filter_)
-
-        if row is not None:
-            cells = row.cells[column.family_id]
-            if column.key in cells:
-                for parent_entry in cells[column.key]:
-                    if get_only_relevant_parent:
-                        if parent_entry.timestamp > time_stamp:
-                            continue
-                        else:
-                            return column.deserialize(parent_entry.value)
-                    else:
-                        all_parents.append((column.deserialize(parent_entry.value),
-                                            parent_entry.timestamp))
-        else:
+        if not parents:
             return None
 
-        if len(all_parents) == 0:
-            raise Exception("Did not find a valid parent for %d with"
-                            " the given time stamp" % node_id)
-        else:
-            return all_parents
+        if get_only_relevant_parent:
+            return parents[0].value
+
+        return [(p.value, p.timestamp) for p in parents]
 
     def get_children(self, node_id: np.uint64) -> np.ndarray:
         """ Returns all children of a node
@@ -1954,12 +1908,12 @@ class ChunkedGraph(object):
         :param node_id: np.uint64
         :return: np.ndarray[np.uint64]
         """
-        children = self.read_row(node_id, column=column_keys.Hierarchy.Child)
+        children = self.read_node_id_row(node_id, columns=column_keys.Hierarchy.Child)
 
-        if children is None:
-            return np.empty(0, dtype=np.uint64)
-        else:
-            return children
+        if not children:
+            return np.empty(0, dtype=basetypes.NODE_ID)
+
+        return children[0].value
 
     def get_latest_roots(self, time_stamp: Optional[datetime.datetime] = get_max_time(),
                          n_threads: int = 1) -> Sequence[np.uint64]:
@@ -1972,52 +1926,6 @@ class ChunkedGraph(object):
 
         return chunkedgraph_comp.get_latest_roots(self, time_stamp=time_stamp,
                                                   n_threads=n_threads)
-
-        # def _read_root_rows(args) -> None:
-        #     start_seg_id, end_seg_id = args
-        #     start_id = self.get_node_id(segment_id=start_seg_id,
-        #                                 chunk_id=self.root_chunk_id)
-        #     end_id = self.get_node_id(segment_id=end_seg_id,
-        #                               chunk_id=self.root_chunk_id)
-        #     range_read = self.table.read_rows(
-        #         start_key=serializers.serialize_uint64(start_id),
-        #         end_key=serializers.serialize_uint64(end_id),
-        #         # allow_row_interleaving=True,
-        #         end_inclusive=False,
-        #         filter_=time_filter)
-        #
-        #     range_read.consume_all()
-        #     rows = range_read.rows
-        #     for row_id, row_data in rows.items():
-        #         row_keys = row_data.cells[self.family_id]
-        #         if not serializers.serialize_key("new_parents") in row_keys:
-        #             root_ids.append(serializers.deserialize_uint64(row_id))
-        #
-        #
-        # # Comply to resolution of BigTables TimeRange
-        # time_stamp = get_google_compatible_time_stamp(time_stamp,
-        #                                               round_up=False)
-        #
-        # # Create filters: time and id range
-        # time_filter = get_inclusive_time_range_filter(end=time_stamp)
-        #
-        # max_seg_id = self.get_max_seg_id(self.root_chunk_id) + 1
-        #
-        # root_ids = []
-        #
-        # n_blocks = np.min([n_threads*3+1, max_seg_id])
-        # seg_id_blocks = np.linspace(1, max_seg_id, n_blocks, dtype=np.uint64)
-        #
-        # multi_args = []
-        # for i_id_block in range(0, len(seg_id_blocks) - 1):
-        #     multi_args.append([seg_id_blocks[i_id_block],
-        #                        seg_id_blocks[i_id_block + 1]])
-        #
-        # mu.multithread_func(
-        #     _read_root_rows, multi_args, n_threads=n_threads,
-        #     debug=False, verbose=True)
-        #
-        # return root_ids
 
     def get_root(self, node_id: np.uint64,
                  time_stamp: Optional[datetime.datetime] = None,
@@ -2230,12 +2138,9 @@ class ChunkedGraph(object):
         lock_acquired = not root_row.commit()
 
         if not lock_acquired:
-            r = self.table.read_row(serializers.serialize_uint64(root_id))
+            row = self.read_node_id_row(root_id, columns=lock_column)
 
-            l_operation_ids = []
-            for cell in r.cells[lock_column.family_id][lock_column.key]:
-                l_operation_id = serializers.deserialize_uint64(cell.value)
-                l_operation_ids.append(l_operation_id)
+            l_operation_ids = [cell.value for cell in row]
             self.logger.debug(f"Locked operation ids: {l_operation_ids}")
 
         return lock_acquired
@@ -2252,9 +2157,8 @@ class ChunkedGraph(object):
         :return: bool
             success
         """
-        operation_id_b = serializers.serialize_uint64(operation_id)
-
         lock_column = column_keys.Concurrency.Lock
+        operation_id_b = lock_column.serialize(operation_id)
 
         # Build a column filter which tests if a lock was set (== lock column
         # exists) and if it is still valid (timestamp younger than
@@ -2332,10 +2236,10 @@ class ChunkedGraph(object):
         :return: bool
             success
         """
-        operation_id_b = serializers.serialize_uint64(operation_id)
-
         lock_column = column_keys.Concurrency.Lock
         new_parents_column = column_keys.Hierarchy.NewParent
+
+        operation_id_b = lock_column.serialize(operation_id)
 
         # Build a column filter which tests if a lock was set (== lock column
         # exists) and if the given operation_id is still the active lock holder
@@ -2393,19 +2297,17 @@ class ChunkedGraph(object):
         """
 
         id_working_set = [root_id]
-        new_parents_column = column_keys.Hierarchy.NewParent
+        column = column_keys.Hierarchy.NewParent
         latest_root_ids = []
 
         while len(id_working_set) > 0:
-
             next_id = id_working_set[0]
             del(id_working_set[0])
-            r = self.table.read_row(serializers.serialize_uint64(next_id))
+            row = self.read_node_id_row(next_id, columns=column)
 
             # Check if a new root id was attached to this root id
-            if new_parents_column.key in r.cells[new_parents_column.family_id]:
-                id_working_set.extend(new_parents_column.deserialize(
-                        r.cells[new_parents_column.family_id][new_parents_column.key][0].value))
+            if row:
+                id_working_set.extend(row[0].value)
             else:
                 latest_root_ids.append(next_id)
 
@@ -2439,16 +2341,16 @@ class ChunkedGraph(object):
             temp_next_ids = []
 
             for next_id in next_ids:
-                ids, row_time_stamp = self.read_row(next_id,
-                                                    column=column_keys.Hierarchy.NewParent,
-                                                    get_time_stamp=True)
-                if ids is None:
-                    r, row_time_stamp = self.read_row(next_id,
-                                                      column=column_keys.Hierarchy.Child,
-                                                      get_time_stamp=True)
-
-                    if row_time_stamp is None:
-                        raise Exception("Something went wrong...")
+                row = self.read_node_id_row(next_id, columns=[column_keys.Hierarchy.NewParent,
+                                                              column_keys.Hierarchy.Child])
+                if column_keys.Hierarchy.NewParent in row:
+                    ids = row[column_keys.Hierarchy.NewParent][0].value
+                    row_time_stamp = row[column_keys.Hierarchy.NewParent][0].timestamp
+                elif column_keys.Hierarchy.Child in row:
+                    ids = None
+                    row_time_stamp = row[column_keys.Hierarchy.Child][0].timestamp
+                else:
+                    raise cg_exceptions.ChunkedGraphError("Error retrieving future root ID of %s" % next_id)
 
                 if row_time_stamp < time_stamp:
                     if ids is not None:
@@ -2489,16 +2391,16 @@ class ChunkedGraph(object):
             temp_next_ids = []
 
             for next_id in next_ids:
-                ids, row_time_stamp = self.read_row(next_id,
-                                                    column=column_keys.Hierarchy.FormerParent,
-                                                    get_time_stamp=True)
-                if ids is None:
-                    _, row_time_stamp = self.read_row(next_id,
-                                                      column=column_keys.Hierarchy.Child,
-                                                      get_time_stamp=True)
-
-                    if row_time_stamp is None:
-                        raise Exception("Something went wrong...")
+                row = self.read_node_id_row(next_id, columns=[column_keys.Hierarchy.FormerParent,
+                                                              column_keys.Hierarchy.Child])
+                if column_keys.Hierarchy.FormerParent in row:
+                    ids = row[column_keys.Hierarchy.FormerParent][0].value
+                    row_time_stamp = row[column_keys.Hierarchy.FormerParent][0].timestamp
+                elif column_keys.Hierarchy.Child in row:
+                    ids = None
+                    row_time_stamp = row[column_keys.Hierarchy.Child][0].timestamp
+                else:
+                    raise cg_exceptions.ChunkedGraphError("Error retrieving past root ID of %s" % next_id)
 
                 if row_time_stamp > time_stamp:
                     if ids is not None:
@@ -2651,9 +2553,8 @@ class ChunkedGraph(object):
 
             return all_edges, all_affinities, all_areas
 
-        time_stamp = self.read_row(agglomeration_id,
-                                   column=column_keys.Hierarchy.Child,
-                                   get_time_stamp=True)[1]
+        time_stamp = self.read_node_id_row(agglomeration_id,
+                                           columns=column_keys.Hierarchy.Child)[0].timestamp
 
         bounding_box = self.normalize_bounding_box(bounding_box, bb_is_coordinate)
 
@@ -2781,15 +2682,16 @@ class ChunkedGraph(object):
         for column, column_entries in row_dict.items():
             flattened_row_dict[column] = []
 
-            for column_entry in column_entries[::-1]:
-                deserialized_entry = column.deserialize(column_entry.value)
-                if np.isscalar(deserialized_entry):
-                    flattened_row_dict[column].append(deserialized_entry)
-                else:
-                    flattened_row_dict[column].extend(deserialized_entry)
+            if len(column_entries) > 0:
+                for column_entry in column_entries[::-1]:
+                    flattened_row_dict[column].append(column_entry.value)
 
-            flattened_row_dict[column] = np.array(flattened_row_dict[column],
-                                                  dtype=column.basetype)
+                if np.isscalar(column_entry.value):
+                    flattened_row_dict[column] = np.array(flattened_row_dict[column])
+                else:
+                    flattened_row_dict[column] = np.concatenate(flattened_row_dict[column])
+            else:
+                flattened_row_dict[column] = column.deserialize(b'')
 
             if column == column_keys.Connectivity.Connected:
                 u_ids, c_ids = np.unique(flattened_row_dict[column],
@@ -2864,11 +2766,13 @@ class ChunkedGraph(object):
         :param time_stamp: datetime.datetime
         :return: dict
         """
-        columns = [column_keys.Connectivity.Partner, column_keys.Connectivity.Connected]
-        row_dict = self.read_row_multicolumn(atomic_id, columns=columns,
-                                             time_stamp=time_stamp)
+        col_partner = column_keys.Connectivity.Partner
+        col_connected = column_keys.Connectivity.Connected
+        columns = [col_partner, col_connected]
+        row_dict = self.read_node_id_row(atomic_id, columns=columns,
+                                         end_time=time_stamp, end_time_inclusive=True)
         flattened_row_dict = self.flatten_row_dict(row_dict)
-        return flattened_row_dict[column_keys.Connectivity.Partner]
+        return flattened_row_dict[col_partner][flattened_row_dict[col_connected]]
 
     def _get_atomic_node_info_core(self, row_dict) -> Dict:
         """ Reads connectivity information for a single node
@@ -2898,8 +2802,8 @@ class ChunkedGraph(object):
         columns = [column_keys.Connectivity.Connected, column_keys.Connectivity.Affinity,
                    column_keys.Connectivity.Area, column_keys.Connectivity.Partner,
                    column_keys.Hierarchy.Parent]
-        row_dict = self.read_row_multicolumn(atomic_id, columns=columns,
-                                             time_stamp=time_stamp)
+        row_dict = self.read_node_id_row(atomic_id, columns=columns,
+                                         end_time=time_stamp, end_time_inclusive=True)
 
         return self._get_atomic_node_info_core(row_dict)
 
@@ -2972,8 +2876,7 @@ class ChunkedGraph(object):
             thread_areas = np.array([], dtype=np.uint64)
 
             for child_id in child_id_block:
-                child_id_s = serializers.serialize_uint64(child_id)
-                flattened_row_dict = self.flatten_row_dict(row_dict[child_id_s])
+                flattened_row_dict = self.flatten_row_dict(row_dict[child_id])
                 node_edges, node_affinities, node_areas = \
                     self._get_atomic_partners_core(flattened_row_dict,
                                                    include_connected_partners=True,
@@ -3002,10 +2905,6 @@ class ChunkedGraph(object):
         if time_stamp.tzinfo is None:
             time_stamp = UTC.localize(time_stamp)
 
-        # Comply to resolution of BigTables TimeRange
-        time_stamp = get_google_compatible_time_stamp(time_stamp,
-                                                      round_up=False)
-
         if not isinstance(parent_ids, list):
             parent_ids = [parent_ids]
 
@@ -3020,24 +2919,14 @@ class ChunkedGraph(object):
         affinities = np.array([], dtype=np.float32)
         areas = np.array([], dtype=np.uint64)
 
-        # Range read (optimize reading procedure)
-        family_filter = FamilyNameRegexFilter(self.family_id)
-
-        # We need to block the reading procedure as we could hit the
-        # filter max size
-        n_blocks = int(np.ceil(len(child_ids) / 500))
-        row_dict = {}
-        for child_id_block in np.array_split(child_ids, n_blocks):
-            start_id = child_ids.min()
-            end_id = child_ids.max()
-
-            key_filter = RowKeyRegexFilter(
-                serializers.serialize_uint64s_to_regex(child_id_block))
-
-            filters = [key_filter, family_filter]
-            row_dict.update(self.range_read(start_id=start_id, end_id=end_id,
-                                            default_filters=filters,
-                                            time_stamp=time_stamp))
+        row_dict = self.read_node_id_rows(node_ids=child_ids,
+                                          columns=[column_keys.Connectivity.Area,
+                                                   column_keys.Connectivity.Affinity,
+                                                   column_keys.Connectivity.Partner,
+                                                   column_keys.Connectivity.Connected,
+                                                   column_keys.Connectivity.Disconnected],
+                                          end_time=time_stamp,
+                                          end_time_inclusive=True)
 
         n_child_ids = len(child_ids)
         this_n_threads = np.min([int(n_child_ids // 20) + 1, mu.n_cpus])
@@ -3470,7 +3359,7 @@ class ChunkedGraph(object):
 
                     area = \
                         np.array(0, dtype=column_keys.Connectivity.Area.basetype)
-                    # NICO - Check
+
                     partner_id = \
                         np.array(len(atomic_node_info[column_keys.Connectivity.Partner]),
                                  dtype=column_keys.Connectivity.Connected.basetype)

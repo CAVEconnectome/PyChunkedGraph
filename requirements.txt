@@ -1,7 +1,7 @@
 numpy
 pandas
 networkx
-google-cloud-bigtable==0.28.1
+google-cloud-bigtable==0.31.1
 google-cloud-datastore
 networkx
 flask
