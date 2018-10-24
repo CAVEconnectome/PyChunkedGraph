@@ -9,7 +9,7 @@ import json
 import os
 # import traceback
 
-from pychunkedgraph.meshing import meshgen
+from pychunkedgraph.meshing import meshgen, meshgen_utils
 from pychunkedgraph.app import app_utils
 
 # os.environ['TRAVIS_BRANCH'] = "IDONTKNOWWHYINEEDTHIS"
@@ -56,3 +56,13 @@ def mesh_():
     cg = app_utils.get_cg()
 
     meshgen.mesh_lvl2_preview(cg, node_id, mip=2, supervoxel_ids=sv_ids)
+
+
+@bp.route('/1.0/<node_id>/validfragments', methods=['POST', 'GET'])
+def handle_valid_frags(node_id):
+    cg = app_utils.get_cg()
+
+    seg_ids = meshgen_utils.get_highest_child_nodes_with_meshes(cg, node_id,
+                                                                stop_layer=1)
+
+    return seg_ids
