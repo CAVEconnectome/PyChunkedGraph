@@ -41,23 +41,6 @@ def home():
 # ------------------------------------------------------------------------------
 
 
-@bp.route('/1.0/mesh_lvl', methods=['POST'])
-def mesh_():
-    data = json.loads(request.data)
-
-    assert "node_id" in data
-    node_id = data["node_id"]
-
-    if "sv_ids" in data:
-        sv_ids = data["sv_ids"]
-    else:
-        sv_ids = None
-
-    cg = app_utils.get_cg()
-
-    meshgen.mesh_lvl2_preview(cg, node_id, mip=2, supervoxel_ids=sv_ids)
-
-
 @bp.route('/1.0/<node_id>/validfragments', methods=['POST', 'GET'])
 def handle_valid_frags(node_id):
     cg = app_utils.get_cg()
