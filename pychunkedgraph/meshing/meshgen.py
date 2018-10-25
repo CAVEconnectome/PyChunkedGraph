@@ -2,12 +2,10 @@ import sys
 import os
 import numpy as np
 import json
-import re
 import time
 
-from cloudvolume import CloudVolume, Storage, EmptyVolumeException
+from cloudvolume import Storage, EmptyVolumeException
 from cloudvolume.meshservice import decode_mesh_buffer
-from functools import lru_cache
 from igneous.tasks import MeshTask
 
 sys.path.insert(0, os.path.join(sys.path[0], '../..'))
@@ -15,59 +13,13 @@ os.environ['TRAVIS_BRANCH'] = "IDONTKNOWWHYINEEDTHIS"
 
 from pychunkedgraph.backend.chunkedgraph import ChunkedGraph  # noqa
 from pychunkedgraph.backend.key_utils import serialize_uint64  # noqa
-
-
-def str_to_slice(slice_str: str):
-    match = re.match(r"(\d+)-(\d+)_(\d+)-(\d+)_(\d+)-(\d+)", slice_str)
-    return (slice(int(match.group(1)), int(match.group(2))),
-            slice(int(match.group(3)), int(match.group(4))),
-            slice(int(match.group(5)), int(match.group(6))))
-
-
-def slice_to_str(slices) -> str:
-    if isinstance(slices, slice):
-        return "%d-%d" % (slices.start, slices.stop)
-    else:
-        return '_'.join(map(slice_to_str, slices))
+from pychunkedgraph.meshing.meshgen_utils import ( # noqa
+    get_mesh_block_shape, get_segmentation_info, slice_to_str, str_to_slice)
 
 
 def get_connected(connectivity):
     u_ids, c_ids = np.unique(connectivity, return_counts=True)
     return u_ids[(c_ids % 2) == 1].astype(np.uint64)
-
-
-def get_chunk_bbox(cg: ChunkedGraph, chunk_id: np.uint64, mip: int):
-    layer = cg.get_chunk_layer(chunk_id)
-    chunk_block_shape = get_mesh_block_shape(cg, layer, mip)
-    bbox_start = cg.get_chunk_coordinates(chunk_id) * chunk_block_shape
-    bbox_end = bbox_start + chunk_block_shape
-    return tuple(slice(bbox_start[i], bbox_end[i]) for i in range(3))
-
-
-def get_chunk_bbox_str(cg: ChunkedGraph, chunk_id: np.uint64, mip: int) -> str:
-    return slice_to_str(get_chunk_bbox(cg, chunk_id, mip))
-
-
-@lru_cache(maxsize=None)
-def get_segmentation_info(cg: ChunkedGraph) -> dict:
-    return CloudVolume(cg.cv_path).info
-
-
-def get_mesh_block_shape(cg: ChunkedGraph, graphlayer: int, source_mip: int) -> np.ndarray:
-    """
-    Calculate the dimensions of a segmentation block at `source_mip` that covers
-    the same region as a ChunkedGraph chunk at layer `graphlayer`.
-    """
-    info = get_segmentation_info(cg)
-
-    # Segmentation is not always uniformly downsampled in all directions.
-    scale_0 = info['scales'][0]
-    scale_mip = info['scales'][source_mip]
-    distortion = np.floor_divide(scale_mip['resolution'], scale_0['resolution'])
-
-    graphlayer_chunksize = cg.chunk_size * cg.fan_out ** np.max([0, graphlayer - 2])
-
-    return np.floor_divide(graphlayer_chunksize, distortion, dtype=np.int, casting='unsafe')
 
 
 def _get_sv_to_node_mapping_internal(cg, chunk_id, unbreakable_only):
