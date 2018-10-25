@@ -184,6 +184,7 @@ def export_changelog(cg, path=None):
         k = str(pychunkedgraph.backend.key_utils.deserialize_uint64(operation_k))
         log = pychunkedgraph.backend.key_utils.row_to_byte_dict(
             operations[operation_k], f_id=cg.log_family_id, idx=0)
+
         try:
             deserialized_operations[k] = deserialize_single_log(log)
         except:
