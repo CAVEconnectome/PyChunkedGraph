@@ -45,9 +45,8 @@ def home():
 def handle_valid_frags(node_id):
     cg = app_utils.get_cg()
 
-    seg_ids = meshgen_utils.get_highest_child_nodes_with_meshes(cg,
-                                                                np.uint64(node_id),
-                                                                stop_layer=1)
+    seg_ids = meshgen_utils.get_highest_child_nodes_with_meshes(
+        cg, np.uint64(node_id), stop_layer=1, verify_existence=True)
 
     return app_utils.tobinary(seg_ids)
 
