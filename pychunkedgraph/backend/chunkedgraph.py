@@ -709,18 +709,13 @@ class ChunkedGraph(object):
 
         :return: str
         """
-
-        counter_key = key_utils.serialize_key('counter')
-
-        # Incrementer row keys start with an "i"
-        row_key = key_utils.serialize_key("ioperations")
-        append_row = self.table.row(row_key, append=True)
+        append_row = self.table.row(table_info.operation_id_key_s, append=True)
         append_row.increment_cell_value(self.incrementer_family_id,
-                                        counter_key, 1)
+                                        table_info.counter_key_s, 1)
 
         # This increments the row entry and returns the value AFTER incrementing
         latest_row = append_row.commit()
-        operation_id_b = latest_row[self.incrementer_family_id][counter_key][0][0]
+        operation_id_b = latest_row[self.incrementer_family_id][table_info.counter_key_s][0][0]
         operation_id = int.from_bytes(operation_id_b, byteorder="big")
 
         return np.uint64(operation_id)
@@ -735,16 +730,11 @@ class ChunkedGraph(object):
 
         :return: uint64
         """
-
-        counter_key = key_utils.serialize_key('counter')
-
-        # Incrementer row keys start with an "i"
-        row_key = key_utils.serialize_key("ioperations")
-        row = self.table.read_row(row_key)
+        row = self.table.read_row(table_info.operation_id_key_s)
 
         # Read incrementer value
         if row is not None:
-            max_operation_id_b = row.cells[self.incrementer_family_id][counter_key][0].value
+            max_operation_id_b = row.cells[self.incrementer_family_id][table_info.counter_key_s][0].value
             max_operation_id = int.from_bytes(max_operation_id_b,
                                               byteorder="big")
         else:
@@ -2788,11 +2778,9 @@ class ChunkedGraph(object):
     def _get_subgraph_higher_layer_nodes(
             self, node_id: np.uint64,
             bounding_box: Optional[Sequence[Sequence[int]]],
-            bb_is_coordinate: bool,
             return_layers: Sequence[int],
             verbose: bool):
 
-        bounding_box = self.normalize_bounding_box(bounding_box, bb_is_coordinate)
         layer = self.get_chunk_layer(node_id)
         assert layer > 1
 
@@ -2882,11 +2870,12 @@ class ChunkedGraph(object):
         time_stamp = self.read_row(agglomeration_id, "children",
                                    get_time_stamp=True)[1]
 
+        bounding_box = self.normalize_bounding_box(bounding_box, bb_is_coordinate)
+
         # Layer 3+
         child_ids = self._get_subgraph_higher_layer_nodes(
             node_id=agglomeration_id, bounding_box=bounding_box,
-            bb_is_coordinate=bb_is_coordinate, return_layers=[2],
-            verbose=verbose)[2]
+            return_layers=[2], verbose=verbose)[2]
 
         # Layer 2
         if verbose:
@@ -2957,7 +2946,6 @@ class ChunkedGraph(object):
         # Layer 3+
         nodes_per_layer = self._get_subgraph_higher_layer_nodes(
             node_id=agglomeration_id, bounding_box=bounding_box,
-            bb_is_coordinate=bb_is_coordinate,
             return_layers=return_layers+[2], verbose=verbose)
 
         if 2 in nodes_per_layer:
@@ -2997,7 +2985,7 @@ class ChunkedGraph(object):
 
         :param row_dict_fam: dict
             family key has to be resolved
-        :return:
+        :return: dict
         """
 
         flattened_row_dict = {}

@@ -4,4 +4,5 @@ RUN mkdir -p /home/nginx/.cloudvolume/secrets && chown -R nginx /home/nginx && u
 COPY requirements.txt /app/.
 RUN pip install numpy
 RUN pip install -r requirements.txt
+COPY timeout.conf /etc/nginx/conf.d/
 COPY . /app

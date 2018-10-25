@@ -12,7 +12,7 @@ import collections
 
 from pychunkedgraph.app import app_utils
 
-__version__ = '0.1.23'
+__version__ = '0.1.27'
 bp = Blueprint('pychunkedgraph', __name__, url_prefix="/segmentation")
 
 # -------------------------------
@@ -103,6 +103,12 @@ def unhandled_exception(e):
 # -------------------
 
 
+@bp.route("/sleep/<int:sleep>")
+def sleep_me(sleep):
+    time.sleep(sleep)
+    return "zzz... {} ... awake".format(sleep)
+
+
 @bp.route('/1.0/table', methods=['GET'])
 def handle_table():
     # Call ChunkedGraph
@@ -110,6 +116,7 @@ def handle_table():
 
     # Return binary
     return cg.table_id
+
 
 @bp.route('/1.0/graph/root', methods=['POST', 'GET'])
 def handle_root():
@@ -155,6 +162,7 @@ def handle_merge():
                                                 coordinate[1],
                                                 coordinate[2],
                                                 parent_id=np.uint64(node_id))
+
         if atomic_id is None:
             return None
 
@@ -235,6 +243,64 @@ def handle_split():
                                 sink_coords=data_dict["sinks"]["coord"],
                                 mincut=True)
 
+    if new_roots is None:
+        return None
+
+    # Return binary
+    return app_utils.tobinary(new_roots)
+
+
+@bp.route('/1.0/graph/shatter', methods=['POST', 'GET'])
+def handle_shatter():
+    data = json.loads(request.data)
+
+    user_id = str(request.remote_addr)
+
+    print(data)
+
+    # Call ChunkedGraph
+    cg = app_utils.get_cg()
+
+    data_dict = collections.defaultdict(list)
+
+    k = "sources"
+    node = data[k][0]
+
+    node_id = node[0]
+    radius = node[1]
+    x, y, z = node[2:]
+
+    x /= 2
+    y /= 2
+
+    coordinate = np.array([x, y, z])
+
+    print("before", coordinate)
+
+    if not cg.is_in_bounds(coordinate):
+        coordinate /= cg.segmentation_resolution
+
+        coordinate[0] *= 2
+        coordinate[1] *= 2
+
+    print("after", coordinate)
+
+    atomic_id = cg.get_atomic_id_from_coord(coordinate[0],
+                                            coordinate[1],
+                                            coordinate[2],
+                                            parent_id=np.uint64(
+                                                node_id))
+
+    if atomic_id is None:
+        return None
+
+    data_dict["id"].append(atomic_id)
+    data_dict["coord"].append(coordinate)
+
+    print(data_dict)
+    new_roots = cg.shatter_nodes(user_id=user_id,
+                                 atomic_node_ids=data_dict['id'],
+                                 radius=radius)
     if new_roots is None:
         return None
 

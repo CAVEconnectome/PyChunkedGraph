@@ -928,6 +928,18 @@ class TestGraphSimpleQueries:
         assert len(edges) == 2
 
     @pytest.mark.timeout(30)
+    def test_get_subgraph_nodes_bb(self, gen_graph_simplequerytest):
+        cgraph = gen_graph_simplequerytest
+
+        bb = np.array([[1, 0, 0], [2, 1, 1]], dtype=np.int)
+        bb_coord = bb * cgraph.chunk_size
+
+        childs_1 = cgraph.get_subgraph_nodes(cgraph.get_root(to_label(cgraph, 1, 1, 0, 0, 1)), bounding_box=bb)
+        childs_2 = cgraph.get_subgraph_nodes(cgraph.get_root(to_label(cgraph, 1, 1, 0, 0, 1)), bounding_box=bb_coord, bb_is_coordinate=True)
+
+        assert np.all(~(np.sort(childs_1) - np.sort(childs_2)))
+
+    @pytest.mark.timeout(30)
     def test_get_atomic_partners(self, gen_graph_simplequerytest):
         cgraph = gen_graph_simplequerytest
 
