@@ -184,7 +184,10 @@ def export_changelog(cg, path=None):
         k = str(pychunkedgraph.backend.key_utils.deserialize_uint64(operation_k))
         log = pychunkedgraph.backend.key_utils.row_to_byte_dict(
             operations[operation_k], f_id=cg.log_family_id, idx=0)
-        deserialized_operations[k] = deserialize_single_log(log)
+        try:
+            deserialized_operations[k] = deserialize_single_log(log)
+        except:
+            print("ERROR in", operation_k)
 
     if path is not None:
         with open(path, "wb") as f:

@@ -1,19 +1,21 @@
-from flask import Blueprint, request, make_response
+from flask import Blueprint, request, make_response, jsonify
 # from flask import current_app
 # from google.cloud import pubsub_v1
-# import json
-# import numpy as np
+import json
+import numpy as np
 # import time
 # import datetime
 # import sys
-# import os
+import os
 # import traceback
 
-from pychunkedgraph.meshing import meshgen_utils
+from pychunkedgraph.meshing import meshgen, meshgen_utils
 from pychunkedgraph.app import app_utils
 
+# os.environ['TRAVIS_BRANCH'] = "IDONTKNOWWHYINEEDTHIS"
 
-bp = Blueprint('pychunkedgraph_manifest', __name__, url_prefix="/manifest")
+__version__ = '0.1.43'
+bp = Blueprint('pychunkedgraph_meshing', __name__, url_prefix="/meshing")
 
 # -------------------------------
 # ------ Access control and index
@@ -22,7 +24,7 @@ bp = Blueprint('pychunkedgraph_manifest', __name__, url_prefix="/manifest")
 @bp.route('/')
 @bp.route("/index")
 def index():
-    return "Manifest Server -- 0.1"
+    return "Meshing Server -- " + __version__
 
 
 @bp.route
@@ -39,12 +41,12 @@ def home():
 # ------------------------------------------------------------------------------
 
 
-
-@bp.route('/1.0/<node_id>/childmeshes', method=['POST', 'GET'])
-def handle_children_meshes(node_id):
+@bp.route('/1.0/<node_id>/validfragments', methods=['POST', 'GET'])
+def handle_valid_frags(node_id):
     cg = app_utils.get_cg()
 
-    child = meshgen_utils.get_downstream_multi_child_node(cg, node_id,
-                                                          stop_layer=2)
+    seg_ids = meshgen_utils.get_highest_child_nodes_with_meshes(cg,
+                                                                np.uint64(node_id),
+                                                                stop_layer=1)
 
-    return child
+    return app_utils.tobinary(seg_ids)
