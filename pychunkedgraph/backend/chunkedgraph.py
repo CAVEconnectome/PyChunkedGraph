@@ -2944,19 +2944,23 @@ class ChunkedGraph(object):
         bounding_box = self.normalize_bounding_box(bounding_box, bb_is_coordinate)
 
         # Layer 3+
-        nodes_per_layer = self._get_subgraph_higher_layer_nodes(
-            node_id=agglomeration_id, bounding_box=bounding_box,
-            return_layers=return_layers+[2], verbose=verbose)
+        if stop_layer >= 2:
+            nodes_per_layer = self._get_subgraph_higher_layer_nodes(
+                node_id=agglomeration_id, bounding_box=bounding_box,
+                return_layers=return_layers, verbose=verbose)
+        else:
+            # Need to retrieve layer 2 even if the user doesn't require it
+            nodes_per_layer = self._get_subgraph_higher_layer_nodes(
+                node_id=agglomeration_id, bounding_box=bounding_box,
+                return_layers=return_layers+[2], verbose=verbose)
 
-        if 2 in nodes_per_layer:
+            # Layer 2
+            if verbose:
+                time_start = time.time()
+
             child_ids = nodes_per_layer[2]
             if 2 not in return_layers:
                 del nodes_per_layer[2]
-
-        # Layer 2
-        if stop_layer < 2:
-            if verbose:
-                time_start = time.time()
 
             # Use heuristic to guess the optimal number of threads
             n_child_ids = len(child_ids)
@@ -2972,8 +2976,7 @@ class ChunkedGraph(object):
                       ((time.time() - time_start) * 1000, n_child_ids,
                        this_n_threads))
 
-            if 1 in return_layers:
-                nodes_per_layer[1] = np.array(child_ids, np.uint64)
+            nodes_per_layer[1] = np.array(child_ids, np.uint64)
 
         if len(nodes_per_layer) == 1:
             return list(nodes_per_layer.values())[0]
