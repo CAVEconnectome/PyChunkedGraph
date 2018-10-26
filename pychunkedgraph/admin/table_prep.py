@@ -29,7 +29,7 @@ def apply_log(cg, log_path):
             else:
                 affinities = log_entry["added_edges"]
 
-            cg.add_edges(user_id=log_entry["user_id"],
+            cg.add_edges(user_id=log_entry["user"],
                          atomic_edges=log_entry["added_edges"],
                          affinities=affinities,
                          source_coord=log_entry["source_coords"],
@@ -37,7 +37,7 @@ def apply_log(cg, log_path):
                          n_tries=60)
         elif _log_type(log_entry) == "split":
             print("SPLIT")
-            cg.remove_edges(user_id=log_entry["user_id"],
+            cg.remove_edges(user_id=log_entry["user"],
                             source_ids=log_entry["source_ids"],
                             sink_ids=log_entry["sink_ids"],
                             source_coords=log_entry["source_coords"],
