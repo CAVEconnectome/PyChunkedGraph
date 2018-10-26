@@ -87,8 +87,12 @@ def get_highest_child_nodes_with_meshes(cg: ChunkedGraph, node_id: np.uint64,
     MESH_MIP = 2
 
     highest_node = get_downstream_multi_child_node(cg, node_id, stop_layer)
-    candidates = \
-        cg.get_subgraph_nodes(highest_node, return_layers=[HIGHEST_MESH_LAYER])
+    highest_node_layer = cg.get_chunk_layer(highest_node)
+    if highest_node_layer <= HIGHEST_MESH_LAYER:
+        candidates = [highest_node]
+    else:
+        candidates = cg.get_subgraph_nodes(
+            highest_node, return_layers=[HIGHEST_MESH_LAYER])
 
     if verify_existence:
         valid_seg_ids = []
