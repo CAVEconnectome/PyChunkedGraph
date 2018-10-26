@@ -51,7 +51,7 @@ def handle_valid_frags(node_id):
     return app_utils.tobinary(seg_ids)
 
 
-@bp.route('/1.0/<node_id>/manifest', methods=['GET'])
+@bp.route('/1.0/manifest/<node_id>:0', methods=['GET'])
 def handle_get_manifest(node_id):
     # TODO: Read this from config
     MESH_MIP = 2
@@ -60,7 +60,7 @@ def handle_get_manifest(node_id):
     verify = verify in ['True', 'true', '1', True]
     cg = app_utils.get_cg()
     seg_ids = meshgen_utils.get_highest_child_nodes_with_meshes(
-            cg, np.uint64(node_id), stop_layer=2, verify_existence=verify)
+        cg, np.uint64(node_id), stop_layer=2, verify_existence=verify)
 
     filenames = [meshgen_utils.get_mesh_name(cg, s, MESH_MIP) for s in seg_ids]
 
