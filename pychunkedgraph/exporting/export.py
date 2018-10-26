@@ -3,7 +3,7 @@ import cloudvolume
 import itertools
 import pickle as pkl
 
-import pychunkedgraph.backend.key_utils
+from pychunkedgraph.backend import key_utils
 from pychunkedgraph.backend import chunkedgraph
 from multiwrapper import multiprocessing_utils as mu
 
@@ -37,7 +37,7 @@ def get_sv_to_root_id_mapping_chunk(cg, chunk_coords, vol=None):
     atomic_rows = cg.range_read_chunk(layer=1, x=chunk_coords[0],
                                       y=chunk_coords[1], z=chunk_coords[2])
     for atomic_key in atomic_rows.keys():
-        atomic_id = pychunkedgraph.backend.key_utils.deserialize_uint64(atomic_key)
+        atomic_id = key_utils.deserialize_uint64(atomic_key)
 
         # Check if already found the root for this supervoxel
         if atomic_id in sv_to_root_mapping:
@@ -181,9 +181,10 @@ def export_changelog(cg, path=None):
 
     deserialized_operations = {}
     for operation_k in operations.keys():
-        k = str(pychunkedgraph.backend.key_utils.deserialize_uint64(operation_k))
-        log = pychunkedgraph.backend.key_utils.row_to_byte_dict(
+        k = str(key_utils.deserialize_uint64(operation_k))
+        log = key_utils.row_to_byte_dict(
             operations[operation_k], f_id=cg.log_family_id, idx=0)
+
         try:
             deserialized_operations[k] = deserialize_single_log(log)
         except:
@@ -201,7 +202,7 @@ def deserialize_single_log(log_dict):
 
     for k in log_dict:
         if k == "user":
-            des_log_dict[k] = log_dict[k]
+            des_log_dict[k] = key_utils.deserialize_key(log_dict[k])
         elif "coord" in k:
             des_log_dict[k] = np.frombuffer(log_dict[k]).reshape(-1, 3)
         elif "edges" in k:

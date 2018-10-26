@@ -60,8 +60,8 @@ def deserialize_key(key: bytes) -> str:
     return key.decode()
 
 
-def row_to_byte_dict(row: bigtable.row.Row, f_id: str = None, idx: int = None
-                     ) -> Dict[int, Dict]:
+def row_to_byte_dict(row: bigtable.row.Row, f_id: str = None, idx: int = None,
+                     timestamp_row=None) -> Dict[int, Dict]:
     """ Reads row entries to a dictionary
 
     :param row: row
@@ -74,13 +74,18 @@ def row_to_byte_dict(row: bigtable.row.Row, f_id: str = None, idx: int = None
     for fam_id in row.cells.keys():
         row_dict[fam_id] = {}
 
+        cells = row.cells[fam_id]
+
         for row_k in row.cells[fam_id].keys():
             if idx is None:
                 row_dict[fam_id][deserialize_key(row_k)] = \
-                    [c.value for c in row.cells[fam_id][row_k]]
+                    [c.value for c in cells[row_k]]
             else:
                 row_dict[fam_id][deserialize_key(row_k)] = \
-                    row.cells[fam_id][row_k][idx].value
+                    cells[row_k][idx].value
+
+            if deserialize_key(row_k) == timestamp_row:
+                row_dict[fam_id]["timestamp"] = cells[row_k].timestamp
 
     if f_id is not None and f_id in row_dict:
         return row_dict[f_id]

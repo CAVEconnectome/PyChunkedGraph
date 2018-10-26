@@ -12,7 +12,7 @@ import collections
 
 from pychunkedgraph.app import app_utils
 
-__version__ = '0.1.43'
+__version__ = '0.1.44'
 bp = Blueprint('pychunkedgraph', __name__, url_prefix="/segmentation")
 
 # -------------------------------
@@ -51,13 +51,13 @@ def before_request():
 def after_request(response):
     dt = (time.time() - current_app.request_start_time) * 1000
 
-    user_ip = str(request.remote_addr)
-
-    log_db = app_utils.get_log_db()
-    log_db.add_success_log(user_id=user_ip, user_ip=user_ip,
-                           request_time=current_app.request_start_date,
-                           response_time=dt, url=request.url,
-                           request_data=request.data)
+    # user_ip = str(request.remote_addr)
+    #
+    # log_db = app_utils.get_log_db()
+    # log_db.add_success_log(user_id=user_ip, user_ip=user_ip,
+    #                        request_time=current_app.request_start_date,
+    #                        response_time=dt, url=request.url,
+    #                        request_data=request.data)
 
     print("Response time: %.3fms" % dt)
     return response
@@ -67,13 +67,13 @@ def after_request(response):
 def internal_server_error(error):
     dt = (time.time() - current_app.request_start_time) * 1000
 
-    user_ip = str(request.remote_addr)
-
-    log_db = app_utils.get_log_db()
-    log_db.add_internal_error_log(user_id=user_ip, user_ip=user_ip,
-                                  request_time=current_app.request_start_date,
-                                  response_time=dt, url=request.url,
-                                  request_data=request.data, err_msg=error)
+    # user_ip = str(request.remote_addr)
+    #
+    # log_db = app_utils.get_log_db()
+    # log_db.add_internal_error_log(user_id=user_ip, user_ip=user_ip,
+    #                               request_time=current_app.request_start_date,
+    #                               response_time=dt, url=request.url,
+    #                               request_data=request.data, err_msg=error)
     print(error)
     print("Response time: %.3fms" % dt)
     return 500
@@ -83,16 +83,16 @@ def internal_server_error(error):
 def unhandled_exception(e):
     dt = (time.time() - current_app.request_start_time) * 1000
 
-    user_ip = str(request.remote_addr)
-
-    tb = ''.join(traceback.format_exception(etype=type(e), value=e,
-                                            tb=e.__traceback__))
-
-    log_db = app_utils.get_log_db()
-    log_db.add_unhandled_exception_log(user_id=user_ip, user_ip=user_ip,
-                                       request_time=current_app.request_start_date,
-                                       response_time=dt, url=request.url,
-                                       request_data=request.data, err_msg=tb)
+    # user_ip = str(request.remote_addr)
+    #
+    # tb = ''.join(traceback.format_exception(etype=type(e), value=e,
+    #                                         tb=e.__traceback__))
+    #
+    # log_db = app_utils.get_log_db()
+    # log_db.add_unhandled_exception_log(user_id=user_ip, user_ip=user_ip,
+    #                                    request_time=current_app.request_start_date,
+    #                                    response_time=dt, url=request.url,
+    #                                    request_data=request.data, err_msg=tb)
 
     print(str(e))
     print("Response time: %.3fms" % dt)
@@ -173,7 +173,7 @@ def handle_merge():
     chunk_coord_delta = cg.get_chunk_coordinates(atomic_edge[0]) - \
                         cg.get_chunk_coordinates(atomic_edge[1])
 
-    if np.any(np.abs(chunk_coord_delta) > 1):
+    if np.any(np.abs(chunk_coord_delta) > 3):
         return None
 
     new_root = cg.add_edges(user_id=user_id,
