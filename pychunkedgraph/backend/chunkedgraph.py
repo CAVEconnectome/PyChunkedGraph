@@ -3287,7 +3287,7 @@ class ChunkedGraph(object):
                   affinities: Sequence[np.float32] = None,
                   source_coord: Sequence[int] = None,
                   sink_coord: Sequence[int] = None,
-                  remesh_preview: bool = True,
+                  remesh_preview: bool = False,
                   n_tries: int = 60) -> np.uint64:
         """ Adds an edge to the chunkedgraph
 
@@ -3963,8 +3963,8 @@ class ChunkedGraph(object):
                                     List[np.uint64],           # new_roots
                                     List[bigtable.row.Row],    # rows
                                     np.ndarray,                # removed_edges
-                                    datetime.datetime],
-                                 dict]]:      # timestamp
+                                    datetime.datetime,
+                                    dict]]]:      # timestamp
         """ Computes mincut and removes edges accordingly
 
         :param operation_id: uint64
@@ -4069,8 +4069,8 @@ class ChunkedGraph(object):
                                  Optional[Tuple[
                                      List[np.uint64],           # new_roots
                                      List[bigtable.row.Row],    # rows
-                                     datetime.datetime],
-                                 dict]]:      # timestamp
+                                     datetime.datetime,
+                                     dict]]]:      # timestamp
         """ Removes atomic edges from the ChunkedGraph
 
         :param operation_id: uint64
@@ -4254,7 +4254,8 @@ class ChunkedGraph(object):
         # new_layer_parent_dict stores all newly created parents. We first
         # empty it and then fill it with the new parents in the next layer
         if self.n_layers == 2:
-            return True, (list(new_layer_parent_dict.keys()), rows, time_stamp)
+            return True, (list(new_layer_parent_dict.keys()), rows, time_stamp,
+                          lvl2_node_mapping)
 
         new_roots = []
         for i_layer in range(2, self.n_layers):
