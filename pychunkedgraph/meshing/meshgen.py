@@ -250,7 +250,8 @@ def chunk_mesh_task(cg, chunk_id, cv_path,
             generate_manifests=True,
             low_padding=0,                    # One voxel overlap to exactly line up
             high_padding=1,                   # vertex boundaries.
-            mesh_dir=cv_mesh_dir
+            mesh_dir=cv_mesh_dir,
+            cache_control='no-cache'
         )
         task.execute()
 
@@ -351,8 +352,8 @@ def chunk_mesh_task(cg, chunk_id, cv_path,
 
         print("Uploading new manifests and fragments...")
         with Storage(os.path.join(cg.cv_path, mesh_dir)) as storage:
-            storage.put_files(fragments_to_upload, content_type='application/octet-stream', compress=True, cache_control=False)
-            storage.put_files(manifests_to_upload, content_type='application/json', compress=False, cache_control=False)
+            storage.put_files(fragments_to_upload, content_type='application/octet-stream', compress=True, cache_control='no-cache')
+            storage.put_files(manifests_to_upload, content_type='application/json', compress=False, cache_control='no-cache')
             print("Uploaded %s manifests and %s fragments (reusing %s fragments)"
                   % (len(manifests_to_upload),
                      len(fragments_to_upload),
