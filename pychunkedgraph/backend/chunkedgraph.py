@@ -3354,12 +3354,11 @@ class ChunkedGraph(object):
 
                 # Add edge and change hierarchy
                 # for atomic_edge in atomic_edges:
-                new_root_id, new_rows = \
+                new_root_id, new_rows, lvl2_node_mapping = \
                     self._add_edges(operation_id=operation_id,
                                     atomic_edges=atomic_edges,
                                     time_stamp=time_stamp,
-                                    affinities=affinities,
-                                    remesh_preview=remesh_preview)
+                                    affinities=affinities)
                 rows.extend(new_rows)
                 new_root_ids.append(new_root_id)
 
@@ -3382,6 +3381,11 @@ class ChunkedGraph(object):
                 if self.bulk_write(rows, lock_root_ids,
                                    operation_id=operation_id,
                                    slow_retry=False):
+                    if remesh_preview:
+                        print("REMESH:", lvl2_node_mapping)
+                        meshgen.mesh_lvl2_previews(self, list(
+                            lvl2_node_mapping.keys()))
+
                     return new_root_id
 
             for lock_root_id in lock_root_ids:
@@ -3398,8 +3402,7 @@ class ChunkedGraph(object):
     def _add_edges(self, operation_id: np.uint64,
                    atomic_edges: Sequence[Sequence[np.uint64]],
                    time_stamp=datetime.datetime,
-                   affinities: Optional[Sequence[np.float32]] = None,
-                   remesh_preview: bool = False,
+                   affinities: Optional[Sequence[np.float32]] = None
                    ):
         """ Adds multiple edges to a graph
 
@@ -3705,11 +3708,7 @@ class ChunkedGraph(object):
                         atomic_edge[i_atomic_id]), self.family_id, val_dict,
                         time_stamp=time_stamp))
 
-        if remesh_preview:
-            print("REMESH:", lvl2_node_mapping)
-            meshgen.mesh_lvl2_previews(self, list(lvl2_node_mapping.keys()))
-
-        return new_root_ids, rows
+        return new_root_ids, rows, lvl2_node_mapping
 
     def shatter_nodes_bbox(self, user_id: str,
                            bounding_box: Optional[Sequence[Sequence[int]]]):
@@ -3732,7 +3731,7 @@ class ChunkedGraph(object):
                                    radius=1)
 
     def shatter_nodes(self, user_id: str, atomic_node_ids: Sequence[np.uint64],
-                      radius: int = 1):
+                      radius: int = 1, remesh_preview: bool = False):
         """ Removes all edges (except inf edges) in radius around nodes
 
         :param user_id: str
@@ -3770,7 +3769,7 @@ class ChunkedGraph(object):
         shattered_edges = np.unique(np.sort(shattered_edges, axis=1), axis=0)
 
         return self.remove_edges(user_id=user_id, atomic_edges=shattered_edges,
-                                 mincut=False)
+                                 mincut=False, remesh_preview=remesh_preview)
 
     def remove_edges(self,
                      user_id: str,
@@ -3892,10 +3891,10 @@ class ChunkedGraph(object):
                                                   sink_ids=sink_ids,
                                                   source_coords=source_coords,
                                                   sink_coords=sink_coords,
-                                                  bb_offset=bb_offset,
-                                                  remesh_preview=remesh_preview)
+                                                  bb_offset=bb_offset)
                     if success:
-                        new_root_ids, rows, removed_edges, time_stamp = result
+                        new_root_ids, rows, removed_edges, time_stamp, \
+                            lvl2_node_mapping = result
                     else:
                         for lock_root_id in lock_root_ids:
                             self.unlock_root(lock_root_id,
@@ -3904,10 +3903,10 @@ class ChunkedGraph(object):
                 else:
                     success, result = \
                         self._remove_edges(operation_id=operation_id,
-                                           atomic_edges=atomic_edges,
-                                           remesh_preview=remesh_preview)
+                                           atomic_edges=atomic_edges)
                     if success:
-                        new_root_ids, rows, time_stamp = result
+                        new_root_ids, rows, time_stamp, \
+                            lvl2_node_mapping = result
                         removed_edges = atomic_edges
                     else:
                         for lock_root_id in lock_root_ids:
@@ -3935,6 +3934,11 @@ class ChunkedGraph(object):
                 # else:
                 if self.bulk_write(rows, lock_root_ids,
                                    operation_id=operation_id, slow_retry=False):
+                    if remesh_preview:
+                        print("REMESH:", lvl2_node_mapping)
+                        meshgen.mesh_lvl2_previews(self, list(
+                            lvl2_node_mapping.keys()))
+
                     return new_root_ids
 
                 for lock_root_id in lock_root_ids:
@@ -3952,15 +3956,15 @@ class ChunkedGraph(object):
                              sink_ids: Sequence[np.uint64],
                              source_coords: Sequence[Sequence[int]],
                              sink_coords: Sequence[Sequence[int]],
-                             bb_offset: Tuple[int, int, int] = (120, 120, 12),
-                             remesh_preview: bool = False
+                             bb_offset: Tuple[int, int, int] = (120, 120, 12)
                              ) -> Tuple[
                                  bool,                         # success
                                  Optional[Tuple[
                                     List[np.uint64],           # new_roots
                                     List[bigtable.row.Row],    # rows
                                     np.ndarray,                # removed_edges
-                                    datetime.datetime]]]:      # timestamp
+                                    datetime.datetime],
+                                 dict]]:      # timestamp
         """ Computes mincut and removes edges accordingly
 
         :param operation_id: uint64
@@ -4046,28 +4050,27 @@ class ChunkedGraph(object):
             return False, None
 
         # Remove edgesc
-        success, result = self._remove_edges(operation_id, atomic_edges,
-                                             remesh_preview=remesh_preview)
+        success, result = self._remove_edges(operation_id, atomic_edges)
 
         if not success:
             print("remove edges failed")
             return False, None
 
-        new_roots, rows, time_stamp = result
+        new_roots, rows, time_stamp, lvl2_node_mapping = result
 
         print("Remove edges: %.3fms" % ((time.time() - time_start) * 1000))
         time_start = time.time()  # ------------------------------------------
 
-        return True, (new_roots, rows, atomic_edges, time_stamp)
+        return True, (new_roots, rows, atomic_edges, time_stamp, lvl2_node_mapping)
 
     def _remove_edges(self, operation_id: np.uint64,
-                      atomic_edges: Sequence[Tuple[np.uint64, np.uint64]],
-                      remesh_preview: bool = False
+                      atomic_edges: Sequence[Tuple[np.uint64, np.uint64]]
                       ) -> Tuple[bool,                          # success
                                  Optional[Tuple[
                                      List[np.uint64],           # new_roots
                                      List[bigtable.row.Row],    # rows
-                                     datetime.datetime]]]:      # timestamp
+                                     datetime.datetime],
+                                 dict]]:      # timestamp
         """ Removes atomic edges from the ChunkedGraph
 
         :param operation_id: uint64
@@ -4399,8 +4402,4 @@ class ChunkedGraph(object):
                                             self.family_id, val_dict,
                                             time_stamp=time_stamp))
 
-        if remesh_preview:
-            print("REMESH:", lvl2_node_mapping)
-            meshgen.mesh_lvl2_previews(self, list(lvl2_node_mapping.keys()))
-
-        return True, (new_roots, rows, time_stamp)
+        return True, (new_roots, rows, time_stamp, lvl2_node_mapping)
