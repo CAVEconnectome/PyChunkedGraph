@@ -4130,6 +4130,8 @@ class ChunkedGraph(object):
         double_atomic_edges_view = double_atomic_edges_view.reshape(n_edges)
         nodes_in_removed_edges = np.unique(atomic_edges)
 
+        lvl2_node_mapping = {} # Needed for instant remeshing
+
         # For each involved chunk we need to compute connected components
         for chunk_id in involved_chunk_id_dict.keys():
             # Get the local subgraph
@@ -4188,6 +4190,10 @@ class ChunkedGraph(object):
                 # Make changes to the rows of the lowest layer
                 val_dict = {"children": cc_node_ids.tobytes()}
 
+                segment_ids = [self.get_segment_id(cc_node_id)
+                               for cc_node_id in cc_node_ids]
+                lvl2_node_mapping[lvl2_node_mapping] = segment_ids
+
                 rows.append(self.mutate_row(key_utils.serialize_uint64(new_parent_id),
                                             self.family_id, val_dict,
                                             time_stamp=time_stamp))
@@ -4222,6 +4228,12 @@ class ChunkedGraph(object):
                                                 self.cross_edge_family_id,
                                                 val_dict,
                                                 time_stamp=time_stamp))
+
+        # Mesh preview:
+
+
+
+
 
         # Now that the lowest layer has been updated, we need to walk through
         # all layers and move our new parents forward
