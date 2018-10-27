@@ -41,16 +41,23 @@ def home():
 # ------------------------------------------------------------------------------
 
 
-@bp.route('/1.0/<node_id>/mesh_preview', methods=['POST', 'GET'])
+@bp.route('/1.0/<node_id>/mesh_preview', methods=['POST'])
 def handle_preview_meshes(node_id):
-    data = json.loads(request.data)
+    print("mesh_preview", node_id, request.data)
 
-    if "supervoxel_ids" in data:
-        supervoxel_ids = data["supervoxel_ids"]
-    else:
-        supervoxel_ids = None
+    data = json.loads(request.data)
+    node_id = np.uint64(node_id)
 
     cg = app_utils.get_cg()
+
+    if "seg_ids" in data:
+        seg_ids = data["seg_ids"]
+
+        chunk_id = cg.get_chunk_id(node_id)
+        supervoxel_ids = [cg.get_node_id(seg_id, chunk_id)
+                          for seg_id in seg_ids]
+    else:
+        supervoxel_ids = None
 
     meshgen.mesh_lvl2_preview(cg, node_id, supervoxel_ids=supervoxel_ids,
                               cv_path=None, cv_mesh_dir=None, mip=2,
