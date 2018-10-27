@@ -363,7 +363,7 @@ def chunk_mesh_task(cg, chunk_id, cv_path,
 def mesh_lvl2_previews(cg, lvl2_node_ids, cv_path=None,
                        cv_mesh_dir=None, mip=2, simplification_factor=999999,
                        max_err=40, parallel_download=8, verbose=True,
-                       cache_control=None, n_threads=8):
+                       cache_control=None, n_threads=1):
 
     serialized_cg_info = cg.get_serialized_info()
     del serialized_cg_info["credentials"]
