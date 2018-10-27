@@ -179,7 +179,8 @@ def handle_merge():
     new_root = cg.add_edges(user_id=user_id,
                             atomic_edges=np.array(atomic_edge, dtype=np.uint64),
                             source_coord=coords[:1],
-                            sink_coord=coords[1:])
+                            sink_coord=coords[1:],
+                            remesh_preview=True)
 
     if new_root is None:
         return None
@@ -241,7 +242,8 @@ def handle_split():
                                 sink_ids=data_dict["sinks"]["id"],
                                 source_coords=data_dict["sources"]["coord"],
                                 sink_coords=data_dict["sinks"]["coord"],
-                                mincut=True)
+                                mincut=True,
+                                remesh_preview=True)
 
     if new_roots is None:
         return None
@@ -289,7 +291,8 @@ def handle_shatter():
                                             coordinate[1],
                                             coordinate[2],
                                             parent_id=np.uint64(
-                                                node_id))
+                                                node_id),
+                                            remesh_preview=True)
 
     if atomic_id is None:
         return None
