@@ -3706,7 +3706,8 @@ class ChunkedGraph(object):
                         time_stamp=time_stamp))
 
         if remesh_preview:
-            meshgen.mesh_lvl2_previews(self, lvl2_node_mapping)
+            print("REMESH:", lvl2_node_mapping)
+            meshgen.mesh_lvl2_previews(self, list(lvl2_node_mapping.keys()))
 
         return new_root_ids, rows
 
@@ -4399,6 +4400,7 @@ class ChunkedGraph(object):
                                             time_stamp=time_stamp))
 
         if remesh_preview:
-            meshgen.mesh_lvl2_previews(self, lvl2_node_mapping)
+            print("REMESH:", lvl2_node_mapping)
+            meshgen.mesh_lvl2_previews(self, list(lvl2_node_mapping.keys()))
 
         return True, (new_roots, rows, time_stamp)
