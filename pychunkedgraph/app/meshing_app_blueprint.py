@@ -41,6 +41,24 @@ def home():
 # ------------------------------------------------------------------------------
 
 
+@bp.route('/1.0/<node_id>/mesh_preview', methods=['POST', 'GET'])
+def handle_preview_meshes(node_id):
+    data = json.loads(request.data)
+
+    if "supervoxel_ids" in data:
+        supervoxel_ids = data["supervoxel_ids"]
+    else:
+        supervoxel_ids = None
+
+    cg = app_utils.get_cg()
+
+    meshgen.mesh_lvl2_preview(cg, node_id, supervoxel_ids=supervoxel_ids,
+                              cv_path=None, cv_mesh_dir=None, mip=2,
+                              simplification_factor=999999,
+                              max_err=40, parallel_download=8, verbose=True,
+                              cache_control='no-cache')
+
+
 @bp.route('/1.0/<node_id>/validfragments', methods=['POST', 'GET'])
 def handle_valid_frags(node_id):
     cg = app_utils.get_cg()
