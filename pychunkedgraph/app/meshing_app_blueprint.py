@@ -1,4 +1,4 @@
-from flask import Blueprint, request, make_response, jsonify
+from flask import Blueprint, request, make_response, jsonify, Response
 # from flask import current_app
 # from google.cloud import pubsub_v1
 import json
@@ -43,8 +43,6 @@ def home():
 
 @bp.route('/1.0/<node_id>/mesh_preview', methods=['POST'])
 def handle_preview_meshes(node_id):
-    print("mesh_preview", node_id, request.data)
-
     data = json.loads(request.data)
     node_id = np.uint64(node_id)
 
@@ -64,7 +62,7 @@ def handle_preview_meshes(node_id):
                               simplification_factor=999999,
                               max_err=40, parallel_download=8, verbose=True,
                               cache_control='no-cache')
-
+    return Response(status=200)
 
 @bp.route('/1.0/<node_id>/validfragments', methods=['POST', 'GET'])
 def handle_valid_frags(node_id):
