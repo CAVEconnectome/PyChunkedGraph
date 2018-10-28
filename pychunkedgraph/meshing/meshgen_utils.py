@@ -4,7 +4,7 @@ import numpy as np
 from functools import lru_cache
 from cloudvolume import CloudVolume, Storage
 
-from pychunkedgraph.backend.chunkedgraph import ChunkedGraph  # noqa
+from pychunkedgraph.backend import chunkedgraph  # noqa
 
 
 def str_to_slice(slice_str: str):
@@ -21,7 +21,8 @@ def slice_to_str(slices) -> str:
         return '_'.join(map(slice_to_str, slices))
 
 
-def get_chunk_bbox(cg: ChunkedGraph, chunk_id: np.uint64, mip: int):
+def get_chunk_bbox(cg, chunk_id: np.uint64,
+                   mip: int):
     layer = cg.get_chunk_layer(chunk_id)
     chunk_block_shape = get_mesh_block_shape(cg, layer, mip)
     bbox_start = cg.get_chunk_coordinates(chunk_id) * chunk_block_shape
@@ -29,20 +30,22 @@ def get_chunk_bbox(cg: ChunkedGraph, chunk_id: np.uint64, mip: int):
     return tuple(slice(bbox_start[i], bbox_end[i]) for i in range(3))
 
 
-def get_chunk_bbox_str(cg: ChunkedGraph, chunk_id: np.uint64, mip: int) -> str:
+def get_chunk_bbox_str(cg,
+                       chunk_id: np.uint64, mip: int) -> str:
     return slice_to_str(get_chunk_bbox(cg, chunk_id, mip))
 
 
-def get_mesh_name(cg: ChunkedGraph, node_id: np.uint64, mip: int) -> str:
+def get_mesh_name(cg, node_id: np.uint64, mip: int) -> str:
     return f"{node_id}:0:{get_chunk_bbox_str(cg, node_id, mip)}"
 
 
 @lru_cache(maxsize=None)
-def get_segmentation_info(cg: ChunkedGraph) -> dict:
+def get_segmentation_info(cg) -> dict:
     return CloudVolume(cg.cv_path).info
 
 
-def get_mesh_block_shape(cg: ChunkedGraph, graphlayer: int, source_mip: int) -> np.ndarray:
+def get_mesh_block_shape(cg, graphlayer: int,
+                         source_mip: int) -> np.ndarray:
     """
     Calculate the dimensions of a segmentation block at `source_mip` that covers
     the same region as a ChunkedGraph chunk at layer `graphlayer`.
@@ -59,8 +62,8 @@ def get_mesh_block_shape(cg: ChunkedGraph, graphlayer: int, source_mip: int) -> 
     return np.floor_divide(graphlayer_chunksize, distortion, dtype=np.int, casting='unsafe')
 
 
-def get_downstream_multi_child_node(cg: ChunkedGraph, node_id: np.uint64,
-                                    stop_layer: int = 1):
+def get_downstream_multi_child_node(cg,
+                                    node_id: np.uint64, stop_layer: int = 1):
     """
     Return the first descendant of `node_id` (including itself) with more than
     one child, or the first descendant of `node_id` (including itself) on or
@@ -80,15 +83,20 @@ def get_downstream_multi_child_node(cg: ChunkedGraph, node_id: np.uint64,
     return get_downstream_multi_child_node(cg, children[0], stop_layer)
 
 
-def get_highest_child_nodes_with_meshes(cg: ChunkedGraph, node_id: np.uint64,
+def get_highest_child_nodes_with_meshes(cg,
+                                        node_id: np.uint64,
                                         stop_layer=1, verify_existence=False):
     # FIXME: Read those from config
     HIGHEST_MESH_LAYER = cg.n_layers - 3
     MESH_MIP = 2
 
     highest_node = get_downstream_multi_child_node(cg, node_id, stop_layer)
-    candidates = \
-        cg.get_subgraph_nodes(highest_node, return_layers=[HIGHEST_MESH_LAYER])
+    highest_node_layer = cg.get_chunk_layer(highest_node)
+    if highest_node_layer <= HIGHEST_MESH_LAYER:
+        candidates = [highest_node]
+    else:
+        candidates = cg.get_subgraph_nodes(
+            highest_node, return_layers=[HIGHEST_MESH_LAYER])
 
     if verify_existence:
         valid_seg_ids = []
