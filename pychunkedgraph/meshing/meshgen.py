@@ -4,6 +4,7 @@ import numpy as np
 import json
 import time
 
+from multiwrapper import multiprocessing_utils as mu
 from cloudvolume import Storage, EmptyVolumeException
 from cloudvolume.meshservice import decode_mesh_buffer
 from igneous.tasks import MeshTask
@@ -11,10 +12,9 @@ from igneous.tasks import MeshTask
 sys.path.insert(0, os.path.join(sys.path[0], '../..'))
 os.environ['TRAVIS_BRANCH'] = "IDONTKNOWWHYINEEDTHIS"
 
-from pychunkedgraph.backend.chunkedgraph import ChunkedGraph  # noqa
-from pychunkedgraph.backend.key_utils import serialize_uint64  # noqa
-from pychunkedgraph.meshing.meshgen_utils import ( # noqa
-    get_mesh_block_shape, get_segmentation_info, slice_to_str, str_to_slice)
+from pychunkedgraph.backend import chunkedgraph   # noqa
+from pychunkedgraph.backend import key_utils  # noqa
+from pychunkedgraph.meshing import meshgen_utils # noqa
 
 
 def get_connected(connectivity):
@@ -76,7 +76,7 @@ def _get_sv_to_node_mapping_internal(cg, chunk_id, unbreakable_only):
     # Retrieve all edge-adjacent supervoxel
     two_hop_neighbors = {}
     for seg_id, base_id in one_hop_neighbors.items():
-        seg_id_b = serialize_uint64(seg_id)
+        seg_id_b = key_utils.serialize_uint64(seg_id)
         if seg_id_b not in seg_ids_face_neighbors:
             # FIXME: Those are non-face-adjacent atomic partners caused by human
             #        proofreaders. They're crazy. Watch out for them.
@@ -106,7 +106,7 @@ def _get_sv_to_node_mapping_internal(cg, chunk_id, unbreakable_only):
     # Retrieve all corner-adjacent supervoxel
     three_hop_neighbors = {}
     for seg_id, base_id in list(two_hop_neighbors.items()):
-        seg_id_b = serialize_uint64(seg_id)
+        seg_id_b = key_utils.serialize_uint64(seg_id)
         if seg_id_b not in seg_ids_edge_neighbors:
             # See FIXME for edge-adjacent supervoxel - need to ignore those
             # FIXME 2: Those might also be non-face-adjacent atomic partners
@@ -170,7 +170,7 @@ def get_sv_to_node_mapping(cg, chunk_id):
         seg_ids = cg.range_read_chunk(1, x, y, z, row_keys=['parents'])
 
         for sv_id, base_sv_id in sv_to_node_mapping.items():
-            base_sv_id = serialize_uint64(base_sv_id)
+            base_sv_id = key_utils.serialize_uint64(base_sv_id)
             data = cg.flatten_row_dict(seg_ids[base_sv_id].cells['0'])
             agg_id = data['parents'][-1]  # latest parent
 
@@ -235,7 +235,7 @@ def chunk_mesh_task(cg, chunk_id, cv_path,
             print("Nothing to do", cx, cy, cz)
             return
 
-        mesh_block_shape = get_mesh_block_shape(cg, layer, mip)
+        mesh_block_shape = meshgen_utils.get_mesh_block_shape(cg, layer, mip)
 
         chunk_offset = (cx, cy, cz) * mesh_block_shape
 
@@ -269,12 +269,12 @@ def chunk_mesh_task(cg, chunk_id, cv_path,
 
         manifests_to_fetch = {np.uint64(x): [] for x in node_ids.keys()}
 
-        mesh_dir = cv_mesh_dir or get_segmentation_info(cg)['mesh']
+        mesh_dir = cv_mesh_dir or meshgen_utils.get_segmentation_info(cg)['mesh']
 
-        chunk_block_shape = get_mesh_block_shape(cg, layer, mip)
+        chunk_block_shape = meshgen_utils.get_mesh_block_shape(cg, layer, mip)
         bbox_start = cg.get_chunk_coordinates(chunk_id) * chunk_block_shape
         bbox_end = bbox_start + chunk_block_shape
-        chunk_bbox_str = slice_to_str(slice(bbox_start[i], bbox_end[i]) for i in range(3))
+        chunk_bbox_str = meshgen_utils.slice_to_str(slice(bbox_start[i], bbox_end[i]) for i in range(3))
 
         for node_id_b, data in node_ids.items():
             node_id = np.uint64(node_id_b)
@@ -360,10 +360,52 @@ def chunk_mesh_task(cg, chunk_id, cv_path,
                      len(manifests_to_upload) - len(fragments_to_upload)))
 
 
+def mesh_lvl2_previews(cg, lvl2_node_ids, cv_path=None,
+                       cv_mesh_dir=None, mip=2, simplification_factor=999999,
+                       max_err=40, parallel_download=8, verbose=True,
+                       cache_control="no-cache", n_threads=4):
+
+    serialized_cg_info = cg.get_serialized_info()
+    del serialized_cg_info["credentials"]
+
+    if not isinstance(lvl2_node_ids, dict):
+        lvl2_node_ids = dict(zip(lvl2_node_ids, [None] * len(lvl2_node_ids)))
+
+    multi_args = []
+    for lvl2_node_id in lvl2_node_ids.keys():
+        multi_args.append([serialized_cg_info, lvl2_node_id,
+                           lvl2_node_ids[lvl2_node_id],
+                           cv_path, cv_mesh_dir, mip, simplification_factor,
+                           max_err, parallel_download, verbose,
+                           cache_control])
+
+    # Run parallelizing
+    if n_threads == 1:
+        mu.multiprocess_func(_mesh_lvl2_previews_threads,
+                             multi_args, n_threads=n_threads,
+                             verbose=True, debug=n_threads==1)
+    else:
+        mu.multisubprocess_func(_mesh_lvl2_previews_threads,
+                                multi_args, n_threads=n_threads)
+
+
+def _mesh_lvl2_previews_threads(args):
+    serialized_cg_info, lvl2_node_id, supervoxel_ids, \
+        cv_path, cv_mesh_dir, mip, simplification_factor, \
+        max_err, parallel_download, verbose, cache_control = args
+
+    cg = chunkedgraph.ChunkedGraph(**serialized_cg_info)
+    mesh_lvl2_preview(cg, lvl2_node_id, supervoxel_ids=supervoxel_ids,
+                      cv_path=cv_path, cv_mesh_dir=cv_mesh_dir, mip=mip,
+                      simplification_factor=simplification_factor,
+                      max_err=max_err, parallel_download=parallel_download,
+                      verbose=verbose, cache_control=cache_control)
+
+
 def mesh_lvl2_preview(cg, lvl2_node_id, supervoxel_ids=None, cv_path=None,
                       cv_mesh_dir=None, mip=2, simplification_factor=999999,
                       max_err=40, parallel_download=8, verbose=True,
-                      cache_control=None):
+                      cache_control="no-cache"):
     """ Compute a mesh for a level 2 node without hierarchy and without
         consistency beyond the chunk boundary. Useful to give the user a quick
         preview. A proper mesh hierarchy should be generated using
@@ -393,7 +435,7 @@ def mesh_lvl2_preview(cg, lvl2_node_id, supervoxel_ids=None, cv_path=None,
 
     remap_table = dict(zip(supervoxel_ids, [lvl2_node_id] * len(supervoxel_ids)))
 
-    mesh_block_shape = get_mesh_block_shape(cg, layer, mip)
+    mesh_block_shape = meshgen_utils.get_mesh_block_shape(cg, layer, mip)
 
     cx, cy, cz = cg.get_chunk_coordinates(lvl2_node_id)
     chunk_offset = (cx, cy, cz) * mesh_block_shape
@@ -425,7 +467,7 @@ def mesh_lvl2_preview(cg, lvl2_node_id, supervoxel_ids=None, cv_path=None,
 
 
 def run_task_bundle(settings, layer, roi):
-    cgraph = ChunkedGraph(
+    cgraph = chunkedgraph.ChunkedGraph(
         table_id=settings['chunkedgraph']['table_id'],
         instance_id=settings['chunkedgraph']['instance_id']
     )
@@ -452,4 +494,4 @@ def run_task_bundle(settings, layer, roi):
 if __name__ == "__main__":
     params = json.loads(sys.argv[1])
     layer = int(sys.argv[2])
-    run_task_bundle(params, layer, str_to_slice(sys.argv[3]))
+    run_task_bundle(params, layer, meshgen_utils.str_to_slice(sys.argv[3]))
