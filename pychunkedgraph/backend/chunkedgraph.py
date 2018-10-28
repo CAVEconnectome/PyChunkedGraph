@@ -3938,7 +3938,9 @@ class ChunkedGraph(object):
                         print("REMESH:", lvl2_node_mapping)
                         meshgen.mesh_lvl2_previews(self, list(
                             lvl2_node_mapping.keys()))
+                        print("REMESH SUCCESS")
 
+                    print("new root ids:", new_root_ids)
                     return new_root_ids
 
                 for lock_root_id in lock_root_ids:

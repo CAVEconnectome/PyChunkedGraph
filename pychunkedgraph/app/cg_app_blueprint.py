@@ -248,6 +248,8 @@ def handle_split():
     if new_roots is None:
         return None
 
+    print("after split:", new_roots)
+
     # Return binary
     return app_utils.tobinary(new_roots)
 
