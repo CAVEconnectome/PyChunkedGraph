@@ -363,7 +363,7 @@ def chunk_mesh_task(cg, chunk_id, cv_path,
 def mesh_lvl2_previews(cg, lvl2_node_ids, cv_path=None,
                        cv_mesh_dir=None, mip=2, simplification_factor=999999,
                        max_err=40, parallel_download=8, verbose=True,
-                       cache_control=None, n_threads=4):
+                       cache_control="no-cache", n_threads=4):
 
     serialized_cg_info = cg.get_serialized_info()
     del serialized_cg_info["credentials"]
@@ -405,7 +405,7 @@ def _mesh_lvl2_previews_threads(args):
 def mesh_lvl2_preview(cg, lvl2_node_id, supervoxel_ids=None, cv_path=None,
                       cv_mesh_dir=None, mip=2, simplification_factor=999999,
                       max_err=40, parallel_download=8, verbose=True,
-                      cache_control=None):
+                      cache_control="no-cache"):
     """ Compute a mesh for a level 2 node without hierarchy and without
         consistency beyond the chunk boundary. Useful to give the user a quick
         preview. A proper mesh hierarchy should be generated using
