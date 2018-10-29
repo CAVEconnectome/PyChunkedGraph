@@ -19,6 +19,7 @@ import pychunkedgraph.backend.key_utils
 sys.path.insert(0, os.path.join(sys.path[0], '..'))
 from pychunkedgraph.backend import chunkedgraph # noqa
 from pychunkedgraph.backend import table_info # noqa
+from pychunkedgraph.backend import exceptions as cg_exceptions # noqa
 from pychunkedgraph.creator import graph_tests # noqa
 
 
@@ -1911,7 +1912,9 @@ class TestGraphSplit:
         res_old.consume_all()
 
         # Split
-        cgraph.remove_edges("Jane Doe", to_label(cgraph, 1, 0, 0, 0, 1), to_label(cgraph, 1, 0, 0, 0, 0), mincut=False)
+        with pytest.raises(cg_exceptions.PreconditionError):
+            cgraph.remove_edges("Jane Doe", to_label(cgraph, 1, 0, 0, 0, 1), to_label(cgraph, 1, 0, 0, 0, 0), mincut=False)
+
         res_new = cgraph.table.read_rows()
         res_new.consume_all()
 
@@ -2119,7 +2122,8 @@ class TestGraphSplit:
         res_old.consume_all()
 
         # Split
-        assert cgraph.remove_edges("Jane Doe", to_label(cgraph, 1, 0, 0, 0, 0), to_label(cgraph, 1, 0, 0, 0, 0), mincut=False) is None
+        with pytest.raises(cg_exceptions.PreconditionError):
+            cgraph.remove_edges("Jane Doe", to_label(cgraph, 1, 0, 0, 0, 0), to_label(cgraph, 1, 0, 0, 0, 0), mincut=False)
 
         res_new = cgraph.table.read_rows()
         res_new.consume_all()
@@ -2163,7 +2167,8 @@ class TestGraphSplit:
         res_old.consume_all()
 
         # Split
-        assert cgraph.remove_edges("Jane Doe", to_label(cgraph, 1, 0, 0, 0, 0), to_label(cgraph, 2, 1, 0, 0, 1), mincut=False) is None
+        with pytest.raises(cg_exceptions.PreconditionError):
+            cgraph.remove_edges("Jane Doe", to_label(cgraph, 1, 0, 0, 0, 0), to_label(cgraph, 2, 1, 0, 0, 1), mincut=False)
 
         res_new = cgraph.table.read_rows()
         res_new.consume_all()
@@ -2494,10 +2499,11 @@ class TestGraphMinCut:
         res_old.consume_all()
 
         # Mincut
-        assert cgraph.remove_edges(
+        with pytest.raises(cg_exceptions.PreconditionError):
+            cgraph.remove_edges(
                 "Jane Doe", to_label(cgraph, 1, 0, 0, 0, 0), to_label(cgraph, 1, 1, 0, 0, 0),
                 [0, 0, 0], [2*cgraph.chunk_size[0], 2*cgraph.chunk_size[1], cgraph.chunk_size[2]],
-                mincut=True) is None
+                mincut=True)
 
         res_new = cgraph.table.read_rows()
         res_new.consume_all()
@@ -2537,10 +2543,11 @@ class TestGraphMinCut:
         res_old.consume_all()
 
         # Mincut
-        assert cgraph.remove_edges(
+        with pytest.raises(cg_exceptions.PreconditionError):
+            cgraph.remove_edges(
                 "Jane Doe", to_label(cgraph, 1, 0, 0, 0, 0), to_label(cgraph, 1, 1, 0, 0, 0),
                 [0, 0, 0], [2*cgraph.chunk_size[0], 2*cgraph.chunk_size[1], cgraph.chunk_size[2]],
-                mincut=True) is None
+                mincut=True)
 
         res_new = cgraph.table.read_rows()
         res_new.consume_all()

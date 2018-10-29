@@ -81,12 +81,13 @@ def unhandled_exception(e):
     #                                    response_time=dt, url=request.url,
     #                                    request_data=request.data, err_msg=tb)
 
-    print(str(e))
+    tb = traceback.format_exception(etype=type(e), value=e,
+                                    tb=e.__traceback__)
+    print(tb)
     print("Response time: %.3fms" % dt)
 
     resp = {
-        'message': traceback.format_exception(etype=type(e), value=e,
-                                              tb=e.__traceback__),
+        'message': tb
     }
     return jsonify(resp), status_code
 
@@ -182,19 +183,23 @@ def handle_merge():
 
     if np.any(np.abs(chunk_coord_delta) > 3):
         raise cg_exceptions.BadRequest(
-            f"Chebyshev distance between merge points exceeded allowed maximum (3 chunks)."
-        )
+            "Chebyshev distance between merge points exceeded allowed maximum (3 chunks).")
 
-    new_root = cg.add_edges(user_id=user_id,
-                            atomic_edges=np.array(atomic_edge, dtype=np.uint64),
-                            source_coord=coords[:1],
-                            sink_coord=coords[1:],
-                            remesh_preview=True)
+    try:
+        new_root = cg.add_edges(user_id=user_id,
+                                atomic_edges=np.array(atomic_edge, dtype=np.uint64),
+                                source_coord=coords[:1],
+                                sink_coord=coords[1:],
+                                remesh_preview=True)
+    except cg_exceptions.LockingError as e:
+        raise cg_exceptions.InternalServerError(
+            "Could not acquire root lock for merge operation.")
+    except cg_exceptions.PreconditionError as e:
+        raise cg_exceptions.BadRequest(str(e))
 
     if new_root is None:
         raise cg_exceptions.InternalServerError(
-            f"Could not merge selected supervoxel."
-        )
+            "Could not merge selected supervoxel.")
 
     # Return binary
     return app_utils.tobinary(new_root)
@@ -242,21 +247,26 @@ def handle_split():
 
             if atomic_id is None:
                 raise cg_exceptions.BadRequest(
-                    f"Could not determine supervoxel ID for coordinates {coordinate}."
-                )
+                    f"Could not determine supervoxel ID for coordinates {coordinate}.")
 
             data_dict[k]["id"].append(atomic_id)
             data_dict[k]["coord"].append(coordinate)
 
     print(data_dict)
 
-    new_roots = cg.remove_edges(user_id=user_id,
-                                source_ids=data_dict["sources"]["id"],
-                                sink_ids=data_dict["sinks"]["id"],
-                                source_coords=data_dict["sources"]["coord"],
-                                sink_coords=data_dict["sinks"]["coord"],
-                                mincut=True,
-                                remesh_preview=True)
+    try:
+        new_roots = cg.remove_edges(user_id=user_id,
+                                    source_ids=data_dict["sources"]["id"],
+                                    sink_ids=data_dict["sinks"]["id"],
+                                    source_coords=data_dict["sources"]["coord"],
+                                    sink_coords=data_dict["sinks"]["coord"],
+                                    mincut=True,
+                                    remesh_preview=True)
+    except cg_exceptions.LockingError as e:
+        raise cg_exceptions.InternalServerError(
+            "Could not acquire root lock for split operation.")
+    except cg_exceptions.PreconditionError as e:
+        raise cg_exceptions.BadRequest(str(e))
 
     if new_roots is None:
         raise cg_exceptions.InternalServerError(
@@ -313,16 +323,22 @@ def handle_shatter():
 
     if atomic_id is None:
         raise cg_exceptions.BadRequest(
-            f"Could not determine supervoxel ID for coordinates {coordinate}."
-        )
+            f"Could not determine supervoxel ID for coordinates {coordinate}.")
 
     data_dict["id"].append(atomic_id)
     data_dict["coord"].append(coordinate)
 
     print(data_dict)
-    new_roots = cg.shatter_nodes(user_id=user_id,
-                                 atomic_node_ids=data_dict['id'],
-                                 radius=radius)
+    try:
+        new_roots = cg.shatter_nodes(user_id=user_id,
+                                     atomic_node_ids=data_dict['id'],
+                                     radius=radius)
+    except cg_exceptions.LockingError as e:
+        raise cg_exceptions.InternalServerError(
+            "Could not acquire root lock for shatter operation.")
+    except cg_exceptions.PreconditionError as e:
+        raise cg_exceptions.BadRequest(str(e))
+
     if new_roots is None:
         raise cg_exceptions.InternalServerError(
             f"Could not shatter selected region."

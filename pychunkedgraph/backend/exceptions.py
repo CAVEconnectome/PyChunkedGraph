@@ -7,6 +7,16 @@ class ChunkedGraphError(Exception):
     pass
 
 
+class LockingError(ChunkedGraphError):
+    """Raised when a Bigtable Lock could not be acquired"""
+    pass
+
+
+class PreconditionError(ChunkedGraphError):
+    """Raised when preconditions for Chunked Graph operations are not met"""
+    pass
+
+
 class ChunkedGraphAPIError(ChunkedGraphError):
     """Base class for exceptions raised by calling API methods.
 
