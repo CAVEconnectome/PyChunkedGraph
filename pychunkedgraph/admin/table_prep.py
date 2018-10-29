@@ -9,10 +9,8 @@ def _log_type(log_entry):
     else:
         return "merge"
 
-def apply_log(cg, log_path):
+def apply_log(cg, log):
     assert cg.table_id != "pinky100_sv11"
-
-    log = export.load_changelog(log_path)
 
     last_operation_id = -1
     for operation_id in log.keys():
