@@ -1,5 +1,6 @@
-from flask import Blueprint, request, make_response
+from flask import Blueprint, request, make_response, jsonify
 from flask import current_app
+
 # from google.cloud import pubsub_v1
 import json
 import numpy as np
@@ -11,6 +12,7 @@ import traceback
 import collections
 
 from pychunkedgraph.app import app_utils
+from pychunkedgraph.backend import exceptions as cg_exceptions
 
 __version__ = '0.1.63'
 bp = Blueprint('pychunkedgraph', __name__, url_prefix="/segmentation")
@@ -63,24 +65,9 @@ def after_request(response):
     return response
 
 
-@bp.errorhandler(500)
-def internal_server_error(error):
-    dt = (time.time() - current_app.request_start_time) * 1000
-
-    # user_ip = str(request.remote_addr)
-    #
-    # log_db = app_utils.get_log_db()
-    # log_db.add_internal_error_log(user_id=user_ip, user_ip=user_ip,
-    #                               request_time=current_app.request_start_date,
-    #                               response_time=dt, url=request.url,
-    #                               request_data=request.data, err_msg=error)
-    print(error)
-    print("Response time: %.3fms" % dt)
-    return 500
-
-
 @bp.errorhandler(Exception)
 def unhandled_exception(e):
+    status_code = 500
     dt = (time.time() - current_app.request_start_time) * 1000
 
     # user_ip = str(request.remote_addr)
@@ -96,7 +83,25 @@ def unhandled_exception(e):
 
     print(str(e))
     print("Response time: %.3fms" % dt)
-    return 500
+
+    resp = {
+        'message': traceback.format_exception(etype=type(e), value=e,
+                                              tb=e.__traceback__),
+    }
+    return jsonify(resp), status_code
+
+
+@bp.errorhandler(cg_exceptions.ChunkedGraphAPIError)
+def api_exception(e):
+    dt = (time.time() - current_app.request_start_time) * 1000
+    print(str(e))
+    print("Response time: %.3fms" % dt)
+    resp = {
+        'message': traceback.format_exception(etype=type(e), value=e,
+                                              tb=e.__traceback__),
+    }
+    return jsonify(resp), e.status_code
+
 
 # -------------------
 # ------ Applications
@@ -164,7 +169,9 @@ def handle_merge():
                                                 parent_id=np.uint64(node_id))
 
         if atomic_id is None:
-            return None
+            raise cg_exceptions.BadRequest(
+                f"Could not determine supervoxel ID for coordinates {coordinate}."
+            )
 
         coords.append(coordinate)
         atomic_edge.append(atomic_id)
@@ -174,7 +181,9 @@ def handle_merge():
                         cg.get_chunk_coordinates(atomic_edge[1])
 
     if np.any(np.abs(chunk_coord_delta) > 3):
-        return None
+        raise cg_exceptions.BadRequest(
+            f"Chebyshev distance between merge points exceeded allowed maximum (3 chunks)."
+        )
 
     new_root = cg.add_edges(user_id=user_id,
                             atomic_edges=np.array(atomic_edge, dtype=np.uint64),
@@ -183,7 +192,9 @@ def handle_merge():
                             remesh_preview=True)
 
     if new_root is None:
-        return None
+        raise cg_exceptions.InternalServerError(
+            f"Could not merge selected supervoxel."
+        )
 
     # Return binary
     return app_utils.tobinary(new_root)
@@ -230,7 +241,9 @@ def handle_split():
                                                         node_id))
 
             if atomic_id is None:
-                return None
+                raise cg_exceptions.BadRequest(
+                    f"Could not determine supervoxel ID for coordinates {coordinate}."
+                )
 
             data_dict[k]["id"].append(atomic_id)
             data_dict[k]["coord"].append(coordinate)
@@ -246,7 +259,9 @@ def handle_split():
                                 remesh_preview=True)
 
     if new_roots is None:
-        return None
+        raise cg_exceptions.InternalServerError(
+            f"Could not split selected segment groups."
+        )
 
     print("after split:", new_roots)
 
@@ -297,7 +312,9 @@ def handle_shatter():
                                             remesh_preview=True)
 
     if atomic_id is None:
-        return None
+        raise cg_exceptions.BadRequest(
+            f"Could not determine supervoxel ID for coordinates {coordinate}."
+        )
 
     data_dict["id"].append(atomic_id)
     data_dict["coord"].append(coordinate)
@@ -307,7 +324,9 @@ def handle_shatter():
                                  atomic_node_ids=data_dict['id'],
                                  radius=radius)
     if new_roots is None:
-        return None
+        raise cg_exceptions.InternalServerError(
+            f"Could not shatter selected region."
+        )
 
     # Return binary
     return app_utils.tobinary(new_roots)
