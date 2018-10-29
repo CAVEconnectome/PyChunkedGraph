@@ -419,34 +419,6 @@ class ChunkedGraph(object):
         else:
             return True
 
-    def clear_changes(self, time_stamp: datetime.datetime):
-        """ Clears everything after this time_stamp
-
-
-        :param time_stamp: datetime.datetime
-        :return: bool
-            success
-        """
-
-        raise NotImplementedError()
-
-        # Read rows with changed cells
-        time_filter = get_inclusive_time_range_filter(start=time_stamp)
-        rr = self.range_read(start_id=np.uint64(0),
-                             end_id=np.iinfo(np.uint64).max - np.uint64(2),
-                             time_filter=time_filter, max_block_size=np.iinfo(np.uint64).max)
-
-        rows = list(rr.values())
-        for row in rows:
-            for fam_id in row.keys():
-                row_columns = list(row[fam_id].keys())
-                row.delete_cells(column_family_id=fam_id, columns=row_columns,
-                                 time_range=TimestampRange(start=time_stamp))
-
-        self.bulk_write(rows)
-
-        return rr
-
     def get_serialized_info(self):
         """ Rerturns dictionary that can be used to load this ChunkedGraph
 
@@ -2238,8 +2210,8 @@ class ChunkedGraph(object):
         return root_ids
 
     def get_root(self, node_id: np.uint64,
-                 time_stamp: Optional[datetime.datetime] = None
-                 ) -> Union[List[np.uint64], np.uint64]:
+                 time_stamp: Optional[datetime.datetime] = None,
+                 n_tries: int = 1) -> Union[List[np.uint64], np.uint64]:
         """ Takes a node id and returns the associated agglomeration ids
 
         :param node_id: uint64
@@ -2256,28 +2228,33 @@ class ChunkedGraph(object):
         time_stamp = get_google_compatible_time_stamp(time_stamp,
                                                       round_up=False)
 
-        early_finish = True
-
         if self.get_chunk_layer(node_id) == self.n_layers:
             raise Exception("node is already root")
 
         parent_id = node_id
 
-        while early_finish:
+        for i_try in range(n_tries):
             parent_id = node_id
-
-            early_finish = False
 
             for i_layer in range(self.get_chunk_layer(node_id)+1,
                                  int(self.n_layers + 1)):
 
-                temp_parent_id = self.get_parent(parent_id, time_stamp=time_stamp)
+                temp_parent_id = self.get_parent(parent_id,
+                                                 time_stamp=time_stamp)
 
                 if temp_parent_id is None:
-                    early_finish = True
                     break
                 else:
                     parent_id = temp_parent_id
+
+            if self.get_chunk_layer(parent_id) == self.n_layers:
+                break
+            else:
+                time.sleep(.5)
+
+        if self.get_chunk_layer(parent_id) != self.n_layers:
+            raise Exception("Cannot find root id {}, {}".format(node_id,
+                                                                time_stamp))
 
         return parent_id
 
