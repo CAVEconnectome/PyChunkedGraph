@@ -828,6 +828,9 @@ class TestGraphSimpleQueries:
         root12000 = cgraph.get_root(to_label(cgraph, 1, 2, 0, 0, 0),
                                     time_stamp=None)
 
+        with pytest.raises(Exception) as e:
+            cgraph.get_root(0)
+
         assert (root10000 == to_label(cgraph, 4, 0, 0, 0, 1) and
                 root11000 == root11001 == root12000 == to_label(
                     cgraph, 4, 0, 0, 0, 2)) or \

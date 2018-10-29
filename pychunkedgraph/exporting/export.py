@@ -221,3 +221,18 @@ def load_changelog(path):
 
     with open(path, "rb") as f:
         return pkl.load(f)
+
+
+def get_log_diff(log_old, log_new):
+    """ Computes a simple difference between two logs
+
+    :param log_old: dict
+    :param log_new: dict
+    :return: dict
+    """
+    log = log_new.copy()
+
+    for k in log_old:
+        del log[k]
+
+    return log
