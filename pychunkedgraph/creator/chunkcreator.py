@@ -9,6 +9,7 @@ import random
 from cloudvolume import storage
 
 # from chunkedgraph import ChunkedGraph
+import pychunkedgraph.backend.chunkedgraph_utils
 from pychunkedgraph.backend import chunkedgraph
 from multiwrapper import multiprocessing_utils as mu
 from pychunkedgraph.creator import creator_utils
@@ -230,7 +231,7 @@ def create_chunked_graph(table_id=None, cv_url=None, ws_url=None, fan_out=2,
 
     time_start = time.time()
 
-    n_layers = int(np.ceil(chunkedgraph.log_n(np.max(in_chunk_connected_ids) + 1, fan_out))) + 2
+    n_layers = int(np.ceil(pychunkedgraph.backend.chunkedgraph_utils.log_n(np.max(in_chunk_connected_ids) + 1, fan_out))) + 2
 
     print("N layers: %d" % n_layers)
 
