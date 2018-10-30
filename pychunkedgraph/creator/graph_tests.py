@@ -2,6 +2,7 @@ import itertools
 import numpy as np
 import time
 
+import pychunkedgraph.backend.chunkedgraph_utils
 import pychunkedgraph.backend.key_utils
 from pychunkedgraph.backend import chunkedgraph
 from multiwrapper import multiprocessing_utils as mu
@@ -120,7 +121,7 @@ def root_cross_edge_test(node_id, table_id=None, cg=None):
         cross_edge_dict = {}
         child_reference_ids = []
         for child_id in child_ids:
-            cross_edge_dict = chunkedgraph.combine_cross_chunk_edge_dicts(cross_edge_dict, cg.read_cross_chunk_edges(child_id))
+            cross_edge_dict = pychunkedgraph.backend.chunkedgraph_utils.combine_cross_chunk_edge_dicts(cross_edge_dict, cg.read_cross_chunk_edges(child_id))
 
         cross_edge_dict_layers[layer] = cross_edge_dict
 
