@@ -19,7 +19,7 @@ import pychunkedgraph.backend.key_utils
 sys.path.insert(0, os.path.join(sys.path[0], '..'))
 from pychunkedgraph.backend import chunkedgraph # noqa
 from pychunkedgraph.backend import table_info # noqa
-from pychunkedgraph.backend import exceptions as cg_exceptions # noqa
+from pychunkedgraph.backend import chunkedgraph_exceptions as cg_exceptions # noqa
 from pychunkedgraph.creator import graph_tests # noqa
 
 
@@ -1624,6 +1624,9 @@ class TestGraphSplit:
         assert to_label(cgraph, 1, 0, 0, 0, 0) in leaves
         assert to_label(cgraph, 1, 0, 0, 0, 1) in leaves
 
+        # assert len(cgraph.get_latest_roots()) == 2
+        # assert len(cgraph.get_latest_roots(fake_timestamp)) == 1
+
     def test_split_nonexisting_edge(self, gen_graph):
         """
         Remove edge between existing RG supervoxels 1 and 2 (same chunk)
@@ -1708,6 +1711,8 @@ class TestGraphSplit:
         assert to_label(cgraph, 1, 0, 0, 0, 0) in leaves
         assert to_label(cgraph, 1, 1, 0, 0, 0) in leaves
 
+        assert len(cgraph.get_latest_roots()) == 2
+        assert len(cgraph.get_latest_roots(fake_timestamp)) == 1
 
     @pytest.mark.timeout(30)
     def test_split_verify_cross_chunk_edges(self, gen_graph):
@@ -1765,6 +1770,8 @@ class TestGraphSplit:
         assert cc_dict[3][0][0] == to_label(cgraph, 1, 1, 0, 0, 0)
         assert cc_dict[3][0][1] == to_label(cgraph, 1, 2, 0, 0, 0)
 
+        assert len(cgraph.get_latest_roots()) == 2
+        assert len(cgraph.get_latest_roots(fake_timestamp)) == 1
 
     @pytest.mark.timeout(30)
     def test_split_verify_loop(self, gen_graph):
@@ -1819,6 +1826,9 @@ class TestGraphSplit:
         assert len(cc_dict[3]) == 1
         cc_dict = cgraph.get_atomic_cross_edge_dict(cgraph.get_parent(to_label(cgraph, 1, 1, 0, 0, 0)), deserialize_node_ids=True, reshape=True)
         assert len(cc_dict[3]) == 1
+
+        assert len(cgraph.get_latest_roots()) == 3
+        assert len(cgraph.get_latest_roots(fake_timestamp)) == 1
 
     @pytest.mark.timeout(30)
     def test_split_pair_disconnected_chunks(self, gen_graph):
@@ -1971,6 +1981,9 @@ class TestGraphSplit:
         old_root_id = cgraph.get_root(to_label(cgraph, 1, 0, 0, 0, 0), time_stamp=fake_timestamp)
         assert new_root_ids[0] != old_root_id
 
+        # assert len(cgraph.get_latest_roots()) == 1
+        # assert len(cgraph.get_latest_roots(fake_timestamp)) == 1
+
     @pytest.mark.timeout(30)
     def test_split_full_circle_to_triple_chain_neighboring_chunks(self, gen_graph):
         """
@@ -2027,6 +2040,9 @@ class TestGraphSplit:
         # Check Old State still accessible
         old_root_id = cgraph.get_root(to_label(cgraph, 1, 0, 0, 0, 0), time_stamp=fake_timestamp)
         assert new_root_ids[0] != old_root_id
+
+        assert len(cgraph.get_latest_roots()) == 1
+        assert len(cgraph.get_latest_roots(fake_timestamp)) == 1
 
     @pytest.mark.timeout(30)
     def test_split_full_circle_to_triple_chain_disconnected_chunks(self, gen_graph):
@@ -2097,6 +2113,9 @@ class TestGraphSplit:
         # Check Old State still accessible
         old_root_id = cgraph.get_root(to_label(cgraph, 1, 0, 0, 0, 0), time_stamp=fake_timestamp)
         assert new_root_ids[0] != old_root_id
+
+        assert len(cgraph.get_latest_roots()) == 1
+        assert len(cgraph.get_latest_roots(fake_timestamp)) == 1
 
     @pytest.mark.timeout(30)
     def test_split_same_node(self, gen_graph):
