@@ -13,6 +13,7 @@ import itertools
 from itertools import chain
 from multiwrapper import multiprocessing_utils as mu
 from pychunkedgraph.backend import cutting
+from pychunkedgraph.backend import exceptions as cg_exceptions
 from pychunkedgraph.meshing import meshgen
 
 from google.api_core.retry import Retry, if_exception_type
@@ -3373,7 +3374,9 @@ class ChunkedGraph(object):
             print("Waiting - %d" % i_try)
             time.sleep(1)
 
-        return None
+        raise cg_exceptions.LockingError(
+            f"Could not acquire root object lock."
+        )
 
 
     def _add_edges(self, operation_id: np.uint64,
@@ -3798,17 +3801,25 @@ class ChunkedGraph(object):
             # Sanity Checks
             if np.any(np.in1d(sink_ids, source_ids)):
                 print("source == sink")
-                return None
+                raise cg_exceptions.PreconditionError(
+                    f"One or more supervoxel exists as both, sink and source."
+                )
 
             for source_id in source_ids:
-                if self.get_chunk_layer(source_id) != 1:
+                layer = self.get_chunk_layer(source_id)
+                if layer != 1:
                     print("layer(source) !== 1")
-                    return None
+                    raise cg_exceptions.PreconditionError(
+                        f"Supervoxel expected, but {source_id} is a layer {layer} node."
+                    )
 
             for sink_id in sink_ids:
-                if self.get_chunk_layer(sink_id) != 1:
+                layer = self.get_chunk_layer(sink_id)
+                if layer != 1:
                     print("layer(sink) !== 1")
-                    return None
+                    raise cg_exceptions.PreconditionError(
+                        f"Supervoxel expected, but {sink_id} is a layer {layer} node."
+                    )
 
             root_ids = set()
             for source_id in source_ids:
@@ -3842,7 +3853,9 @@ class ChunkedGraph(object):
 
         if len(root_ids) > 1:
             print("Multiple root ids:", root_ids)
-            return None
+            raise cg_exceptions.PreconditionError(
+                f"All supervoxel must belong to the same object. Already split?"
+            )
 
         root_ids = list(root_ids)
 
@@ -3928,7 +3941,9 @@ class ChunkedGraph(object):
             print("Waiting - %d" % i_try)
             time.sleep(1)
 
-        return None
+        raise cg_exceptions.LockingError(
+            f"Could not acquire root object lock."
+        )
 
     def _remove_edges_mincut(self, operation_id: np.uint64,
                              source_ids: Sequence[np.uint64],
@@ -3981,7 +3996,9 @@ class ChunkedGraph(object):
 
         if len(root_ids) > 1:
             print("Multiple root ids:", root_ids)
-            return None
+            raise cg_exceptions.PreconditionError(
+                f"All supervoxel must belong to the same object. Already split?"
+            )
 
         print("Get roots and check: %.3fms" %
               ((time.time() - time_start) * 1000))
