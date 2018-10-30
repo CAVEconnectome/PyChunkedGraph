@@ -36,7 +36,6 @@ def _read_root_rows_thread(args) -> list:
     for row_id, row_data in rows.items():
         row_keys = row_data.cells[cg.family_id]
 
-        print(row_keys)
         if not key_utils.serialize_key("new_parents") in row_keys:
             root_ids.append(key_utils.deserialize_uint64(row_id))
 
@@ -57,6 +56,9 @@ def get_latest_roots(cg,
     seg_id_blocks = np.linspace(1, max_seg_id, n_blocks, dtype=np.uint64)
 
     cg_serialized_info = cg.get_serialized_info()
+
+    if n_threads > 1:
+        del cg_serialized_info["credentials"]
 
     multi_args = []
     for i_id_block in range(0, len(seg_id_blocks) - 1):
