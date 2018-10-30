@@ -19,7 +19,7 @@ import pychunkedgraph.backend.key_utils
 sys.path.insert(0, os.path.join(sys.path[0], '..'))
 from pychunkedgraph.backend import chunkedgraph # noqa
 from pychunkedgraph.backend import table_info # noqa
-from pychunkedgraph.backend import exceptions as cg_exceptions # noqa
+from pychunkedgraph.backend import chunkedgraph_exceptions as cg_exceptions # noqa
 from pychunkedgraph.creator import graph_tests # noqa
 
 

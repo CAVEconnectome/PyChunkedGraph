@@ -17,7 +17,7 @@ from pychunkedgraph.backend.chunkedgraph_utils import compute_indices_pandas, \
     get_inclusive_time_range_filter, get_max_time, \
     combine_cross_chunk_edge_dicts, time_min
 from pychunkedgraph.backend import cutting
-from pychunkedgraph.backend import exceptions as cg_exceptions
+from pychunkedgraph.backend import chunkedgraph_exceptions as cg_exceptions
 from pychunkedgraph.meshing import meshgen
 
 from google.api_core.retry import Retry, if_exception_type
