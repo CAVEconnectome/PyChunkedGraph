@@ -6,13 +6,16 @@ import os
 import networkx as nx
 import pytz
 import cloudvolume
-import pandas as pd
 import re
 import itertools
 
 from itertools import chain
 from multiwrapper import multiprocessing_utils as mu
-from pychunkedgraph.backend import cutting
+from pychunkedgraph.backend import cutting, chunkedgraph_comp
+from pychunkedgraph.backend.chunkedgraph_utils import compute_indices_pandas, \
+    compute_bitmasks, get_google_compatible_time_stamp, \
+    get_inclusive_time_range_filter, get_max_time, \
+    combine_cross_chunk_edge_dicts, time_min
 from pychunkedgraph.meshing import meshgen
 
 from google.api_core.retry import Retry, if_exception_type
@@ -39,164 +42,6 @@ UTC = pytz.UTC
 # Setting environment wide credential path
 os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = \
            HOME + "/.cloudvolume/secrets/google-secret.json"
-
-
-def compute_indices_pandas(data) -> pd.Series:
-    """ Computes indices of all unique entries
-
-    Make sure to remap your array to a dense range starting at zero
-
-    https://stackoverflow.com/questions/33281957/faster-alternative-to-numpy-where
-
-    :param data: np.ndarray
-    :return: pandas dataframe
-    """
-    d = data.ravel()
-    f = lambda x: np.unravel_index(x.index, data.shape)
-    return pd.Series(d).groupby(d).apply(f)
-
-
-def log_n(arr, n):
-    """ Computes log to base n
-
-    :param arr: array or float
-    :param n: int
-        base
-    :return: return log_n(arr)
-    """
-    if n == 2:
-        return np.log2(arr)
-    elif n == 10:
-        return np.log10(arr)
-    else:
-        return np.log(arr) / np.log(n)
-
-
-def compute_bitmasks(n_layers: int, fan_out: int) -> Dict[int, int]:
-    """ Computes the bitmasks for each layer. A bitmasks encodes how many bits
-    are used to store the chunk id in each dimension. The smallest number of
-    bits needed to encode this information is chosen. The layer id is always
-    encoded with 8 bits as this information is required a priori.
-
-    Currently, encoding of layer 1 is fixed to 8 bits.
-
-    :param n_layers: int
-    :param fan_out: int
-    :return: dict
-        layer -> bits for layer id
-    """
-
-    bitmask_dict = {}
-    for i_layer in range(n_layers, 0, -1):
-
-        if i_layer == 1:
-            # Lock this layer to an 8 bit layout to maintain compatibility with
-            # the exported segmentation
-
-            # n_bits_for_layers = np.ceil(log_n(fan_out**(n_layers - 2), fan_out))
-            n_bits_for_layers = 8
-        else:
-            layer_exp = n_layers - i_layer
-            n_bits_for_layers = max(1, np.ceil(log_n(fan_out**layer_exp, fan_out)))
-            # n_bits_for_layers = fan_out ** int(np.ceil(log_n(n_bits_for_layers, fan_out)))
-
-        n_bits_for_layers = int(n_bits_for_layers)
-
-        assert n_bits_for_layers <= 8
-
-        bitmask_dict[i_layer] = n_bits_for_layers
-    return bitmask_dict
-
-
-def get_google_compatible_time_stamp(time_stamp: datetime.datetime,
-                                     round_up: bool =False
-                                     ) -> datetime.datetime:
-    """ Makes a datetime.datetime time stamp compatible with googles' services.
-    Google restricts the accuracy of time stamps to milliseconds. Hence, the
-    microseconds are cut of. By default, time stamps are rounded to the lower
-    number.
-
-    :param time_stamp: datetime.datetime
-    :param round_up: bool
-    :return: datetime.datetime
-    """
-
-    micro_s_gap = datetime.timedelta(microseconds=time_stamp.microsecond % 1000)
-
-    if micro_s_gap == 0:
-        return time_stamp
-
-    if round_up:
-        time_stamp += (datetime.timedelta(microseconds=1000) - micro_s_gap)
-    else:
-        time_stamp -= micro_s_gap
-
-    return time_stamp
-
-
-def get_inclusive_time_range_filter(start=None, end=None):
-    """ Generates a TimeStampRangeFilter which is inclusive for start and end.
-
-    :param start:
-    :param end:
-    :return:
-    """
-    if end is not None:
-        end += (datetime.timedelta(microseconds=1000))
-
-    return TimestampRangeFilter(TimestampRange(start=start, end=end))
-
-
-def get_max_time():
-    """ Returns the (almost) max time in datetime.datetime
-
-    :return: datetime.datetime
-    """
-    return datetime.datetime(9999, 12, 31, 23, 59, 59, 0)
-
-
-def combine_cross_chunk_edge_dicts(d1, d2, start_layer=2):
-    """ Combines two cross chunk dictionaries
-    Cross chunk dictionaries contain a layer id -> edge list mapping.
-
-    :param d1: dict
-    :param d2: dict
-    :param start_layer: int
-    :return: dict
-    """
-    assert start_layer >= 2
-
-    new_d = {}
-
-    for l in d2:
-        if l < start_layer:
-            continue
-
-    layers = np.unique(list(d1.keys()) + list(d2.keys()))
-    layers = layers[layers >= start_layer]
-
-    for l in layers:
-        if l in d1 and l in d2:
-            new_d[l] = np.concatenate([d1[l], d2[l]])
-        elif l in d1:
-            new_d[l] = d1[l]
-        elif l in d2:
-            new_d[l] = d2[l]
-        else:
-            raise Exception()
-
-        edges_flattened_view = new_d[l].view(dtype='u8,u8')
-        m = np.unique(edges_flattened_view, return_index=True)[1]
-        new_d[l] = new_d[l][m]
-
-    return new_d
-
-def time_min():
-    """ Returns a minimal time stamp that still works with google
-
-    :return: datetime.datetime
-    """
-    return datetime.datetime.strptime("01/01/00 00:00", "%d/%m/%y %H:%M")
 
 
 class ChunkedGraph(object):
@@ -2163,51 +2008,55 @@ class ChunkedGraph(object):
         :param n_threads: int
         :return: array of np.uint64
         """
-        def _read_root_rows(args) -> None:
-            start_seg_id, end_seg_id = args
-            start_id = self.get_node_id(segment_id=start_seg_id,
-                                        chunk_id=self.root_chunk_id)
-            end_id = self.get_node_id(segment_id=end_seg_id,
-                                      chunk_id=self.root_chunk_id)
-            range_read = self.table.read_rows(
-                start_key=key_utils.serialize_uint64(start_id),
-                end_key=key_utils.serialize_uint64(end_id),
-                # allow_row_interleaving=True,
-                end_inclusive=False,
-                filter_=time_filter)
 
-            range_read.consume_all()
-            rows = range_read.rows
-            for row_id, row_data in rows.items():
-                row_keys = row_data.cells[self.family_id]
-                if not key_utils.serialize_key("new_parents") in row_keys:
-                    root_ids.append(key_utils.deserialize_uint64(row_id))
+        return chunkedgraph_comp.get_latest_roots(self, time_stamp=time_stamp,
+                                                  n_threads=n_threads)
 
-
-        # Comply to resolution of BigTables TimeRange
-        time_stamp = get_google_compatible_time_stamp(time_stamp,
-                                                      round_up=False)
-
-        # Create filters: time and id range
-        time_filter = get_inclusive_time_range_filter(end=time_stamp)
-
-        max_seg_id = self.get_max_seg_id(self.root_chunk_id) + 1
-
-        root_ids = []
-
-        n_blocks = np.min([n_threads*3+1, max_seg_id])
-        seg_id_blocks = np.linspace(1, max_seg_id, n_blocks, dtype=np.uint64)
-
-        multi_args = []
-        for i_id_block in range(0, len(seg_id_blocks) - 1):
-            multi_args.append([seg_id_blocks[i_id_block],
-                               seg_id_blocks[i_id_block + 1]])
-
-        mu.multithread_func(
-            _read_root_rows, multi_args, n_threads=n_threads,
-            debug=False, verbose=True)
-
-        return root_ids
+        # def _read_root_rows(args) -> None:
+        #     start_seg_id, end_seg_id = args
+        #     start_id = self.get_node_id(segment_id=start_seg_id,
+        #                                 chunk_id=self.root_chunk_id)
+        #     end_id = self.get_node_id(segment_id=end_seg_id,
+        #                               chunk_id=self.root_chunk_id)
+        #     range_read = self.table.read_rows(
+        #         start_key=key_utils.serialize_uint64(start_id),
+        #         end_key=key_utils.serialize_uint64(end_id),
+        #         # allow_row_interleaving=True,
+        #         end_inclusive=False,
+        #         filter_=time_filter)
+        #
+        #     range_read.consume_all()
+        #     rows = range_read.rows
+        #     for row_id, row_data in rows.items():
+        #         row_keys = row_data.cells[self.family_id]
+        #         if not key_utils.serialize_key("new_parents") in row_keys:
+        #             root_ids.append(key_utils.deserialize_uint64(row_id))
+        #
+        #
+        # # Comply to resolution of BigTables TimeRange
+        # time_stamp = get_google_compatible_time_stamp(time_stamp,
+        #                                               round_up=False)
+        #
+        # # Create filters: time and id range
+        # time_filter = get_inclusive_time_range_filter(end=time_stamp)
+        #
+        # max_seg_id = self.get_max_seg_id(self.root_chunk_id) + 1
+        #
+        # root_ids = []
+        #
+        # n_blocks = np.min([n_threads*3+1, max_seg_id])
+        # seg_id_blocks = np.linspace(1, max_seg_id, n_blocks, dtype=np.uint64)
+        #
+        # multi_args = []
+        # for i_id_block in range(0, len(seg_id_blocks) - 1):
+        #     multi_args.append([seg_id_blocks[i_id_block],
+        #                        seg_id_blocks[i_id_block + 1]])
+        #
+        # mu.multithread_func(
+        #     _read_root_rows, multi_args, n_threads=n_threads,
+        #     debug=False, verbose=True)
+        #
+        # return root_ids
 
     def get_root(self, node_id: np.uint64,
                  time_stamp: Optional[datetime.datetime] = None,
