@@ -101,7 +101,7 @@ def api_exception(e):
         'message': traceback.format_exception(etype=type(e), value=e,
                                               tb=e.__traceback__),
     }
-    return jsonify(resp), e.status_code
+    return jsonify(resp), e.status_code.value
 
 
 # -------------------

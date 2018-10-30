@@ -37,7 +37,7 @@ class ChunkedGraphAPIError(ChunkedGraphError):
         self.message = message
 
     def __str__(self):
-        return f'[{self.code}]: {self.message}'
+        return f'[{self.status_code}]: {self.message}'
 
 
 class ClientError(ChunkedGraphAPIError):
@@ -46,22 +46,22 @@ class ClientError(ChunkedGraphAPIError):
 
 class BadRequest(ClientError):
     """Exception mapping a ``400 Bad Request`` response."""
-    code = http_client.BAD_REQUEST
+    status_code = http_client.BAD_REQUEST
 
 
 class Unauthorized(ClientError):
     """Exception mapping a ``401 Unauthorized`` response."""
-    code = http_client.UNAUTHORIZED
+    status_code = http_client.UNAUTHORIZED
 
 
 class Forbidden(ClientError):
     """Exception mapping a ``403 Forbidden`` response."""
-    code = http_client.FORBIDDEN
+    status_code = http_client.FORBIDDEN
 
 
 class Conflict(ClientError):
     """Exception mapping a ``409 Conflict`` response."""
-    code = http_client.CONFLICT
+    status_code = http_client.CONFLICT
 
 
 class ServerError(ChunkedGraphAPIError):
@@ -70,9 +70,9 @@ class ServerError(ChunkedGraphAPIError):
 
 class InternalServerError(ServerError):
     """Exception mapping a ``500 Internal Server Error`` response."""
-    code = http_client.INTERNAL_SERVER_ERROR
+    status_code = http_client.INTERNAL_SERVER_ERROR
 
 
 class GatewayTimeout(ServerError):
     """Exception mapping a ``504 Gateway Timeout`` response."""
-    code = http_client.GATEWAY_TIMEOUT
+    status_code = http_client.GATEWAY_TIMEOUT
