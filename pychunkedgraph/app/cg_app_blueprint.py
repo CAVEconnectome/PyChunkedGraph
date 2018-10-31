@@ -86,20 +86,30 @@ def unhandled_exception(e):
     print("Response time: %.3fms" % dt)
 
     resp = {
-        'message': tb
+        'timestamp': current_app.request_start_date,
+        'duration': dt,
+        'code': status_code,
+        'message': str(e),
+        'traceback': tb
     }
+
     return jsonify(resp), status_code
 
 
 @bp.errorhandler(cg_exceptions.ChunkedGraphAPIError)
 def api_exception(e):
     dt = (time.time() - current_app.request_start_time) * 1000
+
     print(str(e))
     print("Response time: %.3fms" % dt)
+
     resp = {
-        'message': traceback.format_exception(etype=type(e), value=e,
-                                              tb=e.__traceback__),
+        'timestamp': current_app.request_start_date,
+        'duration': dt,
+        'code': e.status_code.value,
+        'message': str(e)
     }
+
     return jsonify(resp), e.status_code.value
 
 
@@ -276,7 +286,7 @@ def handle_split():
 
     if new_roots is None:
         raise cg_exceptions.InternalServerError(
-            f"Could not split selected segment groups."
+            "Could not split selected segment groups."
         )
 
     print("after split:", new_roots)
@@ -347,7 +357,7 @@ def handle_shatter():
 
     if new_roots is None:
         raise cg_exceptions.InternalServerError(
-            f"Could not shatter selected region."
+            "Could not shatter selected region."
         )
 
     # Return binary
