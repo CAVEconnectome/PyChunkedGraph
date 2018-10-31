@@ -1,13 +1,11 @@
 from flask import Blueprint, request, make_response, jsonify
 from flask import current_app
 
-# from google.cloud import pubsub_v1
 import json
 import numpy as np
 import time
-import datetime
-import sys
-import os
+from datetime import datetime
+from pytz import UTC
 import traceback
 import collections
 
@@ -20,6 +18,7 @@ bp = Blueprint('pychunkedgraph', __name__, url_prefix="/segmentation")
 # -------------------------------
 # ------ Access control and index
 # -------------------------------
+
 
 @bp.route('/')
 @bp.route("/index")
@@ -44,9 +43,9 @@ def home():
 
 @bp.before_request
 def before_request():
-    # print("NEW REQUEST:", datetime.datetime.now(), request.url)
+    # print("NEW REQUEST:", datetime.now(), request.url)
     current_app.request_start_time = time.time()
-    current_app.request_start_date = datetime.datetime.utcnow()
+    current_app.request_start_date = datetime.utcnow()
 
 
 @bp.after_request
@@ -128,9 +127,16 @@ def handle_table():
 def handle_root():
     atomic_id = np.uint64(json.loads(request.data)[0])
 
+    # Convert seconds since epoch to UTC datetime
+    try:
+        timestamp = float(request.args.get('timestamp', time.time()))
+        timestamp = datetime.fromtimestamp(timestamp, UTC)
+    except (TypeError, ValueError) as e:
+        raise(cg_exceptions.BadRequest("Timestamp parameter is not a valid unix timestamp"))
+
     # Call ChunkedGraph
     cg = app_utils.get_cg()
-    root_id = cg.get_root(atomic_id)
+    root_id = cg.get_root(atomic_id, time_stamp=timestamp)
 
     # Return binary
     return app_utils.tobinary(root_id)
