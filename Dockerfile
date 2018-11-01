@@ -1,7 +1,9 @@
 FROM tiangolo/uwsgi-nginx-flask:python3.6
 
 COPY . /app
-COPY timeout.conf /etc/nginx/conf.d/
+COPY override/timeout.conf /etc/nginx/conf.d/timeout.conf
+COPY override/supervisord.conf /etc/supervisor/conf.d/supervisord.conf
+
 RUN mkdir -p /home/nginx/.cloudvolume/secrets \
   \
   && chown -R nginx /home/nginx \
