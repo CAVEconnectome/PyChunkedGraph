@@ -334,8 +334,7 @@ def handle_shatter():
                                             coordinate[1],
                                             coordinate[2],
                                             parent_id=np.uint64(
-                                                node_id),
-                                            remesh_preview=True)
+                                                node_id))
 
     if atomic_id is None:
         raise cg_exceptions.BadRequest(
