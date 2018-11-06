@@ -383,7 +383,7 @@ def mesh_lvl2_previews(cg, lvl2_node_ids, cv_path=None,
     if n_threads == 1:
         mu.multiprocess_func(_mesh_lvl2_previews_threads,
                              multi_args, n_threads=n_threads,
-                             verbose=True, debug=n_threads==1)
+                             verbose=False, debug=n_threads==1)
     else:
         mu.multisubprocess_func(_mesh_lvl2_previews_threads,
                                 multi_args, n_threads=n_threads)

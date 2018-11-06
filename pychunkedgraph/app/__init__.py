@@ -1,8 +1,10 @@
 from flask import Flask
+from flask.logging import default_handler
 from flask_cors import CORS
 import sys
 import logging
 import os
+import time
 
 from . import config
 
@@ -10,6 +12,7 @@ from . import config
 from pychunkedgraph.app import cg_app_blueprint, meshing_app_blueprint
 # from pychunkedgraph.app import manifest_app_blueprint
 os.environ['TRAVIS_BRANCH'] = "IDONTKNOWWHYINEEDTHIS"
+
 
 def create_app(test_config=None):
     app = Flask(__name__)
@@ -28,7 +31,6 @@ def create_app(test_config=None):
 
 
 def configure_app(app):
-
     # Load logging scheme from config.py
     app.config.from_object(config.BaseConfig)
 
@@ -36,8 +38,12 @@ def configure_app(app):
     # handler = logging.FileHandler(app.config['LOGGING_LOCATION'])
     handler = logging.StreamHandler(sys.stdout)
     handler.setLevel(app.config['LOGGING_LEVEL'])
-    formatter = logging.Formatter(app.config['LOGGING_FORMAT'])
+    formatter = logging.Formatter(
+        app.config['LOGGING_FORMAT'],
+        app.config['LOGGING_DATEFORMAT'])
+    formatter.converter = time.gmtime
     handler.setFormatter(formatter)
+    app.logger.removeHandler(default_handler)
     app.logger.addHandler(handler)
-
-
+    app.logger.setLevel(app.config['LOGGING_LEVEL'])
+    app.logger.propagate = False

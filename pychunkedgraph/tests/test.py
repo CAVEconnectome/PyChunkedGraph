@@ -3,6 +3,7 @@ import os
 import subprocess
 import grpc
 import pytest
+import logging
 import numpy as np
 from functools import partial
 import collections
@@ -194,8 +195,8 @@ def create_chunk(cgraph, vertices=None, edges=None, timestamp=None):
 
     isolated_node_ids = np.array(isolated_node_ids, dtype=np.uint64)
 
-    print(edge_ids)
-    print(edge_affs)
+    cgraph.logger.debug(edge_ids)
+    cgraph.logger.debug(edge_affs)
 
     # Use affinities as areas
     cgraph.add_atomic_edges_in_chunks(edge_ids, edge_affs, edge_affs,
@@ -314,7 +315,6 @@ class TestGraphBuild:
 
         # Make sure there are not any more entries in the table
         assert len(res.rows) == 1 + 1 + 1 + 1
-        print("Testing done")
 
     @pytest.mark.timeout(30)
     def test_build_single_edge(self, gen_graph):
@@ -430,7 +430,7 @@ class TestGraphBuild:
         atomic_affinities = atomic_node_info[table_info.affinity_key]
         atomic_partners = atomic_node_info[table_info.partner_key]
 
-        print(atomic_node_info.keys())
+        cgraph.logger.debug(atomic_node_info.keys())
 
         parents = atomic_node_info[table_info.parent_key]
 
@@ -655,11 +655,11 @@ class TestGraphBuild:
         res = cgraph.table.read_rows()
         res.consume_all()
 
-        # print(len(res.rows))
+        # cgraph.logger.debug(len(res.rows))
         # for row_key in res.rows.keys():
-        #     print(row_key)
-        #     print(cgraph.get_chunk_layer(chunkedgraph.deserialize_uint64(row_key)))
-        #     print(cgraph.get_chunk_coordinates(chunkedgraph.deserialize_uint64(row_key)))
+        #     cgraph.logger.debug(row_key)
+        #     cgraph.logger.debug(cgraph.get_chunk_layer(chunkedgraph.deserialize_uint64(row_key)))
+        #     cgraph.logger.debug(cgraph.get_chunk_coordinates(chunkedgraph.deserialize_uint64(row_key)))
 
         assert pychunkedgraph.backend.key_utils.serialize_uint64(to_label(cgraph, 1, 0, 0, 0, 0)) in res.rows
         assert pychunkedgraph.backend.key_utils.serialize_uint64(to_label(cgraph, 1, 255, 255, 255, 0)) in res.rows
@@ -1455,7 +1455,7 @@ class TestGraphMerge:
 
         child_ids = []
         for root_id in root_ids_t0:
-            print("root_id", root_id)
+            cgraph.logger.debug(("root_id", root_id))
             child_ids.extend(cgraph.get_subgraph_nodes(root_id))
 
         new_roots = cgraph.add_edges("Jane Doe",
@@ -1571,7 +1571,7 @@ class TestGraphMerge:
                     len(cross_edge_dict_layers[child_layer][layer]))
 
         for layer in n_cross_edges_layer.keys():
-            print("LAYER %d" % layer)
+            cgraph.logger.debug("LAYER %d" % layer)
             assert len(np.unique(n_cross_edges_layer[layer])) == 1
 
 
@@ -2244,7 +2244,7 @@ class TestGraphSplit:
 
         child_ids = []
         for root_id in root_ids_t0:
-            print("root_id", root_id)
+            cgraph.logger.debug(("root_id", root_id))
             child_ids.extend(cgraph.get_subgraph_nodes(root_id))
 
 
@@ -2305,7 +2305,7 @@ class TestGraphSplit:
 
         new_root_ids = cgraph.shatter_nodes("Jane Doe", atomic_node_ids=[to_label(cgraph, 1, 0, 0, 0, 0)])
 
-        print(new_root_ids)
+        cgraph.logger.debug(new_root_ids)
 
         assert len(new_root_ids) == 3
 
@@ -2327,13 +2327,13 @@ class TestGraphMergeSplit:
         root_ids_t0 = [pychunkedgraph.backend.key_utils.deserialize_uint64(k) for k in rr.keys()]
         child_ids = []
         for root_id in root_ids_t0:
-            print("root_id", root_id)
+            cgraph.logger.debug(f"root_id {root_id}")
             child_ids.extend(cgraph.get_subgraph_nodes(root_id))
 
         for i in range(10):
-            print("\n\nITERATION %d/10" % i)
+            cgraph.logger.debug(f"\n\nITERATION {i}/10")
 
-            print("\n\nMERGE 1 & 3\n\n")
+            cgraph.logger.debug("\n\nMERGE 1 & 3\n\n")
             new_roots = cgraph.add_edges("Jane Doe",
                                          [to_label(cgraph, 1, 0, 0, 0, 0),
                                           to_label(cgraph, 1, 1, 0, 0, 1)],
@@ -2344,10 +2344,10 @@ class TestGraphMergeSplit:
             root_ids = []
             for child_id in child_ids:
                 root_ids.append(cgraph.get_root(child_id))
-                print(child_id, cgraph.get_chunk_coordinates(child_id), root_ids[-1])
+                cgraph.logger.debug((child_id, cgraph.get_chunk_coordinates(child_id), root_ids[-1]))
 
                 parent_id = cgraph.get_parent(child_id)
-                print(parent_id, cgraph.read_cross_chunk_edges(parent_id))
+                cgraph.logger.debug((parent_id, cgraph.read_cross_chunk_edges(parent_id)))
 
             u_root_ids = np.unique(root_ids)
             assert len(u_root_ids) == 1
@@ -2356,7 +2356,7 @@ class TestGraphMergeSplit:
             # ------------------------------------------------------------------
 
 
-            print("\n\nSPLIT 2 & 3\n\n")
+            cgraph.logger.debug("\n\nSPLIT 2 & 3\n\n")
 
             new_roots = cgraph.remove_edges("John Doe", to_label(cgraph, 1, 1, 0, 0, 0),
                                             to_label(cgraph, 1, 1, 0, 0, 1), mincut=False)
@@ -2364,28 +2364,28 @@ class TestGraphMergeSplit:
             assert len(np.unique(new_roots)) == 2
 
             for root in new_roots:
-                print("SUBGRAPH", cgraph.get_subgraph_nodes(root))
+                cgraph.logger.debug(("SUBGRAPH", cgraph.get_subgraph_nodes(root)))
 
-            print("test children")
+            cgraph.logger.debug("test children")
             root_ids = []
             for child_id in child_ids:
                 root_ids.append(cgraph.get_root(child_id))
-                print(child_id, cgraph.get_chunk_coordinates(child_id), cgraph.get_segment_id(child_id), root_ids[-1])
-                print(cgraph.get_atomic_node_info(child_id))
+                cgraph.logger.debug((child_id, cgraph.get_chunk_coordinates(child_id), cgraph.get_segment_id(child_id), root_ids[-1]))
+                cgraph.logger.debug((cgraph.get_atomic_node_info(child_id)))
 
-            print("test root")
+            cgraph.logger.debug("test root")
             u_root_ids = np.unique(root_ids)
             these_child_ids = []
             for root_id in u_root_ids:
                 these_child_ids.extend(cgraph.get_subgraph_nodes(root_id, verbose=False))
-                print(root_id, cgraph.get_subgraph_nodes(root_id, verbose=False))
+                cgraph.logger.debug((root_id, cgraph.get_subgraph_nodes(root_id, verbose=False)))
 
             assert len(these_child_ids) == 4
             assert len(u_root_ids) == 2
 
             # ------------------------------------------------------------------
 
-            print("\n\nSPLIT 1 & 3\n\n")
+            cgraph.logger.debug("\n\nSPLIT 1 & 3\n\n")
             new_roots = cgraph.remove_edges("Jane Doe",
                                             to_label(cgraph, 1, 0, 0, 0, 0),
                                             to_label(cgraph, 1, 1, 0, 0, 1),
@@ -2395,10 +2395,10 @@ class TestGraphMergeSplit:
             root_ids = []
             for child_id in child_ids:
                 root_ids.append(cgraph.get_root(child_id))
-                print(child_id, cgraph.get_chunk_coordinates(child_id), root_ids[-1])
+                cgraph.logger.debug((child_id, cgraph.get_chunk_coordinates(child_id), root_ids[-1]))
 
                 parent_id = cgraph.get_parent(child_id)
-                print(parent_id, cgraph.read_cross_chunk_edges(parent_id))
+                cgraph.logger.debug((parent_id, cgraph.read_cross_chunk_edges(parent_id)))
 
             u_root_ids = np.unique(root_ids)
             assert len(u_root_ids) == 3
@@ -2406,7 +2406,7 @@ class TestGraphMergeSplit:
 
             # ------------------------------------------------------------------
 
-            print("\n\nMERGE 2 & 3\n\n")
+            cgraph.logger.debug("\n\nMERGE 2 & 3\n\n")
             new_roots = cgraph.add_edges("Jane Doe",
                                          [to_label(cgraph, 1, 1, 0, 0, 0),
                                           to_label(cgraph, 1, 1, 0, 0, 1)],
@@ -2416,10 +2416,10 @@ class TestGraphMergeSplit:
             root_ids = []
             for child_id in child_ids:
                 root_ids.append(cgraph.get_root(child_id))
-                print(child_id, cgraph.get_chunk_coordinates(child_id), root_ids[-1])
+                cgraph.logger.debug((child_id, cgraph.get_chunk_coordinates(child_id), root_ids[-1]))
 
                 parent_id = cgraph.get_parent(child_id)
-                print(parent_id, cgraph.read_cross_chunk_edges(parent_id))
+                cgraph.logger.debug((parent_id, cgraph.read_cross_chunk_edges(parent_id)))
 
             u_root_ids = np.unique(root_ids)
             assert len(u_root_ids) == 2
@@ -2882,6 +2882,6 @@ class TestGraphLocks:
                                                       operation_id=operation_id_2,
                                                       max_tries=10, waittime_s=.5)
 
-        print(new_root_id)
+        cgraph.logger.debug(new_root_id)
         assert success
         assert new_root_ids[0] == new_root_id

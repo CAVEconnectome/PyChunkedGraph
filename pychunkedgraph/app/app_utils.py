@@ -1,15 +1,19 @@
-from flask import g, current_app
+from flask import current_app
 from google.auth import credentials, default as default_creds
 from google.cloud import bigtable
 from google.cloud import datastore
 
+import sys
 import numpy as np
+import logging
+import time
 
 # Hack the imports for now
 from pychunkedgraph.backend import chunkedgraph
 from pychunkedgraph.logging import flask_log_db
 
 cache = {}
+
 
 class DoNothingCreds(credentials.Credentials):
     def refresh(self, request):
@@ -44,11 +48,32 @@ def get_datastore_client(config):
 
 def get_cg():
     if 'cg' not in cache:
+        instance_id = current_app.config['CHUNKGRAPH_INSTANCE_ID']
         table_id = current_app.config['CHUNKGRAPH_TABLE_ID']
         client = get_bigtable_client(current_app.config)
-        cache["cg"] = chunkedgraph.ChunkedGraph(table_id=table_id,
-                                                client=client)
 
+        # Create ChunkedGraph logging
+        logger = logging.getLogger(f"{instance_id}/{table_id}")
+        logger.setLevel(current_app.config['LOGGING_LEVEL'])
+
+        # prevent duplicate logs from Flasks(?) parent logger
+        logger.propagate = False
+
+        handler = logging.StreamHandler(sys.stdout)
+        handler.setLevel(current_app.config['LOGGING_LEVEL'])
+        formatter = logging.Formatter(
+            current_app.config['LOGGING_FORMAT'],
+            current_app.config['LOGGING_DATEFORMAT'])
+        formatter.converter = time.gmtime
+        handler.setFormatter(formatter)
+
+        logger.addHandler(handler)
+
+        # Create ChunkedGraph
+        cache["cg"] = chunkedgraph.ChunkedGraph(instance_id=instance_id,
+                                                table_id=table_id,
+                                                client=client,
+                                                logger=logger)
     return cache["cg"]
 
 
