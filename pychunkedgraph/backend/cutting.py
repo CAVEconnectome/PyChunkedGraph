@@ -1,6 +1,7 @@
 import numpy as np
 import networkx as nx
 import itertools
+import logging
 from networkx.algorithms.flow import shortest_augmenting_path, edmonds_karp, preflow_push
 from networkx.algorithms.connectivity import minimum_st_edge_cut
 import time
@@ -12,7 +13,8 @@ float_max = np.finfo(np.float32).max
 
 
 def merge_cross_chunk_edges(edges: Iterable[Sequence[np.uint64]],
-                            affs: Sequence[np.uint64]):
+                            affs: Sequence[np.uint64],
+                            logger: Optional[logging.Logger] = None):
     """ Merges cross chunk edges
     :param edges: n x 2 array of uint64s
     :param affs: float array of length n
@@ -61,8 +63,8 @@ def merge_cross_chunk_edges(edges: Iterable[Sequence[np.uint64]],
 
 
 def mincut(edges: Iterable[Sequence[np.uint64]], affs: Sequence[np.uint64],
-           sources: Sequence[np.uint64],
-           sinks: Sequence[np.uint64]) -> np.ndarray:
+           sources: Sequence[np.uint64], sinks: Sequence[np.uint64],
+           logger: Optional[logging.Logger] = None) -> np.ndarray:
     """ Computes the min cut on a local graph
     :param edges: n x 2 array of uint64s
     :param affs: float array of length n
@@ -121,7 +123,8 @@ def mincut(edges: Iterable[Sequence[np.uint64]], affs: Sequence[np.uint64],
 
 
     dt = time.time() - time_start
-    print("Graph creation: %.2fms" % (dt * 1000))
+    if logger is not None:
+        logger.debug("Graph creation: %.2fms" % (dt * 1000))
     time_start = time.time()
 
     ccs = list(nx.connected_components(weighted_graph))
@@ -132,9 +135,9 @@ def mincut(edges: Iterable[Sequence[np.uint64]], affs: Sequence[np.uint64],
                        np.any(np.in1d(sinks, cc_list))):
             weighted_graph.remove_nodes_from(cc)
         else:
-            if np.any(~np.in1d(sources, cc_list)) or \
-                    np.any(~np.in1d(sinks, cc_list)):
-                print("sources and sinks are in different connected components")
+            if (np.any(~np.in1d(sources, cc_list)) or \
+                    np.any(~np.in1d(sinks, cc_list))) and logger is not None:
+                logger.debug("sources and sinks are in different connected components")
                 # return []
 
     r_flow = edmonds_karp(weighted_graph, sinks[0], sources[0])
@@ -144,7 +147,8 @@ def mincut(edges: Iterable[Sequence[np.uint64]], affs: Sequence[np.uint64],
     # cutset = nx.minimum_edge_cut(weighted_graph, sources[0], sinks[0], flow_func=edmonds_karp)
 
     dt = time.time() - time_start
-    print("Mincut comp: %.2fms" % (dt * 1000))
+    if logger is not None:
+        logger.debug("Mincut comp: %.2fms" % (dt * 1000))
 
     if cutset is None:
         return []
@@ -160,7 +164,8 @@ def mincut(edges: Iterable[Sequence[np.uint64]], affs: Sequence[np.uint64],
 
     for cc in ccs:
         cc_list = list(cc)
-        print("CC size = %d" % len(cc_list))
+        if logger is not None:
+            logger.debug("CC size = %d" % len(cc_list))
 
         if np.any(np.in1d(sources, cc_list)):
             assert np.all(np.in1d(sources, cc_list))
@@ -171,7 +176,8 @@ def mincut(edges: Iterable[Sequence[np.uint64]], affs: Sequence[np.uint64],
             assert ~np.any(np.in1d(sources, cc_list))
 
     dt = time.time() - time_start
-    print("Splitting local graph: %.2fms" % (dt * 1000))
+    if logger is not None:
+        logger.debug("Splitting local graph: %.2fms" % (dt * 1000))
 
     remapped_cutset = []
     for cut in cutset:
