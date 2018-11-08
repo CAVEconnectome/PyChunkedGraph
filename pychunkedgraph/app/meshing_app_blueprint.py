@@ -14,7 +14,7 @@ from pychunkedgraph.app import app_utils
 
 # os.environ['TRAVIS_BRANCH'] = "IDONTKNOWWHYINEEDTHIS"
 
-__version__ = '0.1.77'
+__version__ = '0.1.78'
 bp = Blueprint('pychunkedgraph_meshing', __name__, url_prefix="/meshing")
 
 # -------------------------------
