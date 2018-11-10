@@ -70,7 +70,7 @@ def get_latest_roots(cg,
     if n_threads == 1:
         results = mu.multiprocess_func(_read_root_rows_thread,
                                        multi_args, n_threads=n_threads,
-                                       verbose=True, debug=n_threads==1)
+                                       verbose=False, debug=n_threads==1)
     else:
         results = mu.multisubprocess_func(_read_root_rows_thread,
                                           multi_args, n_threads=n_threads)

@@ -3,11 +3,13 @@ import numpy as np
 import time
 import datetime
 import os
+import sys
 import networkx as nx
 import pytz
 import cloudvolume
 import re
 import itertools
+import logging
 
 from itertools import chain
 from multiwrapper import multiprocessing_utils as mu
@@ -16,7 +18,6 @@ from pychunkedgraph.backend.chunkedgraph_utils import compute_indices_pandas, \
     compute_bitmasks, get_google_compatible_time_stamp, \
     get_inclusive_time_range_filter, get_max_time, \
     combine_cross_chunk_edge_dicts, time_min
-from pychunkedgraph.backend import cutting
 from pychunkedgraph.backend import chunkedgraph_exceptions as cg_exceptions
 from pychunkedgraph.meshing import meshgen
 
@@ -57,7 +58,18 @@ class ChunkedGraph(object):
                  credentials: Optional[credentials.Credentials] = None,
                  client: bigtable.Client = None,
                  cv_path: str = None,
-                 is_new: bool = False) -> None:
+                 is_new: bool = False,
+                 logger: Optional[logging.Logger] = None) -> None:
+
+        if logger is None:
+            self.logger = logging.getLogger(f"{project_id}/{instance_id}/{table_id}")
+            self.logger.setLevel(logging.WARNING)
+            if not self.logger.handlers:
+                sh = logging.StreamHandler(sys.stdout)
+                sh.setLevel(logging.WARNING)
+                self.logger.addHandler(sh)
+        else:
+            self.logger = logger
 
         if client is not None:
             self._client = client
@@ -201,7 +213,7 @@ class ChunkedGraph(object):
                                             gc_rule=MaxVersionsGCRule(1))
             f_ce.create()
 
-            print("Table created")
+            self.logger.info(f"Table {self.table_id} created")
 
     def check_and_write_table_parameters(self, param_key: str,
                                          value: Optional[np.uint64] = None
@@ -839,11 +851,12 @@ class ChunkedGraph(object):
                 range_read.consume_all()
                 consume_success = True
             except:
-                print("FAILURE -- retry")
+                self.logger.warning("Range read execution unsuccessful - retrying")
                 time.sleep(i_tries)
             i_tries += 1
 
         if not consume_success:
+            self.logger.error(f"Unable to consume range read from {start_id} to {end_id} using {n_retries} retries.")
             raise Exception("Unable to consume range read: "
                             "%d - %d -- n_retries = %d" %
                             (start_id, end_id, n_retries))
@@ -1381,11 +1394,11 @@ class ChunkedGraph(object):
         ccs = list(nx.connected_components(chunk_g))
 
         # if verbose:
-        #     print("CC in chunk: %.3fs" % (time.time() - time_start))
+        #     self.logger.debug("CC in chunk: %.3fs" % (time.time() - time_start))
 
         # Add rows for nodes that are in this chunk
         # a connected component at a time
-        node_c = 0  # Just a counter for the print / speed measurement
+        node_c = 0  # Just a counter for the log / speed measurement
 
         n_ccs = len(ccs)
 
@@ -1414,15 +1427,15 @@ class ChunkedGraph(object):
         for i_cc, cc in enumerate(ccs):
             # if node_c % 1000 == 1 and verbose:
             #     dt = time.time() - time_start
-            #     print("%5d at %5d - %.5fs             " %
-            #           (i_cc, node_c, dt / node_c), end="\r")
+            #     self.logger.debug("%5d at %5d - %.5fs             " %
+            #                       (i_cc, node_c, dt / node_c), end="\r")
 
             node_ids = np.array(list(cc))
 
             u_chunk_ids = np.unique([self.get_chunk_id(n) for n in node_ids])
 
             if len(u_chunk_ids) > 1:
-                print("Found multiple chunk ids:", u_chunk_ids)
+                self.logger.error(f"Found multiple chunk ids: {u_chunk_ids}")
                 raise Exception()
 
             # Create parent id
@@ -1583,13 +1596,13 @@ class ChunkedGraph(object):
             time_dict["writing"].append(time.time() - time_start_1)
 
         if verbose:
-            print("Time creating rows: %.3fs for %d ccs with %d nodes" %
-                  (time.time() - time_start, len(ccs), node_c))
+            self.logger.debug("Time creating rows: %.3fs for %d ccs with %d nodes" %
+                              (time.time() - time_start, len(ccs), node_c))
 
             for k in time_dict.keys():
-                print("%s -- %.3fms for %d instances -- avg = %.3fms" %
-                      (k, np.sum(time_dict[k])*1000, len(time_dict[k]),
-                       np.mean(time_dict[k])*1000))
+                self.logger.debug("%s -- %.3fms for %d instances -- avg = %.3fms" %
+                                  (k, np.sum(time_dict[k])*1000, len(time_dict[k]),
+                                   np.mean(time_dict[k])*1000))
 
     def add_layer(self, layer_id: int,
                   child_chunk_coords: Sequence[Sequence[int]],
@@ -1806,8 +1819,8 @@ class ChunkedGraph(object):
         ll_node_ids = np.array(ll_node_ids, dtype=np.uint64)
 
         if verbose:
-            print("Time iterating through subchunks: %.3fs" %
-                  (time.time() - time_start))
+            self.logger.debug("Time iterating through subchunks: %.3fs" %
+                              (time.time() - time_start))
         time_start = time.time()
 
         # Extract edges from remaining cross chunk edges
@@ -1836,8 +1849,8 @@ class ChunkedGraph(object):
                                 n_threads=n_threads)
 
         if verbose:
-            print("Time resolving cross chunk edges: %.3fs" %
-                  (time.time() - time_start))
+            self.logger.debug("Time resolving cross chunk edges: %.3fs" %
+                              (time.time() - time_start))
         time_start = time.time()
 
         # 2 --------------------------------------------------------------------
@@ -1859,8 +1872,8 @@ class ChunkedGraph(object):
         ccs = list(nx.connected_components(chunk_g)) + add_ccs
 
         if verbose:
-            print("Time connected components: %.3fs" %
-                  (time.time() - time_start))
+            self.logger.debug("Time connected components: %.3fs" %
+                              (time.time() - time_start))
         time_start = time.time()
 
         # Add rows for nodes that are in this chunk
@@ -1882,8 +1895,8 @@ class ChunkedGraph(object):
                             n_threads=n_threads)
 
         if verbose:
-            print("Time writing %d connected components in layer %d: %.3fs" %
-                  (len(ccs), layer_id, time.time() - time_start))
+            self.logger.debug("Time writing %d connected components in layer %d: %.3fs" %
+                              (len(ccs), layer_id, time.time() - time_start))
 
 
     def get_atomic_cross_edge_dict(self, node_id: np.uint64,
@@ -2180,8 +2193,8 @@ class ChunkedGraph(object):
 
             for i_root_id in range(len(root_ids)):
 
-                print("operation id: %d - root id: %d" %
-                      (operation_id, root_ids[i_root_id]))
+                self.logger.debug("operation id: %d - root id: %d" %
+                                  (operation_id, root_ids[i_root_id]))
                 lock_acquired = self.lock_single_root(root_ids[i_root_id],
                                                       operation_id)
 
@@ -2196,7 +2209,7 @@ class ChunkedGraph(object):
 
             time.sleep(waittime_s)
             i_try += 1
-            print("Try", i_try)
+            self.logger.debug(f"Try {i_try}")
 
         return False, root_ids
 
@@ -2277,7 +2290,7 @@ class ChunkedGraph(object):
             for cell in r.cells[self.family_id][lock_key]:
                 l_operation_id = key_utils.deserialize_uint64(cell.value)
                 l_operation_ids.append(l_operation_id)
-            print("Locked operation ids:", l_operation_ids)
+            self.logger.debug(f"Locked operation ids: {l_operation_ids}")
 
         return lock_acquired
 
@@ -2355,7 +2368,7 @@ class ChunkedGraph(object):
 
         for root_id in root_ids:
             if not self.check_and_renew_root_lock_single(root_id, operation_id):
-                print("check_and_renew_root_locks failed - %d" % root_id)
+                self.logger.warning(f"check_and_renew_root_locks failed - {root_id}")
                 return False
 
         return True
@@ -2656,9 +2669,9 @@ class ChunkedGraph(object):
                 n_threads=this_n_threads, debug=this_n_threads == 1)), np.uint64)
 
             if verbose:
-                print("Layer %d: %.3fms for %d children with %d threads" %
-                      (layer, (time.time() - time_start) * 1000, n_child_ids,
-                       this_n_threads))
+                self.logger.debug("Layer %d: %.3fms for %d children with %d threads" %
+                                  (layer, (time.time() - time_start) * 1000, n_child_ids,
+                                   this_n_threads))
                 time_start = time.time()
 
             layer -= 1
@@ -2736,9 +2749,9 @@ class ChunkedGraph(object):
             edges = np.concatenate([edges, _edges])
 
         if verbose:
-            print("Layer %d: %.3fms for %d children with %d threads" %
-                  (2, (time.time() - time_start) * 1000, n_child_ids,
-                   this_n_threads))
+            self.logger.debug("Layer %d: %.3fms for %d children with %d threads" %
+                              (2, (time.time() - time_start) * 1000, n_child_ids,
+                               this_n_threads))
 
         return edges, affinities, areas
 
@@ -2801,9 +2814,9 @@ class ChunkedGraph(object):
                             n_threads=this_n_threads, debug=this_n_threads == 1)))
 
             if verbose:
-                print("Layer 2: %.3fms for %d children with %d threads" %
-                      ((time.time() - time_start) * 1000, n_child_ids,
-                       this_n_threads))
+                self.logger.debug("Layer 2: %.3fms for %d children with %d threads" %
+                                  ((time.time() - time_start) * 1000, n_child_ids,
+                                   this_n_threads))
 
             nodes_per_layer[1] = np.array(child_ids, np.uint64)
 
@@ -3210,7 +3223,7 @@ class ChunkedGraph(object):
                                    operation_id=operation_id,
                                    slow_retry=False):
                     if remesh_preview:
-                        print("REMESH:", lvl2_node_mapping)
+                        self.logger.debug(f"REMESH: {lvl2_node_mapping}")
                         meshgen.mesh_lvl2_previews(self, list(
                             lvl2_node_mapping.keys()))
 
@@ -3221,13 +3234,13 @@ class ChunkedGraph(object):
 
             i_try += 1
 
-            print("Waiting - %d" % i_try)
+            self.logger.debug(f"Waiting - {i_try}")
             time.sleep(1)
 
+        self.logger.warning("Could not acquire root object lock.")
         raise cg_exceptions.LockingError(
             f"Could not acquire root object lock."
         )
-
 
     def _add_edges(self, operation_id: np.uint64,
                    atomic_edges: Sequence[Sequence[np.uint64]],
@@ -3462,7 +3475,7 @@ class ChunkedGraph(object):
 
                 for l in range(i_layer, self.n_layers):
                     if len(cross_chunk_edge_dict[l]) > 0:
-                        print(cross_chunk_edge_dict[l])
+                        self.logger.debug(cross_chunk_edge_dict[l])
                         val_dict[table_info.cross_chunk_edge_keyformat % l] = \
                             cross_chunk_edge_dict[l].tobytes()
 
@@ -3650,7 +3663,7 @@ class ChunkedGraph(object):
 
             # Sanity Checks
             if np.any(np.in1d(sink_ids, source_ids)):
-                print("source == sink")
+                self.logger.debug("source == sink")
                 raise cg_exceptions.PreconditionError(
                     f"One or more supervoxel exists as both, sink and source."
                 )
@@ -3658,7 +3671,7 @@ class ChunkedGraph(object):
             for source_id in source_ids:
                 layer = self.get_chunk_layer(source_id)
                 if layer != 1:
-                    print("layer(source) !== 1")
+                    self.logger.debug("layer(source) !== 1")
                     raise cg_exceptions.PreconditionError(
                         f"Supervoxel expected, but {source_id} is a layer {layer} node."
                     )
@@ -3666,7 +3679,7 @@ class ChunkedGraph(object):
             for sink_id in sink_ids:
                 layer = self.get_chunk_layer(sink_id)
                 if layer != 1:
-                    print("layer(sink) !== 1")
+                    self.logger.debug("layer(sink) !== 1")
                     raise cg_exceptions.PreconditionError(
                         f"Supervoxel expected, but {sink_id} is a layer {layer} node."
                     )
@@ -3702,7 +3715,7 @@ class ChunkedGraph(object):
                 root_ids.add(self.get_root(atomic_edge[1]))
 
         if len(root_ids) > 1:
-            print("Multiple root ids:", root_ids)
+            self.logger.debug(f"Multiple root ids: {root_ids}")
             raise cg_exceptions.PreconditionError(
                 f"All supervoxel must belong to the same object. Already split?"
             )
@@ -3770,17 +3783,17 @@ class ChunkedGraph(object):
 
                 # Execute write (makes sure that we are still owning the lock)
                 # if len(sink_ids) > 1 or len(source_ids) > 1:
-                #     print(removed_edges)
+                #     self.logger.debug(removed_edges)
                 # else:
                 if self.bulk_write(rows, lock_root_ids,
                                    operation_id=operation_id, slow_retry=False):
                     if remesh_preview:
-                        print("REMESH:", lvl2_node_mapping)
+                        self.logger.debug(f"REMESH: {lvl2_node_mapping}")
                         meshgen.mesh_lvl2_previews(self, list(
                             lvl2_node_mapping.keys()))
-                        print("REMESH SUCCESS")
+                        self.logger.debug("REMESH SUCCESS")
 
-                    print("new root ids:", new_root_ids)
+                    self.logger.debug(f"new root ids: {new_root_ids}")
                     return new_root_ids
 
                 for lock_root_id in lock_root_ids:
@@ -3788,9 +3801,10 @@ class ChunkedGraph(object):
 
             i_try += 1
 
-            print("Waiting - %d" % i_try)
+            self.logger.debug(f"Waiting - {i_try}")
             time.sleep(1)
 
+        self.logger.warning("Could not acquire root object lock.")
         raise cg_exceptions.LockingError(
             f"Could not acquire root object lock."
         )
@@ -3845,13 +3859,13 @@ class ChunkedGraph(object):
             root_ids.add(self.get_root(sink_id))
 
         if len(root_ids) > 1:
-            print("Multiple root ids:", root_ids)
+            self.logger.debug(f"Multiple root ids: {root_ids}")
             raise cg_exceptions.PreconditionError(
                 f"All supervoxel must belong to the same object. Already split?"
             )
 
-        print("Get roots and check: %.3fms" %
-              ((time.time() - time_start) * 1000))
+        self.logger.debug("Get roots and check: %.3fms" %
+                          ((time.time() - time_start) * 1000))
         time_start = time.time()  # ------------------------------------------
 
         root_id = root_ids.pop()
@@ -3859,29 +3873,29 @@ class ChunkedGraph(object):
         # Get edges between local supervoxels
         n_chunks_affected = np.product((np.ceil(bounding_box[1] / self.chunk_size)).astype(np.int) -
                                        (np.floor(bounding_box[0] / self.chunk_size)).astype(np.int))
-        print("Number of affected chunks: %d" % n_chunks_affected)
-        print("Bounding box:", bounding_box)
-        print("Bounding box padding:", bb_offset)
-        print("Source ids:", source_ids)
-        print("Sink ids:", sink_ids)
-        print("Root id:", root_id)
+        self.logger.debug("Number of affected chunks: %d" % n_chunks_affected)
+        self.logger.debug(f"Bounding box: {bounding_box}")
+        self.logger.debug(f"Bounding box padding: {bb_offset}")
+        self.logger.debug(f"Source ids: {source_ids}")
+        self.logger.debug(f"Sink ids: {sink_ids}")
+        self.logger.debug(f"Root id: {root_id}")
 
         edges, affs, areas = self.get_subgraph_edges(root_id,
                                                      bounding_box=bounding_box,
                                                      bb_is_coordinate=True)
 
-        print("Get edges and affs: %.3fms" %
-              ((time.time() - time_start) * 1000))
+        self.logger.debug("Get edges and affs: %.3fms" %
+                          ((time.time() - time_start) * 1000))
         time_start = time.time()  # ------------------------------------------
 
         # Compute mincut
         atomic_edges = cutting.mincut(edges, affs, source_ids, sink_ids)
 
-        print("Mincut: %.3fms" % ((time.time() - time_start) * 1000))
+        self.logger.debug("Mincut: %.3fms" % ((time.time() - time_start) * 1000))
         time_start = time.time()  # ------------------------------------------
 
         if len(atomic_edges) == 0:
-            print("WARNING: Mincut failed. Try again...")
+            self.logger.warning("Mincut failed. Try again...")
             return False, None
 
         # Check if any edge in the cutset is infinite (== between chunks)
@@ -3892,19 +3906,19 @@ class ChunkedGraph(object):
 
         cutset_mask = np.in1d(edges_flattened_view, atomic_edges_flattened_view)
         if np.any(np.isinf(affs[cutset_mask])):
-            print("inf in cutset")
+            self.logger.error("inf in cutset")
             return False, None
 
         # Remove edgesc
         success, result = self._remove_edges(operation_id, atomic_edges)
 
         if not success:
-            print("remove edges failed")
+            self.logger.error("remove edges failed")
             return False, None
 
         new_roots, rows, time_stamp, lvl2_node_mapping = result
 
-        print("Remove edges: %.3fms" % ((time.time() - time_start) * 1000))
+        self.logger.debug("Remove edges: %.3fms" % ((time.time() - time_start) * 1000))
         time_start = time.time()  # ------------------------------------------
 
         return True, (new_roots, rows, atomic_edges, time_stamp, lvl2_node_mapping)
@@ -4185,7 +4199,7 @@ class ChunkedGraph(object):
                         old_next_layer_parent = old_parent_dict[partner]
 
                 if old_next_layer_parent is None:
-                    print("No old parents for any member of the cc")
+                    self.logger.debug("No old parents for any member of the cc")
                     lop = np.unique(list(leftover_old_parents))
                     llop = lop[~np.in1d(lop, np.unique(edges))]
                     raise()
@@ -4234,7 +4248,7 @@ class ChunkedGraph(object):
                             cross_edge_dict[new_parent_id][l].tobytes()
 
                     if len(val_dict) == 0:
-                        print("Cross chunk edges are missing")
+                        self.logger.error("Cross chunk edges are missing")
                         return False, None
 
                     rows.append(self.mutate_row(key_utils.serialize_uint64(new_parent_id),

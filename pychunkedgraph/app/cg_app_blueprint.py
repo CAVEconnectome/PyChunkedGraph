@@ -12,7 +12,8 @@ import collections
 from pychunkedgraph.app import app_utils
 from pychunkedgraph.backend import chunkedgraph_exceptions as cg_exceptions
 
-__version__ = '0.1.75'
+
+__version__ = '0.1.80'
 bp = Blueprint('pychunkedgraph', __name__, url_prefix="/segmentation")
 
 # -------------------------------
@@ -43,7 +44,7 @@ def home():
 
 @bp.before_request
 def before_request():
-    # print("NEW REQUEST:", datetime.now(), request.url)
+    # current_app.logger.debug(("NEW REQUEST:", datetime.now(), request.url))
     current_app.request_start_time = time.time()
     current_app.request_start_date = datetime.utcnow()
 
@@ -60,7 +61,7 @@ def after_request(response):
     #                        response_time=dt, url=request.url,
     #                        request_data=request.data)
 
-    print("Response time: %.3fms" % dt)
+    current_app.logger.debug("Response time: %.3fms" % dt)
     return response
 
 
@@ -82,8 +83,7 @@ def unhandled_exception(e):
 
     tb = traceback.format_exception(etype=type(e), value=e,
                                     tb=e.__traceback__)
-    print(tb)
-    print("Response time: %.3fms" % dt)
+    current_app.logger.error(json.dumps(tb))
 
     resp = {
         'timestamp': current_app.request_start_date,
@@ -100,8 +100,7 @@ def unhandled_exception(e):
 def api_exception(e):
     dt = (time.time() - current_app.request_start_time) * 1000
 
-    print(str(e))
-    print("Response time: %.3fms" % dt)
+    current_app.logger.error(str(e))
 
     resp = {
         'timestamp': current_app.request_start_date,
@@ -227,7 +226,7 @@ def handle_split():
 
     user_id = str(request.remote_addr)
 
-    print(data)
+    current_app.logger.debug(data)
 
     # Call ChunkedGraph
     cg = app_utils.get_cg()
@@ -245,7 +244,7 @@ def handle_split():
 
             coordinate = np.array([x, y, z])
 
-            print("before", coordinate)
+            current_app.logger.debug(("before", coordinate))
 
             if not cg.is_in_bounds(coordinate):
                 coordinate /= cg.segmentation_resolution
@@ -253,7 +252,7 @@ def handle_split():
                 coordinate[0] *= 2
                 coordinate[1] *= 2
 
-            print("after", coordinate)
+            current_app.logger.debug(("after", coordinate))
 
             atomic_id = cg.get_atomic_id_from_coord(coordinate[0],
                                                     coordinate[1],
@@ -268,7 +267,7 @@ def handle_split():
             data_dict[k]["id"].append(atomic_id)
             data_dict[k]["coord"].append(coordinate)
 
-    print(data_dict)
+    current_app.logger.debug(data_dict)
 
     try:
         new_roots = cg.remove_edges(user_id=user_id,
@@ -289,7 +288,7 @@ def handle_split():
             "Could not split selected segment groups."
         )
 
-    print("after split:", new_roots)
+    current_app.logger.debug(("after split:", new_roots))
 
     # Return binary
     return app_utils.tobinary(new_roots)
@@ -301,7 +300,7 @@ def handle_shatter():
 
     user_id = str(request.remote_addr)
 
-    print(data)
+    current_app.logger.debug(data)
 
     # Call ChunkedGraph
     cg = app_utils.get_cg()
@@ -320,7 +319,7 @@ def handle_shatter():
 
     coordinate = np.array([x, y, z])
 
-    print("before", coordinate)
+    current_app.logger.debug(("before", coordinate))
 
     if not cg.is_in_bounds(coordinate):
         coordinate /= cg.segmentation_resolution
@@ -328,7 +327,7 @@ def handle_shatter():
         coordinate[0] *= 2
         coordinate[1] *= 2
 
-    print("after", coordinate)
+    current_app.logger.debug(("after", coordinate))
 
     atomic_id = cg.get_atomic_id_from_coord(coordinate[0],
                                             coordinate[1],
@@ -343,7 +342,7 @@ def handle_shatter():
     data_dict["id"].append(atomic_id)
     data_dict["coord"].append(coordinate)
 
-    print(data_dict)
+    current_app.logger.debug(data_dict)
     try:
         new_roots = cg.shatter_nodes(user_id=user_id,
                                      atomic_node_ids=data_dict['id'],
