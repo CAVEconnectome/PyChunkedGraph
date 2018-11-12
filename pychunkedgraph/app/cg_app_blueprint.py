@@ -67,26 +67,26 @@ def after_request(response):
 @bp.errorhandler(Exception)
 def unhandled_exception(e):
     status_code = 500
-    dt = (time.time() - current_app.request_start_time) * 1000
-
-    # user_ip = str(request.remote_addr)
-    #
-    # tb = ''.join(traceback.format_exception(etype=type(e), value=e,
-    #                                         tb=e.__traceback__))
-    #
-    # log_db = app_utils.get_log_db()
-    # log_db.add_unhandled_exception_log(user_id=user_ip, user_ip=user_ip,
-    #                                    request_time=current_app.request_start_date,
-    #                                    response_time=dt, url=request.url,
-    #                                    request_data=request.data, err_msg=tb)
-
+    response_time = (time.time() - current_app.request_start_time) * 1000
+    user_ip = str(request.remote_addr)
     tb = traceback.format_exception(etype=type(e), value=e,
                                     tb=e.__traceback__)
-    current_app.logger.error(json.dumps(tb))
+
+    current_app.logger.error({
+        "message": str(e),
+        "user_id": user_ip,
+        "user_ip": user_ip,
+        "request_time": current_app.request_start_date,
+        "request_url": request.url,
+        "request_data": request.data,
+        "response_time": response_time,
+        "response_code": status_code,
+        "traceback": tb
+    })
 
     resp = {
         'timestamp': current_app.request_start_date,
-        'duration': dt,
+        'duration': response_time,
         'code': status_code,
         'message': str(e),
         'traceback': tb
@@ -97,13 +97,26 @@ def unhandled_exception(e):
 
 @bp.errorhandler(cg_exceptions.ChunkedGraphAPIError)
 def api_exception(e):
-    dt = (time.time() - current_app.request_start_time) * 1000
+    response_time = (time.time() - current_app.request_start_time) * 1000
+    user_ip = str(request.remote_addr)
+    tb = traceback.format_exception(etype=type(e), value=e,
+                                    tb=e.__traceback__)
 
-    current_app.logger.error(str(e))
+    current_app.logger.error({
+        "message": str(e),
+        "user_id": user_ip,
+        "user_ip": user_ip,
+        "request_time": current_app.request_start_date,
+        "request_url": request.url,
+        "request_data": request.data,
+        "response_time": response_time,
+        "response_code": e.status_code.value,
+        "traceback": tb
+    })
 
     resp = {
         'timestamp': current_app.request_start_date,
-        'duration': dt,
+        'duration': response_time,
         'code': e.status_code.value,
         'message': str(e)
     }
