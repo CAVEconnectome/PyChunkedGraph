@@ -3223,7 +3223,6 @@ class ChunkedGraph(object):
                                    operation_id=operation_id,
                                    slow_retry=False):
                     if remesh_preview:
-                        self.logger.debug(f"REMESH: {lvl2_node_mapping}")
                         meshgen.mesh_lvl2_previews(self, list(
                             lvl2_node_mapping.keys()))
 
@@ -3475,7 +3474,6 @@ class ChunkedGraph(object):
 
                 for l in range(i_layer, self.n_layers):
                     if len(cross_chunk_edge_dict[l]) > 0:
-                        self.logger.debug(cross_chunk_edge_dict[l])
                         val_dict[table_info.cross_chunk_edge_keyformat % l] = \
                             cross_chunk_edge_dict[l].tobytes()
 
@@ -3663,7 +3661,6 @@ class ChunkedGraph(object):
 
             # Sanity Checks
             if np.any(np.in1d(sink_ids, source_ids)):
-                self.logger.debug("source == sink")
                 raise cg_exceptions.PreconditionError(
                     f"One or more supervoxel exists as both, sink and source."
                 )
@@ -3671,7 +3668,6 @@ class ChunkedGraph(object):
             for source_id in source_ids:
                 layer = self.get_chunk_layer(source_id)
                 if layer != 1:
-                    self.logger.debug("layer(source) !== 1")
                     raise cg_exceptions.PreconditionError(
                         f"Supervoxel expected, but {source_id} is a layer {layer} node."
                     )
@@ -3679,7 +3675,6 @@ class ChunkedGraph(object):
             for sink_id in sink_ids:
                 layer = self.get_chunk_layer(sink_id)
                 if layer != 1:
-                    self.logger.debug("layer(sink) !== 1")
                     raise cg_exceptions.PreconditionError(
                         f"Supervoxel expected, but {sink_id} is a layer {layer} node."
                     )
@@ -3715,7 +3710,6 @@ class ChunkedGraph(object):
                 root_ids.add(self.get_root(atomic_edge[1]))
 
         if len(root_ids) > 1:
-            self.logger.debug(f"Multiple root ids: {root_ids}")
             raise cg_exceptions.PreconditionError(
                 f"All supervoxel must belong to the same object. Already split?"
             )
@@ -3788,10 +3782,8 @@ class ChunkedGraph(object):
                 if self.bulk_write(rows, lock_root_ids,
                                    operation_id=operation_id, slow_retry=False):
                     if remesh_preview:
-                        self.logger.debug(f"REMESH: {lvl2_node_mapping}")
                         meshgen.mesh_lvl2_previews(self, list(
                             lvl2_node_mapping.keys()))
-                        self.logger.debug("REMESH SUCCESS")
 
                     self.logger.debug(f"new root ids: {new_root_ids}")
                     return new_root_ids
@@ -3859,7 +3851,6 @@ class ChunkedGraph(object):
             root_ids.add(self.get_root(sink_id))
 
         if len(root_ids) > 1:
-            self.logger.debug(f"Multiple root ids: {root_ids}")
             raise cg_exceptions.PreconditionError(
                 f"All supervoxel must belong to the same object. Already split?"
             )
