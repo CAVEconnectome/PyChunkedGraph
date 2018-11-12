@@ -9,4 +9,5 @@ flask_cors
 codecov
 multiwrapper
 cloud-volume
+python-json-logger
 igneous==dev
