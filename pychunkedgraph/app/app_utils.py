@@ -8,9 +8,8 @@ import numpy as np
 import logging
 import time
 
-# Hack the imports for now
 from pychunkedgraph.backend import chunkedgraph
-from pychunkedgraph.logging import flask_log_db
+from pychunkedgraph.logging import flask_log_db, jsonformatter
 
 cache = {}
 
@@ -61,9 +60,9 @@ def get_cg():
 
         handler = logging.StreamHandler(sys.stdout)
         handler.setLevel(current_app.config['LOGGING_LEVEL'])
-        formatter = logging.Formatter(
-            current_app.config['LOGGING_FORMAT'],
-            current_app.config['LOGGING_DATEFORMAT'])
+        formatter = jsonformatter.JsonFormatter(
+            fmt=current_app.config['LOGGING_FORMAT'],
+            datefmt=current_app.config['LOGGING_DATEFORMAT'])
         formatter.converter = time.gmtime
         handler.setFormatter(formatter)
 
