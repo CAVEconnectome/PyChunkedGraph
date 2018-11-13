@@ -1,9 +1,7 @@
 import sys
 import os
 import subprocess
-import grpc
 import pytest
-import logging
 import numpy as np
 from functools import partial
 import collections
@@ -18,47 +16,57 @@ from warnings import warn
 import pychunkedgraph.backend.key_utils
 
 sys.path.insert(0, os.path.join(sys.path[0], '..'))
-from pychunkedgraph.backend import chunkedgraph # noqa
-from pychunkedgraph.backend import table_info # noqa
-from pychunkedgraph.backend import chunkedgraph_exceptions as cg_exceptions # noqa
-from pychunkedgraph.creator import graph_tests # noqa
+from pychunkedgraph.backend import chunkedgraph  # noqa
+from pychunkedgraph.backend import table_info  # noqa
+from pychunkedgraph.backend import chunkedgraph_exceptions as cg_exceptions  # noqa
+from pychunkedgraph.creator import graph_tests  # noqa
 
 
-class DoNothingCreds(credentials.Credentials):
-    def refresh(self, request):
-        pass
+def setup_emulator_env():
+    bt_env_init = subprocess.run(
+        ["gcloud", "beta", "emulators", "bigtable", "env-init"], stdout=subprocess.PIPE)
+    os.environ["BIGTABLE_EMULATOR_HOST"] = \
+        bt_env_init.stdout.decode("utf-8").strip().split('=')[-1]
+
+    c = bigtable.Client(
+        project='IGNORE_ENVIRONMENT_PROJECT',
+        credentials=credentials.AnonymousCredentials(),
+        admin=True)
+    t = c.instance("emulated_instance").table("emulated_table")
+
+    try:
+        t.create()
+        return True
+    except exceptions._Rendezvous as e:
+        return False
 
 
 @pytest.fixture(scope='session', autouse=True)
 def bigtable_emulator(request):
-    # setup Emulator
-    bigtables_emulator = subprocess.Popen(["gcloud", "beta", "emulators", "bigtable", "start"], preexec_fn=os.setsid, stdout=subprocess.PIPE)
+    # Start Emulator
+    bigtable_emulator = subprocess.Popen(
+        ["gcloud", "beta", "emulators", "bigtable", "start"], preexec_fn=os.setsid,
+        stdout=subprocess.PIPE)
 
-    bt_env_init = subprocess.run(["gcloud", "beta", "emulators", "bigtable",  "env-init"], stdout=subprocess.PIPE)
-    os.environ["BIGTABLE_EMULATOR_HOST"] = bt_env_init.stdout.decode("utf-8").strip().split('=')[-1]
-
+    # Wait for Emulator to start up
     print("Waiting for BigTables Emulator to start up...", end='')
-    c = bigtable.Client(project='', credentials=DoNothingCreds(), admin=True)
-    retries = 10
+    retries = 3
     while retries > 0:
-        try:
-            c.list_instances()
-        except exceptions._Rendezvous as e:
-            if e.code() == grpc.StatusCode.UNIMPLEMENTED:  # Good error - means emulator is up!
-                print(" Ready!")
-                break
-            elif e.code() == grpc.StatusCode.UNAVAILABLE:
-                sleep(2)
+        if setup_emulator_env() is True:
+            break
+        else:
+            print('.', end='')
             retries -= 1
-            print(".", end='')
+            sleep(1)
+
     if retries == 0:
-        print("\nCouldn't start Bigtable Emulator. Make sure it is setup correctly.")
+        print("\nCouldn't start Bigtable Emulator. Make sure it is installed correctly.")
         exit(1)
 
-    # setup Emulator-Finalizer
+    # Setup Emulator-Finalizer
     def fin():
-        os.killpg(os.getpgid(bigtables_emulator.pid), SIGTERM)
-        bigtables_emulator.wait()
+        os.killpg(os.getpgid(bigtable_emulator.pid), SIGTERM)
+        bigtable_emulator.wait()
 
     request.addfinalizer(fin)
 
@@ -84,10 +92,13 @@ def lock_expired_timedelta_override(request):
 def gen_graph(request):
     def _cgraph(request, fan_out=2, n_layers=10):
         # setup Chunked Graph
-        graph = chunkedgraph.ChunkedGraph(request.function.__name__, project_id='emulated',
-                                          credentials=DoNothingCreds(), instance_id="chunkedgraph",
-                                          cv_path="", chunk_size=(512, 512, 64),
-                                          is_new=True, fan_out=fan_out, n_layers=n_layers)
+        graph = chunkedgraph.ChunkedGraph(
+            request.function.__name__,
+            project_id='IGNORE_ENVIRONMENT_PROJECT',
+            credentials=credentials.AnonymousCredentials(),
+            instance_id="emulated_instance", cv_path="",
+            chunk_size=(512, 512, 64), is_new=True, fan_out=fan_out,
+            n_layers=n_layers)
 
         # setup Chunked Graph - Finalizer
         def fin():
