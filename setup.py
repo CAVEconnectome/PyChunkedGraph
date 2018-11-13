@@ -37,7 +37,7 @@ setup(
     packages=find_packages(),
     install_requires=required,
     dependency_links=[
-        "git+https://github.com/seung-lab/igneous.git#egg==igneous-dev"
+        "git+https://github.com/seung-lab/igneous.git#egg=igneous-dev"
     ],
     classifiers=[
         "Programming Language :: Python :: 3",
