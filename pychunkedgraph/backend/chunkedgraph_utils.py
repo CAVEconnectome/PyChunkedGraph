@@ -4,10 +4,13 @@ from typing import Dict
 import numpy as np
 import pandas as pd
 
+from google.cloud import bigtable
 from google.cloud.bigtable.row_filters import TimestampRange, \
     TimestampRangeFilter, ColumnRangeFilter, ValueRangeFilter, RowFilterChain, \
     ColumnQualifierRegexFilter, RowFilterUnion, ConditionalRowFilter, \
     PassAllFilter, RowFilter, RowKeyRegexFilter, FamilyNameRegexFilter
+from pychunkedgraph.backend.utils import column_keys, serializers
+
 
 def compute_indices_pandas(data) -> pd.Series:
     """ Computes indices of all unique entries
@@ -166,3 +169,49 @@ def time_min():
     :return: datetime.datetime
     """
     return datetime.datetime.strptime("01/01/00 00:00", "%d/%m/%y %H:%M")
+
+
+def row_to_byte_dict(row: bigtable.row.Row, f_id: str = None, idx: int = None,
+                     timestamp_row=None) -> Dict[int, Dict]:
+    """ Reads row entries to a dictionary
+
+    :param row: row
+    :param f_id: str
+    :param idx: int
+    :return: dict
+    """
+    row_dict = {}
+
+    for fam_id in row.cells.keys():
+        row_dict[fam_id] = {}
+
+        cells = row.cells[fam_id]
+
+        for row_k in row.cells[fam_id].keys():
+            if idx is None:
+                row_dict[fam_id][serializers.deserialize_key(row_k)] = \
+                    [c.value for c in cells[row_k]]
+            else:
+                row_dict[fam_id][serializers.deserialize_key(row_k)] = \
+                    cells[row_k][idx].value
+
+            if serializers.deserialize_key(row_k) == timestamp_row:
+                row_dict[fam_id]["timestamp"] = cells[row_k].timestamp
+
+    if f_id is not None and f_id in row_dict:
+        return row_dict[f_id]
+    elif f_id is None:
+        return row_dict
+    else:
+        raise Exception("Family id not found")
+
+
+def partial_row_data_to_column_dict(partial_row_data: bigtable.row_data.PartialRowData):
+    new_column_dict = {}
+
+    for family_id, column_dict in partial_row_data.cells.items():
+        for column_key, column_values in column_dict.items():
+            column = column_keys.from_key(family_id, column_key)
+            new_column_dict[column] = column_values
+
+    return new_column_dict

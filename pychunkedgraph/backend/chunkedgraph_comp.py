@@ -1,7 +1,8 @@
 import numpy as np
 import datetime
 
-from pychunkedgraph.backend import key_utils, chunkedgraph
+from pychunkedgraph.backend import chunkedgraph
+from pychunkedgraph.backend.utils import serializers, column_keys
 
 from multiwrapper import multiprocessing_utils as mu
 from pychunkedgraph.backend.chunkedgraph_utils import compute_indices_pandas, \
@@ -23,9 +24,8 @@ def _read_root_rows_thread(args) -> list:
                               chunk_id=cg.root_chunk_id)
     end_id = cg.get_node_id(segment_id=end_seg_id, chunk_id=cg.root_chunk_id)
     range_read = cg.table.read_rows(
-        start_key=key_utils.serialize_uint64(start_id),
-        end_key=key_utils.serialize_uint64(end_id),
-        # allow_row_interleaving=True,
+        start_key=serializers.serialize_uint64(start_id),
+        end_key=serializers.serialize_uint64(end_id),
         end_inclusive=False,
         filter_=time_filter)
 
@@ -34,10 +34,10 @@ def _read_root_rows_thread(args) -> list:
 
     root_ids = []
     for row_id, row_data in rows.items():
-        row_keys = row_data.cells[cg.family_id]
+        row_keys = row_data.cells[column_keys.Hierarchy.NewParent.family_id]
 
-        if not key_utils.serialize_key("new_parents") in row_keys:
-            root_ids.append(key_utils.deserialize_uint64(row_id))
+        if column_keys.Hierarchy.NewParent.key not in row_keys:
+            root_ids.append(serializers.deserialize_uint64(row_id))
 
     return root_ids
 

@@ -13,11 +13,9 @@ from time import sleep
 from signal import SIGTERM
 from warnings import warn
 
-import pychunkedgraph.backend.key_utils
-
 sys.path.insert(0, os.path.join(sys.path[0], '..'))
 from pychunkedgraph.backend import chunkedgraph  # noqa
-from pychunkedgraph.backend import table_info  # noqa
+from pychunkedgraph.backend.utils import serializers, column_keys  # noqa
 from pychunkedgraph.backend import chunkedgraph_exceptions as cg_exceptions  # noqa
 from pychunkedgraph.creator import graph_tests  # noqa
 
@@ -97,8 +95,9 @@ def gen_graph(request):
             project_id='IGNORE_ENVIRONMENT_PROJECT',
             credentials=credentials.AnonymousCredentials(),
             instance_id="emulated_instance", cv_path="",
-            chunk_size=(512, 512, 64), is_new=True, fan_out=fan_out,
-            n_layers=n_layers)
+            chunk_size=np.array([512, 512, 64], dtype=np.uint64),
+            is_new=True, fan_out=np.uint64(fan_out),
+            n_layers=np.uint64(n_layers))
 
         # setup Chunked Graph - Finalizer
         def fin():
@@ -253,11 +252,11 @@ class TestGraphNodeConversion:
     def test_serialize_node_id(self, gen_graph):
         cgraph = gen_graph(n_layers=10)
 
-        assert pychunkedgraph.backend.key_utils.serialize_uint64(cgraph.get_node_id(np.uint64(0), layer=2, x=3, y=1, z=0)) < \
-               pychunkedgraph.backend.key_utils.serialize_uint64(cgraph.get_node_id(np.uint64(1), layer=2, x=3, y=1, z=0))
+        assert serializers.serialize_uint64(cgraph.get_node_id(np.uint64(0), layer=2, x=3, y=1, z=0)) < \
+               serializers.serialize_uint64(cgraph.get_node_id(np.uint64(1), layer=2, x=3, y=1, z=0))
 
-        assert pychunkedgraph.backend.key_utils.serialize_uint64(cgraph.get_node_id(np.uint64(2 ** 53 - 2), layer=10, x=0, y=0, z=0)) < \
-               pychunkedgraph.backend.key_utils.serialize_uint64(cgraph.get_node_id(np.uint64(2 ** 53 - 1), layer=10, x=0, y=0, z=0))
+        assert serializers.serialize_uint64(cgraph.get_node_id(np.uint64(2 ** 53 - 2), layer=10, x=0, y=0, z=0)) < \
+               serializers.serialize_uint64(cgraph.get_node_id(np.uint64(2 ** 53 - 1), layer=10, x=0, y=0, z=0))
 
     @pytest.mark.timeout(30)
     def test_deserialize_node_id(self):
@@ -270,8 +269,8 @@ class TestGraphNodeConversion:
     @pytest.mark.timeout(30)
     def test_serialize_valid_label_id(self):
         label = np.uint64(0x01FF031234556789)
-        assert pychunkedgraph.backend.key_utils.deserialize_uint64(
-            pychunkedgraph.backend.key_utils.serialize_uint64(label)) == label
+        assert serializers.deserialize_uint64(
+            serializers.serialize_uint64(label)) == label
 
 
 class TestGraphBuild:
@@ -302,11 +301,11 @@ class TestGraphBuild:
 
         # Check for the Level 1 CG supervoxel:
         # to_label(cgraph, 1, 0, 0, 0, 0)
-        assert pychunkedgraph.backend.key_utils.serialize_uint64(to_label(cgraph, 1, 0, 0, 0, 0)) in res.rows
+        assert serializers.serialize_uint64(to_label(cgraph, 1, 0, 0, 0, 0)) in res.rows
         atomic_node_info = cgraph.get_atomic_node_info(to_label(cgraph, 1, 0, 0, 0, 0))
-        atomic_affinities = atomic_node_info[table_info.affinity_key]
-        atomic_partners = atomic_node_info[table_info.partner_key]
-        parents = atomic_node_info[table_info.parent_key]
+        atomic_affinities = atomic_node_info[column_keys.Connectivity.Affinity]
+        atomic_partners = atomic_node_info[column_keys.Connectivity.Partner]
+        parents = atomic_node_info[column_keys.Hierarchy.Parent]
 
         assert len(atomic_partners) == 0
         assert len(atomic_affinities) == 0
@@ -314,10 +313,11 @@ class TestGraphBuild:
 
         # Check for the one Level 2 node that should have been created.
         # to_label(cgraph, 2, 0, 0, 0, 1)
-        assert pychunkedgraph.backend.key_utils.serialize_uint64(to_label(cgraph, 2, 0, 0, 0, 1)) in res.rows
-        row = res.rows[pychunkedgraph.backend.key_utils.serialize_uint64(to_label(cgraph, 2, 0, 0, 0, 1))].cells[cgraph.family_id]
+        assert serializers.serialize_uint64(to_label(cgraph, 2, 0, 0, 0, 1)) in res.rows
+        row = res.rows[serializers.serialize_uint64(to_label(cgraph, 2, 0, 0, 0, 1))].cells[cgraph.family_id]
         atomic_cross_edge_dict = cgraph.get_atomic_cross_edge_dict(to_label(cgraph, 2, 0, 0, 0, 1))
-        children = np.frombuffer(row[b'children'][0].value, np.uint64)
+        column = column_keys.Hierarchy.Child
+        children = column.deserialize(row[column.key][0].value)
 
         for aces in atomic_cross_edge_dict.values():
             assert len(aces) == 0
@@ -359,33 +359,34 @@ class TestGraphBuild:
 
         # Check for the two original Level 1 CG supervoxels
         # to_label(cgraph, 1, 0, 0, 0, 0)
-        assert pychunkedgraph.backend.key_utils.serialize_uint64(to_label(cgraph, 1, 0, 0, 0, 0)) in res.rows
+        assert serializers.serialize_uint64(to_label(cgraph, 1, 0, 0, 0, 0)) in res.rows
         atomic_node_info = cgraph.get_atomic_node_info(to_label(cgraph, 1, 0, 0, 0, 0))
-        atomic_affinities = atomic_node_info[table_info.affinity_key]
-        atomic_partners = atomic_node_info[table_info.partner_key]
-        parents = atomic_node_info[table_info.parent_key]
+        atomic_affinities = atomic_node_info[column_keys.Connectivity.Affinity]
+        atomic_partners = atomic_node_info[column_keys.Connectivity.Partner]
+        parents = atomic_node_info[column_keys.Hierarchy.Parent]
 
         assert len(atomic_partners) == 1 and atomic_partners[0] == to_label(cgraph, 1, 0, 0, 0, 1)
         assert len(atomic_affinities) == 1 and atomic_affinities[0] == 0.5
         assert len(parents) == 1 and parents[0] == to_label(cgraph, 2, 0, 0, 0, 1)
 
         # to_label(cgraph, 1, 0, 0, 0, 1)
-        assert pychunkedgraph.backend.key_utils.serialize_uint64(to_label(cgraph, 1, 0, 0, 0, 1)) in res.rows
+        assert serializers.serialize_uint64(to_label(cgraph, 1, 0, 0, 0, 1)) in res.rows
         atomic_node_info = cgraph.get_atomic_node_info(to_label(cgraph, 1, 0, 0, 0, 1))
-        atomic_affinities = atomic_node_info[table_info.affinity_key]
-        atomic_partners = atomic_node_info[table_info.partner_key]
-        parents = atomic_node_info[table_info.parent_key]
+        atomic_affinities = atomic_node_info[column_keys.Connectivity.Affinity]
+        atomic_partners = atomic_node_info[column_keys.Connectivity.Partner]
+        parents = atomic_node_info[column_keys.Hierarchy.Parent]
 
         assert len(atomic_partners) == 1 and atomic_partners[0] == to_label(cgraph, 1, 0, 0, 0, 0)
         assert len(atomic_affinities) == 1 and atomic_affinities[0] == 0.5
         assert len(parents) == 1 and parents[0] == to_label(cgraph, 2, 0, 0, 0, 1)
 
         # Check for the one Level 2 node that should have been created.
-        assert pychunkedgraph.backend.key_utils.serialize_uint64(to_label(cgraph, 2, 0, 0, 0, 1)) in res.rows
-        row = res.rows[pychunkedgraph.backend.key_utils.serialize_uint64(to_label(cgraph, 2, 0, 0, 0, 1))].cells[cgraph.family_id]
+        assert serializers.serialize_uint64(to_label(cgraph, 2, 0, 0, 0, 1)) in res.rows
+        row = res.rows[serializers.serialize_uint64(to_label(cgraph, 2, 0, 0, 0, 1))].cells[cgraph.family_id]
 
         atomic_cross_edge_dict = cgraph.get_atomic_cross_edge_dict(to_label(cgraph, 2, 0, 0, 0, 1))
-        children = np.frombuffer(row[b'children'][0].value, np.uint64)
+        column = column_keys.Hierarchy.Child
+        children = column.deserialize(row[column.key][0].value)
 
 
         for aces in atomic_cross_edge_dict.values():
@@ -435,27 +436,27 @@ class TestGraphBuild:
 
         # Check for the two original Level 1 CG supervoxels
         # to_label(cgraph, 1, 0, 0, 0, 0)
-        assert pychunkedgraph.backend.key_utils.serialize_uint64(to_label(cgraph, 1, 0, 0, 0, 0)) in res.rows
+        assert serializers.serialize_uint64(to_label(cgraph, 1, 0, 0, 0, 0)) in res.rows
 
         atomic_node_info = cgraph.get_atomic_node_info(to_label(cgraph, 1, 0, 0, 0, 0))
-        atomic_affinities = atomic_node_info[table_info.affinity_key]
-        atomic_partners = atomic_node_info[table_info.partner_key]
+        atomic_affinities = atomic_node_info[column_keys.Connectivity.Affinity]
+        atomic_partners = atomic_node_info[column_keys.Connectivity.Partner]
 
         cgraph.logger.debug(atomic_node_info.keys())
 
-        parents = atomic_node_info[table_info.parent_key]
+        parents = atomic_node_info[column_keys.Hierarchy.Parent]
 
         assert len(atomic_partners) == 1 and atomic_partners[0] == to_label(cgraph, 1, 1, 0, 0, 0)
         assert len(atomic_affinities) == 1 and atomic_affinities[0] == inf
         assert len(parents) == 1 and parents[0] == to_label(cgraph, 2, 0, 0, 0, 1)
 
         # to_label(cgraph, 1, 1, 0, 0, 0)
-        assert pychunkedgraph.backend.key_utils.serialize_uint64(to_label(cgraph, 1, 1, 0, 0, 0)) in res.rows
+        assert serializers.serialize_uint64(to_label(cgraph, 1, 1, 0, 0, 0)) in res.rows
 
         atomic_node_info = cgraph.get_atomic_node_info(to_label(cgraph, 1, 1, 0, 0, 0))
-        atomic_affinities = atomic_node_info[table_info.affinity_key]
-        atomic_partners = atomic_node_info[table_info.partner_key]
-        parents = atomic_node_info[table_info.parent_key]
+        atomic_affinities = atomic_node_info[column_keys.Connectivity.Affinity]
+        atomic_partners = atomic_node_info[column_keys.Connectivity.Partner]
+        parents = atomic_node_info[column_keys.Hierarchy.Parent]
 
         assert len(atomic_partners) == 1 and atomic_partners[0] == to_label(cgraph, 1, 0, 0, 0, 0)
         assert len(atomic_affinities) == 1 and atomic_affinities[0] == inf
@@ -464,11 +465,12 @@ class TestGraphBuild:
         # Check for the two Level 2 nodes that should have been created. Since Level 2 has the same
         # dimensions as Level 1, we also expect them to be in different chunks
         # to_label(cgraph, 2, 0, 0, 0, 1)
-        assert pychunkedgraph.backend.key_utils.serialize_uint64(to_label(cgraph, 2, 0, 0, 0, 1)) in res.rows
-        row = res.rows[pychunkedgraph.backend.key_utils.serialize_uint64(to_label(cgraph, 2, 0, 0, 0, 1))].cells[cgraph.family_id]
+        assert serializers.serialize_uint64(to_label(cgraph, 2, 0, 0, 0, 1)) in res.rows
+        row = res.rows[serializers.serialize_uint64(to_label(cgraph, 2, 0, 0, 0, 1))].cells[cgraph.family_id]
 
-        atomic_cross_edge_dict = cgraph.get_atomic_cross_edge_dict(to_label(cgraph, 2, 0, 0, 0, 1), deserialize_node_ids=True, reshape=True)
-        children = np.frombuffer(row[b'children'][0].value, np.uint64)
+        atomic_cross_edge_dict = cgraph.get_atomic_cross_edge_dict(to_label(cgraph, 2, 0, 0, 0, 1), deserialize_node_ids=True)
+        column = column_keys.Hierarchy.Child
+        children = column.deserialize(row[column.key][0].value)
 
 
         test_ace = np.array([to_label(cgraph, 1, 0, 0, 0, 0), to_label(cgraph, 1, 1, 0, 0, 0)], dtype=np.uint64)
@@ -477,11 +479,12 @@ class TestGraphBuild:
         assert len(children) == 1 and to_label(cgraph, 1, 0, 0, 0, 0) in children
 
         # to_label(cgraph, 2, 1, 0, 0, 1)
-        assert pychunkedgraph.backend.key_utils.serialize_uint64(to_label(cgraph, 2, 1, 0, 0, 1)) in res.rows
-        row = res.rows[pychunkedgraph.backend.key_utils.serialize_uint64(to_label(cgraph, 2, 1, 0, 0, 1))].cells[cgraph.family_id]
+        assert serializers.serialize_uint64(to_label(cgraph, 2, 1, 0, 0, 1)) in res.rows
+        row = res.rows[serializers.serialize_uint64(to_label(cgraph, 2, 1, 0, 0, 1))].cells[cgraph.family_id]
 
-        atomic_cross_edge_dict = cgraph.get_atomic_cross_edge_dict(to_label(cgraph, 2, 1, 0, 0, 1), deserialize_node_ids=True, reshape=True)
-        children = np.frombuffer(row[b'children'][0].value, np.uint64)
+        atomic_cross_edge_dict = cgraph.get_atomic_cross_edge_dict(to_label(cgraph, 2, 1, 0, 0, 1), deserialize_node_ids=True)
+        column = column_keys.Hierarchy.Child
+        children = column.deserialize(row[column.key][0].value)
 
         test_ace = np.array([to_label(cgraph, 1, 1, 0, 0, 0), to_label(cgraph, 1, 0, 0, 0, 0)], dtype=np.uint64)
         assert len(atomic_cross_edge_dict[2]) == 1
@@ -491,10 +494,11 @@ class TestGraphBuild:
         # Check for the one Level 3 node that should have been created. This one combines the two
         # connected components of Level 2
         # to_label(cgraph, 3, 0, 0, 0, 1)
-        assert pychunkedgraph.backend.key_utils.serialize_uint64(to_label(cgraph, 3, 0, 0, 0, 1)) in res.rows
-        row = res.rows[pychunkedgraph.backend.key_utils.serialize_uint64(to_label(cgraph, 3, 0, 0, 0, 1))].cells[cgraph.family_id]
+        assert serializers.serialize_uint64(to_label(cgraph, 3, 0, 0, 0, 1)) in res.rows
+        row = res.rows[serializers.serialize_uint64(to_label(cgraph, 3, 0, 0, 0, 1))].cells[cgraph.family_id]
         atomic_cross_edge_dict = cgraph.get_atomic_cross_edge_dict(to_label(cgraph, 3, 0, 0, 0, 1))
-        children = np.frombuffer(row[b'children'][0].value, np.uint64)
+        column = column_keys.Hierarchy.Child
+        children = column.deserialize(row[column.key][0].value)
 
 
         for aces in atomic_cross_edge_dict.values():
@@ -549,11 +553,11 @@ class TestGraphBuild:
 
         # Check for the three original Level 1 CG supervoxels
         # to_label(cgraph, 1, 0, 0, 0, 0)
-        assert pychunkedgraph.backend.key_utils.serialize_uint64(to_label(cgraph, 1, 0, 0, 0, 0)) in res.rows
+        assert serializers.serialize_uint64(to_label(cgraph, 1, 0, 0, 0, 0)) in res.rows
         atomic_node_info = cgraph.get_atomic_node_info(to_label(cgraph, 1, 0, 0, 0, 0))
-        atomic_affinities = atomic_node_info[table_info.affinity_key]
-        atomic_partners = atomic_node_info[table_info.partner_key]
-        parents = atomic_node_info[table_info.parent_key]
+        atomic_affinities = atomic_node_info[column_keys.Connectivity.Affinity]
+        atomic_partners = atomic_node_info[column_keys.Connectivity.Partner]
+        parents = atomic_node_info[column_keys.Hierarchy.Parent]
 
         assert len(atomic_partners) == 2 and to_label(cgraph, 1, 0, 0, 0, 1) in atomic_partners and to_label(cgraph, 1, 1, 0, 0, 0) in atomic_partners
         assert len(atomic_affinities) == 2
@@ -564,22 +568,22 @@ class TestGraphBuild:
         assert len(parents) == 1 and parents[0] == to_label(cgraph, 2, 0, 0, 0, 1)
 
         # to_label(cgraph, 1, 0, 0, 0, 1)
-        assert pychunkedgraph.backend.key_utils.serialize_uint64(to_label(cgraph, 1, 0, 0, 0, 1)) in res.rows
+        assert serializers.serialize_uint64(to_label(cgraph, 1, 0, 0, 0, 1)) in res.rows
         atomic_node_info = cgraph.get_atomic_node_info(to_label(cgraph, 1, 0, 0, 0, 1))
-        atomic_affinities = atomic_node_info[table_info.affinity_key]
-        atomic_partners = atomic_node_info[table_info.partner_key]
-        parents = atomic_node_info[table_info.parent_key]
+        atomic_affinities = atomic_node_info[column_keys.Connectivity.Affinity]
+        atomic_partners = atomic_node_info[column_keys.Connectivity.Partner]
+        parents = atomic_node_info[column_keys.Hierarchy.Parent]
 
         assert len(atomic_partners) == 1 and atomic_partners[0] == to_label(cgraph, 1, 0, 0, 0, 0)
         assert len(atomic_affinities) == 1 and atomic_affinities[0] == 0.5
         assert len(parents) == 1 and parents[0] == to_label(cgraph, 2, 0, 0, 0, 1)
 
         # to_label(cgraph, 1, 1, 0, 0, 0)
-        assert pychunkedgraph.backend.key_utils.serialize_uint64(to_label(cgraph, 1, 1, 0, 0, 0)) in res.rows
+        assert serializers.serialize_uint64(to_label(cgraph, 1, 1, 0, 0, 0)) in res.rows
         atomic_node_info = cgraph.get_atomic_node_info(to_label(cgraph, 1, 1, 0, 0, 0))
-        atomic_affinities = atomic_node_info[table_info.affinity_key]
-        atomic_partners = atomic_node_info[table_info.partner_key]
-        parents = atomic_node_info[table_info.parent_key]
+        atomic_affinities = atomic_node_info[column_keys.Connectivity.Affinity]
+        atomic_partners = atomic_node_info[column_keys.Connectivity.Partner]
+        parents = atomic_node_info[column_keys.Hierarchy.Parent]
 
         assert len(atomic_partners) == 1 and atomic_partners[0] == to_label(cgraph, 1, 0, 0, 0, 0)
         assert len(atomic_affinities) == 1 and atomic_affinities[0] == inf
@@ -588,10 +592,11 @@ class TestGraphBuild:
         # Check for the two Level 2 nodes that should have been created. Since Level 2 has the same
         # dimensions as Level 1, we also expect them to be in different chunks
         # to_label(cgraph, 2, 0, 0, 0, 1)
-        assert pychunkedgraph.backend.key_utils.serialize_uint64(to_label(cgraph, 2, 0, 0, 0, 1)) in res.rows
-        row = res.rows[pychunkedgraph.backend.key_utils.serialize_uint64(to_label(cgraph, 2, 0, 0, 0, 1))].cells[cgraph.family_id]
-        atomic_cross_edge_dict = cgraph.get_atomic_cross_edge_dict(to_label(cgraph, 2, 0, 0, 0, 1), deserialize_node_ids=True, reshape=True)
-        children = np.frombuffer(row[b'children'][0].value, np.uint64)
+        assert serializers.serialize_uint64(to_label(cgraph, 2, 0, 0, 0, 1)) in res.rows
+        row = res.rows[serializers.serialize_uint64(to_label(cgraph, 2, 0, 0, 0, 1))].cells[cgraph.family_id]
+        atomic_cross_edge_dict = cgraph.get_atomic_cross_edge_dict(to_label(cgraph, 2, 0, 0, 0, 1), deserialize_node_ids=True)
+        column = column_keys.Hierarchy.Child
+        children = column.deserialize(row[column.key][0].value)
 
         test_ace = np.array([to_label(cgraph, 1, 0, 0, 0, 0), to_label(cgraph, 1, 1, 0, 0, 0)], dtype=np.uint64)
         assert len(atomic_cross_edge_dict[2]) == 1
@@ -599,10 +604,11 @@ class TestGraphBuild:
         assert len(children) == 2 and to_label(cgraph, 1, 0, 0, 0, 0) in children and to_label(cgraph, 1, 0, 0, 0, 1) in children
 
         # to_label(cgraph, 2, 1, 0, 0, 1)
-        assert pychunkedgraph.backend.key_utils.serialize_uint64(to_label(cgraph, 2, 1, 0, 0, 1)) in res.rows
-        row = res.rows[pychunkedgraph.backend.key_utils.serialize_uint64(to_label(cgraph, 2, 1, 0, 0, 1))].cells[cgraph.family_id]
-        atomic_cross_edge_dict = cgraph.get_atomic_cross_edge_dict(to_label(cgraph, 2, 1, 0, 0, 1), deserialize_node_ids=True, reshape=True)
-        children = np.frombuffer(row[b'children'][0].value, np.uint64)
+        assert serializers.serialize_uint64(to_label(cgraph, 2, 1, 0, 0, 1)) in res.rows
+        row = res.rows[serializers.serialize_uint64(to_label(cgraph, 2, 1, 0, 0, 1))].cells[cgraph.family_id]
+        atomic_cross_edge_dict = cgraph.get_atomic_cross_edge_dict(to_label(cgraph, 2, 1, 0, 0, 1), deserialize_node_ids=True)
+        column = column_keys.Hierarchy.Child
+        children = column.deserialize(row[column.key][0].value)
 
         test_ace = np.array([to_label(cgraph, 1, 1, 0, 0, 0), to_label(cgraph, 1, 0, 0, 0, 0)], dtype=np.uint64)
         assert len(atomic_cross_edge_dict[2]) == 1
@@ -612,10 +618,11 @@ class TestGraphBuild:
         # Check for the one Level 3 node that should have been created. This one combines the two
         # connected components of Level 2
         # to_label(cgraph, 3, 0, 0, 0, 1)
-        assert pychunkedgraph.backend.key_utils.serialize_uint64(to_label(cgraph, 3, 0, 0, 0, 1)) in res.rows
-        row = res.rows[pychunkedgraph.backend.key_utils.serialize_uint64(to_label(cgraph, 3, 0, 0, 0, 1))].cells[cgraph.family_id]
+        assert serializers.serialize_uint64(to_label(cgraph, 3, 0, 0, 0, 1)) in res.rows
+        row = res.rows[serializers.serialize_uint64(to_label(cgraph, 3, 0, 0, 0, 1))].cells[cgraph.family_id]
         atomic_cross_edge_dict = cgraph.get_atomic_cross_edge_dict(to_label(cgraph, 3, 0, 0, 0, 1))
-        children = np.frombuffer(row[b'children'][0].value, np.uint64)
+        column = column_keys.Hierarchy.Child
+        children = column.deserialize(row[column.key][0].value)
 
         for ace in atomic_cross_edge_dict.values():
             assert len(ace) == 0
@@ -672,10 +679,10 @@ class TestGraphBuild:
         #     cgraph.logger.debug(cgraph.get_chunk_layer(chunkedgraph.deserialize_uint64(row_key)))
         #     cgraph.logger.debug(cgraph.get_chunk_coordinates(chunkedgraph.deserialize_uint64(row_key)))
 
-        assert pychunkedgraph.backend.key_utils.serialize_uint64(to_label(cgraph, 1, 0, 0, 0, 0)) in res.rows
-        assert pychunkedgraph.backend.key_utils.serialize_uint64(to_label(cgraph, 1, 255, 255, 255, 0)) in res.rows
-        assert pychunkedgraph.backend.key_utils.serialize_uint64(to_label(cgraph, 10, 0, 0, 0, 1)) in res.rows
-        assert pychunkedgraph.backend.key_utils.serialize_uint64(to_label(cgraph, 10, 0, 0, 0, 2)) in res.rows
+        assert serializers.serialize_uint64(to_label(cgraph, 1, 0, 0, 0, 0)) in res.rows
+        assert serializers.serialize_uint64(to_label(cgraph, 1, 255, 255, 255, 0)) in res.rows
+        assert serializers.serialize_uint64(to_label(cgraph, 10, 0, 0, 0, 1)) in res.rows
+        assert serializers.serialize_uint64(to_label(cgraph, 10, 0, 0, 0, 2)) in res.rows
 
     @pytest.mark.timeout(30)
     def test_double_chunk_creation(self, gen_graph):
@@ -718,9 +725,9 @@ class TestGraphBuild:
         assert cgraph.get_chunk_layer(cgraph.get_root(to_label(cgraph, 1, 0, 0, 0, 2))) == 4
         assert cgraph.get_chunk_layer(cgraph.get_root(to_label(cgraph, 1, 1, 0, 0, 1))) == 4
 
-        lvl_3_child_ids = [cgraph.get_segment_id(cgraph.read_row(cgraph.get_root(to_label(cgraph, 1, 0, 0, 0, 1)), "children")[0]),
-                           cgraph.get_segment_id(cgraph.read_row(cgraph.get_root(to_label(cgraph, 1, 0, 0, 0, 2)), "children")[0]),
-                           cgraph.get_segment_id(cgraph.read_row(cgraph.get_root(to_label(cgraph, 1, 1, 0, 0, 1)), "children")[0])]
+        lvl_3_child_ids = [cgraph.get_segment_id(cgraph.read_row(cgraph.get_root(to_label(cgraph, 1, 0, 0, 0, 1)), column_keys.Hierarchy.Child)[0]),
+                           cgraph.get_segment_id(cgraph.read_row(cgraph.get_root(to_label(cgraph, 1, 0, 0, 0, 2)), column_keys.Hierarchy.Child)[0]),
+                           cgraph.get_segment_id(cgraph.read_row(cgraph.get_root(to_label(cgraph, 1, 1, 0, 0, 1)), column_keys.Hierarchy.Child)[0])]
 
         assert 4 in lvl_3_child_ids
         assert 5 in lvl_3_child_ids
@@ -905,7 +912,7 @@ class TestGraphSimpleQueries:
         assert to_label(cgraph, 1, 1, 0, 0, 0) in lvl1_nodes
         assert to_label(cgraph, 1, 1, 0, 0, 1) in lvl1_nodes
 
-    @pytest.mark.timeout(30)
+    @pytest.mark.timeout(0)
     def test_get_subgraph_edges(self, gen_graph_simplequerytest):
         cgraph = gen_graph_simplequerytest
         root1 = cgraph.get_root(to_label(cgraph, 1, 0, 0, 0, 0))
@@ -1186,7 +1193,7 @@ class TestGraphMerge:
         assert to_label(cgraph, 1, 0, 0, 0, 1) in leaves
         assert to_label(cgraph, 1, 0, 0, 0, 2) in leaves
 
-    @pytest.mark.timeout(30)
+    @pytest.mark.timeout(0)
     def test_merge_triple_chain_to_full_circle_neighboring_chunks(self, gen_graph):
         """
         Add edge between indirectly connected RG supervoxels 1 and 2 (neighboring chunks)
@@ -1459,7 +1466,7 @@ class TestGraphMerge:
 
         rr = cgraph.range_read_chunk(
             chunk_id=cgraph.get_chunk_id(layer=3, x=0, y=0, z=0))
-        root_ids_t0 = [pychunkedgraph.backend.key_utils.deserialize_uint64(k)
+        root_ids_t0 = [serializers.deserialize_uint64(k)
                        for k in rr.keys()]
 
         assert len(root_ids_t0) == 2
@@ -1776,7 +1783,7 @@ class TestGraphSplit:
         assert cgraph.get_root(to_label(cgraph, 1, 1, 0, 0, 0)) != cgraph.get_root(to_label(cgraph, 1, 1, 0, 0, 1))
         assert cgraph.get_root(to_label(cgraph, 1, 1, 0, 0, 0)) == cgraph.get_root(to_label(cgraph, 1, 2, 0, 0, 0))
 
-        cc_dict = cgraph.get_atomic_cross_edge_dict(cgraph.get_parent(to_label(cgraph, 1, 1, 0, 0, 0)), deserialize_node_ids=True, reshape=True)
+        cc_dict = cgraph.get_atomic_cross_edge_dict(cgraph.get_parent(to_label(cgraph, 1, 1, 0, 0, 0)), deserialize_node_ids=True)
         assert len(cc_dict[3]) == 1
         assert cc_dict[3][0][0] == to_label(cgraph, 1, 1, 0, 0, 0)
         assert cc_dict[3][0][1] == to_label(cgraph, 1, 2, 0, 0, 0)
@@ -1833,9 +1840,9 @@ class TestGraphSplit:
 
         assert len(new_root_ids) == 2
 
-        cc_dict = cgraph.get_atomic_cross_edge_dict(cgraph.get_parent(to_label(cgraph, 1, 1, 0, 0, 0)), deserialize_node_ids=True, reshape=True)
+        cc_dict = cgraph.get_atomic_cross_edge_dict(cgraph.get_parent(to_label(cgraph, 1, 1, 0, 0, 0)), deserialize_node_ids=True)
         assert len(cc_dict[3]) == 1
-        cc_dict = cgraph.get_atomic_cross_edge_dict(cgraph.get_parent(to_label(cgraph, 1, 1, 0, 0, 0)), deserialize_node_ids=True, reshape=True)
+        cc_dict = cgraph.get_atomic_cross_edge_dict(cgraph.get_parent(to_label(cgraph, 1, 1, 0, 0, 0)), deserialize_node_ids=True)
         assert len(cc_dict[3]) == 1
 
         assert len(cgraph.get_latest_roots()) == 3
@@ -2249,7 +2256,7 @@ class TestGraphSplit:
         cgraph.add_layer(3, np.array([[0, 0, 0], [1, 0, 0], [0, 1, 0], [1, 1, 0]]))
 
         rr = cgraph.range_read_chunk(chunk_id=cgraph.get_chunk_id(layer=3, x=0, y=0, z=0))
-        root_ids_t0 = [pychunkedgraph.backend.key_utils.deserialize_uint64(k) for k in rr.keys()]
+        root_ids_t0 = [serializers.deserialize_uint64(k) for k in rr.keys()]
 
         assert len(root_ids_t0) == 1
 
@@ -2335,7 +2342,7 @@ class TestGraphMergeSplit:
         cgraph = gen_graph_simplequerytest
 
         rr = cgraph.range_read_chunk(chunk_id=cgraph.get_chunk_id(layer=4, x=0, y=0, z=0))
-        root_ids_t0 = [pychunkedgraph.backend.key_utils.deserialize_uint64(k) for k in rr.keys()]
+        root_ids_t0 = [serializers.deserialize_uint64(k) for k in rr.keys()]
         child_ids = []
         for root_id in root_ids_t0:
             cgraph.logger.debug(f"root_id {root_id}")

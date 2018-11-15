@@ -3,7 +3,7 @@ import numpy as np
 import time
 
 import pychunkedgraph.backend.chunkedgraph_utils
-import pychunkedgraph.backend.key_utils
+from pychunkedgraph.backend.utils import serializers, column_keys
 from pychunkedgraph.backend import chunkedgraph
 from multiwrapper import multiprocessing_utils as mu
 
@@ -18,6 +18,7 @@ def _family_consistency_test_thread(args):
     cg = chunkedgraph.ChunkedGraph(table_id)
 
     rows = cg.range_read_chunk(layer_id, x, y, z)
+    parent_column = column_keys.Hierarchy.Parent
 
     failed_node_ids = []
 
@@ -29,9 +30,10 @@ def _family_consistency_test_thread(args):
             print("%d / %d - %.3fs -> %.3fs      " % (i_k, len(rows), dt, eta),
                   end="\r")
 
-        node_id = pychunkedgraph.backend.key_utils.deserialize_uint64(k)
-        parent_id = np.frombuffer(rows[k].cells["0"][b'parents'][0].value,
-                                  dtype=np.uint64)
+        node_id = serializers.deserialize_uint64(k)
+        parent_id = parent_column.deserialize(
+            rows[k].cells[parent_column.family_id][parent_column.key][0].value)
+
         if not node_id in cg.get_children(parent_id):
             failed_node_ids.append([node_id, parent_id])
 
@@ -82,16 +84,16 @@ def family_consistency_test(table_id, n_threads=64):
 def children_test(table_id, layer, coord_list):
 
     cg = chunkedgraph.ChunkedGraph(table_id)
+    child_column = column_keys.Hierarchy.Child
 
     for coords in coord_list:
         x, y, z = coords
 
-        node_ids = cg.range_read_chunk(layer, x, y, z, row_keys=['children'])
+        node_ids = cg.range_read_chunk(layer, x, y, z, columns=[child_column])
         all_children = []
         children_chunks = []
         for node_id_b, data in node_ids.items():
-            children = np.frombuffer(data.cells['0'][b'children'][0].value,
-                                     dtype=np.uint64)
+            children = child_column.deserialize(data.cells[child_column.family_id][child_column.key][0].value)
             for child in children:
                 all_children.append(child)
                 children_chunks.append(cg.get_chunk_id(child))

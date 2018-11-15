@@ -235,9 +235,9 @@ def create_chunked_graph(table_id=None, cv_url=None, ws_url=None, fan_out=2,
 
     print("N layers: %d" % n_layers)
 
-    cg = chunkedgraph.ChunkedGraph(table_id=table_id, n_layers=n_layers,
-                                   fan_out=fan_out,
-                                   chunk_size=tuple(chunk_size),
+    cg = chunkedgraph.ChunkedGraph(table_id=table_id, n_layers=np.uint64(n_layers),
+                                   fan_out=np.uint64(fan_out),
+                                   chunk_size=np.array(chunk_size, dtype=np.uint64),
                                    cv_path=ws_url, is_new=True)
 
     # Fill lowest layer and create first abstraction layer
