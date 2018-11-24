@@ -42,7 +42,7 @@ jobs:
 
       install:
         - sudo apt update && sudo apt install -y build-essential libboost-dev
-        - pip install tox-travis
+        - pip install tox-travis codecov
 
       before_script:
         - virtualenv --version
@@ -51,7 +51,7 @@ jobs:
         - tox --version
 
       script:
-        - tox -v
+        - tox -v -- --cov-config .coveragerc --cov=pychunkedgraph
 
       after_failure:
         - more .tox/log/* | cat
