@@ -1,6 +1,7 @@
 # PyChunkedGraph
 
 [![Build Status](https://travis-ci.org/seung-lab/PyChunkedGraph.svg?branch=master)](https://travis-ci.org/seung-lab/PyChunkedGraph)
+[![codecov](https://codecov.io/gh/seung-lab/PyChunkedGraph/branch/master/graph/badge.svg)](https://codecov.io/gh/seung-lab/PyChunkedGraph)
 
 <!---
 PyChunkedGraph consists of three parts:
