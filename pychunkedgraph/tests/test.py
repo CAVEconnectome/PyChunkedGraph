@@ -5,7 +5,8 @@ import pytest
 import numpy as np
 from functools import partial
 import collections
-from google.cloud import bigtable, exceptions
+from grpc._channel import _Rendezvous
+from google.cloud import bigtable
 from google.auth import credentials
 from math import inf
 from datetime import datetime, timedelta
@@ -35,7 +36,8 @@ def setup_emulator_env():
     try:
         t.create()
         return True
-    except exceptions._Rendezvous as e:
+    except Exception as err:
+        print('Bigtable Emulator not yet ready: %s' % err)
         return False
 
 
@@ -48,14 +50,13 @@ def bigtable_emulator(request):
 
     # Wait for Emulator to start up
     print("Waiting for BigTables Emulator to start up...", end='')
-    retries = 3
+    retries = 5
     while retries > 0:
         if setup_emulator_env() is True:
             break
         else:
-            print('.', end='')
             retries -= 1
-            sleep(10)
+            sleep(5)
 
     if retries == 0:
         print("\nCouldn't start Bigtable Emulator. Make sure it is installed correctly.")
