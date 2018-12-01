@@ -1,10 +1,10 @@
 import numpy as np
 import cloudvolume
 import itertools
-import pickle as pkl
+import dill
 
-from pychunkedgraph.backend import key_utils
 from pychunkedgraph.backend import chunkedgraph
+from pychunkedgraph.backend.utils import serializers, column_keys
 from multiwrapper import multiprocessing_utils as mu
 
 
@@ -35,10 +35,9 @@ def get_sv_to_root_id_mapping_chunk(cg, chunk_coords, vol=None):
         remapped_vol = np.zeros_like(vol)
 
     atomic_rows = cg.range_read_chunk(layer=1, x=chunk_coords[0],
-                                      y=chunk_coords[1], z=chunk_coords[2])
-    for atomic_key in atomic_rows.keys():
-        atomic_id = key_utils.deserialize_uint64(atomic_key)
-
+                                      y=chunk_coords[1], z=chunk_coords[2],
+                                      columns=column_keys.Hierarchy.Parent)
+    for atomic_id in atomic_rows.keys():
         # Check if already found the root for this supervoxel
         if atomic_id in sv_to_root_mapping:
             continue
@@ -170,46 +169,22 @@ def write_flat_segmentation(cg, dataset_name, bounding_box=None, block_factor=2,
 
 
 def export_changelog(cg, path=None):
-    """ Exports all changes to binary pickle file
+    """ Exports all changes to binary dill file
 
     :param cg: ChunkedGraph instance
     :param path: str
     :return: bool
     """
 
-    operations = cg.range_read_operations()
-
-    deserialized_operations = {}
-    for operation_k in operations.keys():
-        k = str(key_utils.deserialize_uint64(operation_k))
-        log = key_utils.row_to_byte_dict(
-            operations[operation_k], f_id=cg.log_family_id, idx=0)
-
-        try:
-            deserialized_operations[k] = deserialize_single_log(log)
-        except:
-            print("ERROR in", operation_k)
+    operations = cg.read_node_id_rows(start_id=np.uint64(0),
+                                      end_id=cg.get_max_operation_id(),
+                                      end_id_inclusive=True)
 
     if path is not None:
         with open(path, "wb") as f:
-            pkl.dump(deserialized_operations, f)
+            dill.dump(operations, f)
     else:
-        return deserialized_operations
-
-
-def deserialize_single_log(log_dict):
-    des_log_dict = {}
-
-    for k in log_dict:
-        if k == "user":
-            des_log_dict[k] = key_utils.deserialize_key(log_dict[k])
-        elif "coord" in k:
-            des_log_dict[k] = np.frombuffer(log_dict[k]).reshape(-1, 3)
-        elif "edges" in k:
-            des_log_dict[k] = np.frombuffer(log_dict[k], dtype=np.uint64).reshape(-1, 2)
-        else:
-            des_log_dict[k] = np.frombuffer(log_dict[k], dtype=np.uint64)
-    return des_log_dict
+        return operations
 
 
 def load_changelog(path):
@@ -220,7 +195,16 @@ def load_changelog(path):
     """
 
     with open(path, "rb") as f:
-        return pkl.load(f)
+        operations = dill.load(f)
+
+    # Dill can marshall the `serializer` functions used for each column, but their address
+    # won't match anymore, which breaks the hash lookup for `_Column`s. Hence, we simply create
+    # new `_Column`s from the old `family_id` and `key`
+    for operation_id, column_dict in operations.items():
+        operations[operation_id] = \
+            {column_keys.from_key(k.family_id, k.key): v for (k, v) in column_dict.items()}
+
+    return operations
 
 
 def get_log_diff(log_old, log_new):

@@ -13,7 +13,7 @@ sys.path.insert(0, os.path.join(sys.path[0], '../..'))
 os.environ['TRAVIS_BRANCH'] = "IDONTKNOWWHYINEEDTHIS"
 
 from pychunkedgraph.backend import chunkedgraph   # noqa
-from pychunkedgraph.backend import key_utils  # noqa
+from pychunkedgraph.backend.utils import serializers, column_keys  # noqa
 from pychunkedgraph.meshing import meshgen_utils # noqa
 
 
@@ -30,40 +30,41 @@ def _get_sv_to_node_mapping_internal(cg, chunk_id, unbreakable_only):
     xyz_plus_chunk_min_node_id = cg.get_chunk_id(
         layer=1, x=x + 1, y=y + 1, z=z + 1)
 
-    row_keys = ['atomic_partners', 'connected']
+    columns = [column_keys.Connectivity.Partner,
+               column_keys.Connectivity.Connected]
     if unbreakable_only:
-        row_keys.append('affinities')
+        columns.append(column_keys.Connectivity.Affinity)
 
-    seg_ids_center = cg.range_read_chunk(1, x, y, z, row_keys=row_keys)
+    seg_ids_center = cg.range_read_chunk(1, x, y, z, columns=columns)
 
     seg_ids_face_neighbors = {}
     seg_ids_face_neighbors.update(
-        cg.range_read_chunk(1, x + 1, y, z, row_keys=row_keys))
+        cg.range_read_chunk(1, x + 1, y, z, columns=columns))
     seg_ids_face_neighbors.update(
-        cg.range_read_chunk(1, x, y + 1, z, row_keys=row_keys))
+        cg.range_read_chunk(1, x, y + 1, z, columns=columns))
     seg_ids_face_neighbors.update(
-        cg.range_read_chunk(1, x, y, z + 1, row_keys=row_keys))
+        cg.range_read_chunk(1, x, y, z + 1, columns=columns))
 
     seg_ids_edge_neighbors = {}
     seg_ids_edge_neighbors.update(
-        cg.range_read_chunk(1, x + 1, y + 1, z, row_keys=row_keys))
+        cg.range_read_chunk(1, x + 1, y + 1, z, columns=columns))
     seg_ids_edge_neighbors.update(
-        cg.range_read_chunk(1, x, y + 1, z + 1, row_keys=row_keys))
+        cg.range_read_chunk(1, x, y + 1, z + 1, columns=columns))
     seg_ids_edge_neighbors.update(
-        cg.range_read_chunk(1, x + 1, y, z + 1, row_keys=row_keys))
+        cg.range_read_chunk(1, x + 1, y, z + 1, columns=columns))
 
     # Retrieve all face-adjacent supervoxel
     one_hop_neighbors = {}
-    for seg_id_b, data in seg_ids_center.items():
-        data = cg.flatten_row_dict(data.cells['0'])
-        partners = data['atomic_partners']
-        connected = get_connected(data['connected'])
+    for seg_id, data in seg_ids_center.items():
+        data = cg.flatten_row_dict(data)
+        partners = data[column_keys.Connectivity.Partner]
+        connected = data[column_keys.Connectivity.Connected]
         partners = partners[connected]
 
         # Only keep supervoxel within the "positive" adjacent chunks
         # (and if specified only the unbreakable counterparts)
         if unbreakable_only:
-            affinities = data['affinities']
+            affinities = data[column_keys.Connectivity.Affinity]
             affinities = affinities[connected]
 
             partners = partners[(affinities == np.inf) &
@@ -71,19 +72,18 @@ def _get_sv_to_node_mapping_internal(cg, chunk_id, unbreakable_only):
         else:
             partners = partners[partners > center_chunk_max_node_id]
 
-        one_hop_neighbors.update(dict(zip(partners, [seg_id_b] * len(partners))))
+        one_hop_neighbors.update(dict(zip(partners, [seg_id] * len(partners))))
 
     # Retrieve all edge-adjacent supervoxel
     two_hop_neighbors = {}
     for seg_id, base_id in one_hop_neighbors.items():
-        seg_id_b = key_utils.serialize_uint64(seg_id)
-        if seg_id_b not in seg_ids_face_neighbors:
+        if seg_id not in seg_ids_face_neighbors:
             # FIXME: Those are non-face-adjacent atomic partners caused by human
             #        proofreaders. They're crazy. Watch out for them.
             continue
-        data = cg.flatten_row_dict(seg_ids_face_neighbors[seg_id_b].cells['0'])
-        partners = data['atomic_partners']
-        connected = get_connected(data['connected'])
+        data = cg.flatten_row_dict(seg_ids_face_neighbors[seg_id])
+        partners = data[column_keys.Connectivity.Partner]
+        connected = data[column_keys.Connectivity.Connected]
         partners = partners[connected]
 
         # FIXME: The partners filter also keeps some connections to within the
@@ -91,7 +91,7 @@ def _get_sv_to_node_mapping_internal(cg, chunk_id, unbreakable_only):
         # That's OK for now, since the filters are only there to keep the
         # number of connections low
         if unbreakable_only:
-            affinities = data['affinities']
+            affinities = data[column_keys.Connectivity.Affinity]
             affinities = affinities[connected]
 
             partners = partners[(affinities == np.inf) &
@@ -106,23 +106,22 @@ def _get_sv_to_node_mapping_internal(cg, chunk_id, unbreakable_only):
     # Retrieve all corner-adjacent supervoxel
     three_hop_neighbors = {}
     for seg_id, base_id in list(two_hop_neighbors.items()):
-        seg_id_b = key_utils.serialize_uint64(seg_id)
-        if seg_id_b not in seg_ids_edge_neighbors:
+        if seg_id not in seg_ids_edge_neighbors:
             # See FIXME for edge-adjacent supervoxel - need to ignore those
             # FIXME 2: Those might also be non-face-adjacent atomic partners
             # caused by human proofreaders.
             del two_hop_neighbors[seg_id]
             continue
 
-        data = cg.flatten_row_dict(seg_ids_edge_neighbors[seg_id_b].cells['0'])
-        partners = data['atomic_partners']
-        connected = get_connected(data['connected'])
+        data = cg.flatten_row_dict(seg_ids_edge_neighbors[seg_id])
+        partners = data[column_keys.Connectivity.Partner]
+        connected = data[column_keys.Connectivity.Connected]
         partners = partners[connected]
 
         # We are only interested in the single corner voxel, but based on the
         # neighboring supervoxels, there might be a few more - doesn't matter.
         if unbreakable_only:
-            affinities = data['affinities']
+            affinities = data[column_keys.Connectivity.Affinity]
             affinities = affinities[connected]
 
             partners = partners[(affinities == np.inf) &
@@ -132,12 +131,11 @@ def _get_sv_to_node_mapping_internal(cg, chunk_id, unbreakable_only):
 
         three_hop_neighbors.update(dict(zip(partners, [base_id] * len(partners))))
 
-    sv_to_node_mapping = {seg_id: seg_id for seg_id in
-                          [np.uint64(x) for x in seg_ids_center.keys()]}
+    sv_to_node_mapping = {seg_id: seg_id for seg_id in seg_ids_center.keys()}
     sv_to_node_mapping.update(one_hop_neighbors)
     sv_to_node_mapping.update(two_hop_neighbors)
     sv_to_node_mapping.update(three_hop_neighbors)
-    sv_to_node_mapping = {np.uint64(k): np.uint64(v) for k, v in sv_to_node_mapping.items()}
+    sv_to_node_mapping = {k: v for k, v in sv_to_node_mapping.items()}
 
     return sv_to_node_mapping
 
@@ -167,13 +165,10 @@ def get_sv_to_node_mapping(cg, chunk_id):
                 cg, cg.get_chunk_id(layer=1, x=x, y=y, z=z), False)
 
         # Update supervoxel with their parents
-        seg_ids = cg.range_read_chunk(1, x, y, z, row_keys=['parents'])
+        seg_ids = cg.range_read_chunk(1, x, y, z, columns=column_keys.Hierarchy.Parent)
 
         for sv_id, base_sv_id in sv_to_node_mapping.items():
-            base_sv_id = key_utils.serialize_uint64(base_sv_id)
-            data = cg.flatten_row_dict(seg_ids[base_sv_id].cells['0'])
-            agg_id = data['parents'][-1]  # latest parent
-
+            agg_id = seg_ids[base_sv_id][0].value  # latest parent
             sv_to_node_mapping[sv_id] = agg_id
 
         return sv_to_node_mapping
@@ -265,9 +260,9 @@ def chunk_mesh_task(cg, chunk_id, cv_path,
 
         create_new_fragments: bool = layer < cg.n_layers - 2
 
-        node_ids = cg.range_read_chunk(layer, cx, cy, cz, row_keys=['children'])
+        node_ids = cg.range_read_chunk(layer, cx, cy, cz, columns=column_keys.Hierarchy.Child)
 
-        manifests_to_fetch = {np.uint64(x): [] for x in node_ids.keys()}
+        manifests_to_fetch = {x: [] for x in node_ids.keys()}
 
         mesh_dir = cv_mesh_dir or meshgen_utils.get_segmentation_info(cg)['mesh']
 
@@ -276,9 +271,8 @@ def chunk_mesh_task(cg, chunk_id, cv_path,
         bbox_end = bbox_start + chunk_block_shape
         chunk_bbox_str = meshgen_utils.slice_to_str(slice(bbox_start[i], bbox_end[i]) for i in range(3))
 
-        for node_id_b, data in node_ids.items():
-            node_id = np.uint64(node_id_b)
-            children = np.frombuffer(data.cells['0'][b'children'][0].value, dtype=np.uint64)
+        for node_id, children in node_ids.items():
+            children = children[0].value
             manifests_to_fetch[node_id].extend((f'{c}:0' for c in children))
 
         with Storage(os.path.join(cg.cv_path, mesh_dir)) as storage:
