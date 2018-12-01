@@ -830,6 +830,25 @@ class TestGraphSimpleQueries:
         # with pytest.raises(IndexError):
         #     cgraph.get_parent(to_label(cgraph, 5, 0, 0, 0, 1), get_only_relevant_parent=True, time_stamp=None)
 
+        children2_separate = cgraph.get_children([to_label(cgraph, 2, 0, 0, 0, 1),
+                                                  to_label(cgraph, 2, 1, 0, 0, 1),
+                                                  to_label(cgraph, 2, 2, 0, 0, 1)])
+        assert len(children2_separate) == 3
+        assert to_label(cgraph, 2, 0, 0, 0, 1) in children2_separate and \
+               np.all(np.isin(children2_separate[to_label(cgraph, 2, 0, 0, 0, 1)], children20001))
+        assert to_label(cgraph, 2, 1, 0, 0, 1) in children2_separate and \
+               np.all(np.isin(children2_separate[to_label(cgraph, 2, 1, 0, 0, 1)], children21001))
+        assert to_label(cgraph, 2, 2, 0, 0, 1) in children2_separate and \
+               np.all(np.isin(children2_separate[to_label(cgraph, 2, 2, 0, 0, 1)], children22001))
+
+        children2_combined = cgraph.get_children([to_label(cgraph, 2, 0, 0, 0, 1),
+                                                  to_label(cgraph, 2, 1, 0, 0, 1),
+                                                  to_label(cgraph, 2, 2, 0, 0, 1)], flatten=True)
+        assert len(children2_combined) == 4 and \
+                np.all(np.isin(children20001, children2_combined)) and \
+                np.all(np.isin(children21001, children2_combined)) and \
+                np.all(np.isin(children22001, children2_combined))
+
     @pytest.mark.timeout(30)
     def test_get_root(self, gen_graph_simplequerytest):
         cgraph = gen_graph_simplequerytest

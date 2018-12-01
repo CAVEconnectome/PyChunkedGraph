@@ -1913,18 +1913,31 @@ class ChunkedGraph(object):
 
         return [(p.value, p.timestamp) for p in parents]
 
-    def get_children(self, node_id: np.uint64) -> np.ndarray:
-        """ Returns all children of a node
+    def get_children(self, node_id: Union[Iterable[np.uint64], np.uint64],
+                     flatten: bool = False) -> Union[Dict[np.uint64, np.ndarray], np.ndarray]:
+        """Returns children for the specified NodeID or NodeIDs
 
-        :param node_id: np.uint64
-        :return: np.ndarray[np.uint64]
+        :param node_id: The NodeID or NodeIDs for which to retrieve children
+        :type node_id: Union[Iterable[np.uint64], np.uint64]
+        :param flatten: If True, combine all children into a single array, else generate a map
+            of input ``node_id`` to their respective children.
+        :type flatten: bool, default is True
+        :return: Children for each requested NodeID. The return type depends on the ``flatten``
+            parameter.
+        :rtype: Union[Dict[np.uint64, np.ndarray], np.ndarray]
         """
-        children = self.read_node_id_row(node_id, columns=column_keys.Hierarchy.Child)
-
-        if not children:
-            return np.empty(0, dtype=basetypes.NODE_ID)
-
-        return children[0].value
+        if np.isscalar(node_id):
+            children = self.read_node_id_row(node_id=node_id, columns=column_keys.Hierarchy.Child)
+            if not children:
+                return np.empty(0, dtype=basetypes.NODE_ID)
+            return children[0].value
+        else:
+            children = self.read_node_id_rows(node_ids=node_id, columns=column_keys.Hierarchy.Child)
+            if flatten:
+                return np.concatenate([x[0].value for x in children.values()])
+            return {x: children[x][0].value
+                       if x in children else np.empty(0, dtype=basetypes.NODE_ID)
+                    for x in node_id}
 
     def get_latest_roots(self, time_stamp: Optional[datetime.datetime] = get_max_time(),
                          n_threads: int = 1) -> Sequence[np.uint64]:
