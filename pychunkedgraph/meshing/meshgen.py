@@ -15,7 +15,7 @@ os.environ['TRAVIS_BRANCH'] = "IDONTKNOWWHYINEEDTHIS"
 from pychunkedgraph.backend import chunkedgraph   # noqa
 from pychunkedgraph.backend.utils import serializers, column_keys  # noqa
 from pychunkedgraph.meshing import meshgen_utils # noqa
-
+from pychunkedgraph.meshing.worker import mesh_lvl2_previews_task
 
 def get_connected(connectivity):
     u_ids, c_ids = np.unique(connectivity, return_counts=True)
@@ -357,7 +357,8 @@ def chunk_mesh_task(cg, chunk_id, cv_path,
 def mesh_lvl2_previews(cg, lvl2_node_ids, cv_path=None,
                        cv_mesh_dir=None, mip=2, simplification_factor=999999,
                        max_err=40, parallel_download=8, verbose=True,
-                       cache_control="no-cache", n_threads=1):
+                       cache_control="no-cache", n_threads=1,
+                       use_celery_worker=False):
 
     serialized_cg_info = cg.get_serialized_info()
     del serialized_cg_info["credentials"]
@@ -367,11 +368,11 @@ def mesh_lvl2_previews(cg, lvl2_node_ids, cv_path=None,
 
     multi_args = []
     for lvl2_node_id in lvl2_node_ids.keys():
-        multi_args.append([serialized_cg_info, lvl2_node_id,
-                           lvl2_node_ids[lvl2_node_id],
-                           cv_path, cv_mesh_dir, mip, simplification_factor,
-                           max_err, parallel_download, verbose,
-                           cache_control])
+            multi_args.append([serialized_cg_info, lvl2_node_id,
+                            lvl2_node_ids[lvl2_node_id],
+                            cv_path, cv_mesh_dir, mip, simplification_factor,
+                            max_err, parallel_download, verbose,
+                            cache_control])
 
     # Run parallelizing
     if n_threads == 1:
@@ -379,8 +380,12 @@ def mesh_lvl2_previews(cg, lvl2_node_ids, cv_path=None,
                              multi_args, n_threads=n_threads,
                              verbose=False, debug=n_threads==1)
     else:
-        mu.multisubprocess_func(_mesh_lvl2_previews_threads,
-                                multi_args, n_threads=n_threads)
+        if use_celery_worker:
+            res = mesh_lvl2_previews_task.chunks(multi_args, n_threads)
+            res.get()
+        else:
+            mu.multisubprocess_func(_mesh_lvl2_previews_threads,
+                                    multi_args, n_threads=n_threads)
 
 
 def _mesh_lvl2_previews_threads(args):

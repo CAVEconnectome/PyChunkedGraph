@@ -26,12 +26,12 @@ app = Celery('tasks', broker=broker_url, backend='amqp')
 
 
 @app.task
-def mesh_lvl2_previews_threads(serialized_cg_info, lvl2_node_id,
-                               supervoxel_ids,
-                               cv_path=None,
-                               cv_mesh_dir=None, mip=2, simplification_factor=999999,
-                               max_err=40, parallel_download=8, verbose=True,
-                               cache_control="no-cache"):
+def mesh_lvl2_previews_task(serialized_cg_info, lvl2_node_id,
+                            supervoxel_ids,
+                            cv_path=None,
+                            cv_mesh_dir=None, mip=2, simplification_factor=999999,
+                            max_err=40, parallel_download=8, verbose=True,
+                            cache_control="no-cache"):
                      
     cg = chunkedgraph.ChunkedGraph(**serialized_cg_info)
     mesh_lvl2_preview(cg, lvl2_node_id, supervoxel_ids=supervoxel_ids,
@@ -39,3 +39,4 @@ def mesh_lvl2_previews_threads(serialized_cg_info, lvl2_node_id,
                       simplification_factor=simplification_factor,
                       max_err=max_err, parallel_download=parallel_download,
                       verbose=verbose, cache_control=cache_control)
+
