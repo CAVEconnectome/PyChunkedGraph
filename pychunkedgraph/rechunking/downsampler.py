@@ -11,7 +11,7 @@ def downsample_dataset(dataset_name, from_mip=-1, num_mips=1, local=False,
     elif dataset_name == "basil":
         ws_path = "gs://neuroglancer/svenmd/basil_4k_oldnet_cg/watershed/"
     elif dataset_name == "pinky100":
-        ws_path = "gs://neuroglancer/nkem/pinky100_v0/ws/lost_no-random/bbox1_0/"
+        ws_path = "gs://neuroglancer/svenmd/pinky100_v0/ws/lost_no-random/bbox1_0_64_64_16/"
     else:
         raise Exception("Dataset unknown")
 

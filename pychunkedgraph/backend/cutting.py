@@ -131,14 +131,11 @@ def mincut(edges: Iterable[Sequence[np.uint64]], affs: Sequence[np.uint64],
     for cc in ccs:
         cc_list = list(cc)
 
-        if not (np.any(np.in1d(sources, cc_list)) or
-                       np.any(np.in1d(sinks, cc_list))):
+        # If connected component contains no sources and/or no sinks,
+        # remove its nodes from the mincut computation
+        if not np.any(np.in1d(sources, cc_list)) or \
+                not np.any(np.in1d(sinks, cc_list)):
             weighted_graph.remove_nodes_from(cc)
-        else:
-            if (np.any(~np.in1d(sources, cc_list)) or \
-                    np.any(~np.in1d(sinks, cc_list))) and logger is not None:
-                logger.debug("sources and sinks are in different connected components")
-                # return []
 
     r_flow = edmonds_karp(weighted_graph, sinks[0], sources[0])
     cutset = minimum_st_edge_cut(weighted_graph, sources[0], sinks[0],
