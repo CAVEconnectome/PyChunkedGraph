@@ -13,7 +13,7 @@ env:
     - CLOUDSDK_CORE_DISABLE_PROMPTS=1
     - RABBITMQ_USERNAME=guest
     - RABBITMQ_PASSWORD=guest
-    - MESSAGE_QUEUE_SERVICE_HOST=localhost
+    - MESSAGE_QUEUE_SERVICE_HOST=127.0.0.1
 stages:
   - test
   - name: merge-deploy
