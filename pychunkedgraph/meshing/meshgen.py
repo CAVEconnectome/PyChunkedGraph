@@ -8,6 +8,7 @@ from multiwrapper import multiprocessing_utils as mu
 from cloudvolume import Storage, EmptyVolumeException
 from cloudvolume.meshservice import decode_mesh_buffer
 from igneous.tasks import MeshTask
+from pychunkedgraph.meshing.rabbitmq import app, channel, remesh_exchange
 
 sys.path.insert(0, os.path.join(sys.path[0], '../..'))
 os.environ['TRAVIS_BRANCH'] = "IDONTKNOWWHYINEEDTHIS"
@@ -15,7 +16,7 @@ os.environ['TRAVIS_BRANCH'] = "IDONTKNOWWHYINEEDTHIS"
 from pychunkedgraph.backend import chunkedgraph   # noqa
 from pychunkedgraph.backend.utils import serializers, column_keys  # noqa
 from pychunkedgraph.meshing import meshgen_utils # noqa
-from pychunkedgraph.meshing.worker import mesh_lvl2_previews_task
+
 
 def get_connected(connectivity):
     u_ids, c_ids = np.unique(connectivity, return_counts=True)
@@ -369,10 +370,10 @@ def mesh_lvl2_previews(cg, lvl2_node_ids, cv_path=None,
     multi_args = []
     for lvl2_node_id in lvl2_node_ids.keys():
             multi_args.append([serialized_cg_info, lvl2_node_id,
-                            lvl2_node_ids[lvl2_node_id],
-                            cv_path, cv_mesh_dir, mip, simplification_factor,
-                            max_err, parallel_download, verbose,
-                            cache_control])
+                               lvl2_node_ids[lvl2_node_id],
+                               cv_path, cv_mesh_dir, mip, simplification_factor,
+                               max_err, parallel_download, verbose,
+                               cache_control])
 
     # Run parallelizing
     if n_threads == 1:
@@ -388,10 +389,14 @@ def mesh_lvl2_previews(cg, lvl2_node_ids, cv_path=None,
                                     multi_args, n_threads=n_threads)
 
 
-def _mesh_lvl2_previews_threads(args):
-    serialized_cg_info, lvl2_node_id, supervoxel_ids, \
-        cv_path, cv_mesh_dir, mip, simplification_factor, \
-        max_err, parallel_download, verbose, cache_control = args
+# this configures this function as a celery task
+@app.task
+def mesh_lvl2_previews_task(serialized_cg_info, lvl2_node_id,
+                            supervoxel_ids,
+                            cv_path=None,
+                            cv_mesh_dir=None, mip=2, simplification_factor=999999,
+                            max_err=40, parallel_download=8, verbose=True,
+                            cache_control="no-cache"):
 
     cg = chunkedgraph.ChunkedGraph(**serialized_cg_info)
     mesh_lvl2_preview(cg, lvl2_node_id, supervoxel_ids=supervoxel_ids,
@@ -399,6 +404,24 @@ def _mesh_lvl2_previews_threads(args):
                       simplification_factor=simplification_factor,
                       max_err=max_err, parallel_download=parallel_download,
                       verbose=verbose, cache_control=cache_control)
+
+    # now that this meshing worker has completed its task successfully
+    # we are broadcasting a message saying what it did
+    # compartment classification can consume this message to selectively rerun
+    message = {
+        'serialized_cg_info': serialized_cg_info,
+        'cv_path': cv_path,
+        'cv_mesh_dir': cv_mesh_dir,
+        'mip': mip,
+        'max_err': max_err,
+        'parallel_download': parallel_download,
+        'supervoxel_ids': supervoxel_ids,
+        'lvl2_node_id': lvl2_node_id
+    }
+    # publish the message to the remesh exchange
+    channel.basic_publish(exchange=remesh_exchange,
+                          routing_key='',
+                          body=json.dumps(message))
 
 
 def mesh_lvl2_preview(cg, lvl2_node_id, supervoxel_ids=None, cv_path=None,
@@ -463,6 +486,19 @@ def mesh_lvl2_preview(cg, lvl2_node_id, supervoxel_ids=None, cv_path=None,
         print("Preview Mesh for layer 2 Node ID %d: %.3fms (%d supervoxel)" %
               (lvl2_node_id, (time.time() - time_start) * 1000, len(supervoxel_ids)))
     return
+
+
+def _mesh_lvl2_previews_threads(args):
+    serialized_cg_info, lvl2_node_id, supervoxel_ids, \
+        cv_path, cv_mesh_dir, mip, simplification_factor, \
+        max_err, parallel_download, verbose, cache_control = args
+
+    cg = chunkedgraph.ChunkedGraph(**serialized_cg_info)
+    mesh_lvl2_preview(cg, lvl2_node_id, supervoxel_ids=supervoxel_ids,
+                      cv_path=cv_path, cv_mesh_dir=cv_mesh_dir, mip=mip,
+                      simplification_factor=simplification_factor,
+                      max_err=max_err, parallel_download=parallel_download,
+                      verbose=verbose, cache_control=cache_control)
 
 
 def run_task_bundle(settings, layer, roi):

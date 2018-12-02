@@ -1,0 +1,14 @@
+version: "2.1"
+services:
+  message_queue:
+    restart: on-failure:3
+    image: rabbitmq:3-management
+    environment:
+    - RABBITMQ_DEFAULT_USER=rabbit
+    - RABBITMQ_DEFAULT_PASS=rabbitmq
+    expose:
+    - "5672"
+    - "15672"
+    ports:
+    - "5672:5672"
+    - "15672:15672"
