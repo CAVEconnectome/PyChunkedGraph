@@ -11,7 +11,9 @@ cache:
 env:
   global:
     - CLOUDSDK_CORE_DISABLE_PROMPTS=1
-
+    - RABBITMQ_USERNAME=guest
+    - RABBITMQ_PASSWORD=guest
+    - MESSAGE_QUEUE_SERVICE_HOST=localhost
 stages:
   - test
   - name: merge-deploy
@@ -26,7 +28,8 @@ jobs:
     - stage: test
       name: "Running Tests -- Python 3.6"
       python: 3.6
-
+      services:
+        - rabbitmq
       before_install:
         - if [ ! -d $HOME/google-cloud-sdk/bin ]; then
             rm -rf $HOME/google-cloud-sdk;
