@@ -20,7 +20,7 @@ from pychunkedgraph.backend.chunkedgraph_utils import compute_indices_pandas, \
     combine_cross_chunk_edge_dicts, time_min, partial_row_data_to_column_dict
 from pychunkedgraph.backend.utils import serializers, column_keys, row_keys, basetypes
 from pychunkedgraph.backend import chunkedgraph_exceptions as cg_exceptions
-from pychunkedgraph.meshing import meshgen, worker
+from pychunkedgraph.meshing import meshgen
 
 from google.api_core.retry import Retry, if_exception_type
 from google.api_core.exceptions import Aborted, DeadlineExceeded, \
@@ -3069,14 +3069,9 @@ class ChunkedGraph(object):
                                    operation_id=operation_id,
                                    slow_retry=False):
                     if remesh_preview:
-                        if use_mesh_celery_worker:
-                            serialized_cg_info = self.get_serialized_info()
-                            del serialized_cg_info["credentials"]
-
-                            worker.mesh_lvl2_preview(serialized_cg_info, )
-                        else:
                             meshgen.mesh_lvl2_previews(self, list(
-                                lvl2_node_mapping.keys()))
+                                lvl2_node_mapping.keys()),
+                                use_celery_worker=use_mesh_celery_worker)
 
                     return new_root_id
 

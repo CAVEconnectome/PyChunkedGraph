@@ -21,7 +21,7 @@ broker_url = 'amqp://%s:%s@%s/%s' % (rabbitmq_user,
                                      broker_service_host,
                                      rabbitmq_vhost)
 # this sets this module up as a celery worker app
-app = Celery('tasks', broker=broker_url, backend='amqp')
+app = Celery('tasks', broker=broker_url, backend='rpc')
 
 # this sets up the pike client to do a broadcast of the remeshing event
 # which may or may not have a consumer queue
