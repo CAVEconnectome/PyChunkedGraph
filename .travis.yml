@@ -11,8 +11,8 @@ cache:
 env:
   global:
     - CLOUDSDK_CORE_DISABLE_PROMPTS=1
-    - RABBITMQ_USERNAME=guest
-    - RABBITMQ_PASSWORD=guest
+    - RABBITMQ_USERNAME=rabbit
+    - RABBITMQ_PASSWORD=rabbitmq
     - MESSAGE_QUEUE_SERVICE_HOST=127.0.0.1
 stages:
   - test
@@ -28,8 +28,6 @@ jobs:
     - stage: test
       name: "Running Tests -- Python 3.6"
       python: 3.6
-      services:
-        - rabbitmq
       before_install:
         - if [ ! -d $HOME/google-cloud-sdk/bin ]; then
             rm -rf $HOME/google-cloud-sdk;
@@ -42,16 +40,17 @@ jobs:
         - python --version
         - uname -a
         - lsb_release -a
-
+        - docker-compose up -d
       install:
         - sudo apt update && sudo apt install -y build-essential libboost-dev
-        - pip install tox-travis codecov
+        - pip install tox-travis codecov docker-compose
 
       before_script:
         - virtualenv --version
         - easy_install --version
         - pip --version
         - tox --version
+        
 
       script:
         - tox -v -- --cov-config .coveragerc --cov=pychunkedgraph

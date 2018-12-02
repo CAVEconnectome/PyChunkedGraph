@@ -27,8 +27,7 @@ app = Celery('tasks', broker=broker_url, backend='rpc')
 # which may or may not have a consumer queue
 pika_credential = pika.PlainCredentials(rabbitmq_user, rabbitmq_password)
 parameters = pika.ConnectionParameters(broker_service_host,
-                                       5672,
-                                       rabbitmq_vhost,
+                                       virtual_host=rabbitmq_vhost,
                                        credentials=pika_credential)
 connection = pika.BlockingConnection(parameters)
 channel = connection.channel()
