@@ -3,7 +3,6 @@ pandas
 networkx
 google-cloud-bigtable==0.31.1
 google-cloud-datastore
-networkx
 flask
 flask_cors
 codecov
@@ -12,3 +11,4 @@ cloud-volume
 python-json-logger
 igneous==dev
 celery
+pika
