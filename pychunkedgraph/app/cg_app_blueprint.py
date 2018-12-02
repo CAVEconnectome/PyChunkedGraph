@@ -1,5 +1,5 @@
-from flask import Blueprint, request, make_response, jsonify
-from flask import current_app
+from flask import Blueprint, request, make_response, jsonify, current_app,\
+    redirect
 
 import json
 import numpy as np
@@ -135,17 +135,32 @@ def sleep_me(sleep):
     return "zzz... {} ... awake".format(sleep)
 
 
-@bp.route('/1.0/table', methods=['GET'])
+# @bp.route('/1.0/table', methods=['GET'])
+# def handle_table():
+#     # Call ChunkedGraph
+#     cg = app_utils.get_cg()
+#
+#     # Return binary
+#     return cg.table_id
+
+
+@bp.route('/1.0/tables', methods=['GET'])
 def handle_table():
     # Call ChunkedGraph
-    cg = app_utils.get_cg()
+    mcg = app_utils.get_mcg()
 
     # Return binary
-    return cg.table_id
+    return mcg.get_existing_tables()
 
 
 @bp.route('/1.0/graph/root', methods=['POST', 'GET'])
-def handle_root():
+def handle_root_re():
+    return redirect('/1.0/%s/graph/root' %
+                    current_app.config['CHUNKGRAPH_TABLE_ID'])
+
+
+@bp.route('/1.0/<table_id>/graph/root', methods=['POST', 'GET'])
+def handle_root(table_id):
     atomic_id = np.uint64(json.loads(request.data)[0])
 
     # Convert seconds since epoch to UTC datetime
@@ -156,7 +171,7 @@ def handle_root():
         raise(cg_exceptions.BadRequest("Timestamp parameter is not a valid unix timestamp"))
 
     # Call ChunkedGraph
-    cg = app_utils.get_cg()
+    cg = app_utils.get_mcg().get_chunkedgraph(table_id)
     root_id = cg.get_root(atomic_id, time_stamp=timestamp)
 
     # Return binary
@@ -164,7 +179,13 @@ def handle_root():
 
 
 @bp.route('/1.0/graph/merge', methods=['POST', 'GET'])
-def handle_merge():
+def handle_merge_re():
+    return redirect('/1.0/%s/graph/merge' %
+                    current_app.config['CHUNKGRAPH_TABLE_ID'])
+
+
+@bp.route('/1.0/<table_id>/graph/merge', methods=['POST', 'GET'])
+def handle_merge(table_id):
     nodes = json.loads(request.data)
 
     assert len(nodes) == 2
@@ -172,7 +193,7 @@ def handle_merge():
     user_id = str(request.remote_addr)
 
     # Call ChunkedGraph
-    cg = app_utils.get_cg()
+    cg = app_utils.get_mcg().get_chunkedgraph(table_id)
 
     atomic_edge = []
     coords = []
@@ -233,7 +254,13 @@ def handle_merge():
 
 
 @bp.route('/1.0/graph/split', methods=['POST', 'GET'])
-def handle_split():
+def handle_split_re():
+    return redirect('/1.0/%s/graph/split' %
+                    current_app.config['CHUNKGRAPH_TABLE_ID'])
+
+
+@bp.route('/1.0/<table_id>/graph/split', methods=['POST', 'GET'])
+def handle_split(table_id):
     data = json.loads(request.data)
 
     user_id = str(request.remote_addr)
@@ -241,7 +268,7 @@ def handle_split():
     current_app.logger.debug(data)
 
     # Call ChunkedGraph
-    cg = app_utils.get_cg()
+    cg = app_utils.get_mcg().get_chunkedgraph(table_id)
 
     data_dict = {}
     for k in ["sources", "sinks"]:
@@ -307,7 +334,13 @@ def handle_split():
 
 
 @bp.route('/1.0/graph/shatter', methods=['POST', 'GET'])
-def handle_shatter():
+def handle_shatter_re():
+    return redirect('/1.0/%s/graph/shatter' %
+                    current_app.config['CHUNKGRAPH_TABLE_ID'])
+
+
+@bp.route('/1.0/<table_id>/graph/shatter', methods=['POST', 'GET'])
+def handle_shatter(table_id):
     data = json.loads(request.data)
 
     user_id = str(request.remote_addr)
@@ -315,7 +348,7 @@ def handle_shatter():
     current_app.logger.debug(data)
 
     # Call ChunkedGraph
-    cg = app_utils.get_cg()
+    cg = app_utils.get_mcg().get_chunkedgraph(table_id)
 
     data_dict = collections.defaultdict(list)
 
@@ -376,9 +409,16 @@ def handle_shatter():
 
 
 @bp.route('/1.0/segment/<parent_id>/children', methods=['POST', 'GET'])
-def handle_children(parent_id):
+def handle_children_re(parent_id):
+    return redirect('/1.0/%s/segment/%s/children' %
+                    (current_app.config['CHUNKGRAPH_TABLE_ID'], parent_id))
+
+
+@bp.route('/1.0/<table_id>/segment/<parent_id>/children',
+          methods=['POST', 'GET'])
+def handle_children(table_id, parent_id):
     # Call ChunkedGraph
-    cg = app_utils.get_cg()
+    cg = app_utils.get_mcg().get_chunkedgraph(table_id)
 
     parent_id = np.uint64(parent_id)
     layer = cg.get_chunk_layer(parent_id)
@@ -393,7 +433,13 @@ def handle_children(parent_id):
 
 
 @bp.route('/1.0/segment/<root_id>/leaves', methods=['POST', 'GET'])
-def handle_leaves(root_id):
+def handle_leaves_re(root_id):
+    return redirect('/1.0/%s/segment/%s/leaves' %
+                    (current_app.config['CHUNKGRAPH_TABLE_ID'], root_id))
+
+
+@bp.route('/1.0/<table_id>/segment/<root_id>/leaves', methods=['POST', 'GET'])
+def handle_leaves(table_id, root_id):
     if "bounds" in request.args:
         bounds = request.args["bounds"]
         bounding_box = np.array([b.split("-") for b in bounds.split("_")],
@@ -402,7 +448,7 @@ def handle_leaves(root_id):
         bounding_box = None
 
     # Call ChunkedGraph
-    cg = app_utils.get_cg()
+    cg = app_utils.get_mcg().get_chunkedgraph(table_id)
     atomic_ids = cg.get_subgraph_nodes(int(root_id),
                                        bounding_box=bounding_box,
                                        bb_is_coordinate=True)
@@ -411,9 +457,15 @@ def handle_leaves(root_id):
     return app_utils.tobinary(atomic_ids)
 
 
-@bp.route('/1.0/segment/<atomic_id>/leaves_from_leave',
+@bp.route('/1.0/segment/<atomic_id>/leaves_from_leave', methods=['POST', 'GET'])
+def handle_leaves_from_leave_re(atomic_id):
+    return redirect('/1.0/%s/segment/%s/leaves_from_leave' %
+                    (current_app.config['CHUNKGRAPH_TABLE_ID'], atomic_id))
+
+
+@bp.route('/1.0/<table_id>/segment/<atomic_id>/leaves_from_leave',
           methods=['POST', 'GET'])
-def handle_leaves_from_leave(atomic_id):
+def handle_leaves_from_leave(table_id, atomic_id):
     if "bounds" in request.args:
         bounds = request.args["bounds"]
         bounding_box = np.array([b.split("-") for b in bounds.split("_")],
@@ -422,7 +474,7 @@ def handle_leaves_from_leave(atomic_id):
         bounding_box = None
 
     # Call ChunkedGraph
-    cg = app_utils.get_cg()
+    cg = app_utils.get_mcg().get_chunkedgraph(table_id)
     root_id = cg.get_root(int(atomic_id))
 
     atomic_ids = cg.get_subgraph_nodes(root_id,
@@ -433,7 +485,13 @@ def handle_leaves_from_leave(atomic_id):
 
 
 @bp.route('/1.0/segment/<root_id>/subgraph', methods=['POST', 'GET'])
-def handle_subgraph(root_id):
+def handle_subgraph_re(root_id):
+    return redirect('/1.0/%s/segment/%s/subgraph' %
+                    (current_app.config['CHUNKGRAPH_TABLE_ID'], root_id))
+
+
+@bp.route('/1.0/<table_id>/segment/<root_id>/subgraph', methods=['POST', 'GET'])
+def handle_subgraph(table_id, root_id):
     if "bounds" in request.args:
         bounds = request.args["bounds"]
         bounding_box = np.array([b.split("-") for b in bounds.split("_")],
@@ -442,7 +500,7 @@ def handle_subgraph(root_id):
         bounding_box = None
 
     # Call ChunkedGraph
-    cg = app_utils.get_cg()
+    cg = app_utils.get_mcg().get_chunkedgraph(table_id)
     atomic_edges = cg.get_subgraph_edges(int(root_id),
                                          bounding_box=bounding_box,
                                          bb_is_coordinate=True)[0]

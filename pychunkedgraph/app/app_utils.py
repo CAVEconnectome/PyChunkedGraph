@@ -8,7 +8,7 @@ import numpy as np
 import logging
 import time
 
-from pychunkedgraph.backend import chunkedgraph
+from pychunkedgraph.backend import chunkedgraph_meta
 from pychunkedgraph.logging import flask_log_db, jsonformatter
 
 cache = {}
@@ -33,20 +33,20 @@ def get_bigtable_client(config):
     return client
 
 
-def get_datastore_client(config):
-    project_id = config.get('project_id', 'pychunkedgraph')
+# def get_datastore_client(config):
+#     project_id = config.get('project_id', 'pychunkedgraph')
+#
+#     if config.get('emulate', False):
+#         credentials = DoNothingCreds()
+#     else:
+#         credentials, project_id = default_creds()
+#
+#     client = datastore.Client(project=project_id, credentials=credentials)
+#     return client
 
-    if config.get('emulate', False):
-        credentials = DoNothingCreds()
-    else:
-        credentials, project_id = default_creds()
 
-    client = datastore.Client(project=project_id, credentials=credentials)
-    return client
-
-
-def get_cg():
-    if 'cg' not in cache:
+def get_mcg():
+    if 'mcg' not in cache:
         instance_id = current_app.config['CHUNKGRAPH_INSTANCE_ID']
         table_id = current_app.config['CHUNKGRAPH_TABLE_ID']
         client = get_bigtable_client(current_app.config)
@@ -69,21 +69,19 @@ def get_cg():
         logger.addHandler(handler)
 
         # Create ChunkedGraph
-        cache["cg"] = chunkedgraph.ChunkedGraph(instance_id=instance_id,
-                                                table_id=table_id,
-                                                client=client,
-                                                logger=logger)
-    return cache["cg"]
+        cache["mcg"] = chunkedgraph_meta.ChunkedGraphMeta(
+            instance_id=instance_id, client=client, logger=logger)
+        return cache["mcg"]
 
 
-def get_log_db():
-    if 'log_db' not in cache:
-        table_id = current_app.config['CHUNKGRAPH_TABLE_ID']
-        client = get_datastore_client(current_app.config)
-        cache["log_db"] = flask_log_db.FlaskLogDatabase(table_id,
-                                                        client=client)
-
-    return cache["log_db"]
+# def get_log_db():
+#     if 'log_db' not in cache:
+#         table_id = current_app.config['CHUNKGRAPH_TABLE_ID']
+#         client = get_datastore_client(current_app.config)
+#         cache["log_db"] = flask_log_db.FlaskLogDatabase(table_id,
+#                                                         client=client)
+#
+#     return cache["log_db"]
 
 
 def tobinary(ids):

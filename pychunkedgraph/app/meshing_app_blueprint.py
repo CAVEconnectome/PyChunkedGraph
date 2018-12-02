@@ -1,4 +1,5 @@
-from flask import Blueprint, request, make_response, jsonify, Response
+from flask import Blueprint, request, make_response, jsonify, Response,\
+    redirect, current_app
 # from flask import current_app
 # from google.cloud import pubsub_v1
 import json
@@ -40,13 +41,18 @@ def home():
 
 # ------------------------------------------------------------------------------
 
+@bp.route('/1.0/<node_id>/mesh_preview', methods=['POST', 'GET'])
+def handle_preview_meshes_re(node_id):
+    return redirect('/1.0/%s/%s/mesh_preview' %
+                    (current_app.config['CHUNKGRAPH_TABLE_ID'], node_id))
 
-@bp.route('/1.0/<node_id>/mesh_preview', methods=['POST'])
-def handle_preview_meshes(node_id):
+
+@bp.route('/1.0/<table_id>/<node_id>/mesh_preview', methods=['POST'])
+def handle_preview_meshes(table_id, node_id):
     data = json.loads(request.data)
     node_id = np.uint64(node_id)
 
-    cg = app_utils.get_cg()
+    cg = app_utils.get_mcg().get_chunkedgraph(table_id)
 
     if "seg_ids" in data:
         seg_ids = data["seg_ids"]
@@ -64,9 +70,16 @@ def handle_preview_meshes(node_id):
                               cache_control='no-cache')
     return Response(status=200)
 
+
 @bp.route('/1.0/<node_id>/validfragments', methods=['POST', 'GET'])
-def handle_valid_frags(node_id):
-    cg = app_utils.get_cg()
+def handle_valid_frags_re(node_id):
+    return redirect('/1.0/%s/%s/mesh_preview' %
+                    (current_app.config['CHUNKGRAPH_TABLE_ID'], node_id))
+
+
+@bp.route('/1.0/<table_id>/<node_id>/validfragments', methods=['POST', 'GET'])
+def handle_valid_frags(table_id, node_id):
+    cg = app_utils.get_mcg().get_chunkedgraph(table_id)
 
     seg_ids = meshgen_utils.get_highest_child_nodes_with_meshes(
         cg, np.uint64(node_id), stop_layer=1, verify_existence=True)
@@ -74,14 +87,20 @@ def handle_valid_frags(node_id):
     return app_utils.tobinary(seg_ids)
 
 
-@bp.route('/1.0/manifest/<node_id>:0', methods=['GET'])
-def handle_get_manifest(node_id):
+@bp.route('/1.0/manifest/<node_id>:0', methods=['POST', 'GET'])
+def handle_get_manifest_re(node_id):
+    return redirect('/1.0/%s/manifest/%s:0' %
+                    (current_app.config['CHUNKGRAPH_TABLE_ID'], node_id))
+
+
+@bp.route('/1.0/<table_id>/manifest/<node_id>:0', methods=['GET'])
+def handle_get_manifest(table_id, node_id):
     # TODO: Read this from config
     MESH_MIP = 2
 
     verify = request.args.get('verify', False)
     verify = verify in ['True', 'true', '1', True]
-    cg = app_utils.get_cg()
+    cg = app_utils.get_mcg().get_chunkedgraph(table_id)
     seg_ids = meshgen_utils.get_highest_child_nodes_with_meshes(
         cg, np.uint64(node_id), stop_layer=2, verify_existence=verify)
 
