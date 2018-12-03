@@ -2496,25 +2496,21 @@ class ChunkedGraph(object):
 
         def _get_subgraph_higher_layer_nodes_threaded(
                 node_ids: Iterable[np.uint64]) -> List[np.uint64]:
-            new_child_ids = []
-            for node_id in node_ids:
-                children = self.get_children(node_id)
+            children = self.get_children(node_ids, flatten=True)
 
-                if bounding_box is not None:
-                    chunk_coordinates = np.array([self.get_chunk_coordinates(c)
-                                                 for c in children])
+            if bounding_box is not None:
+                chunk_coordinates = np.array([self.get_chunk_coordinates(c) for c in children])
 
-                    bounding_box_layer = bounding_box / self.fan_out ** np.max([0, (layer - 3)])
+                bounding_box_layer = bounding_box / self.fan_out ** np.max([0, (layer - 3)])
 
-                    bound_check = np.array([
-                        np.all(chunk_coordinates < bounding_box_layer[1], axis=1),
-                        np.all(chunk_coordinates + 1 > bounding_box_layer[0], axis=1)]).T
+                bound_check = np.array([
+                    np.all(chunk_coordinates < bounding_box_layer[1], axis=1),
+                    np.all(chunk_coordinates + 1 > bounding_box_layer[0], axis=1)]).T
 
-                    bound_check_mask = np.all(bound_check, axis=1)
-                    children = children[bound_check_mask]
+                bound_check_mask = np.all(bound_check, axis=1)
+                children = children[bound_check_mask]
 
-                new_child_ids.extend(children)
-            return new_child_ids
+            return children
 
         nodes_per_layer = {}
         child_ids = np.array([node_id], dtype=np.uint64)
@@ -2529,7 +2525,7 @@ class ChunkedGraph(object):
         while layer > stop_layer:
             # Use heuristic to guess the optimal number of threads
             n_child_ids = len(child_ids)
-            this_n_threads = np.min([int(n_child_ids // 20) + 1, mu.n_cpus])
+            this_n_threads = np.min([int(n_child_ids // 50000) + 1, mu.n_cpus])
 
             child_ids = np.fromiter(chain.from_iterable(mu.multithread_func(
                 _get_subgraph_higher_layer_nodes_threaded,
@@ -2564,18 +2560,7 @@ class ChunkedGraph(object):
 
         def _get_subgraph_layer2_edges(node_ids) -> \
                 Tuple[List[np.ndarray], List[np.float32], List[np.uint64]]:
-            all_affinities = np.array([], dtype=np.float32)
-            all_areas = np.array([], dtype=np.uint64)
-            all_edges = np.array([], dtype=np.uint64).reshape(0, 2)
-
-            for node_id in node_ids:
-                edges, affinities, areas = \
-                    self.get_subgraph_chunk(node_id, time_stamp=time_stamp)
-                all_edges = np.concatenate((all_edges, edges))
-                all_affinities = np.concatenate((all_affinities, affinities))
-                all_areas = np.concatenate((all_areas, areas))
-
-            return all_edges, all_affinities, all_areas
+            return self.get_subgraph_chunk(node_ids, time_stamp=time_stamp)
 
         time_stamp = self.read_node_id_row(agglomeration_id,
                                            columns=column_keys.Hierarchy.Child)[0].timestamp
@@ -2600,10 +2585,11 @@ class ChunkedGraph(object):
             child_blocks.append(child_ids[child_chunk_ids == u_ccid])
 
         n_child_ids = len(child_ids)
-        this_n_threads = np.min([int(n_child_ids // 20) + 1, mu.n_cpus])
+        this_n_threads = np.min([int(n_child_ids // 50000) + 1, mu.n_cpus])
 
         edge_infos = mu.multithread_func(
-            _get_subgraph_layer2_edges, child_blocks,
+            _get_subgraph_layer2_edges,
+            np.array_split(child_ids, this_n_threads),
             n_threads=this_n_threads, debug=this_n_threads == 1)
 
         affinities = np.array([], dtype=np.float32)
@@ -2641,14 +2627,8 @@ class ChunkedGraph(object):
                  Dict[int, np.array] if multiple layers are requested
         """
 
-        def _get_subgraph_layer2_nodes(node_ids: Iterable[np.uint64]) -> \
-                List[np.uint64]:
-            all_children_ids = []
-
-            for node_id in node_ids:
-                all_children_ids.extend(self.get_children(node_id))
-
-            return all_children_ids
+        def _get_subgraph_layer2_nodes(node_ids: Iterable[np.uint64]) -> np.ndarray:
+            return self.get_children(node_ids, flatten=True)
 
         stop_layer = np.min(return_layers)
         bounding_box = self.normalize_bounding_box(bounding_box, bb_is_coordinate)
@@ -2674,19 +2654,19 @@ class ChunkedGraph(object):
 
             # Use heuristic to guess the optimal number of threads
             n_child_ids = len(child_ids)
-            this_n_threads = np.min([int(n_child_ids // 20) + 1, mu.n_cpus])
+            this_n_threads = np.min([int(n_child_ids // 50000) + 1, mu.n_cpus])
 
-            child_ids = list(chain.from_iterable(mu.multithread_func(
-                            _get_subgraph_layer2_nodes,
-                            np.array_split(child_ids, this_n_threads),
-                            n_threads=this_n_threads, debug=this_n_threads == 1)))
+            child_ids = np.fromiter(chain.from_iterable(mu.multithread_func(
+                _get_subgraph_layer2_nodes,
+                np.array_split(child_ids, this_n_threads),
+                n_threads=this_n_threads, debug=this_n_threads == 1)), dtype=np.uint64)
 
             if verbose:
                 self.logger.debug("Layer 2: %.3fms for %d children with %d threads" %
                                   ((time.time() - time_start) * 1000, n_child_ids,
                                    this_n_threads))
 
-            nodes_per_layer[1] = np.array(child_ids, np.uint64)
+            nodes_per_layer[1] = child_ids
 
         if len(nodes_per_layer) == 1:
             return list(nodes_per_layer.values())[0]
@@ -2882,22 +2862,22 @@ class ChunkedGraph(object):
                                               include_connected_partners,
                                               include_disconnected_partners)
 
-    def get_subgraph_chunk(self, parent_ids: Iterable[np.uint64],
+    def get_subgraph_chunk(self, node_ids: Iterable[np.uint64],
                            make_unique: bool = True,
                            time_stamp: Optional[datetime.datetime] = None
                            ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
         """ Takes an atomic id and returns the associated agglomeration ids
 
-        :param parent_ids: array of np.uint64
+        :param node_ids: array of np.uint64
         :param make_unique: bool
         :param time_stamp: None or datetime
         :return: edge list
         """
-        def _read_atomic_partners(child_id_block: Iterable[np.uint64]
-                                  ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
-            thread_edges = np.array([], dtype=np.uint64).reshape(0, 2)
-            thread_affinities = np.array([], dtype=np.float32)
-            thread_areas = np.array([], dtype=np.uint64)
+        def _read_atomic_partners(child_id_block: Iterable[np.uint64]) \
+                -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+            thread_edges = []
+            thread_affinities = []
+            thread_areas = []
 
             for child_id in child_id_block:
                 flattened_row_dict = self.flatten_row_dict(row_dict[child_id])
@@ -2909,19 +2889,15 @@ class ChunkedGraph(object):
                 # If we have edges add them to the chunk global edge list
                 if len(node_edges) > 0:
                     # Build n x 2 edge list from partner list
-                    node_edges = \
-                        np.concatenate([np.ones((len(node_edges), 1),
-                                                dtype=np.uint64) * child_id,
-                                        node_edges[:, None]], axis=1)
+                    node_edges = np.concatenate(
+                        (np.ones((len(node_edges), 1), dtype=np.uint64) * child_id,
+                         node_edges[:, None]), axis=1)
 
-                    thread_edges = np.concatenate([thread_edges,
-                                                   node_edges])
-                    thread_affinities = np.concatenate([thread_affinities,
-                                                        node_affinities])
-                    thread_areas = np.concatenate([thread_areas,
-                                                   node_areas])
+                    thread_edges.extend(node_edges)
+                    thread_affinities.extend(node_affinities)
+                    thread_areas.extend(node_areas)
 
-            return thread_edges, thread_affinities, thread_areas
+            return np.array(thread_edges), np.array(thread_affinities), np.array(thread_areas)
 
         if time_stamp is None:
             time_stamp = datetime.datetime.utcnow()
@@ -2929,14 +2905,7 @@ class ChunkedGraph(object):
         if time_stamp.tzinfo is None:
             time_stamp = UTC.localize(time_stamp)
 
-        if not isinstance(parent_ids, list):
-            parent_ids = [parent_ids]
-
-        child_ids = []
-        for parent_id in parent_ids:
-            child_ids.extend(self.get_children(parent_id))
-
-        child_ids = np.sort(np.array(child_ids, dtype=np.uint64))
+        child_ids = self.get_children(node_ids, flatten=True)
 
         # Iterate through all children of this parent and retrieve their edges
         edges = np.array([], dtype=np.uint64).reshape(0, 2)
@@ -2953,7 +2922,7 @@ class ChunkedGraph(object):
                                           end_time_inclusive=True)
 
         n_child_ids = len(child_ids)
-        this_n_threads = np.min([int(n_child_ids // 20) + 1, mu.n_cpus])
+        this_n_threads = np.min([int(n_child_ids // 50000) + 1, mu.n_cpus])
 
         child_id_blocks = np.array_split(child_ids, this_n_threads)
         edges_and_affinities = mu.multithread_func(_read_atomic_partners,
