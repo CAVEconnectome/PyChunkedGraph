@@ -23,7 +23,7 @@ broker_url = 'amqp://%s:%s@%s/%s' % (rabbitmq_user,
 # this sets this module up as a celery worker app
 app = Celery('tasks', broker=broker_url, backend='rpc')
 
-# this sets up the pike client to do a broadcast of the remeshing event
+# this sets up the pika client to do a broadcast of the remeshing event
 # which may or may not have a consumer queue
 pika_credential = pika.PlainCredentials(rabbitmq_user, rabbitmq_password)
 parameters = pika.ConnectionParameters(broker_service_host,
