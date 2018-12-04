@@ -86,16 +86,16 @@ class ChunkedGraph(object):
         if is_new:
             self._check_and_create_table()
 
-        self._n_layers = \
-            self.check_and_write_table_parameters(column_keys.GraphSettings.LayerCount, n_layers)
-        self._fan_out = \
-            self.check_and_write_table_parameters(column_keys.GraphSettings.FanOut, fan_out)
-        self._cv_path = \
-            self.check_and_write_table_parameters(column_keys.GraphSettings.SegmentationPath, cv_path)
-        self._mesh_dir = \
-            self.check_and_write_table_parameters(column_keys.GraphSettings.MeshDir, mesh_dir)
-        self._chunk_size = \
-            self.check_and_write_table_parameters(column_keys.GraphSettings.ChunkSize, chunk_size)
+        self._n_layers = self.check_and_write_table_parameters(
+            column_keys.GraphSettings.LayerCount, n_layers, required=True)
+        self._fan_out = self.check_and_write_table_parameters(
+            column_keys.GraphSettings.FanOut, fan_out, required=True)
+        self._cv_path = self.check_and_write_table_parameters(
+            column_keys.GraphSettings.SegmentationPath, cv_path, required=True)
+        self._mesh_dir = self.check_and_write_table_parameters(
+            column_keys.GraphSettings.MeshDir, mesh_dir, required=False)
+        self._chunk_size = self.check_and_write_table_parameters(
+            column_keys.GraphSettings.ChunkSize, chunk_size, required=True)
 
         self._bitmasks = compute_bitmasks(self.n_layers, self.fan_out)
 
@@ -194,7 +194,9 @@ class ChunkedGraph(object):
     def cv(self) -> cloudvolume.CloudVolume:
         if self._cv is None:
             self._cv = cloudvolume.CloudVolume(self.cv_path, mip=self._cv_mip)
-            self._cv["mesh"] = self.mesh_dir
+
+            if self.mesh_dir is not None:
+                self._cv["mesh"] = self.mesh_dir
         return self._cv
 
     @property
@@ -224,7 +226,8 @@ class ChunkedGraph(object):
             self.logger.info(f"Table {self.table_id} created")
 
     def check_and_write_table_parameters(self, column: column_keys._Column,
-                                         value: Optional[Union[str, np.uint64]] = None
+                                         value: Optional[Union[str, np.uint64]] = None,
+                                         required: bool = True
                                          ) -> Union[str, np.uint64]:
         """ Checks if a parameter already exists in the table. If it already
         exists it returns the stored value, else it stores the given value. It
@@ -233,15 +236,19 @@ class ChunkedGraph(object):
 
         :param column: column_keys._Column
         :param value: Union[str, np.uint64]
+        :param require: bool
         :return: Union[str, np.uint64]
             value
         """
-        setting = self.read_byte_row(row_key=row_keys.GraphSettings, columns=column)
-        if not setting:
-            assert value is not None
+        setting = self.read_byte_row(row_key=row_keys.GraphSettings,
+                                     columns=column)
 
+        if not setting and value is not None:
             row = self.mutate_row(row_keys.GraphSettings, {column: value})
             self.bulk_write([row])
+        elif not setting and value is None:
+            assert not required
+            return None
         else:
             value = setting[0].value
 
