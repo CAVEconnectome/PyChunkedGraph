@@ -154,6 +154,11 @@ class GraphSettings:
         family_id='0',
         serializer=serializers.String('utf-8'))
 
+    MeshDir = _Column(
+        key=b'mesh_dir',
+        family_id='0',
+        serializer=serializers.String('utf-8'))
+
 
 class OperationLogs:
     UserID = _Column(
