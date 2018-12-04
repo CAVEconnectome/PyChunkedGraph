@@ -153,6 +153,12 @@ def handle_table():
     return jsonify(mcg.get_existing_tables())
 
 
+@bp.route('/1.0/<table_id>/info', methods=['GET'])
+def handle_info(table_id):
+    cg = app_utils.get_mcg().get_chunkedgraph(table_id)
+    return jsonify(cg.cv.info)
+
+
 ### GET ROOT -------------------------------------------------------------------
 
 @bp.route('/1.0/graph/root', methods=['POST', 'GET'])
