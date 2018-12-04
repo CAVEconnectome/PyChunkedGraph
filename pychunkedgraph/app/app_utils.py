@@ -71,7 +71,7 @@ def get_mcg():
         # Create ChunkedGraph
         cache["mcg"] = chunkedgraph_meta.ChunkedGraphMeta(
             instance_id=instance_id, client=client, logger=logger)
-        return cache["mcg"]
+    return cache["mcg"]
 
 
 # def get_log_db():
