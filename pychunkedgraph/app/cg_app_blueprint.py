@@ -218,6 +218,7 @@ def handle_merge_2(table_id):
 
 
 def handle_merge_main(table_id, nodes, user_id):
+    current_app.logger.debug(nodes)
     assert len(nodes) == 2
 
     # Call ChunkedGraph
