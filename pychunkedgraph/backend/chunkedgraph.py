@@ -938,37 +938,47 @@ class ChunkedGraph(object):
 
         return True
 
-    def _execute_read(self, row_set: RowSet, row_filter: RowFilter = None,
-                      n_retries: int = 100) \
+    def _execute_read_thread(self, row_set_and_filter: Tuple[RowSet, RowFilter]):
+        row_set, row_filter = row_set_and_filter
+        range_read = self.table.read_rows(row_set=row_set, filter_=row_filter)
+        s = time.time()
+        res = {v.row_key: partial_row_data_to_column_dict(v) for v in range_read}
+        print("Thread took %s seconds for %d keys" % (time.time()-s, len(row_set.row_keys)))
+        return res
+
+    def _execute_read(self, row_set: RowSet, row_filter: RowFilter = None) \
             -> Dict[bytes, Dict[column_keys._Column, bigtable.row_data.PartialRowData]]:
-        """ Core function to read rows from Bigtable. Contains basic retry logic.
+        """ Core function to read rows from Bigtable. Uses standard Bigtable retry logic
         :param row_set: BigTable RowSet
         :param row_filter: BigTable RowFilter
-        :param n_retries: int
         :return: Dict[bytes, Dict[column_keys._Column, bigtable.row_data.PartialRowData]]
         """
-        # Set up read
-        range_read = self.table.read_rows(row_set=row_set, filter_=row_filter)
 
-        # Execute read
-        consume_success = False
+        # FIXME: Bigtable limits the length of the serialized request to 512 KiB. We should
+        # calculate this properly (range_read.request.SerializeToString()), but this estimate is
+        # good enough for now
+        max_row_key_count = 20000
+        n_subrequests = max(1, int(np.ceil(len(row_set.row_keys) / max_row_key_count)))
+        n_threads = min(n_subrequests, mu.n_cpus)
 
-        # Retry reading if any of the writes failed
-        i_tries = 0
-        while not consume_success and i_tries < n_retries:
-            try:
-                range_read.consume_all()
-                consume_success = True
-            except Exception as e:
-                self.logger.warning("Range read execution unsuccessful (%s) - retrying" % e)
-                time.sleep(i_tries)
-            i_tries += 1
+        row_sets = []
+        for i in range(n_subrequests):
+            r = RowSet()
+            r.row_keys = row_set.row_keys[i * max_row_key_count : (i + 1) * max_row_key_count]
+            row_sets.append(r)
 
-        if not consume_success:
-            raise cg_exceptions.ChunkedGraphError(
-                "Unable to consume range read after %d retries" % n_retries)
+        # Don't forget the original RowSet's row_ranges
+        row_sets[0].row_ranges = row_set.row_ranges
 
-        return {k: partial_row_data_to_column_dict(v) for (k, v) in range_read.rows.items()}
+        responses = mu.multithread_func(self._execute_read_thread,
+                                        params=((r, row_filter) for r in row_sets),
+                                        debug=n_threads == 1, n_threads=n_threads)
+
+        combined_response = {}
+        for resp in responses:
+            combined_response.update(resp)
+
+        return combined_response
 
     def range_read_chunk(
             self,
