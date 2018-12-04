@@ -58,6 +58,7 @@ class ChunkedGraph(object):
                  credentials: Optional[credentials.Credentials] = None,
                  client: bigtable.Client = None,
                  cv_path: str = None,
+                 mesh_dir: str = None,
                  is_new: bool = False,
                  logger: Optional[logging.Logger] = None) -> None:
 
@@ -91,6 +92,8 @@ class ChunkedGraph(object):
             self.check_and_write_table_parameters(column_keys.GraphSettings.FanOut, fan_out)
         self._cv_path = \
             self.check_and_write_table_parameters(column_keys.GraphSettings.SegmentationPath, cv_path)
+        self._mesh_dir = \
+            self.check_and_write_table_parameters(column_keys.GraphSettings.MeshDir, mesh_dir)
         self._chunk_size = \
             self.check_and_write_table_parameters(column_keys.GraphSettings.ChunkSize, chunk_size)
 
@@ -180,6 +183,10 @@ class ChunkedGraph(object):
         return self._cv_path
 
     @property
+    def mesh_dir(self) -> str:
+        return self._mesh_dir
+
+    @property
     def cv_mip(self) -> int:
         return self._cv_mip
 
@@ -187,6 +194,7 @@ class ChunkedGraph(object):
     def cv(self) -> cloudvolume.CloudVolume:
         if self._cv is None:
             self._cv = cloudvolume.CloudVolume(self.cv_path, mip=self._cv_mip)
+            self._cv["mesh"] = self.mesh_dir
         return self._cv
 
     @property
