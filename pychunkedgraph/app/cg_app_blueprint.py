@@ -126,13 +126,6 @@ def sleep_me(sleep):
     return "zzz... {} ... awake".format(sleep)
 
 
-@bp.route('/1.0/tables', methods=['GET'])
-def handle_table():
-    # Call ChunkedGraph
-    mcg = app_utils.get_mcg()
-    return jsonify(mcg.get_existing_tables())
-
-
 @bp.route('/1.0/<table_id>/info', methods=['GET'])
 def handle_info(table_id):
     cg = app_utils.get_cg(table_id)

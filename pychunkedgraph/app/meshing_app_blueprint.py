@@ -42,7 +42,7 @@ def home():
 # ------------------------------------------------------------------------------
 
 @bp.route('/1.0/<node_id>/mesh_preview', methods=['POST', 'GET'])
-def handle_preview_meshes_re(node_id):
+def handle_preview_meshes_1(node_id):
     data = json.loads(request.data)
     node_id = np.uint64(node_id)
     table_id = current_app.config['CHUNKGRAPH_TABLE_ID']
@@ -51,14 +51,14 @@ def handle_preview_meshes_re(node_id):
 
 
 @bp.route('/1.0/<table_id>/<node_id>/mesh_preview', methods=['POST'])
-def handle_preview_meshes(table_id, node_id):
+def handle_preview_meshes_2(table_id, node_id):
     data = json.loads(request.data)
     node_id = np.uint64(node_id)
     return handle_preview_mesh_main(table_id, data, node_id)
 
 
 def handle_preview_mesh_main(table_id, data, node_id):
-    cg = app_utils.get_mcg().get_chunkedgraph(table_id)
+    cg = app_utils.get_cg(table_id)
 
     if "seg_ids" in data:
         seg_ids = data["seg_ids"]
@@ -81,18 +81,18 @@ def handle_preview_mesh_main(table_id, data, node_id):
 
 
 @bp.route('/1.0/<node_id>/validfragments', methods=['POST', 'GET'])
-def handle_valid_frags_re(node_id):
+def handle_valid_frags_1(node_id):
     table_id = current_app.config['CHUNKGRAPH_TABLE_ID']
     return handle_valid_frags_main(table_id, node_id)
 
 
 @bp.route('/1.0/<table_id>/<node_id>/validfragments', methods=['POST', 'GET'])
-def handle_valid_frags(table_id, node_id):
+def handle_valid_frags_2(table_id, node_id):
     return handle_valid_frags_main(table_id, node_id)
 
 
 def handle_valid_frags_main(table_id, node_id):
-    cg = app_utils.get_mcg().get_chunkedgraph(table_id)
+    cg = app_utils.get_cg(table_id)
 
     seg_ids = meshgen_utils.get_highest_child_nodes_with_meshes(
         cg, np.uint64(node_id), stop_layer=1, verify_existence=True)
@@ -104,13 +104,13 @@ def handle_valid_frags_main(table_id, node_id):
 
 
 @bp.route('/1.0/manifest/<node_id>:0', methods=['POST', 'GET'])
-def handle_get_manifest_re(node_id):
+def handle_get_manifest_1(node_id):
     table_id = current_app.config['CHUNKGRAPH_TABLE_ID']
     return handle_manifest_main(table_id, node_id)
 
 
 @bp.route('/1.0/<table_id>/manifest/<node_id>:0', methods=['GET'])
-def handle_get_manifest(table_id, node_id):
+def handle_get_manifest_2(table_id, node_id):
     return handle_manifest_main(table_id, node_id)
 
 def handle_manifest_main(table_id, node_id):
@@ -119,7 +119,7 @@ def handle_manifest_main(table_id, node_id):
 
     verify = request.args.get('verify', False)
     verify = verify in ['True', 'true', '1', True]
-    cg = app_utils.get_mcg().get_chunkedgraph(table_id)
+    cg = app_utils.get_cg(table_id)
     seg_ids = meshgen_utils.get_highest_child_nodes_with_meshes(
         cg, np.uint64(node_id), stop_layer=2, verify_existence=verify)
 
