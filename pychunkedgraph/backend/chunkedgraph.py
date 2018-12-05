@@ -941,9 +941,7 @@ class ChunkedGraph(object):
     def _execute_read_thread(self, row_set_and_filter: Tuple[RowSet, RowFilter]):
         row_set, row_filter = row_set_and_filter
         range_read = self.table.read_rows(row_set=row_set, filter_=row_filter)
-        s = time.time()
         res = {v.row_key: partial_row_data_to_column_dict(v) for v in range_read}
-        print("Thread took %s seconds for %d keys" % (time.time()-s, len(row_set.row_keys)))
         return res
 
     def _execute_read(self, row_set: RowSet, row_filter: RowFilter = None) \
@@ -959,7 +957,7 @@ class ChunkedGraph(object):
         # good enough for now
         max_row_key_count = 20000
         n_subrequests = max(1, int(np.ceil(len(row_set.row_keys) / max_row_key_count)))
-        n_threads = min(n_subrequests, mu.n_cpus)
+        n_threads = min(n_subrequests, 2 * mu.n_cpus)
 
         row_sets = []
         for i in range(n_subrequests):
@@ -2872,6 +2870,41 @@ class ChunkedGraph(object):
                                               include_connected_partners,
                                               include_disconnected_partners)
 
+    def _retrieve_connectivity(self, dict_item: Tuple[np.uint64, Dict[column_keys._Column, List[bigtable.row_data.Cell]]]):
+        node_id, row = dict_item
+
+        tmp = set()
+        for x in itertools.chain.from_iterable(
+                generation.value for generation in row[column_keys.Connectivity.Connected][::-1]):
+            tmp.remove(x) if x in tmp else tmp.add(x)
+
+        connected_indices = np.fromiter(tmp, np.uint64)
+
+        if column_keys.Connectivity.Partner in row:
+            edges = np.fromiter(itertools.chain.from_iterable(
+                (node_id, partner_id)
+                for generation in row[column_keys.Connectivity.Partner][::-1]
+                for partner_id in generation.value),
+                dtype=basetypes.NODE_ID).reshape((-1, 2))[connected_indices]
+        else:
+            edges = np.empty((0, 2), basetypes.NODE_ID)
+
+        if column_keys.Connectivity.Affinity in row:
+            affinities = np.fromiter(itertools.chain.from_iterable(
+                generation.value for generation in row[column_keys.Connectivity.Affinity][::-1]),
+                dtype=basetypes.EDGE_AFFINITY)[connected_indices]
+        else:
+            edges = np.empty(0, basetypes.EDGE_AFFINITY)
+
+        if column_keys.Connectivity.Area in row:
+            areas = np.fromiter(itertools.chain.from_iterable(
+                generation.value for generation in row[column_keys.Connectivity.Area][::-1]),
+                dtype=basetypes.EDGE_AREA)[connected_indices]
+        else:
+            areas = np.empty(0, basetypes.EDGE_AREA)
+
+        return edges, affinities, areas
+
     def get_subgraph_chunk(self, node_ids: Iterable[np.uint64],
                            make_unique: bool = True,
                            time_stamp: Optional[datetime.datetime] = None
@@ -2883,32 +2916,6 @@ class ChunkedGraph(object):
         :param time_stamp: None or datetime
         :return: edge list
         """
-        def _read_atomic_partners(child_id_block: Iterable[np.uint64]) \
-                -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
-            thread_edges = []
-            thread_affinities = []
-            thread_areas = []
-
-            for child_id in child_id_block:
-                flattened_row_dict = self.flatten_row_dict(row_dict[child_id])
-                node_edges, node_affinities, node_areas = \
-                    self._get_atomic_partners_core(flattened_row_dict,
-                                                   include_connected_partners=True,
-                                                   include_disconnected_partners=False)
-
-                # If we have edges add them to the chunk global edge list
-                if len(node_edges) > 0:
-                    # Build n x 2 edge list from partner list
-                    node_edges = np.concatenate(
-                        (np.ones((len(node_edges), 1), dtype=np.uint64) * child_id,
-                         node_edges[:, None]), axis=1)
-
-                    thread_edges.extend(node_edges)
-                    thread_affinities.extend(node_affinities)
-                    thread_areas.extend(node_areas)
-
-            return np.array(thread_edges), np.array(thread_affinities), np.array(thread_areas)
-
         if time_stamp is None:
             time_stamp = datetime.datetime.utcnow()
 
@@ -2916,11 +2923,6 @@ class ChunkedGraph(object):
             time_stamp = UTC.localize(time_stamp)
 
         child_ids = self.get_children(node_ids, flatten=True)
-
-        # Iterate through all children of this parent and retrieve their edges
-        edges = np.array([], dtype=np.uint64).reshape(0, 2)
-        affinities = np.array([], dtype=np.float32)
-        areas = np.array([], dtype=np.uint64)
 
         row_dict = self.read_node_id_rows(node_ids=child_ids,
                                           columns=[column_keys.Connectivity.Area,
@@ -2931,20 +2933,19 @@ class ChunkedGraph(object):
                                           end_time=time_stamp,
                                           end_time_inclusive=True)
 
-        n_child_ids = len(child_ids)
-        this_n_threads = np.min([int(n_child_ids // 50000) + 1, mu.n_cpus])
+        tmp_edges, tmp_affinites, tmp_areas = [], [], []
+        for row_dict_item in row_dict.items():
+            edges, affinities, areas = self._retrieve_connectivity(row_dict_item)
+            tmp_edges.append(edges)
+            tmp_affinites.append(affinities)
+            tmp_areas.append(areas)
 
-        child_id_blocks = np.array_split(child_ids, this_n_threads)
-        edges_and_affinities = mu.multithread_func(_read_atomic_partners,
-                                                   child_id_blocks,
-                                                   n_threads=this_n_threads,
-                                                   debug=this_n_threads == 1)
-
-        for edges_and_affinities_pairs in edges_and_affinities:
-            this_edges, this_affinities, this_areas = edges_and_affinities_pairs
-            edges = np.concatenate([edges, this_edges])
-            affinities = np.concatenate([affinities, this_affinities])
-            areas = np.concatenate([areas, this_areas])
+        edges = np.concatenate(tmp_edges) if tmp_edges \
+            else np.empty((0, 2), dtype=basetypes.NODE_ID)
+        affinities = np.concatenate(tmp_affinites) if tmp_affinites \
+            else np.empty(0, dtype=basetypes.AFFINITY)
+        areas = np.concatenate(tmp_areas) if tmp_areas \
+            else np.empty(0, dtype=basetypes.AREA)
 
         # If requested, remove duplicate edges. Every edge is stored in each
         # participating node. Hence, we have many edge pairs that look
