@@ -43,7 +43,6 @@ def home():
 
 @bp.before_request
 def before_request():
-    # current_app.logger.debug(("NEW REQUEST:", datetime.now(), request.url))
     current_app.request_start_time = time.time()
     current_app.request_start_date = datetime.utcnow()
 
@@ -51,14 +50,6 @@ def before_request():
 @bp.after_request
 def after_request(response):
     dt = (time.time() - current_app.request_start_time) * 1000
-
-    # user_ip = str(request.remote_addr)
-    #
-    # log_db = app_utils.get_log_db()
-    # log_db.add_success_log(user_id=user_ip, user_ip=user_ip,
-    #                        request_time=current_app.request_start_date,
-    #                        response_time=dt, url=request.url,
-    #                        request_data=request.data)
 
     current_app.logger.debug("Response time: %.3fms" % dt)
     return response
@@ -135,27 +126,16 @@ def sleep_me(sleep):
     return "zzz... {} ... awake".format(sleep)
 
 
-# @bp.route('/1.0/table', methods=['GET'])
-# def handle_table():
-#     # Call ChunkedGraph
-#     cg = app_utils.get_cg()
-#
-#     # Return binary
-#     return cg.table_id
-
-
 @bp.route('/1.0/tables', methods=['GET'])
 def handle_table():
     # Call ChunkedGraph
     mcg = app_utils.get_mcg()
-
-    # Return binary
     return jsonify(mcg.get_existing_tables())
 
 
 @bp.route('/1.0/<table_id>/info', methods=['GET'])
 def handle_info(table_id):
-    cg = app_utils.get_mcg().get_chunkedgraph(table_id)
+    cg = app_utils.get_cg(table_id)
     return jsonify(cg.cv.info)
 
 
@@ -165,7 +145,7 @@ def handle_info(table_id):
 def handle_root_1():
     atomic_id = np.uint64(json.loads(request.data)[0])
     table_id = current_app.config['CHUNKGRAPH_TABLE_ID']
-    return handle_root_main(table_id, np.uint64(int(atomic_id)))
+    return handle_root_main(table_id, np.uint64(atomic_id))
 
 
 @bp.route('/1.0/<table_id>/graph/root', methods=['POST', 'GET'])
@@ -177,7 +157,7 @@ def handle_root_2(table_id):
 
 @bp.route('/1.0/<table_id>/graph/<atomic_id>/root', methods=['POST', 'GET'])
 def handle_root_3(table_id, atomic_id):
-    return handle_root_main(table_id, np.uint64(int(atomic_id)))
+    return handle_root_main(table_id, np.uint64(atomic_id))
 
 
 def handle_root_main(table_id, atomic_id):
@@ -189,10 +169,8 @@ def handle_root_main(table_id, atomic_id):
         raise(cg_exceptions.BadRequest("Timestamp parameter is not a valid unix timestamp"))
 
     # Call ChunkedGraph
-    cg = app_utils.get_mcg().get_chunkedgraph(table_id)
+    cg = app_utils.get_cg(table_id)
     root_id = cg.get_root(atomic_id, time_stamp=timestamp)
-
-    print(root_id)
 
     # Return binary
     return app_utils.tobinary(root_id)
@@ -222,7 +200,7 @@ def handle_merge_main(table_id, nodes, user_id):
     assert len(nodes) == 2
 
     # Call ChunkedGraph
-    cg = app_utils.get_mcg().get_chunkedgraph(table_id)
+    cg = app_utils.get_cg(table_id)
 
     atomic_edge = []
     coords = []
@@ -306,7 +284,7 @@ def handle_split_main(table_id, data, user_id):
     current_app.logger.debug(data)
 
     # Call ChunkedGraph
-    cg = app_utils.get_mcg().get_chunkedgraph(table_id)
+    cg = app_utils.get_cg(table_id)
 
     data_dict = {}
     for k in ["sources", "sinks"]:
@@ -386,7 +364,7 @@ def handle_split_main(table_id, data, user_id):
 #     current_app.logger.debug(data)
 #
 #     # Call ChunkedGraph
-#     cg = app_utils.get_mcg().get_chunkedgraph(table_id)
+#     cg = app_utils.get_cg(table_id)
 #
 #     data_dict = collections.defaultdict(list)
 #
@@ -463,7 +441,7 @@ def handle_children_2(table_id, parent_id):
 
 
 def handle_children_main(table_id, parent_id):
-    cg = app_utils.get_mcg().get_chunkedgraph(table_id)
+    cg = app_utils.get_cg(table_id)
 
     parent_id = np.uint64(parent_id)
     layer = cg.get_chunk_layer(parent_id)
@@ -481,13 +459,13 @@ def handle_children_main(table_id, parent_id):
 
 
 @bp.route('/1.0/segment/<root_id>/leaves', methods=['POST', 'GET'])
-def handle_leaves_re(root_id):
+def handle_leaves_1(root_id):
     table_id = current_app.config['CHUNKGRAPH_TABLE_ID']
     return handle_leaves_main(table_id, root_id)
 
 
 @bp.route('/1.0/<table_id>/segment/<root_id>/leaves', methods=['POST', 'GET'])
-def handle_leaves(table_id, root_id):
+def handle_leaves_2(table_id, root_id):
     return handle_leaves_main(table_id, root_id)
 
 
@@ -500,7 +478,7 @@ def handle_leaves_main(table_id, root_id):
         bounding_box = None
 
     # Call ChunkedGraph
-    cg = app_utils.get_mcg().get_chunkedgraph(table_id)
+    cg = app_utils.get_cg(table_id)
     atomic_ids = cg.get_subgraph_nodes(int(root_id),
                                        bounding_box=bounding_box,
                                        bb_is_coordinate=True)
@@ -513,14 +491,14 @@ def handle_leaves_main(table_id, root_id):
 
 
 @bp.route('/1.0/segment/<atomic_id>/leaves_from_leave', methods=['POST', 'GET'])
-def handle_leaves_from_leave_re(atomic_id):
+def handle_leaves_from_leave_1(atomic_id):
     table_id = current_app.config['CHUNKGRAPH_TABLE_ID']
     return handle_leaves_from_leaves_main(table_id, atomic_id)
 
 
 @bp.route('/1.0/<table_id>/segment/<atomic_id>/leaves_from_leave',
           methods=['POST', 'GET'])
-def handle_leaves_from_leave(table_id, atomic_id):
+def handle_leaves_from_leave_2(table_id, atomic_id):
     return handle_leaves_from_leaves_main(table_id, atomic_id)
 
 
@@ -533,7 +511,7 @@ def handle_leaves_from_leaves_main(table_id, atomic_id):
         bounding_box = None
 
     # Call ChunkedGraph
-    cg = app_utils.get_mcg().get_chunkedgraph(table_id)
+    cg = app_utils.get_cg(table_id)
     root_id = cg.get_root(int(atomic_id))
 
     atomic_ids = cg.get_subgraph_nodes(root_id,
@@ -547,13 +525,13 @@ def handle_leaves_from_leaves_main(table_id, atomic_id):
 
 
 @bp.route('/1.0/segment/<root_id>/subgraph', methods=['POST', 'GET'])
-def handle_subgraph_re(root_id):
+def handle_subgraph_1(root_id):
     table_id = current_app.config['CHUNKGRAPH_TABLE_ID']
     return handle_subgraph_main(table_id, root_id)
 
 
 @bp.route('/1.0/<table_id>/segment/<root_id>/subgraph', methods=['POST', 'GET'])
-def handle_subgraph(table_id, root_id):
+def handle_subgraph_2(table_id, root_id):
     return handle_subgraph_main(table_id, root_id)
 
 
@@ -566,7 +544,7 @@ def handle_subgraph_main(table_id, root_id):
         bounding_box = None
 
     # Call ChunkedGraph
-    cg = app_utils.get_mcg().get_chunkedgraph(table_id)
+    cg = app_utils.get_cg(table_id)
     atomic_edges = cg.get_subgraph_edges(int(root_id),
                                          bounding_box=bounding_box,
                                          bb_is_coordinate=True)[0]
