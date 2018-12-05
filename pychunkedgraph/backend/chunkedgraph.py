@@ -179,12 +179,8 @@ class ChunkedGraph(object):
         return self._bitmasks
 
     @property
-    def cv_path(self) -> str:
-        return self._cv_path
-
-    @property
-    def mesh_dir(self) -> str:
-        return self._mesh_dir
+    def cv_mesh_path(self) -> str:
+        return "%s/%s" % (self._cv_path, self._mesh_dir)
 
     @property
     def cv_mip(self) -> int:
@@ -193,10 +189,10 @@ class ChunkedGraph(object):
     @property
     def cv(self) -> cloudvolume.CloudVolume:
         if self._cv is None:
-            self._cv = cloudvolume.CloudVolume(self.cv_path, mip=self._cv_mip)
+            self._cv = cloudvolume.CloudVolume(self._cv_path, mip=self._cv_mip)
 
-            if self.mesh_dir is not None:
-                self._cv["mesh"] = self.mesh_dir
+            if self._mesh_dir is not None:
+                self._cv.info["mesh"] = self._mesh_dir
         return self._cv
 
     @property
