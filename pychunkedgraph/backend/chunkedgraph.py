@@ -660,12 +660,15 @@ class ChunkedGraph(object):
         if row_keys is not None:
             for row_key in row_keys:
                 row_set.add_row_key(row_key)
-        elif start_key is not None or end_key is not None:
+        elif start_key is not None and end_key is not None:
             row_set.add_row_range_from_keys(
                 start_key=start_key,
                 start_inclusive=True,
                 end_key=end_key,
                 end_inclusive=end_key_inclusive)
+        else:
+            raise cg_exceptions.PreconditionError("Need to either provide a valid set of rows, or"
+                                                  " both, a start row and an end row.")
 
         # Bigtable read with retries
         rows = self._execute_read(row_set=row_set, row_filter=filter_)
