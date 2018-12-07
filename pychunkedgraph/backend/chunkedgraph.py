@@ -943,6 +943,11 @@ class ChunkedGraph(object):
 
     def _execute_read_thread(self, row_set_and_filter: Tuple[RowSet, RowFilter]):
         row_set, row_filter = row_set_and_filter
+        if not row_set.row_keys and not row_set.row_ranges:
+            # Check for everything falsy, because Bigtable considers even empty lists of row_keys
+            # as no upper/lower bound!
+            return {}
+
         range_read = self.table.read_rows(row_set=row_set, filter_=row_filter)
         res = {v.row_key: partial_row_data_to_column_dict(v) for v in range_read}
         return res
@@ -1945,6 +1950,8 @@ class ChunkedGraph(object):
         else:
             children = self.read_node_id_rows(node_ids=node_id, columns=column_keys.Hierarchy.Child)
             if flatten:
+                if not children:
+                    return np.empty(0, dtype=basetypes.NODE_ID)
                 return np.concatenate([x[0].value for x in children.values()])
             return {x: children[x][0].value
                        if x in children else np.empty(0, dtype=basetypes.NODE_ID)
@@ -2509,7 +2516,7 @@ class ChunkedGraph(object):
                 node_ids: Iterable[np.uint64]) -> List[np.uint64]:
             children = self.get_children(node_ids, flatten=True)
 
-            if bounding_box is not None:
+            if len(children) > 0 and bounding_box is not None:
                 chunk_coordinates = np.array([self.get_chunk_coordinates(c) for c in children])
 
                 bounding_box_layer = bounding_box / self.fan_out ** np.max([0, (layer - 3)])
