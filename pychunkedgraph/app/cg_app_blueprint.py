@@ -138,28 +138,45 @@ def handle_info(table_id):
 def handle_root_1():
     atomic_id = np.uint64(json.loads(request.data)[0])
     table_id = current_app.config['CHUNKGRAPH_TABLE_ID']
-    return handle_root_main(table_id, np.uint64(atomic_id))
 
-
-@bp.route('/1.0/<table_id>/graph/root', methods=['POST', 'GET'])
-def handle_root_2(table_id):
-    atomic_id = np.uint64(json.loads(request.data)[0])
-
-    return handle_root_main(table_id, atomic_id)
-
-
-@bp.route('/1.0/<table_id>/graph/<atomic_id>/root', methods=['POST', 'GET'])
-def handle_root_3(table_id, atomic_id):
-    return handle_root_main(table_id, np.uint64(atomic_id))
-
-
-def handle_root_main(table_id, atomic_id):
     # Convert seconds since epoch to UTC datetime
     try:
         timestamp = float(request.args.get('timestamp', time.time()))
         timestamp = datetime.fromtimestamp(timestamp, UTC)
     except (TypeError, ValueError) as e:
         raise(cg_exceptions.BadRequest("Timestamp parameter is not a valid unix timestamp"))
+
+    return handle_root_main(table_id, np.uint64(atomic_id), timestamp)
+
+
+@bp.route('/1.0/<table_id>/graph/root', methods=['POST', 'GET'])
+def handle_root_2(table_id):
+    atomic_id = np.uint64(json.loads(request.data)[0])
+
+    # Convert seconds since epoch to UTC datetime
+    try:
+        timestamp = float(request.args.get('timestamp', time.time()))
+        timestamp = datetime.fromtimestamp(timestamp, UTC)
+    except (TypeError, ValueError) as e:
+        raise(cg_exceptions.BadRequest("Timestamp parameter is not a valid unix timestamp"))
+
+    return handle_root_main(table_id, atomic_id, timestamp)
+
+
+@bp.route('/1.0/<table_id>/graph/<atomic_id>/root', methods=['POST', 'GET'])
+def handle_root_3(table_id, atomic_id):
+
+    # Convert seconds since epoch to UTC datetime
+    try:
+        timestamp = float(request.args.get('timestamp', time.time()))
+        timestamp = datetime.fromtimestamp(timestamp, UTC)
+    except (TypeError, ValueError) as e:
+        raise(cg_exceptions.BadRequest("Timestamp parameter is not a valid unix timestamp"))
+
+    return handle_root_main(table_id, np.uint64(atomic_id), timestamp)
+
+
+def handle_root_main(table_id, atomic_id, timestamp):
 
     # Call ChunkedGraph
     cg = app_utils.get_cg(table_id)
@@ -454,21 +471,29 @@ def handle_children_main(table_id, parent_id):
 @bp.route('/1.0/segment/<root_id>/leaves', methods=['POST', 'GET'])
 def handle_leaves_1(root_id):
     table_id = current_app.config['CHUNKGRAPH_TABLE_ID']
-    return handle_leaves_main(table_id, root_id)
-
-
-@bp.route('/1.0/<table_id>/segment/<root_id>/leaves', methods=['POST', 'GET'])
-def handle_leaves_2(table_id, root_id):
-    return handle_leaves_main(table_id, root_id)
-
-
-def handle_leaves_main(table_id, root_id):
     if "bounds" in request.args:
         bounds = request.args["bounds"]
         bounding_box = np.array([b.split("-") for b in bounds.split("_")],
                                 dtype=np.int).T
     else:
         bounding_box = None
+
+    return handle_leaves_main(table_id, root_id, bounding_box)
+
+
+@bp.route('/1.0/<table_id>/segment/<root_id>/leaves', methods=['POST', 'GET'])
+def handle_leaves_2(table_id, root_id):
+    if "bounds" in request.args:
+        bounds = request.args["bounds"]
+        bounding_box = np.array([b.split("-") for b in bounds.split("_")],
+                                dtype=np.int).T
+    else:
+        bounding_box = None
+
+    return handle_leaves_main(table_id, root_id, bounding_box)
+
+
+def handle_leaves_main(table_id, root_id, bounding_box):
 
     # Call ChunkedGraph
     cg = app_utils.get_cg(table_id)
@@ -486,22 +511,30 @@ def handle_leaves_main(table_id, root_id):
 @bp.route('/1.0/segment/<atomic_id>/leaves_from_leave', methods=['POST', 'GET'])
 def handle_leaves_from_leave_1(atomic_id):
     table_id = current_app.config['CHUNKGRAPH_TABLE_ID']
-    return handle_leaves_from_leaves_main(table_id, atomic_id)
-
-
-@bp.route('/1.0/<table_id>/segment/<atomic_id>/leaves_from_leave',
-          methods=['POST', 'GET'])
-def handle_leaves_from_leave_2(table_id, atomic_id):
-    return handle_leaves_from_leaves_main(table_id, atomic_id)
-
-
-def handle_leaves_from_leaves_main(table_id, atomic_id):
     if "bounds" in request.args:
         bounds = request.args["bounds"]
         bounding_box = np.array([b.split("-") for b in bounds.split("_")],
                                 dtype=np.int).T
     else:
         bounding_box = None
+
+    return handle_leaves_from_leaves_main(table_id, atomic_id, bounding_box)
+
+
+@bp.route('/1.0/<table_id>/segment/<atomic_id>/leaves_from_leave',
+          methods=['POST', 'GET'])
+def handle_leaves_from_leave_2(table_id, atomic_id):
+    if "bounds" in request.args:
+        bounds = request.args["bounds"]
+        bounding_box = np.array([b.split("-") for b in bounds.split("_")],
+                                dtype=np.int).T
+    else:
+        bounding_box = None
+
+    return handle_leaves_from_leaves_main(table_id, atomic_id, bounding_box)
+
+
+def handle_leaves_from_leaves_main(table_id, atomic_id, bounding_box):
 
     # Call ChunkedGraph
     cg = app_utils.get_cg(table_id)
@@ -520,21 +553,29 @@ def handle_leaves_from_leaves_main(table_id, atomic_id):
 @bp.route('/1.0/segment/<root_id>/subgraph', methods=['POST', 'GET'])
 def handle_subgraph_1(root_id):
     table_id = current_app.config['CHUNKGRAPH_TABLE_ID']
-    return handle_subgraph_main(table_id, root_id)
-
-
-@bp.route('/1.0/<table_id>/segment/<root_id>/subgraph', methods=['POST', 'GET'])
-def handle_subgraph_2(table_id, root_id):
-    return handle_subgraph_main(table_id, root_id)
-
-
-def handle_subgraph_main(table_id, root_id):
     if "bounds" in request.args:
         bounds = request.args["bounds"]
         bounding_box = np.array([b.split("-") for b in bounds.split("_")],
                                 dtype=np.int).T
     else:
         bounding_box = None
+
+    return handle_subgraph_main(table_id, root_id, bounding_box)
+
+
+@bp.route('/1.0/<table_id>/segment/<root_id>/subgraph', methods=['POST', 'GET'])
+def handle_subgraph_2(table_id, root_id):
+    if "bounds" in request.args:
+        bounds = request.args["bounds"]
+        bounding_box = np.array([b.split("-") for b in bounds.split("_")],
+                                dtype=np.int).T
+    else:
+        bounding_box = None
+
+    return handle_subgraph_main(table_id, root_id, bounding_box)
+
+
+def handle_subgraph_main(table_id, root_id, bounding_box):
 
     # Call ChunkedGraph
     cg = app_utils.get_cg(table_id)
