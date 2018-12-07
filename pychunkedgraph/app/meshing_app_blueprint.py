@@ -106,19 +106,25 @@ def handle_valid_frags_main(table_id, node_id):
 @bp.route('/1.0/manifest/<node_id>:0', methods=['POST', 'GET'])
 def handle_get_manifest_1(node_id):
     table_id = current_app.config['CHUNKGRAPH_TABLE_ID']
-    return handle_manifest_main(table_id, node_id)
+
+    verify = request.args.get('verify', False)
+    verify = verify in ['True', 'true', '1', True]
+
+    return handle_manifest_main(table_id, node_id, verify)
 
 
 @bp.route('/1.0/<table_id>/manifest/<node_id>:0', methods=['GET'])
 def handle_get_manifest_2(table_id, node_id):
-    return handle_manifest_main(table_id, node_id)
-
-def handle_manifest_main(table_id, node_id):
-    # TODO: Read this from config
-    MESH_MIP = 2
 
     verify = request.args.get('verify', False)
     verify = verify in ['True', 'true', '1', True]
+
+    return handle_manifest_main(table_id, node_id, verify)
+
+def handle_manifest_main(table_id, node_id, verify):
+    # TODO: Read this from config
+    MESH_MIP = 2
+
     cg = app_utils.get_cg(table_id)
     seg_ids = meshgen_utils.get_highest_child_nodes_with_meshes(
         cg, np.uint64(node_id), stop_layer=2, verify_existence=verify)
