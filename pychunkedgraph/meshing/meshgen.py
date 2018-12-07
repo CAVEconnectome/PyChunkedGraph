@@ -275,7 +275,7 @@ def chunk_mesh_task(cg, chunk_id, cv_path,
             children = children[0].value
             manifests_to_fetch[node_id].extend((f'{c}:0' for c in children))
 
-        with Storage(os.path.join(cg.cv_path, mesh_dir)) as storage:
+        with Storage(os.path.join(cg_.cv_path, mesh_dir)) as storage:
             print("Downloading Manifests...")
             manifest_content = storage.get_files((m for manifests in manifests_to_fetch.values() for m in manifests))
             print("Decoding Manifests...")
@@ -345,7 +345,7 @@ def chunk_mesh_task(cg, chunk_id, cv_path,
                 ))
 
         print("Uploading new manifests and fragments...")
-        with Storage(os.path.join(cg.cv_path, mesh_dir)) as storage:
+        with Storage(os.path.join(cg._cv_path, mesh_dir)) as storage:
             storage.put_files(fragments_to_upload, content_type='application/octet-stream', compress=True, cache_control='no-cache')
             storage.put_files(manifests_to_upload, content_type='application/json', compress=False, cache_control='no-cache')
             print("Uploaded %s manifests and %s fragments (reusing %s fragments)"
@@ -408,7 +408,7 @@ def mesh_lvl2_preview(cg, lvl2_node_id, supervoxel_ids=None, cv_path=None,
     :param cg: ChunkedGraph instance
     :param lvl2_node_id: int
     :param supervoxel_ids: list of np.uint64
-    :param cv_path: str or None (cg.cv_path)
+    :param cv_path: str or None (cg._cv_path)
     :param cv_mesh_dir: str or None
     :param mip: int
     :param simplification_factor: int
@@ -422,7 +422,7 @@ def mesh_lvl2_preview(cg, lvl2_node_id, supervoxel_ids=None, cv_path=None,
     assert layer == 2
 
     if cv_path is None:
-        cv_path = cg.cv_path
+        cv_path = cg._cv_path
 
     if supervoxel_ids is None:
         supervoxel_ids = cg.get_subgraph_nodes(lvl2_node_id, verbose=verbose)

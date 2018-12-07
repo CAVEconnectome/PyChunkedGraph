@@ -71,7 +71,7 @@ class MeshEngine(object):
 
     @property
     def cv_path(self):
-        return self.cg.cv_path
+        return self.cg._cv_path
 
     @property
     def cv(self):
@@ -158,7 +158,7 @@ class MeshEngine(object):
             m = end_block > block_bounding_box_cg[1]
             end_block[m] = block_bounding_box_cg[1][m]
 
-            multi_args.append([cg_info, start_block, end_block, self.cg.cv_path,
+            multi_args.append([cg_info, start_block, end_block, self.cg._cv_path,
                                self.cv_mesh_dir, self.mesh_mip, layer])
         random.shuffle(multi_args)
 

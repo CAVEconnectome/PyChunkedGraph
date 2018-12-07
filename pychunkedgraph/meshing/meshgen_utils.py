@@ -41,7 +41,7 @@ def get_mesh_name(cg, node_id: np.uint64, mip: int) -> str:
 
 @lru_cache(maxsize=None)
 def get_segmentation_info(cg) -> dict:
-    return CloudVolume(cg.cv_path).info
+    return CloudVolume(cg._cv_path).info
 
 
 def get_mesh_block_shape(cg, graphlayer: int,
