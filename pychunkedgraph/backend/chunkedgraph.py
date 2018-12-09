@@ -2974,7 +2974,7 @@ class ChunkedGraph(object):
                   source_coord: Sequence[int] = None,
                   sink_coord: Sequence[int] = None,
                   remesh_preview: bool = False,
-                  use_mesh_celery_worker: bool = False,
+                  use_mesh_celery_worker: bool = True,
                   n_tries: int = 60) -> np.uint64:
         """ Adds an edge to the chunkedgraph
 
@@ -3466,6 +3466,7 @@ class ChunkedGraph(object):
                      mincut: bool = True,
                      bb_offset: Tuple[int, int, int] = (240, 240, 24),
                      remesh_preview: bool = False,
+                     use_celery_worker: bool = True,
                      root_ids: Optional[Sequence[np.uint64]] = None,
                      n_tries: int = 20) -> Sequence[np.uint64]:
         """ Removes edges - either directly or after applying a mincut
@@ -3489,6 +3490,7 @@ class ChunkedGraph(object):
         :param bb_offset: list of 3 ints
             [x, y, z] bounding box padding beyond box spanned by coordinates
         :param remesh_preview: bool
+        :param use_celery_worker: bool (whether to use celery for remeshing)
         :param root_ids: list of uint64s
         :param n_tries: int
         :return: list of uint64s or None if no split was performed
@@ -3627,7 +3629,7 @@ class ChunkedGraph(object):
                                    operation_id=operation_id, slow_retry=False):
                     if remesh_preview:
                         meshgen.mesh_lvl2_previews(self, list(
-                            lvl2_node_mapping.keys()))
+                            lvl2_node_mapping.keys()), use_celery_worker=use_celery_worker)
 
                     self.logger.debug(f"new root ids: {new_root_ids}")
                     return new_root_ids

@@ -2,7 +2,7 @@ from celery import Celery
 from celery.utils.log import get_task_logger
 import pika
 import os
-
+from pychunkedgraph.meshing import celeryconfig
 logger = get_task_logger(__name__)
 
 # set username and password for broker, with overrides from environment variables
@@ -21,7 +21,7 @@ broker_url = 'amqp://%s:%s@%s/%s' % (rabbitmq_user,
                                      broker_service_host,
                                      rabbitmq_vhost)
 # this sets this module up as a celery worker app
-app = Celery('tasks', broker=broker_url, backend='rpc')
+app = Celery('tasks', broker=broker_url, backend='rpc', config_source=celeryconfig)
 
 # this sets up the pika client to do a broadcast of the remeshing event
 # which may or may not have a consumer queue

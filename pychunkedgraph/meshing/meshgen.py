@@ -357,7 +357,7 @@ def chunk_mesh_task(cg, chunk_id, cv_path,
 
 def mesh_lvl2_previews(cg, lvl2_node_ids, cv_path=None,
                        cv_mesh_dir=None, mip=2, simplification_factor=999999,
-                       max_err=40, parallel_download=8, verbose=True,
+                       max_err=40, parallel_download=False, verbose=True,
                        cache_control="no-cache", n_threads=1,
                        use_celery_worker=False):
 
@@ -376,13 +376,13 @@ def mesh_lvl2_previews(cg, lvl2_node_ids, cv_path=None,
                                cache_control])
 
     # Run parallelizing
-    if n_threads == 1:
+    if n_threads == 0:
         mu.multiprocess_func(_mesh_lvl2_previews_threads,
                              multi_args, n_threads=n_threads,
                              verbose=False, debug=n_threads==1)
     else:
         if use_celery_worker:
-            res = mesh_lvl2_previews_task.chunks(multi_args, n_threads)
+            res = mesh_lvl2_previews_task.chunks(multi_args, n_threads)()
             res.get()
         else:
             mu.multisubprocess_func(_mesh_lvl2_previews_threads,
@@ -390,12 +390,12 @@ def mesh_lvl2_previews(cg, lvl2_node_ids, cv_path=None,
 
 
 # this configures this function as a celery task
-@app.task
+@app.task(name='pychunkedgraph.meshing.meshgen.mesh_lvl2_previews_task')
 def mesh_lvl2_previews_task(serialized_cg_info, lvl2_node_id,
                             supervoxel_ids,
                             cv_path=None,
                             cv_mesh_dir=None, mip=2, simplification_factor=999999,
-                            max_err=40, parallel_download=8, verbose=True,
+                            max_err=40, parallel_download=False, verbose=True,
                             cache_control="no-cache"):
 
     cg = chunkedgraph.ChunkedGraph(**serialized_cg_info)
