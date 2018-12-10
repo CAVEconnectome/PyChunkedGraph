@@ -378,7 +378,7 @@ def mesh_lvl2_previews(cg, lvl2_node_ids, cv_path=None,
     if use_celery_worker:
         tasks = [mesh_lvl2_previews_task.s(*args) for args in multi_args]
         res = group(tasks).apply_async()
-        res.join()
+        res.get(timeout=30)
     else:
         # Run parallelizing
         if n_threads == 1:
