@@ -24,3 +24,5 @@ register_dill()
 task_serializer = 'dill'
 result_serializer = 'dill'
 accept_content = ['dill']
+broker_heartbeat = 0
+broker_transport_options = {'confirm_publish': True}

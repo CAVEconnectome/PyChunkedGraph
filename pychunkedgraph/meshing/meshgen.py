@@ -9,7 +9,7 @@ from cloudvolume import Storage, EmptyVolumeException
 from cloudvolume.meshservice import decode_mesh_buffer
 from igneous.tasks import MeshTask
 from pychunkedgraph.meshing.rabbitmq import app, channel, remesh_exchange
-
+from celery import group
 sys.path.insert(0, os.path.join(sys.path[0], '../..'))
 os.environ['TRAVIS_BRANCH'] = "IDONTKNOWWHYINEEDTHIS"
 
@@ -375,15 +375,16 @@ def mesh_lvl2_previews(cg, lvl2_node_ids, cv_path=None,
                                max_err, parallel_download, verbose,
                                cache_control])
 
-    # Run parallelizing
-    if n_threads == 0:
-        mu.multiprocess_func(_mesh_lvl2_previews_threads,
-                             multi_args, n_threads=n_threads,
-                             verbose=False, debug=n_threads==1)
+    if use_celery_worker:
+        tasks = [mesh_lvl2_previews_task.s(*args) for args in multi_args]
+        res = group(tasks).apply_async()
+        res.join()
     else:
-        if use_celery_worker:
-            res = mesh_lvl2_previews_task.chunks(multi_args, n_threads)()
-            res.get()
+        # Run parallelizing
+        if n_threads == 1:
+            mu.multiprocess_func(_mesh_lvl2_previews_threads,
+                                multi_args, n_threads=n_threads,
+                                verbose=False, debug=n_threads==1)
         else:
             mu.multisubprocess_func(_mesh_lvl2_previews_threads,
                                     multi_args, n_threads=n_threads)
