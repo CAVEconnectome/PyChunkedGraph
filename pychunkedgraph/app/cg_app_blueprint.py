@@ -13,7 +13,7 @@ from pychunkedgraph.app import app_utils
 from pychunkedgraph.backend import chunkedgraph_exceptions as cg_exceptions
 
 __version__ = '0.1.87'
-bp = Blueprint('pychunkedgraph', __name__, url_prefix="/segmentation")
+bp = Blueprint('pychunkedgraph', __name__, url_prefix="/segmentation-dev")
 
 # -------------------------------
 # ------ Access control and index
