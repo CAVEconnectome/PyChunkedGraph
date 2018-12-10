@@ -3070,7 +3070,7 @@ class ChunkedGraph(object):
                                    slow_retry=False):
                     if remesh_preview:
                             meshgen.mesh_lvl2_previews(self, 
-                                lvl2_node_mapping,
+                                list(lvl2_node_mapping.keys()),
                                 use_celery_worker=use_mesh_celery_worker)
 
                     return new_root_id
@@ -3629,7 +3629,7 @@ class ChunkedGraph(object):
                                    operation_id=operation_id, slow_retry=False):
                     if remesh_preview:
                         meshgen.mesh_lvl2_previews(self,
-                                                   lvl2_node_mapping,
+                                                   list(lvl2_node_mapping.keys()),
                                                    use_celery_worker=use_celery_worker)
 
                     self.logger.debug(f"new root ids: {new_root_ids}")
