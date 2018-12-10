@@ -408,6 +408,7 @@ def mesh_lvl2_previews_task(serialized_cg_info, lvl2_node_id,
     # now that this meshing worker has completed its task successfully
     # we are broadcasting a message saying what it did
     # compartment classification can consume this message to selectively rerun
+    
     message = {
         'serialized_cg_info': serialized_cg_info,
         'cv_path': cv_path,
@@ -416,13 +417,13 @@ def mesh_lvl2_previews_task(serialized_cg_info, lvl2_node_id,
         'max_err': max_err,
         'parallel_download': parallel_download,
         'supervoxel_ids': supervoxel_ids,
-        'lvl2_node_id': lvl2_node_id
+        'lvl2_node_id': int(lvl2_node_id)
     }
-    # publish the message to the remesh exchange
-    channel.basic_publish(exchange=remesh_exchange,
-                          routing_key='',
-                          body=json.dumps(message))
-
+    # # publish the message to the remesh exchange
+    # channel.basic_publish(exchange=remesh_exchange,
+    #                       routing_key='',
+    #                       body=json.dumps(message))
+    return message
 
 def mesh_lvl2_preview(cg, lvl2_node_id, supervoxel_ids=None, cv_path=None,
                       cv_mesh_dir=None, mip=2, simplification_factor=999999,
