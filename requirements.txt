@@ -12,4 +12,3 @@ python-json-logger
 igneous==dev
 celery
 pika
-dill

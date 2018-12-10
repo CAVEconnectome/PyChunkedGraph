@@ -11,15 +11,12 @@ from . import config
 # from pychunkedgraph.app import app_blueprint
 from pychunkedgraph.app import cg_app_blueprint, meshing_app_blueprint
 from pychunkedgraph.logging import jsonformatter
-from pychunkedgraph.app.utils import get_instance_folder_path
 # from pychunkedgraph.app import manifest_app_blueprint
 os.environ['TRAVIS_BRANCH'] = "IDONTKNOWWHYINEEDTHIS"
 
 
 def create_app(test_config=None):
-    app = Flask(__name__,
-                instance_path=get_instance_folder_path(),
-                instance_relative_config=True)
+    app = Flask(__name__)
     CORS(app)
 
     configure_app(app)
@@ -37,7 +34,7 @@ def create_app(test_config=None):
 def configure_app(app):
     # Load logging scheme from config.py
     app.config.from_object(config.BaseConfig)
-    app.config.from_pyfile('config.cfg', silent=True)
+
     # Configure logging
     # handler = logging.FileHandler(app.config['LOGGING_LOCATION'])
     handler = logging.StreamHandler(sys.stdout)
