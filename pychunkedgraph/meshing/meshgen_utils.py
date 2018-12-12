@@ -41,7 +41,7 @@ def get_mesh_name(cg, node_id: np.uint64, mip: int) -> str:
 
 @lru_cache(maxsize=None)
 def get_segmentation_info(cg) -> dict:
-    return CloudVolume(cg._cv_path).info
+    return cg.dataset_info
 
 
 def get_mesh_block_shape(cg, graphlayer: int,
@@ -100,7 +100,7 @@ def get_highest_child_nodes_with_meshes(cg,
 
     if verify_existence:
         valid_seg_ids = []
-        with Storage("%s/%s" % (cg.cv.layer_cloudpath, cg.cv.info["mesh"])) as stor:
+        with Storage(cg.cv_mesh_path) as stor:
             while len(candidates) > 0:
                 filenames = [get_mesh_name(cg, c, MESH_MIP) for c in candidates]
 

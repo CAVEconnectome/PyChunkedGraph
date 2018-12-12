@@ -57,8 +57,7 @@ class ChunkedGraph(object):
                  n_layers: Optional[np.uint64] = None,
                  credentials: Optional[credentials.Credentials] = None,
                  client: bigtable.Client = None,
-                 cv_path: str = None,
-                 mesh_dir: str = None,
+                 dataset_info: Optional[object] = None,
                  is_new: bool = False,
                  logger: Optional[logging.Logger] = None) -> None:
 
@@ -86,14 +85,16 @@ class ChunkedGraph(object):
         if is_new:
             self._check_and_create_table()
 
+        self._dataset_info = self.check_and_write_table_parameters(
+            column_keys.GraphSettings.DatasetInfo, dataset_info, required=True)
+
+        self._cv_path = self._dataset_info["data_dir"]         # required
+        self._mesh_dir = self._dataset_info.get("mesh", None)  # optional
+
         self._n_layers = self.check_and_write_table_parameters(
             column_keys.GraphSettings.LayerCount, n_layers, required=True)
         self._fan_out = self.check_and_write_table_parameters(
             column_keys.GraphSettings.FanOut, fan_out, required=True)
-        self._cv_path = self.check_and_write_table_parameters(
-            column_keys.GraphSettings.SegmentationPath, cv_path, required=True)
-        self._mesh_dir = self.check_and_write_table_parameters(
-            column_keys.GraphSettings.MeshDir, mesh_dir, required=False)
         self._chunk_size = self.check_and_write_table_parameters(
             column_keys.GraphSettings.ChunkSize, chunk_size, required=True)
 
@@ -183,16 +184,19 @@ class ChunkedGraph(object):
         return "%s/%s" % (self._cv_path, self._mesh_dir)
 
     @property
+    def dataset_info(self) -> object:
+        return self._dataset_info
+
+    @property
     def cv_mip(self) -> int:
         return self._cv_mip
 
     @property
     def cv(self) -> cloudvolume.CloudVolume:
         if self._cv is None:
-            self._cv = cloudvolume.CloudVolume(self._cv_path, mip=self._cv_mip)
+            self._cv = cloudvolume.CloudVolume(self._cv_path, mip=self._cv_mip,
+                                               info=self.dataset_info)
 
-            if self._mesh_dir is not None:
-                self._cv.info["mesh"] = self._mesh_dir
         return self._cv
 
     @property

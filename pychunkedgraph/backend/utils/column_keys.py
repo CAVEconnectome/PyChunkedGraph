@@ -134,6 +134,11 @@ class Hierarchy:
 
 
 class GraphSettings:
+    DatasetInfo = _Column(
+        key=b'dataset_info',
+        family_id='0',
+        serializer=serializers.JSON())
+
     ChunkSize = _Column(
         key=b'chunk_size',
         family_id='0',

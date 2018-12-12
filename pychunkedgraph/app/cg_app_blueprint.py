@@ -129,7 +129,7 @@ def sleep_me(sleep):
 @bp.route('/1.0/<table_id>/info', methods=['GET'])
 def handle_info(table_id):
     cg = app_utils.get_cg(table_id)
-    return jsonify(cg.cv.info)
+    return jsonify(cg.dataset_info)
 
 
 ### GET ROOT -------------------------------------------------------------------
