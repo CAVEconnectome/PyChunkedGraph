@@ -1,4 +1,5 @@
 from typing import Any, Iterable
+import json
 import numpy as np
 
 
@@ -51,6 +52,15 @@ class String(_Serializer):
         super().__init__(
             serializer=lambda x: x.encode(encoding),
             deserializer=lambda x: x.decode(),
+            basetype=str
+        )
+
+
+class JSON(_Serializer):
+    def __init__(self):
+        super().__init__(
+            serializer=lambda x: json.dumps(x).encode("utf-8"),
+            deserializer=lambda x: json.loads(x.decode()),
             basetype=str
         )
 

@@ -91,11 +91,15 @@ def lock_expired_timedelta_override(request):
 def gen_graph(request):
     def _cgraph(request, fan_out=2, n_layers=10):
         # setup Chunked Graph
+        dataset_info = {
+            "data_dir": ""
+        }
+
         graph = chunkedgraph.ChunkedGraph(
             request.function.__name__,
             project_id='IGNORE_ENVIRONMENT_PROJECT',
             credentials=credentials.AnonymousCredentials(),
-            instance_id="emulated_instance", cv_path="",
+            instance_id="emulated_instance", dataset_info=dataset_info,
             chunk_size=np.array([512, 512, 64], dtype=np.uint64),
             is_new=True, fan_out=np.uint64(fan_out),
             n_layers=np.uint64(n_layers))
