@@ -1,5 +1,6 @@
 import re
 import numpy as np
+import time
 
 from functools import lru_cache
 from cloudvolume import CloudVolume, Storage
@@ -99,22 +100,26 @@ def get_highest_child_nodes_with_meshes(cg,
             highest_node, return_layers=[HIGHEST_MESH_LAYER])
 
     if verify_existence:
-        valid_seg_ids = []
+        valid_node_ids = []
         with Storage(cg.cv_mesh_path) as stor:
-            while len(candidates) > 0:
+            while True:
                 filenames = [get_mesh_name(cg, c, MESH_MIP) for c in candidates]
-
                 existence_dict = stor.files_exist(filenames)
 
-                candidates = []
-                for k in existence_dict:
-                    seg_id = np.uint64(k.split(':')[0])
-                    if existence_dict[k]:
-                        valid_seg_ids.append(seg_id)
+                missing_meshes = []
+                for mesh_key in existence_dict:
+                    node_id = np.uint64(mesh_key.split(':')[0])
+                    if existence_dict[mesh_key]:
+                        valid_node_ids.append(node_id)
                     else:
-                        if cg.get_chunk_layer(seg_id) > stop_layer:
-                            candidates.extend(cg.get_children(seg_id))
-    else:
-        valid_seg_ids = candidates
+                        if cg.get_chunk_layer(node_id) > stop_layer:
+                            missing_meshes.append(node_id)
 
-    return valid_seg_ids
+                if missing_meshes:
+                    candidates = cg.get_children(candidates, flatten=True)
+                else:
+                    break
+    else:
+        valid_node_ids = candidates
+
+    return valid_node_ids
