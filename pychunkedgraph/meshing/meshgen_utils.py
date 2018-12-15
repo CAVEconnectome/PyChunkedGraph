@@ -116,7 +116,7 @@ def get_highest_child_nodes_with_meshes(cg,
                             missing_meshes.append(node_id)
 
                 if missing_meshes:
-                    candidates = cg.get_children(candidates, flatten=True)
+                    candidates = cg.get_children(missing_meshes, flatten=True)
                 else:
                     break
     else:
