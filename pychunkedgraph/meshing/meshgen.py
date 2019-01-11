@@ -175,25 +175,22 @@ def get_sv_to_node_mapping(cg, chunk_id):
 
 
 def merge_meshes(meshes):
-    num_vertices = 0
-    vertices, faces = [], []
+    vertexct = np.zeros(len(meshes) + 1, np.uint32)
+    vertexct[1:] = np.cumsum([x['num_vertices'] for x in meshes])
+    vertices = np.concatenate([x['vertices'] for x in meshes])
+    faces = np.concatenate([
+        mesh['faces'] + vertexct[i] for i, mesh in enumerate(meshes)
+    ])
 
-    # Dumb merge
-    for mesh in meshes:
-        vertices.extend(mesh['vertices'])
-        faces.extend([x + num_vertices for x in mesh['faces']])
-        num_vertices += len(mesh['vertices'])
-
-    if num_vertices > 0:
+    if vertexct[-1] > 0:
         # Remove duplicate vertices
-        vertex_representation = np.array(vertices)[faces]
-        vertices, faces = np.unique(vertex_representation,
-                                    return_inverse=True, axis=0)
+        vertices, faces = np.unique(vertices[faces], return_inverse=True, axis=0)
+        faces = faces.astype(np.uint32)
 
     return {
-        'num_vertices': len(vertices),
-        'vertices': list(map(tuple, vertices)),
-        'faces': list(faces)
+        'num_vertices': np.uint32(len(vertices)),
+        'vertices': vertices,
+        'faces': faces
     }
 
 
@@ -211,6 +208,7 @@ def chunk_mesh_task(cg, chunk_id, cv_path,
 
     layer = cg.get_chunk_layer(chunk_id)
     cx, cy, cz = cg.get_chunk_coordinates(chunk_id)
+    mesh_dir = cv_mesh_dir or cg.cv_mesh_path
 
     if layer <= 2:
         # Level 1 or 2 chunk - fetch supervoxel mapping from ChunkedGraph, and
@@ -239,13 +237,13 @@ def chunk_mesh_task(cg, chunk_id, cv_path,
             chunk_offset,
             cv_path,
             mip=mip,
-            simplification_factor=999999,     # Simplify as much as possible ...
+            simplification_factor=999999,      # Simplify as much as possible ...
             max_simplification_error=max_err,  # ... staying below max error.
             remap_table=sv_to_node_mapping,
-            generate_manifests=True,
-            low_padding=0,                    # One voxel overlap to exactly line up
-            high_padding=1,                   # vertex boundaries.
-            mesh_dir=cv_mesh_dir,
+            generate_manifests=False,
+            low_padding=0,                     # One voxel overlap to exactly line up
+            high_padding=1,                    # vertex boundaries.
+            mesh_dir=mesh_dir,
             cache_control='no-cache'
         )
         task.execute()
@@ -253,105 +251,60 @@ def chunk_mesh_task(cg, chunk_id, cv_path,
         print("Layer %d -- finished:" % layer, cx, cy, cz)
 
     else:
-        # Layer 3+ chunk
-        # 1) Load all manifests of next lower layer for this chunk
-        # 2a) Merge mesh fragments of child chunks (3 <= layer < n_layers-3), or
-        # 2b) Combine the manifests without creating new meshes
+        # For each node with more than one child, create a new fragment by
+        # merging the mesh fragments of the children.
 
-        create_new_fragments: bool = layer < cg.n_layers - 2
-
+        print("Retrieving children for chunk %s -- (%s, %s, %s, %s)" % (chunk_id, layer, cx, cy, cz))
         node_ids = cg.range_read_chunk(layer, cx, cy, cz, columns=column_keys.Hierarchy.Child)
 
-        manifests_to_fetch = {x: [] for x in node_ids.keys()}
+        print("Collecting only nodes with more than one child: ", end="")
+        # Only keep nodes with more than one child
+        multi_child_nodes = {}
+        for node_id, data in node_ids.items():
+            children = data[0].value
 
-        mesh_dir = cv_mesh_dir or meshgen_utils.get_segmentation_info(cg)['mesh']
+            if len(children) > 1:
+                multi_child_descendant = [
+                    meshgen_utils.get_downstream_multi_child_node(cg, child, 2) for child in children
+                ]
 
-        chunk_block_shape = meshgen_utils.get_mesh_block_shape(cg, layer, mip)
-        bbox_start = cg.get_chunk_coordinates(chunk_id) * chunk_block_shape
-        bbox_end = bbox_start + chunk_block_shape
-        chunk_bbox_str = meshgen_utils.slice_to_str(slice(bbox_start[i], bbox_end[i]) for i in range(3))
+                multi_child_nodes[f'{node_id}:0:{meshgen_utils.get_chunk_bbox_str(cg, node_id, mip)}'] = [
+                    f'{c}:0:{meshgen_utils.get_chunk_bbox_str(cg, c, mip)}' for c in multi_child_descendant
+                ]
+        print("%d out of %d" % (len(multi_child_nodes), len(node_ids)))
+        if not multi_child_nodes:
+            print("Nothing to do", cx, cy, cz)
+            return
 
-        for node_id, children in node_ids.items():
-            children = children[0].value
-            manifests_to_fetch[node_id].extend((f'{c}:0' for c in children))
+        with Storage(os.path.join(cv_path, mesh_dir)) as storage:
+            i = 0
+            for new_fragment_id, fragment_ids_to_fetch in multi_child_nodes.items():
+                i += 1
+                if i % max(1, len(multi_child_nodes) // 10) == 0:
+                    print(f"{i}/{len(multi_child_nodes)}")
 
-        with Storage(os.path.join(cg_.cv_path, mesh_dir)) as storage:
-            print("Downloading Manifests...")
-            manifest_content = storage.get_files((m for manifests in manifests_to_fetch.values() for m in manifests))
-            print("Decoding Manifests...")
-            manifest_content = {x['filename']: json.loads(x['content']) for x in manifest_content if x['content'] is not None and x['error'] is None}
+                fragment_contents = storage.get_files(fragment_ids_to_fetch)
+                fragment_contents = {
+                    x['filename']: decode_mesh_buffer(x['filename'], x['content'])
+                    for x in fragment_contents
+                    if x['content'] is not None and x['error'] is None
+                }
 
-            if create_new_fragments:
-                # Only collect fragment filenames for nodes which consist of
-                # more than one fragment, skipping the ones without a manifest
-                print("Collect fragments to download...")
-                fragments_to_fetch = [
-                    fragment for manifests in manifests_to_fetch.values()
-                    if len(manifests) > 1
-                    for manifest in manifests
-                    if manifest in manifest_content
-                    for fragment in manifest_content[manifest]['fragments']]
+                old_fragments = list(fragment_contents.values())
+                if not old_fragments:
+                    continue
 
-                print("Downloading Fragments...")
-                fragments_content = storage.get_files(fragments_to_fetch)
-
-                print("Decoding Fragments...")
-                fragments_content = {x['filename']: decode_mesh_buffer(x['filename'], x['content']) for x in fragments_content if x['content'] is not None and x['error'] is None}
-
-        fragments_to_upload = []
-        manifests_to_upload = []
-        for node_id, manifests in manifests_to_fetch.items():
-            manifest_filename = f'{node_id}:0'
-            fragment_filename = f'{node_id}:0:{chunk_bbox_str}'
-
-            fragments = [
-                fragment for manifest in manifests
-                if manifest in manifest_content
-                for fragment in manifest_content[manifest]['fragments']]
-
-            if len(fragments) < 2 or not create_new_fragments:
-                # Create a single new manifest without creating any new
-                # mesh fragments (point to existing fragments instead)
-
-                # Note: An empty list of fragments might have been caused by
-                #       tiny supervoxels/agglomerations near chunk boundaries,
-                #       when those "disappeared" during meshing of _downsampled_
-                #       layer 1 or 2 chunks.
-                fragments_str = ''
-                if len(fragments) > 0:
-                    fragments_str = '"' + '","'.join(fragments) + '"'
-
-                manifests_to_upload.append((
-                    manifest_filename,
-                    '{"fragments": [%s]}' % fragments_str
-                ))
-            else:
-                # Merge mesh fragments into one new mesh, removing duplicate
-                # vertices
-                mesh = merge_meshes(map(lambda x: fragments_content[x] if x in fragments_content else {'num_vertices': 0, 'vertices': [], 'faces': []}, fragments))
-
-                fragments_to_upload.append((
-                    fragment_filename,
-                    b''.join([
-                        np.uint32(mesh['num_vertices']).tobytes(),
-                        np.array(mesh['vertices'], dtype=np.float32).tobytes(),
-                        np.array(mesh['faces'], dtype=np.uint32).tobytes()
-                    ])
-                ))
-
-                manifests_to_upload.append((
-                    manifest_filename,
-                    '{"fragments": ["%s"]}' % fragment_filename
-                ))
-
-        print("Uploading new manifests and fragments...")
-        with Storage(os.path.join(cg._cv_path, mesh_dir)) as storage:
-            storage.put_files(fragments_to_upload, content_type='application/octet-stream', compress=True, cache_control='no-cache')
-            storage.put_files(manifests_to_upload, content_type='application/json', compress=False, cache_control='no-cache')
-            print("Uploaded %s manifests and %s fragments (reusing %s fragments)"
-                  % (len(manifests_to_upload),
-                     len(fragments_to_upload),
-                     len(manifests_to_upload) - len(fragments_to_upload)))
+                new_fragment = merge_meshes(old_fragments)
+                new_fragment_b = b''.join([
+                    new_fragment['num_vertices'].tobytes(),
+                    new_fragment['vertices'].tobytes(),
+                    new_fragment['faces'].tobytes()
+                ])
+                storage.put_file(new_fragment_id,
+                                 new_fragment_b,
+                                 content_type='application/octet-stream',
+                                 compress=True,
+                                 cache_control='no-cache')
 
 
 def mesh_lvl2_previews(cg, lvl2_node_ids, cv_path=None,
@@ -377,7 +330,7 @@ def mesh_lvl2_previews(cg, lvl2_node_ids, cv_path=None,
     if n_threads == 1:
         mu.multiprocess_func(_mesh_lvl2_previews_threads,
                              multi_args, n_threads=n_threads,
-                             verbose=False, debug=n_threads==1)
+                             verbose=False, debug=n_threads == 1)
     else:
         mu.multisubprocess_func(_mesh_lvl2_previews_threads,
                                 multi_args, n_threads=n_threads)
@@ -442,7 +395,7 @@ def mesh_lvl2_preview(cg, lvl2_node_id, supervoxel_ids=None, cv_path=None,
         simplification_factor=simplification_factor,
         max_simplification_error=max_err,
         remap_table=remap_table,
-        generate_manifests=True,
+        generate_manifests=False,
         low_padding=0,
         high_padding=0,
         mesh_dir=cv_mesh_dir,
@@ -479,7 +432,7 @@ def run_task_bundle(settings, layer, roi):
                 chunk_id = cgraph.get_chunk_id_from_coord(layer, x, y, z)
 
                 try:
-                    chunk_mesh_task(cgraph, chunk_id, cgraph.cv_path,
+                    chunk_mesh_task(cgraph, chunk_id, cgraph._cv_path,
                                     cv_mesh_dir=mesh_dir, mip=mip, max_err=max_err)
                 except EmptyVolumeException as e:
                     print("Warning: Empty segmentation encountered: %s" % e)

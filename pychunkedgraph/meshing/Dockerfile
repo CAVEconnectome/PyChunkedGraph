@@ -31,6 +31,8 @@ RUN apk add --no-cache --virtual .build-deps \
     && ln -s /secrets /root/.cloudvolume/secrets \
     \
     && git clone "https://github.com/seung-lab/pychunkedgraph.git" /usr/local/pychunkedgraph \
+    && cd /usr/local/pychunkedgraph \
+    && python setup.py develop --upgrade --no-deps \
     && rm -rf /usr/local/pychunkedgraph/.git \
     && git clone "https://github.com/seung-lab/igneous.git" /usr/local/igneous \
     && cd /usr/local/igneous \
