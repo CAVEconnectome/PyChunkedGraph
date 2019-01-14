@@ -1992,9 +1992,6 @@ class ChunkedGraph(object):
         time_stamp = get_google_compatible_time_stamp(time_stamp,
                                                       round_up=False)
 
-        if self.get_chunk_layer(node_id) == self.n_layers:
-            raise Exception("node is already root")
-
         parent_id = node_id
 
         for i_try in range(n_tries):
