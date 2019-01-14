@@ -11,3 +11,4 @@ multiwrapper
 cloud-volume
 python-json-logger
 igneous==dev
+python-jsonschema-objects==0.3.3
