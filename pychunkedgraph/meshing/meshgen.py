@@ -318,11 +318,13 @@ def mesh_lvl2_previews(cg, lvl2_node_ids, cv_path=None,
     if not isinstance(lvl2_node_ids, dict):
         lvl2_node_ids = dict(zip(lvl2_node_ids, [None] * len(lvl2_node_ids)))
 
+    mesh_dir = cv_mesh_dir or cg.cv_mesh_path
+
     multi_args = []
     for lvl2_node_id in lvl2_node_ids.keys():
         multi_args.append([serialized_cg_info, lvl2_node_id,
                            lvl2_node_ids[lvl2_node_id],
-                           cv_path, cv_mesh_dir, mip, simplification_factor,
+                           cv_path, mesh_dir, mip, simplification_factor,
                            max_err, parallel_download, verbose,
                            cache_control])
 
@@ -377,6 +379,8 @@ def mesh_lvl2_preview(cg, lvl2_node_id, supervoxel_ids=None, cv_path=None,
     if cv_path is None:
         cv_path = cg._cv_path
 
+    mesh_dir = cv_mesh_dir or cg.cv_mesh_path
+
     if supervoxel_ids is None:
         supervoxel_ids = cg.get_subgraph_nodes(lvl2_node_id, verbose=verbose)
 
@@ -398,7 +402,7 @@ def mesh_lvl2_preview(cg, lvl2_node_id, supervoxel_ids=None, cv_path=None,
         generate_manifests=True,
         low_padding=0,
         high_padding=0,
-        mesh_dir=cv_mesh_dir,
+        mesh_dir=mesh_dir,
         parallel_download=parallel_download,
         cache_control=cache_control
     )
