@@ -8,7 +8,6 @@ flask
 flask_cors
 codecov
 multiwrapper
-cloud-volume
+cloud-volume>=0.43.1
 python-json-logger
 igneous==dev
-python-jsonschema-objects==0.3.3
