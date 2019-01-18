@@ -208,7 +208,7 @@ def chunk_mesh_task(cg, chunk_id, cv_path,
 
     layer = cg.get_chunk_layer(chunk_id)
     cx, cy, cz = cg.get_chunk_coordinates(chunk_id)
-    mesh_dir = cv_mesh_dir or cg.cv_mesh_path
+    mesh_dir = cv_mesh_dir or cg._mesh_dir
 
     if layer <= 2:
         # Level 1 or 2 chunk - fetch supervoxel mapping from ChunkedGraph, and
@@ -318,7 +318,7 @@ def mesh_lvl2_previews(cg, lvl2_node_ids, cv_path=None,
     if not isinstance(lvl2_node_ids, dict):
         lvl2_node_ids = dict(zip(lvl2_node_ids, [None] * len(lvl2_node_ids)))
 
-    mesh_dir = cv_mesh_dir or cg.cv_mesh_path
+    mesh_dir = cv_mesh_dir or cg._mesh_dir
 
     multi_args = []
     for lvl2_node_id in lvl2_node_ids.keys():
@@ -379,7 +379,7 @@ def mesh_lvl2_preview(cg, lvl2_node_id, supervoxel_ids=None, cv_path=None,
     if cv_path is None:
         cv_path = cg._cv_path
 
-    mesh_dir = cv_mesh_dir or cg.cv_mesh_path
+    mesh_dir = cv_mesh_dir or cg._mesh_dir
 
     if supervoxel_ids is None:
         supervoxel_ids = cg.get_subgraph_nodes(lvl2_node_id, verbose=verbose)
