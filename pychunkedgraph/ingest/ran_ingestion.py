@@ -7,14 +7,14 @@ import zstandard as zstd
 import numpy.lib.recfunctions as rfn
 import networkx as nx
 import logging
-
+from multiwrapper import multiprocessing_utils as mu
 
 from pychunkedgraph.ingest import ingestionmanager, ingestion_utils as iu
 
 
 def ingest_into_chunkedgraph(storage_path, ws_cv_path, cg_mesh_dir, cg_table_id,
                              fan_out=2, aff_dtype=np.float32,
-                             instance_id=None, project_id=None):
+                             instance_id=None, project_id=None, n_threads=64):
     """ Creates a chunkedgraph from a Ran Agglomerattion
 
     :param storage_path: str
@@ -27,10 +27,14 @@ def ingest_into_chunkedgraph(storage_path, ws_cv_path, cg_mesh_dir, cg_table_id,
         chunkedgraph table name
     :param fan_out: int
         fan out of chunked graph (2 == Octree)
+    :param aff_dtype: np.dtype
+        affinity datatype (np.float32 or np.float64)
     :param instance_id: str
         Google instance id
     :param project_id: str
         Google project id
+    :param n_threads: int
+        number of threads to use
     :return:
     """
 
@@ -46,27 +50,31 @@ def ingest_into_chunkedgraph(storage_path, ws_cv_path, cg_mesh_dir, cg_table_id,
                                            instance_id=instance_id,
                                            project_id=project_id)
 
+    #TODO: Remove later:
     logging.basicConfig(level=logging.DEBUG)
     im.cg.logger = logging.getLogger(__name__)
+    # ------------------------------------------
 
-    create_atomic_chunks(im, aff_dtype=aff_dtype)
-    create_abstract_layers(im)
+    create_atomic_chunks(im, aff_dtype=aff_dtype, n_threads=n_threads)
+    create_abstract_layers(im, n_threads=n_threads)
 
     return im
 
 
-def create_abstract_layers(im):
+def create_abstract_layers(im, n_threads=1):
     """ Creates abstract of chunkedgraph (> 2)
 
     :param im: IngestionManager
+    :param n_threads: int
+        number of threads to use
     :return:
     """
 
     for layer_id in range(3, int(im.cg.n_layers + 1)):
-        create_layer(im, layer_id)
+        create_layer(im, layer_id, n_threads=n_threads)
 
 
-def create_layer(im, layer_id):
+def create_layer(im, layer_id, n_threads=1):
     """ Creates abstract layer of chunkedgraph
 
     Abstract layers have to be build in sequence. Abstract layers are all layers
@@ -76,6 +84,8 @@ def create_layer(im, layer_id):
     :param im: IngestionManager
     :param layer_id: int
         > 2
+    :param n_threads: int
+        number of threads to use
     :return:
     """
     assert layer_id > 2
@@ -89,23 +99,53 @@ def create_layer(im, layer_id):
     parent_chunk_coords, inds = np.unique(parent_chunk_coords, axis=0,
                                           return_inverse=True)
 
+    im_info = im.get_serialized_info()
+    multi_args = []
     for idx in range(len(parent_chunk_coords)):
-        print(idx, layer_id, child_chunk_coords[inds == idx])
-        im.cg.add_layer(layer_id, child_chunk_coords[inds == idx], n_threads=1,
-                        verbose=True)
+        multi_args.append([im_info, layer_id, child_chunk_coords[inds == idx]])
 
 
-def create_atomic_chunks(im, aff_dtype=np.float64):
+def _create_layer(args):
+    """ Multiprocessing helper for create_layer """
+    im_info, layer_id, child_chunk_coords = args
+
+    im = ingestionmanager.IngestionManager(**im_info)
+    im.cg.add_layer(layer_id, child_chunk_coords, n_threads=1, verbose=True)
+
+
+def create_atomic_chunks(im, aff_dtype=np.float64, n_threads=1):
     """ Creates all atomic chunks
 
-    :param im:
-    :param aff_dtype:
+    :param im: IngestionManager
+    :param aff_dtype: np.dtype
+        affinity datatype (np.float32 or np.float64)
+    :param n_threads: int
+        number of threads to use
     :return:
     """
-    # for chunk_coord in [np.array([3, 3, 0])]:
+
+    im_info = im.get_serialized_info()
+
+    multi_args = []
     for chunk_coord in im.chunk_coord_gen:
-        print(f"\n\n{chunk_coord} ----------------- \n")
-        create_atomic_chunk(im, chunk_coord, aff_dtype=aff_dtype)
+        multi_args.append([im_info, chunk_coord, aff_dtype])
+
+    if n_threads == 1:
+        mu.multiprocess_func(
+            _create_atomic_chunk, multi_args, n_threads=n_threads,
+            verbose=True, debug=n_threads == 1)
+    else:
+        mu.multisubprocess_func(
+            _create_atomic_chunk, multi_args, n_threads=n_threads)
+
+
+def _create_atomic_chunk(args):
+    """ Multiprocessing helper for create_atomic_chunks """
+
+    im_info, chunk_coord, aff_dtype = args
+
+    im = ingestionmanager.IngestionManager(**im_info)
+    create_atomic_chunk(im, chunk_coord, aff_dtype=aff_dtype, verbose=False)
 
 
 def create_atomic_chunk(im, chunk_coord, aff_dtype=np.float64, verbose=True):
@@ -119,6 +159,8 @@ def create_atomic_chunk(im, chunk_coord, aff_dtype=np.float64, verbose=True):
     :param verbose: bool
     :return:
     """
+    print(f"\n\n{chunk_coord} ----------------- \n")
+
     chunk_coord = np.array(list(chunk_coord), dtype=np.int)
 
     edge_dict = collect_edge_data(im, chunk_coord, aff_dtype=aff_dtype)
@@ -335,11 +377,9 @@ def _read_agg_files(filenames, base_path):
     edge_list = []
     for file in files:
         if file["content"] is None:
-            # print(f"{file['filename']} not created or empty")
             continue
 
         if file["error"] is not None:
-            # print(f"error reading {file['filename']}")
             continue
 
         content = zstd.ZstdDecompressor().decompress(file["content"])

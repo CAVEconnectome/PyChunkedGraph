@@ -60,6 +60,14 @@ class IngestionManager(object):
         return np.array(list(self.chunk_coord_gen), dtype=np.int)
 
 
+    def get_serialized_info(self):
+        info = {"storage_path": self.storage_path,
+                "cg_table_id": self._cg_table_id,
+                "instance_id": self._instance_id,
+                "project_id": self._project_id}
+
+        return info
+
     def is_out_of_bounce(self, chunk_coordinate):
         if np.any(chunk_coordinate < 0):
             return True
@@ -68,5 +76,4 @@ class IngestionManager(object):
             return True
 
         return False
-
 
