@@ -26,7 +26,8 @@ def _read_root_rows_thread(args) -> list:
         end_time=time_stamp,
         end_time_inclusive=True)
 
-    root_ids = [k for (k, v) in rows.items() if column_keys.Hierarchy.NewParent not in v]
+    root_ids = [k for (k, v) in rows.items()
+                if column_keys.Hierarchy.NewParent not in v]
 
     return root_ids
 

@@ -421,7 +421,7 @@ class ChunkedGraph(object):
         :return: np.uint64
         """
 
-        column = column_keys.Concurrency.OperationID
+        column = column_keys.Concurrency.CounterID
 
         # Incrementer row keys start with an "i" followed by the chunk id
         row_key = serializers.serialize_key("i%s" % serializers.pad_node_id(chunk_id))
@@ -491,7 +491,7 @@ class ChunkedGraph(object):
 
         # Incrementer row keys start with an "i"
         row_key = serializers.serialize_key("i%s" % serializers.pad_node_id(chunk_id))
-        row = self.read_byte_row(row_key, columns=column_keys.Concurrency.OperationID)
+        row = self.read_byte_row(row_key, columns=column_keys.Concurrency.CounterID)
 
         # Read incrementer value (default to 0) and interpret is as Segment ID
         return basetypes.SEGMENT_ID.type(row[0].value if row else 0)
@@ -522,7 +522,7 @@ class ChunkedGraph(object):
 
         :return: str
         """
-        column = column_keys.Concurrency.OperationID
+        column = column_keys.Concurrency.CounterID
 
         append_row = self.table.row(row_keys.OperationID, append=True)
         append_row.increment_cell_value(column.family_id, column.key, 1)
@@ -544,7 +544,7 @@ class ChunkedGraph(object):
 
         :return: int64
         """
-        column = column_keys.Concurrency.OperationID
+        column = column_keys.Concurrency.CounterID
         row = self.read_byte_row(row_keys.OperationID, columns=column)
 
         return row[0].value if row else column.basetype(0)
@@ -3421,7 +3421,7 @@ class ChunkedGraph(object):
                     val_dict = {}
                     val_dict[column_keys.Hierarchy.FormerParent] = \
                         np.array(old_parent_ids)
-                    val_dict[column_keys.Concurrency.OperationID] = operation_id
+                    val_dict[column_keys.OperationLogs.OperationID] = operation_id
 
                     rows.append(self.mutate_row(serializers.serialize_uint64(new_parent_id),
                                                 val_dict, time_stamp=time_stamp))
@@ -4148,7 +4148,7 @@ class ChunkedGraph(object):
                     new_roots.append(new_parent_id)
                     val_dict[column_keys.Hierarchy.FormerParent] = \
                         np.array(original_root)
-                    val_dict[column_keys.Concurrency.OperationID] = operation_id
+                    val_dict[column_keys.OperationLogs.OperationID] = operation_id
 
                 rows.append(self.mutate_row(serializers.serialize_uint64(new_parent_id),
                                             val_dict, time_stamp=time_stamp))
