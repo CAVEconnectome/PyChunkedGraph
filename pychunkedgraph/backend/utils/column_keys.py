@@ -68,10 +68,10 @@ class _ColumnArray():
 
 
 class Concurrency:
-    OperationID = _Column(
+    CounterID = _Column(
         key=b'counter',
         family_id='1',
-        serializer=serializers.NumPyValue(dtype=basetypes.OPERATION_ID))
+        serializer=serializers.NumPyValue(dtype=basetypes.COUNTER))
 
     Lock = _Column(
         key=b'lock',
@@ -166,6 +166,11 @@ class GraphSettings:
 
 
 class OperationLogs:
+    OperationID = _Column(
+        key=b'operation_id',
+        family_id='0',
+        serializer=serializers.UInt64String())
+
     UserID = _Column(
         key=b'user',
         family_id='2',
