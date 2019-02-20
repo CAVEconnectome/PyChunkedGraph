@@ -14,6 +14,7 @@ RUN mkdir -p /home/nginx/.cloudvolume/secrets \
   && apt-get install -y build-essential libboost-dev \
   \
   # Need numpy to prevent install issue with cloud-volume/fpzip
+  && pip install --no-cache-dir pip==18.1 \
   && pip install --no-cache-dir --upgrade numpy \
   # PyChunkedGraph
   && pip install --no-cache-dir --upgrade --process-dependency-links -e . \
