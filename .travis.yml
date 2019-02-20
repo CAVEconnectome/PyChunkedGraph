@@ -53,7 +53,6 @@ jobs:
 
       script:
         - pip install pip==18.1
-        - chmod +x tox_install_command.sh
         - tox -v -- --cov-config .coveragerc --cov=pychunkedgraph
 
       after_failure:
