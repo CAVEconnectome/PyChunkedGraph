@@ -12,7 +12,7 @@ import collections
 from pychunkedgraph.app import app_utils
 from pychunkedgraph.backend import chunkedgraph_exceptions as cg_exceptions
 
-__version__ = '0.1.97'
+__version__ = '0.1.98'
 bp = Blueprint('pychunkedgraph', __name__, url_prefix="/segmentation")
 
 # -------------------------------
