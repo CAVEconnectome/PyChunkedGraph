@@ -12,17 +12,17 @@ from multiwrapper import multiprocessing_utils as mu
 from pychunkedgraph.ingest import ingestionmanager, ingestion_utils as iu
 
 
-def ingest_into_chunkedgraph(storage_path, ws_cv_path, cg_mesh_dir, cg_table_id,
+def ingest_into_chunkedgraph(storage_path, ws_cv_path, cg_table_id,
                              fan_out=2, aff_dtype=np.float32,
                              instance_id=None, project_id=None, n_threads=64):
     """ Creates a chunkedgraph from a Ran Agglomerattion
 
     :param storage_path: str
         Google cloud bucket path (agglomeration)
+        example: gs://ranl-scratch/minnie_test_2
     :param ws_cv_path: str
         Google cloud bucket path (watershed segmentation)
-    :param cg_mesh_dir: str
-        mesh folder name
+        example: gs://microns-seunglab/minnie_v0/minnie10/ws_minnie_test_2/agg
     :param cg_table_id: str
         chunkedgraph table name
     :param fan_out: int
@@ -37,8 +37,11 @@ def ingest_into_chunkedgraph(storage_path, ws_cv_path, cg_mesh_dir, cg_table_id,
         number of threads to use
     :return:
     """
+    storage_path = storage_path.strip("/")
+    ws_cv_path = ws_cv_path.strip("/")
 
-    chunk_size = np.array([512, 512, 128], dtype=np.uint64)
+    cg_mesh_dir = f"{cg_table_id}_meshes"
+    chunk_size = np.array([256, 256, 512], dtype=np.uint64)
 
     iu.initialize_chunkedgraph(cg_table_id=cg_table_id, ws_cv_path=ws_cv_path,
                                chunk_size=chunk_size,
@@ -50,11 +53,10 @@ def ingest_into_chunkedgraph(storage_path, ws_cv_path, cg_mesh_dir, cg_table_id,
                                            instance_id=instance_id,
                                            project_id=project_id)
 
-    #TODO: Remove later:
+    # #TODO: Remove later:
     logging.basicConfig(level=logging.DEBUG)
     im.cg.logger = logging.getLogger(__name__)
     # ------------------------------------------
-
     create_atomic_chunks(im, aff_dtype=aff_dtype, n_threads=n_threads)
     create_abstract_layers(im, n_threads=n_threads)
 
@@ -104,16 +106,25 @@ def create_layer(im, layer_id, n_threads=1):
     for idx in range(len(parent_chunk_coords)):
         multi_args.append([im_info, layer_id, child_chunk_coords[inds == idx]])
 
+    if n_threads == 1:
+        mu.multiprocess_func(
+            _create_layer, multi_args, n_threads=n_threads,
+            verbose=True, debug=n_threads == 1)
+    else:
+        mu.multisubprocess_func(_create_layer, multi_args, n_threads=n_threads)
+
 
 def _create_layer(args):
     """ Multiprocessing helper for create_layer """
     im_info, layer_id, child_chunk_coords = args
 
+    print(f"Layer: {layer_id}")
+
     im = ingestionmanager.IngestionManager(**im_info)
     im.cg.add_layer(layer_id, child_chunk_coords, n_threads=1, verbose=True)
 
 
-def create_atomic_chunks(im, aff_dtype=np.float64, n_threads=1):
+def create_atomic_chunks(im, aff_dtype=np.float32, n_threads=1):
     """ Creates all atomic chunks
 
     :param im: IngestionManager
@@ -148,7 +159,7 @@ def _create_atomic_chunk(args):
     create_atomic_chunk(im, chunk_coord, aff_dtype=aff_dtype, verbose=False)
 
 
-def create_atomic_chunk(im, chunk_coord, aff_dtype=np.float64, verbose=True):
+def create_atomic_chunk(im, chunk_coord, aff_dtype=np.float32, verbose=True):
     """ Creates single atomic chunk
 
     :param im: IngestionManager
@@ -204,7 +215,6 @@ def create_atomic_chunk(im, chunk_coord, aff_dtype=np.float64, verbose=True):
                                      isolated_node_ids=isolated_ids,
                                      verbose=verbose)
 
-
     return edge_ids, edge_affs, edge_areas
 
 
@@ -252,7 +262,7 @@ def _get_cont_chunk_coords(im, chunk_coord_a, chunk_coord_b):
     return c_chunk_coords
 
 
-def collect_edge_data(im, chunk_coord, aff_dtype=np.float64):
+def collect_edge_data(im, chunk_coord, aff_dtype=np.float32):
     """ Loads edge for single chunk
 
     :param im: IngestionManager
@@ -327,7 +337,7 @@ def collect_edge_data(im, chunk_coord, aff_dtype=np.float64):
     for k in filenames:
         # print(k, len(filenames[k]))
 
-        with cloudvolume.Storage(base_path) as stor:
+        with cloudvolume.Storage(base_path, n_threads=1) as stor:
             files = stor.get_files(filenames[k])
 
         data = []
@@ -356,7 +366,7 @@ def collect_edge_data(im, chunk_coord, aff_dtype=np.float64):
             raise()
 
     # TEST
-    with cloudvolume.Storage(base_path) as stor:
+    with cloudvolume.Storage(base_path, n_threads=1) as stor:
         files = list(stor.list_files())
 
     true_counter = collections.Counter()
@@ -371,7 +381,7 @@ def collect_edge_data(im, chunk_coord, aff_dtype=np.float64):
 
 
 def _read_agg_files(filenames, base_path):
-    with cloudvolume.Storage(base_path) as stor:
+    with cloudvolume.Storage(base_path, n_threads=1) as stor:
         files = stor.get_files(filenames)
 
     edge_list = []
@@ -466,9 +476,15 @@ def define_active_edges(edge_dict, mapping):
 
         active[k] = agg_id_1 == agg_id_2
 
+        # Set those with two -1 to False
         agg_1_m = agg_id_1 == -1
+        agg_2_m = agg_id_2 == -1
         active[k][agg_1_m] = False
-        isolated.append(edge_dict[k]["sv1"][~agg_1_m])
 
-    return active, np.concatenate(isolated)
+        isolated.append(edge_dict[k]["sv1"][agg_1_m])
+
+        if k == "in":
+            isolated.append(edge_dict[k]["sv2"][agg_2_m])
+
+    return active, np.unique(np.concatenate(isolated))
 

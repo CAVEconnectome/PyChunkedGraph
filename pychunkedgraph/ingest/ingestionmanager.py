@@ -48,7 +48,7 @@ class IngestionManager(object):
 
     @property
     def chunk_id_bounds(self):
-        return (self.bounds / self.cg.chunk_size[:, None]).astype(np.int)
+        return np.ceil((self.bounds / self.cg.chunk_size[:, None])).astype(np.int)
 
     @property
     def chunk_coord_gen(self):
@@ -58,7 +58,6 @@ class IngestionManager(object):
     @property
     def chunk_coords(self):
         return np.array(list(self.chunk_coord_gen), dtype=np.int)
-
 
     def get_serialized_info(self):
         info = {"storage_path": self.storage_path,
