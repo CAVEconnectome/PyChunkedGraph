@@ -13,6 +13,7 @@ from pychunkedgraph.ingest import ingestionmanager, ingestion_utils as iu
 
 
 def ingest_into_chunkedgraph(storage_path, ws_cv_path, cg_table_id,
+                             chunk_size=[256, 256, 512],
                              fan_out=2, aff_dtype=np.float32,
                              instance_id=None, project_id=None, n_threads=64):
     """ Creates a chunkedgraph from a Ran Agglomerattion
@@ -41,7 +42,7 @@ def ingest_into_chunkedgraph(storage_path, ws_cv_path, cg_table_id,
     ws_cv_path = ws_cv_path.strip("/")
 
     cg_mesh_dir = f"{cg_table_id}_meshes"
-    chunk_size = np.array([256, 256, 512], dtype=np.uint64)
+    chunk_size = np.array(chunk_size, dtype=np.uint64)
 
     iu.initialize_chunkedgraph(cg_table_id=cg_table_id, ws_cv_path=ws_cv_path,
                                chunk_size=chunk_size,
