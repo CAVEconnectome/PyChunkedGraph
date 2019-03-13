@@ -3,6 +3,7 @@ import cloudvolume
 import collections
 import itertools
 import re
+import time
 import zstandard as zstd
 import numpy.lib.recfunctions as rfn
 import networkx as nx
@@ -104,8 +105,14 @@ def create_layer(im, layer_id, n_threads=1):
 
     im_info = im.get_serialized_info()
     multi_args = []
-    for idx in range(len(parent_chunk_coords)):
-        multi_args.append([im_info, layer_id, child_chunk_coords[inds == idx]])
+
+    # Randomize chunks
+    order = np.arange(len(parent_chunk_coords), dtype=np.int)
+    np.random.shuffle(order)
+
+    for i_chunk, idx in enumerate(order):
+        multi_args.append([im_info, layer_id, child_chunk_coords[inds == idx],
+                           i_chunk, len(order)])
 
     if n_threads == 1:
         mu.multiprocess_func(
@@ -117,12 +124,15 @@ def create_layer(im, layer_id, n_threads=1):
 
 def _create_layer(args):
     """ Multiprocessing helper for create_layer """
-    im_info, layer_id, child_chunk_coords = args
+    im_info, layer_id, child_chunk_coords, i_chunk, n_chunks = args
 
-    print(f"Layer: {layer_id}")
+    time_start = time.time()
 
     im = ingestionmanager.IngestionManager(**im_info)
     im.cg.add_layer(layer_id, child_chunk_coords, n_threads=1, verbose=True)
+
+    print(f"\nLayer {layer_id}: {i_chunk} / {n_chunks} -- %.3fs\n" %
+          (time.time() - time_start))
 
 
 def create_atomic_chunks(im, aff_dtype=np.float32, n_threads=1):
@@ -139,8 +149,14 @@ def create_atomic_chunks(im, aff_dtype=np.float32, n_threads=1):
     im_info = im.get_serialized_info()
 
     multi_args = []
-    for chunk_coord in im.chunk_coord_gen:
-        multi_args.append([im_info, chunk_coord, aff_dtype])
+
+    # Randomize chunk order
+    chunk_coords = list(im.chunk_coord_gen)
+    # np.random.shuffle(chunk_coords)
+
+    for i_chunk_coord, chunk_coord in enumerate(chunk_coords):
+        multi_args.append([im_info, chunk_coord, aff_dtype, i_chunk_coord,
+                           len(chunk_coords)])
 
     if n_threads == 1:
         mu.multiprocess_func(
@@ -154,10 +170,15 @@ def create_atomic_chunks(im, aff_dtype=np.float32, n_threads=1):
 def _create_atomic_chunk(args):
     """ Multiprocessing helper for create_atomic_chunks """
 
-    im_info, chunk_coord, aff_dtype = args
+    im_info, chunk_coord, aff_dtype, i_chunk, n_chunks = args
+
+    time_start = time.time()
 
     im = ingestionmanager.IngestionManager(**im_info)
-    create_atomic_chunk(im, chunk_coord, aff_dtype=aff_dtype, verbose=False)
+    create_atomic_chunk(im, chunk_coord, aff_dtype=aff_dtype, verbose=True)
+
+    print(f"\nLayer 1/2: {i_chunk} / {n_chunks} -- %.3fs\n" %
+          (time.time() - time_start))
 
 
 def create_atomic_chunk(im, chunk_coord, aff_dtype=np.float32, verbose=True):
@@ -171,8 +192,6 @@ def create_atomic_chunk(im, chunk_coord, aff_dtype=np.float32, verbose=True):
     :param verbose: bool
     :return:
     """
-    print(f"\n\n{chunk_coord} ----------------- \n")
-
     chunk_coord = np.array(list(chunk_coord), dtype=np.int)
 
     edge_dict = collect_edge_data(im, chunk_coord, aff_dtype=aff_dtype)
@@ -200,8 +219,6 @@ def create_atomic_chunk(im, chunk_coord, aff_dtype=np.float32, verbose=True):
         edge_affs[f"{k}_connected"] = aff_conn.astype(np.float32)
         edge_areas[f"{k}_connected"] = area_conn
 
-
-
         sv1_disconn = edge_dict[k]["sv1"][~active_edge_dict[k]]
         sv2_disconn = edge_dict[k]["sv2"][~active_edge_dict[k]]
         aff_disconn = edge_dict[k]["aff"][~active_edge_dict[k]]
@@ -213,8 +230,7 @@ def create_atomic_chunk(im, chunk_coord, aff_dtype=np.float32, verbose=True):
         edge_areas[f"{k}_disconnected"] = area_disconn
 
     im.cg.add_atomic_edges_in_chunks(edge_ids, edge_affs, edge_areas,
-                                     isolated_node_ids=isolated_ids,
-                                     verbose=verbose)
+                                     isolated_node_ids=isolated_ids)
 
     return edge_ids, edge_affs, edge_areas
 
@@ -238,10 +254,8 @@ def _get_cont_chunk_coords(im, chunk_coord_a, chunk_coord_b):
 
     if diff[dir_dim] > 0:
         chunk_coord_l = chunk_coord_a
-        chunk_coord_s = chunk_coord_b
     else:
         chunk_coord_l = chunk_coord_b
-        chunk_coord_s = chunk_coord_a
 
     c_chunk_coords = []
     for dx in [-1, 0]:
@@ -338,7 +352,7 @@ def collect_edge_data(im, chunk_coord, aff_dtype=np.float32):
     for k in filenames:
         # print(k, len(filenames[k]))
 
-        with cloudvolume.Storage(base_path, n_threads=1) as stor:
+        with cloudvolume.Storage(base_path, n_threads=10) as stor:
             files = stor.get_files(filenames[k])
 
         data = []
@@ -366,23 +380,23 @@ def collect_edge_data(im, chunk_coord, aff_dtype=np.float32):
         except:
             raise()
 
-    # TEST
-    with cloudvolume.Storage(base_path, n_threads=1) as stor:
-        files = list(stor.list_files())
-
-    true_counter = collections.Counter()
-    for file in files:
-        if str(chunk_id) in file:
-            true_counter[file.split("_")[0]] += 1
-
-    print("Truth", true_counter)
-    print("Reality", read_counter)
+    # # TEST
+    # with cloudvolume.Storage(base_path, n_threads=10) as stor:
+    #     files = list(stor.list_files())
+    #
+    # true_counter = collections.Counter()
+    # for file in files:
+    #     if str(chunk_id) in file:
+    #         true_counter[file.split("_")[0]] += 1
+    #
+    # print("Truth", true_counter)
+    # print("Reality", read_counter)
 
     return edge_data
 
 
 def _read_agg_files(filenames, base_path):
-    with cloudvolume.Storage(base_path, n_threads=1) as stor:
+    with cloudvolume.Storage(base_path, n_threads=10) as stor:
         files = stor.get_files(filenames)
 
     edge_list = []
@@ -436,6 +450,7 @@ def collect_agglomeration_data(im, chunk_coord):
                 x, y, z = np.array(adjacent_chunk_coord / 2 ** mip_level, dtype=np.int)
                 filenames.append(f"done_{mip_level}_{x}_{y}_{z}_{adjacent_chunk_id}.data.zst")
 
+    # print(filenames)
     edge_list = _read_agg_files(filenames, base_path)
 
     edges = np.concatenate(edge_list)
