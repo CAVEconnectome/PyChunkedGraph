@@ -9,6 +9,36 @@ from multiwrapper import multiprocessing_utils as mu
 from typing import Optional, Sequence
 
 
+def _read_new_old_root_rows_thread(args) -> list:
+    start_seg_id, end_seg_id, serialized_cg_info, time_stamp_start, time_stamp_end  = args
+
+    cg = chunkedgraph.ChunkedGraph(**serialized_cg_info)
+
+    start_id = cg.get_node_id(segment_id=start_seg_id,
+                              chunk_id=cg.root_chunk_id)
+    end_id = cg.get_node_id(segment_id=end_seg_id,
+                            chunk_id=cg.root_chunk_id)
+
+    rows = cg.read_node_id_rows(
+        start_id=start_id,
+        start_time=time_stamp_start,
+        end_id=end_id,
+        end_id_inclusive=False,
+        end_time=time_stamp_end,
+        end_time_inclusive=True)
+
+    new_root_ids = [k for (k, v) in rows.items()
+                    if column_keys.Hierarchy.NewParent not in v]
+
+    expired_root_ids = []
+    for k, v in rows.items():
+        if column_keys.Hierarchy.FormerParent in v:
+            fp = v[column_keys.Hierarchy.FormerParent]
+            for cell_entry in fp:
+                expired_root_ids.extend(cell_entry.value)
+
+    return new_root_ids, expired_root_ids
+
 def _read_root_rows_thread(args) -> list:
     start_seg_id, end_seg_id, serialized_cg_info, time_stamp = args
 
@@ -67,3 +97,47 @@ def get_latest_roots(cg,
         root_ids.extend(result)
 
     return np.array(root_ids, dtype=np.uint64)
+
+def get_changed_roots(cg,
+                      time_stamp_start: datetime.datetime,
+                      time_stamp_end: Optional[datetime.datetime] = None,
+                      n_threads: int = 1) -> Sequence[np.uint64]:
+
+    # Create filters: time and id range
+    max_seg_id = cg.get_max_seg_id(cg.root_chunk_id) + 1
+
+    n_blocks = np.min([n_threads * 3 + 1, max_seg_id])
+    seg_id_blocks = np.linspace(1, max_seg_id, n_blocks, dtype=np.uint64)
+
+    cg_serialized_info = cg.get_serialized_info()
+
+    if n_threads > 1:
+        del cg_serialized_info["credentials"]
+
+    multi_args = []
+    for i_id_block in range(0, len(seg_id_blocks) - 1):
+        multi_args.append([seg_id_blocks[i_id_block],
+                           seg_id_blocks[i_id_block + 1],
+                           cg_serialized_info, time_stamp_start, time_stamp_end])
+
+    # Run parallelizing
+    if n_threads == 1:
+        results = mu.multiprocess_func(_read_new_old_root_rows_thread,
+                                       multi_args, n_threads=n_threads,
+                                       verbose=False, debug=n_threads == 1)
+    else:
+        results = mu.multisubprocess_func(_read_new_old_root_rows_thread,
+                                          multi_args, n_threads=n_threads)
+
+    new_root_ids = []
+    expired_root_id_candidates = []
+    for r1, r2 in results:
+        new_root_ids.extend(r1)
+        expired_root_id_candidates.extend(r2)
+    expired_root_id_candidates = np.array(expired_root_id_candidates, dtype=np.uint64)
+    expired_root_id_candidates = np.unique(expired_root_id_candidates)
+    rows = cg.read_node_id_rows(node_ids=expired_root_id_candidates,
+                                end_time=time_stamp_start)  
+    expired_root_ids = [k for (k, v) in rows.items()]
+
+    return np.array(new_root_ids, dtype=np.uint64), np.array(expired_root_ids, dtype=np.uint64)

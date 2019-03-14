@@ -1973,6 +1973,21 @@ class ChunkedGraph(object):
         return chunkedgraph_comp.get_latest_roots(self, time_stamp=time_stamp,
                                                   n_threads=n_threads)
 
+    def get_changed_roots(self,
+                          time_stamp_start: datetime.datetime,
+                          time_stamp_end: Optional[datetime.datetime] = None,
+                          n_threads: int = 1) -> Sequence[np.uint64]:
+        """ Reads _all_ root ids
+
+        :param time_stamp: datetime.datetime
+        :param n_threads: int
+        :return: array of np.uint64
+        """
+
+        return chunkedgraph_comp.get_changed_roots(self, time_stamp_start=time_stamp_start,
+                                                  time_stamp_end=time_stamp_end,
+                                                  n_threads=n_threads)
+
     def get_root(self, node_id: np.uint64,
                  time_stamp: Optional[datetime.datetime] = None,
                  n_tries: int = 1) -> Union[List[np.uint64], np.uint64]:
