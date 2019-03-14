@@ -11,3 +11,4 @@ multiwrapper
 cloud-volume>=0.43.1
 python-json-logger
 igneous==dev
+redis

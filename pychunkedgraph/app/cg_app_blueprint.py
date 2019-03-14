@@ -1,5 +1,5 @@
 from flask import Blueprint, request, make_response, jsonify, current_app,\
-    redirect, url_for
+    redirect, url_for, g, Response
 
 import json
 import numpy as np
@@ -8,12 +8,19 @@ from datetime import datetime
 from pytz import UTC
 import traceback
 import collections
+import redis
+import os
+from functools import wraps
 
 from pychunkedgraph.app import app_utils
 from pychunkedgraph.backend import chunkedgraph_exceptions as cg_exceptions
 
 __version__ = '0.1.99'
 bp = Blueprint('pychunkedgraph', __name__, url_prefix="/segmentation")
+
+r = redis.Redis(
+    host=os.environ.get('REDISHOST', 'localhost'),
+    port=int(os.environ.get('REDISPORT', 6379)))
 
 # -------------------------------
 # ------ Access control and index
@@ -114,6 +121,32 @@ def api_exception(e):
 
     return jsonify(resp), e.status_code.value
 
+AUTH_URI = os.environ.get('AUTH_URI')
+
+def auth_required(f):
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        token = request.headers.get('authorization')
+        if not token:
+            resp = Response("Unauthorized", 401)
+            resp.headers['WWW-Authenticate'] = 'Bearer realm="' + AUTH_URI + '"'
+            return resp
+        elif not token.startswith('Bearer '):
+            resp = Response("Invalid Request", 400)
+            resp.headers['WWW-Authenticate'] = 'Bearer realm="' + AUTH_URI + '", error="invalid_request", error_description="Header must begin with \'Bearer\'"'
+            return resp
+        else:
+            token = token.split(' ')[1] # remove schema
+            id_bytes = r.get(token)
+
+            if id_bytes:
+                g.user_id = int(id_bytes)
+                return f(*args, **kwargs)
+            else:
+                resp = Response("Invalid/Expired Token", 401)
+                resp.headers['WWW-Authenticate'] = 'Bearer realm="' + AUTH_URI + '", error="invalid_token", error_description="Invalid/Expired Token"'
+                return resp
+    return decorated_function
 
 # -------------------
 # ------ Applications
@@ -127,6 +160,7 @@ def sleep_me(sleep):
 
 
 @bp.route('/1.0/<table_id>/info', methods=['GET'])
+@auth_required
 def handle_info(table_id):
     cg = app_utils.get_cg(table_id)
     return jsonify(cg.dataset_info)
@@ -135,6 +169,7 @@ def handle_info(table_id):
 ### GET ROOT -------------------------------------------------------------------
 
 @bp.route('/1.0/graph/root', methods=['POST', 'GET'])
+@auth_required
 def handle_root_1():
     atomic_id = np.uint64(json.loads(request.data)[0])
     table_id = current_app.config['CHUNKGRAPH_TABLE_ID']
@@ -150,6 +185,7 @@ def handle_root_1():
 
 
 @bp.route('/1.0/<table_id>/graph/root', methods=['POST', 'GET'])
+@auth_required
 def handle_root_2(table_id):
     atomic_id = np.uint64(json.loads(request.data)[0])
 
@@ -164,6 +200,7 @@ def handle_root_2(table_id):
 
 
 @bp.route('/1.0/<table_id>/graph/<atomic_id>/root', methods=['POST', 'GET'])
+@auth_required
 def handle_root_3(table_id, atomic_id):
 
     # Convert seconds since epoch to UTC datetime
@@ -189,6 +226,7 @@ def handle_root_main(table_id, atomic_id, timestamp):
 ### MERGE ----------------------------------------------------------------------
 
 @bp.route('/1.0/graph/merge', methods=['POST', 'GET'])
+@auth_required
 def handle_merge_1():
     nodes = json.loads(request.data)
     table_id = current_app.config['CHUNKGRAPH_TABLE_ID']
@@ -198,6 +236,7 @@ def handle_merge_1():
 
 
 @bp.route('/1.0/<table_id>/graph/merge', methods=['POST', 'GET'])
+@auth_required
 def handle_merge_2(table_id):
     nodes = json.loads(request.data)
     user_id = str(request.remote_addr)
@@ -274,6 +313,7 @@ def handle_merge_main(table_id, nodes, user_id):
 
 
 @bp.route('/1.0/graph/split', methods=['POST', 'GET'])
+@auth_required
 def handle_split_1():
     table_id = current_app.config['CHUNKGRAPH_TABLE_ID']
     data = json.loads(request.data)
@@ -283,6 +323,7 @@ def handle_split_1():
 
 
 @bp.route('/1.0/<table_id>/graph/split', methods=['POST', 'GET'])
+@auth_required
 def handle_split_2(table_id):
     data = json.loads(request.data)
     user_id = str(request.remote_addr)
@@ -439,6 +480,7 @@ def handle_split_main(table_id, data, user_id):
 
 
 @bp.route('/1.0/segment/<parent_id>/children', methods=['POST', 'GET'])
+@auth_required
 def handle_children_1(parent_id):
     table_id = current_app.config['CHUNKGRAPH_TABLE_ID']
     return handle_children_main(table_id, parent_id)
@@ -446,6 +488,7 @@ def handle_children_1(parent_id):
 
 @bp.route('/1.0/<table_id>/segment/<parent_id>/children',
           methods=['POST', 'GET'])
+@auth_required
 def handle_children_2(table_id, parent_id):
     return handle_children_main(table_id, parent_id)
 
@@ -469,6 +512,7 @@ def handle_children_main(table_id, parent_id):
 
 
 @bp.route('/1.0/segment/<root_id>/leaves', methods=['POST', 'GET'])
+@auth_required
 def handle_leaves_1(root_id):
     table_id = current_app.config['CHUNKGRAPH_TABLE_ID']
     if "bounds" in request.args:
@@ -482,6 +526,7 @@ def handle_leaves_1(root_id):
 
 
 @bp.route('/1.0/<table_id>/segment/<root_id>/leaves', methods=['POST', 'GET'])
+@auth_required
 def handle_leaves_2(table_id, root_id):
     if "bounds" in request.args:
         bounds = request.args["bounds"]
@@ -509,6 +554,7 @@ def handle_leaves_main(table_id, root_id, bounding_box):
 
 
 @bp.route('/1.0/segment/<atomic_id>/leaves_from_leave', methods=['POST', 'GET'])
+@auth_required
 def handle_leaves_from_leave_1(atomic_id):
     table_id = current_app.config['CHUNKGRAPH_TABLE_ID']
     if "bounds" in request.args:
@@ -523,6 +569,7 @@ def handle_leaves_from_leave_1(atomic_id):
 
 @bp.route('/1.0/<table_id>/segment/<atomic_id>/leaves_from_leave',
           methods=['POST', 'GET'])
+@auth_required
 def handle_leaves_from_leave_2(table_id, atomic_id):
     if "bounds" in request.args:
         bounds = request.args["bounds"]
@@ -551,6 +598,7 @@ def handle_leaves_from_leaves_main(table_id, atomic_id, bounding_box):
 
 
 @bp.route('/1.0/segment/<root_id>/subgraph', methods=['POST', 'GET'])
+@auth_required
 def handle_subgraph_1(root_id):
     table_id = current_app.config['CHUNKGRAPH_TABLE_ID']
     if "bounds" in request.args:
@@ -564,6 +612,7 @@ def handle_subgraph_1(root_id):
 
 
 @bp.route('/1.0/<table_id>/segment/<root_id>/subgraph', methods=['POST', 'GET'])
+@auth_required
 def handle_subgraph_2(table_id, root_id):
     if "bounds" in request.args:
         bounds = request.args["bounds"]
