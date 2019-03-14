@@ -24,6 +24,7 @@ def _read_new_old_root_rows_thread(args) -> list:
         start_time=time_stamp_start,
         end_id=end_id,
         end_id_inclusive=False,
+        columns=[column_keys.Hierarchy.FormerParent, column_keys.Hierarchy.NewParent],
         end_time=time_stamp_end,
         end_time_inclusive=True)
 
