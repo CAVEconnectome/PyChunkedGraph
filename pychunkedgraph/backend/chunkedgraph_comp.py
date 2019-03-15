@@ -9,7 +9,7 @@ from multiwrapper import multiprocessing_utils as mu
 from typing import Optional, Sequence
 
 
-def _read_new_old_root_rows_thread(args) -> list:
+def _read_delta_root_rows_thread(args) -> list:
     start_seg_id, end_seg_id, serialized_cg_info, time_stamp_start, time_stamp_end  = args
 
     cg = chunkedgraph.ChunkedGraph(**serialized_cg_info)
@@ -99,10 +99,11 @@ def get_latest_roots(cg,
 
     return np.array(root_ids, dtype=np.uint64)
 
-def get_changed_roots(cg,
-                      time_stamp_start: datetime.datetime,
-                      time_stamp_end: Optional[datetime.datetime] = None,
-                      n_threads: int = 1) -> Sequence[np.uint64]:
+
+def get_delta_roots(cg,
+                    time_stamp_start: datetime.datetime,
+                    time_stamp_end: Optional[datetime.datetime] = None,
+                    n_threads: int = 1) -> Sequence[np.uint64]:
 
     # Create filters: time and id range
     max_seg_id = cg.get_max_seg_id(cg.root_chunk_id) + 1
@@ -123,11 +124,11 @@ def get_changed_roots(cg,
 
     # Run parallelizing
     if n_threads == 1:
-        results = mu.multiprocess_func(_read_new_old_root_rows_thread,
+        results = mu.multiprocess_func(_read_delta_root_rows_thread,
                                        multi_args, n_threads=n_threads,
                                        verbose=False, debug=n_threads == 1)
     else:
-        results = mu.multisubprocess_func(_read_new_old_root_rows_thread,
+        results = mu.multisubprocess_func(_read_delta_root_rows_thread,
                                           multi_args, n_threads=n_threads)
 
     new_root_ids = []
