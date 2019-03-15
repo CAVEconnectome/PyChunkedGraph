@@ -1976,17 +1976,20 @@ class ChunkedGraph(object):
     def get_delta_roots(self,
                         time_stamp_start: datetime.datetime,
                         time_stamp_end: Optional[datetime.datetime] = None,
+                        min_seg_id: int =1,
                         n_threads: int = 1) -> Sequence[np.uint64]:
         """ Returns root ids that have expired or have been created between two timestamps
 
         :param time_stamp_start: datetime.datetime
-        "param time_stamp_end: datetime.datetime
-        :param n_threads: int
+        :param time_stamp_end: datetime.datetime
+        :param min_seg_id: int (default=1) (only search )
+        :param n_threads: int (defaut=1)
         :return: 2-tuple of arrays of np.uint64, new_ids, expired_ids
         """
 
         return chunkedgraph_comp.get_delta_roots(self, time_stamp_start=time_stamp_start,
                                                   time_stamp_end=time_stamp_end,
+                                                  min_seg_id=min_seg_id,
                                                   n_threads=n_threads)
 
     def get_root(self, node_id: np.uint64,
