@@ -2707,7 +2707,7 @@ class TestGraphHistory:
 
         first_root = cgraph.get_root(to_label(cgraph, 1, 0, 0, 0, 0))
         assert first_root == cgraph.get_root(to_label(cgraph, 1, 1, 0, 0, 0))
-
+        timestamp_before_split = datetime.utcnow()
         split_roots = cgraph.remove_edges("Jane Doe",
                                           to_label(cgraph, 1, 0, 0, 0, 0),
                                           to_label(cgraph, 1, 1, 0, 0, 0),
@@ -2736,10 +2736,10 @@ class TestGraphHistory:
                                               time_stamp_past=datetime.min,
                                               time_stamp_future=datetime.max)) == 4
 
-        new_roots, old_roots = cgraph.get_delta_roots(fake_timestamp,
+        new_roots, old_roots = cgraph.get_delta_roots(timestamp_before_split,
                                                       timestamp_after_split)
         assert(len(old_roots)==1)
-        assert(old_roots[0]==merge_root)
+        assert(old_roots[0]==first_root)
         assert(len(new_roots)==2)
         assert(np.all(np.isin(new_roots, split_roots)))
 
@@ -2750,7 +2750,7 @@ class TestGraphHistory:
         assert(len(old_roots2)==2)
         assert(np.all(np.isin(old_roots2, split_roots)))
         
-        new_roots3, old_roots3 = cgraph.get_delta_roots(fake_timestamp,
+        new_roots3, old_roots3 = cgraph.get_delta_roots(timestamp_before_split,
                                                         timestamp_after_merge)
         assert(len(new_roots3)==1)
         assert(new_roots3[0]==merge_root)
