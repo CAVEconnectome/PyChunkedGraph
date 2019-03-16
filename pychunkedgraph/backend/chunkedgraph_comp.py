@@ -18,6 +18,8 @@ def _read_delta_root_rows_thread(args) -> list:
                               chunk_id=cg.root_chunk_id)
     end_id = cg.get_node_id(segment_id=end_seg_id,
                             chunk_id=cg.root_chunk_id)
+
+    # apply column filters to avoid Lock columns
     rows = cg.read_node_id_rows(
         start_id=start_id,
         start_time=time_stamp_start,
@@ -27,9 +29,14 @@ def _read_delta_root_rows_thread(args) -> list:
         end_time=time_stamp_end,
         end_time_inclusive=True)
 
+    # new roots are those that have no NewParent in this time window
     new_root_ids = [k for (k, v) in rows.items()
                     if column_keys.Hierarchy.NewParent not in v]
 
+    # expired roots are the IDs of FormerParent's 
+    # whose timestamp is before the start_time
+    # TODO add a filter to remove roots which were created
+    # and expired in the interim time period. 
     expired_root_ids = []
     for k, v in rows.items():
         if column_keys.Hierarchy.FormerParent in v:
