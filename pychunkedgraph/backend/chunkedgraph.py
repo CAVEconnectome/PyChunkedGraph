@@ -1988,8 +1988,7 @@ class ChunkedGraph(object):
             only search from this seg_id and higher (note not a node_id.. use get_seg_id)
         :param n_threads: int (default=1)
             number of threads to use in performing search
-        :return: 2-tuple of arrays of np.uint64
-            new_ids, expired_ids. 
+        :return new_ids, expired_ids: np.arrays of np.uint64
             new_ids is an array of root_ids for roots that were created after time_stamp_start
             and are still current as of time_stamp_end.
             expired_ids is list of node_id's for roots the expired after time_stamp_start
