@@ -1981,10 +1981,19 @@ class ChunkedGraph(object):
         """ Returns root ids that have expired or have been created between two timestamps
 
         :param time_stamp_start: datetime.datetime
+            starting timestamp to return deltas from
         :param time_stamp_end: datetime.datetime
-        :param min_seg_id: int (default=1) (only search from this seg_id and higher (note not node_id))
-        :param n_threads: int (defaut=1)
-        :return: 2-tuple of arrays of np.uint64, new_ids, expired_ids
+            ending timestamp to return deltasfrom
+        :param min_seg_id: int (default=1)
+            only search from this seg_id and higher (note not a node_id.. use get_seg_id)
+        :param n_threads: int (default=1)
+            number of threads to use in performing search
+        :return: 2-tuple of arrays of np.uint64
+            new_ids, expired_ids. 
+            new_ids is an array of root_ids for roots that were created after time_stamp_start
+            and are still current as of time_stamp_end.
+            expired_ids is list of node_id's for roots the expired after time_stamp_start
+            but before time_stamp_end.
         """
 
         return chunkedgraph_comp.get_delta_roots(self, time_stamp_start=time_stamp_start,
