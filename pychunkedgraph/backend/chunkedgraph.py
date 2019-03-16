@@ -1982,7 +1982,7 @@ class ChunkedGraph(object):
 
         :param time_stamp_start: datetime.datetime
         :param time_stamp_end: datetime.datetime
-        :param min_seg_id: int (default=1) (only search )
+        :param min_seg_id: int (default=1) (only search from this seg_id and higher (note not node_id))
         :param n_threads: int (defaut=1)
         :return: 2-tuple of arrays of np.uint64, new_ids, expired_ids
         """
