@@ -1978,6 +1978,33 @@ class ChunkedGraph(object):
         return chunkedgraph_comp.get_latest_roots(self, time_stamp=time_stamp,
                                                   n_threads=n_threads)
 
+    def get_delta_roots(self,
+                        time_stamp_start: datetime.datetime,
+                        time_stamp_end: Optional[datetime.datetime] = None,
+                        min_seg_id: int =1,
+                        n_threads: int = 1) -> Sequence[np.uint64]:
+        """ Returns root ids that have expired or have been created between two timestamps
+
+        :param time_stamp_start: datetime.datetime
+            starting timestamp to return deltas from
+        :param time_stamp_end: datetime.datetime
+            ending timestamp to return deltasfrom
+        :param min_seg_id: int (default=1)
+            only search from this seg_id and higher (note not a node_id.. use get_seg_id)
+        :param n_threads: int (default=1)
+            number of threads to use in performing search
+        :return new_ids, expired_ids: np.arrays of np.uint64
+            new_ids is an array of root_ids for roots that were created after time_stamp_start
+            and are still current as of time_stamp_end.
+            expired_ids is list of node_id's for roots the expired after time_stamp_start
+            but before time_stamp_end.
+        """
+
+        return chunkedgraph_comp.get_delta_roots(self, time_stamp_start=time_stamp_start,
+                                                  time_stamp_end=time_stamp_end,
+                                                  min_seg_id=min_seg_id,
+                                                  n_threads=n_threads)
+
     def get_root(self, node_id: np.uint64,
                  time_stamp: Optional[datetime.datetime] = None,
                  n_tries: int = 1) -> Union[List[np.uint64], np.uint64]:
