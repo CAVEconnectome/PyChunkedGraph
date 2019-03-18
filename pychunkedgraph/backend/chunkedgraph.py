@@ -86,17 +86,23 @@ class ChunkedGraph(object):
             self._check_and_create_table()
 
         self._dataset_info = self.check_and_write_table_parameters(
-            column_keys.GraphSettings.DatasetInfo, dataset_info, required=True)
+            column_keys.GraphSettings.DatasetInfo, dataset_info,
+            required=True, is_new=is_new)
 
         self._cv_path = self._dataset_info["data_dir"]         # required
         self._mesh_dir = self._dataset_info.get("mesh", None)  # optional
 
         self._n_layers = self.check_and_write_table_parameters(
-            column_keys.GraphSettings.LayerCount, n_layers, required=True)
+            column_keys.GraphSettings.LayerCount, n_layers,
+            required=True, is_new=is_new)
         self._fan_out = self.check_and_write_table_parameters(
-            column_keys.GraphSettings.FanOut, fan_out, required=True)
+            column_keys.GraphSettings.FanOut, fan_out,
+            required=True, is_new=is_new)
         self._chunk_size = self.check_and_write_table_parameters(
-            column_keys.GraphSettings.ChunkSize, chunk_size, required=True)
+            column_keys.GraphSettings.ChunkSize, chunk_size,
+            required=True, is_new=is_new)
+
+        self._dataset_info["graph"] = {"chunk_size": self.chunk_size}
 
         self._bitmasks = compute_bitmasks(self.n_layers, self.fan_out)
 
@@ -227,23 +233,26 @@ class ChunkedGraph(object):
 
     def check_and_write_table_parameters(self, column: column_keys._Column,
                                          value: Optional[Union[str, np.uint64]] = None,
-                                         required: bool = True
+                                         required: bool = True,
+                                         is_new: bool = False
                                          ) -> Union[str, np.uint64]:
         """ Checks if a parameter already exists in the table. If it already
-        exists it returns the stored value, else it stores the given value. It
+        exists it returns the stored value, else it stores the given value.
+        Storing the given values can be enforced with `is_new`. The function
         raises an exception if no value is passed and the parameter does not
         exist, yet.
 
         :param column: column_keys._Column
         :param value: Union[str, np.uint64]
-        :param require: bool
+        :param required: bool
+        :param is_new: bool
         :return: Union[str, np.uint64]
             value
         """
         setting = self.read_byte_row(row_key=row_keys.GraphSettings,
                                      columns=column)
 
-        if not setting and value is not None:
+        if (not setting or is_new) and value is not None:
             row = self.mutate_row(row_keys.GraphSettings, {column: value})
             self.bulk_write([row])
         elif not setting and value is None:

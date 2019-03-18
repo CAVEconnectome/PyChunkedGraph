@@ -70,11 +70,20 @@ def compute_bitmasks(n_layers: int, fan_out: int) -> Dict[int, int]:
             n_bits_for_layers = max(1, np.ceil(log_n(fan_out**layer_exp, fan_out)))
             # n_bits_for_layers = fan_out ** int(np.ceil(log_n(n_bits_for_layers, fan_out)))
 
+        layer_exp = n_layers - i_layer
+        n_bits_for_layers = max(1, np.ceil(log_n(fan_out**layer_exp, fan_out)))
+
+        if i_layer == 1:
+            n_bits_for_layers = np.max([8, n_bits_for_layers])
+
         n_bits_for_layers = int(n_bits_for_layers)
 
-        assert n_bits_for_layers <= 8
+        # assert n_bits_for_layers <= 8
 
         bitmask_dict[i_layer] = n_bits_for_layers
+
+        # print(f"Bitmasks: {bitmask_dict}")
+
     return bitmask_dict
 
 
