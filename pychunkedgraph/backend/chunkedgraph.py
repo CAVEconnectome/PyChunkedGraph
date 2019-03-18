@@ -17,7 +17,7 @@ from pychunkedgraph.backend import cutting, chunkedgraph_comp
 from pychunkedgraph.backend.chunkedgraph_utils import compute_indices_pandas, \
     compute_bitmasks, get_google_compatible_time_stamp, \
     get_time_range_filter, get_time_range_and_column_filter, get_max_time, \
-    combine_cross_chunk_edge_dicts, time_min, partial_row_data_to_column_dict
+    combine_cross_chunk_edge_dicts, get_min_time, partial_row_data_to_column_dict
 from pychunkedgraph.backend.utils import serializers, column_keys, row_keys, basetypes
 from pychunkedgraph.backend import chunkedgraph_exceptions as cg_exceptions
 from pychunkedgraph.meshing import meshgen
@@ -948,12 +948,13 @@ class ChunkedGraph(object):
     def _execute_read_thread(self, row_set_and_filter: Tuple[RowSet, RowFilter]):
         row_set, row_filter = row_set_and_filter
         if not row_set.row_keys and not row_set.row_ranges:
-            # Check for everything falsy, because Bigtable considers even empty lists of row_keys
-            # as no upper/lower bound!
+            # Check for everything falsy, because Bigtable considers even empty
+            # lists of row_keys as no upper/lower bound!
             return {}
 
         range_read = self.table.read_rows(row_set=row_set, filter_=row_filter)
-        res = {v.row_key: partial_row_data_to_column_dict(v) for v in range_read}
+        res = {v.row_key: partial_row_data_to_column_dict(v)
+               for v in range_read}
         return res
 
     def _execute_read(self, row_set: RowSet, row_filter: RowFilter = None) \
@@ -968,21 +969,25 @@ class ChunkedGraph(object):
         # calculate this properly (range_read.request.SerializeToString()), but this estimate is
         # good enough for now
         max_row_key_count = 20000
-        n_subrequests = max(1, int(np.ceil(len(row_set.row_keys) / max_row_key_count)))
+        n_subrequests = max(1, int(np.ceil(len(row_set.row_keys) /
+                                           max_row_key_count)))
         n_threads = min(n_subrequests, 2 * mu.n_cpus)
 
         row_sets = []
         for i in range(n_subrequests):
             r = RowSet()
-            r.row_keys = row_set.row_keys[i * max_row_key_count : (i + 1) * max_row_key_count]
+            r.row_keys = row_set.row_keys[i * max_row_key_count:
+                                          (i + 1) * max_row_key_count]
             row_sets.append(r)
 
         # Don't forget the original RowSet's row_ranges
         row_sets[0].row_ranges = row_set.row_ranges
 
         responses = mu.multithread_func(self._execute_read_thread,
-                                        params=((r, row_filter) for r in row_sets),
-                                        debug=n_threads == 1, n_threads=n_threads)
+                                        params=((r, row_filter)
+                                                for r in row_sets),
+                                        debug=n_threads == 1,
+                                        n_threads=n_threads)
 
         combined_response = {}
         for resp in responses:
@@ -2408,7 +2413,7 @@ class ChunkedGraph(object):
 
     def get_past_root_ids(self, root_id: np.uint64,
                           time_stamp: Optional[datetime.datetime] =
-                          time_min()) -> np.ndarray:
+                          get_min_time()) -> np.ndarray:
         """ Returns all future root ids emerging from this root
 
         This search happens in a monotic fashion. At no point are future root
@@ -2458,7 +2463,7 @@ class ChunkedGraph(object):
 
     def get_root_id_history(self, root_id: np.uint64,
                             time_stamp_past:
-                            Optional[datetime.datetime] = time_min(),
+                            Optional[datetime.datetime] = get_min_time(),
                             time_stamp_future:
                             Optional[datetime.datetime] = get_max_time()
                             ) -> np.ndarray:
@@ -2487,6 +2492,87 @@ class ChunkedGraph(object):
                                       future_ids])
 
         return history_ids
+
+    def get_change_log(self, root_id: np.uint64,
+                       correct_for_wrong_coord_type: bool = True,
+                       time_stamp_past: Optional[datetime.datetime] = get_min_time()
+                       ) -> dict:
+        """ Returns all past root ids for this root
+
+        This search happens in a monotic fashion. At no point are future root
+        ids of past root ids taken into account.
+
+        :param root_id: np.uint64
+        :param correct_for_wrong_coord_type: bool
+            pinky100? --> True
+        :param time_stamp_past: None or datetime
+            restrict search to ids created after this time_stamp
+            None=search whole past
+        :return: past ids, merge sv ids, merge edge coords, split sv ids
+        """
+        if time_stamp_past.tzinfo is None:
+            time_stamp_past = UTC.localize(time_stamp_past)
+
+        id_history = []
+        merge_history = []
+        merge_history_edges = []
+        split_history = []
+
+        next_ids = [root_id]
+        while len(next_ids):
+            temp_next_ids = []
+            former_parent_col = column_keys.Hierarchy.FormerParent
+            row_dict = self.read_node_id_rows(node_ids=next_ids,
+                                              columns=[former_parent_col])
+
+            for row in row_dict.values():
+                if column_keys.Hierarchy.FormerParent in row:
+                    if time_stamp_past > row[former_parent_col][0].timestamp:
+                        continue
+
+                    ids = row[former_parent_col][0].value
+
+                    lock_col = column_keys.Concurrency.Lock
+                    former_row = self.read_node_id_row(ids[0],
+                                                       columns=[lock_col])
+                    operation_id = former_row[lock_col][0].value
+                    log_row = self.read_log_row(operation_id)
+                    is_merge = column_keys.OperationLogs.AddedEdge in log_row
+
+                    for id_ in ids:
+                        if id_ in id_history:
+                            continue
+
+                        id_history.append(id_)
+                        temp_next_ids.append(id_)
+
+                    if is_merge:
+                        added_edges = log_row[column_keys.OperationLogs.AddedEdge][0].value
+                        merge_history.append(added_edges)
+
+                        coords = [log_row[column_keys.OperationLogs.SourceCoordinate][0].value,
+                                  log_row[column_keys.OperationLogs.SinkCoordinate][0].value]
+
+                        if correct_for_wrong_coord_type:
+                            # A little hack because we got the datatype wrong...
+                            coords = [np.frombuffer(coords[0]),
+                                      np.frombuffer(coords[1])]
+                            coords *= self.segmentation_resolution
+
+                        merge_history_edges.append(coords)
+
+                    if not is_merge:
+                        removed_edges = log_row[column_keys.OperationLogs.RemovedEdge][0].value
+                        split_history.append(removed_edges)
+                else:
+                    continue
+
+            next_ids = temp_next_ids
+
+        return {"past_ids": np.unique(np.array(id_history, dtype=np.uint64)),
+                "merge_edges": np.array(merge_history),
+                "merge_edge_coords": np.array(merge_history_edges),
+                "split_edges": np.array(split_history)}
 
     def normalize_bounding_box(self,
                                bounding_box: Optional[Sequence[Sequence[int]]],

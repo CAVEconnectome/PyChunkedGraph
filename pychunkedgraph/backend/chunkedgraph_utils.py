@@ -166,6 +166,14 @@ def get_max_time():
     return datetime.datetime(9999, 12, 31, 23, 59, 59, 0)
 
 
+def get_min_time():
+    """ Returns the min time in datetime.datetime
+
+    :return: datetime.datetime
+    """
+    return datetime.datetime.strptime("01/01/00 00:00", "%d/%m/%y %H:%M")
+
+
 def combine_cross_chunk_edge_dicts(d1, d2, start_layer=2):
     """ Combines two cross chunk dictionaries
     Cross chunk dictionaries contain a layer id -> edge list mapping.

@@ -69,3 +69,29 @@ def tobinary(ids):
     :return: binary
     """
     return np.array(ids).tobytes()
+
+
+def tobinary_multiples(arr):
+    """ Transform id(s) to binary format
+
+    :param arr: list of uint64 or list of uint64s
+    :return: binary
+    """
+    return [np.array(arr_i).tobytes() for arr_i in arr]
+
+
+def json_serialize_nd_array(arr):
+    if not isinstance(arr, np.ndarray) and not isinstance(arr, list):
+        return arr
+
+    if len(arr) == 0:
+        if isinstance(arr, np.ndarray):
+            return arr.tolist()
+        else:
+            return arr
+
+    if isinstance(arr[0], list) or isinstance(arr[0], np.ndarray):
+        return [json_serialize_nd_array(arr[i]) for i in range(len(arr))]
+    else:
+        if isinstance(arr, np.ndarray):
+            return arr.tolist()

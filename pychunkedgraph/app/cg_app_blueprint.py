@@ -11,6 +11,7 @@ import collections
 
 from pychunkedgraph.app import app_utils
 from pychunkedgraph.backend import chunkedgraph_exceptions as cg_exceptions
+from pychunkedgraph.backend import chunkedgraph_utils
 
 __version__ = '0.1.96'
 bp = Blueprint('pychunkedgraph', __name__, url_prefix="/segmentation")
@@ -359,6 +360,8 @@ def handle_split_main(table_id, data, user_id):
     return app_utils.tobinary(new_roots)
 
 
+### SHATTER --------------------------------------------------------------------
+
 # @bp.route('/1.0/graph/shatter', methods=['POST', 'GET'])
 # def handle_shatter_re():
 #     return redirect('/1.0/%s/graph/shatter' %
@@ -584,3 +587,35 @@ def handle_subgraph_main(table_id, root_id, bounding_box):
                                          bb_is_coordinate=True)[0]
     # Return binary
     return app_utils.tobinary(atomic_edges)
+
+
+### CHANGE LOG -----------------------------------------------------------------
+
+@bp.route('/1.0/<table_id>/segment/<root_id>/change_log',
+          methods=["POST", "GET"])
+def change_log(table_id, root_id):
+    try:
+        time_stamp_past = float(request.args.get('timestamp', 0))
+        time_stamp_past = datetime.fromtimestamp(time_stamp_past, UTC)
+    except (TypeError, ValueError) as e:
+        raise(cg_exceptions.BadRequest("Timestamp parameter is not a valid"
+                                       " unix timestamp"))
+
+    # Call ChunkedGraph
+    cg = app_utils.get_cg(table_id)
+
+    change_log = cg.get_change_log(root_id=np.uint64(root_id),
+                                   correct_for_wrong_coord_type=True,
+                                   time_stamp_past=time_stamp_past)
+
+    print(change_log)
+
+
+    for k in change_log:
+        data = change_log[k]
+        if isinstance(data, np.ndarray):
+            change_log[k] = app_utils.json_serialize_nd_array(data)
+
+    print(change_log)
+
+    return jsonify(change_log)
