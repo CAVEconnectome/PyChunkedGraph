@@ -130,7 +130,9 @@ def sleep_me(sleep):
 @bp.route('/1.0/<table_id>/info', methods=['GET'])
 def handle_info(table_id):
     cg = app_utils.get_cg(table_id)
-    return jsonify(cg.dataset_info)
+
+    return json.dumps(obj=app_utils.make_json_serializable(cg.dataset_info),
+                      default=app_utils.json_defaults)
 
 
 ### GET ROOT -------------------------------------------------------------------
@@ -510,7 +512,6 @@ def handle_leaves_main(table_id, root_id, bounding_box):
 
 ### LEAVES FROM LEAVES ---------------------------------------------------------
 
-
 @bp.route('/1.0/segment/<atomic_id>/leaves_from_leave', methods=['POST', 'GET'])
 def handle_leaves_from_leave_1(atomic_id):
     table_id = current_app.config['CHUNKGRAPH_TABLE_ID']
@@ -640,6 +641,5 @@ def merge_log(table_id, root_id):
         data = change_log[k]
         if isinstance(data, np.ndarray):
             change_log[k] = app_utils.json_serialize_nd_array(data)
-
 
     return jsonify(change_log)
