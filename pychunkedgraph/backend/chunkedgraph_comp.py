@@ -34,9 +34,7 @@ def _read_delta_root_rows_thread(args) -> list:
                     if column_keys.Hierarchy.NewParent not in v]
 
     # expired roots are the IDs of FormerParent's 
-    # whose timestamp is before the start_time
-    # TODO add a filter to remove roots which were created
-    # and expired in the interim time period. 
+    # whose timestamp is before the start_time 
     expired_root_ids = []
     for k, v in rows.items():
         if column_keys.Hierarchy.FormerParent in v:
@@ -138,15 +136,21 @@ def get_delta_roots(cg,
         results = mu.multisubprocess_func(_read_delta_root_rows_thread,
                                           multi_args, n_threads=n_threads)
 
+    # aggregate all the results together
     new_root_ids = []
     expired_root_id_candidates = []
     for r1, r2 in results:
         new_root_ids.extend(r1)
         expired_root_id_candidates.extend(r2)
     expired_root_id_candidates = np.array(expired_root_id_candidates, dtype=np.uint64)
+    # filter for uniqueness
     expired_root_id_candidates = np.unique(expired_root_id_candidates)
-    rows = cg.read_node_id_rows(node_ids=expired_root_id_candidates,
-                                end_time=time_stamp_start)  
-    expired_root_ids = [k for (k, v) in rows.items()]
 
-    return np.array(new_root_ids, dtype=np.uint64), np.array(expired_root_ids, dtype=np.uint64)
+    # filter out the expired root id's whose creation (measured by the timestamp
+    # of their Child links) is after the time_stamp_start
+    rows = cg.read_node_id_rows(node_ids=expired_root_id_candidates,
+                                columns=[column_keys.Hierarchy.Child],
+                                end_time=time_stamp_start)  
+    expired_root_ids = np.array([k for (k, v) in rows.items()], dtype=np.uint64)
+
+    return np.array(new_root_ids, dtype=np.uint64), expired_root_ids
