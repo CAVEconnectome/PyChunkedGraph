@@ -608,14 +608,38 @@ def change_log(table_id, root_id):
                                    correct_for_wrong_coord_type=True,
                                    time_stamp_past=time_stamp_past)
 
-    print(change_log)
-
-
     for k in change_log:
         data = change_log[k]
         if isinstance(data, np.ndarray):
             change_log[k] = app_utils.json_serialize_nd_array(data)
 
-    print(change_log)
+    return jsonify(change_log)
+
+@bp.route('/1.0/<table_id>/segment/<root_id>/merge_log',
+          methods=["POST", "GET"])
+def merge_log(table_id, root_id):
+    try:
+        time_stamp_past = float(request.args.get('timestamp', 0))
+        time_stamp_past = datetime.fromtimestamp(time_stamp_past, UTC)
+    except (TypeError, ValueError) as e:
+        raise(cg_exceptions.BadRequest("Timestamp parameter is not a valid"
+                                       " unix timestamp"))
+
+    # Call ChunkedGraph
+    cg = app_utils.get_cg(table_id)
+
+    change_log = cg.get_change_log(root_id=np.uint64(root_id),
+                                   correct_for_wrong_coord_type=True,
+                                   time_stamp_past=time_stamp_past)
+
+    for k in list(change_log.keys()):
+        if not "merge" in k:
+            del change_log[k]
+            continue
+
+        data = change_log[k]
+        if isinstance(data, np.ndarray):
+            change_log[k] = app_utils.json_serialize_nd_array(data)
+
 
     return jsonify(change_log)
