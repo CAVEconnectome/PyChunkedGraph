@@ -5,7 +5,8 @@ import sys
 import logging
 import os
 import time
-
+import json
+import numpy as np
 from . import config
 
 # from pychunkedgraph.app import app_blueprint
@@ -15,8 +16,17 @@ from pychunkedgraph.logging import jsonformatter
 os.environ['TRAVIS_BRANCH'] = "IDONTKNOWWHYINEEDTHIS"
 
 
+class NumpyEncoder(json.JSONEncoder):
+    def default(self, obj):
+        if isinstance(obj, np.ndarray):
+            return obj.tolist()
+        return json.JSONEncoder.default(self, obj)
+
+
 def create_app(test_config=None):
     app = Flask(__name__)
+    app.json_encoder = NumpyEncoder
+
     CORS(app)
 
     configure_app(app)
