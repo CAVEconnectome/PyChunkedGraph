@@ -11,11 +11,12 @@ import collections
 
 from pychunkedgraph.app import app_utils
 from pychunkedgraph.backend import chunkedgraph_exceptions as cg_exceptions
-from pychunkedgraph.backend import chunkedgraph_utils
+
+
 
 __version__ = '0.1.104'
 bp = Blueprint('pychunkedgraph', __name__, url_prefix="/segmentation")
-
+# bp.json_encoder = NumpyEncoder
 # -------------------------------
 # ------ Access control and index
 # -------------------------------
@@ -131,8 +132,7 @@ def sleep_me(sleep):
 def handle_info(table_id):
     cg = app_utils.get_cg(table_id)
 
-    return json.dumps(obj=app_utils.make_json_serializable(cg.dataset_info),
-                      default=app_utils.json_defaults)
+    return jsonify(cg.dataset_info)
 
 
 ### GET ROOT -------------------------------------------------------------------
@@ -609,11 +609,6 @@ def change_log(table_id, root_id):
                                    correct_for_wrong_coord_type=True,
                                    time_stamp_past=time_stamp_past)
 
-    for k in change_log:
-        data = change_log[k]
-        if isinstance(data, np.ndarray):
-            change_log[k] = app_utils.json_serialize_nd_array(data)
-
     return jsonify(change_log)
 
 @bp.route('/1.0/<table_id>/segment/<root_id>/merge_log',
@@ -637,9 +632,5 @@ def merge_log(table_id, root_id):
         if not "merge" in k:
             del change_log[k]
             continue
-
-        data = change_log[k]
-        if isinstance(data, np.ndarray):
-            change_log[k] = app_utils.json_serialize_nd_array(data)
 
     return jsonify(change_log)

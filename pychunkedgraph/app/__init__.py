@@ -7,6 +7,7 @@ import os
 import time
 import json
 import numpy as np
+import datetime
 from . import config
 
 # from pychunkedgraph.app import app_blueprint
@@ -16,16 +17,18 @@ from pychunkedgraph.logging import jsonformatter
 os.environ['TRAVIS_BRANCH'] = "IDONTKNOWWHYINEEDTHIS"
 
 
-class NumpyEncoder(json.JSONEncoder):
+class CustomJsonEncoder(json.JSONEncoder):
     def default(self, obj):
         if isinstance(obj, np.ndarray):
             return obj.tolist()
+        elif isinstance(obj, datetime):
+            return obj.__str__()
         return json.JSONEncoder.default(self, obj)
 
 
 def create_app(test_config=None):
     app = Flask(__name__)
-    app.json_encoder = NumpyEncoder
+    app.json_encoder = CustomJsonEncoder
 
     CORS(app)
 
