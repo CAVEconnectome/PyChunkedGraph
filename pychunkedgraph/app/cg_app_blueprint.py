@@ -16,7 +16,7 @@ from pychunkedgraph.backend import chunkedgraph_exceptions as cg_exceptions
 
 __version__ = '0.1.104'
 bp = Blueprint('pychunkedgraph', __name__, url_prefix="/segmentation")
-# bp.json_encoder = NumpyEncoder
+
 # -------------------------------
 # ------ Access control and index
 # -------------------------------
