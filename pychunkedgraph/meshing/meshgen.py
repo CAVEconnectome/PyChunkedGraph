@@ -3,6 +3,7 @@ import os
 import numpy as np
 import json
 import time
+from functools import lru_cache
 
 from multiwrapper import multiprocessing_utils as mu
 from cloudvolume import Storage, EmptyVolumeException
@@ -15,6 +16,49 @@ os.environ['TRAVIS_BRANCH'] = "IDONTKNOWWHYINEEDTHIS"
 from pychunkedgraph.backend import chunkedgraph   # noqa
 from pychunkedgraph.backend.utils import serializers, column_keys  # noqa
 from pychunkedgraph.meshing import meshgen_utils # noqa
+
+# @lru_cache(maxsize=None)
+def get_l2_remapping(cg, chunk_id):
+    rr_chunk = cg.range_read_chunk(chunk_id=chunk_id,
+                                   columns=column_keys.Hierarchy.Child)
+    l2_remapping = dict([[k, row[0].value] for (k, row) in rr_chunk.items()])
+    return l2_remapping
+
+
+@lru_cache(maxsize=None)
+def get_root_l2_remapping(cg, node_id, stop_layer):
+    return cg.get_root(node_id=node_id, stop_layer=stop_layer)
+
+
+# @lru_cache(maxsize=None)
+def get_l2_overlapping_remappings(cg, chunk_id):
+    l2_remapping = get_l2_remapping(cg, chunk_id)
+
+    chunk_coords = cg.get_chunk_coordinates(chunk_id)
+    chunk_layer = cg.get_chunk_layer(chunk_id)
+
+    neigh_chunk_ids = []
+    neigh_parent_chunk_ids = []
+    for x in range(chunk_coords[0], chunk_coords[0] + 2):
+        for y in range(chunk_coords[1], chunk_coords[1] + 2):
+            for z in range(chunk_coords[2], chunk_coords[2] + 2):
+                neigh_chunk_id = cg.get_chunk_id(x=x, y=y, z=z,
+                                                 layer=chunk_layer)
+                neigh_chunk_ids.append(neigh_chunk_id)
+                neigh_parent_chunk_ids.append(cg.get_parent_chunk_ids(neigh_chunk_id))
+
+    stop_layer = np.where(np.unique(neigh_parent_chunk_ids, axis=1,
+                                    return_counts=True)[1] == 1)[0][0] + 2
+
+    for neigh_chunk_id in neigh_chunk_ids:
+        roots = []
+        print(neigh_chunk_id, "--------------")
+        for l2_id in get_l2_remapping(cg, neigh_chunk_id):
+            print(l2_id)
+            roots.append(get_root_l2_remapping(cg, l2_id, stop_layer=stop_layer))
+
+    raise()
+
 
 
 def get_connected(connectivity):
