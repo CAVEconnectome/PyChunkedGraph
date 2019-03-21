@@ -2055,7 +2055,10 @@ class ChunkedGraph(object):
 
         parent_id = node_id
 
-        stop_layer = min(self.n_layers, stop_layer)
+        if stop_layer is not None:
+            stop_layer = min(self.n_layers, stop_layer)
+        else:
+            stop_layer = self.n_layers
 
         for i_try in range(n_tries):
             parent_id = node_id
@@ -2071,7 +2074,7 @@ class ChunkedGraph(object):
                 else:
                     parent_id = temp_parent_id
 
-            if self.get_chunk_layer(parent_id) == self.n_layers:
+            if self.get_chunk_layer(parent_id) == stop_layer:
                 break
             else:
                 time.sleep(.5)

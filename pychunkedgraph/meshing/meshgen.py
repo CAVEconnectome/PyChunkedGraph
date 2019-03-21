@@ -8,7 +8,8 @@ from functools import lru_cache
 import datetime
 import pytz
 import cloudvolume
-from scipy import ndimage
+from scipy import ndimage, sparse
+import networkx as nx
 
 from multiwrapper import multiprocessing_utils as mu
 from cloudvolume import Storage, EmptyVolumeException
@@ -54,7 +55,7 @@ def get_l2_remapping(cg, chunk_id, time_stamp):
 
 
 @lru_cache(maxsize=None)
-def get_root_l2_remapping(cg, chunk_id, stop_layer, time_stamp):
+def get_root_l2_remapping(cg, chunk_id, stop_layer, time_stamp, n_threads=4):
     """ Retrieves root to l2 node id mapping
 
     :param cg: chunkedgraph object
@@ -63,14 +64,29 @@ def get_root_l2_remapping(cg, chunk_id, stop_layer, time_stamp):
     :param time_stamp: datetime object
     :return: multiples
     """
+    def _get_root_ids(args):
+        start_id, end_id = args
+
+        for i_id in range(start_id, end_id):
+            l2_id = l2_ids[i_id]
+
+            root_id = cg.get_root(l2_id, stop_layer=stop_layer,
+                                  time_stamp=time_stamp)
+            root_ids[i_id] = root_id
+
     l2_id_remap = get_l2_remapping(cg, chunk_id, time_stamp=time_stamp)
 
-    root_ids = []
     l2_ids = np.array(list(l2_id_remap.keys()))
-    for l2_id in l2_ids:
-        root_id = cg.get_root(l2_id, stop_layer=stop_layer,
-                              time_stamp=time_stamp)
-        root_ids.append(root_id)
+
+    root_ids = np.zeros(len(l2_ids), dtype=np.uint64)
+    n_jobs = np.min([n_threads, len(l2_ids)])
+    multi_args = []
+    start_ids = np.linspace(0, len(l2_ids), n_jobs + 1).astype(np.int)
+    for i_block in range(n_jobs):
+        multi_args.append([start_ids[i_block], start_ids[i_block + 1]])
+
+    if n_jobs > 0:
+        mu.multithread_func(_get_root_ids, multi_args, n_threads=n_threads)
 
     return l2_ids, np.array(root_ids), l2_id_remap
 
@@ -96,7 +112,6 @@ def get_l2_overlapping_remappings(cg, chunk_id, time_stamp=None):
 
     neigh_chunk_ids = []
     neigh_parent_chunk_ids = []
-    l2_remappings = {}
 
     # Collect neighboring chunks and their parent chunk ids
     # We only need to know about the parent chunk ids to figure the lowest
@@ -115,11 +130,6 @@ def get_l2_overlapping_remappings(cg, chunk_id, time_stamp=None):
                 parent_chunk_ids = cg.get_parent_chunk_ids(neigh_chunk_id)
                 neigh_parent_chunk_ids.append(parent_chunk_ids)
 
-                # Get l2 -> sv ids mapping
-                l2_remapping = get_l2_remapping(cg, neigh_chunk_id,
-                                                time_stamp=time_stamp)
-                l2_remappings[neigh_chunk_id] = l2_remapping
-
     # Find lowest common chunk
     # stop_layer = np.where(np.unique(neigh_parent_chunk_ids, axis=1,
     #                                 return_counts=True)[1] == 1)[0][0] + 3
@@ -136,7 +146,7 @@ def get_l2_overlapping_remappings(cg, chunk_id, time_stamp=None):
     unsafe_l2_ids = []
     unsafe_root_ids = []
 
-    # This loop is the main bottleneck and can probably easily multithreaded
+    # This loop is the main bottleneck
     for neigh_chunk_id in neigh_chunk_ids:
         print(neigh_chunk_id, "--------------")
 
@@ -215,6 +225,8 @@ def get_remapped_segmentation(cg, chunk_id, mip=2, overlap_vx=1,
 
     assert mip >= cg.cv.mip
 
+    sv_remapping, unsafe_dict = get_l2_overlapping_remappings(cg, chunk_id, time_stamp=time_stamp)
+
     cv = cloudvolume.CloudVolume(cg.cv.cloudpath, mip=mip)
     mip_diff = mip - cg.cv.mip
 
@@ -228,8 +240,6 @@ def get_remapped_segmentation(cg, chunk_id, mip=2, overlap_vx=1,
                 chunk_start[1]: chunk_end[1],
                 chunk_start[2]: chunk_end[2]].squeeze()
 
-    sv_remapping, unsafe_dict = get_l2_overlapping_remappings(cg, chunk_id, time_stamp=time_stamp)
-
     _remap_vec = np.vectorize(_remap)
     seg = _remap_vec(ws_seg)
 
@@ -239,8 +249,8 @@ def get_remapped_segmentation(cg, chunk_id, mip=2, overlap_vx=1,
         if np.sum(bin_seg) == 0:
             continue
 
+        l2_edges = []
         cc_seg, n_cc = ndimage.label(bin_seg)
-
         for i_cc in range(1, n_cc + 1):
             bin_cc_seg = cc_seg == i_cc
 
@@ -250,10 +260,30 @@ def get_remapped_segmentation(cg, chunk_id, mip=2, overlap_vx=1,
             overlaps.extend(np.unique(seg[:, :, -2][bin_cc_seg[:, :, -1]]))
             overlaps = np.unique(overlaps)
 
-            linked_l2_ids = overlaps[np.in1d(overlaps, unsafe_dict[unsafe_root_id])]
+            linked_l2_ids = overlaps[np.in1d(overlaps,
+                                             unsafe_dict[unsafe_root_id])]
 
-            if len(linked_l2_ids) > 0:
+            if len(linked_l2_ids) == 0:
+                seg[bin_cc_seg] = 0
+            elif len(linked_l2_ids) == 1:
                 seg[bin_cc_seg] = linked_l2_ids[0]
+            else:
+                seg[bin_cc_seg] = linked_l2_ids[0]
+
+                for i_l2_id in range(len(linked_l2_ids) - 1):
+                    for j_l2_id in range(i_l2_id + 1, len(linked_l2_ids)):
+                        l2_edges.append([linked_l2_ids[i_l2_id],
+                                         linked_l2_ids[j_l2_id]])
+
+        if len(l2_edges) > 0:
+            g = nx.Graph()
+            g.add_edges_from(l2_edges)
+
+            ccs = nx.connected_components(g)
+
+            for cc in ccs:
+                cc_ids = np.sort(list(cc))
+                seg[np.in1d(seg, cc_ids[1:]).reshape(seg.shape)] = cc_ids[0]
 
     return seg
 
