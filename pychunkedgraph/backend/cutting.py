@@ -5,6 +5,7 @@ import logging
 from networkx.algorithms.flow import shortest_augmenting_path, edmonds_karp, preflow_push
 from networkx.algorithms.connectivity import minimum_st_edge_cut
 import time
+import graph_tool
 
 
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple, Union
@@ -199,3 +200,179 @@ def mincut(edges: Iterable[Sequence[np.uint64]], affs: Sequence[np.uint64],
     cutset_mask = np.in1d(remapped_cutset_flattened_view, edges_flattened_view)
 
     return remapped_cutset[cutset_mask]
+
+
+def mincut_graph_tool(edges: Iterable[Sequence[np.uint64]],
+                      affs: Sequence[np.uint64],
+                      sources: Sequence[np.uint64],
+                      sinks: Sequence[np.uint64],
+                      logger: Optional[logging.Logger] = None) -> np.ndarray:
+    """ Computes the min cut on a local graph
+    :param edges: n x 2 array of uint64s
+    :param affs: float array of length n
+    :param sources: uint64
+    :param sinks: uint64
+    :return: m x 2 array of uint64s
+        edges that should be removed
+    """
+
+    time_start = time.time()
+
+    original_edges = edges.copy()
+
+    # Stitch supervoxels across chunk boundaries and represent those that are
+    # connected with a cross chunk edge with a single id. This may cause id
+    # changes among sinks and sources that need to be taken care of.
+
+    edges, affs, mapping, remapping = merge_cross_chunk_edges(edges.copy(),
+                                                              affs.copy())
+
+    if len(edges) == 0:
+        return []
+
+    assert np.unique(mapping[:, 0], return_counts=True)[1].max() == 1
+
+    mapping_dict = dict(mapping)
+
+    remapped_sinks = []
+
+    remapped_sources = []
+
+    for sink in sinks:
+        remapped_sinks.append(mapping_dict[sink])
+
+    for source in sources:
+        remapped_sources.append(mapping_dict[source])
+
+    sinks = remapped_sinks
+    sources = remapped_sources
+
+    # Assemble edges: Edges after remapping combined with edges between sinks
+    # and sources
+    sink_edges = list(itertools.product(sinks, sinks))
+    source_edges = list(itertools.product(sources, sources))
+    comb_edges = np.array(edges.tolist() + sink_edges + source_edges,
+                          dtype=np.uint64)
+    comb_affs = affs.tolist() + [float_max, ] * (
+                len(sink_edges) + len(source_edges))
+
+    # To make things easier
+    # for everyone involved, we map the ids to [0, ..., len(unique_ids) - 1]
+    # range
+
+    unique_ids, comb_edges = np.unique(comb_edges[:, :2].astype(np.int),
+                                       return_inverse=True)
+    unique_ids = unique_ids.astype(np.uint64)
+    comb_edges = comb_edges.reshape(-1, 2)
+    sink_graph_ids = np.where(np.in1d(unique_ids, sinks))[0]
+    source_graph_ids = np.where(np.in1d(unique_ids, sources))[0]
+
+    logger.debug(f"{sinks}, {sink_graph_ids}")
+    logger.debug(f"{sources}, {source_graph_ids}")
+
+    # Generate weighted graph with graph_tool
+
+    weighted_graph = graph_tool.all.Graph(directed=True)
+    weighted_graph.add_edge_list(edge_list=comb_edges, hashed=False)
+    cap = weighted_graph.new_edge_property("float", vals=comb_affs)
+
+    dt = time.time() - time_start
+    if logger is not None:
+        logger.debug("Graph creation: %.2fms" % (dt * 1000))
+    time_start = time.time()
+
+    # # Get rid of connected components that are not involved in the local
+    # # mincut
+    # cc_prop, ns = graph_tool.topology.label_components(weighted_graph)
+    #
+    # if len(ns):
+    #     cc_labels = cc_prop.get_array()
+    #
+    #     for i_cc in range(len(ns)):
+    #         cc_list = np.where(cc_labels == i_cc)[0]
+    #
+    #         # If connected component contains no sources and/or no sinks,
+    #         # remove its nodes from the mincut computation
+    #         if not np.any(np.in1d(source_graph_ids, cc_list)) or \
+    #                 not np.any(np.in1d(sink_graph_ids, cc_list)):
+    #             weighted_graph.delete_vertices(cc)
+
+    # Compute mincut
+    logger.debug("MAXFLOW")
+
+    src, tgt = weighted_graph.vertex(source_graph_ids[0]), \
+               weighted_graph.vertex(sink_graph_ids[0])
+
+    res = graph_tool.flow.boykov_kolmogorov_max_flow(weighted_graph,
+                                                     src, tgt, cap)
+
+    part = graph_tool.all.min_st_cut(weighted_graph, src, cap, res)
+    cut_edge_set = [e for e in weighted_graph.edges()
+                    if part[e.source()] != part[e.target()]]
+
+    cc_labels = part.get_array()
+
+    dt = time.time() - time_start
+    if logger is not None:
+        logger.debug("Mincut comp: %.2fms" % (dt * 1000))
+
+    if len(cut_edge_set) == 0:
+        return []
+
+    time_start = time.time()
+
+    # Make sure we did not do something wrong: Check if sinks and sources are
+    # among each other and not together across sets
+    # cc_prop, ns = graph_tool.topology.label_components(weighted_graph)
+    # cc_labels = cc_prop.get_array()
+
+    for i_cc in range(2):
+        # Make sure to read real ids and not graph ids
+
+        cc_list = unique_ids[np.array(np.where(cc_labels == i_cc)[0],
+                                      dtype=np.int)]
+
+        if logger is not None:
+            logger.debug("CC size = %d" % len(cc_list))
+
+        if np.any(np.in1d(sources, cc_list)):
+            assert np.all(np.in1d(sources, cc_list))
+            assert ~np.any(np.in1d(sinks, cc_list))
+
+        if np.any(np.in1d(sinks, cc_list)):
+            assert np.all(np.in1d(sinks, cc_list))
+            assert ~np.any(np.in1d(sources, cc_list))
+
+    dt = time.time() - time_start
+    if logger is not None:
+        logger.debug("Verifying local graph: %.2fms" % (dt * 1000))
+
+        # Extract original ids
+
+    remapped_cutset = []
+    for edge in cut_edge_set:
+        s = unique_ids[int(edge.source())]
+        t = unique_ids[int(edge.target())]
+
+        if s in remapping:
+            s = remapping[s]
+    else:
+        s = [s]
+
+    if t in remapping:
+        t = remapping[t]
+    else:
+        t = [t]
+
+    remapped_cutset.extend(list(itertools.product(s, t)))
+    remapped_cutset.extend(list(itertools.product(s, t)))
+
+    remapped_cutset = np.array(remapped_cutset, dtype=np.uint64)
+
+    remapped_cutset_flattened_view = remapped_cutset.view(dtype='u8,u8')
+    edges_flattened_view = original_edges.view(dtype='u8,u8')
+
+    cutset_mask = np.in1d(remapped_cutset_flattened_view, edges_flattened_view)
+
+    return remapped_cutset[cutset_mask]
+
