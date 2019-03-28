@@ -269,7 +269,7 @@ def mincut_graph_tool(edges: Iterable[Sequence[np.uint64]],
     logger.debug(f"{sources}, {source_graph_ids}")
 
     # Generate weighted graph with graph_tool
-    weighted_graph = graph_tool.all.Graph(directed=True)
+    weighted_graph = graph_tool.Graph(directed=True)
     weighted_graph.add_edge_list(edge_list=np.concatenate([comb_edges, comb_edges[:, [1, 0]]]), hashed=False)
     cap = weighted_graph.new_edge_property("float", vals=np.concatenate([comb_affs, comb_affs]))
 
