@@ -1,3 +1,4 @@
+import collections
 import numpy as np
 import networkx as nx
 import itertools
@@ -63,9 +64,9 @@ def merge_cross_chunk_edges(edges: Iterable[Sequence[np.uint64]],
     return remapped_edges, remapped_affs, mapping, remapping
 
 
-def mincut(edges: Iterable[Sequence[np.uint64]], affs: Sequence[np.uint64],
-           sources: Sequence[np.uint64], sinks: Sequence[np.uint64],
-           logger: Optional[logging.Logger] = None) -> np.ndarray:
+def mincut_nx(edges: Iterable[Sequence[np.uint64]], affs: Sequence[np.uint64],
+              sources: Sequence[np.uint64], sinks: Sequence[np.uint64],
+              logger: Optional[logging.Logger] = None) -> np.ndarray:
     """ Computes the min cut on a local graph
     :param edges: n x 2 array of uint64s
     :param affs: float array of length n
@@ -148,6 +149,8 @@ def mincut(edges: Iterable[Sequence[np.uint64]], affs: Sequence[np.uint64],
     if logger is not None:
         logger.debug("Mincut comp: %.2fms" % (dt * 1000))
 
+    logger.debug(f"Cutset: {cutset}")
+
     if cutset is None:
         return []
 
@@ -215,7 +218,6 @@ def mincut_graph_tool(edges: Iterable[Sequence[np.uint64]],
     :return: m x 2 array of uint64s
         edges that should be removed
     """
-
     time_start = time.time()
 
     original_edges = edges.copy()
@@ -223,7 +225,6 @@ def mincut_graph_tool(edges: Iterable[Sequence[np.uint64]],
     # Stitch supervoxels across chunk boundaries and represent those that are
     # connected with a cross chunk edge with a single id. This may cause id
     # changes among sinks and sources that need to be taken care of.
-
     edges, affs, mapping, remapping = merge_cross_chunk_edges(edges.copy(),
                                                               affs.copy())
 
@@ -235,7 +236,6 @@ def mincut_graph_tool(edges: Iterable[Sequence[np.uint64]],
     mapping_dict = dict(mapping)
 
     remapped_sinks = []
-
     remapped_sources = []
 
     for sink in sinks:
@@ -249,17 +249,15 @@ def mincut_graph_tool(edges: Iterable[Sequence[np.uint64]],
 
     # Assemble edges: Edges after remapping combined with edges between sinks
     # and sources
-    sink_edges = list(itertools.product(sinks, sinks))
-    source_edges = list(itertools.product(sources, sources))
+    sink_edges = [] #list(itertools.product(sinks, sinks))
+    source_edges = [] #list(itertools.product(sources, sources))
     comb_edges = np.array(edges.tolist() + sink_edges + source_edges,
                           dtype=np.uint64)
     comb_affs = affs.tolist() + [float_max, ] * (
                 len(sink_edges) + len(source_edges))
 
-    # To make things easier
-    # for everyone involved, we map the ids to [0, ..., len(unique_ids) - 1]
-    # range
-
+    # To make things easier for everyone involved, we map the ids to
+    # [0, ..., len(unique_ids) - 1]
     unique_ids, comb_edges = np.unique(comb_edges[:, :2].astype(np.int),
                                        return_inverse=True)
     unique_ids = unique_ids.astype(np.uint64)
@@ -271,10 +269,9 @@ def mincut_graph_tool(edges: Iterable[Sequence[np.uint64]],
     logger.debug(f"{sources}, {source_graph_ids}")
 
     # Generate weighted graph with graph_tool
-
     weighted_graph = graph_tool.all.Graph(directed=True)
-    weighted_graph.add_edge_list(edge_list=comb_edges, hashed=False)
-    cap = weighted_graph.new_edge_property("float", vals=comb_affs)
+    weighted_graph.add_edge_list(edge_list=np.concatenate([comb_edges, comb_edges[:, [1, 0]]]), hashed=False)
+    cap = weighted_graph.new_edge_property("float", vals=np.concatenate([comb_affs, comb_affs]))
 
     dt = time.time() - time_start
     if logger is not None:
@@ -285,7 +282,7 @@ def mincut_graph_tool(edges: Iterable[Sequence[np.uint64]],
     # # mincut
     # cc_prop, ns = graph_tool.topology.label_components(weighted_graph)
     #
-    # if len(ns):
+    # if len(ns) > 1:
     #     cc_labels = cc_prop.get_array()
     #
     #     for i_cc in range(len(ns)):
@@ -295,11 +292,9 @@ def mincut_graph_tool(edges: Iterable[Sequence[np.uint64]],
     #         # remove its nodes from the mincut computation
     #         if not np.any(np.in1d(source_graph_ids, cc_list)) or \
     #                 not np.any(np.in1d(sink_graph_ids, cc_list)):
-    #             weighted_graph.delete_vertices(cc)
+    #             weighted_graph.delete_vertices(cc) # wrong
 
     # Compute mincut
-    logger.debug("MAXFLOW")
-
     src, tgt = weighted_graph.vertex(source_graph_ids[0]), \
                weighted_graph.vertex(sink_graph_ids[0])
 
@@ -307,14 +302,15 @@ def mincut_graph_tool(edges: Iterable[Sequence[np.uint64]],
                                                      src, tgt, cap)
 
     part = graph_tool.all.min_st_cut(weighted_graph, src, cap, res)
-    cut_edge_set = [e for e in weighted_graph.edges()
-                    if part[e.source()] != part[e.target()]]
 
-    cc_labels = part.get_array()
+
+    labeled_edges = part.a[comb_edges]
+    cut_edge_set = comb_edges[labeled_edges[:, 0] != labeled_edges[:, 1]]
 
     dt = time.time() - time_start
     if logger is not None:
         logger.debug("Mincut comp: %.2fms" % (dt * 1000))
+    time_start = time.time()
 
     if len(cut_edge_set) == 0:
         return []
@@ -322,18 +318,14 @@ def mincut_graph_tool(edges: Iterable[Sequence[np.uint64]],
     time_start = time.time()
 
     # Make sure we did not do something wrong: Check if sinks and sources are
-    # among each other and not together across sets
-    # cc_prop, ns = graph_tool.topology.label_components(weighted_graph)
-    # cc_labels = cc_prop.get_array()
-
-    for i_cc in range(2):
+    # among each other and not in different sets
+    for i_cc in np.unique(part.a):
         # Make sure to read real ids and not graph ids
-
-        cc_list = unique_ids[np.array(np.where(cc_labels == i_cc)[0],
+        cc_list = unique_ids[np.array(np.where(part.a == i_cc)[0],
                                       dtype=np.int)]
 
-        if logger is not None:
-            logger.debug("CC size = %d" % len(cc_list))
+        # if logger is not None:
+        #     logger.debug("CC size = %d" % len(cc_list))
 
         if np.any(np.in1d(sources, cc_list)):
             assert np.all(np.in1d(sources, cc_list))
@@ -347,25 +339,23 @@ def mincut_graph_tool(edges: Iterable[Sequence[np.uint64]],
     if logger is not None:
         logger.debug("Verifying local graph: %.2fms" % (dt * 1000))
 
-        # Extract original ids
-
+    # Extract original ids
+    # This has potential to be optimized
     remapped_cutset = []
-    for edge in cut_edge_set:
-        s = unique_ids[int(edge.source())]
-        t = unique_ids[int(edge.target())]
+    for s, t in unique_ids[cut_edge_set]:
 
         if s in remapping:
             s = remapping[s]
-    else:
-        s = [s]
+        else:
+            s = [s]
 
-    if t in remapping:
-        t = remapping[t]
-    else:
-        t = [t]
+        if t in remapping:
+            t = remapping[t]
+        else:
+            t = [t]
 
-    remapped_cutset.extend(list(itertools.product(s, t)))
-    remapped_cutset.extend(list(itertools.product(s, t)))
+        remapped_cutset.extend(list(itertools.product(s, t)))
+        remapped_cutset.extend(list(itertools.product(t, s)))
 
     remapped_cutset = np.array(remapped_cutset, dtype=np.uint64)
 
@@ -375,4 +365,22 @@ def mincut_graph_tool(edges: Iterable[Sequence[np.uint64]],
     cutset_mask = np.in1d(remapped_cutset_flattened_view, edges_flattened_view)
 
     return remapped_cutset[cutset_mask]
+
+
+def mincut(edges: Iterable[Sequence[np.uint64]],
+           affs: Sequence[np.uint64],
+           sources: Sequence[np.uint64],
+           sinks: Sequence[np.uint64],
+           logger: Optional[logging.Logger] = None) -> np.ndarray:
+    """ Computes the min cut on a local graph
+    :param edges: n x 2 array of uint64s
+    :param affs: float array of length n
+    :param sources: uint64
+    :param sinks: uint64
+    :return: m x 2 array of uint64s
+        edges that should be removed
+    """
+
+    return mincut_nx(edges=edges, affs=affs, sources=sources, sinks=sinks,
+                     logger=logger)
 
