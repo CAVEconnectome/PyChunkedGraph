@@ -249,8 +249,8 @@ def mincut_graph_tool(edges: Iterable[Sequence[np.uint64]],
 
     # Assemble edges: Edges after remapping combined with edges between sinks
     # and sources
-    sink_edges = [] #list(itertools.product(sinks, sinks))
-    source_edges = [] #list(itertools.product(sources, sources))
+    sink_edges = list(itertools.product(sinks, sinks))
+    source_edges = list(itertools.product(sources, sources))
     comb_edges = np.array(edges.tolist() + sink_edges + source_edges,
                           dtype=np.uint64)
     comb_affs = affs.tolist() + [float_max, ] * (
