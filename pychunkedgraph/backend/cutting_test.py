@@ -113,7 +113,7 @@ def test_imp():
     out_gt = cutting.mincut_graph_tool(edges, weights, sources, sinks, logger=logger)
     time_gt = time.time() - time_start
 
-    print(out_gt)
+    # print(out_gt)
 
     print("----------------")
 
@@ -121,7 +121,7 @@ def test_imp():
     out_nx = cutting.mincut(edges, weights, sources, sinks, logger=logger)
     time_nx = time.time() - time_start
 
-    print(out_nx)
+    # print(out_nx)
 
     print("Time networkx: %.3fs" % (time_nx))
     print("Time graph_tool: %.3fs" % (time_gt))
