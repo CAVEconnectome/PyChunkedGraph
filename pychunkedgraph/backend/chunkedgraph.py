@@ -3097,6 +3097,7 @@ class ChunkedGraph(object):
                   source_coord: Sequence[int] = None,
                   sink_coord: Sequence[int] = None,
                   remesh_preview: bool = False,
+                  return_new_lvl2_nodes: bool = False,
                   n_tries: int = 60) -> np.uint64:
         """ Adds an edge to the chunkedgraph
 
@@ -3114,6 +3115,8 @@ class ChunkedGraph(object):
             will eventually be set to 1 if None
         :param source_coord: list of int (n x 3)
         :param sink_coord: list of int (n x 3)
+        :param remesh_preview: bool
+        :param return_new_lvl2_nodes: bool
         :param n_tries: int
         :return: uint64
             if successful the new root id is send
@@ -3194,7 +3197,10 @@ class ChunkedGraph(object):
                         meshgen.mesh_lvl2_previews(self, list(
                             lvl2_node_mapping.keys()))
 
-                    return new_root_id
+                    if return_new_lvl2_nodes:
+                        return new_root_id, list(lvl2_node_mapping.keys())
+                    else:
+                        return new_root_id
 
             for lock_root_id in lock_root_ids:
                 self.unlock_root(lock_root_id, operation_id)
@@ -3587,6 +3593,7 @@ class ChunkedGraph(object):
                      mincut: bool = True,
                      bb_offset: Tuple[int, int, int] = (240, 240, 24),
                      remesh_preview: bool = False,
+                     return_new_lvl2_nodes: bool = False,
                      root_ids: Optional[Sequence[np.uint64]] = None,
                      n_tries: int = 20) -> Sequence[np.uint64]:
         """ Removes edges - either directly or after applying a mincut
@@ -3610,6 +3617,7 @@ class ChunkedGraph(object):
         :param bb_offset: list of 3 ints
             [x, y, z] bounding box padding beyond box spanned by coordinates
         :param remesh_preview: bool
+        :param return_new_lvl2_nodes: bool
         :param root_ids: list of uint64s
         :param n_tries: int
         :return: list of uint64s or None if no split was performed
@@ -3751,7 +3759,11 @@ class ChunkedGraph(object):
                             lvl2_node_mapping.keys()))
 
                     self.logger.debug(f"new root ids: {new_root_ids}")
-                    return new_root_ids
+
+                    if return_new_lvl2_nodes:
+                        return new_root_ids, list(lvl2_node_mapping.keys())
+                    else:
+                        return new_root_ids
 
                 for lock_root_id in lock_root_ids:
                     self.unlock_root(lock_root_id, operation_id=operation_id)
@@ -3762,9 +3774,7 @@ class ChunkedGraph(object):
             time.sleep(1)
 
         self.logger.warning("Could not acquire root object lock.")
-        raise cg_exceptions.LockingError(
-            f"Could not acquire root object lock."
-        )
+        raise cg_exceptions.LockingError(f"Could not acquire root object lock.")
 
     def _remove_edges_mincut(self, operation_id: np.uint64,
                              source_ids: Sequence[np.uint64],
