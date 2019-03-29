@@ -56,6 +56,17 @@ def after_request(response):
     dt = (time.time() - current_app.request_start_time) * 1000
 
     current_app.logger.debug("Response time: %.3fms" % dt)
+
+    try:
+        log_db = app_utils.get_log_db(current_app.table_id)
+        log_db.add_success_log(user_id="", user_ip="",
+                               request_time=current_app.request_start_date,
+                               response_time=dt, url=request.url,
+                               request_data=request.data,
+                               request_type=current_app.request_type)
+    except:
+        current_app.logger.debug("LogDB entry not successful")
+
     return response
 
 
@@ -126,12 +137,16 @@ def api_exception(e):
 
 @bp.route("/sleep/<int:sleep>")
 def sleep_me(sleep):
+    current_app.request_type = "sleep"
+
     time.sleep(sleep)
     return "zzz... {} ... awake".format(sleep)
 
 
 @bp.route('/1.0/<table_id>/info', methods=['GET'])
 def handle_info(table_id):
+    current_app.request_type = "info"
+
     cg = app_utils.get_cg(table_id)
 
     return jsonify(cg.dataset_info)
@@ -168,6 +183,7 @@ def handle_root_2(table_id, atomic_id):
 
 
 def handle_root_main(table_id, atomic_id, timestamp):
+    current_app.request_type = "root"
 
     # Call ChunkedGraph
     cg = app_utils.get_cg(table_id)
@@ -181,6 +197,7 @@ def handle_root_main(table_id, atomic_id, timestamp):
 
 @bp.route('/1.0/<table_id>/graph/merge', methods=['POST', 'GET'])
 def handle_merge(table_id):
+    current_app.request_type = "merge"
 
     nodes = json.loads(request.data)
     user_id = str(request.remote_addr)
@@ -269,6 +286,8 @@ def handle_merge(table_id):
 
 @bp.route('/1.0/<table_id>/graph/split', methods=['POST', 'GET'])
 def handle_split(table_id):
+    current_app.request_type = "split"
+
     data = json.loads(request.data)
     user_id = str(request.remote_addr)
 
@@ -430,6 +449,7 @@ def handle_split(table_id):
 @bp.route('/1.0/<table_id>/segment/<parent_id>/children',
           methods=['POST', 'GET'])
 def handle_children(table_id, parent_id):
+    current_app.request_type = "children"
 
     cg = app_utils.get_cg(table_id)
 
@@ -449,6 +469,8 @@ def handle_children(table_id, parent_id):
 
 @bp.route('/1.0/<table_id>/segment/<root_id>/leaves', methods=['POST', 'GET'])
 def handle_leaves(table_id, root_id):
+    current_app.request_type = "leaves"
+
     if "bounds" in request.args:
         bounds = request.args["bounds"]
         bounding_box = np.array([b.split("-") for b in bounds.split("_")],
@@ -471,6 +493,8 @@ def handle_leaves(table_id, root_id):
 @bp.route('/1.0/<table_id>/segment/<atomic_id>/leaves_from_leave',
           methods=['POST', 'GET'])
 def handle_leaves_from_leave(table_id, atomic_id):
+    current_app.request_type = "leaves_from_leave"
+
     if "bounds" in request.args:
         bounds = request.args["bounds"]
         bounding_box = np.array([b.split("-") for b in bounds.split("_")],
@@ -493,6 +517,8 @@ def handle_leaves_from_leave(table_id, atomic_id):
 
 @bp.route('/1.0/<table_id>/segment/<root_id>/subgraph', methods=['POST', 'GET'])
 def handle_subgraph(table_id, root_id):
+    current_app.request_type = "subgraph"
+
     if "bounds" in request.args:
         bounds = request.args["bounds"]
         bounding_box = np.array([b.split("-") for b in bounds.split("_")],
@@ -514,6 +540,8 @@ def handle_subgraph(table_id, root_id):
 @bp.route('/1.0/<table_id>/segment/<root_id>/change_log',
           methods=["POST", "GET"])
 def change_log(table_id, root_id):
+    current_app.request_type = "change_log"
+
     try:
         time_stamp_past = float(request.args.get('timestamp', 0))
         time_stamp_past = datetime.fromtimestamp(time_stamp_past, UTC)
@@ -533,6 +561,8 @@ def change_log(table_id, root_id):
 @bp.route('/1.0/<table_id>/segment/<root_id>/merge_log',
           methods=["POST", "GET"])
 def merge_log(table_id, root_id):
+    current_app.request_type = "merge_log"
+
     try:
         time_stamp_past = float(request.args.get('timestamp', 0))
         time_stamp_past = datetime.fromtimestamp(time_stamp_past, UTC)
