@@ -220,13 +220,18 @@ def mincut_graph_tool(edges: Iterable[Sequence[np.uint64]],
     """
     time_start = time.time()
 
-    original_edges = edges.copy()
+    original_edges = edges
 
     # Stitch supervoxels across chunk boundaries and represent those that are
     # connected with a cross chunk edge with a single id. This may cause id
     # changes among sinks and sources that need to be taken care of.
     edges, affs, mapping, remapping = merge_cross_chunk_edges(edges.copy(),
                                                               affs.copy())
+
+    dt = time.time() - time_start
+    if logger is not None:
+        logger.debug("Cross edge merging: %.2fms" % (dt * 1000))
+    time_start = time.time()
 
     if len(edges) == 0:
         return []
@@ -251,17 +256,17 @@ def mincut_graph_tool(edges: Iterable[Sequence[np.uint64]],
     # and sources
     sink_edges = list(itertools.product(sinks, sinks))
     source_edges = list(itertools.product(sources, sources))
-    comb_edges = np.array(edges.tolist() + sink_edges + source_edges,
-                          dtype=np.uint64)
-    comb_affs = affs.tolist() + [float_max, ] * (
-                len(sink_edges) + len(source_edges))
+
+    comb_edges = np.concatenate([edges, sink_edges, source_edges])
+
+    comb_affs = np.concatenate([affs, [float_max, ] *
+                                (len(sink_edges) + len(source_edges))])
 
     # To make things easier for everyone involved, we map the ids to
     # [0, ..., len(unique_ids) - 1]
-    unique_ids, comb_edges = np.unique(comb_edges[:, :2].astype(np.int),
-                                       return_inverse=True)
-    unique_ids = unique_ids.astype(np.uint64)
+    unique_ids, comb_edges = np.unique(comb_edges, return_inverse=True)
     comb_edges = comb_edges.reshape(-1, 2)
+
     sink_graph_ids = np.where(np.in1d(unique_ids, sinks))[0]
     source_graph_ids = np.where(np.in1d(unique_ids, sources))[0]
 
