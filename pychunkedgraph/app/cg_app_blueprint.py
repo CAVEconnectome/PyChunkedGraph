@@ -1,5 +1,5 @@
 from flask import Blueprint, request, make_response, jsonify, current_app,\
-    redirect, url_for
+    redirect, url_for, after_this_request, Response
 
 import json
 import numpy as np
@@ -8,10 +8,12 @@ from datetime import datetime
 from pytz import UTC
 import traceback
 import collections
+import requests
+import threading
 
-from pychunkedgraph.app import app_utils
+from pychunkedgraph.app import app_utils, meshing_app_blueprint
 from pychunkedgraph.backend import chunkedgraph_exceptions as cg_exceptions
-
+from pychunkedgraph.meshing import meshgen
 
 
 __version__ = '0.1.105'
@@ -134,26 +136,10 @@ def handle_info(table_id):
 
     return jsonify(cg.dataset_info)
 
-
 ### GET ROOT -------------------------------------------------------------------
 
-@bp.route('/1.0/graph/root', methods=['POST', 'GET'])
-def handle_root_1():
-    atomic_id = np.uint64(json.loads(request.data)[0])
-    table_id = current_app.config['CHUNKGRAPH_TABLE_ID']
-
-    # Convert seconds since epoch to UTC datetime
-    try:
-        timestamp = float(request.args.get('timestamp', time.time()))
-        timestamp = datetime.fromtimestamp(timestamp, UTC)
-    except (TypeError, ValueError) as e:
-        raise(cg_exceptions.BadRequest("Timestamp parameter is not a valid unix timestamp"))
-
-    return handle_root_main(table_id, np.uint64(atomic_id), timestamp)
-
-
 @bp.route('/1.0/<table_id>/graph/root', methods=['POST', 'GET'])
-def handle_root_2(table_id):
+def handle_root_1(table_id):
     atomic_id = np.uint64(json.loads(request.data)[0])
 
     # Convert seconds since epoch to UTC datetime
@@ -161,20 +147,22 @@ def handle_root_2(table_id):
         timestamp = float(request.args.get('timestamp', time.time()))
         timestamp = datetime.fromtimestamp(timestamp, UTC)
     except (TypeError, ValueError) as e:
-        raise(cg_exceptions.BadRequest("Timestamp parameter is not a valid unix timestamp"))
+        raise(cg_exceptions.BadRequest("Timestamp parameter is not a valid"
+                                       " unix timestamp"))
 
     return handle_root_main(table_id, atomic_id, timestamp)
 
 
 @bp.route('/1.0/<table_id>/graph/<atomic_id>/root', methods=['POST', 'GET'])
-def handle_root_3(table_id, atomic_id):
+def handle_root_2(table_id, atomic_id):
 
     # Convert seconds since epoch to UTC datetime
     try:
         timestamp = float(request.args.get('timestamp', time.time()))
         timestamp = datetime.fromtimestamp(timestamp, UTC)
     except (TypeError, ValueError) as e:
-        raise(cg_exceptions.BadRequest("Timestamp parameter is not a valid unix timestamp"))
+        raise(cg_exceptions.BadRequest("Timestamp parameter is not a valid"
+                                       " unix timestamp"))
 
     return handle_root_main(table_id, np.uint64(atomic_id), timestamp)
 
@@ -183,7 +171,7 @@ def handle_root_main(table_id, atomic_id, timestamp):
 
     # Call ChunkedGraph
     cg = app_utils.get_cg(table_id)
-    root_id = cg.get_root(atomic_id, time_stamp=timestamp)
+    root_id = cg.get_root(np.uint64(atomic_id), time_stamp=timestamp)
 
     # Return binary
     return app_utils.tobinary(root_id)
@@ -191,24 +179,12 @@ def handle_root_main(table_id, atomic_id, timestamp):
 
 ### MERGE ----------------------------------------------------------------------
 
-@bp.route('/1.0/graph/merge', methods=['POST', 'GET'])
-def handle_merge_1():
-    nodes = json.loads(request.data)
-    table_id = current_app.config['CHUNKGRAPH_TABLE_ID']
-    user_id = str(request.remote_addr)
-
-    return handle_merge_main(table_id, nodes, user_id)
-
-
 @bp.route('/1.0/<table_id>/graph/merge', methods=['POST', 'GET'])
-def handle_merge_2(table_id):
+def handle_merge(table_id):
+
     nodes = json.loads(request.data)
     user_id = str(request.remote_addr)
 
-    return handle_merge_main(table_id, nodes, user_id)
-
-
-def handle_merge_main(table_id, nodes, user_id):
     current_app.logger.debug(nodes)
     assert len(nodes) == 2
 
@@ -239,7 +215,8 @@ def handle_merge_main(table_id, nodes, user_id):
 
         if atomic_id is None:
             raise cg_exceptions.BadRequest(
-                f"Could not determine supervoxel ID for coordinates {coordinate}."
+                f"Could not determine supervoxel ID for coordinates "
+                f"{coordinate}."
             )
 
         coords.append(coordinate)
@@ -251,14 +228,25 @@ def handle_merge_main(table_id, nodes, user_id):
 
     if np.any(np.abs(chunk_coord_delta) > 3):
         raise cg_exceptions.BadRequest(
-            "Chebyshev distance between merge points exceeded allowed maximum (3 chunks).")
+            "Chebyshev distance between merge points exceeded allowed maximum "
+            "(3 chunks).")
+
+    lvl2_nodes = []
 
     try:
-        new_root = cg.add_edges(user_id=user_id,
-                                atomic_edges=np.array(atomic_edge, dtype=np.uint64),
-                                source_coord=coords[:1],
-                                sink_coord=coords[1:],
-                                remesh_preview=True)
+        ret = cg.add_edges(user_id=user_id,
+                           atomic_edges=np.array(atomic_edge,
+                                                 dtype=np.uint64),
+                           source_coord=coords[:1],
+                           sink_coord=coords[1:],
+                           return_new_lvl2_nodes=True,
+                           remesh_preview=False)
+
+        if len(ret) == 2:
+            new_root, lvl2_nodes = ret
+        else:
+            new_root = ret
+
     except cg_exceptions.LockingError as e:
         raise cg_exceptions.InternalServerError(
             "Could not acquire root lock for merge operation.")
@@ -269,31 +257,21 @@ def handle_merge_main(table_id, nodes, user_id):
         raise cg_exceptions.InternalServerError(
             "Could not merge selected supervoxel.")
 
+    t = threading.Thread(target=meshing_app_blueprint._mesh_lvl2_nodes,
+                         args=(cg.get_serialized_info(), lvl2_nodes))
+    t.start()
+
     # Return binary
     return app_utils.tobinary(new_root)
 
 
 ### SPLIT ----------------------------------------------------------------------
 
-
-@bp.route('/1.0/graph/split', methods=['POST', 'GET'])
-def handle_split_1():
-    table_id = current_app.config['CHUNKGRAPH_TABLE_ID']
-    data = json.loads(request.data)
-    user_id = str(request.remote_addr)
-
-    return handle_split_main(table_id, data, user_id)
-
-
 @bp.route('/1.0/<table_id>/graph/split', methods=['POST', 'GET'])
-def handle_split_2(table_id):
+def handle_split(table_id):
     data = json.loads(request.data)
     user_id = str(request.remote_addr)
 
-    return handle_split_main(table_id, data, user_id)
-
-
-def handle_split_main(table_id, data, user_id):
     current_app.logger.debug(data)
 
     # Call ChunkedGraph
@@ -330,21 +308,30 @@ def handle_split_main(table_id, data, user_id):
 
             if atomic_id is None:
                 raise cg_exceptions.BadRequest(
-                    f"Could not determine supervoxel ID for coordinates {coordinate}.")
+                    f"Could not determine supervoxel ID for coordinates "
+                    f"{coordinate}.")
 
             data_dict[k]["id"].append(atomic_id)
             data_dict[k]["coord"].append(coordinate)
 
     current_app.logger.debug(data_dict)
 
+    lvl2_nodes = []
     try:
-        new_roots = cg.remove_edges(user_id=user_id,
-                                    source_ids=data_dict["sources"]["id"],
-                                    sink_ids=data_dict["sinks"]["id"],
-                                    source_coords=data_dict["sources"]["coord"],
-                                    sink_coords=data_dict["sinks"]["coord"],
-                                    mincut=True,
-                                    remesh_preview=True)
+        ret = cg.remove_edges(user_id=user_id,
+                              source_ids=data_dict["sources"]["id"],
+                              sink_ids=data_dict["sinks"]["id"],
+                              source_coords=data_dict["sources"]["coord"],
+                              sink_coords=data_dict["sinks"]["coord"],
+                              mincut=True,
+                              return_new_lvl2_nodes=True,
+                              remesh_preview=False)
+
+        if len(ret) == 2:
+            new_roots, lvl2_nodes = ret
+        else:
+            new_roots = ret
+
     except cg_exceptions.LockingError as e:
         raise cg_exceptions.InternalServerError(
             "Could not acquire root lock for split operation.")
@@ -358,18 +345,16 @@ def handle_split_main(table_id, data, user_id):
 
     current_app.logger.debug(("after split:", new_roots))
 
+    t = threading.Thread(target=meshing_app_blueprint._mesh_lvl2_nodes,
+                         args=(cg.get_serialized_info(), lvl2_nodes))
+    t.start()
+
     # Return binary
     return app_utils.tobinary(new_roots)
 
 
 ### SHATTER --------------------------------------------------------------------
 
-# @bp.route('/1.0/graph/shatter', methods=['POST', 'GET'])
-# def handle_shatter_re():
-#     return redirect('/1.0/%s/graph/shatter' %
-#                     current_app.config['CHUNKGRAPH_TABLE_ID'])
-#
-#
 # @bp.route('/1.0/<table_id>/graph/shatter', methods=['POST', 'GET'])
 # def handle_shatter(table_id):
 #     data = json.loads(request.data)
@@ -442,20 +427,10 @@ def handle_split_main(table_id, data, user_id):
 
 ### CHILDREN -------------------------------------------------------------------
 
-
-@bp.route('/1.0/segment/<parent_id>/children', methods=['POST', 'GET'])
-def handle_children_1(parent_id):
-    table_id = current_app.config['CHUNKGRAPH_TABLE_ID']
-    return handle_children_main(table_id, parent_id)
-
-
 @bp.route('/1.0/<table_id>/segment/<parent_id>/children',
           methods=['POST', 'GET'])
-def handle_children_2(table_id, parent_id):
-    return handle_children_main(table_id, parent_id)
+def handle_children(table_id, parent_id):
 
-
-def handle_children_main(table_id, parent_id):
     cg = app_utils.get_cg(table_id)
 
     parent_id = np.uint64(parent_id)
@@ -472,33 +447,14 @@ def handle_children_main(table_id, parent_id):
 
 ### LEAVES ---------------------------------------------------------------------
 
-
-@bp.route('/1.0/segment/<root_id>/leaves', methods=['POST', 'GET'])
-def handle_leaves_1(root_id):
-    table_id = current_app.config['CHUNKGRAPH_TABLE_ID']
-    if "bounds" in request.args:
-        bounds = request.args["bounds"]
-        bounding_box = np.array([b.split("-") for b in bounds.split("_")],
-                                dtype=np.int).T
-    else:
-        bounding_box = None
-
-    return handle_leaves_main(table_id, root_id, bounding_box)
-
-
 @bp.route('/1.0/<table_id>/segment/<root_id>/leaves', methods=['POST', 'GET'])
-def handle_leaves_2(table_id, root_id):
+def handle_leaves(table_id, root_id):
     if "bounds" in request.args:
         bounds = request.args["bounds"]
         bounding_box = np.array([b.split("-") for b in bounds.split("_")],
                                 dtype=np.int).T
     else:
         bounding_box = None
-
-    return handle_leaves_main(table_id, root_id, bounding_box)
-
-
-def handle_leaves_main(table_id, root_id, bounding_box):
 
     # Call ChunkedGraph
     cg = app_utils.get_cg(table_id)
@@ -512,33 +468,15 @@ def handle_leaves_main(table_id, root_id, bounding_box):
 
 ### LEAVES FROM LEAVES ---------------------------------------------------------
 
-@bp.route('/1.0/segment/<atomic_id>/leaves_from_leave', methods=['POST', 'GET'])
-def handle_leaves_from_leave_1(atomic_id):
-    table_id = current_app.config['CHUNKGRAPH_TABLE_ID']
-    if "bounds" in request.args:
-        bounds = request.args["bounds"]
-        bounding_box = np.array([b.split("-") for b in bounds.split("_")],
-                                dtype=np.int).T
-    else:
-        bounding_box = None
-
-    return handle_leaves_from_leaves_main(table_id, atomic_id, bounding_box)
-
-
 @bp.route('/1.0/<table_id>/segment/<atomic_id>/leaves_from_leave',
           methods=['POST', 'GET'])
-def handle_leaves_from_leave_2(table_id, atomic_id):
+def handle_leaves_from_leave(table_id, atomic_id):
     if "bounds" in request.args:
         bounds = request.args["bounds"]
         bounding_box = np.array([b.split("-") for b in bounds.split("_")],
                                 dtype=np.int).T
     else:
         bounding_box = None
-
-    return handle_leaves_from_leaves_main(table_id, atomic_id, bounding_box)
-
-
-def handle_leaves_from_leaves_main(table_id, atomic_id, bounding_box):
 
     # Call ChunkedGraph
     cg = app_utils.get_cg(table_id)
@@ -553,33 +491,14 @@ def handle_leaves_from_leaves_main(table_id, atomic_id, bounding_box):
 
 ### SUBGRAPH -------------------------------------------------------------------
 
-
-@bp.route('/1.0/segment/<root_id>/subgraph', methods=['POST', 'GET'])
-def handle_subgraph_1(root_id):
-    table_id = current_app.config['CHUNKGRAPH_TABLE_ID']
-    if "bounds" in request.args:
-        bounds = request.args["bounds"]
-        bounding_box = np.array([b.split("-") for b in bounds.split("_")],
-                                dtype=np.int).T
-    else:
-        bounding_box = None
-
-    return handle_subgraph_main(table_id, root_id, bounding_box)
-
-
 @bp.route('/1.0/<table_id>/segment/<root_id>/subgraph', methods=['POST', 'GET'])
-def handle_subgraph_2(table_id, root_id):
+def handle_subgraph(table_id, root_id):
     if "bounds" in request.args:
         bounds = request.args["bounds"]
         bounding_box = np.array([b.split("-") for b in bounds.split("_")],
                                 dtype=np.int).T
     else:
         bounding_box = None
-
-    return handle_subgraph_main(table_id, root_id, bounding_box)
-
-
-def handle_subgraph_main(table_id, root_id, bounding_box):
 
     # Call ChunkedGraph
     cg = app_utils.get_cg(table_id)
