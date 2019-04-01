@@ -16,7 +16,7 @@ from pychunkedgraph.backend import chunkedgraph_exceptions as cg_exceptions
 from pychunkedgraph.meshing import meshgen
 
 
-__version__ = '0.1.107'
+__version__ = '0.1.108'
 bp = Blueprint('pychunkedgraph', __name__, url_prefix="/segmentation")
 
 # -------------------------------
