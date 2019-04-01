@@ -135,6 +135,7 @@ def get_l2_overlapping_remappings(cg, chunk_id, time_stamp=None):
     layer_agreement = np.all((neigh_parent_chunk_ids -
                               neigh_parent_chunk_ids[0]) == 0, axis=0)
     stop_layer = np.where(layer_agreement)[0][0] + 1
+    stop_layer = cg.n_layers
 
     # Find the parent in the lowest common chunk for each l2 id. These parent
     # ids are referred to as root ids even though they are not necessarily the
