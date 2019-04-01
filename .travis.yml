@@ -1,16 +1,9 @@
 sudo: true
-language: python
-python:
-  - "3.6-dev"
+services:
+  docker
 
-cache:
-  - pip
-  - directories:
-    - $HOME/google-cloud-sdk
-
-env:
-  global:
-    - CLOUDSDK_CORE_DISABLE_PROMPTS=1
+language:
+  minimal
 
 stages:
   - test
@@ -24,41 +17,15 @@ notifications:
 jobs:
   include:
     - stage: test
-      name: "Running Tests -- Python 3.6"
-      python: 3.6
-
-      before_install:
-        - if [ ! -d $HOME/google-cloud-sdk/bin ]; then
-            rm -rf $HOME/google-cloud-sdk;
-            curl https://sdk.cloud.google.com | bash > /dev/null;
-          fi
-        - source $HOME/google-cloud-sdk/path.bash.inc
-        - gcloud components update beta
-        - gcloud components install bigtable
-        - gcloud version
-        - python --version
-        - uname -a
-        - lsb_release -a
-
-      install:
-        - sudo apt update && sudo apt install -y build-essential libboost-dev
-        - pip install tox-travis codecov
+      name: "Running Tests"
 
       before_script:
-        - virtualenv --version
-        - easy_install --version
-        - pip --version
-        - tox --version
+        # request codecov to detect CI environment to pass through to docker
+        - ci_env=`bash <(curl -s https://codecov.io/env)`
 
       script:
-        - tox -v -- --cov-config .coveragerc --cov=pychunkedgraph
-
-      after_failure:
-        - more .tox/log/* | cat
-        - more .tox/*/log/* | cat
-
-      after_success:
-        - codecov
+        - docker build --tag seunglab/pychunkedgraph:$TRAVIS_BRANCH . || travis_terminate 1
+        - docker run $ci_env --rm seunglab/pychunkedgraph:$TRAVIS_BRANCH /bin/sh -c "tox -v -- --cov-config .coveragerc --cov=pychunkedgraph && codecov"
 
     - stage: merge-deploy
       name: "version bump and merge into master"

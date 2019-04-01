@@ -17,7 +17,7 @@ from pychunkedgraph.backend import cutting, chunkedgraph_comp
 from pychunkedgraph.backend.chunkedgraph_utils import compute_indices_pandas, \
     compute_bitmasks, get_google_compatible_time_stamp, \
     get_time_range_filter, get_time_range_and_column_filter, get_max_time, \
-    combine_cross_chunk_edge_dicts, time_min, partial_row_data_to_column_dict
+    combine_cross_chunk_edge_dicts, get_min_time, partial_row_data_to_column_dict
 from pychunkedgraph.backend.utils import serializers, column_keys, row_keys, basetypes
 from pychunkedgraph.backend import chunkedgraph_exceptions as cg_exceptions
 from pychunkedgraph.meshing import meshgen
@@ -86,17 +86,23 @@ class ChunkedGraph(object):
             self._check_and_create_table()
 
         self._dataset_info = self.check_and_write_table_parameters(
-            column_keys.GraphSettings.DatasetInfo, dataset_info, required=True)
+            column_keys.GraphSettings.DatasetInfo, dataset_info,
+            required=True, is_new=is_new)
 
         self._cv_path = self._dataset_info["data_dir"]         # required
         self._mesh_dir = self._dataset_info.get("mesh", None)  # optional
 
         self._n_layers = self.check_and_write_table_parameters(
-            column_keys.GraphSettings.LayerCount, n_layers, required=True)
+            column_keys.GraphSettings.LayerCount, n_layers,
+            required=True, is_new=is_new)
         self._fan_out = self.check_and_write_table_parameters(
-            column_keys.GraphSettings.FanOut, fan_out, required=True)
+            column_keys.GraphSettings.FanOut, fan_out,
+            required=True, is_new=is_new)
         self._chunk_size = self.check_and_write_table_parameters(
-            column_keys.GraphSettings.ChunkSize, chunk_size, required=True)
+            column_keys.GraphSettings.ChunkSize, chunk_size,
+            required=True, is_new=is_new)
+
+        self._dataset_info["graph"] = {"chunk_size": self.chunk_size}
 
         self._bitmasks = compute_bitmasks(self.n_layers, self.fan_out)
 
@@ -227,23 +233,26 @@ class ChunkedGraph(object):
 
     def check_and_write_table_parameters(self, column: column_keys._Column,
                                          value: Optional[Union[str, np.uint64]] = None,
-                                         required: bool = True
+                                         required: bool = True,
+                                         is_new: bool = False
                                          ) -> Union[str, np.uint64]:
         """ Checks if a parameter already exists in the table. If it already
-        exists it returns the stored value, else it stores the given value. It
+        exists it returns the stored value, else it stores the given value.
+        Storing the given values can be enforced with `is_new`. The function
         raises an exception if no value is passed and the parameter does not
         exist, yet.
 
         :param column: column_keys._Column
         :param value: Union[str, np.uint64]
-        :param require: bool
+        :param required: bool
+        :param is_new: bool
         :return: Union[str, np.uint64]
             value
         """
         setting = self.read_byte_row(row_key=row_keys.GraphSettings,
                                      columns=column)
 
-        if not setting and value is not None:
+        if (not setting or is_new) and value is not None:
             row = self.mutate_row(row_keys.GraphSettings, {column: value})
             self.bulk_write([row])
         elif not setting and value is None:
@@ -421,7 +430,7 @@ class ChunkedGraph(object):
         :return: np.uint64
         """
 
-        column = column_keys.Concurrency.OperationID
+        column = column_keys.Concurrency.CounterID
 
         # Incrementer row keys start with an "i" followed by the chunk id
         row_key = serializers.serialize_key("i%s" % serializers.pad_node_id(chunk_id))
@@ -491,7 +500,7 @@ class ChunkedGraph(object):
 
         # Incrementer row keys start with an "i"
         row_key = serializers.serialize_key("i%s" % serializers.pad_node_id(chunk_id))
-        row = self.read_byte_row(row_key, columns=column_keys.Concurrency.OperationID)
+        row = self.read_byte_row(row_key, columns=column_keys.Concurrency.CounterID)
 
         # Read incrementer value (default to 0) and interpret is as Segment ID
         return basetypes.SEGMENT_ID.type(row[0].value if row else 0)
@@ -522,7 +531,7 @@ class ChunkedGraph(object):
 
         :return: str
         """
-        column = column_keys.Concurrency.OperationID
+        column = column_keys.Concurrency.CounterID
 
         append_row = self.table.row(row_keys.OperationID, append=True)
         append_row.increment_cell_value(column.family_id, column.key, 1)
@@ -544,7 +553,7 @@ class ChunkedGraph(object):
 
         :return: int64
         """
-        column = column_keys.Concurrency.OperationID
+        column = column_keys.Concurrency.CounterID
         row = self.read_byte_row(row_keys.OperationID, columns=column)
 
         return row[0].value if row else column.basetype(0)
@@ -948,12 +957,13 @@ class ChunkedGraph(object):
     def _execute_read_thread(self, row_set_and_filter: Tuple[RowSet, RowFilter]):
         row_set, row_filter = row_set_and_filter
         if not row_set.row_keys and not row_set.row_ranges:
-            # Check for everything falsy, because Bigtable considers even empty lists of row_keys
-            # as no upper/lower bound!
+            # Check for everything falsy, because Bigtable considers even empty
+            # lists of row_keys as no upper/lower bound!
             return {}
 
         range_read = self.table.read_rows(row_set=row_set, filter_=row_filter)
-        res = {v.row_key: partial_row_data_to_column_dict(v) for v in range_read}
+        res = {v.row_key: partial_row_data_to_column_dict(v)
+               for v in range_read}
         return res
 
     def _execute_read(self, row_set: RowSet, row_filter: RowFilter = None) \
@@ -968,21 +978,25 @@ class ChunkedGraph(object):
         # calculate this properly (range_read.request.SerializeToString()), but this estimate is
         # good enough for now
         max_row_key_count = 20000
-        n_subrequests = max(1, int(np.ceil(len(row_set.row_keys) / max_row_key_count)))
+        n_subrequests = max(1, int(np.ceil(len(row_set.row_keys) /
+                                           max_row_key_count)))
         n_threads = min(n_subrequests, 2 * mu.n_cpus)
 
         row_sets = []
         for i in range(n_subrequests):
             r = RowSet()
-            r.row_keys = row_set.row_keys[i * max_row_key_count : (i + 1) * max_row_key_count]
+            r.row_keys = row_set.row_keys[i * max_row_key_count:
+                                          (i + 1) * max_row_key_count]
             row_sets.append(r)
 
         # Don't forget the original RowSet's row_ranges
         row_sets[0].row_ranges = row_set.row_ranges
 
         responses = mu.multithread_func(self._execute_read_thread,
-                                        params=((r, row_filter) for r in row_sets),
-                                        debug=n_threads == 1, n_threads=n_threads)
+                                        params=((r, row_filter)
+                                                for r in row_sets),
+                                        debug=n_threads == 1,
+                                        n_threads=n_threads)
 
         combined_response = {}
         for resp in responses:
@@ -1973,6 +1987,33 @@ class ChunkedGraph(object):
         return chunkedgraph_comp.get_latest_roots(self, time_stamp=time_stamp,
                                                   n_threads=n_threads)
 
+    def get_delta_roots(self,
+                        time_stamp_start: datetime.datetime,
+                        time_stamp_end: Optional[datetime.datetime] = None,
+                        min_seg_id: int =1,
+                        n_threads: int = 1) -> Sequence[np.uint64]:
+        """ Returns root ids that have expired or have been created between two timestamps
+
+        :param time_stamp_start: datetime.datetime
+            starting timestamp to return deltas from
+        :param time_stamp_end: datetime.datetime
+            ending timestamp to return deltasfrom
+        :param min_seg_id: int (default=1)
+            only search from this seg_id and higher (note not a node_id.. use get_seg_id)
+        :param n_threads: int (default=1)
+            number of threads to use in performing search
+        :return new_ids, expired_ids: np.arrays of np.uint64
+            new_ids is an array of root_ids for roots that were created after time_stamp_start
+            and are still current as of time_stamp_end.
+            expired_ids is list of node_id's for roots the expired after time_stamp_start
+            but before time_stamp_end.
+        """
+
+        return chunkedgraph_comp.get_delta_roots(self, time_stamp_start=time_stamp_start,
+                                                  time_stamp_end=time_stamp_end,
+                                                  min_seg_id=min_seg_id,
+                                                  n_threads=n_threads)
+
     def get_root(self, node_id: np.uint64,
                  time_stamp: Optional[datetime.datetime] = None,
                  n_tries: int = 1) -> Union[List[np.uint64], np.uint64]:
@@ -2408,7 +2449,7 @@ class ChunkedGraph(object):
 
     def get_past_root_ids(self, root_id: np.uint64,
                           time_stamp: Optional[datetime.datetime] =
-                          time_min()) -> np.ndarray:
+                          get_min_time()) -> np.ndarray:
         """ Returns all future root ids emerging from this root
 
         This search happens in a monotic fashion. At no point are future root
@@ -2458,7 +2499,7 @@ class ChunkedGraph(object):
 
     def get_root_id_history(self, root_id: np.uint64,
                             time_stamp_past:
-                            Optional[datetime.datetime] = time_min(),
+                            Optional[datetime.datetime] = get_min_time(),
                             time_stamp_future:
                             Optional[datetime.datetime] = get_max_time()
                             ) -> np.ndarray:
@@ -2487,6 +2528,87 @@ class ChunkedGraph(object):
                                       future_ids])
 
         return history_ids
+
+    def get_change_log(self, root_id: np.uint64,
+                       correct_for_wrong_coord_type: bool = True,
+                       time_stamp_past: Optional[datetime.datetime] = get_min_time()
+                       ) -> dict:
+        """ Returns all past root ids for this root
+
+        This search happens in a monotic fashion. At no point are future root
+        ids of past root ids taken into account.
+
+        :param root_id: np.uint64
+        :param correct_for_wrong_coord_type: bool
+            pinky100? --> True
+        :param time_stamp_past: None or datetime
+            restrict search to ids created after this time_stamp
+            None=search whole past
+        :return: past ids, merge sv ids, merge edge coords, split sv ids
+        """
+        if time_stamp_past.tzinfo is None:
+            time_stamp_past = UTC.localize(time_stamp_past)
+
+        id_history = []
+        merge_history = []
+        merge_history_edges = []
+        split_history = []
+
+        next_ids = [root_id]
+        while len(next_ids):
+            temp_next_ids = []
+            former_parent_col = column_keys.Hierarchy.FormerParent
+            row_dict = self.read_node_id_rows(node_ids=next_ids,
+                                              columns=[former_parent_col])
+
+            for row in row_dict.values():
+                if column_keys.Hierarchy.FormerParent in row:
+                    if time_stamp_past > row[former_parent_col][0].timestamp:
+                        continue
+
+                    ids = row[former_parent_col][0].value
+
+                    lock_col = column_keys.Concurrency.Lock
+                    former_row = self.read_node_id_row(ids[0],
+                                                       columns=[lock_col])
+                    operation_id = former_row[lock_col][0].value
+                    log_row = self.read_log_row(operation_id)
+                    is_merge = column_keys.OperationLogs.AddedEdge in log_row
+
+                    for id_ in ids:
+                        if id_ in id_history:
+                            continue
+
+                        id_history.append(id_)
+                        temp_next_ids.append(id_)
+
+                    if is_merge:
+                        added_edges = log_row[column_keys.OperationLogs.AddedEdge][0].value
+                        merge_history.append(added_edges)
+
+                        coords = [log_row[column_keys.OperationLogs.SourceCoordinate][0].value,
+                                  log_row[column_keys.OperationLogs.SinkCoordinate][0].value]
+
+                        if correct_for_wrong_coord_type:
+                            # A little hack because we got the datatype wrong...
+                            coords = [np.frombuffer(coords[0]),
+                                      np.frombuffer(coords[1])]
+                            coords *= self.segmentation_resolution
+
+                        merge_history_edges.append(coords)
+
+                    if not is_merge:
+                        removed_edges = log_row[column_keys.OperationLogs.RemovedEdge][0].value
+                        split_history.append(removed_edges)
+                else:
+                    continue
+
+            next_ids = temp_next_ids
+
+        return {"past_ids": np.unique(np.array(id_history, dtype=np.uint64)),
+                "merge_edges": np.array(merge_history),
+                "merge_edge_coords": np.array(merge_history_edges),
+                "split_edges": np.array(split_history)}
 
     def normalize_bounding_box(self,
                                bounding_box: Optional[Sequence[Sequence[int]]],
@@ -2975,6 +3097,7 @@ class ChunkedGraph(object):
                   source_coord: Sequence[int] = None,
                   sink_coord: Sequence[int] = None,
                   remesh_preview: bool = False,
+                  return_new_lvl2_nodes: bool = False,
                   n_tries: int = 60) -> np.uint64:
         """ Adds an edge to the chunkedgraph
 
@@ -2992,6 +3115,8 @@ class ChunkedGraph(object):
             will eventually be set to 1 if None
         :param source_coord: list of int (n x 3)
         :param sink_coord: list of int (n x 3)
+        :param remesh_preview: bool
+        :param return_new_lvl2_nodes: bool
         :param n_tries: int
         :return: uint64
             if successful the new root id is send
@@ -3072,7 +3197,10 @@ class ChunkedGraph(object):
                         meshgen.mesh_lvl2_previews(self, list(
                             lvl2_node_mapping.keys()))
 
-                    return new_root_id
+                    if return_new_lvl2_nodes:
+                        return new_root_id, list(lvl2_node_mapping.keys())
+                    else:
+                        return new_root_id
 
             for lock_root_id in lock_root_ids:
                 self.unlock_root(lock_root_id, operation_id)
@@ -3335,7 +3463,7 @@ class ChunkedGraph(object):
                     val_dict = {}
                     val_dict[column_keys.Hierarchy.FormerParent] = \
                         np.array(old_parent_ids)
-                    val_dict[column_keys.Concurrency.OperationID] = operation_id
+                    val_dict[column_keys.OperationLogs.OperationID] = operation_id
 
                     rows.append(self.mutate_row(serializers.serialize_uint64(new_parent_id),
                                                 val_dict, time_stamp=time_stamp))
@@ -3465,6 +3593,7 @@ class ChunkedGraph(object):
                      mincut: bool = True,
                      bb_offset: Tuple[int, int, int] = (240, 240, 24),
                      remesh_preview: bool = False,
+                     return_new_lvl2_nodes: bool = False,
                      root_ids: Optional[Sequence[np.uint64]] = None,
                      n_tries: int = 20) -> Sequence[np.uint64]:
         """ Removes edges - either directly or after applying a mincut
@@ -3488,6 +3617,7 @@ class ChunkedGraph(object):
         :param bb_offset: list of 3 ints
             [x, y, z] bounding box padding beyond box spanned by coordinates
         :param remesh_preview: bool
+        :param return_new_lvl2_nodes: bool
         :param root_ids: list of uint64s
         :param n_tries: int
         :return: list of uint64s or None if no split was performed
@@ -3629,7 +3759,11 @@ class ChunkedGraph(object):
                             lvl2_node_mapping.keys()))
 
                     self.logger.debug(f"new root ids: {new_root_ids}")
-                    return new_root_ids
+
+                    if return_new_lvl2_nodes:
+                        return new_root_ids, list(lvl2_node_mapping.keys())
+                    else:
+                        return new_root_ids
 
                 for lock_root_id in lock_root_ids:
                     self.unlock_root(lock_root_id, operation_id=operation_id)
@@ -3640,9 +3774,7 @@ class ChunkedGraph(object):
             time.sleep(1)
 
         self.logger.warning("Could not acquire root object lock.")
-        raise cg_exceptions.LockingError(
-            f"Could not acquire root object lock."
-        )
+        raise cg_exceptions.LockingError(f"Could not acquire root object lock.")
 
     def _remove_edges_mincut(self, operation_id: np.uint64,
                              source_ids: Sequence[np.uint64],
@@ -4062,7 +4194,7 @@ class ChunkedGraph(object):
                     new_roots.append(new_parent_id)
                     val_dict[column_keys.Hierarchy.FormerParent] = \
                         np.array(original_root)
-                    val_dict[column_keys.Concurrency.OperationID] = operation_id
+                    val_dict[column_keys.OperationLogs.OperationID] = operation_id
 
                 rows.append(self.mutate_row(serializers.serialize_uint64(new_parent_id),
                                             val_dict, time_stamp=time_stamp))
