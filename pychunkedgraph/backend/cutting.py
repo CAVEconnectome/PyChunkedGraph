@@ -6,7 +6,7 @@ import logging
 from networkx.algorithms.flow import shortest_augmenting_path, edmonds_karp, preflow_push
 from networkx.algorithms.connectivity import minimum_st_edge_cut
 import time
-import graph_tool
+import graph_tool.flow
 
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple, Union
 
@@ -196,8 +196,6 @@ def mincut_nx(edges: Iterable[Sequence[np.uint64]], affs: Sequence[np.uint64],
     if logger is not None:
         logger.debug("Mincut comp: %.2fms" % (dt * 1000))
 
-    logger.debug(f"Cutset: {cutset}")
-
     if cutset is None:
         return []
 
@@ -314,8 +312,9 @@ def mincut_graph_tool(edges: Iterable[Sequence[np.uint64]],
     sink_graph_ids = np.where(np.in1d(unique_ids, sinks))[0]
     source_graph_ids = np.where(np.in1d(unique_ids, sources))[0]
 
-    logger.debug(f"{sinks}, {sink_graph_ids}")
-    logger.debug(f"{sources}, {source_graph_ids}")
+    if logger is not None:
+        logger.debug(f"{sinks}, {sink_graph_ids}")
+        logger.debug(f"{sources}, {source_graph_ids}")
 
     dt = time.time() - time_start
     if logger is not None:
@@ -345,7 +344,7 @@ def mincut_graph_tool(edges: Iterable[Sequence[np.uint64]],
     res = graph_tool.flow.boykov_kolmogorov_max_flow(weighted_graph,
                                                      src, tgt, cap)
 
-    part = graph_tool.all.min_st_cut(weighted_graph, src, cap, res)
+    part = graph_tool.flow.min_st_cut(weighted_graph, src, cap, res)
 
     labeled_edges = part.a[gt_edges]
     cut_edge_set = gt_edges[labeled_edges[:, 0] != labeled_edges[:, 1]]
@@ -424,6 +423,6 @@ def mincut(edges: Iterable[Sequence[np.uint64]],
         edges that should be removed
     """
 
-    return mincut_nx(edges=edges, affs=affs, sources=sources, sinks=sinks,
-                     logger=logger)
+    return mincut_graph_tool(edges=edges, affs=affs, sources=sources,
+                             sinks=sinks, logger=logger)
 
