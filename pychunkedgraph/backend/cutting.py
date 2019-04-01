@@ -8,8 +8,9 @@ from networkx.algorithms.connectivity import minimum_st_edge_cut
 import time
 import graph_tool
 
-
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple, Union
+
+from pychunkedgraph.backend import flatgraph_utils
 
 float_max = np.finfo(np.float32).max
 
@@ -22,7 +23,6 @@ def merge_cross_chunk_edges(edges: Iterable[Sequence[np.uint64]],
     :param affs: float array of length n
     :return:
     """
-
     # mask for edges that have to be merged
     cross_chunk_edge_mask = np.isinf(affs)
 
@@ -33,11 +33,64 @@ def merge_cross_chunk_edges(edges: Iterable[Sequence[np.uint64]],
     # connected components in this graph will be combined in one component
     ccs = nx.connected_components(cross_chunk_graph)
 
+    # Build mapping
+    # For each connected component the smallest node id is chosen to be the
+    # representative.
+    remapping = {}
+    mapping_ks = []
+    mapping_vs = []
+
+    for cc in ccs:
+        nodes = np.array(list(cc))
+        rep_node = np.min(nodes)
+
+        remapping[rep_node] = nodes
+        mapping_ks.extend(nodes)
+        mapping_vs.extend([rep_node] * len(nodes))
+
+    # Initialize mapping with a each node mapping to itself, then update
+    # those edges merged to one across chunk boundaries.
+    # u_nodes = np.unique(edges)
+    # mapping = dict(zip(u_nodes, u_nodes))
+    # mapping.update(dict(zip(mapping_ks, mapping_vs)))
+    mapping = dict(zip(mapping_ks, mapping_vs))
+
+    # Vectorize remapping
+    mapping_vec = np.vectorize(lambda a : mapping[a] if a in mapping else a)
+    remapped_edges = mapping_vec(edges)
+
+    # Remove cross chunk edges
+    remapped_edges = remapped_edges[~cross_chunk_edge_mask]
+    remapped_affs = affs[~cross_chunk_edge_mask]
+
+    return remapped_edges, remapped_affs, mapping, remapping
+
+
+def merge_cross_chunk_edges_graph_tool(edges: Iterable[Sequence[np.uint64]],
+                                       affs: Sequence[np.uint64],
+                                       logger: Optional[logging.Logger] = None):
+    """ Merges cross chunk edges
+    :param edges: n x 2 array of uint64s
+    :param affs: float array of length n
+    :return:
+    """
+
+    # mask for edges that have to be merged
+    cross_chunk_edge_mask = np.isinf(affs)
+
+    # graph with edges that have to be merged
+    graph, _, _, unique_ids = flatgraph_utils.build_gt_graph(
+        edges[cross_chunk_edge_mask], make_directed=True)
+
+    # connected components in this graph will be combined in one component
+    ccs = flatgraph_utils.connected_components(graph)
+
     remapping = {}
     mapping = np.array([], dtype=np.uint64).reshape(-1, 2)
 
     for cc in ccs:
-        nodes = np.array(list(cc))
+        print(cc)
+        nodes = unique_ids[cc]
         rep_node = np.min(nodes)
 
         remapping[rep_node] = nodes
@@ -82,22 +135,16 @@ def mincut_nx(edges: Iterable[Sequence[np.uint64]], affs: Sequence[np.uint64],
 
     edges, affs, mapping, remapping = merge_cross_chunk_edges(edges.copy(),
                                                               affs.copy())
+    mapping_vec = np.vectorize(lambda a: mapping[a] if a in mapping else a)
 
     if len(edges) == 0:
         return []
 
-    assert np.unique(mapping[:, 0], return_counts=True)[1].max() == 1
+    if len(mapping) > 0:
+        assert np.unique(list(mapping.keys()), return_counts=True)[1].max() == 1
 
-    mapping_dict = dict(mapping)
-
-    remapped_sinks = []
-    remapped_sources = []
-
-    for sink in sinks:
-        remapped_sinks.append(mapping_dict[sink])
-
-    for source in sources:
-        remapped_sources.append(mapping_dict[source])
+    remapped_sinks = mapping_vec(sinks)
+    remapped_sources = mapping_vec(sources)
 
     sinks = remapped_sinks
     sources = remapped_sources
@@ -233,21 +280,16 @@ def mincut_graph_tool(edges: Iterable[Sequence[np.uint64]],
         logger.debug("Cross edge merging: %.2fms" % (dt * 1000))
     time_start = time.time()
 
+    mapping_vec = np.vectorize(lambda a: mapping[a] if a in mapping else a)
+
     if len(edges) == 0:
         return []
 
-    assert np.unique(mapping[:, 0], return_counts=True)[1].max() == 1
+    if len(mapping) > 0:
+        assert np.unique(list(mapping.keys()), return_counts=True)[1].max() == 1
 
-    mapping_dict = dict(mapping)
-
-    remapped_sinks = []
-    remapped_sources = []
-
-    for sink in sinks:
-        remapped_sinks.append(mapping_dict[sink])
-
-    for source in sources:
-        remapped_sources.append(mapping_dict[source])
+    remapped_sinks = mapping_vec(sinks)
+    remapped_sources = mapping_vec(sources)
 
     sinks = remapped_sinks
     sources = remapped_sources
@@ -264,19 +306,16 @@ def mincut_graph_tool(edges: Iterable[Sequence[np.uint64]],
 
     # To make things easier for everyone involved, we map the ids to
     # [0, ..., len(unique_ids) - 1]
-    unique_ids, comb_edges = np.unique(comb_edges, return_inverse=True)
-    comb_edges = comb_edges.reshape(-1, 2)
+    # Generate weighted graph with graph_tool
+    weighted_graph, cap, gt_edges, unique_ids = \
+        flatgraph_utils.build_gt_graph(comb_edges, comb_affs,
+                                       make_directed=True)
 
     sink_graph_ids = np.where(np.in1d(unique_ids, sinks))[0]
     source_graph_ids = np.where(np.in1d(unique_ids, sources))[0]
 
     logger.debug(f"{sinks}, {sink_graph_ids}")
     logger.debug(f"{sources}, {source_graph_ids}")
-
-    # Generate weighted graph with graph_tool
-    weighted_graph = graph_tool.Graph(directed=True)
-    weighted_graph.add_edge_list(edge_list=np.concatenate([comb_edges, comb_edges[:, [1, 0]]]), hashed=False)
-    cap = weighted_graph.new_edge_property("float", vals=np.concatenate([comb_affs, comb_affs]))
 
     dt = time.time() - time_start
     if logger is not None:
@@ -308,9 +347,8 @@ def mincut_graph_tool(edges: Iterable[Sequence[np.uint64]],
 
     part = graph_tool.all.min_st_cut(weighted_graph, src, cap, res)
 
-
-    labeled_edges = part.a[comb_edges]
-    cut_edge_set = comb_edges[labeled_edges[:, 0] != labeled_edges[:, 1]]
+    labeled_edges = part.a[gt_edges]
+    cut_edge_set = gt_edges[labeled_edges[:, 0] != labeled_edges[:, 1]]
 
     dt = time.time() - time_start
     if logger is not None:
@@ -347,7 +385,7 @@ def mincut_graph_tool(edges: Iterable[Sequence[np.uint64]],
     # Extract original ids
     # This has potential to be optimized
     remapped_cutset = []
-    for s, t in unique_ids[cut_edge_set]:
+    for s, t in flatgraph_utils.remap_ids_from_graph(cut_edge_set, unique_ids):
 
         if s in remapping:
             s = remapping[s]
