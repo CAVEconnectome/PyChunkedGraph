@@ -260,6 +260,7 @@ def mincut_graph_tool(edges: Iterable[Sequence[np.uint64]],
     :param affs: float array of length n
     :param sources: uint64
     :param sinks: uint64
+    :param logger: logging object
     :return: m x 2 array of uint64s
         edges that should be removed
     """
@@ -281,6 +282,7 @@ def mincut_graph_tool(edges: Iterable[Sequence[np.uint64]],
     mapping_vec = np.vectorize(lambda a: mapping[a] if a in mapping else a)
 
     if len(edges) == 0:
+        logger.debug("No edges in edgelist")
         return []
 
     if len(mapping) > 0:
@@ -352,12 +354,17 @@ def mincut_graph_tool(edges: Iterable[Sequence[np.uint64]],
     dt = time.time() - time_start
     if logger is not None:
         logger.debug("Mincut comp: %.2fms" % (dt * 1000))
-    time_start = time.time()
 
     if len(cut_edge_set) == 0:
+        logger.warning("No edges in cutset")
         return []
 
     time_start = time.time()
+
+    print(len(np.unique(part.a)))
+    if len(np.unique(part.a)) > 5:
+        logger.warning("Found a bad result")
+        return []
 
     # Make sure we did not do something wrong: Check if sinks and sources are
     # among each other and not in different sets

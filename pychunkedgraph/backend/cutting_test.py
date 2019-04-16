@@ -10,7 +10,7 @@ import time
 from pychunkedgraph.backend import cutting
 
 
-def ex_graph():
+def ex_graph(n_nodes=100000):
     w_n = .8
     w_c = .5
     w_l = .2
@@ -45,7 +45,6 @@ def ex_graph():
     edges = edgelist[:, :2].astype(np.int) - 1
     weights = edgelist[:, 2].astype(np.float)
 
-    n_nodes = 100000
     edges = np.unique(np.sort(np.random.randint(0, n_nodes, n_nodes*25).reshape(-1, 2), axis=1), axis=0)
     weights = np.random.rand(len(edges))
 
@@ -103,17 +102,12 @@ def test_imp():
     sh.setLevel(logging.DEBUG)
     logger.addHandler(sh)
 
-    # print(edges)
-    # print(weights)
-
     sources = np.unique(edges)[:10]
     sinks = np.unique(edges)[-10:]
 
     time_start = time.time()
     out_gt = cutting.mincut_graph_tool(edges, weights, sources, sinks, logger=logger)
     time_gt = time.time() - time_start
-
-    # print(out_gt)
 
     print("----------------")
 
@@ -128,3 +122,21 @@ def test_imp():
 
     return np.array_equal(np.unique(out_nx, axis=0), np.unique(out_gt, axis=0))
 
+
+def test_gigantic(n=100000):
+    edges, weights = ex_graph(n)
+
+    logger = logging.getLogger("%d" % np.random.randint(0, 100000))
+    logger.setLevel(logging.DEBUG)
+    sh = logging.StreamHandler(sys.stdout)
+    sh.setLevel(logging.DEBUG)
+    logger.addHandler(sh)
+
+    sources = np.unique(edges)[:100]
+    sinks = np.unique(edges)[-100:]
+
+    time_start = time.time()
+    out_gt = cutting.mincut_graph_tool(edges, weights, sources, sinks, logger=logger)
+    time_gt = time.time() - time_start
+
+    print("Time graph_tool: %.3fs" % (time_gt))

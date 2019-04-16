@@ -3855,7 +3855,8 @@ class ChunkedGraph(object):
         time_start = time.time()  # ------------------------------------------
 
         # Compute mincut
-        atomic_edges = cutting.mincut(edges, affs, source_ids, sink_ids)
+        atomic_edges = cutting.mincut(edges, affs, source_ids, sink_ids,
+                                      logger=logger)
 
         self.logger.debug("Mincut: %.3fms" % ((time.time() - time_start) * 1000))
         time_start = time.time()  # ------------------------------------------
