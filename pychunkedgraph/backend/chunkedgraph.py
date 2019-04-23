@@ -2389,6 +2389,11 @@ class ChunkedGraph(object):
             if time_stamp is None:
                 return None
 
+            time_stamps.append(time_stamp)
+
+        if len(time_stamps) == 0:
+            return None
+
         return np.min(time_stamps)
 
     def read_lock_timestamp(self, root_id: np.uint64, operation_id: np.uint64
