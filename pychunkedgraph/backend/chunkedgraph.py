@@ -302,6 +302,24 @@ class ChunkedGraph(object):
         """
         return int(node_or_chunk_id) >> 64 - self._n_bits_for_layer_id
 
+    def get_chunk_child_ids(self, node_or_chunk_id: np.uint64) -> np.ndarray:
+        """ Calculates the ids of the children chunks in the next lower layer
+
+        :param node_or_chunk_id: np.uint64
+        :return: np.ndarray
+        """
+        chunk_coords = self.get_chunk_coordinates(node_or_chunk_id)
+        chunk_layer = self.get_chunk_layer(node_or_chunk_id)
+
+        chunk_ids = []
+        for dcoord in itertools.product(*[range(self.fan_out)]*3):
+            x, y, z = chunk_coords * self.fan_out + np.array(dcoord)
+            child_chunk_id = self.get_chunk_id(layer=chunk_layer-1,
+                                               x=x, y=y, z=z)
+            chunk_ids.append(child_chunk_id)
+
+        return np.array(chunk_ids)
+
     def get_chunk_coordinates(self, node_or_chunk_id: np.uint64
                               ) -> np.ndarray:
         """ Extract X, Y and Z coordinate from Node ID or Chunk ID

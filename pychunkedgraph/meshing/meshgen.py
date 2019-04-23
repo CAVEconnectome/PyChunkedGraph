@@ -24,38 +24,64 @@ from pychunkedgraph.backend import chunkedgraph   # noqa
 from pychunkedgraph.backend.utils import serializers, column_keys  # noqa
 from pychunkedgraph.meshing import meshgen_utils # noqa
 
+
 @lru_cache(maxsize=None)
-def get_l2_remapping(cg, chunk_id, time_stamp):
-    """ Retrieves l2 node id to sv id mappping
+def get_higher_to_lower_remapping(cg, chunk_id, time_stamp):
+    """ Retrieves lx node id to sv id mappping
 
     :param cg: chunkedgraph object
     :param chunk_id: np.uint64
     :param time_stamp: datetime object
     :return: dictionary
     """
+    def _lower_remaps(ks):
+        return np.concatenate([lower_remaps[k] for k in ks])
+
+    assert cg.get_chunk_layer(chunk_id) >= 2
+    assert cg.get_chunk_layer(chunk_id) <= cg.n_layers
+
+    print(f"\n\n{chunk_id} ----------------\n")
+
+    lower_remaps = {}
+    if cg.get_chunk_layer(chunk_id) > 2:
+        for lower_chunk_id in cg.get_chunk_child_ids(chunk_id):
+            #TODO speedup
+            lower_remaps.update(get_higher_to_lower_remapping(
+                cg, lower_chunk_id, time_stamp=time_stamp))
+
     rr_chunk = cg.range_read_chunk(chunk_id=chunk_id,
                                    columns=column_keys.Hierarchy.Child,
                                    time_stamp=time_stamp)
 
-    # This for-loop ensures that only the latest l2_ids are considered
+    # This for-loop ensures that only the latest lx_ids are considered
     # The order by id guarantees the time order (only true for same neurons
     # but that is the case here).
-    l2_remapping = {}
-    all_sv_ids = set()
-    for (k, row) in rr_chunk.items():
-        this_sv_ids = row[0].value
+    lx_remapping = {}
+    all_lower_ids = set()
+    for k in sorted(rr_chunk.keys(), reverse=True):
+        this_child_ids = rr_chunk[k][0].value
 
-        if this_sv_ids[0] in all_sv_ids:
+        if this_child_ids[0] in all_lower_ids:
             continue
 
-        all_sv_ids = all_sv_ids.union(set(list(this_sv_ids)))
-        l2_remapping[k] = this_sv_ids
+        all_lower_ids = all_lower_ids.union(set(list(this_child_ids)))
 
-    return l2_remapping
+        if cg.get_chunk_layer(chunk_id) > 2:
+            try:
+                lx_remapping[k] = _lower_remaps(this_child_ids)
+            except KeyError:
+                # KeyErrors indicate that this id is deprecated given the
+                # time_stamp
+                continue
+        else:
+            lx_remapping[k] = this_child_ids
+
+    return lx_remapping
+
 
 
 @lru_cache(maxsize=None)
-def get_root_l2_remapping(cg, chunk_id, stop_layer, time_stamp, n_threads=4):
+def get_root_lx_remapping(cg, chunk_id, stop_layer, time_stamp, n_threads=4):
     """ Retrieves root to l2 node id mapping
 
     :param cg: chunkedgraph object
@@ -68,32 +94,32 @@ def get_root_l2_remapping(cg, chunk_id, stop_layer, time_stamp, n_threads=4):
         start_id, end_id = args
 
         for i_id in range(start_id, end_id):
-            l2_id = l2_ids[i_id]
+            lx_id = lx_ids[i_id]
 
-            root_id = cg.get_root(l2_id, stop_layer=stop_layer,
+            root_id = cg.get_root(lx_id, stop_layer=stop_layer,
                                   time_stamp=time_stamp)
             root_ids[i_id] = root_id
 
-    l2_id_remap = get_l2_remapping(cg, chunk_id, time_stamp=time_stamp)
+    lx_id_remap = get_higher_to_lower_remapping(cg, chunk_id, time_stamp=time_stamp)
 
-    l2_ids = np.array(list(l2_id_remap.keys()))
+    lx_ids = np.array(list(lx_id_remap.keys()))
 
-    root_ids = np.zeros(len(l2_ids), dtype=np.uint64)
-    n_jobs = np.min([n_threads, len(l2_ids)])
+    root_ids = np.zeros(len(lx_ids), dtype=np.uint64)
+    n_jobs = np.min([n_threads, len(lx_ids)])
     multi_args = []
-    start_ids = np.linspace(0, len(l2_ids), n_jobs + 1).astype(np.int)
+    start_ids = np.linspace(0, len(lx_ids), n_jobs + 1).astype(np.int)
     for i_block in range(n_jobs):
         multi_args.append([start_ids[i_block], start_ids[i_block + 1]])
 
     if n_jobs > 0:
         mu.multithread_func(_get_root_ids, multi_args, n_threads=n_threads)
 
-    return l2_ids, np.array(root_ids), l2_id_remap
+    return lx_ids, np.array(root_ids), lx_id_remap
 
 
 # @lru_cache(maxsize=None)
-def get_l2_overlapping_remappings(cg, chunk_id, time_stamp=None):
-    """ Retrieves sv id to l2 id mapping for chunk with overlap in positive
+def get_lx_overlapping_remappings(cg, chunk_id, time_stamp=None):
+    """ Retrieves sv id to layer mapping for chunk with overlap in positive
         direction (one chunk)
 
     :param cg: chunkedgraph object
@@ -140,23 +166,23 @@ def get_l2_overlapping_remappings(cg, chunk_id, time_stamp=None):
     # Find the parent in the lowest common chunk for each l2 id. These parent
     # ids are referred to as root ids even though they are not necessarily the
     # root id.
-    neigh_l2_ids = []
-    neigh_l2_id_remap = {}
+    neigh_lx_ids = []
+    neigh_lx_id_remap = {}
     neigh_root_ids = []
 
-    safe_l2_ids = []
-    unsafe_l2_ids = []
+    safe_lx_ids = []
+    unsafe_lx_ids = []
     unsafe_root_ids = []
 
     # This loop is the main bottleneck
     for neigh_chunk_id in neigh_chunk_ids:
         print(neigh_chunk_id, "--------------")
 
-        l2_ids, root_ids, l2_id_remap = \
-            get_root_l2_remapping(cg, neigh_chunk_id, stop_layer,
+        lx_ids, root_ids, lx_id_remap = \
+            get_root_lx_remapping(cg, neigh_chunk_id, stop_layer,
                                   time_stamp=time_stamp)
-        neigh_l2_ids.extend(l2_ids)
-        neigh_l2_id_remap.update(l2_id_remap)
+        neigh_lx_ids.extend(lx_ids)
+        neigh_lx_id_remap.update(lx_id_remap)
         neigh_root_ids.extend(root_ids)
 
         if neigh_chunk_id == chunk_id:
@@ -168,51 +194,51 @@ def get_l2_overlapping_remappings(cg, chunk_id, time_stamp=None):
                                                       return_counts=True,
                                                       return_index=True)
 
-            safe_l2_ids = l2_ids[u_idx[c_root_ids == 1]]
-            unsafe_l2_ids = l2_ids[~np.in1d(l2_ids, safe_l2_ids)]
+            safe_lx_ids = lx_ids[u_idx[c_root_ids == 1]]
+            unsafe_lx_ids = lx_ids[~np.in1d(lx_ids, safe_lx_ids)]
             unsafe_root_ids = np.unique(root_ids[u_idx[c_root_ids != 1]])
 
-    l2_root_dict = dict(zip(neigh_l2_ids, neigh_root_ids))
-    root_l2_dict = collections.defaultdict(list)
+    lx_root_dict = dict(zip(neigh_lx_ids, neigh_root_ids))
+    root_lx_dict = collections.defaultdict(list)
 
     # Future sv id -> l2 mapping
     sv_ids = []
-    l2_ids_flat = []
+    lx_ids_flat = []
 
     # Do safe ones first
     for i_root_id in range(len(neigh_root_ids)):
-        root_l2_dict[neigh_root_ids[i_root_id]].append(neigh_l2_ids[i_root_id])
+        root_lx_dict[neigh_root_ids[i_root_id]].append(neigh_lx_ids[i_root_id])
 
-    for l2_id in safe_l2_ids:
-        root_id = l2_root_dict[l2_id]
-        for neigh_l2_id in root_l2_dict[root_id]:
-            l2_sv_ids = neigh_l2_id_remap[neigh_l2_id]
-            sv_ids.extend(l2_sv_ids)
-            l2_ids_flat.extend([l2_id] * len(neigh_l2_id_remap[neigh_l2_id]))
+    for lx_id in safe_lx_ids:
+        root_id = lx_root_dict[lx_id]
+        for neigh_lx_id in root_lx_dict[root_id]:
+            lx_sv_ids = neigh_lx_id_remap[neigh_lx_id]
+            sv_ids.extend(lx_sv_ids)
+            lx_ids_flat.extend([lx_id] * len(neigh_lx_id_remap[neigh_lx_id]))
 
     # For the unsafe ones we can only do the in chunk svs
     # But we will map the out of chunk svs to the root id and store the
     # hierarchical information in a dictionary
-    for l2_id in unsafe_l2_ids:
-        sv_ids.extend(neigh_l2_id_remap[l2_id])
-        l2_ids_flat.extend([l2_id] * len(neigh_l2_id_remap[l2_id]))
+    for lx_id in unsafe_lx_ids:
+        sv_ids.extend(neigh_lx_id_remap[lx_id])
+        lx_ids_flat.extend([lx_id] * len(neigh_lx_id_remap[lx_id]))
 
     unsafe_dict = collections.defaultdict(list)
     for root_id in unsafe_root_ids:
-        if np.sum(~np.in1d(root_l2_dict[root_id], unsafe_l2_ids)) == 0:
+        if np.sum(~np.in1d(root_lx_dict[root_id], unsafe_lx_ids)) == 0:
             continue
 
-        for neigh_l2_id in root_l2_dict[root_id]:
-            unsafe_dict[root_id].append(neigh_l2_id)
+        for neigh_lx_id in root_lx_dict[root_id]:
+            unsafe_dict[root_id].append(neigh_lx_id)
 
-            if neigh_l2_id in unsafe_l2_ids:
+            if neigh_lx_id in unsafe_lx_ids:
                 continue
 
-            sv_ids.extend(neigh_l2_id_remap[neigh_l2_id])
-            l2_ids_flat.extend([root_id] * len(neigh_l2_id_remap[neigh_l2_id]))
+            sv_ids.extend(neigh_lx_id_remap[neigh_lx_id])
+            lx_ids_flat.extend([root_id] * len(neigh_lx_id_remap[neigh_lx_id]))
 
     # Combine the lists for a (chunk-) global remapping
-    sv_remapping = dict(zip(sv_ids, l2_ids_flat))
+    sv_remapping = dict(zip(sv_ids, lx_ids_flat))
 
     return sv_remapping, unsafe_dict
 
@@ -227,7 +253,7 @@ def get_remapped_segmentation(cg, chunk_id, mip=2, overlap_vx=1,
 
     assert mip >= cg.cv.mip
 
-    sv_remapping, unsafe_dict = get_l2_overlapping_remappings(cg, chunk_id, time_stamp=time_stamp)
+    sv_remapping, unsafe_dict = get_lx_overlapping_remappings(cg, chunk_id, time_stamp=time_stamp)
 
     cv = cloudvolume.CloudVolume(cg.cv.cloudpath, mip=mip)
     mip_diff = mip - cg.cv.mip
