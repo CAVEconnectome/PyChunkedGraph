@@ -54,6 +54,7 @@ class ChunkedGraph(object):
                  project_id: str = "neuromancer-seung-import",
                  chunk_size: Tuple[np.uint64, np.uint64, np.uint64] = None,
                  fan_out: Optional[np.uint64] = None,
+                 s_bits_atomic_layer: Optional[np.uint64] = 8,
                  n_layers: Optional[np.uint64] = None,
                  credentials: Optional[credentials.Credentials] = None,
                  client: bigtable.Client = None,
@@ -98,13 +99,17 @@ class ChunkedGraph(object):
         self._fan_out = self.check_and_write_table_parameters(
             column_keys.GraphSettings.FanOut, fan_out,
             required=True, is_new=is_new)
+        s_bits_atomic_layer = self.check_and_write_table_parameters(
+            column_keys.GraphSettings.SpatialBits, s_bits_atomic_layer,
+            required=False, is_new=is_new)
         self._chunk_size = self.check_and_write_table_parameters(
             column_keys.GraphSettings.ChunkSize, chunk_size,
             required=True, is_new=is_new)
 
         self._dataset_info["graph"] = {"chunk_size": self.chunk_size}
 
-        self._bitmasks = compute_bitmasks(self.n_layers, self.fan_out)
+        self._bitmasks = compute_bitmasks(self.n_layers, self.fan_out,
+                                          s_bits_atomic_layer)
 
         self._cv = None
 
@@ -1716,20 +1721,28 @@ class ChunkedGraph(object):
 
             n_ccs = int(end - start)
             parent_ids = self.get_unique_node_id_range(chunk_id, step=n_ccs)
+            root_parent_ids = self.get_unique_node_id_range(self.root_chunk_id,
+                                                            step=n_ccs)
             rows = []
             for i_cc, cc in enumerate(ccs[start: end]):
                 node_ids = np.array(list(cc))
 
                 parent_id = parent_ids[i_cc]
-                parent_cross_edges = {l: [] for l in range(layer_id, self.n_layers)}
+                parent_cross_edges = {l: [] for l in
+                                      range(layer_id, self.n_layers)}
 
                 # Add rows for nodes that are in this chunk
                 for node_id in node_ids:
+                    n_cross_edges = 0
                     if node_id in cross_edge_dict:
                         # Extract edges relevant to this node
                         for l in range(layer_id, self.n_layers):
                             if l in cross_edge_dict[node_id] and len(cross_edge_dict[node_id][l]) > 0:
                                 parent_cross_edges[l].append(cross_edge_dict[node_id][l])
+                                n_cross_edges += len(cross_edge_dict[node_id][l])
+
+                    if len(node_ids) == 0 and n_cross_edges == 0:
+                        parent_id = root_parent_ids[i_cc]
 
                     # Create node
                     val_dict = {column_keys.Hierarchy.Parent: parent_id}
@@ -1744,7 +1757,6 @@ class ChunkedGraph(object):
                                             val_dict, time_stamp=time_stamp))
 
                 val_dict = {}
-
                 for l in range(layer_id, self.n_layers):
                     if l in parent_cross_edges and len(parent_cross_edges[l]) > 0:
                         val_dict[column_keys.Connectivity.CrossChunkEdge[l]] = \
