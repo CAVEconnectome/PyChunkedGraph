@@ -260,7 +260,7 @@ def get_remapped_segmentation(cg, chunk_id, mip=2, overlap_vx=1,
     cv = cloudvolume.CloudVolume(cg.cv.cloudpath, mip=mip)
     mip_diff = mip - cg.cv.mip
 
-    mip_chunk_size = cg.chunk_size.astype(np.int) / np.array([2**mip_diff, 2**mip_diff, 1])
+    mip_chunk_size = cg.chunk_size.astype(np.int) / np.array([2**mip_diff, 2**mip_diff, 1]) * cg.fan_out**(cg.get_chunk_layer(chunk_id) - 2)
     mip_chunk_size = mip_chunk_size.astype(np.int)
 
     chunk_start = cg.get_chunk_coordinates(chunk_id) * mip_chunk_size
