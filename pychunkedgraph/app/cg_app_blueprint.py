@@ -558,6 +558,7 @@ def change_log(table_id, root_id):
 
     return jsonify(change_log)
 
+
 @bp.route('/1.0/<table_id>/segment/<root_id>/merge_log',
           methods=["POST", "GET"])
 def merge_log(table_id, root_id):

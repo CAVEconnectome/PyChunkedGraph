@@ -8,6 +8,7 @@ HOME = os.path.expanduser('~')
 os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = \
            HOME + "/.cloudvolume/secrets/google-secret.json"
 
+
 class FlaskLogDatabase(object):
     def __init__(self, table_id, project_id="neuromancer-seung-import",
                  client=None, credentials=None):
