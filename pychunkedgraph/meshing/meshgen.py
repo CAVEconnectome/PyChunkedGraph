@@ -40,7 +40,7 @@ def get_higher_to_lower_remapping(cg, chunk_id, time_stamp):
     assert cg.get_chunk_layer(chunk_id) >= 2
     assert cg.get_chunk_layer(chunk_id) <= cg.n_layers
 
-    print(f"\n\n{chunk_id} ----------------\n")
+    print(f"\n{chunk_id} ----------------\n")
 
     lower_remaps = {}
     if cg.get_chunk_layer(chunk_id) > 2:
@@ -79,9 +79,8 @@ def get_higher_to_lower_remapping(cg, chunk_id, time_stamp):
     return lx_remapping
 
 
-
 @lru_cache(maxsize=None)
-def get_root_lx_remapping(cg, chunk_id, stop_layer, time_stamp, n_threads=4):
+def get_root_lx_remapping(cg, chunk_id, stop_layer, time_stamp, n_threads=20):
     """ Retrieves root to l2 node id mapping
 
     :param cg: chunkedgraph object
@@ -160,8 +159,10 @@ def get_lx_overlapping_remappings(cg, chunk_id, time_stamp=None):
     neigh_parent_chunk_ids = np.array(neigh_parent_chunk_ids)
     layer_agreement = np.all((neigh_parent_chunk_ids -
                               neigh_parent_chunk_ids[0]) == 0, axis=0)
-    stop_layer = np.where(layer_agreement)[0][0] + 1
-    stop_layer = cg.n_layers
+    stop_layer = np.where(layer_agreement)[0][0] + 1 + chunk_layer
+    # stop_layer = cg.n_layers
+
+    print(f"Stop layer: {stop_layer}")
 
     # Find the parent in the lowest common chunk for each l2 id. These parent
     # ids are referred to as root ids even though they are not necessarily the
@@ -176,7 +177,7 @@ def get_lx_overlapping_remappings(cg, chunk_id, time_stamp=None):
 
     # This loop is the main bottleneck
     for neigh_chunk_id in neigh_chunk_ids:
-        print(neigh_chunk_id, "--------------")
+        print(f"Neigh: {neigh_chunk_id} --------------")
 
         lx_ids, root_ids, lx_id_remap = \
             get_root_lx_remapping(cg, neigh_chunk_id, stop_layer,
@@ -186,10 +187,11 @@ def get_lx_overlapping_remappings(cg, chunk_id, time_stamp=None):
         neigh_root_ids.extend(root_ids)
 
         if neigh_chunk_id == chunk_id:
-            # The first neigh_chunk_id is the one we are interested in. All l2 ids
-            # that share no root id with any other l2 id are "safe", meaning that
-            # we can easily obtain the complete remapping (including overlap) for these.
-            # All other ones have to be resolved using the segmentation.
+            # The first neigh_chunk_id is the one we are interested in. All lx
+            # ids that share no root id with any other lx id are "safe", meaning
+            # that we can easily obtain the complete remapping (including
+            # overlap) for these. All other ones have to be resolved using the
+            # segmentation.
             u_root_ids, u_idx, c_root_ids = np.unique(neigh_root_ids,
                                                       return_counts=True,
                                                       return_index=True)
@@ -201,7 +203,7 @@ def get_lx_overlapping_remappings(cg, chunk_id, time_stamp=None):
     lx_root_dict = dict(zip(neigh_lx_ids, neigh_root_ids))
     root_lx_dict = collections.defaultdict(list)
 
-    # Future sv id -> l2 mapping
+    # Future sv id -> lx mapping
     sv_ids = []
     lx_ids_flat = []
 

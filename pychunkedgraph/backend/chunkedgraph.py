@@ -587,10 +587,10 @@ class ChunkedGraph(object):
 
         parent_chunk_ids = []
         for current_layer in range(layer, int(self.n_layers + 1)):
-            coords  = coords // self.fan_out
+            coords = coords // self.fan_out
 
             x, y, z = coords
-            parent_chunk_ids.append(self.get_chunk_id(layer=layer,
+            parent_chunk_ids.append(self.get_chunk_id(layer=current_layer,
                                                       x=x, y=y, z=z))
 
         return np.array(parent_chunk_ids)
