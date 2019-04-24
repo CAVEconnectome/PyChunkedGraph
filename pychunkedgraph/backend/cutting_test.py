@@ -46,7 +46,7 @@ def ex_graph():
     weights = edgelist[:, 2].astype(np.float)
 
     n_nodes = 100000
-    edges = np.unique(np.sort(np.random.randint(0, n_nodes, n_nodes*25).reshape(-1, 2), axis=1), axis=0)
+    edges = np.unique(np.sort(np.random.randint(0, n_nodes, n_nodes*5).reshape(-1, 2), axis=1), axis=0)
     weights = np.random.rand(len(edges))
 
     if not len(np.unique(edges) == 12):
@@ -118,7 +118,7 @@ def test_imp():
     print("----------------")
 
     time_start = time.time()
-    out_nx = cutting.mincut(edges, weights, sources, sinks, logger=logger)
+    out_nx = cutting.mincut_nx(edges, weights, sources, sinks, logger=logger)
     time_nx = time.time() - time_start
 
     # print(out_nx)
