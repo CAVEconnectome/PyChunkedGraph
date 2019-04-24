@@ -87,7 +87,7 @@ def create_abstract_layers(im, start_layer=3, n_threads=1):
         create_layer(im, layer_id, n_threads=n_threads)
 
 
-def create_layer(im, layer_id, n_threads=1):
+def create_layer(im, layer_id, block_size=100, n_threads=1):
     """ Creates abstract layer of chunkedgraph
 
     Abstract layers have to be build in sequence. Abstract layers are all layers
@@ -119,29 +119,42 @@ def create_layer(im, layer_id, n_threads=1):
     order = np.arange(len(parent_chunk_coords), dtype=np.int)
     np.random.shuffle(order)
 
-    for i_chunk, idx in enumerate(order):
-        multi_args.append([im_info, layer_id, child_chunk_coords[inds == idx],
-                           i_chunk, len(order)])
+    # Block chunks
+    block_size = min(block_size, int(np.ceil(len(order) / n_threads / 3)))
+    n_blocks = int(len(order) / block_size)
+    blocks = np.array_split(order, n_blocks)
+
+    for i_block, block in enumerate(blocks):
+        chunks = []
+        for idx in block:
+            chunks.append(child_chunk_coords[inds == idx])
+
+        multi_args.append([im_info, layer_id, len(order), n_blocks, i_block,
+                           chunks])
 
     if n_threads == 1:
         mu.multiprocess_func(
-            _create_layer, multi_args, n_threads=n_threads,
-            verbose=True, debug=n_threads == 1, suffix=f"{layer_id}")
+            _create_layers, multi_args, n_threads=n_threads,
+            verbose=True, debug=n_threads == 1)
     else:
-        mu.multisubprocess_func(_create_layer, multi_args, n_threads=n_threads)
+        mu.multisubprocess_func(_create_layers, multi_args, n_threads=n_threads,
+                                suffix=f"{layer_id}")
 
 
-def _create_layer(args):
+def _create_layers(args):
     """ Multiprocessing helper for create_layer """
-    im_info, layer_id, child_chunk_coords, i_chunk, n_chunks = args
-
-    time_start = time.time()
-
+    im_info, layer_id, n_chunks, n_blocks, i_chunk, chunks = args
     im = ingestionmanager.IngestionManager(**im_info)
-    im.cg.add_layer(layer_id, child_chunk_coords, n_threads=8, verbose=True)
 
-    print(f"\nLayer {layer_id}: {i_chunk} / {n_chunks} -- %.3fs\n" %
-          (time.time() - time_start))
+    for child_chunk_coords in chunks:
+        time_start = time.time()
+
+        im.cg.add_layer(layer_id, child_chunk_coords, n_threads=8, verbose=True)
+
+        print(f"\nLayer {layer_id}: {i_chunk} / {n_chunks} -- %.3fs\n" %
+              (time.time() - time_start))
+
+        i_chunk += n_blocks
 
 
 def create_atomic_chunks(im, aff_dtype=np.float32, n_threads=1):
