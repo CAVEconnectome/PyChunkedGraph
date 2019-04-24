@@ -143,18 +143,17 @@ def create_layer(im, layer_id, block_size=100, n_threads=1):
 
 def _create_layers(args):
     """ Multiprocessing helper for create_layer """
-    im_info, layer_id, n_chunks, n_blocks, i_chunk, chunks = args
+    im_info, layer_id, n_chunks, n_blocks, i_block, chunks = args
     im = ingestionmanager.IngestionManager(**im_info)
 
-    for child_chunk_coords in chunks:
+    for i_chunk, child_chunk_coords in enumerate(chunks):
         time_start = time.time()
 
         im.cg.add_layer(layer_id, child_chunk_coords, n_threads=8, verbose=True)
 
-        print(f"\nLayer {layer_id}: {i_chunk} / {n_chunks} -- %.3fs\n" %
+        print(f"\nLayer {layer_id} - Job {i_block} / {n_blocks}- "
+              f"{i_chunk} / {len(chunks)} -- %.3fs\n" %
               (time.time() - time_start))
-
-        i_chunk += n_blocks
 
 
 def create_atomic_chunks(im, aff_dtype=np.float32, n_threads=1):
