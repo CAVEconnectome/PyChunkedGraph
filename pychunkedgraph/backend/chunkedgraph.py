@@ -2373,6 +2373,52 @@ class ChunkedGraph(object):
 
         return lock_acquired
 
+    def read_consolidated_lock_timestamp(self, root_ids: Sequence[np.uint64],
+                                         operation_ids: Sequence[np.uint64]
+                                         ) -> Union[datetime.datetime, None]:
+        """ Returns minimum of many lock timestamps
+
+        :param root_ids: np.ndarray
+        :param operation_ids: np.ndarray
+        :return:
+        """
+        time_stamps = []
+        for root_id, operation_id in zip(root_ids, operation_ids):
+            time_stamp = self.read_lock_timestamp(root_id, operation_id)
+
+            if time_stamp is None:
+                return None
+
+            time_stamps.append(time_stamp)
+
+        if len(time_stamps) == 0:
+            return None
+
+        return np.min(time_stamps)
+
+    def read_lock_timestamp(self, root_id: np.uint64, operation_id: np.uint64
+                            ) -> Union[datetime.datetime, None]:
+        """ Reads timestamp from lock row to get a consistent timestamp across
+            multiple nodes / pods
+
+        :param root_id: np.uint64
+        :param operation_id: np.uint64
+            Checks whether the root_id is actually locked with this operation_id
+        :return: datetime.datetime or None
+        """
+        row = self.read_node_id_row(root_id,
+                                    columns=column_keys.Concurrency.Lock)
+
+        if len(row) == 0:
+            self.logger.warning(f"No lock found for {root_id}")
+            return None
+
+        if row[0].value != operation_id:
+            self.logger.warning(f"{root_id} not locked with {operation_id}")
+            return None
+
+        return row[0].timestamp
+
     def get_latest_root_id(self, root_id: np.uint64) -> np.ndarray:
         """ Returns the latest root id associated with the provided root id
 
@@ -3162,7 +3208,11 @@ class ChunkedGraph(object):
             if lock_acquired:
                 rows = []
                 new_root_ids = []
-                time_stamp = datetime.datetime.utcnow()
+
+                lock_operation_ids = np.array([operation_id] *
+                                              len(lock_root_ids))
+                time_stamp = self.read_consolidated_lock_timestamp(
+                    lock_root_ids, lock_operation_ids)
 
                 # Add edge and change hierarchy
                 # for atomic_edge in atomic_edges:
@@ -3228,11 +3278,6 @@ class ChunkedGraph(object):
         :param affinities: list of np.float32
         :return: list of np.uint64, rows
         """
-
-        # Comply to resolution of BigTables TimeRange
-        time_stamp = get_google_compatible_time_stamp(time_stamp,
-                                                      round_up=False)
-
         if affinities is None:
             affinities = np.ones(len(atomic_edges),
                                  dtype=column_keys.Connectivity.Affinity.basetype)
@@ -3904,12 +3949,6 @@ class ChunkedGraph(object):
         :return: list of uint64s
             new root ids
         """
-        time_stamp = datetime.datetime.utcnow()
-
-        # Comply to resolution of BigTables TimeRange
-        time_stamp = get_google_compatible_time_stamp(time_stamp,
-                                                      round_up=False)
-
         # Make sure that we have a list of edges
         if isinstance(atomic_edges[0], np.uint64):
             atomic_edges = [atomic_edges]
@@ -3920,6 +3959,9 @@ class ChunkedGraph(object):
         # Get number of layers and the original root
         original_parent_ids = self.get_all_parents(atomic_edges[0, 0])
         original_root = original_parent_ids[-1]
+
+        # Retrieve valid timestamp
+        time_stamp = self.read_lock_timestamp(original_root, operation_id)
 
         # Find lowest level chunks that might have changed
         chunk_ids = self.get_chunk_ids_from_node_ids(u_atomic_ids)
