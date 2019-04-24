@@ -86,9 +86,14 @@ def get_downstream_multi_child_node(cg,
 
 def get_highest_child_nodes_with_meshes(cg,
                                         node_id: np.uint64,
-                                        stop_layer=1, verify_existence=False):
+                                        stop_layer=1,
+                                        start_layer=None,
+                                        verify_existence=False):
+    if start_layer is None:
+        start_layer = cg.n_layers
+
     # FIXME: Read those from config
-    HIGHEST_MESH_LAYER = cg.n_layers - 3
+    HIGHEST_MESH_LAYER = min(start_layer, cg.n_layers - 3)
     MESH_MIP = 2
 
     highest_node = get_downstream_multi_child_node(cg, node_id, stop_layer)
