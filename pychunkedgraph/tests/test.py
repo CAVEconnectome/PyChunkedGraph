@@ -2707,20 +2707,21 @@ class TestGraphHistory:
 
         first_root = cgraph.get_root(to_label(cgraph, 1, 0, 0, 0, 0))
         assert first_root == cgraph.get_root(to_label(cgraph, 1, 1, 0, 0, 0))
-
+        timestamp_before_split = datetime.utcnow()
         split_roots = cgraph.remove_edges("Jane Doe",
                                           to_label(cgraph, 1, 0, 0, 0, 0),
                                           to_label(cgraph, 1, 1, 0, 0, 0),
                                           mincut=False)
 
         assert len(split_roots) == 2
-
+        timestamp_after_split = datetime.utcnow() 
         merge_roots = cgraph.add_edges("Jane Doe",
                                       [to_label(cgraph, 1, 0, 0, 0, 0),
                                        to_label(cgraph, 1, 1, 0, 0, 0)],
                                       affinities=.4)
         assert len(merge_roots) == 1
         merge_root = merge_roots[0]
+        timestamp_after_merge = datetime.utcnow()
 
         assert len(cgraph.get_root_id_history(first_root,
                                               time_stamp_past=datetime.min,
@@ -2734,6 +2735,27 @@ class TestGraphHistory:
         assert len(cgraph.get_root_id_history(merge_root,
                                               time_stamp_past=datetime.min,
                                               time_stamp_future=datetime.max)) == 4
+
+        new_roots, old_roots = cgraph.get_delta_roots(timestamp_before_split,
+                                                      timestamp_after_split)
+        assert(len(old_roots)==1)
+        assert(old_roots[0]==first_root)
+        assert(len(new_roots)==2)
+        assert(np.all(np.isin(new_roots, split_roots)))
+
+        new_roots2, old_roots2 = cgraph.get_delta_roots(timestamp_after_split,
+                                                        timestamp_after_merge)
+        assert(len(new_roots2)==1)
+        assert(new_roots2[0]==merge_root)
+        assert(len(old_roots2)==2)
+        assert(np.all(np.isin(old_roots2, split_roots)))
+        
+        new_roots3, old_roots3 = cgraph.get_delta_roots(timestamp_before_split,
+                                                        timestamp_after_merge)
+        assert(len(new_roots3)==1)
+        assert(new_roots3[0]==merge_root)
+        assert(len(old_roots3)==1)
+        assert(old_roots3[0]==first_root)
 
 
 class TestGraphLocks:

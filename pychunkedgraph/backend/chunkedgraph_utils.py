@@ -67,6 +67,12 @@ def compute_bitmasks(n_layers: int, fan_out: int, s_bits_atomic_layer: int = 8
         if i_layer == 1:
             n_bits_for_layers = np.max([s_bits_atomic_layer, n_bits_for_layers])
 
+        layer_exp = n_layers - i_layer
+        n_bits_for_layers = max(1, np.ceil(log_n(fan_out**layer_exp, fan_out)))
+
+        if i_layer == 1:
+            n_bits_for_layers = np.max([8, n_bits_for_layers])
+
         n_bits_for_layers = int(n_bits_for_layers)
 
         # assert n_bits_for_layers <= 8
@@ -164,6 +170,14 @@ def get_max_time():
     :return: datetime.datetime
     """
     return datetime.datetime(9999, 12, 31, 23, 59, 59, 0)
+
+
+def get_min_time():
+    """ Returns the min time in datetime.datetime
+
+    :return: datetime.datetime
+    """
+    return datetime.datetime.strptime("01/01/00 00:00", "%d/%m/%y %H:%M")
 
 
 def combine_cross_chunk_edge_dicts(d1, d2, start_layer=2):

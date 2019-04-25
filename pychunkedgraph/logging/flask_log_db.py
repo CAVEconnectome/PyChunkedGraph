@@ -34,10 +34,11 @@ class FlaskLogDatabase(object):
         return "flask_log_%s" % self.table_id
 
     def add_success_log(self, user_id, user_ip, request_time, response_time,
-                        url, request_data=None):
+                        url, request_type, request_data=None):
         self._add_log(log_type="info", user_id=user_id, user_ip=user_ip,
                       request_time=request_time, response_time=response_time,
-                      url=url, request_data=request_data)
+                      url=url, request_data=request_data,
+                      request_type=request_type)
 
     def add_internal_error_log(self, user_id, user_ip, request_time,
                                response_time, url, err_msg, request_data=None):
@@ -55,7 +56,8 @@ class FlaskLogDatabase(object):
                       request_data=request_data, msg=err_msg)
 
     def _add_log(self, log_type, user_id, user_ip, request_time, response_time,
-                 url, request_arg=None, request_data=None, msg=None):
+                 url, request_type=None, request_arg=None, request_data=None,
+                 msg=None):
         # Extract relevant information and build entity
 
         key = self.client.key(self.kind, namespace=self.namespace)
@@ -63,12 +65,13 @@ class FlaskLogDatabase(object):
 
         url_split = url.split("/")
 
-        if "?" in url_split[-1]:
-            request_type = url_split[-1].split("?")[0]
-            request_opt_arg = url_split[-1].split("?")[1]
-        else:
-            request_type = url_split[-1]
-            request_opt_arg = None
+        if request_type:
+            if "?" in url_split[-1]:
+                request_type = url_split[-1].split("?")[0]
+                request_opt_arg = url_split[-1].split("?")[1]
+            else:
+                request_type = url_split[-1]
+                request_opt_arg = None
 
         if len(request_data) == 0:
             request_data = None
