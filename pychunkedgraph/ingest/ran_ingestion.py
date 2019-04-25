@@ -151,12 +151,12 @@ def _create_layers(args):
 
         im.cg.add_layer(layer_id, child_chunk_coords, n_threads=8, verbose=True)
 
-        print(f"\nLayer {layer_id} - Job {i_block + 1} / {n_blocks} - "
-              f"{i_chunk + 1} / {len(chunks)} -- %.3fs\n" %
+        print(f"Layer {layer_id} - Job {i_block + 1} / {n_blocks} - "
+              f"{i_chunk + 1} / {len(chunks)} -- %.3fs" %
               (time.time() - time_start))
 
 
-def create_atomic_chunks(im, aff_dtype=np.float32, n_threads=1):
+def create_atomic_chunks(im, aff_dtype=np.float32, n_threads=1, block_size=100):
     """ Creates all atomic chunks
 
     :param im: IngestionManager
@@ -173,11 +173,20 @@ def create_atomic_chunks(im, aff_dtype=np.float32, n_threads=1):
 
     # Randomize chunk order
     chunk_coords = list(im.chunk_coord_gen)
-    np.random.shuffle(chunk_coords)
+    order = np.arange(len(chunk_coords), dtype=np.int)
+    np.random.shuffle(order)
 
-    for i_chunk_coord, chunk_coord in enumerate(chunk_coords):
-        multi_args.append([im_info, chunk_coord, aff_dtype, i_chunk_coord,
-                           len(chunk_coords)])
+    # Block chunks
+    block_size = min(block_size, int(np.ceil(len(chunk_coords) / n_threads / 3)))
+    n_blocks = int(len(chunk_coords) / block_size)
+    blocks = np.array_split(order, n_blocks)
+
+    for i_block, block in enumerate(blocks):
+        chunks = []
+        for b_idx in block:
+            chunks.append(chunk_coords[b_idx])
+
+        multi_args.append([im_info, aff_dtype, n_blocks, i_block, chunks])
 
     if n_threads == 1:
         mu.multiprocess_func(
@@ -190,16 +199,17 @@ def create_atomic_chunks(im, aff_dtype=np.float32, n_threads=1):
 
 def _create_atomic_chunk(args):
     """ Multiprocessing helper for create_atomic_chunks """
-
-    im_info, chunk_coord, aff_dtype, i_chunk, n_chunks = args
-
-    time_start = time.time()
-
+    im_info, aff_dtype, n_blocks, i_block, chunks = args
     im = ingestionmanager.IngestionManager(**im_info)
-    create_atomic_chunk(im, chunk_coord, aff_dtype=aff_dtype, verbose=True)
 
-    print(f"\nLayer 1/2: {i_chunk} / {n_chunks} -- %.3fs\n" %
-          (time.time() - time_start))
+    for i_chunk, chunk_coord in enumerate(chunks):
+        time_start = time.time()
+
+        create_atomic_chunk(im, chunk_coord, aff_dtype=aff_dtype, verbose=True)
+
+        print(f"Layer 1 - Job {i_block + 1} / {n_blocks} - "
+              f"{i_chunk + 1} / {len(chunks)} -- %.3fs" %
+              (time.time() - time_start))
 
 
 def create_atomic_chunk(im, chunk_coord, aff_dtype=np.float32, verbose=True):

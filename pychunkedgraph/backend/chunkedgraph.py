@@ -1746,7 +1746,7 @@ class ChunkedGraph(object):
                                 parent_cross_edges[l].append(cross_edge_dict[node_id][l])
                                 n_cross_edges += len(cross_edge_dict[node_id][l])
 
-                    if len(node_ids) == 0 and n_cross_edges == 0:
+                    if len(node_ids) == 1 and n_cross_edges == 0:
                         parent_id = root_parent_ids[i_cc]
 
                     # Create node
