@@ -164,6 +164,11 @@ class GraphSettings:
         family_id='0',
         serializer=serializers.String('utf-8'))
 
+    SpatialBits = _Column(
+        key=b'spatial_bits',
+        family_id='0',
+        serializer=serializers.NumPyValue(dtype=basetypes.SPATIALBITS))
+
 
 class OperationLogs:
     OperationID = _Column(

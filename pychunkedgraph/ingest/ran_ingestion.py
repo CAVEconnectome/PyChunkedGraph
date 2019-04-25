@@ -151,8 +151,8 @@ def _create_layers(args):
 
         im.cg.add_layer(layer_id, child_chunk_coords, n_threads=8, verbose=True)
 
-        print(f"\nLayer {layer_id} - Job {i_block} / {n_blocks}- "
-              f"{i_chunk} / {len(chunks)} -- %.3fs\n" %
+        print(f"\nLayer {layer_id} - Job {i_block + 1} / {n_blocks} - "
+              f"{i_chunk + 1} / {len(chunks)} -- %.3fs\n" %
               (time.time() - time_start))
 
 

@@ -13,14 +13,14 @@ import logging
 
 from itertools import chain
 from multiwrapper import multiprocessing_utils as mu
-from pychunkedgraph.backend import cutting, chunkedgraph_comp
+from pychunkedgraph.backend import cutting, chunkedgraph_comp, flatgraph_utils
 from pychunkedgraph.backend.chunkedgraph_utils import compute_indices_pandas, \
     compute_bitmasks, get_google_compatible_time_stamp, \
     get_time_range_filter, get_time_range_and_column_filter, get_max_time, \
     combine_cross_chunk_edge_dicts, get_min_time, partial_row_data_to_column_dict
 from pychunkedgraph.backend.utils import serializers, column_keys, row_keys, basetypes
 from pychunkedgraph.backend import chunkedgraph_exceptions as cg_exceptions
-from pychunkedgraph.meshing import meshgen
+# from pychunkedgraph.meshing import meshgen
 
 from google.api_core.retry import Retry, if_exception_type
 from google.api_core.exceptions import Aborted, DeadlineExceeded, \
@@ -1730,7 +1730,7 @@ class ChunkedGraph(object):
                                                             step=n_ccs)
             rows = []
             for i_cc, cc in enumerate(ccs[start: end]):
-                node_ids = np.array(list(cc))
+                node_ids = unique_graph_ids[cc]
 
                 parent_id = parent_ids[i_cc]
                 parent_cross_edges = {l: [] for l in
@@ -1855,13 +1855,15 @@ class ChunkedGraph(object):
         chunk_id = self.get_chunk_id(layer=layer_id, x=x, y=y, z=z)
 
         # Extract connected components
-        chunk_g = nx.from_edgelist(edge_ids)
-
-        # Add single node objects that have no edges
         isolated_node_mask = ~np.in1d(ll_node_ids, np.unique(edge_ids))
-        add_ccs = list(ll_node_ids[isolated_node_mask][:, None])
+        add_node_ids = ll_node_ids[isolated_node_mask].squeeze()
+        add_edge_ids = np.vstack([add_node_ids, add_node_ids]).T
+        edge_ids.extend(add_edge_ids)
 
-        ccs = list(nx.connected_components(chunk_g)) + add_ccs
+        graph, _, _, unique_graph_ids = flatgraph_utils.build_gt_graph(
+            edge_ids, make_directed=True)
+
+        ccs = flatgraph_utils.connected_components(graph)
 
         if verbose:
             self.logger.debug("Time connected components: %.3fs" %

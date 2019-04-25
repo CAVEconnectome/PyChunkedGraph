@@ -89,7 +89,6 @@ def merge_cross_chunk_edges_graph_tool(edges: Iterable[Sequence[np.uint64]],
     mapping = np.array([], dtype=np.uint64).reshape(-1, 2)
 
     for cc in ccs:
-        print(cc)
         nodes = unique_ids[cc]
         rep_node = np.min(nodes)
 
