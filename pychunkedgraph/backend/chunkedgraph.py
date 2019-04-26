@@ -1447,7 +1447,7 @@ class ChunkedGraph(object):
 
         # Get connected component within the chunk
         chunk_node_ids = np.concatenate([
-                isolated_node_ids,
+                isolated_node_ids.astype(np.uint64),
                 np.unique(edge_id_dict["in_connected"]),
                 np.unique(edge_id_dict["in_disconnected"]),
                 np.unique(edge_id_dict["cross"][:, 0]),
@@ -1469,7 +1469,8 @@ class ChunkedGraph(object):
                             (chunk_id, len(u_node_chunk_ids)), c_node_chunk_ids)
 
         add_edge_ids = np.vstack([chunk_node_ids, chunk_node_ids]).T
-        edge_ids = np.concatenate([edge_id_dict["in_connected"], add_edge_ids])
+        edge_ids = np.concatenate([edge_id_dict["in_connected"].copy(),
+                                   add_edge_ids])
 
         graph, _, _, unique_graph_ids = flatgraph_utils.build_gt_graph(
             edge_ids, make_directed=True)

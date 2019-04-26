@@ -539,5 +539,5 @@ def define_active_edges(edge_dict, mapping):
         if k == "in":
             isolated.append(edge_dict[k]["sv2"][agg_2_m])
 
-    return active, np.unique(np.concatenate(isolated))
+    return active, np.unique(np.concatenate(isolated).astype(np.uint64))
 
