@@ -207,7 +207,7 @@ def _create_atomic_chunk(args):
 
         create_atomic_chunk(im, chunk_coord, aff_dtype=aff_dtype, verbose=True)
 
-        print(f"Layer 1 - Job {i_block + 1} / {n_blocks} - "
+        print(f"Layer 1 - {chunk_coord} - Job {i_block + 1} / {n_blocks} - "
               f"{i_chunk + 1} / {len(chunks)} -- %.3fs" %
               (time.time() - time_start))
 

@@ -461,8 +461,8 @@ class ChunkedGraph(object):
         min_segment_id, max_segment_id = self._get_unique_range(row_key=row_key,
                                                                 step=step)
 
-        segment_id_range = np.arange(min_segment_id*n_counters,
-                                     max_segment_id*n_counters + 1,
+        segment_id_range = np.arange(min_segment_id*n_counters + counter_id,
+                                     max_segment_id*n_counters + 1 + counter_id,
                                      n_counters, dtype=basetypes.SEGMENT_ID)
 
         return segment_id_range
