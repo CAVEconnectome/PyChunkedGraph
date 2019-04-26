@@ -39,6 +39,7 @@ from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple, Union, 
 
 HOME = os.path.expanduser("~")
 N_DIGITS_UINT64 = len(str(np.iinfo(np.uint64).max))
+N_BITS_PER_ROOT_COUNTER = np.uint64(8)
 LOCK_EXPIRED_TIME_DELTA = datetime.timedelta(minutes=1, seconds=00)
 UTC = pytz.UTC
 
@@ -424,6 +425,48 @@ class ChunkedGraph(object):
         else:
             return self.get_chunk_id(layer=layer, x=x, y=y, z=z) | segment_id
 
+    def _get_unique_range(self, row_key, step):
+        column = column_keys.Concurrency.CounterID
+
+        # Incrementer row keys start with an "i" followed by the chunk id
+        append_row = self.table.row(row_key, append=True)
+        append_row.increment_cell_value(column.family_id, column.key, step)
+
+        # This increments the row entry and returns the value AFTER incrementing
+        latest_row = append_row.commit()
+        max_segment_id = column.deserialize(latest_row[column.family_id][column.key][0][0])
+
+        min_segment_id = max_segment_id + 1 - step
+        return min_segment_id, max_segment_id
+
+    def get_unique_segment_id_root_row(self, step: int = 1,
+                                          counter_id: int = None) -> np.ndarray:
+        """ Return unique Segment ID for the Root Chunk
+
+        atomic counter
+
+        :param step: int
+        :return: np.uint64
+        """
+        n_counters = np.uint64(2 ** N_BITS_PER_ROOT_COUNTER)
+
+        if counter_id is None:
+            counter_id = np.uint64(np.random.randint(0, n_counters))
+        else:
+            counter_id = counter_id % n_counters
+
+        row_key = serializers.serialize_key(
+            f"i{serializers.pad_node_id(self.root_chunk_id)}_{counter_id}")
+
+        min_segment_id, max_segment_id = self._get_unique_range(row_key=row_key,
+                                                                step=step)
+
+        segment_id_range = np.arange(min_segment_id*n_counters,
+                                     max_segment_id*n_counters + 1,
+                                     n_counters, dtype=basetypes.SEGMENT_ID)
+
+        return segment_id_range
+
     def get_unique_segment_id_range(self, chunk_id: np.uint64, step: int = 1
                                     ) -> np.ndarray:
         """ Return unique Segment ID for given Chunk ID
@@ -435,18 +478,13 @@ class ChunkedGraph(object):
         :return: np.uint64
         """
 
-        column = column_keys.Concurrency.CounterID
+        if self.n_layers == self.get_chunk_layer(chunk_id):
+            return self.get_unique_segment_id_root_row(step=step)
 
-        # Incrementer row keys start with an "i" followed by the chunk id
-        row_key = serializers.serialize_key("i%s" % serializers.pad_node_id(chunk_id))
-        append_row = self.table.row(row_key, append=True)
-        append_row.increment_cell_value(column.family_id, column.key, step)
-
-        # This increments the row entry and returns the value AFTER incrementing
-        latest_row = append_row.commit()
-        max_segment_id = column.deserialize(latest_row[column.family_id][column.key][0][0])
-
-        min_segment_id = max_segment_id + 1 - step
+        row_key = serializers.serialize_key(
+            "i%s" % serializers.pad_node_id(chunk_id))
+        min_segment_id, max_segment_id = self._get_unique_range(row_key=row_key,
+                                                                step=step)
         segment_id_range = np.arange(min_segment_id, max_segment_id + 1,
                                      dtype=basetypes.SEGMENT_ID)
         return segment_id_range
@@ -492,6 +530,32 @@ class ChunkedGraph(object):
 
         return self.get_unique_node_id_range(chunk_id=chunk_id, step=1)[0]
 
+    def get_max_seg_id_root_chunk(self) -> np.uint64:
+        """  Gets maximal root id based on the atomic counter
+
+        This is an approximation. It is not guaranteed that all ids smaller or
+        equal to this id exists. However, it is guaranteed that no larger id
+        exist at the time this function is executed.
+
+        :return: uint64
+        """
+
+        n_counters = np.uint64(2 ** N_BITS_PER_ROOT_COUNTER)
+        max_value = 0
+        for counter_id in range(n_counters):
+            row_key = serializers.serialize_key(
+                f"i{serializers.pad_node_id(self.root_chunk_id)}_{counter_id}")
+
+            row = self.read_byte_row(row_key,
+                                     columns=column_keys.Concurrency.CounterID)
+
+            counter = basetypes.SEGMENT_ID.type(row[0].value if row else 0) * \
+                      n_counters
+            if counter > max_value:
+                max_value = counter
+
+        return max_value
+
     def get_max_seg_id(self, chunk_id: np.uint64) -> np.uint64:
         """  Gets maximal seg id in a chunk based on the atomic counter
 
@@ -502,10 +566,14 @@ class ChunkedGraph(object):
 
         :return: uint64
         """
+        if self.n_layers == self.get_chunk_layer(chunk_id):
+            return self.get_max_seg_id_root_chunk()
 
         # Incrementer row keys start with an "i"
-        row_key = serializers.serialize_key("i%s" % serializers.pad_node_id(chunk_id))
-        row = self.read_byte_row(row_key, columns=column_keys.Concurrency.CounterID)
+        row_key = serializers.serialize_key(
+            "i%s" % serializers.pad_node_id(chunk_id))
+        row = self.read_byte_row(row_key,
+                                 columns=column_keys.Concurrency.CounterID)
 
         # Read incrementer value (default to 0) and interpret is as Segment ID
         return basetypes.SEGMENT_ID.type(row[0].value if row else 0)
@@ -1400,14 +1468,16 @@ class ChunkedGraph(object):
                             "Number of occurences:" %
                             (chunk_id, len(u_node_chunk_ids)), c_node_chunk_ids)
 
-        chunk_g = nx.Graph()
-        chunk_g.add_nodes_from(chunk_node_ids)
-        chunk_g.add_edges_from(edge_id_dict["in_connected"])
+        add_edge_ids = np.vstack([chunk_node_ids, chunk_node_ids]).T
+        edge_ids = np.concatenate([edge_id_dict["in_connected"], add_edge_ids])
 
-        ccs = list(nx.connected_components(chunk_g))
+        graph, _, _, unique_graph_ids = flatgraph_utils.build_gt_graph(
+            edge_ids, make_directed=True)
 
-        # if verbose:
-        #     self.logger.debug("CC in chunk: %.3fs" % (time.time() - time_start))
+        ccs = flatgraph_utils.connected_components(graph)
+
+        if verbose:
+            self.logger.debug("CC in chunk: %.3fs" % (time.time() - time_start))
 
         # Add rows for nodes that are in this chunk
         # a connected component at a time
@@ -1438,12 +1508,7 @@ class ChunkedGraph(object):
         rows = []
 
         for i_cc, cc in enumerate(ccs):
-            # if node_c % 1000 == 1 and verbose:
-            #     dt = time.time() - time_start
-            #     self.logger.debug("%5d at %5d - %.5fs             " %
-            #                       (i_cc, node_c, dt / node_c), end="\r")
-
-            node_ids = np.array(list(cc))
+            node_ids = unique_graph_ids[cc]
 
             u_chunk_ids = np.unique([self.get_chunk_id(n) for n in node_ids])
 
