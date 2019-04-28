@@ -1858,8 +1858,6 @@ class ChunkedGraph(object):
             # Write out cc info
             rows = []
 
-            print(cc_connections)
-
             # Iterate through layers
             for parent_layer_id in parent_layer_ids:
                 if len(cc_connections[parent_layer_id]) == 0:
@@ -2769,9 +2767,6 @@ class ChunkedGraph(object):
             return_layers: Sequence[int],
             verbose: bool):
 
-        layer = self.get_chunk_layer(node_id)
-        assert layer > 1
-
         def _get_subgraph_higher_layer_nodes_threaded(
                 node_ids: Iterable[np.uint64]) -> List[np.uint64]:
             children = self.get_children(node_ids, flatten=True)
@@ -2790,9 +2785,13 @@ class ChunkedGraph(object):
 
             return children
 
+        layer = self.get_chunk_layer(node_id)
+        assert layer > 1
+
         nodes_per_layer = {}
         child_ids = np.array([node_id], dtype=np.uint64)
         stop_layer = max(2, np.min(return_layers))
+        get_chunk_layer_vec = np.vectorize(self.get_chunk_layer)
 
         if layer in return_layers:
             nodes_per_layer[layer] = child_ids
@@ -2802,13 +2801,20 @@ class ChunkedGraph(object):
 
         while layer > stop_layer:
             # Use heuristic to guess the optimal number of threads
+            child_id_layers = get_chunk_layer_vec(child_ids)
+            this_layer_m = child_id_layers == layer
+            this_layer_child_ids = child_ids[this_layer_m]
+            next_layer_child_ids = child_ids[~this_layer_m]
+
             n_child_ids = len(child_ids)
             this_n_threads = np.min([int(n_child_ids // 50000) + 1, mu.n_cpus])
 
             child_ids = np.fromiter(chain.from_iterable(mu.multithread_func(
                 _get_subgraph_higher_layer_nodes_threaded,
-                np.array_split(child_ids, this_n_threads),
+                np.array_split(this_layer_child_ids, this_n_threads),
                 n_threads=this_n_threads, debug=this_n_threads == 1)), np.uint64)
+
+            child_ids = np.concatenate([child_ids, next_layer_child_ids])
 
             if verbose:
                 self.logger.debug("Layer %d: %.3fms for %d children with %d threads" %
@@ -2881,9 +2887,9 @@ class ChunkedGraph(object):
             edges = np.concatenate([edges, _edges])
 
         if verbose:
-            self.logger.debug("Layer %d: %.3fms for %d children with %d threads" %
-                              (2, (time.time() - time_start) * 1000, n_child_ids,
-                               this_n_threads))
+            self.logger.debug("Layer %d: %.3fms for %d childs with %d threads" %
+                              (2, (time.time() - time_start) * 1000,
+                               n_child_ids, this_n_threads))
 
         return edges, affinities, areas
 
