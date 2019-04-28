@@ -5,8 +5,8 @@ import cloudvolume
 
 
 def initialize_chunkedgraph(cg_table_id, ws_cv_path, chunk_size, cg_mesh_dir,
-                            s_bits_atomic_layer=None, fan_out=2,
-                            instance_id=None, project_id=None):
+                            s_bits_atomic_layer=None, n_bits_root_counter=8,
+                            fan_out=2, instance_id=None, project_id=None):
     """ Initalizes a chunkedgraph on BigTable
 
     :param cg_table_id: str
@@ -19,6 +19,8 @@ def initialize_chunkedgraph(cg_table_id, ws_cv_path, chunk_size, cg_mesh_dir,
         mesh folder name
     :param s_bits_atomic_layer: int or None
         number of bits for each x, y and z on the lower layer
+    :param n_bits_root_counter: int or None
+        number of bits for counters in root layer
     :param fan_out: int
         fan out of chunked graph (2 == Octree)
     :param instance_id: str
@@ -47,6 +49,7 @@ def initialize_chunkedgraph(cg_table_id, ws_cv_path, chunk_size, cg_mesh_dir,
               "n_layers": np.uint64(n_layers),
               "dataset_info": dataset_info,
               "s_bits_atomic_layer": s_bits_atomic_layer,
+              "n_bits_root_counter": n_bits_root_counter,
               "is_new": True}
 
     if instance_id is not None:
