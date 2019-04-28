@@ -169,6 +169,11 @@ class GraphSettings:
         family_id='0',
         serializer=serializers.NumPyValue(dtype=basetypes.SPATIALBITS))
 
+    RootCounterBits = _Column(
+        key=b'root_counter_bits',
+        family_id='0',
+        serializer=serializers.NumPyValue(dtype=basetypes.ROOTCOUNTERBITS))
+
 
 class OperationLogs:
     OperationID = _Column(
