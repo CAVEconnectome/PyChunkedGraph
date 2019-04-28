@@ -721,27 +721,29 @@ class TestGraphBuild:
         cgraph.add_layer(4, np.array([[0, 0, 0]]),
                          time_stamp=fake_timestamp)
 
-        assert len(cgraph.range_read_chunk(layer=3, x=0, y=0, z=0)) == 6
-        assert len(cgraph.range_read_chunk(layer=4, x=0, y=0, z=0)) == 3
+        assert len(cgraph.range_read_chunk(layer=2, x=0, y=0, z=0)) == 2
+        assert len(cgraph.range_read_chunk(layer=2, x=1, y=0, z=0)) == 1
+        assert len(cgraph.range_read_chunk(layer=3, x=0, y=0, z=0)) == 0
+        assert len(cgraph.range_read_chunk(layer=4, x=0, y=0, z=0)) == 6
 
         assert cgraph.get_chunk_layer(cgraph.get_root(to_label(cgraph, 1, 0, 0, 0, 1))) == 4
         assert cgraph.get_chunk_layer(cgraph.get_root(to_label(cgraph, 1, 0, 0, 0, 2))) == 4
         assert cgraph.get_chunk_layer(cgraph.get_root(to_label(cgraph, 1, 1, 0, 0, 1))) == 4
 
-        lvl_3_child_ids = [cgraph.get_segment_id(cgraph.read_node_id_row(cgraph.get_root(to_label(cgraph, 1, 0, 0, 0, 1)), column_keys.Hierarchy.Child)[0].value),
-                           cgraph.get_segment_id(cgraph.read_node_id_row(cgraph.get_root(to_label(cgraph, 1, 0, 0, 0, 2)), column_keys.Hierarchy.Child)[0].value),
-                           cgraph.get_segment_id(cgraph.read_node_id_row(cgraph.get_root(to_label(cgraph, 1, 1, 0, 0, 1)), column_keys.Hierarchy.Child)[0].value)]
+        root_seg_ids = [cgraph.get_segment_id(cgraph.get_root(to_label(cgraph, 1, 0, 0, 0, 1))),
+                        cgraph.get_segment_id(cgraph.get_root(to_label(cgraph, 1, 0, 0, 0, 2))),
+                        cgraph.get_segment_id(cgraph.get_root(to_label(cgraph, 1, 1, 0, 0, 1)))]
 
-        assert 4 in lvl_3_child_ids
-        assert 5 in lvl_3_child_ids
-        assert 6 in lvl_3_child_ids
+        assert 4 in root_seg_ids
+        assert 5 in root_seg_ids
+        assert 6 in root_seg_ids
 
 
 class TestGraphSimpleQueries:
     """
     ┌─────┬─────┬─────┐        L X Y Z S     L X Y Z S     L X Y Z S     L X Y Z S
-    │  A¹ │  B¹ │  C¹ │     1: 1 0 0 0 0 ─── 2 0 0 0 1 ─── 3 0 0 0 1 ─── 4 0 0 0 1
-    │  1  │ 3━2━┿━━4  │     2: 1 1 0 0 0 ─┬─ 2 1 0 0 1 ─── 3 0 0 0 2 ─┬─ 4 0 0 0 2
+    │  A¹ │  B¹ │  C¹ │     1: 1 0 0 0 0 ─── 2 0 0 0 1 ───────────────── 4 0 0 0 1
+    │  1  │ 3━2━┿━━4  │     2: 1 1 0 0 0 ─┬─ 2 1 0 0 1 ─── 3 0 0 0 1 ─┬─ 4 0 0 0 2
     │     │     │     │     3: 1 1 0 0 1 ─┘                           │
     └─────┴─────┴─────┘     4: 1 2 0 0 0 ─── 2 2 0 0 1 ─── 3 1 0 0 1 ─┘
     """
@@ -768,11 +770,11 @@ class TestGraphSimpleQueries:
         parent22001 = cgraph.get_parent(to_label(cgraph, 2, 2, 0, 0, 1), get_only_relevant_parent=True, time_stamp=None)
 
         children30001 = cgraph.get_children(to_label(cgraph, 3, 0, 0, 0, 1))
-        children30002 = cgraph.get_children(to_label(cgraph, 3, 0, 0, 0, 2))
+        # children30002 = cgraph.get_children(to_label(cgraph, 3, 0, 0, 0, 2))
         children31001 = cgraph.get_children(to_label(cgraph, 3, 1, 0, 0, 1))
 
         parent30001 = cgraph.get_parent(to_label(cgraph, 3, 0, 0, 0, 1), get_only_relevant_parent=True, time_stamp=None)
-        parent30002 = cgraph.get_parent(to_label(cgraph, 3, 0, 0, 0, 2), get_only_relevant_parent=True, time_stamp=None)
+        # parent30002 = cgraph.get_parent(to_label(cgraph, 3, 0, 0, 0, 2), get_only_relevant_parent=True, time_stamp=None)
         parent31001 = cgraph.get_parent(to_label(cgraph, 3, 1, 0, 0, 1), get_only_relevant_parent=True, time_stamp=None)
 
         children40001 = cgraph.get_children(to_label(cgraph, 4, 0, 0, 0, 1))
@@ -799,28 +801,23 @@ class TestGraphSimpleQueries:
         assert len(children22001) == 1 and to_label(cgraph, 1, 2, 0, 0, 0) in children22001
 
         # Parent of L2
-        assert parent20001 == to_label(cgraph, 3, 0, 0, 0, 1) and parent21001 == to_label(cgraph, 3, 0, 0, 0, 2) or \
-            parent20001 == to_label(cgraph, 3, 0, 0, 0, 2) and parent21001 == to_label(cgraph, 3, 0, 0, 0, 1)
+        assert parent20001 == to_label(cgraph, 4, 0, 0, 0, 1)
+        assert parent21001 == to_label(cgraph, 3, 0, 0, 0, 1)
         assert parent22001 == to_label(cgraph, 3, 1, 0, 0, 1)
 
         # Children of L3
-        assert len(children30001) == 1 and len(children30002) == 1 and len(children31001) == 1
-        assert to_label(cgraph, 2, 0, 0, 0, 1) in children30001 and to_label(cgraph, 2, 1, 0, 0, 1) in children30002 or \
-            to_label(cgraph, 2, 0, 0, 0, 1) in children30002 and to_label(cgraph, 2, 1, 0, 0, 1) in children30001
+        assert len(children30001) == 1 and len(children31001) == 1
+        assert to_label(cgraph, 2, 1, 0, 0, 1) in children30001
         assert to_label(cgraph, 2, 2, 0, 0, 1) in children31001
 
         # Parent of L3
-        assert parent30001 == parent31001 or parent30002 == parent31001
-        assert (parent30001 == to_label(cgraph, 4, 0, 0, 0, 1) and parent30002 == to_label(cgraph, 4, 0, 0, 0, 2)) or \
-               (parent30001 == to_label(cgraph, 4, 0, 0, 0, 2) and parent30002 == to_label(cgraph, 4, 0, 0, 0, 1))
+        assert parent30001 == parent31001
+        assert (parent30001 == to_label(cgraph, 4, 0, 0, 0, 1) and parent20001 == to_label(cgraph, 4, 0, 0, 0, 2)) or \
+               (parent30001 == to_label(cgraph, 4, 0, 0, 0, 2) and parent20001 == to_label(cgraph, 4, 0, 0, 0, 1))
 
         # Children of L4
-        if len(children40001) == 1:
-            assert parent20001 in children40001
-            assert len(children40002) == 2 and parent21001 in children40002 and parent22001 in children40002
-        elif len(children40001) == 2:
-            assert parent21001 in children40001 and parent22001 in children40001
-            assert len(children40002) == 1 and parent20001 in children40002
+        assert parent10000 in children40001
+        assert parent21001 in children40002 and parent22001 in children40002
 
         # (non-existing) Parent of L4
         assert parent40001 is None
