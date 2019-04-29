@@ -88,7 +88,8 @@ def get_highest_child_nodes_with_meshes(cg,
                                         node_id: np.uint64,
                                         stop_layer=1,
                                         start_layer=None,
-                                        verify_existence=False):
+                                        verify_existence=False,
+                                        bounding_box=None):
     if start_layer is None:
         start_layer = cg.n_layers
 
@@ -102,7 +103,10 @@ def get_highest_child_nodes_with_meshes(cg,
         candidates = [highest_node]
     else:
         candidates = cg.get_subgraph_nodes(
-            highest_node, return_layers=[HIGHEST_MESH_LAYER])
+            highest_node,
+            bounding_box=bounding_box,
+            bb_is_coordinate=True,
+            return_layers=[HIGHEST_MESH_LAYER])
 
     if verify_existence:
         valid_node_ids = []

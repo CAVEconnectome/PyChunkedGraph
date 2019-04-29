@@ -106,6 +106,13 @@ def handle_get_manifest(table_id, node_id):
     else:
         start_layer = None
 
+    if "bounds" in request.args:
+        bounds = request.args["bounds"]
+        bounding_box = np.array([b.split("-") for b in bounds.split("_")],
+                                dtype=np.int).T
+    else:
+        bounding_box = None
+        
     verify = request.args.get('verify', False)
     verify = verify in ['True', 'true', '1', True]
 
