@@ -112,7 +112,7 @@ def handle_get_manifest(table_id, node_id):
                                 dtype=np.int).T
     else:
         bounding_box = None
-        
+
     verify = request.args.get('verify', False)
     verify = verify in ['True', 'true', '1', True]
 
@@ -122,6 +122,7 @@ def handle_get_manifest(table_id, node_id):
     cg = app_utils.get_cg(table_id)
     seg_ids = meshgen_utils.get_highest_child_nodes_with_meshes(
         cg, np.uint64(node_id), stop_layer=2, start_layer=start_layer,
+        bounding_box=bounding_box,
         verify_existence=verify)
 
     filenames = [meshgen_utils.get_mesh_name(cg, s, MESH_MIP) for s in seg_ids]
