@@ -3356,9 +3356,168 @@ class ChunkedGraph(object):
             f"Could not acquire root object lock."
         )
 
+
+    def _introduce_missing_skip_connection(self, atomic_id: np.uint64,
+                                           layer_id: int,
+                                           node_id_parent_dict: dict,
+                                           time_stamp: datetime.datetime):
+        """ Helper function for _analyze_edges
+
+        Adds new skip nodes if they were missing. Nodes are skipped for
+        efficiency. However, added edges may raise the need for having a
+        specific parent node on the path through the levels. This function
+        introduces such a parent node and connects it to the appropriate
+        child node.
+
+        :param atomic_id: np.uint64
+        :param layer_id: int
+        :param node_id_parent_dict: dict
+        :param time_stamp: datetime.datetime
+        :return:
+        """
+        assert layer_id > 2
+        assert layer_id not in node_id_parent_dict
+
+        rows = []
+
+        # Create parent id
+        chunk_id = self.get_parent_chunk_id_dict(atomic_id)[layer_id]
+        parent_id = self.get_unique_node_id(chunk_id=chunk_id)
+
+        # Find next lower parent node
+        other_layers = list(node_id_parent_dict[atomic_id].keys())
+        other_layers = np.array(other_layers)
+        child_layer = np.max(other_layers[other_layers < layer_id])
+        child_id = node_id_parent_dict[atomic_id][child_layer]
+
+        # Add mutated rows
+        val_dict = {column_keys.Hierarchy.Child:
+                        np.array([child_id], dtype=np.uint64)}
+        rows.append(
+            self.mutate_row(serializers.serialize_uint64(parent_id),
+                            val_dict, time_stamp=time_stamp))
+
+        val_dict = {column_keys.Hierarchy.Parent:
+                        np.array([parent_id], dtype=np.uint64)}
+        rows.append(
+            self.mutate_row(serializers.serialize_uint64(child_id),
+                            val_dict, time_stamp=time_stamp))
+
+        return parent_id, child_id, rows
+
+
+    def _analyze_edges(self, atomic_edges: Sequence[Sequence[np.uint64]],
+                       node_id_parent_dict: dict,
+                       parent_node_id_dict: dict,
+                       parent_lookup: dict,
+                       time_stamp: datetime.datetime):
+        """ Helper function for _add_edges
+
+        Analyzes all (additional) atomic edges. Finds on which level they
+        become relevant and inserts new skip nodes if they were missing.
+
+        :param atomic_edges: np.uint64
+        :param node_id_parent_dict: dict
+        :param parent_node_id_dict: dict
+        :param parent_lookup: dict
+        :param time_stamp: datetime.datetime
+        :return:
+        """
+
+
+        rows = []
+
+        # Figure out when an edge becomes relevant
+        edge_layers = self.get_cross_chunk_edges_layer(atomic_edges)
+        atomic_layer_m = edge_layers == 1
+
+        parental_edges = []
+        cross_chunk_edges = {}
+        future_links = collections.defaultdict(list)
+
+        # Non-chunk-crossing edges / Level 1 edges:
+        for atomic_edge in atomic_edges[atomic_layer_m]:
+            old_parent_ids = [node_id_parent_dict[atomic_edge[0]][2],
+                              node_id_parent_dict[atomic_edge[1]][2]]
+
+            parental_edges.append(old_parent_ids)
+
+            cross_chunk_edges[atomic_edge[0]] = {}
+            cross_chunk_edges[atomic_edge[1]] = {}
+
+        # Cross-chunk edges / Level 2+ edges:
+        # Sorting is important to avoid duplication
+        cc_atomic_edges = atomic_edges[~atomic_layer_m]
+        cc_edge_layers = edge_layers[~atomic_layer_m]
+        sorting = np.argsort(cc_edge_layers)
+
+        cc_atomic_edges = cc_atomic_edges[sorting]
+        cc_edge_layers = cc_edge_layers[sorting]
+
+        for atomic_edge, edge_layer in zip(cc_atomic_edges, cc_edge_layers):
+            # Add self edges on level 1 to have these atomic ids in the nx graph
+            parental_edges.append([node_id_parent_dict[atomic_edge[0]][2],
+                                   node_id_parent_dict[atomic_edge[0]][2]])
+            parental_edges.append([node_id_parent_dict[atomic_edge[1]][2],
+                                   node_id_parent_dict[atomic_edge[1]][2]])
+
+            # Cross chunk edge
+            cross_chunk_edges[atomic_edge[0]] = {
+                edge_layer: np.array([atomic_edge])}
+            cross_chunk_edges[atomic_edge[1]] = {
+                edge_layer: np.array([atomic_edge[::-1]])}
+
+            # Due to skip connections the layer receiving the cross chunk edge
+            # might not have a node. We have to introduce this node and make
+            # sure that following edges do not add duplicates.
+
+            parent_edge_layer = edge_layer + 1
+
+            if not edge_layer in node_id_parent_dict[atomic_edge[0]]:
+                atomic_id = atomic_edge[0]
+
+                new_parent_id, child_id, added_rows = \
+                    self._introduce_missing_skip_connection(atomic_id,
+                                                            edge_layer,
+                                                            node_id_parent_dict,
+                                                            time_stamp)
+                rows.extend(added_rows)
+
+                parent_lookup[new_parent_id] = parent_lookup[child_id]
+                parent_lookup[child_id] = new_parent_id
+
+                node_id_parent_dict[atomic_id][edge_layer] = new_parent_id
+                parent_node_id_dict[new_parent_id] = [new_parent_id]
+                parent_node_id_dict[new_parent_id].extend(
+                    parent_node_id_dict[child_id])
+
+            if not edge_layer in node_id_parent_dict[atomic_edge[1]]:
+                atomic_id = atomic_edge[1]
+
+                new_parent_id, child_id, added_rows = \
+                    self._introduce_missing_skip_connection(atomic_id,
+                                                            edge_layer,
+                                                            node_id_parent_dict,
+                                                            time_stamp)
+                rows.extend(added_rows)
+
+                parent_lookup[new_parent_id] = parent_lookup[child_id]
+                parent_lookup[child_id] = new_parent_id
+
+                node_id_parent_dict[atomic_id][edge_layer] = new_parent_id
+                parent_node_id_dict[new_parent_id] = [new_parent_id]
+                parent_node_id_dict[new_parent_id].extend(
+                    parent_node_id_dict[child_id])
+
+            future_links[edge_layer].append(
+                [node_id_parent_dict[atomic_edge[0]][edge_layer],
+                 node_id_parent_dict[atomic_edge[1]][edge_layer]])
+
+        return future_links, parental_edges, cross_chunk_edges, rows
+
     def _add_edges(self, operation_id: np.uint64,
                    atomic_edges: Sequence[Sequence[np.uint64]],
-                   time_stamp=datetime.datetime,
+                   time_stamp: datetime.datetime,
                    affinities: Optional[Sequence[np.float32]] = None
                    ):
         """ Adds multiple edges to a graph
@@ -3383,9 +3542,12 @@ class ChunkedGraph(object):
 
         # Create node_id to parent look up for later
         lvl2_node_mapping = {} # fore remeshing
+
         node_ids = np.unique(atomic_edges)
-        node_id_parent_dict = {}
-        parent_node_id_dict = collections.defaultdict(list)
+        node_id_parent_dict = {} # atomic id -> parent dict
+        parent_lookup = {} # any id -> parent id
+        parent_node_id_dict = collections.defaultdict(list) # parent id -> atomic_id
+
         for node_id in node_ids:
             parent_id_dict = self.get_all_parents_dict(node_id)
             node_id_parent_dict[node_id] = parent_id_dict
@@ -3393,90 +3555,28 @@ class ChunkedGraph(object):
             for parent_id in parent_id_dict.keys():
                 parent_node_id_dict[parent_id].append(node_id)
 
+            parent_lookup[node_id] = parent_id_dict[2]
+            parent_layers = sorted(list(parent_id_dict.keys()))
+            for i_p in range(0, len(parent_layers) - 1):
+                parent_lookup[parent_id_dict[parent_layers[i_p]]] = \
+                    parent_id_dict[parent_layers[i_p + 1]]
+
         # Layer 1 --------------------------------------------------------------
         # Look up when the edges in question "become relevant"
-        edge_layers = self.get_cross_chunk_edges_layer(atomic_edges)
-        atomic_layer_m = edge_layers == 1
+        # Atomic edges are relevant immediately and are used for find cc
+        # on layer 1. Other edges are lifted until chunks are combined across
+        # their chunk border. Here we find out when an edge crosses a chunk
+        # border and needs to be used to compute cc on a higher layer.
 
-        parental_edges = []
-        cross_chunk_edges = {}
-        future_links = collections.defaultdict(list)
+        future_links, parental_edges, cross_chunk_edges, add_rows = \
+            self._analyze_edges(atomic_edges, node_id_parent_dict,
+                                parent_node_id_dict, parent_lookup, time_stamp)
+        rows.extend(add_rows)
 
-        # Non-chunk-crossing edges / Level 1 edges:
-        for atomic_edge in atomic_edges[atomic_layer_m]:
-            old_parent_ids = [node_id_parent_dict[atomic_edge[0]][2],
-                              node_id_parent_dict[atomic_edge[1]][2]]
-
-            parental_edges.append(old_parent_ids)
-
-            cross_chunk_edges[atomic_edge[0]] = {}
-            cross_chunk_edges[atomic_edge[1]] = {}
-
-        # Cross-chunk edges / Level 2+ edges:
-        cc_atomic_edges = atomic_edges[~atomic_layer_m]
-        cc_edge_layers = edge_layers[~atomic_layer_m]
-        sorting = np.argsort(cc_edge_layers)
-
-        cc_atomic_edges = cc_atomic_edges[sorting]
-        cc_edge_layers = cc_edge_layers[sorting]
-
-        for atomic_edge, edge_layer in zip(cc_atomic_edges, cc_edge_layers):
-            # Add self edges to have these ids in the graph
-            parental_edges.append([node_id_parent_dict[atomic_edge[0]][2],
-                                   node_id_parent_dict[atomic_edge[0]][2]])
-            parental_edges.append([node_id_parent_dict[atomic_edge[1]][2],
-                                   node_id_parent_dict[atomic_edge[1]][2]])
-
-            # Cross chunk edge
-            cross_chunk_edges[atomic_edge[0]] = {
-                edge_layer: np.array([atomic_edge])}
-            cross_chunk_edges[atomic_edge[1]] = {
-                edge_layer: np.array([atomic_edge[::-1]])}
-
-            # Due to skip connections the layer receiving the cross chunk edge
-            # might not have a node. We have to introduce this node and make
-            # sure that following edges do not add duplicates.
-            if not edge_layer in node_id_parent_dict[atomic_edge[0]]:
-                chunk_id = self.get_parent_chunk_id_dict(atomic_edge[0])[edge_layer]
-                parent_id = self.get_unique_node_id(chunk_id=chunk_id)
-
-                other_layers = list(node_id_parent_dict[atomic_edge[0]].keys())
-                other_layers = np.array(other_layers)
-                child_layer = np.max(other_layers[other_layers < edge_layer])
-
-                child_id = node_id_parent_dict[atomic_edge[0]][child_layer]
-
-                val_dict = {column_keys.Hierarchy.Child:
-                                np.array([child_id], dtype=np.uint64)}
-                rows.append(
-                    self.mutate_row(serializers.serialize_uint64(parent_id),
-                                    val_dict, time_stamp=time_stamp))
-
-                node_id_parent_dict[atomic_edge[0]][edge_layer] = parent_id
-
-            if not edge_layer in node_id_parent_dict[atomic_edge[1]]:
-                chunk_id = self.get_parent_chunk_id_dict(atomic_edge[1])[edge_layer]
-                parent_id = self.get_unique_node_id(chunk_id=chunk_id)
-
-                other_layers = list(node_id_parent_dict[atomic_edge[1]].keys())
-                other_layers = np.array(other_layers)
-                child_layer = np.max(other_layers[other_layers < edge_layer])
-
-                child_id = node_id_parent_dict[atomic_edge[1]][child_layer]
-
-                val_dict = {column_keys.Hierarchy.Child:
-                                np.array([child_id], dtype=np.uint64)}
-                rows.append(
-                    self.mutate_row(serializers.serialize_uint64(parent_id),
-                                    val_dict, time_stamp=time_stamp))
-
-                node_id_parent_dict[atomic_edge[1]][edge_layer] = parent_id
-
-            future_links[edge_layer].append(
-                [node_id_parent_dict[atomic_edge[0]][edge_layer],
-                 node_id_parent_dict[atomic_edge[1]][edge_layer]])
-
-            print(f"\nFUTURE LINKS {edge_layer} - {future_links[edge_layer][-1]}\n")
+        # print(f"\nFUTURE LINKS {future_links}\n")
+        # for k in future_links:
+        #     for id_ in np.unique(future_links[k]):
+        #         print(self.get_chunk_layer(id_))
 
         # resolve edges with same parent
         G = nx.Graph()
@@ -3534,7 +3634,8 @@ class ChunkedGraph(object):
                 rows.append(self.mutate_row(serializers.serialize_uint64(new_parent_id),
                                             val_dict, time_stamp=time_stamp))
 
-            next_old_parents = [self.get_parent(n) for n in old_parent_ids]
+            next_old_parents = [parent_lookup[n] for n in old_parent_ids]
+            # next_old_parents = [self.get_parent(n) for n in old_parent_ids]
             for p in next_old_parents:
                 old_parent_mapping[p].append(len(next_cc_storage)) # Save storage ids for each future parent
 
@@ -3565,6 +3666,11 @@ class ChunkedGraph(object):
                                            old_parent_mapping[p])))
 
             for e in future_links[i_layer]:
+                print(f"Future link {e} @ {i_layer}")
+                print(f"old_parent_mapping {old_parent_mapping}")
+                print(f"old_parent_mapping[e[0]] {old_parent_mapping[e[0]]}")
+                print(f"old_parent_mapping[e[1]] {old_parent_mapping[e[1]]}")
+                print(f"old_parent_mapping {old_parent_mapping[e[1]]}")
                 parental_edges.extend(list(itertools.product(old_parent_mapping[e[0]],
                                                              old_parent_mapping[e[1]])))
 
@@ -3573,6 +3679,9 @@ class ChunkedGraph(object):
             G = nx.Graph()
             G.add_edges_from(parental_edges)
             ccs = list(nx.connected_components(G))
+
+            print(f"CC - {len(ccs)}")
+            print(f"parental_edges - {parental_edges}")
 
             for cc in ccs:
                 cc_storage_ids = list(cc)
@@ -3639,8 +3748,8 @@ class ChunkedGraph(object):
                                                 val_dict, time_stamp=time_stamp))
 
                 if i_layer < self.n_layers - 1:
-                    next_old_parents = np.unique([self.get_parent(n)
-                                                  for n in old_parent_ids]) # ---------------------------------
+                    next_old_parents = np.unique([parent_lookup[n] for n in old_parent_ids]) # ---------------------------------
+                    # next_old_parents = np.unique([self.get_parent(n) for n in old_parent_ids]) # ---------------------------------
 
                     for p in next_old_parents:
                         old_parent_mapping[p].append(len(next_cc_storage))
