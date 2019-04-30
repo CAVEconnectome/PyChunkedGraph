@@ -3471,8 +3471,6 @@ class ChunkedGraph(object):
             # might not have a node. We have to introduce this node and make
             # sure that following edges do not add duplicates.
 
-            parent_edge_layer = edge_layer + 1
-
             if not edge_layer in node_id_parent_dict[atomic_edge[0]]:
                 atomic_id = atomic_edge[0]
 
@@ -3510,8 +3508,8 @@ class ChunkedGraph(object):
                     parent_node_id_dict[child_id])
 
             future_links[edge_layer].append(
-                [node_id_parent_dict[atomic_edge[0]][edge_layer],
-                 node_id_parent_dict[atomic_edge[1]][edge_layer]])
+                [node_id_parent_dict[atomic_edge[0]][edge_layer + 1],
+                 node_id_parent_dict[atomic_edge[1]][edge_layer + 1]])
 
         return future_links, parental_edges, cross_chunk_edges, rows
 
@@ -3540,13 +3538,24 @@ class ChunkedGraph(object):
 
         rows = []
 
-        # Create node_id to parent look up for later
-        lvl2_node_mapping = {} # fore remeshing
+        # Due to changes in skip connections and info we need to retrieve up
+        # front we have to cache several aspects of the hierarchy. This might
+        # diverge from the _actual_ hierarchy in the graph because we may
+        # have to introduce (parent) nodes which were omitted before due
+        # to skip connections. This means we have to be very careful with
+        # calling get_parent() and get_children() in this function! We have
+        # to maintain our own lookup tables and check these first before falling
+        # back to these functions.
+        # No question, this sucks!
+
+        lvl2_node_mapping = {} # fore remeshing -- will go away in the future
+                               # aka: do not rely on this!
 
         node_ids = np.unique(atomic_edges)
         node_id_parent_dict = {} # atomic id -> parent dict
         parent_lookup = {} # any id -> parent id
-        parent_node_id_dict = collections.defaultdict(list) # parent id -> atomic_id
+        children_lookup = collections.defaultdict(list) # any id -> child ids
+        parent_node_id_dict = collections.defaultdict(list) # parent id -> atomic_ids
 
         for node_id in node_ids:
             parent_id_dict = self.get_all_parents_dict(node_id)
@@ -3555,13 +3564,17 @@ class ChunkedGraph(object):
             for parent_id in parent_id_dict.keys():
                 parent_node_id_dict[parent_id].append(node_id)
 
+            # Parent Lookup
             parent_lookup[node_id] = parent_id_dict[2]
             parent_layers = sorted(list(parent_id_dict.keys()))
+
             for i_p in range(0, len(parent_layers) - 1):
                 parent_lookup[parent_id_dict[parent_layers[i_p]]] = \
                     parent_id_dict[parent_layers[i_p + 1]]
 
-        # Layer 1 --------------------------------------------------------------
+            parent_lookup[parent_id_dict[self.n_layers]] = None
+
+
         # Look up when the edges in question "become relevant"
         # Atomic edges are relevant immediately and are used for find cc
         # on layer 1. Other edges are lifted until chunks are combined across
@@ -3573,18 +3586,26 @@ class ChunkedGraph(object):
                                 parent_node_id_dict, parent_lookup, time_stamp)
         rows.extend(add_rows)
 
-        # print(f"\nFUTURE LINKS {future_links}\n")
-        # for k in future_links:
-        #     for id_ in np.unique(future_links[k]):
-        #         print(self.get_chunk_layer(id_))
+        # Main concept:
+        # We handle Layer 1 separately from the higher layers but the concept
+        # is the same. On each layer we check if the added edges make
+        # a difference. We need to run connected components to find that out.
+        # Then we collect all the original ids in the next layer that got
+        # mapped together into one connected component. All their children
+        # now point to the same (new) id.
+        # Over all layers we need to pass the cross chunk edges until they are
+        # used.
 
-        # resolve edges with same parent
+        # Layer 1 --------------------------------------------------------------
+        # Connected components in Layer 1 get the same parent in Layer 2
+        # We only need to recompute connected components based on the added
+        # edges
         G = nx.Graph()
         G.add_edges_from(parental_edges)
-
         ccs = nx.connected_components(G)
 
-        next_cc_storage = [] # Data passed on from layer to layer
+        # Make changes to Layer 1
+        next_cc_storage = {} # Data passed on from layer to layer
         old_parent_mapping = collections.defaultdict(list)
         for cc in ccs:
             old_parent_ids = list(cc)
@@ -3593,36 +3614,53 @@ class ChunkedGraph(object):
             involved_atomic_ids = []
             cross_chunk_edge_dict = {}
 
+            # Get children of parents
             for old_parent_id in old_parent_ids:
                 involved_atomic_ids.extend(parent_node_id_dict[old_parent_id])
 
+                # Layer 2 is safe for get_children requests since no skip
+                # connections exist on layers <= 2.
                 child_ids = self.get_children(old_parent_id)
                 atomic_ids.extend(child_ids)
 
                 cross_chunk_edge_dict = \
-                    combine_cross_chunk_edge_dicts(cross_chunk_edge_dict,
-                                                   self.read_cross_chunk_edges(old_parent_id))
+                    combine_cross_chunk_edge_dicts(
+                        cross_chunk_edge_dict,
+                        self.read_cross_chunk_edges(old_parent_id))
 
             involved_atomic_ids = np.unique(involved_atomic_ids)
             for involved_atomic_id in involved_atomic_ids:
                 if involved_atomic_id in cross_chunk_edges:
-                    cross_chunk_edge_dict = combine_cross_chunk_edge_dicts(cross_chunk_edge_dict, cross_chunk_edges[involved_atomic_id])
+                    cross_chunk_edge_dict =\
+                        combine_cross_chunk_edge_dicts(
+                            cross_chunk_edge_dict,
+                            cross_chunk_edges[involved_atomic_id])
 
+            # Done computing -- create row mutations
             atomic_ids = np.array(atomic_ids, dtype=np.uint64)
-
             chunk_id = self.get_chunk_id(node_id=old_parent_ids[0])
             new_parent_id = self.get_unique_node_id(chunk_id)
 
             for atomic_id in atomic_ids:
                 val_dict = {column_keys.Hierarchy.Parent: new_parent_id}
-                rows.append(self.mutate_row(serializers.serialize_uint64(atomic_id),
-                                            val_dict, time_stamp=time_stamp))
+                rows.append(self.mutate_row(
+                    serializers.serialize_uint64(atomic_id),
+                    val_dict, time_stamp=time_stamp))
 
             val_dict = {column_keys.Hierarchy.Child: atomic_ids}
+            rows.append(self.mutate_row(
+                serializers.serialize_uint64(new_parent_id),
+                val_dict, time_stamp=time_stamp))
 
-            rows.append(self.mutate_row(serializers.serialize_uint64(new_parent_id),
-                                        val_dict, time_stamp=time_stamp))
+            # We save this for our current remeshing. We will get rid of this
+            # soon, so do not rely on it!
             lvl2_node_mapping[new_parent_id] = atomic_ids
+
+            # Collect cross chunk edges and pass them to the next node
+            # The lowest cross chunk edge determines the next layer we have
+            # to consider.
+
+            next_layer = None
 
             val_dict = {}
             for l in range(2, self.n_layers):
@@ -3630,32 +3668,52 @@ class ChunkedGraph(object):
                     val_dict[column_keys.Connectivity.CrossChunkEdge[l]] = \
                         cross_chunk_edge_dict[l]
 
+                    if next_layer is None:
+                        next_layer = l
+
+            # If we do not have any cross chunk edges, the next layer is the
+            # one below to the root layer which creates the nodes in the root
+            # layer.
+            if next_layer is None:
+                next_layer = self.n_layers - 1
+
             if len(val_dict):
-                rows.append(self.mutate_row(serializers.serialize_uint64(new_parent_id),
-                                            val_dict, time_stamp=time_stamp))
+                rows.append(self.mutate_row(
+                    serializers.serialize_uint64(new_parent_id),
+                    val_dict, time_stamp=time_stamp))
 
             next_old_parents = [parent_lookup[n] for n in old_parent_ids]
             # next_old_parents = [self.get_parent(n) for n in old_parent_ids]
             for p in next_old_parents:
                 old_parent_mapping[p].append(len(next_cc_storage)) # Save storage ids for each future parent
 
-            next_cc_storage.append([new_parent_id,
-                                    next_old_parents,
-                                    old_parent_ids,
-                                    cross_chunk_edge_dict])
+            # Store all information for the next layer we have to worry about
+            # this connected component
+            next_cc_storage[next_layer].append([new_parent_id,
+                                                next_old_parents,
+                                                old_parent_ids,
+                                                cross_chunk_edge_dict])
 
         # Higher Layers --------------------------------------------------------
 
         new_root_ids = []
+
+        # Special case -- if we only have two layers, we are practically done
+        # here
         if self.n_layers == 2:
-            # Special case
-            for cc_storage in next_cc_storage:
+            assert 2 in next_cc_storage
+
+            for cc_storage in next_cc_storage[1]:
                 new_root_ids.append(cc_storage[0])
 
+        # For each layer we have data for, we have to run the same logic:
+        # connected components + adding together all node ids
+        # The appearance of skip connections make this here a minefield.
+        # next_cc_storage will tell us what data to consider for the current
+        # layer and we might create new data for a future layer.
         for i_layer in range(2, self.n_layers):
-            cc_storage = list(next_cc_storage) # copy
-            print(f"\nCCSTORAGE {i_layer} - {cc_storage} \n")
-            next_cc_storage = []
+            cc_storage = list(next_cc_storage[i_layer]) # copy
+            cc_storage_update = {} # stores new data for future layers
 
             # combine what belongs together
             parental_edges = []
@@ -3666,23 +3724,17 @@ class ChunkedGraph(object):
                                            old_parent_mapping[p])))
 
             for e in future_links[i_layer]:
-                print(f"Future link {e} @ {i_layer}")
-                print(f"old_parent_mapping {old_parent_mapping}")
-                print(f"old_parent_mapping[e[0]] {old_parent_mapping[e[0]]}")
-                print(f"old_parent_mapping[e[1]] {old_parent_mapping[e[1]]}")
-                print(f"old_parent_mapping {old_parent_mapping[e[1]]}")
                 parental_edges.extend(list(itertools.product(old_parent_mapping[e[0]],
                                                              old_parent_mapping[e[1]])))
 
             old_parent_mapping = collections.defaultdict(list)
 
+            # Find connected components
             G = nx.Graph()
             G.add_edges_from(parental_edges)
             ccs = list(nx.connected_components(G))
 
-            print(f"CC - {len(ccs)}")
-            print(f"parental_edges - {parental_edges}")
-
+            # Write out connected components
             for cc in ccs:
                 cc_storage_ids = list(cc)
 
@@ -3691,6 +3743,7 @@ class ChunkedGraph(object):
                 old_child_ids = [] # old_parent_ids
                 cross_chunk_edge_dict = {}
 
+                # Collect children
                 for cc_storage_id in cc_storage_ids:
                     cc_storage_entry = cc_storage[cc_storage_id]
 
@@ -3704,7 +3757,6 @@ class ChunkedGraph(object):
                 new_child_ids = np.array(new_child_ids,
                                          dtype=column_keys.Connectivity.Partner.basetype)
 
-                print(i_layer, cc, old_parent_ids[0])
                 chunk_id = self.get_chunk_id(node_id=old_parent_ids[0])
                 new_parent_id = self.get_unique_node_id(chunk_id)
 
@@ -3752,8 +3804,9 @@ class ChunkedGraph(object):
                     # next_old_parents = np.unique([self.get_parent(n) for n in old_parent_ids]) # ---------------------------------
 
                     for p in next_old_parents:
-                        old_parent_mapping[p].append(len(next_cc_storage))
+                        old_parent_mapping[p].append(len(next_cc_storage)) #TODO: change
 
+                    # TODO: change
                     next_cc_storage.append([new_parent_id,
                                             next_old_parents,
                                             old_parent_ids,
