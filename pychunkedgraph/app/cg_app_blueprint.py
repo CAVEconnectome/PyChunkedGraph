@@ -230,7 +230,7 @@ def handle_root_main(table_id, atomic_id, timestamp):
 def handle_merge_1():
     nodes = json.loads(request.data)
     table_id = current_app.config['CHUNKGRAPH_TABLE_ID']
-    user_id = str(request.remote_addr)
+    user_id = g.user_id
 
     return handle_merge_main(table_id, nodes, user_id)
 
@@ -239,7 +239,7 @@ def handle_merge_1():
 @auth_required
 def handle_merge_2(table_id):
     nodes = json.loads(request.data)
-    user_id = str(request.remote_addr)
+    user_id = g.user_id
 
     return handle_merge_main(table_id, nodes, user_id)
 
@@ -317,7 +317,7 @@ def handle_merge_main(table_id, nodes, user_id):
 def handle_split_1():
     table_id = current_app.config['CHUNKGRAPH_TABLE_ID']
     data = json.loads(request.data)
-    user_id = str(request.remote_addr)
+    user_id = g.user_id
 
     return handle_split_main(table_id, data, user_id)
 
@@ -326,7 +326,7 @@ def handle_split_1():
 @auth_required
 def handle_split_2(table_id):
     data = json.loads(request.data)
-    user_id = str(request.remote_addr)
+    user_id = g.user_id
 
     return handle_split_main(table_id, data, user_id)
 
@@ -410,7 +410,7 @@ def handle_split_main(table_id, data, user_id):
 # def handle_shatter(table_id):
 #     data = json.loads(request.data)
 #
-#     user_id = str(request.remote_addr)
+#     user_id = g.user_id
 #
 #     current_app.logger.debug(data)
 #
