@@ -317,6 +317,7 @@ class ChunkedGraph(object):
     def get_chunk_coordinates_from_vol_coordinates(self, x: np.int, y: np.int,
                                                    z: np.int,
                                                    resolution: Sequence[np.int],
+                                                   ceil: bool = False,
                                                    layer=1) -> np.ndarray:
         """ Translates volume coordinates to chunk_coordinates
 
@@ -329,15 +330,19 @@ class ChunkedGraph(object):
         resolution = np.array(resolution)
         scaling = np.array(self.cv.resolution / resolution, dtype=np.int)
 
-        x = (x // scaling[0] - self.vx_vol_bounds[0, 0]) // self.chunk_size[0]
-        y = (y // scaling[1] - self.vx_vol_bounds[1, 0]) // self.chunk_size[1]
-        z = (z // scaling[2] - self.vx_vol_bounds[2, 0]) // self.chunk_size[2]
+        x = (x / scaling[0] - self.vx_vol_bounds[0, 0]) / self.chunk_size[0]
+        y = (y / scaling[1] - self.vx_vol_bounds[1, 0]) / self.chunk_size[1]
+        z = (z / scaling[2] - self.vx_vol_bounds[2, 0]) / self.chunk_size[2]
 
-        x //= self.fan_out ** (max(layer - 2, 0))
-        y //= self.fan_out ** (max(layer - 2, 0))
-        z //= self.fan_out ** (max(layer - 2, 0))
+        x /= self.fan_out ** (max(layer - 2, 0))
+        y /= self.fan_out ** (max(layer - 2, 0))
+        z /= self.fan_out ** (max(layer - 2, 0))
 
-        return np.array([x, y, z], dtype=np.int)
+        coords = np.array([x, y, z])
+        if ceil:
+            coords = np.ceil(coords)
+
+        return coords.astype(np.int)
 
     def get_chunk_layer(self, node_or_chunk_id: np.uint64) -> int:
         """ Extract Layer from Node ID or Chunk ID
@@ -354,6 +359,9 @@ class ChunkedGraph(object):
         :param node_or_chunk_ids: np.ndarray
         :return: np.ndarray
         """
+        if len(node_or_chunk_ids) == 0:
+            return np.array([], dtype=np.int)
+
         get_chunk_layer_vec = np.vectorize(self.get_chunk_layer)
         return get_chunk_layer_vec(node_or_chunk_ids)
 
@@ -2781,11 +2789,13 @@ class ChunkedGraph(object):
             return None
 
         if bb_is_coordinate:
-            bounding_box = np.array(bounding_box,
-                                    dtype=np.float32) / self.chunk_size
-            bounding_box[0] = np.floor(bounding_box[0])
-            bounding_box[1] = np.ceil(bounding_box[1])
-            return bounding_box.astype(np.int)
+            bounding_box[0] = self.get_chunk_coordinates_from_vol_coordinates(
+                bounding_box[0][0], bounding_box[0][1], bounding_box[0][2],
+                resolution=self.cv.resolution, ceil=False)
+            bounding_box[1] = self.get_chunk_coordinates_from_vol_coordinates(
+                bounding_box[1][0], bounding_box[1][1], bounding_box[1][2],
+                resolution=self.cv.resolution, ceil=True)
+            return bounding_box
         else:
             return np.array(bounding_box, dtype=np.int)
 
@@ -2801,17 +2811,23 @@ class ChunkedGraph(object):
 
             if len(children) > 0 and bounding_box is not None:
                 chunk_coordinates = np.array([self.get_chunk_coordinates(c) for c in children])
+                child_layers = self.get_chunk_layers(children)
+                adapt_child_layers = child_layers - 2
+                adapt_child_layers[adapt_child_layers < 0] = 0
 
-                bounding_box_layer = bounding_box / self.fan_out ** np.max([0, (layer - 3)])
+                bounding_box_layer = bounding_box[None] / \
+                                     (self.fan_out ** adapt_child_layers)[:, None, None]
 
                 bound_check = np.array([
-                    np.all(chunk_coordinates < bounding_box_layer[1], axis=1),
-                    np.all(chunk_coordinates + 1 > bounding_box_layer[0], axis=1)]).T
+                    np.all(chunk_coordinates < bounding_box_layer[:, 1], axis=1),
+                    np.all(chunk_coordinates + 1 > bounding_box_layer[:, 0], axis=1)]).T
 
                 bound_check_mask = np.all(bound_check, axis=1)
                 children = children[bound_check_mask]
 
             return children
+
+        bounding_box = np.array(bounding_box)
 
         layer = self.get_chunk_layer(node_id)
         assert layer > 1
@@ -2827,8 +2843,11 @@ class ChunkedGraph(object):
             time_start = time.time()
 
         while layer > stop_layer:
+            print(f"layer {layer}")
             # Use heuristic to guess the optimal number of threads
             child_id_layers = self.get_chunk_layers(child_ids)
+            print(f"child_id_layers {child_id_layers}")
+            print(f"child_ids {child_ids}")
             this_layer_m = child_id_layers == layer
             this_layer_child_ids = child_ids[this_layer_m]
             next_layer_child_ids = child_ids[~this_layer_m]
@@ -2942,7 +2961,10 @@ class ChunkedGraph(object):
             return self.get_children(node_ids, flatten=True)
 
         stop_layer = np.min(return_layers)
-        bounding_box = self.normalize_bounding_box(bounding_box, bb_is_coordinate)
+        bounding_box = self.normalize_bounding_box(bounding_box,
+                                                   bb_is_coordinate)
+
+        print(bounding_box)
 
         # Layer 3+
         if stop_layer >= 2:
