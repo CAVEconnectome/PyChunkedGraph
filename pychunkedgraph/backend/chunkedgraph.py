@@ -318,13 +318,16 @@ class ChunkedGraph(object):
                                                    z: np.int,
                                                    resolution: Sequence[np.int],
                                                    ceil: bool = False,
-                                                   layer=1) -> np.ndarray:
+                                                   layer: int = 1
+                                                   ) -> np.ndarray:
         """ Translates volume coordinates to chunk_coordinates
 
         :param x: np.int
         :param y: np.int
         :param z: np.int
         :param resolution: np.ndarray
+        :param ceil bool
+        :param layer: int
         :return:
         """
         resolution = np.array(resolution)
@@ -2843,11 +2846,8 @@ class ChunkedGraph(object):
             time_start = time.time()
 
         while layer > stop_layer:
-            print(f"layer {layer}")
             # Use heuristic to guess the optimal number of threads
             child_id_layers = self.get_chunk_layers(child_ids)
-            print(f"child_id_layers {child_id_layers}")
-            print(f"child_ids {child_ids}")
             this_layer_m = child_id_layers == layer
             this_layer_child_ids = child_ids[this_layer_m]
             next_layer_child_ids = child_ids[~this_layer_m]
