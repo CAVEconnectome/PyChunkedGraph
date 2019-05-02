@@ -329,8 +329,6 @@ class ChunkedGraph(object):
         resolution = np.array(resolution)
         scaling = np.array(self.cv.resolution / resolution, dtype=np.int)
 
-        print(scaling)
-
         x = (x // scaling[0] - self.vx_vol_bounds[0, 0]) // self.chunk_size[0]
         y = (y // scaling[1] - self.vx_vol_bounds[1, 0]) // self.chunk_size[1]
         z = (z // scaling[2] - self.vx_vol_bounds[2, 0]) // self.chunk_size[2]
@@ -339,7 +337,7 @@ class ChunkedGraph(object):
         y //= self.fan_out ** (max(layer - 2, 0))
         z //= self.fan_out ** (max(layer - 2, 0))
 
-        return np.array([x, y, z], dtype=np.uint64)
+        return np.array([x, y, z], dtype=np.int)
 
     def get_chunk_layer(self, node_or_chunk_id: np.uint64) -> int:
         """ Extract Layer from Node ID or Chunk ID
