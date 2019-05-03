@@ -104,7 +104,10 @@ def get_highest_child_nodes_with_meshes(cg,
         with Storage(cg.cv_mesh_path) as stor:
             while True:
                 filenames = [get_mesh_name(cg, c, MESH_MIP) for c in candidates]
+
+                time_start = time.time()
                 existence_dict = stor.files_exist(filenames)
+                print("Existence took: %.3fs" % (time.time() - time_start))
 
                 missing_meshes = []
                 for mesh_key in existence_dict:
@@ -115,10 +118,13 @@ def get_highest_child_nodes_with_meshes(cg,
                         if cg.get_chunk_layer(node_id) > stop_layer:
                             missing_meshes.append(node_id)
 
+                time_start = time.time()
                 if missing_meshes:
                     candidates = cg.get_children(missing_meshes, flatten=True)
                 else:
                     break
+                print("ChunkedGraph lookup took: %.3fs" % (time.time() - time_start))
+
     else:
         valid_node_ids = candidates
 

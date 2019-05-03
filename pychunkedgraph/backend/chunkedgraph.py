@@ -313,7 +313,7 @@ class ChunkedGraph(object):
             info["credentials"] = self.client._credentials
 
         return info
-    
+
     def get_chunk_coordinates_from_vol_coordinates(self, x: np.int, y: np.int,
                                                    z: np.int,
                                                    resolution: Sequence[np.int],
@@ -364,6 +364,24 @@ class ChunkedGraph(object):
 
         get_chunk_layer_vec = np.vectorize(self.get_chunk_layer)
         return get_chunk_layer_vec(node_or_chunk_ids)
+
+    def get_chunk_child_ids(self, node_or_chunk_id: np.uint64) -> np.ndarray:
+        """ Calculates the ids of the children chunks in the next lower layer
+
+        :param node_or_chunk_id: np.uint64
+        :return: np.ndarray
+        """
+        chunk_coords = self.get_chunk_coordinates(node_or_chunk_id)
+        chunk_layer = self.get_chunk_layer(node_or_chunk_id)
+
+        chunk_ids = []
+        for dcoord in itertools.product(*[range(self.fan_out)]*3):
+            x, y, z = chunk_coords * self.fan_out + np.array(dcoord)
+            child_chunk_id = self.get_chunk_id(layer=chunk_layer-1,
+                                               x=x, y=y, z=z)
+            chunk_ids.append(child_chunk_id)
+
+        return np.array(chunk_ids)
 
     def get_chunk_coordinates(self, node_or_chunk_id: np.uint64
                               ) -> np.ndarray:
@@ -629,7 +647,7 @@ class ChunkedGraph(object):
         :return: uint64
         """
 
-        n_counters = np.uint64(2 ** N_BITS_PER_ROOT_COUNTER)
+        n_counters = np.uint64(2 ** self.n_bits_root_counter)
         max_value = 0
         for counter_id in range(n_counters):
             row_key = serializers.serialize_key(
@@ -719,6 +737,25 @@ class ChunkedGraph(object):
         row = self.read_byte_row(row_keys.OperationID, columns=column)
 
         return row[0].value if row else column.basetype(0)
+
+    def get_parent_chunk_ids(self, node_id: np.uint64) -> np.ndarray:
+        """ Calculates parent chunk ids
+
+        :param node_id: np.uint64
+        :return: np.ndarry
+        """
+        coords = np.array(self.get_chunk_coordinates(node_id))
+        layer = self.get_chunk_layer(node_id)
+
+        parent_chunk_ids = []
+        for current_layer in range(layer, int(self.n_layers + 1)):
+            coords = coords // self.fan_out
+
+            x, y, z = coords
+            parent_chunk_ids.append(self.get_chunk_id(layer=current_layer,
+                                                      x=x, y=y, z=z))
+
+        return np.array(parent_chunk_ids)
 
     def get_cross_chunk_edges_layer(self, cross_edges):
         """ Computes the layer in which a cross chunk edge becomes relevant.
@@ -2205,8 +2242,8 @@ class ChunkedGraph(object):
 
     def get_root(self, node_id: np.uint64,
                  time_stamp: Optional[datetime.datetime] = None,
-                 get_all_parents=False, n_tries: int = 1
-                 ) -> Union[List[np.uint64], np.uint64]:
+                 get_all_parents=False, stop_layer: int = None,
+                 n_tries: int = 1) -> Union[List[np.uint64], np.uint64]:
         """ Takes a node id and returns the associated agglomeration ids
 
         :param node_id: uint64
@@ -2226,11 +2263,16 @@ class ChunkedGraph(object):
         parent_id = node_id
         all_parent_ids = []
 
+        if stop_layer is not None:
+            stop_layer = min(self.n_layers, stop_layer)
+        else:
+            stop_layer = self.n_layers
+
         for i_try in range(n_tries):
             parent_id = node_id
 
-            for i_layer in range(self.get_chunk_layer(node_id) + 1,
-                                 int(self.n_layers + 1)):
+            for i_layer in range(self.get_chunk_layer(node_id)+1,
+                                 int(stop_layer + 1)):
 
                 temp_parent_id = self.get_parent(parent_id,
                                                  time_stamp=time_stamp)
@@ -2241,12 +2283,12 @@ class ChunkedGraph(object):
                     parent_id = temp_parent_id
                     all_parent_ids.append(parent_id)
 
-            if self.get_chunk_layer(parent_id) == self.n_layers:
+            if self.get_chunk_layer(parent_id) == stop_layer:
                 break
             else:
                 time.sleep(.5)
 
-        if self.get_chunk_layer(parent_id) != self.n_layers:
+        if self.get_chunk_layer(parent_id) != stop_layer:
             raise Exception("Cannot find root id {}, {}".format(node_id,
                                                                 time_stamp))
 
