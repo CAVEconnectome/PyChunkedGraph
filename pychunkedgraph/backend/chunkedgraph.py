@@ -2827,7 +2827,8 @@ class ChunkedGraph(object):
 
             return children
 
-        bounding_box = np.array(bounding_box)
+        if bounding_box is not None:
+            bounding_box = np.array(bounding_box)
 
         layer = self.get_chunk_layer(node_id)
         assert layer > 1
@@ -3597,7 +3598,7 @@ class ChunkedGraph(object):
         # calling get_parent() and get_children() in this function! We have
         # to maintain our own lookup tables and check these first before falling
         # back to these functions.
-        # No question, this sucks!
+        # Agreed, this sucks!
 
         lvl2_node_mapping = {} # fore remeshing -- will go away in the future
                                # aka: do not rely on this!
@@ -3656,7 +3657,7 @@ class ChunkedGraph(object):
         ccs = nx.connected_components(G)
 
         # Make changes to Layer 1
-        next_cc_storage = {} # Data passed on from layer to layer
+        next_cc_storage = collections.defaultdict(list) # Data passed on from layer to layer
         old_parent_mapping = collections.defaultdict(list)
         for cc in ccs:
             old_parent_ids = list(cc)
@@ -3736,7 +3737,7 @@ class ChunkedGraph(object):
             next_old_parents = [parent_lookup[n] for n in old_parent_ids]
             # next_old_parents = [self.get_parent(n) for n in old_parent_ids]
             for p in next_old_parents:
-                old_parent_mapping[p].append(len(next_cc_storage)) # Save storage ids for each future parent
+                old_parent_mapping[p].append(len(next_cc_storage[next_layer])) # Save storage ids for each future parent
 
             # Store all information for the next layer we have to worry about
             # this connected component
@@ -3752,7 +3753,7 @@ class ChunkedGraph(object):
         # Special case -- if we only have two layers, we are practically done
         # here
         if self.n_layers == 2:
-            assert 2 in next_cc_storage
+            assert 1 in next_cc_storage
 
             for cc_storage in next_cc_storage[1]:
                 new_root_ids.append(cc_storage[0])
@@ -3763,6 +3764,8 @@ class ChunkedGraph(object):
         # next_cc_storage will tell us what data to consider for the current
         # layer and we might create new data for a future layer.
         for i_layer in range(2, self.n_layers):
+            print(f"i_layer: {i_layer}")
+            print(f"next_cc_storage: {next_cc_storage}")
             cc_storage = list(next_cc_storage[i_layer]) # copy
             cc_storage_update = {} # stores new data for future layers
 
@@ -3788,6 +3791,7 @@ class ChunkedGraph(object):
             # Write out connected components
             for cc in ccs:
                 cc_storage_ids = list(cc)
+                print(f"cc_storage_ids: {cc_storage_ids}")
 
                 new_child_ids = [] # new_parent_id
                 old_parent_ids = [] # next_old_parents
