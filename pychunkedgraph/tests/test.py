@@ -165,9 +165,9 @@ def gen_graph_simplequerytest(request, gen_graph):
                  vertices=[to_label(graph, 1, 2, 0, 0, 0)],
                  edges=[(to_label(graph, 1, 2, 0, 0, 0), to_label(graph, 1, 1, 0, 0, 0), inf)])
 
-    graph.add_layer(3, np.array([[0, 0, 0], [1, 0, 0]]))
-    graph.add_layer(3, np.array([[2, 0, 0]]))
-    graph.add_layer(4, np.array([[0, 0, 0], [1, 0, 0]]))
+    graph.add_layer(3, np.array([[0, 0, 0], [1, 0, 0]]), n_threads=1)
+    graph.add_layer(3, np.array([[2, 0, 0]]), n_threads=1)
+    graph.add_layer(4, np.array([[0, 0, 0], [1, 0, 0]]), n_threads=1)
 
     return graph
 
@@ -447,7 +447,7 @@ class TestGraphBuild:
                      vertices=[to_label(cgraph, 1, 1, 0, 0, 0)],
                      edges=[(to_label(cgraph, 1, 1, 0, 0, 0), to_label(cgraph, 1, 0, 0, 0, 0), inf)])
 
-        cgraph.add_layer(3, np.array([[0, 0, 0], [1, 0, 0]]))
+        cgraph.add_layer(3, np.array([[0, 0, 0], [1, 0, 0]]), n_threads=1)
 
         res = cgraph.table.read_rows()
         res.consume_all()
@@ -559,7 +559,7 @@ class TestGraphBuild:
                      vertices=[to_label(cgraph, 1, 1, 0, 0, 0)],
                      edges=[(to_label(cgraph, 1, 1, 0, 0, 0), to_label(cgraph, 1, 0, 0, 0, 0), inf)])
 
-        cgraph.add_layer(3, np.array([[0, 0, 0], [1, 0, 0]]))
+        cgraph.add_layer(3, np.array([[0, 0, 0], [1, 0, 0]]), n_threads=1)
 
         res = cgraph.table.read_rows()
         res.consume_all()
@@ -680,21 +680,21 @@ class TestGraphBuild:
                      vertices=[to_label(cgraph, 1, 255, 255, 255, 0)],
                      edges=[])
 
-        cgraph.add_layer(3, np.array([[0x00, 0x00, 0x00]]))
-        cgraph.add_layer(3, np.array([[0xFF, 0xFF, 0xFF]]))
-        cgraph.add_layer(4, np.array([[0x00, 0x00, 0x00]]))
-        cgraph.add_layer(4, np.array([[0x7F, 0x7F, 0x7F]]))
-        cgraph.add_layer(5, np.array([[0x00, 0x00, 0x00]]))
-        cgraph.add_layer(5, np.array([[0x3F, 0x3F, 0x3F]]))
-        cgraph.add_layer(6, np.array([[0x00, 0x00, 0x00]]))
-        cgraph.add_layer(6, np.array([[0x1F, 0x1F, 0x1F]]))
-        cgraph.add_layer(7, np.array([[0x00, 0x00, 0x00]]))
-        cgraph.add_layer(7, np.array([[0x0F, 0x0F, 0x0F]]))
-        cgraph.add_layer(8, np.array([[0x00, 0x00, 0x00]]))
-        cgraph.add_layer(8, np.array([[0x07, 0x07, 0x07]]))
-        cgraph.add_layer(9, np.array([[0x00, 0x00, 0x00]]))
-        cgraph.add_layer(9, np.array([[0x03, 0x03, 0x03]]))
-        cgraph.add_layer(10, np.array([[0x00, 0x00, 0x00], [0x01, 0x01, 0x01]]))
+        cgraph.add_layer(3, np.array([[0x00, 0x00, 0x00]]), n_threads=1)
+        cgraph.add_layer(3, np.array([[0xFF, 0xFF, 0xFF]]), n_threads=1)
+        cgraph.add_layer(4, np.array([[0x00, 0x00, 0x00]]), n_threads=1)
+        cgraph.add_layer(4, np.array([[0x7F, 0x7F, 0x7F]]), n_threads=1)
+        cgraph.add_layer(5, np.array([[0x00, 0x00, 0x00]]), n_threads=1)
+        cgraph.add_layer(5, np.array([[0x3F, 0x3F, 0x3F]]), n_threads=1)
+        cgraph.add_layer(6, np.array([[0x00, 0x00, 0x00]]), n_threads=1)
+        cgraph.add_layer(6, np.array([[0x1F, 0x1F, 0x1F]]), n_threads=1)
+        cgraph.add_layer(7, np.array([[0x00, 0x00, 0x00]]), n_threads=1)
+        cgraph.add_layer(7, np.array([[0x0F, 0x0F, 0x0F]]), n_threads=1)
+        cgraph.add_layer(8, np.array([[0x00, 0x00, 0x00]]), n_threads=1)
+        cgraph.add_layer(8, np.array([[0x07, 0x07, 0x07]]), n_threads=1)
+        cgraph.add_layer(9, np.array([[0x00, 0x00, 0x00]]), n_threads=1)
+        cgraph.add_layer(9, np.array([[0x03, 0x03, 0x03]]), n_threads=1)
+        cgraph.add_layer(10, np.array([[0x00, 0x00, 0x00], [0x01, 0x01, 0x01]]), n_threads=1)
 
         res = cgraph.table.read_rows()
         res.consume_all()
@@ -738,11 +738,11 @@ class TestGraphBuild:
                      timestamp=fake_timestamp)
 
         cgraph.add_layer(3, np.array([[0, 0, 0], [1, 0, 0]]),
-                         time_stamp=fake_timestamp)
+                         time_stamp=fake_timestamp, n_threads=1)
         cgraph.add_layer(3, np.array([[0, 0, 0], [1, 0, 0]]),
-                         time_stamp=fake_timestamp)
+                         time_stamp=fake_timestamp, n_threads=1)
         cgraph.add_layer(4, np.array([[0, 0, 0]]),
-                         time_stamp=fake_timestamp)
+                         time_stamp=fake_timestamp, n_threads=1)
 
         assert len(cgraph.range_read_chunk(layer=2, x=0, y=0, z=0)) == 2
         assert len(cgraph.range_read_chunk(layer=2, x=1, y=0, z=0)) == 1
@@ -1074,7 +1074,7 @@ class TestGraphMerge:
                      edges=[],
                      timestamp=fake_timestamp)
 
-        cgraph.add_layer(3, np.array([[0, 0, 0], [1, 0, 0]]), time_stamp=fake_timestamp)
+        cgraph.add_layer(3, np.array([[0, 0, 0], [1, 0, 0]]), time_stamp=fake_timestamp, n_threads=1)
 
         # Merge
         new_root_ids = cgraph.add_edges("Jane Doe", [to_label(cgraph, 1, 1, 0, 0, 0), to_label(cgraph, 1, 0, 0, 0, 0)], affinities=0.3)
@@ -1120,19 +1120,19 @@ class TestGraphMerge:
                      edges=[],
                      timestamp=fake_timestamp)
 
-        cgraph.add_layer(3, np.array([[0x00, 0x00, 0x00]]), time_stamp=fake_timestamp)
-        cgraph.add_layer(3, np.array([[0x7F, 0x7F, 0x7F]]), time_stamp=fake_timestamp)
-        cgraph.add_layer(4, np.array([[0x00, 0x00, 0x00]]), time_stamp=fake_timestamp)
-        cgraph.add_layer(4, np.array([[0x3F, 0x3F, 0x3F]]), time_stamp=fake_timestamp)
-        cgraph.add_layer(5, np.array([[0x00, 0x00, 0x00]]), time_stamp=fake_timestamp)
-        cgraph.add_layer(5, np.array([[0x1F, 0x1F, 0x1F]]), time_stamp=fake_timestamp)
-        cgraph.add_layer(6, np.array([[0x00, 0x00, 0x00]]), time_stamp=fake_timestamp)
-        cgraph.add_layer(6, np.array([[0x0F, 0x0F, 0x0F]]), time_stamp=fake_timestamp)
-        cgraph.add_layer(7, np.array([[0x00, 0x00, 0x00]]), time_stamp=fake_timestamp)
-        cgraph.add_layer(7, np.array([[0x07, 0x07, 0x07]]), time_stamp=fake_timestamp)
-        cgraph.add_layer(8, np.array([[0x00, 0x00, 0x00]]), time_stamp=fake_timestamp)
-        cgraph.add_layer(8, np.array([[0x03, 0x03, 0x03]]), time_stamp=fake_timestamp)
-        cgraph.add_layer(9, np.array([[0x00, 0x00, 0x00], [0x01, 0x01, 0x01]]), time_stamp=fake_timestamp)
+        cgraph.add_layer(3, np.array([[0x00, 0x00, 0x00]]), time_stamp=fake_timestamp, n_threads=1)
+        cgraph.add_layer(3, np.array([[0x7F, 0x7F, 0x7F]]), time_stamp=fake_timestamp, n_threads=1)
+        cgraph.add_layer(4, np.array([[0x00, 0x00, 0x00]]), time_stamp=fake_timestamp, n_threads=1)
+        cgraph.add_layer(4, np.array([[0x3F, 0x3F, 0x3F]]), time_stamp=fake_timestamp, n_threads=1)
+        cgraph.add_layer(5, np.array([[0x00, 0x00, 0x00]]), time_stamp=fake_timestamp, n_threads=1)
+        cgraph.add_layer(5, np.array([[0x1F, 0x1F, 0x1F]]), time_stamp=fake_timestamp, n_threads=1)
+        cgraph.add_layer(6, np.array([[0x00, 0x00, 0x00]]), time_stamp=fake_timestamp, n_threads=1)
+        cgraph.add_layer(6, np.array([[0x0F, 0x0F, 0x0F]]), time_stamp=fake_timestamp, n_threads=1)
+        cgraph.add_layer(7, np.array([[0x00, 0x00, 0x00]]), time_stamp=fake_timestamp, n_threads=1)
+        cgraph.add_layer(7, np.array([[0x07, 0x07, 0x07]]), time_stamp=fake_timestamp, n_threads=1)
+        cgraph.add_layer(8, np.array([[0x00, 0x00, 0x00]]), time_stamp=fake_timestamp, n_threads=1)
+        cgraph.add_layer(8, np.array([[0x03, 0x03, 0x03]]), time_stamp=fake_timestamp, n_threads=1)
+        cgraph.add_layer(9, np.array([[0x00, 0x00, 0x00], [0x01, 0x01, 0x01]]), time_stamp=fake_timestamp, n_threads=1)
 
         # Merge
         new_root_ids = cgraph.add_edges("Jane Doe", [to_label(cgraph, 1, 127, 127, 127, 0), to_label(cgraph, 1, 0, 0, 0, 0)], affinities=0.3)
@@ -1262,7 +1262,7 @@ class TestGraphMerge:
                      edges=[(to_label(cgraph, 1, 1, 0, 0, 0), to_label(cgraph, 1, 0, 0, 0, 1), inf)],
                      timestamp=fake_timestamp)
 
-        cgraph.add_layer(3, np.array([[0, 0, 0], [1, 0, 0]]), time_stamp=fake_timestamp)
+        cgraph.add_layer(3, np.array([[0, 0, 0], [1, 0, 0]]), time_stamp=fake_timestamp, n_threads=1)
 
         # Merge
         new_root_ids = cgraph.add_edges("Jane Doe", [to_label(cgraph, 1, 1, 0, 0, 0), to_label(cgraph, 1, 0, 0, 0, 0)], affinities=1.0)
@@ -1329,19 +1329,19 @@ class TestGraphMerge:
                      edges=[(to_label(cgraph, 1, 127, 127, 127, 0), to_label(cgraph, 1, 0, 0, 0, 1), inf)],
                      timestamp=fake_timestamp)
 
-        cgraph.add_layer(3, np.array([[0x00, 0x00, 0x00]]), time_stamp=fake_timestamp)
-        cgraph.add_layer(3, np.array([[0x7F, 0x7F, 0x7F]]), time_stamp=fake_timestamp)
-        cgraph.add_layer(4, np.array([[0x00, 0x00, 0x00]]), time_stamp=fake_timestamp)
-        cgraph.add_layer(4, np.array([[0x3F, 0x3F, 0x3F]]), time_stamp=fake_timestamp)
-        cgraph.add_layer(5, np.array([[0x00, 0x00, 0x00]]), time_stamp=fake_timestamp)
-        cgraph.add_layer(5, np.array([[0x1F, 0x1F, 0x1F]]), time_stamp=fake_timestamp)
-        cgraph.add_layer(6, np.array([[0x00, 0x00, 0x00]]), time_stamp=fake_timestamp)
-        cgraph.add_layer(6, np.array([[0x0F, 0x0F, 0x0F]]), time_stamp=fake_timestamp)
-        cgraph.add_layer(7, np.array([[0x00, 0x00, 0x00]]), time_stamp=fake_timestamp)
-        cgraph.add_layer(7, np.array([[0x07, 0x07, 0x07]]), time_stamp=fake_timestamp)
-        cgraph.add_layer(8, np.array([[0x00, 0x00, 0x00]]), time_stamp=fake_timestamp)
-        cgraph.add_layer(8, np.array([[0x03, 0x03, 0x03]]), time_stamp=fake_timestamp)
-        cgraph.add_layer(9, np.array([[0x00, 0x00, 0x00], [0x01, 0x01, 0x01]]), time_stamp=fake_timestamp)
+        cgraph.add_layer(3, np.array([[0x00, 0x00, 0x00]]), time_stamp=fake_timestamp, n_threads=1)
+        cgraph.add_layer(3, np.array([[0x7F, 0x7F, 0x7F]]), time_stamp=fake_timestamp, n_threads=1)
+        cgraph.add_layer(4, np.array([[0x00, 0x00, 0x00]]), time_stamp=fake_timestamp, n_threads=1)
+        cgraph.add_layer(4, np.array([[0x3F, 0x3F, 0x3F]]), time_stamp=fake_timestamp, n_threads=1)
+        cgraph.add_layer(5, np.array([[0x00, 0x00, 0x00]]), time_stamp=fake_timestamp, n_threads=1)
+        cgraph.add_layer(5, np.array([[0x1F, 0x1F, 0x1F]]), time_stamp=fake_timestamp, n_threads=1)
+        cgraph.add_layer(6, np.array([[0x00, 0x00, 0x00]]), time_stamp=fake_timestamp, n_threads=1)
+        cgraph.add_layer(6, np.array([[0x0F, 0x0F, 0x0F]]), time_stamp=fake_timestamp, n_threads=1)
+        cgraph.add_layer(7, np.array([[0x00, 0x00, 0x00]]), time_stamp=fake_timestamp, n_threads=1)
+        cgraph.add_layer(7, np.array([[0x07, 0x07, 0x07]]), time_stamp=fake_timestamp, n_threads=1)
+        cgraph.add_layer(8, np.array([[0x00, 0x00, 0x00]]), time_stamp=fake_timestamp, n_threads=1)
+        cgraph.add_layer(8, np.array([[0x03, 0x03, 0x03]]), time_stamp=fake_timestamp, n_threads=1)
+        cgraph.add_layer(9, np.array([[0x00, 0x00, 0x00], [0x01, 0x01, 0x01]]), time_stamp=fake_timestamp, n_threads=1)
 
         # Merge
         new_root_ids = cgraph.add_edges("Jane Doe", [to_label(cgraph, 1, 127, 127, 127, 0), to_label(cgraph, 1, 0, 0, 0, 0)], affinities=1.0)
@@ -1443,7 +1443,7 @@ class TestGraphMerge:
                      edges=[],
                      timestamp=fake_timestamp)
 
-        cgraph.add_layer(3, np.array([[0, 0, 0], [1, 0, 0]]), time_stamp=fake_timestamp)
+        cgraph.add_layer(3, np.array([[0, 0, 0], [1, 0, 0]]), time_stamp=fake_timestamp, n_threads=1)
 
         res_old = cgraph.table.read_rows()
         res_old.consume_all()
@@ -1503,8 +1503,7 @@ class TestGraphMerge:
                      edges=[(to_label(cgraph, 1, 1, 1, 0, 0),
                              to_label(cgraph, 1, 0, 1, 0, 0), inf)])
 
-        cgraph.add_layer(3,
-                         np.array([[0, 0, 0], [1, 0, 0], [0, 1, 0], [1, 1, 0]]))
+        cgraph.add_layer(3, np.array([[0, 0, 0], [1, 0, 0], [0, 1, 0], [1, 1, 0]]), n_threads=1)
 
         rr = cgraph.range_read_chunk(
             chunk_id=cgraph.get_chunk_id(layer=3, x=0, y=0, z=0))
@@ -1610,7 +1609,7 @@ class TestGraphMerge:
 
         for i_layer in range(3, 7):
             for i_chunk in range(0, 2 ** (7 - i_layer), 2):
-                cgraph.add_layer(i_layer, np.array([[i_chunk, 0, 0], [i_chunk+1, 0, 0]]), time_stamp=fake_timestamp)
+                cgraph.add_layer(i_layer, np.array([[i_chunk, 0, 0], [i_chunk+1, 0, 0]]), time_stamp=fake_timestamp, n_threads=1)
 
 
         new_roots = cgraph.add_edges("Jane Doe",
@@ -1741,7 +1740,7 @@ class TestGraphSplit:
                      edges=[(to_label(cgraph, 1, 1, 0, 0, 0), to_label(cgraph, 1, 0, 0, 0, 0), 1.0)],
                      timestamp=fake_timestamp)
 
-        cgraph.add_layer(3, np.array([[0, 0, 0], [1, 0, 0]]), time_stamp=fake_timestamp)
+        cgraph.add_layer(3, np.array([[0, 0, 0], [1, 0, 0]]), time_stamp=fake_timestamp, n_threads=1)
 
         # Split
         new_root_ids = cgraph.remove_edges("Jane Doe", to_label(cgraph, 1, 1, 0, 0, 0), to_label(cgraph, 1, 0, 0, 0, 0), mincut=False)
@@ -1801,9 +1800,9 @@ class TestGraphSplit:
                      edges=[(to_label(cgraph, 1, 2, 0, 0, 0), to_label(cgraph, 1, 1, 0, 0, 0), inf)],
                      timestamp=fake_timestamp)
 
-        cgraph.add_layer(3, np.array([[0, 0, 0], [1, 0, 0]]), time_stamp=fake_timestamp)
-        cgraph.add_layer(3, np.array([[2, 0, 0], [3, 0, 0]]), time_stamp=fake_timestamp)
-        cgraph.add_layer(4, np.array([[0, 0, 0], [1, 0, 0]]), time_stamp=fake_timestamp)
+        cgraph.add_layer(3, np.array([[0, 0, 0], [1, 0, 0]]), time_stamp=fake_timestamp, n_threads=1)
+        cgraph.add_layer(3, np.array([[2, 0, 0], [3, 0, 0]]), time_stamp=fake_timestamp, n_threads=1)
+        cgraph.add_layer(4, np.array([[0, 0, 0], [1, 0, 0]]), time_stamp=fake_timestamp, n_threads=1)
 
         assert cgraph.get_root(to_label(cgraph, 1, 1, 0, 0, 0)) == cgraph.get_root(to_label(cgraph, 1, 1, 0, 0, 1))
         assert cgraph.get_root(to_label(cgraph, 1, 1, 0, 0, 0)) == cgraph.get_root(to_label(cgraph, 1, 2, 0, 0, 0))
@@ -1865,9 +1864,9 @@ class TestGraphSplit:
                             (to_label(cgraph, 1, 2, 0, 0, 1), to_label(cgraph, 1, 2, 0, 0, 0), .5)],
                      timestamp=fake_timestamp)
 
-        cgraph.add_layer(3, np.array([[0, 0, 0], [1, 0, 0]]), time_stamp=fake_timestamp)
-        cgraph.add_layer(3, np.array([[2, 0, 0], [3, 0, 0]]), time_stamp=fake_timestamp)
-        cgraph.add_layer(4, np.array([[0, 0, 0], [1, 0, 0]]), time_stamp=fake_timestamp)
+        cgraph.add_layer(3, np.array([[0, 0, 0], [1, 0, 0]]), time_stamp=fake_timestamp, n_threads=1)
+        cgraph.add_layer(3, np.array([[2, 0, 0], [3, 0, 0]]), time_stamp=fake_timestamp, n_threads=1)
+        cgraph.add_layer(4, np.array([[0, 0, 0], [1, 0, 0]]), time_stamp=fake_timestamp, n_threads=1)
 
         assert cgraph.get_root(to_label(cgraph, 1, 1, 0, 0, 0)) == cgraph.get_root(to_label(cgraph, 1, 1, 0, 0, 1))
         assert cgraph.get_root(to_label(cgraph, 1, 1, 0, 0, 0)) == cgraph.get_root(to_label(cgraph, 1, 2, 0, 0, 0))
@@ -1915,19 +1914,19 @@ class TestGraphSplit:
                      edges=[(to_label(cgraph, 1, 127, 127, 127, 0), to_label(cgraph, 1, 0, 0, 0, 0), 1.0)],
                      timestamp=fake_timestamp)
 
-        cgraph.add_layer(3, np.array([[0x00, 0x00, 0x00]]), time_stamp=fake_timestamp)
-        cgraph.add_layer(3, np.array([[0x7F, 0x7F, 0x7F]]), time_stamp=fake_timestamp)
-        cgraph.add_layer(4, np.array([[0x00, 0x00, 0x00]]), time_stamp=fake_timestamp)
-        cgraph.add_layer(4, np.array([[0x3F, 0x3F, 0x3F]]), time_stamp=fake_timestamp)
-        cgraph.add_layer(5, np.array([[0x00, 0x00, 0x00]]), time_stamp=fake_timestamp)
-        cgraph.add_layer(5, np.array([[0x1F, 0x1F, 0x1F]]), time_stamp=fake_timestamp)
-        cgraph.add_layer(6, np.array([[0x00, 0x00, 0x00]]), time_stamp=fake_timestamp)
-        cgraph.add_layer(6, np.array([[0x0F, 0x0F, 0x0F]]), time_stamp=fake_timestamp)
-        cgraph.add_layer(7, np.array([[0x00, 0x00, 0x00]]), time_stamp=fake_timestamp)
-        cgraph.add_layer(7, np.array([[0x07, 0x07, 0x07]]), time_stamp=fake_timestamp)
-        cgraph.add_layer(8, np.array([[0x00, 0x00, 0x00]]), time_stamp=fake_timestamp)
-        cgraph.add_layer(8, np.array([[0x03, 0x03, 0x03]]), time_stamp=fake_timestamp)
-        cgraph.add_layer(9, np.array([[0x00, 0x00, 0x00], [0x01, 0x01, 0x01]]), time_stamp=fake_timestamp)
+        cgraph.add_layer(3, np.array([[0x00, 0x00, 0x00]]), time_stamp=fake_timestamp, n_threads=1)
+        cgraph.add_layer(3, np.array([[0x7F, 0x7F, 0x7F]]), time_stamp=fake_timestamp, n_threads=1)
+        cgraph.add_layer(4, np.array([[0x00, 0x00, 0x00]]), time_stamp=fake_timestamp, n_threads=1)
+        cgraph.add_layer(4, np.array([[0x3F, 0x3F, 0x3F]]), time_stamp=fake_timestamp, n_threads=1)
+        cgraph.add_layer(5, np.array([[0x00, 0x00, 0x00]]), time_stamp=fake_timestamp, n_threads=1)
+        cgraph.add_layer(5, np.array([[0x1F, 0x1F, 0x1F]]), time_stamp=fake_timestamp, n_threads=1)
+        cgraph.add_layer(6, np.array([[0x00, 0x00, 0x00]]), time_stamp=fake_timestamp, n_threads=1)
+        cgraph.add_layer(6, np.array([[0x0F, 0x0F, 0x0F]]), time_stamp=fake_timestamp, n_threads=1)
+        cgraph.add_layer(7, np.array([[0x00, 0x00, 0x00]]), time_stamp=fake_timestamp, n_threads=1)
+        cgraph.add_layer(7, np.array([[0x07, 0x07, 0x07]]), time_stamp=fake_timestamp, n_threads=1)
+        cgraph.add_layer(8, np.array([[0x00, 0x00, 0x00]]), time_stamp=fake_timestamp, n_threads=1)
+        cgraph.add_layer(8, np.array([[0x03, 0x03, 0x03]]), time_stamp=fake_timestamp, n_threads=1)
+        cgraph.add_layer(9, np.array([[0x00, 0x00, 0x00], [0x01, 0x01, 0x01]]), time_stamp=fake_timestamp, n_threads=1)
 
         # Split
         new_roots = cgraph.remove_edges("Jane Doe", to_label(cgraph, 1, 127, 127, 127, 0), to_label(cgraph, 1, 0, 0, 0, 0), mincut=False)
@@ -2072,7 +2071,7 @@ class TestGraphSplit:
                             (to_label(cgraph, 1, 1, 0, 0, 0), to_label(cgraph, 1, 0, 0, 0, 0), 0.3)],
                      timestamp=fake_timestamp)
 
-        cgraph.add_layer(3, np.array([[0, 0, 0], [1, 0, 0]]), time_stamp=fake_timestamp)
+        cgraph.add_layer(3, np.array([[0, 0, 0], [1, 0, 0]]), time_stamp=fake_timestamp, n_threads=1)
 
         # Split
         new_root_ids = cgraph.remove_edges("Jane Doe", to_label(cgraph, 1, 1, 0, 0, 0), to_label(cgraph, 1, 0, 0, 0, 0), mincut=False)
@@ -2136,12 +2135,12 @@ class TestGraphSplit:
 
         for i_layer in range(3, 10):
             if loc // 2**(i_layer - 3) == 1:
-                cgraph.add_layer(i_layer, np.array([[0, 0, 0], [1, 1, 1]]), time_stamp=fake_timestamp)
+                cgraph.add_layer(i_layer, np.array([[0, 0, 0], [1, 1, 1]]), time_stamp=fake_timestamp, n_threads=1)
             elif loc // 2**(i_layer - 3) == 0:
-                cgraph.add_layer(i_layer, np.array([[0, 0, 0]]), time_stamp=fake_timestamp)
+                cgraph.add_layer(i_layer, np.array([[0, 0, 0]]), time_stamp=fake_timestamp, n_threads=1)
             else:
-                cgraph.add_layer(i_layer, np.array([[0, 0, 0]]), time_stamp=fake_timestamp)
-                cgraph.add_layer(i_layer, np.array([[loc // 2**(i_layer - 3), loc // 2**(i_layer - 3), loc // 2**(i_layer - 3)]]), time_stamp=fake_timestamp)
+                cgraph.add_layer(i_layer, np.array([[0, 0, 0]]), time_stamp=fake_timestamp, n_threads=1)
+                cgraph.add_layer(i_layer, np.array([[loc // 2**(i_layer - 3), loc // 2**(i_layer - 3), loc // 2**(i_layer - 3)]]), time_stamp=fake_timestamp, n_threads=1)
 
         assert cgraph.get_root(to_label(cgraph, 1, loc, loc, loc, 0)) == \
                cgraph.get_root(to_label(cgraph, 1, 0, 0, 0, 0)) == \
@@ -2239,7 +2238,7 @@ class TestGraphSplit:
                      edges=[],
                      timestamp=fake_timestamp)
 
-        cgraph.add_layer(3, np.array([[0, 0, 0], [1, 0, 0]]), time_stamp=fake_timestamp)
+        cgraph.add_layer(3, np.array([[0, 0, 0], [1, 0, 0]]), time_stamp=fake_timestamp, n_threads=1)
 
         res_old = cgraph.table.read_rows()
         res_old.consume_all()
@@ -2294,7 +2293,7 @@ class TestGraphSplit:
                      vertices=[to_label(cgraph, 1, 1, 1, 0, 0)],
                      edges=[(to_label(cgraph, 1, 1, 1, 0, 0), to_label(cgraph, 1, 0, 1, 0, 0), inf)])
 
-        cgraph.add_layer(3, np.array([[0, 0, 0], [1, 0, 0], [0, 1, 0], [1, 1, 0]]))
+        cgraph.add_layer(3, np.array([[0, 0, 0], [1, 0, 0], [0, 1, 0], [1, 1, 0]]), n_threads=1)
 
         rr = cgraph.range_read_chunk(chunk_id=cgraph.get_chunk_id(layer=3, x=0, y=0, z=0))
         root_ids_t0 = list(rr.keys())
@@ -2360,7 +2359,7 @@ class TestGraphSplit:
                      vertices=[to_label(cgraph, 1, 1, 1, 0, 0)],
                      edges=[(to_label(cgraph, 1, 1, 1, 0, 0), to_label(cgraph, 1, 0, 1, 0, 0), .1)])
 
-        cgraph.add_layer(3, np.array([[0, 0, 0], [1, 0, 0], [0, 1, 0], [1, 1, 0]]))
+        cgraph.add_layer(3, np.array([[0, 0, 0], [1, 0, 0], [0, 1, 0], [1, 1, 0]]), n_threads=1)
 
         new_root_ids = cgraph.shatter_nodes("Jane Doe", atomic_node_ids=[to_label(cgraph, 1, 0, 0, 0, 0)])
 
@@ -2525,7 +2524,7 @@ class TestGraphMinCut:
                      edges=[(to_label(cgraph, 1, 1, 0, 0, 0), to_label(cgraph, 1, 0, 0, 0, 0), 0.5)],
                      timestamp=fake_timestamp)
 
-        cgraph.add_layer(3, np.array([[0, 0, 0], [1, 0, 0]]), time_stamp=fake_timestamp)
+        cgraph.add_layer(3, np.array([[0, 0, 0], [1, 0, 0]]), time_stamp=fake_timestamp, n_threads=1)
 
         # Mincut
         new_root_ids = cgraph.remove_edges(
@@ -2571,7 +2570,7 @@ class TestGraphMinCut:
                      edges=[],
                      timestamp=fake_timestamp)
 
-        cgraph.add_layer(3, np.array([[0, 0, 0], [1, 0, 0]]), time_stamp=fake_timestamp)
+        cgraph.add_layer(3, np.array([[0, 0, 0], [1, 0, 0]]), time_stamp=fake_timestamp, n_threads=1)
 
         res_old = cgraph.table.read_rows()
         res_old.consume_all()
@@ -2614,7 +2613,7 @@ class TestGraphMinCut:
                      edges=[(to_label(cgraph, 1, 1, 0, 0, 0), to_label(cgraph, 1, 0, 0, 0, 0), 0.5)],
                      timestamp=fake_timestamp)
 
-        cgraph.add_layer(3, np.array([[0, 0, 0], [1, 0, 0]]), time_stamp=fake_timestamp)
+        cgraph.add_layer(3, np.array([[0, 0, 0], [1, 0, 0]]), time_stamp=fake_timestamp, n_threads=1)
         cgraph.remove_edges("John Doe", to_label(cgraph, 1, 1, 0, 0, 0), to_label(cgraph, 1, 0, 0, 0, 0), mincut=False)
 
         res_old = cgraph.table.read_rows()
@@ -2662,7 +2661,7 @@ class TestGraphMinCut:
                      timestamp=fake_timestamp)
 
         cgraph.add_layer(3, np.array([[0, 0, 0], [1, 0, 0]]),
-                         time_stamp=fake_timestamp)
+                         time_stamp=fake_timestamp, n_threads=1)
 
         original_parents_1 = cgraph.get_all_parents(
             to_label(cgraph, 1, 0, 0, 0, 0))
@@ -2723,7 +2722,7 @@ class TestGraphHistory:
                      timestamp=fake_timestamp)
 
         cgraph.add_layer(3, np.array([[0, 0, 0], [1, 0, 0]]),
-                         time_stamp=fake_timestamp)
+                         time_stamp=fake_timestamp, n_threads=1)
 
         first_root = cgraph.get_root(to_label(cgraph, 1, 0, 0, 0, 0))
         assert first_root == cgraph.get_root(to_label(cgraph, 1, 1, 0, 0, 0))
@@ -2812,7 +2811,7 @@ class TestGraphLocks:
                      timestamp=fake_timestamp)
 
         cgraph.add_layer(3, np.array([[0, 0, 0], [1, 0, 0]]),
-                         time_stamp=fake_timestamp)
+                         time_stamp=fake_timestamp, n_threads=1)
 
         operation_id_1 = cgraph.get_unique_operation_id()
         root_id = cgraph.get_root(to_label(cgraph, 1, 0, 0, 0, 1))
@@ -2861,7 +2860,7 @@ class TestGraphLocks:
                      timestamp=fake_timestamp)
 
         cgraph.add_layer(3, np.array([[0, 0, 0], [1, 0, 0]]),
-                         time_stamp=fake_timestamp)
+                         time_stamp=fake_timestamp, n_threads=1)
 
         operation_id_1 = cgraph.get_unique_operation_id()
         root_id = cgraph.get_root(to_label(cgraph, 1, 0, 0, 0, 1))
@@ -2908,7 +2907,7 @@ class TestGraphLocks:
                      timestamp=fake_timestamp)
 
         cgraph.add_layer(3, np.array([[0, 0, 0], [1, 0, 0]]),
-                         time_stamp=fake_timestamp)
+                         time_stamp=fake_timestamp, n_threads=1)
 
         operation_id_1 = cgraph.get_unique_operation_id()
         root_id = cgraph.get_root(to_label(cgraph, 1, 0, 0, 0, 1))
@@ -2949,7 +2948,7 @@ class TestGraphLocks:
                      timestamp=fake_timestamp)
 
         cgraph.add_layer(3, np.array([[0, 0, 0], [1, 0, 0]]),
-                         time_stamp=fake_timestamp)
+                         time_stamp=fake_timestamp, n_threads=1)
 
         root_id = cgraph.get_root(to_label(cgraph, 1, 0, 0, 0, 1))
 
