@@ -1628,6 +1628,9 @@ class TestGraphMerge:
                 n_cross_edges_layer[layer].append(
                     len(cross_edge_dict_layers[child_layer][layer]))
 
+        print(f"n_cross_edges_layer: {n_cross_edges_layer}")
+        print(f"cross_edge_dict_layers: {cross_edge_dict_layers}")
+
         for layer in n_cross_edges_layer.keys():
             cgraph.logger.debug("LAYER %d" % layer)
             assert len(np.unique(n_cross_edges_layer[layer])) == 1
