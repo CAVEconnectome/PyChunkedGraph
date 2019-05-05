@@ -466,7 +466,7 @@ class ChunkedGraph(object):
                                     self.n_layers + 1)
         chunk_coord = self.get_chunk_coordinates(node_or_chunk_id)
 
-        parent_chunk_ids = []
+        parent_chunk_ids = [self.get_chunk_id(node_or_chunk_id)]
         for layer in parent_chunk_layers:
             chunk_coord = chunk_coord // self.fan_out
             parent_chunk_ids.append(self.get_chunk_id(layer=layer,
@@ -482,7 +482,7 @@ class ChunkedGraph(object):
         :return: dict
         """
         chunk_layer = self.get_chunk_layer(node_or_chunk_id)
-        return dict(zip(range(chunk_layer + 1, self.n_layers + 1),
+        return dict(zip(range(chunk_layer, self.n_layers + 1),
                         self.get_parent_chunk_ids(node_or_chunk_id)))
 
     def get_segment_id_limit(self, node_or_chunk_id: np.uint64) -> np.uint64:
@@ -737,25 +737,6 @@ class ChunkedGraph(object):
         row = self.read_byte_row(row_keys.OperationID, columns=column)
 
         return row[0].value if row else column.basetype(0)
-
-    def get_parent_chunk_ids(self, node_id: np.uint64) -> np.ndarray:
-        """ Calculates parent chunk ids
-
-        :param node_id: np.uint64
-        :return: np.ndarry
-        """
-        coords = np.array(self.get_chunk_coordinates(node_id))
-        layer = self.get_chunk_layer(node_id)
-
-        parent_chunk_ids = []
-        for current_layer in range(layer, int(self.n_layers + 1)):
-            coords = coords // self.fan_out
-
-            x, y, z = coords
-            parent_chunk_ids.append(self.get_chunk_id(layer=current_layer,
-                                                      x=x, y=y, z=z))
-
-        return np.array(parent_chunk_ids)
 
     def get_cross_chunk_edges_layer(self, cross_edges):
         """ Computes the layer in which a cross chunk edge becomes relevant.
@@ -2061,10 +2042,7 @@ class ChunkedGraph(object):
         x, y, z = np.min(child_chunk_coords, axis=0) // self.fan_out
         chunk_id = self.get_chunk_id(layer=layer_id, x=x, y=y, z=z)
 
-        parent_chunk_id_dict = {layer_id: chunk_id}
-        for parent_chunk_id in self.get_parent_chunk_ids(chunk_id):
-            parent_chunk_id_dict[self.get_chunk_layer(parent_chunk_id)] = \
-                parent_chunk_id
+        parent_chunk_id_dict = self.get_parent_chunk_id_dict(chunk_id)
 
         # Extract connected components
         isolated_node_mask = ~np.in1d(ll_node_ids, np.unique(edge_ids))
