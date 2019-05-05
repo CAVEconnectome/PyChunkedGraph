@@ -44,6 +44,7 @@ def _read_delta_root_rows_thread(args) -> list:
 
     return new_root_ids, expired_root_ids
 
+
 def _read_root_rows_thread(args) -> list:
     start_seg_id, end_seg_id, serialized_cg_info, time_stamp = args
 
@@ -88,7 +89,6 @@ def get_latest_roots(cg,
                            seg_id_blocks[i_id_block + 1],
                            cg_serialized_info, time_stamp])
 
-    # Run parallelizing
     if n_threads == 1:
         results = mu.multiprocess_func(_read_root_rows_thread,
                                        multi_args, n_threads=n_threads,

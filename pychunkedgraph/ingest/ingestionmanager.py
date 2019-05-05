@@ -4,8 +4,6 @@ import numpy as np
 from pychunkedgraph.backend import chunkedgraph
 
 
-
-
 class IngestionManager(object):
     def __init__(self, storage_path, cg_table_id=None, instance_id=None,
                  project_id=None):

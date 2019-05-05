@@ -3007,8 +3007,6 @@ class ChunkedGraph(object):
         bounding_box = self.normalize_bounding_box(bounding_box,
                                                    bb_is_coordinate)
 
-        print(bounding_box)
-
         # Layer 3+
         if stop_layer >= 2:
             nodes_per_layer = self._get_subgraph_higher_layer_nodes(
