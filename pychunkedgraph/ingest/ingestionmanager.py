@@ -4,8 +4,6 @@ import numpy as np
 from pychunkedgraph.backend import chunkedgraph
 
 
-
-
 class IngestionManager(object):
     def __init__(self, storage_path, cg_table_id=None, instance_id=None,
                  project_id=None):
@@ -36,13 +34,9 @@ class IngestionManager(object):
         return self._cg
 
     @property
-    def vol_bounds(self):
-        return np.array(self.cg.cv.bounds.to_list()).reshape(2, -1).T
-
-    @property
     def bounds(self):
-        bounds = self.vol_bounds.copy()
-        bounds -= self.vol_bounds[:, 0:1]
+        bounds = self.cg.vx_vol_bounds.copy()
+        bounds -= self.cg.vx_vol_bounds[:, 0:1]
 
         return bounds
 
@@ -53,7 +47,6 @@ class IngestionManager(object):
     @property
     def chunk_coord_gen(self):
         return itertools.product(*[range(*r) for r in self.chunk_id_bounds])
-
 
     @property
     def chunk_coords(self):
