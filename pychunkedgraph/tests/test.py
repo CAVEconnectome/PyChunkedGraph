@@ -21,6 +21,27 @@ from pychunkedgraph.backend import chunkedgraph_exceptions as cg_exceptions  # n
 from pychunkedgraph.creator import graph_tests  # noqa
 
 
+class CloudVolumeBounds(object):
+    def __init__(self, bounds=[[0, 0, 0], [0, 0, 0]]):
+        self._bounds = np.array(bounds)
+
+    @property
+    def bounds(self):
+        return self._bounds
+
+    def __repr__(self):
+        return self.bounds
+
+    def to_list(self):
+        return list(np.array(self.bounds).flatten())
+
+
+class CloudVolumeMock(object):
+    def __init__(self):
+        self.resolution = np.array([1, 1, 1], dtype=np.int)
+        self.bounds = CloudVolumeBounds()
+
+
 def setup_emulator_env():
     bt_env_init = subprocess.run(
         ["gcloud", "beta", "emulators", "bigtable", "env-init"], stdout=subprocess.PIPE)
@@ -103,6 +124,8 @@ def gen_graph(request):
             chunk_size=np.array([512, 512, 64], dtype=np.uint64),
             is_new=True, fan_out=np.uint64(fan_out),
             n_layers=np.uint64(n_layers))
+
+        graph._cv = CloudVolumeMock()
 
         # setup Chunked Graph - Finalizer
         def fin():
