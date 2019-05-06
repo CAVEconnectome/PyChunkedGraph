@@ -444,7 +444,7 @@ def _read_agg_files(filenames, base_path):
         if file["error"] is not None:
             continue
 
-        content = zstd.ZstdDecompressor().decompress(file["content"])
+        content = zstd.ZstdDecompressor().decompressobj().decompress(file["content"])
         edge_list.append(np.frombuffer(content, dtype=np.uint64).reshape(-1, 2))
 
     return edge_list

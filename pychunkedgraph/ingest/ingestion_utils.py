@@ -11,9 +11,10 @@ def calc_n_layers(ws_cv, chunk_size, fan_out):
     return n_layers
 
 
-def initialize_chunkedgraph(cg_table_id, ws_cv_path, chunk_size, size, cg_mesh_dir,
-                            s_bits_atomic_layer=None, n_bits_root_counter=8,
-                            fan_out=2, instance_id=None, project_id=None):
+def initialize_chunkedgraph(cg_table_id, ws_cv_path, chunk_size, size,
+                            cg_mesh_dir, s_bits_atomic_layer=None,
+                            n_bits_root_counter=8, fan_out=2, instance_id=None,
+                            project_id=None):
     """ Initalizes a chunkedgraph on BigTable
 
     :param cg_table_id: str
@@ -44,6 +45,7 @@ def initialize_chunkedgraph(cg_table_id, ws_cv_path, chunk_size, size, cg_mesh_d
 
     if size is not None:
         size = np.array(size)
+
         for i in range(len(ws_cv.info['scales'])):
             original_size = ws_cv.info['scales'][i]['size']
             size = np.min([size, original_size], axis=0)
