@@ -1544,15 +1544,7 @@ class TestGraphMerge:
 
     @pytest.mark.timeout(30)
     def test_cross_edges(self, gen_graph):
-        """
-        Remove edge between existing RG supervoxels 1 and 2 (neighboring chunks)
-        ┌─...─┬────────┬─────┐      ┌─...─┬────────┬─────┐
-        |     │     A¹ │  B¹ │      |     │     A¹ │  B¹ │
-        |     │  4  1━━┿━━5  │  =>  |     │  4━━1━━┿━━5  │
-        |     │   /    │  |  │      |     │   /    │     │
-        |     │  3  2━━┿━━6  │      |     │  3  2━━┿━━6  │
-        └─...─┴────────┴─────┘      └─...─┴────────┴─────┘
-        """
+        """"""
 
         cgraph = gen_graph(n_layers=6)
 
@@ -1611,6 +1603,11 @@ class TestGraphMerge:
             for i_chunk in range(0, 2 ** (7 - i_layer), 2):
                 cgraph.add_layer(i_layer, np.array([[i_chunk, 0, 0], [i_chunk+1, 0, 0]]), time_stamp=fake_timestamp, n_threads=1)
 
+        root_ids = cgraph.range_read_chunk(layer=6, x=0, y=0, z=0)
+        for root_id in root_ids:
+            print(f"\nroot_id: {root_id}")
+            cross_edge_dict_layers = graph_tests.root_cross_edge_test(root_id, cg=cgraph)  # dict: layer -> cross_edge_dict
+            print(f"cross_edge_dict_layers: {cross_edge_dict_layers}")
 
         new_roots = cgraph.add_edges("Jane Doe",
                                      [to_label(cgraph, 1, chunk_offset, 0, 0, 0),

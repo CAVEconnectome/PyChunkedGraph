@@ -3551,6 +3551,8 @@ class ChunkedGraph(object):
                                                             time_stamp)
                 rows.extend(added_rows)
 
+                print(f"NEW PARENT CREATED {new_parent_id}")
+
                 parent_lookup[new_parent_id] = parent_lookup[child_id]
                 parent_lookup[child_id] = new_parent_id
 
@@ -3568,6 +3570,8 @@ class ChunkedGraph(object):
                                                             node_id_parent_dict,
                                                             time_stamp)
                 rows.extend(added_rows)
+
+                print(f"NEW PARENT CREATED {new_parent_id}")
 
                 parent_lookup[new_parent_id] = parent_lookup[child_id]
                 parent_lookup[child_id] = new_parent_id
@@ -3946,7 +3950,7 @@ class ChunkedGraph(object):
 
                     print(f"next_old_parents {next_old_parents}")
                     print(f"next_layer {next_layer}")
-                    print(f"cross_chunk_edge_dict {cross_chunk_edge_dict}")
+                    print(f"--- cross_chunk_edge_dict {cross_chunk_edge_dict}")
 
                     next_cc_storage[next_layer].append([new_parent_id,
                                                         next_old_parents,
