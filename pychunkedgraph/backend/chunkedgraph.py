@@ -2252,7 +2252,7 @@ class ChunkedGraph(object):
         for i_try in range(n_tries):
             parent_id = node_id
 
-            for i_layer in range(self.get_chunk_layer(node_id)+1,
+            for i_layer in range(self.get_chunk_layer(node_id),
                                  int(stop_layer + 1)):
 
                 temp_parent_id = self.get_parent(parent_id,
@@ -2264,12 +2264,12 @@ class ChunkedGraph(object):
                     parent_id = temp_parent_id
                     all_parent_ids.append(parent_id)
 
-            if self.get_chunk_layer(parent_id) == stop_layer:
+            if self.get_chunk_layer(parent_id) >= stop_layer:
                 break
             else:
                 time.sleep(.5)
 
-        if self.get_chunk_layer(parent_id) != stop_layer:
+        if self.get_chunk_layer(parent_id) < stop_layer:
             raise Exception("Cannot find root id {}, {}".format(node_id,
                                                                 time_stamp))
 
