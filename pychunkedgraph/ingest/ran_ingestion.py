@@ -16,6 +16,7 @@ def ingest_into_chunkedgraph(storage_path, ws_cv_path, cg_table_id,
                              chunk_size=[256, 256, 512],
                              s_bits_atomic_layer=None,
                              fan_out=2, aff_dtype=np.float32,
+                             size=None,
                              instance_id=None, project_id=None,
                              start_layer=1, n_threads=[64, 64]):
     """ Creates a chunkedgraph from a Ran Agglomerattion
@@ -48,7 +49,7 @@ def ingest_into_chunkedgraph(storage_path, ws_cv_path, cg_table_id,
     chunk_size = np.array(chunk_size, dtype=np.uint64)
 
     iu.initialize_chunkedgraph(cg_table_id=cg_table_id, ws_cv_path=ws_cv_path,
-                               chunk_size=chunk_size,
+                               chunk_size=chunk_size, size=size,
                                s_bits_atomic_layer=s_bits_atomic_layer,
                                cg_mesh_dir=cg_mesh_dir, fan_out=fan_out,
                                instance_id=instance_id, project_id=project_id)

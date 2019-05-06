@@ -4,7 +4,7 @@ from pychunkedgraph.backend import chunkedgraph, chunkedgraph_utils
 import cloudvolume
 
 
-def initialize_chunkedgraph(cg_table_id, ws_cv_path, chunk_size, cg_mesh_dir,
+def initialize_chunkedgraph(cg_table_id, ws_cv_path, chunk_size, size, cg_mesh_dir,
                             s_bits_atomic_layer=None, n_bits_root_counter=8,
                             fan_out=2, instance_id=None, project_id=None):
     """ Initalizes a chunkedgraph on BigTable
@@ -14,6 +14,8 @@ def initialize_chunkedgraph(cg_table_id, ws_cv_path, chunk_size, cg_mesh_dir,
     :param ws_cv_path: str
         path to watershed segmentation on Google Cloud
     :param chunk_size: np.ndarray
+        array of three ints
+    :param size: np.ndarray
         array of three ints
     :param cg_mesh_dir: str
         mesh folder name
@@ -30,6 +32,15 @@ def initialize_chunkedgraph(cg_table_id, ws_cv_path, chunk_size, cg_mesh_dir,
     :return: ChunkedGraph
     """
     ws_cv = cloudvolume.CloudVolume(ws_cv_path)
+
+    if size is not None:
+        size = np.array(size)
+        for i in range(len(ws_cv.info['scales'])):
+            original_size = ws_cv.info['scales'][i]['size']
+            size = np.min([size, original_size], axis=0)
+            ws_cv.info['scales'][i]['size'] = [int(x) for x in size]
+            size[:-1] //= 2
+
     bbox = np.array(ws_cv.bounds.to_list()).reshape(2, 3)
 
     # assert np.all(bbox[0] == 0)
