@@ -13,6 +13,7 @@ import h5py
 from functools import lru_cache
 import pickle as pkl
 from matplotlib import pyplot as plt
+import glob
 
 from pychunkedgraph.backend import chunkedgraph
 from pychunkedgraph.backend.utils import column_keys
@@ -85,12 +86,19 @@ def plot_timings(path):
     plt.savefig(f"{save_dir}/{save_name}.png", dpi=300)
 
 
+def plot_all_timings(save_dir=f"{HOME}/benchmarks/"):
+    paths = glob.glob(f"{save_dir}/*/*.pkl")
+
+    for path in paths:
+        print(path)
+        plot_timings(path)
+
+
 def benchmark_root_timings(table_id, save_dir=f"{HOME}/benchmarks/",
                            job_size=1000):
     save_folder = f"{save_dir}/{table_id}/"
 
-    # n_thread_list = [1, 4, 8, 16, 24, 32, 40, 48, 64, 80, 96, 112, 128]
-    n_thread_list = 2**np.arange(8)
+    n_thread_list = [1, 4, 8, 16, 24, 32, 40, 48, 64]
     results = {}
 
     for n_threads in n_thread_list:
@@ -114,9 +122,9 @@ def get_root_timings(table_id, save_dir=f"{HOME}/benchmarks/", job_size=100,
     probs = n_nodes_per_l2_node / np.sum(n_nodes_per_l2_node)
 
     if n_threads == 1:
-        n_jobs = n_threads
+        n_jobs = n_threads * 3
     else:
-        n_jobs = n_threads * 10
+        n_jobs = n_threads * 3
 
     cg = chunkedgraph.ChunkedGraph(table_id)
     cg_serialized_info = cg.get_serialized_info()
@@ -125,8 +133,14 @@ def get_root_timings(table_id, save_dir=f"{HOME}/benchmarks/", job_size=100,
 
     time_start = time.time()
     np.random.seed(np.int(time.time()))
+
+    if len(rep_l1_nodes) < job_size * 64 * 3 * 10:
+        replace = True
+    else:
+        replace = False
+
     blocks = np.random.choice(rep_l1_nodes, job_size * n_jobs, p=probs,
-                              replace=False).reshape(n_jobs, job_size)
+                              replace=replace).reshape(n_jobs, job_size)
 
     multi_args = []
     for block in blocks:
@@ -164,6 +178,7 @@ def get_root_timings(table_id, save_dir=f"{HOME}/benchmarks/", job_size=100,
                    "job_size": job_size,
                    "n_jobs": n_jobs,
                    "n_threads": n_threads,
+                   "replace": replace,
                    "requests_per_s": job_size * n_jobs / dt}
 
     return result_dict
@@ -188,8 +203,7 @@ def benchmark_subgraph_timings(table_id, save_dir=f"{HOME}/benchmarks/",
                            job_size=1000):
     save_folder = f"{save_dir}/{table_id}/"
 
-    # n_thread_list = [1, 4, 8, 16, 24, 32, 40, 48, 64, 80, 96, 112, 128]
-    n_thread_list = 2**np.arange(8)
+    n_thread_list = [1, 4, 8, 16, 24, 32, 40, 48, 64]
     results = {}
 
     for n_threads in n_thread_list:
@@ -213,9 +227,9 @@ def get_subgraph_timings(table_id, save_dir=f"{HOME}/benchmarks/", job_size=100,
     probs = n_l1_nodes_per_root / np.sum(n_l1_nodes_per_root)
 
     if n_threads == 1:
-        n_jobs = n_threads * 10
+        n_jobs = n_threads * 3
     else:
-        n_jobs = n_threads * 10
+        n_jobs = n_threads * 3
 
     cg = chunkedgraph.ChunkedGraph(table_id)
     cg_serialized_info = cg.get_serialized_info()
@@ -226,8 +240,14 @@ def get_subgraph_timings(table_id, save_dir=f"{HOME}/benchmarks/", job_size=100,
     order = np.arange(len(n_l1_nodes_per_root))
 
     np.random.seed(np.int(time.time()))
+
+    if len(order) < job_size * 64 * 3 * 10:
+        replace = True
+    else:
+        replace = False
+
     blocks = np.random.choice(order, job_size * n_jobs, p=probs,
-                              replace=False).reshape(n_jobs, job_size)
+                              replace=replace).reshape(n_jobs, job_size)
 
     multi_args = []
     for block in blocks:
@@ -266,6 +286,7 @@ def get_subgraph_timings(table_id, save_dir=f"{HOME}/benchmarks/", job_size=100,
                    "job_size": job_size,
                    "n_jobs": n_jobs,
                    "n_threads": n_threads,
+                   "replace": replace,
                    "requests_per_s": job_size * n_jobs / dt}
 
     return result_dict
@@ -285,3 +306,10 @@ def _get_subgraph_timings(args):
         timings.append(dt)
 
     return timings
+
+
+def run_timings(table_id, save_dir=f"{HOME}/benchmarks/", job_size=1000):
+    benchmark_root_timings(table_id=table_id, save_dir=save_dir,
+                           job_size=job_size)
+    benchmark_subgraph_timings(table_id=table_id, save_dir=save_dir,
+                               job_size=job_size)
