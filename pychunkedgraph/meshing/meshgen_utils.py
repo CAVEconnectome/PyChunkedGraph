@@ -60,7 +60,8 @@ def get_mesh_block_shape(cg, graphlayer: int,
 
     graphlayer_chunksize = cg.chunk_size * cg.fan_out ** np.max([0, graphlayer - 2])
 
-    return np.floor_divide(graphlayer_chunksize, distortion, dtype=np.int, casting='unsafe')
+    return np.floor_divide(graphlayer_chunksize, distortion, dtype=np.int,
+                           casting='unsafe')
 
 
 def get_downstream_multi_child_node(cg,
@@ -86,10 +87,11 @@ def get_downstream_multi_child_node(cg,
 
 def get_highest_child_nodes_with_meshes(cg,
                                         node_id: np.uint64,
-                                        stop_layer=1, verify_existence=False):
+                                        stop_layer=1,
+                                        mip=2,
+                                        verify_existence=False):
     # FIXME: Read those from config
     HIGHEST_MESH_LAYER = cg.n_layers - 3
-    MESH_MIP = 2
 
     highest_node = get_downstream_multi_child_node(cg, node_id, stop_layer)
     highest_node_layer = cg.get_chunk_layer(highest_node)
@@ -103,7 +105,7 @@ def get_highest_child_nodes_with_meshes(cg,
         valid_node_ids = []
         with Storage(cg.cv_mesh_path) as stor:
             while True:
-                filenames = [get_mesh_name(cg, c, MESH_MIP) for c in candidates]
+                filenames = [get_mesh_name(cg, c, mip) for c in candidates]
 
                 time_start = time.time()
                 existence_dict = stor.files_exist(filenames)
