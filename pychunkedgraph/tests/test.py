@@ -1805,6 +1805,8 @@ class TestGraphSplit:
         # Split
         new_root_ids = cgraph.remove_edges("Jane Doe", to_label(cgraph, 1, 1, 0, 0, 0), to_label(cgraph, 1, 1, 0, 0, 1), mincut=False)
 
+        assert len(new_root_ids) == 2
+
         svs2 = cgraph.get_subgraph_nodes(new_root_ids[0])
         svs1 = cgraph.get_subgraph_nodes(new_root_ids[1])
         len_set = {1, 2}
@@ -2369,8 +2371,8 @@ class TestGraphMergeSplit:
     def test_multiple_cuts_and_splits(self, gen_graph_simplequerytest):
         """
         ┌─────┬─────┬─────┐        L X Y Z S     L X Y Z S     L X Y Z S     L X Y Z S
-        │  A¹ │  B¹ │  C¹ │     1: 1 0 0 0 0 ─── 2 0 0 0 1 ─── 3 0 0 0 1 ─── 4 0 0 0 1
-        │  1  │ 3━2━┿━━4  │     2: 1 1 0 0 0 ─┬─ 2 1 0 0 1 ─── 3 0 0 0 2 ─┬─ 4 0 0 0 2
+        │  A¹ │  B¹ │  C¹ │     1: 1 0 0 0 0 ─── 2 0 0 0 1 ───────────────── 4 0 0 0 1
+        │  1  │ 3━2━┿━━4  │     2: 1 1 0 0 0 ─┬─ 2 1 0 0 1 ─── 3 0 0 0 1 ─┬─ 4 0 0 0 2
         │     │     │     │     3: 1 1 0 0 1 ─┘                           │
         └─────┴─────┴─────┘     4: 1 2 0 0 0 ─── 2 2 0 0 1 ─── 3 1 0 0 1 ─┘
         """
@@ -2386,12 +2388,19 @@ class TestGraphMergeSplit:
         for i in range(10):
             cgraph.logger.debug(f"\n\nITERATION {i}/10")
 
+            print(f"\n\nITERATION {i}/10")
+            print("\n\nMERGE 1 & 3\n\n")
             cgraph.logger.debug("\n\nMERGE 1 & 3\n\n")
             new_roots = cgraph.add_edges("Jane Doe",
                                          [to_label(cgraph, 1, 0, 0, 0, 0),
                                           to_label(cgraph, 1, 1, 0, 0, 1)],
                                          affinities=.9)
             assert len(new_roots) == 1
+
+            subgraph_dict = cgraph.get_subgraph_nodes(new_roots[0], return_layers=[3, 2, 1])
+            for k in subgraph_dict:
+                for e in subgraph_dict[k]:
+                    print(f"{k} -- {e} -- {cgraph.get_chunk_layer(e)} -- {cgraph.get_chunk_coordinates(e)}")
             assert len(cgraph.get_subgraph_nodes(new_roots[0])) == 4
 
             root_ids = []
@@ -2460,6 +2469,10 @@ class TestGraphMergeSplit:
             # ------------------------------------------------------------------
 
             cgraph.logger.debug("\n\nMERGE 2 & 3\n\n")
+
+            print(f"\n\nITERATION {i}/10")
+            print("\n\nMERGE 2 & 3\n\n")
+
             new_roots = cgraph.add_edges("Jane Doe",
                                          [to_label(cgraph, 1, 1, 0, 0, 0),
                                           to_label(cgraph, 1, 1, 0, 0, 1)],
@@ -2658,10 +2671,10 @@ class TestGraphMinCut:
         cgraph.add_layer(3, np.array([[0, 0, 0], [1, 0, 0]]),
                          time_stamp=fake_timestamp, n_threads=1)
 
-        original_parents_1 = cgraph.get_all_parents(
-            to_label(cgraph, 1, 0, 0, 0, 0))
-        original_parents_2 = cgraph.get_all_parents(
-            to_label(cgraph, 1, 1, 0, 0, 0))
+        original_parents_1 = cgraph.get_root(
+            to_label(cgraph, 1, 0, 0, 0, 0), get_all_parents=True)
+        original_parents_2 = cgraph.get_root(
+            to_label(cgraph, 1, 1, 0, 0, 0), get_all_parents=True)
 
         # Mincut
         assert cgraph.remove_edges(
@@ -2671,8 +2684,8 @@ class TestGraphMinCut:
                         cgraph.chunk_size[2]],
             mincut=True) is None
 
-        new_parents_1 = cgraph.get_all_parents(to_label(cgraph, 1, 0, 0, 0, 0))
-        new_parents_2 = cgraph.get_all_parents(to_label(cgraph, 1, 1, 0, 0, 0))
+        new_parents_1 = cgraph.get_root(to_label(cgraph, 1, 0, 0, 0, 0), get_all_parents=True)
+        new_parents_2 = cgraph.get_root(to_label(cgraph, 1, 1, 0, 0, 0), get_all_parents=True)
 
         assert np.all(np.array(original_parents_1) == np.array(new_parents_1))
         assert np.all(np.array(original_parents_2) == np.array(new_parents_2))
