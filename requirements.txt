@@ -12,3 +12,5 @@ cloud-volume>=0.43.1
 python-json-logger
 zstandard
 igneous==dev
+redis
+rq

@@ -80,7 +80,8 @@ def _count_nodes_and_edges(args):
     return n_nodes_per_chunk, n_edges_per_chunk
 
 
-def count_and_download_nodes(table_id, save_dir=f"{HOME}/benchmarks/", n_threads=1):
+def count_and_download_nodes(table_id, save_dir=f"{HOME}/benchmarks/",
+                             n_threads=1):
     cg = chunkedgraph.ChunkedGraph(table_id)
 
     bounds = np.array(cg.cv.bounds.to_list()).reshape(2, -1).T
@@ -261,3 +262,12 @@ def _get_root_ids_and_sv_chunks(args):
 
     print(f"{len(root_ids)} took {time.time() - time_start}s")
     return root_ids, n_l1_nodes_per_root, rep_l1_nodes, rep_l1_chunk_ids
+
+
+def run_graph_measurements(table_id, save_dir=f"{HOME}/benchmarks/",
+                           n_threads=1):
+    get_root_ids_and_sv_chunks(table_id=table_id, save_dir=save_dir,
+                               n_threads=n_threads)
+    count_and_download_nodes(table_id=table_id, save_dir=save_dir,
+                             n_threads=n_threads)
+

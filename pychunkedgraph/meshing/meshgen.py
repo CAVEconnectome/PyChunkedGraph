@@ -24,6 +24,7 @@ from pychunkedgraph.backend import chunkedgraph   # noqa
 from pychunkedgraph.backend.utils import serializers, column_keys  # noqa
 from pychunkedgraph.meshing import meshgen_utils # noqa
 
+
 @lru_cache(maxsize=None)
 def get_l2_remapping(cg, chunk_id, time_stamp):
     """ Retrieves l2 node id to sv id mappping
@@ -520,79 +521,6 @@ def get_lx_overlapping_remappings(cg, chunk_id, time_stamp=None):
     sv_remapping = dict(zip(sv_ids, lx_ids_flat))
 
     return sv_remapping, unsafe_dict
-
-
-def get_remapped_segmentation(cg, chunk_id, mip=2, overlap_vx=1,
-                              time_stamp=None):
-    def _remap(a):
-        if a in sv_remapping:
-            return sv_remapping[a]
-        else:
-            return 0
-
-    assert mip >= cg.cv.mip
-
-    sv_remapping, unsafe_dict = get_lx_overlapping_remappings(cg, chunk_id, time_stamp=time_stamp)
-
-    cv = cloudvolume.CloudVolume(cg.cv.cloudpath, mip=mip)
-    mip_diff = mip - cg.cv.mip
-
-    mip_chunk_size = cg.chunk_size.astype(np.int) / np.array([2**mip_diff, 2**mip_diff, 1]) * cg.fan_out**(cg.get_chunk_layer(chunk_id) - 2)
-    mip_chunk_size = mip_chunk_size.astype(np.int)
-
-    chunk_start = cg.get_chunk_coordinates(chunk_id) * mip_chunk_size
-    chunk_end = chunk_start + mip_chunk_size + overlap_vx
-
-    ws_seg = cv[chunk_start[0]: chunk_end[0],
-                chunk_start[1]: chunk_end[1],
-                chunk_start[2]: chunk_end[2]].squeeze()
-
-    _remap_vec = np.vectorize(_remap)
-    seg = _remap_vec(ws_seg)
-
-    for unsafe_root_id in unsafe_dict.keys():
-        bin_seg = seg == unsafe_root_id
-
-        if np.sum(bin_seg) == 0:
-            continue
-
-        l2_edges = []
-        cc_seg, n_cc = ndimage.label(bin_seg)
-        for i_cc in range(1, n_cc + 1):
-            bin_cc_seg = cc_seg == i_cc
-
-            overlaps = []
-            overlaps.extend(np.unique(seg[-2, :, :][bin_cc_seg[-1, :, :]]))
-            overlaps.extend(np.unique(seg[:, -2, :][bin_cc_seg[:, -1, :]]))
-            overlaps.extend(np.unique(seg[:, :, -2][bin_cc_seg[:, :, -1]]))
-            overlaps = np.unique(overlaps)
-
-            linked_l2_ids = overlaps[np.in1d(overlaps,
-                                             unsafe_dict[unsafe_root_id])]
-
-            if len(linked_l2_ids) == 0:
-                seg[bin_cc_seg] = 0
-            elif len(linked_l2_ids) == 1:
-                seg[bin_cc_seg] = linked_l2_ids[0]
-            else:
-                seg[bin_cc_seg] = linked_l2_ids[0]
-
-                for i_l2_id in range(len(linked_l2_ids) - 1):
-                    for j_l2_id in range(i_l2_id + 1, len(linked_l2_ids)):
-                        l2_edges.append([linked_l2_ids[i_l2_id],
-                                         linked_l2_ids[j_l2_id]])
-
-        if len(l2_edges) > 0:
-            g = nx.Graph()
-            g.add_edges_from(l2_edges)
-
-            ccs = nx.connected_components(g)
-
-            for cc in ccs:
-                cc_ids = np.sort(list(cc))
-                seg[np.in1d(seg, cc_ids[1:]).reshape(seg.shape)] = cc_ids[0]
-
-    return seg
 
 
 def get_connected(connectivity):

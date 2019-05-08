@@ -16,6 +16,7 @@ def ingest_into_chunkedgraph(storage_path, ws_cv_path, cg_table_id,
                              chunk_size=[256, 256, 512],
                              s_bits_atomic_layer=None,
                              fan_out=2, aff_dtype=np.float32,
+                             size=None,
                              instance_id=None, project_id=None,
                              start_layer=1, n_threads=[64, 64]):
     """ Creates a chunkedgraph from a Ran Agglomerattion
@@ -47,14 +48,19 @@ def ingest_into_chunkedgraph(storage_path, ws_cv_path, cg_table_id,
     cg_mesh_dir = f"{cg_table_id}_meshes"
     chunk_size = np.array(chunk_size, dtype=np.uint64)
 
-    iu.initialize_chunkedgraph(cg_table_id=cg_table_id, ws_cv_path=ws_cv_path,
-                               chunk_size=chunk_size,
-                               s_bits_atomic_layer=s_bits_atomic_layer,
-                               cg_mesh_dir=cg_mesh_dir, fan_out=fan_out,
-                               instance_id=instance_id, project_id=project_id)
+    _, n_layers_agg = iu.initialize_chunkedgraph(cg_table_id=cg_table_id,
+                                                 ws_cv_path=ws_cv_path,
+                                                 chunk_size=chunk_size,
+                                                 size=size,
+                                                 s_bits_atomic_layer=s_bits_atomic_layer,
+                                                 cg_mesh_dir=cg_mesh_dir,
+                                                 fan_out=fan_out,
+                                                 instance_id=instance_id,
+                                                 project_id=project_id)
 
     im = ingestionmanager.IngestionManager(storage_path=storage_path,
                                            cg_table_id=cg_table_id,
+                                           n_layers=n_layers_agg,
                                            instance_id=instance_id,
                                            project_id=project_id)
 
@@ -438,7 +444,7 @@ def _read_agg_files(filenames, base_path):
         if file["error"] is not None:
             continue
 
-        content = zstd.ZstdDecompressor().decompress(file["content"])
+        content = zstd.ZstdDecompressor().decompressobj().decompress(file["content"])
         edge_list.append(np.frombuffer(content, dtype=np.uint64).reshape(-1, 2))
 
     return edge_list
@@ -461,7 +467,7 @@ def collect_agglomeration_data(im, chunk_coord):
                                   z=chunk_coord[2])
 
     filenames = []
-    for mip_level in range(0, int(im.cg.n_layers - 1)):
+    for mip_level in range(0, int(im.n_layers - 1)):
         x, y, z = np.array(chunk_coord / 2 ** mip_level, dtype=np.int)
         filenames.append(f"done_{mip_level}_{x}_{y}_{z}_{chunk_id}.data.zst")
 
@@ -477,7 +483,7 @@ def collect_agglomeration_data(im, chunk_coord):
                                                    y=adjacent_chunk_coord[1],
                                                    z=adjacent_chunk_coord[2])
 
-            for mip_level in range(0, int(im.cg.n_layers - 1)):
+            for mip_level in range(0, int(im.n_layers - 1)):
                 x, y, z = np.array(adjacent_chunk_coord / 2 ** mip_level, dtype=np.int)
                 filenames.append(f"done_{mip_level}_{x}_{y}_{z}_{adjacent_chunk_id}.data.zst")
 
