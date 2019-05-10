@@ -93,7 +93,7 @@ def get_root_l2_remapping(cg, chunk_id, stop_layer, time_stamp, n_threads=4):
 
 
 # @lru_cache(maxsize=None)
-def get_l2_overlapping_remappings(cg, chunk_id, time_stamp=None):
+def get_l2_overlapping_remappings(cg, chunk_id, time_stamp=None, n_threads=1):
     """ Retrieves sv id to l2 id mapping for chunk with overlap in positive
         direction (one chunk)
 
@@ -154,7 +154,7 @@ def get_l2_overlapping_remappings(cg, chunk_id, time_stamp=None):
 
         l2_ids, root_ids, l2_id_remap = \
             get_root_l2_remapping(cg, neigh_chunk_id, stop_layer,
-                                  time_stamp=time_stamp)
+                                  time_stamp=time_stamp, n_threads=n_threads)
         neigh_l2_ids.extend(l2_ids)
         neigh_l2_id_remap.update(l2_id_remap)
         neigh_root_ids.extend(root_ids)
@@ -218,7 +218,7 @@ def get_l2_overlapping_remappings(cg, chunk_id, time_stamp=None):
 
 
 def get_remapped_segmentation(cg, chunk_id, mip=2, overlap_vx=1,
-                              time_stamp=None):
+                              time_stamp=None, n_threads=1):
     """ Downloads + remaps ws segmentation + resolve unclear cases
 
     This is only for testing, most of this function will be moved to an
@@ -240,7 +240,9 @@ def get_remapped_segmentation(cg, chunk_id, mip=2, overlap_vx=1,
 
     assert mip >= cg.cv.mip
 
-    sv_remapping, unsafe_dict = get_l2_overlapping_remappings(cg, chunk_id, time_stamp=time_stamp)
+    sv_remapping, unsafe_dict = get_lx_overlapping_remappings(cg, chunk_id,
+                                                              time_stamp=time_stamp,
+                                                              n_threads=n_threads)
 
     cv = cloudvolume.CloudVolume(cg.cv.cloudpath, mip=mip)
     mip_diff = mip - cg.cv.mip
@@ -358,7 +360,7 @@ def get_higher_to_lower_remapping(cg, chunk_id, time_stamp):
 
 
 @lru_cache(maxsize=None)
-def get_root_lx_remapping(cg, chunk_id, stop_layer, time_stamp, n_threads=20):
+def get_root_lx_remapping(cg, chunk_id, stop_layer, time_stamp, n_threads=1):
     """ Retrieves root to l2 node id mapping
 
     :param cg: chunkedgraph object
@@ -395,7 +397,7 @@ def get_root_lx_remapping(cg, chunk_id, stop_layer, time_stamp, n_threads=20):
 
 
 # @lru_cache(maxsize=None)
-def get_lx_overlapping_remappings(cg, chunk_id, time_stamp=None):
+def get_lx_overlapping_remappings(cg, chunk_id, time_stamp=None, n_threads=1):
     """ Retrieves sv id to layer mapping for chunk with overlap in positive
         direction (one chunk)
 
@@ -459,7 +461,7 @@ def get_lx_overlapping_remappings(cg, chunk_id, time_stamp=None):
 
         lx_ids, root_ids, lx_id_remap = \
             get_root_lx_remapping(cg, neigh_chunk_id, stop_layer,
-                                  time_stamp=time_stamp)
+                                  time_stamp=time_stamp, n_threads=n_threads)
         neigh_lx_ids.extend(lx_ids)
         neigh_lx_id_remap.update(lx_id_remap)
         neigh_root_ids.extend(root_ids)
