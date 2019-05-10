@@ -4551,8 +4551,8 @@ class ChunkedGraph(object):
                           lvl2_node_mapping)
 
         new_roots = []
+        old_parent_dict = {}
         for i_layer in range(2, self.n_layers):
-            old_parent_dict = {}
 
             edges = []
             leftover_old_parents = set()
@@ -4584,6 +4584,7 @@ class ChunkedGraph(object):
                     # neighbor_id in old_id_dict. If so, we take the new atomic
                     # cross edges (temporary data) into account, else, we load
                     # the atomic_cross_edges from BigTable
+
                     if old_chunk_neighbor in old_id_dict:
                         for new_neighbor in old_id_dict[old_chunk_neighbor]:
                             neigh_cross_edges = cross_edge_dict[new_neighbor][i_layer]
@@ -4618,7 +4619,6 @@ class ChunkedGraph(object):
                                             dtype=np.uint64))
             ccs = list(nx.connected_components(chunk_g))
 
-            # new_layer_parent_dict = {}
             # Filter the connected component that is relevant to the
             # current new_layer_parent
             for cc in ccs:
@@ -4656,6 +4656,9 @@ class ChunkedGraph(object):
 
                 next_chunk_id = self.get_parent_chunk_id_dict(old_next_layer_parent)[next_layer]
                 new_parent_id = self.get_unique_node_id(next_chunk_id)
+
+                while self.get_chunk_layer(old_next_layer_parent) < next_layer:
+                    old_next_layer_parent = self.get_parent(old_next_layer_parent)
 
                 new_layer_parent_dict[next_layer][new_parent_id] = old_next_layer_parent
                 old_id_dict[old_next_layer_parent].append(new_parent_id)
