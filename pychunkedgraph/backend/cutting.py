@@ -177,6 +177,7 @@ def mincut_nx(edges: Iterable[Sequence[np.uint64]], affs: Sequence[np.uint64],
     time_start = time.time()
 
     ccs = list(nx.connected_components(weighted_graph))
+    print(f"Number connected components: {len(ccs)}")
     for cc in ccs:
         cc_list = list(cc)
 
@@ -321,21 +322,33 @@ def mincut_graph_tool(edges: Iterable[Sequence[np.uint64]],
         logger.debug("Graph creation: %.2fms" % (dt * 1000))
     time_start = time.time()
 
-    # # Get rid of connected components that are not involved in the local
-    # # mincut
-    # cc_prop, ns = graph_tool.topology.label_components(weighted_graph)
-    #
-    # if len(ns) > 1:
-    #     cc_labels = cc_prop.get_array()
-    #
-    #     for i_cc in range(len(ns)):
-    #         cc_list = np.where(cc_labels == i_cc)[0]
-    #
-    #         # If connected component contains no sources and/or no sinks,
-    #         # remove its nodes from the mincut computation
-    #         if not np.any(np.in1d(source_graph_ids, cc_list)) or \
-    #                 not np.any(np.in1d(sink_graph_ids, cc_list)):
-    #             weighted_graph.delete_vertices(cc) # wrong
+    # Get rid of connected components that are not involved in the local
+    # mincut
+    ccs = flatgraph_utils.connected_components(weighted_graph)
+    print(f"Number of connected components {len(ccs)}")
+
+    removed = weighted_graph.new_vertex_property("bool")
+    removed.a = False
+    if len(ccs) > 1:
+        for cc in ccs:
+            # If connected component contains no sources and/or no sinks,
+            # remove its nodes from the mincut computation
+            if not np.any(np.in1d(source_graph_ids, cc)) or \
+                    not np.any(np.in1d(sink_graph_ids, cc)):
+                for node_id in cc:
+                    removed[node_id] = True
+
+    weighted_graph.set_vertex_filter(removed, inverted=True)
+
+    # Test that there is only one connected component left
+    ccs = flatgraph_utils.connected_components(weighted_graph)
+
+    print(f"Number of connected components {len(ccs)}")
+
+    if len(ccs) > 1:
+        logger.warning("Not all sinks and sources are within the same (local)"
+                       "connected component")
+        return []
 
     # Compute mincut
     src, tgt = weighted_graph.vertex(source_graph_ids[0]), \

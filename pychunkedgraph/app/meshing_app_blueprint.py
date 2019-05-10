@@ -10,7 +10,7 @@ from pychunkedgraph.backend import chunkedgraph
 
 # os.environ['TRAVIS_BRANCH'] = "IDONTKNOWWHYINEEDTHIS"
 
-__version__ = '0.1.108'
+__version__ = '0.1.111'
 bp = Blueprint('pychunkedgraph_meshing', __name__, url_prefix="/meshing")
 
 # -------------------------------
@@ -106,6 +106,13 @@ def handle_get_manifest(table_id, node_id):
     else:
         start_layer = None
 
+    if "bounds" in request.args:
+        bounds = request.args["bounds"]
+        bounding_box = np.array([b.split("-") for b in bounds.split("_")],
+                                dtype=np.int).T
+    else:
+        bounding_box = None
+
     verify = request.args.get('verify', False)
     verify = verify in ['True', 'true', '1', True]
 
@@ -115,6 +122,7 @@ def handle_get_manifest(table_id, node_id):
     cg = app_utils.get_cg(table_id)
     seg_ids = meshgen_utils.get_highest_child_nodes_with_meshes(
         cg, np.uint64(node_id), stop_layer=2, start_layer=start_layer,
+        bounding_box=bounding_box,
         verify_existence=verify)
 
     filenames = [meshgen_utils.get_mesh_name(cg, s, MESH_MIP) for s in seg_ids]

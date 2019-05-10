@@ -9,7 +9,7 @@ from multiwrapper import multiprocessing_utils as mu
 from typing import Optional, Sequence
 
 
-def _read_delta_root_rows_thread(args) -> list:
+def _read_delta_root_rows_thread(args) -> Sequence[list]:
     start_seg_id, end_seg_id, serialized_cg_info, time_stamp_start, time_stamp_end  = args
 
     cg = chunkedgraph.ChunkedGraph(**serialized_cg_info)
@@ -74,7 +74,7 @@ def get_latest_roots(cg,
     # Create filters: time and id range
     max_seg_id = cg.get_max_seg_id(cg.root_chunk_id) + 1
 
-    n_blocks = np.min([n_threads * 3 + 1, max_seg_id])
+    n_blocks = int(np.min([n_threads * 3 + 1, max_seg_id]))
     seg_id_blocks = np.linspace(1, max_seg_id, n_blocks, dtype=np.uint64)
 
     cg_serialized_info = cg.get_serialized_info()
@@ -113,8 +113,9 @@ def get_delta_roots(cg,
     # Create filters: time and id range
     max_seg_id = cg.get_max_seg_id(cg.root_chunk_id) + 1
 
-    n_blocks = np.min([n_threads + 1, max_seg_id-min_seg_id+1])
-    seg_id_blocks = np.linspace(min_seg_id, max_seg_id, n_blocks, dtype=np.uint64)
+    n_blocks = int(np.min([n_threads + 1, max_seg_id-min_seg_id+1]))
+    seg_id_blocks = np.linspace(min_seg_id, max_seg_id, n_blocks,
+                                dtype=np.uint64)
 
     cg_serialized_info = cg.get_serialized_info()
 
