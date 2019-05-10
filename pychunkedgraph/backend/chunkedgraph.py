@@ -3294,9 +3294,9 @@ class ChunkedGraph(object):
         edges = np.concatenate(tmp_edges) if tmp_edges \
             else np.empty((0, 2), dtype=basetypes.NODE_ID)
         affinities = np.concatenate(tmp_affinites) if tmp_affinites \
-            else np.empty(0, dtype=basetypes.AFFINITY)
+            else np.empty(0, dtype=basetypes.EDGE_AFFINITY)
         areas = np.concatenate(tmp_areas) if tmp_areas \
-            else np.empty(0, dtype=basetypes.AREA)
+            else np.empty(0, dtype=basetypes.EDGE_AREA)
 
         # If requested, remove duplicate edges. Every edge is stored in each
         # participating node. Hence, we have many edge pairs that look
@@ -3432,7 +3432,6 @@ class ChunkedGraph(object):
         raise cg_exceptions.LockingError(
             f"Could not acquire root object lock."
         )
-
 
     def _introduce_missing_skip_connection(self, atomic_id: np.uint64,
                                            layer_id: int,
@@ -3598,6 +3597,8 @@ class ChunkedGraph(object):
         :param affinities: list of np.float32
         :return: list of np.uint64, rows
         """
+        print(f"\n\n\n atomic_edges: {atomic_edges} \n\n\n")
+
         # Comply to resolution of BigTables TimeRange
         time_stamp = get_google_compatible_time_stamp(time_stamp,
                                                       round_up=False)
@@ -3668,7 +3669,10 @@ class ChunkedGraph(object):
         rows.extend(add_rows)
 
         for k in parent_lookup:
-            assert self.get_chunk_layer(k) < self.get_chunk_layer(parent_lookup[k])
+            if parent_lookup[k] is None:
+                assert self.get_chunk_layer(k) == self.n_layers
+            else:
+                assert self.get_chunk_layer(k) < self.get_chunk_layer(parent_lookup[k])
 
         # Main concept:
         # We handle Layer 1 separately from the higher layers but the concept
@@ -4352,7 +4356,9 @@ class ChunkedGraph(object):
             self.logger.error("inf in cutset")
             return False, None
 
-        # Remove edgesc
+        # Remove edges
+        print(f"atomic_edges{atomic_edges}")
+
         success, result = self._remove_edges(operation_id, atomic_edges)
 
         if not success:
