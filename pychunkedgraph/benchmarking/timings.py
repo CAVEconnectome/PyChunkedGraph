@@ -95,7 +95,7 @@ def plot_all_timings(save_dir=f"{HOME}/benchmarks/"):
 
 
 def benchmark_root_timings(table_id, save_dir=f"{HOME}/benchmarks/",
-                           job_size=1000):
+                           job_size=500):
     save_folder = f"{save_dir}/{table_id}/"
 
     n_thread_list = [1, 4, 8, 16, 24, 32, 40, 48, 64]
@@ -113,7 +113,7 @@ def benchmark_root_timings(table_id, save_dir=f"{HOME}/benchmarks/",
     return results
 
 
-def get_root_timings(table_id, save_dir=f"{HOME}/benchmarks/", job_size=100,
+def get_root_timings(table_id, save_dir=f"{HOME}/benchmarks/", job_size=500,
                      n_threads=1):
     save_folder = f"{save_dir}/{table_id}/"
 
@@ -200,7 +200,7 @@ def _get_root_timings(args):
 
 
 def benchmark_subgraph_timings(table_id, save_dir=f"{HOME}/benchmarks/",
-                           job_size=1000):
+                               job_size=500):
     save_folder = f"{save_dir}/{table_id}/"
 
     n_thread_list = [1, 4, 8, 16, 24, 32, 40, 48, 64]
@@ -218,7 +218,7 @@ def benchmark_subgraph_timings(table_id, save_dir=f"{HOME}/benchmarks/",
     return results
 
 
-def get_subgraph_timings(table_id, save_dir=f"{HOME}/benchmarks/", job_size=100,
+def get_subgraph_timings(table_id, save_dir=f"{HOME}/benchmarks/", job_size=500,
                      n_threads=1):
     save_folder = f"{save_dir}/{table_id}/"
 
@@ -308,7 +308,7 @@ def _get_subgraph_timings(args):
     return timings
 
 
-def run_timings(table_id, save_dir=f"{HOME}/benchmarks/", job_size=1000):
+def run_timings(table_id, save_dir=f"{HOME}/benchmarks/", job_size=500):
     benchmark_root_timings(table_id=table_id, save_dir=save_dir,
                            job_size=job_size)
     benchmark_subgraph_timings(table_id=table_id, save_dir=save_dir,

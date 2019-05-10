@@ -12,14 +12,15 @@ def create_benchmark_datasets(storage_path,
                               s_bits_atomic_layer=None,
                               fan_out=2,
                               aff_dtype=np.float32,
-                              n_iter=6,
+                              start_iter=0,
+                              n_iter=8,
                               instance_id=None,
                               project_id=None,
                               n_threads=[64, 64]):
 
     chunk_size = np.array(chunk_size)
 
-    for i_iter in range(n_iter):
+    for i_iter in range(start_iter, n_iter):
         size = chunk_size * 2 ** (i_iter + 1)
         cg_table_id = f"{cg_table_base_id}_s{i_iter}"
 
@@ -37,13 +38,15 @@ def create_benchmark_datasets(storage_path,
                                     n_threads=n_threads)
 
 
-def compute_graph_measurements_dataset(cg_table_base_id, n_iter=6, n_threads=1):
-    for i_iter in range(5, n_iter):
+def compute_graph_measurements_dataset(cg_table_base_id, start_iter=0, n_iter=8,
+                                       n_threads=1):
+    for i_iter in range(start_iter, n_iter):
         cg_table_id = f"{cg_table_base_id}_s{i_iter}"
         gm.run_graph_measurements(table_id=cg_table_id, n_threads=n_threads)
 
 
-def compute_benchmarks_dataset(cg_table_base_id, n_iter=6):
-    for i_iter in range(5, n_iter):
+def compute_benchmarks_dataset(cg_table_base_id, start_iter=0, n_iter=8,
+                               job_size=500):
+    for i_iter in range(start_iter, n_iter):
         cg_table_id = f"{cg_table_base_id}_s{i_iter}"
-        timings.run_timings(table_id=cg_table_id)
+        timings.run_timings(table_id=cg_table_id, job_size=job_size)
