@@ -556,6 +556,10 @@ class ChunkedGraph(object):
         :param counter_id: np.uint64
         :return: np.uint64
         """
+        if self.n_bits_root_counter == 0:
+            return self.get_unique_segment_id_range(self.root_chunk_id,
+                                                    step=step)
+
         n_counters = np.uint64(2 ** self._n_bits_root_counter)
 
         if counter_id is None:
@@ -586,8 +590,8 @@ class ChunkedGraph(object):
         :param step: int
         :return: np.uint64
         """
-
-        if self.n_layers == self.get_chunk_layer(chunk_id):
+        if self.n_layers == self.get_chunk_layer(chunk_id) and \
+                self.n_bits_root_counter > 0:
             return self.get_unique_segment_id_root_row(step=step)
 
         row_key = serializers.serialize_key(
@@ -612,7 +616,7 @@ class ChunkedGraph(object):
         return self.get_unique_segment_id_range(chunk_id=chunk_id, step=1)[0]
 
     def get_unique_node_id_range(self, chunk_id: np.uint64, step: int = 1
-                                 )  -> np.ndarray:
+                                 ) -> np.ndarray:
         """ Return unique Node ID range for given Chunk ID
 
         atomic counter
@@ -649,6 +653,8 @@ class ChunkedGraph(object):
 
         :return: uint64
         """
+        if self.n_bits_root_counter == 0:
+            return self.get_max_seg_id(self.root_chunk_id)
 
         n_counters = np.uint64(2 ** self.n_bits_root_counter)
         max_value = 0
@@ -676,7 +682,8 @@ class ChunkedGraph(object):
 
         :return: uint64
         """
-        if self.n_layers == self.get_chunk_layer(chunk_id):
+        if self.n_layers == self.get_chunk_layer(chunk_id) and \
+                self.n_bits_root_counter > 0:
             return self.get_max_seg_id_root_chunk()
 
         # Incrementer row keys start with an "i"
