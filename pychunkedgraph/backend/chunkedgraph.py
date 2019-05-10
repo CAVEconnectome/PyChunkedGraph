@@ -3667,6 +3667,9 @@ class ChunkedGraph(object):
                                 child_lookup, time_stamp)
         rows.extend(add_rows)
 
+        for k in parent_lookup:
+            assert self.get_chunk_layer(k) < self.get_chunk_layer(parent_lookup[k])
+
         # Main concept:
         # We handle Layer 1 separately from the higher layers but the concept
         # is the same. On each layer we check if the added edges make
@@ -3896,6 +3899,7 @@ class ChunkedGraph(object):
                 chunk_id = self.get_parent_chunk_id_dict(new_child_ids[0])[next_layer]
                 new_parent_id = self.get_unique_node_id(chunk_id)
 
+                assert np.max(self.get_chunk_layers(child_ids)) < self.get_chunk_layer(new_parent_id)
 
                 if len(val_dict):
                     rows.append(self.mutate_row(serializers.serialize_uint64(new_parent_id),
@@ -4553,6 +4557,9 @@ class ChunkedGraph(object):
         new_roots = []
         old_parent_dict = {}
         for i_layer in range(2, self.n_layers):
+            print(f"\n\n --- layer: {i_layer} --- \n")
+            print(f"new_layer_parent_dict[i_layer]: {new_layer_parent_dict[i_layer]}")
+            # old_parent_dict = {}
 
             edges = []
             leftover_old_parents = set()
@@ -4584,6 +4591,8 @@ class ChunkedGraph(object):
                     # neighbor_id in old_id_dict. If so, we take the new atomic
                     # cross edges (temporary data) into account, else, we load
                     # the atomic_cross_edges from BigTable
+
+                    print(f"old_chunk_neighbor: {old_chunk_neighbor}")
 
                     if old_chunk_neighbor in old_id_dict:
                         for new_neighbor in old_id_dict[old_chunk_neighbor]:
@@ -4619,9 +4628,14 @@ class ChunkedGraph(object):
                                             dtype=np.uint64))
             ccs = list(nx.connected_components(chunk_g))
 
+            print(f"ccs: {len(ccs)} -- {ccs}")
+            print(f"old_parent_dict: {old_parent_dict}")
+
+
             # Filter the connected component that is relevant to the
             # current new_layer_parent
             for cc in ccs:
+                print(f"cc: {cc}")
                 partners = list(cc)
 
                 # Create the new_layer_parent_dict for the next layer and write
@@ -4657,13 +4671,25 @@ class ChunkedGraph(object):
                 next_chunk_id = self.get_parent_chunk_id_dict(old_next_layer_parent)[next_layer]
                 new_parent_id = self.get_unique_node_id(next_chunk_id)
 
+                assert np.max(self.get_chunk_layers(partners)) < self.get_chunk_layer(new_parent_id)
+
+
+                print(f"next_layer: {next_layer}")
+                print(f"new_parent_id: {new_parent_id}")
+
                 while self.get_chunk_layer(old_next_layer_parent) < next_layer:
                     old_next_layer_parent = self.get_parent(old_next_layer_parent)
+
+                print(f"old_next_layer_parent: {old_next_layer_parent}")
 
                 new_layer_parent_dict[next_layer][new_parent_id] = old_next_layer_parent
                 old_id_dict[old_next_layer_parent].append(new_parent_id)
 
                 cross_edge_dict[new_parent_id] = parent_cross_edges
+
+                # if next_layer == 6:
+                #     raise()
+
 
                 for partner in partners:
                     val_dict = {column_keys.Hierarchy.Parent: new_parent_id}
