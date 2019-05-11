@@ -2,6 +2,7 @@ import collections
 import time
 import random
 
+import pandas as pd
 import cloudvolume
 import networkx as nx
 import numpy as np
@@ -416,6 +417,10 @@ def collect_edge_data(im, chunk_coord, aff_dtype=np.float32):
             edge_data[k] = rfn.stack_arrays(data, usemask=False)
         except:
             raise()
+
+        edge_data_df = pd.DataFrame(edge_data[k])
+        edge_data_dfg = edge_data_df.groupby(["sv1", "sv2"]).aggregate(np.sum).reset_index()
+        edge_data[k] = edge_data_dfg.to_records()
 
     # # TEST
     # with cloudvolume.Storage(base_path, n_threads=10) as stor:
