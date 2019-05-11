@@ -14,6 +14,9 @@ def create_benchmark_datasets(storage_path,
                               aff_dtype=np.float32,
                               start_iter=0,
                               n_iter=8,
+                              run_gm=False,
+                              run_bm=False,
+                              job_size=250,
                               instance_id=None,
                               project_id=None,
                               n_threads=[64, 64]):
@@ -37,6 +40,12 @@ def create_benchmark_datasets(storage_path,
                                     start_layer=1,
                                     n_threads=n_threads)
 
+        if run_gm or run_bm:
+            gm.run_graph_measurements(table_id=cg_table_id, n_threads=n_threads[0])
+
+            if run_bm:
+                timings.run_timings(table_id=cg_table_id, job_size=job_size)
+
 
 def compute_graph_measurements_dataset(cg_table_base_id, start_iter=0, n_iter=8,
                                        n_threads=1):
@@ -50,3 +59,4 @@ def compute_benchmarks_dataset(cg_table_base_id, start_iter=0, n_iter=8,
     for i_iter in range(start_iter, n_iter):
         cg_table_id = f"{cg_table_base_id}_s{i_iter}"
         timings.run_timings(table_id=cg_table_id, job_size=job_size)
+

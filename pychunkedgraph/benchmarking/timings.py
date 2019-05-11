@@ -84,6 +84,7 @@ def plot_timings(path):
     plt.tight_layout()
 
     plt.savefig(f"{save_dir}/{save_name}.png", dpi=300)
+    plt.close()
 
 
 def plot_all_timings(save_dir=f"{HOME}/benchmarks/"):
