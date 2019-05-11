@@ -2398,9 +2398,7 @@ class TestGraphMergeSplit:
             assert len(new_roots) == 1
 
             subgraph_dict = cgraph.get_subgraph_nodes(new_roots[0], return_layers=[3, 2, 1])
-            for k in subgraph_dict:
-                for e in subgraph_dict[k]:
-                    print(f"{k} -- {e} -- {cgraph.get_chunk_layer(e)} -- {cgraph.get_chunk_coordinates(e)}")
+
             assert len(cgraph.get_subgraph_nodes(new_roots[0])) == 4
 
             root_ids = []
@@ -2413,7 +2411,6 @@ class TestGraphMergeSplit:
 
             u_root_ids = np.unique(root_ids)
             assert len(u_root_ids) == 1
-
 
             # ------------------------------------------------------------------
 

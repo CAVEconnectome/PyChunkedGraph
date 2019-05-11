@@ -3221,22 +3221,28 @@ class ChunkedGraph(object):
                                               include_connected_partners,
                                               include_disconnected_partners)
 
-    def _retrieve_connectivity(self, dict_item: Tuple[np.uint64, Dict[column_keys._Column, List[bigtable.row_data.Cell]]]):
+    def _retrieve_connectivity(self, dict_item: Tuple[np.uint64, Dict[column_keys._Column, List[bigtable.row_data.Cell]]],
+                               connected_edges: bool = True):
         node_id, row = dict_item
 
         tmp = set()
-        for x in itertools.chain.from_iterable(
-                generation.value for generation in row[column_keys.Connectivity.Connected][::-1]):
+        for x in itertools.chain.from_iterable(generation.value for generation in row[column_keys.Connectivity.Connected][::-1]):
             tmp.remove(x) if x in tmp else tmp.add(x)
 
         connected_indices = np.fromiter(tmp, np.uint64)
-
         if column_keys.Connectivity.Partner in row:
             edges = np.fromiter(itertools.chain.from_iterable(
                 (node_id, partner_id)
                 for generation in row[column_keys.Connectivity.Partner][::-1]
                 for partner_id in generation.value),
-                dtype=basetypes.NODE_ID).reshape((-1, 2))[connected_indices]
+                dtype=basetypes.NODE_ID).reshape((-1, 2))
+
+            if connected_edges:
+                edges = edges[connected_indices]
+            else:
+                disconnected_indices = np.arange(len(edges))
+                disconnected_indices = disconnected_indices[~np.in1d(disconnected_indices, connected_indices)]
+                edges = edges[disconnected_indices]
         else:
             edges = np.empty((0, 2), basetypes.NODE_ID)
 
@@ -3245,7 +3251,7 @@ class ChunkedGraph(object):
                 generation.value for generation in row[column_keys.Connectivity.Affinity][::-1]),
                 dtype=basetypes.EDGE_AFFINITY)[connected_indices]
         else:
-            edges = np.empty(0, basetypes.EDGE_AFFINITY)
+            affinities = np.empty(0, basetypes.EDGE_AFFINITY)
 
         if column_keys.Connectivity.Area in row:
             areas = np.fromiter(itertools.chain.from_iterable(
@@ -3597,6 +3603,8 @@ class ChunkedGraph(object):
         :param affinities: list of np.float32
         :return: list of np.uint64, rows
         """
+        atomic_edges = np.array(atomic_edges, dtype=np.uint64)
+
         # Comply to resolution of BigTables TimeRange
         time_stamp = get_google_compatible_time_stamp(time_stamp,
                                                       round_up=False)
@@ -3812,7 +3820,6 @@ class ChunkedGraph(object):
             # combine what belongs together
             parental_edges = []
             for p in old_parent_mapping.keys():
-
                 if self.get_chunk_layer(p) <= i_layer:
                     continue
 
@@ -3918,14 +3925,18 @@ class ChunkedGraph(object):
                     next_old_parents = []
 
                     for old_parent_id in old_parent_ids:
-                        next_parent_id = parent_lookup[old_parent_id]
 
-                        if next_parent_id is None:
+                        temp_parent_id = old_parent_id
+
+                        if parent_lookup[temp_parent_id] is None:
                             continue
-                        elif self.get_chunk_layer(next_parent_id) == next_layer + 1:
-                            next_old_parents.append(next_parent_id)
-                        else:
-                            next_old_parents.append(old_parent_id)
+
+                        while parent_lookup[temp_parent_id] is not None and \
+                                self.get_chunk_layer(parent_lookup[temp_parent_id]) <= next_layer + 1:
+                            temp_parent_id = parent_lookup[temp_parent_id]
+
+                        if temp_parent_id is not None:
+                            next_old_parents.append(temp_parent_id)
 
                     assert len(next_old_parents) > 0
                     next_old_parents = np.unique(next_old_parents)
@@ -3937,6 +3948,8 @@ class ChunkedGraph(object):
                                                         next_old_parents,
                                                         old_parent_ids,
                                                         cross_chunk_edge_dict])
+                    # if i_layer == 2:
+                    #     raise()
                 else:
                     val_dict = {}
                     val_dict[column_keys.Hierarchy.FormerParent] = \
@@ -3997,6 +4010,8 @@ class ChunkedGraph(object):
                     rows.append(self.mutate_row(serializers.serialize_uint64(
                         atomic_edge[i_atomic_id]), val_dict,
                         time_stamp=time_stamp))
+
+        assert len(new_root_ids) > 0
 
         return new_root_ids, rows, lvl2_node_mapping
 
@@ -4666,14 +4681,12 @@ class ChunkedGraph(object):
                 while self.get_chunk_layer(old_next_layer_parent) < next_layer:
                     old_next_layer_parent = self.get_parent(old_next_layer_parent)
 
+                assert self.get_chunk_layer(old_next_layer_parent) == next_layer
+
                 new_layer_parent_dict[next_layer][new_parent_id] = old_next_layer_parent
                 old_id_dict[old_next_layer_parent].append(new_parent_id)
 
                 cross_edge_dict[new_parent_id] = parent_cross_edges
-
-                # if next_layer == 6:
-                #     raise()
-
 
                 for partner in partners:
                     val_dict = {column_keys.Hierarchy.Parent: new_parent_id}
