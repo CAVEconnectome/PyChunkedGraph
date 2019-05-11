@@ -3597,8 +3597,6 @@ class ChunkedGraph(object):
         :param affinities: list of np.float32
         :return: list of np.uint64, rows
         """
-        print(f"\n\n\n atomic_edges: {atomic_edges} \n\n\n")
-
         # Comply to resolution of BigTables TimeRange
         time_stamp = get_google_compatible_time_stamp(time_stamp,
                                                       round_up=False)
@@ -3845,21 +3843,12 @@ class ChunkedGraph(object):
                 for cc_storage_id in cc_storage_ids:
                     cc_storage_entry = cc_storage[cc_storage_id]
 
-                    if len(cc_storage_entry[1]) == 1 and \
-                            self.get_chunk_layer(cc_storage_entry[1][0]) < i_layer + 1:
-                        next_layer = i_layer + 1
-                        for p in cc_storage_entry[1]:
-                            old_parent_mapping[p].append(
-                                len(next_cc_storage[next_layer]))
-
-                        next_cc_storage[next_layer].append(cc_storage_entry)
-                    else:
-                        new_child_ids.append(cc_storage_entry[0])
-                        old_parent_ids.extend(cc_storage_entry[1])
-                        old_child_ids.extend(cc_storage_entry[2])
-                        cross_chunk_edge_dict = \
-                            combine_cross_chunk_edge_dicts(cross_chunk_edge_dict,
-                                                           cc_storage_entry[3])
+                    new_child_ids.append(cc_storage_entry[0])
+                    old_parent_ids.extend(cc_storage_entry[1])
+                    old_child_ids.extend(cc_storage_entry[2])
+                    cross_chunk_edge_dict = \
+                        combine_cross_chunk_edge_dicts(cross_chunk_edge_dict,
+                                                       cc_storage_entry[3])
 
                 old_parent_ids = np.array(old_parent_ids)
 
@@ -3867,6 +3856,9 @@ class ChunkedGraph(object):
 
                 maintained_child_ids = []
                 for old_parent_id in old_parent_ids:
+                    if self.get_chunk_layer(old_parent_id) < i_layer:
+                        continue
+
                     old_parent_child_ids = child_lookup[old_parent_id]
                     maintained_child_ids.extend(old_parent_child_ids)
 
@@ -3900,6 +3892,8 @@ class ChunkedGraph(object):
                 if next_layer is None:
                     next_layer = self.n_layers
 
+
+
                 chunk_id = self.get_parent_chunk_id_dict(new_child_ids[0])[next_layer]
                 new_parent_id = self.get_unique_node_id(chunk_id)
 
@@ -3921,17 +3915,20 @@ class ChunkedGraph(object):
                 val_dict = {}
 
                 if next_layer < self.n_layers:
-                    next_old_parent_candidates = np.array([parent_lookup[n] for n in old_parent_ids if parent_lookup[n] is not None])
-
-                    assert len(next_old_parent_candidates) > 0
-                    next_old_parent_candidates = np.unique(next_old_parent_candidates)
-
                     next_old_parents = []
-                    for p in next_old_parent_candidates:
-                        if self.get_chunk_layer(p) >= next_layer + 1:
-                            next_old_parents.append(p)
+
+                    for old_parent_id in old_parent_ids:
+                        next_parent_id = parent_lookup[old_parent_id]
+
+                        if next_parent_id is None:
+                            continue
+                        elif self.get_chunk_layer(next_parent_id) == next_layer + 1:
+                            next_old_parents.append(next_parent_id)
                         else:
-                            next_old_parents.append(parent_lookup[p])
+                            next_old_parents.append(old_parent_id)
+
+                    assert len(next_old_parents) > 0
+                    next_old_parents = np.unique(next_old_parents)
 
                     for p in next_old_parents:
                         old_parent_mapping[p].append(len(next_cc_storage[next_layer]))
@@ -4357,8 +4354,6 @@ class ChunkedGraph(object):
             return False, None
 
         # Remove edges
-        print(f"atomic_edges{atomic_edges}")
-
         success, result = self._remove_edges(operation_id, atomic_edges)
 
         if not success:
@@ -4563,10 +4558,6 @@ class ChunkedGraph(object):
         new_roots = []
         old_parent_dict = {}
         for i_layer in range(2, self.n_layers):
-            print(f"\n\n --- layer: {i_layer} --- \n")
-            print(f"new_layer_parent_dict[i_layer]: {new_layer_parent_dict[i_layer]}")
-            # old_parent_dict = {}
-
             edges = []
             leftover_old_parents = set()
             for new_layer_parent in new_layer_parent_dict[i_layer].keys():
@@ -4597,8 +4588,6 @@ class ChunkedGraph(object):
                     # neighbor_id in old_id_dict. If so, we take the new atomic
                     # cross edges (temporary data) into account, else, we load
                     # the atomic_cross_edges from BigTable
-
-                    print(f"old_chunk_neighbor: {old_chunk_neighbor}")
 
                     if old_chunk_neighbor in old_id_dict:
                         for new_neighbor in old_id_dict[old_chunk_neighbor]:
@@ -4634,14 +4623,9 @@ class ChunkedGraph(object):
                                             dtype=np.uint64))
             ccs = list(nx.connected_components(chunk_g))
 
-            print(f"ccs: {len(ccs)} -- {ccs}")
-            print(f"old_parent_dict: {old_parent_dict}")
-
-
             # Filter the connected component that is relevant to the
             # current new_layer_parent
             for cc in ccs:
-                print(f"cc: {cc}")
                 partners = list(cc)
 
                 # Create the new_layer_parent_dict for the next layer and write
@@ -4679,14 +4663,8 @@ class ChunkedGraph(object):
 
                 assert np.max(self.get_chunk_layers(partners)) < self.get_chunk_layer(new_parent_id)
 
-
-                print(f"next_layer: {next_layer}")
-                print(f"new_parent_id: {new_parent_id}")
-
                 while self.get_chunk_layer(old_next_layer_parent) < next_layer:
                     old_next_layer_parent = self.get_parent(old_next_layer_parent)
-
-                print(f"old_next_layer_parent: {old_next_layer_parent}")
 
                 new_layer_parent_dict[next_layer][new_parent_id] = old_next_layer_parent
                 old_id_dict[old_next_layer_parent].append(new_parent_id)
