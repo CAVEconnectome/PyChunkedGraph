@@ -12,7 +12,8 @@ def calc_n_layers(ws_cv, chunk_size, fan_out):
 
 
 def initialize_chunkedgraph(cg_table_id, ws_cv_path, chunk_size, size,
-                            cg_mesh_dir, s_bits_atomic_layer=None,
+                            cg_mesh_dir, use_skip_connections=True,
+                            s_bits_atomic_layer=None,
                             n_bits_root_counter=8, fan_out=2, instance_id=None,
                             project_id=None):
     """ Initalizes a chunkedgraph on BigTable
@@ -64,6 +65,7 @@ def initialize_chunkedgraph(cg_table_id, ws_cv_path, chunk_size, size,
               "fan_out": np.uint64(fan_out),
               "n_layers": np.uint64(n_layers_cg),
               "dataset_info": dataset_info,
+              "use_skip_connections": use_skip_connections,
               "s_bits_atomic_layer": s_bits_atomic_layer,
               "n_bits_root_counter": n_bits_root_counter,
               "is_new": True}

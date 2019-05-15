@@ -3,6 +3,7 @@ import itertools
 import time
 import os
 import h5py
+import pandas as pd
 
 from pychunkedgraph.backend import chunkedgraph, chunkedgraph_comp
 from pychunkedgraph.backend.utils import column_keys
@@ -264,10 +265,111 @@ def _get_root_ids_and_sv_chunks(args):
     return root_ids, n_l1_nodes_per_root, rep_l1_nodes, rep_l1_chunk_ids
 
 
+def get_merge_candidates(table_id, save_dir=f"{HOME}/benchmarks/",
+                             n_threads=1):
+    cg = chunkedgraph.ChunkedGraph(table_id)
+
+    bounds = np.array(cg.cv.bounds.to_list()).reshape(2, -1).T
+    bounds -= bounds[:, 0:1]
+
+    chunk_id_bounds = np.ceil((bounds / cg.chunk_size[:, None])).astype(np.int)
+
+    chunk_coord_gen = itertools.product(*[range(*r) for r in chunk_id_bounds])
+    chunk_coords = np.array(list(chunk_coord_gen), dtype=np.int)
+
+    order = np.arange(len(chunk_coords))
+    np.random.shuffle(order)
+
+    n_blocks = np.min([len(order), n_threads * 3])
+    blocks = np.array_split(order, n_blocks)
+
+    cg_serialized_info = cg.get_serialized_info()
+    if n_threads > 1:
+        del cg_serialized_info["credentials"]
+
+    multi_args = []
+    for block in blocks:
+        multi_args.append([cg_serialized_info, chunk_coords[block]])
+
+    if n_threads == 1:
+        results = mu.multiprocess_func(_get_merge_candidates,
+                                       multi_args, n_threads=n_threads,
+                                       verbose=False, debug=n_threads == 1)
+    else:
+        results = mu.multisubprocess_func(_get_merge_candidates,
+                                          multi_args, n_threads=n_threads)
+    merge_edges = []
+    merge_edge_weights = []
+    for result in results:
+        merge_edges.extend(result[0])
+        merge_edge_weights.extend(result[1])
+
+    save_folder = f"{save_dir}/{table_id}/"
+
+    if not os.path.exists(save_folder):
+        os.makedirs(save_folder)
+
+    with h5py.File(f"{save_folder}/merge_edge_stats.h5", "w") as f:
+        f.create_dataset("merge_edges", data=merge_edges,
+                         compression="gzip")
+        f.create_dataset("merge_edge_weights", data=merge_edge_weights,
+                         compression="gzip")
+
+
+def _get_merge_candidates(args):
+    serialized_cg_info, chunk_coords = args
+
+    time_start = time.time()
+
+    cg = chunkedgraph.ChunkedGraph(**serialized_cg_info)
+
+    merge_edges = []
+    merge_edge_weights = []
+    for chunk_coord in chunk_coords:
+        chunk_id = cg.get_chunk_id(layer=1, x=chunk_coord[0],
+                                   y=chunk_coord[1], z=chunk_coord[2])
+
+        rr = cg.range_read_chunk(chunk_id=chunk_id,
+                                 columns=[column_keys.Connectivity.Partner,
+                                          column_keys.Connectivity.Connected,
+                                          column_keys.Hierarchy.Parent])
+
+        ps = []
+        edges = []
+        for it in rr.items():
+            e, _, _ = cg._retrieve_connectivity(it, connected_edges=False)
+            edges.extend(e)
+            ps.extend([it[1][column_keys.Hierarchy.Parent][0].value] * len(e))
+
+        if len(edges) == 0:
+            continue
+            
+        edges = np.sort(np.array(edges), axis=1)
+        cols = {"sv1": edges[:, 0], "sv2": edges[:, 1], "parent": ps}
+
+        df = pd.DataFrame(data=cols)
+        dfg = df.groupby(["sv1", "sv2"]).aggregate(np.sum).reset_index()
+
+        _, i, c = np.unique(dfg[["parent"]], return_counts=True,
+                            return_index=True)
+
+        merge_edges.extend(np.array(dfg.loc[i][["sv1", "sv2"]],
+                                    dtype=np.uint64))
+        merge_edge_weights.extend(c)
+
+
+    print(f"{len(chunk_coords)} took {time.time() - time_start}s")
+
+    return merge_edges, merge_edge_weights
+
+
+
 def run_graph_measurements(table_id, save_dir=f"{HOME}/benchmarks/",
                            n_threads=1):
     get_root_ids_and_sv_chunks(table_id=table_id, save_dir=save_dir,
                                n_threads=n_threads)
     count_and_download_nodes(table_id=table_id, save_dir=save_dir,
                              n_threads=n_threads)
+    get_merge_candidates(table_id=table_id, save_dir=save_dir,
+                         n_threads=n_threads)
 
