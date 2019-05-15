@@ -55,6 +55,7 @@ class ChunkedGraph(object):
                  project_id: str = "neuromancer-seung-import",
                  chunk_size: Tuple[np.uint64, np.uint64, np.uint64] = None,
                  fan_out: Optional[np.uint64] = None,
+                 use_skip_connections: Optional[bool] = False,
                  s_bits_atomic_layer: Optional[np.uint64] = 8,
                  n_bits_root_counter: Optional[np.uint64] = 0,
                  n_layers: Optional[np.uint64] = None,
@@ -105,6 +106,9 @@ class ChunkedGraph(object):
             column_keys.GraphSettings.SpatialBits,
             np.uint64(s_bits_atomic_layer),
             required=False, is_new=is_new)
+        self._use_skip_connections = self.check_and_write_table_parameters(
+            column_keys.GraphSettings.SkipConnections,
+            np.uint64(use_skip_connections), required=False, is_new=is_new) > 0
         self._n_bits_root_counter = self.check_and_write_table_parameters(
             column_keys.GraphSettings.RootCounterBits,
             np.uint64(n_bits_root_counter),
@@ -180,6 +184,10 @@ class ChunkedGraph(object):
     @property
     def n_bits_root_counter(self) -> np.ndarray:
         return self._n_bits_root_counter
+
+    @property
+    def use_skip_connections(self) -> np.ndarray:
+        return self._use_skip_connections
 
     @property
     def segmentation_chunk_size(self) -> np.ndarray:
@@ -1927,7 +1935,7 @@ class ChunkedGraph(object):
                                     len(cross_edge_dict[node_id][l]) > 0:
                                 parent_cross_edges[l].append(cross_edge_dict[node_id][l])
 
-                if len(node_ids) == 1:
+                if self.use_skip_connections and len(node_ids) == 1:
                     for l in parent_layer_ids:
                         if l == self.n_layers or len(parent_cross_edges[l]) > 0:
                             cc_connections[l].append([node_ids,
