@@ -11,7 +11,7 @@ REDIS_PORT = os.environ['REDIS_SERVICE_PORT']
 REDIS_PASSWORD = os.environ['REDIS_PASSWORD']
 REDIS_URL = f'redis://:{REDIS_PASSWORD}@{REDIS_HOST}:{REDIS_PORT}/0'
 
-@redis_job(REDIS_URL, 'test')
+@redis_job(REDIS_URL, 'test-channel')
 def independent_task(chunk_id, chunk_size):
     print(f' Working on chunk id: {chunk_id}, size {chunk_size}')
     i = 0
