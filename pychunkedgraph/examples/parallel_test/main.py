@@ -23,12 +23,13 @@ def create_atomic_chunks(n, size):
     print(f'Queueing {n} items of size {size} ...')
     chunk_pubsub = current_app.redis.pubsub()
     chunk_pubsub.subscribe(**{'test-channel': handler})
-    thread = chunk_pubsub.run_in_thread(sleep_time=0.1)
-
+    
     for item_id in range(n):
         current_app.test_q.enqueue(
             independent_task,
             args=(item_id, size))
+    
+    thread = chunk_pubsub.run_in_thread(sleep_time=0.1)
     return 'Queued'
 
 
