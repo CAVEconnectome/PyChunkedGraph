@@ -9,7 +9,6 @@ spec:
     matchLabels:
       app: pcg-test
   replicas: 1
-  restartPolicy: Never # for development
   template:
     metadata:
       labels:
@@ -39,12 +38,9 @@ spec:
             - name: APP_SETTINGS
               value: pychunkedgraph.app.config.DockerDeploymentConfig
             - name: FLASK_APP
-              value: main.py
+              value: run_dev_cli.py
             - name: REDIS_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: redis_password
-                  key: dev # for development
+              value: dev # for development
           volumeMounts:
             - name: google-secret
               mountPath: /root/.cloudvolume/secrets/google-secret.json
