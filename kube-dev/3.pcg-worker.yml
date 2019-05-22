@@ -41,7 +41,10 @@ spec:
             - name: FLASK_APP
               value: main.py
             - name: REDIS_PASSWORD
-              value: dev
+              valueFrom:
+                secretKeyRef:
+                  name: redis_password
+                  key: dev # for development
           volumeMounts:
             - name: google-secret
               mountPath: /root/.cloudvolume/secrets/google-secret.json

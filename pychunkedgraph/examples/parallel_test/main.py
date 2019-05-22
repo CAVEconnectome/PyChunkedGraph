@@ -17,10 +17,10 @@ def handler(*args, **kwargs):
 
 
 @ingest_cli.command('test')
-@click.argument('n_chunks', type=int)
-@click.argument('chunk_size', type=int)
-def create_atomic_chunks(n_chunks, chunk_size):
-    print(f'Queueing {n_chunks} chunks of size {chunk_size} ...')
+@click.argument('n', type=int)
+@click.argument('size', type=int)
+def create_atomic_chunks(n, size):
+    print(f'Queueing {n} items of size {size} ...')
     chunk_pubsub = current_app.redis.pubsub()
     chunk_pubsub.subscribe(**{'test-channel': handler})
     thread = chunk_pubsub.run_in_thread(sleep_time=0.1)

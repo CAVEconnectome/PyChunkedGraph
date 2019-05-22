@@ -40,12 +40,12 @@ spec:
         - name: APP_SETTINGS
           value: pychunkedgraph.app.config.DockerDeploymentConfig
         - name: FLASK_APP
-          value: main.py
+          value: run_dev_cli.py
         - name: REDIS_PASSWORD
           valueFrom:
             secretKeyRef:
               name: redis_password
-              key: dev
+              key: dev # for development
       ports:
         - containerPort: 4000
       volumeMounts:
