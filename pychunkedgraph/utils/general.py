@@ -19,4 +19,4 @@ def redis_job(redis_url, redis_channel):
         
         return wrapper
     
-    return redis_job_decorator    
+    return redis_job_decorator
