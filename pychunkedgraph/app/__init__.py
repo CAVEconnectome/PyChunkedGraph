@@ -9,6 +9,10 @@ import json
 import numpy as np
 import datetime
 from . import config
+import redis
+from rq import Queue
+
+from pychunkedgraph.examples.parallel_test.main import init_parallel_test_cmds
 
 # from pychunkedgraph.app import app_blueprint
 from pychunkedgraph.app import cg_app_blueprint, meshing_app_blueprint
@@ -41,12 +45,20 @@ def create_app(test_config=None):
     app.register_blueprint(meshing_app_blueprint.bp)
     # app.register_blueprint(manifest_app_blueprint.bp)
 
+    with app.app_context():
+        init_parallel_test_cmds(app)    
+
     return app
 
 
 def configure_app(app):
     # Load logging scheme from config.py
-    app.config.from_object(config.BaseConfig)
+    app_settings = os.getenv('APP_SETTINGS')
+    if not app_settings:
+        app.config.from_object(config.BaseConfig)
+    else:
+        app.config.from_object(app_settings)
+
 
     # Configure logging
     # handler = logging.FileHandler(app.config['LOGGING_LOCATION'])
@@ -61,3 +73,6 @@ def configure_app(app):
     app.logger.addHandler(handler)
     app.logger.setLevel(app.config['LOGGING_LEVEL'])
     app.logger.propagate = False
+
+    app.redis = redis.Redis.from_url(app.config['REDIS_URL'])
+    app.test_q = Queue('test' ,connection=app.redis)
