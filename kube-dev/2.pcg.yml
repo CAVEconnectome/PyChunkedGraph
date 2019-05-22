@@ -1,0 +1,124 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: pcg-svc
+  labels:
+    app: pcg-test
+spec:
+  type: LoadBalancer
+  ports:
+  - port: 4000
+    targetPort: 4000
+  - port: 9181
+    targetPort: 9181    
+  selector:
+    app: pcg-test
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: pcg-master
+  labels:
+    app: pcg-test
+spec:
+  restartPolicy: Never
+  volumes:
+    - name: google-secret
+      secret:
+        secretName: google-secret
+    - name: microns-seunglab-google-secret
+      secret:
+        secretName: microns-seunglab-google-secret
+    - name: seunglab2-google-secret
+      secret:
+        secretName: seunglab2-google-secret
+  containers:
+    - name: pcg
+      image: gcr.io/neuromancer-seung-import/pychunkedgraph:akhilesh-autoscale-test
+      imagePullPolicy: Always
+      env:
+        - name: APP_SETTINGS
+          value: pychunkedgraph.app.config.DockerDeploymentConfig
+        - name: FLASK_APP
+          value: main.py
+        - name: REDIS_PASSWORD
+          value: dev
+      ports:
+        - containerPort: 4000
+      volumeMounts:
+        - name: google-secret
+          mountPath: /root/.cloudvolume/secrets/google-secret.json
+          subPath: google-secret.json
+          readOnly: true          
+        - name: microns-seunglab-google-secret
+          mountPath: /root/.cloudvolume/secrets/microns-seunglab-google-secret.json
+          subPath: microns-seunglab-google-secret.json
+          readOnly: true                
+        - name: seunglab2-google-secret
+          mountPath: /root/.cloudvolume/secrets/seunglab2-google-secret.json
+          subPath: seunglab2-google-secret.json
+          readOnly: true
+    - name: rq-dashboard
+      image: python:3.6.8-alpine
+      imagePullPolicy: Always
+      command: ["pip install rq-dashboard && rq-dashboard"]
+      args: ["-H", "$REDIS_SERVICE_HOST", "-P", "$REDIS_SERVICE_PORT"]      
+      ports:
+        - containerPort: 9181
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: pcg-worker
+  labels:
+    app: pcg-test
+spec:
+  selector:
+    matchLabels:
+      app: pcg-test
+  replicas: 1
+  template:
+    metadata:
+      labels:
+        app: pcg-test
+    spec:
+      dnsPolicy: Default
+      volumes:
+        - name: google-secret
+          secret:
+            secretName: google-secret
+        - name: microns-seunglab-google-secret
+          secret:
+            secretName: microns-seunglab-google-secret
+        - name: seunglab2-google-secret
+          secret:
+            secretName: seunglab2-google-secret      
+      containers:
+        - name: pcg-worker
+          image: gcr.io/neuromancer-seung-import/pychunkedgraph:akhilesh-autoscale-test
+          imagePullPolicy: Always
+          resources:
+            requests:
+              memory: 1Gi
+            limits:
+              memory: 2Gi
+          env:
+            - name: APP_SETTINGS
+              value: pychunkedgraph.app.config.DockerDeploymentConfig
+            - name: FLASK_APP
+              value: main.py
+            - name: REDIS_PASSWORD
+              value: dev
+          volumeMounts:
+            - name: google-secret
+              mountPath: /root/.cloudvolume/secrets/google-secret.json
+              subPath: google-secret.json
+              readOnly: true          
+            - name: microns-seunglab-google-secret
+              mountPath: /root/.cloudvolume/secrets/microns-seunglab-google-secret.json
+              subPath: microns-seunglab-google-secret.json
+              readOnly: true                
+            - name: seunglab2-google-secret
+              mountPath: /root/.cloudvolume/secrets/seunglab2-google-secret.json
+              subPath: seunglab2-google-secret.json
+              readOnly: true

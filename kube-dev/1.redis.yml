@@ -1,0 +1,36 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: pcg-redis-svc
+  labels:
+    app: pcg-test-redis
+spec:
+  type: NodePort
+  ports:
+  - port: 6379
+    targetPort: 6379
+  selector:
+    app: pcg-test-redis
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: redis
+  labels:
+    app: pcg-test-redis
+spec:
+  restartPolicy: Never
+  containers:
+    - name: redis
+      image: redis:5.0.4-alpine
+      imagePullPolicy: Always
+      command: ["redis-server"]
+      args: ["--requirepass", "$REDIS_PASSWORD"]
+      ports:
+        - containerPort: 6379
+      env:
+        - name: REDIS_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: redis_password
+              key: dev
