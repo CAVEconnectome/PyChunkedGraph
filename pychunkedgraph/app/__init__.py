@@ -46,7 +46,7 @@ def create_app(test_config=None):
     # app.register_blueprint(manifest_app_blueprint.bp)
 
     with app.app_context():
-        init_parallel_test_cmds(app)    
+        init_parallel_test_cmds(app)
 
     return app
 

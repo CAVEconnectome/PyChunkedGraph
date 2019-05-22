@@ -3,7 +3,7 @@ import redis
 
 from flask import current_app
 from flask.cli import AppGroup
-from pychunkedgraph.ingest.test_utils import independent_task
+from pychunkedgraph.examples.parallel_test.tasks import independent_task
 
 ingest_cli = AppGroup('parallel')
 
@@ -25,10 +25,10 @@ def create_atomic_chunks(n, size):
     chunk_pubsub.subscribe(**{'test-channel': handler})
     thread = chunk_pubsub.run_in_thread(sleep_time=0.1)
 
-    for chunk_id in range(n_chunks):
+    for item_id in range(n):
         current_app.test_q.enqueue(
             independent_task,
-            args=(chunk_id, chunk_size))
+            args=(item_id, size))
     return 'Queued'
 
 

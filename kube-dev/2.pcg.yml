@@ -9,8 +9,10 @@ spec:
   ports:
   - port: 4000
     targetPort: 4000
+    name: pcg
   - port: 9181
-    targetPort: 9181    
+    targetPort: 9181
+    name: rq-dashboard
   selector:
     app: pcg-test
 ---
@@ -42,10 +44,7 @@ spec:
         - name: FLASK_APP
           value: run_dev_cli.py
         - name: REDIS_PASSWORD
-          valueFrom:
-            secretKeyRef:
-              name: redis_password
-              key: dev # for development
+          value: dev # for development
       ports:
         - containerPort: 4000
       volumeMounts:
@@ -66,11 +65,10 @@ spec:
       imagePullPolicy: Always
       env:
         - name: REDIS_PASSWORD
-          valueFrom:
-            secretKeyRef:
-              name: redis_password
-              key: dev      
-      command: ["pip install rq-dashboard && rq-dashboard"]
-      args: ["--redis-url", "redis://:$REDIS_PASSWORD@$REDIS_SERVICE_HOST:$REDIS_SERVICE_PORT/0"]      
+          value: dev # for development    
+      command: ["/bin/sh", "-c"]
+      args:
+        - pip install rq-dashboard;
+          rq-dashboard --redis-url redis://:$REDIS_PASSWORD@$REDIS_SERVICE_HOST:$REDIS_SERVICE_PORT/0;
       ports:
         - containerPort: 9181
