@@ -74,5 +74,6 @@ def configure_app(app):
     app.logger.setLevel(app.config['LOGGING_LEVEL'])
     app.logger.propagate = False
 
-    app.redis = redis.Redis.from_url(app.config['REDIS_URL'])
-    app.test_q = Queue('test' ,connection=app.redis)
+    if app.config['USE_REDIS_JOBS']:
+        app.redis = redis.Redis.from_url(app.config['REDIS_URL'])
+        app.test_q = Queue('test' ,connection=app.redis)

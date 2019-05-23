@@ -36,7 +36,7 @@ spec:
               memory: 2Gi
           env:
             - name: APP_SETTINGS
-              value: pychunkedgraph.app.config.DockerDeploymentConfig
+              value: pychunkedgraph.app.config.DeploymentWithRedisConfig
             - name: FLASK_APP
               value: run_dev_cli.py
             - name: REDIS_PASSWORD
