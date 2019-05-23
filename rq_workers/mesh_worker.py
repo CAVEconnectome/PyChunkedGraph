@@ -3,9 +3,9 @@ import os
 # For the flask app use a config class
 
 # env REDIS_SERVICE_HOST and REDIS_SERVICE_PORT are added by Kubernetes
-REDIS_HOST = os.environ['REDIS_SERVICE_HOST']
-REDIS_PORT = os.environ['REDIS_SERVICE_PORT']
-REDIS_PASSWORD = os.environ['REDIS_PASSWORD']
+REDIS_HOST = os.environ.get('REDIS_SERVICE_HOST')
+REDIS_PORT = os.environ.get('REDIS_SERVICE_PORT')
+REDIS_PASSWORD = os.environ.get('REDIS_PASSWORD')
 REDIS_URL = f'redis://:{REDIS_PASSWORD}@{REDIS_HOST}:{REDIS_PORT}/0'
 
 # Queues to listen on
