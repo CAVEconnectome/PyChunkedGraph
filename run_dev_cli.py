@@ -1,9 +1,9 @@
 from flask.cli import FlaskGroup
-from pychunkedgraph.app import create_app
+from pychunkedgraph.examples import create_example_app
 
 
-app = create_app()
-cli = FlaskGroup(create_app=create_app)
+app = create_example_app()
+cli = FlaskGroup(create_app=create_example_app)
 
 
 if __name__ == '__main__':
