@@ -12,8 +12,6 @@ from . import config
 import redis
 from rq import Queue
 
-from pychunkedgraph.examples.parallel_test.main import init_parallel_test_cmds
-
 # from pychunkedgraph.app import app_blueprint
 from pychunkedgraph.app import cg_app_blueprint, meshing_app_blueprint
 from pychunkedgraph.logging import jsonformatter
@@ -44,9 +42,6 @@ def create_app(test_config=None):
     app.register_blueprint(cg_app_blueprint.bp)
     app.register_blueprint(meshing_app_blueprint.bp)
     # app.register_blueprint(manifest_app_blueprint.bp)
-
-    with app.app_context():
-        init_parallel_test_cmds(app)
 
     return app
 

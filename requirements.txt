@@ -14,3 +14,4 @@ zstandard
 igneous==dev
 redis
 rq
+pyopenssl

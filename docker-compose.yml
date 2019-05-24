@@ -15,7 +15,7 @@ services:
       - REDIS_PASSWORD=dev
     volumes:
       - .:/app
-      - /usr/people/halageri/secrets:/root/.cloudvolume/secrets
+      - ~/secrets:/root/.cloudvolume/secrets
     ports:
       - '80:80'
       - '4000:4000'
@@ -33,7 +33,7 @@ services:
       - REDIS_PASSWORD=dev
     volumes:
       - .:/app
-      - /usr/people/halageri/secrets:/root/.cloudvolume/secrets
+      - ~/secrets:/root/.cloudvolume/secrets
     ports:
       - '81:80'
       - '4001:4000'
