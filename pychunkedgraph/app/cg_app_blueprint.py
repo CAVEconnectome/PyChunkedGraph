@@ -12,7 +12,8 @@ import requests
 import threading
 
 from pychunkedgraph.app import app_utils, meshing_app_blueprint
-from pychunkedgraph.backend import chunkedgraph_exceptions as cg_exceptions
+from pychunkedgraph.backend import chunkedgraph_exceptions as cg_exceptions, \
+    chunkedgraph_comp as cg_comp
 from pychunkedgraph.meshing import meshgen
 
 
@@ -584,3 +585,19 @@ def merge_log(table_id, root_id):
             continue
 
     return jsonify(change_log)
+
+
+### CONTACT SITES --------------------------------------------------------------
+
+@bp.route('/1.0/<table_id>/segment/<root_id>/contact_sites',
+          methods=["POST", "GET"])
+def handle_contact_sites(table_id, root_id):
+    partners = request.args.get('partners', False)
+
+    # Call ChunkedGraph
+    cg = app_utils.get_cg(table_id)
+
+    cs_dict = cg_comp.get_contact_sites(cg, np.uint64(root_id),
+                                        compute_partner=partners)
+
+    return jsonify(cs_dict)

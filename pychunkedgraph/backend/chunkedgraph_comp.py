@@ -159,7 +159,7 @@ def get_delta_roots(cg,
     return np.array(new_root_ids, dtype=np.uint64), expired_root_ids
 
 
-def get_contact_sites(cg, root_id):
+def get_contact_sites(cg, root_id, compute_partner=True):
     # Get information about the root id
     # All supervoxels
     sv_ids = cg.get_subgraph_nodes(root_id)
@@ -201,8 +201,13 @@ def get_contact_sites(cg, root_id):
         cc_sv_ids = cc_sv_ids[np.in1d(cc_sv_ids, u_cs_svs)]
         cs_areas = area_dict_vec(cc_sv_ids)
 
-        partner_root_id = cg.get_root(cc_sv_ids[0])
+        if compute_partner:
+            partner_root_id = cg.get_root(cc_sv_ids[0])
+        else:
+            partner_root_id = len(cs_dict)
+
         print(partner_root_id, np.sum(cs_areas))
+
         cs_dict[partner_root_id].append(np.sum(cs_areas))
 
     return cs_dict
