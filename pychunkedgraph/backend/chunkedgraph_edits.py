@@ -34,6 +34,15 @@ def propagate_edits_to_root(cg: chunkedgraph.ChunkedGraph,
                             lvl2_dict: Dict,
                             operation_id: np.uint64,
                             time_stamp: datetime.datetime):
+    """
+
+    :param cg: ChunkedGraph
+    :param lvl2_dict: dict
+        maps
+    :param operation_id:
+    :param time_stamp:
+    :return:
+    """
 
     eh = EditHelper(cg, lvl2_dict)
 
@@ -47,6 +56,7 @@ class EditHelper(object):
 
         self._parent_dict = {}
         self._children_dict = {}
+        self._cross_chunk_edge_dict = {}
 
     @property
     def cg(self):
@@ -73,7 +83,14 @@ class EditHelper(object):
 
         return self._children_dict[node_id]
 
-    def initial_read(self):
+    def read_cross_chunk_edges(self, node_id):
+        if not node_id in self._cross_chunk_edge_dict:
+            self._cross_chunk_edge_dict[node_id] = \
+                self.cg.read_cross_chunk_edges(node_id)
+
+        return self._cross_chunk_edge_dict[node_id]
+
+    def bulk_family_read(self):
         def _get_root_thread(lvl2_node_id):
             parent_ids = self.cg.get_root(lvl2_node_id, get_all_parents=True)
             parent_ids = np.concatenate([[lvl2_node_id], parent_ids])
@@ -100,6 +117,7 @@ class EditHelper(object):
                 else:
                     assert self._parent_dict[child_id] == parent_id
 
-
+    def bulk_cross_chunk_edge_read(self):
+        raise NotImplementedError
 
 
