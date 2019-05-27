@@ -2733,8 +2733,10 @@ class ChunkedGraph(object):
 
     def get_subgraph_edges(self, agglomeration_id: np.uint64,
                            bounding_box: Optional[Sequence[Sequence[int]]] = None,
-                           bb_is_coordinate: bool = False, verbose: bool = True) -> \
-            Tuple[np.ndarray, np.ndarray, np.ndarray]:
+                           bb_is_coordinate: bool = False,
+                           connected_edges=True,
+                           verbose: bool = True
+                           ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
         """ Return all atomic edges between supervoxels belonging to the
             specified agglomeration ID within the defined bounding box
 
@@ -2747,7 +2749,9 @@ class ChunkedGraph(object):
 
         def _get_subgraph_layer2_edges(node_ids) -> \
                 Tuple[List[np.ndarray], List[np.float32], List[np.uint64]]:
-            return self.get_subgraph_chunk(node_ids, time_stamp=time_stamp)
+            return self.get_subgraph_chunk(node_ids,
+                                           connected_edges=connected_edges,
+                                           time_stamp=time_stamp)
 
         time_stamp = self.read_node_id_row(agglomeration_id,
                                            columns=column_keys.Hierarchy.Child)[0].timestamp
@@ -3049,22 +3053,28 @@ class ChunkedGraph(object):
                                               include_connected_partners,
                                               include_disconnected_partners)
 
-    def _retrieve_connectivity(self, dict_item: Tuple[np.uint64, Dict[column_keys._Column, List[bigtable.row_data.Cell]]]):
+    def _retrieve_connectivity(self, dict_item: Tuple[np.uint64, Dict[column_keys._Column, List[bigtable.row_data.Cell]]],
+                               connected_edges: bool = True):
         node_id, row = dict_item
 
         tmp = set()
-        for x in itertools.chain.from_iterable(
-                generation.value for generation in row[column_keys.Connectivity.Connected][::-1]):
+        for x in itertools.chain.from_iterable(generation.value for generation in row[column_keys.Connectivity.Connected][::-1]):
             tmp.remove(x) if x in tmp else tmp.add(x)
 
         connected_indices = np.fromiter(tmp, np.uint64)
-
         if column_keys.Connectivity.Partner in row:
             edges = np.fromiter(itertools.chain.from_iterable(
                 (node_id, partner_id)
                 for generation in row[column_keys.Connectivity.Partner][::-1]
                 for partner_id in generation.value),
-                dtype=basetypes.NODE_ID).reshape((-1, 2))[connected_indices]
+                dtype=basetypes.NODE_ID).reshape((-1, 2))
+
+            if connected_edges:
+                edges = edges[connected_indices]
+            else:
+                disconnected_indices = np.arange(len(edges))
+                disconnected_indices = disconnected_indices[~np.in1d(disconnected_indices, connected_indices)]
+                edges = edges[disconnected_indices]
         else:
             edges = np.empty((0, 2), basetypes.NODE_ID)
 
@@ -3073,7 +3083,7 @@ class ChunkedGraph(object):
                 generation.value for generation in row[column_keys.Connectivity.Affinity][::-1]),
                 dtype=basetypes.EDGE_AFFINITY)[connected_indices]
         else:
-            edges = np.empty(0, basetypes.EDGE_AFFINITY)
+            affinities = np.empty(0, basetypes.EDGE_AFFINITY)
 
         if column_keys.Connectivity.Area in row:
             areas = np.fromiter(itertools.chain.from_iterable(
@@ -3086,12 +3096,14 @@ class ChunkedGraph(object):
 
     def get_subgraph_chunk(self, node_ids: Iterable[np.uint64],
                            make_unique: bool = True,
+                           connected_edges: bool = True,
                            time_stamp: Optional[datetime.datetime] = None
                            ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
         """ Takes an atomic id and returns the associated agglomeration ids
 
         :param node_ids: array of np.uint64
         :param make_unique: bool
+        :param connected_edges: bool
         :param time_stamp: None or datetime
         :return: edge list
         """
@@ -3114,7 +3126,8 @@ class ChunkedGraph(object):
 
         tmp_edges, tmp_affinites, tmp_areas = [], [], []
         for row_dict_item in row_dict.items():
-            edges, affinities, areas = self._retrieve_connectivity(row_dict_item)
+            edges, affinities, areas = self._retrieve_connectivity(row_dict_item,
+                                                                   connected_edges)
             tmp_edges.append(edges)
             tmp_affinites.append(affinities)
             tmp_areas.append(areas)
@@ -4027,7 +4040,7 @@ class ChunkedGraph(object):
             node_id = involved_chunk_id_dict[chunk_id]
             old_parent_id = self.get_parent(node_id)
             chunk_edges, _, _ = self.get_subgraph_chunk(old_parent_id,
-                                                  make_unique=False)
+                                                        make_unique=False)
 
             # These edges still contain the removed edges.
             # For consistency reasons we can only write to BigTable one time.
