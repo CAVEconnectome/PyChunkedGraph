@@ -8,7 +8,7 @@ language:
 stages:
   - test
   - name: merge-deploy
-
+python: 3.6
 notifications:
   email:
     on_success: change
@@ -16,7 +16,6 @@ notifications:
 
 jobs:
   include:
-    - python: 3.6
     - stage: test
       name: "Running Tests"
 
