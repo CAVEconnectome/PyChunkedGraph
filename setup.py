@@ -25,6 +25,19 @@ with open("README.md", "r") as fh:
 with open('requirements.txt', 'r') as f:
     required = f.read().splitlines()
 
+dependency_links = []
+del_ls = []
+for i_l in range(len(required)):
+    l = required[i_l]
+    if l.startswith("-e"):
+        dependency_links.append(l.split("-e ")[-1])
+        del_ls.append(i_l)
+
+        required.append(l.split("=")[-1])
+
+for i_l in del_ls[::-1]:
+    del required[i_l]
+
 setup(
     name="PyChunkedGraph",
     version=find_version('pychunkedgraph', '__init__.py'),
@@ -36,9 +49,7 @@ setup(
     url="https://github.com/seung-lab/PyChunkedGraph",
     packages=find_packages(),
     install_requires=required,
-    dependency_links=[
-        "git+https://github.com/seung-lab/igneous.git#egg=igneous-dev"
-    ],
+    dependency_links=dependency_links,
     classifiers=[
         "Programming Language :: Python :: 3",
         "License :: OSI Approved :: MIT License",
