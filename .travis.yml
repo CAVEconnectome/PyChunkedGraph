@@ -29,7 +29,7 @@ jobs:
 
     - stage: merge-deploy
       name: "version bump and merge into master"
-      python: 3.6
+      python: "3.6"
   
       install:
         - pip install bumpversion
@@ -43,7 +43,7 @@ jobs:
 
     - stage: merge-deploy
       name: "deploy to pypi"
-      python: 3.6
+      python: "3.6"
 
       install:
         - pip install twine
