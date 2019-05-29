@@ -31,7 +31,7 @@ jobs:
       sudo: false
       name: "version bump and merge into master"
       install:
-        - pip install bumpversion
+        - pip install --user bumpversion
 
       before_script:
         - "git clone https://gist.github.com/2c04596a45ccac57fe8dde0718ad58ee.git /tmp/travis-automerge"
@@ -44,7 +44,7 @@ jobs:
       sudo: false
       name: "deploy to pypi"
       install:
-        - pip install twine
+        - pip install --user twine
 
       before_script:
         - "git clone https://gist.github.com/cf9b261f26a1bf3fae6b59e7047f007a.git /tmp/travis-autodist"
