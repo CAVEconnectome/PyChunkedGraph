@@ -5,10 +5,8 @@ COPY override/timeout.conf /etc/nginx/conf.d/timeout.conf
 COPY override/supervisord.conf /etc/supervisor/conf.d/supervisord.conf
 
 RUN mkdir -p /home/nginx/.cloudvolume/secrets \
-  \
   && chown -R nginx /home/nginx \
   && usermod -d /home/nginx -s /bin/bash nginx \
-  \
   && apt-get update \
   && apt-get install -y \
       # Boost and g++ for compiling igneous' C extensions (Mesher)
@@ -18,14 +16,12 @@ RUN mkdir -p /home/nginx/.cloudvolume/secrets \
       lsb-release \
       curl \
       apt-transport-https \
-  \
   # GOOGLE-CLOUD-SDK
   && pip install --no-cache-dir --upgrade crcmod \
   && echo "deb https://packages.cloud.google.com/apt cloud-sdk-$(lsb_release -c -s) main" > /etc/apt/sources.list.d/google-cloud-sdk.list \
   && curl https://packages.cloud.google.com/apt/doc/apt-key.gpg | apt-key add - \
   && apt-get update \
   && apt-get install -y google-cloud-sdk google-cloud-sdk-bigtable-emulator \
-  \
   # PYTHON-GRAPH-TOOL
   # WARNING: This is ugly, graph-tools will use Debian's Python version and install as dist-util,
   #          but all our packages use the site-util Python version - we just create a sym_link,
@@ -37,7 +33,6 @@ RUN mkdir -p /home/nginx/.cloudvolume/secrets \
   && apt-get install -y python3-graph-tool \
   && ln -s /usr/lib/python3/dist-packages/graph_tool /usr/local/lib/python3.6/site-packages/graph_tool \
   && pip install --no-cache-dir --upgrade scipy \
-  \
   # PYCHUNKEDGRAPH
   #   Need pip 18.1 for process-dependency-links flag support
   && pip install --no-cache-dir pip==18.1 \
@@ -47,7 +42,6 @@ RUN mkdir -p /home/nginx/.cloudvolume/secrets \
   #   Tests
   && pip install tox codecov \
   && chmod +x tox_install_command.sh \
-  \
   # CLEANUP
   #   libboost-dev and build-essentials will be required by tox to build python dependencies
   && apt-get remove --purge -y lsb-release curl \
