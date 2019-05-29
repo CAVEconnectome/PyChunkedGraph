@@ -28,6 +28,7 @@ jobs:
         - docker run $ci_env --rm seunglab/pychunkedgraph:$TRAVIS_BRANCH /bin/sh -c "tox -v -- --cov-config .coveragerc --cov=pychunkedgraph && codecov"
 
     - stage: merge-deploy
+      sudo: false
       name: "version bump and merge into master"
       install:
         - pip install bumpversion
@@ -40,6 +41,7 @@ jobs:
         - "BRANCHES_TO_MERGE_REGEX='develop' BRANCH_TO_MERGE_INTO=master /tmp/travis-automerge/auto_merge_travis_with_bumpversion.sh"
 
     - stage: merge-deploy
+      sudo: false
       name: "deploy to pypi"
       install:
         - pip install twine
