@@ -1,9 +1,9 @@
 FROM tiangolo/uwsgi-nginx-flask:python3.6
 
-COPY . /app
+
 COPY override/timeout.conf /etc/nginx/conf.d/timeout.conf
 COPY override/supervisord.conf /etc/supervisor/conf.d/supervisord.conf
-
+COPY requirements.txt /app
 RUN mkdir -p /home/nginx/.cloudvolume/secrets \
   && chown -R nginx /home/nginx \
   && usermod -d /home/nginx -s /bin/bash nginx \
@@ -38,10 +38,9 @@ RUN mkdir -p /home/nginx/.cloudvolume/secrets \
   && pip install --no-cache-dir pip==18.1 \
   #   Need numpy to prevent install issue with cloud-volume / fpzip
   && pip install --no-cache-dir --upgrade numpy \
-  && pip install --no-cache-dir --upgrade --process-dependency-links -e . \
+  && pip install --no-cache-dir --upgrade --process-dependency-links -r requirements.txt \
   #   Tests
   && pip install tox codecov \
-  && chmod +x tox_install_command.sh \
   # CLEANUP
   #   libboost-dev and build-essentials will be required by tox to build python dependencies
   && apt-get remove --purge -y lsb-release curl \
@@ -59,3 +58,5 @@ RUN mkdir -p /home/nginx/.cloudvolume/secrets \
         -o \
         \( -type f -a \( -name '*.pyc' -o -name '*.pyo' \) \) \
       \) -exec rm -rf '{}' +
+
+COPY . /app
