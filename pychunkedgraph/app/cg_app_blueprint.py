@@ -19,9 +19,7 @@ from middle_auth_client import auth_required, requires_role
 import redis
 __version__ = '0.1.112'
 bp = Blueprint('pychunkedgraph', __name__, url_prefix="/segmentation")
-r = redis.Redis(
-        host=redis_config['HOST'],
-        port=redis_config['PORT'])
+r = redis.Redis(host=redis_config['HOST'], port=redis_config['PORT'])
 # -------------------------------
 # ------ Access control and index
 # -------------------------------
