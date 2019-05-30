@@ -15,11 +15,13 @@ from pychunkedgraph.app import app_utils, meshing_app_blueprint
 from pychunkedgraph.backend import chunkedgraph_exceptions as cg_exceptions, \
     chunkedgraph_comp as cg_comp
 from pychunkedgraph.meshing import meshgen
-
-
+from middle_auth_client import auth_required, requires_role
+import redis
 __version__ = '0.1.112'
 bp = Blueprint('pychunkedgraph', __name__, url_prefix="/segmentation")
-
+r = redis.Redis(
+        host=redis_config['HOST'],
+        port=redis_config['PORT'])
 # -------------------------------
 # ------ Access control and index
 # -------------------------------
@@ -137,6 +139,7 @@ def api_exception(e):
 
 
 @bp.route("/sleep/<int:sleep>")
+@auth_required
 def sleep_me(sleep):
     current_app.request_type = "sleep"
 
@@ -145,6 +148,7 @@ def sleep_me(sleep):
 
 
 @bp.route('/1.0/<table_id>/info', methods=['GET'])
+@auth_required(redis)
 def handle_info(table_id):
     current_app.request_type = "info"
 
