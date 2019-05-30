@@ -16,10 +16,9 @@ from pychunkedgraph.backend import chunkedgraph_exceptions as cg_exceptions, \
     chunkedgraph_comp as cg_comp
 from pychunkedgraph.meshing import meshgen
 from middle_auth_client import auth_required, requires_role
-import redis
 __version__ = '0.1.112'
 bp = Blueprint('pychunkedgraph', __name__, url_prefix="/segmentation")
-r = redis.Redis(host=redis_config['HOST'], port=redis_config['PORT'])
+
 # -------------------------------
 # ------ Access control and index
 # -------------------------------
@@ -137,7 +136,6 @@ def api_exception(e):
 
 
 @bp.route("/sleep/<int:sleep>")
-@auth_required
 def sleep_me(sleep):
     current_app.request_type = "sleep"
 
@@ -146,7 +144,6 @@ def sleep_me(sleep):
 
 
 @bp.route('/1.0/<table_id>/info', methods=['GET'])
-@auth_required(redis)
 def handle_info(table_id):
     current_app.request_type = "info"
 
@@ -199,6 +196,7 @@ def handle_root_main(table_id, atomic_id, timestamp):
 ### MERGE ----------------------------------------------------------------------
 
 @bp.route('/1.0/<table_id>/graph/merge', methods=['POST', 'GET'])
+@auth_required
 def handle_merge(table_id):
     current_app.request_type = "merge"
 
@@ -288,6 +286,7 @@ def handle_merge(table_id):
 ### SPLIT ----------------------------------------------------------------------
 
 @bp.route('/1.0/<table_id>/graph/split', methods=['POST', 'GET'])
+@auth_required
 def handle_split(table_id):
     current_app.request_type = "split"
 
