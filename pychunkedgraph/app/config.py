@@ -18,3 +18,4 @@ class BaseConfig(object):
     # TODO what is this suppose to be by default?
     CHUNKGRAPH_TABLE_ID = "pinky100_sv16"
     # CHUNKGRAPH_TABLE_ID = "pinky100_benchmark_v92"
+    

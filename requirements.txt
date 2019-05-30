@@ -11,4 +11,5 @@ multiwrapper
 cloud-volume>=0.43.1
 python-json-logger
 zstandard
+middle-auth-client
 -e git+https://github.com/seung-lab/igneous.git#egg=igneous
