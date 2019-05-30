@@ -2,13 +2,10 @@ sudo: true
 services:
   docker
 
-language:
-  minimal
-
 stages:
   - test
   - name: merge-deploy
-
+python: 3.6
 notifications:
   email:
     on_success: change
@@ -18,7 +15,7 @@ jobs:
   include:
     - stage: test
       name: "Running Tests"
-
+      language: minimal
       before_script:
         # request codecov to detect CI environment to pass through to docker
         - ci_env=`bash <(curl -s https://codecov.io/env)`
@@ -29,8 +26,7 @@ jobs:
 
     - stage: merge-deploy
       name: "version bump and merge into master"
-      python: 3.6
-  
+      language: python
       install:
         - pip install bumpversion
 
@@ -43,8 +39,7 @@ jobs:
 
     - stage: merge-deploy
       name: "deploy to pypi"
-      python: 3.6
-
+      language: python
       install:
         - pip install twine
 
