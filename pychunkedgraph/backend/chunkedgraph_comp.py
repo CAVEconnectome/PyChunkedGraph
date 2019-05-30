@@ -159,12 +159,17 @@ def get_delta_roots(cg,
     return np.array(new_root_ids, dtype=np.uint64), expired_root_ids
 
 
-def get_contact_sites(cg, root_id, compute_partner=True):
+def get_contact_sites(cg, root_id, bounding_box=None, bb_is_coordinate=True, compute_partner=True):
     # Get information about the root id
     # All supervoxels
-    sv_ids = cg.get_subgraph_nodes(root_id)
+    sv_ids = cg.get_subgraph_nodes(root_id,
+                                   bounding_box=bounding_box,
+                                   bb_is_coordinate=bb_is_coordinate)
     # All edges that are _not_ connected / on
-    edges, affs, areas = cg.get_subgraph_edges(root_id, connected_edges=False)
+    edges, affs, areas = cg.get_subgraph_edges(root_id,
+                                               bounding_box=bounding_box,
+                                               bb_is_coordinate=bb_is_coordinate,
+                                               connected_edges=False)
 
     # Build area lookup dictionary
     cs_svs = edges[~np.in1d(edges, sv_ids).reshape(-1, 2)]
@@ -202,7 +207,7 @@ def get_contact_sites(cg, root_id, compute_partner=True):
         cs_areas = area_dict_vec(cc_sv_ids)
 
         if compute_partner:
-            partner_root_id = cg.get_root(cc_sv_ids[0])
+            partner_root_id = int(cg.get_root(cc_sv_ids[0]))
         else:
             partner_root_id = len(cs_dict)
 

@@ -594,10 +594,18 @@ def merge_log(table_id, root_id):
 def handle_contact_sites(table_id, root_id):
     partners = request.args.get('partners', False)
 
+    if "bounds" in request.args:
+        bounds = request.args["bounds"]
+        bounding_box = np.array([b.split("-") for b in bounds.split("_")],
+                                dtype=np.int).T
+    else:
+        bounding_box = None
+
     # Call ChunkedGraph
     cg = app_utils.get_cg(table_id)
 
     cs_dict = cg_comp.get_contact_sites(cg, np.uint64(root_id),
+                                        bounding_box = bounding_box,
                                         compute_partner=partners)
 
     return jsonify(cs_dict)
