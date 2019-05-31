@@ -2279,6 +2279,9 @@ class ChunkedGraph(object):
                     parent_id = temp_parent_id
                     all_parent_ids.append(parent_id)
 
+                    if self.get_chunk_layer(parent_id) >= stop_layer:
+                        break
+
             if self.get_chunk_layer(parent_id) >= stop_layer:
                 break
             else:
