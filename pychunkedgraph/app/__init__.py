@@ -30,7 +30,7 @@ def create_app(test_config=None):
     app = Flask(__name__)
     app.json_encoder = CustomJsonEncoder
 
-    CORS(app)
+    CORS(app, expose_headers='WWW-Authenticate')
 
     configure_app(app)
 
