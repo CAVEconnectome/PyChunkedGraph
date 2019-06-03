@@ -144,6 +144,7 @@ def sleep_me(sleep):
 
 
 @bp.route('/1.0/<table_id>/info', methods=['GET'])
+@auth_required
 def handle_info(table_id):
     current_app.request_type = "info"
 
