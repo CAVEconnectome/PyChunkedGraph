@@ -31,24 +31,91 @@ def add_edges(cg, operation_id: np.uint64,
     assert len(affinities) == len(atomic_edges)
 
     rows = []
+    lvl2_dict = {}
+    lvl2_cross_chunk_edge_dict = {}
+
+    lvl2_edges = []
+    edge_layers = cg.get_cross_chunk_edges_layer(atomic_edges)
+    edge_layer_m = edge_layers > 1
+
+    new_cross_edge_dict = {}
+    for atomic_edge in atomic_edges[~edge_layer_m]:
+        lvl2_edges.append([cg.get_parent(atomic_edge[0]),
+                           cg.get_parent(atomic_edge[1])])
+
+    for atomic_edge, layer in zip(atomic_edges[edge_layer_m],
+                                  edge_layers[edge_layer_m]):
+        parent_id_0 = cg.get_parent(atomic_edge[0])
+        parent_id_1 = cg.get_parent(atomic_edge[1])
+
+        new_cross_edge_dict[parent_id_0] = {layer: atomic_edge}
+        new_cross_edge_dict[parent_id_1] = {layer: atomic_edge[::-1]}
+
+        lvl2_edges.append([parent_id_0, parent_id_0])
+        lvl2_edges.append([parent_id_1, parent_id_1])
+
+    graph, _, _, unique_graph_ids = flatgraph_utils.build_gt_graph(
+        lvl2_edges, make_directed=True)
+
+    ccs = flatgraph_utils.connected_components(graph)
+    for cc in ccs:
+        lvl2_ids = unique_graph_ids[cc]
+        chunk_id = cg.get_chunk_id(lvl2_ids[0])
+
+        new_node_id = cg.get_unique_node_id(chunk_id) #TODO: improve performance by using bulk loads
+        lvl2_dict[new_node_id] = lvl2_ids
+
+        cross_chunk_edge_dict = {}
+        for lvl2_id in lvl2_ids:
+            lvl2_id_cross_chunk_edges = cg.read_cross_chunk_edges(lvl2_id)
+            cross_chunk_edge_dict = \
+                combine_cross_chunk_edge_dicts(
+                    cross_chunk_edge_dict,
+                    lvl2_id_cross_chunk_edges)
+
+            if lvl2_id in new_cross_edge_dict:
+                cross_chunk_edge_dict = \
+                    combine_cross_chunk_edge_dicts(
+                        new_cross_edge_dict[lvl2_id],
+                        lvl2_id_cross_chunk_edges)
+
+        lvl2_cross_chunk_edge_dict[new_node_id] = cross_chunk_edge_dict
+
+    new_root_ids, new_rows = propagate_edits_to_root(
+        cg, lvl2_dict, lvl2_cross_chunk_edge_dict, operation_id=operation_id,
+        time_stamp=time_stamp)
+    rows.extend(new_rows)
+
+    return new_root_ids, rows
+
 
 def old_parent_childrens(eh, node_ids, layer):
+    assert len(node_ids) > 0
+
     # 1 - gather all next layer parents
     old_next_layer_node_ids = []
     old_this_layer_node_ids = []
     for node_id in node_ids:
         old_next_layer_node_ids.extend(
             eh.get_old_node_ids(node_id, layer + 1))
+
         old_this_layer_node_ids.extend(
             eh.get_old_node_ids(node_id, layer))
 
     old_next_layer_node_ids = np.unique(old_next_layer_node_ids)
+    next_layer_m = eh.cg.get_chunk_layers(old_next_layer_node_ids) == layer + 1
+    old_next_layer_node_ids = old_next_layer_node_ids[next_layer_m]
+
     old_this_layer_node_ids = np.unique(old_this_layer_node_ids)
+    this_layer_m = eh.cg.get_chunk_layers(old_this_layer_node_ids) == layer
+    old_this_layer_node_ids = old_this_layer_node_ids[this_layer_m]
 
     # 2 - acquire their children
     old_this_layer_partner_ids = []
     for old_next_layer_node_id in old_next_layer_node_ids:
-        partner_ids = eh.get_layer_children(old_next_layer_node_id, layer)
+        partner_ids = eh.get_layer_children(old_next_layer_node_id, layer,
+                                            layer_only=True)
+
         partner_ids = partner_ids[~np.in1d(partner_ids,
                                            old_this_layer_node_ids)]
         old_this_layer_partner_ids.extend(partner_ids)
@@ -60,6 +127,7 @@ def old_parent_childrens(eh, node_ids, layer):
 
 
 def compute_cross_chunk_connected_components(eh, node_ids, layer):
+    assert len(node_ids) > 0
 
     # On each layer we build the a graph with all cross chunk edges
     # that involve the nodes on the current layer
@@ -75,10 +143,10 @@ def compute_cross_chunk_connected_components(eh, node_ids, layer):
     # Build network from cross chunk edges
     edge_id_map = {}
     cross_edges_lvl1 = []
-    for new_node_id in node_ids:
-        node_cross_edges = eh.read_cross_chunk_edges(new_node_id)[layer]
+    for node_id in node_ids:
+        node_cross_edges = eh.read_cross_chunk_edges(node_id)[layer]
         edge_id_map.update(dict(zip(node_cross_edges[:, 0],
-                                    [new_node_id] * len(node_cross_edges))))
+                                    [node_id] * len(node_cross_edges))))
         cross_edges_lvl1.extend(node_cross_edges)
 
     for old_partner_id in old_this_layer_partner_ids:
@@ -90,7 +158,16 @@ def compute_cross_chunk_connected_components(eh, node_ids, layer):
 
     cross_edges_lvl1 = np.array(cross_edges_lvl1)
     edge_id_map_vec = np.vectorize(edge_id_map.get)
-    cross_edges = edge_id_map_vec(cross_edges_lvl1)
+
+    if len(cross_edges_lvl1) > 0:
+        cross_edges = edge_id_map_vec(cross_edges_lvl1)
+    else:
+        cross_edges = np.empty([0, 2], dtype=np.uint64)
+
+    assert np.sum(np.in1d(eh.old_node_ids, cross_edges)) == 0
+
+    cross_edges = np.concatenate([cross_edges,
+                                  np.vstack([node_ids, node_ids]).T])
 
     graph, _, _, unique_graph_ids = flatgraph_utils.build_gt_graph(
         cross_edges, make_directed=True)
@@ -121,6 +198,14 @@ def create_parent_children_rows(eh, parent_id, children_ids,
     rows.append(eh.cg.mutate_row(serializers.serialize_uint64(parent_id),
                                  val_dict, time_stamp=time_stamp))
 
+    if former_root_ids is not None:
+        for former_root_id in former_root_ids:
+            val_dict = {column_keys.Hierarchy.NewParent: parent_id}
+
+            rows.append(eh.cg.mutate_row(
+                serializers.serialize_uint64(former_root_id),
+                val_dict, time_stamp=time_stamp))
+
     for child_id in children_ids:
         val_dict = {column_keys.Hierarchy.Parent: parent_id}
         rows.append(eh.cg.mutate_row(serializers.serialize_uint64(child_id),
@@ -130,8 +215,9 @@ def create_parent_children_rows(eh, parent_id, children_ids,
 
 def propagate_edits_to_root(cg: chunkedgraph.ChunkedGraph,
                             lvl2_dict: Dict,
+                            lvl2_cross_chunk_edge_dict: Dict,
                             operation_id: np.uint64,
-                            merge_edges: Sequence[Tuple[np.uint64]],
+                            # merge_edges: Sequence[Tuple[np.uint64]],
                             time_stamp: datetime.datetime):
     """
 
@@ -145,12 +231,12 @@ def propagate_edits_to_root(cg: chunkedgraph.ChunkedGraph,
     rows = []
 
     # Initialization
-    eh = EditHelper(cg, lvl2_dict)
+    eh = EditHelper(cg, lvl2_dict, lvl2_cross_chunk_edge_dict)
     eh.bulk_family_read()
     # eh.bulk_cross_chunk_edge_read()
 
     # Insert new nodes if missing (due to skip connections)
-    rows.extend(eh.add_missing_nodes(merge_edges, time_stamp))
+    # rows.extend(eh.add_missing_nodes(merge_edges, time_stamp))
 
     # Setup loop variables
     layer_dict = collections.defaultdict(list)
@@ -159,6 +245,11 @@ def propagate_edits_to_root(cg: chunkedgraph.ChunkedGraph,
     # Loop over all layers up to the top - there might be layers where there is
     # nothing to do
     for current_layer in range(2, eh.cg.n_layers):
+        print(f"CURRENT LAYER: {current_layer}")
+
+        if len(layer_dict[current_layer]) == 0:
+            continue
+
         new_node_ids = layer_dict[current_layer]
 
         # Calculate connected components based on cross chunk edges ------------
@@ -167,10 +258,9 @@ def propagate_edits_to_root(cg: chunkedgraph.ChunkedGraph,
                                                      current_layer)
 
         # Build a dictionary of new connected components -----------------------
-        cc_collection = collections.defaultdict(list)
+        cc_collections = collections.defaultdict(list)
         for cc in ccs:
             cc_node_ids = unique_graph_ids[cc]
-
             cc_cross_edge_dict = collections.defaultdict(list)
             for cc_node_id in cc_node_ids:
                 node_cross_edges = eh.read_cross_chunk_edges(cc_node_id)
@@ -179,11 +269,12 @@ def propagate_edits_to_root(cg: chunkedgraph.ChunkedGraph,
                                                    node_cross_edges,
                                                    start_layer=current_layer + 1)
 
-            if len(cc_cross_edge_dict[current_layer + 1]) == 0 and \
+            if (not current_layer + 1 in cc_cross_edge_dict or
+                len(cc_cross_edge_dict[current_layer + 1]) == 0) and \
                     len(cc_node_ids) == 1:
                 # Skip connection
                 next_layer = None
-                for l in range(current_layer, eh.cg.n_layers):
+                for l in range(current_layer + 1, eh.cg.n_layers):
                     if len(cc_cross_edge_dict[l]) > 0:
                         next_layer = l
                         break
@@ -195,23 +286,31 @@ def propagate_edits_to_root(cg: chunkedgraph.ChunkedGraph,
 
             next_layer_chunk_id = eh.cg.get_parent_chunk_id_dict(cc_node_ids[0])[next_layer]
 
-            cc_collection[next_layer_chunk_id].append(
+            cc_collections[next_layer_chunk_id].append(
                 [cc_node_ids, cc_cross_edge_dict])
 
         # At this point we extracted all relevant data - now we just need to
         # create the new rows --------------------------------------------------
-        for next_layer_chunk_id in cc_collection:
-            n_ids = len(cc_collection[next_layer_chunk_id])
+        for next_layer_chunk_id in cc_collections:
+            n_ids = len(cc_collections[next_layer_chunk_id])
             new_parent_ids = eh.cg.get_unique_node_id_range(next_layer_chunk_id,
                                                             n_ids)
+            next_layer = eh.cg.get_chunk_layer(next_layer_chunk_id)
 
             for new_parent_id, cc_collection in \
-                    zip(new_parent_ids, cc_collection[next_layer_chunk_id]):
+                    zip(new_parent_ids, cc_collections[next_layer_chunk_id]):
+                layer_dict[next_layer].append(new_parent_id)
+                eh.add_new_layer_node(new_parent_id, cc_collection[0],
+                                      cc_collection[1])
 
                 if eh.cg.get_chunk_layer(next_layer_chunk_id) == eh.cg.n_layers:
                     new_root_ids.append(new_parent_id)
-                    former_root_ids = eh.get_old_node_ids(new_parent_ids,
-                                                          eh.cg.n_layers)
+                    former_root_ids = []
+                    for new_parent_id in new_parent_ids:
+                        former_root_ids.extend(
+                            eh.get_old_node_ids(new_parent_id, eh.cg.n_layers))
+
+                    former_root_ids = np.array(former_root_ids)
                 else:
                     former_root_ids = None
 
@@ -223,11 +322,11 @@ def propagate_edits_to_root(cg: chunkedgraph.ChunkedGraph,
                                                       time_stamp)
                 rows.extend(cc_rows)
 
-    return new_root_ids
+    return new_root_ids, rows
 
 
 class EditHelper(object):
-    def __init__(self, cg, lvl2_dict):
+    def __init__(self, cg, lvl2_dict, cross_chunk_edge_dict):
         """
 
         :param cg: ChunkedGraph isntance
@@ -238,7 +337,9 @@ class EditHelper(object):
 
         self._parent_dict = {}
         self._children_dict = {}
-        self._cross_chunk_edge_dict = {}
+        self._cross_chunk_edge_dict = cross_chunk_edge_dict
+        self._new_node_ids = list(lvl2_dict.keys())
+        self._old_node_dict = lvl2_dict
 
     @property
     def cg(self):
@@ -248,6 +349,18 @@ class EditHelper(object):
     def lvl2_dict(self):
         return self._lvl2_dict
 
+    @property
+    def old_node_dict(self):
+        return self._old_node_dict
+
+    @property
+    def old_node_ids(self):
+        return np.concatenate(list(self.old_node_dict.values()))
+
+    @property
+    def new_node_ids(self):
+        return self._new_node_ids
+
     def get_children(self, node_id):
         """ Cache around the get_children call to the chunkedgraph
 
@@ -255,15 +368,16 @@ class EditHelper(object):
         :return: np.uint64
         """
         if not node_id in self._children_dict:
-            self._children_dict[node_id] = self.get_children(node_id)
+            self._children_dict[node_id] = self.cg.get_children(node_id)
             for child_id in self._children_dict[node_id]:
                 if not child_id in self._parent_dict:
                     self._parent_dict[child_id] = node_id
                 else:
                     assert self._parent_dict[child_id] == node_id
 
-        return self._children_dict[node_id]
+            print(f"MISS CHILDREN -- node_id {node_id}")
 
+        return self._children_dict[node_id]
 
     def get_parent(self, node_id):
         """ Cache around the get_parent call to the chunkedgraph
@@ -272,10 +386,11 @@ class EditHelper(object):
         :return: np.uint64
         """
         if not node_id in self._parent_dict:
-            self._parent_dict[node_id] = self.get_parent(node_id)
+            self._parent_dict[node_id] = self.cg.get_parent(node_id)
 
-        return self._children_dict[node_id]
+            print(f"MISS PARENT -- node_id {node_id}")
 
+        return self._parent_dict[node_id]
 
     def get_root(self, node_id, get_all_parents=False):
         parents = [node_id]
@@ -288,7 +403,7 @@ class EditHelper(object):
         else:
             return parents[-1]
 
-    def get_layer_children(self, node_id, layer):
+    def get_layer_children(self, node_id, layer, layer_only=False):
         assert layer > 0
         assert layer <= self.cg.get_chunk_layer(node_id)
 
@@ -303,17 +418,21 @@ class EditHelper(object):
             del next_children_ids[0]
 
             children_ids = self.get_children(next_children_id)
+            child_id = children_ids[0]
 
-            if self.cg.get_chunk_layer(children_ids[0]) == layer:
-                layer_children_ids.extend(children_ids)
-            else:
+            if self.cg.get_chunk_layer(child_id) > layer:
                 next_children_ids.extend(children_ids)
+            elif self.cg.get_chunk_layer(child_id) == layer:
+                layer_children_ids.extend(children_ids)
+            elif self.cg.get_chunk_layer(child_id) < layer and not layer_only:
+                layer_children_ids.extend(children_ids)
 
-        return layer_children_ids
+        return np.array(layer_children_ids, dtype=np.uint64)
 
-    def get_layer_parent(self, node_id, layer, layer_only=False):
+    def get_layer_parent(self, node_id, layer, layer_only=False,
+                         choose_lower_layer=False):
         assert layer >= self.cg.get_chunk_layer(node_id)
-        assert layer < self.cg.n_layers
+        assert layer <= self.cg.n_layers
 
         if self.cg.get_chunk_layer(node_id) == layer:
             return [node_id]
@@ -327,29 +446,45 @@ class EditHelper(object):
 
             parent_id = self.get_parent(next_parent_id)
 
+            if parent_id is None:
+                raise()
+
             if self.cg.get_chunk_layer(parent_id) < layer:
-                next_parent_ids.extend(parent_id)
+                next_parent_ids.append(parent_id)
             elif self.cg.get_chunk_layer(parent_id) == layer:
                 layer_parent_ids.append(parent_id)
             elif self.cg.get_chunk_layer(parent_id) > layer and not layer_only:
-                layer_parent_ids.append(parent_id)
+                if choose_lower_layer:
+                    layer_parent_ids.append(next_parent_id)
+                else:
+                    layer_parent_ids.append(parent_id)
 
         return layer_parent_ids
 
+    def _get_lower_old_node_ids(self, node_id):
+        if not node_id in self._new_node_ids:
+            return []
+        elif node_id in self._old_node_dict:
+            return self._old_node_dict[node_id]
+        else:
+            assert self.cg.get_chunk_layer(node_id) > 1
+
+            old_node_ids = []
+            for child_id in self.get_children(node_id):
+                old_node_ids.extend(self._get_lower_old_node_ids(child_id))
+
+            return np.unique(old_node_ids)
+
     def get_old_node_ids(self, node_id, layer):
-        lvl2_children = self.get_layer_children(node_id, layer=2)
+        lower_old_node_ids = self._get_lower_old_node_ids(node_id)
 
-        old_lvl2_ids = []
-        for lvl2_child in lvl2_children:
-            old_lvl2_ids.extend(self.lvl2_dict[lvl2_child])
+        old_node_ids = []
+        for lower_old_node_id in lower_old_node_ids:
+            old_node_ids.extend(self.get_layer_parent(lower_old_node_id, layer,
+                                                      choose_lower_layer=True))
 
-        old_lvl2_ids = np.unique(old_lvl2_ids)
-        old_parents = []
-        for old_lvl2_id in old_lvl2_ids:
-            old_parents.append(self.get_layer_parent(old_lvl2_id, layer))
-
-        old_parents = np.unique(old_parents)
-        return old_parents
+        old_node_ids = np.unique(old_node_ids)
+        return old_node_ids
 
     def read_cross_chunk_edges(self, node_id):
         """ Cache around the read_cross_chunk_edges call to the chunkedgraph
@@ -360,6 +495,8 @@ class EditHelper(object):
         if not node_id in self._cross_chunk_edge_dict:
             self._cross_chunk_edge_dict[node_id] = \
                 self.cg.read_cross_chunk_edges(node_id)
+            print(f"NO HIT -- {len(self._cross_chunk_edge_dict)} -- {node_id} -- "
+                  f"{node_id in self._children_dict} -- {len(self._cross_chunk_edge_dict[node_id])}")
 
         return self._cross_chunk_edge_dict[node_id]
 
@@ -375,6 +512,13 @@ class EditHelper(object):
             for i_parent in range(len(p_ids) - 1):
                 self._parent_dict[p_ids[i_parent]] = p_ids[i_parent+1]
 
+        def _read_cc_edges_thread(node_ids):
+            for node_id in node_ids:
+                if self.cg.get_chunk_layer(node_id) == self.cg.n_layers:
+                    continue
+
+                self.read_cross_chunk_edges(node_id)
+
         lvl2_node_ids = []
         for v in self.lvl2_dict.values():
             lvl2_node_ids.extend(v)
@@ -382,11 +526,17 @@ class EditHelper(object):
         mu.multithread_func(_get_root_thread, lvl2_node_ids,
                             n_threads=len(lvl2_node_ids), debug=False)
 
-        parent_ids = list(self._parent_dict.keys())
+        parent_ids = list(self._parent_dict.values())
         child_dict = self.cg.get_children(parent_ids, flatten=False)
+        node_ids = []
 
         for parent_id in child_dict:
             self._children_dict[parent_id] = child_dict[parent_id]
+
+            if self.cg.get_chunk_layer(parent_id) > 2:
+                node_ids.extend(child_dict[parent_id])
+
+            node_ids.append(parent_id)
 
             for child_id in self._children_dict[parent_id]:
                 if not child_id in self._parent_dict:
@@ -394,54 +544,26 @@ class EditHelper(object):
                 else:
                     assert self._parent_dict[child_id] == parent_id
 
+        node_ids = np.unique(node_ids)
+        n_threads = int(len(node_ids) / 5)
+
+        print(f"n_threads: {n_threads}")
+
+        node_id_blocks = np.array_split(node_ids, n_threads)
+
+        mu.multithread_func(_read_cc_edges_thread, node_id_blocks,
+                            n_threads=len(child_dict), debug=False)
+
     def bulk_cross_chunk_edge_read(self):
         raise NotImplementedError
 
-    def _add_skip_node(self, atomic_id, layer, time_stamp):
-        rows = []
+    def add_new_layer_node(self, node_id, children_ids, cross_chunk_edge_dict):
+        self._cross_chunk_edge_dict[node_id] = cross_chunk_edge_dict
 
-        parents = self.get_layer_parent(atomic_id, layer, False)
-        parent_layers = self.cg.get_chunk_layers(parents)
-        if not layer in parents:
-            upper_parents = parents[parent_layers > layer]
-            upper_parent_id = upper_parents[np.argmin(upper_parents)]
+        self._children_dict[node_id] = children_ids
+        for child_id in children_ids:
+            self._parent_dict[child_id] = node_id
 
-            children_ids = self.get_children(upper_parent_id)
-            chunk_id = self.cg.get_parent_chunk_id_dict(children_ids[0])[layer]
-
-            new_node_id = self.cg.get_unique_node_id(chunk_id)
-
-            val_dict = {column_keys.Hierarchy.Child:
-                            np.array(children_ids, dtype=np.uint64)}
-            rows.append(
-                self.cg.mutate_row(serializers.serialize_uint64(new_node_id),
-                                   val_dict, time_stamp=time_stamp))
-
-            val_dict = {column_keys.Hierarchy.Parent:
-                            np.array([new_node_id], dtype=np.uint64)}
-
-            self._children_dict[new_node_id] = []
-            for child_id in children_ids:
-                rows.append(
-                    self.cg.mutate_row(serializers.serialize_uint64(child_id),
-                                       val_dict, time_stamp=time_stamp))
-                self._parent_dict[child_id] = new_node_id
-                self._children_dict[new_node_id].append(child_id)
-
-            self._children_dict[upper_parent_id] = [new_node_id]
-            self._parent_dict[new_node_id] = upper_parent_id
-
-        return rows
-
-    def add_missing_nodes(self, merge_edges, time_stamp):
-        rows = []
-
-        edge_layers = self.cg.get_cross_chunk_edges_layer(merge_edges)
-        edge_layers_m = edge_layers > 1
-
-        for layer, edge in zip(edge_layers[edge_layers_m],
-                               merge_edges[edge_layers_m]):
-            rows.extend(self._add_skip_node(edge[0], layer, time_stamp))
-            rows.extend(self._add_skip_node(edge[1], layer, time_stamp))
-
-        return rows
+        self._new_node_ids.append(node_id)
+        layer = self.cg.get_chunk_layer(node_id)
+        self._old_node_dict[node_id] = self.get_old_node_ids(node_id, layer)
