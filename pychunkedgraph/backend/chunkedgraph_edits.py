@@ -12,11 +12,25 @@ from pychunkedgraph.backend.chunkedgraph_utils \
 from pychunkedgraph.backend.utils import column_keys, serializers
 from pychunkedgraph.backend import chunkedgraph, flatgraph_utils
 
-def add_edges(cg, operation_id: np.uint64,
+def add_edges(cg: chunkedgraph.ChunkedGraph,
+              operation_id: np.uint64,
               atomic_edges: Sequence[Sequence[np.uint64]],
               time_stamp: datetime.datetime,
               affinities: Optional[Sequence[np.float32]] = None
               ):
+    """ Add edges to chunkedgraph
+
+    Computes all new rows to be written to the chunkedgraph
+
+    :param cg: ChunkedGraph instance
+    :param operation_id: np.uint64
+    :param atomic_edges: list of list of np.uint64
+        edges between supervoxels
+    :param time_stamp: datetime.datetime
+    :param affinities: list of np.float32
+    :return: list
+    """
+    #TODO: add return tuple type
 
     atomic_edges = np.array(atomic_edges, dtype=np.uint64)
 
@@ -30,7 +44,7 @@ def add_edges(cg, operation_id: np.uint64,
 
     assert len(affinities) == len(atomic_edges)
 
-    rows = []
+    rows = [] # list of rows to be written to BigTable
     lvl2_dict = {}
     lvl2_cross_chunk_edge_dict = {}
 
@@ -38,6 +52,9 @@ def add_edges(cg, operation_id: np.uint64,
     edge_layers = cg.get_cross_chunk_edges_layer(atomic_edges)
     edge_layer_m = edge_layers > 1
 
+    # New edges are either within or across chunks. If an edge is across a
+    # chunk boundary we need to store it as new cross edge. Otherwise, this
+    # edge will combine two formerly disconnected lvl2 segments.
     new_cross_edge_dict = {}
     for atomic_edge in atomic_edges[~edge_layer_m]:
         lvl2_edges.append([cg.get_parent(atomic_edge[0]),
@@ -54,6 +71,7 @@ def add_edges(cg, operation_id: np.uint64,
         lvl2_edges.append([parent_id_0, parent_id_0])
         lvl2_edges.append([parent_id_1, parent_id_1])
 
+    # Compute connected components on lvl2
     graph, _, _, unique_graph_ids = flatgraph_utils.build_gt_graph(
         lvl2_edges, make_directed=True)
 
@@ -62,7 +80,7 @@ def add_edges(cg, operation_id: np.uint64,
         lvl2_ids = unique_graph_ids[cc]
         chunk_id = cg.get_chunk_id(lvl2_ids[0])
 
-        new_node_id = cg.get_unique_node_id(chunk_id) #TODO: improve performance by using bulk loads
+        new_node_id = cg.get_unique_node_id(chunk_id)
         lvl2_dict[new_node_id] = lvl2_ids
 
         cross_chunk_edge_dict = {}
@@ -81,6 +99,7 @@ def add_edges(cg, operation_id: np.uint64,
 
         lvl2_cross_chunk_edge_dict[new_node_id] = cross_chunk_edge_dict
 
+    # Propagate changes up the tree
     new_root_ids, new_rows = propagate_edits_to_root(
         cg, lvl2_dict, lvl2_cross_chunk_edge_dict, operation_id=operation_id,
         time_stamp=time_stamp)
@@ -90,7 +109,19 @@ def add_edges(cg, operation_id: np.uint64,
 
 
 def old_parent_childrens(eh, node_ids, layer):
+    """ Retrieves the former partners of new nodes
+
+    Two steps
+        1. acquire old parents
+        2. read children of those old parents
+
+    :param eh: EditHelper instance
+    :param node_ids: list of np.uint64s
+    :param layer: np.int
+    :return:
+    """
     assert len(node_ids) > 0
+    assert np.sum(np.in1d(node_ids, eh.new_node_ids)) == len(node_ids)
 
     # 1 - gather all next layer parents
     old_next_layer_node_ids = []
@@ -127,6 +158,13 @@ def old_parent_childrens(eh, node_ids, layer):
 
 
 def compute_cross_chunk_connected_components(eh, node_ids, layer):
+    """ Computes connected component for next layer
+
+    :param eh: EditHelper
+    :param node_ids: list of np.uint64s
+    :param layer: np.int
+    :return:
+    """
     assert len(node_ids) > 0
 
     # On each layer we build the a graph with all cross chunk edges
@@ -180,6 +218,18 @@ def compute_cross_chunk_connected_components(eh, node_ids, layer):
 def create_parent_children_rows(eh, parent_id, children_ids,
                                 parent_cross_chunk_edge_dict, former_root_ids,
                                 operation_id, time_stamp):
+    """ Generates BigTable rows
+
+    :param eh: EditHelper
+    :param parent_id: np.uint64
+    :param children_ids: list of np.uint64s
+    :param parent_cross_chunk_edge_dict: dict
+    :param former_root_ids: list of np.uint64s
+    :param operation_id: np.uint64
+    :param time_stamp: datetime.datetime
+    :return:
+    """
+
     rows = []
 
     val_dict = {}
@@ -217,15 +267,15 @@ def propagate_edits_to_root(cg: chunkedgraph.ChunkedGraph,
                             lvl2_dict: Dict,
                             lvl2_cross_chunk_edge_dict: Dict,
                             operation_id: np.uint64,
-                            # merge_edges: Sequence[Tuple[np.uint64]],
                             time_stamp: datetime.datetime):
-    """
+    """ Propagates changes through layers
 
-    :param cg: ChunkedGraph
+    :param cg: ChunkedGraph instance
     :param lvl2_dict: dict
-        maps
-    :param operation_id:
-    :param time_stamp:
+        maps new ids to old ids
+    :param lvl2_cross_chunk_edge_dict: dict
+    :param operation_id: np.uint64
+    :param time_stamp: datetime.datetime
     :return:
     """
     rows = []
@@ -404,6 +454,13 @@ class EditHelper(object):
             return parents[-1]
 
     def get_layer_children(self, node_id, layer, layer_only=False):
+        """ Get 
+
+        :param node_id:
+        :param layer:
+        :param layer_only:
+        :return:
+        """
         assert layer > 0
         assert layer <= self.cg.get_chunk_layer(node_id)
 
@@ -431,6 +488,14 @@ class EditHelper(object):
 
     def get_layer_parent(self, node_id, layer, layer_only=False,
                          choose_lower_layer=False):
+        """ Gets parent in particular layer
+
+        :param node_id: np.uint64
+        :param layer: np.int
+        :param layer_only: bool
+        :param choose_lower_layer: bool
+        :return:
+        """
         assert layer >= self.cg.get_chunk_layer(node_id)
         assert layer <= self.cg.n_layers
 
@@ -476,6 +541,12 @@ class EditHelper(object):
             return np.unique(old_node_ids)
 
     def get_old_node_ids(self, node_id, layer):
+        """ Acquires old node ids for new node id
+
+        :param node_id: np.uint64
+        :param layer: np.int
+        :return:
+        """
         lower_old_node_ids = self._get_lower_old_node_ids(node_id)
 
         old_node_ids = []
@@ -501,10 +572,7 @@ class EditHelper(object):
         return self._cross_chunk_edge_dict[node_id]
 
     def bulk_family_read(self):
-        """ Caches parent and children information that will be needed later
-
-        :return:
-        """
+        """ Caches parent and children information that will be needed later """
         def _get_root_thread(lvl2_node_id):
             p_ids = self.cg.get_root(lvl2_node_id, get_all_parents=True)
             p_ids = np.concatenate([[lvl2_node_id], p_ids])
@@ -558,6 +626,13 @@ class EditHelper(object):
         raise NotImplementedError
 
     def add_new_layer_node(self, node_id, children_ids, cross_chunk_edge_dict):
+        """ Adds a new node to the helper infrastructure
+
+        :param node_id: np.uint64
+        :param children_ids: list of np.uint64s
+        :param cross_chunk_edge_dict: dict
+        :return:
+        """
         self._cross_chunk_edge_dict[node_id] = cross_chunk_edge_dict
 
         self._children_dict[node_id] = children_ids
