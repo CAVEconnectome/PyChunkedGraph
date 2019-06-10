@@ -16,7 +16,7 @@ from pychunkedgraph.backend import chunkedgraph_exceptions as cg_exceptions, \
     chunkedgraph_comp as cg_comp
 from pychunkedgraph.meshing import meshgen
 from middle_auth_client import auth_required, auth_requires_roles
-__version__ = '0.2.6'
+__version__ = '0.2.7'
 bp = Blueprint('pychunkedgraph', __name__, url_prefix="/segmentation")
 
 # -------------------------------
