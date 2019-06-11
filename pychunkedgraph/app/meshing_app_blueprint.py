@@ -96,6 +96,23 @@ def handle_valid_frags(table_id, node_id):
 
 @bp.route('/1.0/<table_id>/manifest/<node_id>:0', methods=['GET'])
 def handle_get_manifest(table_id, node_id):
+    if len(request.data) > 0:
+        data = json.loads(request.data)
+    else:
+        data = {}
+
+    if "start_layer" in data:
+        start_layer = int(data["start_layer"])
+    else:
+        start_layer = None
+
+    if "bounds" in request.args:
+        bounds = request.args["bounds"]
+        bounding_box = np.array([b.split("-") for b in bounds.split("_")],
+                                dtype=np.int).T
+    else:
+        bounding_box = None
+
     verify = request.args.get('verify', False)
     verify = verify in ['True', 'true', '1', True]
 
@@ -105,7 +122,7 @@ def handle_get_manifest(table_id, node_id):
 
     seg_ids = meshgen_utils.get_highest_child_nodes_with_meshes(
         cg, np.uint64(node_id), stop_layer=2, mip=mesh_mip,
-        verify_existence=verify)
+        bounding_box=bounding_box, verify_existence=verify)
 
     filenames = [meshgen_utils.get_mesh_name(cg, s, mesh_mip) for s in seg_ids]
 

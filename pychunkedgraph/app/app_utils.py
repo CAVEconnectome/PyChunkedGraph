@@ -76,6 +76,7 @@ def get_cg(table_id):
     current_app.table_id = table_id
     return cache[table_id]
 
+
 def get_log_db(table_id):
     if 'log_db' not in cache:
         client = get_datastore_client(current_app.config)

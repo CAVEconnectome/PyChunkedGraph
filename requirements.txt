@@ -1,8 +1,8 @@
 numpy
 pandas
 networkx
-google-cloud-bigtable==0.31.1
-google-cloud-datastore
+google-cloud-bigtable>=0.33.0
+google-cloud-datastore>=1.8<=2.0dev
 networkx
 flask
 flask_cors
@@ -11,7 +11,7 @@ multiwrapper
 cloud-volume>=0.43.1
 python-json-logger
 zstandard
-igneous==dev
+-e git+https://github.com/seung-lab/igneous.git#egg=igneous
 redis
 rq
 pyopenssl
