@@ -195,11 +195,12 @@ def combine_cross_chunk_edge_dicts(d1, d2, start_layer=2):
 
     for l in layers:
         if l in d1 and l in d2:
-            new_d[l] = np.concatenate([d1[l], d2[l]])
+            new_d[l] = np.concatenate([d1[l].reshape(-1, 2),
+                                       d2[l].reshape(-1, 2)])
         elif l in d1:
-            new_d[l] = d1[l]
+            new_d[l] = d1[l].reshape(-1, 2)
         elif l in d2:
-            new_d[l] = d2[l]
+            new_d[l] = d2[l].reshape(-1, 2)
         else:
             raise Exception()
 
