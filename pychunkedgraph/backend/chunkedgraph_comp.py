@@ -76,8 +76,12 @@ def get_latest_roots(cg,
     # Create filters: time and id range
     max_seg_id = cg.get_max_seg_id(cg.root_chunk_id) + 1
 
-    n_blocks = int(np.min([n_threads * 3 + 1, max_seg_id]))
-    seg_id_blocks = np.linspace(1, max_seg_id, n_blocks, dtype=np.uint64)
+    if n_threads == 1:
+        n_blocks = 1
+    else:
+        n_blocks = int(np.min([n_threads * 3 + 1, max_seg_id]))
+
+    seg_id_blocks = np.linspace(1, max_seg_id, n_blocks + 1, dtype=np.uint64)
 
     cg_serialized_info = cg.get_serialized_info()
 

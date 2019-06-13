@@ -1603,7 +1603,6 @@ class TestGraphMerge:
             for i_chunk in range(0, 2 ** (7 - i_layer), 2):
                 cgraph.add_layer(i_layer, np.array([[i_chunk, 0, 0], [i_chunk+1, 0, 0]]), time_stamp=fake_timestamp, n_threads=1)
 
-
         new_roots = cgraph.add_edges("Jane Doe",
                                      [to_label(cgraph, 1, chunk_offset, 0, 0, 0),
                                       to_label(cgraph, 1, chunk_offset, 0, 0, 3)],
@@ -2315,54 +2314,54 @@ class TestGraphSplit:
         assert cgraph.get_root(to_label(cgraph, 1, 0, 0, 0, 0)) == \
                cgraph.get_root(to_label(cgraph, 1, 0, 0, 0, 0))
 
-    @pytest.mark.timeout(30)
-    def test_shatter(self, gen_graph):
-        """
-        Create graph with edge between RG supervoxels 1 and 2 (same chunk)
-        and edge between RG supervoxels 1 and 3 (neighboring chunks)
-        ┌─────┬─────┐
-        │  A¹ │  B¹ │
-        │ 2━1━┿━━3  │
-        │  /  │     │
-        ┌─────┬─────┐
-        │  |  │     │
-        │  4━━┿━━5  │
-        │  C¹ │  D¹ │
-        └─────┴─────┘
-        """
-
-        cgraph = gen_graph(n_layers=3)
-
-        # Chunk A
-        create_chunk(cgraph,
-                     vertices=[to_label(cgraph, 1, 0, 0, 0, 0), to_label(cgraph, 1, 0, 0, 0, 1)],
-                     edges=[(to_label(cgraph, 1, 0, 0, 0, 0), to_label(cgraph, 1, 0, 0, 0, 1), 0.5),
-                            (to_label(cgraph, 1, 0, 0, 0, 0), to_label(cgraph, 1, 1, 0, 0, 0), inf),
-                            (to_label(cgraph, 1, 0, 0, 0, 0), to_label(cgraph, 1, 0, 1, 0, 0), inf)])
-
-        # Chunk B
-        create_chunk(cgraph,
-                     vertices=[to_label(cgraph, 1, 1, 0, 0, 0)],
-                     edges=[(to_label(cgraph, 1, 1, 0, 0, 0), to_label(cgraph, 1, 0, 0, 0, 0), inf)])
-
-        # Chunk C
-        create_chunk(cgraph,
-                     vertices=[to_label(cgraph, 1, 0, 1, 0, 0)],
-                     edges=[(to_label(cgraph, 1, 0, 1, 0, 0), to_label(cgraph, 1, 1, 1, 0, 0), .1),
-                            (to_label(cgraph, 1, 0, 1, 0, 0), to_label(cgraph, 1, 0, 0, 0, 0), inf)])
-
-        # Chunk D
-        create_chunk(cgraph,
-                     vertices=[to_label(cgraph, 1, 1, 1, 0, 0)],
-                     edges=[(to_label(cgraph, 1, 1, 1, 0, 0), to_label(cgraph, 1, 0, 1, 0, 0), .1)])
-
-        cgraph.add_layer(3, np.array([[0, 0, 0], [1, 0, 0], [0, 1, 0], [1, 1, 0]]), n_threads=1)
-
-        new_root_ids = cgraph.shatter_nodes("Jane Doe", atomic_node_ids=[to_label(cgraph, 1, 0, 0, 0, 0)])
-
-        cgraph.logger.debug(new_root_ids)
-
-        assert len(new_root_ids) == 3
+    # @pytest.mark.timeout(30)
+    # def test_shatter(self, gen_graph):
+    #     """
+    #     Create graph with edge between RG supervoxels 1 and 2 (same chunk)
+    #     and edge between RG supervoxels 1 and 3 (neighboring chunks)
+    #     ┌─────┬─────┐
+    #     │  A¹ │  B¹ │
+    #     │ 2━1━┿━━3  │
+    #     │  /  │     │
+    #     ┌─────┬─────┐
+    #     │  |  │     │
+    #     │  4━━┿━━5  │
+    #     │  C¹ │  D¹ │
+    #     └─────┴─────┘
+    #     """
+    #
+    #     cgraph = gen_graph(n_layers=3)
+    #
+    #     # Chunk A
+    #     create_chunk(cgraph,
+    #                  vertices=[to_label(cgraph, 1, 0, 0, 0, 0), to_label(cgraph, 1, 0, 0, 0, 1)],
+    #                  edges=[(to_label(cgraph, 1, 0, 0, 0, 0), to_label(cgraph, 1, 0, 0, 0, 1), 0.5),
+    #                         (to_label(cgraph, 1, 0, 0, 0, 0), to_label(cgraph, 1, 1, 0, 0, 0), inf),
+    #                         (to_label(cgraph, 1, 0, 0, 0, 0), to_label(cgraph, 1, 0, 1, 0, 0), inf)])
+    #
+    #     # Chunk B
+    #     create_chunk(cgraph,
+    #                  vertices=[to_label(cgraph, 1, 1, 0, 0, 0)],
+    #                  edges=[(to_label(cgraph, 1, 1, 0, 0, 0), to_label(cgraph, 1, 0, 0, 0, 0), inf)])
+    #
+    #     # Chunk C
+    #     create_chunk(cgraph,
+    #                  vertices=[to_label(cgraph, 1, 0, 1, 0, 0)],
+    #                  edges=[(to_label(cgraph, 1, 0, 1, 0, 0), to_label(cgraph, 1, 1, 1, 0, 0), .1),
+    #                         (to_label(cgraph, 1, 0, 1, 0, 0), to_label(cgraph, 1, 0, 0, 0, 0), inf)])
+    #
+    #     # Chunk D
+    #     create_chunk(cgraph,
+    #                  vertices=[to_label(cgraph, 1, 1, 1, 0, 0)],
+    #                  edges=[(to_label(cgraph, 1, 1, 1, 0, 0), to_label(cgraph, 1, 0, 1, 0, 0), .1)])
+    #
+    #     cgraph.add_layer(3, np.array([[0, 0, 0], [1, 0, 0], [0, 1, 0], [1, 1, 0]]), n_threads=1)
+    #
+    #     new_root_ids = cgraph.shatter_nodes("Jane Doe", atomic_node_ids=[to_label(cgraph, 1, 0, 0, 0, 0)])
+    #
+    #     cgraph.logger.debug(new_root_ids)
+    #
+    #     assert len(new_root_ids) == 3
 
 
 
@@ -2674,12 +2673,13 @@ class TestGraphMinCut:
             to_label(cgraph, 1, 1, 0, 0, 0), get_all_parents=True)
 
         # Mincut
-        assert cgraph.remove_edges(
-            "Jane Doe", to_label(cgraph, 1, 0, 0, 0, 0),
-            to_label(cgraph, 1, 1, 0, 0, 0),
-            [0, 0, 0], [2 * cgraph.chunk_size[0], 2 * cgraph.chunk_size[1],
-                        cgraph.chunk_size[2]],
-            mincut=True) is None
+        with pytest.raises(cg_exceptions.PostconditionError):
+            cgraph.remove_edges(
+                "Jane Doe", to_label(cgraph, 1, 0, 0, 0, 0),
+                to_label(cgraph, 1, 1, 0, 0, 0),
+                [0, 0, 0], [2 * cgraph.chunk_size[0], 2 * cgraph.chunk_size[1],
+                            cgraph.chunk_size[2]],
+                mincut=True)
 
         new_parents_1 = cgraph.get_root(to_label(cgraph, 1, 0, 0, 0, 0), get_all_parents=True)
         new_parents_2 = cgraph.get_root(to_label(cgraph, 1, 1, 0, 0, 0), get_all_parents=True)

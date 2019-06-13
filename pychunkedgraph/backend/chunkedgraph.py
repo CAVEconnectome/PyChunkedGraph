@@ -380,24 +380,6 @@ class ChunkedGraph(object):
 
         return self._get_chunk_layer_vec(node_or_chunk_ids)
 
-    def get_chunk_child_ids(self, node_or_chunk_id: np.uint64) -> np.ndarray:
-        """ Calculates the ids of the children chunks in the next lower layer
-
-        :param node_or_chunk_id: np.uint64
-        :return: np.ndarray
-        """
-        chunk_coords = self.get_chunk_coordinates(node_or_chunk_id)
-        chunk_layer = self.get_chunk_layer(node_or_chunk_id)
-
-        chunk_ids = []
-        for dcoord in itertools.product(*[range(self.fan_out)]*3):
-            x, y, z = chunk_coords * self.fan_out + np.array(dcoord)
-            child_chunk_id = self.get_chunk_id(layer=chunk_layer-1,
-                                               x=x, y=y, z=z)
-            chunk_ids.append(child_chunk_id)
-
-        return np.array(chunk_ids)
-
     def get_chunk_coordinates(self, node_or_chunk_id: np.uint64
                               ) -> np.ndarray:
         """ Extract X, Y and Z coordinate from Node ID or Chunk ID
@@ -471,6 +453,31 @@ class ChunkedGraph(object):
             return np.array([], dtype=np.int)
 
         return self._get_chunk_id_vec(node_ids)
+
+    def get_child_chunk_ids(self, node_or_chunk_id: np.uint64) -> np.ndarray:
+        """ Calculates the ids of the children chunks in the next lower layer
+
+        :param node_or_chunk_id: np.uint64
+        :return: np.ndarray
+        """
+        chunk_coords = self.get_chunk_coordinates(node_or_chunk_id)
+        chunk_layer = self.get_chunk_layer(node_or_chunk_id)
+
+        if chunk_layer == 1:
+            return np.array([])
+        elif chunk_layer == 2:
+            x, y, z = chunk_coords
+            return np.array([self.get_chunk_id(layer=chunk_layer-1,
+                                               x=x, y=y, z=z)])
+        else:
+            chunk_ids = []
+            for dcoord in itertools.product(*[range(self.fan_out)]*3):
+                x, y, z = chunk_coords * self.fan_out + np.array(dcoord)
+                child_chunk_id = self.get_chunk_id(layer=chunk_layer-1,
+                                                   x=x, y=y, z=z)
+                chunk_ids.append(child_chunk_id)
+
+            return np.array(chunk_ids)
 
     def get_parent_chunk_ids(self, node_or_chunk_id: np.uint64) -> np.ndarray:
         """ Creates list of chunk parent ids
@@ -3454,7 +3461,6 @@ class ChunkedGraph(object):
 
             if lock_acquired:
                 rows = []
-                new_root_ids = []
 
                 lock_operation_ids = np.array([operation_id] *
                                               len(lock_root_ids))
@@ -4277,36 +4283,26 @@ class ChunkedGraph(object):
                                     operation_id=operation_id)
 
             if lock_acquired:
-                # (run mincut) and remove edges + update hierarchy
+                lock_operation_ids = np.array([operation_id] *
+                                              len(lock_root_ids))
+                time_stamp = self.read_consolidated_lock_timestamp(
+                    lock_root_ids, lock_operation_ids)
+
                 if mincut:
-                    success, result = \
-                        self._remove_edges_mincut(operation_id=operation_id,
-                                                  source_ids=source_ids,
-                                                  sink_ids=sink_ids,
-                                                  source_coords=source_coords,
-                                                  sink_coords=sink_coords,
-                                                  bb_offset=bb_offset)
-                    if success:
-                        new_root_ids, rows, removed_edges, time_stamp, \
-                            lvl2_node_mapping = result
-                    else:
-                        for lock_root_id in lock_root_ids:
-                            self.unlock_root(lock_root_id,
-                                             operation_id=operation_id)
-                        return None
+                    removed_edges = self._run_multicut(source_ids, sink_ids,
+                                                       source_coords,
+                                                       sink_coords, bb_offset)
                 else:
-                    success, result = \
-                        self._remove_edges(operation_id=operation_id,
-                                           atomic_edges=atomic_edges)
-                    if success:
-                        new_root_ids, rows, time_stamp, \
-                            lvl2_node_mapping = result
-                        removed_edges = atomic_edges
-                    else:
-                        for lock_root_id in lock_root_ids:
-                            self.unlock_root(lock_root_id,
-                                             operation_id=operation_id)
-                        return None
+                    removed_edges = atomic_edges
+
+                print(f"mincut: {mincut}")
+                print(f"removed_edges: {removed_edges}")
+
+                assert len(removed_edges) > 0
+
+                new_root_ids, rows = cg_edits.remove_edges(
+                    self, operation_id, atomic_edges=removed_edges,
+                    time_stamp=time_stamp)
 
                 # Add a row to the log
                 log_row = self._create_split_log_row(operation_id,
@@ -4328,14 +4324,14 @@ class ChunkedGraph(object):
                 # else:
                 if self.bulk_write(rows, lock_root_ids,
                                    operation_id=operation_id, slow_retry=False):
-                    if remesh_preview:
-                        meshgen.mesh_lvl2_previews(self, list(
-                            lvl2_node_mapping.keys()))
+                    # if remesh_preview:
+                    #     meshgen.mesh_lvl2_previews(self, list(
+                    #         lvl2_node_mapping.keys()))
 
                     self.logger.debug(f"new root ids: {new_root_ids}")
 
                     if return_new_lvl2_nodes:
-                        return new_root_ids, list(lvl2_node_mapping.keys())
+                        return new_root_ids #, list(lvl2_node_mapping.keys())
                     else:
                         return new_root_ids
 
@@ -4349,6 +4345,86 @@ class ChunkedGraph(object):
 
         self.logger.warning("Could not acquire root object lock.")
         raise cg_exceptions.LockingError(f"Could not acquire root object lock.")
+
+    def _run_multicut(self, source_ids: Sequence[np.uint64],
+                      sink_ids: Sequence[np.uint64],
+                      source_coords: Sequence[Sequence[int]],
+                      sink_coords: Sequence[Sequence[int]],
+                      bb_offset: Tuple[int, int, int] = (120, 120, 12)):
+
+
+        time_start = time.time()
+
+        bb_offset = np.array(list(bb_offset))
+        source_coords = np.array(source_coords)
+        sink_coords = np.array(sink_coords)
+
+        # Decide a reasonable bounding box (NOT guaranteed to be successful!)
+        coords = np.concatenate([source_coords, sink_coords])
+        bounding_box = [np.min(coords, axis=0), np.max(coords, axis=0)]
+
+        bounding_box[0] -= bb_offset
+        bounding_box[1] += bb_offset
+
+        # Verify that sink and source are from the same root object
+        root_ids = set()
+        for source_id in source_ids:
+            root_ids.add(self.get_root(source_id))
+        for sink_id in sink_ids:
+            root_ids.add(self.get_root(sink_id))
+
+        if len(root_ids) > 1:
+            raise cg_exceptions.PreconditionError(
+                f"All supervoxel must belong to the same object. Already split?"
+            )
+
+        self.logger.debug("Get roots and check: %.3fms" %
+                          ((time.time() - time_start) * 1000))
+        time_start = time.time()  # ------------------------------------------
+
+        root_id = root_ids.pop()
+
+        # Get edges between local supervoxels
+        n_chunks_affected = np.product((np.ceil(bounding_box[1] / self.chunk_size)).astype(np.int) -
+                                       (np.floor(bounding_box[0] / self.chunk_size)).astype(np.int))
+
+        self.logger.debug("Number of affected chunks: %d" % n_chunks_affected)
+        self.logger.debug(f"Bounding box: {bounding_box}")
+        self.logger.debug(f"Bounding box padding: {bb_offset}")
+        self.logger.debug(f"Source ids: {source_ids}")
+        self.logger.debug(f"Sink ids: {sink_ids}")
+        self.logger.debug(f"Root id: {root_id}")
+
+        edges, affs, areas = self.get_subgraph_edges(root_id,
+                                                     bounding_box=bounding_box,
+                                                     bb_is_coordinate=True)
+        self.logger.debug(f"Get edges and affs: "
+                          f"{(time.time() - time_start) * 1000:.3f}ms")
+
+        time_start = time.time()  # ------------------------------------------
+
+        # Compute mincut
+        atomic_edges = cutting.mincut(edges, affs, source_ids, sink_ids)
+
+        self.logger.debug(f"Mincut: {(time.time() - time_start) * 1000:.3f}ms")
+
+        if len(atomic_edges) == 0:
+            raise cg_exceptions.PostconditionError(
+                f"Mincut failed. Try again...")
+
+        # # Check if any edge in the cutset is infinite (== between chunks)
+        # # We would prevent such a cut
+        #
+        # atomic_edges_flattened_view = atomic_edges.view(dtype='u8,u8')
+        # edges_flattened_view = edges.view(dtype='u8,u8')
+        #
+        # cutset_mask = np.in1d(edges_flattened_view, atomic_edges_flattened_view)
+        #
+        # if np.any(np.isinf(affs[cutset_mask])):
+        #     self.logger.error("inf in cutset")
+        #     return False, None
+
+        return atomic_edges
 
     def _remove_edges_mincut(self, operation_id: np.uint64,
                              source_ids: Sequence[np.uint64],
