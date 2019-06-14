@@ -176,7 +176,7 @@ def mincut_nx(edges: Iterable[Sequence[np.uint64]], affs: Sequence[np.uint64],
     time_start = time.time()
 
     ccs = list(nx.connected_components(weighted_graph))
-    print(f"Number connected components: {len(ccs)}")
+
     for cc in ccs:
         cc_list = list(cc)
 
@@ -324,7 +324,6 @@ def mincut_graph_tool(edges: Iterable[Sequence[np.uint64]],
     # Get rid of connected components that are not involved in the local
     # mincut
     ccs = flatgraph_utils.connected_components(weighted_graph)
-    print(f"Number of connected components {len(ccs)}")
 
     removed = weighted_graph.new_vertex_property("bool")
     removed.a = False
@@ -341,8 +340,6 @@ def mincut_graph_tool(edges: Iterable[Sequence[np.uint64]],
 
     # Test that there is only one connected component left
     ccs = flatgraph_utils.connected_components(weighted_graph)
-
-    print(f"Number of connected components {len(ccs)}")
 
     if len(ccs) > 1:
         logger.warning("Not all sinks and sources are within the same (local)"

@@ -47,6 +47,8 @@ def get_datastore_client(config):
 
 
 def get_cg(table_id):
+    assert table_id.startswith("fly")
+
     if table_id not in cache:
         instance_id = current_app.config['CHUNKGRAPH_INSTANCE_ID']
         client = get_bigtable_client(current_app.config)

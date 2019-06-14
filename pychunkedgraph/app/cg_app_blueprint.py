@@ -14,8 +14,6 @@ import threading
 from pychunkedgraph.app import app_utils, meshing_app_blueprint
 from pychunkedgraph.backend import chunkedgraph_exceptions as cg_exceptions, \
     chunkedgraph_comp as cg_comp
-from pychunkedgraph.meshing import meshgen
-
 
 __version__ = '0.1.113'
 bp = Blueprint('pychunkedgraph', __name__, url_prefix="/segmentation")
@@ -275,9 +273,9 @@ def handle_merge(table_id):
         raise cg_exceptions.InternalServerError(
             "Could not merge selected supervoxel.")
 
-    t = threading.Thread(target=meshing_app_blueprint._mesh_lvl2_nodes,
-                         args=(cg.get_serialized_info(), lvl2_nodes))
-    t.start()
+    # t = threading.Thread(target=meshing_app_blueprint._mesh_lvl2_nodes,
+    #                      args=(cg.get_serialized_info(), lvl2_nodes))
+    # t.start()
 
     # Return binary
     return app_utils.tobinary(new_root)
@@ -336,7 +334,6 @@ def handle_split(table_id):
 
     current_app.logger.debug(data_dict)
 
-    lvl2_nodes = []
     try:
         ret = cg.remove_edges(user_id=user_id,
                               source_ids=data_dict["sources"]["id"],
@@ -365,9 +362,9 @@ def handle_split(table_id):
 
     current_app.logger.debug(("after split:", new_roots))
 
-    t = threading.Thread(target=meshing_app_blueprint._mesh_lvl2_nodes,
-                         args=(cg.get_serialized_info(), lvl2_nodes))
-    t.start()
+    # t = threading.Thread(target=meshing_app_blueprint._mesh_lvl2_nodes,
+    #                      args=(cg.get_serialized_info(), lvl2_nodes))
+    # t.start()
 
     # Return binary
     return app_utils.tobinary(new_roots)

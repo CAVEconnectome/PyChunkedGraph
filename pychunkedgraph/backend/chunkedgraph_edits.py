@@ -187,7 +187,6 @@ def add_edges(cg,
     node_ids = np.unique(lvl2_edges)
     n_threads = int(np.ceil(len(node_ids) / 5))
 
-    # print(f"n_threads: {n_threads}")
     node_id_blocks = np.array_split(node_ids, n_threads)
 
     mu.multithread_func(_read_cc_edges_thread, node_id_blocks,
@@ -248,7 +247,6 @@ def add_edges(cg,
 def remove_edges(cg, operation_id: np.uint64,
                  atomic_edges: Sequence[Sequence[np.uint64]],
                  time_stamp: datetime.datetime):
-    print(f"atomic_edges: {atomic_edges}")
 
     # This view of the to be removed edges helps us to compute the mask
     # of the retained edges in each chunk
@@ -476,8 +474,6 @@ def compute_cross_chunk_connected_components(eh, node_ids, layer):
     cross_edges = np.concatenate([cross_edges,
                                   np.vstack([node_ids, node_ids]).T])
 
-    print(f"cross_edges: {cross_edges}")
-
     graph, _, _, unique_graph_ids = flatgraph_utils.build_gt_graph(
         cross_edges, make_directed=True)
 
@@ -569,8 +565,6 @@ def propagate_edits_to_root(cg,
     # Loop over all layers up to the top - there might be layers where there is
     # nothing to do
     for current_layer in range(2, eh.cg.n_layers):
-        print(f"CURRENT LAYER: {current_layer}")
-
         if len(layer_dict[current_layer]) == 0:
             continue
 
@@ -581,7 +575,6 @@ def propagate_edits_to_root(cg,
             compute_cross_chunk_connected_components(eh, new_node_ids,
                                                      current_layer)
 
-        print(f"ccs: {ccs}")
         # Build a dictionary of new connected components -----------------------
         cc_collections = collections.defaultdict(list)
         for cc in ccs:
@@ -702,8 +695,6 @@ class EditHelper(object):
                 else:
                     assert self._parent_dict[child_id] == node_id
 
-            # print(f"MISS CHILDREN -- node_id {node_id}")
-
         return self._children_dict[node_id]
 
     def get_parent(self, node_id):
@@ -714,8 +705,6 @@ class EditHelper(object):
         """
         if not node_id in self._parent_dict:
             self._parent_dict[node_id] = self.cg.get_parent(node_id)
-
-            # print(f"MISS PARENT -- node_id {node_id}")
 
         return self._parent_dict[node_id]
 
@@ -843,9 +832,6 @@ class EditHelper(object):
         if not node_id in self._cross_chunk_edge_dict:
             self._cross_chunk_edge_dict[node_id] = \
                 self.cg.read_cross_chunk_edges(node_id)
-            # print(f"NO HIT -- {len(self._cross_chunk_edge_dict)} -- {node_id} -- "
-            #       f"{node_id in self._children_dict} -- {len(self._cross_chunk_edge_dict[node_id])}")
-
         return self._cross_chunk_edge_dict[node_id]
 
     def bulk_family_read(self):
