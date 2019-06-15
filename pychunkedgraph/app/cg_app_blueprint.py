@@ -8,11 +8,13 @@ from datetime import datetime
 from pytz import UTC
 import traceback
 import collections
+import requests
 import threading
 
 from pychunkedgraph.app import app_utils, meshing_app_blueprint
 from pychunkedgraph.backend import chunkedgraph_exceptions as cg_exceptions, \
     chunkedgraph_comp as cg_comp
+from middle_auth_client import auth_required, auth_requires_roles
 
 __version__ = '0.1.113'
 bp = Blueprint('pychunkedgraph', __name__, url_prefix="/segmentation")
@@ -194,11 +196,12 @@ def handle_root_main(table_id, atomic_id, timestamp):
 ### MERGE ----------------------------------------------------------------------
 
 @bp.route('/1.0/<table_id>/graph/merge', methods=['POST', 'GET'])
+@auth_requires_roles('edit_all')
 def handle_merge(table_id):
     current_app.request_type = "merge"
 
     nodes = json.loads(request.data)
-    user_id = str(request.remote_addr)
+    user_id = str(g.auth_user['id'])
 
     current_app.logger.debug(nodes)
     assert len(nodes) == 2
@@ -247,6 +250,7 @@ def handle_merge(table_id):
             "(3 chunks).")
 
     lvl2_nodes = []
+
     try:
         ret = cg.add_edges(user_id=user_id,
                            atomic_edges=np.array(atomic_edge,
@@ -279,11 +283,12 @@ def handle_merge(table_id):
 ### SPLIT ----------------------------------------------------------------------
 
 @bp.route('/1.0/<table_id>/graph/split', methods=['POST', 'GET'])
+@auth_requires_roles('edit_all')
 def handle_split(table_id):
     current_app.request_type = "split"
 
     data = json.loads(request.data)
-    user_id = str(request.remote_addr)
+    user_id = str(g.auth_user['id'])
 
     current_app.logger.debug(data)
 
@@ -360,79 +365,6 @@ def handle_split(table_id):
         t.start()
     # Return binary
     return app_utils.tobinary(new_roots)
-
-
-### SHATTER --------------------------------------------------------------------
-
-# @bp.route('/1.0/<table_id>/graph/shatter', methods=['POST', 'GET'])
-# def handle_shatter(table_id):
-#     data = json.loads(request.data)
-#
-#     user_id = str(request.remote_addr)
-#
-#     current_app.logger.debug(data)
-#
-#     # Call ChunkedGraph
-#     cg = app_utils.get_cg(table_id)
-#
-#     data_dict = collections.defaultdict(list)
-#
-#     k = "sources"
-#     node = data[k][0]
-#
-#     node_id = node[0]
-#     radius = node[1]
-#     x, y, z = node[2:]
-#
-#     x /= 2
-#     y /= 2
-#
-#     coordinate = np.array([x, y, z])
-#
-#     current_app.logger.debug(("before", coordinate))
-#
-#     if not cg.is_in_bounds(coordinate):
-#         coordinate /= cg.segmentation_resolution
-#
-#         coordinate[0] *= 2
-#         coordinate[1] *= 2
-#
-#     current_app.logger.debug(("after", coordinate))
-#
-#     atomic_id = cg.get_atomic_id_from_coord(coordinate[0],
-#                                             coordinate[1],
-#                                             coordinate[2],
-#                                             parent_id=np.uint64(
-#                                                 node_id),
-#                                             remesh_preview=True)
-#
-#     if atomic_id is None:
-#         raise cg_exceptions.BadRequest(
-#             f"Could not determine supervoxel ID for coordinates {coordinate}.")
-#
-#     data_dict["id"].append(atomic_id)
-#     data_dict["coord"].append(coordinate)
-#
-#     current_app.logger.debug(data_dict)
-#     try:
-#         new_roots = cg.shatter_nodes(user_id=user_id,
-#                                      atomic_node_ids=data_dict['id'],
-#                                      radius=radius)
-#     except cg_exceptions.LockingError as e:
-#         raise cg_exceptions.InternalServerError(
-#             "Could not acquire root lock for shatter operation.")
-#     except cg_exceptions.PreconditionError as e:
-#         raise cg_exceptions.BadRequest(str(e))
-#
-#     if new_roots is None:
-#         raise cg_exceptions.InternalServerError(
-#             "Could not shatter selected region."
-#         )
-#
-#     # Return binary
-#     return app_utils.tobinary(new_roots)
-
-
 
 ### CHILDREN -------------------------------------------------------------------
 
