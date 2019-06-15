@@ -45,6 +45,10 @@ def get_datastore_client(config):
 
 
 def get_cg(table_id):
+    if table_id != "pinky100_sv16":
+        raise Exception("Table id not supported. This deployment only allows"
+                        " pinky100_sv16!")
+
     if table_id not in cache:
         instance_id = current_app.config['CHUNKGRAPH_INSTANCE_ID']
         client = get_bigtable_client(current_app.config)
