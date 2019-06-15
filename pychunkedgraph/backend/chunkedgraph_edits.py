@@ -241,7 +241,7 @@ def add_edges(cg,
         new_root_ids = np.array(list(lvl2_dict.keys()))
 
 
-    return new_root_ids, rows
+    return new_root_ids, list(lvl2_dict.keys()), rows
 
 
 def remove_edges(cg, operation_id: np.uint64,
@@ -372,7 +372,7 @@ def remove_edges(cg, operation_id: np.uint64,
     else:
         new_root_ids = np.array(list(lvl2_dict.keys()))
 
-    return new_root_ids, rows
+    return new_root_ids, list(lvl2_dict.keys()), rows
 
 
 def old_parent_childrens(eh, node_ids, layer):

@@ -8,7 +8,6 @@ from datetime import datetime
 from pytz import UTC
 import traceback
 import collections
-import requests
 import threading
 
 from pychunkedgraph.app import app_utils, meshing_app_blueprint
@@ -248,20 +247,15 @@ def handle_merge(table_id):
             "(3 chunks).")
 
     lvl2_nodes = []
-
     try:
         ret = cg.add_edges(user_id=user_id,
                            atomic_edges=np.array(atomic_edge,
                                                  dtype=np.uint64),
                            source_coord=coords[:1],
                            sink_coord=coords[1:],
-                           return_new_lvl2_nodes=True,
-                           remesh_preview=False)
+                           return_new_lvl2_nodes=True)
 
-        if len(ret) == 2:
-            new_root, lvl2_nodes = ret
-        else:
-            new_root = ret
+        new_root, lvl2_nodes = ret
 
     except cg_exceptions.LockingError as e:
         raise cg_exceptions.InternalServerError(
@@ -273,9 +267,10 @@ def handle_merge(table_id):
         raise cg_exceptions.InternalServerError(
             "Could not merge selected supervoxel.")
 
-    # t = threading.Thread(target=meshing_app_blueprint._mesh_lvl2_nodes,
-    #                      args=(cg.get_serialized_info(), lvl2_nodes))
-    # t.start()
+    if len(lvl2_nodes) > 0:
+        t = threading.Thread(target=meshing_app_blueprint._mesh_lvl2_nodes,
+                             args=(cg.get_serialized_info(), lvl2_nodes))
+        t.start()
 
     # Return binary
     return app_utils.tobinary(new_root)
@@ -334,6 +329,7 @@ def handle_split(table_id):
 
     current_app.logger.debug(data_dict)
 
+    lvl2_nodes = []
     try:
         ret = cg.remove_edges(user_id=user_id,
                               source_ids=data_dict["sources"]["id"],
@@ -341,13 +337,9 @@ def handle_split(table_id):
                               source_coords=data_dict["sources"]["coord"],
                               sink_coords=data_dict["sinks"]["coord"],
                               mincut=True,
-                              return_new_lvl2_nodes=True,
-                              remesh_preview=False)
+                              return_new_lvl2_nodes=True)
 
-        if len(ret) == 2:
-            new_roots, lvl2_nodes = ret
-        else:
-            new_roots = ret
+        new_roots, lvl2_nodes = ret
 
     except cg_exceptions.LockingError as e:
         raise cg_exceptions.InternalServerError(
@@ -362,10 +354,10 @@ def handle_split(table_id):
 
     current_app.logger.debug(("after split:", new_roots))
 
-    # t = threading.Thread(target=meshing_app_blueprint._mesh_lvl2_nodes,
-    #                      args=(cg.get_serialized_info(), lvl2_nodes))
-    # t.start()
-
+    if len(lvl2_nodes) > 0:
+        t = threading.Thread(target=meshing_app_blueprint._mesh_lvl2_nodes,
+                             args=(cg.get_serialized_info(), lvl2_nodes))
+        t.start()
     # Return binary
     return app_utils.tobinary(new_roots)
 
