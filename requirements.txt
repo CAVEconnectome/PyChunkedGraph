@@ -14,4 +14,4 @@ zstandard
 -e git+https://github.com/seung-lab/igneous.git#egg=igneous
 redis
 rq
-pyopenssl
+middle-auth-client>=0.1.6
