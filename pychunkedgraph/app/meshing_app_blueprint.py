@@ -10,7 +10,7 @@ from pychunkedgraph.backend import chunkedgraph
 
 # os.environ['TRAVIS_BRANCH'] = "IDONTKNOWWHYINEEDTHIS"
 
-__version__ = '0.1.113'
+__version__ = 'pinky-prod.1.1'
 bp = Blueprint('pychunkedgraph_meshing', __name__, url_prefix="/meshing")
 
 # -------------------------------
