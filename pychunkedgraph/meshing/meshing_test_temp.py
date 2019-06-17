@@ -21,12 +21,12 @@ def handlerino_write_to_cloud(*args, **kwargs):
     messages.append(args[0]['data'])
     with open('output.txt', 'a') as f:
         f.write(str(args[0]['data']) + '\n')
-    if num_messages == 50:
+    if num_messages == 1000:
         print('DONE')
         cv_path = 'gs://seunglab2/drosophila_v0/ws_190410_FAFB_v02_ws_size_threshold_200'
         with cloudvolume.Storage(cv_path) as storage:
             storage.put_file(
-                    file_path='frag_test/frag_test_summary',
+                    file_path='frag_test/frag_test_summary_no_dust_threshold',
                     content=','.join(map(str, messages)),
                     compress=False,
                     cache_control='no-cache'
@@ -79,7 +79,7 @@ def mesh_chunks(layer, x_start, y_start, z_start, x_end, y_end, z_end):
 def mesh_frag_test(n, layer):
     print(f'Queueing...')
     chunk_pubsub = current_app.redis.pubsub()
-    chunk_pubsub.subscribe(**{'mesh_frag_test_channel': handlerino_print})
+    chunk_pubsub.subscribe(**{'mesh_frag_test_channel': handlerino_write_to_cloud})
     thread = chunk_pubsub.run_in_thread(sleep_time=0.1)
 
     cg = ChunkedGraph('fly_v31')
@@ -109,7 +109,7 @@ def mesh_frag_test(n, layer):
                 # 'cv_mesh_dir': 'mesh_testing/initial_testrun_meshes',
                 'mip': 1,
                 'max_err': 320,
-                'dust_threshold': 100,
+                'return_frag_count': True
             })
                 
     return 'Queued'    
