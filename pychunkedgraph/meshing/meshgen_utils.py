@@ -22,22 +22,20 @@ def slice_to_str(slices) -> str:
         return '_'.join(map(slice_to_str, slices))
 
 
-def get_chunk_bbox(cg, chunk_id: np.uint64,
-                   mip: int):
+def get_chunk_bbox(cg, chunk_id: np.uint64):
     layer = cg.get_chunk_layer(chunk_id)
-    chunk_block_shape = get_mesh_block_shape(cg, layer, mip)
+    chunk_block_shape = get_mesh_block_shape(cg, layer)
     bbox_start = cg.get_chunk_coordinates(chunk_id) * chunk_block_shape
     bbox_end = bbox_start + chunk_block_shape
     return tuple(slice(bbox_start[i], bbox_end[i]) for i in range(3))
 
 
-def get_chunk_bbox_str(cg,
-                       chunk_id: np.uint64, mip: int) -> str:
-    return slice_to_str(get_chunk_bbox(cg, chunk_id, mip))
+def get_chunk_bbox_str(cg, chunk_id: np.uint64) -> str:
+    return slice_to_str(get_chunk_bbox(cg, chunk_id))
 
 
-def get_mesh_name(cg, node_id: np.uint64, mip: int) -> str:
-    return f"{node_id}:0:{get_chunk_bbox_str(cg, node_id, mip)}"
+def get_mesh_name(cg, node_id: np.uint64) -> str:
+    return f"{node_id}:0:{get_chunk_bbox_str(cg, node_id)}"
 
 
 @lru_cache(maxsize=None)
@@ -45,27 +43,17 @@ def get_segmentation_info(cg) -> dict:
     return cg.dataset_info
 
 
-def get_mesh_block_shape(cg, graphlayer: int,
-                         source_mip: int) -> np.ndarray:
+def get_mesh_block_shape(cg, graphlayer: int) -> np.ndarray:
     """
-    Calculate the dimensions of a segmentation block at `source_mip` that covers
+    Calculate the dimensions of a segmentation block that covers
     the same region as a ChunkedGraph chunk at layer `graphlayer`.
     """
-    info = get_segmentation_info(cg)
-
     # Segmentation is not always uniformly downsampled in all directions.
-    scale_0 = info['scales'][0]
-    scale_mip = info['scales'][source_mip]
-    distortion = np.floor_divide(scale_mip['resolution'], scale_0['resolution'])
-
-    graphlayer_chunksize = cg.chunk_size * cg.fan_out ** np.max([0, graphlayer - 2])
-
-    return np.floor_divide(graphlayer_chunksize, distortion, dtype=np.int,
-                           casting='unsafe')
+    return cg.chunk_size * cg.fan_out ** np.max([0, graphlayer - 2])
 
 
-def get_downstream_multi_child_node(cg,
-                                    node_id: np.uint64, stop_layer: int = 1):
+def get_downstream_multi_child_node(cg, node_id: np.uint64,
+                                    stop_layer: int = 1):
     """
     Return the first descendant of `node_id` (including itself) with more than
     one child, or the first descendant of `node_id` (including itself) on or
@@ -88,32 +76,23 @@ def get_downstream_multi_child_node(cg,
 def get_highest_child_nodes_with_meshes(cg,
                                         node_id: np.uint64,
                                         stop_layer=1,
-                                        mip=2,
                                         start_layer=None,
                                         verify_existence=False,
                                         bounding_box=None):
     if start_layer is None:
         start_layer = cg.n_layers
 
-    # FIXME: Read those from config
-    HIGHEST_MESH_LAYER = cg.n_layers - 3
-
-    highest_node = get_downstream_multi_child_node(cg, node_id, stop_layer)
-    highest_node_layer = cg.get_chunk_layer(highest_node)
-    if highest_node_layer <= HIGHEST_MESH_LAYER:
-        candidates = [highest_node]
-    else:
-        candidates = cg.get_subgraph_nodes(
-            highest_node,
-            bounding_box=bounding_box,
-            bb_is_coordinate=True,
-            return_layers=[HIGHEST_MESH_LAYER])
+    candidates = cg.get_subgraph_nodes(
+        node_id,
+        bounding_box=bounding_box,
+        bb_is_coordinate=True,
+        return_layers=[start_layer])
 
     if verify_existence:
         valid_node_ids = []
         with Storage(cg.cv_mesh_path) as stor:
             while True:
-                filenames = [get_mesh_name(cg, c, mip) for c in candidates]
+                filenames = [get_mesh_name(cg, c) for c in candidates]
 
                 time_start = time.time()
                 existence_dict = stor.files_exist(filenames)
