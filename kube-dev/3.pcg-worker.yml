@@ -27,7 +27,7 @@ spec:
             secretName: seunglab2-google-secret      
       containers:
         - name: pcg-worker
-          image: gcr.io/neuromancer-seung-import/pychunkedgraph:akhilesh-autoscale-test
+          image: gcr.io/neuromancer-seung-import/pychunkedgraph:akhilesh-fafb-mesh
           imagePullPolicy: Always
           resources:
             requests:

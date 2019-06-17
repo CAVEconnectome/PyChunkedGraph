@@ -36,7 +36,7 @@ spec:
         secretName: seunglab2-google-secret
   containers:
     - name: pcg
-      image: gcr.io/neuromancer-seung-import/pychunkedgraph:akhilesh-autoscale-test
+      image: gcr.io/neuromancer-seung-import/pychunkedgraph:akhilesh-fafb-mesh
       imagePullPolicy: Always
       env:
         - name: APP_SETTINGS

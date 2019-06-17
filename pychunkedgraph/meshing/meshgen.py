@@ -266,9 +266,6 @@ def get_remapped_segmentation(cg, chunk_id, mip=2, overlap_vx=1,
     _remap_vec = np.vectorize(_remap)
     seg = _remap_vec(ws_seg)
 
-    import ipdb
-    ipdb.set_trace()
-
     for unsafe_root_id in unsafe_dict.keys():
         bin_seg = seg == unsafe_root_id
 
@@ -311,7 +308,6 @@ def get_remapped_segmentation(cg, chunk_id, mip=2, overlap_vx=1,
                 cc_ids = np.sort(list(cc))
                 seg[np.in1d(seg, cc_ids[1:]).reshape(seg.shape)] = cc_ids[0]
 
-    ipdb.set_trace()
     return seg
 
 
@@ -892,12 +888,13 @@ def black_out_dust_from_segmentation(seg, dust_threshold):
     seg = fastremap.mask(seg, dust_segids, in_place=True)
 
 
-# REDIS_HOST = os.environ.get('REDIS_SERVICE_HOST', 'localhost')
-# REDIS_PORT = os.environ.get('REDIS_SERVICE_PORT', '6379')
-# REDIS_PASSWORD = os.environ.get('REDIS_PASSWORD', 'dev')
-# REDIS_URL = f'redis://:{REDIS_PASSWORD}@{REDIS_HOST}:{REDIS_PORT}/0'
+REDIS_HOST = os.environ.get('REDIS_SERVICE_HOST', 'localhost')
+REDIS_PORT = os.environ.get('REDIS_SERVICE_PORT', '6379')
+REDIS_PASSWORD = os.environ.get('REDIS_PASSWORD', 'dev')
+REDIS_URL = f'redis://:{REDIS_PASSWORD}@{REDIS_HOST}:{REDIS_PORT}/0'
 
-# @redis_job(REDIS_URL, 'mesh_frag_test_channel')
+from pychunkedgraph.utils.general import redis_job
+@redis_job(REDIS_URL, 'mesh_frag_test_channel')
 def chunk_mesh_task_new_remapping(cg_info, chunk_id, cv_path, cv_mesh_dir=None, mip=2, max_err=320, base_layer=2, lod=0, encoding='draco', time_stamp=None, dust_threshold=None, return_frag_count=False):
     cg = chunkedgraph.ChunkedGraph(**cg_info)
     mesh_dir = cv_mesh_dir or cg._mesh_dir
@@ -914,8 +911,6 @@ def chunk_mesh_task_new_remapping(cg_info, chunk_id, cv_path, cv_mesh_dir=None, 
         draco_encoding_settings = get_draco_encoding_settings_for_chunk(cg, chunk_id, mip, high_padding)
         before_time = time.time()
         seg = get_remapped_segmentation(cg, chunk_id, mip, overlap_vx=high_padding, time_stamp=time_stamp)
-        import ipdb
-        ipdb.set_trace()
         print('get_remapped_seg time: ', time.time() - before_time)
         if dust_threshold:
             # before_time = time.time()

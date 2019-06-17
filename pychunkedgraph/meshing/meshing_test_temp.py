@@ -5,13 +5,12 @@ import redis
 
 from flask import current_app
 from flask.cli import AppGroup
-from pychunkedgraph.ingest.test_utils import independent_task
 from pychunkedgraph.backend.chunkedgraph import ChunkedGraph
 from pychunkedgraph.meshing import meshgen
 import cloudvolume
 import numpy as np
 
-ingest_cli = AppGroup('ingest')
+ingest_cli = AppGroup('mesh')
 
 num_messages = 0
 messages = []
@@ -36,22 +35,6 @@ def handlerino_write_to_cloud(*args, **kwargs):
 def handlerino_print(*args, **kwargs):
     print(args)
     print(kwargs)
-
-
-@ingest_cli.command('test')
-@click.argument('n_chunks', type=int)
-@click.argument('chunk_size', type=int)
-def create_atomic_chunks(n_chunks, chunk_size):
-    print(f'Queueing {n_chunks} chunks of size {chunk_size} ...')
-    chunk_pubsub = current_app.redis.pubsub()
-    chunk_pubsub.subscribe(**{'process-chunk': handlerino})
-    thread = chunk_pubsub.run_in_thread(sleep_time=0.1)
-
-    for chunk_id in range(n_chunks):
-        current_app.chunk_q.enqueue(
-            independent_task,
-            args=(chunk_id, chunk_size))
-    return 'Queued'
 
 
 @ingest_cli.command('mesh_chunks')
@@ -88,7 +71,7 @@ def mesh_chunks(n, layer, x_start, y_start, z_start):
                 
     return 'Queued'
 
-@ingest_cli.command('mesh_frag_test')
+@ingest_cli.command('frag_test')
 @click.argument('n', type=int)
 @click.argument('layer', type=int)
 def mesh_frag_test(n, layer):
@@ -98,6 +81,7 @@ def mesh_frag_test(n, layer):
     thread = chunk_pubsub.run_in_thread(sleep_time=0.1)
 
     cg = ChunkedGraph('fly_v31')
+    new_info = cg.cv.info
 
     dataset_size = np.array(new_info['scales'][0]['size'])
     dim_in_chunks = np.ceil(dataset_size / new_info['graph']['chunk_size'])
@@ -110,10 +94,10 @@ def mesh_frag_test(n, layer):
         y = np.floor(rem / dim_in_chunks[2])
         rem = rem - (y * dim_in_chunks[2])
         z = rem
-        chunk_id = mod_cg.get_chunk_id(None, layer, np.int32(x), np.int32(y), np.int32(z))
-        current_app.chunk_q.enqueue(
+        chunk_id = cg.get_chunk_id(None, layer, np.int32(x), np.int32(y), np.int32(z))
+        current_app.test_q.enqueue(
             meshgen.chunk_mesh_task_new_remapping,
-            job_timeout='20m',
+            job_timeout='60m',
             args=(
                 cg.get_serialized_info(), 
                 chunk_id,
