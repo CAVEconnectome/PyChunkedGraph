@@ -13,8 +13,13 @@ import networkx as nx
 
 from multiwrapper import multiprocessing_utils as mu
 from cloudvolume import Storage, EmptyVolumeException
+from cloudvolume.lib import Vec
 from cloudvolume.meshservice import decode_mesh_buffer
 from igneous.tasks import MeshTask
+import DracoPy
+import zmesh
+import fastremap
+import time
 
 sys.path.insert(0, os.path.join(sys.path[0], '../..'))
 os.environ['TRAVIS_BRANCH'] = "IDONTKNOWWHYINEEDTHIS"
@@ -252,6 +257,7 @@ def get_remapped_segmentation(cg, chunk_id, mip=2, overlap_vx=1,
 
     chunk_start = cg.get_chunk_coordinates(chunk_id) * mip_chunk_size
     chunk_end = chunk_start + mip_chunk_size + overlap_vx
+    chunk_end = Vec.clamp(chunk_end, cg.cv.mip_voxel_offset(mip), cg.cv.mip_voxel_offset(mip) + cg.cv.mip_volume_size(mip))
 
     ws_seg = cv[chunk_start[0]: chunk_end[0],
                 chunk_start[1]: chunk_end[1],
@@ -700,6 +706,337 @@ def merge_meshes(meshes):
         'vertices': vertices,
         'faces': faces
     }
+
+
+def get_meshing_necessities_from_graph(cg, chunk_id, mip):
+    layer = cg.get_chunk_layer(chunk_id)
+    cx, cy, cz = cg.get_chunk_coordinates(chunk_id)
+    mesh_block_shape = meshgen_utils.get_mesh_block_shape(cg, layer, mip)
+    chunk_offset = (cx, cy, cz) * mesh_block_shape + cg.cv.mip_voxel_offset(mip)
+    return layer, mesh_block_shape, chunk_offset
+
+
+def calculate_quantization_bits_and_range(min_quantization_range, max_draco_bin_size, draco_quantization_bits=None):
+    if draco_quantization_bits is None:
+        draco_quantization_bits = np.ceil(np.log2(min_quantization_range / max_draco_bin_size + 1))
+    num_draco_bins = 2 ** draco_quantization_bits - 1
+    draco_bin_size = np.ceil(min_quantization_range / num_draco_bins)
+    draco_quantization_range = draco_bin_size * num_draco_bins
+    if draco_quantization_range < min_quantization_range + draco_bin_size:
+        if draco_bin_size == max_draco_bin_size:
+            return calculate_quantization_bits_and_range(min_quantization_range, max_draco_bin_size, draco_quantization_bits + 1)
+        else:
+            draco_bin_size = draco_bin_size + 1
+            draco_quantization_range = draco_quantization_range + num_draco_bins
+    return draco_quantization_bits, draco_quantization_range, draco_bin_size
+
+
+def get_draco_encoding_settings_for_chunk(cg, chunk_id, mip=2, high_padding=1):
+    """
+    Calculate the proper draco encoding settings for a chunk to ensure proper stitching is possible
+    on the layer above. For details about how and why we do this, please see the meshing Readme
+    """
+    layer, mesh_block_shape, chunk_offset = get_meshing_necessities_from_graph(cg, chunk_id, mip)
+    segmentation_resolution = cg.cv.scales[mip]['resolution']
+    min_quantization_range = max((mesh_block_shape + high_padding) * segmentation_resolution)
+    max_draco_bin_size = np.floor(min(segmentation_resolution) / np.sqrt(2))
+    # max_draco_bin_size = np.floor(min(segmentation_resolution) / 2)
+    draco_quantization_bits, draco_quantization_range, draco_bin_size = calculate_quantization_bits_and_range(min_quantization_range, max_draco_bin_size)
+    draco_quantization_origin = chunk_offset - (chunk_offset % draco_bin_size)
+    return {
+        'quantization_bits': draco_quantization_bits,
+        'compression_level': 1,
+        'quantization_range': draco_quantization_range,
+        'quantization_origin': draco_quantization_origin,
+        'create_metadata': True
+    }
+
+
+def get_next_layer_draco_encoding_settings(cg, prev_layer_encoding_settings, next_layer_chunk_id, mip):
+    old_draco_bin_size = prev_layer_encoding_settings['quantization_range'] // (2 ** prev_layer_encoding_settings['quantization_bits'] - 1)
+    layer, mesh_block_shape, chunk_offset = get_meshing_necessities_from_graph(cg, next_layer_chunk_id, mip)
+    segmentation_resolution = cg.cv.scales[mip]['resolution']
+    min_quantization_range = max(mesh_block_shape * segmentation_resolution) + 2 * old_draco_bin_size
+    max_draco_bin_size = np.floor(min(segmentation_resolution) / np.sqrt(2))
+    draco_quantization_bits, draco_quantization_range, draco_bin_size = calculate_quantization_bits_and_range(min_quantization_range, max_draco_bin_size)
+    draco_quantization_origin = chunk_offset - old_draco_bin_size - ((chunk_offset - old_draco_bin_size) % draco_bin_size)
+    return {
+        'quantization_bits': draco_quantization_bits,
+        'compression_level': 1,
+        'quantization_range': draco_quantization_range,
+        'quantization_origin': draco_quantization_origin,
+        'create_metadata': True
+    }
+
+
+def transform_draco_vertices(mesh, encoding_settings):
+    vertices = np.reshape(mesh['vertices'], (mesh['num_vertices']*3,))
+    max_quantized_value = 2 ** encoding_settings['quantization_bits'] - 1
+    draco_bin_size = encoding_settings['quantization_range'] / max_quantized_value
+    assert np.equal(np.mod(draco_bin_size, 1), 0)
+    assert np.equal(np.mod(encoding_settings['quantization_range'], 1), 0)
+    assert np.equal(np.mod(encoding_settings['quantization_origin'], 1), 0).all()
+    for coord in range(3):
+        vertices[coord::3] -= encoding_settings['quantization_origin'][coord]
+    vertices /= draco_bin_size
+    vertices += 0.5
+    np.floor(vertices, out=vertices)
+    vertices *= draco_bin_size
+    for coord in range(3):
+        vertices[coord::3] += encoding_settings['quantization_origin'][coord]
+
+
+def transform_draco_fragment_and_return_encoding_options(cg, fragment, layer, mip, chunk_id):
+    # import ipdb
+    # ipdb.set_trace()
+    fragment_encoding_options = fragment['mesh']['encoding_options']
+    if fragment_encoding_options is None:
+        raise Error('Draco fragment has no encoding options')
+    cur_encoding_settings = {
+        'quantization_range': fragment_encoding_options.quantization_range,
+        'quantization_bits': fragment_encoding_options.quantization_bits
+    }
+    node_id = fragment['node_id']
+    parent_chunk_ids = cg.get_parent_chunk_ids(node_id)
+    fragment_layer = cg.get_chunk_layer(node_id)
+    if fragment_layer >= layer:
+        raise Error(f'Node {node_id} somehow has greater or equal layer than chunk {chunk_id}')
+    assert len(parent_chunk_ids) > layer - fragment_layer
+    for next_layer in range(fragment_layer+1, layer+1):
+        next_layer_chunk_id = parent_chunk_ids[next_layer - fragment_layer]
+        next_encoding_settings = get_next_layer_draco_encoding_settings(cg, cur_encoding_settings, next_layer_chunk_id, mip)
+        if next_layer < layer:
+            transform_draco_vertices(fragment['mesh'], next_encoding_settings)
+        cur_encoding_settings = next_encoding_settings
+    return cur_encoding_settings
+
+
+def merge_draco_meshes(cg, fragments):
+    # TODO: change from naive/brute force merging to only merging at quantized chunk boundary
+    mdata = [fragment['mesh'] for fragment in fragments]
+    vertexct = np.zeros(len(mdata) + 1, np.uint32)
+    vertexct[1:] = np.cumsum([x['num_vertices'] for x in mdata])
+    vertices = np.concatenate([x['vertices'] for x in mdata])
+    faces = np.concatenate([
+        mesh['faces'] + vertexct[i] for i, mesh in enumerate(mdata)
+    ])
+    if len(faces.shape) == 1:
+        faces = faces.reshape(-1, 3)
+    if vertexct[-1] > 0:
+        vertices, faces = np.unique(vertices[faces.reshape(-1)],
+                                    return_inverse=True, axis=0)
+        faces = faces.reshape(-1,3).astype(np.uint32)
+    # is_chunk_aligned = np.any(np.mod(verts, chunk_size) == 0, axis=1)
+    # # # uniq_vertices, uniq_faces, vert_face_counts = np.unique(vertices[faces],
+    # #                                                         return_inverse=True,
+    # #                                                         return_counts=True,
+    # #                                                         axis=0)
+    # # find all vertices that have exactly 2 duplicates
+    # unique_vertices, unique_inverse, counts = np.unique(verts,
+    #                                                     return_inverse=True,
+    #                                                     return_counts=True,
+    #                                                     axis=0)
+    # only_double = np.where(counts == 2)[0]
+    # is_doubled = np.isin(unique_inverse, only_double)
+    # # this stores whether each vertex should be merged or not
+    # do_merge = np.array(is_doubled & is_chunk_aligned)
+
+    # # setup an artificial 4th coordinate for vertex positions
+    # # which will be unique in general, 
+    # # but then repeated for those that are merged
+    # new_vertices = np.hstack((verts, np.arange(verts.shape[0])[:, np.newaxis]))
+    # new_vertices[do_merge, 3] = -1
+    # fa = np.array(faces)
+    # n_faces = fa.shape[0]
+    # n_dim = fa.shape[1]
+
+    # # use unique to make the artificial vertex list unique and reindex faces
+    # vertices, newfaces = np.unique(new_vertices[faces.ravel(),:], return_inverse=True, axis=0)
+    # faces = newfaces.reshape((n_faces, n_dim))
+    # faces = faces.astype(np.uint32)
+
+    # return vertices[:,0:3], faces
+    return {
+        'num_vertices': np.uint32(len(vertices)),
+        'vertices': np.reshape(vertices, (len(vertices) * 3,)),
+        'faces': np.reshape(faces, (len(faces) * 3,))
+    }
+
+
+def merge_draco_meshes_across_boundaries(cg, fragments):
+    # TODO: change from naive/brute force merging to only merging at quantized chunk boundary
+    mdata = [fragment['mesh'] for fragment in fragments]
+    vertexct = np.zeros(len(mdata) + 1, np.uint32)
+    vertexct[1:] = np.cumsum([x['num_vertices'] for x in mdata])
+    vertices = np.concatenate([x['vertices'] for x in mdata])
+    faces = np.concatenate([
+        mesh['faces'] + vertexct[i] for i, mesh in enumerate(mdata)
+    ])
+    if len(faces.shape) == 1:
+        faces = faces.reshape(-1, 3)
+    if vertexct[-1] > 0:
+        vertices, faces = np.unique(vertices[faces.reshape(-1)],
+                                    return_inverse=True, axis=0)
+        faces = faces.reshape(-1,3).astype(np.uint32)
+
+
+def black_out_dust_from_segmentation(seg, dust_threshold):
+    seg_ids, voxel_count = np.unique(seg, return_counts=True)
+    boundary = np.concatenate((seg[0,:,:], seg[-1,:,:], seg[:,0,:], seg[:,-1,:], seg[:,:,0], seg[:,:,-1]), axis=None)
+    seg_ids_on_boundary = np.unique(boundary)
+    dust_segids = [ sid for sid, ct in zip(seg_ids, voxel_count) if ct < int(dust_threshold) and np.isin(sid, seg_ids_on_boundary, invert=True) ]
+    seg = fastremap.mask(seg, dust_segids, in_place=True)
+
+
+# REDIS_HOST = os.environ.get('REDIS_SERVICE_HOST', 'localhost')
+# REDIS_PORT = os.environ.get('REDIS_SERVICE_PORT', '6379')
+# REDIS_PASSWORD = os.environ.get('REDIS_PASSWORD', 'dev')
+# REDIS_URL = f'redis://:{REDIS_PASSWORD}@{REDIS_HOST}:{REDIS_PORT}/0'
+
+# @redis_job(REDIS_URL, 'mesh_frag_test_channel')
+def chunk_mesh_task_new_remapping(cg_info, chunk_id, cv_path, cv_mesh_dir=None, mip=2, max_err=320, base_layer=2, lod=0, encoding='draco', time_stamp=None, dust_threshold=None, return_frag_count=False):
+    cg = chunkedgraph.ChunkedGraph(**cg_info)
+    mesh_dir = cv_mesh_dir or cg._mesh_dir
+    start_time = time.time()
+
+    layer, mesh_block_shape, chunk_offset = get_meshing_necessities_from_graph(cg, chunk_id, mip)
+    cx, cy, cz = cg.get_chunk_coordinates(chunk_id)
+    if layer <= 2:
+        assert mip >= cg.cv.mip
+        
+        high_padding = 1
+        print("Retrieving remap table for chunk %s -- (%s, %s, %s, %s)" % (chunk_id, layer, cx, cy, cz))
+        mesher = zmesh.Mesher(cg.cv.mip_resolution(mip))
+        draco_encoding_settings = get_draco_encoding_settings_for_chunk(cg, chunk_id, mip, high_padding)
+        before_time = time.time()
+        seg = get_remapped_segmentation(cg, chunk_id, mip, overlap_vx=high_padding, time_stamp=time_stamp)
+        print('get_remapped_seg time: ', time.time() - before_time)
+        if dust_threshold:
+            # before_time = time.time()
+            black_out_dust_from_segmentation(seg, dust_threshold)
+            # print('dust removal time: ', time.time() - before_time)
+        if return_frag_count:
+            return np.unique(seg).shape[0]
+        # print('get root cache: ', get_root_lx_remapping.cache_info())
+        # print(draco_encoding_settings)
+        before_time = time.time()
+        mesher.mesh(seg.T)
+        print('mesh time: ', time.time() - before_time)
+        del seg
+        simplification_time = 0
+        draco_encoding_time = 0
+        write_to_cloud_time = 0
+        with Storage(cv_path) as storage:
+            print('cv path', cv_path)
+            print('mesh_dir', mesh_dir)
+            print('num ids', len(mesher.ids()))
+            for obj_id in mesher.ids():
+                before_time = time.time()
+                mesh = mesher.get_mesh(
+                    obj_id,
+                    simplification_factor=999999,
+                    max_simplification_error=max_err
+                )
+                simplification_time = simplification_time + time.time() - before_time
+                mesher.erase(obj_id)
+                mesh.vertices[:] += chunk_offset * cg.cv.mip_resolution(mip)
+                if encoding == 'draco':
+                    before_time = time.time()                    
+                    file_contents = DracoPy.encode_mesh_to_buffer(
+                        mesh.vertices.flatten('C'), mesh.faces.flatten('C'), 
+                        **draco_encoding_settings
+                    )
+                    draco_encoding_time = draco_encoding_time + time.time() - before_time
+                    compress = False
+                else:
+                    file_contents = mesh.to_precomputed()
+                    compress = True
+                before_time = time.time()
+                storage.put_file(
+                    file_path=f'{mesh_dir}/{meshgen_utils.get_mesh_name(cg, obj_id, mip)}',
+                    content=file_contents,
+                    compress=compress,
+                    cache_control='no-cache'
+                )
+                write_to_cloud_time = write_to_cloud_time + time.time() - before_time
+        print('simplification time: ', simplification_time)
+        print('draco encoding time: ', draco_encoding_time)
+        print('write to cloud time: ', write_to_cloud_time)
+        print('total_time: ', time.time() - start_time)
+    else:
+        # For each node with more than one child, create a new fragment by
+        # merging the mesh fragments of the children.
+        
+        print("Retrieving children for chunk %s -- (%s, %s, %s, %s)" % (chunk_id, layer, cx, cy, cz))
+        node_ids = cg.range_read_chunk(layer, cx, cy, cz, columns=column_keys.Hierarchy.Child)
+
+        print("Collecting only nodes with more than one child: ", end="")
+        # Only keep nodes with more than one child
+        multi_child_nodes = {}
+        for node_id, data in node_ids.items():
+            children = data[0].value
+
+            if len(children) > 1:
+                multi_child_descendant = [
+                    meshgen_utils.get_downstream_multi_child_node(cg, child, 2) for child in children
+                ]
+
+                multi_child_nodes[f'{node_id}:0:{meshgen_utils.get_chunk_bbox_str(cg, node_id, mip)}'] = [
+                    f'{c}:0:{meshgen_utils.get_chunk_bbox_str(cg, c, mip)}' for c in multi_child_descendant
+                ]
+        print("%d out of %d" % (len(multi_child_nodes), len(node_ids)))
+        if not multi_child_nodes:
+            print("Nothing to do", cx, cy, cz)
+            return
+
+        with Storage(os.path.join(cv_path, mesh_dir)) as storage:
+            i = 0
+            # how_long = 0
+            for new_fragment_id, fragment_ids_to_fetch in multi_child_nodes.items():
+                i += 1
+                if i % max(1, len(multi_child_nodes) // 10) == 0:
+                    print(f"{i}/{len(multi_child_nodes)}")
+
+                fragment_contents = storage.get_files(fragment_ids_to_fetch)
+
+                old_fragments = []
+                for fragment in fragment_contents:
+                    if fragment['content'] is not None and fragment['error'] is None:
+                        filename = fragment['filename']
+                        end_of_node_id_index = filename.find(':')
+                        if end_of_node_id_index == -1:
+                            raise Error(f'Unexpected filename {filename}. Filenames expected in format \'\{node_id}:\{lod}:\{chunk_bbox_string}\'')
+                        else:
+                            node_id_str = filename[:end_of_node_id_index]
+                            old_fragments.append({
+                                'mesh': decode_draco_mesh_buffer(fragment['content']),
+                                'node_id': np.uint64(node_id_str)
+                            })
+
+                if len(old_fragments) == 0:
+                    continue
+
+                draco_encoding_options = None
+                for old_fragment in old_fragments:
+                    if draco_encoding_options is None:
+                        draco_encoding_options = transform_draco_fragment_and_return_encoding_options(cg, old_fragment, layer, mip, chunk_id)
+                    else:
+                        encoding_options_for_fragment = transform_draco_fragment_and_return_encoding_options(cg, old_fragment, layer, mip, chunk_id)
+                        np.testing.assert_equal(draco_encoding_options['quantization_bits'], encoding_options_for_fragment['quantization_bits'])
+                        np.testing.assert_equal(draco_encoding_options['quantization_range'], encoding_options_for_fragment['quantization_range'])
+                        np.testing.assert_array_equal(draco_encoding_options['quantization_origin'], encoding_options_for_fragment['quantization_origin'])
+
+                # start_time = time.time()
+                new_fragment = merge_draco_meshes(cg, old_fragments)
+                # how_long = how_long + time.time() - start_time
+
+                new_fragment_b = DracoPy.encode_mesh_to_buffer(new_fragment['vertices'], new_fragment['faces'], **draco_encoding_options)
+                storage.put_file(new_fragment_id,
+                                 new_fragment_b,
+                                 content_type='application/octet-stream',
+                                 compress=False,
+                                 cache_control='no-cache')
+            # print('how_long merge', how_long)
 
 
 def chunk_mesh_task(cg, chunk_id, cv_path,
