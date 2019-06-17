@@ -20,7 +20,7 @@ def handlerino_write_to_cloud(*args, **kwargs):
     print(num_messages, args[0]['data'])
     messages.append(args[0]['data'])
     with open('output.txt', 'a') as f:
-        f.write(str(args[0]['data']))
+        f.write(str(args[0]['data']) + '\n')
     if num_messages == 50:
         print('DONE')
         cv_path = 'gs://seunglab2/drosophila_v0/ws_190410_FAFB_v02_ws_size_threshold_200'
@@ -33,8 +33,8 @@ def handlerino_write_to_cloud(*args, **kwargs):
                 )
 
 def handlerino_print(*args, **kwargs):
-    print(args)
-    print(kwargs)
+    with open('output.txt', 'a') as f:
+        f.write(str(args[0]['data']))
 
 
 @ingest_cli.command('mesh_chunks')
@@ -45,10 +45,10 @@ def handlerino_print(*args, **kwargs):
 @click.argument('x_end', type=int)
 @click.argument('y_end', type=int)
 @click.argument('z_end', type=int)
-def mesh_chunks(n, layer, x_start, y_start, z_start):
+def mesh_chunks(layer, x_start, y_start, z_start, x_end, y_end, z_end):
     print(f'Queueing...')
     chunk_pubsub = current_app.redis.pubsub()
-    chunk_pubsub.subscribe(**{'mesh-chunk': handlerino_print})
+    chunk_pubsub.subscribe(**{'mesh_frag_test_channel': handlerino_print})
     thread = chunk_pubsub.run_in_thread(sleep_time=0.1)
 
     cg = ChunkedGraph('fly_v31')
@@ -56,7 +56,7 @@ def mesh_chunks(n, layer, x_start, y_start, z_start):
         for y in range(y_start, y_end):
             for z in range(z_start, z_end):
                 chunk_id = cg.get_chunk_id(None, layer, x, y, z)
-                current_app.chunk_q.enqueue(
+                current_app.test_q.enqueue(
                     meshgen.chunk_mesh_task_new_remapping,
                     job_timeout='20m',
                     args=(

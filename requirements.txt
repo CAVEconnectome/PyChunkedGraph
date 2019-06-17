@@ -1,9 +1,8 @@
 numpy
 pandas
-networkx
+networkx==2.1
 google-cloud-bigtable>=0.33.0
 google-cloud-datastore>=1.8<=2.0dev
-networkx
 flask
 flask_cors
 codecov

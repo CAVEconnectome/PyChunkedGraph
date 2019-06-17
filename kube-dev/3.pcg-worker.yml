@@ -32,8 +32,6 @@ spec:
           resources:
             requests:
               memory: 1Gi
-            limits:
-              memory: 2Gi
           env:
             - name: APP_SETTINGS
               value: pychunkedgraph.app.config.DeploymentWithRedisConfig

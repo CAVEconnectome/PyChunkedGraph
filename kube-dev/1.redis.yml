@@ -24,6 +24,9 @@ spec:
     - name: redis
       image: redis:5.0.4-alpine
       imagePullPolicy: Always
+      resources:
+        requests:
+          memory: 8Gi      
       command: ["redis-server"]
       args: ["--requirepass", "dev"]
       ports:

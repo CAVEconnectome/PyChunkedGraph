@@ -904,6 +904,7 @@ def chunk_mesh_task_new_remapping(cg_info, chunk_id, cv_path, cv_mesh_dir=None, 
     cg = chunkedgraph.ChunkedGraph(**cg_info)
     mesh_dir = cv_mesh_dir or cg._mesh_dir
     start_time = time.time()
+    result = []
 
     layer, mesh_block_shape, chunk_offset = get_meshing_necessities_from_graph(cg, chunk_id, mip)
     cx, cy, cz = cg.get_chunk_coordinates(chunk_id)
@@ -911,6 +912,7 @@ def chunk_mesh_task_new_remapping(cg_info, chunk_id, cv_path, cv_mesh_dir=None, 
         assert mip >= cg.cv.mip
         
         high_padding = 1
+        result.append((chunk_id, layer, cx, cy, cz))
         print("Retrieving remap table for chunk %s -- (%s, %s, %s, %s)" % (chunk_id, layer, cx, cy, cz))
         mesher = zmesh.Mesher(cg.cv.mip_resolution(mip))
         draco_encoding_settings = get_draco_encoding_settings_for_chunk(cg, chunk_id, mip, high_padding)
@@ -936,6 +938,7 @@ def chunk_mesh_task_new_remapping(cg_info, chunk_id, cv_path, cv_mesh_dir=None, 
             print('cv path', cv_path)
             print('mesh_dir', mesh_dir)
             print('num ids', len(mesher.ids()))
+            result.append(len(mesher.ids()))
             for obj_id in mesher.ids():
                 before_time = time.time()
                 mesh = mesher.get_mesh(
@@ -1043,6 +1046,7 @@ def chunk_mesh_task_new_remapping(cg_info, chunk_id, cv_path, cv_mesh_dir=None, 
                                  compress=False,
                                  cache_control='no-cache')
             # print('how_long merge', how_long)
+    return ', '.join(str(x) for x in result)
 
 
 def chunk_mesh_task(cg, chunk_id, cv_path,
