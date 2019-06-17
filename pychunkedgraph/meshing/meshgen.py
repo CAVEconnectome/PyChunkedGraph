@@ -255,7 +255,7 @@ def get_remapped_segmentation(cg, chunk_id, mip=2, overlap_vx=1,
     mip_chunk_size = cg.chunk_size.astype(np.int) / np.array([2**mip_diff, 2**mip_diff, 1])
     mip_chunk_size = mip_chunk_size.astype(np.int)
 
-    chunk_start = cg.get_chunk_coordinates(chunk_id) * mip_chunk_size
+    chunk_start = cg.cv.mip_voxel_offset(mip) + cg.get_chunk_coordinates(chunk_id) * mip_chunk_size
     chunk_end = chunk_start + mip_chunk_size + overlap_vx
     chunk_end = Vec.clamp(chunk_end, cg.cv.mip_voxel_offset(mip), cg.cv.mip_voxel_offset(mip) + cg.cv.mip_volume_size(mip))
 
@@ -265,6 +265,9 @@ def get_remapped_segmentation(cg, chunk_id, mip=2, overlap_vx=1,
 
     _remap_vec = np.vectorize(_remap)
     seg = _remap_vec(ws_seg)
+
+    import ipdb
+    ipdb.set_trace()
 
     for unsafe_root_id in unsafe_dict.keys():
         bin_seg = seg == unsafe_root_id
@@ -308,6 +311,7 @@ def get_remapped_segmentation(cg, chunk_id, mip=2, overlap_vx=1,
                 cc_ids = np.sort(list(cc))
                 seg[np.in1d(seg, cc_ids[1:]).reshape(seg.shape)] = cc_ids[0]
 
+    ipdb.set_trace()
     return seg
 
 
@@ -910,6 +914,8 @@ def chunk_mesh_task_new_remapping(cg_info, chunk_id, cv_path, cv_mesh_dir=None, 
         draco_encoding_settings = get_draco_encoding_settings_for_chunk(cg, chunk_id, mip, high_padding)
         before_time = time.time()
         seg = get_remapped_segmentation(cg, chunk_id, mip, overlap_vx=high_padding, time_stamp=time_stamp)
+        import ipdb
+        ipdb.set_trace()
         print('get_remapped_seg time: ', time.time() - before_time)
         if dust_threshold:
             # before_time = time.time()
