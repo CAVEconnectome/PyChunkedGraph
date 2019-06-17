@@ -38,11 +38,13 @@ def handlerino_print(*args, **kwargs):
 
 
 @ingest_cli.command('mesh_chunks')
-@click.argument('n', type=int)
 @click.argument('layer', type=int)
 @click.argument('x_start', type=int)
 @click.argument('y_start', type=int)
 @click.argument('z_start', type=int)
+@click.argument('x_end', type=int)
+@click.argument('y_end', type=int)
+@click.argument('z_end', type=int)
 def mesh_chunks(n, layer, x_start, y_start, z_start):
     print(f'Queueing...')
     chunk_pubsub = current_app.redis.pubsub()
@@ -50,9 +52,9 @@ def mesh_chunks(n, layer, x_start, y_start, z_start):
     thread = chunk_pubsub.run_in_thread(sleep_time=0.1)
 
     cg = ChunkedGraph('fly_v31')
-    for x in range(x_start,x_start+n):
-        for y in range(y_start, y_start+n):
-            for z in range(z_start, z_start+n):
+    for x in range(x_start,x_end):
+        for y in range(y_start, y_end):
+            for z in range(z_start, z_end):
                 chunk_id = cg.get_chunk_id(None, layer, x, y, z)
                 current_app.chunk_q.enqueue(
                     meshgen.chunk_mesh_task_new_remapping,
