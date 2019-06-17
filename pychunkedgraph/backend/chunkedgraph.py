@@ -2148,6 +2148,42 @@ class ChunkedGraph(object):
 
         return atomic_cross_edges
 
+    def get_parents(self, node_ids: Sequence[np.uint64],
+                    get_only_relevant_parents: bool = True,
+                    time_stamp: Optional[datetime.datetime] = None):
+        """ Acquires parents of a node at a specific time stamp
+
+        :param node_ids: list of uint64
+        :param get_only_relevant_parents: bool
+            True: return single parent according to time_stamp
+            False: return n x 2 list of all parents
+                   ((parent_id, time_stamp), ...)
+        :param time_stamp: datetime or None
+        :return: uint64 or None
+        """
+        if time_stamp is None:
+            time_stamp = datetime.datetime.utcnow()
+
+        if time_stamp.tzinfo is None:
+            time_stamp = UTC.localize(time_stamp)
+
+        parent_rows = self.read_node_id_rows(node_ids=node_ids,
+                                            columns=column_keys.Hierarchy.Parent,
+                                            end_time=time_stamp,
+                                            end_time_inclusive=True)
+
+        if not parent_rows:
+            return None
+
+        if get_only_relevant_parents:
+            return np.array([row[0].value for row in parent_rows.values()])
+
+        parents = []
+        for row in parent_rows.values():
+            parents.append([(p.value, p.timestamp) for p in row])
+
+        return parents
+
     def get_parent(self, node_id: np.uint64,
                    get_only_relevant_parent: bool = True,
                    time_stamp: Optional[datetime.datetime] = None) -> Union[
