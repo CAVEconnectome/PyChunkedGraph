@@ -73,12 +73,13 @@ def get_root_l2_remapping(cg, chunk_id, stop_layer, time_stamp, n_threads=4):
     def _get_root_ids(args):
         start_id, end_id = args
 
-        for i_id in range(start_id, end_id):
-            l2_id = l2_ids[i_id]
+        # for i_id in range(start_id, end_id):
+        #     l2_id = l2_ids[i_id]
 
-            root_id = cg.get_root(l2_id, stop_layer=stop_layer,
-                                  time_stamp=time_stamp)
-            root_ids[i_id] = root_id
+        #     root_id = cg.get_root(l2_id, stop_layer=stop_layer,
+        #                           time_stamp=time_stamp)
+        #     root_ids[i_id] = root_id
+        root_ids[start_id:end_id] = cg.get_roots(l2_ids[start_id: end_id])
 
     l2_id_remap = get_l2_remapping(cg, chunk_id, time_stamp=time_stamp)
 
@@ -94,7 +95,8 @@ def get_root_l2_remapping(cg, chunk_id, stop_layer, time_stamp, n_threads=4):
     if n_jobs > 0:
         mu.multithread_func(_get_root_ids, multi_args, n_threads=n_threads)
 
-    return l2_ids, np.array(root_ids), l2_id_remap
+    # return l2_ids, np.array(root_ids), l2_id_remap
+    return l2_ids, root_ids, l2_id_remap
 
 
 # @lru_cache(maxsize=None)
@@ -156,10 +158,12 @@ def get_l2_overlapping_remappings(cg, chunk_id, time_stamp=None, n_threads=1):
     # This loop is the main bottleneck
     for neigh_chunk_id in neigh_chunk_ids:
         print(neigh_chunk_id, "--------------")
+        before_time = time.time()
 
         l2_ids, root_ids, l2_id_remap = \
             get_root_l2_remapping(cg, neigh_chunk_id, stop_layer,
                                   time_stamp=time_stamp, n_threads=n_threads)
+        print('get_root_l2_remapping time', time.time() - before_time)
         neigh_l2_ids.extend(l2_ids)
         neigh_l2_id_remap.update(l2_id_remap)
         neigh_root_ids.extend(root_ids)
@@ -378,12 +382,13 @@ def get_root_lx_remapping(cg, chunk_id, stop_layer, time_stamp, n_threads=1):
     def _get_root_ids(args):
         start_id, end_id = args
 
-        for i_id in range(start_id, end_id):
-            lx_id = lx_ids[i_id]
+        # for i_id in range(start_id, end_id):
+        #     lx_id = lx_ids[i_id]
 
-            root_id = cg.get_root(lx_id, stop_layer=stop_layer,
-                                  time_stamp=time_stamp)
-            root_ids[i_id] = root_id
+        #     root_id = cg.get_root(lx_id, stop_layer=stop_layer,
+        #                           time_stamp=time_stamp)
+        #     root_ids[i_id] = root_id
+        root_ids[start_id:end_id] = cg.get_roots(lx_ids[start_id: end_id])
 
     lx_id_remap = get_higher_to_lower_remapping(cg, chunk_id, time_stamp=time_stamp)
 
