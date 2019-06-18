@@ -10,7 +10,7 @@ from pychunkedgraph.backend import chunkedgraph
 
 # os.environ['TRAVIS_BRANCH'] = "IDONTKNOWWHYINEEDTHIS"
 
-__version__ = 'fafb.1.1'
+__version__ = 'fafb.1.2'
 bp = Blueprint('pychunkedgraph_meshing', __name__, url_prefix="/meshing")
 
 # -------------------------------
@@ -122,6 +122,6 @@ def handle_get_manifest(table_id, node_id):
         cg, np.uint64(node_id), stop_layer=2, start_layer=start_layer,
         bounding_box=bounding_box, verify_existence=verify)
 
-    filenames = [meshgen_utils.get_mesh_name(cg, s, mesh_mip) for s in seg_ids]
+    filenames = [meshgen_utils.get_mesh_name(cg, s) for s in seg_ids]
 
     return jsonify(fragments=filenames)
