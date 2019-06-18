@@ -962,7 +962,7 @@ def chunk_mesh_task_new_remapping(cg_info, chunk_id, cv_path, cv_mesh_dir=None, 
                     compress = True
                 before_time = time.time()
                 storage.put_file(
-                    file_path=f'{mesh_dir}/{meshgen_utils.get_mesh_name(cg, obj_id, mip)}',
+                    file_path=f'{mesh_dir}/{meshgen_utils.get_mesh_name(cg, obj_id, 0)}',
                     content=file_contents,
                     compress=compress,
                     cache_control='no-cache'
@@ -990,8 +990,8 @@ def chunk_mesh_task_new_remapping(cg_info, chunk_id, cv_path, cv_mesh_dir=None, 
                     meshgen_utils.get_downstream_multi_child_node(cg, child, 2) for child in children
                 ]
 
-                multi_child_nodes[f'{node_id}:0:{meshgen_utils.get_chunk_bbox_str(cg, node_id, mip)}'] = [
-                    f'{c}:0:{meshgen_utils.get_chunk_bbox_str(cg, c, mip)}' for c in multi_child_descendant
+                multi_child_nodes[f'{node_id}:0:{meshgen_utils.get_chunk_bbox_str(cg, node_id, 0)}'] = [
+                    f'{c}:0:{meshgen_utils.get_chunk_bbox_str(cg, c, 0)}' for c in multi_child_descendant
                 ]
         print("%d out of %d" % (len(multi_child_nodes), len(node_ids)))
         if not multi_child_nodes:
