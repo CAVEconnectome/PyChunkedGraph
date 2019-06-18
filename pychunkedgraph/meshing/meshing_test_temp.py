@@ -67,8 +67,8 @@ def mesh_chunks(layer, x_start, y_start, z_start, x_end, y_end, z_end):
                     kwargs={
                         # 'cv_mesh_dir': 'mesh_testing/initial_testrun_meshes',
                         'mip': 1,
-                        'max_err': 320,
-                        'dust_threshold': 100
+                        'max_err': 320
+                        # 'dust_threshold': 100
                     })
                 
     return 'Queued'
