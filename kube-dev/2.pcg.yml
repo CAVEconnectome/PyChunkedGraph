@@ -38,6 +38,9 @@ spec:
     - name: pcg
       image: gcr.io/neuromancer-seung-import/pychunkedgraph:akhilesh-fafb-mesh
       imagePullPolicy: Always
+      resources:
+        requests:
+          memory: 4Gi
       env:
         - name: APP_SETTINGS
           value: pychunkedgraph.app.config.DeploymentWithRedisConfig
@@ -60,15 +63,3 @@ spec:
           mountPath: /root/.cloudvolume/secrets/seunglab2-google-secret.json
           subPath: seunglab2-google-secret.json
           readOnly: true
-    - name: rq-dashboard
-      image: python:3.6.8-alpine
-      imagePullPolicy: Always
-      env:
-        - name: REDIS_PASSWORD
-          value: dev # for development    
-      command: ["/bin/sh", "-c"]
-      args:
-        - pip install rq-dashboard;
-          rq-dashboard --redis-url redis://:$REDIS_PASSWORD@$REDIS_SERVICE_HOST:$REDIS_SERVICE_PORT/0;
-      ports:
-        - containerPort: 9181

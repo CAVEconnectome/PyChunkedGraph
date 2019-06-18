@@ -34,7 +34,7 @@ def handlerino_write_to_cloud(*args, **kwargs):
 
 def handlerino_print(*args, **kwargs):
     with open('output.txt', 'a') as f:
-        f.write(str(args[0]['data']))
+        f.write(str(args[0]['data']) + '\n')
 
 
 @ingest_cli.command('mesh_chunks')
