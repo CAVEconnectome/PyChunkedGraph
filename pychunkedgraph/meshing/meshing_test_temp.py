@@ -150,7 +150,7 @@ def mesh_chunks_from_file(filename):
         line = f.readline()
         while line:
             chunk_ids.append(np.uint64(line))
-            line = fp.readline()
+            line = f.readline()
     for chunk_id in chunks_ids:
         current_app.test_q.enqueue(
             meshgen.chunk_mesh_task_new_remapping,
