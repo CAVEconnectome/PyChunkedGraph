@@ -1015,6 +1015,7 @@ def chunk_mesh_task_new_remapping(cg_info, chunk_id, cv_path, cv_mesh_dir=None, 
                     f'{c}:0:{meshgen_utils.get_chunk_bbox_str(cg, c, 0)}' for c in multi_child_descendant
                 ]
         print("%d out of %d" % (len(multi_child_nodes), len(node_ids)))
+        result.append(chunk_id, len(multi_child_nodes), len(node_ids))
         if not multi_child_nodes:
             print("Nothing to do", cx, cy, cz)
             return
