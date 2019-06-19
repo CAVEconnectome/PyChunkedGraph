@@ -26,9 +26,9 @@ spec:
       imagePullPolicy: Always
       resources:
         requests:
-          memory: 15Gi      
+          memory: 10Gi      
       command: ["redis-server"]
-      args: ["--requirepass", "dev"]
+      args: ["--requirepass", "dev", "--save", "", "--appendonly", "no"]
       ports:
         - containerPort: 6379
   nodeSelector:
