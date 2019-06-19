@@ -1022,7 +1022,7 @@ def chunk_mesh_task_new_remapping(cg_info, chunk_id, cv_path, cv_mesh_dir=None, 
         result.append((chunk_id, len(multi_child_nodes), len(node_ids)))
         if not multi_child_nodes:
             print("Nothing to do", cx, cy, cz)
-            return result
+            return ', '.join(str(x) for x in result)
 
         retrieving_time = 0
         decoding_time = 0
