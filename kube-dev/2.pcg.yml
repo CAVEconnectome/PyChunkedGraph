@@ -3,7 +3,7 @@ kind: Service
 metadata:
   name: pcg-svc
   labels:
-    app: pcg-test
+    app: pcg-master
 spec:
   type: LoadBalancer
   ports:
@@ -14,14 +14,14 @@ spec:
     targetPort: 9181
     name: rq-dashboard
   selector:
-    app: pcg-test
+    app: pcg-master
 ---
 apiVersion: v1
 kind: Pod
 metadata:
   name: pcg-master
   labels:
-    app: pcg-test
+    app: pcg-master
 spec:
   restartPolicy: Never # for development
   volumes:
@@ -36,7 +36,7 @@ spec:
         secretName: seunglab2-google-secret
   containers:
     - name: pcg
-      image: gcr.io/neuromancer-seung-import/pychunkedgraph:akhilesh-fafb-mesh
+      image: gcr.io/neuromancer-seung-import/pychunkedgraph:akhilesh-fafb-mesh-master
       imagePullPolicy: Always
       resources:
         requests:
@@ -63,3 +63,5 @@ spec:
           mountPath: /root/.cloudvolume/secrets/seunglab2-google-secret.json
           subPath: seunglab2-google-secret.json
           readOnly: true
+  nodeSelector:
+    nodetype: pcg-master

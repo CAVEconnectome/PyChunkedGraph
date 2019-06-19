@@ -4,12 +4,12 @@ metadata:
   name: pcg-hpa
   namespace: default
   labels:
-    app: pcg-test  
+    app: pcg-worker
 spec:
   scaleTargetRef:
     apiVersion: apps/v1
     kind: Deployment
     name: pcg-worker
   minReplicas: 1
-  maxReplicas: 250
+  maxReplicas: 200
   targetCPUUtilizationPercentage: 80
