@@ -46,7 +46,7 @@ def handlerino_periodically_write_to_cloud(*args, **kwargs):
     messages.append(args[0]['data'])
     with open('output.txt', 'a') as f:
         f.write(str(args[0]['data']) + '\n')
-    if num_messages % 1000:
+    if num_messages % 1000 == 0:
         print('Writing result data to cloud')
         cv_path = 'gs://seunglab2/drosophila_v0/ws_190410_FAFB_v02_ws_size_threshold_200'
         filename = f'{datetime.now()}_meshes_{num_messages}'
