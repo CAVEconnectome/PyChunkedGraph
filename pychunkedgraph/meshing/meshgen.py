@@ -12,7 +12,7 @@ from scipy import ndimage, sparse
 import networkx as nx
 
 from multiwrapper import multiprocessing_utils as mu
-from cloudvolume import Storage, GreenStorage, EmptyVolumeException
+from cloudvolume import Storage, EmptyVolumeException
 from cloudvolume.lib import Vec
 from cloudvolume.meshservice import decode_mesh_buffer
 from igneous.tasks import MeshTask
@@ -1022,7 +1022,7 @@ def chunk_mesh_task_new_remapping(cg_info, chunk_id, cv_path, cv_mesh_dir=None, 
         result.append((chunk_id, len(multi_child_nodes), len(node_ids)))
         if not multi_child_nodes:
             print("Nothing to do", cx, cy, cz)
-            return
+            return result
 
         retrieving_time = 0
         decoding_time = 0
@@ -1036,8 +1036,8 @@ def chunk_mesh_task_new_remapping(cg_info, chunk_id, cv_path, cv_mesh_dir=None, 
             fragment_to_fetch = [fragment for child_fragments in vals for fragment in child_fragments]
             files_contents = storage.get_files(fragment_to_fetch)
             fragment_map = {}
-            for file in files_contents:
-                fragment_map[file['filename']] = file
+            for f in files_contents:
+                fragment_map[f['filename']] = f
             print('getting frags time', time.time() - before_time)
             i = 0
             # how_long = 0
