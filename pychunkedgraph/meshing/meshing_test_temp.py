@@ -118,7 +118,7 @@ def mesh_chunks_shuffled(layer, x_start, y_start, z_start, x_end, y_end, z_end):
 @ingest_cli.command('mesh_chunk_ids_shuffled')
 @click.argument('chunk_ids_string', type=string)
 # chunk_ids_string = comma separated string list of chunk ids, e.g. "376263874141234936,513410357520258150"
-def mesh_chunks_shuffled(chunk_ids_string):
+def mesh_chunk_ids_shuffled(chunk_ids_string):
     print(f'Queueing...')
     chunk_pubsub = current_app.redis.pubsub()
     chunk_pubsub.subscribe(**{'mesh_frag_test_channel': handlerino_print})
