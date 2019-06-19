@@ -9,6 +9,7 @@ from pychunkedgraph.backend.chunkedgraph import ChunkedGraph
 from pychunkedgraph.meshing import meshgen
 import cloudvolume
 import numpy as np
+from datetime import datetime
 
 ingest_cli = AppGroup('mesh')
 
@@ -32,9 +33,30 @@ def handlerino_write_to_cloud(*args, **kwargs):
                     cache_control='no-cache'
                 )
 
+
 def handlerino_print(*args, **kwargs):
     with open('output.txt', 'a') as f:
         f.write(str(args[0]['data']) + '\n')
+
+
+def handlerino_periodically_write_to_cloud(*args, **kwargs):
+    global num_messages
+    num_messages = num_messages + 1
+    print(num_messages, args[0]['data'])
+    messages.append(args[0]['data'])
+    with open('output.txt', 'a') as f:
+        f.write(str(args[0]['data']) + '\n')
+    if num_messages % 1000:
+        print('Writing result data to cloud')
+        cv_path = 'gs://seunglab2/drosophila_v0/ws_190410_FAFB_v02_ws_size_threshold_200'
+        filename = f'{datetime.now()}_meshes_{num_messages}'
+        with cloudvolume.Storage(cv_path) as storage:
+            storage.put_file(
+                    file_path=f'meshing_run_data/{filename}',
+                    content=','.join(map(str, messages)),
+                    compress=False,
+                    cache_control='no-cache'
+                )
 
 
 @ingest_cli.command('mesh_chunks')
@@ -84,7 +106,7 @@ def mesh_chunks(layer, x_start, y_start, z_start, x_end, y_end, z_end):
 def mesh_chunks_shuffled(layer, x_start, y_start, z_start, x_end, y_end, z_end):
     print(f'Queueing...')
     chunk_pubsub = current_app.redis.pubsub()
-    chunk_pubsub.subscribe(**{'mesh_frag_test_channel': handlerino_print})
+    chunk_pubsub.subscribe(**{'mesh_frag_test_channel': handlerino_periodically_write_to_cloud})
     thread = chunk_pubsub.run_in_thread(sleep_time=0.1)
 
     cg = ChunkedGraph('fly_v31')
@@ -121,7 +143,7 @@ def mesh_chunks_shuffled(layer, x_start, y_start, z_start, x_end, y_end, z_end):
 def mesh_chunk_ids_shuffled(chunk_ids_string):
     print(f'Queueing...')
     chunk_pubsub = current_app.redis.pubsub()
-    chunk_pubsub.subscribe(**{'mesh_frag_test_channel': handlerino_print})
+    chunk_pubsub.subscribe(**{'mesh_frag_test_channel': handlerino_periodically_write_to_cloud})
     thread = chunk_pubsub.run_in_thread(sleep_time=0.1)
 
     cg = ChunkedGraph('fly_v31')
