@@ -12,7 +12,7 @@ from scipy import ndimage, sparse
 import networkx as nx
 
 from multiwrapper import multiprocessing_utils as mu
-from cloudvolume import Storage, EmptyVolumeException
+from cloudvolume import Storage, GreenStorage, EmptyVolumeException
 from cloudvolume.lib import Vec
 from cloudvolume.meshservice import decode_mesh_buffer
 from igneous.tasks import MeshTask
@@ -997,12 +997,15 @@ def chunk_mesh_task_new_remapping(cg_info, chunk_id, cv_path, cv_mesh_dir=None, 
         # For each node with more than one child, create a new fragment by
         # merging the mesh fragments of the children.
         
+        before_time = time.time()
         print("Retrieving children for chunk %s -- (%s, %s, %s, %s)" % (chunk_id, layer, cx, cy, cz))
         node_ids = cg.range_read_chunk(layer, cx, cy, cz, columns=column_keys.Hierarchy.Child)
+        print('range read chunk time', time.time() - before_time)
 
         print("Collecting only nodes with more than one child: ", end="")
         # Only keep nodes with more than one child
         multi_child_nodes = {}
+        before_time = time.time()
         for node_id, data in node_ids.items():
             children = data[0].value
 
@@ -1014,24 +1017,45 @@ def chunk_mesh_task_new_remapping(cg_info, chunk_id, cv_path, cv_mesh_dir=None, 
                 multi_child_nodes[f'{node_id}:0:{meshgen_utils.get_chunk_bbox_str(cg, node_id, 0)}'] = [
                     f'{c}:0:{meshgen_utils.get_chunk_bbox_str(cg, c, 0)}' for c in multi_child_descendant
                 ]
+        print("get children time", time.time() - before_time)
         print("%d out of %d" % (len(multi_child_nodes), len(node_ids)))
-        result.append(chunk_id, len(multi_child_nodes), len(node_ids))
+        result.append((chunk_id, len(multi_child_nodes), len(node_ids)))
         if not multi_child_nodes:
             print("Nothing to do", cx, cy, cz)
             return
 
+        retrieving_time = 0
+        decoding_time = 0
+        transforming_time = 0
+        merging_time = 0
+        encoding_time = 0
+        writing_time = 0
         with Storage(os.path.join(cv_path, mesh_dir)) as storage:
+            before_time = time.time()
+            vals = multi_child_nodes.values()
+            fragment_to_fetch = [fragment for child_fragments in vals for fragment in child_fragments]
+            files_contents = storage.get_files(fragment_to_fetch)
+            fragment_map = {}
+            for file in files_contents:
+                fragment_map[file['filename']] = file
+            print('getting frags time', time.time() - before_time)
             i = 0
             # how_long = 0
             for new_fragment_id, fragment_ids_to_fetch in multi_child_nodes.items():
                 i += 1
                 if i % max(1, len(multi_child_nodes) // 10) == 0:
                     print(f"{i}/{len(multi_child_nodes)}")
-
-                fragment_contents = storage.get_files(fragment_ids_to_fetch)
+                    print('retrieving_time', retrieving_time)
+                    print('decoding_time', decoding_time)
+                    print('transforming_time', transforming_time)
+                    print('merging_time', merging_time)
+                    print('encoding_time', encoding_time)
+                    print('writing_time', writing_time)
 
                 old_fragments = []
-                for fragment in fragment_contents:
+                before_time = time.time()
+                for fragment_id in fragment_ids_to_fetch:
+                    fragment = fragment_map[fragment_id]
                     if fragment['content'] is not None and fragment['error'] is None:
                         filename = fragment['filename']
                         end_of_node_id_index = filename.find(':')
@@ -1043,10 +1067,12 @@ def chunk_mesh_task_new_remapping(cg_info, chunk_id, cv_path, cv_mesh_dir=None, 
                                 'mesh': decode_draco_mesh_buffer(fragment['content']),
                                 'node_id': np.uint64(node_id_str)
                             })
+                decoding_time = decoding_time + time.time() - before_time
 
                 if len(old_fragments) == 0:
                     continue
 
+                before_time = time.time()
                 draco_encoding_options = None
                 for old_fragment in old_fragments:
                     if draco_encoding_options is None:
@@ -1056,18 +1082,29 @@ def chunk_mesh_task_new_remapping(cg_info, chunk_id, cv_path, cv_mesh_dir=None, 
                         np.testing.assert_equal(draco_encoding_options['quantization_bits'], encoding_options_for_fragment['quantization_bits'])
                         np.testing.assert_equal(draco_encoding_options['quantization_range'], encoding_options_for_fragment['quantization_range'])
                         np.testing.assert_array_equal(draco_encoding_options['quantization_origin'], encoding_options_for_fragment['quantization_origin'])
+                transforming_time = transforming_time + time.time() - before_time
 
-                # start_time = time.time()
+                before_time = time.time()
                 new_fragment = merge_draco_meshes(cg, old_fragments)
-                # how_long = how_long + time.time() - start_time
+                merging_time = merging_time + time.time() - before_time
 
+                before_time = time.time()
                 new_fragment_b = DracoPy.encode_mesh_to_buffer(new_fragment['vertices'], new_fragment['faces'], **draco_encoding_options)
+                encoding_time = encoding_time + time.time() - before_time
+                before_time = time.time()                
                 storage.put_file(new_fragment_id,
                                  new_fragment_b,
                                  content_type='application/octet-stream',
                                  compress=False,
                                  cache_control='no-cache')
-            # print('how_long merge', how_long)
+                writing_time = writing_time + time.time() - before_time
+
+    print('retrieving_time', retrieving_time)
+    print('decoding_time', decoding_time)
+    print('transforming_time', transforming_time)
+    print('merging_time', merging_time)
+    print('encoding_time', encoding_time)
+    print('writing_time', writing_time)
     return ', '.join(str(x) for x in result)
 
 
