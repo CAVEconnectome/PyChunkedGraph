@@ -1008,6 +1008,7 @@ def chunk_mesh_task_new_remapping(cg_info, chunk_id, cv_path, cv_mesh_dir=None, 
         node_ids = np.array(list(range_read.keys()))
         node_rows = np.array(list(range_read.values()))
         child_fragments = np.array([fragment.value for child_fragments_for_node in node_rows for fragment in child_fragments_for_node])
+        # Only keep nodes with more than one child        
         multi_child_mask = [len(fragments) > 1 for fragments in child_fragments]
         multi_child_node_ids = node_ids[multi_child_mask]
         multi_child_children_ids = child_fragments[multi_child_mask]
@@ -1025,21 +1026,6 @@ def chunk_mesh_task_new_remapping(cg_info, chunk_id, cv_path, cv_mesh_dir=None, 
             ]
             start_index = end_index
         print('new get children time', time.time() - before_time)
-        # Only keep nodes with more than one child
-        # multi_child_nodes = {}
-        # before_time = time.time()
-        # for node_id, data in range_read.items():
-        #     children = data[0].value
-
-        #     if len(children) > 1:
-        #         # multi_child_descendant = [
-        #         #     meshgen_utils.get_downstream_multi_child_node(cg, child, 2) for child in children
-        #         # ]
-        #         mcd = meshgen_utils.get_downstream_multi_child_nodes(cg, children)
-
-        #         multi_child_nodes[f'{node_id}:0:{meshgen_utils.get_chunk_bbox_str(cg, node_id, 0)}'] = [
-        #             f'{c}:0:{meshgen_utils.get_chunk_bbox_str(cg, c, 0)}' for c in multi_child_descendant
-        #         ]
         print("get children time", time.time() - before_time)
         print("%d out of %d" % (len(multi_child_nodes), len(node_ids)))
         result.append((chunk_id, len(multi_child_nodes), len(node_ids)))
