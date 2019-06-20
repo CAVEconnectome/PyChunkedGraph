@@ -121,6 +121,8 @@ def mesh_chunks_shuffled(layer, x_start, y_start, z_start, x_end, y_end, z_end):
         for y in range(y_start, y_end):
             for z in range(z_start, z_end):
                 chunks_arr.append((x, y, z))
+
+    print(chunks_arr)
     
     np.random.shuffle(chunks_arr)
 
@@ -128,7 +130,7 @@ def mesh_chunks_shuffled(layer, x_start, y_start, z_start, x_end, y_end, z_end):
         chunk_id = cg.get_chunk_id(None, layer, chunk[0], chunk[1], chunk[2])
         current_app.test_q.enqueue(
             meshgen.chunk_mesh_task_new_remapping,
-            job_timeout='20m',
+            job_timeout='60m',
             args=(
                 cg.get_serialized_info(), 
                 chunk_id,
