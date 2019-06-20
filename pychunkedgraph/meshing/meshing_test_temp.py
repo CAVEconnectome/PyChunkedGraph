@@ -1,6 +1,5 @@
 import time
 import click
-
 import redis
 
 from flask import current_app
@@ -32,6 +31,13 @@ def handlerino_write_to_cloud(*args, **kwargs):
                     compress=False,
                     cache_control='no-cache'
                 )
+
+
+def exc_handler(job, exc_type, exc_value, tb):
+    with open('exceptions.txt', 'a') as f:
+        f.write(str(job.args)+'\n')
+        f.write(str(exc_type) + '\n')
+        f.write(str(exc_value) + '\n')
 
 
 def handlerino_print(*args, **kwargs):
@@ -139,6 +145,7 @@ def mesh_chunks_shuffled(layer, x_start, y_start, z_start, x_end, y_end, z_end):
 
 
 @ingest_cli.command('mesh_chunks_from_file')
+@click.argument('filename', type=str)
 def mesh_chunks_from_file(filename):
     print(f'Queueing...')
     chunk_pubsub = current_app.redis.pubsub()
@@ -151,7 +158,7 @@ def mesh_chunks_from_file(filename):
         while line:
             chunk_ids.append(np.uint64(line))
             line = f.readline()
-    for chunk_id in chunks_ids:
+    for chunk_id in chunk_ids:
         current_app.test_q.enqueue(
             meshgen.chunk_mesh_task_new_remapping,
             job_timeout='20m',
