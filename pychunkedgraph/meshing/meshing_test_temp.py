@@ -113,7 +113,6 @@ def mesh_chunks_shuffled(layer, x_start, y_start, z_start, x_end, y_end, z_end):
     print(f'Queueing...')
     chunk_pubsub = current_app.redis.pubsub()
     chunk_pubsub.subscribe(**{'mesh_frag_test_channel': handlerino_periodically_write_to_cloud})
-    thread = chunk_pubsub.run_in_thread(sleep_time=0.1)
 
     cg = ChunkedGraph('fly_v31')
     chunks_arr = []
@@ -122,7 +121,7 @@ def mesh_chunks_shuffled(layer, x_start, y_start, z_start, x_end, y_end, z_end):
             for z in range(z_start, z_end):
                 chunks_arr.append((x, y, z))
 
-    print(chunks_arr)
+    print(f'Total jobs: {len(chunks_arr)}')
     
     np.random.shuffle(chunks_arr)
 
@@ -142,6 +141,9 @@ def mesh_chunks_shuffled(layer, x_start, y_start, z_start, x_end, y_end, z_end):
                 'max_err': 320
                 # 'dust_threshold': 100
             })
+    
+    print(f'Queued jobs: {len(current_app.test_q)}')
+    thread = chunk_pubsub.run_in_thread(sleep_time=0.1)
                 
     return 'Queued'
 
@@ -178,6 +180,7 @@ def mesh_chunks_from_file(filename):
                 
     return 'Queued'
 
+
 @ingest_cli.command('mesh_chunks_exclude_file')
 @click.argument('layer', type=int)
 @click.argument('x_start', type=int)
@@ -191,7 +194,6 @@ def mesh_chunks_exclude_file(filename):
     print(f'Queueing...')
     chunk_pubsub = current_app.redis.pubsub()
     chunk_pubsub.subscribe(**{'mesh_frag_test_channel': handlerino_periodically_write_to_cloud})
-    thread = chunk_pubsub.run_in_thread(sleep_time=0.1)
     cg = ChunkedGraph('fly_v31')
     chunk_ids = []
     with open(filename, 'r') as f:
@@ -208,6 +210,7 @@ def mesh_chunks_exclude_file(filename):
                 if not chunk_id in chunk_ids:
                     chunk_arr.push(chunk_id)
     
+    print(f'Total jobs: {len(chunks_arr)}')
     np.random.shuffle(chunks_arr)
 
     for chunk_id in chunks_arr:
@@ -225,23 +228,12 @@ def mesh_chunks_exclude_file(filename):
                 'max_err': 320
                 # 'dust_threshold': 100
             })
-    for chunk_id in chunk_ids:
-        current_app.test_q.enqueue(
-            meshgen.chunk_mesh_task_new_remapping,
-            job_timeout='20m',
-            args=(
-                cg.get_serialized_info(), 
-                chunk_id,
-                'gs://seunglab2/drosophila_v0/ws_190410_FAFB_v02_ws_size_threshold_200'
-            ),
-            kwargs={
-                # 'cv_mesh_dir': 'mesh_testing/initial_testrun_meshes',
-                'mip': 1,
-                'max_err': 320
-                # 'dust_threshold': 100
-            })
+
+    print(f'Queued jobs: {len(current_app.test_q)}')
+    thread = chunk_pubsub.run_in_thread(sleep_time=0.1)
                 
     return 'Queued' 
+
 
 # @ingest_cli.command('mesh_chunk_ids_shuffled')
 # @click.argument('chunk_ids_string', type=string)
