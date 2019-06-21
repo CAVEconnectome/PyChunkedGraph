@@ -1,1 +1,1 @@
-__version__ = 'fafb.1.2'
+__version__ = 'fafb.1.3'
