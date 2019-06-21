@@ -1,5 +1,5 @@
 from flask import Blueprint, request, make_response, jsonify, current_app,\
-    redirect, url_for, after_this_request, Response
+    redirect, url_for, after_this_request, Response, g
 
 import json
 import numpy as np
