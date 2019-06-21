@@ -234,7 +234,7 @@ def add_edges(cg,
     # Propagate changes up the tree
     if cg.n_layers > 2:
         new_root_ids, new_rows = propagate_edits_to_root(
-            cg, lvl2_dict, lvl2_cross_chunk_edge_dict,
+            cg, lvl2_dict.copy(), lvl2_cross_chunk_edge_dict,
             operation_id=operation_id, time_stamp=time_stamp)
         rows.extend(new_rows)
     else:
@@ -366,7 +366,7 @@ def remove_edges(cg, operation_id: np.uint64,
     # Propagate changes up the tree
     if cg.n_layers > 2:
         new_root_ids, new_rows = propagate_edits_to_root(
-            cg, lvl2_dict, lvl2_cross_chunk_edge_dict,
+            cg, lvl2_dict.copy(), lvl2_cross_chunk_edge_dict,
             operation_id=operation_id, time_stamp=time_stamp)
         rows.extend(new_rows)
     else:

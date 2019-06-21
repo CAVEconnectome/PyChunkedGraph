@@ -1135,7 +1135,13 @@ class TestGraphMerge:
         cgraph.add_layer(9, np.array([[0x00, 0x00, 0x00], [0x01, 0x01, 0x01]]), time_stamp=fake_timestamp, n_threads=1)
 
         # Merge
-        new_root_ids = cgraph.add_edges("Jane Doe", [to_label(cgraph, 1, 127, 127, 127, 0), to_label(cgraph, 1, 0, 0, 0, 0)], affinities=0.3)
+        new_root_ids, lvl2_node_ids = cgraph.add_edges("Jane Doe", [to_label(cgraph, 1, 127, 127, 127, 0), to_label(cgraph, 1, 0, 0, 0, 0)], affinities=0.3, return_new_lvl2_nodes=True)
+
+        print(f"lvl2_node_ids: {lvl2_node_ids}")
+
+        u_layers = np.unique(cgraph.get_chunk_layers(lvl2_node_ids))
+        assert len(u_layers) == 1
+        assert u_layers[0] == 2
 
         assert len(new_root_ids) == 1
         new_root_id = new_root_ids[0]

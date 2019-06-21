@@ -16,7 +16,7 @@ from pychunkedgraph.backend import chunkedgraph_exceptions as cg_exceptions, \
     chunkedgraph_comp as cg_comp
 from middle_auth_client import auth_required, auth_requires_roles
 
-__version__ = 'fafb.1.3'
+__version__ = 'fafb.1.4'
 bp = Blueprint('pychunkedgraph', __name__, url_prefix="/segmentation")
 
 # -------------------------------
@@ -271,6 +271,8 @@ def handle_merge(table_id):
         raise cg_exceptions.InternalServerError(
             "Could not merge selected supervoxel.")
 
+    current_app.logger.debug(("lvl2_nodes:", lvl2_nodes))
+
     if len(lvl2_nodes) > 0:
         t = threading.Thread(target=meshing_app_blueprint._mesh_lvl2_nodes,
                              args=(cg.get_serialized_info(), lvl2_nodes))
@@ -358,6 +360,7 @@ def handle_split(table_id):
         )
 
     current_app.logger.debug(("after split:", new_roots))
+    current_app.logger.debug(("lvl2_nodes:", lvl2_nodes))
 
     if len(lvl2_nodes) > 0:
         t = threading.Thread(target=meshing_app_blueprint._mesh_lvl2_nodes,
