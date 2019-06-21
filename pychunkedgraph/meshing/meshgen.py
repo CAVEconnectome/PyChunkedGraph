@@ -1087,6 +1087,9 @@ def chunk_mesh_task_new_remapping(cg_info, chunk_id, cv_path, cv_mesh_dir=None, 
                             break
                 decoding_time = decoding_time + time.time() - before_time
 
+                if len(old_fragments) == 0 or missing_fragments:
+                    continue
+
                 before_time = time.time()
                 draco_encoding_options = None
                 for old_fragment in old_fragments:
