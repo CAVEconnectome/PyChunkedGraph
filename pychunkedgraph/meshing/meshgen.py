@@ -982,12 +982,12 @@ def chunk_mesh_task_new_remapping(cg_info, chunk_id, cv_path, cv_mesh_dir=None, 
                     file_contents = mesh.to_precomputed()
                     compress = True
                 before_time = time.time()
-                # storage.put_file(
-                #     file_path=f'{mesh_dir}/{meshgen_utils.get_mesh_name(cg, obj_id, 0)}',
-                #     content=file_contents,
-                #     compress=compress,
-                #     cache_control='no-cache'
-                # )
+                storage.put_file(
+                    file_path=f'{mesh_dir}/{meshgen_utils.get_mesh_name(cg, obj_id, 0)}',
+                    content=file_contents,
+                    compress=compress,
+                    cache_control='no-cache'
+                )
                 write_to_cloud_time = write_to_cloud_time + time.time() - before_time
         print('simplification time: ', simplification_time)
         print('draco encoding time: ', draco_encoding_time)
@@ -1087,11 +1087,6 @@ def chunk_mesh_task_new_remapping(cg_info, chunk_id, cv_path, cv_mesh_dir=None, 
                             break
                 decoding_time = decoding_time + time.time() - before_time
 
-                if len(old_fragments) == 0 or missing_fragments:
-                    import ipdb
-                    ipdb.set_trace()
-                    continue
-
                 before_time = time.time()
                 draco_encoding_options = None
                 for old_fragment in old_fragments:
@@ -1111,19 +1106,17 @@ def chunk_mesh_task_new_remapping(cg_info, chunk_id, cv_path, cv_mesh_dir=None, 
                 else:
                     new_fragment = old_fragments[0]['mesh']
                     new_fragment['vertices'] = np.reshape(new_fragment['vertices'], (len(new_fragment['vertices']) * 3))
-                    import ipdb
-                    ipdb.set_trace()
 
                 before_time = time.time()
                 new_fragment_b = DracoPy.encode_mesh_to_buffer(new_fragment['vertices'], new_fragment['faces'], **draco_encoding_options)
                 encoding_time = encoding_time + time.time() - before_time
                 before_time = time.time()
 
-                # storage.put_file(new_fragment_id,
-                #                  new_fragment_b,
-                #                  content_type='application/octet-stream',
-                #                  compress=False,
-                #                  cache_control='no-cache')
+                storage.put_file(new_fragment_id,
+                                 new_fragment_b,
+                                 content_type='application/octet-stream',
+                                 compress=False,
+                                 cache_control='no-cache')
                 writing_time = writing_time + time.time() - before_time
 
     print('retrieving_time', retrieving_time)
