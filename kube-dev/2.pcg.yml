@@ -36,7 +36,7 @@ spec:
         secretName: seunglab2-google-secret
   containers:
     - name: pcg
-      image: gcr.io/neuromancer-seung-import/pychunkedgraph:akhilesh-fafb-mesh-master
+      image: gcr.io/neuromancer-seung-import/pychunkedgraph:akhilesh-fafb-mesh-worker
       imagePullPolicy: Always
       resources:
         requests:

@@ -735,7 +735,7 @@ def get_meshing_necessities_from_graph(cg, chunk_id, mip):
     layer = cg.get_chunk_layer(chunk_id)
     cx, cy, cz = cg.get_chunk_coordinates(chunk_id)
     mesh_block_shape = meshgen_utils.get_mesh_block_shape(cg, layer, mip)
-    chunk_offset = (cx, cy, cz) * mesh_block_shape + cg.cv.mip_voxel_offset(mip)
+    chunk_offset = ((cx, cy, cz) * mesh_block_shape + cg.cv.mip_voxel_offset(mip)) * cg.cv.mip_resolution(mip)
     return layer, mesh_block_shape, chunk_offset
 
 
@@ -983,7 +983,8 @@ def chunk_mesh_task_new_remapping(cg_info, chunk_id, cv_path, cv_mesh_dir=None, 
                 )
                 simplification_time = simplification_time + time.time() - before_time
                 mesher.erase(obj_id)
-                mesh.vertices[:] += chunk_offset * cg.cv.mip_resolution(mip)
+                # mesh.vertices[:] += chunk_offset * cg.cv.mip_resolution(mip)
+                mesh.vertices[:] += chunk_offset
                 if encoding == 'draco':
                     before_time = time.time()                    
                     file_contents = DracoPy.encode_mesh_to_buffer(
@@ -1141,6 +1142,7 @@ def chunk_mesh_task_new_remapping(cg_info, chunk_id, cv_path, cv_mesh_dir=None, 
                         np.testing.assert_array_equal(draco_encoding_options['quantization_origin'], encoding_options_for_fragment['quantization_origin'])
                 transforming_time = transforming_time + time.time() - before_time
 
+                old_fragment_merged = None
                 if len(old_fragments) > 1:
                     before_time = time.time()
                     old_fragment_merged = merge_draco_meshes(old_fragments)
@@ -1175,16 +1177,16 @@ def chunk_mesh_task_new_remapping(cg_info, chunk_id, cv_path, cv_mesh_dir=None, 
                                  cache_control='no-cache')
                 writing_time = writing_time + time.time() - before_time
 
-    print('retrieving_time', retrieving_time)
-    print('decoding_time', decoding_time)
-    print('transforming_time', transforming_time)
-    print('merging_time', merging_time)
-    print('encoding_time', encoding_time)
-    print('writing_time', writing_time)
-    if fragment_batch_size is not None:
-        print('batch frags time', getting_frags_time + extra_getting_frags_time)
-        print('num fragments processed', num_fragments_processed)
-        print('batches processed', batches_processed)
+        print('retrieving_time', retrieving_time)
+        print('decoding_time', decoding_time)
+        print('transforming_time', transforming_time)
+        print('merging_time', merging_time)
+        print('encoding_time', encoding_time)
+        print('writing_time', writing_time)
+        if fragment_batch_size is not None:
+            print('batch frags time', getting_frags_time + extra_getting_frags_time)
+            print('num fragments processed', num_fragments_processed)
+            print('batches processed', batches_processed)
     return ', '.join(str(x) for x in result)
 
 
