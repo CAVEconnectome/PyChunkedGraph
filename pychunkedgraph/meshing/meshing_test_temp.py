@@ -14,6 +14,7 @@ ingest_cli = AppGroup('mesh')
 
 num_messages = 0
 messages = []
+cg = ChunkedGraph('fly_v31')
 def handlerino_write_to_cloud(*args, **kwargs):
     global num_messages
     num_messages = num_messages + 1
@@ -23,7 +24,7 @@ def handlerino_write_to_cloud(*args, **kwargs):
         f.write(str(args[0]['data']) + '\n')
     if num_messages == 1000:
         print('DONE')
-        cv_path = 'gs://seunglab2/drosophila_v0/ws_190410_FAFB_v02_ws_size_threshold_200'
+        cv_path = cg._cv_path
         with cloudvolume.Storage(cv_path) as storage:
             storage.put_file(
                     file_path='frag_test/frag_test_summary_no_dust_threshold',
@@ -54,7 +55,7 @@ def handlerino_periodically_write_to_cloud(*args, **kwargs):
         f.write(str(args[0]['data']) + '\n')
     if num_messages % 1000 == 0:
         print('Writing result data to cloud')
-        cv_path = 'gs://seunglab2/drosophila_v0/ws_190410_FAFB_v02_ws_size_threshold_200'
+        cv_path = cg._cv_path
         filename = f'{datetime.now()}_meshes_{num_messages}'
         with cloudvolume.Storage(cv_path) as storage:
             storage.put_file(
@@ -74,7 +75,8 @@ def handlerino_periodically_write_to_cloud(*args, **kwargs):
 @click.argument('y_end', type=int)
 @click.argument('z_end', type=int)
 @click.argument('fragment_batch_size', type=int)
-def mesh_chunks(layer, x_start, y_start, z_start, x_end, y_end, z_end, fragment_batch_size):
+@click.argument('mesh_dir', type=str, default=None)
+def mesh_chunks(layer, x_start, y_start, z_start, x_end, y_end, z_end, fragment_batch_size, mesh_dir):
     print(f'Queueing...')
     chunk_pubsub = current_app.redis.pubsub()
     chunk_pubsub.subscribe(**{'mesh_frag_test_channel': handlerino_print})
@@ -91,7 +93,8 @@ def mesh_chunks(layer, x_start, y_start, z_start, x_end, y_end, z_end, fragment_
                     args=(
                         cg.get_serialized_info(), 
                         chunk_id,
-                        'gs://seunglab2/drosophila_v0/ws_190410_FAFB_v02_ws_size_threshold_200'
+                        cg._cv_path,
+                        mesh_dir
                     ),
                     kwargs={
                         # 'cv_mesh_dir': 'mesh_testing/initial_testrun_meshes',
@@ -111,8 +114,9 @@ def mesh_chunks(layer, x_start, y_start, z_start, x_end, y_end, z_end, fragment_
 @click.argument('x_end', type=int)
 @click.argument('y_end', type=int)
 @click.argument('z_end', type=int)
-@click.argument('fragment_batch_size', type=int)
-def mesh_chunks_shuffled(layer, x_start, y_start, z_start, x_end, y_end, z_end, fragment_batch_size):
+@click.argument('fragment_batch_size', type=int, default=None)
+@click.argument('mesh_dir', type=str, default=None)
+def mesh_chunks_shuffled(layer, x_start, y_start, z_start, x_end, y_end, z_end, fragment_batch_size, mesh_dir):
     print(f'Queueing...')
     chunk_pubsub = current_app.redis.pubsub()
     chunk_pubsub.subscribe(**{'mesh_frag_test_channel': handlerino_periodically_write_to_cloud})
@@ -136,7 +140,8 @@ def mesh_chunks_shuffled(layer, x_start, y_start, z_start, x_end, y_end, z_end, 
             args=(
                 cg.get_serialized_info(), 
                 chunk_id,
-                'gs://seunglab2/drosophila_v0/ws_190410_FAFB_v02_ws_size_threshold_200'
+                cg._cv_path,
+                mesh_dir
             ),
             kwargs={
                 # 'cv_mesh_dir': 'mesh_testing/initial_testrun_meshes',
@@ -173,7 +178,7 @@ def mesh_chunks_from_file(filename):
             args=(
                 cg.get_serialized_info(), 
                 chunk_id,
-                'gs://seunglab2/drosophila_v0/ws_190410_FAFB_v02_ws_size_threshold_200'
+                cg._cv_path
             ),
             kwargs={
                 # 'cv_mesh_dir': 'mesh_testing/initial_testrun_meshes',
@@ -194,8 +199,9 @@ def mesh_chunks_from_file(filename):
 @click.argument('y_end', type=int)
 @click.argument('z_end', type=int)
 @click.argument('filename', type=str)
-@click.argument('fragment_batch_size', type=int)
-def mesh_chunks_exclude_file(layer, x_start, y_start, z_start, x_end, y_end, z_end, filename, fragment_batch_size):
+@click.argument('fragment_batch_size', type=int, default=None)
+@click.argument('mesh_dir', type=str, default=None)
+def mesh_chunks_exclude_file(layer, x_start, y_start, z_start, x_end, y_end, z_end, filename, fragment_batch_size, mesh_dir):
     print(f'Queueing...')
     chunk_pubsub = current_app.redis.pubsub()
     chunk_pubsub.subscribe(**{'mesh_frag_test_channel': handlerino_periodically_write_to_cloud})
@@ -225,7 +231,8 @@ def mesh_chunks_exclude_file(layer, x_start, y_start, z_start, x_end, y_end, z_e
             args=(
                 cg.get_serialized_info(), 
                 chunk_id,
-                'gs://seunglab2/drosophila_v0/ws_190410_FAFB_v02_ws_size_threshold_200'
+                cg._cv_path,
+                mesh_dir
             ),
             kwargs={
                 # 'cv_mesh_dir': 'mesh_testing/initial_testrun_meshes',
@@ -262,7 +269,7 @@ def mesh_chunk_ids_shuffled(chunk_ids_string):
             args=(
                 cg.get_serialized_info(),
                 chunk_id,
-                'gs://seunglab2/drosophila_v0/ws_190410_FAFB_v02_ws_size_threshold_200'
+                cg._cv_path
             ),
             kwargs={
                 # 'cv_mesh_dir': 'mesh_testing/initial_testrun_meshes',
@@ -304,7 +311,7 @@ def mesh_frag_test(n, layer):
             args=(
                 cg.get_serialized_info(), 
                 chunk_id,
-                'gs://seunglab2/drosophila_v0/ws_190410_FAFB_v02_ws_size_threshold_200'
+                cg._cv_path
             ),
             kwargs={
                 # 'cv_mesh_dir': 'mesh_testing/initial_testrun_meshes',

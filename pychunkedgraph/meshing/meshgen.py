@@ -810,8 +810,6 @@ def transform_draco_vertices(mesh, encoding_settings):
 
 
 def transform_draco_fragment_and_return_encoding_options(cg, fragment, layer, mip, chunk_id):
-    # import ipdb
-    # ipdb.set_trace()
     fragment_encoding_options = fragment['mesh']['encoding_options']
     if fragment_encoding_options is None:
         raise Error('Draco fragment has no encoding options')
@@ -834,7 +832,21 @@ def transform_draco_fragment_and_return_encoding_options(cg, fragment, layer, mi
     return cur_encoding_settings
 
 
-def merge_draco_meshes(cg, fragments):
+def draco_mesh_remove_duplicate_vertices(cg, draco_mesh):
+    vertices = draco_mesh['vertices']
+    faces = draco_mesh['faces']
+    if draco_mesh['vertexct'][-1] > 0:
+        vertices, faces = np.unique(vertices[faces], return_inverse=True, axis=0)
+        faces = faces.astype(np.uint32)
+    return {
+        'num_vertices': np.uint32(len(vertices)),
+        # 'vertices': np.reshape(vertices, (len(vertices) * 3,)),
+        # 'faces': np.reshape(faces, (len(faces) * 3,))
+        'vertices': vertices.reshape(-1),
+        'faces': faces
+    }
+
+def merge_draco_meshes(fragments):
     # TODO: change from naive/brute force merging to only merging at quantized chunk boundary
     mdata = [fragment['mesh'] for fragment in fragments]
     vertexct = np.zeros(len(mdata) + 1, np.uint32)
@@ -843,12 +855,14 @@ def merge_draco_meshes(cg, fragments):
     faces = np.concatenate([
         mesh['faces'] + vertexct[i] for i, mesh in enumerate(mdata)
     ])
-    if len(faces.shape) == 1:
-        faces = faces.reshape(-1, 3)
-    if vertexct[-1] > 0:
-        vertices, faces = np.unique(vertices[faces.reshape(-1)],
-                                    return_inverse=True, axis=0)
-        faces = faces.reshape(-1,3).astype(np.uint32)
+    # if len(faces.shape) == 1:
+    #     faces = faces.reshape(-1, 3)
+    # if vertexct[-1] > 0:
+    #     vertices, faces = np.unique(vertices[faces],
+    #                                 return_inverse=True, axis=0)
+        # vertices, faces = np.unique(vertices[faces.reshape(-1)],
+        #                             return_inverse=True, axis=0)
+        # faces = faces.reshape(-1,3).astype(np.uint32)
     # is_chunk_aligned = np.any(np.mod(verts, chunk_size) == 0, axis=1)
     # # # uniq_vertices, uniq_faces, vert_face_counts = np.unique(vertices[faces],
     # #                                                         return_inverse=True,
@@ -881,8 +895,11 @@ def merge_draco_meshes(cg, fragments):
     # return vertices[:,0:3], faces
     return {
         'num_vertices': np.uint32(len(vertices)),
-        'vertices': np.reshape(vertices, (len(vertices) * 3,)),
-        'faces': np.reshape(faces, (len(faces) * 3,))
+        # 'vertices': np.reshape(vertices, (len(vertices) * 3,)),
+        # 'faces': np.reshape(faces, (len(faces) * 3,))
+        'vertices': vertices,
+        'faces': faces,
+        'vertexct': vertexct
     }
 
 
@@ -1051,6 +1068,7 @@ def chunk_mesh_task_new_remapping(cg_info, chunk_id, cv_path, cv_mesh_dir=None, 
             fragment_map = {}
             for i in range(len(files_contents)):
                 fragment_map[files_contents[i]['filename']] = files_contents[i]
+            extra_getting_frags_time = 0
             if fragment_batch_size is None:
                 print('getting frags time', time.time() - before_time)
             else:
@@ -1100,7 +1118,8 @@ def chunk_mesh_task_new_remapping(cg_info, chunk_id, cv_path, cv_mesh_dir=None, 
                             })
                         except:
                             missing_fragments = True
-                            result.append(f'Decoding failed for {fragment_id} in {new_fragment_id}')
+                            new_fragment_str = new_fragment_id[0:new_fragment_id.find(':')]
+                            result.append(f'Decoding failed for {node_id_str} in {new_fragment_str}')
                     elif cg.get_chunk_layer(np.uint64(node_id_str)) > 2:
                         missing_fragments = True
                         result.append(f'{fragment_id} missing for {new_fragment_id}')
@@ -1124,7 +1143,8 @@ def chunk_mesh_task_new_remapping(cg_info, chunk_id, cv_path, cv_mesh_dir=None, 
 
                 if len(old_fragments) > 1:
                     before_time = time.time()
-                    new_fragment = merge_draco_meshes(cg, old_fragments)
+                    old_fragment_merged = merge_draco_meshes(old_fragments)
+                    new_fragment = draco_mesh_remove_duplicate_vertices(cg, old_fragment_merged)
                     merging_time = merging_time + time.time() - before_time
                 else:
                     new_fragment = old_fragments[0]['mesh']
@@ -1132,6 +1152,19 @@ def chunk_mesh_task_new_remapping(cg_info, chunk_id, cv_path, cv_mesh_dir=None, 
 
                 before_time = time.time()
                 new_fragment_b = DracoPy.encode_mesh_to_buffer(new_fragment['vertices'], new_fragment['faces'], **draco_encoding_options)
+                try:
+                    DracoPy.decode_buffer_to_mesh(new_fragment_b)
+                except:
+                    new_fragment_str = new_fragment_id[0:new_fragment_id.find(':')]
+                    result.append(f'Bad mesh created for {new_fragment_str}')
+                    try:
+                        old_fragment_merged['vertices'] = old_fragment_merged['vertices'].reshape(-1)
+                        new_fragment_b = DracoPy.encode_mesh_to_buffer(old_fragment_merged['vertices'], old_fragment_merged['faces'], **draco_encoding_options)
+                        DracoPy.decode_buffer_to_mesh(new_fragment_b)
+                    except:
+                        result.append(f'Could not revert to old_fragment mesh created for {new_fragment_str}')
+                        # raise ValueError(f'Could not revert to old_fragment mesh created for {new_fragment_str}')
+
                 encoding_time = encoding_time + time.time() - before_time
                 before_time = time.time()
 
