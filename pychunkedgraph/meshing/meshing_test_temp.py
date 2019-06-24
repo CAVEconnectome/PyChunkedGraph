@@ -73,7 +73,8 @@ def handlerino_periodically_write_to_cloud(*args, **kwargs):
 @click.argument('x_end', type=int)
 @click.argument('y_end', type=int)
 @click.argument('z_end', type=int)
-def mesh_chunks(layer, x_start, y_start, z_start, x_end, y_end, z_end):
+@click.argument('fragment_batch_size', type=int)
+def mesh_chunks(layer, x_start, y_start, z_start, x_end, y_end, z_end, fragment_batch_size):
     print(f'Queueing...')
     chunk_pubsub = current_app.redis.pubsub()
     chunk_pubsub.subscribe(**{'mesh_frag_test_channel': handlerino_print})
@@ -95,7 +96,8 @@ def mesh_chunks(layer, x_start, y_start, z_start, x_end, y_end, z_end):
                     kwargs={
                         # 'cv_mesh_dir': 'mesh_testing/initial_testrun_meshes',
                         'mip': 1,
-                        'max_err': 320
+                        'max_err': 320,
+                        'fragment_batch_size': fragment_batch_size
                         # 'dust_threshold': 100
                     })
                 
@@ -109,7 +111,8 @@ def mesh_chunks(layer, x_start, y_start, z_start, x_end, y_end, z_end):
 @click.argument('x_end', type=int)
 @click.argument('y_end', type=int)
 @click.argument('z_end', type=int)
-def mesh_chunks_shuffled(layer, x_start, y_start, z_start, x_end, y_end, z_end):
+@click.argument('fragment_batch_size', type=int)
+def mesh_chunks_shuffled(layer, x_start, y_start, z_start, x_end, y_end, z_end, fragment_batch_size):
     print(f'Queueing...')
     chunk_pubsub = current_app.redis.pubsub()
     chunk_pubsub.subscribe(**{'mesh_frag_test_channel': handlerino_periodically_write_to_cloud})
@@ -129,7 +132,7 @@ def mesh_chunks_shuffled(layer, x_start, y_start, z_start, x_end, y_end, z_end):
         chunk_id = cg.get_chunk_id(None, layer, chunk[0], chunk[1], chunk[2])
         current_app.test_q.enqueue(
             meshgen.chunk_mesh_task_new_remapping,
-            job_timeout='60m',
+            job_timeout='300m',
             args=(
                 cg.get_serialized_info(), 
                 chunk_id,
@@ -138,7 +141,8 @@ def mesh_chunks_shuffled(layer, x_start, y_start, z_start, x_end, y_end, z_end):
             kwargs={
                 # 'cv_mesh_dir': 'mesh_testing/initial_testrun_meshes',
                 'mip': 1,
-                'max_err': 320
+                'max_err': 320,
+                'fragment_batch_size': fragment_batch_size
                 # 'dust_threshold': 100
             })
     
@@ -190,7 +194,8 @@ def mesh_chunks_from_file(filename):
 @click.argument('y_end', type=int)
 @click.argument('z_end', type=int)
 @click.argument('filename', type=str)
-def mesh_chunks_exclude_file(layer, x_start, y_start, z_start, x_end, y_end, z_end, filename):
+@click.argument('fragment_batch_size', type=int)
+def mesh_chunks_exclude_file(layer, x_start, y_start, z_start, x_end, y_end, z_end, filename, fragment_batch_size):
     print(f'Queueing...')
     chunk_pubsub = current_app.redis.pubsub()
     chunk_pubsub.subscribe(**{'mesh_frag_test_channel': handlerino_periodically_write_to_cloud})
@@ -216,7 +221,7 @@ def mesh_chunks_exclude_file(layer, x_start, y_start, z_start, x_end, y_end, z_e
     for chunk_id in chunks_arr:
         current_app.test_q.enqueue(
             meshgen.chunk_mesh_task_new_remapping,
-            job_timeout='20m',
+            job_timeout='180m',
             args=(
                 cg.get_serialized_info(), 
                 chunk_id,
@@ -225,7 +230,8 @@ def mesh_chunks_exclude_file(layer, x_start, y_start, z_start, x_end, y_end, z_e
             kwargs={
                 # 'cv_mesh_dir': 'mesh_testing/initial_testrun_meshes',
                 'mip': 1,
-                'max_err': 320
+                'max_err': 320,
+                'fragment_batch_size': fragment_batch_size
                 # 'dust_threshold': 100
             })
 

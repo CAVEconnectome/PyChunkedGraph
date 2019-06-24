@@ -251,9 +251,6 @@ def get_remapped_segmentation(cg, chunk_id, mip=2, overlap_vx=1,
                               time_stamp=None, n_threads=1):
     """ Downloads + remaps ws segmentation + resolve unclear cases
 
-    This is only for testing, most of this function will be moved to an
-    igneous mesh task
-
     :param cg: chunkedgraph object
     :param chunk_id: np.uint64
     :param mip: int
@@ -289,7 +286,7 @@ def get_remapped_segmentation(cg, chunk_id, mip=2, overlap_vx=1,
                 chunk_start[2]: chunk_end[2]].squeeze()
 
     _remap_vec = np.vectorize(_remap)
-    seg = _remap_vec(ws_seg)
+    seg = _remap_vec(ws_seg).astype(np.uint64)
 
     for unsafe_root_id in unsafe_dict.keys():
         bin_seg = seg == unsafe_root_id
@@ -921,7 +918,7 @@ REDIS_URL = f'redis://:{REDIS_PASSWORD}@{REDIS_HOST}:{REDIS_PORT}/0'
 
 from pychunkedgraph.utils.general import redis_job
 @redis_job(REDIS_URL, 'mesh_frag_test_channel')
-def chunk_mesh_task_new_remapping(cg_info, chunk_id, cv_path, cv_mesh_dir=None, mip=2, max_err=320, base_layer=2, lod=0, encoding='draco', time_stamp=None, dust_threshold=None, return_frag_count=False):
+def chunk_mesh_task_new_remapping(cg_info, chunk_id, cv_path, cv_mesh_dir=None, mip=2, max_err=320, base_layer=2, lod=0, encoding='draco', time_stamp=None, dust_threshold=None, return_frag_count=False, fragment_batch_size=None):
     cg = chunkedgraph.ChunkedGraph(**cg_info)
     mesh_dir = cv_mesh_dir or cg._mesh_dir
     start_time = time.time()
@@ -1039,15 +1036,25 @@ def chunk_mesh_task_new_remapping(cg_info, chunk_id, cv_path, cv_mesh_dir=None, 
         merging_time = 0
         encoding_time = 0
         writing_time = 0
+        getting_frags_time = 0
         with Storage(os.path.join(cv_path, mesh_dir)) as storage:
             before_time = time.time()
             vals = multi_child_nodes.values()
             fragment_to_fetch = [fragment for child_fragments in vals for fragment in child_fragments]
-            files_contents = storage.get_files(fragment_to_fetch)
+            if fragment_batch_size is None:
+                files_contents = storage.get_files(fragment_to_fetch)
+            else:
+                files_contents = storage.get_files(fragment_to_fetch[0:fragment_batch_size])
+                fragments_in_batch_processed = 0
+                batches_processed = 0
+                num_fragments_processed = 0
             fragment_map = {}
-            for f in files_contents:
-                fragment_map[f['filename']] = f
-            print('getting frags time', time.time() - before_time)
+            for i in range(len(files_contents)):
+                fragment_map[files_contents[i]['filename']] = files_contents[i]
+            if fragment_batch_size is None:
+                print('getting frags time', time.time() - before_time)
+            else:
+                extra_getting_frags_time = time.time() - before_time
             i = 0
             for new_fragment_id, fragment_ids_to_fetch in multi_child_nodes.items():
                 i += 1
@@ -1059,16 +1066,31 @@ def chunk_mesh_task_new_remapping(cg_info, chunk_id, cv_path, cv_mesh_dir=None, 
                     print('merging_time', merging_time)
                     print('encoding_time', encoding_time)
                     print('writing_time', writing_time)
+                    print('batch frags time', getting_frags_time + extra_getting_frags_time)
 
                 old_fragments = []
                 before_time = time.time()
                 missing_fragments = False
+                getting_frags_time_for_node = 0 
                 for fragment_id in fragment_ids_to_fetch:
+                    if fragment_batch_size is not None:
+                        fragments_in_batch_processed += 1
+                        if fragments_in_batch_processed > fragment_batch_size:
+                            before_get_frags_time = time.time()
+                            fragments_in_batch_processed = 1
+                            batches_processed += 1
+                            num_fragments_processed = batches_processed * fragment_batch_size
+                            files_contents = storage.get_files(fragment_to_fetch[num_fragments_processed:num_fragments_processed+fragment_batch_size])
+                            fragment_map = {}
+                            for j in range(len(files_contents)):
+                                fragment_map[files_contents[j]['filename']] = files_contents[j]
+                            getting_frags_time_for_node = time.time() - before_get_frags_time
                     fragment = fragment_map[fragment_id]
                     filename = fragment['filename']
                     end_of_node_id_index = filename.find(':')
                     if end_of_node_id_index == -1:
-                        raise Error(f'Unexpected filename {filename}. Filenames expected in format \'\{node_id}:\{lod}:\{chunk_bbox_string}\'')
+                        print(f'Unexpected filename {filename}. Filenames expected in format \'\{node_id}:\{lod}:\{chunk_bbox_string}\'')
+                        missing_fragments = True
                     node_id_str = filename[:end_of_node_id_index]                    
                     if fragment['content'] is not None and fragment['error'] is None:
                         try:
@@ -1079,13 +1101,11 @@ def chunk_mesh_task_new_remapping(cg_info, chunk_id, cv_path, cv_mesh_dir=None, 
                         except:
                             missing_fragments = True
                             result.append(f'Decoding failed for {fragment_id} in {new_fragment_id}')
-                            break
-                    else:
-                        if cg.get_chunk_layer(np.uint64(node_id_str)) > 2:
-                            missing_fragments = True
-                            result.append(f'{fragment_id} missing for {new_fragment_id}')
-                            break
-                decoding_time = decoding_time + time.time() - before_time
+                    elif cg.get_chunk_layer(np.uint64(node_id_str)) > 2:
+                        missing_fragments = True
+                        result.append(f'{fragment_id} missing for {new_fragment_id}')
+                decoding_time = decoding_time + time.time() - before_time - getting_frags_time_for_node
+                getting_frags_time += getting_frags_time_for_node
 
                 if len(old_fragments) == 0 or missing_fragments:
                     continue
@@ -1128,6 +1148,10 @@ def chunk_mesh_task_new_remapping(cg_info, chunk_id, cv_path, cv_mesh_dir=None, 
     print('merging_time', merging_time)
     print('encoding_time', encoding_time)
     print('writing_time', writing_time)
+    if fragment_batch_size is not None:
+        print('batch frags time', getting_frags_time + extra_getting_frags_time)
+        print('num fragments processed', num_fragments_processed)
+        print('batches processed', batches_processed)
     return ', '.join(str(x) for x in result)
 
 
