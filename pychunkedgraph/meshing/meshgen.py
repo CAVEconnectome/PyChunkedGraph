@@ -1172,6 +1172,7 @@ def chunk_mesh_task_new_remapping(cg_info, chunk_id, cv_path, cv_mesh_dir=None, 
                         DracoPy.decode_buffer_to_mesh(new_fragment_b)
                     except:
                         result.append(f'Could not revert to old_fragment mesh created for {new_fragment_str}')
+                        continue
                         # raise ValueError(f'Could not revert to old_fragment mesh created for {new_fragment_str}')
 
                 encoding_time = encoding_time + time.time() - before_time
