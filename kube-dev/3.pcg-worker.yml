@@ -31,7 +31,7 @@ spec:
           imagePullPolicy: Always
           resources:
             requests:
-              memory: 12Gi
+              memory: 3Gi
           env:
             - name: APP_SETTINGS
               value: pychunkedgraph.app.config.DeploymentWithRedisConfig
@@ -43,7 +43,7 @@ spec:
             - name: google-secret
               mountPath: /root/.cloudvolume/secrets/google-secret.json
               subPath: google-secret.json
-              readOnly: true          
+              readOnly: true
             - name: microns-seunglab-google-secret
               mountPath: /root/.cloudvolume/secrets/microns-seunglab-google-secret.json
               subPath: microns-seunglab-google-secret.json
@@ -52,3 +52,6 @@ spec:
               mountPath: /root/.cloudvolume/secrets/seunglab2-google-secret.json
               subPath: seunglab2-google-secret.json
               readOnly: true
+          command: ["rq"]
+          args: ["worker", "-c", "rq_workers.test_worker"]
+          
