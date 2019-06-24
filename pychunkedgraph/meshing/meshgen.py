@@ -922,7 +922,7 @@ def merge_draco_meshes_across_boundaries(cg, fragments):
 
 def black_out_dust_from_segmentation(seg, dust_threshold):
     seg_ids, voxel_count = np.unique(seg, return_counts=True)
-    boundary = np.concatenate((seg[0,:,:], seg[-1,:,:], seg[:,0,:], seg[:,-1,:], seg[:,:,0], seg[:,:,-1]), axis=None)
+    boundary = np.concatenate((seg[-2,:,:], seg[-1,:,:], seg[:,-2,:], seg[:,-1,:], seg[:,:,-2], seg[:,:,-1]), axis=None)
     seg_ids_on_boundary = np.unique(boundary)
     dust_segids = [ sid for sid, ct in zip(seg_ids, voxel_count) if ct < int(dust_threshold) and np.isin(sid, seg_ids_on_boundary, invert=True) ]
     seg = fastremap.mask(seg, dust_segids, in_place=True)
@@ -991,6 +991,13 @@ def chunk_mesh_task_new_remapping(cg_info, chunk_id, cv_path, cv_mesh_dir=None, 
                         mesh.vertices.flatten('C'), mesh.faces.flatten('C'), 
                         **draco_encoding_settings
                     )
+                    try:
+                        ex_buff = DracoPy.decode_buffer_to_mesh(file_contents)
+                        again = DracoPy.encode_mesh_to_buffer(ex_buff.points, ex_buff.faces, **draco_encoding_settings)
+                        out_again = DracoPy.decode_buffer_to_mesh(again)
+                    except:
+                        result.append(f'{obj_id} failed: {len(mesh.vertices)} vertices, {len(mesh.faces)} faces')
+                        continue
                     draco_encoding_time = draco_encoding_time + time.time() - before_time
                     compress = False
                 else:
@@ -1143,14 +1150,14 @@ def chunk_mesh_task_new_remapping(cg_info, chunk_id, cv_path, cv_mesh_dir=None, 
                 transforming_time = transforming_time + time.time() - before_time
 
                 old_fragment_merged = None
-                if len(old_fragments) > 1:
+                if len(old_fragments) > 0:
                     before_time = time.time()
                     old_fragment_merged = merge_draco_meshes(old_fragments)
                     new_fragment = draco_mesh_remove_duplicate_vertices(cg, old_fragment_merged)
                     merging_time = merging_time + time.time() - before_time
-                else:
-                    new_fragment = old_fragments[0]['mesh']
-                    new_fragment['vertices'] = np.reshape(new_fragment['vertices'], (len(new_fragment['vertices']) * 3))
+                # else:
+                #     new_fragment = old_fragments[0]['mesh']
+                #     new_fragment['vertices'] = np.reshape(new_fragment['vertices'], (len(new_fragment['vertices']) * 3))
 
                 before_time = time.time()
                 new_fragment_b = DracoPy.encode_mesh_to_buffer(new_fragment['vertices'], new_fragment['faces'], **draco_encoding_options)

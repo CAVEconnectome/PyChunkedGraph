@@ -11,5 +11,5 @@ spec:
     kind: Deployment
     name: pcg-worker
   minReplicas: 1
-  maxReplicas: 16
+  maxReplicas: 32
   targetCPUUtilizationPercentage: 80
