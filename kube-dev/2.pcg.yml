@@ -40,7 +40,7 @@ spec:
       imagePullPolicy: Always
       resources:
         requests:
-          memory: 3Gi
+          memory: 2Gi
       env:
         - name: APP_SETTINGS
           value: pychunkedgraph.app.config.DeploymentWithRedisConfig

@@ -986,17 +986,19 @@ def chunk_mesh_task_new_remapping(cg_info, chunk_id, cv_path, cv_mesh_dir=None, 
                 # mesh.vertices[:] += chunk_offset * cg.cv.mip_resolution(mip)
                 mesh.vertices[:] += chunk_offset
                 if encoding == 'draco':
-                    before_time = time.time()                    
-                    file_contents = DracoPy.encode_mesh_to_buffer(
-                        mesh.vertices.flatten('C'), mesh.faces.flatten('C'), 
-                        **draco_encoding_settings
-                    )
+                    before_time = time.time()
                     try:
-                        ex_buff = DracoPy.decode_buffer_to_mesh(file_contents)
-                        again = DracoPy.encode_mesh_to_buffer(ex_buff.points, ex_buff.faces, **draco_encoding_settings)
-                        out_again = DracoPy.decode_buffer_to_mesh(again)
+                        file_contents = DracoPy.encode_mesh_to_buffer(
+                            mesh.vertices.flatten('C'), mesh.faces.flatten('C'), 
+                            **draco_encoding_settings
+                        )
+                        # ex_buff = DracoPy.decode_buffer_to_mesh(file_contents)
+                        # again = DracoPy.encode_mesh_to_buffer(ex_buff.points, ex_buff.faces, **draco_encoding_settings)
+                        # out_again = DracoPy.decode_buffer_to_mesh(again)
                     except:
+                        # print(f'{obj_id} failed: {len(mesh.vertices)} vertices, {len(mesh.faces)} faces')
                         result.append(f'{obj_id} failed: {len(mesh.vertices)} vertices, {len(mesh.faces)} faces')
+                        draco_encoding_time = draco_encoding_time + time.time() - before_time
                         continue
                     draco_encoding_time = draco_encoding_time + time.time() - before_time
                     compress = False
@@ -1129,7 +1131,7 @@ def chunk_mesh_task_new_remapping(cg_info, chunk_id, cv_path, cv_mesh_dir=None, 
                             new_fragment_str = new_fragment_id[0:new_fragment_id.find(':')]
                             result.append(f'Decoding failed for {node_id_str} in {new_fragment_str}')
                     elif cg.get_chunk_layer(np.uint64(node_id_str)) > 2:
-                        missing_fragments = True
+                        # missing_fragments = True
                         result.append(f'{fragment_id} missing for {new_fragment_id}')
                 decoding_time = decoding_time + time.time() - before_time - getting_frags_time_for_node
                 getting_frags_time += getting_frags_time_for_node
@@ -1150,30 +1152,32 @@ def chunk_mesh_task_new_remapping(cg_info, chunk_id, cv_path, cv_mesh_dir=None, 
                 transforming_time = transforming_time + time.time() - before_time
 
                 old_fragment_merged = None
-                if len(old_fragments) > 0:
-                    before_time = time.time()
-                    old_fragment_merged = merge_draco_meshes(old_fragments)
-                    new_fragment = draco_mesh_remove_duplicate_vertices(cg, old_fragment_merged)
-                    merging_time = merging_time + time.time() - before_time
+                # if len(old_fragments) > 0:
+                before_time = time.time()
+                old_fragment_merged = merge_draco_meshes(old_fragments)
+                new_fragment = draco_mesh_remove_duplicate_vertices(cg, old_fragment_merged)
+                merging_time = merging_time + time.time() - before_time
                 # else:
                 #     new_fragment = old_fragments[0]['mesh']
                 #     new_fragment['vertices'] = np.reshape(new_fragment['vertices'], (len(new_fragment['vertices']) * 3))
 
                 before_time = time.time()
-                new_fragment_b = DracoPy.encode_mesh_to_buffer(new_fragment['vertices'], new_fragment['faces'], **draco_encoding_options)
                 try:
-                    DracoPy.decode_buffer_to_mesh(new_fragment_b)
+                    new_fragment_b = DracoPy.encode_mesh_to_buffer(new_fragment['vertices'], new_fragment['faces'], **draco_encoding_options)
+                    # DracoPy.decode_buffer_to_mesh(new_fragment_b)
                 except:
                     new_fragment_str = new_fragment_id[0:new_fragment_id.find(':')]
-                    result.append(f'Bad mesh created for {new_fragment_str}')
-                    try:
-                        old_fragment_merged['vertices'] = old_fragment_merged['vertices'].reshape(-1)
-                        new_fragment_b = DracoPy.encode_mesh_to_buffer(old_fragment_merged['vertices'], old_fragment_merged['faces'], **draco_encoding_options)
-                        DracoPy.decode_buffer_to_mesh(new_fragment_b)
-                    except:
-                        result.append(f'Could not revert to old_fragment mesh created for {new_fragment_str}')
-                        continue
-                        # raise ValueError(f'Could not revert to old_fragment mesh created for {new_fragment_str}')
+                    result.append(f'Bad mesh created for {new_fragment_str}: {len(new_fragment["vertices"])} vertices, {len(new_fragment["faces"])} faces')
+                    # result.append(f'Bad mesh created for {new_fragment_str}')
+                    # try:
+
+                    #     old_fragment_merged['vertices'] = old_fragment_merged['vertices'].reshape(-1)
+                    #     new_fragment_b = DracoPy.encode_mesh_to_buffer(old_fragment_merged['vertices'], old_fragment_merged['faces'], **draco_encoding_options)
+                    #     DracoPy.decode_buffer_to_mesh(new_fragment_b)
+                    # except:
+                    #     result.append(f'Could not revert to old_fragment mesh created for {new_fragment_str}')
+                    continue
+                    # raise ValueError(f'Could not revert to old_fragment mesh created for {new_fragment_str}')
 
                 encoding_time = encoding_time + time.time() - before_time
                 before_time = time.time()
