@@ -323,5 +323,16 @@ def mesh_frag_test(n, layer):
     return 'Queued'    
 
 
+@ingest_cli.command('listen')
+@click.option('channel', default='mesh_frag_test_channel')
+def mesh_chunks_shuffled(channel):
+    print(f'Queueing...')
+    chunk_pubsub = current_app.redis.pubsub()
+    chunk_pubsub.subscribe(**{channel: handlerino_periodically_write_to_cloud})
+    thread = chunk_pubsub.run_in_thread(sleep_time=0.1)
+                
+    return 'Queued'
+
+
 def init_mesh_cmds(app):
     app.cli.add_command(ingest_cli)
