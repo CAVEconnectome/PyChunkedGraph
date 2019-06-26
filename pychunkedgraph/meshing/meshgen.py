@@ -1137,6 +1137,7 @@ def chunk_mesh_task_new_remapping(cg_info, chunk_id, cv_path, cv_mesh_dir=None, 
                 getting_frags_time += getting_frags_time_for_node
 
                 if len(old_fragments) == 0 or missing_fragments:
+                    result.append(f'No meshes for {new_fragment_id}')
                     continue
 
                 before_time = time.time()
