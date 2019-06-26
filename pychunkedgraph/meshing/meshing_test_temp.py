@@ -324,8 +324,8 @@ def mesh_frag_test(n, layer):
 
 
 @ingest_cli.command('listen')
-@click.option('channel', default='mesh_frag_test_channel')
-def mesh_chunks_shuffled(channel):
+@click.argument('channel', default='mesh_frag_test_channel')
+def mesh_listen(channel):
     print(f'Queueing...')
     chunk_pubsub = current_app.redis.pubsub()
     chunk_pubsub.subscribe(**{channel: handlerino_periodically_write_to_cloud})
