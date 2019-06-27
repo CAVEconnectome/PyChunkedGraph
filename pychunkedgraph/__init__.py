@@ -1,1 +1,1 @@
-__version__ = 'pinky-prod.1.2'
+__version__ = 'pinky-prod.1.3'
