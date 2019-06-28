@@ -51,6 +51,15 @@ def _mesh_lvl2_nodes(serialized_cg_info, lvl2_nodes):
     return Response(status=200)
 
 
+def _remeshing(serialized_cg_info, lvl2_nodes):
+    cg = chunkedgraph.ChunkedGraph(**serialized_cg_info)
+
+    meshgen.remeshing(cg, lvl2_nodes, cv_path=None, cv_mesh_dir=None, mip=1,
+                      simplification_factor=999999,max_err=40)
+
+    return Response(status=200)
+
+
 
 @bp.route('/1.0/<table_id>/<node_id>/mesh_preview', methods=['POST', 'GET'])
 def handle_preview_meshes(table_id, node_id):

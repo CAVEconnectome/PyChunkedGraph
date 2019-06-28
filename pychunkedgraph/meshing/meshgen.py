@@ -15,7 +15,7 @@ from multiwrapper import multiprocessing_utils as mu
 from cloudvolume import Storage, EmptyVolumeException
 from cloudvolume.lib import Vec
 from cloudvolume.meshservice import decode_mesh_buffer
-from igneous.tasks import MeshTask
+# from igneous.tasks import MeshTask
 import DracoPy
 import zmesh
 import fastremap
@@ -267,9 +267,14 @@ def get_remapped_segmentation(cg, chunk_id, mip=2, overlap_vx=1,
 
     assert mip >= cg.cv.mip
 
+    before_time = time.time()
+
     sv_remapping, unsafe_dict = get_lx_overlapping_remappings(cg, chunk_id,
                                                               time_stamp=time_stamp,
                                                               n_threads=n_threads)
+
+    # remap_time = time.time()
+    # print('get_remap_time', remap_time - before_time)
 
     cv = cloudvolume.CloudVolume(cg.cv.cloudpath, mip=mip)
     mip_diff = mip - cg.cv.mip
@@ -285,8 +290,18 @@ def get_remapped_segmentation(cg, chunk_id, mip=2, overlap_vx=1,
                 chunk_start[1]: chunk_end[1],
                 chunk_start[2]: chunk_end[2]].squeeze()
 
+    # download_done = time.time()
+    # print('download_done', download_done - remap_time)
+
     _remap_vec = np.vectorize(_remap)
     seg = _remap_vec(ws_seg).astype(np.uint64)
+    seg_copy = np.copy(seg)
+
+    # remapping_done_time = time.time()
+    # print('remapping complete time', remapping_done_time - download_done)
+
+    # import ipdb
+    # ipdb.set_trace()
 
     for unsafe_root_id in unsafe_dict.keys():
         bin_seg = seg == unsafe_root_id
@@ -326,10 +341,15 @@ def get_remapped_segmentation(cg, chunk_id, mip=2, overlap_vx=1,
 
             ccs = nx.connected_components(g)
 
+            import ipdb
+            ipdb.set_trace()
+
             for cc in ccs:
                 cc_ids = np.sort(list(cc))
                 seg[np.in1d(seg, cc_ids[1:]).reshape(seg.shape)] = cc_ids[0]
 
+    # done_time = time.time()
+    # print('done_time', done_time - remapping_done_time)
     return seg
 
 
@@ -927,6 +947,40 @@ def black_out_dust_from_segmentation(seg, dust_threshold):
     dust_segids = [ sid for sid, ct in zip(seg_ids, voxel_count) if ct < int(dust_threshold) and np.isin(sid, seg_ids_on_boundary, invert=True) ]
     seg = fastremap.mask(seg, dust_segids, in_place=True)
 
+
+# def remeshing(cg, lvl2_nodes, cv_path=None, cv_mesh_dir=None, mip=2, max_err=320):
+
+# def remeshing(cg, l2_node_ids):
+#     list_of_chunk_ids = []
+#     l2_chunk_dict = {}
+#     for node_id in l2_node_ids:
+#         chunk_id = cg.get_chunk_id(node_id)
+#         if chunk_id in l2_chunk_dict:
+#             l2_chunk_dict[chunk_id].add(node_id)
+#         else:
+#             l2_chunk_dict[chunk_id] = {node_id}
+#     for chunk_id, node_ids in l2_chunk_dict:
+#         l2_nodes_for_chunk = chunk_mesh_task(cg, chunk_id, node_id_subset=node_ids)
+#     chunk_dicts = []
+#     for layer in range(2, cg._n_layers):
+#         chunk_dicts.append({})
+#     cur_chunk_dict = l2_chunk_dict
+#     for layer in range(2, cg._n_layers):
+#         for _, node_ids in cur_chunk_dict:
+#             for node_id in node_ids:
+#                 parent_node = cg.get_parent(node_id)
+#                 if parent_node != None:
+#                     chunk_layer = cg.get_chunk_layer(parent_node)
+#                     index_in_dict_array = chunk_layer - 3
+#                     chunk_id = cg.get_chunk_id(parent_node)
+#                     if chunk_id in chunk_dicts[index_in_dict_array]:
+#                         chunk_dicts[index_in_dict_array][chunk_id].add(parent_node)
+#                     else:
+#                         chunk_dicts[index_in_dict_array][chunk_id] = {parent_node}
+#         cur_chunk_dict = chunk_dicts[layer - 2]
+#     for chunk_dict in chunk_dicts:
+#         for chunk_id, node_ids in chunk_dict:
+#             chunk_mesh_task(cg, chunk_id, node_id_subset=node_ids)
 
 REDIS_HOST = os.environ.get('REDIS_SERVICE_HOST', 'localhost')
 REDIS_PORT = os.environ.get('REDIS_SERVICE_PORT', '6379')
