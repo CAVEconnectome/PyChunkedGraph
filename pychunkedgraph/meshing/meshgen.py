@@ -1168,7 +1168,7 @@ def remeshing(cg, l2_node_ids, stop_layer=None, cv_path=None, cv_mesh_dir=None, 
     before_time = time.time()
     for chunk_id, node_ids in l2_chunk_dict.items():
         # print(chunk_id, node_ids)
-        chunk_mesh_task_new_remapping(cg.get_serialized_info(), chunk_id, cg._cv_path, mip=mip, fragment_batch_size=20, node_id_subset=node_ids, cg=cg)
+        chunk_mesh_task_new_remapping(cg.get_serialized_info(), chunk_id, cg._cv_path, cv_mesh_dir=cv_mesh_dir, mip=mip, fragment_batch_size=20, node_id_subset=node_ids, cg=cg)
     #     l2_nodes_for_chunk = chunk_mesh_task_new_remapping(cg, chunk_id, node_id_subset=node_ids)
     #     add_nodes_to_l2_chunk_dict(l2_nodes_for_chunk)
     print('l2 time', time.time() - before_time)
@@ -1194,7 +1194,7 @@ def remeshing(cg, l2_node_ids, stop_layer=None, cv_path=None, cv_mesh_dir=None, 
     for chunk_dict in chunk_dicts:
         for chunk_id, node_ids in chunk_dict.items():
             # print(chunk_id, node_ids)
-            chunk_mesh_task_new_remapping(cg.get_serialized_info(), chunk_id, cg._cv_path, mip=mip, fragment_batch_size=20, node_id_subset=node_ids, cg=cg)
+            chunk_mesh_task_new_remapping(cg.get_serialized_info(), chunk_id, cg._cv_path, cv_mesh_dir=cv_mesh_dir, mip=mip, fragment_batch_size=20, node_id_subset=node_ids, cg=cg)
     print('stitching time', time.time() - before_time)
 
 
@@ -1459,7 +1459,6 @@ def chunk_mesh_task_new_remapping(cg_info, chunk_id, cv_path, cv_mesh_dir=None, 
 
                 encoding_time = encoding_time + time.time() - before_time
                 before_time = time.time()
-
                 storage.put_file(new_fragment_id,
                                  new_fragment_b,
                                  content_type='application/octet-stream',
