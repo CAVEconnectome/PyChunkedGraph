@@ -16,7 +16,7 @@ from pychunkedgraph.backend import chunkedgraph_exceptions as cg_exceptions, \
     chunkedgraph_comp as cg_comp
 from middle_auth_client import auth_required, auth_requires_roles
 
-__version__ = 'fafb.1.4'
+__version__ = 'fafb.1.5'
 bp = Blueprint('pychunkedgraph', __name__, url_prefix="/segmentation")
 
 # -------------------------------
@@ -304,21 +304,7 @@ def handle_split(table_id):
         for node in data[k]:
             node_id = node[0]
             x, y, z = node[1:]
-
-            x /= 2
-            y /= 2
-
-            coordinate = np.array([x, y, z])
-
-            current_app.logger.debug(("before", coordinate))
-
-            if not cg.is_in_bounds(coordinate):
-                coordinate /= cg.segmentation_resolution
-
-                coordinate[0] *= 2
-                coordinate[1] *= 2
-
-            current_app.logger.debug(("after", coordinate))
+            coordinate = np.array([x, y, z]) / cg.segmentation_resolution
 
             atomic_id = cg.get_atomic_id_from_coord(coordinate[0],
                                                     coordinate[1],
@@ -347,7 +333,6 @@ def handle_split(table_id):
                               return_new_lvl2_nodes=True)
 
         new_roots, lvl2_nodes = ret
-
     except cg_exceptions.LockingError as e:
         raise cg_exceptions.InternalServerError(
             "Could not acquire root lock for split operation.")
