@@ -16,7 +16,7 @@ from pychunkedgraph.backend import chunkedgraph_exceptions as cg_exceptions, \
     chunkedgraph_comp as cg_comp
 from middle_auth_client import auth_required, auth_requires_roles
 
-__version__ = 'fafb.1.5'
+__version__ = 'fafb.1.6'
 bp = Blueprint('pychunkedgraph', __name__, url_prefix="/segmentation")
 
 # -------------------------------
@@ -348,7 +348,7 @@ def handle_split(table_id):
     current_app.logger.debug(("lvl2_nodes:", lvl2_nodes))
 
     if len(lvl2_nodes) > 0:
-        t = threading.Thread(target=meshing_app_blueprint._mesh_lvl2_nodes,
+        t = threading.Thread(target=meshing_app_blueprint._mesh_lvl2_no1des,
                              args=(cg.get_serialized_info(), lvl2_nodes))
         t.start()
     # Return binary
