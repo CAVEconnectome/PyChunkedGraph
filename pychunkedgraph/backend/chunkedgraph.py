@@ -13,8 +13,7 @@ import logging
 
 from itertools import chain
 from multiwrapper import multiprocessing_utils as mu
-# from pychunkedgraph.backend import cutting, chunkedgraph_comp, flatgraph_utils
-from pychunkedgraph.backend import chunkedgraph_comp, flatgraph_utils
+from pychunkedgraph.backend import cutting, chunkedgraph_comp, flatgraph_utils
 from pychunkedgraph.backend.chunkedgraph_utils import compute_indices_pandas, \
     compute_bitmasks, get_google_compatible_time_stamp, \
     get_time_range_filter, get_time_range_and_column_filter, get_max_time, \

@@ -295,7 +295,6 @@ def get_remapped_segmentation(cg, chunk_id, mip=2, overlap_vx=1,
 
     _remap_vec = np.vectorize(_remap)
     seg = _remap_vec(ws_seg).astype(np.uint64)
-    seg_copy = np.copy(seg)
 
     # remapping_done_time = time.time()
     # print('remapping complete time', remapping_done_time - download_done)
