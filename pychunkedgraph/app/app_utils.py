@@ -104,25 +104,3 @@ def tobinary_multiples(arr):
     :return: binary
     """
     return [np.array(arr_i).tobytes() for arr_i in arr]
-
-
-def redis_job(redis_url, redis_channel):
-    '''
-    Decorator factory
-    Returns a decorator that connects to a redis instance 
-    and publish a message when the job is done.
-    '''
-    def redis_job_decorator(func):
-        r = redis.Redis.from_url(redis_url)
-        job_result = None
-        
-        @functools.wraps(func)
-        def wrapper(*args, **kwargs):
-            job_result = func(*args, **kwargs)
-            if not job_result:
-                job_result = str(job_result)
-            r.publish(redis_channel, job_result)
-        
-        return wrapper
-    
-    return redis_job_decorator    

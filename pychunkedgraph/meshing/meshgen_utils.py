@@ -4,6 +4,7 @@ import time
 
 from functools import lru_cache
 from cloudvolume import CloudVolume, Storage
+from typing import Sequence
 
 from pychunkedgraph.backend import chunkedgraph  # noqa
 
@@ -71,6 +72,32 @@ def get_downstream_multi_child_node(cg, node_id: np.uint64,
         raise ValueError(f"Node {node_id} on layer {layer} has no children.")
 
     return get_downstream_multi_child_node(cg, children[0], stop_layer)
+
+
+def get_downstream_multi_child_nodes(cg, node_ids: Sequence[np.uint64]):
+    """
+    Return the first descendant of `node_ids` (including themselves) with more than
+    one child, or the first descendant of `node_id` (including itself) on or
+    below layer 2.
+    """
+    # FIXME: Make stop_layer configurable
+    stop_layer = 2
+    node_ids_to_return = np.copy(node_ids)
+
+    def recursive_helper(cur_node_ids):
+        stop_layer_mask = np.array([cg.get_chunk_layer(node_id) > stop_layer for node_id in cur_node_ids])
+        if np.any(stop_layer_mask):
+            node_to_children_dict = cg.get_children(cur_node_ids[stop_layer_mask])
+            children_array = np.array(list(node_to_children_dict.values()))
+            only_child_mask = np.array([len(children_for_node) == 1 for children_for_node in children_array])
+            only_children = children_array[only_child_mask].astype(np.uint64).ravel()
+            if np.any(only_child_mask):
+                temp_array = cur_node_ids[stop_layer_mask]
+                temp_array[only_child_mask] = recursive_helper(only_children)
+                cur_node_ids[stop_layer_mask] = temp_array
+        return cur_node_ids
+    
+    return recursive_helper(node_ids_to_return)
 
 
 def get_highest_child_nodes_with_meshes(cg,

@@ -13,6 +13,7 @@ import redis
 from rq import Queue
 
 from pychunkedgraph.examples.parallel_test.main import init_parallel_test_cmds
+from pychunkedgraph.meshing.meshing_test_temp import init_mesh_cmds
 
 # from pychunkedgraph.app import app_blueprint
 from pychunkedgraph.app import cg_app_blueprint, meshing_app_blueprint
@@ -42,6 +43,7 @@ def create_example_app(test_config=None):
 
     with app.app_context():
         init_parallel_test_cmds(app)
+        init_mesh_cmds(app)
 
     return app
 

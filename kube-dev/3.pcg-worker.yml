@@ -3,16 +3,16 @@ kind: Deployment
 metadata:
   name: pcg-worker
   labels:
-    app: pcg-test
+    app: pcg-worker
 spec:
   selector:
     matchLabels:
-      app: pcg-test
+      app: pcg-worker
   replicas: 1
   template:
     metadata:
       labels:
-        app: pcg-test
+        app: pcg-worker
     spec:
       dnsPolicy: Default
       volumes:
@@ -27,13 +27,11 @@ spec:
             secretName: seunglab2-google-secret      
       containers:
         - name: pcg-worker
-          image: gcr.io/neuromancer-seung-import/pychunkedgraph:akhilesh-autoscale-test
+          image: gcr.io/neuromancer-seung-import/pychunkedgraph:akhilesh-fafb-mesh-worker
           imagePullPolicy: Always
           resources:
             requests:
-              memory: 1Gi
-            limits:
-              memory: 2Gi
+              memory: 3Gi
           env:
             - name: APP_SETTINGS
               value: pychunkedgraph.app.config.DeploymentWithRedisConfig
@@ -45,7 +43,7 @@ spec:
             - name: google-secret
               mountPath: /root/.cloudvolume/secrets/google-secret.json
               subPath: google-secret.json
-              readOnly: true          
+              readOnly: true
             - name: microns-seunglab-google-secret
               mountPath: /root/.cloudvolume/secrets/microns-seunglab-google-secret.json
               subPath: microns-seunglab-google-secret.json
@@ -54,3 +52,6 @@ spec:
               mountPath: /root/.cloudvolume/secrets/seunglab2-google-secret.json
               subPath: seunglab2-google-secret.json
               readOnly: true
+          command: ["rq"]
+          args: ["worker", "-c", "rq_workers.test_worker"]
+          

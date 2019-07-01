@@ -1,6 +1,6 @@
 import numpy as np
-import graph_tool
-from graph_tool import topology
+# import graph_tool
+# from graph_tool import topology
 
 
 def build_gt_graph(edges, weights=None, is_directed=True, make_directed=False,

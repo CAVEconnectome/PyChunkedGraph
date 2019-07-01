@@ -110,6 +110,5 @@ venv.bak/
 
 
 # local dev stuff
-local.Dockerfile
-/secrets
-.devcontainer.json
+output.txt
+src/
