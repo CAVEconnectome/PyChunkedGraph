@@ -350,6 +350,7 @@ def get_remapped_segmentation(cg, chunk_id, mip=2, overlap_vx=1,
 
 
 def get_remapped_seg_for_lvl2_nodes(cg, chunk_id, lvl2_nodes, mip=2, overlap_vx=1, time_stamp=None, n_threads=1):
+    first_time = time.time()
     cv = cloudvolume.CloudVolume(cg.cv.cloudpath, mip=mip)
     mip_diff = mip - cg.cv.mip
 
@@ -366,9 +367,12 @@ def get_remapped_seg_for_lvl2_nodes(cg, chunk_id, lvl2_nodes, mip=2, overlap_vx=
 
     sv_of_lvl2_nodes = cg.get_children(lvl2_nodes)
 
+    print('data retrieval time', time.time() - first_time)
+    before_time = time.time()
+
     node_ids_on_the_border = []
     remapping = {}
-    for node, sv_list in sv_of_lvl2_nodes:
+    for node, sv_list in sv_of_lvl2_nodes.items():
         node_on_the_border = False
         for sv_id in sv_list:
             remapping[sv_id] = node
@@ -376,13 +380,16 @@ def get_remapped_seg_for_lvl2_nodes(cg, chunk_id, lvl2_nodes, mip=2, overlap_vx=
                 node_on_the_border = True
                 node_ids_on_the_border.append(node)
 
-    if len(on_the_border) > 0:
+    node_ids_on_the_border = np.array(node_ids_on_the_border)
+    if len(node_ids_on_the_border) > 0:
         overlap_region = np.concatenate((seg[:,:,-1], seg[:,-1,:], seg[-1,:,:]), axis=None)
         overlap_sv_ids = np.unique(overlap_region)
         sv_remapping, unsafe_dict = get_lx_overlapping_remappings_for_nodes_and_svs(cg, chunk_id, node_ids_on_the_border, overlap_sv_ids, time_stamp, n_threads)
         sv_remapping.update(remapping)
-        fastremap.mask_except(seg, sv_remapping.keys(), in_place=True)
+        print('get remap_time', time.time() - before_time)
+        fastremap.mask_except(seg, list(sv_remapping.keys()), in_place=True)
         fastremap.remap(seg, sv_remapping, preserve_missing_labels=True, in_place=True)
+        print('fastremap_time', time.time() - before_time)
         for unsafe_root_id in unsafe_dict.keys():
             bin_seg = seg == unsafe_root_id
 
@@ -415,19 +422,21 @@ def get_remapped_seg_for_lvl2_nodes(cg, chunk_id, lvl2_nodes, mip=2, overlap_vx=
                             l2_edges.append([linked_l2_ids[i_l2_id],
                                             linked_l2_ids[j_l2_id]])
 
-                if len(l2_edges) > 0:
-                    g = nx.Graph()
-                    g.add_edges_from(l2_edges)
+            if len(l2_edges) > 0:
+                g = nx.Graph()
+                g.add_edges_from(l2_edges)
 
-                    ccs = nx.connected_components(g)
+                ccs = nx.connected_components(g)
 
 
-                    for cc in ccs:
-                        cc_ids = np.sort(list(cc))
-                        seg[np.in1d(seg, cc_ids[1:]).reshape(seg.shape)] = cc_ids[0]
+                for cc in ccs:
+                    cc_ids = np.sort(list(cc))
+                    seg[np.in1d(seg, cc_ids[1:]).reshape(seg.shape)] = cc_ids[0]
     else:
-        fastremap.mask_except(seg, remapping.keys(), in_place=True)
+        fastremap.mask_except(seg, list(remapping.keys()), in_place=True)
         fastremap.remap(seg, remapping, preserve_missing_labels=True, in_place=True)
+
+    print('remap_time', time.time() - before_time)
     return seg
 
 @lru_cache(maxsize=None)
@@ -663,14 +672,14 @@ def get_root_remapping_for_nodes_and_svs(cg, node_ids, sv_ids, stop_layer, time_
     def _get_root_ids(args):
         start_id, end_id = args
 
-        root_ids[start_id:end_id] = cg.get_roots(lx_ids[start_id: end_id], stop_layer=stop_layer)
+        root_ids[start_id:end_id] = cg.get_roots(combined_ids[start_id: end_id], stop_layer=stop_layer)
 
     combined_ids = np.concatenate((node_ids, sv_ids))
 
     root_ids = np.zeros(len(combined_ids), dtype=np.uint64)
-    n_jobs = np.min([n_threads, len(lx_ids)])
+    n_jobs = np.min([n_threads, len(combined_ids)])
     multi_args = []
-    start_ids = np.linspace(0, len(lx_ids), n_jobs + 1).astype(np.int)
+    start_ids = np.linspace(0, len(combined_ids), n_jobs + 1).astype(np.int)
     for i_block in range(n_jobs):
         multi_args.append([start_ids[i_block], start_ids[i_block + 1]])
 
@@ -767,7 +776,7 @@ def get_lx_overlapping_remappings_for_nodes_and_svs(cg, chunk_id, node_ids, sv_i
                 node_ids_flat.extend([root_id] * len(sv_ids_to_add))
 
     # Combine the lists for a (chunk-) global remapping
-    sv_remapping = dict(zip(sv_ids_to_remap, lx_ids_flat))
+    sv_remapping = dict(zip(sv_ids_to_remap, node_ids_flat))
 
     return sv_remapping, unsafe_dict
 
@@ -1156,31 +1165,37 @@ def remeshing(cg, l2_node_ids, stop_layer=None, cv_path=None, cv_mesh_dir=None, 
             else:
                 l2_chunk_dict[chunk_id] = {node_id}
     add_nodes_to_l2_chunk_dict(l2_node_ids)
-    for chunk_id, node_ids in l2_chunk_dict:
-        chunk_mesh_task_new_remapping(cg, chunk_id, node_id_subset=node_ids)
+    before_time = time.time()
+    for chunk_id, node_ids in l2_chunk_dict.items():
+        # print(chunk_id, node_ids)
+        chunk_mesh_task_new_remapping(cg.get_serialized_info(), chunk_id, cg._cv_path, mip=mip, fragment_batch_size=20, node_id_subset=node_ids, cg=cg)
     #     l2_nodes_for_chunk = chunk_mesh_task_new_remapping(cg, chunk_id, node_id_subset=node_ids)
     #     add_nodes_to_l2_chunk_dict(l2_nodes_for_chunk)
+    print('l2 time', time.time() - before_time)
     chunk_dicts = []
     max_layer = stop_layer or cg._n_layers
     for layer in range(3, max_layer+1):
         chunk_dicts.append({})
     cur_chunk_dict = l2_chunk_dict
     for layer in range(3, max_layer+1):
-        for _, node_ids in cur_chunk_dict:
-            for node_id in node_ids:
-                parent_node = cg.get_parent(node_id)
-                if parent_node != None:
-                    chunk_layer = cg.get_chunk_layer(parent_node)
-                    index_in_dict_array = chunk_layer - 3
+        for _, node_ids in cur_chunk_dict.items():
+            parent_nodes = cg.get_parents(node_ids)
+            for parent_node in parent_nodes:
+                chunk_layer = cg.get_chunk_layer(parent_node)
+                index_in_dict_array = chunk_layer - 3
+                if index_in_dict_array < len(chunk_dicts):
                     chunk_id = cg.get_chunk_id(parent_node)
                     if chunk_id in chunk_dicts[index_in_dict_array]:
                         chunk_dicts[index_in_dict_array][chunk_id].add(parent_node)
                     else:
                         chunk_dicts[index_in_dict_array][chunk_id] = {parent_node}
         cur_chunk_dict = chunk_dicts[layer - 3]
+    before_time = time.time()
     for chunk_dict in chunk_dicts:
-        for chunk_id, node_ids in chunk_dict:
-            chunk_mesh_task_new_remapping(cg, chunk_id, node_id_subset=node_ids)
+        for chunk_id, node_ids in chunk_dict.items():
+            # print(chunk_id, node_ids)
+            chunk_mesh_task_new_remapping(cg.get_serialized_info(), chunk_id, cg._cv_path, mip=mip, fragment_batch_size=20, node_id_subset=node_ids, cg=cg)
+    print('stitching time', time.time() - before_time)
 
 
 REDIS_HOST = os.environ.get('REDIS_SERVICE_HOST', 'localhost')
@@ -1189,9 +1204,10 @@ REDIS_PASSWORD = os.environ.get('REDIS_PASSWORD', 'dev')
 REDIS_URL = f'redis://:{REDIS_PASSWORD}@{REDIS_HOST}:{REDIS_PORT}/0'
 
 from pychunkedgraph.utils.general import redis_job
-@redis_job(REDIS_URL, 'mesh_frag_test_channel')
-def chunk_mesh_task_new_remapping(cg_info, chunk_id, cv_path, cv_mesh_dir=None, mip=2, max_err=320, base_layer=2, lod=0, encoding='draco', time_stamp=None, dust_threshold=None, return_frag_count=False, fragment_batch_size=None, node_id_subset=None):
-    cg = chunkedgraph.ChunkedGraph(**cg_info)
+# @redis_job(REDIS_URL, 'mesh_frag_test_channel')
+def chunk_mesh_task_new_remapping(cg_info, chunk_id, cv_path, cv_mesh_dir=None, mip=2, max_err=320, base_layer=2, lod=0, encoding='draco', time_stamp=None, dust_threshold=None, return_frag_count=False, fragment_batch_size=None, node_id_subset=None, cg=None):
+    if cg is None:
+        cg = chunkedgraph.ChunkedGraph(**cg_info)
     mesh_dir = cv_mesh_dir or cg._mesh_dir
     start_time = time.time()
     result = []
@@ -1284,7 +1300,7 @@ def chunk_mesh_task_new_remapping(cg_info, chunk_id, cv_path, cv_mesh_dir=None, 
         if node_id_subset is None:
             range_read = cg.range_read_chunk(layer, cx, cy, cz, columns=column_keys.Hierarchy.Child)
         else:
-            range_read = self.read_node_id_rows(node_ids=node_id_subset, columns=column_keys.Hierarchy.Child)
+            range_read = cg.read_node_id_rows(node_ids=node_id_subset, columns=column_keys.Hierarchy.Child)
         print('range read chunk time', time.time() - before_time)
 
         print("Collecting only nodes with more than one child: ", end="")
