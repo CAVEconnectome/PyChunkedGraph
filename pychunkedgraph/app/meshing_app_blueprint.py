@@ -6,8 +6,9 @@ import numpy as np
 
 from pychunkedgraph.meshing import meshgen_utils, meshgen
 from pychunkedgraph.app import app_utils
+from pychunkedgraph.backend import chunkedgraph
 
-__version__ = 'fafb.1.7'
+__version__ = 'fafb.1.8'
 bp = Blueprint('pychunkedgraph_meshing', __name__, url_prefix="/meshing")
 
 # -------------------------------
@@ -35,8 +36,8 @@ def _remeshing(serialized_cg_info, lvl2_nodes):
     cg = chunkedgraph.ChunkedGraph(**serialized_cg_info)
 
     # TODO: stop_layer should be configurable by dataset
-    meshgen.remeshing(cg, lvl2_nodes, stop_layer=4, cv_path=None, cv_mesh_dir=None, mip=1,
-                      simplification_factor=999999,max_err=40)
+    meshgen.remeshing(cg, lvl2_nodes, stop_layer=4, cv_path=None,
+                      cv_mesh_dir=None, mip=1, max_err=40)
 
     return Response(status=200)
 
