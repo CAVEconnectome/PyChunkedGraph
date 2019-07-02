@@ -31,6 +31,16 @@ def home():
     return resp
 
 
+def _remeshing(serialized_cg_info, lvl2_nodes):
+    cg = chunkedgraph.ChunkedGraph(**serialized_cg_info)
+
+    # TODO: stop_layer should be configurable by dataset
+    meshgen.remeshing(cg, lvl2_nodes, stop_layer=4, cv_path=None, cv_mesh_dir=None, mip=1,
+                      simplification_factor=999999,max_err=40)
+
+    return Response(status=200)
+
+
 # ------------------------------------------------------------------------------
 
 @bp.route('/1.0/<table_id>/<node_id>/mesh_preview', methods=['POST', 'GET'])

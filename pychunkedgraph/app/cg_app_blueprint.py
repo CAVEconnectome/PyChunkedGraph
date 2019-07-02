@@ -274,7 +274,7 @@ def handle_merge(table_id):
     current_app.logger.debug(("lvl2_nodes:", lvl2_nodes))
 
     if len(lvl2_nodes) > 0:
-        t = threading.Thread(target=meshing_app_blueprint._mesh_lvl2_nodes,
+        t = threading.Thread(target=meshing_app_blueprint._remeshing,
                              args=(cg.get_serialized_info(), lvl2_nodes))
         t.start()
 
@@ -348,7 +348,7 @@ def handle_split(table_id):
     current_app.logger.debug(("lvl2_nodes:", lvl2_nodes))
 
     if len(lvl2_nodes) > 0:
-        t = threading.Thread(target=meshing_app_blueprint._mesh_lvl2_no1des,
+        t = threading.Thread(target=meshing_app_blueprint._remeshing,
                              args=(cg.get_serialized_info(), lvl2_nodes))
         t.start()
     # Return binary
