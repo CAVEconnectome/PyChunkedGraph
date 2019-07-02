@@ -383,7 +383,10 @@ def get_remapped_seg_for_lvl2_nodes(cg, chunk_id, lvl2_nodes, mip=2, overlap_vx=
     if len(node_ids_on_the_border) > 0:
         overlap_region = np.concatenate((seg[:,:,-1], seg[:,-1,:], seg[-1,:,:]), axis=None)
         overlap_sv_ids = np.unique(overlap_region)
-        sv_remapping, unsafe_dict = get_lx_overlapping_remappings_for_nodes_and_svs(cg, chunk_id, node_ids_on_the_border, overlap_sv_ids, time_stamp, n_threads)
+        if overlap_sv_ids[0] == 0:
+            sv_remapping, unsafe_dict = get_lx_overlapping_remappings_for_nodes_and_svs(cg, chunk_id, node_ids_on_the_border, overlap_sv_ids[1:], time_stamp, n_threads)
+        else:
+            sv_remapping, unsafe_dict = get_lx_overlapping_remappings_for_nodes_and_svs(cg, chunk_id, node_ids_on_the_border, overlap_sv_ids, time_stamp, n_threads)
         sv_remapping.update(remapping)
         print('get remap_time', time.time() - before_time)
         fastremap.mask_except(seg, list(sv_remapping.keys()), in_place=True)
@@ -1280,7 +1283,7 @@ def chunk_mesh_task_new_remapping(cg_info, chunk_id, cv_path, cv_mesh_dir=None, 
                     compress = True
                 before_time = time.time()
                 storage.put_file(
-                    file_path=f'{mesh_dir}/{meshgen_utils.get_mesh_name(cg, obj_id, 0)}',
+                    file_path=f'{mesh_dir}/{meshgen_utils.get_mesh_name(cg, obj_id)}',
                     content=file_contents,
                     compress=compress,
                     cache_control='no-cache'
@@ -1321,8 +1324,8 @@ def chunk_mesh_task_new_remapping(cg_info, chunk_id, cv_path, cv_mesh_dir=None, 
             end_index = start_index + multi_child_num_children[i]
             descendents_for_current_node = multi_child_descendants[start_index:end_index]
             node_id = multi_child_node_ids[i]
-            multi_child_nodes[f'{node_id}:0:{meshgen_utils.get_chunk_bbox_str(cg, node_id, 0)}'] = [
-                f'{c}:0:{meshgen_utils.get_chunk_bbox_str(cg, c, 0)}' for c in descendents_for_current_node
+            multi_child_nodes[f'{node_id}:0:{meshgen_utils.get_chunk_bbox_str(cg, node_id)}'] = [
+                f'{c}:0:{meshgen_utils.get_chunk_bbox_str(cg, c)}' for c in descendents_for_current_node
             ]
             start_index = end_index
         print('new get children time', time.time() - before_time)
