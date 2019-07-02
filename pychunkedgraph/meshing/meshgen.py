@@ -963,7 +963,7 @@ def merge_meshes(meshes):
 def get_meshing_necessities_from_graph(cg, chunk_id, mip):
     layer = cg.get_chunk_layer(chunk_id)
     cx, cy, cz = cg.get_chunk_coordinates(chunk_id)
-    mesh_block_shape = meshgen_utils.get_mesh_block_shape(cg, layer)
+    mesh_block_shape = meshgen_utils.get_mesh_block_shape_for_mip(cg, layer, mip)
     chunk_offset = ((cx, cy, cz) * mesh_block_shape + cg.cv.mip_voxel_offset(mip)) * cg.cv.mip_resolution(mip)
     return layer, mesh_block_shape, chunk_offset
 

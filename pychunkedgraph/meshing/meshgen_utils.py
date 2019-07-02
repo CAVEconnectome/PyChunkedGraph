@@ -53,6 +53,25 @@ def get_mesh_block_shape(cg, graphlayer: int) -> np.ndarray:
     return cg.chunk_size * cg.fan_out ** np.max([0, graphlayer - 2])
 
 
+def get_mesh_block_shape_for_mip(cg, graphlayer: int,
+                         source_mip: int) -> np.ndarray:
+    """
+    Calculate the dimensions of a segmentation block at `source_mip` that covers
+    the same region as a ChunkedGraph chunk at layer `graphlayer`.
+    """
+    info = get_segmentation_info(cg)
+
+    # Segmentation is not always uniformly downsampled in all directions.
+    scale_0 = info['scales'][0]
+    scale_mip = info['scales'][source_mip]
+    distortion = np.floor_divide(scale_mip['resolution'], scale_0['resolution'])
+
+    graphlayer_chunksize = cg.chunk_size * cg.fan_out ** np.max([0, graphlayer - 2])
+
+    return np.floor_divide(graphlayer_chunksize, distortion, dtype=np.int,
+                           casting='unsafe')
+
+
 def get_downstream_multi_child_node(cg, node_id: np.uint64,
                                     stop_layer: int = 1):
     """
