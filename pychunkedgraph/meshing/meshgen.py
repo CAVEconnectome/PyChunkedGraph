@@ -960,7 +960,7 @@ def merge_meshes(meshes):
 def get_meshing_necessities_from_graph(cg, chunk_id, mip):
     layer = cg.get_chunk_layer(chunk_id)
     cx, cy, cz = cg.get_chunk_coordinates(chunk_id)
-    mesh_block_shape = meshgen_utils.get_mesh_block_shape(cg, layer, mip)
+    mesh_block_shape = meshgen_utils.get_mesh_block_shape(cg, layer)
     chunk_offset = ((cx, cy, cz) * mesh_block_shape + cg.cv.mip_voxel_offset(mip)) * cg.cv.mip_resolution(mip)
     return layer, mesh_block_shape, chunk_offset
 
@@ -1513,7 +1513,7 @@ def chunk_mesh_task(cg, chunk_id, cv_path,
             print("Nothing to do", cx, cy, cz)
             return
 
-        mesh_block_shape = meshgen_utils.get_mesh_block_shape(cg, layer, mip)
+        mesh_block_shape = meshgen_utils.get_mesh_block_shape(cg, layer)
 
         chunk_offset = (cx, cy, cz) * mesh_block_shape
 
@@ -1671,7 +1671,7 @@ def mesh_lvl2_preview(cg, lvl2_node_id, supervoxel_ids=None, cv_path=None,
 
     remap_table = dict(zip(supervoxel_ids, [lvl2_node_id] * len(supervoxel_ids)))
 
-    mesh_block_shape = meshgen_utils.get_mesh_block_shape(cg, layer, mip)
+    mesh_block_shape = meshgen_utils.get_mesh_block_shape(cg, layer)
 
     cx, cy, cz = cg.get_chunk_coordinates(lvl2_node_id)
     chunk_offset = (cx, cy, cz) * mesh_block_shape

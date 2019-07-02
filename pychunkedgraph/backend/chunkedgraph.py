@@ -41,7 +41,7 @@ from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple, Union, 
 HOME = os.path.expanduser("~")
 N_DIGITS_UINT64 = len(str(np.iinfo(np.uint64).max))
 N_BITS_PER_ROOT_COUNTER = np.uint64(8)
-LOCK_EXPIRED_TIME_DELTA = datetime.timedelta(minutes=0, seconds=1)
+LOCK_EXPIRED_TIME_DELTA = datetime.timedelta(minutes=3, seconds=0)
 UTC = pytz.UTC
 
 # Setting environment wide credential path
@@ -327,7 +327,21 @@ class ChunkedGraph(object):
 
         return info
 
-    def get_chunk_coordinates_from_vol_coordinates(self, x: np.int, y: np.int,
+
+    def adjust_vol_coordinates_to_cv(self, x: np.int, y: np.int, z: np.int,
+                                     resolution: Sequence[np.int]):
+        resolution = np.array(resolution)
+        scaling = np.array(self.cv.resolution / resolution, dtype=np.int)
+
+        x = (x / scaling[0] - self.vx_vol_bounds[0, 0])
+        y = (y / scaling[1] - self.vx_vol_bounds[1, 0])
+        z = (z / scaling[2] - self.vx_vol_bounds[2, 0])
+
+        return np.array([x, y, z])
+
+    def get_chunk_coordinates_from_vol_coordinates(self,
+                                                   x: np.int,
+                                                   y: np.int,
                                                    z: np.int,
                                                    resolution: Sequence[np.int],
                                                    ceil: bool = False,
