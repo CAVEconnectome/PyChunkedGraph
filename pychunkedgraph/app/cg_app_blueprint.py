@@ -16,7 +16,7 @@ from pychunkedgraph.backend import chunkedgraph_exceptions as cg_exceptions, \
     chunkedgraph_comp as cg_comp
 from middle_auth_client import auth_required, auth_requires_roles
 
-__version__ = 'fafb.1.11'
+__version__ = 'fafb.1.12'
 bp = Blueprint('pychunkedgraph', __name__, url_prefix="/segmentation")
 
 # -------------------------------
@@ -214,17 +214,7 @@ def handle_merge(table_id):
     for node in nodes:
         node_id = node[0]
         x, y, z = node[1:]
-
-        x /= 2
-        y /= 2
-
-        coordinate = np.array([x, y, z])
-
-        if not cg.is_in_bounds(coordinate):
-            coordinate /= cg.segmentation_resolution
-
-            coordinate[0] *= 2
-            coordinate[1] *= 2
+        coordinate = np.array([x, y, z]) / cg.segmentation_resolution
 
         atomic_id = cg.get_atomic_id_from_coord(coordinate[0],
                                                 coordinate[1],
