@@ -2327,6 +2327,7 @@ class ChunkedGraph(object):
             stop_layer = self.n_layers
 
         node_mask = np.ones(len(node_ids), dtype=np.bool)
+        node_mask[self.get_chunk_layers(node_ids) >= stop_layer] = False
         for i_try in range(n_tries):
             parent_ids = np.array(node_ids)
 

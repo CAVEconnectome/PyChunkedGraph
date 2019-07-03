@@ -28,6 +28,9 @@ UTC = pytz.UTC
 from pychunkedgraph.backend import chunkedgraph   # noqa
 from pychunkedgraph.backend.utils import serializers, column_keys  # noqa
 from pychunkedgraph.meshing import meshgen_utils # noqa
+from typing import Sequence
+
+PRINT_FOR_DEBUGGING = False
 
 def decode_draco_mesh_buffer(fragment):
     try:
@@ -94,12 +97,6 @@ def get_root_l2_remapping(cg, chunk_id, stop_layer, time_stamp, n_threads=4):
     def _get_root_ids(args):
         start_id, end_id = args
 
-        # for i_id in range(start_id, end_id):
-        #     l2_id = l2_ids[i_id]
-
-        #     root_id = cg.get_root(l2_id, stop_layer=stop_layer,
-        #                           time_stamp=time_stamp)
-        #     root_ids[i_id] = root_id
         root_ids[start_id:end_id] = cg.get_roots(l2_ids[start_id: end_id])
 
     l2_id_remap = get_l2_remapping(cg, chunk_id, time_stamp=time_stamp)
@@ -116,7 +113,6 @@ def get_root_l2_remapping(cg, chunk_id, stop_layer, time_stamp, n_threads=4):
     if n_jobs > 0:
         mu.multithread_func(_get_root_ids, multi_args, n_threads=n_threads)
 
-    # return l2_ids, np.array(root_ids), l2_id_remap
     return l2_ids, root_ids, l2_id_remap
 
 
@@ -246,7 +242,6 @@ def get_l2_overlapping_remappings(cg, chunk_id, time_stamp=None, n_threads=1):
 
     return sv_remapping, unsafe_dict
 
-
 def get_remapped_segmentation(cg, chunk_id, mip=2, overlap_vx=1,
                               time_stamp=None, n_threads=1):
     """ Downloads + remaps ws segmentation + resolve unclear cases
@@ -254,10 +249,9 @@ def get_remapped_segmentation(cg, chunk_id, mip=2, overlap_vx=1,
     :param cg: chunkedgraph object
     :param chunk_id: np.uint64
     :param mip: int
-        take the 'actual
-    :param overlap_vx:
+    :param overlap_vx: int
     :param time_stamp:
-    :return:
+    :return: remapped segmentation
     """
     def _remap(a):
         if a in sv_remapping:
@@ -267,14 +261,9 @@ def get_remapped_segmentation(cg, chunk_id, mip=2, overlap_vx=1,
 
     assert mip >= cg.cv.mip
 
-    before_time = time.time()
-
     sv_remapping, unsafe_dict = get_lx_overlapping_remappings(cg, chunk_id,
                                                               time_stamp=time_stamp,
                                                               n_threads=n_threads)
-
-    # remap_time = time.time()
-    # print('get_remap_time', remap_time - before_time)
 
     cv = cloudvolume.CloudVolume(cg.cv.cloudpath, mip=mip)
     mip_diff = mip - cg.cv.mip
@@ -290,14 +279,8 @@ def get_remapped_segmentation(cg, chunk_id, mip=2, overlap_vx=1,
                 chunk_start[1]: chunk_end[1],
                 chunk_start[2]: chunk_end[2]].squeeze()
 
-    # download_done = time.time()
-    # print('download_done', download_done - remap_time)
-
     _remap_vec = np.vectorize(_remap)
     seg = _remap_vec(ws_seg).astype(np.uint64)
-
-    # remapping_done_time = time.time()
-    # print('remapping complete time', remapping_done_time - download_done)
 
 
     for unsafe_root_id in unsafe_dict.keys():
@@ -343,13 +326,20 @@ def get_remapped_segmentation(cg, chunk_id, mip=2, overlap_vx=1,
                 cc_ids = np.sort(list(cc))
                 seg[np.in1d(seg, cc_ids[1:]).reshape(seg.shape)] = cc_ids[0]
 
-    # done_time = time.time()
-    # print('done_time', done_time - remapping_done_time)
     return seg
 
+# TODO: refactor (duplicated code with get_remapped_segmentation)
+def get_remapped_seg_for_lvl2_nodes(cg, chunk_id: np.uint64, lvl2_nodes: Sequence[np.uint64], mip: int = 2, overlap_vx: int = 1, time_stamp=None, n_threads: int = 1):
+    """ Downloads + remaps ws segmentation + resolve unclear cases, filter out all but specified lvl2_nodes
 
-def get_remapped_seg_for_lvl2_nodes(cg, chunk_id, lvl2_nodes, mip=2, overlap_vx=1, time_stamp=None, n_threads=1):
-    first_time = time.time()
+    :param cg: chunkedgraph object
+    :param chunk_id: np.uint64
+    :param mip: int
+    :param overlap_vx: int
+    :param time_stamp:
+    :return: remapped segmentation
+    """
+    # Determine the segmentation bounding box to download given cg, chunk_id, and mip. Then download
     cv = cloudvolume.CloudVolume(cg.cv.cloudpath, mip=mip)
     mip_diff = mip - cg.cv.mip
 
@@ -366,15 +356,14 @@ def get_remapped_seg_for_lvl2_nodes(cg, chunk_id, lvl2_nodes, mip=2, overlap_vx=
 
     sv_of_lvl2_nodes = cg.get_children(lvl2_nodes)
 
-    print('data retrieval time', time.time() - first_time)
-    before_time = time.time()
-
+    # Check which of the lvl2_nodes meet the chunk boundary
     node_ids_on_the_border = []
     remapping = {}
     for node, sv_list in sv_of_lvl2_nodes.items():
         node_on_the_border = False
         for sv_id in sv_list:
             remapping[sv_id] = node
+            # If a node_id is on the chunk_boundary, we must check the overlap region to see if the meshes' end will be open or closed
             if (not node_on_the_border) and (np.isin(sv_id, seg[-2,:,:]) or np.isin(sv_id, seg[:,-2,:]) or np.isin(sv_id, seg[:,:,-2])):
                 node_on_the_border = True
                 node_ids_on_the_border.append(node)
@@ -384,14 +373,14 @@ def get_remapped_seg_for_lvl2_nodes(cg, chunk_id, lvl2_nodes, mip=2, overlap_vx=
         overlap_region = np.concatenate((seg[:,:,-1], seg[:,-1,:], seg[-1,:,:]), axis=None)
         overlap_sv_ids = np.unique(overlap_region)
         if overlap_sv_ids[0] == 0:
-            sv_remapping, unsafe_dict = get_lx_overlapping_remappings_for_nodes_and_svs(cg, chunk_id, node_ids_on_the_border, overlap_sv_ids[1:], time_stamp, n_threads)
-        else:
-            sv_remapping, unsafe_dict = get_lx_overlapping_remappings_for_nodes_and_svs(cg, chunk_id, node_ids_on_the_border, overlap_sv_ids, time_stamp, n_threads)
+            del overlap_sv_ids[0]
+        # Get the remappings for the supervoxels in the overlap region
+        sv_remapping, unsafe_dict = get_lx_overlapping_remappings_for_nodes_and_svs(cg, chunk_id, node_ids_on_the_border, overlap_sv_ids, time_stamp, n_threads)
         sv_remapping.update(remapping)
-        print('get remap_time', time.time() - before_time)
         fastremap.mask_except(seg, list(sv_remapping.keys()), in_place=True)
         fastremap.remap(seg, sv_remapping, preserve_missing_labels=True, in_place=True)
-        print('fastremap_time', time.time() - before_time)
+        # For some supervoxel, they could map to multiple l2 nodes in the chunk, so we must perform a connected component analysis
+        # to see which l2 node they are adjacent to
         for unsafe_root_id in unsafe_dict.keys():
             bin_seg = seg == unsafe_root_id
 
@@ -435,10 +424,10 @@ def get_remapped_seg_for_lvl2_nodes(cg, chunk_id, lvl2_nodes, mip=2, overlap_vx=
                     cc_ids = np.sort(list(cc))
                     seg[np.in1d(seg, cc_ids[1:]).reshape(seg.shape)] = cc_ids[0]
     else:
+        # If no nodes in our subset meet the chunk boundary we can simply retrieve the sv of the nodes in the subset
         fastremap.mask_except(seg, list(remapping.keys()), in_place=True)
         fastremap.remap(seg, remapping, preserve_missing_labels=True, in_place=True)
 
-    print('remap_time', time.time() - before_time)
     return seg
 
 @lru_cache(maxsize=None)
@@ -494,7 +483,6 @@ def get_higher_to_lower_remapping(cg, chunk_id, time_stamp):
 
     return lx_remapping
 
-
 @lru_cache(maxsize=None)
 def get_root_lx_remapping(cg, chunk_id, stop_layer, time_stamp, n_threads=1):
     """ Retrieves root to l2 node id mapping
@@ -507,13 +495,6 @@ def get_root_lx_remapping(cg, chunk_id, stop_layer, time_stamp, n_threads=1):
     """
     def _get_root_ids(args):
         start_id, end_id = args
-
-        # for i_id in range(start_id, end_id):
-        #     lx_id = lx_ids[i_id]
-
-        #     root_id = cg.get_root(lx_id, stop_layer=stop_layer,
-        #                           time_stamp=time_stamp)
-        #     root_ids[i_id] = root_id
         root_ids[start_id:end_id] = cg.get_roots(lx_ids[start_id: end_id], stop_layer=stop_layer)
 
     lx_id_remap = get_higher_to_lower_remapping(cg, chunk_id, time_stamp=time_stamp)
@@ -661,11 +642,11 @@ def get_lx_overlapping_remappings(cg, chunk_id, time_stamp=None, n_threads=1):
 
     return sv_remapping, unsafe_dict
 
-
-def get_root_remapping_for_nodes_and_svs(cg, node_ids, sv_ids, stop_layer, time_stamp, n_threads=1):
+def get_root_remapping_for_nodes_and_svs(cg, chunk_id, node_ids, sv_ids, stop_layer, time_stamp, n_threads=1):
     """ Retrieves root to node id mapping for specified node ids and supervoxel ids
 
     :param cg: chunkedgraph object
+    :param chunk_id: np.uint64
     :param node_ids: [np.uint64]
     :param stop_layer: int
     :param time_stamp: datetime object
@@ -674,9 +655,12 @@ def get_root_remapping_for_nodes_and_svs(cg, node_ids, sv_ids, stop_layer, time_
     def _get_root_ids(args):
         start_id, end_id = args
 
-        root_ids[start_id:end_id] = cg.get_roots(combined_ids[start_id: end_id], stop_layer=stop_layer)
+        root_ids[start_id:end_id] = cg.get_roots(combined_ids[start_id: end_id], stop_layer=stop_layer, time_stamp=time_stamp)
 
-    combined_ids = np.concatenate((node_ids, sv_ids))
+
+    rr = cg.range_read_chunk(chunk_id=chunk_id, columns=column_keys.Hierarchy.Parent, time_stamp=time_stamp)
+    upper_lvl_ids = [id[0].value for id in rr.values()]
+    combined_ids = np.concatenate((node_ids, sv_ids, upper_lvl_ids))
 
     root_ids = np.zeros(len(combined_ids), dtype=np.uint64)
     n_jobs = np.min([n_threads, len(combined_ids)])
@@ -688,18 +672,21 @@ def get_root_remapping_for_nodes_and_svs(cg, node_ids, sv_ids, stop_layer, time_
     if n_jobs > 0:
         mu.multithread_func(_get_root_ids, multi_args, n_threads=n_threads)
 
+    sv_ids_index = len(node_ids)
+    chunk_ids_index = len(node_ids) + len(sv_ids)
 
+    return root_ids[0:sv_ids_index], root_ids[sv_ids_index:chunk_ids_index], root_ids[chunk_ids_index:]
 
-    return np.array(root_ids[0:len(node_ids)]), np.array(root_ids[len(node_ids):])
-
-
-def get_lx_overlapping_remappings_for_nodes_and_svs(cg, chunk_id, node_ids, sv_ids, time_stamp=None, n_threads=1):
+def get_lx_overlapping_remappings_for_nodes_and_svs(cg, chunk_id: np.uint64, node_ids: Sequence[np.uint64], sv_ids: Sequence[np.uint64], time_stamp=None, n_threads: int = 1):
     """ Retrieves sv id to layer mapping for chunk with overlap in positive
         direction (one chunk)
 
     :param cg: chunkedgraph object
     :param chunk_id: np.uint64
+    :param node_ids: list of np.uint64
+    :param sv_ids: list of np.uint64
     :param time_stamp: datetime object
+    :param n_threads: int
     :return: multiples
     """
     if time_stamp is None:
@@ -743,15 +730,20 @@ def get_lx_overlapping_remappings_for_nodes_and_svs(cg, chunk_id, node_ids, sv_i
     # Find the parent in the lowest common chunk for each node id and sv id. These parent
     # ids are referred to as root ids even though they are not necessarily the
     # root id.
+    node_root_ids, sv_root_ids, chunks_root_ids = get_root_remapping_for_nodes_and_svs(cg, chunk_id, node_ids, sv_ids, stop_layer, time_stamp, n_threads)
 
-    node_root_ids, sv_root_ids = get_root_remapping_for_nodes_and_svs(cg, node_ids, sv_ids, stop_layer, time_stamp, n_threads=1)
+    u_root_ids, c_root_ids = np.unique(chunks_root_ids,
+                                              return_counts=True)
 
-    u_root_ids, u_idx, c_root_ids = np.unique(node_root_ids,
-                                              return_counts=True,
-                                              return_index=True)
+    # All l2 ids that share no root id with any other l2 id in the chunk are "safe", meaning
+    # that we can easily obtain the complete remapping (including
+    # overlap) for these. All other ones have to be resolved using the
+    # segmentation.
 
-    safe_node_ids = node_ids[u_idx[c_root_ids == 1]]
-    unsafe_root_ids = np.unique(node_root_ids[u_idx[c_root_ids != 1]])
+    temp_node_roots = u_root_ids[np.where(u_root_ids == node_root_ids)]
+    node_root_counts = c_root_ids[np.where(u_root_ids == node_root_ids)]
+    unsafe_root_ids = temp_node_roots[np.where(node_root_counts > 1)]
+    safe_node_ids = node_ids[~np.isin(node_root_ids, unsafe_root_ids)]
 
     node_to_root_dict = dict(zip(node_ids, node_root_ids))
 
@@ -767,6 +759,8 @@ def get_lx_overlapping_remappings_for_nodes_and_svs(cg, chunk_id, node_ids, sv_i
             sv_ids_to_remap.extend(sv_ids_to_add)
             node_ids_flat.extend([node_id] * len(sv_ids_to_add))
 
+    # For the unsafe roots, we will map the out of chunk svs to the root id and store the
+    # hierarchical information in a dictionary
     unsafe_dict = collections.defaultdict(list)
     for root_id in unsafe_root_ids:
         sv_ids_to_add = sv_ids[np.where(sv_root_ids == root_id)]
@@ -960,7 +954,14 @@ def merge_meshes(meshes):
     }
 
 
-def get_meshing_necessities_from_graph(cg, chunk_id, mip):
+def get_meshing_necessities_from_graph(cg, chunk_id: np.uint64, mip: int):
+    """ Given a chunkedgraph, chunk_id, and mip level, return the voxel dimensions of the chunk to be meshed (mesh_block_shape)
+    and the chunk origin in the dataset in nm.
+
+    :param cg: chunkedgraph instance
+    :param chunk_id: uint64
+    :param mip: int
+    """
     layer = cg.get_chunk_layer(chunk_id)
     cx, cy, cz = cg.get_chunk_coordinates(chunk_id)
     mesh_block_shape = meshgen_utils.get_mesh_block_shape_for_mip(cg, layer, mip)
@@ -983,16 +984,20 @@ def calculate_quantization_bits_and_range(min_quantization_range, max_draco_bin_
     return draco_quantization_bits, draco_quantization_range, draco_bin_size
 
 
-def get_draco_encoding_settings_for_chunk(cg, chunk_id, mip=2, high_padding=1):
-    """
-    Calculate the proper draco encoding settings for a chunk to ensure proper stitching is possible
+# TODO: Bring over meshing readme from macastro-fafb-ingest-draco branch
+def get_draco_encoding_settings_for_chunk(cg, chunk_id: np.uint64, mip: int = 2, high_padding: int = 1):
+    """ Calculate the proper draco encoding settings for a chunk to ensure proper stitching is possible
     on the layer above. For details about how and why we do this, please see the meshing Readme
+
+    :param cg: chunkedgraph instance
+    :param chunk_id: uint64
+    :param mip: int
+    :param high_padding: int
     """
     layer, mesh_block_shape, chunk_offset = get_meshing_necessities_from_graph(cg, chunk_id, mip)
     segmentation_resolution = cg.cv.scales[mip]['resolution']
     min_quantization_range = max((mesh_block_shape + high_padding) * segmentation_resolution)
     max_draco_bin_size = np.floor(min(segmentation_resolution) / np.sqrt(2))
-    # max_draco_bin_size = np.floor(min(segmentation_resolution) / 2)
     draco_quantization_bits, draco_quantization_range, draco_bin_size = calculate_quantization_bits_and_range(min_quantization_range, max_draco_bin_size)
     draco_quantization_origin = chunk_offset - (chunk_offset % draco_bin_size)
     return {
@@ -1069,8 +1074,6 @@ def draco_mesh_remove_duplicate_vertices(cg, draco_mesh):
         faces = faces.astype(np.uint32)
     return {
         'num_vertices': np.uint32(len(vertices)),
-        # 'vertices': np.reshape(vertices, (len(vertices) * 3,)),
-        # 'faces': np.reshape(faces, (len(faces) * 3,))
         'vertices': vertices.reshape(-1),
         'faces': faces
     }
@@ -1084,72 +1087,64 @@ def merge_draco_meshes(fragments):
     faces = np.concatenate([
         mesh['faces'] + vertexct[i] for i, mesh in enumerate(mdata)
     ])
-    # if len(faces.shape) == 1:
-    #     faces = faces.reshape(-1, 3)
-    # if vertexct[-1] > 0:
-    #     vertices, faces = np.unique(vertices[faces],
-    #                                 return_inverse=True, axis=0)
-        # vertices, faces = np.unique(vertices[faces.reshape(-1)],
-        #                             return_inverse=True, axis=0)
-        # faces = faces.reshape(-1,3).astype(np.uint32)
-    # is_chunk_aligned = np.any(np.mod(verts, chunk_size) == 0, axis=1)
-    # # # uniq_vertices, uniq_faces, vert_face_counts = np.unique(vertices[faces],
-    # #                                                         return_inverse=True,
-    # #                                                         return_counts=True,
-    # #                                                         axis=0)
-    # # find all vertices that have exactly 2 duplicates
-    # unique_vertices, unique_inverse, counts = np.unique(verts,
-    #                                                     return_inverse=True,
-    #                                                     return_counts=True,
-    #                                                     axis=0)
-    # only_double = np.where(counts == 2)[0]
-    # is_doubled = np.isin(unique_inverse, only_double)
-    # # this stores whether each vertex should be merged or not
-    # do_merge = np.array(is_doubled & is_chunk_aligned)
-
-    # # setup an artificial 4th coordinate for vertex positions
-    # # which will be unique in general, 
-    # # but then repeated for those that are merged
-    # new_vertices = np.hstack((verts, np.arange(verts.shape[0])[:, np.newaxis]))
-    # new_vertices[do_merge, 3] = -1
-    # fa = np.array(faces)
-    # n_faces = fa.shape[0]
-    # n_dim = fa.shape[1]
-
-    # # use unique to make the artificial vertex list unique and reindex faces
-    # vertices, newfaces = np.unique(new_vertices[faces.ravel(),:], return_inverse=True, axis=0)
-    # faces = newfaces.reshape((n_faces, n_dim))
-    # faces = faces.astype(np.uint32)
-
-    # return vertices[:,0:3], faces
     return {
         'num_vertices': np.uint32(len(vertices)),
-        # 'vertices': np.reshape(vertices, (len(vertices) * 3,)),
-        # 'faces': np.reshape(faces, (len(faces) * 3,))
         'vertices': vertices,
         'faces': faces,
         'vertexct': vertexct
     }
 
-
-def merge_draco_meshes_across_boundaries(cg, fragments):
-    # TODO: change from naive/brute force merging to only merging at quantized chunk boundary
-    mdata = [fragment['mesh'] for fragment in fragments]
-    vertexct = np.zeros(len(mdata) + 1, np.uint32)
-    vertexct[1:] = np.cumsum([x['num_vertices'] for x in mdata])
-    vertices = np.concatenate([x['vertices'] for x in mdata])
+# WIP/Not stable
+def merge_draco_meshes_across_boundaries(cg, fragments, chunk_id, mip, high_padding):
+    vertexct = np.zeros(len(fragments) + 1, np.uint32)
+    # vertexct = np.sum([x['mesh']['num_vertices'] for x in fragments])
+    vertexct[1:] = np.cumsum([x['mesh']['num_vertices'] for x in fragments])
+    vertices = np.concatenate([x['mesh']['vertices'] for x in fragments])
     faces = np.concatenate([
-        mesh['faces'] + vertexct[i] for i, mesh in enumerate(mdata)
+        mesh['mesh']['faces'] + vertexct[i] for i, mesh in enumerate(fragments)
     ])
-    if len(faces.shape) == 1:
-        faces = faces.reshape(-1, 3)
+    # del fragments
+
     if vertexct[-1] > 0:
-        vertices, faces = np.unique(vertices[faces.reshape(-1)],
-                                    return_inverse=True, axis=0)
-        faces = faces.reshape(-1,3).astype(np.uint32)
+        chunk_coords = cg.get_chunk_coordinates(chunk_id)
+        coords_bottom_corner_child_chunk = chunk_coords * 2 + 1
+        child_chunk_id = cg.get_chunk_id(None, cg.get_chunk_layer(chunk_id) - 1, *coords_bottom_corner_child_chunk)
+        _, _, child_chunk_offset = get_meshing_necessities_from_graph(cg, child_chunk_id, mip)
+        draco_encoding_settings_smaller_chunk = get_draco_encoding_settings_for_chunk(cg, child_chunk_id, mip=mip, high_padding=high_padding)
+        draco_bin_size = draco_encoding_settings_smaller_chunk['quantization_range'] / (2 ** draco_encoding_settings_smaller_chunk['quantization_bits'] - 1)
+        child_chunk_offset % draco_bin_size
+        # quantized_chunk_boundary = draco_encoding_settings_smaller_chunk['quantization_origin'] + draco_encoding_settings_smaller_chunk['quantization_range']
+        # are_chunk_aligned = (vertices == quantized_chunk_boundary).any(axis=1)
+        vertices[:,3] = np.arange(vertexct[-1])
+        del vertexct
+        # import ipdb
+        # ipdb.set_trace()
+        # vertices = np.hstack((vertices, np.arange(vertices.shape[0])[:, np.newaxis]))
+        # vertices[are_chunk_aligned, 3] = -1
+
+        # use unique to make the artificial vertex list unique and reindex faces
+        vertices, newfaces = np.unique(vertices[faces], return_inverse=True, axis=0)
+        # faces = newfaces.reshape((n_faces, n_dim))
+        # faces = faces.astype(np.uint32)
+        # vertices, faces = np.unique(vertices[faces],
+                                    # return_inverse=True, axis=0)
+        # faces = faces.reshape(-1,3)
+    return {
+        'num_vertices': np.uint32(len(vertices)),
+        # 'vertices': np.reshape(vertices, (len(vertices) * 3,)),
+        # 'faces': np.reshape(faces, (len(faces) * 3,))
+        'vertices': vertices[:,0:3].reshape(-1),
+        'faces': faces
+    }
 
 
 def black_out_dust_from_segmentation(seg, dust_threshold):
+    """ Black out (set to 0) IDs in segmentation not on the segmentation border that have less voxels than dust_threshold
+
+    :param seg: 3D segmentation (usually uint64)
+    :param dust_threshold: int
+    :return:
+    """
     seg_ids, voxel_count = np.unique(seg, return_counts=True)
     boundary = np.concatenate((seg[-2,:,:], seg[-1,:,:], seg[:,-2,:], seg[:,-1,:], seg[:,:,-2], seg[:,:,-1]), axis=None)
     seg_ids_on_boundary = np.unique(boundary)
@@ -1157,28 +1152,38 @@ def black_out_dust_from_segmentation(seg, dust_threshold):
     seg = fastremap.mask(seg, dust_segids, in_place=True)
 
 
-def remeshing(cg, l2_node_ids, stop_layer=None, cv_path=None, cv_mesh_dir=None, mip=2, max_err=320):
-    l2_chunk_dict = {}
+def remeshing(cg, l2_node_ids: Sequence[np.uint64], stop_layer: int = None, cv_path: str = None, cv_mesh_dir: str = None, mip: int = 2, max_err: int = 320):
+    """ Given a chunkedgraph, a list of level 2 nodes, perform remeshing and stitching up the node hierarchy (or up to the stop_layer)
+
+    :param cg: chunkedgraph instance
+    :param l2_node_ids: list of uint64
+    :param stop_layer: int
+    :param cv_path: str
+    :param cv_mesh_dir: str
+    :param mip: int
+    :param max_err: int
+    :return:
+    """
+    l2_chunk_dict = collections.defaultdict(list)
+    # Find the chunk_ids of the l2_node_ids
     def add_nodes_to_l2_chunk_dict(ids):
-        for node_id in l2_node_ids:
+        for node_id in ids:
             chunk_id = cg.get_chunk_id(node_id)
-            if chunk_id in l2_chunk_dict:
-                l2_chunk_dict[chunk_id].add(node_id)
-            else:
-                l2_chunk_dict[chunk_id] = {node_id}
+            l2_chunk_dict[chunk_id].append(node_id)
+            # if chunk_id in l2_chunk_dict:
+                # l2_chunk_dict[chunk_id].add(node_id)
+            # else:
+                # l2_chunk_dict[chunk_id] = {node_id}
     add_nodes_to_l2_chunk_dict(l2_node_ids)
-    before_time = time.time()
     for chunk_id, node_ids in l2_chunk_dict.items():
-        # print(chunk_id, node_ids)
+        # Remesh the l2_node_ids
         chunk_mesh_task_new_remapping(cg.get_serialized_info(), chunk_id, cg._cv_path, cv_mesh_dir=cv_mesh_dir, mip=mip, fragment_batch_size=20, node_id_subset=node_ids, cg=cg)
-    #     l2_nodes_for_chunk = chunk_mesh_task_new_remapping(cg, chunk_id, node_id_subset=node_ids)
-    #     add_nodes_to_l2_chunk_dict(l2_nodes_for_chunk)
-    print('l2 time', time.time() - before_time)
     chunk_dicts = []
     max_layer = stop_layer or cg._n_layers
     for layer in range(3, max_layer+1):
-        chunk_dicts.append({})
+        chunk_dicts.append(collections.defaultdict(list))
     cur_chunk_dict = l2_chunk_dict
+    # Find the parents of each l2_node_id up to the stop_layer, as well as their associated chunk_ids
     for layer in range(3, max_layer+1):
         for _, node_ids in cur_chunk_dict.items():
             parent_nodes = cg.get_parents(node_ids)
@@ -1187,18 +1192,18 @@ def remeshing(cg, l2_node_ids, stop_layer=None, cv_path=None, cv_mesh_dir=None, 
                 index_in_dict_array = chunk_layer - 3
                 if index_in_dict_array < len(chunk_dicts):
                     chunk_id = cg.get_chunk_id(parent_node)
-                    if chunk_id in chunk_dicts[index_in_dict_array]:
-                        chunk_dicts[index_in_dict_array][chunk_id].add(parent_node)
-                    else:
-                        chunk_dicts[index_in_dict_array][chunk_id] = {parent_node}
+                    chunk_dicts[index_in_dict_array][chunk_id].append(parent_node)
+                    # if chunk_id in chunk_dicts[index_in_dict_array]:
+                        # chunk_dicts[index_in_dict_array][chunk_id].add(parent_node)
+                    # else:
+                        # chunk_dicts[index_in_dict_array][chunk_id] = {parent_node}
         cur_chunk_dict = chunk_dicts[layer - 3]
-    before_time = time.time()
     for chunk_dict in chunk_dicts:
         for chunk_id, node_ids in chunk_dict.items():
-            # print(chunk_id, node_ids)
+            if PRINT_FOR_DEBUGGING:
+                print('remeshing', chunk_id, node_ids)
+            # Stitch the meshes of the parents we found in the previous loop
             chunk_mesh_task_new_remapping(cg.get_serialized_info(), chunk_id, cg._cv_path, cv_mesh_dir=cv_mesh_dir, mip=mip, fragment_batch_size=20, node_id_subset=node_ids, cg=cg)
-    print('stitching time', time.time() - before_time)
-
 
 REDIS_HOST = os.environ.get('REDIS_SERVICE_HOST', 'localhost')
 REDIS_PORT = os.environ.get('REDIS_SERVICE_PORT', '6379')
@@ -1207,107 +1212,78 @@ REDIS_URL = f'redis://:{REDIS_PASSWORD}@{REDIS_HOST}:{REDIS_PORT}/0'
 
 from pychunkedgraph.utils.general import redis_job
 # @redis_job(REDIS_URL, 'mesh_frag_test_channel')
+# TODO: refactor this bloated function
 def chunk_mesh_task_new_remapping(cg_info, chunk_id, cv_path, cv_mesh_dir=None, mip=2, max_err=320, base_layer=2, lod=0, encoding='draco', time_stamp=None, dust_threshold=None, return_frag_count=False, fragment_batch_size=None, node_id_subset=None, cg=None):
     if cg is None:
         cg = chunkedgraph.ChunkedGraph(**cg_info)
     mesh_dir = cv_mesh_dir or cg._mesh_dir
-    start_time = time.time()
     result = []
 
     layer, mesh_block_shape, chunk_offset = get_meshing_necessities_from_graph(cg, chunk_id, mip)
     cx, cy, cz = cg.get_chunk_coordinates(chunk_id)
+    high_padding = 1
     if layer <= 2:
         assert mip >= cg.cv.mip
         
-        high_padding = 1
         result.append((chunk_id, layer, cx, cy, cz))
         print("Retrieving remap table for chunk %s -- (%s, %s, %s, %s)" % (chunk_id, layer, cx, cy, cz))
         mesher = zmesh.Mesher(cg.cv.mip_resolution(mip))
         draco_encoding_settings = get_draco_encoding_settings_for_chunk(cg, chunk_id, mip, high_padding)
-        before_time = time.time()
         if node_id_subset is None:
             seg = get_remapped_segmentation(cg, chunk_id, mip, overlap_vx=high_padding, time_stamp=time_stamp)
         else:
             seg = get_remapped_seg_for_lvl2_nodes(cg, chunk_id, node_id_subset, mip=mip, overlap_vx=high_padding, time_stamp=time_stamp)
-        print('get_remapped_seg time: ', time.time() - before_time)
         if dust_threshold:
-            # before_time = time.time()
             black_out_dust_from_segmentation(seg, dust_threshold)
-            # print('dust removal time: ', time.time() - before_time)
         if return_frag_count:
             return np.unique(seg).shape[0]
-        # print('get root cache: ', get_root_lx_remapping.cache_info())
-        # print(draco_encoding_settings)
-        before_time = time.time()
         mesher.mesh(seg.T)
-        print('mesh time: ', time.time() - before_time)
         del seg
-        simplification_time = 0
-        draco_encoding_time = 0
-        write_to_cloud_time = 0
         with Storage(cv_path) as storage:
-            print('cv path', cv_path)
-            print('mesh_dir', mesh_dir)
-            print('num ids', len(mesher.ids()))
+            if PRINT_FOR_DEBUGGING:
+                print('cv path', cv_path)
+                print('mesh_dir', mesh_dir)
+                print('num ids', len(mesher.ids()))
             result.append(len(mesher.ids()))
             for obj_id in mesher.ids():
-                before_time = time.time()
                 mesh = mesher.get_mesh(
                     obj_id,
                     simplification_factor=999999,
                     max_simplification_error=max_err
                 )
-                simplification_time = simplification_time + time.time() - before_time
                 mesher.erase(obj_id)
-                # mesh.vertices[:] += chunk_offset * cg.cv.mip_resolution(mip)
                 mesh.vertices[:] += chunk_offset
                 if encoding == 'draco':
-                    before_time = time.time()
                     try:
                         file_contents = DracoPy.encode_mesh_to_buffer(
                             mesh.vertices.flatten('C'), mesh.faces.flatten('C'), 
                             **draco_encoding_settings
                         )
-                        # ex_buff = DracoPy.decode_buffer_to_mesh(file_contents)
-                        # again = DracoPy.encode_mesh_to_buffer(ex_buff.points, ex_buff.faces, **draco_encoding_settings)
-                        # out_again = DracoPy.decode_buffer_to_mesh(again)
                     except:
-                        # print(f'{obj_id} failed: {len(mesh.vertices)} vertices, {len(mesh.faces)} faces')
                         result.append(f'{obj_id} failed: {len(mesh.vertices)} vertices, {len(mesh.faces)} faces')
-                        draco_encoding_time = draco_encoding_time + time.time() - before_time
                         continue
-                    draco_encoding_time = draco_encoding_time + time.time() - before_time
                     compress = False
                 else:
                     file_contents = mesh.to_precomputed()
                     compress = True
-                before_time = time.time()
                 storage.put_file(
                     file_path=f'{mesh_dir}/{meshgen_utils.get_mesh_name(cg, obj_id)}',
                     content=file_contents,
                     compress=compress,
                     cache_control='no-cache'
                 )
-                write_to_cloud_time = write_to_cloud_time + time.time() - before_time
-        print('simplification time: ', simplification_time)
-        print('draco encoding time: ', draco_encoding_time)
-        print('write to cloud time: ', write_to_cloud_time)
-        print('total_time: ', time.time() - start_time)
     else:
         # For each node with more than one child, create a new fragment by
         # merging the mesh fragments of the children.
         
-        before_time = time.time()
         print("Retrieving children for chunk %s -- (%s, %s, %s, %s)" % (chunk_id, layer, cx, cy, cz))
         if node_id_subset is None:
             range_read = cg.range_read_chunk(layer, cx, cy, cz, columns=column_keys.Hierarchy.Child)
         else:
             range_read = cg.read_node_id_rows(node_ids=node_id_subset, columns=column_keys.Hierarchy.Child)
-        print('range read chunk time', time.time() - before_time)
 
         print("Collecting only nodes with more than one child: ", end="")
 
-        before_time = time.time()
         node_ids = np.array(list(range_read.keys()))
         node_rows = np.array(list(range_read.values()))
         child_fragments = np.array([fragment.value for child_fragments_for_node in node_rows for fragment in child_fragments_for_node])
@@ -1328,23 +1304,13 @@ def chunk_mesh_task_new_remapping(cg_info, chunk_id, cv_path, cv_mesh_dir=None, 
                 f'{c}:0:{meshgen_utils.get_chunk_bbox_str(cg, c)}' for c in descendents_for_current_node
             ]
             start_index = end_index
-        print('new get children time', time.time() - before_time)
-        print("get children time", time.time() - before_time)
         print("%d out of %d" % (len(multi_child_nodes), len(node_ids)))
         result.append((chunk_id, len(multi_child_nodes), len(node_ids)))
         if not multi_child_nodes:
             print("Nothing to do", cx, cy, cz)
             return ', '.join(str(x) for x in result)
 
-        retrieving_time = 0
-        decoding_time = 0
-        transforming_time = 0
-        merging_time = 0
-        encoding_time = 0
-        writing_time = 0
-        getting_frags_time = 0
         with Storage(os.path.join(cv_path, mesh_dir)) as storage:
-            before_time = time.time()
             vals = multi_child_nodes.values()
             fragment_to_fetch = [fragment for child_fragments in vals for fragment in child_fragments]
             if fragment_batch_size is None:
@@ -1357,33 +1323,18 @@ def chunk_mesh_task_new_remapping(cg_info, chunk_id, cv_path, cv_mesh_dir=None, 
             fragment_map = {}
             for i in range(len(files_contents)):
                 fragment_map[files_contents[i]['filename']] = files_contents[i]
-            extra_getting_frags_time = 0
-            if fragment_batch_size is None:
-                print('getting frags time', time.time() - before_time)
-            else:
-                extra_getting_frags_time = time.time() - before_time
             i = 0
             for new_fragment_id, fragment_ids_to_fetch in multi_child_nodes.items():
                 i += 1
                 if i % max(1, len(multi_child_nodes) // 10) == 0:
                     print(f"{i}/{len(multi_child_nodes)}")
-                    print('retrieving_time', retrieving_time)
-                    print('decoding_time', decoding_time)
-                    print('transforming_time', transforming_time)
-                    print('merging_time', merging_time)
-                    print('encoding_time', encoding_time)
-                    print('writing_time', writing_time)
-                    print('batch frags time', getting_frags_time + extra_getting_frags_time)
 
                 old_fragments = []
-                before_time = time.time()
                 missing_fragments = False
-                getting_frags_time_for_node = 0 
                 for fragment_id in fragment_ids_to_fetch:
                     if fragment_batch_size is not None:
                         fragments_in_batch_processed += 1
                         if fragments_in_batch_processed > fragment_batch_size:
-                            before_get_frags_time = time.time()
                             fragments_in_batch_processed = 1
                             batches_processed += 1
                             num_fragments_processed = batches_processed * fragment_batch_size
@@ -1391,7 +1342,6 @@ def chunk_mesh_task_new_remapping(cg_info, chunk_id, cv_path, cv_mesh_dir=None, 
                             fragment_map = {}
                             for j in range(len(files_contents)):
                                 fragment_map[files_contents[j]['filename']] = files_contents[j]
-                            getting_frags_time_for_node = time.time() - before_get_frags_time
                     fragment = fragment_map[fragment_id]
                     filename = fragment['filename']
                     end_of_node_id_index = filename.find(':')
@@ -1410,16 +1360,12 @@ def chunk_mesh_task_new_remapping(cg_info, chunk_id, cv_path, cv_mesh_dir=None, 
                             new_fragment_str = new_fragment_id[0:new_fragment_id.find(':')]
                             result.append(f'Decoding failed for {node_id_str} in {new_fragment_str}')
                     elif cg.get_chunk_layer(np.uint64(node_id_str)) > 2:
-                        # missing_fragments = True
                         result.append(f'{fragment_id} missing for {new_fragment_id}')
-                decoding_time = decoding_time + time.time() - before_time - getting_frags_time_for_node
-                getting_frags_time += getting_frags_time_for_node
 
                 if len(old_fragments) == 0 or missing_fragments:
                     result.append(f'No meshes for {new_fragment_id}')
                     continue
 
-                before_time = time.time()
                 draco_encoding_options = None
                 for old_fragment in old_fragments:
                     if draco_encoding_options is None:
@@ -1429,56 +1375,26 @@ def chunk_mesh_task_new_remapping(cg_info, chunk_id, cv_path, cv_mesh_dir=None, 
                         np.testing.assert_equal(draco_encoding_options['quantization_bits'], encoding_options_for_fragment['quantization_bits'])
                         np.testing.assert_equal(draco_encoding_options['quantization_range'], encoding_options_for_fragment['quantization_range'])
                         np.testing.assert_array_equal(draco_encoding_options['quantization_origin'], encoding_options_for_fragment['quantization_origin'])
-                transforming_time = transforming_time + time.time() - before_time
 
-                old_fragment_merged = None
-                # if len(old_fragments) > 0:
-                before_time = time.time()
                 old_fragment_merged = merge_draco_meshes(old_fragments)
                 new_fragment = draco_mesh_remove_duplicate_vertices(cg, old_fragment_merged)
-                merging_time = merging_time + time.time() - before_time
-                # else:
-                #     new_fragment = old_fragments[0]['mesh']
-                #     new_fragment['vertices'] = np.reshape(new_fragment['vertices'], (len(new_fragment['vertices']) * 3))
+                # new_fragment = merge_draco_meshes_across_boundaries(cg, old_fragments, chunk_id, mip, high_padding)
 
-                before_time = time.time()
                 try:
                     new_fragment_b = DracoPy.encode_mesh_to_buffer(new_fragment['vertices'], new_fragment['faces'], **draco_encoding_options)
-                    # DracoPy.decode_buffer_to_mesh(new_fragment_b)
                 except:
                     new_fragment_str = new_fragment_id[0:new_fragment_id.find(':')]
                     result.append(f'Bad mesh created for {new_fragment_str}: {len(new_fragment["vertices"])} vertices, {len(new_fragment["faces"])} faces')
-                    # result.append(f'Bad mesh created for {new_fragment_str}')
-                    # try:
-
-                    #     old_fragment_merged['vertices'] = old_fragment_merged['vertices'].reshape(-1)
-                    #     new_fragment_b = DracoPy.encode_mesh_to_buffer(old_fragment_merged['vertices'], old_fragment_merged['faces'], **draco_encoding_options)
-                    #     DracoPy.decode_buffer_to_mesh(new_fragment_b)
-                    # except:
-                    #     result.append(f'Could not revert to old_fragment mesh created for {new_fragment_str}')
                     continue
-                    # raise ValueError(f'Could not revert to old_fragment mesh created for {new_fragment_str}')
 
-                encoding_time = encoding_time + time.time() - before_time
-                before_time = time.time()
                 storage.put_file(new_fragment_id,
                                  new_fragment_b,
                                  content_type='application/octet-stream',
                                  compress=False,
                                  cache_control='no-cache')
-                writing_time = writing_time + time.time() - before_time
 
-        print('retrieving_time', retrieving_time)
-        print('decoding_time', decoding_time)
-        print('transforming_time', transforming_time)
-        print('merging_time', merging_time)
-        print('encoding_time', encoding_time)
-        print('writing_time', writing_time)
-        if fragment_batch_size is not None:
-            print('batch frags time', getting_frags_time + extra_getting_frags_time)
-            print('num fragments processed', num_fragments_processed)
-            print('batches processed', batches_processed)
-    print(', '.join(str(x) for x in result))
+    if PRINT_FOR_DEBUGGING:
+        print(', '.join(str(x) for x in result))
     return ', '.join(str(x) for x in result)
 
 
