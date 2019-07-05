@@ -93,7 +93,7 @@ def get_downstream_multi_child_node(cg, node_id: np.uint64,
     return get_downstream_multi_child_node(cg, children[0], stop_layer)
 
 
-def get_downstream_multi_child_nodes(cg, node_ids: Sequence[np.uint64]):
+def get_downstream_multi_child_nodes(cg, node_ids: Sequence[np.uint64], require_children=True):
     """
     Return the first descendant of `node_ids` (including themselves) with more than
     one child, or the first descendant of `node_id` (including itself) on or
@@ -108,6 +108,8 @@ def get_downstream_multi_child_nodes(cg, node_ids: Sequence[np.uint64]):
         if np.any(stop_layer_mask):
             node_to_children_dict = cg.get_children(cur_node_ids[stop_layer_mask])
             children_array = np.array(list(node_to_children_dict.values()))
+            if require_children and len(children_array) < len(cur_node_ids[stop_layer_mask]):
+                raise ValueError('Not all node_ids have children. May be mixing node_ids from different generations.')
             only_child_mask = np.array([len(children_for_node) == 1 for children_for_node in children_array])
             only_children = children_array[only_child_mask].astype(np.uint64).ravel()
             if np.any(only_child_mask):

@@ -30,7 +30,10 @@ from pychunkedgraph.backend.utils import serializers, column_keys  # noqa
 from pychunkedgraph.meshing import meshgen_utils # noqa
 from typing import Sequence
 
+# Change below to true if debugging and want to see results in stdout
 PRINT_FOR_DEBUGGING = False
+# Change below to false if debugging and do not need to write to cloud
+WRITING_TO_CLOUD = True
 
 def decode_draco_mesh_buffer(fragment):
     try:
@@ -1094,16 +1097,14 @@ def merge_draco_meshes(fragments):
         'vertexct': vertexct
     }
 
-# WIP/Not stable
 def merge_draco_meshes_across_boundaries(cg, fragments, chunk_id, mip, high_padding):
     vertexct = np.zeros(len(fragments) + 1, np.uint32)
-    # vertexct = np.sum([x['mesh']['num_vertices'] for x in fragments])
     vertexct[1:] = np.cumsum([x['mesh']['num_vertices'] for x in fragments])
     vertices = np.concatenate([x['mesh']['vertices'] for x in fragments])
     faces = np.concatenate([
         mesh['mesh']['faces'] + vertexct[i] for i, mesh in enumerate(fragments)
     ])
-    # del fragments
+    del fragments
 
     if vertexct[-1] > 0:
         chunk_coords = cg.get_chunk_coordinates(chunk_id)
@@ -1112,27 +1113,22 @@ def merge_draco_meshes_across_boundaries(cg, fragments, chunk_id, mip, high_padd
         _, _, child_chunk_offset = get_meshing_necessities_from_graph(cg, child_chunk_id, mip)
         draco_encoding_settings_smaller_chunk = get_draco_encoding_settings_for_chunk(cg, child_chunk_id, mip=mip, high_padding=high_padding)
         draco_bin_size = draco_encoding_settings_smaller_chunk['quantization_range'] / (2 ** draco_encoding_settings_smaller_chunk['quantization_bits'] - 1)
-        child_chunk_offset % draco_bin_size
-        # quantized_chunk_boundary = draco_encoding_settings_smaller_chunk['quantization_origin'] + draco_encoding_settings_smaller_chunk['quantization_range']
-        # are_chunk_aligned = (vertices == quantized_chunk_boundary).any(axis=1)
-        vertices[:,3] = np.arange(vertexct[-1])
-        del vertexct
-        # import ipdb
-        # ipdb.set_trace()
-        # vertices = np.hstack((vertices, np.arange(vertices.shape[0])[:, np.newaxis]))
-        # vertices[are_chunk_aligned, 3] = -1
-
-        # use unique to make the artificial vertex list unique and reindex faces
-        vertices, newfaces = np.unique(vertices[faces], return_inverse=True, axis=0)
-        # faces = newfaces.reshape((n_faces, n_dim))
-        # faces = faces.astype(np.uint32)
-        # vertices, faces = np.unique(vertices[faces],
-                                    # return_inverse=True, axis=0)
-        # faces = faces.reshape(-1,3)
+        chunk_boundary_bin_index = np.floor((child_chunk_offset - draco_encoding_settings_smaller_chunk['quantization_origin']) / draco_bin_size + np.float32(0.5))
+        quantized_chunk_boundary = draco_encoding_settings_smaller_chunk['quantization_origin'] + chunk_boundary_bin_index * draco_bin_size
+        are_chunk_aligned = (vertices == quantized_chunk_boundary).any(axis=1)
+        vertices = np.hstack((vertices, np.arange(vertexct[-1])[:, np.newaxis]))
+        chunk_aligned = vertices[are_chunk_aligned]
+        not_chunk_aligned = vertices[~are_chunk_aligned]
+        not_chunk_aligned_remap = dict(zip(not_chunk_aligned[:,3].astype(np.uint32), np.arange(len(not_chunk_aligned), dtype=np.uint32)))
+        unique_chunk_aligned, inverse_to_chunk_aligned = np.unique(chunk_aligned[:,0:3], return_inverse=True, axis=0)
+        chunk_aligned_remap = dict(zip(chunk_aligned[:,3].astype(np.uint32), np.uint32(len(not_chunk_aligned)) + inverse_to_chunk_aligned.astype(np.uint32)))
+        vertices = np.concatenate((not_chunk_aligned[:,0:3], unique_chunk_aligned))
+        faces_remapping = not_chunk_aligned_remap
+        faces_remapping.update(chunk_aligned_remap)
+        fastremap.remap(faces, faces_remapping, in_place=True)
+    
     return {
         'num_vertices': np.uint32(len(vertices)),
-        # 'vertices': np.reshape(vertices, (len(vertices) * 3,)),
-        # 'faces': np.reshape(faces, (len(faces) * 3,))
         'vertices': vertices[:,0:3].reshape(-1),
         'faces': faces
     }
@@ -1164,24 +1160,22 @@ def remeshing(cg, l2_node_ids: Sequence[np.uint64], stop_layer: int = None, cv_p
     :param max_err: int
     :return:
     """
-    l2_chunk_dict = collections.defaultdict(list)
+    l2_chunk_dict = collections.defaultdict(set)
     # Find the chunk_ids of the l2_node_ids
     def add_nodes_to_l2_chunk_dict(ids):
         for node_id in ids:
             chunk_id = cg.get_chunk_id(node_id)
-            l2_chunk_dict[chunk_id].append(node_id)
-            # if chunk_id in l2_chunk_dict:
-                # l2_chunk_dict[chunk_id].add(node_id)
-            # else:
-                # l2_chunk_dict[chunk_id] = {node_id}
+            l2_chunk_dict[chunk_id].add(node_id)
     add_nodes_to_l2_chunk_dict(l2_node_ids)
     for chunk_id, node_ids in l2_chunk_dict.items():
+        if PRINT_FOR_DEBUGGING:
+            print('remeshing', chunk_id, node_ids)
         # Remesh the l2_node_ids
         chunk_mesh_task_new_remapping(cg.get_serialized_info(), chunk_id, cg._cv_path, cv_mesh_dir=cv_mesh_dir, mip=mip, fragment_batch_size=20, node_id_subset=node_ids, cg=cg)
     chunk_dicts = []
     max_layer = stop_layer or cg._n_layers
     for layer in range(3, max_layer+1):
-        chunk_dicts.append(collections.defaultdict(list))
+        chunk_dicts.append(collections.defaultdict(set))
     cur_chunk_dict = l2_chunk_dict
     # Find the parents of each l2_node_id up to the stop_layer, as well as their associated chunk_ids
     for layer in range(3, max_layer+1):
@@ -1192,11 +1186,7 @@ def remeshing(cg, l2_node_ids: Sequence[np.uint64], stop_layer: int = None, cv_p
                 index_in_dict_array = chunk_layer - 3
                 if index_in_dict_array < len(chunk_dicts):
                     chunk_id = cg.get_chunk_id(parent_node)
-                    chunk_dicts[index_in_dict_array][chunk_id].append(parent_node)
-                    # if chunk_id in chunk_dicts[index_in_dict_array]:
-                        # chunk_dicts[index_in_dict_array][chunk_id].add(parent_node)
-                    # else:
-                        # chunk_dicts[index_in_dict_array][chunk_id] = {parent_node}
+                    chunk_dicts[index_in_dict_array][chunk_id].add(parent_node)
         cur_chunk_dict = chunk_dicts[layer - 3]
     for chunk_dict in chunk_dicts:
         for chunk_id, node_ids in chunk_dict.items():
@@ -1266,12 +1256,13 @@ def chunk_mesh_task_new_remapping(cg_info, chunk_id, cv_path, cv_mesh_dir=None, 
                 else:
                     file_contents = mesh.to_precomputed()
                     compress = True
-                storage.put_file(
-                    file_path=f'{mesh_dir}/{meshgen_utils.get_mesh_name(cg, obj_id)}',
-                    content=file_contents,
-                    compress=compress,
-                    cache_control='no-cache'
-                )
+                if WRITING_TO_CLOUD:
+                    storage.put_file(
+                        file_path=f'{mesh_dir}/{meshgen_utils.get_mesh_name(cg, obj_id)}',
+                        content=file_contents,
+                        compress=compress,
+                        cache_control='no-cache'
+                    )
     else:
         # For each node with more than one child, create a new fragment by
         # merging the mesh fragments of the children.
@@ -1291,6 +1282,7 @@ def chunk_mesh_task_new_remapping(cg_info, chunk_id, cv_path, cv_mesh_dir=None, 
         multi_child_mask = [len(fragments) > 1 for fragments in child_fragments]
         multi_child_node_ids = node_ids[multi_child_mask]
         multi_child_children_ids = child_fragments[multi_child_mask]
+        # Store how many children each node has, because we will retrieve all children at once
         multi_child_num_children = [len(children) for children in multi_child_children_ids]
         child_fragments_flat = np.array([frag for children_of_node in multi_child_children_ids for frag in children_of_node])
         multi_child_descendants = meshgen_utils.get_downstream_multi_child_nodes(cg, child_fragments_flat)
@@ -1387,11 +1379,12 @@ def chunk_mesh_task_new_remapping(cg_info, chunk_id, cv_path, cv_mesh_dir=None, 
                     result.append(f'Bad mesh created for {new_fragment_str}: {len(new_fragment["vertices"])} vertices, {len(new_fragment["faces"])} faces')
                     continue
 
-                storage.put_file(new_fragment_id,
-                                 new_fragment_b,
-                                 content_type='application/octet-stream',
-                                 compress=False,
-                                 cache_control='no-cache')
+                if WRITING_TO_CLOUD:
+                    storage.put_file(new_fragment_id,
+                                    new_fragment_b,
+                                    content_type='application/octet-stream',
+                                    compress=False,
+                                    cache_control='no-cache')
 
     if PRINT_FOR_DEBUGGING:
         print(', '.join(str(x) for x in result))
