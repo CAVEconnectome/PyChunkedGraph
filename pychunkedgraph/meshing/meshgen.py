@@ -415,7 +415,7 @@ def get_remapped_seg_for_lvl2_nodes(
         )
         overlap_sv_ids = np.unique(overlap_region)
         if overlap_sv_ids[0] == 0:
-            del overlap_sv_ids[0]
+            overlap_sv_ids = overlap_sv_ids[1:]
         # Get the remappings for the supervoxels in the overlap region
         sv_remapping, unsafe_dict = get_lx_overlapping_remappings_for_nodes_and_svs(
             cg, chunk_id, node_ids_on_the_border, overlap_sv_ids, time_stamp, n_threads
@@ -1065,28 +1065,33 @@ def merge_draco_meshes_across_boundaries(cg, fragments, chunk_id, mip, high_padd
         not_chunk_aligned = vertices[~are_chunk_aligned]
         del vertices
         del are_chunk_aligned
+        faces_remapping = {}
         # Those that are not simply pass through (simple remap)
-        not_chunk_aligned_remap = dict(
-            zip(
-                not_chunk_aligned[:, 3].astype(np.uint32),
-                np.arange(len(not_chunk_aligned), dtype=np.uint32),
+        if len(not_chunk_aligned) > 0:
+            not_chunk_aligned_remap = dict(
+                zip(
+                    not_chunk_aligned[:, 3].astype(np.uint32),
+                    np.arange(len(not_chunk_aligned), dtype=np.uint32),
+                )
             )
-        )
+            faces_remapping.update(not_chunk_aligned_remap)
         # Those that are on the boundary we remove duplicates
-        unique_chunk_aligned, inverse_to_chunk_aligned = np.unique(
-            chunk_aligned[:, 0:3], return_inverse=True, axis=0
-        )
-        chunk_aligned_remap = dict(
-            zip(
-                chunk_aligned[:, 3].astype(np.uint32),
-                np.uint32(len(not_chunk_aligned))
-                + inverse_to_chunk_aligned.astype(np.uint32),
+        if len(chunk_aligned) > 0:
+            unique_chunk_aligned, inverse_to_chunk_aligned = np.unique(
+                chunk_aligned[:, 0:3], return_inverse=True, axis=0
             )
-        )
-        vertices = np.concatenate((not_chunk_aligned[:, 0:3], unique_chunk_aligned))
+            chunk_aligned_remap = dict(
+                zip(
+                    chunk_aligned[:, 3].astype(np.uint32),
+                    np.uint32(len(not_chunk_aligned))
+                    + inverse_to_chunk_aligned.astype(np.uint32),
+                )
+            )
+            faces_remapping.update(chunk_aligned_remap)
+            vertices = np.concatenate((not_chunk_aligned[:, 0:3], unique_chunk_aligned))
+        else:
+            vertices = not_chunk_aligned[:, 0:3]
         # Remap the faces to their new vertex indices
-        faces_remapping = not_chunk_aligned_remap
-        faces_remapping.update(chunk_aligned_remap)
         fastremap.remap(faces, faces_remapping, in_place=True)
 
     return {
