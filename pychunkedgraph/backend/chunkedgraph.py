@@ -1361,6 +1361,7 @@ class ChunkedGraph(object):
 
         x = int(x)
         y = int(y)
+        z = int(z)
 
         checked = []
         atomic_id = None

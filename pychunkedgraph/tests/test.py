@@ -12,6 +12,7 @@ from math import inf
 from datetime import datetime, timedelta
 from time import sleep
 from signal import SIGTERM
+from unittest import mock
 from warnings import warn
 
 sys.path.insert(0, os.path.join(sys.path[0], '..'))
@@ -19,6 +20,7 @@ from pychunkedgraph.backend import chunkedgraph  # noqa
 from pychunkedgraph.backend.utils import serializers, column_keys  # noqa
 from pychunkedgraph.backend import chunkedgraph_exceptions as cg_exceptions  # noqa
 from pychunkedgraph.creator import graph_tests  # noqa
+from pychunkedgraph.meshing import meshgen_utils, meshgen
 
 
 class CloudVolumeBounds(object):
@@ -2976,3 +2978,85 @@ class TestGraphLocks:
         cgraph.logger.debug(new_root_id)
         assert success
         assert new_root_ids[0] == new_root_id
+
+
+class MockChunkedGraph:
+    """
+    Dummy class to mock partial functionality of the ChunkedGraph for use in unit tests.
+    Feel free to add more functions as need be. Can pass in alternative member functions into constructor.
+    """
+
+    def __init__(
+        self, get_chunk_coordinates=None, get_chunk_layer=None, get_chunk_id=None
+    ):
+        if get_chunk_coordinates is not None:
+            self.get_chunk_coordinates = get_chunk_coordinates
+        if get_chunk_layer is not None:
+            self.get_chunk_layer = get_chunk_layer
+        if get_chunk_id is not None:
+            self.get_chunk_id = get_chunk_id
+
+    def get_chunk_coordinates(self, chunk_id):
+        return np.array([0, 0, 0])
+
+    def get_chunk_layer(self, chunk_id):
+        return 2
+
+    def get_chunk_id(self, *args):
+        return 0
+
+
+class TestMeshes:
+    @pytest.mark.timeout(30)
+    @mock.patch(
+        "pychunkedgraph.meshing.meshgen.get_meshing_necessities_from_graph",
+        return_value=(0, 0, np.array([1, 12, 5])),
+    )
+    @mock.patch(
+        "pychunkedgraph.meshing.meshgen.get_draco_encoding_settings_for_chunk",
+        return_value={
+            "quantization_bits": 3,
+            "quantization_range": 21,
+            "quantization_origin": np.array([-1, 11, 3]),
+        },
+    )
+    def test_merge_draco_meshes_across_boundaries(self, *args):
+        """
+        Test merging a list of quantized draco meshes across a chunk boundary.
+        In meshgen the quantization parameters are determined using characteristics
+        of the chunk the mesh comes from, but here they are mocked out.
+        """
+        mock_cg = MockChunkedGraph()
+        fragments = [
+            {
+                "mesh": {
+                    "num_vertices": 4,
+                    "vertices": np.array(
+                        [[7, 15, 4], [2, 10, 9], [9, 11, 9], [3, 7, 6]]
+                    ),
+                    "faces": np.array([0, 1, 2, 1, 2, 3]),
+                }
+            },
+            {
+                "mesh": {
+                    "num_vertices": 5,
+                    "vertices": np.array(
+                        [[10, 10, 10], [2, 10, 9], [7, 15, 4], [9, 11, 9], [3, 7, 6]]
+                    ),
+                    "faces": np.array([0, 1, 2, 0, 1, 3, 0, 2, 3, 1, 2, 3, 0, 1, 4]),
+                }
+            },
+        ]
+        merged_vertices = meshgen.merge_draco_meshes_across_boundaries(
+            mock_cg, fragments, 0, 0, 0
+        )
+        expected_vertices = np.array(
+            [7, 15, 4, 10, 10, 10, 7, 15, 4, 2, 10, 9, 3, 7, 6, 9, 11, 9]
+        )
+        expected_faces = np.array(
+            [0, 3, 5, 3, 5, 4, 1, 3, 2, 1, 3, 5, 1, 2, 5, 3, 2, 5, 1, 3, 4]
+        )
+        assert merged_vertices["num_vertices"] == 6
+        assert np.array_equal(merged_vertices["vertices"], expected_vertices)
+        assert np.array_equal(merged_vertices["faces"], expected_faces)
+
