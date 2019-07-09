@@ -15,7 +15,7 @@ the output. ZMesh is a python library written by Will Silversmith that wraps a C
 When we mesh each chunk, we download the segmentation data from CloudVolume for the chunk, as well as a 1 voxel overlap in the positive x, y, and z
 directions (so that meshes across successive chunks that represent the same object will "stitch" together). This 3D subvolume is passed into ZMesh.
 
-[Two Adjacent Chunks][meshing_diagrams/TwoAdjacentChunks.png]
+![Two Adjacent Chunks](meshing_diagrams/TwoAdjacentChunks.png)
 
 Above: Two adjacent chunks (ABFE and EFGH) that will be passed into the MeshTask. EFCD is the 1 voxel overlap region when meshing ABFE, so the actual
 region that will be meshed is ABCD.
@@ -31,7 +31,7 @@ smallest cube that contains the chunk we are meshing, some of this chunk's bound
 the vertices on those boundaries will be snapped to the grid, there will be no way to stitch the affected meshes to their sides on the other
 side of the chunk boundary.
 
-[Unstable Chunk Boundary][meshing_diagrams/UnstableChunkBoundary.png]
+![Unstable Chunk Boundary](meshing_diagrams/UnstableChunkBoundary.png)
 
 Above is a diagram to visualize the problem. ABFE and EFGH are our PCG chunks, ABIJ and EFKL our respective draco bounding cubes. The problem with the
 above setup is that if EF does not lie on the draco grid when meshing ABIJ, it will move, and it will end up in a different location than when meshing
@@ -49,7 +49,7 @@ grid, and we make sure the origin of each draco cube is at some point in the gri
 where the chunks' draco cubes overlap and sit in this global grid, then the boundary these two chunks share will be moved to the same plane in the
 grid when meshed from either chunk.
 
-[Stable Chunk Boundary][meshing_diagrams/StableChunkBoundary.png]
+![Stable Chunk Boundary](meshing_diagrams/StableChunkBoundary.png)
 
 The above diagram seems similar to the previous setup, but the key difference is that the length of a side of the new cube is 7 instead of 6.
 Draco forces us to have 2^n grid points but that includes the beginning and end of the grid, meaning that if we want to have our grid points be at
