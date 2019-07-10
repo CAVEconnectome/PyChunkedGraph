@@ -6,11 +6,13 @@ import logging
 from networkx.algorithms.flow import shortest_augmenting_path, edmonds_karp, preflow_push
 from networkx.algorithms.connectivity import minimum_st_edge_cut
 import time
+import graph_tool
 import graph_tool.flow
 
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple, Union
 
 from pychunkedgraph.backend import flatgraph_utils
+from pychunkedgraph.backend import chunkedgraph_exceptions as cg_exceptions
 
 float_max = np.finfo(np.float32).max
 
@@ -329,22 +331,36 @@ def mincut_graph_tool(edges: Iterable[Sequence[np.uint64]],
     removed.a = False
     if len(ccs) > 1:
         for cc in ccs:
-            # If connected component contains no sources and/or no sinks,
+            # If connected component contains no sources or no sinks,
             # remove its nodes from the mincut computation
-            if not np.any(np.in1d(source_graph_ids, cc)) or \
-                    not np.any(np.in1d(sink_graph_ids, cc)):
+            if not (np.any(np.in1d(source_graph_ids, cc)) and \
+                    np.any(np.in1d(sink_graph_ids, cc))):
                 for node_id in cc:
                     removed[node_id] = True
 
     weighted_graph.set_vertex_filter(removed, inverted=True)
 
+    # Somewhat untuitively, we need to create a new pruned graph for the following
+    # connected components call to work correctly, because the vertex filter
+    # only labels the graph and the filtered vertices still show up after running
+    # graph_tool.label_components
+    pruned_graph = graph_tool.Graph(weighted_graph, prune=True)
+
     # Test that there is only one connected component left
-    ccs = flatgraph_utils.connected_components(weighted_graph)
+    ccs = flatgraph_utils.connected_components(pruned_graph)
 
     if len(ccs) > 1:
         logger.warning("Not all sinks and sources are within the same (local)"
                        "connected component")
-        return []
+        raise cg_exceptions.PreconditionError(
+                "Not all sinks and sources are within the same (local)"
+                "connected component"
+            )
+    elif len(ccs) == 0:
+        raise cg_exceptions.PreconditionError(
+                "Sinks and sources are not connected through the local graph. "
+                "Please try a different set of vertices to perform the mincut."
+            )
 
     # Compute mincut
     src, tgt = weighted_graph.vertex(source_graph_ids[0]), \

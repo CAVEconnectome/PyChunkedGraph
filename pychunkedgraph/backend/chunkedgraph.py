@@ -3060,7 +3060,6 @@ class ChunkedGraph(object):
                 _get_subgraph_higher_layer_nodes_threaded,
                 np.array_split(this_layer_child_ids, this_n_threads),
                 n_threads=this_n_threads, debug=this_n_threads == 1)), np.uint64)
-
             child_ids = np.concatenate([child_ids, next_layer_child_ids])
 
             if verbose:
@@ -3110,6 +3109,7 @@ class ChunkedGraph(object):
         # Layer 2
         if verbose:
             time_start = time.time()
+
 
         child_chunk_ids = self.get_chunk_ids_from_node_ids(child_ids)
         u_ccids = np.unique(child_chunk_ids)
@@ -3745,9 +3745,19 @@ class ChunkedGraph(object):
                     lock_root_ids, lock_operation_ids)
 
                 if mincut:
-                    removed_edges = self._run_multicut(source_ids, sink_ids,
-                                                       source_coords,
-                                                       sink_coords, bb_offset)
+                    try:
+                        removed_edges = self._run_multicut(source_ids, sink_ids,
+                                                        source_coords,
+                                                        sink_coords, bb_offset)
+                    # When the mincut fails, we can release the root lock
+                    except cg_exceptions.PreconditionError as e:
+                        for lock_root_id in lock_root_ids:
+                            self.unlock_root(lock_root_id, operation_id=operation_id)
+                        raise cg_exceptions.PreconditionError(str(e))
+                    except cg_exceptions.PostconditionError as e:
+                        for lock_root_id in lock_root_ids:
+                            self.unlock_root(lock_root_id, operation_id=operation_id)
+                        raise cg_exceptions.PostconditionError(str(e))
                 else:
                     removed_edges = atomic_edges
 
