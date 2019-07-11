@@ -8,7 +8,7 @@ flask
 flask_cors
 codecov
 multiwrapper
-cloud-volume>=0.43.1
+cloud-volume==0.50.0
 python-json-logger
 zstandard
 -e git+https://github.com/seung-lab/igneous.git#egg=igneous
