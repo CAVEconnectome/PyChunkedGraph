@@ -436,6 +436,6 @@ def mincut(edges: Iterable[Sequence[np.uint64]],
         edges that should be removed
     """
 
-    return mincut_graph_tool(edges=edges, affs=affs, sources=sources,
-                             sinks=sinks, logger=logger)
+    return mincut_nx(edges=edges, affs=affs, sources=sources,
+                     sinks=sinks, logger=logger)
 
