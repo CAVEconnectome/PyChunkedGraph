@@ -1870,15 +1870,13 @@ class ChunkedGraph(object):
         for key in edge_id_keys:
             edge_id_dict[key] = np.concatenate(
                 edge_id_dict.get(key, empty_edges_array.copy(),
-                empty_edges_array.copy()
-            )
+                                 empty_edges_array.copy()))
             n_edge_ids += len(edge_id_dict[edge_id_key])
 
         for key in edge_aff_keys:
             edge_aff_dict[key] = np.concatenate(
                 edge_aff_dict.get(key, empty_edges_array.copy(),
-                empty_edges_array.copy()
-            ) 
+                empty_edges_array.copy()))
 
         time_start = time.time()
         
