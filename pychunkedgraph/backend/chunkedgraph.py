@@ -1880,18 +1880,12 @@ class ChunkedGraph(object):
         # Get connected component within the chunk
         chunk_node_ids = np.concatenate([
                 isolated_node_ids.astype(np.uint64),
+                np.unique(edge_id_dict["in_connected"]),
+                np.unique(edge_id_dict["in_disconnected"]),
                 np.unique(edge_id_dict["cross"][:, 0]),
                 np.unique(edge_id_dict["between_connected"][:, 0]),
                 np.unique(edge_id_dict["between_disconnected"][:, 0])])
-
-        add_edge_ids = np.vstack([chunk_node_ids.copy(), chunk_node_ids.copy()]).T
-
-        chunk_node_ids = np.concatenate([
-                chunk_node_ids,
-                np.unique(edge_id_dict["in_connected"]),
-                np.unique(edge_id_dict["in_disconnected"])])                
         
-        # nothing to do
         if not len(chunk_node_ids): return 0
 
         chunk_node_ids = np.unique(chunk_node_ids)
@@ -1906,12 +1900,16 @@ class ChunkedGraph(object):
                             "Number of occurences:" %
                             (chunk_id, len(u_node_chunk_ids)), c_node_chunk_ids)
 
-        edge_ids = np.concatenate(
-            [edge_id_dict["in_connected"].copy(), add_edge_ids])
+
+        # add self edge to all node_ids to make sure they're
+        # part of connected components because the graph is processed component wise
+        # if not, the node_ids won't be stored
+        edge_ids = np.concatenate([
+            edge_id_dict["in_connected"].copy(),
+            np.vstack([chunk_node_ids, chunk_node_ids]).T])
 
         graph, _, _, unique_graph_ids = flatgraph_utils.build_gt_graph(
             edge_ids, make_directed=True)
-
         ccs = flatgraph_utils.connected_components(graph)
 
         if verbose:
