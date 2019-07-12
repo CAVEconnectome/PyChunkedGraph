@@ -1810,38 +1810,37 @@ class ChunkedGraph(object):
                 edge_aff_dict.get(key, empty_edges_array.copy(),
                 empty_edges_array.copy()))
 
-        time_start = time.time()
-        
         # Get connected component within the chunk
         chunk_node_ids = np.concatenate([
                 isolated_node_ids.astype(np.uint64),
-                np.unique(edge_id_dict["in_connected"]),
-                np.unique(edge_id_dict["in_disconnected"]),
                 np.unique(edge_id_dict["cross"][:, 0]),
                 np.unique(edge_id_dict["between_connected"][:, 0]),
                 np.unique(edge_id_dict["between_disconnected"][:, 0])])
 
+        add_edge_ids = np.vstack([chunk_node_ids.copy(), chunk_node_ids.copy()]).T
+
+        chunk_node_ids = np.concatenate([
+                chunk_node_ids,
+                np.unique(edge_id_dict["in_connected"]),
+                np.unique(edge_id_dict["in_disconnected"])])                
         
         # nothing to do
         if not len(chunk_node_ids): return 0
 
         chunk_node_ids = np.unique(chunk_node_ids)
+        node_chunk_ids = np.array(
+            [self.get_chunk_id(c) for c in chunk_node_ids], dtype=np.uint64)
 
-        node_chunk_ids = np.array([self.get_chunk_id(c)
-                                   for c in chunk_node_ids],
-                                  dtype=np.uint64)
-
-        u_node_chunk_ids, c_node_chunk_ids = np.unique(node_chunk_ids,
-                                                       return_counts=True)
+        u_node_chunk_ids, c_node_chunk_ids = np.unique(
+            node_chunk_ids, return_counts=True)
         if len(u_node_chunk_ids) > 1:
             raise Exception("%d: %d chunk ids found in node id list. "
                             "Some edges might be in the wrong order. "
                             "Number of occurences:" %
                             (chunk_id, len(u_node_chunk_ids)), c_node_chunk_ids)
 
-        add_edge_ids = np.vstack([chunk_node_ids, chunk_node_ids]).T
-        edge_ids = np.concatenate([edge_id_dict["in_connected"].copy(),
-                                   add_edge_ids])
+        edge_ids = np.concatenate(
+            [edge_id_dict["in_connected"].copy(), add_edge_ids])
 
         graph, _, _, unique_graph_ids = flatgraph_utils.build_gt_graph(
             edge_ids, make_directed=True)
@@ -1858,9 +1857,8 @@ class ChunkedGraph(object):
         n_ccs = len(ccs)
 
         # Make parent id creation easier
-        chunk_id = u_node_chunk_ids[0]
         parent_chunk_id = self.get_chunk_id(
-            layer=2, *self.get_chunk_coordinates(chunk_id))
+            layer=2, *self.get_chunk_coordinates(u_node_chunk_ids[0]))
 
         parent_ids = self.get_unique_node_id_range(parent_chunk_id, step=n_ccs)
         
@@ -1885,20 +1883,11 @@ class ChunkedGraph(object):
         rows = []
 
         for i_cc, cc in enumerate(ccs):
-            node_ids = unique_graph_ids[cc]
-
-            u_chunk_ids = np.unique([self.get_chunk_id(n) for n in node_ids])
-
-            if len(u_chunk_ids) > 1:
-                self.logger.error(f"Found multiple chunk ids: {u_chunk_ids}")
-                raise Exception()
-
-            # Create parent id
             parent_id = parent_ids[i_cc]
-
             parent_cross_edges = np.array([], dtype=np.uint64).reshape(0, 2)
 
             # Add rows for nodes that are in this chunk
+            node_ids = unique_graph_ids[cc]
             for i_node_id, node_id in enumerate(node_ids):
                 # Extract edges relevant to this node
 
