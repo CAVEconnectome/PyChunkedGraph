@@ -11,7 +11,7 @@ if TYPE_CHECKING:
 class RootLock:
     __slots__ = ["cg", "locked_root_ids", "lock_acquired", "operation_id"]
 
-    def __init__(self, cg: "ChunkedGraph", root_ids: Union[np.uint64, Sequence[np.uint64]]):
+    def __init__(self, cg: "ChunkedGraph", root_ids: Union[np.uint64, Sequence[np.uint64]]) -> None:
         self.cg = cg
         self.locked_root_ids = np.atleast_1d(root_ids)
         self.lock_acquired = False

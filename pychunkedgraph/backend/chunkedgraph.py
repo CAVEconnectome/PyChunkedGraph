@@ -21,6 +21,7 @@ from pychunkedgraph.backend.chunkedgraph_utils import compute_indices_pandas, \
 from pychunkedgraph.backend.utils import serializers, column_keys, row_keys, basetypes
 from pychunkedgraph.backend import chunkedgraph_exceptions as cg_exceptions, \
     chunkedgraph_edits as cg_edits
+from pychunkedgraph.backend.graphoperation import RootLock, MergeOperation, SplitOperation, MulticutOperation
 # from pychunkedgraph.meshing import meshgen
 
 from google.api_core.retry import Retry, if_exception_type
@@ -1130,7 +1131,7 @@ class ChunkedGraph(object):
                                             Iterable[np.uint64]]] = None,
                    operation_id: Optional[np.uint64] = None,
                    slow_retry: bool = True,
-                   block_size: int = 2000) -> bool:
+                   block_size: int = 2000):
         """ Writes a list of mutated rows in bulk
 
         WARNING: If <rows> contains the same row (same row_key) and column
@@ -1167,16 +1168,14 @@ class ChunkedGraph(object):
                 root_ids = [root_ids]
 
             if not self.check_and_renew_root_locks(root_ids, operation_id):
-                return False
+                raise cg_exceptions.LockError(f"Root lock renewal failed for operation ID {operation_id}")
 
         for i_row in range(0, len(rows), block_size):
             status = self.table.mutate_rows(rows[i_row: i_row + block_size],
                                             retry=retry_policy)
 
             if not all(status):
-                raise Exception(status)
-
-        return True
+                raise cg_exceptions.ChunkedGraphError(f"Bulk write failed for operation ID {operation_id}")
 
     def _execute_read_thread(self, row_set_and_filter: Tuple[RowSet, RowFilter]):
         row_set, row_filter = row_set_and_filter
@@ -1418,114 +1417,28 @@ class ChunkedGraph(object):
         # Returns None if unsuccessful
         return atomic_id
 
-    def _create_split_log_row(self, operation_id: np.uint64, user_id: str,
-                              root_ids: Sequence[np.uint64],
-                              source_ids: Sequence[np.uint64],
-                              sink_ids: Sequence[np.uint64],
-                              source_coords: Sequence[Sequence[np.int]],
-                              sink_coords: Sequence[Sequence[np.int]],
-                              removed_edges: Sequence[np.uint64],
-                              bb_offset: Sequence[np.int],
-                              time_stamp: datetime.datetime
-                              ) -> bigtable.row.Row:
-        """ Creates log row for a split
-
-        :param operation_id: np.uint64
-        :param user_id: str
-        :param root_ids: array of np.uint64
-        :param source_ids: array of np.uint64
-        :param sink_ids: array of np.uint64
-        :param source_coords: array of ints (n x 3)
-        :param sink_coords: array of ints (n x 3)
-        :param removed_edges: array of np.uint64
-        :param bb_offset: array of np.int
-        :param time_stamp: datetime.datetime
-        :return: row
-        """
-
-        val_dict = {column_keys.OperationLogs.UserID: user_id,
-                    column_keys.OperationLogs.RootID:
-                        np.array(root_ids, dtype=np.uint64),
-                    column_keys.OperationLogs.SourceID:
-                        np.array(source_ids),
-                    column_keys.OperationLogs.SinkID:
-                        np.array(sink_ids),
-                    column_keys.OperationLogs.SourceCoordinate:
-                        np.array(source_coords),
-                    column_keys.OperationLogs.SinkCoordinate:
-                        np.array(sink_coords),
-                    column_keys.OperationLogs.BoundingBoxOffset:
-                        np.array(bb_offset),
-                    column_keys.OperationLogs.RemovedEdge:
-                        np.array(removed_edges, dtype=np.uint64)}
-
-        row = self.mutate_row(serializers.serialize_uint64(operation_id),
-                              val_dict, time_stamp)
-
-        return row
-
-    def _create_merge_log_row(self, operation_id: np.uint64, user_id: str,
-                              root_ids: Sequence[np.uint64],
-                              source_ids: Sequence[np.uint64],
-                              sink_ids: Sequence[np.uint64],
-                              source_coords: Sequence[Sequence[np.int]],
-                              sink_coords: Sequence[Sequence[np.int]],
-                              added_edges: Sequence[np.uint64],
-                              affinities: Sequence[np.float32],
-                              time_stamp: datetime.datetime
-                              ) -> bigtable.row.Row:
-        """ Creates log row for a split
-
-        :param operation_id: np.uint64
-        :param user_id: str
-        :param root_ids: array of np.uint64
-        :param source_ids: array of np.uint64
-        :param sink_ids: array of np.uint64
-        :param source_coords: array of ints (n x 3)
-        :param sink_coords: array of ints (n x 3)
-        :param added_edges: array of np.uint64
-        :param affinities: array of np.float32
-        :param time_stamp: datetime.datetime
-        :return: row
-        """
-
-        if affinities is None:
-            affinities = np.array([], dtype=column_keys.Connectivity.Affinity.basetype)
-        else:
-            affinities = np.array(affinities, dtype=column_keys.Connectivity.Affinity.basetype)
-
-        val_dict = {column_keys.OperationLogs.UserID: user_id,
-                    column_keys.OperationLogs.RootID:
-                        np.array(root_ids, dtype=np.uint64),
-                    column_keys.OperationLogs.SourceID:
-                        np.array(source_ids),
-                    column_keys.OperationLogs.SinkID:
-                        np.array(sink_ids),
-                    column_keys.OperationLogs.SourceCoordinate:
-                        np.array(source_coords),
-                    column_keys.OperationLogs.SinkCoordinate:
-                        np.array(sink_coords),
-                    column_keys.OperationLogs.AddedEdge:
-                        np.array(added_edges, dtype=np.uint64),
-                    column_keys.OperationLogs.Affinity: affinities}
-
-        row = self.mutate_row(serializers.serialize_uint64(operation_id),
-                              val_dict, time_stamp)
-
-        return row
-
-    def read_log_row(self, operation_id: np.uint64):
-        """ Reads a log row (both split and merge)
+    def read_log_row(
+        self, operation_id: np.uint64
+    ) -> Dict[column_keys._Column, List[bigtable.row_data.Cell]]:
+        """ Reads a log row (split, merge, undo, redo)
 
         :param operation_id: np.uint64
         :return: dict
         """
-        columns = [column_keys.OperationLogs.UserID, column_keys.OperationLogs.RootID,
-                   column_keys.OperationLogs.SinkID, column_keys.OperationLogs.SourceID,
-                   column_keys.OperationLogs.SourceCoordinate,
-                   column_keys.OperationLogs.SinkCoordinate, column_keys.OperationLogs.AddedEdge,
-                   column_keys.OperationLogs.Affinity, column_keys.OperationLogs.RemovedEdge,
-                   column_keys.OperationLogs.BoundingBoxOffset]
+        columns = [
+            column_keys.OperationLogs.UndoOperationID,
+            column_keys.OperationLogs.RedoOperationID,
+            column_keys.OperationLogs.UserID,
+            column_keys.OperationLogs.RootID,
+            column_keys.OperationLogs.SinkID,
+            column_keys.OperationLogs.SourceID,
+            column_keys.OperationLogs.SourceCoordinate,
+            column_keys.OperationLogs.SinkCoordinate,
+            column_keys.OperationLogs.AddedEdge,
+            column_keys.OperationLogs.Affinity,
+            column_keys.OperationLogs.RemovedEdge,
+            column_keys.OperationLogs.BoundingBoxOffset,
+        ]
         row_dict = self.read_node_id_row(operation_id, columns=columns)
         return row_dict
 
@@ -3496,12 +3409,16 @@ class ChunkedGraph(object):
 
         return edges, affinities, areas
 
-    def add_edges(self, user_id: str, atomic_edges: Sequence[np.uint64],
-                  affinities: Sequence[np.float32] = None,
-                  source_coord: Sequence[int] = None,
-                  sink_coord: Sequence[int] = None,
-                  return_new_lvl2_nodes: bool = False,
-                  n_tries: int = 60) -> np.uint64:
+    def add_edges(
+        self,
+        user_id: str,
+        atomic_edges: Sequence[np.uint64],
+        affinities: Sequence[np.float32] = None,
+        source_coord: Sequence[int] = None,
+        sink_coord: Sequence[int] = None,
+        return_new_lvl2_nodes: bool = False,
+        n_tries: int = 60,
+    ) -> np.uint64:
         """ Adds an edge to the chunkedgraph
 
             Multi-user safe through locking of the root node
@@ -3524,116 +3441,33 @@ class ChunkedGraph(object):
             if successful the new root id is send
             else None
         """
-        if not (isinstance(atomic_edges[0], list) or isinstance(atomic_edges[0], np.ndarray)):
-            atomic_edges = [atomic_edges]
+        new_root_ids, new_lvl2_ids = MergeOperation(
+            self,
+            user_id=user_id,
+            added_edges=atomic_edges,
+            affinities=affinities,
+            source_coords=source_coord,
+            sink_coords=sink_coord,
+        ).apply()
 
-        atomic_edges = np.array(atomic_edges)
+        if return_new_lvl2_nodes:
+            return new_root_ids, new_lvl2_ids
+        else:
+            return new_root_ids
 
-        if affinities is not None:
-            if not (isinstance(affinities, list) or
-                    isinstance(affinities, np.ndarray)):
-                affinities = [affinities]
-
-        root_ids = []
-        for atomic_edge in atomic_edges:
-            # Sanity Checks
-            if atomic_edge[0] == atomic_edge[1]:
-                return None
-
-            if self.get_chunk_layer(atomic_edge[0]) != \
-                    self.get_chunk_layer(atomic_edge[1]):
-                return None
-
-            # Lookup root ids
-            root_ids.append([self.get_root(atomic_edge[0]),
-                             self.get_root(atomic_edge[1])])
-
-        u_root_ids = np.unique(root_ids)
-
-        # Get a unique id for this operation
-        operation_id = self.get_unique_operation_id()
-
-        i_try = 0
-        lock_root_ids = u_root_ids
-        while i_try < n_tries:
-            # Try to acquire lock and only continue if successful
-            lock_acquired, lock_root_ids = \
-                self.lock_root_loop(root_ids=lock_root_ids,
-                                    operation_id=operation_id)
-
-            if lock_acquired:
-                rows = []
-
-                lock_operation_ids = np.array([operation_id] *
-                                              len(lock_root_ids))
-                time_stamp = self.read_consolidated_lock_timestamp(
-                    lock_root_ids, lock_operation_ids)
-
-                # Add edge and change hierarchy
-                # for atomic_edge in atomic_edges:
-                # new_root_id, new_rows, lvl2_node_mapping = \
-                #     self._add_edges(operation_id=operation_id,
-                #                     atomic_edges=atomic_edges,
-                #                     time_stamp=time_stamp,
-                #                     affinities=affinities)
-
-                new_root_ids, new_lvl2_ids, new_rows = \
-                    cg_edits.add_edges(cg=self,
-                                       operation_id=operation_id,
-                                       atomic_edges=atomic_edges,
-                                       time_stamp=time_stamp,
-                                       affinities=affinities)
-
-                rows.extend(new_rows)
-
-                # Add a row to the log
-                log_row = self._create_merge_log_row(operation_id,
-                                                     user_id,
-                                                     new_root_ids,
-                                                     atomic_edges[:, 0],
-                                                     atomic_edges[:, 1],
-                                                     [source_coord],
-                                                     [sink_coord],
-                                                     atomic_edges,
-                                                     affinities,
-                                                     time_stamp)
-
-                # Put log row first!
-                rows = [log_row] + rows
-
-                # Execute write (makes sure that we are still owning the lock)
-                if self.bulk_write(rows, lock_root_ids,
-                                   operation_id=operation_id,
-                                   slow_retry=False):
-                    if return_new_lvl2_nodes:
-                        return new_root_ids, new_lvl2_ids
-                    else:
-                        return new_root_ids
-
-            for lock_root_id in lock_root_ids:
-                self.unlock_root(lock_root_id, operation_id)
-
-            i_try += 1
-
-            self.logger.debug(f"Waiting - {i_try}")
-            time.sleep(1)
-
-        self.logger.warning("Could not acquire root object lock.")
-        raise cg_exceptions.LockingError(
-            f"Could not acquire root object lock."
-        )
-
-    def remove_edges(self,
-                     user_id: str,
-                     source_ids: Sequence[np.uint64] = None,
-                     sink_ids: Sequence[np.uint64] = None,
-                     source_coords: Sequence[Sequence[int]] = None,
-                     sink_coords: Sequence[Sequence[int]] = None,
-                     atomic_edges: Sequence[Tuple[np.uint64, np.uint64]] = None,
-                     mincut: bool = True,
-                     bb_offset: Tuple[int, int, int] = (240, 240, 24),
-                     return_new_lvl2_nodes: bool = False,
-                     n_tries: int = 20) -> Sequence[np.uint64]:
+    def remove_edges(
+        self,
+        user_id: str,
+        source_ids: Sequence[np.uint64] = None,
+        sink_ids: Sequence[np.uint64] = None,
+        source_coords: Sequence[Sequence[int]] = None,
+        sink_coords: Sequence[Sequence[int]] = None,
+        atomic_edges: Sequence[Tuple[np.uint64, np.uint64]] = None,
+        mincut: bool = True,
+        bb_offset: Tuple[int, int, int] = (240, 240, 24),
+        return_new_lvl2_nodes: bool = False,
+        n_tries: int = 20,
+    ) -> Sequence[np.uint64]:
         """ Removes edges - either directly or after applying a mincut
 
             Multi-user safe through locking of the root node
@@ -3658,152 +3492,39 @@ class ChunkedGraph(object):
         :param n_tries: int
         :return: list of uint64s or None if no split was performed
         """
-
-        if source_ids is not None and sink_ids is not None:
-            if not (isinstance(source_ids, list) or isinstance(source_ids,
-                                                               np.ndarray)):
-                source_ids = [source_ids]
-
-            if not (isinstance(sink_ids, list) or isinstance(sink_ids,
-                                                             np.ndarray)):
-                sink_ids = [sink_ids]
-
-            # Sanity Checks
-            if np.any(np.in1d(sink_ids, source_ids)):
-                raise cg_exceptions.PreconditionError(
-                    f"One or more supervoxel exists as both, sink and source."
-                )
-
-            for source_id in source_ids:
-                layer = self.get_chunk_layer(source_id)
-                if layer != 1:
-                    raise cg_exceptions.PreconditionError(
-                        f"Supervoxel expected, but {source_id} is a layer {layer} node."
-                    )
-
-            for sink_id in sink_ids:
-                layer = self.get_chunk_layer(sink_id)
-                if layer != 1:
-                    raise cg_exceptions.PreconditionError(
-                        f"Supervoxel expected, but {sink_id} is a layer {layer} node."
-                    )
-
-            root_ids = set()
-            for source_id in source_ids:
-                root_ids.add(self.get_root(source_id))
-            for sink_id in sink_ids:
-                root_ids.add(self.get_root(sink_id))
-
         if mincut:
-            assert source_coords is not None
-            assert sink_coords is not None
-            assert sink_ids is not None
-            assert source_ids is not None
-
-            root_ids = set()
-            for source_id in source_ids:
-                root_ids.add(self.get_root(source_id))
-            for sink_id in sink_ids:
-                root_ids.add(self.get_root(sink_id))
+            new_root_ids, new_lvl2_ids = MulticutOperation(
+                self,
+                user_id=user_id,
+                source_ids=source_ids,
+                sink_ids=sink_ids,
+                source_coords=source_coords,
+                sink_coords=sink_coords,
+                bbox_offset=bb_offset,
+            ).apply()
         else:
-            if atomic_edges is None:
-                assert source_ids is not None
-                assert sink_ids is not None
+            if not atomic_edges:
+                # Shim - can remove this check once all functions call the split properly/directly
+                source_ids = [source_ids] if np.isscalar(source_ids) else source_ids
+                sink_ids = [sink_ids] if np.isscalar(sink_ids) else sink_ids
+                if len(source_ids) != len(sink_ids):
+                    raise cg_exceptions.PreconditionError(
+                        "Split operation require the same number of source and sink IDs"
+                    )
+                atomic_edges = np.array([source_ids, sink_ids]).transpose()
 
-                atomic_edges = np.array(list(itertools.product(source_ids,
-                                                               sink_ids)))
+            new_root_ids, new_lvl2_ids = SplitOperation(
+                self,
+                user_id=user_id,
+                removed_edges=atomic_edges,
+                source_coords=source_coords,
+                sink_coords=sink_coords,
+            ).apply()
 
-            root_ids = set()
-            for atomic_edge in atomic_edges:
-                root_ids.add(self.get_root(atomic_edge[0]))
-                root_ids.add(self.get_root(atomic_edge[1]))
-
-        if len(root_ids) > 1:
-            raise cg_exceptions.PreconditionError(
-                f"All supervoxel must belong to the same object. Already split?"
-            )
-
-        root_ids = list(root_ids)
-
-        # Get a unique id for this operation
-        operation_id = self.get_unique_operation_id()
-
-        i_try = 0
-
-        while i_try < n_tries:
-            # Try to acquire lock and only continue if successful
-            lock_root_ids = np.unique(root_ids)
-
-            lock_acquired, lock_root_ids = \
-                self.lock_root_loop(root_ids=lock_root_ids,
-                                    operation_id=operation_id)
-
-            if lock_acquired:
-                lock_operation_ids = np.array([operation_id] *
-                                              len(lock_root_ids))
-                time_stamp = self.read_consolidated_lock_timestamp(
-                    lock_root_ids, lock_operation_ids)
-
-                if mincut:
-                    try:
-                        removed_edges = self._run_multicut(source_ids, sink_ids,
-                                                        source_coords,
-                                                        sink_coords, bb_offset)
-                    # When the mincut fails, we can release the root lock
-                    except cg_exceptions.PreconditionError as e:
-                        for lock_root_id in lock_root_ids:
-                            self.unlock_root(lock_root_id, operation_id=operation_id)
-                        raise cg_exceptions.PreconditionError(str(e))
-                    except cg_exceptions.PostconditionError as e:
-                        for lock_root_id in lock_root_ids:
-                            self.unlock_root(lock_root_id, operation_id=operation_id)
-                        raise cg_exceptions.PostconditionError(str(e))
-                else:
-                    removed_edges = atomic_edges
-
-                assert len(removed_edges) > 0
-
-                new_root_ids, new_lvl2_ids, rows = cg_edits.remove_edges(
-                    self, operation_id, atomic_edges=removed_edges,
-                    time_stamp=time_stamp)
-
-                # Add a row to the log
-                log_row = self._create_split_log_row(operation_id,
-                                                     user_id,
-                                                     new_root_ids,
-                                                     source_ids,
-                                                     sink_ids,
-                                                     source_coords,
-                                                     sink_coords,
-                                                     removed_edges,
-                                                     bb_offset,
-                                                     time_stamp)
-                # Put log row first!
-                rows = [log_row] + rows
-
-                # Execute write (makes sure that we are still owning the lock)
-                # if len(sink_ids) > 1 or len(source_ids) > 1:
-                #     self.logger.debug(removed_edges)
-                # else:
-                if self.bulk_write(rows, lock_root_ids,
-                                   operation_id=operation_id, slow_retry=False):
-                    self.logger.debug(f"new root ids: {new_root_ids}")
-
-                    if return_new_lvl2_nodes:
-                        return new_root_ids, new_lvl2_ids
-                    else:
-                        return new_root_ids
-
-                for lock_root_id in lock_root_ids:
-                    self.unlock_root(lock_root_id, operation_id=operation_id)
-
-            i_try += 1
-
-            self.logger.debug(f"Waiting - {i_try}")
-            time.sleep(1)
-
-        self.logger.warning("Could not acquire root object lock.")
-        raise cg_exceptions.LockingError(f"Could not acquire root object lock.")
+        if return_new_lvl2_nodes:
+            return new_root_ids, new_lvl2_ids
+        else:
+            return new_root_ids
 
     def _run_multicut(self, source_ids: Sequence[np.uint64],
                       sink_ids: Sequence[np.uint64],

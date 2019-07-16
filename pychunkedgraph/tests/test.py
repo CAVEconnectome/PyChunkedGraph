@@ -1413,7 +1413,8 @@ class TestGraphMerge:
         res_old.consume_all()
 
         # Merge
-        assert cgraph.add_edges("Jane Doe", [to_label(cgraph, 1, 0, 0, 0, 0), to_label(cgraph, 1, 0, 0, 0, 0)]) is None
+        with pytest.raises(cg_exceptions.PreconditionError):
+            cgraph.add_edges("Jane Doe", [to_label(cgraph, 1, 0, 0, 0, 0), to_label(cgraph, 1, 0, 0, 0, 0)])
 
         res_new = cgraph.table.read_rows()
         res_new.consume_all()
@@ -1457,7 +1458,8 @@ class TestGraphMerge:
         res_old.consume_all()
 
         # Merge
-        assert cgraph.add_edges("Jane Doe", [to_label(cgraph, 1, 0, 0, 0, 0), to_label(cgraph, 2, 1, 0, 0, 1)]) is None
+        with pytest.raises(cg_exceptions.PreconditionError):
+            cgraph.add_edges("Jane Doe", [to_label(cgraph, 1, 0, 0, 0, 0), to_label(cgraph, 2, 1, 0, 0, 1)])
 
         res_new = cgraph.table.read_rows()
         res_new.consume_all()
