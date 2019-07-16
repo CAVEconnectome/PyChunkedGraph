@@ -6,7 +6,10 @@ import os
 REDIS_HOST = os.environ.get('REDIS_SERVICE_HOST')
 REDIS_PORT = os.environ.get('REDIS_SERVICE_PORT')
 REDIS_PASSWORD = os.environ.get('REDIS_PASSWORD')
-REDIS_URL = f'redis://:{REDIS_PASSWORD}@{REDIS_HOST}:{REDIS_PORT}/0'
+if REDIS_PASSWORD is None:
+    REDIS_URL = f'redis://:{REDIS_HOST}:{REDIS_PORT}/0'
+else:
+    REDIS_URL = f'redis://:{REDIS_PASSWORD}@{REDIS_HOST}:{REDIS_PORT}/0'
 
 # Queues to listen on
 QUEUES = ['default', 'mesh-chunks']
