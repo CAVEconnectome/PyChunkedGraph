@@ -1,12 +1,21 @@
 import time
 import datetime
 import os
-
+import collections
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple, Union, NamedTuple
 
+import pytz
 import numpy as np
 
 from pychunkedgraph.backend import cutting, chunkedgraph_comp, flatgraph_utils
+from pychunkedgraph.backend.utils import serializers, column_keys, row_keys, basetypes
+from pychunkedgraph.backend.chunkedgraph_utils import compute_indices_pandas, \
+    compute_bitmasks, get_google_compatible_time_stamp, \
+    get_time_range_filter, get_time_range_and_column_filter, get_max_time, \
+    combine_cross_chunk_edge_dicts, get_min_time, partial_row_data_to_column_dict
+
+
+UTC = pytz.UTC
 
 def add_atomic_edges_in_chunks_v2(cg, edge_id_dict: dict,
                                 edge_aff_dict: dict, edge_area_dict: dict,
@@ -51,7 +60,7 @@ def add_atomic_edges_in_chunks_v2(cg, edge_id_dict: dict,
         edge_id_dict[key] = np.concatenate(
             edge_id_dict.get(key, empty_edges_array.copy(),
                                 empty_edges_array.copy()))
-        n_edge_ids += len(edge_id_dict[edge_id_key])
+        n_edge_ids += len(edge_id_dict[key])
 
     for key in edge_aff_keys:
         edge_aff_dict[key] = np.concatenate(
@@ -79,7 +88,7 @@ def add_atomic_edges_in_chunks_v2(cg, edge_id_dict: dict,
         raise Exception("%d: %d chunk ids found in node id list. "
                         "Some edges might be in the wrong order. "
                         "Number of occurences:" %
-                        (chunk_id, len(u_node_chunk_ids)), c_node_chunk_ids)
+                        (u_node_chunk_ids[0], len(u_node_chunk_ids)), c_node_chunk_ids)
 
 
     # add self edge to all node_ids to make sure they're
@@ -91,6 +100,8 @@ def add_atomic_edges_in_chunks_v2(cg, edge_id_dict: dict,
 
     graph, _, _, unique_graph_ids = flatgraph_utils.build_gt_graph(
         edge_ids, make_directed=True)
+
+    time_start = time.time()
     ccs = flatgraph_utils.connected_components(graph)
 
     if verbose:
