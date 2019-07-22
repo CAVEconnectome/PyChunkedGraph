@@ -29,7 +29,7 @@ def _decompress_edges(files: List[Dict]):
         yield edges, areas, affinities
 
 
-def get_chunk_edges(edges_dir:str, chunk_ids: List[np.uint64]):
+def get_chunk_edges(edges_dir:str, chunk_coords: np.array([x, y, z])):
     '''
     :param chunk_ids
     :return: a generator that yields decompressed file content
