@@ -15,12 +15,12 @@ from .protobuf.chunkEdges_pb3 import Edges
 # for now pass instance of ChunkedGraph
 
 def _decompress_edges(files: List[Dict]):
-    """
+    '''
     :param files: list of dicts (from CloudVolume.Storage.get_files)
     :return: Tuple[edges:np.array[np.uint64, np.uint64],
                    areas:np.array[np.uint64]
                    affinities: np.array[np.float64]]
-    """
+    '''
     edgesMessage =  Edges()
     
     for _file in files:
@@ -33,10 +33,15 @@ def _decompress_edges(files: List[Dict]):
 
 
 def get_chunk_edges(cg, chunk_ids: List[np.uint64]):
+    '''
+    :param cg: ChunkedGraph instance
+    :return: a generator that yields decompressed file content
+    '''    
     fnames = []
-    chunk_coords = cg.get_chunk_coordinates(chunk_id)
-    chunk_str = '_'.join(str(coord) for coord in chunk_coords)
-    fname = f'edges_{chunk_str}.data'
+    for chunk_id in chunk_ids:
+        chunk_coords = cg.get_chunk_coordinates(chunk_id)
+        chunk_str = '_'.join(str(coord) for coord in chunk_coords)
+        fnames.append(f'edges_{chunk_str}.data')
 
     files = []
     with Storage(cg._cv_path) as st:
