@@ -3044,14 +3044,6 @@ class ChunkedGraph(object):
             time_start = time.time()
 
 
-        child_chunk_ids = self.get_chunk_ids_from_node_ids(child_ids)
-        u_ccids = np.unique(child_chunk_ids)
-
-        child_blocks = []
-        # Make blocks of child ids that are in the same chunk
-        for u_ccid in u_ccids:
-            child_blocks.append(child_ids[child_chunk_ids == u_ccid])
-
         n_child_ids = len(child_ids)
         this_n_threads = np.min([int(n_child_ids // 50000) + 1, mu.n_cpus])
 
