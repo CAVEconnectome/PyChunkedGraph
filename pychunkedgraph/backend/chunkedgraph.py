@@ -3046,9 +3046,9 @@ class ChunkedGraph(object):
         if verbose:
             time_start = time.time()
 
-        child_chunk_ids = self.get_chunk_ids_from_node_ids(child_ids)
-        u_ccids = np.unique(child_chunk_ids)
-        this_n_threads = np.min([int(len(u_ccids) // 50000) + 1, mu.n_cpus])
+
+        n_child_ids = len(child_ids)
+        this_n_threads = np.min([int(n_child_ids // 50000) + 1, mu.n_cpus])
 
         edge_infos = mu.multithread_func(
             _get_subgraph_layer2_edges,
