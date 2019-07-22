@@ -10,9 +10,6 @@ import zstandard as zstd
 from cloudvolume import Storage
 from .protobuf.chunkEdges_pb3 import Edges
 
-# TODO some funtions in ChunkedGraph
-# should be class methods or util functions
-# for now pass instance of ChunkedGraph
 
 def _decompress_edges(files: List[Dict]):
     '''
@@ -44,7 +41,7 @@ def get_chunk_edges(cg, chunk_ids: List[np.uint64]):
         fnames.append(f'edges_{chunk_str}.data')
 
     files = []
-    with Storage(cg._cv_path) as st:
+    with Storage(f'{cg._cv_path}/edges_dir') as st:
         files = st.get_files(fnames)
 
     return _decompress_edges(files)
