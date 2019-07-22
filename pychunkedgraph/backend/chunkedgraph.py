@@ -3026,11 +3026,17 @@ class ChunkedGraph(object):
         :return: edge list
         """
 
+        # def _get_subgraph_layer2_edges(node_ids) -> \
+        #         Tuple[List[np.ndarray], List[np.float32], List[np.uint64]]:
+        #     return self.get_subgraph_chunk(node_ids,
+        #                                    connected_edges=connected_edges,
+        #                                    time_stamp=time_stamp)
+
         def _get_subgraph_layer2_edges(node_ids) -> \
                 Tuple[List[np.ndarray], List[np.float32], List[np.uint64]]:
-            return self.get_subgraph_chunk(node_ids,
+            return self.get_subgraph_chunk_v2(node_ids,
                                            connected_edges=connected_edges,
-                                           time_stamp=time_stamp)
+                                           time_stamp=time_stamp)        
 
         time_stamp = self.read_node_id_row(agglomeration_id,
                                            columns=column_keys.Hierarchy.Child)[0].timestamp                                           
@@ -3046,9 +3052,15 @@ class ChunkedGraph(object):
         if verbose:
             time_start = time.time()
 
+        child_chunk_ids = self.get_chunk_ids_from_node_ids(child_ids)
+        u_ccids = np.unique(child_chunk_ids)
 
-        n_child_ids = len(child_ids)
-        this_n_threads = np.min([int(n_child_ids // 50000) + 1, mu.n_cpus])
+        # Make blocks of child ids that are in the same chunk 
+        child_blocks = []
+        for u_ccid in u_ccids:
+            child_blocks.append(child_ids[child_chunk_ids == u_ccid])
+        
+        this_n_threads = np.min([int(len(u_ccids) // 50000) + 1, mu.n_cpus])
 
         edge_infos = mu.multithread_func(
             _get_subgraph_layer2_edges,
