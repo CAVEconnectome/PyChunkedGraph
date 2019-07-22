@@ -21,6 +21,7 @@ from pychunkedgraph.backend.chunkedgraph_utils import compute_indices_pandas, \
 from pychunkedgraph.backend.utils import serializers, column_keys, row_keys, basetypes
 from pychunkedgraph.backend import chunkedgraph_exceptions as cg_exceptions, \
     chunkedgraph_edits as cg_edits
+from pychunkedgraph.io.storage import get_chunk_edges
 # from pychunkedgraph.meshing import meshgen
 
 from google.api_core.retry import Retry, if_exception_type
@@ -3096,14 +3097,9 @@ class ChunkedGraph(object):
         #                                    connected_edges=connected_edges,
         #                                    time_stamp=time_stamp)
 
-        def _get_subgraph_layer2_edges(node_ids) -> \
+        def _get_subgraph_layer2_edges(chunk_ids) -> \
                 Tuple[List[np.ndarray], List[np.float32], List[np.uint64]]:
-            return self.get_subgraph_chunk_v2(node_ids,
-                                           connected_edges=connected_edges,
-                                           time_stamp=time_stamp)        
-
-        time_stamp = self.read_node_id_row(agglomeration_id,
-                                           columns=column_keys.Hierarchy.Child)[0].timestamp
+            return get_chunk_edges(self, chunk_ids)
 
         bounding_box = self.normalize_bounding_box(bounding_box, bb_is_coordinate)
 
@@ -3118,17 +3114,11 @@ class ChunkedGraph(object):
 
         child_chunk_ids = self.get_chunk_ids_from_node_ids(child_ids)
         u_ccids = np.unique(child_chunk_ids)
-
-        # Make blocks of child ids that are in the same chunk 
-        child_blocks = []
-        for u_ccid in u_ccids:
-            child_blocks.append(child_ids[child_chunk_ids == u_ccid])
-        
         this_n_threads = np.min([int(len(u_ccids) // 50000) + 1, mu.n_cpus])
 
         edge_infos = mu.multithread_func(
             _get_subgraph_layer2_edges,
-            np.array_split(child_ids, this_n_threads),
+            np.array_split(u_ccids, this_n_threads),
             n_threads=this_n_threads, debug=this_n_threads == 1)
 
         affinities = np.array([], dtype=np.float32)
