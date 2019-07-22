@@ -29,9 +29,9 @@ def _decompress_edges(files: List[Dict]):
         yield edges, areas, affinities
 
 
-def get_chunk_edges(cg, chunk_ids: List[np.uint64]):
+def get_chunk_edges(edges_dir:str, chunk_ids: List[np.uint64]):
     '''
-    :param cg: ChunkedGraph instance
+    :param chunk_ids
     :return: a generator that yields decompressed file content
     '''    
     fnames = []
@@ -41,7 +41,7 @@ def get_chunk_edges(cg, chunk_ids: List[np.uint64]):
         fnames.append(f'edges_{chunk_str}.data')
 
     files = []
-    with Storage(f'{cg._cv_path}/edges_dir') as st:
+    with Storage(edges_dir) as st:
         files = st.get_files(fnames)
 
     return _decompress_edges(files)
