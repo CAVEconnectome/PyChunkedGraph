@@ -3052,9 +3052,15 @@ class ChunkedGraph(object):
         if verbose:
             time_start = time.time()
 
+        child_chunk_ids = self.get_chunk_ids_from_node_ids(child_ids)
+        u_ccids = np.unique(child_chunk_ids)
 
-        n_child_ids = len(child_ids)
-        this_n_threads = np.min([int(n_child_ids // 50000) + 1, mu.n_cpus])
+        # Make blocks of child ids that are in the same chunk 
+        child_blocks = []
+        for u_ccid in u_ccids:
+            child_blocks.append(child_ids[child_chunk_ids == u_ccid])
+        
+        this_n_threads = np.min([int(len(u_ccids) // 50000) + 1, mu.n_cpus])
 
         edge_infos = mu.multithread_func(
             _get_subgraph_layer2_edges,
