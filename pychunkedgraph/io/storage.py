@@ -2,7 +2,7 @@
 Functions to use when dealing with any cloud storage via CloudVolume
 '''
 
-from typing import List
+from typing import List, Dict
 
 import numpy as np
 import zstandard as zstd
@@ -14,22 +14,32 @@ from .protobuf.chunkEdges_pb3 import Edges
 # should be class methods or util functions
 # for now pass instance of ChunkedGraph
 
+def _decompress_edges(files: List[Dict]):
+    """
+    :param files: list of dicts (from CloudVolume.Storage.get_files)
+    :return: Tuple[edges:np.array[np.uint64, np.uint64],
+                   areas:np.array[np.uint64]
+                   affinities: np.array[np.float64]]
+    """
+    edgesMessage =  Edges()
+    
+    for _file in files:
+        file_content = zstd.ZstdDecompressor().decompressobj().decompress(_file['content'])
+        edgesMessage.ParseFromString(file_content)
+        edges = np.frombuffer(edgesMessage.edgeList)
+        areas = np.frombuffer(edgesMessage.areas, dtype='<u8')
+        affinities = np.frombuffer(edgesMessage.affinities, dtype='<f4')
+        yield edges, areas, affinities
+
+
 def get_chunk_edges(cg, chunk_ids: List[np.uint64]):
     fnames = []
     chunk_coords = cg.get_chunk_coordinates(chunk_id)
     chunk_str = '_'.join(str(coord) for coord in chunk_coords)
     fname = f'edges_{chunk_str}.data'
 
-    edgesMessage =  Edges()
+    files = []
     with Storage(cg._cv_path) as st:
-        file_content = st.get_files(fnames)
+        files = st.get_files(fnames)
 
-    # TODO move decompression to a generator
-
-    file_content = zstd.ZstdDecompressor().decompressobj().decompress(file_content)
-    edgesMessage.ParseFromString(file_content)
-    edges = np.frombuffer(edgesMessage.edgeList)
-    areas = np.frombuffer(edgesMessage.areas, dtype='<u8')
-    affinities = np.frombuffer(edgesMessage.affinities, dtype='<f4')
-
-    return edges, areas, affinities
+    return _decompress_edges(files)
