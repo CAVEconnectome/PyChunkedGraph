@@ -3032,7 +3032,9 @@ class ChunkedGraph(object):
 
         def _get_subgraph_layer2_edges(chunk_ids) -> \
                 Tuple[List[np.ndarray], List[np.float32], List[np.uint64]]:
-            return get_chunk_edges(self, chunk_ids)
+            return get_chunk_edges(
+                'edges', 
+                [self.get_chunk_coordinates(chunk_id) for chunk_id in chunk_ids])
 
         bounding_box = self.normalize_bounding_box(bounding_box, bb_is_coordinate)
 
