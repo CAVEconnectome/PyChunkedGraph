@@ -8,7 +8,7 @@ import numpy as np
 import zstandard as zstd
 
 from cloudvolume import Storage
-from .protobuf.chunkEdges_pb3 import Edges
+from .protobuf.chunkEdges_pb2 import Edges
 
 
 def _decompress_edges(files: List[Dict]):
@@ -29,14 +29,13 @@ def _decompress_edges(files: List[Dict]):
         yield edges, areas, affinities
 
 
-def get_chunk_edges(edges_dir:str, chunk_coords: np.array([x, y, z])):
+def get_chunk_edges(edges_dir:str, chunks_coordinates: List[np.ndarray]):
     '''
-    :param chunk_ids
+    :param: chunks_coordinates np.array of chunk coordinates
     :return: a generator that yields decompressed file content
     '''    
     fnames = []
-    for chunk_id in chunk_ids:
-        chunk_coords = cg.get_chunk_coordinates(chunk_id)
+    for chunk_coords in chunks_coordinates:
         chunk_str = '_'.join(str(coord) for coord in chunk_coords)
         fnames.append(f'edges_{chunk_str}.data')
 
