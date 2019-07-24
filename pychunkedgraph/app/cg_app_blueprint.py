@@ -239,36 +239,39 @@ def handle_merge(table_id):
             "Chebyshev distance between merge points exceeded allowed maximum "
             "(3 chunks).")
 
-    lvl2_nodes = []
-
     try:
-        ret = cg.add_edges(user_id=user_id,
-                           atomic_edges=np.array(atomic_edge,
-                                                 dtype=np.uint64),
-                           source_coord=coords[:1],
-                           sink_coord=coords[1:])
-
-        new_root, lvl2_nodes = ret.new_root_ids, ret.new_lvl2_ids
+        ret = cg.add_edges(
+            user_id=user_id,
+            atomic_edges=np.array(atomic_edge, dtype=np.uint64),
+            source_coord=coords[:1],
+            sink_coord=coords[1:],
+        )
 
     except cg_exceptions.LockingError as e:
-        raise cg_exceptions.InternalServerError(
-            "Could not acquire root lock for merge operation.")
+        raise cg_exceptions.InternalServerError("Could not acquire root lock for merge operation.")
     except cg_exceptions.PreconditionError as e:
         raise cg_exceptions.BadRequest(str(e))
 
-    if new_root is None:
-        raise cg_exceptions.InternalServerError(
-            "Could not merge selected supervoxel.")
+    if ret.new_root_ids is None:
+        raise cg_exceptions.InternalServerError("Could not merge selected supervoxel.")
 
-    current_app.logger.debug(("lvl2_nodes:", lvl2_nodes))
+    current_app.logger.debug(("lvl2_nodes:", ret.new_lvl2_ids))
 
-    if len(lvl2_nodes) > 0:
-        t = threading.Thread(target=meshing_app_blueprint._remeshing,
-                             args=(cg.get_serialized_info(), lvl2_nodes))
+    if len(ret.new_lvl2_ids) > 0:
+        t = threading.Thread(
+            target=meshing_app_blueprint._remeshing,
+            args=(cg.get_serialized_info(), ret.new_lvl2_ids),
+        )
         t.start()
 
-    # Return binary
-    return app_utils.tobinary(new_root)
+    # NOTE: JS can't safely read integers larger than 2^53 - 1
+    resp = {
+        "operation_id": ret.operation_id,
+        "operation_id_str": str(ret.operation_id),
+        "new_root_ids": ret.new_root_ids,
+        "new_root_ids_str": list(map(str, ret.new_root_ids)),
+        }
+    return jsonify(resp)
 
 
 ### SPLIT ----------------------------------------------------------------------
@@ -311,36 +314,42 @@ def handle_split(table_id):
 
     current_app.logger.debug(data_dict)
 
-    lvl2_nodes = []
     try:
-        ret = cg.remove_edges(user_id=user_id,
-                              source_ids=data_dict["sources"]["id"],
-                              sink_ids=data_dict["sinks"]["id"],
-                              source_coords=data_dict["sources"]["coord"],
-                              sink_coords=data_dict["sinks"]["coord"],
-                              mincut=True)
+        ret = cg.remove_edges(
+            user_id=user_id,
+            source_ids=data_dict["sources"]["id"],
+            sink_ids=data_dict["sinks"]["id"],
+            source_coords=data_dict["sources"]["coord"],
+            sink_coords=data_dict["sinks"]["coord"],
+            mincut=True,
+        )
 
-        new_roots, lvl2_nodes = ret.new_root_ids, ret.new_lvl2_ids
     except cg_exceptions.LockingError as e:
-        raise cg_exceptions.InternalServerError(
-            "Could not acquire root lock for split operation.")
+        raise cg_exceptions.InternalServerError("Could not acquire root lock for split operation.")
     except cg_exceptions.PreconditionError as e:
         raise cg_exceptions.BadRequest(str(e))
 
-    if new_roots is None:
-        raise cg_exceptions.InternalServerError(
-            "Could not split selected segment groups."
+    if ret.new_root_ids is None:
+        raise cg_exceptions.InternalServerError("Could not split selected segment groups.")
+
+    current_app.logger.debug(("after split:", ret.new_root_ids))
+    current_app.logger.debug(("lvl2_nodes:", ret.new_lvl2_ids))
+
+    if len(ret.new_lvl2_ids) > 0:
+        t = threading.Thread(
+            target=meshing_app_blueprint._remeshing,
+            args=(cg.get_serialized_info(), ret.new_lvl2_ids),
         )
-
-    current_app.logger.debug(("after split:", new_roots))
-    current_app.logger.debug(("lvl2_nodes:", lvl2_nodes))
-
-    if len(lvl2_nodes) > 0:
-        t = threading.Thread(target=meshing_app_blueprint._remeshing,
-                             args=(cg.get_serialized_info(), lvl2_nodes))
         t.start()
-    # Return binary
-    return app_utils.tobinary(new_roots)
+
+    # NOTE: JS can't safely read integers larger than 2^53 - 1
+    resp = {
+        "operation_id": ret.operation_id,
+        "operation_id_str": str(ret.operation_id),
+        "new_root_ids": ret.new_root_ids,
+        "new_root_ids_str": list(map(str, ret.new_root_ids)),
+        }
+    return jsonify(resp)
 
 ### CHILDREN -------------------------------------------------------------------
 
