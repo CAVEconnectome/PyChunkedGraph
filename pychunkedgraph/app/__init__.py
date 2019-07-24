@@ -23,6 +23,8 @@ class CustomJsonEncoder(json.JSONEncoder):
     def default(self, obj):
         if isinstance(obj, np.ndarray):
             return obj.tolist()
+        elif isinstance(obj, np.generic):
+            return obj.item()
         elif isinstance(obj, datetime.datetime):
             return obj.__str__()
         return json.JSONEncoder.default(self, obj)
