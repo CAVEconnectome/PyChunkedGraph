@@ -21,7 +21,12 @@ from pychunkedgraph.backend.chunkedgraph_utils import compute_indices_pandas, \
 from pychunkedgraph.backend.utils import serializers, column_keys, row_keys, basetypes
 from pychunkedgraph.backend import chunkedgraph_exceptions as cg_exceptions, \
     chunkedgraph_edits as cg_edits
-from pychunkedgraph.backend.graphoperation import RootLock, MergeOperation, SplitOperation, MulticutOperation
+from pychunkedgraph.backend.graphoperation import (
+    GraphEditOperation,
+    MergeOperation,
+    MulticutOperation,
+    SplitOperation,
+)
 # from pychunkedgraph.meshing import meshgen
 
 from google.api_core.retry import Retry, if_exception_type
@@ -3416,9 +3421,8 @@ class ChunkedGraph(object):
         affinities: Sequence[np.float32] = None,
         source_coord: Sequence[int] = None,
         sink_coord: Sequence[int] = None,
-        return_new_lvl2_nodes: bool = False,
         n_tries: int = 60,
-    ) -> np.uint64:
+    ) -> GraphEditOperation.result:
         """ Adds an edge to the chunkedgraph
 
             Multi-user safe through locking of the root node
@@ -3435,13 +3439,10 @@ class ChunkedGraph(object):
             will eventually be set to 1 if None
         :param source_coord: list of int (n x 3)
         :param sink_coord: list of int (n x 3)
-        :param return_new_lvl2_nodes: bool
         :param n_tries: int
-        :return: uint64
-            if successful the new root id is send
-            else None
+        :return: GraphEditOperation.result
         """
-        new_root_ids, new_lvl2_ids = MergeOperation(
+        return MergeOperation(
             self,
             user_id=user_id,
             added_edges=atomic_edges,
@@ -3449,11 +3450,6 @@ class ChunkedGraph(object):
             source_coords=source_coord,
             sink_coords=sink_coord,
         ).apply()
-
-        if return_new_lvl2_nodes:
-            return new_root_ids, new_lvl2_ids
-        else:
-            return new_root_ids
 
     def remove_edges(
         self,
@@ -3465,9 +3461,8 @@ class ChunkedGraph(object):
         atomic_edges: Sequence[Tuple[np.uint64, np.uint64]] = None,
         mincut: bool = True,
         bb_offset: Tuple[int, int, int] = (240, 240, 24),
-        return_new_lvl2_nodes: bool = False,
         n_tries: int = 20,
-    ) -> Sequence[np.uint64]:
+    ) -> GraphEditOperation.result:
         """ Removes edges - either directly or after applying a mincut
 
             Multi-user safe through locking of the root node
@@ -3488,12 +3483,11 @@ class ChunkedGraph(object):
         :param mincut:
         :param bb_offset: list of 3 ints
             [x, y, z] bounding box padding beyond box spanned by coordinates
-        :param return_new_lvl2_nodes: bool
         :param n_tries: int
-        :return: list of uint64s or None if no split was performed
+        :return: GraphEditOperation.result
         """
         if mincut:
-            new_root_ids, new_lvl2_ids = MulticutOperation(
+            return MulticutOperation(
                 self,
                 user_id=user_id,
                 source_ids=source_ids,
@@ -3502,29 +3496,24 @@ class ChunkedGraph(object):
                 sink_coords=sink_coords,
                 bbox_offset=bb_offset,
             ).apply()
-        else:
-            if not atomic_edges:
-                # Shim - can remove this check once all functions call the split properly/directly
-                source_ids = [source_ids] if np.isscalar(source_ids) else source_ids
-                sink_ids = [sink_ids] if np.isscalar(sink_ids) else sink_ids
-                if len(source_ids) != len(sink_ids):
-                    raise cg_exceptions.PreconditionError(
-                        "Split operation require the same number of source and sink IDs"
-                    )
-                atomic_edges = np.array([source_ids, sink_ids]).transpose()
 
-            new_root_ids, new_lvl2_ids = SplitOperation(
-                self,
-                user_id=user_id,
-                removed_edges=atomic_edges,
-                source_coords=source_coords,
-                sink_coords=sink_coords,
-            ).apply()
+        if not atomic_edges:
+            # Shim - can remove this check once all functions call the split properly/directly
+            source_ids = [source_ids] if np.isscalar(source_ids) else source_ids
+            sink_ids = [sink_ids] if np.isscalar(sink_ids) else sink_ids
+            if len(source_ids) != len(sink_ids):
+                raise cg_exceptions.PreconditionError(
+                    "Split operation require the same number of source and sink IDs"
+                )
+            atomic_edges = np.array([source_ids, sink_ids]).transpose()
 
-        if return_new_lvl2_nodes:
-            return new_root_ids, new_lvl2_ids
-        else:
-            return new_root_ids
+        return SplitOperation(
+            self,
+            user_id=user_id,
+            removed_edges=atomic_edges,
+            source_coords=source_coords,
+            sink_coords=sink_coords,
+        ).apply()
 
     def _run_multicut(self, source_ids: Sequence[np.uint64],
                       sink_ids: Sequence[np.uint64],

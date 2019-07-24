@@ -491,7 +491,7 @@ def _get_merge_timings(args):
     for merge_edge in merge_edges:
         time_start = time.time()
         root_ids = cg.add_edges(user_id="ChuckNorris",
-                                atomic_edges=[merge_edge])
+                                atomic_edges=[merge_edge]).new_root_ids
         dt = time.time() - time_start
         merge_timings.append(dt)
 
@@ -500,7 +500,7 @@ def _get_merge_timings(args):
         time_start = time.time()
         root_ids = cg.remove_edges(user_id="ChuckNorris",
                                    atomic_edges=[merge_edge],
-                                   mincut=False)
+                                   mincut=False).new_root_ids
         dt = time.time() - time_start
         split_timings.append(dt)
 

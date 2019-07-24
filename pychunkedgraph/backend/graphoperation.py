@@ -1,6 +1,7 @@
 from abc import ABC, abstractmethod
+from collections import namedtuple
 from datetime import datetime
-from typing import TYPE_CHECKING, Dict, List, Optional, Sequence, Tuple
+from typing import TYPE_CHECKING, Dict, List, Optional, Sequence
 
 import numpy as np
 
@@ -16,6 +17,7 @@ if TYPE_CHECKING:
 
 class GraphEditOperation(ABC):
     __slots__ = ["cg", "user_id", "source_ids", "sink_ids", "source_coords", "sink_coords"]
+    result = namedtuple("Result", ["operation_id", "new_root_ids", "new_lvl2_ids"])
 
     def __init__(
         self,
@@ -116,7 +118,7 @@ class GraphEditOperation(ABC):
         )
 
     @abstractmethod
-    def apply(self) -> Tuple[np.ndarray, np.ndarray]:
+    def apply(self) -> "GraphEditOperation.result":
         pass
 
     @abstractmethod
@@ -169,7 +171,7 @@ class MergeOperation(GraphEditOperation):
             sink_coords=sink_coords,
         )
 
-    def apply(self) -> Tuple[np.ndarray, np.ndarray]:
+    def apply(self) -> GraphEditOperation.result:
         root_ids = np.unique(self.cg.get_roots(self.added_edges.ravel()))
 
         with RootLock(self.cg, root_ids) as root_lock:
@@ -204,7 +206,11 @@ class MergeOperation(GraphEditOperation):
                 operation_id=root_lock.operation_id,
                 slow_retry=False,
             )
-            return new_root_ids, new_lvl2_ids
+            return GraphEditOperation.result(
+                operation_id=root_lock.operation_id,
+                new_root_ids=new_root_ids,
+                new_lvl2_ids=new_lvl2_ids,
+            )
 
     def create_log_record(
         self, *, operation_id: np.uint64, timestamp: datetime, root_ids: Sequence[np.uint64]
@@ -276,7 +282,7 @@ class SplitOperation(GraphEditOperation):
             sink_coords=sink_coords,
         )
 
-    def apply(self) -> Tuple[np.ndarray, np.ndarray]:
+    def apply(self) -> GraphEditOperation.result:
         source_and_sink_ids = [sid for l in (self.source_ids, self.sink_ids) for sid in l]
         root_ids = np.unique(self.cg.get_roots(source_and_sink_ids))
 
@@ -316,7 +322,11 @@ class SplitOperation(GraphEditOperation):
                 operation_id=root_lock.operation_id,
                 slow_retry=False,
             )
-            return new_root_ids, new_lvl2_ids
+            return GraphEditOperation.result(
+                operation_id=root_lock.operation_id,
+                new_root_ids=new_root_ids,
+                new_lvl2_ids=new_lvl2_ids,
+            )
 
     def create_log_record(
         self, *, operation_id: np.uint64, timestamp: datetime, root_ids: Sequence[np.uint64]
@@ -395,7 +405,7 @@ class MulticutOperation(GraphEditOperation):
             sink_coords=sink_coords,
         )
 
-    def apply(self) -> Tuple[np.ndarray, np.ndarray]:
+    def apply(self) -> GraphEditOperation.result:
         source_and_sink_ids = [sid for l in (self.source_ids, self.sink_ids) for sid in l]
         root_ids = np.unique(self.cg.get_roots(source_and_sink_ids))
 
@@ -449,7 +459,11 @@ class MulticutOperation(GraphEditOperation):
                 operation_id=root_lock.operation_id,
                 slow_retry=False,
             )
-            return new_root_ids, new_lvl2_ids
+            return GraphEditOperation.result(
+                operation_id=root_lock.operation_id,
+                new_root_ids=new_root_ids,
+                new_lvl2_ids=new_lvl2_ids,
+            )
 
     def create_log_record(
         self, *, operation_id: np.uint64, timestamp: datetime, root_ids: Sequence[np.uint64]

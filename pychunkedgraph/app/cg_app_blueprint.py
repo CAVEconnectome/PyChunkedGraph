@@ -246,10 +246,9 @@ def handle_merge(table_id):
                            atomic_edges=np.array(atomic_edge,
                                                  dtype=np.uint64),
                            source_coord=coords[:1],
-                           sink_coord=coords[1:],
-                           return_new_lvl2_nodes=True)
+                           sink_coord=coords[1:])
 
-        new_root, lvl2_nodes = ret
+        new_root, lvl2_nodes = ret.new_root_ids, ret.new_lvl2_ids
 
     except cg_exceptions.LockingError as e:
         raise cg_exceptions.InternalServerError(
@@ -319,10 +318,9 @@ def handle_split(table_id):
                               sink_ids=data_dict["sinks"]["id"],
                               source_coords=data_dict["sources"]["coord"],
                               sink_coords=data_dict["sinks"]["coord"],
-                              mincut=True,
-                              return_new_lvl2_nodes=True)
+                              mincut=True)
 
-        new_roots, lvl2_nodes = ret
+        new_roots, lvl2_nodes = ret.new_root_ids, ret.new_lvl2_ids
     except cg_exceptions.LockingError as e:
         raise cg_exceptions.InternalServerError(
             "Could not acquire root lock for split operation.")

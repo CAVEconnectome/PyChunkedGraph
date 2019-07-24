@@ -1033,7 +1033,7 @@ class TestGraphMerge:
                      timestamp=fake_timestamp)
 
         # Merge
-        new_root_ids = cgraph.add_edges("Jane Doe", [to_label(cgraph, 1, 0, 0, 0, 1), to_label(cgraph, 1, 0, 0, 0, 0)], affinities=0.3)
+        new_root_ids = cgraph.add_edges("Jane Doe", [to_label(cgraph, 1, 0, 0, 0, 1), to_label(cgraph, 1, 0, 0, 0, 0)], affinities=0.3).new_root_ids
 
         assert len(new_root_ids) == 1
         new_root_id = new_root_ids[0]
@@ -1079,7 +1079,7 @@ class TestGraphMerge:
         cgraph.add_layer(3, np.array([[0, 0, 0], [1, 0, 0]]), time_stamp=fake_timestamp, n_threads=1)
 
         # Merge
-        new_root_ids = cgraph.add_edges("Jane Doe", [to_label(cgraph, 1, 1, 0, 0, 0), to_label(cgraph, 1, 0, 0, 0, 0)], affinities=0.3)
+        new_root_ids = cgraph.add_edges("Jane Doe", [to_label(cgraph, 1, 1, 0, 0, 0), to_label(cgraph, 1, 0, 0, 0, 0)], affinities=0.3).new_root_ids
 
         assert len(new_root_ids) == 1
         new_root_id = new_root_ids[0]
@@ -1137,8 +1137,8 @@ class TestGraphMerge:
         cgraph.add_layer(9, np.array([[0x00, 0x00, 0x00], [0x01, 0x01, 0x01]]), time_stamp=fake_timestamp, n_threads=1)
 
         # Merge
-        new_root_ids, lvl2_node_ids = cgraph.add_edges("Jane Doe", [to_label(cgraph, 1, 127, 127, 127, 0), to_label(cgraph, 1, 0, 0, 0, 0)], affinities=0.3, return_new_lvl2_nodes=True)
-
+        result = cgraph.add_edges("Jane Doe", [to_label(cgraph, 1, 127, 127, 127, 0), to_label(cgraph, 1, 0, 0, 0, 0)], affinities=0.3)
+        new_root_ids, lvl2_node_ids = result.new_root_ids, result.new_lvl2_ids
         print(f"lvl2_node_ids: {lvl2_node_ids}")
 
         u_layers = np.unique(cgraph.get_chunk_layers(lvl2_node_ids))
@@ -1216,7 +1216,7 @@ class TestGraphMerge:
                      timestamp=fake_timestamp)
 
         # Merge
-        new_root_ids = cgraph.add_edges("Jane Doe", [to_label(cgraph, 1, 0, 0, 0, 1), to_label(cgraph, 1, 0, 0, 0, 0)], affinities=0.3)
+        new_root_ids = cgraph.add_edges("Jane Doe", [to_label(cgraph, 1, 0, 0, 0, 1), to_label(cgraph, 1, 0, 0, 0, 0)], affinities=0.3).new_root_ids
 
         assert len(new_root_ids) == 1
         new_root_id = new_root_ids[0]
@@ -1273,7 +1273,7 @@ class TestGraphMerge:
         cgraph.add_layer(3, np.array([[0, 0, 0], [1, 0, 0]]), time_stamp=fake_timestamp, n_threads=1)
 
         # Merge
-        new_root_ids = cgraph.add_edges("Jane Doe", [to_label(cgraph, 1, 1, 0, 0, 0), to_label(cgraph, 1, 0, 0, 0, 0)], affinities=1.0)
+        new_root_ids = cgraph.add_edges("Jane Doe", [to_label(cgraph, 1, 1, 0, 0, 0), to_label(cgraph, 1, 0, 0, 0, 0)], affinities=1.0).new_root_ids
 
         assert len(new_root_ids) == 1
         new_root_id = new_root_ids[0]
@@ -1352,7 +1352,7 @@ class TestGraphMerge:
         cgraph.add_layer(9, np.array([[0x00, 0x00, 0x00], [0x01, 0x01, 0x01]]), time_stamp=fake_timestamp, n_threads=1)
 
         # Merge
-        new_root_ids = cgraph.add_edges("Jane Doe", [to_label(cgraph, 1, 127, 127, 127, 0), to_label(cgraph, 1, 0, 0, 0, 0)], affinities=1.0)
+        new_root_ids = cgraph.add_edges("Jane Doe", [to_label(cgraph, 1, 127, 127, 127, 0), to_label(cgraph, 1, 0, 0, 0, 0)], affinities=1.0).new_root_ids
 
         assert len(new_root_ids) == 1
         new_root_id = new_root_ids[0]
@@ -1529,7 +1529,7 @@ class TestGraphMerge:
         new_roots = cgraph.add_edges("Jane Doe",
                                      [to_label(cgraph, 1, 0, 0, 0, 0),
                                       to_label(cgraph, 1, 0, 0, 0, 1)],
-                                     affinities=[.5])
+                                     affinities=[.5]).new_root_ids
 
         root_ids = []
         for child_id in child_ids:
@@ -1616,7 +1616,7 @@ class TestGraphMerge:
         new_roots = cgraph.add_edges("Jane Doe",
                                      [to_label(cgraph, 1, chunk_offset, 0, 0, 0),
                                       to_label(cgraph, 1, chunk_offset, 0, 0, 3)],
-                                     affinities=.9)
+                                     affinities=.9).new_root_ids
 
         assert len(new_roots) == 1
         root_id = new_roots[0]
@@ -1660,7 +1660,7 @@ class TestGraphSplit:
                      timestamp=fake_timestamp)
 
         # Split
-        new_root_ids = cgraph.remove_edges("Jane Doe", to_label(cgraph, 1, 0, 0, 0, 1), to_label(cgraph, 1, 0, 0, 0, 0), mincut=False)
+        new_root_ids = cgraph.remove_edges("Jane Doe", to_label(cgraph, 1, 0, 0, 0, 1), to_label(cgraph, 1, 0, 0, 0, 0), mincut=False).new_root_ids
 
         # Check New State
         assert len(new_root_ids) == 2
@@ -1712,7 +1712,7 @@ class TestGraphSplit:
                      timestamp=fake_timestamp)
 
         # Split
-        new_root_ids = cgraph.remove_edges("Jane Doe", to_label(cgraph, 1, 0, 0, 0, 0), to_label(cgraph, 1, 0, 0, 0, 2), mincut=False)
+        new_root_ids = cgraph.remove_edges("Jane Doe", to_label(cgraph, 1, 0, 0, 0, 0), to_label(cgraph, 1, 0, 0, 0, 2), mincut=False).new_root_ids
 
         assert len(new_root_ids) == 1
         assert len(cgraph.get_atomic_node_partners(to_label(cgraph, 1, 0, 0, 0, 0))) == 1
@@ -1747,7 +1747,7 @@ class TestGraphSplit:
         cgraph.add_layer(3, np.array([[0, 0, 0], [1, 0, 0]]), time_stamp=fake_timestamp, n_threads=1)
 
         # Split
-        new_root_ids = cgraph.remove_edges("Jane Doe", to_label(cgraph, 1, 1, 0, 0, 0), to_label(cgraph, 1, 0, 0, 0, 0), mincut=False)
+        new_root_ids = cgraph.remove_edges("Jane Doe", to_label(cgraph, 1, 1, 0, 0, 0), to_label(cgraph, 1, 0, 0, 0, 0), mincut=False).new_root_ids
 
         # Check New State
         assert len(new_root_ids) == 2
@@ -1812,7 +1812,7 @@ class TestGraphSplit:
         assert cgraph.get_root(to_label(cgraph, 1, 1, 0, 0, 0)) == cgraph.get_root(to_label(cgraph, 1, 2, 0, 0, 0))
 
         # Split
-        new_root_ids = cgraph.remove_edges("Jane Doe", to_label(cgraph, 1, 1, 0, 0, 0), to_label(cgraph, 1, 1, 0, 0, 1), mincut=False)
+        new_root_ids = cgraph.remove_edges("Jane Doe", to_label(cgraph, 1, 1, 0, 0, 0), to_label(cgraph, 1, 1, 0, 0, 1), mincut=False).new_root_ids
 
         assert len(new_root_ids) == 2
 
@@ -1878,11 +1878,11 @@ class TestGraphSplit:
         assert cgraph.get_root(to_label(cgraph, 1, 1, 0, 0, 0)) == cgraph.get_root(to_label(cgraph, 1, 2, 0, 0, 0))
 
         # Split
-        new_root_ids = cgraph.remove_edges("Jane Doe", to_label(cgraph, 1, 1, 0, 0, 0), to_label(cgraph, 1, 1, 0, 0, 2), mincut=False)
+        new_root_ids = cgraph.remove_edges("Jane Doe", to_label(cgraph, 1, 1, 0, 0, 0), to_label(cgraph, 1, 1, 0, 0, 2), mincut=False).new_root_ids
 
         assert len(new_root_ids) == 2
 
-        new_root_ids = cgraph.remove_edges("Jane Doe", to_label(cgraph, 1, 1, 0, 0, 0), to_label(cgraph, 1, 1, 0, 0, 3), mincut=False)
+        new_root_ids = cgraph.remove_edges("Jane Doe", to_label(cgraph, 1, 1, 0, 0, 0), to_label(cgraph, 1, 1, 0, 0, 3), mincut=False).new_root_ids
 
         assert len(new_root_ids) == 2
 
@@ -1935,7 +1935,7 @@ class TestGraphSplit:
         cgraph.add_layer(9, np.array([[0x00, 0x00, 0x00], [0x01, 0x01, 0x01]]), time_stamp=fake_timestamp, n_threads=1)
 
         # Split
-        new_roots = cgraph.remove_edges("Jane Doe", to_label(cgraph, 1, 127, 127, 127, 0), to_label(cgraph, 1, 0, 0, 0, 0), mincut=False)
+        new_roots = cgraph.remove_edges("Jane Doe", to_label(cgraph, 1, 127, 127, 127, 0), to_label(cgraph, 1, 0, 0, 0, 0), mincut=False).new_root_ids
 
         # Check New State
         assert len(new_roots) == 2
@@ -2020,7 +2020,7 @@ class TestGraphSplit:
                      timestamp=fake_timestamp)
 
         # Split
-        new_root_ids = cgraph.remove_edges("Jane Doe", to_label(cgraph, 1, 0, 0, 0, 1), to_label(cgraph, 1, 0, 0, 0, 0), mincut=False)
+        new_root_ids = cgraph.remove_edges("Jane Doe", to_label(cgraph, 1, 0, 0, 0, 1), to_label(cgraph, 1, 0, 0, 0, 0), mincut=False).new_root_ids
 
         # Check New State
         assert len(new_root_ids) == 1
@@ -2080,7 +2080,7 @@ class TestGraphSplit:
         cgraph.add_layer(3, np.array([[0, 0, 0], [1, 0, 0]]), time_stamp=fake_timestamp, n_threads=1)
 
         # Split
-        new_root_ids = cgraph.remove_edges("Jane Doe", to_label(cgraph, 1, 1, 0, 0, 0), to_label(cgraph, 1, 0, 0, 0, 0), mincut=False)
+        new_root_ids = cgraph.remove_edges("Jane Doe", to_label(cgraph, 1, 1, 0, 0, 0), to_label(cgraph, 1, 0, 0, 0, 0), mincut=False).new_root_ids
 
         # Check New State
         assert len(new_root_ids) == 1
@@ -2153,7 +2153,7 @@ class TestGraphSplit:
                cgraph.get_root(to_label(cgraph, 1, 0, 0, 0, 1))
 
         # Split
-        new_root_ids = cgraph.remove_edges("Jane Doe", to_label(cgraph, 1, loc, loc, loc, 0), to_label(cgraph, 1, 0, 0, 0, 0), mincut=False)
+        new_root_ids = cgraph.remove_edges("Jane Doe", to_label(cgraph, 1, loc, loc, loc, 0), to_label(cgraph, 1, 0, 0, 0, 0), mincut=False).new_root_ids
 
         # Check New State
         assert len(new_root_ids) == 1
@@ -2316,7 +2316,7 @@ class TestGraphSplit:
         new_roots = cgraph.remove_edges("Jane Doe",
                                         to_label(cgraph, 1, 0, 0, 0, 0),
                                         to_label(cgraph, 1, 0, 0, 0, 1),
-                                        mincut=False)
+                                        mincut=False).new_root_ids
 
         assert len(new_roots) == 2
         assert cgraph.get_root(to_label(cgraph, 1, 1, 1, 0, 0)) == \
@@ -2403,7 +2403,7 @@ class TestGraphMergeSplit:
             new_roots = cgraph.add_edges("Jane Doe",
                                          [to_label(cgraph, 1, 0, 0, 0, 0),
                                           to_label(cgraph, 1, 1, 0, 0, 1)],
-                                         affinities=.9)
+                                         affinities=.9).new_root_ids
             assert len(new_roots) == 1
 
             subgraph_dict = cgraph.get_subgraph_nodes(new_roots[0], return_layers=[3, 2, 1])
@@ -2427,7 +2427,7 @@ class TestGraphMergeSplit:
             cgraph.logger.debug("\n\nSPLIT 2 & 3\n\n")
 
             new_roots = cgraph.remove_edges("John Doe", to_label(cgraph, 1, 1, 0, 0, 0),
-                                            to_label(cgraph, 1, 1, 0, 0, 1), mincut=False)
+                                            to_label(cgraph, 1, 1, 0, 0, 1), mincut=False).new_root_ids
 
             assert len(np.unique(new_roots)) == 2
 
@@ -2457,7 +2457,7 @@ class TestGraphMergeSplit:
             new_roots = cgraph.remove_edges("Jane Doe",
                                             to_label(cgraph, 1, 0, 0, 0, 0),
                                             to_label(cgraph, 1, 1, 0, 0, 1),
-                                            mincut=False)
+                                            mincut=False).new_root_ids
             assert len(new_roots) == 2
 
             root_ids = []
@@ -2482,7 +2482,7 @@ class TestGraphMergeSplit:
             new_roots = cgraph.add_edges("Jane Doe",
                                          [to_label(cgraph, 1, 1, 0, 0, 0),
                                           to_label(cgraph, 1, 1, 0, 0, 1)],
-                                         affinities=.9)
+                                         affinities=.9).new_root_ids
             assert len(new_roots) == 1
 
             root_ids = []
@@ -2544,7 +2544,7 @@ class TestGraphMinCut:
         new_root_ids = cgraph.remove_edges(
                 "Jane Doe", to_label(cgraph, 1, 0, 0, 0, 0), to_label(cgraph, 1, 1, 0, 0, 0),
                 [0, 0, 0], [2*cgraph.chunk_size[0], 2*cgraph.chunk_size[1], cgraph.chunk_size[2]],
-                mincut=True)
+                mincut=True).new_root_ids
 
         # Check New State
         assert len(new_root_ids) == 2
@@ -2745,14 +2745,14 @@ class TestGraphHistory:
         split_roots = cgraph.remove_edges("Jane Doe",
                                           to_label(cgraph, 1, 0, 0, 0, 0),
                                           to_label(cgraph, 1, 1, 0, 0, 0),
-                                          mincut=False)
+                                          mincut=False).new_root_ids
 
         assert len(split_roots) == 2
         timestamp_after_split = datetime.utcnow() 
         merge_roots = cgraph.add_edges("Jane Doe",
                                       [to_label(cgraph, 1, 0, 0, 0, 0),
                                        to_label(cgraph, 1, 1, 0, 0, 0)],
-                                      affinities=.4)
+                                      affinities=.4).new_root_ids
         assert len(merge_roots) == 1
         merge_root = merge_roots[0]
         timestamp_after_merge = datetime.utcnow()
@@ -2968,7 +2968,7 @@ class TestGraphLocks:
         root_id = cgraph.get_root(to_label(cgraph, 1, 0, 0, 0, 1))
 
         new_root_ids = cgraph.add_edges("Chuck Norris", [to_label(cgraph, 1, 0, 0, 0, 1),
-                                                       to_label(cgraph, 1, 0, 0, 0, 2)], affinities=1.)
+                                                       to_label(cgraph, 1, 0, 0, 0, 2)], affinities=1.).new_root_ids
 
         assert new_root_ids is not None
 
