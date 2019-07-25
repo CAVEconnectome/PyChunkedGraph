@@ -30,7 +30,7 @@ def _decompress_edges(content):
     return edges, affinities, areas
 
 
-def get_chunk_edges(edges_dir:str, chunks_coordinates: List[np.ndarray]):
+def get_chunk_edges(edges_dir:str, chunks_coordinates: List[np.ndarray], cv_threads):
     '''
     :param: chunks_coordinates np.array of chunk coordinates
     :return: a generator that yields decompressed file content
@@ -48,7 +48,7 @@ def get_chunk_edges(edges_dir:str, chunks_coordinates: List[np.ndarray]):
     areas = np.array([], dtype=np.uint64)
 
     files = []
-    with Storage(edges_dir) as st:
+    with Storage(edges_dir, n_threads = cv_threads) as st:
         files = st.get_files(fnames)
         for _file in files:
             if not _file['content']: continue
