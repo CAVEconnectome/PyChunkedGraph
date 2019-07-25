@@ -3071,6 +3071,7 @@ class ChunkedGraph(object):
 
     def get_subgraph_edges_v2(self, offset = np.array([105, 54, 6]),
                            this_n_threads = 4,
+                           cv_threads = 20,
                            bounding_box: Optional[Sequence[Sequence[int]]] = None,
                            bb_is_coordinate: bool = False,
                            connected_edges=True,
@@ -3081,39 +3082,39 @@ class ChunkedGraph(object):
                 Tuple[List[np.ndarray], List[np.float32], List[np.uint64]]:
             return get_chunk_edges(
                 'testing_ignore_this', 
-                [self.get_chunk_coordinates(chunk_id) for chunk_id in chunk_ids])
+                [self.get_chunk_coordinates(chunk_id) for chunk_id in chunk_ids],
+                cv_threads)
 
-        # test assumes agglomeration id spans 32 chunks
-        # just reads edges from all 32 chunks
+        timings = {}
+        timings['total'] = time.time()
 
+        timings['determine_chunks_ids'] = time.time()
         x_start, y_start, z_start = offset
         x_end, y_end, z_end = map(
             int, np.ceil(
                 np.array(self.dataset_info['scales'][0]['size']) / self.chunk_size) - offset)
-        print(x_start, y_start, z_start)
-        print(x_end, y_end, z_end)
 
         chunks = []
 
         for x in range(x_start,x_end):
             for y in range(y_start, y_end):
                 for z in range(z_start, z_end):
-                    chunks.append((x, y, z))                
+                    chunks.append((x, y, z))
 
         chunk_ids = np.array([self.get_chunk_id(None, 1, *chunk) for chunk in chunks])
-        # this_n_threads = np.min([int(len(chunk_ids) // 50000) + 1, mu.n_cpus])
+        timings['determine_chunks_ids'] = time.time() - timings['determine_chunks_ids']
 
-        print(f'chunks: {len(chunks)}')
-        print(f'threads: {this_n_threads}')
-        
-        if verbose:
-            time_start = time.time()
+#         print(f'chunks: {len(chunks)}')
+#         print(f'threads: {this_n_threads}')
 
+        timings['reading_edges'] = time.time()
         edge_infos = mu.multithread_func(
             _get_subgraph_layer2_edges,
             np.array_split(chunk_ids, this_n_threads),
-            n_threads=this_n_threads, debug=this_n_threads == 1)        
+            n_threads=this_n_threads, debug=this_n_threads == 1)
+        timings['reading_edges'] = time.time() - timings['reading_edges']
 
+        timings['collecting_edges'] = time.time()
         edges = np.array([], dtype=np.uint64).reshape(0, 2)
         affinities = np.array([], dtype=np.float32)
         areas = np.array([], dtype=np.uint64)
@@ -3123,12 +3124,14 @@ class ChunkedGraph(object):
             edges = np.concatenate([edges, _edges])
             affinities = np.concatenate([affinities, _affinities])
             areas = np.concatenate([areas, _areas])
+        timings['collecting_edges'] = time.time() - timings['collecting_edges']
+        
+        timings['total'] = time.time() - timings['total']
 
-        if verbose:
-            print(f'time: {time.time() - time_start}')
-            print(f'edges: {len(edges)}')
-            print(f'affinities: {len(affinities)}')
-            print(f'areas: {len(areas)}')
+        print(json.dumps(timings, default=str, indent=4))
+        # print(f'edges: {len(edges)}')
+        # print(f'affinities: {len(affinities)}')
+        # print(f'areas: {len(areas)}')
 
         # return edges, affinities, areas
 
