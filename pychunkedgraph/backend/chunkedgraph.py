@@ -3068,6 +3068,7 @@ class ChunkedGraph(object):
         return edges, affinities, areas
 
     def get_subgraph_edges_v2(self, offset = np.array([105, 54, 6]),
+                           this_n_threads = 4,
                            bounding_box: Optional[Sequence[Sequence[int]]] = None,
                            bb_is_coordinate: bool = False,
                            connected_edges=True,
@@ -3098,7 +3099,7 @@ class ChunkedGraph(object):
                     chunks.append((x, y, z))                
 
         chunk_ids = np.array([self.get_chunk_id(None, 1, *chunk) for chunk in chunks])
-        this_n_threads = np.min([int(len(chunk_ids) // 50000) + 1, mu.n_cpus])
+        # this_n_threads = np.min([int(len(chunk_ids) // 50000) + 1, mu.n_cpus])
 
         print(f'chunks: {len(chunks)}')
         print(f'threads: {this_n_threads}')
