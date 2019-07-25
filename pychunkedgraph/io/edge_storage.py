@@ -11,10 +11,6 @@ import zstandard as zstd
 from cloudvolume import Storage
 from .protobuf.chunkEdges_pb2 import Edges
 
-# Creating these everytime is costly
-edgesMessage =  Edges()
-zstdDecompressor = zstd.ZstdDecompressor()
-
 
 def _decompress_edges(content):
     '''
@@ -23,8 +19,9 @@ def _decompress_edges(content):
                    areas:np.array[np.uint64]
                    affinities: np.array[np.float64]]
     '''
-    zstdDecompressor = zstd.ZstdDecompressor()
-    file_content = zstdDecompressor.decompressobj().decompress(content)
+    edgesMessage =  Edges()
+    zstdDecompressorObj = zstd.ZstdDecompressor().decompressobj()
+    file_content = zstdDecompressorObj.decompress(content)
     edgesMessage.ParseFromString(file_content)
     
     edges = np.frombuffer(edgesMessage.edgeList).reshape(-1, 2)
