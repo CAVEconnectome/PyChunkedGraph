@@ -3134,8 +3134,7 @@ class ChunkedGraph(object):
 
         return edges, affinities, areas
 
-    def get_subgraph_edges_v2(self, agglomeration_id: np.uint64,
-                           offset = np.array([104, 53, 6]),
+    def get_subgraph_edges_v2(self, offset = np.array([105, 54, 6]),
                            bounding_box: Optional[Sequence[Sequence[int]]] = None,
                            bb_is_coordinate: bool = False,
                            connected_edges=True,
@@ -3155,6 +3154,8 @@ class ChunkedGraph(object):
         x_end, y_end, z_end = map(
             int, np.ceil(
                 np.array(self.dataset_info['scales'][0]['size']) / self.chunk_size) - offset)
+        print(x_start, y_start, z_start)
+        print(x_end, y_end, z_end)
 
         chunks = []
 
@@ -3165,6 +3166,9 @@ class ChunkedGraph(object):
 
         chunk_ids = np.array([self.get_chunk_id(None, 1, *chunk) for chunk in chunks])
         this_n_threads = np.min([int(len(chunk_ids) // 50000) + 1, mu.n_cpus])
+
+        print(f'chunks: {len(chunks)}')
+        print(f'threads: {this_n_threads}')
         
         if verbose:
             time_start = time.time()
@@ -3186,8 +3190,6 @@ class ChunkedGraph(object):
 
         if verbose:
             print(f'time: {time.time() - time_start}')
-            print(f'chunks: {len(chunks)}')
-            print(f'threads: {this_n_threads}')
             print(f'edges: {len(edges)}')
             print(f'affinities: {len(affinities)}')
             print(f'areas: {len(areas)}')
