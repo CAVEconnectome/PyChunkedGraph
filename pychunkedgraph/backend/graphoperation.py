@@ -460,6 +460,20 @@ class RedoOperation(GraphEditOperation):
 
     __slots__ = ["superseded_operation_id", "superseded_operation"]
 
+    def __new__(cls, cg: "ChunkedGraph", *, user_id: str, superseded_operation_id: np.uint64):
+        # Path compression:
+        # RedoOperation[RedoOperation[x]] -> RedoOperation[x]
+        # RedoOperation[UndoOperation[x]] -> UndoOperation[x]
+        log_record = cg.read_log_row(superseded_operation_id)
+        superseded_operation = GraphEditOperation.from_log_record(cg, log_record)
+        if isinstance(superseded_operation, RedoOperation):
+            original_operation_id = log_record[column_keys.OperationLogs.RedoOperationID][0].value
+            return RedoOperation(cg, user_id=user_id, superseded_operation_id=original_operation_id)
+        if isinstance(superseded_operation, UndoOperation):
+            original_operation_id = log_record[column_keys.OperationLogs.UndoOperationID][0].value
+            return UndoOperation(cg, user_id=user_id, superseded_operation_id=original_operation_id)
+        return super().__new__(cls)
+
     def __init__(
         self, cg: "ChunkedGraph", *, user_id: str, superseded_operation_id: np.uint64
     ) -> None:
@@ -509,6 +523,20 @@ class UndoOperation(GraphEditOperation):
     """
 
     __slots__ = ["superseded_operation_id", "superseded_operation", "inverse_superseded_operation"]
+
+    def __new__(cls, cg: "ChunkedGraph", *, user_id: str, superseded_operation_id: np.uint64):
+        # Path compression:
+        # UndoOperation[RedoOperation[x]] -> UndoOperation[x]
+        # UndoOperation[UndoOperation[x]] -> RedoOperation[x]
+        log_record = cg.read_log_row(superseded_operation_id)
+        superseded_operation = GraphEditOperation.from_log_record(cg, log_record)
+        if isinstance(superseded_operation, RedoOperation):
+            original_operation_id = log_record[column_keys.OperationLogs.RedoOperationID][0].value
+            return UndoOperation(cg, user_id=user_id, superseded_operation_id=original_operation_id)
+        if isinstance(superseded_operation, UndoOperation):
+            original_operation_id = log_record[column_keys.OperationLogs.UndoOperationID][0].value
+            return RedoOperation(cg, user_id=user_id, superseded_operation_id=original_operation_id)
+        return super().__new__(cls)
 
     def __init__(
         self, cg: "ChunkedGraph", *, user_id: str, superseded_operation_id: np.uint64
