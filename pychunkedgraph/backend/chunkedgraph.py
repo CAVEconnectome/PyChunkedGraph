@@ -3449,7 +3449,7 @@ class ChunkedGraph(object):
             affinities=affinities,
             source_coords=source_coord,
             sink_coords=sink_coord,
-        ).apply()
+        ).execute()
 
     def remove_edges(
         self,
@@ -3495,7 +3495,7 @@ class ChunkedGraph(object):
                 source_coords=source_coords,
                 sink_coords=sink_coords,
                 bbox_offset=bb_offset,
-            ).apply()
+            ).execute()
 
         if not atomic_edges:
             # Shim - can remove this check once all functions call the split properly/directly
@@ -3513,7 +3513,7 @@ class ChunkedGraph(object):
             removed_edges=atomic_edges,
             source_coords=source_coords,
             sink_coords=sink_coords,
-        ).apply()
+        ).execute()
 
     def _run_multicut(self, source_ids: Sequence[np.uint64],
                       sink_ids: Sequence[np.uint64],
