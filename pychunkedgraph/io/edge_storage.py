@@ -17,9 +17,9 @@ from .protobuf.chunkEdges_pb2 import Edges
 def _decompress_edges(content: bytes):
     """
     :param content: zstd compressed bytes
-    :return: Tuple[edges:np.array[np.uint64, np.uint64],
-                   areas:np.array[np.uint64]
-                   affinities: np.array[np.float64]]
+    :type bytes:
+    :return: edges, affinities, areas
+    :rtype: Tuple[np.ndarray, np.ndarray, np.ndarray]
     """
     edgesMessage = Edges()
     zstdDecompressorObj = zstd.ZstdDecompressor().decompressobj()
@@ -36,8 +36,10 @@ def get_chunk_edges(
     edges_dir: str, chunks_coordinates: List[np.ndarray], cv_threads
 ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
     """
-    :param: chunks_coordinates np.array of chunk coordinates
-    :return: tuple of edge infos (edges, affinities, areas)
+    :param chunks_coordinates:
+    :type np.array:
+    :return: edges, affinities, areas
+    :rtype: Tuple[np.ndarray, np.ndarray, np.ndarray]
     """
     edges_dir = os.environ.get(
         "EDIR", "gs://akhilesh-test/edges/fly_playground/bbox-102_51_5-110_59_9"
@@ -78,18 +80,19 @@ def put_chunk_edges(
     compression_level: int,
 ) -> None:
     """
-    :param: chunk_str - chunk coords in format x_y_z
-    :type: str
-    :param: edges - (supervoxel1, supervoxel2)
-    :type: np.ndarray
-    :param: affinities
-    :type: np.ndarray
-    :param: areas
-    :type: np.ndarray
-    :param: edges_dir - google cloud storage path
-    :type: str
-    :param: compression_level - for zstandard (1-22, higher - better ratio)
-    :type: int
+    :param chunk_str: chunk coords in format x_y_z
+    :type str:
+    :param edges: np.array of [supervoxel1, supervoxel2]
+    :type np.ndarray:
+    :param affinities:
+    :type np.ndarray:
+    :param areas:
+    :type np.ndarray:
+    :param edges_dir: google cloud storage path
+    :type str:
+    :param compression_level: zstandard compression level (1-22, higher - better ratio)
+    :type int:
+    :return None:
     """
     edgesMessage = Edges()
     edgesMessage.edgeList = edges.tobytes()
