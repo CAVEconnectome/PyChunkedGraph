@@ -3173,8 +3173,8 @@ class ChunkedGraph(object):
         chunk_ids = np.array([self.get_chunk_id(None, 1, *chunk) for chunk in chunks])
         timings['determine_chunks_ids'] = time.time() - timings['determine_chunks_ids']
 
-#         print(f'chunks: {len(chunks)}')
-#         print(f'threads: {this_n_threads}')
+        # print(f'chunks: {len(chunks)}')
+        # print(f'threads: {this_n_threads}')
 
         timings['reading_edges'] = time.time()
         edge_infos = mu.multithread_func(
@@ -3197,7 +3197,9 @@ class ChunkedGraph(object):
         
         timings['total'] = time.time() - timings['total']
 
-        print(json.dumps(timings, default=str, indent=4))
+        return timings
+
+        # print(json.dumps(timings, default=str, indent=4))
         # print(f'edges: {len(edges)}')
         # print(f'affinities: {len(affinities)}')
         # print(f'areas: {len(areas)}')
