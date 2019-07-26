@@ -9,7 +9,16 @@ if TYPE_CHECKING:
 
 
 class RootLock:
+    """Attempts to lock the requested root IDs using a unique operation ID.
+
+    :raises cg_exceptions.LockingError: throws when one or more root ID locks could not be
+        acquired.
+    :return: The RootLock context, including the locked root IDs and the linked operation ID
+    :rtype: RootLock
+    """
     __slots__ = ["cg", "locked_root_ids", "lock_acquired", "operation_id"]
+    # FIXME: `locked_root_ids` is only required and exposed because `cg.lock_root_loop`
+    #        currently might lock different (more recent) root IDs than requested.
 
     def __init__(self, cg: "ChunkedGraph", root_ids: Union[np.uint64, Sequence[np.uint64]]) -> None:
         self.cg = cg

@@ -3422,7 +3422,7 @@ class ChunkedGraph(object):
         source_coord: Sequence[int] = None,
         sink_coord: Sequence[int] = None,
         n_tries: int = 60,
-    ) -> GraphEditOperation.result:
+    ) -> GraphEditOperation.Result:
         """ Adds an edge to the chunkedgraph
 
             Multi-user safe through locking of the root node
@@ -3440,7 +3440,7 @@ class ChunkedGraph(object):
         :param source_coord: list of int (n x 3)
         :param sink_coord: list of int (n x 3)
         :param n_tries: int
-        :return: GraphEditOperation.result
+        :return: GraphEditOperation.Result
         """
         return MergeOperation(
             self,
@@ -3462,7 +3462,7 @@ class ChunkedGraph(object):
         mincut: bool = True,
         bb_offset: Tuple[int, int, int] = (240, 240, 24),
         n_tries: int = 20,
-    ) -> GraphEditOperation.result:
+    ) -> GraphEditOperation.Result:
         """ Removes edges - either directly or after applying a mincut
 
             Multi-user safe through locking of the root node
@@ -3484,7 +3484,7 @@ class ChunkedGraph(object):
         :param bb_offset: list of 3 ints
             [x, y, z] bounding box padding beyond box spanned by coordinates
         :param n_tries: int
-        :return: GraphEditOperation.result
+        :return: GraphEditOperation.Result
         """
         if mincut:
             return MulticutOperation(
@@ -3515,21 +3515,21 @@ class ChunkedGraph(object):
             sink_coords=sink_coords,
         ).execute()
 
-    def undo_operation(self, user_id: str, operation_id: np.uint64) -> GraphEditOperation.result:
+    def undo_operation(self, user_id: str, operation_id: np.uint64) -> GraphEditOperation.Result:
         """ Applies the inverse of a previous GraphEditOperation
 
         :param user_id: str
         :param operation_id: operation_id to be inverted
-        :return: GraphEditOperation.result
+        :return: GraphEditOperation.Result
         """
         return UndoOperation(self, user_id=user_id, operation_id=operation_id).execute()
 
-    def redo_operation(self, user_id: str, operation_id: np.uint64) -> GraphEditOperation.result:
+    def redo_operation(self, user_id: str, operation_id: np.uint64) -> GraphEditOperation.Result:
         """ Re-applies a previous GraphEditOperation
 
         :param user_id: str
         :param operation_id: operation_id to be repeated
-        :return: GraphEditOperation.result
+        :return: GraphEditOperation.Result
         """
         return RedoOperation(self, user_id=user_id, operation_id=operation_id).execute()
 

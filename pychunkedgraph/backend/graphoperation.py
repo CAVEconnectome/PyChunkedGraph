@@ -2,7 +2,7 @@ import itertools
 from abc import ABC, abstractmethod
 from collections import namedtuple
 from datetime import datetime
-from typing import TYPE_CHECKING, Dict, List, Optional, Sequence
+from typing import TYPE_CHECKING, Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
 
@@ -18,7 +18,7 @@ if TYPE_CHECKING:
 
 class GraphEditOperation(ABC):
     __slots__ = ["cg", "user_id", "source_coords", "sink_coords"]
-    result = namedtuple("Result", ["operation_id", "new_root_ids", "new_lvl2_ids"])
+    Result = namedtuple("Result", ["operation_id", "new_root_ids", "new_lvl2_ids"])
 
     def __init__(
         self,
@@ -45,7 +45,18 @@ class GraphEditOperation(ABC):
         log_record: Dict[column_keys._Column, List["bigtable.row_data.Cell"]],
         *,
         multicut_as_split=True,
-    ):
+    ) -> "GraphEditOperation":
+        """Generates the correct GraphEditOperation given a log record dictionary.
+        :param cg: The ChunkedGraph instance
+        :type cg: "ChunkedGraph"
+        :param log_record: log record dictionary
+        :type log_record: Dict[column_keys._Column, List["bigtable.row_data.Cell"]]
+        :param multicut_as_split: If true, don't recalculate MultiCutOperation, just
+            use the resulting removed edges and generate SplitOperation instead (faster).
+
+        :return: The matching GraphEditOperation subclass
+        :rtype: "GraphEditOperation"
+        """
         user_id = log_record[column_keys.OperationLogs.UserID][0].value
 
         if column_keys.OperationLogs.UndoOperationID in log_record:
@@ -105,21 +116,47 @@ class GraphEditOperation(ABC):
 
     @abstractmethod
     def _update_root_ids(self) -> np.ndarray:
-        pass
+        """Retrieves and validates the most recent root IDs affected by this GraphEditOperation.
+        :return: New most recent root IDs
+        :rtype: np.ndarray
+        """
 
     @abstractmethod
-    def _apply(self, *, operation_id, timestamp):
-        pass
+    def _apply(
+        self, *, operation_id, timestamp
+    ) -> Tuple[np.ndarray, np.ndarray, List["bigtable.row.Row"]]:
+        """Initiates the graph operation calculation.
+        :return: New root IDs, new Lvl2 node IDs, and affected Bigtable rows
+        :rtype: Tuple[np.ndarray, np.ndarray, List["bigtable.row.Row"]]
+        """
 
     @abstractmethod
     def _create_log_record(self, *, operation_id, timestamp, new_root_ids) -> "bigtable.row.Row":
-        pass
+        """Creates a log record with all necessary information to replay the current
+            GraphEditOperation
+        :return: Bigtable row containing the log record
+        :rtype: bigtable.row.Row
+        """
 
     @abstractmethod
     def invert(self) -> "GraphEditOperation":
-        pass
+        """Creates a GraphEditOperation that would cancel out changes introduced by the current
+            GraphEditOperation
+        :return: The inverse of GraphEditOperation
+        :rtype: GraphEditOperation
+        """
 
-    def execute(self) -> "GraphEditOperation.result":
+    def execute(self) -> "GraphEditOperation.Result":
+        """Executes current GraphEditOperation:
+            * Calls the subclass's _update_root_ids method
+            * Locks root IDs
+            * Calls the subclass's _apply method
+            * Calls the subclass's _create_log_record method
+            * Writes all new rows to Bigtable
+            * Releases root ID lock
+        :return: Result of successful graph operation
+        :rtype: GraphEditOperation.Result
+        """
         root_ids = self._update_root_ids()
 
         with RootLock(self.cg, root_ids) as root_lock:
@@ -151,7 +188,7 @@ class GraphEditOperation(ABC):
                 operation_id=root_lock.operation_id,
                 slow_retry=False,
             )
-            return GraphEditOperation.result(
+            return GraphEditOperation.Result(
                 operation_id=root_lock.operation_id,
                 new_root_ids=new_root_ids,
                 new_lvl2_ids=new_lvl2_ids,
@@ -210,7 +247,9 @@ class MergeOperation(GraphEditOperation):
         root_ids = np.unique(self.cg.get_roots(self.added_edges.ravel()))
         return root_ids
 
-    def _apply(self, *, operation_id, timestamp):
+    def _apply(
+        self, *, operation_id, timestamp
+    ) -> Tuple[np.ndarray, np.ndarray, List["bigtable.row.Row"]]:
         new_root_ids, new_lvl2_ids, rows = cg_edits.add_edges(
             self.cg,
             operation_id,
@@ -296,7 +335,9 @@ class SplitOperation(GraphEditOperation):
             )
         return root_ids
 
-    def _apply(self, *, operation_id, timestamp) -> GraphEditOperation.result:
+    def _apply(
+        self, *, operation_id, timestamp
+    ) -> Tuple[np.ndarray, np.ndarray, List["bigtable.row.Row"]]:
         new_root_ids, new_lvl2_ids, rows = cg_edits.remove_edges(
             self.cg, operation_id, atomic_edges=self.removed_edges, time_stamp=timestamp
         )
@@ -392,7 +433,9 @@ class MulticutOperation(GraphEditOperation):
             )
         return root_ids
 
-    def _apply(self, *, operation_id, timestamp) -> GraphEditOperation.result:
+    def _apply(
+        self, *, operation_id, timestamp
+    ) -> Tuple[np.ndarray, np.ndarray, List["bigtable.row.Row"]]:
         self.removed_edges = self.cg._run_multicut(
             self.source_ids, self.sink_ids, self.source_coords, self.sink_coords, self.bbox_offset
         )
@@ -477,7 +520,9 @@ class RedoOperation(GraphEditOperation):
     def _update_root_ids(self):
         return self.superseded_operation._update_root_ids()
 
-    def _apply(self, *, operation_id, timestamp) -> GraphEditOperation.result:
+    def _apply(
+        self, *, operation_id, timestamp
+    ) -> Tuple[np.ndarray, np.ndarray, List["bigtable.row.Row"]]:
         return self.superseded_operation._apply(operation_id=operation_id, timestamp=timestamp)
 
     def _create_log_record(
@@ -541,7 +586,9 @@ class UndoOperation(GraphEditOperation):
     def _update_root_ids(self):
         return self.inverse_superseded_operation._update_root_ids()
 
-    def _apply(self, *, operation_id, timestamp) -> GraphEditOperation.result:
+    def _apply(
+        self, *, operation_id, timestamp
+    ) -> Tuple[np.ndarray, np.ndarray, List["bigtable.row.Row"]]:
         return self.inverse_superseded_operation._apply(
             operation_id=operation_id, timestamp=timestamp
         )
