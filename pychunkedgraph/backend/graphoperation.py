@@ -1,3 +1,4 @@
+import itertools
 from abc import ABC, abstractmethod
 from collections import namedtuple
 from datetime import datetime
@@ -16,7 +17,7 @@ if TYPE_CHECKING:
 
 
 class GraphEditOperation(ABC):
-    __slots__ = ["cg", "user_id", "source_ids", "sink_ids", "source_coords", "sink_coords"]
+    __slots__ = ["cg", "user_id", "source_coords", "sink_coords"]
     result = namedtuple("Result", ["operation_id", "new_root_ids", "new_lvl2_ids"])
 
     def __init__(
@@ -24,47 +25,19 @@ class GraphEditOperation(ABC):
         cg: "ChunkedGraph",
         *,
         user_id: str,
-        source_ids: Optional[Sequence[np.uint64]] = None,
-        sink_ids: Optional[Sequence[np.uint64]] = None,
         source_coords: Optional[Sequence[Sequence[np.int]]] = None,
         sink_coords: Optional[Sequence[Sequence[np.int]]] = None,
     ) -> None:
         super().__init__()
         self.cg = cg
         self.user_id = user_id
-        self.source_ids = source_ids
-        self.sink_ids = sink_ids
-        self.source_coords = source_coords
-        self.sink_coords = sink_coords
+        self.source_coords = None
+        self.sink_coords = None
 
-        if self.source_ids is not None:
-            self.source_ids = np.atleast_1d(source_ids).astype(basetypes.NODE_ID)
-        if self.sink_ids is not None:
-            self.sink_ids = np.atleast_1d(sink_ids).astype(basetypes.NODE_ID)
-        if self.source_coords is not None:
+        if source_coords is not None:
             self.source_coords = np.atleast_2d(source_coords).astype(basetypes.COORDINATES)
-        if self.sink_coords is not None:
+        if sink_coords is not None:
             self.sink_coords = np.atleast_2d(sink_coords).astype(basetypes.COORDINATES)
-
-        if self.sink_ids is not None and self.source_ids is not None:
-            if np.any(np.in1d(self.sink_ids, self.source_ids)):
-                raise cg_exceptions.PreconditionError(
-                    f"One or more supervoxel exists as both, sink and source."
-                )
-
-            for source_id in self.source_ids:
-                layer = self.cg.get_chunk_layer(source_id)
-                if layer != 1:
-                    raise cg_exceptions.PreconditionError(
-                        f"Supervoxel expected, but {source_id} is a layer {layer} node."
-                    )
-
-            for sink_id in self.sink_ids:
-                layer = self.cg.get_chunk_layer(sink_id)
-                if layer != 1:
-                    raise cg_exceptions.PreconditionError(
-                        f"Supervoxel expected, but {sink_id} is a layer {layer} node."
-                    )
 
     @staticmethod
     def from_log_record(
@@ -130,9 +103,9 @@ class GraphEditOperation(ABC):
             f"Log record contains neither added nor removed edges."
         )
 
-    def _update_root_ids(self):
-        source_and_sink_ids = [sid for l in (self.source_ids, self.sink_ids) for sid in l]
-        return np.unique(self.cg.get_roots(source_and_sink_ids))
+    @abstractmethod
+    def _update_root_ids(self) -> np.ndarray:
+        pass
 
     @abstractmethod
     def _apply(self, *, operation_id, timestamp):
@@ -214,21 +187,28 @@ class MergeOperation(GraphEditOperation):
         sink_coords: Optional[Sequence[Sequence[np.int]]] = None,
         affinities: Optional[Sequence[np.float32]] = None,
     ) -> None:
-        self.affinities = affinities
+        super().__init__(cg, user_id=user_id, source_coords=source_coords, sink_coords=sink_coords)
         self.added_edges = np.atleast_2d(added_edges).astype(basetypes.NODE_ID)
-        source_ids, sink_ids = self.added_edges.transpose()
+        self.affinities = None
 
-        if self.affinities is not None:
+        if affinities is not None:
             self.affinities = np.atleast_1d(affinities).astype(basetypes.EDGE_AFFINITY)
 
-        super().__init__(
-            cg,
-            user_id=user_id,
-            source_ids=source_ids,
-            sink_ids=sink_ids,
-            source_coords=source_coords,
-            sink_coords=sink_coords,
-        )
+        if np.any(np.in1d(self.added_edges[:, 0], self.added_edges[:, 1])):
+            raise cg_exceptions.PreconditionError(
+                f"One or more supervoxel exists as both, sink and source."
+            )
+
+        for supervoxel_id in self.added_edges.ravel():
+            layer = self.cg.get_chunk_layer(supervoxel_id)
+            if layer != 1:
+                raise cg_exceptions.PreconditionError(
+                    f"Supervoxel expected, but {supervoxel_id} is a layer {layer} node."
+                )
+
+    def _update_root_ids(self) -> np.ndarray:
+        root_ids = np.unique(self.cg.get_roots(self.added_edges.ravel()))
+        return root_ids
 
     def _apply(self, *, operation_id, timestamp):
         new_root_ids, new_lvl2_ids, rows = cg_edits.add_edges(
@@ -293,20 +273,23 @@ class SplitOperation(GraphEditOperation):
         source_coords: Optional[Sequence[Sequence[np.int]]] = None,
         sink_coords: Optional[Sequence[Sequence[np.int]]] = None,
     ) -> None:
+        super().__init__(cg, user_id=user_id, source_coords=source_coords, sink_coords=sink_coords)
         self.removed_edges = np.atleast_2d(removed_edges).astype(basetypes.NODE_ID)
-        source_ids, sink_ids = self.removed_edges.transpose()
 
-        super().__init__(
-            cg,
-            user_id=user_id,
-            source_ids=source_ids,
-            sink_ids=sink_ids,
-            source_coords=source_coords,
-            sink_coords=sink_coords,
-        )
+        if np.any(np.in1d(self.removed_edges[:, 0], self.removed_edges[:, 1])):
+            raise cg_exceptions.PreconditionError(
+                f"One or more supervoxel exists as both, sink and source."
+            )
 
-    def _update_root_ids(self):
-        root_ids = super()._update_root_ids()
+        for supervoxel_id in self.removed_edges.ravel():
+            layer = self.cg.get_chunk_layer(supervoxel_id)
+            if layer != 1:
+                raise cg_exceptions.PreconditionError(
+                    f"Supervoxel expected, but {supervoxel_id} is a layer {layer} node."
+                )
+
+    def _update_root_ids(self) -> np.ndarray:
+        root_ids = np.unique(self.cg.get_roots(self.removed_edges.ravel()))
         if len(root_ids) > 1:
             raise cg_exceptions.PreconditionError(
                 f"All supervoxel must belong to the same object. Already split?"
@@ -366,7 +349,7 @@ class MulticutOperation(GraphEditOperation):
     :type bbox_offset: Optional[Sequence[np.int]], optional
     """
 
-    __slots__ = ["removed_edges", "bbox_offset"]
+    __slots__ = ["source_ids", "sink_ids", "removed_edges", "bbox_offset"]
 
     def __init__(
         self,
@@ -379,23 +362,30 @@ class MulticutOperation(GraphEditOperation):
         sink_coords: Sequence[Sequence[np.int]],
         bbox_offset: Optional[Sequence[np.int]] = None,
     ) -> None:
+        super().__init__(cg, user_id=user_id, source_coords=source_coords, sink_coords=sink_coords)
         self.removed_edges = None  # Calculated from coordinates and IDs
-        self.bbox_offset = bbox_offset
+        self.source_ids = np.atleast_1d(source_ids).astype(basetypes.NODE_ID)
+        self.sink_ids = np.atleast_1d(sink_ids).astype(basetypes.NODE_ID)
+        self.bbox_offset = None
 
-        if self.bbox_offset is not None:
+        if bbox_offset is not None:
             self.bbox_offset = np.atleast_1d(bbox_offset).astype(basetypes.COORDINATES)
 
-        super().__init__(
-            cg,
-            user_id=user_id,
-            source_ids=source_ids,
-            sink_ids=sink_ids,
-            source_coords=source_coords,
-            sink_coords=sink_coords,
-        )
+        if np.any(np.in1d(self.sink_ids, self.source_ids)):
+            raise cg_exceptions.PreconditionError(
+                f"One or more supervoxel exists as both, sink and source."
+            )
 
-    def _update_root_ids(self):
-        root_ids = super()._update_root_ids()
+        for supervoxel_id in itertools.chain(self.source_ids, self.sink_ids):
+            layer = self.cg.get_chunk_layer(supervoxel_id)
+            if layer != 1:
+                raise cg_exceptions.PreconditionError(
+                    f"Supervoxel expected, but {supervoxel_id} is a layer {layer} node."
+                )
+
+    def _update_root_ids(self) -> np.ndarray:
+        sink_and_source_ids = np.concatenate((self.source_ids, self.sink_ids))
+        root_ids = np.unique(self.cg.get_roots(sink_and_source_ids))
         if len(root_ids) > 1:
             raise cg_exceptions.PreconditionError(
                 f"All supervoxel must belong to the same object. Already split?"
@@ -478,7 +468,6 @@ class RedoOperation(GraphEditOperation):
         self, cg: "ChunkedGraph", *, user_id: str, superseded_operation_id: np.uint64
     ) -> None:
         super().__init__(cg, user_id=user_id)
-
         superseded_operation = GraphEditOperation.from_log_record(
             cg, cg.read_log_row(superseded_operation_id)
         )
