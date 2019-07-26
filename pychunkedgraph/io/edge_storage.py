@@ -1,5 +1,6 @@
 """
-Functions to use when dealing with any cloud storage via CloudVolume
+Functions for reading and writing edges 
+to secondary storage with CloudVolume
 """
 
 import os
@@ -13,7 +14,7 @@ from cloudvolume.storage import SimpleStorage
 from .protobuf.chunkEdges_pb2 import Edges
 
 
-def _decompress_edges(content):
+def _decompress_edges(content: bytes):
     """
     :param content: zstd compressed bytes
     :return: Tuple[edges:np.array[np.uint64, np.uint64],
@@ -32,9 +33,7 @@ def _decompress_edges(content):
 
 
 def get_chunk_edges(
-    edges_dir: str,
-    chunks_coordinates: List[np.ndarray],
-    cv_threads,
+    edges_dir: str, chunks_coordinates: List[np.ndarray], cv_threads
 ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
     """
     :param: chunks_coordinates np.array of chunk coordinates
@@ -68,3 +67,45 @@ def get_chunk_edges(
             areas = np.concatenate([areas, _areas])
 
     return edges, affinities, areas
+
+
+def put_chunk_edges(
+    chunk_str: str,
+    edges: np.ndarray,
+    affinities: np.ndarray,
+    areas: np.ndarray,
+    edges_dir: str,
+    compression_level: int,
+) -> None:
+    """
+    :param: chunk_str - chunk coords in format x_y_z
+    :type: str
+    :param: edges - (supervoxel1, supervoxel2)
+    :type: np.ndarray
+    :param: affinities
+    :type: np.ndarray
+    :param: areas
+    :type: np.ndarray
+    :param: edges_dir - google cloud storage path
+    :type: str
+    :param: compression_level - for zstandard (1-22, higher - better ratio)
+    :type: int
+    """
+    edgesMessage = Edges()
+    edgesMessage.edgeList = edges.tobytes()
+    edgesMessage.affinities = affinities.tobytes()
+    edgesMessage.areas = areas.tobytes()
+
+    cctx = zstd.ZstdCompressor(level=compression_level)
+    compressed_proto = cctx.compress(edgesMessage.SerializeToString())
+
+    # filename - "chunk_" + chunk_coords + compression_tool + serialization_method
+
+    file = f"chunk_{chunk_str}_zstd_proto.data"
+    with Storage(edges_dir) as st:
+        st.put_file(
+            file_path=file,
+            content=compressed_proto,
+            compress=None,
+            cache_control="no-cache",
+        )
