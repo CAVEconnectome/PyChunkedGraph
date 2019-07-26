@@ -3032,6 +3032,9 @@ class ChunkedGraph(object):
                                            connected_edges=connected_edges,
                                            time_stamp=time_stamp)
 
+        time_stamp = self.read_node_id_row(agglomeration_id,
+                                           columns=column_keys.Hierarchy.Child)[0].timestamp                                           
+
         bounding_box = self.normalize_bounding_box(bounding_box, bb_is_coordinate)
 
         # Layer 3+
