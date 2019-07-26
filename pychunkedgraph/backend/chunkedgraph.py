@@ -3515,6 +3515,24 @@ class ChunkedGraph(object):
             sink_coords=sink_coords,
         ).execute()
 
+    def undo_operation(self, user_id: str, operation_id: np.uint64) -> GraphEditOperation.result:
+        """ Applies the inverse of a previous GraphEditOperation
+
+        :param user_id: str
+        :param operation_id: operation_id to be inverted
+        :return: GraphEditOperation.result
+        """
+        return UndoOperation(self, user_id=user_id, operation_id=operation_id).execute()
+
+    def redo_operation(self, user_id: str, operation_id: np.uint64) -> GraphEditOperation.result:
+        """ Re-applies a previous GraphEditOperation
+
+        :param user_id: str
+        :param operation_id: operation_id to be repeated
+        :return: GraphEditOperation.result
+        """
+        return RedoOperation(self, user_id=user_id, operation_id=operation_id).execute()
+
     def _run_multicut(self, source_ids: Sequence[np.uint64],
                       sink_ids: Sequence[np.uint64],
                       source_coords: Sequence[Sequence[int]],

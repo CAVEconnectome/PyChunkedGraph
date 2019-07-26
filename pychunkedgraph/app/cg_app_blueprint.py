@@ -351,6 +351,95 @@ def handle_split(table_id):
         }
     return jsonify(resp)
 
+
+### UNDO ----------------------------------------------------------------------
+
+
+@bp.route("/1.0/<table_id>/graph/undo", methods=["POST"])
+@auth_requires_roles("edit_all")
+def handle_undo(table_id):
+    current_app.request_type = "undo"
+
+    data = json.loads(request.data)
+    user_id = str(g.auth_user["id"])
+
+    current_app.logger.debug(data)
+
+    # Call ChunkedGraph
+    cg = app_utils.get_cg(table_id)
+    operation_id = np.uint64(data["operation_id"])
+
+    try:
+        ret = cg.undo(user_id=user_id, operation_id=operation_id)
+    except cg_exceptions.LockingError as e:
+        raise cg_exceptions.InternalServerError("Could not acquire root lock for undo operation.")
+    except (cg_exceptions.PreconditionError, cg_exceptions.PostconditionError) as e:
+        raise cg_exceptions.BadRequest(str(e))
+
+    current_app.logger.debug(("after undo:", ret.new_root_ids))
+    current_app.logger.debug(("lvl2_nodes:", ret.new_lvl2_ids))
+
+    if ret.new_lvl2_ids.size > 0:
+        t = threading.Thread(
+            target=meshing_app_blueprint._remeshing,
+            args=(cg.get_serialized_info(), ret.new_lvl2_ids),
+        )
+        t.start()
+
+    # NOTE: JS can't safely read integers larger than 2^53 - 1
+    resp = {
+        "operation_id": ret.operation_id,
+        "operation_id_str": str(ret.operation_id),
+        "new_root_ids": ret.new_root_ids,
+        "new_root_ids_str": list(map(str, ret.new_root_ids)),
+    }
+    return jsonify(resp)
+
+
+### REDO ----------------------------------------------------------------------
+
+
+@bp.route("/1.0/<table_id>/graph/redo", methods=["POST"])
+@auth_requires_roles("edit_all")
+def handle_redo(table_id):
+    current_app.request_type = "redo"
+
+    data = json.loads(request.data)
+    user_id = str(g.auth_user["id"])
+
+    current_app.logger.debug(data)
+
+    # Call ChunkedGraph
+    cg = app_utils.get_cg(table_id)
+    operation_id = np.uint64(data["operation_id"])
+
+    try:
+        ret = cg.redo(user_id=user_id, operation_id=operation_id)
+    except cg_exceptions.LockingError as e:
+        raise cg_exceptions.InternalServerError("Could not acquire root lock for redo operation.")
+    except (cg_exceptions.PreconditionError, cg_exceptions.PostconditionError) as e:
+        raise cg_exceptions.BadRequest(str(e))
+
+    current_app.logger.debug(("after redo:", ret.new_root_ids))
+    current_app.logger.debug(("lvl2_nodes:", ret.new_lvl2_ids))
+
+    if ret.new_lvl2_ids.size > 0:
+        t = threading.Thread(
+            target=meshing_app_blueprint._remeshing,
+            args=(cg.get_serialized_info(), ret.new_lvl2_ids),
+        )
+        t.start()
+
+    # NOTE: JS can't safely read integers larger than 2^53 - 1
+    resp = {
+        "operation_id": ret.operation_id,
+        "operation_id_str": str(ret.operation_id),
+        "new_root_ids": ret.new_root_ids,
+        "new_root_ids_str": list(map(str, ret.new_root_ids)),
+    }
+    return jsonify(resp)
+
+
 ### CHILDREN -------------------------------------------------------------------
 
 @bp.route('/1.0/<table_id>/segment/<parent_id>/children',
