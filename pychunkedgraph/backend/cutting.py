@@ -366,8 +366,7 @@ def mincut_graph_tool(edges: Iterable[Sequence[np.uint64]],
     src, tgt = weighted_graph.vertex(source_graph_ids[0]), \
                weighted_graph.vertex(sink_graph_ids[0])
 
-    res = graph_tool.flow.boykov_kolmogorov_max_flow(weighted_graph,
-                                                     src, tgt, cap)
+    res = graph_tool.flow.push_relabel_max_flow(weighted_graph, src, tgt, cap)
 
     part = graph_tool.flow.min_st_cut(weighted_graph, src, cap, res)
 
@@ -448,6 +447,6 @@ def mincut(edges: Iterable[Sequence[np.uint64]],
         edges that should be removed
     """
 
-    return mincut_nx(edges=edges, affs=affs, sources=sources,
+    return mincut_graph_tool(edges=edges, affs=affs, sources=sources,
                              sinks=sinks, logger=logger)
 
