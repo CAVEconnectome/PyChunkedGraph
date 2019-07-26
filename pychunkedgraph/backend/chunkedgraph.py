@@ -10,7 +10,6 @@ import cloudvolume
 import re
 import itertools
 import logging
-import json
 
 from itertools import chain
 from multiwrapper import multiprocessing_utils as mu
