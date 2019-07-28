@@ -1424,11 +1424,11 @@ class ChunkedGraph(object):
 
     def read_log_row(
         self, operation_id: np.uint64
-    ) -> Dict[column_keys._Column, List[bigtable.row_data.Cell]]:
-        """ Reads a log row (split, merge, undo, redo)
+    ) -> Dict[column_keys._Column, Union[np.ndarray, np.number]]:
+        """ Retrieves log record from Bigtable for a given operation ID
 
         :param operation_id: np.uint64
-        :return: dict
+        :return: Dict[column_keys._Column, Union[np.ndarray, np.number]]
         """
         columns = [
             column_keys.OperationLogs.UndoOperationID,
@@ -1444,8 +1444,9 @@ class ChunkedGraph(object):
             column_keys.OperationLogs.RemovedEdge,
             column_keys.OperationLogs.BoundingBoxOffset,
         ]
-        row_dict = self.read_node_id_row(operation_id, columns=columns)
-        return row_dict
+        log_record = self.read_node_id_row(operation_id, columns=columns)
+        log_record.update((column, v[0].value) for column, v in log_record.items())
+        return log_record
 
     def add_atomic_edges_in_chunks(self, edge_id_dict: dict,
                                    edge_aff_dict: dict, edge_area_dict: dict,
@@ -2875,11 +2876,11 @@ class ChunkedGraph(object):
                         temp_next_ids.append(id_)
 
                     if is_merge:
-                        added_edges = log_row[column_keys.OperationLogs.AddedEdge][0].value
+                        added_edges = log_row[column_keys.OperationLogs.AddedEdge]
                         merge_history.append(added_edges)
 
-                        coords = [log_row[column_keys.OperationLogs.SourceCoordinate][0].value,
-                                  log_row[column_keys.OperationLogs.SinkCoordinate][0].value]
+                        coords = [log_row[column_keys.OperationLogs.SourceCoordinate],
+                                  log_row[column_keys.OperationLogs.SinkCoordinate]]
 
                         if correct_for_wrong_coord_type:
                             # A little hack because we got the datatype wrong...
@@ -2890,7 +2891,7 @@ class ChunkedGraph(object):
                         merge_history_edges.append(coords)
 
                     if not is_merge:
-                        removed_edges = log_row[column_keys.OperationLogs.RemovedEdge][0].value
+                        removed_edges = log_row[column_keys.OperationLogs.RemovedEdge]
                         split_history.append(removed_edges)
                 else:
                     continue

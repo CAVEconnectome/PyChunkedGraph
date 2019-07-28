@@ -2,7 +2,7 @@ import itertools
 from abc import ABC, abstractmethod
 from collections import namedtuple
 from datetime import datetime
-from typing import TYPE_CHECKING, Dict, List, Optional, Sequence, Tuple
+from typing import TYPE_CHECKING, Dict, List, Optional, Sequence, Tuple, Union
 
 import numpy as np
 
@@ -42,7 +42,7 @@ class GraphEditOperation(ABC):
     @staticmethod
     def from_log_record(
         cg: "ChunkedGraph",
-        log_record: Dict[column_keys._Column, List["bigtable.row_data.Cell"]],
+        log_record: Dict[column_keys._Column, Union[np.ndarray, np.number]],
         *,
         multicut_as_split=True,
     ) -> "GraphEditOperation":
@@ -50,35 +50,35 @@ class GraphEditOperation(ABC):
         :param cg: The ChunkedGraph instance
         :type cg: "ChunkedGraph"
         :param log_record: log record dictionary
-        :type log_record: Dict[column_keys._Column, List["bigtable.row_data.Cell"]]
+        :type log_record: Dict[column_keys._Column, Union[np.ndarray, np.number]]
         :param multicut_as_split: If true, don't recalculate MultiCutOperation, just
             use the resulting removed edges and generate SplitOperation instead (faster).
 
         :return: The matching GraphEditOperation subclass
         :rtype: "GraphEditOperation"
         """
-        user_id = log_record[column_keys.OperationLogs.UserID][0].value
+        user_id = log_record[column_keys.OperationLogs.UserID]
 
         if column_keys.OperationLogs.UndoOperationID in log_record:
-            superseded_operation_id = log_record[column_keys.OperationLogs.UndoOperationID][0].value
+            superseded_operation_id = log_record[column_keys.OperationLogs.UndoOperationID]
             return UndoOperation(
                 cg, user_id=user_id, superseded_operation_id=superseded_operation_id
             )
 
         if column_keys.OperationLogs.RedoOperationID in log_record:
-            superseded_operation_id = log_record[column_keys.OperationLogs.RedoOperationID][0].value
+            superseded_operation_id = log_record[column_keys.OperationLogs.RedoOperationID]
             return RedoOperation(
                 cg, user_id=user_id, superseded_operation_id=superseded_operation_id
             )
 
-        source_ids = log_record[column_keys.OperationLogs.SourceID][0].value
-        sink_ids = log_record[column_keys.OperationLogs.SinkID][0].value
-        source_coords = log_record[column_keys.OperationLogs.SourceCoordinate][0].value
-        sink_coords = log_record[column_keys.OperationLogs.SinkCoordinate][0].value
+        source_ids = log_record[column_keys.OperationLogs.SourceID]
+        sink_ids = log_record[column_keys.OperationLogs.SinkID]
+        source_coords = log_record[column_keys.OperationLogs.SourceCoordinate]
+        sink_coords = log_record[column_keys.OperationLogs.SinkCoordinate]
 
         if column_keys.OperationLogs.AddedEdge in log_record:
-            added_edges = log_record[column_keys.OperationLogs.AddedEdge][0].value
-            affinities = log_record[column_keys.OperationLogs.Affinity][0].value
+            added_edges = log_record[column_keys.OperationLogs.AddedEdge]
+            affinities = log_record[column_keys.OperationLogs.Affinity]
             return MergeOperation(
                 cg,
                 user_id=user_id,
@@ -89,7 +89,7 @@ class GraphEditOperation(ABC):
             )
 
         if column_keys.OperationLogs.RemovedEdge in log_record:
-            removed_edges = log_record[column_keys.OperationLogs.RemovedEdge][0].value
+            removed_edges = log_record[column_keys.OperationLogs.RemovedEdge]
             if multicut_as_split or column_keys.OperationLogs.BoundingBoxOffset not in log_record:
                 return SplitOperation(
                     cg,
@@ -99,7 +99,7 @@ class GraphEditOperation(ABC):
                     removed_edges=removed_edges,
                 )
 
-            bbox_offset = log_record[column_keys.OperationLogs.BoundingBoxOffset][0].value
+            bbox_offset = log_record[column_keys.OperationLogs.BoundingBoxOffset]
             return MulticutOperation(
                 cg,
                 user_id=user_id,
@@ -500,10 +500,10 @@ class RedoOperation(GraphEditOperation):
         log_record = cg.read_log_row(superseded_operation_id)
         superseded_operation = GraphEditOperation.from_log_record(cg, log_record)
         if isinstance(superseded_operation, RedoOperation):
-            original_operation_id = log_record[column_keys.OperationLogs.RedoOperationID][0].value
+            original_operation_id = log_record[column_keys.OperationLogs.RedoOperationID]
             return RedoOperation(cg, user_id=user_id, superseded_operation_id=original_operation_id)
         if isinstance(superseded_operation, UndoOperation):
-            original_operation_id = log_record[column_keys.OperationLogs.UndoOperationID][0].value
+            original_operation_id = log_record[column_keys.OperationLogs.UndoOperationID]
             return UndoOperation(cg, user_id=user_id, superseded_operation_id=original_operation_id)
         return super().__new__(cls)
 
@@ -565,10 +565,10 @@ class UndoOperation(GraphEditOperation):
         log_record = cg.read_log_row(superseded_operation_id)
         superseded_operation = GraphEditOperation.from_log_record(cg, log_record)
         if isinstance(superseded_operation, RedoOperation):
-            original_operation_id = log_record[column_keys.OperationLogs.RedoOperationID][0].value
+            original_operation_id = log_record[column_keys.OperationLogs.RedoOperationID]
             return UndoOperation(cg, user_id=user_id, superseded_operation_id=original_operation_id)
         if isinstance(superseded_operation, UndoOperation):
-            original_operation_id = log_record[column_keys.OperationLogs.UndoOperationID][0].value
+            original_operation_id = log_record[column_keys.OperationLogs.UndoOperationID]
             return RedoOperation(cg, user_id=user_id, superseded_operation_id=original_operation_id)
         return super().__new__(cls)
 
