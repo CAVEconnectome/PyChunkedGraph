@@ -243,9 +243,9 @@ class MergeOperation(GraphEditOperation):
             if self.affinities.size == 0:
                 self.affinities = None
 
-        if np.any(np.in1d(self.added_edges[:, 0], self.added_edges[:, 1])):
+        if np.any(np.equal(self.added_edges[:, 0], self.added_edges[:, 1])):
             raise cg_exceptions.PreconditionError(
-                f"One or more supervoxel exists as both, sink and source."
+                f"Requested merge operation contains at least one self-loop."
             )
 
         for supervoxel_id in self.added_edges.ravel():
@@ -327,9 +327,9 @@ class SplitOperation(GraphEditOperation):
         super().__init__(cg, user_id=user_id, source_coords=source_coords, sink_coords=sink_coords)
         self.removed_edges = np.atleast_2d(removed_edges).astype(basetypes.NODE_ID)
 
-        if np.any(np.in1d(self.removed_edges[:, 0], self.removed_edges[:, 1])):
+        if np.any(np.equal(self.removed_edges[:, 0], self.removed_edges[:, 1])):
             raise cg_exceptions.PreconditionError(
-                f"One or more supervoxel exists as both, sink and source."
+                f"Requested split operation contains at least one self-loop."
             )
 
         for supervoxel_id in self.removed_edges.ravel():
