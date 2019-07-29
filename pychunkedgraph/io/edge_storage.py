@@ -37,7 +37,7 @@ def get_chunk_edges(
 ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
     """
     :param chunks_coordinates:
-    :type np.array:
+    :type np.ndarray:
     :return: edges, affinities, areas
     :rtype: Tuple[np.ndarray, np.ndarray, np.ndarray]
     """
@@ -47,6 +47,7 @@ def get_chunk_edges(
     fnames = []
     for chunk_coords in chunks_coordinates:
         chunk_str = "_".join(str(coord) for coord in chunk_coords)
+        # TODO change filename format
         fnames.append(f"chunk_{chunk_str}_zstd_level_17_proto.data")
 
     edges = np.array([], dtype=np.uint64).reshape(0, 2)
@@ -72,7 +73,7 @@ def get_chunk_edges(
 
 
 def put_chunk_edges(
-    chunk_str: str,
+    chunk_coordinates: np.ndarray,
     edges: np.ndarray,
     affinities: np.ndarray,
     areas: np.ndarray,
@@ -80,8 +81,8 @@ def put_chunk_edges(
     compression_level: int,
 ) -> None:
     """
-    :param chunk_str: chunk coords in format x_y_z
-    :type str:
+    :param chunk_coordinates: chunk coords x,y,z
+    :type np.ndarray:
     :param edges: np.array of [supervoxel1, supervoxel2]
     :type np.ndarray:
     :param affinities:
@@ -102,9 +103,10 @@ def put_chunk_edges(
     cctx = zstd.ZstdCompressor(level=compression_level)
     compressed_proto = cctx.compress(edgesMessage.SerializeToString())
 
-    # filename - "chunk_" + chunk_coords + compression_tool + serialization_method
+    chunk_str = "_".join(str(coord) for coord in chunk_coordinates)
+    # filename - "edges_x_y_z_" + compression_tool + serialization_method
 
-    file = f"chunk_{chunk_str}_zstd_proto.data"
+    file = f"edges_{chunk_str}_zstd_proto.data"
     with Storage(edges_dir) as st:
         st.put_file(
             file_path=file,
