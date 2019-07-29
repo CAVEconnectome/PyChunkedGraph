@@ -3,7 +3,13 @@ syntax = "proto3";
 package test;
 
 message Edges {
-  bytes edgeList = 1;
-  bytes affinities = 2;
-  bytes areas = 3;
+  message EdgesDef {
+    bytes edgeList = 1;
+    bytes affinities = 2;
+    bytes areas = 3;    
+  }
+
+  EdgesDef inChunk = 4;
+  EdgesDef crossChunk = 5;
+  EdgesDef betweenChunk = 6;
 }
