@@ -36,8 +36,12 @@ class GraphEditOperation(ABC):
 
         if source_coords is not None:
             self.source_coords = np.atleast_2d(source_coords).astype(basetypes.COORDINATES)
+            if self.source_coords.size == 0:
+                self.source_coords = None
         if sink_coords is not None:
             self.sink_coords = np.atleast_2d(sink_coords).astype(basetypes.COORDINATES)
+            if self.sink_coords.size == 0:
+                self.sink_coords = None
 
     @staticmethod
     def from_log_record(
@@ -57,6 +61,12 @@ class GraphEditOperation(ABC):
         :return: The matching GraphEditOperation subclass
         :rtype: "GraphEditOperation"
         """
+        def _optional(column):
+            try:
+                return log_record[column]
+            except KeyError:
+                return None
+
         user_id = log_record[column_keys.OperationLogs.UserID]
 
         if column_keys.OperationLogs.UndoOperationID in log_record:
@@ -71,14 +81,12 @@ class GraphEditOperation(ABC):
                 cg, user_id=user_id, superseded_operation_id=superseded_operation_id
             )
 
-        source_ids = log_record[column_keys.OperationLogs.SourceID]
-        sink_ids = log_record[column_keys.OperationLogs.SinkID]
-        source_coords = log_record[column_keys.OperationLogs.SourceCoordinate]
-        sink_coords = log_record[column_keys.OperationLogs.SinkCoordinate]
+        source_coords = _optional(column_keys.OperationLogs.SourceCoordinate)
+        sink_coords = _optional(column_keys.OperationLogs.SinkCoordinate)
 
         if column_keys.OperationLogs.AddedEdge in log_record:
             added_edges = log_record[column_keys.OperationLogs.AddedEdge]
-            affinities = log_record[column_keys.OperationLogs.Affinity]
+            affinities = _optional(column_keys.OperationLogs.Affinity)
             return MergeOperation(
                 cg,
                 user_id=user_id,
@@ -100,6 +108,8 @@ class GraphEditOperation(ABC):
                 )
 
             bbox_offset = log_record[column_keys.OperationLogs.BoundingBoxOffset]
+            source_ids = log_record[column_keys.OperationLogs.SourceID]
+            sink_ids = log_record[column_keys.OperationLogs.SinkID]
             return MulticutOperation(
                 cg,
                 user_id=user_id,
@@ -230,6 +240,8 @@ class MergeOperation(GraphEditOperation):
 
         if affinities is not None:
             self.affinities = np.atleast_1d(affinities).astype(basetypes.EDGE_AFFINITY)
+            if self.affinities.size == 0:
+                self.affinities = None
 
         if np.any(np.in1d(self.added_edges[:, 0], self.added_edges[:, 1])):
             raise cg_exceptions.PreconditionError(
@@ -387,7 +399,7 @@ class MulticutOperation(GraphEditOperation):
     :type sink_coords: Sequence[Sequence[np.int]]
     :param bbox_offset: Padding for min-cut bounding box, applied to min/max coordinates
         retrieved from source_coords and sink_coords, defaults to None
-    :type bbox_offset: Optional[Sequence[np.int]], optional
+    :type bbox_offset: Sequence[np.int]
     """
 
     __slots__ = ["source_ids", "sink_ids", "removed_edges", "bbox_offset"]
@@ -401,16 +413,13 @@ class MulticutOperation(GraphEditOperation):
         sink_ids: Sequence[np.uint64],
         source_coords: Sequence[Sequence[np.int]],
         sink_coords: Sequence[Sequence[np.int]],
-        bbox_offset: Optional[Sequence[np.int]] = None,
+        bbox_offset: Sequence[np.int],
     ) -> None:
         super().__init__(cg, user_id=user_id, source_coords=source_coords, sink_coords=sink_coords)
         self.removed_edges = None  # Calculated from coordinates and IDs
         self.source_ids = np.atleast_1d(source_ids).astype(basetypes.NODE_ID)
         self.sink_ids = np.atleast_1d(sink_ids).astype(basetypes.NODE_ID)
-        self.bbox_offset = None
-
-        if bbox_offset is not None:
-            self.bbox_offset = np.atleast_1d(bbox_offset).astype(basetypes.COORDINATES)
+        self.bbox_offset = np.atleast_1d(bbox_offset).astype(basetypes.COORDINATES)
 
         if np.any(np.in1d(self.sink_ids, self.source_ids)):
             raise cg_exceptions.PreconditionError(
@@ -460,10 +469,8 @@ class MulticutOperation(GraphEditOperation):
             column_keys.OperationLogs.SinkCoordinate: self.sink_coords,
             column_keys.OperationLogs.SourceID: self.source_ids,
             column_keys.OperationLogs.SinkID: self.sink_ids,
+            column_keys.OperationLogs.BoundingBoxOffset: self.bbox_offset,
         }
-        if self.bbox_offset is not None:
-            val_dict[column_keys.OperationLogs.BoundingBoxOffset] = self.bbox_offset
-
         return self.cg.mutate_row(serializers.serialize_uint64(operation_id), val_dict, timestamp)
 
     def invert(self) -> "MergeOperation":
