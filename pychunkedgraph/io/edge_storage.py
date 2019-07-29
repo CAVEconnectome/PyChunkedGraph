@@ -36,11 +36,14 @@ def get_chunk_edges(
     edges_dir: str, chunks_coordinates: List[np.ndarray], cv_threads
 ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
     """
+    :param edges_dir: cloudvolume storage path
+    :type str:    
     :param chunks_coordinates:
     :type np.ndarray:
     :return: edges, affinities, areas
     :rtype: Tuple[np.ndarray, np.ndarray, np.ndarray]
     """
+    # this is just for testing
     edges_dir = os.environ.get(
         "EDIR", "gs://akhilesh-test/edges/fly_playground/bbox-102_51_5-110_59_9"
     )
@@ -48,6 +51,7 @@ def get_chunk_edges(
     for chunk_coords in chunks_coordinates:
         chunk_str = "_".join(str(coord) for coord in chunk_coords)
         # TODO change filename format
+        # filename format - edges_x_y_z.serialization.compression
         fnames.append(f"chunk_{chunk_str}_zstd_level_17_proto.data")
 
     edges = np.array([], dtype=np.uint64).reshape(0, 2)
@@ -73,14 +77,16 @@ def get_chunk_edges(
 
 
 def put_chunk_edges(
+    edges_dir: str,
     chunk_coordinates: np.ndarray,
     edges: np.ndarray,
     affinities: np.ndarray,
     areas: np.ndarray,
-    edges_dir: str,
     compression_level: int,
 ) -> None:
     """
+    :param edges_dir: cloudvolume storage path
+    :type str:    
     :param chunk_coordinates: chunk coords x,y,z
     :type np.ndarray:
     :param edges: np.array of [supervoxel1, supervoxel2]
@@ -89,8 +95,6 @@ def put_chunk_edges(
     :type np.ndarray:
     :param areas:
     :type np.ndarray:
-    :param edges_dir: google cloud storage path
-    :type str:
     :param compression_level: zstandard compression level (1-22, higher - better ratio)
     :type int:
     :return None:
@@ -104,9 +108,9 @@ def put_chunk_edges(
     compressed_proto = cctx.compress(edgesMessage.SerializeToString())
 
     chunk_str = "_".join(str(coord) for coord in chunk_coordinates)
-    # filename - "edges_x_y_z_" + compression_tool + serialization_method
+    # filename format - edges_x_y_z.serialization.compression
 
-    file = f"edges_{chunk_str}_zstd_proto.data"
+    file = f"edges_{chunk_str}.proto.zst"
     with Storage(edges_dir) as st:
         st.put_file(
             file_path=file,
