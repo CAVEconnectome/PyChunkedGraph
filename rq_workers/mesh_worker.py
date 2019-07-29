@@ -7,7 +7,7 @@ REDIS_HOST = os.environ.get('REDIS_SERVICE_HOST')
 REDIS_PORT = os.environ.get('REDIS_SERVICE_PORT')
 REDIS_PASSWORD = os.environ.get('REDIS_PASSWORD')
 if REDIS_PASSWORD is None:
-    REDIS_URL = f'redis://:{REDIS_HOST}:{REDIS_PORT}/0'
+    REDIS_URL = f'redis://@{REDIS_HOST}:{REDIS_PORT}/0'
 else:
     REDIS_URL = f'redis://:{REDIS_PASSWORD}@{REDIS_HOST}:{REDIS_PORT}/0'
 

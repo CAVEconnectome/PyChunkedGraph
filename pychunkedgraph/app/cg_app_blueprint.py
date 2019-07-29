@@ -16,7 +16,7 @@ from pychunkedgraph.backend import chunkedgraph_exceptions as cg_exceptions, \
     chunkedgraph_comp as cg_comp
 from middle_auth_client import auth_required, auth_requires_roles
 
-__version__ = 'fafb.1.18'
+__version__ = 'fafb.1.19'
 bp = Blueprint('pychunkedgraph', __name__, url_prefix="/segmentation")
 
 # -------------------------------
