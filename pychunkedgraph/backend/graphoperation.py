@@ -43,8 +43,64 @@ class GraphEditOperation(ABC):
             if self.sink_coords.size == 0:
                 self.sink_coords = None
 
+    @classmethod
+    def _resolve_undo_chain(
+        cls,
+        cg: "ChunkedGraph",
+        *,
+        user_id: str,
+        operation_id: np.uint64,
+        is_undo: bool,
+        multicut_as_split: bool,
+    ):
+        log_record = cg.read_log_row(operation_id)
+        log_record_type = cls.get_log_record_type(log_record)
+
+        while log_record_type in (RedoOperation, UndoOperation):
+            if log_record_type is RedoOperation:
+                operation_id = log_record[column_keys.OperationLogs.RedoOperationID]
+            else:
+                is_undo = not is_undo
+                operation_id = log_record[column_keys.OperationLogs.UndoOperationID]
+            log_record = cg.read_log_row(operation_id)
+            log_record_type = cls.get_log_record_type(log_record)
+
+        if is_undo:
+            return UndoOperation(
+                cg,
+                user_id=user_id,
+                superseded_operation_id=operation_id,
+                multicut_as_split=multicut_as_split,
+            )
+        else:
+            return RedoOperation(
+                cg,
+                user_id=user_id,
+                superseded_operation_id=operation_id,
+                multicut_as_split=multicut_as_split,
+            )
+
     @staticmethod
+    def get_log_record_type(
+        log_record: Dict[column_keys._Column, Union[np.ndarray, np.number]],
+        *,
+        multicut_as_split=True,
+    ):
+        if column_keys.OperationLogs.UndoOperationID in log_record:
+            return UndoOperation
+        if column_keys.OperationLogs.RedoOperationID in log_record:
+            return RedoOperation
+        if column_keys.OperationLogs.AddedEdge in log_record:
+            return MergeOperation
+        if column_keys.OperationLogs.RemovedEdge in log_record:
+            if multicut_as_split or column_keys.OperationLogs.BoundingBoxOffset not in log_record:
+                return SplitOperation
+            return MulticutOperation
+        raise TypeError(f"Could not determine graph operation type.")
+
+    @classmethod
     def from_log_record(
+        cls,
         cg: "ChunkedGraph",
         log_record: Dict[column_keys._Column, Union[np.ndarray, np.number]],
         *,
@@ -61,30 +117,38 @@ class GraphEditOperation(ABC):
         :return: The matching GraphEditOperation subclass
         :rtype: "GraphEditOperation"
         """
+
         def _optional(column):
             try:
                 return log_record[column]
             except KeyError:
                 return None
 
+        log_record_type = cls.get_log_record_type(log_record, multicut_as_split=multicut_as_split)
         user_id = log_record[column_keys.OperationLogs.UserID]
 
-        if column_keys.OperationLogs.UndoOperationID in log_record:
+        if log_record_type is UndoOperation:
             superseded_operation_id = log_record[column_keys.OperationLogs.UndoOperationID]
-            return UndoOperation(
-                cg, user_id=user_id, superseded_operation_id=superseded_operation_id
+            return cls.undo_operation(
+                cg,
+                user_id=user_id,
+                operation_id=superseded_operation_id,
+                multicut_as_split=multicut_as_split,
             )
 
-        if column_keys.OperationLogs.RedoOperationID in log_record:
+        if log_record_type is RedoOperation:
             superseded_operation_id = log_record[column_keys.OperationLogs.RedoOperationID]
-            return RedoOperation(
-                cg, user_id=user_id, superseded_operation_id=superseded_operation_id
+            return cls.redo_operation(
+                cg,
+                user_id=user_id,
+                operation_id=superseded_operation_id,
+                multicut_as_split=multicut_as_split,
             )
 
         source_coords = _optional(column_keys.OperationLogs.SourceCoordinate)
         sink_coords = _optional(column_keys.OperationLogs.SinkCoordinate)
 
-        if column_keys.OperationLogs.AddedEdge in log_record:
+        if log_record_type is MergeOperation:
             added_edges = log_record[column_keys.OperationLogs.AddedEdge]
             affinities = _optional(column_keys.OperationLogs.Affinity)
             return MergeOperation(
@@ -96,17 +160,17 @@ class GraphEditOperation(ABC):
                 affinities=affinities,
             )
 
-        if column_keys.OperationLogs.RemovedEdge in log_record:
+        if log_record_type is SplitOperation:
             removed_edges = log_record[column_keys.OperationLogs.RemovedEdge]
-            if multicut_as_split or column_keys.OperationLogs.BoundingBoxOffset not in log_record:
-                return SplitOperation(
-                    cg,
-                    user_id=user_id,
-                    source_coords=source_coords,
-                    sink_coords=sink_coords,
-                    removed_edges=removed_edges,
-                )
+            return SplitOperation(
+                cg,
+                user_id=user_id,
+                source_coords=source_coords,
+                sink_coords=sink_coords,
+                removed_edges=removed_edges,
+            )
 
+        if log_record_type is MulticutOperation:
             bbox_offset = log_record[column_keys.OperationLogs.BoundingBoxOffset]
             source_ids = log_record[column_keys.OperationLogs.SourceID]
             sink_ids = log_record[column_keys.OperationLogs.SinkID]
@@ -120,8 +184,37 @@ class GraphEditOperation(ABC):
                 sink_ids=sink_ids,
             )
 
-        raise cg_exceptions.PreconditionError(
-            f"Log record contains neither added nor removed edges."
+        raise TypeError(f"Could not determine graph operation type.")
+
+    @classmethod
+    def from_operation_id(
+        cls, cg: "ChunkedGraph", operation_id: np.uint64, *, multicut_as_split=True
+    ):
+        log_record = cg.read_log_row(operation_id)
+        return cls.from_log_record(cg, log_record, multicut_as_split=multicut_as_split)
+
+    @classmethod
+    def undo_operation(
+        cls, cg: "ChunkedGraph", *, user_id: str, operation_id: np.uint64, multicut_as_split=True
+    ):
+        return cls._resolve_undo_chain(
+            cg,
+            user_id=user_id,
+            operation_id=operation_id,
+            is_undo=True,
+            multicut_as_split=multicut_as_split,
+        )
+
+    @classmethod
+    def redo_operation(
+        cls, cg: "ChunkedGraph", *, user_id: str, operation_id: np.uint64, multicut_as_split=True
+    ):
+        return cls._resolve_undo_chain(
+            cg,
+            user_id=user_id,
+            operation_id=operation_id,
+            is_undo=False,
+            multicut_as_split=multicut_as_split,
         )
 
     @abstractmethod
@@ -490,6 +583,9 @@ class RedoOperation(GraphEditOperation):
         RedoOperation is linked to an earlier operation ID to enable its correct repetition.
         Acts as counterpart to UndoOperation.
 
+    NOTE: In case the superseded_operation_id itself belongs to an UndoOperation, this
+        constructor will return an instance of UndoOperation.
+
     :param cg: The ChunkedGraph object
     :type cg: ChunkedGraph
     :param user_id: User ID that will be assigned to this operation
@@ -500,29 +596,29 @@ class RedoOperation(GraphEditOperation):
 
     __slots__ = ["superseded_operation_id", "superseded_operation"]
 
-    def __new__(cls, cg: "ChunkedGraph", *, user_id: str, superseded_operation_id: np.uint64):
-        # Path compression:
-        # RedoOperation[RedoOperation[x]] -> RedoOperation[x]
-        # RedoOperation[UndoOperation[x]] -> UndoOperation[x]
-        log_record = cg.read_log_row(superseded_operation_id)
-        superseded_operation = GraphEditOperation.from_log_record(cg, log_record)
-        if isinstance(superseded_operation, RedoOperation):
-            original_operation_id = log_record[column_keys.OperationLogs.RedoOperationID]
-            return RedoOperation(cg, user_id=user_id, superseded_operation_id=original_operation_id)
-        if isinstance(superseded_operation, UndoOperation):
-            original_operation_id = log_record[column_keys.OperationLogs.UndoOperationID]
-            return UndoOperation(cg, user_id=user_id, superseded_operation_id=original_operation_id)
-        return super().__new__(cls)
-
     def __init__(
-        self, cg: "ChunkedGraph", *, user_id: str, superseded_operation_id: np.uint64
+        self,
+        cg: "ChunkedGraph",
+        *,
+        user_id: str,
+        superseded_operation_id: np.uint64,
+        multicut_as_split: bool,
     ) -> None:
         super().__init__(cg, user_id=user_id)
-        superseded_operation = GraphEditOperation.from_log_record(
-            cg, cg.read_log_row(superseded_operation_id)
-        )
-        self.superseded_operation = superseded_operation
+        log_record = cg.read_log_row(superseded_operation_id)
+        log_record_type = GraphEditOperation.get_log_record_type(log_record)
+        if log_record_type in (RedoOperation, UndoOperation):
+            raise ValueError(
+                (
+                    f"RedoOperation received {log_record_type.__name__} as target operation, "
+                    "which is not allowed. Use GraphEditOperation.create_redo() instead."
+                )
+            )
+
         self.superseded_operation_id = superseded_operation_id
+        self.superseded_operation = GraphEditOperation.from_log_record(
+            cg, log_record=log_record, multicut_as_split=multicut_as_split
+        )
 
     def _update_root_ids(self):
         return self.superseded_operation._update_root_ids()
@@ -544,9 +640,14 @@ class RedoOperation(GraphEditOperation):
 
     def invert(self) -> "GraphEditOperation":
         """
-        Inverts a RedoOperation. Results in the inverse of the original GraphEditOperation
+        Inverts a RedoOperation. Treated as Undoing the original operation
         """
-        return self.superseded_operation.invert()
+        return UndoOperation(
+            self.cg,
+            user_id=self.user_id,
+            superseded_operation_id=self.superseded_operation_id,
+            multicut_as_split=False,
+        )
 
 
 class UndoOperation(GraphEditOperation):
@@ -554,6 +655,9 @@ class UndoOperation(GraphEditOperation):
     UndoOperation: Used to apply the inverse of a previous graph edit operation. In contrast
         to a "coincidental" undo (e.g. merging an edge previously removed by a split operation), an
         UndoOperation is linked to an earlier operation ID to enable its correct reversal.
+
+        NOTE: In case the superseded_operation_id itself belongs to an UndoOperation, this
+              constructor will return an instance of RedoOperation.
 
     :param cg: The ChunkedGraph object
     :type cg: ChunkedGraph
@@ -563,32 +667,31 @@ class UndoOperation(GraphEditOperation):
     :type superseded_operation_id: np.uint64
     """
 
-    __slots__ = ["superseded_operation_id", "superseded_operation", "inverse_superseded_operation"]
-
-    def __new__(cls, cg: "ChunkedGraph", *, user_id: str, superseded_operation_id: np.uint64):
-        # Path compression:
-        # UndoOperation[RedoOperation[x]] -> UndoOperation[x]
-        # UndoOperation[UndoOperation[x]] -> RedoOperation[x]
-        log_record = cg.read_log_row(superseded_operation_id)
-        superseded_operation = GraphEditOperation.from_log_record(cg, log_record)
-        if isinstance(superseded_operation, RedoOperation):
-            original_operation_id = log_record[column_keys.OperationLogs.RedoOperationID]
-            return UndoOperation(cg, user_id=user_id, superseded_operation_id=original_operation_id)
-        if isinstance(superseded_operation, UndoOperation):
-            original_operation_id = log_record[column_keys.OperationLogs.UndoOperationID]
-            return RedoOperation(cg, user_id=user_id, superseded_operation_id=original_operation_id)
-        return super().__new__(cls)
+    __slots__ = ["superseded_operation_id", "inverse_superseded_operation"]
 
     def __init__(
-        self, cg: "ChunkedGraph", *, user_id: str, superseded_operation_id: np.uint64
+        self,
+        cg: "ChunkedGraph",
+        *,
+        user_id: str,
+        superseded_operation_id: np.uint64,
+        multicut_as_split: bool,
     ) -> None:
         super().__init__(cg, user_id=user_id)
-        superseded_operation = GraphEditOperation.from_log_record(
-            cg, cg.read_log_row(superseded_operation_id)
-        )
-        self.superseded_operation = superseded_operation
-        self.inverse_superseded_operation = superseded_operation.invert()
+        log_record = cg.read_log_row(superseded_operation_id)
+        log_record_type = GraphEditOperation.get_log_record_type(log_record)
+        if log_record_type in (RedoOperation, UndoOperation):
+            raise ValueError(
+                (
+                    f"RedoOperation received {log_record_type.__name__} as target operation, "
+                    "which is not allowed. Use GraphEditOperation.create_redo() instead."
+                )
+            )
+
         self.superseded_operation_id = superseded_operation_id
+        self.inverse_superseded_operation = GraphEditOperation.from_log_record(
+            cg, log_record=log_record, multicut_as_split=multicut_as_split
+        ).invert()
 
     def _update_root_ids(self):
         return self.inverse_superseded_operation._update_root_ids()
@@ -612,6 +715,11 @@ class UndoOperation(GraphEditOperation):
 
     def invert(self) -> "GraphEditOperation":
         """
-        Inverts an UndoOperation. Results in the original GraphEditOperation itself
+        Inverts an UndoOperation. Treated as Redoing the original operation
         """
-        return self.superseded_operation
+        return RedoOperation(
+            self.cg,
+            user_id=self.user_id,
+            superseded_operation_id=self.superseded_operation_id,
+            multicut_as_split=False,
+        )

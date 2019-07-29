@@ -82,7 +82,6 @@ def test_read_from_log_merge(mocker, cg):
         Coordinates are optional."""
     graph_operation = GraphEditOperation.from_log_record(cg, FakeLogRecords.MERGE.record)
     assert isinstance(graph_operation, MergeOperation)
-    assert isinstance(graph_operation.invert(), SplitOperation)
 
 
 def test_read_from_log_multicut(mocker, cg):
@@ -92,13 +91,11 @@ def test_read_from_log_multicut(mocker, cg):
         cg, FakeLogRecords.MULTICUT.record, multicut_as_split=False
     )
     assert isinstance(graph_operation, MulticutOperation)
-    assert isinstance(graph_operation.invert(), MergeOperation)
 
     graph_operation = GraphEditOperation.from_log_record(
         cg, FakeLogRecords.MULTICUT.record, multicut_as_split=True
     )
     assert isinstance(graph_operation, SplitOperation)
-    assert isinstance(graph_operation.invert(), MergeOperation)
 
 
 def test_read_from_log_split(mocker, cg):
@@ -106,23 +103,18 @@ def test_read_from_log_split(mocker, cg):
         BoundingBoxOffset column."""
     graph_operation = GraphEditOperation.from_log_record(cg, FakeLogRecords.SPLIT.record)
     assert isinstance(graph_operation, SplitOperation)
-    assert isinstance(graph_operation.invert(), MergeOperation)
 
 
 def test_read_from_log_undo(mocker, cg):
     """UndoOperation should be correctly identified by the UndoOperationID."""
     graph_operation = GraphEditOperation.from_log_record(cg, FakeLogRecords.UNDO.record)
     assert isinstance(graph_operation, UndoOperation)
-    # Undo points to Merge, hence, the invert should be the original Merge
-    assert isinstance(graph_operation.invert(), MergeOperation)
 
 
 def test_read_from_log_redo(mocker, cg):
     """RedoOperation should be correctly identified by the RedoOperationID."""
     graph_operation = GraphEditOperation.from_log_record(cg, FakeLogRecords.REDO.record)
     assert isinstance(graph_operation, RedoOperation)
-    # Redo points to Merge, hence, the invert should be a Split
-    assert isinstance(graph_operation.invert(), SplitOperation)
 
 
 def test_read_from_log_undo_undo(mocker, cg):
@@ -135,8 +127,6 @@ def test_read_from_log_undo_undo(mocker, cg):
     graph_operation = GraphEditOperation.from_log_record(cg, fake_log_record)
     assert isinstance(graph_operation, RedoOperation)
     assert isinstance(graph_operation.superseded_operation, MergeOperation)
-    # Inverse of Redo[Merge] is Split
-    assert isinstance(graph_operation.invert(), SplitOperation)
 
 
 def test_read_from_log_undo_redo(mocker, cg):
@@ -148,9 +138,7 @@ def test_read_from_log_undo_redo(mocker, cg):
 
     graph_operation = GraphEditOperation.from_log_record(cg, fake_log_record)
     assert isinstance(graph_operation, UndoOperation)
-    assert isinstance(graph_operation.superseded_operation, MergeOperation)
-    # Inverse of Undo[Merge] is Merge
-    assert isinstance(graph_operation.invert(), MergeOperation)
+    assert isinstance(graph_operation.inverse_superseded_operation, SplitOperation)
 
 
 def test_read_from_log_redo_undo(mocker, cg):
@@ -162,9 +150,7 @@ def test_read_from_log_redo_undo(mocker, cg):
 
     graph_operation = GraphEditOperation.from_log_record(cg, fake_log_record)
     assert isinstance(graph_operation, UndoOperation)
-    assert isinstance(graph_operation.superseded_operation, MergeOperation)
-    # Inverse of Undo[Merge] is Merge
-    assert isinstance(graph_operation.invert(), MergeOperation)
+    assert isinstance(graph_operation.inverse_superseded_operation, SplitOperation)
 
 
 def test_read_from_log_redo_redo(mocker, cg):
@@ -177,5 +163,44 @@ def test_read_from_log_redo_redo(mocker, cg):
     graph_operation = GraphEditOperation.from_log_record(cg, fake_log_record)
     assert isinstance(graph_operation, RedoOperation)
     assert isinstance(graph_operation.superseded_operation, MergeOperation)
-    # Inverse of Redo[Merge] is Split
-    assert isinstance(graph_operation.invert(), SplitOperation)
+
+
+def test_invert_merge(mocker, cg):
+    """Inverse of Merge is a Split"""
+    graph_operation = GraphEditOperation.from_log_record(cg, FakeLogRecords.MERGE.record)
+    inverted_graph_operation = graph_operation.invert()
+    assert isinstance(inverted_graph_operation, SplitOperation)
+    assert np.all(np.equal(graph_operation.added_edges, inverted_graph_operation.removed_edges))
+
+
+@pytest.mark.skip(reason="Can't test right now - would require recalculting the Multicut")
+def test_invert_multicut(mocker, cg):
+    """Inverse of a Multicut is a Merge"""
+
+
+def test_invert_split(mocker, cg):
+    """Inverse of Split is a Merge"""
+    graph_operation = GraphEditOperation.from_log_record(cg, FakeLogRecords.SPLIT.record)
+    inverted_graph_operation = graph_operation.invert()
+    assert isinstance(inverted_graph_operation, MergeOperation)
+    assert np.all(np.equal(graph_operation.removed_edges, inverted_graph_operation.added_edges))
+
+
+def test_invert_undo(mocker, cg):
+    """Inverse of Undo[x] is Redo[x]"""
+    graph_operation = GraphEditOperation.from_log_record(cg, FakeLogRecords.UNDO.record)
+    inverted_graph_operation = graph_operation.invert()
+    assert isinstance(inverted_graph_operation, RedoOperation)
+    assert (
+        graph_operation.superseded_operation_id == inverted_graph_operation.superseded_operation_id
+    )
+
+
+def test_invert_redo(mocker, cg):
+    """Inverse of Redo[x] is Undo[x]"""
+    graph_operation = GraphEditOperation.from_log_record(cg, FakeLogRecords.REDO.record)
+    inverted_graph_operation = graph_operation.invert()
+    assert (
+        graph_operation.superseded_operation_id == inverted_graph_operation.superseded_operation_id
+    )
+
