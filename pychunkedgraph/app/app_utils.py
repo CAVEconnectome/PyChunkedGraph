@@ -6,11 +6,11 @@ import sys
 import numpy as np
 import logging
 import time
-import redis
-import functools
+import threading
 
 from pychunkedgraph.logging import jsonformatter, flask_log_db
 from pychunkedgraph.backend import chunkedgraph
+from pychunkedgraph.meshing import meshgen
 
 cache = {}
 
@@ -105,3 +105,16 @@ def tobinary_multiples(arr):
     :return: binary
     """
     return [np.array(arr_i).tobytes() for arr_i in arr]
+
+
+def remesh_lvl2_nodes(lvl2_nodes, cg_info, queue=None):
+    if len(lvl2_nodes) > 0:
+        if queue is not None:
+            queue.enqueue(meshgen.remeshing_wrapper,
+                          job_timeout='20m',
+                          args=(cg_info, lvl2_nodes))
+        else:
+            if len(lvl2_nodes) > 0:
+                t = threading.Thread(target=meshgen.remeshing_wrapper,
+                                     args=(cg_info, lvl2_nodes))
+                t.start()

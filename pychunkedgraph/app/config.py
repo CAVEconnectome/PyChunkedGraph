@@ -13,7 +13,7 @@ class BaseConfig(object):
     LOGGING_DATEFORMAT = '%Y-%m-%dT%H:%M:%S.0Z'
     LOGGING_LEVEL = logging.DEBUG
 
-    CHUNKGRAPH_INSTANCE_ID = "pychunkedgraph"
+    CHUNKGRAPH_INSTANCE_ID = os.environ.get("BIGTABLE_INSTANCE_NAME", "pychunkedgraph")
 
     # TODO what is this suppose to be by default?
     CHUNKGRAPH_TABLE_ID = "pinky100_sv16"

@@ -8,10 +8,8 @@ from datetime import datetime
 from pytz import UTC
 import traceback
 import collections
-import requests
-import threading
 
-from pychunkedgraph.app import app_utils, meshing_app_blueprint
+from pychunkedgraph.app import app_utils
 from pychunkedgraph.backend import chunkedgraph_exceptions as cg_exceptions, \
     chunkedgraph_comp as cg_comp
 from middle_auth_client import auth_required, auth_requires_roles
@@ -263,10 +261,13 @@ def handle_merge(table_id):
 
     current_app.logger.debug(("lvl2_nodes:", lvl2_nodes))
 
-    if len(lvl2_nodes) > 0:
-        t = threading.Thread(target=meshing_app_blueprint._remeshing,
-                             args=(cg.get_serialized_info(), lvl2_nodes))
-        t.start()
+    if current_app.config['USE_REDIS_JOBS']:
+        queue = current_app.test_q
+    else:
+        queue = None
+
+    app_utils.remesh_lvl2_nodes(lvl2_nodes, cg.get_serialized_info(),
+                                queue=queue)
 
     # Return binary
     return app_utils.tobinary(new_root)
@@ -337,10 +338,14 @@ def handle_split(table_id):
     current_app.logger.debug(("after split:", new_roots))
     current_app.logger.debug(("lvl2_nodes:", lvl2_nodes))
 
-    if len(lvl2_nodes) > 0:
-        t = threading.Thread(target=meshing_app_blueprint._remeshing,
-                             args=(cg.get_serialized_info(), lvl2_nodes))
-        t.start()
+    if current_app.config['USE_REDIS_JOBS']:
+        queue = current_app.test_q
+    else:
+        queue = None
+
+    app_utils.remesh_lvl2_nodes(lvl2_nodes, cg.get_serialized_info(),
+                                queue=queue)
+
     # Return binary
     return app_utils.tobinary(new_roots)
 
