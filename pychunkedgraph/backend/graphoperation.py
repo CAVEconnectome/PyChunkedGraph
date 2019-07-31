@@ -2,7 +2,7 @@ import itertools
 from abc import ABC, abstractmethod
 from collections import namedtuple
 from datetime import datetime
-from typing import TYPE_CHECKING, Dict, List, Optional, Sequence, Tuple, Union
+from typing import TYPE_CHECKING, Dict, List, Optional, Sequence, Tuple, Type, Union
 
 import numpy as np
 
@@ -85,7 +85,15 @@ class GraphEditOperation(ABC):
         log_record: Dict[column_keys._Column, Union[np.ndarray, np.number]],
         *,
         multicut_as_split=True,
-    ):
+    ) -> Type["GraphEditOperation"]:
+        """Guesses the type of GraphEditOperation given a log record dictionary.
+        :param log_record: log record dictionary
+        :type log_record: Dict[column_keys._Column, Union[np.ndarray, np.number]]
+        :param multicut_as_split: If true, treat MulticutOperation as SplitOperation
+
+        :return: The type of the matching GraphEditOperation subclass
+        :rtype: Type["GraphEditOperation"]
+        """
         if column_keys.OperationLogs.UndoOperationID in log_record:
             return UndoOperation
         if column_keys.OperationLogs.RedoOperationID in log_record:
@@ -104,7 +112,7 @@ class GraphEditOperation(ABC):
         cg: "ChunkedGraph",
         log_record: Dict[column_keys._Column, Union[np.ndarray, np.number]],
         *,
-        multicut_as_split=True,
+        multicut_as_split: bool = True,
     ) -> "GraphEditOperation":
         """Generates the correct GraphEditOperation given a log record dictionary.
         :param cg: The ChunkedGraph instance
@@ -113,6 +121,7 @@ class GraphEditOperation(ABC):
         :type log_record: Dict[column_keys._Column, Union[np.ndarray, np.number]]
         :param multicut_as_split: If true, don't recalculate MultiCutOperation, just
             use the resulting removed edges and generate SplitOperation instead (faster).
+        :type multicut_as_split: bool
 
         :return: The matching GraphEditOperation subclass
         :rtype: "GraphEditOperation"
@@ -188,15 +197,52 @@ class GraphEditOperation(ABC):
 
     @classmethod
     def from_operation_id(
-        cls, cg: "ChunkedGraph", operation_id: np.uint64, *, multicut_as_split=True
+        cls, cg: "ChunkedGraph", operation_id: np.uint64, *, multicut_as_split: bool = True
     ):
+        """Generates the correct GraphEditOperation given a operation ID.
+        :param cg: The ChunkedGraph instance
+        :type cg: "ChunkedGraph"
+        :param operation_id: The operation ID
+        :type operation_id: np.uint64
+        :param multicut_as_split: If true, don't recalculate MultiCutOperation, just
+            use the resulting removed edges and generate SplitOperation instead (faster).
+        :type multicut_as_split: bool
+
+        :return: The matching GraphEditOperation subclass
+        :rtype: "GraphEditOperation"
+        """
         log_record = cg.read_log_row(operation_id)
         return cls.from_log_record(cg, log_record, multicut_as_split=multicut_as_split)
 
     @classmethod
     def undo_operation(
-        cls, cg: "ChunkedGraph", *, user_id: str, operation_id: np.uint64, multicut_as_split=True
-    ):
+        cls,
+        cg: "ChunkedGraph",
+        *,
+        user_id: str,
+        operation_id: np.uint64,
+        multicut_as_split: bool = True,
+    ) -> Union["UndoOperation", "RedoOperation"]:
+        """Create a GraphEditOperation that, if executed, would undo the changes introduced by
+            operation_id.
+
+        NOTE: If operation_id is an UndoOperation, this function might return an instance of
+              RedoOperation instead (depending on how the Undo/Redo chain unrolls)
+
+        :param cg: The ChunkedGraph instance
+        :type cg: "ChunkedGraph"
+        :param user_id: User that should be associated with this undo operation
+        :type user_id: str
+        :param operation_id: The operation ID to be undone
+        :type operation_id: np.uint64
+        :param multicut_as_split: If true, don't recalculate MultiCutOperation, just
+            use the resulting removed edges and generate SplitOperation instead (faster).
+        :type multicut_as_split: bool
+
+        :return: A GraphEditOperation that, if executed, will undo the change introduced by
+            operation_id.
+        :rtype: Union["UndoOperation", "RedoOperation"]
+        """
         return cls._resolve_undo_chain(
             cg,
             user_id=user_id,
@@ -208,7 +254,27 @@ class GraphEditOperation(ABC):
     @classmethod
     def redo_operation(
         cls, cg: "ChunkedGraph", *, user_id: str, operation_id: np.uint64, multicut_as_split=True
-    ):
+    ) -> Union["UndoOperation", "RedoOperation"]:
+        """Create a GraphEditOperation that, if executed, would redo the changes introduced by
+            operation_id.
+
+        NOTE: If operation_id is an UndoOperation, this function might return an instance of
+              UndoOperation instead (depending on how the Undo/Redo chain unrolls)
+
+        :param cg: The ChunkedGraph instance
+        :type cg: "ChunkedGraph"
+        :param user_id: User that should be associated with this redo operation
+        :type user_id: str
+        :param operation_id: The operation ID to be redone
+        :type operation_id: np.uint64
+        :param multicut_as_split: If true, don't recalculate MultiCutOperation, just
+            use the resulting removed edges and generate SplitOperation instead (faster).
+        :type multicut_as_split: bool
+
+        :return: A GraphEditOperation that, if executed, will redo the changes introduced by
+            operation_id.
+        :rtype: Union["UndoOperation", "RedoOperation"]
+        """
         return cls._resolve_undo_chain(
             cg,
             user_id=user_id,
@@ -583,8 +649,9 @@ class RedoOperation(GraphEditOperation):
         RedoOperation is linked to an earlier operation ID to enable its correct repetition.
         Acts as counterpart to UndoOperation.
 
-    NOTE: In case the superseded_operation_id itself belongs to an UndoOperation, this
-        constructor will return an instance of UndoOperation.
+    NOTE: Avoid instantiating a RedoOperation directly, if possible. The class method
+          GraphEditOperation.redo_operation() is in general preferred as it will correctly
+          unroll Undo/Redo chains.
 
     :param cg: The ChunkedGraph object
     :type cg: ChunkedGraph
@@ -592,6 +659,9 @@ class RedoOperation(GraphEditOperation):
     :type user_id: str
     :param superseded_operation_id: Operation ID to be redone
     :type superseded_operation_id: np.uint64
+    :param multicut_as_split: If true, don't recalculate MultiCutOperation, just
+            use the resulting removed edges and generate SplitOperation instead (faster).
+    :type multicut_as_split: bool
     """
 
     __slots__ = ["superseded_operation_id", "superseded_operation"]
@@ -656,8 +726,9 @@ class UndoOperation(GraphEditOperation):
         to a "coincidental" undo (e.g. merging an edge previously removed by a split operation), an
         UndoOperation is linked to an earlier operation ID to enable its correct reversal.
 
-        NOTE: In case the superseded_operation_id itself belongs to an UndoOperation, this
-              constructor will return an instance of RedoOperation.
+    NOTE: Avoid instantiating an UndoOperation directly, if possible. The class method
+          GraphEditOperation.undo_operation() is in general preferred as it will correctly
+          unroll Undo/Redo chains.
 
     :param cg: The ChunkedGraph object
     :type cg: ChunkedGraph
@@ -665,6 +736,9 @@ class UndoOperation(GraphEditOperation):
     :type user_id: str
     :param superseded_operation_id: Operation ID to be undone
     :type superseded_operation_id: np.uint64
+    :param multicut_as_split: If true, don't recalculate MultiCutOperation, just
+            use the resulting removed edges and generate SplitOperation instead (faster).
+    :type multicut_as_split: bool
     """
 
     __slots__ = ["superseded_operation_id", "inverse_superseded_operation"]
@@ -683,8 +757,8 @@ class UndoOperation(GraphEditOperation):
         if log_record_type in (RedoOperation, UndoOperation):
             raise ValueError(
                 (
-                    f"RedoOperation received {log_record_type.__name__} as target operation, "
-                    "which is not allowed. Use GraphEditOperation.create_redo() instead."
+                    f"UndoOperation received {log_record_type.__name__} as target operation, "
+                    "which is not allowed. Use GraphEditOperation.create_undo() instead."
                 )
             )
 
