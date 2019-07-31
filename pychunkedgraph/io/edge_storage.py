@@ -139,8 +139,8 @@ def put_chunk_edges(
         return edgesMessage
 
     chunkEdgesMessage = ChunkEdges()
-    chunkEdgesMessage.inChunk = _get_edges("in")
-    chunkEdgesMessage.betweenChunk = _get_edges("between")
+    chunkEdgesMessage.inChunk.CopyFrom(_get_edges("in"))
+    chunkEdgesMessage.betweenChunk.CopyFrom(_get_edges("between"))
     chunkEdgesMessage.crossChunk = _get_edges("cross")
 
     cctx = zstd.ZstdCompressor(level=compression_level)

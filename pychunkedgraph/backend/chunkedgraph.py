@@ -3032,7 +3032,7 @@ class ChunkedGraph(object):
                                            time_stamp=time_stamp)
 
         time_stamp = self.read_node_id_row(agglomeration_id,
-                                           columns=column_keys.Hierarchy.Child)[0].timestamp                                           
+                                           columns=column_keys.Hierarchy.Child)[0].timestamp
 
         bounding_box = self.normalize_bounding_box(bounding_box, bb_is_coordinate)
 
@@ -3045,13 +3045,21 @@ class ChunkedGraph(object):
         if verbose:
             time_start = time.time()
 
+
         child_chunk_ids = self.get_chunk_ids_from_node_ids(child_ids)
         u_ccids = np.unique(child_chunk_ids)
-        this_n_threads = np.min([int(len(u_ccids) // 50000) + 1, mu.n_cpus])
+
+        child_blocks = []
+        # Make blocks of child ids that are in the same chunk
+        for u_ccid in u_ccids:
+            child_blocks.append(child_ids[child_chunk_ids == u_ccid])
+
+        n_child_ids = len(child_ids)
+        this_n_threads = np.min([int(n_child_ids // 50000) + 1, mu.n_cpus])
 
         edge_infos = mu.multithread_func(
             _get_subgraph_layer2_edges,
-            np.array_split(u_ccids, this_n_threads),
+            np.array_split(child_ids, this_n_threads),
             n_threads=this_n_threads, debug=this_n_threads == 1)
 
         affinities = np.array([], dtype=np.float32)
@@ -3065,11 +3073,12 @@ class ChunkedGraph(object):
             edges = np.concatenate([edges, _edges])
 
         if verbose:
-            self.logger.debug("Layer %d: %.3fms for %d children with %d threads" %
+            self.logger.debug("Layer %d: %.3fms for %d childs with %d threads" %
                               (2, (time.time() - time_start) * 1000,
-                               len(child_ids), this_n_threads))
+                               n_child_ids, this_n_threads))
 
         return edges, affinities, areas
+
 
     def get_subgraph_edges_v2(self, offset = np.array([105, 54, 6]),
                            this_n_threads = 4,
