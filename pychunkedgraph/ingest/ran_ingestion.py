@@ -11,6 +11,7 @@ import zstandard as zstd
 from multiwrapper import multiprocessing_utils as mu
 
 from pychunkedgraph.ingest import ingestionmanager, ingestion_utils as iu
+from pychunkedgraph.io.edge_storage import put_chunk_edges
 
 
 def ingest_into_chunkedgraph(storage_path, ws_cv_path, cg_table_id,
@@ -235,6 +236,7 @@ def create_atomic_chunk(im, chunk_coord, aff_dtype=np.float32, verbose=True):
     chunk_coord = np.array(list(chunk_coord), dtype=np.int)
 
     edge_dict = collect_edge_data(im, chunk_coord, aff_dtype=aff_dtype)
+    put_chunk_edges(None, chunk_coord, edge_dict, 17)
     mapping = collect_agglomeration_data(im, chunk_coord)
     active_edge_dict, isolated_ids = define_active_edges(edge_dict, mapping)
 
