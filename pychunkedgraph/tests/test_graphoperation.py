@@ -53,6 +53,9 @@ class FakeLogRecords:
             column_keys.OperationLogs.RedoOperationID: np.uint64(0),
             column_keys.OperationLogs.UserID: "42",
         },
+        {  # 5: Unknown record
+            column_keys.OperationLogs.UserID: "42",
+        },
     ]
 
     MERGE = Record(id=np.uint64(0), record=_records[0])
@@ -60,6 +63,7 @@ class FakeLogRecords:
     SPLIT = Record(id=np.uint64(2), record=_records[2])
     UNDO = Record(id=np.uint64(3), record=_records[3])
     REDO = Record(id=np.uint64(4), record=_records[4])
+    UNKNOWN = Record(id=np.uint64(5), record=_records[5])
 
     @classmethod
     def get(cls, idx: int):
@@ -204,3 +208,39 @@ def test_invert_redo(mocker, cg):
         graph_operation.superseded_operation_id == inverted_graph_operation.superseded_operation_id
     )
 
+
+def test_undo_redo_chain_fails(mocker, cg):
+    """Prevent creation of Undo/Redo chains"""
+    with pytest.raises(ValueError):
+        UndoOperation(
+            cg,
+            user_id="DAU",
+            superseded_operation_id=FakeLogRecords.UNDO.id,
+            multicut_as_split=False,
+        )
+    with pytest.raises(ValueError):
+        UndoOperation(
+            cg,
+            user_id="DAU",
+            superseded_operation_id=FakeLogRecords.REDO.id,
+            multicut_as_split=False,
+        )
+    with pytest.raises(ValueError):
+        RedoOperation(
+            cg,
+            user_id="DAU",
+            superseded_operation_id=FakeLogRecords.UNDO.id,
+            multicut_as_split=False,
+        )
+    with pytest.raises(ValueError):
+        UndoOperation(
+            cg,
+            user_id="DAU",
+            superseded_operation_id=FakeLogRecords.REDO.id,
+            multicut_as_split=False,
+        )
+
+def test_unknown_log_record_fails(cg, mocker):
+    """TypeError when encountering unknown log row"""
+    with pytest.raises(TypeError):
+        GraphEditOperation.from_log_record(cg, FakeLogRecords.UNKNOWN.record)
