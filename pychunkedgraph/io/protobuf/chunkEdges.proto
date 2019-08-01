@@ -4,13 +4,13 @@ package edges;
 
 message ChunkEdges {
   message Edges {
-    bytes node_ids1 = 1;
-    bytes node_ids2 = 1;
-    bytes affinities = 2;
-    bytes areas = 3;
+    fixed64 node_ids1 = 1;
+    fixed64 node_ids2 = 2;
+    float affinities = 3;
+    uint64 areas = 4;
   }
 
-  Edges inChunk = 4;
-  bytes crossChunk = 5;
-  Edges betweenChunk = 6;
+  Edges inChunk = 5;
+  Edges crossChunk = 6;
+  Edges betweenChunk = 7;
 }
