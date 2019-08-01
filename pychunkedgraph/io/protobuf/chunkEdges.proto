@@ -2,19 +2,15 @@ syntax = "proto3";
 
 package edges;
 
-message Edge {
-  fixed64 supervoxel_1 = 1;
-  fixed64 supervoxel_2 = 2;
-  float affinity = 3;
-  uint64 area = 4;
-}
-
-message Edges {
-  repeated Edge edge = 1;
-}
-
 message ChunkEdges {
-  Edges in_chunk = 1;
-  Edges cross_chunk = 2;
-  Edges between_chunk = 3;
+  message Edges {
+    bytes node_ids1 = 1;
+    bytes node_ids2 = 1;
+    bytes affinities = 2;
+    bytes areas = 3;
+  }
+
+  Edges inChunk = 4;
+  bytes crossChunk = 5;
+  Edges betweenChunk = 6;
 }
