@@ -1129,6 +1129,13 @@ def black_out_dust_from_segmentation(seg, dust_threshold):
     seg = fastremap.mask(seg, dust_segids, in_place=True)
 
 
+def remeshing_wrapper(serialized_cg_info, lvl2_nodes, stop_layer=4, mip=1):
+    cg = chunkedgraph.ChunkedGraph(**serialized_cg_info)
+
+    remeshing(cg, lvl2_nodes, stop_layer=stop_layer, cv_path=None,
+              cv_mesh_dir=None, mip=mip, max_err=40)
+
+
 def remeshing(
     cg,
     l2_node_ids: Sequence[np.uint64],
