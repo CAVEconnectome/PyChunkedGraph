@@ -45,6 +45,7 @@ from google.cloud.bigtable.column_family import MaxVersionsGCRule
 
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple, Union, NamedTuple
 
+from pychunkedgraph.io.edge_storage import get_chunk_edges
 
 HOME = os.path.expanduser("~")
 N_DIGITS_UINT64 = len(str(np.iinfo(np.uint64).max))
@@ -3078,11 +3079,12 @@ class ChunkedGraph(object):
                                n_child_ids, this_n_threads))
 
         return edges, affinities, areas
-
-
-    def get_subgraph_edges_v2(self, offset = np.array([105, 54, 6]),
+    
+    
+    def get_subgraph_edges_v2(self, edges_dir,
+                           offset = np.array([105, 54, 6]),
                            this_n_threads = 4,
-                           cv_threads = 20,
+                           cv_threads = 1,
                            bounding_box: Optional[Sequence[Sequence[int]]] = None,
                            bb_is_coordinate: bool = False,
                            connected_edges=True,
@@ -3092,7 +3094,7 @@ class ChunkedGraph(object):
         def _get_subgraph_layer2_edges(chunk_ids) -> \
                 Tuple[List[np.ndarray], List[np.float32], List[np.uint64]]:
             return get_chunk_edges(
-                'testing_ignore_this', 
+                edges_dir, 
                 [self.get_chunk_coordinates(chunk_id) for chunk_id in chunk_ids],
                 cv_threads)
 
@@ -3114,9 +3116,6 @@ class ChunkedGraph(object):
 
         chunk_ids = np.array([self.get_chunk_id(None, 1, *chunk) for chunk in chunks])
         timings['determine_chunks_ids'] = time.time() - timings['determine_chunks_ids']
-
-        # print(f'chunks: {len(chunks)}')
-        # print(f'threads: {this_n_threads}')
 
         timings['reading_edges'] = time.time()
         edge_infos = mu.multithread_func(
@@ -3146,7 +3145,8 @@ class ChunkedGraph(object):
         # print(f'affinities: {len(affinities)}')
         # print(f'areas: {len(areas)}')
 
-        # return edges, affinities, areas
+        # return edges, affinities, areas    
+    
 
     def get_subgraph_nodes(self, agglomeration_id: np.uint64,
                            bounding_box: Optional[Sequence[Sequence[int]]] = None,

@@ -118,6 +118,7 @@ def put_chunk_edges(
         # arr1 = [1, 2, 3]
         # arr2 = [4, 5, 6]
         # edges = [[1,4],[2,5],[3,6]]
+        # this is faster than numpy.dstack
         edges = np.concatenate(
             [
                 chunk_edges[edge_type]["sv1"][:, None],
