@@ -78,8 +78,6 @@ def get_chunk_edges(
         else SimpleStorage(edges_dir)
     )
 
-    print(type(st))
-
     files = []
     with st:
         files = st.get_files(fnames)
