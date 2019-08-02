@@ -1,3 +1,3 @@
 """
-All secondary storage stuff must go here
+All secondary (slow) storage stuff must go here
 """
