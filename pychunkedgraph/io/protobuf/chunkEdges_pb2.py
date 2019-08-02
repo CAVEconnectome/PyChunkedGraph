@@ -20,7 +20,7 @@ DESCRIPTOR = _descriptor.FileDescriptor(
   package='edges',
   syntax='proto3',
   serialized_options=None,
-  serialized_pb=_b('\n\x10\x63hunkEdges.proto\x12\x05\x65\x64ges\"P\n\x05\x45\x64ges\x12\x11\n\tnode_ids1\x18\x01 \x03(\x06\x12\x11\n\tnode_ids2\x18\x02 \x03(\x06\x12\x12\n\naffinities\x18\x03 \x03(\x02\x12\r\n\x05\x61reas\x18\x04 \x03(\x04\"t\n\nChunkEdges\x12\x1e\n\x08in_chunk\x18\x01 \x01(\x0b\x32\x0c.edges.Edges\x12!\n\x0b\x63ross_chunk\x18\x02 \x01(\x0b\x32\x0c.edges.Edges\x12#\n\rbetween_chunk\x18\x03 \x01(\x0b\x32\x0c.edges.Edgesb\x06proto3')
+  serialized_pb=_b('\n\x10\x63hunkEdges.proto\x12\x05\x65\x64ges\"P\n\x05\x45\x64ges\x12\x11\n\tnode_ids1\x18\x01 \x01(\x0c\x12\x11\n\tnode_ids2\x18\x02 \x01(\x0c\x12\x12\n\naffinities\x18\x03 \x01(\x0c\x12\r\n\x05\x61reas\x18\x04 \x01(\x0c\"t\n\nChunkEdges\x12\x1e\n\x08in_chunk\x18\x01 \x01(\x0b\x32\x0c.edges.Edges\x12!\n\x0b\x63ross_chunk\x18\x02 \x01(\x0b\x32\x0c.edges.Edges\x12#\n\rbetween_chunk\x18\x03 \x01(\x0b\x32\x0c.edges.Edgesb\x06proto3')
 )
 
 
@@ -35,29 +35,29 @@ _EDGES = _descriptor.Descriptor(
   fields=[
     _descriptor.FieldDescriptor(
       name='node_ids1', full_name='edges.Edges.node_ids1', index=0,
-      number=1, type=6, cpp_type=4, label=3,
-      has_default_value=False, default_value=[],
+      number=1, type=12, cpp_type=9, label=1,
+      has_default_value=False, default_value=_b(""),
       message_type=None, enum_type=None, containing_type=None,
       is_extension=False, extension_scope=None,
       serialized_options=None, file=DESCRIPTOR),
     _descriptor.FieldDescriptor(
       name='node_ids2', full_name='edges.Edges.node_ids2', index=1,
-      number=2, type=6, cpp_type=4, label=3,
-      has_default_value=False, default_value=[],
+      number=2, type=12, cpp_type=9, label=1,
+      has_default_value=False, default_value=_b(""),
       message_type=None, enum_type=None, containing_type=None,
       is_extension=False, extension_scope=None,
       serialized_options=None, file=DESCRIPTOR),
     _descriptor.FieldDescriptor(
       name='affinities', full_name='edges.Edges.affinities', index=2,
-      number=3, type=2, cpp_type=6, label=3,
-      has_default_value=False, default_value=[],
+      number=3, type=12, cpp_type=9, label=1,
+      has_default_value=False, default_value=_b(""),
       message_type=None, enum_type=None, containing_type=None,
       is_extension=False, extension_scope=None,
       serialized_options=None, file=DESCRIPTOR),
     _descriptor.FieldDescriptor(
       name='areas', full_name='edges.Edges.areas', index=3,
-      number=4, type=4, cpp_type=4, label=3,
-      has_default_value=False, default_value=[],
+      number=4, type=12, cpp_type=9, label=1,
+      has_default_value=False, default_value=_b(""),
       message_type=None, enum_type=None, containing_type=None,
       is_extension=False, extension_scope=None,
       serialized_options=None, file=DESCRIPTOR),
