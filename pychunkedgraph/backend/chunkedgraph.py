@@ -3203,15 +3203,8 @@ class ChunkedGraph(object):
         
         timings['total'] = time.time() - timings['total']
 
-        return timings
+        return timings, edges, affinities, areas
 
-        # print(json.dumps(timings, default=str, indent=4))
-        # print(f'edges: {len(edges)}')
-        # print(f'affinities: {len(affinities)}')
-        # print(f'areas: {len(areas)}')
-
-        # return edges, affinities, areas    
-    
 
     def get_subgraph_nodes(self, agglomeration_id: np.uint64,
                            bounding_box: Optional[Sequence[Sequence[int]]] = None,
