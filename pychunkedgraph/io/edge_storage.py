@@ -11,7 +11,9 @@ import zstandard as zstd
 
 from cloudvolume import Storage
 from cloudvolume.storage import SimpleStorage
-from .protobuf.chunkEdges_pb2 import ChunkEdges
+
+from ..backend.utils import basetypes
+from .protobuf.chunkEdges_pb2 import Edges, ChunkEdges
 
 
 def _decompress_edges(content: bytes) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
@@ -23,7 +25,7 @@ def _decompress_edges(content: bytes) -> Tuple[np.ndarray, np.ndarray, np.ndarra
     """
 
     def _get_edges(
-        edge_type: str, edgesMessage: Union[ChunkEdges, ChunkEdges.Edges]
+        edge_type: str, edgesMessage: Edges
     ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
         if edge_type == "cross":
             edges = np.frombuffer(edgesMessage.crossChunk, dtype="<u8").reshape(-1, 2)
@@ -77,9 +79,10 @@ def get_chunk_edges(
     affinities = np.array([], dtype=np.float32)
     areas = np.array([], dtype=np.uint64)
 
-    st = SimpleStorage(edges_dir)
     if cv_threads > 1:
         st = Storage(edges_dir, n_threads=cv_threads)
+    else:
+        st = SimpleStorage(edges_dir)
 
     files = []
     with st:
@@ -98,7 +101,7 @@ def get_chunk_edges(
 def put_chunk_edges(
     edges_dir: str,
     chunk_coordinates: np.ndarray,
-    chunk_edges: dict,
+    chunk_edges_raw: dict,
     compression_level: int,
 ) -> None:
     """
@@ -106,43 +109,36 @@ def put_chunk_edges(
     :type str:    
     :param chunk_coordinates: chunk coords x,y,z
     :type np.ndarray:
-    :param chunk_edges: np.array of [supervoxel1, supervoxel2]
-    :type dict: chunk_edges with keys "in", "cross", "between"
+    :param chunk_edges_raw: chunk_edges_raw with keys "in", "cross", "between"
+    :type dict:
     :param compression_level: zstandard compression level (1-22, higher - better ratio)
     :type int:
     :return None:
     """
 
-    def _get_edges(edge_type: str) -> Union[bytes, ChunkEdges.Edges]:
-        # convert two numpy arrays to edge list
-        # arr1 = [1, 2, 3]
-        # arr2 = [4, 5, 6]
-        # edges = [[1,4],[2,5],[3,6]]
-        # this is faster than numpy.dstack
-        edges = np.concatenate(
-            [
-                chunk_edges[edge_type]["sv1"][:, None],
-                chunk_edges[edge_type]["sv2"][:, None],
-            ],
-            axis=1,
-        )
-        edges_bytes = edges.astype(np.uint64).tobytes()
+    def _get_edges(edge_type: str) -> Edges:
+
+        edges = Edges()
+        edges.node_ids1[:] = chunk_edges_raw[edge_type]["sv1"]
+        edges.node_ids2[:] = chunk_edges_raw[edge_type]["sv2"]
+
+        n_edges = len(chunk_edges_raw[edge_type]["sv1"])
+
         if edge_type == "cross":
-            return edges_bytes
+            edges.affinities[:] = float("inf") * np.ones(
+                n_edges, basetypes.EDGE_AFFINITY
+            )
+            edges.areas[:] = np.ones(n_edges, basetypes.EDGE_AREA)
+        else:
+            edges.affinities[:] = chunk_edges_raw[edge_type]["aff"].astype(np.float32)
+            edges.areas[:] = chunk_edges_raw[edge_type]["area"].astype(np.uint64)
 
-        edgesMessage = ChunkEdges.Edges()
-        edgesMessage.edgeList = edges_bytes
-        edgesMessage.affinities = (
-            chunk_edges[edge_type]["aff"].astype(np.float32).tobytes()
-        )
-        edgesMessage.areas = chunk_edges[edge_type]["area"].astype(np.uint64).tobytes()
-
-        return edgesMessage
+        return edges
 
     chunkEdgesMessage = ChunkEdges()
-    chunkEdgesMessage.inChunk.CopyFrom(_get_edges("in"))
-    chunkEdgesMessage.betweenChunk.CopyFrom(_get_edges("between"))
-    chunkEdgesMessage.crossChunk = _get_edges("cross")
+    chunkEdgesMessage.in_chunk.CopyFrom(_get_edges("in"))
+    chunkEdgesMessage.between_chunk.CopyFrom(_get_edges("between"))
+    chunkEdgesMessage.cross_chunk.CopyFrom(_get_edges("cross"))
 
     cctx = zstd.ZstdCompressor(level=compression_level)
     compressed_proto = cctx.compress(chunkEdgesMessage.SerializeToString())
