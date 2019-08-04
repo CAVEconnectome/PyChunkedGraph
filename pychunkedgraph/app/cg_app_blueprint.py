@@ -486,6 +486,20 @@ def merge_log(table_id, root_id):
     return jsonify(change_log)
 
 
+@bp.route('/1.0/<table_id>/graph/oldest_timestamp', methods=["POST", "GET"])
+def oldest_timestamp(table_id):
+    current_app.request_type = "timestamp"
+
+    cg = app_utils.get_cg(table_id)
+
+    oldest_log_row = cg.read_first_log_row()
+
+    if oldest_log_row is None:
+        raise Exception("No log row found")
+
+    return jsonify(list(oldest_log_row.values())[0][0].timestamp)
+
+
 ### CONTACT SITES --------------------------------------------------------------
 
 @bp.route('/1.0/<table_id>/segment/<root_id>/contact_sites',

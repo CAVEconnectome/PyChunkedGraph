@@ -1514,6 +1514,20 @@ class ChunkedGraph(object):
 
         return row
 
+    def read_first_log_row(self):
+        """ Returns first log row
+
+        :return: None or dict
+        """
+
+        for operation_id in range(1, 100):
+            log_row = self.read_log_row(np.uint64(operation_id))
+
+            if len(log_row) > 0:
+                return log_row
+
+        return None
+
     def read_log_row(self, operation_id: np.uint64):
         """ Reads a log row (both split and merge)
 
