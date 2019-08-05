@@ -11,7 +11,9 @@ import zstandard as zstd
 from multiwrapper import multiprocessing_utils as mu
 
 from pychunkedgraph.ingest import ingestionmanager, ingestion_utils as iu
+from ..backend.chunkedgraph_init import add_atomic_edges_in_chunks
 from ..backend.utils.edges import TYPES as EDGE_TYPES, Edges
+from ..backend.utils import basetypes
 
 
 def ingest_into_chunkedgraph(storage_path, ws_cv_path, cg_table_id,
@@ -222,21 +224,20 @@ def _create_atomic_chunk(args):
               (time.time() - time_start))
 
 
-def create_atomic_chunk(im, chunk_coord, aff_dtype=np.float32, verbose=True):
+def create_atomic_chunk(imanager, chunk_coord, aff_dtype=basetypes.EDGE_AFFINITY):
     """ Creates single atomic chunk
 
-    :param im: IngestionManager
+    :param imanager: IngestionManager
     :param chunk_coord: np.ndarray
         array of three ints
     :param aff_dtype: np.dtype
         np.float64 or np.float32
-    :param verbose: bool
     :return:
     """
     chunk_coord = np.array(list(chunk_coord), dtype=np.int)
 
-    edge_dict = collect_edge_data(im, chunk_coord, aff_dtype=aff_dtype)
-    mapping = collect_agglomeration_data(im, chunk_coord)
+    edge_dict = collect_edge_data(imanager, chunk_coord, aff_dtype=aff_dtype)
+    mapping = collect_agglomeration_data(imanager, chunk_coord)
     _, isolated_ids = define_active_edges(edge_dict, mapping)
 
     chunk_edges = {}
@@ -251,11 +252,10 @@ def create_atomic_chunk(im, chunk_coord, aff_dtype=np.float32, verbose=True):
             supervoxel_ids1, supervoxel_ids2, affinities, areas
         )
 
-    im.cg.add_atomic_edges_in_chunks(
-        edge_ids, edge_affs, edge_areas, isolated_node_ids=isolated_ids
-    )
+    add_atomic_edges_in_chunks(imanager.cg, chunk_coord, chunk_edges, isolated_node_ids=isolated_ids)
 
-    return edge_ids, edge_affs, edge_areas
+    # to track workers completion
+    return chunk_coord
 
 
 def _get_cont_chunk_coords(im, chunk_coord_a, chunk_coord_b):
@@ -535,5 +535,5 @@ def define_active_edges(edge_dict, mapping):
         if k == "in":
             isolated.append(edge_dict[k]["sv2"][agg_2_m])
 
-    return active, np.unique(np.concatenate(isolated).astype(np.uint64))
+    return active, np.unique(np.concatenate(isolated).astype(basetypes.NODE_ID))
 

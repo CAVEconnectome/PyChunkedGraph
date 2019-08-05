@@ -18,6 +18,6 @@ class Edges:
         areas: np.ndarray,
     ):
         self.node_ids1 = node_ids1
-        self.node_ids1 = node_ids2
+        self.node_ids2 = node_ids2
         self.affinities = affinities
         self.areas = areas
