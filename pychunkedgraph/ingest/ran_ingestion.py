@@ -11,6 +11,7 @@ import zstandard as zstd
 from multiwrapper import multiprocessing_utils as mu
 
 from pychunkedgraph.ingest import ingestionmanager, ingestion_utils as iu
+from ..backend.utils.edges import TYPES as EDGE_TYPES, ATTRS
 
 
 def ingest_into_chunkedgraph(storage_path, ws_cv_path, cg_table_id,
@@ -236,38 +237,21 @@ def create_atomic_chunk(im, chunk_coord, aff_dtype=np.float32, verbose=True):
 
     edge_dict = collect_edge_data(im, chunk_coord, aff_dtype=aff_dtype)
     mapping = collect_agglomeration_data(im, chunk_coord)
-    active_edge_dict, isolated_ids = define_active_edges(edge_dict, mapping)
+    _, isolated_ids = define_active_edges(edge_dict, mapping)
 
-    edge_ids = {}
-    edge_affs = {}
-    edge_areas = {}
+    chunk_edges = {}
+    for edge_type in EDGE_TYPES:
+        supervoxel_ids1 = edge_dict[edge_type]["sv1"]
+        supervoxel_ids2 = edge_dict[edge_type]["sv2"]
 
-    for k in edge_dict.keys():
-        if k == "cross":
-            edge_ids[k] = np.concatenate([edge_dict[k]["sv1"][:, None],
-                                          edge_dict[k]["sv2"][:, None]],
-                                         axis=1)
-            continue
-
-        sv1_conn = edge_dict[k]["sv1"][active_edge_dict[k]]
-        sv2_conn = edge_dict[k]["sv2"][active_edge_dict[k]]
-        aff_conn = edge_dict[k]["aff"][active_edge_dict[k]]
-        area_conn = edge_dict[k]["area"][active_edge_dict[k]]
-        edge_ids[f"{k}_connected"] = np.concatenate([sv1_conn[:, None],
-                                                     sv2_conn[:, None]],
-                                                    axis=1)
-        edge_affs[f"{k}_connected"] = aff_conn.astype(np.float32)
-        edge_areas[f"{k}_connected"] = area_conn
-
-        sv1_disconn = edge_dict[k]["sv1"][~active_edge_dict[k]]
-        sv2_disconn = edge_dict[k]["sv2"][~active_edge_dict[k]]
-        aff_disconn = edge_dict[k]["aff"][~active_edge_dict[k]]
-        area_disconn = edge_dict[k]["area"][~active_edge_dict[k]]
-        edge_ids[f"{k}_disconnected"] = np.concatenate([sv1_disconn[:, None],
-                                                        sv2_disconn[:, None]],
-                                                       axis=1)
-        edge_affs[f"{k}_disconnected"] = aff_disconn.astype(np.float32)
-        edge_areas[f"{k}_disconnected"] = area_disconn
+        ones = np.ones(len(supervoxel_ids1))
+        affinities = edge_dict[edge_type].get("aff", float("inf") * ones)
+        areas = edge_dict[edge_type].get("area", ones)
+        chunk_edges[edge_type] = {
+            ATTRS.: supervoxel_ids1,
+            "sv2": supervoxel_ids2,
+            "aff"
+        }
 
     im.cg.add_atomic_edges_in_chunks(edge_ids, edge_affs, edge_areas,
                                      isolated_node_ids=isolated_ids)

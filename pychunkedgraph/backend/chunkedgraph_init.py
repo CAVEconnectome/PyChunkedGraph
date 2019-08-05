@@ -2,7 +2,6 @@
 Module for stuff related to creating the initial chunkedgraph
 """
 
-
 import time
 import datetime
 import collections
@@ -11,20 +10,6 @@ from typing import Optional, Sequence
 import pytz
 import numpy as np
 
-from google.cloud.bigtable.row_filters import (
-    TimestampRange,
-    TimestampRangeFilter,
-    ColumnRangeFilter,
-    ValueRangeFilter,
-    RowFilterChain,
-    ColumnQualifierRegexFilter,
-    RowFilterUnion,
-    ConditionalRowFilter,
-    PassAllFilter,
-    RowFilter,
-    RowKeyRegexFilter,
-    FamilyNameRegexFilter,
-)
 from google.cloud.bigtable.row_set import RowSet
 from google.cloud.bigtable.column_family import MaxVersionsGCRule
 
