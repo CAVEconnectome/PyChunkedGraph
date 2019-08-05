@@ -54,21 +54,10 @@ def add_atomic_edges_in_chunks(
 
     time_start = time.time()
 
-    # get all nodes and edges in the chunk
-    isolated_nodes_self_edges = np.vstack(
-        [isolated_node_ids, isolated_node_ids]).T
-    node_ids = [isolated_node_ids]
-    edge_ids = [isolated_nodes_self_edges]
-    for edge_type in EDGE_TYPES:
-        edges = chunk_edges[edge_type]
-        node_ids.append(edges.node_ids1)
-        node_ids.append(edges.node_ids2)
-        edge_ids.append(np.vstack([edges.node_ids1, edges.node_ids2]).T)
+    chunk_nodes, chunk_edges = _get_chunk_nodes_and_edges(
+        chunk_edges, isolated_node_ids)
 
-    chunk_node_ids = np.unique(np.concatenate(node_ids))
-    chunk_edge_ids = np.unique(np.concatenate(edge_ids))
-
-    if not chunk_node_ids:
+    if not chunk_nodes:
         return 0
 
     if time_stamp is None:
@@ -81,7 +70,7 @@ def add_atomic_edges_in_chunks(
     time_stamp = get_google_compatible_time_stamp(time_stamp, round_up=False)
 
     chunk_id = cg_instance.get_chunk_id(layer=1, *chunk_coord)
-    node_chunk_ids = cg_instance.get_chunk_ids_from_node_ids(chunk_node_ids)
+    node_chunk_ids = cg_instance.get_chunk_ids_from_node_ids(chunk_nodes)
 
     u_node_chunk_ids = np.unique(node_chunk_ids)
     if len(u_node_chunk_ids) > 1:
@@ -89,7 +78,7 @@ def add_atomic_edges_in_chunks(
             f"{len(u_node_chunk_ids)} chunk ids found in chunk: {chunk_id}")
 
     graph, _, _, unique_graph_ids = flatgraph_utils.build_gt_graph(
-        chunk_edge_ids, make_directed=True
+        chunk_edges, make_directed=True
     )
 
     ccs = flatgraph_utils.connected_components(graph)
@@ -355,3 +344,21 @@ def add_atomic_edges_in_chunks(
         time_start_1 = time.time()
         cg_instance.bulk_write(rows)
         time_dict["writing"].append(time.time() - time_start_1)
+
+
+def _get_chunk_nodes_and_edges(chunk_edges: dict, isolated_node_ids: Sequence[np.uint64]):
+    """get all nodes and edges in the chunk"""
+    isolated_nodes_self_edges = np.vstack(
+        [isolated_node_ids, isolated_node_ids]).T
+    node_ids = [isolated_node_ids]
+    edge_ids = [isolated_nodes_self_edges]
+    for edge_type in EDGE_TYPES:
+        edges = chunk_edges[edge_type]
+        node_ids.append(edges.node_ids1)
+        node_ids.append(edges.node_ids2)
+        edge_ids.append(np.vstack([edges.node_ids1, edges.node_ids2]).T)
+
+    chunk_node_ids = np.unique(np.concatenate(node_ids))
+    chunk_edge_ids = np.unique(np.concatenate(edge_ids))
+
+    return (chunk_node_ids, chunk_edge_ids)
