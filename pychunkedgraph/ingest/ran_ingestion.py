@@ -12,7 +12,7 @@ from multiwrapper import multiprocessing_utils as mu
 
 from pychunkedgraph.ingest import ingestionmanager, ingestion_utils as iu
 from ..backend.chunkedgraph_init import add_atomic_edges_in_chunks
-from ..backend.utils.edges import TYPES as EDGE_TYPES, Edges
+from ..edges.definitions import TYPES as EDGE_TYPES, Edges
 from ..backend.utils import basetypes
 
 

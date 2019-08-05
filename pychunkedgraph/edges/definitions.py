@@ -1,12 +1,14 @@
 """
-Utils for edges
+Classes and types for edges
 """
 
 
 import numpy as np
-from basetypes import NODE_ID, EDGE_AFFINITY, EDGE_AREA
 
-TYPES = ["in", "between", "cross"]
+IN_CHUNK = "in"
+BT_CHUNK = "between"
+CX_CHUNK = "cross"
+TYPES = [IN_CHUNK, BT_CHUNK, CX_CHUNK]
 
 
 class Edges:

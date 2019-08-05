@@ -17,12 +17,12 @@ from google.cloud.bigtable.column_family import MaxVersionsGCRule
 from .utils import basetypes
 from .utils.edges import Edges
 from ..backend.utils.edges import TYPES as EDGE_TYPES, Edges
-from pychunkedgraph.backend.chunkedgraph_utils import (
+from .chunkedgraph_utils import (
     compute_indices_pandas,
     get_google_compatible_time_stamp,
 )
-from pychunkedgraph.backend import flatgraph_utils
-from pychunkedgraph.backend.utils import serializers, column_keys
+from . import flatgraph_utils
+from .utils import serializers, column_keys
 
 UTC = pytz.UTC
 
@@ -55,7 +55,8 @@ def add_atomic_edges_in_chunks(
     time_start = time.time()
 
     # get all nodes and edges in the chunk
-    isolated_nodes_self_edges = np.vstack([isolated_node_ids, isolated_node_ids]).T
+    isolated_nodes_self_edges = np.vstack(
+        [isolated_node_ids, isolated_node_ids]).T
     node_ids = [isolated_node_ids]
     edge_ids = [isolated_nodes_self_edges]
     for edge_type in EDGE_TYPES:
@@ -84,7 +85,8 @@ def add_atomic_edges_in_chunks(
 
     u_node_chunk_ids = np.unique(node_chunk_ids)
     if len(u_node_chunk_ids) > 1:
-        raise Exception(f"{len(u_node_chunk_ids)} chunk ids found in chunk: {chunk_id}")
+        raise Exception(
+            f"{len(u_node_chunk_ids)} chunk ids found in chunk: {chunk_id}")
 
     graph, _, _, unique_graph_ids = flatgraph_utils.build_gt_graph(
         chunk_edge_ids, make_directed=True
@@ -93,7 +95,8 @@ def add_atomic_edges_in_chunks(
     ccs = flatgraph_utils.connected_components(graph)
 
     if verbose:
-        cg_instance.logger.debug("CC in chunk: %.3fs" % (time.time() - time_start))
+        cg_instance.logger.debug("CC in chunk: %.3fs" %
+                                 (time.time() - time_start))
 
     # Add rows for nodes that are in this chunk
     # a connected component at a time
@@ -102,7 +105,8 @@ def add_atomic_edges_in_chunks(
     n_ccs = len(ccs)
 
     parent_chunk_id = cg_instance.get_chunk_id(layer=2, *chunk_coord)
-    parent_ids = cg_instance.get_unique_node_id_range(parent_chunk_id, step=n_ccs)
+    parent_ids = cg_instance.get_unique_node_id_range(
+        parent_chunk_id, step=n_ccs)
 
     time_start = time.time()
     time_dict = collections.defaultdict(list)
@@ -127,10 +131,12 @@ def add_atomic_edges_in_chunks(
     for i_cc, cc in enumerate(ccs):
         node_ids = unique_graph_ids[cc]
 
-        u_chunk_ids = np.unique([cg_instance.get_chunk_id(n) for n in node_ids])
+        u_chunk_ids = np.unique([cg_instance.get_chunk_id(n)
+                                 for n in node_ids])
 
         if len(u_chunk_ids) > 1:
-            cg_instance.logger.error(f"Found multiple chunk ids: {u_chunk_ids}")
+            cg_instance.logger.error(
+                f"Found multiple chunk ids: {u_chunk_ids}")
             raise Exception()
 
         # Create parent id
@@ -151,7 +157,8 @@ def add_atomic_edges_in_chunks(
 
                 inv_column_ids = (column_ids + 1) % 2
 
-                connected_ids = edge_id_dict["in_connected"][row_ids, inv_column_ids]
+                connected_ids = edge_id_dict["in_connected"][row_ids,
+                                                             inv_column_ids]
                 connected_affs = edge_aff_dict["in_connected"][row_ids]
                 connected_areas = edge_area_dict["in_connected"][row_ids]
                 time_dict["in_connected"].append(time.time() - time_start_2)
@@ -189,13 +196,15 @@ def add_atomic_edges_in_chunks(
                 row_ids = row_ids[column_ids == 0]
                 column_ids = column_ids[column_ids == 0]
                 inv_column_ids = (column_ids + 1) % 2
-                time_dict["out_connected_mask"].append(time.time() - time_start_2)
+                time_dict["out_connected_mask"].append(
+                    time.time() - time_start_2)
                 time_start_2 = time.time()
 
                 connected_ids = np.concatenate(
                     [
                         connected_ids,
-                        edge_id_dict["between_connected"][row_ids, inv_column_ids],
+                        edge_id_dict["between_connected"][row_ids,
+                                                          inv_column_ids],
                     ]
                 )
                 connected_affs = np.concatenate(
@@ -221,13 +230,15 @@ def add_atomic_edges_in_chunks(
                 row_ids = row_ids[column_ids == 0]
                 column_ids = column_ids[column_ids == 0]
                 inv_column_ids = (column_ids + 1) % 2
-                time_dict["out_disconnected_mask"].append(time.time() - time_start_2)
+                time_dict["out_disconnected_mask"].append(
+                    time.time() - time_start_2)
                 time_start_2 = time.time()
 
                 disconnected_ids = np.concatenate(
                     [
                         disconnected_ids,
-                        edge_id_dict["between_disconnected"][row_ids, inv_column_ids],
+                        edge_id_dict["between_disconnected"][row_ids,
+                                                             inv_column_ids],
                     ]
                 )
                 disconnected_affs = np.concatenate(
@@ -240,7 +251,8 @@ def add_atomic_edges_in_chunks(
                     ]
                 )
 
-                time_dict["out_disconnected"].append(time.time() - time_start_2)
+                time_dict["out_disconnected"].append(
+                    time.time() - time_start_2)
                 time_start_2 = time.time()
 
             # cross
@@ -259,7 +271,8 @@ def add_atomic_edges_in_chunks(
                     [connected_ids, edge_id_dict["cross"][row_ids, inv_column_ids]]
                 )
                 connected_affs = np.concatenate(
-                    [connected_affs, np.full((len(row_ids)), np.inf, dtype=np.float32)]
+                    [connected_affs, np.full(
+                        (len(row_ids)), np.inf, dtype=np.float32)]
                 )
                 connected_areas = np.concatenate(
                     [connected_areas, np.ones((len(row_ids)), dtype=np.uint64)]
@@ -308,7 +321,8 @@ def add_atomic_edges_in_chunks(
         time_dict["creating_lv2_row"].append(time.time() - time_start_1)
         time_start_1 = time.time()
 
-        cce_layers = cg_instance.get_cross_chunk_edges_layer(parent_cross_edges)
+        cce_layers = cg_instance.get_cross_chunk_edges_layer(
+            parent_cross_edges)
         u_cce_layers = np.unique(cce_layers)
 
         val_dict = {}
