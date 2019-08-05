@@ -112,6 +112,10 @@ class ChunkedGraph(object):
         self._n_bits_for_layer_id = 8
         self._cv_mip = 0
 
+        # Vectorized calls
+        self._get_chunk_layer_vec = np.vectorize(self.get_chunk_layer)
+        self._get_chunk_id_vec = np.vectorize(self.get_chunk_id)
+
     @property
     def client(self) -> bigtable.Client:
         return self._client
@@ -301,6 +305,17 @@ class ChunkedGraph(object):
         :return: int
         """
         return int(node_or_chunk_id) >> 64 - self._n_bits_for_layer_id
+
+    def get_chunk_layers(self, node_or_chunk_ids: Sequence[np.uint64]
+                         ) -> np.ndarray:
+        """ Extract Layers from Node IDs or Chunk IDs
+        :param node_or_chunk_ids: np.ndarray
+        :return: np.ndarray
+        """
+        if len(node_or_chunk_ids) == 0:
+            return np.array([], dtype=np.int)
+
+        return self._get_chunk_layer_vec(node_or_chunk_ids)
 
     def get_chunk_coordinates(self, node_or_chunk_id: np.uint64
                               ) -> np.ndarray:
@@ -1927,6 +1942,43 @@ class ChunkedGraph(object):
 
         return atomic_cross_edges
 
+    def get_parents(self, node_ids: Sequence[np.uint64],
+                    get_only_relevant_parents: bool = True,
+                    time_stamp: Optional[datetime.datetime] = None):
+        """ Acquires parents of a node at a specific time stamp
+        :param node_ids: list of uint64
+        :param get_only_relevant_parents: bool
+            True: return single parent according to time_stamp
+            False: return n x 2 list of all parents
+                   ((parent_id, time_stamp), ...)
+        :param time_stamp: datetime or None
+        :return: uint64 or None
+        """
+        if time_stamp is None:
+            time_stamp = datetime.datetime.utcnow()
+
+        if time_stamp.tzinfo is None:
+            time_stamp = UTC.localize(time_stamp)
+
+        parent_rows = self.read_node_id_rows(node_ids=node_ids,
+                                             columns=column_keys.Hierarchy.Parent,
+                                             end_time=time_stamp,
+                                             end_time_inclusive=True)
+
+        if not parent_rows:
+            return None
+
+        if get_only_relevant_parents:
+            return np.array([parent_rows[node_id][0].value
+                             for node_id in node_ids])
+
+        parents = []
+        for node_id in node_ids:
+            parents.append([(p.value, p.timestamp)
+                            for p in parent_rows[node_id]])
+
+        return parents
+
     def get_parent(self, node_id: np.uint64,
                    get_only_relevant_parent: bool = True,
                    time_stamp: Optional[datetime.datetime] = None) -> Union[
@@ -2026,6 +2078,57 @@ class ChunkedGraph(object):
                                                   time_stamp_end=time_stamp_end,
                                                   min_seg_id=min_seg_id,
                                                   n_threads=n_threads)
+
+    def get_roots(self, node_ids: Sequence[np.uint64],
+                  time_stamp: Optional[datetime.datetime] = None,
+                  stop_layer: int = None, n_tries: int = 1):
+        """ Takes node ids and returns the associated agglomeration ids
+
+        :param node_ids: list of uint64
+        :param time_stamp: None or datetime
+        :return: np.uint64
+        """
+        if time_stamp is None:
+            time_stamp = datetime.datetime.utcnow()
+
+        if time_stamp.tzinfo is None:
+            time_stamp = UTC.localize(time_stamp)
+
+        # Comply to resolution of BigTables TimeRange
+        time_stamp = get_google_compatible_time_stamp(time_stamp,
+                                                      round_up=False)
+
+        parent_ids = np.array(node_ids)
+
+        if stop_layer is not None:
+            stop_layer = min(self.n_layers, stop_layer)
+        else:
+            stop_layer = self.n_layers
+
+        node_mask = np.ones(len(node_ids), dtype=np.bool)
+        node_mask[self.get_chunk_layers(node_ids) >= stop_layer] = False
+        for i_try in range(n_tries):
+            parent_ids = np.array(node_ids)
+
+            for i_layer in range(int(stop_layer + 1)):
+                temp_parent_ids = self.get_parents(parent_ids[node_mask],
+                                                   time_stamp=time_stamp)
+
+                if temp_parent_ids is None:
+                    break
+                else:
+                    parent_ids[node_mask] = temp_parent_ids
+
+                    node_mask[self.get_chunk_layers(parent_ids) >= stop_layer] = False
+                    if np.all(~node_mask):
+                        break
+
+            if np.all(self.get_chunk_layers(parent_ids) >= stop_layer):
+                break
+            else:
+                time.sleep(.5)
+
+        return parent_ids
 
     def get_root(self, node_id: np.uint64,
                  time_stamp: Optional[datetime.datetime] = None,
