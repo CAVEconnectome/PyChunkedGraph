@@ -270,7 +270,7 @@ def create_atomic_chunk(imanager, chunk_coord, aff_dtype=basetypes.EDGE_AFFINITY
         sv_ids1 = edge_dict[edge_type]["sv1"]
         sv_ids2 = edge_dict[edge_type]["sv2"]
 
-        ones = np.ones(len(supervoxel_ids1))
+        ones = np.ones(len(sv_ids1))
         affinities = edge_dict[edge_type].get("aff", float("inf") * ones)
         areas = edge_dict[edge_type].get("area", ones)
         chunk_edges[edge_type] = Edges(sv_ids1, sv_ids2, affinities, areas)

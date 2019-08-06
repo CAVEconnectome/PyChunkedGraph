@@ -47,23 +47,17 @@ def add_atomic_edges(
     :param time_stamp: datetime
     """
 
-    time_start = time.time()
     chunk_node_ids, chunk_edge_ids = _get_chunk_nodes_and_edges(chunk_edges, isolated)
     if not chunk_node_ids:
         return 0
 
     chunk_ids = cg_instance.get_chunk_ids_from_node_ids(chunk_node_ids)
-    u_node_chunk_ids = np.unique(chunk_ids)
-    assert len(u_node_chunk_ids) == 1
+    assert len(np.unique(chunk_ids)) == 1
 
     graph, _, _, unique_ids = build_gt_graph(chunk_edge_ids, make_directed=True)
     ccs = connected_components(graph)
-    if verbose:
-        cg_instance.logger.debug(f"CC in chunk: {(time.time() - time_start):.3f}s")
 
     node_c = 0  # Just a counter for the log / speed measurement
-    time_dict = collections.defaultdict(list)
-
     parent_chunk_id = cg_instance.get_chunk_id(layer=2, *chunk_coord)
     parent_ids = cg_instance.get_unique_node_id_range(parent_chunk_id, step=len(ccs))
 
@@ -71,59 +65,10 @@ def add_atomic_edges(
     rows = []
     for i_cc, cc in enumerate(ccs):
         node_ids = unique_ids[cc]
-
-        u_chunk_ids = np.unique([cg_instance.get_chunk_id(n) for n in node_ids])
-
-        if len(u_chunk_ids) > 1:
-            cg_instance.logger.error(f"Found multiple chunk ids: {u_chunk_ids}")
-            raise Exception()
-
-        # Create parent id
         parent_id = parent_ids[i_cc]
-
         parent_cross_edges = np.array([], dtype=np.uint64).reshape(0, 2)
 
-        # Add rows for nodes that are in this chunk
         for i_node_id, node_id in enumerate(node_ids):
-            # Extract edges relevant to this node
-
-            # in chunk + connected
-            time_start_2 = time.time()
-            if node_id in remapping["in_connected"]:
-                row_ids, column_ids = sparse_indices["in_connected"][
-                    remapping["in_connected"][node_id]
-                ]
-
-                inv_column_ids = (column_ids + 1) % 2
-
-                connected_ids = edge_id_dict["in_connected"][row_ids, inv_column_ids]
-                connected_affs = edge_aff_dict["in_connected"][row_ids]
-                connected_areas = edge_area_dict["in_connected"][row_ids]
-                time_dict["in_connected"].append(time.time() - time_start_2)
-                time_start_2 = time.time()
-            else:
-                connected_ids = np.array([], dtype=np.uint64)
-                connected_affs = np.array([], dtype=np.float32)
-                connected_areas = np.array([], dtype=np.uint64)
-
-            # in chunk + disconnected
-            if node_id in remapping["in_disconnected"]:
-                row_ids, column_ids = sparse_indices["in_disconnected"][
-                    remapping["in_disconnected"][node_id]
-                ]
-                inv_column_ids = (column_ids + 1) % 2
-
-                disconnected_ids = edge_id_dict["in_disconnected"][
-                    row_ids, inv_column_ids
-                ]
-                disconnected_affs = edge_aff_dict["in_disconnected"][row_ids]
-                disconnected_areas = edge_area_dict["in_disconnected"][row_ids]
-                time_dict["in_disconnected"].append(time.time() - time_start_2)
-                time_start_2 = time.time()
-            else:
-                disconnected_ids = np.array([], dtype=np.uint64)
-                disconnected_affs = np.array([], dtype=np.float32)
-                disconnected_areas = np.array([], dtype=np.uint64)
 
             # out chunk + connected
             if node_id in remapping["between_connected"]:
@@ -134,8 +79,6 @@ def add_atomic_edges(
                 row_ids = row_ids[column_ids == 0]
                 column_ids = column_ids[column_ids == 0]
                 inv_column_ids = (column_ids + 1) % 2
-                time_dict["out_connected_mask"].append(time.time() - time_start_2)
-                time_start_2 = time.time()
 
                 connected_ids = np.concatenate(
                     [
@@ -154,40 +97,6 @@ def add_atomic_edges(
                     [parent_cross_edges, edge_id_dict["between_connected"][row_ids]]
                 )
 
-                time_dict["out_connected"].append(time.time() - time_start_2)
-                time_start_2 = time.time()
-
-            # out chunk + disconnected
-            if node_id in remapping["between_disconnected"]:
-                row_ids, column_ids = sparse_indices["between_disconnected"][
-                    remapping["between_disconnected"][node_id]
-                ]
-
-                row_ids = row_ids[column_ids == 0]
-                column_ids = column_ids[column_ids == 0]
-                inv_column_ids = (column_ids + 1) % 2
-                time_dict["out_disconnected_mask"].append(time.time() - time_start_2)
-                time_start_2 = time.time()
-
-                disconnected_ids = np.concatenate(
-                    [
-                        disconnected_ids,
-                        edge_id_dict["between_disconnected"][row_ids, inv_column_ids],
-                    ]
-                )
-                disconnected_affs = np.concatenate(
-                    [disconnected_affs, edge_aff_dict["between_disconnected"][row_ids]]
-                )
-                disconnected_areas = np.concatenate(
-                    [
-                        disconnected_areas,
-                        edge_area_dict["between_disconnected"][row_ids],
-                    ]
-                )
-
-                time_dict["out_disconnected"].append(time.time() - time_start_2)
-                time_start_2 = time.time()
-
             # cross
             if node_id in remapping["cross"]:
                 row_ids, column_ids = sparse_indices["cross"][
@@ -195,40 +104,12 @@ def add_atomic_edges(
                 ]
 
                 row_ids = row_ids[column_ids == 0]
-                column_ids = column_ids[column_ids == 0]
-                inv_column_ids = (column_ids + 1) % 2
-                time_dict["cross_mask"].append(time.time() - time_start_2)
-                time_start_2 = time.time()
-
-                connected_ids = np.concatenate(
-                    [connected_ids, edge_id_dict["cross"][row_ids, inv_column_ids]]
-                )
-                connected_affs = np.concatenate(
-                    [connected_affs, np.full((len(row_ids)), np.inf, dtype=np.float32)]
-                )
-                connected_areas = np.concatenate(
-                    [connected_areas, np.ones((len(row_ids)), dtype=np.uint64)]
-                )
 
                 parent_cross_edges = np.concatenate(
                     [parent_cross_edges, edge_id_dict["cross"][row_ids]]
                 )
-                time_dict["cross"].append(time.time() - time_start_2)
-                time_start_2 = time.time()
 
-            # Create node
-            partners = np.concatenate([connected_ids, disconnected_ids])
-            affinities = np.concatenate([connected_affs, disconnected_affs])
-            areas = np.concatenate([connected_areas, disconnected_areas])
-            connected = np.arange(len(connected_ids), dtype=np.int)
-
-            val_dict = {
-                column_keys.Connectivity.Partner: partners,
-                column_keys.Connectivity.Affinity: affinities,
-                column_keys.Connectivity.Area: areas,
-                column_keys.Connectivity.Connected: connected,
-                column_keys.Hierarchy.Parent: parent_id,
-            }
+            val_dict = {column_keys.Hierarchy.Parent: parent_id}
 
             rows.append(
                 cg_instance.mutate_row(
@@ -238,9 +119,7 @@ def add_atomic_edges(
                 )
             )
             node_c += 1
-            time_dict["creating_lv1_row"].append(time.time() - time_start_2)
 
-        time_start = time.time()
         # Create parent node
         rows.append(
             cg_instance.mutate_row(
@@ -249,9 +128,6 @@ def add_atomic_edges(
                 time_stamp=time_stamp,
             )
         )
-
-        time_dict["creating_lv2_row"].append(time.time() - time_start)
-        time_start = time.time()
 
         cce_layers = cg_instance.get_cross_chunk_edges_layer(parent_cross_edges)
         u_cce_layers = np.unique(cce_layers)
@@ -275,17 +151,11 @@ def add_atomic_edges(
             )
         node_c += 1
 
-        time_dict["adding_cross_edges"].append(time.time() - time_start)
-
         if len(rows) > 100000:
-            time_start = time.time()
             cg_instance.bulk_write(rows)
-            time_dict["writing"].append(time.time() - time_start)
 
     if rows:
-        time_start = time.time()
         cg_instance.bulk_write(rows)
-        time_dict["writing"].append(time.time() - time_start)
 
 
 def _get_chunk_nodes_and_edges(chunk_edges: dict, isolated_ids: Sequence[np.uint64]):
