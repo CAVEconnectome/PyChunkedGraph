@@ -27,7 +27,6 @@ def add_atomic_edges(
     chunk_coord,
     chunk_edges: dict,
     isolated: Sequence[np.uint64],
-    verbose: bool = True,
     time_stamp: Optional[datetime.datetime] = None,
 ):
     """
@@ -63,12 +62,12 @@ def add_atomic_edges(
 
     time_stamp = _get_valid_timestamp(time_stamp)
     rows = []
-    for i_cc, cc in enumerate(ccs):
-        node_ids = unique_ids[cc]
+    for i_cc, component in enumerate(ccs):
+        node_ids = unique_ids[component]
         parent_id = parent_ids[i_cc]
         parent_cross_edges = np.array([], dtype=np.uint64).reshape(0, 2)
 
-        for i_node_id, node_id in enumerate(node_ids):
+        for node_id in node_ids:
 
             # out chunk + connected
             if node_id in remapping["between_connected"]:
@@ -141,7 +140,7 @@ def add_atomic_edges(
                     column_keys.Connectivity.CrossChunkEdge[cc_layer]
                 ] = layer_cross_edges
 
-        if val_dict > 0:
+        if val_dict:
             rows.append(
                 cg_instance.mutate_row(
                     serializers.serialize_uint64(parent_id),
