@@ -11,6 +11,7 @@ import graph_tool.flow
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple, Union
 
 from pychunkedgraph.backend import flatgraph_utils
+from pychunkedgraph.backend import chunkedgraph_exceptions as cg_exceptions
 
 float_max = np.finfo(np.float32).max
 
@@ -340,8 +341,15 @@ def mincut_graph_tool(edges: Iterable[Sequence[np.uint64]],
 
     weighted_graph.set_vertex_filter(removed, inverted=True)
 
+    # We create a new pruned graph for the following
+    # connected components call to work correctly, because the vertex filter
+    # only labels the graph and the filtered vertices still show up after running
+    # graph_tool.label_components (other ways to do this if speed become critical,
+    # but this shouldn't be a bottleneck)
+    pruned_graph = graph_tool.Graph(weighted_graph, prune=True)
+
     # Test that there is only one connected component left
-    ccs = flatgraph_utils.connected_components(weighted_graph)
+    ccs = flatgraph_utils.connected_components(pruned_graph)
 
     print(f"Number of connected components {len(ccs)}")
 
@@ -349,6 +357,11 @@ def mincut_graph_tool(edges: Iterable[Sequence[np.uint64]],
         logger.warning("Not all sinks and sources are within the same (local)"
                        "connected component")
         return []
+    elif len(ccs) == 0:
+        raise cg_exceptions.PreconditionError(
+                "Sinks and sources are not connected through the local graph. "
+                "Please try a different set of vertices to perform the mincut."
+            )
 
     # Compute mincut
     src, tgt = weighted_graph.vertex(source_graph_ids[0]), \
