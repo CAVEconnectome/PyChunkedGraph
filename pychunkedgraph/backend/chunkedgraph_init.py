@@ -21,8 +21,6 @@ from .chunkedgraph_utils import compute_indices_pandas, get_google_compatible_ti
 from .flatgraph_utils import build_gt_graph, connected_components
 from .utils import serializers, column_keys
 
-UTC = pytz.UTC
-
 
 def add_atomic_edges_in_chunks(
     cg_instance,
@@ -47,7 +45,7 @@ def add_atomic_edges_in_chunks(
         ids of nodes that have no edge in the chunked graph
     :param verbose: bool
     :param time_stamp: datetime
-        """
+    """
 
     time_start = time.time()
 
@@ -58,30 +56,17 @@ def add_atomic_edges_in_chunks(
     if not chunk_node_ids:
         return 0
 
-    if time_stamp is None:
-        time_stamp = datetime.datetime.utcnow()
-
-    if time_stamp.tzinfo is None:
-        time_stamp = UTC.localize(time_stamp)
-
-    # Comply to resolution of BigTables TimeRange
-    time_stamp = get_google_compatible_time_stamp(time_stamp, round_up=False)
-
     node_chunk_ids = cg_instance.get_chunk_ids_from_node_ids(chunk_node_ids)
     u_node_chunk_ids = np.unique(node_chunk_ids)
     assert len(u_node_chunk_ids) == 1
 
     graph, _, _, unique_ids = build_gt_graph(chunk_edge_ids, make_directed=True)
-
     ccs = connected_components(graph)
 
     if verbose:
         cg_instance.logger.debug("CC in chunk: %.3fs" % (time.time() - time_start))
 
-    # Add rows for nodes that are in this chunk
-    # a connected component at a time
     node_c = 0  # Just a counter for the log / speed measurement
-
     n_ccs = len(ccs)
 
     parent_chunk_id = cg_instance.get_chunk_id(layer=2, *chunk_coord)
@@ -104,8 +89,8 @@ def add_atomic_edges_in_chunks(
 
     time_dict["sparse_indices"].append(time.time() - time_start_1)
 
+    time_stamp = _get_valid_timestamp(time_stamp)
     rows = []
-
     for i_cc, cc in enumerate(ccs):
         node_ids = unique_ids[cc]
 
@@ -342,3 +327,14 @@ def _get_chunk_nodes_and_edges(
     chunk_edge_ids = np.unique(np.concatenate(edge_ids))
 
     return (chunk_node_ids, chunk_edge_ids)
+
+
+def _get_valid_timestamp(timestamp):
+    if timestamp is None:
+        timestamp = datetime.datetime.utcnow()
+
+    if timestamp.tzinfo is None:
+        timestamp = pytz.UTC.localize(timestamp)
+
+    # Comply to resolution of BigTables TimeRange
+    return get_google_compatible_time_stamp(timestamp, round_up=False)
