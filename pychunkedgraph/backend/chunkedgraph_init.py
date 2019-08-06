@@ -22,7 +22,7 @@ from .flatgraph_utils import build_gt_graph, connected_components
 from .utils import serializers, column_keys
 
 
-def add_atomic_edges_in_chunks(
+def add_atomic_edges(
     cg_instance,
     chunk_coord,
     chunk_edges: dict,
@@ -52,8 +52,8 @@ def add_atomic_edges_in_chunks(
     if not chunk_node_ids:
         return 0
 
-    node_chunk_ids = cg_instance.get_chunk_ids_from_node_ids(chunk_node_ids)
-    u_node_chunk_ids = np.unique(node_chunk_ids)
+    chunk_ids = cg_instance.get_chunk_ids_from_node_ids(chunk_node_ids)
+    u_node_chunk_ids = np.unique(chunk_ids)
     assert len(u_node_chunk_ids) == 1
 
     graph, _, _, unique_ids = build_gt_graph(chunk_edge_ids, make_directed=True)
@@ -63,19 +63,6 @@ def add_atomic_edges_in_chunks(
 
     node_c = 0  # Just a counter for the log / speed measurement
     time_dict = collections.defaultdict(list)
-    time_start = time.time()
-    sparse_indices = {}
-    remapping = {}
-    for k in edge_id_dict.keys():
-        # Circumvent datatype issues
-        u_ids, inv_ids = np.unique(edge_id_dict[k], return_inverse=True)
-        mapped_ids = np.arange(len(u_ids), dtype=np.int32)
-        remapped_arr = mapped_ids[inv_ids].reshape(edge_id_dict[k].shape)
-
-        sparse_indices[k] = compute_indices_pandas(remapped_arr)
-        remapping[k] = dict(zip(u_ids, mapped_ids))
-
-    time_dict["sparse_indices"].append(time.time() - time_start)
 
     parent_chunk_id = cg_instance.get_chunk_id(layer=2, *chunk_coord)
     parent_ids = cg_instance.get_unique_node_id_range(parent_chunk_id, step=len(ccs))
