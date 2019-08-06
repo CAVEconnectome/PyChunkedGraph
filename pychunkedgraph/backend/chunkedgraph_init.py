@@ -67,10 +67,6 @@ def add_atomic_edges_in_chunks(
         cg_instance.logger.debug(f"CC in chunk: {(time.time() - time_start):.3f}s")
 
     node_c = 0  # Just a counter for the log / speed measurement
-    n_ccs = len(ccs)
-
-    parent_chunk_id = cg_instance.get_chunk_id(layer=2, *chunk_coord)
-    parent_ids = cg_instance.get_unique_node_id_range(parent_chunk_id, step=n_ccs)
 
     time_dict = collections.defaultdict(list)
     time_start = time.time()
@@ -86,6 +82,9 @@ def add_atomic_edges_in_chunks(
         remapping[k] = dict(zip(u_ids, mapped_ids))
 
     time_dict["sparse_indices"].append(time.time() - time_start)
+
+    parent_chunk_id = cg_instance.get_chunk_id(layer=2, *chunk_coord)
+    parent_ids = cg_instance.get_unique_node_id_range(parent_chunk_id, step=len(ccs))
 
     time_stamp = _get_valid_timestamp(time_stamp)
     rows = []
