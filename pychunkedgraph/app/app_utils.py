@@ -110,6 +110,7 @@ def tobinary_multiples(arr):
 def remesh_lvl2_nodes(lvl2_nodes, cg_info, queue=None):
     if len(lvl2_nodes) > 0:
         if queue is not None:
+            del cg_info["credentials"]
             queue.enqueue(meshgen.remeshing_wrapper,
                           job_timeout='20m',
                           args=(cg_info, lvl2_nodes))
