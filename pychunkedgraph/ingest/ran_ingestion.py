@@ -252,7 +252,7 @@ def create_atomic_chunk(imanager, chunk_coord, aff_dtype=basetypes.EDGE_AFFINITY
             supervoxel_ids1, supervoxel_ids2, affinities, areas
         )
 
-    add_atomic_edges_in_chunks(imanager.cg, chunk_coord, chunk_edges, isolated_node_ids=isolated_ids)
+    add_atomic_edges_in_chunks(imanager.cg, chunk_coord, chunk_edges, isolated=isolated_ids)
 
     # to track workers completion
     return chunk_coord

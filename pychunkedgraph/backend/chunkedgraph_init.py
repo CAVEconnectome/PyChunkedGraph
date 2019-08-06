@@ -26,7 +26,7 @@ def add_atomic_edges_in_chunks(
     cg_instance,
     chunk_coord,
     chunk_edges: dict,
-    isolated_node_ids: Sequence[np.uint64],
+    isolated: Sequence[np.uint64],
     verbose: bool = True,
     time_stamp: Optional[datetime.datetime] = None,
 ):
@@ -48,11 +48,7 @@ def add_atomic_edges_in_chunks(
     """
 
     time_start = time.time()
-
-    chunk_node_ids, chunk_edge_ids = _get_chunk_nodes_and_edges(
-        chunk_edges, isolated_node_ids
-    )
-
+    chunk_node_ids, chunk_edge_ids = _get_chunk_nodes_and_edges(chunk_edges, isolated)
     if not chunk_node_ids:
         return 0
 
@@ -62,12 +58,10 @@ def add_atomic_edges_in_chunks(
 
     graph, _, _, unique_ids = build_gt_graph(chunk_edge_ids, make_directed=True)
     ccs = connected_components(graph)
-
     if verbose:
         cg_instance.logger.debug(f"CC in chunk: {(time.time() - time_start):.3f}s")
 
     node_c = 0  # Just a counter for the log / speed measurement
-
     time_dict = collections.defaultdict(list)
     time_start = time.time()
     sparse_indices = {}
@@ -307,12 +301,10 @@ def add_atomic_edges_in_chunks(
         time_dict["writing"].append(time.time() - time_start)
 
 
-def _get_chunk_nodes_and_edges(
-    chunk_edges: dict, isolated_node_ids: Sequence[np.uint64]
-):
+def _get_chunk_nodes_and_edges(chunk_edges: dict, isolated_ids: Sequence[np.uint64]):
     """get all nodes and edges in the chunk"""
-    isolated_nodes_self_edges = np.vstack([isolated_node_ids, isolated_node_ids]).T
-    node_ids = [isolated_node_ids]
+    isolated_nodes_self_edges = np.vstack([isolated_ids, isolated_ids]).T
+    node_ids = [isolated_ids]
     edge_ids = [isolated_nodes_self_edges]
     for edge_type in EDGE_TYPES:
         edges = chunk_edges[edge_type]
