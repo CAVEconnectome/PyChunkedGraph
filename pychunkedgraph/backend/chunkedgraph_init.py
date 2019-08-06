@@ -64,7 +64,7 @@ def add_atomic_edges_in_chunks(
     ccs = connected_components(graph)
 
     if verbose:
-        cg_instance.logger.debug("CC in chunk: %.3fs" % (time.time() - time_start))
+        cg_instance.logger.debug(f"CC in chunk: {(time.time() - time_start):.3f}s")
 
     node_c = 0  # Just a counter for the log / speed measurement
     n_ccs = len(ccs)
@@ -72,10 +72,8 @@ def add_atomic_edges_in_chunks(
     parent_chunk_id = cg_instance.get_chunk_id(layer=2, *chunk_coord)
     parent_ids = cg_instance.get_unique_node_id_range(parent_chunk_id, step=n_ccs)
 
-    time_start = time.time()
     time_dict = collections.defaultdict(list)
-
-    time_start_1 = time.time()
+    time_start = time.time()
     sparse_indices = {}
     remapping = {}
     for k in edge_id_dict.keys():
@@ -87,7 +85,7 @@ def add_atomic_edges_in_chunks(
         sparse_indices[k] = compute_indices_pandas(remapped_arr)
         remapping[k] = dict(zip(u_ids, mapped_ids))
 
-    time_dict["sparse_indices"].append(time.time() - time_start_1)
+    time_dict["sparse_indices"].append(time.time() - time_start)
 
     time_stamp = _get_valid_timestamp(time_stamp)
     rows = []
@@ -262,7 +260,7 @@ def add_atomic_edges_in_chunks(
             node_c += 1
             time_dict["creating_lv1_row"].append(time.time() - time_start_2)
 
-        time_start_1 = time.time()
+        time_start = time.time()
         # Create parent node
         rows.append(
             cg_instance.mutate_row(
@@ -272,8 +270,8 @@ def add_atomic_edges_in_chunks(
             )
         )
 
-        time_dict["creating_lv2_row"].append(time.time() - time_start_1)
-        time_start_1 = time.time()
+        time_dict["creating_lv2_row"].append(time.time() - time_start)
+        time_start = time.time()
 
         cce_layers = cg_instance.get_cross_chunk_edges_layer(parent_cross_edges)
         u_cce_layers = np.unique(cce_layers)
@@ -297,17 +295,17 @@ def add_atomic_edges_in_chunks(
             )
         node_c += 1
 
-        time_dict["adding_cross_edges"].append(time.time() - time_start_1)
+        time_dict["adding_cross_edges"].append(time.time() - time_start)
 
         if len(rows) > 100000:
-            time_start_1 = time.time()
+            time_start = time.time()
             cg_instance.bulk_write(rows)
-            time_dict["writing"].append(time.time() - time_start_1)
+            time_dict["writing"].append(time.time() - time_start)
 
     if rows:
-        time_start_1 = time.time()
+        time_start = time.time()
         cg_instance.bulk_write(rows)
-        time_dict["writing"].append(time.time() - time_start_1)
+        time_dict["writing"].append(time.time() - time_start)
 
 
 def _get_chunk_nodes_and_edges(
