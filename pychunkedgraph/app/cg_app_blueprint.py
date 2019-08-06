@@ -17,7 +17,7 @@ from pychunkedgraph.backend import chunkedgraph_exceptions as cg_exceptions, \
 from pychunkedgraph.meshing import meshgen
 
 
-__version__ = 'pinky-prod.1.6'
+__version__ = 'pinky-prod.1.7'
 bp = Blueprint('pychunkedgraph', __name__, url_prefix="/segmentation")
 
 # -------------------------------
