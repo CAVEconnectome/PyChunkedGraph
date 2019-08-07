@@ -2,9 +2,7 @@
 Module for stuff related to creating the initial chunkedgraph
 """
 
-import time
 import datetime
-import collections
 from typing import Optional, Sequence
 
 import pytz
@@ -26,7 +24,7 @@ def add_atomic_edges(
     cg_instance: ChunkedGraph,
     chunk_coord: np.ndarray,
     chunk_edges_d: dict,
-    isolated: Sequence[np.uint64],
+    isolated: Sequence[basetypes.NODE_ID],
     time_stamp: Optional[datetime.datetime] = None,
 ):
     """
@@ -106,7 +104,9 @@ def add_atomic_edges(
     cg_instance.bulk_write(rows)
 
 
-def _get_chunk_nodes_and_edges(chunk_edges_d: dict, isolated_ids: Sequence[np.uint64]):
+def _get_chunk_nodes_and_edges(
+    chunk_edges_d: dict, isolated_ids: Sequence[basetypes.NODE_ID]
+):
     """
     returns IN_CHUNK edges and nodes_ids
     """
@@ -128,7 +128,7 @@ def _get_chunk_nodes_and_edges(chunk_edges_d: dict, isolated_ids: Sequence[np.ui
 
 def _get_remapping(chunk_edges_d: dict):
     """
-    TODO add logic
+    TODO add logic explanation
     """
     sparse_indices = {}
     remapping = {}
@@ -157,7 +157,7 @@ def _get_parent_cross_edges(node_id, chunk_edges_d, sparse_indices, remapping):
     """
     TODO add docs
     """
-    parent_cross_edges = np.array([], dtype=np.uint64).reshape(0, 2)
+    parent_cross_edges = np.array([], dtype=basetypes.NODE_ID).reshape(0, 2)
     if node_id in remapping[BT_CHUNK]:
         row_ids, column_ids = sparse_indices[BT_CHUNK][remapping[BT_CHUNK][node_id]]
         row_ids = row_ids[column_ids == 0]
