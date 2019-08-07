@@ -23,3 +23,13 @@ class Edges:
         self.node_ids2 = node_ids2
         self.affinities = affinities
         self.areas = areas
+        self._as_pairs = None
+
+    def get_pairs(self):
+        """
+        return numpy array of edge pairs [[sv1, sv2] ... ]
+        """
+        if self._as_pairs:
+            return self._as_pairs
+        self._as_pairs = np.vstack([self.node_ids1, self.node_ids2]).T
+        return self._as_pairs
