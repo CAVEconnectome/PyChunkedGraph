@@ -54,7 +54,6 @@ def add_atomic_edges(
     graph, _, _, unique_ids = build_gt_graph(chunk_edge_ids, make_directed=True)
     ccs = connected_components(graph)
 
-    node_c = 0  # Just a counter for the log / speed measurement
     parent_chunk_id = cg_instance.get_chunk_id(layer=2, *chunk_coord)
     parent_ids = cg_instance.get_unique_node_id_range(parent_chunk_id, step=len(ccs))
 
@@ -80,7 +79,6 @@ def add_atomic_edges(
                     time_stamp=time_stamp,
                 )
             )
-            node_c += 1
 
         # Create parent node
         rows.append(
@@ -112,13 +110,11 @@ def add_atomic_edges(
                     time_stamp=time_stamp,
                 )
             )
-        node_c += 1
 
         if len(rows) > 100000:
             cg_instance.bulk_write(rows)
 
-    if rows:
-        cg_instance.bulk_write(rows)
+    cg_instance.bulk_write(rows)
 
 
 def _get_chunk_nodes_and_edges(chunk_edges_d: dict, isolated_ids: Sequence[np.uint64]):
@@ -188,4 +184,3 @@ def _get_parent_cross_edges(node_id, chunk_edges_d, sparse_indices, remapping):
             [parent_cross_edges, participating_edges.get_pairs()]
         )
     return parent_cross_edges
-
