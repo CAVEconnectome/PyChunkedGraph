@@ -113,6 +113,7 @@ def add_atomic_edges(
 
         if len(rows) > 100000:
             cg_instance.bulk_write(rows)
+            rows = []
 
     cg_instance.bulk_write(rows)
 
