@@ -106,7 +106,7 @@ def process_single_changelog_entry(cg, cl_entry):
     cl_entry_p = {"is_split": is_split,
                   "sink_coords": sink_coords,
                   "source_coords": source_coords,
-                  "user_id": user_id}
+                  "user_id": "default"}
     return cl_entry_p
 
 
@@ -128,17 +128,18 @@ def _process_changelog_entries(args):
     return cl_p
 
 
-def reformat_changelog(cg, path, n_threads=10):
-    cl = load_changelog(path)
+def reformat_changelog(cg, cl_path, out_path=None, n_threads=10, n_limit=100):
+    cl = load_changelog(cl_path)
 
     cg_info = cg.get_serialized_info()
+    del cg_info["credentials"]
 
-    cl_keys = list(cl.keys())[:10]
+    cl_keys = list(cl.keys())[:n_limit]
     cl_key_blocks = np.array_split(cl_keys, n_threads * 3)
 
     multi_args = []
     for cl_key_block in cl_key_blocks:
-        multi_args.append([cg_info, cl_key_block, path])
+        multi_args.append([cg_info, cl_key_block, cl_path])
 
     results = mu.multisubprocess_func(_process_changelog_entries, multi_args,
                                       n_threads=n_threads)
@@ -147,7 +148,11 @@ def reformat_changelog(cg, path, n_threads=10):
     for result in results:
         cl_p.update(result)
 
-    return cl_p
+    if out_path is not None:
+        with open(out_path, "wb") as f:
+            dill.dump(cl_p, f)
+    else:
+        return cl_p
 
 
 def get_log_diff(log_old, log_new):
