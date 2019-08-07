@@ -80,20 +80,11 @@ def add_atomic_edges(
                 )
             )
 
-        # Create parent node
-        rows.append(
-            cg_instance.mutate_row(
-                serializers.serialize_uint64(parent_id),
-                {column_keys.Hierarchy.Child: node_ids},
-                time_stamp=time_stamp,
-            )
-        )
-
         parent_cross_edges = np.concatenate(parent_cross_edges)
         cce_layers = cg_instance.get_cross_chunk_edges_layer(parent_cross_edges)
         u_cce_layers = np.unique(cce_layers)
 
-        val_dict = {}
+        val_dict = {column_keys.Hierarchy.Child: node_ids}
         for cc_layer in u_cce_layers:
             layer_cross_edges = parent_cross_edges[cce_layers == cc_layer]
 
@@ -102,14 +93,11 @@ def add_atomic_edges(
                     column_keys.Connectivity.CrossChunkEdge[cc_layer]
                 ] = layer_cross_edges
 
-        if val_dict:
-            rows.append(
-                cg_instance.mutate_row(
-                    serializers.serialize_uint64(parent_id),
-                    val_dict,
-                    time_stamp=time_stamp,
-                )
+        rows.append(
+            cg_instance.mutate_row(
+                serializers.serialize_uint64(parent_id), val_dict, time_stamp=time_stamp
             )
+        )
 
         if len(rows) > 100000:
             cg_instance.bulk_write(rows)
