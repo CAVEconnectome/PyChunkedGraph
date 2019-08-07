@@ -15,8 +15,7 @@ from google.cloud.bigtable.column_family import MaxVersionsGCRule
 
 
 from .utils import basetypes
-from .utils.edges import Edges
-from ..backend.utils.edges import TYPES as EDGE_TYPES, Edges
+from ..edges.definitions import Edges, IN_CHUNK, TYPES as EDGE_TYPES
 from .chunkedgraph_utils import compute_indices_pandas, get_google_compatible_time_stamp
 from .flatgraph_utils import build_gt_graph, connected_components
 from .utils import serializers, column_keys
@@ -37,12 +36,8 @@ def add_atomic_edges(
     (cross_edge_ids) have to point out the chunk (first entry is the id
     within the chunk)
 
-    :param edge_id_dict: dict
-    :param edge_aff_dict: dict
-    :param edge_area_dict: dict
-    :param isolated_node_ids: list of uint64s
-        ids of nodes that have no edge in the chunked graph
-    :param verbose: bool
+    :param chunk_edges: dict
+    :param isolated: list of isolated node ids
     :param time_stamp: datetime
     """
 
@@ -60,6 +55,15 @@ def add_atomic_edges(
     parent_chunk_id = cg_instance.get_chunk_id(layer=2, *chunk_coord)
     parent_ids = cg_instance.get_unique_node_id_range(parent_chunk_id, step=len(ccs))
 
+    sparse_indices = {}
+    remapping = {}
+    for k in edge_id_dict.keys():
+        u_ids, inv_ids = np.unique(edge_id_dict[k], return_inverse=True)
+        mapped_ids = np.arange(len(u_ids), dtype=np.int32)
+        remapped_arr = mapped_ids[inv_ids].reshape(edge_id_dict[k].shape)
+        sparse_indices[k] = compute_indices_pandas(remapped_arr)
+        remapping[k] = dict(zip(u_ids, mapped_ids))
+
     time_stamp = _get_valid_timestamp(time_stamp)
     rows = []
     for i_cc, component in enumerate(ccs):
@@ -76,22 +80,6 @@ def add_atomic_edges(
                 ]
 
                 row_ids = row_ids[column_ids == 0]
-                column_ids = column_ids[column_ids == 0]
-                inv_column_ids = (column_ids + 1) % 2
-
-                connected_ids = np.concatenate(
-                    [
-                        connected_ids,
-                        edge_id_dict["between_connected"][row_ids, inv_column_ids],
-                    ]
-                )
-                connected_affs = np.concatenate(
-                    [connected_affs, edge_aff_dict["between_connected"][row_ids]]
-                )
-                connected_areas = np.concatenate(
-                    [connected_areas, edge_area_dict["between_connected"][row_ids]]
-                )
-
                 parent_cross_edges = np.concatenate(
                     [parent_cross_edges, edge_id_dict["between_connected"][row_ids]]
                 )
@@ -165,11 +153,12 @@ def _get_chunk_nodes_and_edges(chunk_edges: dict, isolated_ids: Sequence[np.uint
     for edge_type in EDGE_TYPES:
         edges = chunk_edges[edge_type]
         node_ids.append(edges.node_ids1)
-        node_ids.append(edges.node_ids2)
-        edge_ids.append(np.vstack([edges.node_ids1, edges.node_ids2]).T)
+        if edge_type == IN_CHUNK:
+            node_ids.append(edges.node_ids2)
+            edge_ids.append(np.vstack([edges.node_ids1, edges.node_ids2]).T)
 
     chunk_node_ids = np.unique(np.concatenate(node_ids))
-    chunk_edge_ids = np.unique(np.concatenate(edge_ids))
+    chunk_edge_ids = np.concatenate(edge_ids)
 
     return (chunk_node_ids, chunk_edge_ids)
 
