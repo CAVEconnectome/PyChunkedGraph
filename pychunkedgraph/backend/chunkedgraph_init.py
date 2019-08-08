@@ -163,7 +163,7 @@ def _process_component(
 def _get_out_edges(node_id, chunk_edges_d, sparse_indices, remapping):
     """
     TODO add docs
-    returns edges pointing outside the chunk
+    returns edges of node_id pointing outside the chunk (between and cross)
     """
     chunk_out_edges = np.array([], dtype=basetypes.NODE_ID).reshape(0, 2)
     for edge_type in remapping:

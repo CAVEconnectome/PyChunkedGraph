@@ -4,8 +4,8 @@ Module for ingesting in chunkedgraph format with edges stored outside bigtable
 
 import collections
 import time
-import random
 
+import click
 import pandas as pd
 import cloudvolume
 import networkx as nx
@@ -14,26 +14,37 @@ import numpy.lib.recfunctions as rfn
 import zstandard as zstd
 from multiwrapper import multiprocessing_utils as mu
 
+from flask import current_app
+from flask.cli import AppGroup
+
 from pychunkedgraph.ingest import ingestionmanager, ingestion_utils as iu
 from ..backend.chunkedgraph_init import add_atomic_edges
 from ..edges.definitions import TYPES as EDGE_TYPES, Edges
 from ..backend.utils import basetypes
 
+ingest_cli = AppGroup("ingest")
 
+
+@ingest_cli.command("atomic")
+@click.argument("storage_path", type=str)
+@click.argument("ws_cv_path", type=str)
+@click.argument("cg_table_id", type=str)
+@click.argument("bits", type=int)
+@click.argument("edge_dir", type=str)
 def ingest_into_chunkedgraph(
     storage_path,
     ws_cv_path,
     cg_table_id,
-    chunk_size=[256, 256, 512],
+    chunk_size=[512, 512, 128],
     use_skip_connections=True,
-    s_bits_atomic_layer=None,
+    bits=None,
     fan_out=2,
     aff_dtype=np.float32,
     size=None,
     instance_id=None,
     project_id=None,
     start_layer=1,
-    n_threads=[64, 64],
+    edge_dir=None,
 ):
     """ Creates a chunkedgraph from a Ran Agglomerattion
 
@@ -70,7 +81,7 @@ def ingest_into_chunkedgraph(
         chunk_size=chunk_size,
         size=size,
         use_skip_connections=use_skip_connections,
-        s_bits_atomic_layer=s_bits_atomic_layer,
+        s_bits_atomic_layer=bits,
         cg_mesh_dir=cg_mesh_dir,
         fan_out=fan_out,
         instance_id=instance_id,
@@ -85,10 +96,9 @@ def ingest_into_chunkedgraph(
         project_id=project_id,
     )
 
-    if start_layer < 3:
-        create_atomic_chunks(im, aff_dtype=aff_dtype, n_threads=n_threads[0])
-
-    create_abstract_layers(im, n_threads=n_threads[1], start_layer=start_layer)
+    # if start_layer < 3:
+    create_atomic_chunks(im, edge_dir)
+    # create_abstract_layers(im, n_threads=n_threads[1], start_layer=start_layer)
 
     return im
 
@@ -185,76 +195,27 @@ def _create_layers(args):
         )
 
 
-def create_atomic_chunks(im, aff_dtype=np.float32, n_threads=1, block_size=100):
-    """ Creates all atomic chunks
-
-    :param im: IngestionManager
-    :param aff_dtype: np.dtype
-        affinity datatype (np.float32 or np.float64)
-    :param n_threads: int
-        number of threads to use
-    :return:
-    """
-
-    im_info = im.get_serialized_info()
-
-    multi_args = []
-
-    # Randomize chunk order
+def create_atomic_chunks(im, edge_dir):
+    """ Creates all atomic chunks"""
     chunk_coords = list(im.chunk_coord_gen)
-    order = np.arange(len(chunk_coords), dtype=np.int)
-    np.random.shuffle(order)
+    np.random.shuffle(chunk_coords)
 
-    # Block chunks
-    block_size = min(block_size, int(np.ceil(len(chunk_coords) / n_threads / 3)))
-    n_blocks = int(len(chunk_coords) / block_size)
-    blocks = np.array_split(order, n_blocks)
-
-    for i_block, block in enumerate(blocks):
-        chunks = []
-        for b_idx in block:
-            chunks.append(chunk_coords[b_idx])
-
-        multi_args.append([im_info, aff_dtype, n_blocks, i_block, chunks])
-
-    if n_threads == 1:
-        mu.multiprocess_func(
+    for chunk_coord in chunk_coords[:5]:
+        current_app.test_q.enqueue(
             _create_atomic_chunk,
-            multi_args,
-            n_threads=n_threads,
-            verbose=True,
-            debug=n_threads == 1,
+            job_timeout="59m",
+            args=(im.get_serialized_info(), chunk_coord, edge_dir),
         )
-    else:
-        mu.multisubprocess_func(_create_atomic_chunk, multi_args, n_threads=n_threads)
 
 
-def _create_atomic_chunk(args):
+def _create_atomic_chunk(im_info, chunk_coord, edge_dir):
     """ Multiprocessing helper for create_atomic_chunks """
-    im_info, aff_dtype, n_blocks, i_block, chunks = args
-    im = ingestionmanager.IngestionManager(**im_info)
-
-    for i_chunk, chunk_coord in enumerate(chunks):
-        time_start = time.time()
-
-        create_atomic_chunk(im, chunk_coord, aff_dtype=aff_dtype, verbose=True)
-
-        print(
-            f"Layer 1 - {chunk_coord} - Job {i_block + 1} / {n_blocks} - "
-            f"{i_chunk + 1} / {len(chunks)} -- %.3fs" % (time.time() - time_start)
-        )
+    imanager = ingestionmanager.IngestionManager(**im_info)
+    create_atomic_chunk(imanager, chunk_coord)
 
 
 def create_atomic_chunk(imanager, chunk_coord, aff_dtype=basetypes.EDGE_AFFINITY):
-    """ Creates single atomic chunk
-
-    :param imanager: IngestionManager
-    :param chunk_coord: np.ndarray
-        array of three ints
-    :param aff_dtype: np.dtype
-        np.float64 or np.float32
-    :return:
-    """
+    """ Creates single atomic chunk"""
     chunk_coord = np.array(list(chunk_coord), dtype=np.int)
 
     edge_dict = collect_edge_data(imanager, chunk_coord, aff_dtype=aff_dtype)
