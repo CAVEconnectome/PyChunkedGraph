@@ -59,31 +59,16 @@ def add_atomic_edges(
     time_stamp = _get_valid_timestamp(time_stamp)
     rows = []
     for i_cc, component in enumerate(ccs):
-        node_ids = unique_ids[component]
-        parent_id = parent_ids[i_cc]
-        chunk_out_edges = []
-
-        for node_id in node_ids:
-            _edges = _get_out_edges(node_id, chunk_edges_d, sparse_indices, remapping)
-            chunk_out_edges.append(_edges)
-            val_dict = {column_keys.Hierarchy.Parent: parent_id}
-
-            r_key = serializers.serialize_uint64(node_id)
-            rows.append(cg_instance.mutate_row(r_key, val_dict, time_stamp=time_stamp))
-
-        chunk_out_edges = np.concatenate(chunk_out_edges)
-        cce_layers = cg_instance.get_cross_chunk_edges_layer(chunk_out_edges)
-        u_cce_layers = np.unique(cce_layers)
-
-        val_dict = {column_keys.Hierarchy.Child: node_ids}
-        for cc_layer in u_cce_layers:
-            layer_cross_edges = chunk_out_edges[cce_layers == cc_layer]
-            if layer_cross_edges:
-                col_key = column_keys.Connectivity.CrossChunkEdge[cc_layer]
-                val_dict[col_key] = layer_cross_edges
-
-        r_key = serializers.serialize_uint64(parent_id)
-        rows.append(cg_instance.mutate_row(r_key, val_dict, time_stamp=time_stamp))
+        _rows = _process_component(
+            cg_instance,
+            chunk_edges_d,
+            parent_ids[i_cc],
+            unique_ids[component],
+            sparse_indices,
+            remapping,
+            time_stamp,
+        )
+        rows.extend(_rows)
 
         if len(rows) > 100000:
             cg_instance.bulk_write(rows)
@@ -138,6 +123,41 @@ def _get_valid_timestamp(timestamp):
 
     # Comply to resolution of BigTables TimeRange
     return get_google_compatible_time_stamp(timestamp, round_up=False)
+
+
+def _process_component(
+    cg_instance,
+    chunk_edges_d,
+    parent_id,
+    node_ids,
+    sparse_indices,
+    remapping,
+    time_stamp,
+):
+    rows = []
+    chunk_out_edges = []  # out = between + cross
+    for node_id in node_ids:
+        _edges = _get_out_edges(node_id, chunk_edges_d, sparse_indices, remapping)
+        chunk_out_edges.append(_edges)
+        val_dict = {column_keys.Hierarchy.Parent: parent_id}
+
+        r_key = serializers.serialize_uint64(node_id)
+        rows.append(cg_instance.mutate_row(r_key, val_dict, time_stamp=time_stamp))
+
+    chunk_out_edges = np.concatenate(chunk_out_edges)
+    cce_layers = cg_instance.get_cross_chunk_edges_layer(chunk_out_edges)
+    u_cce_layers = np.unique(cce_layers)
+
+    val_dict = {column_keys.Hierarchy.Child: node_ids}
+    for cc_layer in u_cce_layers:
+        layer_out_edges = chunk_out_edges[cce_layers == cc_layer]
+        if layer_out_edges:
+            col_key = column_keys.Connectivity.CrossChunkEdge[cc_layer]
+            val_dict[col_key] = layer_out_edges
+
+    r_key = serializers.serialize_uint64(parent_id)
+    rows.append(cg_instance.mutate_row(r_key, val_dict, time_stamp=time_stamp))
+    return rows
 
 
 def _get_out_edges(node_id, chunk_edges_d, sparse_indices, remapping):
