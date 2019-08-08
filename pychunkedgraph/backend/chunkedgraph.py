@@ -702,13 +702,21 @@ class ChunkedGraph(object):
         rows = self._execute_read(row_set=row_set, row_filter=filter_)
 
         # Deserialize cells
+        del_keys = []
         for row_key, column_dict in rows.items():
-            for column, cell_entries in column_dict.items():
-                for cell_entry in cell_entries:
-                    cell_entry.value = column.deserialize(cell_entry.value)
-            # If no column array was requested, reattach single column's values directly to the row
-            if isinstance(columns, column_keys._Column):
-                rows[row_key] = cell_entries
+            try:
+                for column, cell_entries in column_dict.items():
+                    for cell_entry in cell_entries:
+                            cell_entry.value = column.deserialize(cell_entry.value)
+                # If no column array was requested, reattach single column's values directly to the row
+                if isinstance(columns, column_keys._Column):
+                    rows[row_key] = cell_entries
+            except:
+                print(f"Could not serialize {row_key}")
+                del_keys.append(row_key)
+
+        for row_key in del_keys:
+            del rows[row_key]
 
         return rows
 
