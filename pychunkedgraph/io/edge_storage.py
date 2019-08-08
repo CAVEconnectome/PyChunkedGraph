@@ -99,12 +99,12 @@ def get_chunk_edges(
 def put_chunk_edges(
     edges_dir: str,
     chunk_coordinates: np.ndarray,
-    chunk_edges_raw: dict,
+    chunk_edges_raw,
     compression_level: int,
 ) -> None:
     """
     :param edges_dir: cloudvolume storage path
-    :type str:    
+    :type str:
     :param chunk_coordinates: chunk coords x,y,z
     :type np.ndarray:
     :param chunk_edges_raw: chunk_edges_raw with keys "in", "cross", "between"
@@ -115,23 +115,18 @@ def put_chunk_edges(
     """
 
     def _get_edges(edge_type: str) -> Edges:
+        # TODO change protobuf class name
+        edges = chunk_edges_raw[edge_type]
 
-        edges_raw = chunk_edges_raw[edge_type]
+        edges_proto = Edges()
+        edges_proto.node_ids1 = edges.node_ids1.astype(basetypes.NODE_ID).tobytes()
+        edges_proto.node_ids2 = edges.node_ids2.astype(basetypes.NODE_ID).tobytes()
+        edges_proto.affinities = edges.affinities.astype(
+            basetypes.EDGE_AFFINITY
+        ).tobytes()
+        edges_proto.areas = edges.areas.astype(basetypes.EDGE_AREA).tobytes()
 
-        supervoxel_ids1 = edges_raw["sv1"]
-        supervoxel_ids2 = edges_raw["sv2"]
-
-        ones = np.ones(len(supervoxel_ids1))
-        affinities = edges_raw.get("aff", float("inf") * ones)
-        areas = edges_raw.get("area", ones)
-
-        edges = Edges()
-        edges.node_ids1 = supervoxel_ids1.astype(basetypes.NODE_ID).tobytes()
-        edges.node_ids2 = supervoxel_ids2.astype(basetypes.NODE_ID).tobytes()
-        edges.affinities = affinities.astype(basetypes.EDGE_AFFINITY).tobytes()
-        edges.areas = areas.astype(basetypes.EDGE_AREA).tobytes()
-
-        return edges
+        return edges_proto
 
     chunk_edges = ChunkEdges()
     chunk_edges.in_chunk.CopyFrom(_get_edges("in"))

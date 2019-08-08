@@ -21,6 +21,7 @@ from pychunkedgraph.ingest import ingestionmanager, ingestion_utils as iu
 from ..backend.chunkedgraph_init import add_atomic_edges
 from ..edges.definitions import TYPES as EDGE_TYPES, Edges
 from ..backend.utils import basetypes
+from ..io.edge_storage import put_chunk_edges
 
 ingest_cli = AppGroup("ingest")
 
@@ -37,7 +38,6 @@ def ingest_into_chunkedgraph(
     cg_table_id,
     chunk_size=[512, 512, 128],
     use_skip_connections=True,
-    bits=None,
     fan_out=2,
     aff_dtype=np.float32,
     size=None,
@@ -81,7 +81,7 @@ def ingest_into_chunkedgraph(
         chunk_size=chunk_size,
         size=size,
         use_skip_connections=use_skip_connections,
-        s_bits_atomic_layer=bits,
+        s_bits_atomic_layer=10,
         cg_mesh_dir=cg_mesh_dir,
         fan_out=fan_out,
         instance_id=instance_id,
@@ -94,6 +94,7 @@ def ingest_into_chunkedgraph(
         n_layers=n_layers_agg,
         instance_id=instance_id,
         project_id=project_id,
+        data_version=4,
     )
 
     # if start_layer < 3:
@@ -211,14 +212,16 @@ def create_atomic_chunks(im, edge_dir):
 def _create_atomic_chunk(im_info, chunk_coord, edge_dir):
     """ Multiprocessing helper for create_atomic_chunks """
     imanager = ingestionmanager.IngestionManager(**im_info)
-    create_atomic_chunk(imanager, chunk_coord)
+    create_atomic_chunk(imanager, chunk_coord, edge_dir)
 
 
-def create_atomic_chunk(imanager, chunk_coord, aff_dtype=basetypes.EDGE_AFFINITY):
+def create_atomic_chunk(imanager, chunk_coord, edge_dir):
     """ Creates single atomic chunk"""
     chunk_coord = np.array(list(chunk_coord), dtype=np.int)
 
-    edge_dict = collect_edge_data(imanager, chunk_coord, aff_dtype=aff_dtype)
+    edge_dict = collect_edge_data(
+        imanager, chunk_coord, aff_dtype=basetypes.EDGE_AFFINITY
+    )
     mapping = collect_agglomeration_data(imanager, chunk_coord)
     _, isolated_ids = define_active_edges(edge_dict, mapping)
 
@@ -232,7 +235,15 @@ def create_atomic_chunk(imanager, chunk_coord, aff_dtype=basetypes.EDGE_AFFINITY
         areas = edge_dict[edge_type].get("area", ones)
         chunk_edges[edge_type] = Edges(sv_ids1, sv_ids2, affinities, areas)
 
+    print(chunk_coord)
+    start = time.time()
+    put_chunk_edges(edge_dir, chunk_coord, chunk_edges, 17)
+    print(f"cloud storage time: {time.time() - start}")
+
+    start = time.time()
     add_atomic_edges(imanager.cg, chunk_coord, chunk_edges, isolated=isolated_ids)
+    print(f"big table time: {time.time() - start}")
+
     # to track workers completion
     return chunk_coord
 
