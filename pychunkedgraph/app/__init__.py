@@ -16,6 +16,9 @@ from rq import Queue
 from pychunkedgraph.app import cg_app_blueprint, meshing_app_blueprint
 from pychunkedgraph.logging import jsonformatter
 # from pychunkedgraph.app import manifest_app_blueprint
+
+from ..ingest.ran_ingestion_v2 import init_ingest_cmds
+
 os.environ['TRAVIS_BRANCH'] = "IDONTKNOWWHYINEEDTHIS"
 
 
@@ -73,4 +76,6 @@ def configure_app(app):
 
     if app.config['USE_REDIS_JOBS']:
         app.redis = redis.Redis.from_url(app.config['REDIS_URL'])
-        app.test_q = Queue('test' ,connection=app.redis)
+        app.test_q = Queue('test', connection=app.redis)
+        with app.app_context():
+            init_ingest_cmds(app)

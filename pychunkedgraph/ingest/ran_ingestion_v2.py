@@ -30,7 +30,6 @@ ingest_cli = AppGroup("ingest")
 @click.argument("storage_path", type=str)
 @click.argument("ws_cv_path", type=str)
 @click.argument("cg_table_id", type=str)
-@click.argument("bits", type=int)
 @click.argument("edge_dir", type=str)
 def ingest_into_chunkedgraph(
     storage_path,
@@ -222,6 +221,7 @@ def create_atomic_chunk(imanager, chunk_coord, edge_dir):
     edge_dict = collect_edge_data(
         imanager, chunk_coord, aff_dtype=basetypes.EDGE_AFFINITY
     )
+    edge_dict = iu.postprocess_edge_data(imanager, edge_dict)
     mapping = collect_agglomeration_data(imanager, chunk_coord)
     _, isolated_ids = define_active_edges(edge_dict, mapping)
 
@@ -371,8 +371,6 @@ def collect_edge_data(im, chunk_coord, aff_dtype=np.float32):
         ("area", np.uint64),
     ]
     for k in filenames:
-        # print(k, len(filenames[k]))
-
         with cloudvolume.Storage(base_path, n_threads=10) as stor:
             files = stor.get_files(filenames[k])
 
@@ -543,3 +541,6 @@ def define_active_edges(edge_dict, mapping):
 
     return active, np.unique(np.concatenate(isolated).astype(basetypes.NODE_ID))
 
+
+def init_ingest_cmds(app):
+    app.cli.add_command(ingest_cli)
