@@ -132,7 +132,7 @@ def _get_remapping(chunk_edges_d: dict):
     """
     sparse_indices = {}
     remapping = {}
-    for edge_type in EDGE_TYPES:
+    for edge_type in [BT_CHUNK, CX_CHUNK]:
         edges = chunk_edges_d[edge_type].get_pairs()
         u_ids, inv_ids = np.unique(edges, return_inverse=True)
         mapped_ids = np.arange(len(u_ids), dtype=np.int32)
@@ -158,18 +158,12 @@ def _get_parent_cross_edges(node_id, chunk_edges_d, sparse_indices, remapping):
     TODO add docs
     """
     parent_cross_edges = np.array([], dtype=basetypes.NODE_ID).reshape(0, 2)
-    if node_id in remapping[BT_CHUNK]:
-        row_ids, column_ids = sparse_indices[BT_CHUNK][remapping[BT_CHUNK][node_id]]
-        row_ids = row_ids[column_ids == 0]
-        participating_edges = chunk_edges_d[BT_CHUNK][row_ids]
-        parent_cross_edges = np.concatenate(
-            [parent_cross_edges, participating_edges.get_pairs()]
-        )
-    if node_id in remapping[CX_CHUNK]:
-        row_ids, column_ids = sparse_indices[CX_CHUNK][remapping[CX_CHUNK][node_id]]
-        row_ids = row_ids[column_ids == 0]
-        participating_edges = chunk_edges_d[CX_CHUNK][row_ids]
-        parent_cross_edges = np.concatenate(
-            [parent_cross_edges, participating_edges.get_pairs()]
-        )
+    for edge_type in remapping:
+        if node_id in remapping[edge_type]:
+            row_ids, column_ids = sparse_indices[edge_type][remapping[edge_type][node_id]]
+            row_ids = row_ids[column_ids == 0]
+            participating_edges = chunk_edges_d[edge_type][row_ids]
+            parent_cross_edges = np.concatenate(
+                [parent_cross_edges, participating_edges.get_pairs()]
+            )
     return parent_cross_edges

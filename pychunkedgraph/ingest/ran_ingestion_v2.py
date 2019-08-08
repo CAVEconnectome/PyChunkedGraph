@@ -85,10 +85,6 @@ def ingest_into_chunkedgraph(
         project_id=project_id,
     )
 
-    # #TODO: Remove later:
-    # logging.basicConfig(level=logging.DEBUG)
-    # im.cg.logger = logging.getLogger(__name__)
-    # ------------------------------------------
     if start_layer < 3:
         create_atomic_chunks(im, aff_dtype=aff_dtype, n_threads=n_threads[0])
 
