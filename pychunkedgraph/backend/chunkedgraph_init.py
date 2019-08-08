@@ -64,19 +64,12 @@ def add_atomic_edges(
         parent_cross_edges = []
 
         for node_id in node_ids:
-            _edges = _get_parent_cross_edges(
-                node_id, chunk_edges_d, sparse_indices, remapping
-            )
+            _edges = _get_out_edges(node_id, chunk_edges_d, sparse_indices, remapping)
             parent_cross_edges.append(_edges)
             val_dict = {column_keys.Hierarchy.Parent: parent_id}
 
-            rows.append(
-                cg_instance.mutate_row(
-                    serializers.serialize_uint64(node_id),
-                    val_dict,
-                    time_stamp=time_stamp,
-                )
-            )
+            r_key = serializers.serialize_uint64(node_id)
+            rows.append(cg_instance.mutate_row(r_key, val_dict, time_stamp=time_stamp))
 
         parent_cross_edges = np.concatenate(parent_cross_edges)
         cce_layers = cg_instance.get_cross_chunk_edges_layer(parent_cross_edges)
@@ -85,22 +78,16 @@ def add_atomic_edges(
         val_dict = {column_keys.Hierarchy.Child: node_ids}
         for cc_layer in u_cce_layers:
             layer_cross_edges = parent_cross_edges[cce_layers == cc_layer]
-
             if layer_cross_edges:
-                val_dict[
-                    column_keys.Connectivity.CrossChunkEdge[cc_layer]
-                ] = layer_cross_edges
+                col_key = column_keys.Connectivity.CrossChunkEdge[cc_layer]
+                val_dict[col_key] = layer_cross_edges
 
-        rows.append(
-            cg_instance.mutate_row(
-                serializers.serialize_uint64(parent_id), val_dict, time_stamp=time_stamp
-            )
-        )
+        r_key = serializers.serialize_uint64(parent_id)
+        rows.append(cg_instance.mutate_row(r_key, val_dict, time_stamp=time_stamp))
 
         if len(rows) > 100000:
             cg_instance.bulk_write(rows)
             rows = []
-
     cg_instance.bulk_write(rows)
 
 
@@ -153,14 +140,16 @@ def _get_valid_timestamp(timestamp):
     return get_google_compatible_time_stamp(timestamp, round_up=False)
 
 
-def _get_parent_cross_edges(node_id, chunk_edges_d, sparse_indices, remapping):
+def _get_out_edges(node_id, chunk_edges_d, sparse_indices, remapping):
     """
     TODO add docs
     """
     parent_cross_edges = np.array([], dtype=basetypes.NODE_ID).reshape(0, 2)
     for edge_type in remapping:
         if node_id in remapping[edge_type]:
-            row_ids, column_ids = sparse_indices[edge_type][remapping[edge_type][node_id]]
+            row_ids, column_ids = sparse_indices[edge_type][
+                remapping[edge_type][node_id]
+            ]
             row_ids = row_ids[column_ids == 0]
             participating_edges = chunk_edges_d[edge_type][row_ids]
             parent_cross_edges = np.concatenate(
