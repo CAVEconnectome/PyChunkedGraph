@@ -12,7 +12,7 @@ from cloudvolume import Storage
 from cloudvolume.storage import SimpleStorage
 
 from ..backend.utils import basetypes
-from .protobuf.chunkEdges_pb2 import Edges, ChunkEdges
+from .protobuf.chunkEdges_pb2 import EdgesMsg, ChunkEdgesMsg
 
 
 def _decompress_edges(content: bytes) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
@@ -23,7 +23,7 @@ def _decompress_edges(content: bytes) -> Tuple[np.ndarray, np.ndarray, np.ndarra
     :rtype: Tuple[np.ndarray, np.ndarray, np.ndarray]
     """
 
-    def _get_edges(edges_message: Edges) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+    def _get_edges(edges_message: EdgesMsg) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
         supervoxel_ids1 = np.frombuffer(edges_message.node_ids1, basetypes.NODE_ID)
         supervoxel_ids2 = np.frombuffer(edges_message.node_ids2, basetypes.NODE_ID)
 
@@ -32,7 +32,7 @@ def _decompress_edges(content: bytes) -> Tuple[np.ndarray, np.ndarray, np.ndarra
         areas = np.frombuffer(edges_message.areas, basetypes.EDGE_AREA)
         return edges, affinities, areas
 
-    chunk_edges = ChunkEdges()
+    chunk_edges = ChunkEdgesMsg()
     zstd_decompressor_obj = zstd.ZstdDecompressor().decompressobj()
     file_content = zstd_decompressor_obj.decompress(content)
     chunk_edges.ParseFromString(file_content)
@@ -114,11 +114,9 @@ def put_chunk_edges(
     :return None:
     """
 
-    def _get_edges(edge_type: str) -> Edges:
-        # TODO change protobuf class name
+    def _get_edges(edge_type: str) -> EdgesMsg:
         edges = chunk_edges_raw[edge_type]
-
-        edges_proto = Edges()
+        edges_proto = EdgesMsg()
         edges_proto.node_ids1 = edges.node_ids1.astype(basetypes.NODE_ID).tobytes()
         edges_proto.node_ids2 = edges.node_ids2.astype(basetypes.NODE_ID).tobytes()
         edges_proto.affinities = edges.affinities.astype(
@@ -128,7 +126,7 @@ def put_chunk_edges(
 
         return edges_proto
 
-    chunk_edges = ChunkEdges()
+    chunk_edges = ChunkEdgesMsg()
     chunk_edges.in_chunk.CopyFrom(_get_edges("in"))
     chunk_edges.between_chunk.CopyFrom(_get_edges("between"))
     chunk_edges.cross_chunk.CopyFrom(_get_edges("cross"))
