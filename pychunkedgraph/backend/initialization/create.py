@@ -3,27 +3,23 @@ Module for stuff related to creating the initial chunkedgraph
 """
 
 import datetime
-from typing import Optional, Sequence
+from typing import Optional, Sequence, Dict
 
 import pytz
 import numpy as np
 
-from google.cloud.bigtable.row_set import RowSet
-from google.cloud.bigtable.column_family import MaxVersionsGCRule
-
-
-from .chunkedgraph import ChunkedGraph
-from .utils import basetypes
-from ..edges.definitions import Edges, IN_CHUNK, BT_CHUNK, CX_CHUNK, TYPES as EDGE_TYPES
-from .chunkedgraph_utils import compute_indices_pandas, get_google_compatible_time_stamp
-from .flatgraph_utils import build_gt_graph, connected_components
-from .utils import serializers, column_keys
+from ..chunkedgraph import ChunkedGraph
+from ..utils import basetypes
+from ..definitions.edges import Edges, IN_CHUNK, BT_CHUNK, CX_CHUNK, TYPES as EDGE_TYPES
+from ..chunkedgraph_utils import compute_indices_pandas, get_google_compatible_time_stamp
+from ..flatgraph_utils import build_gt_graph, connected_components
+from ..utils import serializers, column_keys
 
 
 def add_atomic_edges(
     cg_instance: ChunkedGraph,
     chunk_coord: np.ndarray,
-    chunk_edges_d: dict,
+    chunk_edges_d: Dict[str, Edges],
     isolated: Sequence[int],
     time_stamp: Optional[datetime.datetime] = None,
 ):

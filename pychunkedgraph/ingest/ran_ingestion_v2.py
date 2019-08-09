@@ -17,9 +17,9 @@ from multiwrapper import multiprocessing_utils as mu
 from flask import current_app
 from flask.cli import AppGroup
 
-from pychunkedgraph.ingest import ingestionmanager, ingestion_utils as iu
-from ..backend.chunkedgraph_init import add_atomic_edges
-from ..edges.definitions import TYPES as EDGE_TYPES, Edges
+from . import ingestionmanager, ingestion_utils as iu
+from ..backend.initialization.create import add_atomic_edges
+from ..backend.definitions.edges import Edges, TYPES as EDGE_TYPES
 from ..backend.utils import basetypes
 from ..io.edge_storage import put_chunk_edges
 
@@ -72,7 +72,7 @@ def ingest_into_chunkedgraph(
     ws_cv_path = ws_cv_path.strip("/")
 
     cg_mesh_dir = f"{cg_table_id}_meshes"
-    chunk_size = np.array(chunk_size, dtype=np.uint64)
+    chunk_size = np.array(chunk_size)
 
     _, n_layers_agg = iu.initialize_chunkedgraph(
         cg_table_id=cg_table_id,
@@ -218,9 +218,7 @@ def create_atomic_chunk(imanager, chunk_coord, edge_dir):
     """ Creates single atomic chunk"""
     chunk_coord = np.array(list(chunk_coord), dtype=np.int)
 
-    edge_dict = collect_edge_data(
-        imanager, chunk_coord
-    )
+    edge_dict = collect_edge_data(imanager, chunk_coord)
     edge_dict = iu.postprocess_edge_data(imanager, edge_dict)
     mapping = collect_agglomeration_data(imanager, chunk_coord)
     _, isolated_ids = define_active_edges(edge_dict, mapping)
@@ -306,8 +304,9 @@ def collect_edge_data(im, chunk_coord):
 
     chunk_coord = np.array(chunk_coord)
 
-    chunk_id = im.cg.get_chunk_id(layer=1, x=chunk_coord[0], y=chunk_coord[1],
-                                  z=chunk_coord[2])
+    chunk_id = im.cg.get_chunk_id(
+        layer=1, x=chunk_coord[0], y=chunk_coord[1], z=chunk_coord[2]
+    )
 
     filenames = collections.defaultdict(list)
     swap = collections.defaultdict(list)
@@ -328,16 +327,19 @@ def collect_edge_data(im, chunk_coord):
             diff[dim] = d
 
             adjacent_chunk_coord = chunk_coord + diff
-            adjacent_chunk_id = im.cg.get_chunk_id(layer=1,
-                                                   x=adjacent_chunk_coord[0],
-                                                   y=adjacent_chunk_coord[1],
-                                                   z=adjacent_chunk_coord[2])
+            adjacent_chunk_id = im.cg.get_chunk_id(
+                layer=1,
+                x=adjacent_chunk_coord[0],
+                y=adjacent_chunk_coord[1],
+                z=adjacent_chunk_coord[2],
+            )
 
             if im.is_out_of_bounce(adjacent_chunk_coord):
                 continue
 
-            c_chunk_coords = _get_cont_chunk_coords(im, chunk_coord,
-                                                    adjacent_chunk_coord)
+            c_chunk_coords = _get_cont_chunk_coords(
+                im, chunk_coord, adjacent_chunk_coord
+            )
 
             larger_id = np.max([chunk_id, adjacent_chunk_id])
             smaller_id = np.min([chunk_id, adjacent_chunk_id])
@@ -378,8 +380,7 @@ def collect_edge_data(im, chunk_coord):
                 continue
 
             if swap[file["filename"]]:
-                this_dtype = [im.edge_dtype[1], im.edge_dtype[0]] + \
-                              im.edge_dtype[2:]
+                this_dtype = [im.edge_dtype[1], im.edge_dtype[0]] + im.edge_dtype[2:]
                 content = np.frombuffer(file["content"], dtype=this_dtype)
             else:
                 content = np.frombuffer(file["content"], dtype=im.edge_dtype)
@@ -391,10 +392,12 @@ def collect_edge_data(im, chunk_coord):
         try:
             edge_data[k] = rfn.stack_arrays(data, usemask=False)
         except:
-            raise()
+            raise ()
 
         edge_data_df = pd.DataFrame(edge_data[k])
-        edge_data_dfg = edge_data_df.groupby(["sv1", "sv2"]).aggregate(np.sum).reset_index()
+        edge_data_dfg = (
+            edge_data_df.groupby(["sv1", "sv2"]).aggregate(np.sum).reset_index()
+        )
         edge_data[k] = edge_data_dfg.to_records()
 
     return edge_data
@@ -413,7 +416,7 @@ def _read_agg_files(filenames, base_path):
             continue
 
         content = zstd.ZstdDecompressor().decompressobj().decompress(file["content"])
-        edge_list.append(np.frombuffer(content, dtype=np.uint64).reshape(-1, 2))
+        edge_list.append(np.frombuffer(content, dtype=basetypes.NODE_ID).reshape(-1, 2))
 
     return edge_list
 
@@ -519,7 +522,7 @@ def define_active_edges(edge_dict, mapping):
         if k == "in":
             isolated.append(edge_dict[k]["sv2"][agg_2_m])
 
-    return active, np.unique(np.concatenate(isolated).astype(np.uint64))
+    return active, np.unique(np.concatenate(isolated).astype(basetypes.NODE_ID))
 
 
 def init_ingest_cmds(app):
