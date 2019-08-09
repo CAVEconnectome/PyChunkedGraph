@@ -219,7 +219,7 @@ def create_atomic_chunk(imanager, chunk_coord, edge_dir):
     chunk_coord = np.array(list(chunk_coord), dtype=np.int)
 
     edge_dict = collect_edge_data(
-        imanager, chunk_coord, aff_dtype=basetypes.EDGE_AFFINITY
+        imanager, chunk_coord
     )
     edge_dict = iu.postprocess_edge_data(imanager, edge_dict)
     mapping = collect_agglomeration_data(imanager, chunk_coord)
@@ -290,13 +290,14 @@ def _get_cont_chunk_coords(im, chunk_coord_a, chunk_coord_b):
     return c_chunk_coords
 
 
-def collect_edge_data(im, chunk_coord, aff_dtype=np.float32):
+def collect_edge_data(im, chunk_coord):
     """ Loads edge for single chunk
 
     :param im: IngestionManager
     :param chunk_coord: np.ndarray
         array of three ints
     :param aff_dtype: np.dtype
+    :param v3_data: bool
     :return: dict of np.ndarrays
     """
     subfolder = "chunked_rg"
@@ -305,9 +306,8 @@ def collect_edge_data(im, chunk_coord, aff_dtype=np.float32):
 
     chunk_coord = np.array(chunk_coord)
 
-    chunk_id = im.cg.get_chunk_id(
-        layer=1, x=chunk_coord[0], y=chunk_coord[1], z=chunk_coord[2]
-    )
+    chunk_id = im.cg.get_chunk_id(layer=1, x=chunk_coord[0], y=chunk_coord[1],
+                                  z=chunk_coord[2])
 
     filenames = collections.defaultdict(list)
     swap = collections.defaultdict(list)
@@ -328,19 +328,16 @@ def collect_edge_data(im, chunk_coord, aff_dtype=np.float32):
             diff[dim] = d
 
             adjacent_chunk_coord = chunk_coord + diff
-            adjacent_chunk_id = im.cg.get_chunk_id(
-                layer=1,
-                x=adjacent_chunk_coord[0],
-                y=adjacent_chunk_coord[1],
-                z=adjacent_chunk_coord[2],
-            )
+            adjacent_chunk_id = im.cg.get_chunk_id(layer=1,
+                                                   x=adjacent_chunk_coord[0],
+                                                   y=adjacent_chunk_coord[1],
+                                                   z=adjacent_chunk_coord[2])
 
             if im.is_out_of_bounce(adjacent_chunk_coord):
                 continue
 
-            c_chunk_coords = _get_cont_chunk_coords(
-                im, chunk_coord, adjacent_chunk_coord
-            )
+            c_chunk_coords = _get_cont_chunk_coords(im, chunk_coord,
+                                                    adjacent_chunk_coord)
 
             larger_id = np.max([chunk_id, adjacent_chunk_id])
             smaller_id = np.min([chunk_id, adjacent_chunk_id])
@@ -364,13 +361,9 @@ def collect_edge_data(im, chunk_coord, aff_dtype=np.float32):
     edge_data = {}
     read_counter = collections.Counter()
 
-    dtype = [
-        ("sv1", np.uint64),
-        ("sv2", np.uint64),
-        ("aff", aff_dtype),
-        ("area", np.uint64),
-    ]
     for k in filenames:
+        # print(k, len(filenames[k]))
+
         with cloudvolume.Storage(base_path, n_threads=10) as stor:
             files = stor.get_files(filenames[k])
 
@@ -385,10 +378,11 @@ def collect_edge_data(im, chunk_coord, aff_dtype=np.float32):
                 continue
 
             if swap[file["filename"]]:
-                this_dtype = [dtype[1], dtype[0], dtype[2], dtype[3]]
+                this_dtype = [im.edge_dtype[1], im.edge_dtype[0]] + \
+                              im.edge_dtype[2:]
                 content = np.frombuffer(file["content"], dtype=this_dtype)
             else:
-                content = np.frombuffer(file["content"], dtype=dtype)
+                content = np.frombuffer(file["content"], dtype=im.edge_dtype)
 
             data.append(content)
 
@@ -397,25 +391,11 @@ def collect_edge_data(im, chunk_coord, aff_dtype=np.float32):
         try:
             edge_data[k] = rfn.stack_arrays(data, usemask=False)
         except:
-            raise ()
+            raise()
 
         edge_data_df = pd.DataFrame(edge_data[k])
-        edge_data_dfg = (
-            edge_data_df.groupby(["sv1", "sv2"]).aggregate(np.sum).reset_index()
-        )
+        edge_data_dfg = edge_data_df.groupby(["sv1", "sv2"]).aggregate(np.sum).reset_index()
         edge_data[k] = edge_data_dfg.to_records()
-
-    # # TEST
-    # with cloudvolume.Storage(base_path, n_threads=10) as stor:
-    #     files = list(stor.list_files())
-    #
-    # true_counter = collections.Counter()
-    # for file in files:
-    #     if str(chunk_id) in file:
-    #         true_counter[file.split("_")[0]] += 1
-    #
-    # print("Truth", true_counter)
-    # print("Reality", read_counter)
 
     return edge_data
 
@@ -539,7 +519,7 @@ def define_active_edges(edge_dict, mapping):
         if k == "in":
             isolated.append(edge_dict[k]["sv2"][agg_2_m])
 
-    return active, np.unique(np.concatenate(isolated).astype(basetypes.NODE_ID))
+    return active, np.unique(np.concatenate(isolated).astype(np.uint64))
 
 
 def init_ingest_cmds(app):

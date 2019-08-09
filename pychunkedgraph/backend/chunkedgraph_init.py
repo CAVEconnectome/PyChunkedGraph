@@ -24,7 +24,7 @@ def add_atomic_edges(
     cg_instance: ChunkedGraph,
     chunk_coord: np.ndarray,
     chunk_edges_d: dict,
-    isolated: Sequence[basetypes.NODE_ID],
+    isolated: Sequence[int],
     time_stamp: Optional[datetime.datetime] = None,
 ):
     """
@@ -43,7 +43,7 @@ def add_atomic_edges(
     """
 
     chunk_node_ids, chunk_edge_ids = _get_chunk_nodes_and_edges(chunk_edges_d, isolated)
-    if not chunk_node_ids:
+    if not chunk_node_ids.size:
         return 0
 
     chunk_ids = cg_instance.get_chunk_ids_from_node_ids(chunk_node_ids)
@@ -52,7 +52,10 @@ def add_atomic_edges(
     graph, _, _, unique_ids = build_gt_graph(chunk_edge_ids, make_directed=True)
     ccs = connected_components(graph)
 
-    parent_chunk_id = cg_instance.get_chunk_id(layer=2, *chunk_coord)
+    print(chunk_coord)
+    parent_chunk_id = cg_instance.get_chunk_id(
+        layer=2, x=chunk_coord[0], y=chunk_coord[1], z=chunk_coord[2]
+    )
     parent_ids = cg_instance.get_unique_node_id_range(parent_chunk_id, step=len(ccs))
 
     sparse_indices, remapping = _get_remapping(chunk_edges_d)
@@ -76,9 +79,7 @@ def add_atomic_edges(
     cg_instance.bulk_write(rows)
 
 
-def _get_chunk_nodes_and_edges(
-    chunk_edges_d: dict, isolated_ids: Sequence[basetypes.NODE_ID]
-):
+def _get_chunk_nodes_and_edges(chunk_edges_d: dict, isolated_ids: Sequence[int]):
     """
     returns IN_CHUNK edges and nodes_ids
     """
@@ -151,7 +152,7 @@ def _process_component(
     val_dict = {column_keys.Hierarchy.Child: node_ids}
     for cc_layer in u_cce_layers:
         layer_out_edges = chunk_out_edges[cce_layers == cc_layer]
-        if layer_out_edges:
+        if layer_out_edges.size:
             col_key = column_keys.Connectivity.CrossChunkEdge[cc_layer]
             val_dict[col_key] = layer_out_edges
 
@@ -168,13 +169,13 @@ def _get_out_edges(node_id, chunk_edges_d, sparse_indices, remapping):
     chunk_out_edges = np.array([], dtype=basetypes.NODE_ID).reshape(0, 2)
     for edge_type in remapping:
         if node_id in remapping[edge_type]:
+            edges_obj = chunk_edges_d[edge_type]
+            edges = edges_obj.get_pairs()
+
             row_ids, column_ids = sparse_indices[edge_type][
                 remapping[edge_type][node_id]
             ]
             row_ids = row_ids[column_ids == 0]
             # edges that this node is part of
-            participating_edges = chunk_edges_d[edge_type][row_ids]
-            chunk_out_edges = np.concatenate(
-                [chunk_out_edges, participating_edges.get_pairs()]
-            )
+            chunk_out_edges = np.concatenate([chunk_out_edges, edges[row_ids]])
     return chunk_out_edges

@@ -29,7 +29,7 @@ class Edges:
         """
         return numpy array of edge pairs [[sv1, sv2] ... ]
         """
-        if self._as_pairs:
+        if not self._as_pairs is None:
             return self._as_pairs
         self._as_pairs = np.vstack([self.node_ids1, self.node_ids2]).T
         return self._as_pairs
