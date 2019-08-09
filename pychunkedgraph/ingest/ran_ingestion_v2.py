@@ -42,7 +42,7 @@ def ingest_into_chunkedgraph(
     project_id=None,
     start_layer=1,
     edge_dir=None,
-    n_chunks=-1,
+    n_chunks=None,
 ):
     """ Creates a chunkedgraph from a Ran Agglomerattion
 

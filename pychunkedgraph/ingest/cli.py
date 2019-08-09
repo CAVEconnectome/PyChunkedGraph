@@ -24,7 +24,15 @@ def handle_job_result(*args, **kwargs):
 @click.argument("cg_table_id", type=str)
 @click.argument("n_chunks", type=int)
 def run_ingest(storage_path, ws_cv_path, cg_table_id, edge_dir=None, n_chunks=-1):
-
+    """
+    run ingestion job
+    eg: flask ingest atomic \
+        gs://ranl/scratch/pinky100_ca_com/agg \
+        gs://neuroglancer/pinky100_v0/ws/pinky100_ca_com \
+        gs://akhilesh-test/edges/pinky-ingest-test \
+        akhilesh-ingest-test \
+        1
+    """
     chunk_pubsub = current_app.redis.pubsub()
     chunk_pubsub.subscribe(**{"ingest_channel": handle_job_result})
     chunk_pubsub.run_in_thread(sleep_time=0.1)
