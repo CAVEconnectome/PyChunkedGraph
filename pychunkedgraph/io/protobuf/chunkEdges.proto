@@ -2,15 +2,15 @@ syntax = "proto3";
 
 package edges;
 
-message Edges {
+message EdgesMsg {
   bytes node_ids1 = 1;
   bytes node_ids2 = 2;
   bytes affinities = 3;
   bytes areas = 4;
 }
 
-message ChunkEdges {
-  Edges in_chunk = 1;
-  Edges cross_chunk = 2;
-  Edges between_chunk = 3;
+message ChunkEdgesMsg {
+  EdgesMsg in_chunk = 1;
+  EdgesMsg cross_chunk = 2;
+  EdgesMsg between_chunk = 3;
 }

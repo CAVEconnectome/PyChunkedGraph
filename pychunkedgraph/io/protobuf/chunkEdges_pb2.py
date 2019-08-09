@@ -20,42 +20,42 @@ DESCRIPTOR = _descriptor.FileDescriptor(
   package='edges',
   syntax='proto3',
   serialized_options=None,
-  serialized_pb=_b('\n\x10\x63hunkEdges.proto\x12\x05\x65\x64ges\"P\n\x05\x45\x64ges\x12\x11\n\tnode_ids1\x18\x01 \x01(\x0c\x12\x11\n\tnode_ids2\x18\x02 \x01(\x0c\x12\x12\n\naffinities\x18\x03 \x01(\x0c\x12\r\n\x05\x61reas\x18\x04 \x01(\x0c\"t\n\nChunkEdges\x12\x1e\n\x08in_chunk\x18\x01 \x01(\x0b\x32\x0c.edges.Edges\x12!\n\x0b\x63ross_chunk\x18\x02 \x01(\x0b\x32\x0c.edges.Edges\x12#\n\rbetween_chunk\x18\x03 \x01(\x0b\x32\x0c.edges.Edgesb\x06proto3')
+  serialized_pb=_b('\n\x10\x63hunkEdges.proto\x12\x05\x65\x64ges\"S\n\x08\x45\x64gesMsg\x12\x11\n\tnode_ids1\x18\x01 \x01(\x0c\x12\x11\n\tnode_ids2\x18\x02 \x01(\x0c\x12\x12\n\naffinities\x18\x03 \x01(\x0c\x12\r\n\x05\x61reas\x18\x04 \x01(\x0c\"\x80\x01\n\rChunkEdgesMsg\x12!\n\x08in_chunk\x18\x01 \x01(\x0b\x32\x0f.edges.EdgesMsg\x12$\n\x0b\x63ross_chunk\x18\x02 \x01(\x0b\x32\x0f.edges.EdgesMsg\x12&\n\rbetween_chunk\x18\x03 \x01(\x0b\x32\x0f.edges.EdgesMsgb\x06proto3')
 )
 
 
 
 
-_EDGES = _descriptor.Descriptor(
-  name='Edges',
-  full_name='edges.Edges',
+_EDGESMSG = _descriptor.Descriptor(
+  name='EdgesMsg',
+  full_name='edges.EdgesMsg',
   filename=None,
   file=DESCRIPTOR,
   containing_type=None,
   fields=[
     _descriptor.FieldDescriptor(
-      name='node_ids1', full_name='edges.Edges.node_ids1', index=0,
+      name='node_ids1', full_name='edges.EdgesMsg.node_ids1', index=0,
       number=1, type=12, cpp_type=9, label=1,
       has_default_value=False, default_value=_b(""),
       message_type=None, enum_type=None, containing_type=None,
       is_extension=False, extension_scope=None,
       serialized_options=None, file=DESCRIPTOR),
     _descriptor.FieldDescriptor(
-      name='node_ids2', full_name='edges.Edges.node_ids2', index=1,
+      name='node_ids2', full_name='edges.EdgesMsg.node_ids2', index=1,
       number=2, type=12, cpp_type=9, label=1,
       has_default_value=False, default_value=_b(""),
       message_type=None, enum_type=None, containing_type=None,
       is_extension=False, extension_scope=None,
       serialized_options=None, file=DESCRIPTOR),
     _descriptor.FieldDescriptor(
-      name='affinities', full_name='edges.Edges.affinities', index=2,
+      name='affinities', full_name='edges.EdgesMsg.affinities', index=2,
       number=3, type=12, cpp_type=9, label=1,
       has_default_value=False, default_value=_b(""),
       message_type=None, enum_type=None, containing_type=None,
       is_extension=False, extension_scope=None,
       serialized_options=None, file=DESCRIPTOR),
     _descriptor.FieldDescriptor(
-      name='areas', full_name='edges.Edges.areas', index=3,
+      name='areas', full_name='edges.EdgesMsg.areas', index=3,
       number=4, type=12, cpp_type=9, label=1,
       has_default_value=False, default_value=_b(""),
       message_type=None, enum_type=None, containing_type=None,
@@ -74,33 +74,33 @@ _EDGES = _descriptor.Descriptor(
   oneofs=[
   ],
   serialized_start=27,
-  serialized_end=107,
+  serialized_end=110,
 )
 
 
-_CHUNKEDGES = _descriptor.Descriptor(
-  name='ChunkEdges',
-  full_name='edges.ChunkEdges',
+_CHUNKEDGESMSG = _descriptor.Descriptor(
+  name='ChunkEdgesMsg',
+  full_name='edges.ChunkEdgesMsg',
   filename=None,
   file=DESCRIPTOR,
   containing_type=None,
   fields=[
     _descriptor.FieldDescriptor(
-      name='in_chunk', full_name='edges.ChunkEdges.in_chunk', index=0,
+      name='in_chunk', full_name='edges.ChunkEdgesMsg.in_chunk', index=0,
       number=1, type=11, cpp_type=10, label=1,
       has_default_value=False, default_value=None,
       message_type=None, enum_type=None, containing_type=None,
       is_extension=False, extension_scope=None,
       serialized_options=None, file=DESCRIPTOR),
     _descriptor.FieldDescriptor(
-      name='cross_chunk', full_name='edges.ChunkEdges.cross_chunk', index=1,
+      name='cross_chunk', full_name='edges.ChunkEdgesMsg.cross_chunk', index=1,
       number=2, type=11, cpp_type=10, label=1,
       has_default_value=False, default_value=None,
       message_type=None, enum_type=None, containing_type=None,
       is_extension=False, extension_scope=None,
       serialized_options=None, file=DESCRIPTOR),
     _descriptor.FieldDescriptor(
-      name='between_chunk', full_name='edges.ChunkEdges.between_chunk', index=2,
+      name='between_chunk', full_name='edges.ChunkEdgesMsg.between_chunk', index=2,
       number=3, type=11, cpp_type=10, label=1,
       has_default_value=False, default_value=None,
       message_type=None, enum_type=None, containing_type=None,
@@ -118,30 +118,30 @@ _CHUNKEDGES = _descriptor.Descriptor(
   extension_ranges=[],
   oneofs=[
   ],
-  serialized_start=109,
-  serialized_end=225,
+  serialized_start=113,
+  serialized_end=241,
 )
 
-_CHUNKEDGES.fields_by_name['in_chunk'].message_type = _EDGES
-_CHUNKEDGES.fields_by_name['cross_chunk'].message_type = _EDGES
-_CHUNKEDGES.fields_by_name['between_chunk'].message_type = _EDGES
-DESCRIPTOR.message_types_by_name['Edges'] = _EDGES
-DESCRIPTOR.message_types_by_name['ChunkEdges'] = _CHUNKEDGES
+_CHUNKEDGESMSG.fields_by_name['in_chunk'].message_type = _EDGESMSG
+_CHUNKEDGESMSG.fields_by_name['cross_chunk'].message_type = _EDGESMSG
+_CHUNKEDGESMSG.fields_by_name['between_chunk'].message_type = _EDGESMSG
+DESCRIPTOR.message_types_by_name['EdgesMsg'] = _EDGESMSG
+DESCRIPTOR.message_types_by_name['ChunkEdgesMsg'] = _CHUNKEDGESMSG
 _sym_db.RegisterFileDescriptor(DESCRIPTOR)
 
-Edges = _reflection.GeneratedProtocolMessageType('Edges', (_message.Message,), {
-  'DESCRIPTOR' : _EDGES,
+EdgesMsg = _reflection.GeneratedProtocolMessageType('EdgesMsg', (_message.Message,), {
+  'DESCRIPTOR' : _EDGESMSG,
   '__module__' : 'chunkEdges_pb2'
-  # @@protoc_insertion_point(class_scope:edges.Edges)
+  # @@protoc_insertion_point(class_scope:edges.EdgesMsg)
   })
-_sym_db.RegisterMessage(Edges)
+_sym_db.RegisterMessage(EdgesMsg)
 
-ChunkEdges = _reflection.GeneratedProtocolMessageType('ChunkEdges', (_message.Message,), {
-  'DESCRIPTOR' : _CHUNKEDGES,
+ChunkEdgesMsg = _reflection.GeneratedProtocolMessageType('ChunkEdgesMsg', (_message.Message,), {
+  'DESCRIPTOR' : _CHUNKEDGESMSG,
   '__module__' : 'chunkEdges_pb2'
-  # @@protoc_insertion_point(class_scope:edges.ChunkEdges)
+  # @@protoc_insertion_point(class_scope:edges.ChunkEdgesMsg)
   })
-_sym_db.RegisterMessage(ChunkEdges)
+_sym_db.RegisterMessage(ChunkEdgesMsg)
 
 
 # @@protoc_insertion_point(module_scope)
