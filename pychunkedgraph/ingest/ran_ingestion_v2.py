@@ -2,6 +2,7 @@
 Module for ingesting in chunkedgraph format with edges stored outside bigtable
 """
 
+import os
 import collections
 import time
 
@@ -12,25 +13,22 @@ import networkx as nx
 import numpy as np
 import numpy.lib.recfunctions as rfn
 import zstandard as zstd
+from flask import current_app
 from multiwrapper import multiprocessing_utils as mu
 
-from flask import current_app
-from flask.cli import AppGroup
-
+from ..utils.general import redis_job
 from . import ingestionmanager, ingestion_utils as iu
 from ..backend.initialization.create import add_atomic_edges
 from ..backend.definitions.edges import Edges, TYPES as EDGE_TYPES
 from ..backend.utils import basetypes
 from ..io.edge_storage import put_chunk_edges
 
-ingest_cli = AppGroup("ingest")
+REDIS_HOST = os.environ.get("REDIS_SERVICE_HOST", "localhost")
+REDIS_PORT = os.environ.get("REDIS_SERVICE_PORT", "6379")
+REDIS_PASSWORD = os.environ.get("REDIS_PASSWORD", "dev")
+REDIS_URL = f"redis://:{REDIS_PASSWORD}@{REDIS_HOST}:{REDIS_PORT}/0"
 
 
-@ingest_cli.command("atomic")
-@click.argument("storage_path", type=str)
-@click.argument("ws_cv_path", type=str)
-@click.argument("cg_table_id", type=str)
-@click.argument("edge_dir", type=str)
 def ingest_into_chunkedgraph(
     storage_path,
     ws_cv_path,
@@ -44,6 +42,7 @@ def ingest_into_chunkedgraph(
     project_id=None,
     start_layer=1,
     edge_dir=None,
+    n_chunks=-1,
 ):
     """ Creates a chunkedgraph from a Ran Agglomerattion
 
@@ -97,7 +96,7 @@ def ingest_into_chunkedgraph(
     )
 
     # if start_layer < 3:
-    create_atomic_chunks(im, edge_dir)
+    create_atomic_chunks(im, edge_dir, n_chunks)
     # create_abstract_layers(im, n_threads=n_threads[1], start_layer=start_layer)
 
     return im
@@ -195,12 +194,14 @@ def _create_layers(args):
         )
 
 
-def create_atomic_chunks(im, edge_dir):
+def create_atomic_chunks(im, edge_dir, n_chunks):
     """ Creates all atomic chunks"""
     chunk_coords = list(im.chunk_coord_gen)
     np.random.shuffle(chunk_coords)
 
-    for chunk_coord in chunk_coords[:5]:
+    print(len(chunk_coords))
+
+    for chunk_coord in chunk_coords[:n_chunks]:
         current_app.test_q.enqueue(
             _create_atomic_chunk,
             job_timeout="59m",
@@ -208,10 +209,11 @@ def create_atomic_chunks(im, edge_dir):
         )
 
 
+@redis_job(REDIS_URL, "ingest_channel")
 def _create_atomic_chunk(im_info, chunk_coord, edge_dir):
     """ Multiprocessing helper for create_atomic_chunks """
     imanager = ingestionmanager.IngestionManager(**im_info)
-    create_atomic_chunk(imanager, chunk_coord, edge_dir)
+    return create_atomic_chunk(imanager, chunk_coord, edge_dir)
 
 
 def create_atomic_chunk(imanager, chunk_coord, edge_dir):
@@ -243,7 +245,7 @@ def create_atomic_chunk(imanager, chunk_coord, edge_dir):
     print(f"big table time: {time.time() - start}")
 
     # to track workers completion
-    return chunk_coord
+    return str(chunk_coord)
 
 
 def _get_cont_chunk_coords(im, chunk_coord_a, chunk_coord_b):
@@ -523,7 +525,3 @@ def define_active_edges(edge_dict, mapping):
             isolated.append(edge_dict[k]["sv2"][agg_2_m])
 
     return active, np.unique(np.concatenate(isolated).astype(basetypes.NODE_ID))
-
-
-def init_ingest_cmds(app):
-    app.cli.add_command(ingest_cli)
