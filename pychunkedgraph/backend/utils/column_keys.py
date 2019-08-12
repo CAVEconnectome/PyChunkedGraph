@@ -115,7 +115,7 @@ class Hierarchy:
     Child = _Column(
         key=b'children',
         family_id='0',
-        serializer=serializers.NumPyArray(dtype=basetypes.NODE_ID))
+        serializer=serializers.NumPyArray(dtype=basetypes.NODE_ID, compression_level=22))
 
     FormerParent = _Column(
         key=b'former_parents',
