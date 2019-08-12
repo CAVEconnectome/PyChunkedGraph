@@ -27,6 +27,7 @@ REDIS_HOST = os.environ.get("REDIS_SERVICE_HOST", "localhost")
 REDIS_PORT = os.environ.get("REDIS_SERVICE_PORT", "6379")
 REDIS_PASSWORD = os.environ.get("REDIS_PASSWORD", "dev")
 REDIS_URL = f"redis://:{REDIS_PASSWORD}@{REDIS_HOST}:{REDIS_PORT}/0"
+ZSTD_COMPRESSION_LEVEL = 17
 
 
 def ingest_into_chunkedgraph(
@@ -225,6 +226,10 @@ def create_atomic_chunk(imanager, chunk_coord, edge_dir):
     mapping = collect_agglomeration_data(imanager, chunk_coord)
     _, isolated_ids = define_active_edges(edge_dict, mapping)
 
+    # flag to check if chunk has edges
+    # avoid writing to cloud storage if there are no edges
+    # unnecessary write operation
+    no_edges = False
     chunk_edges = {}
     for edge_type in EDGE_TYPES:
         sv_ids1 = edge_dict[edge_type]["sv1"]
@@ -234,15 +239,11 @@ def create_atomic_chunk(imanager, chunk_coord, edge_dir):
         affinities = edge_dict[edge_type].get("aff", float("inf") * ones)
         areas = edge_dict[edge_type].get("area", ones)
         chunk_edges[edge_type] = Edges(sv_ids1, sv_ids2, affinities, areas)
+        no_edges = no_edges and len(sv_ids1)
 
-    print(chunk_coord)
-    start = time.time()
-    put_chunk_edges(edge_dir, chunk_coord, chunk_edges, 17)
-    print(f"cloud storage time: {time.time() - start}")
-
-    start = time.time()
+    if not no_edges:
+        put_chunk_edges(edge_dir, chunk_coord, chunk_edges, ZSTD_COMPRESSION_LEVEL)
     add_atomic_edges(imanager.cg, chunk_coord, chunk_edges, isolated=isolated_ids)
-    print(f"big table time: {time.time() - start}")
 
     # to track workers completion
     return str(chunk_coord)
