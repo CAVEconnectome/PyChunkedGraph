@@ -108,7 +108,7 @@ class Connectivity:
     CrossChunkEdge = _ColumnArray(
         pattern=b'atomic_cross_edges_%d',
         family_id='3',
-        serializer=serializers.NumPyArray(dtype=basetypes.NODE_ID, shape=(-1, 2)))
+        serializer=serializers.NumPyArray(dtype=basetypes.NODE_ID, shape=(-1, 2), compression_level=22))
 
 
 class Hierarchy:

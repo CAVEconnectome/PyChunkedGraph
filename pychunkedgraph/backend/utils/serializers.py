@@ -1,18 +1,27 @@
 from typing import Any, Iterable
 import json
 import numpy as np
+import zstandard as zstd
 
 
 class _Serializer():
-    def __init__(self, serializer, deserializer, basetype=Any):
+    def __init__(self, serializer, deserializer, basetype=Any, compression_level=None):
         self._serializer = serializer
         self._deserializer = deserializer
         self._basetype = basetype
+        if compression_level:
+            self._compressor = zstd.ZstdCompressor(level=compression_level)
+            self._decompressor = zstd.ZstdDecompressor().decompressobj()
 
     def serialize(self, obj):
-        return self._serializer(obj)
+        content = self._serializer(obj)
+        if self._compressor:
+            return self._compressor.compress(content)
+        return content
 
     def deserialize(self, obj):
+        if self._decompressor:
+            obj = self._decompressor.decompress(obj)            
         return self._deserializer(obj)
 
     @property
@@ -30,11 +39,12 @@ class NumPyArray(_Serializer):
             return data.reshape(data.shape, order=order)
         return data
 
-    def __init__(self, dtype, shape=None, order=None):
+    def __init__(self, dtype, shape=None, order=None, compression_level=None):
         super().__init__(
             serializer=lambda x: x.newbyteorder(dtype.byteorder).tobytes(),
             deserializer=lambda x: NumPyArray._deserialize(x, dtype, shape=shape, order=order),
-            basetype=dtype.type
+            basetype=dtype.type,
+            compression_level=compression_level
         )
 
 
