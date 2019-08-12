@@ -229,7 +229,7 @@ def create_atomic_chunk(imanager, chunk_coord, edge_dir):
     # flag to check if chunk has edges
     # avoid writing to cloud storage if there are no edges
     # unnecessary write operation
-    no_edges = False
+    no_edges = True
     chunk_edges = {}
     for edge_type in EDGE_TYPES:
         sv_ids1 = edge_dict[edge_type]["sv1"]
@@ -239,7 +239,7 @@ def create_atomic_chunk(imanager, chunk_coord, edge_dir):
         affinities = edge_dict[edge_type].get("aff", float("inf") * ones)
         areas = edge_dict[edge_type].get("area", ones)
         chunk_edges[edge_type] = Edges(sv_ids1, sv_ids2, affinities, areas)
-        no_edges = no_edges and len(sv_ids1)
+        no_edges = no_edges and not sv_ids1.size
 
     if not no_edges:
         put_chunk_edges(edge_dir, chunk_coord, chunk_edges, ZSTD_COMPRESSION_LEVEL)
