@@ -241,8 +241,8 @@ def create_atomic_chunk(imanager, chunk_coord, edge_dir):
         chunk_edges[edge_type] = Edges(sv_ids1, sv_ids2, affinities, areas)
         no_edges = no_edges and not sv_ids1.size
 
-    if not no_edges:
-        put_chunk_edges(edge_dir, chunk_coord, chunk_edges, ZSTD_COMPRESSION_LEVEL)
+    # if not no_edges:
+    #     put_chunk_edges(edge_dir, chunk_coord, chunk_edges, ZSTD_COMPRESSION_LEVEL)
     add_atomic_edges(imanager.cg, chunk_coord, chunk_edges, isolated=isolated_ids)
 
     # to track workers completion

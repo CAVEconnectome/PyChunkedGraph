@@ -45,6 +45,7 @@ from google.cloud.bigtable.column_family import MaxVersionsGCRule
 
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple, Union, NamedTuple
 
+from .utils.edge_utils import concatenate_chunk_edges
 from pychunkedgraph.io.edge_storage import get_chunk_edges
 
 HOME = os.path.expanduser("~")
@@ -3081,20 +3082,26 @@ class ChunkedGraph(object):
         return edges, affinities, areas
     
     
-    def get_subgraph_edges_v2(self, edges_dir,
-                           offset = np.array([105, 54, 6]),
-                           this_n_threads = 4,
-                           cv_threads = 1,
-                           bounding_box: Optional[Sequence[Sequence[int]]] = None,
-                           bb_is_coordinate: bool = False,
-                           connected_edges=True,
-                           verbose: bool = True
-                           ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
-
+    def get_subgraph_edges_v2(
+        self,  agglomeration_id: np.uint64,
+        bounding_box: Optional[Sequence[Sequence[int]]] = None,
+        bb_is_coordinate: bool = False,
+        connected_edges=True,
+        cv_threads = 1,
+        verbose: bool = True) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+        """
+        1. determine chunk ids
+        2. read edges of those chunks
+        3. determine node ids that are part of the given agglomeration
+        4. filter those edges
+        5. for each edge (v1,v2) - active if parent(v1) == parent(v2), inactive otherwise
+        6. return the active edges
+        """
+        # child_ids = self.get_children(node_ids, flatten=True)
         def _get_subgraph_layer2_edges(chunk_ids) -> \
                 Tuple[List[np.ndarray], List[np.float32], List[np.uint64]]:
             return get_chunk_edges(
-                edges_dir, 
+                self.edges_dir,
                 [self.get_chunk_coordinates(chunk_id) for chunk_id in chunk_ids],
                 cv_threads)
 
@@ -3102,39 +3109,31 @@ class ChunkedGraph(object):
         timings['total'] = time.time()
 
         timings['determine_chunks_ids'] = time.time()
-        x_start, y_start, z_start = offset
-        x_end, y_end, z_end = map(
-            int, np.ceil(
-                np.array(self.dataset_info['scales'][0]['size']) / self.chunk_size) - offset)
+        bounding_box = self.normalize_bounding_box(bounding_box, bb_is_coordinate)
+        # Layer 3+
+        child_ids = self._get_subgraph_higher_layer_nodes(
+            node_id=agglomeration_id, bounding_box=bounding_box,
+            return_layers=[2], verbose=verbose)[2]
 
-        chunks = []
+        child_chunk_ids = self.get_chunk_ids_from_node_ids(child_ids)
+        chunk_ids = np.unique(child_chunk_ids)
 
-        for x in range(x_start,x_end):
-            for y in range(y_start, y_end):
-                for z in range(z_start, z_end):
-                    chunks.append((x, y, z))
-
-        chunk_ids = np.array([self.get_chunk_id(None, 1, *chunk) for chunk in chunks])
+        # chunk_ids = np.array([self.get_chunk_id(None, 1, *chunk) for chunk in chunks])
         timings['determine_chunks_ids'] = time.time() - timings['determine_chunks_ids']
 
         timings['reading_edges'] = time.time()
-        edge_infos = mu.multithread_func(
+        cg_threads = 4
+        chunk_edge_dicts = mu.multithread_func(
             _get_subgraph_layer2_edges,
-            np.array_split(chunk_ids, this_n_threads),
-            n_threads=this_n_threads, debug=this_n_threads == 1)
+            np.array_split(chunk_ids, cg_threads),
+            n_threads=cg_threads, debug=False)
         timings['reading_edges'] = time.time() - timings['reading_edges']
 
-        timings['collecting_edges'] = time.time()
-        edges = np.array([], dtype=np.uint64).reshape(0, 2)
-        affinities = np.array([], dtype=np.float32)
-        areas = np.array([], dtype=np.uint64)
+        edges_dict = concatenate_chunk_edges(chunk_edge_dicts)
 
-        for edge_info in edge_infos:
-            _edges, _affinities, _areas = edge_info
-            edges = np.concatenate([edges, _edges])
-            affinities = np.concatenate([affinities, _affinities])
-            areas = np.concatenate([areas, _areas])
-        timings['collecting_edges'] = time.time() - timings['collecting_edges']
+        timings['filtering_edges'] = time.time()
+        edges = filter_edges(, edges_dict)
+        timings['filtering_edges'] = time.time() - timings['filtering_edges']
         
         timings['total'] = time.time() - timings['total']
 

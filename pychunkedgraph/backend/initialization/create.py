@@ -146,11 +146,11 @@ def _process_component(
     u_cce_layers = np.unique(cce_layers)
 
     val_dict = {column_keys.Hierarchy.Child: node_ids}
-    for cc_layer in u_cce_layers:
-        layer_out_edges = chunk_out_edges[cce_layers == cc_layer]
-        if layer_out_edges.size:
-            col = column_keys.Connectivity.CrossChunkEdge[cc_layer]
-            val_dict[col] = layer_out_edges
+    # for cc_layer in u_cce_layers:
+    #     layer_out_edges = chunk_out_edges[cce_layers == cc_layer]
+    #     if layer_out_edges.size:
+    #         col = column_keys.Connectivity.CrossChunkEdge[cc_layer]
+    #         val_dict[col] = layer_out_edges
 
     r_key = serializers.serialize_uint64(parent_id)
     rows.append(cg_instance.mutate_row(r_key, val_dict, time_stamp=time_stamp))

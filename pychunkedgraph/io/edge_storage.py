@@ -11,26 +11,28 @@ import zstandard as zstd
 from cloudvolume import Storage
 from cloudvolume.storage import SimpleStorage
 
+from ..backend.utils.edge_utils import concatenate_chunk_edges
+from ..backend.definitions.edges import Edges, IN_CHUNK, BT_CHUNK, CX_CHUNK
 from ..backend.utils import basetypes
 from .protobuf.chunkEdges_pb2 import EdgesMsg, ChunkEdgesMsg
 
 
-def _decompress_edges(content: bytes) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+def _decompress_edges(content: bytes) -> dict:
     """
     :param content: zstd compressed bytes
     :type bytes:
-    :return: edges, affinities, areas
-    :rtype: Tuple[np.ndarray, np.ndarray, np.ndarray]
+    :return: edges_dict with keys "in", "cross", "between"
+    :rtype: dict
     """
 
-    def _get_edges(edges_message: EdgesMsg) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
-        supervoxel_ids1 = np.frombuffer(edges_message.node_ids1, basetypes.NODE_ID)
-        supervoxel_ids2 = np.frombuffer(edges_message.node_ids2, basetypes.NODE_ID)
-
-        edges = np.column_stack((supervoxel_ids1, supervoxel_ids2))
+    def _get_edges(
+        edges_message: EdgesMsg
+    ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+        sv_ids1 = np.frombuffer(edges_message.node_ids1, basetypes.NODE_ID)
+        sv_ids2 = np.frombuffer(edges_message.node_ids2, basetypes.NODE_ID)
         affinities = np.frombuffer(edges_message.affinities, basetypes.EDGE_AFFINITY)
         areas = np.frombuffer(edges_message.areas, basetypes.EDGE_AREA)
-        return edges, affinities, areas
+        return Edges(sv_ids1, sv_ids2, affinities, areas)
 
     chunk_edges = ChunkEdgesMsg()
     zstd_decompressor_obj = zstd.ZstdDecompressor().decompressobj()
@@ -38,15 +40,12 @@ def _decompress_edges(content: bytes) -> Tuple[np.ndarray, np.ndarray, np.ndarra
     chunk_edges.ParseFromString(file_content)
 
     # in, between and cross
-    in_edges, in_affinities, in_areas = _get_edges(chunk_edges.in_chunk)
-    bt_edges, bt_affinities, bt_areas = _get_edges(chunk_edges.between_chunk)
-    cx_edges, cx_affinities, cx_areas = _get_edges(chunk_edges.cross_chunk)
+    edges_dict = {}
+    edges_dict[IN_CHUNK] = _get_edges(chunk_edges.in_chunk)
+    edges_dict[BT_CHUNK] = _get_edges(chunk_edges.between_chunk)
+    edges_dict[CX_CHUNK] = _get_edges(chunk_edges.cross_chunk)
 
-    edges = np.concatenate([in_edges, bt_edges, cx_edges])
-    affinities = np.concatenate([in_affinities, bt_affinities, cx_affinities])
-    areas = np.concatenate([in_areas, bt_areas, cx_areas])
-
-    return edges, affinities, areas
+    return edges_dict
 
 
 def get_chunk_edges(
@@ -68,19 +67,16 @@ def get_chunk_edges(
         # filename format - edges_x_y_z.serialization.compression
         fnames.append(f"edges_{chunk_str}.proto.zst")
 
-    edges = np.array([], basetypes.NODE_ID).reshape(0, 2)
-    affinities = np.array([], basetypes.EDGE_AFFINITY)
-    areas = np.array([], basetypes.EDGE_AREA)
-
-    st = (
+    storage = (
         Storage(edges_dir, n_threads=cv_threads)
         if cv_threads > 1
         else SimpleStorage(edges_dir)
     )
 
-    files = []
-    with st:
-        files = st.get_files(fnames)
+    chunk_edge_dicts = []
+
+    with storage:
+        files = storage.get_files(fnames)
         for _file in files:
             # cv error
             if _file["error"]:
@@ -88,12 +84,9 @@ def get_chunk_edges(
             # empty chunk
             if not _file["content"]:
                 continue
-            _edges, _affinities, _areas = _decompress_edges(_file["content"])
-            edges = np.concatenate([edges, _edges])
-            affinities = np.concatenate([affinities, _affinities])
-            areas = np.concatenate([areas, _areas])
-
-    return edges, affinities, areas
+            edges_dict = _decompress_edges(_file["content"])
+            chunk_edge_dicts.append(edges_dict)
+    return concatenate_chunk_edges(chunk_edge_dicts)
 
 
 def put_chunk_edges(
@@ -127,17 +120,17 @@ def put_chunk_edges(
         return edges_proto
 
     chunk_edges = ChunkEdgesMsg()
-    chunk_edges.in_chunk.CopyFrom(_get_edges("in"))
-    chunk_edges.between_chunk.CopyFrom(_get_edges("between"))
-    chunk_edges.cross_chunk.CopyFrom(_get_edges("cross"))
+    chunk_edges.in_chunk.CopyFrom(_get_edges(IN_CHUNK))
+    chunk_edges.between_chunk.CopyFrom(_get_edges(BT_CHUNK))
+    chunk_edges.cross_chunk.CopyFrom(_get_edges(CX_CHUNK))
 
     cctx = zstd.ZstdCompressor(level=compression_level)
     chunk_str = "_".join(str(coord) for coord in chunk_coordinates)
 
     # filename format - edges_x_y_z.serialization.compression
     file = f"edges_{chunk_str}.proto.zst"
-    with Storage(edges_dir) as st:
-        st.put_file(
+    with Storage(edges_dir) as storage:
+        storage.put_file(
             file_path=file,
             content=cctx.compress(chunk_edges.SerializeToString()),
             compress=None,
