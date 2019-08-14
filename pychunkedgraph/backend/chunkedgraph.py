@@ -3090,12 +3090,13 @@ class ChunkedGraph(object):
         cv_threads = 1,
         verbose: bool = True) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
         """
-        1. determine chunk ids
-        2. read edges of those chunks
-        3. determine node ids that are part of the given agglomeration
-        4. filter those edges
-        5. for each edge (v1,v2) - active if parent(v1) == parent(v2), inactive otherwise
-        6. return the active edges
+        1. get level 2 children ids belonging to the agglomeration
+        2. get relevant chunk ids from level 2 ids
+        3. read edges from cloud storage
+        4. get supervoxel ids from level 2 ids
+        5. filter the edges with supervoxel ids
+        6. for each edge (v1,v2) - active if parent(v1) == parent(v2), inactive otherwise
+        7. return the active edges
         """
         # child_ids = self.get_children(node_ids, flatten=True)
         def _get_subgraph_layer2_edges(chunk_ids) -> \
