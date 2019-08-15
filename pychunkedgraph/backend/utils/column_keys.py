@@ -179,6 +179,11 @@ class GraphSettings:
         family_id='0',
         serializer=serializers.NumPyValue(dtype=basetypes.SKIPCONNECTIONS))
 
+    EdgeDir = _Column(
+            key=b'edge_dir',
+            family_id='0',
+            serializer=serializers.String('utf-8'))
+
 class OperationLogs:
     OperationID = _Column(
         key=b'operation_id',

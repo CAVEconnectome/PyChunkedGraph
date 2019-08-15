@@ -68,6 +68,7 @@ class ChunkedGraph(object):
                  chunk_size: Tuple[np.uint64, np.uint64, np.uint64] = None,
                  fan_out: Optional[np.uint64] = None,
                  use_skip_connections: Optional[bool] = True,
+                 edge_dir: Optional[str] = None,
                  s_bits_atomic_layer: Optional[np.uint64] = 8,
                  n_bits_root_counter: Optional[np.uint64] = 0,
                  n_layers: Optional[np.uint64] = None,
@@ -128,6 +129,9 @@ class ChunkedGraph(object):
         self._chunk_size = self.check_and_write_table_parameters(
             column_keys.GraphSettings.ChunkSize, chunk_size,
             required=True, is_new=is_new)
+        self._edge_dir = self.check_and_write_table_parameters(
+                column_keys.GraphSettings.EdgeDir, edge_dir,
+                required=False, is_new=is_new)
 
         self._dataset_info["graph"] = {"chunk_size": self.chunk_size}
 
@@ -3028,6 +3032,27 @@ class ChunkedGraph(object):
         :return: edge list
         """
 
+        if self._edge_dir:
+            return get_subgraph_edges_cs
+        return get_subgraph_edges_bt
+
+
+    def get_subgraph_edges_bt(self, agglomeration_id: np.uint64,
+                           bounding_box: Optional[Sequence[Sequence[int]]] = None,
+                           bb_is_coordinate: bool = False,
+                           connected_edges=True,
+                           verbose: bool = True
+                           ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+        """ Return all atomic edges between supervoxels belonging to the
+            specified agglomeration ID within the defined bounding box
+
+        :param agglomeration_id: int
+        :param bounding_box: [[x_l, y_l, z_l], [x_h, y_h, z_h]]
+        :param bb_is_coordinate: bool
+        :param verbose: bool
+        :return: edge list
+        """
+
         def _get_subgraph_layer2_edges(node_ids) -> \
                 Tuple[List[np.ndarray], List[np.float32], List[np.uint64]]:
             return self.get_subgraph_chunk(node_ids,
@@ -3080,10 +3105,10 @@ class ChunkedGraph(object):
                               (2, (time.time() - time_start) * 1000,
                                n_child_ids, this_n_threads))
 
-        return edges, affinities, areas
+        return edges, affinities, areas        
     
     
-    def get_subgraph_edges_v2(
+    def get_subgraph_edges_cs(
         self,
         agglomeration_id: np.uint64,
         edges_dir: str,
