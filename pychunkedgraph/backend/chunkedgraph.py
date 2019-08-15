@@ -45,7 +45,7 @@ from google.cloud.bigtable.column_family import MaxVersionsGCRule
 
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple, Union, NamedTuple
 
-from .utils.edge_utils import concatenate_chunk_edges
+from .utils.edge_utils import concatenate_chunk_edges, filter_edges, flatten_parents_children
 from pychunkedgraph.io.edge_storage import get_chunk_edges
 
 HOME = os.path.expanduser("~")
@@ -3083,12 +3083,14 @@ class ChunkedGraph(object):
     
     
     def get_subgraph_edges_v2(
-        self,  agglomeration_id: np.uint64,
+        self,
+        agglomeration_id: np.uint64,
         bounding_box: Optional[Sequence[Sequence[int]]] = None,
         bb_is_coordinate: bool = False,
         connected_edges=True,
-        cv_threads = 1,
-        verbose: bool = True) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+        cv_threads=1,
+        verbose: bool = True,
+    ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
         """
         1. get level 2 children ids belonging to the agglomeration
         2. get relevant chunk ids from level 2 ids
@@ -3098,47 +3100,50 @@ class ChunkedGraph(object):
         6. for each edge (v1,v2) - active if parent(v1) == parent(v2), inactive otherwise
         7. return the active edges
         """
-        # child_ids = self.get_children(node_ids, flatten=True)
-        def _get_subgraph_layer2_edges(chunk_ids) -> \
-                Tuple[List[np.ndarray], List[np.float32], List[np.uint64]]:
+
+        def _read_edges(
+            chunk_ids
+        ) -> Tuple[List[np.ndarray], List[np.float32], List[np.uint64]]:
             return get_chunk_edges(
                 self.edges_dir,
                 [self.get_chunk_coordinates(chunk_id) for chunk_id in chunk_ids],
-                cv_threads)
+                cv_threads,
+            )
 
         timings = {}
-        timings['total'] = time.time()
+        timings["total"] = time.time()
 
-        timings['determine_chunks_ids'] = time.time()
+        timings["determine_chunks_ids"] = time.time()
         bounding_box = self.normalize_bounding_box(bounding_box, bb_is_coordinate)
-        # Layer 3+
-        child_ids = self._get_subgraph_higher_layer_nodes(
-            node_id=agglomeration_id, bounding_box=bounding_box,
-            return_layers=[2], verbose=verbose)[2]
+        layer_nodes_d = self._get_subgraph_higher_layer_nodes(
+            node_id=agglomeration_id,
+            bounding_box=bounding_box,
+            return_layers=[2],
+            verbose=verbose,
+        )
+        chunk_ids = np.unique(self.get_chunk_ids_from_node_ids(layer_nodes_d[2]))
+        timings["determine_chunks_ids"] = time.time() - timings["determine_chunks_ids"]
 
-        child_chunk_ids = self.get_chunk_ids_from_node_ids(child_ids)
-        chunk_ids = np.unique(child_chunk_ids)
-
-        # chunk_ids = np.array([self.get_chunk_id(None, 1, *chunk) for chunk in chunks])
-        timings['determine_chunks_ids'] = time.time() - timings['determine_chunks_ids']
-
-        timings['reading_edges'] = time.time()
+        timings["reading_edges"] = time.time()
         cg_threads = 4
         chunk_edge_dicts = mu.multithread_func(
-            _get_subgraph_layer2_edges,
+            _read_edges,
             np.array_split(chunk_ids, cg_threads),
-            n_threads=cg_threads, debug=False)
-        timings['reading_edges'] = time.time() - timings['reading_edges']
+            n_threads=cg_threads,
+            debug=False,
+        )
+        timings["reading_edges"] = time.time() - timings["reading_edges"]
 
         edges_dict = concatenate_chunk_edges(chunk_edge_dicts)
+        children_d = self.get_children(layer_nodes_d[2])
 
-        timings['filtering_edges'] = time.time()
-        edges = filter_edges(, edges_dict)
-        timings['filtering_edges'] = time.time() - timings['filtering_edges']
-        
-        timings['total'] = time.time() - timings['total']
+        timings["filtering_edges"] = time.time()
+        edges = filter_edges(sv_ids, edges_dict)
+        edges = get_active_edges(edges, children_d)
+        timings["filtering_edges"] = time.time() - timings["filtering_edges"]
 
-        return timings, edges, affinities, areas
+        timings["total"] = time.time() - timings["total"]
+        return timings, edges.get_pairs(), edges.affinities, edges.areas
 
 
     def get_subgraph_nodes(self, agglomeration_id: np.uint64,
