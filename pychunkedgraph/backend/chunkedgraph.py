@@ -234,6 +234,10 @@ class ChunkedGraph(object):
         return "%s/%s" % (self._cv_path, self._mesh_dir)
 
     @property
+    def cv_edges_path(self) -> str:
+        return self._edge_dir
+
+    @property
     def dataset_info(self) -> object:
         return self._dataset_info
 
@@ -3033,25 +3037,13 @@ class ChunkedGraph(object):
         """
 
         if self._edge_dir:
-            return get_subgraph_edges_cs
-        return get_subgraph_edges_bt
-
-
-    def get_subgraph_edges_bt(self, agglomeration_id: np.uint64,
-                           bounding_box: Optional[Sequence[Sequence[int]]] = None,
-                           bb_is_coordinate: bool = False,
-                           connected_edges=True,
-                           verbose: bool = True
-                           ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
-        """ Return all atomic edges between supervoxels belonging to the
-            specified agglomeration ID within the defined bounding box
-
-        :param agglomeration_id: int
-        :param bounding_box: [[x_l, y_l, z_l], [x_h, y_h, z_h]]
-        :param bb_is_coordinate: bool
-        :param verbose: bool
-        :return: edge list
-        """
+            return self.get_subgraph_edges_v2(
+                agglomeration_id,
+                bounding_box=bounding_box,
+                bb_is_coordinate=bb_is_coordinate,
+                connected_edges=connected_edges,
+                verbose=verbose
+            )
 
         def _get_subgraph_layer2_edges(node_ids) -> \
                 Tuple[List[np.ndarray], List[np.float32], List[np.uint64]]:
@@ -3105,13 +3097,12 @@ class ChunkedGraph(object):
                               (2, (time.time() - time_start) * 1000,
                                n_child_ids, this_n_threads))
 
-        return edges, affinities, areas        
+        return edges, affinities, areas
     
     
-    def get_subgraph_edges_cs(
+    def get_subgraph_edges_v2(
         self,
         agglomeration_id: np.uint64,
-        edges_dir: str,
         bounding_box: Optional[Sequence[Sequence[int]]] = None,
         bb_is_coordinate: bool = False,
         connected_edges=True,
@@ -3132,7 +3123,7 @@ class ChunkedGraph(object):
             chunk_ids
         ) -> Tuple[List[np.ndarray], List[np.float32], List[np.uint64]]:
             return get_chunk_edges(
-                edges_dir,
+                self._edge_dir,
                 [self.get_chunk_coordinates(chunk_id) for chunk_id in chunk_ids],
                 cv_threads,
             )
@@ -3171,7 +3162,7 @@ class ChunkedGraph(object):
         timings["filtering_edges"] = time.time() - timings["filtering_edges"]
 
         timings["total"] = time.time() - timings["total"]
-        return timings, edges.get_pairs(), edges.affinities, edges.areas
+        return edges.get_pairs(), edges.affinities, edges.areas
 
 
     def get_subgraph_nodes(self, agglomeration_id: np.uint64,
