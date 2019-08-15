@@ -3098,8 +3098,7 @@ class ChunkedGraph(object):
                                n_child_ids, this_n_threads))
 
         return edges, affinities, areas
-    
-    
+
     def get_subgraph_edges_v2(
         self,
         agglomeration_id: np.uint64,
@@ -3151,7 +3150,6 @@ class ChunkedGraph(object):
         edges = filter_edges(sv_ids, edges_dict)
         edges = get_active_edges(edges, children_d)
         return edges.get_pairs(), edges.affinities, edges.areas
-
 
     def get_subgraph_nodes(self, agglomeration_id: np.uint64,
                            bounding_box: Optional[Sequence[Sequence[int]]] = None,
