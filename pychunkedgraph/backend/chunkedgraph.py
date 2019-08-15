@@ -3128,10 +3128,6 @@ class ChunkedGraph(object):
                 cv_threads,
             )
 
-        timings = {}
-        timings["total"] = time.time()
-
-        timings["determine_chunks_ids"] = time.time()
         bounding_box = self.normalize_bounding_box(bounding_box, bb_is_coordinate)
         layer_nodes_d = self._get_subgraph_higher_layer_nodes(
             node_id=agglomeration_id,
@@ -3140,9 +3136,6 @@ class ChunkedGraph(object):
             verbose=verbose,
         )
         chunk_ids = np.unique(self.get_chunk_ids_from_node_ids(layer_nodes_d[2]))
-        timings["determine_chunks_ids"] = time.time() - timings["determine_chunks_ids"]
-
-        timings["reading_edges"] = time.time()
         cg_threads = 1
         chunk_edge_dicts = mu.multithread_func(
             _read_edges,
@@ -3150,18 +3143,13 @@ class ChunkedGraph(object):
             n_threads=cg_threads,
             debug=False,
         )
-        timings["reading_edges"] = time.time() - timings["reading_edges"]
 
         edges_dict = concatenate_chunk_edges(chunk_edge_dicts)
         children_d = self.get_children(layer_nodes_d[2])
         sv_ids = np.concatenate(list(children_d.values()))
 
-        timings["filtering_edges"] = time.time()
         edges = filter_edges(sv_ids, edges_dict)
         edges = get_active_edges(edges, children_d)
-        timings["filtering_edges"] = time.time() - timings["filtering_edges"]
-
-        timings["total"] = time.time() - timings["total"]
         return edges.get_pairs(), edges.affinities, edges.areas
 
 
