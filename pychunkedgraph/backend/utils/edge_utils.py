@@ -2,8 +2,6 @@
 helper functions for edge stuff
 """
 
-from typing import Tuple
-
 import numpy as np
 
 from pychunkedgraph.utils.general import reverse_dictionary
@@ -59,7 +57,7 @@ def filter_edges(node_ids: np.ndarray, edges_dict: dict) -> Edges:
 def get_active_edges(edges: Edges, parent_children_d: dict) -> Edges:
     """
     get edges [(v1, v2) ...] where parent(v1) == parent(v2)
-    assume connected if v1 and v2 belong to same connected component
+    -> assume active if v1 and v2 belong to same connected component
     """
     child_parent_d = reverse_dictionary(parent_children_d)
 
