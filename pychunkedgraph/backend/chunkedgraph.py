@@ -45,7 +45,8 @@ from google.cloud.bigtable.column_family import MaxVersionsGCRule
 
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple, Union, NamedTuple
 
-from .utils.edge_utils import concatenate_chunk_edges, filter_edges, flatten_parents_children
+from .utils.edge_utils import (
+    concatenate_chunk_edges, filter_edges, flatten_parents_children, get_active_edges)
 from pychunkedgraph.io.edge_storage import get_chunk_edges
 
 HOME = os.path.expanduser("~")
@@ -3126,7 +3127,7 @@ class ChunkedGraph(object):
         timings["determine_chunks_ids"] = time.time() - timings["determine_chunks_ids"]
 
         timings["reading_edges"] = time.time()
-        cg_threads = 4
+        cg_threads = 1
         chunk_edge_dicts = mu.multithread_func(
             _read_edges,
             np.array_split(chunk_ids, cg_threads),
@@ -3137,6 +3138,7 @@ class ChunkedGraph(object):
 
         edges_dict = concatenate_chunk_edges(chunk_edge_dicts)
         children_d = self.get_children(layer_nodes_d[2])
+        sv_ids = np.concatenate(list(children_d.values()))
 
         timings["filtering_edges"] = time.time()
         edges = filter_edges(sv_ids, edges_dict)
