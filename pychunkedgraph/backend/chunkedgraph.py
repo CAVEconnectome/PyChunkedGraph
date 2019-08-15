@@ -3085,6 +3085,7 @@ class ChunkedGraph(object):
     def get_subgraph_edges_v2(
         self,
         agglomeration_id: np.uint64,
+        edges_dir: str,
         bounding_box: Optional[Sequence[Sequence[int]]] = None,
         bb_is_coordinate: bool = False,
         connected_edges=True,
@@ -3105,7 +3106,7 @@ class ChunkedGraph(object):
             chunk_ids
         ) -> Tuple[List[np.ndarray], List[np.float32], List[np.uint64]]:
             return get_chunk_edges(
-                self.edges_dir,
+                edges_dir,
                 [self.get_chunk_coordinates(chunk_id) for chunk_id in chunk_ids],
                 cv_threads,
             )

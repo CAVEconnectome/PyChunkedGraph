@@ -83,4 +83,3 @@ def get_active_edges(edges: Edges, parent_children_d: dict) -> Edges:
     areas = areas[parent_ids1 == parent_ids2]
 
     return Edges(sv_ids1, sv_ids2, affinities, areas)
-
