@@ -56,21 +56,6 @@ def filter_edges(node_ids: np.ndarray, edges_dict: dict) -> Edges:
     return Edges(ids1, ids2, affinities, areas)
 
 
-def flatten_parents_children(children_d: dict) -> [np.ndarray, np.ndarray]:
-    """
-    given a dictionary - d["parent_id"] = [children]
-    return [[parent_id]*len(children), children]
-    """
-    parent_ids = []
-    child_ids = []
-    for parent_id, children in children_d.items():
-        parent_ids.append([parent_id] * children.size)
-        child_ids.append(children)
-    parent_ids = np.concatenate(parent_ids)
-    child_ids = np.concatenate(child_ids)
-    return parent_ids, child_ids
-
-
 def get_active_edges(edges: Edges, parent_children_d: dict) -> Edges:
     """
     get edges [(v1, v2) ...] where parent(v1) == parent(v2)
