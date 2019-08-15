@@ -46,7 +46,7 @@ from google.cloud.bigtable.column_family import MaxVersionsGCRule
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple, Union, NamedTuple
 
 from .utils.edge_utils import (
-    concatenate_chunk_edges, filter_edges, flatten_parents_children, get_active_edges)
+    concatenate_chunk_edges, filter_edges, get_active_edges)
 from pychunkedgraph.io.edge_storage import get_chunk_edges
 
 HOME = os.path.expanduser("~")

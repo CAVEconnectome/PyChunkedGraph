@@ -5,6 +5,8 @@ helper functions for edge stuff
 from typing import Tuple
 
 import numpy as np
+
+from pychunkedgraph.utils.general import reverse_dictionary
 from ..definitions.edges import Edges, IN_CHUNK, BT_CHUNK, CX_CHUNK
 
 
@@ -74,8 +76,7 @@ def get_active_edges(edges: Edges, parent_children_d: dict) -> Edges:
     get edges [(v1, v2) ...] where parent(v1) == parent(v2)
     assume connected if v1 and v2 belong to same connected component
     """
-    l2_ids, sv_ids = flatten_parents_children(parent_children_d)
-    child_parent_d = {k: v for k, v in zip(sv_ids, l2_ids)}
+    child_parent_d = reverse_dictionary(parent_children_d)
 
     sv_ids1 = edges.node_ids1
     sv_ids2 = edges.node_ids2
