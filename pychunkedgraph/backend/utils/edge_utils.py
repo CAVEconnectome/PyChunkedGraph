@@ -39,11 +39,18 @@ def filter_edges(node_ids: np.ndarray, edges_dict: dict) -> Edges:
     areas = []
     for edge_type in [IN_CHUNK, BT_CHUNK, CX_CHUNK]:
         edges = edges_dict[edge_type]
-        filtered = edges.node_ids1 == node_ids
-        ids1.append(edges.node_ids1[filtered])
-        ids2.append(edges.node_ids2[filtered])
-        affinities.append(edges.affinities[filtered])
-        areas.append(edges.areas[filtered])
+        xsorted = np.argsort(edges.node_ids1)
+        indices = np.searchsorted(edges.node_ids1[xsorted], node_ids)
+        indices = indices[indices < xsorted.size]
+
+        ids1.append(edges.node_ids1[indices])
+        ids2.append(edges.node_ids2[indices])
+        affinities.append(edges.affinities[indices])
+        areas.append(edges.areas[indices])
+    ids1 = np.concatenate(ids1)
+    ids2 = np.concatenate(ids2)
+    affinities = np.concatenate(affinities)
+    areas = np.concatenate(areas)
     return Edges(ids1, ids2, affinities, areas)
 
 
@@ -74,8 +81,8 @@ def get_active_edges(edges: Edges, parent_children_d: dict) -> Edges:
     sv_ids2 = edges.node_ids2
     affinities = edges.affinities
     areas = edges.areas
-    parent_ids1 = np.array([child_parent_d[sv_id] for sv_id in sv_ids1])
-    parent_ids2 = np.array([child_parent_d[sv_id] for sv_id in sv_ids2])
+    parent_ids1 = np.array([child_parent_d.get(sv_id, sv_id) for sv_id in sv_ids1])
+    parent_ids2 = np.array([child_parent_d.get(sv_id, sv_id) for sv_id in sv_ids2])
 
     sv_ids1 = sv_ids1[parent_ids1 == parent_ids2]
     sv_ids2 = sv_ids2[parent_ids1 == parent_ids2]
