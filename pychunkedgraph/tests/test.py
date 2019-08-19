@@ -2695,6 +2695,30 @@ class TestGraphMinCut:
         assert np.all(np.array(original_parents_1) == np.array(new_parents_1))
         assert np.all(np.array(original_parents_2) == np.array(new_parents_2))
 
+    @pytest.mark.timeout(30)
+    def test_mincut_disrespects_sources_or_sinks(self, gen_graph):
+        """
+        When the mincut separates sources or sinks, an error should be thrown.
+        Although the mincut is setup to never cut an edge between two sources or
+        two sinks, this can happen when an edge along the only path between two
+        sources or two sinks is cut.
+        """
+        cgraph = gen_graph(n_layers=2)
+
+        fake_timestamp = datetime.utcnow() - timedelta(days=10)
+        create_chunk(cgraph,
+                     vertices=[to_label(cgraph, 1, 0, 0, 0, 0), to_label(cgraph, 1, 0, 0, 0, 1), to_label(cgraph, 1, 0, 0, 0, 2), to_label(cgraph, 1, 0, 0, 0, 3)],
+                     edges=[(to_label(cgraph, 1, 0, 0, 0, 0), to_label(cgraph, 1, 0, 0, 0, 2), 2), (to_label(cgraph, 1, 0, 0, 0, 1), to_label(cgraph, 1, 0, 0, 0, 2), 3), (to_label(cgraph, 1, 0, 0, 0, 2), to_label(cgraph, 1, 0, 0, 0, 3), 10)],
+                     timestamp=fake_timestamp)
+
+        # Mincut
+        with pytest.raises(cg_exceptions.PreconditionError):
+            cgraph.remove_edges(
+                "Jane Doe", [to_label(cgraph, 1, 0, 0, 0, 0), to_label(cgraph, 1, 0, 0, 0, 1)],
+                [to_label(cgraph, 1, 0, 0, 0, 3)],
+                [[0, 0, 0], [10,0,0]], [[5,5,0]],
+                mincut=True)
+
 
 class TestGraphMultiCut:
     @pytest.mark.timeout(30)
