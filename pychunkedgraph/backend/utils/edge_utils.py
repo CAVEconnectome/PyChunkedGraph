@@ -4,7 +4,7 @@ helper functions for edge stuff
 
 import numpy as np
 
-from pychunkedgraph.utils.general import reverse_dictionary
+from ...utils.general import reverse_dictionary
 from ..definitions.edges import Edges, IN_CHUNK, BT_CHUNK, CX_CHUNK
 
 

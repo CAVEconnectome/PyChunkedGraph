@@ -217,7 +217,7 @@ def _create_atomic_chunk(im_info, chunk_coord, edge_dir):
     return create_atomic_chunk(imanager, chunk_coord, edge_dir)
 
 
-def create_atomic_chunk(imanager, chunk_coord, edge_dir):
+def create_atomic_chunk(imanager, chunk_coord):
     """ Creates single atomic chunk"""
     chunk_coord = np.array(list(chunk_coord), dtype=np.int)
 
