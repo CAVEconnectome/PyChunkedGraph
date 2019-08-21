@@ -17,7 +17,7 @@ from pychunkedgraph.backend import chunkedgraph_exceptions as cg_exceptions, \
 from pychunkedgraph.meshing import meshgen
 
 
-__version__ = 'pinky-prod.1.7'
+__version__ = 'swdb.1.0'
 bp = Blueprint('pychunkedgraph', __name__, url_prefix="/segmentation")
 
 # -------------------------------
@@ -146,6 +146,7 @@ def sleep_me(sleep):
 
 @bp.route('/1.0/<table_id>/info', methods=['GET'])
 def handle_info(table_id):
+    assert(table_id == "pinky100_sv16")
     current_app.request_type = "info"
 
     cg = app_utils.get_cg(table_id)
@@ -156,12 +157,12 @@ def handle_info(table_id):
 
 @bp.route('/1.0/<table_id>/graph/root', methods=['POST', 'GET'])
 def handle_root_1(table_id):
+    assert(table_id == "pinky100_sv16")
     atomic_id = np.uint64(json.loads(request.data)[0])
 
     # Convert seconds since epoch to UTC datetime
     try:
-        timestamp = float(request.args.get('timestamp', time.time()))
-        timestamp = datetime.fromtimestamp(timestamp, UTC)
+        timestamp = datetime(2019, 8, 8, 19, 33, 17, 806083)
     except (TypeError, ValueError) as e:
         raise(cg_exceptions.BadRequest("Timestamp parameter is not a valid"
                                        " unix timestamp"))
@@ -171,11 +172,10 @@ def handle_root_1(table_id):
 
 @bp.route('/1.0/<table_id>/graph/<atomic_id>/root', methods=['POST', 'GET'])
 def handle_root_2(table_id, atomic_id):
-
+    assert(table_id == "pinky100_sv16")
     # Convert seconds since epoch to UTC datetime
     try:
-        timestamp = float(request.args.get('timestamp', time.time()))
-        timestamp = datetime.fromtimestamp(timestamp, UTC)
+        timestamp = datetime(2019, 8, 8, 19, 33, 17, 806083)
     except (TypeError, ValueError) as e:
         raise(cg_exceptions.BadRequest("Timestamp parameter is not a valid"
                                        " unix timestamp"))
@@ -184,6 +184,7 @@ def handle_root_2(table_id, atomic_id):
 
 
 def handle_root_main(table_id, atomic_id, timestamp):
+    assert(table_id == "pinky100_sv16")
     current_app.request_type = "root"
 
     # Call ChunkedGraph
@@ -196,181 +197,181 @@ def handle_root_main(table_id, atomic_id, timestamp):
 
 ### MERGE ----------------------------------------------------------------------
 
-@bp.route('/1.0/<table_id>/graph/merge', methods=['POST', 'GET'])
-def handle_merge(table_id):
-    current_app.request_type = "merge"
+# @bp.route('/1.0/<table_id>/graph/merge', methods=['POST', 'GET'])
+# def handle_merge(table_id):
+#     current_app.request_type = "merge"
 
-    nodes = json.loads(request.data)
-    user_id = str(request.remote_addr)
+#     nodes = json.loads(request.data)
+#     user_id = str(request.remote_addr)
 
-    current_app.logger.debug(nodes)
-    assert len(nodes) == 2
+#     current_app.logger.debug(nodes)
+#     assert len(nodes) == 2
 
-    # Call ChunkedGraph
-    cg = app_utils.get_cg(table_id)
+#     # Call ChunkedGraph
+#     cg = app_utils.get_cg(table_id)
 
-    atomic_edge = []
-    coords = []
-    for node in nodes:
-        node_id = node[0]
-        x, y, z = node[1:]
+#     atomic_edge = []
+#     coords = []
+#     for node in nodes:
+#         node_id = node[0]
+#         x, y, z = node[1:]
 
-        x /= 2
-        y /= 2
+#         x /= 2
+#         y /= 2
 
-        coordinate = np.array([x, y, z])
+#         coordinate = np.array([x, y, z])
 
-        if not cg.is_in_bounds(coordinate):
-            coordinate /= cg.segmentation_resolution
+#         if not cg.is_in_bounds(coordinate):
+#             coordinate /= cg.segmentation_resolution
 
-            coordinate[0] *= 2
-            coordinate[1] *= 2
+#             coordinate[0] *= 2
+#             coordinate[1] *= 2
 
-        atomic_id = cg.get_atomic_id_from_coord(coordinate[0],
-                                                coordinate[1],
-                                                coordinate[2],
-                                                parent_id=np.uint64(node_id))
+#         atomic_id = cg.get_atomic_id_from_coord(coordinate[0],
+#                                                 coordinate[1],
+#                                                 coordinate[2],
+#                                                 parent_id=np.uint64(node_id))
 
-        if atomic_id is None:
-            raise cg_exceptions.BadRequest(
-                f"Could not determine supervoxel ID for coordinates "
-                f"{coordinate}."
-            )
+#         if atomic_id is None:
+#             raise cg_exceptions.BadRequest(
+#                 f"Could not determine supervoxel ID for coordinates "
+#                 f"{coordinate}."
+#             )
 
-        coords.append(coordinate)
-        atomic_edge.append(atomic_id)
+#         coords.append(coordinate)
+#         atomic_edge.append(atomic_id)
 
-    # Protection from long range mergers
-    chunk_coord_delta = cg.get_chunk_coordinates(atomic_edge[0]) - \
-                        cg.get_chunk_coordinates(atomic_edge[1])
+#     # Protection from long range mergers
+#     chunk_coord_delta = cg.get_chunk_coordinates(atomic_edge[0]) - \
+#                         cg.get_chunk_coordinates(atomic_edge[1])
 
-    if np.any(np.abs(chunk_coord_delta) > 3):
-        raise cg_exceptions.BadRequest(
-            "Chebyshev distance between merge points exceeded allowed maximum "
-            "(3 chunks).")
+#     if np.any(np.abs(chunk_coord_delta) > 3):
+#         raise cg_exceptions.BadRequest(
+#             "Chebyshev distance between merge points exceeded allowed maximum "
+#             "(3 chunks).")
 
-    lvl2_nodes = []
+#     lvl2_nodes = []
 
-    try:
-        ret = cg.add_edges(user_id=user_id,
-                           atomic_edges=np.array(atomic_edge,
-                                                 dtype=np.uint64),
-                           source_coord=coords[:1],
-                           sink_coord=coords[1:],
-                           return_new_lvl2_nodes=True,
-                           remesh_preview=False)
+#     try:
+#         ret = cg.add_edges(user_id=user_id,
+#                            atomic_edges=np.array(atomic_edge,
+#                                                  dtype=np.uint64),
+#                            source_coord=coords[:1],
+#                            sink_coord=coords[1:],
+#                            return_new_lvl2_nodes=True,
+#                            remesh_preview=False)
 
-        if len(ret) == 2:
-            new_root, lvl2_nodes = ret
-        else:
-            new_root = ret
+#         if len(ret) == 2:
+#             new_root, lvl2_nodes = ret
+#         else:
+#             new_root = ret
 
-    except cg_exceptions.LockingError as e:
-        raise cg_exceptions.InternalServerError(
-            "Could not acquire root lock for merge operation.")
-    except cg_exceptions.PreconditionError as e:
-        raise cg_exceptions.BadRequest(str(e))
+#     except cg_exceptions.LockingError as e:
+#         raise cg_exceptions.InternalServerError(
+#             "Could not acquire root lock for merge operation.")
+#     except cg_exceptions.PreconditionError as e:
+#         raise cg_exceptions.BadRequest(str(e))
 
-    if new_root is None:
-        raise cg_exceptions.InternalServerError(
-            "Could not merge selected supervoxel.")
+#     if new_root is None:
+#         raise cg_exceptions.InternalServerError(
+#             "Could not merge selected supervoxel.")
 
-    t = threading.Thread(target=meshing_app_blueprint._mesh_lvl2_nodes,
-                         args=(cg.get_serialized_info(), lvl2_nodes))
-    t.start()
+#     t = threading.Thread(target=meshing_app_blueprint._mesh_lvl2_nodes,
+#                          args=(cg.get_serialized_info(), lvl2_nodes))
+#     t.start()
 
-    # Return binary
-    return app_utils.tobinary(new_root)
+#     # Return binary
+#     return app_utils.tobinary(new_root)
 
 
 ### SPLIT ----------------------------------------------------------------------
 
-@bp.route('/1.0/<table_id>/graph/split', methods=['POST', 'GET'])
-def handle_split(table_id):
-    current_app.request_type = "split"
+# @bp.route('/1.0/<table_id>/graph/split', methods=['POST', 'GET'])
+# def handle_split(table_id):
+#     current_app.request_type = "split"
 
-    data = json.loads(request.data)
-    user_id = str(request.remote_addr)
+#     data = json.loads(request.data)
+#     user_id = str(request.remote_addr)
 
-    current_app.logger.debug(data)
+#     current_app.logger.debug(data)
 
-    # Call ChunkedGraph
-    cg = app_utils.get_cg(table_id)
+#     # Call ChunkedGraph
+#     cg = app_utils.get_cg(table_id)
 
-    data_dict = {}
-    for k in ["sources", "sinks"]:
-        data_dict[k] = collections.defaultdict(list)
+#     data_dict = {}
+#     for k in ["sources", "sinks"]:
+#         data_dict[k] = collections.defaultdict(list)
 
-        for node in data[k]:
-            node_id = node[0]
-            x, y, z = node[1:]
+#         for node in data[k]:
+#             node_id = node[0]
+#             x, y, z = node[1:]
 
-            x /= 2
-            y /= 2
+#             x /= 2
+#             y /= 2
 
-            coordinate = np.array([x, y, z])
+#             coordinate = np.array([x, y, z])
 
-            current_app.logger.debug(("before", coordinate))
+#             current_app.logger.debug(("before", coordinate))
 
-            if not cg.is_in_bounds(coordinate):
-                coordinate /= cg.segmentation_resolution
+#             if not cg.is_in_bounds(coordinate):
+#                 coordinate /= cg.segmentation_resolution
 
-                coordinate[0] *= 2
-                coordinate[1] *= 2
+#                 coordinate[0] *= 2
+#                 coordinate[1] *= 2
 
-            current_app.logger.debug(("after", coordinate))
+#             current_app.logger.debug(("after", coordinate))
 
-            atomic_id = cg.get_atomic_id_from_coord(coordinate[0],
-                                                    coordinate[1],
-                                                    coordinate[2],
-                                                    parent_id=np.uint64(
-                                                        node_id))
+#             atomic_id = cg.get_atomic_id_from_coord(coordinate[0],
+#                                                     coordinate[1],
+#                                                     coordinate[2],
+#                                                     parent_id=np.uint64(
+#                                                         node_id))
 
-            if atomic_id is None:
-                raise cg_exceptions.BadRequest(
-                    f"Could not determine supervoxel ID for coordinates "
-                    f"{coordinate}.")
+#             if atomic_id is None:
+#                 raise cg_exceptions.BadRequest(
+#                     f"Could not determine supervoxel ID for coordinates "
+#                     f"{coordinate}.")
 
-            data_dict[k]["id"].append(atomic_id)
-            data_dict[k]["coord"].append(coordinate)
+#             data_dict[k]["id"].append(atomic_id)
+#             data_dict[k]["coord"].append(coordinate)
 
-    current_app.logger.debug(data_dict)
+#     current_app.logger.debug(data_dict)
 
-    lvl2_nodes = []
-    try:
-        ret = cg.remove_edges(user_id=user_id,
-                              source_ids=data_dict["sources"]["id"],
-                              sink_ids=data_dict["sinks"]["id"],
-                              source_coords=data_dict["sources"]["coord"],
-                              sink_coords=data_dict["sinks"]["coord"],
-                              mincut=True,
-                              return_new_lvl2_nodes=True,
-                              remesh_preview=False)
+#     lvl2_nodes = []
+#     try:
+#         ret = cg.remove_edges(user_id=user_id,
+#                               source_ids=data_dict["sources"]["id"],
+#                               sink_ids=data_dict["sinks"]["id"],
+#                               source_coords=data_dict["sources"]["coord"],
+#                               sink_coords=data_dict["sinks"]["coord"],
+#                               mincut=True,
+#                               return_new_lvl2_nodes=True,
+#                               remesh_preview=False)
 
-        if len(ret) == 2:
-            new_roots, lvl2_nodes = ret
-        else:
-            new_roots = ret
+#         if len(ret) == 2:
+#             new_roots, lvl2_nodes = ret
+#         else:
+#             new_roots = ret
 
-    except cg_exceptions.LockingError as e:
-        raise cg_exceptions.InternalServerError(
-            "Could not acquire root lock for split operation.")
-    except cg_exceptions.PreconditionError as e:
-        raise cg_exceptions.BadRequest(str(e))
+#     except cg_exceptions.LockingError as e:
+#         raise cg_exceptions.InternalServerError(
+#             "Could not acquire root lock for split operation.")
+#     except cg_exceptions.PreconditionError as e:
+#         raise cg_exceptions.BadRequest(str(e))
 
-    if new_roots is None:
-        raise cg_exceptions.InternalServerError(
-            "Could not split selected segment groups."
-        )
+#     if new_roots is None:
+#         raise cg_exceptions.InternalServerError(
+#             "Could not split selected segment groups."
+#         )
 
-    current_app.logger.debug(("after split:", new_roots))
+#     current_app.logger.debug(("after split:", new_roots))
 
-    t = threading.Thread(target=meshing_app_blueprint._mesh_lvl2_nodes,
-                         args=(cg.get_serialized_info(), lvl2_nodes))
-    t.start()
+#     t = threading.Thread(target=meshing_app_blueprint._mesh_lvl2_nodes,
+#                          args=(cg.get_serialized_info(), lvl2_nodes))
+#     t.start()
 
-    # Return binary
-    return app_utils.tobinary(new_roots)
+#     # Return binary
+#     return app_utils.tobinary(new_roots)
 
 
 ### SHATTER --------------------------------------------------------------------
@@ -450,6 +451,7 @@ def handle_split(table_id):
 @bp.route('/1.0/<table_id>/segment/<parent_id>/children',
           methods=['POST', 'GET'])
 def handle_children(table_id, parent_id):
+    assert(table_id = "pinky100_sv16")
     current_app.request_type = "children"
 
     cg = app_utils.get_cg(table_id)
@@ -470,6 +472,7 @@ def handle_children(table_id, parent_id):
 
 @bp.route('/1.0/<table_id>/segment/<root_id>/leaves', methods=['POST', 'GET'])
 def handle_leaves(table_id, root_id):
+    assert(table_id == "pinky100_sv16")
     current_app.request_type = "leaves"
 
     if "bounds" in request.args:
@@ -494,6 +497,7 @@ def handle_leaves(table_id, root_id):
 @bp.route('/1.0/<table_id>/segment/<atomic_id>/leaves_from_leave',
           methods=['POST', 'GET'])
 def handle_leaves_from_leave(table_id, atomic_id):
+    assert(table_id == "pinky100_sv16")
     current_app.request_type = "leaves_from_leave"
 
     if "bounds" in request.args:
@@ -518,6 +522,7 @@ def handle_leaves_from_leave(table_id, atomic_id):
 
 @bp.route('/1.0/<table_id>/segment/<root_id>/subgraph', methods=['POST', 'GET'])
 def handle_subgraph(table_id, root_id):
+    assert(table_id == "pinky100_sv16")
     current_app.request_type = "subgraph"
 
     if "bounds" in request.args:
@@ -541,6 +546,7 @@ def handle_subgraph(table_id, root_id):
 @bp.route('/1.0/<table_id>/segment/<root_id>/change_log',
           methods=["POST", "GET"])
 def change_log(table_id, root_id):
+    assert(table_id == "pinky100_sv16")
     current_app.request_type = "change_log"
 
     try:
@@ -563,6 +569,7 @@ def change_log(table_id, root_id):
 @bp.route('/1.0/<table_id>/segment/<root_id>/merge_log',
           methods=["POST", "GET"])
 def merge_log(table_id, root_id):
+    assert(table_id == "pinky100_sv16")
     current_app.request_type = "merge_log"
 
     try:
@@ -589,6 +596,7 @@ def merge_log(table_id, root_id):
 
 @bp.route('/1.0/<table_id>/graph/oldest_timestamp', methods=["POST", "GET"])
 def oldest_timestamp(table_id):
+    assert(table_id == "pinky100_sv16")
     current_app.request_type = "timestamp"
 
     cg = app_utils.get_cg(table_id)
@@ -606,6 +614,7 @@ def oldest_timestamp(table_id):
 @bp.route('/1.0/<table_id>/segment/<root_id>/contact_sites',
           methods=["POST", "GET"])
 def handle_contact_sites(table_id, root_id):
+    assert(table_id == "pinky100_sv16")
     partners = request.args.get('partners', False)
 
     if "bounds" in request.args:
