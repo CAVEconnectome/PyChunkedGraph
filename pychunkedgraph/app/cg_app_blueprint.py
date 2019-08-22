@@ -14,10 +14,9 @@ import threading
 from pychunkedgraph.app import app_utils, meshing_app_blueprint
 from pychunkedgraph.backend import chunkedgraph_exceptions as cg_exceptions, \
     chunkedgraph_comp as cg_comp
-from pychunkedgraph.meshing import meshgen
 
 
-__version__ = 'swdb.1.1'
+__version__ = 'swdb.1.2'
 bp = Blueprint('pychunkedgraph', __name__, url_prefix="/segmentation")
 
 # -------------------------------
