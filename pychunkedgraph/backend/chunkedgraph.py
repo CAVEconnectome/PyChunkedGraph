@@ -3038,7 +3038,7 @@ class ChunkedGraph(object):
 
         if self._edge_dir:
             return self.get_subgraph_edges_v2(
-                np.array(agglomeration_id),
+                np.array([agglomeration_id]),
                 bounding_box=bounding_box,
                 bb_is_coordinate=bb_is_coordinate,
                 connected_edges=connected_edges,
@@ -3130,8 +3130,8 @@ class ChunkedGraph(object):
             )
 
         bounding_box = self.normalize_bounding_box(bounding_box, bb_is_coordinate)
-        
-        chunk_ids = []
+
+        level2_ids = []
         for agglomeration_id in agglomeration_ids:
             layer_nodes_d = self._get_subgraph_higher_layer_nodes(
                 node_id=agglomeration_id,
@@ -3139,19 +3139,20 @@ class ChunkedGraph(object):
                 return_layers=[2],
                 verbose=verbose,
             )
-            chunk_ids.append(self.get_chunk_ids_from_node_ids(layer_nodes_d[2]))
-        
-        chunk_ids = np.unique(np.concatenate(chunk_ids))
+            level2_ids.append(layer_nodes_d[2])
+
+        level2_ids = np.concatenate(level2_ids)
+        chunk_ids = self.get_chunk_ids_from_node_ids(level2_ids)
         cg_threads = 1
         chunk_edge_dicts = mu.multithread_func(
             _read_edges,
-            np.array_split(chunk_ids, cg_threads),
+            np.array_split(np.unique(chunk_ids), cg_threads),
             n_threads=cg_threads,
             debug=False,
         )
 
         edges_dict = concatenate_chunk_edges(chunk_edge_dicts)
-        children_d = self.get_children(layer_nodes_d[2])
+        children_d = self.get_children(level2_ids)
         sv_ids = np.concatenate(list(children_d.values()))
 
         edges = filter_edges(sv_ids, edges_dict)
