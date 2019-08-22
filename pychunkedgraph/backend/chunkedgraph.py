@@ -20,7 +20,6 @@ from pychunkedgraph.backend.chunkedgraph_utils import compute_indices_pandas, \
     combine_cross_chunk_edge_dicts, get_min_time, partial_row_data_to_column_dict
 from pychunkedgraph.backend.utils import serializers, column_keys, row_keys, basetypes
 from pychunkedgraph.backend import chunkedgraph_exceptions as cg_exceptions
-from pychunkedgraph.meshing import meshgen
 
 from google.api_core.retry import Retry, if_exception_type
 from google.api_core.exceptions import Aborted, DeadlineExceeded, \
@@ -3393,9 +3392,7 @@ class ChunkedGraph(object):
                 if self.bulk_write(rows, lock_root_ids,
                                    operation_id=operation_id,
                                    slow_retry=False):
-                    if remesh_preview:
-                        meshgen.mesh_lvl2_previews(self, list(
-                            lvl2_node_mapping.keys()))
+   
 
                     if return_new_lvl2_nodes:
                         return new_root_id, list(lvl2_node_mapping.keys())
@@ -3949,9 +3946,7 @@ class ChunkedGraph(object):
                 # else:
                 if self.bulk_write(rows, lock_root_ids,
                                    operation_id=operation_id, slow_retry=False):
-                    if remesh_preview:
-                        meshgen.mesh_lvl2_previews(self, list(
-                            lvl2_node_mapping.keys()))
+          
 
                     self.logger.debug(f"new root ids: {new_root_ids}")
 
