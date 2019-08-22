@@ -4,13 +4,13 @@ import json
 import numpy as np
 
 
-from pychunkedgraph.meshing import meshgen, meshgen_utils
+from pychunkedgraph.meshing import meshgen_utils
 from pychunkedgraph.app import app_utils
 from pychunkedgraph.backend import chunkedgraph
 
 # os.environ['TRAVIS_BRANCH'] = "IDONTKNOWWHYINEEDTHIS"
 
-__version__ = 'pinky-prod.1.7'
+__version__ = 'swdb.1.1'
 bp = Blueprint('pychunkedgraph_meshing', __name__, url_prefix="/meshing")
 
 # -------------------------------
@@ -36,48 +36,48 @@ def home():
 
 # ------------------------------------------------------------------------------
 
-def _mesh_lvl2_nodes(serialized_cg_info, lvl2_nodes):
-    cg = chunkedgraph.ChunkedGraph(**serialized_cg_info)
+# def _mesh_lvl2_nodes(serialized_cg_info, lvl2_nodes):
+#     cg = chunkedgraph.ChunkedGraph(**serialized_cg_info)
 
-    for lvl2_node in lvl2_nodes:
-        print(lvl2_node)
-        meshgen.mesh_lvl2_preview(cg, lvl2_node, supervoxel_ids=None,
-                                  cv_path=None, cv_mesh_dir=None, mip=2,
-                                  simplification_factor=999999,
-                                  max_err=40, parallel_download=1,
-                                  verbose=True,
-                                  cache_control='no-cache')
+#     for lvl2_node in lvl2_nodes:
+#         print(lvl2_node)
+#         meshgen.mesh_lvl2_preview(cg, lvl2_node, supervoxel_ids=None,
+#                                   cv_path=None, cv_mesh_dir=None, mip=2,
+#                                   simplification_factor=999999,
+#                                   max_err=40, parallel_download=1,
+#                                   verbose=True,
+#                                   cache_control='no-cache')
 
-    return Response(status=200)
+#     return Response(status=200)
 
 
 
-@bp.route('/1.0/<table_id>/<node_id>/mesh_preview', methods=['POST', 'GET'])
-def handle_preview_meshes(table_id, node_id):
-    if len(request.data) > 0:
-        data = json.loads(request.data)
-    else:
-        data = {}
+# @bp.route('/1.0/<table_id>/<node_id>/mesh_preview', methods=['POST', 'GET'])
+# def handle_preview_meshes(table_id, node_id):
+#     if len(request.data) > 0:
+#         data = json.loads(request.data)
+#     else:
+#         data = {}
 
-    node_id = np.uint64(node_id)
+#     node_id = np.uint64(node_id)
 
-    cg = app_utils.get_cg(table_id)
+#     cg = app_utils.get_cg(table_id)
 
-    if "seg_ids" in data:
-        seg_ids = data["seg_ids"]
+#     if "seg_ids" in data:
+#         seg_ids = data["seg_ids"]
 
-        chunk_id = cg.get_chunk_id(node_id)
-        supervoxel_ids = [cg.get_node_id(seg_id, chunk_id)
-                          for seg_id in seg_ids]
-    else:
-        supervoxel_ids = None
+#         chunk_id = cg.get_chunk_id(node_id)
+#         supervoxel_ids = [cg.get_node_id(seg_id, chunk_id)
+#                           for seg_id in seg_ids]
+#     else:
+#         supervoxel_ids = None
 
-    meshgen.mesh_lvl2_preview(cg, node_id, supervoxel_ids=supervoxel_ids,
-                              cv_path=None, cv_mesh_dir=None, mip=2,
-                              simplification_factor=999999,
-                              max_err=40, parallel_download=1, verbose=True,
-                              cache_control='no-cache')
-    return Response(status=200)
+#     meshgen.mesh_lvl2_preview(cg, node_id, supervoxel_ids=supervoxel_ids,
+#                               cv_path=None, cv_mesh_dir=None, mip=2,
+#                               simplification_factor=999999,
+#                               max_err=40, parallel_download=1, verbose=True,
+#                               cache_control='no-cache')
+#     return Response(status=200)
 
 
 ## VALIDFRAGMENTS --------------------------------------------------------------
