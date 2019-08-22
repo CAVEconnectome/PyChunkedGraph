@@ -12,18 +12,18 @@ class _Serializer():
         self._compressor = None
         self._decompressor = None
         if compression_level:
-            self._compressor = zstd.ZstdCompressor(level=compression_level)
-            self._decompressor = zstd.ZstdDecompressor()
+            self._compressor = compression_level
+            self._decompressor = True
 
     def serialize(self, obj):
         content = self._serializer(obj)
         if self._compressor:
-            return self._compressor.compress(content)
+            return zstd.ZstdCompressor(level=self._compressor).compress(content)
         return content
 
     def deserialize(self, obj):
         if self._decompressor:
-            obj = self._decompressor.decompressobj().decompress(obj)
+            obj = zstd.ZstdDecompressor().decompressobj().decompress(obj)
         return self._deserializer(obj)
 
     @property
