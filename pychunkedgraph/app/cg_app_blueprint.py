@@ -146,7 +146,6 @@ def sleep_me(sleep):
 
 @bp.route('/1.0/<table_id>/info', methods=['GET'])
 def handle_info(table_id):
-    assert(table_id == "pinky100_sv16")
     current_app.request_type = "info"
 
     cg = app_utils.get_cg(table_id)
@@ -157,7 +156,6 @@ def handle_info(table_id):
 
 @bp.route('/1.0/<table_id>/graph/root', methods=['POST', 'GET'])
 def handle_root_1(table_id):
-    assert(table_id == "pinky100_sv16")
     atomic_id = np.uint64(json.loads(request.data)[0])
 
     # Convert seconds since epoch to UTC datetime
@@ -172,7 +170,6 @@ def handle_root_1(table_id):
 
 @bp.route('/1.0/<table_id>/graph/<atomic_id>/root', methods=['POST', 'GET'])
 def handle_root_2(table_id, atomic_id):
-    assert(table_id == "pinky100_sv16")
     # Convert seconds since epoch to UTC datetime
     try:
         timestamp = datetime(2019, 8, 8, 19, 33, 17, 806083)
@@ -451,7 +448,6 @@ def handle_root_main(table_id, atomic_id, timestamp):
 @bp.route('/1.0/<table_id>/segment/<parent_id>/children',
           methods=['POST', 'GET'])
 def handle_children(table_id, parent_id):
-    assert(table_id = "pinky100_sv16")
     current_app.request_type = "children"
 
     cg = app_utils.get_cg(table_id)
@@ -472,7 +468,6 @@ def handle_children(table_id, parent_id):
 
 @bp.route('/1.0/<table_id>/segment/<root_id>/leaves', methods=['POST', 'GET'])
 def handle_leaves(table_id, root_id):
-    assert(table_id == "pinky100_sv16")
     current_app.request_type = "leaves"
 
     if "bounds" in request.args:
@@ -497,7 +492,6 @@ def handle_leaves(table_id, root_id):
 @bp.route('/1.0/<table_id>/segment/<atomic_id>/leaves_from_leave',
           methods=['POST', 'GET'])
 def handle_leaves_from_leave(table_id, atomic_id):
-    assert(table_id == "pinky100_sv16")
     current_app.request_type = "leaves_from_leave"
 
     if "bounds" in request.args:
@@ -522,7 +516,6 @@ def handle_leaves_from_leave(table_id, atomic_id):
 
 @bp.route('/1.0/<table_id>/segment/<root_id>/subgraph', methods=['POST', 'GET'])
 def handle_subgraph(table_id, root_id):
-    assert(table_id == "pinky100_sv16")
     current_app.request_type = "subgraph"
 
     if "bounds" in request.args:
@@ -546,7 +539,6 @@ def handle_subgraph(table_id, root_id):
 @bp.route('/1.0/<table_id>/segment/<root_id>/change_log',
           methods=["POST", "GET"])
 def change_log(table_id, root_id):
-    assert(table_id == "pinky100_sv16")
     current_app.request_type = "change_log"
 
     try:
@@ -569,7 +561,6 @@ def change_log(table_id, root_id):
 @bp.route('/1.0/<table_id>/segment/<root_id>/merge_log',
           methods=["POST", "GET"])
 def merge_log(table_id, root_id):
-    assert(table_id == "pinky100_sv16")
     current_app.request_type = "merge_log"
 
     try:
@@ -596,7 +587,6 @@ def merge_log(table_id, root_id):
 
 @bp.route('/1.0/<table_id>/graph/oldest_timestamp', methods=["POST", "GET"])
 def oldest_timestamp(table_id):
-    assert(table_id == "pinky100_sv16")
     current_app.request_type = "timestamp"
 
     cg = app_utils.get_cg(table_id)
@@ -614,7 +604,6 @@ def oldest_timestamp(table_id):
 @bp.route('/1.0/<table_id>/segment/<root_id>/contact_sites',
           methods=["POST", "GET"])
 def handle_contact_sites(table_id, root_id):
-    assert(table_id == "pinky100_sv16")
     partners = request.args.get('partners', False)
 
     if "bounds" in request.args:
