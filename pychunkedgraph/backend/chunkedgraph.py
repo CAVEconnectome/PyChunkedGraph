@@ -3038,7 +3038,7 @@ class ChunkedGraph(object):
 
         if self._edge_dir:
             return self.get_subgraph_edges_v2(
-                agglomeration_id,
+                np.array(agglomeration_id),
                 bounding_box=bounding_box,
                 bb_is_coordinate=bb_is_coordinate,
                 connected_edges=connected_edges,
@@ -3101,21 +3101,23 @@ class ChunkedGraph(object):
 
     def get_subgraph_edges_v2(
         self,
-        agglomeration_id: np.uint64,
+        agglomeration_ids: np.ndarray,
         bounding_box: Optional[Sequence[Sequence[int]]] = None,
         bb_is_coordinate: bool = False,
         connected_edges=True,
         cv_threads=1,
+        active_edges=True,
         verbose: bool = True,
     ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
         """
-        1. get level 2 children ids belonging to the agglomeration
+        1. get level 2 children ids belonging to the agglomerations
         2. get relevant chunk ids from level 2 ids
         3. read edges from cloud storage
         4. get supervoxel ids from level 2 ids
         5. filter the edges with supervoxel ids
-        6. for each edge (v1,v2) - active if parent(v1) == parent(v2), inactive otherwise
-        7. return the active edges
+        6. optioanlly for each edge (v1,v2) active
+           if parent(v1) == parent(v2) inactive otherwise
+        7. return the edges
         """
 
         def _read_edges(
@@ -3128,13 +3130,18 @@ class ChunkedGraph(object):
             )
 
         bounding_box = self.normalize_bounding_box(bounding_box, bb_is_coordinate)
-        layer_nodes_d = self._get_subgraph_higher_layer_nodes(
-            node_id=agglomeration_id,
-            bounding_box=bounding_box,
-            return_layers=[2],
-            verbose=verbose,
-        )
-        chunk_ids = np.unique(self.get_chunk_ids_from_node_ids(layer_nodes_d[2]))
+        
+        chunk_ids = []
+        for agglomeration_id in agglomeration_ids:
+            layer_nodes_d = self._get_subgraph_higher_layer_nodes(
+                node_id=agglomeration_id,
+                bounding_box=bounding_box,
+                return_layers=[2],
+                verbose=verbose,
+            )
+            chunk_ids.append(self.get_chunk_ids_from_node_ids(layer_nodes_d[2]))
+        
+        chunk_ids = np.unique(np.concatenate(chunk_ids))
         cg_threads = 1
         chunk_edge_dicts = mu.multithread_func(
             _read_edges,
@@ -3148,7 +3155,8 @@ class ChunkedGraph(object):
         sv_ids = np.concatenate(list(children_d.values()))
 
         edges = filter_edges(sv_ids, edges_dict)
-        edges = get_active_edges(edges, children_d)
+        if active_edges:
+            edges = get_active_edges(edges, children_d)
         return edges.get_pairs(), edges.affinities, edges.areas
 
     def get_subgraph_nodes(self, agglomeration_id: np.uint64,
