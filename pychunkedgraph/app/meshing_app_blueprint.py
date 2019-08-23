@@ -8,7 +8,7 @@ from pychunkedgraph.meshing import meshgen_utils, meshgen
 from pychunkedgraph.app import app_utils
 from pychunkedgraph.backend import chunkedgraph
 
-__version__ = 'meshworker.1.4'
+__version__ = 'meshworker.1.5'
 bp = Blueprint('pychunkedgraph_meshing', __name__, url_prefix="/meshing")
 
 # -------------------------------

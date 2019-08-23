@@ -34,6 +34,7 @@ class DeploymentWithRedisConfig(BaseConfig):
     REDIS_HOST = os.environ.get('REDIS_SERVICE_HOST')
     REDIS_PORT = os.environ.get('REDIS_SERVICE_PORT')
     REDIS_PASSWORD = os.environ.get('REDIS_PASSWORD')
+    MESH_QUEUE = os.environ.get('MESH_QUEUE', "mesh-chunks")
     if REDIS_PASSWORD is None:
         REDIS_URL = f'redis://@{REDIS_HOST}:{REDIS_PORT}/0'
     else:

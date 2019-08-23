@@ -73,4 +73,4 @@ def configure_app(app):
 
     if app.config['USE_REDIS_JOBS']:
         app.redis = redis.Redis.from_url(app.config['REDIS_URL'])
-        app.test_q = Queue('test' ,connection=app.redis)
+        app.test_q = Queue(app.config['MESH_QUEUE'], connection=app.redis)
