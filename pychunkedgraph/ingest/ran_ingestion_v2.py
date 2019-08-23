@@ -75,42 +75,16 @@ def ingest_into_chunkedgraph(
         data_version=4,
     )
 
-    if start_layer < 3:
-        create_atomic_chunks(imanager, n_chunks)
-    create_layer(imanager, 3)
+    create_atomic_chunks(imanager, n_chunks)
+    return imanager
 
 
-def create_layer(im, layer_id, block_size=100):
-    child_chunk_coords = im.chunk_coords // im.cg.fan_out ** (layer_id - 3)
-    child_chunk_coords = child_chunk_coords.astype(np.int)
-    child_chunk_coords = np.unique(child_chunk_coords, axis=0)
-
-    parent_chunk_coords = child_chunk_coords // im.cg.fan_out
-    parent_chunk_coords = parent_chunk_coords.astype(np.int)
-    parent_chunk_coords, inds = np.unique(
-        parent_chunk_coords, axis=0, return_inverse=True
-    )
-
+def queue_parent(im, layer_id, parent_chunk_coord, child_chunk_coords):
     im_info = im.get_serialized_info()
-
-    # Randomize chunks
-    order = np.arange(len(parent_chunk_coords), dtype=np.int)
-    np.random.shuffle(order)
-
-    # Block chunks
-    n_blocks = int(len(order) / block_size)
-    blocks = np.array_split(order, n_blocks)
-
-    jobs = 0
-    for block in blocks:
-        for idx in block:
-            jobs += 1
-            parent_chunk_coord = parent_chunk_coords[idx]
-            current_app.test_q.enqueue(
-                _create_layer,
-                job_timeout="59m",
-                args=(im_info, layer_id, child_chunk_coords[inds == idx], parent_chunk_coord))
-    print(f"{jobs} jobs queued")
+    current_app.test_q.enqueue(
+        _create_layer,
+        job_timeout="59m",
+        args=(im_info, layer_id, child_chunk_coords, parent_chunk_coord))
 
 
 @redis_job(REDIS_URL, "ingest_channel")
@@ -171,7 +145,8 @@ def create_atomic_chunk(imanager, chunk_coord):
     add_atomic_edges(imanager.cg, chunk_coord, chunk_edges, isolated=isolated_ids)
 
     # to track workers completion
-    return str(chunk_coord)
+    result = np.concatenate([[2], chunk_coord])
+    return result.tobytes()
 
 
 def _get_cont_chunk_coords(im, chunk_coord_a, chunk_coord_b):

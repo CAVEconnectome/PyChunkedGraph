@@ -2074,8 +2074,9 @@ class ChunkedGraph(object):
         if verbose:
             self.logger.debug("Time writing %d connected components in layer %d: %.3fs" %
                               (len(ccs), layer_id, time.time() - time_start))
-        print(str(parent_chunk_coord))
-        return str(parent_chunk_coord)
+
+        result = np.concatenate([[layer_id], parent_chunk_coord])
+        return result.tobytes()                              
 
     def get_atomic_cross_edge_dict(self, node_id: np.uint64,
                                    layer_ids: Sequence[int] = None):
