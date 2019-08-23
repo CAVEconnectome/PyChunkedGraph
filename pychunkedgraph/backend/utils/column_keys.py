@@ -185,6 +185,16 @@ class OperationLogs:
         family_id='0',
         serializer=serializers.UInt64String())
 
+    UndoOperationID = _Column(
+        key=b'undo_operation_id',
+        family_id='2',
+        serializer=serializers.UInt64String())
+
+    RedoOperationID = _Column(
+        key=b'redo_operation_id',
+        family_id='2',
+        serializer=serializers.UInt64String())
+
     UserID = _Column(
         key=b'user',
         family_id='2',
