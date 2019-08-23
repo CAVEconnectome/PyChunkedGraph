@@ -2076,7 +2076,7 @@ class ChunkedGraph(object):
                               (len(ccs), layer_id, time.time() - time_start))
 
         result = np.concatenate([[layer_id], parent_chunk_coord])
-        return result.tobytes()                              
+        return result.tobytes()
 
     def get_atomic_cross_edge_dict(self, node_id: np.uint64,
                                    layer_ids: Sequence[int] = None):

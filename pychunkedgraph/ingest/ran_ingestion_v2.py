@@ -15,6 +15,8 @@ import numpy.lib.recfunctions as rfn
 import zstandard as zstd
 from flask import current_app
 from multiwrapper import multiprocessing_utils as mu
+from rq import Queue
+from redis import Redis
 
 from ..utils.general import redis_job
 from . import ingestionmanager, ingestion_utils as iu
@@ -81,7 +83,9 @@ def ingest_into_chunkedgraph(
 
 def queue_parent(im, layer_id, parent_chunk_coord, child_chunk_coords):
     im_info = im.get_serialized_info()
-    current_app.test_q.enqueue(
+    connection = Redis(host=os.environ['REDIS_SERVICE_HOST'],port=6379,db=0, password='dev')
+    test_q = Queue('test', connection=connection)
+    test_q.enqueue(
         _create_layer,
         job_timeout="59m",
         args=(im_info, layer_id, child_chunk_coords, parent_chunk_coord))
