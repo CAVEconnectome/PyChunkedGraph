@@ -7,7 +7,7 @@ flask
 flask_cors
 codecov
 multiwrapper
-cloud-volume==0.50.0
+cloud-volume
 python-json-logger
 zstandard
 redis
