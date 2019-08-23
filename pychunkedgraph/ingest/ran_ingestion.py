@@ -1,13 +1,13 @@
-import numpy as np
-import cloudvolume
 import collections
-import itertools
-import re
 import time
-import zstandard as zstd
-import numpy.lib.recfunctions as rfn
+import random
+
+import pandas as pd
+import cloudvolume
 import networkx as nx
-import logging
+import numpy as np
+import numpy.lib.recfunctions as rfn
+import zstandard as zstd
 from multiwrapper import multiprocessing_utils as mu
 
 from pychunkedgraph.ingest import ingestionmanager, ingestion_utils as iu
@@ -15,8 +15,12 @@ from pychunkedgraph.ingest import ingestionmanager, ingestion_utils as iu
 
 def ingest_into_chunkedgraph(storage_path, ws_cv_path, cg_table_id,
                              chunk_size=[256, 256, 512],
+                             use_skip_connections=True,
+                             s_bits_atomic_layer=None,
                              fan_out=2, aff_dtype=np.float32,
-                             instance_id=None, project_id=None, n_threads=64):
+                             size=None,
+                             instance_id=None, project_id=None,
+                             start_layer=1, n_threads=[64, 64]):
     """ Creates a chunkedgraph from a Ran Agglomerattion
 
     :param storage_path: str
@@ -35,7 +39,8 @@ def ingest_into_chunkedgraph(storage_path, ws_cv_path, cg_table_id,
         Google instance id
     :param project_id: str
         Google project id
-    :param n_threads: int
+    :param start_layer: int
+    :param n_threads: list of ints
         number of threads to use
     :return:
     """
@@ -45,27 +50,36 @@ def ingest_into_chunkedgraph(storage_path, ws_cv_path, cg_table_id,
     cg_mesh_dir = f"{cg_table_id}_meshes"
     chunk_size = np.array(chunk_size, dtype=np.uint64)
 
-    iu.initialize_chunkedgraph(cg_table_id=cg_table_id, ws_cv_path=ws_cv_path,
-                               chunk_size=chunk_size,
-                               cg_mesh_dir=cg_mesh_dir, fan_out=fan_out,
-                               instance_id=instance_id, project_id=project_id)
+    _, n_layers_agg = iu.initialize_chunkedgraph(cg_table_id=cg_table_id,
+                                                 ws_cv_path=ws_cv_path,
+                                                 chunk_size=chunk_size,
+                                                 size=size,
+                                                 use_skip_connections=use_skip_connections,
+                                                 s_bits_atomic_layer=s_bits_atomic_layer,
+                                                 cg_mesh_dir=cg_mesh_dir,
+                                                 fan_out=fan_out,
+                                                 instance_id=instance_id,
+                                                 project_id=project_id)
 
     im = ingestionmanager.IngestionManager(storage_path=storage_path,
                                            cg_table_id=cg_table_id,
+                                           n_layers=n_layers_agg,
                                            instance_id=instance_id,
                                            project_id=project_id)
 
     # #TODO: Remove later:
-    logging.basicConfig(level=logging.DEBUG)
-    im.cg.logger = logging.getLogger(__name__)
+    # logging.basicConfig(level=logging.DEBUG)
+    # im.cg.logger = logging.getLogger(__name__)
     # ------------------------------------------
-    create_atomic_chunks(im, aff_dtype=aff_dtype, n_threads=n_threads)
-    create_abstract_layers(im, n_threads=n_threads)
+    if start_layer < 3:
+        create_atomic_chunks(im, aff_dtype=aff_dtype, n_threads=n_threads[0])
+
+    create_abstract_layers(im, n_threads=n_threads[1], start_layer=start_layer)
 
     return im
 
 
-def create_abstract_layers(im, n_threads=1):
+def create_abstract_layers(im, start_layer=3, n_threads=1):
     """ Creates abstract of chunkedgraph (> 2)
 
     :param im: IngestionManager
@@ -73,12 +87,16 @@ def create_abstract_layers(im, n_threads=1):
         number of threads to use
     :return:
     """
+    if start_layer < 3:
+        start_layer = 3
 
-    for layer_id in range(3, int(im.cg.n_layers + 1)):
+    assert start_layer < int(im.cg.n_layers + 1)
+
+    for layer_id in range(start_layer, int(im.cg.n_layers + 1)):
         create_layer(im, layer_id, n_threads=n_threads)
 
 
-def create_layer(im, layer_id, n_threads=1):
+def create_layer(im, layer_id, block_size=100, n_threads=1):
     """ Creates abstract layer of chunkedgraph
 
     Abstract layers have to be build in sequence. Abstract layers are all layers
@@ -110,32 +128,44 @@ def create_layer(im, layer_id, n_threads=1):
     order = np.arange(len(parent_chunk_coords), dtype=np.int)
     np.random.shuffle(order)
 
-    for i_chunk, idx in enumerate(order):
-        multi_args.append([im_info, layer_id, child_chunk_coords[inds == idx],
-                           i_chunk, len(order)])
+    # Block chunks
+    block_size = min(block_size, int(np.ceil(len(order) / n_threads / 3)))
+    n_blocks = int(len(order) / block_size)
+    blocks = np.array_split(order, n_blocks)
+
+    for i_block, block in enumerate(blocks):
+        chunks = []
+        for idx in block:
+            chunks.append(child_chunk_coords[inds == idx])
+
+        multi_args.append([im_info, layer_id, len(order), n_blocks, i_block,
+                           chunks])
 
     if n_threads == 1:
         mu.multiprocess_func(
-            _create_layer, multi_args, n_threads=n_threads,
+            _create_layers, multi_args, n_threads=n_threads,
             verbose=True, debug=n_threads == 1)
     else:
-        mu.multisubprocess_func(_create_layer, multi_args, n_threads=n_threads)
+        mu.multisubprocess_func(_create_layers, multi_args, n_threads=n_threads,
+                                suffix=f"{layer_id}")
 
 
-def _create_layer(args):
+def _create_layers(args):
     """ Multiprocessing helper for create_layer """
-    im_info, layer_id, child_chunk_coords, i_chunk, n_chunks = args
-
-    time_start = time.time()
-
+    im_info, layer_id, n_chunks, n_blocks, i_block, chunks = args
     im = ingestionmanager.IngestionManager(**im_info)
-    im.cg.add_layer(layer_id, child_chunk_coords, n_threads=1, verbose=True)
 
-    print(f"\nLayer {layer_id}: {i_chunk} / {n_chunks} -- %.3fs\n" %
-          (time.time() - time_start))
+    for i_chunk, child_chunk_coords in enumerate(chunks):
+        time_start = time.time()
+
+        im.cg.add_layer(layer_id, child_chunk_coords, n_threads=8, verbose=True)
+
+        print(f"Layer {layer_id} - Job {i_block + 1} / {n_blocks} - "
+              f"{i_chunk + 1} / {len(chunks)} -- %.3fs" %
+              (time.time() - time_start))
 
 
-def create_atomic_chunks(im, aff_dtype=np.float32, n_threads=1):
+def create_atomic_chunks(im, aff_dtype=np.float32, n_threads=1, block_size=100):
     """ Creates all atomic chunks
 
     :param im: IngestionManager
@@ -152,11 +182,20 @@ def create_atomic_chunks(im, aff_dtype=np.float32, n_threads=1):
 
     # Randomize chunk order
     chunk_coords = list(im.chunk_coord_gen)
-    # np.random.shuffle(chunk_coords)
+    order = np.arange(len(chunk_coords), dtype=np.int)
+    np.random.shuffle(order)
 
-    for i_chunk_coord, chunk_coord in enumerate(chunk_coords):
-        multi_args.append([im_info, chunk_coord, aff_dtype, i_chunk_coord,
-                           len(chunk_coords)])
+    # Block chunks
+    block_size = min(block_size, int(np.ceil(len(chunk_coords) / n_threads / 3)))
+    n_blocks = int(len(chunk_coords) / block_size)
+    blocks = np.array_split(order, n_blocks)
+
+    for i_block, block in enumerate(blocks):
+        chunks = []
+        for b_idx in block:
+            chunks.append(chunk_coords[b_idx])
+
+        multi_args.append([im_info, aff_dtype, n_blocks, i_block, chunks])
 
     if n_threads == 1:
         mu.multiprocess_func(
@@ -169,16 +208,17 @@ def create_atomic_chunks(im, aff_dtype=np.float32, n_threads=1):
 
 def _create_atomic_chunk(args):
     """ Multiprocessing helper for create_atomic_chunks """
-
-    im_info, chunk_coord, aff_dtype, i_chunk, n_chunks = args
-
-    time_start = time.time()
-
+    im_info, aff_dtype, n_blocks, i_block, chunks = args
     im = ingestionmanager.IngestionManager(**im_info)
-    create_atomic_chunk(im, chunk_coord, aff_dtype=aff_dtype, verbose=True)
 
-    print(f"\nLayer 1/2: {i_chunk} / {n_chunks} -- %.3fs\n" %
-          (time.time() - time_start))
+    for i_chunk, chunk_coord in enumerate(chunks):
+        time_start = time.time()
+
+        create_atomic_chunk(im, chunk_coord, aff_dtype=aff_dtype, verbose=True)
+
+        print(f"Layer 1 - {chunk_coord} - Job {i_block + 1} / {n_blocks} - "
+              f"{i_chunk + 1} / {len(chunks)} -- %.3fs" %
+              (time.time() - time_start))
 
 
 def create_atomic_chunk(im, chunk_coord, aff_dtype=np.float32, verbose=True):
@@ -380,6 +420,10 @@ def collect_edge_data(im, chunk_coord, aff_dtype=np.float32):
         except:
             raise()
 
+        edge_data_df = pd.DataFrame(edge_data[k])
+        edge_data_dfg = edge_data_df.groupby(["sv1", "sv2"]).aggregate(np.sum).reset_index()
+        edge_data[k] = edge_data_dfg.to_records()
+
     # # TEST
     # with cloudvolume.Storage(base_path, n_threads=10) as stor:
     #     files = list(stor.list_files())
@@ -407,7 +451,7 @@ def _read_agg_files(filenames, base_path):
         if file["error"] is not None:
             continue
 
-        content = zstd.ZstdDecompressor().decompress(file["content"])
+        content = zstd.ZstdDecompressor().decompressobj().decompress(file["content"])
         edge_list.append(np.frombuffer(content, dtype=np.uint64).reshape(-1, 2))
 
     return edge_list
@@ -430,7 +474,7 @@ def collect_agglomeration_data(im, chunk_coord):
                                   z=chunk_coord[2])
 
     filenames = []
-    for mip_level in range(0, int(im.cg.n_layers - 1)):
+    for mip_level in range(0, int(im.n_layers - 1)):
         x, y, z = np.array(chunk_coord / 2 ** mip_level, dtype=np.int)
         filenames.append(f"done_{mip_level}_{x}_{y}_{z}_{chunk_id}.data.zst")
 
@@ -446,7 +490,7 @@ def collect_agglomeration_data(im, chunk_coord):
                                                    y=adjacent_chunk_coord[1],
                                                    z=adjacent_chunk_coord[2])
 
-            for mip_level in range(0, int(im.cg.n_layers - 1)):
+            for mip_level in range(0, int(im.n_layers - 1)):
                 x, y, z = np.array(adjacent_chunk_coord / 2 ** mip_level, dtype=np.int)
                 filenames.append(f"done_{mip_level}_{x}_{y}_{z}_{adjacent_chunk_id}.data.zst")
 
@@ -485,9 +529,15 @@ def define_active_edges(edge_dict, mapping):
     mapping_vec = np.vectorize(_mapping_default)
 
     active = {}
-    isolated = []
+    isolated = [[]]
     for k in edge_dict:
-        agg_id_1 = mapping_vec(edge_dict[k]["sv1"])
+        if len(edge_dict[k]["sv1"]) > 0:
+            agg_id_1 = mapping_vec(edge_dict[k]["sv1"])
+        else:
+            assert len(edge_dict[k]["sv2"]) == 0
+            active[k] = np.array([], dtype=np.bool)
+            continue
+
         agg_id_2 = mapping_vec(edge_dict[k]["sv2"])
 
         active[k] = agg_id_1 == agg_id_2
@@ -502,5 +552,5 @@ def define_active_edges(edge_dict, mapping):
         if k == "in":
             isolated.append(edge_dict[k]["sv2"][agg_2_m])
 
-    return active, np.unique(np.concatenate(isolated))
+    return active, np.unique(np.concatenate(isolated).astype(np.uint64))
 

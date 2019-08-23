@@ -42,7 +42,8 @@ def log_n(arr, n):
         return np.log(arr) / np.log(n)
 
 
-def compute_bitmasks(n_layers: int, fan_out: int) -> Dict[int, int]:
+def compute_bitmasks(n_layers: int, fan_out: int, s_bits_atomic_layer: int = 8
+                     ) -> Dict[int, int]:
     """ Computes the bitmasks for each layer. A bitmasks encodes how many bits
     are used to store the chunk id in each dimension. The smallest number of
     bits needed to encode this information is chosen. The layer id is always
@@ -52,29 +53,18 @@ def compute_bitmasks(n_layers: int, fan_out: int) -> Dict[int, int]:
 
     :param n_layers: int
     :param fan_out: int
+    :param s_bits_atomic_layer: int
     :return: dict
         layer -> bits for layer id
     """
 
     bitmask_dict = {}
     for i_layer in range(n_layers, 0, -1):
-
-        if i_layer == 1:
-            # Lock this layer to an 8 bit layout to maintain compatibility with
-            # the exported segmentation
-
-            # n_bits_for_layers = np.ceil(log_n(fan_out**(n_layers - 2), fan_out))
-            n_bits_for_layers = 8
-        else:
-            layer_exp = n_layers - i_layer
-            n_bits_for_layers = max(1, np.ceil(log_n(fan_out**layer_exp, fan_out)))
-            # n_bits_for_layers = fan_out ** int(np.ceil(log_n(n_bits_for_layers, fan_out)))
-
         layer_exp = n_layers - i_layer
         n_bits_for_layers = max(1, np.ceil(log_n(fan_out**layer_exp, fan_out)))
 
         if i_layer == 1:
-            n_bits_for_layers = np.max([8, n_bits_for_layers])
+            n_bits_for_layers = np.max([s_bits_atomic_layer, n_bits_for_layers])
 
         n_bits_for_layers = int(n_bits_for_layers)
 
@@ -205,11 +195,12 @@ def combine_cross_chunk_edge_dicts(d1, d2, start_layer=2):
 
     for l in layers:
         if l in d1 and l in d2:
-            new_d[l] = np.concatenate([d1[l], d2[l]])
+            new_d[l] = np.concatenate([d1[l].reshape(-1, 2),
+                                       d2[l].reshape(-1, 2)])
         elif l in d1:
-            new_d[l] = d1[l]
+            new_d[l] = d1[l].reshape(-1, 2)
         elif l in d2:
-            new_d[l] = d2[l]
+            new_d[l] = d2[l].reshape(-1, 2)
         else:
             raise Exception()
 

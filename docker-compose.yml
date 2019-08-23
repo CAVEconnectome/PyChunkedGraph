@@ -1,0 +1,56 @@
+version: '3.7'
+
+services:
+
+  pcg_1:
+    build:
+      context: .
+    image: pcg
+    container_name: pcg_1
+    environment:
+      - APP_SETTINGS=pychunkedgraph.app.config.DeploymentWithRedisConfig
+      - FLASK_APP=run_dev_cli.py
+      - REDIS_SERVICE_HOST=redis
+      - REDIS_SERVICE_PORT=6379
+      - REDIS_PASSWORD=dev
+    volumes:
+      - .:/app
+      - ~/secrets:/root/.cloudvolume/secrets
+    ports:
+      - '80:80'
+      - '4000:4000'
+    depends_on:
+      - redis
+
+  pcg_2:
+    image: pcg
+    container_name: pcg_2
+    environment:
+      - APP_SETTINGS=pychunkedgraph.app.config.DeploymentWithRedisConfig
+      - FLASK_APP=run_dev_cli.py
+      - REDIS_SERVICE_HOST=redis
+      - REDIS_SERVICE_PORT=6379
+      - REDIS_PASSWORD=dev
+    volumes:
+      - .:/app
+      - ~/secrets:/root/.cloudvolume/secrets
+    ports:
+      - '81:80'
+      - '4001:4000'
+    depends_on:
+      - pcg_1
+      - redis      
+
+  redis:
+    image: redis:5.0.4-alpine
+    container_name: redis
+    ports:
+      - '6379:6379'
+    command: ["redis-server", "--requirepass", "dev"]
+
+  rq-dashboard:
+    image: python:3.6.8-alpine
+    container_name: rq-dashboard
+    ports:
+      - '9181:9181'
+    command: [sh, -c, "pip install rq-dashboard && rq-dashboard -u redis://:dev@redis:6379"]

@@ -6,14 +6,16 @@ import logging
 from networkx.algorithms.flow import shortest_augmenting_path, edmonds_karp, preflow_push
 from networkx.algorithms.connectivity import minimum_st_edge_cut
 import time
+import graph_tool
 import graph_tool.flow
 
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple, Union
 
 from pychunkedgraph.backend import flatgraph_utils
+from pychunkedgraph.backend import chunkedgraph_exceptions as cg_exceptions
 
 float_max = np.finfo(np.float32).max
-
+DEBUG_MODE = False
 
 def merge_cross_chunk_edges(edges: Iterable[Sequence[np.uint64]],
                             affs: Sequence[np.uint64],
@@ -89,7 +91,6 @@ def merge_cross_chunk_edges_graph_tool(edges: Iterable[Sequence[np.uint64]],
     mapping = np.array([], dtype=np.uint64).reshape(-1, 2)
 
     for cc in ccs:
-        print(cc)
         nodes = unique_ids[cc]
         rep_node = np.min(nodes)
 
@@ -177,7 +178,7 @@ def mincut_nx(edges: Iterable[Sequence[np.uint64]], affs: Sequence[np.uint64],
     time_start = time.time()
 
     ccs = list(nx.connected_components(weighted_graph))
-    print(f"Number connected components: {len(ccs)}")
+
     for cc in ccs:
         cc_list = list(cc)
 
@@ -251,6 +252,7 @@ def mincut_nx(edges: Iterable[Sequence[np.uint64]], affs: Sequence[np.uint64],
     return remapped_cutset[cutset_mask]
 
 
+# TODO: Refactor/break up this long function into several functions
 def mincut_graph_tool(edges: Iterable[Sequence[np.uint64]],
                       affs: Sequence[np.uint64],
                       sources: Sequence[np.uint64],
@@ -310,6 +312,13 @@ def mincut_graph_tool(edges: Iterable[Sequence[np.uint64]],
         flatgraph_utils.build_gt_graph(comb_edges, comb_affs,
                                        make_directed=True)
 
+    # Create an edge property to remove edges later (will be used to test whether split valid)
+    is_fake_edge = np.concatenate(
+        [[False] * len(affs), [True] * (len(sink_edges) + len(source_edges))]
+    )
+    remove_edges_later = np.concatenate([is_fake_edge, is_fake_edge])
+    edges_to_remove = weighted_graph.new_edge_property("bool", vals=remove_edges_later)
+
     sink_graph_ids = np.where(np.in1d(unique_ids, sinks))[0]
     source_graph_ids = np.where(np.in1d(unique_ids, sources))[0]
 
@@ -325,37 +334,47 @@ def mincut_graph_tool(edges: Iterable[Sequence[np.uint64]],
     # Get rid of connected components that are not involved in the local
     # mincut
     ccs = flatgraph_utils.connected_components(weighted_graph)
-    print(f"Number of connected components {len(ccs)}")
 
     removed = weighted_graph.new_vertex_property("bool")
     removed.a = False
     if len(ccs) > 1:
         for cc in ccs:
-            # If connected component contains no sources and/or no sinks,
+            # If connected component contains no sources or no sinks,
             # remove its nodes from the mincut computation
-            if not np.any(np.in1d(source_graph_ids, cc)) or \
-                    not np.any(np.in1d(sink_graph_ids, cc)):
+            if not (np.any(np.in1d(source_graph_ids, cc)) and \
+                    np.any(np.in1d(sink_graph_ids, cc))):
                 for node_id in cc:
                     removed[node_id] = True
 
     weighted_graph.set_vertex_filter(removed, inverted=True)
 
-    # Test that there is only one connected component left
-    ccs = flatgraph_utils.connected_components(weighted_graph)
+    # Somewhat untuitively, we need to create a new pruned graph for the following
+    # connected components call to work correctly, because the vertex filter
+    # only labels the graph and the filtered vertices still show up after running
+    # graph_tool.label_components
+    pruned_graph = graph_tool.Graph(weighted_graph, prune=True)
 
-    print(f"Number of connected components {len(ccs)}")
+    # Test that there is only one connected component left
+    ccs = flatgraph_utils.connected_components(pruned_graph)
 
     if len(ccs) > 1:
         logger.warning("Not all sinks and sources are within the same (local)"
                        "connected component")
-        return []
+        raise cg_exceptions.PreconditionError(
+                "Not all sinks and sources are within the same (local)"
+                "connected component"
+            )
+    elif len(ccs) == 0:
+        raise cg_exceptions.PreconditionError(
+                "Sinks and sources are not connected through the local graph. "
+                "Please try a different set of vertices to perform the mincut."
+            )
 
     # Compute mincut
     src, tgt = weighted_graph.vertex(source_graph_ids[0]), \
                weighted_graph.vertex(sink_graph_ids[0])
 
-    res = graph_tool.flow.boykov_kolmogorov_max_flow(weighted_graph,
-                                                     src, tgt, cap)
+    res = graph_tool.flow.push_relabel_max_flow(weighted_graph, src, tgt, cap)
 
     part = graph_tool.flow.min_st_cut(weighted_graph, src, cap, res)
 
@@ -372,23 +391,52 @@ def mincut_graph_tool(edges: Iterable[Sequence[np.uint64]],
 
     time_start = time.time()
 
-    # Make sure we did not do something wrong: Check if sinks and sources are
-    # among each other and not in different sets
-    for i_cc in np.unique(part.a):
-        # Make sure to read real ids and not graph ids
-        cc_list = unique_ids[np.array(np.where(part.a == i_cc)[0],
-                                      dtype=np.int)]
+    if DEBUG_MODE:
+        # These assertions should not fail. If they do, 
+        # then something went wrong with the graph_tool mincut computation
+        for i_cc in np.unique(part.a):
+            # Make sure to read real ids and not graph ids
+            cc_list = unique_ids[np.array(np.where(part.a == i_cc)[0],
+                                        dtype=np.int)]
 
-        # if logger is not None:
-        #     logger.debug("CC size = %d" % len(cc_list))
+            if np.any(np.in1d(sources, cc_list)):
+                assert np.all(np.in1d(sources, cc_list))
+                assert ~np.any(np.in1d(sinks, cc_list))
 
-        if np.any(np.in1d(sources, cc_list)):
-            assert np.all(np.in1d(sources, cc_list))
-            assert ~np.any(np.in1d(sinks, cc_list))
+            if np.any(np.in1d(sinks, cc_list)):
+                assert np.all(np.in1d(sinks, cc_list))
+                assert ~np.any(np.in1d(sources, cc_list))
 
-        if np.any(np.in1d(sinks, cc_list)):
-            assert np.all(np.in1d(sinks, cc_list))
-            assert ~np.any(np.in1d(sources, cc_list))
+    weighted_graph.clear_filters()
+
+    for cut_edge in cut_edge_set:
+        # May be more than one edge from vertex cut_edge[0] to vertex cut_edge[1], add them all
+        parallel_edges = weighted_graph.edge(cut_edge[0], cut_edge[1], all_edges=True)
+        for edge_to_remove in parallel_edges:
+            edges_to_remove[edge_to_remove] = True
+
+    weighted_graph.set_filters(edges_to_remove, removed, True, True)
+
+    ccs_test_post_cut = flatgraph_utils.connected_components(weighted_graph)
+
+    # Make sure sinks and sources are among each other and not in different sets
+    # after removing the cut edges and the fake infinity edges
+    try:
+        for cc in ccs_test_post_cut:
+            if np.any(np.in1d(source_graph_ids, cc)):
+                assert np.all(np.in1d(source_graph_ids, cc))
+                assert ~np.any(np.in1d(sink_graph_ids, cc))
+
+            if np.any(np.in1d(sink_graph_ids, cc)):
+                assert np.all(np.in1d(sink_graph_ids, cc))
+                assert ~np.any(np.in1d(source_graph_ids, cc))
+    except AssertionError:
+        raise cg_exceptions.PreconditionError(
+                "Failed to find a cut that separated the sources from the sinks. "
+                "Please try another cut that partitions the sets cleanly if possible. "
+                "If there is a clear path between all the supervoxels in each set, "
+                "that helps the mincut algorithm."
+            )
 
     dt = time.time() - time_start
     if logger is not None:

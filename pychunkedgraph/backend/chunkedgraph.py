@@ -13,14 +13,21 @@ import logging
 
 from itertools import chain
 from multiwrapper import multiprocessing_utils as mu
-from pychunkedgraph.backend import cutting, chunkedgraph_comp
+from pychunkedgraph.backend import cutting, chunkedgraph_comp, flatgraph_utils
 from pychunkedgraph.backend.chunkedgraph_utils import compute_indices_pandas, \
     compute_bitmasks, get_google_compatible_time_stamp, \
     get_time_range_filter, get_time_range_and_column_filter, get_max_time, \
     combine_cross_chunk_edge_dicts, get_min_time, partial_row_data_to_column_dict
 from pychunkedgraph.backend.utils import serializers, column_keys, row_keys, basetypes
-from pychunkedgraph.backend import chunkedgraph_exceptions as cg_exceptions
-from pychunkedgraph.meshing import meshgen
+from pychunkedgraph.backend import chunkedgraph_exceptions as cg_exceptions, \
+    chunkedgraph_edits as cg_edits
+from pychunkedgraph.backend.graphoperation import (
+    GraphEditOperation,
+    MergeOperation,
+    MulticutOperation,
+    SplitOperation,
+)
+# from pychunkedgraph.meshing import meshgen
 
 from google.api_core.retry import Retry, if_exception_type
 from google.api_core.exceptions import Aborted, DeadlineExceeded, \
@@ -39,7 +46,8 @@ from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple, Union, 
 
 HOME = os.path.expanduser("~")
 N_DIGITS_UINT64 = len(str(np.iinfo(np.uint64).max))
-LOCK_EXPIRED_TIME_DELTA = datetime.timedelta(minutes=1, seconds=00)
+N_BITS_PER_ROOT_COUNTER = np.uint64(8)
+LOCK_EXPIRED_TIME_DELTA = datetime.timedelta(minutes=3, seconds=0)
 UTC = pytz.UTC
 
 # Setting environment wide credential path
@@ -54,6 +62,9 @@ class ChunkedGraph(object):
                  project_id: str = "neuromancer-seung-import",
                  chunk_size: Tuple[np.uint64, np.uint64, np.uint64] = None,
                  fan_out: Optional[np.uint64] = None,
+                 use_skip_connections: Optional[bool] = True,
+                 s_bits_atomic_layer: Optional[np.uint64] = 8,
+                 n_bits_root_counter: Optional[np.uint64] = 0,
                  n_layers: Optional[np.uint64] = None,
                  credentials: Optional[credentials.Credentials] = None,
                  client: bigtable.Client = None,
@@ -98,19 +109,35 @@ class ChunkedGraph(object):
         self._fan_out = self.check_and_write_table_parameters(
             column_keys.GraphSettings.FanOut, fan_out,
             required=True, is_new=is_new)
+        s_bits_atomic_layer = self.check_and_write_table_parameters(
+            column_keys.GraphSettings.SpatialBits,
+            np.uint64(s_bits_atomic_layer),
+            required=False, is_new=is_new)
+        self._use_skip_connections = self.check_and_write_table_parameters(
+            column_keys.GraphSettings.SkipConnections,
+            np.uint64(use_skip_connections), required=False, is_new=is_new) > 0
+        self._n_bits_root_counter = self.check_and_write_table_parameters(
+            column_keys.GraphSettings.RootCounterBits,
+            np.uint64(n_bits_root_counter),
+            required=False, is_new=is_new)
         self._chunk_size = self.check_and_write_table_parameters(
             column_keys.GraphSettings.ChunkSize, chunk_size,
             required=True, is_new=is_new)
 
         self._dataset_info["graph"] = {"chunk_size": self.chunk_size}
 
-        self._bitmasks = compute_bitmasks(self.n_layers, self.fan_out)
+        self._bitmasks = compute_bitmasks(self.n_layers, self.fan_out,
+                                          s_bits_atomic_layer)
 
         self._cv = None
 
         # Hardcoded parameters
         self._n_bits_for_layer_id = 8
         self._cv_mip = 0
+
+        # Vectorized calls
+        self._get_chunk_layer_vec = np.vectorize(self.get_chunk_layer)
+        self._get_chunk_id_vec = np.vectorize(self.get_chunk_id)
 
     @property
     def client(self) -> bigtable.Client:
@@ -166,6 +193,14 @@ class ChunkedGraph(object):
         return self._chunk_size
 
     @property
+    def n_bits_root_counter(self) -> np.ndarray:
+        return self._n_bits_root_counter
+
+    @property
+    def use_skip_connections(self) -> np.ndarray:
+        return self._use_skip_connections
+
+    @property
     def segmentation_chunk_size(self) -> np.ndarray:
         return self.cv.scale["chunk_sizes"][0]
 
@@ -178,8 +213,8 @@ class ChunkedGraph(object):
         return np.array(self.cv.bounds.to_list()).reshape(2, 3)
 
     @property
-    def n_layers(self) -> np.uint64:
-        return self._n_layers
+    def n_layers(self) -> int:
+        return int(self._n_layers)
 
     @property
     def bitmasks(self) -> Dict[int, int]:
@@ -204,6 +239,10 @@ class ChunkedGraph(object):
                                                info=self.dataset_info)
 
         return self._cv
+
+    @property
+    def vx_vol_bounds(self):
+        return np.array(self.cv.bounds.to_list()).reshape(2, -1).T
 
     @property
     def root_chunk_id(self):
@@ -294,13 +333,72 @@ class ChunkedGraph(object):
 
         return info
 
+
+    def adjust_vol_coordinates_to_cv(self, x: np.int, y: np.int, z: np.int,
+                                     resolution: Sequence[np.int]):
+        resolution = np.array(resolution)
+        scaling = np.array(self.cv.resolution / resolution, dtype=np.int)
+
+        x = (x / scaling[0] - self.vx_vol_bounds[0, 0])
+        y = (y / scaling[1] - self.vx_vol_bounds[1, 0])
+        z = (z / scaling[2] - self.vx_vol_bounds[2, 0])
+
+        return np.array([x, y, z])
+
+    def get_chunk_coordinates_from_vol_coordinates(self,
+                                                   x: np.int,
+                                                   y: np.int,
+                                                   z: np.int,
+                                                   resolution: Sequence[np.int],
+                                                   ceil: bool = False,
+                                                   layer: int = 1
+                                                   ) -> np.ndarray:
+        """ Translates volume coordinates to chunk_coordinates
+
+        :param x: np.int
+        :param y: np.int
+        :param z: np.int
+        :param resolution: np.ndarray
+        :param ceil bool
+        :param layer: int
+        :return:
+        """
+        resolution = np.array(resolution)
+        scaling = np.array(self.cv.resolution / resolution, dtype=np.int)
+
+        x = (x / scaling[0] - self.vx_vol_bounds[0, 0]) / self.chunk_size[0]
+        y = (y / scaling[1] - self.vx_vol_bounds[1, 0]) / self.chunk_size[1]
+        z = (z / scaling[2] - self.vx_vol_bounds[2, 0]) / self.chunk_size[2]
+
+        x /= self.fan_out ** (max(layer - 2, 0))
+        y /= self.fan_out ** (max(layer - 2, 0))
+        z /= self.fan_out ** (max(layer - 2, 0))
+
+        coords = np.array([x, y, z])
+        if ceil:
+            coords = np.ceil(coords)
+
+        return coords.astype(np.int)
+
     def get_chunk_layer(self, node_or_chunk_id: np.uint64) -> int:
         """ Extract Layer from Node ID or Chunk ID
 
         :param node_or_chunk_id: np.uint64
         :return: int
         """
-        return int(node_or_chunk_id) >> 64 - self._n_bits_for_layer_id
+        return int(int(node_or_chunk_id) >> 64 - self._n_bits_for_layer_id)
+
+    def get_chunk_layers(self, node_or_chunk_ids: Sequence[np.uint64]
+                         ) -> np.ndarray:
+        """ Extract Layers from Node IDs or Chunk IDs
+
+        :param node_or_chunk_ids: np.ndarray
+        :return: np.ndarray
+        """
+        if len(node_or_chunk_ids) == 0:
+            return np.array([], dtype=np.int)
+
+        return self._get_chunk_layer_vec(node_or_chunk_ids)
 
     def get_chunk_coordinates(self, node_or_chunk_id: np.uint64
                               ) -> np.ndarray:
@@ -371,9 +469,64 @@ class ChunkedGraph(object):
         :param node_ids: np.ndarray(dtype=np.uint64)
         :return: np.ndarray(dtype=np.uint64)
         """
-        # TODO: measure and improve performance(?)
-        return np.array(list(map(lambda x: self.get_chunk_id(node_id=x),
-                                 node_ids)), dtype=np.uint64)
+        if len(node_ids) == 0:
+            return np.array([], dtype=np.int)
+
+        return self._get_chunk_id_vec(node_ids)
+
+    def get_child_chunk_ids(self, node_or_chunk_id: np.uint64) -> np.ndarray:
+        """ Calculates the ids of the children chunks in the next lower layer
+
+        :param node_or_chunk_id: np.uint64
+        :return: np.ndarray
+        """
+        chunk_coords = self.get_chunk_coordinates(node_or_chunk_id)
+        chunk_layer = self.get_chunk_layer(node_or_chunk_id)
+
+        if chunk_layer == 1:
+            return np.array([])
+        elif chunk_layer == 2:
+            x, y, z = chunk_coords
+            return np.array([self.get_chunk_id(layer=chunk_layer-1,
+                                               x=x, y=y, z=z)])
+        else:
+            chunk_ids = []
+            for dcoord in itertools.product(*[range(self.fan_out)]*3):
+                x, y, z = chunk_coords * self.fan_out + np.array(dcoord)
+                child_chunk_id = self.get_chunk_id(layer=chunk_layer-1,
+                                                   x=x, y=y, z=z)
+                chunk_ids.append(child_chunk_id)
+
+            return np.array(chunk_ids)
+
+    def get_parent_chunk_ids(self, node_or_chunk_id: np.uint64) -> np.ndarray:
+        """ Creates list of chunk parent ids
+
+        :param node_or_chunk_id: np.uint64
+        :return: np.ndarray
+        """
+        parent_chunk_layers = range(self.get_chunk_layer(node_or_chunk_id) + 1,
+                                    self.n_layers + 1)
+        chunk_coord = self.get_chunk_coordinates(node_or_chunk_id)
+
+        parent_chunk_ids = [self.get_chunk_id(node_or_chunk_id)]
+        for layer in parent_chunk_layers:
+            chunk_coord = chunk_coord // self.fan_out
+            parent_chunk_ids.append(self.get_chunk_id(layer=layer,
+                                                      x=chunk_coord[0],
+                                                      y=chunk_coord[1],
+                                                      z=chunk_coord[2]))
+        return np.array(parent_chunk_ids, dtype=np.uint64)
+
+    def get_parent_chunk_id_dict(self, node_or_chunk_id: np.uint64) -> dict:
+        """ Creates dict of chunk parent ids
+
+        :param node_or_chunk_id: np.uint64
+        :return: dict
+        """
+        chunk_layer = self.get_chunk_layer(node_or_chunk_id)
+        return dict(zip(range(chunk_layer, self.n_layers + 1),
+                        self.get_parent_chunk_ids(node_or_chunk_id)))
 
     def get_segment_id_limit(self, node_or_chunk_id: np.uint64) -> np.uint64:
         """ Get maximum possible Segment ID for given Node ID or Chunk ID
@@ -419,6 +572,54 @@ class ChunkedGraph(object):
         else:
             return self.get_chunk_id(layer=layer, x=x, y=y, z=z) | segment_id
 
+    def _get_unique_range(self, row_key, step):
+        column = column_keys.Concurrency.CounterID
+
+        # Incrementer row keys start with an "i" followed by the chunk id
+        append_row = self.table.row(row_key, append=True)
+        append_row.increment_cell_value(column.family_id, column.key, step)
+
+        # This increments the row entry and returns the value AFTER incrementing
+        latest_row = append_row.commit()
+        max_segment_id = column.deserialize(latest_row[column.family_id][column.key][0][0])
+
+        min_segment_id = max_segment_id  + np.uint64(1) - step
+        return min_segment_id, max_segment_id
+
+    def get_unique_segment_id_root_row(self, step: int = 1,
+                                       counter_id: int = None) -> np.ndarray:
+        """ Return unique Segment ID for the Root Chunk
+
+        atomic counter
+
+        :param step: int
+        :param counter_id: np.uint64
+        :return: np.uint64
+        """
+        if self.n_bits_root_counter == 0:
+            return self.get_unique_segment_id_range(self.root_chunk_id,
+                                                    step=step)
+
+        n_counters = np.uint64(2 ** self._n_bits_root_counter)
+
+        if counter_id is None:
+            counter_id = np.uint64(np.random.randint(0, n_counters))
+        else:
+            counter_id = np.uint64(counter_id % n_counters)
+
+        row_key = serializers.serialize_key(
+            f"i{serializers.pad_node_id(self.root_chunk_id)}_{counter_id}")
+
+        min_segment_id, max_segment_id = self._get_unique_range(row_key=row_key,
+                                                                step=step)
+
+        segment_id_range = np.arange(min_segment_id * n_counters + counter_id,
+                                     max_segment_id * n_counters +
+                                     np.uint64(1) + counter_id, n_counters,
+                                     dtype=basetypes.SEGMENT_ID)
+
+        return segment_id_range
+
     def get_unique_segment_id_range(self, chunk_id: np.uint64, step: int = 1
                                     ) -> np.ndarray:
         """ Return unique Segment ID for given Chunk ID
@@ -429,20 +630,16 @@ class ChunkedGraph(object):
         :param step: int
         :return: np.uint64
         """
+        if self.n_layers == self.get_chunk_layer(chunk_id) and \
+                self.n_bits_root_counter > 0:
+            return self.get_unique_segment_id_root_row(step=step)
 
-        column = column_keys.Concurrency.CounterID
-
-        # Incrementer row keys start with an "i" followed by the chunk id
-        row_key = serializers.serialize_key("i%s" % serializers.pad_node_id(chunk_id))
-        append_row = self.table.row(row_key, append=True)
-        append_row.increment_cell_value(column.family_id, column.key, step)
-
-        # This increments the row entry and returns the value AFTER incrementing
-        latest_row = append_row.commit()
-        max_segment_id = column.deserialize(latest_row[column.family_id][column.key][0][0])
-
-        min_segment_id = max_segment_id + 1 - step
-        segment_id_range = np.arange(min_segment_id, max_segment_id + 1,
+        row_key = serializers.serialize_key(
+            "i%s" % serializers.pad_node_id(chunk_id))
+        min_segment_id, max_segment_id = self._get_unique_range(row_key=row_key,
+                                                                step=step)
+        segment_id_range = np.arange(min_segment_id,
+                                     max_segment_id + np.uint64(1),
                                      dtype=basetypes.SEGMENT_ID)
         return segment_id_range
 
@@ -459,7 +656,7 @@ class ChunkedGraph(object):
         return self.get_unique_segment_id_range(chunk_id=chunk_id, step=1)[0]
 
     def get_unique_node_id_range(self, chunk_id: np.uint64, step: int = 1
-                                 )  -> np.ndarray:
+                                 ) -> np.ndarray:
         """ Return unique Node ID range for given Chunk ID
 
         atomic counter
@@ -487,6 +684,34 @@ class ChunkedGraph(object):
 
         return self.get_unique_node_id_range(chunk_id=chunk_id, step=1)[0]
 
+    def get_max_seg_id_root_chunk(self) -> np.uint64:
+        """  Gets maximal root id based on the atomic counter
+
+        This is an approximation. It is not guaranteed that all ids smaller or
+        equal to this id exists. However, it is guaranteed that no larger id
+        exist at the time this function is executed.
+
+        :return: uint64
+        """
+        if self.n_bits_root_counter == 0:
+            return self.get_max_seg_id(self.root_chunk_id)
+
+        n_counters = np.uint64(2 ** self.n_bits_root_counter)
+        max_value = 0
+        for counter_id in range(n_counters):
+            row_key = serializers.serialize_key(
+                f"i{serializers.pad_node_id(self.root_chunk_id)}_{counter_id}")
+
+            row = self.read_byte_row(row_key,
+                                     columns=column_keys.Concurrency.CounterID)
+
+            counter = basetypes.SEGMENT_ID.type(row[0].value if row else 0) * \
+                      n_counters
+            if counter > max_value:
+                max_value = counter
+
+        return max_value
+
     def get_max_seg_id(self, chunk_id: np.uint64) -> np.uint64:
         """  Gets maximal seg id in a chunk based on the atomic counter
 
@@ -497,10 +722,15 @@ class ChunkedGraph(object):
 
         :return: uint64
         """
+        if self.n_layers == self.get_chunk_layer(chunk_id) and \
+                self.n_bits_root_counter > 0:
+            return self.get_max_seg_id_root_chunk()
 
         # Incrementer row keys start with an "i"
-        row_key = serializers.serialize_key("i%s" % serializers.pad_node_id(chunk_id))
-        row = self.read_byte_row(row_key, columns=column_keys.Concurrency.CounterID)
+        row_key = serializers.serialize_key(
+            "i%s" % serializers.pad_node_id(chunk_id))
+        row = self.read_byte_row(row_key,
+                                 columns=column_keys.Concurrency.CounterID)
 
         # Read incrementer value (default to 0) and interpret is as Segment ID
         return basetypes.SEGMENT_ID.type(row[0].value if row else 0)
@@ -906,7 +1136,7 @@ class ChunkedGraph(object):
                                             Iterable[np.uint64]]] = None,
                    operation_id: Optional[np.uint64] = None,
                    slow_retry: bool = True,
-                   block_size: int = 2000) -> bool:
+                   block_size: int = 2000):
         """ Writes a list of mutated rows in bulk
 
         WARNING: If <rows> contains the same row (same row_key) and column
@@ -943,16 +1173,14 @@ class ChunkedGraph(object):
                 root_ids = [root_ids]
 
             if not self.check_and_renew_root_locks(root_ids, operation_id):
-                return False
+                raise cg_exceptions.LockError(f"Root lock renewal failed for operation ID {operation_id}")
 
         for i_row in range(0, len(rows), block_size):
             status = self.table.mutate_rows(rows[i_row: i_row + block_size],
                                             retry=retry_policy)
 
             if not all(status):
-                raise Exception(status)
-
-        return True
+                raise cg_exceptions.ChunkedGraphError(f"Bulk write failed for operation ID {operation_id}")
 
     def _execute_read_thread(self, row_set_and_filter: Tuple[RowSet, RowFilter]):
         row_set, row_filter = row_set_and_filter
@@ -1137,6 +1365,7 @@ class ChunkedGraph(object):
 
         x = int(x)
         y = int(y)
+        z = int(z)
 
         checked = []
         atomic_id = None
@@ -1193,116 +1422,45 @@ class ChunkedGraph(object):
         # Returns None if unsuccessful
         return atomic_id
 
-    def _create_split_log_row(self, operation_id: np.uint64, user_id: str,
-                              root_ids: Sequence[np.uint64],
-                              source_ids: Sequence[np.uint64],
-                              sink_ids: Sequence[np.uint64],
-                              source_coords: Sequence[Sequence[np.int]],
-                              sink_coords: Sequence[Sequence[np.int]],
-                              removed_edges: Sequence[np.uint64],
-                              bb_offset: Sequence[np.int],
-                              time_stamp: datetime.datetime
-                              ) -> bigtable.row.Row:
-        """ Creates log row for a split
+    def read_log_row(
+        self, operation_id: np.uint64
+    ) -> Dict[column_keys._Column, Union[np.ndarray, np.number]]:
+        """ Retrieves log record from Bigtable for a given operation ID
 
         :param operation_id: np.uint64
-        :param user_id: str
-        :param root_ids: array of np.uint64
-        :param source_ids: array of np.uint64
-        :param sink_ids: array of np.uint64
-        :param source_coords: array of ints (n x 3)
-        :param sink_coords: array of ints (n x 3)
-        :param removed_edges: array of np.uint64
-        :param bb_offset: array of np.int
-        :param time_stamp: datetime.datetime
-        :return: row
+        :return: Dict[column_keys._Column, Union[np.ndarray, np.number]]
+        """
+        columns = [
+            column_keys.OperationLogs.UndoOperationID,
+            column_keys.OperationLogs.RedoOperationID,
+            column_keys.OperationLogs.UserID,
+            column_keys.OperationLogs.RootID,
+            column_keys.OperationLogs.SinkID,
+            column_keys.OperationLogs.SourceID,
+            column_keys.OperationLogs.SourceCoordinate,
+            column_keys.OperationLogs.SinkCoordinate,
+            column_keys.OperationLogs.AddedEdge,
+            column_keys.OperationLogs.Affinity,
+            column_keys.OperationLogs.RemovedEdge,
+            column_keys.OperationLogs.BoundingBoxOffset,
+        ]
+        log_record = self.read_node_id_row(operation_id, columns=columns)
+        log_record.update((column, v[0].value) for column, v in log_record.items())
+        return log_record
+
+    def read_first_log_row(self):
+        """ Returns first log row
+
+        :return: None or dict
         """
 
-        val_dict = {column_keys.OperationLogs.UserID: user_id,
-                    column_keys.OperationLogs.RootID:
-                        np.array(root_ids, dtype=np.uint64),
-                    column_keys.OperationLogs.SourceID:
-                        np.array(source_ids),
-                    column_keys.OperationLogs.SinkID:
-                        np.array(sink_ids),
-                    column_keys.OperationLogs.SourceCoordinate:
-                        np.array(source_coords),
-                    column_keys.OperationLogs.SinkCoordinate:
-                        np.array(sink_coords),
-                    column_keys.OperationLogs.BoundingBoxOffset:
-                        np.array(bb_offset),
-                    column_keys.OperationLogs.RemovedEdge:
-                        np.array(removed_edges, dtype=np.uint64)}
+        for operation_id in range(1, 100):
+            log_row = self.read_log_row(np.uint64(operation_id))
 
-        row = self.mutate_row(serializers.serialize_uint64(operation_id),
-                              val_dict, time_stamp)
+            if len(log_row) > 0:
+                return log_row
 
-        return row
-
-    def _create_merge_log_row(self, operation_id: np.uint64, user_id: str,
-                              root_ids: Sequence[np.uint64],
-                              source_ids: Sequence[np.uint64],
-                              sink_ids: Sequence[np.uint64],
-                              source_coords: Sequence[Sequence[np.int]],
-                              sink_coords: Sequence[Sequence[np.int]],
-                              added_edges: Sequence[np.uint64],
-                              affinities: Sequence[np.float32],
-                              time_stamp: datetime.datetime
-                              ) -> bigtable.row.Row:
-        """ Creates log row for a split
-
-        :param operation_id: np.uint64
-        :param user_id: str
-        :param root_ids: array of np.uint64
-        :param source_ids: array of np.uint64
-        :param sink_ids: array of np.uint64
-        :param source_coords: array of ints (n x 3)
-        :param sink_coords: array of ints (n x 3)
-        :param added_edges: array of np.uint64
-        :param affinities: array of np.float32
-        :param time_stamp: datetime.datetime
-        :return: row
-        """
-
-        if affinities is None:
-            affinities = np.array([], dtype=column_keys.Connectivity.Affinity.basetype)
-        else:
-            affinities = np.array(affinities, dtype=column_keys.Connectivity.Affinity.basetype)
-
-        val_dict = {column_keys.OperationLogs.UserID: user_id,
-                    column_keys.OperationLogs.RootID:
-                        np.array(root_ids, dtype=np.uint64),
-                    column_keys.OperationLogs.SourceID:
-                        np.array(source_ids),
-                    column_keys.OperationLogs.SinkID:
-                        np.array(sink_ids),
-                    column_keys.OperationLogs.SourceCoordinate:
-                        np.array(source_coords),
-                    column_keys.OperationLogs.SinkCoordinate:
-                        np.array(sink_coords),
-                    column_keys.OperationLogs.AddedEdge:
-                        np.array(added_edges, dtype=np.uint64),
-                    column_keys.OperationLogs.Affinity: affinities}
-
-        row = self.mutate_row(serializers.serialize_uint64(operation_id),
-                              val_dict, time_stamp)
-
-        return row
-
-    def read_log_row(self, operation_id: np.uint64):
-        """ Reads a log row (both split and merge)
-
-        :param operation_id: np.uint64
-        :return: dict
-        """
-        columns = [column_keys.OperationLogs.UserID, column_keys.OperationLogs.RootID,
-                   column_keys.OperationLogs.SinkID, column_keys.OperationLogs.SourceID,
-                   column_keys.OperationLogs.SourceCoordinate,
-                   column_keys.OperationLogs.SinkCoordinate, column_keys.OperationLogs.AddedEdge,
-                   column_keys.OperationLogs.Affinity, column_keys.OperationLogs.RemovedEdge,
-                   column_keys.OperationLogs.BoundingBoxOffset]
-        row_dict = self.read_node_id_row(operation_id, columns=columns)
-        return row_dict
+        return None
 
     def add_atomic_edges_in_chunks(self, edge_id_dict: dict,
                                    edge_aff_dict: dict, edge_area_dict: dict,
@@ -1374,7 +1532,7 @@ class ChunkedGraph(object):
 
         # Get connected component within the chunk
         chunk_node_ids = np.concatenate([
-                isolated_node_ids,
+                isolated_node_ids.astype(np.uint64),
                 np.unique(edge_id_dict["in_connected"]),
                 np.unique(edge_id_dict["in_disconnected"]),
                 np.unique(edge_id_dict["cross"][:, 0]),
@@ -1395,14 +1553,17 @@ class ChunkedGraph(object):
                             "Number of occurences:" %
                             (chunk_id, len(u_node_chunk_ids)), c_node_chunk_ids)
 
-        chunk_g = nx.Graph()
-        chunk_g.add_nodes_from(chunk_node_ids)
-        chunk_g.add_edges_from(edge_id_dict["in_connected"])
+        add_edge_ids = np.vstack([chunk_node_ids, chunk_node_ids]).T
+        edge_ids = np.concatenate([edge_id_dict["in_connected"].copy(),
+                                   add_edge_ids])
 
-        ccs = list(nx.connected_components(chunk_g))
+        graph, _, _, unique_graph_ids = flatgraph_utils.build_gt_graph(
+            edge_ids, make_directed=True)
 
-        # if verbose:
-        #     self.logger.debug("CC in chunk: %.3fs" % (time.time() - time_start))
+        ccs = flatgraph_utils.connected_components(graph)
+
+        if verbose:
+            self.logger.debug("CC in chunk: %.3fs" % (time.time() - time_start))
 
         # Add rows for nodes that are in this chunk
         # a connected component at a time
@@ -1433,12 +1594,7 @@ class ChunkedGraph(object):
         rows = []
 
         for i_cc, cc in enumerate(ccs):
-            # if node_c % 1000 == 1 and verbose:
-            #     dt = time.time() - time_start
-            #     self.logger.debug("%5d at %5d - %.5fs             " %
-            #                       (i_cc, node_c, dt / node_c), end="\r")
-
-            node_ids = np.array(list(cc))
+            node_ids = unique_graph_ids[cc]
 
             u_chunk_ids = np.unique([self.get_chunk_id(n) for n in node_ids])
 
@@ -1627,11 +1783,14 @@ class ChunkedGraph(object):
             range_read = self.range_read_chunk(layer_id - 1, x, y, z,
                                                columns=columns)
 
-            # Due to restarted jobs some parents might be duplicated. We can
-            # find these duplicates only by comparing their children because
-            # each node has a unique id. However, we can use that more recently
-            # created nodes have higher segment ids. We are only interested in
-            # the latest version of any duplicated parents.
+            # Due to restarted jobs some nodes in the layer below might be
+            # duplicated. We want to ignore the earlier created node(s) because
+            # they belong to the failed job. We can find these duplicates only
+            # by comparing their children because each node has a unique id.
+            # However, we can use that more recently created nodes have higher
+            # segment ids (not true on root layer but we do not have that here.
+            # We are only interested in the latest version of any duplicated
+            # parents.
 
             # Deserialize row keys and store child with highest id for
             # comparison
@@ -1719,49 +1878,69 @@ class ChunkedGraph(object):
         def _write_out_connected_components(args) -> None:
             start, end = args
 
-            n_ccs = int(end - start)
-            parent_ids = self.get_unique_node_id_range(chunk_id, step=n_ccs)
-            rows = []
+            # Collect cc info
+            parent_layer_ids = range(layer_id, self.n_layers + 1)
+            cc_connections = {l: [] for l in parent_layer_ids}
             for i_cc, cc in enumerate(ccs[start: end]):
-                node_ids = np.array(list(cc))
+                node_ids = unique_graph_ids[cc]
 
-                parent_id = parent_ids[i_cc]
-                parent_cross_edges = {l: [] for l in range(layer_id, self.n_layers)}
+                parent_cross_edges = collections.defaultdict(list)
 
-                # Add rows for nodes that are in this chunk
+                # Collect row info for nodes that are in this chunk
                 for node_id in node_ids:
                     if node_id in cross_edge_dict:
                         # Extract edges relevant to this node
                         for l in range(layer_id, self.n_layers):
-                            if l in cross_edge_dict[node_id] and len(cross_edge_dict[node_id][l]) > 0:
+                            if l in cross_edge_dict[node_id] and \
+                                    len(cross_edge_dict[node_id][l]) > 0:
                                 parent_cross_edges[l].append(cross_edge_dict[node_id][l])
 
-                    # Create node
+                if self.use_skip_connections and len(node_ids) == 1:
+                    for l in parent_layer_ids:
+                        if l == self.n_layers or len(parent_cross_edges[l]) > 0:
+                            cc_connections[l].append([node_ids,
+                                                      parent_cross_edges])
+                            break
+                else:
+                    cc_connections[layer_id].append([node_ids,
+                                                     parent_cross_edges])
+
+            # Write out cc info
+            rows = []
+
+            # Iterate through layers
+            for parent_layer_id in parent_layer_ids:
+                if len(cc_connections[parent_layer_id]) == 0:
+                    continue
+
+                parent_chunk_id = parent_chunk_id_dict[parent_layer_id]
+                reserved_parent_ids = self.get_unique_node_id_range(
+                    parent_chunk_id, step=len(cc_connections[parent_layer_id]))
+
+                for i_cc, cc_info in enumerate(cc_connections[parent_layer_id]):
+                    node_ids, parent_cross_edges = cc_info
+
+                    parent_id = reserved_parent_ids[i_cc]
                     val_dict = {column_keys.Hierarchy.Parent: parent_id}
 
-                    rows.append(self.mutate_row(serializers.serialize_uint64(node_id),
-                                                val_dict, time_stamp=time_stamp))
+                    for node_id in node_ids:
+                        rows.append(self.mutate_row(
+                            serializers.serialize_uint64(node_id),
+                            val_dict, time_stamp=time_stamp))
 
-                # Create parent node
-                val_dict = {column_keys.Hierarchy.Child: node_ids}
+                    val_dict = {column_keys.Hierarchy.Child: node_ids}
+                    for l in range(parent_layer_id, self.n_layers):
+                        if l in parent_cross_edges and len(parent_cross_edges[l]) > 0:
+                            val_dict[column_keys.Connectivity.CrossChunkEdge[l]] = \
+                                np.concatenate(parent_cross_edges[l])
 
-                rows.append(self.mutate_row(serializers.serialize_uint64(parent_id),
-                                            val_dict, time_stamp=time_stamp))
+                    rows.append(
+                        self.mutate_row(serializers.serialize_uint64(parent_id),
+                                        val_dict, time_stamp=time_stamp))
 
-                val_dict = {}
-
-                for l in range(layer_id, self.n_layers):
-                    if l in parent_cross_edges and len(parent_cross_edges[l]) > 0:
-                        val_dict[column_keys.Connectivity.CrossChunkEdge[l]] = \
-                            np.concatenate(parent_cross_edges[l])
-
-                if len(val_dict) > 0:
-                    rows.append(self.mutate_row(serializers.serialize_uint64(parent_id),
-                                                val_dict, time_stamp=time_stamp))
-
-                if len(rows) > 100000:
-                    self.bulk_write(rows)
-                    rows = []
+                    if len(rows) > 100000:
+                        self.bulk_write(rows)
+                        rows = []
 
             if len(rows) > 0:
                 self.bulk_write(rows)
@@ -1839,17 +2018,20 @@ class ChunkedGraph(object):
 
         # Make parent id creation easier
         x, y, z = np.min(child_chunk_coords, axis=0) // self.fan_out
-
         chunk_id = self.get_chunk_id(layer=layer_id, x=x, y=y, z=z)
 
+        parent_chunk_id_dict = self.get_parent_chunk_id_dict(chunk_id)
+
         # Extract connected components
-        chunk_g = nx.from_edgelist(edge_ids)
-
-        # Add single node objects that have no edges
         isolated_node_mask = ~np.in1d(ll_node_ids, np.unique(edge_ids))
-        add_ccs = list(ll_node_ids[isolated_node_mask][:, None])
+        add_node_ids = ll_node_ids[isolated_node_mask].squeeze()
+        add_edge_ids = np.vstack([add_node_ids, add_node_ids]).T
+        edge_ids.extend(add_edge_ids)
 
-        ccs = list(nx.connected_components(chunk_g)) + add_ccs
+        graph, _, _, unique_graph_ids = flatgraph_utils.build_gt_graph(
+            edge_ids, make_directed=True)
+
+        ccs = flatgraph_utils.connected_components(graph)
 
         if verbose:
             self.logger.debug("Time connected components: %.3fs" %
@@ -1913,6 +2095,44 @@ class ChunkedGraph(object):
                 atomic_cross_edges[l] = row[column][0].value
 
         return atomic_cross_edges
+
+    def get_parents(self, node_ids: Sequence[np.uint64],
+                    get_only_relevant_parents: bool = True,
+                    time_stamp: Optional[datetime.datetime] = None):
+        """ Acquires parents of a node at a specific time stamp
+
+        :param node_ids: list of uint64
+        :param get_only_relevant_parents: bool
+            True: return single parent according to time_stamp
+            False: return n x 2 list of all parents
+                   ((parent_id, time_stamp), ...)
+        :param time_stamp: datetime or None
+        :return: uint64 or None
+        """
+        if time_stamp is None:
+            time_stamp = datetime.datetime.utcnow()
+
+        if time_stamp.tzinfo is None:
+            time_stamp = UTC.localize(time_stamp)
+
+        parent_rows = self.read_node_id_rows(node_ids=node_ids,
+                                            columns=column_keys.Hierarchy.Parent,
+                                            end_time=time_stamp,
+                                            end_time_inclusive=True)
+
+        if not parent_rows:
+            return None
+
+        if get_only_relevant_parents:
+            return np.array([parent_rows[node_id][0].value
+                             for node_id in node_ids])
+
+        parents = []
+        for node_id in node_ids:
+            parents.append([(p.value, p.timestamp)
+                            for p in parent_rows[node_id]])
+
+        return parents
 
     def get_parent(self, node_id: np.uint64,
                    get_only_relevant_parent: bool = True,
@@ -2014,8 +2234,60 @@ class ChunkedGraph(object):
                                                   min_seg_id=min_seg_id,
                                                   n_threads=n_threads)
 
+    def get_roots(self, node_ids: Sequence[np.uint64],
+                  time_stamp: Optional[datetime.datetime] = None,
+                  stop_layer: int = None, n_tries: int = 1):
+        """ Takes node ids and returns the associated agglomeration ids
+
+        :param node_ids: list of uint64
+        :param time_stamp: None or datetime
+        :return: np.uint64
+        """
+        if time_stamp is None:
+            time_stamp = datetime.datetime.utcnow()
+
+        if time_stamp.tzinfo is None:
+            time_stamp = UTC.localize(time_stamp)
+
+        # Comply to resolution of BigTables TimeRange
+        time_stamp = get_google_compatible_time_stamp(time_stamp,
+                                                      round_up=False)
+
+        parent_ids = np.array(node_ids)
+
+        if stop_layer is not None:
+            stop_layer = min(self.n_layers, stop_layer)
+        else:
+            stop_layer = self.n_layers
+
+        node_mask = np.ones(len(node_ids), dtype=np.bool)
+        node_mask[self.get_chunk_layers(node_ids) >= stop_layer] = False
+        for i_try in range(n_tries):
+            parent_ids = np.array(node_ids)
+
+            for i_layer in range(int(stop_layer + 1)):
+                temp_parent_ids = self.get_parents(parent_ids[node_mask],
+                                                   time_stamp=time_stamp)
+
+                if temp_parent_ids is None:
+                    break
+                else:
+                    parent_ids[node_mask] = temp_parent_ids
+
+                    node_mask[self.get_chunk_layers(parent_ids) >= stop_layer] = False
+                    if np.all(~node_mask):
+                        break
+
+            if np.all(self.get_chunk_layers(parent_ids) >= stop_layer):
+                break
+            else:
+                time.sleep(.5)
+
+        return parent_ids
+
     def get_root(self, node_id: np.uint64,
                  time_stamp: Optional[datetime.datetime] = None,
+                 get_all_parents=False, stop_layer: int = None,
                  n_tries: int = 1) -> Union[List[np.uint64], np.uint64]:
         """ Takes a node id and returns the associated agglomeration ids
 
@@ -2034,12 +2306,18 @@ class ChunkedGraph(object):
                                                       round_up=False)
 
         parent_id = node_id
+        all_parent_ids = []
+
+        if stop_layer is not None:
+            stop_layer = min(self.n_layers, stop_layer)
+        else:
+            stop_layer = self.n_layers
 
         for i_try in range(n_tries):
             parent_id = node_id
 
-            for i_layer in range(self.get_chunk_layer(node_id)+1,
-                                 int(self.n_layers + 1)):
+            for i_layer in range(self.get_chunk_layer(node_id),
+                                 int(stop_layer + 1)):
 
                 temp_parent_id = self.get_parent(parent_id,
                                                  time_stamp=time_stamp)
@@ -2048,56 +2326,39 @@ class ChunkedGraph(object):
                     break
                 else:
                     parent_id = temp_parent_id
+                    all_parent_ids.append(parent_id)
 
-            if self.get_chunk_layer(parent_id) == self.n_layers:
+                    if self.get_chunk_layer(parent_id) >= stop_layer:
+                        break
+
+            if self.get_chunk_layer(parent_id) >= stop_layer:
                 break
             else:
                 time.sleep(.5)
 
-        if self.get_chunk_layer(parent_id) != self.n_layers:
+        if self.get_chunk_layer(parent_id) < stop_layer:
             raise Exception("Cannot find root id {}, {}".format(node_id,
                                                                 time_stamp))
 
-        return parent_id
+        if get_all_parents:
+            return np.array(all_parent_ids)
+        else:
+            return parent_id
 
-    def get_all_parents(self, node_id: np.uint64,
-                        time_stamp: Optional[datetime.datetime] = None
-                        ) -> Union[List[np.uint64], np.uint64]:
+    def get_all_parents_dict(self, node_id: np.uint64,
+                             time_stamp: Optional[datetime.datetime] = None
+                             ) -> dict:
         """ Takes a node id and returns all parents and parents' parents up to
             the top
 
         :param node_id: uint64
         :param time_stamp: None or datetime
-        :return: np.uint64
+        :return: dict
         """
-        if time_stamp is None:
-            time_stamp = datetime.datetime.utcnow()
-
-        if time_stamp.tzinfo is None:
-            time_stamp = UTC.localize(time_stamp)
-
-        early_finish = True
-        parent_ids: List[np.uint64] = []
-
-        while early_finish:
-            parent_id = node_id
-            parent_ids = []
-
-            early_finish = False
-
-            for i_layer in range(self.get_chunk_layer(node_id)+1,
-                                 int(self.n_layers + 1)):
-                temp_parent_id = self.get_parent(parent_id,
-                                                 time_stamp=time_stamp)
-
-                if temp_parent_id is None:
-                    early_finish = True
-                    break
-                else:
-                    parent_id = temp_parent_id
-                    parent_ids.append(parent_id)
-
-        return parent_ids
+        parent_ids = self.get_root(node_id=node_id, time_stamp=time_stamp,
+                                   get_all_parents=True)
+        parent_id_layers = self.get_chunk_layers(parent_ids)
+        return dict(zip(parent_id_layers, parent_ids))
 
     def lock_root_loop(self, root_ids: Sequence[np.uint64],
                        operation_id: np.uint64, max_tries: int = 1,
@@ -2629,11 +2890,11 @@ class ChunkedGraph(object):
                         temp_next_ids.append(id_)
 
                     if is_merge:
-                        added_edges = log_row[column_keys.OperationLogs.AddedEdge][0].value
+                        added_edges = log_row[column_keys.OperationLogs.AddedEdge]
                         merge_history.append(added_edges)
 
-                        coords = [log_row[column_keys.OperationLogs.SourceCoordinate][0].value,
-                                  log_row[column_keys.OperationLogs.SinkCoordinate][0].value]
+                        coords = [log_row[column_keys.OperationLogs.SourceCoordinate],
+                                  log_row[column_keys.OperationLogs.SinkCoordinate]]
 
                         if correct_for_wrong_coord_type:
                             # A little hack because we got the datatype wrong...
@@ -2644,7 +2905,7 @@ class ChunkedGraph(object):
                         merge_history_edges.append(coords)
 
                     if not is_merge:
-                        removed_edges = log_row[column_keys.OperationLogs.RemovedEdge][0].value
+                        removed_edges = log_row[column_keys.OperationLogs.RemovedEdge]
                         split_history.append(removed_edges)
                 else:
                     continue
@@ -2664,11 +2925,13 @@ class ChunkedGraph(object):
             return None
 
         if bb_is_coordinate:
-            bounding_box = np.array(bounding_box,
-                                    dtype=np.float32) / self.chunk_size
-            bounding_box[0] = np.floor(bounding_box[0])
-            bounding_box[1] = np.ceil(bounding_box[1])
-            return bounding_box.astype(np.int)
+            bounding_box[0] = self.get_chunk_coordinates_from_vol_coordinates(
+                bounding_box[0][0], bounding_box[0][1], bounding_box[0][2],
+                resolution=self.cv.resolution, ceil=False)
+            bounding_box[1] = self.get_chunk_coordinates_from_vol_coordinates(
+                bounding_box[1][0], bounding_box[1][1], bounding_box[1][2],
+                resolution=self.cv.resolution, ceil=True)
+            return bounding_box
         else:
             return np.array(bounding_box, dtype=np.int)
 
@@ -2678,26 +2941,33 @@ class ChunkedGraph(object):
             return_layers: Sequence[int],
             verbose: bool):
 
-        layer = self.get_chunk_layer(node_id)
-        assert layer > 1
-
         def _get_subgraph_higher_layer_nodes_threaded(
                 node_ids: Iterable[np.uint64]) -> List[np.uint64]:
             children = self.get_children(node_ids, flatten=True)
 
             if len(children) > 0 and bounding_box is not None:
                 chunk_coordinates = np.array([self.get_chunk_coordinates(c) for c in children])
+                child_layers = self.get_chunk_layers(children)
+                adapt_child_layers = child_layers - 2
+                adapt_child_layers[adapt_child_layers < 0] = 0
 
-                bounding_box_layer = bounding_box / self.fan_out ** np.max([0, (layer - 3)])
+                bounding_box_layer = bounding_box[None] / \
+                                     (self.fan_out ** adapt_child_layers)[:, None, None]
 
                 bound_check = np.array([
-                    np.all(chunk_coordinates < bounding_box_layer[1], axis=1),
-                    np.all(chunk_coordinates + 1 > bounding_box_layer[0], axis=1)]).T
+                    np.all(chunk_coordinates < bounding_box_layer[:, 1], axis=1),
+                    np.all(chunk_coordinates + 1 > bounding_box_layer[:, 0], axis=1)]).T
 
                 bound_check_mask = np.all(bound_check, axis=1)
                 children = children[bound_check_mask]
 
             return children
+
+        if bounding_box is not None:
+            bounding_box = np.array(bounding_box)
+
+        layer = self.get_chunk_layer(node_id)
+        assert layer > 1
 
         nodes_per_layer = {}
         child_ids = np.array([node_id], dtype=np.uint64)
@@ -2711,13 +2981,19 @@ class ChunkedGraph(object):
 
         while layer > stop_layer:
             # Use heuristic to guess the optimal number of threads
+            child_id_layers = self.get_chunk_layers(child_ids)
+            this_layer_m = child_id_layers == layer
+            this_layer_child_ids = child_ids[this_layer_m]
+            next_layer_child_ids = child_ids[~this_layer_m]
+
             n_child_ids = len(child_ids)
             this_n_threads = np.min([int(n_child_ids // 50000) + 1, mu.n_cpus])
 
             child_ids = np.fromiter(chain.from_iterable(mu.multithread_func(
                 _get_subgraph_higher_layer_nodes_threaded,
-                np.array_split(child_ids, this_n_threads),
+                np.array_split(this_layer_child_ids, this_n_threads),
                 n_threads=this_n_threads, debug=this_n_threads == 1)), np.uint64)
+            child_ids = np.concatenate([child_ids, next_layer_child_ids])
 
             if verbose:
                 self.logger.debug("Layer %d: %.3fms for %d children with %d threads" %
@@ -2767,6 +3043,7 @@ class ChunkedGraph(object):
         if verbose:
             time_start = time.time()
 
+
         child_chunk_ids = self.get_chunk_ids_from_node_ids(child_ids)
         u_ccids = np.unique(child_chunk_ids)
 
@@ -2794,9 +3071,9 @@ class ChunkedGraph(object):
             edges = np.concatenate([edges, _edges])
 
         if verbose:
-            self.logger.debug("Layer %d: %.3fms for %d children with %d threads" %
-                              (2, (time.time() - time_start) * 1000, n_child_ids,
-                               this_n_threads))
+            self.logger.debug("Layer %d: %.3fms for %d childs with %d threads" %
+                              (2, (time.time() - time_start) * 1000,
+                               n_child_ids, this_n_threads))
 
         return edges, affinities, areas
 
@@ -2822,7 +3099,8 @@ class ChunkedGraph(object):
             return self.get_children(node_ids, flatten=True)
 
         stop_layer = np.min(return_layers)
-        bounding_box = self.normalize_bounding_box(bounding_box, bb_is_coordinate)
+        bounding_box = self.normalize_bounding_box(bounding_box,
+                                                   bb_is_coordinate)
 
         # Layer 3+
         if stop_layer >= 2:
@@ -3164,13 +3442,15 @@ class ChunkedGraph(object):
 
         return edges, affinities, areas
 
-    def add_edges(self, user_id: str, atomic_edges: Sequence[np.uint64],
-                  affinities: Sequence[np.float32] = None,
-                  source_coord: Sequence[int] = None,
-                  sink_coord: Sequence[int] = None,
-                  remesh_preview: bool = False,
-                  return_new_lvl2_nodes: bool = False,
-                  n_tries: int = 60) -> np.uint64:
+    def add_edges(
+        self,
+        user_id: str,
+        atomic_edges: Sequence[np.uint64],
+        affinities: Sequence[np.float32] = None,
+        source_coord: Sequence[int] = None,
+        sink_coord: Sequence[int] = None,
+        n_tries: int = 60,
+    ) -> GraphEditOperation.Result:
         """ Adds an edge to the chunkedgraph
 
             Multi-user safe through locking of the root node
@@ -3187,486 +3467,30 @@ class ChunkedGraph(object):
             will eventually be set to 1 if None
         :param source_coord: list of int (n x 3)
         :param sink_coord: list of int (n x 3)
-        :param remesh_preview: bool
-        :param return_new_lvl2_nodes: bool
         :param n_tries: int
-        :return: uint64
-            if successful the new root id is send
-            else None
+        :return: GraphEditOperation.Result
         """
-        if not (isinstance(atomic_edges[0], list) or isinstance(atomic_edges[0], np.ndarray)):
-            atomic_edges = [atomic_edges]
-
-        atomic_edges = np.array(atomic_edges)
-
-        if affinities is not None:
-            if not (isinstance(affinities, list) or
-                    isinstance(affinities, np.ndarray)):
-                affinities = [affinities]
-
-        root_ids = []
-        for atomic_edge in atomic_edges:
-            # Sanity Checks
-            if atomic_edge[0] == atomic_edge[1]:
-                return None
-
-            if self.get_chunk_layer(atomic_edge[0]) != \
-                    self.get_chunk_layer(atomic_edge[1]):
-                return None
-
-            # Lookup root ids
-            root_ids.append([self.get_root(atomic_edge[0]),
-                             self.get_root(atomic_edge[1])])
-
-        u_root_ids = np.unique(root_ids)
-
-        # Get a unique id for this operation
-        operation_id = self.get_unique_operation_id()
-
-        i_try = 0
-        lock_root_ids = u_root_ids
-        while i_try < n_tries:
-            # Try to acquire lock and only continue if successful
-            lock_acquired, lock_root_ids = \
-                self.lock_root_loop(root_ids=lock_root_ids,
-                                    operation_id=operation_id)
-
-            if lock_acquired:
-                rows = []
-                new_root_ids = []
-
-                lock_operation_ids = np.array([operation_id] *
-                                              len(lock_root_ids))
-                time_stamp = self.read_consolidated_lock_timestamp(
-                    lock_root_ids, lock_operation_ids)
-
-                # Add edge and change hierarchy
-                # for atomic_edge in atomic_edges:
-                new_root_id, new_rows, lvl2_node_mapping = \
-                    self._add_edges(operation_id=operation_id,
-                                    atomic_edges=atomic_edges,
-                                    time_stamp=time_stamp,
-                                    affinities=affinities)
-                rows.extend(new_rows)
-                new_root_ids.append(new_root_id)
-
-                # Add a row to the log
-                log_row = self._create_merge_log_row(operation_id,
-                                                     user_id,
-                                                     new_root_ids,
-                                                     atomic_edges[:, 0],
-                                                     atomic_edges[:, 1],
-                                                     [source_coord],
-                                                     [sink_coord],
-                                                     atomic_edges,
-                                                     affinities,
-                                                     time_stamp)
-
-                # Put log row first!
-                rows = [log_row] + rows
-
-                # Execute write (makes sure that we are still owning the lock)
-                if self.bulk_write(rows, lock_root_ids,
-                                   operation_id=operation_id,
-                                   slow_retry=False):
-                    if remesh_preview:
-                        meshgen.mesh_lvl2_previews(self, list(
-                            lvl2_node_mapping.keys()))
-
-                    if return_new_lvl2_nodes:
-                        return new_root_id, list(lvl2_node_mapping.keys())
-                    else:
-                        return new_root_id
-
-            for lock_root_id in lock_root_ids:
-                self.unlock_root(lock_root_id, operation_id)
-
-            i_try += 1
-
-            self.logger.debug(f"Waiting - {i_try}")
-            time.sleep(1)
-
-        self.logger.warning("Could not acquire root object lock.")
-        raise cg_exceptions.LockingError(
-            f"Could not acquire root object lock."
-        )
-
-    def _add_edges(self, operation_id: np.uint64,
-                   atomic_edges: Sequence[Sequence[np.uint64]],
-                   time_stamp=datetime.datetime,
-                   affinities: Optional[Sequence[np.float32]] = None
-                   ):
-        """ Adds multiple edges to a graph
-
-        :param operation_id: np.uint64
-        :param atomic_edges: list of two uint64s
-        :param time_stamp: datetime.datetime
-        :param affinities: list of np.float32
-        :return: list of np.uint64, rows
-        """
-        if affinities is None:
-            affinities = np.ones(len(atomic_edges),
-                                 dtype=column_keys.Connectivity.Affinity.basetype)
-
-        assert len(affinities) == len(atomic_edges)
-
-        rows = []
-
-        # Create node_id to parent look up for later
-        lvl2_node_mapping = {} # fore remeshing
-        node_ids = np.unique(atomic_edges)
-        node_id_parent_dict = {}
-        parent_node_id_dict = collections.defaultdict(list)
-        for node_id in node_ids:
-            parent_ids = self.get_all_parents(node_id)
-            node_id_parent_dict[node_id] = parent_ids
-
-            for parent_id in parent_ids:
-                parent_node_id_dict[parent_id].append(node_id)
-
-        # Layer 1 --------------------------------------------------------------
-
-        # Look up when the edges in question "become relevant"
-        edge_layers = self.get_cross_chunk_edges_layer(atomic_edges)
-
-        parental_edges = []
-        cross_chunk_edges = {}
-        future_links = collections.defaultdict(list)
-
-        for atomic_edge, edge_layer in zip(atomic_edges, edge_layers):
-            # Test if edge is cross chunk edge
-            if edge_layer == 1:
-                # Level 1 edge
-                old_parent_ids = [node_id_parent_dict[atomic_edge[0]][0],
-                                  node_id_parent_dict[atomic_edge[1]][0]]
-
-                parental_edges.append(old_parent_ids)
-
-                cross_chunk_edges[atomic_edge[0]] = {}
-                cross_chunk_edges[atomic_edge[1]] = {}
-            else:
-                # Add self edges to have these ids in the graph
-                parental_edges.append([node_id_parent_dict[atomic_edge[0]][0],
-                                       node_id_parent_dict[atomic_edge[0]][0]])
-                parental_edges.append([node_id_parent_dict[atomic_edge[1]][0],
-                                       node_id_parent_dict[atomic_edge[1]][0]])
-
-                # Cross chunk edge
-                cross_chunk_edges[atomic_edge[0]] = {edge_layer: np.array([atomic_edge])}
-                cross_chunk_edges[atomic_edge[1]] = {edge_layer: np.array([atomic_edge[::-1]])}
-
-                future_links[edge_layer].append([node_id_parent_dict[atomic_edge[0]][edge_layer - 1],
-                                                 node_id_parent_dict[atomic_edge[1]][edge_layer - 1]])
-        # resolve edges with same parent
-        G = nx.Graph()
-        G.add_edges_from(parental_edges)
-
-        ccs = nx.connected_components(G)
-
-        next_cc_storage = [] # Data passed on from layer to layer
-        old_parent_mapping = collections.defaultdict(list)
-        for cc in ccs:
-            old_parent_ids = list(cc)
-
-            atomic_ids = []
-            involved_atomic_ids = []
-            cross_chunk_edge_dict = {}
-
-            # for l in range(2, self.n_layers):
-            #     cross_chunk_edge_dict[l] = \
-            #         np.array([], dtype=column_keys.Connectivity.CrossChunkEdge.basetype)
-
-            for old_parent_id in old_parent_ids:
-                involved_atomic_ids.extend(parent_node_id_dict[old_parent_id])
-
-                child_ids = self.get_children(old_parent_id)
-                atomic_ids.extend(child_ids)
-
-                cross_chunk_edge_dict = \
-                    combine_cross_chunk_edge_dicts(cross_chunk_edge_dict,
-                                                   self.read_cross_chunk_edges(old_parent_id))
-
-            involved_atomic_ids = np.unique(involved_atomic_ids)
-            for involved_atomic_id in involved_atomic_ids:
-                if involved_atomic_id in cross_chunk_edges:
-                    cross_chunk_edge_dict = combine_cross_chunk_edge_dicts(cross_chunk_edge_dict, cross_chunk_edges[involved_atomic_id])
-
-            atomic_ids = np.array(atomic_ids, dtype=np.uint64)
-
-            chunk_id = self.get_chunk_id(node_id=old_parent_ids[0])
-            new_parent_id = self.get_unique_node_id(chunk_id)
-
-            for atomic_id in atomic_ids:
-                val_dict = {column_keys.Hierarchy.Parent: new_parent_id}
-                rows.append(self.mutate_row(serializers.serialize_uint64(atomic_id),
-                                            val_dict, time_stamp=time_stamp))
-
-            val_dict = {column_keys.Hierarchy.Child: atomic_ids}
-
-            rows.append(self.mutate_row(serializers.serialize_uint64(new_parent_id),
-                                        val_dict, time_stamp=time_stamp))
-            lvl2_node_mapping[new_parent_id] = atomic_ids
-
-            val_dict = {}
-            for l in range(2, self.n_layers):
-                if len(cross_chunk_edge_dict[l]) > 0:
-                    val_dict[column_keys.Connectivity.CrossChunkEdge[l]] = \
-                        cross_chunk_edge_dict[l]
-
-            if len(val_dict):
-                rows.append(self.mutate_row(serializers.serialize_uint64(new_parent_id),
-                                            val_dict, time_stamp=time_stamp))
-
-            next_old_parents = [self.get_parent(n) for n in old_parent_ids]
-            for p in next_old_parents:
-                old_parent_mapping[p].append(len(next_cc_storage)) # Save storage ids for each future parent
-
-            next_cc_storage.append([new_parent_id,
-                                    next_old_parents,
-                                    old_parent_ids,
-                                    cross_chunk_edge_dict])
-
-        # Higher Layers --------------------------------------------------------
-
-        new_root_ids = []
-        if self.n_layers == 2:
-            # Special case
-            for cc_storage in next_cc_storage:
-                new_root_ids.append(cc_storage[0])
-
-        for i_layer in range(2, self.n_layers):
-            cc_storage = list(next_cc_storage) # copy
-            next_cc_storage = []
-
-            # combine what belongs together
-            parental_edges = []
-            for p in old_parent_mapping.keys():
-                # building edges between parents
-                parental_edges.extend(
-                    list(itertools.product(old_parent_mapping[p],
-                                           old_parent_mapping[p])))
-
-            for e in future_links[i_layer]:
-                parental_edges.extend(list(itertools.product(old_parent_mapping[e[0]],
-                                                             old_parent_mapping[e[1]])))
-
-            old_parent_mapping = collections.defaultdict(list)
-
-            G = nx.Graph()
-            G.add_edges_from(parental_edges)
-            ccs = list(nx.connected_components(G))
-
-            for cc in ccs:
-                cc_storage_ids = list(cc)
-
-                new_child_ids = [] # new_parent_id
-                old_parent_ids = [] # next_old_parents
-                old_child_ids = [] # old_parent_ids
-                cross_chunk_edge_dict = {}
-
-                for cc_storage_id in cc_storage_ids:
-                    cc_storage_entry = cc_storage[cc_storage_id]
-
-                    new_child_ids.append(cc_storage_entry[0])
-                    old_parent_ids.extend(cc_storage_entry[1])
-                    old_child_ids.extend(cc_storage_entry[2])
-                    cross_chunk_edge_dict = \
-                        combine_cross_chunk_edge_dicts(cross_chunk_edge_dict,
-                                                       cc_storage_entry[3])
-
-                new_child_ids = np.array(new_child_ids,
-                                         dtype=column_keys.Connectivity.Partner.basetype)
-
-                chunk_id = self.get_chunk_id(node_id=old_parent_ids[0])
-                new_parent_id = self.get_unique_node_id(chunk_id)
-
-                maintained_child_ids = []
-                for old_parent_id in old_parent_ids:
-                    old_parent_child_ids = self.get_children(old_parent_id)
-                    maintained_child_ids.extend(old_parent_child_ids)
-
-                maintained_child_ids = np.array(maintained_child_ids,
-                                                dtype=column_keys.Connectivity.Partner.basetype)
-
-                m = ~np.in1d(maintained_child_ids, old_child_ids)
-                maintained_child_ids = maintained_child_ids[m]
-                child_ids = np.concatenate([new_child_ids,
-                                            maintained_child_ids])
-
-                for child_id in child_ids:
-                    child_cross_chunk_edges = self.read_cross_chunk_edges(child_id)
-                    cross_chunk_edge_dict = combine_cross_chunk_edge_dicts(cross_chunk_edge_dict,
-                                                                           child_cross_chunk_edges)
-                # ----------------------------------------------------------------------------------------------
-
-                for child_id in child_ids:
-                    val_dict = {column_keys.Hierarchy.Parent: new_parent_id}
-                    rows.append(self.mutate_row(serializers.serialize_uint64(child_id),
-                                                val_dict, time_stamp=time_stamp))
-
-                val_dict = {column_keys.Hierarchy.Child: child_ids}
-
-                rows.append(self.mutate_row(serializers.serialize_uint64(new_parent_id),
-                                            val_dict, time_stamp=time_stamp))
-                val_dict = {}
-
-                for l in range(i_layer, self.n_layers):
-                    if len(cross_chunk_edge_dict[l]) > 0:
-                        val_dict[column_keys.Connectivity.CrossChunkEdge[l]] = \
-                            cross_chunk_edge_dict[l]
-
-                if len(val_dict):
-                    rows.append(self.mutate_row(serializers.serialize_uint64(new_parent_id),
-                                                val_dict, time_stamp=time_stamp))
-
-                if i_layer < self.n_layers - 1:
-                    next_old_parents = np.unique([self.get_parent(n)
-                                                  for n in old_parent_ids]) # ---------------------------------
-
-                    for p in next_old_parents:
-                        old_parent_mapping[p].append(len(next_cc_storage))
-
-                    next_cc_storage.append([new_parent_id,
-                                            next_old_parents,
-                                            old_parent_ids,
-                                            cross_chunk_edge_dict])
-                else:
-                    val_dict = {}
-                    val_dict[column_keys.Hierarchy.FormerParent] = \
-                        np.array(old_parent_ids)
-                    val_dict[column_keys.OperationLogs.OperationID] = operation_id
-
-                    rows.append(self.mutate_row(serializers.serialize_uint64(new_parent_id),
-                                                val_dict, time_stamp=time_stamp))
-
-                    new_root_ids.append(new_parent_id)
-
-                    for p in old_parent_ids:
-                        rows.append(self.mutate_row(serializers.serialize_uint64(p),
-                                                    {column_keys.Hierarchy.NewParent: new_parent_id},
-                                                    time_stamp=time_stamp))
-
-        # Atomic edge
-        for i_atomic_edge, atomic_edge in enumerate(atomic_edges):
-            affinity = affinities[i_atomic_edge]
-
-            for i_atomic_id in range(2):
-                atomic_id = atomic_edge[i_atomic_id]
-                edge_partner = atomic_edge[(i_atomic_id + 1) % 2]
-
-                atomic_node_info = self.get_atomic_node_info(atomic_id)
-
-                if edge_partner in atomic_node_info[column_keys.Connectivity.Partner]:
-                    partner_id = np.where(atomic_node_info[
-                                              column_keys.Connectivity.Partner] == edge_partner)[0]
-
-                    if partner_id in atomic_node_info[column_keys.Connectivity.Disconnected]:
-                        partner_id = \
-                            np.array(partner_id,
-                                     dtype=column_keys.Connectivity.Connected.basetype)
-                        val_dict = {column_keys.Connectivity.Connected: partner_id}
-                    else:
-                        val_dict = {}
-                else:
-                    affinity = \
-                        np.array(affinity, dtype=column_keys.Connectivity.Affinity.basetype)
-
-                    area = \
-                        np.array(0, dtype=column_keys.Connectivity.Area.basetype)
-
-                    partner_id = \
-                        np.array(len(atomic_node_info[column_keys.Connectivity.Partner]),
-                                 dtype=column_keys.Connectivity.Connected.basetype)
-
-                    edge_partner = \
-                        np.array(edge_partner, dtype=column_keys.Connectivity.Partner.basetype)
-
-                    val_dict = {column_keys.Connectivity.Affinity: affinity,
-                                column_keys.Connectivity.Area: area,
-                                column_keys.Connectivity.Connected: partner_id,
-                                column_keys.Connectivity.Partner: edge_partner}
-
-                if len(val_dict) > 0:
-                    rows.append(
-                        self.mutate_row(serializers.serialize_uint64(atomic_edge[i_atomic_id]),
-                                        val_dict, time_stamp=time_stamp))
-
-        return new_root_ids, rows, lvl2_node_mapping
-
-    def shatter_nodes_bbox(self, user_id: str,
-                           bounding_box: Optional[Sequence[Sequence[int]]]):
-        """ Removes all edges (except inf edges) of supervoxels (partly)
-            inside the bounding box
-
-        :param user_id: str
-        :param bounding_box: [[x_l, y_l, z_l], [x_h, y_h, z_h]]
-            voxels
-        :return: list of uint64s or None if no split was performed
-        """
-
-        vol = self.cv[bounding_box[0][0]: bounding_box[1][0],
-                      bounding_box[0][1]: bounding_box[1][1],
-                      bounding_box[0][2]: bounding_box[1][2]]
-
-        atomic_node_ids = np.unique(vol)
-        return self. shatter_nodes(user_id=user_id,
-                                   atomic_node_ids=atomic_node_ids,
-                                   radius=1)
-
-    def shatter_nodes(self, user_id: str, atomic_node_ids: Sequence[np.uint64],
-                      radius: int = 1, remesh_preview: bool = False):
-        """ Removes all edges (except inf edges) in radius around nodes
-
-        :param user_id: str
-        :param atomic_node_ids: list of np.uint64
-        :param radius: int
-        :return: list of uint64s or None if no split was performed
-        """
-        shattered_edges = []
-
-        # kepp track of which partners were visited already
-        visited_partners = list(atomic_node_ids)
-
-        for i_neighbors in range(radius):
-
-            next_partners = []
-            for atomic_node_id in atomic_node_ids:
-                partner_dict = self.get_all_original_partners(atomic_node_id)
-
-                # Iterate over inf partners
-                for k in partner_dict:
-                    partners = partner_dict[k]
-
-                    edges = np.zeros([len(partners), 2], dtype=np.uint64)
-                    edges[:, 0] = k
-                    edges[:, 1] = partners
-                    shattered_edges.extend(edges)
-
-                    unvisited_partners = partners[~np.in1d(partners, visited_partners)]
-                    next_partners.extend(unvisited_partners)
-                    visited_partners.extend(unvisited_partners)
-
-            atomic_node_ids = list(next_partners)
-
-        shattered_edges = np.array(shattered_edges)
-        shattered_edges = np.unique(np.sort(shattered_edges, axis=1), axis=0)
-
-        return self.remove_edges(user_id=user_id, atomic_edges=shattered_edges,
-                                 mincut=False, remesh_preview=remesh_preview)
-
-    def remove_edges(self,
-                     user_id: str,
-                     source_ids: Sequence[np.uint64] = None,
-                     sink_ids: Sequence[np.uint64] = None,
-                     source_coords: Sequence[Sequence[int]] = None,
-                     sink_coords: Sequence[Sequence[int]] = None,
-                     atomic_edges: Sequence[Tuple[np.uint64, np.uint64]] = None,
-                     mincut: bool = True,
-                     bb_offset: Tuple[int, int, int] = (240, 240, 24),
-                     remesh_preview: bool = False,
-                     return_new_lvl2_nodes: bool = False,
-                     root_ids: Optional[Sequence[np.uint64]] = None,
-                     n_tries: int = 20) -> Sequence[np.uint64]:
+        return MergeOperation(
+            self,
+            user_id=user_id,
+            added_edges=atomic_edges,
+            affinities=affinities,
+            source_coords=source_coord,
+            sink_coords=sink_coord,
+        ).execute()
+
+    def remove_edges(
+        self,
+        user_id: str,
+        source_ids: Sequence[np.uint64] = None,
+        sink_ids: Sequence[np.uint64] = None,
+        source_coords: Sequence[Sequence[int]] = None,
+        sink_coords: Sequence[Sequence[int]] = None,
+        atomic_edges: Sequence[Tuple[np.uint64, np.uint64]] = None,
+        mincut: bool = True,
+        bb_offset: Tuple[int, int, int] = (240, 240, 24),
+        n_tries: int = 20,
+    ) -> GraphEditOperation.Result:
         """ Removes edges - either directly or after applying a mincut
 
             Multi-user safe through locking of the root node
@@ -3687,194 +3511,62 @@ class ChunkedGraph(object):
         :param mincut:
         :param bb_offset: list of 3 ints
             [x, y, z] bounding box padding beyond box spanned by coordinates
-        :param remesh_preview: bool
-        :param return_new_lvl2_nodes: bool
-        :param root_ids: list of uint64s
         :param n_tries: int
-        :return: list of uint64s or None if no split was performed
+        :return: GraphEditOperation.Result
         """
-
-        if source_ids is not None and sink_ids is not None:
-            if not (isinstance(source_ids, list) or isinstance(source_ids,
-                                                               np.ndarray)):
-                source_ids = [source_ids]
-
-            if not (isinstance(sink_ids, list) or isinstance(sink_ids,
-                                                             np.ndarray)):
-                sink_ids = [sink_ids]
-
-            # Sanity Checks
-            if np.any(np.in1d(sink_ids, source_ids)):
-                raise cg_exceptions.PreconditionError(
-                    f"One or more supervoxel exists as both, sink and source."
-                )
-
-            for source_id in source_ids:
-                layer = self.get_chunk_layer(source_id)
-                if layer != 1:
-                    raise cg_exceptions.PreconditionError(
-                        f"Supervoxel expected, but {source_id} is a layer {layer} node."
-                    )
-
-            for sink_id in sink_ids:
-                layer = self.get_chunk_layer(sink_id)
-                if layer != 1:
-                    raise cg_exceptions.PreconditionError(
-                        f"Supervoxel expected, but {sink_id} is a layer {layer} node."
-                    )
-
-            root_ids = set()
-            for source_id in source_ids:
-                root_ids.add(self.get_root(source_id))
-            for sink_id in sink_ids:
-                root_ids.add(self.get_root(sink_id))
-
         if mincut:
-            assert source_coords is not None
-            assert sink_coords is not None
-            assert sink_ids is not None
-            assert source_ids is not None
+            return MulticutOperation(
+                self,
+                user_id=user_id,
+                source_ids=source_ids,
+                sink_ids=sink_ids,
+                source_coords=source_coords,
+                sink_coords=sink_coords,
+                bbox_offset=bb_offset,
+            ).execute()
 
-            root_ids = set()
-            for source_id in source_ids:
-                root_ids.add(self.get_root(source_id))
-            for sink_id in sink_ids:
-                root_ids.add(self.get_root(sink_id))
-        else:
-            if atomic_edges is None:
-                assert source_ids is not None
-                assert sink_ids is not None
+        if not atomic_edges:
+            # Shim - can remove this check once all functions call the split properly/directly
+            source_ids = [source_ids] if np.isscalar(source_ids) else source_ids
+            sink_ids = [sink_ids] if np.isscalar(sink_ids) else sink_ids
+            if len(source_ids) != len(sink_ids):
+                raise cg_exceptions.PreconditionError(
+                    "Split operation require the same number of source and sink IDs"
+                )
+            atomic_edges = np.array([source_ids, sink_ids]).transpose()
 
-                atomic_edges = np.array(list(itertools.product(source_ids,
-                                                               sink_ids)))
+        return SplitOperation(
+            self,
+            user_id=user_id,
+            removed_edges=atomic_edges,
+            source_coords=source_coords,
+            sink_coords=sink_coords,
+        ).execute()
 
-            root_ids = set()
-            for atomic_edge in atomic_edges:
-                root_ids.add(self.get_root(atomic_edge[0]))
-                root_ids.add(self.get_root(atomic_edge[1]))
+    def undo_operation(self, user_id: str, operation_id: np.uint64) -> GraphEditOperation.Result:
+        """ Applies the inverse of a previous GraphEditOperation
 
-        if len(root_ids) > 1:
-            raise cg_exceptions.PreconditionError(
-                f"All supervoxel must belong to the same object. Already split?"
-            )
-
-        root_ids = list(root_ids)
-
-        # Get a unique id for this operation
-        operation_id = self.get_unique_operation_id()
-
-        i_try = 0
-
-        while i_try < n_tries:
-            # Try to acquire lock and only continue if successful
-            lock_root_ids = np.unique(root_ids)
-
-            lock_acquired, lock_root_ids = \
-                self.lock_root_loop(root_ids=lock_root_ids,
-                                    operation_id=operation_id)
-
-            if lock_acquired:
-                # (run mincut) and remove edges + update hierarchy
-                if mincut:
-                    success, result = \
-                        self._remove_edges_mincut(operation_id=operation_id,
-                                                  source_ids=source_ids,
-                                                  sink_ids=sink_ids,
-                                                  source_coords=source_coords,
-                                                  sink_coords=sink_coords,
-                                                  bb_offset=bb_offset)
-                    if success:
-                        new_root_ids, rows, removed_edges, time_stamp, \
-                            lvl2_node_mapping = result
-                    else:
-                        for lock_root_id in lock_root_ids:
-                            self.unlock_root(lock_root_id,
-                                             operation_id=operation_id)
-                        return None
-                else:
-                    success, result = \
-                        self._remove_edges(operation_id=operation_id,
-                                           atomic_edges=atomic_edges)
-                    if success:
-                        new_root_ids, rows, time_stamp, \
-                            lvl2_node_mapping = result
-                        removed_edges = atomic_edges
-                    else:
-                        for lock_root_id in lock_root_ids:
-                            self.unlock_root(lock_root_id,
-                                             operation_id=operation_id)
-                        return None
-
-                # Add a row to the log
-                log_row = self._create_split_log_row(operation_id,
-                                                     user_id,
-                                                     new_root_ids,
-                                                     source_ids,
-                                                     sink_ids,
-                                                     source_coords,
-                                                     sink_coords,
-                                                     removed_edges,
-                                                     bb_offset,
-                                                     time_stamp)
-                # Put log row first!
-                rows = [log_row] + rows
-
-                # Execute write (makes sure that we are still owning the lock)
-                # if len(sink_ids) > 1 or len(source_ids) > 1:
-                #     self.logger.debug(removed_edges)
-                # else:
-                if self.bulk_write(rows, lock_root_ids,
-                                   operation_id=operation_id, slow_retry=False):
-                    if remesh_preview:
-                        meshgen.mesh_lvl2_previews(self, list(
-                            lvl2_node_mapping.keys()))
-
-                    self.logger.debug(f"new root ids: {new_root_ids}")
-
-                    if return_new_lvl2_nodes:
-                        return new_root_ids, list(lvl2_node_mapping.keys())
-                    else:
-                        return new_root_ids
-
-                for lock_root_id in lock_root_ids:
-                    self.unlock_root(lock_root_id, operation_id=operation_id)
-
-            i_try += 1
-
-            self.logger.debug(f"Waiting - {i_try}")
-            time.sleep(1)
-
-        self.logger.warning("Could not acquire root object lock.")
-        raise cg_exceptions.LockingError(f"Could not acquire root object lock.")
-
-    def _remove_edges_mincut(self, operation_id: np.uint64,
-                             source_ids: Sequence[np.uint64],
-                             sink_ids: Sequence[np.uint64],
-                             source_coords: Sequence[Sequence[int]],
-                             sink_coords: Sequence[Sequence[int]],
-                             bb_offset: Tuple[int, int, int] = (120, 120, 12)
-                             ) -> Tuple[
-                                 bool,                         # success
-                                 Optional[Tuple[
-                                    List[np.uint64],           # new_roots
-                                    List[bigtable.row.Row],    # rows
-                                    np.ndarray,                # removed_edges
-                                    datetime.datetime,
-                                    dict]]]:      # timestamp
-        """ Computes mincut and removes edges accordingly
-
-        :param operation_id: uint64
-        :param source_ids: uint64
-        :param sink_ids: uint64
-        :param source_coords: list of 3 ints
-            [x, y, z] coordinate of source supervoxel
-        :param sink_coords: list of 3 ints
-            [x, y, z] coordinate of sink supervoxel
-        :param bb_offset: list of 3 ints
-            [x, y, z] bounding box padding beyond box spanned by coordinates
-        :return: list of uint64s if successful, or None if no valid split
-            new root ids
+        :param user_id: str
+        :param operation_id: operation_id to be inverted
+        :return: GraphEditOperation.Result
         """
+        return UndoOperation(self, user_id=user_id, operation_id=operation_id).execute()
+
+    def redo_operation(self, user_id: str, operation_id: np.uint64) -> GraphEditOperation.Result:
+        """ Re-applies a previous GraphEditOperation
+
+        :param user_id: str
+        :param operation_id: operation_id to be repeated
+        :return: GraphEditOperation.Result
+        """
+        return RedoOperation(self, user_id=user_id, operation_id=operation_id).execute()
+
+    def _run_multicut(self, source_ids: Sequence[np.uint64],
+                      sink_ids: Sequence[np.uint64],
+                      source_coords: Sequence[Sequence[int]],
+                      sink_coords: Sequence[Sequence[int]],
+                      bb_offset: Tuple[int, int, int] = (120, 120, 12)):
+
 
         time_start = time.time()
 
@@ -3910,6 +3602,7 @@ class ChunkedGraph(object):
         # Get edges between local supervoxels
         n_chunks_affected = np.product((np.ceil(bounding_box[1] / self.chunk_size)).astype(np.int) -
                                        (np.floor(bounding_box[0] / self.chunk_size)).astype(np.int))
+
         self.logger.debug("Number of affected chunks: %d" % n_chunks_affected)
         self.logger.debug(f"Bounding box: {bounding_box}")
         self.logger.debug(f"Bounding box padding: {bb_offset}")
@@ -3920,371 +3613,36 @@ class ChunkedGraph(object):
         edges, affs, areas = self.get_subgraph_edges(root_id,
                                                      bounding_box=bounding_box,
                                                      bb_is_coordinate=True)
+        self.logger.debug(f"Get edges and affs: "
+                          f"{(time.time() - time_start) * 1000:.3f}ms")
 
-        self.logger.debug("Get edges and affs: %.3fms" %
-                          ((time.time() - time_start) * 1000))
         time_start = time.time()  # ------------------------------------------
+
+        if len(edges) == 0:
+            raise cg_exceptions.PreconditionError(
+                f"No local edges found. "
+                f"Something went wrong with the bounding box?"
+            )
 
         # Compute mincut
         atomic_edges = cutting.mincut(edges, affs, source_ids, sink_ids)
 
-        self.logger.debug("Mincut: %.3fms" % ((time.time() - time_start) * 1000))
-        time_start = time.time()  # ------------------------------------------
+        self.logger.debug(f"Mincut: {(time.time() - time_start) * 1000:.3f}ms")
 
         if len(atomic_edges) == 0:
-            self.logger.warning("Mincut failed. Try again...")
-            return False, None
-
-        # Check if any edge in the cutset is infinite (== between chunks)
-        # We would prevent such a cut
-
-        atomic_edges_flattened_view = atomic_edges.view(dtype='u8,u8')
-        edges_flattened_view = edges.view(dtype='u8,u8')
-
-        cutset_mask = np.in1d(edges_flattened_view, atomic_edges_flattened_view)
-        if np.any(np.isinf(affs[cutset_mask])):
-            self.logger.error("inf in cutset")
-            return False, None
-
-        # Remove edgesc
-        success, result = self._remove_edges(operation_id, atomic_edges)
-
-        if not success:
-            self.logger.error("remove edges failed")
-            return False, None
-
-        new_roots, rows, time_stamp, lvl2_node_mapping = result
-
-        self.logger.debug("Remove edges: %.3fms" % ((time.time() - time_start) * 1000))
-        time_start = time.time()  # ------------------------------------------
-
-        return True, (new_roots, rows, atomic_edges, time_stamp, lvl2_node_mapping)
-
-    def _remove_edges(self, operation_id: np.uint64,
-                      atomic_edges: Sequence[Tuple[np.uint64, np.uint64]]
-                      ) -> Tuple[bool,                          # success
-                                 Optional[Tuple[
-                                     List[np.uint64],           # new_roots
-                                     List[bigtable.row.Row],    # rows
-                                     datetime.datetime,
-                                     dict]]]:      # timestamp
-        """ Removes atomic edges from the ChunkedGraph
-
-        :param operation_id: uint64
-        :param atomic_edges: list of two uint64s
-        :return: list of uint64s
-            new root ids
-        """
-        # Make sure that we have a list of edges
-        if isinstance(atomic_edges[0], np.uint64):
-            atomic_edges = [atomic_edges]
-
-        atomic_edges = np.array(atomic_edges)
-        u_atomic_ids = np.unique(atomic_edges)
-
-        # Get number of layers and the original root
-        original_parent_ids = self.get_all_parents(atomic_edges[0, 0])
-        original_root = original_parent_ids[-1]
-
-        # Retrieve valid timestamp
-        time_stamp = self.read_lock_timestamp(original_root, operation_id)
-
-        # Find lowest level chunks that might have changed
-        chunk_ids = self.get_chunk_ids_from_node_ids(u_atomic_ids)
-        u_chunk_ids, u_chunk_ids_idx = np.unique(chunk_ids,
-                                                 return_index=True)
-
-        involved_chunk_id_dict = dict(zip(u_chunk_ids,
-                                          u_atomic_ids[u_chunk_ids_idx]))
-
-        # Note: After removing the atomic edges, we basically need to build the
-        # ChunkedGraph for these chunks from the ground up.
-        # involved_chunk_id_dict stores a representative for each chunk that we
-        # can use to acquire the parent that knows about all atomic nodes in the
-        # chunk.
-
-        rows = []
-
-        # Remove atomic edges
-
-        # Removing edges nodewise. We cannot remove edges edgewise because that
-        # would add up multiple changes to each node (row). Unfortunately,
-        # the batch write (mutate_rows) from BigTable cannot handle multiple
-        # changes to the same row-col within a batch write and only executes
-        # one of them.
-        for u_atomic_id in np.unique(atomic_edges):
-            atomic_node_info = self.get_atomic_node_info(u_atomic_id)
-
-            partners = np.concatenate([atomic_edges[atomic_edges[:, 0] == u_atomic_id][:, 1],
-                                       atomic_edges[atomic_edges[:, 1] == u_atomic_id][:, 0]])
-
-            partner_ids = np.where(
-                np.in1d(atomic_node_info[column_keys.Connectivity.Partner], partners))[0]
-
-            partner_ids = \
-                np.array(partner_ids, dtype=column_keys.Connectivity.Connected.basetype)
-
-            val_dict = {column_keys.Connectivity.Connected: partner_ids}
-
-            rows.append(self.mutate_row(serializers.serialize_uint64(u_atomic_id),
-                                        val_dict, time_stamp=time_stamp))
-
-        # Dictionaries keeping temporary information about the ChunkedGraph
-        # while updates are not written to BigTable yet
-        new_layer_parent_dict = {}
-        cross_edge_dict = {}
-        old_id_dict = collections.defaultdict(list)
-
-        # This view of the to be removed edges helps us to compute the mask
-        # of the retained edges in each chunk
-        double_atomic_edges = np.concatenate([atomic_edges,
-                                              atomic_edges[:, ::-1]],
-                                             axis=0)
-        double_atomic_edges_view = double_atomic_edges.view(dtype='u8,u8')
-        n_edges = double_atomic_edges.shape[0]
-        double_atomic_edges_view = double_atomic_edges_view.reshape(n_edges)
-        nodes_in_removed_edges = np.unique(atomic_edges)
-
-        lvl2_node_mapping = {} # Needed for instant remeshing
-
-        # For each involved chunk we need to compute connected components
-        for chunk_id in involved_chunk_id_dict.keys():
-            # Get the local subgraph
-            node_id = involved_chunk_id_dict[chunk_id]
-            old_parent_id = self.get_parent(node_id)
-            chunk_edges, _, _ = self.get_subgraph_chunk(old_parent_id,
-                                                        make_unique=False)
-
-            # These edges still contain the removed edges.
-            # For consistency reasons we can only write to BigTable one time.
-            # Hence, we have to evict the to be removed "atomic_edges" from the
-            # queried edges.
-            retained_edges_mask =\
-                ~np.in1d(chunk_edges.view(dtype='u8,u8').reshape(chunk_edges.shape[0]),
-                         double_atomic_edges_view)
-
-            chunk_edges = chunk_edges[retained_edges_mask]
-
-            # The cross chunk edges are passed on to the parents to compute
-            # connected components in higher layers.
-            terminal_chunk_ids = self.get_chunk_ids_from_node_ids(np.ascontiguousarray(chunk_edges[:, 1]))
-            cross_edge_mask = terminal_chunk_ids != chunk_id
-
-            cross_edges = chunk_edges[cross_edge_mask]
-            chunk_edges = chunk_edges[~cross_edge_mask]
-
-            isolated_nodes = list(filter(
-                lambda x: x not in chunk_edges and self.get_chunk_id(x) == chunk_id,
-                nodes_in_removed_edges))
-
-            # Build the local subgraph and compute connected components
-            G = nx.from_edgelist(chunk_edges)
-            G.add_nodes_from(isolated_nodes)
-            ccs = nx.connected_components(G)
-
-            # For each connected component we create one new parent
-            for cc in ccs:
-                cc_node_ids = np.array(list(cc), dtype=np.uint64)
-
-                # Get the associated cross edges
-                cc_cross_edges = cross_edges[np.in1d(cross_edges[:, 0], cc_node_ids)]
-
-                # Get a new parent id
-                new_parent_id = self.get_unique_node_id(
-                    self.get_chunk_id(node_id=old_parent_id))
-
-                # Temporarily storing information on how the parents of this cc
-                # are changed by the split. We need this information when
-                # processing the next layer
-                new_layer_parent_dict[new_parent_id] = old_parent_id
-                old_id_dict[old_parent_id].append(new_parent_id)
-
-                # Make changes to the rows of the lowest layer
-                val_dict = {column_keys.Hierarchy.Child: cc_node_ids}
-
-                segment_ids = [self.get_segment_id(cc_node_id)
-                               for cc_node_id in cc_node_ids]
-                lvl2_node_mapping[new_parent_id] = segment_ids
-
-                rows.append(self.mutate_row(serializers.serialize_uint64(new_parent_id),
-                                            val_dict, time_stamp=time_stamp))
-
-                for cc_node_id in cc_node_ids:
-                    val_dict = {column_keys.Hierarchy.Parent: new_parent_id}
-
-                    rows.append(self.mutate_row(serializers.serialize_uint64(cc_node_id),
-                                                val_dict, time_stamp=time_stamp))
-
-                cce_layers = self.get_cross_chunk_edges_layer(cc_cross_edges)
-                u_cce_layers = np.unique(cce_layers)
-
-                cross_edge_dict[new_parent_id] = {}
-
-                for l in range(2, self.n_layers):
-                    empty_edges = column_keys.Connectivity.CrossChunkEdge.deserialize(b'')
-                    cross_edge_dict[new_parent_id][l] = empty_edges
-
-                val_dict = {}
-                for cc_layer in u_cce_layers:
-                    layer_cross_edges = cc_cross_edges[cce_layers == cc_layer]
-
-                    if len(layer_cross_edges) > 0:
-                        val_dict[column_keys.Connectivity.CrossChunkEdge[cc_layer]] = \
-                            layer_cross_edges
-                        cross_edge_dict[new_parent_id][cc_layer] = layer_cross_edges
-
-                if len(val_dict) > 0:
-                    rows.append(self.mutate_row(serializers.serialize_uint64(new_parent_id),
-                                                val_dict, time_stamp=time_stamp))
-
-        # Now that the lowest layer has been updated, we need to walk through
-        # all layers and move our new parents forward
-        # new_layer_parent_dict stores all newly created parents. We first
-        # empty it and then fill it with the new parents in the next layer
-        if self.n_layers == 2:
-            return True, (list(new_layer_parent_dict.keys()), rows, time_stamp,
-                          lvl2_node_mapping)
-
-        new_roots = []
-        for i_layer in range(2, self.n_layers):
-            old_parent_dict = {}
-
-            edges = []
-            leftover_old_parents = set()
-            for new_layer_parent in new_layer_parent_dict.keys():
-                old_parent_id = new_layer_parent_dict[new_layer_parent]
-                cross_edges = cross_edge_dict[new_layer_parent]
-
-                # Using the old parent's parents: get all nodes in the
-                # neighboring chunks (go one up and one down in all directions)
-                old_next_layer_parent = self.get_parent(old_parent_id)
-                old_chunk_neighbors = self.get_children(old_next_layer_parent)
-                old_chunk_neighbors = \
-                    old_chunk_neighbors[old_chunk_neighbors != old_parent_id]
-
-                old_parent_dict[new_layer_parent] = old_next_layer_parent
-
-                # In analogy to `add_layer`, we need to compare
-                # cross_chunk_edges among potential neighbors. Here, we know
-                # that all future neighbors are among the old neighbors
-                # (old_chunk_neighbors) or their new replacements due to this
-                # split.
-
-                atomic_children = cross_edges[i_layer][:, 0]
-
-                for old_chunk_neighbor in old_chunk_neighbors:
-                    # For each neighbor we need to check whether this neighbor
-                    # was affected by a split as well (and was updated):
-                    # neighbor_id in old_id_dict. If so, we take the new atomic
-                    # cross edges (temporary data) into account, else, we load
-                    # the atomic_cross_edges from BigTable
-                    if old_chunk_neighbor in old_id_dict:
-                        for new_neighbor in old_id_dict[old_chunk_neighbor]:
-                            neigh_cross_edges = cross_edge_dict[new_neighbor][i_layer]
-
-                            if np.any(np.in1d(neigh_cross_edges[:, 1], atomic_children)):
-                                edges.append([new_neighbor, new_layer_parent])
-                    else:
-                        cross_edge_dict_neigh = self.read_cross_chunk_edges(old_chunk_neighbor)
-
-                        cross_edge_dict[old_chunk_neighbor] = cross_edge_dict_neigh
-                        neigh_cross_edges = cross_edge_dict_neigh[i_layer]
-
-                        if np.any(np.in1d(neigh_cross_edges[:, 1],
-                                          atomic_children)):
-                            edges.append([old_chunk_neighbor, new_layer_parent])
-
-                        leftover_old_parents.add(old_chunk_neighbor)
-
-            for old_chunk_neighbor in leftover_old_parents:
-                atomic_ids = cross_edge_dict[old_chunk_neighbor][i_layer][:, 0]
-
-                for old_chunk_neighbor_partner in leftover_old_parents:
-                    neigh_cross_edges = cross_edge_dict[old_chunk_neighbor_partner][i_layer]
-
-                    if np.any(np.in1d(atomic_ids, neigh_cross_edges[:, 1])):
-                        edges.append([old_chunk_neighbor,
-                                      old_chunk_neighbor_partner])
-
-            # Create graph and run connected components
-            chunk_g = nx.from_edgelist(edges)
-            chunk_g.add_nodes_from(np.array(list(new_layer_parent_dict.keys()),
-                                            dtype=np.uint64))
-            ccs = list(nx.connected_components(chunk_g))
-
-            new_layer_parent_dict = {}
-            # Filter the connected component that is relevant to the
-            # current new_layer_parent
-            for cc in ccs:
-                partners = list(cc)
-
-                # Create the new_layer_parent_dict for the next layer and write
-                # nodes (lazy)
-
-                old_next_layer_parent = None
-                for partner in partners:
-                    if partner in old_parent_dict:
-                        old_next_layer_parent = old_parent_dict[partner]
-
-                if old_next_layer_parent is None:
-                    self.logger.debug("No old parents for any member of the cc")
-                    lop = np.unique(list(leftover_old_parents))
-                    llop = lop[~np.in1d(lop, np.unique(edges))]
-                    raise()
-                    return False, None
-
-                partners = np.array(partners, dtype=np.uint64)
-
-                this_chunk_id = self.get_chunk_id(
-                    node_id=old_next_layer_parent)
-                new_parent_id = self.get_unique_node_id(this_chunk_id)
-
-                new_layer_parent_dict[new_parent_id] = old_next_layer_parent
-                old_id_dict[old_next_layer_parent].append(new_parent_id)
-
-                cross_edge_dict[new_parent_id] = {}
-                for partner in partners:
-                    cross_edge_dict[new_parent_id] = \
-                        combine_cross_chunk_edge_dicts(cross_edge_dict[new_parent_id],
-                                                       cross_edge_dict[partner],
-                                                       start_layer=i_layer+1)
-
-                for partner in partners:
-                    val_dict = {column_keys.Hierarchy.Parent: new_parent_id}
-
-                    rows.append(
-                        self.mutate_row(serializers.serialize_uint64(partner),
-                                        val_dict, time_stamp=time_stamp))
-
-                val_dict = {column_keys.Hierarchy.Child: partners}
-
-                if i_layer == self.n_layers - 1:
-                    new_roots.append(new_parent_id)
-                    val_dict[column_keys.Hierarchy.FormerParent] = \
-                        np.array(original_root)
-                    val_dict[column_keys.OperationLogs.OperationID] = operation_id
-
-                rows.append(self.mutate_row(serializers.serialize_uint64(new_parent_id),
-                                            val_dict, time_stamp=time_stamp))
-
-                if i_layer < self.n_layers - 1:
-                    val_dict = {}
-                    for l in range(i_layer + 1, self.n_layers):
-                        val_dict[column_keys.Connectivity.CrossChunkEdge[l]] = \
-                            cross_edge_dict[new_parent_id][l]
-
-                    if len(val_dict) == 0:
-                        self.logger.error("Cross chunk edges are missing")
-                        return False, None
-
-                    rows.append(self.mutate_row(serializers.serialize_uint64(new_parent_id),
-                                                val_dict, time_stamp=time_stamp))
-
-            if i_layer == self.n_layers - 1:
-                val_dict = {column_keys.Hierarchy.NewParent:
-                            np.array(new_roots,
-                                     dtype=column_keys.Hierarchy.NewParent.basetype)}
-                rows.append(self.mutate_row(serializers.serialize_uint64(original_root),
-                                            val_dict, time_stamp=time_stamp))
-
-        return True, (new_roots, rows, time_stamp, lvl2_node_mapping)
+            raise cg_exceptions.PostconditionError(
+                f"Mincut failed. Try again...")
+
+        # # Check if any edge in the cutset is infinite (== between chunks)
+        # # We would prevent such a cut
+        #
+        # atomic_edges_flattened_view = atomic_edges.view(dtype='u8,u8')
+        # edges_flattened_view = edges.view(dtype='u8,u8')
+        #
+        # cutset_mask = np.in1d(edges_flattened_view, atomic_edges_flattened_view)
+        #
+        # if np.any(np.isinf(affs[cutset_mask])):
+        #     self.logger.error("inf in cutset")
+        #     return False, None
+
+        return atomic_edges

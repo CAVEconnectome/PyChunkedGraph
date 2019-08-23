@@ -9,7 +9,7 @@ RUN mkdir -p /home/nginx/.cloudvolume/secrets \
   && usermod -d /home/nginx -s /bin/bash nginx \
   && apt-get update \
   && apt-get install -y \
-      # Boost and g++ for compiling igneous' C extensions (Mesher)
+      # Boost and g++ for compiling DracoPy and graph_tool
       build-essential \
       libboost-dev \
       # Required for adding graph-tools and cloud-sdk to the apt source list

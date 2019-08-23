@@ -1,0 +1,15 @@
+apiVersion: autoscaling/v1
+kind: HorizontalPodAutoscaler
+metadata:
+  name: pcg-hpa
+  namespace: default
+  labels:
+    app: pcg-worker
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: pcg-worker
+  minReplicas: 1
+  maxReplicas: 8
+  targetCPUUtilizationPercentage: 80

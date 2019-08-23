@@ -8,9 +8,12 @@ import time
 import json
 import numpy as np
 import datetime
-from . import config
+from pychunkedgraph.app import config
 import redis
 from rq import Queue
+
+from pychunkedgraph.examples.parallel_test.main import init_parallel_test_cmds
+from pychunkedgraph.meshing.meshing_test_temp import init_mesh_cmds
 
 # from pychunkedgraph.app import app_blueprint
 from pychunkedgraph.app import cg_app_blueprint, meshing_app_blueprint
@@ -23,27 +26,24 @@ class CustomJsonEncoder(json.JSONEncoder):
     def default(self, obj):
         if isinstance(obj, np.ndarray):
             return obj.tolist()
-        elif isinstance(obj, np.generic):
-            return obj.item()
         elif isinstance(obj, datetime.datetime):
             return obj.__str__()
         return json.JSONEncoder.default(self, obj)
 
 
-def create_app(test_config=None):
+def create_example_app(test_config=None):
     app = Flask(__name__)
     app.json_encoder = CustomJsonEncoder
 
-    CORS(app, expose_headers='WWW-Authenticate')
-
     configure_app(app)
-
-    if test_config is not None:
-        app.config.update(test_config)
 
     app.register_blueprint(cg_app_blueprint.bp)
     app.register_blueprint(meshing_app_blueprint.bp)
     # app.register_blueprint(manifest_app_blueprint.bp)
+
+    with app.app_context():
+        init_parallel_test_cmds(app)
+        init_mesh_cmds(app)
 
     return app
 

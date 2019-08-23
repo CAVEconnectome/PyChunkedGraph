@@ -6,6 +6,8 @@ import sys
 import numpy as np
 import logging
 import time
+import redis
+import functools
 
 from pychunkedgraph.logging import jsonformatter, flask_log_db
 from pychunkedgraph.backend import chunkedgraph
@@ -45,6 +47,9 @@ def get_datastore_client(config):
 
 
 def get_cg(table_id):
+    assert table_id.startswith("fly") or table_id.startswith("golden") or \
+           table_id.startswith("pinky100_rv")
+
     if table_id not in cache:
         instance_id = current_app.config['CHUNKGRAPH_INSTANCE_ID']
         client = get_bigtable_client(current_app.config)

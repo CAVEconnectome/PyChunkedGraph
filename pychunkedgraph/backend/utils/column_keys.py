@@ -164,11 +164,35 @@ class GraphSettings:
         family_id='0',
         serializer=serializers.String('utf-8'))
 
+    SpatialBits = _Column(
+        key=b'spatial_bits',
+        family_id='0',
+        serializer=serializers.NumPyValue(dtype=basetypes.SPATIALBITS))
+
+    RootCounterBits = _Column(
+        key=b'root_counter_bits',
+        family_id='0',
+        serializer=serializers.NumPyValue(dtype=basetypes.ROOTCOUNTERBITS))
+
+    SkipConnections = _Column(
+        key=b'skip_connections',
+        family_id='0',
+        serializer=serializers.NumPyValue(dtype=basetypes.SKIPCONNECTIONS))
 
 class OperationLogs:
     OperationID = _Column(
         key=b'operation_id',
         family_id='0',
+        serializer=serializers.UInt64String())
+
+    UndoOperationID = _Column(
+        key=b'undo_operation_id',
+        family_id='2',
+        serializer=serializers.UInt64String())
+
+    RedoOperationID = _Column(
+        key=b'redo_operation_id',
+        family_id='2',
         serializer=serializers.UInt64String())
 
     UserID = _Column(

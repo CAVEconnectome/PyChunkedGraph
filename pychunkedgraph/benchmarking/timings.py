@@ -66,7 +66,7 @@ def plot_scaling(re_path, key=8):
             sizes.append(i_path)
 
     percentiles = np.array(percentiles) * 1000
-    sizes = np.array(sizes) + 3
+    sizes = np.array(sizes) + 2
 
     plt.figure(figsize=(10, 8))
 
@@ -83,8 +83,8 @@ def plot_scaling(re_path, key=8):
     plt.plot(sizes, percentiles[:, 0], marker="o", linestyle="-", lw=2, c=".6", markersize=10, label="p01")
 
     plt.ylim(0, np.max(percentiles) * 1.05)
-    plt.ylim(0, 1000)
-    plt.xlim(2, np.max(sizes) * 1.05)
+    plt.xlim(1, np.max(sizes) * 1.05)
+
 
     plt.xlabel("Number of layers", fontsize=22)
     plt.ylabel("Time (ms)", fontsize=22)
@@ -489,24 +489,20 @@ def _get_merge_timings(args):
     cg = chunkedgraph.ChunkedGraph(**serialized_cg_info)
 
     merge_timings = []
-    merged_edges = []
     for merge_edge in merge_edges:
-        try:
-            time_start = time.time()
-            root_ids = cg.add_edges(user_id="ChuckNorris",
-                                    atomic_edges=[merge_edge])
-            dt = time.time() - time_start
-            merge_timings.append(dt)
-            merged_edges.append(merge_edge)
-        except:
-            pass
+        time_start = time.time()
+        root_ids = cg.add_edges(user_id="ChuckNorris",
+                                atomic_edges=[merge_edge]).new_root_ids
+        dt = time.time() - time_start
+        merge_timings.append(dt)
 
     split_timings = []
-    for merge_edge in merged_edges:
+    for merge_edge in merge_edges:
         time_start = time.time()
         root_ids = cg.remove_edges(user_id="ChuckNorris",
                                    atomic_edges=[merge_edge],
-                                   mincut=False)
+                                   mincut=False).new_root_ids
+
         dt = time.time() - time_start
         split_timings.append(dt)
 
@@ -515,9 +511,8 @@ def _get_merge_timings(args):
 
 
 def run_timings(table_id, save_dir=f"{HOME}/benchmarks/", job_size=500):
-    # benchmark_root_timings(table_id=table_id, save_dir=save_dir,
-    #                        job_size=job_size)
-    # benchmark_subgraph_timings(table_id=table_id, save_dir=save_dir,
-    #                            job_size=job_size)
-    benchmark_merge_split_timings(table_id=table_id, save_dir=save_dir,
-                                  job_size=job_size)
+    benchmark_root_timings(table_id=table_id, save_dir=save_dir,
+                           job_size=job_size)
+    benchmark_subgraph_timings(table_id=table_id, save_dir=save_dir,
+                               job_size=job_size)
+

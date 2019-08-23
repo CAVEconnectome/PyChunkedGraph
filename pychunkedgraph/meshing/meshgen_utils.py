@@ -4,6 +4,7 @@ import time
 
 from functools import lru_cache
 from cloudvolume import CloudVolume, Storage
+from typing import Sequence
 
 from pychunkedgraph.backend import chunkedgraph  # noqa
 
@@ -22,22 +23,20 @@ def slice_to_str(slices) -> str:
         return '_'.join(map(slice_to_str, slices))
 
 
-def get_chunk_bbox(cg, chunk_id: np.uint64,
-                   mip: int):
+def get_chunk_bbox(cg, chunk_id: np.uint64):
     layer = cg.get_chunk_layer(chunk_id)
-    chunk_block_shape = get_mesh_block_shape(cg, layer, mip)
+    chunk_block_shape = get_mesh_block_shape(cg, layer)
     bbox_start = cg.get_chunk_coordinates(chunk_id) * chunk_block_shape
     bbox_end = bbox_start + chunk_block_shape
     return tuple(slice(bbox_start[i], bbox_end[i]) for i in range(3))
 
 
-def get_chunk_bbox_str(cg,
-                       chunk_id: np.uint64, mip: int) -> str:
-    return slice_to_str(get_chunk_bbox(cg, chunk_id, mip))
+def get_chunk_bbox_str(cg, chunk_id: np.uint64) -> str:
+    return slice_to_str(get_chunk_bbox(cg, chunk_id))
 
 
-def get_mesh_name(cg, node_id: np.uint64, mip: int) -> str:
-    return f"{node_id}:0:{get_chunk_bbox_str(cg, node_id, mip)}"
+def get_mesh_name(cg, node_id: np.uint64) -> str:
+    return f"{node_id}:0:{get_chunk_bbox_str(cg, node_id)}"
 
 
 @lru_cache(maxsize=None)
@@ -45,7 +44,16 @@ def get_segmentation_info(cg) -> dict:
     return cg.dataset_info
 
 
-def get_mesh_block_shape(cg, graphlayer: int,
+def get_mesh_block_shape(cg, graphlayer: int) -> np.ndarray:
+    """
+    Calculate the dimensions of a segmentation block that covers
+    the same region as a ChunkedGraph chunk at layer `graphlayer`.
+    """
+    # Segmentation is not always uniformly downsampled in all directions.
+    return cg.chunk_size * cg.fan_out ** np.max([0, graphlayer - 2])
+
+
+def get_mesh_block_shape_for_mip(cg, graphlayer: int,
                          source_mip: int) -> np.ndarray:
     """
     Calculate the dimensions of a segmentation block at `source_mip` that covers
@@ -60,11 +68,12 @@ def get_mesh_block_shape(cg, graphlayer: int,
 
     graphlayer_chunksize = cg.chunk_size * cg.fan_out ** np.max([0, graphlayer - 2])
 
-    return np.floor_divide(graphlayer_chunksize, distortion, dtype=np.int, casting='unsafe')
+    return np.floor_divide(graphlayer_chunksize, distortion, dtype=np.int,
+                           casting='unsafe')
 
 
-def get_downstream_multi_child_node(cg,
-                                    node_id: np.uint64, stop_layer: int = 1):
+def get_downstream_multi_child_node(cg, node_id: np.uint64,
+                                    stop_layer: int = 1):
     """
     Return the first descendant of `node_id` (including itself) with more than
     one child, or the first descendant of `node_id` (including itself) on or
@@ -84,6 +93,34 @@ def get_downstream_multi_child_node(cg,
     return get_downstream_multi_child_node(cg, children[0], stop_layer)
 
 
+def get_downstream_multi_child_nodes(cg, node_ids: Sequence[np.uint64], require_children=True):
+    """
+    Return the first descendant of `node_ids` (including themselves) with more than
+    one child, or the first descendant of `node_id` (including itself) on or
+    below layer 2.
+    """
+    # FIXME: Make stop_layer configurable
+    stop_layer = 2
+    node_ids_to_return = np.copy(node_ids)
+
+    def recursive_helper(cur_node_ids):
+        stop_layer_mask = np.array([cg.get_chunk_layer(node_id) > stop_layer for node_id in cur_node_ids])
+        if np.any(stop_layer_mask):
+            node_to_children_dict = cg.get_children(cur_node_ids[stop_layer_mask])
+            children_array = np.array(list(node_to_children_dict.values()))
+            if require_children and len(children_array) < len(cur_node_ids[stop_layer_mask]):
+                raise ValueError('Not all node_ids have children. May be mixing node_ids from different generations.')
+            only_child_mask = np.array([len(children_for_node) == 1 for children_for_node in children_array])
+            only_children = children_array[only_child_mask].astype(np.uint64).ravel()
+            if np.any(only_child_mask):
+                temp_array = cur_node_ids[stop_layer_mask]
+                temp_array[only_child_mask] = recursive_helper(only_children)
+                cur_node_ids[stop_layer_mask] = temp_array
+        return cur_node_ids
+    
+    return recursive_helper(node_ids_to_return)
+
+
 def get_highest_child_nodes_with_meshes(cg,
                                         node_id: np.uint64,
                                         stop_layer=1,
@@ -93,27 +130,21 @@ def get_highest_child_nodes_with_meshes(cg,
     if start_layer is None:
         start_layer = cg.n_layers
 
-    # FIXME: Read those from config
-    HIGHEST_MESH_LAYER = min(start_layer, cg.n_layers - 3)
-    MESH_MIP = 2
-
-    highest_node = get_downstream_multi_child_node(cg, node_id, stop_layer)
-    highest_node_layer = cg.get_chunk_layer(highest_node)
-    if highest_node_layer <= HIGHEST_MESH_LAYER:
-        candidates = [highest_node]
-    else:
-        candidates = cg.get_subgraph_nodes(
-            highest_node,
-            bounding_box=bounding_box,
-            bb_is_coordinate=True,
-            return_layers=[HIGHEST_MESH_LAYER])
+    candidates = cg.get_subgraph_nodes(
+        node_id,
+        bounding_box=bounding_box,
+        bb_is_coordinate=True,
+        return_layers=[start_layer])
 
     if verify_existence:
         valid_node_ids = []
         with Storage(cg.cv_mesh_path) as stor:
             while True:
-                filenames = [get_mesh_name(cg, c, MESH_MIP) for c in candidates]
+                filenames = [get_mesh_name(cg, c) for c in candidates]
+
+                time_start = time.time()
                 existence_dict = stor.files_exist(filenames)
+                print("Existence took: %.3fs" % (time.time() - time_start))
 
                 missing_meshes = []
                 for mesh_key in existence_dict:
@@ -124,10 +155,13 @@ def get_highest_child_nodes_with_meshes(cg,
                         if cg.get_chunk_layer(node_id) > stop_layer:
                             missing_meshes.append(node_id)
 
+                time_start = time.time()
                 if missing_meshes:
                     candidates = cg.get_children(missing_meshes, flatten=True)
                 else:
                     break
+                print("ChunkedGraph lookup took: %.3fs" % (time.time() - time_start))
+
     else:
         valid_node_ids = candidates
 

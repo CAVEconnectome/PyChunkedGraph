@@ -4,13 +4,11 @@ import json
 import numpy as np
 
 
-from pychunkedgraph.meshing import meshgen, meshgen_utils
+from pychunkedgraph.meshing import meshgen_utils, meshgen
 from pychunkedgraph.app import app_utils
 from pychunkedgraph.backend import chunkedgraph
 
-# os.environ['TRAVIS_BRANCH'] = "IDONTKNOWWHYINEEDTHIS"
-
-__version__ = '0.1.113'
+__version__ = 'fafb.1.21'
 bp = Blueprint('pychunkedgraph_meshing', __name__, url_prefix="/meshing")
 
 # -------------------------------
@@ -34,23 +32,17 @@ def home():
     return resp
 
 
-# ------------------------------------------------------------------------------
-
-def _mesh_lvl2_nodes(serialized_cg_info, lvl2_nodes):
+def _remeshing(serialized_cg_info, lvl2_nodes):
     cg = chunkedgraph.ChunkedGraph(**serialized_cg_info)
 
-    for lvl2_node in lvl2_nodes:
-        print(lvl2_node)
-        meshgen.mesh_lvl2_preview(cg, lvl2_node, supervoxel_ids=None,
-                                  cv_path=None, cv_mesh_dir=None, mip=2,
-                                  simplification_factor=999999,
-                                  max_err=40, parallel_download=1,
-                                  verbose=True,
-                                  cache_control='no-cache')
+    # TODO: stop_layer and mip should be configurable by dataset
+    meshgen.remeshing(cg, lvl2_nodes, stop_layer=4, cv_path=None,
+                      cv_mesh_dir=None, mip=1, max_err=40)
 
     return Response(status=200)
 
 
+# ------------------------------------------------------------------------------
 
 @bp.route('/1.0/<table_id>/<node_id>/mesh_preview', methods=['POST', 'GET'])
 def handle_preview_meshes(table_id, node_id):
@@ -116,15 +108,12 @@ def handle_get_manifest(table_id, node_id):
     verify = request.args.get('verify', False)
     verify = verify in ['True', 'true', '1', True]
 
-    # TODO: Read this from config
-    MESH_MIP = 2
-
     cg = app_utils.get_cg(table_id)
+
     seg_ids = meshgen_utils.get_highest_child_nodes_with_meshes(
         cg, np.uint64(node_id), stop_layer=2, start_layer=start_layer,
-        bounding_box=bounding_box,
-        verify_existence=verify)
+        bounding_box=bounding_box, verify_existence=verify)
 
-    filenames = [meshgen_utils.get_mesh_name(cg, s, MESH_MIP) for s in seg_ids]
+    filenames = [meshgen_utils.get_mesh_name(cg, s) for s in seg_ids]
 
     return jsonify(fragments=filenames)

@@ -1,5 +1,5 @@
 from flask import Blueprint, request, make_response, jsonify, current_app,\
-    redirect, url_for, after_this_request, Response
+    redirect, url_for, after_this_request, Response, g
 
 import json
 import numpy as np
@@ -14,10 +14,9 @@ import threading
 from pychunkedgraph.app import app_utils, meshing_app_blueprint
 from pychunkedgraph.backend import chunkedgraph_exceptions as cg_exceptions, \
     chunkedgraph_comp as cg_comp
-from pychunkedgraph.meshing import meshgen
+from middle_auth_client import auth_required, auth_requires_roles
 
-
-__version__ = '0.1.113'
+__version__ = 'fafb.1.21'
 bp = Blueprint('pychunkedgraph', __name__, url_prefix="/segmentation")
 
 # -------------------------------
@@ -197,11 +196,12 @@ def handle_root_main(table_id, atomic_id, timestamp):
 ### MERGE ----------------------------------------------------------------------
 
 @bp.route('/1.0/<table_id>/graph/merge', methods=['POST', 'GET'])
+@auth_requires_roles('edit_all')
 def handle_merge(table_id):
     current_app.request_type = "merge"
 
     nodes = json.loads(request.data)
-    user_id = str(request.remote_addr)
+    user_id = str(g.auth_user['id'])
 
     current_app.logger.debug(nodes)
     assert len(nodes) == 2
@@ -214,17 +214,7 @@ def handle_merge(table_id):
     for node in nodes:
         node_id = node[0]
         x, y, z = node[1:]
-
-        x /= 2
-        y /= 2
-
-        coordinate = np.array([x, y, z])
-
-        if not cg.is_in_bounds(coordinate):
-            coordinate /= cg.segmentation_resolution
-
-            coordinate[0] *= 2
-            coordinate[1] *= 2
+        coordinate = np.array([x, y, z]) / cg.segmentation_resolution
 
         atomic_id = cg.get_atomic_id_from_coord(coordinate[0],
                                                 coordinate[1],
@@ -249,48 +239,50 @@ def handle_merge(table_id):
             "Chebyshev distance between merge points exceeded allowed maximum "
             "(3 chunks).")
 
-    lvl2_nodes = []
-
     try:
-        ret = cg.add_edges(user_id=user_id,
-                           atomic_edges=np.array(atomic_edge,
-                                                 dtype=np.uint64),
-                           source_coord=coords[:1],
-                           sink_coord=coords[1:],
-                           return_new_lvl2_nodes=True,
-                           remesh_preview=False)
-
-        if len(ret) == 2:
-            new_root, lvl2_nodes = ret
-        else:
-            new_root = ret
+        ret = cg.add_edges(
+            user_id=user_id,
+            atomic_edges=np.array(atomic_edge, dtype=np.uint64),
+            source_coord=coords[:1],
+            sink_coord=coords[1:],
+        )
 
     except cg_exceptions.LockingError as e:
-        raise cg_exceptions.InternalServerError(
-            "Could not acquire root lock for merge operation.")
+        raise cg_exceptions.InternalServerError("Could not acquire root lock for merge operation.")
     except cg_exceptions.PreconditionError as e:
         raise cg_exceptions.BadRequest(str(e))
 
-    if new_root is None:
-        raise cg_exceptions.InternalServerError(
-            "Could not merge selected supervoxel.")
+    if ret.new_root_ids is None:
+        raise cg_exceptions.InternalServerError("Could not merge selected supervoxel.")
 
-    t = threading.Thread(target=meshing_app_blueprint._mesh_lvl2_nodes,
-                         args=(cg.get_serialized_info(), lvl2_nodes))
-    t.start()
+    current_app.logger.debug(("lvl2_nodes:", ret.new_lvl2_ids))
 
-    # Return binary
-    return app_utils.tobinary(new_root)
+    if len(ret.new_lvl2_ids) > 0:
+        t = threading.Thread(
+            target=meshing_app_blueprint._remeshing,
+            args=(cg.get_serialized_info(), ret.new_lvl2_ids),
+        )
+        t.start()
+
+    # NOTE: JS can't safely read integers larger than 2^53 - 1
+    resp = {
+        "operation_id": ret.operation_id,
+        "operation_id_str": str(ret.operation_id),
+        "new_root_ids": ret.new_root_ids,
+        "new_root_ids_str": list(map(str, ret.new_root_ids)),
+        }
+    return jsonify(resp)
 
 
 ### SPLIT ----------------------------------------------------------------------
 
 @bp.route('/1.0/<table_id>/graph/split', methods=['POST', 'GET'])
+@auth_requires_roles('edit_all')
 def handle_split(table_id):
     current_app.request_type = "split"
 
     data = json.loads(request.data)
-    user_id = str(request.remote_addr)
+    user_id = str(g.auth_user['id'])
 
     current_app.logger.debug(data)
 
@@ -304,21 +296,7 @@ def handle_split(table_id):
         for node in data[k]:
             node_id = node[0]
             x, y, z = node[1:]
-
-            x /= 2
-            y /= 2
-
-            coordinate = np.array([x, y, z])
-
-            current_app.logger.debug(("before", coordinate))
-
-            if not cg.is_in_bounds(coordinate):
-                coordinate /= cg.segmentation_resolution
-
-                coordinate[0] *= 2
-                coordinate[1] *= 2
-
-            current_app.logger.debug(("after", coordinate))
+            coordinate = np.array([x, y, z]) / cg.segmentation_resolution
 
             atomic_id = cg.get_atomic_id_from_coord(coordinate[0],
                                                     coordinate[1],
@@ -336,113 +314,130 @@ def handle_split(table_id):
 
     current_app.logger.debug(data_dict)
 
-    lvl2_nodes = []
     try:
-        ret = cg.remove_edges(user_id=user_id,
-                              source_ids=data_dict["sources"]["id"],
-                              sink_ids=data_dict["sinks"]["id"],
-                              source_coords=data_dict["sources"]["coord"],
-                              sink_coords=data_dict["sinks"]["coord"],
-                              mincut=True,
-                              return_new_lvl2_nodes=True,
-                              remesh_preview=False)
-
-        if len(ret) == 2:
-            new_roots, lvl2_nodes = ret
-        else:
-            new_roots = ret
+        ret = cg.remove_edges(
+            user_id=user_id,
+            source_ids=data_dict["sources"]["id"],
+            sink_ids=data_dict["sinks"]["id"],
+            source_coords=data_dict["sources"]["coord"],
+            sink_coords=data_dict["sinks"]["coord"],
+            mincut=True,
+        )
 
     except cg_exceptions.LockingError as e:
-        raise cg_exceptions.InternalServerError(
-            "Could not acquire root lock for split operation.")
+        raise cg_exceptions.InternalServerError("Could not acquire root lock for split operation.")
     except cg_exceptions.PreconditionError as e:
         raise cg_exceptions.BadRequest(str(e))
 
-    if new_roots is None:
-        raise cg_exceptions.InternalServerError(
-            "Could not split selected segment groups."
+    if ret.new_root_ids is None:
+        raise cg_exceptions.InternalServerError("Could not split selected segment groups.")
+
+    current_app.logger.debug(("after split:", ret.new_root_ids))
+    current_app.logger.debug(("lvl2_nodes:", ret.new_lvl2_ids))
+
+    if len(ret.new_lvl2_ids) > 0:
+        t = threading.Thread(
+            target=meshing_app_blueprint._remeshing,
+            args=(cg.get_serialized_info(), ret.new_lvl2_ids),
         )
+        t.start()
 
-    current_app.logger.debug(("after split:", new_roots))
+    # NOTE: JS can't safely read integers larger than 2^53 - 1
+    resp = {
+        "operation_id": ret.operation_id,
+        "operation_id_str": str(ret.operation_id),
+        "new_root_ids": ret.new_root_ids,
+        "new_root_ids_str": list(map(str, ret.new_root_ids)),
+        }
+    return jsonify(resp)
 
-    t = threading.Thread(target=meshing_app_blueprint._mesh_lvl2_nodes,
-                         args=(cg.get_serialized_info(), lvl2_nodes))
-    t.start()
 
-    # Return binary
-    return app_utils.tobinary(new_roots)
+### UNDO ----------------------------------------------------------------------
 
 
-### SHATTER --------------------------------------------------------------------
+@bp.route("/1.0/<table_id>/graph/undo", methods=["POST"])
+@auth_requires_roles("edit_all")
+def handle_undo(table_id):
+    current_app.request_type = "undo"
 
-# @bp.route('/1.0/<table_id>/graph/shatter', methods=['POST', 'GET'])
-# def handle_shatter(table_id):
-#     data = json.loads(request.data)
-#
-#     user_id = str(request.remote_addr)
-#
-#     current_app.logger.debug(data)
-#
-#     # Call ChunkedGraph
-#     cg = app_utils.get_cg(table_id)
-#
-#     data_dict = collections.defaultdict(list)
-#
-#     k = "sources"
-#     node = data[k][0]
-#
-#     node_id = node[0]
-#     radius = node[1]
-#     x, y, z = node[2:]
-#
-#     x /= 2
-#     y /= 2
-#
-#     coordinate = np.array([x, y, z])
-#
-#     current_app.logger.debug(("before", coordinate))
-#
-#     if not cg.is_in_bounds(coordinate):
-#         coordinate /= cg.segmentation_resolution
-#
-#         coordinate[0] *= 2
-#         coordinate[1] *= 2
-#
-#     current_app.logger.debug(("after", coordinate))
-#
-#     atomic_id = cg.get_atomic_id_from_coord(coordinate[0],
-#                                             coordinate[1],
-#                                             coordinate[2],
-#                                             parent_id=np.uint64(
-#                                                 node_id),
-#                                             remesh_preview=True)
-#
-#     if atomic_id is None:
-#         raise cg_exceptions.BadRequest(
-#             f"Could not determine supervoxel ID for coordinates {coordinate}.")
-#
-#     data_dict["id"].append(atomic_id)
-#     data_dict["coord"].append(coordinate)
-#
-#     current_app.logger.debug(data_dict)
-#     try:
-#         new_roots = cg.shatter_nodes(user_id=user_id,
-#                                      atomic_node_ids=data_dict['id'],
-#                                      radius=radius)
-#     except cg_exceptions.LockingError as e:
-#         raise cg_exceptions.InternalServerError(
-#             "Could not acquire root lock for shatter operation.")
-#     except cg_exceptions.PreconditionError as e:
-#         raise cg_exceptions.BadRequest(str(e))
-#
-#     if new_roots is None:
-#         raise cg_exceptions.InternalServerError(
-#             "Could not shatter selected region."
-#         )
-#
-#     # Return binary
-#     return app_utils.tobinary(new_roots)
+    data = json.loads(request.data)
+    user_id = str(g.auth_user["id"])
 
+    current_app.logger.debug(data)
+
+    # Call ChunkedGraph
+    cg = app_utils.get_cg(table_id)
+    operation_id = np.uint64(data["operation_id"])
+
+    try:
+        ret = cg.undo(user_id=user_id, operation_id=operation_id)
+    except cg_exceptions.LockingError as e:
+        raise cg_exceptions.InternalServerError("Could not acquire root lock for undo operation.")
+    except (cg_exceptions.PreconditionError, cg_exceptions.PostconditionError) as e:
+        raise cg_exceptions.BadRequest(str(e))
+
+    current_app.logger.debug(("after undo:", ret.new_root_ids))
+    current_app.logger.debug(("lvl2_nodes:", ret.new_lvl2_ids))
+
+    if ret.new_lvl2_ids.size > 0:
+        t = threading.Thread(
+            target=meshing_app_blueprint._remeshing,
+            args=(cg.get_serialized_info(), ret.new_lvl2_ids),
+        )
+        t.start()
+
+    # NOTE: JS can't safely read integers larger than 2^53 - 1
+    resp = {
+        "operation_id": ret.operation_id,
+        "operation_id_str": str(ret.operation_id),
+        "new_root_ids": ret.new_root_ids,
+        "new_root_ids_str": list(map(str, ret.new_root_ids)),
+    }
+    return jsonify(resp)
+
+
+### REDO ----------------------------------------------------------------------
+
+
+@bp.route("/1.0/<table_id>/graph/redo", methods=["POST"])
+@auth_requires_roles("edit_all")
+def handle_redo(table_id):
+    current_app.request_type = "redo"
+
+    data = json.loads(request.data)
+    user_id = str(g.auth_user["id"])
+
+    current_app.logger.debug(data)
+
+    # Call ChunkedGraph
+    cg = app_utils.get_cg(table_id)
+    operation_id = np.uint64(data["operation_id"])
+
+    try:
+        ret = cg.redo(user_id=user_id, operation_id=operation_id)
+    except cg_exceptions.LockingError as e:
+        raise cg_exceptions.InternalServerError("Could not acquire root lock for redo operation.")
+    except (cg_exceptions.PreconditionError, cg_exceptions.PostconditionError) as e:
+        raise cg_exceptions.BadRequest(str(e))
+
+    current_app.logger.debug(("after redo:", ret.new_root_ids))
+    current_app.logger.debug(("lvl2_nodes:", ret.new_lvl2_ids))
+
+    if ret.new_lvl2_ids.size > 0:
+        t = threading.Thread(
+            target=meshing_app_blueprint._remeshing,
+            args=(cg.get_serialized_info(), ret.new_lvl2_ids),
+        )
+        t.start()
+
+    # NOTE: JS can't safely read integers larger than 2^53 - 1
+    resp = {
+        "operation_id": ret.operation_id,
+        "operation_id_str": str(ret.operation_id),
+        "new_root_ids": ret.new_root_ids,
+        "new_root_ids_str": list(map(str, ret.new_root_ids)),
+    }
+    return jsonify(resp)
 
 
 ### CHILDREN -------------------------------------------------------------------
@@ -585,6 +580,20 @@ def merge_log(table_id, root_id):
             continue
 
     return jsonify(change_log)
+
+
+@bp.route('/1.0/<table_id>/graph/oldest_timestamp', methods=["POST", "GET"])
+def oldest_timestamp(table_id):
+    current_app.request_type = "timestamp"
+
+    cg = app_utils.get_cg(table_id)
+
+    oldest_log_row = cg.read_first_log_row()
+
+    if oldest_log_row is None:
+        raise Exception("No log row found")
+
+    return jsonify(list(oldest_log_row.values())[0][0].timestamp)
 
 
 ### CONTACT SITES --------------------------------------------------------------
