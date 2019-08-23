@@ -1,1 +1,1 @@
-__version__ = 'meshworker.1.3'
+__version__ = 'meshworker.1.4'
