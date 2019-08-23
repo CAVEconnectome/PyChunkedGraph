@@ -85,6 +85,7 @@ def plot_scaling(re_path, key=8):
     plt.ylim(0, np.max(percentiles) * 1.05)
     plt.xlim(1, np.max(sizes) * 1.05)
 
+
     plt.xlabel("Number of layers", fontsize=22)
     plt.ylabel("Time (ms)", fontsize=22)
 
@@ -501,6 +502,7 @@ def _get_merge_timings(args):
         root_ids = cg.remove_edges(user_id="ChuckNorris",
                                    atomic_edges=[merge_edge],
                                    mincut=False).new_root_ids
+
         dt = time.time() - time_start
         split_timings.append(dt)
 
@@ -513,3 +515,4 @@ def run_timings(table_id, save_dir=f"{HOME}/benchmarks/", job_size=500):
                            job_size=job_size)
     benchmark_subgraph_timings(table_id=table_id, save_dir=save_dir,
                                job_size=job_size)
+

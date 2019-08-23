@@ -3346,31 +3346,44 @@ class ChunkedGraph(object):
                 for generation in row[column_keys.Connectivity.Partner][::-1]
                 for partner_id in generation.value),
                 dtype=basetypes.NODE_ID).reshape((-1, 2))
-
-            if connected_edges:
-                edges = edges[connected_indices]
-            else:
-                disconnected_indices = np.arange(len(edges))
-                disconnected_indices = disconnected_indices[~np.in1d(disconnected_indices, connected_indices)]
-                edges = edges[disconnected_indices]
+            edges = self._connected_or_not(edges, connected_indices,
+                                           connected_edges)
         else:
             edges = np.empty((0, 2), basetypes.NODE_ID)
 
         if column_keys.Connectivity.Affinity in row:
             affinities = np.fromiter(itertools.chain.from_iterable(
                 generation.value for generation in row[column_keys.Connectivity.Affinity][::-1]),
-                dtype=basetypes.EDGE_AFFINITY)[connected_indices]
+                dtype=basetypes.EDGE_AFFINITY)
+            affinities = self._connected_or_not(affinities, connected_indices,
+                                                connected_edges)
         else:
             affinities = np.empty(0, basetypes.EDGE_AFFINITY)
 
         if column_keys.Connectivity.Area in row:
             areas = np.fromiter(itertools.chain.from_iterable(
                 generation.value for generation in row[column_keys.Connectivity.Area][::-1]),
-                dtype=basetypes.EDGE_AREA)[connected_indices]
+                dtype=basetypes.EDGE_AREA)
+            areas = self._connected_or_not(areas, connected_indices,
+                                           connected_edges)
         else:
             areas = np.empty(0, basetypes.EDGE_AREA)
 
         return edges, affinities, areas
+
+    def _connected_or_not(self, array, connected_indices, connected):
+        """
+        Either filters the first dimension of a numpy array by the passed
+        indices or their complement. Used to select edge descriptors for
+        those that are either connected or not connected.
+        """
+        mask = np.zeros((array.shape[0],), dtype=np.bool)
+        mask[connected_indices] = True
+
+        if connected:
+            return array[mask, ...]
+        else:
+            return array[~mask, ...]
 
     def get_subgraph_chunk(self, node_ids: Iterable[np.uint64],
                            make_unique: bool = True,
