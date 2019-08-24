@@ -18,7 +18,7 @@ tasks = defaultdict(list)
 layer_parent_children_counts = {}
 
 
-def _get_children_count(imanager, chunk_coord, layer_id):
+def _get_children_count(chunk_coord, layer_id):
     child_chunk_coords = imanager.chunk_coords // imanager.cg.fan_out ** (layer_id - 3)
     child_chunk_coords = child_chunk_coords.astype(np.int)
     child_chunk_coords = np.unique(child_chunk_coords, axis=0)
@@ -36,12 +36,13 @@ def handle_job_result(*args, **kwargs):
     result = np.frombuffer(args[0]['data'], dtype=int)
     layer_id = result[0] + 1
     chunk_coord = result[1:]
-    p_chunk_coord = chunk_coord // 2
+    p_chunk_coord = chunk_coord // imanager.cg.fan_out
     tasks[str(p_chunk_coord)].append(chunk_coord)
     children_count = len(tasks[str(p_chunk_coord)])
 
     if not layer_id in layer_parent_children_counts:
-        layer_parent_children_counts[layer_id] = _get_children_count(imanager, p_chunk_coord, layer_id)
+        layer_parent_children_counts[layer_id] = _get_children_count(p_chunk_coord, layer_id)
+        print(layer_parent_children_counts[layer_id])
     n_children = layer_parent_children_counts[layer_id][str(p_chunk_coord)]
     
     if children_count == n_children:
@@ -80,9 +81,8 @@ def run_ingest(storage_path, ws_cv_path, cg_table_id, edge_dir=None, n_chunks=No
         edge_dir=edge_dir,
         n_chunks=n_chunks,
     )
-    print(type(imanager))
-    create_atomic_chunks(imanager, n_chunks)
     chunk_pubsub.run_in_thread(sleep_time=0.1)
+    create_atomic_chunks(imanager, n_chunks)
 
 
 def init_ingest_cmds(app):
