@@ -77,6 +77,14 @@ def ingest_into_chunkedgraph(
         data_version=4,
     )
 
+    # 85, 51, 17 - 3 71400
+    # 42, 25, 8 - 4 8400
+    # 21, 12, 4 - 5 1008
+    # 10, 6, 2 - 6 120
+    # 5, 3, 1 - 7 15
+    # 2, 1, 0 - 8 2
+    # 1, 0, 0 - 9 1
+
     create_atomic_chunks(imanager, n_chunks)
     return imanager
 
