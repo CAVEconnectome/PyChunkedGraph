@@ -9,6 +9,7 @@ from flask import current_app
 from flask.cli import AppGroup
 
 from .ran_ingestion_v2 import ingest_into_chunkedgraph
+from .ran_ingestion_v2 import create_atomic_chunks
 from .ran_ingestion_v2 import queue_parent
 
 ingest_cli = AppGroup("ingest")
@@ -17,8 +18,7 @@ tasks = defaultdict(list)
 layer_parent_children_counts = {}
 
 
-def _get_children_count(chunk_coord, layer_id):
-    global imanager
+def _get_children_count(imanager, chunk_coord, layer_id):
     child_chunk_coords = imanager.chunk_coords // imanager.cg.fan_out ** (layer_id - 3)
     child_chunk_coords = child_chunk_coords.astype(np.int)
     child_chunk_coords = np.unique(child_chunk_coords, axis=0)
@@ -32,7 +32,7 @@ def _get_children_count(chunk_coord, layer_id):
 
 def handle_job_result(*args, **kwargs):
     """handle worker return"""
-    global imanager
+    global layer_parent_children_counts
     result = np.frombuffer(args[0]['data'], dtype=int)
     layer_id = result[0] + 1
     chunk_coord = result[1:]
@@ -41,16 +41,16 @@ def handle_job_result(*args, **kwargs):
     children_count = len(tasks[str(p_chunk_coord)])
 
     if not layer_id in layer_parent_children_counts:
-        layer_parent_children_counts[layer_id] = _get_children_count(p_chunk_coord, layer_id)
+        layer_parent_children_counts[layer_id] = _get_children_count(imanager, p_chunk_coord, layer_id)
     n_children = layer_parent_children_counts[layer_id][str(p_chunk_coord)]
     
     if children_count == n_children:
-        queue_parent(imanager, layer_id, p_chunk_coord, tasks.pop(str(p_chunk_coord)))
+        children = tasks.pop(str(p_chunk_coord))
+        queue_parent(imanager, layer_id, p_chunk_coord, children)
         with open("completed.txt", "a") as completed_f:
-            completed_f.write(f"{p_chunk_coord}:{children_count}\n")        
-
-    with open("results.txt", "a") as results_f:
-        results_f.write(f"{chunk_coord}:{p_chunk_coord}:{children_count}\n")
+            completed_f.write(f"{p_chunk_coord}:{children_count}\n")   
+        with open("children.txt", "a") as completed_f:
+            completed_f.write("\n".join(f"{str(child)}:{layer_id}" for child in children))
 
 
 @ingest_cli.command("atomic")
@@ -71,7 +71,6 @@ def run_ingest(storage_path, ws_cv_path, cg_table_id, edge_dir=None, n_chunks=No
     """
     chunk_pubsub = current_app.redis.pubsub()
     chunk_pubsub.subscribe(**{"ingest_channel": handle_job_result})
-    chunk_pubsub.run_in_thread(sleep_time=0.1)
 
     global imanager
     imanager = ingest_into_chunkedgraph(
@@ -81,6 +80,9 @@ def run_ingest(storage_path, ws_cv_path, cg_table_id, edge_dir=None, n_chunks=No
         edge_dir=edge_dir,
         n_chunks=n_chunks,
     )
+    print(type(imanager))
+    create_atomic_chunks(imanager, n_chunks)
+    chunk_pubsub.run_in_thread(sleep_time=0.1)
 
 
 def init_ingest_cmds(app):

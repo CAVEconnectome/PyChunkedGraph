@@ -48,7 +48,6 @@ def add_atomic_edges(
     graph, _, _, unique_ids = build_gt_graph(chunk_edge_ids, make_directed=True)
     ccs = connected_components(graph)
 
-    print(chunk_coord)
     parent_chunk_id = cg_instance.get_chunk_id(
         layer=2, x=chunk_coord[0], y=chunk_coord[1], z=chunk_coord[2]
     )
