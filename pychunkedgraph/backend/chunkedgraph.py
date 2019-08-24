@@ -27,7 +27,6 @@ from pychunkedgraph.backend.graphoperation import (
     MulticutOperation,
     SplitOperation,
 )
-from pychunkedgraph.io.storage import get_chunk_edges
 from pychunkedgraph.io.edge_storage import get_chunk_edges
 # from pychunkedgraph.meshing import meshgen
 
