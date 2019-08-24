@@ -16,6 +16,7 @@ ingest_cli = AppGroup("ingest")
 imanager = None
 tasks = defaultdict(list)
 layer_parent_children_counts = {}
+layer_counts = defaultdict(int)
 
 
 def _get_children_count(chunk_coord, layer_id):
@@ -42,16 +43,22 @@ def handle_job_result(*args, **kwargs):
 
     if not layer_id in layer_parent_children_counts:
         layer_parent_children_counts[layer_id] = _get_children_count(p_chunk_coord, layer_id)
-        print(layer_parent_children_counts[layer_id])
+        p_keys = layer_parent_children_counts[layer_id].keys()
+        n_parents = len(p_keys)
+        total_children = sum([layer_parent_children_counts[layer_id][k] for k in p_keys])
+        print(layer_id, n_parents, total_children)
     n_children = layer_parent_children_counts[layer_id][str(p_chunk_coord)]
     
     if children_count == n_children:
         children = tasks.pop(str(p_chunk_coord))
         queue_parent(imanager, layer_id, p_chunk_coord, children)
-        with open("completed.txt", "a") as completed_f:
-            completed_f.write(f"{p_chunk_coord}:{children_count}\n")   
-        with open("children.txt", "a") as completed_f:
-            completed_f.write("\n".join(f"{str(child)}:{layer_id}" for child in children))
+        layer_counts[layer_id] += len(children)
+        with open("layers.txt", "w") as layers_f:
+            layers_f.write("\n".join([f"{str(layer)}: {layer_counts[layer]}" for layer in layer_counts]))
+        # with open("completed.txt", "a") as completed_f:
+        #     completed_f.write(f"{p_chunk_coord}:{children_count}:{layer_id}\n")
+        # with open("children.txt", "a") as completed_f:
+        #     completed_f.write("\n".join(f"{str(child)}:{layer_id}" for child in children))
 
 
 @ingest_cli.command("atomic")
