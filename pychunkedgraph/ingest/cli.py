@@ -9,8 +9,6 @@ from flask import current_app
 from flask.cli import AppGroup
 
 from .ran_ingestion_v2 import ingest_into_chunkedgraph
-from .ran_ingestion_v2 import create_atomic_chunks
-from .ran_ingestion_v2 import queue_parent
 
 ingest_cli = AppGroup("ingest")
 task_count = 0
@@ -24,10 +22,10 @@ def handle_job_result(*args, **kwargs):
     task_count += 1
 
     with open(f"completed_{layer}.txt", "w") as completed_f:
-        completed_f.write(task_count)
+        completed_f.write(str(task_count))
 
 
-@ingest_cli.command("atomic")
+@ingest_cli.command("table")
 @click.argument("storage_path", type=str)
 @click.argument("ws_cv_path", type=str)
 @click.argument("edge_dir", type=str)
@@ -36,7 +34,7 @@ def handle_job_result(*args, **kwargs):
 def run_ingest(storage_path, ws_cv_path, cg_table_id, edge_dir, layer):
     """
     run ingestion job
-    eg: flask ingest atomic \
+    eg: flask ingest table \
         gs://ranl/scratch/pinky100_ca_com/agg \
         gs://neuroglancer/pinky100_v0/ws/pinky100_ca_com \
         gs://akhilesh-test/edges/pinky100-ingest \
