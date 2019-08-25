@@ -17,7 +17,7 @@ task_count = 0
 def handle_job_result(*args, **kwargs):
     """handle worker return"""
     global task_count
-    result = np.frombuffer(args[0]['data'], dtype=int)
+    result = np.frombuffer(args[0]['data'], dtype=np.int32)
     layer = result[0]
     task_count += 1
 
