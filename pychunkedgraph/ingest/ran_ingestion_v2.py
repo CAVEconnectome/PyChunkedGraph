@@ -42,7 +42,7 @@ def ingest_into_chunkedgraph(
     size=None,
     instance_id=None,
     project_id=None,
-    start_layer=1,
+    layer=1,
     edge_dir=None,
     n_chunks=None,
     is_new=True
@@ -77,47 +77,53 @@ def ingest_into_chunkedgraph(
         data_version=4,
     )
 
-    # 85, 51, 17 - 3 71400
-    # 42, 25, 8 - 4 8400
-    # 21, 12, 4 - 5 1008
-    # 10, 6, 2 - 6 120
-    # 5, 3, 1 - 7 15
-    # 2, 1, 0 - 8 2
-    # 1, 0, 0 - 9 1
-    return imanager
+    if layer < 3:
+        create_atomic_chunks(imanager)
+    else:
+        create_layer(imanager, layer)
 
 
-def queue_parent(im, layer_id, parent_chunk_coord, child_chunk_coords):
-    im_info = im.get_serialized_info()
-    connection = Redis(host=os.environ['REDIS_SERVICE_HOST'],port=6379,db=0, password='dev')
-    test_q = Queue('test', connection=connection)
-    test_q.enqueue(
-        _create_layer,
-        job_timeout="59m",
-        args=(im_info, layer_id, child_chunk_coords, parent_chunk_coord))
+def create_layer(imanager, layer_id):
+    child_chunk_coords = imanager.chunk_coords // imanager.cg.fan_out ** (layer_id - 3)
+    child_chunk_coords = child_chunk_coords.astype(np.int)
+    child_chunk_coords = np.unique(child_chunk_coords, axis=0)
+
+    parent_chunk_coords = child_chunk_coords // imanager.cg.fan_out
+    parent_chunk_coords = parent_chunk_coords.astype(np.int)
+    parent_chunk_coords, indices = np.unique(parent_chunk_coords, axis=0,
+                                          return_inverse=True)
+
+    order = np.arange(len(parent_chunk_coords), dtype=np.int)
+    np.random.shuffle(order)
+
+    for parent_idx in order:
+        children = child_chunk_coords[indices == parent_idx]
+        current_app.test_q.enqueue(
+            _create_layer,
+            job_timeout="59m",
+            args=(imanager.get_serialized_info(), layer_id, children),
+        )
+    print(f"Queued jobs: {len(current_app.test_q)}")
 
 
 @redis_job(REDIS_URL, "ingest_channel")
-def _create_layer(im_info, layer_id, child_chunk_coords, parent_chunk_coord):
+def _create_layer(im_info, layer_id, child_chunk_coords):
     imanager = ingestionmanager.IngestionManager(**im_info)
-    return imanager.cg.add_layer(
-        layer_id, child_chunk_coords,
-        parent_chunk_coord=parent_chunk_coord)
+    imanager.cg.add_layer(layer_id, child_chunk_coords, n_threads=2)
 
 
-def create_atomic_chunks(im, n_chunks):
+def create_atomic_chunks(imanager):
     """ Creates all atomic chunks"""
-    chunk_coords = list(im.chunk_coord_gen)
+    chunk_coords = list(imanager.chunk_coord_gen)
     np.random.shuffle(chunk_coords)
 
-    print(len(chunk_coords))
-
-    for chunk_coord in chunk_coords[:n_chunks]:
+    for chunk_coord in chunk_coords:
         current_app.test_q.enqueue(
             _create_atomic_chunk,
             job_timeout="59m",
-            args=(im.get_serialized_info(), chunk_coord),
+            args=(imanager.get_serialized_info(), chunk_coord),
         )
+    print(f"Queued jobs: {len(current_app.test_q)}")
 
 
 @redis_job(REDIS_URL, "ingest_channel")
@@ -159,10 +165,10 @@ def create_atomic_chunk(imanager, chunk_coord):
     return result.tobytes()
 
 
-def _get_cont_chunk_coords(im, chunk_coord_a, chunk_coord_b):
+def _get_cont_chunk_coords(imanager, chunk_coord_a, chunk_coord_b):
     """ Computes chunk coordinates that compute data between the named chunks
 
-    :param im: IngestionManagaer
+    :param imanager: IngestionManagaer
     :param chunk_coord_a: np.ndarray
         array of three ints
     :param chunk_coord_b: np.ndarray
@@ -193,7 +199,7 @@ def _get_cont_chunk_coords(im, chunk_coord_a, chunk_coord_b):
                 if [dx, dy, dz][dir_dim] == 0:
                     continue
 
-                if im.is_out_of_bounce(c_chunk_coord):
+                if imanager.is_out_of_bounce(c_chunk_coord):
                     continue
 
                 c_chunk_coords.append(c_chunk_coord)
@@ -201,10 +207,10 @@ def _get_cont_chunk_coords(im, chunk_coord_a, chunk_coord_b):
     return c_chunk_coords
 
 
-def collect_edge_data(im, chunk_coord):
+def collect_edge_data(imanager, chunk_coord):
     """ Loads edge for single chunk
 
-    :param im: IngestionManager
+    :param imanager: IngestionManager
     :param chunk_coord: np.ndarray
         array of three ints
     :param aff_dtype: np.dtype
@@ -213,11 +219,11 @@ def collect_edge_data(im, chunk_coord):
     """
     subfolder = "chunked_rg"
 
-    base_path = f"{im.storage_path}/{subfolder}/"
+    base_path = f"{imanager.storage_path}/{subfolder}/"
 
     chunk_coord = np.array(chunk_coord)
 
-    chunk_id = im.cg.get_chunk_id(
+    chunk_id = imanager.cg.get_chunk_id(
         layer=1, x=chunk_coord[0], y=chunk_coord[1], z=chunk_coord[2]
     )
 
@@ -227,7 +233,7 @@ def collect_edge_data(im, chunk_coord):
         for y in [chunk_coord[1] - 1, chunk_coord[1]]:
             for z in [chunk_coord[2] - 1, chunk_coord[2]]:
 
-                if im.is_out_of_bounce(np.array([x, y, z])):
+                if imanager.is_out_of_bounce(np.array([x, y, z])):
                     continue
 
                 # EDGES WITHIN CHUNKS
@@ -240,18 +246,18 @@ def collect_edge_data(im, chunk_coord):
             diff[dim] = d
 
             adjacent_chunk_coord = chunk_coord + diff
-            adjacent_chunk_id = im.cg.get_chunk_id(
+            adjacent_chunk_id = imanager.cg.get_chunk_id(
                 layer=1,
                 x=adjacent_chunk_coord[0],
                 y=adjacent_chunk_coord[1],
                 z=adjacent_chunk_coord[2],
             )
 
-            if im.is_out_of_bounce(adjacent_chunk_coord):
+            if imanager.is_out_of_bounce(adjacent_chunk_coord):
                 continue
 
             c_chunk_coords = _get_cont_chunk_coords(
-                im, chunk_coord, adjacent_chunk_coord
+                imanager, chunk_coord, adjacent_chunk_coord
             )
 
             larger_id = np.max([chunk_id, adjacent_chunk_id])
@@ -293,10 +299,10 @@ def collect_edge_data(im, chunk_coord):
                 continue
 
             if swap[file["filename"]]:
-                this_dtype = [im.edge_dtype[1], im.edge_dtype[0]] + im.edge_dtype[2:]
+                this_dtype = [imanager.edge_dtype[1], imanager.edge_dtype[0]] + imanager.edge_dtype[2:]
                 content = np.frombuffer(file["content"], dtype=this_dtype)
             else:
-                content = np.frombuffer(file["content"], dtype=im.edge_dtype)
+                content = np.frombuffer(file["content"], dtype=imanager.edge_dtype)
 
             data.append(content)
 
@@ -334,25 +340,25 @@ def _read_agg_files(filenames, base_path):
     return edge_list
 
 
-def collect_agglomeration_data(im, chunk_coord):
+def collect_agglomeration_data(imanager, chunk_coord):
     """ Collects agglomeration information & builds connected component mapping
 
-    :param im: IngestionManager
+    :param imanager: IngestionManager
     :param chunk_coord: np.ndarray
         array of three ints
     :return: dictionary
     """
     subfolder = "remap"
-    base_path = f"{im.storage_path}/{subfolder}/"
+    base_path = f"{imanager.storage_path}/{subfolder}/"
 
     chunk_coord = np.array(chunk_coord)
 
-    chunk_id = im.cg.get_chunk_id(
+    chunk_id = imanager.cg.get_chunk_id(
         layer=1, x=chunk_coord[0], y=chunk_coord[1], z=chunk_coord[2]
     )
 
     filenames = []
-    for mip_level in range(0, int(im.n_layers - 1)):
+    for mip_level in range(0, int(imanager.n_layers - 1)):
         x, y, z = np.array(chunk_coord / 2 ** mip_level, dtype=np.int)
         filenames.append(f"done_{mip_level}_{x}_{y}_{z}_{chunk_id}.data.zst")
 
@@ -363,14 +369,14 @@ def collect_agglomeration_data(im, chunk_coord):
 
             adjacent_chunk_coord = chunk_coord + diff
 
-            adjacent_chunk_id = im.cg.get_chunk_id(
+            adjacent_chunk_id = imanager.cg.get_chunk_id(
                 layer=1,
                 x=adjacent_chunk_coord[0],
                 y=adjacent_chunk_coord[1],
                 z=adjacent_chunk_coord[2],
             )
 
-            for mip_level in range(0, int(im.n_layers - 1)):
+            for mip_level in range(0, int(imanager.n_layers - 1)):
                 x, y, z = np.array(adjacent_chunk_coord / 2 ** mip_level, dtype=np.int)
                 filenames.append(
                     f"done_{mip_level}_{x}_{y}_{z}_{adjacent_chunk_id}.data.zst"
