@@ -9,20 +9,16 @@ class _Serializer():
         self._serializer = serializer
         self._deserializer = deserializer
         self._basetype = basetype
-        self._compressor = None
-        self._decompressor = None
-        if compression_level:
-            self._compressor = compression_level
-            self._decompressor = True
+        self._compression_level = compression_level
 
     def serialize(self, obj):
         content = self._serializer(obj)
-        if self._compressor:
-            return zstd.ZstdCompressor(level=self._compressor).compress(content)
+        if self._compression_level:
+            return zstd.ZstdCompressor(level=self._compression_level).compress(content)
         return content
 
     def deserialize(self, obj):
-        if self._decompressor:
+        if self._compression_level:
             obj = zstd.ZstdDecompressor().decompressobj().decompress(obj)
         return self._deserializer(obj)
 
