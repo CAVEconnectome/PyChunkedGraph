@@ -21,7 +21,7 @@ from redis import Redis
 from ..utils.general import redis_job
 from . import ingestionmanager, ingestion_utils as iu
 from ..backend.initialization.create import add_atomic_edges
-from ..backend.definitions.edges import Edges, TYPES as EDGE_TYPES
+from ..backend.definitions.edges import Edges, CX_CHUNK, TYPES as EDGE_TYPES
 from ..backend.utils import basetypes
 from ..io.edge_storage import put_chunk_edges
 
@@ -139,7 +139,7 @@ def create_atomic_chunk(imanager, chunk_coord):
     edge_dict = collect_edge_data(imanager, chunk_coord)
     edge_dict = iu.postprocess_edge_data(imanager, edge_dict)
     mapping = collect_agglomeration_data(imanager, chunk_coord)
-    _, isolated_ids = define_active_edges(edge_dict, mapping)
+    active_edge_d, isolated_ids = define_active_edges(edge_dict, mapping)
 
     # flag to check if chunk has edges
     # avoid writing to cloud storage if there are no edges
@@ -147,12 +147,15 @@ def create_atomic_chunk(imanager, chunk_coord):
     no_edges = True
     chunk_edges = {}
     for edge_type in EDGE_TYPES:
-        sv_ids1 = edge_dict[edge_type]["sv1"]
-        sv_ids2 = edge_dict[edge_type]["sv2"]
+        active = active_edge_d[edge_type]
+        sv_ids1 = edge_dict[edge_type]["sv1"][active]
+        sv_ids2 = edge_dict[edge_type]["sv2"][active]
 
-        ones = np.ones(len(sv_ids1))
-        affinities = edge_dict[edge_type].get("aff", float("inf") * ones)
-        areas = edge_dict[edge_type].get("area", ones)
+        areas = np.ones(len(sv_ids1))
+        affinities = float("inf") * areas
+        if not edge_type == CX_CHUNK:
+            affinities = edge_dict[edge_type]["aff"]
+            areas = edge_dict[edge_type]["area"]
         chunk_edges[edge_type] = Edges(sv_ids1, sv_ids2, affinities, areas)
         no_edges = no_edges and not sv_ids1.size
 
