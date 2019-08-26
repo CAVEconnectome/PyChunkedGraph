@@ -144,6 +144,7 @@ def sleep_me(sleep):
 
 
 @bp.route('/1.0/<table_id>/info', methods=['GET'])
+@bp.route('/2.0/<table_id>/info', methods=['GET'])
 def handle_info(table_id):
     current_app.request_type = "info"
 
@@ -154,6 +155,7 @@ def handle_info(table_id):
 ### GET ROOT -------------------------------------------------------------------
 
 @bp.route('/1.0/<table_id>/graph/root', methods=['POST', 'GET'])
+@bp.route('/2.0/<table_id>/graph/root', methods=['POST', 'GET'])
 def handle_root_1(table_id):
     atomic_id = np.uint64(json.loads(request.data)[0])
 
@@ -169,6 +171,7 @@ def handle_root_1(table_id):
 
 
 @bp.route('/1.0/<table_id>/graph/<atomic_id>/root', methods=['POST', 'GET'])
+@bp.route('/2.0/<table_id>/graph/<atomic_id>/root', methods=['POST', 'GET'])
 def handle_root_2(table_id, atomic_id):
 
     # Convert seconds since epoch to UTC datetime
@@ -355,7 +358,7 @@ def handle_split(table_id):
 ### UNDO ----------------------------------------------------------------------
 
 
-@bp.route("/1.0/<table_id>/graph/undo", methods=["POST"])
+@bp.route("/2.0/<table_id>/graph/undo", methods=["POST"])
 @auth_requires_roles("edit_all")
 def handle_undo(table_id):
     current_app.request_type = "undo"
@@ -399,7 +402,7 @@ def handle_undo(table_id):
 ### REDO ----------------------------------------------------------------------
 
 
-@bp.route("/1.0/<table_id>/graph/redo", methods=["POST"])
+@bp.route("/2.0/<table_id>/graph/redo", methods=["POST"])
 @auth_requires_roles("edit_all")
 def handle_redo(table_id):
     current_app.request_type = "redo"
@@ -442,8 +445,8 @@ def handle_redo(table_id):
 
 ### CHILDREN -------------------------------------------------------------------
 
-@bp.route('/1.0/<table_id>/segment/<parent_id>/children',
-          methods=['POST', 'GET'])
+@bp.route('/1.0/<table_id>/segment/<parent_id>/children', methods=['POST', 'GET'])
+@bp.route('/2.0/<table_id>/segment/<parent_id>/children', methods=['POST', 'GET'])
 def handle_children(table_id, parent_id):
     current_app.request_type = "children"
 
@@ -464,6 +467,7 @@ def handle_children(table_id, parent_id):
 ### LEAVES ---------------------------------------------------------------------
 
 @bp.route('/1.0/<table_id>/segment/<root_id>/leaves', methods=['POST', 'GET'])
+@bp.route('/2.0/<table_id>/segment/<root_id>/leaves', methods=['POST', 'GET'])
 def handle_leaves(table_id, root_id):
     current_app.request_type = "leaves"
 
@@ -486,8 +490,8 @@ def handle_leaves(table_id, root_id):
 
 ### LEAVES FROM LEAVES ---------------------------------------------------------
 
-@bp.route('/1.0/<table_id>/segment/<atomic_id>/leaves_from_leave',
-          methods=['POST', 'GET'])
+@bp.route('/1.0/<table_id>/segment/<atomic_id>/leaves_from_leave', methods=['POST', 'GET'])
+@bp.route('/2.0/<table_id>/segment/<atomic_id>/leaves_from_leave', methods=['POST', 'GET'])
 def handle_leaves_from_leave(table_id, atomic_id):
     current_app.request_type = "leaves_from_leave"
 
@@ -512,6 +516,7 @@ def handle_leaves_from_leave(table_id, atomic_id):
 ### SUBGRAPH -------------------------------------------------------------------
 
 @bp.route('/1.0/<table_id>/segment/<root_id>/subgraph', methods=['POST', 'GET'])
+@bp.route('/2.0/<table_id>/segment/<root_id>/subgraph', methods=['POST', 'GET'])
 def handle_subgraph(table_id, root_id):
     current_app.request_type = "subgraph"
 
@@ -533,8 +538,8 @@ def handle_subgraph(table_id, root_id):
 
 ### CHANGE LOG -----------------------------------------------------------------
 
-@bp.route('/1.0/<table_id>/segment/<root_id>/change_log',
-          methods=["POST", "GET"])
+@bp.route('/1.0/<table_id>/segment/<root_id>/change_log', methods=["POST", "GET"])
+@bp.route('/2.0/<table_id>/segment/<root_id>/change_log', methods=["POST", "GET"])
 def change_log(table_id, root_id):
     current_app.request_type = "change_log"
 
@@ -555,8 +560,8 @@ def change_log(table_id, root_id):
     return jsonify(change_log)
 
 
-@bp.route('/1.0/<table_id>/segment/<root_id>/merge_log',
-          methods=["POST", "GET"])
+@bp.route('/1.0/<table_id>/segment/<root_id>/merge_log', methods=["POST", "GET"])
+@bp.route('/2.0/<table_id>/segment/<root_id>/merge_log', methods=["POST", "GET"])
 def merge_log(table_id, root_id):
     current_app.request_type = "merge_log"
 
@@ -583,6 +588,7 @@ def merge_log(table_id, root_id):
 
 
 @bp.route('/1.0/<table_id>/graph/oldest_timestamp', methods=["POST", "GET"])
+@bp.route('/2.0/<table_id>/graph/oldest_timestamp', methods=["POST", "GET"])
 def oldest_timestamp(table_id):
     current_app.request_type = "timestamp"
 
@@ -598,8 +604,8 @@ def oldest_timestamp(table_id):
 
 ### CONTACT SITES --------------------------------------------------------------
 
-@bp.route('/1.0/<table_id>/segment/<root_id>/contact_sites',
-          methods=["POST", "GET"])
+@bp.route('/1.0/<table_id>/segment/<root_id>/contact_sites',  methods=["POST", "GET"])
+@bp.route('/2.0/<table_id>/segment/<root_id>/contact_sites',  methods=["POST", "GET"])
 def handle_contact_sites(table_id, root_id):
     partners = request.args.get('partners', False)
 
