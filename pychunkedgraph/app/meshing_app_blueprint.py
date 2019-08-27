@@ -10,7 +10,7 @@ from pychunkedgraph.backend import chunkedgraph
 
 # os.environ['TRAVIS_BRANCH'] = "IDONTKNOWWHYINEEDTHIS"
 
-__version__ = 'swdb.1.3'
+__version__ = 'swdb.1.4'
 bp = Blueprint('pychunkedgraph_meshing', __name__, url_prefix="/meshing")
 
 # -------------------------------
@@ -84,6 +84,10 @@ def home():
 
 @bp.route('/1.0/<table_id>/<node_id>/validfragments', methods=['POST', 'GET'])
 def handle_valid_frags(table_id, node_id):
+
+    if not node_id in app_utils.soma_ids:
+        raise Exception("Not a cell with a soma in the dataset!")
+
     cg = app_utils.get_cg(table_id)
 
     seg_ids = meshgen_utils.get_highest_child_nodes_with_meshes(
@@ -112,6 +116,9 @@ def handle_get_manifest(table_id, node_id):
                                 dtype=np.int).T
     else:
         bounding_box = None
+
+    if not node_id in app_utils.soma_ids:
+        raise Exception("Not a cell with a soma in the dataset!")
 
     verify = request.args.get('verify', False)
     verify = verify in ['True', 'true', '1', True]

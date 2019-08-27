@@ -1,1 +1,1 @@
-__version__ = 'pinky-prod.1.7'
+__version__ = 'swdb.1.4'

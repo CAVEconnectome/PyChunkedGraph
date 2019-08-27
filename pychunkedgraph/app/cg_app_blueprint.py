@@ -16,7 +16,7 @@ from pychunkedgraph.backend import chunkedgraph_exceptions as cg_exceptions, \
     chunkedgraph_comp as cg_comp
 
 
-__version__ = 'swdb.1.3'
+__version__ = 'swdb.1.4'
 bp = Blueprint('pychunkedgraph', __name__, url_prefix="/segmentation")
 
 # -------------------------------
@@ -186,6 +186,9 @@ def handle_root_main(table_id, atomic_id, timestamp):
     # Call ChunkedGraph
     cg = app_utils.get_cg(table_id)
     root_id = cg.get_root(np.uint64(atomic_id), time_stamp=timestamp)
+
+    if not root_id in app_utils.soma_ids:
+        raise Exception("Not a cell with a soma in the dataset!")
 
     # Return binary
     return app_utils.tobinary(root_id)
@@ -449,6 +452,9 @@ def handle_root_main(table_id, atomic_id, timestamp):
 def handle_children(table_id, parent_id):
     current_app.request_type = "children"
 
+    if not parent_id in app_utils.soma_ids:
+        raise Exception("Not a cell with a soma in the dataset!")
+
     cg = app_utils.get_cg(table_id)
 
     parent_id = np.uint64(parent_id)
@@ -523,6 +529,9 @@ def handle_subgraph(table_id, root_id):
                                 dtype=np.int).T
     else:
         bounding_box = None
+
+    if not root_id in app_utils.soma_ids:
+        raise Exception("Not a cell with a soma in the dataset!")
 
     # Call ChunkedGraph
     cg = app_utils.get_cg(table_id)
