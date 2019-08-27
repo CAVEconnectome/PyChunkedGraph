@@ -11,8 +11,11 @@ import functools
 
 from pychunkedgraph.logging import jsonformatter, flask_log_db
 from pychunkedgraph.backend import chunkedgraph
+from pychunkedgraph import __version__
 
 cache = {}
+
+__endpoint_versions__ = ["1.0", "2.0"]
 
 
 class DoNothingCreds(credentials.Credentials):
@@ -47,8 +50,7 @@ def get_datastore_client(config):
 
 
 def get_cg(table_id):
-    assert table_id.startswith("fly") or table_id.startswith("golden") or \
-           table_id.startswith("pinky100_rv")
+    assert not table_id.startswith("pinky100_sv")
 
     if table_id not in cache:
         instance_id = current_app.config['CHUNKGRAPH_INSTANCE_ID']

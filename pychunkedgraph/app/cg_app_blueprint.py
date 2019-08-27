@@ -16,7 +16,8 @@ from pychunkedgraph.backend import chunkedgraph_exceptions as cg_exceptions, \
     chunkedgraph_comp as cg_comp
 from middle_auth_client import auth_required, auth_requires_roles
 
-__version__ = 'fafb.1.21'
+from pychunkedgraph.app.app_utils import __version__, __endpoint_versions__
+
 bp = Blueprint('pychunkedgraph', __name__, url_prefix="/segmentation")
 
 # -------------------------------
@@ -27,7 +28,8 @@ bp = Blueprint('pychunkedgraph', __name__, url_prefix="/segmentation")
 @bp.route('/')
 @bp.route("/index")
 def index():
-    return "PyChunkedGraph Server -- " + __version__
+    return f"PyChunkedGraph version: {__version__} -- " \
+           f"Endpoint versions: {__endpoint_versions__}"
 
 
 @bp.route
@@ -143,20 +145,31 @@ def sleep_me(sleep):
     return "zzz... {} ... awake".format(sleep)
 
 
-@bp.route('/1.0/<table_id>/info', methods=['GET'])
-@bp.route('/2.0/<table_id>/info', methods=['GET'])
-def handle_info(table_id):
+@bp.route('/<endpoint_version>/<table_id>/info', methods=['GET'])
+def handle_info(endpoint_version, table_id):
+    if not endpoint_version in __endpoint_versions__:
+        raise Exception(f"endpoint version not supported; "
+                        f"supported are {__endpoint_versions__}")
+
     current_app.request_type = "info"
 
     cg = app_utils.get_cg(table_id)
 
     return jsonify(cg.dataset_info)
 
+
+@bp.route("/<endpoint_version>/endpoint_versions", methods=['POST', 'GET'])
+def handle_endpoint_versions(endpoint_version):
+    return jsonify(__endpoint_versions__)
+
 ### GET ROOT -------------------------------------------------------------------
 
-@bp.route('/1.0/<table_id>/graph/root', methods=['POST', 'GET'])
-@bp.route('/2.0/<table_id>/graph/root', methods=['POST', 'GET'])
-def handle_root_1(table_id):
+@bp.route('/<endpoint_version>/<table_id>/graph/root', methods=['POST', 'GET'])
+def handle_root_1(endpoint_version, table_id):
+    if not endpoint_version in __endpoint_versions__:
+        raise Exception(f"endpoint version not supported; "
+                        f"supported are {__endpoint_versions__}")
+
     atomic_id = np.uint64(json.loads(request.data)[0])
 
     # Convert seconds since epoch to UTC datetime
@@ -170,9 +183,12 @@ def handle_root_1(table_id):
     return handle_root_main(table_id, atomic_id, timestamp)
 
 
-@bp.route('/1.0/<table_id>/graph/<atomic_id>/root', methods=['POST', 'GET'])
-@bp.route('/2.0/<table_id>/graph/<atomic_id>/root', methods=['POST', 'GET'])
-def handle_root_2(table_id, atomic_id):
+@bp.route('/<endpoint_version>/<table_id>/graph/<atomic_id>/root',
+          methods=['POST', 'GET'])
+def handle_root_2(endpoint_version, table_id, atomic_id):
+    if not endpoint_version in __endpoint_versions__:
+        raise Exception(f"endpoint version not supported; "
+                        f"supported are {__endpoint_versions__}")
 
     # Convert seconds since epoch to UTC datetime
     try:
@@ -198,9 +214,13 @@ def handle_root_main(table_id, atomic_id, timestamp):
 
 ### MERGE ----------------------------------------------------------------------
 
-@bp.route('/1.0/<table_id>/graph/merge', methods=['POST', 'GET'])
+@bp.route('/<endpoint_version>/<table_id>/graph/merge', methods=['POST', 'GET'])
 @auth_requires_roles('edit_all')
-def handle_merge(table_id):
+def handle_merge(endpoint_version, table_id):
+    if not endpoint_version in __endpoint_versions__:
+        raise Exception(f"endpoint version not supported; "
+                        f"supported are {__endpoint_versions__}")
+
     current_app.request_type = "merge"
 
     nodes = json.loads(request.data)
@@ -267,21 +287,28 @@ def handle_merge(table_id):
         )
         t.start()
 
-    # NOTE: JS can't safely read integers larger than 2^53 - 1
-    resp = {
-        "operation_id": ret.operation_id,
-        "operation_id_str": str(ret.operation_id),
-        "new_root_ids": ret.new_root_ids,
-        "new_root_ids_str": list(map(str, ret.new_root_ids)),
-        }
-    return jsonify(resp)
+    if endpoint_version == "1.0":
+            return app_utils.tobinary(ret.new_root_ids)
+    else:
+        # NOTE: JS can't safely read integers larger than 2^53 - 1
+        resp = {
+            "operation_id": ret.operation_id,
+            "operation_id_str": str(ret.operation_id),
+            "new_root_ids": ret.new_root_ids,
+            "new_root_ids_str": list(map(str, ret.new_root_ids)),
+            }
+        return jsonify(resp)
 
 
 ### SPLIT ----------------------------------------------------------------------
 
-@bp.route('/1.0/<table_id>/graph/split', methods=['POST', 'GET'])
+@bp.route('/<endpoint_version>/<table_id>/graph/split', methods=['POST', 'GET'])
 @auth_requires_roles('edit_all')
-def handle_split(table_id):
+def handle_split(endpoint_version, table_id):
+    if not endpoint_version in __endpoint_versions__:
+        raise Exception(f"endpoint version not supported; "
+                        f"supported are {__endpoint_versions__}")
+
     current_app.request_type = "split"
 
     data = json.loads(request.data)
@@ -345,14 +372,17 @@ def handle_split(table_id):
         )
         t.start()
 
-    # NOTE: JS can't safely read integers larger than 2^53 - 1
-    resp = {
-        "operation_id": ret.operation_id,
-        "operation_id_str": str(ret.operation_id),
-        "new_root_ids": ret.new_root_ids,
-        "new_root_ids_str": list(map(str, ret.new_root_ids)),
-        }
-    return jsonify(resp)
+    if endpoint_version == "1.0":
+        return app_utils.tobinary(ret.new_root_ids)
+    else:
+        # NOTE: JS can't safely read integers larger than 2^53 - 1
+        resp = {
+            "operation_id": ret.operation_id,
+            "operation_id_str": str(ret.operation_id),
+            "new_root_ids": ret.new_root_ids,
+            "new_root_ids_str": list(map(str, ret.new_root_ids)),
+            }
+        return jsonify(resp)
 
 
 ### UNDO ----------------------------------------------------------------------
@@ -445,9 +475,13 @@ def handle_redo(table_id):
 
 ### CHILDREN -------------------------------------------------------------------
 
-@bp.route('/1.0/<table_id>/segment/<parent_id>/children', methods=['POST', 'GET'])
-@bp.route('/2.0/<table_id>/segment/<parent_id>/children', methods=['POST', 'GET'])
-def handle_children(table_id, parent_id):
+@bp.route('/<endpoint_version>/<table_id>/segment/<parent_id>/children',
+          methods=['POST', 'GET'])
+def handle_children(endpoint_version, table_id, parent_id):
+    if not endpoint_version in __endpoint_versions__:
+        raise Exception(f"endpoint version not supported; "
+                        f"supported are {__endpoint_versions__}")
+
     current_app.request_type = "children"
 
     cg = app_utils.get_cg(table_id)
@@ -466,9 +500,13 @@ def handle_children(table_id, parent_id):
 
 ### LEAVES ---------------------------------------------------------------------
 
-@bp.route('/1.0/<table_id>/segment/<root_id>/leaves', methods=['POST', 'GET'])
-@bp.route('/2.0/<table_id>/segment/<root_id>/leaves', methods=['POST', 'GET'])
-def handle_leaves(table_id, root_id):
+@bp.route('/<endpoint_version>/<table_id>/segment/<root_id>/leaves',
+          methods=['POST', 'GET'])
+def handle_leaves(endpoint_version, table_id, root_id):
+    if not endpoint_version in __endpoint_versions__:
+        raise Exception(f"endpoint version not supported; "
+                        f"supported are {__endpoint_versions__}")
+
     current_app.request_type = "leaves"
 
     if "bounds" in request.args:
@@ -490,9 +528,13 @@ def handle_leaves(table_id, root_id):
 
 ### LEAVES FROM LEAVES ---------------------------------------------------------
 
-@bp.route('/1.0/<table_id>/segment/<atomic_id>/leaves_from_leave', methods=['POST', 'GET'])
-@bp.route('/2.0/<table_id>/segment/<atomic_id>/leaves_from_leave', methods=['POST', 'GET'])
-def handle_leaves_from_leave(table_id, atomic_id):
+@bp.route('/<endpoint_version>/<table_id>/segment/<atomic_id>/leaves_from_leave',
+          methods=['POST', 'GET'])
+def handle_leaves_from_leave(endpoint_version, table_id, atomic_id):
+    if not endpoint_version in __endpoint_versions__:
+        raise Exception(f"endpoint version not supported; "
+                        f"supported are {__endpoint_versions__}")
+
     current_app.request_type = "leaves_from_leave"
 
     if "bounds" in request.args:
@@ -515,9 +557,13 @@ def handle_leaves_from_leave(table_id, atomic_id):
 
 ### SUBGRAPH -------------------------------------------------------------------
 
-@bp.route('/1.0/<table_id>/segment/<root_id>/subgraph', methods=['POST', 'GET'])
-@bp.route('/2.0/<table_id>/segment/<root_id>/subgraph', methods=['POST', 'GET'])
-def handle_subgraph(table_id, root_id):
+@bp.route('/<endpoint_version>/<table_id>/segment/<root_id>/subgraph',
+          methods=['POST', 'GET'])
+def handle_subgraph(endpoint_version, table_id, root_id):
+    if not endpoint_version in __endpoint_versions__:
+        raise Exception(f"endpoint version not supported; "
+                        f"supported are {__endpoint_versions__}")
+
     current_app.request_type = "subgraph"
 
     if "bounds" in request.args:
@@ -538,9 +584,13 @@ def handle_subgraph(table_id, root_id):
 
 ### CHANGE LOG -----------------------------------------------------------------
 
-@bp.route('/1.0/<table_id>/segment/<root_id>/change_log', methods=["POST", "GET"])
-@bp.route('/2.0/<table_id>/segment/<root_id>/change_log', methods=["POST", "GET"])
-def change_log(table_id, root_id):
+@bp.route('/<endpoint_version>/<table_id>/segment/<root_id>/change_log',
+          methods=["POST", "GET"])
+def change_log(endpoint_version, table_id, root_id):
+    if not endpoint_version in __endpoint_versions__:
+        raise Exception(f"endpoint version not supported; "
+                        f"supported are {__endpoint_versions__}")
+
     current_app.request_type = "change_log"
 
     try:
@@ -560,9 +610,13 @@ def change_log(table_id, root_id):
     return jsonify(change_log)
 
 
-@bp.route('/1.0/<table_id>/segment/<root_id>/merge_log', methods=["POST", "GET"])
-@bp.route('/2.0/<table_id>/segment/<root_id>/merge_log', methods=["POST", "GET"])
-def merge_log(table_id, root_id):
+@bp.route('/<endpoint_version>/<table_id>/segment/<root_id>/merge_log',
+          methods=["POST", "GET"])
+def merge_log(endpoint_version, table_id, root_id):
+    if not endpoint_version in __endpoint_versions__:
+        raise Exception(f"endpoint version not supported; "
+                        f"supported are {__endpoint_versions__}")
+
     current_app.request_type = "merge_log"
 
     try:
@@ -587,9 +641,13 @@ def merge_log(table_id, root_id):
     return jsonify(change_log)
 
 
-@bp.route('/1.0/<table_id>/graph/oldest_timestamp', methods=["POST", "GET"])
-@bp.route('/2.0/<table_id>/graph/oldest_timestamp', methods=["POST", "GET"])
-def oldest_timestamp(table_id):
+@bp.route('/<endpoint_version>/<table_id>/graph/oldest_timestamp',
+          methods=["POST", "GET"])
+def oldest_timestamp(endpoint_version, table_id):
+    if not endpoint_version in __endpoint_versions__:
+        raise Exception(f"endpoint version not supported; "
+                        f"supported are {__endpoint_versions__}")
+
     current_app.request_type = "timestamp"
 
     cg = app_utils.get_cg(table_id)
@@ -604,9 +662,13 @@ def oldest_timestamp(table_id):
 
 ### CONTACT SITES --------------------------------------------------------------
 
-@bp.route('/1.0/<table_id>/segment/<root_id>/contact_sites',  methods=["POST", "GET"])
-@bp.route('/2.0/<table_id>/segment/<root_id>/contact_sites',  methods=["POST", "GET"])
-def handle_contact_sites(table_id, root_id):
+@bp.route('/<endpoint_version>/<table_id>/segment/<root_id>/contact_sites',
+          methods=["POST", "GET"])
+def handle_contact_sites(endpoint_version, table_id, root_id):
+    if not endpoint_version in __endpoint_versions__:
+        raise Exception(f"endpoint version not supported; "
+                        f"supported are {__endpoint_versions__}")
+
     partners = request.args.get('partners', False)
 
     if "bounds" in request.args:

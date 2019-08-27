@@ -8,7 +8,8 @@ from pychunkedgraph.meshing import meshgen_utils, meshgen
 from pychunkedgraph.app import app_utils
 from pychunkedgraph.backend import chunkedgraph
 
-__version__ = 'fafb.1.21'
+from pychunkedgraph.app.app_utils import __version__, __endpoint_versions__
+
 bp = Blueprint('pychunkedgraph_meshing', __name__, url_prefix="/meshing")
 
 # -------------------------------
@@ -44,8 +45,13 @@ def _remeshing(serialized_cg_info, lvl2_nodes):
 
 # ------------------------------------------------------------------------------
 
-@bp.route('/1.0/<table_id>/<node_id>/mesh_preview', methods=['POST', 'GET'])
-def handle_preview_meshes(table_id, node_id):
+@bp.route('/<endpoint_version>/<table_id>/<node_id>/mesh_preview',
+          methods=['POST', 'GET'])
+def handle_preview_meshes(endpoint_version, table_id, node_id):
+    if not endpoint_version in __endpoint_versions__:
+        raise Exception(f"endpoint version not supported; "
+                        f"supported are {__endpoint_versions__}")
+
     if len(request.data) > 0:
         data = json.loads(request.data)
     else:
@@ -74,8 +80,13 @@ def handle_preview_meshes(table_id, node_id):
 
 ## VALIDFRAGMENTS --------------------------------------------------------------
 
-@bp.route('/1.0/<table_id>/<node_id>/validfragments', methods=['POST', 'GET'])
-def handle_valid_frags(table_id, node_id):
+@bp.route('/<endpoint_version>/<table_id>/<node_id>/validfragments',
+          methods=['POST', 'GET'])
+def handle_valid_frags(endpoint_version, table_id, node_id):
+    if not endpoint_version in __endpoint_versions__:
+        raise Exception(f"endpoint version not supported; "
+                        f"supported are {__endpoint_versions__}")
+
     cg = app_utils.get_cg(table_id)
 
     seg_ids = meshgen_utils.get_highest_child_nodes_with_meshes(
@@ -86,8 +97,13 @@ def handle_valid_frags(table_id, node_id):
 
 ## MANIFEST --------------------------------------------------------------------
 
-@bp.route('/1.0/<table_id>/manifest/<node_id>:0', methods=['GET'])
-def handle_get_manifest(table_id, node_id):
+@bp.route('/<endpoint_version>/<table_id>/manifest/<node_id>:0',
+          methods=['GET'])
+def handle_get_manifest(endpoint_version, table_id, node_id):
+    if not endpoint_version in __endpoint_versions__:
+        raise Exception(f"endpoint version not supported; "
+                        f"supported are {__endpoint_versions__}")
+
     if len(request.data) > 0:
         data = json.loads(request.data)
     else:
