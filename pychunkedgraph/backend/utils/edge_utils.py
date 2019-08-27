@@ -76,5 +76,5 @@ def get_active_edges(edges: Edges, parent_children_d: dict) -> Edges:
     return Edges(sv_ids1, sv_ids2, affinities, areas)
 
 
-def add_fake_edges(edges: np.ndarray):
+def add_fake_edges(edges: np.ndarray, timestamp):
     pass

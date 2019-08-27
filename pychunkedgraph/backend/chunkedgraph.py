@@ -3041,8 +3041,8 @@ class ChunkedGraph(object):
         if self._edge_dir:
             return self.get_subgraph_edges_v2(
                 np.array([agglomeration_id]),
-                bounding_box=bounding_box,
-                bb_is_coordinate=bb_is_coordinate
+                bbox=bounding_box,
+                bbox_is_coordinate=bb_is_coordinate
             )
 
         def _get_subgraph_layer2_edges(node_ids) -> \
@@ -3102,8 +3102,8 @@ class ChunkedGraph(object):
     def get_subgraph_edges_v2(
         self,
         agglomeration_ids: np.ndarray,
-        bounding_box: Optional[Sequence[Sequence[int]]] = None,
-        bb_is_coordinate: bool = False,
+        bbox: Optional[Sequence[Sequence[int]]] = None,
+        bbox_is_coordinate: bool = False,
         cv_threads=1,
         active_edges=True,
     ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
@@ -3116,6 +3116,7 @@ class ChunkedGraph(object):
         6. optionally for each edge (v1,v2) active
            if parent(v1) == parent(v2) inactive otherwise
         7. return the edges
+        TODO read fake edges
         """
 
         def _read_edges(
