@@ -23,7 +23,6 @@ def serialize(edges: Edges) -> EdgesMsg:
     edges_proto.node_ids2 = edges.node_ids2.astype(basetypes.NODE_ID).tobytes()
     edges_proto.affinities = edges.affinities.astype(basetypes.EDGE_AFFINITY).tobytes()
     edges_proto.areas = edges.areas.astype(basetypes.EDGE_AREA).tobytes()
-
     return edges_proto
 
 
@@ -57,7 +56,7 @@ def _decompress_edges(content: bytes) -> dict:
 
 
 def get_chunk_edges(
-    edges_dir: str, chunks_coordinates: List[np.ndarray], cv_threads: int
+    edges_dir: str, chunks_coordinates: List[np.ndarray], cv_threads: int = 1
 ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
     """
     :param edges_dir: cloudvolume storage path

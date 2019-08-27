@@ -10,6 +10,9 @@ from pychunkedgraph.backend import chunkedgraph_edits as cg_edits
 from pychunkedgraph.backend import chunkedgraph_exceptions as cg_exceptions
 from pychunkedgraph.backend.root_lock import RootLock
 from pychunkedgraph.backend.utils import basetypes, column_keys, serializers
+from .utils.helpers import get_bounding_box
+from .flatgraph_utils import build_gt_graph
+from .utils.edge_utils import add_fake_edges
 
 if TYPE_CHECKING:
     from pychunkedgraph.backend.chunkedgraph import ChunkedGraph
@@ -421,6 +424,29 @@ class MergeOperation(GraphEditOperation):
     def _apply(
         self, *, operation_id, timestamp
     ) -> Tuple[np.ndarray, np.ndarray, List["bigtable.row.Row"]]:
+        # if there is no path between sv1 and sv2 in the given subgraph
+        # add "fake" edges, these are stored in a row per chunk
+        # if there is path do nothing, conitnue building the new hierarchy
+        if self.cg._edge_dir:
+            assert self.source_coords != None
+            assert self.sink_coords != None
+
+            root_ids = np.unique(self.cg.get_roots(self.added_edges.ravel()))
+            bbox = get_bounding_box(self.source_coords, self.sink_coords)
+            edges = self.cg.get_subgraph_edges_v2(
+                agglomeration_ids = root_ids,
+                bounding_box = bbox,
+                bb_is_coordinate = True,
+                cv_threads = 4,
+                active_edges = False
+            )
+
+            g, _, _, _ = build_gt_graph(edges, is_directed=False)
+            sv1s = self.added_edges[:, 0]
+            sv2s = self.added_edges[:, 1]
+            reachable = check_reachability(g, sv1s, sv2s)
+            add_fake_edges(self.added_edges[~reachable])
+ 
         new_root_ids, new_lvl2_ids, rows = cg_edits.add_edges(
             self.cg,
             operation_id,

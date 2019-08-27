@@ -3042,9 +3042,7 @@ class ChunkedGraph(object):
             return self.get_subgraph_edges_v2(
                 np.array([agglomeration_id]),
                 bounding_box=bounding_box,
-                bb_is_coordinate=bb_is_coordinate,
-                connected_edges=connected_edges,
-                verbose=verbose
+                bb_is_coordinate=bb_is_coordinate
             )
 
         def _get_subgraph_layer2_edges(node_ids) -> \
@@ -3106,10 +3104,8 @@ class ChunkedGraph(object):
         agglomeration_ids: np.ndarray,
         bounding_box: Optional[Sequence[Sequence[int]]] = None,
         bb_is_coordinate: bool = False,
-        connected_edges=True,
         cv_threads=1,
         active_edges=True,
-        verbose: bool = True,
     ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
         """
         1. get level 2 children ids belonging to the agglomerations
