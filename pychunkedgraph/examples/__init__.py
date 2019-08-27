@@ -15,11 +15,9 @@ from rq import Queue
 from pychunkedgraph.examples.parallel_test.main import init_parallel_test_cmds
 from pychunkedgraph.meshing.meshing_test_temp import init_mesh_cmds
 
-# from pychunkedgraph.app import app_blueprint
-from pychunkedgraph.app import cg_app_blueprint, meshing_app_blueprint
+from pychunkedgraph.app.segmentation.legacy.routes import bp as cg_app_blueprint
+from pychunkedgraph.app.meshing.legacy.routes import bp as meshing_app_blueprint
 from pychunkedgraph.logging import jsonformatter
-# from pychunkedgraph.app import manifest_app_blueprint
-os.environ['TRAVIS_BRANCH'] = "IDONTKNOWWHYINEEDTHIS"
 
 
 class CustomJsonEncoder(json.JSONEncoder):
@@ -37,9 +35,8 @@ def create_example_app(test_config=None):
 
     configure_app(app)
 
-    app.register_blueprint(cg_app_blueprint.bp)
-    app.register_blueprint(meshing_app_blueprint.bp)
-    # app.register_blueprint(manifest_app_blueprint.bp)
+    app.register_blueprint(cg_app_blueprint)
+    app.register_blueprint(meshing_app_blueprint)
 
     with app.app_context():
         init_parallel_test_cmds(app)

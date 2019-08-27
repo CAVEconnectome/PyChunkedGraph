@@ -1,22 +1,23 @@
+import datetime
+import json
+import logging
+import os
+import sys
+import time
+
+import numpy as np
+import redis
 from flask import Flask
 from flask.logging import default_handler
 from flask_cors import CORS
-import sys
-import logging
-import os
-import time
-import json
-import numpy as np
-import datetime
-from . import config
-import redis
 from rq import Queue
 
-# from pychunkedgraph.app import app_blueprint
-from pychunkedgraph.app import cg_app_blueprint, meshing_app_blueprint
 from pychunkedgraph.logging import jsonformatter
-# from pychunkedgraph.app import manifest_app_blueprint
-os.environ['TRAVIS_BRANCH'] = "IDONTKNOWWHYINEEDTHIS"
+
+from . import config
+from .meshing.legacy.routes import bp as meshing_api_legacy
+from .segmentation.legacy.routes import bp as segmentation_api_legacy
+from .segmentation.v1.routes import bp as segmentation_api_v1
 
 
 class CustomJsonEncoder(json.JSONEncoder):
@@ -41,10 +42,10 @@ def create_app(test_config=None):
     if test_config is not None:
         app.config.update(test_config)
 
-    app.register_blueprint(cg_app_blueprint.bp)
-    app.register_blueprint(meshing_app_blueprint.bp)
-    # app.register_blueprint(manifest_app_blueprint.bp)
+    app.register_blueprint(meshing_api_legacy)
 
+    app.register_blueprint(segmentation_api_legacy)
+    app.register_blueprint(segmentation_api_v1)
     return app
 
 
@@ -73,4 +74,4 @@ def configure_app(app):
 
     if app.config['USE_REDIS_JOBS']:
         app.redis = redis.Redis.from_url(app.config['REDIS_URL'])
-        app.test_q = Queue('test' ,connection=app.redis)
+        app.test_q = Queue('test', connection=app.redis)
