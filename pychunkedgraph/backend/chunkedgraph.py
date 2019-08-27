@@ -3128,7 +3128,7 @@ class ChunkedGraph(object):
                 cv_threads,
             )
 
-        bounding_box = self.normalize_bounding_box(bounding_box, bb_is_coordinate)
+        bounding_box = self.normalize_bounding_box(bbox, bbox_is_coordinate)
 
         level2_ids = []
         for agglomeration_id in agglomeration_ids:
@@ -3136,7 +3136,7 @@ class ChunkedGraph(object):
                 node_id=agglomeration_id,
                 bounding_box=bounding_box,
                 return_layers=[2],
-                verbose=verbose,
+                verbose=False
             )
             level2_ids.append(layer_nodes_d[2])
 

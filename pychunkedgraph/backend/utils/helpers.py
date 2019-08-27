@@ -1,3 +1,7 @@
+from typing import Sequence, Tuple
+
+import numpy as np
+
 def get_bounding_box(
     source_coords: Sequence[Sequence[int]],
     sink_coords: Sequence[Sequence[int]],

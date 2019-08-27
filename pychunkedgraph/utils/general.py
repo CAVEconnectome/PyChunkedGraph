@@ -2,9 +2,11 @@
 generic helper funtions
 """
 
+import os
+import functools
+
 import numpy as np
 import redis
-import functools
 
 
 REDIS_HOST = os.environ.get("REDIS_SERVICE_HOST", "localhost")

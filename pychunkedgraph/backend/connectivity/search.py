@@ -1,3 +1,5 @@
+from typing import List
+
 from graph_tool.search import bfs_search
 from graph_tool.search import BFSVisitor
 from graph_tool.search import StopSearch
