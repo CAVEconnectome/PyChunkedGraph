@@ -14,7 +14,7 @@ import threading
 from pychunkedgraph.app import app_utils, meshing_app_blueprint
 from pychunkedgraph.backend import chunkedgraph_exceptions as cg_exceptions, \
     chunkedgraph_comp as cg_comp
-from middle_auth_client import auth_required, auth_requires_roles
+from middle_auth_client import auth_required, auth_requires_permission
 
 from pychunkedgraph.app.app_utils import __version__, __endpoint_versions__
 
@@ -215,7 +215,7 @@ def handle_root_main(table_id, atomic_id, timestamp):
 ### MERGE ----------------------------------------------------------------------
 
 @bp.route('/<endpoint_version>/<table_id>/graph/merge', methods=['POST', 'GET'])
-@auth_requires_roles('edit_all')
+@auth_requires_permission('edit')
 def handle_merge(endpoint_version, table_id):
     if not endpoint_version in __endpoint_versions__:
         raise Exception(f"endpoint version not supported; "
@@ -303,7 +303,7 @@ def handle_merge(endpoint_version, table_id):
 ### SPLIT ----------------------------------------------------------------------
 
 @bp.route('/<endpoint_version>/<table_id>/graph/split', methods=['POST', 'GET'])
-@auth_requires_roles('edit_all')
+@auth_requires_permission('edit')
 def handle_split(endpoint_version, table_id):
     if not endpoint_version in __endpoint_versions__:
         raise Exception(f"endpoint version not supported; "
@@ -389,7 +389,7 @@ def handle_split(endpoint_version, table_id):
 
 
 @bp.route("/2.0/<table_id>/graph/undo", methods=["POST"])
-@auth_requires_roles("edit_all")
+@auth_requires_permission('edit')
 def handle_undo(table_id):
     current_app.request_type = "undo"
 
@@ -433,7 +433,7 @@ def handle_undo(table_id):
 
 
 @bp.route("/2.0/<table_id>/graph/redo", methods=["POST"])
-@auth_requires_roles("edit_all")
+@auth_requires_permission('edit')
 def handle_redo(table_id):
     current_app.request_type = "redo"
 
