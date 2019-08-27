@@ -930,7 +930,6 @@ class ChunkedGraph(object):
         # Deserialize cells
         for row_key, column_dict in rows.items():
             for column, cell_entries in column_dict.items():
-                # print(column.key)
                 for cell_entry in cell_entries:
                     cell_entry.value = column.deserialize(cell_entry.value)
             # If no column array was requested, reattach single column's values directly to the row

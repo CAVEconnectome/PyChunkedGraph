@@ -330,15 +330,16 @@ class GraphEditOperation(ABC):
         :return: Result of successful graph operation
         :rtype: GraphEditOperation.Result
         """
-        return self._apply(
-                operation_id=root_lock.operation_id, timestamp=timestamp
-            )
         root_ids = self._update_root_ids()
 
         with RootLock(self.cg, root_ids) as root_lock:
             lock_operation_ids = np.array([root_lock.operation_id] * len(root_lock.locked_root_ids))
             timestamp = self.cg.read_consolidated_lock_timestamp(
                 root_lock.locked_root_ids, lock_operation_ids
+            )
+
+            return self._apply(
+                operation_id=root_lock.operation_id, timestamp=timestamp
             )
 
             new_root_ids, new_lvl2_ids, rows = self._apply(
@@ -432,13 +433,11 @@ class MergeOperation(GraphEditOperation):
         # add "fake" edges, these are stored in a row per chunk
         # if there is a path do nothing, continue building the new hierarchy
         if self.cg._edge_dir:
-            assert self.source_coords != None
-            assert self.sink_coords != None
+            # assert self.source_coords != None
+            # assert self.sink_coords != None
             root_ids = np.unique(self.cg.get_roots(self.added_edges.ravel()))
             edges = self.cg.get_subgraph_edges_v2(
                 agglomeration_ids = root_ids,
-                bbox = get_bounding_box(self.source_coords, self.sink_coords),
-                bbox_is_coordinate = True,
                 cv_threads = 4,
                 active_edges = False
             )
