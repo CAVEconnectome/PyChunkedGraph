@@ -27,7 +27,7 @@ from pychunkedgraph.backend.graphoperation import (
     MulticutOperation,
     SplitOperation,
 )
-from pychunkedgraph.io.edge_storage import get_chunk_edges
+from pychunkedgraph.io.edges import get_chunk_edges
 # from pychunkedgraph.meshing import meshgen
 
 from google.api_core.retry import Retry, if_exception_type
@@ -46,7 +46,6 @@ from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple, Union, 
 
 from .utils.edge_utils import (
     concatenate_chunk_edges, filter_edges, get_active_edges)
-from pychunkedgraph.io.edge_storage import get_chunk_edges
 
 HOME = os.path.expanduser("~")
 N_DIGITS_UINT64 = len(str(np.iinfo(np.uint64).max))
@@ -3118,7 +3117,7 @@ class ChunkedGraph(object):
         3. read edges from cloud storage
         4. get supervoxel ids from level 2 ids
         5. filter the edges with supervoxel ids
-        6. optioanlly for each edge (v1,v2) active
+        6. optionally for each edge (v1,v2) active
            if parent(v1) == parent(v2) inactive otherwise
         7. return the edges
         """

@@ -17,6 +17,24 @@ from ..backend.utils import basetypes
 from .protobuf.chunkEdges_pb2 import EdgesMsg, ChunkEdgesMsg
 
 
+def serialize(edges: Edges) -> EdgesMsg:
+    edges_proto = EdgesMsg()
+    edges_proto.node_ids1 = edges.node_ids1.astype(basetypes.NODE_ID).tobytes()
+    edges_proto.node_ids2 = edges.node_ids2.astype(basetypes.NODE_ID).tobytes()
+    edges_proto.affinities = edges.affinities.astype(basetypes.EDGE_AFFINITY).tobytes()
+    edges_proto.areas = edges.areas.astype(basetypes.EDGE_AREA).tobytes()
+
+    return edges_proto
+
+
+def deserialize(edges_message: EdgesMsg) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+    sv_ids1 = np.frombuffer(edges_message.node_ids1, basetypes.NODE_ID)
+    sv_ids2 = np.frombuffer(edges_message.node_ids2, basetypes.NODE_ID)
+    affinities = np.frombuffer(edges_message.affinities, basetypes.EDGE_AFFINITY)
+    areas = np.frombuffer(edges_message.areas, basetypes.EDGE_AREA)
+    return Edges(sv_ids1, sv_ids2, affinities, areas)
+
+
 def _decompress_edges(content: bytes) -> dict:
     """
     :param content: zstd compressed bytes
@@ -25,15 +43,6 @@ def _decompress_edges(content: bytes) -> dict:
     :rtype: dict
     """
 
-    def _get_edges(
-        edges_message: EdgesMsg
-    ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
-        sv_ids1 = np.frombuffer(edges_message.node_ids1, basetypes.NODE_ID)
-        sv_ids2 = np.frombuffer(edges_message.node_ids2, basetypes.NODE_ID)
-        affinities = np.frombuffer(edges_message.affinities, basetypes.EDGE_AFFINITY)
-        areas = np.frombuffer(edges_message.areas, basetypes.EDGE_AREA)
-        return Edges(sv_ids1, sv_ids2, affinities, areas)
-
     chunk_edges = ChunkEdgesMsg()
     zstd_decompressor_obj = zstd.ZstdDecompressor().decompressobj()
     file_content = zstd_decompressor_obj.decompress(content)
@@ -41,10 +50,9 @@ def _decompress_edges(content: bytes) -> dict:
 
     # in, between and cross
     edges_dict = {}
-    edges_dict[IN_CHUNK] = _get_edges(chunk_edges.in_chunk)
-    edges_dict[BT_CHUNK] = _get_edges(chunk_edges.between_chunk)
-    edges_dict[CX_CHUNK] = _get_edges(chunk_edges.cross_chunk)
-
+    edges_dict[IN_CHUNK] = deserialize(chunk_edges.in_chunk)
+    edges_dict[BT_CHUNK] = deserialize(chunk_edges.between_chunk)
+    edges_dict[CX_CHUNK] = deserialize(chunk_edges.cross_chunk)
     return edges_dict
 
 
@@ -90,39 +98,24 @@ def get_chunk_edges(
 
 
 def put_chunk_edges(
-    edges_dir: str,
-    chunk_coordinates: np.ndarray,
-    chunk_edges_raw,
-    compression_level: int,
+    edges_dir: str, chunk_coordinates: np.ndarray, edges_d, compression_level: int
 ) -> None:
     """
     :param edges_dir: cloudvolume storage path
     :type str:
     :param chunk_coordinates: chunk coords x,y,z
     :type np.ndarray:
-    :param chunk_edges_raw: chunk_edges_raw with keys "in", "cross", "between"
+    :param edges_d: edges_d with keys "in", "cross", "between"
     :type dict:
     :param compression_level: zstandard compression level (1-22, higher - better ratio)
     :type int:
     :return None:
     """
 
-    def _get_edges(edge_type: str) -> EdgesMsg:
-        edges = chunk_edges_raw[edge_type]
-        edges_proto = EdgesMsg()
-        edges_proto.node_ids1 = edges.node_ids1.astype(basetypes.NODE_ID).tobytes()
-        edges_proto.node_ids2 = edges.node_ids2.astype(basetypes.NODE_ID).tobytes()
-        edges_proto.affinities = edges.affinities.astype(
-            basetypes.EDGE_AFFINITY
-        ).tobytes()
-        edges_proto.areas = edges.areas.astype(basetypes.EDGE_AREA).tobytes()
-
-        return edges_proto
-
     chunk_edges = ChunkEdgesMsg()
-    chunk_edges.in_chunk.CopyFrom(_get_edges(IN_CHUNK))
-    chunk_edges.between_chunk.CopyFrom(_get_edges(BT_CHUNK))
-    chunk_edges.cross_chunk.CopyFrom(_get_edges(CX_CHUNK))
+    chunk_edges.in_chunk.CopyFrom(serialize(edges_d[IN_CHUNK]))
+    chunk_edges.between_chunk.CopyFrom(serialize(edges_d[BT_CHUNK]))
+    chunk_edges.cross_chunk.CopyFrom(serialize(edges_d[CX_CHUNK]))
 
     cctx = zstd.ZstdCompressor(level=compression_level)
     chunk_str = "_".join(str(coord) for coord in chunk_coordinates)

@@ -23,7 +23,7 @@ from . import ingestionmanager, ingestion_utils as iu
 from ..backend.initialization.create import add_atomic_edges
 from ..backend.definitions.edges import Edges, CX_CHUNK, TYPES as EDGE_TYPES
 from ..backend.utils import basetypes
-from ..io.edge_storage import put_chunk_edges
+from ..io.edges import put_chunk_edges
 
 
 ZSTD_COMPRESSION_LEVEL = 17
