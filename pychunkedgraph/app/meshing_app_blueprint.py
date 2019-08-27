@@ -10,7 +10,7 @@ from pychunkedgraph.backend import chunkedgraph
 
 # os.environ['TRAVIS_BRANCH'] = "IDONTKNOWWHYINEEDTHIS"
 
-__version__ = 'swdb.1.6'
+__version__ = 'swdb.1.7'
 bp = Blueprint('pychunkedgraph_meshing', __name__, url_prefix="/meshing")
 
 # -------------------------------
@@ -124,10 +124,6 @@ def handle_get_manifest(table_id, node_id):
     MESH_MIP = 2
 
     cg = app_utils.get_cg(table_id)
-
-    if cg.get_chunk_layer(node_id) == cg.n_layers:
-        if not node_id in app_utils.soma_ids:
-            raise Exception("Not a cell with a soma in the dataset!")
 
     seg_ids = meshgen_utils.get_highest_child_nodes_with_meshes(
         cg, np.uint64(node_id), stop_layer=2, start_layer=start_layer,
