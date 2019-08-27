@@ -19,6 +19,7 @@ class Edges:
         affinities: np.ndarray,
         areas: np.ndarray,
     ):
+        assert node_ids1.size == node_ids2.size == affinities.size == areas.size
         self.node_ids1 = node_ids1
         self.node_ids2 = node_ids2
         self.affinities = affinities

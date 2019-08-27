@@ -1775,7 +1775,6 @@ class ChunkedGraph(object):
 
     def add_layer(self, layer_id: int,
                   child_chunk_coords: Sequence[Sequence[int]],
-                  parent_chunk_coord: Sequence[int] = None,
                   time_stamp: Optional[datetime.datetime] = None,
                   verbose: bool = True, n_threads: int = 20) -> None:
         """ Creates the abstract nodes for a given chunk in a given layer
@@ -2074,8 +2073,8 @@ class ChunkedGraph(object):
             self.logger.debug("Time writing %d connected components in layer %d: %.3fs" %
                               (len(ccs), layer_id, time.time() - time_start))
 
-        result = np.concatenate([[layer_id], [0]])
-        return result.tobytes()
+        # to track worker completion
+        return str(layer_id)
 
     def get_atomic_cross_edge_dict(self, node_id: np.uint64,
                                    layer_ids: Sequence[int] = None):

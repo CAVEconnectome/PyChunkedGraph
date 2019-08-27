@@ -45,7 +45,7 @@ def ingest_into_chunkedgraph(
     layer=1,
     edge_dir=None,
     n_chunks=None,
-    is_new=True
+    is_new=True,
 ):
     storage_path = storage_path.strip("/")
     ws_cv_path = ws_cv_path.strip("/")
@@ -65,7 +65,7 @@ def ingest_into_chunkedgraph(
         instance_id=instance_id,
         project_id=project_id,
         edge_dir=edge_dir,
-        is_new=is_new
+        is_new=is_new,
     )
 
     imanager = ingestionmanager.IngestionManager(
@@ -90,12 +90,14 @@ def create_layer(imanager, layer_id):
 
     parent_chunk_coords = child_chunk_coords // imanager.cg.fan_out
     parent_chunk_coords = parent_chunk_coords.astype(np.int)
-    parent_chunk_coords, indices = np.unique(parent_chunk_coords, axis=0,
-                                          return_inverse=True)
+    parent_chunk_coords, indices = np.unique(
+        parent_chunk_coords, axis=0, return_inverse=True
+    )
 
     order = np.arange(len(parent_chunk_coords), dtype=np.int)
     np.random.shuffle(order)
 
+    print(f"Chunk count: {len(order)}")
     for parent_idx in order:
         children = child_chunk_coords[indices == parent_idx]
         current_app.test_q.enqueue(
@@ -117,6 +119,7 @@ def create_atomic_chunks(imanager):
     chunk_coords = list(imanager.chunk_coord_gen)
     np.random.shuffle(chunk_coords)
 
+    print(f"Chunk count: {len(chunk_coords)}")
     for chunk_coord in chunk_coords:
         current_app.test_q.enqueue(
             _create_atomic_chunk,
@@ -128,44 +131,49 @@ def create_atomic_chunks(imanager):
 
 @redis_job(REDIS_URL, "ingest_channel")
 def _create_atomic_chunk(im_info, chunk_coord):
-    """ Multiprocessing helper for create_atomic_chunks """
+    """ helper for create_atomic_chunks """
     imanager = ingestionmanager.IngestionManager(**im_info)
     return create_atomic_chunk(imanager, chunk_coord)
 
 
-def create_atomic_chunk(imanager, chunk_coord):
+def create_atomic_chunk(imanager, coord):
     """ Creates single atomic chunk"""
-    chunk_coord = np.array(list(chunk_coord), dtype=np.int)
-    edge_dict = collect_edge_data(imanager, chunk_coord)
+    coord = np.array(list(coord), dtype=np.int)
+    edge_dict = collect_edge_data(imanager, coord)
     edge_dict = iu.postprocess_edge_data(imanager, edge_dict)
-    mapping = collect_agglomeration_data(imanager, chunk_coord)
+    mapping = collect_agglomeration_data(imanager, coord)
     active_edge_d, isolated_ids = define_active_edges(edge_dict, mapping)
 
     # flag to check if chunk has edges
     # avoid writing to cloud storage if there are no edges
     # unnecessary write operation
     no_edges = True
-    chunk_edges = {}
+    chunk_edges_all = {}
+    chunk_edges_active = {}
     for edge_type in EDGE_TYPES:
         active = active_edge_d[edge_type]
-        sv_ids1 = edge_dict[edge_type]["sv1"][active]
-        sv_ids2 = edge_dict[edge_type]["sv2"][active]
-
+        sv_ids1 = edge_dict[edge_type]["sv1"]
+        sv_ids2 = edge_dict[edge_type]["sv2"]
         areas = np.ones(len(sv_ids1))
         affinities = float("inf") * areas
         if not edge_type == CX_CHUNK:
             affinities = edge_dict[edge_type]["aff"]
             areas = edge_dict[edge_type]["area"]
+
+        chunk_edges_all[edge_type] = Edges(sv_ids1, sv_ids2, affinities, areas)
+        sv_ids1 = sv_ids1[active]
+        sv_ids2 = sv_ids2[active]
+        affinities = affinities[active]
+        areas = areas[active]
         chunk_edges[edge_type] = Edges(sv_ids1, sv_ids2, affinities, areas)
         no_edges = no_edges and not sv_ids1.size
 
     # if not no_edges:
-    #     put_chunk_edges(cg.edge_dir, chunk_coord, chunk_edges, ZSTD_COMPRESSION_LEVEL)
-    add_atomic_edges(imanager.cg, chunk_coord, chunk_edges, isolated=isolated_ids)
+    #     put_chunk_edges(cg.edge_dir, coord, chunk_edges_all, ZSTD_COMPRESSION_LEVEL)
+    add_atomic_edges(imanager.cg, coord, chunk_edges_active, isolated=isolated_ids)
 
-    # to track workers completion
-    result = np.concatenate([[2], chunk_coord])
-    return result.tobytes()
+    # to track workers completion, layer = 2
+    return str(2)
 
 
 def _get_cont_chunk_coords(imanager, chunk_coord_a, chunk_coord_b):
@@ -302,7 +310,10 @@ def collect_edge_data(imanager, chunk_coord):
                 continue
 
             if swap[file["filename"]]:
-                this_dtype = [imanager.edge_dtype[1], imanager.edge_dtype[0]] + imanager.edge_dtype[2:]
+                this_dtype = [
+                    imanager.edge_dtype[1],
+                    imanager.edge_dtype[0],
+                ] + imanager.edge_dtype[2:]
                 content = np.frombuffer(file["content"], dtype=this_dtype)
             else:
                 content = np.frombuffer(file["content"], dtype=imanager.edge_dtype)
