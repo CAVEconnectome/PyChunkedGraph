@@ -9,6 +9,7 @@ from flask import current_app
 from flask.cli import AppGroup
 
 from .ran_ingestion_v2 import ingest_into_chunkedgraph
+from .ran_ingestion_v2 import INGEST_CHANNEL
 
 ingest_cli = AppGroup("ingest")
 task_count = 0
@@ -42,7 +43,7 @@ def run_ingest(storage_path, ws_cv_path, cg_table_id, edge_dir, layer):
         2
     """
     chunk_pubsub = current_app.redis.pubsub()
-    chunk_pubsub.subscribe(**{"ingest_channel": handle_job_result})
+    chunk_pubsub.subscribe(**{INGEST_CHANNEL: handle_job_result})
     chunk_pubsub.run_in_thread(sleep_time=0.1)
 
     ingest_into_chunkedgraph(

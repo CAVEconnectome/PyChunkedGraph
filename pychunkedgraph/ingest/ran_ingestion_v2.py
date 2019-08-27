@@ -18,18 +18,16 @@ from multiwrapper import multiprocessing_utils as mu
 from rq import Queue
 from redis import Redis
 
-from ..utils.general import redis_job
+from ..utils.general import redis_job, REDIS_URL
 from . import ingestionmanager, ingestion_utils as iu
 from ..backend.initialization.create import add_atomic_edges
 from ..backend.definitions.edges import Edges, CX_CHUNK, TYPES as EDGE_TYPES
 from ..backend.utils import basetypes
 from ..io.edge_storage import put_chunk_edges
 
-REDIS_HOST = os.environ.get("REDIS_SERVICE_HOST", "localhost")
-REDIS_PORT = os.environ.get("REDIS_SERVICE_PORT", "6379")
-REDIS_PASSWORD = os.environ.get("REDIS_PASSWORD", "dev")
-REDIS_URL = f"redis://:{REDIS_PASSWORD}@{REDIS_HOST}:{REDIS_PORT}/0"
+
 ZSTD_COMPRESSION_LEVEL = 17
+INGEST_CHANNEL = "ingest"
 
 
 def ingest_into_chunkedgraph(
@@ -108,7 +106,7 @@ def create_layer(imanager, layer_id):
     print(f"Queued jobs: {len(current_app.test_q)}")
 
 
-@redis_job(REDIS_URL, "ingest_channel")
+@redis_job(REDIS_URL, INGEST_CHANNEL)
 def _create_layer(im_info, layer_id, child_chunk_coords):
     imanager = ingestionmanager.IngestionManager(**im_info)
     imanager.cg.add_layer(layer_id, child_chunk_coords, n_threads=2)
@@ -129,7 +127,7 @@ def create_atomic_chunks(imanager):
     print(f"Queued jobs: {len(current_app.test_q)}")
 
 
-@redis_job(REDIS_URL, "ingest_channel")
+@redis_job(REDIS_URL, INGEST_CHANNEL)
 def _create_atomic_chunk(im_info, chunk_coord):
     """ helper for create_atomic_chunks """
     imanager = ingestionmanager.IngestionManager(**im_info)
