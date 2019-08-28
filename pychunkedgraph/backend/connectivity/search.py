@@ -16,7 +16,7 @@ class TargetVisitor(BFSVisitor):
 
     def discover_vertex(self, u):
         if u == self.target:
-            self.reachable[u] = True
+            self.reachable[u] = 1
             raise StopSearch
 
 
@@ -28,18 +28,17 @@ def check_reachability(g, sv1s, sv2s, original_ids) -> np.ndarray:
     original_ids_d = {
         sv_id: index for sv_id, index in zip(original_ids, range(len(original_ids)))
     }
-    reachable = g.new_vertex_property("bool", val=False)
-    print(g.vertex_properties)
+    reachable = g.new_vertex_property("int", val=0)
 
     def _check_reachability(source, target):
         bfs_search(g, source, TargetVisitor(target, reachable))
-        print(reachable[target])
         return reachable[target]
 
     return np.array(
         [
             _check_reachability(original_ids_d[source], original_ids_d[target])
             for source, target in zip(sv1s, sv2s)
-        ]
+        ],
+        dtype=bool,
     )
 

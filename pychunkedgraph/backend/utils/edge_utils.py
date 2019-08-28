@@ -80,7 +80,7 @@ def get_active_edges(edges: Edges, parent_children_d: dict) -> Edges:
     return Edges(sv_ids1, sv_ids2, affinities, areas)
 
 
-def flag_fake_edges(added_edges, subgraph_edges) -> List:
+def filter_fake_edges(added_edges, subgraph_edges) -> List:
     """run bfs to check if a path exists"""
     self_edges = np.array([[node_id, node_id] for node_id in np.unique(added_edges)])
     subgraph_edges = np.concatenate([subgraph_edges, self_edges])
@@ -90,3 +90,14 @@ def flag_fake_edges(added_edges, subgraph_edges) -> List:
         graph, added_edges[:, 0], added_edges[:, 1], original_ids
     )
     return added_edges[~reachable]
+
+
+def map_edges_to_chunks(edges, chunk_ids, r_indices):
+    chunk_ids_d = defaultdict(list)
+    for i, r_index in enumerate(r_indices):
+        sv1_index, sv2_index = r_index
+        chunk_ids_d[chunk_ids[sv1_index]].append(edges[i])
+        if chunk_ids[sv1_index] == chunk_ids[sv2_index]:
+            continue
+        chunk_ids_d[chunk_ids[sv2_index]].append(edges[i][::-1])
+    return chunk_ids_d
