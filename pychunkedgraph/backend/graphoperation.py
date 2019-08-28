@@ -450,14 +450,12 @@ class MergeOperation(GraphEditOperation):
             chunk_edges_d = map_edges_to_chunks(fake_edges, chunk_ids, r_indices)
             rows = []
             for chunk_id in chunk_edges_d:
-                print(chunk_id)
                 row_key = serializers.serialize_uint64(chunk_id)
                 fake_edges = chunk_edges_d[chunk_id]
                 val_d = {column_keys.Connectivity.FakeEdges: fake_edges}
                 rows.append(self.cg.mutate_row(
                     row_key, val_d, time_stamp=None))
             self.cg.bulk_write(rows)
-            return chunk_edges_d
  
         new_root_ids, new_lvl2_ids, rows = cg_edits.add_edges(
             self.cg,

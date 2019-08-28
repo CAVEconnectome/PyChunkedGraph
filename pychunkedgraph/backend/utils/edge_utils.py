@@ -90,7 +90,7 @@ def filter_fake_edges(added_edges, subgraph_edges) -> List:
     reachable = check_reachability(
         graph, added_edges[:, 0], added_edges[:, 1], original_ids
     )
-    return added_edges[reachable]
+    return added_edges[~reachable]
 
 
 def map_edges_to_chunks(edges, chunk_ids, r_indices) -> Dict:
