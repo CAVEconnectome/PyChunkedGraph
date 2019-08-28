@@ -10,10 +10,9 @@ from pychunkedgraph.backend import chunkedgraph_edits as cg_edits
 from pychunkedgraph.backend import chunkedgraph_exceptions as cg_exceptions
 from pychunkedgraph.backend.root_lock import RootLock
 from pychunkedgraph.backend.utils import basetypes, column_keys, serializers
-from .connectivity.search import check_reachability
+from .connectivity.synthetic import add_fake_edges
 from .utils.helpers import get_bounding_box
-from .flatgraph_utils import build_gt_graph
-from .utils.edge_utils import add_fake_edges
+from .utils.edge_utils import get_fake_edges
 
 if TYPE_CHECKING:
     from pychunkedgraph.backend.chunkedgraph import ChunkedGraph
@@ -338,10 +337,6 @@ class GraphEditOperation(ABC):
                 root_lock.locked_root_ids, lock_operation_ids
             )
 
-            return self._apply(
-                operation_id=root_lock.operation_id, timestamp=timestamp
-            )
-
             new_root_ids, new_lvl2_ids, rows = self._apply(
                 operation_id=root_lock.operation_id, timestamp=timestamp
             )
@@ -433,18 +428,17 @@ class MergeOperation(GraphEditOperation):
         # add "fake" edges, these are stored in a row per chunk
         # if there is a path do nothing, continue building the new hierarchy
         if self.cg._edge_dir:
-            # assert self.source_coords != None
-            # assert self.sink_coords != None
+            assert self.source_coords != None
+            assert self.sink_coords != None
             root_ids = np.unique(self.cg.get_roots(self.added_edges.ravel()))
-            edges = self.cg.get_subgraph_edges_v2(
+            subgraph_edges = self.cg.get_subgraph_edges_v2(
                 agglomeration_ids = root_ids,
+                bbox = get_bounding_box(self.source_coords, self.sink_coords),
+                bbox_is_coordinate = True,
                 cv_threads = 4,
                 active_edges = False
             )
-            return edges
-            g, _, _, _ = build_gt_graph(edges, is_directed=False)
-            reachable = check_reachability(g, self.added_edges[:,0], self.added_edges[:,1])
-            add_fake_edges(self.added_edges[~reachable], timestamp=timestamp)
+            fake_edges = get_fake_edges(self.added_edges, subgraph_edges)
  
         new_root_ids, new_lvl2_ids, rows = cg_edits.add_edges(
             self.cg,

@@ -17,10 +17,12 @@ from ..backend.utils import basetypes
 from .protobuf.chunkEdges_pb2 import EdgesMsg, ChunkEdgesMsg
 
 
-def serialize(edges: Edges) -> EdgesMsg:
+def serialize(edges: Edges, only_ids: bool = False) -> EdgesMsg:
     edges_proto = EdgesMsg()
     edges_proto.node_ids1 = edges.node_ids1.astype(basetypes.NODE_ID).tobytes()
     edges_proto.node_ids2 = edges.node_ids2.astype(basetypes.NODE_ID).tobytes()
+    if only_ids:
+        return edges_proto
     edges_proto.affinities = edges.affinities.astype(basetypes.EDGE_AFFINITY).tobytes()
     edges_proto.areas = edges.areas.astype(basetypes.EDGE_AREA).tobytes()
     return edges_proto

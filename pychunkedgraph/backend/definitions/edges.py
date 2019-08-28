@@ -2,6 +2,7 @@
 Classes and types for edges
 """
 
+from typing import Optional
 
 import numpy as np
 
@@ -16,10 +17,12 @@ class Edges:
         self,
         node_ids1: np.ndarray,
         node_ids2: np.ndarray,
-        affinities: np.ndarray,
-        areas: np.ndarray,
+        affinities: Optional[np.ndarray] = None,
+        areas: Optional[np.ndarray] = None,
     ):
-        assert node_ids1.size == node_ids2.size == affinities.size == areas.size
+        assert node_ids1.size == node_ids2.size
+        if affinities is not None:
+            assert node_ids1.size == affinities.size == areas.size
         self.node_ids1 = node_ids1
         self.node_ids2 = node_ids2
         self.affinities = affinities
