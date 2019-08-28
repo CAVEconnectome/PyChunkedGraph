@@ -81,6 +81,12 @@ def get_active_edges(edges: Edges, parent_children_d: dict) -> Edges:
 
 
 def flag_fake_edges(added_edges, subgraph_edges) -> List:
-    graph, _, _, _ = build_gt_graph(subgraph_edges, is_directed=False)
-    reachable = check_reachability(graph, added_edges[:,0], added_edges[:,1])
+    """run bfs to check if a path exists"""
+    self_edges = np.array([[node_id, node_id] for node_id in np.unique(added_edges)])
+    subgraph_edges = np.concatenate([subgraph_edges, self_edges])
+    
+    graph, _, _, original_ids = build_gt_graph(subgraph_edges, is_directed=False)
+    reachable = check_reachability(
+        graph, added_edges[:, 0], added_edges[:, 1], original_ids
+    )
     return added_edges[~reachable]

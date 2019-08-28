@@ -450,7 +450,6 @@ class MergeOperation(GraphEditOperation):
                 if chunk_ids[sv1_index] == chunk_ids[sv2_index]:
                     continue
                 chunk_ids_d[chunk_ids[sv2_index]].append(fake_edges[i][::-1])
-            print("hihihihi")
             return chunk_ids_d
  
         new_root_ids, new_lvl2_ids, rows = cg_edits.add_edges(
