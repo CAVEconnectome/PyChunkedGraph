@@ -23,7 +23,7 @@ def check_reachability(g, sv1s, sv2s) -> List[bool]:
 
     def _check_reachability(source, target):
         try:
-            bfs_search(g, source, VisitorExample(target))
+            bfs_search(g, source, TargetVisitor(target))
         except StopSearch:
             return True
         return False

@@ -1,6 +1,6 @@
 import itertools
 from abc import ABC, abstractmethod
-from collections import namedtuple
+from collections import namedtuple, defaultdict
 from datetime import datetime
 from typing import TYPE_CHECKING, Dict, List, Optional, Sequence, Tuple, Type, Union
 
@@ -10,9 +10,8 @@ from pychunkedgraph.backend import chunkedgraph_edits as cg_edits
 from pychunkedgraph.backend import chunkedgraph_exceptions as cg_exceptions
 from pychunkedgraph.backend.root_lock import RootLock
 from pychunkedgraph.backend.utils import basetypes, column_keys, serializers
-from .connectivity.synthetic import add_fake_edges
 from .utils.helpers import get_bounding_box
-from .utils.edge_utils import get_fake_edges
+from .utils.edge_utils import flag_fake_edges
 
 if TYPE_CHECKING:
     from pychunkedgraph.backend.chunkedgraph import ChunkedGraph
@@ -337,6 +336,10 @@ class GraphEditOperation(ABC):
                 root_lock.locked_root_ids, lock_operation_ids
             )
 
+            return self._apply(
+                operation_id=root_lock.operation_id, timestamp=timestamp
+            )
+
             new_root_ids, new_lvl2_ids, rows = self._apply(
                 operation_id=root_lock.operation_id, timestamp=timestamp
             )
@@ -428,17 +431,27 @@ class MergeOperation(GraphEditOperation):
         # add "fake" edges, these are stored in a row per chunk
         # if there is a path do nothing, continue building the new hierarchy
         if self.cg._edge_dir:
-            assert self.source_coords != None
-            assert self.sink_coords != None
+            # assert self.source_coords != None
+            # assert self.sink_coords != None
             root_ids = np.unique(self.cg.get_roots(self.added_edges.ravel()))
-            subgraph_edges = self.cg.get_subgraph_edges_v2(
+            subgraph_edges, _, _ = self.cg.get_subgraph_edges_v2(
                 agglomeration_ids = root_ids,
-                bbox = get_bounding_box(self.source_coords, self.sink_coords),
-                bbox_is_coordinate = True,
                 cv_threads = 4,
                 active_edges = False
             )
-            fake_edges = get_fake_edges(self.added_edges, subgraph_edges)
+            fake_edges = flag_fake_edges(self.added_edges, subgraph_edges)
+            node_ids, r_indices = np.unique(fake_edges, return_inverse=True)
+            chunk_ids = self.cg.get_chunk_ids_from_node_ids(node_ids)
+            r_indices = r_indices.reshape(-1, 2)
+            chunk_ids_d = defaultdict(list)
+            for i, r_index in enumerate(r_indices):
+                sv1_index, sv2_index = r_index
+                chunk_ids_d[chunk_ids[sv1_index]].append(fake_edges[i])
+                if chunk_ids[sv1_index] == chunk_ids[sv2_index]:
+                    continue
+                chunk_ids_d[chunk_ids[sv2_index]].append(fake_edges[i][::-1])
+            print("hihihihi")
+            return chunk_ids_d
  
         new_root_ids, new_lvl2_ids, rows = cg_edits.add_edges(
             self.cg,

@@ -2,11 +2,12 @@
 helper functions for edge stuff
 """
 
+from typing import Dict, List
+
 import numpy as np
 
 from ...utils.general import reverse_dictionary
 from ..definitions.edges import Edges, IN_CHUNK, BT_CHUNK, CX_CHUNK
-from ...io.edges import serialize as serialize_edges
 from ..connectivity.search import check_reachability
 from ..flatgraph_utils import build_gt_graph
 
@@ -79,7 +80,7 @@ def get_active_edges(edges: Edges, parent_children_d: dict) -> Edges:
     return Edges(sv_ids1, sv_ids2, affinities, areas)
 
 
-def get_fake_edges(added_edges, subgraph_edges):
+def flag_fake_edges(added_edges, subgraph_edges) -> List:
     graph, _, _, _ = build_gt_graph(subgraph_edges, is_directed=False)
     reachable = check_reachability(graph, added_edges[:,0], added_edges[:,1])
     return added_edges[~reachable]
