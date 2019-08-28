@@ -2,6 +2,7 @@
 helper functions for edge stuff
 """
 
+from collections import defaultdict
 from typing import Dict, List
 
 import numpy as np
@@ -89,10 +90,10 @@ def filter_fake_edges(added_edges, subgraph_edges) -> List:
     reachable = check_reachability(
         graph, added_edges[:, 0], added_edges[:, 1], original_ids
     )
-    return added_edges[~reachable]
+    return added_edges[reachable]
 
 
-def map_edges_to_chunks(edges, chunk_ids, r_indices):
+def map_edges_to_chunks(edges, chunk_ids, r_indices) -> Dict:
     chunk_ids_d = defaultdict(list)
     for i, r_index in enumerate(r_indices):
         sv1_index, sv2_index = r_index
@@ -100,4 +101,4 @@ def map_edges_to_chunks(edges, chunk_ids, r_indices):
         if chunk_ids[sv1_index] == chunk_ids[sv2_index]:
             continue
         chunk_ids_d[chunk_ids[sv2_index]].append(edges[i][::-1])
-    return chunk_ids_d
+    return {chunk_id: np.array(chunk_ids_d[chunk_id]) for chunk_id in chunk_ids_d}

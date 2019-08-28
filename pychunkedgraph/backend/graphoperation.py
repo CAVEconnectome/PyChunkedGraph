@@ -1,6 +1,6 @@
 import itertools
 from abc import ABC, abstractmethod
-from collections import namedtuple, defaultdict
+from collections import namedtuple
 from datetime import datetime
 from typing import TYPE_CHECKING, Dict, List, Optional, Sequence, Tuple, Type, Union
 
@@ -428,17 +428,18 @@ class MergeOperation(GraphEditOperation):
     def _apply(
         self, *, operation_id, timestamp
     ) -> Tuple[np.ndarray, np.ndarray, List["bigtable.row.Row"]]:
-        # if there is no path between sv1 and sv2 in the given subgraph
-        # add "fake" edges, these are stored in a row per chunk
-        # if there is a path do nothing, continue building the new hierarchy
         if self.cg._edge_dir:
+            # if there is no path between sv1 and sv2 in the given subgraph
+            # add "fake" edges, these are stored in a row per chunk
+            # if there is a path do nothing, continue building the new hierarchy
+            # TODO uncomment the following
             # assert self.source_coords != None
             # assert self.sink_coords != None
             root_ids = np.unique(self.cg.get_roots(self.added_edges.ravel()))
             subgraph_edges, _, _ = self.cg.get_subgraph_edges_v2(
                 agglomeration_ids = root_ids,
                 # bbox = get_bounding_box(self.source_coords, self.sink_coords),
-                # bbox_is_coordinate = True,                
+                # bbox_is_coordinate = True,
                 cv_threads = 4,
                 active_edges = False
             )
@@ -448,12 +449,15 @@ class MergeOperation(GraphEditOperation):
             chunk_ids = self.cg.get_chunk_ids_from_node_ids(node_ids)
             chunk_edges_d = map_edges_to_chunks(fake_edges, chunk_ids, r_indices)
             rows = []
-            for chunk_id, fake_edges in chunk_edges_d:
-                val_d = {
-                    column_keys.Connectivity.FakeEdges: fake_edges
-                }
-                rows.append(cg_instance.mutate_row(r_key, val_dict, time_stamp=time_stamp))
-
+            for chunk_id in chunk_edges_d:
+                print(chunk_id)
+                row_key = serializers.serialize_uint64(chunk_id)
+                fake_edges = chunk_edges_d[chunk_id]
+                val_d = {column_keys.Connectivity.FakeEdges: fake_edges}
+                rows.append(self.cg.mutate_row(
+                    row_key, val_d, time_stamp=None))
+            self.cg.bulk_write(rows)
+            return chunk_edges_d
  
         new_root_ids, new_lvl2_ids, rows = cg_edits.add_edges(
             self.cg,

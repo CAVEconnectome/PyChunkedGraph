@@ -227,7 +227,7 @@ def add_edges(cg,
                                                 cross_chunk_edge_dict,
                                                 time_stamp))
 
-    if not self.cg._edge_dir:
+    if not cg._edge_dir:
         # Write atomic nodes
         rows.extend(_write_atomic_merge_edges(cg, atomic_edges, affinities, areas,
                                             time_stamp=time_stamp))
@@ -360,9 +360,10 @@ def remove_edges(cg, operation_id: np.uint64,
                                                operation_id=operation_id,
                                                time_stamp=time_stamp))
 
-    # Write atomic nodes
-    rows.extend(_write_atomic_split_edges(cg, atomic_edges,
-                                          time_stamp=time_stamp))
+    if not cg._edge_dir:
+        # Write atomic nodes
+        rows.extend(_write_atomic_split_edges(cg, atomic_edges,
+                                            time_stamp=time_stamp))
 
     # Propagate changes up the tree
     if cg.n_layers > 2:
