@@ -3156,7 +3156,15 @@ class ChunkedGraph(object):
         edges = filter_edges(sv_ids, edges_dict)
         if active_edges:
             edges = get_active_edges(edges, children_d)
-        return edges.get_pairs(), edges.affinities, edges.areas
+        fake_edges = self.read_node_id_rows(
+            node_ids=chunk_ids,
+            columns=column_keys.Connectivity.FakeEdges)
+        fake_affinities = np.ones(len(fake_edges))
+        fake_areas = np.ones(len(fake_edges))
+        all_edges = np.concatenate([edges.get_pairs(), fake_edges])
+        all_affinities = np.concatenate([edges.affinities, fake_affinities])
+        all_areas = np.concatenate([edges.areas, fake_areas])
+        return all_edges, all_affinities, all_areas
 
     def get_subgraph_nodes(self, agglomeration_id: np.uint64,
                            bounding_box: Optional[Sequence[Sequence[int]]] = None,
