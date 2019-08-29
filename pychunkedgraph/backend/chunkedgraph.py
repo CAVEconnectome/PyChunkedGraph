@@ -3111,13 +3111,12 @@ class ChunkedGraph(object):
         """
         1. get level 2 children ids belonging to the agglomerations
         2. get relevant chunk ids from level 2 ids
-        3. read edges from cloud storage
+        3. read edges from cloud storage (include fake edges from big table)
         4. get supervoxel ids from level 2 ids
         5. filter the edges with supervoxel ids
         6. optionally for each edge (v1,v2) active
            if parent(v1) == parent(v2) inactive otherwise
         7. return the edges
-        TODO read fake edges
         """
 
         def _read_edges(
@@ -3139,8 +3138,8 @@ class ChunkedGraph(object):
                 verbose=False
             )
             level2_ids.append(layer_nodes_d[2])
-
         level2_ids = np.concatenate(level2_ids)
+
         chunk_ids = self.get_chunk_ids_from_node_ids(level2_ids)
         cg_threads = 1
         chunk_edge_dicts = mu.multithread_func(
@@ -3149,12 +3148,8 @@ class ChunkedGraph(object):
             n_threads=cg_threads,
             debug=False,
         )
-        
         edges_dict = concatenate_chunk_edges(chunk_edge_dicts)
-        children_d = self.get_children(level2_ids)
-        sv_ids = np.concatenate(list(children_d.values()))
         edges = reduce(lambda x, y: x+y, edges_dict.values())
-        
         # include fake edges
         chunk_fake_edges_d = self.read_node_id_rows(
             node_ids=chunk_ids,
@@ -3163,8 +3158,10 @@ class ChunkedGraph(object):
         if fake_edges:
             fake_edges = Edges(fake_edges[:,0], fake_edges[:,1])
             edges += fake_edges
+
+        children_d = self.get_children(level2_ids)
+        sv_ids = np.concatenate(list(children_d.values()))        
         edges = filter_edges(sv_ids, edges)
-        
         if active_edges:
             edges = get_active_edges(edges, children_d)
         return edges.get_pairs(), edges.affinities, edges.areas
