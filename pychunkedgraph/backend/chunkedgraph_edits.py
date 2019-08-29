@@ -257,8 +257,8 @@ def add_fake_edges(
     sink_coords: Sequence[np.uint64],
     timestamp: datetime.datetime) -> List["bigtable.row.Row"]:
     """
-    if there is no path between sv1 and sv2 in the given subgraph
-    add "fake" edges, these are stored in a row per chunk
+    if there is no path between sv1 and sv2 (from added_edges)
+    in the subgraph, add "fake" edges, these are stored in a row per chunk
     """
     if cg_instance._edge_dir:
         return []

@@ -3103,9 +3103,9 @@ class ChunkedGraph(object):
         agglomeration_ids: np.ndarray,
         bbox: Optional[Sequence[Sequence[int]]] = None,
         bbox_is_coordinate: bool = False,
-        cv_threads = 1,
-        active_edges = True,
-        timestamp = None
+        cv_threads: int = 1,
+        active_edges: bool = True,
+        timestamp: datetime.datetime = None
     ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
         """
         1. get level 2 children ids belonging to the agglomerations
@@ -3154,7 +3154,8 @@ class ChunkedGraph(object):
         chunk_fake_edges_d = self.read_node_id_rows(
             node_ids=chunk_ids,
             columns=column_keys.Connectivity.FakeEdges)
-        fake_edges = np.concatenate(list(chunk_fake_edges_d.values()))        
+        fake_edges = np.concatenate(list(chunk_fake_edges_d.values()))
+        fake_edges = Edges(fake_edges[:,0], fake_edges[:,1])
 
         edges_dict = concatenate_chunk_edges(chunk_edge_dicts)
         children_d = self.get_children(level2_ids)

@@ -41,25 +41,15 @@ def concatenate_chunk_edges(chunk_edge_dicts: list) -> dict:
 
 
 def filter_edges(node_ids: np.ndarray, edges: Edges) -> Edges:
-    """find edges for the given node_ids from the dict"""
-    ids1 = []
-    ids2 = []
-    affinities = []
-    areas = []
-    for edge_type in [IN_CHUNK, BT_CHUNK, CX_CHUNK]:
-        edges = edges_dict[edge_type]
-        xsorted = np.argsort(edges.node_ids1)
-        indices = np.searchsorted(edges.node_ids1[xsorted], node_ids)
-        indices = indices[indices < xsorted.size]
+    """find edges for the given node_ids"""
+    xsorted = np.argsort(edges.node_ids1)
+    indices = np.searchsorted(edges.node_ids1[xsorted], node_ids)
+    indices = indices[indices < xsorted.size]
 
-        ids1.append(edges.node_ids1[indices])
-        ids2.append(edges.node_ids2[indices])
-        affinities.append(edges.affinities[indices])
-        areas.append(edges.areas[indices])
-    ids1 = np.concatenate(ids1)
-    ids2 = np.concatenate(ids2)
-    affinities = np.concatenate(affinities)
-    areas = np.concatenate(areas)
+    ids1 = edges.node_ids1[indices]
+    ids2 = edges.node_ids2[indices]
+    affinities = edges.affinities[indices]
+    areas = edges.areas[indices]
     return Edges(ids1, ids2, affinities=affinities, areas=areas)
 
 
