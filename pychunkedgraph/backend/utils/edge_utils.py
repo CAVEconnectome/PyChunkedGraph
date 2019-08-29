@@ -32,7 +32,11 @@ def concatenate_chunk_edges(chunk_edge_dicts: list) -> dict:
         sv_ids2 = np.concatenate(sv_ids2)
         affinities = np.concatenate(affinities)
         areas = np.concatenate(areas)
-        edges_dict[edge_type] = Edges(sv_ids1, sv_ids2, affinities, areas)
+        edges_dict[edge_type] = Edges(
+            sv_ids1,
+            sv_ids2,
+            affinities=affinities,
+            areas=areas)
     return edges_dict
 
 
@@ -56,7 +60,7 @@ def filter_edges(node_ids: np.ndarray, edges_dict: dict) -> Edges:
     ids2 = np.concatenate(ids2)
     affinities = np.concatenate(affinities)
     areas = np.concatenate(areas)
-    return Edges(ids1, ids2, affinities, areas)
+    return Edges(ids1, ids2, affinities=affinities, areas=areas)
 
 
 def get_active_edges(edges: Edges, parent_children_d: dict) -> Edges:
@@ -78,7 +82,7 @@ def get_active_edges(edges: Edges, parent_children_d: dict) -> Edges:
     affinities = affinities[parent_ids1 == parent_ids2]
     areas = areas[parent_ids1 == parent_ids2]
 
-    return Edges(sv_ids1, sv_ids2, affinities, areas)
+    return Edges(sv_ids1, sv_ids2, affinities=affinities, areas=areas)
 
 
 def filter_fake_edges(added_edges, subgraph_edges) -> List:

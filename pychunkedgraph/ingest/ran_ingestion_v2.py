@@ -158,12 +158,16 @@ def create_atomic_chunk(imanager, coord):
             affinities = edge_dict[edge_type]["aff"]
             areas = edge_dict[edge_type]["area"]
 
-        chunk_edges_all[edge_type] = Edges(sv_ids1, sv_ids2, affinities, areas)
+        chunk_edges_all[edge_type] = Edges(
+            sv_ids1, sv_ids2, affinities=affinities, areas=areas
+        )
         sv_ids1 = sv_ids1[active]
         sv_ids2 = sv_ids2[active]
         affinities = affinities[active]
         areas = areas[active]
-        chunk_edges[edge_type] = Edges(sv_ids1, sv_ids2, affinities, areas)
+        chunk_edges[edge_type] = Edges(
+            sv_ids1, sv_ids2, affinities=affinities, areas=areas
+        )
         no_edges = no_edges and not sv_ids1.size
 
     # if not no_edges:

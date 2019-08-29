@@ -33,7 +33,7 @@ def deserialize(edges_message: EdgesMsg) -> Tuple[np.ndarray, np.ndarray, np.nda
     sv_ids2 = np.frombuffer(edges_message.node_ids2, basetypes.NODE_ID)
     affinities = np.frombuffer(edges_message.affinities, basetypes.EDGE_AFFINITY)
     areas = np.frombuffer(edges_message.areas, basetypes.EDGE_AREA)
-    return Edges(sv_ids1, sv_ids2, affinities, areas)
+    return Edges(sv_ids1, sv_ids2, affinities=affinities, areas=areas)
 
 
 def _decompress_edges(content: bytes) -> dict:
