@@ -3162,7 +3162,7 @@ class ChunkedGraph(object):
         edges = reduce(lambda x, y: x+y, edges_dict.values())
         if fake_edges:
             fake_edges = Edges(fake_edges[:,0], fake_edges[:,1])
-            edges = edges + fake_edges
+            edges += fake_edges
         edges = filter_edges(sv_ids, edges)
         
         if active_edges:

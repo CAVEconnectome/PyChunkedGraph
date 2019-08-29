@@ -47,6 +47,13 @@ class Edges:
         areas = np.concatenate([self.node_ids1, other.node_ids1])
         return Edges(node_ids1, node_ids2, affinities=affinities, areas=areas)
 
+    def __iadd__(self, other):
+        self.node_ids1 = np.concatenate([self.node_ids1, other.node_ids1])
+        self.node_ids2 = np.concatenate([self.node_ids2, other.node_ids2])
+        self.affinities = np.concatenate([self.affinities, other.affinities])
+        self.areas = np.concatenate([self.areas, other.areas])
+        return self
+
     def __len__(self):
         return len(self.node_ids1)
 
