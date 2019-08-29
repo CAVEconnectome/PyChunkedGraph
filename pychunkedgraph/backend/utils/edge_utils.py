@@ -33,10 +33,8 @@ def concatenate_chunk_edges(chunk_edge_dicts: list) -> dict:
         affinities = np.concatenate(affinities)
         areas = np.concatenate(areas)
         edges_dict[edge_type] = Edges(
-            sv_ids1,
-            sv_ids2,
-            affinities=affinities,
-            areas=areas)
+            sv_ids1, sv_ids2, affinities=affinities, areas=areas
+        )
     return edges_dict
 
 
@@ -79,7 +77,7 @@ def filter_fake_edges(added_edges, subgraph_edges) -> List:
     """run bfs to check if a path exists"""
     self_edges = np.array([[node_id, node_id] for node_id in np.unique(added_edges)])
     subgraph_edges = np.concatenate([subgraph_edges, self_edges])
-    
+
     graph, _, _, original_ids = build_gt_graph(subgraph_edges, is_directed=False)
     reachable = check_reachability(
         graph, added_edges[:, 0], added_edges[:, 1], original_ids
@@ -87,7 +85,13 @@ def filter_fake_edges(added_edges, subgraph_edges) -> List:
     return added_edges[~reachable]
 
 
-def map_edges_to_chunks(edges, chunk_ids, r_indices) -> Dict:
+def map_edges_to_chunks(
+    edges: np.ndarray, chunk_ids: np.ndarray, r_indices: np.ndarray
+) -> Dict:
+    """
+    maps a list of edges to corresponding chunks
+    returns a dictionary {chuunk_id: [edges that are part of this chunk]}
+    """
     chunk_ids_d = defaultdict(list)
     for i, r_index in enumerate(r_indices):
         sv1_index, sv2_index = r_index
