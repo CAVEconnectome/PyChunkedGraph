@@ -11,6 +11,9 @@ from pychunkedgraph.backend.chunkedgraph_utils \
     import get_google_compatible_time_stamp, combine_cross_chunk_edge_dicts
 from pychunkedgraph.backend.utils import column_keys, serializers
 from pychunkedgraph.backend import flatgraph_utils
+from .utils.helpers import get_bounding_box
+from .utils.edge_utils import filter_fake_edges
+from .utils.edge_utils import map_edges_to_chunks
 
 def _write_atomic_merge_edges(cg, atomic_edges, affinities, areas, time_stamp):
     rows = []
@@ -243,6 +246,45 @@ def add_edges(cg,
 
 
     return new_root_ids, list(lvl2_dict.keys()), rows
+
+
+def add_fake_edges(
+    cg_instance,
+    operation_id: np.uint64,
+    added_edges: Sequence[Sequence[np.uint64]],
+    source_coords: Sequence[np.uint64],
+    sink_coords: Sequence[np.uint64],
+    timestamp: datetime.datetime) -> List["bigtable.row.Row"]:
+    """
+    if there is no path between sv1 and sv2 in the given subgraph
+    add "fake" edges, these are stored in a row per chunk
+    """
+    if cg_instance._edge_dir:
+        return []
+    root_ids = np.unique(cg_instance.get_roots(added_edges.ravel()))
+    subgraph_edges, _, _ = cg_instance.get_subgraph_edges_v2(
+        agglomeration_ids = root_ids,
+        bbox = get_bounding_box(source_coords, sink_coords),
+        bbox_is_coordinate = True,
+        cv_threads = 4,
+        active_edges = False,
+        timestamp=timestamp
+    )
+    fake_edges = filter_fake_edges(added_edges, subgraph_edges)
+    node_ids, r_indices = np.unique(fake_edges, return_inverse=True)
+    r_indices = r_indices.reshape(-1, 2)
+    chunk_ids = cg_instance.get_chunk_ids_from_node_ids(node_ids)
+    chunk_edges_d = map_edges_to_chunks(fake_edges, chunk_ids, r_indices)
+    rows = []
+    for chunk_id in chunk_edges_d:
+        row_key = serializers.serialize_uint64(chunk_id)
+        fake_edges = chunk_edges_d[chunk_id]
+        val_d = {
+            column_keys.Connectivity.FakeEdges: fake_edges,
+            column_keys.OperationLogs.OperationID: operation_id}
+        rows.append(cg_instance.mutate_row(
+            row_key, val_d, time_stamp=timestamp))
+    return rows
 
 
 def remove_edges(cg, operation_id: np.uint64,

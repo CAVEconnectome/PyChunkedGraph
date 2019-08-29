@@ -10,9 +10,6 @@ from pychunkedgraph.backend import chunkedgraph_edits as cg_edits
 from pychunkedgraph.backend import chunkedgraph_exceptions as cg_exceptions
 from pychunkedgraph.backend.root_lock import RootLock
 from pychunkedgraph.backend.utils import basetypes, column_keys, serializers
-from .utils.helpers import get_bounding_box
-from .utils.edge_utils import filter_fake_edges
-from .utils.edge_utils import map_edges_to_chunks
 
 if TYPE_CHECKING:
     from pychunkedgraph.backend.chunkedgraph import ChunkedGraph
@@ -337,10 +334,6 @@ class GraphEditOperation(ABC):
                 root_lock.locked_root_ids, lock_operation_ids
             )
 
-            return self._apply(
-                operation_id=root_lock.operation_id, timestamp=timestamp
-            )
-
             new_root_ids, new_lvl2_ids, rows = self._apply(
                 operation_id=root_lock.operation_id, timestamp=timestamp
             )
@@ -428,35 +421,14 @@ class MergeOperation(GraphEditOperation):
     def _apply(
         self, *, operation_id, timestamp
     ) -> Tuple[np.ndarray, np.ndarray, List["bigtable.row.Row"]]:
-        if self.cg._edge_dir:
-            # if there is no path between sv1 and sv2 in the given subgraph
-            # add "fake" edges, these are stored in a row per chunk
-            # if there is a path do nothing, continue building the new hierarchy
-            # TODO uncomment the following
-            # assert self.source_coords != None
-            # assert self.sink_coords != None
-            root_ids = np.unique(self.cg.get_roots(self.added_edges.ravel()))
-            subgraph_edges, _, _ = self.cg.get_subgraph_edges_v2(
-                agglomeration_ids = root_ids,
-                # bbox = get_bounding_box(self.source_coords, self.sink_coords),
-                # bbox_is_coordinate = True,
-                cv_threads = 4,
-                active_edges = False
-            )
-            fake_edges = filter_fake_edges(self.added_edges, subgraph_edges)
-            node_ids, r_indices = np.unique(fake_edges, return_inverse=True)
-            r_indices = r_indices.reshape(-1, 2)
-            chunk_ids = self.cg.get_chunk_ids_from_node_ids(node_ids)
-            chunk_edges_d = map_edges_to_chunks(fake_edges, chunk_ids, r_indices)
-            rows = []
-            for chunk_id in chunk_edges_d:
-                row_key = serializers.serialize_uint64(chunk_id)
-                fake_edges = chunk_edges_d[chunk_id]
-                val_d = {column_keys.Connectivity.FakeEdges: fake_edges}
-                rows.append(self.cg.mutate_row(
-                    row_key, val_d, time_stamp=None))
-            self.cg.bulk_write(rows)
- 
+        fake_edge_rows = cg_edits.add_fake_edges(
+            self.cg,
+            operation_id,
+            self.added_edges,
+            self.source_coords,
+            self.sink_coords,
+            timestamp=timestamp
+        )
         new_root_ids, new_lvl2_ids, rows = cg_edits.add_edges(
             self.cg,
             operation_id,
@@ -464,6 +436,7 @@ class MergeOperation(GraphEditOperation):
             time_stamp=timestamp,
             affinities=self.affinities,
         )
+        rows.extend(fake_edge_rows)
         return new_root_ids, new_lvl2_ids, rows
 
     def _create_log_record(self, *, operation_id, timestamp, new_root_ids) -> "bigtable.row.Row":
