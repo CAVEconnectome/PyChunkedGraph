@@ -12,6 +12,7 @@ import itertools
 import logging
 
 from itertools import chain
+from functools import reduce
 from multiwrapper import multiprocessing_utils as mu
 from pychunkedgraph.backend import cutting, chunkedgraph_comp, flatgraph_utils
 from pychunkedgraph.backend.chunkedgraph_utils import compute_indices_pandas, \
@@ -43,7 +44,7 @@ from google.cloud.bigtable.row_set import RowSet
 from google.cloud.bigtable.column_family import MaxVersionsGCRule
 
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple, Union, NamedTuple
-
+from .definitions.edges import Edges
 from .utils.edge_utils import (
     concatenate_chunk_edges, filter_edges, get_active_edges)
 
@@ -3129,7 +3130,6 @@ class ChunkedGraph(object):
             )
 
         bounding_box = self.normalize_bounding_box(bbox, bbox_is_coordinate)
-
         level2_ids = []
         for agglomeration_id in agglomeration_ids:
             layer_nodes_d = self._get_subgraph_higher_layer_nodes(
@@ -3149,27 +3149,30 @@ class ChunkedGraph(object):
             n_threads=cg_threads,
             debug=False,
         )
-
         # include fake edges
         chunk_fake_edges_d = self.read_node_id_rows(
             node_ids=chunk_ids,
             columns=column_keys.Connectivity.FakeEdges)
-        fake_edges = np.concatenate(list(chunk_fake_edges_d.values()))
-        fake_edges = Edges(fake_edges[:,0], fake_edges[:,1])
-
+        fake_edges = np.concatenate([list(chunk_fake_edges_d.values())])
+        if fake_edges:
+            fake_edges = Edges(fake_edges[:,0], fake_edges[:,1])
+        
         edges_dict = concatenate_chunk_edges(chunk_edge_dicts)
         children_d = self.get_children(level2_ids)
         sv_ids = np.concatenate(list(children_d.values()))
 
-        edges = sum(edges_dict.values())
+        edges = reduce(lambda x, y: x+y, edges_dict.values())
         edges = filter_edges(sv_ids, edges)
+        
         if active_edges:
             edges = get_active_edges(edges, children_d)
 
-        all_edges = np.concatenate([edges.get_pairs(), fake_edges])
-        all_affinities = np.concatenate([edges.affinities, fake_affinities])
-        all_areas = np.concatenate([edges.areas, fake_areas])
-        return all_edges, all_affinities, all_areas
+        if fake_edges:
+            all_edges = np.concatenate([edges.get_pairs(), fake_edges.get_pairs()])
+            all_affinities = np.concatenate([edges.affinities, fake_edges.affinities])
+            all_areas = np.concatenate([edges.areas, fake_edges.areas])
+            return all_edges, all_affinities, all_areas
+        return edges.get_pairs(), edges.affinities, edges.areas
 
     def get_subgraph_nodes(self, agglomeration_id: np.uint64,
                            bounding_box: Optional[Sequence[Sequence[int]]] = None,

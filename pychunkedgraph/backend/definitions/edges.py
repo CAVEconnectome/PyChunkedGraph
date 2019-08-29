@@ -39,13 +39,16 @@ class Edges:
             assert node_ids1.size == areas.size
             self.areas = affinities
 
-    def __add__(self, other:Edges) -> Edges:
+    def __add__(self, other):
         """add two Edges instances"""
         node_ids1 = np.concatenate([self.node_ids1, other.node_ids1])
         node_ids2 = np.concatenate([self.node_ids1, other.node_ids1])
         affinities = np.concatenate([self.node_ids1, other.node_ids1])
         areas = np.concatenate([self.node_ids1, other.node_ids1])
         return Edges(node_ids1, node_ids2, affinities=affinities, areas=areas)
+
+    def __len__(self):
+        return len(self.node_ids1)
 
     def get_pairs(self):
         """
