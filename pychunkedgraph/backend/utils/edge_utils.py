@@ -40,7 +40,7 @@ def concatenate_chunk_edges(chunk_edge_dicts: list) -> dict:
     return edges_dict
 
 
-def filter_edges(node_ids: np.ndarray, edges_dict: dict) -> Edges:
+def filter_edges(node_ids: np.ndarray, edges: Edges) -> Edges:
     """find edges for the given node_ids from the dict"""
     ids1 = []
     ids2 = []

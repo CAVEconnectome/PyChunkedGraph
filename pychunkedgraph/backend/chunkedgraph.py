@@ -3150,21 +3150,21 @@ class ChunkedGraph(object):
             debug=False,
         )
 
-        edges_dict = concatenate_chunk_edges(chunk_edge_dicts)
-        children_d = self.get_children(level2_ids)
-        sv_ids = np.concatenate(list(children_d.values()))
-
-        edges = filter_edges(sv_ids, edges_dict)
-        if active_edges:
-            edges = get_active_edges(edges, children_d)
-
         # include fake edges
         chunk_fake_edges_d = self.read_node_id_rows(
             node_ids=chunk_ids,
             columns=column_keys.Connectivity.FakeEdges)
-        fake_edges = np.concatenate(list(chunk_fake_edges_d.values()))
-        fake_affinities = np.ones(len(fake_edges))
-        fake_areas = np.ones(len(fake_edges))
+        fake_edges = np.concatenate(list(chunk_fake_edges_d.values()))        
+
+        edges_dict = concatenate_chunk_edges(chunk_edge_dicts)
+        children_d = self.get_children(level2_ids)
+        sv_ids = np.concatenate(list(children_d.values()))
+
+        edges = sum(edges_dict.values())
+        edges = filter_edges(sv_ids, edges)
+        if active_edges:
+            edges = get_active_edges(edges, children_d)
+
         all_edges = np.concatenate([edges.get_pairs(), fake_edges])
         all_affinities = np.concatenate([edges.affinities, fake_affinities])
         all_areas = np.concatenate([edges.areas, fake_areas])
