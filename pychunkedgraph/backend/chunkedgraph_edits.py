@@ -250,6 +250,7 @@ def add_edges(cg,
 
 def add_fake_edges(
     cg_instance,
+    *,
     operation_id: np.uint64,
     added_edges: Sequence[Sequence[np.uint64]],
     source_coords: Sequence[np.uint64],

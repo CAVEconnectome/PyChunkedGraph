@@ -423,10 +423,10 @@ class MergeOperation(GraphEditOperation):
     ) -> Tuple[np.ndarray, np.ndarray, List["bigtable.row.Row"]]:
         fake_edge_rows = cg_edits.add_fake_edges(
             self.cg,
-            operation_id,
-            self.added_edges,
-            self.source_coords,
-            self.sink_coords,
+            operation_id=operation_id,
+            added_edges=self.added_edges,
+            source_coords=self.source_coords,
+            sink_coords=self.sink_coords,
             timestamp=timestamp
         )
         new_root_ids, new_lvl2_ids, rows = cg_edits.add_edges(
