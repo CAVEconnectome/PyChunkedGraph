@@ -192,3 +192,11 @@ def last_edit(table_id, root_id):
     latest_timestamp = common.last_edit(table_id, root_id)
     resp = {"iso": latest_timestamp.isoformat(delimiter)}
     return jsonify_with_kwargs(resp, int64_as_str=int64_as_str)
+
+
+@bp.route('/table/<table_id>/graph/split_preview', methods=["POST"])
+@auth_requires_permission("view")
+def handle_split_preview(table_id):
+    int64_as_str = request.args.get("int64_as_str", default=False, type=toboolean)
+    split_preview = common.handle_split_preview(table_id)
+    return jsonify_with_kwargs(split_preview, int64_as_str=int64_as_str)
