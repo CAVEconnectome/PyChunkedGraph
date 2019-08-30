@@ -23,7 +23,7 @@ def home():
 # ------------------------------------------------------------------------------
 
 
-@bp.route("/table/<table_id>/<node_id>/mesh_preview", methods=["POST", "GET"])
+@bp.route("/table/<table_id>/node/<node_id>/mesh_preview", methods=["POST", "GET"])
 def handle_preview_meshes(table_id, node_id):  # pylint: disable=unused-argument
     return Response(status=410)
 
@@ -31,7 +31,7 @@ def handle_preview_meshes(table_id, node_id):  # pylint: disable=unused-argument
 ## VALIDFRAGMENTS --------------------------------------------------------------
 
 
-@bp.route("/table/<table_id>/<node_id>/validfragments", methods=["GET"])
+@bp.route("/table/<table_id>/node/<node_id>/validfragments", methods=["GET"])
 def handle_valid_frags(table_id, node_id):
     return common.handle_valid_frags(table_id, node_id)
 

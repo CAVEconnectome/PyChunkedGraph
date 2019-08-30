@@ -66,7 +66,7 @@ def handle_info(table_id):
 ### GET ROOT -------------------------------------------------------------------
 
 
-@bp.route("/table/<table_id>/graph/<atomic_id>/root", methods=["GET"])
+@bp.route("/table/<table_id>/sv/<atomic_id>/root", methods=["GET"])
 def handle_root(table_id, atomic_id):
     return common.handle_root_2(table_id, atomic_id)
 
@@ -74,7 +74,7 @@ def handle_root(table_id, atomic_id):
 ### MERGE ----------------------------------------------------------------------
 
 
-@bp.route("/table/<table_id>/graph/merge", methods=["POST"])
+@bp.route("/table/<table_id>/merge", methods=["POST"])
 @auth_requires_permission("edit")
 def handle_merge(table_id):
     return common.handle_merge(table_id)
@@ -83,7 +83,7 @@ def handle_merge(table_id):
 ### SPLIT ----------------------------------------------------------------------
 
 
-@bp.route("/table/<table_id>/graph/split", methods=["POST"])
+@bp.route("/table/<table_id>/split", methods=["POST"])
 @auth_requires_permission("edit")
 def handle_split(table_id):
     return common.handle_split(table_id)
@@ -92,7 +92,7 @@ def handle_split(table_id):
 ### UNDO ----------------------------------------------------------------------
 
 
-@bp.route("/table/<table_id>/graph/undo", methods=["POST"])
+@bp.route("/table/<table_id>/undo", methods=["POST"])
 @auth_requires_permission("edit")
 def handle_undo(table_id):
     return common.handle_undo(table_id)
@@ -101,7 +101,7 @@ def handle_undo(table_id):
 ### REDO ----------------------------------------------------------------------
 
 
-@bp.route("/table/<table_id>/graph/redo", methods=["POST"])
+@bp.route("/table/<table_id>/redo", methods=["POST"])
 @auth_requires_permission("edit")
 def handle_redo(table_id):
     return common.handle_redo(table_id)
@@ -110,23 +110,23 @@ def handle_redo(table_id):
 ### CHILDREN -------------------------------------------------------------------
 
 
-@bp.route("/table/<table_id>/segment/<parent_id>/children", methods=["GET"])
-def handle_children(table_id, parent_id):
-    return common.handle_children(table_id, parent_id)
+@bp.route("/table/<table_id>/node/<node_id>/children", methods=["GET"])
+def handle_children(table_id, node_id):
+    return common.handle_children(table_id, node_id)
 
 
 ### LEAVES ---------------------------------------------------------------------
 
 
-@bp.route("/table/<table_id>/segment/<root_id>/leaves", methods=["GET"])
-def handle_leaves(table_id, root_id):
-    return common.handle_leaves(table_id, root_id)
+@bp.route("/table/<table_id>/node/<node_id>/leaves", methods=["GET"])
+def handle_leaves(table_id, node_id):
+    return common.handle_leaves(table_id, node_id)
 
 
 ### LEAVES FROM LEAVES ---------------------------------------------------------
 
 
-@bp.route("/table/<table_id>/segment/<atomic_id>/leaves_from_leave", methods=["GET"])
+@bp.route("/table/<table_id>/atomic/<atomic_id>/leaves_from_leave", methods=["GET"])
 def handle_leaves_from_leave(table_id, atomic_id):
     return common.handle_leaves_from_leave(table_id, atomic_id)
 
@@ -134,25 +134,25 @@ def handle_leaves_from_leave(table_id, atomic_id):
 ### SUBGRAPH -------------------------------------------------------------------
 
 
-@bp.route("/table/<table_id>/segment/<root_id>/subgraph", methods=["GET"])
-def handle_subgraph(table_id, root_id):
-    return common.handle_subgraph(table_id, root_id)
+@bp.route("/table/<table_id>/node/<node_id>/subgraph", methods=["GET"])
+def handle_subgraph(table_id, node_id):
+    return common.handle_subgraph(table_id, node_id)
 
 
 ### CHANGE LOG -----------------------------------------------------------------
 
 
-@bp.route("/table/<table_id>/segment/<root_id>/change_log", methods=["GET"])
+@bp.route("/table/<table_id>/root/<root_id>/change_log", methods=["GET"])
 def change_log(table_id, root_id):
     return common.change_log(table_id, root_id)
 
 
-@bp.route("/table/<table_id>/segment/<root_id>/merge_log", methods=["GET"])
+@bp.route("/table/<table_id>/root/<root_id>/merge_log", methods=["GET"])
 def merge_log(table_id, root_id):
     return common.merge_log(table_id, root_id)
 
 
-@bp.route("/table/<table_id>/graph/oldest_timestamp", methods=["GET"])
+@bp.route("/table/<table_id>/oldest_timestamp", methods=["GET"])
 def oldest_timestamp(table_id):
     return common.oldest_timestamp(table_id)
 
@@ -160,6 +160,6 @@ def oldest_timestamp(table_id):
 ### CONTACT SITES --------------------------------------------------------------
 
 
-@bp.route("/table/<table_id>/segment/<root_id>/contact_sites", methods=["GET"])
-def handle_contact_sites(table_id, root_id):
-    return common.handle_contact_sites(table_id, root_id)
+@bp.route("/table/<table_id>/node/<node_id>/contact_sites", methods=["GET"])
+def handle_contact_sites(table_id, node_id):
+    return common.handle_contact_sites(table_id, node_id)
