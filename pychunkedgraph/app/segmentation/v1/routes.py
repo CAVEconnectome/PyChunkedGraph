@@ -4,7 +4,7 @@ from middle_auth_client import auth_requires_permission
 from pychunkedgraph.app.segmentation import common
 from pychunkedgraph.backend import chunkedgraph_exceptions as cg_exceptions
 
-bp = Blueprint("pcg_segmentation_v1", __name__, url_prefix="/segmentation/api/v1/")
+bp = Blueprint("pcg_segmentation_v1", __name__, url_prefix="/segmentation/api/v1")
 
 
 # -------------------------------
@@ -46,21 +46,6 @@ def unhandled_exception(e):
 @bp.errorhandler(cg_exceptions.ChunkedGraphAPIError)
 def api_exception(e):
     return common.api_exception(e)
-
-
-# -------------------
-# ------ Applications
-# -------------------
-
-
-@bp.route("/sleep/<int:sleep>")
-def sleep_me(sleep):
-    return common.sleep_me(sleep)
-
-
-@bp.route("/table/<table_id>/info", methods=["GET"])
-def handle_info(table_id):
-    return common.handle_info(table_id)
 
 
 ### GET ROOT -------------------------------------------------------------------
@@ -121,14 +106,6 @@ def handle_children(table_id, node_id):
 @bp.route("/table/<table_id>/node/<node_id>/leaves", methods=["GET"])
 def handle_leaves(table_id, node_id):
     return common.handle_leaves(table_id, node_id)
-
-
-### LEAVES FROM LEAVES ---------------------------------------------------------
-
-
-@bp.route("/table/<table_id>/atomic/<atomic_id>/leaves_from_leave", methods=["GET"])
-def handle_leaves_from_leave(table_id, atomic_id):
-    return common.handle_leaves_from_leave(table_id, atomic_id)
 
 
 ### SUBGRAPH -------------------------------------------------------------------

@@ -2,7 +2,7 @@ from flask import Blueprint, Response
 
 from pychunkedgraph.app.meshing import common
 
-bp = Blueprint("pcg_meshing_v1", __name__, url_prefix="/meshing/api/v1/")
+bp = Blueprint("pcg_meshing_v1", __name__, url_prefix="/meshing/api/v1")
 
 # -------------------------------
 # ------ Access control and index

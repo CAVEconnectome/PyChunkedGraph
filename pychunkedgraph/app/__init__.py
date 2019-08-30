@@ -16,8 +16,10 @@ from pychunkedgraph.logging import jsonformatter
 
 from . import config
 from .meshing.legacy.routes import bp as meshing_api_legacy
+from .meshing.v1.routes import bp as meshing_api_v1
 from .segmentation.legacy.routes import bp as segmentation_api_legacy
 from .segmentation.v1.routes import bp as segmentation_api_v1
+from pychunkedgraph.app.segmentation.generic.routes import bp as generic_api
 
 
 class CustomJsonEncoder(json.JSONEncoder):
@@ -43,9 +45,12 @@ def create_app(test_config=None):
         app.config.update(test_config)
 
     app.register_blueprint(meshing_api_legacy)
+    app.register_blueprint(meshing_api_v1)
 
     app.register_blueprint(segmentation_api_legacy)
     app.register_blueprint(segmentation_api_v1)
+
+    app.register_blueprint(generic_api)
     return app
 
 

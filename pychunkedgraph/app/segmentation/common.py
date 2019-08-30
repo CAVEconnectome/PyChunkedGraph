@@ -9,16 +9,17 @@ import numpy as np
 from flask import current_app, g, jsonify, make_response, request
 from pytz import UTC
 
+from pychunkedgraph import __version__
 from pychunkedgraph.app import app_utils
 from pychunkedgraph.app.meshing.common import _remeshing
 from pychunkedgraph.backend import chunkedgraph_comp as cg_comp
 from pychunkedgraph.backend import chunkedgraph_exceptions as cg_exceptions
 
-__version__ = "fafb.1.21"
+__api_versions__ = [0, 1]
 
 
 def index():
-    return "PyChunkedGraph Server -- " + __version__
+    return f"PyChunkedGraph Segmentation v{__version__}"
 
 
 def home():
@@ -143,6 +144,10 @@ def handle_info(table_id):
     return jsonify(cg.dataset_info)
 
 
+def handle_api_versions():
+    return jsonify(__api_versions__)
+
+
 ### GET ROOT -------------------------------------------------------------------
 
 
@@ -192,7 +197,7 @@ def handle_root_main(table_id, atomic_id, timestamp):
 ### MERGE ----------------------------------------------------------------------
 
 
-def handle_merge(table_id):
+def handle_merge(table_id, bin_return=False):
     current_app.request_type = "merge"
 
     nodes = json.loads(request.data)
@@ -260,20 +265,23 @@ def handle_merge(table_id):
         )
         t.start()
 
-    # NOTE: JS can't safely read integers larger than 2^53 - 1
-    resp = {
-        "operation_id": ret.operation_id,
-        "operation_id_str": str(ret.operation_id),
-        "new_root_ids": ret.new_root_ids,
-        "new_root_ids_str": list(map(str, ret.new_root_ids)),
-    }
-    return jsonify(resp)
+    if bin_return:
+        return app_utils.tobinary(ret.new_root_ids)
+    else:
+        # NOTE: JS can't safely read integers larger than 2^53 - 1
+        resp = {
+            "operation_id": ret.operation_id,
+            "operation_id_str": str(ret.operation_id),
+            "new_root_ids": ret.new_root_ids,
+            "new_root_ids_str": list(map(str, ret.new_root_ids)),
+        }
+        return jsonify(resp)
 
 
 ### SPLIT ----------------------------------------------------------------------
 
 
-def handle_split(table_id):
+def handle_split(table_id, bin_return=False):
     current_app.request_type = "split"
 
     data = json.loads(request.data)
@@ -342,14 +350,17 @@ def handle_split(table_id):
         )
         t.start()
 
-    # NOTE: JS can't safely read integers larger than 2^53 - 1
-    resp = {
-        "operation_id": ret.operation_id,
-        "operation_id_str": str(ret.operation_id),
-        "new_root_ids": ret.new_root_ids,
-        "new_root_ids_str": list(map(str, ret.new_root_ids)),
-    }
-    return jsonify(resp)
+    if bin_return:
+        return app_utils.tobinary(ret.new_root_ids)
+    else:
+        # NOTE: JS can't safely read integers larger than 2^53 - 1
+        resp = {
+            "operation_id": ret.operation_id,
+            "operation_id_str": str(ret.operation_id),
+            "new_root_ids": ret.new_root_ids,
+            "new_root_ids_str": list(map(str, ret.new_root_ids)),
+        }
+        return jsonify(resp)
 
 
 ### UNDO ----------------------------------------------------------------------
