@@ -57,7 +57,7 @@ class Edges:
     def __len__(self):
         return len(self.node_ids1)
 
-    def get_pairs(self):
+    def get_pairs(self) -> np.ndarray:
         """
         return numpy array of edge pairs [[sv1, sv2] ... ]
         """

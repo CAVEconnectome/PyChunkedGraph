@@ -20,8 +20,11 @@ class TargetVisitor(BFSVisitor):
             raise StopSearch
 
 
-def check_reachability(g, sv1s, sv2s, original_ids) -> np.ndarray:
+def check_reachability(g, sv1s: np.ndarray, sv2s: np.ndarray, original_ids: np.ndarray) -> np.ndarray:
     """
+    g: graph tool Graph instance with ids 0 to N-1 where N = vertex count
+    original_ids: sorted ChunkedGraph supervoxel ids
+        (to identify corresponding ids in graph tool)
     for each pair (sv1, sv2) check if a path exists (BFS)
     """
     # mapping from original ids to graph tool ids
