@@ -3,11 +3,10 @@ import json
 import numpy as np
 from flask import Response, jsonify, make_response, request
 
+from pychunkedgraph import __version__
 from pychunkedgraph.app import app_utils
 from pychunkedgraph.backend import chunkedgraph
 from pychunkedgraph.meshing import meshgen, meshgen_utils
-
-__version__ = "fafb.1.21"
 
 
 # -------------------------------
@@ -16,7 +15,7 @@ __version__ = "fafb.1.21"
 
 
 def index():
-    return "Meshing Server -- " + __version__
+    return f"PyChunkedGraph Meshing v{__version__}"
 
 
 def home():

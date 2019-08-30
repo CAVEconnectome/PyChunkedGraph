@@ -7,7 +7,7 @@ from pychunkedgraph.app import app_utils
 from pychunkedgraph.app.meshing import common
 from pychunkedgraph.meshing import meshgen
 
-bp = Blueprint("pcg_meshing_v0", __name__, url_prefix="/meshing/")
+bp = Blueprint("pcg_meshing_v0", __name__, url_prefix="/meshing/1.0")
 
 # -------------------------------
 # ------ Access control and index
@@ -28,7 +28,7 @@ def home():
 # ------------------------------------------------------------------------------
 
 
-@bp.route("/1.0/<table_id>/<node_id>/mesh_preview", methods=["POST", "GET"])
+@bp.route("/<table_id>/<node_id>/mesh_preview", methods=["POST", "GET"])
 def handle_preview_meshes(table_id, node_id):
     if len(request.data) > 0:
         data = json.loads(request.data)
@@ -66,7 +66,7 @@ def handle_preview_meshes(table_id, node_id):
 ## VALIDFRAGMENTS --------------------------------------------------------------
 
 
-@bp.route("/1.0/<table_id>/<node_id>/validfragments", methods=["POST", "GET"])
+@bp.route("/<table_id>/<node_id>/validfragments", methods=["POST", "GET"])
 def handle_valid_frags(table_id, node_id):
     return common.handle_valid_frags(table_id, node_id)
 
@@ -74,6 +74,6 @@ def handle_valid_frags(table_id, node_id):
 ## MANIFEST --------------------------------------------------------------------
 
 
-@bp.route("/1.0/<table_id>/manifest/<node_id>:0", methods=["GET"])
+@bp.route("/<table_id>/manifest/<node_id>:0", methods=["GET"])
 def handle_get_manifest(table_id, node_id):
     return common.handle_get_manifest(table_id, node_id)
