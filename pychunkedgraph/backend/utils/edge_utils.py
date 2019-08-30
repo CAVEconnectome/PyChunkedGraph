@@ -13,7 +13,7 @@ from ..connectivity.search import check_reachability
 from ..flatgraph_utils import build_gt_graph
 
 
-def concatenate_chunk_edges(chunk_edge_dicts: list) -> dict:
+def concatenate_chunk_edges(chunk_edge_dicts: List) -> Dict:
     """combine edge_dicts of multiple chunks into one edge_dict"""
     edges_dict = {}
     for edge_type in [IN_CHUNK, BT_CHUNK, CX_CHUNK]:
@@ -51,7 +51,7 @@ def filter_edges(node_ids: np.ndarray, edges: Edges) -> Edges:
     return Edges(ids1, ids2, affinities=affinities, areas=areas)
 
 
-def get_active_edges(edges: Edges, parent_children_d: dict) -> Edges:
+def get_active_edges(edges: Edges, parent_children_d: Dict) -> Edges:
     """
     get edges [(v1, v2) ...] where parent(v1) == parent(v2)
     -> assume active if v1 and v2 belong to same connected component
@@ -73,7 +73,7 @@ def get_active_edges(edges: Edges, parent_children_d: dict) -> Edges:
     return Edges(sv_ids1, sv_ids2, affinities=affinities, areas=areas)
 
 
-def filter_fake_edges(added_edges, subgraph_edges) -> List:
+def filter_fake_edges(added_edges: np.ndarray, subgraph_edges: np.ndarray) -> List:
     """run bfs to check if a path exists"""
     self_edges = np.array([[node_id, node_id] for node_id in np.unique(added_edges)])
     subgraph_edges = np.concatenate([subgraph_edges, self_edges])
@@ -90,7 +90,7 @@ def map_edges_to_chunks(
 ) -> Dict:
     """
     maps a list of edges to corresponding chunks
-    returns a dictionary {chuunk_id: [edges that are part of this chunk]}
+    returns a dictionary {chunk_id: [edges that are part of this chunk]}
     """
     chunk_ids_d = defaultdict(list)
     for i, r_index in enumerate(r_indices):

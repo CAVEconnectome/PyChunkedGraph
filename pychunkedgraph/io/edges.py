@@ -17,12 +17,10 @@ from ..backend.utils import basetypes
 from .protobuf.chunkEdges_pb2 import EdgesMsg, ChunkEdgesMsg
 
 
-def serialize(edges: Edges, only_ids: bool = False) -> EdgesMsg:
+def serialize(edges: Edges) -> EdgesMsg:
     edges_proto = EdgesMsg()
     edges_proto.node_ids1 = edges.node_ids1.astype(basetypes.NODE_ID).tobytes()
     edges_proto.node_ids2 = edges.node_ids2.astype(basetypes.NODE_ID).tobytes()
-    if only_ids:
-        return edges_proto
     edges_proto.affinities = edges.affinities.astype(basetypes.EDGE_AFFINITY).tobytes()
     edges_proto.areas = edges.areas.astype(basetypes.EDGE_AREA).tobytes()
     return edges_proto
@@ -36,7 +34,7 @@ def deserialize(edges_message: EdgesMsg) -> Tuple[np.ndarray, np.ndarray, np.nda
     return Edges(sv_ids1, sv_ids2, affinities=affinities, areas=areas)
 
 
-def _decompress_edges(content: bytes) -> dict:
+def _decompress_edges(content: bytes) -> Dict:
     """
     :param content: zstd compressed bytes
     :type bytes:
@@ -59,7 +57,7 @@ def _decompress_edges(content: bytes) -> dict:
 
 def get_chunk_edges(
     edges_dir: str, chunks_coordinates: List[np.ndarray], cv_threads: int = 1
-) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+) -> Dict:
     """
     :param edges_dir: cloudvolume storage path
     :type str:    
@@ -67,7 +65,7 @@ def get_chunk_edges(
     :type List[np.ndarray]:
     :param cv_threads: cloudvolume storage client thread count
     :type int:     
-    :return: edges, affinities, areas
+    :return: dictionary {"edge_type": Edges}
     :rtype: Tuple[np.ndarray, np.ndarray, np.ndarray]
     """
     fnames = []

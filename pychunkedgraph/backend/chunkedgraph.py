@@ -3116,24 +3116,20 @@ class ChunkedGraph(object):
         5. filter the edges with supervoxel ids
         6. optionally for each edge (v1,v2) active
            if parent(v1) == parent(v2) inactive otherwise
-        7. return the edges
         """
 
-        def _read_edges(
-            chunk_ids
-        ) -> Tuple[List[np.ndarray], List[np.float32], List[np.uint64]]:
+        def _read_edges(chunk_ids) -> dict:
             return get_chunk_edges(
                 self._edge_dir,
                 [self.get_chunk_coordinates(chunk_id) for chunk_id in chunk_ids],
                 cv_threads,
             )
 
-        bounding_box = self.normalize_bounding_box(bbox, bbox_is_coordinate)
         level2_ids = []
         for agglomeration_id in agglomeration_ids:
             layer_nodes_d = self._get_subgraph_higher_layer_nodes(
                 node_id=agglomeration_id,
-                bounding_box=bounding_box,
+                bounding_box=self.normalize_bounding_box(bbox, bbox_is_coordinate),
                 return_layers=[2],
                 verbose=False
             )
@@ -3155,7 +3151,7 @@ class ChunkedGraph(object):
             node_ids=chunk_ids,
             columns=column_keys.Connectivity.FakeEdges)
         fake_edges = np.concatenate([list(chunk_fake_edges_d.values())])        
-        if fake_edges:
+        if fake_edges.size:
             fake_edges = Edges(fake_edges[:,0], fake_edges[:,1])
             edges += fake_edges
 
