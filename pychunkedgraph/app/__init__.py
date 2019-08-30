@@ -44,13 +44,14 @@ def create_app(test_config=None):
     if test_config is not None:
         app.config.update(test_config)
 
+    app.register_blueprint(generic_api)
+
     app.register_blueprint(meshing_api_legacy)
     app.register_blueprint(meshing_api_v1)
 
     app.register_blueprint(segmentation_api_legacy)
     app.register_blueprint(segmentation_api_v1)
 
-    app.register_blueprint(generic_api)
     return app
 
 
