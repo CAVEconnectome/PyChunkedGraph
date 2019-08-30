@@ -58,7 +58,8 @@ def sleep_me(sleep):
     return common.sleep_me(sleep)
 
 
-@bp.route("/<api_version>/<table_id>/info", methods=["GET"])
+@bp.route("/<table_id>/info", methods=["GET"])
+@auth_requires_permission("view")
 def handle_info(table_id):
     return common.handle_info(table_id)
 
@@ -67,11 +68,13 @@ def handle_info(table_id):
 
 
 @bp.route("/<table_id>/graph/root", methods=["POST", "GET"])
+@auth_requires_permission("view")
 def handle_root_1(table_id):
     return common.handle_root_1(table_id)
 
 
 @bp.route("/<table_id>/graph/<atomic_id>/root", methods=["POST", "GET"])
+@auth_requires_permission("view")
 def handle_root_2(table_id, atomic_id):
     return common.handle_root_2(table_id, atomic_id)
 
@@ -98,6 +101,7 @@ def handle_split(table_id):
 
 
 @bp.route("/<table_id>/segment/<parent_id>/children", methods=["POST", "GET"])
+@auth_requires_permission("view")
 def handle_children(table_id, parent_id):
     return common.handle_children(table_id, parent_id)
 
@@ -106,6 +110,7 @@ def handle_children(table_id, parent_id):
 
 
 @bp.route("/<table_id>/segment/<root_id>/leaves", methods=["POST", "GET"])
+@auth_requires_permission("view")
 def handle_leaves(table_id, root_id):
     return common.handle_leaves(table_id, root_id)
 
@@ -113,9 +118,8 @@ def handle_leaves(table_id, root_id):
 ### LEAVES FROM LEAVES ---------------------------------------------------------
 
 
-@bp.route(
-    "/<table_id>/segment/<atomic_id>/leaves_from_leave", methods=["POST", "GET"]
-)
+@bp.route("/<table_id>/segment/<atomic_id>/leaves_from_leave", methods=["POST", "GET"])
+@auth_requires_permission("view")
 def handle_leaves_from_leave(table_id, atomic_id):
     return common.handle_leaves_from_leave(table_id, atomic_id)
 
@@ -124,6 +128,7 @@ def handle_leaves_from_leave(table_id, atomic_id):
 
 
 @bp.route("/<table_id>/segment/<root_id>/subgraph", methods=["POST", "GET"])
+@auth_requires_permission("view")
 def handle_subgraph(table_id, root_id):
     return common.handle_subgraph(table_id, root_id)
 
@@ -132,16 +137,19 @@ def handle_subgraph(table_id, root_id):
 
 
 @bp.route("/<table_id>/segment/<root_id>/change_log", methods=["POST", "GET"])
+@auth_requires_permission("view")
 def change_log(table_id, root_id):
     return common.change_log(table_id, root_id)
 
 
 @bp.route("/<table_id>/segment/<root_id>/merge_log", methods=["POST", "GET"])
+@auth_requires_permission("view")
 def merge_log(table_id, root_id):
     return common.merge_log(table_id, root_id)
 
 
 @bp.route("/<table_id>/graph/oldest_timestamp", methods=["POST", "GET"])
+@auth_requires_permission("view")
 def oldest_timestamp(table_id):
     return common.oldest_timestamp(table_id)
 
@@ -150,5 +158,6 @@ def oldest_timestamp(table_id):
 
 
 @bp.route("/<table_id>/segment/<root_id>/contact_sites", methods=["POST", "GET"])
+@auth_requires_permission("view")
 def handle_contact_sites(table_id, root_id):
     return common.handle_contact_sites(table_id, root_id)
