@@ -3589,7 +3589,8 @@ class ChunkedGraph(object):
                       sink_ids: Sequence[np.uint64],
                       source_coords: Sequence[Sequence[int]],
                       sink_coords: Sequence[Sequence[int]],
-                      bb_offset: Tuple[int, int, int] = (120, 120, 12)):
+                      bb_offset: Tuple[int, int, int] = (120, 120, 12),
+                      split_preview: bool = False):
 
 
         time_start = time.time()
@@ -3649,7 +3650,7 @@ class ChunkedGraph(object):
             )
 
         # Compute mincut
-        atomic_edges = cutting.mincut(edges, affs, source_ids, sink_ids)
+        atomic_edges = cutting.mincut(edges, affs, source_ids, sink_ids, split_preview=split_preview)
 
         self.logger.debug(f"Mincut: {(time.time() - time_start) * 1000:.3f}ms")
 

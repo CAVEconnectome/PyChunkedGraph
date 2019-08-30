@@ -578,3 +578,60 @@ def handle_contact_sites(table_id, root_id):
     )
 
     return cs_dict
+
+
+### SPLIT PREVIEW --------------------------------------------------------------
+
+
+def handle_split_preview(table_id):
+    current_app.request_type = "split_preview"
+
+    data = json.loads(request.data)
+    current_app.logger.debug(data)
+
+    # Call ChunkedGraph
+    cg = app_utils.get_cg(table_id)
+
+    data_dict = {}
+    for k in ["sources", "sinks"]:
+        data_dict[k] = collections.defaultdict(list)
+
+        for node in data[k]:
+            node_id = node[0]
+            x, y, z = node[1:]
+            coordinate = np.array([x, y, z]) / cg.segmentation_resolution
+
+            atomic_id = cg.get_atomic_id_from_coord(coordinate[0],
+                                                    coordinate[1],
+                                                    coordinate[2],
+                                                    parent_id=np.uint64(
+                                                        node_id))
+
+            if atomic_id is None:
+                raise cg_exceptions.BadRequest(
+                    f"Could not determine supervoxel ID for coordinates "
+                    f"{coordinate}.")
+
+            data_dict[k]["id"].append(atomic_id)
+            data_dict[k]["coord"].append(coordinate)
+
+    current_app.logger.debug(data_dict)
+
+    try:
+        supervoxel_ccs, illegal_split = cg._run_multicut(
+            source_ids=data_dict["sources"]["id"],
+            sink_ids=data_dict["sinks"]["id"],
+            source_coords=data_dict["sources"]["coord"],
+            sink_coords=data_dict["sinks"]["coord"],
+            bb_offset=(240,240,24),
+            split_preview=True
+        )
+
+    except cg_exceptions.PreconditionError as e:
+        raise cg_exceptions.BadRequest(str(e))
+
+    resp = {
+        "supervoxel_connected_components": supervoxel_ccs,
+        "illegal_split": illegal_split
+        }
+    return resp
