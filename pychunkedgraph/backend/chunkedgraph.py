@@ -2860,6 +2860,10 @@ class ChunkedGraph(object):
         merge_history = []
         merge_history_edges = []
         split_history = []
+        n_splits = 0
+        n_mergers = 0
+
+        user_dict = collections.defaultdict(collections.Counter)
 
         next_ids = [root_id]
         while len(next_ids):
@@ -2881,6 +2885,7 @@ class ChunkedGraph(object):
                     operation_id = former_row[lock_col][0].value
                     log_row = self.read_log_row(operation_id)
                     is_merge = column_keys.OperationLogs.AddedEdge in log_row
+                    user_id = log_row[column_keys.OperationLogs.UserID]
 
                     for id_ in ids:
                         if id_ in id_history:
@@ -2890,6 +2895,7 @@ class ChunkedGraph(object):
                         temp_next_ids.append(id_)
 
                     if is_merge:
+                        user_dict[user_id]["n_mergers"] += 1
                         added_edges = log_row[column_keys.OperationLogs.AddedEdge]
                         merge_history.append(added_edges)
 
@@ -2905,6 +2911,7 @@ class ChunkedGraph(object):
                         merge_history_edges.append(coords)
 
                     if not is_merge:
+                        user_dict[user_id]["n_splits"] += 1
                         removed_edges = log_row[column_keys.OperationLogs.RemovedEdge]
                         split_history.append(removed_edges)
                 else:
@@ -2912,7 +2919,16 @@ class ChunkedGraph(object):
 
             next_ids = temp_next_ids
 
-        return {"past_ids": np.unique(np.array(id_history, dtype=np.uint64)),
+        n_splits = 0
+        n_mergers = 0
+        for user_id in user_dict:
+            n_splits += user_dict[user_id]["n_splits"]
+            n_mergers += user_dict[user_id]["n_mergers"]
+
+        return {"n_splits": n_splits,
+                "n_mergers": n_mergers,
+                "user_info": user_dict,
+                "past_ids": np.unique(np.array(id_history, dtype=np.uint64)),
                 "merge_edges": np.array(merge_history),
                 "merge_edge_coords": np.array(merge_history_edges),
                 "split_edges": np.array(split_history)}

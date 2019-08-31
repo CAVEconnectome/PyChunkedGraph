@@ -3,6 +3,7 @@ import json
 import numpy as np
 from flask import Blueprint, Response, request
 
+from middle_auth_client import auth_requires_permission
 from pychunkedgraph.app import app_utils
 from pychunkedgraph.app.meshing import common
 from pychunkedgraph.meshing import meshgen
@@ -29,6 +30,7 @@ def home():
 
 
 @bp.route("/<table_id>/<node_id>/mesh_preview", methods=["POST", "GET"])
+@auth_requires_permission("edit")
 def handle_preview_meshes(table_id, node_id):
     if len(request.data) > 0:
         data = json.loads(request.data)
@@ -67,6 +69,7 @@ def handle_preview_meshes(table_id, node_id):
 
 
 @bp.route("/<table_id>/<node_id>/validfragments", methods=["POST", "GET"])
+@auth_requires_permission("view")
 def handle_valid_frags(table_id, node_id):
     return common.handle_valid_frags(table_id, node_id)
 
@@ -75,5 +78,6 @@ def handle_valid_frags(table_id, node_id):
 
 
 @bp.route("/<table_id>/manifest/<node_id>:0", methods=["GET"])
+@auth_requires_permission("view")
 def handle_get_manifest(table_id, node_id):
     return common.handle_get_manifest(table_id, node_id)
