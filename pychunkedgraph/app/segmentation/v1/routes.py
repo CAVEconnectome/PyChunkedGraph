@@ -52,6 +52,7 @@ def api_exception(e):
 
 
 @bp.route("/table/<table_id>/sv/<atomic_id>/root", methods=["GET"])
+@auth_requires_permission("view")
 def handle_root(table_id, atomic_id):
     return common.handle_root_2(table_id, atomic_id)
 
@@ -96,6 +97,7 @@ def handle_redo(table_id):
 
 
 @bp.route("/table/<table_id>/node/<node_id>/children", methods=["GET"])
+@auth_requires_permission("view")
 def handle_children(table_id, node_id):
     return common.handle_children(table_id, node_id)
 
@@ -104,6 +106,7 @@ def handle_children(table_id, node_id):
 
 
 @bp.route("/table/<table_id>/node/<node_id>/leaves", methods=["GET"])
+@auth_requires_permission("view")
 def handle_leaves(table_id, node_id):
     return common.handle_leaves(table_id, node_id)
 
@@ -112,6 +115,7 @@ def handle_leaves(table_id, node_id):
 
 
 @bp.route("/table/<table_id>/node/<node_id>/subgraph", methods=["GET"])
+@auth_requires_permission("view")
 def handle_subgraph(table_id, node_id):
     return common.handle_subgraph(table_id, node_id)
 
@@ -120,16 +124,19 @@ def handle_subgraph(table_id, node_id):
 
 
 @bp.route("/table/<table_id>/root/<root_id>/change_log", methods=["GET"])
+@auth_requires_permission("view")
 def change_log(table_id, root_id):
     return common.change_log(table_id, root_id)
 
 
 @bp.route("/table/<table_id>/root/<root_id>/merge_log", methods=["GET"])
+@auth_requires_permission("view")
 def merge_log(table_id, root_id):
     return common.merge_log(table_id, root_id)
 
 
 @bp.route("/table/<table_id>/oldest_timestamp", methods=["GET"])
+@auth_requires_permission("view")
 def oldest_timestamp(table_id):
     return common.oldest_timestamp(table_id)
 
@@ -138,5 +145,6 @@ def oldest_timestamp(table_id):
 
 
 @bp.route("/table/<table_id>/node/<node_id>/contact_sites", methods=["GET"])
+@auth_requires_permission("view")
 def handle_contact_sites(table_id, node_id):
     return common.handle_contact_sites(table_id, node_id)
