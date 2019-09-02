@@ -137,7 +137,7 @@ def handle_subgraph(table_id, root_id):
 
 
 @bp.route("/<table_id>/segment/<root_id>/change_log", methods=["POST", "GET"])
-@auth_requires_permission("view")
+# @auth_requires_permission("view")
 def change_log(table_id, root_id):
     return common.change_log(table_id, root_id)
 
