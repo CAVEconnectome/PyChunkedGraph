@@ -10,9 +10,9 @@ from rq.job import Job
 from flask import current_app
 from flask.cli import AppGroup
 
-from ..utils.general import REDIS_HOST
-from ..utils.general import REDIS_PORT
-from ..utils.general import REDIS_PASSWORD
+from ..utils.redis import REDIS_HOST
+from ..utils.redis import REDIS_PORT
+from ..utils.redis import REDIS_PASSWORD
 
 
 redis_cli = AppGroup("redis")
