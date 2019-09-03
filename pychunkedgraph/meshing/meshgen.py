@@ -1,4 +1,3 @@
-from pychunkedgraph.utils.general import redis_job
 from typing import Sequence
 import sys
 import os
@@ -28,6 +27,7 @@ UTC = pytz.UTC
 from pychunkedgraph.backend import chunkedgraph  # noqa
 from pychunkedgraph.backend.utils import serializers, column_keys  # noqa
 from pychunkedgraph.meshing import meshgen_utils  # noqa
+from pychunkedgraph.utils.redis import redis_job
 
 # Change below to true if debugging and want to see results in stdout
 PRINT_FOR_DEBUGGING = False
