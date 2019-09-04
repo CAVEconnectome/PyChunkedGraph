@@ -1,5 +1,5 @@
 """
-Module for stuff related to creating the initial chunkedgraph
+Functions for creating atomic nodes and their level 2 abstract parents
 """
 
 import datetime
