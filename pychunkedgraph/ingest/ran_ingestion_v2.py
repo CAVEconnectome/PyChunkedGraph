@@ -20,7 +20,7 @@ from redis import Redis
 
 from ..utils.redis import redis_job, REDIS_URL
 from . import ingestionmanager, ingestion_utils as iu
-from .initialization.base import add_atomic_edges
+from .initialization.atomic_layer import add_atomic_edges
 from ..backend.definitions.edges import Edges, CX_CHUNK, TYPES as EDGE_TYPES
 from ..backend.utils import basetypes
 from ..io.edges import put_chunk_edges

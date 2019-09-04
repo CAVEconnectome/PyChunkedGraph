@@ -3,7 +3,7 @@ Functions for creating atomic nodes and their level 2 abstract parents
 """
 
 import datetime
-from typing import Optional, Sequence, Dict
+from typing import Optional, Sequence, Dict, List
 
 import pytz
 import numpy as np
@@ -22,21 +22,6 @@ def add_atomic_edges(
     isolated: Sequence[int],
     time_stamp: Optional[datetime.datetime] = None,
 ):
-    """
-    Creates atomic nodes in first abstraction layer for a SINGLE chunk
-    and all abstract nodes in the second for the same chunk.
-    All the edges (edge_ids) need to be from one chunk and no nodes should
-    exist for this chunk prior to calling this function. All cross edges
-    (cross_edge_ids) have to point out the chunk (first entry is the id
-    within the chunk)
-
-    :param cg_instance:
-    :param chunk_coord: [x,y,z]
-    :param chunk_edges_d: dict of {"edge_type": Edges}
-    :param isolated: list of isolated node ids
-    :param time_stamp: datetime
-    """
-
     chunk_node_ids, chunk_edge_ids = _get_chunk_nodes_and_edges(chunk_edges_d, isolated)
     if not chunk_node_ids.size:
         return 0

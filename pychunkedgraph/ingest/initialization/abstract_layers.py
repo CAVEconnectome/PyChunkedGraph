@@ -3,7 +3,6 @@ Functions for creating parents in level 3 and above
 """
 
 import collections
-import time
 import datetime
 from typing import Optional, Sequence
 
@@ -20,18 +19,8 @@ def add_layer(
     layer_id: int,
     child_chunk_coords: Sequence[Sequence[int]],
     time_stamp: Optional[datetime.datetime] = None,
-    verbose: bool = True,
     n_threads: int = 20,
 ) -> None:
-    """ Creates the abstract nodes for a given chunk in a given layer
-    :param layer_id: int
-    :param child_chunk_coords: int array of length 3
-        coords in chunk space
-    :param time_stamp: datetime
-    :param verbose: bool
-    :param n_threads: in
-    """
-
     def _read_subchunks_thread(chunk_coord):
         # Get start and end key
         x, y, z = chunk_coord
@@ -218,21 +207,11 @@ def add_layer(
         if len(rows) > 0:
             self.bulk_write(rows)
 
-    if time_stamp is None:
-        time_stamp = datetime.datetime.utcnow()
-
-    if time_stamp.tzinfo is None:
-        time_stamp = UTC.localize(time_stamp)
-
-    # Comply to resolution of BigTables TimeRange
-    time_stamp = get_google_compatible_time_stamp(time_stamp, round_up=False)
+    time_stamp = _get_valid_timestamp(time_stamp)
 
     # 1 --------------------------------------------------------------------
     # The first part is concerned with reading data from the child nodes
     # of this layer and pre-processing it for the second part
-
-    time_start = time.time()
-
     atomic_partner_id_dict = {}
     cross_edge_dict = {}
     atomic_child_id_dict_pairs = []
@@ -248,12 +227,6 @@ def add_layer(
     atomic_child_id_dict = collections.defaultdict(np.uint64, d)
     ll_node_ids = np.array(ll_node_ids, dtype=np.uint64)
 
-    if verbose:
-        self.logger.debug(
-            "Time iterating through subchunks: %.3fs" % (time.time() - time_start)
-        )
-    time_start = time.time()
-
     # Extract edges from remaining cross chunk edges
     # and maintain unused cross chunk edges
     edge_ids = []
@@ -268,25 +241,16 @@ def add_layer(
         n_jobs = 1
 
     n_jobs = np.min([n_jobs, len(atomic_partner_id_dict_keys)])
-
     if n_jobs > 0:
         spacing = np.linspace(0, len(atomic_partner_id_dict_keys), n_jobs + 1).astype(
             np.int
         )
         starts = spacing[:-1]
         ends = spacing[1:]
-
         multi_args = list(zip(starts, ends))
-
         mu.multithread_func(
             _resolve_cross_chunk_edges_thread, multi_args, n_threads=n_threads
         )
-
-    if verbose:
-        self.logger.debug(
-            "Time resolving cross chunk edges: %.3fs" % (time.time() - time_start)
-        )
-    time_start = time.time()
 
     # 2 --------------------------------------------------------------------
     # The second part finds connected components, writes the parents to
@@ -310,12 +274,6 @@ def add_layer(
 
     ccs = flatgraph_utils.connected_components(graph)
 
-    if verbose:
-        self.logger.debug(
-            "Time connected components: %.3fs" % (time.time() - time_start)
-        )
-    time_start = time.time()
-
     # Add rows for nodes that are in this chunk
     # a connected component at a time
     if n_threads > 1:
@@ -328,18 +286,20 @@ def add_layer(
     spacing = np.linspace(0, len(ccs), n_jobs + 1).astype(np.int)
     starts = spacing[:-1]
     ends = spacing[1:]
-
     multi_args = list(zip(starts, ends))
-
     mu.multithread_func(
         _write_out_connected_components, multi_args, n_threads=n_threads
     )
-
-    if verbose:
-        self.logger.debug(
-            "Time writing %d connected components in layer %d: %.3fs"
-            % (len(ccs), layer_id, time.time() - time_start)
-        )
-
     # to track worker completion
     return str(layer_id)
+
+
+def _get_valid_timestamp(timestamp):
+    if timestamp is None:
+        timestamp = datetime.datetime.utcnow()
+
+    if timestamp.tzinfo is None:
+        timestamp = pytz.UTC.localize(timestamp)
+
+    # Comply to resolution of BigTables TimeRange
+    return get_google_compatible_time_stamp(timestamp, round_up=False)    
