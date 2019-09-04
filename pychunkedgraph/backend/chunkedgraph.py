@@ -16,7 +16,7 @@ from functools import reduce
 from multiwrapper import multiprocessing_utils as mu
 from pychunkedgraph.backend import cutting, chunkedgraph_comp, flatgraph_utils
 from pychunkedgraph.backend.chunkedgraph_utils import compute_indices_pandas, \
-    compute_bitmasks, get_google_compatible_time_stamp, \
+    compute_bitmasks, get_valid_timestamp, \
     get_time_range_filter, get_time_range_and_column_filter, get_max_time, \
     combine_cross_chunk_edge_dicts, get_min_time, partial_row_data_to_column_dict
 from pychunkedgraph.backend.utils import serializers, column_keys, row_keys, basetypes
@@ -1495,16 +1495,7 @@ class ChunkedGraph(object):
         :param verbose: bool
         :param time_stamp: datetime
         """
-        if time_stamp is None:
-            time_stamp = datetime.datetime.utcnow()
-
-        if time_stamp.tzinfo is None:
-            time_stamp = UTC.localize(time_stamp)
-
-        # Comply to resolution of BigTables TimeRange
-        time_stamp = get_google_compatible_time_stamp(time_stamp,
-                                                      round_up=False)
-
+        time_stamp = get_valid_timestamp(time_stamp)
         edge_id_keys = ["in_connected", "in_disconnected", "cross",
                         "between_connected", "between_disconnected"]
         edge_aff_keys = ["in_connected", "in_disconnected", "between_connected",
@@ -1957,16 +1948,7 @@ class ChunkedGraph(object):
             if len(rows) > 0:
                 self.bulk_write(rows)
 
-        if time_stamp is None:
-            time_stamp = datetime.datetime.utcnow()
-
-        if time_stamp.tzinfo is None:
-            time_stamp = UTC.localize(time_stamp)
-
-        # Comply to resolution of BigTables TimeRange
-        time_stamp = get_google_compatible_time_stamp(time_stamp,
-                                                      round_up=False)
-
+        time_stamp = get_valid_timestamp(time_stamp)
         # 1 --------------------------------------------------------------------
         # The first part is concerned with reading data from the child nodes
         # of this layer and pre-processing it for the second part
@@ -2258,18 +2240,8 @@ class ChunkedGraph(object):
         :param time_stamp: None or datetime
         :return: np.uint64
         """
-        if time_stamp is None:
-            time_stamp = datetime.datetime.utcnow()
-
-        if time_stamp.tzinfo is None:
-            time_stamp = UTC.localize(time_stamp)
-
-        # Comply to resolution of BigTables TimeRange
-        time_stamp = get_google_compatible_time_stamp(time_stamp,
-                                                      round_up=False)
-
+        time_stamp = get_valid_timestamp(time_stamp)
         parent_ids = np.array(node_ids)
-
         if stop_layer is not None:
             stop_layer = min(self.n_layers, stop_layer)
         else:
@@ -2310,16 +2282,7 @@ class ChunkedGraph(object):
         :param time_stamp: None or datetime
         :return: np.uint64
         """
-        if time_stamp is None:
-            time_stamp = datetime.datetime.utcnow()
-
-        if time_stamp.tzinfo is None:
-            time_stamp = UTC.localize(time_stamp)
-
-        # Comply to resolution of BigTables TimeRange
-        time_stamp = get_google_compatible_time_stamp(time_stamp,
-                                                      round_up=False)
-
+        time_stamp = get_valid_timestamp(time_stamp)
         parent_id = node_id
         all_parent_ids = []
 
@@ -2485,12 +2448,7 @@ class ChunkedGraph(object):
                                   filter_=combined_filter)
 
         # Set row lock if condition returns no results (state == False)
-        time_stamp = datetime.datetime.utcnow()
-
-        # Comply to resolution of BigTables TimeRange
-        time_stamp = get_google_compatible_time_stamp(time_stamp,
-                                                      round_up=False)
-
+        time_stamp = get_valid_timestamp(None)
         root_row.set_cell(lock_column.family_id, lock_column.key, operation_id_b, state=False,
                           timestamp=time_stamp)
 
@@ -2733,15 +2691,8 @@ class ChunkedGraph(object):
             None=search whole future
         :return: array of uint64
         """
-        if time_stamp.tzinfo is None:
-            time_stamp = UTC.localize(time_stamp)
-
-        # Comply to resolution of BigTables TimeRange
-        time_stamp = get_google_compatible_time_stamp(time_stamp,
-                                                      round_up=False)
-
+        time_stamp = get_valid_timestamp(time_stamp)
         id_history = []
-
         next_ids = [root_id]
         while len(next_ids):
             temp_next_ids = []
@@ -2783,15 +2734,8 @@ class ChunkedGraph(object):
             None=search whole future
         :return: array of uint64
         """
-        if time_stamp.tzinfo is None:
-            time_stamp = UTC.localize(time_stamp)
-
-        # Comply to resolution of BigTables TimeRange
-        time_stamp = get_google_compatible_time_stamp(time_stamp,
-                                                      round_up=False)
-
+        time_stamp = get_valid_timestamp(time_stamp)
         id_history = []
-
         next_ids = [root_id]
         while len(next_ids):
             temp_next_ids = []

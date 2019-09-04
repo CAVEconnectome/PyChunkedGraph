@@ -229,3 +229,14 @@ def partial_row_data_to_column_dict(partial_row_data: bigtable.row_data.PartialR
             new_column_dict[column] = column_values
 
     return new_column_dict
+
+
+def get_valid_timestamp(timestamp):
+    if timestamp is None:
+        timestamp = datetime.datetime.utcnow()
+
+    if timestamp.tzinfo is None:
+        timestamp = pytz.UTC.localize(timestamp)
+
+    # Comply to resolution of BigTables TimeRange
+    return get_google_compatible_time_stamp(timestamp, round_up=False)    

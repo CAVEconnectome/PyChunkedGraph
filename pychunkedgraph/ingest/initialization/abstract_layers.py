@@ -10,7 +10,7 @@ import numpy as np
 from multiwrapper import multiprocessing_utils as mu
 
 from pychunkedgraph.backend import flatgraph_utils
-from pychunkedgraph.backend.chunkedgraph_utils import get_google_compatible_time_stamp
+from pychunkedgraph.backend.chunkedgraph_utils import get_valid_timestamp
 from pychunkedgraph.backend.utils import serializers, column_keys
 
 
@@ -207,7 +207,7 @@ def add_layer(
         if len(rows) > 0:
             self.bulk_write(rows)
 
-    time_stamp = _get_valid_timestamp(time_stamp)
+    time_stamp = get_valid_timestamp(time_stamp)
 
     # 1 --------------------------------------------------------------------
     # The first part is concerned with reading data from the child nodes
@@ -282,15 +282,3 @@ def add_layer(
     )
     # to track worker completion
     return str(layer_id)
-
-
-def _get_valid_timestamp(timestamp):
-    if timestamp is None:
-        timestamp = datetime.datetime.utcnow()
-
-    if timestamp.tzinfo is None:
-        timestamp = pytz.UTC.localize(timestamp)
-
-    # Comply to resolution of BigTables TimeRange
-    return get_google_compatible_time_stamp(timestamp, round_up=False)
-

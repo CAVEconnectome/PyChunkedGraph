@@ -11,7 +11,7 @@ import numpy as np
 from ...backend.chunkedgraph import ChunkedGraph
 from ...backend.utils import basetypes, serializers, column_keys
 from ...backend.definitions.edges import Edges, IN_CHUNK, BT_CHUNK, CX_CHUNK, TYPES as EDGE_TYPES
-from ...backend.chunkedgraph_utils import compute_indices_pandas, get_google_compatible_time_stamp
+from ...backend.chunkedgraph_utils import compute_indices_pandas, get_valid_timestamp
 from ...backend.flatgraph_utils import build_gt_graph, connected_components
 
 
@@ -38,7 +38,7 @@ def add_atomic_edges(
     parent_ids = cg_instance.get_unique_node_id_range(parent_chunk_id, step=len(ccs))
 
     sparse_indices, remapping = _get_remapping(chunk_edges_d)
-    time_stamp = _get_valid_timestamp(time_stamp)
+    time_stamp = get_valid_timestamp(time_stamp)
     rows = []
     for i_cc, component in enumerate(ccs):
         _rows = _process_component(
@@ -92,17 +92,6 @@ def _get_remapping(chunk_edges_d: dict):
         sparse_indices[edge_type] = compute_indices_pandas(remapped_arr)
         remapping[edge_type] = dict(zip(u_ids, mapped_ids))
     return sparse_indices, remapping
-
-
-def _get_valid_timestamp(timestamp):
-    if timestamp is None:
-        timestamp = datetime.datetime.utcnow()
-
-    if timestamp.tzinfo is None:
-        timestamp = pytz.UTC.localize(timestamp)
-
-    # Comply to resolution of BigTables TimeRange
-    return get_google_compatible_time_stamp(timestamp, round_up=False)
 
 
 def _process_component(
