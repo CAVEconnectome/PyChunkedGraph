@@ -235,12 +235,7 @@ def add_layer(
         list(atomic_partner_id_dict.keys()), dtype=np.uint64
     )
 
-    if n_threads > 1:
-        n_jobs = n_threads * 3  # Heuristic
-    else:
-        n_jobs = 1
-
-    n_jobs = np.min([n_jobs, len(atomic_partner_id_dict_keys)])
+    n_jobs = np.min([n_threads * 3 if n_threads > 1 else 1, len(atomic_partner_id_dict_keys)])
     if n_jobs > 0:
         spacing = np.linspace(0, len(atomic_partner_id_dict_keys), n_jobs + 1).astype(
             np.int
@@ -276,12 +271,7 @@ def add_layer(
 
     # Add rows for nodes that are in this chunk
     # a connected component at a time
-    if n_threads > 1:
-        n_jobs = n_threads * 3  # Heuristic
-    else:
-        n_jobs = 1
-
-    n_jobs = np.min([n_jobs, len(ccs)])
+    n_jobs = np.min([n_threads * 3 if n_threads > 1 else 1, len(ccs)])
 
     spacing = np.linspace(0, len(ccs), n_jobs + 1).astype(np.int)
     starts = spacing[:-1]
@@ -302,4 +292,5 @@ def _get_valid_timestamp(timestamp):
         timestamp = pytz.UTC.localize(timestamp)
 
     # Comply to resolution of BigTables TimeRange
-    return get_google_compatible_time_stamp(timestamp, round_up=False)    
+    return get_google_compatible_time_stamp(timestamp, round_up=False)
+
