@@ -22,7 +22,6 @@ def add_layer(
     time_stamp: Optional[datetime.datetime] = None,
     n_threads: int = 20,
 ) -> None:
-    time_stamp = get_valid_timestamp(time_stamp)
     atomic_partner_id_dict = {}
     atomic_child_id_dict_pairs = []
     ll_node_ids = []
@@ -80,17 +79,8 @@ def add_layer(
     )
 
     ccs = flatgraph_utils.connected_components(graph)
-
-    # Add rows for nodes that are in this chunk
-    # a connected component at a time
-    n_jobs = np.min([n_threads * 3 if n_threads > 1 else 1, len(ccs)])
-
-    spacing = np.linspace(0, len(ccs), n_jobs + 1).astype(np.int)
-    starts = spacing[:-1]
-    ends = spacing[1:]
-    multi_args = list(zip(starts, ends))
-    mu.multithread_func(
-        _write_out_connected_components, multi_args, n_threads=n_threads
+    _write_out_connected_components(
+        cg_instance, layer_id, ccs, cross_edge_dict, time_stamp
     )
     # to track worker completion
     return str(layer_id)
@@ -158,7 +148,6 @@ def _read_chunk(cg_instance, layer_id, chunk_coord):
 
 def _resolve_cross_chunk_edges_thread(args) -> None:
     start, end = args
-
     for child_key in atomic_partner_id_dict_keys[start:end]:
         this_atomic_partner_ids = atomic_partner_id_dict[child_key]
 
@@ -177,15 +166,14 @@ def _resolve_cross_chunk_edges_thread(args) -> None:
             edge_ids.extend(these_edges)
 
 
-def _write_out_connected_components(args) -> None:
-    start, end = args
-
-    # Collect cc info
+def _write_out_connected_components(
+    cg_instance, layer_id, ccs, cross_edge_dict, time_stamp
+) -> None:
+    time_stamp = get_valid_timestamp(time_stamp)
     parent_layer_ids = range(layer_id, cg_instance.n_layers + 1)
     cc_connections = {l: [] for l in parent_layer_ids}
-    for i_cc, cc in enumerate(ccs[start:end]):
+    for i_cc, cc in enumerate(ccs):
         node_ids = unique_graph_ids[cc]
-
         parent_cross_edges = collections.defaultdict(list)
 
         # Collect row info for nodes that are in this chunk
@@ -209,7 +197,6 @@ def _write_out_connected_components(args) -> None:
 
     # Write out cc info
     rows = []
-
     # Iterate through layers
     for parent_layer_id in parent_layer_ids:
         if len(cc_connections[parent_layer_id]) == 0:
