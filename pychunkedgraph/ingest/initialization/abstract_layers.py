@@ -24,17 +24,17 @@ def add_layer(
 ) -> None:
     atomic_partner_id_dict = {}
     atomic_child_id_dict_pairs = []
-    ll_node_ids = []
+    descendant_node_ids = []
 
     cross_edge_dict = {}
     for chunk_coord in chunk_coords:
         ids, cross_edge_d = _process_chunk(cg_instance, layer_id, chunk_coord)
-        ll_node_ids.append(ids)
+        descendant_node_ids.append(ids)
         cross_edge_dict = {**cross_edge_dict, **cross_edge_d}
 
     d = dict(atomic_child_id_dict_pairs)
     atomic_child_id_dict = collections.defaultdict(np.uint64, d)
-    ll_node_ids = np.concatenate(ll_node_ids, dtype=np.uint64)
+    descendant_node_ids = np.concatenate(descendant_node_ids, dtype=np.uint64)
 
     # Extract edges from remaining cross chunk edges
     # and maintain unused cross chunk edges
@@ -69,8 +69,8 @@ def add_layer(
     parent_chunk_id_dict = cg_instance.get_parent_chunk_id_dict(chunk_id)
 
     # Extract connected components
-    isolated_node_mask = ~np.in1d(ll_node_ids, np.unique(edge_ids))
-    add_node_ids = ll_node_ids[isolated_node_mask].squeeze()
+    isolated_node_mask = ~np.in1d(descendant_node_ids, np.unique(edge_ids))
+    add_node_ids = descendant_node_ids[isolated_node_mask].squeeze()
     add_edge_ids = np.vstack([add_node_ids, add_node_ids]).T
     edge_ids.extend(add_edge_ids)
 
