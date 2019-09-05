@@ -125,16 +125,16 @@ def _read_chunk(cg_instance, layer_id, chunk_coord):
         node_child_ids = row_data[column_keys.Hierarchy.Child][0].value
         max_child_ids.append(np.max(node_child_ids))
 
-    max_child_ids = np.array(max_child_ids, dtype=np.uint64)
     sorting = np.argsort(segment_ids)[::-1]
     row_ids = row_ids[sorting]
-    max_child_ids = max_child_ids[sorting]
+    max_child_ids = np.array(max_child_ids, dtype=np.uint64)[sorting]
 
     counter = collections.defaultdict(int)
     max_child_ids_occ_so_far = np.zeros(len(max_child_ids), dtype=np.int)
     for i_row in range(len(max_child_ids)):
         max_child_ids_occ_so_far[i_row] = counter[max_child_ids[i_row]]
         counter[max_child_ids[i_row]] += 1
+    row_ids = row_ids[max_child_ids_occ_so_far == 0]
     return row_ids
 
 
@@ -152,8 +152,6 @@ def _process_chunk(cg_instance, layer_id, chunk_coord):
     row_ids = _read_chunk(cg_instance, layer_id, chunk_coord)
 
     # Filter last occurences (we inverted the list) of each node
-    m = max_child_ids_occ_so_far == 0
-    row_ids = row_ids[m]
     ll_node_ids.extend(row_ids)
 
     # Loop through nodes from this chunk
