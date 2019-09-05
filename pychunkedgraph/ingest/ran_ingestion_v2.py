@@ -148,7 +148,6 @@ def create_atomic_chunk(imanager, coord):
     chunk_edges_all = {}
     chunk_edges_active = {}
     for edge_type in EDGE_TYPES:
-        active = active_edge_d[edge_type]
         sv_ids1 = edge_dict[edge_type]["sv1"]
         sv_ids2 = edge_dict[edge_type]["sv2"]
         areas = np.ones(len(sv_ids1))
@@ -160,6 +159,7 @@ def create_atomic_chunk(imanager, coord):
         chunk_edges_all[edge_type] = Edges(
             sv_ids1, sv_ids2, affinities=affinities, areas=areas
         )
+        active = active_edge_d[edge_type]
         sv_ids1 = sv_ids1[active]
         sv_ids2 = sv_ids2[active]
         affinities = affinities[active]

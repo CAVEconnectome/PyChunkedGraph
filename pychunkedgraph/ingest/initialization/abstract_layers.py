@@ -74,13 +74,13 @@ def add_layer(
     add_edge_ids = np.vstack([add_node_ids, add_node_ids]).T
     edge_ids.extend(add_edge_ids)
 
-    graph, _, _, unique_graph_ids = flatgraph_utils.build_gt_graph(
+    graph, _, _, graph_ids = flatgraph_utils.build_gt_graph(
         edge_ids, make_directed=True
     )
 
     ccs = flatgraph_utils.connected_components(graph)
     _write_out_connected_components(
-        cg_instance, layer_id, ccs, cross_edge_dict, time_stamp
+        cg_instance, layer_id, ccs, cross_edge_dict, graph_ids, time_stamp
     )
     # to track worker completion
     return str(layer_id)
@@ -167,13 +167,13 @@ def _resolve_cross_chunk_edges_thread(args) -> None:
 
 
 def _write_out_connected_components(
-    cg_instance, layer_id, ccs, cross_edge_dict, time_stamp
+    cg_instance, layer_id, ccs, cross_edge_dict, graph_ids, time_stamp
 ) -> None:
     time_stamp = get_valid_timestamp(time_stamp)
     parent_layer_ids = range(layer_id, cg_instance.n_layers + 1)
     cc_connections = {l: [] for l in parent_layer_ids}
     for i_cc, cc in enumerate(ccs):
-        node_ids = unique_graph_ids[cc]
+        node_ids = graph_ids[cc]
         parent_cross_edges = collections.defaultdict(list)
 
         # Collect row info for nodes that are in this chunk

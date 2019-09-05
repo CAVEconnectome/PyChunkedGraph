@@ -109,7 +109,6 @@ def _process_component(
         _edges = _get_out_edges(node_id, chunk_edges_d, sparse_indices, remapping)
         chunk_out_edges.append(_edges)
         val_dict = {column_keys.Hierarchy.Parent: parent_id}
-
         r_key = serializers.serialize_uint64(node_id)
         rows.append(cg_instance.mutate_row(r_key, val_dict, time_stamp=time_stamp))
 
