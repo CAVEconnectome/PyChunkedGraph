@@ -14,7 +14,6 @@ import numpy as np
 import numpy.lib.recfunctions as rfn
 import zstandard as zstd
 from flask import current_app
-from multiwrapper import multiprocessing_utils as mu
 from rq import Queue
 from redis import Redis
 
@@ -165,7 +164,7 @@ def create_atomic_chunk(imanager, coord):
         sv_ids2 = sv_ids2[active]
         affinities = affinities[active]
         areas = areas[active]
-        chunk_edges[edge_type] = Edges(
+        chunk_edges_active[edge_type] = Edges(
             sv_ids1, sv_ids2, affinities=affinities, areas=areas
         )
         no_edges = no_edges and not sv_ids1.size
