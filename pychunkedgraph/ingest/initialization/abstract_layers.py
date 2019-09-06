@@ -24,17 +24,12 @@ def add_layer(
 ) -> None:
     atomic_partner_id_dict = {}
     atomic_child_id_dict_pairs = []
-    descendant_node_ids = []
 
-    cross_edge_dict = {}
-    for chunk_coord in chunk_coords:
-        ids, cross_edge_d = _process_chunk(cg_instance, layer_id, chunk_coord)
-        descendant_node_ids.append(ids)
-        cross_edge_dict = {**cross_edge_dict, **cross_edge_d}
+    cross_edge_dict, node_ids = _process_chunks(cg_instance, layer_id, chunk_coords)
 
     d = dict(atomic_child_id_dict_pairs)
     atomic_child_id_dict = collections.defaultdict(np.uint64, d)
-    descendant_node_ids = np.concatenate(descendant_node_ids, dtype=np.uint64)
+    descendant_node_ids = np.concatenate(node_ids, dtype=np.uint64)
 
     # Extract edges from remaining cross chunk edges
     # and maintain unused cross chunk edges
@@ -86,6 +81,16 @@ def add_layer(
     return str(layer_id)
 
 
+def _process_chunks(cg_instance, layer_id, chunk_coords):
+    node_ids = []
+    cross_edge_dict = {}
+    for chunk_coord in chunk_coords:
+        ids, cross_edge_d = _process_chunk(cg_instance, layer_id, chunk_coord)
+        node_ids.append(ids)
+        cross_edge_dict = {**cross_edge_dict, **cross_edge_d}
+    return cross_edge_dict, node_ids
+
+
 def _process_chunk(cg_instance, layer_id, chunk_coord):
     cross_edge_dict = {}
     row_ids, cross_edge_columns_d = _read_chunk(cg_instance, layer_id, chunk_coord)
@@ -93,9 +98,9 @@ def _process_chunk(cg_instance, layer_id, chunk_coord):
         cross_edge_dict[row_id] = {}
         cell_family = cross_edge_columns_d[row_id]
         for l in range(layer_id - 1, cg_instance.n_layers):
-            row_key = column_keys.Connectivity.CrossChunkEdge[l]
-            if row_key in cell_family:
-                cross_edge_dict[row_id][l] = cell_family[row_key][0].value
+            cross_edges_key = column_keys.Connectivity.CrossChunkEdge[l]
+            if cross_edges_key in cell_family:
+                cross_edge_dict[row_id][l] = cell_family[cross_edges_key][0].value
 
         if int(layer_id - 1) in cross_edge_dict[row_id]:
             atomic_cross_edges = cross_edge_dict[row_id][layer_id - 1]
