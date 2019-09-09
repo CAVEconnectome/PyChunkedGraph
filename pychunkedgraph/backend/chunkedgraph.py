@@ -2401,76 +2401,15 @@ class ChunkedGraph(object):
                            connected_edges=True,
                            verbose: bool = True
                            ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
-        """ Return all atomic edges between supervoxels belonging to the
-            specified agglomeration ID within the defined bounding box
-
-        :param agglomeration_id: int
-        :param bounding_box: [[x_l, y_l, z_l], [x_h, y_h, z_h]]
-        :param bb_is_coordinate: bool
-        :param verbose: bool
-        :return: edge list
+        """ 
+        Return all atomic edges between supervoxels belonging to the 
+        specified agglomeration ID within the defined bounding box
         """
-
-        if self._edge_dir:
-            return self.get_subgraph_edges_v2(
-                np.array([agglomeration_id]),
-                bbox=bounding_box,
-                bbox_is_coordinate=bb_is_coordinate
-            )
-
-        def _get_subgraph_layer2_edges(node_ids) -> \
-                Tuple[List[np.ndarray], List[np.float32], List[np.uint64]]:
-            return self.get_subgraph_chunk(node_ids,
-                                           connected_edges=connected_edges,
-                                           time_stamp=time_stamp)
-
-        time_stamp = self.read_node_id_row(agglomeration_id,
-                                           columns=column_keys.Hierarchy.Child)[0].timestamp
-
-        bounding_box = self.normalize_bounding_box(bounding_box, bb_is_coordinate)
-
-        # Layer 3+
-        child_ids = self._get_subgraph_higher_layer_nodes(
-            node_id=agglomeration_id, bounding_box=bounding_box,
-            return_layers=[2], verbose=verbose)[2]
-
-        # Layer 2
-        if verbose:
-            time_start = time.time()
-
-
-        child_chunk_ids = self.get_chunk_ids_from_node_ids(child_ids)
-        u_ccids = np.unique(child_chunk_ids)
-
-        child_blocks = []
-        # Make blocks of child ids that are in the same chunk
-        for u_ccid in u_ccids:
-            child_blocks.append(child_ids[child_chunk_ids == u_ccid])
-
-        n_child_ids = len(child_ids)
-        this_n_threads = np.min([int(n_child_ids // 50000) + 1, mu.n_cpus])
-
-        edge_infos = mu.multithread_func(
-            _get_subgraph_layer2_edges,
-            np.array_split(child_ids, this_n_threads),
-            n_threads=this_n_threads, debug=this_n_threads == 1)
-
-        affinities = np.array([], dtype=np.float32)
-        areas = np.array([], dtype=np.uint64)
-        edges = np.array([], dtype=np.uint64).reshape(0, 2)
-
-        for edge_info in edge_infos:
-            _edges, _affinities, _areas = edge_info
-            areas = np.concatenate([areas, _areas])
-            affinities = np.concatenate([affinities, _affinities])
-            edges = np.concatenate([edges, _edges])
-
-        if verbose:
-            self.logger.debug("Layer %d: %.3fms for %d childs with %d threads" %
-                              (2, (time.time() - time_start) * 1000,
-                               n_child_ids, this_n_threads))
-
-        return edges, affinities, areas
+        return self.get_subgraph_edges_v2(
+            np.array([agglomeration_id]),
+            bbox=bounding_box,
+            bbox_is_coordinate=bb_is_coordinate
+        )
 
     def get_subgraph_edges_v2(
         self,
