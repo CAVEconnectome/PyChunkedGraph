@@ -3,6 +3,7 @@ Module for ingesting in chunkedgraph format with edges stored outside bigtable
 """
 
 import collections
+import itertools
 
 import pandas as pd
 import cloudvolume
@@ -201,28 +202,19 @@ def _get_cont_chunk_coords(imanager, chunk_coord_a, chunk_coord_b):
     assert len(dir_dim) == 1
     dir_dim = dir_dim[0]
 
-    if diff[dir_dim] > 0:
-        chunk_coord_l = chunk_coord_a
-    else:
-        chunk_coord_l = chunk_coord_b
-
+    chunk_coord_l = chunk_coord_a if diff[dir_dim] > 0 else chunk_coord_b
     c_chunk_coords = []
-    for dx in [-1, 0]:
-        for dy in [-1, 0]:
-            for dz in [-1, 0]:
-                if dz == dy == dx == 0:
-                    continue
+    for dx, dy, dz in itertools.product([0, -1], [0, -1], [0, -1]):
+        if dz == dy == dx == 0:
+            continue
+        if [dx, dy, dz][dir_dim] == 0:
+            continue
 
-                c_chunk_coord = chunk_coord_l + np.array([dx, dy, dz])
-
-                if [dx, dy, dz][dir_dim] == 0:
-                    continue
-
-                if imanager.is_out_of_bounce(c_chunk_coord):
-                    continue
-
-                c_chunk_coords.append(c_chunk_coord)
-
+        c_chunk_coord = chunk_coord_l + np.array([dx, dy, dz])
+        if imanager.is_out_of_bounce(c_chunk_coord):
+            continue
+        c_chunk_coords.append(c_chunk_coord)
+    
     return c_chunk_coords
 
 
