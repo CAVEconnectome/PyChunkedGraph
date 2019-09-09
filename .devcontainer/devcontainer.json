@@ -20,7 +20,8 @@
 
 		// Uncomment the next line to use a non-root user. See https://aka.ms/vscode-remote/containers/non-root-user.
 		// "-u", "1000"
-		"-v", "/usr/people/halageri/secrets:/root/.cloudvolume/secrets"
+		"-w", "${env:HOME}/projects/sl-pychunkedgraph",
+		"-v", "${env:HOME}/secrets:/root/.cloudvolume/secrets"
 	],
 
 	// Uncomment the next line if you want to publish any ports.

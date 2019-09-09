@@ -5,7 +5,6 @@ import datetime
 import os
 import sys
 import networkx as nx
-import pytz
 import cloudvolume
 import re
 import itertools
@@ -52,7 +51,6 @@ HOME = os.path.expanduser("~")
 N_DIGITS_UINT64 = len(str(np.iinfo(np.uint64).max))
 N_BITS_PER_ROOT_COUNTER = np.uint64(8)
 LOCK_EXPIRED_TIME_DELTA = datetime.timedelta(minutes=3, seconds=0)
-UTC = pytz.UTC
 
 # Setting environment wide credential path
 os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = \
