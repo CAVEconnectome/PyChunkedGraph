@@ -2,18 +2,18 @@ import datetime
 import numpy as np
 import collections
 
-from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple, Union,\
-    NamedTuple
+from typing import Any, Dict, Iterable, List, Union
+from typing import Optional, Sequence, Tuple, NamedTuple
 
 from multiwrapper import multiprocessing_utils as mu
 
-from pychunkedgraph.backend.chunkedgraph_utils \
-    import get_google_compatible_time_stamp, combine_cross_chunk_edge_dicts
-from pychunkedgraph.backend.utils import column_keys, serializers
-from pychunkedgraph.backend import flatgraph_utils
+from . import flatgraph_utils
+from .chunkedgraph_utils import combine_cross_chunk_edge_dicts
+from .utils import column_keys, serializers
 from .utils.helpers import get_bounding_box
 from .utils.edge_utils import filter_fake_edges
 from .utils.edge_utils import map_edges_to_chunks
+
 
 def _write_atomic_merge_edges(cg, atomic_edges, affinities, areas, time_stamp):
     rows = []
@@ -152,10 +152,6 @@ def add_edges(cg,
 
     atomic_edges = np.array(atomic_edges,
                             dtype=column_keys.Connectivity.Partner.basetype)
-
-    # # Comply to resolution of BigTables TimeRange
-    # time_stamp = get_google_compatible_time_stamp(time_stamp,
-    #                                               round_up=False)
 
     if affinities is None:
         affinities = np.ones(len(atomic_edges),
