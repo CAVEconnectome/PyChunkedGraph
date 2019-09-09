@@ -21,7 +21,7 @@ from ..backend.utils import basetypes
 from ..io.edges import put_chunk_edges
 
 
-ZSTD_COMPRESSION_LEVEL = 17
+ZSTD_LEVEL = 17
 INGEST_CHANNEL = "ingest"
 
 
@@ -39,7 +39,13 @@ def ingest_into_chunkedgraph(
     edge_dir=None,
     n_chunks=None,
     is_new=True,
+    create_edges=True,
 ):
+    """
+    :param create_edges:
+        Set this to false if the edges have already been processed.
+        This is needed because processing edges and bulding chunkedgraph is completely de-coupled.
+    """
     storage_path = storage_path.strip("/")
     ws_cv_path = ws_cv_path.strip("/")
 
@@ -68,6 +74,7 @@ def ingest_into_chunkedgraph(
         instance_id=instance_id,
         project_id=project_id,
         data_version=4,
+        create_edges=create_edges
     )
 
     if layer < 3:
@@ -154,8 +161,8 @@ def create_atomic_chunk(imanager, coord):
         )
         no_edges = no_edges and not sv_ids1.size
 
-    # if not no_edges:
-    #     put_chunk_edges(cg.edge_dir, coord, chunk_edges_all, ZSTD_COMPRESSION_LEVEL)
+    if imanager.create_edges and not no_edges:
+        put_chunk_edges(imanager.cg.edge_dir, coord, chunk_edges_all, ZSTD_LEVEL)
     chunk_edges_active, isolated_ids = _get_active_edges(
         imanager, coord, edge_dict, chunk_edges_all
     )
@@ -214,7 +221,7 @@ def _get_cont_chunk_coords(imanager, chunk_coord_a, chunk_coord_b):
         if imanager.is_out_of_bounce(c_chunk_coord):
             continue
         c_chunk_coords.append(c_chunk_coord)
-    
+
     return c_chunk_coords
 
 
