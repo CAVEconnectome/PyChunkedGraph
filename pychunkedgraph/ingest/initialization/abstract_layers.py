@@ -7,7 +7,6 @@ from collections import defaultdict
 from typing import Optional, Sequence
 
 import numpy as np
-from multiwrapper import multiprocessing_utils as mu
 
 from pychunkedgraph.backend import flatgraph_utils
 from pychunkedgraph.backend.chunkedgraph_utils import get_valid_timestamp

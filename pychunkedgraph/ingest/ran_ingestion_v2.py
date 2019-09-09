@@ -2,11 +2,8 @@
 Module for ingesting in chunkedgraph format with edges stored outside bigtable
 """
 
-import os
 import collections
-import time
 
-import click
 import pandas as pd
 import cloudvolume
 import networkx as nx
@@ -14,8 +11,6 @@ import numpy as np
 import numpy.lib.recfunctions as rfn
 import zstandard as zstd
 from flask import current_app
-from rq import Queue
-from redis import Redis
 
 from ..utils.redis import redis_job, REDIS_URL
 from . import ingestionmanager, ingestion_utils as iu
@@ -138,15 +133,12 @@ def create_atomic_chunk(imanager, coord):
     coord = np.array(list(coord), dtype=np.int)
     edge_dict = collect_edge_data(imanager, coord)
     edge_dict = iu.postprocess_edge_data(imanager, edge_dict)
-    mapping = collect_agglomeration_data(imanager, coord)
-    active_edge_d, isolated_ids = define_active_edges(edge_dict, mapping)
 
     # flag to check if chunk has edges
     # avoid writing to cloud storage if there are no edges
     # unnecessary write operation
     no_edges = True
     chunk_edges_all = {}
-    chunk_edges_active = {}
     for edge_type in EDGE_TYPES:
         sv_ids1 = edge_dict[edge_type]["sv1"]
         sv_ids2 = edge_dict[edge_type]["sv2"]
@@ -159,22 +151,37 @@ def create_atomic_chunk(imanager, coord):
         chunk_edges_all[edge_type] = Edges(
             sv_ids1, sv_ids2, affinities=affinities, areas=areas
         )
-        active = active_edge_d[edge_type]
-        sv_ids1 = sv_ids1[active]
-        sv_ids2 = sv_ids2[active]
-        affinities = affinities[active]
-        areas = areas[active]
-        chunk_edges_active[edge_type] = Edges(
-            sv_ids1, sv_ids2, affinities=affinities, areas=areas
-        )
         no_edges = no_edges and not sv_ids1.size
 
     # if not no_edges:
     #     put_chunk_edges(cg.edge_dir, coord, chunk_edges_all, ZSTD_COMPRESSION_LEVEL)
+    chunk_edges_active, isolated_ids = _get_active_edges(
+        imanager, coord, edge_dict, chunk_edges_all
+    )
     add_atomic_edges(imanager.cg, coord, chunk_edges_active, isolated=isolated_ids)
 
     # to track workers completion, layer = 2
     return str(2)
+
+
+def _get_active_edges(imanager, coord, raw_edges_d, processed_edges_d):
+
+    mapping = collect_agglomeration_data(imanager, coord)
+    active_edges_flag_d, isolated_ids = define_active_edges(raw_edges_d, mapping)
+
+    chunk_edges_active = {}
+    for edge_type in EDGE_TYPES:
+        edges = processed_edges_d[edge_type]
+        active = active_edges_flag_d[edge_type]
+
+        sv_ids1 = edges.sv_ids1[active]
+        sv_ids2 = edges.sv_ids2[active]
+        affinities = edges.affinities[active]
+        areas = edges.areas[active]
+        chunk_edges_active[edge_type] = Edges(
+            sv_ids1, sv_ids2, affinities=affinities, areas=areas
+        )
+    return chunk_edges_active, isolated_ids
 
 
 def _get_cont_chunk_coords(imanager, chunk_coord_a, chunk_coord_b):
@@ -326,7 +333,7 @@ def collect_edge_data(imanager, chunk_coord):
         try:
             edge_data[k] = rfn.stack_arrays(data, usemask=False)
         except:
-            raise ()
+            raise ValueError()
 
         edge_data_df = pd.DataFrame(edge_data[k])
         edge_data_dfg = (
