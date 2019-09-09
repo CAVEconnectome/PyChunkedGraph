@@ -30,7 +30,7 @@
 	// "settings":  { "workbench.colorTheme": "Quiet Light" },
 
 	// Uncomment the next line to run commands after the container is created - for example installing git.
-	"postCreateCommand": "pip install jupyter && git clone https://github.com/akhileshh/notebooks.git && jupyter notebook --config `pwd`/override/jupyter_notebook_config.py --allow-root",
+	"postCreateCommand": "rm -rf notebooks && git clone https://github.com/akhileshh/notebooks.git",
 
 	// Add the IDs of any extensions you want installed in the array below.
 	"extensions": []

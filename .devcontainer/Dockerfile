@@ -37,7 +37,7 @@ RUN  apt-get update \
   && pip install --no-cache-dir --upgrade numpy \
   && pip install --no-cache-dir --upgrade --process-dependency-links -r requirements.txt \
   #   Tests
-  && pip install tox codecov \
+  && pip install tox codecov jupyter\
   # CLEANUP
   #   libboost-dev and build-essentials will be required by tox to build python dependencies
   && apt-get remove --purge -y lsb-release curl \
