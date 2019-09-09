@@ -8,7 +8,7 @@
 	"context": "..",
 
 	// Update the 'dockerFile' property if you aren't using the standard 'Dockerfile' filename.
-	"dockerFile": "../Dockerfile",
+	"dockerFile": "Dockerfile",
 
 	// The optional 'runArgs' property can be used to specify additional runtime arguments.
 	"runArgs": [
@@ -20,16 +20,17 @@
 
 		// Uncomment the next line to use a non-root user. See https://aka.ms/vscode-remote/containers/non-root-user.
 		// "-u", "1000"
+		"-v", "/usr/people/halageri/secrets:/root/.cloudvolume/secrets"
 	],
 
 	// Uncomment the next line if you want to publish any ports.
-	// "appPort": [],
+	"appPort": [8888],
 	
 	// Uncomment the next line if you want to add in default container specific settings.json values
 	// "settings":  { "workbench.colorTheme": "Quiet Light" },
 
 	// Uncomment the next line to run commands after the container is created - for example installing git.
-	// "postCreateCommand": "apt-get update && apt-get install -y git",
+	"postCreateCommand": "pip install jupyter && git clone https://github.com/akhileshh/notebooks.git && jupyter notebook --config `pwd`/override/jupyter_notebook_config.py --allow-root",
 
 	// Add the IDs of any extensions you want installed in the array below.
 	"extensions": []

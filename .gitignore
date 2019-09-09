@@ -112,3 +112,4 @@ venv.bak/
 # local dev stuff
 output.txt
 src/
+notebooks/
