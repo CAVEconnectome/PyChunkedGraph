@@ -270,21 +270,22 @@ def add_fake_edges(
         timestamp=timestamp
     )
     subgraph_edges = reduce(lambda x, y: x+y, l2id_edges_d.values())
-    fake_edges = filter_fake_edges(added_edges, subgraph_edges)
-    node_ids, r_indices = np.unique(fake_edges, return_inverse=True)
-    r_indices = r_indices.reshape(-1, 2)
-    chunk_ids = cg_instance.get_chunk_ids_from_node_ids(node_ids)
-    chunk_edges_d = map_edges_to_chunks(fake_edges, chunk_ids, r_indices)
-    rows = []
-    for chunk_id in chunk_edges_d:
-        row_key = serializers.serialize_uint64(chunk_id)
-        fake_edges = chunk_edges_d[chunk_id]
-        val_d = {
-            column_keys.Connectivity.FakeEdges: fake_edges,
-            column_keys.OperationLogs.OperationID: operation_id}
-        rows.append(cg_instance.mutate_row(
-            row_key, val_d, time_stamp=timestamp))
-    return rows
+    
+    # fake_edges = filter_fake_edges(added_edges, subgraph_edges)
+    # node_ids, r_indices = np.unique(fake_edges, return_inverse=True)
+    # r_indices = r_indices.reshape(-1, 2)
+    # chunk_ids = cg_instance.get_chunk_ids_from_node_ids(node_ids)
+    # chunk_edges_d = map_edges_to_chunks(fake_edges, chunk_ids, r_indices)
+    # rows = []
+    # for chunk_id in chunk_edges_d:
+    #     row_key = serializers.serialize_uint64(chunk_id)
+    #     fake_edges = chunk_edges_d[chunk_id]
+    #     val_d = {
+    #         column_keys.Connectivity.FakeEdges: fake_edges,
+    #         column_keys.OperationLogs.OperationID: operation_id
+    #     }
+    #     rows.append(cg_instance.mutate_row(row_key, val_d, time_stamp=timestamp))
+    # return rows
 
 
 def remove_edges(cg, operation_id: np.uint64,
