@@ -2468,15 +2468,16 @@ class ChunkedGraph(object):
             fake_edges = Edges(fake_edges[:,0], fake_edges[:,1])
             edges += fake_edges
 
-        level2id_children_d = self.get_children(level2_ids)
-        level2id_edges_d = {}
-        for level2_id in level2id_children_d:
-            sv_ids = level2id_children_d[level2_id]
-            filtered_edges = filter_edges(sv_ids, edges)
+        l2id_children_d = self.get_children(level2_ids)
+        l2id_edges_d = {}
+        for l2id in l2id_children_d:
+            l2id_edges_d[l2id] = filter_edges(l2id_children_d[l2id], edges)
             if active_edges:
-                filtered_edges = get_active_edges(filtered_edges, level2id_children_d)
-            level2id_edges_d[level2_id] = filtered_edges
-        return level2id_edges_d
+                l2id_edges_d[l2id] = get_active_edges(
+                    l2id_edges_d[l2id],
+                    l2id_children_d
+                )
+        return l2id_edges_d
 
     def get_subgraph_nodes(self, agglomeration_id: np.uint64,
                            bounding_box: Optional[Sequence[Sequence[int]]] = None,
