@@ -147,7 +147,6 @@ def add_edges(cg,
             cc_dict[node_id] = cg.read_cross_chunk_edges(node_id)
 
     cc_dict = {}
-
     atomic_edges, affinities, areas = _validate_edges(atomic_edges, affinities, areas)
 
     rows = [] # list of rows to be written to BigTable
@@ -223,23 +222,25 @@ def add_edges(cg,
     return new_root_ids, list(lvl2_dict.keys()), rows
 
 
-def _validate_edges(atomic_edges, affinities=None, areas=None):
-    atomic_edges = np.array(atomic_edges,
-                            dtype=column_keys.Connectivity.Partner.basetype)
+def _validate_edges(atomic_edges, _affinities=None, _areas=None):
+    atomic_edges = np.array(
+        atomic_edges, dtype=column_keys.Connectivity.Partner.basetype
+    )
 
-    if affinities is None:
-        affinities = np.ones(len(atomic_edges),
-                             dtype=column_keys.Connectivity.Affinity.basetype)
-    else:
-        affinities = np.array(affinities,
-                              dtype=column_keys.Connectivity.Affinity.basetype)
+    affinities = np.ones(
+        len(atomic_edges), dtype=column_keys.Connectivity.Affinity.basetype
+    )
+    if _affinities:
+        affinities = np.array(
+            _affinities, dtype=column_keys.Connectivity.Affinity.basetype
+        )
 
-    if areas is None:
-        areas = np.ones(len(atomic_edges),
-                        dtype=column_keys.Connectivity.Area.basetype) * np.inf
-    else:
-        areas = np.array(areas,
-                         dtype=column_keys.Connectivity.Area.basetype)
+    areas = (
+        np.ones(len(atomic_edges), dtype=column_keys.Connectivity.Area.basetype)
+        * np.inf
+    )
+    if _areas:
+        areas = np.array(areas, dtype=column_keys.Connectivity.Area.basetype)
 
     assert len(affinities) == len(atomic_edges)
     return atomic_edges, affinities, areas
