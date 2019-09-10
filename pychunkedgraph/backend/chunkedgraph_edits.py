@@ -251,7 +251,7 @@ def add_fake_edges(
     cg_instance,
     *,
     operation_id: np.uint64,
-    added_edges: Sequence[Sequence[np.uint64]],
+    added_edges: np.ndarray,
     source_coords: Sequence[np.uint64],
     sink_coords: Sequence[np.uint64],
     timestamp: datetime.datetime) -> List["bigtable.row.Row"]:
@@ -269,8 +269,6 @@ def add_fake_edges(
         active_edges = False,
         timestamp=timestamp
     )
-    subgraph_edges = reduce(lambda x, y: x+y, l2id_edges_d.values())
-    
     # fake_edges = filter_fake_edges(added_edges, subgraph_edges)
     # node_ids, r_indices = np.unique(fake_edges, return_inverse=True)
     # r_indices = r_indices.reshape(-1, 2)
@@ -286,6 +284,10 @@ def add_fake_edges(
     #     }
     #     rows.append(cg_instance.mutate_row(row_key, val_d, time_stamp=timestamp))
     # return rows
+
+
+def _determine_new_edges(added_edges: np.ndarray, l2id_edges_d: Dict):
+    subgraph_edges = reduce(lambda x, y: x+y, l2id_edges_d.values())
 
 
 def remove_edges(cg, operation_id: np.uint64,
