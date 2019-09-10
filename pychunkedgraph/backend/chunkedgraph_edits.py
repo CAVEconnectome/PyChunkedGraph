@@ -258,17 +258,17 @@ def add_fake_edges(
     if there is no path between sv1 and sv2 (from added_edges)
     in the subgraph, add "fake" edges, these are stored in a row per chunk
     """
-    if cg_instance._edge_dir:
+    if not cg_instance._edge_dir:
         return []
-    root_ids = np.unique(cg_instance.get_roots(added_edges.ravel()))
-    subgraph_edges, _, _ = cg_instance.get_subgraph_edges_v2(
-        agglomeration_ids = root_ids,
+    level2id_edges_d = cg_instance.get_subgraph_edges_v2(
+        agglomeration_ids = np.unique(cg_instance.get_roots(added_edges.ravel())),
         bbox = get_bounding_box(source_coords, sink_coords),
         bbox_is_coordinate = True,
         cv_threads = 4,
         active_edges = False,
         timestamp=timestamp
     )
+    subgraph_edges = reduce(lambda x, y: x+y, level2id_edges_d.values())
     fake_edges = filter_fake_edges(added_edges, subgraph_edges)
     node_ids, r_indices = np.unique(fake_edges, return_inverse=True)
     r_indices = r_indices.reshape(-1, 2)

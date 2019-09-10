@@ -2419,7 +2419,7 @@ class ChunkedGraph(object):
         cv_threads: int = 1,
         active_edges: bool = True,
         timestamp: datetime.datetime = None
-    ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+    ) -> Dict:
         """
         1. get level 2 children ids belonging to the agglomerations
         2. get relevant chunk ids from level 2 ids
@@ -2428,6 +2428,7 @@ class ChunkedGraph(object):
         5. filter the edges with supervoxel ids
         6. optionally for each edge (v1,v2) active
            if parent(v1) == parent(v2) inactive otherwise
+        7. returns dict {"level_2_id": [Edges]}
         """
 
         def _read_edges(chunk_ids) -> dict:
@@ -2467,12 +2468,15 @@ class ChunkedGraph(object):
             fake_edges = Edges(fake_edges[:,0], fake_edges[:,1])
             edges += fake_edges
 
-        children_d = self.get_children(level2_ids)
-        sv_ids = np.concatenate(list(children_d.values()))        
-        edges = filter_edges(sv_ids, edges)
-        if active_edges:
-            edges = get_active_edges(edges, children_d)
-        return edges.get_pairs(), edges.affinities, edges.areas
+        level2id_children_d = self.get_children(level2_ids)
+        level2id_edges_d = {}
+        for level2_id in level2id_children_d:
+            sv_ids = level2id_children_d[level2_id]
+            filtered_edges = filter_edges(sv_ids, edges)
+            if active_edges:
+                filtered_edges = get_active_edges(filtered_edges, level2id_children_d)
+            level2id_edges_d[level2_id] = filtered_edges
+        return level2id_edges_d
 
     def get_subgraph_nodes(self, agglomeration_id: np.uint64,
                            bounding_box: Optional[Sequence[Sequence[int]]] = None,
