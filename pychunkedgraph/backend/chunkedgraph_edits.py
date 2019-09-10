@@ -2,6 +2,7 @@ import datetime
 import numpy as np
 import collections
 
+from functools import reduce
 from typing import Any, Dict, Iterable, List, Union
 from typing import Optional, Sequence, Tuple, NamedTuple
 
