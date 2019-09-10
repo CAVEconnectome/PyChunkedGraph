@@ -104,3 +104,8 @@ def map_edges_to_chunks(
             continue
         chunk_ids_d[chunk_ids[sv2_index]].append(edges[i][::-1])
     return {chunk_id: np.array(chunk_ids_d[chunk_id]) for chunk_id in chunk_ids_d}
+
+
+def get_linking_edges(edges: Edges, parent_children_d: Dict, parent_id1: np.uint64, parent_id2: np.uint64):
+    child_parent_d = reverse_dictionary(parent_children_d)    
+

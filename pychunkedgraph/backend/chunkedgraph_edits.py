@@ -14,6 +14,7 @@ from .utils import column_keys, serializers
 from .utils.helpers import get_bounding_box
 from .utils.edge_utils import filter_fake_edges
 from .utils.edge_utils import map_edges_to_chunks
+from .utils.edge_utils import get_linking_edges
 
 
 def _write_atomic_merge_edges(cg, atomic_edges, affinities, areas, time_stamp):
@@ -269,6 +270,10 @@ def add_fake_edges(
         active_edges = False,
         timestamp=timestamp
     )
+    # edges = reduce(lambda x, y: x+y, edges_dict.values())
+    l2id_children_d = cg_instance.get_children(list(l2id_edges_d.keys()))
+    edges = reduce(lambda x, y: x+y, l2id_edges_d.values())
+    linking_edges = get_linking_edges(edges, l2id_children_d, )
     # fake_edges = filter_fake_edges(added_edges, subgraph_edges)
     # node_ids, r_indices = np.unique(fake_edges, return_inverse=True)
     # r_indices = r_indices.reshape(-1, 2)
