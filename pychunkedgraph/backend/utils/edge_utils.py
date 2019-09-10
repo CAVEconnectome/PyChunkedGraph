@@ -106,6 +106,12 @@ def map_edges_to_chunks(
     return {chunk_id: np.array(chunk_ids_d[chunk_id]) for chunk_id in chunk_ids_d}
 
 
-def get_linking_edges(edges: Edges, parent_children_d: Dict, parent_id1: np.uint64, parent_id2: np.uint64):
-    child_parent_d = reverse_dictionary(parent_children_d)    
+def get_linking_edges(
+    edges: Edges, parent_children_d: Dict, parent_id1: np.uint64, parent_id2: np.uint64
+):
+    """
+    Find edges that link two level 2 ids
+    (sv1, sv2) or (sv2, sv1) -> parent(sv1) == parent_id1 and parent(sv2) == parent_id2
+    """
+    child_parent_d = reverse_dictionary(parent_children_d)
 
