@@ -132,13 +132,11 @@ def add_edges(cg,
               affinities: Optional[Sequence[np.float32]] = None
               ):
     """ Add edges to chunkedgraph
-
-    Computes all new rows to be written to the chunkedgraph
+     Computes all new rows to be written to the chunkedgraph
 
     :param cg: ChunkedGraph instance
     :param operation_id: np.uint64
-    :param atomic_edges: list of list of np.uint64
-        edges between supervoxels
+    :param atomic_edges: list of list of np.uint64 edges between supervoxels
     :param time_stamp: datetime.datetime
     :param areas: list of np.uint64
     :param affinities: list of np.float32
@@ -150,24 +148,7 @@ def add_edges(cg,
 
     cc_dict = {}
 
-    atomic_edges = np.array(atomic_edges,
-                            dtype=column_keys.Connectivity.Partner.basetype)
-
-    if affinities is None:
-        affinities = np.ones(len(atomic_edges),
-                             dtype=column_keys.Connectivity.Affinity.basetype)
-    else:
-        affinities = np.array(affinities,
-                              dtype=column_keys.Connectivity.Affinity.basetype)
-
-    if areas is None:
-        areas = np.ones(len(atomic_edges),
-                        dtype=column_keys.Connectivity.Area.basetype) * np.inf
-    else:
-        areas = np.array(areas,
-                         dtype=column_keys.Connectivity.Area.basetype)
-
-    assert len(affinities) == len(atomic_edges)
+    atomic_edges, affinities, areas = _validate_edges(atomic_edges, affinities, areas)
 
     rows = [] # list of rows to be written to BigTable
     lvl2_dict = {}
@@ -239,9 +220,29 @@ def add_edges(cg,
         rows.extend(new_rows)
     else:
         new_root_ids = np.array(list(lvl2_dict.keys()))
-
-
     return new_root_ids, list(lvl2_dict.keys()), rows
+
+
+def _validate_edges(atomic_edges, affinities=None, areas=None):
+    atomic_edges = np.array(atomic_edges,
+                            dtype=column_keys.Connectivity.Partner.basetype)
+
+    if affinities is None:
+        affinities = np.ones(len(atomic_edges),
+                             dtype=column_keys.Connectivity.Affinity.basetype)
+    else:
+        affinities = np.array(affinities,
+                              dtype=column_keys.Connectivity.Affinity.basetype)
+
+    if areas is None:
+        areas = np.ones(len(atomic_edges),
+                        dtype=column_keys.Connectivity.Area.basetype) * np.inf
+    else:
+        areas = np.array(areas,
+                         dtype=column_keys.Connectivity.Area.basetype)
+
+    assert len(affinities) == len(atomic_edges)
+    return atomic_edges, affinities, areas
 
 
 def add_fake_edges(
@@ -303,7 +304,7 @@ def remove_edges(cg, operation_id: np.uint64,
 
     # Analyze atomic_edges --> translate them to lvl2 edges and extract cross
     # chunk edges to be removed
-    lvl2_edges, old_cross_edge_dict = analyze_atomic_edges(cg, atomic_edges)
+    lvl2_edges, _ = analyze_atomic_edges(cg, atomic_edges)
     lvl2_node_ids = np.unique(lvl2_edges)
 
     for lvl2_node_id in lvl2_node_ids:
@@ -482,7 +483,7 @@ def compute_cross_chunk_connected_components(eh, node_ids, layer):
     # nodes. In practice, we (1) gather all relevant parents in the next
     # layer and then (2) acquire their children
 
-    old_this_layer_node_ids, old_next_layer_node_ids, \
+    _, _, \
         old_this_layer_partner_ids = \
             old_parent_childrens(eh, node_ids, layer)
 
@@ -543,6 +544,7 @@ def update_root_id_lineage(cg, new_root_ids, former_root_ids, operation_id,
 
     return rows
 
+
 def create_parent_children_rows(cg, parent_id, children_ids,
                                 parent_cross_chunk_edge_dict, time_stamp):
     """ Generates BigTable rows
@@ -578,6 +580,7 @@ def create_parent_children_rows(cg, parent_id, children_ids,
 
     return rows
 
+
 def propagate_edits_to_root(cg,
                             lvl2_dict: Dict,
                             lvl2_cross_chunk_edge_dict: Dict,
@@ -586,8 +589,7 @@ def propagate_edits_to_root(cg,
     """ Propagates changes through layers
 
     :param cg: ChunkedGraph instance
-    :param lvl2_dict: dict
-        maps new ids to old ids
+    :param lvl2_dict: dict maps new ids to old ids
     :param lvl2_cross_chunk_edge_dict: dict
     :param operation_id: np.uint64
     :param time_stamp: datetime.datetime
@@ -819,7 +821,7 @@ class EditHelper(object):
             parent_id = self.get_parent(next_parent_id)
 
             if parent_id is None:
-                raise()
+                raise ValueError()
 
             if self.cg.get_chunk_layer(parent_id) < layer:
                 next_parent_ids.append(parent_id)
