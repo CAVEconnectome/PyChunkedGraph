@@ -139,31 +139,6 @@ def _create_atomic_chunk(im_info, chunk_coord):
 def create_atomic_chunk(imanager, coord):
     """ Creates single atomic chunk"""
     coord = np.array(list(coord), dtype=np.int)
-    edge_dict = collect_edge_data(imanager, coord)
-    edge_dict = iu.postprocess_edge_data(imanager, edge_dict)
-
-    # flag to check if chunk has edges
-    # avoid writing to cloud storage if there are no edges
-    # unnecessary write operation
-    no_edges = True
-    chunk_edges_all = {}
-    for edge_type in EDGE_TYPES:
-        sv_ids1 = edge_dict[edge_type]["sv1"]
-        sv_ids2 = edge_dict[edge_type]["sv2"]
-        areas = np.ones(len(sv_ids1))
-        affinities = float("inf") * areas
-        if not edge_type == CX_CHUNK:
-            affinities = edge_dict[edge_type]["aff"]
-            areas = edge_dict[edge_type]["area"]
-
-        chunk_edges_all[edge_type] = Edges(
-            sv_ids1, sv_ids2, affinities=affinities, areas=areas
-        )
-        no_edges = no_edges and not sv_ids1.size
-
-    if imanager.use_raw_data and not no_edges:
-        put_chunk_edges(imanager.cg.edge_dir, coord, chunk_edges_all, ZSTD_LEVEL)
-
     chunk_edges_active, isolated_ids = _get_active_edges(
         imanager, coord, chunk_edges_all
     )
@@ -175,8 +150,45 @@ def create_atomic_chunk(imanager, coord):
 
 def _get_chunk_data(imanager, coord):
     """
-    Based on `use_raw_data` read either raw data or processed data
+    Helper to read either raw data or processed data
     """
+    chunk_edges = (
+        _read_raw_edge_data(imanager, coord)
+        if imanager.use_raw_data
+        else _read_processed_edge_data(imanager, coord)
+    )
+
+
+
+def _read_raw_edge_data(imanager, coord):
+    edge_dict = collect_edge_data(imanager, coord)
+    edge_dict = iu.postprocess_edge_data(imanager, edge_dict)
+
+    # flag to check if chunk has edges
+    # avoid writing to cloud storage if there are no edges
+    # unnecessary write operation
+    no_edges = True
+    chunk_edges = {}
+    for edge_type in EDGE_TYPES:
+        sv_ids1 = edge_dict[edge_type]["sv1"]
+        sv_ids2 = edge_dict[edge_type]["sv2"]
+        areas = np.ones(len(sv_ids1))
+        affinities = float("inf") * areas
+        if not edge_type == CX_CHUNK:
+            affinities = edge_dict[edge_type]["aff"]
+            areas = edge_dict[edge_type]["area"]
+
+        chunk_edges[edge_type] = Edges(
+            sv_ids1, sv_ids2, affinities=affinities, areas=areas
+        )
+        no_edges = no_edges and not sv_ids1.size
+    if no_edges:
+        return None
+    return chunk_edges
+
+
+def _read_processed_edge_data(imanager, coord):
+    pass
 
 
 def _get_active_edges(imanager, coord, edges_d):
