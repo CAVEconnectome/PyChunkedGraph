@@ -140,12 +140,11 @@ def create_atomic_chunk(imanager, coord):
     """ Creates single atomic chunk"""
     coord = np.array(list(coord), dtype=np.int)
 
-    chunk_edges_all = _get_chunk_data(imanager, coord)
+    chunk_edges_all, mapping = _get_chunk_data(imanager, coord)
     chunk_edges_active, isolated_ids = _get_active_edges(
-        imanager, coord, chunk_edges_all
+        imanager, coord, chunk_edges_all, mapping
     )
     add_atomic_edges(imanager.cg, coord, chunk_edges_active, isolated=isolated_ids)
-
     # to track workers completion, layer = 2
     return str(2)
 
@@ -153,15 +152,21 @@ def create_atomic_chunk(imanager, coord):
 def _get_chunk_data(imanager, coord):
     """
     Helper to read either raw data or processed data
+    If reading from raw data, save it as processed data
     """
     chunk_edges = (
         _read_raw_edge_data(imanager, coord)
         if imanager.use_raw_data
         else _read_processed_edge_data(imanager, coord)
     )
+    mapping = (
+        _read_raw_mapping(imanager, coord)
+        if imanager.use_raw_data
+        else _read_processed_mapping(imanager, coord)
+    )
     if imanager.use_raw_data:
         put_chunk_edges(imanager.cg.edge_dir, coord, chunk_edges, ZSTD_LEVEL)
-    return chunk_edges
+    return chunk_edges, mapping
 
 
 def _read_raw_edge_data(imanager, coord):
@@ -195,10 +200,16 @@ def _read_processed_edge_data(imanager, coord):
     pass
 
 
-def _get_active_edges(imanager, coord, edges_d):
-    mapping = collect_agglomeration_data(imanager, coord)
-    active_edges_flag_d, isolated_ids = define_active_edges(edges_d, mapping)
+def _read_raw_mapping(imanager, coord):
+    pass
 
+
+def _read_processed_mapping(imanager, coord):
+    pass
+
+
+def _get_active_edges(imanager, coord, edges_d, mapping):
+    active_edges_flag_d, isolated_ids = define_active_edges(edges_d, mapping)
     chunk_edges_active = {}
     for edge_type in EDGE_TYPES:
         edges = edges_d[edge_type]
