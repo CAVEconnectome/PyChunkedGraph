@@ -74,7 +74,7 @@ def ingest_into_chunkedgraph(
         instance_id=instance_id,
         project_id=project_id,
         data_version=4,
-        use_raw_data=use_raw_data
+        use_raw_data=use_raw_data,
     )
 
     if layer < 3:
@@ -139,6 +139,8 @@ def _create_atomic_chunk(im_info, chunk_coord):
 def create_atomic_chunk(imanager, coord):
     """ Creates single atomic chunk"""
     coord = np.array(list(coord), dtype=np.int)
+
+    chunk_edges_all = _get_chunk_data(imanager, coord)
     chunk_edges_active, isolated_ids = _get_active_edges(
         imanager, coord, chunk_edges_all
     )
@@ -157,7 +159,9 @@ def _get_chunk_data(imanager, coord):
         if imanager.use_raw_data
         else _read_processed_edge_data(imanager, coord)
     )
-
+    if imanager.use_raw_data:
+        put_chunk_edges(imanager.cg.edge_dir, coord, chunk_edges, ZSTD_LEVEL)
+    return chunk_edges
 
 
 def _read_raw_edge_data(imanager, coord):
