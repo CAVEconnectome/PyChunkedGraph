@@ -39,12 +39,15 @@ def ingest_into_chunkedgraph(
     edge_dir=None,
     n_chunks=None,
     is_new=True,
-    use_raw_data=True,
+    use_raw_edge_data=True,
+    use_raw_agglomeration_data=True
 ):
     """
-    :param use_raw_data:
+    :param use_raw_edge_data:
         Set this to false if the edges have already been processed.
-        This is needed because processing edges and bulding chunkedgraph is completely de-coupled.
+    :param use_raw_agglomeration_data:
+        Set this to false if the agglomeration data has already been processed.        
+    These are required because processing edges and bulding chunkedgraph is de-coupled.
     """
     storage_path = storage_path.strip("/")
     ws_cv_path = ws_cv_path.strip("/")
@@ -74,7 +77,8 @@ def ingest_into_chunkedgraph(
         instance_id=instance_id,
         project_id=project_id,
         data_version=4,
-        use_raw_data=use_raw_data,
+        use_raw_edge_data=use_raw_edge_data,
+        use_raw_agglomeration_data=use_raw_agglomeration_data
     )
 
     if layer < 3:
@@ -156,12 +160,12 @@ def _get_chunk_data(imanager, coord):
     """
     chunk_edges = (
         _read_raw_edge_data(imanager, coord)
-        if imanager.use_raw_data
+        if imanager.use_raw_edge_data
         else _read_processed_edge_data(imanager, coord)
     )
     mapping = (
         _read_raw_mapping(imanager, coord)
-        if imanager.use_raw_data
+        if imanager.use_raw_agglomeration_data
         else _read_processed_mapping(imanager, coord)
     )
     if imanager.use_raw_data:
