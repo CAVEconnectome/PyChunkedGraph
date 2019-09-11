@@ -421,14 +421,14 @@ class MergeOperation(GraphEditOperation):
     def _apply(
         self, *, operation_id, timestamp
     ) -> Tuple[np.ndarray, np.ndarray, List["bigtable.row.Row"]]:
-        fake_edge_rows = cg_edits.add_fake_edges(
-            self.cg,
-            operation_id=operation_id,
-            added_edges=self.added_edges,
-            source_coords=self.source_coords,
-            sink_coords=self.sink_coords,
-            timestamp=timestamp
-        )
+        # fake_edge_rows = cg_edits.add_fake_edges(
+        #     self.cg,
+        #     operation_id=operation_id,
+        #     added_edges=self.added_edges,
+        #     source_coords=self.source_coords,
+        #     sink_coords=self.sink_coords,
+        #     timestamp=timestamp
+        # )
         new_root_ids, new_lvl2_ids, rows = cg_edits.add_edges(
             self.cg,
             operation_id,
@@ -436,7 +436,7 @@ class MergeOperation(GraphEditOperation):
             time_stamp=timestamp,
             affinities=self.affinities,
         )
-        rows.extend(fake_edge_rows)
+        # rows.extend(fake_edge_rows)
         return new_root_ids, new_lvl2_ids, rows
 
     def _create_log_record(self, *, operation_id, timestamp, new_root_ids) -> "bigtable.row.Row":

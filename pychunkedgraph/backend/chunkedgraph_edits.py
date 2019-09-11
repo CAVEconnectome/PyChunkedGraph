@@ -248,7 +248,7 @@ def _validate_edges(atomic_edges, _affinities=None, _areas=None):
     return atomic_edges, affinities, areas
 
 
-def add_fake_edges(
+def add_edges_v2(
     cg_instance,
     *,
     operation_id: np.uint64,
@@ -280,7 +280,7 @@ def add_fake_edges(
         lambda x, y: x + y, [agg.edges for agg in l2id_agglomeration_d.values()]
     )
     
-    fake_edges = filter_fake_edges(added_edges, subgraph_edges)
+    # fake_edges = filter_fake_edges(added_edges, subgraph_edges)
     linking_edges = get_linking_edges(
         subgraph_edges, l2id_children_d, parent_id1, parent_id2
     )
