@@ -263,7 +263,7 @@ def add_fake_edges(
     """
     if not cg_instance._edge_dir:
         return []
-    l2id_agglomeration_d = cg_instance.get_subgraph_edges_v2(
+    l2id_agglomeration_d = cg_instance.get_subgraph(
         agglomeration_ids=np.unique(cg_instance.get_roots(added_edges.ravel())),
         bbox=get_bounding_box(source_coords, sink_coords),
         bbox_is_coordinate=True,

@@ -2406,13 +2406,13 @@ class ChunkedGraph(object):
         Return all atomic edges between supervoxels belonging to the 
         specified agglomeration ID within the defined bounding box
         """
-        return self.get_subgraph_edges_v2(
+        return self.get_subgraph(
             np.array([agglomeration_id]),
             bbox=bounding_box,
             bbox_is_coordinate=bb_is_coordinate
         )
 
-    def get_subgraph_edges_v2(
+    def get_subgraph(
         self,
         agglomeration_ids: np.ndarray,
         bbox: Optional[Sequence[Sequence[int]]] = None,
@@ -2429,9 +2429,8 @@ class ChunkedGraph(object):
         5. filter the edges with supervoxel ids
         6. optionally for each edge (v1,v2) active
            if parent(v1) == parent(v2) inactive otherwise
-        7. returns tuple of dicts {"level_2_id": [Edges]}, {"level_2_id"}
+        7. returns dict of Agglomerations
         """
-
         def _read_edges(chunk_ids) -> dict:
             return get_chunk_edges(
                 self._edge_dir,
