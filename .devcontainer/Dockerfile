@@ -1,6 +1,5 @@
 FROM tiangolo/uwsgi-nginx-flask:python3.6
 
-
 COPY override/timeout.conf /etc/nginx/conf.d/timeout.conf
 COPY override/supervisord.conf /etc/supervisor/conf.d/supervisord.conf
 COPY requirements.txt /app

@@ -168,8 +168,6 @@ def _get_chunk_data(imanager, coord):
         if imanager.use_raw_agglomeration_data
         else _read_processed_mapping(imanager, coord)
     )
-    if imanager.use_raw_data:
-        put_chunk_edges(imanager.cg.edge_dir, coord, chunk_edges, ZSTD_LEVEL)
     return chunk_edges, mapping
 
 
@@ -197,6 +195,7 @@ def _read_raw_edge_data(imanager, coord):
         no_edges = no_edges and not sv_ids1.size
     if no_edges:
         return None
+    put_chunk_edges(imanager.cg.edge_dir, coord, chunk_edges, ZSTD_LEVEL)
     return chunk_edges
 
 
