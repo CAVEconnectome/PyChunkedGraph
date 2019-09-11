@@ -39,7 +39,10 @@ def concatenate_chunk_edges(chunk_edge_dicts: List) -> Dict:
 
 
 def filter_edges(node_ids: np.ndarray, edges: Edges) -> Edges:
-    """find edges for the given node_ids"""
+    """
+    find edges for the given node_ids
+    given an edge (sv1, sv2), include if node_id == sv1 or node_id == sv2
+    """
     xsorted = np.argsort(edges.node_ids1)
     indices1 = np.searchsorted(edges.node_ids1[xsorted], node_ids)
     indices1 = indices1[indices1 < xsorted.size]
@@ -64,15 +67,14 @@ def get_active_edges(edges: Edges, parent_children_d: Dict) -> Edges:
 
     sv_ids1 = edges.node_ids1
     sv_ids2 = edges.node_ids2
-    affinities = edges.affinities
-    areas = edges.areas
     parent_ids1 = np.array([child_parent_d.get(sv_id, sv_id) for sv_id in sv_ids1])
     parent_ids2 = np.array([child_parent_d.get(sv_id, sv_id) for sv_id in sv_ids2])
 
-    sv_ids1 = sv_ids1[parent_ids1 == parent_ids2]
-    sv_ids2 = sv_ids2[parent_ids1 == parent_ids2]
-    affinities = affinities[parent_ids1 == parent_ids2]
-    areas = areas[parent_ids1 == parent_ids2]
+    mask = parent_ids1 == parent_ids2
+    sv_ids1 = sv_ids1[mask]
+    sv_ids2 = sv_ids2[mask]
+    affinities = edges.affinities[mask]
+    areas = edges.areas[mask]
 
     return Edges(sv_ids1, sv_ids2, affinities=affinities, areas=areas)
 
@@ -111,7 +113,24 @@ def get_linking_edges(
 ):
     """
     Find edges that link two level 2 ids
-    (sv1, sv2) or (sv2, sv1) -> parent(sv1) == parent_id1 and parent(sv2) == parent_id2
+    include (sv1, sv2) if parent(sv1) == parent_id1 and parent(sv2) == parent_id2
+    or include (sv1, sv2) if parent(sv1) == parent_id2 and parent(sv2) == parent_id1
     """
     child_parent_d = reverse_dictionary(parent_children_d)
+
+    sv_ids1 = edges.node_ids1
+    sv_ids2 = edges.node_ids2
+
+    parent_ids1 = np.array([child_parent_d.get(sv_id, sv_id) for sv_id in sv_ids1])
+    parent_ids2 = np.array([child_parent_d.get(sv_id, sv_id) for sv_id in sv_ids2])
+
+    mask = (parent_ids1 == parent_id1) & (parent_ids2 == parent_id2)
+    mask |= (parent_ids1 == parent_id2) & (parent_ids2 == parent_id1)
+
+    sv_ids1 = sv_ids1[mask]
+    sv_ids2 = sv_ids2[mask]
+    affinities = edges.affinities[mask]
+    areas = edges.areas[mask]
+
+    return Edges(sv_ids1, sv_ids2, affinities=affinities, areas=areas)
 

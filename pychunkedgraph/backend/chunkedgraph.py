@@ -2459,15 +2459,16 @@ class ChunkedGraph(object):
         )
         edges_dict = concatenate_chunk_edges(chunk_edge_dicts)
         edges = reduce(lambda x, y: x+y, edges_dict.values())
-        # include fake edges
-        chunk_fake_edges_d = self.read_node_id_rows(
-            node_ids=chunk_ids,
-            columns=column_keys.Connectivity.FakeEdges)
-        fake_edges = np.concatenate([list(chunk_fake_edges_d.values())])        
-        if fake_edges.size:
-            fake_edges = Edges(fake_edges[:,0], fake_edges[:,1])
-            edges += fake_edges
+        # # include fake edges
+        # chunk_fake_edges_d = self.read_node_id_rows(
+        #     node_ids=chunk_ids,
+        #     columns=column_keys.Connectivity.FakeEdges)
+        # fake_edges = np.concatenate([list(chunk_fake_edges_d.values())])        
+        # if fake_edges.size:
+        #     fake_edges = Edges(fake_edges[:,0], fake_edges[:,1])
+        #     edges += fake_edges
 
+        # group edges based on level 2 ids
         l2id_children_d = self.get_children(level2_ids)
         l2id_edges_d = {}
         for l2id in l2id_children_d:
