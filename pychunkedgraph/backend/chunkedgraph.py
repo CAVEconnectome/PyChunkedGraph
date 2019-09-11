@@ -106,6 +106,9 @@ class ChunkedGraph(object):
 
         self._cv_path = self._dataset_info["data_dir"]         # required
         self._mesh_dir = self._dataset_info.get("mesh", None)  # optional
+        self._edge_dir = self.check_and_write_table_parameters(
+                column_keys.GraphSettings.EdgeDir, edge_dir,
+                required=False, is_new=is_new)        
 
         self._n_layers = self.check_and_write_table_parameters(
             column_keys.GraphSettings.LayerCount, n_layers,
@@ -127,9 +130,6 @@ class ChunkedGraph(object):
         self._chunk_size = self.check_and_write_table_parameters(
             column_keys.GraphSettings.ChunkSize, chunk_size,
             required=True, is_new=is_new)
-        self._edge_dir = self.check_and_write_table_parameters(
-                column_keys.GraphSettings.EdgeDir, edge_dir,
-                required=False, is_new=is_new)
 
         self._dataset_info["graph"] = {"chunk_size": self.chunk_size}
 
@@ -2433,7 +2433,7 @@ class ChunkedGraph(object):
         """
         def _read_edges(chunk_ids) -> dict:
             return get_chunk_edges(
-                self._edge_dir,
+                self.cv_edges_path,
                 [self.get_chunk_coordinates(chunk_id) for chunk_id in chunk_ids],
                 cv_threads,
             )

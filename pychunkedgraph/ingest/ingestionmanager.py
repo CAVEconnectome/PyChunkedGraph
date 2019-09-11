@@ -13,7 +13,7 @@ class IngestionManager(object):
         instance_id=None,
         project_id=None,
         data_version=2,
-        create_edges=True,
+        use_raw_data=True,
     ):
         self._storage_path = storage_path
         self._cg_table_id = cg_table_id
@@ -22,7 +22,7 @@ class IngestionManager(object):
         self._cg = None
         self._n_layers = n_layers
         self._data_version = data_version
-        self._create_edges = create_edges
+        self._use_raw_data = use_raw_data
 
     @property
     def storage_path(self):
@@ -109,8 +109,8 @@ class IngestionManager(object):
         return self._n_layers
 
     @property
-    def create_edges(self):
-        return self._create_edges
+    def use_raw_data(self):
+        return self._use_raw_data
 
     def get_serialized_info(self):
         info = {

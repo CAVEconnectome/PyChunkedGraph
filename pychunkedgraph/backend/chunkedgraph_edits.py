@@ -208,7 +208,7 @@ def add_edges(cg,
                                                 cross_chunk_edge_dict,
                                                 time_stamp))
 
-    if not cg._edge_dir:
+    if not cg.cv_edges_path:
         # Write atomic nodes
         rows.extend(_write_atomic_merge_edges(cg, atomic_edges, affinities, areas,
                                             time_stamp=time_stamp))
@@ -261,7 +261,7 @@ def add_edges_v2(
     if there is no path between sv1 and sv2 (from added_edges)
     in the subgraph, add "fake" edges, these are stored in a row per chunk
     """
-    if not cg_instance._edge_dir:
+    if not cg_instance.cv_edges_path:
         return []
     l2id_agglomeration_d = cg_instance.get_subgraph(
         agglomeration_ids=np.unique(cg_instance.get_roots(added_edges.ravel())),
@@ -300,10 +300,6 @@ def add_edges_v2(
     #     }
     #     rows.append(cg_instance.mutate_row(row_key, val_d, time_stamp=timestamp))
     # return rows
-
-
-def _determine_new_edges(added_edges: np.ndarray, l2id_edges_d: Dict):
-    subgraph_edges = reduce(lambda x, y: x+y, l2id_edges_d.values())
 
 
 def remove_edges(cg, operation_id: np.uint64,
@@ -421,7 +417,7 @@ def remove_edges(cg, operation_id: np.uint64,
                                                operation_id=operation_id,
                                                time_stamp=time_stamp))
 
-    if not cg._edge_dir:
+    if not cg.cv_edges_path:
         # Write atomic nodes
         rows.extend(_write_atomic_split_edges(cg, atomic_edges,
                                             time_stamp=time_stamp))

@@ -39,10 +39,10 @@ def ingest_into_chunkedgraph(
     edge_dir=None,
     n_chunks=None,
     is_new=True,
-    create_edges=True,
+    use_raw_data=True,
 ):
     """
-    :param create_edges:
+    :param use_raw_data:
         Set this to false if the edges have already been processed.
         This is needed because processing edges and bulding chunkedgraph is completely de-coupled.
     """
@@ -74,7 +74,7 @@ def ingest_into_chunkedgraph(
         instance_id=instance_id,
         project_id=project_id,
         data_version=4,
-        create_edges=create_edges
+        use_raw_data=use_raw_data
     )
 
     if layer < 3:
@@ -161,10 +161,11 @@ def create_atomic_chunk(imanager, coord):
         )
         no_edges = no_edges and not sv_ids1.size
 
-    if imanager.create_edges and not no_edges:
+    if imanager.use_raw_data and not no_edges:
         put_chunk_edges(imanager.cg.edge_dir, coord, chunk_edges_all, ZSTD_LEVEL)
+
     chunk_edges_active, isolated_ids = _get_active_edges(
-        imanager, coord, edge_dict, chunk_edges_all
+        imanager, coord, chunk_edges_all
     )
     add_atomic_edges(imanager.cg, coord, chunk_edges_active, isolated=isolated_ids)
 
@@ -172,14 +173,19 @@ def create_atomic_chunk(imanager, coord):
     return str(2)
 
 
-def _get_active_edges(imanager, coord, raw_edges_d, processed_edges_d):
+def _get_chunk_data(imanager, coord):
+    """
+    Based on `use_raw_data` read either raw data or processed data
+    """
 
+
+def _get_active_edges(imanager, coord, edges_d):
     mapping = collect_agglomeration_data(imanager, coord)
-    active_edges_flag_d, isolated_ids = define_active_edges(raw_edges_d, mapping)
+    active_edges_flag_d, isolated_ids = define_active_edges(edges_d, mapping)
 
     chunk_edges_active = {}
     for edge_type in EDGE_TYPES:
-        edges = processed_edges_d[edge_type]
+        edges = edges_d[edge_type]
         active = active_edges_flag_d[edge_type]
 
         sv_ids1 = edges.sv_ids1[active]
@@ -422,9 +428,6 @@ def collect_agglomeration_data(imanager, chunk_coord):
 
 def define_active_edges(edge_dict, mapping):
     """ Labels edges as within or across segments and extracts isolated ids
-
-    :param edge_dict: dict of np.ndarrays
-    :param mapping: dict
     :return: dict of np.ndarrays, np.ndarray
         bool arrays; True: connected (within same segment)
         isolated node ids
@@ -441,14 +444,14 @@ def define_active_edges(edge_dict, mapping):
     active = {}
     isolated = [[]]
     for k in edge_dict:
-        if len(edge_dict[k]["sv1"]) > 0:
-            agg_id_1 = mapping_vec(edge_dict[k]["sv1"])
+        if len(edge_dict[k].node_ids1) > 0:
+            agg_id_1 = mapping_vec(edge_dict[k].node_ids1)
         else:
-            assert len(edge_dict[k]["sv2"]) == 0
+            assert len(edge_dict[k].node_ids2) == 0
             active[k] = np.array([], dtype=np.bool)
             continue
 
-        agg_id_2 = mapping_vec(edge_dict[k]["sv2"])
+        agg_id_2 = mapping_vec(edge_dict[k].node_ids2)
 
         active[k] = agg_id_1 == agg_id_2
 
@@ -457,9 +460,9 @@ def define_active_edges(edge_dict, mapping):
         agg_2_m = agg_id_2 == -1
         active[k][agg_1_m] = False
 
-        isolated.append(edge_dict[k]["sv1"][agg_1_m])
+        isolated.append(edge_dict[k].node_ids1[agg_1_m])
 
         if k == "in":
-            isolated.append(edge_dict[k]["sv2"][agg_2_m])
+            isolated.append(edge_dict[k].node_ids2[agg_2_m])
 
     return active, np.unique(np.concatenate(isolated).astype(basetypes.NODE_ID))
