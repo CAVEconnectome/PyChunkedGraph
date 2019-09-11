@@ -42,6 +42,7 @@ from google.cloud.bigtable.row_set import RowSet
 from google.cloud.bigtable.column_family import MaxVersionsGCRule
 
 from .definitions.edges import Edges
+from .definitions.agglomeration import Agglomeration
 from .utils.edge_utils import (
     concatenate_chunk_edges, filter_edges, get_active_edges)
 from ..io.edges import get_chunk_edges
@@ -2419,7 +2420,7 @@ class ChunkedGraph(object):
         cv_threads: int = 1,
         active_edges: bool = True,
         timestamp: datetime.datetime = None
-    ) -> Dict:
+    ) -> Tuple[Dict, Dict]:
         """
         1. get level 2 children ids belonging to the agglomerations
         2. get relevant chunk ids from level 2 ids
@@ -2428,7 +2429,7 @@ class ChunkedGraph(object):
         5. filter the edges with supervoxel ids
         6. optionally for each edge (v1,v2) active
            if parent(v1) == parent(v2) inactive otherwise
-        7. returns dict {"level_2_id": [Edges]}
+        7. returns tuple of dicts {"level_2_id": [Edges]}, {"level_2_id"}
         """
 
         def _read_edges(chunk_ids) -> dict:
@@ -2468,17 +2469,19 @@ class ChunkedGraph(object):
         #     fake_edges = Edges(fake_edges[:,0], fake_edges[:,1])
         #     edges += fake_edges
 
-        # group edges based on level 2 ids
+        # group nodes and edges based on level 2 ids
+        l2id_agglomeration_d = {}
         l2id_children_d = self.get_children(level2_ids)
-        l2id_edges_d = {}
         for l2id in l2id_children_d:
-            l2id_edges_d[l2id] = filter_edges(l2id_children_d[l2id], edges)
+            supervoxels = l2id_children_d[l2id]
+            filtered_edges = filter_edges(l2id_children_d[l2id], edges)
             if active_edges:
-                l2id_edges_d[l2id] = get_active_edges(
-                    l2id_edges_d[l2id],
+                filtered_edges = get_active_edges(
+                    filtered_edges,
                     l2id_children_d
                 )
-        return l2id_edges_d
+            l2id_agglomeration_d[l2id] = Agglomeration(supervoxels, filtered_edges)
+        return l2id_agglomeration_d
 
     def get_subgraph_nodes(self, agglomeration_id: np.uint64,
                            bounding_box: Optional[Sequence[Sequence[int]]] = None,

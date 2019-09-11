@@ -114,10 +114,9 @@ def get_linking_edges(
     """
     Find edges that link two level 2 ids
     include (sv1, sv2) if parent(sv1) == parent_id1 and parent(sv2) == parent_id2
-    or include (sv1, sv2) if parent(sv1) == parent_id2 and parent(sv2) == parent_id1
+    or if parent(sv1) == parent_id2 and parent(sv2) == parent_id1
     """
     child_parent_d = reverse_dictionary(parent_children_d)
-
     sv_ids1 = edges.node_ids1
     sv_ids2 = edges.node_ids2
 

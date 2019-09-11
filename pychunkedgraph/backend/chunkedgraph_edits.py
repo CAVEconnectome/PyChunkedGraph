@@ -255,25 +255,36 @@ def add_fake_edges(
     added_edges: np.ndarray,
     source_coords: Sequence[np.uint64],
     sink_coords: Sequence[np.uint64],
-    timestamp: datetime.datetime) -> List["bigtable.row.Row"]:
+    timestamp: datetime.datetime
+) -> List["bigtable.row.Row"]:
     """
     if there is no path between sv1 and sv2 (from added_edges)
     in the subgraph, add "fake" edges, these are stored in a row per chunk
     """
     if not cg_instance._edge_dir:
         return []
-    l2id_edges_d = cg_instance.get_subgraph_edges_v2(
-        agglomeration_ids = np.unique(cg_instance.get_roots(added_edges.ravel())),
-        bbox = get_bounding_box(source_coords, sink_coords),
-        bbox_is_coordinate = True,
-        cv_threads = 4,
-        active_edges = False,
-        timestamp=timestamp
+    l2id_agglomeration_d = cg_instance.get_subgraph_edges_v2(
+        agglomeration_ids=np.unique(cg_instance.get_roots(added_edges.ravel())),
+        bbox=get_bounding_box(source_coords, sink_coords),
+        bbox_is_coordinate=True,
+        cv_threads=4,
+        active_edges=False,
+        timestamp=timestamp,
     )
-    # edges = reduce(lambda x, y: x+y, edges_dict.values())
-    l2id_children_d = cg_instance.get_children(list(l2id_edges_d.keys()))
-    edges = reduce(lambda x, y: x+y, l2id_edges_d.values())
-    linking_edges = get_linking_edges(edges, l2id_children_d, )
+    # added_edges is assumed to have just one edge
+    parent_id1, parent_id2 = cg_instance.get_parents(added_edges.ravel())
+    l2id_children_d = {
+        l2id: l2id_agglomeration_d[l2id].supervoxels for l2id in l2id_agglomeration_d
+    }
+    subgraph_edges = reduce(
+        lambda x, y: x + y, [agg.edges for agg in l2id_agglomeration_d.values()]
+    )
+    
+    fake_edges = filter_fake_edges(added_edges, subgraph_edges)
+    linking_edges = get_linking_edges(
+        subgraph_edges, l2id_children_d, parent_id1, parent_id2
+    )
+
     # fake_edges = filter_fake_edges(added_edges, subgraph_edges)
     # node_ids, r_indices = np.unique(fake_edges, return_inverse=True)
     # r_indices = r_indices.reshape(-1, 2)
