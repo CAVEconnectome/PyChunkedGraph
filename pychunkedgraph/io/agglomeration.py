@@ -18,5 +18,6 @@ def get_chunk_agglomeration(agglomeration_dir, chunk_coord):
     file_name = f"chunk_{'_'.join(str(coord) for coord in chunk_coord)}.json"
     with SimpleStorage(agglomeration_dir) as storage:
         content = storage.get_file(file_name)
-        return json.loads(content.decode('utf-8'))
+        mapping = json.loads(content.decode('utf-8'))
+        return {int(key): mapping[key] for key in mapping}
 
