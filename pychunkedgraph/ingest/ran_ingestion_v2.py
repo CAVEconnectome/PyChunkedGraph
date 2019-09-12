@@ -41,12 +41,12 @@ def ingest_into_chunkedgraph(
     layer=1,
     n_chunks=None,
     is_new: bool = True,
-    data_source: Dict = None,
+    data_config: Dict = None,
 ):
     """
-    :param data_source:
+    :param data_config:
     :type Dict:
-        `data_source` can have the following keys.
+        `data_config` can have the following keys.
         Use these options to use either raw data or 
         processed data when building the chunkedgraph
         edge_dir=None
@@ -71,7 +71,7 @@ def ingest_into_chunkedgraph(
         fan_out=fan_out,
         instance_id=instance_id,
         project_id=project_id,
-        edge_dir=data_source["edge_dir"],
+        edge_dir=data_config["edge_dir"],
         is_new=is_new,
     )
 
@@ -82,9 +82,9 @@ def ingest_into_chunkedgraph(
         instance_id=instance_id,
         project_id=project_id,
         data_version=4,
-        use_raw_edge_data=data_source["use_raw_edge_data"],
-        use_raw_agglomeration_data=data_source["use_raw_agglomeration_data"],
-        agglomeration_dir=data_source["agglomeration_dir"],
+        use_raw_edge_data=data_config["use_raw_edge_data"],
+        use_raw_agglomeration_data=data_config["use_raw_agglomeration_data"],
+        agglomeration_dir=data_config["agglomeration_dir"],
     )
 
     if layer < 3:
