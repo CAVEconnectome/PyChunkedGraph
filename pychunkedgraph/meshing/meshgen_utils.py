@@ -96,29 +96,27 @@ def get_downstream_multi_child_node(cg, node_id: np.uint64,
 def get_downstream_multi_child_nodes(cg, node_ids: Sequence[np.uint64], require_children=True):
     """
     Return the first descendant of `node_ids` (including themselves) with more than
-    one child, or the first descendant of `node_id` (including itself) on or
+    one child, or the first descendant of `node_ids` (including themselves) on or
     below layer 2.
     """
     # FIXME: Make stop_layer configurable
     stop_layer = 2
-    node_ids_to_return = np.copy(node_ids)
 
     def recursive_helper(cur_node_ids):
+        cur_node_ids, unique_to_original = np.unique(cur_node_ids, return_inverse=True)
         stop_layer_mask = np.array([cg.get_chunk_layer(node_id) > stop_layer for node_id in cur_node_ids])
         if np.any(stop_layer_mask):
             node_to_children_dict = cg.get_children(cur_node_ids[stop_layer_mask])
             children_array = np.array(list(node_to_children_dict.values()))
-            if require_children and len(children_array) < len(cur_node_ids[stop_layer_mask]):
-                raise ValueError('Not all node_ids have children. May be mixing node_ids from different generations.')
             only_child_mask = np.array([len(children_for_node) == 1 for children_for_node in children_array])
             only_children = children_array[only_child_mask].astype(np.uint64).ravel()
             if np.any(only_child_mask):
                 temp_array = cur_node_ids[stop_layer_mask]
                 temp_array[only_child_mask] = recursive_helper(only_children)
                 cur_node_ids[stop_layer_mask] = temp_array
-        return cur_node_ids
+        return cur_node_ids[unique_to_original]
     
-    return recursive_helper(node_ids_to_return)
+    return recursive_helper(node_ids)
 
 
 def get_highest_child_nodes_with_meshes(cg,
