@@ -38,7 +38,7 @@ def run_ingest(storage_path, ws_cv_path, cv_path, cg_table_id, layer):
     eg: flask ingest table \
         gs://ranl/scratch/pinky100_ca_com/agg \
         gs://neuroglancer/pinky100_v0/ws/pinky100_ca_com \
-        gs://akhilesh-test/edges/pinky100-ingest \
+        gs://akhilesh-pcg \
         akhilesh-pinky100-2 \
         2
     """

@@ -201,7 +201,7 @@ def _read_raw_edge_data(imanager, coord) -> Dict:
         no_edges = no_edges and not sv_ids1.size
     if no_edges:
         return None
-    put_chunk_edges(imanager.cg.edge_dir, coord, chunk_edges, ZSTD_LEVEL)
+    put_chunk_edges(imanager.cg.cv_edges_path, coord, chunk_edges, ZSTD_LEVEL)
     return chunk_edges
 
 
