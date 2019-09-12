@@ -4,6 +4,8 @@ Module for ingesting in chunkedgraph format with edges stored outside bigtable
 
 import collections
 import itertools
+import json
+from typing import Dict, Tuple
 
 import pandas as pd
 import cloudvolume
@@ -18,7 +20,8 @@ from . import ingestionmanager, ingestion_utils as iu
 from .initialization.atomic_layer import add_atomic_edges
 from ..backend.definitions.edges import Edges, CX_CHUNK, TYPES as EDGE_TYPES
 from ..backend.utils import basetypes
-from ..io.edges import put_chunk_edges
+from ..io.edges import get_chunk_edges, put_chunk_edges
+from ..io.agglomeration import get_chunk_agglomeration, put_chunk_agglomeration
 
 
 ZSTD_LEVEL = 17
@@ -36,11 +39,12 @@ def ingest_into_chunkedgraph(
     instance_id=None,
     project_id=None,
     layer=1,
-    edge_dir=None,
     n_chunks=None,
     is_new=True,
+    edge_dir=None,
+    agglomeration_dir=None,
     use_raw_edge_data=True,
-    use_raw_agglomeration_data=True
+    use_raw_agglomeration_data=True,
 ):
     """
     :param use_raw_edge_data:
@@ -78,7 +82,8 @@ def ingest_into_chunkedgraph(
         project_id=project_id,
         data_version=4,
         use_raw_edge_data=use_raw_edge_data,
-        use_raw_agglomeration_data=use_raw_agglomeration_data
+        use_raw_agglomeration_data=use_raw_agglomeration_data,
+        agglomeration_dir=agglomeration_dir
     )
 
     if layer < 3:
@@ -153,7 +158,7 @@ def create_atomic_chunk(imanager, coord):
     return str(2)
 
 
-def _get_chunk_data(imanager, coord):
+def _get_chunk_data(imanager, coord) -> Tuple[Dict, Dict]:
     """
     Helper to read either raw data or processed data
     If reading from raw data, save it as processed data
@@ -161,17 +166,17 @@ def _get_chunk_data(imanager, coord):
     chunk_edges = (
         _read_raw_edge_data(imanager, coord)
         if imanager.use_raw_edge_data
-        else _read_processed_edge_data(imanager, coord)
+        else get_chunk_edges(imanager.cg.cv_edges_path, coord)
     )
     mapping = (
-        _read_raw_mapping(imanager, coord)
+        _read_raw_agglomeration_data(imanager, coord)
         if imanager.use_raw_agglomeration_data
-        else _read_processed_mapping(imanager, coord)
+        else get_chunk_agglomeration(imanager.agglomeration_dir, coord)
     )
     return chunk_edges, mapping
 
 
-def _read_raw_edge_data(imanager, coord):
+def _read_raw_edge_data(imanager, coord) -> Dict:
     edge_dict = collect_edge_data(imanager, coord)
     edge_dict = iu.postprocess_edge_data(imanager, edge_dict)
 
@@ -199,20 +204,8 @@ def _read_raw_edge_data(imanager, coord):
     return chunk_edges
 
 
-def _read_processed_edge_data(imanager, coord):
-    pass
-
-
-def _read_raw_mapping(imanager, coord):
-    pass
-
-
-def _read_processed_mapping(imanager, coord):
-    pass
-
-
 def _get_active_edges(imanager, coord, edges_d, mapping):
-    active_edges_flag_d, isolated_ids = define_active_edges(edges_d, mapping)
+    active_edges_flag_d, isolated_ids = _define_active_edges(edges_d, mapping)
     chunk_edges_active = {}
     for edge_type in EDGE_TYPES:
         edges = edges_d[edge_type]
@@ -397,7 +390,7 @@ def _read_agg_files(filenames, base_path):
     return edge_list
 
 
-def collect_agglomeration_data(imanager, chunk_coord):
+def _read_raw_agglomeration_data(imanager, chunk_coord):
     """ Collects agglomeration information & builds connected component mapping
 
     :param imanager: IngestionManager
@@ -407,9 +400,7 @@ def collect_agglomeration_data(imanager, chunk_coord):
     """
     subfolder = "remap"
     base_path = f"{imanager.storage_path}/{subfolder}/"
-
     chunk_coord = np.array(chunk_coord)
-
     chunk_id = imanager.cg.get_chunk_id(
         layer=1, x=chunk_coord[0], y=chunk_coord[1], z=chunk_coord[2]
     )
@@ -423,9 +414,7 @@ def collect_agglomeration_data(imanager, chunk_coord):
         for dim in range(3):
             diff = np.zeros([3], dtype=np.int)
             diff[dim] = d
-
             adjacent_chunk_coord = chunk_coord + diff
-
             adjacent_chunk_id = imanager.cg.get_chunk_id(
                 layer=1,
                 x=adjacent_chunk_coord[0],
@@ -439,24 +428,21 @@ def collect_agglomeration_data(imanager, chunk_coord):
                     f"done_{mip_level}_{x}_{y}_{z}_{adjacent_chunk_id}.data.zst"
                 )
 
-    # print(filenames)
     edge_list = _read_agg_files(filenames, base_path)
-
     edges = np.concatenate(edge_list)
-
     G = nx.Graph()
     G.add_edges_from(edges)
     ccs = nx.connected_components(G)
-
     mapping = {}
     for i_cc, cc in enumerate(ccs):
         cc = list(cc)
         mapping.update(dict(zip(cc, [i_cc] * len(cc))))
 
+    put_chunk_agglomeration(imanager.agglomeration_dir, mapping, chunk_coord)
     return mapping
 
 
-def define_active_edges(edge_dict, mapping):
+def _define_active_edges(edge_dict, mapping):
     """ Labels edges as within or across segments and extracts isolated ids
     :return: dict of np.ndarrays, np.ndarray
         bool arrays; True: connected (within same segment)

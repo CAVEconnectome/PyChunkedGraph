@@ -14,7 +14,8 @@ class IngestionManager(object):
         project_id=None,
         data_version=2,
         use_raw_edge_data=True,
-        use_raw_agglomeration_data=True
+        use_raw_agglomeration_data=True,
+        agglomeration_dir=None
     ):
         self._storage_path = storage_path
         self._cg_table_id = cg_table_id
@@ -25,6 +26,7 @@ class IngestionManager(object):
         self._data_version = data_version
         self._use_raw_edge_data = use_raw_edge_data
         self._use_raw_agglomeration_data = use_raw_agglomeration_data
+        self._agglomeration_dir = agglomeration_dir
 
     @property
     def storage_path(self):
@@ -116,7 +118,11 @@ class IngestionManager(object):
 
     @property
     def use_raw_agglomeration_data(self):
-        return self._use_raw_agglomeration_data        
+        return self._use_raw_agglomeration_data
+
+    @property
+    def agglomeration_dir(self):
+        return self._agglomeration_dir        
 
     def get_serialized_info(self):
         info = {
