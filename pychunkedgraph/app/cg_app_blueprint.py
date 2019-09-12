@@ -14,7 +14,7 @@ import threading
 from pychunkedgraph.app import app_utils, meshing_app_blueprint
 from pychunkedgraph.backend import chunkedgraph_exceptions as cg_exceptions, \
     chunkedgraph_comp as cg_comp
-from middle_auth_client import auth_required, auth_requires_roles
+# from middle_auth_client import auth_required, auth_requires_roles
 
 __version__ = 'fafb.1.16'
 bp = Blueprint('pychunkedgraph', __name__, url_prefix="/segmentation")
@@ -196,7 +196,7 @@ def handle_root_main(table_id, atomic_id, timestamp):
 ### MERGE ----------------------------------------------------------------------
 
 @bp.route('/1.0/<table_id>/graph/merge', methods=['POST', 'GET'])
-@auth_requires_roles('edit_all')
+# @auth_requires_roles('edit_all')
 def handle_merge(table_id):
     current_app.request_type = "merge"
 
@@ -277,7 +277,7 @@ def handle_merge(table_id):
 ### SPLIT ----------------------------------------------------------------------
 
 @bp.route('/1.0/<table_id>/graph/split', methods=['POST', 'GET'])
-@auth_requires_roles('edit_all')
+# @auth_requires_roles('edit_all')
 def handle_split(table_id):
     current_app.request_type = "split"
 
@@ -356,7 +356,7 @@ def handle_split(table_id):
 
 
 @bp.route("/1.0/<table_id>/graph/undo", methods=["POST"])
-@auth_requires_roles("edit_all")
+# @auth_requires_roles("edit_all")
 def handle_undo(table_id):
     current_app.request_type = "undo"
 
@@ -400,7 +400,7 @@ def handle_undo(table_id):
 
 
 @bp.route("/1.0/<table_id>/graph/redo", methods=["POST"])
-@auth_requires_roles("edit_all")
+# @auth_requires_roles("edit_all")
 def handle_redo(table_id):
     current_app.request_type = "redo"
 

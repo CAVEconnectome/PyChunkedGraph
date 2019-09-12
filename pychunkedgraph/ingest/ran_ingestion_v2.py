@@ -38,7 +38,7 @@ def ingest_into_chunkedgraph(
     size=None,
     instance_id=None,
     project_id=None,
-    layer=1,
+    layer=2,
     n_chunks=None,
     is_new: bool = True,
     data_config: Dict = None,
@@ -49,9 +49,9 @@ def ingest_into_chunkedgraph(
         `data_config` can have the following keys.
         Use these options to use either raw data or 
         processed data when building the chunkedgraph
-        edge_dir=None
-        agglomeration_dir=None
-        use_raw_edge_data=True
+        edge_dir=None,
+        agglomeration_dir=None,
+        use_raw_edge_data=True,
         use_raw_agglomeration_data=True
     """
     storage_path = storage_path.strip("/")
@@ -154,7 +154,7 @@ def create_atomic_chunk(imanager, coord):
     chunk_edges_active, isolated_ids = _get_active_edges(
         imanager, coord, chunk_edges_all, mapping
     )
-    add_atomic_edges(imanager.cg, coord, chunk_edges_active, isolated=isolated_ids)
+    # add_atomic_edges(imanager.cg, coord, chunk_edges_active, isolated=isolated_ids)
     # to track workers completion, layer = 2
     return str(2)
 
