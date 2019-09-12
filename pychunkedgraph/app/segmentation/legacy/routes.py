@@ -59,7 +59,7 @@ def sleep_me(sleep):
 
 
 @bp.route("/<table_id>/info", methods=["GET"])
-@auth_requires_permission("view")
+# @auth_requires_permission("view")
 def handle_info(table_id):
     return common.handle_info(table_id)
 
@@ -68,13 +68,13 @@ def handle_info(table_id):
 
 
 @bp.route("/<table_id>/graph/root", methods=["POST", "GET"])
-@auth_requires_permission("view")
+# @auth_requires_permission("view")
 def handle_root_1(table_id):
     return common.handle_root_1(table_id)
 
 
 @bp.route("/<table_id>/graph/<atomic_id>/root", methods=["POST", "GET"])
-@auth_requires_permission("view")
+# @auth_requires_permission("view")
 def handle_root_2(table_id, atomic_id):
     return common.handle_root_2(table_id, atomic_id)
 

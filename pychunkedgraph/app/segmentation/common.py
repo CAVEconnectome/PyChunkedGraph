@@ -9,6 +9,8 @@ import numpy as np
 from flask import current_app, g, jsonify, make_response, request
 from pytz import UTC
 
+from middle_auth_client import auth_requires_permission
+
 from pychunkedgraph import __version__
 from pychunkedgraph.app import app_utils
 from pychunkedgraph.app.meshing.common import _remeshing
@@ -136,6 +138,7 @@ def sleep_me(sleep):
     return "zzz... {} ... awake".format(sleep)
 
 
+@auth_requires_permission("view")
 def handle_info(table_id):
     current_app.request_type = "info"
 
@@ -151,6 +154,7 @@ def handle_api_versions():
 ### GET ROOT -------------------------------------------------------------------
 
 
+@auth_requires_permission("view")
 def handle_root_1(table_id):
     atomic_id = np.uint64(json.loads(request.data)[0])
 
@@ -168,6 +172,7 @@ def handle_root_1(table_id):
     return handle_root_main(table_id, atomic_id, timestamp)
 
 
+@auth_requires_permission("view")
 def handle_root_2(table_id, atomic_id):
     # Convert seconds since epoch to UTC datetime
     try:
