@@ -156,7 +156,7 @@ def create_atomic_chunk(imanager, coord):
     )
     add_atomic_edges(imanager.cg, coord, chunk_edges_active, isolated=isolated_ids)
     # to track workers completion, layer = 2
-    return str(2)
+    return np.concatenate([[2], coord])
 
 
 def _get_chunk_data(imanager, coord) -> Tuple[Dict, Dict]:
