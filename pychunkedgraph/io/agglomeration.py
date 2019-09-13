@@ -9,8 +9,8 @@ from ..backend.utils import basetypes
 
 
 def serialize(mapping: Dict) -> ChunkMappingMsg:
-    supervoxels = np.array(mapping.keys(), dtype=basetypes.NODE_ID)
-    components = np.array(mapping.values(), dtype=int)
+    supervoxels = np.array(list(mapping.keys()), dtype=basetypes.NODE_ID)
+    components = np.array(list(mapping.values()), dtype=int)
     mapping_message = ChunkMappingMsg()
     mapping_message.supervoxels = supervoxels.tobytes()
     mapping_message.components = components.tobytes()
@@ -40,7 +40,10 @@ def get_chunk_agglomeration(agglomeration_dir, chunk_coord) -> Dict:
     # filename format - mapping_x_y_z.serliazation
     file_name = f"mapping_{'_'.join(str(coord) for coord in chunk_coord)}.proto"
     with SimpleStorage(agglomeration_dir) as storage:
+        content = storage.get_file(file_name)
+        if not content:
+            return {}
         mapping_message = ChunkMappingMsg()
-        mapping_message.ParseFromString(storage.get_file(file_name))
+        mapping_message.ParseFromString()
         return deserialize(mapping_message)
 

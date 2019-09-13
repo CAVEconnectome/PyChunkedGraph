@@ -7,6 +7,7 @@ from typing import Dict, List
 
 import numpy as np
 
+from .basetypes import NODE_ID, EDGE_AFFINITY, EDGE_AREA
 from ...utils.general import reverse_dictionary
 from ..definitions.edges import Edges, IN_CHUNK, BT_CHUNK, CX_CHUNK
 from ..connectivity.search import check_reachability
@@ -17,10 +18,10 @@ def concatenate_chunk_edges(chunk_edge_dicts: List) -> Dict:
     """combine edge_dicts of multiple chunks into one edge_dict"""
     edges_dict = {}
     for edge_type in [IN_CHUNK, BT_CHUNK, CX_CHUNK]:
-        sv_ids1 = []
-        sv_ids2 = []
-        affinities = []
-        areas = []
+        sv_ids1 = [np.array([], dtype=NODE_ID)]
+        sv_ids2 = [np.array([], dtype=NODE_ID)]
+        affinities = [np.array([], dtype=EDGE_AFFINITY)]
+        areas = [np.array([], dtype=EDGE_AREA)]
         for edge_d in chunk_edge_dicts:
             edges = edge_d[edge_type]
             sv_ids1.append(edges.node_ids1)

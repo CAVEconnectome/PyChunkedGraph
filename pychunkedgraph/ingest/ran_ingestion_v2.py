@@ -167,7 +167,7 @@ def _get_chunk_data(imanager, coord) -> Tuple[Dict, Dict]:
     chunk_edges = (
         _read_raw_edge_data(imanager, coord)
         if imanager.use_raw_edge_data
-        else get_chunk_edges(imanager.cg.cv_edges_path, coord)
+        else get_chunk_edges(imanager.cg.cv_edges_path, [coord])
     )
     mapping = (
         _read_raw_agglomeration_data(imanager, coord)
@@ -178,7 +178,7 @@ def _get_chunk_data(imanager, coord) -> Tuple[Dict, Dict]:
 
 
 def _read_raw_edge_data(imanager, coord) -> Dict:
-    edge_dict = collect_edge_data(imanager, coord)
+    edge_dict = _collect_edge_data(imanager, coord)
     edge_dict = iu.postprocess_edge_data(imanager, edge_dict)
 
     # flag to check if chunk has edges
@@ -212,8 +212,8 @@ def _get_active_edges(imanager, coord, edges_d, mapping):
         edges = edges_d[edge_type]
         active = active_edges_flag_d[edge_type]
 
-        sv_ids1 = edges.sv_ids1[active]
-        sv_ids2 = edges.sv_ids2[active]
+        sv_ids1 = edges.node_ids1[active]
+        sv_ids2 = edges.node_ids2[active]
         affinities = edges.affinities[active]
         areas = edges.areas[active]
         chunk_edges_active[edge_type] = Edges(
@@ -255,7 +255,7 @@ def _get_cont_chunk_coords(imanager, chunk_coord_a, chunk_coord_b):
     return c_chunk_coords
 
 
-def collect_edge_data(imanager, chunk_coord):
+def _collect_edge_data(imanager, chunk_coord):
     """ Loads edge for single chunk
 
     :param imanager: IngestionManager
@@ -439,7 +439,8 @@ def _read_raw_agglomeration_data(imanager, chunk_coord):
         cc = list(cc)
         mapping.update(dict(zip(cc, [i_cc] * len(cc))))
 
-    put_chunk_agglomeration(imanager.agglomeration_dir, mapping, chunk_coord)
+    if mapping:
+        put_chunk_agglomeration(imanager.agglomeration_dir, mapping, chunk_coord)
     return mapping
 
 
