@@ -39,7 +39,7 @@ def run_ingest(storage_path, ws_cv_path, cv_path, cg_table_id, layer):
         gs://ranl/scratch/pinky100_ca_com/agg \
         gs://neuroglancer/pinky100_v0/ws/pinky100_ca_com \
         gs://akhilesh-pcg \
-        akhilesh-pinky100-2 \
+        akhilesh-pinky100-0 \
         2
     """
     chunk_pubsub = current_app.redis.pubsub()

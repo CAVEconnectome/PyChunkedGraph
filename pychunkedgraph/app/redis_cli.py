@@ -5,7 +5,9 @@ import os
 
 import click
 from redis import Redis
-from rq import Queue, Worker
+from rq import Queue
+from rq import Worker
+from rq.worker import WorkerStatus
 from rq.job import Job
 from flask import current_app
 from flask.cli import AppGroup
@@ -26,7 +28,10 @@ def get_status(queue="test"):
     workers = Worker.all(queue=q)
     print(f"Queue name \t: {queue}")
     print(f"Jobs queued \t: {len(q)}")
-    print(f"Workers count \t: {len(workers)}")
+    print(f"Workers total \t: {len(workers)}")
+    print(
+        f"Workers busy \t: {sum([worker.get_state() == WorkerStatus.BUSY for worker in workers])}"
+    )
     print(f"Jobs failed \t: {q.failed_job_registry.count}")
 
 
