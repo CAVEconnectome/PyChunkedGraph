@@ -84,7 +84,7 @@ def requeue(queue, all, job_ids):
         click.echo("Nothing to do")
         sys.exit(0)
 
-    click.echo("Requeueing {0} jobs from failed queue".format(len(job_ids)))
+    click.echo(f"Requeueing {len(job_ids)} jobs from failed queue")
     fail_count = 0
     for job_id in job_ids:
         try:
@@ -94,8 +94,7 @@ def requeue(queue, all, job_ids):
 
     if fail_count > 0:
         click.secho(
-            "Unable to requeue {0} jobs from failed job registry".format(fail_count),
-            fg="red",
+            f"Unable to requeue {fail_count} jobs from failed job registry", fg="red"
         )
 
 
