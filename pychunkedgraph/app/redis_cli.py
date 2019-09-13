@@ -23,15 +23,17 @@ connection = Redis(host=REDIS_HOST, port=REDIS_PORT, db=0, password=REDIS_PASSWO
 
 @redis_cli.command("status")
 @click.argument("queue", type=str, default="test")
-def get_status(queue="test"):
+@click.option("--show-busy", is_flag=True)
+def get_status(queue, show_busy):
+    print("NOTE: Use --show-busy to display count of non idle workers\n")
     q = Queue(queue, connection=connection)
-    workers = Worker.all(queue=q)
     print(f"Queue name \t: {queue}")
     print(f"Jobs queued \t: {len(q)}")
-    print(f"Workers total \t: {len(workers)}")
-    print(
-        f"Workers busy \t: {sum([worker.get_state() == WorkerStatus.BUSY for worker in workers])}"
-    )
+    print(f"Workers total \t: {Worker.count(queue=q)}")
+    if show_busy:
+        workers = Worker.all(queue=q)
+        count = sum([worker.get_state() == WorkerStatus.BUSY for worker in workers])
+        print(f"Workers busy \t: {count}")
     print(f"Jobs failed \t: {q.failed_job_registry.count}")
 
 
