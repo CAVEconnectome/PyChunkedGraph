@@ -2,6 +2,7 @@
 cli for redis jobs
 """
 import os
+import sys
 
 import click
 from redis import Redis
@@ -9,6 +10,8 @@ from rq import Queue
 from rq import Worker
 from rq.worker import WorkerStatus
 from rq.job import Job
+from rq.exceptions import InvalidJobOperationError
+from rq.registry import FailedJobRegistry
 from flask import current_app
 from flask.cli import AppGroup
 
@@ -65,6 +68,35 @@ def empty_queue(queue):
     job_count = len(q)
     q.empty()
     print(f"{job_count} jobs removed from {queue}.")
+
+
+@redis_cli.command("requeue")
+@click.argument("queue", type=str)
+@click.option("--all", "-a", is_flag=True, help="Requeue all failed jobs")
+@click.argument("job_ids", nargs=-1)
+def requeue(queue, all, job_ids):
+    """Requeue failed jobs."""
+    failed_job_registry = FailedJobRegistry(queue, connection=connection)
+    if all:
+        job_ids = failed_job_registry.get_job_ids()
+
+    if not job_ids:
+        click.echo("Nothing to do")
+        sys.exit(0)
+
+    click.echo("Requeueing {0} jobs from failed queue".format(len(job_ids)))
+    fail_count = 0
+    for job_id in job_ids:
+        try:
+            failed_job_registry.requeue(job_id)
+        except InvalidJobOperationError:
+            fail_count += 1
+
+    if fail_count > 0:
+        click.secho(
+            "Unable to requeue {0} jobs from failed job registry".format(fail_count),
+            fg="red",
+        )
 
 
 def init_redis_cmds(app):
