@@ -39,7 +39,7 @@ def run_ingest(storage_path, ws_cv_path, cv_path, cg_table_id, layer):
         gs://ranl/scratch/pinky100_ca_com/agg \
         gs://neuroglancer/pinky100_v0/ws/pinky100_ca_com \
         gs://akhilesh-pcg \
-        akhilesh-pinky100-2 \
+        akhilesh-pinky100-0 \
         2
     """
     chunk_pubsub = current_app.redis.pubsub()
@@ -47,9 +47,9 @@ def run_ingest(storage_path, ws_cv_path, cv_path, cg_table_id, layer):
     chunk_pubsub.run_in_thread(sleep_time=0.1)
 
     data_config = {
-        "edge_dir": f"{cv_path}/{cg_table_id}/edges",
+        "edge_dir": f"{cv_path}/akhilesh-pinky100-1/edges",
         "agglomeration_dir": f"{cv_path}/{cg_table_id}/agglomeration",
-        "use_raw_edge_data": True,
+        "use_raw_edge_data": False,
         "use_raw_agglomeration_data": True,
     }
 

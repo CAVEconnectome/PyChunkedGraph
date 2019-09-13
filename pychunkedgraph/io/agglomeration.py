@@ -36,7 +36,7 @@ def put_chunk_agglomeration(agglomeration_dir, mapping, chunk_coord) -> None:
         )
 
 
-def get_chunk_agglomeration(agglomeration_dir, chunk_coord):
+def get_chunk_agglomeration(agglomeration_dir, chunk_coord) -> Dict:
     # filename format - mapping_x_y_z.serliazation
     file_name = f"mapping_{'_'.join(str(coord) for coord in chunk_coord)}.proto"
     with SimpleStorage(agglomeration_dir) as storage:

@@ -154,7 +154,7 @@ def create_atomic_chunk(imanager, coord):
     chunk_edges_active, isolated_ids = _get_active_edges(
         imanager, coord, chunk_edges_all, mapping
     )
-    # add_atomic_edges(imanager.cg, coord, chunk_edges_active, isolated=isolated_ids)
+    add_atomic_edges(imanager.cg, coord, chunk_edges_active, isolated=isolated_ids)
     # to track workers completion, layer = 2
     return str(2)
 
