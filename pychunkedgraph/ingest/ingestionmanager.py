@@ -27,6 +27,7 @@ class IngestionManager(object):
         self._use_raw_edge_data = use_raw_edge_data
         self._use_raw_agglomeration_data = use_raw_agglomeration_data
         self._agglomeration_dir = agglomeration_dir
+        self._chunk_coords = None
 
     @property
     def storage_path(self):
@@ -104,7 +105,10 @@ class IngestionManager(object):
 
     @property
     def chunk_coords(self):
-        return np.array(list(self.chunk_coord_gen), dtype=np.int)
+        if not self._chunk_coords is None:
+            return self._chunk_coords
+        self._chunk_coords = np.array(list(self.chunk_coord_gen), dtype=np.int)
+        return self._chunk_coords
 
     @property
     def n_layers(self):
