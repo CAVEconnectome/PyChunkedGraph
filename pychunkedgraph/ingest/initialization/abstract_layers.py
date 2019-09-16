@@ -48,7 +48,7 @@ def add_layer(
         time_stamp,
     )
     # to track worker completion
-    return np.concatenate([[layer_id], chunk_coords])
+    return f"{layer_id}_{'_'.join(map(str, (x, y, z)))}"
 
 
 def _process_chunks(cg_instance, layer_id, chunk_coords):

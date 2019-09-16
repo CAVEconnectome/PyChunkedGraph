@@ -87,7 +87,7 @@ def ingest_into_chunkedgraph(
         agglomeration_dir=data_config["agglomeration_dir"],
     )
 
-    # queue_atomic_tasks(imanager)
+    queue_atomic_tasks(imanager)
     return imanager
 
 
@@ -154,7 +154,7 @@ def create_atomic_chunk(imanager, coord):
     )
     add_atomic_edges(imanager.cg, coord, chunk_edges_active, isolated=isolated_ids)
     # to track workers completion, layer = 2
-    return np.concatenate([[2], coord])
+    return f"{2}_{'_'.join(map(str, coord))}"
 
 
 def _get_chunk_data(imanager, coord) -> Tuple[Dict, Dict]:
