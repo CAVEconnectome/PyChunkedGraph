@@ -18,7 +18,7 @@ from pychunkedgraph.logging import jsonformatter
 # from pychunkedgraph.app import manifest_app_blueprint
 
 from .redis_cli import init_redis_cmds
-from ..ingest.cli import init_ingest_cmds
+from ..jobs.ingest_cli import init_ingest_cmds
 
 os.environ['TRAVIS_BRANCH'] = "IDONTKNOWWHYINEEDTHIS"
 

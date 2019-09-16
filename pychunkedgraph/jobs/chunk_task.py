@@ -1,15 +1,22 @@
-from typing import List, Union
+from typing import List, Union, Dict, Set
 
 import numpy as np
 
 
 class ChunkTask:
-    def __init__(self, layer: int, coords: np.ndarray):
+    def __init__(self, layer: int, coords: np.ndarray, parent_id: str = None):
         self._layer: int = layer
         self._coords: np.ndarray = coords
-        self._id: str = "_".join(coords)
-        self._children: List = []
+        self._id: str = ChunkTask.get_id(layer, coords)
+        self._children: Set = set()
+        self._children_coords: List = None
         self._completed: bool = False
+        self._parent_id: str = parent_id
+        self._dependencies = 0
+
+    @staticmethod
+    def get_id(layer: int, coords: np.ndarray):
+        return f"{layer}_{'_'.join(map(str, coords))}"
 
     @property
     def id(self) -> str:
@@ -18,6 +25,14 @@ class ChunkTask:
     @id.setter
     def id(self, value: str):
         self._id = value
+
+    @property
+    def parent_id(self) -> str:
+        return self._parent_id
+
+    @parent_id.setter
+    def parent_id(self, value: str):
+        self._parent_id = value
 
     @property
     def layer(self) -> int:
@@ -44,22 +59,21 @@ class ChunkTask:
         self._children = value
 
     @property
-    def completed(self) -> bool:
-        return self._completed
+    def children_coords(self) -> List:
+        return self._children_coords
 
-    @completed.setter
-    def completed(self, value: bool):
-        self._completed = value
+    @children_coords.setter
+    def children_coords(self, value: List):
+        self._children_coords = value        
 
-    def get_child(self, id: str) -> Union[ChunkTask, None]:
-        for child in self.children:
-            if child.id == id:
-                return child
-        return None
+    @property
+    def dependencies(self) -> int:
+        return self._dependencies
 
-    def add_child(self, child_chunk_task: ChunkTask):
-        self.children.append(child_chunk_task)
+    def remove_child(self, child_id: str) -> None:
+        self.children.remove(child_id)
+        self._dependencies -= 1
 
-    def add_children(self, child_chunk_tasks: List[ChunkTask]):
-        self.children += child_chunk_tasks
-
+    def add_child(self, child_id: str):
+        self.children.add(child_id)
+        self._dependencies += 1

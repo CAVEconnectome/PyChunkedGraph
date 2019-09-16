@@ -87,10 +87,8 @@ def ingest_into_chunkedgraph(
         agglomeration_dir=data_config["agglomeration_dir"],
     )
 
-    if layer < 3:
-        create_atomic_chunks(imanager)
-    else:
-        create_layer(imanager, layer)
+    # queue_atomic_tasks(imanager)
+    return imanager
 
 
 def create_layer(imanager, layer_id):
@@ -121,10 +119,10 @@ def create_layer(imanager, layer_id):
 @redis_job(REDIS_URL, INGEST_CHANNEL)
 def _create_layer(im_info, layer_id, child_chunk_coords):
     imanager = ingestionmanager.IngestionManager(**im_info)
-    imanager.cg.add_layer(layer_id, child_chunk_coords, n_threads=2)
+    return imanager.cg.add_layer(layer_id, child_chunk_coords, n_threads=2)
 
 
-def create_atomic_chunks(imanager):
+def queue_atomic_tasks(imanager):
     """ Creates all atomic chunks"""
     chunk_coords = list(imanager.chunk_coord_gen)
     np.random.shuffle(chunk_coords)
@@ -141,7 +139,7 @@ def create_atomic_chunks(imanager):
 
 @redis_job(REDIS_URL, INGEST_CHANNEL)
 def _create_atomic_chunk(im_info, chunk_coord):
-    """ helper for create_atomic_chunks """
+    """ helper for queue_atomic_tasks """
     imanager = ingestionmanager.IngestionManager(**im_info)
     return create_atomic_chunk(imanager, chunk_coord)
 
