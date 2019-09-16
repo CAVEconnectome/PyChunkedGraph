@@ -6,7 +6,9 @@ import os
 import functools
 
 import redis
+from rq import Queue
 
+# REDIS_SERVICE_HOST and REDIS_SERVICE_PORT are added by Kubernetes
 REDIS_HOST = os.environ.get("REDIS_SERVICE_HOST", "localhost")
 REDIS_PORT = os.environ.get("REDIS_SERVICE_PORT", "6379")
 REDIS_PASSWORD = os.environ.get("REDIS_PASSWORD", "dev")
@@ -33,3 +35,8 @@ def redis_job(redis_url, redis_channel):
         return wrapper
 
     return redis_job_decorator
+
+
+def get_rq_queue(queue):
+    connection = redis.Redis.from_url(REDIS_URL)
+    return Queue(queue, connection=connection)

@@ -28,6 +28,7 @@ from ..io.agglomeration import get_chunk_agglomeration, put_chunk_agglomeration
 
 ZSTD_LEVEL = 17
 INGEST_CHANNEL = "ingest"
+INGEST_QUEUE = "test"
 
 
 def ingest_into_chunkedgraph(
@@ -91,17 +92,8 @@ def ingest_into_chunkedgraph(
     return imanager
 
 
-def enqueue_parent_tasks(imanager, layer, child_chunk_coords):
-    current_app.test_q.enqueue(
-        _create_parent_chunk,
-        job_timeout="59m",
-        args=(imanager.get_serialized_info(), layer, child_chunk_coords),
-    )
-
-
 @redis_job(REDIS_URL, INGEST_CHANNEL)
-def _create_parent_chunk(im_info, layer, child_chunk_coords):
-    """ helper for enqueue_parent_tasks """
+def create_parent_chunk(im_info, layer, child_chunk_coords):
     imanager = ingestionmanager.IngestionManager(**im_info)
     return add_layer(imanager.cg, layer, child_chunk_coords)
 

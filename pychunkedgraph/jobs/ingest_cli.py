@@ -10,22 +10,25 @@ from flask.cli import AppGroup
 
 from .chunk_task import ChunkTask
 from ..ingest.ran_ingestion_v2 import INGEST_CHANNEL
+from ..ingest.ran_ingestion_v2 import INGEST_QUEUE
 from ..ingest.ran_ingestion_v2 import ingest_into_chunkedgraph
-from ..ingest.ran_ingestion_v2 import enqueue_parent_tasks
 from ..ingest.ran_ingestion_v2 import enqueue_atomic_tasks
+from ..ingest.ran_ingestion_v2 import create_parent_chunk
+from ..utils.redis import get_rq_queue
 
 ingest_cli = AppGroup("ingest")
 
 imanager = None
 task_count = 0
 tasks_cache_d = {}
-
-# redis = redis.Redis.from_url(app.config['REDIS_URL'])
-# test_q = Queue('test', connection=app.redis)
+task_q = get_rq_queue(INGEST_QUEUE)
 
 
 def handle_job_result(*args, **kwargs):
-    """handle worker return"""
+    """
+    handler function, listens to workers' return value
+    queues parent chunk tasks when children chunks are complete
+    """
     global tasks_cache_d, task_count
     task_id = args[0]["data"].decode("utf-8")
     task_count += 1
@@ -38,10 +41,15 @@ def handle_job_result(*args, **kwargs):
     if parent_id:
         parent_task = tasks_cache_d[parent_id]
         parent_task.remove_child(task_id)
-
         if parent_task.dependencies == 0:
-            enqueue_parent_tasks(
-                imanager, parent_task.layer, parent_task.children_coords
+            task_q.enqueue(
+                create_parent_chunk,
+                job_timeout="59m",
+                args=(
+                    imanager.get_serialized_info(),
+                    parent_task.layer,
+                    parent_task.children_coords,
+                ),
             )
 
 
