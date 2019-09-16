@@ -12,6 +12,7 @@ from .chunk_task import ChunkTask
 from ..ingest.ran_ingestion_v2 import INGEST_CHANNEL
 from ..ingest.ran_ingestion_v2 import ingest_into_chunkedgraph
 from ..ingest.ran_ingestion_v2 import enqueue_parent_tasks
+from ..ingest.ran_ingestion_v2 import enqueue_atomic_tasks
 
 ingest_cli = AppGroup("ingest")
 
@@ -23,11 +24,11 @@ tasks_cache_d = {}
 def handle_job_result(*args, **kwargs):
     """handle worker return"""
     global tasks_cache_d, task_count
-    task_id = args[0]["data"]
+    task_id = args[0]["data"].decode("utf-8")
     task_count += 1
 
-    with open(f"completed.txt", "w") as completed_f:
-        completed_f.write(str(task_count))
+    with open(f"completed.txt", "a") as completed_f:
+        completed_f.write(f"{task_id}\n")
 
     task = tasks_cache_d[task_id]
     parent_id = task.parent_id
@@ -42,10 +43,10 @@ def handle_job_result(*args, **kwargs):
 
 
 @ingest_cli.command("table")
-@click.argument("st_path", type=str)
-@click.argument("ws_path", type=str)
-@click.argument("cv_path", type=str)
-@click.argument("cg_table_id", type=str)
+# @click.argument("st_path", type=str)
+# @click.argument("ws_path", type=str)
+# @click.argument("cv_path", type=str)
+# @click.argument("cg_table_id", type=str)
 def run_ingest(cg_table_id=None):
     global imanager
     chunk_pubsub = current_app.redis.pubsub()
@@ -81,6 +82,8 @@ def run_ingest(cg_table_id=None):
         layer_counts[task.layer] += len(task.children)
         queue.extendleft(task.children)
     print(layer_counts, sum(layer_counts.values()))
+    enqueue_atomic_tasks(imanager)
+    return tasks_cache_d
 
 
 def init_ingest_cmds(app):

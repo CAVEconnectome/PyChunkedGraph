@@ -88,8 +88,6 @@ def ingest_into_chunkedgraph(
         use_raw_agglomeration_data=data_config["use_raw_agglomeration_data"],
         agglomeration_dir=data_config["agglomeration_dir"],
     )
-
-    enqueue_atomic_tasks(imanager)
     return imanager
 
 
