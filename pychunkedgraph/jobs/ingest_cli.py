@@ -20,6 +20,9 @@ imanager = None
 task_count = 0
 tasks_cache_d = {}
 
+# redis = redis.Redis.from_url(app.config['REDIS_URL'])
+# test_q = Queue('test', connection=app.redis)
+
 
 def handle_job_result(*args, **kwargs):
     """handle worker return"""
