@@ -15,9 +15,11 @@ import numpy.lib.recfunctions as rfn
 import zstandard as zstd
 from flask import current_app
 
-from ..utils.redis import redis_job, REDIS_URL
+
 from . import ingestionmanager, ingestion_utils as iu
 from .initialization.atomic_layer import add_atomic_edges
+from .initialization.abstract_layers import add_layer
+from ..utils.redis import redis_job, REDIS_URL
 from ..backend.definitions.edges import Edges, CX_CHUNK, TYPES as EDGE_TYPES
 from ..backend.utils import basetypes
 from ..io.edges import get_chunk_edges, put_chunk_edges
@@ -87,42 +89,26 @@ def ingest_into_chunkedgraph(
         agglomeration_dir=data_config["agglomeration_dir"],
     )
 
-    queue_atomic_tasks(imanager)
+    enqueue_atomic_tasks(imanager)
     return imanager
 
 
-def create_layer(imanager, layer_id):
-    child_chunk_coords = imanager.chunk_coords // imanager.cg.fan_out ** (layer_id - 3)
-    child_chunk_coords = child_chunk_coords.astype(np.int)
-    child_chunk_coords = np.unique(child_chunk_coords, axis=0)
-
-    parent_chunk_coords = child_chunk_coords // imanager.cg.fan_out
-    parent_chunk_coords = parent_chunk_coords.astype(np.int)
-    parent_chunk_coords, indices = np.unique(
-        parent_chunk_coords, axis=0, return_inverse=True
+def enqueue_parent_tasks(imanager, layer, child_chunk_coords):
+    current_app.test_q.enqueue(
+        _create_parent_chunk,
+        job_timeout="59m",
+        args=(imanager.get_serialized_info(), layer, child_chunk_coords),
     )
-
-    order = np.arange(len(parent_chunk_coords), dtype=np.int)
-    np.random.shuffle(order)
-
-    print(f"Chunk count: {len(order)}")
-    for parent_idx in order:
-        children = child_chunk_coords[indices == parent_idx]
-        current_app.test_q.enqueue(
-            _create_layer,
-            job_timeout="59m",
-            args=(imanager.get_serialized_info(), layer_id, children),
-        )
-    print(f"Queued jobs: {len(current_app.test_q)}")
 
 
 @redis_job(REDIS_URL, INGEST_CHANNEL)
-def _create_layer(im_info, layer_id, child_chunk_coords):
+def _create_parent_chunk(im_info, layer, child_chunk_coords):
+    """ helper for enqueue_parent_tasks """
     imanager = ingestionmanager.IngestionManager(**im_info)
-    return imanager.cg.add_layer(layer_id, child_chunk_coords, n_threads=2)
+    return add_layer(imanager.cg, layer, child_chunk_coords)
 
 
-def queue_atomic_tasks(imanager):
+def enqueue_atomic_tasks(imanager):
     """ Creates all atomic chunks"""
     chunk_coords = list(imanager.chunk_coord_gen)
     np.random.shuffle(chunk_coords)
@@ -139,7 +125,7 @@ def queue_atomic_tasks(imanager):
 
 @redis_job(REDIS_URL, INGEST_CHANNEL)
 def _create_atomic_chunk(im_info, chunk_coord):
-    """ helper for queue_atomic_tasks """
+    """ helper for enqueue_atomic_tasks """
     imanager = ingestionmanager.IngestionManager(**im_info)
     return create_atomic_chunk(imanager, chunk_coord)
 
@@ -152,7 +138,7 @@ def create_atomic_chunk(imanager, coord):
     chunk_edges_active, isolated_ids = _get_active_edges(
         imanager, coord, chunk_edges_all, mapping
     )
-    add_atomic_edges(imanager.cg, coord, chunk_edges_active, isolated=isolated_ids)
+    # add_atomic_edges(imanager.cg, coord, chunk_edges_active, isolated=isolated_ids)
     # to track workers completion, layer = 2
     return f"{2}_{'_'.join(map(str, coord))}"
 

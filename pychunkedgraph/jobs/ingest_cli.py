@@ -9,10 +9,13 @@ from flask import current_app
 from flask.cli import AppGroup
 
 from .chunk_task import ChunkTask
-from ..ingest.ran_ingestion_v2 import ingest_into_chunkedgraph
 from ..ingest.ran_ingestion_v2 import INGEST_CHANNEL
+from ..ingest.ran_ingestion_v2 import ingest_into_chunkedgraph
+from ..ingest.ran_ingestion_v2 import enqueue_parent_tasks
 
 ingest_cli = AppGroup("ingest")
+
+imanager = None
 task_count = 0
 tasks_cache_d = {}
 
@@ -20,23 +23,34 @@ tasks_cache_d = {}
 def handle_job_result(*args, **kwargs):
     """handle worker return"""
     global tasks_cache_d, task_count
-    result = np.frombuffer(args[0]["data"], dtype=np.int32)
-    layer = result[0]
+    task_id = args[0]["data"]
     task_count += 1
 
-    with open(f"completed_{layer}.txt", "w") as completed_f:
+    with open(f"completed.txt", "w") as completed_f:
         completed_f.write(str(task_count))
 
+    task = tasks_cache_d[task_id]
+    parent_id = task.parent_id
+    if parent_id:
+        parent_task = tasks_cache_d[parent_id]
+        parent_task.remove_child(task_id)
 
-# @ingest_cli.command("table")
-# @click.argument("st_path", type=str)
-# @click.argument("ws_path", type=str)
-# @click.argument("cv_path", type=str)
-# @click.argument("cg_table_id", type=str)
+        if parent_task.dependencies == 0:
+            enqueue_parent_tasks(
+                imanager, parent_task.layer, parent_task.children_coords
+            )
+
+
+@ingest_cli.command("table")
+@click.argument("st_path", type=str)
+@click.argument("ws_path", type=str)
+@click.argument("cv_path", type=str)
+@click.argument("cg_table_id", type=str)
 def run_ingest(cg_table_id=None):
-    # chunk_pubsub = current_app.redis.pubsub()
-    # chunk_pubsub.subscribe(**{INGEST_CHANNEL: handle_job_result})
-    # chunk_pubsub.run_in_thread(sleep_time=0.1)
+    global imanager
+    chunk_pubsub = current_app.redis.pubsub()
+    chunk_pubsub.subscribe(**{INGEST_CHANNEL: handle_job_result})
+    chunk_pubsub.run_in_thread(sleep_time=0.1)
 
     st_path = "gs://ranl/scratch/pinky100_ca_com/agg"
     ws_path = "gs://neuroglancer/pinky100_v0/ws/pinky100_ca_com"
@@ -57,7 +71,7 @@ def run_ingest(cg_table_id=None):
         layer=None,
         data_config=data_config,
     )
-    root_task = _build_job_hierarchy(imanager)
+    root_task = _build_job_hierarchy()
     queue = deque([root_task.id])
     layer_counts = defaultdict(int)
 
@@ -73,7 +87,7 @@ def init_ingest_cmds(app):
     app.cli.add_command(ingest_cli)
 
 
-def _build_job_hierarchy(imanager):
+def _build_job_hierarchy():
     global tasks_cache_d
     root_task = ChunkTask(imanager.n_layers, np.array([0, 0, 0]))
     tasks_cache_d[root_task.id] = root_task
@@ -81,11 +95,11 @@ def _build_job_hierarchy(imanager):
     start_layer = imanager.n_layers
     stop_layer = 2
     for layer in range(start_layer, stop_layer, -1):
-        _build_layer(imanager, layer)
+        _build_layer(layer)
     return root_task
 
 
-def _build_layer(imanager, layer):
+def _build_layer(layer):
     global tasks_cache_d
     layer_children_coords = imanager.chunk_coords // imanager.cg.fan_out ** (layer - 3)
     layer_children_coords = layer_children_coords.astype(np.int)
