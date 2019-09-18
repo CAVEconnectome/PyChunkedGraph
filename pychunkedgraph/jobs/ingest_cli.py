@@ -20,7 +20,7 @@ ingest_cli = AppGroup("ingest")
 
 imanager = None
 task_count = 0
-tasks_cache_d = {}
+tasks_d = {}
 task_q = get_rq_queue(INGEST_QUEUE)
 
 
@@ -29,17 +29,17 @@ def handle_job_result(*args, **kwargs):
     handler function, listens to workers' return value
     queues parent chunk tasks when children chunks are complete
     """
-    global tasks_cache_d, task_count
+    global tasks_d, task_count
     task_id = args[0]["data"].decode("utf-8")
     task_count += 1
 
     with open(f"completed.txt", "a") as completed_f:
         completed_f.write(f"{task_id}\n")
 
-    task = tasks_cache_d[task_id]
+    task = tasks_d[task_id]
     parent_id = task.parent_id
     if parent_id:
-        parent_task = tasks_cache_d[parent_id]
+        parent_task = tasks_d[parent_id]
         parent_task.remove_child(task_id)
         if parent_task.dependencies == 0:
             task_q.enqueue(
@@ -67,13 +67,13 @@ def run_ingest(cg_table_id=None):
     st_path = "gs://ranl/scratch/pinky100_ca_com/agg"
     ws_path = "gs://neuroglancer/pinky100_v0/ws/pinky100_ca_com"
     cv_path = "gs://akhilesh-pcg"
-    cg_table_id = "akhilesh-pinky100-2"
+    cg_table_id = "akhilesh-pinky100-3"
 
     data_config = {
         "edge_dir": f"{cv_path}/akhilesh-pinky100-1/edges",
-        "agglomeration_dir": f"{cv_path}/{cg_table_id}/agglomeration",
+        "agglomeration_dir": f"{cv_path}/akhilesh-pinky100-2/agglomeration",
         "use_raw_edge_data": False,
-        "use_raw_agglomeration_data": True,
+        "use_raw_agglomeration_data": False,
     }
 
     imanager = ingest_into_chunkedgraph(
@@ -89,12 +89,13 @@ def run_ingest(cg_table_id=None):
 
     while queue:
         task_id = queue.pop()
-        task = tasks_cache_d[task_id]
+        task = tasks_d[task_id]
         layer_counts[task.layer] += len(task.children)
         queue.extendleft(task.children)
-    print(layer_counts, sum(layer_counts.values()))
+    print(layer_counts)
+    print(f"total jobs {sum(layer_counts.values())}")
     enqueue_atomic_tasks(imanager)
-    return tasks_cache_d
+    return tasks_d
 
 
 def init_ingest_cmds(app):
@@ -102,9 +103,9 @@ def init_ingest_cmds(app):
 
 
 def _build_job_hierarchy():
-    global tasks_cache_d
+    global tasks_d
     root_task = ChunkTask(imanager.n_layers, np.array([0, 0, 0]))
-    tasks_cache_d[root_task.id] = root_task
+    tasks_d[root_task.id] = root_task
 
     start_layer = imanager.n_layers
     stop_layer = 2
@@ -114,7 +115,7 @@ def _build_job_hierarchy():
 
 
 def _build_layer(layer):
-    global tasks_cache_d
+    global tasks_d
     layer_children_coords = imanager.chunk_coords // imanager.cg.fan_out ** (layer - 3)
     layer_children_coords = layer_children_coords.astype(np.int)
     layer_children_coords = np.unique(layer_children_coords, axis=0)
@@ -128,10 +129,10 @@ def _build_layer(layer):
     for parent_idx in parent_indices:
         parent_coords = layer_parents_coords[parent_idx]
         parent_id = ChunkTask.get_id(layer, parent_coords)
-        parent_task = tasks_cache_d[parent_id]
+        parent_task = tasks_d[parent_id]
         children_coords = layer_children_coords[indices == parent_idx]
         parent_task.children_coords = children_coords
         for child_coords in children_coords:
             child = ChunkTask(layer - 1, child_coords, parent_id=parent_id)
-            tasks_cache_d[child.id] = child
+            tasks_d[child.id] = child
             parent_task.add_child(child.id)

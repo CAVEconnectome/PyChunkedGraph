@@ -44,6 +44,6 @@ def get_chunk_agglomeration(agglomeration_dir, chunk_coord) -> Dict:
         if not content:
             return {}
         mapping_message = ChunkMappingMsg()
-        mapping_message.ParseFromString()
+        mapping_message.ParseFromString(content)
         return deserialize(mapping_message)
 

@@ -23,34 +23,33 @@ def add_layer(
 ) -> None:
 
     x, y, z = np.min(chunk_coords, axis=0) // cg_instance.fan_out
-    return f"{layer_id}_{'_'.join(map(str, (x, y, z)))}"
-
-    # parent_chunk_id = cg_instance.get_chunk_id(layer=layer_id, x=x, y=y, z=z)
-    # cross_edge_dict, child_ids = _process_chunks(cg_instance, layer_id, chunk_coords)
-    # edge_ids = _resolve_cross_chunk_edges_thread(layer_id, child_ids, cross_edge_dict)
-
-    # # Extract connected components
-    # isolated_node_mask = ~np.in1d(child_ids, np.unique(edge_ids))
-    # add_node_ids = child_ids[isolated_node_mask].squeeze()
-    # add_edge_ids = np.vstack([add_node_ids, add_node_ids]).T
-    # edge_ids.extend(add_edge_ids)
-
-    # graph, _, _, graph_ids = flatgraph_utils.build_gt_graph(
-    #     edge_ids, make_directed=True
-    # )
-
-    # ccs = flatgraph_utils.connected_components(graph)
-    # _write_out_connected_components(
-    #     cg_instance,
-    #     layer_id,
-    #     parent_chunk_id,
-    #     ccs,
-    #     cross_edge_dict,
-    #     graph_ids,
-    #     time_stamp,
-    # )
-    # # to track worker completion
     # return f"{layer_id}_{'_'.join(map(str, (x, y, z)))}"
+    parent_chunk_id = cg_instance.get_chunk_id(layer=layer_id, x=x, y=y, z=z)
+    cross_edge_dict, child_ids = _process_chunks(cg_instance, layer_id, chunk_coords)
+    edge_ids = _resolve_cross_chunk_edges_thread(layer_id, child_ids, cross_edge_dict)
+
+    # Extract connected components
+    isolated_node_mask = ~np.in1d(child_ids, np.unique(edge_ids))
+    add_node_ids = child_ids[isolated_node_mask].squeeze()
+    add_edge_ids = np.vstack([add_node_ids, add_node_ids]).T
+    edge_ids.extend(add_edge_ids)
+
+    graph, _, _, graph_ids = flatgraph_utils.build_gt_graph(
+        edge_ids, make_directed=True
+    )
+
+    ccs = flatgraph_utils.connected_components(graph)
+    _write_out_connected_components(
+        cg_instance,
+        layer_id,
+        parent_chunk_id,
+        ccs,
+        cross_edge_dict,
+        graph_ids,
+        time_stamp,
+    )
+    # to track worker completion
+    return f"{layer_id}_{'_'.join(map(str, (x, y, z)))}"
 
 
 def _process_chunks(cg_instance, layer_id, chunk_coords):
