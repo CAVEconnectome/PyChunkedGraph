@@ -30,11 +30,12 @@ def handle_job_result(*args, **kwargs):
     queues parent chunk tasks when children chunks are complete
     """
     global tasks_d, task_count
-    task_id = args[0]["data"].decode("utf-8")
+    return_vals = args[0]["data"].decode("utf-8").split(",")
+    task_id = return_vals[0]
     task_count += 1
 
     with open(f"completed.txt", "a") as completed_f:
-        completed_f.write(f"{task_id}\n")
+        completed_f.write(f"{args[0]['data'].decode('utf-8')}\n")
 
     task = tasks_d[task_id]
     parent_id = task.parent_id

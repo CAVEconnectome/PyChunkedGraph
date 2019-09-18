@@ -129,8 +129,16 @@ def create_atomic_chunk(imanager, coord):
         imanager, coord, chunk_edges_all, mapping
     )
     add_atomic_edges(imanager.cg, coord, chunk_edges_active, isolated=isolated_ids)
-    # to track workers completion, layer = 2
-    return f"{2}_{'_'.join(map(str, coord))}"
+
+    n_supervoxels = len(isolated_ids)
+    n_edges = 0
+    for edge_type in EDGE_TYPES:
+        edges = chunk_edges_all[edge_type]
+        n_edges += len(edges)
+        n_supervoxels += len(np.unique(edges.ravel()))
+    return ",".join(
+        map(str, [f"{2}_{'_'.join(map(str, coord))}", n_supervoxels, n_edges])
+    )
 
 
 def _get_chunk_data(imanager, coord) -> Tuple[Dict, Dict]:
