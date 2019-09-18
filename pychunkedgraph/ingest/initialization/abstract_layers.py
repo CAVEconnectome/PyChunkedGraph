@@ -59,7 +59,7 @@ def _process_chunks(cg_instance, layer_id, chunk_coords):
         ids, cross_edge_d = _process_chunk(cg_instance, layer_id, chunk_coord)
         node_ids.append(ids)
         cross_edge_dict = {**cross_edge_dict, **cross_edge_d}
-    return cross_edge_dict, np.concatenate(node_ids, dtype=np.uint64)
+    return cross_edge_dict, np.concatenate(node_ids)
 
 
 def _process_chunk(cg_instance, layer_id, chunk_coord):
@@ -113,6 +113,7 @@ def _read_chunk(cg_instance, layer_id, chunk_coord):
 
 
 def _resolve_cross_chunk_edges_thread(layer_id, node_ids, cross_edge_dict) -> None:
+    cross_edge_dict = defaultdict(dict, cross_edge_dict)
     atomic_partner_id_dict = {}
     atomic_child_id_dict_pairs = []
     for node_id in node_ids:
