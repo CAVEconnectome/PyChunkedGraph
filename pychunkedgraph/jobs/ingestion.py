@@ -15,6 +15,9 @@ from ..ingest.ran_ingestion_v2 import ingest_into_chunkedgraph
 from ..ingest.ran_ingestion_v2 import enqueue_atomic_tasks
 from ..ingest.ran_ingestion_v2 import create_parent_chunk
 from ..utils.redis import get_rq_queue
+from ..backend.definitions.config import DataSource
+from ..backend.definitions.config import GraphConfig
+from ..backend.definitions.config import BigTableConfig
 
 ingest_cli = AppGroup("ingest")
 
