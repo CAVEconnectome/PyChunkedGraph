@@ -248,11 +248,8 @@ def _collect_edge_data(imanager, chunk_coord):
     :return: dict of np.ndarrays
     """
     subfolder = "chunked_rg"
-
     base_path = f"{imanager.storage_path}/{subfolder}/"
-
     chunk_coord = np.array(chunk_coord)
-
     chunk_id = imanager.cg.get_chunk_id(
         layer=1, x=chunk_coord[0], y=chunk_coord[1], z=chunk_coord[2]
     )
