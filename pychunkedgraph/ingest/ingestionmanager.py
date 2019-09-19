@@ -143,7 +143,7 @@ class IngestionManager(object):
 
         return info
 
-    def is_out_of_bounce(self, chunk_coordinate):
+    def is_out_of_bounds(self, chunk_coordinate):
         return np.any(chunk_coordinate < 0) or np.any(
             chunk_coordinate > 2 ** self.cg.bitmasks[1]
         )

@@ -37,6 +37,9 @@ ZSTD_LEVEL = 17
 INGEST_CHANNEL = "ingest"
 INGEST_QUEUE = "test"
 
+# TODO make sure to generate edges and mappings only once
+# add option in data config
+
 
 def ingest_into_chunkedgraph(
     data_source: DataSource, graph_config: GraphConfig, big_table_config: BigTableConfig
@@ -211,7 +214,7 @@ def _get_cont_chunk_coords(imanager, chunk_coord_a, chunk_coord_b):
             continue
 
         c_chunk_coord = chunk_coord_l + np.array([dx, dy, dz])
-        if imanager.is_out_of_bounce(c_chunk_coord):
+        if imanager.is_out_of_bounds(c_chunk_coord):
             continue
         c_chunk_coords.append(c_chunk_coord)
 
@@ -237,22 +240,19 @@ def _collect_edge_data(imanager, chunk_coord):
 
     filenames = collections.defaultdict(list)
     swap = collections.defaultdict(list)
-    for x in [chunk_coord[0] - 1, chunk_coord[0]]:
-        for y in [chunk_coord[1] - 1, chunk_coord[1]]:
-            for z in [chunk_coord[2] - 1, chunk_coord[2]]:
 
-                if imanager.is_out_of_bounce(np.array([x, y, z])):
-                    continue
-
-                # EDGES WITHIN CHUNKS
-                filename = f"in_chunk_0_{x}_{y}_{z}_{chunk_id}.data"
-                filenames["in"].append(filename)
+    x,y,z = chunk_coord
+    for _x, _y, _z in itertools.product([x-1, x], [y-1, y], [z-1, z]):
+        if imanager.is_out_of_bounds(np.array([_x, _y, _z])):
+            continue
+        # EDGES WITHIN CHUNKS
+        filename = f"in_chunk_0_{_x}_{_y}_{_z}_{chunk_id}.data"
+        filenames["in"].append(filename)        
 
     for d in [-1, 1]:
         for dim in range(3):
             diff = np.zeros([3], dtype=np.int)
             diff[dim] = d
-
             adjacent_chunk_coord = chunk_coord + diff
             adjacent_chunk_id = compute_chunk_id(
                 layer=1,
@@ -261,9 +261,8 @@ def _collect_edge_data(imanager, chunk_coord):
                 z=adjacent_chunk_coord[2],
             )
 
-            if imanager.is_out_of_bounce(adjacent_chunk_coord):
+            if imanager.is_out_of_bounds(adjacent_chunk_coord):
                 continue
-
             c_chunk_coords = _get_cont_chunk_coords(
                 imanager, chunk_coord, adjacent_chunk_coord
             )
@@ -274,36 +273,24 @@ def _collect_edge_data(imanager, chunk_coord):
 
             for c_chunk_coord in c_chunk_coords:
                 x, y, z = c_chunk_coord
-
                 # EDGES BETWEEN CHUNKS
                 filename = f"between_chunks_0_{x}_{y}_{z}_{chunk_id_string}.data"
                 filenames["between"].append(filename)
-
                 swap[filename] = larger_id == chunk_id
 
                 # EDGES FROM CUTS OF SVS
                 filename = f"fake_0_{x}_{y}_{z}_{chunk_id_string}.data"
                 filenames["cross"].append(filename)
-
                 swap[filename] = larger_id == chunk_id
 
     edge_data = {}
     read_counter = collections.Counter()
-
     for k in filenames:
-        # print(k, len(filenames[k]))
-
         with cloudvolume.Storage(base_path, n_threads=10) as stor:
             files = stor.get_files(filenames[k])
-
         data = []
         for file in files:
-            if file["content"] is None:
-                # print(f"{file['filename']} not created or empty")
-                continue
-
-            if file["error"] is not None:
-                # print(f"error reading {file['filename']}")
+            if file["error"] or file["content"] is None:
                 continue
 
             if swap[file["filename"]]:
@@ -316,9 +303,7 @@ def _collect_edge_data(imanager, chunk_coord):
                 content = np.frombuffer(file["content"], dtype=imanager.edge_dtype)
 
             data.append(content)
-
             read_counter[k] += 1
-
         try:
             edge_data[k] = rfn.stack_arrays(data, usemask=False)
         except:
@@ -339,21 +324,15 @@ def _read_agg_files(filenames, base_path):
 
     edge_list = []
     for file in files:
-        if file["content"] is None:
+        if file["error"] or file["content"] is None:
             continue
-
-        if file["error"] is not None:
-            continue
-
         content = zstd.ZstdDecompressor().decompressobj().decompress(file["content"])
         edge_list.append(np.frombuffer(content, dtype=basetypes.NODE_ID).reshape(-1, 2))
-
     return edge_list
 
 
 def _read_raw_agglomeration_data(imanager, chunk_coord):
     """ Collects agglomeration information & builds connected component mapping
-
     :param imanager: IngestionManager
     :param chunk_coord: np.ndarray
         array of three ints
@@ -410,7 +389,6 @@ def _define_active_edges(edge_dict, mapping):
         bool arrays; True: connected (within same segment)
         isolated node ids
     """
-
     def _mapping_default(key):
         if key in mapping:
             return mapping[key]
@@ -418,7 +396,6 @@ def _define_active_edges(edge_dict, mapping):
             return -1
 
     mapping_vec = np.vectorize(_mapping_default)
-
     active = {}
     isolated = [[]]
     for k in edge_dict:
@@ -430,17 +407,13 @@ def _define_active_edges(edge_dict, mapping):
             continue
 
         agg_id_2 = mapping_vec(edge_dict[k].node_ids2)
-
         active[k] = agg_id_1 == agg_id_2
-
         # Set those with two -1 to False
         agg_1_m = agg_id_1 == -1
         agg_2_m = agg_id_2 == -1
         active[k][agg_1_m] = False
 
         isolated.append(edge_dict[k].node_ids1[agg_1_m])
-
         if k == "in":
             isolated.append(edge_dict[k].node_ids2[agg_2_m])
-
     return active, np.unique(np.concatenate(isolated).astype(basetypes.NODE_ID))
