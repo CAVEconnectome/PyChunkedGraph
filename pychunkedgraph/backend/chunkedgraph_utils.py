@@ -221,3 +221,28 @@ def get_valid_timestamp(timestamp):
     # Comply to resolution of BigTables TimeRange
     return get_google_compatible_time_stamp(timestamp, round_up=False)
 
+
+def compute_chunk_id(
+    n_bits_per_dim,
+    n_bits_layer_id,
+    layer: int = None,
+    x: int = None,
+    y: int = None,
+    z: int = None,
+):
+    if not (
+        x < 2 ** n_bits_per_dim and y < 2 ** n_bits_per_dim and z < 2 ** n_bits_per_dim
+    ):
+        raise ValueError(
+            f"Coordinate is out of range \
+            layer: {layer} bits/dim {n_bits_per_dim}. \
+            [{x}, {y}, {z}]; max = {2 ** n_bits_per_dim}."
+        )
+    layer_offset = 64 - n_bits_layer_id
+    x_offset = layer_offset - n_bits_per_dim
+    y_offset = x_offset - n_bits_per_dim
+    z_offset = y_offset - n_bits_per_dim
+    return np.uint64(
+        layer << layer_offset | x << x_offset | y << y_offset | z << z_offset
+    )
+

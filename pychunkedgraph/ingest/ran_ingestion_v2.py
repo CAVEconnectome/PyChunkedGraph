@@ -24,7 +24,8 @@ from ..io.edges import put_chunk_edges
 from ..io.agglomeration import get_chunk_agglomeration
 from ..io.agglomeration import put_chunk_agglomeration
 from ..backend.utils import basetypes
-from ..backend.utils.general import calculate_chunk_id
+from ..backend.chunkedgraph_utils import compute_bitmasks
+from ..backend.chunkedgraph_utils import compute_chunk_id
 from ..backend.definitions.edges import Edges, CX_CHUNK
 from ..backend.definitions.edges import TYPES as EDGE_TYPES
 from ..backend.definitions.config import DataSource
@@ -230,7 +231,7 @@ def _collect_edge_data(imanager, chunk_coord):
     subfolder = "chunked_rg"
     base_path = f"{imanager.storage_path}/{subfolder}/"
     chunk_coord = np.array(chunk_coord)
-    chunk_id = imanager.cg.calculate_chunk_id(
+    chunk_id = compute_chunk_id(
         layer=1, x=chunk_coord[0], y=chunk_coord[1], z=chunk_coord[2]
     )
 
@@ -253,7 +254,7 @@ def _collect_edge_data(imanager, chunk_coord):
             diff[dim] = d
 
             adjacent_chunk_coord = chunk_coord + diff
-            adjacent_chunk_id = imanager.cg.calculate_chunk_id(
+            adjacent_chunk_id = compute_chunk_id(
                 layer=1,
                 x=adjacent_chunk_coord[0],
                 y=adjacent_chunk_coord[1],
@@ -361,7 +362,7 @@ def _read_raw_agglomeration_data(imanager, chunk_coord):
     subfolder = "remap"
     base_path = f"{imanager.storage_path}/{subfolder}/"
     chunk_coord = np.array(chunk_coord)
-    chunk_id = imanager.cg.calculate_chunk_id(
+    chunk_id = compute_chunk_id(
         layer=1, x=chunk_coord[0], y=chunk_coord[1], z=chunk_coord[2]
     )
 
@@ -375,7 +376,7 @@ def _read_raw_agglomeration_data(imanager, chunk_coord):
             diff = np.zeros([3], dtype=np.int)
             diff[dim] = d
             adjacent_chunk_coord = chunk_coord + diff
-            adjacent_chunk_id = imanager.cg.calculate_chunk_id(
+            adjacent_chunk_id = compute_chunk_id(
                 layer=1,
                 x=adjacent_chunk_coord[0],
                 y=adjacent_chunk_coord[1],

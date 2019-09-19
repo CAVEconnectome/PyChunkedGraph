@@ -49,6 +49,7 @@ from .chunkedgraph_utils import (
     combine_cross_chunk_edge_dicts,
     get_min_time,
     partial_row_data_to_column_dict,
+    compute_chunk_id,
 )
 from .utils import serializers, column_keys, row_keys, basetypes
 from .graphoperation import (
@@ -64,7 +65,6 @@ from .definitions.agglomeration import Agglomeration
 from .utils.edge_utils import concatenate_chunk_edges
 from .utils.edge_utils import filter_edges
 from .utils.edge_utils import get_active_edges
-from .utils.general import calculate_chunk_id
 from ..io.edges import get_chunk_edges
 
 
@@ -489,7 +489,7 @@ class ChunkedGraph(object):
         if node_id is not None:
             chunk_offset = 64 - self._n_bits_for_layer_id - 3 * bits_per_dim
             return np.uint64((int(node_id) >> chunk_offset) << chunk_offset)
-        return calculate_chunk_id(
+        return compute_chunk_id(
             bits_per_dim, self._n_bits_for_layer_id, layer, x, y, z
         )
 
