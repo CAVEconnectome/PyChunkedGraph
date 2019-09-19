@@ -389,13 +389,7 @@ def _define_active_edges(edge_dict, mapping):
         bool arrays; True: connected (within same segment)
         isolated node ids
     """
-    def _mapping_default(key):
-        if key in mapping:
-            return mapping[key]
-        else:
-            return -1
-
-    mapping_vec = np.vectorize(_mapping_default)
+    mapping_vec = np.vectorize(lambda k: mapping.get(k, -1))
     active = {}
     isolated = [[]]
     for k in edge_dict:
