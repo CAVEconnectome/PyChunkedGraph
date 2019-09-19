@@ -79,7 +79,6 @@ def initialize_chunkedgraph(cg_table_id, ws_cv_path, chunk_size, size,
         kwargs["project_id"] = project_id
 
     cg = chunkedgraph.ChunkedGraph(**kwargs)
-
     return cg, n_layers_agg
 
 

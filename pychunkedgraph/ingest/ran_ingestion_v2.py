@@ -20,8 +20,9 @@ from . import ingestionmanager, ingestion_utils as iu
 from .initialization.atomic_layer import add_atomic_edges
 from .initialization.abstract_layers import add_layer
 from ..utils.redis import redis_job, REDIS_URL
-from ..backend.definitions.edges import Edges, CX_CHUNK, TYPES as EDGE_TYPES
 from ..backend.utils import basetypes
+from ..backend.utils.general import calculate_chunk_id
+from ..backend.definitions.edges import Edges, CX_CHUNK, TYPES as EDGE_TYPES
 from ..io.edges import get_chunk_edges, put_chunk_edges
 from ..io.agglomeration import get_chunk_agglomeration, put_chunk_agglomeration
 
@@ -250,7 +251,7 @@ def _collect_edge_data(imanager, chunk_coord):
     subfolder = "chunked_rg"
     base_path = f"{imanager.storage_path}/{subfolder}/"
     chunk_coord = np.array(chunk_coord)
-    chunk_id = imanager.cg.get_chunk_id(
+    chunk_id = imanager.cg.calculate_chunk_id(
         layer=1, x=chunk_coord[0], y=chunk_coord[1], z=chunk_coord[2]
     )
 
@@ -273,7 +274,7 @@ def _collect_edge_data(imanager, chunk_coord):
             diff[dim] = d
 
             adjacent_chunk_coord = chunk_coord + diff
-            adjacent_chunk_id = imanager.cg.get_chunk_id(
+            adjacent_chunk_id = imanager.cg.calculate_chunk_id(
                 layer=1,
                 x=adjacent_chunk_coord[0],
                 y=adjacent_chunk_coord[1],
@@ -381,7 +382,7 @@ def _read_raw_agglomeration_data(imanager, chunk_coord):
     subfolder = "remap"
     base_path = f"{imanager.storage_path}/{subfolder}/"
     chunk_coord = np.array(chunk_coord)
-    chunk_id = imanager.cg.get_chunk_id(
+    chunk_id = imanager.cg.calculate_chunk_id(
         layer=1, x=chunk_coord[0], y=chunk_coord[1], z=chunk_coord[2]
     )
 
@@ -395,7 +396,7 @@ def _read_raw_agglomeration_data(imanager, chunk_coord):
             diff = np.zeros([3], dtype=np.int)
             diff[dim] = d
             adjacent_chunk_coord = chunk_coord + diff
-            adjacent_chunk_id = imanager.cg.get_chunk_id(
+            adjacent_chunk_id = imanager.cg.calculate_chunk_id(
                 layer=1,
                 x=adjacent_chunk_coord[0],
                 y=adjacent_chunk_coord[1],
