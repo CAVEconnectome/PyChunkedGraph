@@ -15,16 +15,21 @@ import numpy.lib.recfunctions as rfn
 import zstandard as zstd
 from flask import current_app
 
-
 from . import ingestionmanager, ingestion_utils as iu
 from .initialization.atomic_layer import add_atomic_edges
 from .initialization.abstract_layers import add_layer
 from ..utils.redis import redis_job, REDIS_URL
+from ..io.edges import get_chunk_edges
+from ..io.edges import put_chunk_edges
+from ..io.agglomeration import get_chunk_agglomeration
+from ..io.agglomeration import put_chunk_agglomeration
 from ..backend.utils import basetypes
 from ..backend.utils.general import calculate_chunk_id
-from ..backend.definitions.edges import Edges, CX_CHUNK, TYPES as EDGE_TYPES
-from ..io.edges import get_chunk_edges, put_chunk_edges
-from ..io.agglomeration import get_chunk_agglomeration, put_chunk_agglomeration
+from ..backend.definitions.edges import Edges, CX_CHUNK
+from ..backend.definitions.edges import TYPES as EDGE_TYPES
+from ..backend.definitions.config import DataSource
+from ..backend.definitions.config import GraphConfig
+from ..backend.definitions.config import BigTableConfig
 
 
 ZSTD_LEVEL = 17
@@ -33,62 +38,38 @@ INGEST_QUEUE = "test"
 
 
 def ingest_into_chunkedgraph(
-    storage_path,
-    ws_cv_path,
-    cg_table_id,
-    chunk_size=[512, 512, 128],
-    use_skip_connections=True,
-    fan_out=2,
-    size=None,
-    instance_id=None,
-    project_id=None,
-    layer=2,
-    n_chunks=None,
-    is_new: bool = True,
-    data_config: Dict = None,
+    data_source: DataSource, graph_config: GraphConfig, big_table_config: BigTableConfig
 ):
-    """
-    :param data_config:
-    :type Dict:
-        `data_config` can have the following keys.
-        Use these options to use either raw data or 
-        processed data when building the chunkedgraph
-        edge_dir=None,
-        agglomeration_dir=None,
-        use_raw_edge_data=True,
-        use_raw_agglomeration_data=True
-    """
-    storage_path = storage_path.strip("/")
-    ws_cv_path = ws_cv_path.strip("/")
-
-    cg_mesh_dir = f"{cg_table_id}_meshes"
-    chunk_size = np.array(chunk_size)
+    storage_path = data_source.agglomeration.strip("/")
+    ws_cv_path = data_source.watershed.strip("/")
+    cg_mesh_dir = f"{graph_config.graph_id}_meshes"
+    chunk_size = np.array(graph_config.chunk_size)
 
     _, n_layers_agg = iu.initialize_chunkedgraph(
-        cg_table_id=cg_table_id,
+        cg_table_id=graph_config.cg_table_id,
         ws_cv_path=ws_cv_path,
         chunk_size=chunk_size,
-        size=size,
-        use_skip_connections=use_skip_connections,
+        size=graph_config.size,
+        use_skip_connections=True,
         s_bits_atomic_layer=10,
         cg_mesh_dir=cg_mesh_dir,
-        fan_out=fan_out,
-        instance_id=instance_id,
-        project_id=project_id,
-        edge_dir=data_config["edge_dir"],
-        is_new=is_new,
+        fan_out=graph_config.fan_out,
+        instance_id=big_table_config.instance_id,
+        project_id=big_table_config.project_id,
+        edge_dir=data_source.edges,
+        is_new=graph_config.is_new,
     )
 
     imanager = ingestionmanager.IngestionManager(
         storage_path=storage_path,
-        cg_table_id=cg_table_id,
+        cg_table_id=graph_config.graph_id,
         n_layers=n_layers_agg,
-        instance_id=instance_id,
-        project_id=project_id,
+        instance_id=big_table_config.instance_id,
+        project_id=big_table_config.project_id,
         data_version=4,
-        use_raw_edge_data=data_config["use_raw_edge_data"],
-        use_raw_agglomeration_data=data_config["use_raw_agglomeration_data"],
-        agglomeration_dir=data_config["agglomeration_dir"],
+        agglomeration_dir=data_source.components,
+        use_raw_edge_data=(data_source.edges == None),
+        use_raw_agglomeration_data=(data_source.components == None),
     )
     return imanager
 
@@ -103,7 +84,6 @@ def enqueue_atomic_tasks(imanager):
     """ Creates all atomic chunks"""
     chunk_coords = list(imanager.chunk_coord_gen)
     np.random.shuffle(chunk_coords)
-
     print(f"Chunk count: {len(chunk_coords)}")
     for chunk_coord in chunk_coords:
         current_app.test_q.enqueue(
@@ -124,7 +104,6 @@ def _create_atomic_chunk(im_info, chunk_coord):
 def create_atomic_chunk(imanager, coord):
     """ Creates single atomic chunk"""
     coord = np.array(list(coord), dtype=np.int)
-
     chunk_edges_all, mapping = _get_chunk_data(imanager, coord)
     chunk_edges_active, isolated_ids = _get_active_edges(
         imanager, coord, chunk_edges_all, mapping
