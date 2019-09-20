@@ -21,8 +21,8 @@ from .initialization.abstract_layers import add_layer
 from ..utils.redis import redis_job, REDIS_URL
 from ..io.edges import get_chunk_edges
 from ..io.edges import put_chunk_edges
-from ..io.agglomeration import get_chunk_agglomeration
-from ..io.agglomeration import put_chunk_agglomeration
+from ..io.components import get_chunk_components
+from ..io.components import put_chunk_components
 from ..backend.utils import basetypes
 from ..backend.chunkedgraph_utils import compute_bitmasks
 from ..backend.chunkedgraph_utils import compute_chunk_id
@@ -138,7 +138,7 @@ def _get_chunk_data(imanager, coord) -> Tuple[Dict, Dict]:
     mapping = (
         _read_raw_agglomeration_data(imanager, coord)
         if imanager.use_raw_agglomeration_data
-        else get_chunk_agglomeration(imanager.agglomeration_dir, coord)
+        else get_chunk_components(imanager.agglomeration_dir, coord)
     )
     return chunk_edges, mapping
 
@@ -360,7 +360,7 @@ def _read_raw_agglomeration_data(imanager, chunk_coord):
         mapping.update(dict(zip(cc, [i_cc] * len(cc))))
 
     if mapping:
-        put_chunk_agglomeration(imanager.agglomeration_dir, mapping, chunk_coord)
+        put_chunk_components(imanager.agglomeration_dir, mapping, chunk_coord)
     return mapping
 
 
