@@ -4,20 +4,20 @@ from typing import Dict
 import numpy as np
 from cloudvolume.storage import SimpleStorage
 
-from .protobuf.chunkMapping_pb2 import ChunkMappingMsg
+from .protobuf.chunkComponents_pb2 import ChunkComponentsMsg
 from ..backend.utils import basetypes
 
 
-def serialize(mapping: Dict) -> ChunkMappingMsg:
+def serialize(mapping: Dict) -> ChunkComponentsMsg:
     supervoxels = np.array(list(mapping.keys()), dtype=basetypes.NODE_ID)
     components = np.array(list(mapping.values()), dtype=int)
-    components_message = ChunkMappingMsg()
+    components_message = ChunkComponentsMsg()
     components_message.supervoxels = supervoxels.tobytes()
     components_message.components = components.tobytes()
     return components_message
 
 
-def deserialize(components_message: ChunkMappingMsg) -> Dict:
+def deserialize(components_message: ChunkComponentsMsg) -> Dict:
     supervoxels = np.frombuffer(components_message.supervoxels, basetypes.NODE_ID)
     components = np.frombuffer(components_message.components, basetypes.NODE_ID)
     return dict(zip(supervoxels, components))
@@ -43,7 +43,7 @@ def get_chunk_components(agglomeration_dir, chunk_coord) -> Dict:
         content = storage.get_file(file_name)
         if not content:
             return {}
-        components_message = ChunkMappingMsg()
+        components_message = ChunkComponentsMsg()
         components_message.ParseFromString(content)
         return deserialize(components_message)
 
