@@ -118,7 +118,8 @@ def create_atomic_chunk(imanager, coord):
     for edge_type in EDGE_TYPES:
         edges = chunk_edges_all[edge_type]
         n_edges += len(edges)
-        n_supervoxels += len(np.unique(edges.ravel()))
+        supervoxels = np.concatenate([edges.node_ids1, edges.node_ids2])
+        n_supervoxels += len(supervoxels)
     return ",".join(
         map(str, [f"{2}_{'_'.join(map(str, coord))}", n_supervoxels, n_edges])
     )
