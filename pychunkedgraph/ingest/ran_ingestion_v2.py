@@ -70,7 +70,7 @@ def ingest_into_chunkedgraph(
         instance_id=bigtable_config.instance_id,
         project_id=bigtable_config.project_id,
         data_version=4,
-        agglomeration_dir=data_source.components,
+        components_dir=data_source.components,
         use_raw_edge_data=(data_source.edges == None),
         use_raw_agglomeration_data=(data_source.components == None),
     )
@@ -118,8 +118,7 @@ def create_atomic_chunk(imanager, coord):
     for edge_type in EDGE_TYPES:
         edges = chunk_edges_all[edge_type]
         n_edges += len(edges)
-        supervoxels = np.concatenate([edges.node_ids1, edges.node_ids2])
-        n_supervoxels += len(supervoxels)
+        n_supervoxels += len(edges.get_pairs().ravel())
     return ",".join(
         map(str, [f"{2}_{'_'.join(map(str, coord))}", n_supervoxels, n_edges])
     )
@@ -138,7 +137,7 @@ def _get_chunk_data(imanager, coord) -> Tuple[Dict, Dict]:
     mapping = (
         _read_raw_agglomeration_data(imanager, coord)
         if imanager.use_raw_agglomeration_data
-        else get_chunk_components(imanager.agglomeration_dir, coord)
+        else get_chunk_components(imanager.components_dir, coord)
     )
     return chunk_edges, mapping
 
@@ -355,12 +354,13 @@ def _read_raw_agglomeration_data(imanager, chunk_coord):
     G = nx.Graph()
     G.add_edges_from(np.concatenate(edges_list))
     mapping = {}
-    for i_cc, cc in enumerate(nx.connected_components(G)):
+    components = nx.connected_components(G)
+    for i_cc, cc in enumerate(components):
         cc = list(cc)
         mapping.update(dict(zip(cc, [i_cc] * len(cc))))
 
     if mapping:
-        put_chunk_components(imanager.agglomeration_dir, mapping, chunk_coord)
+        put_chunk_components(imanager.components_dir, components, chunk_coord)
     return mapping
 
 

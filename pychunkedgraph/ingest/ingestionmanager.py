@@ -15,7 +15,7 @@ class IngestionManager(object):
         data_version=2,
         use_raw_edge_data=True,
         use_raw_agglomeration_data=True,
-        agglomeration_dir=None,
+        components_dir=None,
     ):
         self._storage_path = storage_path
         self._cg_table_id = cg_table_id
@@ -26,7 +26,7 @@ class IngestionManager(object):
         self._data_version = data_version
         self._use_raw_edge_data = use_raw_edge_data
         self._use_raw_agglomeration_data = use_raw_agglomeration_data
-        self._agglomeration_dir = agglomeration_dir
+        self._components_dir = components_dir
         self._chunk_coords = None
 
     @property
@@ -125,8 +125,8 @@ class IngestionManager(object):
         return self._use_raw_agglomeration_data
 
     @property
-    def agglomeration_dir(self):
-        return self._agglomeration_dir
+    def components_dir(self):
+        return self._components_dir
 
     def get_serialized_info(self):
         info = {
@@ -138,7 +138,7 @@ class IngestionManager(object):
             "data_version": self.data_version,
             "use_raw_edge_data": self._use_raw_edge_data,
             "use_raw_agglomeration_data": self._use_raw_agglomeration_data,
-            "agglomeration_dir": self._agglomeration_dir,
+            "components_dir": self._components_dir,
         }
 
         return info
