@@ -21,7 +21,8 @@
 		// Uncomment the next line to use a non-root user. See https://aka.ms/vscode-remote/containers/non-root-user.
 		// "-u", "1000"
 		"-w", "${env:HOME}/projects/sl-pychunkedgraph",
-		"-v", "${env:HOME}/secrets:/root/.cloudvolume/secrets"
+		"-v", "${env:HOME}/secrets:/root/.cloudvolume/secrets",
+		"-e", "FLASK_APP=run_dev.py"
 	],
 
 	// Uncomment the next line if you want to publish any ports.
@@ -31,7 +32,7 @@
 	// "settings":  { "workbench.colorTheme": "Quiet Light" },
 
 	// Uncomment the next line to run commands after the container is created - for example installing git.
-	"postCreateCommand": "rm -rf notebooks && git clone https://github.com/akhileshh/notebooks.git",
+	"postCreateCommand": "rm -rf notebooks && git clone https://github.com/akhileshh/notebooks.git && redis-server --requirepass dev --save \"\" --appendonly no",
 
 	// Add the IDs of any extensions you want installed in the array below.
 	"extensions": []

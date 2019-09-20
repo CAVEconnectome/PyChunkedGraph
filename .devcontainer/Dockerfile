@@ -12,6 +12,7 @@ RUN  apt-get update \
       lsb-release \
       curl \
       apt-transport-https \
+      redis-server \
   # GOOGLE-CLOUD-SDK
   && pip install --no-cache-dir --upgrade crcmod \
   && echo "deb https://packages.cloud.google.com/apt cloud-sdk-$(lsb_release -c -s) main" > /etc/apt/sources.list.d/google-cloud-sdk.list \

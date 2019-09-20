@@ -29,9 +29,6 @@ task_q = get_rq_queue(INGEST_QUEUE)
 
 # 1. ingest from raw data
 #    raw_ag_path, raw_ws_path, edges_path, components_path, graph_config, bigtable_config
-#
-#
-#
 # 2. create intermediate data
 # 3. ingest from intermediate data
 

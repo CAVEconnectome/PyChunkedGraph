@@ -53,6 +53,7 @@ def ingest_into_chunkedgraph(
         cg_table_id=graph_config.cg_table_id,
         ws_cv_path=ws_cv_path,
         chunk_size=chunk_size,
+        size=data_source.size,
         use_skip_connections=True,
         s_bits_atomic_layer=10,
         cg_mesh_dir=cg_mesh_dir,
