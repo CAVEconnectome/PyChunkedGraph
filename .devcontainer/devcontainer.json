@@ -22,7 +22,10 @@
 		// "-u", "1000"
 		"-w", "${env:HOME}/projects/sl-pychunkedgraph",
 		"-v", "${env:HOME}/secrets:/root/.cloudvolume/secrets",
-		"-e", "FLASK_APP=run_dev.py"
+		"-e", "FLASK_APP=run_dev.py",
+		"-e", "APP_SETTINGS=pychunkedgraph.app.config.DockerDevelopmentConfig",
+		"-e", "REDIS_PASSWORD=dev",
+		"-e", "LC_ALL=C.UTF-8"
 	],
 
 	// Uncomment the next line if you want to publish any ports.
