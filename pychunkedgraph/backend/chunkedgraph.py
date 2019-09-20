@@ -489,9 +489,7 @@ class ChunkedGraph(object):
         if node_id is not None:
             chunk_offset = 64 - self._n_bits_for_layer_id - 3 * bits_per_dim
             return np.uint64((int(node_id) >> chunk_offset) << chunk_offset)
-        return compute_chunk_id(
-            bits_per_dim, self._n_bits_for_layer_id, layer, x, y, z
-        )
+        return compute_chunk_id(layer, x, y, z, bits_per_dim, self._n_bits_for_layer_id)
 
     def get_chunk_ids_from_node_ids(self, node_ids: Iterable[np.uint64]) -> np.ndarray:
         """ Extract a list of Chunk IDs from a list of Node IDs

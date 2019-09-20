@@ -190,7 +190,6 @@ def _get_active_edges(imanager, coord, edges_d, mapping):
 
 def _get_cont_chunk_coords(imanager, chunk_coord_a, chunk_coord_b):
     """ Computes chunk coordinates that compute data between the named chunks
-
     :param imanager: IngestionManagaer
     :param chunk_coord_a: np.ndarray
         array of three ints
@@ -198,9 +197,7 @@ def _get_cont_chunk_coords(imanager, chunk_coord_a, chunk_coord_b):
         array of three ints
     :return: np.ndarray
     """
-
     diff = chunk_coord_a - chunk_coord_b
-
     dir_dim = np.where(diff != 0)[0]
     assert len(dir_dim) == 1
     dir_dim = dir_dim[0]
@@ -217,13 +214,11 @@ def _get_cont_chunk_coords(imanager, chunk_coord_a, chunk_coord_b):
         if imanager.is_out_of_bounds(c_chunk_coord):
             continue
         c_chunk_coords.append(c_chunk_coord)
-
     return c_chunk_coords
 
 
 def _collect_edge_data(imanager, chunk_coord):
     """ Loads edge for single chunk
-
     :param imanager: IngestionManager
     :param chunk_coord: np.ndarray
         array of three ints
@@ -234,32 +229,26 @@ def _collect_edge_data(imanager, chunk_coord):
     subfolder = "chunked_rg"
     base_path = f"{imanager.storage_path}/{subfolder}/"
     chunk_coord = np.array(chunk_coord)
-    chunk_id = compute_chunk_id(
-        layer=1, x=chunk_coord[0], y=chunk_coord[1], z=chunk_coord[2]
-    )
+    x, y, z = chunk_coord
+    chunk_id = compute_chunk_id(layer=1, x=x, y=y, z=z)
 
     filenames = collections.defaultdict(list)
     swap = collections.defaultdict(list)
-
-    x,y,z = chunk_coord
-    for _x, _y, _z in itertools.product([x-1, x], [y-1, y], [z-1, z]):
+    x, y, z = chunk_coord
+    for _x, _y, _z in itertools.product([x - 1, x], [y - 1, y], [z - 1, z]):
         if imanager.is_out_of_bounds(np.array([_x, _y, _z])):
             continue
         # EDGES WITHIN CHUNKS
         filename = f"in_chunk_0_{_x}_{_y}_{_z}_{chunk_id}.data"
-        filenames["in"].append(filename)        
+        filenames["in"].append(filename)
 
     for d in [-1, 1]:
         for dim in range(3):
             diff = np.zeros([3], dtype=np.int)
             diff[dim] = d
             adjacent_chunk_coord = chunk_coord + diff
-            adjacent_chunk_id = compute_chunk_id(
-                layer=1,
-                x=adjacent_chunk_coord[0],
-                y=adjacent_chunk_coord[1],
-                z=adjacent_chunk_coord[2],
-            )
+            x, y, z = adjacent_chunk_coord
+            adjacent_chunk_id = compute_chunk_id(layer=1, x=x, y=y, z=z)
 
             if imanager.is_out_of_bounds(adjacent_chunk_coord):
                 continue
@@ -314,7 +303,6 @@ def _collect_edge_data(imanager, chunk_coord):
             edge_data_df.groupby(["sv1", "sv2"]).aggregate(np.sum).reset_index()
         )
         edge_data[k] = edge_data_dfg.to_records()
-
     return edge_data
 
 
@@ -341,9 +329,8 @@ def _read_raw_agglomeration_data(imanager, chunk_coord):
     subfolder = "remap"
     base_path = f"{imanager.storage_path}/{subfolder}/"
     chunk_coord = np.array(chunk_coord)
-    chunk_id = compute_chunk_id(
-        layer=1, x=chunk_coord[0], y=chunk_coord[1], z=chunk_coord[2]
-    )
+    x, y, z = chunk_coord
+    chunk_id = compute_chunk_id(layer=1, x=x, y=y, z=z)
 
     filenames = []
     for mip_level in range(0, int(imanager.n_layers - 1)):
@@ -355,12 +342,8 @@ def _read_raw_agglomeration_data(imanager, chunk_coord):
             diff = np.zeros([3], dtype=np.int)
             diff[dim] = d
             adjacent_chunk_coord = chunk_coord + diff
-            adjacent_chunk_id = compute_chunk_id(
-                layer=1,
-                x=adjacent_chunk_coord[0],
-                y=adjacent_chunk_coord[1],
-                z=adjacent_chunk_coord[2],
-            )
+            x, y, z = adjacent_chunk_coord
+            adjacent_chunk_id = compute_chunk_id(layer=1, x=x, y=y, z=z)
 
             for mip_level in range(0, int(imanager.n_layers - 1)):
                 x, y, z = np.array(adjacent_chunk_coord / 2 ** mip_level, dtype=np.int)
@@ -368,13 +351,11 @@ def _read_raw_agglomeration_data(imanager, chunk_coord):
                     f"done_{mip_level}_{x}_{y}_{z}_{adjacent_chunk_id}.data.zst"
                 )
 
-    edge_list = _read_agg_files(filenames, base_path)
-    edges = np.concatenate(edge_list)
+    edges_list = _read_agg_files(filenames, base_path)
     G = nx.Graph()
-    G.add_edges_from(edges)
-    ccs = nx.connected_components(G)
+    G.add_edges_from(np.concatenate(edges_list))
     mapping = {}
-    for i_cc, cc in enumerate(ccs):
+    for i_cc, cc in enumerate(nx.connected_components(G)):
         cc = list(cc)
         mapping.update(dict(zip(cc, [i_cc] * len(cc))))
 
