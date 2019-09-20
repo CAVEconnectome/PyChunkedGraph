@@ -1,11 +1,18 @@
 from collections import namedtuple
 
+datasource_fields = ("agglomeration", "watershed", "edges", "components", "size")
 DataSource = namedtuple(
-    "DataSource", ["agglomeration", "watershed", "edges", "components", "size"]
+    "DataSource", datasource_fields, defaults=(None,) * len(datasource_fields)
 )
 
+graphconfig_fields = ("graph_id", "chunk_size", "fanout")
 GraphConfig = namedtuple(
-    "GraphConfig", ["graph_id", "chunk_size", "fanout"]
+    "GraphConfig", graphconfig_fields, defaults=(None,) * len(graphconfig_fields)
 )
 
-BigTableConfig = namedtuple("BigTableConfig", ["project_id", "instance_id"])
+bigtableconfig_fields = ("project_id", "instance_id")
+BigTableConfig = namedtuple(
+    "BigTableConfig",
+    bigtableconfig_fields,
+    defaults=(None,) * len(bigtableconfig_fields),
+)

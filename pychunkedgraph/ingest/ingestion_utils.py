@@ -69,7 +69,7 @@ def initialize_chunkedgraph(cg_table_id, ws_cv_path, chunk_size, size,
               "use_skip_connections": use_skip_connections,
               "s_bits_atomic_layer": s_bits_atomic_layer,
               "n_bits_root_counter": n_bits_root_counter,
-              "is_new": is_new,
+              "is_new": True,
               "edge_dir": edge_dir}
 
     if instance_id is not None:

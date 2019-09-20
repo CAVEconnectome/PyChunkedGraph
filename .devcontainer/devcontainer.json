@@ -35,7 +35,7 @@
 	// "settings":  { "workbench.colorTheme": "Quiet Light" },
 
 	// Uncomment the next line to run commands after the container is created - for example installing git.
-	"postCreateCommand": "rm -rf notebooks && git clone https://github.com/akhileshh/notebooks.git && redis-server --requirepass dev --save \"\" --appendonly no",
+	"postCreateCommand": "redis-server --requirepass dev --appendonly no",
 
 	// Add the IDs of any extensions you want installed in the array below.
 	"extensions": []

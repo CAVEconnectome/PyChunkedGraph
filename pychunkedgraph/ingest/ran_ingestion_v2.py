@@ -50,18 +50,17 @@ def ingest_into_chunkedgraph(
     chunk_size = np.array(graph_config.chunk_size)
 
     _, n_layers_agg = iu.initialize_chunkedgraph(
-        cg_table_id=graph_config.cg_table_id,
+        cg_table_id=graph_config.graph_id,
         ws_cv_path=ws_cv_path,
         chunk_size=chunk_size,
         size=data_source.size,
         use_skip_connections=True,
         s_bits_atomic_layer=10,
         cg_mesh_dir=cg_mesh_dir,
-        fan_out=graph_config.fan_out,
+        fan_out=graph_config.fanout,
         instance_id=bigtable_config.instance_id,
         project_id=bigtable_config.project_id,
         edge_dir=data_source.edges,
-        is_new=graph_config.is_new,
     )
 
     imanager = ingestionmanager.IngestionManager(
@@ -112,7 +111,7 @@ def create_atomic_chunk(imanager, coord):
     chunk_edges_active, isolated_ids = _get_active_edges(
         imanager, coord, chunk_edges_all, mapping
     )
-    add_atomic_edges(imanager.cg, coord, chunk_edges_active, isolated=isolated_ids)
+    # add_atomic_edges(imanager.cg, coord, chunk_edges_active, isolated=isolated_ids)
 
     n_supervoxels = len(isolated_ids)
     n_edges = 0
