@@ -27,6 +27,15 @@ tasks_d = {}
 task_q = get_rq_queue(INGEST_QUEUE)
 
 
+# 1. ingest from raw data
+#    raw_ag_path, raw_ws_path, edges_path, components_path, graph_config, bigtable_config
+#
+#
+#
+# 2. create intermediate data
+# 3. ingest from intermediate data
+
+
 def handle_job_result(*args, **kwargs):
     """
     handler function, listens to workers' return value
@@ -57,36 +66,51 @@ def handle_job_result(*args, **kwargs):
             )
 
 
-@ingest_cli.command("table")
-# @click.argument("st_path", type=str)
-# @click.argument("ws_path", type=str)
-# @click.argument("cv_path", type=str)
-# @click.argument("cg_table_id", type=str)
-def run_ingest(cg_table_id=None):
+@ingest_cli.command("raw")
+# @click.option("--agglomeration", required=True, type=str)
+# @click.option("--watershed", required=True, type=str)
+# @click.option("--edges", required=True, type=str)
+# @click.option("--components", required=True, type=str)
+# @click.option("--data-size", required=False, nargs=3, type=int)
+# @click.option("--graph-id", required=True, type=str)
+# @click.option("--chunk-size", required=True, nargs=3, type=int)
+# @click.option("--fanout", required=False, type=int)
+# @click.option("--gcp-project-id", required=False, type=str)
+# @click.option("--bigtable-instance-id", required=False, type=str)
+def run_ingest(
+    # agglomeration,
+    # watershed,
+    # edges,
+    # components,
+    # graph_id,
+    # chunk_size,
+    # data_size=None,
+    # fanout=2,
+    # gcp_project_id=None,
+    # bigtable_instance_id=None,
+):
     global imanager
     chunk_pubsub = current_app.redis.pubsub()
     chunk_pubsub.subscribe(**{INGEST_CHANNEL: handle_job_result})
     chunk_pubsub.run_in_thread(sleep_time=0.1)
 
-    st_path = "gs://ranl/scratch/pinky100_ca_com/agg"
-    ws_path = "gs://neuroglancer/pinky100_v0/ws/pinky100_ca_com"
-    cv_path = "gs://akhilesh-pcg"
-    cg_table_id = "akhilesh-pinky100-3"
-
-    data_config = {
-        "edge_dir": f"{cv_path}/akhilesh-pinky100-1/edges",
-        "agglomeration_dir": f"{cv_path}/akhilesh-pinky100-2/agglomeration",
-        "use_raw_edge_data": False,
-        "use_raw_agglomeration_data": False,
-    }
-
-    imanager = ingest_into_chunkedgraph(
-        storage_path=st_path,
-        ws_cv_path=ws_path,
-        cg_table_id=cg_table_id,
-        layer=None,
-        data_config=data_config,
+    agglomeration = "gs://ranl-scratch/190410_FAFB_v02_ws_size_threshold_200"
+    watershed = (
+        "gs://microns-seunglab/drosophila_v0/ws_190410_FAFB_v02_ws_size_threshold_200"
     )
+    edges = "gs://akhilesh-pcg/190410_FAFB_v02/edges"
+    components = "gs://akhilesh-pcg/190410_FAFB_v02/components"
+    graph_id = "akhilesh-190410_FAFB_v02-0"
+    chunk_size = [256, 256, 512]
+    fanout = 2
+    gcp_project_id = None
+    bigtable_instance_id = None
+
+    data_source = DataSource(agglomeration, watershed, edges, components)
+    graph_config = GraphConfig(graph_id, chunk_size, fanout)
+    bigtable_config = BigTableConfig(gcp_project_id, bigtable_instance_id)
+
+    imanager = ingest_into_chunkedgraph(data_source, graph_config, bigtable_config)
     root_task = _build_job_hierarchy()
     queue = deque([root_task.id])
     layer_counts = defaultdict(int)

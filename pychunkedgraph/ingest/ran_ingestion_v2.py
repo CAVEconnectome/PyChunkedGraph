@@ -42,7 +42,7 @@ INGEST_QUEUE = "test"
 
 
 def ingest_into_chunkedgraph(
-    data_source: DataSource, graph_config: GraphConfig, big_table_config: BigTableConfig
+    data_source: DataSource, graph_config: GraphConfig, bigtable_config: BigTableConfig
 ):
     storage_path = data_source.agglomeration.strip("/")
     ws_cv_path = data_source.watershed.strip("/")
@@ -53,13 +53,12 @@ def ingest_into_chunkedgraph(
         cg_table_id=graph_config.cg_table_id,
         ws_cv_path=ws_cv_path,
         chunk_size=chunk_size,
-        size=graph_config.size,
         use_skip_connections=True,
         s_bits_atomic_layer=10,
         cg_mesh_dir=cg_mesh_dir,
         fan_out=graph_config.fan_out,
-        instance_id=big_table_config.instance_id,
-        project_id=big_table_config.project_id,
+        instance_id=bigtable_config.instance_id,
+        project_id=bigtable_config.project_id,
         edge_dir=data_source.edges,
         is_new=graph_config.is_new,
     )
@@ -68,8 +67,8 @@ def ingest_into_chunkedgraph(
         storage_path=storage_path,
         cg_table_id=graph_config.graph_id,
         n_layers=n_layers_agg,
-        instance_id=big_table_config.instance_id,
-        project_id=big_table_config.project_id,
+        instance_id=bigtable_config.instance_id,
+        project_id=bigtable_config.project_id,
         data_version=4,
         agglomeration_dir=data_source.components,
         use_raw_edge_data=(data_source.edges == None),
