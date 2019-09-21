@@ -55,6 +55,7 @@ def handle_job_result(*args, **kwargs):
             task_q.enqueue(
                 create_parent_chunk,
                 job_timeout="59m",
+                result_ttl=0,
                 args=(
                     imanager.get_serialized_info(),
                     parent_task.layer,

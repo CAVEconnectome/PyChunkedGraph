@@ -69,10 +69,10 @@ def ingest_into_chunkedgraph(
         n_layers=n_layers_agg,
         instance_id=bigtable_config.instance_id,
         project_id=bigtable_config.project_id,
-        data_version=4,
+        data_version=2,
         components_dir=data_source.components,
-        use_raw_edge_data=(data_source.edges == None),
-        use_raw_agglomeration_data=(data_source.components == None),
+        use_raw_edge_data=True,
+        use_raw_agglomeration_data=True,
     )
     return imanager
 
@@ -92,6 +92,7 @@ def enqueue_atomic_tasks(imanager):
         current_app.test_q.enqueue(
             _create_atomic_chunk,
             job_timeout="59m",
+            result_ttl=0,
             args=(imanager.get_serialized_info(), chunk_coord),
         )
     print(f"Queued jobs: {len(current_app.test_q)}")
@@ -119,6 +120,7 @@ def create_atomic_chunk(imanager, coord):
         edges = chunk_edges_all[edge_type]
         n_edges += len(edges)
         n_supervoxels += len(edges.get_pairs().ravel())
+    print(coord, n_supervoxels, n_edges)
     return ",".join(
         map(str, [f"{2}_{'_'.join(map(str, coord))}", n_supervoxels, n_edges])
     )
