@@ -179,6 +179,7 @@ class GraphSettings:
         family_id='0',
         serializer=serializers.NumPyValue(dtype=basetypes.SKIPCONNECTIONS))
 
+
 class OperationLogs:
     OperationID = _Column(
         key=b'operation_id',

@@ -13,6 +13,7 @@ from pychunkedgraph import __version__
 from pychunkedgraph.app import app_utils
 from pychunkedgraph.app.meshing.common import _remeshing
 from pychunkedgraph.backend import chunkedgraph_comp as cg_comp
+from pychunkedgraph.backend import history as cg_history
 from pychunkedgraph.backend import chunkedgraph_exceptions as cg_exceptions
 
 __api_versions__ = [0, 1]
@@ -141,7 +142,13 @@ def handle_info(table_id):
 
     cg = app_utils.get_cg(table_id)
 
-    return jsonify(cg.dataset_info)
+    dataset_info = cg.dataset_info
+    app_info = {"app": {
+        "supported_api_versions": list(__api_versions__)
+    }}
+    combined_info = {**dataset_info, **app_info}
+
+    return jsonify(combined_info)
 
 
 def handle_api_versions():
@@ -560,11 +567,8 @@ def change_log(table_id, root_id):
     # Call ChunkedGraph
     cg = app_utils.get_cg(table_id)
 
-    change_log = cg.get_change_log(
-        root_id=np.uint64(root_id),
-        correct_for_wrong_coord_type=True,
-        time_stamp_past=time_stamp_past,
-    )
+    segment_history = cg_history.SegmentHistory(cg, root_id)
+    change_log = segment_history.change_log()
 
     return jsonify(change_log)
 
@@ -585,18 +589,20 @@ def merge_log(table_id, root_id):
     # Call ChunkedGraph
     cg = app_utils.get_cg(table_id)
 
-    change_log = cg.get_change_log(
-        root_id=np.uint64(root_id),
-        correct_for_wrong_coord_type=True,
-        time_stamp_past=time_stamp_past,
-    )
+    segment_history = cg_history.SegmentHistory(cg, root_id)
+    merge_log = segment_history.merge_log(correct_for_wrong_coord_type=True)
 
-    for k in list(change_log.keys()):
-        if not "merge" in k:
-            del change_log[k]
-            continue
+    return jsonify(merge_log)
 
-    return jsonify(change_log)
+
+def last_edit(table_id, root_id):
+    current_app.request_type = "last_edit"
+
+    cg = app_utils.get_cg(table_id)
+
+    segment_history = cg_history.SegmentHistory(cg, root_id)
+
+    return jsonify({"timestamp": segment_history.last_edit.timestamp})
 
 
 def oldest_timestamp(table_id):
@@ -604,12 +610,12 @@ def oldest_timestamp(table_id):
 
     cg = app_utils.get_cg(table_id)
 
-    oldest_log_row = cg.read_first_log_row()
+    try:
+        earliest_timestamp = cg.get_earliest_timestamp()
+    except cg_exceptions.PreconditionError:
+        raise cg_exceptions.InternalServerError("No timestamp available")
 
-    if oldest_log_row is None:
-        raise Exception("No log row found")
-
-    return jsonify(list(oldest_log_row.values())[0][0].timestamp)
+    return jsonify({"earliest_timestamp": earliest_timestamp})
 
 
 ### CONTACT SITES --------------------------------------------------------------
