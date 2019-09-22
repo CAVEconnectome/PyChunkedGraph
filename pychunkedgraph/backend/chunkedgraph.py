@@ -216,6 +216,9 @@ class ChunkedGraph(object):
     def n_layers(self) -> int:
         return int(self._n_layers)
 
+    def is_root(self, node_id):
+        return self.n_layers == self.get_chunk_layer(node_id)
+
     @property
     def bitmasks(self) -> Dict[int, int]:
         return self._bitmasks
@@ -924,7 +927,6 @@ class ChunkedGraph(object):
             # If no column array was requested, reattach single column's values directly to the row
             if isinstance(columns, column_keys._Column):
                 rows[row_key] = cell_entries
-
         return rows
 
     def read_byte_row(
@@ -1424,7 +1426,8 @@ class ChunkedGraph(object):
 
     def read_log_row(
         self, operation_id: np.uint64
-    ) -> Dict[column_keys._Column, Union[np.ndarray, np.number]]:
+    ) -> Union[Dict[column_keys._Column, Union[np.ndarray, np.number]],
+               datetime.datetime]:
         """ Retrieves log record from Bigtable for a given operation ID
 
         :param operation_id: np.uint64
@@ -1445,20 +1448,25 @@ class ChunkedGraph(object):
             column_keys.OperationLogs.BoundingBoxOffset,
         ]
         log_record = self.read_node_id_row(operation_id, columns=columns)
-        log_record.update((column, v[0].value) for column, v in log_record.items())
-        return log_record
 
-    def read_first_log_row(self):
-        """ Returns first log row
+        if len(log_record) == 0:
+            return {}, None
+
+        timestamp = log_record[column_keys.OperationLogs.RootID][0].timestamp
+        log_record.update((column, v[0].value) for column, v in log_record.items())
+        return log_record, timestamp
+
+    def get_earliest_timestamp(self):
+        """ Retrieves timestamp of first edit
 
         :return: None or dict
         """
 
-        for operation_id in range(1, 100):
-            log_row = self.read_log_row(np.uint64(operation_id))
+        for operation_id in range(1, 1000):
+            _, timestamp = self.read_log_row(np.uint64(operation_id))
 
-            if len(log_row) > 0:
-                return log_row
+            if timestamp is not None:
+                return timestamp
 
         return None
 

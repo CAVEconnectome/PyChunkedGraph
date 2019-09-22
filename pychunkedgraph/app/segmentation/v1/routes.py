@@ -141,6 +141,12 @@ def oldest_timestamp(table_id):
     return common.oldest_timestamp(table_id)
 
 
+@bp.route("/table/<table_id>/root/<root_id>/last_edit", methods=["GET"])
+@auth_requires_permission("view")
+def last_edit(table_id, root_id):
+    return common.last_edit(table_id, root_id)
+
+
 ### CONTACT SITES --------------------------------------------------------------
 
 
