@@ -567,7 +567,7 @@ def change_log(table_id, root_id):
     # Call ChunkedGraph
     cg = app_utils.get_cg(table_id)
 
-    segment_history = cg_history.SegmentHistory(cg, root_id)
+    segment_history = cg_history.SegmentHistory(cg, int(root_id))
     change_log = segment_history.change_log()
 
     return jsonify(change_log)
@@ -589,7 +589,7 @@ def merge_log(table_id, root_id):
     # Call ChunkedGraph
     cg = app_utils.get_cg(table_id)
 
-    segment_history = cg_history.SegmentHistory(cg, root_id)
+    segment_history = cg_history.SegmentHistory(cg, int(root_id))
     merge_log = segment_history.merge_log(correct_for_wrong_coord_type=True)
 
     return jsonify(merge_log)
@@ -600,7 +600,7 @@ def last_edit(table_id, root_id):
 
     cg = app_utils.get_cg(table_id)
 
-    segment_history = cg_history.SegmentHistory(cg, root_id)
+    segment_history = cg_history.SegmentHistory(cg, int(root_id))
 
     return jsonify({"timestamp": segment_history.last_edit.timestamp})
 
