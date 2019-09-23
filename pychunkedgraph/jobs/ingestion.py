@@ -92,7 +92,7 @@ def run_ingest(
     chunk_pubsub.subscribe(**{INGEST_CHANNEL: handle_job_result})
     chunk_pubsub.run_in_thread(sleep_time=0.1)
 
-    agglomeration = "gs://ranl-scratch/190410_FAFB_v02_ws_size_threshold_200"
+    agglomeration = "gs://ranl-scratch/190410_FAFB_v02_ws_size_threshold_200/agg"
     watershed = (
         "gs://microns-seunglab/drosophila_v0/ws_190410_FAFB_v02_ws_size_threshold_200"
     )

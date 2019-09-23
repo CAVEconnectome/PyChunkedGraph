@@ -109,6 +109,7 @@ def create_atomic_chunk(imanager, coord):
     """ Creates single atomic chunk"""
     coord = np.array(list(coord), dtype=np.int)
     chunk_edges_all, mapping = _get_chunk_data(imanager, coord)
+    print("inchunk edges ", len(chunk_edges_all["in"]))
     chunk_edges_active, isolated_ids = _get_active_edges(
         imanager, coord, chunk_edges_all, mapping
     )
@@ -167,7 +168,7 @@ def _read_raw_edge_data(imanager, coord) -> Dict:
         )
         no_edges = no_edges and not sv_ids1.size
     if no_edges:
-        return None
+        return chunk_edges
     put_chunk_edges(imanager.cg.cv_edges_path, coord, chunk_edges, ZSTD_LEVEL)
     return chunk_edges
 
@@ -356,7 +357,7 @@ def _read_raw_agglomeration_data(imanager, chunk_coord):
     G = nx.Graph()
     G.add_edges_from(np.concatenate(edges_list))
     mapping = {}
-    components = nx.connected_components(G)
+    components = list(nx.connected_components(G))
     for i_cc, cc in enumerate(components):
         cc = list(cc)
         mapping.update(dict(zip(cc, [i_cc] * len(cc))))

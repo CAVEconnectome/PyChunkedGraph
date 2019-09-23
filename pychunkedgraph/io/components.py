@@ -10,12 +10,12 @@ from ..backend.utils import basetypes
 
 def serialize(connected_components: Iterable) -> ChunkComponentsMsg:
     components = []
-    for component in connected_components:
-        component = list(component)
-        components.append([len(component)])
+    for component in list(connected_components):
+        component = np.array(list(component), dtype=basetypes.NODE_ID)
+        components.append(np.array([len(component)], dtype=basetypes.NODE_ID))
         components.append(component)
     components_message = ChunkComponentsMsg()
-    components_message.components = np.concatenate(components)
+    components_message.components[:] = np.concatenate(components)
     return components_message
 
 
@@ -26,7 +26,7 @@ def deserialize(components_message: ChunkComponentsMsg) -> Dict:
     n_components = 0
     while idx < components.size:
         component_size = components[idx]
-        component = components[idx+1: component_size]
+        component = components[idx + 1 : component_size]
         mapping.update(dict(zip(component, [n_components] * component_size)))
         idx += component_size + 1
         n_components += 1
