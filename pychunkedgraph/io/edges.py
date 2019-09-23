@@ -81,7 +81,6 @@ def get_chunk_edges(
     )
 
     chunk_edge_dicts = []
-
     with storage:
         files = storage.get_files(fnames)
         for _file in files:
