@@ -23,7 +23,6 @@ def add_layer(
 ) -> None:
 
     x, y, z = np.min(chunk_coords, axis=0) // cg_instance.fan_out
-    # return f"{layer_id}_{'_'.join(map(str, (x, y, z)))}"
     parent_chunk_id = cg_instance.get_chunk_id(layer=layer_id, x=x, y=y, z=z)
     cross_edge_dict, child_ids = _process_chunks(cg_instance, layer_id, chunk_coords)
     edge_ids = _resolve_cross_chunk_edges_thread(layer_id, child_ids, cross_edge_dict)

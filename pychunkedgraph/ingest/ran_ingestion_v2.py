@@ -37,10 +37,6 @@ ZSTD_LEVEL = 17
 INGEST_CHANNEL = "ingest"
 INGEST_QUEUE = "test"
 
-# TODO make sure to generate edges and mappings only once
-# add option in data config
-
-
 def ingest_into_chunkedgraph(
     data_source: DataSource, graph_config: GraphConfig, bigtable_config: BigTableConfig
 ):
@@ -71,8 +67,8 @@ def ingest_into_chunkedgraph(
         project_id=bigtable_config.project_id,
         data_version=2,
         components_dir=data_source.components,
-        use_raw_edge_data=True,
-        use_raw_agglomeration_data=True,
+        use_raw_edge_data=data_source.use_raw_edges,
+        use_raw_agglomeration_data=data_source.use_raw_components,
     )
     return imanager
 
@@ -109,19 +105,17 @@ def create_atomic_chunk(imanager, coord):
     """ Creates single atomic chunk"""
     coord = np.array(list(coord), dtype=np.int)
     chunk_edges_all, mapping = _get_chunk_data(imanager, coord)
-    print("inchunk edges ", len(chunk_edges_all["in"]))
     chunk_edges_active, isolated_ids = _get_active_edges(
         imanager, coord, chunk_edges_all, mapping
     )
-    # add_atomic_edges(imanager.cg, coord, chunk_edges_active, isolated=isolated_ids)
+    add_atomic_edges(imanager.cg, coord, chunk_edges_active, isolated=isolated_ids)
 
     n_supervoxels = len(isolated_ids)
     n_edges = 0
     for edge_type in EDGE_TYPES:
         edges = chunk_edges_all[edge_type]
         n_edges += len(edges)
-        n_supervoxels += len(edges.get_pairs().ravel())
-    print(coord, n_supervoxels, n_edges)
+        n_supervoxels += len(np.unique(edges.get_pairs().ravel()))
     return ",".join(
         map(str, [f"{2}_{'_'.join(map(str, coord))}", n_supervoxels, n_edges])
     )
@@ -321,12 +315,9 @@ def _read_agg_files(filenames, base_path):
     return edge_list
 
 
-def _read_raw_agglomeration_data(imanager, chunk_coord):
-    """ Collects agglomeration information & builds connected component mapping
-    :param imanager: IngestionManager
-    :param chunk_coord: np.ndarray
-        array of three ints
-    :return: dictionary
+def _read_raw_agglomeration_data(imanager, chunk_coord: np.ndarray):
+    """
+    Collects agglomeration information & builds connected component mapping
     """
     subfolder = "remap"
     base_path = f"{imanager.storage_path}/{subfolder}/"

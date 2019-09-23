@@ -1,6 +1,14 @@
 from collections import namedtuple
 
-datasource_fields = ("agglomeration", "watershed", "edges", "components", "size")
+datasource_fields = (
+    "agglomeration",
+    "watershed",
+    "edges",
+    "components",
+    "use_raw_edges",
+    "use_raw_components",
+    "size",
+)
 DataSource = namedtuple(
     "DataSource", datasource_fields, defaults=(None,) * len(datasource_fields)
 )

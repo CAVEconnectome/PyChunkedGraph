@@ -98,13 +98,18 @@ def run_ingest(
     )
     edges = "gs://akhilesh-pcg/190410_FAFB_v02/edges"
     components = "gs://akhilesh-pcg/190410_FAFB_v02/components"
+    use_raw_edges = False
+    use_raw_components = False
+
     graph_id = "akhilesh-190410_FAFB_v02-0"
     chunk_size = [256, 256, 512]
     fanout = 2
     gcp_project_id = None
     bigtable_instance_id = None
 
-    data_source = DataSource(agglomeration, watershed, edges, components)
+    data_source = DataSource(
+        agglomeration, watershed, edges, components, use_raw_edges, use_raw_components
+    )
     graph_config = GraphConfig(graph_id, chunk_size, fanout)
     bigtable_config = BigTableConfig(gcp_project_id, bigtable_instance_id)
 
