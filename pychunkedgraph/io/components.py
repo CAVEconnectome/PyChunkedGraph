@@ -25,8 +25,9 @@ def deserialize(components_message: ChunkComponentsMsg) -> Dict:
     idx = 0
     n_components = 0
     while idx < components.size:
-        component_size = components[idx]
-        component = components[idx + 1 : component_size]
+        component_size = int(components[idx])
+        start = idx + 1
+        component = components[start : start + component_size]
         mapping.update(dict(zip(component, [n_components] * component_size)))
         idx += component_size + 1
         n_components += 1
