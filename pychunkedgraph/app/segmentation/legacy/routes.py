@@ -3,7 +3,7 @@ import json
 import numpy as np
 
 from flask import Blueprint, jsonify, request
-from middle_auth_client import auth_requires_permission
+from middle_auth_client import auth_requires_admin, auth_requires_permission
 from pychunkedgraph.app import app_utils
 from pychunkedgraph.app.segmentation import common
 from pychunkedgraph.backend import chunkedgraph_exceptions as cg_exceptions
@@ -58,6 +58,7 @@ def api_exception(e):
 
 
 @bp.route("/sleep/<int:sleep>")
+@auth_requires_admin
 def sleep_me(sleep):
     return common.sleep_me(sleep)
 
