@@ -6,15 +6,15 @@ import traceback
 from datetime import datetime
 
 import numpy as np
-from flask import current_app, g, jsonify, make_response, request
 from pytz import UTC
 
+from flask import current_app, g, jsonify, make_response, request
 from pychunkedgraph import __version__
 from pychunkedgraph.app import app_utils
 from pychunkedgraph.app.meshing.common import _remeshing
 from pychunkedgraph.backend import chunkedgraph_comp as cg_comp
-from pychunkedgraph.backend import history as cg_history
 from pychunkedgraph.backend import chunkedgraph_exceptions as cg_exceptions
+from pychunkedgraph.backend import history as cg_history
 
 __api_versions__ = [0, 1]
 
@@ -143,9 +143,7 @@ def handle_info(table_id):
     cg = app_utils.get_cg(table_id)
 
     dataset_info = cg.dataset_info
-    app_info = {"app": {
-        "supported_api_versions": list(__api_versions__)
-    }}
+    app_info = {"app": {"supported_api_versions": list(__api_versions__)}}
     combined_info = {**dataset_info, **app_info}
 
     return jsonify(combined_info)
@@ -158,53 +156,32 @@ def handle_api_versions():
 ### GET ROOT -------------------------------------------------------------------
 
 
-def handle_root_1(table_id):
-    atomic_id = np.uint64(json.loads(request.data)[0])
-
-    # Convert seconds since epoch to UTC datetime
-    try:
-        timestamp = float(request.args.get("timestamp", time.time()))
-        timestamp = datetime.fromtimestamp(timestamp, UTC)
-    except (TypeError, ValueError) as e:
-        raise (
-            cg_exceptions.BadRequest(
-                "Timestamp parameter is not a valid" " unix timestamp"
-            )
-        )
-
-    return handle_root_main(table_id, atomic_id, timestamp)
-
-
-def handle_root_2(table_id, atomic_id):
-    # Convert seconds since epoch to UTC datetime
-    try:
-        timestamp = float(request.args.get("timestamp", time.time()))
-        timestamp = datetime.fromtimestamp(timestamp, UTC)
-    except (TypeError, ValueError) as e:
-        raise (
-            cg_exceptions.BadRequest(
-                "Timestamp parameter is not a valid" " unix timestamp"
-            )
-        )
-
-    return handle_root_main(table_id, np.uint64(atomic_id), timestamp)
-
-
-def handle_root_main(table_id, atomic_id, timestamp):
+def handle_root(table_id, atomic_id):
     current_app.request_type = "root"
+
+    # Convert seconds since epoch to UTC datetime
+    try:
+        timestamp = float(request.args.get("timestamp", time.time()))
+        timestamp = datetime.fromtimestamp(timestamp, UTC)
+    except (TypeError, ValueError) as e:
+        raise (
+            cg_exceptions.BadRequest(
+                "Timestamp parameter is not a valid" " unix timestamp"
+            )
+        )
 
     # Call ChunkedGraph
     cg = app_utils.get_cg(table_id)
     root_id = cg.get_root(np.uint64(atomic_id), time_stamp=timestamp)
 
-    # Return binary
-    return app_utils.tobinary(root_id)
+    # Return root ID
+    return root_id
 
 
 ### MERGE ----------------------------------------------------------------------
 
 
-def handle_merge(table_id, bin_return=False):
+def handle_merge(table_id):
     current_app.request_type = "merge"
 
     nodes = json.loads(request.data)
@@ -272,23 +249,13 @@ def handle_merge(table_id, bin_return=False):
         )
         t.start()
 
-    if bin_return:
-        return app_utils.tobinary(ret.new_root_ids)
-    else:
-        # NOTE: JS can't safely read integers larger than 2^53 - 1
-        resp = {
-            "operation_id": ret.operation_id,
-            "operation_id_str": str(ret.operation_id),
-            "new_root_ids": ret.new_root_ids,
-            "new_root_ids_str": list(map(str, ret.new_root_ids)),
-        }
-        return jsonify(resp)
+    return ret
 
 
 ### SPLIT ----------------------------------------------------------------------
 
 
-def handle_split(table_id, bin_return=False):
+def handle_split(table_id):
     current_app.request_type = "split"
 
     data = json.loads(request.data)
@@ -357,17 +324,7 @@ def handle_split(table_id, bin_return=False):
         )
         t.start()
 
-    if bin_return:
-        return app_utils.tobinary(ret.new_root_ids)
-    else:
-        # NOTE: JS can't safely read integers larger than 2^53 - 1
-        resp = {
-            "operation_id": ret.operation_id,
-            "operation_id_str": str(ret.operation_id),
-            "new_root_ids": ret.new_root_ids,
-            "new_root_ids_str": list(map(str, ret.new_root_ids)),
-        }
-        return jsonify(resp)
+    return ret
 
 
 ### UNDO ----------------------------------------------------------------------
@@ -403,14 +360,7 @@ def handle_undo(table_id):
         )
         t.start()
 
-    # NOTE: JS can't safely read integers larger than 2^53 - 1
-    resp = {
-        "operation_id": ret.operation_id,
-        "operation_id_str": str(ret.operation_id),
-        "new_root_ids": ret.new_root_ids,
-        "new_root_ids_str": list(map(str, ret.new_root_ids)),
-    }
-    return jsonify(resp)
+    return ret
 
 
 ### REDO ----------------------------------------------------------------------
@@ -446,14 +396,7 @@ def handle_redo(table_id):
         )
         t.start()
 
-    # NOTE: JS can't safely read integers larger than 2^53 - 1
-    resp = {
-        "operation_id": ret.operation_id,
-        "operation_id_str": str(ret.operation_id),
-        "new_root_ids": ret.new_root_ids,
-        "new_root_ids_str": list(map(str, ret.new_root_ids)),
-    }
-    return jsonify(resp)
+    return ret
 
 
 ### CHILDREN -------------------------------------------------------------------
@@ -472,8 +415,7 @@ def handle_children(table_id, parent_id):
     else:
         children = np.array([])
 
-    # Return binary
-    return app_utils.tobinary(children)
+    return children
 
 
 ### LEAVES ---------------------------------------------------------------------
@@ -496,8 +438,7 @@ def handle_leaves(table_id, root_id):
         int(root_id), bounding_box=bounding_box, bb_is_coordinate=True
     )
 
-    # Return binary
-    return app_utils.tobinary(atomic_ids)
+    return atomic_ids
 
 
 ### LEAVES FROM LEAVES ---------------------------------------------------------
@@ -521,8 +462,8 @@ def handle_leaves_from_leave(table_id, atomic_id):
     atomic_ids = cg.get_subgraph_nodes(
         root_id, bounding_box=bounding_box, bb_is_coordinate=True
     )
-    # Return binary
-    return app_utils.tobinary(np.concatenate([np.array([root_id]), atomic_ids]))
+
+    return np.concatenate([np.array([root_id]), atomic_ids])
 
 
 ### SUBGRAPH -------------------------------------------------------------------
@@ -544,8 +485,8 @@ def handle_subgraph(table_id, root_id):
     atomic_edges = cg.get_subgraph_edges(
         int(root_id), bounding_box=bounding_box, bb_is_coordinate=True
     )[0]
-    # Return binary
-    return app_utils.tobinary(atomic_edges)
+
+    return atomic_edges
 
 
 ### CHANGE LOG -----------------------------------------------------------------
@@ -568,9 +509,8 @@ def change_log(table_id, root_id):
     cg = app_utils.get_cg(table_id)
 
     segment_history = cg_history.SegmentHistory(cg, int(root_id))
-    change_log = segment_history.change_log()
 
-    return jsonify(change_log)
+    return segment_history.change_log()
 
 
 def merge_log(table_id, root_id):
@@ -590,9 +530,7 @@ def merge_log(table_id, root_id):
     cg = app_utils.get_cg(table_id)
 
     segment_history = cg_history.SegmentHistory(cg, int(root_id))
-    merge_log = segment_history.merge_log(correct_for_wrong_coord_type=True)
-
-    return jsonify(merge_log)
+    return segment_history.merge_log(correct_for_wrong_coord_type=True)
 
 
 def last_edit(table_id, root_id):
@@ -602,7 +540,7 @@ def last_edit(table_id, root_id):
 
     segment_history = cg_history.SegmentHistory(cg, int(root_id))
 
-    return jsonify({"timestamp": segment_history.last_edit.timestamp})
+    return segment_history.last_edit.timestamp
 
 
 def oldest_timestamp(table_id):
@@ -615,7 +553,7 @@ def oldest_timestamp(table_id):
     except cg_exceptions.PreconditionError:
         raise cg_exceptions.InternalServerError("No timestamp available")
 
-    return jsonify({"earliest_timestamp": earliest_timestamp})
+    return earliest_timestamp
 
 
 ### CONTACT SITES --------------------------------------------------------------
@@ -639,4 +577,4 @@ def handle_contact_sites(table_id, root_id):
         cg, np.uint64(root_id), bounding_box=bounding_box, compute_partner=partners
     )
 
-    return jsonify(cs_dict)
+    return cs_dict
