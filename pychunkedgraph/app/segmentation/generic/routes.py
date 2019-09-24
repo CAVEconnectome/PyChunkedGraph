@@ -1,4 +1,5 @@
 from flask import Blueprint
+from middle_auth_client import auth_requires_admin
 from pychunkedgraph.app.segmentation import common
 
 bp = Blueprint("pcg_generic_v1", __name__, url_prefix="/segmentation")
@@ -26,6 +27,7 @@ def home():
 
 
 @bp.route("/sleep/<int:sleep>")
+@auth_requires_admin
 def sleep_me(sleep):
     return common.sleep_me(sleep)
 
