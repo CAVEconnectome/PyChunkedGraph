@@ -47,16 +47,6 @@ def api_exception(e):
     return common.api_exception(e)
 
 
-### GET ROOT -------------------------------------------------------------------
-
-
-@bp.route("/table/<table_id>/sv/<atomic_id>/root", methods=["GET"])
-@auth_requires_permission("view")
-def handle_root(table_id, atomic_id):
-    root_id = common.handle_root(table_id, atomic_id)
-    return jsonify({"root_id": root_id})
-
-
 ### MERGE ----------------------------------------------------------------------
 
 
@@ -113,6 +103,16 @@ def handle_redo(table_id):
     return jsonify(resp)
 
 
+### GET ROOT -------------------------------------------------------------------
+
+
+@bp.route("/table/<table_id>/node/<node_id>/root", methods=["GET"])
+@auth_requires_permission("view")
+def handle_root(table_id, node_id):
+    root_id = common.handle_root(table_id, node_id)
+    return jsonify({"root_id": root_id})
+
+
 ### CHILDREN -------------------------------------------------------------------
 
 
@@ -146,6 +146,16 @@ def handle_subgraph(table_id, node_id):
     return jsonify(resp)
 
 
+### CONTACT SITES --------------------------------------------------------------
+
+
+@bp.route("/table/<table_id>/node/<node_id>/contact_sites", methods=["GET"])
+@auth_requires_permission("view")
+def handle_contact_sites(table_id, node_id):
+    contact_sites = common.handle_contact_sites(table_id, node_id)
+    return jsonify(contact_sites)
+
+
 ### CHANGE LOG -----------------------------------------------------------------
 
 
@@ -177,13 +187,3 @@ def last_edit(table_id, root_id):
     latest_timestamp = common.last_edit(table_id, root_id)
     resp = {"iso": str(latest_timestamp)}
     return jsonify(resp)
-
-
-### CONTACT SITES --------------------------------------------------------------
-
-
-@bp.route("/table/<table_id>/node/<node_id>/contact_sites", methods=["GET"])
-@auth_requires_permission("view")
-def handle_contact_sites(table_id, node_id):
-    contact_sites = common.handle_contact_sites(table_id, node_id)
-    return jsonify(contact_sites)
