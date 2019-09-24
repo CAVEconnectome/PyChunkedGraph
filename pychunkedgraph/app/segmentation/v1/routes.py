@@ -176,14 +176,16 @@ def merge_log(table_id, root_id):
 @bp.route("/table/<table_id>/oldest_timestamp", methods=["GET"])
 @auth_requires_permission("view")
 def oldest_timestamp(table_id):
+    delimiter = request.args.get("delimiter", " ")
     earliest_timestamp = common.oldest_timestamp(table_id)
-    resp = {"iso": str(earliest_timestamp)}
+    resp = {"iso": earliest_timestamp.isoformat(delimiter)}
     return jsonify(resp)
 
 
 @bp.route("/table/<table_id>/root/<root_id>/last_edit", methods=["GET"])
 @auth_requires_permission("view")
 def last_edit(table_id, root_id):
+    delimiter = request.args.get("delimiter", " ")
     latest_timestamp = common.last_edit(table_id, root_id)
-    resp = {"iso": str(latest_timestamp)}
+    resp = {"iso": latest_timestamp.isoformat(delimiter)}
     return jsonify(resp)
