@@ -1,5 +1,4 @@
 from flask import Blueprint
-
 from pychunkedgraph.app.segmentation import common
 
 bp = Blueprint("pcg_generic_v1", __name__, url_prefix="/segmentation")
