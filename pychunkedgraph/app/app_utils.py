@@ -1,4 +1,4 @@
-from flask import current_app
+from flask import current_app, json
 from google.auth import credentials, default as default_creds
 from google.cloud import bigtable, datastore
 
@@ -18,6 +18,18 @@ cache = {}
 class DoNothingCreds(credentials.Credentials):
     def refresh(self, request):
         pass
+
+def jsonify_with_kwargs(data, **kwargs):
+    kwargs.setdefault('separators', (",", ":"))
+
+    if current_app.config["JSONIFY_PRETTYPRINT_REGULAR"] or current_app.debug:
+        kwargs['indent'] = 2
+        kwargs['separators'] = (", ", ": ")
+
+    return current_app.response_class(
+        json.dumps(data, **kwargs) + "\n",
+        mimetype=current_app.config["JSONIFY_MIMETYPE"],
+    )
 
 
 def get_bigtable_client(config):
@@ -87,6 +99,30 @@ def get_log_db(table_id):
                                                         client=client)
 
     return cache["log_db"]
+
+
+def toboolean(value):
+    """ Transform value to boolean type.
+        :param value: bool/int/str
+        :return: bool
+        :raises: ValueError, if value is not boolean.
+    """
+    if not value:
+        raise ValueError("Can't convert null to boolean")
+
+    if isinstance(value, bool):
+        return value
+    try:
+        value = value.lower()
+    except:
+        raise ValueError(f"Can't convert {value} to boolean")
+
+    if value in ("true", "1"):
+        return True
+    if value in ("false", "0"):
+        return False
+
+    raise ValueError(f"Can't convert {value} to boolean")
 
 
 def tobinary(ids):
