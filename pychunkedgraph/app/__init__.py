@@ -19,7 +19,7 @@ from .meshing.legacy.routes import bp as meshing_api_legacy
 from .meshing.v1.routes import bp as meshing_api_v1
 from .segmentation.legacy.routes import bp as segmentation_api_legacy
 from .segmentation.v1.routes import bp as segmentation_api_v1
-from pychunkedgraph.app.segmentation.generic.routes import bp as generic_api
+from .segmentation.generic.routes import bp as generic_api
 
 
 class CustomJsonEncoder(json.JSONEncoder):

@@ -41,5 +41,5 @@ def handle_info(table_id):
 
 
 @bp.route("/api/versions", methods=["GET"])
-def handle_api_version():
+def handle_api_versions():
     return common.handle_api_versions()

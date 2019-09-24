@@ -68,24 +68,6 @@ def handle_info(table_id):
     return common.handle_info(table_id)
 
 
-### GET ROOT -------------------------------------------------------------------
-
-
-@bp.route("/<table_id>/graph/root", methods=["POST", "GET"])
-@auth_requires_permission("view")
-def handle_root_1(table_id):
-    atomic_id = np.uint64(json.loads(request.data)[0])
-    root_id = common.handle_root(table_id, atomic_id)
-    return app_utils.tobinary(root_id)
-
-
-@bp.route("/<table_id>/graph/<atomic_id>/root", methods=["POST", "GET"])
-@auth_requires_permission("view")
-def handle_root_2(table_id, atomic_id):
-    root_id = common.handle_root(table_id, atomic_id)
-    return app_utils.tobinary(root_id)
-
-
 ### MERGE ----------------------------------------------------------------------
 
 
@@ -104,6 +86,24 @@ def handle_merge(table_id):
 def handle_split(table_id):
     split_result = common.handle_split(table_id)
     return app_utils.tobinary(split_result.new_root_ids)
+
+
+### GET ROOT -------------------------------------------------------------------
+
+
+@bp.route("/<table_id>/graph/root", methods=["POST", "GET"])
+@auth_requires_permission("view")
+def handle_root_1(table_id):
+    atomic_id = np.uint64(json.loads(request.data)[0])
+    root_id = common.handle_root(table_id, atomic_id)
+    return app_utils.tobinary(root_id)
+
+
+@bp.route("/<table_id>/graph/<atomic_id>/root", methods=["POST", "GET"])
+@auth_requires_permission("view")
+def handle_root_2(table_id, atomic_id):
+    root_id = common.handle_root(table_id, atomic_id)
+    return app_utils.tobinary(root_id)
 
 
 ### CHILDREN -------------------------------------------------------------------
@@ -146,6 +146,16 @@ def handle_subgraph(table_id, root_id):
     return app_utils.tobinary(subgraph_result)
 
 
+### CONTACT SITES --------------------------------------------------------------
+
+
+@bp.route("/<table_id>/segment/<root_id>/contact_sites", methods=["POST", "GET"])
+@auth_requires_permission("view")
+def handle_contact_sites(table_id, root_id):
+    contact_sites = common.handle_contact_sites(table_id, root_id)
+    return jsonify(contact_sites)
+
+
 ### CHANGE LOG -----------------------------------------------------------------
 
 
@@ -169,13 +179,3 @@ def oldest_timestamp(table_id):
     earliest_timestamp = common.oldest_timestamp(table_id)
     resp = {"iso": str(earliest_timestamp)}
     return jsonify(resp)
-
-
-### CONTACT SITES --------------------------------------------------------------
-
-
-@bp.route("/<table_id>/segment/<root_id>/contact_sites", methods=["POST", "GET"])
-@auth_requires_permission("view")
-def handle_contact_sites(table_id, root_id):
-    contact_sites = common.handle_contact_sites(table_id, root_id)
-    return jsonify(contact_sites)
