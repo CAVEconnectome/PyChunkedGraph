@@ -23,10 +23,18 @@ from .segmentation.generic.routes import bp as generic_api
 
 
 class CustomJsonEncoder(json.JSONEncoder):
+    def __init__(self, int64_as_str=False, **kwargs):
+        super().__init__(**kwargs)
+        self.int64_as_str = int64_as_str
+
     def default(self, obj):
         if isinstance(obj, np.ndarray):
+            if self.int64_as_str and obj.dtype.type in (np.int64, np.uint64):
+                return obj.astype(str).tolist()
             return obj.tolist()
         elif isinstance(obj, np.generic):
+            if self.int64_as_str and obj.dtype.type in (np.int64, np.uint64):
+                return obj.astype(str).item()
             return obj.item()
         elif isinstance(obj, datetime.datetime):
             return obj.__str__()
