@@ -15,6 +15,10 @@ REDIS_PASSWORD = os.environ.get("REDIS_PASSWORD", "dev")
 REDIS_URL = f"redis://:{REDIS_PASSWORD}@{REDIS_HOST}:{REDIS_PORT}/0"
 
 
+def get_redis_connection(redis_url=REDIS_URL):
+    return redis.Redis.from_url(redis_url)
+
+
 def redis_job(redis_url, redis_channel):
     """
     Decorator factory
@@ -23,7 +27,7 @@ def redis_job(redis_url, redis_channel):
     """
 
     def redis_job_decorator(func):
-        r = redis.Redis.from_url(redis_url)
+        r = get_redis_connection()
 
         @functools.wraps(func)
         def wrapper(*args, **kwargs):

@@ -21,7 +21,6 @@ def add_layer(
     time_stamp: Optional[datetime.datetime] = None,
     n_threads: int = 20,
 ) -> None:
-
     x, y, z = np.min(chunk_coords, axis=0) // cg_instance.fan_out
     parent_chunk_id = cg_instance.get_chunk_id(layer=layer_id, x=x, y=y, z=z)
     cross_edge_dict, child_ids = _process_chunks(cg_instance, layer_id, chunk_coords)
@@ -47,7 +46,6 @@ def add_layer(
         graph_ids,
         time_stamp,
     )
-    # to track worker completion
     return f"{layer_id}_{'_'.join(map(str, (x, y, z)))}"
 
 

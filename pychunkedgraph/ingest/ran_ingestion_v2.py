@@ -37,6 +37,7 @@ ZSTD_LEVEL = 17
 INGEST_CHANNEL = "ingest"
 INGEST_QUEUE = "test"
 
+
 def ingest_into_chunkedgraph(
     data_source: DataSource, graph_config: GraphConfig, bigtable_config: BigTableConfig
 ):
@@ -85,13 +86,14 @@ def enqueue_atomic_tasks(imanager):
     np.random.shuffle(chunk_coords)
     print(f"Chunk count: {len(chunk_coords)}")
     for chunk_coord in chunk_coords:
+        job_id = f"{2}_{'_'.join(map(str, chunk_coord))}"
         current_app.test_q.enqueue(
             _create_atomic_chunk,
+            job_id=job_id,
             job_timeout="59m",
-            result_ttl=0,
+            result_ttl=86400,
             args=(imanager.get_serialized_info(), chunk_coord),
         )
-    print(f"Queued jobs: {len(current_app.test_q)}")
 
 
 @redis_job(REDIS_URL, INGEST_CHANNEL)
@@ -116,9 +118,7 @@ def create_atomic_chunk(imanager, coord):
         edges = chunk_edges_all[edge_type]
         n_edges += len(edges)
         n_supervoxels += len(np.unique(edges.get_pairs().ravel()))
-    return ",".join(
-        map(str, [f"{2}_{'_'.join(map(str, coord))}", n_supervoxels, n_edges])
-    )
+    return f"{2}_{'_'.join(map(str, coord))}"
 
 
 def _get_chunk_data(imanager, coord) -> Tuple[Dict, Dict]:
