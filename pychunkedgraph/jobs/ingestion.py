@@ -67,7 +67,6 @@ def enqueue_parent_tasks():
     global connection
     global imanager
     results = connection.hvals("result")
-    cg = imanager.cg
     parent_chunks = set()  # set of tuples (layer, x, y, z)
     for chunk_str in results:
         layer, x, y, z = map(int, chunk_str.split("_"))
@@ -77,9 +76,10 @@ def enqueue_parent_tasks():
         layer += 1
         parent_chunks.add((layer, x, y, z))
 
+    count = 0
     for parent_chunk in parent_chunks:
         children_complete, children_coords = _check_children_status(
-            cg, parent_chunk[0], parent_chunk[1:]
+            imanager.cg, parent_chunk[0], parent_chunk[1:]
         )
         if children_complete:
             task_q.enqueue(
@@ -89,6 +89,8 @@ def enqueue_parent_tasks():
                 result_ttl=86400,
                 args=(imanager.get_serialized_info(), parent_chunk[0], children_coords),
             )
+            count += 1
+    print(f"Queued {count} parent tasks.")
 
 
 @ingest_cli.command("raw")
