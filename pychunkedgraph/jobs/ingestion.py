@@ -2,6 +2,7 @@
 cli for running ingest
 """
 from collections import defaultdict, deque
+from itertools import product
 
 import numpy as np
 import click
@@ -34,16 +35,36 @@ task_q = get_rq_queue(INGEST_QUEUE)
 # 3. ingest from intermediate data
 
 
+def _children_chunk_coords(chunk_coords):
+    pass
+
+
 def enqueue_parent_tasks():
     global connection
     global imanager
     results = connection.hvals("result")
-    chunks_d = defaultdict(list)
+    cg = imanager.cg
+
+    # get unique parent chunks ids
+    # get parent child chunks
+    # check their existence in redis
+    # if all exist, enqueue parent, delete children
+    parent_chunks = set()
     for chunk_str in results:
         layer, x, y, z = map(int, chunk_str.split("_"))
         chunk_coord = np.array([x,y,z], np.uint64)
-        parent_chunk_coord = chunk_coord // 2
-        parent_chunk_id = imanager.cg.get_chunk_id()
+        parent_chunk_coord = chunk_coord // imanager.cg.fan_out
+        x, y, z = parent_chunk_coord
+        layer += 1
+        parent_chunks.add((layer, x, y, z))
+
+    for parent_chunk in parent_chunks:
+        layer = parent_chunk[0]
+        children_chunks = []
+        for dcoord in product(*[range(cg.fan_out)] * 3):
+            x, y, z = np.array(parent_coords[1:]) * cg.fan_out + np.array(dcoord)
+            children_chunks.append()
+
 
     pass
     # with open(f"completed.txt", "a") as completed_f:
