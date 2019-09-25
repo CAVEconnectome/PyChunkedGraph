@@ -3,6 +3,7 @@ cli for running ingest
 """
 from collections import defaultdict, deque
 from itertools import product
+from typing import List
 
 import numpy as np
 import click
@@ -35,8 +36,24 @@ task_q = get_rq_queue(INGEST_QUEUE)
 # 3. ingest from intermediate data
 
 
-def _children_chunk_coords(chunk_coords):
-    pass
+def _check_children_status(cg, layer, parent_coords) -> bool:
+    """
+    Checks if all the children chunks have been processed
+        If yes, delete their entries from "results" hash, return True
+        If no, return False
+    """
+    hash_name = "results"
+    children_coords = []
+    children_keys = []
+    for dcoord in product(*[range(cg.fan_out)] * 3):
+        child_coords = np.array(parent_coords[1:]) * cg.fan_out + np.array(dcoord)
+        children_coords.append(child_coords)
+        children_keys.append(f"{layer}_{'_'.join(map(str, child_coords))}")
+    children_results = connection.hmget(hash_name, children_keys)
+    completed = None not in children_results
+    if completed:
+        connection.hdel(hash_name, children_keys)
+    return completed
 
 
 def enqueue_parent_tasks():
@@ -45,26 +62,21 @@ def enqueue_parent_tasks():
     results = connection.hvals("result")
     cg = imanager.cg
 
-    # get unique parent chunks ids
+    # get parent chunks ids
     # get parent child chunks
     # check their existence in redis
     # if all exist, enqueue parent, delete children
     parent_chunks = set()
     for chunk_str in results:
         layer, x, y, z = map(int, chunk_str.split("_"))
-        chunk_coord = np.array([x,y,z], np.uint64)
+        chunk_coord = np.array([x, y, z], np.uint64)
         parent_chunk_coord = chunk_coord // imanager.cg.fan_out
         x, y, z = parent_chunk_coord
         layer += 1
         parent_chunks.add((layer, x, y, z))
 
     for parent_chunk in parent_chunks:
-        layer = parent_chunk[0]
-        children_chunks = []
-        for dcoord in product(*[range(cg.fan_out)] * 3):
-            x, y, z = np.array(parent_coords[1:]) * cg.fan_out + np.array(dcoord)
-            children_chunks.append()
-
+        pass
 
     pass
     # with open(f"completed.txt", "a") as completed_f:
