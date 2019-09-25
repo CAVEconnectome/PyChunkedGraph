@@ -81,7 +81,8 @@ def create_parent_chunk(im_info, layer, child_chunk_coords):
 
 
 def enqueue_atomic_tasks(imanager):
-    """ Creates all atomic chunks"""
+    # cleanup any old tasks
+    current_app.test_q.empty()
     chunk_coords = list(imanager.chunk_coord_gen)
     np.random.shuffle(chunk_coords)
     print(f"Chunk count: {len(chunk_coords)}")

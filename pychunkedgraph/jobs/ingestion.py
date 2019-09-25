@@ -3,15 +3,13 @@ cli for running ingest
 """
 from collections import defaultdict, deque
 from itertools import product
-from typing import List
+from typing import List, Union, Tuple
 
 import numpy as np
 import click
-from flask import current_app
 from flask.cli import AppGroup
 from twisted.internet import task, reactor
 
-from .chunk_task import ChunkTask
 from ..ingest.ran_ingestion_v2 import INGEST_CHANNEL
 from ..ingest.ran_ingestion_v2 import INGEST_QUEUE
 from ..ingest.ran_ingestion_v2 import ingest_into_chunkedgraph
@@ -36,37 +34,41 @@ task_q = get_rq_queue(INGEST_QUEUE)
 # 3. ingest from intermediate data
 
 
-def _check_children_status(cg, layer, parent_coords) -> bool:
+def _check_children_status(cg, layer, parent_coords) -> Tuple[bool, List[np.ndarray]]:
     """
     Checks if all the children chunks have been processed
         If yes, delete their entries from "results" hash, return True
         If no, return False
+    Also returns the children chunk coords
     """
     hash_name = "results"
     children_coords = []
     children_keys = []
     for dcoord in product(*[range(cg.fan_out)] * 3):
-        child_coords = np.array(parent_coords[1:]) * cg.fan_out + np.array(dcoord)
+        child_coords = np.array(parent_coords) * cg.fan_out + np.array(dcoord)
         children_coords.append(child_coords)
         children_keys.append(f"{layer}_{'_'.join(map(str, child_coords))}")
     children_results = connection.hmget(hash_name, children_keys)
     completed = None not in children_results
     if completed:
         connection.hdel(hash_name, children_keys)
-    return completed
+        connection.incrby("completed", len(children_keys))
+    return completed, children_coords
 
 
 def enqueue_parent_tasks():
+    """
+    get parent chunks ids
+    get child chunks
+    check their existence in redis hash
+        if exists that means the task was successful
+    if all exist, enqueue parent, delete children    
+    """
     global connection
     global imanager
     results = connection.hvals("result")
     cg = imanager.cg
-
-    # get parent chunks ids
-    # get parent child chunks
-    # check their existence in redis
-    # if all exist, enqueue parent, delete children
-    parent_chunks = set()
+    parent_chunks = set()  # set of tuples (layer, x, y, z)
     for chunk_str in results:
         layer, x, y, z = map(int, chunk_str.split("_"))
         chunk_coord = np.array([x, y, z], np.uint64)
@@ -76,21 +78,17 @@ def enqueue_parent_tasks():
         parent_chunks.add((layer, x, y, z))
 
     for parent_chunk in parent_chunks:
-        pass
-
-    pass
-    # with open(f"completed.txt", "a") as completed_f:
-    #     completed_f.write(f"{args[0]['data'].decode('utf-8')}\n")
-    # task_q.enqueue(
-    #     create_parent_chunk,
-    #     job_timeout="59m",
-    #     result_ttl=86400,
-    #     args=(
-    #         imanager.get_serialized_info(),
-    #         parent_task.layer,
-    #         parent_task.children_coords,
-    #     ),
-    # )
+        children_complete, children_coords = _check_children_status(
+            cg, parent_chunk[0], parent_chunk[1:]
+        )
+        if children_complete:
+            task_q.enqueue(
+                create_parent_chunk,
+                at_front=True,
+                job_timeout="59m",
+                result_ttl=86400,
+                args=(imanager.get_serialized_info(), parent_chunk[0], children_coords),
+            )
 
 
 @ingest_cli.command("raw")
@@ -139,6 +137,7 @@ def run_ingest(
     bigtable_config = BigTableConfig(gcp_project_id, bigtable_instance_id)
 
     imanager = ingest_into_chunkedgraph(data_source, graph_config, bigtable_config)
+    connection.set("completed", 0)
     enqueue_atomic_tasks(imanager)
 
     timeout = 10.0
