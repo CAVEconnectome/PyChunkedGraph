@@ -1,6 +1,7 @@
 """
 cli for running ingest
 """
+import sys
 from collections import defaultdict, deque
 from itertools import product
 from typing import List, Union, Tuple
@@ -98,9 +99,10 @@ def enqueue_parent_tasks():
                 args=(imanager.get_serialized_info(), parent_chunk[0], children_coords),
             )
             count += 1
-    print(
-        f"Queued {count} parent tasks. Discarded {connection.get('completed')} child results."
-    )
+
+    status = f"\rQueued {count} parent tasks. Discarded {int(connection.get('completed'))} child results so far."
+    sys.stdout.write(status)
+    sys.stdout.flush()
 
 
 @ingest_cli.command("raw")
@@ -149,10 +151,12 @@ def run_ingest(
     bigtable_config = BigTableConfig(gcp_project_id, bigtable_instance_id)
 
     imanager = ingest_into_chunkedgraph(data_source, graph_config, bigtable_config)
+    connection.flushdb()
     connection.set("completed", 0)
     enqueue_atomic_tasks(imanager)
 
     timeout = 10.0
+    print(f"\nChecking completed tasks every {timeout} seconds.")
     loop_call = task.LoopingCall(enqueue_parent_tasks)
     loop_call.start(timeout)
     reactor.run()

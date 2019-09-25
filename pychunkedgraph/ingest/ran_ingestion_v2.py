@@ -86,6 +86,7 @@ def enqueue_atomic_tasks(imanager):
     chunk_coords = list(imanager.chunk_coord_gen)
     np.random.shuffle(chunk_coords)
 
+    # test chunks    
     # chunk_coords = [
     #     [0,0,0],
     #     [0,0,1],
