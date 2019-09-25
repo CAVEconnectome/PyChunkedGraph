@@ -34,63 +34,73 @@ task_q = get_rq_queue(INGEST_QUEUE)
 # 3. ingest from intermediate data
 
 
-def _check_children_status(cg, layer, parent_coords) -> Tuple[bool, List[np.ndarray]]:
+def _check_children_status(
+    cg, zset_name, layer, parent_coords
+) -> Tuple[bool, List[np.ndarray]]:
     """
     Checks if all the children chunks have been processed
-        If yes, delete their entries from "results" hash, return True
+        If yes, delete their entries from "results" zset, return True
         If no, return False
     Also returns the children chunk coords
     """
-    hash_name = "results"
+    children_results = connection.zrange(zset_name, 0, -1)
     children_coords = []
     children_keys = []
+    completed = True
+
+    parent_coords = np.array(parent_coords, dtype=int)
     for dcoord in product(*[range(cg.fan_out)] * 3):
-        child_coords = np.array(parent_coords) * cg.fan_out + np.array(dcoord)
+        dcoord = np.array(dcoord, dtype=int)
+        child_coords = parent_coords * cg.fan_out + dcoord
         children_coords.append(child_coords)
-        children_keys.append(f"{layer}_{'_'.join(map(str, child_coords))}")
-    children_results = connection.hmget(hash_name, children_keys)
-    completed = None not in children_results
+
+        child_key = f"{layer}_{'_'.join(map(str, child_coords))}".encode("utf-8")
+        children_keys.append(child_key)
+        completed = completed and (child_key in children_results)
     if completed:
-        connection.hdel(hash_name, children_keys)
+        connection.zrem(zset_name, *children_keys)
         connection.incrby("completed", len(children_keys))
     return completed, children_coords
 
 
 def enqueue_parent_tasks():
     """
-    get parent chunks ids
-    get child chunks
-    check their existence in redis hash
-        if exists that means the task was successful
+    from redis results get parent chunks ids
+    determine child chunks for these parents
+    check their existence in redis results
     if all exist, enqueue parent, delete children    
     """
     global connection
     global imanager
-    results = connection.hvals("result")
+    zset_name = f"rq:finished:{INGEST_QUEUE}"
+    results = connection.zrange(zset_name, 0, -1)
     parent_chunks = set()  # set of tuples (layer, x, y, z)
     for chunk_str in results:
+        chunk_str = chunk_str.decode("utf-8")
         layer, x, y, z = map(int, chunk_str.split("_"))
-        chunk_coord = np.array([x, y, z], np.uint64)
-        parent_chunk_coord = chunk_coord // imanager.cg.fan_out
-        x, y, z = parent_chunk_coord
         layer += 1
+        x, y, z = np.array([x, y, z], int) // imanager.cg.fan_out
         parent_chunks.add((layer, x, y, z))
 
     count = 0
     for parent_chunk in parent_chunks:
         children_complete, children_coords = _check_children_status(
-            imanager.cg, parent_chunk[0], parent_chunk[1:]
+            imanager.cg, zset_name, parent_chunk[0] - 1, parent_chunk[1:]
         )
+        job_id = f"{parent_chunk[0]}_{'_'.join(map(str, parent_chunk[1:]))}"
         if children_complete:
             task_q.enqueue(
                 create_parent_chunk,
                 at_front=True,
+                job_id=job_id,
                 job_timeout="59m",
                 result_ttl=86400,
                 args=(imanager.get_serialized_info(), parent_chunk[0], children_coords),
             )
             count += 1
-    print(f"Queued {count} parent tasks.")
+    print(
+        f"Queued {count} parent tasks. Discarded {connection.get('completed')} child results."
+    )
 
 
 @ingest_cli.command("raw")

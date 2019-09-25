@@ -85,8 +85,20 @@ def enqueue_atomic_tasks(imanager):
     current_app.test_q.empty()
     chunk_coords = list(imanager.chunk_coord_gen)
     np.random.shuffle(chunk_coords)
+
+    # chunk_coords = [
+    #     [0,0,0],
+    #     [0,0,1],
+    #     [0,1,0],
+    #     [0,1,1],
+    #     [1,0,0],
+    #     [1,0,1],
+    #     [1,1,0],
+    #     [1,1,1],
+    # ]
+
     print(f"Chunk count: {len(chunk_coords)}")
-    for chunk_coord in chunk_coords[:10]:
+    for chunk_coord in chunk_coords:
         job_id = f"{2}_{'_'.join(map(str, chunk_coord))}"
         current_app.test_q.enqueue(
             _create_atomic_chunk,
