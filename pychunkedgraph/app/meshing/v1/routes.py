@@ -1,6 +1,6 @@
-from flask import Blueprint, Response
-
+from flask import Blueprint
 from middle_auth_client import auth_requires_permission
+
 from pychunkedgraph.app.meshing import common
 
 bp = Blueprint("pcg_meshing_v1", __name__, url_prefix="/meshing/api/v1")
@@ -19,15 +19,6 @@ def index():
 @bp.route
 def home():
     return common.home()
-
-
-# ------------------------------------------------------------------------------
-
-
-@bp.route("/table/<table_id>/node/<node_id>/mesh_preview", methods=["POST", "GET"])
-@auth_requires_permission("edit")
-def handle_preview_meshes(table_id, node_id):  # pylint: disable=unused-argument
-    return Response(status=410)
 
 
 ## VALIDFRAGMENTS --------------------------------------------------------------
