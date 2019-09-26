@@ -28,6 +28,7 @@ class IngestionManager(object):
         self._use_raw_agglomeration_data = use_raw_agglomeration_data
         self._components_dir = components_dir
         self._chunk_coords = None
+        self._layer_bounds_d = None
 
     @property
     def storage_path(self):
@@ -101,11 +102,14 @@ class IngestionManager(object):
 
     @property
     def layer_chunk_bounds(self):
+        if self._layer_bounds_d:
+            return self._layer_bounds_d
         layer_bounds_d = {}
         for layer in range(2, self.n_layers):
             layer_bounds = self.chunk_id_bounds / (2 ** (layer - 2))
             layer_bounds_d[layer] = np.ceil(layer_bounds).astype(np.int)
-        return layer_bounds_d   
+        self._layer_bounds_d = layer_bounds_d
+        return self._layer_bounds_d
 
     @property
     def chunk_coord_gen(self):
