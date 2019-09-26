@@ -100,6 +100,14 @@ class IngestionManager(object):
         return np.ceil((self.bounds / self.cg.chunk_size[:, None])).astype(np.int)
 
     @property
+    def layer_chunk_bounds(self):
+        layer_bounds_d = {}
+        for layer in range(2, self.n_layers):
+            layer_bounds = self.chunk_id_bounds / (2 ** (layer - 2))
+            layer_bounds_d[layer] = np.ceil(layer_bounds).astype(np.int)
+        return layer_bounds_d   
+
+    @property
     def chunk_coord_gen(self):
         return itertools.product(*[range(*r) for r in self.chunk_id_bounds])
 
