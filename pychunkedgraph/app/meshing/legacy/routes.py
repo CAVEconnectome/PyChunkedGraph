@@ -78,6 +78,6 @@ def handle_valid_frags(table_id, node_id):
 
 
 @bp.route("/<table_id>/manifest/<node_id>:0", methods=["GET"])
-# @auth_requires_permission("view")
+@auth_requires_permission("view")
 def handle_get_manifest(table_id, node_id):
     return common.handle_get_manifest(table_id, node_id)
