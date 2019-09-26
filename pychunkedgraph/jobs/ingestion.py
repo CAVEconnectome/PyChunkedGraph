@@ -36,21 +36,19 @@ task_q = get_rq_queue(INGEST_QUEUE)
 # 3. ingest from intermediate data
 
 
-def _check_children_status(
-    cg, zset_name, layer, parent_coords
-) -> Tuple[bool, List[np.ndarray]]:
-    """
-    Checks if all the children chunks have been processed
-        If yes, delete their entries from "results" zset, return True
-        If no, return False
-    Also returns the children chunk coords
-    """
+def _get_children_coords(layer, parent_coords) -> Tuple[bool, List[np.ndarray]]:
+    global imanager
+    layer_bounds = np.ceil(imanager.chunk_id_bounds / (2 ** (layer - 2))).astype(
+        np.int
+    )[:, 1]
     children_coords = []
     parent_coords = np.array(parent_coords, dtype=int)
-    for dcoord in product(*[range(cg.fan_out)] * 3):
+    for dcoord in product(*[range(imanager.cg.fan_out)] * 3):
         dcoord = np.array(dcoord, dtype=int)
-        child_coords = parent_coords * cg.fan_out + dcoord
-        children_coords.append(child_coords)
+        child_coords = parent_coords * imanager.cg.fan_out + dcoord
+        check_bounds = np.less(child_coords, layer_bounds)
+        if np.all(check_bounds):
+            children_coords.append(child_coords)
     return children_coords
 
 
@@ -76,9 +74,7 @@ def enqueue_parent_tasks():
 
     count = 0
     for parent_chunk in parent_chunks:
-        children_coords = _check_children_status(
-            imanager.cg, zset_name, parent_chunk[0] - 1, parent_chunk[1:]
-        )
+        children_coords = _get_children_coords(parent_chunk[0] - 1, parent_chunk[1:])
         children_results = parent_chunks[parent_chunk]
         job_id = f"{parent_chunk[0]}_{'_'.join(map(str, parent_chunk[1:]))}"
         if len(children_coords) == len(children_results):
@@ -152,7 +148,7 @@ def run_ingest(
     connection.set("completed", 0)
     enqueue_atomic_tasks(imanager)
 
-    timeout = 600.0
+    timeout = 60.0
     print(f"\nChecking completed tasks every {timeout} seconds.")
     loop_call = task.LoopingCall(enqueue_parent_tasks)
     loop_call.start(timeout)
