@@ -17,3 +17,4 @@ dracopy==0.0.13
 zmesh
 fastremap
 pyopenssl
+twisted

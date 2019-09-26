@@ -2,6 +2,7 @@
 cli for running ingest
 """
 import sys
+import time
 from collections import defaultdict, deque
 from itertools import product
 from typing import List, Union, Tuple
@@ -44,24 +45,13 @@ def _check_children_status(
         If no, return False
     Also returns the children chunk coords
     """
-    children_results = connection.zrange(zset_name, 0, -1)
     children_coords = []
-    children_keys = []
-    completed = True
-
     parent_coords = np.array(parent_coords, dtype=int)
     for dcoord in product(*[range(cg.fan_out)] * 3):
         dcoord = np.array(dcoord, dtype=int)
         child_coords = parent_coords * cg.fan_out + dcoord
         children_coords.append(child_coords)
-
-        child_key = f"{layer}_{'_'.join(map(str, child_coords))}".encode("utf-8")
-        children_keys.append(child_key)
-        completed = completed and (child_key in children_results)
-    if completed:
-        connection.zrem(zset_name, *children_keys)
-        connection.incrby("completed", len(children_keys))
-    return completed, children_coords
+    return children_coords
 
 
 def enqueue_parent_tasks():
@@ -71,38 +61,45 @@ def enqueue_parent_tasks():
     check their existence in redis results
     if all exist, enqueue parent, delete children    
     """
+    start = time.time()
     global connection
     global imanager
     zset_name = f"rq:finished:{INGEST_QUEUE}"
     results = connection.zrange(zset_name, 0, -1)
-    parent_chunks = set()  # set of tuples (layer, x, y, z)
+    parent_chunks = defaultdict(list)  # (layer, x, y, z) as keys
     for chunk_str in results:
         chunk_str = chunk_str.decode("utf-8")
         layer, x, y, z = map(int, chunk_str.split("_"))
         layer += 1
         x, y, z = np.array([x, y, z], int) // imanager.cg.fan_out
-        parent_chunks.add((layer, x, y, z))
+        parent_chunks[(layer, x, y, z)].append(chunk_str)
 
     count = 0
     for parent_chunk in parent_chunks:
-        children_complete, children_coords = _check_children_status(
+        children_coords = _check_children_status(
             imanager.cg, zset_name, parent_chunk[0] - 1, parent_chunk[1:]
         )
+        children_results = parent_chunks[parent_chunk]
         job_id = f"{parent_chunk[0]}_{'_'.join(map(str, parent_chunk[1:]))}"
-        if children_complete:
+        if len(children_coords) == len(children_results):
             task_q.enqueue(
                 create_parent_chunk,
                 at_front=True,
                 job_id=job_id,
                 job_timeout="59m",
-                result_ttl=86400,
+                result_ttl=864000,
                 args=(imanager.get_serialized_info(), parent_chunk[0], children_coords),
             )
+            connection.zrem(zset_name, *children_results)
+            connection.incrby("completed", len(children_results))
             count += 1
 
-    status = f"\rQueued {count} parent tasks. Discarded {int(connection.get('completed'))} child results so far."
-    sys.stdout.write(status)
-    sys.stdout.flush()
+    end = time.time() - start
+    complete = int(connection.get("completed"))
+    status = (
+        f"\rQueued {count} parents. Discarded {complete} child results so far. {end}s"
+    )
+    print(status)
 
 
 @ingest_cli.command("raw")
@@ -135,10 +132,10 @@ def run_ingest(
     )
     edges = "gs://akhilesh-pcg/190410_FAFB_v02/edges"
     components = "gs://akhilesh-pcg/190410_FAFB_v02/components"
-    use_raw_edges = True
-    use_raw_components = True
+    use_raw_edges = False
+    use_raw_components = False
 
-    graph_id = "akhilesh-190410_FAFB_v02-0"
+    graph_id = "akhilesh-temp"
     chunk_size = [256, 256, 512]
     fanout = 2
     gcp_project_id = None
@@ -155,7 +152,7 @@ def run_ingest(
     connection.set("completed", 0)
     enqueue_atomic_tasks(imanager)
 
-    timeout = 10.0
+    timeout = 600.0
     print(f"\nChecking completed tasks every {timeout} seconds.")
     loop_call = task.LoopingCall(enqueue_parent_tasks)
     loop_call.start(timeout)

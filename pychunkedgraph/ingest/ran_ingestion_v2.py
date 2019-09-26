@@ -86,7 +86,7 @@ def enqueue_atomic_tasks(imanager):
     chunk_coords = list(imanager.chunk_coord_gen)
     np.random.shuffle(chunk_coords)
 
-    # test chunks    
+    # test chunks
     # chunk_coords = [
     #     [0,0,0],
     #     [0,0,1],
@@ -105,7 +105,7 @@ def enqueue_atomic_tasks(imanager):
             _create_atomic_chunk,
             job_id=job_id,
             job_timeout="59m",
-            result_ttl=86400,
+            result_ttl=864000,
             args=(imanager.get_serialized_info(), chunk_coord),
         )
     print(f"Queued {len(current_app.test_q)} jobs.")
