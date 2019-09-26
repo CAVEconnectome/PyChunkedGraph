@@ -38,15 +38,14 @@ task_q = get_rq_queue(INGEST_QUEUE)
 
 def _get_children_coords(layer, parent_coords) -> Tuple[bool, List[np.ndarray]]:
     global imanager
-    layer_bounds = np.ceil(imanager.chunk_id_bounds / (2 ** (layer - 2))).astype(
-        np.int
-    )[:, 1]
+    layer_bounds = imanager.chunk_id_bounds / (2 ** (layer - 2))
+    layer_bounds = np.ceil(layer_bounds).astype(np.int)
     children_coords = []
     parent_coords = np.array(parent_coords, dtype=int)
     for dcoord in product(*[range(imanager.cg.fan_out)] * 3):
         dcoord = np.array(dcoord, dtype=int)
         child_coords = parent_coords * imanager.cg.fan_out + dcoord
-        check_bounds = np.less(child_coords, layer_bounds)
+        check_bounds = np.less(child_coords, layer_bounds[:, 1])
         if np.all(check_bounds):
             children_coords.append(child_coords)
     return children_coords
@@ -83,7 +82,7 @@ def enqueue_parent_tasks():
                 at_front=True,
                 job_id=job_id,
                 job_timeout="59m",
-                result_ttl=864000,
+                result_ttl=86400,
                 args=(imanager.get_serialized_info(), parent_chunk[0], children_coords),
             )
             connection.zrem(zset_name, *children_results)
@@ -148,7 +147,7 @@ def run_ingest(
     connection.set("completed", 0)
     enqueue_atomic_tasks(imanager)
 
-    timeout = 60.0
+    timeout = 90.0
     print(f"\nChecking completed tasks every {timeout} seconds.")
     loop_call = task.LoopingCall(enqueue_parent_tasks)
     loop_call.start(timeout)
