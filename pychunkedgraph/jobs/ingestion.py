@@ -60,6 +60,7 @@ def enqueue_parent_tasks():
     """
     global connection
     global imanager
+    parent_hash = "rq:completed:parents"
     zset_name = f"rq:finished:{INGEST_QUEUE}"
     results = connection.zrange(zset_name, 0, -1)
     layer_counts_d = defaultdict(int)
@@ -70,6 +71,9 @@ def enqueue_parent_tasks():
         layer_counts_d[layer] += 1
         layer += 1
         x, y, z = np.array([x, y, z], int) // imanager.cg.fan_out
+        parent_job_id = f"{layer}_{'_'.join(map(str, (x, y, z)))}"
+        if not connection.hget(parent_hash, parent_job_id) is None:
+            continue
         parent_chunks_d[(layer, x, y, z)].append(chunk_str)
 
     count = 0
@@ -80,13 +84,13 @@ def enqueue_parent_tasks():
         if len(children_coords) == len(children_results):
             task_q.enqueue(
                 create_parent_chunk,
-                at_front=True,
                 job_id=job_id,
-                job_timeout="59m",
+                job_timeout="10m",
                 result_ttl=86400,
                 args=(imanager.get_serialized_info(), parent_chunk[0], children_coords),
             )
             count += 1
+            connection.hset("rq:completed:parents", job_id, "")
 
     print(
         " ".join([f"{l}:{layer_counts_d[l]}" for l in range(2, imanager.n_layers + 1)])
@@ -143,12 +147,12 @@ def run_ingest(
     connection.flushdb()
     imanager = ingest_into_chunkedgraph(data_source, graph_config, bigtable_config)
 
-    interval = 5.0
+    interval = 90.0
     print(f"\nChecking completed tasks every {interval} seconds.")
     loop_call = task.LoopingCall(enqueue_parent_tasks)
     loop_call.start(interval)
-    
-    enqueue_atomic_tasks(imanager, batch_size=10000, interval=60.0)
+
+    enqueue_atomic_tasks(imanager)
     reactor.run()
 
 

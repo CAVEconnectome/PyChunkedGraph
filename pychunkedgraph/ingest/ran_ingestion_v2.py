@@ -108,7 +108,7 @@ def enqueue_atomic_tasks(imanager, batch_size:int=50000, interval:float=300.0):
         current_app.test_q.enqueue(
             _create_atomic_chunk,
             job_id=job_id,
-            job_timeout="59m",
+            job_timeout="10m",
             result_ttl=86400,
             args=(imanager.get_serialized_info(), chunk_coord),
         )

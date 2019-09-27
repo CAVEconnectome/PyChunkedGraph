@@ -100,3 +100,23 @@ def requeue(queue, all, job_ids):
 
 def init_redis_cmds(app):
     app.cli.add_command(redis_cli)
+
+
+
+# import os
+# import redis
+# from rq import Queue
+# from rq import Worker
+# from rq.worker import WorkerStatus
+# from rq.job import Job
+# from rq.exceptions import InvalidJobOperationError
+# from rq.registry import FailedJobRegistry, StartedJobRegistry
+    
+
+# connection = redis.Redis.from_url(f"redis://:dev@{os.environ['REDIS_SERVICE_HOST']}:6379/0")
+# queue = Queue("test", connection=connection)    
+    
+# registry = StartedJobRegistry(name=queue.name,
+#                               connection=queue.connection,
+#                               job_class=queue.job_class)
+# registry.cleanup()
