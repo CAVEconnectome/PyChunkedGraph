@@ -2,6 +2,7 @@
 Module for ingesting in chunkedgraph format with edges stored outside bigtable
 """
 
+import time
 import collections
 import itertools
 import json
@@ -80,7 +81,7 @@ def create_parent_chunk(im_info, layer, child_chunk_coords):
     return add_layer(imanager.cg, layer, child_chunk_coords)
 
 
-def enqueue_atomic_tasks(imanager):
+def enqueue_atomic_tasks(imanager, batch_size:int=50000, interval:float=300.0):
     # cleanup any old tasks
     current_app.test_q.empty()
     chunk_coords = list(imanager.chunk_coord_gen)
@@ -100,6 +101,9 @@ def enqueue_atomic_tasks(imanager):
 
     print(f"Chunk count: {len(chunk_coords)}")
     for chunk_coord in chunk_coords:
+        if len(current_app.test_q) > batch_size:
+            print("Number of queued jobs greater than batch size, sleeping ...")
+            time.sleep(interval)
         job_id = f"{2}_{'_'.join(map(str, chunk_coord))}"
         current_app.test_q.enqueue(
             _create_atomic_chunk,
@@ -108,7 +112,6 @@ def enqueue_atomic_tasks(imanager):
             result_ttl=86400,
             args=(imanager.get_serialized_info(), chunk_coord),
         )
-    print(f"Queued {len(current_app.test_q)} jobs.")
 
 
 @redis_job(REDIS_URL, INGEST_CHANNEL)

@@ -58,23 +58,24 @@ def enqueue_parent_tasks():
     check their existence in redis results
     if all exist, enqueue parent, delete children    
     """
-    start = time.time()
     global connection
     global imanager
     zset_name = f"rq:finished:{INGEST_QUEUE}"
     results = connection.zrange(zset_name, 0, -1)
-    parent_chunks = defaultdict(list)  # (layer, x, y, z) as keys
+    layer_counts_d = defaultdict(int)
+    parent_chunks_d = defaultdict(list)  # (layer, x, y, z) as keys
     for chunk_str in results:
         chunk_str = chunk_str.decode("utf-8")
         layer, x, y, z = map(int, chunk_str.split("_"))
+        layer_counts_d[layer] += 1
         layer += 1
         x, y, z = np.array([x, y, z], int) // imanager.cg.fan_out
-        parent_chunks[(layer, x, y, z)].append(chunk_str)
+        parent_chunks_d[(layer, x, y, z)].append(chunk_str)
 
     count = 0
-    for parent_chunk in parent_chunks:
+    for parent_chunk in parent_chunks_d:
         children_coords = _get_children_coords(parent_chunk[0] - 1, parent_chunk[1:])
-        children_results = parent_chunks[parent_chunk]
+        children_results = parent_chunks_d[parent_chunk]
         job_id = f"{parent_chunk[0]}_{'_'.join(map(str, parent_chunk[1:]))}"
         if len(children_coords) == len(children_results):
             task_q.enqueue(
@@ -85,16 +86,12 @@ def enqueue_parent_tasks():
                 result_ttl=86400,
                 args=(imanager.get_serialized_info(), parent_chunk[0], children_coords),
             )
-            connection.zrem(zset_name, *children_results)
-            connection.incrby("completed", len(children_results))
             count += 1
 
-    end = time.time() - start
-    complete = int(connection.get("completed"))
-    status = (
-        f"\rQueued {count} parents. Discarded {complete} child results so far. {end}s"
+    print(
+        " ".join([f"{l}:{layer_counts_d[l]}" for l in range(2, imanager.n_layers + 1)])
     )
-    print(status)
+    print(f"queued {count} parents\n")
 
 
 @ingest_cli.command("raw")
@@ -103,22 +100,24 @@ def enqueue_parent_tasks():
 # @click.option("--edges", required=True, type=str)
 # @click.option("--components", required=True, type=str)
 # @click.option("--data-size", required=False, nargs=3, type=int)
-# @click.option("--graph-id", required=True, type=str)
+@click.option("--graph-id", required=True, type=str)
 # @click.option("--chunk-size", required=True, nargs=3, type=int)
 # @click.option("--fanout", required=False, type=int)
 # @click.option("--gcp-project-id", required=False, type=str)
 # @click.option("--bigtable-instance-id", required=False, type=str)
+# @click.option("--interval", required=False, type=float)
 def run_ingest(
     # agglomeration,
     # watershed,
     # edges,
     # components,
-    # graph_id,
+    graph_id,
     # chunk_size,
     # data_size=None,
     # fanout=2,
     # gcp_project_id=None,
     # bigtable_instance_id=None,
+    # interval=90.0
 ):
     global imanager
     agglomeration = "gs://ranl-scratch/190410_FAFB_v02_ws_size_threshold_200/agg"
@@ -130,7 +129,6 @@ def run_ingest(
     use_raw_edges = False
     use_raw_components = False
 
-    graph_id = "akhilesh-temp"
     chunk_size = [256, 256, 512]
     fanout = 2
     gcp_project_id = None
@@ -142,15 +140,15 @@ def run_ingest(
     graph_config = GraphConfig(graph_id, chunk_size, fanout)
     bigtable_config = BigTableConfig(gcp_project_id, bigtable_instance_id)
 
-    imanager = ingest_into_chunkedgraph(data_source, graph_config, bigtable_config)
     connection.flushdb()
-    connection.set("completed", 0)
-    enqueue_atomic_tasks(imanager)
+    imanager = ingest_into_chunkedgraph(data_source, graph_config, bigtable_config)
 
-    timeout = 90.0
-    print(f"\nChecking completed tasks every {timeout} seconds.")
+    interval = 5.0
+    print(f"\nChecking completed tasks every {interval} seconds.")
     loop_call = task.LoopingCall(enqueue_parent_tasks)
-    loop_call.start(timeout)
+    loop_call.start(interval)
+    
+    enqueue_atomic_tasks(imanager, batch_size=10000, interval=60.0)
     reactor.run()
 
 
