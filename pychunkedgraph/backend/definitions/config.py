@@ -32,5 +32,5 @@ worker_fields = (
 WorkerConfig = namedtuple(
     "WorkerConfig",
     worker_fields,
-    defaults=(None,) * len(worker_fields),
+    defaults=(None,),
 )
