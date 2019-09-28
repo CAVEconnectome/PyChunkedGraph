@@ -4,6 +4,7 @@ generic helper funtions
 
 import os
 import functools
+from collections import namedtuple
 
 import redis
 from rq import Queue
@@ -13,6 +14,18 @@ REDIS_HOST = os.environ.get("REDIS_SERVICE_HOST", "localhost")
 REDIS_PORT = os.environ.get("REDIS_SERVICE_PORT", "6379")
 REDIS_PASSWORD = os.environ.get("REDIS_PASSWORD", "dev")
 REDIS_URL = f"redis://:{REDIS_PASSWORD}@{REDIS_HOST}:{REDIS_PORT}/0"
+
+keys_fields = (
+    "INGESTION_MANAGER",
+)
+keys_defaults = (
+    "pcg:imanager",
+)
+keys = namedtuple(
+    "keys",
+    keys_fields,
+    defaults=keys_defaults,
+)
 
 
 def get_redis_connection(redis_url=REDIS_URL):
