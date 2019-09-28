@@ -121,16 +121,6 @@ def clean_start_registry(queue):
     print(f"Requeued {len(cleaned_jobs)} jobs from the started job registry.")
 
 
-def init_redis_cmds(app):
+def init_rq_cmds(app):
     app.cli.add_command(rq_cli)
-
-
-# import os
-# import redis
-# from rq import Queue
-# from rq import Worker
-# from rq.worker import WorkerStatus
-# from rq.job import Job
-# from rq.exceptions import InvalidJobOperationError
-# from rq.registry import FailedJobRegistry, StartedJobRegistry
 

@@ -21,11 +21,13 @@ keys_fields = (
 keys_defaults = (
     "pcg:imanager",
 )
-keys = namedtuple(
+Keys = namedtuple(
     "keys",
     keys_fields,
     defaults=keys_defaults,
 )
+
+keys = Keys()
 
 
 def get_redis_connection(redis_url=REDIS_URL):

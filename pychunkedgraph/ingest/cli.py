@@ -163,7 +163,7 @@ def ingest_parent_chunks(interval):
     by the `ingest graph` command.
     """
     if not redis_cnxn.get(r_keys.INGESTION_MANAGER):
-        print("Run `ingest graph` before using this command.")
+        click.secho("Run `ingest graph` before using this command.", fg="red")
         sys.exit(1)
     while True:
         _enqueue_parent_tasks()
