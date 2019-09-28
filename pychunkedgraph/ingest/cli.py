@@ -3,21 +3,21 @@ cli for running ingest
 """
 import sys
 import time
-from collections import defaultdict, deque
+from collections import defaultdict
 from itertools import product
-from typing import List, Union, Tuple
+from typing import List
+from typing import Sequence
 
 import numpy as np
 import click
 from flask.cli import AppGroup
-from twisted.internet import task, reactor
 
-from ..ingest.ran_ingestion_v2 import INGEST_CHANNEL
-from ..ingest.ran_ingestion_v2 import INGEST_QUEUE
-from ..ingest.ran_ingestion_v2 import ingest_into_chunkedgraph
-from ..ingest.ran_ingestion_v2 import enqueue_atomic_tasks
-from ..ingest.ran_ingestion_v2 import create_parent_chunk
-from ..utils.redis import get_rq_queue
+from .ingestionmanager import IngestionManager
+from .ran_ingestion_v2 import INGEST_CHANNEL
+from .ran_ingestion_v2 import INGEST_QUEUE
+from .ran_ingestion_v2 import ingest_into_chunkedgraph
+from .ran_ingestion_v2 import enqueue_atomic_tasks
+from .ran_ingestion_v2 import create_parent_chunk
 from ..utils.redis import get_redis_connection
 from ..backend.definitions.config import DataSource
 from ..backend.definitions.config import GraphConfig
@@ -25,19 +25,10 @@ from ..backend.definitions.config import BigTableConfig
 
 ingest_cli = AppGroup("ingest")
 
-imanager = None
 connection = get_redis_connection()
-task_q = get_rq_queue(INGEST_QUEUE)
 
 
-# 1. ingest from raw data
-#    raw_ag_path, raw_ws_path, edges_path, components_path, graph_config, bigtable_config
-# 2. create intermediate data
-# 3. ingest from intermediate data
-
-
-def _get_children_coords(layer, parent_coords) -> Tuple[bool, List[np.ndarray]]:
-    global imanager
+def _get_children_coords(imanager, layer:int, parent_coords:Sequence[int]) -> List[np.ndarray]:
     layer_bounds = imanager.chunk_id_bounds / (2 ** (layer - 2))
     layer_bounds = np.ceil(layer_bounds).astype(np.int)
     children_coords = []
@@ -51,15 +42,13 @@ def _get_children_coords(layer, parent_coords) -> Tuple[bool, List[np.ndarray]]:
     return children_coords
 
 
-def enqueue_parent_tasks():
-    """
-    from redis results get parent chunks ids
-    determine child chunks for these parents
-    check their existence in redis results
-    if all exist, enqueue parent, delete children    
+def _enqueue_parent_tasks():
+    """ 
+    Helper to enqueue parent tasks
+    Runs periodically
     """
     global connection
-    global imanager
+    imanager = IngestionManager.from_pickle(connection.get("pcg:imanager"))
     parent_hash = "rq:completed:parents"
     zset_name = f"rq:finished:{INGEST_QUEUE}"
     results = connection.zrange(zset_name, 0, -1)
@@ -78,11 +67,11 @@ def enqueue_parent_tasks():
 
     count = 0
     for parent_chunk in parent_chunks_d:
-        children_coords = _get_children_coords(parent_chunk[0] - 1, parent_chunk[1:])
+        children_coords = _get_children_coords(imanager, parent_chunk[0] - 1, parent_chunk[1:])
         children_results = parent_chunks_d[parent_chunk]
         job_id = f"{parent_chunk[0]}_{'_'.join(map(str, parent_chunk[1:]))}"
         if len(children_coords) == len(children_results):
-            task_q.enqueue(
+            imanager.task_q.enqueue(
                 create_parent_chunk,
                 job_id=job_id,
                 job_timeout="10m",
@@ -98,24 +87,26 @@ def enqueue_parent_tasks():
     print(f"queued {count} parents\n")
 
 
-@ingest_cli.command("raw")
+@ingest_cli.command("graph")
+@click.argument("graph_id", type=str)
 # @click.option("--agglomeration", required=True, type=str)
 # @click.option("--watershed", required=True, type=str)
 # @click.option("--edges", required=True, type=str)
 # @click.option("--components", required=True, type=str)
+@click.option("--processed", is_flag=True, help="If set, use processed data to build graph")
 # @click.option("--data-size", required=False, nargs=3, type=int)
-@click.option("--graph-id", required=True, type=str)
 # @click.option("--chunk-size", required=True, nargs=3, type=int)
 # @click.option("--fanout", required=False, type=int)
 # @click.option("--gcp-project-id", required=False, type=str)
 # @click.option("--bigtable-instance-id", required=False, type=str)
 # @click.option("--interval", required=False, type=float)
-def run_ingest(
+def ingest_graph(
+    graph_id,
     # agglomeration,
     # watershed,
     # edges,
     # components,
-    graph_id,
+    processed,
     # chunk_size,
     # data_size=None,
     # fanout=2,
@@ -123,15 +114,14 @@ def run_ingest(
     # bigtable_instance_id=None,
     # interval=90.0
 ):
-    global imanager
     agglomeration = "gs://ranl-scratch/190410_FAFB_v02_ws_size_threshold_200/agg"
     watershed = (
         "gs://microns-seunglab/drosophila_v0/ws_190410_FAFB_v02_ws_size_threshold_200"
     )
     edges = "gs://akhilesh-pcg/190410_FAFB_v02/edges"
     components = "gs://akhilesh-pcg/190410_FAFB_v02/components"
-    use_raw_edges = False
-    use_raw_components = False
+    use_raw_edges = not processed
+    use_raw_components = not processed
 
     chunk_size = [256, 256, 512]
     fanout = 2
@@ -146,14 +136,29 @@ def run_ingest(
 
     connection.flushdb()
     imanager = ingest_into_chunkedgraph(data_source, graph_config, bigtable_config)
-
-    interval = 90.0
-    print(f"\nChecking completed tasks every {interval} seconds.")
-    loop_call = task.LoopingCall(enqueue_parent_tasks)
-    loop_call.start(interval)
-
+    connection.set("pcg:imanager", imanager.get_serialized_info(pickled=True))
     enqueue_atomic_tasks(imanager)
-    reactor.run()
+
+
+@ingest_cli.command("parents")
+@click.argument("graph_id", type=str)
+# @click.option("--agglomeration", required=True, type=str)
+# @click.option("--watershed", required=True, type=str)
+# @click.option("--edges", required=True, type=str)
+# @click.option("--components", required=True, type=str)
+@click.option("--processed", is_flag=True, help="If set, use processed data to build graph")
+# @click.option("--data-size", required=False, nargs=3, type=int)
+# @click.option("--chunk-size", required=True, nargs=3, type=int)
+# @click.option("--fanout", required=False, type=int)
+# @click.option("--gcp-project-id", required=False, type=str)
+# @click.option("--bigtable-instance-id", required=False, type=str)
+# @click.option("--interval", required=False, type=float)
+def ingest_parent_chunks(
+    graph_id,
+    processed
+):
+    pass
+      
 
 
 def init_ingest_cmds(app):

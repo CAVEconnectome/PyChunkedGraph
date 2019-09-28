@@ -13,8 +13,7 @@ zstandard
 redis
 rq
 middle-auth-client>=0.1.6
-dracopy==0.0.13
+dracopy
 zmesh
 fastremap
 pyopenssl
-twisted

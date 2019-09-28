@@ -1,7 +1,9 @@
 import itertools
 import numpy as np
+import pickle
 
-from pychunkedgraph.backend import chunkedgraph
+from ..backend.chunkedgraph import ChunkedGraph
+from ..utils.redis import get_rq_queue
 
 
 class IngestionManager(object):
@@ -16,6 +18,7 @@ class IngestionManager(object):
         use_raw_edge_data=True,
         use_raw_agglomeration_data=True,
         components_dir=None,
+        task_queue_name="test",
     ):
         self._storage_path = storage_path
         self._cg_table_id = cg_table_id
@@ -29,6 +32,9 @@ class IngestionManager(object):
         self._components_dir = components_dir
         self._chunk_coords = None
         self._layer_bounds_d = None
+        self._redis_connection = None
+        self._task_q_name = task_queue_name
+        self._task_q = None
 
     @property
     def storage_path(self):
@@ -86,7 +92,7 @@ class IngestionManager(object):
             if self._project_id is not None:
                 kwargs["project_id"] = self._project_id
 
-            self._cg = chunkedgraph.ChunkedGraph(table_id=self._cg_table_id, **kwargs)
+            self._cg = ChunkedGraph(table_id=self._cg_table_id, **kwargs)
 
         return self._cg
 
@@ -140,7 +146,14 @@ class IngestionManager(object):
     def components_dir(self):
         return self._components_dir
 
-    def get_serialized_info(self):
+    @property
+    def task_q(self):
+        if self._task_q:
+            return self._task_q
+        self._task_q = get_rq_queue(self._task_q_name)
+        return self._task_q
+
+    def get_serialized_info(self, pickled=False):
         info = {
             "storage_path": self.storage_path,
             "cg_table_id": self._cg_table_id,
@@ -151,12 +164,19 @@ class IngestionManager(object):
             "use_raw_edge_data": self._use_raw_edge_data,
             "use_raw_agglomeration_data": self._use_raw_agglomeration_data,
             "components_dir": self._components_dir,
+            "task_q_name": self._task_q_name,
         }
-
+        if pickled:
+            return pickle.dumps(info)
         return info
 
     def is_out_of_bounds(self, chunk_coordinate):
         return np.any(chunk_coordinate < 0) or np.any(
             chunk_coordinate > 2 ** self.cg.bitmasks[1]
         )
+
+
+    @classmethod
+    def from_pickle(cls, serialized_info):
+        return cls(**pickle.loads(serialized_info))
 
