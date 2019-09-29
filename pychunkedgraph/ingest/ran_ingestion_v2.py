@@ -81,7 +81,7 @@ def create_parent_chunk(im_info, layer, child_chunk_coords):
     return add_layer(imanager.cg, layer, child_chunk_coords)
 
 
-def enqueue_atomic_tasks(imanager, batch_size:int=50000, interval:float=300.0):
+def enqueue_atomic_tasks(imanager, batch_size: int = 50000, interval: float = 300.0):
     # cleanup any old tasks
     current_app.test_q.empty()
     chunk_coords = list(imanager.chunk_coord_gen)
@@ -128,15 +128,18 @@ def create_atomic_chunk(imanager, coord):
     chunk_edges_active, isolated_ids = _get_active_edges(
         imanager, coord, chunk_edges_all, mapping
     )
+    chunk_id_str = f"{2}_{'_'.join(map(str, coord))}"
+    if not imanager.build_graph:
+        return chunk_id_str
     add_atomic_edges(imanager.cg, coord, chunk_edges_active, isolated=isolated_ids)
 
-    n_supervoxels = len(isolated_ids)
-    n_edges = 0
-    for edge_type in EDGE_TYPES:
-        edges = chunk_edges_all[edge_type]
-        n_edges += len(edges)
-        n_supervoxels += len(np.unique(edges.get_pairs().ravel()))
-    return f"{2}_{'_'.join(map(str, coord))}"
+    # n_supervoxels = len(isolated_ids)
+    # n_edges = 0
+    # for edge_type in EDGE_TYPES:
+    #     edges = chunk_edges_all[edge_type]
+    #     n_edges += len(edges)
+    #     n_supervoxels += len(np.unique(edges.get_pairs().ravel()))
+    return chunk_id_str
 
 
 def _get_chunk_data(imanager, coord) -> Tuple[Dict, Dict]:

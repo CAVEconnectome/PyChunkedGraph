@@ -19,6 +19,7 @@ class IngestionManager(object):
         use_raw_agglomeration_data=True,
         components_dir=None,
         task_queue_name="test",
+        build_graph=True,
     ):
         self._storage_path = storage_path
         self._cg_table_id = cg_table_id
@@ -35,6 +36,7 @@ class IngestionManager(object):
         self._redis_connection = None
         self._task_q_name = task_queue_name
         self._task_q = None
+        self._build_graph = True
 
     @property
     def storage_path(self):
@@ -153,6 +155,10 @@ class IngestionManager(object):
         self._task_q = get_rq_queue(self._task_q_name)
         return self._task_q
 
+    @property
+    def build_graph(self):
+        return self._build_graph
+
     def get_serialized_info(self, pickled=False):
         info = {
             "storage_path": self.storage_path,
@@ -165,6 +171,7 @@ class IngestionManager(object):
             "use_raw_agglomeration_data": self._use_raw_agglomeration_data,
             "components_dir": self._components_dir,
             "task_q_name": self._task_q_name,
+            "build_graph": self._build_graph,
         }
         if pickled:
             return pickle.dumps(info)
@@ -174,7 +181,6 @@ class IngestionManager(object):
         return np.any(chunk_coordinate < 0) or np.any(
             chunk_coordinate > 2 ** self.cg.bitmasks[1]
         )
-
 
     @classmethod
     def from_pickle(cls, serialized_info):

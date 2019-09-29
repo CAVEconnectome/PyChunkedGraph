@@ -98,7 +98,7 @@ def _get_children_coords(
     return children_coords
 
 
-def _parse_results(imanager, parent_hash):
+def _parse_results(imanager):
     global redis_cnxn
     zset_name = f"rq:finished:{INGEST_QUEUE}"
     results = redis_cnxn.zrange(zset_name, 0, -1)
@@ -114,7 +114,7 @@ def _parse_results(imanager, parent_hash):
         layer += 1
         x, y, z = np.array([x, y, z], int) // imanager.cg.fan_out
         parent_job_id = f"{layer}_{'_'.join(map(str, (x, y, z)))}"
-        if not redis_cnxn.hget(parent_hash, parent_job_id) is None:
+        if not redis_cnxn.hget(r_keys.PARENTS_HASH, parent_job_id) is None:
             continue
         parent_chunks_d[(layer, x, y, z)].append(chunk_str)
     return parent_chunks_d, layer_counts_d
@@ -126,9 +126,8 @@ def _enqueue_parent_tasks():
     Checks job/chunk ids in redis to determine if parent task can be enqueued
     """
     global redis_cnxn
-    parent_hash = "rq:enqueued:parents"
     imanager = IngestionManager.from_pickle(redis_cnxn.get(r_keys.INGESTION_MANAGER))
-    parent_chunks_d, layer_counts_d = _parse_results(imanager, parent_hash)
+    parent_chunks_d, layer_counts_d = _parse_results(imanager)
     count = 0
     for parent_chunk in parent_chunks_d:
         children_coords = _get_children_coords(
@@ -146,7 +145,7 @@ def _enqueue_parent_tasks():
             args=(imanager.get_serialized_info(), parent_chunk[0], children_coords),
         )
         count += 1
-        redis_cnxn.hset(parent_hash, job_id, "")
+        redis_cnxn.hset(r_keys.PARENTS_HASH, job_id, "")
 
     layers = range(2, imanager.n_layers)
     status = ", ".join([f"{l}:{layer_counts_d[l]}" for l in layers])

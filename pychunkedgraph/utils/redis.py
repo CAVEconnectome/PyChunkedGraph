@@ -17,9 +17,11 @@ REDIS_URL = f"redis://:{REDIS_PASSWORD}@{REDIS_HOST}:{REDIS_PORT}/0"
 
 keys_fields = (
     "INGESTION_MANAGER",
+    "PARENTS_HASH"
 )
 keys_defaults = (
     "pcg:imanager",
+    "rq:enqueued:parents"
 )
 Keys = namedtuple(
     "keys",
