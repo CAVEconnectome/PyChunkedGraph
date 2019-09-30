@@ -141,7 +141,7 @@ def create_atomic_chunk(imanager, coord):
     )
     chunk_id_str = f"{2}_{'_'.join(map(str, coord))}"
     if not imanager.build_graph:
-        imanager.redis.hset(r_keys.ATOMIC_HASH_FINISHED, job_id, "")
+        imanager.redis.hset(r_keys.ATOMIC_HASH_FINISHED, chunk_id_str, "")
         return chunk_id_str
     add_atomic_edges(imanager.cg, coord, chunk_edges_active, isolated=isolated_ids)
 
