@@ -67,8 +67,8 @@ def ingest_graph(
 
     agglomeration = "gs://ranl-scratch/minnie65_0/agg"
     watershed = "gs://microns-seunglab/minnie65/ws_minnie65_0"
-    edges = "gs://akhilesh-pcg/minnie65_0/edges"
-    components = "gs://akhilesh-pcg/minnie65_0/components"
+    edges = "gs://chunkedgraph/minnie65_0/edges"
+    components = "gs://chunkedgraph/minnie65_0/components"
 
     use_raw_edges = not processed
     use_raw_components = not processed
