@@ -56,14 +56,20 @@ def ingest_graph(
     # gcp_project_id=None,
     # bigtable_instance_id=None,
     # interval=90.0
-    result_ttl=500
+    result_ttl=500,
 ):
-    agglomeration = "gs://ranl-scratch/190410_FAFB_v02_ws_size_threshold_200/agg"
-    watershed = (
-        "gs://microns-seunglab/drosophila_v0/ws_190410_FAFB_v02_ws_size_threshold_200"
-    )
-    edges = "gs://akhilesh-pcg/190410_FAFB_v02/edges"
-    components = "gs://akhilesh-pcg/190410_FAFB_v02/components"
+    # agglomeration = "gs://ranl-scratch/190410_FAFB_v02_ws_size_threshold_200/agg"
+    # watershed = (
+    #     "gs://microns-seunglab/drosophila_v0/ws_190410_FAFB_v02_ws_size_threshold_200"
+    # )
+    # edges = "gs://akhilesh-pcg/190410_FAFB_v02/edges"
+    # components = "gs://akhilesh-pcg/190410_FAFB_v02/components"
+
+    agglomeration = "gs://ranl-scratch/minnie65_0/agg"
+    watershed = "gs://microns-seunglab/minnie65/ws_minnie65_0"
+    edges = "gs://akhilesh-pcg/minnie65_0/edges"
+    components = "gs://akhilesh-pcg/minnie65_0/components"
+
     use_raw_edges = not processed
     use_raw_components = not processed
 
@@ -72,17 +78,20 @@ def ingest_graph(
     gcp_project_id = None
     bigtable_instance_id = None
     build_graph = False
+    s_bits_atomic_layer = 10
 
     data_source = DataSource(
         agglomeration, watershed, edges, components, use_raw_edges, use_raw_components
     )
-    graph_config = GraphConfig(graph_id, chunk_size, fanout, build_graph)
+    graph_config = GraphConfig(
+        graph_id, chunk_size, fanout, build_graph, s_bits_atomic_layer
+    )
     bigtable_config = BigTableConfig(gcp_project_id, bigtable_instance_id)
 
     redis_cnxn.flushdb()
     imanager = ingest_into_chunkedgraph(data_source, graph_config, bigtable_config)
     redis_cnxn.set(r_keys.INGESTION_MANAGER, imanager.get_serialized_info(pickled=True))
-    enqueue_atomic_tasks(imanager, result_ttl)
+    enqueue_atomic_tasks(imanager, result_ttl=result_ttl)
 
 
 def _get_children_coords(

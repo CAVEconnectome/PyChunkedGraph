@@ -70,6 +70,7 @@ def ingest_into_chunkedgraph(
         instance_id=bigtable_config.instance_id,
         project_id=bigtable_config.project_id,
         data_version=2,
+        s_bits_atomic_layer=graph_config.s_bits_atomic_layer,
         cv=ws_cv,
         chunk_size=chunk_size,
         edges_dir=data_source.edges,
@@ -97,14 +98,14 @@ def enqueue_atomic_tasks(
 
     # test chunks
     chunk_coords = [
-        [0,0,0],
-        [0,0,1],
-        [0,1,0],
-        [0,1,1],
-        [1,0,0],
-        [1,0,1],
-        [1,1,0],
-        [1,1,1],
+        [0, 0, 0],
+        [0, 0, 1],
+        [0, 1, 0],
+        [0, 1, 1],
+        [1, 0, 0],
+        [1, 0, 1],
+        [1, 1, 0],
+        [1, 1, 1],
     ]
 
     print(f"Chunk count: {len(chunk_coords)}")
@@ -158,7 +159,7 @@ def _get_chunk_data(imanager, coord) -> Tuple[Dict, Dict]:
     chunk_edges = (
         _read_raw_edge_data(imanager, coord)
         if imanager.use_raw_edge_data
-        else get_chunk_edges(imanager.cg.cv_edges_path, [coord])
+        else get_chunk_edges(imanager.edges_dir, [coord])
     )
     mapping = (
         _read_raw_agglomeration_data(imanager, coord)
@@ -192,7 +193,7 @@ def _read_raw_edge_data(imanager, coord) -> Dict:
         no_edges = no_edges and not sv_ids1.size
     if no_edges:
         return chunk_edges
-    put_chunk_edges(imanager.cg.cv_edges_path, coord, chunk_edges, ZSTD_LEVEL)
+    put_chunk_edges(imanager.edges_dir, coord, chunk_edges, ZSTD_LEVEL)
     return chunk_edges
 
 

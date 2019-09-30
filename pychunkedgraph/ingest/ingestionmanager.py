@@ -19,11 +19,12 @@ class IngestionManager(object):
         cv=None,
         chunk_size=None,
         data_version=2,
+        s_bits_atomic_layer=8,
         use_raw_edge_data=True,
         use_raw_agglomeration_data=True,
         edges_dir=None,
         components_dir=None,
-        task_queue_name="test",
+        task_q_name="test",
         build_graph=True,
     ):
         self._storage_path = storage_path
@@ -32,6 +33,7 @@ class IngestionManager(object):
         self._project_id = project_id
         self._cg = None
         self._n_layers = n_layers
+        self._s_bits_atomic_layer = s_bits_atomic_layer
         self._data_version = data_version
         self._cv = cv
         self._chunk_size = chunk_size
@@ -42,9 +44,9 @@ class IngestionManager(object):
         self._chunk_coords = None
         self._layer_bounds_d = None
         self._redis_connection = None
-        self._task_q_name = task_queue_name
+        self._task_q_name = task_q_name
         self._task_q = None
-        self._build_graph = True
+        self._build_graph = build_graph
         self._bitmasks = None
         self._bounds = None
 
@@ -184,6 +186,7 @@ class IngestionManager(object):
             "instance_id": self._instance_id,
             "project_id": self._project_id,
             "data_version": self.data_version,
+            "s_bits_atomic_layer": self._s_bits_atomic_layer,
             "use_raw_edge_data": self._use_raw_edge_data,
             "use_raw_agglomeration_data": self._use_raw_agglomeration_data,
             "edges_dir": self._edges_dir,
@@ -197,7 +200,9 @@ class IngestionManager(object):
 
     def is_out_of_bounds(self, chunk_coordinate):
         if not self._bitmasks:
-            self._bitmasks = compute_bitmasks(self.n_layers, 2)
+            self._bitmasks = compute_bitmasks(
+                self.n_layers, 2, s_bits_atomic_layer=self._s_bits_atomic_layer
+            )
         return np.any(chunk_coordinate < 0) or np.any(
             chunk_coordinate > 2 ** self._bitmasks[1]
         )
