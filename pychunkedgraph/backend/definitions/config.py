@@ -13,9 +13,9 @@ DataSource = namedtuple(
     "DataSource", datasource_fields, defaults=(None,) * len(datasource_fields)
 )
 
-graphconfig_fields = ("graph_id", "chunk_size", "fanout")
+graphconfig_fields = ("graph_id", "chunk_size", "fanout", "build_graph")
 GraphConfig = namedtuple(
-    "GraphConfig", graphconfig_fields, defaults=(None,) * len(graphconfig_fields)
+    "GraphConfig", graphconfig_fields, defaults=(None, None, None, True)
 )
 
 bigtableconfig_fields = ("project_id", "instance_id")
@@ -26,11 +26,5 @@ BigTableConfig = namedtuple(
 )
 
 
-worker_fields = (
-    "q_name"
-)
-WorkerConfig = namedtuple(
-    "WorkerConfig",
-    worker_fields,
-    defaults=(None,),
-)
+worker_fields = "q_name"
+WorkerConfig = namedtuple("WorkerConfig", worker_fields, defaults=(None,))

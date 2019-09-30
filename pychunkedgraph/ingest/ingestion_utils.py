@@ -104,4 +104,4 @@ def postprocess_edge_data(im, edge_dict):
 
         return new_edge_dict
     else:
-        raise Exception(f"Unknown data_version: {data_version}")
+        raise Exception(f"Unknown data_version: {im.data_version}")

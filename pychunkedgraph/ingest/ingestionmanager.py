@@ -2,6 +2,8 @@ import itertools
 import numpy as np
 import pickle
 
+
+from ..backend.chunkedgraph_utils import compute_bitmasks
 from ..backend.chunkedgraph import ChunkedGraph
 from ..utils.redis import get_rq_queue
 
@@ -14,9 +16,12 @@ class IngestionManager(object):
         n_layers=None,
         instance_id=None,
         project_id=None,
+        cv=None,
+        chunk_size=None,
         data_version=2,
         use_raw_edge_data=True,
         use_raw_agglomeration_data=True,
+        edges_dir=None,
         components_dir=None,
         task_queue_name="test",
         build_graph=True,
@@ -28,8 +33,11 @@ class IngestionManager(object):
         self._cg = None
         self._n_layers = n_layers
         self._data_version = data_version
+        self._cv = cv
+        self._chunk_size = chunk_size
         self._use_raw_edge_data = use_raw_edge_data
         self._use_raw_agglomeration_data = use_raw_agglomeration_data
+        self._edges_dir = edges_dir
         self._components_dir = components_dir
         self._chunk_coords = None
         self._layer_bounds_d = None
@@ -37,6 +45,8 @@ class IngestionManager(object):
         self._task_q_name = task_queue_name
         self._task_q = None
         self._build_graph = True
+        self._bitmasks = None
+        self._bounds = None
 
     @property
     def storage_path(self):
@@ -100,13 +110,16 @@ class IngestionManager(object):
 
     @property
     def bounds(self):
-        bounds = self.cg.vx_vol_bounds.copy()
-        bounds -= self.cg.vx_vol_bounds[:, 0:1]
-        return bounds
+        if self._bounds:
+            return self._bounds
+        cv_bounds = np.array(self._cv.bounds.to_list()).reshape(2, -1).T
+        self._bounds = cv_bounds.copy()
+        self._bounds -= cv_bounds[:, 0:1]
+        return self._bounds
 
     @property
     def chunk_id_bounds(self):
-        return np.ceil((self.bounds / self.cg.chunk_size[:, None])).astype(np.int)
+        return np.ceil((self.bounds / self._chunk_size[:, None])).astype(np.int)
 
     @property
     def layer_chunk_bounds(self):
@@ -145,6 +158,10 @@ class IngestionManager(object):
         return self._use_raw_agglomeration_data
 
     @property
+    def edges_dir(self):
+        return self._edges_dir
+
+    @property
     def components_dir(self):
         return self._components_dir
 
@@ -169,6 +186,7 @@ class IngestionManager(object):
             "data_version": self.data_version,
             "use_raw_edge_data": self._use_raw_edge_data,
             "use_raw_agglomeration_data": self._use_raw_agglomeration_data,
+            "edges_dir": self._edges_dir,
             "components_dir": self._components_dir,
             "task_q_name": self._task_q_name,
             "build_graph": self._build_graph,
@@ -178,8 +196,10 @@ class IngestionManager(object):
         return info
 
     def is_out_of_bounds(self, chunk_coordinate):
+        if not self._bitmasks:
+            self._bitmasks = compute_bitmasks(self.n_layers, 2)
         return np.any(chunk_coordinate < 0) or np.any(
-            chunk_coordinate > 2 ** self.cg.bitmasks[1]
+            chunk_coordinate > 2 ** self._bitmasks[1]
         )
 
     @classmethod

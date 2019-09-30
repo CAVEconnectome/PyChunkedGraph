@@ -75,9 +75,10 @@ def empty_queue(queue):
 @click.argument("queue", type=str)
 @click.argument("job_ids", nargs=-1, required=True)
 def enqueue(queue, job_ids):
-    """Enqueues existing jobs that are stuck for whatever reason."""
-    print(queue, job_ids)
-    pass
+    """Enqueues *existing* jobs that are stuck for whatever reason."""
+    q = Queue(queue, connection=connection)
+    for job_id in job_ids:
+        q.push_job_id(job_id)
 
 
 @rq_cli.command("requeue")

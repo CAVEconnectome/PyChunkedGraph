@@ -42,6 +42,7 @@ redis_cnxn = get_redis_connection()
 # @click.option("--gcp-project-id", required=False, type=str)
 # @click.option("--bigtable-instance-id", required=False, type=str)
 # @click.option("--interval", required=False, type=float)
+@click.option("--result-ttl", required=False, type=int)
 def ingest_graph(
     graph_id,
     # agglomeration,
@@ -55,6 +56,7 @@ def ingest_graph(
     # gcp_project_id=None,
     # bigtable_instance_id=None,
     # interval=90.0
+    result_ttl=500
 ):
     agglomeration = "gs://ranl-scratch/190410_FAFB_v02_ws_size_threshold_200/agg"
     watershed = (
@@ -69,17 +71,18 @@ def ingest_graph(
     fanout = 2
     gcp_project_id = None
     bigtable_instance_id = None
+    build_graph = False
 
     data_source = DataSource(
         agglomeration, watershed, edges, components, use_raw_edges, use_raw_components
     )
-    graph_config = GraphConfig(graph_id, chunk_size, fanout)
+    graph_config = GraphConfig(graph_id, chunk_size, fanout, build_graph)
     bigtable_config = BigTableConfig(gcp_project_id, bigtable_instance_id)
 
     redis_cnxn.flushdb()
     imanager = ingest_into_chunkedgraph(data_source, graph_config, bigtable_config)
     redis_cnxn.set(r_keys.INGESTION_MANAGER, imanager.get_serialized_info(pickled=True))
-    enqueue_atomic_tasks(imanager)
+    enqueue_atomic_tasks(imanager, result_ttl)
 
 
 def _get_children_coords(

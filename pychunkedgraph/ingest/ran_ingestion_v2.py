@@ -44,22 +44,24 @@ def ingest_into_chunkedgraph(
 ):
     storage_path = data_source.agglomeration.strip("/")
     ws_cv_path = data_source.watershed.strip("/")
-    cg_mesh_dir = f"{graph_config.graph_id}_meshes"
     chunk_size = np.array(graph_config.chunk_size)
+    # cg_mesh_dir = f"{graph_config.graph_id}_meshes"
 
-    _, n_layers_agg = iu.initialize_chunkedgraph(
-        cg_table_id=graph_config.graph_id,
-        ws_cv_path=ws_cv_path,
-        chunk_size=chunk_size,
-        size=data_source.size,
-        use_skip_connections=True,
-        s_bits_atomic_layer=10,
-        cg_mesh_dir=cg_mesh_dir,
-        fan_out=graph_config.fanout,
-        instance_id=bigtable_config.instance_id,
-        project_id=bigtable_config.project_id,
-        edge_dir=data_source.edges,
-    )
+    # _, n_layers_agg = iu.initialize_chunkedgraph(
+    #     cg_table_id=graph_config.graph_id,
+    #     ws_cv_path=ws_cv_path,
+    #     chunk_size=chunk_size,
+    #     size=data_source.size,
+    #     use_skip_connections=True,
+    #     s_bits_atomic_layer=10,
+    #     cg_mesh_dir=cg_mesh_dir,
+    #     fan_out=graph_config.fanout,
+    #     instance_id=bigtable_config.instance_id,
+    #     project_id=bigtable_config.project_id,
+    #     edge_dir=data_source.edges,
+    # )
+    ws_cv = cloudvolume.CloudVolume(ws_cv_path)
+    n_layers_agg = iu.calc_n_layers(ws_cv, chunk_size, fan_out=2)
 
     imanager = ingestionmanager.IngestionManager(
         storage_path=storage_path,
@@ -68,9 +70,13 @@ def ingest_into_chunkedgraph(
         instance_id=bigtable_config.instance_id,
         project_id=bigtable_config.project_id,
         data_version=2,
+        cv=ws_cv,
+        chunk_size=chunk_size,
+        edges_dir=data_source.edges,
         components_dir=data_source.components,
         use_raw_edge_data=data_source.use_raw_edges,
         use_raw_agglomeration_data=data_source.use_raw_components,
+        build_graph=graph_config.build_graph,
     )
     return imanager
 
@@ -81,23 +87,25 @@ def create_parent_chunk(im_info, layer, child_chunk_coords):
     return add_layer(imanager.cg, layer, child_chunk_coords)
 
 
-def enqueue_atomic_tasks(imanager, batch_size: int = 50000, interval: float = 300.0):
+def enqueue_atomic_tasks(
+    imanager, batch_size: int = 50000, interval: float = 300.0, result_ttl: int = 500
+):
     # cleanup any old tasks
     current_app.test_q.empty()
     chunk_coords = list(imanager.chunk_coord_gen)
     np.random.shuffle(chunk_coords)
 
     # test chunks
-    # chunk_coords = [
-    #     [0,0,0],
-    #     [0,0,1],
-    #     [0,1,0],
-    #     [0,1,1],
-    #     [1,0,0],
-    #     [1,0,1],
-    #     [1,1,0],
-    #     [1,1,1],
-    # ]
+    chunk_coords = [
+        [0,0,0],
+        [0,0,1],
+        [0,1,0],
+        [0,1,1],
+        [1,0,0],
+        [1,0,1],
+        [1,1,0],
+        [1,1,1],
+    ]
 
     print(f"Chunk count: {len(chunk_coords)}")
     for chunk_coord in chunk_coords:
@@ -109,7 +117,7 @@ def enqueue_atomic_tasks(imanager, batch_size: int = 50000, interval: float = 30
             _create_atomic_chunk,
             job_id=job_id,
             job_timeout="10m",
-            result_ttl=86400,
+            result_ttl=result_ttl,
             args=(imanager.get_serialized_info(), chunk_coord),
         )
 
