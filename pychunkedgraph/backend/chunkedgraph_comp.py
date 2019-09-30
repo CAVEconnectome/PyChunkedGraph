@@ -202,20 +202,28 @@ def get_contact_sites(cg, root_id, bounding_box=None, bb_is_coordinate=True, com
     # connected components in this graph will be combined in one component
     ccs = flatgraph_utils.connected_components(graph)
 
-    cs_dict = collections.defaultdict(list)
-    for cc in ccs:
-        cc_sv_ids = unique_ids[cc]
 
-        cc_sv_ids = cc_sv_ids[np.in1d(cc_sv_ids, u_cs_svs)]
+    cs_dict = collections.defaultdict(list)
+    temp_sv_dict = collections.defaultdict(list)
+    for cc in ccs:
+        cc_sv_ids_all = unique_ids[cc]
+
+        cc_sv_ids = cc_sv_ids_all[np.in1d(cc_sv_ids_all, u_cs_svs)]
         cs_areas = area_dict_vec(cc_sv_ids)
 
         if compute_partner:
-            partner_root_id = int(cg.get_root(cc_sv_ids[0]))
+            temp_sv_dict[cc_sv_ids[0]] = np.sum(cs_areas)
+            partner_root_id = len(temp_sv_dict)
         else:
             partner_root_id = len(cs_dict)
+            cs_dict[partner_root_id].append(np.sum(cs_areas))
 
         print(partner_root_id, np.sum(cs_areas))
 
-        cs_dict[partner_root_id].append(np.sum(cs_areas))
+    if compute_partner:
+        sv_list = list(temp_sv_dict.keys())
+        partner_roots = cg.get_roots(sv_list)
+        for i in range(len(partner_roots)):
+            cs_dict[partner_roots[i]].append(temp_sv_dict.get(sv_list[i]))
 
     return cs_dict
