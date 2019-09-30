@@ -19,7 +19,9 @@ from flask import current_app
 from . import ingestionmanager, ingestion_utils as iu
 from .initialization.atomic_layer import add_atomic_edges
 from .initialization.abstract_layers import add_layer
-from ..utils.redis import redis_job, REDIS_URL
+from ..utils.redis import redis_job
+from ..utils.redis import REDIS_URL
+from ..utils.redis import keys as r_keys
 from ..io.edges import get_chunk_edges
 from ..io.edges import put_chunk_edges
 from ..io.components import get_chunk_components
@@ -97,16 +99,16 @@ def enqueue_atomic_tasks(
     np.random.shuffle(chunk_coords)
 
     # test chunks
-    chunk_coords = [
-        [0, 0, 0],
-        [0, 0, 1],
-        [0, 1, 0],
-        [0, 1, 1],
-        [1, 0, 0],
-        [1, 0, 1],
-        [1, 1, 0],
-        [1, 1, 1],
-    ]
+    # chunk_coords = [
+    #     [0, 0, 0],
+    #     [0, 0, 1],
+    #     [0, 1, 0],
+    #     [0, 1, 1],
+    #     [1, 0, 0],
+    #     [1, 0, 1],
+    #     [1, 1, 0],
+    #     [1, 1, 1],
+    # ]
 
     print(f"Chunk count: {len(chunk_coords)}")
     for chunk_coord in chunk_coords:
@@ -139,6 +141,7 @@ def create_atomic_chunk(imanager, coord):
     )
     chunk_id_str = f"{2}_{'_'.join(map(str, coord))}"
     if not imanager.build_graph:
+        imanager.redis.hset(r_keys.ATOMIC_HASH_FINISHED, job_id, "")
         return chunk_id_str
     add_atomic_edges(imanager.cg, coord, chunk_edges_active, isolated=isolated_ids)
 

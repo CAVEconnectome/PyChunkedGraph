@@ -5,6 +5,7 @@ import pickle
 
 from ..backend.chunkedgraph_utils import compute_bitmasks
 from ..backend.chunkedgraph import ChunkedGraph
+from ..utils.redis import get_redis_connection
 from ..utils.redis import get_rq_queue
 
 
@@ -49,6 +50,7 @@ class IngestionManager(object):
         self._build_graph = build_graph
         self._bitmasks = None
         self._bounds = None
+        self._redis = None
 
     @property
     def storage_path(self):
@@ -173,6 +175,13 @@ class IngestionManager(object):
             return self._task_q
         self._task_q = get_rq_queue(self._task_q_name)
         return self._task_q
+
+    @property
+    def redis(self):
+        if self._redis:
+            return self._redis
+        self._redis = get_redis_connection()
+        return self._redis        
 
     @property
     def build_graph(self):
