@@ -114,9 +114,9 @@ def _get_children_coords(
     layer_bounds = np.ceil(layer_bounds).astype(np.int)
     children_coords = []
     parent_coords = np.array(parent_coords, dtype=int)
-    for dcoord in product(*[range(imanager.cg.fan_out)] * 3):
+    for dcoord in product(*[range(imanager.graph_config.fan_out)] * 3):
         dcoord = np.array(dcoord, dtype=int)
-        child_coords = parent_coords * imanager.cg.fan_out + dcoord
+        child_coords = parent_coords * imanager.graph_config.fan_out + dcoord
         check_bounds = np.less(child_coords, layer_bounds[:, 1])
         if np.all(check_bounds):
             children_coords.append(child_coords)
@@ -137,7 +137,7 @@ def _parse_results(imanager):
             print("All jobs completed.")
             sys.exit(0)
         layer += 1
-        x, y, z = np.array([x, y, z], int) // imanager.cg.fan_out
+        x, y, z = np.array([x, y, z], int) // imanager.graph_config.fan_out
         parent_job_id = f"{layer}_{'_'.join(map(str, (x, y, z)))}"
         if not redis_cnxn.hget(r_keys.PARENTS_HASH, parent_job_id) is None:
             continue

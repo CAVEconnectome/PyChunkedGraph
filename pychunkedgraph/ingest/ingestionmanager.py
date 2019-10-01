@@ -3,10 +3,13 @@ import numpy as np
 import pickle
 
 
-from ..backend.chunkedgraph_utils import compute_bitmasks
-from ..backend.chunkedgraph import ChunkedGraph
 from ..utils.redis import get_redis_connection
 from ..utils.redis import get_rq_queue
+from ..backend.chunkedgraph_utils import compute_bitmasks
+from ..backend.chunkedgraph import ChunkedGraph
+from ..backend.definitions.config import DataSource
+from ..backend.definitions.config import GraphConfig
+from ..backend.definitions.config import BigTableConfig
 
 # TODO
 # group parameters
@@ -18,9 +21,9 @@ from ..utils.redis import get_rq_queue
 class IngestionManager(object):
     def __init__(
         self,
-        data_source,
-        graph_config,
-        bigtable_config,
+        data_source: DataSource,
+        graph_config: GraphConfig,
+        bigtable_config: BigTableConfig,
         cv=None,
         task_q_name="test",
         build_graph=True,
@@ -28,8 +31,8 @@ class IngestionManager(object):
 
         # n_layers
         self._data_source = data_source
-
         self._graph_config = graph_config
+        self._bigtable_config = bigtable_config
 
         self._cg = None
 
@@ -132,22 +135,6 @@ class IngestionManager(object):
         return self._n_layers
 
     @property
-    def use_raw_edge_data(self):
-        return self._use_raw_edge_data
-
-    @property
-    def use_raw_agglomeration_data(self):
-        return self._use_raw_agglomeration_data
-
-    @property
-    def edges_dir(self):
-        return self._edges_dir
-
-    @property
-    def components_dir(self):
-        return self._components_dir
-
-    @property
     def task_q(self):
         if self._task_q:
             return self._task_q
@@ -167,9 +154,9 @@ class IngestionManager(object):
 
     def get_serialized_info(self, pickled=False):
         info = {
-            "data_source": data_source,
-            "graph_config": graph_config,
-            "bigtable_config": bigtable_config,
+            "data_source": self._data_source,
+            "graph_config": self._graph_config,
+            "bigtable_config": self._bigtable_config,
         }
         if pickled:
             return pickle.dumps(info)
