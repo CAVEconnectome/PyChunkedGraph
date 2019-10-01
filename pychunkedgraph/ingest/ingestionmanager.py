@@ -8,7 +8,7 @@ from ..backend.chunkedgraph import ChunkedGraph
 from ..utils.redis import get_redis_connection
 from ..utils.redis import get_rq_queue
 
-# TODO 
+# TODO
 # group parameters
 # refactor their usage in all modules
 # get rid of `ingest_into_chunkedgraph`
@@ -18,36 +18,22 @@ from ..utils.redis import get_rq_queue
 class IngestionManager(object):
     def __init__(
         self,
-        storage_path,
-        cg_table_id=None,
-        n_layers=None,
-        instance_id=None,
-        project_id=None,
+        data_source,
+        graph_config,
+        bigtable_config,
         cv=None,
-        chunk_size=None,
-        data_version=2,
-        s_bits_atomic_layer=8,
-        use_raw_edge_data=True,
-        use_raw_agglomeration_data=True,
-        edges_dir=None,
-        components_dir=None,
         task_q_name="test",
         build_graph=True,
     ):
-        self._storage_path = storage_path
-        self._cg_table_id = cg_table_id
-        self._instance_id = instance_id
-        self._project_id = project_id
+
+        # n_layers
+        self._data_source = data_source
+
+        self._graph_config = graph_config
+
         self._cg = None
-        self._n_layers = n_layers
-        self._s_bits_atomic_layer = s_bits_atomic_layer
-        self._data_version = data_version
+
         self._cv = cv
-        self._chunk_size = chunk_size
-        self._use_raw_edge_data = use_raw_edge_data
-        self._use_raw_agglomeration_data = use_raw_agglomeration_data
-        self._edges_dir = edges_dir
-        self._components_dir = components_dir
         self._chunk_coords = None
         self._layer_bounds_d = None
         self._redis_connection = None
@@ -59,17 +45,12 @@ class IngestionManager(object):
         self._redis = None
 
     @property
-    def storage_path(self):
-        return self._storage_path
-
-    @property
-    def data_version(self):
-        assert self._data_version in [2, 3, 4]
-        return self._data_version
+    def data_source(self):
+        return self._data_source
 
     @property
     def edge_dtype(self):
-        if self.data_version == 4:
+        if self._data_source.data_version == 4:
             dtype = [
                 ("sv1", np.uint64),
                 ("sv2", np.uint64),
@@ -80,7 +61,7 @@ class IngestionManager(object):
                 ("aff_z", np.float32),
                 ("area_z", np.uint64),
             ]
-        elif self.data_version == 3:
+        elif self._data_source.data_version == 3:
             dtype = [
                 ("sv1", np.uint64),
                 ("sv2", np.uint64),
@@ -91,7 +72,7 @@ class IngestionManager(object):
                 ("aff_z", np.float64),
                 ("area_z", np.uint64),
             ]
-        elif self.data_version == 2:
+        elif self._data_source.data_version == 2:
             dtype = [
                 ("sv1", np.uint64),
                 ("sv2", np.uint64),
@@ -106,16 +87,7 @@ class IngestionManager(object):
     @property
     def cg(self):
         if self._cg is None:
-            kwargs = {}
-
-            if self._instance_id is not None:
-                kwargs["instance_id"] = self._instance_id
-
-            if self._project_id is not None:
-                kwargs["project_id"] = self._project_id
-
-            self._cg = ChunkedGraph(table_id=self._cg_table_id, **kwargs)
-
+            self._cg = ChunkedGraph(table_id=self._graph_config.graph_id, **kwargs)
         return self._cg
 
     @property
@@ -187,7 +159,7 @@ class IngestionManager(object):
         if self._redis:
             return self._redis
         self._redis = get_redis_connection()
-        return self._redis        
+        return self._redis
 
     @property
     def build_graph(self):
@@ -195,19 +167,9 @@ class IngestionManager(object):
 
     def get_serialized_info(self, pickled=False):
         info = {
-            "storage_path": self.storage_path,
-            "cg_table_id": self._cg_table_id,
-            "n_layers": self.n_layers,
-            "instance_id": self._instance_id,
-            "project_id": self._project_id,
-            "data_version": self.data_version,
-            "s_bits_atomic_layer": self._s_bits_atomic_layer,
-            "use_raw_edge_data": self._use_raw_edge_data,
-            "use_raw_agglomeration_data": self._use_raw_agglomeration_data,
-            "edges_dir": self._edges_dir,
-            "components_dir": self._components_dir,
-            "task_q_name": self._task_q_name,
-            "build_graph": self._build_graph,
+            "data_source": data_source,
+            "graph_config": graph_config,
+            "bigtable_config": bigtable_config,
         }
         if pickled:
             return pickle.dumps(info)

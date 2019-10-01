@@ -79,14 +79,27 @@ def ingest_graph(
     bigtable_instance_id = None
     build_graph = False
     s_bits_atomic_layer = 10
+    data_version = 2
 
     data_source = DataSource(
-        agglomeration, watershed, edges, components, use_raw_edges, use_raw_components
+        agglomeration=agglomeration,
+        watershed=watershed,
+        edges=edges,
+        components=components,
+        use_raw_edges=use_raw_edges,
+        use_raw_components=use_raw_components,
+        data_version=data_version,
     )
     graph_config = GraphConfig(
-        graph_id, chunk_size, fanout, build_graph, s_bits_atomic_layer
+        graph_id=graph_id,
+        chunk_size=chunk_size,
+        fanout=fanout,
+        build_graph=build_graph,
+        s_bits_atomic_layer=s_bits_atomic_layer,
     )
-    bigtable_config = BigTableConfig(gcp_project_id, bigtable_instance_id)
+    bigtable_config = BigTableConfig(
+        gcp_project_id=gcp_project_id, bigtable_instance_id=bigtable_instance_id
+    )
 
     redis_cnxn.flushdb()
     imanager = ingest_into_chunkedgraph(data_source, graph_config, bigtable_config)

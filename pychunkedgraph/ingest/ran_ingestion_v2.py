@@ -66,20 +66,15 @@ def ingest_into_chunkedgraph(
     n_layers_agg = iu.calc_n_layers(ws_cv, chunk_size, fan_out=2)
 
     imanager = ingestionmanager.IngestionManager(
-        storage_path=storage_path,
-        cg_table_id=graph_config.graph_id,
-        n_layers=n_layers_agg,
-        instance_id=bigtable_config.instance_id,
-        project_id=bigtable_config.project_id,
-        data_version=2,
-        s_bits_atomic_layer=graph_config.s_bits_atomic_layer,
+        data_source=data_source,
+        graph_config=graph_config,
+        bigtable_config=bigtable_config,
         cv=ws_cv,
         chunk_size=chunk_size,
         edges_dir=data_source.edges,
         components_dir=data_source.components,
         use_raw_edge_data=data_source.use_raw_edges,
         use_raw_agglomeration_data=data_source.use_raw_components,
-        build_graph=graph_config.build_graph,
     )
     return imanager
 
