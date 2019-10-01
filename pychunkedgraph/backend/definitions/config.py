@@ -30,7 +30,3 @@ BigTableConfig = namedtuple(
     bigtableconfig_fields,
     defaults=(None,) * len(bigtableconfig_fields),
 )
-
-
-worker_fields = "q_name"
-WorkerConfig = namedtuple("WorkerConfig", worker_fields, defaults=(None,))
