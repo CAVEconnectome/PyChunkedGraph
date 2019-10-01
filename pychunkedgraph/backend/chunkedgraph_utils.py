@@ -6,19 +6,22 @@ import pandas as pd
 import pytz
 
 from google.cloud import bigtable
-from google.cloud.bigtable.row_filters import TimestampRange, \
-    TimestampRangeFilter, ColumnRangeFilter, RowFilterChain, \
-    RowFilterUnion, RowFilter
-from pychunkedgraph.backend.utils import column_keys, serializers
+from google.cloud.bigtable.row_filters import (
+    TimestampRange,
+    TimestampRangeFilter,
+    ColumnRangeFilter,
+    RowFilterChain,
+    RowFilterUnion,
+    RowFilter,
+)
+from .utils import column_keys
+from .utils import serializers
 
 
 def compute_indices_pandas(data) -> pd.Series:
     """ Computes indices of all unique entries
-
     Make sure to remap your array to a dense range starting at zero
-
     https://stackoverflow.com/questions/33281957/faster-alternative-to-numpy-where
-
     :param data: np.ndarray
     :return: pandas dataframe
     """
@@ -29,7 +32,6 @@ def compute_indices_pandas(data) -> pd.Series:
 
 def log_n(arr, n):
     """ Computes log to base n
-
     :param arr: array or float
     :param n: int
         base
@@ -43,91 +45,79 @@ def log_n(arr, n):
         return np.log(arr) / np.log(n)
 
 
-def compute_bitmasks(n_layers: int, fan_out: int, s_bits_atomic_layer: int = 8
-                     ) -> Dict[int, int]:
+def compute_bitmasks(
+    n_layers: int, fan_out: int, s_bits_atomic_layer: int = 8
+) -> Dict[int, int]:
     """ Computes the bitmasks for each layer. A bitmasks encodes how many bits
     are used to store the chunk id in each dimension. The smallest number of
     bits needed to encode this information is chosen. The layer id is always
     encoded with 8 bits as this information is required a priori.
-
     Currently, encoding of layer 1 is fixed to 8 bits.
-
     :param n_layers: int
     :param fan_out: int
     :param s_bits_atomic_layer: int
     :return: dict
         layer -> bits for layer id
     """
-
     bitmask_dict = {}
     for i_layer in range(n_layers, 0, -1):
         layer_exp = n_layers - i_layer
-        n_bits_for_layers = max(1, np.ceil(log_n(fan_out**layer_exp, fan_out)))
-
+        n_bits_for_layers = max(1, np.ceil(log_n(fan_out ** layer_exp, fan_out)))
         if i_layer == 1:
             n_bits_for_layers = np.max([s_bits_atomic_layer, n_bits_for_layers])
 
         n_bits_for_layers = int(n_bits_for_layers)
-
-        # assert n_bits_for_layers <= 8
-
         bitmask_dict[i_layer] = n_bits_for_layers
-
-        # print(f"Bitmasks: {bitmask_dict}")
-
     return bitmask_dict
 
 
-def get_google_compatible_time_stamp(time_stamp: datetime.datetime,
-                                     round_up: bool =False
-                                     ) -> datetime.datetime:
+def get_google_compatible_time_stamp(
+    time_stamp: datetime.datetime, round_up: bool = False
+) -> datetime.datetime:
     """ Makes a datetime.datetime time stamp compatible with googles' services.
     Google restricts the accuracy of time stamps to milliseconds. Hence, the
     microseconds are cut of. By default, time stamps are rounded to the lower
     number.
-
     :param time_stamp: datetime.datetime
     :param round_up: bool
     :return: datetime.datetime
     """
-
     micro_s_gap = datetime.timedelta(microseconds=time_stamp.microsecond % 1000)
-
     if micro_s_gap == 0:
         return time_stamp
-
     if round_up:
-        time_stamp += (datetime.timedelta(microseconds=1000) - micro_s_gap)
+        time_stamp += datetime.timedelta(microseconds=1000) - micro_s_gap
     else:
         time_stamp -= micro_s_gap
-
     return time_stamp
 
 
 def get_column_filter(
-        columns: Union[Iterable[column_keys._Column], column_keys._Column] = None) -> RowFilter:
+    columns: Union[Iterable[column_keys._Column], column_keys._Column] = None
+) -> RowFilter:
     """ Generates a RowFilter that accepts the specified columns """
-
     if isinstance(columns, column_keys._Column):
-        return ColumnRangeFilter(columns.family_id,
-                                 start_column=columns.key,
-                                 end_column=columns.key)
+        return ColumnRangeFilter(
+            columns.family_id, start_column=columns.key, end_column=columns.key
+        )
     elif len(columns) == 1:
-        return ColumnRangeFilter(columns[0].family_id,
-                                 start_column=columns[0].key,
-                                 end_column=columns[0].key)
-
-    return RowFilterUnion([ColumnRangeFilter(col.family_id,
-                                             start_column=col.key,
-                                             end_column=col.key) for col in columns])
+        return ColumnRangeFilter(
+            columns[0].family_id, start_column=columns[0].key, end_column=columns[0].key
+        )
+    return RowFilterUnion(
+        [
+            ColumnRangeFilter(col.family_id, start_column=col.key, end_column=col.key)
+            for col in columns
+        ]
+    )
 
 
 def get_time_range_filter(
-        start_time: Optional[datetime.datetime] = None,
-        end_time: Optional[datetime.datetime] = None,
-        end_inclusive: bool = True) -> RowFilter:
+    start_time: Optional[datetime.datetime] = None,
+    end_time: Optional[datetime.datetime] = None,
+    end_inclusive: bool = True,
+) -> RowFilter:
     """ Generates a TimeStampRangeFilter which is inclusive for start and (optionally) end.
-
     :param start:
     :param end:
     :return:
@@ -142,14 +132,14 @@ def get_time_range_filter(
 
 
 def get_time_range_and_column_filter(
-        columns: Optional[Union[Iterable[column_keys._Column], column_keys._Column]] = None,
-        start_time: Optional[datetime.datetime] = None,
-        end_time: Optional[datetime.datetime] = None,
-        end_inclusive: bool = False) -> RowFilter:
-
-    time_filter = get_time_range_filter(start_time=start_time,
-                                        end_time=end_time,
-                                        end_inclusive=end_inclusive)
+    columns: Optional[Union[Iterable[column_keys._Column], column_keys._Column]] = None,
+    start_time: Optional[datetime.datetime] = None,
+    end_time: Optional[datetime.datetime] = None,
+    end_inclusive: bool = False,
+) -> RowFilter:
+    time_filter = get_time_range_filter(
+        start_time=start_time, end_time=end_time, end_inclusive=end_inclusive
+    )
 
     if columns is not None:
         column_filter = get_column_filter(columns)
@@ -160,7 +150,6 @@ def get_time_range_and_column_filter(
 
 def get_max_time():
     """ Returns the (almost) max time in datetime.datetime
-
     :return: datetime.datetime
     """
     return datetime.datetime(9999, 12, 31, 23, 59, 59, 0)
@@ -168,7 +157,6 @@ def get_max_time():
 
 def get_min_time():
     """ Returns the min time in datetime.datetime
-
     :return: datetime.datetime
     """
     return datetime.datetime.strptime("01/01/00 00:00", "%d/%m/%y %H:%M")
@@ -177,16 +165,13 @@ def get_min_time():
 def combine_cross_chunk_edge_dicts(d1, d2, start_layer=2):
     """ Combines two cross chunk dictionaries
     Cross chunk dictionaries contain a layer id -> edge list mapping.
-
     :param d1: dict
     :param d2: dict
     :param start_layer: int
     :return: dict
     """
     assert start_layer >= 2
-
     new_d = {}
-
     for l in d2:
         if l < start_layer:
             continue
@@ -196,8 +181,7 @@ def combine_cross_chunk_edge_dicts(d1, d2, start_layer=2):
 
     for l in layers:
         if l in d1 and l in d2:
-            new_d[l] = np.concatenate([d1[l].reshape(-1, 2),
-                                       d2[l].reshape(-1, 2)])
+            new_d[l] = np.concatenate([d1[l].reshape(-1, 2), d2[l].reshape(-1, 2)])
         elif l in d1:
             new_d[l] = d1[l].reshape(-1, 2)
         elif l in d2:
@@ -205,39 +189,60 @@ def combine_cross_chunk_edge_dicts(d1, d2, start_layer=2):
         else:
             raise Exception()
 
-        edges_flattened_view = new_d[l].view(dtype='u8,u8')
+        edges_flattened_view = new_d[l].view(dtype="u8,u8")
         m = np.unique(edges_flattened_view, return_index=True)[1]
         new_d[l] = new_d[l][m]
-
     return new_d
 
 
 def time_min():
     """ Returns a minimal time stamp that still works with google
-
     :return: datetime.datetime
     """
     return datetime.datetime.strptime("01/01/00 00:00", "%d/%m/%y %H:%M")
 
 
-def partial_row_data_to_column_dict(partial_row_data: bigtable.row_data.PartialRowData) \
-        -> Dict[column_keys._Column, bigtable.row_data.PartialRowData]:
+def partial_row_data_to_column_dict(
+    partial_row_data: bigtable.row_data.PartialRowData
+) -> Dict[column_keys._Column, bigtable.row_data.PartialRowData]:
     new_column_dict = {}
-
     for family_id, column_dict in partial_row_data._cells.items():
         for column_key, column_values in column_dict.items():
             column = column_keys.from_key(family_id, column_key)
             new_column_dict[column] = column_values
-
     return new_column_dict
 
 
 def get_valid_timestamp(timestamp):
     if timestamp is None:
         timestamp = datetime.datetime.utcnow()
-
     if timestamp.tzinfo is None:
         timestamp = pytz.UTC.localize(timestamp)
-
     # Comply to resolution of BigTables TimeRange
-    return get_google_compatible_time_stamp(timestamp, round_up=False)    
+    return get_google_compatible_time_stamp(timestamp, round_up=False)
+
+
+def compute_chunk_id(
+    layer: int,
+    x: int,
+    y: int,
+    z: int,
+    s_bits_per_dim: int = 10,
+    n_bits_layer_id: int = 8,
+):
+    if not (
+        x < 2 ** s_bits_per_dim and y < 2 ** s_bits_per_dim and z < 2 ** s_bits_per_dim
+    ):
+        raise ValueError(
+            f"Coordinate is out of range \
+            layer: {layer} bits/dim {s_bits_per_dim}. \
+            [{x}, {y}, {z}]; max = {2 ** s_bits_per_dim}."
+        )
+    layer_offset = 64 - n_bits_layer_id
+    x_offset = layer_offset - s_bits_per_dim
+    y_offset = x_offset - s_bits_per_dim
+    z_offset = y_offset - s_bits_per_dim
+    return np.uint64(
+        layer << layer_offset | x << x_offset | y << y_offset | z << z_offset
+    )
+

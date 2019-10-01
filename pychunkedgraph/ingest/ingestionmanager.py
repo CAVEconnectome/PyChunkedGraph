@@ -1,7 +1,12 @@
 import itertools
 import numpy as np
+import pickle
 
-from pychunkedgraph.backend import chunkedgraph
+
+from ..backend.chunkedgraph_utils import compute_bitmasks
+from ..backend.chunkedgraph import ChunkedGraph
+from ..utils.redis import get_redis_connection
+from ..utils.redis import get_rq_queue
 
 
 class IngestionManager(object):
@@ -12,10 +17,16 @@ class IngestionManager(object):
         n_layers=None,
         instance_id=None,
         project_id=None,
+        cv=None,
+        chunk_size=None,
         data_version=2,
+        s_bits_atomic_layer=8,
         use_raw_edge_data=True,
         use_raw_agglomeration_data=True,
-        agglomeration_dir=None,
+        edges_dir=None,
+        components_dir=None,
+        task_q_name="test",
+        build_graph=True,
     ):
         self._storage_path = storage_path
         self._cg_table_id = cg_table_id
@@ -23,10 +34,23 @@ class IngestionManager(object):
         self._project_id = project_id
         self._cg = None
         self._n_layers = n_layers
+        self._s_bits_atomic_layer = s_bits_atomic_layer
         self._data_version = data_version
+        self._cv = cv
+        self._chunk_size = chunk_size
         self._use_raw_edge_data = use_raw_edge_data
         self._use_raw_agglomeration_data = use_raw_agglomeration_data
-        self._agglomeration_dir = agglomeration_dir
+        self._edges_dir = edges_dir
+        self._components_dir = components_dir
+        self._chunk_coords = None
+        self._layer_bounds_d = None
+        self._redis_connection = None
+        self._task_q_name = task_q_name
+        self._task_q = None
+        self._build_graph = build_graph
+        self._bitmasks = None
+        self._bounds = None
+        self._redis = None
 
     @property
     def storage_path(self):
@@ -84,19 +108,33 @@ class IngestionManager(object):
             if self._project_id is not None:
                 kwargs["project_id"] = self._project_id
 
-            self._cg = chunkedgraph.ChunkedGraph(table_id=self._cg_table_id, **kwargs)
+            self._cg = ChunkedGraph(table_id=self._cg_table_id, **kwargs)
 
         return self._cg
 
     @property
     def bounds(self):
-        bounds = self.cg.vx_vol_bounds.copy()
-        bounds -= self.cg.vx_vol_bounds[:, 0:1]
-        return bounds
+        if self._bounds:
+            return self._bounds
+        cv_bounds = np.array(self._cv.bounds.to_list()).reshape(2, -1).T
+        self._bounds = cv_bounds.copy()
+        self._bounds -= cv_bounds[:, 0:1]
+        return self._bounds
 
     @property
     def chunk_id_bounds(self):
-        return np.ceil((self.bounds / self.cg.chunk_size[:, None])).astype(np.int)
+        return np.ceil((self.bounds / self._chunk_size[:, None])).astype(np.int)
+
+    @property
+    def layer_chunk_bounds(self):
+        if self._layer_bounds_d:
+            return self._layer_bounds_d
+        layer_bounds_d = {}
+        for layer in range(2, self.n_layers):
+            layer_bounds = self.chunk_id_bounds / (2 ** (layer - 2))
+            layer_bounds_d[layer] = np.ceil(layer_bounds).astype(np.int)
+        self._layer_bounds_d = layer_bounds_d
+        return self._layer_bounds_d
 
     @property
     def chunk_coord_gen(self):
@@ -104,7 +142,10 @@ class IngestionManager(object):
 
     @property
     def chunk_coords(self):
-        return np.array(list(self.chunk_coord_gen), dtype=np.int)
+        if not self._chunk_coords is None:
+            return self._chunk_coords
+        self._chunk_coords = np.array(list(self.chunk_coord_gen), dtype=np.int)
+        return self._chunk_coords
 
     @property
     def n_layers(self):
@@ -121,10 +162,32 @@ class IngestionManager(object):
         return self._use_raw_agglomeration_data
 
     @property
-    def agglomeration_dir(self):
-        return self._agglomeration_dir
+    def edges_dir(self):
+        return self._edges_dir
 
-    def get_serialized_info(self):
+    @property
+    def components_dir(self):
+        return self._components_dir
+
+    @property
+    def task_q(self):
+        if self._task_q:
+            return self._task_q
+        self._task_q = get_rq_queue(self._task_q_name)
+        return self._task_q
+
+    @property
+    def redis(self):
+        if self._redis:
+            return self._redis
+        self._redis = get_redis_connection()
+        return self._redis        
+
+    @property
+    def build_graph(self):
+        return self._build_graph
+
+    def get_serialized_info(self, pickled=False):
         info = {
             "storage_path": self.storage_path,
             "cg_table_id": self._cg_table_id,
@@ -132,15 +195,28 @@ class IngestionManager(object):
             "instance_id": self._instance_id,
             "project_id": self._project_id,
             "data_version": self.data_version,
+            "s_bits_atomic_layer": self._s_bits_atomic_layer,
             "use_raw_edge_data": self._use_raw_edge_data,
             "use_raw_agglomeration_data": self._use_raw_agglomeration_data,
-            "agglomeration_dir": self._agglomeration_dir,
+            "edges_dir": self._edges_dir,
+            "components_dir": self._components_dir,
+            "task_q_name": self._task_q_name,
+            "build_graph": self._build_graph,
         }
-
+        if pickled:
+            return pickle.dumps(info)
         return info
 
-    def is_out_of_bounce(self, chunk_coordinate):
+    def is_out_of_bounds(self, chunk_coordinate):
+        if not self._bitmasks:
+            self._bitmasks = compute_bitmasks(
+                self.n_layers, 2, s_bits_atomic_layer=self._s_bits_atomic_layer
+            )
         return np.any(chunk_coordinate < 0) or np.any(
-            chunk_coordinate > 2 ** self.cg.bitmasks[1]
+            chunk_coordinate > 2 ** self._bitmasks[1]
         )
+
+    @classmethod
+    def from_pickle(cls, serialized_info):
+        return cls(**pickle.loads(serialized_info))
 

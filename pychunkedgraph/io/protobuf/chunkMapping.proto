@@ -1,8 +1,0 @@
-syntax = "proto3";
-
-package mapping;
-
-message ChunkMappingMsg {
-  bytes supervoxels = 1;
-  bytes components = 2;
-}

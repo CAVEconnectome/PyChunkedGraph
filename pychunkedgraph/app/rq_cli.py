@@ -11,6 +11,7 @@ from rq import Worker
 from rq.worker import WorkerStatus
 from rq.job import Job
 from rq.exceptions import InvalidJobOperationError
+from rq.registry import StartedJobRegistry
 from rq.registry import FailedJobRegistry
 from flask import current_app
 from flask.cli import AppGroup
@@ -20,11 +21,11 @@ from ..utils.redis import REDIS_PORT
 from ..utils.redis import REDIS_PASSWORD
 
 
-redis_cli = AppGroup("redis")
+rq_cli = AppGroup("rq")
 connection = Redis(host=REDIS_HOST, port=REDIS_PORT, db=0, password=REDIS_PASSWORD)
 
 
-@redis_cli.command("status")
+@rq_cli.command("status")
 @click.argument("queue", type=str, default="test")
 @click.option("--show-busy", is_flag=True)
 def get_status(queue, show_busy):
@@ -40,7 +41,7 @@ def get_status(queue, show_busy):
     print(f"Jobs failed \t: {q.failed_job_registry.count}")
 
 
-@redis_cli.command("failed_ids")
+@rq_cli.command("failed_ids")
 @click.argument("queue", type=str)
 def failed_jobs(queue):
     q = Queue(queue, connection=connection)
@@ -48,7 +49,7 @@ def failed_jobs(queue):
     print("\n".join(ids))
 
 
-@redis_cli.command("failed_info")
+@rq_cli.command("failed_info")
 @click.argument("queue", type=str)
 @click.argument("id", type=str)
 def failed_job_info(queue, id):
@@ -61,7 +62,7 @@ def failed_job_info(queue, id):
     print(j.exc_info)
 
 
-@redis_cli.command("empty")
+@rq_cli.command("empty")
 @click.argument("queue", type=str)
 def empty_queue(queue):
     q = Queue(queue, connection=connection)
@@ -70,7 +71,17 @@ def empty_queue(queue):
     print(f"{job_count} jobs removed from {queue}.")
 
 
-@redis_cli.command("requeue")
+@rq_cli.command("reenqueue")
+@click.argument("queue", type=str)
+@click.argument("job_ids", nargs=-1, required=True)
+def enqueue(queue, job_ids):
+    """Enqueues *existing* jobs that are stuck for whatever reason."""
+    q = Queue(queue, connection=connection)
+    for job_id in job_ids:
+        q.push_job_id(job_id)
+
+
+@rq_cli.command("requeue")
 @click.argument("queue", type=str)
 @click.option("--all", "-a", is_flag=True, help="Requeue all failed jobs")
 @click.argument("job_ids", nargs=-1)
@@ -98,5 +109,19 @@ def requeue(queue, all, job_ids):
         )
 
 
-def init_redis_cmds(app):
-    app.cli.add_command(redis_cli)
+@rq_cli.command("cleanup")
+@click.argument("queue", type=str)
+def clean_start_registry(queue):
+    """
+    Clean started job registry
+    Sometimes started jobs are not moved to failed registry (network issues)
+    This command takes the jobs off the started registry and reueues them
+    """
+    registry = StartedJobRegistry(name=queue, connection=connection)
+    cleaned_jobs = registry.cleanup()
+    print(f"Requeued {len(cleaned_jobs)} jobs from the started job registry.")
+
+
+def init_rq_cmds(app):
+    app.cli.add_command(rq_cli)
+

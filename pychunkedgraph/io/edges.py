@@ -66,7 +66,6 @@ def get_chunk_edges(
     :param cv_threads: cloudvolume storage client thread count
     :type int:     
     :return: dictionary {"edge_type": Edges}
-    :rtype: Tuple[np.ndarray, np.ndarray, np.ndarray]
     """
     fnames = []
     for chunk_coords in chunks_coordinates:
@@ -81,7 +80,6 @@ def get_chunk_edges(
     )
 
     chunk_edge_dicts = []
-
     with storage:
         files = storage.get_files(fnames)
         for _file in files:

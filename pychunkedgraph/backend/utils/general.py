@@ -2,6 +2,7 @@ from typing import Sequence, Tuple
 
 import numpy as np
 
+
 def get_bounding_box(
     source_coords: Sequence[Sequence[int]],
     sink_coords: Sequence[Sequence[int]],
@@ -17,4 +18,4 @@ def get_bounding_box(
     bounding_box = [np.min(coords, axis=0), np.max(coords, axis=0)]
     bounding_box[0] -= bb_offset
     bounding_box[1] += bb_offset
-    return bounding_box    
+    return bounding_box

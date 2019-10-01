@@ -21,11 +21,10 @@ def add_layer(
     time_stamp: Optional[datetime.datetime] = None,
     n_threads: int = 20,
 ) -> None:
-    cross_edge_dict, child_ids = _process_chunks(cg_instance, layer_id, chunk_coords)
-    edge_ids = _resolve_cross_chunk_edges_thread(layer_id, child_ids, cross_edge_dict)
-
     x, y, z = np.min(chunk_coords, axis=0) // cg_instance.fan_out
     parent_chunk_id = cg_instance.get_chunk_id(layer=layer_id, x=x, y=y, z=z)
+    cross_edge_dict, child_ids = _process_chunks(cg_instance, layer_id, chunk_coords)
+    edge_ids = _resolve_cross_chunk_edges_thread(layer_id, child_ids, cross_edge_dict)
 
     # Extract connected components
     isolated_node_mask = ~np.in1d(child_ids, np.unique(edge_ids))
@@ -47,8 +46,7 @@ def add_layer(
         graph_ids,
         time_stamp,
     )
-    # to track worker completion
-    return np.concatenate([[layer_id], chunk_coords])
+    return f"{layer_id}_{'_'.join(map(str, (x, y, z)))}"
 
 
 def _process_chunks(cg_instance, layer_id, chunk_coords):
@@ -58,7 +56,7 @@ def _process_chunks(cg_instance, layer_id, chunk_coords):
         ids, cross_edge_d = _process_chunk(cg_instance, layer_id, chunk_coord)
         node_ids.append(ids)
         cross_edge_dict = {**cross_edge_dict, **cross_edge_d}
-    return cross_edge_dict, np.concatenate(node_ids, dtype=np.uint64)
+    return cross_edge_dict, np.concatenate(node_ids)
 
 
 def _process_chunk(cg_instance, layer_id, chunk_coord):
@@ -112,6 +110,7 @@ def _read_chunk(cg_instance, layer_id, chunk_coord):
 
 
 def _resolve_cross_chunk_edges_thread(layer_id, node_ids, cross_edge_dict) -> None:
+    cross_edge_dict = defaultdict(dict, cross_edge_dict)
     atomic_partner_id_dict = {}
     atomic_child_id_dict_pairs = []
     for node_id in node_ids:
