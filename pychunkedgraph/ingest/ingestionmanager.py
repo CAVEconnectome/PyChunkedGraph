@@ -8,6 +8,12 @@ from ..backend.chunkedgraph import ChunkedGraph
 from ..utils.redis import get_redis_connection
 from ..utils.redis import get_rq_queue
 
+# TODO 
+# group parameters
+# refactor their usage in all modules
+# get rid of `ingest_into_chunkedgraph`
+# use IngestionManager directly
+
 
 class IngestionManager(object):
     def __init__(
