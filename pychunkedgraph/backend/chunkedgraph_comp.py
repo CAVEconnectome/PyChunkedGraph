@@ -191,10 +191,21 @@ def get_contact_sites(cg, root_id, bounding_box=None, bb_is_coordinate=True, com
                                              columns=[column_keys.Connectivity.Partner,
                                                       column_keys.Connectivity.Connected])
 
+    temp_root_id = np.uint64(648518346344081009)
+    temp_sv_ids = cg.get_subgraph_nodes(temp_root_id,
+                                   bounding_box=bounding_box,
+                                   bb_is_coordinate=bb_is_coordinate)
+    temp_intersect = np.intersect1d(temp_sv_ids, u_cs_svs)
+    
     pre_cs_edges = []
+    intersect_edges = []
     for ri in edges_cs_svs_rows.items():
         r = cg._retrieve_connectivity(ri)
         pre_cs_edges.extend(r[0])
+        ttt = r[0]
+        temp_add = ttt[np.in1d(ttt, temp_sv_ids).reshape(-1, 2)]
+        if len(temp_add) > 0:
+            intersect_edges.append(temp_add)
 
     graph, _, _, unique_ids = flatgraph_utils.build_gt_graph(
         pre_cs_edges, make_directed=True)
@@ -205,6 +216,7 @@ def get_contact_sites(cg, root_id, bounding_box=None, bb_is_coordinate=True, com
 
     cs_dict = collections.defaultdict(list)
     temp_sv_dict = collections.defaultdict(list)
+
     for cc in ccs:
         cc_sv_ids_all = unique_ids[cc]
 
@@ -212,18 +224,32 @@ def get_contact_sites(cg, root_id, bounding_box=None, bb_is_coordinate=True, com
         cs_areas = area_dict_vec(cc_sv_ids)
 
         if compute_partner:
-            temp_sv_dict[cc_sv_ids[0]] = np.sum(cs_areas)
+            temp_sv_dict[int(cc_sv_ids[0])] = np.sum(cs_areas)
             partner_root_id = len(temp_sv_dict)
+            cc_sv_ids_roots = cg.get_roots(cc_sv_ids)
+            uni_sv_roots = np.unique(cc_sv_ids_roots)
+            temp_intersect_test = np.intersect1d(temp_sv_ids, cc_sv_ids)
+            if len(temp_intersect_test) > 0:
+                import ipdb
+                ipdb.set_trace()
+            # print('intersect test', len(temp_intersect_test))
+            # if uni_sv_roots.shape[0] > 1:
+            # import ipdb
+            # ipdb.set_trace()
         else:
             partner_root_id = len(cs_dict)
             cs_dict[partner_root_id].append(np.sum(cs_areas))
 
+        # if partner_root_id % 100 == 0:
         print(partner_root_id, np.sum(cs_areas))
 
     if compute_partner:
-        sv_list = list(temp_sv_dict.keys())
+        sv_list = np.array(list(temp_sv_dict.keys()), dtype=np.uint64)
         partner_roots = cg.get_roots(sv_list)
         for i in range(len(partner_roots)):
-            cs_dict[partner_roots[i]].append(temp_sv_dict.get(sv_list[i]))
+            cs_dict[int(partner_roots[i])].append(temp_sv_dict.get(int(sv_list[i])))
+
+    import ipdb
+    ipdb.set_trace()
 
     return cs_dict
