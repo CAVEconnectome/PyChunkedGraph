@@ -29,7 +29,7 @@ class IngestionManager(object):
         build_graph=True,
     ):
 
-        # n_layers
+        # n_layers_agg = iu.calc_n_layers(ws_cv, chunk_size, fan_out=2)
         self._data_source = data_source
         self._graph_config = graph_config
         self._bigtable_config = bigtable_config
@@ -130,8 +130,6 @@ class IngestionManager(object):
 
     @property
     def n_layers(self):
-        if self._n_layers is None:
-            self._n_layers = self.cg.n_layers
         return self._n_layers
 
     @property
@@ -165,7 +163,9 @@ class IngestionManager(object):
     def is_out_of_bounds(self, chunk_coordinate):
         if not self._bitmasks:
             self._bitmasks = compute_bitmasks(
-                self.n_layers, 2, s_bits_atomic_layer=self._s_bits_atomic_layer
+                self.n_layers,
+                self._graph_config.fanout,
+                s_bits_atomic_layer=self._graph_config.s_bits_atomic_layer,
             )
         return np.any(chunk_coordinate < 0) or np.any(
             chunk_coordinate > 2 ** self._bitmasks[1]
