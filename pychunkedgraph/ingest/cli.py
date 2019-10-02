@@ -12,10 +12,9 @@ import numpy as np
 import click
 from flask.cli import AppGroup
 
+from . import IngestConfig
 from .ingestionmanager import IngestionManager
 from .ran_ingestion_v2 import INGEST_CHANNEL
-from .ran_ingestion_v2 import INGEST_QUEUE
-from .ran_ingestion_v2 import ingest_into_chunkedgraph
 from .ran_ingestion_v2 import enqueue_atomic_tasks
 from .ran_ingestion_v2 import create_parent_chunk
 from ..utils.redis import get_redis_connection
@@ -58,57 +57,34 @@ def ingest_graph(
     # interval=90.0
     result_ttl=500,
 ):
-    # agglomeration = "gs://ranl-scratch/190410_FAFB_v02_ws_size_threshold_200/agg"
-    # watershed = (
-    #     "gs://microns-seunglab/drosophila_v0/ws_190410_FAFB_v02_ws_size_threshold_200"
-    # )
-    # edges = "gs://akhilesh-pcg/190410_FAFB_v02/edges"
-    # components = "gs://akhilesh-pcg/190410_FAFB_v02/components"
-
-    agglomeration = "gs://ranl-scratch/minnie65_0/agg"
-    watershed = "gs://microns-seunglab/minnie65/ws_minnie65_0"
-    edges = "gs://chunkedgraph/minnie65_0/edges"
-    components = "gs://chunkedgraph/minnie65_0/components"
-
-    use_raw_edges = not processed
-    use_raw_components = not processed
-
-    chunk_size = [256, 256, 512]
-    fanout = 2
-    gcp_project_id = None
-    bigtable_instance_id = None
-    build_graph = False
-    s_bits_atomic_layer = 10
-    data_version = 2
-
+    ingest_config = IngestConfig(build_graph=False)
     data_source = DataSource(
-        agglomeration=agglomeration,
-        watershed=watershed,
-        edges=edges,
-        components=components,
-        use_raw_edges=use_raw_edges,
-        use_raw_components=use_raw_components,
-        data_version=data_version,
+        agglomeration="gs://ranl-scratch/minnie65_0/agg",
+        watershed="gs://microns-seunglab/minnie65/ws_minnie65_0",
+        edges="gs://chunkedgraph/minnie65_0/edges",
+        components="gs://chunkedgraph/minnie65_0/components",
+        use_raw_edges=not processed,
+        use_raw_components=not processed,
+        data_version=2,
     )
     graph_config = GraphConfig(
         graph_id=graph_id,
-        chunk_size=chunk_size,
-        fanout=fanout,
-        build_graph=build_graph,
-        s_bits_atomic_layer=s_bits_atomic_layer,
+        chunk_size=np.array([256, 256, 512], dtype=int),
+        fanout=2,
+        s_bits_atomic_layer=10,
     )
-    bigtable_config = BigTableConfig(
-        gcp_project_id=gcp_project_id, bigtable_instance_id=bigtable_instance_id
-    )
+    bigtable_config = BigTableConfig()
 
     redis_cnxn.flushdb()
-    imanager = ingest_into_chunkedgraph(data_source, graph_config, bigtable_config)
+    imanager = IngestionManager(
+        ingest_config, data_source, graph_config, bigtable_config
+    )
     redis_cnxn.set(r_keys.INGESTION_MANAGER, imanager.get_serialized_info(pickled=True))
     enqueue_atomic_tasks(imanager, result_ttl=result_ttl)
 
 
 def _get_children_coords(
-    imanager, layer: int, parent_coords: Sequence[int]
+    imanager: IngestionManager, layer: int, parent_coords: Sequence[int]
 ) -> List[np.ndarray]:
     layer_bounds = imanager.chunk_id_bounds / (2 ** (layer - 2))
     layer_bounds = np.ceil(layer_bounds).astype(np.int)
@@ -123,10 +99,11 @@ def _get_children_coords(
     return children_coords
 
 
-def _parse_results(imanager):
+def _parse_results(imanager: IngestionManager):
     global redis_cnxn
-    zset_name = f"rq:finished:{INGEST_QUEUE}"
-    results = redis_cnxn.zrange(zset_name, 0, -1)
+    results = redis_cnxn.zrange(
+        f"rq:finished:{imanager.ingest_config.task_q_name}", 0, -1
+    )
     layer_counts_d = defaultdict(int)
     parent_chunks_d = defaultdict(list)  # (layer, x, y, z) as keys
     for chunk_str in results:
@@ -139,7 +116,7 @@ def _parse_results(imanager):
         layer += 1
         x, y, z = np.array([x, y, z], int) // imanager.graph_config.fan_out
         parent_job_id = f"{layer}_{'_'.join(map(str, (x, y, z)))}"
-        if not redis_cnxn.hget(r_keys.PARENTS_HASH, parent_job_id) is None:
+        if not redis_cnxn.hget(r_keys.PARENTS_HASH_ENQUEUED, parent_job_id) is None:
             continue
         parent_chunks_d[(layer, x, y, z)].append(chunk_str)
     return parent_chunks_d, layer_counts_d
@@ -170,7 +147,7 @@ def _enqueue_parent_tasks():
             args=(imanager.get_serialized_info(), parent_chunk[0], children_coords),
         )
         count += 1
-        redis_cnxn.hset(r_keys.PARENTS_HASH, job_id, "")
+        redis_cnxn.hset(r_keys.PARENTS_HASH_ENQUEUED, job_id, "")
 
     layers = range(2, imanager.n_layers)
     status = ", ".join([f"{l}:{layer_counts_d[l]}" for l in layers])

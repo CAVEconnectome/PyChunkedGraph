@@ -2,6 +2,7 @@ import itertools
 import numpy as np
 import pickle
 
+from cloudvolume import CloudVolume
 
 from . import IngestConfig
 from .ingestion_utils import get_layer_count
@@ -29,7 +30,7 @@ class IngestionManager(object):
         self._bigtable_config = bigtable_config
 
         self._cg = None
-        self._cv = cv
+        self._ws_cv = CloudVolume(data_source.watershed)
         self._n_layers = None
         self._chunk_coords = None
         self._layer_bounds_d = None
@@ -70,7 +71,7 @@ class IngestionManager(object):
     def bounds(self):
         if self._bounds:
             return self._bounds
-        cv_bounds = np.array(self._cv.bounds.to_list()).reshape(2, -1).T
+        cv_bounds = np.array(self._ws_cv.bounds.to_list()).reshape(2, -1).T
         self._bounds = cv_bounds.copy()
         self._bounds -= cv_bounds[:, 0:1]
         return self._bounds

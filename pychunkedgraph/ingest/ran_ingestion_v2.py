@@ -38,44 +38,6 @@ from ..backend.definitions.config import BigTableConfig
 
 ZSTD_LEVEL = 17
 INGEST_CHANNEL = "ingest"
-INGEST_QUEUE = "test"
-
-
-def ingest_into_chunkedgraph(
-    data_source: DataSource, graph_config: GraphConfig, bigtable_config: BigTableConfig
-):
-    storage_path = data_source.agglomeration.strip("/")
-    ws_cv_path = data_source.watershed.strip("/")
-    chunk_size = np.array(graph_config.chunk_size)
-    # cg_mesh_dir = f"{graph_config.graph_id}_meshes"
-
-    # _, n_layers_agg = iu.initialize_chunkedgraph(
-    #     cg_table_id=graph_config.graph_id,
-    #     ws_cv_path=ws_cv_path,
-    #     chunk_size=chunk_size,
-    #     size=data_source.size,
-    #     use_skip_connections=True,
-    #     s_bits_atomic_layer=10,
-    #     cg_mesh_dir=cg_mesh_dir,
-    #     fan_out=graph_config.fanout,
-    #     instance_id=bigtable_config.instance_id,
-    #     project_id=bigtable_config.project_id,
-    #     edge_dir=data_source.edges,
-    # )
-    ws_cv = cloudvolume.CloudVolume(ws_cv_path)
-
-    imanager = ingestionmanager.IngestionManager(
-        data_source=data_source,
-        graph_config=graph_config,
-        bigtable_config=bigtable_config,
-        cv=ws_cv,
-        chunk_size=chunk_size,
-        edges_dir=data_source.edges,
-        components_dir=data_source.components,
-        use_raw_edge_data=data_source.use_raw_edges,
-        use_raw_agglomeration_data=data_source.use_raw_components,
-    )
-    return imanager
 
 
 @redis_job(REDIS_URL, INGEST_CHANNEL)

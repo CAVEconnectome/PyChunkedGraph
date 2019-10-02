@@ -16,7 +16,6 @@ _graphconfig_fields = (
     "graph_id",
     "chunk_size",
     "fanout",
-    "build_graph",
     "s_bits_atomic_layer",
 )
 _graphconfig_defaults = (None, None, 2, True, 8)
