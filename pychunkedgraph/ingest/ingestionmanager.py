@@ -27,10 +27,10 @@ class IngestionManager(object):
         self._data_source = data_source
         self._graph_config = graph_config
         self._bigtable_config = bigtable_config
-        self._n_layers = None
 
         self._cg = None
         self._cv = cv
+        self._n_layers = None
         self._chunk_coords = None
         self._layer_bounds_d = None
 
@@ -77,7 +77,9 @@ class IngestionManager(object):
 
     @property
     def chunk_id_bounds(self):
-        return np.ceil((self.bounds / self._chunk_size[:, None])).astype(np.int)
+        return np.ceil((self.bounds / self._graph_config.chunk_size[:, None])).astype(
+            np.int
+        )
 
     @property
     def layer_chunk_bounds(self):
@@ -102,10 +104,12 @@ class IngestionManager(object):
         return self._chunk_coords
 
     @property
-    def n_layers_agg(self):
+    def n_layers(self):
         if not self._n_layers:
             self._n_layers = get_layer_count(
-                self._ws_cv, self._graph_config.chunk_size, fan_out=2
+                self._ws_cv,
+                self._graph_config.chunk_size,
+                fan_out=self._graph_config.fanout,
             )
         return self._n_layers
 
@@ -117,19 +121,15 @@ class IngestionManager(object):
     def task_q(self):
         if self._task_q:
             return self._task_q
-        self._task_q = get_rq_queue(self._task_q_name)
+        self._task_q = get_rq_queue(self._ingest_config.task_q_name)
         return self._task_q
 
     @property
     def redis(self):
         if self._redis:
             return self._redis
-        self._redis = get_redis_connection()
+        self._redis = get_redis_connection(self._ingest_config.redis_url)
         return self._redis
-
-    @property
-    def build_graph(self):
-        return self._build_graph
 
     @property
     def edge_dtype(self):
@@ -166,8 +166,13 @@ class IngestionManager(object):
             raise Exception()
         return dtype
 
+    @classmethod
+    def from_pickle(cls, serialized_info):
+        return cls(**pickle.loads(serialized_info))
+
     def get_serialized_info(self, pickled=False):
         info = {
+            "ingest_config": self._ingest_config,
             "data_source": self._data_source,
             "graph_config": self._graph_config,
             "bigtable_config": self._bigtable_config,
@@ -179,15 +184,11 @@ class IngestionManager(object):
     def is_out_of_bounds(self, chunk_coordinate):
         if not self._bitmasks:
             self._bitmasks = compute_bitmasks(
-                self.n_layers,
+                self._n_layers,
                 self._graph_config.fanout,
                 s_bits_atomic_layer=self._graph_config.s_bits_atomic_layer,
             )
         return np.any(chunk_coordinate < 0) or np.any(
             chunk_coordinate > 2 ** self._bitmasks[1]
         )
-
-    @classmethod
-    def from_pickle(cls, serialized_info):
-        return cls(**pickle.loads(serialized_info))
 
