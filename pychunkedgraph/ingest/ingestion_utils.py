@@ -5,7 +5,7 @@ import cloudvolume
 import collections
 
 
-def calc_n_layers(ws_cv, chunk_size, fan_out):
+def get_layer_count(ws_cv, chunk_size, fan_out):
     bbox = np.array(ws_cv.bounds.to_list()).reshape(2, 3)
     n_chunks = ((bbox[1] - bbox[0]) / chunk_size).astype(np.int)
     n_layers = int( np.ceil(chunkedgraph_utils.log_n(np.max(n_chunks), fan_out))) + 2
@@ -43,7 +43,7 @@ def initialize_chunkedgraph(cg_table_id, ws_cv_path, chunk_size, size,
     """
     ws_cv = cloudvolume.CloudVolume(ws_cv_path)
 
-    n_layers_agg = calc_n_layers(ws_cv, chunk_size, fan_out=2)
+    n_layers_agg = get_layer_count(ws_cv, chunk_size, fan_out=2)
 
     if size is not None:
         size = np.array(size)
@@ -54,7 +54,7 @@ def initialize_chunkedgraph(cg_table_id, ws_cv_path, chunk_size, size,
             ws_cv.info['scales'][i]['size'] = [int(x) for x in size]
             size[:-1] //= 2
 
-    n_layers_cg = calc_n_layers(ws_cv, chunk_size, fan_out=fan_out)
+    n_layers_cg = get_layer_count(ws_cv, chunk_size, fan_out=fan_out)
 
     dataset_info = ws_cv.info
     dataset_info["mesh"] = cg_mesh_dir

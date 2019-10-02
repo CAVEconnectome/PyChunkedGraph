@@ -83,8 +83,8 @@ class ChunkedGraph(object):
     def __init__(
         self,
         table_id: str,
-        instance_id: str = "pychunkedgraph",
-        project_id: str = "neuromancer-seung-import",
+        project_id: str,
+        instance_id: str,
         chunk_size: Tuple[np.uint64, np.uint64, np.uint64] = None,
         fan_out: Optional[np.uint64] = None,
         use_skip_connections: Optional[bool] = True,

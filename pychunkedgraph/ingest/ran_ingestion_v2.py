@@ -63,7 +63,6 @@ def ingest_into_chunkedgraph(
     #     edge_dir=data_source.edges,
     # )
     ws_cv = cloudvolume.CloudVolume(ws_cv_path)
-    n_layers_agg = iu.calc_n_layers(ws_cv, chunk_size, fan_out=2)
 
     imanager = ingestionmanager.IngestionManager(
         data_source=data_source,
@@ -135,7 +134,7 @@ def create_atomic_chunk(imanager, coord):
         imanager, coord, chunk_edges_all, mapping
     )
     chunk_id_str = f"{2}_{'_'.join(map(str, coord))}"
-    if not imanager.build_graph:
+    if not imanager.ingest_config.build_graph:
         imanager.redis.hset(r_keys.ATOMIC_HASH_FINISHED, chunk_id_str, "")
         return chunk_id_str
     add_atomic_edges(imanager.cg, coord, chunk_edges_active, isolated=isolated_ids)
