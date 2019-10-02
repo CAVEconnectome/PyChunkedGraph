@@ -106,6 +106,7 @@ def _parse_results(imanager: IngestionManager):
         layer_counts_d[layer] += 1
         if layer == imanager.n_layers:
             print("All jobs completed.")
+            imanager.redis.delete(r_keys.INGESTION_MANAGER)
             sys.exit(0)
         layer += 1
         x, y, z = np.array([x, y, z], int) // imanager.graph_config.fan_out
