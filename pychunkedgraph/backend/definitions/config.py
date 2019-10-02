@@ -18,7 +18,7 @@ _graphconfig_fields = (
     "fanout",
     "s_bits_atomic_layer",
 )
-_graphconfig_defaults = (None, None, 2, True, 8)
+_graphconfig_defaults = (None, None, 2, 8)
 GraphConfig = namedtuple(
     "GraphConfig", _graphconfig_fields, defaults=_graphconfig_defaults
 )
