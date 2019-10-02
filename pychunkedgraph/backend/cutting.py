@@ -70,9 +70,9 @@ def merge_cross_chunk_edges_graph_tool(
 
 class LocalMincutGraph:
     """
-    Helper class for mincut computation. Used by the mincut_graph_tool function to: 
-    (1) set up a local graph-tool graph, (2) compute a mincut, (3) ensure required conditions hold, 
-    and (4) return the ChunkedGraph edges to be removed. 
+    Helper class for mincut computation. Used by the mincut_graph_tool function to:
+    (1) set up a local graph-tool graph, (2) compute a mincut, (3) ensure required conditions hold,
+    and (4) return the ChunkedGraph edges to be removed.
     """
 
     def __init__(
@@ -278,7 +278,7 @@ class LocalMincutGraph:
 
     def _filter_graph_connected_components(self):
         """
-        Filter out connected components in the graph 
+        Filter out connected components in the graph
         that are not involved in the local mincut
         """
         ccs = flatgraph_utils.connected_components(self.weighted_graph)
@@ -321,7 +321,7 @@ class LocalMincutGraph:
         """
         After the mincut has been computed, assert that: the sources are within
         one connected component, and the sinks are within another separate one.
-        These assertions should not fail. If they do, 
+        These assertions should not fail. If they do,
         then something went wrong with the graph_tool mincut computation
         """
         for i_cc in np.unique(partition.a):
