@@ -117,13 +117,13 @@ def _get_chunk_data(imanager, coord) -> Tuple[Dict, Dict]:
     """
     chunk_edges = (
         _read_raw_edge_data(imanager, coord)
-        if imanager.use_raw_edge_data
-        else get_chunk_edges(imanager.edges_dir, [coord])
+        if imanager.data_source.use_raw_edge_data
+        else get_chunk_edges(imanager.data_source.edges, [coord])
     )
     mapping = (
         _read_raw_agglomeration_data(imanager, coord)
-        if imanager.use_raw_agglomeration_data
-        else get_chunk_components(imanager.components_dir, coord)
+        if imanager.data_source.use_raw_agglomeration_data
+        else get_chunk_components(imanager.data_source.components, coord)
     )
     return chunk_edges, mapping
 
@@ -152,7 +152,7 @@ def _read_raw_edge_data(imanager, coord) -> Dict:
         no_edges = no_edges and not sv_ids1.size
     if no_edges:
         return chunk_edges
-    put_chunk_edges(imanager.edges_dir, coord, chunk_edges, ZSTD_LEVEL)
+    put_chunk_edges(imanager.data_source.edges, coord, chunk_edges, ZSTD_LEVEL)
     return chunk_edges
 
 
@@ -212,7 +212,7 @@ def _collect_edge_data(imanager, chunk_coord):
     :return: dict of np.ndarrays
     """
     subfolder = "chunked_rg"
-    base_path = f"{imanager.storage_path}/{subfolder}/"
+    base_path = f"{imanager.data_source.agglomeration}/{subfolder}/"
     chunk_coord = np.array(chunk_coord)
     x, y, z = chunk_coord
     chunk_id = compute_chunk_id(layer=1, x=x, y=y, z=z)
@@ -223,7 +223,6 @@ def _collect_edge_data(imanager, chunk_coord):
     for _x, _y, _z in itertools.product([x - 1, x], [y - 1, y], [z - 1, z]):
         if imanager.is_out_of_bounds(np.array([_x, _y, _z])):
             continue
-        # EDGES WITHIN CHUNKS
         filename = f"in_chunk_0_{_x}_{_y}_{_z}_{chunk_id}.data"
         filenames["in"].append(filename)
 
@@ -247,7 +246,6 @@ def _collect_edge_data(imanager, chunk_coord):
 
             for c_chunk_coord in c_chunk_coords:
                 x, y, z = c_chunk_coord
-                # EDGES BETWEEN CHUNKS
                 filename = f"between_chunks_0_{x}_{y}_{z}_{chunk_id_string}.data"
                 filenames["between"].append(filename)
                 swap[filename] = larger_id == chunk_id
@@ -309,7 +307,7 @@ def _read_raw_agglomeration_data(imanager, chunk_coord: np.ndarray):
     Collects agglomeration information & builds connected component mapping
     """
     subfolder = "remap"
-    base_path = f"{imanager.storage_path}/{subfolder}/"
+    base_path = f"{imanager.data_source.agglomeration}/{subfolder}/"
     chunk_coord = np.array(chunk_coord)
     x, y, z = chunk_coord
     chunk_id = compute_chunk_id(layer=1, x=x, y=y, z=z)
@@ -343,7 +341,7 @@ def _read_raw_agglomeration_data(imanager, chunk_coord: np.ndarray):
         mapping.update(dict(zip(cc, [i_cc] * len(cc))))
 
     if mapping:
-        put_chunk_components(imanager.components_dir, components, chunk_coord)
+        put_chunk_components(imanager.data_source.components, components, chunk_coord)
     return mapping
 
 
