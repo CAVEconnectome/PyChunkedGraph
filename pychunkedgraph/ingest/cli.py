@@ -25,8 +25,6 @@ from ..backend.definitions.config import BigTableConfig
 
 ingest_cli = AppGroup("ingest")
 
-redis_cnxn = get_redis_connection()
-
 
 @ingest_cli.command("graph")
 @click.argument("graph_id", type=str)
@@ -57,7 +55,7 @@ def ingest_graph(
     # interval=90.0
     result_ttl=500,
 ):
-    ingest_config = IngestConfig(build_graph=False)
+    ingest_config = IngestConfig(build_graph=False, flush_redis_db=True)
     data_source = DataSource(
         agglomeration="gs://ranl-scratch/minnie65_0/agg",
         watershed="gs://microns-seunglab/minnie65/ws_minnie65_0",
@@ -74,12 +72,9 @@ def ingest_graph(
         s_bits_atomic_layer=10,
     )
     bigtable_config = BigTableConfig()
-
-    redis_cnxn.flushdb()
     imanager = IngestionManager(
         ingest_config, data_source, graph_config, bigtable_config
     )
-    redis_cnxn.set(r_keys.INGESTION_MANAGER, imanager.get_serialized_info(pickled=True))
     enqueue_atomic_tasks(imanager, result_ttl=result_ttl)
 
 
@@ -100,8 +95,7 @@ def _get_children_coords(
 
 
 def _parse_results(imanager: IngestionManager):
-    global redis_cnxn
-    results = redis_cnxn.zrange(
+    results = imanager.redis.zrange(
         f"rq:finished:{imanager.ingest_config.task_q_name}", 0, -1
     )
     layer_counts_d = defaultdict(int)
@@ -116,19 +110,17 @@ def _parse_results(imanager: IngestionManager):
         layer += 1
         x, y, z = np.array([x, y, z], int) // imanager.graph_config.fan_out
         parent_job_id = f"{layer}_{'_'.join(map(str, (x, y, z)))}"
-        if not redis_cnxn.hget(r_keys.PARENTS_HASH_ENQUEUED, parent_job_id) is None:
+        if not imanager.redis.hget(r_keys.PARENTS_HASH_ENQUEUED, parent_job_id) is None:
             continue
         parent_chunks_d[(layer, x, y, z)].append(chunk_str)
     return parent_chunks_d, layer_counts_d
 
 
-def _enqueue_parent_tasks():
+def _enqueue_parent_tasks(imanager: IngestionManager):
     """ 
     Helper to enqueue parent tasks
     Checks job/chunk ids in redis to determine if parent task can be enqueued
     """
-    global redis_cnxn
-    imanager = IngestionManager.from_pickle(redis_cnxn.get(r_keys.INGESTION_MANAGER))
     parent_chunks_d, layer_counts_d = _parse_results(imanager)
     count = 0
     for parent_chunk in parent_chunks_d:
@@ -147,7 +139,7 @@ def _enqueue_parent_tasks():
             args=(imanager.get_serialized_info(), parent_chunk[0], children_coords),
         )
         count += 1
-        redis_cnxn.hset(r_keys.PARENTS_HASH_ENQUEUED, job_id, "")
+        imanager.redis.hset(r_keys.PARENTS_HASH_ENQUEUED, job_id, "")
 
     layers = range(2, imanager.n_layers)
     status = ", ".join([f"{l}:{layer_counts_d[l]}" for l in layers])
@@ -162,12 +154,15 @@ def ingest_parent_chunks(interval):
     This can only be used after running `ingest graph`
     Uses serialzed ingestion manager information stored in redis
     by the `ingest graph` command.
+    Should be on the same redis server where ingest is running.
     """
-    if not redis_cnxn.get(r_keys.INGESTION_MANAGER):
+    redis = get_redis_connection()
+    imanager_info = redis.get(r_keys.INGESTION_MANAGER)
+    if not imanager_info:
         click.secho("Run `ingest graph` before using this command.", fg="red")
         sys.exit(1)
     while True:
-        _enqueue_parent_tasks()
+        _enqueue_parent_tasks(IngestionManager.from_pickle(imanager_info))
         time.sleep(interval)
 
 
