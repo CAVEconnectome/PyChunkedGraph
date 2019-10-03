@@ -16,7 +16,8 @@ import numpy.lib.recfunctions as rfn
 import zstandard as zstd
 from flask import current_app
 
-from . import ingestionmanager, ingestion_utils as iu
+from .ingestion_utils import postprocess_edge_data
+from .ingestionmanager import IngestionManager
 from .initialization.atomic_layer import add_atomic_edges
 from .initialization.abstract_layers import add_layer
 from ..utils.redis import keys as r_keys
@@ -35,7 +36,7 @@ from ..backend.definitions.config import BigTableConfig
 
 
 def create_parent_chunk(im_info, layer, child_chunk_coords):
-    imanager = ingestionmanager.IngestionManager(**im_info)
+    imanager = IngestionManager(**im_info)
     return add_layer(imanager.cg, layer, child_chunk_coords)
 
 
@@ -76,7 +77,7 @@ def enqueue_atomic_tasks(
 
 def _create_atomic_chunk(im_info, chunk_coord):
     """ helper for enqueue_atomic_tasks """
-    imanager = ingestionmanager.IngestionManager(**im_info)
+    imanager = IngestionManager(**im_info)
     return create_atomic_chunk(imanager, chunk_coord)
 
 
@@ -122,7 +123,7 @@ def _get_chunk_data(imanager, coord) -> Tuple[Dict, Dict]:
 
 def _read_raw_edge_data(imanager, coord) -> Dict:
     edge_dict = _collect_edge_data(imanager, coord)
-    edge_dict = iu.postprocess_edge_data(imanager, edge_dict)
+    edge_dict = postprocess_edge_data(imanager, edge_dict)
 
     # flag to check if chunk has edges
     # avoid writing to cloud storage if there are no edges
