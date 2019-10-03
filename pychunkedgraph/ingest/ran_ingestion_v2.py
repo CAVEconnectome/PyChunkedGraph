@@ -19,8 +19,6 @@ from flask import current_app
 from . import ingestionmanager, ingestion_utils as iu
 from .initialization.atomic_layer import add_atomic_edges
 from .initialization.abstract_layers import add_layer
-from ..utils.redis import redis_job
-from ..utils.redis import REDIS_URL
 from ..utils.redis import keys as r_keys
 from ..io.edges import get_chunk_edges
 from ..io.edges import put_chunk_edges
@@ -36,11 +34,6 @@ from ..backend.definitions.config import GraphConfig
 from ..backend.definitions.config import BigTableConfig
 
 
-ZSTD_LEVEL = 17
-INGEST_CHANNEL = "ingest"
-
-
-@redis_job(REDIS_URL, INGEST_CHANNEL)
 def create_parent_chunk(im_info, layer, child_chunk_coords):
     imanager = ingestionmanager.IngestionManager(**im_info)
     return add_layer(imanager.cg, layer, child_chunk_coords)
@@ -81,7 +74,6 @@ def enqueue_atomic_tasks(
         )
 
 
-@redis_job(REDIS_URL, INGEST_CHANNEL)
 def _create_atomic_chunk(im_info, chunk_coord):
     """ helper for enqueue_atomic_tasks """
     imanager = ingestionmanager.IngestionManager(**im_info)
@@ -152,7 +144,7 @@ def _read_raw_edge_data(imanager, coord) -> Dict:
         no_edges = no_edges and not sv_ids1.size
     if no_edges:
         return chunk_edges
-    put_chunk_edges(imanager.data_source.edges, coord, chunk_edges, ZSTD_LEVEL)
+    put_chunk_edges(imanager.data_source.edges, coord, chunk_edges, 17)
     return chunk_edges
 
 
