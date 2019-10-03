@@ -14,7 +14,6 @@ from flask.cli import AppGroup
 
 from . import IngestConfig
 from .ingestionmanager import IngestionManager
-from .ran_ingestion_v2 import INGEST_CHANNEL
 from .ran_ingestion_v2 import enqueue_atomic_tasks
 from .ran_ingestion_v2 import create_parent_chunk
 from ..utils.redis import get_redis_connection
@@ -39,7 +38,6 @@ ingest_cli = AppGroup("ingest")
 # @click.option("--gcp-project-id", required=False, type=str)
 # @click.option("--bigtable-instance-id", required=False, type=str)
 # @click.option("--interval", required=False, type=float)
-@click.option("--result-ttl", required=False, type=int)
 def ingest_graph(
     graph_id,
     # agglomeration,
@@ -53,7 +51,6 @@ def ingest_graph(
     # gcp_project_id=None,
     # bigtable_instance_id=None,
     # interval=90.0
-    result_ttl=500,
 ):
     ingest_config = IngestConfig(build_graph=False, flush_redis_db=True)
     data_source = DataSource(
@@ -76,7 +73,7 @@ def ingest_graph(
         ingest_config, data_source, graph_config, bigtable_config
     )
     imanager.redis.flushdb()
-    enqueue_atomic_tasks(imanager, result_ttl=result_ttl)
+    enqueue_atomic_tasks(imanager)
 
 
 def _get_children_coords(
@@ -136,7 +133,7 @@ def _enqueue_parent_tasks(imanager: IngestionManager):
             create_parent_chunk,
             job_id=job_id,
             job_timeout="10m",
-            result_ttl=86400,
+            result_ttl=0,
             args=(imanager.get_serialized_info(), parent_chunk[0], children_coords),
         )
         count += 1

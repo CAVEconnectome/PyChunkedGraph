@@ -117,10 +117,6 @@ class IngestionManager(object):
         return self._n_layers
 
     @property
-    def n_layers_cg(self):
-        pass
-
-    @property
     def task_q(self):
         if self._task_q:
             return self._task_q

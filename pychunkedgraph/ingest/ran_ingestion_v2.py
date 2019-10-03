@@ -3,10 +3,13 @@ Module for ingesting in chunkedgraph format with edges stored outside bigtable
 """
 
 import time
-import collections
-import itertools
 import json
-from typing import Dict, Tuple
+from collections import defaultdict
+from collections import Counter
+from itertools import product
+from typing import Dict
+from typing import Tuple
+from typing import Sequence
 
 import pandas as pd
 import cloudvolume
@@ -30,40 +33,89 @@ from ..backend.definitions.edges import Edges, CX_CHUNK
 from ..backend.definitions.edges import TYPES as EDGE_TYPES
 
 
+chunk_id_str = lambda layer, coords: f"{layer}_{'_'.join(map(str, coords))}"
+
+
+def _get_children_coords(
+    imanager: IngestionManager, layer: int, parent_coords: Sequence[int]
+) -> np.ndarray:
+    layer_bounds = imanager.layer_chunk_bounds[layer]
+    children_coords = []
+    parent_coords = np.array(parent_coords, dtype=int)
+    for dcoord in product(*[range(imanager.graph_config.fan_out)] * 3):
+        dcoord = np.array(dcoord, dtype=int)
+        child_coords = parent_coords * imanager.graph_config.fan_out + dcoord
+        check_bounds = np.less(child_coords, layer_bounds[:, 1])
+        if np.all(check_bounds):
+            children_coords.append(child_coords)
+    return children_coords
+
+
+def post_task_completion(imanager: IngestionManager, layer: int, coords: np.ndarray):
+    """
+    get parent
+        add parent to layer hash
+        add children count to parent hash
+    decrement children count by 1
+        if count is 0
+        enqueue parent
+        delete parent hash
+    increment complete hash by 1
+    """
+    x, y, z = np.array(coords, int) // imanager.graph_config.fan_out
+    parent_layer = layer + 1
+    parent_chunk_str = "_".join(map(str, coords))
+
+    if not imanager.redis.hget(parent_layer, parent_chunk_str):
+        children_count = len(_get_children_coords(imanager, layer, (x, y, z)))
+        imanager.redis.hset(parent_layer, parent_chunk_str, children_count)
+    imanager.redis.hincrby(parent_layer, parent_chunk_str, -1)
+    children_left = imanager.redis.hget(parent_layer, parent_chunk_str)
+
+    if children_left == 0 and parent_layer <= imanager.n_layers:
+        children_coords = _get_children_coords(imanager, layer, (x, y, z))
+        imanager.task_q.enqueue(
+            create_parent_chunk,
+            job_id=chunk_id_str(parent_layer, (x, y, z)),
+            job_timeout="59m",
+            result_ttl=0,
+            args=(imanager.get_serialized_info(), parent_layer, children_coords),
+        )
+    imanager.redis.hincrby(r_keys.STATS_HASH, "completed", 1)
+
+
 def create_parent_chunk(im_info, layer, child_chunk_coords):
     imanager = IngestionManager(**im_info)
     return add_layer(imanager.cg, layer, child_chunk_coords)
 
 
-def enqueue_atomic_tasks(
-    imanager, batch_size: int = 50000, interval: float = 300.0, result_ttl: int = 500
-):
+def enqueue_atomic_tasks(imanager, batch_size: int = 50000, interval: float = 300.0):
     chunk_coords = list(imanager.chunk_coord_gen)
     np.random.shuffle(chunk_coords)
 
     # test chunks
-    # chunk_coords = [
-    #     [0, 0, 0],
-    #     [0, 0, 1],
-    #     [0, 1, 0],
-    #     [0, 1, 1],
-    #     [1, 0, 0],
-    #     [1, 0, 1],
-    #     [1, 1, 0],
-    #     [1, 1, 1],
-    # ]
+    chunk_coords = [
+        [0, 0, 0],
+        [0, 0, 1],
+        [0, 1, 0],
+        [0, 1, 1],
+        [1, 0, 0],
+        [1, 0, 1],
+        [1, 1, 0],
+        [1, 1, 1],
+    ]
 
     print(f"Chunk count: {len(chunk_coords)}")
     for chunk_coord in chunk_coords:
         if len(imanager.task_q) > batch_size:
             print("Number of queued jobs greater than batch size, sleeping ...")
             time.sleep(interval)
-        job_id = f"{2}_{'_'.join(map(str, chunk_coord))}"
+        job_id = chunk_id_str(2, chunk_coord)
         imanager.task_q.enqueue(
             _create_atomic_chunk,
             job_id=job_id,
-            job_timeout="10m",
-            result_ttl=result_ttl,
+            job_timeout="59m",
+            result_ttl=0,
             args=(imanager.get_serialized_info(), chunk_coord),
         )
 
@@ -81,11 +133,12 @@ def create_atomic_chunk(imanager, coord):
     chunk_edges_active, isolated_ids = _get_active_edges(
         imanager, coord, chunk_edges_all, mapping
     )
-    chunk_id_str = f"{2}_{'_'.join(map(str, coord))}"
+    chunk_str = chunk_id_str(2, coord)
     if not imanager.ingest_config.build_graph:
-        imanager.redis.hset(r_keys.ATOMIC_HASH_FINISHED, chunk_id_str, "")
-        return chunk_id_str
+        imanager.redis.hset(r_keys.ATOMIC_HASH_FINISHED, chunk_str, "")
+        return chunk_str
     add_atomic_edges(imanager.cg, coord, chunk_edges_active, isolated=isolated_ids)
+    post_task_completion(imanager, 2, coord)
 
     # n_supervoxels = len(isolated_ids)
     # n_edges = 0
@@ -175,7 +228,7 @@ def _get_cont_chunk_coords(imanager, chunk_coord_a, chunk_coord_b):
 
     chunk_coord_l = chunk_coord_a if diff[dir_dim] > 0 else chunk_coord_b
     c_chunk_coords = []
-    for dx, dy, dz in itertools.product([0, -1], [0, -1], [0, -1]):
+    for dx, dy, dz in product([0, -1], [0, -1], [0, -1]):
         if dz == dy == dx == 0:
             continue
         if [dx, dy, dz][dir_dim] == 0:
@@ -203,10 +256,10 @@ def _collect_edge_data(imanager, chunk_coord):
     x, y, z = chunk_coord
     chunk_id = compute_chunk_id(layer=1, x=x, y=y, z=z)
 
-    filenames = collections.defaultdict(list)
-    swap = collections.defaultdict(list)
+    filenames = defaultdict(list)
+    swap = defaultdict(list)
     x, y, z = chunk_coord
-    for _x, _y, _z in itertools.product([x - 1, x], [y - 1, y], [z - 1, z]):
+    for _x, _y, _z in product([x - 1, x], [y - 1, y], [z - 1, z]):
         if imanager.is_out_of_bounds(np.array([_x, _y, _z])):
             continue
         filename = f"in_chunk_0_{_x}_{_y}_{_z}_{chunk_id}.data"
@@ -242,7 +295,7 @@ def _collect_edge_data(imanager, chunk_coord):
                 swap[filename] = larger_id == chunk_id
 
     edge_data = {}
-    read_counter = collections.Counter()
+    read_counter = Counter()
     for k in filenames:
         with cloudvolume.Storage(base_path, n_threads=10) as stor:
             files = stor.get_files(filenames[k])
