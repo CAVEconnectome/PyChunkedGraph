@@ -75,6 +75,7 @@ def ingest_graph(
     imanager = IngestionManager(
         ingest_config, data_source, graph_config, bigtable_config
     )
+    imanager.redis.flushdb()
     enqueue_atomic_tasks(imanager, result_ttl=result_ttl)
 
 

@@ -26,13 +26,9 @@ from ..io.edges import put_chunk_edges
 from ..io.components import get_chunk_components
 from ..io.components import put_chunk_components
 from ..backend.utils import basetypes
-from ..backend.chunkedgraph_utils import compute_bitmasks
 from ..backend.chunkedgraph_utils import compute_chunk_id
 from ..backend.definitions.edges import Edges, CX_CHUNK
 from ..backend.definitions.edges import TYPES as EDGE_TYPES
-from ..backend.definitions.config import DataSource
-from ..backend.definitions.config import GraphConfig
-from ..backend.definitions.config import BigTableConfig
 
 
 def create_parent_chunk(im_info, layer, child_chunk_coords):
@@ -43,8 +39,6 @@ def create_parent_chunk(im_info, layer, child_chunk_coords):
 def enqueue_atomic_tasks(
     imanager, batch_size: int = 50000, interval: float = 300.0, result_ttl: int = 500
 ):
-    # cleanup any old tasks
-    current_app.test_q.empty()
     chunk_coords = list(imanager.chunk_coord_gen)
     np.random.shuffle(chunk_coords)
 

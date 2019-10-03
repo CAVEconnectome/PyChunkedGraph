@@ -131,8 +131,6 @@ class IngestionManager(object):
         if self._redis:
             return self._redis
         self._redis = get_redis_connection(self._ingest_config.redis_url)
-        if self._ingest_config.flush_redis_db:
-            self._redis.flushdb()
         self._redis.set(
             r_keys.INGESTION_MANAGER, self.get_serialized_info(pickled=True)
         )
