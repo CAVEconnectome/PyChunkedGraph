@@ -82,8 +82,7 @@ def ingest_graph(
 def _get_children_coords(
     imanager: IngestionManager, layer: int, parent_coords: Sequence[int]
 ) -> List[np.ndarray]:
-    layer_bounds = imanager.chunk_id_bounds / (2 ** (layer - 2))
-    layer_bounds = np.ceil(layer_bounds).astype(np.int)
+    layer_bounds = imanager.layer_chunk_bounds[layer]
     children_coords = []
     parent_coords = np.array(parent_coords, dtype=int)
     for dcoord in product(*[range(imanager.graph_config.fan_out)] * 3):

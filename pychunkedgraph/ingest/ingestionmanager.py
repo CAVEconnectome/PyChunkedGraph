@@ -1,6 +1,7 @@
 import itertools
 import numpy as np
 import pickle
+from typing import Dict
 
 from cloudvolume import CloudVolume
 
@@ -84,7 +85,7 @@ class IngestionManager(object):
         )
 
     @property
-    def layer_chunk_bounds(self):
+    def layer_chunk_bounds(self) -> Dict:
         if self._layer_bounds_d:
             return self._layer_bounds_d
         layer_bounds_d = {}
