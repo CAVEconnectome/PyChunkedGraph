@@ -14,7 +14,6 @@ import networkx as nx
 import numpy as np
 import numpy.lib.recfunctions as rfn
 import zstandard as zstd
-from flask import current_app
 
 from .ingestion_utils import postprocess_edge_data
 from .ingestionmanager import IngestionManager
@@ -56,11 +55,11 @@ def enqueue_atomic_tasks(
 
     print(f"Chunk count: {len(chunk_coords)}")
     for chunk_coord in chunk_coords:
-        if len(current_app.test_q) > batch_size:
+        if len(imanager.task_q) > batch_size:
             print("Number of queued jobs greater than batch size, sleeping ...")
             time.sleep(interval)
         job_id = f"{2}_{'_'.join(map(str, chunk_coord))}"
-        current_app.test_q.enqueue(
+        imanager.task_q.enqueue(
             _create_atomic_chunk,
             job_id=job_id,
             job_timeout="10m",
