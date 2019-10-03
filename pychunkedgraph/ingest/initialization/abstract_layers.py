@@ -16,14 +16,14 @@ from pychunkedgraph.backend.utils import serializers, column_keys
 def add_layer(
     cg_instance,
     layer_id: int,
-    chunk_coords: Sequence[Sequence[int]],
+    parent_coords: Sequence[int],
+    children_coords: Sequence[Sequence[int]],
     *,
     time_stamp: Optional[datetime.datetime] = None,
     n_threads: int = 20,
 ) -> None:
-    x, y, z = np.min(chunk_coords, axis=0) // cg_instance.fan_out
     parent_chunk_id = cg_instance.get_chunk_id(layer=layer_id, x=x, y=y, z=z)
-    cross_edge_dict, child_ids = _process_chunks(cg_instance, layer_id, chunk_coords)
+    cross_edge_dict, child_ids = _process_chunks(cg_instance, layer_id, children_coords)
     edge_ids = _resolve_cross_chunk_edges_thread(layer_id, child_ids, cross_edge_dict)
 
     # Extract connected components

@@ -51,7 +51,7 @@ def _get_children_coords(
     return children_coords
 
 
-def post_task_completion(imanager: IngestionManager, layer: int, coords: np.ndarray):
+def _post_task_completion(imanager: IngestionManager, layer: int, coords: np.ndarray):
     """
     get parent
         add parent to layer hash
@@ -62,31 +62,38 @@ def post_task_completion(imanager: IngestionManager, layer: int, coords: np.ndar
         delete parent hash
     increment complete hash by 1
     """
-    x, y, z = np.array(coords, int) // imanager.graph_config.fan_out
     parent_layer = layer + 1
-    parent_chunk_str = "_".join(map(str, coords))
+    if parent_layer > imanager.n_layers:
+        return
 
+    parent_coords = np.array(coords, int) // imanager.graph_config.fan_out
+    parent_chunk_str = "_".join(map(str, parent_coords))
     if not imanager.redis.hget(parent_layer, parent_chunk_str):
-        children_count = len(_get_children_coords(imanager, layer, (x, y, z)))
+        children_count = len(_get_children_coords(imanager, layer, parent_coords))
         imanager.redis.hset(parent_layer, parent_chunk_str, children_count)
     imanager.redis.hincrby(parent_layer, parent_chunk_str, -1)
     children_left = imanager.redis.hget(parent_layer, parent_chunk_str)
 
-    if children_left == 0 and parent_layer <= imanager.n_layers:
-        children_coords = _get_children_coords(imanager, layer, (x, y, z))
+    if children_left == 0:
         imanager.task_q.enqueue(
-            create_parent_chunk,
-            job_id=chunk_id_str(parent_layer, (x, y, z)),
+            _create_parent_chunk,
+            job_id=chunk_id_str(parent_layer, parent_coords),
             job_timeout="59m",
             result_ttl=0,
-            args=(imanager.get_serialized_info(), parent_layer, children_coords),
+            args=(
+                imanager.get_serialized_info(),
+                parent_layer,
+                parent_coords,
+                _get_children_coords(imanager, layer, parent_coords),
+            ),
         )
     imanager.redis.hincrby(r_keys.STATS_HASH, "completed", 1)
 
 
-def create_parent_chunk(im_info, layer, child_chunk_coords):
+def _create_parent_chunk(im_info, layer, parent_coords, child_chunk_coords):
     imanager = IngestionManager(**im_info)
-    return add_layer(imanager.cg, layer, child_chunk_coords)
+    add_layer(imanager.cg, layer, parent_coords, child_chunk_coords)
+    _post_task_completion(imanager, 2, parent_coords)
 
 
 def enqueue_atomic_tasks(imanager, batch_size: int = 50000, interval: float = 300.0):
@@ -120,33 +127,19 @@ def enqueue_atomic_tasks(imanager, batch_size: int = 50000, interval: float = 30
         )
 
 
-def _create_atomic_chunk(im_info, chunk_coord):
-    """ helper for enqueue_atomic_tasks """
-    imanager = IngestionManager(**im_info)
-    return create_atomic_chunk(imanager, chunk_coord)
-
-
-def create_atomic_chunk(imanager, coord):
+def _create_atomic_chunk(im_info, coord):
     """ Creates single atomic chunk"""
+    imanager = IngestionManager(**im_info)
     coord = np.array(list(coord), dtype=np.int)
     chunk_edges_all, mapping = _get_chunk_data(imanager, coord)
     chunk_edges_active, isolated_ids = _get_active_edges(
         imanager, coord, chunk_edges_all, mapping
     )
-    chunk_str = chunk_id_str(2, coord)
     if not imanager.ingest_config.build_graph:
-        imanager.redis.hset(r_keys.ATOMIC_HASH_FINISHED, chunk_str, "")
-        return chunk_str
+        imanager.redis.hset(r_keys.ATOMIC_HASH_FINISHED, chunk_id_str(2, coord), "")
+        return
     add_atomic_edges(imanager.cg, coord, chunk_edges_active, isolated=isolated_ids)
-    post_task_completion(imanager, 2, coord)
-
-    # n_supervoxels = len(isolated_ids)
-    # n_edges = 0
-    # for edge_type in EDGE_TYPES:
-    #     edges = chunk_edges_all[edge_type]
-    #     n_edges += len(edges)
-    #     n_supervoxels += len(np.unique(edges.get_pairs().ravel()))
-    return chunk_id_str
+    _post_task_completion(imanager, 2, coord)
 
 
 def _get_chunk_data(imanager, coord) -> Tuple[Dict, Dict]:

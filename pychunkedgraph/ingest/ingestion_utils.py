@@ -16,8 +16,8 @@ def initialize_chunkedgraph(
     cg_table_id,
     ws_cv_path,
     chunk_size,
-    size,
-    cg_mesh_dir,
+    cg_mesh_dir="mesh_dir",
+    size=None,
     use_skip_connections=True,
     s_bits_atomic_layer=None,
     n_bits_root_counter=8,
@@ -28,7 +28,6 @@ def initialize_chunkedgraph(
     is_new=True,
 ):
     """ Initalizes a chunkedgraph on BigTable
-
     :param cg_table_id: str
         name of chunkedgraph
     :param ws_cv_path: str
