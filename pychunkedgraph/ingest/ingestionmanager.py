@@ -71,7 +71,7 @@ class IngestionManager(object):
 
     @property
     def bounds(self):
-        if self._bounds:
+        if not self._bounds is None:
             return self._bounds
         cv_bounds = np.array(self._ws_cv.bounds.to_list()).reshape(2, -1).T
         self._bounds = cv_bounds.copy()
@@ -89,7 +89,7 @@ class IngestionManager(object):
         if self._layer_bounds_d:
             return self._layer_bounds_d
         layer_bounds_d = {}
-        for layer in range(2, self.n_layers_cg):
+        for layer in range(2, self.n_layers):
             layer_bounds = self.chunk_id_bounds / (2 ** (layer - 2))
             layer_bounds_d[layer] = np.ceil(layer_bounds).astype(np.int)
         self._layer_bounds_d = layer_bounds_d

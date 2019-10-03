@@ -63,7 +63,6 @@ def _post_task_completion(imanager: IngestionManager, layer: int, coords: np.nda
     increment complete hash by 1
     """
     parent_layer = layer + 1
-    print(parent_layer, imanager.n_layers)
     if parent_layer > imanager.n_layers:
         return
 
@@ -73,8 +72,11 @@ def _post_task_completion(imanager: IngestionManager, layer: int, coords: np.nda
         children_count = len(_get_children_coords(imanager, layer, parent_coords))
         imanager.redis.hset(parent_layer, parent_chunk_str, children_count)
     imanager.redis.hincrby(parent_layer, parent_chunk_str, -1)
-    children_left = imanager.redis.hget(parent_layer, parent_chunk_str)
+    children_left = int(
+        imanager.redis.hget(parent_layer, parent_chunk_str).decode("utf-8")
+    )
 
+    print(children_left)
     if children_left == 0:
         imanager.task_q.enqueue(
             _create_parent_chunk,
@@ -88,6 +90,7 @@ def _post_task_completion(imanager: IngestionManager, layer: int, coords: np.nda
                 _get_children_coords(imanager, layer, parent_coords),
             ),
         )
+        imanager.redis.hdel(parent_layer, parent_chunk_str)
     imanager.redis.hincrby(r_keys.STATS_HASH, "completed", 1)
 
 
@@ -130,14 +133,12 @@ def enqueue_atomic_tasks(imanager, batch_size: int = 50000, interval: float = 30
 
 def _create_atomic_chunk(im_info, coord):
     """ Creates single atomic chunk"""
-    print("HI"*50)
     imanager = IngestionManager(**im_info)
     coord = np.array(list(coord), dtype=np.int)
     chunk_edges_all, mapping = _get_chunk_data(imanager, coord)
     chunk_edges_active, isolated_ids = _get_active_edges(
         imanager, coord, chunk_edges_all, mapping
     )
-    print(imanager.ingest_config.build_graph)
     if not imanager.ingest_config.build_graph:
         imanager.redis.hset(r_keys.ATOMIC_HASH_FINISHED, chunk_id_str(2, coord), "")
         return
