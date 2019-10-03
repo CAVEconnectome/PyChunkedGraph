@@ -76,13 +76,13 @@ def _post_task_completion(imanager: IngestionManager, layer: int, coords: np.nda
         imanager.redis.hget(parent_layer, parent_chunk_str).decode("utf-8")
     )
 
-    print(children_left)
     if children_left == 0:
         imanager.task_q.enqueue(
             _create_parent_chunk,
             job_id=chunk_id_str(parent_layer, parent_coords),
             job_timeout="59m",
             result_ttl=0,
+            at_front=True,
             args=(
                 imanager.get_serialized_info(),
                 parent_layer,
@@ -105,16 +105,16 @@ def enqueue_atomic_tasks(imanager, batch_size: int = 50000, interval: float = 30
     np.random.shuffle(chunk_coords)
 
     # test chunks
-    chunk_coords = [
-        [0, 0, 0],
-        [0, 0, 1],
-        [0, 1, 0],
-        [0, 1, 1],
-        [1, 0, 0],
-        [1, 0, 1],
-        [1, 1, 0],
-        [1, 1, 1],
-    ]
+    # chunk_coords = [
+    #     [0, 0, 0],
+    #     [0, 0, 1],
+    #     [0, 1, 0],
+    #     [0, 1, 1],
+    #     [1, 0, 0],
+    #     [1, 0, 1],
+    #     [1, 1, 0],
+    #     [1, 1, 1],
+    # ]
 
     print(f"Chunk count: {len(chunk_coords)}")
     for chunk_coord in chunk_coords:
