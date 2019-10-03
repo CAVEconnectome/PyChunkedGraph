@@ -35,7 +35,7 @@
 	// "settings":  { "workbench.colorTheme": "Quiet Light" },
 
 	// Uncomment the next line to run commands after the container is created - for example installing git.
-	"postCreateCommand": "redis-server --requirepass dev --appendonly no",
+	"postCreateCommand": "rm -rf /app && redis-server --requirepass dev --appendonly no",
 
 	// Add the IDs of any extensions you want installed in the array below.
 	"extensions": []

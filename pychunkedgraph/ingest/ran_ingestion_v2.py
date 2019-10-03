@@ -42,9 +42,9 @@ def _get_children_coords(
     layer_bounds = imanager.layer_chunk_bounds[layer]
     children_coords = []
     parent_coords = np.array(parent_coords, dtype=int)
-    for dcoord in product(*[range(imanager.graph_config.fan_out)] * 3):
+    for dcoord in product(*[range(imanager.graph_config.fanout)] * 3):
         dcoord = np.array(dcoord, dtype=int)
-        child_coords = parent_coords * imanager.graph_config.fan_out + dcoord
+        child_coords = parent_coords * imanager.graph_config.fanout + dcoord
         check_bounds = np.less(child_coords, layer_bounds[:, 1])
         if np.all(check_bounds):
             children_coords.append(child_coords)
@@ -63,10 +63,11 @@ def _post_task_completion(imanager: IngestionManager, layer: int, coords: np.nda
     increment complete hash by 1
     """
     parent_layer = layer + 1
+    print(parent_layer, imanager.n_layers)
     if parent_layer > imanager.n_layers:
         return
 
-    parent_coords = np.array(coords, int) // imanager.graph_config.fan_out
+    parent_coords = np.array(coords, int) // imanager.graph_config.fanout
     parent_chunk_str = "_".join(map(str, parent_coords))
     if not imanager.redis.hget(parent_layer, parent_chunk_str):
         children_count = len(_get_children_coords(imanager, layer, parent_coords))
@@ -129,12 +130,14 @@ def enqueue_atomic_tasks(imanager, batch_size: int = 50000, interval: float = 30
 
 def _create_atomic_chunk(im_info, coord):
     """ Creates single atomic chunk"""
+    print("HI"*50)
     imanager = IngestionManager(**im_info)
     coord = np.array(list(coord), dtype=np.int)
     chunk_edges_all, mapping = _get_chunk_data(imanager, coord)
     chunk_edges_active, isolated_ids = _get_active_edges(
         imanager, coord, chunk_edges_all, mapping
     )
+    print(imanager.ingest_config.build_graph)
     if not imanager.ingest_config.build_graph:
         imanager.redis.hset(r_keys.ATOMIC_HASH_FINISHED, chunk_id_str(2, coord), "")
         return
@@ -149,12 +152,12 @@ def _get_chunk_data(imanager, coord) -> Tuple[Dict, Dict]:
     """
     chunk_edges = (
         _read_raw_edge_data(imanager, coord)
-        if imanager.data_source.use_raw_edge_data
+        if imanager.data_source.use_raw_edges
         else get_chunk_edges(imanager.data_source.edges, [coord])
     )
     mapping = (
         _read_raw_agglomeration_data(imanager, coord)
-        if imanager.data_source.use_raw_agglomeration_data
+        if imanager.data_source.use_raw_components
         else get_chunk_components(imanager.data_source.components, coord)
     )
     return chunk_edges, mapping

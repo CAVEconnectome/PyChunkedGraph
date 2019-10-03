@@ -52,7 +52,7 @@ def ingest_graph(
     # bigtable_instance_id=None,
     # interval=90.0
 ):
-    ingest_config = IngestConfig(build_graph=False, flush_redis_db=True)
+    ingest_config = IngestConfig(build_graph=True)
     data_source = DataSource(
         agglomeration="gs://ranl-scratch/minnie65_0/agg",
         watershed="gs://microns-seunglab/minnie65/ws_minnie65_0",
@@ -74,13 +74,14 @@ def ingest_graph(
     )
     imanager.redis.flushdb()
 
-    initialize_chunkedgraph(
-        graph_config.graph_id,
-        data_source.watershed,
-        graph_config.chunk_size,
-        s_bits_atomic_layer=graph_config.s_bits_atomic_layer,
-        edge_dir=data_source.edges,
-    )
+    if ingest_config.build_graph:
+        initialize_chunkedgraph(
+            graph_config.graph_id,
+            data_source.watershed,
+            graph_config.chunk_size,
+            s_bits_atomic_layer=graph_config.s_bits_atomic_layer,
+            edge_dir=data_source.edges,
+        )
 
     enqueue_atomic_tasks(imanager)
 
