@@ -29,7 +29,7 @@ def merge_cross_chunk_edges_graph_tool(
     cross_chunk_edge_mask = np.isinf(affs)
 
     # graph with edges that have to be merged
-    graph, _, _, unique_ids = flatgraph_utils.build_gt_graph(
+    graph, _, _, unique_supervoxel_ids = flatgraph_utils.build_gt_graph(
         edges[cross_chunk_edge_mask], make_directed=True
     )
 
@@ -40,7 +40,7 @@ def merge_cross_chunk_edges_graph_tool(
     mapping = np.array([], dtype=np.uint64).reshape(-1, 2)
 
     for cc in ccs:
-        nodes = unique_ids[cc]
+        nodes = unique_supervoxel_ids[cc]
         rep_node = np.min(nodes)
 
         remapping[rep_node] = nodes
@@ -137,7 +137,7 @@ class LocalMincutGraph:
         )
 
         # To make things easier for everyone involved, we map the ids to
-        # [0, ..., len(unique_ids) - 1]
+        # [0, ..., len(unique_supervoxel_ids) - 1]
         # Generate weighted graph with graph_tool
         self.weighted_graph, self.capacities, self.gt_edges, self.unique_supervoxel_ids = flatgraph_utils.build_gt_graph(
             comb_edges, comb_affs, make_directed=True
@@ -255,7 +255,7 @@ class LocalMincutGraph:
         j = 2
         for cc in ccs_test_post_cut:
             if i != max_source_index and i != max_sink_index:
-                supervoxel_ccs[j] = self.unique_ids[cc]
+                supervoxel_ccs[j] = self.unique_supervoxel_ids[cc]
                 j += 1
             i += 1
         return (supervoxel_ccs, illegal_split)
