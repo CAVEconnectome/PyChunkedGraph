@@ -77,7 +77,7 @@ def _post_task_completion(imanager: IngestionManager, layer: int, coords: np.nda
     )
 
     if children_left == 0:
-        parents_queue = imanager.task_queues[imanager.config.parents_q_name]
+        parents_queue = imanager.get_task_queue(imanager.config.parents_q_name)
         while len(parents_queue) > imanager.config.parents_q_limit:
             print(f"Sleeping {imanager.config.parents_q_interval}s...")
             time.sleep(imanager.config.parents_q_interval)
@@ -124,7 +124,7 @@ def enqueue_atomic_tasks(
 
     print(f"Chunk count: {len(chunk_coords)}")
     for chunk_coord in chunk_coords:
-        atomic_queue = imanager.task_queues[imanager.config.atomic_q_name]
+        atomic_queue = imanager.get_task_queue(imanager.config.atomic_q_name)
         # for optimal use of redis memory wait if queue limit is reached
         if len(atomic_queue) > imanager.config.atomic_q_limit:
             print(f"Sleeping {imanager.config.atomic_q_interval}s...")

@@ -38,7 +38,7 @@ class IngestionManager(object):
         self._chunk_coords = None
         self._layer_bounds_d = None
 
-        self._task_queues = defaultdict(get_rq_queue)
+        self._task_queues = {}
 
         self._bitmasks = None
         self._bounds = None
@@ -118,10 +118,6 @@ class IngestionManager(object):
         return self._n_layers
 
     @property
-    def task_queues(self) -> Dict:
-        return self._task_queues
-
-    @property
     def redis(self):
         if self._redis:
             return self._redis
@@ -169,6 +165,12 @@ class IngestionManager(object):
     @classmethod
     def from_pickle(cls, serialized_info):
         return cls(**pickle.loads(serialized_info))
+
+    def get_task_queue(self, q_name):
+        if q_name in self._task_queues:
+            return self._task_queues[q_name]
+        self._task_queues[q_name] = get_rq_queue(q_name)
+        return self._task_queues[q_name]
 
     def get_serialized_info(self, pickled=False):
         info = {
