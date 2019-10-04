@@ -2,6 +2,7 @@ import itertools
 import numpy as np
 import pickle
 from typing import Dict
+from collections import defaultdict
 
 from cloudvolume import CloudVolume
 
@@ -37,7 +38,7 @@ class IngestionManager(object):
         self._chunk_coords = None
         self._layer_bounds_d = None
 
-        self._task_q = None
+        self._task_queues = defaultdict(get_rq_queue)
 
         self._bitmasks = None
         self._bounds = None
@@ -117,11 +118,8 @@ class IngestionManager(object):
         return self._n_layers
 
     @property
-    def task_q(self):
-        if self._task_q:
-            return self._task_q
-        self._task_q = get_rq_queue(self._ingest_config.task_q_name)
-        return self._task_q
+    def task_queues(self) -> Dict:
+        return self._task_queues
 
     @property
     def redis(self):

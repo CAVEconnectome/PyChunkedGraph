@@ -77,7 +77,11 @@ def _post_task_completion(imanager: IngestionManager, layer: int, coords: np.nda
     )
 
     if children_left == 0:
-        imanager.task_q.enqueue(
+        parents_queue = imanager.task_queues[imanager.ingest_config.parents_q_name]
+        while len(parents_queue) > imanager.ingest_config.parents_q_limit:
+            print(f"Sleeping {imanager.ingest_config.parents_q_interval}s...")
+            time.sleep(imanager.ingest_config.parents_q_interval)
+        parents_queue.enqueue(
             _create_parent_chunk,
             job_id=chunk_id_str(parent_layer, parent_coords),
             job_timeout="59m",
@@ -100,7 +104,9 @@ def _create_parent_chunk(im_info, layer, parent_coords, child_chunk_coords):
     _post_task_completion(imanager, 2, parent_coords)
 
 
-def enqueue_atomic_tasks(imanager, batch_size: int = 50000, interval: float = 300.0):
+def enqueue_atomic_tasks(
+    imanager: IngestionManager, batch_size: int = 50000, interval: float = 300.0
+):
     chunk_coords = list(imanager.chunk_coord_gen)
     np.random.shuffle(chunk_coords)
 
@@ -118,13 +124,14 @@ def enqueue_atomic_tasks(imanager, batch_size: int = 50000, interval: float = 30
 
     print(f"Chunk count: {len(chunk_coords)}")
     for chunk_coord in chunk_coords:
-        if len(imanager.task_q) > batch_size:
-            print("Number of queued jobs greater than batch size, sleeping ...")
-            time.sleep(interval)
-        job_id = chunk_id_str(2, chunk_coord)
-        imanager.task_q.enqueue(
+        atomic_queue = imanager.task_queues[imanager.ingest_config.atomic_q_name]
+        # for optimal use of redis memory wait if queue limit is reached
+        if len(atomic_queue) > imanager.ingest_config.atomic_q_limit:
+            print(f"Sleeping {imanager.ingest_config.atomic_q_interval}s...")
+            time.sleep(imanager.ingest_config.atomic_q_interval)
+        atomic_queue.enqueue(
             _create_atomic_chunk,
-            job_id=job_id,
+            job_id=chunk_id_str(2, chunk_coord),
             job_timeout="59m",
             result_ttl=0,
             args=(imanager.get_serialized_info(), chunk_coord),
