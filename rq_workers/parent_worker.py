@@ -5,7 +5,7 @@ import os
 from pychunkedgraph.utils.redis import REDIS_URL
 
 # Queues to listen on
-QUEUES = ["atomic", "parents"]
+QUEUES = ["parents"]
 
 # If you're using Sentry to collect your runtime exceptions, you can use this
 # to configure RQ for it in a single step

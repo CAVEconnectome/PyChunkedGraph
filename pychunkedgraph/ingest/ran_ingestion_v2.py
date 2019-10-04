@@ -77,10 +77,10 @@ def _post_task_completion(imanager: IngestionManager, layer: int, coords: np.nda
     )
 
     if children_left == 0:
-        parents_queue = imanager.task_queues[imanager.ingest_config.parents_q_name]
-        while len(parents_queue) > imanager.ingest_config.parents_q_limit:
-            print(f"Sleeping {imanager.ingest_config.parents_q_interval}s...")
-            time.sleep(imanager.ingest_config.parents_q_interval)
+        parents_queue = imanager.task_queues[imanager.config.parents_q_name]
+        while len(parents_queue) > imanager.config.parents_q_limit:
+            print(f"Sleeping {imanager.config.parents_q_interval}s...")
+            time.sleep(imanager.config.parents_q_interval)
         parents_queue.enqueue(
             _create_parent_chunk,
             job_id=chunk_id_str(parent_layer, parent_coords),
@@ -124,11 +124,11 @@ def enqueue_atomic_tasks(
 
     print(f"Chunk count: {len(chunk_coords)}")
     for chunk_coord in chunk_coords:
-        atomic_queue = imanager.task_queues[imanager.ingest_config.atomic_q_name]
+        atomic_queue = imanager.task_queues[imanager.config.atomic_q_name]
         # for optimal use of redis memory wait if queue limit is reached
-        if len(atomic_queue) > imanager.ingest_config.atomic_q_limit:
-            print(f"Sleeping {imanager.ingest_config.atomic_q_interval}s...")
-            time.sleep(imanager.ingest_config.atomic_q_interval)
+        if len(atomic_queue) > imanager.config.atomic_q_limit:
+            print(f"Sleeping {imanager.config.atomic_q_interval}s...")
+            time.sleep(imanager.config.atomic_q_interval)
         atomic_queue.enqueue(
             _create_atomic_chunk,
             job_id=chunk_id_str(2, chunk_coord),
@@ -146,7 +146,7 @@ def _create_atomic_chunk(im_info, coord):
     chunk_edges_active, isolated_ids = _get_active_edges(
         imanager, coord, chunk_edges_all, mapping
     )
-    if not imanager.ingest_config.build_graph:
+    if not imanager.config.build_graph:
         imanager.redis.hset(r_keys.ATOMIC_HASH_FINISHED, chunk_id_str(2, coord), "")
         return
     add_atomic_edges(imanager.cg, coord, chunk_edges_active, isolated=isolated_ids)

@@ -21,13 +21,13 @@ from ..backend.definitions.config import BigTableConfig
 class IngestionManager(object):
     def __init__(
         self,
-        ingest_config: IngestConfig,
+        config: IngestConfig,
         data_source: DataSource,
         graph_config: GraphConfig,
         bigtable_config: BigTableConfig,
     ):
 
-        self._ingest_config = ingest_config
+        self._config = config
         self._data_source = data_source
         self._graph_config = graph_config
         self._bigtable_config = bigtable_config
@@ -45,8 +45,8 @@ class IngestionManager(object):
         self._redis = None
 
     @property
-    def ingest_config(self):
-        return self._ingest_config
+    def config(self):
+        return self._config
 
     @property
     def data_source(self):
@@ -125,7 +125,7 @@ class IngestionManager(object):
     def redis(self):
         if self._redis:
             return self._redis
-        self._redis = get_redis_connection(self._ingest_config.redis_url)
+        self._redis = get_redis_connection(self._config.redis_url)
         self._redis.set(
             r_keys.INGESTION_MANAGER, self.get_serialized_info(pickled=True)
         )
@@ -172,7 +172,7 @@ class IngestionManager(object):
 
     def get_serialized_info(self, pickled=False):
         info = {
-            "ingest_config": self._ingest_config,
+            "config": self._config,
             "data_source": self._data_source,
             "graph_config": self._graph_config,
             "bigtable_config": self._bigtable_config,
