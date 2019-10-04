@@ -95,7 +95,7 @@ def _post_task_completion(imanager: IngestionManager, layer: int, coords: np.nda
             ),
         )
         imanager.redis.hdel(parent_layer, parent_chunk_str)
-    imanager.redis.hincrby(r_keys.STATS_HASH, "completed", 1)
+    imanager.redis.hincrby("completed", parent_layer, 1)
 
 
 def _create_parent_chunk(im_info, layer, parent_coords, child_chunk_coords):
