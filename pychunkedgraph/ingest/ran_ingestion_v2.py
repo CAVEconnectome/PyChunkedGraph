@@ -95,13 +95,13 @@ def _post_task_completion(imanager: IngestionManager, layer: int, coords: np.nda
             ),
         )
         imanager.redis.hdel(parent_layer, parent_chunk_str)
-    imanager.redis.hincrby("completed", parent_layer, 1)
+    imanager.redis.hincrby("completed", layer, 1)
 
 
 def _create_parent_chunk(im_info, layer, parent_coords, child_chunk_coords):
     imanager = IngestionManager(**im_info)
     add_layer(imanager.cg, layer, parent_coords, child_chunk_coords)
-    _post_task_completion(imanager, 2, parent_coords)
+    _post_task_completion(imanager, layer, parent_coords)
 
 
 def enqueue_atomic_tasks(
