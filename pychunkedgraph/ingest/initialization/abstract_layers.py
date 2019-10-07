@@ -63,12 +63,13 @@ def _process_chunks(cg_instance, layer_id, chunk_coords):
 def _process_chunk(cg_instance, layer_id, chunk_coord):
     cross_edge_dict = defaultdict(dict)
     row_ids, cross_edge_columns_d = _read_chunk(cg_instance, layer_id, chunk_coord)
-    for row_id in cross_edge_columns_d:
-        cell_family = cross_edge_columns_d[row_id]
-        for l in range(layer_id - 1, cg_instance.n_layers):
-            cross_edges_key = column_keys.Connectivity.CrossChunkEdge[l]
-            if cross_edges_key in cell_family:
-                cross_edge_dict[row_id][l] = cell_family[cross_edges_key][0].value
+    for row_id in row_ids:
+        if row_id in cross_edge_columns_d:
+            cell_family = cross_edge_columns_d[row_id]
+            for l in range(layer_id - 1, cg_instance.n_layers):
+                cross_edges_key = column_keys.Connectivity.CrossChunkEdge[l]
+                if cross_edges_key in cell_family:
+                    cross_edge_dict[row_id][l] = cell_family[cross_edges_key][0].value
     return row_ids, cross_edge_dict
 
 
@@ -79,7 +80,6 @@ def _read_chunk(cg_instance, layer_id, chunk_coord):
         for l in range(layer_id - 1, cg_instance.n_layers)
     ]
     range_read = cg_instance.range_read_chunk(layer_id - 1, x, y, z, columns=columns)
-
     # Deserialize row keys and store child with highest id for
     # comparison
     row_ids = np.fromiter(range_read.keys(), dtype=np.uint64)
