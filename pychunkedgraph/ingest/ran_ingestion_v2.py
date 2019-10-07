@@ -55,16 +55,11 @@ def _get_children_coords(
 
 
 def _post_task_completion(imanager: IngestionManager, layer: int, coords: np.ndarray):
-    """
-    get parent
-        add parent to layer hash
-        add children count to parent hash
-    decrement children count by 1
-        if count is 0
-        enqueue parent
-        delete parent hash
-    increment complete hash by 1
-    """
+    chunk_str = "_".join(map(str, coords))
+    # remove from queued hash and put in completed hash
+    imanager.redis.hdel(f"{layer}q", chunk_str)
+    imanager.redis.hset(f"{layer}c", chunk_str, "")
+
     parent_layer = layer + 1
     if parent_layer > imanager.n_layers:
         return
@@ -96,7 +91,7 @@ def _post_task_completion(imanager: IngestionManager, layer: int, coords: np.nda
         )
         imanager.redis.hdel(parent_layer, parent_chunk_str)
         # put in completed (c) hash
-        imanager.redis.hset(f"{parent_layer}c", parent_chunk_str, "")
+        imanager.redis.hset(f"{parent_layer}q", parent_chunk_str, "")
 
 
 def _create_parent_chunk(im_info, layer, parent_coords, child_chunk_coords):
@@ -112,16 +107,16 @@ def enqueue_atomic_tasks(
     np.random.shuffle(chunk_coords)
 
     # test chunks
-    # chunk_coords = [
-    #     [0, 0, 0],
-    #     [0, 0, 1],
-    #     [0, 1, 0],
-    #     [0, 1, 1],
-    #     [1, 0, 0],
-    #     [1, 0, 1],
-    #     [1, 1, 0],
-    #     [1, 1, 1],
-    # ]
+    chunk_coords = [
+        [0, 0, 0],
+        [0, 0, 1],
+        [0, 1, 0],
+        [0, 1, 1],
+        [1, 0, 0],
+        [1, 0, 1],
+        [1, 1, 0],
+        [1, 1, 1],
+    ]
 
     print(f"Chunk count: {len(chunk_coords)}")
     for chunk_coord in chunk_coords:
