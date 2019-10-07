@@ -88,3 +88,16 @@ def ingest_graph(
 
 def init_ingest_cmds(app):
     app.cli.add_command(ingest_cli)
+
+
+
+# for layer_id in range(2, 13):
+#     print(layer_id)
+#     child_chunk_coords = im.chunk_coords // 2 ** (layer_id - 3)
+#     child_chunk_coords = child_chunk_coords.astype(np.int)
+#     child_chunk_coords = np.unique(child_chunk_coords, axis=0)
+
+#     parent_chunk_coords = child_chunk_coords // 2
+#     parent_chunk_coords = parent_chunk_coords.astype(np.int)
+#     parent_chunk_coords = np.unique(parent_chunk_coords, axis=0)
+#     print(len(child_chunk_coords), len(parent_chunk_coords))    

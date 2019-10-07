@@ -39,6 +39,9 @@ chunk_id_str = lambda layer, coords: f"{layer}_{'_'.join(map(str, coords))}"
 def _get_children_coords(
     imanager: IngestionManager, layer: int, parent_coords: Sequence[int]
 ) -> np.ndarray:
+    """
+        :param: layer - layer of children chunks
+    """
     layer_bounds = imanager.layer_chunk_bounds[layer]
     children_coords = []
     parent_coords = np.array(parent_coords, dtype=int)
@@ -78,9 +81,6 @@ def _post_task_completion(imanager: IngestionManager, layer: int, coords: np.nda
 
     if children_left == 0:
         parents_queue = imanager.get_task_queue(imanager.config.parents_q_name)
-        while len(parents_queue) > imanager.config.parents_q_limit:
-            print(f"Sleeping {imanager.config.parents_q_interval}s...")
-            time.sleep(imanager.config.parents_q_interval)
         parents_queue.enqueue(
             _create_parent_chunk,
             job_id=chunk_id_str(parent_layer, parent_coords),
@@ -95,7 +95,8 @@ def _post_task_completion(imanager: IngestionManager, layer: int, coords: np.nda
             ),
         )
         imanager.redis.hdel(parent_layer, parent_chunk_str)
-    imanager.redis.hincrby("completed", layer, 1)
+        # put in completed (c) hash
+        imanager.redis.hset(f"{parent_layer}c", parent_chunk_str, "")
 
 
 def _create_parent_chunk(im_info, layer, parent_coords, child_chunk_coords):
