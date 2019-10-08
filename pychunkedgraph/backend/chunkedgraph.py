@@ -3667,3 +3667,24 @@ class ChunkedGraph(object):
         #     return False, None
 
         return atomic_edges
+
+    def get_children_at_layer(self, agglomeration_id: np.uint64, layer: int):
+        """
+        Get the children of agglomeration_id that have layer = layer.
+        :param agglomeration_id: np.uint64
+        :param layer: int
+        :return: [np.uint64]
+        """
+        nodes_to_query = [agglomeration_id]
+        children_at_layer = []
+        while True:
+            children = self.get_children(nodes_to_query, flatten=True)
+            children_layers = self.get_chunk_layers(children)
+            stop_layer_mask = children_layers == layer
+            continue_layer_mask = children_layers > layer
+            found_children_at_layer = children[stop_layer_mask]
+            children_at_layer.append(found_children_at_layer)
+            nodes_to_query = children[continue_layer_mask]
+            if not np.any(nodes_to_query):
+                break
+        return np.concatenate(children_at_layer) 

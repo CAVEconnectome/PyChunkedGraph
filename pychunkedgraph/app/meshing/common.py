@@ -33,7 +33,7 @@ def _remeshing(serialized_cg_info, lvl2_nodes):
 
     # TODO: stop_layer and mip should be configurable by dataset
     meshgen.remeshing(
-        cg, lvl2_nodes, stop_layer=4, cv_path=None, cv_mesh_dir=None, mip=1, max_err=40
+        cg, lvl2_nodes, stop_layer=4, cv_path=None, cv_mesh_dir=None, mip=1, max_err=320
     )
 
     return Response(status=200)
@@ -78,6 +78,8 @@ def handle_get_manifest(table_id, node_id):
     verify = verify in ["True", "true", "1", True]
 
     cg = app_utils.get_cg(table_id)
+
+    start_layer = cg.get_chunk_layer(np.uint64(node_id))
 
     seg_ids = meshgen_utils.get_highest_child_nodes_with_meshes(
         cg,

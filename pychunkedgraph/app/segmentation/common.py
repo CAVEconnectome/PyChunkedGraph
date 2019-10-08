@@ -185,7 +185,8 @@ def handle_merge(table_id):
     current_app.request_type = "merge"
 
     nodes = json.loads(request.data)
-    user_id = str(g.auth_user["id"])
+    # user_id = str(g.auth_user["id"])
+    user_id = 'manuel_test'
 
     current_app.logger.debug(nodes)
     assert len(nodes) == 2
@@ -259,7 +260,8 @@ def handle_split(table_id):
     current_app.request_type = "split"
 
     data = json.loads(request.data)
-    user_id = str(g.auth_user["id"])
+    # user_id = str(g.auth_user["id"])
+    user_id = 'manuel_test'
 
     current_app.logger.debug(data)
 

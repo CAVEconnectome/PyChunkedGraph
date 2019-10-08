@@ -1,9 +1,10 @@
 import numpy as np
 import datetime
 import collections
+import itertools
 
 from pychunkedgraph.backend import chunkedgraph, flatgraph_utils
-from pychunkedgraph.backend.utils import column_keys
+from pychunkedgraph.backend.utils import column_keys, basetypes
 
 from multiwrapper import multiprocessing_utils as mu
 
@@ -161,95 +162,190 @@ def get_delta_roots(cg,
 
     return np.array(new_root_ids, dtype=np.uint64), expired_root_ids
 
-
-def get_contact_sites(cg, root_id, bounding_box=None, bb_is_coordinate=True, compute_partner=True):
+def get_contact_sites(cg, root_id, bounding_box=None, bb_is_coordinate=True, compute_partner=True, end_time=None, voxel_location=False):
     # Get information about the root id
     # All supervoxels
     sv_ids = cg.get_subgraph_nodes(root_id,
                                    bounding_box=bounding_box,
                                    bb_is_coordinate=bb_is_coordinate)
+    
     # All edges that are _not_ connected / on
-    edges, affs, areas = cg.get_subgraph_edges(root_id,
+    edges, _, areas = cg.get_subgraph_edges(root_id,
                                                bounding_box=bounding_box,
                                                bb_is_coordinate=bb_is_coordinate,
                                                connected_edges=False)
 
     # Build area lookup dictionary
-    cs_svs = edges[~np.in1d(edges, sv_ids).reshape(-1, 2)]
-    area_dict = collections.defaultdict(int)
+    contact_sites_svs = edges[~np.in1d(edges, sv_ids).reshape(-1, 2)]
+    contact_sites_svs_area_dict = collections.defaultdict(int)
 
-    for area, sv_id in zip(areas, cs_svs):
-        area_dict[sv_id] += area
+    for area, sv_id in zip(areas, contact_sites_svs):
+        contact_sites_svs_area_dict[sv_id] += area
 
-    area_dict_vec = np.vectorize(area_dict.get)
+    contact_sites_svs_area_dict_vec = np.vectorize(contact_sites_svs_area_dict.get)
 
     # Extract svs from contacting root ids
-    u_cs_svs = np.unique(cs_svs)
+    unique_contact_sites_svs = np.unique(contact_sites_svs)
 
-    # Load edges of these cs_svs
-    edges_cs_svs_rows = cg.read_node_id_rows(node_ids=u_cs_svs,
+    # Load edges of these contact sites' supervoxels
+    edges_contact_sites_svs_rows = cg.read_node_id_rows(node_ids=unique_contact_sites_svs,
                                              columns=[column_keys.Connectivity.Partner,
-                                                      column_keys.Connectivity.Connected])
-
-    temp_root_id = np.uint64(648518346344081009)
-    temp_sv_ids = cg.get_subgraph_nodes(temp_root_id,
-                                   bounding_box=bounding_box,
-                                   bb_is_coordinate=bb_is_coordinate)
-    temp_intersect = np.intersect1d(temp_sv_ids, u_cs_svs)
+                                                      column_keys.Connectivity.Connected], end_time=end_time, end_time_inclusive=True)
     
-    pre_cs_edges = []
-    intersect_edges = []
-    for ri in edges_cs_svs_rows.items():
-        r = cg._retrieve_connectivity(ri)
-        pre_cs_edges.extend(r[0])
-        ttt = r[0]
-        temp_add = ttt[np.in1d(ttt, temp_sv_ids).reshape(-1, 2)]
-        if len(temp_add) > 0:
-            intersect_edges.append(temp_add)
+    contact_sites_edges = []
+    for row_information in edges_contact_sites_svs_rows.items():
+        sv_edges, _, _ = cg._retrieve_connectivity(row_information)
+        contact_sites_edges.extend(sv_edges)
 
-    graph, _, _, unique_ids = flatgraph_utils.build_gt_graph(
-        pre_cs_edges, make_directed=True)
+    if len(contact_sites_edges) == 0:
+        return collections.defaultdict(list)
 
-    # connected components in this graph will be combined in one component
-    ccs = flatgraph_utils.connected_components(graph)
+    contact_sites_edges_array = np.array(contact_sites_edges)
+    contact_sites_edge_mask = np.isin(contact_sites_edges_array[:,1], unique_contact_sites_svs)
+    # Fake edges to ensure lone contact site supervoxels show up as a connected component
+    self_edges = np.stack((unique_contact_sites_svs, unique_contact_sites_svs), axis=-1)
+    contact_sites_graph_edges = np.concatenate((contact_sites_edges_array[contact_sites_edge_mask], self_edges), axis=0)
 
+    graph, _, _, unique_sv_ids = flatgraph_utils.build_gt_graph(
+        contact_sites_graph_edges, make_directed=True)
 
-    cs_dict = collections.defaultdict(list)
-    temp_sv_dict = collections.defaultdict(list)
+    connected_components = flatgraph_utils.connected_components(graph)
 
-    for cc in ccs:
-        cc_sv_ids_all = unique_ids[cc]
+    contact_site_dict = collections.defaultdict(list)
+    # First create intermediary map of supervoxel to contact sites, so we
+    # can call cg.get_roots() on all supervoxels at once.
+    intermediary_sv_dict = {}
 
-        cc_sv_ids = cc_sv_ids_all[np.in1d(cc_sv_ids_all, u_cs_svs)]
-        cs_areas = area_dict_vec(cc_sv_ids)
+    for cc in connected_components:
+        cc_sv_ids = unique_sv_ids[cc]
+        contact_sites_areas = contact_sites_svs_area_dict_vec(cc_sv_ids)
+
+        representative_sv = cc_sv_ids[0]
+        # Tuple of location and area of contact site
+        chunk_coordinates = cg.get_chunk_coordinates(representative_sv)
+        if voxel_location:
+            data_pair = (cg.vx_vol_bounds[:,0] + cg.chunk_size * chunk_coordinates, np.sum(contact_sites_areas))
+        else:
+            data_pair = (chunk_coordinates, np.sum(contact_sites_areas))
 
         if compute_partner:
-            temp_sv_dict[int(cc_sv_ids[0])] = np.sum(cs_areas)
-            partner_root_id = len(temp_sv_dict)
-            cc_sv_ids_roots = cg.get_roots(cc_sv_ids)
-            uni_sv_roots = np.unique(cc_sv_ids_roots)
-            temp_intersect_test = np.intersect1d(temp_sv_ids, cc_sv_ids)
-            if len(temp_intersect_test) > 0:
-                import ipdb
-                ipdb.set_trace()
-            # print('intersect test', len(temp_intersect_test))
-            # if uni_sv_roots.shape[0] > 1:
-            # import ipdb
-            # ipdb.set_trace()
+            # Cast np.uint64 to int for dict key because int is hashable
+            intermediary_sv_dict[int(representative_sv)] = data_pair
         else:
-            partner_root_id = len(cs_dict)
-            cs_dict[partner_root_id].append(np.sum(cs_areas))
-
-        # if partner_root_id % 100 == 0:
-        print(partner_root_id, np.sum(cs_areas))
+            contact_site_dict[len(contact_site_dict)].append(data_pair)
 
     if compute_partner:
-        sv_list = np.array(list(temp_sv_dict.keys()), dtype=np.uint64)
+        sv_list = np.array(list(intermediary_sv_dict.keys()), dtype=np.uint64)
         partner_roots = cg.get_roots(sv_list)
         for i in range(len(partner_roots)):
-            cs_dict[int(partner_roots[i])].append(temp_sv_dict.get(int(sv_list[i])))
+            contact_site_dict[int(partner_roots[i])].append(intermediary_sv_dict.get(int(sv_list[i])))
 
-    import ipdb
-    ipdb.set_trace()
+    return contact_site_dict
 
-    return cs_dict
+def get_contact_sites_pairwise(cg, first_root_id, second_root_id, bounding_box=None, bb_is_coordinate=True, end_time=None, voxel_location=False):
+    # Get information about the root id
+    # All supervoxels
+    first_root_l2_ids = cg.get_children_at_layer(first_root_id, 2)
+    second_root_l2_ids = cg.get_children_at_layer(second_root_id, 2)
+
+    if len(first_root_l2_ids) > len(second_root_l2_ids):
+        smaller_set_l2_ids = second_root_l2_ids
+        bigger_set_l2_ids = first_root_l2_ids
+    else:
+        smaller_set_l2_ids = first_root_l2_ids
+        bigger_set_l2_ids = second_root_l2_ids
+
+    chunk_coordinate_dict = collections.defaultdict(set)
+    for i in range(len(smaller_set_l2_ids)):
+        l2_id = smaller_set_l2_ids[i]
+        chunk_coordinates = cg.get_chunk_coordinates(l2_id)
+        chunk_coordinate_dict[tuple(chunk_coordinates)].add(i)
+        for j in range(3):
+            adjacent_chunk_coordinates = np.copy(chunk_coordinates)
+            adjacent_chunk_coordinates[j] += 1
+            chunk_coordinate_dict[tuple(adjacent_chunk_coordinates)].add(i)
+            adjacent_chunk_coordinates[j] -= 2
+            chunk_coordinate_dict[tuple(adjacent_chunk_coordinates)].add(i)
+
+    candidate_smaller_set_l2_ids = set()
+    candidate_bigger_set_l2_ids = []
+
+    for l2_id in bigger_set_l2_ids:
+        chunk_coordinates = cg.get_chunk_coordinates(l2_id)
+        new_candidate_smaller_set_l2_ids = chunk_coordinate_dict.get(tuple(chunk_coordinates))
+        if new_candidate_smaller_set_l2_ids is not None:
+            for new_candidate in new_candidate_smaller_set_l2_ids:
+                candidate_smaller_set_l2_ids.add(smaller_set_l2_ids[new_candidate])
+            candidate_bigger_set_l2_ids.append(l2_id)
+    
+    sv_ids_set1 = cg.get_children(list(candidate_smaller_set_l2_ids), flatten=True)
+    sv_ids_set2 = cg.get_children(candidate_bigger_set_l2_ids, flatten=True)
+
+    all_sv_ids = np.concatenate((sv_ids_set1, sv_ids_set2))
+    is_in_set1 = np.concatenate((np.ones(len(sv_ids_set1)), np.zeros(len(sv_ids_set2))))
+    is_in_set1_dict = dict(zip(all_sv_ids, is_in_set1))
+    
+    sv_rows_conc = cg.read_node_id_rows(node_ids=all_sv_ids,
+                                          columns=[column_keys.Connectivity.Area,
+                                                   column_keys.Connectivity.Partner,
+                                                   column_keys.Connectivity.Connected],
+                                          end_time=end_time,
+                                          end_time_inclusive=True)
+
+    def _retrieve_connectivity_optimized(dict_item):
+        node_id, row = dict_item
+
+        tmp = set()
+        for x in itertools.chain.from_iterable(generation.value for generation in row[column_keys.Connectivity.Connected][::-1]):
+            tmp.remove(x) if x in tmp else tmp.add(x)
+
+        connected_indices = np.fromiter(tmp, np.uint64)
+        if column_keys.Connectivity.Partner in row:
+            edges = np.fromiter(itertools.chain.from_iterable(
+                (node_id, partner_id)
+                for generation in row[column_keys.Connectivity.Partner][::-1]
+                for partner_id in generation.value),
+                dtype=basetypes.NODE_ID).reshape((-1, 2))
+            edges_in = cg._connected_or_not(edges, connected_indices, True)
+            edges_out = cg._connected_or_not(edges, connected_indices, False)
+        else:
+            edges_in = np.empty((0, 2), basetypes.NODE_ID)
+            edges_out = np.empty((0, 2), basetypes.NODE_ID)
+
+        if column_keys.Connectivity.Area in row:
+            areas = np.fromiter(itertools.chain.from_iterable(
+                generation.value for generation in row[column_keys.Connectivity.Area][::-1]),
+                dtype=basetypes.EDGE_AREA)
+            areas_out = cg._connected_or_not(areas, connected_indices, False)
+        else:
+            areas_out = np.empty(0, basetypes.EDGE_AREA)
+
+        return edges_in, edges_out, areas_out
+
+
+    edges_in1 = []
+    edges_out1 = []
+    areas_out1 = []
+    edges_in2 = []
+    edges_out2 = []
+    areas_out2 = []
+    for row_information in sv_rows_conc.items():
+        sv_id, _ = row_information
+        # sv_edges_in, _, _ = cg._retrieve_connectivity(row_information, connected_edges=True)
+        # sv_edges_out, _, sv_areas_out = cg._retrieve_connectivity(row_information, connected_edges=False)
+        sv_edges_in, sv_edges_out, sv_areas_out = _retrieve_connectivity_optimized(row_information)
+        if is_in_set1_dict[sv_id] == 1:
+            edges_in1.append(sv_edges_in)
+            edges_out1.append(sv_edges_out)
+            areas_out1.append(sv_areas_out)
+        else:
+            edges_in2.append(sv_edges_in)
+            edges_out2.append(sv_edges_out)
+            areas_out2.append(sv_areas_out)
+    edges_in1 = np.concatenate(edges_in1)
+    edges_out1 = np.concatenate(edges_out1)
+    areas_out1 = np.concatenate(areas_out1)
+    edges_in2 = np.concatenate(edges_in2)
+    edges_out2 = np.concatenate(edges_out2)
+    areas_out2 = np.concatenate(areas_out2)
+
