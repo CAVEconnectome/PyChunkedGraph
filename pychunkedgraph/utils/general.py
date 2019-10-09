@@ -1,6 +1,8 @@
 """
 generic helper funtions
 """
+from typing import Sequence
+
 
 import numpy as np
 
@@ -18,3 +20,9 @@ def reverse_dictionary(dictionary):
     vals = np.concatenate(vals)
 
     return {k: v for k, v in zip(vals, keys)}
+
+
+def chunks(l: Sequence, n: int):
+    """Yield successive n-sized chunks from l."""
+    for i in range(0, len(l), n):
+        yield l[i:i + n]

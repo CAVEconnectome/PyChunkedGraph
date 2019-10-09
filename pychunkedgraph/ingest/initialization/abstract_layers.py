@@ -9,6 +9,7 @@ from typing import Optional, Sequence
 import numpy as np
 from multiwrapper import multiprocessing_utils as mu
 
+from ...utils.general import chunks
 from ...backend import flatgraph_utils
 from ...backend.chunkedgraph import ChunkedGraph
 from ...backend.chunkedgraph_utils import get_valid_timestamp
@@ -31,13 +32,15 @@ def add_layer(
     )
 
     # cross_edge_dict, children_ids = _process_chunks(cg_instance, layer_id, children_coords)
-    edge_ids = _resolve_cross_chunk_edges(layer_id, children_ids, cross_edge_dict)
+    edge_ids = _resolve_cross_chunk_edges(
+        n_threads, layer_id, children_ids, cross_edge_dict
+    )
 
     # Extract connected components
     isolated_node_mask = ~np.in1d(children_ids, np.unique(edge_ids))
     add_node_ids = children_ids[isolated_node_mask].squeeze()
     add_edge_ids = np.vstack([add_node_ids, add_node_ids]).T
-    edge_ids.extend(add_edge_ids)
+    edge_ids = np.concatenate([edge_ids, add_edge_ids])
 
     graph, _, _, graph_ids = flatgraph_utils.build_gt_graph(
         edge_ids, make_directed=True
@@ -124,9 +127,10 @@ def _read_chunk(cg_instance, layer_id, chunk_coord):
     return row_ids, cross_edge_columns_d
 
 
-def _resolve_cross_chunk_edges(layer_id, node_ids, cross_edge_dict) -> None:
-    def _resolve_helper(node_ids):
-        cross_edge_dict = defaultdict(dict, cross_edge_dict)
+def _resolve_cross_chunk_edges(n_threads, layer_id, node_ids, cross_edge_dict) -> None:
+    cross_edge_dict = defaultdict(dict, cross_edge_dict)
+
+    def _resolve_helper_1(node_ids):
         atomic_partner_id_dict = {}
         atomic_child_id_dict_pairs = []
         for node_id in node_ids:
@@ -138,25 +142,44 @@ def _resolve_cross_chunk_edges(layer_id, node_ids, cross_edge_dict) -> None:
                         atomic_cross_edges[:, 0], [node_id] * len(atomic_cross_edges)
                     )
                     atomic_child_id_dict_pairs.extend(new_pairs)
-        return atomic_child_id_dict, atomic_child_id_dict_pairs
+        return atomic_partner_id_dict, atomic_child_id_dict_pairs
 
-    d = dict(atomic_child_id_dict_pairs)
-    atomic_child_id_dict = defaultdict(np.uint64, d)
+    multi_args = list(chunks(node_ids, n_threads * 3))
+    if not len(multi_args):
+        return
 
-    edge_ids = []
-    for child_key in atomic_partner_id_dict:
-        this_atomic_partner_ids = atomic_partner_id_dict[child_key]
-        partners = {
-            atomic_child_id_dict[atomic_cross_id]
-            for atomic_cross_id in this_atomic_partner_ids
-            if atomic_child_id_dict[atomic_cross_id] != 0
-        }
-        if len(partners) > 0:
-            partners = np.array(list(partners), dtype=np.uint64)[:, None]
-            this_ids = np.array([child_key] * len(partners), dtype=np.uint64)[:, None]
-            these_edges = np.concatenate([this_ids, partners], axis=1)
-            edge_ids.extend(these_edges)
-    return edge_ids
+    atomic_info = mu.multithread_func(
+        _resolve_helper_1, multi_args, n_threads=n_threads
+    )
+
+    atomic_partner_id_dict = {}
+    atomic_child_id_dict_pairs = []
+    for partner_d, pairs in atomic_info:
+        atomic_partner_id_dict = {**atomic_partner_id_dict, **partner_d}
+        atomic_child_id_dict_pairs.append(pairs)
+
+    atomic_child_id_dict = defaultdict(np.uint64, dict(atomic_child_id_dict_pairs))
+
+    def _resolve_helper_2(atomic_partner_id_dict_keys):
+        for k in atomic_partner_id_dict_keys:
+            this_atomic_partner_ids = atomic_partner_id_dict[k]
+            partners = {
+                atomic_child_id_dict[atomic_cross_id]
+                for atomic_cross_id in this_atomic_partner_ids
+                if atomic_child_id_dict[atomic_cross_id] != 0
+            }
+            if len(partners) > 0:
+                partners = np.array(list(partners), dtype=np.uint64)[:, None]
+                this_ids = np.array([k] * len(partners), dtype=np.uint64)[:, None]
+                return np.concatenate([this_ids, partners], axis=1)
+        return []
+
+    multi_args = list(chunks(atomic_partner_id_dict.keys(), n_threads * 3))
+    if not len(multi_args):
+        return
+
+    edge_ids = mu.multithread_func(_resolve_helper_1, multi_args, n_threads=n_threads)
+    return np.concatenate(edge_ids)
 
 
 def _write_out_connected_components(
