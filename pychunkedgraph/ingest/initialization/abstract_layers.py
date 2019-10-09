@@ -150,7 +150,9 @@ def _resolve_cross_chunk_edges(n_threads, layer_id, node_ids, cross_edge_dict) -
                     atomic_child_id_dict_pairs.extend(new_pairs)
         return atomic_partner_id_dict, atomic_child_id_dict_pairs
 
-    multi_args = list(chunks(node_ids, n_threads * 3))
+    n_jobs = n_threads * 3
+    chunk_size = len(node_ids) // n_jobs
+    multi_args = list(chunks(node_ids, chunk_size))
     if not len(multi_args):
         return
 
@@ -183,7 +185,9 @@ def _resolve_cross_chunk_edges(n_threads, layer_id, node_ids, cross_edge_dict) -
                 return np.concatenate([this_ids, partners], axis=1)
         return []
 
-    multi_args = list(chunks(atomic_partner_id_dict.keys(), n_threads * 3))
+    n_jobs = n_threads * 3
+    chunk_size = len(node_ids) // n_jobs
+    multi_args = list(chunks(atomic_partner_id_dict.keys(), chunk_size))
     if not len(multi_args):
         return
 
