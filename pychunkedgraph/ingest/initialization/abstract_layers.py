@@ -125,18 +125,20 @@ def _read_chunk(cg_instance, layer_id, chunk_coord):
 
 
 def _resolve_cross_chunk_edges(layer_id, node_ids, cross_edge_dict) -> None:
-    cross_edge_dict = defaultdict(dict, cross_edge_dict)
-    atomic_partner_id_dict = {}
-    atomic_child_id_dict_pairs = []
-    for node_id in node_ids:
-        if int(layer_id - 1) in cross_edge_dict[node_id]:
-            atomic_cross_edges = cross_edge_dict[node_id][layer_id - 1]
-            if len(atomic_cross_edges) > 0:
-                atomic_partner_id_dict[node_id] = atomic_cross_edges[:, 1]
-                new_pairs = zip(
-                    atomic_cross_edges[:, 0], [node_id] * len(atomic_cross_edges)
-                )
-                atomic_child_id_dict_pairs.extend(new_pairs)
+    def _resolve_helper(node_ids):
+        cross_edge_dict = defaultdict(dict, cross_edge_dict)
+        atomic_partner_id_dict = {}
+        atomic_child_id_dict_pairs = []
+        for node_id in node_ids:
+            if int(layer_id - 1) in cross_edge_dict[node_id]:
+                atomic_cross_edges = cross_edge_dict[node_id][layer_id - 1]
+                if len(atomic_cross_edges) > 0:
+                    atomic_partner_id_dict[node_id] = atomic_cross_edges[:, 1]
+                    new_pairs = zip(
+                        atomic_cross_edges[:, 0], [node_id] * len(atomic_cross_edges)
+                    )
+                    atomic_child_id_dict_pairs.extend(new_pairs)
+        return atomic_child_id_dict, atomic_child_id_dict_pairs
 
     d = dict(atomic_child_id_dict_pairs)
     atomic_child_id_dict = defaultdict(np.uint64, d)
@@ -151,10 +153,8 @@ def _resolve_cross_chunk_edges(layer_id, node_ids, cross_edge_dict) -> None:
         }
         if len(partners) > 0:
             partners = np.array(list(partners), dtype=np.uint64)[:, None]
-
             this_ids = np.array([child_key] * len(partners), dtype=np.uint64)[:, None]
             these_edges = np.concatenate([this_ids, partners], axis=1)
-
             edge_ids.extend(these_edges)
     return edge_ids
 
