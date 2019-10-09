@@ -73,6 +73,7 @@ def _post_task_completion(imanager: IngestionManager, layer: int, coords: np.nda
     children_left = int(
         imanager.redis.hget(parent_layer, parent_chunk_str).decode("utf-8")
     )
+    return
 
     if children_left == 0:
         parents_queue = imanager.get_task_queue(imanager.config.parents_q_name)
