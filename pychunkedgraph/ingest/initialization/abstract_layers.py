@@ -80,10 +80,10 @@ def _read_children_chunks(n_threads, cg_instance, layer_id, children_coords):
 
 def _process_chunk_thread(args):
     cg_info, layer_id, chunk_coord = args
-    print(f"Reading chunk {chunk_coord}")
     cg_instance = ChunkedGraph(**cg_info)
-    cross_edge_dict = defaultdict(dict)
     row_ids, cross_edge_columns_d = _read_chunk(cg_instance, layer_id, chunk_coord)
+    
+    cross_edge_dict = defaultdict(dict)
     for row_id in row_ids:
         if row_id in cross_edge_columns_d:
             cell_family = cross_edge_columns_d[row_id]
@@ -91,7 +91,7 @@ def _process_chunk_thread(args):
                 cross_edges_key = column_keys.Connectivity.CrossChunkEdge[l]
                 if cross_edges_key in cell_family:
                     cross_edge_dict[row_id][l] = cell_family[cross_edges_key][0].value
-    print(f"Done reading {chunk_coord}")
+    
     return row_ids, cross_edge_dict
 
 
@@ -101,9 +101,12 @@ def _read_chunk(cg_instance, layer_id, chunk_coord):
         column_keys.Connectivity.CrossChunkEdge[l]
         for l in range(layer_id - 1, cg_instance.n_layers)
     ]
+    print(f"Reading chunk {chunk_coord}")
     range_read = cg_instance.range_read_chunk(layer_id - 1, x, y, z, columns=columns)
-    # Deserialize row keys and store child with highest id for
-    # comparison
+    print(f"Done reading {chunk_coord}")
+    
+    print(f"Getting relevant children ids {chunk_coord}")
+    # Deserialize row keys and store child with highest id for comparison
     row_ids = np.fromiter(range_read.keys(), dtype=np.uint64)
     segment_ids = np.array([cg_instance.get_segment_id(r_id) for r_id in row_ids])
     cross_edge_columns_d = {}
@@ -129,6 +132,7 @@ def _read_chunk(cg_instance, layer_id, chunk_coord):
         max_child_ids_occ_so_far[i_row] = counter[max_child_ids[i_row]]
         counter[max_child_ids[i_row]] += 1
     row_ids = row_ids[max_child_ids_occ_so_far == 0]
+    print(f"Getting relevant children ids {chunk_coord} done")
     return row_ids, cross_edge_columns_d
 
 
