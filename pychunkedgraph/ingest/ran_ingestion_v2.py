@@ -107,16 +107,16 @@ def enqueue_atomic_tasks(
     np.random.shuffle(chunk_coords)
 
     # test chunks
-    chunk_coords = [
-        [0, 0, 0],
-        [0, 0, 1],
-        [0, 1, 0],
-        [0, 1, 1],
-        [1, 0, 0],
-        [1, 0, 1],
-        [1, 1, 0],
-        [1, 1, 1],
-    ]
+    # chunk_coords = [
+    #     [0, 0, 0],
+    #     [0, 0, 1],
+    #     [0, 1, 0],
+    #     [0, 1, 1],
+    #     [1, 0, 0],
+    #     [1, 0, 1],
+    #     [1, 1, 0],
+    #     [1, 1, 1],
+    # ]
 
     print(f"Chunk count: {len(chunk_coords)}")
     for chunk_coord in chunk_coords:

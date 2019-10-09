@@ -7,10 +7,12 @@ from collections import defaultdict
 from typing import Optional, Sequence
 
 import numpy as np
+from multiwrapper import multiprocessing_utils as mu
 
-from pychunkedgraph.backend import flatgraph_utils
-from pychunkedgraph.backend.chunkedgraph_utils import get_valid_timestamp
-from pychunkedgraph.backend.utils import serializers, column_keys
+from ...backend import flatgraph_utils
+from ...backend.chunkedgraph import ChunkedGraph
+from ...backend.chunkedgraph_utils import get_valid_timestamp
+from ...backend.utils import serializers, column_keys
 
 
 def add_layer(
@@ -20,16 +22,20 @@ def add_layer(
     children_coords: Sequence[Sequence[int]],
     *,
     time_stamp: Optional[datetime.datetime] = None,
-    n_threads: int = 20,
+    n_threads: int = 8,
 ) -> None:
     x, y, z = parent_coords
     parent_chunk_id = cg_instance.get_chunk_id(layer=layer_id, x=x, y=y, z=z)
-    cross_edge_dict, child_ids = _process_chunks(cg_instance, layer_id, children_coords)
-    edge_ids = _resolve_cross_chunk_edges_thread(layer_id, child_ids, cross_edge_dict)
+    children_ids, cross_edge_dict = _read_children_chunks(
+        n_threads, cg_instance, layer_id, children_coords
+    )
+
+    # cross_edge_dict, children_ids = _process_chunks(cg_instance, layer_id, children_coords)
+    edge_ids = _resolve_cross_chunk_edges(layer_id, children_ids, cross_edge_dict)
 
     # Extract connected components
-    isolated_node_mask = ~np.in1d(child_ids, np.unique(edge_ids))
-    add_node_ids = child_ids[isolated_node_mask].squeeze()
+    isolated_node_mask = ~np.in1d(children_ids, np.unique(edge_ids))
+    add_node_ids = children_ids[isolated_node_mask].squeeze()
     add_edge_ids = np.vstack([add_node_ids, add_node_ids]).T
     edge_ids.extend(add_edge_ids)
 
@@ -50,17 +56,25 @@ def add_layer(
     return f"{layer_id}_{'_'.join(map(str, (x, y, z)))}"
 
 
-def _process_chunks(cg_instance, layer_id, chunk_coords):
-    node_ids = []
+def _read_children_chunks(n_threads, cg_instance, layer_id, children_coords):
+    cg_info = cg_instance.get_serialized_info()
+    multi_args = []
+    for child_coord in children_coords:
+        multi_args.append((cg_info, layer_id, child_coord))
+    chunk_info = mu.multithread_func(
+        _process_chunk, multi_args, n_threads=min(n_threads, len(multi_args))
+    )
+
+    children_ids = []
     cross_edge_dict = {}
-    for chunk_coord in chunk_coords:
-        ids, cross_edge_d = _process_chunk(cg_instance, layer_id, chunk_coord)
-        node_ids.append(ids)
+    for ids, cross_edge_d in chunk_info:
+        children_ids.append(ids)
         cross_edge_dict = {**cross_edge_dict, **cross_edge_d}
-    return cross_edge_dict, np.concatenate(node_ids)
+    return np.concatenate(children_ids), cross_edge_dict
 
 
-def _process_chunk(cg_instance, layer_id, chunk_coord):
+def _process_chunk(cg_info, layer_id, chunk_coord):
+    cg_instance = ChunkedGraph(**cg_info)
     cross_edge_dict = defaultdict(dict)
     row_ids, cross_edge_columns_d = _read_chunk(cg_instance, layer_id, chunk_coord)
     for row_id in row_ids:
@@ -110,7 +124,7 @@ def _read_chunk(cg_instance, layer_id, chunk_coord):
     return row_ids, cross_edge_columns_d
 
 
-def _resolve_cross_chunk_edges_thread(layer_id, node_ids, cross_edge_dict) -> None:
+def _resolve_cross_chunk_edges(layer_id, node_ids, cross_edge_dict) -> None:
     cross_edge_dict = defaultdict(dict, cross_edge_dict)
     atomic_partner_id_dict = {}
     atomic_child_id_dict_pairs = []

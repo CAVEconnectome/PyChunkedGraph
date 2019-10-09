@@ -106,7 +106,7 @@ def _process_component(
     rows = []
     chunk_out_edges = []  # out = between + cross
     for node_id in node_ids:
-        _edges = _get_out_edges(node_id, chunk_edges_d, sparse_indices, remapping)
+        _edges = _get_outgoing_edges(node_id, chunk_edges_d, sparse_indices, remapping)
         chunk_out_edges.append(_edges)
         val_dict = {column_keys.Hierarchy.Parent: parent_id}
         r_key = serializers.serialize_uint64(node_id)
@@ -128,7 +128,7 @@ def _process_component(
     return rows
 
 
-def _get_out_edges(node_id, chunk_edges_d, sparse_indices, remapping):
+def _get_outgoing_edges(node_id, chunk_edges_d, sparse_indices, remapping):
     """
     TODO add docs
     returns edges of node_id pointing outside the chunk (between and cross)
