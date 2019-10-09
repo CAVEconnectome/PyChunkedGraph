@@ -176,10 +176,13 @@ def get_contact_sites(cg, root_id, bounding_box=None, bb_is_coordinate=True, com
                                                connected_edges=False)
 
     # Build area lookup dictionary
-    contact_sites_svs = edges[~np.in1d(edges, sv_ids).reshape(-1, 2)]
+    edge_mask = ~np.in1d(edges, sv_ids).reshape(-1, 2)
+    area_mask = np.where(edge_mask)[0]
+    masked_areas = areas[area_mask]
+    contact_sites_svs = edges[edge_mask]
     contact_sites_svs_area_dict = collections.defaultdict(int)
 
-    for area, sv_id in zip(areas, contact_sites_svs):
+    for area, sv_id in zip(masked_areas, contact_sites_svs):
         contact_sites_svs_area_dict[sv_id] += area
 
     contact_sites_svs_area_dict_vec = np.vectorize(contact_sites_svs_area_dict.get)
@@ -215,12 +218,20 @@ def get_contact_sites(cg, root_id, bounding_box=None, bb_is_coordinate=True, com
     # First create intermediary map of supervoxel to contact sites, so we
     # can call cg.get_roots() on all supervoxels at once.
     intermediary_sv_dict = {}
-
+    # lol = {}
     for cc in connected_components:
         cc_sv_ids = unique_sv_ids[cc]
         contact_sites_areas = contact_sites_svs_area_dict_vec(cc_sv_ids)
 
         representative_sv = cc_sv_ids[0]
+        # if representative_sv in np.array([93233144311853009, 93794990458675947, 94639406798877709], dtype=np.uint64):
+        #     for xx in cc_sv_ids:
+        #         testtest = np.where(edges == xx)
+        #         rownum = testtest[0]
+        #         for yy in rownum:
+        #             lol(tuple(int(edges[yy,0]), int(edges[yy,1]))) = 
+        #     import ipdb
+        #     ipdb.set_trace()
         # Tuple of location and area of contact site
         chunk_coordinates = cg.get_chunk_coordinates(representative_sv)
         if voxel_location:
@@ -242,9 +253,117 @@ def get_contact_sites(cg, root_id, bounding_box=None, bb_is_coordinate=True, com
 
     return contact_site_dict
 
-def get_contact_sites_pairwise(cg, first_root_id, second_root_id, bounding_box=None, bb_is_coordinate=True, end_time=None, voxel_location=False):
-    # Get information about the root id
-    # All supervoxels
+def _retrieve_connectivity_optimized(cg, dict_item):
+    node_id, row = dict_item
+
+    tmp = set()
+    for x in itertools.chain.from_iterable(generation.value for generation in row[column_keys.Connectivity.Connected][::-1]):
+        tmp.remove(x) if x in tmp else tmp.add(x)
+
+    connected_indices = np.fromiter(tmp, np.uint64)
+    if column_keys.Connectivity.Partner in row:
+        edges = np.fromiter(itertools.chain.from_iterable(
+            (node_id, partner_id)
+            for generation in row[column_keys.Connectivity.Partner][::-1]
+            for partner_id in generation.value),
+            dtype=basetypes.NODE_ID).reshape((-1, 2))
+        edges_in = cg._connected_or_not(edges, connected_indices, True)
+        edges_out = cg._connected_or_not(edges, connected_indices, False)
+    else:
+        edges_in = np.empty((0, 2), basetypes.NODE_ID)
+        edges_out = np.empty((0, 2), basetypes.NODE_ID)
+
+    if column_keys.Connectivity.Area in row:
+        areas = np.fromiter(itertools.chain.from_iterable(
+            generation.value for generation in row[column_keys.Connectivity.Area][::-1]),
+            dtype=basetypes.EDGE_AREA)
+        areas_out = cg._connected_or_not(areas, connected_indices, False)
+    else:
+        areas_out = np.empty(0, basetypes.EDGE_AREA)
+
+    return edges_in, edges_out, areas_out
+
+def _get_approximate_centroid(cg, sv_ids):
+    chunk_coordinate_vote_dict = collections.defaultdict(list)
+    most_popular_chunk_coordinate = None
+    most_popular_chunk_coordinate_vote_count = 0
+    for sv_id in sv_ids:
+        chunk_coordinates = cg.get_chunk_coordinates(sv_id)
+        chunk_coordinate_vote_dict[tuple(chunk_coordinates)].append(sv_id)
+        if len(chunk_coordinate_vote_dict[tuple(chunk_coordinates)]) > most_popular_chunk_coordinate_vote_count:
+            most_popular_chunk_coordinate_vote_count = len(chunk_coordinate_vote_dict[tuple(chunk_coordinates)])
+            most_popular_chunk_coordinate = chunk_coordinates
+    chunk_start = np.array((cg.vx_vol_bounds[:,0] + cg.chunk_size * most_popular_chunk_coordinate), dtype=np.int)
+    chunk_end = np.array((cg.vx_vol_bounds[:,0] + cg.chunk_size * (most_popular_chunk_coordinate + 1)), dtype=np.int)
+    ws_seg = cg.cv[
+        chunk_start[0] : chunk_end[0],
+        chunk_start[1] : chunk_end[1],
+        chunk_start[2] : chunk_end[2],
+    ].squeeze()
+    import ipdb
+    ipdb.set_trace()
+
+def _get_approximate_contact_point_same_chunk(cg, sv1, sv2):
+    pass
+
+def _get_approximate_contact_point_across_chunks(cg, sv1, sv2):
+    pass
+
+def _get_approximate_contact_point(cg, first_root_unconnected_edges, second_root_sv_ids):
+    def _choose_contact_site_supervoxels():
+        pass
+    _choose_contact_site_supervoxels()
+
+def _compute_contact_sites_from_edges(cg, first_root_unconnected_edges, first_root_unconnected_areas, second_root_connected_edges, second_root_sv_ids):
+    # Retrieve edges that connect first root with second root
+    unconnected_edge_mask = np.where(np.isin(first_root_unconnected_edges[:,1], second_root_sv_ids))[0]
+    filtered_unconnected_edges = first_root_unconnected_edges[unconnected_edge_mask]
+    filtered_areas = first_root_unconnected_areas[unconnected_edge_mask]
+    contact_sites_svs_area_dict = collections.defaultdict(int)
+    for i in range(filtered_unconnected_edges.shape[0]):
+        sv_id = filtered_unconnected_edges[i,1]
+        area = filtered_areas[i]
+        contact_sites_svs_area_dict[sv_id] += area
+    contact_sites_svs_area_dict_vec = np.vectorize(contact_sites_svs_area_dict.get)
+    unique_contact_sites_svs = np.unique(filtered_unconnected_edges[:,1])
+    # Retrieve edges that connect second root contact sites with other second root contact sites
+    connected_edge_test = np.isin(second_root_connected_edges, unique_contact_sites_svs)
+    connected_edges_mask = np.where(np.all(connected_edge_test, axis=1))[0]
+    filtered_connected_edges = second_root_connected_edges[connected_edges_mask]
+    # Make fake edges from contact site svs to themselves to make sure they appear in the created graph
+    self_edges = np.stack((unique_contact_sites_svs, unique_contact_sites_svs), axis=-1)
+    contact_sites_graph_edges = np.concatenate((filtered_connected_edges, self_edges), axis=0)
+
+    graph, _, _, unique_sv_ids = flatgraph_utils.build_gt_graph(
+        contact_sites_graph_edges, make_directed=True)
+
+    connected_components = flatgraph_utils.connected_components(graph)
+
+    contact_site_list = []
+    for cc in connected_components:
+        cc_sv_ids = unique_sv_ids[cc]
+        contact_sites_areas = contact_sites_svs_area_dict_vec(cc_sv_ids)
+
+        # contact_site_centroid = _get_approximate_centroid(cg, cc_sv_ids)
+        # data_pair = (contact_site_centroid, np.sum(contact_sites_areas))
+        contact_site_point = _get_approximate_contact_point(cg, filtered_unconnected_edges, cc_sv_ids)
+        data_pair = (contact_site_point, np.sum(contact_sites_areas))
+        # chunk_coordinate_vote_dict = collections.defaultdict(list)
+        # most_popular_chunk_coordinate = None
+        # most_popular_chunk_coordinate_vote_count = 0
+        # for sv_id in cc_sv_ids:
+        #     chunk_coordinates = cg.get_chunk_coordinates(sv_id)
+        #     chunk_coordinate_vote_dict[tuple(chunk_coordinates)].append(sv_id)
+
+        # representative_sv = cc_sv_ids[0]
+        # chunk_coordinates = cg.get_chunk_coordinates(representative_sv)
+        # data_pair = (chunk_coordinates, np.sum(contact_sites_areas))
+        contact_site_list.append(data_pair)
+    return contact_site_list
+
+# @profile
+def get_contact_sites_pairwise(cg, first_root_id, second_root_id, bounding_box=None, bb_is_coordinate=True, end_time=None, voxel_location=False, optimize_unsafe=False):
+    # Get lvl2 ids of both roots
     first_root_l2_ids = cg.get_children_at_layer(first_root_id, 2)
     second_root_l2_ids = cg.get_children_at_layer(second_root_id, 2)
 
@@ -255,6 +374,7 @@ def get_contact_sites_pairwise(cg, first_root_id, second_root_id, bounding_box=N
         smaller_set_l2_ids = first_root_l2_ids
         bigger_set_l2_ids = second_root_l2_ids
 
+    # Make a dict holding all the chunk coordinates of all the lvl2 ids of the "smaller" root, and the coordinates of the neighboring chunks
     chunk_coordinate_dict = collections.defaultdict(set)
     for i in range(len(smaller_set_l2_ids)):
         l2_id = smaller_set_l2_ids[i]
@@ -270,6 +390,7 @@ def get_contact_sites_pairwise(cg, first_root_id, second_root_id, bounding_box=N
     candidate_smaller_set_l2_ids = set()
     candidate_bigger_set_l2_ids = []
 
+    # For the "bigger" root id, filter out all lvl2 ids that do not appear in the chunk_coordinate_dict
     for l2_id in bigger_set_l2_ids:
         chunk_coordinates = cg.get_chunk_coordinates(l2_id)
         new_candidate_smaller_set_l2_ids = chunk_coordinate_dict.get(tuple(chunk_coordinates))
@@ -278,63 +399,39 @@ def get_contact_sites_pairwise(cg, first_root_id, second_root_id, bounding_box=N
                 candidate_smaller_set_l2_ids.add(smaller_set_l2_ids[new_candidate])
             candidate_bigger_set_l2_ids.append(l2_id)
     
+    # Get the supervoxel of the filtered lvl2 ids to retrieve their edges
     sv_ids_set1 = cg.get_children(list(candidate_smaller_set_l2_ids), flatten=True)
     sv_ids_set2 = cg.get_children(candidate_bigger_set_l2_ids, flatten=True)
 
+    # Combine the supervoxel into one set to optimize the call to read_node_id_rows
     all_sv_ids = np.concatenate((sv_ids_set1, sv_ids_set2))
     is_in_set1 = np.concatenate((np.ones(len(sv_ids_set1)), np.zeros(len(sv_ids_set2))))
     is_in_set1_dict = dict(zip(all_sv_ids, is_in_set1))
     
-    sv_rows_conc = cg.read_node_id_rows(node_ids=all_sv_ids,
+    all_sv_rows = cg.read_node_id_rows(node_ids=all_sv_ids,
                                           columns=[column_keys.Connectivity.Area,
                                                    column_keys.Connectivity.Partner,
                                                    column_keys.Connectivity.Connected],
                                           end_time=end_time,
                                           end_time_inclusive=True)
 
-    def _retrieve_connectivity_optimized(dict_item):
-        node_id, row = dict_item
-
-        tmp = set()
-        for x in itertools.chain.from_iterable(generation.value for generation in row[column_keys.Connectivity.Connected][::-1]):
-            tmp.remove(x) if x in tmp else tmp.add(x)
-
-        connected_indices = np.fromiter(tmp, np.uint64)
-        if column_keys.Connectivity.Partner in row:
-            edges = np.fromiter(itertools.chain.from_iterable(
-                (node_id, partner_id)
-                for generation in row[column_keys.Connectivity.Partner][::-1]
-                for partner_id in generation.value),
-                dtype=basetypes.NODE_ID).reshape((-1, 2))
-            edges_in = cg._connected_or_not(edges, connected_indices, True)
-            edges_out = cg._connected_or_not(edges, connected_indices, False)
-        else:
-            edges_in = np.empty((0, 2), basetypes.NODE_ID)
-            edges_out = np.empty((0, 2), basetypes.NODE_ID)
-
-        if column_keys.Connectivity.Area in row:
-            areas = np.fromiter(itertools.chain.from_iterable(
-                generation.value for generation in row[column_keys.Connectivity.Area][::-1]),
-                dtype=basetypes.EDGE_AREA)
-            areas_out = cg._connected_or_not(areas, connected_indices, False)
-        else:
-            areas_out = np.empty(0, basetypes.EDGE_AREA)
-
-        return edges_in, edges_out, areas_out
-
-
+    # Retrieve the connectivity data
     edges_in1 = []
     edges_out1 = []
     areas_out1 = []
     edges_in2 = []
     edges_out2 = []
     areas_out2 = []
-    for row_information in sv_rows_conc.items():
+    for row_information in all_sv_rows.items():
         sv_id, _ = row_information
-        # sv_edges_in, _, _ = cg._retrieve_connectivity(row_information, connected_edges=True)
-        # sv_edges_out, _, sv_areas_out = cg._retrieve_connectivity(row_information, connected_edges=False)
-        sv_edges_in, sv_edges_out, sv_areas_out = _retrieve_connectivity_optimized(row_information)
-        if is_in_set1_dict[sv_id] == 1:
+        if optimize_unsafe:
+            # WARNING: We are deprecating the old way of retrieving connectivity so _retrieve_connectivity_optimized
+            # will soon have to be updated
+            sv_edges_in, sv_edges_out, sv_areas_out = _retrieve_connectivity_optimized(cg, row_information)
+        else:
+            sv_edges_in, _, _ = cg._retrieve_connectivity(row_information, connected_edges=True)
+            sv_edges_out, _, sv_areas_out = cg._retrieve_connectivity(row_information, connected_edges=False)
+        if is_in_set1_dict[sv_id]:
             edges_in1.append(sv_edges_in)
             edges_out1.append(sv_edges_out)
             areas_out1.append(sv_areas_out)
@@ -349,3 +446,15 @@ def get_contact_sites_pairwise(cg, first_root_id, second_root_id, bounding_box=N
     edges_out2 = np.concatenate(edges_out2)
     areas_out2 = np.concatenate(areas_out2)
 
+    contact_sites = _compute_contact_sites_from_edges(cg, edges_out1, areas_out1, edges_in2, sv_ids_set2)
+    contact_sites_other_direction = _compute_contact_sites_from_edges(cg, edges_out2, areas_out2, edges_in1, sv_ids_set1)
+
+    if len(contact_sites_other_direction) > len(contact_sites):
+        return contact_sites_other_direction
+    
+    return contact_sites
+    # is_in_set2 = np.concatenate((np.zeros(len(sv_ids_set1)), np.ones(len(sv_ids_set2))))
+    # is_in_set2_dict = dict(zip(all_sv_ids, is_in_set2))
+
+    # import ipdb
+    # ipdb.set_trace()
