@@ -86,9 +86,17 @@ def ingest_graph(
     enqueue_atomic_tasks(imanager)
 
 
+@ingest_cli.command("status")
+def ingest_status():
+    redis = get_redis_connection()
+    imanager = IngestionManager.from_pickle(redis.get(r_keys.INGESTION_MANAGER))
+    for layer in range(2, imanager.n_layers):
+        layer_count = redis.hlen(f"{layer}c")
+        print(f"{layer}\t: {layer_count}")
+
+
 def init_ingest_cmds(app):
     app.cli.add_command(ingest_cli)
-
 
 
 # for layer_id in range(2, 13):
@@ -100,4 +108,4 @@ def init_ingest_cmds(app):
 #     parent_chunk_coords = child_chunk_coords // 2
 #     parent_chunk_coords = parent_chunk_coords.astype(np.int)
 #     parent_chunk_coords = np.unique(parent_chunk_coords, axis=0)
-#     print(len(child_chunk_coords), len(parent_chunk_coords))    
+#     print(len(child_chunk_coords), len(parent_chunk_coords))

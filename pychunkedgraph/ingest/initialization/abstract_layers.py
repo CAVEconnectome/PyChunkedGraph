@@ -171,7 +171,7 @@ def _resolve_cross_chunk_edges(n_threads, layer_id, node_ids, cross_edge_dict) -
     atomic_child_id_dict_pairs = []
     for partner_d, pairs in atomic_info:
         atomic_partner_id_dict = {**atomic_partner_id_dict, **partner_d}
-        atomic_child_id_dict_pairs.append(pairs)
+        atomic_child_id_dict_pairs.extend(pairs)
 
     atomic_child_id_dict = defaultdict(np.uint64, dict(atomic_child_id_dict_pairs))
 
