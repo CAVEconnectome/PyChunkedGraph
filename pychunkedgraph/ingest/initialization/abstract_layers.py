@@ -35,6 +35,7 @@ def add_layer(
     edge_ids = _resolve_cross_chunk_edges(
         n_threads, layer_id, children_ids, cross_edge_dict
     )
+    print(len(children_ids), len(edge_ids))
 
     # Extract connected components
     isolated_node_mask = ~np.in1d(children_ids, np.unique(edge_ids))
@@ -64,8 +65,7 @@ def _read_children_chunks(n_threads, cg_instance, layer_id, children_coords):
     multi_args = []
     for child_coord in children_coords:
         multi_args.append((cg_info, layer_id, child_coord))
-    print(f"Reading children chunks, threads {min(n_threads, len(multi_args))}")
-    chunk_info = mu.multithread_func(
+    chunk_info = mu.multiprocess_func(
         _process_chunk_thread, multi_args, n_threads=min(n_threads, len(multi_args))
     )
 
@@ -74,7 +74,6 @@ def _read_children_chunks(n_threads, cg_instance, layer_id, children_coords):
     for ids, cross_edge_d in chunk_info:
         children_ids.append(ids)
         cross_edge_dict = {**cross_edge_dict, **cross_edge_d}
-    print("Reading chunks complete")
     return np.concatenate(children_ids), cross_edge_dict
 
 
@@ -101,11 +100,8 @@ def _read_chunk(cg_instance, layer_id, chunk_coord):
         column_keys.Connectivity.CrossChunkEdge[l]
         for l in range(layer_id - 1, cg_instance.n_layers)
     ]
-    print(f"Reading chunk {chunk_coord}")
     range_read = cg_instance.range_read_chunk(layer_id - 1, x, y, z, columns=columns)
-    print(f"Done reading {chunk_coord}")
     
-    print(f"Getting relevant children ids {chunk_coord}")
     # Deserialize row keys and store child with highest id for comparison
     row_ids = np.fromiter(range_read.keys(), dtype=np.uint64)
     segment_ids = np.array([cg_instance.get_segment_id(r_id) for r_id in row_ids])
@@ -132,12 +128,10 @@ def _read_chunk(cg_instance, layer_id, chunk_coord):
         max_child_ids_occ_so_far[i_row] = counter[max_child_ids[i_row]]
         counter[max_child_ids[i_row]] += 1
     row_ids = row_ids[max_child_ids_occ_so_far == 0]
-    print(f"Getting relevant children ids {chunk_coord} done")
     return row_ids, cross_edge_columns_d
 
 
 def _resolve_cross_chunk_edges(n_threads, layer_id, node_ids, cross_edge_dict) -> None:
-    print("Resolve cross chunk edges")
     cross_edge_dict = defaultdict(dict, cross_edge_dict)
 
     def _resolve_helper_1(node_ids):
@@ -160,9 +154,6 @@ def _resolve_cross_chunk_edges(n_threads, layer_id, node_ids, cross_edge_dict) -
     if not len(multi_args):
         return
 
-    print(
-        f"node ids {len(node_ids)}, multiargs {len(multi_args)} job size {len(multi_args[0])}"
-    )
     atomic_info = mu.multithread_func(
         _resolve_helper_1, multi_args, n_threads=n_threads * 3
     )
@@ -191,15 +182,11 @@ def _resolve_cross_chunk_edges(n_threads, layer_id, node_ids, cross_edge_dict) -
 
     n_jobs = n_threads * 3
     chunk_size = len(node_ids) // n_jobs
-    multi_args = list(chunks(atomic_partner_id_dict.keys(), chunk_size))
+    multi_args = list(chunks(list(atomic_partner_id_dict), chunk_size))
     if not len(multi_args):
         return
 
-    print(
-        f"partner keys {len(atomic_partner_id_dict.keys())}, multiargs {len(multi_args)}"
-    )
     edge_ids = mu.multithread_func(_resolve_helper_2, multi_args, n_threads=n_threads)
-    print("Resolve cross chunk edges complete")
     return np.concatenate(edge_ids)
 
 
