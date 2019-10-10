@@ -3,9 +3,9 @@ import datetime
 import collections
 import itertools
 
+from enum import auto, Enum
 from pychunkedgraph.backend import chunkedgraph, flatgraph_utils
 from pychunkedgraph.backend.utils import column_keys, basetypes
-
 from multiwrapper import multiprocessing_utils as mu
 
 from typing import Optional, Sequence
@@ -224,14 +224,6 @@ def get_contact_sites(cg, root_id, bounding_box=None, bb_is_coordinate=True, com
         contact_sites_areas = contact_sites_svs_area_dict_vec(cc_sv_ids)
 
         representative_sv = cc_sv_ids[0]
-        # if representative_sv in np.array([93233144311853009, 93794990458675947, 94639406798877709], dtype=np.uint64):
-        #     for xx in cc_sv_ids:
-        #         testtest = np.where(edges == xx)
-        #         rownum = testtest[0]
-        #         for yy in rownum:
-        #             lol(tuple(int(edges[yy,0]), int(edges[yy,1]))) = 
-        #     import ipdb
-        #     ipdb.set_trace()
         # Tuple of location and area of contact site
         chunk_coordinates = cg.get_chunk_coordinates(representative_sv)
         if voxel_location:
@@ -283,36 +275,86 @@ def _retrieve_connectivity_optimized(cg, dict_item):
 
     return edges_in, edges_out, areas_out
 
-def _get_approximate_centroid(cg, sv_ids):
-    chunk_coordinate_vote_dict = collections.defaultdict(list)
-    most_popular_chunk_coordinate = None
-    most_popular_chunk_coordinate_vote_count = 0
-    for sv_id in sv_ids:
-        chunk_coordinates = cg.get_chunk_coordinates(sv_id)
-        chunk_coordinate_vote_dict[tuple(chunk_coordinates)].append(sv_id)
-        if len(chunk_coordinate_vote_dict[tuple(chunk_coordinates)]) > most_popular_chunk_coordinate_vote_count:
-            most_popular_chunk_coordinate_vote_count = len(chunk_coordinate_vote_dict[tuple(chunk_coordinates)])
-            most_popular_chunk_coordinate = chunk_coordinates
-    chunk_start = np.array((cg.vx_vol_bounds[:,0] + cg.chunk_size * most_popular_chunk_coordinate), dtype=np.int)
-    chunk_end = np.array((cg.vx_vol_bounds[:,0] + cg.chunk_size * (most_popular_chunk_coordinate + 1)), dtype=np.int)
-    ws_seg = cg.cv[
-        chunk_start[0] : chunk_end[0],
-        chunk_start[1] : chunk_end[1],
-        chunk_start[2] : chunk_end[2],
-    ].squeeze()
+# def _get_approximate_centroid(cg, sv_ids):
+#     chunk_coordinate_vote_dict = collections.defaultdict(list)
+#     most_popular_chunk_coordinate = None
+#     most_popular_chunk_coordinate_vote_count = 0
+#     for sv_id in sv_ids:
+#         chunk_coordinates = cg.get_chunk_coordinates(sv_id)
+#         chunk_coordinate_vote_dict[tuple(chunk_coordinates)].append(sv_id)
+#         if len(chunk_coordinate_vote_dict[tuple(chunk_coordinates)]) > most_popular_chunk_coordinate_vote_count:
+#             most_popular_chunk_coordinate_vote_count = len(chunk_coordinate_vote_dict[tuple(chunk_coordinates)])
+#             most_popular_chunk_coordinate = chunk_coordinates
+#     chunk_start = np.array((cg.vx_vol_bounds[:,0] + cg.chunk_size * most_popular_chunk_coordinate), dtype=np.int)
+#     chunk_end = np.array((cg.vx_vol_bounds[:,0] + cg.chunk_size * (most_popular_chunk_coordinate + 1)), dtype=np.int)
+#     ws_seg = cg.cv[
+#         chunk_start[0] : chunk_end[0],
+#         chunk_start[1] : chunk_end[1],
+#         chunk_start[2] : chunk_end[2],
+#     ].squeeze()
+#     import ipdb
+#     ipdb.set_trace()
+
+
+def _get_approximate_contact_point_same_chunk(cg, sv1, sv2):
+    chunk_coordinate = cg.get_chunk_coordinates(sv1)
+    ws_seg = cg.download_chunk_segmentation(chunk_coordinate)
     import ipdb
     ipdb.set_trace()
 
-def _get_approximate_contact_point_same_chunk(cg, sv1, sv2):
-    pass
-
 def _get_approximate_contact_point_across_chunks(cg, sv1, sv2):
-    pass
+    chunk_coordinate = cg.get_chunk_coordinates(sv1)
+    other_chunk_coordinate = cg.get_chunk_coordinates(sv2)
+    sv1_chunk_seg = cg.download_chunk_segmentation(chunk_coordinate)
+    sv2_chunk_seg = cg.download_chunk_segmentation(other_chunk_coordinate)
+    crossing_index = np.where(chunk_coordinate - other_chunk_coordinate)[0][0]
+    positive_crossing = (chunk_coordinate - other_chunk_coordinate)[crossing_index] < 0
+    sv1_chunk_plane_index = -1 if positive_crossing else 0
+    sv2_chunk_plane_index = 0 if positive_crossing else -1
+    if crossing_index == 0:
+        sv1_chunk_plane = sv1_chunk_seg[sv1_chunk_plane_index,:,:]
+        sv2_chunk_plane = sv2_chunk_seg[sv2_chunk_plane_index,:,:]
+    elif crossing_index == 1:
+        sv1_chunk_plane = sv1_chunk_seg[:,sv1_chunk_plane_index,:]
+        sv2_chunk_plane = sv2_chunk_seg[:,sv2_chunk_plane_index,:]
+    else:
+        sv1_chunk_plane = sv1_chunk_seg[:,:,sv1_chunk_plane_index]
+        sv2_chunk_plane = sv2_chunk_seg[:,:,sv2_chunk_plane_index]
+    # np.where()
+
+def _get_any_sv_point(cg, sv):
+    chunk_coordinate = cg.get_chunk_coordinates(sv1)
+    ws_seg = cg.download_chunk_segmentation(chunk_coordinate)
 
 def _get_approximate_contact_point(cg, first_root_unconnected_edges, second_root_sv_ids):
-    def _choose_contact_site_supervoxels():
-        pass
-    _choose_contact_site_supervoxels()
+    class EdgeType(Enum):
+        SameChunk = auto()
+        AdjacentChunks = auto()
+        NonAdjancentChunks = auto()
+    def _choose_contact_site_edge():
+        edge_mask = np.where(np.isin(first_root_unconnected_edges[:,1], second_root_sv_ids))[0]
+        filtered_unconnected_edges = first_root_unconnected_edges[edge_mask]
+        smallest_distance = None
+        best_edge = None
+        for edge in filtered_unconnected_edges:
+            chunk_coordinates_first_root = cg.get_chunk_coordinates(edge[0])
+            chunk_coordinates_second_root = cg.get_chunk_coordinates(edge[1])
+            if np.array_equal(chunk_coordinates_first_root, chunk_coordinates_second_root):
+                return (edge, EdgeType.SameChunk)
+            distance = abs(np.sum(chunk_coordinates_first_root) - np.sum(chunk_coordinates_second_root))
+            if best_edge is None or distance < smallest_distance:
+                smallest_distance = distance
+                best_edge = edge
+        if smallest_distance == 1:
+            return (edge, EdgeType.AdjacentChunks)
+        return (edge, EdgeType.NonAdjancentChunks)
+    edge, edgeType = _choose_contact_site_edge()
+    if edgeType == EdgeType.SameChunk:
+        return _get_approximate_contact_point_same_chunk(cg, edge[0], edge[1])
+    if edgeType == EdgeType.AdjacentChunks:
+        return _get_approximate_contact_point_across_chunks(cg, edge[0], edge[1])
+    return _get_any_sv_point(cg, edge[0])
+    
 
 def _compute_contact_sites_from_edges(cg, first_root_unconnected_edges, first_root_unconnected_areas, second_root_connected_edges, second_root_sv_ids):
     # Retrieve edges that connect first root with second root

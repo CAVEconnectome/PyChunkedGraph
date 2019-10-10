@@ -3687,4 +3687,14 @@ class ChunkedGraph(object):
             nodes_to_query = children[continue_layer_mask]
             if not np.any(nodes_to_query):
                 break
-        return np.concatenate(children_at_layer) 
+        return np.concatenate(children_at_layer)
+
+    def download_chunk_segmentation(self, chunk_coordinate):
+        chunk_start = np.array((self.vx_vol_bounds[:,0] + self.chunk_size * chunk_coordinate), dtype=np.int)
+        chunk_end = np.array((self.vx_vol_bounds[:,0] + self.chunk_size * (chunk_coordinate + 1)), dtype=np.int)
+        ws_seg = self.cv[
+            chunk_start[0] : chunk_end[0],
+            chunk_start[1] : chunk_end[1],
+            chunk_start[2] : chunk_end[2],
+        ].squeeze()
+        return ws_seg 
