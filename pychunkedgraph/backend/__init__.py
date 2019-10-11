@@ -1,4 +1,5 @@
-from typing import Sequence, Dict
+from typing import Sequence
+from typing import Dict
 
 import numpy as np
 from cloudvolume import CloudVolume
@@ -38,6 +39,7 @@ class GraphMeta:
 
     @property
     def layer_chunk_bounds(self) -> Dict:
+        """number of chunks in each dimension in each layer"""
         if self._layer_bounds_d:
             return self._layer_bounds_d
 

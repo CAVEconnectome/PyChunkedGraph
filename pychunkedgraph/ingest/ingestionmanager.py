@@ -11,6 +11,7 @@ from .ingestion_utils import get_layer_count
 from ..utils.redis import keys as r_keys
 from ..utils.redis import get_redis_connection
 from ..utils.redis import get_rq_queue
+from ..backend import GraphMeta
 from ..backend.chunkedgraph_utils import compute_bitmasks
 from ..backend.chunkedgraph import ChunkedGraph
 from ..backend.definitions.config import DataSource
@@ -33,6 +34,7 @@ class IngestionManager(object):
         self._bigtable_config = bigtable_config
 
         self._cg = None
+        self._graph_meta = GraphMeta(data_source, graph_config, bigtable_config)
         self._ws_cv = CloudVolume(data_source.watershed)
         self._n_layers = None
         self._chunk_coords = None
@@ -49,16 +51,8 @@ class IngestionManager(object):
         return self._config
 
     @property
-    def data_source(self):
-        return self._data_source
-
-    @property
-    def graph_config(self):
-        return self._graph_config
-
-    @property
-    def bigtable_config(self):
-        return self._bigtable_config
+    def graph_meta(self):
+        return self._graph_meta
 
     @property
     def cg(self):
@@ -69,53 +63,6 @@ class IngestionManager(object):
                 self._bigtable_config.instance_id,
             )
         return self._cg
-
-    @property
-    def bounds(self):
-        if not self._bounds is None:
-            return self._bounds
-        cv_bounds = np.array(self._ws_cv.bounds.to_list()).reshape(2, -1).T
-        self._bounds = cv_bounds.copy()
-        self._bounds -= cv_bounds[:, 0:1]
-        return self._bounds
-
-    @property
-    def chunk_id_bounds(self):
-        return np.ceil((self.bounds / self._graph_config.chunk_size[:, None])).astype(
-            np.int
-        )
-
-    @property
-    def layer_chunk_bounds(self) -> Dict:
-        if self._layer_bounds_d:
-            return self._layer_bounds_d
-        layer_bounds_d = {}
-        for layer in range(2, self.n_layers):
-            layer_bounds = self.chunk_id_bounds / (2 ** (layer - 2))
-            layer_bounds_d[layer] = np.ceil(layer_bounds).astype(np.int)
-        self._layer_bounds_d = layer_bounds_d
-        return self._layer_bounds_d
-
-    @property
-    def chunk_coord_gen(self):
-        return itertools.product(*[range(*r) for r in self.chunk_id_bounds])
-
-    @property
-    def chunk_coords(self):
-        if not self._chunk_coords is None:
-            return self._chunk_coords
-        self._chunk_coords = np.array(list(self.chunk_coord_gen), dtype=np.int)
-        return self._chunk_coords
-
-    @property
-    def n_layers(self):
-        if not self._n_layers:
-            self._n_layers = get_layer_count(
-                self._ws_cv,
-                self._graph_config.chunk_size,
-                fan_out=self._graph_config.fanout,
-            )
-        return self._n_layers
 
     @property
     def redis(self):
