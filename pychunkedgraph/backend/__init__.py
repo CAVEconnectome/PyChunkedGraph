@@ -29,6 +29,18 @@ class GraphMeta:
         self._layer_count = None
 
     @property
+    def data_source(self):
+        return self._data_source
+
+    @property
+    def graph_config(self):
+        return self._graph_config
+
+    @property
+    def bigtable_config(self):
+        return self._bigtable_config
+
+    @property
     def layer_count(self) -> int:
         if self._layer_count:
             return self._layer_count

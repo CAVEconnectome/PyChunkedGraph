@@ -20,22 +20,13 @@ from ..backend.definitions.config import BigTableConfig
 
 
 class IngestionManager(object):
-    def __init__(
-        self,
-        config: IngestConfig,
-        data_source: DataSource,
-        graph_config: GraphConfig,
-        bigtable_config: BigTableConfig,
-    ):
+    def __init__(self, config: IngestConfig, graph_meta: GraphMeta):
 
         self._config = config
-        self._data_source = data_source
-        self._graph_config = graph_config
-        self._bigtable_config = bigtable_config
 
         self._cg = None
-        self._graph_meta = GraphMeta(data_source, graph_config, bigtable_config)
-        self._ws_cv = CloudVolume(data_source.watershed)
+        self._graph_meta = graph_meta
+        self._ws_cv = CloudVolume(graph_meta.data_source.watershed)
         self._n_layers = None
         self._chunk_coords = None
         self._layer_bounds_d = None
@@ -58,9 +49,9 @@ class IngestionManager(object):
     def cg(self):
         if self._cg is None:
             self._cg = ChunkedGraph(
-                self._graph_config.graph_id,
-                self._bigtable_config.project_id,
-                self._bigtable_config.instance_id,
+                self._graph_meta.graph_config.graph_id,
+                self._graph_meta.bigtable_config.project_id,
+                self._graph_meta.bigtable_config.instance_id,
             )
         return self._cg
 
@@ -76,7 +67,7 @@ class IngestionManager(object):
 
     @property
     def edge_dtype(self):
-        if self._data_source.data_version == 4:
+        if self._graph_meta.data_source.data_version == 4:
             dtype = [
                 ("sv1", np.uint64),
                 ("sv2", np.uint64),
@@ -87,7 +78,7 @@ class IngestionManager(object):
                 ("aff_z", np.float32),
                 ("area_z", np.uint64),
             ]
-        elif self._data_source.data_version == 3:
+        elif self._graph_meta.data_source.data_version == 3:
             dtype = [
                 ("sv1", np.uint64),
                 ("sv2", np.uint64),
@@ -98,7 +89,7 @@ class IngestionManager(object):
                 ("aff_z", np.float64),
                 ("area_z", np.uint64),
             ]
-        elif self._data_source.data_version == 2:
+        elif self._graph_meta.data_source.data_version == 2:
             dtype = [
                 ("sv1", np.uint64),
                 ("sv2", np.uint64),
@@ -120,12 +111,7 @@ class IngestionManager(object):
         return self._task_queues[q_name]
 
     def get_serialized_info(self, pickled=False):
-        info = {
-            "config": self._config,
-            "data_source": self._data_source,
-            "graph_config": self._graph_config,
-            "bigtable_config": self._bigtable_config,
-        }
+        info = {"config": self._config, "graph_meta": self._graph_meta}
         if pickled:
             return pickle.dumps(info)
         return info
@@ -134,8 +120,8 @@ class IngestionManager(object):
         if not self._bitmasks:
             self._bitmasks = compute_bitmasks(
                 self._n_layers,
-                self._graph_config.fanout,
-                s_bits_atomic_layer=self._graph_config.s_bits_atomic_layer,
+                self._graph_meta.graph_config.fanout,
+                s_bits_atomic_layer=self._graph_meta.graph_config.s_bits_atomic_layer,
             )
         return np.any(chunk_coordinate < 0) or np.any(
             chunk_coordinate > 2 ** self._bitmasks[1]
