@@ -219,6 +219,18 @@ class LocalMincutGraph:
 
         return remapped_cutset[cutset_mask]
 
+    def _remap_graph_ids_to_cg_supervoxels(self, graph_ids):
+        supervoxel_list = []
+        # Supervoxels that were passed into graph
+        mapped_supervoxels = self.unique_supervoxel_ids[graph_ids]
+        # Now need to remap these using the cross_chunk_edge_remapping
+        for sv in mapped_supervoxels:
+            if sv in self.cross_chunk_edge_remapping:
+                supervoxel_list.extend(self.cross_chunk_edge_remapping[sv])
+            else:
+                supervoxel_list.append(sv)
+        return np.array(supervoxel_list)
+
     def _get_split_preview_connected_components(self, cut_edge_set):
         """
         Return the connected components of the local graph (in terms of supervoxels)
@@ -245,17 +257,17 @@ class LocalMincutGraph:
                 max_sinks = num_sinks
                 max_sink_index = i
             i += 1
-        supervoxel_ccs[0] = self.unique_supervoxel_ids[
+        supervoxel_ccs[0] = self._remap_graph_ids_to_cg_supervoxels(
             ccs_test_post_cut[max_source_index]
-        ]
-        supervoxel_ccs[1] = self.unique_supervoxel_ids[
+        )
+        supervoxel_ccs[1] = self._remap_graph_ids_to_cg_supervoxels(
             ccs_test_post_cut[max_sink_index]
-        ]
+        )
         i = 0
         j = 2
         for cc in ccs_test_post_cut:
             if i != max_source_index and i != max_sink_index:
-                supervoxel_ccs[j] = self.unique_supervoxel_ids[cc]
+                supervoxel_ccs[j] = self._remap_graph_ids_to_cg_supervoxels(cc)
                 j += 1
             i += 1
         return (supervoxel_ccs, illegal_split)
