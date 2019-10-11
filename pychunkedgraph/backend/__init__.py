@@ -13,7 +13,7 @@ from .definitions.config import BigTableConfig
 from .chunkedgraph_utils import log_n
 
 
-class GraphMeta:
+class ChunkedGraphMeta:
     def __init__(
         self,
         data_source: DataSource,
@@ -51,7 +51,7 @@ class GraphMeta:
 
     @property
     def layer_chunk_bounds(self) -> Dict:
-        """number of chunks in each dimension in each layer"""
+        """number of chunks in each dimension in each layer {layer: count}"""
         if self._layer_bounds_d:
             return self._layer_bounds_d
 

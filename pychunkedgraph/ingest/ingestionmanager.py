@@ -11,7 +11,7 @@ from .ingestion_utils import get_layer_count
 from ..utils.redis import keys as r_keys
 from ..utils.redis import get_redis_connection
 from ..utils.redis import get_rq_queue
-from ..backend import GraphMeta
+from ..backend import ChunkedGraphMeta
 from ..backend.chunkedgraph_utils import compute_bitmasks
 from ..backend.chunkedgraph import ChunkedGraph
 from ..backend.definitions.config import DataSource
@@ -20,13 +20,13 @@ from ..backend.definitions.config import BigTableConfig
 
 
 class IngestionManager(object):
-    def __init__(self, config: IngestConfig, graph_meta: GraphMeta):
+    def __init__(self, config: IngestConfig, chunkedgraph_meta: ChunkedGraphMeta):
 
         self._config = config
 
         self._cg = None
-        self._graph_meta = graph_meta
-        self._ws_cv = CloudVolume(graph_meta.data_source.watershed)
+        self._chunkedgraph_meta = chunkedgraph_meta
+        self._ws_cv = CloudVolume(chunkedgraph_meta.data_source.watershed)
         self._n_layers = None
         self._chunk_coords = None
         self._layer_bounds_d = None
@@ -42,16 +42,16 @@ class IngestionManager(object):
         return self._config
 
     @property
-    def graph_meta(self):
-        return self._graph_meta
+    def chunkedgraph_meta(self):
+        return self._chunkedgraph_meta
 
     @property
     def cg(self):
         if self._cg is None:
             self._cg = ChunkedGraph(
-                self._graph_meta.graph_config.graph_id,
-                self._graph_meta.bigtable_config.project_id,
-                self._graph_meta.bigtable_config.instance_id,
+                self._chunkedgraph_meta.graph_config.graph_id,
+                self._chunkedgraph_meta.bigtable_config.project_id,
+                self._chunkedgraph_meta.bigtable_config.instance_id,
             )
         return self._cg
 
@@ -67,7 +67,7 @@ class IngestionManager(object):
 
     @property
     def edge_dtype(self):
-        if self._graph_meta.data_source.data_version == 4:
+        if self._chunkedgraph_meta.data_source.data_version == 4:
             dtype = [
                 ("sv1", np.uint64),
                 ("sv2", np.uint64),
@@ -78,7 +78,7 @@ class IngestionManager(object):
                 ("aff_z", np.float32),
                 ("area_z", np.uint64),
             ]
-        elif self._graph_meta.data_source.data_version == 3:
+        elif self._chunkedgraph_meta.data_source.data_version == 3:
             dtype = [
                 ("sv1", np.uint64),
                 ("sv2", np.uint64),
@@ -89,7 +89,7 @@ class IngestionManager(object):
                 ("aff_z", np.float64),
                 ("area_z", np.uint64),
             ]
-        elif self._graph_meta.data_source.data_version == 2:
+        elif self._chunkedgraph_meta.data_source.data_version == 2:
             dtype = [
                 ("sv1", np.uint64),
                 ("sv2", np.uint64),
@@ -111,7 +111,7 @@ class IngestionManager(object):
         return self._task_queues[q_name]
 
     def get_serialized_info(self, pickled=False):
-        info = {"config": self._config, "graph_meta": self._graph_meta}
+        info = {"config": self._config, "chunkedgraph_meta": self._chunkedgraph_meta}
         if pickled:
             return pickle.dumps(info)
         return info
@@ -120,8 +120,8 @@ class IngestionManager(object):
         if not self._bitmasks:
             self._bitmasks = compute_bitmasks(
                 self._n_layers,
-                self._graph_meta.graph_config.fanout,
-                s_bits_atomic_layer=self._graph_meta.graph_config.s_bits_atomic_layer,
+                self._chunkedgraph_meta.graph_config.fanout,
+                s_bits_atomic_layer=self._chunkedgraph_meta.graph_config.s_bits_atomic_layer,
             )
         return np.any(chunk_coordinate < 0) or np.any(
             chunk_coordinate > 2 ** self._bitmasks[1]

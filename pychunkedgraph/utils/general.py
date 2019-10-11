@@ -22,7 +22,7 @@ def reverse_dictionary(dictionary):
     return {k: v for k, v in zip(vals, keys)}
 
 
-def chunks(l: Sequence, n: int):
+def chunked(l: Sequence, n: int):
     """Yield successive n-sized chunks from l."""
     for i in range(0, len(l), n):
         yield l[i:i + n]

@@ -10,8 +10,8 @@ from multiwrapper import multiprocessing_utils as mu
 
 from . import flatgraph_utils
 from .chunkedgraph_utils import combine_cross_chunk_edge_dicts
+from .chunkedgraph_utils import get_bounding_box
 from .utils import column_keys, serializers
-from .utils.general import get_bounding_box
 from .utils.edge_utils import filter_fake_edges
 from .utils.edge_utils import map_edges_to_chunks
 from .utils.edge_utils import get_linking_edges

@@ -10,7 +10,7 @@ from typing import Optional, Sequence
 import numpy as np
 from multiwrapper import multiprocessing_utils as mu
 
-from ...utils.general import chunks
+from ...utils.general import chunked
 from ...backend import flatgraph_utils
 from ...backend.chunkedgraph import ChunkedGraph
 from ...backend.chunkedgraph_utils import get_valid_timestamp
@@ -177,7 +177,7 @@ def _get_atomic_partners(n_threads, layer_id, node_ids, cross_edge_dict):
     chunk_size = len(node_ids) // n_jobs
     multi_args = []
 
-    for node_ids_chunk in chunks(node_ids, chunk_size):
+    for node_ids_chunk in chunked(node_ids, chunk_size):
         cross_edge_dict_part = {key: cross_edge_dict[key] for key in node_ids_chunk}
         multi_args.append((layer_id, node_ids_chunk, cross_edge_dict_part))
     if not len(multi_args):
