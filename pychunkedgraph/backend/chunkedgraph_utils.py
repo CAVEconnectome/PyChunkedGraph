@@ -1,10 +1,13 @@
 import datetime
-from typing import Dict, Iterable, Optional, Union
+from typing import Dict
+from typing import Iterable
+from typing import Optional
+from typing import Union
+from typing import Sequence
 
 import numpy as np
 import pandas as pd
 import pytz
-
 from google.cloud import bigtable
 from google.cloud.bigtable.row_filters import (
     TimestampRange,
@@ -14,6 +17,8 @@ from google.cloud.bigtable.row_filters import (
     RowFilterUnion,
     RowFilter,
 )
+from cloudvolume import CloudVolume
+
 from .utils import column_keys
 from .utils import serializers
 
@@ -245,4 +250,17 @@ def compute_chunk_id(
     return np.uint64(
         layer << layer_offset | x << x_offset | y << y_offset | z << z_offset
     )
+
+
+def get_voxels_boundary(cv: CloudVolume) -> Sequence[int]:
+    """returns number of voxels in each dimension"""
+    cv_bounds = np.array(cv.bounds.to_list()).reshape(2, -1).T
+    voxel_counts = cv_bounds.copy()
+    voxel_counts -= cv_bounds[:, 0:1]
+    voxel_counts = voxel_counts[:, 1]
+    return voxel_counts
+
+
+def get_chunks_boundary(voxel_boundary, chunk_size):
+    return np.ceil((voxel_boundary / chunk_size)).astype(np.int)
 
