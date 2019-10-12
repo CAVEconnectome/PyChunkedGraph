@@ -10,6 +10,7 @@ from typing import Optional, Sequence
 import numpy as np
 from multiwrapper import multiprocessing_utils as mu
 
+from .helpers import get_touching_atomic_chunks
 from ...utils.general import chunked
 from ...backend import flatgraph_utils
 from ...backend.chunkedgraph import ChunkedGraph
@@ -30,7 +31,7 @@ def add_layer(
     parent_chunk_id = cg_instance.get_chunk_id(layer=layer_id, x=x, y=y, z=z)
 
     start = time.time()
-    children_ids, cross_edge_dict = _read_children_chunks(
+    children_ids = _read_children_chunks(
         n_threads, cg_instance, layer_id, children_coords
     )
     print(f"_read_children_chunks: {time.time()-start}")
@@ -71,61 +72,49 @@ def add_layer(
 def _read_children_chunks(n_threads, cg_instance, layer_id, children_coords):
     cg_info = cg_instance.get_serialized_info()
     del cg_info["credentials"]
+    
     multi_args = []
     for child_coord in children_coords:
-        multi_args.append((cg_info, layer_id, child_coord))
-    chunk_info = mu.multithread_func(
-        _process_chunk_thread, multi_args, n_threads=min(n_threads, len(multi_args))
+        multi_args.append((cg_info, layer_id-1, child_coord))
+    children_ids = mu.multithread_func(
+        _read_chunk_thread, multi_args, n_threads=len(multi_args)
     )
-
-    children_ids = []
-    cross_edge_dict = {}
-    for ids, cross_edge_d in chunk_info:
-        children_ids.append(ids)
-        cross_edge_dict = {**cross_edge_dict, **cross_edge_d}
-    return np.concatenate(children_ids), cross_edge_dict
+    return np.concatenate(children_ids)
 
 
-def _process_chunk_thread(args):
+def _get_cross_edges(cg_instance, layer_id, chunk_coord):
+    layer2_chunks = get_touching_atomic_chunks(cg_instance.meta, layer_id, chunk_coord)
+
+    cg_info = cg_instance.get_serialized_info()
+    del cg_info["credentials"]
+    
+    multi_args = []
+    for layer2_chunk in layer2_chunks:
+        multi_args.append((cg_info, 2, layer2_chunk))
+    children_ids = mu.multithread_func(
+        _read_chunk_thread, multi_args, n_threads=len(multi_args)
+    )
+    return np.concatenate(children_ids)    
+
+
+def _read_chunk_thread(args):
     cg_info, layer_id, chunk_coord = args
     cg_instance = ChunkedGraph(**cg_info)
-    row_ids, cross_edge_columns_d = _read_chunk(cg_instance, layer_id, chunk_coord)
-
-    cross_edge_dict = defaultdict(dict)
-    for row_id in row_ids:
-        if row_id in cross_edge_columns_d:
-            cell_family = cross_edge_columns_d[row_id]
-            for l in range(layer_id - 1, cg_instance.n_layers):
-                cross_edges_key = column_keys.Connectivity.CrossChunkEdge[l]
-                if cross_edges_key in cell_family:
-                    cross_edge_dict[row_id][l] = cell_family[cross_edges_key][0].value
-
-    return row_ids, cross_edge_dict
+    return _read_chunk(cg_instance, layer_id, chunk_coord)
 
 
 def _read_chunk(cg_instance, layer_id, chunk_coord):
     x, y, z = chunk_coord
-    columns = [column_keys.Hierarchy.Child] + [
-        column_keys.Connectivity.CrossChunkEdge[l]
-        for l in range(layer_id - 1, cg_instance.n_layers)
-    ]
-    range_read = cg_instance.range_read_chunk(layer_id - 1, x, y, z, columns=columns)
+    range_read = cg_instance.range_read_chunk(
+        layer_id, x, y, z, columns=column_keys.Hierarchy.Child
+    )
 
     # Deserialize row keys and store child with highest id for comparison
     row_ids = np.fromiter(range_read.keys(), dtype=np.uint64)
     segment_ids = np.array([cg_instance.get_segment_id(r_id) for r_id in row_ids])
-    cross_edge_columns_d = {}
     max_child_ids = []
-    for row_id, row_data in range_read.items():
-        cross_edge_columns = {
-            k: v
-            for (k, v) in row_data.items()
-            if k.family_id == cg_instance.cross_edge_family_id
-        }
-        if cross_edge_columns:
-            cross_edge_columns_d[row_id] = cross_edge_columns
-        node_child_ids = row_data[column_keys.Hierarchy.Child][0].value
-        max_child_ids.append(np.max(node_child_ids))
+    for row_data in range_read.values():
+        max_child_ids.append(np.max(row_data[0].value))
 
     sorting = np.argsort(segment_ids)[::-1]
     row_ids = row_ids[sorting]
@@ -137,78 +126,33 @@ def _read_chunk(cg_instance, layer_id, chunk_coord):
         max_child_ids_occ_so_far[i_row] = counter[max_child_ids[i_row]]
         counter[max_child_ids[i_row]] += 1
     row_ids = row_ids[max_child_ids_occ_so_far == 0]
-    return row_ids, cross_edge_columns_d
+    return row_ids
 
 
-def _resolve_cross_chunk_edges(n_threads, layer_id, node_ids, cross_edge_dict) -> None:
-    cross_edge_dict = defaultdict(dict, cross_edge_dict)
-
-    start = time.time()
-    atomic_partner_id_dict, atomic_child_id_dict_pairs = _get_atomic_partners(
-        n_threads, layer_id, node_ids, cross_edge_dict
+def _read_atomic_chunk_cross_edges(cg_instance, chunk_coord, cross_edge_layer):
+    x, y, z = chunk_coord
+    range_read = cg_instance.range_read_chunk(
+        2, x, y, z, columns=column_keys.Connectivity.CrossChunkEdge[cross_edge_layer]
     )
-    print(f"_get_atomic_partners: {time.time()-start}")
-    atomic_child_id_dict = defaultdict(np.uint64, dict(atomic_child_id_dict_pairs))
 
-    start = time.time()
-    cross_edges = _get_cross_edges(atomic_partner_id_dict, atomic_child_id_dict)
-    print(f"_get_cross_edges: {time.time()-start}")
-    return cross_edges
+    # Deserialize row keys and store child with highest id for comparison
+    row_ids = np.fromiter(range_read.keys(), dtype=np.uint64)
+    segment_ids = np.array([cg_instance.get_segment_id(r_id) for r_id in row_ids])
+    max_child_ids = []
+    for row_data in range_read.values():
+        max_child_ids.append(np.max(row_data[0].value))
 
+    sorting = np.argsort(segment_ids)[::-1]
+    row_ids = row_ids[sorting]
+    max_child_ids = np.array(max_child_ids, dtype=np.uint64)[sorting]
 
-def _get_atomic_partners_thread(args):
-    layer_id, node_ids, cross_edge_dict = args
-    atomic_partner_id_dict = {}
-    atomic_child_id_dict_pairs = []
-    for node_id in node_ids:
-        if int(layer_id - 1) in cross_edge_dict[node_id]:
-            atomic_cross_edges = cross_edge_dict[node_id][layer_id - 1]
-            if len(atomic_cross_edges) > 0:
-                atomic_partner_id_dict[node_id] = atomic_cross_edges[:, 1]
-                new_pairs = zip(
-                    atomic_cross_edges[:, 0], [node_id] * len(atomic_cross_edges)
-                )
-                atomic_child_id_dict_pairs.extend(new_pairs)
-    return atomic_partner_id_dict, atomic_child_id_dict_pairs
-
-
-def _get_atomic_partners(n_threads, layer_id, node_ids, cross_edge_dict):
-    n_jobs = n_threads * 3
-    chunk_size = len(node_ids) // n_jobs
-    multi_args = []
-
-    for node_ids_chunk in chunked(node_ids, chunk_size):
-        cross_edge_dict_part = {key: cross_edge_dict[key] for key in node_ids_chunk}
-        multi_args.append((layer_id, node_ids_chunk, cross_edge_dict_part))
-    if not len(multi_args):
-        return
-
-    atomic_info = mu.multithread_func(_get_atomic_partners_thread, multi_args)
-
-    atomic_partner_id_dict = {}
-    atomic_child_id_dict_pairs = []
-    for partner_d, pairs in atomic_info:
-        atomic_partner_id_dict = {**atomic_partner_id_dict, **partner_d}
-        atomic_child_id_dict_pairs.extend(pairs)
-
-    return atomic_partner_id_dict, atomic_child_id_dict_pairs
-
-
-def _get_cross_edges(atomic_partner_id_dict, atomic_child_id_dict):
-    edge_ids = []
-    for k in atomic_partner_id_dict:
-        this_atomic_partner_ids = atomic_partner_id_dict[k]
-        partners = {
-            atomic_child_id_dict[atomic_cross_id]
-            for atomic_cross_id in this_atomic_partner_ids
-            if atomic_child_id_dict[atomic_cross_id] != 0
-        }
-        if len(partners) > 0:
-            partners = np.array(list(partners), dtype=np.uint64)[:, None]
-            this_ids = np.array([k] * len(partners), dtype=np.uint64)[:, None]
-            edge_ids.append(np.concatenate([this_ids, partners], axis=1))
-    return np.concatenate(edge_ids)
-
+    counter = defaultdict(int)
+    max_child_ids_occ_so_far = np.zeros(len(max_child_ids), dtype=np.int)
+    for i_row in range(len(max_child_ids)):
+        max_child_ids_occ_so_far[i_row] = counter[max_child_ids[i_row]]
+        counter[max_child_ids[i_row]] += 1
+    row_ids = row_ids[max_child_ids_occ_so_far == 0]
+    return row_ids
 
 def _write_out_connected_components(
     cg_instance, layer_id, parent_chunk_id, ccs, cross_edge_dict, graph_ids, time_stamp
