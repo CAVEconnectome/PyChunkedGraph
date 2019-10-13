@@ -135,24 +135,12 @@ def _read_atomic_chunk_cross_edges(cg_instance, chunk_coord, cross_edge_layer):
         2, x, y, z, columns=column_keys.Connectivity.CrossChunkEdge[cross_edge_layer]
     )
 
-    # Deserialize row keys and store child with highest id for comparison
-    row_ids = np.fromiter(range_read.keys(), dtype=np.uint64)
-    segment_ids = np.array([cg_instance.get_segment_id(r_id) for r_id in row_ids])
-    max_child_ids = []
-    for row_data in range_read.values():
-        max_child_ids.append(np.max(row_data[0].value))
+    cross_edges = [r[0].value for r in range_read.values()]
+    cross_edges = np.concatenate(cross_edges)
 
-    sorting = np.argsort(segment_ids)[::-1]
-    row_ids = row_ids[sorting]
-    max_child_ids = np.array(max_child_ids, dtype=np.uint64)[sorting]
-
-    counter = defaultdict(int)
-    max_child_ids_occ_so_far = np.zeros(len(max_child_ids), dtype=np.int)
-    for i_row in range(len(max_child_ids)):
-        max_child_ids_occ_so_far[i_row] = counter[max_child_ids[i_row]]
-        counter[max_child_ids[i_row]] += 1
-    row_ids = row_ids[max_child_ids_occ_so_far == 0]
-    return row_ids
+    sv_ids1 = cross_edges[:,0]
+    sv_ids2 = cross_edges[:,1]
+    return
 
 def _write_out_connected_components(
     cg_instance, layer_id, parent_chunk_id, ccs, cross_edge_dict, graph_ids, time_stamp
