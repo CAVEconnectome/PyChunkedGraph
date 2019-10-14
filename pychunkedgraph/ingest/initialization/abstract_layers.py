@@ -32,7 +32,7 @@ def add_layer(
 
     start = time.time()
     children_ids = _read_children_chunks(cg_instance, layer_id, children_coords)
-    print(f"_read_children_chunks: {time.time()-start}")
+    print(f"_read_children_chunks: {time.time()-start}, count {len(children_ids)}")
 
     start = time.time()
     edge_ids = _get_cross_edges(cg_instance, layer_id, parent_coords)
@@ -71,9 +71,7 @@ def _read_children_chunks(cg_instance, layer_id, children_coords):
     multi_args = []
     for child_coord in children_coords:
         multi_args.append((cg_info, layer_id - 1, child_coord))
-    children_ids = mu.multithread_func(
-        _read_chunk_helper, multi_args, n_threads=len(multi_args)
-    )
+    children_ids = mu.multithread_func(_read_chunk_helper, multi_args, n_threads=1)
     return np.concatenate(children_ids)
 
 
@@ -124,19 +122,25 @@ def _get_cross_edges(cg_instance, layer_id, chunk_coord):
     start = time.time()
     multi_args = []
     for layer2_chunk in layer2_chunks:
-        multi_args.append((cg_info, layer2_chunk, layer_id))
+        multi_args.append((cg_info, layer2_chunk, layer_id - 1))
     cross_edges = mu.multithread_func(
-        _read_atomic_chunk_cross_edges_helper, multi_args, n_threads=len(multi_args)
+        _read_atomic_chunk_cross_edges_helper, multi_args, n_threads=4
     )
     print(f"_read_atomic_chunk_cross_edges: {time.time()-start}")
 
-    return np.concatenate(cross_edges)
+    return np.unique(np.concatenate(cross_edges), axis=0)
 
 
 def _read_atomic_chunk_cross_edges_helper(args):
     cg_info, layer2_chunk, cross_edge_layer = args
     cg_instance = ChunkedGraph(**cg_info)
-    return _read_atomic_chunk_cross_edges(cg_instance, layer2_chunk, cross_edge_layer)
+
+    start = time.time()
+    cross_edges = _read_atomic_chunk_cross_edges(
+        cg_instance, layer2_chunk, cross_edge_layer
+    )
+    print(f"single atomic chunk: {time.time()-start}, edges {len(cross_edges)}")
+    return cross_edges
 
 
 def _read_atomic_chunk_cross_edges(cg_instance, chunk_coord, cross_edge_layer):
@@ -169,8 +173,9 @@ def _read_atomic_chunk_cross_edges(cg_instance, chunk_coord, cross_edge_layer):
         ).T
         cross_edges.append(edges)
 
-    cross_edges = np.unique(np.concatenate(cross_edges), axis=0)
-    return cross_edges
+    if cross_edges:
+        return np.unique(np.concatenate(cross_edges), axis=0)
+    return []
 
 
 def _write_out_connected_components(
