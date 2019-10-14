@@ -28,7 +28,7 @@ def add_layer(
     n_threads: int = 32,
 ) -> None:
     x, y, z = parent_coords
-    parent_chunk_id = cg_instance.get_chunk_id(layer=layer_id, x=x, y=y, z=z)
+    # parent_chunk_id = cg_instance.get_chunk_id(layer=layer_id, x=x, y=y, z=z)
 
     start = time.time()
     children_ids = _read_children_chunks(
@@ -36,12 +36,9 @@ def add_layer(
     )
     print(f"_read_children_chunks: {time.time()-start}")
 
-    # cross_edge_dict, children_ids = _process_chunks(cg_instance, layer_id, children_coords)
     start = time.time()
-    edge_ids = _resolve_cross_chunk_edges(
-        n_threads, layer_id, children_ids, cross_edge_dict
-    )
-    print(f"_resolve_cross_chunk_edges: {time.time()-start}")
+    edge_ids = _get_cross_edges(n_threads, layer_id, parent_coords)
+    print(f"_get_cross_edges: {time.time()-start}")
     print(len(children_ids), len(edge_ids))
 
     # Extract connected components
@@ -50,54 +47,39 @@ def add_layer(
     add_edge_ids = np.vstack([add_node_ids, add_node_ids]).T
     edge_ids = np.concatenate([edge_ids, add_edge_ids])
 
-    graph, _, _, graph_ids = flatgraph_utils.build_gt_graph(
-        edge_ids, make_directed=True
-    )
+    # graph, _, _, graph_ids = flatgraph_utils.build_gt_graph(
+    #     edge_ids, make_directed=True
+    # )
 
-    ccs = flatgraph_utils.connected_components(graph)
-    start = time.time()
-    _write_out_connected_components(
-        cg_instance,
-        layer_id,
-        parent_chunk_id,
-        ccs,
-        cross_edge_dict,
-        graph_ids,
-        time_stamp,
-    )
-    print(f"_write_out_connected_components: {time.time()-start}")
+    # ccs = flatgraph_utils.connected_components(graph)
+    # start = time.time()
+    # _write_out_connected_components(
+    #     cg_instance,
+    #     layer_id,
+    #     parent_chunk_id,
+    #     ccs,
+    #     cross_edge_dict,
+    #     graph_ids,
+    #     time_stamp,
+    # )
+    # print(f"_write_out_connected_components: {time.time()-start}")
     return f"{layer_id}_{'_'.join(map(str, (x, y, z)))}"
 
 
 def _read_children_chunks(n_threads, cg_instance, layer_id, children_coords):
     cg_info = cg_instance.get_serialized_info()
     del cg_info["credentials"]
-    
+
     multi_args = []
     for child_coord in children_coords:
-        multi_args.append((cg_info, layer_id-1, child_coord))
+        multi_args.append((cg_info, layer_id - 1, child_coord))
     children_ids = mu.multithread_func(
-        _read_chunk_thread, multi_args, n_threads=len(multi_args)
+        _read_chunk_helper, multi_args, n_threads=len(multi_args)
     )
     return np.concatenate(children_ids)
 
 
-def _get_cross_edges(cg_instance, layer_id, chunk_coord):
-    layer2_chunks = get_touching_atomic_chunks(cg_instance.meta, layer_id, chunk_coord)
-
-    cg_info = cg_instance.get_serialized_info()
-    del cg_info["credentials"]
-    
-    multi_args = []
-    for layer2_chunk in layer2_chunks:
-        multi_args.append((cg_info, 2, layer2_chunk))
-    children_ids = mu.multithread_func(
-        _read_chunk_thread, multi_args, n_threads=len(multi_args)
-    )
-    return np.concatenate(children_ids)    
-
-
-def _read_chunk_thread(args):
+def _read_chunk_helper(args):
     cg_info, layer_id, chunk_coord = args
     cg_instance = ChunkedGraph(**cg_info)
     return _read_chunk(cg_instance, layer_id, chunk_coord)
@@ -129,18 +111,69 @@ def _read_chunk(cg_instance, layer_id, chunk_coord):
     return row_ids
 
 
+def _get_cross_edges(cg_instance, layer_id, chunk_coord):
+    start = time.time()
+    layer2_chunks = get_touching_atomic_chunks(
+        cg_instance.meta, layer_id, chunk_coord, include_both=False
+    )
+    print(f"get_touching_atomic_chunks: {time.time()-start}")
+
+    print(f"touching chunks count (1 side): {len(layer2_chunks)}")
+
+    cg_info = cg_instance.get_serialized_info()
+    del cg_info["credentials"]
+
+    start = time.time()
+    multi_args = []
+    for layer2_chunk in layer2_chunks:
+        multi_args.append((cg_info, layer2_chunk, layer_id))
+    cross_edges = mu.multithread_func(
+        _read_atomic_chunk_cross_edges_helper, multi_args, n_threads=len(multi_args)
+    )
+    print(f"_read_atomic_chunk_cross_edges: {time.time()-start}")
+
+    return np.concatenate(cross_edges)
+
+
+def _read_atomic_chunk_cross_edges_helper(args):
+    cg_info, layer2_chunk, cross_edge_layer = args
+    cg_instance = ChunkedGraph(**cg_info)
+    return _read_atomic_chunk_cross_edges(cg_instance, layer2_chunk, cross_edge_layer)
+
+
 def _read_atomic_chunk_cross_edges(cg_instance, chunk_coord, cross_edge_layer):
     x, y, z = chunk_coord
     range_read = cg_instance.range_read_chunk(
         2, x, y, z, columns=column_keys.Connectivity.CrossChunkEdge[cross_edge_layer]
     )
 
-    cross_edges = [r[0].value for r in range_read.values()]
-    cross_edges = np.concatenate(cross_edges)
+    parent_neighboring_chunk_supervoxels_d = defaultdict(list)
+    for l2_id, row_data in range_read.items():
+        edges = row_data[0].value
+        parent_neighboring_chunk_supervoxels_d[l2_id] = edges[:, 1]
 
-    sv_ids1 = cross_edges[:,0]
-    sv_ids2 = cross_edges[:,1]
-    return
+    l2_ids = list(parent_neighboring_chunk_supervoxels_d.keys())
+    segment_ids = cg_instance.get_roots(l2_ids, stop_layer=cross_edge_layer)
+
+    cross_edges = []
+    for i, l2_id in enumerate(parent_neighboring_chunk_supervoxels_d):
+        segment_id = segment_ids[i]
+        neighboring_supervoxels = parent_neighboring_chunk_supervoxels_d[l2_id]
+        neighboring_segment_ids = cg_instance.get_roots(
+            neighboring_supervoxels, stop_layer=cross_edge_layer
+        )
+
+        edges = np.vstack(
+            [
+                np.array([segment_id] * len(neighboring_supervoxels)),
+                neighboring_segment_ids,
+            ]
+        ).T
+        cross_edges.append(edges)
+
+    cross_edges = np.unique(np.concatenate(cross_edges), axis=0)
+    return cross_edges
+
 
 def _write_out_connected_components(
     cg_instance, layer_id, parent_chunk_id, ccs, cross_edge_dict, graph_ids, time_stamp
