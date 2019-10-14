@@ -31,13 +31,11 @@ def add_layer(
     # parent_chunk_id = cg_instance.get_chunk_id(layer=layer_id, x=x, y=y, z=z)
 
     start = time.time()
-    children_ids = _read_children_chunks(
-        n_threads, cg_instance, layer_id, children_coords
-    )
+    children_ids = _read_children_chunks(cg_instance, layer_id, children_coords)
     print(f"_read_children_chunks: {time.time()-start}")
 
     start = time.time()
-    edge_ids = _get_cross_edges(n_threads, layer_id, parent_coords)
+    edge_ids = _get_cross_edges(cg_instance, layer_id, parent_coords)
     print(f"_get_cross_edges: {time.time()-start}")
     print(len(children_ids), len(edge_ids))
 
@@ -66,7 +64,7 @@ def add_layer(
     return f"{layer_id}_{'_'.join(map(str, (x, y, z)))}"
 
 
-def _read_children_chunks(n_threads, cg_instance, layer_id, children_coords):
+def _read_children_chunks(cg_instance, layer_id, children_coords):
     cg_info = cg_instance.get_serialized_info()
     del cg_info["credentials"]
 

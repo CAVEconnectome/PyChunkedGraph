@@ -3,7 +3,6 @@ from itertools import product
 import numpy as np
 
 from ...backend import ChunkedGraphMeta
-from ...backend.chunkedgraph_utils import get_children_chunk_coords
 
 
 def get_touching_atomic_chunks(

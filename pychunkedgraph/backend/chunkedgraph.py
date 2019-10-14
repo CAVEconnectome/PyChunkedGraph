@@ -33,6 +33,7 @@ from google.cloud.bigtable.row_set import RowSet
 from google.cloud.bigtable.column_family import MaxVersionsGCRule
 
 from . import (
+    ChunkedGraphMeta,
     chunkedgraph_exceptions as cg_exceptions,
     chunkedgraph_edits as cg_edits,
     cutting,
@@ -97,6 +98,7 @@ class ChunkedGraph(object):
         dataset_info: Optional[object] = None,
         is_new: bool = False,
         logger: Optional[logging.Logger] = None,
+        meta: Optional[ChunkedGraphMeta] = None
     ) -> None:
 
         if logger is None:
@@ -186,6 +188,8 @@ class ChunkedGraph(object):
         # Vectorized calls
         self._get_chunk_layer_vec = np.vectorize(self.get_chunk_layer)
         self._get_chunk_id_vec = np.vectorize(self.get_chunk_id)
+
+        self.meta = meta
 
     @property
     def client(self) -> bigtable.Client:
@@ -380,6 +384,7 @@ class ChunkedGraph(object):
             "table_id": self.table_id,
             "instance_id": self.instance_id,
             "project_id": self.project_id,
+            "meta": self.meta,
         }
         try:
             info["credentials"] = self.client.credentials
