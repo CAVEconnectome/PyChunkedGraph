@@ -3,6 +3,7 @@ import datetime
 import collections
 import itertools
 
+from contact_points import find_contact_points
 from enum import auto, Enum
 from pychunkedgraph.backend import chunkedgraph, flatgraph_utils
 from pychunkedgraph.backend.utils import column_keys, basetypes
@@ -218,7 +219,6 @@ def get_contact_sites(cg, root_id, bounding_box=None, bb_is_coordinate=True, com
     # First create intermediary map of supervoxel to contact sites, so we
     # can call cg.get_roots() on all supervoxels at once.
     intermediary_sv_dict = {}
-    # lol = {}
     for cc in connected_components:
         cc_sv_ids = unique_sv_ids[cc]
         contact_sites_areas = contact_sites_svs_area_dict_vec(cc_sv_ids)
@@ -227,9 +227,11 @@ def get_contact_sites(cg, root_id, bounding_box=None, bb_is_coordinate=True, com
         # Tuple of location and area of contact site
         chunk_coordinates = cg.get_chunk_coordinates(representative_sv)
         if voxel_location:
-            data_pair = (cg.vx_vol_bounds[:,0] + cg.chunk_size * chunk_coordinates, np.sum(contact_sites_areas))
+            voxel_lower_bound = cg.vx_vol_bounds[:,0] + cg.chunk_size * chunk_coordinates
+            voxel_upper_bound = cg.vx_vol_bounds[:,0] + cg.chunk_size * (chunk_coordinates + 1)
+            data_pair = (voxel_lower_bound * cg.segmentation_resolution, voxel_upper_bound * cg.segmentation_resolution, np.sum(contact_sites_areas))
         else:
-            data_pair = (chunk_coordinates, np.sum(contact_sites_areas))
+            data_pair = (chunk_coordinates, chunk_coordinates + 1, np.sum(contact_sites_areas))
 
         if compute_partner:
             # Cast np.uint64 to int for dict key because int is hashable
@@ -295,14 +297,33 @@ def _retrieve_connectivity_optimized(cg, dict_item):
 #     import ipdb
 #     ipdb.set_trace()
 
+def find_approximate_middle_point(points, resolution):
+    bbox_min = np.amin(points, axis=0)
+    bbox_max = np.amax(points, axis=0)
+    distances_from_bbox_max = np.sum(((bbox_max - points) * resolution), axis=1)
+    distances_from_bbox_min = np.sum(((points - bbox_min) * resolution), axis=1)
+    # For each point, greater distance of distance to bbox_max or bbox_min
+    greater_distance = np.amax(np.vstack((distances_from_bbox_max, distances_from_bbox_min)), axis=0)
+    return points[np.argmin(greater_distance)]
 
-def _get_approximate_contact_point_same_chunk(cg, sv1, sv2):
+def _find_points_nm_coordinate(cg, chunk_coordinates, coordinate_within_chunk):
+    points_voxel_coordinate = cg.get_chunk_voxel_location(chunk_coordinates) + coordinate_within_chunk
+    return points_voxel_coordinate * cg.segmentation_resolution
+
+@profile
+def _get_approximate_middle_contact_point_same_chunk(cg, sv1, sv2):
     chunk_coordinate = cg.get_chunk_coordinates(sv1)
     ws_seg = cg.download_chunk_segmentation(chunk_coordinate)
-    import ipdb
-    ipdb.set_trace()
+    contact_points = find_contact_points(ws_seg, sv1, sv2)
+    if len(contact_points) == 0:
+        sv1_locations = np.where(ws_seg == sv1)
+        sv1_points = np.vstack((sv1_locations[0], sv1_locations[1], sv1_locations[2]))
+        middle_point = find_approximate_middle_point(sv1_points, cg.segmentation_resolution)
+    else:
+        middle_point = find_approximate_middle_point(contact_points[:,0,:], cg.segmentation_resolution)
+    return _find_points_nm_coordinate(cg, chunk_coordinate, middle_point)
 
-def _get_approximate_contact_point_across_chunks(cg, sv1, sv2):
+def _get_approximate_middle_contact_point_across_chunks(cg, sv1, sv2):
     chunk_coordinate = cg.get_chunk_coordinates(sv1)
     other_chunk_coordinate = cg.get_chunk_coordinates(sv2)
     sv1_chunk_seg = cg.download_chunk_segmentation(chunk_coordinate)
@@ -320,12 +341,25 @@ def _get_approximate_contact_point_across_chunks(cg, sv1, sv2):
     else:
         sv1_chunk_plane = sv1_chunk_seg[:,:,sv1_chunk_plane_index]
         sv2_chunk_plane = sv2_chunk_seg[:,:,sv2_chunk_plane_index]
-    # np.where()
+    chunk_border = np.stack((sv1_chunk_plane, sv2_chunk_plane), axis=crossing_index)
+    contact_points = find_contact_points(chunk_border, sv1, sv2)
+    if len(contact_points) == 0:
+        sv1_locations = np.where(chunk_border == sv1)
+        sv1_points = np.vstack((sv1_locations[0], sv1_locations[1], sv1_locations[2]))
+        middle_point = find_approximate_middle_point(sv1_points, cg.segmentation_resolution)
+    else:
+        middle_point = find_approximate_middle_point(contact_points[:,0,:], cg.segmentation_resolution)
+    return _find_points_nm_coordinate(cg, chunk_coordinate, middle_point)    
 
-def _get_any_sv_point(cg, sv):
-    chunk_coordinate = cg.get_chunk_coordinates(sv1)
+def _get_approximate_middle_sv_point(cg, sv):
+    chunk_coordinate = cg.get_chunk_coordinates(sv)
     ws_seg = cg.download_chunk_segmentation(chunk_coordinate)
+    sv_locations = np.where(ws_seg == sv)
+    sv_points = np.vstack((sv_locations[0], sv_locations[1], sv_locations[2]))
+    middle_point = find_approximate_middle_point(sv_points, cg.segmentation_resolution)
+    return _find_points_nm_coordinate(cg, chunk_coordinate, middle_point)
 
+@profile
 def _get_approximate_contact_point(cg, first_root_unconnected_edges, second_root_sv_ids):
     class EdgeType(Enum):
         SameChunk = auto()
@@ -350,12 +384,12 @@ def _get_approximate_contact_point(cg, first_root_unconnected_edges, second_root
         return (edge, EdgeType.NonAdjancentChunks)
     edge, edgeType = _choose_contact_site_edge()
     if edgeType == EdgeType.SameChunk:
-        return _get_approximate_contact_point_same_chunk(cg, edge[0], edge[1])
+        return _get_approximate_middle_contact_point_same_chunk(cg, edge[0], edge[1])
     if edgeType == EdgeType.AdjacentChunks:
-        return _get_approximate_contact_point_across_chunks(cg, edge[0], edge[1])
-    return _get_any_sv_point(cg, edge[0])
+        return _get_approximate_middle_contact_point_across_chunks(cg, edge[0], edge[1])
+    return _get_approximate_middle_sv_point(cg, edge[0])
     
-
+@profile
 def _compute_contact_sites_from_edges(cg, first_root_unconnected_edges, first_root_unconnected_areas, second_root_connected_edges, second_root_sv_ids):
     # Retrieve edges that connect first root with second root
     unconnected_edge_mask = np.where(np.isin(first_root_unconnected_edges[:,1], second_root_sv_ids))[0]
@@ -385,25 +419,12 @@ def _compute_contact_sites_from_edges(cg, first_root_unconnected_edges, first_ro
     for cc in connected_components:
         cc_sv_ids = unique_sv_ids[cc]
         contact_sites_areas = contact_sites_svs_area_dict_vec(cc_sv_ids)
-
-        # contact_site_centroid = _get_approximate_centroid(cg, cc_sv_ids)
-        # data_pair = (contact_site_centroid, np.sum(contact_sites_areas))
         contact_site_point = _get_approximate_contact_point(cg, filtered_unconnected_edges, cc_sv_ids)
         data_pair = (contact_site_point, np.sum(contact_sites_areas))
-        # chunk_coordinate_vote_dict = collections.defaultdict(list)
-        # most_popular_chunk_coordinate = None
-        # most_popular_chunk_coordinate_vote_count = 0
-        # for sv_id in cc_sv_ids:
-        #     chunk_coordinates = cg.get_chunk_coordinates(sv_id)
-        #     chunk_coordinate_vote_dict[tuple(chunk_coordinates)].append(sv_id)
-
-        # representative_sv = cc_sv_ids[0]
-        # chunk_coordinates = cg.get_chunk_coordinates(representative_sv)
-        # data_pair = (chunk_coordinates, np.sum(contact_sites_areas))
         contact_site_list.append(data_pair)
     return contact_site_list
 
-# @profile
+@profile
 def get_contact_sites_pairwise(cg, first_root_id, second_root_id, bounding_box=None, bb_is_coordinate=True, end_time=None, voxel_location=False, optimize_unsafe=False):
     # Get lvl2 ids of both roots
     first_root_l2_ids = cg.get_children_at_layer(first_root_id, 2)
@@ -495,8 +516,3 @@ def get_contact_sites_pairwise(cg, first_root_id, second_root_id, bounding_box=N
         return contact_sites_other_direction
     
     return contact_sites
-    # is_in_set2 = np.concatenate((np.zeros(len(sv_ids_set1)), np.ones(len(sv_ids_set2))))
-    # is_in_set2_dict = dict(zip(all_sv_ids, is_in_set2))
-
-    # import ipdb
-    # ipdb.set_trace()

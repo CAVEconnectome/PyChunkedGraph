@@ -3688,10 +3688,17 @@ class ChunkedGraph(object):
             if not np.any(nodes_to_query):
                 break
         return np.concatenate(children_at_layer)
+        
+    def get_chunk_voxel_location(self, chunk_coordinate, chunk_origin_is_dataset_origin=False):
+        if chunk_origin_is_dataset_origin:
+            offset = 0
+        else:
+            offset = self.vx_vol_bounds[:,0]
+        return np.array((offset + self.chunk_size * chunk_coordinate), dtype=np.int)
 
-    def download_chunk_segmentation(self, chunk_coordinate):
-        chunk_start = np.array((self.vx_vol_bounds[:,0] + self.chunk_size * chunk_coordinate), dtype=np.int)
-        chunk_end = np.array((self.vx_vol_bounds[:,0] + self.chunk_size * (chunk_coordinate + 1)), dtype=np.int)
+    def download_chunk_segmentation(self, chunk_coordinate, chunk_origin_is_dataset_origin=False):
+        chunk_start = self.get_chunk_voxel_location(chunk_coordinate, chunk_origin_is_dataset_origin)
+        chunk_end = self.get_chunk_voxel_location(chunk_coordinate + 1, chunk_origin_is_dataset_origin)
         ws_seg = self.cv[
             chunk_start[0] : chunk_end[0],
             chunk_start[1] : chunk_end[1],
