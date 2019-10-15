@@ -3690,6 +3690,10 @@ class ChunkedGraph(object):
         return np.concatenate(children_at_layer)
         
     def get_chunk_voxel_location(self, chunk_coordinate, chunk_origin_is_dataset_origin=False):
+        """
+        Given a lvl1 or lvl2 chunk coordinate, return the voxel location of the chunk in the
+        underlying dataset.
+        """
         if chunk_origin_is_dataset_origin:
             offset = 0
         else:
@@ -3697,6 +3701,9 @@ class ChunkedGraph(object):
         return np.array((offset + self.chunk_size * chunk_coordinate), dtype=np.int)
 
     def download_chunk_segmentation(self, chunk_coordinate, chunk_origin_is_dataset_origin=False):
+        """
+        Given a lvl1 or lvl2 chunk coordinate, return the underlying watershed segmentation.
+        """
         chunk_start = self.get_chunk_voxel_location(chunk_coordinate, chunk_origin_is_dataset_origin)
         chunk_end = self.get_chunk_voxel_location(chunk_coordinate + 1, chunk_origin_is_dataset_origin)
         ws_seg = self.cv[
@@ -3704,4 +3711,4 @@ class ChunkedGraph(object):
             chunk_start[1] : chunk_end[1],
             chunk_start[2] : chunk_end[2],
         ].squeeze()
-        return ws_seg 
+        return ws_seg
