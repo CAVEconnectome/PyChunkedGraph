@@ -91,22 +91,12 @@ def ingest_graph(
 def ingest_status():
     redis = get_redis_connection()
     imanager = IngestionManager.from_pickle(redis.get(r_keys.INGESTION_MANAGER))
-    for layer in range(2, imanager.chunkedgraph_meta.layer_count):
+    for layer in range(2, imanager.chunkedgraph_meta.layer_count + 1):
         layer_count = redis.hlen(f"{layer}c")
         print(f"{layer}\t: {layer_count}")
+    
+    print(imanager.chunkedgraph_meta.layer_chunk_bounds)
 
 
 def init_ingest_cmds(app):
     app.cli.add_command(ingest_cli)
-
-
-# for layer_id in range(2, 13):
-#     print(layer_id)
-#     child_chunk_coords = im.chunk_coords // 2 ** (layer_id - 3)
-#     child_chunk_coords = child_chunk_coords.astype(np.int)
-#     child_chunk_coords = np.unique(child_chunk_coords, axis=0)
-
-#     parent_chunk_coords = child_chunk_coords // 2
-#     parent_chunk_coords = parent_chunk_coords.astype(np.int)
-#     parent_chunk_coords = np.unique(parent_chunk_coords, axis=0)
-#     print(len(child_chunk_coords), len(parent_chunk_coords))

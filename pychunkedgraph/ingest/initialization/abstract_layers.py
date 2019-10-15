@@ -43,7 +43,7 @@ def add_layer(
     isolated_node_mask = ~np.in1d(children_ids, np.unique(edge_ids))
     add_node_ids = children_ids[isolated_node_mask].squeeze()
     add_edge_ids = np.vstack([add_node_ids, add_node_ids]).T
-    edge_ids = np.concatenate([edge_ids, add_edge_ids])
+    edge_ids.extend(add_edge_ids)
 
     graph, _, _, graph_ids = flatgraph_utils.build_gt_graph(
         edge_ids, make_directed=True
@@ -79,7 +79,7 @@ def _read_children_chunks(cg_instance, layer_id, children_coords):
         mu.multiprocess_func(
             _read_chunk_helper,
             multi_args,
-            n_threads=min(len(multi_args, mp.cpu_count())),
+            n_threads=min(len(multi_args), mp.cpu_count()),
         )
         return np.concatenate(children_ids_shared)
 
@@ -134,7 +134,10 @@ def _get_cross_edges(cg_instance, layer_id, chunk_coord):
     )
     print(f"_read_atomic_chunk_cross_edges: {time.time()-start}")
 
-    return np.unique(np.concatenate(cross_edges), axis=0)
+    cross_edges = np.concatenate(cross_edges)
+    if len(cross_edges):
+        cross_edges = np.unique(cross_edges, axis=0)
+    return list(cross_edges)
 
 
 def _read_atomic_chunk_cross_edges_helper(args):
@@ -150,6 +153,7 @@ def _read_atomic_chunk_cross_edges_helper(args):
 
 
 def _read_atomic_chunk_cross_edges(cg_instance, chunk_coord, cross_edge_layer):
+    print(cross_edge_layer, chunk_coord)
     x, y, z = chunk_coord
     range_read = cg_instance.range_read_chunk(
         2, x, y, z, columns=column_keys.Connectivity.CrossChunkEdge[cross_edge_layer]
@@ -187,6 +191,8 @@ def _read_atomic_chunk_cross_edges(cg_instance, chunk_coord, cross_edge_layer):
 def _write_connected_components(
     cg_instance, layer_id, parent_chunk_id, ccs, graph_ids, time_stamp
 ) -> None:
+    if not ccs:
+        return
     chunked_ccs = chunked(ccs, len(ccs) // mp.cpu_count())
     cg_info = cg_instance.get_serialized_info(credentials=False)
     mp_graph_ids = mp.Array("i", graph_ids)
@@ -200,7 +206,7 @@ def _write_connected_components(
     mu.multiprocess_func(
         _write_components_helper,
         multi_args,
-        n_threads=min(len(multi_args, mp.cpu_count())),
+        n_threads=min(len(multi_args), mp.cpu_count()),
     )
 
 

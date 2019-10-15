@@ -92,9 +92,10 @@ def initialize_chunkedgraph(
 
 
 def postprocess_edge_data(im, edge_dict):
-    if im.data_version == 2:
+    data_version = im.chunkedgraph_meta.data_source.data_version
+    if data_version == 2:
         return edge_dict
-    elif im.data_version in [3, 4]:
+    elif data_version in [3, 4]:
         new_edge_dict = {}
         for k in edge_dict:
             areas = (
@@ -117,4 +118,4 @@ def postprocess_edge_data(im, edge_dict):
 
         return new_edge_dict
     else:
-        raise Exception(f"Unknown data_version: {im.data_version}")
+        raise Exception(f"Unknown data_version: {data_version}")
