@@ -106,7 +106,8 @@ def _create_parent_chunk(im_info, layer, parent_coords, child_chunk_coords):
 def enqueue_atomic_tasks(
     imanager: IngestionManager, batch_size: int = 50000, interval: float = 300.0
 ):
-    chunk_coords = list(imanager.chunk_coord_gen)
+    atomic_chunk_bounds = imanager.chunkedgraph_meta.layer_chunk_bounds[2]
+    chunk_coords = list(product(*[range(*r) for r in atomic_chunk_bounds]))
     np.random.shuffle(chunk_coords)
 
     # test chunks
@@ -238,7 +239,7 @@ def _get_cont_chunk_coords(imanager, chunk_coord_a, chunk_coord_b):
             continue
 
         c_chunk_coord = chunk_coord_l + np.array([dx, dy, dz])
-        if imanager.is_out_of_bounds(c_chunk_coord):
+        if imanager.chunkedgraph_meta.is_out_of_bounds(c_chunk_coord):
             continue
         c_chunk_coords.append(c_chunk_coord)
     return c_chunk_coords
@@ -263,7 +264,7 @@ def _collect_edge_data(imanager, chunk_coord):
     swap = defaultdict(list)
     x, y, z = chunk_coord
     for _x, _y, _z in product([x - 1, x], [y - 1, y], [z - 1, z]):
-        if imanager.is_out_of_bounds(np.array([_x, _y, _z])):
+        if imanager.chunkedgraph_meta.is_out_of_bounds(np.array([_x, _y, _z])):
             continue
         filename = f"in_chunk_0_{_x}_{_y}_{_z}_{chunk_id}.data"
         filenames["in"].append(filename)
@@ -276,7 +277,7 @@ def _collect_edge_data(imanager, chunk_coord):
             x, y, z = adjacent_chunk_coord
             adjacent_chunk_id = compute_chunk_id(layer=1, x=x, y=y, z=z)
 
-            if imanager.is_out_of_bounds(adjacent_chunk_coord):
+            if imanager.chunkedgraph_meta.is_out_of_bounds(adjacent_chunk_coord):
                 continue
             c_chunk_coords = _get_cont_chunk_coords(
                 imanager, chunk_coord, adjacent_chunk_coord
@@ -307,14 +308,12 @@ def _collect_edge_data(imanager, chunk_coord):
             if file["error"] or file["content"] is None:
                 continue
 
+            edge_dtype = imanager.chunkedgraph_meta.edge_dtype
             if swap[file["filename"]]:
-                this_dtype = [
-                    imanager.edge_dtype[1],
-                    imanager.edge_dtype[0],
-                ] + imanager.edge_dtype[2:]
+                this_dtype = [edge_dtype[1], edge_dtype[0]] + edge_dtype[2:]
                 content = np.frombuffer(file["content"], dtype=this_dtype)
             else:
-                content = np.frombuffer(file["content"], dtype=imanager.edge_dtype)
+                content = np.frombuffer(file["content"], dtype=edge_dtype)
 
             data.append(content)
             read_counter[k] += 1

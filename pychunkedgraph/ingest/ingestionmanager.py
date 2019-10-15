@@ -12,7 +12,6 @@ from ..utils.redis import keys as r_keys
 from ..utils.redis import get_redis_connection
 from ..utils.redis import get_rq_queue
 from ..backend import ChunkedGraphMeta
-from ..backend.chunkedgraph_utils import compute_bitmasks
 from ..backend.chunkedgraph import ChunkedGraph
 from ..backend.definitions.config import DataSource
 from ..backend.definitions.config import GraphConfig
@@ -65,41 +64,6 @@ class IngestionManager(object):
         )
         return self._redis
 
-    @property
-    def edge_dtype(self):
-        if self._chunkedgraph_meta.data_source.data_version == 4:
-            dtype = [
-                ("sv1", np.uint64),
-                ("sv2", np.uint64),
-                ("aff_x", np.float32),
-                ("area_x", np.uint64),
-                ("aff_y", np.float32),
-                ("area_y", np.uint64),
-                ("aff_z", np.float32),
-                ("area_z", np.uint64),
-            ]
-        elif self._chunkedgraph_meta.data_source.data_version == 3:
-            dtype = [
-                ("sv1", np.uint64),
-                ("sv2", np.uint64),
-                ("aff_x", np.float64),
-                ("area_x", np.uint64),
-                ("aff_y", np.float64),
-                ("area_y", np.uint64),
-                ("aff_z", np.float64),
-                ("area_z", np.uint64),
-            ]
-        elif self._chunkedgraph_meta.data_source.data_version == 2:
-            dtype = [
-                ("sv1", np.uint64),
-                ("sv2", np.uint64),
-                ("aff", np.float32),
-                ("area", np.uint64),
-            ]
-        else:
-            raise Exception()
-        return dtype
-
     @classmethod
     def from_pickle(cls, serialized_info):
         return cls(**pickle.loads(serialized_info))
@@ -115,15 +79,4 @@ class IngestionManager(object):
         if pickled:
             return pickle.dumps(info)
         return info
-
-    def is_out_of_bounds(self, chunk_coordinate):
-        if not self._bitmasks:
-            self._bitmasks = compute_bitmasks(
-                self.chunkedgraph_meta.layer_count,
-                self._chunkedgraph_meta.graph_config.fanout,
-                s_bits_atomic_layer=self._chunkedgraph_meta.graph_config.s_bits_atomic_layer,
-            )
-        return np.any(chunk_coordinate < 0) or np.any(
-            chunk_coordinate > 2 ** self._bitmasks[1]
-        )
 
