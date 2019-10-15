@@ -376,7 +376,7 @@ class ChunkedGraph(object):
         else:
             return True
 
-    def get_serialized_info(self):
+    def get_serialized_info(self, credentials=True):
         """ Rerturns dictionary that can be used to load this ChunkedGraph
         :return: dict
         """
@@ -386,10 +386,11 @@ class ChunkedGraph(object):
             "project_id": self.project_id,
             "meta": self.meta,
         }
-        try:
-            info["credentials"] = self.client.credentials
-        except:
-            info["credentials"] = self.client._credentials
+        if credentials:
+            try:
+                info["credentials"] = self.client.credentials
+            except:
+                info["credentials"] = self.client._credentials
         return info
 
     def adjust_vol_coordinates_to_cv(
