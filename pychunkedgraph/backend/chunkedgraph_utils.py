@@ -247,23 +247,6 @@ def get_bounding_box(
     return bounding_box
 
 
-# def get_children_chunk_coords(
-#     chunkedgraph_meta: ChunkedGraphMeta, layer: int, chunk_coords: Sequence[int]
-# ) -> np.ndarray:
-#     chunk_coords = np.array(chunk_coords, dtype=int)
-#     children_layer = layer - 1
-#     layer_boundaries = chunkedgraph_meta.layer_chunk_bounds[children_layer]
-#     children_coords = []
-
-#     for dcoord in product(*[range(chunkedgraph_meta.graph_config.fanout)] * 3):
-#         dcoord = np.array(dcoord, dtype=int)
-#         child_coords = chunk_coords * chunkedgraph_meta.graph_config.fanout + dcoord
-#         check_bounds = np.less(child_coords, layer_boundaries)
-#         if np.all(check_bounds):
-#             children_coords.append(child_coords)
-#     return children_coords
-
-
 def compute_chunk_id(
     layer: int,
     x: int,
@@ -299,5 +282,6 @@ def get_voxels_boundary(cv: CloudVolume) -> Sequence[int]:
 
 
 def get_chunks_boundary(voxel_boundary, chunk_size):
+    """returns number of chunks in each dimension"""
     return np.ceil((voxel_boundary / chunk_size)).astype(np.int)
 

@@ -18,6 +18,7 @@ from .ingestionmanager import IngestionManager
 from .ran_ingestion_v2 import enqueue_atomic_tasks
 from ..utils.redis import get_redis_connection
 from ..utils.redis import keys as r_keys
+from ..backend import ChunkedGraphMeta
 from ..backend.definitions.config import DataSource
 from ..backend.definitions.config import GraphConfig
 from ..backend.definitions.config import BigTableConfig
@@ -69,9 +70,9 @@ def ingest_graph(
         s_bits_atomic_layer=10,
     )
     bigtable_config = BigTableConfig()
-    imanager = IngestionManager(
-        ingest_config, data_source, graph_config, bigtable_config
-    )
+
+    meta = ChunkedGraphMeta(data_source, graph_config, bigtable_config)
+    imanager = IngestionManager(ingest_config, meta)
     imanager.redis.flushdb()
 
     if ingest_config.build_graph:
@@ -90,7 +91,7 @@ def ingest_graph(
 def ingest_status():
     redis = get_redis_connection()
     imanager = IngestionManager.from_pickle(redis.get(r_keys.INGESTION_MANAGER))
-    for layer in range(2, imanager.n_layers):
+    for layer in range(2, imanager.chunkedgraph_meta.layer_count):
         layer_count = redis.hlen(f"{layer}c")
         print(f"{layer}\t: {layer_count}")
 

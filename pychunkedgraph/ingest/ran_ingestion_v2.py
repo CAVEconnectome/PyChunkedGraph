@@ -22,6 +22,7 @@ from .ingestion_utils import postprocess_edge_data
 from .ingestionmanager import IngestionManager
 from .initialization.atomic_layer import add_atomic_edges
 from .initialization.abstract_layers import add_layer
+from ..backend import ChunkedGraphMeta
 from ..utils.redis import keys as r_keys
 from ..io.edges import get_chunk_edges
 from ..io.edges import put_chunk_edges
@@ -32,23 +33,21 @@ from ..backend.chunkedgraph_utils import compute_chunk_id
 from ..backend.definitions.edges import Edges, CX_CHUNK
 from ..backend.definitions.edges import TYPES as EDGE_TYPES
 
-
 chunk_id_str = lambda layer, coords: f"{layer}_{'_'.join(map(str, coords))}"
 
 
 def _get_children_coords(
-    imanager: IngestionManager, layer: int, parent_coords: Sequence[int]
+    cg_meta: ChunkedGraphMeta, layer: int, chunk_coords
 ) -> np.ndarray:
-    """
-        :param: layer - layer of children chunks
-    """
-    layer_bounds = imanager.layer_chunk_bounds[layer]
+    chunk_coords = np.array(chunk_coords, dtype=int)
+    children_layer = layer - 1
+    layer_boundaries = cg_meta.layer_chunk_bounds[children_layer]
     children_coords = []
-    parent_coords = np.array(parent_coords, dtype=int)
-    for dcoord in product(*[range(imanager.graph_config.fanout)] * 3):
+
+    for dcoord in product(*[range(cg_meta.graph_config.fanout)] * 3):
         dcoord = np.array(dcoord, dtype=int)
-        child_coords = parent_coords * imanager.graph_config.fanout + dcoord
-        check_bounds = np.less(child_coords, layer_bounds[:, 1])
+        child_coords = chunk_coords * cg_meta.graph_config.fanout + dcoord
+        check_bounds = np.less(child_coords, layer_boundaries)
         if np.all(check_bounds):
             children_coords.append(child_coords)
     return children_coords
@@ -67,13 +66,16 @@ def _post_task_completion(imanager: IngestionManager, layer: int, coords: np.nda
     parent_coords = np.array(coords, int) // imanager.graph_config.fanout
     parent_chunk_str = "_".join(map(str, parent_coords))
     if not imanager.redis.hget(parent_layer, parent_chunk_str):
-        children_count = len(_get_children_coords(imanager, layer, parent_coords))
+        children_count = len(
+            _get_children_coords(
+                imanager.chunkedgraph_meta, parent_layer, parent_coords
+            )
+        )
         imanager.redis.hset(parent_layer, parent_chunk_str, children_count)
     imanager.redis.hincrby(parent_layer, parent_chunk_str, -1)
     children_left = int(
         imanager.redis.hget(parent_layer, parent_chunk_str).decode("utf-8")
     )
-    return
 
     if children_left == 0:
         parents_queue = imanager.get_task_queue(imanager.config.parents_q_name)
@@ -82,16 +84,16 @@ def _post_task_completion(imanager: IngestionManager, layer: int, coords: np.nda
             job_id=chunk_id_str(parent_layer, parent_coords),
             job_timeout="59m",
             result_ttl=0,
-            at_front=True,
             args=(
                 imanager.get_serialized_info(),
                 parent_layer,
                 parent_coords,
-                _get_children_coords(imanager, layer, parent_coords),
+                _get_children_coords(
+                    imanager.chunkedgraph_meta, parent_layer, parent_coords
+                ),
             ),
         )
         imanager.redis.hdel(parent_layer, parent_chunk_str)
-        # put in completed (c) hash
         imanager.redis.hset(f"{parent_layer}q", parent_chunk_str, "")
 
 

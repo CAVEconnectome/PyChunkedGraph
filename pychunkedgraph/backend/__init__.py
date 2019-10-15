@@ -46,8 +46,8 @@ class ChunkedGraphMeta:
             return self._layer_count
         bbox = np.array(self._ws_cv.bounds.to_list()).reshape(2, 3)
         n_chunks = ((bbox[1] - bbox[0]) / self._graph_config.chunk_size).astype(np.int)
-        n_layers = int(np.ceil(log_n(np.max(n_chunks), self._graph_config.fanout))) + 2
-        return n_layers
+        self._layer_count = int(np.ceil(log_n(np.max(n_chunks), self._graph_config.fanout))) + 2
+        return self._layer_count
 
     @property
     def layer_chunk_bounds(self) -> Dict:

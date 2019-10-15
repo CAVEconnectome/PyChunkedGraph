@@ -27,7 +27,6 @@ class IngestionManager(object):
         self._cg = None
         self._chunkedgraph_meta = chunkedgraph_meta
         self._ws_cv = CloudVolume(chunkedgraph_meta.data_source.watershed)
-        self._n_layers = None
         self._chunk_coords = None
         self._layer_bounds_d = None
 
@@ -120,7 +119,7 @@ class IngestionManager(object):
     def is_out_of_bounds(self, chunk_coordinate):
         if not self._bitmasks:
             self._bitmasks = compute_bitmasks(
-                self._n_layers,
+                self.chunkedgraph_meta.layer_count,
                 self._chunkedgraph_meta.graph_config.fanout,
                 s_bits_atomic_layer=self._chunkedgraph_meta.graph_config.s_bits_atomic_layer,
             )
