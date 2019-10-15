@@ -60,10 +60,12 @@ def _post_task_completion(imanager: IngestionManager, layer: int, coords: np.nda
     imanager.redis.hset(f"{layer}c", chunk_str, "")
 
     parent_layer = layer + 1
-    if parent_layer > imanager.n_layers:
+    if parent_layer > imanager.chunkedgraph_meta.layer_count:
         return
 
-    parent_coords = np.array(coords, int) // imanager.graph_config.fanout
+    parent_coords = (
+        np.array(coords, int) // imanager.chunkedgraph_meta.graph_config.fanout
+    )
     parent_chunk_str = "_".join(map(str, parent_coords))
     if not imanager.redis.hget(parent_layer, parent_chunk_str):
         children_count = len(
@@ -107,22 +109,21 @@ def enqueue_atomic_tasks(
     imanager: IngestionManager, batch_size: int = 50000, interval: float = 300.0
 ):
     atomic_chunk_bounds = imanager.chunkedgraph_meta.layer_chunk_bounds[2]
-    chunk_coords = list(product(*[range(*r) for r in atomic_chunk_bounds]))
+    chunk_coords = list(product(*[range(r) for r in atomic_chunk_bounds]))
     np.random.shuffle(chunk_coords)
 
     # test chunks
-    # chunk_coords = [
-    #     [0, 0, 0],
-    #     [0, 0, 1],
-    #     [0, 1, 0],
-    #     [0, 1, 1],
-    #     [1, 0, 0],
-    #     [1, 0, 1],
-    #     [1, 1, 0],
-    #     [1, 1, 1],
-    # ]
+    chunk_coords = [
+        [0, 0, 0],
+        [0, 0, 1],
+        [0, 1, 0],
+        [0, 1, 1],
+        [1, 0, 0],
+        [1, 0, 1],
+        [1, 1, 0],
+        [1, 1, 1],
+    ]
 
-    print(f"Chunk count: {len(chunk_coords)}")
     for chunk_coord in chunk_coords:
         atomic_queue = imanager.get_task_queue(imanager.config.atomic_q_name)
         # for optimal use of redis memory wait if queue limit is reached
@@ -160,13 +161,15 @@ def _get_chunk_data(imanager, coord) -> Tuple[Dict, Dict]:
     """
     chunk_edges = (
         _read_raw_edge_data(imanager, coord)
-        if imanager.data_source.use_raw_edges
-        else get_chunk_edges(imanager.data_source.edges, [coord])
+        if imanager.chunkedgraph_meta.data_source.use_raw_edges
+        else get_chunk_edges(imanager.chunkedgraph_meta.data_source.edges, [coord])
     )
     mapping = (
         _read_raw_agglomeration_data(imanager, coord)
-        if imanager.data_source.use_raw_components
-        else get_chunk_components(imanager.data_source.components, coord)
+        if imanager.chunkedgraph_meta.data_source.use_raw_components
+        else get_chunk_components(
+            imanager.chunkedgraph_meta.data_source.components, coord
+        )
     )
     return chunk_edges, mapping
 
@@ -195,7 +198,9 @@ def _read_raw_edge_data(imanager, coord) -> Dict:
         no_edges = no_edges and not sv_ids1.size
     if no_edges:
         return chunk_edges
-    put_chunk_edges(imanager.data_source.edges, coord, chunk_edges, 17)
+    put_chunk_edges(
+        imanager.chunkedgraph_meta.data_source.edges, coord, chunk_edges, 17
+    )
     return chunk_edges
 
 
@@ -255,7 +260,7 @@ def _collect_edge_data(imanager, chunk_coord):
     :return: dict of np.ndarrays
     """
     subfolder = "chunked_rg"
-    base_path = f"{imanager.data_source.agglomeration}/{subfolder}/"
+    base_path = f"{imanager.chunkedgraph_meta.data_source.agglomeration}/{subfolder}/"
     chunk_coord = np.array(chunk_coord)
     x, y, z = chunk_coord
     chunk_id = compute_chunk_id(layer=1, x=x, y=y, z=z)
@@ -348,13 +353,13 @@ def _read_raw_agglomeration_data(imanager, chunk_coord: np.ndarray):
     Collects agglomeration information & builds connected component mapping
     """
     subfolder = "remap"
-    base_path = f"{imanager.data_source.agglomeration}/{subfolder}/"
+    base_path = f"{imanager.chunkedgraph_meta.data_source.agglomeration}/{subfolder}/"
     chunk_coord = np.array(chunk_coord)
     x, y, z = chunk_coord
     chunk_id = compute_chunk_id(layer=1, x=x, y=y, z=z)
 
     filenames = []
-    for mip_level in range(0, int(imanager.n_layers - 1)):
+    for mip_level in range(0, int(imanager.chunkedgraph_meta.layer_count - 1)):
         x, y, z = np.array(chunk_coord / 2 ** mip_level, dtype=np.int)
         filenames.append(f"done_{mip_level}_{x}_{y}_{z}_{chunk_id}.data.zst")
 
@@ -366,7 +371,7 @@ def _read_raw_agglomeration_data(imanager, chunk_coord: np.ndarray):
             x, y, z = adjacent_chunk_coord
             adjacent_chunk_id = compute_chunk_id(layer=1, x=x, y=y, z=z)
 
-            for mip_level in range(0, int(imanager.n_layers - 1)):
+            for mip_level in range(0, int(imanager.chunkedgraph_meta.layer_count - 1)):
                 x, y, z = np.array(adjacent_chunk_coord / 2 ** mip_level, dtype=np.int)
                 filenames.append(
                     f"done_{mip_level}_{x}_{y}_{z}_{adjacent_chunk_id}.data.zst"
@@ -382,7 +387,9 @@ def _read_raw_agglomeration_data(imanager, chunk_coord: np.ndarray):
         mapping.update(dict(zip(cc, [i_cc] * len(cc))))
 
     if mapping:
-        put_chunk_components(imanager.data_source.components, components, chunk_coord)
+        put_chunk_components(
+            imanager.chunkedgraph_meta.data_source.components, components, chunk_coord
+        )
     return mapping
 
 

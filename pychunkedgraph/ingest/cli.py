@@ -55,17 +55,17 @@ def ingest_graph(
 ):
     ingest_config = IngestConfig(build_graph=True)
     data_source = DataSource(
-        agglomeration="gs://ranl-scratch/minnie65_0/agg",
-        watershed="gs://microns-seunglab/minnie65/ws_minnie65_0",
-        edges="gs://chunkedgraph/minnie65_0/edges",
-        components="gs://chunkedgraph/minnie65_0/components",
+        agglomeration="gs://ranl/scratch/pinky100_ca_com/agg",
+        watershed="gs://neuroglancer/pinky100_v0/ws/pinky100_ca_com",
+        edges="gs://chunkedgraph/pinky100/edges",
+        components="gs://chunkedgraph/pinky100/components",
         use_raw_edges=not processed,
         use_raw_components=not processed,
-        data_version=2,
+        data_version=4,
     )
     graph_config = GraphConfig(
         graph_id=graph_id,
-        chunk_size=np.array([256, 256, 512], dtype=int),
+        chunk_size=np.array([512, 512, 128], dtype=int),
         fanout=2,
         s_bits_atomic_layer=10,
     )
