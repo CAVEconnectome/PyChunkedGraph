@@ -95,7 +95,7 @@ def ingest_status():
         layer_count = redis.hlen(f"{layer}c")
         print(f"{layer}\t: {layer_count}")
     
-    print(imanager.chunkedgraph_meta.layer_chunk_bounds)
+    print(imanager.chunkedgraph_meta.layer_chunk_counts)
 
 
 def init_ingest_cmds(app):
