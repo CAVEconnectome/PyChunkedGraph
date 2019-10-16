@@ -6,6 +6,8 @@ from typing import Optional
 
 import numpy as np
 
+from ..utils import basetypes
+
 IN_CHUNK = "in"
 BT_CHUNK = "between"
 CX_CHUNK = "cross"
@@ -25,19 +27,19 @@ class Edges:
         areas: Optional[np.ndarray] = None,
     ):
         assert node_ids1.size == node_ids2.size
-        self.node_ids1 = node_ids1
-        self.node_ids2 = node_ids2
+        self.node_ids1 = np.array(node_ids1, dtype=basetypes.NODE_ID)
+        self.node_ids2 = np.array(node_ids2, dtype=basetypes.NODE_ID)
         self._as_pairs = None
 
         self.affinities = np.ones(len(self.node_ids1)) * DEFAULT_AFFINITY
         if affinities is not None:
             assert node_ids1.size == affinities.size
-            self.affinities = affinities
+            self.affinities = np.array(affinities, dtype=basetypes.EDGE_AFFINITY)
 
         self.areas = np.ones(len(self.node_ids1)) * DEFAULT_AREA
         if areas is not None:
             assert node_ids1.size == areas.size
-            self.areas = affinities
+            self.areas = np.array(areas, dtype=basetypes.EDGE_AREA)
 
     def __add__(self, other):
         """add two Edges instances"""

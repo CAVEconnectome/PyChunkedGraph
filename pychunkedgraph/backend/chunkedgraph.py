@@ -98,7 +98,7 @@ class ChunkedGraph(object):
         dataset_info: Optional[object] = None,
         is_new: bool = False,
         logger: Optional[logging.Logger] = None,
-        meta: Optional[ChunkedGraphMeta] = None
+        meta: Optional[ChunkedGraphMeta] = None,
     ) -> None:
 
         if logger is None:
@@ -1696,7 +1696,7 @@ class ChunkedGraph(object):
         :return: np.uint64
         """
         time_stamp = get_valid_timestamp(time_stamp)
-        parent_ids = np.array(node_ids)
+        parent_ids = np.array(node_ids, dtype=basetypes.NODE_ID)
         if stop_layer is not None:
             stop_layer = min(self.n_layers, stop_layer)
         else:

@@ -57,8 +57,8 @@ def ingest_graph(
     data_source = DataSource(
         agglomeration="gs://ranl/scratch/pinky100_ca_com/agg",
         watershed="gs://neuroglancer/pinky100_v0/ws/pinky100_ca_com",
-        edges="gs://chunkedgraph/pinky100/edges",
-        components="gs://chunkedgraph/pinky100/components",
+        edges="gs://akhilesh-pcg/pinky100-test/edges",
+        components="gs://akhilesh-pcg/pinky100-test/components",
         use_raw_edges=not processed,
         use_raw_components=not processed,
         data_version=4,

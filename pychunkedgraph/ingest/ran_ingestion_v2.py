@@ -119,14 +119,14 @@ def enqueue_atomic_tasks(
 
     # test chunks
     chunk_coords = [
-        [20, 20, 10],
-        [20, 20, 11],
-        [20, 21, 10],
-        [20, 21, 11],
-        [21, 20, 10],
-        [21, 20, 11],
-        [21, 21, 10],
-        [21, 21, 11],
+        [26, 4, 10],
+        [26, 4, 11],
+        [26, 5, 10],
+        [26, 5, 11],
+        [27, 4, 10],
+        [27, 4, 11],
+        [27, 5, 10],
+        [27, 5, 11],
     ]
 
     for chunk_coord in chunk_coords:
@@ -234,7 +234,8 @@ def _get_active_edges(imanager, coord, edges_d, mapping):
         pseudo_isolated_ids.append(edges.node_ids1)
         if edge_type == IN_CHUNK:
             pseudo_isolated_ids.append(edges.node_ids2)
-    return chunk_edges_active, np.concatenate(pseudo_isolated_ids)
+
+    return chunk_edges_active, np.unique(np.concatenate(pseudo_isolated_ids))
 
 
 def _get_cont_chunk_coords(imanager, chunk_coord_a, chunk_coord_b):

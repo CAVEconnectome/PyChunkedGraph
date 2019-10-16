@@ -37,7 +37,6 @@ def build_gt_graph(edges, weights=None, is_directed=True, make_directed=False,
         cap = weighted_graph.new_edge_property("float", vals=weights)
     else:
         cap = None
-
     return weighted_graph, cap, edges, unique_ids
 
 

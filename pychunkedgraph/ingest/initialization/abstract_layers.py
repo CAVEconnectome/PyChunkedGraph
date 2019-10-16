@@ -9,6 +9,7 @@ from collections import defaultdict
 from collections import abc
 from typing import Optional
 from typing import Sequence
+from typing import List
 
 import numpy as np
 from multiwrapper import multiprocessing_utils as mu
@@ -16,6 +17,7 @@ from multiwrapper import multiprocessing_utils as mu
 from .helpers import get_touching_atomic_chunks
 from ...utils.general import chunked
 from ...backend import flatgraph_utils
+from ...backend.utils import basetypes
 from ...backend.chunkedgraph import ChunkedGraph
 from ...backend.chunkedgraph_utils import get_valid_timestamp
 from ...backend.utils import serializers, column_keys
@@ -28,7 +30,6 @@ def add_layer(
     children_coords: Sequence[Sequence[int]],
     *,
     time_stamp: Optional[datetime.datetime] = None,
-    n_threads: int = 32,
 ) -> None:
     x, y, z = parent_coords
 
@@ -117,7 +118,7 @@ def _read_chunk(children_ids_shared, cg_instance, layer_id, chunk_coord):
     children_ids_shared.append(row_ids[max_child_ids_occ_so_far == 0])
 
 
-def _get_cross_edges(cg_instance, layer_id, chunk_coord):
+def _get_cross_edges(cg_instance, layer_id, chunk_coord) -> List:
     start = time.time()
     layer2_chunks = get_touching_atomic_chunks(
         cg_instance.meta, layer_id, chunk_coord, include_both=False
@@ -170,15 +171,15 @@ def _read_atomic_chunk_cross_edges(cg_instance, chunk_coord, cross_edge_layer):
 
     cross_edges = []
     for i, l2_id in enumerate(parent_neighboring_chunk_supervoxels_d):
-        segment_id = segment_ids[i]
-        neighboring_supervoxels = parent_neighboring_chunk_supervoxels_d[l2_id]
+        seg_id = segment_ids[i]
+        neighboring_svs = parent_neighboring_chunk_supervoxels_d[l2_id]
         neighboring_segment_ids = cg_instance.get_roots(
-            neighboring_supervoxels, stop_layer=cross_edge_layer
+            neighboring_svs, stop_layer=cross_edge_layer
         )
 
         edges = np.vstack(
             [
-                np.array([segment_id] * len(neighboring_supervoxels)),
+                np.array([seg_id] * len(neighboring_svs), dtype=basetypes.NODE_ID),
                 neighboring_segment_ids,
             ]
         ).T

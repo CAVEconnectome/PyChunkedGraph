@@ -35,6 +35,7 @@ def add_atomic_edges(
     chunk_ids = cg_instance.get_chunk_ids_from_node_ids(chunk_node_ids)
     assert len(np.unique(chunk_ids)) == 1
 
+    # print(np.argwhere(chunk_edge_ids == 73957825679720457))
     graph, _, _, unique_ids = build_gt_graph(chunk_edge_ids, make_directed=True)
     ccs = connected_components(graph)
 
@@ -79,9 +80,7 @@ def _get_chunk_nodes_and_edges(chunk_edges_d: dict, isolated_ids: Sequence[int])
             edge_ids.append(edges.get_pairs())
 
     chunk_node_ids = np.unique(np.concatenate(node_ids))
-    chunk_edge_ids = np.concatenate(edge_ids)
-
-    return (chunk_node_ids, chunk_edge_ids)
+    return (chunk_node_ids, np.concatenate(edge_ids))
 
 
 def _get_remapping(chunk_edges_d: dict):
@@ -111,6 +110,7 @@ def _process_component(
 ):
     rows = []
     chunk_out_edges = []  # out = between + cross
+    # print(node_ids)
     for node_id in node_ids:
         _edges = _get_outgoing_edges(node_id, chunk_edges_d, sparse_indices, remapping)
         chunk_out_edges.append(_edges)
