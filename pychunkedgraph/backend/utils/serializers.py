@@ -88,6 +88,7 @@ def pad_node_id(node_id: np.uint64) -> str:
     :param node_id: int
     :return: str
     """
+    print(type(node_id))
     return "%.20d" % node_id
 
 

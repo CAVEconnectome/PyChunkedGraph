@@ -6,7 +6,9 @@ import time
 import datetime
 import multiprocessing as mp
 from collections import defaultdict
+from collections import abc
 from typing import Optional, Sequence
+from operator import itemgetter
 
 import numpy as np
 from multiwrapper import multiprocessing_utils as mu
@@ -37,7 +39,7 @@ def add_layer(
     start = time.time()
     edge_ids = _get_cross_edges(cg_instance, layer_id, parent_coords)
     print(f"_get_cross_edges: {time.time()-start}")
-    print(len(children_ids), len(edge_ids))
+    # print(len(children_ids), len(edge_ids))
 
     # Extract connected components
     isolated_node_mask = ~np.in1d(children_ids, np.unique(edge_ids))
@@ -120,8 +122,8 @@ def _get_cross_edges(cg_instance, layer_id, chunk_coord):
     layer2_chunks = get_touching_atomic_chunks(
         cg_instance.meta, layer_id, chunk_coord, include_both=False
     )
-    print(f"get_touching_atomic_chunks: {time.time()-start}")
-    print(f"touching chunks count (1 side): {len(layer2_chunks)}")
+    # print(f"get_touching_atomic_chunks: {time.time()-start}")
+    # print(f"touching chunks count (1 side): {len(layer2_chunks)}")
 
     cg_info = cg_instance.get_serialized_info(credentials=False)
 
@@ -132,7 +134,7 @@ def _get_cross_edges(cg_instance, layer_id, chunk_coord):
     cross_edges = mu.multithread_func(
         _read_atomic_chunk_cross_edges_helper, multi_args, n_threads=4
     )
-    print(f"_read_atomic_chunk_cross_edges: {time.time()-start}")
+    # print(f"_read_atomic_chunk_cross_edges: {time.time()-start}")
 
     cross_edges = np.concatenate(cross_edges)
     if len(cross_edges):
@@ -148,12 +150,11 @@ def _read_atomic_chunk_cross_edges_helper(args):
     cross_edges = _read_atomic_chunk_cross_edges(
         cg_instance, layer2_chunk, cross_edge_layer
     )
-    print(f"single atomic chunk: {time.time()-start}, edges {len(cross_edges)}")
+    # print(f"single atomic chunk: {time.time()-start}, edges {len(cross_edges)}")
     return cross_edges
 
 
 def _read_atomic_chunk_cross_edges(cg_instance, chunk_coord, cross_edge_layer):
-    print(cross_edge_layer, chunk_coord)
     x, y, z = chunk_coord
     range_read = cg_instance.range_read_chunk(
         2, x, y, z, columns=column_keys.Connectivity.CrossChunkEdge[cross_edge_layer]
@@ -195,24 +196,23 @@ def _write_connected_components(
         return
     chunked_ccs = chunked(ccs, len(ccs) // mp.cpu_count())
     cg_info = cg_instance.get_serialized_info(credentials=False)
-    mp_graph_ids = mp.Array("i", graph_ids)
     multi_args = []
 
-    for ccs in chunked_ccs:
-        multi_args.append(
-            (cg_info, layer_id, parent_chunk_id, ccs, mp_graph_ids, time_stamp)
+    with mp.Manager() as manager:
+        graph_ids_shared = manager.list(graph_ids)
+        for ccs in chunked_ccs:
+            multi_args.append(
+                (cg_info, layer_id, parent_chunk_id, ccs, graph_ids_shared, time_stamp)
+            )
+        mu.multiprocess_func(
+            _write_components_helper,
+            multi_args,
+            n_threads=min(len(multi_args), mp.cpu_count()),
         )
-
-    mu.multiprocess_func(
-        _write_components_helper,
-        multi_args,
-        n_threads=min(len(multi_args), mp.cpu_count()),
-    )
 
 
 def _write_components_helper(args):
-    cg_info, layer_id, parent_chunk_id, ccs, mp_graph_ids, time_stamp = args
-    graph_ids = np.frombuffer(mp_graph_ids.get_obj())
+    cg_info, layer_id, parent_chunk_id, ccs, graph_ids, time_stamp = args
     _write_components(
         ChunkedGraph(**cg_info), layer_id, parent_chunk_id, ccs, graph_ids, time_stamp
     )
@@ -223,10 +223,11 @@ def _write_components(
 ):
     time_stamp = get_valid_timestamp(time_stamp)
     cc_connections = {l: [] for l in (layer_id, cg_instance.n_layers)}
-    for i_cc, cc in enumerate(ccs):
-        node_ids = graph_ids[cc]
-        if cg_instance.use_skip_connections and len(node_ids) == 1:
-            cc_connections[cg_instance.n_layers].append([node_ids])
+    for cc in ccs:
+        node_ids = itemgetter(*cc)(graph_ids)
+        print(node_ids)
+        if cg_instance.use_skip_connections and not isinstance(node_ids, abc.Container):
+            cc_connections[cg_instance.n_layers].append([[node_ids]])
         else:
             cc_connections[layer_id].append([node_ids])
 

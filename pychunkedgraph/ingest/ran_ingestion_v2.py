@@ -30,8 +30,13 @@ from ..io.components import get_chunk_components
 from ..io.components import put_chunk_components
 from ..backend.utils import basetypes
 from ..backend.chunkedgraph_utils import compute_chunk_id
-from ..backend.definitions.edges import Edges, CX_CHUNK
-from ..backend.definitions.edges import TYPES as EDGE_TYPES
+from ..backend.definitions.edges import Edges
+from ..backend.definitions.edges import (
+    IN_CHUNK,
+    BT_CHUNK,
+    CX_CHUNK,
+    TYPES as EDGE_TYPES,
+)
 
 chunk_id_str = lambda layer, coords: f"{layer}_{'_'.join(map(str, coords))}"
 
@@ -113,16 +118,16 @@ def enqueue_atomic_tasks(
     np.random.shuffle(chunk_coords)
 
     # test chunks
-    # chunk_coords = [
-    #     [20, 20, 10],
-    #     [20, 20, 11],
-    #     [20, 21, 10],
-    #     [20, 21, 11],
-    #     [21, 20, 10],
-    #     [21, 20, 11],
-    #     [21, 21, 10],
-    #     [21, 21, 11],
-    # ]
+    chunk_coords = [
+        [20, 20, 10],
+        [20, 20, 11],
+        [20, 21, 10],
+        [20, 21, 11],
+        [21, 20, 10],
+        [21, 20, 11],
+        [21, 21, 10],
+        [21, 21, 11],
+    ]
 
     for chunk_coord in chunk_coords:
         atomic_queue = imanager.get_task_queue(imanager.config.atomic_q_name)
@@ -207,9 +212,15 @@ def _read_raw_edge_data(imanager, coord) -> Dict:
 def _get_active_edges(imanager, coord, edges_d, mapping):
     active_edges_flag_d, isolated_ids = _define_active_edges(edges_d, mapping)
     chunk_edges_active = {}
+    pseudo_isolated_ids = [isolated_ids]
     for edge_type in EDGE_TYPES:
         edges = edges_d[edge_type]
-        active = active_edges_flag_d[edge_type]
+
+        active = (
+            np.ones(len(edges), dtype=bool)
+            if edge_type == CX_CHUNK
+            else active_edges_flag_d[edge_type]
+        )
 
         sv_ids1 = edges.node_ids1[active]
         sv_ids2 = edges.node_ids2[active]
@@ -218,7 +229,12 @@ def _get_active_edges(imanager, coord, edges_d, mapping):
         chunk_edges_active[edge_type] = Edges(
             sv_ids1, sv_ids2, affinities=affinities, areas=areas
         )
-    return chunk_edges_active, isolated_ids
+        # assume all ids within the chunk are isolated
+        # to make sure all end up in connected components
+        pseudo_isolated_ids.append(edges.node_ids1)
+        if edge_type == IN_CHUNK:
+            pseudo_isolated_ids.append(edges.node_ids2)
+    return chunk_edges_active, np.concatenate(pseudo_isolated_ids)
 
 
 def _get_cont_chunk_coords(imanager, chunk_coord_a, chunk_coord_b):

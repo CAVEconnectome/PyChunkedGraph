@@ -10,7 +10,13 @@ import numpy as np
 
 from ...backend.chunkedgraph import ChunkedGraph
 from ...backend.utils import basetypes, serializers, column_keys
-from ...backend.definitions.edges import Edges, IN_CHUNK, BT_CHUNK, CX_CHUNK, TYPES as EDGE_TYPES
+from ...backend.definitions.edges import Edges
+from ...backend.definitions.edges import (
+    IN_CHUNK,
+    BT_CHUNK,
+    CX_CHUNK,
+    TYPES as EDGE_TYPES,
+)
 from ...backend.chunkedgraph_utils import compute_indices_pandas, get_valid_timestamp
 from ...backend.flatgraph_utils import build_gt_graph, connected_components
 
