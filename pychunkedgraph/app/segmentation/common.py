@@ -12,9 +12,9 @@ from flask import current_app, g, jsonify, make_response, request
 from pychunkedgraph import __version__
 from pychunkedgraph.app import app_utils
 from pychunkedgraph.app.meshing.common import _remeshing
-from pychunkedgraph.backend import chunkedgraph_comp as cg_comp
 from pychunkedgraph.backend import chunkedgraph_exceptions as cg_exceptions
 from pychunkedgraph.backend import history as cg_history
+from pychunkedgraph.graph_analysis import contact_sites
 
 __api_versions__ = [0, 1]
 
@@ -575,11 +575,33 @@ def handle_contact_sites(table_id, root_id):
     # Call ChunkedGraph
     cg = app_utils.get_cg(table_id)
 
-    cs_dict = cg_comp.get_contact_sites(
+    cs_dict = contact_sites.get_contact_sites(
         cg, np.uint64(root_id), bounding_box=bounding_box, compute_partner=partners
     )
 
     return cs_dict
+
+
+def handle_pairwise_contact_sites(table_id, first_node_id, second_node_id):
+    try:
+        timestamp = float(request.args.get("timestamp", time.time()))
+        timestamp = datetime.fromtimestamp(timestamp, UTC)
+    except (TypeError, ValueError) as e:
+        raise (
+            cg_exceptions.BadRequest(
+                "Timestamp parameter is not a valid" " unix timestamp"
+            )
+        )
+    exact_location = request.args.get("exact_location", True)
+    cg = app_utils.get_cg(table_id)
+    contact_sites_list = contact_sites.get_contact_sites_pairwise(
+        cg,
+        np.uint64(first_node_id),
+        np.uint64(second_node_id),
+        end_time=timestamp,
+        exact_location=exact_location,
+    )
+    return contact_sites_list
 
 
 ### SPLIT PREVIEW --------------------------------------------------------------

@@ -516,7 +516,7 @@ def _get_sv_contact_site_candidates(cg, first_node_id, second_node_id):
     return (sv_ids_set1, sv_ids_set2)
 
 
-def _get_voxel_contact_sites(cg, edges_to_inspect):
+def _get_exact_contact_sites(cg, edges_to_inspect):
     """
     Given a list of edges between two supervoxels, for each edge get a global
     coordinate in the dataset where the two supervoxels contact.
@@ -573,17 +573,17 @@ def get_contact_sites_pairwise(
     first_node_id,
     second_node_id,
     end_time=None,
-    voxel_location=True,
+    exact_location=True,
     optimize_unsafe=False,
 ):
     """
     Given two node ids, find the locations and areas of their contact sites in the dataset.
 
-    If voxel_location=True, this function returns a list of tuples of two elements,
+    If exact_location=True, this function returns a list of tuples of two elements,
     where the first element in the tuple is a global coordinate in the dataset, and
     the second is an area.
 
-    If voxel_location=False, this function returns a list of tuples of three elements.
+    If exact_location=False, this function returns a list of tuples of three elements.
     The first and second elements are the global coordinates that the contact site appears somewhere
     between, and the third is an area.
     """
@@ -594,8 +594,8 @@ def get_contact_sites_pairwise(
         cg, sv_ids_set1, sv_ids_set2, end_time, optimize_unsafe
     )
 
-    if voxel_location:
-        return _get_voxel_contact_sites(cg, edges_to_inspect)
+    if exact_location:
+        return _get_exact_contact_sites(cg, edges_to_inspect)
     else:
         contact_sites = []
         for edge_to_inspect in edges_to_inspect:
