@@ -6,6 +6,7 @@ from typing import Sequence
 
 import numpy as np
 
+
 def reverse_dictionary(dictionary):
     """
     given a dictionary - {key1 : [item1, item2 ...], key2 : [ite3, item4 ...]}
@@ -24,5 +25,7 @@ def reverse_dictionary(dictionary):
 
 def chunked(l: Sequence, n: int):
     """Yield successive n-sized chunks from l."""
+    if n < 1:
+        n = len(l)
     for i in range(0, len(l), n):
-        yield l[i:i + n]
+        yield l[i : i + n]

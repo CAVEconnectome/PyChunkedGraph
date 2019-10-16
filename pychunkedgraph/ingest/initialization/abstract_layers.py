@@ -186,7 +186,7 @@ def _read_atomic_chunk_cross_edges(cg_instance, chunk_coord, cross_edge_layer):
 
     if cross_edges:
         return np.unique(np.concatenate(cross_edges), axis=0)
-    return []
+    return np.empty([0, 2], dtype=np.uint64)
 
 
 def _write_connected_components(
@@ -199,7 +199,10 @@ def _write_connected_components(
     for cc in ccs:
         ccs_with_node_ids.append(graph_ids[cc])
 
-    chunked_ccs = chunked(ccs_with_node_ids, len(ccs_with_node_ids) // mp.cpu_count())
+    job_size = len(ccs_with_node_ids) // mp.cpu_count()
+    if not job_size:
+        job_size = 1
+    chunked_ccs = chunked(ccs_with_node_ids, job_size)
     cg_info = cg_instance.get_serialized_info(credentials=False)
     multi_args = []
 
