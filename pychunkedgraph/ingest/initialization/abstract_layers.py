@@ -7,8 +7,8 @@ import datetime
 import multiprocessing as mp
 from collections import defaultdict
 from collections import abc
-from typing import Optional, Sequence
-from operator import itemgetter
+from typing import Optional
+from typing import Sequence
 
 import numpy as np
 from multiwrapper import multiprocessing_utils as mu
@@ -194,42 +194,39 @@ def _write_connected_components(
 ) -> None:
     if not ccs:
         return
-    chunked_ccs = chunked(ccs, len(ccs) // mp.cpu_count())
+
+    ccs_with_node_ids = []
+    for cc in ccs:
+        ccs_with_node_ids.append(graph_ids[cc])
+
+    chunked_ccs = chunked(ccs_with_node_ids, len(ccs_with_node_ids) // mp.cpu_count())
     cg_info = cg_instance.get_serialized_info(credentials=False)
     multi_args = []
 
-    with mp.Manager() as manager:
-        graph_ids_shared = manager.list(graph_ids)
-        for ccs in chunked_ccs:
-            multi_args.append(
-                (cg_info, layer_id, parent_chunk_id, ccs, graph_ids_shared, time_stamp)
-            )
-        mu.multiprocess_func(
-            _write_components_helper,
-            multi_args,
-            n_threads=min(len(multi_args), mp.cpu_count()),
-        )
-
-
-def _write_components_helper(args):
-    cg_info, layer_id, parent_chunk_id, ccs, graph_ids, time_stamp = args
-    _write_components(
-        ChunkedGraph(**cg_info), layer_id, parent_chunk_id, ccs, graph_ids, time_stamp
+    for ccs in chunked_ccs:
+        multi_args.append((cg_info, layer_id, parent_chunk_id, ccs, time_stamp))
+    mu.multiprocess_func(
+        _write_components_helper,
+        multi_args,
+        n_threads=min(len(multi_args), mp.cpu_count()),
     )
 
 
-def _write_components(
-    cg_instance, layer_id, parent_chunk_id, ccs, graph_ids, time_stamp
-):
+def _write_components_helper(args):
+    cg_info, layer_id, parent_chunk_id, ccs, time_stamp = args
+    _write_components(
+        ChunkedGraph(**cg_info), layer_id, parent_chunk_id, ccs, time_stamp
+    )
+
+
+def _write_components(cg_instance, layer_id, parent_chunk_id, ccs, time_stamp):
     time_stamp = get_valid_timestamp(time_stamp)
     cc_connections = {l: [] for l in (layer_id, cg_instance.n_layers)}
-    for cc in ccs:
-        node_ids = itemgetter(*cc)(graph_ids)
-        print(node_ids)
-        if cg_instance.use_skip_connections and not isinstance(node_ids, abc.Container):
-            cc_connections[cg_instance.n_layers].append([[node_ids]])
+    for node_ids in ccs:
+        if cg_instance.use_skip_connections and len(node_ids) == 1:
+            cc_connections[cg_instance.n_layers].append(node_ids)
         else:
-            cc_connections[layer_id].append([node_ids])
+            cc_connections[layer_id].append(node_ids)
 
     rows = []
     parent_chunk_id_dict = cg_instance.get_parent_chunk_id_dict(parent_chunk_id)
