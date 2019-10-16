@@ -42,25 +42,24 @@ def get_status(queues, show_busy):
         print(f"Jobs failed \t: {q.failed_job_registry.count}\n")
 
 
-@rq_cli.command("failed_ids")
+@rq_cli.command("failed")
 @click.argument("queue", type=str)
-def failed_jobs(queue):
-    q = Queue(queue, connection=connection)
-    ids = q.failed_job_registry.get_job_ids()
-    print("\n".join(ids))
-
-
-@rq_cli.command("failed_info")
-@click.argument("queue", type=str)
-@click.argument("id", type=str)
-def failed_job_info(queue, id):
-    j = Job.fetch(id, connection=connection)
-    print("KWARGS")
-    print(j.kwargs)
-    print("\nARGS")
-    print(j.args)
-    print("\nEXCEPTION")
-    print(j.exc_info)
+@click.argument("job_ids", nargs=-1)
+def failed_jobs(queue, job_ids):
+    if job_ids:
+        for job_id in job_ids:
+            j = Job.fetch(job_id, connection=connection)
+            print(f"JOB ID {job_id}")
+            print("KWARGS")
+            print(j.kwargs)
+            print("\nARGS")
+            print(j.args)
+            print("\nEXCEPTION")
+            print(j.exc_info)
+    else:
+        q = Queue(queue, connection=connection)
+        ids = q.failed_job_registry.get_job_ids()
+        print("\n".join(ids))
 
 
 @rq_cli.command("empty")
