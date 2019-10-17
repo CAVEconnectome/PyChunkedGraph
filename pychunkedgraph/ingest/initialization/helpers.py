@@ -15,6 +15,7 @@ def get_touching_atomic_chunks(
     chunk_coords = np.array(chunk_coords, dtype=int)
     touching_atomic_chunks = []
 
+    # atomic chunk count along one dimension
     atomic_chunk_count = chunkedgraph_meta.graph_config.fanout ** (layer - 2)
     layer2_chunk_bounds = chunkedgraph_meta.layer_chunk_bounds[2]
 
@@ -47,6 +48,7 @@ def get_touching_atomic_chunks(
     for coords in touching_atomic_chunks:
         if np.all(np.less(coords, layer2_chunk_bounds)):
             result.append(coords)
-
-    return np.unique(np.array(result, dtype=int), axis=0)
+    if result:
+        return np.unique(np.array(result, dtype=int), axis=0)
+    return []
 

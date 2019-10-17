@@ -123,6 +123,8 @@ def _get_cross_edges(cg_instance, layer_id, chunk_coord) -> List:
     layer2_chunks = get_touching_atomic_chunks(
         cg_instance.meta, layer_id, chunk_coord, include_both=False
     )
+    if not layer2_chunks:
+        return []
     # print(f"get_touching_atomic_chunks: {time.time()-start}")
     # print(f"touching chunks count (1 side): {len(layer2_chunks)}")
 
