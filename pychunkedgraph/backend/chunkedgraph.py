@@ -1705,7 +1705,7 @@ class ChunkedGraph(object):
         node_mask = np.ones(len(node_ids), dtype=np.bool)
         node_mask[self.get_chunk_layers(node_ids) >= stop_layer] = False
         for _ in range(n_tries):
-            parent_ids = np.array(node_ids)
+            parent_ids = np.array(node_ids, dtype=basetypes.NODE_ID)
             for _ in range(int(stop_layer + 1)):
                 temp_parent_ids = self.get_parents(
                     parent_ids[node_mask], time_stamp=time_stamp
