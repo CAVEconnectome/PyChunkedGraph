@@ -93,18 +93,10 @@ def _read_chunk_helper(args):
     _read_chunk(children_ids_shared, cg_instance, layer_id, chunk_coord)
 
 
-def _read_chunk(children_ids_shared, cg_instance, layer_id, chunk_coord):
-    x, y, z = chunk_coord
-    range_read = cg_instance.range_read_chunk(
-        layer_id, x, y, z, columns=column_keys.Hierarchy.Child
-    )
-
-    # Deserialize row keys and store child with highest id for comparison
-    row_ids = np.fromiter(range_read.keys(), dtype=np.uint64)
-    segment_ids = np.array([cg_instance.get_segment_id(r_id) for r_id in row_ids])
+def _filter_latest_ids(row_ids, segment_ids, children_ids):
     max_child_ids = []
-    for row_data in range_read.values():
-        max_child_ids.append(np.max(row_data[0].value))
+    for ids in children_ids:
+        max_child_ids.append(np.max(ids))
 
     sorting = np.argsort(segment_ids)[::-1]
     row_ids = row_ids[sorting]
@@ -115,7 +107,21 @@ def _read_chunk(children_ids_shared, cg_instance, layer_id, chunk_coord):
     for i_row in range(len(max_child_ids)):
         max_child_ids_occ_so_far[i_row] = counter[max_child_ids[i_row]]
         counter[max_child_ids[i_row]] += 1
-    children_ids_shared.append(row_ids[max_child_ids_occ_so_far == 0])
+    return row_ids[max_child_ids_occ_so_far == 0]
+
+
+def _read_chunk(children_ids_shared, cg_instance, layer_id, chunk_coord):
+    x, y, z = chunk_coord
+    range_read = cg_instance.range_read_chunk(
+        layer_id, x, y, z, columns=column_keys.Hierarchy.Child
+    )
+    row_ids = []
+    children_ids = []
+    for row_id, row_data in range_read.items():
+        row_ids.append(row_id)
+        children_ids.append(row_data[0].value)
+    segment_ids = np.array([cg_instance.get_segment_id(r_id) for r_id in row_ids])
+    children_ids_shared.append(_filter_latest_ids(row_ids, segment_ids, children_ids))
 
 
 def _get_cross_edges(cg_instance, layer_id, chunk_coord) -> List:
@@ -123,7 +129,7 @@ def _get_cross_edges(cg_instance, layer_id, chunk_coord) -> List:
     layer2_chunks = get_touching_atomic_chunks(
         cg_instance.meta, layer_id, chunk_coord, include_both=False
     )
-    if not layer2_chunks:
+    if not len(layer2_chunks):
         return []
     # print(f"get_touching_atomic_chunks: {time.time()-start}")
     # print(f"touching chunks count (1 side): {len(layer2_chunks)}")
@@ -159,33 +165,36 @@ def _read_atomic_chunk_cross_edges_helper(args):
 
 def _read_atomic_chunk_cross_edges(cg_instance, chunk_coord, cross_edge_layer):
     x, y, z = chunk_coord
+    child_key = column_keys.Hierarchy.Child
+    cross_edge_key = column_keys.Connectivity.CrossChunkEdge[cross_edge_layer]
     range_read = cg_instance.range_read_chunk(
-        2, x, y, z, columns=column_keys.Connectivity.CrossChunkEdge[cross_edge_layer]
+        2, x, y, z, columns=[child_key, cross_edge_key]
     )
 
+    row_ids = []
+    children_ids = []
+    for row_id, row_data in range_read.items():
+        row_ids.append(row_id)
+        children_ids.append(row_data[child_key][0].value)
+    segment_ids = np.array([cg_instance.get_segment_id(r_id) for r_id in row_ids])
+    l2ids = _filter_latest_ids(row_ids, segment_ids, children_ids)
+
     parent_neighboring_chunk_supervoxels_d = defaultdict(list)
-    for l2_id, row_data in range_read.items():
-        edges = row_data[0].value
-        parent_neighboring_chunk_supervoxels_d[l2_id] = edges[:, 1]
+    for l2id in l2ids:
+        edges = range_read[l2id][cross_edge_key][0].value
+        parent_neighboring_chunk_supervoxels_d[l2id] = edges[:, 1]
 
-    l2_ids = list(parent_neighboring_chunk_supervoxels_d.keys())
-    segment_ids = cg_instance.get_roots(l2_ids, stop_layer=cross_edge_layer)
-
+    parent_ids = cg_instance.get_roots(l2ids, stop_layer=cross_edge_layer)
     cross_edges = []
-    for i, l2_id in enumerate(parent_neighboring_chunk_supervoxels_d):
-        seg_id = segment_ids[i]
-        neighboring_svs = parent_neighboring_chunk_supervoxels_d[l2_id]
-        neighboring_segment_ids = cg_instance.get_roots(
-            neighboring_svs, stop_layer=cross_edge_layer
+    for i, l2id in enumerate(parent_neighboring_chunk_supervoxels_d):
+        parent_id = parent_ids[i]
+        neighboring_parent_ids = cg_instance.get_roots(
+            parent_neighboring_chunk_supervoxels_d[l2id], stop_layer=cross_edge_layer
         )
-
-        edges = np.vstack(
-            [
-                np.array([seg_id] * len(neighboring_svs), dtype=basetypes.NODE_ID),
-                neighboring_segment_ids,
-            ]
-        ).T
-        cross_edges.append(edges)
+        chunk_parent_ids = np.array(
+            [parent_id] * len(neighboring_parent_ids), dtype=basetypes.NODE_ID
+        )
+        cross_edges.append(np.vstack([chunk_parent_ids, neighboring_parent_ids]).T)
 
     if cross_edges:
         return np.unique(np.concatenate(cross_edges), axis=0)
