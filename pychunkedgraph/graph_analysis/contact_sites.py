@@ -593,7 +593,6 @@ def get_contact_sites_pairwise(
     edges_to_inspect = _get_contact_site_edges_to_inspect(
         cg, sv_ids_set1, sv_ids_set2, end_time, optimize_unsafe
     )
-
     if exact_location:
         return _get_exact_contact_sites(cg, edges_to_inspect)
     else:
@@ -602,8 +601,8 @@ def get_contact_sites_pairwise(
             edge, _, area = edge_to_inspect
             contact_sites.append(
                 (
-                    cg.get_chunk_voxel_location(cg.get_chunk_coordinates(edge[0])),
-                    cg.get_chunk_voxel_location(cg.get_chunk_coordinates(edge[0]) + 1),
+                    cg.get_chunk_voxel_location(cg.get_chunk_coordinates(edge[0])) * cg.segmentation_resolution,
+                    cg.get_chunk_voxel_location(cg.get_chunk_coordinates(edge[0]) + 1) * cg.segmentation_resolution,
                     area,
                 )
             )

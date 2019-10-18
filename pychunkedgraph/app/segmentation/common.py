@@ -592,7 +592,7 @@ def handle_pairwise_contact_sites(table_id, first_node_id, second_node_id):
                 "Timestamp parameter is not a valid" " unix timestamp"
             )
         )
-    exact_location = request.args.get("exact_location", True)
+    exact_location = request.args.get("exact_location", True, type=app_utils.toboolean)
     cg = app_utils.get_cg(table_id)
     contact_sites_list = contact_sites.get_contact_sites_pairwise(
         cg,
