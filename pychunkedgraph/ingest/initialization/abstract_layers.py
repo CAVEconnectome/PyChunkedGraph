@@ -93,14 +93,10 @@ def _read_chunk_helper(args):
     _read_chunk(children_ids_shared, cg_instance, layer_id, chunk_coord)
 
 
-def _filter_latest_ids(row_ids, segment_ids, children_ids):
-    max_child_ids = []
-    for ids in children_ids:
-        max_child_ids.append(np.max(ids))
-
+def _filter_latest_ids(row_ids, segment_ids, max_children_ids):
     sorting = np.argsort(segment_ids)[::-1]
     row_ids = row_ids[sorting]
-    max_child_ids = np.array(max_child_ids, dtype=np.uint64)[sorting]
+    max_child_ids = np.array(max_children_ids, dtype=np.uint64)[sorting]
 
     counter = defaultdict(int)
     max_child_ids_occ_so_far = np.zeros(len(max_child_ids), dtype=np.int)
@@ -116,12 +112,15 @@ def _read_chunk(children_ids_shared, cg_instance, layer_id, chunk_coord):
         layer_id, x, y, z, columns=column_keys.Hierarchy.Child
     )
     row_ids = []
-    children_ids = []
+    max_children_ids = []
     for row_id, row_data in range_read.items():
         row_ids.append(row_id)
-        children_ids.append(row_data[0].value)
+        max_children_ids.append(np.max(row_data[0].value))
+    row_ids = np.array(row_ids, dtype=basetypes.NODE_ID)
     segment_ids = np.array([cg_instance.get_segment_id(r_id) for r_id in row_ids])
-    children_ids_shared.append(_filter_latest_ids(row_ids, segment_ids, children_ids))
+
+    row_ids = _filter_latest_ids(row_ids, segment_ids, max_children_ids)
+    children_ids_shared.append(row_ids)
 
 
 def _get_cross_edges(cg_instance, layer_id, chunk_coord) -> List:
@@ -172,12 +171,14 @@ def _read_atomic_chunk_cross_edges(cg_instance, chunk_coord, cross_edge_layer):
     )
 
     row_ids = []
-    children_ids = []
+    max_children_ids = []
     for row_id, row_data in range_read.items():
         row_ids.append(row_id)
-        children_ids.append(row_data[child_key][0].value)
+        max_children_ids.append(np.max(row_data[child_key][0].value))
+
+    row_ids = np.array(row_ids, dtype=basetypes.NODE_ID)
     segment_ids = np.array([cg_instance.get_segment_id(r_id) for r_id in row_ids])
-    l2ids = _filter_latest_ids(row_ids, segment_ids, children_ids)
+    l2ids = _filter_latest_ids(row_ids, segment_ids, max_children_ids)
 
     parent_neighboring_chunk_supervoxels_d = defaultdict(list)
     for l2id in l2ids:
