@@ -57,7 +57,7 @@ def get_touching_atomic_chunks(
 def get_bounding_atomic_chunks(
     chunkedgraph_meta: ChunkedGraphMeta, layer: int, chunk_coords: Sequence[int]
 ) -> List:
-    """get atomic chunk coordinates along the boundary of the chunk"""
+    """get atomic chunk coordinates along the boundary of a chunk"""
     chunk_coords = np.array(chunk_coords, dtype=int)
     atomic_chunks = []
 
