@@ -23,6 +23,7 @@ from ...backend.chunkedgraph_utils import get_valid_timestamp
 from ...backend.chunkedgraph_utils import filter_failed_node_ids
 from ...backend.chunks.atomic import get_touching_atomic_chunks
 from ...backend.connectivity.cross_edges import get_children_chunk_cross_edges
+from ...backend.connectivity.cross_edges import get_chunk_nodes_cross_edge_layer
 
 
 def add_layer(
@@ -33,14 +34,13 @@ def add_layer(
     *,
     time_stamp: Optional[datetime.datetime] = None,
 ) -> None:
-    x, y, z = parent_coords
-
     start = time.time()
     children_ids = _read_children_chunks(cg_instance, layer_id, children_coords)
     print(f"_read_children_chunks: {time.time()-start}, id count {len(children_ids)}")
 
     start = time.time()
     edge_ids = get_children_chunk_cross_edges(cg_instance, layer_id, parent_coords)
+    edge_ids = edge_ids.tolist()
     print(f"get_children_chunk_cross_edges: {time.time()-start}, {len(edge_ids)}")
     # print(len(children_ids), len(edge_ids))
 
@@ -59,13 +59,13 @@ def add_layer(
     _write_connected_components(
         cg_instance,
         layer_id,
-        cg_instance.get_chunk_id(layer=layer_id, x=x, y=y, z=z),
+        parent_coords,
         ccs,
         graph_ids,
-        time_stamp,
+        get_valid_timestamp(time_stamp),
     )
     print(f"_write_connected_components: {time.time()-start}")
-    return f"{layer_id}_{'_'.join(map(str, (x, y, z)))}"
+    return f"{layer_id}_{'_'.join(map(str, parent_coords))}"
 
 
 def _read_children_chunks(cg_instance, layer_id, children_coords):
@@ -113,48 +113,60 @@ def _read_chunk(children_ids_shared, cg_instance, layer_id, chunk_coord):
 
 
 def _write_connected_components(
-    cg_instance, layer_id, parent_chunk_id, ccs, graph_ids, time_stamp
+    cg_instance, layer_id, parent_coords, ccs, graph_ids, time_stamp
 ) -> None:
     if not ccs:
         return
 
-    ccs_with_node_ids = []
-    for cc in ccs:
-        ccs_with_node_ids.append(graph_ids[cc])
-
-    chunked_ccs = chunked(ccs_with_node_ids, len(ccs_with_node_ids) // mp.cpu_count())
-    cg_info = cg_instance.get_serialized_info(credentials=False)
-    multi_args = []
-
-    for ccs in chunked_ccs:
-        multi_args.append((cg_info, layer_id, parent_chunk_id, ccs, time_stamp))
-    mu.multiprocess_func(
-        _write_components_helper,
-        multi_args,
-        n_threads=min(len(multi_args), mp.cpu_count()),
+    node_layer_d = get_chunk_nodes_cross_edge_layer(
+        cg_instance, layer_id, parent_coords
     )
+
+    with mp.Manager() as manager:
+        node_layer_d_shared = manager.dict(**node_layer_d)
+        ccs_with_node_ids = []
+        for cc in ccs:
+            ccs_with_node_ids.append(graph_ids[cc])
+
+        chunked_ccs = chunked(
+            ccs_with_node_ids, len(ccs_with_node_ids) // mp.cpu_count()
+        )
+        cg_info = cg_instance.get_serialized_info(credentials=False)
+        multi_args = []
+
+        for ccs in chunked_ccs:
+            multi_args.append(
+                (cg_info, layer_id, parent_coords, ccs, node_layer_d_shared, time_stamp)
+            )
+        mu.multiprocess_func(
+            _write_components_helper,
+            multi_args,
+            n_threads=min(len(multi_args), mp.cpu_count()),
+        )
 
 
 def _write_components_helper(args):
-    cg_info, layer_id, parent_chunk_id, ccs, time_stamp = args
-    _write_components(
-        ChunkedGraph(**cg_info), layer_id, parent_chunk_id, ccs, time_stamp
-    )
+    cg_info, layer_id, parent_coords, ccs, node_layer_d_shared, time_stamp = args
+    cg_instance = ChunkedGraph(**cg_info)
 
-
-def _write_components(cg_instance, layer_id, parent_chunk_id, ccs, time_stamp):
-    time_stamp = get_valid_timestamp(time_stamp)
-    cc_connections = {l: [] for l in (layer_id, cg_instance.n_layers)}
+    parent_layer_ids = range(layer_id, cg_instance.n_layers + 1)
+    cc_connections = {l: [] for l in parent_layer_ids}
     for node_ids in ccs:
         if cg_instance.use_skip_connections and len(node_ids) == 1:
-            cc_connections[cg_instance.n_layers].append(node_ids)
+            layer = node_layer_d_shared.get(node_ids[0], cg_instance.n_layers)
+            cc_connections[layer].append(node_ids)
         else:
             cc_connections[layer_id].append(node_ids)
 
     rows = []
+    x, y, z = parent_coords
+    parent_chunk_id = cg_instance.get_chunk_id(layer=layer_id, x=x, y=y, z=z)
     parent_chunk_id_dict = cg_instance.get_parent_chunk_id_dict(parent_chunk_id)
     # Iterate through layers
-    for parent_layer_id in (layer_id, cg_instance.n_layers):
+    for parent_layer_id in parent_layer_ids:
+        if len(cc_connections[parent_layer_id]) == 0:
+            continue
+
         parent_chunk_id = parent_chunk_id_dict[parent_layer_id]
         reserved_parent_ids = cg_instance.get_unique_node_id_range(
             parent_chunk_id, step=len(cc_connections[parent_layer_id])
