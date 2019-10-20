@@ -1696,30 +1696,25 @@ class ChunkedGraph(object):
         :return: np.uint64
         """
         time_stamp = get_valid_timestamp(time_stamp)
-        parent_ids = np.array(node_ids, dtype=basetypes.NODE_ID)
-        if stop_layer is not None:
-            stop_layer = min(self.n_layers, stop_layer)
-        else:
-            stop_layer = self.n_layers
-
-        node_mask = np.ones(len(node_ids), dtype=np.bool)
-        node_mask[self.get_chunk_layers(node_ids) >= stop_layer] = False
+        stop_layer = self.n_layers if not stop_layer else min(self.n_layers, stop_layer)
+        layer_mask = np.ones(len(node_ids), dtype=np.bool)
+        
         for _ in range(n_tries):
+            layer_mask[self.get_chunk_layers(node_ids) >= stop_layer] = False
             parent_ids = np.array(node_ids, dtype=basetypes.NODE_ID)
             for _ in range(int(stop_layer + 1)):
-                temp_parent_ids = self.get_parents(
-                    parent_ids[node_mask], time_stamp=time_stamp
-                )
-                if temp_parent_ids is None:
+                filtered_ids = parent_ids[layer_mask]
+                unique_ids, inverse = np.unique(filtered_ids, return_inverse=True)
+                temp_ids = self.get_parents(unique_ids, time_stamp=time_stamp)
+                if temp_ids is None:
                     break
                 else:
-                    parent_ids[node_mask] = temp_parent_ids
-                    node_mask[self.get_chunk_layers(parent_ids) >= stop_layer] = False
-                    if np.all(~node_mask):
-                        break
-
-            if np.all(self.get_chunk_layers(parent_ids) >= stop_layer):
-                break
+                    parent_ids[layer_mask] = temp_ids[inverse]
+                    layer_mask[self.get_chunk_layers(parent_ids) >= stop_layer] = False
+                    if not np.any(self.get_chunk_layers(parent_ids) < stop_layer):
+                        return parent_ids
+            if not np.any(self.get_chunk_layers(parent_ids) < stop_layer):
+                return parent_ids
             else:
                 time.sleep(0.5)
         return parent_ids
