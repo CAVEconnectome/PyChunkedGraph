@@ -20,6 +20,7 @@ from ...backend.utils import serializers
 from ...backend.utils import column_keys
 from ...backend.chunkedgraph import ChunkedGraph
 from ...backend.chunkedgraph_utils import get_valid_timestamp
+from ...backend.chunkedgraph_utils import filter_failed_node_ids
 from ...backend.chunks.atomic import get_touching_atomic_chunks
 from ...backend.connectivity.cross_edges import get_children_chunk_cross_edges
 
@@ -94,19 +95,6 @@ def _read_chunk_helper(args):
     _read_chunk(children_ids_shared, cg_instance, layer_id, chunk_coord)
 
 
-def _filter_latest_ids(row_ids, segment_ids, max_children_ids):
-    sorting = np.argsort(segment_ids)[::-1]
-    row_ids = row_ids[sorting]
-    max_child_ids = np.array(max_children_ids, dtype=basetypes.NODE_ID)[sorting]
-
-    counter = defaultdict(int)
-    max_child_ids_occ_so_far = np.zeros(len(max_child_ids), dtype=np.int)
-    for i_row in range(len(max_child_ids)):
-        max_child_ids_occ_so_far[i_row] = counter[max_child_ids[i_row]]
-        counter[max_child_ids[i_row]] += 1
-    return row_ids[max_child_ids_occ_so_far == 0]
-
-
 def _read_chunk(children_ids_shared, cg_instance, layer_id, chunk_coord):
     x, y, z = chunk_coord
     range_read = cg_instance.range_read_chunk(
@@ -120,7 +108,7 @@ def _read_chunk(children_ids_shared, cg_instance, layer_id, chunk_coord):
     row_ids = np.array(row_ids, dtype=basetypes.NODE_ID)
     segment_ids = np.array([cg_instance.get_segment_id(r_id) for r_id in row_ids])
 
-    row_ids = _filter_latest_ids(row_ids, segment_ids, max_children_ids)
+    row_ids = filter_failed_node_ids(row_ids, segment_ids, max_children_ids)
     children_ids_shared.append(row_ids)
 
 

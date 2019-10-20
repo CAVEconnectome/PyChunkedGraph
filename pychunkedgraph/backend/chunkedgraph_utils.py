@@ -6,6 +6,7 @@ from typing import Union
 from typing import Sequence
 from typing import Tuple
 from itertools import product
+from collections import defaultdict
 
 import numpy as np
 import pandas as pd
@@ -285,3 +286,16 @@ def get_chunks_boundary(voxel_boundary, chunk_size):
     """returns number of chunks in each dimension"""
     return np.ceil((voxel_boundary / chunk_size)).astype(np.int)
 
+
+def filter_failed_node_ids(row_ids, segment_ids, max_children_ids):
+    """filters node ids that were created by failed/in-complete jobs"""
+    sorting = np.argsort(segment_ids)[::-1]
+    row_ids = row_ids[sorting]
+    max_child_ids = np.array(max_children_ids)[sorting]
+
+    counter = defaultdict(int)
+    max_child_ids_occ_so_far = np.zeros(len(max_child_ids), dtype=np.int)
+    for i_row in range(len(max_child_ids)):
+        max_child_ids_occ_so_far[i_row] = counter[max_child_ids[i_row]]
+        counter[max_child_ids[i_row]] += 1
+    return row_ids[max_child_ids_occ_so_far == 0]

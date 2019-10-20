@@ -15,6 +15,7 @@ from ...backend.utils import serializers
 from ...backend.utils import column_keys
 from ...backend.chunkedgraph import ChunkedGraph
 from ...backend.chunkedgraph_utils import get_valid_timestamp
+from ...backend.chunkedgraph_utils import filter_failed_node_ids
 from ...backend.chunks.atomic import get_touching_atomic_chunks
 
 
@@ -94,7 +95,7 @@ def _read_atomic_chunk_cross_edges(cg_instance, chunk_coord, cross_edge_layer):
 
     row_ids = np.array(row_ids, dtype=basetypes.NODE_ID)
     segment_ids = np.array([cg_instance.get_segment_id(r_id) for r_id in row_ids])
-    l2ids = _filter_latest_ids(row_ids, segment_ids, max_children_ids)
+    l2ids = filter_failed_node_ids(row_ids, segment_ids, max_children_ids)
     return _extract_atomic_cross_edges(range_read, l2ids, cross_edge_key)
 
 
