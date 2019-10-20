@@ -4,6 +4,8 @@ from itertools import product
 import numpy as np
 
 from ...backend import ChunkedGraphMeta
+from ...backend.chunkedgraph_utils import get_valid_timestamp
+from ...backend.utils import basetypes
 
 
 def get_touching_atomic_chunks(
@@ -86,3 +88,31 @@ def get_bounding_atomic_chunks(
             result.append(coords)
 
     return np.unique(np.array(result, dtype=int), axis=0)
+
+
+def get_roots(
+    cg_instance,
+    node_ids: Sequence[np.uint64],
+    time_stamp=None,
+    layer: int = None,
+    n_tries: int = 1,
+):
+    time_stamp = get_valid_timestamp(time_stamp)
+    layer = cg_instance.n_layers if not layer else min(cg_instance.n_layers, layer)
+
+    layer_mask = np.ones(len(node_ids), dtype=np.bool)
+    layer_mask[cg_instance.get_chunk_layers(node_ids) >= layer] = False
+    parent_ids = np.array(node_ids, dtype=basetypes.NODE_ID)
+    for _ in range(int(layer + 1)):
+        filtered_ids = parent_ids[layer_mask]
+        unique_ids, inverse = np.unique(filtered_ids, return_inverse=True)
+        temp_parent_ids = cg_instance.get_parents(unique_ids, time_stamp=time_stamp)
+        if temp_parent_ids is None:
+            break
+        else:
+            parent_ids[layer_mask] = temp_parent_ids[inverse]
+            layer_mask[cg_instance.get_chunk_layers(parent_ids) >= layer] = False
+            if not np.any(cg_instance.get_chunk_layers(parent_ids) < layer):
+                break
+
+    return parent_ids

@@ -15,6 +15,7 @@ from typing import List
 import numpy as np
 from multiwrapper import multiprocessing_utils as mu
 
+from .helpers import get_roots
 from .helpers import get_touching_atomic_chunks
 from ...utils.general import chunked
 from ...backend import flatgraph_utils
@@ -170,11 +171,11 @@ def _read_atomic_chunk_cross_edges_helper(args):
     print(f"reading raw edges {time.time()-start}s")
 
     start = time.time()
-    parents_1 = cg_instance.get_roots(cross_edges[:, 0], stop_layer=cross_edge_layer)
+    parents_1 = get_roots(cg_instance, cross_edges[:, 0], layer=cross_edge_layer)
     print(f"getting parents1 {time.time()-start}s")
 
     start = time.time()
-    parents_2 = cg_instance.get_roots(cross_edges[:, 1], stop_layer=cross_edge_layer)
+    parents_2 = get_roots(cg_instance, cross_edges[:, 1], layer=cross_edge_layer)
     print(f"getting parents2 {time.time()-start}s")
 
     cross_edges[:, 0] = parents_1
