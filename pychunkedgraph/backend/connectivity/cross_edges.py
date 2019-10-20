@@ -56,7 +56,7 @@ def _get_children_chunk_cross_edges_helper(args):
     edge_ids_shared, cg_info, layer2_chunks, cross_edge_layer = args
     cg_instance = ChunkedGraph(**cg_info)
 
-    start = time.time()
+    # start = time.time()
     cross_edges = [np.empty([0, 2], dtype=basetypes.NODE_ID)]
     for layer2_chunk in layer2_chunks:
         edges = _read_atomic_chunk_cross_edges(
@@ -64,15 +64,15 @@ def _get_children_chunk_cross_edges_helper(args):
         )
         cross_edges.append(edges)
     cross_edges = np.concatenate(cross_edges)
-    print(f"reading raw edges {time.time()-start}s")
+    # print(f"reading raw edges {time.time()-start}s")
 
-    start = time.time()
+    # start = time.time()
     parents_1 = cg_instance.get_roots(cross_edges[:, 0], stop_layer=cross_edge_layer)
-    print(f"getting parents1 {time.time()-start}s")
+    # print(f"getting parents1 {time.time()-start}s")
 
-    start = time.time()
+    # start = time.time()
     parents_2 = cg_instance.get_roots(cross_edges[:, 1], stop_layer=cross_edge_layer)
-    print(f"getting parents2 {time.time()-start}s")
+    # print(f"getting parents2 {time.time()-start}s")
 
     cross_edges[:, 0] = parents_1
     cross_edges[:, 1] = parents_2
@@ -143,27 +143,27 @@ def get_chunk_nodes_cross_edge_layer(cg_instance, layer_id, chunk_coord) -> Dict
 
         for i, node_id in enumerate(node_ids):
             node_layer_d[node_id] = min(node_layer_d[node_id], layers[i])
-        return node_layer_d
+        return {**node_layer_d}
 
 
 def _get_chunk_nodes_cross_edge_layer_helper(args):
     node_layer_tuples_shared, cg_info, layer2_chunks, layer_id = args
     cg_instance = ChunkedGraph(**cg_info)
 
-    start = time.time()
+    # start = time.time()
     node_layer_d = {}
     for layer2_chunk in layer2_chunks:
         chunk_node_layer_d = _read_atomic_chunk_cross_edge_nodes(
             cg_instance, layer2_chunk, range(layer_id, cg_instance.n_layers + 1)
         )
-        node_layer_d.update(**chunk_node_layer_d)
-    print(f"reading raw edges {time.time()-start}s")
+        node_layer_d.update(chunk_node_layer_d)
+    # print(f"reading raw edges {time.time()-start}s")
 
-    start = time.time()
+    # start = time.time()
     l2ids = np.fromiter(node_layer_d.keys(), dtype=basetypes.NODE_ID)
     parents = cg_instance.get_roots(l2ids, stop_layer=layer_id - 1)
     layers = np.fromiter(node_layer_d.values(), dtype=np.int)
-    print(f"getting parents {time.time()-start}s")
+    # print(f"getting parents {time.time()-start}s")
 
     node_layer_tuples_shared.append((parents, layers))
 

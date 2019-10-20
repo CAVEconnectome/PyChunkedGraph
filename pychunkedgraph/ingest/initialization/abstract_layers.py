@@ -118,12 +118,14 @@ def _write_connected_components(
     if not ccs:
         return
 
+    start = time.time()
     node_layer_d = get_chunk_nodes_cross_edge_layer(
         cg_instance, layer_id, parent_coords
     )
+    print(f"node_layer_d: {time.time()-start}, {len(node_layer_d)}")
 
     with mp.Manager() as manager:
-        node_layer_d_shared = manager.dict(**node_layer_d)
+        node_layer_d_shared = manager.dict(node_layer_d)
         ccs_with_node_ids = []
         for cc in ccs:
             ccs_with_node_ids.append(graph_ids[cc])
