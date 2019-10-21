@@ -196,4 +196,4 @@ def _read_atomic_chunk(cg_instance, chunk_coord, layers):
     row_ids = np.array(row_ids, dtype=basetypes.NODE_ID)
     segment_ids = np.array([cg_instance.get_segment_id(r_id) for r_id in row_ids])
     l2ids = filter_failed_node_ids(row_ids, segment_ids, max_children_ids)
-    return (range_read, l2ids)
+    return range_read, l2ids

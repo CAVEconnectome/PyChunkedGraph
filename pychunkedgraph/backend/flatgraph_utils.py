@@ -14,6 +14,7 @@ def build_gt_graph(edges, weights=None, is_directed=True, make_directed=False,
     :param hashed: bool
     :return: graph, capacities
     """
+    edges = np.array(edges, np.uint64)
     if weights is not None:
         assert len(weights) == len(edges)
         weights = np.array(weights)

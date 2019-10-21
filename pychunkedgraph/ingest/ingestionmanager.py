@@ -35,6 +35,8 @@ class IngestionManager(object):
         self._bounds = None
         self._redis = None
 
+        self.redis.set(r_keys.INGESTION_MANAGER, self.get_serialized_info(pickled=True))
+
     @property
     def config(self):
         return self._config

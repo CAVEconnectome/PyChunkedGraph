@@ -40,7 +40,6 @@ def add_layer(
 
     start = time.time()
     edge_ids = get_children_chunk_cross_edges(cg_instance, layer_id, parent_coords)
-    edge_ids = edge_ids.tolist()
     print(f"get_children_chunk_cross_edges: {time.time()-start}, {len(edge_ids)}")
     # print(len(children_ids), len(edge_ids))
 
@@ -48,6 +47,8 @@ def add_layer(
     isolated_node_mask = ~np.in1d(children_ids, np.unique(edge_ids))
     add_node_ids = children_ids[isolated_node_mask].squeeze()
     add_edge_ids = np.vstack([add_node_ids, add_node_ids]).T
+
+    edge_ids = list(edge_ids)
     edge_ids.extend(add_edge_ids)
 
     graph, _, _, graph_ids = flatgraph_utils.build_gt_graph(

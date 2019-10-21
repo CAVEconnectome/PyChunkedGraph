@@ -12,7 +12,7 @@ _ingestconfig_fields = (
     "parents_q_limit",
     "parents_q_interval",
 )
-_ingestconfig_defaults = (True, REDIS_URL, "atomic", 50000, 60, "parents", 25000, 120)
+_ingestconfig_defaults = (True, REDIS_URL, "atomic", 100000, 60, "parents", 25000, 120)
 IngestConfig = namedtuple(
     "IngestConfig", _ingestconfig_fields, defaults=_ingestconfig_defaults
 )
