@@ -6,13 +6,12 @@ import numpy as np
 from cloudvolume import CloudVolume
 
 
-from .chunkedgraph_utils import get_voxels_boundary
-from .chunkedgraph_utils import get_chunks_boundary
 from .chunkedgraph_utils import compute_bitmasks
 from .definitions.config import DataSource
 from .definitions.config import GraphConfig
 from .definitions.config import BigTableConfig
 from .chunkedgraph_utils import log_n
+from .chunks.utils import get_chunks_boundary
 
 
 class ChunkedGraphMeta:
@@ -61,7 +60,7 @@ class ChunkedGraphMeta:
         if self._layer_bounds_d:
             return self._layer_bounds_d
 
-        voxels_boundary = get_voxels_boundary(self._ws_cv)
+        voxels_boundary = self.get_voxels_boundary()
         chunks_boundary = get_chunks_boundary(
             voxels_boundary, self._graph_config.chunk_size
         )
@@ -126,3 +125,11 @@ class ChunkedGraphMeta:
         return np.any(chunk_coordinate < 0) or np.any(
             chunk_coordinate > 2 ** self._bitmasks[1]
         )
+
+    def get_voxels_boundary(self) -> Sequence[int]:
+        """returns number of voxels in each dimension"""
+        cv_bounds = np.array(self._ws_cv.bounds.to_list()).reshape(2, -1).T
+        voxel_counts = cv_bounds.copy()
+        voxel_counts -= cv_bounds[:, 0:1]
+        voxel_counts = voxel_counts[:, 1]
+        return voxel_counts

@@ -11,10 +11,12 @@ import zstandard as zstd
 from cloudvolume import Storage
 from cloudvolume.storage import SimpleStorage
 
-from .protobuf.chunkEdges_pb2 import EdgesMsg, ChunkEdgesMsg
-from ..backend.utils.edge_utils import concatenate_chunk_edges
-from ..backend.definitions.edges import Edges, EDGE_TYPES
+from .protobuf.chunkEdges_pb2 import EdgesMsg
+from .protobuf.chunkEdges_pb2 import ChunkEdgesMsg
+from ..backend.edges import Edges
+from ..backend.edges import EDGE_TYPES
 from ..backend.utils import basetypes
+from ..backend.edges.utils import concatenate_chunk_edges
 
 
 def serialize(edges: Edges) -> EdgesMsg:

@@ -7,11 +7,12 @@ from typing import Dict, List
 
 import numpy as np
 
-from .basetypes import NODE_ID, EDGE_AFFINITY, EDGE_AREA
-from .basetypes import EDGE_AFFINITY
-from .basetypes import EDGE_AREA
-from ..definitions.edges import Edges
-from ..definitions.edges import EDGE_TYPES
+from . import Edges
+from . import EDGE_TYPES
+
+from ..utils.basetypes import NODE_ID
+from ..utils.basetypes import EDGE_AFFINITY
+from ..utils.basetypes import EDGE_AREA
 
 
 def concatenate_chunk_edges(chunk_edge_dicts: List) -> Dict:

@@ -35,7 +35,7 @@ in the module `pychunkedgraph.io.edges` may be used.
 ### Example usage
 
 ```
-from pychunkedgraph.backend.definitions.edges import Edges
+from pychunkedgraph.backend.edges import Edges
 
 in_chunk = [[1,2],[2,3],[0,2],[2,4]]
 between_chunk = [[1,5]]

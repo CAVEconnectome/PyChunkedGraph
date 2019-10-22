@@ -28,10 +28,10 @@ from ..io.components import put_chunk_components
 
 from ..backend import ChunkedGraphMeta
 from ..backend.utils import basetypes
-from ..backend.chunkedgraph_utils import compute_chunk_id
+from ..backend.edges import Edges
+from ..backend.edges import EDGE_TYPES
+from ..backend.chunks.utils import compute_chunk_id
 from ..backend.chunks.hierarchy import get_children_coords
-from ..backend.definitions.edges import Edges
-from ..backend.definitions.edges import EDGE_TYPES
 
 chunk_id_str = lambda layer, coords: f"{layer}_{'_'.join(map(str, coords))}"
 
@@ -237,7 +237,7 @@ def _collect_edge_data(imanager, chunk_coord):
         if imanager.chunkedgraph_meta.is_out_of_bounds(np.array([_x, _y, _z])):
             continue
         filename = f"in_chunk_0_{_x}_{_y}_{_z}_{chunk_id}.data"
-        filenames["in"].append(filename)
+        filenames[EDGE_TYPES.in_chunk].append(filename)
 
     for d in [-1, 1]:
         for dim in range(3):
@@ -260,12 +260,12 @@ def _collect_edge_data(imanager, chunk_coord):
             for c_chunk_coord in c_chunk_coords:
                 x, y, z = c_chunk_coord
                 filename = f"between_chunks_0_{x}_{y}_{z}_{chunk_id_string}.data"
-                filenames["between"].append(filename)
+                filenames[EDGE_TYPES.between_chunk].append(filename)
                 swap[filename] = larger_id == chunk_id
 
                 # EDGES FROM CUTS OF SVS
                 filename = f"fake_0_{x}_{y}_{z}_{chunk_id_string}.data"
-                filenames["cross"].append(filename)
+                filenames[EDGE_TYPES.cross_chunk].append(filename)
                 swap[filename] = larger_id == chunk_id
 
     edge_data = {}
@@ -383,6 +383,6 @@ def _define_active_edges(edge_dict, mapping):
         active[k][agg_1_m] = False
 
         isolated.append(edge_dict[k].node_ids1[agg_1_m])
-        if k == "in":
+        if k == EDGE_TYPES.in_chunk:
             isolated.append(edge_dict[k].node_ids2[agg_2_m])
     return active, np.unique(np.concatenate(isolated).astype(basetypes.NODE_ID))
