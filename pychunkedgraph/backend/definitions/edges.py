@@ -44,9 +44,9 @@ class Edges:
     def __add__(self, other):
         """add two Edges instances"""
         node_ids1 = np.concatenate([self.node_ids1, other.node_ids1])
-        node_ids2 = np.concatenate([self.node_ids1, other.node_ids1])
-        affinities = np.concatenate([self.node_ids1, other.node_ids1])
-        areas = np.concatenate([self.node_ids1, other.node_ids1])
+        node_ids2 = np.concatenate([self.node_ids2, other.node_ids2])
+        affinities = np.concatenate([self.affinities, other.affinities])
+        areas = np.concatenate([self.areas, other.areas])
         return Edges(node_ids1, node_ids2, affinities=affinities, areas=areas)
 
     def __iadd__(self, other):
