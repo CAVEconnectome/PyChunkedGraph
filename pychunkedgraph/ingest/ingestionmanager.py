@@ -1,79 +1,61 @@
 import itertools
 import numpy as np
+import pickle
+from typing import Dict
+from collections import defaultdict
 
-from pychunkedgraph.backend import chunkedgraph
+from cloudvolume import CloudVolume
+
+from . import IngestConfig
+from .ingestion_utils import get_layer_count
+from ..backend import ChunkedGraphMeta
+from ..backend.chunkedgraph import ChunkedGraph
+from ..backend.definitions.config import DataSource
+from ..backend.definitions.config import GraphConfig
+from ..backend.definitions.config import BigTableConfig
 
 
 class IngestionManager(object):
-    def __init__(self, storage_path, cg_table_id=None, n_layers=None,
-                 instance_id=None, project_id=None):
-        self._storage_path = storage_path
-        self._cg_table_id = cg_table_id
-        self._instance_id = instance_id
-        self._project_id = project_id
+    def __init__(self, config: IngestConfig, chunkedgraph_meta: ChunkedGraphMeta):
+
+        self._config = config
+
         self._cg = None
-        self._n_layers = n_layers
+        self._chunkedgraph_meta = chunkedgraph_meta
+        self._ws_cv = CloudVolume(chunkedgraph_meta.data_source.watershed)
+        self._chunk_coords = None
+        self._layer_bounds_d = None
+
+        self._bitmasks = None
+        self._bounds = None
+        self._redis = None
 
     @property
-    def storage_path(self):
-        return self._storage_path
+    def config(self):
+        return self._config
+
+    @property
+    def chunkedgraph_meta(self):
+        return self._chunkedgraph_meta
 
     @property
     def cg(self):
         if self._cg is None:
-            kwargs = {}
-
-            if self._instance_id is not None:
-                kwargs["instance_id"] = self._instance_id
-
-            if self._project_id is not None:
-                kwargs["project_id"] = self._project_id
-
-            self._cg = chunkedgraph.ChunkedGraph(table_id=self._cg_table_id,
-                                                 **kwargs)
-
+            self._cg = ChunkedGraph(
+                self._chunkedgraph_meta.graph_config.graph_id,
+                self._chunkedgraph_meta.bigtable_config.project_id,
+                self._chunkedgraph_meta.bigtable_config.instance_id,
+                meta=self._chunkedgraph_meta,
+            )
         return self._cg
 
-    @property
-    def bounds(self):
-        bounds = self.cg.vx_vol_bounds.copy()
-        bounds -= self.cg.vx_vol_bounds[:, 0:1]
+    @classmethod
+    def from_pickle(cls, serialized_info):
+        return cls(**pickle.loads(serialized_info))
 
-        return bounds
-
-    @property
-    def chunk_id_bounds(self):
-        return np.ceil((self.bounds / self.cg.chunk_size[:, None])).astype(np.int)
-
-    @property
-    def chunk_coord_gen(self):
-        return itertools.product(*[range(*r) for r in self.chunk_id_bounds])
-
-    @property
-    def chunk_coords(self):
-        return np.array(list(self.chunk_coord_gen), dtype=np.int)
-
-    @property
-    def n_layers(self):
-        if self._n_layers is None:
-            self._n_layers = self.cg.n_layers
-        return self._n_layers
-
-    def get_serialized_info(self):
-        info = {"storage_path": self.storage_path,
-                "cg_table_id": self._cg_table_id,
-                "n_layers": self.n_layers,
-                "instance_id": self._instance_id,
-                "project_id": self._project_id}
-
+    def get_serialized_info(self, pickled=False):
+        info = {"config": self._config, "chunkedgraph_meta": self._chunkedgraph_meta}
+        if pickled:
+            return pickle.dumps(info)
         return info
-
-    def is_out_of_bounce(self, chunk_coordinate):
-        if np.any(chunk_coordinate < 0):
-            return True
-
-        if np.any(chunk_coordinate > 2**self.cg.bitmasks[1]):
-            return True
-
-        return False
 

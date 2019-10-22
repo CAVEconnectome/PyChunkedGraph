@@ -20,7 +20,7 @@ from pychunkedgraph.backend.chunkedgraph_utils import compute_indices_pandas, \
     combine_cross_chunk_edge_dicts, get_min_time, partial_row_data_to_column_dict
 from pychunkedgraph.backend.utils import serializers, column_keys, row_keys, basetypes
 from pychunkedgraph.backend import chunkedgraph_exceptions as cg_exceptions, \
-    chunkedgraph_edits as cg_edits
+    chunkedgraph_edits as cg_edits, ChunkedGraphMeta
 from pychunkedgraph.backend.graphoperation import (
     GraphEditOperation,
     MergeOperation,
@@ -56,21 +56,25 @@ os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = \
 
 
 class ChunkedGraph(object):
-    def __init__(self,
-                 table_id: str,
-                 instance_id: str = "pychunkedgraph",
-                 project_id: str = "neuromancer-seung-import",
-                 chunk_size: Tuple[np.uint64, np.uint64, np.uint64] = None,
-                 fan_out: Optional[np.uint64] = None,
-                 use_skip_connections: Optional[bool] = True,
-                 s_bits_atomic_layer: Optional[np.uint64] = 8,
-                 n_bits_root_counter: Optional[np.uint64] = 0,
-                 n_layers: Optional[np.uint64] = None,
-                 credentials: Optional[credentials.Credentials] = None,
-                 client: bigtable.Client = None,
-                 dataset_info: Optional[object] = None,
-                 is_new: bool = False,
-                 logger: Optional[logging.Logger] = None) -> None:
+    def __init__(
+        self,
+        table_id: str,
+        project_id: str = "neuromancer-seung-import",
+        instance_id: str = "pychunkedgraph",
+        chunk_size: Tuple[np.uint64, np.uint64, np.uint64] = None,
+        fan_out: Optional[np.uint64] = None,
+        use_skip_connections: Optional[bool] = True,
+        s_bits_atomic_layer: Optional[np.uint64] = 8,
+        n_bits_root_counter: Optional[np.uint64] = 0,
+        n_layers: Optional[np.uint64] = None,
+        credentials: Optional[credentials.Credentials] = None,
+        client: bigtable.Client = None,
+        dataset_info: Optional[object] = None,
+        is_new: bool = False,
+        logger: Optional[logging.Logger] = None,
+        edge_dir: Optional[str] = None,
+        meta: Optional[ChunkedGraphMeta] = None,
+                ) -> None:
 
         if logger is None:
             self.logger = logging.getLogger(f"{project_id}/{instance_id}/{table_id}")
@@ -102,6 +106,9 @@ class ChunkedGraph(object):
 
         self._cv_path = self._dataset_info["data_dir"]         # required
         self._mesh_dir = self._dataset_info.get("mesh", None)  # optional
+        self._edge_dir = self.check_and_write_table_parameters(
+            column_keys.GraphSettings.EdgeDir, edge_dir, required=False, is_new=is_new
+        )        
 
         self._n_layers = self.check_and_write_table_parameters(
             column_keys.GraphSettings.LayerCount, n_layers,

@@ -1,6 +1,15 @@
-import collections
+"""
+Module for ingesting in chunkedgraph format with edges stored outside bigtable
+"""
+
 import time
-import random
+import json
+from collections import defaultdict
+from collections import Counter
+from itertools import product
+from typing import Dict
+from typing import Tuple
+from typing import Sequence
 
 import pandas as pd
 import cloudvolume
@@ -8,362 +17,271 @@ import networkx as nx
 import numpy as np
 import numpy.lib.recfunctions as rfn
 import zstandard as zstd
-from multiwrapper import multiprocessing_utils as mu
 
-from pychunkedgraph.ingest import ingestionmanager, ingestion_utils as iu
+from .ingestion_utils import postprocess_edge_data
+from .ingestionmanager import IngestionManager
+
+from ..backend import ChunkedGraphMeta
+from ..io.edges import get_chunk_edges
+from ..io.edges import put_chunk_edges
+from ..io.components import get_chunk_components
+from ..io.components import put_chunk_components
+from ..backend.utils import basetypes
+from ..backend.chunkedgraph_utils import compute_chunk_id
+from ..backend.definitions.edges import Edges
+from ..backend.definitions.edges import EDGE_TYPES
+
+chunk_id_str = lambda layer, coords: f"{layer}_{'_'.join(map(str, coords))}"
 
 
-def ingest_into_chunkedgraph(storage_path, ws_cv_path, cg_table_id,
-                             chunk_size=[256, 256, 512],
-                             use_skip_connections=True,
-                             s_bits_atomic_layer=None,
-                             fan_out=2, aff_dtype=np.float32,
-                             size=None,
-                             instance_id=None, project_id=None,
-                             start_layer=1, n_threads=[64, 64]):
-    """ Creates a chunkedgraph from a Ran Agglomerattion
+def _get_children_coords(
+    cg_meta: ChunkedGraphMeta, layer: int, chunk_coords
+) -> np.ndarray:
+    chunk_coords = np.array(chunk_coords, dtype=int)
+    children_layer = layer - 1
+    layer_boundaries = cg_meta.layer_chunk_bounds[children_layer]
+    children_coords = []
 
-    :param storage_path: str
-        Google cloud bucket path (agglomeration)
-        example: gs://ranl-scratch/minnie_test_2
-    :param ws_cv_path: str
-        Google cloud bucket path (watershed segmentation)
-        example: gs://microns-seunglab/minnie_v0/minnie10/ws_minnie_test_2/agg
-    :param cg_table_id: str
-        chunkedgraph table name
-    :param fan_out: int
-        fan out of chunked graph (2 == Octree)
-    :param aff_dtype: np.dtype
-        affinity datatype (np.float32 or np.float64)
-    :param instance_id: str
-        Google instance id
-    :param project_id: str
-        Google project id
-    :param start_layer: int
-    :param n_threads: list of ints
-        number of threads to use
-    :return:
+    for dcoord in product(*[range(cg_meta.graph_config.fanout)] * 3):
+        dcoord = np.array(dcoord, dtype=int)
+        child_coords = chunk_coords * cg_meta.graph_config.fanout + dcoord
+        check_bounds = np.less(child_coords, layer_boundaries)
+        if np.all(check_bounds):
+            children_coords.append(child_coords)
+    return children_coords
+
+
+def _post_task_completion(imanager: IngestionManager, layer: int, coords: np.ndarray):
+    chunk_str = "_".join(map(str, coords))
+    # remove from queued hash and put in completed hash
+    imanager.redis.hdel(f"{layer}q", chunk_str)
+    imanager.redis.hset(f"{layer}c", chunk_str, "")
+
+    parent_layer = layer + 1
+    if parent_layer > imanager.chunkedgraph_meta.layer_count:
+        return
+
+    parent_coords = (
+        np.array(coords, int) // imanager.chunkedgraph_meta.graph_config.fanout
+    )
+    parent_chunk_str = "_".join(map(str, parent_coords))
+    if not imanager.redis.hget(parent_layer, parent_chunk_str):
+        children_count = len(
+            _get_children_coords(
+                imanager.chunkedgraph_meta, parent_layer, parent_coords
+            )
+        )
+        imanager.redis.hset(parent_layer, parent_chunk_str, children_count)
+    imanager.redis.hincrby(parent_layer, parent_chunk_str, -1)
+    children_left = int(
+        imanager.redis.hget(parent_layer, parent_chunk_str).decode("utf-8")
+    )
+
+    if children_left == 0:
+        parents_queue = imanager.get_task_queue(imanager.config.parents_q_name)
+        parents_queue.enqueue(
+            _create_parent_chunk,
+            job_id=chunk_id_str(parent_layer, parent_coords),
+            job_timeout="59m",
+            result_ttl=0,
+            args=(
+                imanager.get_serialized_info(),
+                parent_layer,
+                parent_coords,
+                _get_children_coords(
+                    imanager.chunkedgraph_meta, parent_layer, parent_coords
+                ),
+            ),
+        )
+        imanager.redis.hdel(parent_layer, parent_chunk_str)
+        imanager.redis.hset(f"{parent_layer}q", parent_chunk_str, "")
+
+
+def _create_parent_chunk(im_info, layer, parent_coords, child_chunk_coords):
+    imanager = IngestionManager(**im_info)
+    add_layer(imanager.cg, layer, parent_coords, child_chunk_coords)
+    _post_task_completion(imanager, layer, parent_coords)
+
+
+def enqueue_atomic_tasks(
+    imanager: IngestionManager, batch_size: int = 50000, interval: float = 300.0
+):
+    atomic_chunk_bounds = imanager.chunkedgraph_meta.layer_chunk_bounds[2]
+    chunk_coords = list(product(*[range(r) for r in atomic_chunk_bounds]))
+    np.random.shuffle(chunk_coords)
+
+    for chunk_coord in chunk_coords:
+        atomic_queue = imanager.get_task_queue(imanager.config.atomic_q_name)
+        # for optimal use of redis memory wait if queue limit is reached
+        if len(atomic_queue) > imanager.config.atomic_q_limit:
+            print(f"Sleeping {imanager.config.atomic_q_interval}s...")
+            time.sleep(imanager.config.atomic_q_interval)
+        atomic_queue.enqueue(
+            _create_atomic_chunk,
+            job_id=chunk_id_str(2, chunk_coord),
+            job_timeout="59m",
+            result_ttl=0,
+            args=(imanager.get_serialized_info(), chunk_coord),
+        )
+
+
+def _create_atomic_chunk(im_info, coord):
+    """ Creates single atomic chunk"""
+    imanager = IngestionManager(**im_info)
+    coord = np.array(list(coord), dtype=np.int)
+    chunk_edges_all, mapping = _get_chunk_data(imanager, coord)
+    chunk_edges_active, isolated_ids = _get_active_edges(
+        imanager, coord, chunk_edges_all, mapping
+    )
+    add_atomic_edges(imanager.cg, coord, chunk_edges_active, isolated=isolated_ids)
+    _post_task_completion(imanager, 2, coord)
+
+
+def _get_chunk_data(imanager, coord) -> Tuple[Dict, Dict]:
     """
-    storage_path = storage_path.strip("/")
-    ws_cv_path = ws_cv_path.strip("/")
-
-    cg_mesh_dir = f"{cg_table_id}_meshes"
-    chunk_size = np.array(chunk_size, dtype=np.uint64)
-
-    _, n_layers_agg = iu.initialize_chunkedgraph(cg_table_id=cg_table_id,
-                                                 ws_cv_path=ws_cv_path,
-                                                 chunk_size=chunk_size,
-                                                 size=size,
-                                                 use_skip_connections=use_skip_connections,
-                                                 s_bits_atomic_layer=s_bits_atomic_layer,
-                                                 cg_mesh_dir=cg_mesh_dir,
-                                                 fan_out=fan_out,
-                                                 instance_id=instance_id,
-                                                 project_id=project_id)
-
-    im = ingestionmanager.IngestionManager(storage_path=storage_path,
-                                           cg_table_id=cg_table_id,
-                                           n_layers=n_layers_agg,
-                                           instance_id=instance_id,
-                                           project_id=project_id)
-
-    # #TODO: Remove later:
-    # logging.basicConfig(level=logging.DEBUG)
-    # im.cg.logger = logging.getLogger(__name__)
-    # ------------------------------------------
-    if start_layer < 3:
-        create_atomic_chunks(im, aff_dtype=aff_dtype, n_threads=n_threads[0])
-
-    create_abstract_layers(im, n_threads=n_threads[1], start_layer=start_layer)
-
-    return im
-
-
-def create_abstract_layers(im, start_layer=3, n_threads=1):
-    """ Creates abstract of chunkedgraph (> 2)
-
-    :param im: IngestionManager
-    :param n_threads: int
-        number of threads to use
-    :return:
+    Helper to read either raw data or processed data
+    If reading from raw data, save it as processed data
     """
-    if start_layer < 3:
-        start_layer = 3
-
-    assert start_layer < int(im.cg.n_layers + 1)
-
-    for layer_id in range(start_layer, int(im.cg.n_layers + 1)):
-        create_layer(im, layer_id, n_threads=n_threads)
-
-
-def create_layer(im, layer_id, block_size=100, n_threads=1):
-    """ Creates abstract layer of chunkedgraph
-
-    Abstract layers have to be build in sequence. Abstract layers are all layers
-    above the first layer (1). `create_atomic_chunks` creates layer 2 as well.
-    Hence, this function is responsible for every creating layers > 2.
-
-    :param im: IngestionManager
-    :param layer_id: int
-        > 2
-    :param n_threads: int
-        number of threads to use
-    :return:
-    """
-    assert layer_id > 2
-
-    child_chunk_coords = im.chunk_coords // im.cg.fan_out ** (layer_id - 3)
-    child_chunk_coords = child_chunk_coords.astype(np.int)
-    child_chunk_coords = np.unique(child_chunk_coords, axis=0)
-
-    parent_chunk_coords = child_chunk_coords // im.cg.fan_out
-    parent_chunk_coords = parent_chunk_coords.astype(np.int)
-    parent_chunk_coords, inds = np.unique(parent_chunk_coords, axis=0,
-                                          return_inverse=True)
-
-    im_info = im.get_serialized_info()
-    multi_args = []
-
-    # Randomize chunks
-    order = np.arange(len(parent_chunk_coords), dtype=np.int)
-    np.random.shuffle(order)
-
-    # Block chunks
-    block_size = min(block_size, int(np.ceil(len(order) / n_threads / 3)))
-    n_blocks = int(len(order) / block_size)
-    blocks = np.array_split(order, n_blocks)
-
-    for i_block, block in enumerate(blocks):
-        chunks = []
-        for idx in block:
-            chunks.append(child_chunk_coords[inds == idx])
-
-        multi_args.append([im_info, layer_id, len(order), n_blocks, i_block,
-                           chunks])
-
-    if n_threads == 1:
-        mu.multiprocess_func(
-            _create_layers, multi_args, n_threads=n_threads,
-            verbose=True, debug=n_threads == 1)
-    else:
-        mu.multisubprocess_func(_create_layers, multi_args, n_threads=n_threads,
-                                suffix=f"{layer_id}")
+    chunk_edges = (
+        _read_raw_edge_data(imanager, coord)
+        if imanager.chunkedgraph_meta.data_source.use_raw_edges
+        else get_chunk_edges(imanager.chunkedgraph_meta.data_source.edges, [coord])
+    )
+    mapping = (
+        _read_raw_agglomeration_data(imanager, coord)
+        if imanager.chunkedgraph_meta.data_source.use_raw_components
+        else get_chunk_components(
+            imanager.chunkedgraph_meta.data_source.components, coord
+        )
+    )
+    return chunk_edges, mapping
 
 
-def _create_layers(args):
-    """ Multiprocessing helper for create_layer """
-    im_info, layer_id, n_chunks, n_blocks, i_block, chunks = args
-    im = ingestionmanager.IngestionManager(**im_info)
+def _read_raw_edge_data(imanager, coord) -> Dict:
+    edge_dict = _collect_edge_data(imanager, coord)
+    edge_dict = postprocess_edge_data(imanager, edge_dict)
 
-    for i_chunk, child_chunk_coords in enumerate(chunks):
-        time_start = time.time()
+    # flag to check if chunk has edges
+    # avoid writing to cloud storage if there are no edges
+    # unnecessary write operation
+    no_edges = True
+    chunk_edges = {}
+    for edge_type in EDGE_TYPES:
+        sv_ids1 = edge_dict[edge_type]["sv1"]
+        sv_ids2 = edge_dict[edge_type]["sv2"]
+        areas = np.ones(len(sv_ids1))
+        affinities = float("inf") * areas
+        if not edge_type == EDGE_TYPES.cross_chunk:
+            affinities = edge_dict[edge_type]["aff"]
+            areas = edge_dict[edge_type]["area"]
 
-        im.cg.add_layer(layer_id, child_chunk_coords, n_threads=8, verbose=True)
-
-        print(f"Layer {layer_id} - Job {i_block + 1} / {n_blocks} - "
-              f"{i_chunk + 1} / {len(chunks)} -- %.3fs" %
-              (time.time() - time_start))
-
-
-def create_atomic_chunks(im, aff_dtype=np.float32, n_threads=1, block_size=100):
-    """ Creates all atomic chunks
-
-    :param im: IngestionManager
-    :param aff_dtype: np.dtype
-        affinity datatype (np.float32 or np.float64)
-    :param n_threads: int
-        number of threads to use
-    :return:
-    """
-
-    im_info = im.get_serialized_info()
-
-    multi_args = []
-
-    # Randomize chunk order
-    chunk_coords = list(im.chunk_coord_gen)
-    order = np.arange(len(chunk_coords), dtype=np.int)
-    np.random.shuffle(order)
-
-    # Block chunks
-    block_size = min(block_size, int(np.ceil(len(chunk_coords) / n_threads / 3)))
-    n_blocks = int(len(chunk_coords) / block_size)
-    blocks = np.array_split(order, n_blocks)
-
-    for i_block, block in enumerate(blocks):
-        chunks = []
-        for b_idx in block:
-            chunks.append(chunk_coords[b_idx])
-
-        multi_args.append([im_info, aff_dtype, n_blocks, i_block, chunks])
-
-    if n_threads == 1:
-        mu.multiprocess_func(
-            _create_atomic_chunk, multi_args, n_threads=n_threads,
-            verbose=True, debug=n_threads == 1)
-    else:
-        mu.multisubprocess_func(
-            _create_atomic_chunk, multi_args, n_threads=n_threads)
+        chunk_edges[edge_type] = Edges(
+            sv_ids1, sv_ids2, affinities=affinities, areas=areas
+        )
+        no_edges = no_edges and not sv_ids1.size
+    if no_edges:
+        return chunk_edges
+    put_chunk_edges(
+        imanager.chunkedgraph_meta.data_source.edges, coord, chunk_edges, 17
+    )
+    return chunk_edges
 
 
-def _create_atomic_chunk(args):
-    """ Multiprocessing helper for create_atomic_chunks """
-    im_info, aff_dtype, n_blocks, i_block, chunks = args
-    im = ingestionmanager.IngestionManager(**im_info)
+def _get_active_edges(imanager, coord, edges_d, mapping):
+    active_edges_flag_d, isolated_ids = _define_active_edges(edges_d, mapping)
+    chunk_edges_active = {}
+    pseudo_isolated_ids = [isolated_ids]
+    for edge_type in EDGE_TYPES:
+        edges = edges_d[edge_type]
 
-    for i_chunk, chunk_coord in enumerate(chunks):
-        time_start = time.time()
+        active = (
+            np.ones(len(edges), dtype=bool)
+            if edge_type == EDGE_TYPES.cross_chunk
+            else active_edges_flag_d[edge_type]
+        )
 
-        create_atomic_chunk(im, chunk_coord, aff_dtype=aff_dtype, verbose=True)
+        sv_ids1 = edges.node_ids1[active]
+        sv_ids2 = edges.node_ids2[active]
+        affinities = edges.affinities[active]
+        areas = edges.areas[active]
+        chunk_edges_active[edge_type] = Edges(
+            sv_ids1, sv_ids2, affinities=affinities, areas=areas
+        )
+        # assume all ids within the chunk are isolated
+        # to make sure all end up in connected components
+        pseudo_isolated_ids.append(edges.node_ids1)
+        if edge_type == EDGE_TYPES.in_chunk:
+            pseudo_isolated_ids.append(edges.node_ids2)
 
-        print(f"Layer 1 - {chunk_coord} - Job {i_block + 1} / {n_blocks} - "
-              f"{i_chunk + 1} / {len(chunks)} -- %.3fs" %
-              (time.time() - time_start))
-
-
-def create_atomic_chunk(im, chunk_coord, aff_dtype=np.float32, verbose=True):
-    """ Creates single atomic chunk
-
-    :param im: IngestionManager
-    :param chunk_coord: np.ndarray
-        array of three ints
-    :param aff_dtype: np.dtype
-        np.float64 or np.float32
-    :param verbose: bool
-    :return:
-    """
-    chunk_coord = np.array(list(chunk_coord), dtype=np.int)
-
-    edge_dict = collect_edge_data(im, chunk_coord, aff_dtype=aff_dtype)
-    mapping = collect_agglomeration_data(im, chunk_coord)
-    active_edge_dict, isolated_ids = define_active_edges(edge_dict, mapping)
-
-    edge_ids = {}
-    edge_affs = {}
-    edge_areas = {}
-
-    for k in edge_dict.keys():
-        if k == "cross":
-            edge_ids[k] = np.concatenate([edge_dict[k]["sv1"][:, None],
-                                          edge_dict[k]["sv2"][:, None]],
-                                         axis=1)
-            continue
-
-        sv1_conn = edge_dict[k]["sv1"][active_edge_dict[k]]
-        sv2_conn = edge_dict[k]["sv2"][active_edge_dict[k]]
-        aff_conn = edge_dict[k]["aff"][active_edge_dict[k]]
-        area_conn = edge_dict[k]["area"][active_edge_dict[k]]
-        edge_ids[f"{k}_connected"] = np.concatenate([sv1_conn[:, None],
-                                                     sv2_conn[:, None]],
-                                                    axis=1)
-        edge_affs[f"{k}_connected"] = aff_conn.astype(np.float32)
-        edge_areas[f"{k}_connected"] = area_conn
-
-        sv1_disconn = edge_dict[k]["sv1"][~active_edge_dict[k]]
-        sv2_disconn = edge_dict[k]["sv2"][~active_edge_dict[k]]
-        aff_disconn = edge_dict[k]["aff"][~active_edge_dict[k]]
-        area_disconn = edge_dict[k]["area"][~active_edge_dict[k]]
-        edge_ids[f"{k}_disconnected"] = np.concatenate([sv1_disconn[:, None],
-                                                        sv2_disconn[:, None]],
-                                                       axis=1)
-        edge_affs[f"{k}_disconnected"] = aff_disconn.astype(np.float32)
-        edge_areas[f"{k}_disconnected"] = area_disconn
-
-    im.cg.add_atomic_edges_in_chunks(edge_ids, edge_affs, edge_areas,
-                                     isolated_node_ids=isolated_ids)
-
-    return edge_ids, edge_affs, edge_areas
+    return chunk_edges_active, np.unique(np.concatenate(pseudo_isolated_ids))
 
 
-def _get_cont_chunk_coords(im, chunk_coord_a, chunk_coord_b):
+def _get_cont_chunk_coords(imanager, chunk_coord_a, chunk_coord_b):
     """ Computes chunk coordinates that compute data between the named chunks
-
-    :param im: IngestionManagaer
+    :param imanager: IngestionManagaer
     :param chunk_coord_a: np.ndarray
         array of three ints
     :param chunk_coord_b: np.ndarray
         array of three ints
     :return: np.ndarray
     """
-
     diff = chunk_coord_a - chunk_coord_b
-
     dir_dim = np.where(diff != 0)[0]
     assert len(dir_dim) == 1
     dir_dim = dir_dim[0]
 
-    if diff[dir_dim] > 0:
-        chunk_coord_l = chunk_coord_a
-    else:
-        chunk_coord_l = chunk_coord_b
-
+    chunk_coord_l = chunk_coord_a if diff[dir_dim] > 0 else chunk_coord_b
     c_chunk_coords = []
-    for dx in [-1, 0]:
-        for dy in [-1, 0]:
-            for dz in [-1, 0]:
-                if dz == dy == dx == 0:
-                    continue
+    for dx, dy, dz in product([0, -1], [0, -1], [0, -1]):
+        if dz == dy == dx == 0:
+            continue
+        if [dx, dy, dz][dir_dim] == 0:
+            continue
 
-                c_chunk_coord = chunk_coord_l + np.array([dx, dy, dz])
-
-                if [dx, dy, dz][dir_dim] == 0:
-                    continue
-
-                if im.is_out_of_bounce(c_chunk_coord):
-                    continue
-
-                c_chunk_coords.append(c_chunk_coord)
-
+        c_chunk_coord = chunk_coord_l + np.array([dx, dy, dz])
+        if imanager.chunkedgraph_meta.is_out_of_bounds(c_chunk_coord):
+            continue
+        c_chunk_coords.append(c_chunk_coord)
     return c_chunk_coords
 
 
-def collect_edge_data(im, chunk_coord, aff_dtype=np.float32):
+def _collect_edge_data(imanager, chunk_coord):
     """ Loads edge for single chunk
-
-    :param im: IngestionManager
+    :param imanager: IngestionManager
     :param chunk_coord: np.ndarray
         array of three ints
     :param aff_dtype: np.dtype
+    :param v3_data: bool
     :return: dict of np.ndarrays
     """
     subfolder = "chunked_rg"
-
-    base_path = f"{im.storage_path}/{subfolder}/"
-
+    base_path = f"{imanager.chunkedgraph_meta.data_source.agglomeration}/{subfolder}/"
     chunk_coord = np.array(chunk_coord)
+    x, y, z = chunk_coord
+    chunk_id = compute_chunk_id(layer=1, x=x, y=y, z=z)
 
-    chunk_id = im.cg.get_chunk_id(layer=1, x=chunk_coord[0], y=chunk_coord[1],
-                                  z=chunk_coord[2])
-
-    filenames = collections.defaultdict(list)
-    swap = collections.defaultdict(list)
-    for x in [chunk_coord[0] - 1, chunk_coord[0]]:
-        for y in [chunk_coord[1] - 1, chunk_coord[1]]:
-            for z in [chunk_coord[2] - 1, chunk_coord[2]]:
-
-                if im.is_out_of_bounce(np.array([x, y, z])):
-                    continue
-
-                # EDGES WITHIN CHUNKS
-                filename = f"in_chunk_0_{x}_{y}_{z}_{chunk_id}.data"
-                filenames["in"].append(filename)
+    filenames = defaultdict(list)
+    swap = defaultdict(list)
+    x, y, z = chunk_coord
+    for _x, _y, _z in product([x - 1, x], [y - 1, y], [z - 1, z]):
+        if imanager.chunkedgraph_meta.is_out_of_bounds(np.array([_x, _y, _z])):
+            continue
+        filename = f"in_chunk_0_{_x}_{_y}_{_z}_{chunk_id}.data"
+        filenames["in"].append(filename)
 
     for d in [-1, 1]:
         for dim in range(3):
             diff = np.zeros([3], dtype=np.int)
             diff[dim] = d
-
             adjacent_chunk_coord = chunk_coord + diff
-            adjacent_chunk_id = im.cg.get_chunk_id(layer=1,
-                                                   x=adjacent_chunk_coord[0],
-                                                   y=adjacent_chunk_coord[1],
-                                                   z=adjacent_chunk_coord[2])
+            x, y, z = adjacent_chunk_coord
+            adjacent_chunk_id = compute_chunk_id(layer=1, x=x, y=y, z=z)
 
-            if im.is_out_of_bounce(adjacent_chunk_coord):
+            if imanager.chunkedgraph_meta.is_out_of_bounds(adjacent_chunk_coord):
                 continue
-
-            c_chunk_coords = _get_cont_chunk_coords(im, chunk_coord,
-                                                    adjacent_chunk_coord)
+            c_chunk_coords = _get_cont_chunk_coords(
+                imanager, chunk_coord, adjacent_chunk_coord
+            )
 
             larger_id = np.max([chunk_id, adjacent_chunk_id])
             smaller_id = np.min([chunk_id, adjacent_chunk_id])
@@ -371,71 +289,44 @@ def collect_edge_data(im, chunk_coord, aff_dtype=np.float32):
 
             for c_chunk_coord in c_chunk_coords:
                 x, y, z = c_chunk_coord
-
-                # EDGES BETWEEN CHUNKS
                 filename = f"between_chunks_0_{x}_{y}_{z}_{chunk_id_string}.data"
                 filenames["between"].append(filename)
-
                 swap[filename] = larger_id == chunk_id
 
                 # EDGES FROM CUTS OF SVS
                 filename = f"fake_0_{x}_{y}_{z}_{chunk_id_string}.data"
                 filenames["cross"].append(filename)
-
                 swap[filename] = larger_id == chunk_id
 
     edge_data = {}
-    read_counter = collections.Counter()
-
-    dtype = [("sv1", np.uint64), ("sv2", np.uint64),
-             ("aff", aff_dtype), ("area", np.uint64)]
+    read_counter = Counter()
     for k in filenames:
-        # print(k, len(filenames[k]))
-
         with cloudvolume.Storage(base_path, n_threads=10) as stor:
             files = stor.get_files(filenames[k])
-
         data = []
         for file in files:
-            if file["content"] is None:
-                # print(f"{file['filename']} not created or empty")
+            if file["error"] or file["content"] is None:
                 continue
 
-            if file["error"] is not None:
-                # print(f"error reading {file['filename']}")
-                continue
-
+            edge_dtype = imanager.chunkedgraph_meta.edge_dtype
             if swap[file["filename"]]:
-                this_dtype = [dtype[1], dtype[0], dtype[2], dtype[3]]
+                this_dtype = [edge_dtype[1], edge_dtype[0]] + edge_dtype[2:]
                 content = np.frombuffer(file["content"], dtype=this_dtype)
             else:
-                content = np.frombuffer(file["content"], dtype=dtype)
+                content = np.frombuffer(file["content"], dtype=edge_dtype)
 
             data.append(content)
-
             read_counter[k] += 1
-
         try:
             edge_data[k] = rfn.stack_arrays(data, usemask=False)
         except:
-            raise()
+            raise ValueError()
 
         edge_data_df = pd.DataFrame(edge_data[k])
-        edge_data_dfg = edge_data_df.groupby(["sv1", "sv2"]).aggregate(np.sum).reset_index()
+        edge_data_dfg = (
+            edge_data_df.groupby(["sv1", "sv2"]).aggregate(np.sum).reset_index()
+        )
         edge_data[k] = edge_data_dfg.to_records()
-
-    # # TEST
-    # with cloudvolume.Storage(base_path, n_threads=10) as stor:
-    #     files = list(stor.list_files())
-    #
-    # true_counter = collections.Counter()
-    # for file in files:
-    #     if str(chunk_id) in file:
-    #         true_counter[file.split("_")[0]] += 1
-    #
-    # print("Truth", true_counter)
-    # print("Reality", read_counter)
-
     return edge_data
 
 
@@ -445,36 +336,25 @@ def _read_agg_files(filenames, base_path):
 
     edge_list = []
     for file in files:
-        if file["content"] is None:
+        if file["error"] or file["content"] is None:
             continue
-
-        if file["error"] is not None:
-            continue
-
         content = zstd.ZstdDecompressor().decompressobj().decompress(file["content"])
-        edge_list.append(np.frombuffer(content, dtype=np.uint64).reshape(-1, 2))
-
+        edge_list.append(np.frombuffer(content, dtype=basetypes.NODE_ID).reshape(-1, 2))
     return edge_list
 
 
-def collect_agglomeration_data(im, chunk_coord):
-    """ Collects agglomeration information & builds connected component mapping
-
-    :param im: IngestionManager
-    :param chunk_coord: np.ndarray
-        array of three ints
-    :return: dictionary
+def _read_raw_agglomeration_data(imanager, chunk_coord: np.ndarray):
+    """
+    Collects agglomeration information & builds connected component mapping
     """
     subfolder = "remap"
-    base_path = f"{im.storage_path}/{subfolder}/"
-
+    base_path = f"{imanager.chunkedgraph_meta.data_source.agglomeration}/{subfolder}/"
     chunk_coord = np.array(chunk_coord)
-
-    chunk_id = im.cg.get_chunk_id(layer=1, x=chunk_coord[0], y=chunk_coord[1],
-                                  z=chunk_coord[2])
+    x, y, z = chunk_coord
+    chunk_id = compute_chunk_id(layer=1, x=x, y=y, z=z)
 
     filenames = []
-    for mip_level in range(0, int(im.n_layers - 1)):
+    for mip_level in range(0, int(imanager.chunkedgraph_meta.layer_count - 1)):
         x, y, z = np.array(chunk_coord / 2 ** mip_level, dtype=np.int)
         filenames.append(f"done_{mip_level}_{x}_{y}_{z}_{chunk_id}.data.zst")
 
@@ -482,75 +362,57 @@ def collect_agglomeration_data(im, chunk_coord):
         for dim in range(3):
             diff = np.zeros([3], dtype=np.int)
             diff[dim] = d
-
             adjacent_chunk_coord = chunk_coord + diff
+            x, y, z = adjacent_chunk_coord
+            adjacent_chunk_id = compute_chunk_id(layer=1, x=x, y=y, z=z)
 
-            adjacent_chunk_id = im.cg.get_chunk_id(layer=1,
-                                                   x=adjacent_chunk_coord[0],
-                                                   y=adjacent_chunk_coord[1],
-                                                   z=adjacent_chunk_coord[2])
-
-            for mip_level in range(0, int(im.n_layers - 1)):
+            for mip_level in range(0, int(imanager.chunkedgraph_meta.layer_count - 1)):
                 x, y, z = np.array(adjacent_chunk_coord / 2 ** mip_level, dtype=np.int)
-                filenames.append(f"done_{mip_level}_{x}_{y}_{z}_{adjacent_chunk_id}.data.zst")
+                filenames.append(
+                    f"done_{mip_level}_{x}_{y}_{z}_{adjacent_chunk_id}.data.zst"
+                )
 
-    # print(filenames)
-    edge_list = _read_agg_files(filenames, base_path)
-
-    edges = np.concatenate(edge_list)
-
+    edges_list = _read_agg_files(filenames, base_path)
     G = nx.Graph()
-    G.add_edges_from(edges)
-    ccs = nx.connected_components(G)
-
+    G.add_edges_from(np.concatenate(edges_list))
     mapping = {}
-    for i_cc, cc in enumerate(ccs):
+    components = list(nx.connected_components(G))
+    for i_cc, cc in enumerate(components):
         cc = list(cc)
         mapping.update(dict(zip(cc, [i_cc] * len(cc))))
 
+    if mapping:
+        put_chunk_components(
+            imanager.chunkedgraph_meta.data_source.components, components, chunk_coord
+        )
     return mapping
 
 
-def define_active_edges(edge_dict, mapping):
+def _define_active_edges(edge_dict, mapping):
     """ Labels edges as within or across segments and extracts isolated ids
-
-    :param edge_dict: dict of np.ndarrays
-    :param mapping: dict
     :return: dict of np.ndarrays, np.ndarray
         bool arrays; True: connected (within same segment)
         isolated node ids
     """
-    def _mapping_default(key):
-        if key in mapping:
-            return mapping[key]
-        else:
-            return -1
-
-    mapping_vec = np.vectorize(_mapping_default)
-
+    mapping_vec = np.vectorize(lambda k: mapping.get(k, -1))
     active = {}
     isolated = [[]]
     for k in edge_dict:
-        if len(edge_dict[k]["sv1"]) > 0:
-            agg_id_1 = mapping_vec(edge_dict[k]["sv1"])
+        if len(edge_dict[k].node_ids1) > 0:
+            agg_id_1 = mapping_vec(edge_dict[k].node_ids1)
         else:
-            assert len(edge_dict[k]["sv2"]) == 0
+            assert len(edge_dict[k].node_ids2) == 0
             active[k] = np.array([], dtype=np.bool)
             continue
 
-        agg_id_2 = mapping_vec(edge_dict[k]["sv2"])
-
+        agg_id_2 = mapping_vec(edge_dict[k].node_ids2)
         active[k] = agg_id_1 == agg_id_2
-
         # Set those with two -1 to False
         agg_1_m = agg_id_1 == -1
         agg_2_m = agg_id_2 == -1
         active[k][agg_1_m] = False
 
-        isolated.append(edge_dict[k]["sv1"][agg_1_m])
-
+        isolated.append(edge_dict[k].node_ids1[agg_1_m])
         if k == "in":
-            isolated.append(edge_dict[k]["sv2"][agg_2_m])
-
-    return active, np.unique(np.concatenate(isolated).astype(np.uint64))
-
+            isolated.append(edge_dict[k].node_ids2[agg_2_m])
+    return active, np.unique(np.concatenate(isolated).astype(basetypes.NODE_ID))
