@@ -1,17 +1,39 @@
 from typing import Sequence
 from typing import Dict
 from typing import List
+from collections import namedtuple
 
 import numpy as np
 from cloudvolume import CloudVolume
 
-
 from .chunkedgraph_utils import compute_bitmasks
-from .definitions.config import DataSource
-from .definitions.config import GraphConfig
-from .definitions.config import BigTableConfig
 from .chunkedgraph_utils import log_n
 from .chunks.utils import get_chunks_boundary
+
+
+_datasource_fields = (
+    "agglomeration",
+    "watershed",
+    "edges",
+    "components",
+    "use_raw_edges",
+    "use_raw_components",
+    "data_version",
+)
+_datasource_defaults = (None, None, None, None, True, True, 2)
+DataSource = namedtuple("DataSource", _datasource_fields, defaults=_datasource_defaults)
+
+_graphconfig_fields = ("graph_id", "chunk_size", "fanout", "s_bits_atomic_layer")
+_graphconfig_defaults = (None, None, 2, 8)
+GraphConfig = namedtuple(
+    "GraphConfig", _graphconfig_fields, defaults=_graphconfig_defaults
+)
+
+_bigtableconfig_fields = ("project_id", "instance_id")
+_bigtableconfig_defaults = ("neuromancer-seung-import", "pychunkedgraph")
+BigTableConfig = namedtuple(
+    "BigTableConfig", _bigtableconfig_fields, defaults=_bigtableconfig_defaults
+)
 
 
 class ChunkedGraphMeta:

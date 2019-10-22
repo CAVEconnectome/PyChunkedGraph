@@ -33,101 +33,8 @@ from ..backend.edges import EDGE_TYPES
 from ..backend.chunks.utils import compute_chunk_id
 from ..backend.chunks.hierarchy import get_children_coords
 
-chunk_id_str = lambda layer, coords: f"{layer}_{'_'.join(map(str, coords))}"
 
-
-def _post_task_completion(imanager: IngestionManager, layer: int, coords: np.ndarray):
-    chunk_str = "_".join(map(str, coords))
-    # remove from queued hash and put in completed hash
-    imanager.redis.hdel(f"{layer}q", chunk_str)
-    imanager.redis.hset(f"{layer}c", chunk_str, "")
-
-    parent_layer = layer + 1
-    if parent_layer > imanager.chunkedgraph_meta.layer_count:
-        return
-
-    parent_coords = (
-        np.array(coords, int) // imanager.chunkedgraph_meta.graph_config.fanout
-    )
-    parent_chunk_str = "_".join(map(str, parent_coords))
-    if not imanager.redis.hget(parent_layer, parent_chunk_str):
-        children_count = len(
-            get_children_coords(imanager.chunkedgraph_meta, parent_layer, parent_coords)
-        )
-        imanager.redis.hset(parent_layer, parent_chunk_str, children_count)
-    imanager.redis.hincrby(parent_layer, parent_chunk_str, -1)
-    children_left = int(
-        imanager.redis.hget(parent_layer, parent_chunk_str).decode("utf-8")
-    )
-
-    if children_left == 0:
-        imanager.cg.add_layer(
-            layer,
-            get_children_coords(
-                imanager.chunkedgraph_meta, parent_layer, parent_coords
-            ),
-        )
-        _post_task_completion(imanager, layer, parent_coords)
-
-        imanager.redis.hdel(parent_layer, parent_chunk_str)
-        imanager.redis.hset(f"{parent_layer}q", parent_chunk_str, "")
-
-
-def enqueue_atomic_tasks(
-    imanager: IngestionManager, batch_size: int = 50000, interval: float = 300.0
-):
-    atomic_chunk_bounds = imanager.chunkedgraph_meta.layer_chunk_bounds[2]
-    chunk_coords = list(product(*[range(r) for r in atomic_chunk_bounds]))
-    np.random.shuffle(chunk_coords)
-
-    for chunk_coord in chunk_coords:
-        atomic_queue = imanager.get_task_queue(imanager.config.atomic_q_name)
-        # for optimal use of redis memory wait if queue limit is reached
-        if len(atomic_queue) > imanager.config.atomic_q_limit:
-            print(f"Sleeping {imanager.config.atomic_q_interval}s...")
-            time.sleep(imanager.config.atomic_q_interval)
-        atomic_queue.enqueue(
-            _create_atomic_chunk,
-            job_id=chunk_id_str(2, chunk_coord),
-            job_timeout="59m",
-            result_ttl=0,
-            args=(imanager.get_serialized_info(), chunk_coord),
-        )
-
-
-def _create_atomic_chunk(im_info, coord):
-    """ Creates single atomic chunk"""
-    imanager = IngestionManager(**im_info)
-    coord = np.array(list(coord), dtype=np.int)
-    chunk_edges_all, mapping = _get_chunk_data(imanager, coord)
-    chunk_edges_active, isolated_ids = _get_active_edges(
-        imanager, coord, chunk_edges_all, mapping
-    )
-    add_atomic_edges(imanager.cg, coord, chunk_edges_active, isolated=isolated_ids)
-    _post_task_completion(imanager, 2, coord)
-
-
-def _get_chunk_data(imanager, coord) -> Tuple[Dict, Dict]:
-    """
-    Helper to read either raw data or processed data
-    If reading from raw data, save it as processed data
-    """
-    chunk_edges = (
-        _read_raw_edge_data(imanager, coord)
-        if imanager.chunkedgraph_meta.data_source.use_raw_edges
-        else get_chunk_edges(imanager.chunkedgraph_meta.data_source.edges, [coord])
-    )
-    mapping = (
-        _read_raw_agglomeration_data(imanager, coord)
-        if imanager.chunkedgraph_meta.data_source.use_raw_components
-        else get_chunk_components(
-            imanager.chunkedgraph_meta.data_source.components, coord
-        )
-    )
-    return chunk_edges, mapping
-
-
-def _read_raw_edge_data(imanager, coord) -> Dict:
+def read_raw_edge_data(imanager, coord) -> Dict:
     edge_dict = _collect_edge_data(imanager, coord)
     edge_dict = postprocess_edge_data(imanager, edge_dict)
 
@@ -155,35 +62,6 @@ def _read_raw_edge_data(imanager, coord) -> Dict:
         imanager.chunkedgraph_meta.data_source.edges, coord, chunk_edges, 17
     )
     return chunk_edges
-
-
-def _get_active_edges(imanager, coord, edges_d, mapping):
-    active_edges_flag_d, isolated_ids = _define_active_edges(edges_d, mapping)
-    chunk_edges_active = {}
-    pseudo_isolated_ids = [isolated_ids]
-    for edge_type in EDGE_TYPES:
-        edges = edges_d[edge_type]
-
-        active = (
-            np.ones(len(edges), dtype=bool)
-            if edge_type == EDGE_TYPES.cross_chunk
-            else active_edges_flag_d[edge_type]
-        )
-
-        sv_ids1 = edges.node_ids1[active]
-        sv_ids2 = edges.node_ids2[active]
-        affinities = edges.affinities[active]
-        areas = edges.areas[active]
-        chunk_edges_active[edge_type] = Edges(
-            sv_ids1, sv_ids2, affinities=affinities, areas=areas
-        )
-        # assume all ids within the chunk are isolated
-        # to make sure all end up in connected components
-        pseudo_isolated_ids.append(edges.node_ids1)
-        if edge_type == EDGE_TYPES.in_chunk:
-            pseudo_isolated_ids.append(edges.node_ids2)
-
-    return chunk_edges_active, np.unique(np.concatenate(pseudo_isolated_ids))
 
 
 def _get_cont_chunk_coords(imanager, chunk_coord_a, chunk_coord_b):
@@ -300,20 +178,66 @@ def _collect_edge_data(imanager, chunk_coord):
     return edge_data
 
 
-def _read_agg_files(filenames, base_path):
-    with cloudvolume.Storage(base_path, n_threads=10) as stor:
-        files = stor.get_files(filenames)
+def get_active_edges(imanager, coord, edges_d, mapping):
+    active_edges_flag_d, isolated_ids = _define_active_edges(edges_d, mapping)
+    chunk_edges_active = {}
+    pseudo_isolated_ids = [isolated_ids]
+    for edge_type in EDGE_TYPES:
+        edges = edges_d[edge_type]
 
-    edge_list = []
-    for file in files:
-        if file["error"] or file["content"] is None:
+        active = (
+            np.ones(len(edges), dtype=bool)
+            if edge_type == EDGE_TYPES.cross_chunk
+            else active_edges_flag_d[edge_type]
+        )
+
+        sv_ids1 = edges.node_ids1[active]
+        sv_ids2 = edges.node_ids2[active]
+        affinities = edges.affinities[active]
+        areas = edges.areas[active]
+        chunk_edges_active[edge_type] = Edges(
+            sv_ids1, sv_ids2, affinities=affinities, areas=areas
+        )
+        # assume all ids within the chunk are isolated
+        # to make sure all end up in connected components
+        pseudo_isolated_ids.append(edges.node_ids1)
+        if edge_type == EDGE_TYPES.in_chunk:
+            pseudo_isolated_ids.append(edges.node_ids2)
+
+    return chunk_edges_active, np.unique(np.concatenate(pseudo_isolated_ids))
+
+
+def _define_active_edges(edge_dict, mapping):
+    """ Labels edges as within or across segments and extracts isolated ids
+    :return: dict of np.ndarrays, np.ndarray
+        bool arrays; True: connected (within same segment)
+        isolated node ids
+    """
+    mapping_vec = np.vectorize(lambda k: mapping.get(k, -1))
+    active = {}
+    isolated = [[]]
+    for k in edge_dict:
+        if len(edge_dict[k].node_ids1) > 0:
+            agg_id_1 = mapping_vec(edge_dict[k].node_ids1)
+        else:
+            assert len(edge_dict[k].node_ids2) == 0
+            active[k] = np.array([], dtype=np.bool)
             continue
-        content = zstd.ZstdDecompressor().decompressobj().decompress(file["content"])
-        edge_list.append(np.frombuffer(content, dtype=basetypes.NODE_ID).reshape(-1, 2))
-    return edge_list
+
+        agg_id_2 = mapping_vec(edge_dict[k].node_ids2)
+        active[k] = agg_id_1 == agg_id_2
+        # Set those with two -1 to False
+        agg_1_m = agg_id_1 == -1
+        agg_2_m = agg_id_2 == -1
+        active[k][agg_1_m] = False
+
+        isolated.append(edge_dict[k].node_ids1[agg_1_m])
+        if k == EDGE_TYPES.in_chunk:
+            isolated.append(edge_dict[k].node_ids2[agg_2_m])
+    return active, np.unique(np.concatenate(isolated).astype(basetypes.NODE_ID))
 
 
-def _read_raw_agglomeration_data(imanager, chunk_coord: np.ndarray):
+def read_raw_agglomeration_data(imanager, chunk_coord: np.ndarray):
     """
     Collects agglomeration information & builds connected component mapping
     """
@@ -358,31 +282,14 @@ def _read_raw_agglomeration_data(imanager, chunk_coord: np.ndarray):
     return mapping
 
 
-def _define_active_edges(edge_dict, mapping):
-    """ Labels edges as within or across segments and extracts isolated ids
-    :return: dict of np.ndarrays, np.ndarray
-        bool arrays; True: connected (within same segment)
-        isolated node ids
-    """
-    mapping_vec = np.vectorize(lambda k: mapping.get(k, -1))
-    active = {}
-    isolated = [[]]
-    for k in edge_dict:
-        if len(edge_dict[k].node_ids1) > 0:
-            agg_id_1 = mapping_vec(edge_dict[k].node_ids1)
-        else:
-            assert len(edge_dict[k].node_ids2) == 0
-            active[k] = np.array([], dtype=np.bool)
+def _read_agg_files(filenames, base_path):
+    with cloudvolume.Storage(base_path, n_threads=10) as stor:
+        files = stor.get_files(filenames)
+
+    edge_list = []
+    for file in files:
+        if file["error"] or file["content"] is None:
             continue
-
-        agg_id_2 = mapping_vec(edge_dict[k].node_ids2)
-        active[k] = agg_id_1 == agg_id_2
-        # Set those with two -1 to False
-        agg_1_m = agg_id_1 == -1
-        agg_2_m = agg_id_2 == -1
-        active[k][agg_1_m] = False
-
-        isolated.append(edge_dict[k].node_ids1[agg_1_m])
-        if k == EDGE_TYPES.in_chunk:
-            isolated.append(edge_dict[k].node_ids2[agg_2_m])
-    return active, np.unique(np.concatenate(isolated).astype(basetypes.NODE_ID))
+        content = zstd.ZstdDecompressor().decompressobj().decompress(file["content"])
+        edge_list.append(np.frombuffer(content, dtype=basetypes.NODE_ID).reshape(-1, 2))
+    return edge_list
