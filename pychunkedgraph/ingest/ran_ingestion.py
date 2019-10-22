@@ -21,34 +21,19 @@ import zstandard as zstd
 from .ingestion_utils import postprocess_edge_data
 from .manager import IngestionManager
 
-from ..backend import ChunkedGraphMeta
 from ..io.edges import get_chunk_edges
 from ..io.edges import put_chunk_edges
 from ..io.components import get_chunk_components
 from ..io.components import put_chunk_components
+
+from ..backend import ChunkedGraphMeta
 from ..backend.utils import basetypes
 from ..backend.chunkedgraph_utils import compute_chunk_id
+from ..backend.chunks.hierarchy import get_children_coords
 from ..backend.definitions.edges import Edges
 from ..backend.definitions.edges import EDGE_TYPES
 
 chunk_id_str = lambda layer, coords: f"{layer}_{'_'.join(map(str, coords))}"
-
-
-def _get_children_coords(
-    cg_meta: ChunkedGraphMeta, layer: int, chunk_coords
-) -> np.ndarray:
-    chunk_coords = np.array(chunk_coords, dtype=int)
-    children_layer = layer - 1
-    layer_boundaries = cg_meta.layer_chunk_bounds[children_layer]
-    children_coords = []
-
-    for dcoord in product(*[range(cg_meta.graph_config.fanout)] * 3):
-        dcoord = np.array(dcoord, dtype=int)
-        child_coords = chunk_coords * cg_meta.graph_config.fanout + dcoord
-        check_bounds = np.less(child_coords, layer_boundaries)
-        if np.all(check_bounds):
-            children_coords.append(child_coords)
-    return children_coords
 
 
 def _post_task_completion(imanager: IngestionManager, layer: int, coords: np.ndarray):
@@ -67,9 +52,7 @@ def _post_task_completion(imanager: IngestionManager, layer: int, coords: np.nda
     parent_chunk_str = "_".join(map(str, parent_coords))
     if not imanager.redis.hget(parent_layer, parent_chunk_str):
         children_count = len(
-            _get_children_coords(
-                imanager.chunkedgraph_meta, parent_layer, parent_coords
-            )
+            get_children_coords(imanager.chunkedgraph_meta, parent_layer, parent_coords)
         )
         imanager.redis.hset(parent_layer, parent_chunk_str, children_count)
     imanager.redis.hincrby(parent_layer, parent_chunk_str, -1)
@@ -88,7 +71,7 @@ def _post_task_completion(imanager: IngestionManager, layer: int, coords: np.nda
                 imanager.get_serialized_info(),
                 parent_layer,
                 parent_coords,
-                _get_children_coords(
+                get_children_coords(
                     imanager.chunkedgraph_meta, parent_layer, parent_coords
                 ),
             ),
