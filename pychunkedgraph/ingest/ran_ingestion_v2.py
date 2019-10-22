@@ -118,16 +118,16 @@ def enqueue_atomic_tasks(
     np.random.shuffle(chunk_coords)
 
     # test chunks
-    chunk_coords = [
-        [26, 4, 10],
-        [26, 4, 11],
-        [26, 5, 10],
-        [26, 5, 11],
-        [27, 4, 10],
-        [27, 4, 11],
-        [27, 5, 10],
-        [27, 5, 11],
-    ]
+    # chunk_coords = [
+    #     [26, 4, 10],
+    #     [26, 4, 11],
+    #     [26, 5, 10],
+    #     [26, 5, 11],
+    #     [27, 4, 10],
+    #     [27, 4, 11],
+    #     [27, 5, 10],
+    #     [27, 5, 11],
+    # ]
 
     for chunk_coord in chunk_coords:
         atomic_queue = imanager.get_task_queue(imanager.config.atomic_q_name)
