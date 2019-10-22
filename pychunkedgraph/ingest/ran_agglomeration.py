@@ -1,5 +1,5 @@
 """
-Module for ingesting in chunkedgraph format with edges stored outside bigtable
+"plugin" to read agglomeration data provided by Ran Lu
 """
 
 import time
