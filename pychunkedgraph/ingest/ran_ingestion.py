@@ -61,29 +61,16 @@ def _post_task_completion(imanager: IngestionManager, layer: int, coords: np.nda
     )
 
     if children_left == 0:
-        parents_queue = imanager.get_task_queue(imanager.config.parents_q_name)
-        parents_queue.enqueue(
-            _create_parent_chunk,
-            job_id=chunk_id_str(parent_layer, parent_coords),
-            job_timeout="59m",
-            result_ttl=0,
-            args=(
-                imanager.get_serialized_info(),
-                parent_layer,
-                parent_coords,
-                get_children_coords(
-                    imanager.chunkedgraph_meta, parent_layer, parent_coords
-                ),
+        imanager.cg.add_layer(
+            layer,
+            get_children_coords(
+                imanager.chunkedgraph_meta, parent_layer, parent_coords
             ),
         )
+        _post_task_completion(imanager, layer, parent_coords)
+
         imanager.redis.hdel(parent_layer, parent_chunk_str)
         imanager.redis.hset(f"{parent_layer}q", parent_chunk_str, "")
-
-
-def _create_parent_chunk(im_info, layer, parent_coords, child_chunk_coords):
-    imanager = IngestionManager(**im_info)
-    add_layer(imanager.cg, layer, parent_coords, child_chunk_coords)
-    _post_task_completion(imanager, layer, parent_coords)
 
 
 def enqueue_atomic_tasks(
