@@ -19,7 +19,7 @@ import numpy.lib.recfunctions as rfn
 import zstandard as zstd
 
 from .ingestion_utils import postprocess_edge_data
-from .ingestionmanager import IngestionManager
+from .manager import IngestionManager
 
 from ..backend import ChunkedGraphMeta
 from ..io.edges import get_chunk_edges
