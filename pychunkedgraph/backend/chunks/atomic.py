@@ -74,13 +74,19 @@ def get_bounding_atomic_chunks(
     f = lambda range1, range2: product(range(*range1), range(*range2))
 
     atomic_chunks.extend([np.array([x1, d1, d2]) for d1, d2 in f((y1, y2), (z1, z2))])
-    atomic_chunks.extend([np.array([x2, d1, d2]) for d1, d2 in f((y1, y2), (z1, z2))])
+    atomic_chunks.extend(
+        [np.array([x2 - 1, d1, d2]) for d1, d2 in f((y1, y2), (z1, z2))]
+    )
 
     atomic_chunks.extend([np.array([d1, y1, d2]) for d1, d2 in f((x1, x2), (z1, z2))])
-    atomic_chunks.extend([np.array([d1, y2, d2]) for d1, d2 in f((x1, x2), (z1, z2))])
+    atomic_chunks.extend(
+        [np.array([d1, y2 - 1, d2]) for d1, d2 in f((x1, x2), (z1, z2))]
+    )
 
     atomic_chunks.extend([np.array([d1, d2, z1]) for d1, d2 in f((x1, x2), (y1, y2))])
-    atomic_chunks.extend([np.array([d1, d2, z2]) for d1, d2 in f((x1, x2), (y1, y2))])
+    atomic_chunks.extend(
+        [np.array([d1, d2, z2 - 1]) for d1, d2 in f((x1, x2), (y1, y2))]
+    )
 
     result = []
     for coords in atomic_chunks:
