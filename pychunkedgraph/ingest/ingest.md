@@ -4,6 +4,7 @@ The following is a simple example to create a chunked graph on a single machine.
 
 ### Example
 
+Run ingest with raw data.
 ```
 import numpy as np
 
@@ -50,3 +51,6 @@ if ingest_config.build_graph:
 meta = ChunkedGraphMeta(data_source, graph_config, bigtable_config)
 start_ingest(IngestionManager(ingest_config, meta))
 ```
+
+Raw data is processed and stored as edges and connected components per chunk for convenience.
+Data stored in `DataSource.edges` and `DataSource.components` can be reused for building chunkedgraphs for same dataset.
