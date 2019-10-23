@@ -1,13 +1,15 @@
 """
-Ingest / create chunkedgraph
+Ingest / create chunkedgraph on a single machine / instance
 """
 
 import time
+import multiprocessing as mp
 from itertools import product
 from typing import Dict
 from typing import Tuple
 
 import numpy as np
+from multiwrapper import multiprocessing_utils as mu
 
 from .manager import IngestionManager
 from .backward_compat import get_chunk_data as get_chunk_data_old_format

@@ -20,7 +20,7 @@ _datasource_fields = (
     "use_raw_components",
     "data_version",
 )
-_datasource_defaults = (None, None, None, None, True, True, 2)
+_datasource_defaults = (None, None, None, None, False, False, 2)
 DataSource = namedtuple("DataSource", _datasource_fields, defaults=_datasource_defaults)
 
 _graphconfig_fields = ("graph_id", "chunk_size", "fanout", "s_bits_atomic_layer")
