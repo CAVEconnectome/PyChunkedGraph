@@ -28,7 +28,7 @@ from pychunkedgraph.backend.edges import Edges
 
 in_chunk = [[1,2],[2,3],[0,2],[2,4]]
 between_chunk = [[1,5]]
-cross_chunk = [[3,4]]
+cross_chunk = [[3,6]]
 
 in_chunk_edges = Edges(in_chunk[:,0], in_chunk[:,1])
 between_chunk_edges = Edges(between_chunk[:,0], between_chunk[:,1])
