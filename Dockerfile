@@ -31,7 +31,7 @@ RUN mkdir -p /home/nginx/.cloudvolume/secrets \
   && apt-key adv --no-tty --keyserver hkp://keyserver.ubuntu.com --recv-key 612DEFB798507F25 \
   && apt-get update \
   && apt-get install -y python3-graph-tool \
-  && ln -s /usr/lib/python3/dist-packages/graph_tool /usr/local/lib/python3.6/site-packages/graph_tool \
+  && ln -s /usr/lib/python3/dist-packages/graph_tool /usr/local/lib/python3.7/site-packages/graph_tool \
   && pip install --no-cache-dir --upgrade scipy \
   # PYCHUNKEDGRAPH
   #   Need pip 18.1 for process-dependency-links flag support
