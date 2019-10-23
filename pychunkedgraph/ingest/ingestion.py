@@ -5,6 +5,8 @@ Ingest / create chunkedgraph on a single machine / instance
 import time
 import multiprocessing as mp
 from itertools import product
+from typing import List
+from typing import Sequence
 from typing import Dict
 from typing import Tuple
 
@@ -19,41 +21,43 @@ from .ran_agglomeration import get_active_edges
 from ..io.edges import get_chunk_edges
 from ..io.edges import put_chunk_edges
 from ..io.components import get_chunk_components
+from ..utils.general import chunked
 from ..backend.chunks.hierarchy import get_children_coords
 
 chunk_id_str = lambda layer, coords: f"{layer}_{'_'.join(map(str, coords))}"
 
 
-def enqueue_atomic_tasks(imanager: IngestionManager):
+def start_ingest(imanager: IngestionManager):
     atomic_chunk_bounds = imanager.chunkedgraph_meta.layer_chunk_bounds[2]
     chunk_coords = list(product(*[range(r) for r in atomic_chunk_bounds]))
     np.random.shuffle(chunk_coords)
 
-    for chunk_coord in chunk_coords:
-        atomic_queue = imanager.get_task_queue(imanager.config.atomic_q_name)
-        # for optimal use of redis memory wait if queue limit is reached
-        if len(atomic_queue) > imanager.config.atomic_q_limit:
-            print(f"Sleeping {imanager.config.atomic_q_interval}s...")
-            time.sleep(imanager.config.atomic_q_interval)
-        atomic_queue.enqueue(
-            _create_atomic_chunk,
-            job_id=chunk_id_str(2, chunk_coord),
-            job_timeout="59m",
-            result_ttl=0,
-            args=(imanager.get_serialized_info(), chunk_coord),
+    with mp.Manager() as manager:
+        parent_children_count_d_shared = manager.dict()
+        jobs = chunked(chunk_coords, len(chunk_coords) // mp.cpu_count())
+        multi_args = []
+        for job in jobs:
+            multi_args.append(
+                (parent_children_count_d_shared, imanager.get_serialized_info(), job)
+            )
+        mu.multiprocess_func(
+            _create_atomic_chunks_helper,
+            multi_args,
+            n_threads=min(len(multi_args), mp.cpu_count()),
         )
 
 
-def _create_atomic_chunk(im_info, coord):
-    """ Creates single atomic chunk"""
+def _create_atomic_chunks_helper(args):
+    """ helper to start atomic tasks """
+    parent_children_count_d_shared, im_info, chunk_coords = args
     imanager = IngestionManager(**im_info)
-    coord = np.array(list(coord), dtype=np.int)
-    chunk_edges_all, mapping = _get_atomic_chunk_data(imanager, coord)
+    for chunk_coord in chunk_coords:
+        chunk_coord = np.array(list(chunk_coord), dtype=np.int)
+        chunk_edges_all, mapping = _get_atomic_chunk_data(imanager, chunk_coord)
 
-    ids, affs, areas, isolated = get_chunk_data_old_format(chunk_edges_all, mapping)
-    imanager.cg.add_atomic_edges_in_chunks(ids, affs, areas, isolated)
-
-    _post_task_completion(imanager, 2, coord)
+        ids, affs, areas, isolated = get_chunk_data_old_format(chunk_edges_all, mapping)
+        imanager.cg.add_atomic_edges_in_chunks(ids, affs, areas, isolated)
+        _post_task_completion(parent_children_count_d_shared, imanager, 2, chunk_coord)
 
 
 def _get_atomic_chunk_data(imanager: IngestionManager, coord) -> Tuple[Dict, Dict]:
@@ -76,12 +80,12 @@ def _get_atomic_chunk_data(imanager: IngestionManager, coord) -> Tuple[Dict, Dic
     return chunk_edges, mapping
 
 
-def _post_task_completion(imanager: IngestionManager, layer: int, coords: np.ndarray):
-    chunk_str = "_".join(map(str, coords))
-    # remove from queued hash and put in completed hash
-    imanager.redis.hdel(f"{layer}q", chunk_str)
-    imanager.redis.hset(f"{layer}c", chunk_str, "")
-
+def _post_task_completion(
+    parent_children_count_d_shared: Dict,
+    imanager: IngestionManager,
+    layer: int,
+    coords: np.ndarray,
+):
     parent_layer = layer + 1
     if parent_layer > imanager.chunkedgraph_meta.layer_count:
         return
@@ -89,25 +93,24 @@ def _post_task_completion(imanager: IngestionManager, layer: int, coords: np.nda
     parent_coords = (
         np.array(coords, int) // imanager.chunkedgraph_meta.graph_config.fanout
     )
-    parent_chunk_str = "_".join(map(str, parent_coords))
-    if not imanager.redis.hget(parent_layer, parent_chunk_str):
+    parent_chunk_str = chunk_id_str(parent_layer, parent_coords)
+
+    if not parent_chunk_str in parent_children_count_d_shared:
         children_count = len(
             get_children_coords(imanager.chunkedgraph_meta, parent_layer, parent_coords)
         )
-        imanager.redis.hset(parent_layer, parent_chunk_str, children_count)
-    imanager.redis.hincrby(parent_layer, parent_chunk_str, -1)
-    children_left = int(
-        imanager.redis.hget(parent_layer, parent_chunk_str).decode("utf-8")
-    )
+        # set initial number of child chunks
+        parent_children_count_d_shared[parent_chunk_str] = children_count
+    # decrement child count by 1
+    parent_children_count_d_shared[parent_chunk_str] -= 1
 
-    if children_left == 0:
-        imanager.cg.add_layer(
-            layer,
-            get_children_coords(
-                imanager.chunkedgraph_meta, parent_layer, parent_coords
-            ),
+    # if zero, all dependents complete -> start parent
+    if parent_children_count_d_shared[parent_chunk_str] == 0:
+        children = get_children_coords(
+            imanager.chunkedgraph_meta, parent_layer, parent_coords
         )
-        _post_task_completion(imanager, layer, parent_coords)
-
-        imanager.redis.hdel(parent_layer, parent_chunk_str)
-        imanager.redis.hset(f"{parent_layer}q", parent_chunk_str, "")
+        imanager.cg.add_layer(parent_layer, children)
+        del parent_children_count_d_shared[parent_chunk_str]
+        _post_task_completion(
+            parent_children_count_d_shared, imanager, parent_layer, parent_coords
+        )

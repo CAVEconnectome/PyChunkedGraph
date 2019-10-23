@@ -29,8 +29,8 @@ GraphConfig = namedtuple(
     "GraphConfig", _graphconfig_fields, defaults=_graphconfig_defaults
 )
 
-_bigtableconfig_fields = ("project_id", "instance_id")
-_bigtableconfig_defaults = ("neuromancer-seung-import", "pychunkedgraph")
+_bigtableconfig_fields = ("project_id", "instance_id", "table_id_prefix")
+_bigtableconfig_defaults = ("neuromancer-seung-import", "pychunkedgraph", "")
 BigTableConfig = namedtuple(
     "BigTableConfig", _bigtableconfig_fields, defaults=_bigtableconfig_defaults
 )
