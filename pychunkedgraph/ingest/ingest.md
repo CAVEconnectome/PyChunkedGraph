@@ -20,6 +20,7 @@ from pychunkedgraph.backend import ChunkedGraphMeta
 ingest_config = IngestConfig(build_graph=True)
 
 bigtable_config = BigTableConfig(table_id_prefix="prefix-")
+
 graph_config = GraphConfig(
     graph_id=f"{bigtable_config.table_id_prefix}test-id",
     chunk_size=np.array([256, 256, 64], dtype=int),
