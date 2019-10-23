@@ -2,29 +2,10 @@
 
 PyChunkedgraph uses protobuf for serialization and zstandard for compression.
 
-Edges are stored using the following protobuf definition.
-You can also find it [here](https://github.com/seung-lab/PyChunkedGraph/blob/akhilesh-jobs-layer-dependency/pychunkedgraph/io/protobuf/chunkEdges.proto)
+Edges are stored in [this](https://github.com/seung-lab/PyChunkedGraph/blob/akhilesh-jobs-layer-dependency/pychunkedgraph/io/protobuf/chunkEdges.proto) protobuf format.
 
-```
-syntax = "proto3";
 
-package edges;
-
-message EdgesMsg {
-  bytes node_ids1 = 1;
-  bytes node_ids2 = 2;
-  bytes affinities = 3;
-  bytes areas = 4;
-}
-
-message ChunkEdgesMsg {
-  EdgesMsg in_chunk = 1;
-  EdgesMsg cross_chunk = 2;
-  EdgesMsg between_chunk = 3;
-}
-```
-
-This format is a result of multiple performance tests.
+This format is a result of performance tests.
 It provided the best tradeoff between deserialzation speed and storage size.
 
 To read and write edges in this format, the functions `get_chunk_edges` and `put_chunk_edges`
