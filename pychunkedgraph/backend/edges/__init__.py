@@ -29,9 +29,9 @@ class Edges:
         affinities: Optional[np.ndarray] = None,
         areas: Optional[np.ndarray] = None,
     ):
-        assert node_ids1.size == node_ids2.size
         self.node_ids1 = np.array(node_ids1, dtype=basetypes.NODE_ID)
         self.node_ids2 = np.array(node_ids2, dtype=basetypes.NODE_ID)
+        assert self.node_ids1.size == self.node_ids2.size
         self._as_pairs = None
 
         self.affinities = np.ones(len(self.node_ids1)) * DEFAULT_AFFINITY

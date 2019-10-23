@@ -1,4 +1,4 @@
-FROM tiangolo/uwsgi-nginx-flask:python3.6
+FROM tiangolo/uwsgi-nginx-flask:python3.7
 
 
 COPY override/timeout.conf /etc/nginx/conf.d/timeout.conf
