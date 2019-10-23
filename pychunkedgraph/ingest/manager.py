@@ -7,6 +7,7 @@ from collections import defaultdict
 from cloudvolume import CloudVolume
 
 from . import IngestConfig
+from ..backend import ChunkedGraphMeta
 from ..backend.chunkedgraph import ChunkedGraph
 
 
