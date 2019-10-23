@@ -7,11 +7,6 @@ from collections import defaultdict
 from cloudvolume import CloudVolume
 
 from . import IngestConfig
-from .ingestion_utils import get_layer_count
-from ..backend import DataSource
-from ..backend import GraphConfig
-from ..backend import BigTableConfig
-from ..backend import ChunkedGraphMeta
 from ..backend.chunkedgraph import ChunkedGraph
 
 
