@@ -21,6 +21,23 @@ There are three types of edges in a chunk:
 2. `between` edge between supervoxels in adjacent chunks
 3. `cross` a faux edge between parts of the same supervoxel that has been split across chunk boundary
 
+### Components
+
+A component is simply a mapping of supervoxel to it's connected component.
+Components within a single chunk are stored as a numpy array.
+```
+[
+  component1_size,
+  supervoxel_a,
+  supervoxel_b,
+  supervoxel_c,
+  component2_size,
+  supervoxel_x,
+  supervoxel_y,
+  ...
+]
+```
+
 ### Example usage
 
 ```
