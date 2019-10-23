@@ -24,7 +24,10 @@ There are three types of edges in a chunk:
 ### Example usage
 
 ```
+from pychunkedgraph.io.edges import get_chunk_edges
+from pychunkedgraph.io.edges import put_chunk_edges
 from pychunkedgraph.backend.edges import Edges
+from pychunkedgraph.backend.edges import EDGE_TYPES
 
 in_chunk = [[1,2],[2,3],[0,2],[2,4]]
 between_chunk = [[1,5]]
@@ -38,9 +41,9 @@ edges_path = "<path_to_bucket>"
 chunk_coordinates = np.array([0,0,0])
 
 edges_d = {
-  "in": in_chunk_edges,
-  "between": between_chunk_edges,
-  "cross": cross_chunk_edges
+  EDGE_TYPES.in_chunk: in_chunk_edges,
+  EDGE_TYPES.between_chunk: between_chunk_edges,
+  EDGE_TYPES.cross_chunk: cross_chunk_edges
 }
 
 put_chunk_edges(edges_path, chunk_coordinates, edges_d, compression_level=22)
