@@ -2,9 +2,7 @@
 
 PyChunkedgraph uses protobuf for serialization and zstandard for compression.
 
-Edges are stored in [this](https://github.com/seung-lab/PyChunkedGraph/blob/akhilesh-jobs-layer-dependency/pychunkedgraph/io/protobuf/chunkEdges.proto) protobuf format.
-
-
+Edges and connected components per chunk are stored using the protobuf definitions in `pychunkedgraph.io.protobuf`.
 This format is a result of performance tests.
 It provided the best tradeoff between deserialzation speed and storage size.
 
@@ -12,6 +10,16 @@ To read and write edges in this format, the functions `get_chunk_edges` and `put
 in the module `pychunkedgraph.io.edges` may be used.
 
 [CloudVolume](https://github.com/seung-lab/cloud-volume) is used for uploading and downloading this data. 
+
+### Edges
+
+Edges in chunkedgraph refer to edges between supervoxels (group of voxels).
+These supervoxels are the atomic nodes in the graph, they cannot be split.
+
+There are three types of edges in a chunk:
+1. `in` edge between supervoxels within chunk boundary
+2. `between` edge between supervoxels in adjacent chunks
+3. `cross` a faux edge between parts of the same supervoxel that has been split across chunk boundary
 
 ### Example usage
 
