@@ -10,6 +10,7 @@ from typing import Tuple
 import numpy as np
 
 from .manager import IngestionManager
+from .backward_compat import get_chunk_data as get_chunk_data_old_format
 from .ran_agglomeration import read_raw_edge_data
 from .ran_agglomeration import read_raw_agglomeration_data
 from .ran_agglomeration import get_active_edges
@@ -46,10 +47,10 @@ def _create_atomic_chunk(im_info, coord):
     imanager = IngestionManager(**im_info)
     coord = np.array(list(coord), dtype=np.int)
     chunk_edges_all, mapping = _get_atomic_chunk_data(imanager, coord)
-    chunk_edges_active, isolated_ids = get_active_edges(
-        imanager, coord, chunk_edges_all, mapping
-    )
-    add_atomic_edges(imanager.cg, coord, chunk_edges_active, isolated=isolated_ids)
+
+    ids, affs, areas, isolated = get_chunk_data_old_format(chunk_edges_all, mapping)
+    imanager.cg.add_atomic_edges_in_chunks(ids, affs, areas, isolated)
+
     _post_task_completion(imanager, 2, coord)
 
 

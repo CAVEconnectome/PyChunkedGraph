@@ -8,6 +8,7 @@ from collections import defaultdict
 from collections import Counter
 from itertools import product
 from typing import Dict
+from typing import Union
 from typing import Tuple
 from typing import Sequence
 
@@ -18,14 +19,12 @@ import numpy as np
 import numpy.lib.recfunctions as rfn
 import zstandard as zstd
 
-from .ingestion_utils import postprocess_edge_data
 from .manager import IngestionManager
-
+from .ingestion_utils import postprocess_edge_data
 from ..io.edges import get_chunk_edges
 from ..io.edges import put_chunk_edges
 from ..io.components import get_chunk_components
 from ..io.components import put_chunk_components
-
 from ..backend import ChunkedGraphMeta
 from ..backend.utils import basetypes
 from ..backend.edges import Edges
@@ -179,7 +178,7 @@ def _collect_edge_data(imanager, chunk_coord):
 
 
 def get_active_edges(imanager, coord, edges_d, mapping):
-    active_edges_flag_d, isolated_ids = _define_active_edges(edges_d, mapping)
+    active_edges_flag_d, isolated_ids = define_active_edges(edges_d, mapping)
     chunk_edges_active = {}
     pseudo_isolated_ids = [isolated_ids]
     for edge_type in EDGE_TYPES:
@@ -207,7 +206,7 @@ def get_active_edges(imanager, coord, edges_d, mapping):
     return chunk_edges_active, np.unique(np.concatenate(pseudo_isolated_ids))
 
 
-def _define_active_edges(edge_dict, mapping):
+def define_active_edges(edge_dict, mapping) -> Union[Dict, np.ndarray]:
     """ Labels edges as within or across segments and extracts isolated ids
     :return: dict of np.ndarrays, np.ndarray
         bool arrays; True: connected (within same segment)
