@@ -146,6 +146,8 @@ class ChunkedGraph(object):
         self._get_chunk_layer_vec = np.vectorize(self.get_chunk_layer)
         self._get_chunk_id_vec = np.vectorize(self.get_chunk_id)
 
+        self.meta = meta
+
     @property
     def client(self) -> bigtable.Client:
         return self._client
