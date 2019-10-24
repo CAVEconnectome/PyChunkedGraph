@@ -55,11 +55,10 @@ def read_raw_edge_data(imanager, coord) -> Dict:
             sv_ids1, sv_ids2, affinities=affinities, areas=areas
         )
         no_edges = no_edges and not sv_ids1.size
-    if no_edges:
-        return chunk_edges
-    put_chunk_edges(
-        imanager.chunkedgraph_meta.data_source.edges, coord, chunk_edges, 17
-    )
+    if not no_edges and imanager.chunkedgraph_meta.data_source.edges:
+        put_chunk_edges(
+            imanager.chunkedgraph_meta.data_source.edges, coord, chunk_edges, 17
+        )
     return chunk_edges
 
 
@@ -274,7 +273,7 @@ def read_raw_agglomeration_data(imanager, chunk_coord: np.ndarray):
         cc = list(cc)
         mapping.update(dict(zip(cc, [i_cc] * len(cc))))
 
-    if mapping:
+    if mapping and imanager.chunkedgraph_meta.data_source.components:
         put_chunk_components(
             imanager.chunkedgraph_meta.data_source.components, components, chunk_coord
         )
