@@ -24,7 +24,6 @@ def initialize_chunkedgraph(
     fan_out=2,
     instance_id=None,
     project_id=None,
-    edge_dir=None,
     is_new=True,
 ):
     """ Initalizes a chunkedgraph on BigTable
@@ -78,7 +77,6 @@ def initialize_chunkedgraph(
         "s_bits_atomic_layer": s_bits_atomic_layer,
         "n_bits_root_counter": n_bits_root_counter,
         "is_new": True,
-        "edge_dir": edge_dir,
     }
 
     if instance_id is not None:

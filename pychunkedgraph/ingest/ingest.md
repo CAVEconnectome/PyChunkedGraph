@@ -45,7 +45,6 @@ if ingest_config.build_graph:
         data_source.watershed,
         graph_config.chunk_size,
         s_bits_atomic_layer=graph_config.s_bits_atomic_layer,
-        edge_dir=data_source.edges,
     )
 
 meta = ChunkedGraphMeta(data_source, graph_config, bigtable_config)
