@@ -72,7 +72,6 @@ class ChunkedGraph(object):
         dataset_info: Optional[object] = None,
         is_new: bool = False,
         logger: Optional[logging.Logger] = None,
-        edge_dir: Optional[str] = None,
         meta: Optional[ChunkedGraphMeta] = None,
                 ) -> None:
 
@@ -106,9 +105,6 @@ class ChunkedGraph(object):
 
         self._cv_path = self._dataset_info["data_dir"]         # required
         self._mesh_dir = self._dataset_info.get("mesh", None)  # optional
-        self._edge_dir = self.check_and_write_table_parameters(
-            column_keys.GraphSettings.EdgeDir, edge_dir, required=False, is_new=is_new
-        )        
 
         self._n_layers = self.check_and_write_table_parameters(
             column_keys.GraphSettings.LayerCount, n_layers,
@@ -2270,36 +2266,27 @@ class ChunkedGraph(object):
         time_stamp = get_google_compatible_time_stamp(time_stamp,
                                                       round_up=False)
 
-        parent_ids = np.array(node_ids)
-
-        if stop_layer is not None:
-            stop_layer = min(self.n_layers, stop_layer)
-        else:
-            stop_layer = self.n_layers
-
-        node_mask = np.ones(len(node_ids), dtype=np.bool)
-        node_mask[self.get_chunk_layers(node_ids) >= stop_layer] = False
-        for i_try in range(n_tries):
-            parent_ids = np.array(node_ids)
-
-            for i_layer in range(int(stop_layer + 1)):
-                temp_parent_ids = self.get_parents(parent_ids[node_mask],
-                                                   time_stamp=time_stamp)
-
-                if temp_parent_ids is None:
+        stop_layer = self.n_layers if not stop_layer else min(self.n_layers, stop_layer)
+        layer_mask = np.ones(len(node_ids), dtype=np.bool)
+        
+        for _ in range(n_tries):
+            layer_mask[self.get_chunk_layers(node_ids) >= stop_layer] = False
+            parent_ids = np.array(node_ids, dtype=basetypes.NODE_ID)
+            for _ in range(int(stop_layer + 1)):
+                filtered_ids = parent_ids[layer_mask]
+                unique_ids, inverse = np.unique(filtered_ids, return_inverse=True)
+                temp_ids = self.get_parents(unique_ids, time_stamp=time_stamp)
+                if temp_ids is None:
                     break
                 else:
-                    parent_ids[node_mask] = temp_parent_ids
-
-                    node_mask[self.get_chunk_layers(parent_ids) >= stop_layer] = False
-                    if np.all(~node_mask):
-                        break
-
-            if np.all(self.get_chunk_layers(parent_ids) >= stop_layer):
-                break
+                    parent_ids[layer_mask] = temp_ids[inverse]
+                    layer_mask[self.get_chunk_layers(parent_ids) >= stop_layer] = False
+                    if not np.any(self.get_chunk_layers(parent_ids) < stop_layer):
+                        return parent_ids
+            if not np.any(self.get_chunk_layers(parent_ids) < stop_layer):
+                return parent_ids
             else:
-                time.sleep(.5)
-
+                time.sleep(0.5)
         return parent_ids
 
     def get_root(self, node_id: np.uint64,
