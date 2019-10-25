@@ -20,11 +20,17 @@ _datasource_fields = (
     "use_raw_components",
     "data_version",
 )
-_datasource_defaults = (None, None, None, None, False, False, 2)
+_datasource_defaults = (None, None, None, None, False, False, 4)
 DataSource = namedtuple("DataSource", _datasource_fields, defaults=_datasource_defaults)
 
-_graphconfig_fields = ("graph_id", "chunk_size", "fanout", "s_bits_atomic_layer", "use_skip_connections")
-_graphconfig_defaults = (None, None, 2, 8, True)
+_graphconfig_fields = (
+    "graph_id",
+    "chunk_size",
+    "fanout",
+    "s_bits_atomic_layer",  # number of bits used for each spatial in id creation on level 1
+    "use_skip_connections",
+)
+_graphconfig_defaults = (None, None, 2, 10, True)
 GraphConfig = namedtuple(
     "GraphConfig", _graphconfig_fields, defaults=_graphconfig_defaults
 )

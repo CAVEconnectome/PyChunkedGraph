@@ -18,15 +18,13 @@ from pychunkedgraph.backend import BigTableConfig
 from pychunkedgraph.backend import ChunkedGraphMeta
 
 
-ingest_config = IngestConfig(build_graph=True)
+ingest_config = IngestConfig()
 
 bigtable_config = BigTableConfig(table_id_prefix="prefix-")
 
 graph_config = GraphConfig(
     graph_id=f"{bigtable_config.table_id_prefix}test-id",
     chunk_size=np.array([x, y, z], dtype=int),
-    fanout=2,
-    s_bits_atomic_layer=10, # TODO
 )
 
 data_source = DataSource(
@@ -36,13 +34,11 @@ data_source = DataSource(
     components="<path_to_components_data>",
     use_raw_edges=True,
     use_raw_components=True,
-    data_version=4, # TODO
 )
 
 meta = ChunkedGraphMeta(data_source, graph_config, bigtable_config)
-if ingest_config.build_graph:
-    initialize_chunkedgraph(meta)
 
+initialize_chunkedgraph(meta)
 start_ingest(IngestionManager(ingest_config, meta))
 ```
 
