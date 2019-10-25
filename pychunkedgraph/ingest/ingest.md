@@ -39,15 +39,10 @@ data_source = DataSource(
     data_version=4, # TODO
 )
 
-if ingest_config.build_graph:
-    initialize_chunkedgraph(
-        graph_config.graph_id,
-        data_source.watershed,
-        graph_config.chunk_size,
-        s_bits_atomic_layer=graph_config.s_bits_atomic_layer,
-    )
-
 meta = ChunkedGraphMeta(data_source, graph_config, bigtable_config)
+if ingest_config.build_graph:
+    initialize_chunkedgraph(meta)
+
 start_ingest(IngestionManager(ingest_config, meta))
 ```
 

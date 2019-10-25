@@ -23,8 +23,8 @@ _datasource_fields = (
 _datasource_defaults = (None, None, None, None, False, False, 2)
 DataSource = namedtuple("DataSource", _datasource_fields, defaults=_datasource_defaults)
 
-_graphconfig_fields = ("graph_id", "chunk_size", "fanout", "s_bits_atomic_layer")
-_graphconfig_defaults = (None, None, 2, 8)
+_graphconfig_fields = ("graph_id", "chunk_size", "fanout", "s_bits_atomic_layer", "use_skip_connections")
+_graphconfig_defaults = (None, None, 2, 8, True)
 GraphConfig = namedtuple(
     "GraphConfig", _graphconfig_fields, defaults=_graphconfig_defaults
 )

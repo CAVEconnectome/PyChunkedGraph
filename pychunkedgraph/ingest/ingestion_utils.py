@@ -1,92 +1,59 @@
 import numpy as np
-from pychunkedgraph.backend import chunkedgraph, chunkedgraph_utils
-
-import cloudvolume
 import collections
 
+import cloudvolume
+from google.cloud import bigtable
 
-def get_layer_count(ws_cv, chunk_size, fan_out):
-    bbox = np.array(ws_cv.bounds.to_list()).reshape(2, 3)
-    n_chunks = ((bbox[1] - bbox[0]) / chunk_size).astype(np.int)
-    n_layers = int(np.ceil(chunkedgraph_utils.log_n(np.max(n_chunks), fan_out))) + 2
-    return n_layers
+from pychunkedgraph.backend import ChunkedGraphMeta
+from pychunkedgraph.backend import BigTableConfig
+from pychunkedgraph.backend import chunkedgraph
+from pychunkedgraph.backend import chunkedgraph_utils
+
+
+def _table_exists(bigtable_config: BigTableConfig, table_id: str):
+    client = bigtable.Client(project=bigtable_config.project_id, admin=True)
+    instance = client.instance(bigtable_config.instance_id)
+    table = instance.table(table_id)
+    return table.exists()
 
 
 def initialize_chunkedgraph(
-    cg_table_id,
-    ws_cv_path,
-    chunk_size,
-    cg_mesh_dir="mesh_dir",
-    size=None,
-    use_skip_connections=True,
-    s_bits_atomic_layer=None,
-    n_bits_root_counter=8,
-    fan_out=2,
-    instance_id=None,
-    project_id=None,
-    is_new=True,
+    meta: ChunkedGraphMeta, cg_mesh_dir="mesh_dir", n_bits_root_counter=8, size=None
 ):
-    """ Initalizes a chunkedgraph on BigTable
-    :param cg_table_id: str
-        name of chunkedgraph
-    :param ws_cv_path: str
-        path to watershed segmentation on Google Cloud
-    :param chunk_size: np.ndarray
-        array of three ints
-    :param size: np.ndarray
-        array of three ints
-    :param cg_mesh_dir: str
-        mesh folder name
-    :param s_bits_atomic_layer: int or None
-        number of bits for each x, y and z on the lower layer
-    :param n_bits_root_counter: int or None
-        number of bits for counters in root layer
-    :param fan_out: int
-        fan out of chunked graph (2 == Octree)
-    :param instance_id: str
-        Google instance id
-    :param project_id: str
-        Google project id
-    :return: ChunkedGraph
-    """
-    ws_cv = cloudvolume.CloudVolume(ws_cv_path)
+    """ Initalizes a chunkedgraph on BigTable """
+    if _table_exists(meta.bigtable_config, meta.graph_config.graph_id):
+        raise ValueError(f"{meta.graph_config.graph_id} already exists.")
 
+    ws_cv = cloudvolume.CloudVolume(meta.data_source.watershed)
     if size is not None:
         size = np.array(size)
-
         for i in range(len(ws_cv.info["scales"])):
             original_size = ws_cv.info["scales"][i]["size"]
             size = np.min([size, original_size], axis=0)
             ws_cv.info["scales"][i]["size"] = [int(x) for x in size]
             size[:-1] //= 2
 
-    n_layers_cg = get_layer_count(ws_cv, chunk_size, fan_out=fan_out)
-
     dataset_info = ws_cv.info
     dataset_info["mesh"] = cg_mesh_dir
-    dataset_info["data_dir"] = ws_cv_path
-    dataset_info["graph"] = {"chunk_size": [int(s) for s in chunk_size]}
+    dataset_info["data_dir"] = meta.data_source.watershed
+    dataset_info["graph"] = {
+        "chunk_size": [int(s) for s in meta.graph_config.chunk_size]
+    }
 
     kwargs = {
-        "table_id": cg_table_id,
-        "chunk_size": chunk_size,
-        "fan_out": np.uint64(fan_out),
-        "n_layers": np.uint64(n_layers_cg),
+        "instance_id": meta.bigtable_config.instance_id,
+        "project_id": meta.bigtable_config.project_id,
+        "table_id": meta.graph_config.graph_id,
+        "chunk_size": meta.graph_config.chunk_size,
+        "fan_out": np.uint64(meta.graph_config.fanout),
+        "n_layers": np.uint64(meta.layer_count),
         "dataset_info": dataset_info,
-        "use_skip_connections": use_skip_connections,
-        "s_bits_atomic_layer": s_bits_atomic_layer,
+        "use_skip_connections": meta.graph_config.use_skip_connections,
+        "s_bits_atomic_layer": meta.graph_config.s_bits_atomic_layer,
         "n_bits_root_counter": n_bits_root_counter,
         "is_new": True,
     }
-
-    if instance_id is not None:
-        kwargs["instance_id"] = instance_id
-
-    if project_id is not None:
-        kwargs["project_id"] = project_id
-
-    cg = chunkedgraph.ChunkedGraph(**kwargs)
-    return cg
+    return chunkedgraph.ChunkedGraph(**kwargs)
 
 
 def postprocess_edge_data(im, edge_dict):
