@@ -5,7 +5,7 @@ services:
 env:
   global:
   - GCP_PROJECT_ID=neuromancer-seung-import
-  - IMAGE=gcr.io/neuromancer-seung-import/pychunkedgraph
+  - IMAGE=gcr.io/$GCP_PROJECT_ID/pychunkedgraph
   - TAG=graph-tool_dracopy
   - CLOUDSDK_CORE_DISABLE_PROMPTS=1
 
@@ -33,7 +33,6 @@ jobs:
         - source "$HOME/google-cloud-sdk/path.bash.inc"
         - gcloud auth activate-service-account --key-file=key.json
         - gcloud auth configure-docker
-        - gcloud config set project "${GCP_PROJECT_ID}"
         - docker build --tag seunglab/pychunkedgraph:$TRAVIS_BRANCH . || travis_terminate 1
         - docker run $ci_env --rm seunglab/pychunkedgraph:$TRAVIS_BRANCH /bin/sh -c "tox -v -- --cov-config .coveragerc --cov=pychunkedgraph && codecov"
 
