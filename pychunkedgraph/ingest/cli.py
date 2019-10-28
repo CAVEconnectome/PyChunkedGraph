@@ -19,9 +19,9 @@ from .ran_ingestion_v2 import enqueue_atomic_tasks
 from ..utils.redis import get_redis_connection
 from ..utils.redis import keys as r_keys
 from ..backend import ChunkedGraphMeta
-from ..backend.definitions.config import DataSource
-from ..backend.definitions.config import GraphConfig
-from ..backend.definitions.config import BigTableConfig
+from ..backend import DataSource
+from ..backend import GraphConfig
+from ..backend import BigTableConfig
 
 ingest_cli = AppGroup("ingest")
 

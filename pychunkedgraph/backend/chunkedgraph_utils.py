@@ -273,20 +273,6 @@ def compute_chunk_id(
     )
 
 
-def get_voxels_boundary(cv: CloudVolume) -> Sequence[int]:
-    """returns number of voxels in each dimension"""
-    cv_bounds = np.array(cv.bounds.to_list()).reshape(2, -1).T
-    voxel_counts = cv_bounds.copy()
-    voxel_counts -= cv_bounds[:, 0:1]
-    voxel_counts = voxel_counts[:, 1]
-    return voxel_counts
-
-
-def get_chunks_boundary(voxel_boundary, chunk_size):
-    """returns number of chunks in each dimension"""
-    return np.ceil((voxel_boundary / chunk_size)).astype(np.int)
-
-
 def filter_failed_node_ids(row_ids, segment_ids, max_children_ids):
     """filters node ids that were created by failed/in-complete jobs"""
     sorting = np.argsort(segment_ids)[::-1]

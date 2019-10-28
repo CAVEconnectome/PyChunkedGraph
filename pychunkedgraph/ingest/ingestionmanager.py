@@ -13,9 +13,9 @@ from ..utils.redis import get_redis_connection
 from ..utils.redis import get_rq_queue
 from ..backend import ChunkedGraphMeta
 from ..backend.chunkedgraph import ChunkedGraph
-from ..backend.definitions.config import DataSource
-from ..backend.definitions.config import GraphConfig
-from ..backend.definitions.config import BigTableConfig
+from ..backend import DataSource
+from ..backend import GraphConfig
+from ..backend import BigTableConfig
 
 
 class IngestionManager(object):

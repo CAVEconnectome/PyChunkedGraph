@@ -9,7 +9,7 @@ import numpy as np
 
 from .basetypes import NODE_ID, EDGE_AFFINITY, EDGE_AREA
 from ...utils.general import reverse_dictionary
-from ..definitions.edges import Edges, IN_CHUNK, BT_CHUNK, CX_CHUNK
+from ..edges import Edges, IN_CHUNK, BT_CHUNK, CX_CHUNK
 from ..connectivity.search import check_reachability
 from ..flatgraph_utils import build_gt_graph
 

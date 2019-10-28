@@ -30,8 +30,8 @@ from ..io.components import get_chunk_components
 from ..io.components import put_chunk_components
 from ..backend.utils import basetypes
 from ..backend.chunkedgraph_utils import compute_chunk_id
-from ..backend.definitions.edges import Edges
-from ..backend.definitions.edges import (
+from ..backend.edges import Edges
+from ..backend.edges import (
     IN_CHUNK,
     BT_CHUNK,
     CX_CHUNK,

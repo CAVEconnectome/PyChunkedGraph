@@ -61,8 +61,8 @@ from .graphoperation import (
     RedoOperation,
     UndoOperation,
 )
-from .definitions.edges import Edges
-from .definitions.agglomeration import Agglomeration
+from .edges import Edges
+from .agglomeration import Agglomeration
 from .utils.edge_utils import concatenate_chunk_edges
 from .utils.edge_utils import filter_edges
 from .utils.edge_utils import get_active_edges

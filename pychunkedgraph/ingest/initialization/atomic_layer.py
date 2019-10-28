@@ -10,8 +10,8 @@ import numpy as np
 
 from ...backend.chunkedgraph import ChunkedGraph
 from ...backend.utils import basetypes, serializers, column_keys
-from ...backend.definitions.edges import Edges
-from ...backend.definitions.edges import (
+from ...backend.edges import Edges
+from ...backend.edges import (
     IN_CHUNK,
     BT_CHUNK,
     CX_CHUNK,
