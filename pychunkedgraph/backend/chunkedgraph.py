@@ -62,10 +62,9 @@ from .graphoperation import (
     UndoOperation,
 )
 from .edges import Edges
-from .agglomeration import Agglomeration
-from .utils.edge_utils import concatenate_chunk_edges
-from .utils.edge_utils import filter_edges
-from .utils.edge_utils import get_active_edges
+from .edges.utils import concatenate_chunk_edges
+from .edges.utils import filter_edges
+from .edges.utils import get_active_edges
 from ..io.edges import get_chunk_edges
 
 
@@ -2507,7 +2506,7 @@ class ChunkedGraph(object):
             filtered_edges = filter_edges(l2id_children_d[l2id], edges)
             if active_edges:
                 filtered_edges = get_active_edges(filtered_edges, l2id_children_d)
-            l2id_agglomeration_d[l2id] = Agglomeration(supervoxels, filtered_edges)
+            # l2id_agglomeration_d[l2id] = Agglomeration(supervoxels, filtered_edges)
         return l2id_agglomeration_d
 
     def get_subgraph_nodes(
