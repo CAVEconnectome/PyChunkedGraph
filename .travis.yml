@@ -4,9 +4,6 @@ services:
 
 env:
   global:
-  - GCP_PROJECT_ID=neuromancer-seung-import
-  - IMAGE=gcr.io/$GCP_PROJECT_ID/pychunkedgraph
-  - TAG=graph-tool_dracopy
   - CLOUDSDK_CORE_DISABLE_PROMPTS=1
 
 stages:
