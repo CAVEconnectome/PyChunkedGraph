@@ -40,19 +40,21 @@ class IngestionManager:
 
     @property
     def redis(self):
-        if self._redis:
+        if self._redis is not None:
             return self._redis
         self._redis = get_redis_connection(self._config.redis_url)
-        self._redis.set(r_keys.INGESTION_MANAGER, pickle.dumps(self))
+        self._redis.set(r_keys.INGESTION_MANAGER, self.serialized(pickled=True))
         return self._redis
 
-    def __getstate__(self):
-        del self.__dict__["cg"]
-        del self.__dict__["redis"]
-        return self.__dict__
+    def serialized(self, pickled=False):
+        params = {"config": self._config, "chunkedgraph_meta": self._chunkedgraph_meta}
+        if pickled:
+            return pickle.dumps(params)
+        return params
 
-    def __setstate__(self, d):
-        self.__dict__ = d
+    @classmethod
+    def from_pickle(cls, serialized_info):
+        return cls(**pickle.loads(serialized_info))
 
     def get_task_queue(self, q_name):
         if q_name in self._task_queues:

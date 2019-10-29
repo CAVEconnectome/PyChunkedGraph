@@ -3,7 +3,6 @@ Ingest / create chunkedgraph with workers.
 """
 
 import time
-import pickle
 from itertools import product
 from typing import List
 from typing import Dict
@@ -57,10 +56,10 @@ def _post_task_completion(imanager: IngestionManager, layer: int, coords: np.nda
         parents_queue.enqueue(
             _create_parent_chunk,
             job_id=chunk_id_str(parent_layer, parent_coords),
-            job_timeout="59m",
+            job_timeout=f"{int(1.5 * parent_layer)}m",
             result_ttl=0,
             args=(
-                imanager.get_serialized_info(),
+                imanager.serialized(),
                 parent_layer,
                 parent_coords,
                 get_children_coords(
@@ -75,29 +74,27 @@ def _post_task_completion(imanager: IngestionManager, layer: int, coords: np.nda
 def _create_parent_chunk(
     im_info: str, layer: int, parent_coords: Sequence[int], child_chunk_coords: List
 ) -> None:
-    imanager = pickle.loads(im_info)
+    imanager = IngestionManager(**im_info)
     add_layer(imanager.cg, layer, parent_coords, child_chunk_coords)
     _post_task_completion(imanager, layer, parent_coords)
 
 
-def enqueue_atomic_tasks(
-    imanager: IngestionManager, batch_size: int = 50000, interval: float = 300.0
-):
+def enqueue_atomic_tasks(imanager: IngestionManager):
     atomic_chunk_bounds = imanager.chunkedgraph_meta.layer_chunk_bounds[2]
     chunk_coords = list(product(*[range(r) for r in atomic_chunk_bounds]))
     np.random.shuffle(chunk_coords)
 
     # test chunks
-    # chunk_coords = [
-    #     [26, 4, 10],
-    #     [26, 4, 11],
-    #     [26, 5, 10],
-    #     [26, 5, 11],
-    #     [27, 4, 10],
-    #     [27, 4, 11],
-    #     [27, 5, 10],
-    #     [27, 5, 11],
-    # ]
+    chunk_coords = [
+        [26, 4, 10],
+        [26, 4, 11],
+        [26, 5, 10],
+        [26, 5, 11],
+        [27, 4, 10],
+        [27, 4, 11],
+        [27, 5, 10],
+        [27, 5, 11],
+    ]
 
     for chunk_coord in chunk_coords:
         atomic_queue = imanager.get_task_queue(imanager.config.atomic_q_name)
@@ -108,15 +105,15 @@ def enqueue_atomic_tasks(
         atomic_queue.enqueue(
             _create_atomic_chunk,
             job_id=chunk_id_str(2, chunk_coord),
-            job_timeout="59m",
+            job_timeout="1m",
             result_ttl=0,
-            args=(imanager.get_serialized_info(), chunk_coord),
+            args=(imanager.serialized(), chunk_coord),
         )
 
 
 def _create_atomic_chunk(im_info: str, coord: Sequence[int]):
     """ Creates single atomic chunk """
-    imanager = pickle.loads(im_info)
+    imanager = IngestionManager(**im_info)
     coord = np.array(list(coord), dtype=np.int)
     chunk_edges_all, mapping = get_atomic_chunk_data(imanager, coord)
     chunk_edges_active, isolated_ids = get_active_edges(

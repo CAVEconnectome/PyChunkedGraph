@@ -37,7 +37,7 @@ def start_ingest(imanager: IngestionManager):
         multi_args = []
         for job in jobs:
             multi_args.append(
-                (parent_children_count_d_shared, imanager.get_serialized_info(), job)
+                (parent_children_count_d_shared, imanager.serialized(), job)
             )
         mu.multiprocess_func(
             _create_atomic_chunks_helper,
