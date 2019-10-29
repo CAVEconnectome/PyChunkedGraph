@@ -248,31 +248,6 @@ def get_bounding_box(
     return bounding_box
 
 
-def compute_chunk_id(
-    layer: int,
-    x: int,
-    y: int,
-    z: int,
-    s_bits_per_dim: int = 10,
-    n_bits_layer_id: int = 8,
-):
-    if not (
-        x < 2 ** s_bits_per_dim and y < 2 ** s_bits_per_dim and z < 2 ** s_bits_per_dim
-    ):
-        raise ValueError(
-            f"Coordinate is out of range \
-            layer: {layer} bits/dim {s_bits_per_dim}. \
-            [{x}, {y}, {z}]; max = {2 ** s_bits_per_dim}."
-        )
-    layer_offset = 64 - n_bits_layer_id
-    x_offset = layer_offset - s_bits_per_dim
-    y_offset = x_offset - s_bits_per_dim
-    z_offset = y_offset - s_bits_per_dim
-    return np.uint64(
-        layer << layer_offset | x << x_offset | y << y_offset | z << z_offset
-    )
-
-
 def filter_failed_node_ids(row_ids, segment_ids, max_children_ids):
     """filters node ids that were created by failed/in-complete jobs"""
     sorting = np.argsort(segment_ids)[::-1]

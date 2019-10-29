@@ -3,22 +3,24 @@ Functions for creating atomic nodes and their level 2 abstract parents
 """
 
 import datetime
-from typing import Optional, Sequence, Dict, List
+from typing import Dict
+from typing import List
+from typing import Optional
+from typing import Sequence
 
 import pytz
 import numpy as np
 
 from ...backend.chunkedgraph import ChunkedGraph
-from ...backend.utils import basetypes, serializers, column_keys
+from ...backend.utils import basetypes
+from ...backend.utils import serializers
+from ...backend.utils import column_keys
 from ...backend.edges import Edges
-from ...backend.edges import (
-    IN_CHUNK,
-    BT_CHUNK,
-    CX_CHUNK,
-    TYPES as EDGE_TYPES,
-)
-from ...backend.chunkedgraph_utils import compute_indices_pandas, get_valid_timestamp
-from ...backend.flatgraph_utils import build_gt_graph, connected_components
+from ...backend.edges import EDGE_TYPES
+from ...backend.chunkedgraph_utils import compute_indices_pandas
+from ...backend.chunkedgraph_utils import get_valid_timestamp
+from ...backend.flatgraph_utils import build_gt_graph
+from ...backend.flatgraph_utils import connected_components
 
 
 def add_atomic_edges(
@@ -35,7 +37,6 @@ def add_atomic_edges(
     chunk_ids = cg_instance.get_chunk_ids_from_node_ids(chunk_node_ids)
     assert len(np.unique(chunk_ids)) == 1
 
-    # print(np.argwhere(chunk_edge_ids == 73957825679720457))
     graph, _, _, unique_ids = build_gt_graph(chunk_edge_ids, make_directed=True)
     ccs = connected_components(graph)
 
@@ -67,7 +68,7 @@ def add_atomic_edges(
 
 def _get_chunk_nodes_and_edges(chunk_edges_d: dict, isolated_ids: Sequence[int]):
     """
-    returns IN_CHUNK edges and nodes_ids
+    in-chunk edges and nodes_ids
     """
     isolated_nodes_self_edges = np.vstack([isolated_ids, isolated_ids]).T
     node_ids = [isolated_ids]
@@ -75,7 +76,7 @@ def _get_chunk_nodes_and_edges(chunk_edges_d: dict, isolated_ids: Sequence[int])
     for edge_type in EDGE_TYPES:
         edges = chunk_edges_d[edge_type]
         node_ids.append(edges.node_ids1)
-        if edge_type == IN_CHUNK:
+        if edge_type == EDGE_TYPES.in_chunk:
             node_ids.append(edges.node_ids2)
             edge_ids.append(edges.get_pairs())
 
@@ -89,7 +90,7 @@ def _get_remapping(chunk_edges_d: dict):
     """
     sparse_indices = {}
     remapping = {}
-    for edge_type in [BT_CHUNK, CX_CHUNK]:
+    for edge_type in [EDGE_TYPES.between_chunk, EDGE_TYPES.cross_chunk]:
         edges = chunk_edges_d[edge_type].get_pairs()
         u_ids, inv_ids = np.unique(edges, return_inverse=True)
         mapped_ids = np.arange(len(u_ids), dtype=np.int32)
@@ -136,8 +137,7 @@ def _process_component(
 
 def _get_outgoing_edges(node_id, chunk_edges_d, sparse_indices, remapping):
     """
-    TODO add docs
-    returns edges of node_id pointing outside the chunk (between and cross)
+    edges of node_id pointing outside the chunk (between and cross)
     """
     chunk_out_edges = np.array([], dtype=basetypes.NODE_ID).reshape(0, 2)
     for edge_type in remapping:

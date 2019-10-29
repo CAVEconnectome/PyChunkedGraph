@@ -11,10 +11,12 @@ import zstandard as zstd
 from cloudvolume import Storage
 from cloudvolume.storage import SimpleStorage
 
-from .protobuf.chunkEdges_pb2 import EdgesMsg, ChunkEdgesMsg
-from ..backend.utils.edge_utils import concatenate_chunk_edges
-from ..backend.edges import Edges, IN_CHUNK, BT_CHUNK, CX_CHUNK
+from .protobuf.chunkEdges_pb2 import EdgesMsg
+from .protobuf.chunkEdges_pb2 import ChunkEdgesMsg
+from ..backend.edges import Edges
+from ..backend.edges import EDGE_TYPES
 from ..backend.utils import basetypes
+from ..backend.edges.utils import concatenate_chunk_edges
 
 
 def serialize(edges: Edges) -> EdgesMsg:
@@ -49,9 +51,9 @@ def _decompress_edges(content: bytes) -> Dict:
 
     # in, between and cross
     edges_dict = {}
-    edges_dict[IN_CHUNK] = deserialize(chunk_edges.in_chunk)
-    edges_dict[BT_CHUNK] = deserialize(chunk_edges.between_chunk)
-    edges_dict[CX_CHUNK] = deserialize(chunk_edges.cross_chunk)
+    edges_dict[EDGE_TYPES.in_chunk] = deserialize(chunk_edges.in_chunk)
+    edges_dict[EDGE_TYPES.between_chunk] = deserialize(chunk_edges.between_chunk)
+    edges_dict[EDGE_TYPES.cross_chunk] = deserialize(chunk_edges.cross_chunk)
     return edges_dict
 
 
@@ -110,9 +112,9 @@ def put_chunk_edges(
     """
 
     chunk_edges = ChunkEdgesMsg()
-    chunk_edges.in_chunk.CopyFrom(serialize(edges_d[IN_CHUNK]))
-    chunk_edges.between_chunk.CopyFrom(serialize(edges_d[BT_CHUNK]))
-    chunk_edges.cross_chunk.CopyFrom(serialize(edges_d[CX_CHUNK]))
+    chunk_edges.in_chunk.CopyFrom(serialize(edges_d[EDGE_TYPES.in_chunk]))
+    chunk_edges.between_chunk.CopyFrom(serialize(edges_d[EDGE_TYPES.between_chunk]))
+    chunk_edges.cross_chunk.CopyFrom(serialize(edges_d[EDGE_TYPES.cross_chunk]))
 
     cctx = zstd.ZstdCompressor(level=compression_level)
     chunk_str = "_".join(str(coord) for coord in chunk_coordinates)

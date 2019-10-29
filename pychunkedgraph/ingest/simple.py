@@ -14,7 +14,6 @@ import numpy as np
 from multiwrapper import multiprocessing_utils as mu
 
 from .manager import IngestionManager
-from .backward_compat import get_chunk_data as get_chunk_data_old_format
 from .ran_agglomeration import read_raw_edge_data
 from .ran_agglomeration import read_raw_agglomeration_data
 from .ran_agglomeration import get_active_edges
@@ -58,26 +57,6 @@ def _create_atomic_chunks_helper(args):
         ids, affs, areas, isolated = get_chunk_data_old_format(chunk_edges_all, mapping)
         imanager.cg.add_atomic_edges_in_chunks(ids, affs, areas, isolated)
         _post_task_completion(parent_children_count_d_shared, imanager, 2, chunk_coord)
-
-
-def _get_atomic_chunk_data(imanager: IngestionManager, coord) -> Tuple[Dict, Dict]:
-    """
-    Helper to read either raw data or processed data
-    If reading from raw data, save it as processed data
-    """
-    chunk_edges = (
-        read_raw_edge_data(imanager, coord)
-        if imanager.chunkedgraph_meta.data_source.use_raw_edges
-        else get_chunk_edges(imanager.chunkedgraph_meta.data_source.edges, [coord])
-    )
-    mapping = (
-        read_raw_agglomeration_data(imanager, coord)
-        if imanager.chunkedgraph_meta.data_source.use_raw_components
-        else get_chunk_components(
-            imanager.chunkedgraph_meta.data_source.components, coord
-        )
-    )
-    return chunk_edges, mapping
 
 
 def _post_task_completion(

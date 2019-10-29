@@ -27,7 +27,6 @@ UTC = pytz.UTC
 from pychunkedgraph.backend import chunkedgraph  # noqa
 from pychunkedgraph.backend.utils import serializers, column_keys  # noqa
 from pychunkedgraph.meshing import meshgen_utils  # noqa
-from pychunkedgraph.utils.redis import redis_job
 
 # Change below to true if debugging and want to see results in stdout
 PRINT_FOR_DEBUGGING = False
@@ -1210,7 +1209,6 @@ REDIS_PORT = os.environ.get("REDIS_SERVICE_PORT", "6379")
 REDIS_PASSWORD = os.environ.get("REDIS_PASSWORD", "dev")
 REDIS_URL = f"redis://:{REDIS_PASSWORD}@{REDIS_HOST}:{REDIS_PORT}/0"
 
-# @redis_job(REDIS_URL, 'mesh_frag_test_channel')
 # TODO: refactor this bloated function
 def chunk_mesh_task_new_remapping(
     cg_info,

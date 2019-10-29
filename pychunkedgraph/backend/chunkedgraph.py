@@ -50,7 +50,6 @@ from .chunkedgraph_utils import (
     combine_cross_chunk_edge_dicts,
     get_min_time,
     partial_row_data_to_column_dict,
-    compute_chunk_id,
 )
 from .utils import serializers, column_keys, row_keys, basetypes
 from .graphoperation import (
@@ -65,6 +64,7 @@ from .edges import Edges
 from .edges.utils import concatenate_chunk_edges
 from .edges.utils import filter_edges
 from .edges.utils import get_active_edges
+from .chunks.utils import compute_chunk_id
 from ..io.edges import get_chunk_edges
 
 

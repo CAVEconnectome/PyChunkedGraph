@@ -5,22 +5,18 @@ from cloudvolume import CloudVolume
 from . import IngestConfig
 from ..backend import ChunkedGraphMeta
 from ..backend.chunkedgraph import ChunkedGraph
+from ..utils.redis import keys as r_keys
+from ..utils.redis import get_rq_queue
+from ..utils.redis import get_redis_connection
 
 
-class IngestionManager(object):
+class IngestionManager:
     def __init__(self, config: IngestConfig, chunkedgraph_meta: ChunkedGraphMeta):
-
         self._config = config
-
-        self._cg = None
         self._chunkedgraph_meta = chunkedgraph_meta
-        self._ws_cv = CloudVolume(chunkedgraph_meta.data_source.watershed)
-        self._chunk_coords = None
-        self._layer_bounds_d = None
-
-        self._bitmasks = None
-        self._bounds = None
+        self._cg = None
         self._redis = None
+        self._task_queues = {}
 
     @property
     def config(self):
@@ -33,6 +29,7 @@ class IngestionManager(object):
     @property
     def cg(self):
         if self._cg is None:
+            # TODO simplify ChunkedGraph class
             self._cg = ChunkedGraph(
                 self._chunkedgraph_meta.graph_config.graph_id,
                 self._chunkedgraph_meta.bigtable_config.project_id,
@@ -41,13 +38,24 @@ class IngestionManager(object):
             )
         return self._cg
 
-    @classmethod
-    def from_pickle(cls, serialized_info):
-        return cls(**pickle.loads(serialized_info))
+    @property
+    def redis(self):
+        if self._redis:
+            return self._redis
+        self._redis = get_redis_connection(self._config.redis_url)
+        self._redis.set(r_keys.INGESTION_MANAGER, pickle.dumps(self))
+        return self._redis
 
-    def get_serialized_info(self, pickled=False):
-        info = {"config": self._config, "chunkedgraph_meta": self._chunkedgraph_meta}
-        if pickled:
-            return pickle.dumps(info)
-        return info
+    def __getstate__(self):
+        del self.__dict__["cg"]
+        del self.__dict__["redis"]
+        return self.__dict__
 
+    def __setstate__(self, d):
+        self.__dict__ = d
+
+    def get_task_queue(self, q_name):
+        if q_name in self._task_queues:
+            return self._task_queues[q_name]
+        self._task_queues[q_name] = get_rq_queue(q_name)
+        return self._task_queues[q_name]
