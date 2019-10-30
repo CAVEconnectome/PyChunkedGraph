@@ -4,6 +4,7 @@ cli for running ingest
 
 import time
 
+import yaml
 import numpy as np
 import click
 from flask.cli import AppGroup
@@ -27,27 +28,27 @@ ingest_cli = AppGroup("ingest")
 
 @ingest_cli.command("graph")
 @click.argument("graph_id", type=str)
+@click.argument("dataset", type=click.Path(exists=True))
 @click.option("--raw", is_flag=True, help="Use processed data to build graph")
 @click.option("--overwrite", is_flag=True, help="Overwrite existing graph")
-def ingest_graph(graph_id: str, raw: bool, overwrite: bool):
+def ingest_graph(graph_id: str, dataset: click.Path, raw: bool, overwrite: bool):
+
+    with open(dataset, "r") as stream:
+        try:
+            config = yaml.safe_load(stream)
+        except yaml.YAMLError as exc:
+            print(exc)
 
     ingest_config = IngestConfig()
-    bigtable_config = BigTableConfig(table_id_prefix="akhilesh")
-
+    bigtable_config = BigTableConfig(**config["bigtable_config"])
     graph_config = GraphConfig(
-        graph_id=f"{bigtable_config.table_id_prefix}-{graph_id}",
-        chunk_size=np.array([256, 256, 512], dtype=int),
+        **config["graph_config"],
+        graph_id=f"{bigtable_config.table_id_prefix}{graph_id}",
         overwrite=overwrite,
     )
 
     data_source = DataSource(
-        agglomeration="gs://ranl-scratch/minnie65_0/agg",
-        watershed="gs://microns-seunglab/minnie65/ws_minnie65_0",
-        edges="gs://chunkedgraph/minnie65_0/edges",
-        components="gs://chunkedgraph/minnie65_0/components",
-        use_raw_edges=raw,
-        use_raw_components=raw,
-        data_version=3,
+        **config["data_source"], use_raw_components=raw, use_raw_edges=raw
     )
 
     meta = ChunkedGraphMeta(data_source, graph_config, bigtable_config)

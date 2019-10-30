@@ -15,3 +15,4 @@ rq
 middle-auth-client>=0.1.6
 zmesh
 fastremap
+pyyaml

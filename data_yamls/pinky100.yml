@@ -1,0 +1,15 @@
+data_source:
+  agglomeration: "gs://ranl/scratch/pinky100_ca_com/agg"
+  watershed: "gs://neuroglancer/pinky100_v0/ws/pinky100_ca_com"
+  edges: "gs://chunkedgraph/pinky100/edges"
+  components: "gs://chunkedgraph/pinky100/components"
+  data_version: 4
+
+graph_config:
+  chunk_size: [512, 512, 128]
+  fanout: 2
+  s_bits_atomic_layer: 10
+
+
+bigtable_config:
+  table_id_prefix: "akhilesh-" # please change this before running

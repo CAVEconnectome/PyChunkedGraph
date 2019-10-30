@@ -40,15 +40,13 @@ def initialize_chunkedgraph(
     dataset_info = ws_cv.info
     dataset_info["mesh"] = cg_mesh_dir
     dataset_info["data_dir"] = meta.data_source.watershed
-    dataset_info["graph"] = {
-        "chunk_size": [int(s) for s in meta.graph_config.chunk_size]
-    }
+    dataset_info["graph"] = {"chunk_size": meta.graph_config.chunk_size}
 
     kwargs = {
         "instance_id": meta.bigtable_config.instance_id,
         "project_id": meta.bigtable_config.project_id,
         "table_id": meta.graph_config.graph_id,
-        "chunk_size": meta.graph_config.chunk_size,
+        "chunk_size": np.array(meta.graph_config.chunk_size, dtype=int),
         "fan_out": np.uint64(meta.graph_config.fanout),
         "n_layers": np.uint64(meta.layer_count),
         "dataset_info": dataset_info,

@@ -29,7 +29,7 @@ _graphconfig_fields = (
     "fanout",
     "s_bits_atomic_layer",  # number of bits used for each spatial in id creation on level 1
     "use_skip_connections",
-    "overwrite", # overwrite existing, use for development and testing
+    "overwrite",  # overwrite existing, use for development and testing
 )
 _graphconfig_defaults = (None, None, 2, 10, True, False)
 GraphConfig = namedtuple(
@@ -77,7 +77,9 @@ class ChunkedGraphMeta:
         if self._layer_count:
             return self._layer_count
         bbox = np.array(self._ws_cv.bounds.to_list()).reshape(2, 3)
-        n_chunks = ((bbox[1] - bbox[0]) / self._graph_config.chunk_size).astype(np.int)
+        n_chunks = (
+            (bbox[1] - bbox[0]) / np.array(self._graph_config.chunk_size, dtype=int)
+        ).astype(np.int)
         self._layer_count = (
             int(np.ceil(log_n(np.max(n_chunks), self._graph_config.fanout))) + 2
         )
@@ -91,7 +93,7 @@ class ChunkedGraphMeta:
 
         voxels_boundary = self.get_voxels_boundary()
         chunks_boundary = get_chunks_boundary(
-            voxels_boundary, self._graph_config.chunk_size
+            voxels_boundary, np.array(self._graph_config.chunk_size, dtype=int)
         )
 
         layer_bounds_d = {}

@@ -1,0 +1,15 @@
+data_source:
+  agglomeration: "gs://ranl-scratch/minnie65_0/agg"
+  watershed: "gs://microns-seunglab/minnie65/ws_minnie65_0"
+  edges: "gs://chunkedgraph/minnie65_0/edges"
+  components: "gs://chunkedgraph/minnie65_0/components"
+  data_version: 2
+
+graph_config:
+  chunk_size: [256, 256, 512]
+  fanout: 2
+  s_bits_atomic_layer: 10
+
+
+bigtable_config:
+  table_id_prefix: "akhilesh-" # please change this before running
