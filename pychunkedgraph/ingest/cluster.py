@@ -94,6 +94,17 @@ def enqueue_atomic_tasks(imanager: IngestionManager):
         [271, 101, 5],
     ]
 
+    # chunk_coords = [
+    #     [100, 102, 8],
+    #     [100, 102, 9],
+    #     [100, 103, 8],
+    #     [100, 103, 9],
+    #     [101, 102, 8],
+    #     [101, 102, 9],
+    #     [101, 103, 8],
+    #     [101, 103, 9],
+    # ]    
+
     for chunk_coord in chunk_coords:
         atomic_queue = imanager.get_task_queue(imanager.config.atomic_q_name)
         # for optimal use of redis memory wait if queue limit is reached
