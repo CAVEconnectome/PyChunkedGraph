@@ -29,7 +29,7 @@ ingest_cli = AppGroup("ingest")
 @ingest_cli.command("graph")
 @click.argument("graph_id", type=str)
 @click.argument("dataset", type=click.Path(exists=True))
-@click.option("--raw", is_flag=True, help="Use processed data to build graph")
+@click.option("--raw", is_flag=True)
 @click.option("--overwrite", is_flag=True, help="Overwrite existing graph")
 def ingest_graph(graph_id: str, dataset: click.Path, raw: bool, overwrite: bool):
 
