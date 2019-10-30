@@ -28,22 +28,24 @@ ingest_cli = AppGroup("ingest")
 @ingest_cli.command("graph")
 @click.argument("graph_id", type=str)
 @click.option("--raw", is_flag=True, help="Use processed data to build graph")
-def ingest_graph(graph_id: str, raw: bool):
+@click.option("--overwrite", is_flag=True, help="Overwrite existing graph")
+def ingest_graph(graph_id: str, raw: bool, overwrite: bool):
 
     ingest_config = IngestConfig()
     bigtable_config = BigTableConfig(table_id_prefix="ak")
 
     graph_config = GraphConfig(
         graph_id=f"{bigtable_config.table_id_prefix}-{graph_id}",
-        chunk_size=np.array([256, 256, 512], dtype=int),
+        chunk_size=np.array([512, 512, 128], dtype=int),
+        overwrite=overwrite,
     )
 
     data_source = DataSource(
-        agglomeration="gs://ranl-scratch/minnie65_0/agg",
-        watershed="gs://microns-seunglab/minnie65/ws_minnie65_0",
-        edges="gs://chunkedgraph/minnie65_0/edges",
-        components="gs://chunkedgraph/minnie65_0/components",
-        data_version=2,
+        agglomeration="gs://ranl/scratch/pinky100_ca_com/agg",
+        watershed="gs://neuroglancer/pinky100_v0/ws/pinky100_ca_com",
+        edges="gs://chunkedgraph/pinky100/edges",
+        components="gs://chunkedgraph/pinky100/components",
+        data_version=4,
     )
 
     meta = ChunkedGraphMeta(data_source, graph_config, bigtable_config)

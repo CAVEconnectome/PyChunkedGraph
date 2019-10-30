@@ -23,7 +23,9 @@ def initialize_chunkedgraph(
     meta: ChunkedGraphMeta, cg_mesh_dir="mesh_dir", n_bits_root_counter=8, size=None
 ):
     """ Initalizes a chunkedgraph on BigTable """
-    if _table_exists(meta.bigtable_config, meta.graph_config.graph_id):
+    if not meta.graph_config.overwrite and _table_exists(
+        meta.bigtable_config, meta.graph_config.graph_id
+    ):
         raise ValueError(f"{meta.graph_config.graph_id} already exists.")
 
     ws_cv = cloudvolume.CloudVolume(meta.data_source.watershed)
