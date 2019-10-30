@@ -34,6 +34,7 @@ def add_layer(
     time_stamp: Optional[datetime.datetime] = None,
 ) -> None:
     start = time.time()
+    print(cg_instance.table_id)
     children_ids = _read_children_chunks(cg_instance, layer_id, children_coords)
     print(f"_read_children_chunks: {time.time()-start}, id count {len(children_ids)}")
 

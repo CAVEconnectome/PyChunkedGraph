@@ -820,11 +820,9 @@ class ChunkedGraph(object):
         """
         cce_layers = self.get_cross_chunk_edges_layer(cross_edges)
         u_cce_layers = np.unique(cce_layers)
-        cross_edge_dict = {}
+        cross_edge_d = {}
         for l in range(2, self.n_layers):
-            cross_edge_dict[l] = column_keys.Connectivity.CrossChunkEdge.deserialize(
-                b""
-            )
+            cross_edge_d[l] = column_keys.Connectivity.CrossChunkEdge.deserialize(b"")
 
         val_dict = {}
         for cc_layer in u_cce_layers:
@@ -833,8 +831,8 @@ class ChunkedGraph(object):
                 val_dict[
                     column_keys.Connectivity.CrossChunkEdge[cc_layer]
                 ] = layer_cross_edges
-                cross_edge_dict[cc_layer] = layer_cross_edges
-        return cross_edge_dict
+                cross_edge_d[cc_layer] = layer_cross_edges
+        return cross_edge_d
 
     def read_byte_rows(
         self,
@@ -1697,7 +1695,7 @@ class ChunkedGraph(object):
         time_stamp = get_valid_timestamp(time_stamp)
         stop_layer = self.n_layers if not stop_layer else min(self.n_layers, stop_layer)
         layer_mask = np.ones(len(node_ids), dtype=np.bool)
-        
+
         for _ in range(n_tries):
             layer_mask[self.get_chunk_layers(node_ids) >= stop_layer] = False
             parent_ids = np.array(node_ids, dtype=basetypes.NODE_ID)
@@ -2340,7 +2338,7 @@ class ChunkedGraph(object):
         verbose: bool,
     ):
         def _get_subgraph_higher_layer_nodes_threaded(
-            node_ids: Iterable[np.uint64]
+            node_ids: Iterable[np.uint64],
         ) -> List[np.uint64]:
             children = self.get_children(node_ids, flatten=True)
             if len(children) > 0 and bounding_box is not None:

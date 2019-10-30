@@ -31,6 +31,7 @@ def add_atomic_edges(
     time_stamp: Optional[datetime.datetime] = None,
 ):
     chunk_node_ids, chunk_edge_ids = _get_chunk_nodes_and_edges(chunk_edges_d, isolated)
+    print(f"nodes {len(chunk_node_ids)}, edges {len(chunk_edge_ids)}")
     if not chunk_node_ids.size:
         return 0
 
@@ -111,7 +112,6 @@ def _process_component(
 ):
     rows = []
     chunk_out_edges = []  # out = between + cross
-    # print(node_ids)
     for node_id in node_ids:
         _edges = _get_outgoing_edges(node_id, chunk_edges_d, sparse_indices, remapping)
         chunk_out_edges.append(_edges)

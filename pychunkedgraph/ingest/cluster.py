@@ -13,6 +13,7 @@ import numpy as np
 
 from .manager import IngestionManager
 from .common import get_atomic_chunk_data
+from .utils import chunk_id_str
 from .ran_agglomeration import get_active_edges
 from .initialization.atomic_layer import add_atomic_edges
 from .initialization.abstract_layers import add_layer
@@ -22,9 +23,6 @@ from ..io.edges import get_chunk_edges
 from ..io.components import get_chunk_components
 from ..backend.edges import Edges
 from ..backend.chunks.hierarchy import get_children_coords
-
-
-chunk_id_str = lambda layer, coords: f"{layer}_{'_'.join(map(str, coords))}"
 
 
 def _post_task_completion(imanager: IngestionManager, layer: int, coords: np.ndarray):
@@ -54,7 +52,7 @@ def _post_task_completion(imanager: IngestionManager, layer: int, coords: np.nda
     if children_left == 0:
         parents_queue = imanager.get_task_queue(imanager.config.parents_q_name)
         parents_queue.enqueue(
-            _create_parent_chunk,
+            create_parent_chunk,
             job_id=chunk_id_str(parent_layer, parent_coords),
             job_timeout=f"{int(1.5 * parent_layer)}m",
             result_ttl=0,
@@ -71,7 +69,7 @@ def _post_task_completion(imanager: IngestionManager, layer: int, coords: np.nda
         imanager.redis.hset(f"{parent_layer}q", parent_chunk_str, "")
 
 
-def _create_parent_chunk(
+def create_parent_chunk(
     im_info: str, layer: int, parent_coords: Sequence[int], child_chunk_coords: List
 ) -> None:
     imanager = IngestionManager(**im_info)
@@ -86,14 +84,14 @@ def enqueue_atomic_tasks(imanager: IngestionManager):
 
     # test chunks
     chunk_coords = [
-        [26, 4, 10],
-        [26, 4, 11],
-        [26, 5, 10],
-        [26, 5, 11],
-        [27, 4, 10],
-        [27, 4, 11],
-        [27, 5, 10],
-        [27, 5, 11],
+        [270, 100, 4],
+        [270, 100, 5],
+        [270, 101, 4],
+        [270, 101, 5],
+        [271, 100, 4],
+        [271, 100, 5],
+        [271, 101, 4],
+        [271, 101, 5],
     ]
 
     for chunk_coord in chunk_coords:
