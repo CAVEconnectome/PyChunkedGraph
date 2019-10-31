@@ -39,8 +39,8 @@ class IngestionManager(object):
         if self._cg is None:
             self._cg = ChunkedGraph(
                 self._chunkedgraph_meta.graph_config.graph_id,
-                self._chunkedgraph_meta.bigtable_config.project_id,
-                self._chunkedgraph_meta.bigtable_config.instance_id,
+                project_id=self._chunkedgraph_meta.bigtable_config.project_id,
+                instance_id=self._chunkedgraph_meta.bigtable_config.instance_id,
                 meta=self._chunkedgraph_meta,
             )
         return self._cg
