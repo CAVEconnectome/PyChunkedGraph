@@ -20,7 +20,6 @@ def _get_edges_for_contact_site_graph(
     sv_ids = cg.get_subgraph_nodes(
         root_id, bounding_box=bounding_box, bb_is_coordinate=bb_is_coordinate
     )
-
     # All edges that are _not_ connected / on
     edges, _, areas = cg.get_subgraph_edges(
         root_id,
@@ -28,7 +27,6 @@ def _get_edges_for_contact_site_graph(
         bb_is_coordinate=bb_is_coordinate,
         connected_edges=False,
     )
-
     # Build area lookup dictionary
     edge_mask = ~np.in1d(edges, sv_ids).reshape(-1, 2)
     area_mask = np.where(edge_mask)[0]
@@ -38,8 +36,6 @@ def _get_edges_for_contact_site_graph(
 
     for area, sv_id in zip(masked_areas, contact_sites_svs):
         contact_sites_svs_area_dict[sv_id] += area
-
-    contact_sites_svs_area_dict_vec = np.vectorize(contact_sites_svs_area_dict.get)
 
     # Extract svs from contacting root ids
     unique_contact_sites_svs = np.unique(contact_sites_svs)
@@ -56,11 +52,8 @@ def _get_edges_for_contact_site_graph(
     for row_information in edges_contact_sites_svs_rows.items():
         sv_edges, _, _ = cg._retrieve_connectivity(row_information)
         contact_sites_edges.extend(sv_edges)
-    contact_sites_edges = _get_edges_for_contact_site_graph(
-        cg, root_id, bounding_box, bb_is_coordinate, end_time
-    )
     if len(contact_sites_edges) == 0:
-        return None, False
+        return None, None, False
     contact_sites_edges_array = np.array(contact_sites_edges)
     contact_sites_edge_mask = np.isin(
         contact_sites_edges_array[:, 1], unique_contact_sites_svs
@@ -70,8 +63,7 @@ def _get_edges_for_contact_site_graph(
     contact_sites_graph_edges = np.concatenate(
         (contact_sites_edges_array[contact_sites_edge_mask], self_edges), axis=0
     )
-    return contact_sites_graph_edges, True
-
+    return contact_sites_graph_edges, contact_sites_svs_area_dict, True
 
 def get_contact_sites(
     cg,
@@ -81,6 +73,8 @@ def get_contact_sites(
     compute_partner=True,
     end_time=None,
     voxel_location=False,
+    areas_only=False,
+    as_list=False
 ):
     """
     Given a root id, return a dictionary containing all the contact sites with other roots in the dataset.
@@ -89,17 +83,20 @@ def get_contact_sites(
     these two roots make. Each value in the list is a tuple containing three entries. If voxel_location=False, 
     then the first two entries are chunk coordinates that bound part of the contact site; the third entry 
     is the area of the contact site. If voxel_location=True, the first two entries are the positions of those two chunks
-    in global coordinates instead.
+    in global coordinates instead. If areas_only=True, then the value is just the area and no location is returned.
     
     If compute_partner=False, the keys of the dictionary are unsigned integers counting up from 0. The values are 
     the lists containing one tuple of the kind specified in the above paragraph.
     """
-    contact_sites_graph_edges, any_contact_sites = _get_edges_for_contact_site_graph(
+    contact_sites_graph_edges, contact_sites_svs_area_dict, any_contact_sites = _get_edges_for_contact_site_graph(
         cg, root_id, bounding_box, bb_is_coordinate, end_time
     )
 
     if not any_contact_sites:
         return collections.defaultdict(list)
+
+    contact_sites_svs_area_dict_vec = np.vectorize(contact_sites_svs_area_dict.get)
+
     graph, _, _, unique_sv_ids = flatgraph_utils.build_gt_graph(
         contact_sites_graph_edges, make_directed=True
     )
@@ -117,7 +114,9 @@ def get_contact_sites(
         representative_sv = cc_sv_ids[0]
         # Tuple of location and area of contact site
         chunk_coordinates = cg.get_chunk_coordinates(representative_sv)
-        if voxel_location:
+        if areas_only:
+            data_pair = np.sum(contact_sites_areas)
+        elif voxel_location:
             voxel_lower_bound = (
                 cg.vx_vol_bounds[:, 0] + cg.chunk_size * chunk_coordinates
             )
@@ -141,7 +140,6 @@ def get_contact_sites(
             intermediary_sv_dict[int(representative_sv)] = data_pair
         else:
             contact_site_dict[len(contact_site_dict)].append(data_pair)
-
     if compute_partner:
         sv_list = np.array(list(intermediary_sv_dict.keys()), dtype=np.uint64)
         partner_roots = cg.get_roots(sv_list)
@@ -149,6 +147,21 @@ def get_contact_sites(
             contact_site_dict[int(partner_roots[i])].append(
                 intermediary_sv_dict.get(int(sv_list[i]))
             )
+
+    if as_list:
+        contact_site_list = []
+        for partner_id in contact_site_dict:
+            if compute_partner:
+                contact_site_list.append({
+                    'segment_id': np.uint64(partner_id),
+                    'contact_site_areas': contact_site_dict[partner_id]
+                })
+            else:
+                contact_site_list.append({
+                    'segment_id': partner_id,
+                    'contact_site_areas': contact_site_dict[partner_id]
+                })
+        return contact_site_list
 
     return contact_site_dict
 

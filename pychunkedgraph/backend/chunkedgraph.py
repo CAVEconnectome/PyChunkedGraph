@@ -3689,23 +3689,24 @@ class ChunkedGraph(object):
                 break
         return np.concatenate(children_at_layer)
         
-    def get_chunk_voxel_location(self, chunk_coordinate, chunk_origin_is_dataset_origin=False):
+    def get_chunk_voxel_location(self, chunk_coordinate):
         """
         Given a lvl1 or lvl2 chunk coordinate, return the voxel location of the chunk in the
         underlying dataset.
         """
-        if chunk_origin_is_dataset_origin:
+        # TODO: remove this hack once pinky re-built
+        if self._table_id == 'pinky100_sv16':
             offset = 0
         else:
             offset = self.vx_vol_bounds[:,0]
         return np.array((offset + self.chunk_size * chunk_coordinate), dtype=np.int)
 
-    def download_chunk_segmentation(self, chunk_coordinate, chunk_origin_is_dataset_origin=False):
+    def download_chunk_segmentation(self, chunk_coordinate):
         """
         Given a lvl1 or lvl2 chunk coordinate, return the underlying watershed segmentation.
         """
-        chunk_start = self.get_chunk_voxel_location(chunk_coordinate, chunk_origin_is_dataset_origin)
-        chunk_end = self.get_chunk_voxel_location(chunk_coordinate + 1, chunk_origin_is_dataset_origin)
+        chunk_start = self.get_chunk_voxel_location(chunk_coordinate)
+        chunk_end = self.get_chunk_voxel_location(chunk_coordinate + 1)
         ws_seg = self.cv[
             chunk_start[0] : chunk_end[0],
             chunk_start[1] : chunk_end[1],

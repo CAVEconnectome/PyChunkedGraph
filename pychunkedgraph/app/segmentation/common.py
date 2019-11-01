@@ -562,7 +562,19 @@ def oldest_timestamp(table_id):
 
 
 def handle_contact_sites(table_id, root_id):
-    partners = request.args.get("partners", False)
+    partners = request.args.get("partners", True, type=app_utils.toboolean)
+    as_list = request.args.get("as_list", True, type=app_utils.toboolean)
+    areas_only = request.args.get("areas_only", True, type=app_utils.toboolean)
+
+    try:
+        timestamp = float(request.args.get("timestamp", time.time()))
+        timestamp = datetime.fromtimestamp(timestamp, UTC)
+    except (TypeError, ValueError) as e:
+        raise (
+            cg_exceptions.BadRequest(
+                "Timestamp parameter is not a valid" " unix timestamp"
+            )
+        )
 
     if "bounds" in request.args:
         bounds = request.args["bounds"]
@@ -575,12 +587,17 @@ def handle_contact_sites(table_id, root_id):
     # Call ChunkedGraph
     cg = app_utils.get_cg(table_id)
 
-    cs_dict = contact_sites.get_contact_sites(
-        cg, np.uint64(root_id), bounding_box=bounding_box, compute_partner=partners
+    cs_list = contact_sites.get_contact_sites(
+        cg,
+        np.uint64(root_id),
+        bounding_box=bounding_box,
+        compute_partner=partners,
+        end_time=timestamp,
+        as_list=as_list,
+        areas_only=areas_only
     )
 
-    return cs_dict
-
+    return cs_list
 
 def handle_pairwise_contact_sites(table_id, first_node_id, second_node_id):
     try:
