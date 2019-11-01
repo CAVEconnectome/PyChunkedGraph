@@ -72,6 +72,9 @@ def compute_bitmasks(
         layer_exp = n_layers - i_layer
         n_bits_for_layers = max(1, np.ceil(log_n(fan_out ** layer_exp, fan_out)))
         if i_layer == 1:
+            if s_bits_atomic_layer < n_bits_for_layers:
+                err = f"{s_bits_atomic_layer} bits is not enough for encoding."
+                raise ValueError(err)
             n_bits_for_layers = np.max([s_bits_atomic_layer, n_bits_for_layers])
 
         n_bits_for_layers = int(n_bits_for_layers)
@@ -211,7 +214,7 @@ def time_min():
 
 
 def partial_row_data_to_column_dict(
-    partial_row_data: bigtable.row_data.PartialRowData
+    partial_row_data: bigtable.row_data.PartialRowData,
 ) -> Dict[column_keys._Column, bigtable.row_data.PartialRowData]:
     new_column_dict = {}
     for family_id, column_dict in partial_row_data._cells.items():

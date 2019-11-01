@@ -4,10 +4,10 @@ import collections
 import cloudvolume
 from google.cloud import bigtable
 
-from pychunkedgraph.backend import ChunkedGraphMeta
-from pychunkedgraph.backend import BigTableConfig
-from pychunkedgraph.backend import chunkedgraph
-from pychunkedgraph.backend import chunkedgraph_utils
+from ..backend import ChunkedGraphMeta
+from ..backend import BigTableConfig
+from ..backend import chunkedgraph
+from ..backend import chunkedgraph_utils
 
 chunk_id_str = lambda layer, coords: f"{layer}_{'_'.join(map(str, coords))}"
 
