@@ -30,7 +30,7 @@ from pychunkedgraph.backend.utils import serializers, column_keys  # noqa
 from pychunkedgraph.meshing import meshgen_utils  # noqa
 
 # Change below to true if debugging and want to see results in stdout
-PRINT_FOR_DEBUGGING = True
+PRINT_FOR_DEBUGGING = False
 # Change below to false if debugging and do not need to write to cloud (warning: do not deploy w/ below set to false)
 WRITING_TO_CLOUD = True
 

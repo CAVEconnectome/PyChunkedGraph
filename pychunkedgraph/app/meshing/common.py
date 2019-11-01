@@ -64,7 +64,7 @@ def handle_get_manifest(table_id, node_id):
     if "start_layer" in data:
         start_layer = int(data["start_layer"])
     else:
-        start_layer = None
+        start_layer = cg.get_chunk_layer(np.uint64(node_id))
 
     if "bounds" in request.args:
         bounds = request.args["bounds"]
@@ -78,8 +78,6 @@ def handle_get_manifest(table_id, node_id):
     verify = verify in ["True", "true", "1", True]
 
     cg = app_utils.get_cg(table_id)
-
-    start_layer = cg.get_chunk_layer(np.uint64(node_id))
 
     seg_ids = meshgen_utils.get_highest_child_nodes_with_meshes(
         cg,
