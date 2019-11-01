@@ -68,10 +68,10 @@ def compute_bitmasks(
         layer -> bits for layer id
     """
     bitmask_dict = {}
-    for i_layer in range(n_layers, 0, -1):
+    for i_layer in range(n_layers, 1, -1):
         layer_exp = n_layers - i_layer
-        n_bits_for_layers = max(1, np.ceil(log_n(fan_out ** layer_exp, fan_out)))
-        if i_layer == 1:
+        n_bits_for_layers = max(1, layer_exp)
+        if i_layer == 2:
             if s_bits_atomic_layer < n_bits_for_layers:
                 err = f"{s_bits_atomic_layer} bits is not enough for encoding."
                 raise ValueError(err)
@@ -79,6 +79,7 @@ def compute_bitmasks(
 
         n_bits_for_layers = int(n_bits_for_layers)
         bitmask_dict[i_layer] = n_bits_for_layers
+    bitmask_dict[1] = bitmask_dict[2]
     return bitmask_dict
 
 
