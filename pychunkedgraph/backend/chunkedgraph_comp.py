@@ -6,6 +6,7 @@ from pychunkedgraph.backend import chunkedgraph
 from pychunkedgraph.backend.utils import column_keys
 import pychunkedgraph.graph_analysis as graph_analysis
 
+from multiwrapper import multiprocessing_utils as mu
 from typing import Optional, Sequence
 
 
