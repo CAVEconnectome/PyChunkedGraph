@@ -1,0 +1,7 @@
+syntax = "proto3";
+
+package components;
+
+message ChunkComponentsMsg {
+  repeated uint64 components = 1;
+}

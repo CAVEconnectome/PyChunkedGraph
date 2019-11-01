@@ -20,7 +20,7 @@ from pychunkedgraph.backend.chunkedgraph_utils import compute_indices_pandas, \
     combine_cross_chunk_edge_dicts, get_min_time, partial_row_data_to_column_dict
 from pychunkedgraph.backend.utils import serializers, column_keys, row_keys, basetypes
 from pychunkedgraph.backend import chunkedgraph_exceptions as cg_exceptions, \
-    chunkedgraph_edits as cg_edits
+    chunkedgraph_edits as cg_edits, ChunkedGraphMeta
 from pychunkedgraph.backend.graphoperation import (
     GraphEditOperation,
     MergeOperation,
@@ -56,21 +56,24 @@ os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = \
 
 
 class ChunkedGraph(object):
-    def __init__(self,
-                 table_id: str,
-                 instance_id: str = "pychunkedgraph",
-                 project_id: str = "neuromancer-seung-import",
-                 chunk_size: Tuple[np.uint64, np.uint64, np.uint64] = None,
-                 fan_out: Optional[np.uint64] = None,
-                 use_skip_connections: Optional[bool] = True,
-                 s_bits_atomic_layer: Optional[np.uint64] = 8,
-                 n_bits_root_counter: Optional[np.uint64] = 0,
-                 n_layers: Optional[np.uint64] = None,
-                 credentials: Optional[credentials.Credentials] = None,
-                 client: bigtable.Client = None,
-                 dataset_info: Optional[object] = None,
-                 is_new: bool = False,
-                 logger: Optional[logging.Logger] = None) -> None:
+    def __init__(
+        self,
+        table_id: str,
+        instance_id: str = "pychunkedgraph",
+        project_id: str = "neuromancer-seung-import",
+        chunk_size: Tuple[np.uint64, np.uint64, np.uint64] = None,
+        fan_out: Optional[np.uint64] = None,
+        use_skip_connections: Optional[bool] = True,
+        s_bits_atomic_layer: Optional[np.uint64] = 8,
+        n_bits_root_counter: Optional[np.uint64] = 0,
+        n_layers: Optional[np.uint64] = None,
+        credentials: Optional[credentials.Credentials] = None,
+        client: bigtable.Client = None,
+        dataset_info: Optional[object] = None,
+        is_new: bool = False,
+        logger: Optional[logging.Logger] = None,
+        meta: Optional[ChunkedGraphMeta] = None,
+                ) -> None:
 
         if logger is None:
             self.logger = logging.getLogger(f"{project_id}/{instance_id}/{table_id}")
@@ -138,6 +141,8 @@ class ChunkedGraph(object):
         # Vectorized calls
         self._get_chunk_layer_vec = np.vectorize(self.get_chunk_layer)
         self._get_chunk_id_vec = np.vectorize(self.get_chunk_id)
+
+        self.meta = meta
 
     @property
     def client(self) -> bigtable.Client:
@@ -2261,36 +2266,27 @@ class ChunkedGraph(object):
         time_stamp = get_google_compatible_time_stamp(time_stamp,
                                                       round_up=False)
 
-        parent_ids = np.array(node_ids)
-
-        if stop_layer is not None:
-            stop_layer = min(self.n_layers, stop_layer)
-        else:
-            stop_layer = self.n_layers
-
-        node_mask = np.ones(len(node_ids), dtype=np.bool)
-        node_mask[self.get_chunk_layers(node_ids) >= stop_layer] = False
-        for i_try in range(n_tries):
-            parent_ids = np.array(node_ids)
-
-            for i_layer in range(int(stop_layer + 1)):
-                temp_parent_ids = self.get_parents(parent_ids[node_mask],
-                                                   time_stamp=time_stamp)
-
-                if temp_parent_ids is None:
+        stop_layer = self.n_layers if not stop_layer else min(self.n_layers, stop_layer)
+        layer_mask = np.ones(len(node_ids), dtype=np.bool)
+        
+        for _ in range(n_tries):
+            layer_mask[self.get_chunk_layers(node_ids) >= stop_layer] = False
+            parent_ids = np.array(node_ids, dtype=basetypes.NODE_ID)
+            for _ in range(int(stop_layer + 1)):
+                filtered_ids = parent_ids[layer_mask]
+                unique_ids, inverse = np.unique(filtered_ids, return_inverse=True)
+                temp_ids = self.get_parents(unique_ids, time_stamp=time_stamp)
+                if temp_ids is None:
                     break
                 else:
-                    parent_ids[node_mask] = temp_parent_ids
-
-                    node_mask[self.get_chunk_layers(parent_ids) >= stop_layer] = False
-                    if np.all(~node_mask):
-                        break
-
-            if np.all(self.get_chunk_layers(parent_ids) >= stop_layer):
-                break
+                    parent_ids[layer_mask] = temp_ids[inverse]
+                    layer_mask[self.get_chunk_layers(parent_ids) >= stop_layer] = False
+                    if not np.any(self.get_chunk_layers(parent_ids) < stop_layer):
+                        return parent_ids
+            if not np.any(self.get_chunk_layers(parent_ids) < stop_layer):
+                return parent_ids
             else:
-                time.sleep(.5)
-
+                time.sleep(0.5)
         return parent_ids
 
     def get_root(self, node_id: np.uint64,
