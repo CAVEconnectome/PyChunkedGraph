@@ -2740,6 +2740,12 @@ class ChunkedGraph(object):
                     lock_col = column_keys.Concurrency.Lock
                     former_row = self.read_node_id_row(ids[0],
                                                        columns=[lock_col])
+
+                    if not lock_col in former_row:
+                        self.logger.warning("Lock entry broken; cannot read "
+                                            "operation log")
+                        continue
+
                     operation_id = former_row[lock_col][0].value
                     log_row = self.read_log_row(operation_id)
                     is_merge = column_keys.OperationLogs.AddedEdge in log_row
