@@ -7,7 +7,7 @@ from typing import List
 from typing import Dict
 
 import numpy as np
-from multiwrapper import multiprocessing_utils as mu
+from multiwrapper.multiprocessing_utils import multiprocess_func
 
 from ...utils.general import chunked
 from ...backend import flatgraph_utils
@@ -21,11 +21,10 @@ from ...backend.chunks.atomic import get_touching_atomic_chunks
 from ...backend.chunks.atomic import get_bounding_atomic_chunks
 
 
-def get_children_chunk_cross_edges(cg_instance, layer_id, chunk_coord) -> np.ndarray:
-    layer2_chunks = get_touching_atomic_chunks(
-        cg_instance.meta, layer_id, chunk_coord, include_both=False
-    )
-    if not len(layer2_chunks):
+def get_children_chunk_cross_edges(cg_instance, layer, chunk_coord) -> np.ndarray:
+    """ cross edges that connect children chunks """
+    atomic_chunks = get_touching_atomic_chunks(cg_instance.meta, layer, chunk_coord)
+    if not len(atomic_chunks):
         return []
 
     cg_info = cg_instance.get_serialized_info(credentials=False)
@@ -34,13 +33,13 @@ def get_children_chunk_cross_edges(cg_instance, layer_id, chunk_coord) -> np.nda
         edge_ids_shared.append(np.empty([0, 2], dtype=basetypes.NODE_ID))
 
         chunked_l2chunk_list = chunked(
-            layer2_chunks, len(layer2_chunks) // mp.cpu_count()
+            atomic_chunks, len(atomic_chunks) // mp.cpu_count()
         )
         multi_args = []
-        for layer2_chunks in chunked_l2chunk_list:
-            multi_args.append((edge_ids_shared, cg_info, layer2_chunks, layer_id - 1))
+        for atomic_chunks in chunked_l2chunk_list:
+            multi_args.append((edge_ids_shared, cg_info, atomic_chunks, layer - 1))
 
-        mu.multiprocess_func(
+        multiprocess_func(
             _get_children_chunk_cross_edges_helper,
             multi_args,
             n_threads=min(len(multi_args), mp.cpu_count()),
@@ -52,37 +51,24 @@ def get_children_chunk_cross_edges(cg_instance, layer_id, chunk_coord) -> np.nda
         return cross_edges
 
 
-def _get_children_chunk_cross_edges_helper(args):
-    edge_ids_shared, cg_info, layer2_chunks, cross_edge_layer = args
+def _get_children_chunk_cross_edges_helper(args) -> None:
+    edge_ids_shared, cg_info, atomic_chunks, layer = args
     cg_instance = ChunkedGraph(**cg_info)
 
-    # start = time.time()
     cross_edges = [np.empty([0, 2], dtype=basetypes.NODE_ID)]
-    for layer2_chunk in layer2_chunks:
-        edges = _read_atomic_chunk_cross_edges(
-            cg_instance, layer2_chunk, cross_edge_layer
-        )
+    for layer2_chunk in atomic_chunks:
+        edges = _read_atomic_chunk_cross_edges(cg_instance, layer2_chunk, layer)
         cross_edges.append(edges)
+
     cross_edges = np.concatenate(cross_edges)
-    # print(f"reading raw edges {time.time()-start}s")
-
-    # start = time.time()
-    parents_1 = cg_instance.get_roots(cross_edges[:, 0], stop_layer=cross_edge_layer)
-    # print(f"getting parents1 {time.time()-start}s")
-
-    # start = time.time()
-    parents_2 = cg_instance.get_roots(cross_edges[:, 1], stop_layer=cross_edge_layer)
-    # print(f"getting parents2 {time.time()-start}s")
-
-    cross_edges[:, 0] = parents_1
-    cross_edges[:, 1] = parents_2
+    cross_edges[:, 0] = cg_instance.get_roots(cross_edges[:, 0], stop_layer=layer)
+    cross_edges[:, 1] = cg_instance.get_roots(cross_edges[:, 1], stop_layer=layer)
     if len(cross_edges):
-        cross_edges = np.unique(cross_edges, axis=0)
-        edge_ids_shared.append(cross_edges)
+        edge_ids_shared.append(np.unique(cross_edges, axis=0))
 
 
 def _read_atomic_chunk_cross_edges(
-    cg_instance, chunk_coord, cross_edge_layer
+    cg_instance, chunk_coord: Sequence[int], cross_edge_layer: int
 ) -> np.ndarray:
     cross_edge_col = column_keys.Connectivity.CrossChunkEdge[cross_edge_layer]
     range_read, l2ids = _read_atomic_chunk(cg_instance, chunk_coord, [cross_edge_layer])
@@ -103,30 +89,30 @@ def _read_atomic_chunk_cross_edges(
     return cross_edges
 
 
-def get_chunk_nodes_cross_edge_layer(cg_instance, layer_id, chunk_coord) -> Dict:
+def get_chunk_nodes_cross_edge_layer(
+    cg_instance, layer: int, chunk_coord: Sequence[int]
+) -> Dict:
     """
     gets nodes in a chunk that are part of cross chunk edges
     return_type dict {node_id: layer}
     the lowest layer (>= current layer) at which a node_id is part of a cross edge
     """
-    layer2_chunks = get_bounding_atomic_chunks(cg_instance.meta, layer_id, chunk_coord)
+    atomic_chunks = get_bounding_atomic_chunks(cg_instance.meta, layer, chunk_coord)
     node_layer_d = defaultdict(lambda: cg_instance.n_layers)
-    if not len(layer2_chunks):
+    if not len(atomic_chunks):
         return node_layer_d
 
     cg_info = cg_instance.get_serialized_info(credentials=False)
     with mp.Manager() as manager:
         node_layer_tuples_shared = manager.list()
         chunked_l2chunk_list = chunked(
-            layer2_chunks, len(layer2_chunks) // mp.cpu_count()
+            atomic_chunks, len(atomic_chunks) // mp.cpu_count()
         )
         multi_args = []
-        for layer2_chunks in chunked_l2chunk_list:
-            multi_args.append(
-                (node_layer_tuples_shared, cg_info, layer2_chunks, layer_id)
-            )
+        for atomic_chunks in chunked_l2chunk_list:
+            multi_args.append((node_layer_tuples_shared, cg_info, atomic_chunks, layer))
 
-        mu.multiprocess_func(
+        multiprocess_func(
             _get_chunk_nodes_cross_edge_layer_helper,
             multi_args,
             n_threads=min(len(multi_args), mp.cpu_count()),
@@ -147,23 +133,19 @@ def get_chunk_nodes_cross_edge_layer(cg_instance, layer_id, chunk_coord) -> Dict
 
 
 def _get_chunk_nodes_cross_edge_layer_helper(args):
-    node_layer_tuples_shared, cg_info, layer2_chunks, layer_id = args
+    node_layer_tuples_shared, cg_info, atomic_chunks, layer = args
     cg_instance = ChunkedGraph(**cg_info)
 
-    # start = time.time()
     node_layer_d = {}
-    for layer2_chunk in layer2_chunks:
+    for atomic_chunk in atomic_chunks:
         chunk_node_layer_d = _read_atomic_chunk_cross_edge_nodes(
-            cg_instance, layer2_chunk, range(layer_id, cg_instance.n_layers + 1)
+            cg_instance, atomic_chunk, range(layer, cg_instance.n_layers + 1)
         )
         node_layer_d.update(chunk_node_layer_d)
-    # print(f"reading raw edges {time.time()-start}s")
 
-    # start = time.time()
     l2ids = np.fromiter(node_layer_d.keys(), dtype=basetypes.NODE_ID)
-    parents = cg_instance.get_roots(l2ids, stop_layer=layer_id - 1)
+    parents = cg_instance.get_roots(l2ids, stop_layer=layer - 1)
     layers = np.fromiter(node_layer_d.values(), dtype=np.int)
-    # print(f"getting parents {time.time()-start}s")
 
     node_layer_tuples_shared.append((parents, layers))
 

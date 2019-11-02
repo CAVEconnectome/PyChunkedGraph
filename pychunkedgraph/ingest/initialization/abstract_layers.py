@@ -41,7 +41,6 @@ def add_layer(
     start = time.time()
     edge_ids = get_children_chunk_cross_edges(cg_instance, layer_id, parent_coords)
     print(f"get_children_chunk_cross_edges: {time.time()-start}, {len(edge_ids)}")
-    # print(len(children_ids), len(edge_ids))
 
     # Extract connected components
     isolated_node_mask = ~np.in1d(children_ids, np.unique(edge_ids))
@@ -155,11 +154,10 @@ def _write_components_helper(args):
     parent_layer_ids = range(layer_id, cg_instance.n_layers + 1)
     cc_connections = {l: [] for l in parent_layer_ids}
     for node_ids in ccs:
+        layer = layer_id
         if cg_instance.use_skip_connections and len(node_ids) == 1:
             layer = node_layer_d_shared.get(node_ids[0], cg_instance.n_layers)
-            cc_connections[layer].append(node_ids)
-        else:
-            cc_connections[layer_id].append(node_ids)
+        cc_connections[layer].append(node_ids)
 
     rows = []
     x, y, z = parent_coords

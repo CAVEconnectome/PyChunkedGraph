@@ -12,7 +12,7 @@ def get_touching_atomic_chunks(
     chunkedgraph_meta: ChunkedGraphMeta,
     layer: int,
     chunk_coords: Sequence[int],
-    include_both=True,
+    include_both=False,
 ) -> List:
     """get atomic chunk coordinates along touching faces of children chunks of a parent chunk"""
     chunk_coords = np.array(chunk_coords, dtype=int)
