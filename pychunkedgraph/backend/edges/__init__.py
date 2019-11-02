@@ -37,12 +37,12 @@ class Edges:
         self.affinities = np.ones(len(self.node_ids1)) * DEFAULT_AFFINITY
         if affinities is not None:
             self.affinities = np.array(affinities, dtype=basetypes.EDGE_AFFINITY)
-            assert node_ids1.size == affinities.size
+            assert self.node_ids1.size == self.affinities.size
 
         self.areas = np.ones(len(self.node_ids1)) * DEFAULT_AREA
         if areas is not None:
             self.areas = np.array(areas, dtype=basetypes.EDGE_AREA)
-            assert node_ids1.size == areas.size
+            assert self.node_ids1.size == self.areas.size
 
     def __add__(self, other):
         """add two Edges instances"""
