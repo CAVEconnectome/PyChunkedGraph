@@ -2700,6 +2700,8 @@ class ChunkedGraph(object):
 
     def get_change_log(self, root_id: np.uint64,
                        correct_for_wrong_coord_type: bool = True,
+                       only_relevant_mergers: bool = False,
+                       only_relevant_splits: bool = False,
                        time_stamp_past: Optional[datetime.datetime] = get_min_time()
                        ) -> dict:
         """ Returns all past root ids for this root
@@ -2748,6 +2750,10 @@ class ChunkedGraph(object):
 
                     operation_id = former_row[lock_col][0].value
                     log_row = self.read_log_row(operation_id)
+
+                    if len(log_row) == 0:
+                        continue
+
                     is_merge = column_keys.OperationLogs.AddedEdge in log_row
 
                     for id_ in ids:
@@ -2759,6 +2765,7 @@ class ChunkedGraph(object):
 
                     if is_merge:
                         added_edges = log_row[column_keys.OperationLogs.AddedEdge][0].value
+
                         merge_history.append(added_edges)
 
                         coords = [log_row[column_keys.OperationLogs.SourceCoordinate][0].value,
@@ -2774,11 +2781,35 @@ class ChunkedGraph(object):
 
                     if not is_merge:
                         removed_edges = log_row[column_keys.OperationLogs.RemovedEdge][0].value
+
                         split_history.append(removed_edges)
                 else:
                     continue
 
             next_ids = temp_next_ids
+
+        root_timestamp = self.read_node_id_row(root_id)[column_keys.Hierarchy.Child][0].timestamp
+        if only_relevant_mergers:
+            edge_roots = self.get_roots(np.concatenate(merge_history).flatten(),
+                                        time_stamp=root_timestamp).reshape(-1, 2) == root_id
+
+            del_ids = []
+            c = 0
+            for i_merge in range(len(merge_history)):
+                n_edges = len(merge_history[i_merge])
+                relevant = np.all(edge_roots[c: c + n_edges])
+
+                c += n_edges
+
+                if relevant:
+                    continue
+
+                del_ids.append(i_merge)
+
+            for i_del in sorted(del_ids)[::-1]:
+                del merge_history[i_del]
+                del merge_history_edges[i_del]
+
 
         return {"past_ids": np.unique(np.array(id_history, dtype=np.uint64)),
                 "merge_edges": np.array(merge_history),

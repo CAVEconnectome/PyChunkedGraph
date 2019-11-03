@@ -16,7 +16,7 @@ from pychunkedgraph.backend import chunkedgraph_exceptions as cg_exceptions, \
     chunkedgraph_comp as cg_comp
 
 
-__version__ = 'swdb.1.8'
+__version__ = 'swdb.1.9'
 bp = Blueprint('pychunkedgraph', __name__, url_prefix="/segmentation")
 
 # -------------------------------
@@ -578,11 +578,15 @@ def merge_log(table_id, root_id):
         raise(cg_exceptions.BadRequest("Timestamp parameter is not a valid"
                                        " unix timestamp"))
 
+    only_relevant_mergers = bool(request.args.get('only_relevant_mergers',
+                                                  True))
+
     # Call ChunkedGraph
     cg = app_utils.get_cg(table_id)
 
     change_log = cg.get_change_log(root_id=np.uint64(root_id),
                                    correct_for_wrong_coord_type=True,
+                                   only_relevant_mergers=only_relevant_mergers,
                                    time_stamp_past=time_stamp_past)
 
     for k in list(change_log.keys()):

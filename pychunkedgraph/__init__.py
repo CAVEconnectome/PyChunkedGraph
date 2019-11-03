@@ -1,1 +1,1 @@
-__version__ = 'swdb.1.8'
+__version__ = 'swdb.1.9'
