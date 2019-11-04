@@ -14,7 +14,7 @@ from pychunkedgraph.app import app_utils
 from pychunkedgraph.app.meshing.common import _remeshing
 from pychunkedgraph.backend import chunkedgraph_exceptions as cg_exceptions
 from pychunkedgraph.backend import history as cg_history
-from pychunkedgraph.graph_analysis import contact_sites
+from pychunkedgraph.graph_analysis import analysis, contact_sites
 
 __api_versions__ = [0, 1]
 
@@ -628,9 +628,6 @@ def handle_split_preview(table_id):
     data = json.loads(request.data)
     current_app.logger.debug(data)
 
-    # Call ChunkedGraph
-    cg = app_utils.get_cg(table_id)
-
     data_dict = {}
     for k in ["sources", "sinks"]:
         data_dict[k] = collections.defaultdict(list)
@@ -674,3 +671,47 @@ def handle_split_preview(table_id):
         "illegal_split": illegal_split
         }
     return resp
+
+
+### FIND PATH --------------------------------------------------------------
+
+
+def handle_find_path(table_id):
+    current_app.request_type = "find_path"
+
+    nodes = json.loads(request.data)
+
+    current_app.logger.debug(nodes)
+    assert len(nodes) == 2
+
+    # Call ChunkedGraph
+    cg = app_utils.get_cg(table_id)
+    def _get_supervoxel_id_from_node(node):
+        node_id = node[0]
+        x, y, z = node[1:]
+        coordinate = np.array([x, y, z]) / cg.segmentation_resolution
+
+        supervoxel_id = cg.get_atomic_id_from_coord(coordinate[0],
+                                                coordinate[1],
+                                                coordinate[2],
+                                                parent_id=np.uint64(node_id))
+        if supervoxel_id is None:
+            raise cg_exceptions.BadRequest(
+                f"Could not determine supervoxel ID for coordinates "
+                f"{coordinate}."
+            )
+
+        return supervoxel_id
+
+    source_supervoxel_id = _get_supervoxel_id_from_node(nodes[0])
+    target_supervoxel_id = _get_supervoxel_id_from_node(nodes[1])
+    source_l2_id = cg.get_parent(source_supervoxel_id)
+    target_l2_id = cg.get_parent(target_supervoxel_id)
+
+    l2_path = analysis.find_l2_shortest_path(cg, source_l2_id, target_l2_id)
+    centroids, failed_l2_ids = analysis.compute_mesh_centroids_of_l2_ids(cg, l2_path, flatten=True)
+
+    return {
+        "centroids_list": centroids,
+        "failed_l2_ids": failed_l2_ids
+    }
