@@ -1081,13 +1081,14 @@ class ChunkedGraph(object):
                                   end_time_inclusive=end_time_inclusive)
 
     def read_cross_chunk_edges(self, node_id: np.uint64, start_layer: int = 2,
-                               end_layer: int = None) -> Dict:
+                               end_layer: int = None, flatten: bool = False) -> Dict:
         """ Reads the cross chunk edge entry from the table for a given node id
-        and formats it as cross edge dict
+        and formats it as cross edge dict. If flatten is True, return an array of edges instead.
 
         :param node_id:
         :param start_layer:
         :param end_layer:
+        :param flatten:
         :return:
         """
         if end_layer is None:
@@ -1104,13 +1105,54 @@ class ChunkedGraph(object):
                    for l in range(start_layer, end_layer)]
         row_dict = self.read_node_id_row(node_id, columns=columns)
 
+        if flatten:
+            cross_edge_array = np.zeros((0,2),dtype=np.uint64)
+            for l in range(start_layer, end_layer):
+                col = column_keys.Connectivity.CrossChunkEdge[l]
+                if col in row_dict:
+                    cross_edge_array = np.concatenate((cross_edge_array, row_dict[col][0].value))
+            return cross_edge_array
+        else:
+            cross_edge_dict = {}
+            for l in range(start_layer, end_layer):
+                col = column_keys.Connectivity.CrossChunkEdge[l]
+                if col in row_dict:
+                    cross_edge_dict[l] = row_dict[col][0].value
+                else:
+                    cross_edge_dict[l] = col.deserialize(b'')
+
+            return cross_edge_dict
+
+    def read_cross_chunk_edges_for_nodes(self, node_ids: Sequence[np.uint64], start_layer: int = 2,
+                               end_layer: int = None) -> Dict:
+        """ Reads the cross chunk edge entry from the table for a given node id
+        and formats it as cross edge dict
+
+        :param node_id:
+        :param start_layer:
+        :param end_layer:
+        :return:
+        """
+        if end_layer is None:
+            end_layer = self.n_layers
+
+        if start_layer < 2 or start_layer == self.n_layers:
+            return {}
+
+        assert end_layer > start_layer and end_layer <= self.n_layers
+
+        columns = [column_keys.Connectivity.CrossChunkEdge[l]
+                   for l in range(start_layer, end_layer)]
+        row_dict = self.read_node_id_rows(node_ids=node_ids, columns=columns)
+
         cross_edge_dict = {}
-        for l in range(start_layer, end_layer):
-            col = column_keys.Connectivity.CrossChunkEdge[l]
-            if col in row_dict:
-                cross_edge_dict[l] = row_dict[col][0].value
-            else:
-                cross_edge_dict[l] = col.deserialize(b'')
+        for node_id in row_dict:
+            cross_edge_array = np.zeros((0,2),dtype=np.uint64)
+            for l in range(start_layer, end_layer):
+                col = column_keys.Connectivity.CrossChunkEdge[l]
+                if col in row_dict[node_id]:
+                    cross_edge_array = np.concatenate((cross_edge_array, row_dict[node_id][col][0].value))
+            cross_edge_dict[node_id] = cross_edge_array
 
         return cross_edge_dict
 
@@ -3410,7 +3452,9 @@ class ChunkedGraph(object):
                            connected_edges: bool = True,
                            time_stamp: Optional[datetime.datetime] = None
                            ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
-        """ Takes an atomic id and returns the associated agglomeration ids
+        """
+        Takes a list of lvl2 ids and returns the edges, affinities, and areas
+        of their children (their associated supervoxels).
 
         :param node_ids: array of np.uint64
         :param make_unique: bool
@@ -3668,9 +3712,38 @@ class ChunkedGraph(object):
 
         return atomic_edges
 
+    def get_first_shared_parent(self, first_node_id: np.uint64, second_node_id: np.uint64):
+        """
+        Get the common parent of first_node_id and second_node_id with the lowest layer.
+        Returns None if the two nodes belong to different root ids.
+
+        :param first_node_id: np.uint64
+        :param second_node_id: np.uint64
+        :return: np.uint64 or None
+        """
+        first_node_parent_ids = set()
+        second_node_parent_ids = set()
+        cur_first_node_parent = first_node_id
+        cur_second_node_parent = second_node_id
+        while cur_first_node_parent is not None or cur_second_node_parent is not None:
+            if cur_first_node_parent is not None:
+                first_node_parent_ids.add(cur_first_node_parent)
+            if cur_second_node_parent is not None:
+                second_node_parent_ids.add(cur_second_node_parent)
+            if cur_first_node_parent in second_node_parent_ids:
+                return cur_first_node_parent
+            if cur_second_node_parent in first_node_parent_ids:
+                return cur_second_node_parent
+            if cur_first_node_parent is not None:
+                cur_first_node_parent = self.get_parent(cur_first_node_parent)
+            if cur_second_node_parent is not None:
+                cur_second_node_parent = self.get_parent(cur_second_node_parent)
+        return None
+
     def get_children_at_layer(self, agglomeration_id: np.uint64, layer: int):
         """
         Get the children of agglomeration_id that have layer = layer.
+
         :param agglomeration_id: np.uint64
         :param layer: int
         :return: [np.uint64]

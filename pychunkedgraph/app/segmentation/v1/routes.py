@@ -73,6 +73,14 @@ def handle_split(table_id):
     return jsonify_with_kwargs(resp, int64_as_str=int64_as_str)
 
 
+@bp.route('/table/<table_id>/graph/split_preview', methods=["POST"])
+@auth_requires_permission("view")
+def handle_split_preview(table_id):
+    int64_as_str = request.args.get("int64_as_str", default=False, type=toboolean)
+    split_preview = common.handle_split_preview(table_id)
+    return jsonify_with_kwargs(split_preview, int64_as_str=int64_as_str)
+
+
 ### UNDO ----------------------------------------------------------------------
 
 
@@ -202,9 +210,12 @@ def last_edit(table_id, root_id):
     return jsonify_with_kwargs(resp, int64_as_str=int64_as_str)
 
 
-@bp.route('/table/<table_id>/graph/split_preview', methods=["POST"])
+### FIND PATH ------------------------------------------------------------------
+
+
+@bp.route("/table/<table_id>/graph/find_path", methods=["POST"])
 @auth_requires_permission("view")
-def handle_split_preview(table_id):
+def find_path(table_id):
     int64_as_str = request.args.get("int64_as_str", default=False, type=toboolean)
-    split_preview = common.handle_split_preview(table_id)
-    return jsonify_with_kwargs(split_preview, int64_as_str=int64_as_str)
+    find_path_result = common.handle_find_path(table_id)
+    return jsonify_with_kwargs(find_path_result, int64_as_str=int64_as_str)
