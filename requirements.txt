@@ -17,3 +17,4 @@ dracopy
 zmesh
 fastremap
 pyopenssl
+contact-points

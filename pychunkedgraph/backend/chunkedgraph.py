@@ -3667,3 +3667,49 @@ class ChunkedGraph(object):
         #     return False, None
 
         return atomic_edges
+
+    def get_children_at_layer(self, agglomeration_id: np.uint64, layer: int):
+        """
+        Get the children of agglomeration_id that have layer = layer.
+        :param agglomeration_id: np.uint64
+        :param layer: int
+        :return: [np.uint64]
+        """
+        nodes_to_query = [agglomeration_id]
+        children_at_layer = []
+        while True:
+            children = self.get_children(nodes_to_query, flatten=True)
+            children_layers = self.get_chunk_layers(children)
+            stop_layer_mask = children_layers == layer
+            continue_layer_mask = children_layers > layer
+            found_children_at_layer = children[stop_layer_mask]
+            children_at_layer.append(found_children_at_layer)
+            nodes_to_query = children[continue_layer_mask]
+            if not np.any(nodes_to_query):
+                break
+        return np.concatenate(children_at_layer)
+        
+    def get_chunk_voxel_location(self, chunk_coordinate):
+        """
+        Given a lvl1 or lvl2 chunk coordinate, return the voxel location of the chunk in the
+        underlying dataset.
+        """
+        # TODO: remove this hack once pinky re-built
+        if self._table_id == 'pinky100_sv16':
+            offset = 0
+        else:
+            offset = self.vx_vol_bounds[:,0]
+        return np.array((offset + self.chunk_size * chunk_coordinate), dtype=np.int)
+
+    def download_chunk_segmentation(self, chunk_coordinate):
+        """
+        Given a lvl1 or lvl2 chunk coordinate, return the underlying watershed segmentation.
+        """
+        chunk_start = self.get_chunk_voxel_location(chunk_coordinate)
+        chunk_end = self.get_chunk_voxel_location(chunk_coordinate + 1)
+        ws_seg = self.cv[
+            chunk_start[0] : chunk_end[0],
+            chunk_start[1] : chunk_end[1],
+            chunk_start[2] : chunk_end[2],
+        ].squeeze()
+        return ws_seg
