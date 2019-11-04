@@ -2,11 +2,11 @@ import numpy as np
 import datetime
 import collections
 
-from pychunkedgraph.backend import chunkedgraph, flatgraph_utils
+from pychunkedgraph.backend import chunkedgraph
 from pychunkedgraph.backend.utils import column_keys
+import pychunkedgraph.graph_analysis as graph_analysis
 
 from multiwrapper import multiprocessing_utils as mu
-
 from typing import Optional, Sequence
 
 
@@ -160,62 +160,3 @@ def get_delta_roots(cg,
     expired_root_ids = np.array([k for (k, v) in rows.items()], dtype=np.uint64)
 
     return np.array(new_root_ids, dtype=np.uint64), expired_root_ids
-
-
-def get_contact_sites(cg, root_id, bounding_box=None, bb_is_coordinate=True, compute_partner=True):
-    # Get information about the root id
-    # All supervoxels
-    sv_ids = cg.get_subgraph_nodes(root_id,
-                                   bounding_box=bounding_box,
-                                   bb_is_coordinate=bb_is_coordinate)
-    # All edges that are _not_ connected / on
-    edges, affs, areas = cg.get_subgraph_edges(root_id,
-                                               bounding_box=bounding_box,
-                                               bb_is_coordinate=bb_is_coordinate,
-                                               connected_edges=False)
-
-    # Build area lookup dictionary
-    cs_svs = edges[~np.in1d(edges, sv_ids).reshape(-1, 2)]
-    area_dict = collections.defaultdict(int)
-
-    for area, sv_id in zip(areas, cs_svs):
-        area_dict[sv_id] += area
-
-    area_dict_vec = np.vectorize(area_dict.get)
-
-    # Extract svs from contacting root ids
-    u_cs_svs = np.unique(cs_svs)
-
-    # Load edges of these cs_svs
-    edges_cs_svs_rows = cg.read_node_id_rows(node_ids=u_cs_svs,
-                                             columns=[column_keys.Connectivity.Partner,
-                                                      column_keys.Connectivity.Connected])
-
-    pre_cs_edges = []
-    for ri in edges_cs_svs_rows.items():
-        r = cg._retrieve_connectivity(ri)
-        pre_cs_edges.extend(r[0])
-
-    graph, _, _, unique_ids = flatgraph_utils.build_gt_graph(
-        pre_cs_edges, make_directed=True)
-
-    # connected components in this graph will be combined in one component
-    ccs = flatgraph_utils.connected_components(graph)
-
-    cs_dict = collections.defaultdict(list)
-    for cc in ccs:
-        cc_sv_ids = unique_ids[cc]
-
-        cc_sv_ids = cc_sv_ids[np.in1d(cc_sv_ids, u_cs_svs)]
-        cs_areas = area_dict_vec(cc_sv_ids)
-
-        if compute_partner:
-            partner_root_id = int(cg.get_root(cc_sv_ids[0]))
-        else:
-            partner_root_id = len(cs_dict)
-
-        print(partner_root_id, np.sum(cs_areas))
-
-        cs_dict[partner_root_id].append(np.sum(cs_areas))
-
-    return cs_dict
