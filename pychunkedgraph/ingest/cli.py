@@ -59,7 +59,7 @@ def ingest_graph(graph_id: str, dataset: click.Path, raw: bool, overwrite: bool)
     enqueue_atomic_tasks(imanager)
 
 
-@ingest_cli.command("queue")
+@ingest_cli.command("parent")
 @click.argument("chunk_info", nargs=4, type=int)
 def queue_parent(chunk_info):
 
@@ -76,7 +76,7 @@ def queue_parent(chunk_info):
     parents_queue.enqueue(
         create_parent_chunk,
         job_id=chunk_id_str(parent_layer, parent_coords),
-        job_timeout=f"{int(1.5 * parent_layer)}m",
+        job_timeout=f"{int(3 * parent_layer)}m",
         result_ttl=0,
         args=(
             imanager.serialized(),
@@ -89,6 +89,38 @@ def queue_parent(chunk_info):
     )
     imanager.redis.hdel(parent_layer, parent_chunk_str)
     imanager.redis.hset(f"{parent_layer}q", parent_chunk_str, "")
+
+
+@ingest_cli.command("children")
+@click.argument("chunk_info", nargs=4, type=int)
+def queue_children(chunk_info):
+
+    redis = get_redis_connection()
+    imanager = IngestionManager.from_pickle(redis.get(r_keys.INGESTION_MANAGER))
+
+    parent_layer = chunk_info[0]
+    parent_coords = np.array(chunk_info[1:], int)
+
+    children = get_children_coords(
+        imanager.chunkedgraph_meta, parent_layer, parent_coords
+    )
+    for parent_coords in children:
+        parent_layer = parent_layer - 1
+        parents_queue = imanager.get_task_queue(imanager.config.parents_q_name)
+        parents_queue.enqueue(
+            create_parent_chunk,
+            job_id=chunk_id_str(parent_layer, parent_coords),
+            job_timeout=f"{int(3 * parent_layer)}m",
+            result_ttl=0,
+            args=(
+                imanager.serialized(),
+                parent_layer,
+                parent_coords,
+                get_children_coords(
+                    imanager.chunkedgraph_meta, parent_layer, parent_coords
+                ),
+            ),
+        )
 
 
 @ingest_cli.command("status")
