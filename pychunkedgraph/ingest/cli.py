@@ -104,20 +104,20 @@ def queue_children(chunk_info):
     children = get_children_coords(
         imanager.chunkedgraph_meta, parent_layer, parent_coords
     )
-    for parent_coords in children:
-        parent_layer = parent_layer - 1
-        parents_queue = imanager.get_task_queue(imanager.config.parents_q_name)
-        parents_queue.enqueue(
+    children_layer = parent_layer - 1
+    for coords in children:
+        task_q = imanager.get_task_queue(imanager.config.parents_q_name)
+        task_q.enqueue(
             create_parent_chunk,
-            job_id=chunk_id_str(parent_layer, parent_coords),
+            job_id=chunk_id_str(children_layer, coords),
             job_timeout=f"{int(3 * parent_layer)}m",
             result_ttl=0,
             args=(
                 imanager.serialized(),
-                parent_layer,
-                parent_coords,
+                children_layer,
+                coords,
                 get_children_coords(
-                    imanager.chunkedgraph_meta, parent_layer, parent_coords
+                    imanager.chunkedgraph_meta, children_layer, coords
                 ),
             ),
         )
