@@ -713,5 +713,6 @@ def handle_find_path(table_id):
 
     return {
         "centroids_list": centroids,
-        "failed_l2_ids": failed_l2_ids
+        "failed_l2_ids": failed_l2_ids,
+        "l2_path": l2_path
     }
