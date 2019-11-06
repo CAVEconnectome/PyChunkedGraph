@@ -54,7 +54,7 @@ def _post_task_completion(imanager: IngestionManager, layer: int, coords: np.nda
         parents_queue.enqueue(
             create_parent_chunk,
             job_id=chunk_id_str(parent_layer, parent_coords),
-            job_timeout=f"{3*parent_layer}m",
+            job_timeout=f"{6*parent_layer}m",
             result_ttl=0,
             args=(
                 imanager.serialized(),

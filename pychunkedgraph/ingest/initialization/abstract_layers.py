@@ -124,14 +124,13 @@ def _write_connected_components(
     )
     print(f"node_layer_d: {time.time()-start}, {len(node_layer_d)}")
 
-    d1 = dict(list(node_layer_d.items())[len(node_layer_d)//2:])
-    d2 = dict(list(node_layer_d.items())[:len(node_layer_d)//2])
-
+    node_layer_items_chunked = chunked(list(node_layer_d.items()), int(10e7))
     with mp.Manager() as manager:
         # HACK the dict can be huge sometimes, pickling fails when it's huge
         # the problem is appraently fixed in Python 3.8
-        node_layer_d_shared = manager.dict(d1)
-        node_layer_d_shared.update(d2)
+        node_layer_d_shared = manager.dict()
+        for items in node_layer_items_chunked:
+            node_layer_d_shared.update(dict(items))
         ccs_with_node_ids = []
         for cc in ccs:
             ccs_with_node_ids.append(graph_ids[cc])
