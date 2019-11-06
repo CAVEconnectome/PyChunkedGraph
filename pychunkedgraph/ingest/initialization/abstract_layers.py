@@ -43,6 +43,7 @@ def add_layer(
     print(f"get_children_chunk_cross_edges: {time.time()-start}, {len(edge_ids)}")
 
     # Extract connected components
+    start = time.time()
     isolated_node_mask = ~np.in1d(children_ids, np.unique(edge_ids))
     add_node_ids = children_ids[isolated_node_mask].squeeze()
     add_edge_ids = np.vstack([add_node_ids, add_node_ids]).T
@@ -53,9 +54,9 @@ def add_layer(
     graph, _, _, graph_ids = flatgraph_utils.build_gt_graph(
         edge_ids, make_directed=True
     )
-
     ccs = flatgraph_utils.connected_components(graph)
-    start = time.time()
+    print(f"connected components: {time.time()-start}, {len(ccs)}")
+
     _write_connected_components(
         cg_instance,
         layer_id,
@@ -64,7 +65,6 @@ def add_layer(
         graph_ids,
         get_valid_timestamp(time_stamp),
     )
-    print(f"_write_connected_components: {time.time()-start}")
     return f"{layer_id}_{'_'.join(map(str, parent_coords))}"
 
 
@@ -131,13 +131,12 @@ def _write_connected_components(
     # node_layer_d_shared = manager.dict()
     # for items in node_layer_items_chunked:
     #     node_layer_d_shared.update(dict(items))
+    start = time.time()
     ccs_with_node_ids = []
     for cc in ccs:
         ccs_with_node_ids.append(graph_ids[cc])
 
-    chunked_ccs = chunked(
-        ccs_with_node_ids, len(ccs_with_node_ids) // mp.cpu_count()
-    )
+    chunked_ccs = chunked(ccs_with_node_ids, len(ccs_with_node_ids) // mp.cpu_count())
     cg_info = cg_instance.get_serialized_info(credentials=False)
     multi_args = []
 
@@ -145,11 +144,15 @@ def _write_connected_components(
         multi_args.append(
             (cg_info, layer_id, parent_coords, ccs, node_layer_d_shared, time_stamp)
         )
+    print(f"prep _write_components_helper: {time.time()-start}")
+
+    start = time.time()
     mu.multiprocess_func(
         _write_components_helper,
         multi_args,
         n_threads=min(len(multi_args), mp.cpu_count()),
     )
+    print(f"_write_components_helper: {time.time()-start}")
 
 
 def _write_components_helper(args):

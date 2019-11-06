@@ -102,15 +102,12 @@ def get_chunk_nodes_cross_edge_layer(
         return {}
 
     cg_info = cg_instance.get_serialized_info(credentials=False)
-    manager = mp.Manager() # needs to be closed?
+    manager = mp.Manager()  # needs to be closed?
     node_layer_d_shared = manager.dict()
-    node_layer_tuples_shared = manager.list()
-    chunked_l2chunk_list = chunked(
-        atomic_chunks, len(atomic_chunks) // mp.cpu_count()
-    )
+    chunked_l2chunk_list = chunked(atomic_chunks, len(atomic_chunks) // mp.cpu_count())
     multi_args = []
     for atomic_chunks in chunked_l2chunk_list:
-        multi_args.append((node_layer_tuples_shared, cg_info, atomic_chunks, layer))
+        multi_args.append((node_layer_d_shared, cg_info, atomic_chunks, layer))
 
     multiprocess_func(
         _get_chunk_nodes_cross_edge_layer_helper,
@@ -118,23 +115,11 @@ def get_chunk_nodes_cross_edge_layer(
         n_threads=min(len(multi_args), mp.cpu_count()),
     )
 
-    node_ids = []
-    layers = []
-    for tup in node_layer_tuples_shared:
-        node_ids.append(tup[0])
-        layers.append(tup[1])
-
-    node_ids = np.concatenate(node_ids)
-    layers = np.concatenate(layers)
-
-    for i, node_id in enumerate(node_ids):
-        layer = node_layer_d_shared.get(node_id, cg_instance.n_layers)
-        node_layer_d_shared[node_id] = min(layer, layers[i])
     return node_layer_d_shared
 
 
 def _get_chunk_nodes_cross_edge_layer_helper(args):
-    node_layer_tuples_shared, cg_info, atomic_chunks, layer = args
+    node_layer_d_shared, cg_info, atomic_chunks, layer = args
     cg_instance = ChunkedGraph(**cg_info)
 
     node_layer_d = {}
@@ -148,7 +133,9 @@ def _get_chunk_nodes_cross_edge_layer_helper(args):
     parents = cg_instance.get_roots(l2ids, stop_layer=layer - 1)
     layers = np.fromiter(node_layer_d.values(), dtype=np.int)
 
-    node_layer_tuples_shared.append((parents, layers))
+    for i, parent in enumerate(parents):
+        layer = node_layer_d_shared.get(parent, cg_instance.n_layers)
+        node_layer_d_shared[parent] = min(layer, layers[i])
 
 
 def _read_atomic_chunk_cross_edge_nodes(cg_instance, chunk_coord, cross_edge_layers):
