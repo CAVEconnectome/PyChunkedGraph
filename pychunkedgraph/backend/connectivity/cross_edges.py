@@ -33,7 +33,7 @@ def get_children_chunk_cross_edges(cg_instance, layer, chunk_coord) -> np.ndarra
         edge_ids_shared.append(np.empty([0, 2], dtype=basetypes.NODE_ID))
 
         chunked_l2chunk_list = chunked(
-            atomic_chunks, len(atomic_chunks) // mp.cpu_count()
+            atomic_chunks, len(atomic_chunks) // (2 * mp.cpu_count() - 1)
         )
         multi_args = []
         for atomic_chunks in chunked_l2chunk_list:
@@ -104,11 +104,14 @@ def get_chunk_nodes_cross_edge_layer(
     cg_info = cg_instance.get_serialized_info(credentials=False)
     manager = mp.Manager()  # needs to be closed?
     node_layer_d_shared = manager.dict()
-    chunked_l2chunk_list = chunked(atomic_chunks, len(atomic_chunks) // mp.cpu_count())
+    chunked_l2chunk_list = chunked(
+        atomic_chunks, len(atomic_chunks) // (2 * mp.cpu_count() - 1)
+    )
     multi_args = []
     for atomic_chunks in chunked_l2chunk_list:
         multi_args.append((node_layer_d_shared, cg_info, atomic_chunks, layer))
 
+    print(f"jobs {len(multi_args)} processes {min(len(multi_args), mp.cpu_count())}")
     multiprocess_func(
         _get_chunk_nodes_cross_edge_layer_helper,
         multi_args,

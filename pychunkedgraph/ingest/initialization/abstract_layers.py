@@ -136,7 +136,9 @@ def _write_connected_components(
     for cc in ccs:
         ccs_with_node_ids.append(graph_ids[cc])
 
-    chunked_ccs = chunked(ccs_with_node_ids, len(ccs_with_node_ids) // mp.cpu_count())
+    chunked_ccs = chunked(
+        ccs_with_node_ids, len(ccs_with_node_ids) // (2 * mp.cpu_count() - 1)
+    )
     cg_info = cg_instance.get_serialized_info(credentials=False)
     multi_args = []
 
