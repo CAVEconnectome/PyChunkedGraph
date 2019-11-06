@@ -119,37 +119,37 @@ def _write_connected_components(
         return
 
     start = time.time()
-    node_layer_d = get_chunk_nodes_cross_edge_layer(
+    node_layer_d_shared = get_chunk_nodes_cross_edge_layer(
         cg_instance, layer_id, parent_coords
     )
-    print(f"node_layer_d: {time.time()-start}, {len(node_layer_d)}")
+    print(f"node_layer_d: {time.time()-start}, {len(node_layer_d_shared)}")
 
-    node_layer_items_chunked = chunked(list(node_layer_d.items()), int(10e7))
-    with mp.Manager() as manager:
-        # HACK the dict can be huge sometimes, pickling fails when it's huge
-        # the problem is appraently fixed in Python 3.8
-        node_layer_d_shared = manager.dict()
-        for items in node_layer_items_chunked:
-            node_layer_d_shared.update(dict(items))
-        ccs_with_node_ids = []
-        for cc in ccs:
-            ccs_with_node_ids.append(graph_ids[cc])
+    # node_layer_items_chunked = chunked(list(node_layer_d.items()), int(10e6))
+    # with mp.Manager() as manager:
+    # # HACK the dict can be huge sometimes, pickling fails when it's huge
+    # # the problem is appraently fixed in Python 3.8
+    # node_layer_d_shared = manager.dict()
+    # for items in node_layer_items_chunked:
+    #     node_layer_d_shared.update(dict(items))
+    ccs_with_node_ids = []
+    for cc in ccs:
+        ccs_with_node_ids.append(graph_ids[cc])
 
-        chunked_ccs = chunked(
-            ccs_with_node_ids, len(ccs_with_node_ids) // mp.cpu_count()
+    chunked_ccs = chunked(
+        ccs_with_node_ids, len(ccs_with_node_ids) // mp.cpu_count()
+    )
+    cg_info = cg_instance.get_serialized_info(credentials=False)
+    multi_args = []
+
+    for ccs in chunked_ccs:
+        multi_args.append(
+            (cg_info, layer_id, parent_coords, ccs, node_layer_d_shared, time_stamp)
         )
-        cg_info = cg_instance.get_serialized_info(credentials=False)
-        multi_args = []
-
-        for ccs in chunked_ccs:
-            multi_args.append(
-                (cg_info, layer_id, parent_coords, ccs, node_layer_d_shared, time_stamp)
-            )
-        mu.multiprocess_func(
-            _write_components_helper,
-            multi_args,
-            n_threads=min(len(multi_args), mp.cpu_count()),
-        )
+    mu.multiprocess_func(
+        _write_components_helper,
+        multi_args,
+        n_threads=min(len(multi_args), mp.cpu_count()),
+    )
 
 
 def _write_components_helper(args):

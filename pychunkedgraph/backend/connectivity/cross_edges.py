@@ -10,15 +10,15 @@ import numpy as np
 from multiwrapper.multiprocessing_utils import multiprocess_func
 
 from ...utils.general import chunked
-from ...backend import flatgraph_utils
-from ...backend.utils import basetypes
-from ...backend.utils import serializers
-from ...backend.utils import column_keys
-from ...backend.chunkedgraph import ChunkedGraph
-from ...backend.chunkedgraph_utils import get_valid_timestamp
-from ...backend.chunkedgraph_utils import filter_failed_node_ids
-from ...backend.chunks.atomic import get_touching_atomic_chunks
-from ...backend.chunks.atomic import get_bounding_atomic_chunks
+from .. import flatgraph_utils
+from ..utils import basetypes
+from ..utils import serializers
+from ..utils import column_keys
+from ..chunkedgraph import ChunkedGraph
+from ..chunkedgraph_utils import get_valid_timestamp
+from ..chunkedgraph_utils import filter_failed_node_ids
+from ..chunks.atomic import get_touching_atomic_chunks
+from ..chunks.atomic import get_bounding_atomic_chunks
 
 
 def get_children_chunk_cross_edges(cg_instance, layer, chunk_coord) -> np.ndarray:
@@ -98,38 +98,39 @@ def get_chunk_nodes_cross_edge_layer(
     the lowest layer (>= current layer) at which a node_id is part of a cross edge
     """
     atomic_chunks = get_bounding_atomic_chunks(cg_instance.meta, layer, chunk_coord)
-    node_layer_d = defaultdict(lambda: cg_instance.n_layers)
     if not len(atomic_chunks):
-        return node_layer_d
+        return {}
 
     cg_info = cg_instance.get_serialized_info(credentials=False)
-    with mp.Manager() as manager:
-        node_layer_tuples_shared = manager.list()
-        chunked_l2chunk_list = chunked(
-            atomic_chunks, len(atomic_chunks) // mp.cpu_count()
-        )
-        multi_args = []
-        for atomic_chunks in chunked_l2chunk_list:
-            multi_args.append((node_layer_tuples_shared, cg_info, atomic_chunks, layer))
+    manager = mp.Manager() # needs to be closed?
+    node_layer_d_shared = manager.dict()
+    node_layer_tuples_shared = manager.list()
+    chunked_l2chunk_list = chunked(
+        atomic_chunks, len(atomic_chunks) // mp.cpu_count()
+    )
+    multi_args = []
+    for atomic_chunks in chunked_l2chunk_list:
+        multi_args.append((node_layer_tuples_shared, cg_info, atomic_chunks, layer))
 
-        multiprocess_func(
-            _get_chunk_nodes_cross_edge_layer_helper,
-            multi_args,
-            n_threads=min(len(multi_args), mp.cpu_count()),
-        )
+    multiprocess_func(
+        _get_chunk_nodes_cross_edge_layer_helper,
+        multi_args,
+        n_threads=min(len(multi_args), mp.cpu_count()),
+    )
 
-        node_ids = []
-        layers = []
-        for tup in node_layer_tuples_shared:
-            node_ids.append(tup[0])
-            layers.append(tup[1])
+    node_ids = []
+    layers = []
+    for tup in node_layer_tuples_shared:
+        node_ids.append(tup[0])
+        layers.append(tup[1])
 
-        node_ids = np.concatenate(node_ids)
-        layers = np.concatenate(layers)
+    node_ids = np.concatenate(node_ids)
+    layers = np.concatenate(layers)
 
-        for i, node_id in enumerate(node_ids):
-            node_layer_d[node_id] = min(node_layer_d[node_id], layers[i])
-        return {**node_layer_d}
+    for i, node_id in enumerate(node_ids):
+        layer = node_layer_d_shared.get(node_id, cg_instance.n_layers)
+        node_layer_d_shared[node_id] = min(layer, layers[i])
+    return node_layer_d_shared
 
 
 def _get_chunk_nodes_cross_edge_layer_helper(args):
