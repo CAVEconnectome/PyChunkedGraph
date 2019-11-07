@@ -124,6 +124,7 @@ def _write_connected_components(
         cg_instance, layer_id, parent_coords
     )
     print(f"node_layer_d: {time.time()-start}, {len(node_layer_d_shared)}")
+    return
 
     # node_layer_items_chunked = chunked(list(node_layer_d.items()), int(10e6))
     # with mp.Manager() as manager:
