@@ -76,7 +76,7 @@ def queue_parent(chunk_info):
     parents_queue.enqueue(
         create_parent_chunk,
         job_id=chunk_id_str(parent_layer, parent_coords),
-        job_timeout=f"{int(6 * parent_layer)}m",
+        job_timeout=f"{int(10 * parent_layer)}m",
         result_ttl=0,
         args=(
             imanager.serialized(),
@@ -110,7 +110,7 @@ def queue_children(chunk_info):
         task_q.enqueue(
             create_parent_chunk,
             job_id=chunk_id_str(children_layer, coords),
-            job_timeout=f"{int(4 * parent_layer)}m",
+            job_timeout=f"{int(10 * parent_layer)}m",
             result_ttl=0,
             args=(
                 imanager.serialized(),
