@@ -179,19 +179,14 @@ def _read_atomic_chunk_cross_edge_nodes(cg_instance, chunk_coord, cross_edge_lay
 
 def _find_min_layer(node_layer_d_shared, ids_l_shared, layers_l_shared):
     start = time.time()
-    print(f"ids_l_shared {len(ids_l_shared)}")
 
     node_ids = np.concatenate(ids_l_shared)
     layers = np.concatenate(layers_l_shared)
-    print(f"_find_min_layer node_ids: {len(node_ids)}")
-    print(f"_find_min_layer node_ids unique: {len(np.unique(node_ids))}")
-    print(f"time {time.time()-start}")
 
-    return
     for i, node_id in enumerate(node_ids):
         layer = node_layer_d_shared.get(node_id, layers[i])
         node_layer_d_shared[node_id] = min(layer, layers[i])
-    print(f"_find_min_layer node_ids: {len(node_layer_d_shared)}")
+    print(f"_find_min_layer node_ids: {len(node_layer_d_shared)}, time {time.time()-start}")
 
 
 def _read_atomic_chunk(cg_instance, chunk_coord, layers):
