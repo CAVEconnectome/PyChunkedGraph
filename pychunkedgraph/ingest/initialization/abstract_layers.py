@@ -118,12 +118,14 @@ def _write_connected_components(
     if not ccs:
         return
 
-    start = time.time()
-    print(f"start node_layer_d")
-    node_layer_d_shared = get_chunk_nodes_cross_edge_layer(
-        cg_instance, layer_id, parent_coords
-    )
-    print(f"node_layer_d: {time.time()-start}, {len(node_layer_d_shared)}")
+    node_layer_d_shared = {}
+    if layer_id == cg_instance.n_layers:
+        start = time.time()
+        print(f"start node_layer_d")
+        node_layer_d_shared = get_chunk_nodes_cross_edge_layer(
+            cg_instance, layer_id, parent_coords
+        )
+        print(f"node_layer_d: {time.time()-start}, {len(node_layer_d_shared)}")
 
     # node_layer_items_chunked = chunked(list(node_layer_d.items()), int(10e6))
     # with mp.Manager() as manager:
