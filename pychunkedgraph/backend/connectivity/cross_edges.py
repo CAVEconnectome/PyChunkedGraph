@@ -112,13 +112,13 @@ def get_chunk_nodes_cross_edge_layer(
     cg_info = cg_instance.get_serialized_info(credentials=False)
     manager = mp.Manager()  # needs to be closed?
     ids_l_shared = manager.list()
-    layers_l_shared_list = manager.list()
+    layers_l_shared = manager.list()
     task_size = int(math.ceil(len(atomic_chunks) / mp.cpu_count()))
     chunked_l2chunk_list = chunked(atomic_chunks, task_size)
     multi_args = []
     for i, atomic_chunks in enumerate(chunked_l2chunk_list):
         multi_args.append(
-            (ids_l_shared, layers_l_shared_list, cg_info, atomic_chunks, layer, i,)
+            (ids_l_shared, layers_l_shared, cg_info, atomic_chunks, layer, i,)
         )
 
     print(f"prep: {time.time()-start} jobs: {len(multi_args)} task_size: {task_size}")
@@ -132,15 +132,16 @@ def get_chunk_nodes_cross_edge_layer(
 
     start = time.time()
     node_layer_d_shared = manager.dict()
-    _find_min_layer(node_layer_d_shared, ids_l_shared, layers_l_shared_list)
+    _find_min_layer(node_layer_d_shared, ids_l_shared, layers_l_shared)
     print(f"_find_min_layer, {time.time()-start}")
     return node_layer_d_shared
 
 
 def _get_chunk_nodes_cross_edge_layer_helper(args):
-    ids_l_shared, layers_l_shared_list, cg_info, atomic_chunks, layer, job_id = args
+    ids_l_shared, layers_l_shared, cg_info, atomic_chunks, layer, job_id = args
     cg_instance = ChunkedGraph(**cg_info)
 
+    print(f"job {job_id}")
     start = time.time()
     atomic_node_layer_d = {}
     for atomic_chunk in atomic_chunks:
@@ -157,8 +158,8 @@ def _get_chunk_nodes_cross_edge_layer_helper(args):
     for i, parent in enumerate(parents):
         node_layer_d[parent] = min(node_layer_d[parent], layers[i])
 
-    ids_l_shared.append(np.array(node_layer_d.keys(), dtype=basetypes.NODE_ID))
-    layers_l_shared_list.append(np.array(node_layer_d.values(), dtype=np.uint8))
+    ids_l_shared.append(np.fromiter(node_layer_d.keys(), dtype=basetypes.NODE_ID))
+    layers_l_shared.append(np.fromiter(node_layer_d.values(), dtype=np.uint8))
     time_spent = time.time() - start
     print(
         f"{job_id}: chunks {len(atomic_chunks)}, nodes {len(node_layer_d)}, l2ids {len(l2ids)}, time {time_spent}"
@@ -176,12 +177,12 @@ def _read_atomic_chunk_cross_edge_nodes(cg_instance, chunk_coord, cross_edge_lay
     return node_layer_d
 
 
-def _find_min_layer(node_layer_d_shared, ids_l_shared, layers_l_shared_list):
+def _find_min_layer(node_layer_d_shared, ids_l_shared, layers_l_shared):
     start = time.time()
     print(f"ids_l_shared {len(ids_l_shared)}")
 
     node_ids = np.concatenate(ids_l_shared)
-    layers = np.concatenate(layers_l_shared_list)
+    layers = np.concatenate(layers_l_shared)
     print(f"_find_min_layer node_ids: {len(node_ids)}")
     print(f"_find_min_layer node_ids unique: {len(np.unique(node_ids))}")
     print(f"time {time.time()-start}")
