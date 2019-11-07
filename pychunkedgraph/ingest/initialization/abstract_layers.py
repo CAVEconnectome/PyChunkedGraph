@@ -119,7 +119,7 @@ def _write_connected_components(
         return
 
     node_layer_d_shared = {}
-    if layer_id == cg_instance.n_layers:
+    if layer_id < cg_instance.n_layers:
         start = time.time()
         print(f"start node_layer_d")
         node_layer_d_shared = get_chunk_nodes_cross_edge_layer(
