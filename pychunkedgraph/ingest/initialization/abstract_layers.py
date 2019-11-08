@@ -3,6 +3,7 @@ Functions for creating parents in level 3 and above
 """
 
 import time
+import math
 import datetime
 import multiprocessing as mp
 from collections import defaultdict
@@ -33,29 +34,20 @@ def add_layer(
     *,
     time_stamp: Optional[datetime.datetime] = None,
 ) -> None:
-    start = time.time()
-    print(cg_instance.table_id)
     children_ids = _read_children_chunks(cg_instance, layer_id, children_coords)
-    print(f"_read_children_chunks: {time.time()-start}, id count {len(children_ids)}")
-
-    start = time.time()
     edge_ids = get_children_chunk_cross_edges(cg_instance, layer_id, parent_coords)
-    print(f"get_children_chunk_cross_edges: {time.time()-start}, {len(edge_ids)}")
 
     # Extract connected components
-    start = time.time()
     isolated_node_mask = ~np.in1d(children_ids, np.unique(edge_ids))
     add_node_ids = children_ids[isolated_node_mask].squeeze()
     add_edge_ids = np.vstack([add_node_ids, add_node_ids]).T
 
     edge_ids = list(edge_ids)
     edge_ids.extend(add_edge_ids)
-
     graph, _, _, graph_ids = flatgraph_utils.build_gt_graph(
         edge_ids, make_directed=True
     )
     ccs = flatgraph_utils.connected_components(graph)
-    print(f"connected components: {time.time()-start}, {len(ccs)}")
 
     _write_connected_components(
         cg_instance,
@@ -120,28 +112,16 @@ def _write_connected_components(
 
     node_layer_d_shared = {}
     if layer_id < cg_instance.n_layers:
-        start = time.time()
-        print(f"start node_layer_d")
         node_layer_d_shared = get_chunk_nodes_cross_edge_layer(
             cg_instance, layer_id, parent_coords
         )
-        print(f"node_layer_d: {time.time()-start}, {len(node_layer_d_shared)}")
 
-    # node_layer_items_chunked = chunked(list(node_layer_d.items()), int(10e6))
-    # with mp.Manager() as manager:
-    # # HACK the dict can be huge sometimes, pickling fails when it's huge
-    # # the problem is appraently fixed in Python 3.8
-    # node_layer_d_shared = manager.dict()
-    # for items in node_layer_items_chunked:
-    #     node_layer_d_shared.update(dict(items))
-    start = time.time()
     ccs_with_node_ids = []
     for cc in ccs:
         ccs_with_node_ids.append(graph_ids[cc])
 
-    chunked_ccs = chunked(
-        ccs_with_node_ids, len(ccs_with_node_ids) // (2 * mp.cpu_count() - 1)
-    )
+    task_size = int(math.ceil(len(ccs_with_node_ids) / mp.cpu_count()))
+    chunked_ccs = chunked(ccs_with_node_ids, task_size)
     cg_info = cg_instance.get_serialized_info(credentials=False)
     multi_args = []
 
@@ -149,15 +129,12 @@ def _write_connected_components(
         multi_args.append(
             (cg_info, layer_id, parent_coords, ccs, node_layer_d_shared, time_stamp)
         )
-    print(f"prep _write_components_helper: {time.time()-start}")
 
-    start = time.time()
     mu.multiprocess_func(
         _write_components_helper,
         multi_args,
         n_threads=min(len(multi_args), mp.cpu_count()),
     )
-    print(f"_write_components_helper: {time.time()-start}")
 
 
 def _write_components_helper(args):

@@ -3,6 +3,7 @@ Ingest / create chunkedgraph on a single machine / instance
 """
 
 import time
+import math
 import multiprocessing as mp
 from itertools import product
 from typing import List
@@ -33,7 +34,8 @@ def start_ingest(imanager: IngestionManager):
 
     with mp.Manager() as manager:
         parent_children_count_d_shared = manager.dict()
-        jobs = chunked(chunk_coords, len(chunk_coords) // mp.cpu_count())
+        task_size = int(math.ceil(len(chunk_coords) / mp.cpu_count()))
+        jobs = chunked(chunk_coords, task_size)
         multi_args = []
         for job in jobs:
             multi_args.append(
