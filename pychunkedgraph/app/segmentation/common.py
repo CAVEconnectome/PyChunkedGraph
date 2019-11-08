@@ -492,7 +492,7 @@ def handle_subgraph(table_id, root_id):
 ### CHANGE LOG -----------------------------------------------------------------
 
 
-def change_log(table_id, root_id):
+def change_log(table_id, root_id=None):
     current_app.request_type = "change_log"
 
     try:
@@ -507,6 +507,8 @@ def change_log(table_id, root_id):
 
     # Call ChunkedGraph
     cg = app_utils.get_cg(table_id)
+    if not root_id:
+        return cg_history.get_all_log_entries(cg)
 
     segment_history = cg_history.SegmentHistory(cg, int(root_id))
 

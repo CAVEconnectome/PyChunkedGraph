@@ -1,5 +1,10 @@
+import io
+import csv
+
+from flask import make_response
 from flask import Blueprint, request
 from middle_auth_client import auth_requires_permission
+from middle_auth_client import auth_requires_admin
 
 from pychunkedgraph.app.app_utils import jsonify_with_kwargs, toboolean
 from pychunkedgraph.app.segmentation import common
@@ -172,6 +177,20 @@ def handle_pairwise_contact_sites(table_id, first_node_id, second_node_id):
 
 
 ### CHANGE LOG -----------------------------------------------------------------
+
+
+@bp.route("/table/<table_id>/change_log", methods=["GET"])
+@auth_requires_admin
+def change_log_full(table_id):
+    si = io.StringIO()
+    cw = csv.writer(si)
+    log_entries = common.change_log(table_id)
+    cw.writerow(["user_id","action","root_ids","timestamp"])
+    cw.writerows(log_entries)
+    output = make_response(si.getvalue())
+    output.headers["Content-Disposition"] = f"attachment; filename={table_id}.csv"
+    output.headers["Content-type"] = "text/csv"
+    return output
 
 
 @bp.route("/table/<table_id>/root/<root_id>/change_log", methods=["GET"])
