@@ -39,7 +39,7 @@ from . import (
     cutting,
     chunkedgraph_comp,
 )
-from .chunkedgraph_utils import (
+from .utils.generic import (
     compute_indices_pandas,
     compute_bitmasks,
     get_valid_timestamp,

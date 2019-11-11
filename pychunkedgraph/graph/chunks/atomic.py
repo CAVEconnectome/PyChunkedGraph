@@ -4,7 +4,7 @@ from itertools import product
 import numpy as np
 
 from .. import ChunkedGraphMeta
-from ..chunkedgraph_utils import get_valid_timestamp
+from ..utils.generic import get_valid_timestamp
 from ..utils import basetypes
 
 

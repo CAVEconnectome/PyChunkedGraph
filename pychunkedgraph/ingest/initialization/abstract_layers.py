@@ -20,8 +20,8 @@ from ...graph.utils import basetypes
 from ...graph.utils import serializers
 from ...graph.utils import column_keys
 from ...graph.chunkedgraph import ChunkedGraph
-from ...graph.chunkedgraph_utils import get_valid_timestamp
-from ...graph.chunkedgraph_utils import filter_failed_node_ids
+from ...graph.utils.generic import get_valid_timestamp
+from ...graph.utils.generic import filter_failed_node_ids
 from ...graph.connectivity.cross_edges import get_children_chunk_cross_edges
 from ...graph.connectivity.cross_edges import get_chunk_nodes_cross_edge_layer
 

@@ -15,8 +15,8 @@ from ..utils import basetypes
 from ..utils import serializers
 from ..utils import column_keys
 from ..chunkedgraph import ChunkedGraph
-from ..chunkedgraph_utils import get_valid_timestamp
-from ..chunkedgraph_utils import filter_failed_node_ids
+from ..utils.generic import get_valid_timestamp
+from ..utils.generic import filter_failed_node_ids
 from ..chunks.atomic import get_touching_atomic_chunks
 from ..chunks.atomic import get_bounding_atomic_chunks
 

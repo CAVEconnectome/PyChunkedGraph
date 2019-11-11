@@ -6,8 +6,8 @@ from collections import namedtuple
 import numpy as np
 from cloudvolume import CloudVolume
 
-from .chunkedgraph_utils import compute_bitmasks
-from .chunkedgraph_utils import log_n
+from .utils.generic import compute_bitmasks
+from .utils.generic import log_n
 from .chunks.utils import get_chunks_boundary
 
 

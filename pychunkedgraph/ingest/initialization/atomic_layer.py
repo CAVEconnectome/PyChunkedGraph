@@ -17,8 +17,8 @@ from ...graph.utils import serializers
 from ...graph.utils import column_keys
 from ...graph.edges import Edges
 from ...graph.edges import EDGE_TYPES
-from ...graph.chunkedgraph_utils import compute_indices_pandas
-from ...graph.chunkedgraph_utils import get_valid_timestamp
+from ...graph.utils.generic import compute_indices_pandas
+from ...graph.utils.generic import get_valid_timestamp
 from ...graph.utils.flatgraph import build_gt_graph
 from ...graph.utils.flatgraph import connected_components
 

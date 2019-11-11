@@ -7,7 +7,6 @@ from google.cloud import bigtable
 from ..graph import ChunkedGraphMeta
 from ..graph import BigTableConfig
 from ..graph import chunkedgraph
-from ..graph import chunkedgraph_utils
 
 chunk_id_str = lambda layer, coords: f"{layer}_{'_'.join(map(str, coords))}"
 

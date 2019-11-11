@@ -8,8 +8,8 @@ from typing import Optional, Sequence, Tuple, NamedTuple
 
 from multiwrapper import multiprocessing_utils as mu
 
-from .chunkedgraph_utils import combine_cross_chunk_edge_dicts
-from .chunkedgraph_utils import get_bounding_box
+from .utils.generic import combine_cross_chunk_edge_dicts
+from .utils.generic import get_bounding_box
 from .utils import flatgraph
 from .utils import column_keys
 from .utils import serializers
