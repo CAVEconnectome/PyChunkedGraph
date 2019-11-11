@@ -28,8 +28,8 @@ from google.cloud.bigtable.row_filters import (
 )
 from cloudvolume import CloudVolume
 
-from .utils import column_keys
-from .utils import serializers
+from . import column_keys
+from . import serializers
 
 
 def compute_indices_pandas(data) -> pd.Series:
