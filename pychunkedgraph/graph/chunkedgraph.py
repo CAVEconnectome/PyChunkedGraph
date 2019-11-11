@@ -33,12 +33,12 @@ from google.cloud.bigtable.row_set import RowSet
 from google.cloud.bigtable.column_family import MaxVersionsGCRule
 
 from . import (
-    ChunkedGraphMeta,
     exceptions as cg_exceptions,
     edits as cg_edits,
     cutting,
     misc,
 )
+from .meta import ChunkedGraphMeta
 from .utils.generic import (
     compute_indices_pandas,
     compute_bitmasks,

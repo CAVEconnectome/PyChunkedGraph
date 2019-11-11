@@ -3,7 +3,7 @@ from typing import List
 from itertools import product
 import numpy as np
 
-from .. import ChunkedGraphMeta
+from ..meta import ChunkedGraphMeta
 from ..utils.generic import get_valid_timestamp
 from ..utils import basetypes
 

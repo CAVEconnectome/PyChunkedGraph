@@ -2,7 +2,7 @@ from itertools import product
 
 import numpy as np
 
-from .. import ChunkedGraphMeta
+from ..meta import ChunkedGraphMeta
 
 
 def get_children_coords(
