@@ -52,7 +52,7 @@ from .chunkedgraph_utils import (
     partial_row_data_to_column_dict,
 )
 from .utils import serializers, column_keys, row_keys, basetypes
-from .graphoperation import (
+from .operation import (
     GraphEditOperation,
     MergeOperation,
     MulticutOperation,

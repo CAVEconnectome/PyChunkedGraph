@@ -3,7 +3,7 @@ from collections import namedtuple
 import numpy as np
 import pytest
 
-from pychunkedgraph.graph.graphoperation import (
+from pychunkedgraph.graph.operation import (
     GraphEditOperation,
     MergeOperation,
     MulticutOperation,
