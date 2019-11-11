@@ -15,7 +15,7 @@ from ..utils.basetypes import EDGE_AFFINITY
 from ..utils.basetypes import EDGE_AREA
 
 from ..connectivity.search import check_reachability
-from ..flatgraph_utils import build_gt_graph
+from ..utils.flatgraph import build_gt_graph
 from ...utils.general import reverse_dictionary
 
 

@@ -11,7 +11,6 @@ import numpy as np
 from multiwrapper.multiprocessing_utils import multiprocess_func
 
 from ...utils.general import chunked
-from .. import flatgraph_utils
 from ..utils import basetypes
 from ..utils import serializers
 from ..utils import column_keys

@@ -8,10 +8,11 @@ from typing import Optional, Sequence, Tuple, NamedTuple
 
 from multiwrapper import multiprocessing_utils as mu
 
-from . import flatgraph_utils
 from .chunkedgraph_utils import combine_cross_chunk_edge_dicts
 from .chunkedgraph_utils import get_bounding_box
-from .utils import column_keys, serializers
+from .utils import flatgraph
+from .utils import column_keys
+from .utils import serializers
 from .edges.utils import filter_fake_edges
 from .edges.utils import map_edges_to_chunks
 from .edges.utils import get_linking_edges
@@ -189,7 +190,7 @@ def add_edges(
     lvl2_edges, new_cross_edge_dict = analyze_atomic_edges(cg, atomic_edges)
 
     # Compute connected components on lvl2
-    graph, _, _, unique_graph_ids = flatgraph_utils.build_gt_graph(
+    graph, _, _, unique_graph_ids = flatgraph.build_gt_graph(
         lvl2_edges, make_directed=True
     )
 
@@ -204,7 +205,7 @@ def add_edges(
         _read_cc_edges_thread, node_id_blocks, n_threads=n_threads, debug=False
     )
 
-    ccs = flatgraph_utils.connected_components(graph)
+    ccs = flatgraph.connected_components(graph)
     for cc in ccs:
         lvl2_ids = unique_graph_ids[cc]
         chunk_id = cg.get_chunk_id(lvl2_ids[0])
@@ -403,11 +404,11 @@ def remove_edges(
         isolated_child_ids = children_ids[~np.in1d(children_ids, chunk_edges)]
         isolated_edges = np.vstack([isolated_child_ids, isolated_child_ids]).T
 
-        graph, _, _, unique_graph_ids = flatgraph_utils.build_gt_graph(
+        graph, _, _, unique_graph_ids = flatgraph.build_gt_graph(
             np.concatenate([chunk_edges, isolated_edges]), make_directed=True
         )
 
-        ccs = flatgraph_utils.connected_components(graph)
+        ccs = flatgraph.connected_components(graph)
 
         new_parent_ids = cg.get_unique_node_id_range(chunk_id, len(ccs))
 
@@ -598,11 +599,11 @@ def compute_cross_chunk_connected_components(eh, node_ids, layer):
 
     cross_edges = np.concatenate([cross_edges, np.vstack([node_ids, node_ids]).T])
 
-    graph, _, _, unique_graph_ids = flatgraph_utils.build_gt_graph(
+    graph, _, _, unique_graph_ids = flatgraph.build_gt_graph(
         cross_edges, make_directed=True
     )
 
-    ccs = flatgraph_utils.connected_components(graph)
+    ccs = flatgraph.connected_components(graph)
 
     return ccs, unique_graph_ids
 

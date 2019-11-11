@@ -2,7 +2,7 @@ import numpy as np
 import datetime
 import collections
 
-from pychunkedgraph.graph import chunkedgraph, flatgraph_utils
+from pychunkedgraph.graph import chunkedgraph
 from pychunkedgraph.graph.utils import column_keys
 
 from multiwrapper import multiprocessing_utils as mu
@@ -196,11 +196,11 @@ def get_contact_sites(cg, root_id, bounding_box=None, bb_is_coordinate=True, com
         r = cg._retrieve_connectivity(ri)
         pre_cs_edges.extend(r[0])
 
-    graph, _, _, unique_ids = flatgraph_utils.build_gt_graph(
+    graph, _, _, unique_ids = flatgraph.build_gt_graph(
         pre_cs_edges, make_directed=True)
 
     # connected components in this graph will be combined in one component
-    ccs = flatgraph_utils.connected_components(graph)
+    ccs = flatgraph.connected_components(graph)
 
     cs_dict = collections.defaultdict(list)
     for cc in ccs:

@@ -15,7 +15,7 @@ import numpy as np
 from multiwrapper import multiprocessing_utils as mu
 
 from ...utils.general import chunked
-from ...graph import flatgraph_utils
+from ...graph.utils import flatgraph
 from ...graph.utils import basetypes
 from ...graph.utils import serializers
 from ...graph.utils import column_keys
@@ -44,10 +44,10 @@ def add_layer(
 
     edge_ids = list(edge_ids)
     edge_ids.extend(add_edge_ids)
-    graph, _, _, graph_ids = flatgraph_utils.build_gt_graph(
+    graph, _, _, graph_ids = flatgraph.build_gt_graph(
         edge_ids, make_directed=True
     )
-    ccs = flatgraph_utils.connected_components(graph)
+    ccs = flatgraph.connected_components(graph)
 
     _write_connected_components(
         cg_instance,

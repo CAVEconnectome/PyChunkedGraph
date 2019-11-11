@@ -11,8 +11,8 @@ import graph_tool.flow
 
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple, Union
 
-from pychunkedgraph.graph import flatgraph_utils
-from pychunkedgraph.graph import chunkedgraph_exceptions as cg_exceptions
+from .utils import flatgraph
+from . import chunkedgraph_exceptions as cg_exceptions
 
 float_max = np.finfo(np.float32).max
 DEBUG_MODE = False
@@ -81,11 +81,11 @@ def merge_cross_chunk_edges_graph_tool(edges: Iterable[Sequence[np.uint64]],
     cross_chunk_edge_mask = np.isinf(affs)
 
     # graph with edges that have to be merged
-    graph, _, _, unique_ids = flatgraph_utils.build_gt_graph(
+    graph, _, _, unique_ids = flatgraph.build_gt_graph(
         edges[cross_chunk_edge_mask], make_directed=True)
 
     # connected components in this graph will be combined in one component
-    ccs = flatgraph_utils.connected_components(graph)
+    ccs = flatgraph.connected_components(graph)
 
     remapping = {}
     mapping = np.array([], dtype=np.uint64).reshape(-1, 2)
@@ -309,7 +309,7 @@ def mincut_graph_tool(edges: Iterable[Sequence[np.uint64]],
     # [0, ..., len(unique_ids) - 1]
     # Generate weighted graph with graph_tool
     weighted_graph, cap, gt_edges, unique_ids = \
-        flatgraph_utils.build_gt_graph(comb_edges, comb_affs,
+        flatgraph.build_gt_graph(comb_edges, comb_affs,
                                        make_directed=True)
 
     # Create an edge property to remove edges later (will be used to test whether split valid)
@@ -333,7 +333,7 @@ def mincut_graph_tool(edges: Iterable[Sequence[np.uint64]],
 
     # Get rid of connected components that are not involved in the local
     # mincut
-    ccs = flatgraph_utils.connected_components(weighted_graph)
+    ccs = flatgraph.connected_components(weighted_graph)
 
     removed = weighted_graph.new_vertex_property("bool")
     removed.a = False
@@ -355,7 +355,7 @@ def mincut_graph_tool(edges: Iterable[Sequence[np.uint64]],
     pruned_graph = graph_tool.Graph(weighted_graph, prune=True)
 
     # Test that there is only one connected component left
-    ccs = flatgraph_utils.connected_components(pruned_graph)
+    ccs = flatgraph.connected_components(pruned_graph)
 
     if len(ccs) > 1:
         logger.warning("Not all sinks and sources are within the same (local)"
@@ -417,7 +417,7 @@ def mincut_graph_tool(edges: Iterable[Sequence[np.uint64]],
 
     weighted_graph.set_filters(edges_to_remove, removed, True, True)
 
-    ccs_test_post_cut = flatgraph_utils.connected_components(weighted_graph)
+    ccs_test_post_cut = flatgraph.connected_components(weighted_graph)
 
     # Make sure sinks and sources are among each other and not in different sets
     # after removing the cut edges and the fake infinity edges
@@ -445,7 +445,7 @@ def mincut_graph_tool(edges: Iterable[Sequence[np.uint64]],
     # Extract original ids
     # This has potential to be optimized
     remapped_cutset = []
-    for s, t in flatgraph_utils.remap_ids_from_graph(cut_edge_set, unique_ids):
+    for s, t in flatgraph.remap_ids_from_graph(cut_edge_set, unique_ids):
 
         if s in remapping:
             s = remapping[s]

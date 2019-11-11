@@ -19,8 +19,8 @@ from ...graph.edges import Edges
 from ...graph.edges import EDGE_TYPES
 from ...graph.chunkedgraph_utils import compute_indices_pandas
 from ...graph.chunkedgraph_utils import get_valid_timestamp
-from ...graph.flatgraph_utils import build_gt_graph
-from ...graph.flatgraph_utils import connected_components
+from ...graph.utils.flatgraph import build_gt_graph
+from ...graph.utils.flatgraph import connected_components
 
 
 def add_atomic_edges(

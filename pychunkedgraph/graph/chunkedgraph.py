@@ -38,7 +38,6 @@ from . import (
     chunkedgraph_edits as cg_edits,
     cutting,
     chunkedgraph_comp,
-    flatgraph_utils,
 )
 from .chunkedgraph_utils import (
     compute_indices_pandas,
