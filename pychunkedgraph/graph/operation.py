@@ -6,10 +6,10 @@ from typing import TYPE_CHECKING, Dict, List, Optional, Sequence, Tuple, Type, U
 
 import numpy as np
 
-from pychunkedgraph.graph import chunkedgraph_edits as cg_edits
-from pychunkedgraph.graph import chunkedgraph_exceptions as cg_exceptions
-from pychunkedgraph.graph.root_lock import RootLock
-from pychunkedgraph.graph.utils import basetypes, column_keys, serializers
+from . import edits as cg_edits
+from . import exceptions as cg_exceptions
+from .root_lock import RootLock
+from .utils import basetypes, column_keys, serializers
 
 if TYPE_CHECKING:
     from pychunkedgraph.graph.chunkedgraph import ChunkedGraph

@@ -12,7 +12,7 @@ import graph_tool.flow
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple, Union
 
 from .utils import flatgraph
-from . import chunkedgraph_exceptions as cg_exceptions
+from . import exceptions as cg_exceptions
 
 float_max = np.finfo(np.float32).max
 DEBUG_MODE = False

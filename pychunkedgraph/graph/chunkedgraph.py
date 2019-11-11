@@ -34,8 +34,8 @@ from google.cloud.bigtable.column_family import MaxVersionsGCRule
 
 from . import (
     ChunkedGraphMeta,
-    chunkedgraph_exceptions as cg_exceptions,
-    chunkedgraph_edits as cg_edits,
+    exceptions as cg_exceptions,
+    edits as cg_edits,
     cutting,
     chunkedgraph_comp,
 )

@@ -1,13 +1,13 @@
 import numpy as np
 import datetime
 import collections
-
-from pychunkedgraph.graph import chunkedgraph
-from pychunkedgraph.graph.utils import column_keys
+from typing import Optional, Sequence
 
 from multiwrapper import multiprocessing_utils as mu
 
-from typing import Optional, Sequence
+from . import chunkedgraph
+from .utils import column_keys
+from .utils import flatgraph
 
 
 def _read_delta_root_rows_thread(args) -> Sequence[list]:
