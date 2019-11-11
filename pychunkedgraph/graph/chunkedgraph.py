@@ -37,7 +37,7 @@ from . import (
     exceptions as cg_exceptions,
     edits as cg_edits,
     cutting,
-    chunkedgraph_comp,
+    misc,
 )
 from .utils.generic import (
     compute_indices_pandas,
@@ -1645,7 +1645,7 @@ class ChunkedGraph(object):
         :param n_threads: int
         :return: array of np.uint64
         """
-        return chunkedgraph_comp.get_latest_roots(
+        return misc.get_latest_roots(
             self, time_stamp=time_stamp, n_threads=n_threads
         )
 
@@ -1671,7 +1671,7 @@ class ChunkedGraph(object):
             expired_ids is list of node_id's for roots the expired after time_stamp_start
             but before time_stamp_end.
         """
-        return chunkedgraph_comp.get_delta_roots(
+        return misc.get_delta_roots(
             self,
             time_stamp_start=time_stamp_start,
             time_stamp_end=time_stamp_end,

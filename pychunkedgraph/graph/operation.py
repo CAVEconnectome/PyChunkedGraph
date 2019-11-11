@@ -8,8 +8,10 @@ import numpy as np
 
 from . import edits as cg_edits
 from . import exceptions as cg_exceptions
-from .root_lock import RootLock
-from .utils import basetypes, column_keys, serializers
+from .locks import RootLock
+from .utils import basetypes
+from .utils import serializers
+from .utils import column_keys
 
 if TYPE_CHECKING:
     from pychunkedgraph.graph.chunkedgraph import ChunkedGraph

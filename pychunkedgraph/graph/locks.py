@@ -16,11 +16,14 @@ class RootLock:
     :return: The RootLock context, including the locked root IDs and the linked operation ID
     :rtype: RootLock
     """
+
     __slots__ = ["cg", "locked_root_ids", "lock_acquired", "operation_id"]
     # FIXME: `locked_root_ids` is only required and exposed because `cg.lock_root_loop`
     #        currently might lock different (more recent) root IDs than requested.
 
-    def __init__(self, cg: "ChunkedGraph", root_ids: Union[np.uint64, Sequence[np.uint64]]) -> None:
+    def __init__(
+        self, cg: "ChunkedGraph", root_ids: Union[np.uint64, Sequence[np.uint64]]
+    ) -> None:
         self.cg = cg
         self.locked_root_ids = np.atleast_1d(root_ids)
         self.lock_acquired = False

@@ -13,7 +13,7 @@ import threading
 
 from pychunkedgraph.app import app_utils, meshing_app_blueprint
 from pychunkedgraph.graph import exceptions as cg_exceptions, \
-    chunkedgraph_comp as cg_comp
+    misc as cg_comp
 # from middle_auth_client import auth_required, auth_requires_roles
 
 __version__ = 'fafb.1.16'

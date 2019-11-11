@@ -4,7 +4,7 @@ import numpy as np
 import pytest
 
 import pychunkedgraph.graph.exceptions as cg_exceptions
-from pychunkedgraph.graph.root_lock import RootLock
+from pychunkedgraph.graph.locks import RootLock
 
 G_UINT64 = np.uint64(2 ** 63)
 
