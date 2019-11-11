@@ -3,8 +3,8 @@ from unittest.mock import DEFAULT
 import numpy as np
 import pytest
 
-import pychunkedgraph.backend.chunkedgraph_exceptions as cg_exceptions
-from pychunkedgraph.backend.root_lock import RootLock
+import pychunkedgraph.graph.chunkedgraph_exceptions as cg_exceptions
+from pychunkedgraph.graph.root_lock import RootLock
 
 G_UINT64 = np.uint64(2 ** 63)
 

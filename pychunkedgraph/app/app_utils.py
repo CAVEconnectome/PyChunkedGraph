@@ -10,7 +10,7 @@ import redis
 import functools
 
 from pychunkedgraph.logging import jsonformatter, flask_log_db
-from pychunkedgraph.backend import chunkedgraph
+from pychunkedgraph.graph import chunkedgraph
 
 cache = {}
 

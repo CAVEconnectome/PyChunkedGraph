@@ -6,7 +6,7 @@ import numpy as np
 
 from pychunkedgraph.meshing import meshgen_utils, meshgen
 from pychunkedgraph.app import app_utils
-from pychunkedgraph.backend import chunkedgraph
+from pychunkedgraph.graph import chunkedgraph
 
 __version__ = 'fafb.1.16'
 bp = Blueprint('pychunkedgraph_meshing', __name__, url_prefix="/meshing")

@@ -17,11 +17,11 @@ from .cluster import enqueue_atomic_tasks
 from .cluster import create_parent_chunk
 from ..utils.redis import get_redis_connection
 from ..utils.redis import keys as r_keys
-from ..backend import ChunkedGraphMeta
-from ..backend import DataSource
-from ..backend import GraphConfig
-from ..backend import BigTableConfig
-from ..backend.chunks.hierarchy import get_children_coords
+from ..graph import ChunkedGraphMeta
+from ..graph import DataSource
+from ..graph import GraphConfig
+from ..graph import BigTableConfig
+from ..graph.chunks.hierarchy import get_children_coords
 
 ingest_cli = AppGroup("ingest")
 

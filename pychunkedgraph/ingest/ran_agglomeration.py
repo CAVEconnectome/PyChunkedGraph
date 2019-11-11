@@ -19,10 +19,10 @@ from .manager import IngestionManager
 from .utils import postprocess_edge_data
 from ..io.edges import put_chunk_edges
 from ..io.components import put_chunk_components
-from ..backend.utils import basetypes
-from ..backend.edges import Edges
-from ..backend.edges import EDGE_TYPES
-from ..backend.chunks.utils import compute_chunk_id
+from ..graph.utils import basetypes
+from ..graph.edges import Edges
+from ..graph.edges import EDGE_TYPES
+from ..graph.chunks.utils import compute_chunk_id
 
 
 def read_raw_edge_data(imanager, coord) -> Dict:

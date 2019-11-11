@@ -2,8 +2,8 @@ import numpy as np
 import datetime
 import collections
 
-from pychunkedgraph.backend import chunkedgraph, flatgraph_utils
-from pychunkedgraph.backend.utils import column_keys
+from pychunkedgraph.graph import chunkedgraph, flatgraph_utils
+from pychunkedgraph.graph.utils import column_keys
 
 from multiwrapper import multiprocessing_utils as mu
 

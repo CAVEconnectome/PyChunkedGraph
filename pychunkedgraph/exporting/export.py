@@ -3,8 +3,8 @@ import cloudvolume
 import itertools
 import dill
 
-from pychunkedgraph.backend import chunkedgraph
-from pychunkedgraph.backend.utils import serializers, column_keys
+from pychunkedgraph.graph import chunkedgraph
+from pychunkedgraph.graph.utils import serializers, column_keys
 from multiwrapper import multiprocessing_utils as mu
 
 

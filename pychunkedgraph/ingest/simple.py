@@ -22,7 +22,7 @@ from ..io.edges import get_chunk_edges
 from ..io.edges import put_chunk_edges
 from ..io.components import get_chunk_components
 from ..utils.general import chunked
-from ..backend.chunks.hierarchy import get_children_coords
+from ..graph.chunks.hierarchy import get_children_coords
 
 chunk_id_str = lambda layer, coords: f"{layer}_{'_'.join(map(str, coords))}"
 

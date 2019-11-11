@@ -43,8 +43,8 @@ Components within a single chunk are stored as a numpy array.
 ```
 from pychunkedgraph.io.edges import get_chunk_edges
 from pychunkedgraph.io.edges import put_chunk_edges
-from pychunkedgraph.backend.edges import Edges
-from pychunkedgraph.backend.edges import EDGE_TYPES
+from pychunkedgraph.graph.edges import Edges
+from pychunkedgraph.graph.edges import EDGE_TYPES
 
 in_chunk = [[1,2],[2,3],[0,2],[2,4]]
 between_chunk = [[1,5]]

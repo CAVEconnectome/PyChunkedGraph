@@ -19,9 +19,9 @@ from grpc._channel import _Rendezvous
 from helpers import (bigtable_emulator, create_chunk, gen_graph,
                      gen_graph_simplequerytest,
                      lock_expired_timedelta_override, to_label)
-from pychunkedgraph.backend import chunkedgraph
-from pychunkedgraph.backend import chunkedgraph_exceptions as cg_exceptions
-from pychunkedgraph.backend.utils import column_keys, serializers
+from pychunkedgraph.graph import chunkedgraph
+from pychunkedgraph.graph import chunkedgraph_exceptions as cg_exceptions
+from pychunkedgraph.graph.utils import column_keys, serializers
 from pychunkedgraph.creator import graph_tests
 from pychunkedgraph.meshing import meshgen, meshgen_utils
 

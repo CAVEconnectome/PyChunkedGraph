@@ -15,8 +15,8 @@ import pickle as pkl
 from matplotlib import pyplot as plt
 import glob
 
-from pychunkedgraph.backend import chunkedgraph
-from pychunkedgraph.backend.utils import column_keys
+from pychunkedgraph.graph import chunkedgraph
+from pychunkedgraph.graph.utils import column_keys
 
 from multiwrapper import multiprocessing_utils as mu
 

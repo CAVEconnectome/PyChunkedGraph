@@ -3,7 +3,7 @@ import numpy as np
 import itertools
 import random
 
-from pychunkedgraph.backend import chunkedgraph
+from pychunkedgraph.graph import chunkedgraph
 from multiwrapper import multiprocessing_utils as mu
 
 from . import meshgen

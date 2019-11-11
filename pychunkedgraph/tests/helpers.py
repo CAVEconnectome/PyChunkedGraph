@@ -11,7 +11,7 @@ import pytest
 from google.auth import credentials
 from google.cloud import bigtable
 
-from pychunkedgraph.backend import chunkedgraph
+from pychunkedgraph.graph import chunkedgraph
 
 
 class CloudVolumeBounds(object):

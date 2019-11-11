@@ -24,8 +24,8 @@ sys.path.insert(0, os.path.join(sys.path[0], "../.."))
 os.environ["TRAVIS_BRANCH"] = "IDONTKNOWWHYINEEDTHIS"
 UTC = pytz.UTC
 
-from pychunkedgraph.backend import chunkedgraph  # noqa
-from pychunkedgraph.backend.utils import serializers, column_keys  # noqa
+from pychunkedgraph.graph import chunkedgraph  # noqa
+from pychunkedgraph.graph.utils import serializers, column_keys  # noqa
 from pychunkedgraph.meshing import meshgen_utils  # noqa
 
 # Change below to true if debugging and want to see results in stdout

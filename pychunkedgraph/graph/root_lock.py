@@ -2,10 +2,10 @@ from typing import TYPE_CHECKING, Sequence, Union
 
 import numpy as np
 
-from pychunkedgraph.backend import chunkedgraph_exceptions as cg_exceptions
+from pychunkedgraph.graph import chunkedgraph_exceptions as cg_exceptions
 
 if TYPE_CHECKING:
-    from pychunkedgraph.backend.chunkedgraph import ChunkedGraph
+    from pychunkedgraph.graph.chunkedgraph import ChunkedGraph
 
 
 class RootLock:

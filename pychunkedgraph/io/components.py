@@ -5,7 +5,7 @@ import numpy as np
 from cloudvolume.storage import SimpleStorage
 
 from .protobuf.chunkComponents_pb2 import ChunkComponentsMsg
-from ..backend.utils import basetypes
+from ..graph.utils import basetypes
 
 
 def serialize(connected_components: Iterable) -> ChunkComponentsMsg:

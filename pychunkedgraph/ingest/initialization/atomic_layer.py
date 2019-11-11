@@ -11,16 +11,16 @@ from typing import Sequence
 import pytz
 import numpy as np
 
-from ...backend.chunkedgraph import ChunkedGraph
-from ...backend.utils import basetypes
-from ...backend.utils import serializers
-from ...backend.utils import column_keys
-from ...backend.edges import Edges
-from ...backend.edges import EDGE_TYPES
-from ...backend.chunkedgraph_utils import compute_indices_pandas
-from ...backend.chunkedgraph_utils import get_valid_timestamp
-from ...backend.flatgraph_utils import build_gt_graph
-from ...backend.flatgraph_utils import connected_components
+from ...graph.chunkedgraph import ChunkedGraph
+from ...graph.utils import basetypes
+from ...graph.utils import serializers
+from ...graph.utils import column_keys
+from ...graph.edges import Edges
+from ...graph.edges import EDGE_TYPES
+from ...graph.chunkedgraph_utils import compute_indices_pandas
+from ...graph.chunkedgraph_utils import get_valid_timestamp
+from ...graph.flatgraph_utils import build_gt_graph
+from ...graph.flatgraph_utils import connected_components
 
 
 def add_atomic_edges(

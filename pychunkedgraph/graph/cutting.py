@@ -11,8 +11,8 @@ import graph_tool.flow
 
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple, Union
 
-from pychunkedgraph.backend import flatgraph_utils
-from pychunkedgraph.backend import chunkedgraph_exceptions as cg_exceptions
+from pychunkedgraph.graph import flatgraph_utils
+from pychunkedgraph.graph import chunkedgraph_exceptions as cg_exceptions
 
 float_max = np.finfo(np.float32).max
 DEBUG_MODE = False

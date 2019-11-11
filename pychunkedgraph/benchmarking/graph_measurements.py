@@ -5,8 +5,8 @@ import os
 import h5py
 import pandas as pd
 
-from pychunkedgraph.backend import chunkedgraph, chunkedgraph_comp
-from pychunkedgraph.backend.utils import column_keys
+from pychunkedgraph.graph import chunkedgraph, chunkedgraph_comp
+from pychunkedgraph.graph.utils import column_keys
 
 from multiwrapper import multiprocessing_utils as mu
 

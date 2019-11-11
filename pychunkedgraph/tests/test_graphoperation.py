@@ -3,7 +3,7 @@ from collections import namedtuple
 import numpy as np
 import pytest
 
-from pychunkedgraph.backend.graphoperation import (
+from pychunkedgraph.graph.graphoperation import (
     GraphEditOperation,
     MergeOperation,
     MulticutOperation,
@@ -11,7 +11,7 @@ from pychunkedgraph.backend.graphoperation import (
     SplitOperation,
     UndoOperation,
 )
-from pychunkedgraph.backend.utils import column_keys
+from pychunkedgraph.graph.utils import column_keys
 
 
 class FakeLogRecords:

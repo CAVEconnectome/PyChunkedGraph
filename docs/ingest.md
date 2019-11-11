@@ -12,10 +12,10 @@ from pychunkedgraph.ingest import IngestConfig
 from pychunkedgraph.ingest.manager import IngestionManager
 from pychunkedgraph.ingest.ingestion import start_ingest
 from pychunkedgraph.ingest.utils import initialize_chunkedgraph
-from pychunkedgraph.backend import DataSource
-from pychunkedgraph.backend import GraphConfig
-from pychunkedgraph.backend import BigTableConfig
-from pychunkedgraph.backend import ChunkedGraphMeta
+from pychunkedgraph.graph import DataSource
+from pychunkedgraph.graph import GraphConfig
+from pychunkedgraph.graph import BigTableConfig
+from pychunkedgraph.graph import ChunkedGraphMeta
 
 
 ingest_config = IngestConfig()

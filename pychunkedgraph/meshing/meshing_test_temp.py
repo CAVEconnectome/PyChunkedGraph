@@ -4,7 +4,7 @@ import redis
 
 from flask import current_app
 from flask.cli import AppGroup
-from pychunkedgraph.backend.chunkedgraph import ChunkedGraph
+from pychunkedgraph.graph.chunkedgraph import ChunkedGraph
 from pychunkedgraph.meshing import meshgen
 import cloudvolume
 import numpy as np

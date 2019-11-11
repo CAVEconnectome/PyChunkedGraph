@@ -15,15 +15,15 @@ import numpy as np
 from multiwrapper import multiprocessing_utils as mu
 
 from ...utils.general import chunked
-from ...backend import flatgraph_utils
-from ...backend.utils import basetypes
-from ...backend.utils import serializers
-from ...backend.utils import column_keys
-from ...backend.chunkedgraph import ChunkedGraph
-from ...backend.chunkedgraph_utils import get_valid_timestamp
-from ...backend.chunkedgraph_utils import filter_failed_node_ids
-from ...backend.connectivity.cross_edges import get_children_chunk_cross_edges
-from ...backend.connectivity.cross_edges import get_chunk_nodes_cross_edge_layer
+from ...graph import flatgraph_utils
+from ...graph.utils import basetypes
+from ...graph.utils import serializers
+from ...graph.utils import column_keys
+from ...graph.chunkedgraph import ChunkedGraph
+from ...graph.chunkedgraph_utils import get_valid_timestamp
+from ...graph.chunkedgraph_utils import filter_failed_node_ids
+from ...graph.connectivity.cross_edges import get_children_chunk_cross_edges
+from ...graph.connectivity.cross_edges import get_chunk_nodes_cross_edge_layer
 
 
 def add_layer(

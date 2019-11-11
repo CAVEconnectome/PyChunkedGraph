@@ -10,7 +10,7 @@ except:
 from matplotlib import pyplot as plt
 
 from pychunkedgraph.logging import flask_log_db
-from pychunkedgraph.backend import chunkedgraph
+from pychunkedgraph.graph import chunkedgraph
 from google.cloud import datastore
 from google.auth import credentials, default as default_creds
 

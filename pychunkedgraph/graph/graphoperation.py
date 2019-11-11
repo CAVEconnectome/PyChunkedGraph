@@ -6,13 +6,13 @@ from typing import TYPE_CHECKING, Dict, List, Optional, Sequence, Tuple, Type, U
 
 import numpy as np
 
-from pychunkedgraph.backend import chunkedgraph_edits as cg_edits
-from pychunkedgraph.backend import chunkedgraph_exceptions as cg_exceptions
-from pychunkedgraph.backend.root_lock import RootLock
-from pychunkedgraph.backend.utils import basetypes, column_keys, serializers
+from pychunkedgraph.graph import chunkedgraph_edits as cg_edits
+from pychunkedgraph.graph import chunkedgraph_exceptions as cg_exceptions
+from pychunkedgraph.graph.root_lock import RootLock
+from pychunkedgraph.graph.utils import basetypes, column_keys, serializers
 
 if TYPE_CHECKING:
-    from pychunkedgraph.backend.chunkedgraph import ChunkedGraph
+    from pychunkedgraph.graph.chunkedgraph import ChunkedGraph
     from google.cloud import bigtable
 
 

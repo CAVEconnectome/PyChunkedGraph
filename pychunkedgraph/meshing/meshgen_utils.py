@@ -6,7 +6,7 @@ from functools import lru_cache
 from cloudvolume import CloudVolume, Storage
 from typing import Sequence
 
-from pychunkedgraph.backend import chunkedgraph  # noqa
+from pychunkedgraph.graph import chunkedgraph  # noqa
 
 
 def str_to_slice(slice_str: str):
