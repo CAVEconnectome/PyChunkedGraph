@@ -3,7 +3,7 @@ import pickle
 from cloudvolume import CloudVolume
 
 from . import IngestConfig
-from ..graph import ChunkedGraphMeta
+from ..graph.meta import ChunkedGraphMeta
 from ..graph.chunkedgraph import ChunkedGraph
 from ..utils.redis import keys as r_keys
 from ..utils.redis import get_rq_queue

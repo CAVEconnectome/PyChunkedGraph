@@ -4,9 +4,9 @@ import collections
 import cloudvolume
 from google.cloud import bigtable
 
-from ..graph import ChunkedGraphMeta
-from ..graph import BigTableConfig
 from ..graph import chunkedgraph
+from ..graph.meta import ChunkedGraphMeta
+from ..graph.meta import BigTableConfig
 
 chunk_id_str = lambda layer, coords: f"{layer}_{'_'.join(map(str, coords))}"
 
