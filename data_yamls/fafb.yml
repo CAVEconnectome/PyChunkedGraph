@@ -1,1 +1,15 @@
-# TODO
+data_source:
+  agglomeration: "gs://ranl-scratch/190410_FAFB_v02_ws_size_threshold_200/agg"
+  watershed: "gs://microns-seunglab/drosophila_v0/ws_190410_FAFB_v02_ws_size_threshold_200"
+  edges: "gs://chunkedgraph/190410_FAFB_v02/edges"
+  components: "gs://chunkedgraph/190410_FAFB_v02/components"
+  data_version: 2
+
+graph_config:
+  chunk_size: [256, 256, 512]
+  fanout: 2
+  s_bits_atomic_layer: 10
+
+
+bigtable_config:
+  table_id_prefix: "akhilesh-" # please change this before running

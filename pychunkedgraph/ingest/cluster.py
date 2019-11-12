@@ -17,11 +17,7 @@ from .utils import chunk_id_str
 from .ran_agglomeration import get_active_edges
 from .initialization.atomic_layer import add_atomic_edges
 from .initialization.abstract_layers import add_layer
-from ..graph.meta import ChunkedGraphMeta
 from ..utils.redis import keys as r_keys
-from ..io.edges import get_chunk_edges
-from ..io.components import get_chunk_components
-from ..graph.edges import Edges
 from ..graph.chunks.hierarchy import get_children_coords
 
 
