@@ -1535,6 +1535,7 @@ class ChunkedGraph(object):
 
         if len(log_records_d) == 0:
             return {}
+
         for operation_id in log_records_d:
             log_record = log_records_d[operation_id]
             timestamp = log_record[column_keys.OperationLogs.RootID][0].timestamp
