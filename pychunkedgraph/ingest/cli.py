@@ -3,6 +3,7 @@ cli for running ingest
 """
 
 import time
+from itertools import product
 
 import yaml
 import numpy as np
@@ -32,7 +33,10 @@ ingest_cli = AppGroup("ingest")
 @click.option("--raw", is_flag=True)
 @click.option("--overwrite", is_flag=True, help="Overwrite existing graph")
 def ingest_graph(graph_id: str, dataset: click.Path, raw: bool, overwrite: bool):
-
+    """
+    Main ingest command
+    Takes ingest config from a yaml file and queues atomic tasks    
+    """
     with open(dataset, "r") as stream:
         try:
             config = yaml.safe_load(stream)
@@ -63,7 +67,10 @@ def ingest_graph(graph_id: str, dataset: click.Path, raw: bool, overwrite: bool)
 @ingest_cli.command("parent")
 @click.argument("chunk_info", nargs=4, type=int)
 def queue_parent(chunk_info):
-
+    """
+    Helper command
+    Queue parent chunk of a given child chunk
+    """
     redis = get_redis_connection()
     imanager = IngestionManager.from_pickle(redis.get(r_keys.INGESTION_MANAGER))
 
@@ -95,7 +102,10 @@ def queue_parent(chunk_info):
 @ingest_cli.command("children")
 @click.argument("chunk_info", nargs=4, type=int)
 def queue_children(chunk_info):
-
+    """
+    Helper command
+    Queue all children chunk tasks of a given parent chunk
+    """
     redis = get_redis_connection()
     imanager = IngestionManager.from_pickle(redis.get(r_keys.INGESTION_MANAGER))
 
@@ -117,9 +127,38 @@ def queue_children(chunk_info):
                 imanager.serialized(),
                 children_layer,
                 coords,
-                get_children_coords(
-                    imanager.chunkedgraph_meta, children_layer, coords
-                ),
+                get_children_coords(imanager.chunkedgraph_meta, children_layer, coords),
+            ),
+        )
+
+
+@ingest_cli.command("layer")
+@click.argument("parent_layer", type=int)
+def queue_layer(parent_layer):
+    """
+    Helper command
+    Queue all chunk tasks at a given layer
+    Use this only when all the chunks at `layer - 1` have been built.
+    """
+    redis = get_redis_connection()
+    imanager = IngestionManager.from_pickle(redis.get(r_keys.INGESTION_MANAGER))
+
+    layer_chunk_bounds = imanager.chunkedgraph_meta.layer_chunk_bounds[parent_layer]
+    chunk_coords = list(product(*[range(r) for r in layer_chunk_bounds]))
+    np.random.shuffle(chunk_coords)
+
+    for coords in chunk_coords:
+        task_q = imanager.get_task_queue(imanager.config.parents_q_name)
+        task_q.enqueue(
+            create_parent_chunk,
+            job_id=chunk_id_str(parent_layer, coords),
+            job_timeout=f"{int(10 * parent_layer)}m",
+            result_ttl=0,
+            args=(
+                imanager.serialized(),
+                parent_layer,
+                coords,
+                get_children_coords(imanager.chunkedgraph_meta, parent_layer, coords),
             ),
         )
 
