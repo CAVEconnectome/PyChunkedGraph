@@ -58,6 +58,6 @@ def connected_components(graph):
         return []
 
     idx_sort = np.argsort(cc_labels)
-    _, idx_start, _ = np.unique(cc_labels[idx_sort], return_index=True)
+    _, idx_start = np.unique(cc_labels[idx_sort], return_index=True)
 
     return np.split(idx_sort, idx_start[1:])

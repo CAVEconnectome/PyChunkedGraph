@@ -56,6 +56,7 @@ def ingest_graph(graph_id: str, dataset: click.Path, raw: bool, overwrite: bool)
 
     imanager = IngestionManager(ingest_config, meta)
     imanager.redis.flushdb()
+    imanager.redis
     enqueue_atomic_tasks(imanager)
 
 
