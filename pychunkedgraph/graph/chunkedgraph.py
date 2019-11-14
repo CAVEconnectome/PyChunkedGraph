@@ -246,10 +246,6 @@ class ChunkedGraph(object):
         return np.array(self.cv.scale["resolution"])
 
     @property
-    def segmentation_bounds(self) -> np.ndarray:
-        return np.array(self.cv.bounds.to_list()).reshape(2, 3)
-
-    @property
     def n_layers(self) -> int:
         return int(self._n_layers)
 
@@ -343,19 +339,6 @@ class ChunkedGraph(object):
             value = setting[0].value
 
         return value
-
-    def is_in_bounds(self, coordinate: Sequence[int]):
-        """ Checks whether a coordinate is within the segmentation bounds
-        :param coordinate: [int, int, int]
-        :return bool
-        """
-        coordinate = np.array(coordinate)
-        if np.any(coordinate < self.segmentation_bounds[0]):
-            return False
-        elif np.any(coordinate > self.segmentation_bounds[1]):
-            return False
-        else:
-            return True
 
     def get_serialized_info(self, credentials=True):
         """ Rerturns dictionary that can be used to load this ChunkedGraph
