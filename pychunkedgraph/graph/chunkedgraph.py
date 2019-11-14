@@ -341,6 +341,7 @@ class ChunkedGraph(object):
         return value
 
     def get_serialized_info(self, credentials=True):
+        # TODO make this a property
         """ Rerturns dictionary that can be used to load this ChunkedGraph
         :return: dict
         """
@@ -356,16 +357,6 @@ class ChunkedGraph(object):
             except:
                 info["credentials"] = self.client._credentials
         return info
-
-    def adjust_vol_coordinates_to_cv(
-        self, x: np.int, y: np.int, z: np.int, resolution: Sequence[np.int]
-    ):
-        resolution = np.array(resolution)
-        scaling = np.array(self.cv.resolution / resolution, dtype=np.int)
-        x = x / scaling[0] - self.vx_vol_bounds[0, 0]
-        y = y / scaling[1] - self.vx_vol_bounds[1, 0]
-        z = z / scaling[2] - self.vx_vol_bounds[2, 0]
-        return np.array([x, y, z])
 
     def get_chunk_coordinates_from_vol_coordinates(
         self,
