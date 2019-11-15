@@ -12,15 +12,10 @@ from .chunks.utils import get_chunks_boundary
 
 
 _datasource_fields = (
-    "agglomeration",
-    "watershed",
     "edges",
     "components",
-    "use_raw_edges",
-    "use_raw_components",
-    "data_version",
 )
-_datasource_defaults = (None, None, None, None, False, False, 4)
+_datasource_defaults = (None, None)
 DataSource = namedtuple("DataSource", _datasource_fields, defaults=_datasource_defaults)
 
 _graphconfig_fields = (
@@ -28,10 +23,8 @@ _graphconfig_fields = (
     "chunk_size",
     "fanout",
     "s_bits_atomic_layer",  # number of bits used for each spatial in id creation on level 1
-    "use_skip_connections",
-    "overwrite",  # overwrite existing, use for development and testing
 )
-_graphconfig_defaults = (None, None, 2, 10, True, False)
+_graphconfig_defaults = (None, None, 2, 10)
 GraphConfig = namedtuple(
     "GraphConfig", _graphconfig_fields, defaults=_graphconfig_defaults
 )

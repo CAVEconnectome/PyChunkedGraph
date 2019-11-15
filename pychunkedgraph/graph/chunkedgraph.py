@@ -285,30 +285,6 @@ class ChunkedGraph(object):
     def root_chunk_id(self):
         return self.get_chunk_id(layer=int(self.n_layers), x=0, y=0, z=0)
 
-    def _check_and_create_table(self) -> None:
-        """ Checks if table exists and creates new one if necessary """
-        table_ids = [t.table_id for t in self.instance.list_tables()]
-
-        if not self.table_id in table_ids:
-            self.table.create()
-            f = self.table.column_family(self.family_id)
-            f.create()
-
-            f_inc = self.table.column_family(
-                self.incrementer_family_id, gc_rule=MaxVersionsGCRule(1)
-            )
-            f_inc.create()
-
-            f_log = self.table.column_family(self.log_family_id)
-            f_log.create()
-
-            f_ce = self.table.column_family(
-                self.cross_edge_family_id, gc_rule=MaxVersionsGCRule(1)
-            )
-            f_ce.create()
-
-            self.logger.info(f"Table {self.table_id} created")
-
     def check_and_write_table_parameters(
         self,
         column: column_keys._Column,
