@@ -1943,38 +1943,6 @@ class ChunkedGraph:
         else:
             return nodes_per_layer
 
-    def flatten_row_dict(
-        self, row_dict: Dict[column_keys._Column, List[bigtable.row_data.Cell]]
-    ) -> Dict:
-        """ Flattens multiple entries to columns by appending them
-
-        :param row_dict: dict
-            family key has to be resolved
-        :return: dict
-        """
-        flattened_row_dict = {}
-        for column, column_entries in row_dict.items():
-            flattened_row_dict[column] = []
-            if len(column_entries) > 0:
-                for column_entry in column_entries[::-1]:
-                    flattened_row_dict[column].append(column_entry.value)
-
-                if np.isscalar(column_entry.value):
-                    flattened_row_dict[column] = np.array(flattened_row_dict[column])
-                else:
-                    flattened_row_dict[column] = np.concatenate(
-                        flattened_row_dict[column]
-                    )
-            else:
-                flattened_row_dict[column] = column.deserialize(b"")
-
-            if column == column_keys.Connectivity.Connected:
-                u_ids, c_ids = np.unique(flattened_row_dict[column], return_counts=True)
-                flattened_row_dict[column] = u_ids[(c_ids % 2) == 1].astype(
-                    column.basetype
-                )
-        return flattened_row_dict
-
     def add_edges(
         self,
         user_id: str,
