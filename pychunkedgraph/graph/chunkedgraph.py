@@ -720,25 +720,6 @@ class ChunkedGraph:
             )
         return rr
 
-    def range_read_layer(self, layer_id: int):
-        """ Reads all ids within a layer
-        This can take a while depending on the size of the graph
-        :param layer_id: int
-        :return: list of rows
-        """
-        raise NotImplementedError()
-
-    def test_if_nodes_are_in_same_chunk(self, node_ids: Sequence[np.uint64]) -> bool:
-        """ Test whether two nodes are in the same chunk
-
-        :param node_ids: list of two ints
-        :return: bool
-        """
-        assert len(node_ids) == 2
-        return self.get_chunk_id(node_id=node_ids[0]) == self.get_chunk_id(
-            node_id=node_ids[1]
-        )
-
     def get_chunk_id_from_coord(self, layer: int, x: int, y: int, z: int) -> np.uint64:
         """ Return ChunkID for given chunked graph layer and voxel coordinates.
         :param layer: int -- ChunkedGraph layer
