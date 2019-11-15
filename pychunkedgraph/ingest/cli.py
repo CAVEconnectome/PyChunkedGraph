@@ -10,6 +10,7 @@ import numpy as np
 import click
 from flask.cli import AppGroup
 
+from . import ClusterIngestConfig
 from . import IngestConfig
 from .utils import chunk_id_str
 from .utils import initialize_chunkedgraph
@@ -43,7 +44,9 @@ def ingest_graph(graph_id: str, dataset: click.Path, raw: bool, overwrite: bool)
         except yaml.YAMLError as exc:
             print(exc)
 
-    ingest_config = IngestConfig()
+    ingest_config = IngestConfig(
+        **config["ingest_config"], cluster=ClusterIngestConfig()
+    )
     bigtable_config = BigTableConfig(**config["bigtable_config"])
     graph_config = GraphConfig(
         **config["graph_config"],

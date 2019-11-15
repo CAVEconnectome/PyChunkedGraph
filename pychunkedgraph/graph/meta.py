@@ -23,8 +23,9 @@ _graphconfig_fields = (
     "chunk_size",
     "fanout",
     "s_bits_atomic_layer",  # number of bits used for each spatial in id creation on level 1
+    "overwrite",  # overwrites existing graph
 )
-_graphconfig_defaults = (None, None, 2, 10)
+_graphconfig_defaults = (None, None, 2, 10, False)
 GraphConfig = namedtuple(
     "GraphConfig", _graphconfig_fields, defaults=_graphconfig_defaults
 )
