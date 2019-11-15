@@ -45,7 +45,7 @@ def ingest_graph(graph_id: str, dataset: click.Path, raw: bool, overwrite: bool)
             print(exc)
 
     ingest_config = IngestConfig(
-        **config["ingest_config"], cluster=ClusterIngestConfig()
+        **config["ingest_config"], cluster=ClusterIngestConfig(flush_redis=True)
     )
     bigtable_config = BigTableConfig(**config["bigtable_config"])
     graph_config = GraphConfig(
@@ -60,10 +60,7 @@ def ingest_graph(graph_id: str, dataset: click.Path, raw: bool, overwrite: bool)
 
     meta = ChunkedGraphMeta(data_source, graph_config, bigtable_config)
     initialize_chunkedgraph(meta)
-
     imanager = IngestionManager(ingest_config, meta)
-    imanager.redis.flushdb()
-    imanager.redis
     enqueue_atomic_tasks(imanager)
 
 

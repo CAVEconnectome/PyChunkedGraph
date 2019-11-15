@@ -5,6 +5,7 @@ from ..utils.redis import REDIS_URL
 
 _cluster_ingest_config_fields = (
     "redis_url",
+    "flush_redis",
     "atomic_q_name",
     "atomic_q_limit",  # these limits ensure the queue won't use too much memory
     "atomic_q_interval",  # sleep interval before queuing the next job when limit is reached
@@ -12,7 +13,7 @@ _cluster_ingest_config_fields = (
     "parents_q_limit",
     "parents_q_interval",
 )
-_cluster_ingest_defaults = (REDIS_URL, "atomic", 100000, 60, "parents", 25000, 120)
+_cluster_ingest_defaults = (REDIS_URL, False, "atomic", 100000, 60, "parents", 25000, 120)
 ClusterIngestConfig = namedtuple(
     "ClusterIngestConfig",
     _cluster_ingest_config_fields,
