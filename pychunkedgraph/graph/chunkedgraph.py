@@ -84,40 +84,6 @@ class ChunkedGraph():
         else:
             self.logger = logger
 
-        if client is not None:
-            self._client = client
-        else:
-            self._client = bigtable.Client(
-                project=project_id, admin=True, credentials=credentials
-            )
-
-        self._instance = self.client.instance(instance_id)
-        self._table_id = table_id
-
-        self._table = self.instance.table(self.table_id)
-
-        if is_new:
-            self._check_and_create_table()
-
-        self._dataset_info = self.check_and_write_table_parameters(
-            column_keys.GraphSettings.DatasetInfo,
-            dataset_info,
-            required=True,
-            is_new=is_new,
-        )
-
-        self._cv_path = self._dataset_info["data_dir"]  # required
-        self._mesh_dir = self._dataset_info.get("mesh", None)  # optional
-        self._edge_dir = self.check_and_write_table_parameters(
-            column_keys.GraphSettings.EdgeDir, edge_dir, required=False, is_new=is_new
-        )
-
-        self._bitmasks = compute_bitmasks(
-            self.n_layers, self.fan_out, s_bits_atomic_layer
-        )
-
-        self._cv = None
-
         # Hardcoded parameters
         self._n_bits_for_layer_id = 8
         self._cv_mip = 0
@@ -127,89 +93,6 @@ class ChunkedGraph():
         self._get_chunk_id_vec = np.vectorize(self.get_chunk_id)
 
         self.meta = meta
-
-    def check_and_write_table_parameters(
-        self,
-        column: column_keys._Column,
-        value: Optional[Union[str, np.uint64]] = None,
-        required: bool = True,
-        is_new: bool = False,
-    ) -> Union[str, np.uint64]:
-        """ Checks if a parameter already exists in the table. If it already
-        exists it returns the stored value, else it stores the given value.
-        Storing the given values can be enforced with `is_new`. The function
-        raises an exception if no value is passed and the parameter does not
-        exist, yet.
-        :param column: column_keys._Column
-        :param value: Union[str, np.uint64]
-        :param required: bool
-        :param is_new: bool
-        :return: Union[str, np.uint64]
-            value
-        """
-        setting = self.read_byte_row(row_key=row_keys.GraphSettings, columns=column)
-        if (not setting or is_new) and value is not None:
-            row = self.mutate_row(row_keys.GraphSettings, {column: value})
-            self.bulk_write([row])
-        elif not setting and value is None:
-            assert not required
-            return None
-        else:
-            value = setting[0].value
-
-        return value
-
-    def get_serialized_info(self, credentials=True):
-        # TODO make this a property
-        """ Rerturns dictionary that can be used to load this ChunkedGraph
-        :return: dict
-        """
-        info = {
-            "table_id": self.table_id,
-            "instance_id": self.instance_id,
-            "project_id": self.project_id,
-            "meta": self.meta,
-        }
-        if credentials:
-            try:
-                info["credentials"] = self.client.credentials
-            except:
-                info["credentials"] = self.client._credentials
-        return info
-
-    def get_chunk_coordinates_from_vol_coordinates(
-        self,
-        x: np.int,
-        y: np.int,
-        z: np.int,
-        resolution: Sequence[np.int],
-        ceil: bool = False,
-        layer: int = 1,
-    ) -> np.ndarray:
-        """ Translates volume coordinates to chunk_coordinates
-        :param x: np.int
-        :param y: np.int
-        :param z: np.int
-        :param resolution: np.ndarray
-        :param ceil bool
-        :param layer: int
-        :return:
-        """
-        resolution = np.array(resolution)
-        scaling = np.array(self.cv.resolution / resolution, dtype=np.int)
-
-        x = (x / scaling[0] - self.vx_vol_bounds[0, 0]) / self.chunk_size[0]
-        y = (y / scaling[1] - self.vx_vol_bounds[1, 0]) / self.chunk_size[1]
-        z = (z / scaling[2] - self.vx_vol_bounds[2, 0]) / self.chunk_size[2]
-
-        x /= self.fan_out ** (max(layer - 2, 0))
-        y /= self.fan_out ** (max(layer - 2, 0))
-        z /= self.fan_out ** (max(layer - 2, 0))
-
-        coords = np.array([x, y, z])
-        if ceil:
-            coords = np.ceil(coords)
-        return coords.astype(np.int)
 
     def get_chunk_layer(self, node_or_chunk_id: np.uint64) -> int:
         """ Extract Layer from Node ID or Chunk ID

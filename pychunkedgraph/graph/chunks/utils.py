@@ -1,3 +1,5 @@
+from typing import Sequence
+
 import numpy as np
 
 
@@ -29,4 +31,39 @@ def compute_chunk_id(
     return np.uint64(
         layer << layer_offset | x << x_offset | y << y_offset | z << z_offset
     )
+
+
+def get_chunk_coordinates_from_vol_coordinates(
+    self,
+    x: np.int,
+    y: np.int,
+    z: np.int,
+    resolution: Sequence[np.int],
+    ceil: bool = False,
+    layer: int = 1,
+) -> np.ndarray:
+    """ Translates volume coordinates to chunk_coordinates
+    :param x: np.int
+    :param y: np.int
+    :param z: np.int
+    :param resolution: np.ndarray
+    :param ceil bool
+    :param layer: int
+    :return:
+    """
+    resolution = np.array(resolution)
+    scaling = np.array(self.cv.resolution / resolution, dtype=np.int)
+
+    x = (x / scaling[0] - self.vx_vol_bounds[0, 0]) / self.chunk_size[0]
+    y = (y / scaling[1] - self.vx_vol_bounds[1, 0]) / self.chunk_size[1]
+    z = (z / scaling[2] - self.vx_vol_bounds[2, 0]) / self.chunk_size[2]
+
+    x /= self.fan_out ** (max(layer - 2, 0))
+    y /= self.fan_out ** (max(layer - 2, 0))
+    z /= self.fan_out ** (max(layer - 2, 0))
+
+    coords = np.array([x, y, z])
+    if ceil:
+        coords = np.ceil(coords)
+    return coords.astype(np.int)
 
