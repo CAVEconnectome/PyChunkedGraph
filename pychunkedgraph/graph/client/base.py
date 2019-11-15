@@ -2,7 +2,8 @@ from abc import ABC, abstractmethod
 
 class Client(ABC):
 
-    def __init__(self):
+    def __init__(self, config):
+        self._config = config
         
     
     def _check_and_create_table(self) -> None:

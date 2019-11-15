@@ -61,21 +61,13 @@ os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = (
 )
 
 
-class ChunkedGraph(object):
+class ChunkedGraph():
     def __init__(
         self,
         table_id: str,
         project_id: str = "neuromancer-seung-import",
         instance_id: str = "pychunkedgraph",
-        chunk_size: Tuple[np.uint64, np.uint64, np.uint64] = None,
-        fan_out: Optional[np.uint64] = None,
-        use_skip_connections: Optional[bool] = True,
-        edge_dir: Optional[str] = None,
-        s_bits_atomic_layer: Optional[np.uint64] = 8,
-        n_bits_root_counter: Optional[np.uint64] = 0,
         n_layers: Optional[np.uint64] = None,
-        credentials: Optional[credentials.Credentials] = None,
-        client: bigtable.Client = None,
         dataset_info: Optional[object] = None,
         is_new: bool = False,
         logger: Optional[logging.Logger] = None,
@@ -120,42 +112,6 @@ class ChunkedGraph(object):
             column_keys.GraphSettings.EdgeDir, edge_dir, required=False, is_new=is_new
         )
 
-        self._n_layers = self.check_and_write_table_parameters(
-            column_keys.GraphSettings.LayerCount, n_layers, required=True, is_new=is_new
-        )
-        self._fan_out = self.check_and_write_table_parameters(
-            column_keys.GraphSettings.FanOut, fan_out, required=True, is_new=is_new
-        )
-        s_bits_atomic_layer = self.check_and_write_table_parameters(
-            column_keys.GraphSettings.SpatialBits,
-            np.uint64(s_bits_atomic_layer),
-            required=False,
-            is_new=is_new,
-        )
-        self._use_skip_connections = (
-            self.check_and_write_table_parameters(
-                column_keys.GraphSettings.SkipConnections,
-                np.uint64(use_skip_connections),
-                required=False,
-                is_new=is_new,
-            )
-            > 0
-        )
-        self._n_bits_root_counter = self.check_and_write_table_parameters(
-            column_keys.GraphSettings.RootCounterBits,
-            np.uint64(n_bits_root_counter),
-            required=False,
-            is_new=is_new,
-        )
-        self._chunk_size = self.check_and_write_table_parameters(
-            column_keys.GraphSettings.ChunkSize,
-            chunk_size,
-            required=True,
-            is_new=is_new,
-        )
-
-        self._dataset_info["graph"] = {"chunk_size": self.chunk_size}
-
         self._bitmasks = compute_bitmasks(
             self.n_layers, self.fan_out, s_bits_atomic_layer
         )
@@ -171,119 +127,6 @@ class ChunkedGraph(object):
         self._get_chunk_id_vec = np.vectorize(self.get_chunk_id)
 
         self.meta = meta
-
-    @property
-    def client(self) -> bigtable.Client:
-        return self._client
-
-    @property
-    def instance(self) -> bigtable.instance.Instance:
-        return self._instance
-
-    @property
-    def table(self) -> bigtable.table.Table:
-        return self._table
-
-    @property
-    def table_id(self) -> str:
-        return self._table_id
-
-    @property
-    def instance_id(self):
-        return self.instance.instance_id
-
-    @property
-    def project_id(self):
-        return self.client.project
-
-    @property
-    def family_id(self) -> str:
-        return "0"
-
-    @property
-    def incrementer_family_id(self) -> str:
-        return "1"
-
-    @property
-    def log_family_id(self) -> str:
-        return "2"
-
-    @property
-    def cross_edge_family_id(self) -> str:
-        return "3"
-
-    @property
-    def family_ids(self):
-        return [
-            self.family_id,
-            self.incrementer_family_id,
-            self.log_family_id,
-            self.cross_edge_family_id,
-        ]
-
-    @property
-    def fan_out(self) -> np.uint64:
-        return self._fan_out
-
-    @property
-    def chunk_size(self) -> np.ndarray:
-        return self._chunk_size
-
-    @property
-    def n_bits_root_counter(self) -> np.ndarray:
-        return self._n_bits_root_counter
-
-    @property
-    def use_skip_connections(self) -> np.ndarray:
-        return self._use_skip_connections
-
-    @property
-    def segmentation_chunk_size(self) -> np.ndarray:
-        return self.cv.scale["chunk_sizes"][0]
-
-    @property
-    def segmentation_resolution(self) -> np.ndarray:
-        return np.array(self.cv.scale["resolution"])
-
-    @property
-    def n_layers(self) -> int:
-        return int(self._n_layers)
-
-    @property
-    def bitmasks(self) -> Dict[int, int]:
-        return self._bitmasks
-
-    @property
-    def cv_mesh_path(self) -> str:
-        return "%s/%s" % (self._cv_path, self._mesh_dir)
-
-    @property
-    def cv_edges_path(self) -> str:
-        return self._edge_dir
-
-    @property
-    def dataset_info(self) -> object:
-        return self._dataset_info
-
-    @property
-    def cv_mip(self) -> int:
-        return self._cv_mip
-
-    @property
-    def cv(self) -> CloudVolume:
-        if self._cv is None:
-            self._cv = CloudVolume(
-                self._cv_path, mip=self._cv_mip, info=self.dataset_info
-            )
-        return self._cv
-
-    @property
-    def vx_vol_bounds(self):
-        return np.array(self.cv.bounds.to_list()).reshape(2, -1).T
-
-    @property
-    def root_chunk_id(self):
-        return self.get_chunk_id(layer=int(self.n_layers), x=0, y=0, z=0)
 
     def check_and_write_table_parameters(
         self,
