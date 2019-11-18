@@ -1,5 +1,12 @@
 from abc import ABC, abstractmethod
 
+
+# TODO design api
+# 1. create / overwrite
+# 2. a counter to generate unique ids (IDs api?)
+# 3. store metadata
+# 4. read/write rows api
+
 class Client(ABC):
 
     def __init__(self, config):
