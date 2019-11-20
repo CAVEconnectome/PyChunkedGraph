@@ -635,11 +635,7 @@ class ChunkedGraph:
 
     def range_read_chunk(
         self,
-        layer: Optional[int] = None,
-        x: Optional[int] = None,
-        y: Optional[int] = None,
-        z: Optional[int] = None,
-        chunk_id: Optional[np.uint64] = None,
+        chunk_id:np.uint64,
         columns: Optional[
             Union[Iterable[column_keys._Column], column_keys._Column]
         ] = None,
@@ -655,13 +651,6 @@ class ChunkedGraph:
         Chunk can either be specified by its (layer, x, y, and z coordinate), or by the chunk ID.
 
         Keyword Arguments:
-            layer {Optional[int]} -- The layer of the chunk within the graph (default: {None})
-            x {Optional[int]} -- The xth chunk in x dimension within the graph, within `layer`.
-                (default: {None})
-            y {Optional[int]} -- The yth chunk in y dimension within the graph, within `layer`.
-                (default: {None})
-            z {Optional[int]} -- The zth chunk in z dimension within the graph, within `layer`.
-                (default: {None})
             chunk_id {Optional[np.uint64]} -- Alternative way to specify the chunk, if the Chunk ID
                 is already known. (default: {None})
             columns {Optional[Union[Iterable[column_keys._Column], column_keys._Column]]} --
@@ -681,39 +670,24 @@ class ChunkedGraph:
                 If only a single `column_keys._Column` was requested, the List of cells will be
                 attached to the row dictionary directly (skipping the column dictionary).
         """
-        if chunk_id is not None:
-            x, y, z = self.get_chunk_coordinates(chunk_id)
-            layer = self.get_chunk_layer(chunk_id)
-        elif layer is not None and x is not None and y is not None and z is not None:
-            chunk_id = self.get_chunk_id(layer=layer, x=x, y=y, z=z)
-        else:
-            raise Exception(
-                "Either chunk_id or layer and coordinates have to be defined"
-            )
+        layer = self.get_chunk_layer(chunk_id)
 
+        max_segment_id = self.get_max_seg_id(chunk_id=chunk_id)
         if layer == 1:
             max_segment_id = self.get_segment_id_limit(chunk_id)
-        else:
-            max_segment_id = self.get_max_seg_id(chunk_id=chunk_id)
 
         # Define BigTable keys
         start_id = self.get_node_id(np.uint64(0), chunk_id=chunk_id)
         end_id = self.get_node_id(max_segment_id, chunk_id=chunk_id)
 
-        try:
-            rr = self.read_node_id_rows(
-                start_id=start_id,
-                end_id=end_id,
-                end_id_inclusive=True,
-                columns=columns,
-                end_time=time_stamp,
-                end_time_inclusive=True,
-            )
-        except Exception as err:
-            raise Exception(
-                "Unable to consume chunk read: "
-                "[%d, %d, %d], l = %d: %s" % (x, y, z, layer, err)
-            )
+        rr = self.read_node_id_rows(
+            start_id=start_id,
+            end_id=end_id,
+            end_id_inclusive=True,
+            columns=columns,
+            end_time=time_stamp,
+            end_time_inclusive=True,
+        )
         return rr
 
     def get_chunk_id_from_coord(self, layer: int, x: int, y: int, z: int) -> np.uint64:

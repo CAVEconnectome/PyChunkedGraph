@@ -27,68 +27,25 @@ class Client(ABC):
         """Create graph and store associated meta"""
 
     @abstractmethod
-    def read_byte_rows(
-        self,
-        start_key: Optional[bytes] = None,
-        end_key: Optional[bytes] = None,
-        row_keys: Optional[Iterable[bytes]] = None,
-        columns: Optional[
-            Union[Iterable[column_keys._Column], column_keys._Column]
-        ] = None,
-        start_time: Optional[datetime.datetime] = None,
-        end_time: Optional[datetime.datetime] = None,
-        end_time_inclusive: bool = False,
-    ) -> Dict[
-        bytes,
-        Union[
-            Dict[column_keys._Column, List[bigtable.row_data.Cell]],
-            List[bigtable.row_data.Cell],
-        ],
-    ]:
-
-
-    @abstractmethod
-    def read_byte_row(
-        self,
-        row_key: bytes,
-        columns: Optional[
-            Union[Iterable[column_keys._Column], column_keys._Column]
-        ] = None,
-        start_time: Optional[datetime.datetime] = None,
-        end_time: Optional[datetime.datetime] = None,
-        end_time_inclusive: bool = False,
-    ) -> Union[
-        Dict[column_keys._Column, List[bigtable.row_data.Cell]],
-        List[bigtable.row_data.Cell],
-    ]:
-
-    @abstractmethod
     def read_nodes(
         self,
-        start_id: Optional[np.uint64] = None,
-        end_id: Optional[np.uint64] = None,
-        node_ids: Optional[Iterable[np.uint64]] = None,
-        columns: Optional[
-            Union[Iterable[column_keys._Column], column_keys._Column]
-        ] = None,
-        start_time: Optional[datetime.datetime] = None,
-        end_time: Optional[datetime.datetime] = None,
-        end_time_inclusive: bool = False,
-    ) -> Dict[np.uint64,Union[Dict,List]]:
-
+        start_id=None,
+        end_id=None,
+        node_ids=None,
+        columns=None,
+        start_time=None,
+        end_time=None,
+        end_time_inclusive=False,
+    ):
+        """Read nodes and their properties."""
 
     @abstractmethod
-    def read_node_id_row(
+    def read_node(
         self,
         node_id: np.uint64,
-        columns: Optional[
-            Union[Iterable[column_keys._Column], column_keys._Column]
-        ] = None,
-        start_time: Optional[datetime.datetime] = None,
-        end_time: Optional[datetime.datetime] = None,
-        end_time_inclusive: bool = False,
-    ) -> Union[
-        Dict[column_keys._Column, List[bigtable.row_data.Cell]],
-        List[bigtable.row_data.Cell],
-    ]:
-
+        columns=None,
+        start_time=None,
+        end_time=None,
+        end_time_inclusive=False,
+    ):
+        """Read a single node and it's properties"""
