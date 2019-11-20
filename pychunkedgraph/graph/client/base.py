@@ -32,7 +32,7 @@ class Client(ABC):
         start_id=None,
         end_id=None,
         node_ids=None,
-        columns=None,
+        properties=None,
         start_time=None,
         end_time=None,
         end_time_inclusive=False,
@@ -43,7 +43,7 @@ class Client(ABC):
     def read_node(
         self,
         node_id: np.uint64,
-        columns=None,
+        properties=None,
         start_time=None,
         end_time=None,
         end_time_inclusive=False,

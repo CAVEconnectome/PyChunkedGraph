@@ -806,27 +806,6 @@ class ChunkedGraph:
                 return log_row
         return None
 
-    def add_atomic_edges_in_chunks(
-        self,
-        edge_id_dict: dict,
-        edge_aff_dict: dict,
-        edge_area_dict: dict,
-        isolated_node_ids: Sequence[np.uint64],
-        verbose: bool = True,
-        time_stamp: Optional[datetime.datetime] = None,
-    ):
-        raise NotImplementedError()
-
-    def add_layer(
-        self,
-        layer_id: int,
-        child_chunk_coords: Sequence[Sequence[int]],
-        time_stamp: Optional[datetime.datetime] = None,
-        verbose: bool = True,
-        n_threads: int = 20,
-    ) -> None:
-        raise NotImplementedError()
-
     def get_atomic_cross_edge_dict(
         self, node_id: np.uint64, layer_ids: Sequence[int] = None
     ):
