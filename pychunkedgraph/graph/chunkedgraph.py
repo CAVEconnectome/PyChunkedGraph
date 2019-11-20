@@ -84,10 +84,6 @@ class ChunkedGraph:
         else:
             self.logger = logger
 
-        # Hardcoded parameters
-        self._n_bits_for_layer_id = 8
-        self._cv_mip = 0
-
         # Vectorized calls
         self._get_chunk_layer_vec = np.vectorize(self.get_chunk_layer)
         self._get_chunk_id_vec = np.vectorize(self.get_chunk_id)
