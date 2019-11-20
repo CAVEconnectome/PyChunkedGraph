@@ -1,5 +1,12 @@
 from abc import ABC
 from abc import abstractmethod
+from typing import Dict
+from typing import List
+from typing import Union
+from typing import Optional
+from typing import Iterable
+
+import numpy as np
 
 from ..meta import ChunkedGraphMeta
 
@@ -10,22 +17,19 @@ from ..meta import ChunkedGraphMeta
 # 3. store metadata
 # 4. read/write rows api
 
-class Client(ABC):
 
+class Client(ABC):
     def __init__(self, config):
         self._config = config
-        
-    
+
     @abstractmethod
     def create_graph(self, graph_meta: ChunkedGraphMeta) -> None:
         """Create graph and store associated meta"""
-
 
     def read_byte_rows(
         self,
         start_key: Optional[bytes] = None,
         end_key: Optional[bytes] = None,
-        end_key_inclusive: bool = False,
         row_keys: Optional[Iterable[bytes]] = None,
         columns: Optional[
             Union[Iterable[column_keys._Column], column_keys._Column]
@@ -92,7 +96,6 @@ class Client(ABC):
                 start_key=start_key,
                 start_inclusive=True,
                 end_key=end_key,
-                end_inclusive=end_key_inclusive,
             )
         else:
             raise cg_exceptions.PreconditionError(
@@ -160,14 +163,11 @@ class Client(ABC):
         else:
             return row.get(row_key, {})
 
-
-
-
-    def read_node_id_rows(
+    @abstractmethod
+    def read_nodes(
         self,
         start_id: Optional[np.uint64] = None,
         end_id: Optional[np.uint64] = None,
-        end_id_inclusive: bool = False,
         node_ids: Optional[Iterable[np.uint64]] = None,
         columns: Optional[
             Union[Iterable[column_keys._Column], column_keys._Column]
@@ -175,65 +175,8 @@ class Client(ABC):
         start_time: Optional[datetime.datetime] = None,
         end_time: Optional[datetime.datetime] = None,
         end_time_inclusive: bool = False,
-    ) -> Dict[
-        np.uint64,
-        Union[
-            Dict[column_keys._Column, List[bigtable.row_data.Cell]],
-            List[bigtable.row_data.Cell],
-        ],
-    ]:
-        """Convenience function for reading a row range or non-contiguous row sets from Bigtable
-        representing NodeIDs.
-        Keyword Arguments:
-            start_id {Optional[np.uint64]} -- The first row to be read, ignored if `node_ids` is
-                set. If None, no lower boundary is used. (default: {None})
-            end_id {Optional[np.uint64]} -- The end of the row range, ignored if `node_ids` is set.
-                If None, no upper boundary is used. (default: {None})
-            end_id_inclusive {bool} -- Whether or not `end_id` itself should be included in the
-                request, ignored if `node_ids` is set or `end_id` is None. (default: {False})
-            node_ids {Optional[Iterable[np.uint64]]} -- An `Iterable` containing possibly
-                non-contiguous row keys. Takes precedence over `start_id` and `end_id`.
-                (default: {None})
-            columns {Optional[Union[Iterable[column_keys._Column], column_keys._Column]]} --
-                Optional filtering by columns to speed up the query. If `columns` is a single
-                column (not iterable), the column key will be omitted from the result.
-                (default: {None})
-            start_time {Optional[datetime.datetime]} -- Ignore cells with timestamp before
-                `start_time`. If None, no lower bound. (default: {None})
-            end_time {Optional[datetime.datetime]} -- Ignore cells with timestamp after `end_time`.
-                If None, no upper bound. (default: {None})
-            end_time_inclusive {bool} -- Whether or not `end_time` itself should be included in the
-                request, ignored if `end_time` is None. (default: {False})
-
-        Returns:
-            Dict[np.uint64, Union[Dict[column_keys._Column, List[bigtable.row_data.Cell]],
-                                  List[bigtable.row_data.Cell]]] --
-                Returns a dictionary of NodeID rows as keys. Their value will be a mapping of
-                columns to a List of cells (one cell per timestamp). Each cell has a `value`
-                property, which returns the deserialized field, and a `timestamp` property, which
-                returns the timestamp as `datetime.datetime` object.
-                If only a single `column_keys._Column` was requested, the List of cells will be
-                attached to the row dictionary directly (skipping the column dictionary).
-        """
-        to_bytes = serializers.serialize_uint64
-        from_bytes = serializers.deserialize_uint64
-
-        # Read rows (convert Node IDs to row_keys)
-        rows = self.read_byte_rows(
-            start_key=to_bytes(start_id) if start_id is not None else None,
-            end_key=to_bytes(end_id) if end_id is not None else None,
-            end_key_inclusive=end_id_inclusive,
-            row_keys=(to_bytes(node_id) for node_id in node_ids)
-            if node_ids is not None
-            else None,
-            columns=columns,
-            start_time=start_time,
-            end_time=end_time,
-            end_time_inclusive=end_time_inclusive,
-        )
-
-        # Convert row_keys back to Node IDs
-        return {from_bytes(row_key): data for (row_key, data) in rows.items()}
+    ) -> Dict[np.uint64,Union[Dict,List]]:
+        pass
 
     def read_node_id_row(
         self,
@@ -279,4 +222,5 @@ class Client(ABC):
             start_time=start_time,
             end_time=end_time,
             end_time_inclusive=end_time_inclusive,
-        )            
+        )
+
