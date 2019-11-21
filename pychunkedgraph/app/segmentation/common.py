@@ -630,6 +630,8 @@ def handle_split_preview(table_id):
     data = json.loads(request.data)
     current_app.logger.debug(data)
 
+    cg = app_utils.get_cg(table_id)
+
     data_dict = {}
     for k in ["sources", "sinks"]:
         data_dict[k] = collections.defaultdict(list)
