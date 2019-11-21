@@ -15,6 +15,11 @@ from ..meta import ChunkedGraphMeta
 
 
 class Client(ABC):
+    """
+    Abstract class for interacting with backend data store where the chunkedgraph is stored.
+    Eg., BigTableClient for using big table as storage.
+    """
+
     def __init__(self, config):
         self._config = config
 
@@ -59,4 +64,19 @@ class Client(ABC):
         Writes/updates nodes (IDs along with properties)
         by locking root nodes until changes are written.
         """
+
+
+class ClientUtils(ABC):
+    """
+    Abstract class to util functions that interact with backend data store,
+    and need shared access to chunkedgraph meta.
+    """
+
+    def __init__(self, client: Client, meta: ChunkedGraphMeta):
+        self._graph_meta = meta
+        self._client = client
+
+    @abstractmethod
+    def get_segment_id_range(self):
+        """Generate a range of unique segment IDs."""
 
