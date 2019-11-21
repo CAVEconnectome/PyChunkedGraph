@@ -11,9 +11,6 @@ import numpy as np
 from ..meta import ChunkedGraphMeta
 
 
-# 2. a counter to generate unique ids (IDs api?)
-
-
 class Client(ABC):
     """
     Abstract class for interacting with backend data store where the chunkedgraph is stored.
@@ -68,7 +65,7 @@ class Client(ABC):
 
 class ClientUtils(ABC):
     """
-    Abstract class to util functions that interact with backend data store,
+    Abstract class for util functions that interact with backend data store,
     and need shared access to chunkedgraph meta.
     """
 
