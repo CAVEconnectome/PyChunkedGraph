@@ -11,13 +11,7 @@ import numpy as np
 from ..meta import ChunkedGraphMeta
 
 
-class ClientBase(ABC):
-    """
-    Abstract class for client base.
-    """
-
-
-class Client(ClientBase):
+class SimpleClient(ABC):
     """
     Abstract class for interacting with backend data store where the chunkedgraph is stored.
     Eg., BigTableClient for using big table as storage.
@@ -70,10 +64,10 @@ class Client(ClientBase):
         """
 
 
-class ClientUtils(ClientBase):
+class ClientWithIDGen(SimpleClient):
     """
-    Abstract class for util functions that interact with backend data store,
-    and/or need access to chunkedgraph meta.
+    Abstract class for client to backend data store that has support for creating IDs.
+    Eg., BigTableClient has locking and concurrency support to generate unique IDs.
     """
 
     @abstractmethod
