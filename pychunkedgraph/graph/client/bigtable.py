@@ -213,15 +213,6 @@ def get_unique_segment_id_range(self, chunk_id: np.uint64, step: int = 1) -> np.
     return segment_id_range
 
 
-def get_unique_segment_id(self, chunk_id: np.uint64) -> np.uint64:
-    """ Return unique Segment ID for given Chunk ID atomic counter
-    :param chunk_id: np.uint64
-    :param step: int
-    :return: np.uint64
-    """
-    return self.get_unique_segment_id_range(chunk_id=chunk_id, step=1)[0]
-
-
 def get_unique_node_id_range(self, chunk_id: np.uint64, step: int = 1) -> np.ndarray:
     """ Return unique Node ID range for given Chunk ID atomic counter
     :param chunk_id: np.uint64

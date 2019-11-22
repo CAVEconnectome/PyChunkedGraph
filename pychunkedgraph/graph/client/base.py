@@ -53,7 +53,10 @@ class Client(ABC):
 
     @abstractmethod
     def write_nodes(self, nodes):
-        """Writes/updates nodes (IDs along with properties)."""
+        """
+        Writes/updates nodes (IDs along with properties).
+        Meant to be used when race conditions are not expected.
+        """
 
     @abstractmethod
     def write_nodes_with_lock(self, nodes, root_ids, operation_id):
@@ -66,7 +69,7 @@ class Client(ABC):
 class ClientUtils(ABC):
     """
     Abstract class for util functions that interact with backend data store,
-    and need shared access to chunkedgraph meta.
+    and also need access to chunkedgraph meta.
     """
 
     def __init__(self, client: Client, meta: ChunkedGraphMeta):
@@ -74,6 +77,22 @@ class ClientUtils(ABC):
         self._client = client
 
     @abstractmethod
-    def get_segment_id_range(self):
+    def create_segment_ids(self):
         """Generate a range of unique segment IDs."""
+
+    @abstractmethod
+    def create_segment_id(self):
+        """Generate a unique segment ID."""
+
+    @abstractmethod
+    def get_max_segment_id(self, chunk_id: np.uint64):
+        """Gets the current maximum segment ID in the chunk."""
+
+    @abstractmethod
+    def create_operation_id(self):
+        """Generate a unique operation ID."""
+
+    @abstractmethod
+    def get_max_operation_id(self):
+        """Gets the current maximum operation ID."""
 
