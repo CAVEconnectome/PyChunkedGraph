@@ -22,12 +22,23 @@ from .base import ClientWithIDGen
 from ..meta import ChunkedGraphMeta
 
 
-class BigTableClient(ClientWithIDGen):
-    def __init__(self):
-        pass
+class BigTableClient(bigtable.Client, ClientWithIDGen):
+    __slots__ = ()
+
+    def __init__(
+        self, project=None, read_only=False, admin=False,
+    ):
+        super(BigTableClient, self).__init__(
+            project=project, read_only=read_only, admin=admin
+        )
 
     def create_graph(self, graph_meta: ChunkedGraphMeta) -> None:
         """Initialize the graph and store associated meta."""
+        # TODO
+        # check if table exists
+        # create table
+        # store meta in the table
+        # option to overwrite
         pass
 
     def read_nodes(
