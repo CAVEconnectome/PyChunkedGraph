@@ -56,25 +56,15 @@ class Client(ABC):
         """
         Writes/updates nodes (IDs along with properties).
         Meant to be used when race conditions are not expected.
+        Eg., when creating the graph.
         """
 
     @abstractmethod
-    def write_nodes_with_lock(self, nodes, root_ids, operation_id):
+    def write_nodes_synchronized(self, nodes, root_ids, operation_id):
         """
         Writes/updates nodes (IDs along with properties)
         by locking root nodes until changes are written.
         """
-
-
-class ClientUtils(ABC):
-    """
-    Abstract class for util functions that interact with backend data store,
-    and also need access to chunkedgraph meta.
-    """
-
-    def __init__(self, client: Client, meta: ChunkedGraphMeta):
-        self._graph_meta = meta
-        self._client = client
 
     @abstractmethod
     def create_segment_ids(self):
@@ -95,4 +85,15 @@ class ClientUtils(ABC):
     @abstractmethod
     def get_max_operation_id(self):
         """Gets the current maximum operation ID."""
+
+
+class ClientUtils(ABC):
+    """
+    Abstract class for util functions that interact with backend data store,
+    and also need access to chunkedgraph meta.
+    """
+
+    def __init__(self, client: Client, meta: ChunkedGraphMeta):
+        self._graph_meta = meta
+        self._client = client
 
