@@ -11,14 +11,17 @@ import numpy as np
 from ..meta import ChunkedGraphMeta
 
 
-class Client(ABC):
+class ClientBase(ABC):
+    """
+    Abstract class for client base.
+    """
+
+
+class Client(ClientBase):
     """
     Abstract class for interacting with backend data store where the chunkedgraph is stored.
     Eg., BigTableClient for using big table as storage.
     """
-
-    def __init__(self, config):
-        self._config = config
 
     @abstractmethod
     def create_graph(self, graph_meta: ChunkedGraphMeta) -> None:
@@ -37,7 +40,7 @@ class Client(ABC):
     ):
         """
         Read nodes and their properties.
-        A range of node IDs or specific node IDs.
+        Accepts a range of node IDs or specific node IDs.
         """
 
     @abstractmethod
@@ -66,6 +69,13 @@ class Client(ABC):
         by locking root nodes until changes are written.
         """
 
+
+class ClientUtils(ClientBase):
+    """
+    Abstract class for util functions that interact with backend data store,
+    and/or need access to chunkedgraph meta.
+    """
+
     @abstractmethod
     def create_segment_ids(self):
         """Generate a range of unique segment IDs."""
@@ -85,15 +95,4 @@ class Client(ABC):
     @abstractmethod
     def get_max_operation_id(self):
         """Gets the current maximum operation ID."""
-
-
-class ClientUtils(ABC):
-    """
-    Abstract class for util functions that interact with backend data store,
-    and also need access to chunkedgraph meta.
-    """
-
-    def __init__(self, client: Client, meta: ChunkedGraphMeta):
-        self._graph_meta = meta
-        self._client = client
 
