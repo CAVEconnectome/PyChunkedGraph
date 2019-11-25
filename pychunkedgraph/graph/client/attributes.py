@@ -1,4 +1,6 @@
 from typing import NamedTuple
+
+from ..utils import basetypes
 from ..utils import serializers
 
 
@@ -11,9 +13,9 @@ class _Attribute(_AttributeType):
     __slots__ = ()
     _attributes = {}
 
-    def __init__(self, **kwargs):
+    def __init__(self, key, serializer):
         super().__init__()
-        _Attribute._attributes[(kwargs["family_id"], kwargs["key"])] = self
+        _Attribute._attributes[key] = self
 
     def serialize(self, obj):
         return self.serializer.serialize(obj)
@@ -32,7 +34,7 @@ class _AttributeArray:
     def __init__(self, pattern, serializer):
         self._pattern = pattern
         self._serializer = serializer
-        _AttributeArray._attributearrays[(family_id, pattern)] = self
+        _AttributeArray._attributearrays[pattern] = self
 
         # TODO: Add missing check in `fromkey(family_id, key)` and remove this
         #       loop (pre-creates `_Attributes`, so that the inverse lookup works)
@@ -61,30 +63,24 @@ class _AttributeArray:
 
 class Concurrency:
     CounterID = _Attribute(
-        key=b"counter",
-        family_id="1",
-        serializer=serializers.NumPyValue(dtype=basetypes.COUNTER),
+        key=b"counter", serializer=serializers.NumPyValue(dtype=basetypes.COUNTER),
     )
 
-    Lock = _Attribute(key=b"lock", family_id="0", serializer=serializers.UInt64String())
+    Lock = _Attribute(key=b"lock", serializer=serializers.UInt64String())
 
 
 class Connectivity:
     Affinity = _Attribute(
         key=b"affinities",
-        family_id="0",
         serializer=serializers.NumPyArray(dtype=basetypes.EDGE_AFFINITY),
     )
 
     Area = _Attribute(
-        key=b"areas",
-        family_id="0",
-        serializer=serializers.NumPyArray(dtype=basetypes.EDGE_AREA),
+        key=b"areas", serializer=serializers.NumPyArray(dtype=basetypes.EDGE_AREA),
     )
 
     CrossChunkEdge = _AttributeArray(
         pattern=b"atomic_cross_edges_%d",
-        family_id="3",
         serializer=serializers.NumPyArray(
             dtype=basetypes.NODE_ID, shape=(-1, 2), compression_level=22
         ),
@@ -92,7 +88,6 @@ class Connectivity:
 
     FakeEdges = _Attribute(
         key=b"fake_edges",
-        family_id="0",
         serializer=serializers.NumPyArray(dtype=basetypes.NODE_ID, shape=(-1, 2)),
     )
 
@@ -100,7 +95,6 @@ class Connectivity:
 class Hierarchy:
     Child = _Attribute(
         key=b"children",
-        family_id="0",
         serializer=serializers.NumPyArray(
             dtype=basetypes.NODE_ID, compression_level=22
         ),
@@ -108,97 +102,74 @@ class Hierarchy:
 
     FormerParent = _Attribute(
         key=b"former_parents",
-        family_id="0",
         serializer=serializers.NumPyArray(dtype=basetypes.NODE_ID),
     )
 
     NewParent = _Attribute(
-        key=b"new_parents",
-        family_id="0",
-        serializer=serializers.NumPyArray(dtype=basetypes.NODE_ID),
+        key=b"new_parents", serializer=serializers.NumPyArray(dtype=basetypes.NODE_ID),
     )
 
     Parent = _Attribute(
-        key=b"parents",
-        family_id="0",
-        serializer=serializers.NumPyValue(dtype=basetypes.NODE_ID),
+        key=b"parents", serializer=serializers.NumPyValue(dtype=basetypes.NODE_ID),
     )
 
 
 class GraphSettings:
-    DatasetInfo = _Attribute(
-        key=b"dataset_info", family_id="0", serializer=serializers.JSON()
-    )
+    DatasetInfo = _Attribute(key=b"dataset_info", serializer=serializers.JSON())
 
 
 class OperationLogs:
-    OperationID = _Attribute(
-        key=b"operation_id", family_id="0", serializer=serializers.UInt64String()
-    )
+    OperationID = _Attribute(key=b"operation_id", serializer=serializers.UInt64String())
 
     UndoOperationID = _Attribute(
-        key=b"undo_operation_id", family_id="2", serializer=serializers.UInt64String()
+        key=b"undo_operation_id", serializer=serializers.UInt64String()
     )
 
     RedoOperationID = _Attribute(
-        key=b"redo_operation_id", family_id="2", serializer=serializers.UInt64String()
+        key=b"redo_operation_id", serializer=serializers.UInt64String()
     )
 
-    UserID = _Attribute(
-        key=b"user", family_id="2", serializer=serializers.String("utf-8")
-    )
+    UserID = _Attribute(key=b"user", serializer=serializers.String("utf-8"))
 
     RootID = _Attribute(
-        key=b"roots",
-        family_id="2",
-        serializer=serializers.NumPyArray(dtype=basetypes.NODE_ID),
+        key=b"roots", serializer=serializers.NumPyArray(dtype=basetypes.NODE_ID),
     )
 
     SourceID = _Attribute(
-        key=b"source_ids",
-        family_id="2",
-        serializer=serializers.NumPyArray(dtype=basetypes.NODE_ID),
+        key=b"source_ids", serializer=serializers.NumPyArray(dtype=basetypes.NODE_ID),
     )
 
     SinkID = _Attribute(
-        key=b"sink_ids",
-        family_id="2",
-        serializer=serializers.NumPyArray(dtype=basetypes.NODE_ID),
+        key=b"sink_ids", serializer=serializers.NumPyArray(dtype=basetypes.NODE_ID),
     )
 
     SourceCoordinate = _Attribute(
         key=b"source_coords",
-        family_id="2",
         serializer=serializers.NumPyArray(dtype=basetypes.COORDINATES, shape=(-1, 3)),
     )
 
     SinkCoordinate = _Attribute(
         key=b"sink_coords",
-        family_id="2",
         serializer=serializers.NumPyArray(dtype=basetypes.COORDINATES, shape=(-1, 3)),
     )
 
     BoundingBoxOffset = _Attribute(
         key=b"bb_offset",
-        family_id="2",
         serializer=serializers.NumPyArray(dtype=basetypes.COORDINATES),
     )
 
     AddedEdge = _Attribute(
         key=b"added_edges",
-        family_id="2",
         serializer=serializers.NumPyArray(dtype=basetypes.NODE_ID, shape=(-1, 2)),
     )
 
     RemovedEdge = _Attribute(
         key=b"removed_edges",
-        family_id="2",
         serializer=serializers.NumPyArray(dtype=basetypes.NODE_ID, shape=(-1, 2)),
     )
 
     Affinity = _Attribute(
         key=b"affinities",
-        family_id="2",
         serializer=serializers.NumPyArray(dtype=basetypes.EDGE_AFFINITY),
     )
 

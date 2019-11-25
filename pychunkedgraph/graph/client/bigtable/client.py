@@ -1,25 +1,26 @@
 import numpy as np
-from google.api_core.retry import Retry, if_exception_type
-from google.api_core.exceptions import Aborted, DeadlineExceeded, ServiceUnavailable
 from google.auth import credentials
 from google.cloud import bigtable
-from google.cloud.bigtable.row_filters import (
-    TimestampRange,
-    TimestampRangeFilter,
-    ColumnRangeFilter,
-    ValueRangeFilter,
-    RowFilterChain,
-    ColumnQualifierRegexFilter,
-    ConditionalRowFilter,
-    PassAllFilter,
-    RowFilter,
-)
+from google.api_core.retry import Retry
+from google.api_core.retry import if_exception_type
+from google.api_core.exceptions import Aborted
+from google.api_core.exceptions import DeadlineExceeded
+from google.api_core.exceptions import ServiceUnavailable
 from google.cloud.bigtable.row_set import RowSet
+from google.cloud.bigtable.row_filters import TimestampRange
+from google.cloud.bigtable.row_filters import TimestampRangeFilter
+from google.cloud.bigtable.row_filters import ColumnRangeFilter
+from google.cloud.bigtable.row_filters import ValueRangeFilter
+from google.cloud.bigtable.row_filters import RowFilterChain
+from google.cloud.bigtable.row_filters import PassAllFilter
+from google.cloud.bigtable.row_filters import RowFilter
+from google.cloud.bigtable.row_filters import ConditionalRowFilter
+from google.cloud.bigtable.row_filters import ColumnQualifierRegexFilter
 from google.cloud.bigtable.column_family import MaxVersionsGCRule
 
 
-from .base import ClientWithIDGen
-from ..meta import ChunkedGraphMeta
+from ..base import ClientWithIDGen
+from ...meta import ChunkedGraphMeta
 
 
 class BigTableClient(bigtable.Client, ClientWithIDGen):
