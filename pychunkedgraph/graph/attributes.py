@@ -1,21 +1,21 @@
 from typing import NamedTuple
-from . import serializers
-from . import basetypes
+from .utils import serializers
+from .utils import basetypes
 
 
-class _ColumnType(NamedTuple):
+class _AttributeType(NamedTuple):
     key: bytes
     family_id: str
     serializer: serializers._Serializer
 
 
-class _Column(_ColumnType):
+class _Attribute(_AttributeType):
     __slots__ = ()
-    _columns = {}
+    _attributes = {}
 
     def __init__(self, **kwargs):
         super().__init__()
-        _Column._columns[(kwargs['family_id'], kwargs['key'])] = self
+        _Attribute._attributes[(kwargs['family_id'], kwargs['key'])] = self
 
     def serialize(self, obj):
         return self.serializer.serialize(obj)
@@ -28,22 +28,22 @@ class _Column(_ColumnType):
         return self.serializer.basetype
 
 
-class _ColumnArray():
-    _columnarrays = {}
+class _AttributeArray():
+    _attributearrays = {}
 
     def __init__(self, pattern, family_id, serializer):
         self._pattern = pattern
         self._family_id = family_id
         self._serializer = serializer
-        _ColumnArray._columnarrays[(family_id, pattern)] = self
+        _AttributeArray._attributearrays[(family_id, pattern)] = self
 
         # TODO: Add missing check in `fromkey(family_id, key)` and remove this
-        #       loop (pre-creates `_Columns`, so that the inverse lookup works)
+        #       loop (pre-creates `_Attributes`, so that the inverse lookup works)
         for i in range(20):
             self[i]  # pylint: disable=W0104
 
     def __getitem__(self, item):
-        return _Column(key=self.pattern % item,
+        return _Attribute(key=self.pattern % item,
                        family_id=self.family_id,
                        serializer=self._serializer)
 
@@ -69,129 +69,129 @@ class _ColumnArray():
 
 
 class Concurrency:
-    CounterID = _Column(
+    CounterID = _Attribute(
         key=b'counter',
         family_id='1',
         serializer=serializers.NumPyValue(dtype=basetypes.COUNTER))
 
-    Lock = _Column(
+    Lock = _Attribute(
         key=b'lock',
         family_id='0',
         serializer=serializers.UInt64String())
 
 
 class Connectivity:
-    Affinity = _Column(
+    Affinity = _Attribute(
         key=b'affinities',
         family_id='0',
         serializer=serializers.NumPyArray(dtype=basetypes.EDGE_AFFINITY))
 
-    Area = _Column(
+    Area = _Attribute(
         key=b'areas',
         family_id='0',
         serializer=serializers.NumPyArray(dtype=basetypes.EDGE_AREA))
 
-    CrossChunkEdge = _ColumnArray(
+    CrossChunkEdge = _AttributeArray(
         pattern=b'atomic_cross_edges_%d',
         family_id='3',
         serializer=serializers.NumPyArray(dtype=basetypes.NODE_ID, shape=(-1, 2), compression_level=22))
 
-    FakeEdges = _Column(
+    FakeEdges = _Attribute(
         key=b'fake_edges',
         family_id='0',
         serializer=serializers.NumPyArray(dtype=basetypes.NODE_ID, shape=(-1, 2)))
 
 
 class Hierarchy:
-    Child = _Column(
+    Child = _Attribute(
         key=b'children',
         family_id='0',
         serializer=serializers.NumPyArray(dtype=basetypes.NODE_ID, compression_level=22))
 
-    FormerParent = _Column(
+    FormerParent = _Attribute(
         key=b'former_parents',
         family_id='0',
         serializer=serializers.NumPyArray(dtype=basetypes.NODE_ID))
 
-    NewParent = _Column(
+    NewParent = _Attribute(
         key=b'new_parents',
         family_id='0',
         serializer=serializers.NumPyArray(dtype=basetypes.NODE_ID))
 
-    Parent = _Column(
+    Parent = _Attribute(
         key=b'parents',
         family_id='0',
         serializer=serializers.NumPyValue(dtype=basetypes.NODE_ID))
 
 
 class GraphSettings:
-    DatasetInfo = _Column(
+    DatasetInfo = _Attribute(
         key=b'dataset_info',
         family_id='0',
         serializer=serializers.JSON())
 
 class OperationLogs:
-    OperationID = _Column(
+    OperationID = _Attribute(
         key=b'operation_id',
         family_id='0',
         serializer=serializers.UInt64String())
 
-    UndoOperationID = _Column(
+    UndoOperationID = _Attribute(
         key=b'undo_operation_id',
         family_id='2',
         serializer=serializers.UInt64String())
 
-    RedoOperationID = _Column(
+    RedoOperationID = _Attribute(
         key=b'redo_operation_id',
         family_id='2',
         serializer=serializers.UInt64String())
 
-    UserID = _Column(
+    UserID = _Attribute(
         key=b'user',
         family_id='2',
         serializer=serializers.String('utf-8'))
 
-    RootID = _Column(
+    RootID = _Attribute(
         key=b'roots',
         family_id='2',
         serializer=serializers.NumPyArray(dtype=basetypes.NODE_ID))
 
-    SourceID = _Column(
+    SourceID = _Attribute(
         key=b'source_ids',
         family_id='2',
         serializer=serializers.NumPyArray(dtype=basetypes.NODE_ID))
 
-    SinkID = _Column(
+    SinkID = _Attribute(
         key=b'sink_ids',
         family_id='2',
         serializer=serializers.NumPyArray(dtype=basetypes.NODE_ID))
 
-    SourceCoordinate = _Column(
+    SourceCoordinate = _Attribute(
         key=b'source_coords',
         family_id='2',
         serializer=serializers.NumPyArray(dtype=basetypes.COORDINATES, shape=(-1, 3)))
 
-    SinkCoordinate = _Column(
+    SinkCoordinate = _Attribute(
         key=b'sink_coords',
         family_id='2',
         serializer=serializers.NumPyArray(dtype=basetypes.COORDINATES, shape=(-1, 3)))
 
-    BoundingBoxOffset = _Column(
+    BoundingBoxOffset = _Attribute(
         key=b'bb_offset',
         family_id='2',
         serializer=serializers.NumPyArray(dtype=basetypes.COORDINATES))
 
-    AddedEdge = _Column(
+    AddedEdge = _Attribute(
         key=b'added_edges',
         family_id='2',
         serializer=serializers.NumPyArray(dtype=basetypes.NODE_ID, shape=(-1, 2)))
 
-    RemovedEdge = _Column(
+    RemovedEdge = _Attribute(
         key=b'removed_edges',
         family_id='2',
         serializer=serializers.NumPyArray(dtype=basetypes.NODE_ID, shape=(-1, 2)))
 
-    Affinity = _Column(
+    Affinity = _Attribute(
         key=b'affinities',
         family_id='2',
         serializer=serializers.NumPyArray(dtype=basetypes.EDGE_AFFINITY))
@@ -199,8 +199,8 @@ class OperationLogs:
 
 def from_key(family_id: str, key: bytes):
     try:
-        return _Column._columns[(family_id, key)]
+        return _Attribute._attributes[(family_id, key)]
     except KeyError:
         # FIXME: Look if the key matches a columnarray pattern and
-        #        remove loop initialization in _ColumnArray.__init__()
+        #        remove loop initialization in _AttributeArray.__init__()
         raise KeyError(f"Unknown key {family_id}:{key.decode()}")
