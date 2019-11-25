@@ -20,6 +20,7 @@ from google.cloud.bigtable.column_family import MaxVersionsGCRule
 
 from .base import ClientWithIDGen
 from ..meta import ChunkedGraphMeta
+from ..utils.column_keys
 
 
 class BigTableClient(bigtable.Client, ClientWithIDGen):
@@ -39,7 +40,27 @@ class BigTableClient(bigtable.Client, ClientWithIDGen):
         # create table
         # store meta in the table
         # option to overwrite
-        pass
+
+        instance = self.instance(graph_meta.bigtable_config.instance_id)
+        table = instance.table(graph_meta.graph_config.graph_id)
+        if not graph_meta.graph_config.overwrite and table.exists():
+            ValueError(f"{graph_meta.graph_config.graph_id} already exists.")
+        table.create()
+        f = table.column_family(self.family_id)
+        f.create()
+
+        f = table.column_family(
+            self.incrementer_family_id, gc_rule=MaxVersionsGCRule(1)
+        )
+        f.create()
+
+        f = table.column_family(self.log_family_id)
+        f.create()
+
+        f = table.column_family(
+            self.cross_edge_family_id, gc_rule=MaxVersionsGCRule(1)
+        )
+        f.create()
 
     def read_nodes(
         self,

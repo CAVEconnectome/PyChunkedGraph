@@ -1,5 +1,6 @@
 from typing import NamedTuple
-from pychunkedgraph.graph.utils import basetypes, serializers
+from . import serializers
+from . import basetypes
 
 
 class _ColumnType(NamedTuple):
