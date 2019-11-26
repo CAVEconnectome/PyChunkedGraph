@@ -1,6 +1,8 @@
+from typing import Dict
 from typing import Tuple
 
 import numpy as np
+from multiwrapper import multiprocessing_utils as mu
 from google.auth import credentials
 from google.cloud import bigtable
 from google.api_core.retry import Retry
@@ -8,6 +10,7 @@ from google.api_core.retry import if_exception_type
 from google.api_core.exceptions import Aborted
 from google.api_core.exceptions import DeadlineExceeded
 from google.api_core.exceptions import ServiceUnavailable
+from google.cloud.bigtable.table import Table
 from google.cloud.bigtable.row_set import RowSet
 from google.cloud.bigtable.row_filters import TimestampRange
 from google.cloud.bigtable.row_filters import TimestampRangeFilter
@@ -20,7 +23,7 @@ from google.cloud.bigtable.row_filters import ConditionalRowFilter
 from google.cloud.bigtable.row_filters import ColumnQualifierRegexFilter
 from google.cloud.bigtable.column_family import MaxVersionsGCRule
 
-
+from . import attributes
 from ..base import ClientWithIDGen
 from ...meta import ChunkedGraphMeta
 
@@ -43,7 +46,7 @@ class BigTableClient(bigtable.Client, ClientWithIDGen):
     @property
     def graph_meta(self):
         # TODO
-        # read meta if None
+        # read meta from table if None
         return self._graph_meta
 
     def create_graph(self) -> None:
@@ -131,60 +134,56 @@ class BigTableClient(bigtable.Client, ClientWithIDGen):
         f = self._table.column_family("3", gc_rule=MaxVersionsGCRule(1))
         f.create()
 
-    def _execute_read_thread(self, row_set_and_filter: Tuple[RowSet, RowFilter]):
-        row_set, row_filter = row_set_and_filter
-        if not row_set.row_keys and not row_set.row_ranges:
-            # Check for everything falsy, because Bigtable considers even empty
-            # lists of row_keys as no upper/lower bound!
-            return {}
+    def _execute_read(
+        self, row_set: RowSet, row_filter: RowFilter = None
+    ) -> Dict[bytes, Dict[attributes._Attribute, bigtable.row_data.PartialRowData]]:
+        """ Core function to read rows from Bigtable. Uses standard Bigtable retry logic
+        :param row_set: BigTable RowSet
+        :param row_filter: BigTable RowFilter
+        :return: Dict[bytes, Dict[column_keys._Column, bigtable.row_data.PartialRowData]]
+        """
 
-        range_read = self._table.read_rows(row_set=row_set, filter_=row_filter)
-        res = {v.row_key: partial_row_data_to_column_dict(v) for v in range_read}
-        return res
+        def _execute_read_thread(args: Tuple[Table, RowSet, RowFilter]):
+            table, row_set, row_filter = args
+            if not row_set.row_keys and not row_set.row_ranges:
+                # Check for everything falsy, because Bigtable considers even empty
+                # lists of row_keys as no upper/lower bound!
+                return {}
+
+            range_read = table.read_rows(row_set=row_set, filter_=row_filter)
+            res = {v.row_key: partial_row_data_to_column_dict(v) for v in range_read}
+            return res
+
+        # FIXME: Bigtable limits the length of the serialized request to 512 KiB. We should
+        # calculate this properly (range_read.request.SerializeToString()), but this estimate is
+        # good enough for now
+        max_row_key_count = 20000
+        n_subrequests = max(1, int(np.ceil(len(row_set.row_keys) / max_row_key_count)))
+        n_threads = min(n_subrequests, 2 * mu.n_cpus)
+
+        row_sets = []
+        for i in range(n_subrequests):
+            r = RowSet()
+            r.row_keys = row_set.row_keys[
+                i * max_row_key_count : (i + 1) * max_row_key_count
+            ]
+            row_sets.append(r)
+
+        # Don't forget the original RowSet's row_ranges
+        row_sets[0].row_ranges = row_set.row_ranges
+        responses = mu.multithread_func(
+            _execute_read_thread,
+            params=((self._table, r, row_filter) for r in row_sets),
+            n_threads=n_threads,
+        )
+
+        combined_response = {}
+        for resp in responses:
+            combined_response.update(resp)
+        return combined_response
 
 
 a = BigTableClient()
-
-
-# def _execute_read(
-#     self, row_set: RowSet, row_filter: RowFilter = None
-# ) -> Dict[bytes, Dict[column_keys._Column, bigtable.row_data.PartialRowData]]:
-#     """ Core function to read rows from Bigtable. Uses standard Bigtable retry logic
-#     :param row_set: BigTable RowSet
-#     :param row_filter: BigTable RowFilter
-#     :return: Dict[bytes, Dict[column_keys._Column, bigtable.row_data.PartialRowData]]
-#     """
-
-#     # FIXME: Bigtable limits the length of the serialized request to 512 KiB. We should
-#     # calculate this properly (range_read.request.SerializeToString()), but this estimate is
-#     # good enough for now
-#     max_row_key_count = 20000
-#     n_subrequests = max(1, int(np.ceil(len(row_set.row_keys) / max_row_key_count)))
-#     n_threads = min(n_subrequests, 2 * mu.n_cpus)
-
-#     row_sets = []
-#     for i in range(n_subrequests):
-#         r = RowSet()
-#         r.row_keys = row_set.row_keys[
-#             i * max_row_key_count : (i + 1) * max_row_key_count
-#         ]
-#         row_sets.append(r)
-
-#     # Don't forget the original RowSet's row_ranges
-#     row_sets[0].row_ranges = row_set.row_ranges
-
-#     responses = mu.multithread_func(
-#         self._execute_read_thread,
-#         params=((r, row_filter) for r in row_sets),
-#         debug=n_threads == 1,
-#         n_threads=n_threads,
-#     )
-
-#     combined_response = {}
-#     for resp in responses:
-#         combined_response.update(resp)
-
-#     return combined_response
 
 
 # def mutate_row(
