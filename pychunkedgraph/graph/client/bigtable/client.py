@@ -1,5 +1,7 @@
 from typing import Dict
 from typing import Tuple
+from typing import Iterable
+from typing import Optional
 
 import numpy as np
 from multiwrapper import multiprocessing_utils as mu
@@ -203,11 +205,13 @@ class BigTableClient(bigtable.Client, ClientWithIDGen):
             initial = 1
 
         retry_policy = Retry(
-            predicate=if_exception_type((Aborted, DeadlineExceeded, ServiceUnavailable)),
+            predicate=if_exception_type(
+                (Aborted, DeadlineExceeded, ServiceUnavailable)
+            ),
             initial=initial,
             maximum=15.0,
             multiplier=2.0,
-            deadline=LOCK_EXPIRED_TIME_DELTA.seconds,
+            deadline=self.graph_meta.graph_config.ROOT_LOCK_EXPIRY.seconds,
         )
 
         if root_ids is not None and operation_id is not None:
@@ -226,6 +230,7 @@ class BigTableClient(bigtable.Client, ClientWithIDGen):
                 raise cg_exceptions.ChunkedGraphError(
                     f"Bulk write failed for operation ID {operation_id}"
                 )
+
 
 a = BigTableClient()
 

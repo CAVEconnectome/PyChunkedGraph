@@ -1,3 +1,4 @@
+from datetime import timedelta
 from typing import Sequence
 from typing import Dict
 from typing import List
@@ -12,25 +13,26 @@ from .chunks.utils import get_chunks_boundary
 
 
 _datasource_fields = (
-    "edges",
-    "components",
+    "EDGES",
+    "COMPONENTS",
 )
 _datasource_defaults = (None, None)
 DataSource = namedtuple("DataSource", _datasource_fields, defaults=_datasource_defaults)
 
 _graphconfig_fields = (
-    "graph_id",
-    "chunk_size",
-    "fanout",
-    "s_bits_atomic_layer",  # number of bits used for each spatial in id creation on level 1
-    "overwrite",  # overwrites existing graph
+    "ID",
+    "CHUNK_SIZE",
+    "FANOUT",
+    "SPATIAL_BITS",  # number of bits used for each spatial in id creation on level 1
+    "OVERWRITE",  # overwrites existing graph
+    "ROOT_LOCK_EXPIRY",
 )
-_graphconfig_defaults = (None, None, 2, 10, False)
+_graphconfig_defaults = (None, None, 2, 10, False, timedelta(minutes=3, seconds=0))
 GraphConfig = namedtuple(
     "GraphConfig", _graphconfig_fields, defaults=_graphconfig_defaults
 )
 
-_bigtableconfig_fields = ("project_id", "instance_id", "table_id_prefix")
+_bigtableconfig_fields = ("PROJECT", "INSTANCE", "TABLE_PREFIX")
 _bigtableconfig_defaults = ("neuromancer-seung-import", "pychunkedgraph", "")
 BigTableConfig = namedtuple(
     "BigTableConfig", _bigtableconfig_fields, defaults=_bigtableconfig_defaults
