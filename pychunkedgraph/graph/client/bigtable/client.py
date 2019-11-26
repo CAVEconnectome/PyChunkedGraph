@@ -1,3 +1,5 @@
+from typing import Tuple
+
 import numpy as np
 from google.auth import credentials
 from google.cloud import bigtable
@@ -24,39 +26,35 @@ from ...meta import ChunkedGraphMeta
 
 
 class BigTableClient(bigtable.Client, ClientWithIDGen):
-    __slots__ = ()
-
     def __init__(
-        self, project=None, read_only=False, admin=False,
+        self,
+        project: str = None,
+        read_only: bool = False,
+        admin: bool = False,
+        graph_meta: ChunkedGraphMeta = None,
     ):
         super(BigTableClient, self).__init__(
             project=project, read_only=read_only, admin=admin
         )
+        self._graph_meta = graph_meta
+        self._instance = self.instance(graph_meta.bigtable_config.instance_id)
+        self._table = self._instance.table(graph_meta.graph_config.graph_id)
 
-    def create_graph(self, graph_meta: ChunkedGraphMeta) -> None:
-        """Initialize the graph and store associated meta."""
+    @property
+    def graph_meta(self):
         # TODO
-        # check if table exists
-        # create table
+        # read meta if None
+        return self._graph_meta
+
+    def create_graph(self) -> None:
+        """Initialize the graph and store associated meta."""
+        config = self._graph_meta.graph_config
+        if not config.overwrite and self._table.exists():
+            ValueError(f"{config.graph_id} already exists.")
+        self._table.create()
+        self._create_column_families()
+        # TODO
         # store meta in the table
-        # option to overwrite
-
-        instance = self.instance(graph_meta.bigtable_config.instance_id)
-        table = instance.table(graph_meta.graph_config.graph_id)
-        if not graph_meta.graph_config.overwrite and table.exists():
-            ValueError(f"{graph_meta.graph_config.graph_id} already exists.")
-        table.create()
-        f = table.column_family("0")
-        f.create()
-
-        f = table.column_family("1", gc_rule=MaxVersionsGCRule(1))
-        f.create()
-
-        f = table.column_family("2")
-        f.create()
-
-        f = table.column_family("3", gc_rule=MaxVersionsGCRule(1))
-        f.create()
 
     def read_nodes(
         self,
@@ -120,20 +118,32 @@ class BigTableClient(bigtable.Client, ClientWithIDGen):
         """Gets the current maximum operation ID."""
         pass
 
+    def _create_column_families(self):
+        f = self._table.column_family("0")
+        f.create()
+
+        f = self._table.column_family("1", gc_rule=MaxVersionsGCRule(1))
+        f.create()
+
+        f = self._table.column_family("2")
+        f.create()
+
+        f = self._table.column_family("3", gc_rule=MaxVersionsGCRule(1))
+        f.create()
+
+    def _execute_read_thread(self, row_set_and_filter: Tuple[RowSet, RowFilter]):
+        row_set, row_filter = row_set_and_filter
+        if not row_set.row_keys and not row_set.row_ranges:
+            # Check for everything falsy, because Bigtable considers even empty
+            # lists of row_keys as no upper/lower bound!
+            return {}
+
+        range_read = self._table.read_rows(row_set=row_set, filter_=row_filter)
+        res = {v.row_key: partial_row_data_to_column_dict(v) for v in range_read}
+        return res
+
 
 a = BigTableClient()
-
-
-# def _execute_read_thread(self, row_set_and_filter: Tuple[RowSet, RowFilter]):
-#     row_set, row_filter = row_set_and_filter
-#     if not row_set.row_keys and not row_set.row_ranges:
-#         # Check for everything falsy, because Bigtable considers even empty
-#         # lists of row_keys as no upper/lower bound!
-#         return {}
-
-#     range_read = self.table.read_rows(row_set=row_set, filter_=row_filter)
-#     res = {v.row_key: partial_row_data_to_column_dict(v) for v in range_read}
-#     return res
 
 
 # def _execute_read(

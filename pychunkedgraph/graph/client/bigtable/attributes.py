@@ -1,3 +1,5 @@
+# TODO design to use these attributes across different clients
+
 from typing import NamedTuple
 
 from .. import serializers
@@ -132,7 +134,7 @@ class Hierarchy:
     )
 
 
-class GraphMeta:
+class GraphInfo:
     key = b"meta"
     settings = _Attribute(key=b"settings", family_id="0", serializer=serializers.JSON())
 
