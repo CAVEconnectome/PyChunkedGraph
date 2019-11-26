@@ -1,3 +1,5 @@
+import datetime
+from typing import Any
 from typing import Dict
 from typing import Union
 from typing import Tuple
@@ -129,7 +131,7 @@ class BigTableClient(bigtable.Client, ClientWithIDGen):
         f = self._table.column_family("3", gc_rule=MaxVersionsGCRule(1))
         f.create()
 
-    def _execute_read(
+    def _read(
         self, row_set: RowSet, row_filter: RowFilter = None
     ) -> Dict[bytes, Dict[attributes._Attribute, bigtable.row_data.PartialRowData]]:
         """ Core function to read rows from Bigtable. Uses standard Bigtable retry logic
@@ -177,7 +179,7 @@ class BigTableClient(bigtable.Client, ClientWithIDGen):
             combined_response.update(resp)
         return combined_response
 
-    def _batch_write(
+    def _write(
         self,
         rows: Iterable[bigtable.row.DirectRow],
         root_ids: Optional[Union[np.uint64, Iterable[np.uint64]]] = None,
@@ -232,34 +234,30 @@ class BigTableClient(bigtable.Client, ClientWithIDGen):
                     f"Bulk write failed for operation ID {operation_id}"
                 )
 
+    def _mutate_row(
+        self,
+        row_key: bytes,
+        val_dict: Dict[column_keys._Column, Any],
+        time_stamp: Optional[datetime.datetime] = None,
+    ) -> bigtable.row.Row:
+        """ Mutates a single row
+        :param row_key: serialized bigtable row key
+        :param val_dict: Dict[column_keys._TypedColumn: bytes]
+        :param time_stamp: None or datetime
+        :return: list
+        """
+        row = self._table.row(row_key)
+        for column, value in val_dict.items():
+            row.set_cell(
+                column_family_id=column.family_id,
+                column=column.key,
+                value=column.serialize(value),
+                timestamp=time_stamp,
+            )
+        return row
+
 
 a = BigTableClient()
-
-
-# def mutate_row(
-#     self,
-#     row_key: bytes,
-#     val_dict: Dict[column_keys._Column, Any],
-#     time_stamp: Optional[datetime.datetime] = None,
-#     isbytes: bool = False,
-# ) -> bigtable.row.Row:
-#     """ Mutates a single row
-#     :param row_key: serialized bigtable row key
-#     :param val_dict: Dict[column_keys._TypedColumn: bytes]
-#     :param time_stamp: None or datetime
-#     :return: list
-#     """
-#     row = self.table.row(row_key)
-#     for column, value in val_dict.items():
-#         if not isbytes:
-#             value = column.serialize(value)
-#         row.set_cell(
-#             column_family_id=column.family_id,
-#             column=column.key,
-#             value=value,
-#             timestamp=time_stamp,
-#         )
-#     return row
 
 
 # def _get_unique_range(self, row_key, step):
