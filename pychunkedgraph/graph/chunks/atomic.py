@@ -19,7 +19,7 @@ def get_touching_atomic_chunks(
     touching_atomic_chunks = []
 
     # atomic chunk count along one dimension
-    atomic_chunk_count = chunkedgraph_meta.graph_config.fanout ** (layer - 2)
+    atomic_chunk_count = chunkedgraph_meta.graph_config.FANOUT ** (layer - 2)
     layer2_chunk_bounds = chunkedgraph_meta.layer_chunk_bounds[2]
 
     chunk_offset = chunk_coords * atomic_chunk_count
@@ -64,7 +64,7 @@ def get_bounding_atomic_chunks(
     atomic_chunks = []
 
     # atomic chunk count along one dimension
-    atomic_chunk_count = chunkedgraph_meta.graph_config.fanout ** (layer - 2)
+    atomic_chunk_count = chunkedgraph_meta.graph_config.FANOUT ** (layer - 2)
     layer2_chunk_bounds = chunkedgraph_meta.layer_chunk_bounds[2]
 
     chunk_offset = chunk_coords * atomic_chunk_count

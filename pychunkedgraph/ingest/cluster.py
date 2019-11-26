@@ -32,7 +32,7 @@ def _post_task_completion(imanager: IngestionManager, layer: int, coords: np.nda
         return
 
     parent_coords = (
-        np.array(coords, int) // imanager.chunkedgraph_meta.graph_config.fanout
+        np.array(coords, int) // imanager.chunkedgraph_meta.graph_config.FANOUT
     )
     parent_chunk_str = "_".join(map(str, parent_coords))
     if not imanager.redis.hget(parent_layer, parent_chunk_str):

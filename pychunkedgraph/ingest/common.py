@@ -18,14 +18,14 @@ def get_atomic_chunk_data(
     """
     chunk_edges = (
         read_raw_edge_data(imanager, coord)
-        if imanager.chunkedgraph_meta.data_source.use_raw_edges
-        else get_chunk_edges(imanager.chunkedgraph_meta.data_source.edges, [coord])
+        if not imanager.chunkedgraph_meta.data_source.EDGES
+        else get_chunk_edges(imanager.chunkedgraph_meta.data_source.EDGES, [coord])
     )
     mapping = (
         read_raw_agglomeration_data(imanager, coord)
-        if imanager.chunkedgraph_meta.data_source.use_raw_components
+        if not imanager.chunkedgraph_meta.data_source.COMPONENTS
         else get_chunk_components(
-            imanager.chunkedgraph_meta.data_source.components, coord
+            imanager.chunkedgraph_meta.data_source.COMPONENTS, coord
         )
     )
     return chunk_edges, mapping

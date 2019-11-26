@@ -47,9 +47,9 @@ def read_raw_edge_data(imanager, coord) -> Dict:
             sv_ids1, sv_ids2, affinities=affinities, areas=areas
         )
         no_edges = no_edges and not sv_ids1.size
-    if not no_edges and imanager.chunkedgraph_meta.data_source.edges:
+    if not no_edges and imanager.chunkedgraph_meta.data_source.EDGES:
         put_chunk_edges(
-            imanager.chunkedgraph_meta.data_source.edges, coord, chunk_edges, 17
+            imanager.chunkedgraph_meta.data_source.EDGES, coord, chunk_edges, 17
         )
     return chunk_edges
 
@@ -93,7 +93,7 @@ def _collect_edge_data(imanager: IngestionManager, chunk_coord):
     :return: dict of np.ndarrays
     """
     subfolder = "chunked_rg"
-    base_path = f"{imanager.chunkedgraph_meta.data_source.agglomeration}/{subfolder}/"
+    base_path = f"{imanager.chunkedgraph_meta.data_source.AGGLOMERATION}/{subfolder}/"
     chunk_coord = np.array(chunk_coord)
     x, y, z = chunk_coord
     chunk_id = compute_chunk_id(layer=1, x=x, y=y, z=z)
@@ -232,7 +232,7 @@ def read_raw_agglomeration_data(imanager: IngestionManager, chunk_coord: np.ndar
     Collects agglomeration information & builds connected component mapping
     """
     subfolder = "remap"
-    base_path = f"{imanager.chunkedgraph_meta.data_source.agglomeration}/{subfolder}/"
+    base_path = f"{imanager.chunkedgraph_meta.data_source.AGGLOMERATION}/{subfolder}/"
     chunk_coord = np.array(chunk_coord)
     x, y, z = chunk_coord
     chunk_id = compute_chunk_id(layer=1, x=x, y=y, z=z)
@@ -265,9 +265,9 @@ def read_raw_agglomeration_data(imanager: IngestionManager, chunk_coord: np.ndar
         cc = list(cc)
         mapping.update(dict(zip(cc, [i_cc] * len(cc))))
 
-    if mapping and imanager.chunkedgraph_meta.data_source.components:
+    if mapping and imanager.chunkedgraph_meta.data_source.COMPONENTS:
         put_chunk_components(
-            imanager.chunkedgraph_meta.data_source.components, components, chunk_coord
+            imanager.chunkedgraph_meta.data_source.COMPONENTS, components, chunk_coord
         )
     return mapping
 

@@ -1,4 +1,5 @@
 from typing import Dict
+from typing import Union
 from typing import Tuple
 from typing import Iterable
 from typing import Optional
@@ -42,8 +43,8 @@ class BigTableClient(bigtable.Client, ClientWithIDGen):
             project=project, read_only=read_only, admin=admin
         )
         self._graph_meta = graph_meta
-        self._instance = self.instance(graph_meta.bigtable_config.instance_id)
-        self._table = self._instance.table(graph_meta.graph_config.graph_id)
+        self._instance = self.instance(graph_meta.bigtable_config.INSTANCE)
+        self._table = self._instance.table(graph_meta.graph_config.ID)
 
     @property
     def graph_meta(self):

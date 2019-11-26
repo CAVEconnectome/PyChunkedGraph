@@ -56,13 +56,6 @@ class SimpleClient(ABC):
         Eg., when creating the graph.
         """
 
-    @abstractmethod
-    def write_nodes_synchronized(self, nodes, root_ids, operation_id):
-        """
-        Writes/updates nodes (IDs along with properties)
-        by locking root nodes until changes are written.
-        """
-
 
 class ClientWithIDGen(SimpleClient):
     """

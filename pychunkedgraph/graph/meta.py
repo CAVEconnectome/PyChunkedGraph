@@ -15,8 +15,10 @@ from .chunks.utils import get_chunks_boundary
 _datasource_fields = (
     "EDGES",
     "COMPONENTS",
+    "AGGLOMERATION",
+    "WATERSHED",
 )
-_datasource_defaults = (None, None)
+_datasource_defaults = (None, None, None, None)
 DataSource = namedtuple("DataSource", _datasource_fields, defaults=_datasource_defaults)
 
 _graphconfig_fields = (

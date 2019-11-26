@@ -76,7 +76,7 @@ def queue_parent(chunk_info):
 
     parent_layer = chunk_info[0] + 1
     parent_coords = (
-        np.array(chunk_info[1:], int) // imanager.chunkedgraph_meta.graph_config.fanout
+        np.array(chunk_info[1:], int) // imanager.chunkedgraph_meta.graph_config.FANOUT
     )
     parent_chunk_str = "_".join(map(str, parent_coords))
 

@@ -72,7 +72,7 @@ def _post_task_completion(
         return
 
     parent_coords = (
-        np.array(coords, int) // imanager.chunkedgraph_meta.graph_config.fanout
+        np.array(coords, int) // imanager.chunkedgraph_meta.graph_config.FANOUT
     )
     parent_chunk_str = chunk_id_str(parent_layer, parent_coords)
 

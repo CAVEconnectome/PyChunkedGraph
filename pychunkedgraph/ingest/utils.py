@@ -22,12 +22,12 @@ def initialize_chunkedgraph(
     meta: ChunkedGraphMeta, cg_mesh_dir="mesh_dir", n_bits_root_counter=8, size=None
 ):
     """ Initalizes a chunkedgraph on BigTable """
-    if not meta.graph_config.overwrite and _table_exists(
-        meta.bigtable_config, meta.graph_config.graph_id
+    if not meta.graph_config.OVERWRITE and _table_exists(
+        meta.bigtable_config, meta.graph_config.ID
     ):
-        raise ValueError(f"{meta.graph_config.graph_id} already exists.")
+        raise ValueError(f"{meta.graph_config.ID} already exists.")
 
-    ws_cv = cloudvolume.CloudVolume(meta.data_source.watershed)
+    ws_cv = cloudvolume.CloudVolume(meta.data_source.WATERSHED)
     if size is not None:
         size = np.array(size)
         for i in range(len(ws_cv.info["scales"])):
@@ -38,19 +38,18 @@ def initialize_chunkedgraph(
 
     dataset_info = ws_cv.info
     dataset_info["mesh"] = cg_mesh_dir
-    dataset_info["data_dir"] = meta.data_source.watershed
-    dataset_info["graph"] = {"chunk_size": meta.graph_config.chunk_size}
+    dataset_info["data_dir"] = meta.data_source.WATERSHED
+    dataset_info["graph"] = {"chunk_size": meta.graph_config.CHUNK_SIZE}
 
     kwargs = {
-        "instance_id": meta.bigtable_config.instance_id,
-        "project_id": meta.bigtable_config.project_id,
-        "table_id": meta.graph_config.graph_id,
-        "chunk_size": np.array(meta.graph_config.chunk_size, dtype=int),
-        "fan_out": np.uint64(meta.graph_config.fanout),
+        "instance_id": meta.bigtable_config.INSTANCE,
+        "project_id": meta.bigtable_config.PROJECT,
+        "table_id": meta.graph_config.ID,
+        "chunk_size": np.array(meta.graph_config.CHUNK_SIZE, dtype=int),
+        "fan_out": np.uint64(meta.graph_config.FANOUT),
         "n_layers": np.uint64(meta.layer_count),
         "dataset_info": dataset_info,
-        "use_skip_connections": meta.graph_config.use_skip_connections,
-        "s_bits_atomic_layer": meta.graph_config.s_bits_atomic_layer,
+        "s_bits_atomic_layer": meta.graph_config.SPATIAL_BITS,
         "n_bits_root_counter": n_bits_root_counter,
         "is_new": True,
     }
