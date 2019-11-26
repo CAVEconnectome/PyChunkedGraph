@@ -86,15 +86,7 @@ class BigTableClient(bigtable.Client, ClientWithIDGen):
         """Read a single node and it's properties."""
         pass
 
-    def write_nodes(self, nodes):
-        """
-        Writes/updates nodes (IDs along with properties).
-        Meant to be used when race conditions are not expected.
-        Eg., when creating the graph.
-        """
-        pass
-
-    def write_nodes_synchronized(self, nodes, root_ids, operation_id):
+    def write_nodes(self, nodes, root_ids, operation_id):
         """
         Writes/updates nodes (IDs along with properties)
         by locking root nodes until changes are written.
@@ -182,6 +174,58 @@ class BigTableClient(bigtable.Client, ClientWithIDGen):
             combined_response.update(resp)
         return combined_response
 
+    def _batch_write(
+        self,
+        rows: Iterable[bigtable.row.DirectRow],
+        root_ids: Optional[Union[np.uint64, Iterable[np.uint64]]] = None,
+        operation_id: Optional[np.uint64] = None,
+        slow_retry: bool = True,
+        block_size: int = 2000,
+    ):
+        """ Writes a list of mutated rows in bulk
+        WARNING: If <rows> contains the same row (same row_key) and column
+        key two times only the last one is effectively written to the BigTable
+        (even when the mutations were applied to different columns)
+        --> no versioning!
+        :param rows: list
+            list of mutated rows
+        :param root_ids: list if uint64
+        :param operation_id: uint64 or None
+            operation_id (or other unique id) that *was* used to lock the root
+            the bulk write is only executed if the root is still locked with
+            the same id.
+        :param slow_retry: bool
+        :param block_size: int
+        """
+        if slow_retry:
+            initial = 5
+        else:
+            initial = 1
+
+        retry_policy = Retry(
+            predicate=if_exception_type((Aborted, DeadlineExceeded, ServiceUnavailable)),
+            initial=initial,
+            maximum=15.0,
+            multiplier=2.0,
+            deadline=LOCK_EXPIRED_TIME_DELTA.seconds,
+        )
+
+        if root_ids is not None and operation_id is not None:
+            if isinstance(root_ids, int):
+                root_ids = [root_ids]
+            if not self.check_and_renew_root_locks(root_ids, operation_id):
+                raise cg_exceptions.LockError(
+                    f"Root lock renewal failed for operation ID {operation_id}"
+                )
+
+        for i_row in range(0, len(rows), block_size):
+            status = self.table.mutate_rows(
+                rows[i_row : i_row + block_size], retry=retry_policy
+            )
+            if not all(status):
+                raise cg_exceptions.ChunkedGraphError(
+                    f"Bulk write failed for operation ID {operation_id}"
+                )
 
 a = BigTableClient()
 
@@ -210,60 +254,6 @@ a = BigTableClient()
 #             timestamp=time_stamp,
 #         )
 #     return row
-
-
-# def bulk_write(
-#     self,
-#     rows: Iterable[bigtable.row.DirectRow],
-#     root_ids: Optional[Union[np.uint64, Iterable[np.uint64]]] = None,
-#     operation_id: Optional[np.uint64] = None,
-#     slow_retry: bool = True,
-#     block_size: int = 2000,
-# ):
-#     """ Writes a list of mutated rows in bulk
-#     WARNING: If <rows> contains the same row (same row_key) and column
-#     key two times only the last one is effectively written to the BigTable
-#     (even when the mutations were applied to different columns)
-#     --> no versioning!
-#     :param rows: list
-#         list of mutated rows
-#     :param root_ids: list if uint64
-#     :param operation_id: uint64 or None
-#         operation_id (or other unique id) that *was* used to lock the root
-#         the bulk write is only executed if the root is still locked with
-#         the same id.
-#     :param slow_retry: bool
-#     :param block_size: int
-#     """
-#     if slow_retry:
-#         initial = 5
-#     else:
-#         initial = 1
-
-#     retry_policy = Retry(
-#         predicate=if_exception_type((Aborted, DeadlineExceeded, ServiceUnavailable)),
-#         initial=initial,
-#         maximum=15.0,
-#         multiplier=2.0,
-#         deadline=LOCK_EXPIRED_TIME_DELTA.seconds,
-#     )
-
-#     if root_ids is not None and operation_id is not None:
-#         if isinstance(root_ids, int):
-#             root_ids = [root_ids]
-#         if not self.check_and_renew_root_locks(root_ids, operation_id):
-#             raise cg_exceptions.LockError(
-#                 f"Root lock renewal failed for operation ID {operation_id}"
-#             )
-
-#     for i_row in range(0, len(rows), block_size):
-#         status = self.table.mutate_rows(
-#             rows[i_row : i_row + block_size], retry=retry_policy
-#         )
-#         if not all(status):
-#             raise cg_exceptions.ChunkedGraphError(
-#                 f"Bulk write failed for operation ID {operation_id}"
-#             )
 
 
 # def _get_unique_range(self, row_key, step):
