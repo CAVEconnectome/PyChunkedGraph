@@ -30,7 +30,9 @@ from google.cloud.bigtable.column_family import MaxVersionsGCRule
 
 from . import attributes
 from ..base import ClientWithIDGen
+from ..utils import pad_encode_uint64
 from ... import exceptions
+from ... import basetypes
 from ...meta import ChunkedGraphMeta
 
 
@@ -109,8 +111,10 @@ class BigTableClient(bigtable.Client, ClientWithIDGen):
         """
         pass
 
-    def create_segment_ids(self, chunk_id: np.uint64, size: int):
-        pass
+    def create_segment_ids(self, chunk_id: np.uint64, size: int) -> np.ndarray:
+        """Returns a list of unique segment IDs for the given chunk."""
+        low, high = self._get_unique_range(chunk_id, size)
+        return np.arange(low, high + np.uint64(1), dtype=basetypes.SEGMENT_ID)
 
     def create_segment_id(self):
         """Generate a unique segment ID."""
@@ -263,19 +267,15 @@ class BigTableClient(bigtable.Client, ClientWithIDGen):
             )
         return row
 
-    def _get_unique_range(self, key: bytes, size: int):
-        """
-        Generate a range of unique segment IDs for a given `key`.
-        The length of the range is `size`.
-        """
+    def _get_unique_range(self, key: np.uint64, size: int):
+        """Generate a range of unique segment IDs for a given `key`."""
         column = attributes.Concurrency.Counter
-        row = self._table.row(key, append=True)
+        row = self._table.row(pad_encode_uint64(key), append=True)
         row.increment_cell_value(column.family_id, column.key, size)
 
         row = row.commit()
-        max_segment_id = column.deserialize(row[column.family_id][column.key][0][0])
-        min_segment_id = max_segment_id + np.uint64(1) - size
-        return min_segment_id, max_segment_id
+        high = column.deserialize(row[column.family_id][column.key][0][0])
+        return high + np.uint64(1) - size, high
 
 
 a = BigTableClient()

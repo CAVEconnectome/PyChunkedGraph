@@ -4,7 +4,7 @@ import numpy as np
 import zstandard as zstd
 
 
-class _Serializer():
+class _Serializer:
     def __init__(self, serializer, deserializer, basetype=Any, compression_level=None):
         self._serializer = serializer
         self._deserializer = deserializer
@@ -40,9 +40,11 @@ class NumPyArray(_Serializer):
     def __init__(self, dtype, shape=None, order=None, compression_level=None):
         super().__init__(
             serializer=lambda x: x.newbyteorder(dtype.byteorder).tobytes(),
-            deserializer=lambda x: NumPyArray._deserialize(x, dtype, shape=shape, order=order),
+            deserializer=lambda x: NumPyArray._deserialize(
+                x, dtype, shape=shape, order=order
+            ),
             basetype=dtype.type,
-            compression_level=compression_level
+            compression_level=compression_level,
         )
 
 
@@ -51,7 +53,7 @@ class NumPyValue(_Serializer):
         super().__init__(
             serializer=lambda x: x.newbyteorder(dtype.byteorder).tobytes(),
             deserializer=lambda x: np.frombuffer(x, dtype=dtype)[0],
-            basetype=dtype.type
+            basetype=dtype.type,
         )
 
 
@@ -60,7 +62,7 @@ class String(_Serializer):
         super().__init__(
             serializer=lambda x: x.encode(encoding),
             deserializer=lambda x: x.decode(),
-            basetype=str
+            basetype=str,
         )
 
 
@@ -69,7 +71,7 @@ class JSON(_Serializer):
         super().__init__(
             serializer=lambda x: json.dumps(x).encode("utf-8"),
             deserializer=lambda x: json.loads(x.decode()),
-            basetype=str
+            basetype=str,
         )
 
 
@@ -78,17 +80,8 @@ class UInt64String(_Serializer):
         super().__init__(
             serializer=serialize_uint64,
             deserializer=deserialize_uint64,
-            basetype=np.uint64
+            basetype=np.uint64,
         )
-
-
-def pad_node_id(node_id: np.uint64) -> str:
-    """ Pad node id to 20 digits
-
-    :param node_id: int
-    :return: str
-    """
-    return "%.20d" % node_id
 
 
 def serialize_uint64(node_id: np.uint64) -> bytes:
@@ -106,8 +99,7 @@ def serialize_uint64s_to_regex(node_ids: Iterable[np.uint64]) -> bytes:
     :param node_id: int
     :return: str
     """
-    node_id_str = "".join(["%s|" % pad_node_id(node_id)
-                           for node_id in node_ids])[:-1]
+    node_id_str = "".join(["%s|" % pad_node_id(node_id) for node_id in node_ids])[:-1]
     return serialize_key(node_id_str)  # type: ignore
 
 
