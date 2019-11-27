@@ -109,8 +109,7 @@ class BigTableClient(bigtable.Client, ClientWithIDGen):
         """
         pass
 
-    def create_segment_ids(self):
-        """Generate a range of unique segment IDs."""
+    def create_segment_ids(self, chunk_id: np.uint64, size: int):
         pass
 
     def create_segment_id(self):
@@ -263,6 +262,20 @@ class BigTableClient(bigtable.Client, ClientWithIDGen):
                 timestamp=time_stamp,
             )
         return row
+
+    def _get_unique_range(self, key: bytes, size: int):
+        """
+        Generate a range of unique segment IDs for a given `key`.
+        The length of the range is `size`.
+        """
+        column = attributes.Concurrency.Counter
+        row = self._table.row(key, append=True)
+        row.increment_cell_value(column.family_id, column.key, size)
+
+        row = row.commit()
+        max_segment_id = column.deserialize(row[column.family_id][column.key][0][0])
+        min_segment_id = max_segment_id + np.uint64(1) - size
+        return min_segment_id, max_segment_id
 
 
 a = BigTableClient()

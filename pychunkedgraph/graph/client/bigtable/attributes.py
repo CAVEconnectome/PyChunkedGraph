@@ -70,7 +70,7 @@ class _AttributeArray:
 
 
 class Concurrency:
-    CounterID = _Attribute(
+    Counter = _Attribute(
         key=b"counter",
         family_id="1",
         serializer=serializers.NumPyValue(dtype=basetypes.COUNTER),

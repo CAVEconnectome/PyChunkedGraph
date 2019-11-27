@@ -64,11 +64,11 @@ class ClientWithIDGen(SimpleClient):
     """
 
     @abstractmethod
-    def create_segment_ids(self):
+    def create_segment_ids(self, chunk_id: np.uint64):
         """Generate a range of unique segment IDs."""
 
     @abstractmethod
-    def create_segment_id(self):
+    def create_segment_id(self, chunk_id: np.uint64):
         """Generate a unique segment ID."""
 
     @abstractmethod
