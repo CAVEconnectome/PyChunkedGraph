@@ -268,7 +268,7 @@ class BigTableClient(bigtable.Client, ClientWithIDGen):
         return row
 
     def _get_unique_range(self, key: np.uint64, size: int):
-        """Generate a range of unique segment IDs for a given `key`."""
+        """Returns a range (min, max) of segment IDs for a given `key`."""
         column = attributes.Concurrency.Counter
         row = self._table.row(pad_encode_uint64(key), append=True)
         row.increment_cell_value(column.family_id, column.key, size)
