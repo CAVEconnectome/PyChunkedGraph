@@ -176,15 +176,14 @@ def export_changelog(cg, path=None):
     :return: bool
     """
 
-    operations = cg.read_node_id_rows(start_id=np.uint64(0),
-                                      end_id=cg.get_max_operation_id(),
-                                      end_id_inclusive=True)
+    operations_d = cg.read_log_rows(np.arange(0, cg.get_max_operation_id()),
+                                    dtype=np.uint64)
 
     if path is not None:
         with open(path, "wb") as f:
-            dill.dump(operations, f)
+            dill.dump(operations_d, f)
     else:
-        return operations
+        return operations_d
 
 
 def load_changelog(path):

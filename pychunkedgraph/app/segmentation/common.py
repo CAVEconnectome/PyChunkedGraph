@@ -492,7 +492,7 @@ def handle_subgraph(table_id, root_id):
 ### CHANGE LOG -----------------------------------------------------------------
 
 
-def change_log(table_id, root_id):
+def change_log(table_id, root_id=None):
     current_app.request_type = "change_log"
 
     try:
@@ -507,6 +507,8 @@ def change_log(table_id, root_id):
 
     # Call ChunkedGraph
     cg = app_utils.get_cg(table_id)
+    if not root_id:
+        return cg_history.get_all_log_entries(cg)
 
     segment_history = cg_history.SegmentHistory(cg, int(root_id))
 
@@ -628,6 +630,8 @@ def handle_split_preview(table_id):
     data = json.loads(request.data)
     current_app.logger.debug(data)
 
+    cg = app_utils.get_cg(table_id)
+
     data_dict = {}
     for k in ["sources", "sinks"]:
         data_dict[k] = collections.defaultdict(list)
@@ -713,5 +717,6 @@ def handle_find_path(table_id):
 
     return {
         "centroids_list": centroids,
-        "failed_l2_ids": failed_l2_ids
+        "failed_l2_ids": failed_l2_ids,
+        "l2_path": l2_path
     }
