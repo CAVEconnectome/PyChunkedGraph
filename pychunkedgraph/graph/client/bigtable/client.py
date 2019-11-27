@@ -66,8 +66,13 @@ class BigTableClient(bigtable.Client, ClientWithIDGen):
             ValueError(f"{self._table.table_id} already exists.")
         self._table.create()
         self._create_column_families()
-        # TODO
-        # store meta in the table
+
+        self._write(
+            self._mutate_row(
+                attributes.GraphInfo.key,
+                {attributes.GraphInfo.Settings: self.graph_meta},
+            )
+        )
 
     def read_nodes(
         self,
@@ -212,31 +217,28 @@ class BigTableClient(bigtable.Client, ClientWithIDGen):
         else:
             initial = 1
 
-        retry_policy = Retry(
-            predicate=if_exception_type(
-                (Aborted, DeadlineExceeded, ServiceUnavailable)
-            ),
+        exception_types = (Aborted, DeadlineExceeded, ServiceUnavailable)
+        retry = Retry(
+            predicate=if_exception_type(exception_types),
             initial=initial,
             maximum=15.0,
             multiplier=2.0,
             deadline=self.graph_meta.graph_config.ROOT_LOCK_EXPIRY.seconds,
         )
 
-        if root_ids is not None and operation_id is not None:
-            if isinstance(root_ids, int):
-                root_ids = [root_ids]
-            if not self.check_and_renew_root_locks(root_ids, operation_id):
-                raise exceptions.LockingError(
-                    f"Root lock renewal failed for operation ID {operation_id}"
-                )
+        # if root_ids is not None and operation_id is not None:
+        #     if isinstance(root_ids, int):
+        #         root_ids = [root_ids]
+        #     if not self.check_and_renew_root_locks(root_ids, operation_id):
+        #         raise exceptions.LockingError(
+        #             f"Root lock renewal failed: operation {operation_id}"
+        #         )
 
-        for i_row in range(0, len(rows), block_size):
-            status = self._table.mutate_rows(
-                rows[i_row : i_row + block_size], retry=retry_policy
-            )
+        for i in range(0, len(rows), block_size):
+            status = self._table.mutate_rows(rows[i : i + block_size], retry=retry)
             if not all(status):
                 raise exceptions.ChunkedGraphError(
-                    f"Bulk write failed for operation ID {operation_id}"
+                    f"Bulk write failed: operation {operation_id}"
                 )
 
     def _mutate_row(
@@ -247,7 +249,7 @@ class BigTableClient(bigtable.Client, ClientWithIDGen):
     ) -> bigtable.row.Row:
         """ Mutates a single row
         :param row_key: serialized bigtable row key
-        :param val_dict: Dict[column_keys._TypedColumn: bytes]
+        :param val_dict: Dict[attributes._Attribute: Any]
         :param time_stamp: None or datetime
         :return: list
         """
