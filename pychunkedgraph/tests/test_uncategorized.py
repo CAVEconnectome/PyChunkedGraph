@@ -20,7 +20,7 @@ from helpers import (bigtable_emulator, create_chunk, gen_graph,
                      gen_graph_simplequerytest,
                      lock_expired_timedelta_override, to_label)
 from pychunkedgraph.graph import chunkedgraph
-from pychunkedgraph.graph import exceptions as cg_exceptions
+from pychunkedgraph.graph import exceptions as exceptions
 from pychunkedgraph.graph.utils import column_keys, serializers
 from pychunkedgraph.creator import graph_tests
 from pychunkedgraph.meshing import meshgen, meshgen_utils
@@ -1191,7 +1191,7 @@ class TestGraphMerge:
         res_old.consume_all()
 
         # Merge
-        with pytest.raises(cg_exceptions.PreconditionError):
+        with pytest.raises(exceptions.PreconditionError):
             cgraph.add_edges("Jane Doe", [to_label(cgraph, 1, 0, 0, 0, 0), to_label(cgraph, 1, 0, 0, 0, 0)])
 
         res_new = cgraph.table.read_rows()
@@ -1236,7 +1236,7 @@ class TestGraphMerge:
         res_old.consume_all()
 
         # Merge
-        with pytest.raises(cg_exceptions.PreconditionError):
+        with pytest.raises(exceptions.PreconditionError):
             cgraph.add_edges("Jane Doe", [to_label(cgraph, 1, 0, 0, 0, 0), to_label(cgraph, 2, 1, 0, 0, 1)])
 
         res_new = cgraph.table.read_rows()
@@ -1764,7 +1764,7 @@ class TestGraphSplit:
         res_old.consume_all()
 
         # Split
-        with pytest.raises(cg_exceptions.PreconditionError):
+        with pytest.raises(exceptions.PreconditionError):
             cgraph.remove_edges("Jane Doe", to_label(cgraph, 1, 0, 0, 0, 1), to_label(cgraph, 1, 0, 0, 0, 0), mincut=False)
 
         res_new = cgraph.table.read_rows()
@@ -1983,7 +1983,7 @@ class TestGraphSplit:
         res_old.consume_all()
 
         # Split
-        with pytest.raises(cg_exceptions.PreconditionError):
+        with pytest.raises(exceptions.PreconditionError):
             cgraph.remove_edges("Jane Doe", to_label(cgraph, 1, 0, 0, 0, 0), to_label(cgraph, 1, 0, 0, 0, 0), mincut=False)
 
         res_new = cgraph.table.read_rows()
@@ -2028,7 +2028,7 @@ class TestGraphSplit:
         res_old.consume_all()
 
         # Split
-        with pytest.raises(cg_exceptions.PreconditionError):
+        with pytest.raises(exceptions.PreconditionError):
             cgraph.remove_edges("Jane Doe", to_label(cgraph, 1, 0, 0, 0, 0), to_label(cgraph, 2, 1, 0, 0, 1), mincut=False)
 
         res_new = cgraph.table.read_rows()
@@ -2368,7 +2368,7 @@ class TestGraphMinCut:
         res_old.consume_all()
 
         # Mincut
-        with pytest.raises(cg_exceptions.PreconditionError):
+        with pytest.raises(exceptions.PreconditionError):
             cgraph.remove_edges(
                 "Jane Doe", to_label(cgraph, 1, 0, 0, 0, 0), to_label(cgraph, 1, 1, 0, 0, 0),
                 [0, 0, 0], [2*cgraph.chunk_size[0], 2*cgraph.chunk_size[1], cgraph.chunk_size[2]],
@@ -2412,7 +2412,7 @@ class TestGraphMinCut:
         res_old.consume_all()
 
         # Mincut
-        with pytest.raises(cg_exceptions.PreconditionError):
+        with pytest.raises(exceptions.PreconditionError):
             cgraph.remove_edges(
                 "Jane Doe", to_label(cgraph, 1, 0, 0, 0, 0), to_label(cgraph, 1, 1, 0, 0, 0),
                 [0, 0, 0], [2*cgraph.chunk_size[0], 2*cgraph.chunk_size[1], cgraph.chunk_size[2]],
@@ -2461,7 +2461,7 @@ class TestGraphMinCut:
             to_label(cgraph, 1, 1, 0, 0, 0), get_all_parents=True)
 
         # Mincut
-        with pytest.raises(cg_exceptions.PostconditionError):
+        with pytest.raises(exceptions.PostconditionError):
             cgraph.remove_edges(
                 "Jane Doe", to_label(cgraph, 1, 0, 0, 0, 0),
                 to_label(cgraph, 1, 1, 0, 0, 0),
@@ -2492,7 +2492,7 @@ class TestGraphMinCut:
                      timestamp=fake_timestamp)
 
         # Mincut
-        with pytest.raises(cg_exceptions.PreconditionError):
+        with pytest.raises(exceptions.PreconditionError):
             cgraph.remove_edges(
                 "Jane Doe", [to_label(cgraph, 1, 0, 0, 0, 0), to_label(cgraph, 1, 0, 0, 0, 1)],
                 [to_label(cgraph, 1, 0, 0, 0, 3)],

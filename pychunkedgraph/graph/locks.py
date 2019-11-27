@@ -2,7 +2,7 @@ from typing import TYPE_CHECKING, Sequence, Union
 
 import numpy as np
 
-from . import exceptions as cg_exceptions
+from . import exceptions as exceptions
 
 if TYPE_CHECKING:
     from pychunkedgraph.graph.chunkedgraph import ChunkedGraph
@@ -11,7 +11,7 @@ if TYPE_CHECKING:
 class RootLock:
     """Attempts to lock the requested root IDs using a unique operation ID.
 
-    :raises cg_exceptions.LockingError: throws when one or more root ID locks could not be
+    :raises exceptions.LockingError: throws when one or more root ID locks could not be
         acquired.
     :return: The RootLock context, including the locked root IDs and the linked operation ID
     :rtype: RootLock
@@ -35,7 +35,7 @@ class RootLock:
             root_ids=self.locked_root_ids, operation_id=self.operation_id, max_tries=7
         )
         if not self.lock_acquired:
-            raise cg_exceptions.LockingError("Could not acquire root lock")
+            raise exceptions.LockingError("Could not acquire root lock")
         return self
 
     def __exit__(self, exception_type, exception_value, traceback):

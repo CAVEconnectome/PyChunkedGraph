@@ -16,7 +16,7 @@ from cloudvolume import CloudVolume
 from multiwrapper import multiprocessing_utils as mu
 
 from . import (
-    exceptions as cg_exceptions,
+    exceptions as exceptions,
     edits as cg_edits,
     cutting,
     misc,
@@ -1085,7 +1085,7 @@ class ChunkedGraph:
                     ids = None
                     row_time_stamp = row[column_keys.Hierarchy.Child][0].timestamp
                 else:
-                    raise cg_exceptions.ChunkedGraphError(
+                    raise exceptions.ChunkedGraphError(
                         "Error retrieving future root ID of %s" % next_id
                     )
 
@@ -1134,7 +1134,7 @@ class ChunkedGraph:
                     ids = None
                     row_time_stamp = row[column_keys.Hierarchy.Child][0].timestamp
                 else:
-                    raise cg_exceptions.ChunkedGraphError(
+                    raise exceptions.ChunkedGraphError(
                         "Error retrieving past root ID of %s" % next_id
                     )
 
@@ -1625,7 +1625,7 @@ class ChunkedGraph:
             source_ids = [source_ids] if np.isscalar(source_ids) else source_ids
             sink_ids = [sink_ids] if np.isscalar(sink_ids) else sink_ids
             if len(source_ids) != len(sink_ids):
-                raise cg_exceptions.PreconditionError(
+                raise exceptions.PreconditionError(
                     "Split operation require the same number of source and sink IDs"
                 )
             atomic_edges = np.array([source_ids, sink_ids]).transpose()
@@ -1687,7 +1687,7 @@ class ChunkedGraph:
             root_ids.add(self.get_root(sink_id))
 
         if len(root_ids) > 1:
-            raise cg_exceptions.PreconditionError(
+            raise exceptions.PreconditionError(
                 f"All supervoxel must belong to the same object. Already split?"
             )
 
@@ -1721,7 +1721,7 @@ class ChunkedGraph:
         time_start = time.time()  # ------------------------------------------
 
         if len(edges) == 0:
-            raise cg_exceptions.PreconditionError(
+            raise exceptions.PreconditionError(
                 f"No local edges found. " f"Something went wrong with the bounding box?"
             )
 
@@ -1729,7 +1729,7 @@ class ChunkedGraph:
         atomic_edges = cutting.mincut(edges, affs, source_ids, sink_ids)
         self.logger.debug(f"Mincut: {(time.time() - time_start) * 1000:.3f}ms")
         if len(atomic_edges) == 0:
-            raise cg_exceptions.PostconditionError(f"Mincut failed. Try again...")
+            raise exceptions.PostconditionError(f"Mincut failed. Try again...")
 
         # # Check if any edge in the cutset is infinite (== between chunks)
         # # We would prevent such a cut

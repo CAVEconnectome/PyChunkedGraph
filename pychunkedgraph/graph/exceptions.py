@@ -7,7 +7,7 @@ class ChunkedGraphError(Exception):
 
 
 class LockingError(ChunkedGraphError):
-    """Raised when a Bigtable Lock could not be acquired"""
+    """Raised when a backend storage Lock could not be acquired"""
     pass
 
 

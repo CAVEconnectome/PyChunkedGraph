@@ -12,7 +12,7 @@ import graph_tool.flow
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple, Union
 
 from .utils import flatgraph
-from . import exceptions as cg_exceptions
+from . import exceptions as exceptions
 
 float_max = np.finfo(np.float32).max
 DEBUG_MODE = False
@@ -360,12 +360,12 @@ def mincut_graph_tool(edges: Iterable[Sequence[np.uint64]],
     if len(ccs) > 1:
         logger.warning("Not all sinks and sources are within the same (local)"
                        "connected component")
-        raise cg_exceptions.PreconditionError(
+        raise exceptions.PreconditionError(
                 "Not all sinks and sources are within the same (local)"
                 "connected component"
             )
     elif len(ccs) == 0:
-        raise cg_exceptions.PreconditionError(
+        raise exceptions.PreconditionError(
                 "Sinks and sources are not connected through the local graph. "
                 "Please try a different set of vertices to perform the mincut."
             )
@@ -431,7 +431,7 @@ def mincut_graph_tool(edges: Iterable[Sequence[np.uint64]],
                 assert np.all(np.in1d(sink_graph_ids, cc))
                 assert ~np.any(np.in1d(source_graph_ids, cc))
     except AssertionError:
-        raise cg_exceptions.PreconditionError(
+        raise exceptions.PreconditionError(
                 "Failed to find a cut that separated the sources from the sinks. "
                 "Please try another cut that partitions the sets cleanly if possible. "
                 "If there is a clear path between all the supervoxels in each set, "

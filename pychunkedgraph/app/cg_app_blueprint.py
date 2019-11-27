@@ -12,7 +12,7 @@ import requests
 import threading
 
 from pychunkedgraph.app import app_utils, meshing_app_blueprint
-from pychunkedgraph.graph import exceptions as cg_exceptions, \
+from pychunkedgraph.graph import exceptions as exceptions, \
     misc as cg_comp
 # from middle_auth_client import auth_required, auth_requires_roles
 
@@ -101,7 +101,7 @@ def unhandled_exception(e):
     return jsonify(resp), status_code
 
 
-@bp.errorhandler(cg_exceptions.ChunkedGraphAPIError)
+@bp.errorhandler(exceptions.ChunkedGraphAPIError)
 def api_exception(e):
     response_time = (time.time() - current_app.request_start_time) * 1000
     user_ip = str(request.remote_addr)
@@ -162,7 +162,7 @@ def handle_root_1(table_id):
         timestamp = float(request.args.get('timestamp', time.time()))
         timestamp = datetime.fromtimestamp(timestamp, UTC)
     except (TypeError, ValueError) as e:
-        raise(cg_exceptions.BadRequest("Timestamp parameter is not a valid"
+        raise(exceptions.BadRequest("Timestamp parameter is not a valid"
                                        " unix timestamp"))
 
     return handle_root_main(table_id, atomic_id, timestamp)
@@ -176,7 +176,7 @@ def handle_root_2(table_id, atomic_id):
         timestamp = float(request.args.get('timestamp', time.time()))
         timestamp = datetime.fromtimestamp(timestamp, UTC)
     except (TypeError, ValueError) as e:
-        raise(cg_exceptions.BadRequest("Timestamp parameter is not a valid"
+        raise(exceptions.BadRequest("Timestamp parameter is not a valid"
                                        " unix timestamp"))
 
     return handle_root_main(table_id, np.uint64(atomic_id), timestamp)
@@ -222,7 +222,7 @@ def handle_merge(table_id):
                                                 parent_id=np.uint64(node_id))
 
         if atomic_id is None:
-            raise cg_exceptions.BadRequest(
+            raise exceptions.BadRequest(
                 f"Could not determine supervoxel ID for coordinates "
                 f"{coordinate}."
             )
@@ -235,7 +235,7 @@ def handle_merge(table_id):
                         cg.get_chunk_coordinates(atomic_edge[1])
 
     if np.any(np.abs(chunk_coord_delta) > 3):
-        raise cg_exceptions.BadRequest(
+        raise exceptions.BadRequest(
             "Chebyshev distance between merge points exceeded allowed maximum "
             "(3 chunks).")
 
@@ -247,13 +247,13 @@ def handle_merge(table_id):
             sink_coord=coords[1:],
         )
 
-    except cg_exceptions.LockingError as e:
-        raise cg_exceptions.InternalServerError("Could not acquire root lock for merge operation.")
-    except cg_exceptions.PreconditionError as e:
-        raise cg_exceptions.BadRequest(str(e))
+    except exceptions.LockingError as e:
+        raise exceptions.InternalServerError("Could not acquire root lock for merge operation.")
+    except exceptions.PreconditionError as e:
+        raise exceptions.BadRequest(str(e))
 
     if ret.new_root_ids is None:
-        raise cg_exceptions.InternalServerError("Could not merge selected supervoxel.")
+        raise exceptions.InternalServerError("Could not merge selected supervoxel.")
 
     current_app.logger.debug(("lvl2_nodes:", ret.new_lvl2_ids))
 
@@ -305,7 +305,7 @@ def handle_split(table_id):
                                                         node_id))
 
             if atomic_id is None:
-                raise cg_exceptions.BadRequest(
+                raise exceptions.BadRequest(
                     f"Could not determine supervoxel ID for coordinates "
                     f"{coordinate}.")
 
@@ -324,13 +324,13 @@ def handle_split(table_id):
             mincut=True,
         )
 
-    except cg_exceptions.LockingError as e:
-        raise cg_exceptions.InternalServerError("Could not acquire root lock for split operation.")
-    except cg_exceptions.PreconditionError as e:
-        raise cg_exceptions.BadRequest(str(e))
+    except exceptions.LockingError as e:
+        raise exceptions.InternalServerError("Could not acquire root lock for split operation.")
+    except exceptions.PreconditionError as e:
+        raise exceptions.BadRequest(str(e))
 
     if ret.new_root_ids is None:
-        raise cg_exceptions.InternalServerError("Could not split selected segment groups.")
+        raise exceptions.InternalServerError("Could not split selected segment groups.")
 
     current_app.logger.debug(("after split:", ret.new_root_ids))
     current_app.logger.debug(("lvl2_nodes:", ret.new_lvl2_ids))
@@ -371,10 +371,10 @@ def handle_undo(table_id):
 
     try:
         ret = cg.undo(user_id=user_id, operation_id=operation_id)
-    except cg_exceptions.LockingError as e:
-        raise cg_exceptions.InternalServerError("Could not acquire root lock for undo operation.")
-    except (cg_exceptions.PreconditionError, cg_exceptions.PostconditionError) as e:
-        raise cg_exceptions.BadRequest(str(e))
+    except exceptions.LockingError as e:
+        raise exceptions.InternalServerError("Could not acquire root lock for undo operation.")
+    except (exceptions.PreconditionError, exceptions.PostconditionError) as e:
+        raise exceptions.BadRequest(str(e))
 
     current_app.logger.debug(("after undo:", ret.new_root_ids))
     current_app.logger.debug(("lvl2_nodes:", ret.new_lvl2_ids))
@@ -415,10 +415,10 @@ def handle_redo(table_id):
 
     try:
         ret = cg.redo(user_id=user_id, operation_id=operation_id)
-    except cg_exceptions.LockingError as e:
-        raise cg_exceptions.InternalServerError("Could not acquire root lock for redo operation.")
-    except (cg_exceptions.PreconditionError, cg_exceptions.PostconditionError) as e:
-        raise cg_exceptions.BadRequest(str(e))
+    except exceptions.LockingError as e:
+        raise exceptions.InternalServerError("Could not acquire root lock for redo operation.")
+    except (exceptions.PreconditionError, exceptions.PostconditionError) as e:
+        raise exceptions.BadRequest(str(e))
 
     current_app.logger.debug(("after redo:", ret.new_root_ids))
     current_app.logger.debug(("lvl2_nodes:", ret.new_lvl2_ids))
@@ -542,7 +542,7 @@ def change_log(table_id, root_id):
         time_stamp_past = float(request.args.get('timestamp', 0))
         time_stamp_past = datetime.fromtimestamp(time_stamp_past, UTC)
     except (TypeError, ValueError) as e:
-        raise(cg_exceptions.BadRequest("Timestamp parameter is not a valid"
+        raise(exceptions.BadRequest("Timestamp parameter is not a valid"
                                        " unix timestamp"))
 
     # Call ChunkedGraph
@@ -564,7 +564,7 @@ def merge_log(table_id, root_id):
         time_stamp_past = float(request.args.get('timestamp', 0))
         time_stamp_past = datetime.fromtimestamp(time_stamp_past, UTC)
     except (TypeError, ValueError) as e:
-        raise(cg_exceptions.BadRequest("Timestamp parameter is not a valid"
+        raise(exceptions.BadRequest("Timestamp parameter is not a valid"
                                        " unix timestamp"))
 
     # Call ChunkedGraph

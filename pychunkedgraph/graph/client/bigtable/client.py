@@ -30,6 +30,7 @@ from google.cloud.bigtable.column_family import MaxVersionsGCRule
 
 from . import attributes
 from ..base import ClientWithIDGen
+from ... import exceptions
 from ...meta import ChunkedGraphMeta
 
 
@@ -46,7 +47,11 @@ class BigTableClient(bigtable.Client, ClientWithIDGen):
         )
         self._graph_meta = graph_meta
         self._instance = self.instance(graph_meta.bigtable_config.INSTANCE)
-        self._table = self._instance.table(graph_meta.graph_config.ID)
+
+        config = self._graph_meta.graph_config
+        bt_config = self._graph_meta.bigtable_config
+        table_id = bt_config.TABLE_PREFIX + config.ID
+        self._table = self._instance.table(table_id)
 
     @property
     def graph_meta(self):
@@ -58,7 +63,7 @@ class BigTableClient(bigtable.Client, ClientWithIDGen):
         """Initialize the graph and store associated meta."""
         config = self._graph_meta.graph_config
         if not config.overwrite and self._table.exists():
-            ValueError(f"{config.graph_id} already exists.")
+            ValueError(f"{self._table.table_id} already exists.")
         self._table.create()
         self._create_column_families()
         # TODO
@@ -221,23 +226,23 @@ class BigTableClient(bigtable.Client, ClientWithIDGen):
             if isinstance(root_ids, int):
                 root_ids = [root_ids]
             if not self.check_and_renew_root_locks(root_ids, operation_id):
-                raise cg_exceptions.LockError(
+                raise exceptions.LockingError(
                     f"Root lock renewal failed for operation ID {operation_id}"
                 )
 
         for i_row in range(0, len(rows), block_size):
-            status = self.table.mutate_rows(
+            status = self._table.mutate_rows(
                 rows[i_row : i_row + block_size], retry=retry_policy
             )
             if not all(status):
-                raise cg_exceptions.ChunkedGraphError(
+                raise exceptions.ChunkedGraphError(
                     f"Bulk write failed for operation ID {operation_id}"
                 )
 
     def _mutate_row(
         self,
         row_key: bytes,
-        val_dict: Dict[column_keys._Column, Any],
+        val_dict: Dict[attributes._Attribute, Any],
         time_stamp: Optional[datetime.datetime] = None,
     ) -> bigtable.row.Row:
         """ Mutates a single row

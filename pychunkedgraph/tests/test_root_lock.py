@@ -3,7 +3,7 @@ from unittest.mock import DEFAULT
 import numpy as np
 import pytest
 
-import pychunkedgraph.graph.exceptions as cg_exceptions
+import pychunkedgraph.graph.exceptions as exceptions
 from pychunkedgraph.graph.locks import RootLock
 
 G_UINT64 = np.uint64(2 ** 63)
@@ -73,7 +73,7 @@ def test_failed_lock_acquisition(mocker):
         return_value=(False, fake_locked_root_ids), side_effect=None
     )
 
-    with pytest.raises(cg_exceptions.LockingError):
+    with pytest.raises(exceptions.LockingError):
         with RootLock(cg, fake_locked_root_ids):
             pass
 
@@ -91,8 +91,8 @@ def test_failed_graph_operation(mocker, root_lock_tracker):
     )
     cg.unlock_root = mocker.MagicMock(return_value=True, side_effect=root_lock_tracker.remove_lock)
 
-    with pytest.raises(cg_exceptions.PreconditionError):
+    with pytest.raises(exceptions.PreconditionError):
         with RootLock(cg, fake_locked_root_ids):
-            raise cg_exceptions.PreconditionError("Something went wrong")
+            raise exceptions.PreconditionError("Something went wrong")
 
     assert not root_lock_tracker.active_locks[fake_operation_id]
