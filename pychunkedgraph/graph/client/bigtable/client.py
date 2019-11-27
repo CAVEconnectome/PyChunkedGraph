@@ -66,11 +66,12 @@ class BigTableClient(bigtable.Client, ClientWithIDGen):
             ValueError(f"{self._table.table_id} already exists.")
         self._table.create()
         self._create_column_families()
+        self.update_graph_meta(self.graph_meta)
 
+    def update_graph_meta(self, meta: ChunkedGraphMeta):
         self._write(
             self._mutate_row(
-                attributes.GraphInfo.key,
-                {attributes.GraphInfo.Settings: self.graph_meta},
+                attributes.GraphMeta.key, {attributes.GraphMeta.Meta: meta},
             )
         )
 

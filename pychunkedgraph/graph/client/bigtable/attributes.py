@@ -134,9 +134,10 @@ class Hierarchy:
     )
 
 
-class GraphInfo:
+class GraphMeta:
+    # for the lack of better names
     key = b"meta"
-    Settings = _Attribute(key=b"settings", family_id="0", serializer=serializers.JSON())
+    Meta = _Attribute(key=b"meta", family_id="0", serializer=serializers.JSON())
 
 
 class OperationLogs:
