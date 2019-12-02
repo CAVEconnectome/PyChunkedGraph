@@ -149,6 +149,110 @@ class BigTableClient(bigtable.Client, ClientWithIDGen):
         f = self._table.column_family("3", gc_rule=MaxVersionsGCRule(1))
         f.create()
 
+    def _get_ids_range(self, key: bytes, size: int):
+        """Returns a range (min, max) of IDs for a given `key`."""
+        column = attributes.Concurrency.Counter
+        row = self._table.row(key, append=True)
+        row.increment_cell_value(column.family_id, column.key, size)
+
+        row = row.commit()
+        high = column.deserialize(row[column.family_id][column.key][0][0])
+        return high + np.uint64(1) - size, high
+
+    def _read_rows(
+        self,
+        start_key: Optional[bytes] = None,
+        end_key: Optional[bytes] = None,
+        end_key_inclusive: bool = False,
+        row_keys: Optional[Iterable[bytes]] = None,
+        columns: Optional[
+            Union[Iterable[column_keys._Column], column_keys._Column]
+        ] = None,
+        start_time: Optional[datetime.datetime] = None,
+        end_time: Optional[datetime.datetime] = None,
+        end_time_inclusive: bool = False,
+    ) -> Dict[
+        bytes,
+        Union[
+            Dict[column_keys._Column, List[bigtable.row_data.Cell]],
+            List[bigtable.row_data.Cell],
+        ],
+    ]:
+        """Main function for reading a row range or non-contiguous row sets from Bigtable using
+        `bytes` keys.
+
+        Keyword Arguments:
+            start_key {Optional[bytes]} -- The first row to be read, ignored if `row_keys` is set.
+                If None, no lower boundary is used. (default: {None})
+            end_key {Optional[bytes]} -- The end of the row range, ignored if `row_keys` is set.
+                If None, no upper boundary is used. (default: {None})
+            end_key_inclusive {bool} -- Whether or not `end_key` itself should be included in the
+                request, ignored if `row_keys` is set or `end_key` is None. (default: {False})
+            row_keys {Optional[Iterable[bytes]]} -- An `Iterable` containing possibly
+                non-contiguous row keys. Takes precedence over `start_key` and `end_key`.
+                (default: {None})
+            columns {Optional[Union[Iterable[column_keys._Column], column_keys._Column]]} --
+                Optional filtering by columns to speed up the query. If `columns` is a single
+                column (not iterable), the column key will be omitted from the result.
+                (default: {None})
+            start_time {Optional[datetime.datetime]} -- Ignore cells with timestamp before
+                `start_time`. If None, no lower bound. (default: {None})
+            end_time {Optional[datetime.datetime]} -- Ignore cells with timestamp after `end_time`.
+                If None, no upper bound. (default: {None})
+            end_time_inclusive {bool} -- Whether or not `end_time` itself should be included in the
+                request, ignored if `end_time` is None. (default: {False})
+
+        Returns:
+            Dict[bytes, Union[Dict[column_keys._Column, List[bigtable.row_data.Cell]],
+                              List[bigtable.row_data.Cell]]] --
+                Returns a dictionary of `byte` rows as keys. Their value will be a mapping of
+                columns to a List of cells (one cell per timestamp). Each cell has a `value`
+                property, which returns the deserialized field, and a `timestamp` property, which
+                returns the timestamp as `datetime.datetime` object.
+                If only a single `column_keys._Column` was requested, the List of cells will be
+                attached to the row dictionary directly (skipping the column dictionary).
+        """
+
+        # Create filters: Column and Time
+        filter_ = get_time_range_and_column_filter(
+            columns=columns,
+            start_time=start_time,
+            end_time=end_time,
+            end_inclusive=end_time_inclusive,
+        )
+
+        # Create filters: Rows
+        row_set = RowSet()
+
+        if row_keys is not None:
+            for row_key in row_keys:
+                row_set.add_row_key(row_key)
+        elif start_key is not None and end_key is not None:
+            row_set.add_row_range_from_keys(
+                start_key=start_key,
+                start_inclusive=True,
+                end_key=end_key,
+                end_inclusive=end_key_inclusive,
+            )
+        else:
+            raise exceptions.PreconditionError(
+                "Need to either provide a valid set of rows, or"
+                " both, a start row and an end row."
+            )
+
+        # Bigtable read with retries
+        rows = self._read(row_set=row_set, row_filter=filter_)
+
+        # Deserialize cells
+        for row_key, column_dict in rows.items():
+            for column, cell_entries in column_dict.items():
+                for cell_entry in cell_entries:
+                    cell_entry.value = column.deserialize(cell_entry.value)
+            # If no column array was requested, reattach single column's values directly to the row
+            if isinstance(columns, attributes._Attribute):
+                rows[row_key] = cell_entries
+        return rows
+
     def _read(
         self, row_set: RowSet, row_filter: RowFilter = None
     ) -> Dict[bytes, Dict[attributes._Attribute, bigtable.row_data.PartialRowData]]:
@@ -271,156 +375,8 @@ class BigTableClient(bigtable.Client, ClientWithIDGen):
             )
         return row
 
-    def _get_ids_range(self, key: bytes, size: int):
-        """Returns a range (min, max) of IDs for a given `key`."""
-        column = attributes.Concurrency.Counter
-        row = self._table.row(key, append=True)
-        row.increment_cell_value(column.family_id, column.key, size)
-
-        row = row.commit()
-        high = column.deserialize(row[column.family_id][column.key][0][0])
-        return high + np.uint64(1) - size, high
-
 
 a = BigTableClient()
-
-
-# def _get_ids_range(self, row_key, step):
-#     column = column_keys.Concurrency.CounterID
-#     # Incrementer row keys start with an "i" followed by the chunk id
-#     append_row = self.table.row(row_key, append=True)
-#     append_row.increment_cell_value(column.family_id, column.key, step)
-
-#     # This increments the row entry and returns the value AFTER incrementing
-#     latest_row = append_row.commit()
-#     max_segment_id = column.deserialize(latest_row[column.family_id][column.key][0][0])
-#     min_segment_id = max_segment_id + np.uint64(1) - step
-#     return min_segment_id, max_segment_id
-
-
-# def get_unique_segment_id_root_row(
-#     self, step: int = 1, counter_id: int = None
-# ) -> np.ndarray:
-#     """ Return unique Segment ID for the Root Chunk
-#     atomic counter
-#     :param step: int
-#     :param counter_id: np.uint64
-#     :return: np.uint64
-#     """
-#     if self.n_bits_root_counter == 0:
-#         return self.get_unique_segment_id_range(self.root_chunk_id, step=step)
-
-#     n_counters = np.uint64(2 ** self._n_bits_root_counter)
-#     if counter_id is None:
-#         counter_id = np.uint64(np.random.randint(0, n_counters))
-#     else:
-#         counter_id = np.uint64(counter_id % n_counters)
-
-#     row_key = serializers.serialize_key(
-#         f"i{serializers.pad_node_id(self.root_chunk_id)}_{counter_id}"
-#     )
-#     min_segment_id, max_segment_id = self._get_ids_range(row_key=row_key, step=step)
-
-#     segment_id_range = np.arange(
-#         min_segment_id * n_counters + counter_id,
-#         max_segment_id * n_counters + np.uint64(1) + counter_id,
-#         n_counters,
-#         dtype=basetypes.SEGMENT_ID,
-#     )
-#     return segment_id_range
-
-
-# def get_unique_segment_id_range(self, chunk_id: np.uint64, step: int = 1) -> np.ndarray:
-#     """ Return unique Segment ID for given Chunk ID
-#     atomic counter
-#     :param chunk_id: np.uint64
-#     :param step: int
-#     :return: np.uint64
-#     """
-#     if self.n_layers == self.get_chunk_layer(chunk_id) and self.n_bits_root_counter > 0:
-#         return self.get_unique_segment_id_root_row(step=step)
-
-#     row_key = serializers.serialize_key("i%s" % serializers.pad_node_id(chunk_id))
-#     min_segment_id, max_segment_id = self._get_ids_range(row_key=row_key, step=step)
-#     segment_id_range = np.arange(
-#         min_segment_id, max_segment_id + np.uint64(1), dtype=basetypes.SEGMENT_ID
-#     )
-#     return segment_id_range
-
-
-# def get_unique_node_id_range(self, chunk_id: np.uint64, step: int = 1) -> np.ndarray:
-#     """ Return unique Node ID range for given Chunk ID atomic counter
-#     :param chunk_id: np.uint64
-#     :param step: int
-#     :return: np.uint64
-#     """
-#     segment_ids = self.get_unique_segment_id_range(chunk_id=chunk_id, step=step)
-#     node_ids = np.array(
-#         [self.get_node_id(segment_id, chunk_id) for segment_id in segment_ids],
-#         dtype=np.uint64,
-#     )
-#     return node_ids
-
-
-# def get_unique_node_id(self, chunk_id: np.uint64) -> np.uint64:
-#     """ Return unique Node ID for given Chunk ID atomic counter
-#     :param chunk_id: np.uint64
-#     :return: np.uint64
-#     """
-#     return self.get_unique_node_id_range(chunk_id=chunk_id, step=1)[0]
-
-
-# def get_max_seg_id_root_chunk(self) -> np.uint64:
-#     """  Gets maximal root id based on the atomic counter
-#     This is an approximation. It is not guaranteed that all ids smaller or
-#     equal to this id exists. However, it is guaranteed that no larger id
-#     exist at the time this function is executed.
-#     :return: uint64
-#     """
-#     if self.n_bits_root_counter == 0:
-#         return self.get_max_seg_id(self.root_chunk_id)
-
-#     n_counters = np.uint64(2 ** self.n_bits_root_counter)
-#     max_value = 0
-#     for counter_id in range(n_counters):
-#         row_key = serializers.serialize_key(
-#             f"i{serializers.pad_node_id(self.root_chunk_id)}_{counter_id}"
-#         )
-#         row = self.read_byte_row(row_key, columns=column_keys.Concurrency.CounterID)
-#         counter = basetypes.SEGMENT_ID.type(row[0].value if row else 0) * n_counters
-#         if counter > max_value:
-#             max_value = counter
-#     return max_value
-
-
-# def get_max_seg_id(self, chunk_id: np.uint64) -> np.uint64:
-#     """  Gets maximal seg id in a chunk based on the atomic counter
-#     This is an approximation. It is not guaranteed that all ids smaller or
-#     equal to this id exists. However, it is guaranteed that no larger id
-#     exist at the time this function is executed.
-#     :return: uint64
-#     """
-#     if self.n_layers == self.get_chunk_layer(chunk_id) and self.n_bits_root_counter > 0:
-#         return self.get_max_seg_id_root_chunk()
-
-#     # Incrementer row keys start with an "i"
-#     row_key = serializers.serialize_key("i%s" % serializers.pad_node_id(chunk_id))
-#     row = self.read_byte_row(row_key, columns=column_keys.Concurrency.CounterID)
-
-#     # Read incrementer value (default to 0) and interpret is as Segment ID
-#     return basetypes.SEGMENT_ID.type(row[0].value if row else 0)
-
-
-# def get_max_node_id(self, chunk_id: np.uint64) -> np.uint64:
-#     """  Gets maximal node id in a chunk based on the atomic counter
-#     This is an approximation. It is not guaranteed that all ids smaller or
-#     equal to this id exists. However, it is guaranteed that no larger id
-#     exist at the time this function is executed.
-#     :return: uint64
-#     """
-#     max_seg_id = self.get_max_seg_id(chunk_id)
-#     return self.get_node_id(segment_id=max_seg_id, chunk_id=chunk_id)
-
 
 # def get_unique_operation_id(self) -> np.uint64:
 #     """ Finds a unique operation id atomic counter
