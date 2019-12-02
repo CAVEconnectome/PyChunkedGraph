@@ -55,7 +55,7 @@ def get_google_compatible_time_stamp(
     return time_stamp
 
 
-def get_column_filter(
+def _get_column_filter(
     columns: Union[Iterable[attributes._Attribute], attributes._Attribute] = None
 ) -> RowFilter:
     """ Generates a RowFilter that accepts the specified columns """
@@ -77,7 +77,7 @@ def get_column_filter(
     )
 
 
-def get_time_range_filter(
+def _get_time_range_filter(
     start_time: Optional[datetime.datetime] = None,
     end_time: Optional[datetime.datetime] = None,
     end_inclusive: bool = True,
@@ -106,12 +106,12 @@ def get_time_range_and_column_filter(
     end_inclusive: bool = False,
 ) -> RowFilter:
 
-    time_filter = get_time_range_filter(
+    time_filter = _get_time_range_filter(
         start_time=start_time, end_time=end_time, end_inclusive=end_inclusive
     )
 
     if columns is not None:
-        column_filter = get_column_filter(columns)
+        column_filter = _get_column_filter(columns)
         return RowFilterChain([column_filter, time_filter])
     else:
         return time_filter

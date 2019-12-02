@@ -21,6 +21,8 @@ from google.cloud.bigtable.row_filters import RowFilter
 from google.cloud.bigtable.column_family import MaxVersionsGCRule
 
 from . import attributes
+from .utils import partial_row_data_to_column_dict
+from .utils import get_time_range_and_column_filter
 from ..base import ClientWithIDGen
 from ..utils import pad_encode_uint64
 from ... import exceptions
@@ -115,7 +117,7 @@ class BigTableClient(bigtable.Client, ClientWithIDGen):
     def get_max_node_id(self, chunk_id: np.uint64):
         """Gets the current maximum node ID in the chunk."""
         column = attributes.Concurrency.Counter
-        row = self.read_byte_row(pad_encode_uint64(chunk_id), columns=column)
+        row = self._read_rows(pad_encode_uint64(chunk_id), columns=column)
         seg_id = basetypes.SEGMENT_ID.type(row[0].value if row else 0)
         return chunk_id | seg_id
 
@@ -158,7 +160,7 @@ class BigTableClient(bigtable.Client, ClientWithIDGen):
         end_key_inclusive: bool = False,
         row_keys: Optional[Iterable[bytes]] = None,
         columns: Optional[
-            Union[Iterable[column_keys._Column], column_keys._Column]
+            Union[Iterable[attributes._Attribute], attributes._Attribute]
         ] = None,
         start_time: Optional[datetime.datetime] = None,
         end_time: Optional[datetime.datetime] = None,
