@@ -111,17 +111,21 @@ class BigTableClient(bigtable.Client, ClientWithIDGen):
         """
         pass
 
-    def create_segment_ids(self, chunk_id: np.uint64, size: int) -> np.ndarray:
-        """Returns a list of unique segment IDs for the given chunk."""
-        low, high = self._get_unique_range(chunk_id, size)
-        return np.arange(low, high + np.uint64(1), dtype=basetypes.SEGMENT_ID)
+    def create_node_ids(self, chunk_id: np.uint64, size: int) -> np.ndarray:
+        """Returns a list of unique node IDs for the given chunk."""
+        low, high = self._get_ids_range(chunk_id, size)
 
-    def create_segment_id(self):
-        """Generate a unique segment ID."""
+        ids = np.arange(low, high + np.uint64(1), dtype=basetypes.SEGMENT_ID)
+        return np.array(
+            [self.get_node_id(seg_id, chunk_id) for seg_id in ids], dtype=np.uint64,
+        )
+
+    def create_node_id(self):
+        """Generate a unique node ID."""
         pass
 
-    def get_max_segment_id(self, chunk_id: np.uint64):
-        """Gets the current maximum segment ID in the chunk."""
+    def get_max_node_id(self, chunk_id: np.uint64):
+        """Gets the current maximum node ID in the chunk."""
         pass
 
     def create_operation_id(self):
@@ -267,8 +271,8 @@ class BigTableClient(bigtable.Client, ClientWithIDGen):
             )
         return row
 
-    def _get_unique_range(self, key: np.uint64, size: int):
-        """Returns a range (min, max) of segment IDs for a given `key`."""
+    def _get_ids_range(self, key: np.uint64, size: int):
+        """Returns a range (min, max) of IDs for a given `key`."""
         column = attributes.Concurrency.Counter
         row = self._table.row(pad_encode_uint64(key), append=True)
         row.increment_cell_value(column.family_id, column.key, size)
@@ -281,7 +285,7 @@ class BigTableClient(bigtable.Client, ClientWithIDGen):
 a = BigTableClient()
 
 
-# def _get_unique_range(self, row_key, step):
+# def _get_ids_range(self, row_key, step):
 #     column = column_keys.Concurrency.CounterID
 #     # Incrementer row keys start with an "i" followed by the chunk id
 #     append_row = self.table.row(row_key, append=True)
@@ -315,7 +319,7 @@ a = BigTableClient()
 #     row_key = serializers.serialize_key(
 #         f"i{serializers.pad_node_id(self.root_chunk_id)}_{counter_id}"
 #     )
-#     min_segment_id, max_segment_id = self._get_unique_range(row_key=row_key, step=step)
+#     min_segment_id, max_segment_id = self._get_ids_range(row_key=row_key, step=step)
 
 #     segment_id_range = np.arange(
 #         min_segment_id * n_counters + counter_id,
@@ -337,7 +341,7 @@ a = BigTableClient()
 #         return self.get_unique_segment_id_root_row(step=step)
 
 #     row_key = serializers.serialize_key("i%s" % serializers.pad_node_id(chunk_id))
-#     min_segment_id, max_segment_id = self._get_unique_range(row_key=row_key, step=step)
+#     min_segment_id, max_segment_id = self._get_ids_range(row_key=row_key, step=step)
 #     segment_id_range = np.arange(
 #         min_segment_id, max_segment_id + np.uint64(1), dtype=basetypes.SEGMENT_ID
 #     )

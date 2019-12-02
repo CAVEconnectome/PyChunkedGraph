@@ -64,16 +64,16 @@ class ClientWithIDGen(SimpleClient):
     """
 
     @abstractmethod
-    def create_segment_ids(self, chunk_id: np.uint64):
-        """Generate a range of unique segment IDs."""
+    def create_node_ids(self, chunk_id: np.uint64):
+        """Generate a range of unique node IDs."""
 
     @abstractmethod
-    def create_segment_id(self, chunk_id: np.uint64):
-        """Generate a unique segment ID."""
+    def create_node_id(self, chunk_id: np.uint64):
+        """Generate a unique node ID."""
 
     @abstractmethod
-    def get_max_segment_id(self, chunk_id: np.uint64):
-        """Gets the current maximum segment ID in the chunk."""
+    def get_max_node_id(self, chunk_id: np.uint64):
+        """Gets the current maximum node ID in the chunk."""
 
     @abstractmethod
     def create_operation_id(self):
