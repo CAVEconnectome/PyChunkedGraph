@@ -69,6 +69,7 @@ class BigTableClient(bigtable.Client, ClientWithIDGen):
         self.update_graph_meta(self.graph_meta)
 
     def update_graph_meta(self, meta: ChunkedGraphMeta):
+        self._graph_meta = meta
         self._write(
             self._mutate_row(
                 attributes.GraphMeta.key, {attributes.GraphMeta.Meta: meta},
@@ -111,20 +112,20 @@ class BigTableClient(bigtable.Client, ClientWithIDGen):
 
     def create_node_ids(self, chunk_id: np.uint64, size: int) -> np.ndarray:
         """Returns a list of unique node IDs for the given chunk."""
-        low, high = self._get_ids_range(chunk_id, size)
-
+        low, high = self._get_ids_range(pad_encode_uint64(chunk_id), size)
         ids = np.arange(low, high + np.uint64(1), dtype=basetypes.SEGMENT_ID)
-        return np.array(
-            [self.get_node_id(seg_id, chunk_id) for seg_id in ids], dtype=np.uint64,
-        )
+        return np.array([chunk_id | seg_id for seg_id in ids], dtype=np.uint64)
 
-    def create_node_id(self):
+    def create_node_id(self, chunk_id: np.uint64) -> basetypes.NODE_ID:
         """Generate a unique node ID."""
-        pass
+        return self.create_node_ids(chunk_id, 1)[0]
 
     def get_max_node_id(self, chunk_id: np.uint64):
         """Gets the current maximum node ID in the chunk."""
-        pass
+        column = attributes.Concurrency.Counter
+        row = self.read_byte_row(pad_encode_uint64(chunk_id), columns=column)
+        seg_id = basetypes.SEGMENT_ID.type(row[0].value if row else 0)
+        return chunk_id | seg_id
 
     def create_operation_id(self):
         """Generate a unique operation ID."""
@@ -270,10 +271,10 @@ class BigTableClient(bigtable.Client, ClientWithIDGen):
             )
         return row
 
-    def _get_ids_range(self, key: np.uint64, size: int):
+    def _get_ids_range(self, key: bytes, size: int):
         """Returns a range (min, max) of IDs for a given `key`."""
         column = attributes.Concurrency.Counter
-        row = self._table.row(pad_encode_uint64(key), append=True)
+        row = self._table.row(key, append=True)
         row.increment_cell_value(column.family_id, column.key, size)
 
         row = row.commit()
