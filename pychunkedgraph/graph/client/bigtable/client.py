@@ -38,21 +38,19 @@ from ...meta import ChunkedGraphMeta
 
 class BigTableClient(bigtable.Client, ClientWithIDGen):
     def __init__(
-        self,
-        project: str = None,
-        read_only: bool = False,
-        admin: bool = False,
-        graph_meta: ChunkedGraphMeta = None,
+        self, graph_meta: ChunkedGraphMeta = None,
     ):
+        bt_config = graph_meta.bigtable_config
         super(BigTableClient, self).__init__(
-            project=project, read_only=read_only, admin=admin
+            project=bt_config.PROJECT,
+            read_only=bt_config.READ_ONLY,
+            admin=bt_config.ADMIN,
         )
         self._graph_meta = graph_meta
         self._instance = self.instance(graph_meta.bigtable_config.INSTANCE)
 
-        config = self._graph_meta.graph_config
-        bt_config = self._graph_meta.bigtable_config
-        table_id = bt_config.TABLE_PREFIX + config.ID
+        bt_config = graph_meta.bigtable_config
+        table_id = bt_config.TABLE_PREFIX + graph_meta.graph_config.ID
         self._table = self._instance.table(table_id)
 
     @property
@@ -137,6 +135,7 @@ class BigTableClient(bigtable.Client, ClientWithIDGen):
         pass
 
     def _create_column_families(self):
+        # TODO hardcoded, not good
         f = self._table.column_family("0")
         f.create()
 
@@ -255,7 +254,7 @@ class BigTableClient(bigtable.Client, ClientWithIDGen):
         val_dict: Dict[attributes._Attribute, Any],
         time_stamp: Optional[datetime.datetime] = None,
     ) -> bigtable.row.Row:
-        """ Mutates a single row
+        """ Mutates a single row (doesn't actually write to big table)
         :param row_key: serialized bigtable row key
         :param val_dict: Dict[attributes._Attribute: Any]
         :param time_stamp: None or datetime
