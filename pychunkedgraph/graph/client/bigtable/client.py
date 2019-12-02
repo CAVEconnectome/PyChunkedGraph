@@ -17,15 +17,7 @@ from google.api_core.exceptions import DeadlineExceeded
 from google.api_core.exceptions import ServiceUnavailable
 from google.cloud.bigtable.table import Table
 from google.cloud.bigtable.row_set import RowSet
-from google.cloud.bigtable.row_filters import TimestampRange
-from google.cloud.bigtable.row_filters import TimestampRangeFilter
-from google.cloud.bigtable.row_filters import ColumnRangeFilter
-from google.cloud.bigtable.row_filters import ValueRangeFilter
-from google.cloud.bigtable.row_filters import RowFilterChain
-from google.cloud.bigtable.row_filters import PassAllFilter
 from google.cloud.bigtable.row_filters import RowFilter
-from google.cloud.bigtable.row_filters import ConditionalRowFilter
-from google.cloud.bigtable.row_filters import ColumnQualifierRegexFilter
 from google.cloud.bigtable.column_family import MaxVersionsGCRule
 
 from . import attributes
