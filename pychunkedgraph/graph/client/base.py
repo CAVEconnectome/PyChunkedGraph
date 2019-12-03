@@ -41,8 +41,8 @@ class SimpleClient(ABC):
         """Locks nodes to prevent race conditions."""
 
     @abstractmethod
-    def lock_node(self, node_id):
-        """Locks node to prevent race conditions."""
+    def lock_node(self, node_id, operation_id):
+        """Locks node with operation_id to prevent race conditions."""
 
 
 class ClientWithIDGen(SimpleClient):

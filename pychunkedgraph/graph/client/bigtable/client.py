@@ -1,3 +1,4 @@
+import time
 import datetime
 from typing import Any
 from typing import Dict
@@ -6,6 +7,7 @@ from typing import Union
 from typing import Tuple
 from typing import Iterable
 from typing import Optional
+from typing import Sequence
 
 import numpy as np
 from multiwrapper import multiprocessing_utils as mu
@@ -18,7 +20,14 @@ from google.api_core.exceptions import DeadlineExceeded
 from google.api_core.exceptions import ServiceUnavailable
 from google.cloud.bigtable.table import Table
 from google.cloud.bigtable.row_set import RowSet
+from google.cloud.bigtable.row_data import PartialRowData
 from google.cloud.bigtable.row_filters import RowFilter
+from google.cloud.bigtable.row_filters import PassAllFilter
+from google.cloud.bigtable.row_filters import TimestampRange
+from google.cloud.bigtable.row_filters import RowFilterChain
+from google.cloud.bigtable.row_filters import ColumnRangeFilter
+from google.cloud.bigtable.row_filters import TimestampRangeFilter
+from google.cloud.bigtable.row_filters import ConditionalRowFilter
 from google.cloud.bigtable.column_family import MaxVersionsGCRule
 
 from . import attributes
@@ -26,12 +35,12 @@ from .utils import partial_row_data_to_column_dict
 from .utils import get_time_range_and_column_filter
 from ..base import ClientWithIDGen
 from ..base import ClientWithLogging
-from ..utils import pad_encode_uint64
 from ..serializers import serialize_uint64
 from ..serializers import deserialize_uint64
 from ... import exceptions
 from ... import basetypes
 from ...meta import ChunkedGraphMeta
+from ...utils.generic import get_valid_timestamp
 
 
 class BigTableClient(bigtable.Client, ClientWithIDGen, ClientWithLogging):
@@ -110,9 +119,119 @@ class BigTableClient(bigtable.Client, ClientWithIDGen, ClientWithLogging):
         """
         pass
 
+    def lock_node(self, node_id: np.uint64, operation_id: np.uint64) -> bool:
+        """ Attempts to lock the latest version of a root node
+        :param root_id: uint64
+        :param operation_id: uint64
+        :return: bool
+        """
+
+        lock_expiry = self.graph_meta.graph_config.ROOT_LOCK_EXPIRY
+        time_cutoff = datetime.datetime.utcnow() - lock_expiry
+        # Comply to resolution of BigTables TimeRange
+        time_cutoff -= datetime.timedelta(microseconds=time_cutoff.microsecond % 1000)
+        time_filter = TimestampRangeFilter(TimestampRange(start=time_cutoff))
+
+        # Build a column filter which tests if a lock was set (== lock column
+        # exists) and if it is still valid (timestamp younger than
+        # LOCK_EXPIRED_TIME_DELTA) and if there is no new parent (== new_parents
+        # exists)
+        lock_column = attributes.Concurrency.Lock
+        lock_key_filter = ColumnRangeFilter(
+            column_family_id=lock_column.family_id,
+            start_column=lock_column.key,
+            end_column=lock_column.key,
+            inclusive_start=True,
+            inclusive_end=True,
+        )
+
+        new_parents_column = attributes.Hierarchy.NewParent
+        new_parents_key_filter = ColumnRangeFilter(
+            column_family_id=new_parents_column.family_id,
+            start_column=new_parents_column.key,
+            end_column=new_parents_column.key,
+            inclusive_start=True,
+            inclusive_end=True,
+        )
+
+        # Combine filters together
+        chained_filter = RowFilterChain([time_filter, lock_key_filter])
+        combined_filter = ConditionalRowFilter(
+            base_filter=chained_filter,
+            true_filter=PassAllFilter(True),
+            false_filter=new_parents_key_filter,
+        )
+
+        # Get conditional row using the chained filter
+        root_row = self._table.row(serialize_uint64(node_id), filter_=combined_filter)
+
+        # Set row lock if condition returns no results (state == False)
+        time_stamp = get_valid_timestamp(None)
+        root_row.set_cell(
+            lock_column.family_id,
+            lock_column.key,
+            serialize_uint64(operation_id),
+            state=False,
+            timestamp=time_stamp,
+        )
+
+        # The lock was acquired when set_cell returns False (state)
+        lock_acquired = not root_row.commit()
+
+        # if not lock_acquired:
+        #     row = self._read_row(node_id, columns=lock_column)
+        #     l_operation_ids = [cell.value for cell in row]
+        #     self.logger.debug(f"Locked operation ids: {l_operation_ids}")
+        return lock_acquired
+
+    def lock_nodes(
+        self,
+        node_ids: Sequence[np.uint64],
+        operation_id: np.uint64,
+        max_tries: int = 1,
+        waittime_s: float = 0.5,
+    ):
+        """ Attempts to lock multiple nodes with same operation id
+        :return: bool, list of uint64s
+            success, latest root ids
+        """
+        i_try = 0
+        while i_try < max_tries:
+            lock_acquired = False
+            # Collect latest root ids
+            new_root_ids: List[np.uint64] = []
+            for idx in range(len(node_ids)):
+                future_root_ids = self.get_future_root_ids(node_ids[idx])
+                if len(future_root_ids) == 0:
+                    new_root_ids.append(node_ids[idx])
+                else:
+                    new_root_ids.extend(future_root_ids)
+
+            # Attempt to lock all latest root ids
+            node_ids = np.unique(new_root_ids)
+            for idx in range(len(node_ids)):
+                # self.logger.debug(
+                #     "operation id: %d - root id: %d"
+                #     % (operation_id, node_ids[idx])
+                # )
+                lock_acquired = self.lock_node(node_ids[idx], operation_id)
+                # Roll back locks if one root cannot be locked
+                if not lock_acquired:
+                    for j_root_id in range(len(node_ids)):
+                        self.unlock_root(node_ids[j_root_id], operation_id)
+                    break
+
+            if lock_acquired:
+                return True, node_ids
+
+            time.sleep(waittime_s)
+            i_try += 1
+            self.logger.debug(f"Try {i_try}")
+        return False, node_ids
+
     def create_node_ids(self, chunk_id: np.uint64, size: int) -> np.ndarray:
         """Returns a list of unique node IDs for the given chunk."""
-        low, high = self._get_ids_range(pad_encode_uint64(chunk_id), size)
+        low, high = self._get_ids_range(serialize_uint64(chunk_id), size)
         ids = np.arange(low, high + np.uint64(1), dtype=basetypes.SEGMENT_ID)
         return np.array([chunk_id | seg_id for seg_id in ids], dtype=np.uint64)
 
@@ -123,7 +242,7 @@ class BigTableClient(bigtable.Client, ClientWithIDGen, ClientWithLogging):
     def get_max_node_id(self, chunk_id: np.uint64):
         """Gets the current maximum node ID in the chunk."""
         column = attributes.Concurrency.Counter
-        row = self._read_row(pad_encode_uint64(chunk_id), columns=column)
+        row = self._read_row(serialize_uint64(chunk_id), columns=column)
         seg_id = basetypes.SEGMENT_ID.type(row[0].value if row else 0)
         return chunk_id | seg_id
 
