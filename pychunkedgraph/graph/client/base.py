@@ -38,17 +38,6 @@ class SimpleClient(ABC):
         """
 
     @abstractmethod
-    def read_node(
-        self,
-        node_id: np.uint64,
-        properties=None,
-        start_time=None,
-        end_time=None,
-        end_time_inclusive=False,
-    ):
-        """Read a single node and it's properties."""
-
-    @abstractmethod
     def write_nodes(self, nodes):
         """
         Writes/updates nodes (IDs along with properties).

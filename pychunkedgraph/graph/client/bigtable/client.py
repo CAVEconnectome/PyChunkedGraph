@@ -87,17 +87,6 @@ class BigTableClient(bigtable.Client, ClientWithIDGen):
         """
         pass
 
-    def read_node(
-        self,
-        node_id: np.uint64,
-        properties=None,
-        start_time=None,
-        end_time=None,
-        end_time_inclusive=False,
-    ):
-        """Read a single node and it's properties."""
-        pass
-
     def write_nodes(self, nodes, root_ids, operation_id):
         """
         Writes/updates nodes (IDs along with properties)
@@ -124,11 +113,13 @@ class BigTableClient(bigtable.Client, ClientWithIDGen):
 
     def create_operation_id(self):
         """Generate a unique operation ID."""
-        pass
+        return self._get_ids_range(attributes.OperationLogs.key, 1)[1]
 
     def get_max_operation_id(self):
         """Gets the current maximum operation ID."""
-        pass
+        column = attributes.Concurrency.Counter
+        row = self._read_row(attributes.OperationLogs.key, columns=column)
+        return row[0].value if row else column.basetype(0)
 
     def _create_column_families(self):
         # TODO hardcoded, not good
@@ -420,24 +411,6 @@ class BigTableClient(bigtable.Client, ClientWithIDGen):
 
 
 a = BigTableClient()
-
-# def get_unique_operation_id(self) -> np.uint64:
-#     """ Finds a unique operation id atomic counter
-#     Operations essentially live in layer 0. Even if segmentation ids might
-#     live in layer 0 one day, they would not collide with the operation ids
-#     because we write information belonging to operations in a separate
-#     family id.
-#     :return: str
-#     """
-#     column = column_keys.Concurrency.CounterID
-#     append_row = self.table.row(row_keys.OperationID, append=True)
-#     append_row.increment_cell_value(column.family_id, column.key, 1)
-
-#     # This increments the row entry and returns the value AFTER incrementing
-#     latest_row = append_row.commit()
-#     operation_id_b = latest_row[column.family_id][column.key][0][0]
-#     operation_id = column.deserialize(operation_id_b)
-#     return np.uint64(operation_id)
 
 
 # def get_max_operation_id(self) -> np.int64:
