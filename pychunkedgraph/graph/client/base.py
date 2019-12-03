@@ -1,10 +1,5 @@
 from abc import ABC
 from abc import abstractmethod
-from typing import Dict
-from typing import List
-from typing import Union
-from typing import Optional
-from typing import Iterable
 
 import numpy as np
 
@@ -48,7 +43,7 @@ class SimpleClient(ABC):
 
 class ClientWithIDGen(SimpleClient):
     """
-    Abstract class for client to backend data store that has support for creating IDs.
+    Abstract class for client to backend data store that has support for generating IDs.
     Eg., BigTableClient has locking and concurrency support to generate unique IDs.
     """
 
@@ -71,4 +66,18 @@ class ClientWithIDGen(SimpleClient):
     @abstractmethod
     def get_max_operation_id(self):
         """Gets the current maximum operation ID."""
+
+
+class ClientWithLogging(SimpleClient):
+    """
+    Abstract class for client to backend data store that has support for generating IDs.
+    Eg., BigTableClient has locking and concurrency support to generate unique IDs.
+    """
+
+    @abstractmethod
+    def read_logs(self, operation_ids=None):
+        """
+        Read log entries of given operation IDs.
+        If None, reads all log entires.
+        """
 

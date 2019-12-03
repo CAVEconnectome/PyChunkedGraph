@@ -40,6 +40,7 @@ from .edges.utils import concatenate_chunk_edges
 from .edges.utils import filter_edges
 from .edges.utils import get_active_edges
 from .chunks.utils import compute_chunk_id
+from .chunks.utils import get_chunk_coordinates_from_vol_coordinates
 from ..io.edges import get_chunk_edges
 
 
@@ -280,7 +281,7 @@ class ChunkedGraph:
 
     def range_read_chunk(
         self,
-        chunk_id:np.uint64,
+        chunk_id: np.uint64,
         columns: Optional[
             Union[Iterable[column_keys._Column], column_keys._Column]
         ] = None,
@@ -450,36 +451,6 @@ class ChunkedGraph:
             if len(log_row) > 0:
                 return log_row
         return None
-
-    def get_atomic_cross_edge_dict(
-        self, node_id: np.uint64, layer_ids: Sequence[int] = None
-    ):
-        """ Extracts all atomic cross edges and serves them as a dictionary
-        :param node_id: np.uint64
-        :param layer_ids: list of ints
-        :return: dict
-        """
-        if isinstance(layer_ids, int):
-            layer_ids = [layer_ids]
-
-        if layer_ids is None:
-            layer_ids = list(range(2, self.n_layers))
-
-        if not layer_ids:
-            return {}
-
-        columns = [column_keys.Connectivity.CrossChunkEdge[l] for l in layer_ids]
-        row = self.read_node_id_row(node_id, columns=columns)
-        if not row:
-            return {}
-
-        atomic_cross_edges = {}
-        for l in layer_ids:
-            column = column_keys.Connectivity.CrossChunkEdge[l]
-            atomic_cross_edges[l] = []
-            if column in row:
-                atomic_cross_edges[l] = row[column][0].value
-        return atomic_cross_edges
 
     def get_parents(
         self,
@@ -1265,14 +1236,16 @@ class ChunkedGraph:
             return None
 
         if bb_is_coordinate:
-            bounding_box[0] = self.get_chunk_coordinates_from_vol_coordinates(
+            bounding_box[0] = get_chunk_coordinates_from_vol_coordinates(
+                self.meta,
                 bounding_box[0][0],
                 bounding_box[0][1],
                 bounding_box[0][2],
                 resolution=self.cv.resolution,
                 ceil=False,
             )
-            bounding_box[1] = self.get_chunk_coordinates_from_vol_coordinates(
+            bounding_box[1] = get_chunk_coordinates_from_vol_coordinates(
+                self.meta,
                 bounding_box[1][0],
                 bounding_box[1][1],
                 bounding_box[1][2],

@@ -135,7 +135,7 @@ class Hierarchy:
 
 
 class GraphMeta:
-    # for the lack of better names
+    # needs better naming
     key = b"meta"
     Meta = _Attribute(key=b"meta", family_id="0", serializer=serializers.JSON())
 

@@ -25,6 +25,7 @@ from . import attributes
 from .utils import partial_row_data_to_column_dict
 from .utils import get_time_range_and_column_filter
 from ..base import ClientWithIDGen
+from ..base import ClientWithLogging
 from ..utils import pad_encode_uint64
 from ..serializers import serialize_uint64
 from ..serializers import deserialize_uint64
@@ -33,7 +34,7 @@ from ... import basetypes
 from ...meta import ChunkedGraphMeta
 
 
-class BigTableClient(bigtable.Client, ClientWithIDGen):
+class BigTableClient(bigtable.Client, ClientWithIDGen, ClientWithLogging):
     def __init__(
         self, graph_meta: ChunkedGraphMeta = None,
     ):
@@ -135,6 +136,9 @@ class BigTableClient(bigtable.Client, ClientWithIDGen):
         column = attributes.Concurrency.Counter
         row = self._read_row(attributes.OperationLogs.key, columns=column)
         return row[0].value if row else column.basetype(0)
+
+    def read_logs(self, operations_ids: List[np.uint64]):
+        pass
 
     def _create_column_families(self):
         # TODO hardcoded, not good

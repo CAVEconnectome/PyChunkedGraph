@@ -2,6 +2,7 @@ from typing import Sequence
 
 import numpy as np
 
+from ..meta import ChunkedGraphMeta
 
 def get_chunks_boundary(voxel_boundary, chunk_size) -> np.ndarray:
     """returns number of chunks in each dimension"""
@@ -34,7 +35,7 @@ def compute_chunk_id(
 
 
 def get_chunk_coordinates_from_vol_coordinates(
-    self,
+    meta: ChunkedGraphMeta,
     x: np.int,
     y: np.int,
     z: np.int,
@@ -51,6 +52,7 @@ def get_chunk_coordinates_from_vol_coordinates(
     :param layer: int
     :return:
     """
+    # TODO pass meta
     resolution = np.array(resolution)
     scaling = np.array(self.cv.resolution / resolution, dtype=np.int)
 

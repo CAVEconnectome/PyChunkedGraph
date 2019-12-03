@@ -84,6 +84,15 @@ class UInt64String(_Serializer):
         )
 
 
+def pad_node_id(node_id: np.uint64) -> str:
+    """ Pad node id to 20 digits
+
+    :param node_id: int
+    :return: str
+    """
+    return "%.20d" % node_id
+
+
 def serialize_uint64(node_id: np.uint64) -> bytes:
     """ Serializes an id to be ingested by a bigtable table row
 
