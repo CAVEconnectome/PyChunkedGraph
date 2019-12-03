@@ -8,6 +8,8 @@ from typing import Tuple
 from typing import Iterable
 from typing import Optional
 from typing import Sequence
+from datetime import datetime
+from datetime import timedelta
 
 import numpy as np
 from multiwrapper import multiprocessing_utils as mu
@@ -128,9 +130,9 @@ class BigTableClient(bigtable.Client, ClientWithIDGen, ClientWithLogging):
         :return: bool
         """
         lock_expiry = self.graph_meta.graph_config.ROOT_LOCK_EXPIRY
-        time_cutoff = datetime.datetime.utcnow() - lock_expiry
+        time_cutoff = datetime.utcnow() - lock_expiry
         # Comply to resolution of BigTables TimeRange
-        time_cutoff -= datetime.timedelta(microseconds=time_cutoff.microsecond % 1000)
+        time_cutoff -= timedelta(microseconds=time_cutoff.microsecond % 1000)
         time_filter = TimestampRangeFilter(TimestampRange(start=time_cutoff))
 
         # Build a column filter which tests if a lock was set (== lock column
@@ -234,9 +236,9 @@ class BigTableClient(bigtable.Client, ClientWithIDGen, ClientWithLogging):
         """Unlocks node that is locked with operation_id."""
 
         lock_expiry = self.graph_meta.graph_config.ROOT_LOCK_EXPIRY
-        time_cutoff = datetime.datetime.utcnow() - lock_expiry
+        time_cutoff = datetime.utcnow() - lock_expiry
         # Comply to resolution of BigTables TimeRange
-        time_cutoff -= datetime.timedelta(microseconds=time_cutoff.microsecond % 1000)
+        time_cutoff -= timedelta(microseconds=time_cutoff.microsecond % 1000)
         time_filter = TimestampRangeFilter(TimestampRange(start=time_cutoff))
 
         # Build a column filter which tests if a lock was set (== lock column
@@ -340,8 +342,8 @@ class BigTableClient(bigtable.Client, ClientWithIDGen, ClientWithLogging):
         columns: Optional[
             Union[Iterable[attributes._Attribute], attributes._Attribute]
         ] = None,
-        start_time: Optional[datetime.datetime] = None,
-        end_time: Optional[datetime.datetime] = None,
+        start_time: Optional[datetime] = None,
+        end_time: Optional[datetime] = None,
         end_time_inclusive: bool = False,
     ) -> Dict[
         bytes,
@@ -367,9 +369,9 @@ class BigTableClient(bigtable.Client, ClientWithIDGen, ClientWithLogging):
                 Optional filtering by columns to speed up the query. If `columns` is a single
                 column (not iterable), the column key will be omitted from the result.
                 (default: {None})
-            start_time {Optional[datetime.datetime]} -- Ignore cells with timestamp before
+            start_time {Optional[datetime]} -- Ignore cells with timestamp before
                 `start_time`. If None, no lower bound. (default: {None})
-            end_time {Optional[datetime.datetime]} -- Ignore cells with timestamp after `end_time`.
+            end_time {Optional[datetime]} -- Ignore cells with timestamp after `end_time`.
                 If None, no upper bound. (default: {None})
             end_time_inclusive {bool} -- Whether or not `end_time` itself should be included in the
                 request, ignored if `end_time` is None. (default: {False})
@@ -380,7 +382,7 @@ class BigTableClient(bigtable.Client, ClientWithIDGen, ClientWithLogging):
                 Returns a dictionary of `byte` rows as keys. Their value will be a mapping of
                 columns to a List of cells (one cell per timestamp). Each cell has a `value`
                 property, which returns the deserialized field, and a `timestamp` property, which
-                returns the timestamp as `datetime.datetime` object.
+                returns the timestamp as `datetime` object.
                 If only a single `column_keys._Column` was requested, the List of cells will be
                 attached to the row dictionary directly (skipping the column dictionary).
         """
@@ -428,8 +430,8 @@ class BigTableClient(bigtable.Client, ClientWithIDGen, ClientWithLogging):
         columns: Optional[
             Union[Iterable[attributes._Attribute], attributes._Attribute]
         ] = None,
-        start_time: Optional[datetime.datetime] = None,
-        end_time: Optional[datetime.datetime] = None,
+        start_time: Optional[datetime] = None,
+        end_time: Optional[datetime] = None,
         end_time_inclusive: bool = False,
     ) -> Union[
         Dict[attributes._Attribute, List[bigtable.row_data.Cell]],
@@ -445,9 +447,9 @@ class BigTableClient(bigtable.Client, ClientWithIDGen, ClientWithLogging):
                 Optional filtering by columns to speed up the query. If `columns` is a single
                 column (not iterable), the column key will be omitted from the result.
                 (default: {None})
-            start_time {Optional[datetime.datetime]} -- Ignore cells with timestamp before
+            start_time {Optional[datetime]} -- Ignore cells with timestamp before
                 `start_time`. If None, no lower bound. (default: {None})
-            end_time {Optional[datetime.datetime]} -- Ignore cells with timestamp after `end_time`.
+            end_time {Optional[datetime]} -- Ignore cells with timestamp after `end_time`.
                 If None, no upper bound. (default: {None})
             end_time_inclusive {bool} -- Whether or not `end_time` itself should be included in the
                 request, ignored if `end_time` is None. (default: {False})
@@ -457,7 +459,7 @@ class BigTableClient(bigtable.Client, ClientWithIDGen, ClientWithLogging):
                   List[bigtable.row_data.Cell]] --
                 Returns a mapping of columns to a List of cells (one cell per timestamp). Each cell
                 has a `value` property, which returns the deserialized field, and a `timestamp`
-                property, which returns the timestamp as `datetime.datetime` object.
+                property, which returns the timestamp as `datetime` object.
                 If only a single `column_keys._Column` was requested, the List of cells is returned
                 directly.
         """
@@ -577,7 +579,7 @@ class BigTableClient(bigtable.Client, ClientWithIDGen, ClientWithLogging):
         self,
         row_key: bytes,
         val_dict: Dict[attributes._Attribute, Any],
-        time_stamp: Optional[datetime.datetime] = None,
+        time_stamp: Optional[datetime] = None,
     ) -> bigtable.row.Row:
         """ Mutates a single row (doesn't actually write to big table)
         :param row_key: serialized bigtable row key
