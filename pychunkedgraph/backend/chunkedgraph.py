@@ -3781,7 +3781,9 @@ class ChunkedGraph(object):
                 cur_second_node_parent = self.get_parent(cur_second_node_parent)
         return None
 
-    def get_children_at_layer(self, agglomeration_id: np.uint64, layer: int):
+    def get_children_at_layer(
+        self, agglomeration_id: np.uint64, layer: int, allow_lower_layers: bool = False
+    ):
         """
         Get the children of agglomeration_id that have layer = layer.
 
@@ -3794,7 +3796,10 @@ class ChunkedGraph(object):
         while True:
             children = self.get_children(nodes_to_query, flatten=True)
             children_layers = self.get_chunk_layers(children)
-            stop_layer_mask = children_layers == layer
+            if allow_lower_layers:
+                stop_layer_mask = children_layers <= layer
+            else:
+                stop_layer_mask = children_layers == layer
             continue_layer_mask = children_layers > layer
             found_children_at_layer = children[stop_layer_mask]
             children_at_layer.append(found_children_at_layer)
