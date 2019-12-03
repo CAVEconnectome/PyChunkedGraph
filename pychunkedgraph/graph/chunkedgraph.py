@@ -40,7 +40,7 @@ from .edges.utils import concatenate_chunk_edges
 from .edges.utils import filter_edges
 from .edges.utils import get_active_edges
 from .chunks.utils import compute_chunk_id
-from .chunks.utils import get_chunk_coordinates_from_vol_coordinates
+from .utils.generic import normalize_bounding_box
 from ..io.edges import get_chunk_edges
 
 
@@ -1229,34 +1229,6 @@ class ChunkedGraph:
             "split_edges": np.array(split_history),
         }
 
-    def normalize_bounding_box(
-        self, bounding_box: Optional[Sequence[Sequence[int]]], bb_is_coordinate: bool
-    ) -> Union[Sequence[Sequence[int]], None]:
-        # TODO move this to utils
-        if bounding_box is None:
-            return None
-
-        if bb_is_coordinate:
-            bounding_box[0] = get_chunk_coordinates_from_vol_coordinates(
-                self.meta,
-                bounding_box[0][0],
-                bounding_box[0][1],
-                bounding_box[0][2],
-                resolution=self.cv.resolution,
-                ceil=False,
-            )
-            bounding_box[1] = get_chunk_coordinates_from_vol_coordinates(
-                self.meta,
-                bounding_box[1][0],
-                bounding_box[1][1],
-                bounding_box[1][2],
-                resolution=self.cv.resolution,
-                ceil=True,
-            )
-            return bounding_box
-        else:
-            return np.array(bounding_box, dtype=np.int)
-
     def _get_subgraph_higher_layer_nodes(
         self,
         node_id: np.uint64,
@@ -1397,7 +1369,7 @@ class ChunkedGraph:
         for agglomeration_id in agglomeration_ids:
             layer_nodes_d = self._get_subgraph_higher_layer_nodes(
                 node_id=agglomeration_id,
-                bounding_box=self.normalize_bounding_box(bbox, bbox_is_coordinate),
+                bounding_box=normalize_bounding_box(bbox, bbox_is_coordinate),
                 return_layers=[2],
                 verbose=False,
             )
@@ -1458,7 +1430,7 @@ class ChunkedGraph:
             return self.get_children(node_ids, flatten=True)
 
         stop_layer = np.min(return_layers)
-        bounding_box = self.normalize_bounding_box(bounding_box, bb_is_coordinate)
+        bounding_box = normalize_bounding_box(bounding_box, bb_is_coordinate)
 
         # Layer 3+
         if stop_layer >= 2:

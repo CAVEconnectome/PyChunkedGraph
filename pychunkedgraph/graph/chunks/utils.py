@@ -1,8 +1,11 @@
+from typing import Union
+from typing import Optional
 from typing import Sequence
 
 import numpy as np
 
 from ..meta import ChunkedGraphMeta
+
 
 def get_chunks_boundary(voxel_boundary, chunk_size) -> np.ndarray:
     """returns number of chunks in each dimension"""
@@ -34,7 +37,37 @@ def compute_chunk_id(
     )
 
 
-def get_chunk_coordinates_from_vol_coordinates(
+def normalize_bounding_box(
+    meta: ChunkedGraphMeta,
+    bounding_box: Optional[Sequence[Sequence[int]]],
+    bb_is_coordinate: bool,
+) -> Union[Sequence[Sequence[int]], None]:
+    if bounding_box is None:
+        return None
+
+    if bb_is_coordinate:
+        bounding_box[0] = _get_chunk_coordinates_from_vol_coordinates(
+            meta,
+            bounding_box[0][0],
+            bounding_box[0][1],
+            bounding_box[0][2],
+            resolution=meta._ws_cv.resolution,
+            ceil=False,
+        )
+        bounding_box[1] = _get_chunk_coordinates_from_vol_coordinates(
+            meta,
+            bounding_box[1][0],
+            bounding_box[1][1],
+            bounding_box[1][2],
+            resolution=meta._ws_cv.resolution,
+            ceil=True,
+        )
+        return bounding_box
+    else:
+        return np.array(bounding_box, dtype=np.int)
+
+
+def _get_chunk_coordinates_from_vol_coordinates(
     meta: ChunkedGraphMeta,
     x: np.int,
     y: np.int,
@@ -52,13 +85,13 @@ def get_chunk_coordinates_from_vol_coordinates(
     :param layer: int
     :return:
     """
-    # TODO pass meta
     resolution = np.array(resolution)
-    scaling = np.array(self.cv.resolution / resolution, dtype=np.int)
+    scaling = np.array(meta._ws_cv.resolution / resolution, dtype=np.int)
 
-    x = (x / scaling[0] - self.vx_vol_bounds[0, 0]) / self.chunk_size[0]
-    y = (y / scaling[1] - self.vx_vol_bounds[1, 0]) / self.chunk_size[1]
-    z = (z / scaling[2] - self.vx_vol_bounds[2, 0]) / self.chunk_size[2]
+    chunk_size = meta.graph_config.CHUNK_SIZE
+    x = (x / scaling[0] - meta.voxel_bounds[0, 0]) / chunk_size[0]
+    y = (y / scaling[1] - meta.voxel_bounds[1, 0]) / chunk_size[1]
+    z = (z / scaling[2] - meta.voxel_bounds[2, 0]) / chunk_size[2]
 
     x /= meta.graph_config.FANOUT ** (max(layer - 2, 0))
     y /= meta.graph_config.FANOUT ** (max(layer - 2, 0))
