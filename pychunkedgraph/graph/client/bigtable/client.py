@@ -1,6 +1,7 @@
 import datetime
 from typing import Any
 from typing import Dict
+from typing import List
 from typing import Union
 from typing import Tuple
 from typing import Iterable
@@ -117,7 +118,7 @@ class BigTableClient(bigtable.Client, ClientWithIDGen):
     def get_max_node_id(self, chunk_id: np.uint64):
         """Gets the current maximum node ID in the chunk."""
         column = attributes.Concurrency.Counter
-        row = self._read_rows(pad_encode_uint64(chunk_id), columns=column)
+        row = self._read_row(pad_encode_uint64(chunk_id), columns=column)
         seg_id = basetypes.SEGMENT_ID.type(row[0].value if row else 0)
         return chunk_id | seg_id
 
@@ -168,7 +169,7 @@ class BigTableClient(bigtable.Client, ClientWithIDGen):
     ) -> Dict[
         bytes,
         Union[
-            Dict[column_keys._Column, List[bigtable.row_data.Cell]],
+            Dict[attributes._Attribute, List[bigtable.row_data.Cell]],
             List[bigtable.row_data.Cell],
         ],
     ]:
@@ -207,17 +208,8 @@ class BigTableClient(bigtable.Client, ClientWithIDGen):
                 attached to the row dictionary directly (skipping the column dictionary).
         """
 
-        # Create filters: Column and Time
-        filter_ = get_time_range_and_column_filter(
-            columns=columns,
-            start_time=start_time,
-            end_time=end_time,
-            end_inclusive=end_time_inclusive,
-        )
-
         # Create filters: Rows
         row_set = RowSet()
-
         if row_keys is not None:
             for row_key in row_keys:
                 row_set.add_row_key(row_key)
@@ -234,6 +226,12 @@ class BigTableClient(bigtable.Client, ClientWithIDGen):
                 " both, a start row and an end row."
             )
 
+        filter_ = get_time_range_and_column_filter(
+            columns=columns,
+            start_time=start_time,
+            end_time=end_time,
+            end_inclusive=end_time_inclusive,
+        )
         # Bigtable read with retries
         rows = self._read(row_set=row_set, row_filter=filter_)
 
@@ -247,6 +245,69 @@ class BigTableClient(bigtable.Client, ClientWithIDGen):
                 rows[row_key] = cell_entries
         return rows
 
+    def _read_row(
+        self,
+        row_key: bytes,
+        columns: Optional[
+            Union[Iterable[attributes._Attribute], attributes._Attribute]
+        ] = None,
+        start_time: Optional[datetime.datetime] = None,
+        end_time: Optional[datetime.datetime] = None,
+        end_time_inclusive: bool = False,
+    ) -> Union[
+        Dict[attributes._Attribute, List[bigtable.row_data.Cell]],
+        List[bigtable.row_data.Cell],
+    ]:
+        """Convenience function for reading a single row from Bigtable using its `bytes` keys.
+
+        Arguments:
+            row_key {bytes} -- The row to be read.
+
+        Keyword Arguments:
+            columns {Optional[Union[Iterable[column_keys._Column], column_keys._Column]]} --
+                Optional filtering by columns to speed up the query. If `columns` is a single
+                column (not iterable), the column key will be omitted from the result.
+                (default: {None})
+            start_time {Optional[datetime.datetime]} -- Ignore cells with timestamp before
+                `start_time`. If None, no lower bound. (default: {None})
+            end_time {Optional[datetime.datetime]} -- Ignore cells with timestamp after `end_time`.
+                If None, no upper bound. (default: {None})
+            end_time_inclusive {bool} -- Whether or not `end_time` itself should be included in the
+                request, ignored if `end_time` is None. (default: {False})
+
+        Returns:
+            Union[Dict[column_keys._Column, List[bigtable.row_data.Cell]],
+                  List[bigtable.row_data.Cell]] --
+                Returns a mapping of columns to a List of cells (one cell per timestamp). Each cell
+                has a `value` property, which returns the deserialized field, and a `timestamp`
+                property, which returns the timestamp as `datetime.datetime` object.
+                If only a single `column_keys._Column` was requested, the List of cells is returned
+                directly.
+        """
+        row = self._read_rows(
+            row_keys=[row_key],
+            columns=columns,
+            start_time=start_time,
+            end_time=end_time,
+            end_time_inclusive=end_time_inclusive,
+        )
+        return (
+            row.get(row_key, [])
+            if isinstance(columns, attributes._Attribute)
+            else row.get(row_key, {})
+        )
+
+    def _execute_read_thread(self, args: Tuple[Table, RowSet, RowFilter]):
+        table, row_set, row_filter = args
+        if not row_set.row_keys and not row_set.row_ranges:
+            # Check for everything falsy, because Bigtable considers even empty
+            # lists of row_keys as no upper/lower bound!
+            return {}
+
+        range_read = table.read_rows(row_set=row_set, filter_=row_filter)
+        res = {v.row_key: partial_row_data_to_column_dict(v) for v in range_read}
+        return res
+
     def _read(
         self, row_set: RowSet, row_filter: RowFilter = None
     ) -> Dict[bytes, Dict[attributes._Attribute, bigtable.row_data.PartialRowData]]:
@@ -255,18 +316,6 @@ class BigTableClient(bigtable.Client, ClientWithIDGen):
         :param row_filter: BigTable RowFilter
         :return: Dict[bytes, Dict[column_keys._Column, bigtable.row_data.PartialRowData]]
         """
-
-        def _execute_read_thread(args: Tuple[Table, RowSet, RowFilter]):
-            table, row_set, row_filter = args
-            if not row_set.row_keys and not row_set.row_ranges:
-                # Check for everything falsy, because Bigtable considers even empty
-                # lists of row_keys as no upper/lower bound!
-                return {}
-
-            range_read = table.read_rows(row_set=row_set, filter_=row_filter)
-            res = {v.row_key: partial_row_data_to_column_dict(v) for v in range_read}
-            return res
-
         # FIXME: Bigtable limits the length of the serialized request to 512 KiB. We should
         # calculate this properly (range_read.request.SerializeToString()), but this estimate is
         # good enough for now
@@ -285,7 +334,7 @@ class BigTableClient(bigtable.Client, ClientWithIDGen):
         # Don't forget the original RowSet's row_ranges
         row_sets[0].row_ranges = row_set.row_ranges
         responses = mu.multithread_func(
-            _execute_read_thread,
+            self._execute_read_thread,
             params=((self._table, r, row_filter) for r in row_sets),
             n_threads=n_threads,
         )
