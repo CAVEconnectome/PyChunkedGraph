@@ -34,11 +34,15 @@ class SimpleClient(ABC):
 
     @abstractmethod
     def write_nodes(self, nodes):
-        """
-        Writes/updates nodes (IDs along with properties).
-        Meant to be used when race conditions are not expected.
-        Eg., when creating the graph.
-        """
+        """Writes/updates nodes (IDs along with properties)."""
+
+    @abstractmethod
+    def lock_nodes(self, node_ids):
+        """Locks nodes to prevent race conditions."""
+
+    @abstractmethod
+    def lock_node(self, node_id):
+        """Locks node to prevent race conditions."""
 
 
 class ClientWithIDGen(SimpleClient):
@@ -69,10 +73,7 @@ class ClientWithIDGen(SimpleClient):
 
 
 class ClientWithLogging(SimpleClient):
-    """
-    Abstract class for client to backend data store that has support for generating IDs.
-    Eg., BigTableClient has locking and concurrency support to generate unique IDs.
-    """
+    """Abstract class for client to backend data store with support for logging."""
 
     @abstractmethod
     def read_logs(self, operation_ids=None):

@@ -60,9 +60,9 @@ def get_chunk_coordinates_from_vol_coordinates(
     y = (y / scaling[1] - self.vx_vol_bounds[1, 0]) / self.chunk_size[1]
     z = (z / scaling[2] - self.vx_vol_bounds[2, 0]) / self.chunk_size[2]
 
-    x /= self.fan_out ** (max(layer - 2, 0))
-    y /= self.fan_out ** (max(layer - 2, 0))
-    z /= self.fan_out ** (max(layer - 2, 0))
+    x /= meta.graph_config.FANOUT ** (max(layer - 2, 0))
+    y /= meta.graph_config.FANOUT ** (max(layer - 2, 0))
+    z /= meta.graph_config.FANOUT ** (max(layer - 2, 0))
 
     coords = np.array([x, y, z])
     if ceil:
