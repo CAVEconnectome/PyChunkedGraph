@@ -90,16 +90,27 @@ class ChunkedGraphMeta:
         return self._layer_count
 
     @property
+    def voxel_bounds(self):
+        return np.array(self._ws_cv.bounds.to_list()).reshape(2, -1).T
+
+    @property
+    def voxel_counts(self) -> Sequence[int]:
+        """returns number of voxels in each dimension"""
+        cv_bounds = np.array(self._ws_cv.bounds.to_list()).reshape(2, -1).T
+        voxel_counts = cv_bounds.copy()
+        voxel_counts -= cv_bounds[:, 0:1]
+        voxel_counts = voxel_counts[:, 1]
+        return voxel_counts
+
+    @property
     def layer_chunk_bounds(self) -> Dict:
         """number of chunks in each dimension in each layer {layer: [x,y,z]}"""
         if self._layer_bounds_d:
             return self._layer_bounds_d
 
-        voxels_boundary = self.get_voxels_boundary()
         chunks_boundary = get_chunks_boundary(
-            voxels_boundary, np.array(self._graph_config.chunk_size, dtype=int)
+            self.voxel_counts, np.array(self._graph_config.chunk_size, dtype=int)
         )
-
         layer_bounds_d = {}
         for layer in range(2, self.layer_count):
             layer_bounds = chunks_boundary / (2 ** (layer - 2))
@@ -160,11 +171,3 @@ class ChunkedGraphMeta:
         return np.any(chunk_coordinate < 0) or np.any(
             chunk_coordinate > 2 ** self._bitmasks[1]
         )
-
-    def get_voxels_boundary(self) -> Sequence[int]:
-        """returns number of voxels in each dimension"""
-        cv_bounds = np.array(self._ws_cv.bounds.to_list()).reshape(2, -1).T
-        voxel_counts = cv_bounds.copy()
-        voxel_counts -= cv_bounds[:, 0:1]
-        voxel_counts = voxel_counts[:, 1]
-        return voxel_counts
