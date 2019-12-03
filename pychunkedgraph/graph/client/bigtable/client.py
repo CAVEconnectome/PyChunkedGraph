@@ -66,6 +66,7 @@ class BigTableClient(bigtable.Client, ClientWithIDGen, ClientWithLogging):
         # read meta from table if None
         return self._graph_meta
 
+    # BASE
     def create_graph(self) -> None:
         """Initialize the graph and store associated meta."""
         config = self._graph_meta.graph_config
@@ -229,6 +230,16 @@ class BigTableClient(bigtable.Client, ClientWithIDGen, ClientWithLogging):
             self.logger.debug(f"Try {i_try}")
         return False, node_ids
 
+    def unlock_node(self, node_id: np.uint64, operation_id: np.uint64):
+        """Unlocks node that is locked with operation_id."""
+
+    def renew_lock(self, node_id: np.uint64, operation_id: np.uint64):
+        """Renews existing node lock with operation_id to extend time."""
+
+    def renew_locks(self, node_ids: np.uint64, operation_id: np.uint64):
+        """Renews existing node locks with operation_id to extend time."""
+
+    # IDs
     def create_node_ids(self, chunk_id: np.uint64, size: int) -> np.ndarray:
         """Returns a list of unique node IDs for the given chunk."""
         low, high = self._get_ids_range(serialize_uint64(chunk_id), size)
@@ -256,6 +267,7 @@ class BigTableClient(bigtable.Client, ClientWithIDGen, ClientWithLogging):
         row = self._read_row(attributes.OperationLogs.key, columns=column)
         return row[0].value if row else column.basetype(0)
 
+    # LOGGING
     def read_logs(self, operations_ids: List[np.uint64]):
         pass
 
