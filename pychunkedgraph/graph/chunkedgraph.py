@@ -40,7 +40,7 @@ from .edges.utils import concatenate_chunk_edges
 from .edges.utils import filter_edges
 from .edges.utils import get_active_edges
 from .chunks.utils import compute_chunk_id
-from .utils.generic import normalize_bounding_box
+from .chunks.utils import normalize_bounding_box
 from ..io.edges import get_chunk_edges
 
 
