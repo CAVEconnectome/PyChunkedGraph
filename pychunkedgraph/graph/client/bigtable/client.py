@@ -25,6 +25,7 @@ from google.cloud.bigtable.row_filters import RowFilter
 from google.cloud.bigtable.row_filters import PassAllFilter
 from google.cloud.bigtable.row_filters import TimestampRange
 from google.cloud.bigtable.row_filters import RowFilterChain
+from google.cloud.bigtable.row_filters import ValueRangeFilter
 from google.cloud.bigtable.row_filters import ColumnRangeFilter
 from google.cloud.bigtable.row_filters import TimestampRangeFilter
 from google.cloud.bigtable.row_filters import ConditionalRowFilter
@@ -126,7 +127,6 @@ class BigTableClient(bigtable.Client, ClientWithIDGen, ClientWithLogging):
         :param operation_id: uint64
         :return: bool
         """
-
         lock_expiry = self.graph_meta.graph_config.ROOT_LOCK_EXPIRY
         time_cutoff = datetime.datetime.utcnow() - lock_expiry
         # Comply to resolution of BigTables TimeRange
@@ -232,6 +232,42 @@ class BigTableClient(bigtable.Client, ClientWithIDGen, ClientWithLogging):
 
     def unlock_node(self, node_id: np.uint64, operation_id: np.uint64):
         """Unlocks node that is locked with operation_id."""
+
+        lock_expiry = self.graph_meta.graph_config.ROOT_LOCK_EXPIRY
+        time_cutoff = datetime.datetime.utcnow() - lock_expiry
+        # Comply to resolution of BigTables TimeRange
+        time_cutoff -= datetime.timedelta(microseconds=time_cutoff.microsecond % 1000)
+        time_filter = TimestampRangeFilter(TimestampRange(start=time_cutoff))
+
+        # Build a column filter which tests if a lock was set (== lock column
+        # exists) and if it is still valid (timestamp younger than
+        # LOCK_EXPIRED_TIME_DELTA) and if the given operation_id is still
+        # the active lock holder
+        lock_column = attributes.Concurrency.Lock
+        column_key_filter = ColumnRangeFilter(
+            column_family_id=lock_column.family_id,
+            start_column=lock_column.key,
+            end_column=lock_column.key,
+            inclusive_start=True,
+            inclusive_end=True,
+        )
+
+        value_filter = ValueRangeFilter(
+            start_value=lock_column.serialize(operation_id),
+            end_value=lock_column.serialize(operation_id),
+            inclusive_start=True,
+            inclusive_end=True,
+        )
+
+        # Chain these filters together
+        chained_filter = RowFilterChain([time_filter, column_key_filter, value_filter])
+
+        # Get conditional row using the chained filter
+        root_row = self._table.row(serialize_uint64(node_id), filter_=chained_filter)
+
+        # Delete row if conditions are met (state == True)
+        root_row.delete_cell(lock_column.family_id, lock_column.key, state=True)
+        return root_row.commit()
 
     def renew_lock(self, node_id: np.uint64, operation_id: np.uint64):
         """Renews existing node lock with operation_id to extend time."""
