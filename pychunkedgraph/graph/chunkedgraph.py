@@ -1232,6 +1232,7 @@ class ChunkedGraph:
     def normalize_bounding_box(
         self, bounding_box: Optional[Sequence[Sequence[int]]], bb_is_coordinate: bool
     ) -> Union[Sequence[Sequence[int]], None]:
+        # TODO move this to utils
         if bounding_box is None:
             return None
 
