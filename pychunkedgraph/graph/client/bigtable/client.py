@@ -410,17 +410,4 @@ class BigTableClient(bigtable.Client, ClientWithIDGen):
         return row
 
 
-a = BigTableClient()
-
-
-# def get_max_operation_id(self) -> np.int64:
-#     """  Gets maximal operation id based on the atomic counter
-#         This is an approximation. It is not guaranteed that all ids smaller or
-#         equal to this id exists. However, it is guaranteed that no larger id
-#         exist at the time this function is executed.
-#         :return: int64
-#         """
-#     column = column_keys.Concurrency.CounterID
-#     row = self.read_byte_row(row_keys.OperationID, columns=column)
-#     return row[0].value if row else column.basetype(0)
-
+test = BigTableClient()
