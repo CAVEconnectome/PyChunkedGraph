@@ -26,6 +26,8 @@ from .utils import partial_row_data_to_column_dict
 from .utils import get_time_range_and_column_filter
 from ..base import ClientWithIDGen
 from ..utils import pad_encode_uint64
+from ..serializers import serialize_uint64
+from ..serializers import deserialize_uint64
 from ... import exceptions
 from ... import basetypes
 from ...meta import ChunkedGraphMeta
@@ -75,6 +77,7 @@ class BigTableClient(bigtable.Client, ClientWithIDGen):
         self,
         start_id=None,
         end_id=None,
+        end_id_inclusive=False,
         node_ids=None,
         properties=None,
         start_time=None,
@@ -85,7 +88,19 @@ class BigTableClient(bigtable.Client, ClientWithIDGen):
         Read nodes and their properties.
         Accepts a range of node IDs or specific node IDs.
         """
-        pass
+        rows = self._read_rows(
+            start_key=serialize_uint64(start_id) if start_id is not None else None,
+            end_key=serialize_uint64(end_id) if end_id is not None else None,
+            end_key_inclusive=end_id_inclusive,
+            row_keys=(serialize_uint64(node_id) for node_id in node_ids)
+            if node_ids is not None
+            else None,
+            columns=properties,
+            start_time=start_time,
+            end_time=end_time,
+            end_time_inclusive=end_time_inclusive,
+        )
+        return {deserialize_uint64(row_key): data for (row_key, data) in rows.items()}
 
     def write_nodes(self, nodes, root_ids, operation_id):
         """
