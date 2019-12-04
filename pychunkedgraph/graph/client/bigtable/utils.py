@@ -5,6 +5,7 @@ from typing import Optional
 from datetime import datetime
 from datetime import timedelta
 
+import numpy as np
 from google.cloud.bigtable.row_data import PartialRowData
 from google.cloud.bigtable.row_filters import RowFilter
 from google.cloud.bigtable.row_filters import PassAllFilter
@@ -105,7 +106,6 @@ def get_time_range_and_column_filter(
     end_time: Optional[datetime] = None,
     end_inclusive: bool = False,
 ) -> RowFilter:
-
     time_filter = _get_time_range_filter(
         start_time=start_time, end_time=end_time, end_inclusive=end_inclusive
     )
@@ -115,4 +115,109 @@ def get_time_range_and_column_filter(
         return RowFilterChain([column_filter, time_filter])
     else:
         return time_filter
+
+
+def get_root_lock_filter(lock_column, lock_expiry) -> ConditionalRowFilter:
+    time_cutoff = datetime.utcnow() - lock_expiry
+    # Comply to resolution of BigTables TimeRange
+    time_cutoff -= timedelta(microseconds=time_cutoff.microsecond % 1000)
+    time_filter = TimestampRangeFilter(TimestampRange(start=time_cutoff))
+
+    # Build a column filter which tests if a lock was set (== lock column
+    # exists) and if it is still valid (timestamp younger than
+    # LOCK_EXPIRED_TIME_DELTA) and if there is no new parent (== new_parents
+    # exists)
+    lock_key_filter = ColumnRangeFilter(
+        column_family_id=lock_column.family_id,
+        start_column=lock_column.key,
+        end_column=lock_column.key,
+        inclusive_start=True,
+        inclusive_end=True,
+    )
+
+    new_parents_column = attributes.Hierarchy.NewParent
+    new_parents_key_filter = ColumnRangeFilter(
+        column_family_id=new_parents_column.family_id,
+        start_column=new_parents_column.key,
+        end_column=new_parents_column.key,
+        inclusive_start=True,
+        inclusive_end=True,
+    )
+
+    return ConditionalRowFilter(
+        base_filter=RowFilterChain([time_filter, lock_key_filter]),
+        true_filter=PassAllFilter(True),
+        false_filter=new_parents_key_filter,
+    )
+
+
+def get_renew_lock_filter(
+    lock_column: attributes._Attribute, operation_id: np.uint64
+) -> ConditionalRowFilter:
+    new_parents_column = attributes.Hierarchy.NewParent
+    operation_id_b = lock_column.serialize(operation_id)
+
+    # Build a column filter which tests if a lock was set (== lock column
+    # exists) and if the given operation_id is still the active lock holder
+    # and there is no new parent (== new_parents column exists). The latter
+    # is not necessary but we include it as a backup to prevent things
+    # from going really bad.
+
+    column_key_filter = ColumnRangeFilter(
+        column_family_id=lock_column.family_id,
+        start_column=lock_column.key,
+        end_column=lock_column.key,
+        inclusive_start=True,
+        inclusive_end=True,
+    )
+
+    value_filter = ValueRangeFilter(
+        start_value=operation_id_b,
+        end_value=operation_id_b,
+        inclusive_start=True,
+        inclusive_end=True,
+    )
+
+    new_parents_key_filter = ColumnRangeFilter(
+        column_family_id="0",  # TODO
+        start_column=new_parents_column.key,
+        end_column=new_parents_column.key,
+        inclusive_start=True,
+        inclusive_end=True,
+    )
+
+    return ConditionalRowFilter(
+        base_filter=RowFilterChain([column_key_filter, value_filter]),
+        true_filter=new_parents_key_filter,
+        false_filter=PassAllFilter(True),
+    )
+
+
+def get_unlock_root_filter(lock_column, lock_expiry, operation_id) -> RowFilterChain:
+    time_cutoff = datetime.utcnow() - lock_expiry
+    # Comply to resolution of BigTables TimeRange
+    time_cutoff -= timedelta(microseconds=time_cutoff.microsecond % 1000)
+    time_filter = TimestampRangeFilter(TimestampRange(start=time_cutoff))
+
+    # Build a column filter which tests if a lock was set (== lock column
+    # exists) and if it is still valid (timestamp younger than
+    # LOCK_EXPIRED_TIME_DELTA) and if the given operation_id is still
+    # the active lock holder
+    column_key_filter = ColumnRangeFilter(
+        column_family_id=lock_column.family_id,
+        start_column=lock_column.key,
+        end_column=lock_column.key,
+        inclusive_start=True,
+        inclusive_end=True,
+    )
+
+    value_filter = ValueRangeFilter(
+        start_value=lock_column.serialize(operation_id),
+        end_value=lock_column.serialize(operation_id),
+        inclusive_start=True,
+        inclusive_end=True,
+    )
+
+    # Chain these filters together
+    return RowFilterChain([time_filter, column_key_filter, value_filter])
 
