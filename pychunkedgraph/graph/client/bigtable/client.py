@@ -221,7 +221,7 @@ class BigTableClient(bigtable.Client, ClientWithIDGen, ClientWithLogging):
                 # Roll back locks if one root cannot be locked
                 if not lock_acquired:
                     for j_root_id in range(len(node_ids)):
-                        self.unlock_root(node_ids[j_root_id], operation_id)
+                        self.unlock_node(node_ids[j_root_id], operation_id)
                     break
 
             if lock_acquired:
@@ -309,17 +309,15 @@ class BigTableClient(bigtable.Client, ClientWithIDGen, ClientWithLogging):
     def read_logs(self, operations_ids: List[np.uint64]):
         pass
 
+    # PRIVATE METHODS
     def _create_column_families(self):
         # TODO hardcoded, not good
         f = self._table.column_family("0")
         f.create()
-
         f = self._table.column_family("1", gc_rule=MaxVersionsGCRule(1))
         f.create()
-
         f = self._table.column_family("2")
         f.create()
-
         f = self._table.column_family("3", gc_rule=MaxVersionsGCRule(1))
         f.create()
 
@@ -560,13 +558,13 @@ class BigTableClient(bigtable.Client, ClientWithIDGen, ClientWithLogging):
             deadline=self.graph_meta.graph_config.ROOT_LOCK_EXPIRY.seconds,
         )
 
-        # if root_ids is not None and operation_id is not None:
-        #     if isinstance(root_ids, int):
-        #         root_ids = [root_ids]
-        #     if not self.check_and_renew_root_locks(root_ids, operation_id):
-        #         raise exceptions.LockingError(
-        #             f"Root lock renewal failed: operation {operation_id}"
-        #         )
+        if root_ids is not None and operation_id is not None:
+            if isinstance(root_ids, int):
+                root_ids = [root_ids]
+            if not self.check_and_renew_root_locks(root_ids, operation_id):
+                raise exceptions.LockingError(
+                    f"Root lock renewal failed: operation {operation_id}"
+                )
 
         for i in range(0, len(rows), block_size):
             status = self._table.mutate_rows(rows[i : i + block_size], retry=retry)

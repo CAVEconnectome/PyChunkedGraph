@@ -60,7 +60,8 @@ class SimpleClient(ABC):
 class ClientWithIDGen(SimpleClient):
     """
     Abstract class for client to backend data store that has support for generating IDs.
-    Eg., BigTableClient has locking and concurrency support to generate unique IDs.
+    If not, something else can be used but these methods need to be implemented.
+    Eg., Big Table row cells can be used to generate unique IDs.
     """
 
     @abstractmethod
