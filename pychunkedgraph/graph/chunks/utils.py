@@ -102,16 +102,16 @@ def _get_chunk_coordinates_from_vol_coordinates(
     return coords.astype(np.int)
 
 
-def get_chunk_layer(graph_config: GraphConfig, node_or_chunk_id: np.uint64) -> int:
+def get_chunk_layer(meta: ChunkedGraphMeta, node_or_chunk_id: np.uint64) -> int:
     """ Extract Layer from Node ID or Chunk ID
     :param node_or_chunk_id: np.uint64
     :return: int
     """
-    return int(int(node_or_chunk_id) >> 64 - graph_config.LAYER_ID_BITS)
+    return int(int(node_or_chunk_id) >> 64 - meta.graph_config.LAYER_ID_BITS)
 
 
 def get_chunk_layers(
-    graph_config: GraphConfig, node_or_chunk_ids: Sequence[np.uint64]
+    meta: ChunkedGraphMeta, node_or_chunk_ids: Sequence[np.uint64]
 ) -> np.ndarray:
     """ Extract Layers from Node IDs or Chunk IDs
     :param node_or_chunk_ids: np.ndarray
@@ -119,7 +119,7 @@ def get_chunk_layers(
     """
     if len(node_or_chunk_ids) == 0:
         return np.array([], dtype=np.int)
-    return np.vectorize(get_chunk_layer)(graph_config, node_or_chunk_ids)
+    return np.vectorize(get_chunk_layer)(meta, node_or_chunk_ids)
 
 
 def get_chunk_coordinates(
