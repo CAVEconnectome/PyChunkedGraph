@@ -96,8 +96,16 @@ def handle_get_manifest(table_id, node_id):
 
     filenames = [meshgen_utils.get_mesh_name(cg, s) for s in seg_ids]
 
+    resp = {
+        "fragments": filenames
+    }
+
     if "return_seg_id_layers" in data:
         if app_utils.toboolean(data["return_seg_id_layers"]):
-            return jsonify(fragments=filenames, seg_id_layers=cg.get_chunk_layers(seg_ids))
+            resp["seg_id_layers"] = cg.get_chunk_layers(seg_ids)
 
-    return jsonify(fragments=filenames)
+    if "return_seg_chunk_coordinates" in data:
+        if app_utils.toboolean(data["return_seg_chunk_coordinates"]):
+            resp["seg_chunk_coordinates"] = [cg.get_chunk_coordinates(seg_id) for seg_id in seg_ids]
+
+    return resp
