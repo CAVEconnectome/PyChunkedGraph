@@ -77,50 +77,12 @@ class ChunkedGraph:
         else:
             self.logger = logger
 
-        # Vectorized calls
-        self._get_chunk_id_vec = np.vectorize(self.get_chunk_id)
-
         self.meta = meta
-
         self.chunk_layer = chunk_utils.get_chunk_layer
         self.chunk_layers = chunk_utils.get_chunk_layers
         self.chunk_coordinates = chunk_utils.get_chunk_coordinates
-
-    def get_chunk_id(
-        self,
-        node_id: Optional[np.uint64] = None,
-        layer: Optional[int] = None,
-        x: Optional[int] = None,
-        y: Optional[int] = None,
-        z: Optional[int] = None,
-    ) -> np.uint64:
-        """ (1) Extract Chunk ID from Node ID
-            (2) Build Chunk ID from Layer, X, Y and Z components
-        :param node_id: np.uint64
-        :param layer: int
-        :param x: int
-        :param y: int
-        :param z: int
-        :return: np.uint64
-        """
-        assert node_id is not None or all(v is not None for v in [layer, x, y, z])
-        if node_id is not None:
-            layer = self.get_chunk_layer(node_id)
-        bits_per_dim = self.bitmasks[layer]
-
-        if node_id is not None:
-            chunk_offset = 64 - self._n_bits_for_layer_id - 3 * bits_per_dim
-            return np.uint64((int(node_id) >> chunk_offset) << chunk_offset)
-        return chunk_utils.compute_chunk_id(self.meta.graph_config, layer, x, y, z)
-
-    def get_chunk_ids_from_node_ids(self, node_ids: Iterable[np.uint64]) -> np.ndarray:
-        """ Extract a list of Chunk IDs from a list of Node IDs
-        :param node_ids: np.ndarray(dtype=np.uint64)
-        :return: np.ndarray(dtype=np.uint64)
-        """
-        if len(node_ids) == 0:
-            return np.array([], dtype=np.int)
-        return self._get_chunk_id_vec(node_ids)
+        self.chunk_id = chunk_utils.get_chunk_id
+        self.chunk_ids_from_node_ids = chunk_utils.get_chunk_ids_from_node_ids
 
     def get_child_chunk_ids(self, node_or_chunk_id: np.uint64) -> np.ndarray:
         """ Calculates the ids of the children chunks in the next lower layer

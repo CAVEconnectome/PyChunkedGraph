@@ -1,6 +1,7 @@
 from typing import Union
 from typing import Optional
 from typing import Sequence
+from typing import Iterable
 
 import numpy as np
 
@@ -118,7 +119,7 @@ def get_chunk_layers(
     """
     if len(node_or_chunk_ids) == 0:
         return np.array([], dtype=np.int)
-    return np.vectorize(get_chunk_layer)(node_or_chunk_ids)
+    return np.vectorize(get_chunk_layer)(graph_config, node_or_chunk_ids)
 
 
 def get_chunk_coordinates(
@@ -139,4 +140,38 @@ def get_chunk_coordinates(
     y = int(node_or_chunk_id) >> y_offset & 2 ** bits_per_dim - 1
     z = int(node_or_chunk_id) >> z_offset & 2 ** bits_per_dim - 1
     return np.array([x, y, z])
+
+
+def get_chunk_id(
+    meta: ChunkedGraphMeta,
+    node_id: Optional[np.uint64] = None,
+    layer: Optional[int] = None,
+    x: Optional[int] = None,
+    y: Optional[int] = None,
+    z: Optional[int] = None,
+) -> np.uint64:
+    """ (1) Extract Chunk ID from Node ID
+        (2) Build Chunk ID from Layer, X, Y and Z components
+    """
+    assert node_id is not None or all(v is not None for v in [layer, x, y, z])
+    if node_id is not None:
+        layer = get_chunk_layer(meta.graph_config, node_id)
+    bits_per_dim = meta.bitmasks[layer]
+
+    if node_id is not None:
+        chunk_offset = 64 - meta.graph_config.LAYER_ID_BITS - 3 * bits_per_dim
+        return np.uint64((int(node_id) >> chunk_offset) << chunk_offset)
+    return compute_chunk_id(meta.graph_config, layer, x, y, z)
+
+
+def get_chunk_ids_from_node_ids(
+    meta: ChunkedGraphMeta, node_ids: Iterable[np.uint64]
+) -> np.ndarray:
+    """ Extract a list of Chunk IDs from a list of Node IDs
+    :param node_ids: np.ndarray(dtype=np.uint64)
+    :return: np.ndarray(dtype=np.uint64)
+    """
+    if len(node_ids) == 0:
+        return np.array([], dtype=np.int)
+    return np.vectorize(get_chunk_id)(meta, node_ids)
 
