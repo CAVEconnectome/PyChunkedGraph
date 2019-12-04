@@ -63,7 +63,9 @@ class ChunkedGraphMeta:
         self._layer_bounds_d = None
         self._layer_count = None
 
-        self._bitmasks = None
+        self._bitmasks = compute_bitmasks(
+            self.layer_count, s_bits_atomic_layer=self.graph_config.SPATIAL_BITS,
+        )
 
     @property
     def data_source(self):
@@ -89,6 +91,10 @@ class ChunkedGraphMeta:
             int(np.ceil(log_n(np.max(n_chunks), self._graph_config.fanout))) + 2
         )
         return self._layer_count
+
+    @property
+    def bitmasks(self):
+        return self._bitmasks
 
     @property
     def voxel_bounds(self):
@@ -163,12 +169,6 @@ class ChunkedGraphMeta:
         return dtype
 
     def is_out_of_bounds(self, chunk_coordinate):
-        if not self._bitmasks:
-            self._bitmasks = compute_bitmasks(
-                self.layer_count,
-                self.graph_config.fanout,
-                s_bits_atomic_layer=self.graph_config.s_bits_atomic_layer,
-            )
         return np.any(chunk_coordinate < 0) or np.any(
-            chunk_coordinate > 2 ** self._bitmasks[1]
+            chunk_coordinate > 2 ** self.bitmasks[1]
         )

@@ -108,3 +108,35 @@ def get_chunk_layer(graph_config: GraphConfig, node_or_chunk_id: np.uint64) -> i
     """
     return int(int(node_or_chunk_id) >> 64 - graph_config.LAYER_ID_BITS)
 
+
+def get_chunk_layers(
+    graph_config: GraphConfig, node_or_chunk_ids: Sequence[np.uint64]
+) -> np.ndarray:
+    """ Extract Layers from Node IDs or Chunk IDs
+    :param node_or_chunk_ids: np.ndarray
+    :return: np.ndarray
+    """
+    if len(node_or_chunk_ids) == 0:
+        return np.array([], dtype=np.int)
+    return np.vectorize(get_chunk_layer)(node_or_chunk_ids)
+
+
+def get_chunk_coordinates(
+    meta: ChunkedGraphMeta, node_or_chunk_id: np.uint64
+) -> np.ndarray:
+    """ Extract X, Y and Z coordinate from Node ID or Chunk ID
+    :param node_or_chunk_id: np.uint64
+    :return: Tuple(int, int, int)
+    """
+    layer = get_chunk_layer(meta.graph_config, node_or_chunk_id)
+    bits_per_dim = meta.bitmasks[layer]
+
+    x_offset = 64 - meta.graph_config.LAYER_ID_BITS - bits_per_dim
+    y_offset = x_offset - bits_per_dim
+    z_offset = y_offset - bits_per_dim
+
+    x = int(node_or_chunk_id) >> x_offset & 2 ** bits_per_dim - 1
+    y = int(node_or_chunk_id) >> y_offset & 2 ** bits_per_dim - 1
+    z = int(node_or_chunk_id) >> z_offset & 2 ** bits_per_dim - 1
+    return np.array([x, y, z])
+

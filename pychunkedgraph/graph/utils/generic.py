@@ -52,9 +52,7 @@ def log_n(arr, n):
         return np.log(arr) / np.log(n)
 
 
-def compute_bitmasks(
-    n_layers: int, fan_out: int, s_bits_atomic_layer: int = 8
-) -> Dict[int, int]:
+def compute_bitmasks(n_layers: int, s_bits_atomic_layer: int = 8) -> Dict[int, int]:
     """ Computes the bitmasks for each layer. A bitmasks encodes how many bits
     are used to store the chunk id in each dimension. The smallest number of
     bits needed to encode this information is chosen. The layer id is always
