@@ -123,7 +123,7 @@ class BigTableClient(bigtable.Client, ClientWithIDGen, ClientWithLogging):
         """
         pass
 
-    def lock_node(self, node_id: np.uint64, operation_id: np.uint64) -> bool:
+    def lock_root(self, node_id: np.uint64, operation_id: np.uint64) -> bool:
         """ Attempts to lock the latest version of a root node
         :param root_id: uint64
         :param operation_id: uint64
@@ -187,7 +187,7 @@ class BigTableClient(bigtable.Client, ClientWithIDGen, ClientWithLogging):
         #     self.logger.debug(f"Locked operation ids: {l_operation_ids}")
         return lock_acquired
 
-    def lock_nodes(
+    def lock_roots(
         self,
         node_ids: Sequence[np.uint64],
         operation_id: np.uint64,
@@ -217,11 +217,11 @@ class BigTableClient(bigtable.Client, ClientWithIDGen, ClientWithLogging):
                 #     "operation id: %d - root id: %d"
                 #     % (operation_id, node_ids[idx])
                 # )
-                lock_acquired = self.lock_node(node_ids[idx], operation_id)
+                lock_acquired = self.lock_root(node_ids[idx], operation_id)
                 # Roll back locks if one root cannot be locked
                 if not lock_acquired:
                     for j_root_id in range(len(node_ids)):
-                        self.unlock_node(node_ids[j_root_id], operation_id)
+                        self.unlock_root(node_ids[j_root_id], operation_id)
                     break
 
             if lock_acquired:
@@ -232,8 +232,8 @@ class BigTableClient(bigtable.Client, ClientWithIDGen, ClientWithLogging):
             self.logger.debug(f"Try {i_try}")
         return False, node_ids
 
-    def unlock_node(self, node_id: np.uint64, operation_id: np.uint64):
-        """Unlocks node that is locked with operation_id."""
+    def unlock_root(self, node_id: np.uint64, operation_id: np.uint64):
+        """Unlocks root node that is locked with operation_id."""
 
         lock_expiry = self.graph_meta.graph_config.ROOT_LOCK_EXPIRY
         time_cutoff = datetime.utcnow() - lock_expiry
@@ -272,10 +272,10 @@ class BigTableClient(bigtable.Client, ClientWithIDGen, ClientWithLogging):
         return root_row.commit()
 
     def renew_lock(self, node_id: np.uint64, operation_id: np.uint64):
-        """Renews existing node lock with operation_id to extend time."""
+        """Renews existing root node lock with operation_id to extend time."""
 
     def renew_locks(self, node_ids: np.uint64, operation_id: np.uint64):
-        """Renews existing node locks with operation_id to extend time."""
+        """Renews existing root node locks with operation_id to extend time."""
 
     # IDs
     def create_node_ids(self, chunk_id: np.uint64, size: int) -> np.ndarray:

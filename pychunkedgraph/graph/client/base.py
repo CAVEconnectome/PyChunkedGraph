@@ -37,16 +37,16 @@ class SimpleClient(ABC):
         """Writes/updates nodes (IDs along with properties)."""
 
     @abstractmethod
-    def lock_node(self, node_id, operation_id):
-        """Locks node with operation_id to prevent race conditions."""
+    def lock_root(self, node_id, operation_id):
+        """Locks root node with operation_id to prevent race conditions."""
 
     @abstractmethod
-    def lock_nodes(self, node_ids):
-        """Locks nodes to prevent race conditions."""
+    def lock_roots(self, node_ids):
+        """Locks root nodes to prevent race conditions."""
 
     @abstractmethod
-    def unlock_node(self, node_id, operation_id):
-        """Unlocks node that is locked with operation_id."""
+    def unlock_root(self, node_id, operation_id):
+        """Unlocks root node that is locked with operation_id."""
 
     @abstractmethod
     def renew_lock(self, node_id, operation_id):
