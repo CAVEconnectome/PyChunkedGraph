@@ -25,11 +25,12 @@ _graphconfig_fields = (
     "ID",
     "CHUNK_SIZE",
     "FANOUT",
+    "LAYER_ID_BITS",  # number of bits reserved for layer id
     "SPATIAL_BITS",  # number of bits used for each spatial in id creation on level 1
     "OVERWRITE",  # overwrites existing graph
     "ROOT_LOCK_EXPIRY",
 )
-_graphconfig_defaults = (None, None, 2, 10, False, timedelta(minutes=3, seconds=0))
+_graphconfig_defaults = (None, None, 2, 8, 10, False, timedelta(minutes=3, seconds=0))
 GraphConfig = namedtuple(
     "GraphConfig", _graphconfig_fields, defaults=_graphconfig_defaults
 )

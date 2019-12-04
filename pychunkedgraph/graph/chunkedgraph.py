@@ -39,8 +39,7 @@ from .edges import Edges
 from .edges.utils import concatenate_chunk_edges
 from .edges.utils import filter_edges
 from .edges.utils import get_active_edges
-from .chunks.utils import compute_chunk_id
-from .chunks.utils import normalize_bounding_box
+from .chunks import utils as chunk_utils
 from ..io.edges import get_chunk_edges
 
 
@@ -84,12 +83,7 @@ class ChunkedGraph:
 
         self.meta = meta
 
-    def get_chunk_layer(self, node_or_chunk_id: np.uint64) -> int:
-        """ Extract Layer from Node ID or Chunk ID
-        :param node_or_chunk_id: np.uint64
-        :return: int
-        """
-        return int(int(node_or_chunk_id) >> 64 - self._n_bits_for_layer_id)
+        self.chunk_layer = chunk_utils.get_chunk_layer
 
     def get_chunk_layers(self, node_or_chunk_ids: Sequence[np.uint64]) -> np.ndarray:
         """ Extract Layers from Node IDs or Chunk IDs
@@ -142,7 +136,7 @@ class ChunkedGraph:
         if node_id is not None:
             chunk_offset = 64 - self._n_bits_for_layer_id - 3 * bits_per_dim
             return np.uint64((int(node_id) >> chunk_offset) << chunk_offset)
-        return compute_chunk_id(layer, x, y, z, bits_per_dim, self._n_bits_for_layer_id)
+        return chunk_utils.compute_chunk_id(self.meta.graph_config, layer, x, y, z)
 
     def get_chunk_ids_from_node_ids(self, node_ids: Iterable[np.uint64]) -> np.ndarray:
         """ Extract a list of Chunk IDs from a list of Node IDs
@@ -416,31 +410,6 @@ class ChunkedGraph:
                 break
         # Returns None if unsuccessful
         return atomic_id
-
-    def read_log_row(
-        self, operation_id: np.uint64
-    ) -> Dict[column_keys._Column, Union[np.ndarray, np.number]]:
-        """ Retrieves log record from Bigtable for a given operation ID
-        :param operation_id: np.uint64
-        :return: Dict[column_keys._Column, Union[np.ndarray, np.number]]
-        """
-        columns = [
-            column_keys.OperationLogs.UndoOperationID,
-            column_keys.OperationLogs.RedoOperationID,
-            column_keys.OperationLogs.UserID,
-            column_keys.OperationLogs.RootID,
-            column_keys.OperationLogs.SinkID,
-            column_keys.OperationLogs.SourceID,
-            column_keys.OperationLogs.SourceCoordinate,
-            column_keys.OperationLogs.SinkCoordinate,
-            column_keys.OperationLogs.AddedEdge,
-            column_keys.OperationLogs.Affinity,
-            column_keys.OperationLogs.RemovedEdge,
-            column_keys.OperationLogs.BoundingBoxOffset,
-        ]
-        log_record = self.read_node_id_row(operation_id, columns=columns)
-        log_record.update((column, v[0].value) for column, v in log_record.items())
-        return log_record
 
     def read_first_log_row(self):
         """ Returns first log row
@@ -1071,7 +1040,9 @@ class ChunkedGraph:
         for agglomeration_id in agglomeration_ids:
             layer_nodes_d = self._get_subgraph_higher_layer_nodes(
                 node_id=agglomeration_id,
-                bounding_box=normalize_bounding_box(bbox, bbox_is_coordinate),
+                bounding_box=chunk_utils.normalize_bounding_box(
+                    self.meta, bbox, bbox_is_coordinate
+                ),
                 return_layers=[2],
                 verbose=False,
             )
@@ -1132,7 +1103,9 @@ class ChunkedGraph:
             return self.get_children(node_ids, flatten=True)
 
         stop_layer = np.min(return_layers)
-        bounding_box = normalize_bounding_box(bounding_box, bb_is_coordinate)
+        bounding_box = chunk_utils.normalize_bounding_box(
+            self.meta, bounding_box, bb_is_coordinate
+        )
 
         # Layer 3+
         if stop_layer >= 2:

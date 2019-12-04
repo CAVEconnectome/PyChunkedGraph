@@ -4,6 +4,7 @@ from typing import Sequence
 
 import numpy as np
 
+from ..meta import GraphConfig
 from ..meta import ChunkedGraphMeta
 
 
@@ -13,13 +14,10 @@ def get_chunks_boundary(voxel_boundary, chunk_size) -> np.ndarray:
 
 
 def compute_chunk_id(
-    layer: int,
-    x: int,
-    y: int,
-    z: int,
-    s_bits_per_dim: int = 10,
-    n_bits_layer_id: int = 8,
+    graph_config: GraphConfig, layer: int, x: int, y: int, z: int,
 ) -> np.uint64:
+    s_bits_per_dim = graph_config.SPATIAL_BITS
+    n_bits_layer_id = graph_config.LAYER_ID_BITS
     if not (
         x < 2 ** s_bits_per_dim and y < 2 ** s_bits_per_dim and z < 2 ** s_bits_per_dim
     ):
@@ -101,4 +99,12 @@ def _get_chunk_coordinates_from_vol_coordinates(
     if ceil:
         coords = np.ceil(coords)
     return coords.astype(np.int)
+
+
+def get_chunk_layer(graph_config: GraphConfig, node_or_chunk_id: np.uint64) -> int:
+    """ Extract Layer from Node ID or Chunk ID
+    :param node_or_chunk_id: np.uint64
+    :return: int
+    """
+    return int(int(node_or_chunk_id) >> 64 - graph_config.LAYER_ID_BITS)
 
