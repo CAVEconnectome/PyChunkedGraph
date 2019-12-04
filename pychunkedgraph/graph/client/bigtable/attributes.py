@@ -211,6 +211,24 @@ class OperationLogs:
         family_id="2",
         serializer=serializers.NumPyArray(dtype=basetypes.EDGE_AFFINITY),
     )
+    
+    @staticmethod
+    def all():
+        return [
+            OperationLogs.OperationID,
+            OperationLogs.UndoOperationID,
+            OperationLogs.RedoOperationID,
+            OperationLogs.UserID,
+            OperationLogs.RootID,
+            OperationLogs.SourceID,
+            OperationLogs.SinkID,
+            OperationLogs.SourceCoordinate,
+            OperationLogs.SinkCoordinate,
+            OperationLogs.BoundingBoxOffset,
+            OperationLogs.AddedEdge,
+            OperationLogs.RemovedEdge,
+            OperationLogs.Affinity
+        ]
 
 
 def from_key(family_id: str, key: bytes):

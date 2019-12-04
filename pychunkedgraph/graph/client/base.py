@@ -83,15 +83,3 @@ class ClientWithIDGen(SimpleClient):
     @abstractmethod
     def get_max_operation_id(self):
         """Gets the current maximum operation ID."""
-
-
-class ClientWithLogging(SimpleClient):
-    """Abstract class for client to backend data store with support for logging."""
-
-    @abstractmethod
-    def read_logs(self, operation_ids=None):
-        """
-        Read log entries of given operation IDs.
-        If None, reads all log entires.
-        """
-
