@@ -25,13 +25,13 @@ from google.cloud.bigtable.row_data import PartialRowData
 from google.cloud.bigtable.row_filters import RowFilter
 from google.cloud.bigtable.column_family import MaxVersionsGCRule
 
-from . import attributes
 from . import utils
 from ..base import ClientWithIDGen
-from ..serializers import serialize_uint64
-from ..serializers import deserialize_uint64
+from ... import attributes
 from ... import exceptions
-from ... import basetypes
+from ...utils import basetypes
+from ...utils.serializers import serialize_uint64
+from ...utils.serializers import deserialize_uint64
 from ...meta import ChunkedGraphMeta
 from ...utils.generic import get_valid_timestamp
 

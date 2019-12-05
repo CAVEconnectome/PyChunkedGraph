@@ -3,7 +3,6 @@ import sys
 import time
 import datetime
 import logging
-
 from itertools import chain
 from itertools import product
 from functools import reduce
@@ -15,13 +14,14 @@ import pytz
 from cloudvolume import CloudVolume
 from multiwrapper import multiprocessing_utils as mu
 
-from . import operation
-from . import exceptions
-from . import cutting
 from . import misc
+from . import cutting
+from . import operation
+from . import attributes
+from . import exceptions
 from .meta import ChunkedGraphMeta
-from .utils import generic as misc_utils
 from .utils import id_helpers
+from .utils import generic as misc_utils
 from .edges import Edges
 from .edges import utils as edge_utils
 from .chunks import utils as chunk_utils
@@ -78,23 +78,22 @@ class ChunkedGraph:
         self,
         chunk_id: np.uint64,
         columns: Optional[
-            Union[Iterable[column_keys._Column], column_keys._Column]
+            Union[Iterable[attributes._Attribute], attributes._Attribute]
         ] = None,
         time_stamp: Optional[datetime.datetime] = None,
     ) -> Dict[
         np.uint64,
         Union[
-            Dict[column_keys._Column, List[bigtable.row_data.Cell]],
+            Dict[attributes._Attribute, List[bigtable.row_data.Cell]],
             List[bigtable.row_data.Cell],
         ],
     ]:
-        """Convenience function for reading all NodeID rows of a single chunk from Bigtable.
+        """Convenience function for reading all NodeID rows of a single chunk.
         Chunk can either be specified by its (layer, x, y, and z coordinate), or by the chunk ID.
-
         Keyword Arguments:
             chunk_id {Optional[np.uint64]} -- Alternative way to specify the chunk, if the Chunk ID
                 is already known. (default: {None})
-            columns {Optional[Union[Iterable[column_keys._Column], column_keys._Column]]} --
+            columns {Optional[Union[Iterable[attributes._Attribute], attributes._Attribute]]} --
                 Optional filtering by columns to speed up the query. If `columns` is a single
                 column (not iterable), the column key will be omitted from the result.
                 (default: {None})
@@ -102,13 +101,13 @@ class ChunkedGraph:
                 If None, no upper bound. (default: {None})
 
         Returns:
-            Dict[np.uint64, Union[Dict[column_keys._Column, List[bigtable.row_data.Cell]],
+            Dict[np.uint64, Union[Dict[attributes._Attribute, List[bigtable.row_data.Cell]],
                                   List[bigtable.row_data.Cell]]] --
                 Returns a dictionary of NodeID rows as keys. Their value will be a mapping of
                 columns to a List of cells (one cell per timestamp). Each cell has a `value`
                 property, which returns the deserialized field, and a `timestamp` property, which
                 returns the timestamp as `datetime.datetime` object.
-                If only a single `column_keys._Column` was requested, the List of cells will be
+                If only a single `attributes._Attribute` was requested, the List of cells will be
                 attached to the row dictionary directly (skipping the column dictionary).
         """
         layer = self.get_chunk_layer(chunk_id)
@@ -130,23 +129,6 @@ class ChunkedGraph:
             end_time_inclusive=True,
         )
         return rr
-
-    def get_chunk_id_from_coord(self, layer: int, x: int, y: int, z: int) -> np.uint64:
-        """ Return ChunkID for given chunked graph layer and voxel coordinates.
-        :param layer: int -- ChunkedGraph layer
-        :param x: int -- X coordinate in voxel
-        :param y: int -- Y coordinate in voxel
-        :param z: int -- Z coordinate in voxel
-        :return: np.uint64 -- ChunkID
-        """
-        base_chunk_span = int(self.fan_out) ** max(0, layer - 2)
-
-        return self.get_chunk_id(
-            layer=layer,
-            x=x // (int(self.chunk_size[0]) * base_chunk_span),
-            y=y // (int(self.chunk_size[1]) * base_chunk_span),
-            z=z // (int(self.chunk_size[2]) * base_chunk_span),
-        )
 
     def get_atomic_id_from_coord(
         self, x: int, y: int, z: int, parent_id: np.uint64, n_tries: int = 5
@@ -245,7 +227,7 @@ class ChunkedGraph:
 
         parent_rows = self.read_node_id_rows(
             node_ids=node_ids,
-            columns=column_keys.Hierarchy.Parent,
+            columns=attributes.Hierarchy.Parent,
             end_time=time_stamp,
             end_time_inclusive=True,
         )
@@ -285,7 +267,7 @@ class ChunkedGraph:
 
         parents = self.read_node_id_row(
             node_id,
-            columns=column_keys.Hierarchy.Parent,
+            columns=attributes.Hierarchy.Parent,
             end_time=time_stamp,
             end_time_inclusive=True,
         )
@@ -312,14 +294,14 @@ class ChunkedGraph:
         """
         if np.isscalar(node_id):
             children = self.read_node_id_row(
-                node_id=node_id, columns=column_keys.Hierarchy.Child
+                node_id=node_id, columns=attributes.Hierarchy.Child
             )
             if not children:
                 return np.empty(0, dtype=basetypes.NODE_ID)
             return children[0].value
         else:
             children = self.read_node_id_rows(
-                node_ids=node_id, columns=column_keys.Hierarchy.Child
+                node_ids=node_id, columns=attributes.Hierarchy.Child
             )
             if flatten:
                 if not children:
@@ -480,7 +462,7 @@ class ChunkedGraph:
         :return: list of uint64s
         """
         id_working_set = [root_id]
-        column = column_keys.Hierarchy.NewParent
+        column = attributes.Hierarchy.NewParent
         latest_root_ids = []
         while len(id_working_set) > 0:
             next_id = id_working_set[0]
@@ -517,16 +499,16 @@ class ChunkedGraph:
                 row = self.read_node_id_row(
                     next_id,
                     columns=[
-                        column_keys.Hierarchy.NewParent,
-                        column_keys.Hierarchy.Child,
+                        attributes.Hierarchy.NewParent,
+                        attributes.Hierarchy.Child,
                     ],
                 )
-                if column_keys.Hierarchy.NewParent in row:
-                    ids = row[column_keys.Hierarchy.NewParent][0].value
-                    row_time_stamp = row[column_keys.Hierarchy.NewParent][0].timestamp
-                elif column_keys.Hierarchy.Child in row:
+                if attributes.Hierarchy.NewParent in row:
+                    ids = row[attributes.Hierarchy.NewParent][0].value
+                    row_time_stamp = row[attributes.Hierarchy.NewParent][0].timestamp
+                elif attributes.Hierarchy.Child in row:
                     ids = None
-                    row_time_stamp = row[column_keys.Hierarchy.Child][0].timestamp
+                    row_time_stamp = row[attributes.Hierarchy.Child][0].timestamp
                 else:
                     raise exceptions.ChunkedGraphError(
                         "Error retrieving future root ID of %s" % next_id
@@ -564,18 +546,16 @@ class ChunkedGraph:
                 row = self.read_node_id_row(
                     next_id,
                     columns=[
-                        column_keys.Hierarchy.FormerParent,
-                        column_keys.Hierarchy.Child,
+                        attributes.Hierarchy.FormerParent,
+                        attributes.Hierarchy.Child,
                     ],
                 )
-                if column_keys.Hierarchy.FormerParent in row:
-                    ids = row[column_keys.Hierarchy.FormerParent][0].value
-                    row_time_stamp = row[column_keys.Hierarchy.FormerParent][
-                        0
-                    ].timestamp
-                elif column_keys.Hierarchy.Child in row:
+                if attributes.Hierarchy.FormerParent in row:
+                    ids = row[attributes.Hierarchy.FormerParent][0].value
+                    row_time_stamp = row[attributes.Hierarchy.FormerParent][0].timestamp
+                elif attributes.Hierarchy.Child in row:
                     ids = None
-                    row_time_stamp = row[column_keys.Hierarchy.Child][0].timestamp
+                    row_time_stamp = row[attributes.Hierarchy.Child][0].timestamp
                 else:
                     raise exceptions.ChunkedGraphError(
                         "Error retrieving past root ID of %s" % next_id
@@ -648,20 +628,20 @@ class ChunkedGraph:
         next_ids = [root_id]
         while len(next_ids):
             temp_next_ids = []
-            former_parent_col = column_keys.Hierarchy.FormerParent
+            former_parent_col = attributes.Hierarchy.FormerParent
             row_dict = self.read_node_id_rows(
                 node_ids=next_ids, columns=[former_parent_col]
             )
             for row in row_dict.values():
-                if column_keys.Hierarchy.FormerParent in row:
+                if attributes.Hierarchy.FormerParent in row:
                     if time_stamp_past > row[former_parent_col][0].timestamp:
                         continue
                     ids = row[former_parent_col][0].value
-                    lock_col = column_keys.Concurrency.Lock
+                    lock_col = attributes.Concurrency.Lock
                     former_row = self.read_node_id_row(ids[0], columns=[lock_col])
                     operation_id = former_row[lock_col][0].value
                     log_row = self.read_log_row(operation_id)
-                    is_merge = column_keys.OperationLogs.AddedEdge in log_row
+                    is_merge = attributes.OperationLogs.AddedEdge in log_row
 
                     for id_ in ids:
                         if id_ in id_history:
@@ -670,11 +650,11 @@ class ChunkedGraph:
                         temp_next_ids.append(id_)
 
                     if is_merge:
-                        added_edges = log_row[column_keys.OperationLogs.AddedEdge]
+                        added_edges = log_row[attributes.OperationLogs.AddedEdge]
                         merge_history.append(added_edges)
                         coords = [
-                            log_row[column_keys.OperationLogs.SourceCoordinate],
-                            log_row[column_keys.OperationLogs.SinkCoordinate],
+                            log_row[attributes.OperationLogs.SourceCoordinate],
+                            log_row[attributes.OperationLogs.SinkCoordinate],
                         ]
 
                         if correct_for_wrong_coord_type:
@@ -688,7 +668,7 @@ class ChunkedGraph:
                         merge_history_edges.append(coords)
 
                     if not is_merge:
-                        removed_edges = log_row[column_keys.OperationLogs.RemovedEdge]
+                        removed_edges = log_row[attributes.OperationLogs.RemovedEdge]
                         split_history.append(removed_edges)
                 else:
                     continue
@@ -863,7 +843,7 @@ class ChunkedGraph:
         # # include fake edges
         # chunk_fake_edges_d = self.read_node_id_rows(
         #     node_ids=chunk_ids,
-        #     columns=column_keys.Connectivity.FakeEdges)
+        #     columns=attributes.Connectivity.FakeEdges)
         # fake_edges = np.concatenate([list(chunk_fake_edges_d.values())])
         # if fake_edges.size:
         #     fake_edges = Edges(fake_edges[:,0], fake_edges[:,1])
@@ -1063,7 +1043,9 @@ class ChunkedGraph:
         :param operation_id: operation_id to be inverted
         :return: GraphEditOperation.Result
         """
-        return operation.UndoOperation(self, user_id=user_id, operation_id=operation_id).execute()
+        return operation.UndoOperation(
+            self, user_id=user_id, operation_id=operation_id
+        ).execute()
 
     def redo_operation(
         self, user_id: str, operation_id: np.uint64
@@ -1073,7 +1055,9 @@ class ChunkedGraph:
         :param operation_id: operation_id to be repeated
         :return: GraphEditOperation.Result
         """
-        return operation.RedoOperation(self, user_id=user_id, operation_id=operation_id).execute()
+        return operation.RedoOperation(
+            self, user_id=user_id, operation_id=operation_id
+        ).execute()
 
     def _run_multicut(
         self,

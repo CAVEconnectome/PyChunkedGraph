@@ -1,9 +1,10 @@
 # TODO design to use these attributes across different clients
+# `family_id` is specific to bigtable
 
 from typing import NamedTuple
 
-from .. import serializers
-from ... import basetypes
+from .utils import serializers
+from .utils import basetypes
 
 
 class _AttributeType(NamedTuple):
@@ -211,7 +212,7 @@ class OperationLogs:
         family_id="2",
         serializer=serializers.NumPyArray(dtype=basetypes.EDGE_AFFINITY),
     )
-    
+
     @staticmethod
     def all():
         return [
@@ -227,7 +228,7 @@ class OperationLogs:
             OperationLogs.BoundingBoxOffset,
             OperationLogs.AddedEdge,
             OperationLogs.RemovedEdge,
-            OperationLogs.Affinity
+            OperationLogs.Affinity,
         ]
 
 
