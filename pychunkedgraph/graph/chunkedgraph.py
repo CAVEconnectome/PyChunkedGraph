@@ -20,6 +20,7 @@ from . import operation
 from . import attributes
 from . import exceptions
 from .meta import ChunkedGraphMeta
+from .utils import basetypes
 from .utils import id_helpers
 from .utils import generic as misc_utils
 from .edges import Edges
@@ -133,23 +134,12 @@ class ChunkedGraph:
     def get_atomic_id_from_coord(
         self, x: int, y: int, z: int, parent_id: np.uint64, n_tries: int = 5
     ) -> np.uint64:
-        """ Determines atomic id given a coordinate
-        :param x: int
-        :param y: int
-        :param z: int
-        :param parent_id: np.uint64
-        :param n_tries: int
-        :return: np.uint64 or None
-        """
+        """Determines atomic id given a coordinate."""
         if self.get_chunk_layer(parent_id) == 1:
             return parent_id
 
-        x /= 2 ** self.cv_mip
-        y /= 2 ** self.cv_mip
-
-        x = int(x)
-        y = int(y)
-        z = int(z)
+        x = int(x / 2 ** self.meta.data_source.CV_MIP)
+        y = int(y / 2 ** self.meta.data_source.CV_MIP)
 
         checked = []
         atomic_id = None
