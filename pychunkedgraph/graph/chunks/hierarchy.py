@@ -50,3 +50,32 @@ def get_children_chunk_ids(
                 utils.get_chunk_id(meta, layer=layer - 1, x=x, y=y, z=z)
             )
         return np.array(children_chunk_ids)
+
+
+def get_parent_chunk_ids(
+    meta: ChunkedGraphMeta, node_or_chunk_id: np.uint64
+) -> np.ndarray:
+    """Creates list of chunk parent ids (upto highest layer)."""
+    parent_chunk_layers = range(
+        utils.get_chunk_layer(meta, node_or_chunk_id) + 1, meta.layer_count + 1
+    )
+    chunk_coord = utils.get_chunk_coordinates(meta, node_or_chunk_id)
+    parent_chunk_ids = [utils.get_chunk_id(meta, node_or_chunk_id)]
+    for layer in parent_chunk_layers:
+        x, y, z = chunk_coord // meta.graph_config.FANOUT
+        parent_chunk_ids.append(utils.get_chunk_id(meta, layer=layer, x=x, y=y, z=z))
+    return np.array(parent_chunk_ids, dtype=np.uint64)
+
+
+def get_parent_chunk_id_dict(meta: ChunkedGraphMeta, node_or_chunk_id: np.uint64):
+    """
+    Returns dict of {layer: parent_chunk_id}
+    (Convenience function)
+    """
+    layer = utils.get_chunk_layer(meta, node_or_chunk_id)
+    return dict(
+        zip(
+            range(layer, meta.layer_count + 1),
+            get_parent_chunk_ids(meta, node_or_chunk_id),
+        )
+    )

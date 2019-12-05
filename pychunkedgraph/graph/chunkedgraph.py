@@ -40,6 +40,7 @@ from .edges.utils import concatenate_chunk_edges
 from .edges.utils import filter_edges
 from .edges.utils import get_active_edges
 from .chunks import utils as chunk_utils
+from .chunks import hierarchy as chunk_hierarchy
 from ..io.edges import get_chunk_edges
 
 
@@ -80,60 +81,9 @@ class ChunkedGraph:
         self.chunk_coordinates = chunk_utils.get_chunk_coordinates
         self.chunk_id = chunk_utils.get_chunk_id
         self.chunk_ids_from_node_ids = chunk_utils.get_chunk_ids_from_node_ids
-
-    def get_child_chunk_ids(self, node_or_chunk_id: np.uint64) -> np.ndarray:
-        """ Calculates the ids of the children chunks in the next lower layer
-        :param node_or_chunk_id: np.uint64
-        :return: np.ndarray
-        """
-        chunk_coords = self.get_chunk_coordinates(node_or_chunk_id)
-        chunk_layer = self.get_chunk_layer(node_or_chunk_id)
-
-        if chunk_layer == 1:
-            return np.array([])
-        elif chunk_layer == 2:
-            x, y, z = chunk_coords
-            return np.array([self.get_chunk_id(layer=chunk_layer - 1, x=x, y=y, z=z)])
-        else:
-            chunk_ids = []
-            for dcoord in product(*[range(self.fan_out)] * 3):
-                x, y, z = chunk_coords * self.fan_out + np.array(dcoord)
-                child_chunk_id = self.get_chunk_id(layer=chunk_layer - 1, x=x, y=y, z=z)
-                chunk_ids.append(child_chunk_id)
-
-            return np.array(chunk_ids)
-
-    def get_parent_chunk_ids(self, node_or_chunk_id: np.uint64) -> np.ndarray:
-        """ Creates list of chunk parent ids
-        :param node_or_chunk_id: np.uint64
-        :return: np.ndarray
-        """
-        parent_chunk_layers = range(
-            self.get_chunk_layer(node_or_chunk_id) + 1, self.n_layers + 1
-        )
-        chunk_coord = self.get_chunk_coordinates(node_or_chunk_id)
-        parent_chunk_ids = [self.get_chunk_id(node_or_chunk_id)]
-        for layer in parent_chunk_layers:
-            chunk_coord = chunk_coord // self.fan_out
-            parent_chunk_ids.append(
-                self.get_chunk_id(
-                    layer=layer, x=chunk_coord[0], y=chunk_coord[1], z=chunk_coord[2]
-                )
-            )
-        return np.array(parent_chunk_ids, dtype=np.uint64)
-
-    def get_parent_chunk_id_dict(self, node_or_chunk_id: np.uint64) -> dict:
-        """ Creates dict of chunk parent ids
-        :param node_or_chunk_id: np.uint64
-        :return: dict
-        """
-        chunk_layer = self.get_chunk_layer(node_or_chunk_id)
-        return dict(
-            zip(
-                range(chunk_layer, self.n_layers + 1),
-                self.get_parent_chunk_ids(node_or_chunk_id),
-            )
-        )
+        self.children_chunk_ids = chunk_hierarchy.get_children_chunk_ids
+        self.parent_chunk_ids = chunk_hierarchy.get_parent_chunk_ids
+        self.parent_chunk_id_dict = chunk_hierarchy.get_parent_chunk_id_dict
 
     def get_segment_id_limit(self, node_or_chunk_id: np.uint64) -> np.uint64:
         """ Get maximum possible Segment ID for given Node ID or Chunk ID

@@ -16,6 +16,7 @@ from .utils import serializers
 from .edges.utils import filter_fake_edges
 from .edges.utils import map_edges_to_chunks
 from .edges.utils import get_linking_edges
+from .chunks.hierarchy import get_children_chunk_ids
 
 
 def _write_atomic_merge_edges(cg, atomic_edges, affinities, areas, time_stamp):
@@ -374,7 +375,7 @@ def remove_edges(
         chunk_id = cg.get_chunk_id(lvl2_node_id)
         chunk_edges, _, _ = cg.get_subgraph_chunk(lvl2_node_id, make_unique=False)
 
-        child_chunk_ids = cg.get_child_chunk_ids(chunk_id)
+        child_chunk_ids = get_children_chunk_ids(cg.meta, chunk_id)
 
         assert len(child_chunk_ids) == 1
         child_chunk_id = child_chunk_ids[0]
