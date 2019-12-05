@@ -15,30 +15,15 @@ import pytz
 from cloudvolume import CloudVolume
 from multiwrapper import multiprocessing_utils as mu
 
-from . import (
-    exceptions as exceptions,
-    edits as cg_edits,
-    cutting,
-    misc,
-)
+from . import operation
+from . import exceptions
+from . import cutting
+from . import misc
 from .meta import ChunkedGraphMeta
-from .utils.generic import (
-    get_valid_timestamp,
-    get_max_time,
-    get_min_time,
-)
-from .operation import (
-    GraphEditOperation,
-    MergeOperation,
-    MulticutOperation,
-    SplitOperation,
-    RedoOperation,
-    UndoOperation,
-)
+from .utils import generic as misc_utils
+from .utils import id_helpers
 from .edges import Edges
-from .edges.utils import concatenate_chunk_edges
-from .edges.utils import filter_edges
-from .edges.utils import get_active_edges
+from .edges import utils as edge_utils
 from .chunks import utils as chunk_utils
 from .chunks import hierarchy as chunk_hierarchy
 from ..io.edges import get_chunk_edges
@@ -84,78 +69,10 @@ class ChunkedGraph:
         self.children_chunk_ids = chunk_hierarchy.get_children_chunk_ids
         self.parent_chunk_ids = chunk_hierarchy.get_parent_chunk_ids
         self.parent_chunk_id_dict = chunk_hierarchy.get_parent_chunk_id_dict
-
-    def get_segment_id_limit(self, node_or_chunk_id: np.uint64) -> np.uint64:
-        """ Get maximum possible Segment ID for given Node ID or Chunk ID
-        :param node_or_chunk_id: np.uint64
-        :return: np.uint64
-        """
-        layer = self.get_chunk_layer(node_or_chunk_id)
-        bits_per_dim = self.bitmasks[layer]
-        chunk_offset = 64 - self._n_bits_for_layer_id - 3 * bits_per_dim
-        return np.uint64(2 ** chunk_offset - 1)
-
-    def get_segment_id(self, node_id: np.uint64) -> np.uint64:
-        """ Extract Segment ID from Node ID
-        :param node_id: np.uint64
-        :return: np.uint64
-        """
-        return node_id & self.get_segment_id_limit(node_id)
-
-    def get_node_id(
-        self,
-        segment_id: np.uint64,
-        chunk_id: Optional[np.uint64] = None,
-        layer: Optional[int] = None,
-        x: Optional[int] = None,
-        y: Optional[int] = None,
-        z: Optional[int] = None,
-    ) -> np.uint64:
-        """ (1) Build Node ID from Segment ID and Chunk ID
-            (2) Build Node ID from Segment ID, Layer, X, Y and Z components
-        :param segment_id: np.uint64
-        :param chunk_id: np.uint64
-        :param layer: int
-        :param x: int
-        :param y: int
-        :param z: int
-        :return: np.uint64
-        """
-        if chunk_id is not None:
-            return chunk_id | segment_id
-        else:
-            return self.get_chunk_id(layer=layer, x=x, y=y, z=z) | segment_id
-
-    def get_cross_chunk_edges_layer(self, cross_edges):
-        """ Computes the layer in which a cross chunk edge becomes relevant.
-        I.e. if a cross chunk edge links two nodes in layer 4 this function
-        returns 3.
-        :param cross_edges: n x 2 array
-            edges between atomic (level 1) node ids
-        :return: array of length n
-        """
-        if len(cross_edges) == 0:
-            return np.array([], dtype=np.int)
-
-        cross_chunk_edge_layers = np.ones(len(cross_edges), dtype=np.int)
-        cross_edge_coordinates = []
-        for cross_edge in cross_edges:
-            cross_edge_coordinates.append(
-                [
-                    self.get_chunk_coordinates(cross_edge[0]),
-                    self.get_chunk_coordinates(cross_edge[1]),
-                ]
-            )
-
-        cross_edge_coordinates = np.array(cross_edge_coordinates, dtype=np.int)
-        for _ in range(2, self.n_layers):
-            edge_diff = np.sum(
-                np.abs(cross_edge_coordinates[:, 0] - cross_edge_coordinates[:, 1]),
-                axis=1,
-            )
-            cross_chunk_edge_layers[edge_diff > 0] += 1
-            cross_edge_coordinates = cross_edge_coordinates // self.fan_out
-        return cross_chunk_edge_layers
+        self.segment_id_limit = id_helpers.get_segment_id_limit
+        self.segment_id = id_helpers.get_segment_id
+        self.get_node_id = id_helpers.get_node_id
+        self.get_cross_chunk_edges_layer = edge_utils.get_cross_chunk_edges_layer
 
     def range_read_chunk(
         self,
@@ -417,7 +334,7 @@ class ChunkedGraph:
 
     def get_latest_roots(
         self,
-        time_stamp: Optional[datetime.datetime] = get_max_time(),
+        time_stamp: Optional[datetime.datetime] = misc_utils.get_max_time(),
         n_threads: int = 1,
     ) -> Sequence[np.uint64]:
         """ Reads _all_ root ids
@@ -469,7 +386,7 @@ class ChunkedGraph:
         :param time_stamp: None or datetime
         :return: np.uint64
         """
-        time_stamp = get_valid_timestamp(time_stamp)
+        time_stamp = misc_utils.get_valid_timestamp(time_stamp)
         stop_layer = self.n_layers if not stop_layer else min(self.n_layers, stop_layer)
         layer_mask = np.ones(len(node_ids), dtype=np.bool)
 
@@ -506,7 +423,7 @@ class ChunkedGraph:
         :param time_stamp: None or datetime
         :return: np.uint64
         """
-        time_stamp = get_valid_timestamp(time_stamp)
+        time_stamp = misc_utils.get_valid_timestamp(time_stamp)
         parent_id = node_id
         all_parent_ids = []
 
@@ -580,7 +497,7 @@ class ChunkedGraph:
     def get_future_root_ids(
         self,
         root_id: np.uint64,
-        time_stamp: Optional[datetime.datetime] = get_max_time(),
+        time_stamp: Optional[datetime.datetime] = misc_utils.get_max_time(),
     ) -> np.ndarray:
         """ Returns all future root ids emerging from this root
         This search happens in a monotic fashion. At no point are past root
@@ -591,7 +508,7 @@ class ChunkedGraph:
             None=search whole future
         :return: array of uint64
         """
-        time_stamp = get_valid_timestamp(time_stamp)
+        time_stamp = misc_utils.get_valid_timestamp(time_stamp)
         id_history = []
         next_ids = [root_id]
         while len(next_ids):
@@ -627,7 +544,7 @@ class ChunkedGraph:
     def get_past_root_ids(
         self,
         root_id: np.uint64,
-        time_stamp: Optional[datetime.datetime] = get_min_time(),
+        time_stamp: Optional[datetime.datetime] = misc_utils.get_min_time(),
     ) -> np.ndarray:
         """ Returns all future root ids emerging from this root
         This search happens in a monotic fashion. At no point are future root
@@ -638,7 +555,7 @@ class ChunkedGraph:
             None=search whole future
         :return: array of uint64
         """
-        time_stamp = get_valid_timestamp(time_stamp)
+        time_stamp = misc_utils.get_valid_timestamp(time_stamp)
         id_history = []
         next_ids = [root_id]
         while len(next_ids):
@@ -677,8 +594,8 @@ class ChunkedGraph:
     def get_root_id_history(
         self,
         root_id: np.uint64,
-        time_stamp_past: Optional[datetime.datetime] = get_min_time(),
-        time_stamp_future: Optional[datetime.datetime] = get_max_time(),
+        time_stamp_past: Optional[datetime.datetime] = misc_utils.get_min_time(),
+        time_stamp_future: Optional[datetime.datetime] = misc_utils.get_max_time(),
     ) -> np.ndarray:
         """ Returns all future root ids emerging from this root
         This search happens in a monotic fashion. At no point are future root
@@ -707,7 +624,7 @@ class ChunkedGraph:
         self,
         root_id: np.uint64,
         correct_for_wrong_coord_type: bool = True,
-        time_stamp_past: Optional[datetime.datetime] = get_min_time(),
+        time_stamp_past: Optional[datetime.datetime] = misc_utils.get_min_time(),
     ) -> dict:
         """ Returns all past root ids for this root
         This search happens in a monotic fashion. At no point are future root
@@ -941,7 +858,7 @@ class ChunkedGraph:
             n_threads=cg_threads,
             debug=False,
         )
-        edges_dict = concatenate_chunk_edges(chunk_edge_dicts)
+        edges_dict = edge_utils.concatenate_chunk_edges(chunk_edge_dicts)
         edges = reduce(lambda x, y: x + y, edges_dict.values())
         # # include fake edges
         # chunk_fake_edges_d = self.read_node_id_rows(
@@ -957,9 +874,11 @@ class ChunkedGraph:
         l2id_children_d = self.get_children(level2_ids)
         for l2id in l2id_children_d:
             supervoxels = l2id_children_d[l2id]
-            filtered_edges = filter_edges(l2id_children_d[l2id], edges)
+            filtered_edges = edge_utils.filter_edges(l2id_children_d[l2id], edges)
             if active_edges:
-                filtered_edges = get_active_edges(filtered_edges, l2id_children_d)
+                filtered_edges = edge_utils.get_active_edges(
+                    filtered_edges, l2id_children_d
+                )
             # l2id_agglomeration_d[l2id] = Agglomeration(supervoxels, filtered_edges)
         return l2id_agglomeration_d
 
@@ -1050,14 +969,11 @@ class ChunkedGraph:
         source_coord: Sequence[int] = None,
         sink_coord: Sequence[int] = None,
         n_tries: int = 60,
-    ) -> GraphEditOperation.Result:
+    ) -> operation.GraphEditOperation.Result:
         """ Adds an edge to the chunkedgraph
-
             Multi-user safe through locking of the root node
-
             This function acquires a lock and ensures that it still owns the
             lock before executing the write.
-
         :param user_id: str
             unique id - do not just make something up, use the same id for the
             same user every time
@@ -1070,7 +986,7 @@ class ChunkedGraph:
         :param n_tries: int
         :return: GraphEditOperation.Result
         """
-        return MergeOperation(
+        return operation.MergeOperation(
             self,
             user_id=user_id,
             added_edges=atomic_edges,
@@ -1090,14 +1006,11 @@ class ChunkedGraph:
         mincut: bool = True,
         bb_offset: Tuple[int, int, int] = (240, 240, 24),
         n_tries: int = 20,
-    ) -> GraphEditOperation.Result:
+    ) -> operation.GraphEditOperation.Result:
         """ Removes edges - either directly or after applying a mincut
-
             Multi-user safe through locking of the root node
-
             This function acquires a lock and ensures that it still owns the
             lock before executing the write.
-
         :param user_id: str
             unique id - do not just make something up, use the same id for the
             same user every time
@@ -1115,7 +1028,7 @@ class ChunkedGraph:
         :return: GraphEditOperation.Result
         """
         if mincut:
-            return MulticutOperation(
+            return operation.MulticutOperation(
                 self,
                 user_id=user_id,
                 source_ids=source_ids,
@@ -1134,7 +1047,7 @@ class ChunkedGraph:
                     "Split operation require the same number of source and sink IDs"
                 )
             atomic_edges = np.array([source_ids, sink_ids]).transpose()
-        return SplitOperation(
+        return operation.SplitOperation(
             self,
             user_id=user_id,
             removed_edges=atomic_edges,
@@ -1144,25 +1057,23 @@ class ChunkedGraph:
 
     def undo_operation(
         self, user_id: str, operation_id: np.uint64
-    ) -> GraphEditOperation.Result:
+    ) -> operation.GraphEditOperation.Result:
         """ Applies the inverse of a previous GraphEditOperation
-
         :param user_id: str
         :param operation_id: operation_id to be inverted
         :return: GraphEditOperation.Result
         """
-        return UndoOperation(self, user_id=user_id, operation_id=operation_id).execute()
+        return operation.UndoOperation(self, user_id=user_id, operation_id=operation_id).execute()
 
     def redo_operation(
         self, user_id: str, operation_id: np.uint64
-    ) -> GraphEditOperation.Result:
+    ) -> operation.GraphEditOperation.Result:
         """ Re-applies a previous GraphEditOperation
-
         :param user_id: str
         :param operation_id: operation_id to be repeated
         :return: GraphEditOperation.Result
         """
-        return RedoOperation(self, user_id=user_id, operation_id=operation_id).execute()
+        return operation.RedoOperation(self, user_id=user_id, operation_id=operation_id).execute()
 
     def _run_multicut(
         self,

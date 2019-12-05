@@ -134,27 +134,6 @@ def time_min():
     return datetime.datetime.strptime("01/01/00 00:00", "%d/%m/%y %H:%M")
 
 
-def _get_google_compatible_time_stamp(
-    time_stamp: datetime.datetime, round_up: bool = False
-) -> datetime.datetime:
-    """ Makes a datetime.datetime time stamp compatible with googles' services.
-    Google restricts the accuracy of time stamps to milliseconds. Hence, the
-    microseconds are cut of. By default, time stamps are rounded to the lower
-    number.
-    :param time_stamp: datetime.datetime
-    :param round_up: bool
-    :return: datetime.datetime
-    """
-    micro_s_gap = datetime.timedelta(microseconds=time_stamp.microsecond % 1000)
-    if micro_s_gap == 0:
-        return time_stamp
-    if round_up:
-        time_stamp += datetime.timedelta(microseconds=1000) - micro_s_gap
-    else:
-        time_stamp -= micro_s_gap
-    return time_stamp
-
-
 def get_valid_timestamp(timestamp):
     if timestamp is None:
         timestamp = datetime.datetime.utcnow()
@@ -194,3 +173,24 @@ def filter_failed_node_ids(row_ids, segment_ids, max_children_ids):
         max_child_ids_occ_so_far[i_row] = counter[max_child_ids[i_row]]
         counter[max_child_ids[i_row]] += 1
     return row_ids[max_child_ids_occ_so_far == 0]
+
+
+def _get_google_compatible_time_stamp(
+    time_stamp: datetime.datetime, round_up: bool = False
+) -> datetime.datetime:
+    """ Makes a datetime.datetime time stamp compatible with googles' services.
+    Google restricts the accuracy of time stamps to milliseconds. Hence, the
+    microseconds are cut of. By default, time stamps are rounded to the lower
+    number.
+    :param time_stamp: datetime.datetime
+    :param round_up: bool
+    :return: datetime.datetime
+    """
+    micro_s_gap = datetime.timedelta(microseconds=time_stamp.microsecond % 1000)
+    if micro_s_gap == 0:
+        return time_stamp
+    if round_up:
+        time_stamp += datetime.timedelta(microseconds=1000) - micro_s_gap
+    else:
+        time_stamp -= micro_s_gap
+    return time_stamp

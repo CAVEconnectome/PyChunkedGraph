@@ -7,7 +7,7 @@ from collections import namedtuple
 
 import numpy as np
 
-from ..utils import basetypes
+from .. import basetypes
 
 
 _edge_type_fileds = ("in_chunk", "between_chunk", "cross_chunk")

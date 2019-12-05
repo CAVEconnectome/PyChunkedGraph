@@ -10,10 +10,9 @@ import numpy as np
 
 from . import Edges
 from . import EDGE_TYPES
-from ..utils.basetypes import NODE_ID
-from ..utils.basetypes import EDGE_AFFINITY
-from ..utils.basetypes import EDGE_AREA
-
+from .. import basetypes
+from ..chunks import utils as chunk_utils
+from ..meta import ChunkedGraphMeta
 from ..connectivity.search import check_reachability
 from ..utils.flatgraph import build_gt_graph
 from ...utils.general import reverse_dictionary
@@ -23,10 +22,10 @@ def concatenate_chunk_edges(chunk_edge_dicts: List) -> Dict:
     """combine edge_dicts of multiple chunks into one edge_dict"""
     edges_dict = {}
     for edge_type in EDGE_TYPES:
-        sv_ids1 = [np.array([], dtype=NODE_ID)]
-        sv_ids2 = [np.array([], dtype=NODE_ID)]
-        affinities = [np.array([], dtype=EDGE_AFFINITY)]
-        areas = [np.array([], dtype=EDGE_AREA)]
+        sv_ids1 = [np.array([], dtype=basetypes.NODE_ID)]
+        sv_ids2 = [np.array([], dtype=basetypes.NODE_ID)]
+        affinities = [np.array([], dtype=basetypes.EDGE_AFFINITY)]
+        areas = [np.array([], dtype=basetypes.EDGE_AREA)]
         for edge_d in chunk_edge_dicts:
             edges = edge_d[edge_type]
             sv_ids1.append(edges.node_ids1)
@@ -138,4 +137,35 @@ def get_linking_edges(
     areas = edges.areas[mask]
 
     return Edges(sv_ids1, sv_ids2, affinities=affinities, areas=areas)
+
+
+def get_cross_chunk_edges_layer(meta: ChunkedGraphMeta, cross_edges):
+    """ Computes the layer in which a cross chunk edge becomes relevant.
+    I.e. if a cross chunk edge links two nodes in layer 4 this function
+    returns 3.
+    :param cross_edges: n x 2 array
+        edges between atomic (level 1) node ids
+    :return: array of length n
+    """
+    if len(cross_edges) == 0:
+        return np.array([], dtype=np.int)
+
+    cross_chunk_edge_layers = np.ones(len(cross_edges), dtype=np.int)
+    cross_edge_coordinates = []
+    for cross_edge in cross_edges:
+        cross_edge_coordinates.append(
+            [
+                chunk_utils.get_chunk_coordinates(meta, cross_edge[0]),
+                chunk_utils.get_chunk_coordinates(meta, cross_edge[1]),
+            ]
+        )
+
+    cross_edge_coordinates = np.array(cross_edge_coordinates, dtype=np.int)
+    for _ in range(2, meta.layer_count):
+        edge_diff = np.sum(
+            np.abs(cross_edge_coordinates[:, 0] - cross_edge_coordinates[:, 1]), axis=1,
+        )
+        cross_chunk_edge_layers[edge_diff > 0] += 1
+        cross_edge_coordinates = cross_edge_coordinates // meta.graph_config.FANOUT
+    return cross_chunk_edge_layers
 
