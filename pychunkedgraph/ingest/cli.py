@@ -23,7 +23,7 @@ from ..graph.meta import ChunkedGraphMeta
 from ..graph.meta import DataSource
 from ..graph.meta import GraphConfig
 from ..graph.meta import BigTableConfig
-from ..graph.chunks.hierarchy import get_children_coords
+from ..graph.chunks.hierarchy import get_children_chunk_coords
 
 ingest_cli = AppGroup("ingest")
 
@@ -90,7 +90,7 @@ def queue_parent(chunk_info):
             imanager.serialized(),
             parent_layer,
             parent_coords,
-            get_children_coords(
+            get_children_chunk_coords(
                 imanager.chunkedgraph_meta, parent_layer, parent_coords
             ),
         ),
@@ -112,7 +112,7 @@ def queue_children(chunk_info):
     parent_layer = chunk_info[0]
     parent_coords = np.array(chunk_info[1:], int)
 
-    children = get_children_coords(
+    children = get_children_chunk_coords(
         imanager.chunkedgraph_meta, parent_layer, parent_coords
     )
     children_layer = parent_layer - 1
@@ -127,7 +127,7 @@ def queue_children(chunk_info):
                 imanager.serialized(),
                 children_layer,
                 coords,
-                get_children_coords(imanager.chunkedgraph_meta, children_layer, coords),
+                get_children_chunk_coords(imanager.chunkedgraph_meta, children_layer, coords),
             ),
         )
 
@@ -158,7 +158,7 @@ def queue_layer(parent_layer):
                 imanager.serialized(),
                 parent_layer,
                 coords,
-                get_children_coords(imanager.chunkedgraph_meta, parent_layer, coords),
+                get_children_chunk_coords(imanager.chunkedgraph_meta, parent_layer, coords),
             ),
         )
 

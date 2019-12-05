@@ -60,9 +60,6 @@ class ChunkedGraph:
         table_id: str,
         project_id: str = "neuromancer-seung-import",
         instance_id: str = "pychunkedgraph",
-        n_layers: Optional[np.uint64] = None,
-        dataset_info: Optional[object] = None,
-        is_new: bool = False,
         logger: Optional[logging.Logger] = None,
         meta: Optional[ChunkedGraphMeta] = None,
     ) -> None:

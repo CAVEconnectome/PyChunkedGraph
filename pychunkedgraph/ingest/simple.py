@@ -22,7 +22,7 @@ from ..io.edges import get_chunk_edges
 from ..io.edges import put_chunk_edges
 from ..io.components import get_chunk_components
 from ..utils.general import chunked
-from ..graph.chunks.hierarchy import get_children_coords
+from ..graph.chunks.hierarchy import get_children_chunk_coords
 
 chunk_id_str = lambda layer, coords: f"{layer}_{'_'.join(map(str, coords))}"
 
@@ -78,7 +78,7 @@ def _post_task_completion(
 
     if not parent_chunk_str in parent_children_count_d_shared:
         children_count = len(
-            get_children_coords(imanager.chunkedgraph_meta, parent_layer, parent_coords)
+            get_children_chunk_coords(imanager.chunkedgraph_meta, parent_layer, parent_coords)
         )
         # set initial number of child chunks
         parent_children_count_d_shared[parent_chunk_str] = children_count
@@ -87,7 +87,7 @@ def _post_task_completion(
 
     # if zero, all dependents complete -> start parent
     if parent_children_count_d_shared[parent_chunk_str] == 0:
-        children = get_children_coords(
+        children = get_children_chunk_coords(
             imanager.chunkedgraph_meta, parent_layer, parent_coords
         )
         imanager.cg.add_layer(parent_layer, children)

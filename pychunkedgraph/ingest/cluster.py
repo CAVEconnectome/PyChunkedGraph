@@ -18,7 +18,7 @@ from .ran_agglomeration import get_active_edges
 from .initialization.atomic_layer import add_atomic_edges
 from .initialization.abstract_layers import add_layer
 from ..utils.redis import keys as r_keys
-from ..graph.chunks.hierarchy import get_children_coords
+from ..graph.chunks.hierarchy import get_children_chunk_coords
 
 
 def _post_task_completion(imanager: IngestionManager, layer: int, coords: np.ndarray):
@@ -37,7 +37,7 @@ def _post_task_completion(imanager: IngestionManager, layer: int, coords: np.nda
     parent_chunk_str = "_".join(map(str, parent_coords))
     if not imanager.redis.hget(parent_layer, parent_chunk_str):
         children_count = len(
-            get_children_coords(imanager.chunkedgraph_meta, parent_layer, parent_coords)
+            get_children_chunk_coords(imanager.chunkedgraph_meta, parent_layer, parent_coords)
         )
         imanager.redis.hset(parent_layer, parent_chunk_str, children_count)
     imanager.redis.hincrby(parent_layer, parent_chunk_str, -1)
@@ -56,7 +56,7 @@ def _post_task_completion(imanager: IngestionManager, layer: int, coords: np.nda
                 imanager.serialized(),
                 parent_layer,
                 parent_coords,
-                get_children_coords(
+                get_children_chunk_coords(
                     imanager.chunkedgraph_meta, parent_layer, parent_coords
                 ),
             ),
