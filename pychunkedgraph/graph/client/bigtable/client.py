@@ -104,6 +104,50 @@ class BigTableClient(bigtable.Client, ClientWithIDGen):
         )
         return {deserialize_uint64(row_key): data for (row_key, data) in rows.items()}
 
+    def read_node(
+        self,
+        node_id: np.uint64,
+        properties: Optional[
+            Union[Iterable[attributes._Attribute], attributes._Attribute]
+        ] = None,
+        start_time: Optional[datetime.datetime] = None,
+        end_time: Optional[datetime.datetime] = None,
+        end_time_inclusive: bool = False,
+    ) -> Union[
+        Dict[attributes._Attribute, List[bigtable.row_data.Cell]],
+        List[bigtable.row_data.Cell],
+    ]:
+        """Convenience function for reading a single node from Bigtable.
+        Arguments:
+            node_id {np.uint64} -- the NodeID of the row to be read.
+        Keyword Arguments:
+            columns {Optional[Union[Iterable[column_keys._Column], column_keys._Column]]} --
+                Optional filtering by columns to speed up the query. If `columns` is a single
+                column (not iterable), the column key will be omitted from the result.
+                (default: {None})
+            start_time {Optional[datetime.datetime]} -- Ignore cells with timestamp before
+                `start_time`. If None, no lower bound. (default: {None})
+            end_time {Optional[datetime.datetime]} -- Ignore cells with timestamp after `end_time`.
+                If None, no upper bound. (default: {None})
+            end_time_inclusive {bool} -- Whether or not `end_time` itself should be included in the
+                request, ignored if `end_time` is None. (default: {False})
+        Returns:
+            Union[Dict[column_keys._Column, List[bigtable.row_data.Cell]],
+                  List[bigtable.row_data.Cell]] --
+                Returns a mapping of columns to a List of cells (one cell per timestamp). Each cell
+                has a `value` property, which returns the deserialized field, and a `timestamp`
+                property, which returns the timestamp as `datetime.datetime` object.
+                If only a single `column_keys._Column` was requested, the List of cells is returned
+                directly.
+        """
+        return self._read_row(
+            row_key=serialize_uint64(node_id),
+            columns=properties,
+            start_time=start_time,
+            end_time=end_time,
+            end_time_inclusive=end_time_inclusive,
+        )
+
     def write_nodes(self, nodes, root_ids, operation_id):
         """
         Writes/updates nodes (IDs along with properties)

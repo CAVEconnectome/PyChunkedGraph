@@ -17,7 +17,6 @@ from typing import Union
 
 import numpy as np
 import pytz
-
 from cloudvolume import CloudVolume
 from multiwrapper import multiprocessing_utils as mu
 
@@ -205,9 +204,7 @@ class ChunkedGraph:
         return atomic_id
 
     def read_first_log_row(self):
-        """ Returns first log row
-        :return: None or dict
-        """
+        """Returns first log row."""
         for operation_id in range(1, 100):
             log_row = self.read_log_row(np.uint64(operation_id))
             if len(log_row) > 0:
@@ -220,24 +217,15 @@ class ChunkedGraph:
         get_only_relevant_parents: bool = True,
         time_stamp: Optional[datetime.datetime] = None,
     ):
-        """ Acquires parents of a node at a specific time stamp
-        :param node_ids: list of uint64
-        :param get_only_relevant_parents: bool
-            True: return single parent according to time_stamp
-            False: return n x 2 list of all parents
-                   ((parent_id, time_stamp), ...)
-        :param time_stamp: datetime or None
-        :return: uint64 or None
-        """
+        """TODO change docs and type annotations"""
         if time_stamp is None:
             time_stamp = datetime.datetime.utcnow()
-
         if time_stamp.tzinfo is None:
             time_stamp = pytz.UTC.localize(time_stamp)
 
-        parent_rows = self.read_node_id_rows(
+        parent_rows = self.client.read_nodes(
             node_ids=node_ids,
-            columns=attributes.Hierarchy.Parent,
+            properties=attributes.Hierarchy.Parent,
             end_time=time_stamp,
             end_time_inclusive=True,
         )
@@ -251,7 +239,6 @@ class ChunkedGraph:
         parents = []
         for node_id in node_ids:
             parents.append([(p.value, p.timestamp) for p in parent_rows[node_id]])
-
         return parents
 
     def get_parent(
@@ -260,24 +247,15 @@ class ChunkedGraph:
         get_only_relevant_parent: bool = True,
         time_stamp: Optional[datetime.datetime] = None,
     ) -> Union[List[Tuple[np.uint64, datetime.datetime]], np.uint64]:
-        """ Acquires parent of a node at a specific time stamp
-        :param node_id: uint64
-        :param get_only_relevant_parent: bool
-            True: return single parent according to time_stamp
-            False: return n x 2 list of all parents
-                   ((parent_id, time_stamp), ...)
-        :param time_stamp: datetime or None
-        :return: uint64 or None
-        """
+        """TODO change docs and type annotations"""
         if time_stamp is None:
             time_stamp = datetime.datetime.utcnow()
-
         if time_stamp.tzinfo is None:
             time_stamp = pytz.UTC.localize(time_stamp)
 
-        parents = self.read_node_id_row(
+        parents = self.client.read_node(
             node_id,
-            columns=attributes.Hierarchy.Parent,
+            properties=attributes.Hierarchy.Parent,
             end_time=time_stamp,
             end_time_inclusive=True,
         )
@@ -303,15 +281,15 @@ class ChunkedGraph:
         :rtype: Union[Dict[np.uint64, np.ndarray], np.ndarray]
         """
         if np.isscalar(node_id):
-            children = self.read_node_id_row(
-                node_id=node_id, columns=attributes.Hierarchy.Child
+            children = self.client.read_node(
+                node_id=node_id, properties=attributes.Hierarchy.Child
             )
             if not children:
                 return np.empty(0, dtype=basetypes.NODE_ID)
             return children[0].value
         else:
-            children = self.read_node_id_rows(
-                node_ids=node_id, columns=attributes.Hierarchy.Child
+            children = self.client.read_nodes(
+                node_ids=node_id, properties=attributes.Hierarchy.Child
             )
             if flatten:
                 if not children:
@@ -379,7 +357,7 @@ class ChunkedGraph:
         :return: np.uint64
         """
         time_stamp = misc_utils.get_valid_timestamp(time_stamp)
-        stop_layer = self.n_layers if not stop_layer else min(self.n_layers, stop_layer)
+        stop_layer = self.meta.layer_count if not stop_layer else stop_layer
         layer_mask = np.ones(len(node_ids), dtype=np.bool)
 
         for _ in range(n_tries):
@@ -418,11 +396,7 @@ class ChunkedGraph:
         time_stamp = misc_utils.get_valid_timestamp(time_stamp)
         parent_id = node_id
         all_parent_ids = []
-
-        if stop_layer is not None:
-            stop_layer = min(self.n_layers, stop_layer)
-        else:
-            stop_layer = self.n_layers
+        stop_layer = self.meta.layer_count if not stop_layer else stop_layer
 
         for _ in range(n_tries):
             parent_id = node_id
@@ -449,25 +423,19 @@ class ChunkedGraph:
             return parent_id
 
     def get_all_parents_dict(
-        self, node_id: np.uint64, time_stamp: Optional[datetime.datetime] = None
+        self, node_id: basetypes.NODE_ID, time_stamp: Optional[datetime.datetime] = None
     ) -> dict:
-        """ Takes a node id and returns all parents and parents' parents up to
-            the top
-        :param node_id: uint64
-        :param time_stamp: None or datetime
-        :return: dict
-        """
+        """Takes a node id and returns all parents up to root."""
         parent_ids = self.get_root(
             node_id=node_id, time_stamp=time_stamp, get_all_parents=True
         )
-        parent_id_layers = self.get_chunk_layers(parent_ids)
-        return dict(zip(parent_id_layers, parent_ids))
+        return dict(zip(self.get_chunk_layers(parent_ids), parent_ids))
 
     # def read_consolidated_lock_timestamp
     # def read_lock_timestamp
 
     def get_latest_root_id(self, root_id: np.uint64) -> np.ndarray:
-        """ Returns the latest root id associated with the provided root id
+        """Returns the latest root id associated with the provided root id
         :param root_id: uint64
         :return: list of uint64s
         """
@@ -477,10 +445,10 @@ class ChunkedGraph:
         while len(id_working_set) > 0:
             next_id = id_working_set[0]
             del id_working_set[0]
-            row = self.read_node_id_row(next_id, columns=column)
+            node = self.client.read_node(next_id, properties=column)
             # Check if a new root id was attached to this root id
-            if row:
-                id_working_set.extend(row[0].value)
+            if node:
+                id_working_set.extend(node[0].value)
             else:
                 latest_root_ids.append(next_id)
 
@@ -488,7 +456,7 @@ class ChunkedGraph:
 
     def get_future_root_ids(
         self,
-        root_id: np.uint64,
+        root_id: basetypes.NODE_ID,
         time_stamp: Optional[datetime.datetime] = misc_utils.get_max_time(),
     ) -> np.ndarray:
         """ Returns all future root ids emerging from this root
@@ -506,9 +474,9 @@ class ChunkedGraph:
         while len(next_ids):
             temp_next_ids = []
             for next_id in next_ids:
-                row = self.read_node_id_row(
+                row = self.client.read_node(
                     next_id,
-                    columns=[
+                    properties=[
                         attributes.Hierarchy.NewParent,
                         attributes.Hierarchy.Child,
                     ],
@@ -538,7 +506,7 @@ class ChunkedGraph:
         root_id: np.uint64,
         time_stamp: Optional[datetime.datetime] = misc_utils.get_min_time(),
     ) -> np.ndarray:
-        """ Returns all future root ids emerging from this root
+        """ Returns all past root ids emerging from this root
         This search happens in a monotic fashion. At no point are future root
         ids of past root ids taken into account.
         :param root_id: np.uint64
@@ -553,9 +521,9 @@ class ChunkedGraph:
         while len(next_ids):
             temp_next_ids = []
             for next_id in next_ids:
-                row = self.read_node_id_row(
+                row = self.client.read_node(
                     next_id,
-                    columns=[
+                    properties=[
                         attributes.Hierarchy.FormerParent,
                         attributes.Hierarchy.Child,
                     ],
@@ -580,35 +548,6 @@ class ChunkedGraph:
 
             next_ids = temp_next_ids
         return np.unique(np.array(id_history, dtype=np.uint64))
-
-    def get_root_id_history(
-        self,
-        root_id: np.uint64,
-        time_stamp_past: Optional[datetime.datetime] = misc_utils.get_min_time(),
-        time_stamp_future: Optional[datetime.datetime] = misc_utils.get_max_time(),
-    ) -> np.ndarray:
-        """ Returns all future root ids emerging from this root
-        This search happens in a monotic fashion. At no point are future root
-        ids of past root ids or past root ids of future root ids taken into
-        account.
-        :param root_id: np.uint64
-        :param time_stamp_past: None or datetime
-            restrict search to ids created after this time_stamp
-            None=search whole future
-        :param time_stamp_future: None or datetime
-            restrict search to ids created before this time_stamp
-            None=search whole future
-        :return: array of uint64
-        """
-        past_ids = self.get_past_root_ids(root_id=root_id, time_stamp=time_stamp_past)
-        future_ids = self.get_future_root_ids(
-            root_id=root_id, time_stamp=time_stamp_future
-        )
-
-        history_ids = np.concatenate(
-            [past_ids, np.array([root_id], dtype=np.uint64), future_ids]
-        )
-        return history_ids
 
     def get_change_log(
         self,
@@ -639,17 +578,17 @@ class ChunkedGraph:
         while len(next_ids):
             temp_next_ids = []
             former_parent_col = attributes.Hierarchy.FormerParent
-            row_dict = self.read_node_id_rows(
-                node_ids=next_ids, columns=[former_parent_col]
+            nodes_d = self.client.read_nodes(
+                node_ids=next_ids, properties=[former_parent_col]
             )
-            for row in row_dict.values():
-                if attributes.Hierarchy.FormerParent in row:
-                    if time_stamp_past > row[former_parent_col][0].timestamp:
+            for node in nodes_d.values():
+                if attributes.Hierarchy.FormerParent in node:
+                    if time_stamp_past > node[former_parent_col][0].timestamp:
                         continue
-                    ids = row[former_parent_col][0].value
+                    ids = node[former_parent_col][0].value
                     lock_col = attributes.Concurrency.Lock
-                    former_row = self.read_node_id_row(ids[0], columns=[lock_col])
-                    operation_id = former_row[lock_col][0].value
+                    former_node = self.client.read_node(ids[0], properties=[lock_col])
+                    operation_id = former_node[lock_col][0].value
                     log_row = self.read_log_row(operation_id)
                     is_merge = attributes.OperationLogs.AddedEdge in log_row
 
@@ -693,7 +632,7 @@ class ChunkedGraph:
 
     def _get_subgraph_higher_layer_nodes(
         self,
-        node_id: np.uint64,
+        node_id: basetypes.NODE_ID,
         bounding_box: Optional[Sequence[Sequence[int]]],
         return_layers: Sequence[int],
         verbose: bool,
@@ -703,25 +642,21 @@ class ChunkedGraph:
         ) -> List[np.uint64]:
             children = self.get_children(node_ids, flatten=True)
             if len(children) > 0 and bounding_box is not None:
-                chunk_coordinates = np.array(
+                chunk_coords = np.array(
                     [self.get_chunk_coordinates(c) for c in children]
                 )
-                child_layers = self.get_chunk_layers(children)
-                adapt_child_layers = child_layers - 2
-                adapt_child_layers[adapt_child_layers < 0] = 0
-                bounding_box_layer = (
-                    bounding_box[None]
-                    / (self.fan_out ** adapt_child_layers)[:, None, None]
+                child_layers = self.get_chunk_layers(children) - 2
+                child_layers[child_layers < 0] = 0
+                fanout = self.meta.graph_config.FANOUT
+                bbox_layer = (
+                    bounding_box[None] / (fanout ** child_layers)[:, None, None]
                 )
                 bound_check = np.array(
                     [
-                        np.all(chunk_coordinates < bounding_box_layer[:, 1], axis=1),
-                        np.all(
-                            chunk_coordinates + 1 > bounding_box_layer[:, 0], axis=1
-                        ),
+                        np.all(chunk_coords < bbox_layer[:, 1], axis=1),
+                        np.all(chunk_coords + 1 > bbox_layer[:, 0], axis=1),
                     ]
                 ).T
-
                 bound_check_mask = np.all(bound_check, axis=1)
                 children = children[bound_check_mask]
             return children
@@ -738,9 +673,6 @@ class ChunkedGraph:
 
         if layer in return_layers:
             nodes_per_layer[layer] = child_ids
-
-        if verbose:
-            time_start = time.time()
 
         while layer > stop_layer:
             # Use heuristic to guess the optimal number of threads
@@ -764,19 +696,6 @@ class ChunkedGraph:
                 np.uint64,
             )
             child_ids = np.concatenate([child_ids, next_layer_child_ids])
-
-            if verbose:
-                self.logger.debug(
-                    "Layer %d: %.3fms for %d children with %d threads"
-                    % (
-                        layer,
-                        (time.time() - time_start) * 1000,
-                        n_child_ids,
-                        this_n_threads,
-                    )
-                )
-                time_start = time.time()
-
             layer -= 1
             if layer in return_layers:
                 nodes_per_layer[layer] = child_ids
@@ -878,11 +797,9 @@ class ChunkedGraph:
         bounding_box: Optional[Sequence[Sequence[int]]] = None,
         bb_is_coordinate: bool = False,
         return_layers: List[int] = [1],
-        verbose: bool = True,
     ) -> Union[Dict[int, np.ndarray], np.ndarray]:
         """ Return all nodes belonging to the specified agglomeration ID within
             the defined bounding box and requested layers.
-
         :param agglomeration_id: np.uint64
         :param bounding_box: [[x_l, y_l, z_l], [x_h, y_h, z_h]]
         :param bb_is_coordinate: bool
@@ -918,8 +835,6 @@ class ChunkedGraph:
             )
 
             # Layer 2
-            if verbose:
-                time_start = time.time()
             child_ids = nodes_per_layer[2]
             if 2 not in return_layers:
                 del nodes_per_layer[2]
@@ -939,12 +854,6 @@ class ChunkedGraph:
                 ),
                 dtype=np.uint64,
             )
-            if verbose:
-                self.logger.debug(
-                    "Layer 2: %.3fms for %d children with %d threads"
-                    % ((time.time() - time_start) * 1000, n_child_ids, this_n_threads)
-                )
-
             nodes_per_layer[1] = child_ids
         if len(nodes_per_layer) == 1:
             return list(nodes_per_layer.values())[0]
