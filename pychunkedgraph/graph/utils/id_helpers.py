@@ -1,40 +1,41 @@
+"""
+Utils functions for node and segment IDs.
+"""
+
 from typing import Optional
 
 import numpy as np
 
+from . import basetypes
 from ..meta import ChunkedGraphMeta
 from ..chunks import utils as chunk_utils
 
 
 def get_segment_id_limit(
-    meta: ChunkedGraphMeta, node_or_chunk_id: np.uint64
-) -> np.uint64:
-    """ Get maximum possible Segment ID for given Node ID or Chunk ID
-    :param node_or_chunk_id: np.uint64
-    :return: np.uint64
-    """
+    meta: ChunkedGraphMeta, node_or_chunk_id: basetypes.CHUNK_ID
+) -> basetypes.SEGMENT_ID:
+    """Get maximum possible Segment ID for given Node ID or Chunk ID."""
     layer = chunk_utils.get_chunk_layer(meta, node_or_chunk_id)
     chunk_offset = 64 - meta.graph_config.LAYER_ID_BITS - 3 * meta.bitmasks[layer]
     return np.uint64(2 ** chunk_offset - 1)
 
 
-def get_segment_id(meta: ChunkedGraphMeta, node_id: np.uint64) -> np.uint64:
-    """ Extract Segment ID from Node ID
-    :param node_id: np.uint64
-    :return: np.uint64
-    """
+def get_segment_id(
+    meta: ChunkedGraphMeta, node_id: basetypes.NODE_ID
+) -> basetypes.SEGMENT_ID:
+    """Extract Segment ID from Node ID."""
     return node_id & get_segment_id_limit(meta, node_id)
 
 
 def get_node_id(
     meta: ChunkedGraphMeta,
-    segment_id: np.uint64,
-    chunk_id: Optional[np.uint64] = None,
+    segment_id: basetypes.SEGMENT_ID,
+    chunk_id: Optional[basetypes.CHUNK_ID] = None,
     layer: Optional[int] = None,
     x: Optional[int] = None,
     y: Optional[int] = None,
     z: Optional[int] = None,
-) -> np.uint64:
+) -> basetypes.NODE_ID:
     """
     (1) Build Node ID from Segment ID and Chunk ID
     (2) Build Node ID from Segment ID, Layer, X, Y and Z components

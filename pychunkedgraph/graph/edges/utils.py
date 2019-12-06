@@ -3,14 +3,16 @@ helper functions for edge stuff
 """
 
 from collections import defaultdict
-from typing import Dict, List
+from typing import Dict
+from typing import List
+from typing import Iterable
 
 import numpy as np
 
 
 from . import Edges
 from . import EDGE_TYPES
-from .. import basetypes
+from ..utils import basetypes
 from ..chunks import utils as chunk_utils
 from ..meta import ChunkedGraphMeta
 from ..connectivity.search import check_reachability
@@ -139,7 +141,7 @@ def get_linking_edges(
     return Edges(sv_ids1, sv_ids2, affinities=affinities, areas=areas)
 
 
-def get_cross_chunk_edges_layer(meta: ChunkedGraphMeta, cross_edges):
+def get_cross_chunk_edges_layer(meta: ChunkedGraphMeta, cross_edges: Iterable):
     """ Computes the layer in which a cross chunk edge becomes relevant.
     I.e. if a cross chunk edge links two nodes in layer 4 this function
     returns 3.

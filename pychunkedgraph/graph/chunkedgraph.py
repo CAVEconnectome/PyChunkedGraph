@@ -6,7 +6,14 @@ import logging
 from itertools import chain
 from itertools import product
 from functools import reduce
-from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple, Union
+from typing import Any
+from typing import Dict
+from typing import Iterable
+from typing import List
+from typing import Optional
+from typing import Sequence
+from typing import Tuple
+from typing import Union
 
 import numpy as np
 import pytz
@@ -19,6 +26,7 @@ from . import cutting
 from . import operation
 from . import attributes
 from . import exceptions
+from .client.bigtable import BigTableClient
 from .meta import ChunkedGraphMeta
 from .utils import basetypes
 from .utils import id_helpers
@@ -62,74 +70,86 @@ class ChunkedGraph:
             self.logger = logger
 
         self.meta = meta
-        self.chunk_layer = chunk_utils.get_chunk_layer
-        self.chunk_layers = chunk_utils.get_chunk_layers
-        self.chunk_coordinates = chunk_utils.get_chunk_coordinates
-        self.chunk_id = chunk_utils.get_chunk_id
-        self.chunk_ids_from_node_ids = chunk_utils.get_chunk_ids_from_node_ids
-        self.children_chunk_ids = chunk_hierarchy.get_children_chunk_ids
-        self.parent_chunk_ids = chunk_hierarchy.get_parent_chunk_ids
-        self.parent_chunk_id_dict = chunk_hierarchy.get_parent_chunk_id_dict
-        self.segment_id_limit = id_helpers.get_segment_id_limit
-        self.segment_id = id_helpers.get_segment_id
-        self.get_node_id = id_helpers.get_node_id
-        self.get_cross_chunk_edges_layer = edge_utils.get_cross_chunk_edges_layer
+        # TODO client type must be specified meta?
+        self.client = BigTableClient(self.meta)
+
+    def get_node_id(
+        self,
+        segment_id: np.uint64,
+        chunk_id: Optional[np.uint64] = None,
+        layer: Optional[int] = None,
+        x: Optional[int] = None,
+        y: Optional[int] = None,
+        z: Optional[int] = None,
+    ) -> np.uint64:
+        return id_helpers.get_node_id(
+            self.meta, segment_id, chunk_id=chunk_id, layer=layer, x=x, y=y, z=z
+        )
+
+    def get_segment_id(self, node_id: basetypes.NODE_ID):
+        return id_helpers.get_segment_id(self.meta, node_id)
+
+    def get_segment_id_limit(self, node_or_chunk_id: basetypes.NODE_ID):
+        return id_helpers.get_segment_id_limit(self.meta, node_or_chunk_id)
+
+    def get_chunk_layer(self, node_or_chunk_id: basetypes.NODE_ID):
+        return chunk_utils.get_chunk_layer(self.meta, node_or_chunk_id)
+
+    def get_chunk_layers(self, node_or_chunk_ids: Sequence[basetypes.NODE_ID]):
+        return chunk_utils.get_chunk_layers(self.meta, node_or_chunk_ids)
+
+    def get_chunk_coordinates(self, node_or_chunk_id: basetypes.NODE_ID):
+        return chunk_utils.get_chunk_coordinates(self.meta, node_or_chunk_id)
+
+    def get_chunk_id(
+        self,
+        node_id: basetypes.NODE_ID = None,
+        layer: Optional[int] = None,
+        x: Optional[int] = None,
+        y: Optional[int] = None,
+        z: Optional[int] = None,
+    ):
+        return chunk_utils.get_chunk_id(
+            self.meta, node_id=node_id, layer=layer, x=x, y=y, z=z
+        )
+
+    def get_chunk_ids_from_node_ids(self, node_ids: Sequence[basetypes.NODE_ID]):
+        return chunk_utils.get_chunk_ids_from_node_ids(self.meta, node_ids)
+
+    def get_children_chunk_ids(self, node_or_chunk_id: basetypes.NODE_ID):
+        return chunk_hierarchy.get_children_chunk_ids(self.meta, node_or_chunk_id)
+
+    def get_parent_chunk_ids(self, node_or_chunk_id: basetypes.NODE_ID):
+        return chunk_hierarchy.get_parent_chunk_ids(self.meta, node_or_chunk_id)
+
+    def get_parent_chunk_id_dict(self, node_or_chunk_id: basetypes.NODE_ID):
+        return chunk_hierarchy.get_parent_chunk_id_dict(self.meta, node_or_chunk_id)
+
+    def get_cross_chunk_edges_layer(self, cross_edges: Iterable):
+        return edge_utils.get_cross_chunk_edges_layer(self.meta, cross_edges)
 
     def range_read_chunk(
         self,
-        chunk_id: np.uint64,
+        chunk_id: basetypes.CHUNK_ID,
         columns: Optional[
             Union[Iterable[attributes._Attribute], attributes._Attribute]
         ] = None,
         time_stamp: Optional[datetime.datetime] = None,
-    ) -> Dict[
-        np.uint64,
-        Union[
-            Dict[attributes._Attribute, List[bigtable.row_data.Cell]],
-            List[bigtable.row_data.Cell],
-        ],
-    ]:
-        """Convenience function for reading all NodeID rows of a single chunk.
-        Chunk can either be specified by its (layer, x, y, and z coordinate), or by the chunk ID.
-        Keyword Arguments:
-            chunk_id {Optional[np.uint64]} -- Alternative way to specify the chunk, if the Chunk ID
-                is already known. (default: {None})
-            columns {Optional[Union[Iterable[attributes._Attribute], attributes._Attribute]]} --
-                Optional filtering by columns to speed up the query. If `columns` is a single
-                column (not iterable), the column key will be omitted from the result.
-                (default: {None})
-            time_stamp {Optional[datetime.datetime]} -- Ignore cells with timestamp after `end_time`.
-                If None, no upper bound. (default: {None})
-
-        Returns:
-            Dict[np.uint64, Union[Dict[attributes._Attribute, List[bigtable.row_data.Cell]],
-                                  List[bigtable.row_data.Cell]]] --
-                Returns a dictionary of NodeID rows as keys. Their value will be a mapping of
-                columns to a List of cells (one cell per timestamp). Each cell has a `value`
-                property, which returns the deserialized field, and a `timestamp` property, which
-                returns the timestamp as `datetime.datetime` object.
-                If only a single `attributes._Attribute` was requested, the List of cells will be
-                attached to the row dictionary directly (skipping the column dictionary).
-        """
+    ) -> Dict[basetypes.NODE_ID, Any]:
+        """TODO change docs and type annotations"""
         layer = self.get_chunk_layer(chunk_id)
-
-        max_segment_id = self.get_max_seg_id(chunk_id=chunk_id)
+        max_segment_id = self.client.get_max_segment_id(chunk_id=chunk_id)
         if layer == 1:
             max_segment_id = self.get_segment_id_limit(chunk_id)
 
-        # Define BigTable keys
-        start_id = self.get_node_id(np.uint64(0), chunk_id=chunk_id)
-        end_id = self.get_node_id(max_segment_id, chunk_id=chunk_id)
-
-        rr = self.read_node_id_rows(
-            start_id=start_id,
-            end_id=end_id,
+        return self.client.read_nodes(
+            start_id=self.get_node_id(np.uint64(0), chunk_id=chunk_id),
+            end_id=self.get_node_id(max_segment_id, chunk_id=chunk_id),
             end_id_inclusive=True,
-            columns=columns,
+            properties=columns,
             end_time=time_stamp,
             end_time_inclusive=True,
         )
-        return rr
 
     def get_atomic_id_from_coord(
         self, x: int, y: int, z: int, parent_id: np.uint64, n_tries: int = 5

@@ -37,9 +37,7 @@ from ...utils.generic import get_valid_timestamp
 
 
 class BigTableClient(bigtable.Client, ClientWithIDGen):
-    def __init__(
-        self, graph_meta: ChunkedGraphMeta = None,
-    ):
+    def __init__(self, graph_meta: ChunkedGraphMeta):
         bt_config = graph_meta.bigtable_config
         super(BigTableClient, self).__init__(
             project=bt_config.PROJECT,
@@ -222,22 +220,20 @@ class BigTableClient(bigtable.Client, ClientWithIDGen):
         return True
 
     # IDs
-    def create_node_ids(self, chunk_id: np.uint64, size: int) -> np.ndarray:
-        """Returns a list of unique node IDs for the given chunk."""
+    def create_segment_ids(self, chunk_id: np.uint64, size: int) -> np.ndarray:
+        """Returns a list of unique segment IDs for the given chunk."""
         low, high = self._get_ids_range(serialize_uint64(chunk_id), size)
-        ids = np.arange(low, high + np.uint64(1), dtype=basetypes.SEGMENT_ID)
-        return np.array([chunk_id | seg_id for seg_id in ids], dtype=np.uint64)
+        return np.arange(low, high + np.uint64(1), dtype=basetypes.SEGMENT_ID)
 
-    def create_node_id(self, chunk_id: np.uint64) -> basetypes.NODE_ID:
-        """Generate a unique node ID."""
-        return self.create_node_ids(chunk_id, 1)[0]
+    def create_segment_id(self, chunk_id: np.uint64) -> basetypes.SEGMENT_ID:
+        """Generate a unique segment ID."""
+        return self.create_segment_ids(chunk_id, 1)[0]
 
-    def get_max_node_id(self, chunk_id: np.uint64):
-        """Gets the current maximum node ID in the chunk."""
+    def get_max_segment_id(self, chunk_id: basetypes.CHUNK_ID):
+        """Gets the current maximum segment ID in the chunk."""
         column = attributes.Concurrency.Counter
         row = self._read_row(serialize_uint64(chunk_id), columns=column)
-        seg_id = basetypes.SEGMENT_ID.type(row[0].value if row else 0)
-        return chunk_id | seg_id
+        return basetypes.SEGMENT_ID.type(row[0].value if row else 0)
 
     def create_operation_id(self):
         """Generate a unique operation ID."""
@@ -561,4 +557,4 @@ class BigTableClient(bigtable.Client, ClientWithIDGen):
         return row
 
 
-test = BigTableClient()
+test = BigTableClient(None)
