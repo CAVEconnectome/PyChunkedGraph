@@ -50,82 +50,22 @@ os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = (
 
 class ChunkedGraph:
     def __init__(
-        self,
-        table_id: str,
-        project_id: str = "neuromancer-seung-import",
-        instance_id: str = "pychunkedgraph",
-        logger: Optional[logging.Logger] = None,
-        meta: Optional[ChunkedGraphMeta] = None,
+        self, meta: ChunkedGraphMeta, logger: Optional[logging.Logger] = None,
     ) -> None:
 
-        if logger is None:
-            self.logger = logging.getLogger(f"{project_id}/{instance_id}/{table_id}")
-            self.logger.setLevel(logging.WARNING)
-            if not self.logger.handlers:
-                sh = logging.StreamHandler(sys.stdout)
-                sh.setLevel(logging.WARNING)
-                self.logger.addHandler(sh)
-        else:
-            self.logger = logger
+        # if logger is None:
+        #     self.logger = logging.getLogger(f"{project_id}/{instance_id}/{table_id}")
+        #     self.logger.setLevel(logging.WARNING)
+        #     if not self.logger.handlers:
+        #         sh = logging.StreamHandler(sys.stdout)
+        #         sh.setLevel(logging.WARNING)
+        #         self.logger.addHandler(sh)
+        # else:
+        #     self.logger = logger
 
         self.meta = meta
         # TODO client type must be specified meta?
         self.client = BigTableClient(self.meta)
-
-    def get_node_id(
-        self,
-        segment_id: np.uint64,
-        chunk_id: Optional[np.uint64] = None,
-        layer: Optional[int] = None,
-        x: Optional[int] = None,
-        y: Optional[int] = None,
-        z: Optional[int] = None,
-    ) -> np.uint64:
-        return id_helpers.get_node_id(
-            self.meta, segment_id, chunk_id=chunk_id, layer=layer, x=x, y=y, z=z
-        )
-
-    def get_segment_id(self, node_id: basetypes.NODE_ID):
-        return id_helpers.get_segment_id(self.meta, node_id)
-
-    def get_segment_id_limit(self, node_or_chunk_id: basetypes.NODE_ID):
-        return id_helpers.get_segment_id_limit(self.meta, node_or_chunk_id)
-
-    def get_chunk_layer(self, node_or_chunk_id: basetypes.NODE_ID):
-        return chunk_utils.get_chunk_layer(self.meta, node_or_chunk_id)
-
-    def get_chunk_layers(self, node_or_chunk_ids: Sequence[basetypes.NODE_ID]):
-        return chunk_utils.get_chunk_layers(self.meta, node_or_chunk_ids)
-
-    def get_chunk_coordinates(self, node_or_chunk_id: basetypes.NODE_ID):
-        return chunk_utils.get_chunk_coordinates(self.meta, node_or_chunk_id)
-
-    def get_chunk_id(
-        self,
-        node_id: basetypes.NODE_ID = None,
-        layer: Optional[int] = None,
-        x: Optional[int] = None,
-        y: Optional[int] = None,
-        z: Optional[int] = None,
-    ):
-        return chunk_utils.get_chunk_id(
-            self.meta, node_id=node_id, layer=layer, x=x, y=y, z=z
-        )
-
-    def get_chunk_ids_from_node_ids(self, node_ids: Sequence[basetypes.NODE_ID]):
-        return chunk_utils.get_chunk_ids_from_node_ids(self.meta, node_ids)
-
-    def get_children_chunk_ids(self, node_or_chunk_id: basetypes.NODE_ID):
-        return chunk_hierarchy.get_children_chunk_ids(self.meta, node_or_chunk_id)
-
-    def get_parent_chunk_ids(self, node_or_chunk_id: basetypes.NODE_ID):
-        return chunk_hierarchy.get_parent_chunk_ids(self.meta, node_or_chunk_id)
-
-    def get_parent_chunk_id_dict(self, node_or_chunk_id: basetypes.NODE_ID):
-        return chunk_hierarchy.get_parent_chunk_id_dict(self.meta, node_or_chunk_id)
-
-    def get_cross_chunk_edges_layer(self, cross_edges: Iterable):
-        return edge_utils.get_cross_chunk_edges_layer(self.meta, cross_edges)
 
     def range_read_chunk(
         self,
@@ -635,7 +575,6 @@ class ChunkedGraph:
         node_id: basetypes.NODE_ID,
         bounding_box: Optional[Sequence[Sequence[int]]],
         return_layers: Sequence[int],
-        verbose: bool,
     ):
         def _get_subgraph_higher_layer_nodes_threaded(
             node_ids: Iterable[np.uint64],
@@ -707,7 +646,6 @@ class ChunkedGraph:
         bounding_box: Optional[Sequence[Sequence[int]]] = None,
         bb_is_coordinate: bool = False,
         connected_edges=True,
-        verbose: bool = True,
     ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
         """ 
         Return all atomic edges between supervoxels belonging to the 
@@ -754,7 +692,6 @@ class ChunkedGraph:
                     self.meta, bbox, bbox_is_coordinate
                 ),
                 return_layers=[2],
-                verbose=False,
             )
             level2_ids.append(layer_nodes_d[2])
         level2_ids = np.concatenate(level2_ids)
@@ -804,7 +741,6 @@ class ChunkedGraph:
         :param bounding_box: [[x_l, y_l, z_l], [x_h, y_h, z_h]]
         :param bb_is_coordinate: bool
         :param return_layers: List[int]
-        :param verbose: bool
         :return: np.array of atomic IDs if single layer is requested,
                  Dict[int, np.array] if multiple layers are requested
         """
@@ -823,7 +759,6 @@ class ChunkedGraph:
                 node_id=agglomeration_id,
                 bounding_box=bounding_box,
                 return_layers=return_layers,
-                verbose=verbose,
             )
         else:
             # Need to retrieve layer 2 even if the user doesn't require it
@@ -831,7 +766,6 @@ class ChunkedGraph:
                 node_id=agglomeration_id,
                 bounding_box=bounding_box,
                 return_layers=return_layers + [2],
-                verbose=verbose,
             )
 
             # Layer 2
@@ -1062,3 +996,60 @@ class ChunkedGraph:
         #     self.logger.error("inf in cutset")
         #     return False, None
         return atomic_edges
+
+    # HELPERS
+    def get_node_id(
+        self,
+        segment_id: np.uint64,
+        chunk_id: Optional[np.uint64] = None,
+        layer: Optional[int] = None,
+        x: Optional[int] = None,
+        y: Optional[int] = None,
+        z: Optional[int] = None,
+    ) -> np.uint64:
+        return id_helpers.get_node_id(
+            self.meta, segment_id, chunk_id=chunk_id, layer=layer, x=x, y=y, z=z
+        )
+
+    def get_segment_id(self, node_id: basetypes.NODE_ID):
+        return id_helpers.get_segment_id(self.meta, node_id)
+
+    def get_segment_id_limit(self, node_or_chunk_id: basetypes.NODE_ID):
+        return id_helpers.get_segment_id_limit(self.meta, node_or_chunk_id)
+
+    def get_chunk_layer(self, node_or_chunk_id: basetypes.NODE_ID):
+        return chunk_utils.get_chunk_layer(self.meta, node_or_chunk_id)
+
+    def get_chunk_layers(self, node_or_chunk_ids: Sequence[basetypes.NODE_ID]):
+        return chunk_utils.get_chunk_layers(self.meta, node_or_chunk_ids)
+
+    def get_chunk_coordinates(self, node_or_chunk_id: basetypes.NODE_ID):
+        return chunk_utils.get_chunk_coordinates(self.meta, node_or_chunk_id)
+
+    def get_chunk_id(
+        self,
+        node_id: basetypes.NODE_ID = None,
+        layer: Optional[int] = None,
+        x: Optional[int] = None,
+        y: Optional[int] = None,
+        z: Optional[int] = None,
+    ):
+        return chunk_utils.get_chunk_id(
+            self.meta, node_id=node_id, layer=layer, x=x, y=y, z=z
+        )
+
+    def get_chunk_ids_from_node_ids(self, node_ids: Sequence[basetypes.NODE_ID]):
+        return chunk_utils.get_chunk_ids_from_node_ids(self.meta, node_ids)
+
+    def get_children_chunk_ids(self, node_or_chunk_id: basetypes.NODE_ID):
+        return chunk_hierarchy.get_children_chunk_ids(self.meta, node_or_chunk_id)
+
+    def get_parent_chunk_ids(self, node_or_chunk_id: basetypes.NODE_ID):
+        return chunk_hierarchy.get_parent_chunk_ids(self.meta, node_or_chunk_id)
+
+    def get_parent_chunk_id_dict(self, node_or_chunk_id: basetypes.NODE_ID):
+        return chunk_hierarchy.get_parent_chunk_id_dict(self.meta, node_or_chunk_id)
+
+    def get_cross_chunk_edges_layer(self, cross_edges: Iterable):
+        return edge_utils.get_cross_chunk_edges_layer(self.meta, cross_edges)
+
