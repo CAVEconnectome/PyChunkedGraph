@@ -35,8 +35,8 @@ _bigtableconfig_defaults = (
     "neuromancer-seung-import",
     "pychunkedgraph",
     "",
-    True,
     False,
+    True,
 )
 BigTableConfig = namedtuple(
     "BigTableConfig", _bigtableconfig_fields, defaults=_bigtableconfig_defaults

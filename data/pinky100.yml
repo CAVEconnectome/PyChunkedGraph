@@ -9,7 +9,8 @@ graph_config:
   chunk_size: [512, 512, 128]
   fanout: 2
   s_bits_atomic_layer: 10
-
-
-bigtable_config:
-  table_id_prefix: "akhilesh-" # please change this before running
+  backend_client:
+    type: "bigtable"
+    table_id_prefix: "aa-" # change this
+    admin: y
+    read_only: n
