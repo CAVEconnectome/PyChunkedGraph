@@ -13,7 +13,16 @@ _cluster_ingest_config_fields = (
     "parents_q_limit",
     "parents_q_interval",
 )
-_cluster_ingest_defaults = (REDIS_URL, False, "atomic", 100000, 60, "parents", 25000, 120)
+_cluster_ingest_defaults = (
+    REDIS_URL,
+    False,
+    "atomic",
+    100000,
+    60,
+    "parents",
+    25000,
+    120,
+)
 ClusterIngestConfig = namedtuple(
     "ClusterIngestConfig",
     _cluster_ingest_config_fields,
@@ -22,7 +31,6 @@ ClusterIngestConfig = namedtuple(
 
 
 _ingestconfig_fields = (
-    "build_graph",
     "cluster",  # run ingest on a single machine (simple) or on a cluster
     "agglomeration",
     "watershed",
@@ -30,7 +38,7 @@ _ingestconfig_fields = (
     "use_raw_edges",
     "use_raw_components",
 )
-_ingestconfig_defaults = (True, None, None, None, None, False, False)
+_ingestconfig_defaults = (None, None, None, None, False, False)
 IngestConfig = namedtuple(
     "IngestConfig", _ingestconfig_fields, defaults=_ingestconfig_defaults
 )

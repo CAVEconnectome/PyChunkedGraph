@@ -5,12 +5,13 @@ data_source:
 graph_config:
   chunk_size: [256, 256, 512]
   fanout: 2
-  s_bits_atomic_layer: 10
+  spatial_bits: 10
   backend_client:
     type: "bigtable"
-    table_id_prefix: "aa-" # change this
-    admin: y
-    read_only: n
+    config:
+      table_id_prefix: "aa-" # change this
+      admin: y
+      read_only: n
 
 ingest_config:
   build_graph: True,

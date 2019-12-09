@@ -38,7 +38,7 @@ from ...utils.generic import get_valid_timestamp
 
 class BigTableClient(bigtable.Client, ClientWithIDGen):
     def __init__(self, graph_meta: ChunkedGraphMeta):
-        bt_config = graph_meta.bigtable_config
+        bt_config = graph_meta.graph_config.BACKEND_CLIENT.CONFIG
         super(BigTableClient, self).__init__(
             project=bt_config.PROJECT,
             read_only=bt_config.READ_ONLY,

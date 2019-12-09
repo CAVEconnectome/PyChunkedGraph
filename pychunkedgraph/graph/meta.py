@@ -16,19 +16,6 @@ _datasource_fields = ("EDGES", "COMPONENTS", "AGGLOMERATION", "WATERSHED", "CV_M
 _datasource_defaults = (None, None, None, None, 0)
 DataSource = namedtuple("DataSource", _datasource_fields, defaults=_datasource_defaults)
 
-_graphconfig_fields = (
-    "ID",
-    "CHUNK_SIZE",
-    "FANOUT",
-    "LAYER_ID_BITS",  # number of bits reserved for layer id
-    "SPATIAL_BITS",  # number of bits used for each spatial in id creation on level 1
-    "OVERWRITE",  # overwrites existing graph
-    "ROOT_LOCK_EXPIRY",
-)
-_graphconfig_defaults = (None, None, 2, 8, 10, False, timedelta(minutes=3, seconds=0))
-GraphConfig = namedtuple(
-    "GraphConfig", _graphconfig_fields, defaults=_graphconfig_defaults
-)
 
 _bigtableconfig_fields = ("PROJECT", "INSTANCE", "TABLE_PREFIX", "ADMIN", "READ_ONLY")
 _bigtableconfig_defaults = (
@@ -43,16 +30,44 @@ BigTableConfig = namedtuple(
 )
 
 
+_backend_client_fields = ("TYPE", "CONFIG")
+_backend_client_defaults = ("bigtable", BigTableConfig())
+BackendClient = namedtuple(
+    "BackendClient", _backend_client_fields, defaults=_backend_client_defaults
+)
+
+
+_graphconfig_fields = (
+    "ID",
+    "CHUNK_SIZE",
+    "FANOUT",
+    "LAYER_ID_BITS",  # number of bits reserved for layer id
+    "SPATIAL_BITS",  # number of bits used for each spatial in id creation on level 1
+    "OVERWRITE",  # overwrites existing graph
+    "ROOT_LOCK_EXPIRY",
+    "BACKEND_CLIENT",
+)
+_graphconfig_defaults = (
+    None,
+    None,
+    2,
+    8,
+    10,
+    False,
+    timedelta(minutes=3, seconds=0),
+    BackendClient(),
+)
+GraphConfig = namedtuple(
+    "GraphConfig", _graphconfig_fields, defaults=_graphconfig_defaults
+)
+
+
 class ChunkedGraphMeta:
     def __init__(
-        self,
-        data_source: DataSource,
-        graph_config: GraphConfig,
-        bigtable_config: BigTableConfig,
+        self, data_source: DataSource, graph_config: GraphConfig,
     ):
         self._data_source = data_source
         self._graph_config = graph_config
-        self._bigtable_config = bigtable_config
 
         self._ws_cv = CloudVolume(data_source.watershed)
         self._layer_bounds_d = None
@@ -69,10 +84,6 @@ class ChunkedGraphMeta:
     @property
     def graph_config(self):
         return self._graph_config
-
-    @property
-    def bigtable_config(self):
-        return self._bigtable_config
 
     @property
     def layer_count(self) -> int:

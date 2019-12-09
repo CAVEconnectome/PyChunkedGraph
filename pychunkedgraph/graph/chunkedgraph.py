@@ -25,6 +25,7 @@ from . import cutting
 from . import operation
 from . import attributes
 from . import exceptions
+from .client import base
 from .client.bigtable import BigTableClient
 from .meta import ChunkedGraphMeta
 from .utils import basetypes
@@ -63,21 +64,35 @@ class ChunkedGraph:
         # else:
         #     self.logger = logger
 
-        self.meta = meta
-        # TODO client type must be specified meta?
-        self.client = BigTableClient(self.meta)
+        self._meta = meta
+        # TODO create client based on type
+        # for now, just create bigtable client
+        bt_client = BigTableClient(self._meta)
+        self._client = bt_client
+        self._id_client = bt_client
+
+    @property
+    def meta(self) -> ChunkedGraphMeta:
+        return self._meta
+
+    @property
+    def client(self) -> base.SimpleClient:
+        return self._client
+
+    @property
+    def id_client(self) -> base.ClientWithIDGen:
+        return self._id_client
 
     def range_read_chunk(
         self,
         chunk_id: basetypes.CHUNK_ID,
-        columns: Optional[
+        properties: Optional[
             Union[Iterable[attributes._Attribute], attributes._Attribute]
         ] = None,
         time_stamp: Optional[datetime.datetime] = None,
     ) -> Dict[basetypes.NODE_ID, Any]:
-        """TODO change docs and type annotations"""
         layer = self.get_chunk_layer(chunk_id)
-        max_segment_id = self.client.get_max_segment_id(chunk_id=chunk_id)
+        max_segment_id = self.id_client.get_max_segment_id(chunk_id=chunk_id)
         if layer == 1:
             max_segment_id = self.get_segment_id_limit(chunk_id)
 
@@ -85,7 +100,7 @@ class ChunkedGraph:
             start_id=self.get_node_id(np.uint64(0), chunk_id=chunk_id),
             end_id=self.get_node_id(max_segment_id, chunk_id=chunk_id),
             end_id_inclusive=True,
-            properties=columns,
+            properties=properties,
             end_time=time_stamp,
             end_time_inclusive=True,
         )
@@ -157,7 +172,6 @@ class ChunkedGraph:
         get_only_relevant_parents: bool = True,
         time_stamp: Optional[datetime.datetime] = None,
     ):
-        """TODO change docs and type annotations"""
         if time_stamp is None:
             time_stamp = datetime.datetime.utcnow()
         if time_stamp.tzinfo is None:
@@ -187,7 +201,6 @@ class ChunkedGraph:
         get_only_relevant_parent: bool = True,
         time_stamp: Optional[datetime.datetime] = None,
     ) -> Union[List[Tuple[np.uint64, datetime.datetime]], np.uint64]:
-        """TODO change docs and type annotations"""
         if time_stamp is None:
             time_stamp = datetime.datetime.utcnow()
         if time_stamp.tzinfo is None:
