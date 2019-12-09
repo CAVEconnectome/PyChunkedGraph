@@ -15,6 +15,7 @@ from .utils import bootstrap
 from .manager import IngestionManager
 from .cluster import enqueue_atomic_tasks
 from .cluster import create_parent_chunk
+from ..graph.chunkedgraph import ChunkedGraph
 from ..utils.redis import get_redis_connection
 from ..utils.redis import keys as r_keys
 from ..graph.chunks.hierarchy import get_children_chunk_coords
@@ -27,7 +28,7 @@ ingest_cli = AppGroup("ingest")
 @click.argument("dataset", type=click.Path(exists=True))
 @click.option("--raw", is_flag=True)
 @click.option("--overwrite", is_flag=True, help="Overwrite existing graph")
-def ingest_graph(graph_id: str, dataset: click.Path, raw: bool, overwrite: bool):
+def ingest_graph(graph_id: str, dataset: click.Path, overwrite: bool, raw: bool):
     """
     Main ingest command
     Takes ingest config from a yaml file and queues atomic tasks    
@@ -38,8 +39,9 @@ def ingest_graph(graph_id: str, dataset: click.Path, raw: bool, overwrite: bool)
         except yaml.YAMLError as exc:
             print(exc)
 
-    cg = bootstrap(config)
-    # TODO create chunkedgraph
+    meta, imanager = bootstrap(graph_id, config, overwrite, raw)
+    # TODO fix create chunkedgraph
+    cg = ChunkedGraph(meta)
     enqueue_atomic_tasks(imanager)
 
 

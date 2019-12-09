@@ -44,7 +44,7 @@ def bootstrap(
         **config["data_source"], use_raw_components=raw_data, use_raw_edges=raw_data
     )
 
-    meta = ChunkedGraphMeta(data_source, graph_config)
+    meta = ChunkedGraphMeta(graph_config, data_source)
     return (meta, IngestionManager(ingest_config, meta))
 
 

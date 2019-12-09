@@ -1,6 +1,7 @@
 data_source:
   EDGES: "gs://chunkedgraph/pinky100/edges"
   COMPONENTS: "gs://chunkedgraph/pinky100/components"
+  WATERSHED: "gs://neuroglancer/pinky100_v0/ws/pinky100_ca_com"
 
 graph_config:
   CHUNK_SIZE: [512, 512, 128]

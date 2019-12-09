@@ -12,8 +12,8 @@ from .utils.generic import log_n
 from .chunks.utils import get_chunks_boundary
 
 
-_datasource_fields = ("EDGES", "COMPONENTS", "CV_MIP")
-_datasource_defaults = (None, None, 0)
+_datasource_fields = ("EDGES", "COMPONENTS", "WATERSHED", "CV_MIP")
+_datasource_defaults = (None, None, None, 0)
 DataSource = namedtuple("DataSource", _datasource_fields, defaults=_datasource_defaults)
 
 
@@ -66,17 +66,19 @@ GraphConfig = namedtuple(
 
 class ChunkedGraphMeta:
     def __init__(
-        self, data_source: DataSource, graph_config: GraphConfig,
+        self,
+        graph_config: GraphConfig = GraphConfig(),
+        data_source: DataSource = DataSource(),
     ):
-        self._data_source = data_source
         self._graph_config = graph_config
+        self._data_source = data_source
 
-        self._ws_cv = CloudVolume(data_source.watershed)
+        self._ws_cv = CloudVolume(data_source.WATERSHED)
         self._layer_bounds_d = None
         self._layer_count = None
 
         self._bitmasks = compute_bitmasks(
-            self.layer_count, s_bits_atomic_layer=self.graph_config.SPATIAL_BITS,
+            self.layer_count, s_bits_atomic_layer=self._graph_config.SPATIAL_BITS,
         )
 
     @property

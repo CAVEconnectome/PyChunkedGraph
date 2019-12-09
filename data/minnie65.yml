@@ -1,6 +1,7 @@
 data_source:
   EDGES: "gs://chunkedgraph/minnie65_0/edges"
   COMPONENTS: "gs://chunkedgraph/minnie65_0/components"
+  WATERSHED: "gs://microns-seunglab/minnie65/ws_minnie65_0"
 
 graph_config:
   CHUNK_SIZE: [256, 256, 512]
