@@ -1,59 +1,51 @@
 import numpy as np
 import collections
+from typing import Tuple
 
 import cloudvolume
 from google.cloud import bigtable
 
+from . import ClusterIngestConfig
+from . import IngestConfig
+from .manager import IngestionManager
 from ..graph import chunkedgraph
 from ..graph.meta import ChunkedGraphMeta
+from ..graph.meta import DataSource
+from ..graph.meta import GraphConfig
 from ..graph.meta import BigTableConfig
+from ..graph.meta import BackendClientInfo
 
 chunk_id_str = lambda layer, coords: f"{layer}_{'_'.join(map(str, coords))}"
 
 
-def _table_exists(bigtable_config: BigTableConfig, table_id: str):
-    client = bigtable.Client(project=bigtable_config.project_id, admin=True)
-    instance = client.instance(bigtable_config.instance_id)
-    table = instance.table(table_id)
-    return table.exists()
+def bootstrap(
+    graph_id: str, config: dict, overwrite: bool = False, raw_data: bool = False
+) -> Tuple[ChunkedGraphMeta, IngestConfig]:
+    """Create ChunkedGraph instance with config loaded from a yaml file."""
+    ingest_config = IngestConfig(
+        **config["ingest_config"], CLUSTER=ClusterIngestConfig(FLUSH_REDIS=True)
+    )
+    bigtable_config = BigTableConfig(
+        **config["graph_config"]["BACKEND_CLIENT"]["CONFIG"]
+    )
 
+    client_info = BackendClientInfo(
+        config["graph_config"]["BACKEND_CLIENT"]["TYPE"], bigtable_config
+    )
+    del config["graph_config"]["BACKEND_CLIENT"]
 
-def initialize_chunkedgraph(
-    meta: ChunkedGraphMeta, cg_mesh_dir="mesh_dir", n_bits_root_counter=8, size=None
-):
-    """ Initalizes a chunkedgraph on BigTable """
-    if not meta.graph_config.OVERWRITE and _table_exists(
-        meta.bigtable_config, meta.graph_config.ID
-    ):
-        raise ValueError(f"{meta.graph_config.ID} already exists.")
+    graph_config = GraphConfig(
+        ID=f"{bigtable_config.TABLE_PREFIX}{graph_id}",
+        BACKEND_CLIENT=client_info,
+        OVERWRITE=overwrite,
+        **config["graph_config"],
+    )
+    data_source = DataSource(
+        **config["data_source"], use_raw_components=raw_data, use_raw_edges=raw_data
+    )
 
-    ws_cv = cloudvolume.CloudVolume(meta.data_source.WATERSHED)
-    if size is not None:
-        size = np.array(size)
-        for i in range(len(ws_cv.info["scales"])):
-            original_size = ws_cv.info["scales"][i]["size"]
-            size = np.min([size, original_size], axis=0)
-            ws_cv.info["scales"][i]["size"] = [int(x) for x in size]
-            size[:-1] //= 2
-
-    dataset_info = ws_cv.info
-    dataset_info["mesh"] = cg_mesh_dir
-    dataset_info["data_dir"] = meta.data_source.WATERSHED
-    dataset_info["graph"] = {"chunk_size": meta.graph_config.CHUNK_SIZE}
-
-    kwargs = {
-        "instance_id": meta.bigtable_config.INSTANCE,
-        "project_id": meta.bigtable_config.PROJECT,
-        "table_id": meta.graph_config.ID,
-        "chunk_size": np.array(meta.graph_config.CHUNK_SIZE, dtype=int),
-        "fan_out": np.uint64(meta.graph_config.FANOUT),
-        "n_layers": np.uint64(meta.layer_count),
-        "dataset_info": dataset_info,
-        "s_bits_atomic_layer": meta.graph_config.SPATIAL_BITS,
-        "n_bits_root_counter": n_bits_root_counter,
-        "is_new": True,
-    }
-    return chunkedgraph.ChunkedGraph(**kwargs)
+    meta = ChunkedGraphMeta(data_source, graph_config)
+    return (meta, IngestionManager(ingest_config, meta))
 
 
 def postprocess_edge_data(im, edge_dict):

@@ -659,7 +659,7 @@ class ChunkedGraph:
         agglomeration_ids: np.ndarray,
         bbox: Optional[Sequence[Sequence[int]]] = None,
         bbox_is_coordinate: bool = False,
-        cv_threads: int = 1,
+        n_threads: int = 1,
         active_edges: bool = True,
         timestamp: datetime.datetime = None,
     ) -> Tuple[Dict, Dict]:
@@ -673,14 +673,6 @@ class ChunkedGraph:
            if parent(v1) == parent(v2) inactive otherwise
         7. returns dict of Agglomerations
         """
-
-        def _read_edges(chunk_ids) -> dict:
-            return get_chunk_edges(
-                self.meta.data_source.EDGES,
-                [self.get_chunk_coordinates(chunk_id) for chunk_id in chunk_ids],
-                cv_threads,
-            )
-
         level2_ids = []
         for agglomeration_id in agglomeration_ids:
             layer_nodes_d = self._get_subgraph_higher_layer_nodes(
@@ -694,11 +686,10 @@ class ChunkedGraph:
         level2_ids = np.concatenate(level2_ids)
 
         chunk_ids = self.get_chunk_ids_from_node_ids(level2_ids)
-        cg_threads = 1
         chunk_edge_dicts = mu.multithread_func(
-            _read_edges,
-            np.array_split(np.unique(chunk_ids), cg_threads),
-            n_threads=cg_threads,
+            self.read_chunk_edges,
+            np.array_split(np.unique(chunk_ids), n_threads),
+            n_threads=n_threads,
             debug=False,
         )
         edges_dict = edge_utils.concatenate_chunk_edges(chunk_edge_dicts)
@@ -841,20 +832,9 @@ class ChunkedGraph:
             Multi-user safe through locking of the root node
             This function acquires a lock and ensures that it still owns the
             lock before executing the write.
-        :param user_id: str
-            unique id - do not just make something up, use the same id for the
-            same user every time
-        :param source_ids: uint64
-        :param sink_ids: uint64
         :param atomic_edges: list of 2 uint64
-        :param source_coords: list of 3 ints
-            [x, y, z] coordinate of source supervoxel
-        :param sink_coords: list of 3 ints
-            [x, y, z] coordinate of sink supervoxel
-        :param mincut:
         :param bb_offset: list of 3 ints
             [x, y, z] bounding box padding beyond box spanned by coordinates
-        :param n_tries: int
         :return: GraphEditOperation.Result
         """
         if mincut:
@@ -1006,6 +986,30 @@ class ChunkedGraph:
         #     return False, None
         return atomic_edges
 
+    # OPERATION LOGGING
+    def read_logs(self, operation_ids: Optional[List[np.uint64]] = None):
+        if not operation_ids:
+            log_records_d = self.client.read_nodes(
+                start_id=np.uint64(0),
+                end_id=self.id_client.get_max_operation_id(),
+                end_id_inclusive=True,
+                properties=attributes.OperationLogs.all(),
+            )
+        else:
+            log_records_d = self.client.read_nodes(
+                node_ids=operation_ids, properties=attributes.OperationLogs.all()
+            )
+
+        if len(log_records_d) == 0:
+            return {}
+
+        for operation_id in log_records_d:
+            log_record = log_records_d[operation_id]
+            timestamp = log_record[attributes.OperationLogs.RootID][0].timestamp
+            log_record.update((column, v[0].value) for column, v in log_record.items())
+            log_record["timestamp"] = timestamp
+        return log_records_d
+
     # HELPERS
     def get_node_id(
         self,
@@ -1062,3 +1066,11 @@ class ChunkedGraph:
     def get_cross_chunk_edges_layer(self, cross_edges: Iterable):
         return edge_utils.get_cross_chunk_edges_layer(self.meta, cross_edges)
 
+    def read_chunk_edges(
+        self, chunk_ids: Iterable[basetypes.CHUNK_ID], cv_threads: int = 1
+    ) -> dict:
+        return get_chunk_edges(
+            self.meta.data_source.EDGES,
+            [self.get_chunk_coordinates(chunk_id) for chunk_id in chunk_ids],
+            cv_threads=cv_threads,
+        )

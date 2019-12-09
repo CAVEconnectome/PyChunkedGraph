@@ -212,10 +212,9 @@ class BigTableClient(bigtable.Client, ClientWithIDGen):
             # Attempt to lock all latest root ids
             root_ids = np.unique(new_root_ids)
             for idx in range(len(root_ids)):
-                # self.logger.debug(
-                #     "operation id: %d - root id: %d"
-                #     % (operation_id, root_ids[idx])
-                # )
+                self.logger.debug(
+                    "operation id: %d - root id: %d" % (operation_id, root_ids[idx])
+                )
                 lock_acquired = self.lock_root(root_ids[idx], operation_id)
                 # Roll back locks if one root cannot be locked
                 if not lock_acquired:
@@ -296,31 +295,6 @@ class BigTableClient(bigtable.Client, ClientWithIDGen):
         column = attributes.Concurrency.Counter
         row = self._read_row(attributes.OperationLogs.key, columns=column)
         return row[0].value if row else column.basetype(0)
-
-    # # TODO this function does not use bigtable directly
-    # def read_logs(self, operation_ids: Optional[List[np.uint64]] = None):
-    #     if not operation_ids:
-    #         log_records_d = self.read_nodes(
-    #             start_id=np.uint64(0),
-    #             end_id=self.get_max_operation_id(),
-    #             end_id_inclusive=True,
-    #             properties=attributes.OperationLogs.all(),
-    #         )
-    #     else:
-    #         log_records_d = self.read_nodes(
-    #             node_ids=operation_ids, properties=attributes.OperationLogs.all()
-    #         )
-
-    #     if len(log_records_d) == 0:
-    #         return {}
-
-    #     for operation_id in log_records_d:
-    #         log_record = log_records_d[operation_id]
-    #         timestamp = log_record[attributes.OperationLogs.RootID][0].timestamp
-    #         log_record.update((column, v[0].value) for column, v in log_record.items())
-    #         log_record["timestamp"] = timestamp
-
-    #     return log_records_d
 
     # PRIVATE METHODS
     def _create_column_families(self):

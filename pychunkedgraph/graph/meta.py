@@ -30,10 +30,12 @@ BigTableConfig = namedtuple(
 )
 
 
-_backend_client_fields = ("TYPE", "CONFIG")
-_backend_client_defaults = ("bigtable", BigTableConfig())
-BackendClient = namedtuple(
-    "BackendClient", _backend_client_fields, defaults=_backend_client_defaults
+_backend_clientinfo_fields = ("TYPE", "CONFIG")
+_backend_clientinfo_defaults = ("bigtable", BigTableConfig())
+BackendClientInfo = namedtuple(
+    "BackendClientInfo",
+    _backend_clientinfo_fields,
+    defaults=_backend_clientinfo_defaults,
 )
 
 
@@ -55,7 +57,7 @@ _graphconfig_defaults = (
     10,
     False,
     timedelta(minutes=3, seconds=0),
-    BackendClient(),
+    BackendClientInfo(),
 )
 GraphConfig = namedtuple(
     "GraphConfig", _graphconfig_fields, defaults=_graphconfig_defaults

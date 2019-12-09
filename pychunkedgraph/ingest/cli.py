@@ -10,19 +10,13 @@ import numpy as np
 import click
 from flask.cli import AppGroup
 
-from . import ClusterIngestConfig
-from . import IngestConfig
 from .utils import chunk_id_str
-from .utils import initialize_chunkedgraph
+from .utils import bootstrap
 from .manager import IngestionManager
 from .cluster import enqueue_atomic_tasks
 from .cluster import create_parent_chunk
 from ..utils.redis import get_redis_connection
 from ..utils.redis import keys as r_keys
-from ..graph.meta import ChunkedGraphMeta
-from ..graph.meta import DataSource
-from ..graph.meta import GraphConfig
-from ..graph.meta import BigTableConfig
 from ..graph.chunks.hierarchy import get_children_chunk_coords
 
 ingest_cli = AppGroup("ingest")
@@ -44,23 +38,8 @@ def ingest_graph(graph_id: str, dataset: click.Path, raw: bool, overwrite: bool)
         except yaml.YAMLError as exc:
             print(exc)
 
-    ingest_config = IngestConfig(
-        **config["ingest_config"], CLUSTER=ClusterIngestConfig(FLUSH_REDIS=True)
-    )
-    bigtable_config = BigTableConfig(**config["bigtable_config"])
-    graph_config = GraphConfig(
-        **config["graph_config"],
-        graph_id=f"{bigtable_config.table_id_prefix}{graph_id}",
-        overwrite=overwrite,
-    )
-
-    data_source = DataSource(
-        **config["data_source"], use_raw_components=raw, use_raw_edges=raw
-    )
-
-    meta = ChunkedGraphMeta(data_source, graph_config)
-    initialize_chunkedgraph(meta)
-    imanager = IngestionManager(ingest_config, meta)
+    cg = bootstrap(config)
+    # TODO create chunkedgraph
     enqueue_atomic_tasks(imanager)
 
 

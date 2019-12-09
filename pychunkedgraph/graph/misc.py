@@ -7,8 +7,8 @@ from typing import Optional, Sequence
 
 from multiwrapper import multiprocessing_utils as mu
 
-from . import chunkedgraph
-from .utils import column_keys
+from .chunkedgraph import ChunkedGraph
+from . import attributes
 from .utils import flatgraph
 
 
@@ -21,33 +21,33 @@ def _read_delta_root_rows_thread(args) -> Sequence[list]:
         time_stamp_end,
     ) = args
 
-    cg = chunkedgraph.ChunkedGraph(**serialized_cg_info)
+    cg = ChunkedGraph(**serialized_cg_info)
 
     start_id = cg.get_node_id(segment_id=start_seg_id, chunk_id=cg.root_chunk_id)
     end_id = cg.get_node_id(segment_id=end_seg_id, chunk_id=cg.root_chunk_id)
 
     # apply column filters to avoid Lock columns
-    rows = cg.read_node_id_rows(
+    rows = cg.client.read_nodes(
         start_id=start_id,
         start_time=time_stamp_start,
         end_id=end_id,
         end_id_inclusive=False,
-        columns=[column_keys.Hierarchy.FormerParent, column_keys.Hierarchy.NewParent],
+        properties=[attributes.Hierarchy.FormerParent, attributes.Hierarchy.NewParent],
         end_time=time_stamp_end,
         end_time_inclusive=True,
     )
 
     # new roots are those that have no NewParent in this time window
     new_root_ids = [
-        k for (k, v) in rows.items() if column_keys.Hierarchy.NewParent not in v
+        k for (k, v) in rows.items() if attributes.Hierarchy.NewParent not in v
     ]
 
     # expired roots are the IDs of FormerParent's
     # whose timestamp is before the start_time
     expired_root_ids = []
     for k, v in rows.items():
-        if column_keys.Hierarchy.FormerParent in v:
-            fp = v[column_keys.Hierarchy.FormerParent]
+        if attributes.Hierarchy.FormerParent in v:
+            fp = v[attributes.Hierarchy.FormerParent]
             for cell_entry in fp:
                 expired_root_ids.extend(cell_entry.value)
 
@@ -57,7 +57,7 @@ def _read_delta_root_rows_thread(args) -> Sequence[list]:
 def _read_root_rows_thread(args) -> list:
     start_seg_id, end_seg_id, serialized_cg_info, time_stamp = args
 
-    cg = chunkedgraph.ChunkedGraph(**serialized_cg_info)
+    cg = ChunkedGraph(**serialized_cg_info)
 
     start_id = cg.get_node_id(segment_id=start_seg_id, chunk_id=cg.root_chunk_id)
     end_id = cg.get_node_id(segment_id=end_seg_id, chunk_id=cg.root_chunk_id)
@@ -70,9 +70,7 @@ def _read_root_rows_thread(args) -> list:
         end_time_inclusive=True,
     )
 
-    root_ids = [
-        k for (k, v) in rows.items() if column_keys.Hierarchy.NewParent not in v
-    ]
+    root_ids = [k for (k, v) in rows.items() if attributes.Hierarchy.NewParent not in v]
 
     return root_ids
 
@@ -181,7 +179,7 @@ def get_delta_roots(
     # of their Child links) is after the time_stamp_start
     rows = cg.read_node_id_rows(
         node_ids=expired_root_id_candidates,
-        columns=[column_keys.Hierarchy.Child],
+        columns=[attributes.Hierarchy.Child],
         end_time=time_stamp_start,
     )
     expired_root_ids = np.array([k for (k, v) in rows.items()], dtype=np.uint64)
@@ -190,7 +188,11 @@ def get_delta_roots(
 
 
 def get_contact_sites(
-    cg, root_id, bounding_box=None, bb_is_coordinate=True, compute_partner=True
+    cg: ChunkedGraph,
+    root_id,
+    bounding_box=None,
+    bb_is_coordinate=True,
+    compute_partner=True,
 ):
     # Get information about the root id
     # All supervoxels
@@ -218,9 +220,9 @@ def get_contact_sites(
     u_cs_svs = np.unique(cs_svs)
 
     # Load edges of these cs_svs
-    edges_cs_svs_rows = cg.read_node_id_rows(
+    edges_cs_svs_rows = cg.client.read_nodes(
         node_ids=u_cs_svs,
-        columns=[column_keys.Connectivity.Partner, column_keys.Connectivity.Connected],
+        # columns=[attributes.Connectivity.Partner, attributes.Connectivity.Connected],
     )
 
     pre_cs_edges = []
