@@ -99,6 +99,10 @@ class ChunkedGraphMeta:
         return self._layer_count
 
     @property
+    def cv(self):
+        return self._ws_cv
+
+    @property
     def bitmasks(self):
         return self._bitmasks
 

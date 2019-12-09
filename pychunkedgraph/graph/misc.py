@@ -62,7 +62,7 @@ def _read_root_rows_thread(args) -> list:
     start_id = cg.get_node_id(segment_id=start_seg_id, chunk_id=cg.root_chunk_id)
     end_id = cg.get_node_id(segment_id=end_seg_id, chunk_id=cg.root_chunk_id)
 
-    rows = cg.read_node_id_rows(
+    rows = cg.client.read_nodes(
         start_id=start_id,
         end_id=end_id,
         end_id_inclusive=False,

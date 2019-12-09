@@ -53,27 +53,21 @@ class ChunkedGraph:
     def __init__(
         self, meta: ChunkedGraphMeta, logger: Optional[logging.Logger] = None,
     ) -> None:
-
-        # if logger is None:
-        #     self.logger = logging.getLogger(f"{project_id}/{instance_id}/{table_id}")
-        #     self.logger.setLevel(logging.WARNING)
-        #     if not self.logger.handlers:
-        #         sh = logging.StreamHandler(sys.stdout)
-        #         sh.setLevel(logging.WARNING)
-        #         self.logger.addHandler(sh)
-        # else:
-        #     self.logger = logger
-
         self._meta = meta
         # TODO create client based on type
         # for now, just create bigtable client
         bt_client = BigTableClient(self._meta)
         self._client = bt_client
         self._id_client = bt_client
+        self._setup_logger(logger)
 
     @property
     def meta(self) -> ChunkedGraphMeta:
         return self._meta
+
+    @property
+    def cv(self) -> CloudVolume:
+        return self.meta.cv
 
     @property
     def client(self) -> base.SimpleClient:
@@ -82,6 +76,10 @@ class ChunkedGraph:
     @property
     def id_client(self) -> base.ClientWithIDGen:
         return self._id_client
+
+    @property
+    def root_chunk_id(self):
+        return self.get_chunk_id(layer=int(self.meta.layer_count))
 
     def update_provenance(self, provenance: IngestConfig):
         """Stores information about how the graph was created."""
@@ -176,11 +174,7 @@ class ChunkedGraph:
         get_only_relevant_parents: bool = True,
         time_stamp: Optional[datetime.datetime] = None,
     ):
-        if time_stamp is None:
-            time_stamp = datetime.datetime.utcnow()
-        if time_stamp.tzinfo is None:
-            time_stamp = pytz.UTC.localize(time_stamp)
-
+        time_stamp = misc_utils.get_valid_timestamp(time_stamp)
         parent_rows = self.client.read_nodes(
             node_ids=node_ids,
             properties=attributes.Hierarchy.Parent,
@@ -205,11 +199,7 @@ class ChunkedGraph:
         get_only_relevant_parent: bool = True,
         time_stamp: Optional[datetime.datetime] = None,
     ) -> Union[List[Tuple[np.uint64, datetime.datetime]], np.uint64]:
-        if time_stamp is None:
-            time_stamp = datetime.datetime.utcnow()
-        if time_stamp.tzinfo is None:
-            time_stamp = pytz.UTC.localize(time_stamp)
-
+        time_stamp = misc_utils.get_valid_timestamp(time_stamp)
         parents = self.client.read_node(
             node_id,
             properties=attributes.Hierarchy.Parent,
@@ -264,11 +254,7 @@ class ChunkedGraph:
         time_stamp: Optional[datetime.datetime] = misc_utils.get_max_time(),
         n_threads: int = 1,
     ) -> Sequence[np.uint64]:
-        """ Reads _all_ root ids
-        :param time_stamp: datetime.datetime
-        :param n_threads: int
-        :return: array of np.uint64
-        """
+        """Reads _all_ root ids."""
         return misc.get_latest_roots(self, time_stamp=time_stamp, n_threads=n_threads)
 
     def get_delta_roots(
@@ -530,7 +516,6 @@ class ChunkedGraph:
         merge_history = []
         merge_history_edges = []
         split_history = []
-
         next_ids = [root_id]
         while len(next_ids):
             temp_next_ids = []
@@ -548,7 +533,6 @@ class ChunkedGraph:
                     operation_id = former_node[lock_col][0].value
                     log_row = self.read_log_row(operation_id)
                     is_merge = attributes.OperationLogs.AddedEdge in log_row
-
                     for id_ in ids:
                         if id_ in id_history:
                             continue
@@ -562,23 +546,19 @@ class ChunkedGraph:
                             log_row[attributes.OperationLogs.SourceCoordinate],
                             log_row[attributes.OperationLogs.SinkCoordinate],
                         ]
-
                         if correct_for_wrong_coord_type:
                             # A little hack because we got the datatype wrong...
                             coords = [
                                 np.frombuffer(coords[0]),
                                 np.frombuffer(coords[1]),
                             ]
-                            coords *= self.segmentation_resolution
-
+                            coords *= np.array(self.cv.scale["resolution"])
                         merge_history_edges.append(coords)
-
                     if not is_merge:
                         removed_edges = log_row[attributes.OperationLogs.RemovedEdge]
                         split_history.append(removed_edges)
                 else:
                     continue
-
             next_ids = temp_next_ids
         return {
             "past_ids": np.unique(np.array(id_history, dtype=np.uint64)),
@@ -696,7 +676,7 @@ class ChunkedGraph:
 
         def _read_edges(chunk_ids) -> dict:
             return get_chunk_edges(
-                self.cv_edges_path,
+                self.meta.data_source.EDGES,
                 [self.get_chunk_coordinates(chunk_id) for chunk_id in chunk_ids],
                 cv_threads,
             )
@@ -929,6 +909,17 @@ class ChunkedGraph:
             self, user_id=user_id, operation_id=operation_id
         ).execute()
 
+    def _setup_logger(self, logger: Optional[logging.Logger] = None) -> None:
+        if logger is None:
+            self.logger = logging.getLogger(f"{self.meta.graph_config.ID}")
+            self.logger.setLevel(logging.WARNING)
+            if not self.logger.handlers:
+                sh = logging.StreamHandler(sys.stdout)
+                sh.setLevel(logging.WARNING)
+                self.logger.addHandler(sh)
+        else:
+            self.logger = logger
+
     def _run_multicut(
         self,
         source_ids: Sequence[np.uint64],
@@ -969,9 +960,10 @@ class ChunkedGraph:
         root_id = root_ids.pop()
 
         # Get edges between local supervoxels
+        chunk_size = self.meta.graph_config.CHUNK_SIZE
         n_chunks_affected = np.product(
-            (np.ceil(bounding_box[1] / self.chunk_size)).astype(np.int)
-            - (np.floor(bounding_box[0] / self.chunk_size)).astype(np.int)
+            (np.ceil(bounding_box[1] / chunk_size)).astype(np.int)
+            - (np.floor(bounding_box[0] / chunk_size)).astype(np.int)
         )
 
         self.logger.debug("Number of affected chunks: %d" % n_chunks_affected)
@@ -1047,9 +1039,9 @@ class ChunkedGraph:
         self,
         node_id: basetypes.NODE_ID = None,
         layer: Optional[int] = None,
-        x: Optional[int] = None,
-        y: Optional[int] = None,
-        z: Optional[int] = None,
+        x: Optional[int] = 0,
+        y: Optional[int] = 0,
+        z: Optional[int] = 0,
     ):
         return chunk_utils.get_chunk_id(
             self.meta, node_id=node_id, layer=layer, x=x, y=y, z=z
