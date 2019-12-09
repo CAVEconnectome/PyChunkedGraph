@@ -127,7 +127,8 @@ class ChunkedGraph(object):
             column_keys.GraphSettings.ChunkSize, chunk_size,
             required=True, is_new=is_new)
 
-        self._dataset_info["graph"] = {"chunk_size": self.chunk_size}
+        # Convert from NumPy array to list for serialization
+        self._dataset_info["graph"] = {"chunk_size": [int(x) for x in self.chunk_size]}
 
         self._bitmasks = compute_bitmasks(self.n_layers, self.fan_out,
                                           s_bits_atomic_layer)
@@ -309,6 +310,50 @@ class ChunkedGraph(object):
             value = setting[0].value
 
         return value
+
+    def set_dataset_info_parameter(self, key: str, value: Any, overwrite: bool = False):
+        """
+        Add a key value pair to the dataset info. Return bool that is true if the parameter
+        was set.
+
+        :param key: str
+        :param value: Any
+        :return: bool
+        """
+        if key in self.dataset_info and not overwrite:
+            return False
+        self.dataset_info[key] = value
+        row = self.mutate_row(
+            row_keys.GraphSettings,
+            {column_keys.GraphSettings.DatasetInfo: self.dataset_info},
+        )
+        self.bulk_write([row])
+        return True
+
+    def set_dataset_info_from_dict(self, dict: Dict[str, Any], overwrite: bool = False):
+        """
+        Add key value pairs from a dict to the dataset info. Return dict from parameter to bool
+        that signifies whether each parameter in the dict was written to the info.
+
+        :param dict: Dict[str, Any]
+        :return: Dict[str, bool]
+        """
+        return_dict = {}
+        any_set = False
+        for key in dict:
+            if key in self.dataset_info and not overwrite:
+                return_dict[key] = False
+            else:
+                return_dict[key] = True
+                self.dataset_info[key] = dict[key]
+                any_set = True
+        if any_set:
+            row = self.mutate_row(
+                row_keys.GraphSettings,
+                {column_keys.GraphSettings.DatasetInfo: self.dataset_info},
+            )
+            self.bulk_write([row])
+        return return_dict
 
     def is_in_bounds(self, coordinate: Sequence[int]):
         """ Checks whether a coordinate is within the segmentation bounds
