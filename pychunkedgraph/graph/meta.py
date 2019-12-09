@@ -12,8 +12,8 @@ from .utils.generic import log_n
 from .chunks.utils import get_chunks_boundary
 
 
-_datasource_fields = ("EDGES", "COMPONENTS", "AGGLOMERATION", "WATERSHED", "CV_MIP")
-_datasource_defaults = (None, None, None, None, 0)
+_datasource_fields = ("EDGES", "COMPONENTS", "CV_MIP")
+_datasource_defaults = (None, None, 0)
 DataSource = namedtuple("DataSource", _datasource_fields, defaults=_datasource_defaults)
 
 

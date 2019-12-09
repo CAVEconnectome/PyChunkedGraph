@@ -4,14 +4,14 @@ from ..utils.redis import REDIS_URL
 
 
 _cluster_ingest_config_fields = (
-    "redis_url",
-    "flush_redis",
-    "atomic_q_name",
-    "atomic_q_limit",  # these limits ensure the queue won't use too much memory
-    "atomic_q_interval",  # sleep interval before queuing the next job when limit is reached
-    "parents_q_name",
-    "parents_q_limit",
-    "parents_q_interval",
+    "REDIS_URL",
+    "FLUSH_REDIS",
+    "ATOMIC_Q_NAME",
+    "ATOMIC_Q_LIMIT",  # these limits ensure the queue won't use too much memory
+    "ATOMIC_Q_INTERVAL",  # sleep interval before queuing the next job when limit is reached
+    "PARENTS_Q_NAME",
+    "PARENTS_Q_LIMIT",
+    "PARENTS_Q_INTERVAL",
 )
 _cluster_ingest_defaults = (
     REDIS_URL,
@@ -31,12 +31,12 @@ ClusterIngestConfig = namedtuple(
 
 
 _ingestconfig_fields = (
-    "cluster",  # run ingest on a single machine (simple) or on a cluster
-    "agglomeration",
-    "watershed",
-    "data_version",
-    "use_raw_edges",
-    "use_raw_components",
+    "CLUSTER",  # run ingest on a single machine (simple) or on a cluster
+    "AGGLOMERATION",
+    "WATERSHED",
+    "DATA_VERSION",
+    "USE_RAW_EDGES",
+    "USE_RAW_COMPONENTS",
 )
 _ingestconfig_defaults = (None, None, None, None, False, False)
 IngestConfig = namedtuple(

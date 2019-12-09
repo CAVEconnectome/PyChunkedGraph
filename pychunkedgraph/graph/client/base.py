@@ -13,8 +13,14 @@ class SimpleClient(ABC):
     """
 
     @abstractmethod
-    def create_graph(self, graph_meta: ChunkedGraphMeta) -> None:
+    def create_graph(self) -> None:
         """Initialize the graph and store associated meta."""
+
+    def update_graph_meta(self, meta):
+        """Update stored graph meta."""
+
+    def update_graph_provenance(self, provenance):
+        """Update how the graph was created."""
 
     @abstractmethod
     def read_nodes(

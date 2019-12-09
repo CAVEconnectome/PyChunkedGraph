@@ -1,20 +1,19 @@
 data_source:
-  edges: "gs://chunkedgraph/pinky100/edges"
-  components: "gs://chunkedgraph/pinky100/components"
+  EDGES: "gs://chunkedgraph/pinky100/edges"
+  COMPONENTS: "gs://chunkedgraph/pinky100/components"
 
 graph_config:
-  chunk_size: [512, 512, 128]
-  fanout: 2
-  spatial_bits: 10
-  backend_client:
-    type: "bigtable"
-    config:
-      table_prefix: "aa-" # change this
-      admin: y
-      read_only: n
+  CHUNK_SIZE: [512, 512, 128]
+  FANOUT: 2
+  SPATIAL_BITS: 10
+  BACKEND_CLIENT:
+    TYPE: "bigtable"
+    CONFIG:
+      TABLE_PREFIX: "aa-" # change this
+      ADMIN: y
+      READ_ONLY: n
 
 ingest_config:
-  build_graph: True,
-  agglomeration: "gs://ranl/scratch/pinky100_ca_com/agg"
-  watershed: "gs://neuroglancer/pinky100_v0/ws/pinky100_ca_com"
-  data_version: 4
+  AGGLOMERATION: "gs://ranl/scratch/pinky100_ca_com/agg"
+  WATERSHED: "gs://neuroglancer/pinky100_v0/ws/pinky100_ca_com"
+  DATA_VERSION: 4

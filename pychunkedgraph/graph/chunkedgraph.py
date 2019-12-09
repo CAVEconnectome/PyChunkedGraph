@@ -35,8 +35,8 @@ from .edges import Edges
 from .edges import utils as edge_utils
 from .chunks import utils as chunk_utils
 from .chunks import hierarchy as chunk_hierarchy
+from ..ingest import IngestConfig
 from ..io.edges import get_chunk_edges
-
 
 HOME = os.path.expanduser("~")
 N_DIGITS_UINT64 = len(str(np.iinfo(np.uint64).max))
@@ -82,6 +82,10 @@ class ChunkedGraph:
     @property
     def id_client(self) -> base.ClientWithIDGen:
         return self._id_client
+
+    def update_provenance(self, provenance: IngestConfig):
+        """Stores information about how the graph was created."""
+        self.client.update_graph_provenance(provenance)
 
     def range_read_chunk(
         self,

@@ -34,6 +34,7 @@ from ...utils.serializers import serialize_uint64
 from ...utils.serializers import deserialize_uint64
 from ...meta import ChunkedGraphMeta
 from ...utils.generic import get_valid_timestamp
+from ....ingest import IngestConfig
 
 
 class BigTableClient(bigtable.Client, ClientWithIDGen):
@@ -45,9 +46,8 @@ class BigTableClient(bigtable.Client, ClientWithIDGen):
             admin=bt_config.ADMIN,
         )
         self._graph_meta = graph_meta
-        self._instance = self.instance(graph_meta.bigtable_config.INSTANCE)
+        self._instance = self.instance(bt_config.INSTANCE)
 
-        bt_config = graph_meta.bigtable_config
         table_id = bt_config.TABLE_PREFIX + graph_meta.graph_config.ID
         self._table = self._instance.table(table_id)
 
@@ -72,6 +72,14 @@ class BigTableClient(bigtable.Client, ClientWithIDGen):
         self._write(
             self._mutate_row(
                 attributes.GraphMeta.key, {attributes.GraphMeta.Meta: meta},
+            )
+        )
+
+    def update_graph_provenance(self, provenance: IngestConfig):
+        self._write(
+            self._mutate_row(
+                attributes.GraphProvenance.key,
+                {attributes.GraphProvenance.Provenance: ingest_config},
             )
         )
 

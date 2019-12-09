@@ -45,7 +45,7 @@ def ingest_graph(graph_id: str, dataset: click.Path, raw: bool, overwrite: bool)
             print(exc)
 
     ingest_config = IngestConfig(
-        **config["ingest_config"], cluster=ClusterIngestConfig(flush_redis=True)
+        **config["ingest_config"], CLUSTER=ClusterIngestConfig(FLUSH_REDIS=True)
     )
     bigtable_config = BigTableConfig(**config["bigtable_config"])
     graph_config = GraphConfig(
@@ -58,7 +58,7 @@ def ingest_graph(graph_id: str, dataset: click.Path, raw: bool, overwrite: bool)
         **config["data_source"], use_raw_components=raw, use_raw_edges=raw
     )
 
-    meta = ChunkedGraphMeta(data_source, graph_config, bigtable_config)
+    meta = ChunkedGraphMeta(data_source, graph_config)
     initialize_chunkedgraph(meta)
     imanager = IngestionManager(ingest_config, meta)
     enqueue_atomic_tasks(imanager)
@@ -127,7 +127,9 @@ def queue_children(chunk_info):
                 imanager.serialized(),
                 children_layer,
                 coords,
-                get_children_chunk_coords(imanager.chunkedgraph_meta, children_layer, coords),
+                get_children_chunk_coords(
+                    imanager.chunkedgraph_meta, children_layer, coords
+                ),
             ),
         )
 
@@ -158,7 +160,9 @@ def queue_layer(parent_layer):
                 imanager.serialized(),
                 parent_layer,
                 coords,
-                get_children_chunk_coords(imanager.chunkedgraph_meta, parent_layer, coords),
+                get_children_chunk_coords(
+                    imanager.chunkedgraph_meta, parent_layer, coords
+                ),
             ),
         )
 
