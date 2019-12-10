@@ -30,11 +30,11 @@ def get_segment_id(
 def get_node_id(
     meta: ChunkedGraphMeta,
     segment_id: basetypes.SEGMENT_ID,
-    chunk_id: Optional[basetypes.CHUNK_ID] = None,
-    layer: Optional[int] = None,
-    x: Optional[int] = None,
-    y: Optional[int] = None,
-    z: Optional[int] = None,
+    chunk_id: basetypes.CHUNK_ID = None,
+    layer: int = None,
+    x: int = None,
+    y: int = None,
+    z: int = None,
 ) -> basetypes.NODE_ID:
     """
     (1) Build Node ID from Segment ID and Chunk ID

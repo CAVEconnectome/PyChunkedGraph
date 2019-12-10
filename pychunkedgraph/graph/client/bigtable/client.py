@@ -581,6 +581,3 @@ class BigTableClient(bigtable.Client, ClientWithIDGen):
                 timestamp=time_stamp,
             )
         return row
-
-
-test = BigTableClient(None)

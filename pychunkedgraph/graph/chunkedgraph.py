@@ -87,7 +87,7 @@ class ChunkedGraph:
             Union[Iterable[attributes._Attribute], attributes._Attribute]
         ] = None,
         time_stamp: Optional[datetime.datetime] = None,
-    ) -> Dict[basetypes.NODE_ID, Any]:
+    ) -> Dict:
         layer = self.get_chunk_layer(chunk_id)
         max_segment_id = self.id_client.get_max_segment_id(chunk_id=chunk_id)
         if layer == 1:
@@ -1030,7 +1030,7 @@ class ChunkedGraph:
     def get_chunk_layer(self, node_or_chunk_id: basetypes.NODE_ID):
         return chunk_utils.get_chunk_layer(self.meta, node_or_chunk_id)
 
-    def get_chunk_layers(self, node_or_chunk_ids: Sequence[basetypes.NODE_ID]):
+    def get_chunk_layers(self, node_or_chunk_ids: Sequence):
         return chunk_utils.get_chunk_layers(self.meta, node_or_chunk_ids)
 
     def get_chunk_coordinates(self, node_or_chunk_id: basetypes.NODE_ID):
@@ -1048,7 +1048,7 @@ class ChunkedGraph:
             self.meta, node_id=node_id, layer=layer, x=x, y=y, z=z
         )
 
-    def get_chunk_ids_from_node_ids(self, node_ids: Sequence[basetypes.NODE_ID]):
+    def get_chunk_ids_from_node_ids(self, node_ids: Sequence):
         return chunk_utils.get_chunk_ids_from_node_ids(self.meta, node_ids)
 
     def get_children_chunk_ids(self, node_or_chunk_id: basetypes.NODE_ID):
@@ -1064,7 +1064,7 @@ class ChunkedGraph:
         return edge_utils.get_cross_chunk_edges_layer(self.meta, cross_edges)
 
     def read_chunk_edges(
-        self, chunk_ids: Iterable[basetypes.CHUNK_ID], cv_threads: int = 1
+        self, chunk_ids: Iterable, cv_threads: int = 1
     ) -> dict:
         return get_chunk_edges(
             self.meta.data_source.EDGES,
