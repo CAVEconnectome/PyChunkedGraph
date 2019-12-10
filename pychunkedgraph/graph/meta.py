@@ -55,7 +55,6 @@ _graphconfig_fields = (
     "SPATIAL_BITS",  # number of bits used for each spatial in id creation on level 1
     "OVERWRITE",  # overwrites existing graph
     "ROOT_LOCK_EXPIRY",
-    "BACKEND_CLIENT",
 )
 _graphconfig_defaults = (
     None,
@@ -65,7 +64,6 @@ _graphconfig_defaults = (
     10,
     False,
     timedelta(minutes=3, seconds=0),
-    BackendClientInfo(),
 )
 GraphConfig = namedtuple(
     "GraphConfig", _graphconfig_fields, defaults=_graphconfig_defaults

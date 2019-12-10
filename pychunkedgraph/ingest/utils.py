@@ -25,18 +25,11 @@ def bootstrap(
     ingest_config = IngestConfig(
         **config["ingest_config"], CLUSTER=ClusterIngestConfig(FLUSH_REDIS=True)
     )
-    bigtable_config = BigTableConfig(
-        **config["graph_config"]["BACKEND_CLIENT"]["CONFIG"]
-    )
-
-    client_info = BackendClientInfo(
-        config["graph_config"]["BACKEND_CLIENT"]["TYPE"], bigtable_config
-    )
-    del config["graph_config"]["BACKEND_CLIENT"]
+    bigtable_config = BigTableConfig(**config["backend_client"]["CONFIG"])
+    client_info = BackendClientInfo(config["backend_client"]["TYPE"], bigtable_config)
 
     graph_config = GraphConfig(
         ID=f"{bigtable_config.TABLE_PREFIX}{graph_id}",
-        BACKEND_CLIENT=client_info,
         OVERWRITE=overwrite,
         **config["graph_config"],
     )
