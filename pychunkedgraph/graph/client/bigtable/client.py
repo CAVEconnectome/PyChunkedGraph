@@ -75,13 +75,19 @@ class BigTableClient(bigtable.Client, ClientWithIDGen):
             )
         )
 
+    def read_graph_meta(self) -> ChunkedGraphMeta:
+        return self._read_row(attributes.GraphMeta.key)
+
     def update_graph_provenance(self, provenance: IngestConfig):
         self._write(
             self._mutate_row(
                 attributes.GraphProvenance.key,
-                {attributes.GraphProvenance.Provenance: ingest_config},
+                {attributes.GraphProvenance.Provenance: provenance},
             )
         )
+
+    def read_graph_provenance(self) -> IngestConfig:
+        return self._read_row(attributes.GraphProvenance.key)
 
     def read_nodes(
         self,

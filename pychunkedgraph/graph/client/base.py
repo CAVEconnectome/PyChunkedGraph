@@ -19,8 +19,14 @@ class SimpleClient(ABC):
     def update_graph_meta(self, meta):
         """Update stored graph meta."""
 
+    def read_graph_meta(self):
+        """Read stored graph meta."""
+
     def update_graph_provenance(self, provenance):
         """Update how the graph was created."""
+
+    def read_graph_provenance(self):
+        """Read stored graph provenance."""
 
     @abstractmethod
     def read_nodes(
