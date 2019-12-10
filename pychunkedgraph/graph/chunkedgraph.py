@@ -76,8 +76,12 @@ class ChunkedGraph:
     def root_chunk_id(self):
         return self.get_chunk_id(layer=int(self.meta.layer_count))
 
+    def update_meta(self, meta: ChunkedGraphMeta):
+        """Updates graph meta."""
+        self.client.update_graph_meta(meta)
+
     def update_provenance(self, provenance: IngestConfig):
-        """Stores information about how the graph was created."""
+        """Updates information about how the graph was created."""
         self.client.update_graph_provenance(provenance)
 
     def range_read_chunk(
@@ -1063,9 +1067,7 @@ class ChunkedGraph:
     def get_cross_chunk_edges_layer(self, cross_edges: Iterable):
         return edge_utils.get_cross_chunk_edges_layer(self.meta, cross_edges)
 
-    def read_chunk_edges(
-        self, chunk_ids: Iterable, cv_threads: int = 1
-    ) -> dict:
+    def read_chunk_edges(self, chunk_ids: Iterable, cv_threads: int = 1) -> dict:
         return get_chunk_edges(
             self.meta.data_source.EDGES,
             [self.get_chunk_coordinates(chunk_id) for chunk_id in chunk_ids],

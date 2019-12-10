@@ -14,10 +14,18 @@ from .chunks.utils import get_chunks_boundary
 
 _datasource_fields = ("EDGES", "COMPONENTS", "WATERSHED", "CV_MIP")
 _datasource_defaults = (None, None, None, 0)
-DataSource = namedtuple("DataSource", _datasource_fields, defaults=_datasource_defaults)
+DataSource = namedtuple(
+    "DataSource", _datasource_fields, defaults=_datasource_defaults,
+)
 
 
-_bigtableconfig_fields = ("PROJECT", "INSTANCE", "TABLE_PREFIX", "ADMIN", "READ_ONLY")
+_bigtableconfig_fields = (
+    "PROJECT",
+    "INSTANCE",
+    "TABLE_PREFIX",
+    "ADMIN",
+    "READ_ONLY",
+)
 _bigtableconfig_defaults = (
     "neuromancer-seung-import",
     "pychunkedgraph",
@@ -66,9 +74,7 @@ GraphConfig = namedtuple(
 
 class ChunkedGraphMeta:
     def __init__(
-        self,
-        graph_config: GraphConfig = GraphConfig(),
-        data_source: DataSource = DataSource(),
+        self, graph_config: GraphConfig, data_source: DataSource,
     ):
         self._graph_config = graph_config
         self._data_source = data_source
@@ -95,10 +101,10 @@ class ChunkedGraphMeta:
             return self._layer_count
         bbox = np.array(self._ws_cv.bounds.to_list()).reshape(2, 3)
         n_chunks = (
-            (bbox[1] - bbox[0]) / np.array(self._graph_config.chunk_size, dtype=int)
+            (bbox[1] - bbox[0]) / np.array(self._graph_config.CHUNK_SIZE, dtype=int)
         ).astype(np.int)
         self._layer_count = (
-            int(np.ceil(log_n(np.max(n_chunks), self._graph_config.fanout))) + 2
+            int(np.ceil(log_n(np.max(n_chunks), self._graph_config.FANOUT))) + 2
         )
         return self._layer_count
 
@@ -130,7 +136,7 @@ class ChunkedGraphMeta:
             return self._layer_bounds_d
 
         chunks_boundary = get_chunks_boundary(
-            self.voxel_counts, np.array(self._graph_config.chunk_size, dtype=int)
+            self.voxel_counts, np.array(self._graph_config.CHUNK_SIZE, dtype=int)
         )
         layer_bounds_d = {}
         for layer in range(2, self.layer_count):
