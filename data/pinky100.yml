@@ -7,12 +7,13 @@ graph_config:
   CHUNK_SIZE: [512, 512, 128]
   FANOUT: 2
   SPATIAL_BITS: 10
-  BACKEND_CLIENT:
-    TYPE: "bigtable"
-    CONFIG:
-      TABLE_PREFIX: "aa-" # change this
-      ADMIN: y
-      READ_ONLY: n
+
+backend_client:
+  TYPE: "bigtable"
+  CONFIG:
+    TABLE_PREFIX: "aa-" # change this
+    ADMIN: y
+    READ_ONLY: n
 
 ingest_config:
   AGGLOMERATION: "gs://ranl/scratch/pinky100_ca_com/agg"

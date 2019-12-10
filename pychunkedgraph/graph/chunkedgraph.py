@@ -37,6 +37,7 @@ from .chunks import hierarchy as chunk_hierarchy
 from ..ingest import IngestConfig
 from ..io.edges import get_chunk_edges
 
+# TODO this should be part of deployment
 HOME = os.path.expanduser("~")
 # Setting environment wide credential path
 os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = (
