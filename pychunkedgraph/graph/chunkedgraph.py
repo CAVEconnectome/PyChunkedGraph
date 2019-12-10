@@ -62,10 +62,6 @@ class ChunkedGraph:
         return self._meta
 
     @property
-    def cv(self) -> CloudVolume:
-        return self.meta.cv
-
-    @property
     def client(self) -> base.SimpleClient:
         return self._client
 
@@ -73,17 +69,9 @@ class ChunkedGraph:
     def id_client(self) -> base.ClientWithIDGen:
         return self._id_client
 
-    @property
-    def root_chunk_id(self):
-        return self.get_chunk_id(layer=int(self.meta.layer_count))
-
     def update_meta(self, meta: ChunkedGraphMeta):
         """Updates graph meta."""
         self.client.update_graph_meta(meta)
-
-    def update_provenance(self, provenance: IngestConfig):
-        """Updates information about how the graph was created."""
-        self.client.update_graph_provenance(provenance)
 
     def range_read_chunk(
         self,
@@ -136,7 +124,7 @@ class ChunkedGraph:
             z_l = 0 if z_l < 0 else z_l
 
             # Get atomic ids from cloudvolume
-            atomic_id_block = self.cv[x_l:x_h, y_l:y_h, z_l:z_h]
+            atomic_id_block = self.meta.cv[x_l:x_h, y_l:y_h, z_l:z_h]
             atomic_ids, atomic_id_count = np.unique(atomic_id_block, return_counts=True)
 
             # sort by frequency and discard those ids that have been checked
