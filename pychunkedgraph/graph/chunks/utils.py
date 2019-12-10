@@ -5,9 +5,6 @@ from typing import Iterable
 
 import numpy as np
 
-from ..meta import GraphConfig
-from ..meta import ChunkedGraphMeta
-
 
 def get_chunks_boundary(voxel_boundary, chunk_size) -> np.ndarray:
     """returns number of chunks in each dimension"""
@@ -15,9 +12,7 @@ def get_chunks_boundary(voxel_boundary, chunk_size) -> np.ndarray:
 
 
 def normalize_bounding_box(
-    meta: ChunkedGraphMeta,
-    bounding_box: Optional[Sequence[Sequence[int]]],
-    bb_is_coordinate: bool,
+    meta, bounding_box: Optional[Sequence[Sequence[int]]], bb_is_coordinate: bool,
 ) -> Union[Sequence[Sequence[int]], None]:
     if bounding_box is None:
         return None
@@ -44,7 +39,7 @@ def normalize_bounding_box(
         return np.array(bounding_box, dtype=np.int)
 
 
-def get_chunk_layer(meta: ChunkedGraphMeta, node_or_chunk_id: np.uint64) -> int:
+def get_chunk_layer(meta, node_or_chunk_id: np.uint64) -> int:
     """ Extract Layer from Node ID or Chunk ID
     :param node_or_chunk_id: np.uint64
     :return: int
@@ -52,9 +47,7 @@ def get_chunk_layer(meta: ChunkedGraphMeta, node_or_chunk_id: np.uint64) -> int:
     return int(int(node_or_chunk_id) >> 64 - meta.graph_config.LAYER_ID_BITS)
 
 
-def get_chunk_layers(
-    meta: ChunkedGraphMeta, node_or_chunk_ids: Sequence[np.uint64]
-) -> np.ndarray:
+def get_chunk_layers(meta, node_or_chunk_ids: Sequence[np.uint64]) -> np.ndarray:
     """ Extract Layers from Node IDs or Chunk IDs
     :param node_or_chunk_ids: np.ndarray
     :return: np.ndarray
@@ -64,9 +57,7 @@ def get_chunk_layers(
     return np.vectorize(get_chunk_layer)(meta, node_or_chunk_ids)
 
 
-def get_chunk_coordinates(
-    meta: ChunkedGraphMeta, node_or_chunk_id: np.uint64
-) -> np.ndarray:
+def get_chunk_coordinates(meta, node_or_chunk_id: np.uint64) -> np.ndarray:
     """ Extract X, Y and Z coordinate from Node ID or Chunk ID
     :param node_or_chunk_id: np.uint64
     :return: Tuple(int, int, int)
@@ -85,7 +76,7 @@ def get_chunk_coordinates(
 
 
 def get_chunk_id(
-    meta: ChunkedGraphMeta,
+    meta,
     node_id: Optional[np.uint64] = None,
     layer: Optional[int] = None,
     x: Optional[int] = None,
@@ -106,9 +97,7 @@ def get_chunk_id(
     return _compute_chunk_id(meta.graph_config, layer, x, y, z)
 
 
-def get_chunk_ids_from_node_ids(
-    meta: ChunkedGraphMeta, node_ids: Iterable[np.uint64]
-) -> np.ndarray:
+def get_chunk_ids_from_node_ids(meta, node_ids: Iterable[np.uint64]) -> np.ndarray:
     """ Extract a list of Chunk IDs from a list of Node IDs
     :param node_ids: np.ndarray(dtype=np.uint64)
     :return: np.ndarray(dtype=np.uint64)
@@ -118,9 +107,7 @@ def get_chunk_ids_from_node_ids(
     return np.vectorize(get_chunk_id)(meta, node_ids)
 
 
-def _compute_chunk_id(
-    graph_config: GraphConfig, layer: int, x: int, y: int, z: int,
-) -> np.uint64:
+def _compute_chunk_id(graph_config, layer: int, x: int, y: int, z: int,) -> np.uint64:
     s_bits_per_dim = graph_config.SPATIAL_BITS
     n_bits_layer_id = graph_config.LAYER_ID_BITS
     if not (
@@ -141,7 +128,7 @@ def _compute_chunk_id(
 
 
 def _get_chunk_coordinates_from_vol_coordinates(
-    meta: ChunkedGraphMeta,
+    meta,
     x: np.int,
     y: np.int,
     z: np.int,

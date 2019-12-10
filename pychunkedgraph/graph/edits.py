@@ -8,10 +8,10 @@ from typing import Optional, Sequence, Tuple, NamedTuple
 
 from multiwrapper import multiprocessing_utils as mu
 
+from . import attributes
 from .utils.generic import combine_cross_chunk_edge_dicts
 from .utils.generic import get_bounding_box
 from .utils import flatgraph
-from .utils import column_keys
 from .utils import serializers
 from .edges.utils import filter_fake_edges
 from .edges.utils import map_edges_to_chunks
@@ -24,11 +24,11 @@ def _write_atomic_merge_edges(cg, atomic_edges, affinities, areas, time_stamp):
 
     if areas is None:
         areas = np.zeros(
-            len(atomic_edges), dtype=column_keys.Connectivity.Area.basetype
+            len(atomic_edges), dtype=attributes.Connectivity.Area.basetype
         )
     if affinities is None:
         affinities = np.ones(len(atomic_edges)) * np.inf
-        affinities = affinities.astype(column_keys.Connectivity.Affinity.basetype)
+        affinities = affinities.astype(attributes.Connectivity.Affinity.basetype)
 
     rows = []
 
@@ -47,26 +47,26 @@ def _write_atomic_merge_edges(cg, atomic_edges, affinities, areas, time_stamp):
         edge_areas = np.concatenate([areas[edge_m1], areas[edge_m0]])
 
         ex_partner_m = np.in1d(
-            edge_partners, atomic_node_info[column_keys.Connectivity.Partner]
+            edge_partners, atomic_node_info[attributes.Connectivity.Partner]
         )
         partner_idx = np.where(
             np.in1d(
-                atomic_node_info[column_keys.Connectivity.Partner],
+                atomic_node_info[attributes.Connectivity.Partner],
                 edge_partners[ex_partner_m],
             )
         )[0]
 
-        n_ex_partners = len(atomic_node_info[column_keys.Connectivity.Partner])
+        n_ex_partners = len(atomic_node_info[attributes.Connectivity.Partner])
 
         new_partner_idx = np.arange(
             n_ex_partners, n_ex_partners + np.sum(~ex_partner_m)
         )
         partner_idx = np.concatenate([partner_idx, new_partner_idx])
         partner_idx = np.array(
-            partner_idx, dtype=column_keys.Connectivity.Connected.basetype
+            partner_idx, dtype=attributes.Connectivity.Connected.basetype
         )
 
-        val_dict[column_keys.Connectivity.Connected] = partner_idx
+        val_dict[attributes.Connectivity.Connected] = partner_idx
 
         if np.sum(~ex_partner_m) > 0:
             edge_affs = edge_affs[~ex_partner_m]
@@ -74,12 +74,12 @@ def _write_atomic_merge_edges(cg, atomic_edges, affinities, areas, time_stamp):
 
             new_edge_partners = np.array(
                 edge_partners[~ex_partner_m],
-                dtype=column_keys.Connectivity.Partner.basetype,
+                dtype=attributes.Connectivity.Partner.basetype,
             )
 
-            val_dict[column_keys.Connectivity.Affinity] = edge_affs
-            val_dict[column_keys.Connectivity.Area] = edge_areas
-            val_dict[column_keys.Connectivity.Partner] = new_edge_partners
+            val_dict[attributes.Connectivity.Affinity] = edge_affs
+            val_dict[attributes.Connectivity.Area] = edge_areas
+            val_dict[attributes.Connectivity.Partner] = new_edge_partners
 
         rows.append(
             cg.mutate_row(
@@ -107,14 +107,14 @@ def _write_atomic_split_edges(cg, atomic_edges, time_stamp):
         )
 
         partner_idx = np.where(
-            np.in1d(atomic_node_info[column_keys.Connectivity.Partner], partners)
+            np.in1d(atomic_node_info[attributes.Connectivity.Partner], partners)
         )[0]
 
         partner_idx = np.array(
-            partner_idx, dtype=column_keys.Connectivity.Connected.basetype
+            partner_idx, dtype=attributes.Connectivity.Connected.basetype
         )
 
-        val_dict = {column_keys.Connectivity.Connected: partner_idx}
+        val_dict = {attributes.Connectivity.Connected: partner_idx}
         rows.append(
             cg.mutate_row(
                 serializers.serialize_uint64(u_atomic_id),
@@ -272,23 +272,23 @@ def add_edges(
 
 def _validate_edges(atomic_edges, _affinities=None, _areas=None):
     atomic_edges = np.array(
-        atomic_edges, dtype=column_keys.Connectivity.Partner.basetype
+        atomic_edges, dtype=attributes.Connectivity.Partner.basetype
     )
 
     affinities = np.ones(
-        len(atomic_edges), dtype=column_keys.Connectivity.Affinity.basetype
+        len(atomic_edges), dtype=attributes.Connectivity.Affinity.basetype
     )
     if _affinities:
         affinities = np.array(
-            _affinities, dtype=column_keys.Connectivity.Affinity.basetype
+            _affinities, dtype=attributes.Connectivity.Affinity.basetype
         )
 
     areas = (
-        np.ones(len(atomic_edges), dtype=column_keys.Connectivity.Area.basetype)
+        np.ones(len(atomic_edges), dtype=attributes.Connectivity.Area.basetype)
         * np.inf
     )
     if _areas:
-        areas = np.array(areas, dtype=column_keys.Connectivity.Area.basetype)
+        areas = np.array(areas, dtype=attributes.Connectivity.Area.basetype)
 
     assert len(affinities) == len(atomic_edges)
     return atomic_edges, affinities, areas
@@ -341,8 +341,8 @@ def add_edges_v2(
     #     row_key = serializers.serialize_uint64(chunk_id)
     #     fake_edges = chunk_edges_d[chunk_id]
     #     val_d = {
-    #         column_keys.Connectivity.FakeEdges: fake_edges,
-    #         column_keys.OperationLogs.OperationID: operation_id
+    #         attributes.Connectivity.FakeEdges: fake_edges,
+    #         attributes.OperationLogs.OperationID: operation_id
     #     }
     #     rows.append(cg_instance.mutate_row(row_key, val_d, time_stamp=timestamp))
     # return rows
@@ -420,7 +420,7 @@ def remove_edges(
             lvl2_dict[new_parent_id] = [lvl2_node_id]
 
             # Write changes to atomic nodes and new lvl2 parent row
-            val_dict = {column_keys.Hierarchy.Child: cc_node_ids}
+            val_dict = {attributes.Hierarchy.Child: cc_node_ids}
             rows.append(
                 cg.mutate_row(
                     serializers.serialize_uint64(new_parent_id),
@@ -430,7 +430,7 @@ def remove_edges(
             )
 
             for cc_node_id in cc_node_ids:
-                val_dict = {column_keys.Hierarchy.Parent: new_parent_id}
+                val_dict = {attributes.Hierarchy.Parent: new_parent_id}
 
                 rows.append(
                     cg.mutate_row(
@@ -449,7 +449,7 @@ def remove_edges(
             lvl2_cross_chunk_edge_dict[new_parent_id] = {}
 
             for l in range(2, cg.n_layers):
-                empty_edges = column_keys.Connectivity.CrossChunkEdge.deserialize(b"")
+                empty_edges = attributes.Connectivity.CrossChunkEdge.deserialize(b"")
                 lvl2_cross_chunk_edge_dict[new_parent_id][l] = empty_edges
 
             val_dict = {}
@@ -459,7 +459,7 @@ def remove_edges(
 
                 if len(layer_cross_edges) > 0:
                     val_dict[
-                        column_keys.Connectivity.CrossChunkEdge[cc_layer]
+                        attributes.Connectivity.CrossChunkEdge[cc_layer]
                     ] = layer_cross_edges
                     lvl2_cross_chunk_edge_dict[new_parent_id][
                         cc_layer
@@ -616,8 +616,8 @@ def update_root_id_lineage(cg, new_root_ids, former_root_ids, operation_id, time
 
     for new_root_id in new_root_ids:
         val_dict = {
-            column_keys.Hierarchy.FormerParent: np.array(former_root_ids),
-            column_keys.OperationLogs.OperationID: operation_id,
+            attributes.Hierarchy.FormerParent: np.array(former_root_ids),
+            attributes.OperationLogs.OperationID: operation_id,
         }
         rows.append(
             cg.mutate_row(
@@ -629,8 +629,8 @@ def update_root_id_lineage(cg, new_root_ids, former_root_ids, operation_id, time
 
     for former_root_id in former_root_ids:
         val_dict = {
-            column_keys.Hierarchy.NewParent: np.array(new_root_ids),
-            column_keys.OperationLogs.OperationID: operation_id,
+            attributes.Hierarchy.NewParent: np.array(new_root_ids),
+            attributes.OperationLogs.OperationID: operation_id,
         }
         rows.append(
             cg.mutate_row(
@@ -662,11 +662,11 @@ def create_parent_children_rows(
 
     val_dict = {}
     for l, layer_edges in parent_cross_chunk_edge_dict.items():
-        val_dict[column_keys.Connectivity.CrossChunkEdge[l]] = layer_edges
+        val_dict[attributes.Connectivity.CrossChunkEdge[l]] = layer_edges
 
     assert np.max(cg.get_chunk_layers(children_ids)) < cg.get_chunk_layer(parent_id)
 
-    val_dict[column_keys.Hierarchy.Child] = children_ids
+    val_dict[attributes.Hierarchy.Child] = children_ids
 
     rows.append(
         cg.mutate_row(
@@ -675,7 +675,7 @@ def create_parent_children_rows(
     )
 
     for child_id in children_ids:
-        val_dict = {column_keys.Hierarchy.Parent: parent_id}
+        val_dict = {attributes.Hierarchy.Parent: parent_id}
         rows.append(
             cg.mutate_row(
                 serializers.serialize_uint64(child_id), val_dict, time_stamp=time_stamp

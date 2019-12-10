@@ -11,10 +11,10 @@ from typing import Sequence
 import pytz
 import numpy as np
 
+from ...graph import attributes
 from ...graph.chunkedgraph import ChunkedGraph
 from ...graph.utils import basetypes
 from ...graph.utils import serializers
-from ...graph.utils import column_keys
 from ...graph.edges import Edges
 from ...graph.edges import EDGE_TYPES
 from ...graph.utils.generic import compute_indices_pandas
@@ -115,7 +115,7 @@ def _process_component(
     for node_id in node_ids:
         _edges = _get_outgoing_edges(node_id, chunk_edges_d, sparse_indices, remapping)
         chunk_out_edges.append(_edges)
-        val_dict = {column_keys.Hierarchy.Parent: parent_id}
+        val_dict = {attributes.Hierarchy.Parent: parent_id}
         r_key = serializers.serialize_uint64(node_id)
         rows.append(cg_instance.mutate_row(r_key, val_dict, time_stamp=time_stamp))
 
@@ -123,11 +123,11 @@ def _process_component(
     cce_layers = cg_instance.get_cross_chunk_edges_layer(chunk_out_edges)
     u_cce_layers = np.unique(cce_layers)
 
-    val_dict = {column_keys.Hierarchy.Child: node_ids}
+    val_dict = {attributes.Hierarchy.Child: node_ids}
     for cc_layer in u_cce_layers:
         layer_out_edges = chunk_out_edges[cce_layers == cc_layer]
         if layer_out_edges.size:
-            col = column_keys.Connectivity.CrossChunkEdge[cc_layer]
+            col = attributes.Connectivity.CrossChunkEdge[cc_layer]
             val_dict[col] = layer_out_edges
 
     r_key = serializers.serialize_uint64(parent_id)

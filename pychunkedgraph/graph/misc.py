@@ -7,7 +7,7 @@ from typing import Optional, Sequence
 
 from multiwrapper import multiprocessing_utils as mu
 
-from .chunkedgraph import ChunkedGraph
+from . import ChunkedGraph
 from . import attributes
 from .utils import flatgraph
 

@@ -10,10 +10,10 @@ from typing import Dict
 import numpy as np
 from multiwrapper.multiprocessing_utils import multiprocess_func
 
+from .. import attributes
 from ...utils.general import chunked
 from ..utils import basetypes
 from ..utils import serializers
-from ..utils import column_keys
 from ..chunkedgraph import ChunkedGraph
 from ..utils.generic import get_valid_timestamp
 from ..utils.generic import filter_failed_node_ids
@@ -75,7 +75,7 @@ def _get_children_chunk_cross_edges_helper(args) -> None:
 def _read_atomic_chunk_cross_edges(
     cg_instance, chunk_coord: Sequence[int], cross_edge_layer: int
 ) -> np.ndarray:
-    cross_edge_col = column_keys.Connectivity.CrossChunkEdge[cross_edge_layer]
+    cross_edge_col = attributes.Connectivity.CrossChunkEdge[cross_edge_layer]
     range_read, l2ids = _read_atomic_chunk(cg_instance, chunk_coord, [cross_edge_layer])
 
     parent_neighboring_chunk_supervoxels_d = defaultdict(list)
@@ -157,7 +157,7 @@ def _read_atomic_chunk_cross_edge_nodes(cg_instance, chunk_coord, cross_edge_lay
     range_read, l2ids = _read_atomic_chunk(cg_instance, chunk_coord, cross_edge_layers)
     for l2id in l2ids:
         for layer in cross_edge_layers:
-            if column_keys.Connectivity.CrossChunkEdge[layer] in range_read[l2id]:
+            if attributes.Connectivity.CrossChunkEdge[layer] in range_read[l2id]:
                 node_layer_d[l2id] = layer
                 break
     return node_layer_d
@@ -180,8 +180,8 @@ def _find_min_layer(node_layer_d_shared, ids_l_shared, layers_l_shared):
 def _read_atomic_chunk(cg_instance, chunk_coord, layers):
     """ utility function to read atomic chunk data """
     x, y, z = chunk_coord
-    child_col = column_keys.Hierarchy.Child
-    columns = [child_col] + [column_keys.Connectivity.CrossChunkEdge[l] for l in layers]
+    child_col = attributes.Hierarchy.Child
+    columns = [child_col] + [attributes.Connectivity.CrossChunkEdge[l] for l in layers]
     range_read = cg_instance.range_read_chunk(2, x, y, z, columns=columns)
 
     row_ids = []

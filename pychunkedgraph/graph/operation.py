@@ -20,7 +20,9 @@ from . import exceptions
 from .locks import RootLock
 from .utils import basetypes
 from .utils import serializers
-from .chunkedgraph import ChunkedGraph
+
+if TYPE_CHECKING:
+    from .chunkedgraph import ChunkedGraph
 
 
 class GraphEditOperation(ABC):
@@ -29,7 +31,7 @@ class GraphEditOperation(ABC):
 
     def __init__(
         self,
-        cg: ChunkedGraph,
+        cg: "ChunkedGraph",
         *,
         user_id: str,
         source_coords: Optional[Sequence[Sequence[np.int]]] = None,
@@ -55,7 +57,7 @@ class GraphEditOperation(ABC):
     @classmethod
     def _resolve_undo_chain(
         cls,
-        cg: ChunkedGraph,
+        cg: "ChunkedGraph",
         *,
         user_id: str,
         operation_id: np.uint64,
@@ -121,14 +123,14 @@ class GraphEditOperation(ABC):
     @classmethod
     def from_log_record(
         cls,
-        cg: ChunkedGraph,
+        cg: "ChunkedGraph",
         log_record: Dict[attributes._Attribute, Union[np.ndarray, np.number]],
         *,
         multicut_as_split: bool = True,
     ) -> "GraphEditOperation":
         """Generates the correct GraphEditOperation given a log record dictionary.
-        :param cg: The ChunkedGraph instance
-        :type cg: ChunkedGraph
+        :param cg: The "ChunkedGraph" instance
+        :type cg: "ChunkedGraph"
         :param log_record: log record dictionary
         :type log_record: Dict[attributes._Attribute, Union[np.ndarray, np.number]]
         :param multicut_as_split: If true, don't recalculate MultiCutOperation, just
@@ -216,14 +218,14 @@ class GraphEditOperation(ABC):
     @classmethod
     def from_operation_id(
         cls,
-        cg: ChunkedGraph,
+        cg: "ChunkedGraph",
         operation_id: np.uint64,
         *,
         multicut_as_split: bool = True,
     ):
         """Generates the correct GraphEditOperation given a operation ID.
-        :param cg: The ChunkedGraph instance
-        :type cg: ChunkedGraph
+        :param cg: The "ChunkedGraph" instance
+        :type cg: "ChunkedGraph"
         :param operation_id: The operation ID
         :type operation_id: np.uint64
         :param multicut_as_split: If true, don't recalculate MultiCutOperation, just
@@ -239,7 +241,7 @@ class GraphEditOperation(ABC):
     @classmethod
     def undo_operation(
         cls,
-        cg: ChunkedGraph,
+        cg: "ChunkedGraph",
         *,
         user_id: str,
         operation_id: np.uint64,
@@ -251,8 +253,8 @@ class GraphEditOperation(ABC):
         NOTE: If operation_id is an UndoOperation, this function might return an instance of
               RedoOperation instead (depending on how the Undo/Redo chain unrolls)
 
-        :param cg: The ChunkedGraph instance
-        :type cg: ChunkedGraph
+        :param cg: The "ChunkedGraph" instance
+        :type cg: "ChunkedGraph"
         :param user_id: User that should be associated with this undo operation
         :type user_id: str
         :param operation_id: The operation ID to be undone
@@ -276,7 +278,7 @@ class GraphEditOperation(ABC):
     @classmethod
     def redo_operation(
         cls,
-        cg: ChunkedGraph,
+        cg: "ChunkedGraph",
         *,
         user_id: str,
         operation_id: np.uint64,
@@ -288,8 +290,8 @@ class GraphEditOperation(ABC):
         NOTE: If operation_id is an UndoOperation, this function might return an instance of
               UndoOperation instead (depending on how the Undo/Redo chain unrolls)
 
-        :param cg: The ChunkedGraph instance
-        :type cg: ChunkedGraph
+        :param cg: The "ChunkedGraph" instance
+        :type cg: "ChunkedGraph"
         :param user_id: User that should be associated with this redo operation
         :type user_id: str
         :param operation_id: The operation ID to be redone
@@ -400,8 +402,8 @@ class GraphEditOperation(ABC):
 class MergeOperation(GraphEditOperation):
     """Merge Operation: Connect *known* pairs of supervoxels by adding a (weighted) edge.
 
-    :param cg: The ChunkedGraph object
-    :type cg: ChunkedGraph
+    :param cg: The "ChunkedGraph" object
+    :type cg: "ChunkedGraph"
     :param user_id: User ID that will be assigned to this operation
     :type user_id: str
     :param added_edges: Supervoxel IDs of all added edges [[source, sink]]
@@ -418,7 +420,7 @@ class MergeOperation(GraphEditOperation):
 
     def __init__(
         self,
-        cg: ChunkedGraph,
+        cg: "ChunkedGraph",
         *,
         user_id: str,
         added_edges: Sequence[Sequence[np.uint64]],
@@ -506,8 +508,8 @@ class MergeOperation(GraphEditOperation):
 class SplitOperation(GraphEditOperation):
     """Split Operation: Cut *known* pairs of supervoxel that are directly connected by an edge.
 
-    :param cg: The ChunkedGraph object
-    :type cg: ChunkedGraph
+    :param cg: The "ChunkedGraph" object
+    :type cg: "ChunkedGraph"
     :param user_id: User ID that will be assigned to this operation
     :type user_id: str
     :param removed_edges: Supervoxel IDs of all removed edges [[source, sink]]
@@ -524,7 +526,7 @@ class SplitOperation(GraphEditOperation):
 
     def __init__(
         self,
-        cg: ChunkedGraph,
+        cg: "ChunkedGraph",
         *,
         user_id: str,
         removed_edges: Sequence[Sequence[np.uint64]],
@@ -600,8 +602,8 @@ class MulticutOperation(GraphEditOperation):
     Multicut Operation: Apply min-cut algorithm to identify suitable edges for removal
         in order to separate two groups of supervoxels.
 
-    :param cg: The ChunkedGraph object
-    :type cg: ChunkedGraph
+    :param cg: The "ChunkedGraph" object
+    :type cg: "ChunkedGraph"
     :param user_id: User ID that will be assigned to this operation
     :type user_id: str
     :param source_ids: Supervoxel IDs that should be separated from supervoxel IDs in sink_ids
@@ -621,7 +623,7 @@ class MulticutOperation(GraphEditOperation):
 
     def __init__(
         self,
-        cg: ChunkedGraph,
+        cg: "ChunkedGraph",
         *,
         user_id: str,
         source_ids: Sequence[np.uint64],
@@ -721,8 +723,8 @@ class RedoOperation(GraphEditOperation):
           GraphEditOperation.redo_operation() is in general preferred as it will correctly
           unroll Undo/Redo chains.
 
-    :param cg: The ChunkedGraph object
-    :type cg: ChunkedGraph
+    :param cg: The "ChunkedGraph" object
+    :type cg: "ChunkedGraph"
     :param user_id: User ID that will be assigned to this operation
     :type user_id: str
     :param superseded_operation_id: Operation ID to be redone
@@ -736,7 +738,7 @@ class RedoOperation(GraphEditOperation):
 
     def __init__(
         self,
-        cg: ChunkedGraph,
+        cg: "ChunkedGraph",
         *,
         user_id: str,
         superseded_operation_id: np.uint64,
@@ -806,8 +808,8 @@ class UndoOperation(GraphEditOperation):
           GraphEditOperation.undo_operation() is in general preferred as it will correctly
           unroll Undo/Redo chains.
 
-    :param cg: The ChunkedGraph object
-    :type cg: ChunkedGraph
+    :param cg: The "ChunkedGraph" object
+    :type cg: "ChunkedGraph"
     :param user_id: User ID that will be assigned to this operation
     :type user_id: str
     :param superseded_operation_id: Operation ID to be undone
@@ -821,7 +823,7 @@ class UndoOperation(GraphEditOperation):
 
     def __init__(
         self,
-        cg: ChunkedGraph,
+        cg: "ChunkedGraph",
         *,
         user_id: str,
         superseded_operation_id: np.uint64,

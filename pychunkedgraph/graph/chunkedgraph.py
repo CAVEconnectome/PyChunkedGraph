@@ -20,7 +20,6 @@ import pytz
 from cloudvolume import CloudVolume
 from multiwrapper import multiprocessing_utils as mu
 
-from . import misc
 from . import cutting
 from . import operation
 from . import attributes
@@ -39,10 +38,6 @@ from ..ingest import IngestConfig
 from ..io.edges import get_chunk_edges
 
 HOME = os.path.expanduser("~")
-N_DIGITS_UINT64 = len(str(np.iinfo(np.uint64).max))
-N_BITS_PER_ROOT_COUNTER = np.uint64(8)
-LOCK_EXPIRED_TIME_DELTA = datetime.timedelta(minutes=3, seconds=0)
-
 # Setting environment wide credential path
 os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = (
     HOME + "/.cloudvolume/secrets/google-secret.json"
@@ -255,7 +250,8 @@ class ChunkedGraph:
         n_threads: int = 1,
     ) -> Sequence[np.uint64]:
         """Reads _all_ root ids."""
-        return misc.get_latest_roots(self, time_stamp=time_stamp, n_threads=n_threads)
+        pass
+        # return misc.get_latest_roots(self, time_stamp=time_stamp, n_threads=n_threads)
 
     def get_delta_roots(
         self,
@@ -279,13 +275,14 @@ class ChunkedGraph:
             expired_ids is list of node_id's for roots the expired after time_stamp_start
             but before time_stamp_end.
         """
-        return misc.get_delta_roots(
-            self,
-            time_stamp_start=time_stamp_start,
-            time_stamp_end=time_stamp_end,
-            min_seg_id=min_seg_id,
-            n_threads=n_threads,
-        )
+        pass
+        # return misc.get_delta_roots(
+        #     self,
+        #     time_stamp_start=time_stamp_start,
+        #     time_stamp_end=time_stamp_end,
+        #     min_seg_id=min_seg_id,
+        #     n_threads=n_threads,
+        # )
 
     def get_roots(
         self,

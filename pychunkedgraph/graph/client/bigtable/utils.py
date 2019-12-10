@@ -18,7 +18,7 @@ from google.cloud.bigtable.row_filters import TimestampRangeFilter
 from google.cloud.bigtable.row_filters import ConditionalRowFilter
 from google.cloud.bigtable.row_filters import ColumnQualifierRegexFilter
 
-from . import attributes
+from ... import attributes
 
 
 def partial_row_data_to_column_dict(
@@ -35,14 +35,14 @@ def partial_row_data_to_column_dict(
 def get_google_compatible_time_stamp(
     time_stamp: datetime, round_up: bool = False
 ) -> datetime:
-    """ Makes a datetime.datetime time stamp compatible with googles' services.
+    """ Makes a datetime time stamp compatible with googles' services.
     Google restricts the accuracy of time stamps to milliseconds. Hence, the
     microseconds are cut of. By default, time stamps are rounded to the lower
     number.
 
-    :param time_stamp: datetime.datetime
+    :param time_stamp: datetime
     :param round_up: bool
-    :return: datetime.datetime
+    :return: datetime
     """
 
     micro_s_gap = timedelta(microseconds=time_stamp.microsecond % 1000)
@@ -79,8 +79,8 @@ def _get_column_filter(
 
 
 def _get_time_range_filter(
-    start_time: Optional[datetime.datetime] = None,
-    end_time: Optional[datetime.datetime] = None,
+    start_time: Optional[datetime] = None,
+    end_time: Optional[datetime] = None,
     end_inclusive: bool = True,
 ) -> RowFilter:
     """ Generates a TimeStampRangeFilter which is inclusive for start and (optionally) end.

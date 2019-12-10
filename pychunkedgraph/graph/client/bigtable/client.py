@@ -118,8 +118,8 @@ class BigTableClient(bigtable.Client, ClientWithIDGen):
         properties: Optional[
             Union[Iterable[attributes._Attribute], attributes._Attribute]
         ] = None,
-        start_time: Optional[datetime.datetime] = None,
-        end_time: Optional[datetime.datetime] = None,
+        start_time: Optional[datetime] = None,
+        end_time: Optional[datetime] = None,
         end_time_inclusive: bool = False,
     ) -> Union[
         Dict[attributes._Attribute, List[bigtable.row_data.Cell]],
@@ -129,23 +129,23 @@ class BigTableClient(bigtable.Client, ClientWithIDGen):
         Arguments:
             node_id {np.uint64} -- the NodeID of the row to be read.
         Keyword Arguments:
-            columns {Optional[Union[Iterable[column_keys._Column], column_keys._Column]]} --
+            columns {Optional[Union[Iterable[attributes._Attribute], attributes._Attribute]]} --
                 Optional filtering by columns to speed up the query. If `columns` is a single
                 column (not iterable), the column key will be omitted from the result.
                 (default: {None})
-            start_time {Optional[datetime.datetime]} -- Ignore cells with timestamp before
+            start_time {Optional[datetime]} -- Ignore cells with timestamp before
                 `start_time`. If None, no lower bound. (default: {None})
-            end_time {Optional[datetime.datetime]} -- Ignore cells with timestamp after `end_time`.
+            end_time {Optional[datetime]} -- Ignore cells with timestamp after `end_time`.
                 If None, no upper bound. (default: {None})
             end_time_inclusive {bool} -- Whether or not `end_time` itself should be included in the
                 request, ignored if `end_time` is None. (default: {False})
         Returns:
-            Union[Dict[column_keys._Column, List[bigtable.row_data.Cell]],
+            Union[Dict[attributes._Attribute, List[bigtable.row_data.Cell]],
                   List[bigtable.row_data.Cell]] --
                 Returns a mapping of columns to a List of cells (one cell per timestamp). Each cell
                 has a `value` property, which returns the deserialized field, and a `timestamp`
-                property, which returns the timestamp as `datetime.datetime` object.
-                If only a single `column_keys._Column` was requested, the List of cells is returned
+                property, which returns the timestamp as `datetime` object.
+                If only a single `attributes._Attribute` was requested, the List of cells is returned
                 directly.
         """
         return self._read_row(
@@ -350,7 +350,7 @@ class BigTableClient(bigtable.Client, ClientWithIDGen):
             row_keys {Optional[Iterable[bytes]]} -- An `Iterable` containing possibly
                 non-contiguous row keys. Takes precedence over `start_key` and `end_key`.
                 (default: {None})
-            columns {Optional[Union[Iterable[column_keys._Column], column_keys._Column]]} --
+            columns {Optional[Union[Iterable[attributes._Attribute], attributes._Attribute]]} --
                 Optional filtering by columns to speed up the query. If `columns` is a single
                 column (not iterable), the column key will be omitted from the result.
                 (default: {None})
@@ -362,13 +362,13 @@ class BigTableClient(bigtable.Client, ClientWithIDGen):
                 request, ignored if `end_time` is None. (default: {False})
 
         Returns:
-            Dict[bytes, Union[Dict[column_keys._Column, List[bigtable.row_data.Cell]],
+            Dict[bytes, Union[Dict[attributes._Attribute, List[bigtable.row_data.Cell]],
                               List[bigtable.row_data.Cell]]] --
                 Returns a dictionary of `byte` rows as keys. Their value will be a mapping of
                 columns to a List of cells (one cell per timestamp). Each cell has a `value`
                 property, which returns the deserialized field, and a `timestamp` property, which
                 returns the timestamp as `datetime` object.
-                If only a single `column_keys._Column` was requested, the List of cells will be
+                If only a single `attributes._Attribute` was requested, the List of cells will be
                 attached to the row dictionary directly (skipping the column dictionary).
         """
 
@@ -428,7 +428,7 @@ class BigTableClient(bigtable.Client, ClientWithIDGen):
             row_key {bytes} -- The row to be read.
 
         Keyword Arguments:
-            columns {Optional[Union[Iterable[column_keys._Column], column_keys._Column]]} --
+            columns {Optional[Union[Iterable[attributes._Attribute], attributes._Attribute]]} --
                 Optional filtering by columns to speed up the query. If `columns` is a single
                 column (not iterable), the column key will be omitted from the result.
                 (default: {None})
@@ -440,12 +440,12 @@ class BigTableClient(bigtable.Client, ClientWithIDGen):
                 request, ignored if `end_time` is None. (default: {False})
 
         Returns:
-            Union[Dict[column_keys._Column, List[bigtable.row_data.Cell]],
+            Union[Dict[attributes._Attribute, List[bigtable.row_data.Cell]],
                   List[bigtable.row_data.Cell]] --
                 Returns a mapping of columns to a List of cells (one cell per timestamp). Each cell
                 has a `value` property, which returns the deserialized field, and a `timestamp`
                 property, which returns the timestamp as `datetime` object.
-                If only a single `column_keys._Column` was requested, the List of cells is returned
+                If only a single `attributes._Attribute` was requested, the List of cells is returned
                 directly.
         """
         row = self._read_rows(
@@ -478,7 +478,7 @@ class BigTableClient(bigtable.Client, ClientWithIDGen):
         """ Core function to read rows from Bigtable. Uses standard Bigtable retry logic
         :param row_set: BigTable RowSet
         :param row_filter: BigTable RowFilter
-        :return: Dict[bytes, Dict[column_keys._Column, bigtable.row_data.PartialRowData]]
+        :return: Dict[bytes, Dict[attributes._Attribute, bigtable.row_data.PartialRowData]]
         """
         # FIXME: Bigtable limits the length of the serialized request to 512 KiB. We should
         # calculate this properly (range_read.request.SerializeToString()), but this estimate is
