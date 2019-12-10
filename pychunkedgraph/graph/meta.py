@@ -186,6 +186,13 @@ class ChunkedGraphMeta:
             raise Exception()
         return dtype
 
+    def __getstate__(self):
+        return {"graph_config": self.graph_config, "data_source": self.data_source}
+
+    def __setstate__(self, state):
+        self._graph_config = state["graph_config"]
+        self._data_source = state["data_source"]
+
     def is_out_of_bounds(self, chunk_coordinate):
         return np.any(chunk_coordinate < 0) or np.any(
             chunk_coordinate > 2 ** self.bitmasks[1]

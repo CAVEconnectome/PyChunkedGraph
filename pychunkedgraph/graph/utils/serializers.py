@@ -1,5 +1,7 @@
 from typing import Any, Iterable
 import json
+import pickle
+
 import numpy as np
 import zstandard as zstd
 
@@ -71,6 +73,15 @@ class JSON(_Serializer):
         super().__init__(
             serializer=lambda x: json.dumps(x).encode("utf-8"),
             deserializer=lambda x: json.loads(x.decode()),
+            basetype=str,
+        )
+
+
+class Pickle(_Serializer):
+    def __init__(self):
+        super().__init__(
+            serializer=lambda x: pickle.dumps(x).encode("utf-8"),
+            deserializer=lambda x: pickle.loads(x.decode()),
             basetype=str,
         )
 

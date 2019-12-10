@@ -138,13 +138,13 @@ class Hierarchy:
 
 class GraphMeta:
     key = b"meta"
-    Meta = _Attribute(key=b"meta", family_id="0", serializer=serializers.JSON())
+    Meta = _Attribute(key=b"meta", family_id="0", serializer=serializers.Pickle())
 
 
 class GraphProvenance:
     key = b"provenance"
     Provenance = _Attribute(
-        key=b"provenance", family_id="0", serializer=serializers.JSON()
+        key=b"provenance", family_id="0", serializer=serializers.Pickle()
     )
 
 
