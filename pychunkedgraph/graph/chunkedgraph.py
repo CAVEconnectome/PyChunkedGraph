@@ -44,6 +44,8 @@ os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = (
     HOME + "/.cloudvolume/secrets/google-secret.json"
 )
 
+# TODO logging with context manager?
+
 
 class ChunkedGraph:
     def __init__(
