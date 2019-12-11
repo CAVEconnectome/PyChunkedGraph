@@ -33,6 +33,7 @@ from ...utils import basetypes
 from ...utils.serializers import serialize_uint64
 from ...utils.serializers import deserialize_uint64
 from ...meta import ChunkedGraphMeta
+from ...meta import BigTableConfig
 from ...utils.generic import get_valid_timestamp
 from ....ingest import IngestConfig
 
@@ -53,7 +54,14 @@ class BigTableClient(bigtable.Client, ClientWithIDGen):
 
     @classmethod
     def read_existing_graph_meta(cls, graph_id):
-        raise NotImplementedError()
+        bt_config = BigTableConfig()
+        _client = bigtable.Client(
+            project=bt_config.PROJECT,
+            admin=bt_config.ADMIN,
+        )
+        _instance = _client.instance(bt_config.INSTANCE)
+        _table = _instance.table(graph_id)
+        return
 
     @property
     def graph_meta(self):
