@@ -60,12 +60,6 @@ class ChunkedGraph:
             self._id_client = bt_client
             # self._setup_logger(logger)
 
-    def _init_with_existing_graph(self, graph_id):
-        self._meta = BigTableClient.read_existing_graph_meta(graph_id)
-        bt_client = BigTableClient(self._meta)
-        self._client = bt_client
-        self._id_client = bt_client
-
     @property
     def meta(self) -> ChunkedGraphMeta:
         return self._meta

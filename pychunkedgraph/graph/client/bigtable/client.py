@@ -39,24 +39,13 @@ from ....ingest import IngestConfig
 
 
 class BigTableClient(bigtable.Client, ClientWithIDGen):
-    def __init__(self, config: BigTableConfig, table_id: str = None):
+    def __init__(self, table_id: str, config: BigTableConfig):
         # TODO change this to not need all meta to initialize
         super(BigTableClient, self).__init__(
-            project=config.PROJECT,
-            read_only=config.READ_ONLY,
-            admin=config.ADMIN,
+            project=config.PROJECT, read_only=config.READ_ONLY, admin=config.ADMIN,
         )
         self._instance = self.instance(config.INSTANCE)
-        table_id = config.TABLE_PREFIX + graph_meta.graph_config.ID
         self._table = self._instance.table(table_id)
-
-    @classmethod
-    def read_existing_graph_meta(cls, graph_id):
-        config = BigTableConfig()
-        _client = bigtable.Client(project=config.PROJECT, admin=config.ADMIN,)
-        _instance = _client.instance(config.INSTANCE)
-        _table = _instance.table(graph_id)
-        return
 
     @property
     def graph_meta(self):
@@ -594,7 +583,3 @@ class BigTableClient(bigtable.Client, ClientWithIDGen):
                 timestamp=time_stamp,
             )
         return row
-
-
-test = BigTableClient(None)
-

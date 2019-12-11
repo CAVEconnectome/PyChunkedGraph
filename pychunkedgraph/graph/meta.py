@@ -22,7 +22,6 @@ DataSource = namedtuple(
 _bigtableconfig_fields = (
     "PROJECT",
     "INSTANCE",
-    "TABLE_PREFIX",
     "ADMIN",
     "READ_ONLY",
 )
@@ -49,6 +48,7 @@ BackendClientInfo = namedtuple(
 
 _graphconfig_fields = (
     "ID",
+    "ID_PREFIX",
     "CHUNK_SIZE",
     "FANOUT",
     "LAYER_ID_BITS",  # number of bits reserved for layer id
@@ -57,6 +57,7 @@ _graphconfig_fields = (
     "ROOT_LOCK_EXPIRY",
 )
 _graphconfig_defaults = (
+    None,
     None,
     None,
     2,
