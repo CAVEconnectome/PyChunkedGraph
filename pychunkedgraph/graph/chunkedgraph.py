@@ -49,16 +49,13 @@ os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = (
 class ChunkedGraph:
     def __init__(self, graph_id: str = None, meta: ChunkedGraphMeta = None):
         assert (graph_id and not meta) or (not graph_id and meta)
-        if graph_id:
-            self._init_with_existing_graph(graph_id)
-        else:
-            self._meta = meta
-            # TODO create client based on type
-            # for now, just create bigtable client
-            bt_client = BigTableClient(self._meta)
-            self._client = bt_client
-            self._id_client = bt_client
-            # self._setup_logger(logger)
+        self._meta = meta
+        # TODO create client based on type
+        # for now, just create bigtable client
+        bt_client = BigTableClient(graph_id)
+        self._client = bt_client
+        self._id_client = bt_client
+        # self._setup_logger(logger)
 
     @property
     def meta(self) -> ChunkedGraphMeta:
@@ -73,7 +70,6 @@ class ChunkedGraph:
         return self._id_client
 
     def update_meta(self, meta: ChunkedGraphMeta):
-        """Updates graph meta."""
         self.client.update_graph_meta(meta)
 
     def range_read_chunk(

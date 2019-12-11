@@ -39,7 +39,7 @@ from ....ingest import IngestConfig
 
 
 class BigTableClient(bigtable.Client, ClientWithIDGen):
-    def __init__(self, table_id: str, config: BigTableConfig):
+    def __init__(self, table_id: str, config: BigTableConfig = BigTableConfig()):
         # TODO change this to not need all meta to initialize
         super(BigTableClient, self).__init__(
             project=config.PROJECT, read_only=config.READ_ONLY, admin=config.ADMIN,
