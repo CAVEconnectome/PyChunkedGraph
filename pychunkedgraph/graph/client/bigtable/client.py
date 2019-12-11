@@ -40,6 +40,7 @@ from ....ingest import IngestConfig
 
 class BigTableClient(bigtable.Client, ClientWithIDGen):
     def __init__(self, graph_meta: ChunkedGraphMeta):
+        # TODO change this to not need all meta to initialize
         bt_config = graph_meta.graph_config.BACKEND_CLIENT.CONFIG
         super(BigTableClient, self).__init__(
             project=bt_config.PROJECT,
@@ -55,10 +56,7 @@ class BigTableClient(bigtable.Client, ClientWithIDGen):
     @classmethod
     def read_existing_graph_meta(cls, graph_id):
         bt_config = BigTableConfig()
-        _client = bigtable.Client(
-            project=bt_config.PROJECT,
-            admin=bt_config.ADMIN,
-        )
+        _client = bigtable.Client(project=bt_config.PROJECT, admin=bt_config.ADMIN,)
         _instance = _client.instance(bt_config.INSTANCE)
         _table = _instance.table(graph_id)
         return
