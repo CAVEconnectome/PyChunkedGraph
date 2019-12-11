@@ -1,9 +1,19 @@
 from abc import ABC
+from abc import ABCMeta
 from abc import abstractmethod
 
 import numpy as np
 
 from ..meta import ChunkedGraphMeta
+
+
+class abstractclassmethod(classmethod):
+
+    __isabstractmethod__ = True
+
+    def __init__(self, callable):
+        callable.__isabstractmethod__ = True
+        super(abstractclassmethod, self).__init__(callable)
 
 
 class SimpleClient(ABC):
@@ -12,19 +22,35 @@ class SimpleClient(ABC):
     Eg., BigTableClient for using big table as storage.
     """
 
+    __metaclass__ = ABCMeta
+
+    @abstractclassmethod
+    def read_existing_graph_meta(cls, graph_id):
+        """
+        Convenience function to read meta stored in the client for exisintg graphs.
+        This helps to read meta with just the graph ID for default settings of the client.
+        Eg., for BigTableClient if the graph is in default project and instance
+        you do not have to specify those.
+        """
+        raise NotImplementedError()
+
     @abstractmethod
     def create_graph(self) -> None:
         """Initialize the graph and store associated meta."""
 
+    @abstractmethod
     def update_graph_meta(self, meta):
         """Update stored graph meta."""
 
+    @abstractmethod
     def read_graph_meta(self):
         """Read stored graph meta."""
 
+    @abstractmethod
     def update_graph_provenance(self, provenance):
         """Update how the graph was created."""
 
+    @abstractmethod
     def read_graph_provenance(self):
         """Read stored graph provenance."""
 

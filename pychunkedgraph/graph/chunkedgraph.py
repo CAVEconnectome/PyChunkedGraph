@@ -38,26 +38,33 @@ from ..ingest import IngestConfig
 from ..io.edges import get_chunk_edges
 
 # TODO this should be part of deployment
+# logging with context manager?
 HOME = os.path.expanduser("~")
 # Setting environment wide credential path
 os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = (
     HOME + "/.cloudvolume/secrets/google-secret.json"
 )
 
-# TODO logging with context manager?
-
 
 class ChunkedGraph:
-    def __init__(
-        self, meta: ChunkedGraphMeta, logger: Optional[logging.Logger] = None,
-    ) -> None:
-        self._meta = meta
-        # TODO create client based on type
-        # for now, just create bigtable client
+    def __init__(self, graph_id: str = None, meta: ChunkedGraphMeta = None):
+        assert (graph_id and not meta) or (not graph_id and meta)
+        if graph_id:
+            self._init_with_existing_graph(graph_id)
+        else:
+            self._meta = meta
+            # TODO create client based on type
+            # for now, just create bigtable client
+            bt_client = BigTableClient(self._meta)
+            self._client = bt_client
+            self._id_client = bt_client
+            # self._setup_logger(logger)
+
+    def _init_with_existing_graph(self, graph_id):
+        self._meta = BigTableClient.read_existing_graph_meta(graph_id)
         bt_client = BigTableClient(self._meta)
         self._client = bt_client
         self._id_client = bt_client
-        self._setup_logger(logger)
 
     @property
     def meta(self) -> ChunkedGraphMeta:

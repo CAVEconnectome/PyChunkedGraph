@@ -51,6 +51,10 @@ class BigTableClient(bigtable.Client, ClientWithIDGen):
         table_id = bt_config.TABLE_PREFIX + graph_meta.graph_config.ID
         self._table = self._instance.table(table_id)
 
+    @classmethod
+    def read_existing_graph_meta(cls, graph_id):
+        raise NotImplementedError()
+
     @property
     def graph_meta(self):
         # TODO
@@ -587,3 +591,7 @@ class BigTableClient(bigtable.Client, ClientWithIDGen):
                 timestamp=time_stamp,
             )
         return row
+
+
+test = BigTableClient(None)
+
