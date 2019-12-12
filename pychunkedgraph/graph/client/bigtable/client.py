@@ -40,28 +40,21 @@ from ....ingest import IngestConfig
 
 class BigTableClient(bigtable.Client, ClientWithIDGen):
     def __init__(self, table_id: str, config: BigTableConfig = BigTableConfig()):
-        # TODO change this to not need all meta to initialize
         super(BigTableClient, self).__init__(
             project=config.PROJECT, read_only=config.READ_ONLY, admin=config.ADMIN,
         )
         self._instance = self.instance(config.INSTANCE)
         self._table = self._instance.table(table_id)
 
-    @property
-    def graph_meta(self):
-        # TODO
-        # read meta from table if None
-        return self._graph_meta
-
     # BASE
-    def create_graph(self) -> None:
+    def create_graph(self, meta: ChunkedGraphMeta) -> None:
         """Initialize the graph and store associated meta."""
-        config = self._graph_meta.graph_config
+        config = meta.graph_config
         if not config.overwrite and self._table.exists():
             ValueError(f"{self._table.table_id} already exists.")
         self._table.create()
         self._create_column_families()
-        self.update_graph_meta(self.graph_meta)
+        self.update_graph_meta(meta)
 
     def update_graph_meta(self, meta: ChunkedGraphMeta):
         self._graph_meta = meta

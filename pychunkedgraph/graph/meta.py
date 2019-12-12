@@ -47,7 +47,7 @@ BackendClientInfo = namedtuple(
 
 
 _graphconfig_fields = (
-    "ID",
+    "ID",  # ID_PREFIX and ID are together used when creating the graph
     "ID_PREFIX",
     "CHUNK_SIZE",
     "FANOUT",
@@ -73,10 +73,14 @@ GraphConfig = namedtuple(
 
 class ChunkedGraphMeta:
     def __init__(
-        self, graph_config: GraphConfig, data_source: DataSource,
+        self,
+        graph_config: GraphConfig,
+        data_source: DataSource,
+        backend_client: BackendClientInfo,
     ):
         self._graph_config = graph_config
         self._data_source = data_source
+        self._backend_client = backend_client
 
         self._ws_cv = CloudVolume(data_source.WATERSHED)
         self._layer_bounds_d = None
@@ -87,12 +91,16 @@ class ChunkedGraphMeta:
         )
 
     @property
+    def graph_config(self):
+        return self._graph_config
+
+    @property
     def data_source(self):
         return self._data_source
 
     @property
-    def graph_config(self):
-        return self._graph_config
+    def backend_client(self):
+        return self._backend_client
 
     @property
     def layer_count(self) -> int:

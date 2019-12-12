@@ -48,14 +48,31 @@ os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = (
 
 class ChunkedGraph:
     def __init__(self, graph_id: str = None, meta: ChunkedGraphMeta = None):
-        assert (graph_id and not meta) or (not graph_id and meta)
-        self._meta = meta
+        """
+        1. When reading an existing graph, passing only `graph_id` will assume
+           the graph is in default bigtable client (meta.BigTableConfig)
+           This is provided for convenience.        
+        2. When creating a new graph, only meta is necessary.
+           After creating `ChunkedGraph` instance, run instance.create()
+        3. For reading already existing graphs in other projects/clients,
+           only meta is necessary, but passing `graph_id` will override
+           `meta.graph_config.ID_PREFIX + meta.graph_config.ID`
+        """
         # TODO create client based on type
-        # for now, just create bigtable client
-        bt_client = BigTableClient(graph_id)
+        # for now, just use BigTableClient
+        assert graph_id is not None or meta is not None
+
+        if graph_id and not meta:
+            bt_client = BigTableClient(graph_id)
+        elif meta and not graph_id:
+            graph_id = meta.graph_config.ID_PREFIX + meta.graph_config.ID
+            bt_client = BigTableClient(graph_id, config=meta.backend_client.CONFIG)
+            self._meta = meta
+        else:
+            bt_client = BigTableClient(graph_id, config=meta.backend_client.CONFIG)
+
         self._client = bt_client
         self._id_client = bt_client
-        # self._setup_logger(logger)
 
     @property
     def meta(self) -> ChunkedGraphMeta:
@@ -69,7 +86,12 @@ class ChunkedGraph:
     def id_client(self) -> base.ClientWithIDGen:
         return self._id_client
 
+    def create(self):
+        """Creates the graph in storage client and stores meta."""
+        self._client.create_graph(self._meta)
+
     def update_meta(self, meta: ChunkedGraphMeta):
+        """Update meta of an already existing graph."""
         self.client.update_graph_meta(meta)
 
     def range_read_chunk(
@@ -80,6 +102,7 @@ class ChunkedGraph:
         ] = None,
         time_stamp: Optional[datetime.datetime] = None,
     ) -> Dict:
+        """Read all nodes in a chunk."""
         layer = self.get_chunk_layer(chunk_id)
         max_segment_id = self.id_client.get_max_segment_id(chunk_id=chunk_id)
         if layer == 1:
