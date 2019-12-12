@@ -54,7 +54,7 @@ class ChunkedGraph:
            This is provided for convenience.        
         2. When creating a new graph, only meta is necessary.
            After creating `ChunkedGraph` instance, run instance.create()
-        3. For reading already existing graphs in other projects/clients,
+        3. For reading existing graphs in other projects/clients,
            only meta is necessary, but passing `graph_id` will override
            `meta.graph_config.ID_PREFIX + meta.graph_config.ID`
         """
@@ -565,7 +565,7 @@ class ChunkedGraph:
                                 np.frombuffer(coords[0]),
                                 np.frombuffer(coords[1]),
                             ]
-                            coords *= np.array(self.cv.scale["resolution"])
+                            coords *= np.array(self.meta.cv.scale["resolution"])
                         merge_history_edges.append(coords)
                     if not is_merge:
                         removed_edges = log_row[attributes.OperationLogs.RemovedEdge]
