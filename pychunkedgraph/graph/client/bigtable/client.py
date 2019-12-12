@@ -46,6 +46,10 @@ class BigTableClient(bigtable.Client, ClientWithIDGen):
         self._instance = self.instance(config.INSTANCE)
         self._table = self._instance.table(table_id)
 
+    @property
+    def graph_meta(self):
+        return self._graph_meta
+
     # BASE
     def create_graph(self, meta: ChunkedGraphMeta) -> None:
         """Initialize the graph and store associated meta."""
@@ -58,22 +62,21 @@ class BigTableClient(bigtable.Client, ClientWithIDGen):
 
     def update_graph_meta(self, meta: ChunkedGraphMeta):
         self._graph_meta = meta
-        self._write(
-            self._mutate_row(
-                attributes.GraphMeta.key, {attributes.GraphMeta.Meta: meta},
-            )
+        row = self._mutate_row(
+            attributes.GraphMeta.key, {attributes.GraphMeta.Meta: meta},
         )
+        self._write([row])
 
     def read_graph_meta(self) -> ChunkedGraphMeta:
-        return self._read_row(attributes.GraphMeta.key)
+        row = self._read_row(attributes.GraphMeta.key)
+        return row[attributes.GraphMeta.Meta][0].value
 
     def update_graph_provenance(self, provenance: IngestConfig):
-        self._write(
-            self._mutate_row(
-                attributes.GraphProvenance.key,
-                {attributes.GraphProvenance.Provenance: provenance},
-            )
+        row = self._mutate_row(
+            attributes.GraphProvenance.key,
+            {attributes.GraphProvenance.Provenance: provenance},
         )
+        self._write([row])
 
     def read_graph_provenance(self) -> IngestConfig:
         return self._read_row(attributes.GraphProvenance.key)

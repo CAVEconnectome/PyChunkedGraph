@@ -64,6 +64,7 @@ class ChunkedGraph:
 
         if graph_id and not meta:
             bt_client = BigTableClient(graph_id)
+            self._meta = bt_client.read_graph_meta()
         elif meta and not graph_id:
             graph_id = meta.graph_config.ID_PREFIX + meta.graph_config.ID
             bt_client = BigTableClient(graph_id, config=meta.backend_client.CONFIG)

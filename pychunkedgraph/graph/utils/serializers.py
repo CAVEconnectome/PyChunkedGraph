@@ -80,8 +80,8 @@ class JSON(_Serializer):
 class Pickle(_Serializer):
     def __init__(self):
         super().__init__(
-            serializer=lambda x: pickle.dumps(x).encode("utf-8"),
-            deserializer=lambda x: pickle.loads(x.decode()),
+            serializer=lambda x: pickle.dumps(x),
+            deserializer=lambda x: pickle.loads(x),
             basetype=str,
         )
 

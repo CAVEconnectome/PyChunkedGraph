@@ -75,7 +75,7 @@ class ChunkedGraphMeta:
         self,
         graph_config: GraphConfig,
         data_source: DataSource,
-        backend_client: BackendClientInfo,
+        backend_client: BackendClientInfo = None,
     ):
         self._graph_config = graph_config
         self._data_source = data_source
@@ -201,8 +201,7 @@ class ChunkedGraphMeta:
         return {"graph_config": self.graph_config, "data_source": self.data_source}
 
     def __setstate__(self, state):
-        self._graph_config = state["graph_config"]
-        self._data_source = state["data_source"]
+        self.__init__(state["graph_config"], state["data_source"])
 
     def is_out_of_bounds(self, chunk_coordinate):
         return np.any(chunk_coordinate < 0) or np.any(
