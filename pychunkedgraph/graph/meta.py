@@ -28,7 +28,6 @@ _bigtableconfig_fields = (
 _bigtableconfig_defaults = (
     "neuromancer-seung-import",
     "pychunkedgraph",
-    "",
     True,
     False,
 )
