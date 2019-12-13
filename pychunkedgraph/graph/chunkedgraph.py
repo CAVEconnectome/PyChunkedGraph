@@ -26,6 +26,7 @@ from . import attributes
 from . import exceptions
 from .client import base
 from .client.bigtable import BigTableClient
+from .types import Agglomeration
 from .meta import ChunkedGraphMeta
 from .meta import BackendClientInfo
 from .utils import basetypes
@@ -37,6 +38,7 @@ from .chunks import utils as chunk_utils
 from .chunks import hierarchy as chunk_hierarchy
 from ..ingest import IngestConfig
 from ..io.edges import get_chunk_edges
+
 
 # TODO this should be part of deployment
 # logging with context manager?
@@ -729,7 +731,7 @@ class ChunkedGraph:
                 filtered_edges = edge_utils.get_active_edges(
                     filtered_edges, l2id_children_d
                 )
-            # l2id_agglomeration_d[l2id] = Agglomeration(supervoxels, filtered_edges)
+            l2id_agglomeration_d[l2id] = Agglomeration(supervoxels, filtered_edges)
         return l2id_agglomeration_d
 
     def get_subgraph_nodes(
