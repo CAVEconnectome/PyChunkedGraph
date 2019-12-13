@@ -50,9 +50,10 @@ os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = (
 class ChunkedGraph:
     def __init__(
         self,
+        *,
         graph_id: str = None,
-        client_info: BackendClientInfo = BackendClientInfo(),
         meta: ChunkedGraphMeta = None,
+        client_info: BackendClientInfo = BackendClientInfo(),
     ):
         """
         1. New graph

@@ -23,9 +23,7 @@ def _write_atomic_merge_edges(cg, atomic_edges, affinities, areas, time_stamp):
     rows = []
 
     if areas is None:
-        areas = np.zeros(
-            len(atomic_edges), dtype=attributes.Connectivity.Area.basetype
-        )
+        areas = np.zeros(len(atomic_edges), dtype=attributes.Connectivity.Area.basetype)
     if affinities is None:
         affinities = np.ones(len(atomic_edges)) * np.inf
         affinities = affinities.astype(attributes.Connectivity.Affinity.basetype)
@@ -284,8 +282,7 @@ def _validate_edges(atomic_edges, _affinities=None, _areas=None):
         )
 
     areas = (
-        np.ones(len(atomic_edges), dtype=attributes.Connectivity.Area.basetype)
-        * np.inf
+        np.ones(len(atomic_edges), dtype=attributes.Connectivity.Area.basetype) * np.inf
     )
     if _areas:
         areas = np.array(areas, dtype=attributes.Connectivity.Area.basetype)
@@ -295,30 +292,33 @@ def _validate_edges(atomic_edges, _affinities=None, _areas=None):
 
 
 def add_edges_v2(
-    cg_instance,
+    cg,
     *,
     operation_id: np.uint64,
-    added_edges: np.ndarray,
+    edge: np.ndarray,
     source_coords: Sequence[np.uint64],
     sink_coords: Sequence[np.uint64],
     timestamp: datetime.datetime
 ) -> List["bigtable.row.Row"]:
     """
-    if there is no path between sv1 and sv2 (from added_edges)
+    if there is no path between sv1 and sv2 (edge)
     in the subgraph, add "fake" edges, these are stored in a row per chunk
+
+    get level 2 ids for both roots
+    create a new level 2 id for ids that have a linking edge
+    merge the cross edges pf these ids into new id
     """
-    if not cg_instance.cv_edges_path:
+    if not cg.cv_edges_path:
         return []
-    l2id_agglomeration_d = cg_instance.get_subgraph(
-        agglomeration_ids=np.unique(cg_instance.get_roots(added_edges.ravel())),
+    l2id_agglomeration_d = cg.get_subgraph(
+        agglomeration_ids=np.unique(cg.get_roots(edge.ravel())),
         bbox=get_bounding_box(source_coords, sink_coords),
         bbox_is_coordinate=True,
         cv_threads=4,
         active_edges=False,
         timestamp=timestamp,
     )
-    # added_edges is assumed to have just one edge
-    parent_id1, parent_id2 = cg_instance.get_parents(added_edges.ravel())
+    parent_id1, parent_id2 = cg.get_parents(edge.ravel())
     l2id_children_d = {
         l2id: l2id_agglomeration_d[l2id].supervoxels for l2id in l2id_agglomeration_d
     }
@@ -326,15 +326,15 @@ def add_edges_v2(
         lambda x, y: x + y, [agg.edges for agg in l2id_agglomeration_d.values()]
     )
 
-    # fake_edges = filter_fake_edges(added_edges, subgraph_edges)
+    # fake_edges = filter_fake_edges(edge, subgraph_edges)
     linking_edges = get_linking_edges(
         subgraph_edges, l2id_children_d, parent_id1, parent_id2
     )
 
-    # fake_edges = filter_fake_edges(added_edges, subgraph_edges)
+    # fake_edges = filter_fake_edges(edge, subgraph_edges)
     # node_ids, r_indices = np.unique(fake_edges, return_inverse=True)
     # r_indices = r_indices.reshape(-1, 2)
-    # chunk_ids = cg_instance.get_chunk_ids_from_node_ids(node_ids)
+    # chunk_ids = cg.get_chunk_ids_from_node_ids(node_ids)
     # chunk_edges_d = map_edges_to_chunks(fake_edges, chunk_ids, r_indices)
     # rows = []
     # for chunk_id in chunk_edges_d:
@@ -344,7 +344,7 @@ def add_edges_v2(
     #         attributes.Connectivity.FakeEdges: fake_edges,
     #         attributes.OperationLogs.OperationID: operation_id
     #     }
-    #     rows.append(cg_instance.mutate_row(row_key, val_d, time_stamp=timestamp))
+    #     rows.append(cg.mutate_row(row_key, val_d, time_stamp=timestamp))
     # return rows
 
 
