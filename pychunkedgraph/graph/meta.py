@@ -75,11 +75,9 @@ class ChunkedGraphMeta:
         self,
         graph_config: GraphConfig,
         data_source: DataSource,
-        backend_client: BackendClientInfo = None,
     ):
         self._graph_config = graph_config
         self._data_source = data_source
-        self._backend_client = backend_client
 
         self._ws_cv = CloudVolume(data_source.WATERSHED)
         self._layer_bounds_d = None
@@ -96,10 +94,6 @@ class ChunkedGraphMeta:
     @property
     def data_source(self):
         return self._data_source
-
-    @property
-    def backend_client(self):
-        return self._backend_client
 
     @property
     def layer_count(self) -> int:

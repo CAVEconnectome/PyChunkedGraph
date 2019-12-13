@@ -27,6 +27,7 @@ from . import exceptions
 from .client import base
 from .client.bigtable import BigTableClient
 from .meta import ChunkedGraphMeta
+from .meta import BackendClientInfo
 from .utils import basetypes
 from .utils import id_helpers
 from .utils import generic as misc_utils
@@ -47,30 +48,31 @@ os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = (
 
 
 class ChunkedGraph:
-    def __init__(self, graph_id: str = None, meta: ChunkedGraphMeta = None):
+    def __init__(
+        self,
+        graph_id: str = None,
+        client_info: BackendClientInfo = BackendClientInfo(),
+        meta: ChunkedGraphMeta = None,
+    ):
         """
-        1. When reading an existing graph, passing only `graph_id` will assume
-           the graph is in default bigtable client (meta.BigTableConfig)
-           This is provided for convenience.        
-        2. When creating a new graph, only meta is necessary.
-           After creating `ChunkedGraph` instance, run instance.create()
-        3. For reading existing graphs in other projects/clients,
-           only meta is necessary, but passing `graph_id` will override
-           `meta.graph_config.ID_PREFIX + meta.graph_config.ID`
+        1. New graph
+           Requires `meta`; if `client_info` is not passed the default client is used.
+           After creating `ChunkedGraph` instance, run instance.create().
+        2. Existing graph in default client
+           Requires `graph_id`.
+        3. Existing graphs in other projects/clients,
+           Requires `graph_id` and `client_info`.
         """
         # TODO create client based on type
         # for now, just use BigTableClient
-        assert graph_id is not None or meta is not None
 
-        if graph_id and not meta:
-            bt_client = BigTableClient(graph_id)
-            self._meta = bt_client.read_graph_meta()
-        elif meta and not graph_id:
+        if meta:
             graph_id = meta.graph_config.ID_PREFIX + meta.graph_config.ID
-            bt_client = BigTableClient(graph_id, config=meta.backend_client.CONFIG)
+            bt_client = BigTableClient(graph_id, config=client_info.CONFIG)
             self._meta = meta
         else:
-            bt_client = BigTableClient(graph_id, config=meta.backend_client.CONFIG)
+            bt_client = BigTableClient(graph_id, config=client_info.CONFIG)
+            self._meta = bt_client.read_graph_meta()
 
         self._client = bt_client
         self._id_client = bt_client
