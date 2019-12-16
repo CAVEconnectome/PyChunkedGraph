@@ -22,12 +22,11 @@ from ..chunks.atomic import get_bounding_atomic_chunks
 
 
 def get_children_chunk_cross_edges(cg_instance, layer, chunk_coord) -> np.ndarray:
-    """ cross edges that connect children chunks """
+    """Cross edges that connect children chunks."""
     atomic_chunks = get_touching_atomic_chunks(cg_instance.meta, layer, chunk_coord)
     if not len(atomic_chunks):
         return []
 
-    print(f"start reading cross edges, atomic chunks {len(atomic_chunks)}")
     start = time.time()
     cg_info = cg_instance.get_serialized_info(credentials=False)
     with mp.Manager() as manager:
@@ -50,7 +49,6 @@ def get_children_chunk_cross_edges(cg_instance, layer, chunk_coord) -> np.ndarra
         )
 
         cross_edges = np.concatenate(edge_ids_shared)
-        print("reading cross edges complete")
         if cross_edges.size:
             return np.unique(cross_edges, axis=0)
         return cross_edges
@@ -136,7 +134,7 @@ def _get_chunk_nodes_cross_edge_layer_helper(args):
     atomic_node_layer_d = {}
     for atomic_chunk in atomic_chunks:
         chunk_node_layer_d = _read_atomic_chunk_cross_edge_nodes(
-            cg_instance, atomic_chunk, range(layer, cg_instance.n_layers + 1)
+            cg_instance, atomic_chunk, range(layer, cg_instance.meta.layer_count + 1)
         )
         atomic_node_layer_d.update(chunk_node_layer_d)
 
@@ -144,7 +142,7 @@ def _get_chunk_nodes_cross_edge_layer_helper(args):
     parents = cg_instance.get_roots(l2ids, stop_layer=layer - 1)
     layers = np.fromiter(atomic_node_layer_d.values(), dtype=np.int)
 
-    node_layer_d = defaultdict(lambda: cg_instance.n_layers)
+    node_layer_d = defaultdict(lambda: cg_instance.meta.layer_count)
     for i, parent in enumerate(parents):
         node_layer_d[parent] = min(node_layer_d[parent], layers[i])
 
@@ -178,7 +176,6 @@ def _find_min_layer(node_layer_d_shared, ids_l_shared, layers_l_shared):
 
 
 def _read_atomic_chunk(cg_instance, chunk_coord, layers):
-    """ utility function to read atomic chunk data """
     x, y, z = chunk_coord
     child_col = attributes.Hierarchy.Child
     columns = [child_col] + [attributes.Connectivity.CrossChunkEdge[l] for l in layers]

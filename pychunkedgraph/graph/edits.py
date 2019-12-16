@@ -261,11 +261,11 @@ def add_edges(
             )
         )
 
-    rows.extend(
-        _write_atomic_merge_edges(
-            cg, atomic_edges, affinities, areas, time_stamp=time_stamp
-        )
-    )
+    # rows.extend(
+    #     _write_atomic_merge_edges(
+    #         cg, atomic_edges, affinities, areas, time_stamp=time_stamp
+    #     )
+    # )
 
     # Propagate changes up the tree
     if cg.n_layers > 2:
@@ -535,7 +535,6 @@ def old_parent_childrens(eh, node_ids, layer):
 
 def compute_cross_chunk_connected_components(eh, node_ids, layer):
     """ Computes connected component for next layer
-
     :param eh: EditHelper
     :param node_ids: list of np.uint64s
     :param layer: np.int
@@ -675,7 +674,6 @@ def propagate_edits_to_root(
     time_stamp: datetime.datetime,
 ):
     """ Propagates changes through layers
-
     :param cg: ChunkedGraph instance
     :param lvl2_dict: dict maps new ids to old ids
     :param lvl2_cross_chunk_edge_dict: dict
