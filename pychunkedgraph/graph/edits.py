@@ -308,8 +308,6 @@ def add_edges_v2(
     create a new level 2 id for ids that have a linking edge
     merge the cross edges pf these ids into new id
     """
-    if not cg.cv_edges_path:
-        return []
     l2id_agglomeration_d = cg.get_subgraph(
         agglomeration_ids=np.unique(cg.get_roots(edge.ravel())),
         bbox=get_bounding_box(source_coords, sink_coords),

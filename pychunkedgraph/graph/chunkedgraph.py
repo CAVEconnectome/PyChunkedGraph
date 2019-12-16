@@ -40,13 +40,7 @@ from ..ingest import IngestConfig
 from ..io.edges import get_chunk_edges
 
 
-# TODO this should be part of deployment
-# logging with context manager?
-HOME = os.path.expanduser("~")
-# Setting environment wide credential path
-os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = (
-    HOME + "/.cloudvolume/secrets/google-secret.json"
-)
+# TODO logging with context manager?
 
 
 class ChunkedGraph:
@@ -677,20 +671,18 @@ class ChunkedGraph:
         agglomeration_ids: np.ndarray,
         bbox: Optional[Sequence[Sequence[int]]] = None,
         bbox_is_coordinate: bool = False,
-        n_threads: int = 1,
         active_edges: bool = True,
         timestamp: datetime.datetime = None,
     ) -> Tuple[Dict, Dict]:
         """
         1. get level 2 children ids belonging to the agglomerations
-        2. get relevant chunk ids from level 2 ids
-        3. read edges from cloud storage (include fake edges from big table)
-        4. get supervoxel ids from level 2 ids
-        5. filter the edges with supervoxel ids
-        6. optionally for each edge (v1,v2) active
+        2. read relevant chunk edges from cloud storage (include fake edges from big table)
+        3. group nodes and edges based on level 2 ids (Agglomeration)
+           optionally for each edge (v1,v2) active
            if parent(v1) == parent(v2) inactive otherwise
-        7. returns dict of Agglomerations
+        returns dict of {id: Agglomeration}
         """
+        # 1 level 2 ids
         level2_ids = []
         for agglomeration_id in agglomeration_ids:
             layer_nodes_d = self._get_subgraph_higher_layer_nodes(
@@ -703,11 +695,12 @@ class ChunkedGraph:
             level2_ids.append(layer_nodes_d[2])
         level2_ids = np.concatenate(level2_ids)
 
+        # 2 edges from cloud storage
         chunk_ids = self.get_chunk_ids_from_node_ids(level2_ids)
         chunk_edge_dicts = mu.multithread_func(
             self.read_chunk_edges,
-            np.array_split(np.unique(chunk_ids), n_threads),
-            n_threads=n_threads,
+            np.array_split(np.unique(chunk_ids), 4),  # TODO
+            n_threads=4,
             debug=False,
         )
         edges_dict = edge_utils.concatenate_chunk_edges(chunk_edge_dicts)
@@ -721,7 +714,7 @@ class ChunkedGraph:
         #     fake_edges = Edges(fake_edges[:,0], fake_edges[:,1])
         #     edges += fake_edges
 
-        # group nodes and edges based on level 2 ids
+        # 3 group nodes and edges based on level 2 ids
         l2id_agglomeration_d = {}
         l2id_children_d = self.get_children(level2_ids)
         for l2id in l2id_children_d:
