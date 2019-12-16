@@ -651,7 +651,7 @@ class ChunkedGraph:
 
     def get_subgraph_edges(
         self,
-        agglomeration_id: np.uint64,
+        agglomeration_id: basetypes.NODE_ID,
         bounding_box: Optional[Sequence[Sequence[int]]] = None,
         bb_is_coordinate: bool = False,
         connected_edges=True,

@@ -9,10 +9,11 @@ from typing import Optional, Sequence, Tuple, NamedTuple
 from multiwrapper import multiprocessing_utils as mu
 
 from . import attributes
-from .utils.generic import combine_cross_chunk_edge_dicts
-from .utils.generic import get_bounding_box
+from .utils import basetypes
 from .utils import flatgraph
 from .utils import serializers
+from .utils.generic import combine_cross_chunk_edge_dicts
+from .utils.generic import get_bounding_box
 from .edges.utils import filter_fake_edges
 from .edges.utils import map_edges_to_chunks
 from .edges.utils import get_linking_edges
@@ -132,12 +133,12 @@ def analyze_atomic_edges(cg, atomic_edges):
     # Edges are either within or across chunks. If an edge is across a
     # chunk boundary we need to store it as cross edge. Otherwise, this
     # edge will combine two formerly disconnected lvl2 segments.
-    cross_edge_dict = {}
     for atomic_edge in atomic_edges[~edge_layer_m]:
         lvl2_edges.append(
             [cg.get_parent(atomic_edge[0]), cg.get_parent(atomic_edge[1])]
         )
 
+    cross_edge_dict = {}
     for atomic_edge, layer in zip(
         atomic_edges[edge_layer_m], edge_layers[edge_layer_m]
     ):
@@ -153,6 +154,29 @@ def analyze_atomic_edges(cg, atomic_edges):
     return lvl2_edges, cross_edge_dict
 
 
+def _validate_edges(atomic_edges, _affinities=None, _areas=None):
+    atomic_edges = np.array(
+        atomic_edges, dtype=attributes.Connectivity.Partner.basetype
+    )
+
+    affinities = np.ones(
+        len(atomic_edges), dtype=attributes.Connectivity.Affinity.basetype
+    )
+    if _affinities:
+        affinities = np.array(
+            _affinities, dtype=attributes.Connectivity.Affinity.basetype
+        )
+
+    areas = (
+        np.ones(len(atomic_edges), dtype=attributes.Connectivity.Area.basetype) * np.inf
+    )
+    if _areas:
+        areas = np.array(areas, dtype=attributes.Connectivity.Area.basetype)
+
+    assert len(affinities) == len(atomic_edges)
+    return atomic_edges, affinities, areas
+
+
 def add_edges(
     cg,
     operation_id: np.uint64,
@@ -162,8 +186,6 @@ def add_edges(
     affinities: Optional[Sequence[np.float32]] = None,
 ):
     """ Add edges to chunkedgraph
-     Computes all new rows to be written to the chunkedgraph
-
     :param cg: ChunkedGraph instance
     :param operation_id: np.uint64
     :param atomic_edges: list of list of np.uint64 edges between supervoxels
@@ -177,38 +199,32 @@ def add_edges(
         for node_id in node_ids:
             cc_dict[node_id] = cg.read_cross_chunk_edges(node_id)
 
-    cc_dict = {}
     atomic_edges, affinities, areas = _validate_edges(atomic_edges, affinities, areas)
 
-    rows = []  # list of rows to be written to BigTable
-    lvl2_dict = {}
-    lvl2_cross_chunk_edge_dict = {}
-
-    # Analyze atomic_edges --> translate them to lvl2 edges and extract cross
-    # chunk edges
+    # Analyze atomic_edges --> translate them to lvl2 edges and extract cross edges
     lvl2_edges, new_cross_edge_dict = analyze_atomic_edges(cg, atomic_edges)
 
     # Compute connected components on lvl2
     graph, _, _, unique_graph_ids = flatgraph.build_gt_graph(
         lvl2_edges, make_directed=True
     )
+    ccs = flatgraph.connected_components(graph)
 
     # Read cross chunk edges efficiently
     cc_dict = {}
     node_ids = np.unique(lvl2_edges)
     n_threads = int(np.ceil(len(node_ids) / 5))
-
     node_id_blocks = np.array_split(node_ids, n_threads)
-
     mu.multithread_func(
         _read_cc_edges_thread, node_id_blocks, n_threads=n_threads, debug=False
     )
 
-    ccs = flatgraph.connected_components(graph)
+    rows = []
+    lvl2_dict = {}
+    lvl2_cross_chunk_edge_dict = {}
     for cc in ccs:
         lvl2_ids = unique_graph_ids[cc]
         chunk_id = cg.get_chunk_id(lvl2_ids[0])
-
         new_node_id = cg.get_unique_node_id(chunk_id)
         lvl2_dict[new_node_id] = lvl2_ids
 
@@ -245,13 +261,11 @@ def add_edges(
             )
         )
 
-    if not cg.cv_edges_path:
-        # Write atomic nodes
-        rows.extend(
-            _write_atomic_merge_edges(
-                cg, atomic_edges, affinities, areas, time_stamp=time_stamp
-            )
+    rows.extend(
+        _write_atomic_merge_edges(
+            cg, atomic_edges, affinities, areas, time_stamp=time_stamp
         )
+    )
 
     # Propagate changes up the tree
     if cg.n_layers > 2:
@@ -266,29 +280,6 @@ def add_edges(
     else:
         new_root_ids = np.array(list(lvl2_dict.keys()))
     return new_root_ids, list(lvl2_dict.keys()), rows
-
-
-def _validate_edges(atomic_edges, _affinities=None, _areas=None):
-    atomic_edges = np.array(
-        atomic_edges, dtype=attributes.Connectivity.Partner.basetype
-    )
-
-    affinities = np.ones(
-        len(atomic_edges), dtype=attributes.Connectivity.Affinity.basetype
-    )
-    if _affinities:
-        affinities = np.array(
-            _affinities, dtype=attributes.Connectivity.Affinity.basetype
-        )
-
-    areas = (
-        np.ones(len(atomic_edges), dtype=attributes.Connectivity.Area.basetype) * np.inf
-    )
-    if _areas:
-        areas = np.array(areas, dtype=attributes.Connectivity.Area.basetype)
-
-    assert len(affinities) == len(atomic_edges)
-    return atomic_edges, affinities, areas
 
 
 def add_edges_v2(
@@ -308,7 +299,7 @@ def add_edges_v2(
     create a new level 2 id for ids that have a linking edge
     merge the cross edges pf these ids into new id
     """
-    l2id_agglomeration_d = cg.get_subgraph(
+    l2id_agg_d = cg.get_subgraph(
         agglomeration_ids=np.unique(cg.get_roots(edge.ravel())),
         bbox=get_bounding_box(source_coords, sink_coords),
         bbox_is_coordinate=True,
@@ -316,19 +307,12 @@ def add_edges_v2(
         active_edges=False,
         timestamp=timestamp,
     )
-    parent_id1, parent_id2 = cg.get_parents(edge.ravel())
-    l2id_children_d = {
-        l2id: l2id_agglomeration_d[l2id].supervoxels for l2id in l2id_agglomeration_d
-    }
     subgraph_edges = reduce(
-        lambda x, y: x + y, [agg.edges for agg in l2id_agglomeration_d.values()]
+        lambda x, y: x + y, [agg.edges for agg in l2id_agg_d.values()]
     )
+    l2ids = np.fromiter(l2id_agg_d.keys(), dtype=basetypes.NODE_ID)
 
     # fake_edges = filter_fake_edges(edge, subgraph_edges)
-    linking_edges = get_linking_edges(
-        subgraph_edges, l2id_children_d, parent_id1, parent_id2
-    )
-
     # fake_edges = filter_fake_edges(edge, subgraph_edges)
     # node_ids, r_indices = np.unique(fake_edges, return_inverse=True)
     # r_indices = r_indices.reshape(-1, 2)
