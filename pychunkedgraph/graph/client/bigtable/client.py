@@ -154,12 +154,13 @@ class BigTableClient(bigtable.Client, ClientWithIDGen):
             end_time_inclusive=end_time_inclusive,
         )
 
-    def write_nodes(self, nodes, root_ids, operation_id):
+    def write_nodes(self, nodes, root_ids=None, operation_id=None):
         """
         Writes/updates nodes (IDs along with properties)
         by locking root nodes until changes are written.
         """
-        pass
+        # TODO convert nodes and properties to bigtable rows
+        self._write(nodes, root_ids, operation_id)
 
     def lock_root(self, root_id: np.uint64, operation_id: np.uint64) -> bool:
         """Attempts to lock the latest version of a root node"""

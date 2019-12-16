@@ -137,7 +137,6 @@ def get_linking_edges(
     sv_ids2 = sv_ids2[mask]
     affinities = edges.affinities[mask]
     areas = edges.areas[mask]
-
     return Edges(sv_ids1, sv_ids2, affinities=affinities, areas=areas)
 
 

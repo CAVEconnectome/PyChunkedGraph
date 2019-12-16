@@ -48,9 +48,9 @@ def add_atomic_edges(
 
     sparse_indices, remapping = _get_remapping(chunk_edges_d)
     time_stamp = get_valid_timestamp(time_stamp)
-    rows = []
+    nodes = []
     for i_cc, component in enumerate(ccs):
-        _rows = _process_component(
+        _nodes = _process_component(
             cg_instance,
             chunk_edges_d,
             parent_ids[i_cc],
@@ -59,12 +59,12 @@ def add_atomic_edges(
             remapping,
             time_stamp,
         )
-        rows.extend(_rows)
+        nodes.extend(_nodes)
 
-        if len(rows) > 100000:
-            cg_instance.bulk_write(rows)
-            rows = []
-    cg_instance.bulk_write(rows)
+        if len(nodes) > 100000:
+            cg_instance.client.write_nodes(nodes)
+            nodes = []
+    cg_instance.client.write_nodes(nodes)
 
 
 def _get_chunk_nodes_and_edges(chunk_edges_d: dict, isolated_ids: Sequence[int]):
@@ -110,14 +110,14 @@ def _process_component(
     remapping,
     time_stamp,
 ):
-    rows = []
+    nodes = []
     chunk_out_edges = []  # out = between + cross
     for node_id in node_ids:
         _edges = _get_outgoing_edges(node_id, chunk_edges_d, sparse_indices, remapping)
         chunk_out_edges.append(_edges)
         val_dict = {attributes.Hierarchy.Parent: parent_id}
         r_key = serializers.serialize_uint64(node_id)
-        rows.append(cg_instance.mutate_row(r_key, val_dict, time_stamp=time_stamp))
+        nodes.append(cg_instance.mutate_row(r_key, val_dict, time_stamp=time_stamp))
 
     chunk_out_edges = np.concatenate(chunk_out_edges)
     cce_layers = cg_instance.get_cross_chunk_edges_layer(chunk_out_edges)
@@ -131,8 +131,8 @@ def _process_component(
             val_dict[col] = layer_out_edges
 
     r_key = serializers.serialize_uint64(parent_id)
-    rows.append(cg_instance.mutate_row(r_key, val_dict, time_stamp=time_stamp))
-    return rows
+    nodes.append(cg_instance.mutate_row(r_key, val_dict, time_stamp=time_stamp))
+    return nodes
 
 
 def _get_outgoing_edges(node_id, chunk_edges_d, sparse_indices, remapping):

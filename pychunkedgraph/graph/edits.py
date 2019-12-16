@@ -1,6 +1,6 @@
 import datetime
 import numpy as np
-import collections
+from collections import defaultdict
 
 from functools import reduce
 from typing import Any, Dict, Iterable, List, Union
@@ -292,8 +292,8 @@ def add_edges_v2(
     timestamp: datetime.datetime
 ) -> List["bigtable.row.Row"]:
     """
-    if there is no path between sv1 and sv2 (edge)
-    in the subgraph, add "fake" edges, these are stored in a row per chunk
+    # if there is no path between sv1 and sv2 (edge)
+    # in the subgraph, add "fake" edges, these are stored in a row per chunk
 
     get level 2 ids for both roots
     create a new level 2 id for ids that have a linking edge
@@ -307,12 +307,13 @@ def add_edges_v2(
         active_edges=False,
         timestamp=timestamp,
     )
-    subgraph_edges = reduce(
-        lambda x, y: x + y, [agg.edges for agg in l2id_agg_d.values()]
-    )
     l2ids = np.fromiter(l2id_agg_d.keys(), dtype=basetypes.NODE_ID)
+    chunk_ids = cg.get_chunk_ids_from_node_ids(l2ids)
 
-    # fake_edges = filter_fake_edges(edge, subgraph_edges)
+    chunk_l2id_d = defaultdict(list)
+    for idx, l2id in enumerate(l2ids):
+        chunk_l2id_d[chunk_ids[idx]].append(l2id)
+
     # fake_edges = filter_fake_edges(edge, subgraph_edges)
     # node_ids, r_indices = np.unique(fake_edges, return_inverse=True)
     # r_indices = r_indices.reshape(-1, 2)
@@ -688,7 +689,7 @@ def propagate_edits_to_root(
     eh.bulk_family_read()
 
     # Setup loop variables
-    layer_dict = collections.defaultdict(list)
+    layer_dict = defaultdict(list)
     layer_dict[2] = list(lvl2_dict.keys())
     new_root_ids = []
     # Loop over all layers up to the top - there might be layers where there is
@@ -705,10 +706,10 @@ def propagate_edits_to_root(
         )
 
         # Build a dictionary of new connected components -----------------------
-        cc_collections = collections.defaultdict(list)
+        cc_collections = defaultdict(list)
         for cc in ccs:
             cc_node_ids = unique_graph_ids[cc]
-            cc_cross_edge_dict = collections.defaultdict(list)
+            cc_cross_edge_dict = defaultdict(list)
             for cc_node_id in cc_node_ids:
                 node_cross_edges = eh.read_cross_chunk_edges(cc_node_id)
                 cc_cross_edge_dict = combine_cross_chunk_edge_dicts(
