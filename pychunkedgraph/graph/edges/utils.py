@@ -5,6 +5,7 @@ helper functions for edge stuff
 from collections import defaultdict
 from typing import Dict
 from typing import List
+from typing import Tuple
 from typing import Iterable
 
 import numpy as np
@@ -45,24 +46,29 @@ def concatenate_chunk_edges(chunk_edge_dicts: List) -> Dict:
     return edges_dict
 
 
-def filter_edges(node_ids: np.ndarray, edges: Edges) -> Edges:
+def filter_edges(node_ids: np.ndarray, edges: Edges) -> Tuple[Edges, Edges]:
     """
-    find edges for the given node_ids
-    given an edge (sv1, sv2), include if node_id == sv1 or node_id == sv2
+    Find edges 
+    `in_edges`
+        between given node_ids
+        (sv1, sv2) - sv1 in node_ids and sv2 in node_ids
+    `out_edges`
+        originating from given node_ids
+        (sv1, sv2) - sv1 in node_ids and sv2 not in node_ids
     """
-    xsorted = np.argsort(edges.node_ids1)
-    indices1 = np.searchsorted(edges.node_ids1[xsorted], node_ids)
-    indices1 = indices1[indices1 < xsorted.size]
+    mask1 = np.in1d(edges.node_ids1, node_ids)
+    mask2 = np.in1d(edges.node_ids2, node_ids)
+    in_mask = mask1 & mask2
+    out_mask = mask1 & ~mask2
 
-    xsorted = np.argsort(edges.node_ids2)
-    indices2 = np.searchsorted(edges.node_ids2[xsorted], node_ids)
-    indices2 = indices2[indices2 < xsorted.size]
-
-    ids1 = edges.node_ids1[indices1 + indices2]
-    ids2 = edges.node_ids2[indices1 + indices2]
-    affinities = edges.affinities[indices1 + indices2]
-    areas = edges.areas[indices1 + indices2]
-    return Edges(ids1, ids2, affinities=affinities, areas=areas)
+    result = []
+    for mask in (in_mask, out_mask):
+        ids1 = edges.node_ids1[mask]
+        ids2 = edges.node_ids2[mask]
+        affinities = edges.affinities[mask]
+        areas = edges.areas[mask]
+        result.append(Edges(ids1, ids2, affinities=affinities, areas=areas))
+    return tuple(result)
 
 
 def get_active_edges(edges: Edges, parent_children_d: Dict) -> Edges:

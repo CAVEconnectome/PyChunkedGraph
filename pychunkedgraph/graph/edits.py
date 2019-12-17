@@ -304,7 +304,6 @@ def add_edges_v2(
         bbox=get_bounding_box(source_coords, sink_coords),
         bbox_is_coordinate=True,
         cv_threads=4,
-        active_edges=False,
         timestamp=timestamp,
     )
     l2ids = np.fromiter(l2id_agg_d.keys(), dtype=basetypes.NODE_ID)
@@ -314,8 +313,9 @@ def add_edges_v2(
     for idx, l2id in enumerate(l2ids):
         chunk_l2id_d[chunk_ids[idx]].append(l2id)
 
-    # There needs to be atleast one inactive edge between supervoxels
-    # for merging two root ids
+    # There needs to be atleast one inactive edge between
+    # supervoxels in the sub-graph (within bounding box)
+    # for merging two root ids without a fake edge
 
     # fake_edges = filter_fake_edges(edge, subgraph_edges)
     # node_ids, r_indices = np.unique(fake_edges, return_inverse=True)

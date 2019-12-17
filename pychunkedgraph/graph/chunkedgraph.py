@@ -191,13 +191,10 @@ class ChunkedGraph:
             end_time=time_stamp,
             end_time_inclusive=True,
         )
-
         if not parent_rows:
             return None
-
         if get_only_relevant_parents:
             return np.array([parent_rows[node_id][0].value for node_id in node_ids])
-
         parents = []
         for node_id in node_ids:
             parents.append([(p.value, p.timestamp) for p in parent_rows[node_id]])
@@ -216,10 +213,8 @@ class ChunkedGraph:
             end_time=time_stamp,
             end_time_inclusive=True,
         )
-
         if not parents:
             return None
-
         if get_only_relevant_parent:
             return parents[0].value
         return [(p.value, p.timestamp) for p in parents]
@@ -671,7 +666,6 @@ class ChunkedGraph:
         agglomeration_ids: np.ndarray,
         bbox: Optional[Sequence[Sequence[int]]] = None,
         bbox_is_coordinate: bool = False,
-        active_edges: bool = True,
         timestamp: datetime.datetime = None,
     ) -> Tuple[Dict, Dict]:
         """
@@ -719,12 +713,9 @@ class ChunkedGraph:
         l2id_children_d = self.get_children(level2_ids)
         for l2id in l2id_children_d:
             supervoxels = l2id_children_d[l2id]
-            filtered_edges = edge_utils.filter_edges(l2id_children_d[l2id], edges)
-            if active_edges:
-                filtered_edges = edge_utils.get_active_edges(
-                    filtered_edges, l2id_children_d
-                )
-            l2id_agglomeration_d[l2id] = Agglomeration(supervoxels, filtered_edges)
+            # pylint: disable=unbalanced-tuple-unpacking
+            in_, out_ = edge_utils.filter_edges(l2id_children_d[l2id], edges)
+            l2id_agglomeration_d[l2id] = Agglomeration(supervoxels, in_, out_)
         return l2id_agglomeration_d
 
     def get_subgraph_nodes(
