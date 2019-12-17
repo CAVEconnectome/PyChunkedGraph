@@ -715,7 +715,7 @@ class ChunkedGraph:
             supervoxels = l2id_children_d[l2id]
             # pylint: disable=unbalanced-tuple-unpacking
             in_, out_ = edge_utils.filter_edges(l2id_children_d[l2id], edges)
-            l2id_agglomeration_d[l2id] = Agglomeration(supervoxels, in_, out_)
+            l2id_agglomeration_d[l2id] = Agglomeration(l2id, supervoxels, in_, out_)
         return l2id_agglomeration_d
 
     def get_subgraph_nodes(

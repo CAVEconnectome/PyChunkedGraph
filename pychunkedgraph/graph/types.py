@@ -13,8 +13,9 @@ a level 2 ID and it's supervoxels and edges.
     edges between supervoxels of agglomeration 
     and neighboring agglomeration.
 """
-_agglomeration_fields = ("supervoxels", "in_edges", "out_edges")
+_agglomeration_fields = ("node_id", "supervoxels", "in_edges", "out_edges")
 _agglomeration_defaults = (
+    None,
     np.array([], dtype=basetypes.NODE_ID),
     np.array([], dtype=basetypes.NODE_ID).reshape(-1, 2),
     np.array([], dtype=basetypes.NODE_ID).reshape(-1, 2),

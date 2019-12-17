@@ -12,11 +12,12 @@ from . import attributes
 from .utils import basetypes
 from .utils import flatgraph
 from .utils import serializers
-from .utils.generic import combine_cross_chunk_edge_dicts
 from .utils.generic import get_bounding_box
+from .utils.generic import combine_cross_chunk_edge_dicts
 from .edges.utils import filter_fake_edges
 from .edges.utils import map_edges_to_chunks
 from .edges.utils import get_linking_edges
+from .connectivity.nodes import edge_exists
 from .chunks.hierarchy import get_children_chunk_ids
 
 
@@ -309,9 +310,13 @@ def add_edges_v2(
     l2ids = np.fromiter(l2id_agg_d.keys(), dtype=basetypes.NODE_ID)
     chunk_ids = cg.get_chunk_ids_from_node_ids(l2ids)
 
-    chunk_l2id_d = defaultdict(list)
+    chunk_l2ids_d = defaultdict(list)
     for idx, l2id in enumerate(l2ids):
-        chunk_l2id_d[chunk_ids[idx]].append(l2id)
+        chunk_l2ids_d[chunk_ids[idx]].append(l2id)
+
+    add_fake_edge = False
+    for aggs in chunk_l2ids_d.values():
+        add_fake_edge = add_fake_edge or edge_exists(aggs)
 
     # There needs to be atleast one inactive edge between
     # supervoxels in the sub-graph (within bounding box)
