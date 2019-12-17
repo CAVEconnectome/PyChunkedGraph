@@ -290,7 +290,7 @@ def add_edges_v2(
     source_coords: Sequence[np.uint64],
     sink_coords: Sequence[np.uint64],
     timestamp: datetime.datetime
-) -> List["bigtable.row.Row"]:
+):
     """
     # if there is no path between sv1 and sv2 (edge)
     # in the subgraph, add "fake" edges, these are stored in a row per chunk
@@ -313,6 +313,9 @@ def add_edges_v2(
     chunk_l2id_d = defaultdict(list)
     for idx, l2id in enumerate(l2ids):
         chunk_l2id_d[chunk_ids[idx]].append(l2id)
+
+    # There needs to be atleast one inactive edge between supervoxels
+    # for merging two root ids
 
     # fake_edges = filter_fake_edges(edge, subgraph_edges)
     # node_ids, r_indices = np.unique(fake_edges, return_inverse=True)
