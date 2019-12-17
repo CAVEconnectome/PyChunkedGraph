@@ -126,32 +126,29 @@ def _write_atomic_split_edges(cg, atomic_edges, time_stamp):
     return rows
 
 
-def analyze_atomic_edges(cg, atomic_edges):
+def analyze_atomic_edges(cg, edges):
     lvl2_edges = []
-    edge_layers = cg.get_cross_chunk_edges_layer(atomic_edges)
+    edge_layers = cg.get_cross_chunk_edges_layer(edges)
     edge_layer_m = edge_layers > 1
 
     # Edges are either within or across chunks. If an edge is across a
     # chunk boundary we need to store it as cross edge. Otherwise, this
     # edge will combine two formerly disconnected lvl2 segments.
-    for atomic_edge in atomic_edges[~edge_layer_m]:
+    for atomic_edge in edges[~edge_layer_m]:
         lvl2_edges.append(
             [cg.get_parent(atomic_edge[0]), cg.get_parent(atomic_edge[1])]
         )
 
     cross_edge_dict = {}
-    for atomic_edge, layer in zip(
-        atomic_edges[edge_layer_m], edge_layers[edge_layer_m]
-    ):
-        parent_id_0 = cg.get_parent(atomic_edge[0])
-        parent_id_1 = cg.get_parent(atomic_edge[1])
+    for cross_edge, layer in zip(edges[edge_layer_m], edge_layers[edge_layer_m]):
+        parent_id_0 = cg.get_parent(cross_edge[0])
+        parent_id_1 = cg.get_parent(cross_edge[1])
 
-        cross_edge_dict[parent_id_0] = {layer: atomic_edge}
-        cross_edge_dict[parent_id_1] = {layer: atomic_edge[::-1]}
+        cross_edge_dict[parent_id_0] = {layer: cross_edge}
+        cross_edge_dict[parent_id_1] = {layer: cross_edge[::-1]}
 
         lvl2_edges.append([parent_id_0, parent_id_0])
         lvl2_edges.append([parent_id_1, parent_id_1])
-
     return lvl2_edges, cross_edge_dict
 
 
@@ -314,29 +311,18 @@ def add_edges_v2(
     for idx, l2id in enumerate(l2ids):
         chunk_l2ids_d[chunk_ids[idx]].append(l2id)
 
-    add_fake_edge = False
-    for aggs in chunk_l2ids_d.values():
-        add_fake_edge = add_fake_edge or edge_exists(aggs)
-
     # There needs to be atleast one inactive edge between
     # supervoxels in the sub-graph (within bounding box)
     # for merging two root ids without a fake edge
 
-    # fake_edges = filter_fake_edges(edge, subgraph_edges)
-    # node_ids, r_indices = np.unique(fake_edges, return_inverse=True)
-    # r_indices = r_indices.reshape(-1, 2)
-    # chunk_ids = cg.get_chunk_ids_from_node_ids(node_ids)
-    # chunk_edges_d = map_edges_to_chunks(fake_edges, chunk_ids, r_indices)
-    # rows = []
-    # for chunk_id in chunk_edges_d:
-    #     row_key = serializers.serialize_uint64(chunk_id)
-    #     fake_edges = chunk_edges_d[chunk_id]
-    #     val_d = {
-    #         attributes.Connectivity.FakeEdges: fake_edges,
-    #         attributes.OperationLogs.OperationID: operation_id
-    #     }
-    #     rows.append(cg.mutate_row(row_key, val_d, time_stamp=timestamp))
-    # return rows
+    # add_fake_edge = False
+    # for aggs in chunk_l2ids_d.values():
+    #     if edge_exists(aggs):
+    #         add_fake_edge = True
+    #         break
+
+    # TODO add read cross chunk edges method to client
+    # try merge with existing functions
 
 
 def remove_edges(
@@ -970,7 +956,6 @@ class EditHelper(object):
 
     def read_cross_chunk_edges(self, node_id):
         """ Cache around the read_cross_chunk_edges call to the chunkedgraph
-
         :param node_id: np.uint64
         :return: dict
         """
