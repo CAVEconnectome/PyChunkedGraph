@@ -10,6 +10,35 @@ from .utils.generic import get_bounding_box
 from .connectivity.nodes import edge_exists
 
 
+def _process_atomic_edge(cg, atomic_edges):
+    """
+    Determine if the edge is within the chunk.
+    If not, consider it as a cross edge between two L2 IDs in different chunks.
+    """
+    lvl2_edges = []
+    edge_layers = cg.get_cross_chunk_edges_layer(atomic_edges)
+    edge_layer_m = edge_layers > 1
+
+    cross_edge_dict = {}
+    for atomic_edge in atomic_edges[~edge_layer_m]:
+        lvl2_edges.append(
+            [cg.get_parent(atomic_edge[0]), cg.get_parent(atomic_edge[1])]
+        )
+
+    for atomic_edge, layer in zip(
+        atomic_edges[edge_layer_m], edge_layers[edge_layer_m]
+    ):
+        parent_id_0 = cg.get_parent(atomic_edge[0])
+        parent_id_1 = cg.get_parent(atomic_edge[1])
+
+        cross_edge_dict[parent_id_0] = {layer: atomic_edge}
+        cross_edge_dict[parent_id_1] = {layer: atomic_edge[::-1]}
+
+        lvl2_edges.append([parent_id_0, parent_id_0])
+        lvl2_edges.append([parent_id_1, parent_id_1])
+    return lvl2_edges, cross_edge_dict
+
+
 def add_edge_v2(
     cg,
     *,
@@ -49,6 +78,9 @@ def add_edge_v2(
     #     if edge_exists(aggs):
     #         add_fake_edge = True
     #         break
+
+    parent_1, parent_2 = cg.get_parents(edge)
+    chunk_id1, chunk_id2 = cg.get_chunk_ids_from_node_ids(edge)
 
     # TODO add read cross chunk edges method to client
     # try merge with existing functions
