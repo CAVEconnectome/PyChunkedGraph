@@ -95,7 +95,7 @@ def get_min_time():
 
 def combine_cross_chunk_edge_dicts(d1, d2, start_layer=2):
     """ Combines two cross chunk dictionaries
-    Cross chunk dictionaries contain a layer id -> edge list mapping.
+    Cross chunk dictionaries contain {layer id : edge list}.
     :param d1: dict
     :param d2: dict
     :param start_layer: int
