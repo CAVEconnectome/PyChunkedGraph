@@ -10,14 +10,14 @@ from .utils.generic import get_bounding_box
 from .connectivity.nodes import edge_exists
 
 
-def add_edges_v2(
+def add_edge_v2(
     cg,
     *,
-    operation_id: np.uint64,
     edge: np.ndarray,
-    source_coords: Sequence[np.uint64],
-    sink_coords: Sequence[np.uint64],
-    timestamp: datetime.datetime
+    operation_id: np.uint64 = None,
+    source_coords: Sequence[np.uint64] = None,
+    sink_coords: Sequence[np.uint64] = None,
+    timestamp: datetime.datetime = None,
 ):
     """
     # if there is no path between sv1 and sv2 (edge)
@@ -31,7 +31,6 @@ def add_edges_v2(
         agglomeration_ids=np.unique(cg.get_roots(edge.ravel())),
         bbox=get_bounding_box(source_coords, sink_coords),
         bbox_is_coordinate=True,
-        cv_threads=4,
         timestamp=timestamp,
     )
     l2ids = np.fromiter(l2id_agg_d.keys(), dtype=basetypes.NODE_ID)

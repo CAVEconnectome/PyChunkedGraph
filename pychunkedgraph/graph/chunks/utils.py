@@ -62,7 +62,7 @@ def get_chunk_coordinates(meta, node_or_chunk_id: np.uint64) -> np.ndarray:
     :param node_or_chunk_id: np.uint64
     :return: Tuple(int, int, int)
     """
-    layer = get_chunk_layer(meta.graph_config, node_or_chunk_id)
+    layer = get_chunk_layer(meta, node_or_chunk_id)
     bits_per_dim = meta.bitmasks[layer]
 
     x_offset = 64 - meta.graph_config.LAYER_ID_BITS - bits_per_dim
@@ -88,7 +88,7 @@ def get_chunk_id(
     """
     assert node_id is not None or all(v is not None for v in [layer, x, y, z])
     if node_id is not None:
-        layer = get_chunk_layer(meta.graph_config, node_id)
+        layer = get_chunk_layer(meta, node_id)
     bits_per_dim = meta.bitmasks[layer]
 
     if node_id is not None:
