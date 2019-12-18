@@ -46,29 +46,58 @@ def concatenate_chunk_edges(chunk_edge_dicts: List) -> Dict:
     return edges_dict
 
 
-def filter_edges(node_ids: np.ndarray, edges: Edges) -> Tuple[Edges, Edges]:
+def categorize_edges(
+    meta: ChunkedGraphMeta, node_ids: np.ndarray, edges: Edges
+) -> Tuple[Edges, Edges]:
     """
-    Find edges 
+    Find edges and categorize them into:
     `in_edges`
         between given node_ids
         (sv1, sv2) - sv1 in node_ids and sv2 in node_ids
     `out_edges`
-        originating from given node_ids
+        originating from given node_ids but within chunk
         (sv1, sv2) - sv1 in node_ids and sv2 not in node_ids
+    `cross_edges`
+        originating from given node_ids but crossing chunk boundary
     """
     mask1 = np.in1d(edges.node_ids1, node_ids)
     mask2 = np.in1d(edges.node_ids2, node_ids)
     in_mask = mask1 & mask2
     out_mask = mask1 & ~mask2
 
-    result = []
-    for mask in (in_mask, out_mask):
-        ids1 = edges.node_ids1[mask]
-        ids2 = edges.node_ids2[mask]
-        affinities = edges.affinities[mask]
-        areas = edges.areas[mask]
-        result.append(Edges(ids1, ids2, affinities=affinities, areas=areas))
-    return tuple(result)
+    ids1 = edges.node_ids1[in_mask]
+    ids2 = edges.node_ids2[in_mask]
+    affinities = edges.affinities[in_mask]
+    areas = edges.areas[in_mask]
+    in_edges = Edges(ids1, ids2, affinities=affinities, areas=areas)
+
+    # all_out_edges = out_edges + cross_edges
+    ids1 = edges.node_ids1[out_mask]
+    ids2 = edges.node_ids2[out_mask]
+    affinities = edges.affinities[out_mask]
+    areas = edges.areas[out_mask]
+    all_out_edges = Edges(ids1, ids2, affinities=affinities, areas=areas)
+
+    edge_layers = get_cross_chunk_edges_layer(meta, all_out_edges.get_pairs())
+    cross_edges_m = edge_layers > 1
+
+    ids1 = all_out_edges.node_ids1[~cross_edges_m]
+    ids2 = all_out_edges.node_ids2[~cross_edges_m]
+    affinities = all_out_edges.affinities[~cross_edges_m]
+    areas = all_out_edges.areas[~cross_edges_m]
+    out_edges = Edges(ids1, ids2, affinities=affinities, areas=areas)
+
+    cross_edge_layers = edge_layers[cross_edges_m]
+    ids1 = all_out_edges.node_ids1[cross_edges_m]
+    ids2 = all_out_edges.node_ids2[cross_edges_m]
+    affinities = all_out_edges.affinities[cross_edges_m]
+    areas = all_out_edges.areas[cross_edges_m]
+    cross_edges = Edges(ids1, ids2, affinities=affinities, areas=areas).get_pairs()
+
+    cross_edge_d = {}
+    for layer in range(2, meta.layer_count):
+        cross_edge_d[layer] = cross_edges[cross_edge_layers == layer]
+    return (in_edges, out_edges, cross_edge_d)
 
 
 def get_active_edges(edges: Edges, parent_children_d: Dict) -> Edges:

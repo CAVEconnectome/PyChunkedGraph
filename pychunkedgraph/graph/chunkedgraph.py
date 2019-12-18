@@ -699,23 +699,17 @@ class ChunkedGraph:
         )
         edges_dict = edge_utils.concatenate_chunk_edges(chunk_edge_dicts)
         edges = reduce(lambda x, y: x + y, edges_dict.values())
-        # # include fake edges
-        # chunk_fake_edges_d = self.read_node_id_rows(
-        #     node_ids=chunk_ids,
-        #     columns=attributes.Connectivity.FakeEdges)
-        # fake_edges = np.concatenate([list(chunk_fake_edges_d.values())])
-        # if fake_edges.size:
-        #     fake_edges = Edges(fake_edges[:,0], fake_edges[:,1])
-        #     edges += fake_edges
-
-        # 3 group nodes and edges based on level 2 ids
+        # TODO include fake edges
         l2id_agglomeration_d = {}
         l2id_children_d = self.get_children(level2_ids)
         for l2id in l2id_children_d:
             supervoxels = l2id_children_d[l2id]
-            # pylint: disable=unbalanced-tuple-unpacking
-            in_, out_ = edge_utils.filter_edges(l2id_children_d[l2id], edges)
-            l2id_agglomeration_d[l2id] = Agglomeration(l2id, supervoxels, in_, out_)
+            in_, out_, cross_ = edge_utils.categorize_edges(
+                self.meta, l2id_children_d[l2id], edges
+            )
+            l2id_agglomeration_d[l2id] = Agglomeration(
+                l2id, supervoxels, in_, out_, cross_
+            )
         return l2id_agglomeration_d
 
     def get_subgraph_nodes(

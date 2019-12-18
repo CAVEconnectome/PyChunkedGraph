@@ -14,8 +14,6 @@ from .utils import flatgraph
 from .utils import serializers
 from .utils.generic import get_bounding_box
 from .utils.generic import combine_cross_chunk_edge_dicts
-from .edges.utils import filter_fake_edges
-from .edges.utils import map_edges_to_chunks
 from .edges.utils import get_linking_edges
 from .connectivity.nodes import edge_exists
 from .chunks.hierarchy import get_children_chunk_ids
