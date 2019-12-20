@@ -249,6 +249,36 @@ class ChunkedGraph:
             for x in node_id_or_ids
         }
 
+    def get_descendants(
+        self,
+        node_id_or_ids: Union[Iterable[np.uint64], np.uint64],
+        stop_layer: int = 2,
+    ) -> Union[Dict[np.uint64, np.ndarray], np.ndarray]:
+        """
+        Descendants for the specified NodeID or NodeIDs.
+        Returns children on the given layer.
+        """
+        if np.isscalar(node_id_or_ids):
+            children = self.client.read_node(
+                node_id=node_id_or_ids, properties=attributes.Hierarchy.Child
+            )
+            if not children:
+                return np.empty(0, dtype=basetypes.NODE_ID)
+            return children[0].value
+        children = self.client.read_nodes(
+            node_ids=node_id_or_ids, properties=attributes.Hierarchy.Child
+        )
+        if flatten:
+            if not children:
+                return np.empty(0, dtype=basetypes.NODE_ID)
+            return np.concatenate([x[0].value for x in children.values()])
+        return {
+            x: children[x][0].value
+            if x in children
+            else np.empty(0, dtype=basetypes.NODE_ID)
+            for x in node_id_or_ids
+        }
+
     def get_latest_roots(
         self,
         time_stamp: Optional[datetime.datetime] = misc_utils.get_max_time(),

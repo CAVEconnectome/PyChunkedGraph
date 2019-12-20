@@ -83,4 +83,4 @@ def add_edge_v2(
     # TODO simplify combine_cross_chunk_edge_dicts
     # TODO add read cross chunk edges method to client
 
-    graph, _, _, node_ids = build_gt_graph(atomic_edges, make_directed=True)
+    graph, _, _, node_ids = build_gt_graph(edges, make_directed=True)
