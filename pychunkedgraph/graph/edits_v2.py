@@ -13,14 +13,14 @@ from .utils.flatgraph import build_gt_graph
 from .connectivity.nodes import edge_exists
 
 
-def _analyze_atomic_edge(cg, edge) -> Tuple[Iterable, Dict]:
+def _analyze_atomic_edge(cg, atomic_edge) -> Tuple[Iterable, Dict]:
     """
-    Determine if the edge is within the chunk.
+    Determine if the atomic edge is within the chunk.
     If not, consider it as a cross edge between two L2 IDs in different chunks.
-    Returns atomic edges and cross edges accordingly.
+    Returns edges and cross edges accordingly.
     """
-    edge_layer = cg.get_cross_chunk_edges_layer([edge])[0]
-    edge_parents = cg.get_parents(edge)
+    edge_layer = cg.get_cross_chunk_edges_layer([atomic_edge])[0]
+    edge_parents = cg.get_parents(atomic_edge)
 
     # edge is within chunk
     if edge_layer == 1:
@@ -30,10 +30,10 @@ def _analyze_atomic_edge(cg, edge) -> Tuple[Iterable, Dict]:
     parent_2 = edge_parents[1]
 
     cross_edges_d = {}
-    cross_edges_d[parent_1] = {edge_layer: edge}
-    cross_edges_d[parent_2] = {edge_layer: edge[::-1]}
-    atomic_edges = [[parent_1, parent_1], [parent_2, parent_2]]
-    return (atomic_edges, cross_edges_d)
+    cross_edges_d[parent_1] = {edge_layer: atomic_edge}
+    cross_edges_d[parent_2] = {edge_layer: atomic_edge[::-1]}
+    edges = [[parent_1, parent_1], [parent_2, parent_2]]
+    return (edges, cross_edges_d)
 
 
 def add_edge_v2(
@@ -78,7 +78,7 @@ def add_edge_v2(
 
     parent_1, parent_2 = cg.get_parents(edge)
     chunk_id1, chunk_id2 = cg.get_chunk_ids_from_node_ids(edge)
-    atomic_edges, cross_edges_d = _analyze_atomic_edge(cg, edge)
+    edges, cross_edges_d = _analyze_atomic_edge(cg, edge)
     # TODO add read cross chunk edges method to client
 
     graph, _, _, node_ids = build_gt_graph(atomic_edges, make_directed=True)

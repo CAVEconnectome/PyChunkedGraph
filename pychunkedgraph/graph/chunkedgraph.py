@@ -220,39 +220,34 @@ class ChunkedGraph:
         return [(p.value, p.timestamp) for p in parents]
 
     def get_children(
-        self, node_id: Union[Iterable[np.uint64], np.uint64], flatten: bool = False
+        self,
+        node_id_or_ids: Union[Iterable[np.uint64], np.uint64],
+        flatten: bool = False,
     ) -> Union[Dict[np.uint64, np.ndarray], np.ndarray]:
-        """Returns children for the specified NodeID or NodeIDs
-        :param node_id: The NodeID or NodeIDs for which to retrieve children
-        :type node_id: Union[Iterable[np.uint64], np.uint64]
-        :param flatten: If True, combine all children into a single array, else generate a map
-            of input ``node_id`` to their respective children.
-        :type flatten: bool, default is True
-        :return: Children for each requested NodeID. The return type depends on the ``flatten``
-            parameter.
-        :rtype: Union[Dict[np.uint64, np.ndarray], np.ndarray]
         """
-        if np.isscalar(node_id):
+        Children for the specified NodeID or NodeIDs.
+        If flatten == True, an array is returned, else a dict {node_id: children}.
+        """
+        if np.isscalar(node_id_or_ids):
             children = self.client.read_node(
-                node_id=node_id, properties=attributes.Hierarchy.Child
+                node_id=node_id_or_ids, properties=attributes.Hierarchy.Child
             )
             if not children:
                 return np.empty(0, dtype=basetypes.NODE_ID)
             return children[0].value
-        else:
-            children = self.client.read_nodes(
-                node_ids=node_id, properties=attributes.Hierarchy.Child
-            )
-            if flatten:
-                if not children:
-                    return np.empty(0, dtype=basetypes.NODE_ID)
-                return np.concatenate([x[0].value for x in children.values()])
-            return {
-                x: children[x][0].value
-                if x in children
-                else np.empty(0, dtype=basetypes.NODE_ID)
-                for x in node_id
-            }
+        children = self.client.read_nodes(
+            node_ids=node_id_or_ids, properties=attributes.Hierarchy.Child
+        )
+        if flatten:
+            if not children:
+                return np.empty(0, dtype=basetypes.NODE_ID)
+            return np.concatenate([x[0].value for x in children.values()])
+        return {
+            x: children[x][0].value
+            if x in children
+            else np.empty(0, dtype=basetypes.NODE_ID)
+            for x in node_id_or_ids
+        }
 
     def get_latest_roots(
         self,
@@ -574,7 +569,7 @@ class ChunkedGraph:
             "split_edges": np.array(split_history),
         }
 
-    def get_cross_chunk_edges(node_ids: Sequence[np.uint64]):
+    def get_cross_chunk_edges(self, node_ids: Sequence[np.uint64]):
         """
         Cross chunk edges for a given node ID.
         The edges are between node IDs at the same layer as the given node IDs.
