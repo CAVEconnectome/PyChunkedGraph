@@ -9,6 +9,7 @@ from typing import Sequence
 from .utils import basetypes
 from .utils import flatgraph
 from .utils.generic import get_bounding_box
+from .utils.flatgraph import build_gt_graph
 from .connectivity.nodes import edge_exists
 
 
@@ -79,3 +80,5 @@ def add_edge_v2(
     chunk_id1, chunk_id2 = cg.get_chunk_ids_from_node_ids(edge)
     atomic_edges, cross_edges_d = _analyze_atomic_edge(cg, edge)
     # TODO add read cross chunk edges method to client
+
+    graph, _, _, node_ids = build_gt_graph(atomic_edges, make_directed=True)

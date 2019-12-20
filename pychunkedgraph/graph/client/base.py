@@ -31,7 +31,7 @@ class SimpleClient(ABC):
 
     @abstractmethod
     def read_graph_provenance(self):
-        """Read stored graph provenance."""
+        """Read how the graph was created."""
 
     @abstractmethod
     def read_nodes(

@@ -574,92 +574,20 @@ class ChunkedGraph:
             "split_edges": np.array(split_history),
         }
 
-    def _get_subgraph_higher_layer_nodes(
-        self,
-        node_id: basetypes.NODE_ID,
-        bounding_box: Optional[Sequence[Sequence[int]]],
-        return_layers: Sequence[int],
-    ):
-        def _get_subgraph_higher_layer_nodes_threaded(
-            node_ids: Iterable[np.uint64],
-        ) -> List[np.uint64]:
-            children = self.get_children(node_ids, flatten=True)
-            if len(children) > 0 and bounding_box is not None:
-                chunk_coords = np.array(
-                    [self.get_chunk_coordinates(c) for c in children]
-                )
-                child_layers = self.get_chunk_layers(children) - 2
-                child_layers[child_layers < 0] = 0
-                fanout = self.meta.graph_config.FANOUT
-                bbox_layer = (
-                    bounding_box[None] / (fanout ** child_layers)[:, None, None]
-                )
-                bound_check = np.array(
-                    [
-                        np.all(chunk_coords < bbox_layer[:, 1], axis=1),
-                        np.all(chunk_coords + 1 > bbox_layer[:, 0], axis=1),
-                    ]
-                ).T
-                bound_check_mask = np.all(bound_check, axis=1)
-                children = children[bound_check_mask]
-            return children
-
-        if bounding_box is not None:
-            bounding_box = np.array(bounding_box)
-
-        layer = self.get_chunk_layer(node_id)
-        assert layer > 1
-
-        nodes_per_layer = {}
-        child_ids = np.array([node_id], dtype=np.uint64)
-        stop_layer = max(2, np.min(return_layers))
-
-        if layer in return_layers:
-            nodes_per_layer[layer] = child_ids
-
-        while layer > stop_layer:
-            # Use heuristic to guess the optimal number of threads
-            child_id_layers = self.get_chunk_layers(child_ids)
-            this_layer_m = child_id_layers == layer
-            this_layer_child_ids = child_ids[this_layer_m]
-            next_layer_child_ids = child_ids[~this_layer_m]
-
-            n_child_ids = len(child_ids)
-            this_n_threads = np.min([int(n_child_ids // 50000) + 1, mu.n_cpus])
-
-            child_ids = np.fromiter(
-                chain.from_iterable(
-                    mu.multithread_func(
-                        _get_subgraph_higher_layer_nodes_threaded,
-                        np.array_split(this_layer_child_ids, this_n_threads),
-                        n_threads=this_n_threads,
-                        debug=this_n_threads == 1,
-                    )
-                ),
-                np.uint64,
-            )
-            child_ids = np.concatenate([child_ids, next_layer_child_ids])
-            layer -= 1
-            if layer in return_layers:
-                nodes_per_layer[layer] = child_ids
-        return nodes_per_layer
-
-    def get_subgraph_edges(
-        self,
-        agglomeration_id: basetypes.NODE_ID,
-        bounding_box: Optional[Sequence[Sequence[int]]] = None,
-        bb_is_coordinate: bool = False,
-        connected_edges=True,
-    ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
-        """ 
-        Return all atomic edges between supervoxels belonging to the 
-        specified agglomeration ID within the defined bounding box
+    def get_cross_chunk_edges(node_ids: Sequence[np.uint64]):
         """
-        return self.get_subgraph(
-            np.array([agglomeration_id]),
-            bbox=bounding_box,
-            bbox_is_coordinate=bb_is_coordinate,
-        )
+        Cross chunk edges for a given node ID.
+        The edges are between node IDs at the same layer as the given node IDs.
+        (i.e. Not atomic cross edges.)
+
+        1. Read L2 IDs for a node ID.
+        2. Find L2 IDs within L2 chunks that are along 
+           the chunk boundary of the node's layer.
+        3. Extract cross edges from L2 IDs.
+        4. Find neighbouring parents at node's layer.
+        5. Return unique cross edges.
+        """
+        pass
 
     def get_subgraph(
         self,
@@ -667,7 +595,7 @@ class ChunkedGraph:
         bbox: Optional[Sequence[Sequence[int]]] = None,
         bbox_is_coordinate: bool = False,
         timestamp: datetime.datetime = None,
-    ) -> Tuple[Dict, Dict]:
+    ) -> Dict:
         """
         1. get level 2 children ids belonging to the agglomerations
         2. read relevant chunk edges from cloud storage (include fake edges from big table)
@@ -884,6 +812,78 @@ class ChunkedGraph:
         return operation.RedoOperation(
             self, user_id=user_id, operation_id=operation_id
         ).execute()
+
+    # PRIVATE
+
+    def _get_subgraph_higher_layer_nodes(
+        self,
+        node_id: basetypes.NODE_ID,
+        bounding_box: Optional[Sequence[Sequence[int]]],
+        return_layers: Sequence[int],
+    ):
+        def _get_subgraph_higher_layer_nodes_threaded(
+            node_ids: Iterable[np.uint64],
+        ) -> List[np.uint64]:
+            children = self.get_children(node_ids, flatten=True)
+            if len(children) > 0 and bounding_box is not None:
+                chunk_coords = np.array(
+                    [self.get_chunk_coordinates(c) for c in children]
+                )
+                child_layers = self.get_chunk_layers(children) - 2
+                child_layers[child_layers < 0] = 0
+                fanout = self.meta.graph_config.FANOUT
+                bbox_layer = (
+                    bounding_box[None] / (fanout ** child_layers)[:, None, None]
+                )
+                bound_check = np.array(
+                    [
+                        np.all(chunk_coords < bbox_layer[:, 1], axis=1),
+                        np.all(chunk_coords + 1 > bbox_layer[:, 0], axis=1),
+                    ]
+                ).T
+                bound_check_mask = np.all(bound_check, axis=1)
+                children = children[bound_check_mask]
+            return children
+
+        if bounding_box is not None:
+            bounding_box = np.array(bounding_box)
+
+        layer = self.get_chunk_layer(node_id)
+        assert layer > 1
+
+        nodes_per_layer = {}
+        child_ids = np.array([node_id], dtype=np.uint64)
+        stop_layer = max(2, np.min(return_layers))
+
+        if layer in return_layers:
+            nodes_per_layer[layer] = child_ids
+
+        while layer > stop_layer:
+            # Use heuristic to guess the optimal number of threads
+            child_id_layers = self.get_chunk_layers(child_ids)
+            this_layer_m = child_id_layers == layer
+            this_layer_child_ids = child_ids[this_layer_m]
+            next_layer_child_ids = child_ids[~this_layer_m]
+
+            n_child_ids = len(child_ids)
+            this_n_threads = np.min([int(n_child_ids // 50000) + 1, mu.n_cpus])
+
+            child_ids = np.fromiter(
+                chain.from_iterable(
+                    mu.multithread_func(
+                        _get_subgraph_higher_layer_nodes_threaded,
+                        np.array_split(this_layer_child_ids, this_n_threads),
+                        n_threads=this_n_threads,
+                        debug=this_n_threads == 1,
+                    )
+                ),
+                np.uint64,
+            )
+            child_ids = np.concatenate([child_ids, next_layer_child_ids])
+            layer -= 1
+            if layer in return_layers:
+                nodes_per_layer[layer] = child_ids
+        return nodes_per_layer
 
     def _setup_logger(self, logger: Optional[logging.Logger] = None) -> None:
         if logger is None:
