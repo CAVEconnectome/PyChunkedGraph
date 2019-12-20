@@ -79,6 +79,8 @@ def add_edge_v2(
     parent_1, parent_2 = cg.get_parents(edge)
     chunk_id1, chunk_id2 = cg.get_chunk_ids_from_node_ids(edge)
     edges, cross_edges_d = _analyze_atomic_edge(cg, edge)
+
+    # TODO simplify combine_cross_chunk_edge_dicts
     # TODO add read cross chunk edges method to client
 
     graph, _, _, node_ids = build_gt_graph(atomic_edges, make_directed=True)
