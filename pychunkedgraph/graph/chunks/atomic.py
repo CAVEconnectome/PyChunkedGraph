@@ -1,8 +1,10 @@
-from typing import Sequence
 from typing import List
+from typing import Sequence
 from itertools import product
+
 import numpy as np
 
+from .utils import get_bounding_children_chunks
 from ..meta import ChunkedGraphMeta
 from ..utils.generic import get_valid_timestamp
 from ..utils import basetypes
@@ -59,38 +61,5 @@ def get_touching_atomic_chunks(
 def get_bounding_atomic_chunks(
     chunkedgraph_meta: ChunkedGraphMeta, layer: int, chunk_coords: Sequence[int]
 ) -> List:
-    """get atomic chunk coordinates along the boundary of a chunk"""
-    chunk_coords = np.array(chunk_coords, dtype=int)
-    atomic_chunks = []
-
-    # atomic chunk count along one dimension
-    atomic_chunk_count = chunkedgraph_meta.graph_config.FANOUT ** (layer - 2)
-    layer2_chunk_bounds = chunkedgraph_meta.layer_chunk_bounds[2]
-
-    chunk_offset = chunk_coords * atomic_chunk_count
-    x1, y1, z1 = chunk_offset
-    x2, y2, z2 = chunk_offset + atomic_chunk_count
-
-    f = lambda range1, range2: product(range(*range1), range(*range2))
-
-    atomic_chunks.extend([np.array([x1, d1, d2]) for d1, d2 in f((y1, y2), (z1, z2))])
-    atomic_chunks.extend(
-        [np.array([x2 - 1, d1, d2]) for d1, d2 in f((y1, y2), (z1, z2))]
-    )
-
-    atomic_chunks.extend([np.array([d1, y1, d2]) for d1, d2 in f((x1, x2), (z1, z2))])
-    atomic_chunks.extend(
-        [np.array([d1, y2 - 1, d2]) for d1, d2 in f((x1, x2), (z1, z2))]
-    )
-
-    atomic_chunks.extend([np.array([d1, d2, z1]) for d1, d2 in f((x1, x2), (y1, y2))])
-    atomic_chunks.extend(
-        [np.array([d1, d2, z2 - 1]) for d1, d2 in f((x1, x2), (y1, y2))]
-    )
-
-    result = []
-    for coords in atomic_chunks:
-        if np.all(np.less(coords, layer2_chunk_bounds)):
-            result.append(coords)
-
-    return np.unique(np.array(result, dtype=int), axis=0)
+    """Atomic chunk coordinates along the boundary of a chunk"""
+    return get_bounding_children_chunks(chunkedgraph_meta, layer, chunk_coords, 2)

@@ -1,7 +1,9 @@
+from typing import List
 from typing import Union
 from typing import Optional
 from typing import Sequence
 from typing import Iterable
+from itertools import product
 
 import numpy as np
 
@@ -161,3 +163,35 @@ def _get_chunk_coordinates_from_vol_coordinates(
     if ceil:
         coords = np.ceil(coords)
     return coords.astype(np.int)
+
+
+def get_bounding_children_chunks(
+    chunkedgraph_meta, layer: int, chunk_coords: Sequence[int], children_layer
+) -> List:
+    """Children chunk coordinates at given layer, along the boundary of a chunk"""
+    chunk_coords = np.array(chunk_coords, dtype=int)
+    chunks = []
+
+    # atomic chunk count along one dimension
+    chunks_count = chunkedgraph_meta.graph_config.FANOUT ** (layer - children_layer)
+    chunk_offset = chunk_coords * chunks_count
+    x1, y1, z1 = chunk_offset
+    x2, y2, z2 = chunk_offset + chunks_count
+
+    f = lambda range1, range2: product(range(*range1), range(*range2))
+    chunks.extend([np.array([x1, d1, d2]) for d1, d2 in f((y1, y2), (z1, z2))])
+    chunks.extend([np.array([x2 - 1, d1, d2]) for d1, d2 in f((y1, y2), (z1, z2))])
+
+    chunks.extend([np.array([d1, y1, d2]) for d1, d2 in f((x1, x2), (z1, z2))])
+    chunks.extend([np.array([d1, y2 - 1, d2]) for d1, d2 in f((x1, x2), (z1, z2))])
+
+    chunks.extend([np.array([d1, d2, z1]) for d1, d2 in f((x1, x2), (y1, y2))])
+    chunks.extend([np.array([d1, d2, z2 - 1]) for d1, d2 in f((x1, x2), (y1, y2))])
+
+    chunk_bounds = chunkedgraph_meta.layer_chunk_bounds[children_layer]
+    result = []
+    for coords in chunks:
+        if np.all(np.less(coords, chunk_bounds)):
+            result.append(coords)
+
+    return np.unique(np.array(result, dtype=int), axis=0)
