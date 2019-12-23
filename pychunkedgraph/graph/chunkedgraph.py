@@ -257,7 +257,12 @@ class ChunkedGraph:
         """
         Descendants for the specified NodeID or NodeIDs.
         Returns children on the given layer.
+
+        1. Get children
+        2. Filter along the chunk boundary
+        3. Repeat
         """
+        # TODO bounding box?
         if np.isscalar(node_id_or_ids):
             children = self.client.read_node(
                 node_id=node_id_or_ids, properties=attributes.Hierarchy.Child

@@ -22,7 +22,10 @@ from ..chunks.atomic import get_bounding_atomic_chunks
 
 
 def get_children_chunk_cross_edges(cg_instance, layer, chunk_coord) -> np.ndarray:
-    """Cross edges that connect children chunks."""
+    """
+    Cross edges that connect children chunks.
+    The edges are between node IDs in the given layer (not atomic).
+    """
     atomic_chunks = get_touching_atomic_chunks(cg_instance.meta, layer, chunk_coord)
     if not len(atomic_chunks):
         return []

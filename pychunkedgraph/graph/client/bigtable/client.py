@@ -482,6 +482,7 @@ class BigTableClient(bigtable.Client, ClientWithIDGen):
         # FIXME: Bigtable limits the length of the serialized request to 512 KiB. We should
         # calculate this properly (range_read.request.SerializeToString()), but this estimate is
         # good enough for now
+        # TODO try async/await
         max_row_key_count = 20000
         n_subrequests = max(1, int(np.ceil(len(row_set.row_keys) / max_row_key_count)))
         n_threads = min(n_subrequests, 2 * mu.n_cpus)

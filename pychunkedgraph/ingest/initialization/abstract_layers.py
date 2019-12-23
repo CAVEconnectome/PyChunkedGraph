@@ -48,7 +48,6 @@ def add_layer(
         edge_ids, make_directed=True
     )
     ccs = flatgraph.connected_components(graph)
-
     _write_connected_components(
         cg,
         layer_id,
