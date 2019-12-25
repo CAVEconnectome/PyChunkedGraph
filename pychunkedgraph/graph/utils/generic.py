@@ -93,39 +93,6 @@ def get_min_time():
     return datetime.datetime.strptime("01/01/00 00:00", "%d/%m/%y %H:%M")
 
 
-def combine_cross_chunk_edge_dicts(d1, d2, start_layer=2):
-    """ Combines two cross chunk dictionaries
-    Cross chunk dictionaries contain {layer id : edge list}.
-    :param d1: dict
-    :param d2: dict
-    :param start_layer: int
-    :return: dict
-    """
-    assert start_layer >= 2
-    new_d = {}
-    for l in d2:
-        if l < start_layer:
-            continue
-
-    layers = np.unique(list(d1.keys()) + list(d2.keys()))
-    layers = layers[layers >= start_layer]
-
-    for l in layers:
-        if l in d1 and l in d2:
-            new_d[l] = np.concatenate([d1[l].reshape(-1, 2), d2[l].reshape(-1, 2)])
-        elif l in d1:
-            new_d[l] = d1[l].reshape(-1, 2)
-        elif l in d2:
-            new_d[l] = d2[l].reshape(-1, 2)
-        else:
-            raise Exception()
-
-        edges_flattened_view = new_d[l].view(dtype="u8,u8")
-        m = np.unique(edges_flattened_view, return_index=True)[1]
-        new_d[l] = new_d[l][m]
-    return new_d
-
-
 def time_min():
     """ Returns a minimal time stamp that still works with google
     :return: datetime.datetime

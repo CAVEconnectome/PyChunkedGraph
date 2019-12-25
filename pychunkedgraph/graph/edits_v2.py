@@ -9,8 +9,9 @@ from typing import Sequence
 from .utils import basetypes
 from .utils import flatgraph
 from .utils.generic import get_bounding_box
-from .utils.flatgraph import build_gt_graph
 from .connectivity.nodes import edge_exists
+from .edges.utils import concatenate_cross_edge_dicts
+from .edges.utils import merge_cross_edge_dicts_multiple
 
 
 def _analyze_atomic_edge(cg, atomic_edge) -> Tuple[Iterable, Dict]:
@@ -20,14 +21,14 @@ def _analyze_atomic_edge(cg, atomic_edge) -> Tuple[Iterable, Dict]:
     Returns edges and cross edges accordingly.
     """
     edge_layer = cg.get_cross_chunk_edges_layer([atomic_edge])[0]
-    edge_parents = cg.get_parents(atomic_edge)
+    parent_edge = cg.get_parents(atomic_edge)
 
     # edge is within chunk
     if edge_layer == 1:
-        return [edge_parents], {}
+        return [parent_edge], {}
     # edge crosses atomic chunk boundary
-    parent_1 = edge_parents[0]
-    parent_2 = edge_parents[1]
+    parent_1 = parent_edge[0]
+    parent_2 = parent_edge[1]
 
     cross_edges_d = {}
     cross_edges_d[parent_1] = {edge_layer: atomic_edge}
@@ -46,41 +47,41 @@ def add_edge_v2(
     timestamp: datetime.datetime = None,
 ):
     """
-    # if there is no path between sv1 and sv2 (edge)
-    # in the subgraph, add "fake" edges, these are stored in a row per chunk
-
-    get level 2 ids for both roots
-    create a new level 2 id for ids that have a linking edge
-    merge the cross edges pf these ids into new id
+    Problem: Update parent and children of the new level 2 id
+    For each layer >= 2
+        get cross edges
+        get parents
+            get children
+        above children + new ID will form a new component
+        update parent, former parents and new parents for all affected IDs
     """
-    l2id_agg_d = cg.get_subgraph(
-        agglomeration_ids=np.unique(cg.get_roots(edge.ravel())),
-        bbox=get_bounding_box(source_coords, sink_coords),
-        bbox_is_coordinate=True,
-        timestamp=timestamp,
+    edges, new_cross_edges_d = _analyze_atomic_edge(cg, edge)
+    # TODO read cross edges for node IDs in edges
+    # add read cross chunk edges method to client
+    cross_edges_d = {}
+    cross_edges_d = merge_cross_edge_dicts_multiple(cross_edges_d, new_cross_edges_d)
+    graph, _, _, graph_node_ids = flatgraph.build_gt_graph(edges, make_directed=True)
+    ccs = flatgraph.connected_components(graph)
+
+    rows = []
+    l2_components_d = {}
+    new_cross_edges_d = {}
+    for cc in ccs:
+        l2ids = graph_node_ids[cc]
+        new_l2id = cg.get_unique_node_id(cg.get_chunk_id(l2ids[0]))
+        l2_components_d[new_l2id] = l2ids
+        new_cross_edges_d[new_l2id] = concatenate_cross_edge_dicts(
+            [cross_edges_d[l2id] for l2id in l2ids]
+        )
+
+    # Propagate changes up the tree
+    new_root_ids, new_rows = propagate_edits_to_root(
+        cg,
+        l2_components_d.copy(),
+        new_cross_edges_d,
+        operation_id=operation_id,
+        time_stamp=timestamp,
     )
-    l2ids = np.fromiter(l2id_agg_d.keys(), dtype=basetypes.NODE_ID)
-    chunk_ids = cg.get_chunk_ids_from_node_ids(l2ids)
+    rows.extend(new_rows)
+    return new_root_ids, list(l2_components_d.keys()), rows
 
-    chunk_l2ids_d = defaultdict(list)
-    for idx, l2id in enumerate(l2ids):
-        chunk_l2ids_d[chunk_ids[idx]].append(l2id)
-
-    # There needs to be atleast one inactive edge between
-    # supervoxels in the sub-graph (within bounding box)
-    # for merging two root ids without a fake edge
-
-    # add_fake_edge = False
-    # for aggs in chunk_l2ids_d.values():
-    #     if edge_exists(aggs):
-    #         add_fake_edge = True
-    #         break
-
-    parent_1, parent_2 = cg.get_parents(edge)
-    chunk_id1, chunk_id2 = cg.get_chunk_ids_from_node_ids(edge)
-    edges, cross_edges_d = _analyze_atomic_edge(cg, edge)
-
-    # TODO simplify combine_cross_chunk_edge_dicts
-    # TODO add read cross chunk edges method to client
-
-    graph, _, _, node_ids = build_gt_graph(edges, make_directed=True)

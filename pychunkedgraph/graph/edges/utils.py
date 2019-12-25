@@ -46,6 +46,43 @@ def concatenate_chunk_edges(chunk_edge_dicts: List) -> Dict:
     return edges_dict
 
 
+def concatenate_cross_edge_dicts(cross_edge_dicts: Iterable) -> Dict:
+    """
+    Combines multiple cross edge dicts.
+    Eg., A parent's cross edge dict must include cross edges of all it's children.
+    """
+    result_d = {}
+    for cross_edge_d in cross_edge_dicts:
+        result_d = merge_cross_edge_dicts_single(result_d, cross_edge_d)
+    return result_d
+
+
+def merge_cross_edge_dicts_single(x_edges_d1: Dict, x_edges_d2: Dict) -> Dict:
+    """Combines two cross chunk dictionaries of form {layer id : edge list}."""
+    empty = np.empty([0, 2], dtype=basetypes.NODE_ID)
+    layers = np.unique(list(x_edges_d1.keys()) + list(x_edges_d2.keys()))
+    result_d = {}
+    for layer in range(2, max(layers)):
+        edges1 = x_edges_d1.get(layer, empty)
+        edges2 = x_edges_d2.get(layer, empty)
+        result_d[layer] = np.unique(np.concatenate([edges1, edges2]), axis=0)
+    return result_d
+
+
+def merge_cross_edge_dicts_multiple(x_edges_d1: Dict, x_edges_d2: Dict) -> Dict:
+    """
+    Combines two cross chunk dictionaries of form
+    {node_id: {layer id : edge list}}.
+    """
+    node_ids = np.unique(list(x_edges_d1.keys()) + list(x_edges_d2.keys()))
+    result_d = {}
+    for node_id in node_ids:
+        result_d[node_id] = merge_cross_edge_dicts_single(
+            x_edges_d1.get(node_id, {}), x_edges_d2.get(node_id, {})
+        )
+    return result_d
+
+
 def categorize_edges(
     meta: ChunkedGraphMeta, node_ids: np.ndarray, edges: Edges
 ) -> Tuple[Edges, Edges]:
