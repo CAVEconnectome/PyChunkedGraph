@@ -41,6 +41,10 @@ from ..io.edges import get_chunk_edges
 
 
 # TODO logging with context manager?
+HOME = os.path.expanduser("~")
+os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = (
+    HOME + "/.cloudvolume/secrets/google-secret.json"
+)
 
 
 class ChunkedGraph:
@@ -256,33 +260,38 @@ class ChunkedGraph:
         Cross chunk edges for a given node ID.
         The edges are between node IDs at the same layer as the given node IDs.
         (i.e. Not atomic cross edges.)
-
-        1. Read L2 IDs for a node ID.
-        2. Find L2 IDs within L2 chunks that are along 
-           the chunk boundary of the node's layer.
-        3. Extract cross edges from L2 IDs.
-        4. Find neighbouring parents at node's layer.
-        5. Return unique cross edges.
         """
         chunk_layer = self.get_chunk_layer(node_id)
-        x, y, z = self.get_chunk_coordinates(node_id)
+        X, Y, Z = self.get_chunk_coordinates(node_id)
         node_ids = np.array([node_id], dtype=basetypes.NODE_ID)
         children_layer = chunk_layer - 1
         while children_layer >= 2:
             bounding_chunks = chunk_utils.get_bounding_children_chunks(
-                self.meta, chunk_layer, (x, y, z), children_layer
+                self.meta, chunk_layer, (X, Y, Z), children_layer
             )
             bounding_chunk_ids = np.array(
-                [self.get_chunk_id(layer=children_layer, x=x, y=y, z=z)]
+                [
+                    self.get_chunk_id(layer=children_layer, x=x, y=y, z=z)
+                    for (x, y, z) in bounding_chunks
+                ]
             )
             children = self.get_children(node_ids, flatten=True)
             children_chunk_ids = self.get_chunk_ids_from_node_ids(children)
             node_ids = children[np.in1d(children_chunk_ids, bounding_chunk_ids)]
             children_layer -= 1
+
         node_cross_edges_d = self.client.read_nodes(
             node_ids=node_ids,
             properties=attributes.Connectivity.CrossChunkEdge[chunk_layer],
         )
+        edges = [np.empty((0, 2), dtype=basetypes.NODE_ID)]
+        for edges_ in node_cross_edges_d.values():
+            edges_ = edges_[0].value.copy()
+            edges_[:, 1] = self.get_roots(edges_[:, 1], stop_layer=chunk_layer)
+            edges.append(edges_)
+        edges = np.concatenate(edges)
+        edges[:, 0] = node_id
+        return np.unique(edges, axis=0) if edges.size else []
 
     def get_latest_roots(
         self,
@@ -331,11 +340,7 @@ class ChunkedGraph:
         stop_layer: int = None,
         n_tries: int = 1,
     ):
-        """ Takes node ids and returns the associated agglomeration ids
-        :param node_ids: list of uint64
-        :param time_stamp: None or datetime
-        :return: np.uint64
-        """
+        """Takes node ids and returns the associated agglomeration ids."""
         time_stamp = misc_utils.get_valid_timestamp(time_stamp)
         stop_layer = self.meta.layer_count if not stop_layer else stop_layer
         layer_mask = np.ones(len(node_ids), dtype=np.bool)

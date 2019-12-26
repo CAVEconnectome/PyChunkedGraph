@@ -96,7 +96,7 @@ def get_chunk_id(
     if node_id is not None:
         chunk_offset = 64 - meta.graph_config.LAYER_ID_BITS - 3 * bits_per_dim
         return np.uint64((int(node_id) >> chunk_offset) << chunk_offset)
-    return _compute_chunk_id(meta.graph_config, layer, x, y, z)
+    return _compute_chunk_id(meta, layer, x, y, z)
 
 
 def get_chunk_ids_from_node_ids(meta, node_ids: Iterable[np.uint64]) -> np.ndarray:
@@ -109,9 +109,9 @@ def get_chunk_ids_from_node_ids(meta, node_ids: Iterable[np.uint64]) -> np.ndarr
     return np.vectorize(get_chunk_id)(meta, node_ids)
 
 
-def _compute_chunk_id(graph_config, layer: int, x: int, y: int, z: int,) -> np.uint64:
-    s_bits_per_dim = graph_config.SPATIAL_BITS
-    n_bits_layer_id = graph_config.LAYER_ID_BITS
+def _compute_chunk_id(meta, layer: int, x: int, y: int, z: int,) -> np.uint64:
+    s_bits_per_dim = meta.bitmasks[layer]
+    n_bits_layer_id = meta.graph_config.LAYER_ID_BITS
     if not (
         x < 2 ** s_bits_per_dim and y < 2 ** s_bits_per_dim and z < 2 ** s_bits_per_dim
     ):
@@ -172,7 +172,7 @@ def get_bounding_children_chunks(
     chunk_coords = np.array(chunk_coords, dtype=int)
     chunks = []
 
-    # atomic chunk count along one dimension
+    # children chunk count along one dimension
     chunks_count = chunkedgraph_meta.graph_config.FANOUT ** (layer - children_layer)
     chunk_offset = chunk_coords * chunks_count
     x1, y1, z1 = chunk_offset

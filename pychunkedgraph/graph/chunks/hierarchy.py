@@ -33,19 +33,17 @@ def get_children_chunk_ids(
     meta: ChunkedGraphMeta, node_or_chunk_id: np.uint64
 ) -> np.ndarray:
     """Calculates the ids of the children chunks in the next lower layer."""
-    coords = utils.get_chunk_coordinates(meta, node_or_chunk_id)
+    x, y, z = utils.get_chunk_coordinates(meta, node_or_chunk_id)
     layer = utils.get_chunk_layer(meta, node_or_chunk_id)
 
     if layer == 1:
         return np.array([])
     elif layer == 2:
-        x, y, z = coords
         return np.array([utils.get_chunk_id(meta, layer=layer, x=x, y=y, z=z)])
     else:
-        children_coords = get_children_chunk_coords(meta, layer, coords)
+        children_coords = get_children_chunk_coords(meta, layer, (x, y, z))
         children_chunk_ids = []
-        for coords in children_coords:
-            x, y, z = coords
+        for (x, y, z) in children_coords:
             children_chunk_ids.append(
                 utils.get_chunk_id(meta, layer=layer - 1, x=x, y=y, z=z)
             )
