@@ -1,7 +1,7 @@
 import numpy as np
 
 
-CHUNK_ID = SEGMENT_ID = NODE_ID = np.dtype('uint64').newbyteorder('L')
+CHUNK_ID = SEGMENT_ID = NODE_ID = OPERATION_ID = np.dtype('uint64').newbyteorder('L')
 EDGE_AFFINITY = np.dtype('float32').newbyteorder('L')
 EDGE_AREA = np.dtype('uint64').newbyteorder('L')
 

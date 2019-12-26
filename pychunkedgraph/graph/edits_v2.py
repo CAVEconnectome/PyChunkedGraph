@@ -1,10 +1,10 @@
 import datetime
 import numpy as np
-from collections import defaultdict
 from typing import Dict
 from typing import Tuple
 from typing import Iterable
 from typing import Sequence
+from collections import defaultdict
 
 from .utils import basetypes
 from .utils import flatgraph
@@ -12,6 +12,22 @@ from .utils.generic import get_bounding_box
 from .connectivity.nodes import edge_exists
 from .edges.utils import concatenate_cross_edge_dicts
 from .edges.utils import merge_cross_edge_dicts_multiple
+
+
+def _create_parents(
+    cg,
+    new_old_ids_d: Dict,
+    new_cross_edges_d: Dict,
+    operation_id: basetypes.OPERATION_ID,
+    time_stamp: datetime.datetime,
+):
+    """TODO docs"""
+    layer_new_ids_d = defaultdict(list)
+    layer_new_ids_d[2] = list(new_old_ids_d.keys())
+    new_root_ids = []
+    for layer in range(2, cg.meta.layer_count):
+        if len(layer_new_ids_d[layer]) == 0:
+            continue
 
 
 def _analyze_atomic_edge(cg, atomic_edge) -> Tuple[Iterable, Dict]:
@@ -74,8 +90,8 @@ def add_edge_v2(
             [cross_edges_d[l2id] for l2id in l2ids]
         )
 
-    # Propagate changes up the tree
-    new_root_ids, new_rows = propagate_edits_to_root(
+    # changes up the tree
+    new_root_ids, new_rows = _create_parents(
         cg,
         l2_components_d.copy(),
         new_cross_edges_d,

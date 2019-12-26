@@ -278,51 +278,6 @@ def add_edges(
     return new_root_ids, list(lvl2_dict.keys()), rows
 
 
-def add_edges_v2(
-    cg,
-    *,
-    operation_id: np.uint64,
-    edge: np.ndarray,
-    source_coords: Sequence[np.uint64],
-    sink_coords: Sequence[np.uint64],
-    timestamp: datetime.datetime
-):
-    """
-    # if there is no path between sv1 and sv2 (edge)
-    # in the subgraph, add "fake" edges, these are stored in a row per chunk
-
-    get level 2 ids for both roots
-    create a new level 2 id for ids that have a linking edge
-    merge the cross edges pf these ids into new id
-    """
-    l2id_agg_d = cg.get_subgraph(
-        agglomeration_ids=np.unique(cg.get_roots(edge.ravel())),
-        bbox=get_bounding_box(source_coords, sink_coords),
-        bbox_is_coordinate=True,
-        cv_threads=4,
-        timestamp=timestamp,
-    )
-    l2ids = np.fromiter(l2id_agg_d.keys(), dtype=basetypes.NODE_ID)
-    chunk_ids = cg.get_chunk_ids_from_node_ids(l2ids)
-
-    chunk_l2ids_d = defaultdict(list)
-    for idx, l2id in enumerate(l2ids):
-        chunk_l2ids_d[chunk_ids[idx]].append(l2id)
-
-    # There needs to be atleast one inactive edge between
-    # supervoxels in the sub-graph (within bounding box)
-    # for merging two root ids without a fake edge
-
-    # add_fake_edge = False
-    # for aggs in chunk_l2ids_d.values():
-    #     if edge_exists(aggs):
-    #         add_fake_edge = True
-    #         break
-
-    # TODO add read cross chunk edges method to client
-    # try merge with existing functions
-
-
 def remove_edges(
     cg,
     operation_id: np.uint64,
@@ -482,25 +437,14 @@ def remove_edges(
 
 def old_parent_childrens(eh, node_ids, layer):
     """ Retrieves the former partners of new nodes
-
-    Two steps
         1. acquire old parents
         2. read children of those old parents
-
-    :param eh: EditHelper instance
-    :param node_ids: list of np.uint64s
-    :param layer: np.int
-    :return:
     """
-    assert len(node_ids) > 0
-    assert np.sum(np.in1d(node_ids, eh.new_node_ids)) == len(node_ids)
-
     # 1 - gather all next layer parents
     old_next_layer_node_ids = []
     old_this_layer_node_ids = []
     for node_id in node_ids:
         old_next_layer_node_ids.extend(eh.get_old_node_ids(node_id, layer + 1))
-
         old_this_layer_node_ids.extend(eh.get_old_node_ids(node_id, layer))
 
     old_next_layer_node_ids = np.unique(old_next_layer_node_ids)
@@ -527,14 +471,7 @@ def old_parent_childrens(eh, node_ids, layer):
 
 
 def compute_cross_chunk_connected_components(eh, node_ids, layer):
-    """ Computes connected component for next layer
-    :param eh: EditHelper
-    :param node_ids: list of np.uint64s
-    :param layer: np.int
-    :return:
-    """
-    assert len(node_ids) > 0
-
+    """Computes connected component for next layer"""
     # On each layer we build the a graph with all cross chunk edges
     # that involve the nodes on the current layer
     # To do this efficiently, we acquire all candidate same layer nodes
@@ -666,26 +603,13 @@ def propagate_edits_to_root(
     operation_id: np.uint64,
     time_stamp: datetime.datetime,
 ):
-    """ Propagates changes through layers
-    :param cg: ChunkedGraph instance
-    :param lvl2_dict: dict maps new ids to old ids
-    :param lvl2_cross_chunk_edge_dict: dict
-    :param operation_id: np.uint64
-    :param time_stamp: datetime.datetime
-    :return:
-    """
     rows = []
-
-    # Initialization
     eh = EditHelper(cg, lvl2_dict, lvl2_cross_chunk_edge_dict)
     eh.bulk_family_read()
 
-    # Setup loop variables
     layer_dict = defaultdict(list)
     layer_dict[2] = list(lvl2_dict.keys())
     new_root_ids = []
-    # Loop over all layers up to the top - there might be layers where there is
-    # nothing to do
     for current_layer in range(2, eh.cg.n_layers):
         if len(layer_dict[current_layer]) == 0:
             continue
