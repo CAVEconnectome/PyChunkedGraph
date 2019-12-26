@@ -249,40 +249,40 @@ class ChunkedGraph:
             for x in node_id_or_ids
         }
 
-    def get_descendants(
-        self,
-        node_id_or_ids: Union[Iterable[np.uint64], np.uint64],
-        stop_layer: int = 2,
+    def get_cross_chunk_edges(
+        self, node_id: np.uint64,
     ) -> Union[Dict[np.uint64, np.ndarray], np.ndarray]:
         """
-        Descendants for the specified NodeID or NodeIDs.
-        Returns children on the given layer.
+        Cross chunk edges for a given node ID.
+        The edges are between node IDs at the same layer as the given node IDs.
+        (i.e. Not atomic cross edges.)
 
-        1. Get children
-        2. Filter along the chunk boundary
-        3. Repeat
+        1. Read L2 IDs for a node ID.
+        2. Find L2 IDs within L2 chunks that are along 
+           the chunk boundary of the node's layer.
+        3. Extract cross edges from L2 IDs.
+        4. Find neighbouring parents at node's layer.
+        5. Return unique cross edges.
         """
-        # TODO bounding box?
-        if np.isscalar(node_id_or_ids):
-            children = self.client.read_node(
-                node_id=node_id_or_ids, properties=attributes.Hierarchy.Child
+        chunk_layer = self.get_chunk_layer(node_id)
+        x, y, z = self.get_chunk_coordinates(node_id)
+        node_ids = np.array([node_id], dtype=basetypes.NODE_ID)
+        children_layer = chunk_layer - 1
+        while children_layer >= 2:
+            bounding_chunks = chunk_utils.get_bounding_children_chunks(
+                self.meta, chunk_layer, (x, y, z), children_layer
             )
-            if not children:
-                return np.empty(0, dtype=basetypes.NODE_ID)
-            return children[0].value
-        children = self.client.read_nodes(
-            node_ids=node_id_or_ids, properties=attributes.Hierarchy.Child
+            bounding_chunk_ids = np.array(
+                [self.get_chunk_id(layer=children_layer, x=x, y=y, z=z)]
+            )
+            children = self.get_children(node_ids, flatten=True)
+            children_chunk_ids = self.get_chunk_ids_from_node_ids(children)
+            node_ids = children[np.in1d(children_chunk_ids, bounding_chunk_ids)]
+            children_layer -= 1
+        node_cross_edges_d = self.client.read_nodes(
+            node_ids=node_ids,
+            properties=attributes.Connectivity.CrossChunkEdge[chunk_layer],
         )
-        if flatten:
-            if not children:
-                return np.empty(0, dtype=basetypes.NODE_ID)
-            return np.concatenate([x[0].value for x in children.values()])
-        return {
-            x: children[x][0].value
-            if x in children
-            else np.empty(0, dtype=basetypes.NODE_ID)
-            for x in node_id_or_ids
-        }
 
     def get_latest_roots(
         self,
@@ -603,21 +603,6 @@ class ChunkedGraph:
             "merge_edge_coords": np.array(merge_history_edges),
             "split_edges": np.array(split_history),
         }
-
-    def get_cross_chunk_edges(self, node_ids: Sequence[np.uint64]):
-        """
-        Cross chunk edges for a given node ID.
-        The edges are between node IDs at the same layer as the given node IDs.
-        (i.e. Not atomic cross edges.)
-
-        1. Read L2 IDs for a node ID.
-        2. Find L2 IDs within L2 chunks that are along 
-           the chunk boundary of the node's layer.
-        3. Extract cross edges from L2 IDs.
-        4. Find neighbouring parents at node's layer.
-        5. Return unique cross edges.
-        """
-        pass
 
     def get_subgraph(
         self,
