@@ -1,6 +1,7 @@
 import datetime
 import numpy as np
 from typing import Dict
+from typing import List
 from typing import Tuple
 from typing import Iterable
 from typing import Sequence
@@ -12,6 +13,16 @@ from .utils.generic import get_bounding_box
 from .connectivity.nodes import edge_exists
 from .edges.utils import concatenate_cross_edge_dicts
 from .edges.utils import merge_cross_edge_dicts_multiple
+
+
+def _get_siblings(cg, new_old_ids_d: Dict) -> List:
+    """Get parents of `old_node_ids`, their children will include all siblings."""
+    return {
+        new_node_id: cg.get_children(
+            np.unique(cg.get_parents(old_node_ids)), flatten=True
+        )
+        for new_node_id, old_node_ids in new_old_ids_d.items()
+    }
 
 
 def _create_parents(
@@ -28,6 +39,7 @@ def _create_parents(
     for layer in range(2, cg.meta.layer_count):
         if len(layer_new_ids_d[layer]) == 0:
             continue
+        silblings_d = _get_siblings(cg, new_old_ids_d)
 
 
 def _analyze_atomic_edge(cg, atomic_edge) -> Tuple[Iterable, Dict]:
