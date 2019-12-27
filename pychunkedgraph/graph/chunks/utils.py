@@ -167,7 +167,7 @@ def _get_chunk_coordinates_from_vol_coordinates(
 
 def get_bounding_children_chunks(
     chunkedgraph_meta, layer: int, chunk_coords: Sequence[int], children_layer
-) -> List:
+) -> np.ndarray:
     """Children chunk coordinates at given layer, along the boundary of a chunk"""
     chunk_coords = np.array(chunk_coords, dtype=int)
     chunks = []
@@ -194,4 +194,5 @@ def get_bounding_children_chunks(
         if np.all(np.less(coords, chunk_bounds)):
             result.append(coords)
 
-    return np.unique(np.array(result, dtype=int), axis=0)
+    result = np.array(result, dtype=int)
+    return np.unique(result, axis=0) if result.size else result
