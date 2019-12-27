@@ -270,17 +270,24 @@ class ChunkedGraph:
         node_ids = np.array([node_id], dtype=basetypes.NODE_ID)
         children_layer = chunk_layer - 1
         while children_layer >= 2:
-            coords = chunk_utils.get_bounding_children_chunks(
+            bounding_chunks = chunk_utils.get_bounding_children_chunks(
                 self.meta, chunk_layer, (X, Y, Z), children_layer
             )
-            bounding_ids = np.array(
-                self.get_chunk_id(layer=children_layer, *coord) for coord in coords
+            bounding_chunk_ids = np.array(
+                [
+                    self.get_chunk_id(layer=children_layer, x=x, y=y, z=z)
+                    for (x, y, z) in bounding_chunks
+                ]
             )
             layer_mask = self.get_chunk_layers(node_ids) > children_layer
             children = self.get_children(node_ids[layer_mask], flatten=True)
-            chunk_ids = self.get_chunk_ids_from_node_ids(children)
-            chunk_mask = np.in1d(chunk_ids, bounding_ids)
-            node_ids = np.concatenate([node_ids[~layer_mask], children[chunk_mask]])
+            children_chunk_ids = self.get_chunk_ids_from_node_ids(children)
+            node_ids = np.concatenate(
+                [
+                    node_ids[~layer_mask],
+                    children[np.in1d(children_chunk_ids, bounding_chunk_ids)],
+                ]
+            )
             children_layer -= 1
 
         edge_attr = attributes.Connectivity.CrossChunkEdge[layer]
