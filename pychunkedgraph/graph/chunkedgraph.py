@@ -20,6 +20,7 @@ import pytz
 from cloudvolume import CloudVolume
 from multiwrapper import multiprocessing_utils as mu
 
+from . import meta
 from . import cutting
 from . import operation
 from . import attributes
@@ -27,8 +28,6 @@ from . import exceptions
 from .client import base
 from .client.bigtable import BigTableClient
 from .types import Agglomeration
-from .meta import ChunkedGraphMeta
-from .meta import BackendClientInfo
 from .utils import basetypes
 from .utils import id_helpers
 from .utils import generic as misc_utils
@@ -41,19 +40,14 @@ from ..io.edges import get_chunk_edges
 
 
 # TODO logging with context manager?
-HOME = os.path.expanduser("~")
-os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = (
-    HOME + "/.cloudvolume/secrets/google-secret.json"
-)
-
 
 class ChunkedGraph:
     def __init__(
         self,
         *,
         graph_id: str = None,
-        meta: ChunkedGraphMeta = None,
-        client_info: BackendClientInfo = BackendClientInfo(),
+        meta: meta.ChunkedGraphMeta = None,
+        client_info: meta.BackendClientInfo = meta.BackendClientInfo(),
     ):
         """
         1. New graph
@@ -79,7 +73,7 @@ class ChunkedGraph:
         self._id_client = bt_client
 
     @property
-    def meta(self) -> ChunkedGraphMeta:
+    def meta(self) -> meta.ChunkedGraphMeta:
         return self._meta
 
     @property
@@ -94,7 +88,7 @@ class ChunkedGraph:
         """Creates the graph in storage client and stores meta."""
         self._client.create_graph(self._meta)
 
-    def update_meta(self, meta: ChunkedGraphMeta):
+    def update_meta(self, meta: meta.ChunkedGraphMeta):
         """Update meta of an already existing graph."""
         self.client.update_graph_meta(meta)
 
