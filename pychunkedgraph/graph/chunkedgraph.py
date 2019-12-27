@@ -258,8 +258,10 @@ class ChunkedGraph:
     ) -> Union[Dict, np.ndarray]:
         """
         Cross chunk edges for `node_id` at `layer`.
-        The edges are between node IDs at the same layer as the given node IDs.
-        (i.e. Not atomic cross edges.)
+        The edges are between node IDs at the `layer`, not atomic cross edges.
+
+        For performance, only children that lie along chunk boundary are considered.
+        This is because cross edges are stored only in level 2 IDs.
         """
         chunk_layer = self.get_chunk_layer(node_id)
         if not layer:
@@ -268,31 +270,23 @@ class ChunkedGraph:
         node_ids = np.array([node_id], dtype=basetypes.NODE_ID)
         children_layer = chunk_layer - 1
         while children_layer >= 2:
-            bounding_chunks = chunk_utils.get_bounding_children_chunks(
+            coords = chunk_utils.get_bounding_children_chunks(
                 self.meta, chunk_layer, (X, Y, Z), children_layer
             )
-            bounding_chunk_ids = np.array(
-                [
-                    self.get_chunk_id(layer=children_layer, x=x, y=y, z=z)
-                    for (x, y, z) in bounding_chunks
-                ]
+            bounding_ids = np.array(
+                self.get_chunk_id(layer=children_layer, *coord) for coord in coords
             )
             layer_mask = self.get_chunk_layers(node_ids) > children_layer
             children = self.get_children(node_ids[layer_mask], flatten=True)
-            children_chunk_ids = self.get_chunk_ids_from_node_ids(children)
-            node_ids = np.concatenate(
-                [
-                    node_ids[~layer_mask],
-                    children[np.in1d(children_chunk_ids, bounding_chunk_ids)],
-                ]
-            )
+            chunk_ids = self.get_chunk_ids_from_node_ids(children)
+            chunk_mask = np.in1d(chunk_ids, bounding_ids)
+            node_ids = np.concatenate([node_ids[~layer_mask], children[chunk_mask]])
             children_layer -= 1
 
-        node_cross_edges_d = self.client.read_nodes(
-            node_ids=node_ids, properties=attributes.Connectivity.CrossChunkEdge[layer],
-        )
+        edge_attr = attributes.Connectivity.CrossChunkEdge[layer]
+        node_edges_d = self.client.read_nodes(node_ids=node_ids, properties=edge_attr)
         edges = [np.empty((0, 2), dtype=basetypes.NODE_ID)]
-        for edges_ in node_cross_edges_d.values():
+        for edges_ in node_edges_d.values():
             edges_ = edges_[0].value.copy()
             edges_[:, 1] = self.get_roots(edges_[:, 1], stop_layer=layer)
             edges.append(edges_)
