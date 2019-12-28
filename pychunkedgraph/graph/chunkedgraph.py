@@ -12,7 +12,6 @@ import pytz
 from cloudvolume import CloudVolume
 from multiwrapper import multiprocessing_utils as mu
 
-from . import meta
 from . import cutting
 from . import operation
 from . import attributes
@@ -20,6 +19,8 @@ from . import exceptions
 from .client import base
 from .client.bigtable import BigTableClient
 from .types import Agglomeration
+from .meta import ChunkedGraphMeta
+from .meta import BackendClientInfo
 from .utils import basetypes
 from .utils import id_helpers
 from .utils import generic as misc_utils
@@ -39,8 +40,8 @@ class ChunkedGraph:
         self,
         *,
         graph_id: str = None,
-        meta: meta.ChunkedGraphMeta = None,
-        client_info: meta.BackendClientInfo = meta.BackendClientInfo(),
+        meta: ChunkedGraphMeta = None,
+        client_info: BackendClientInfo = BackendClientInfo(),
     ):
         """
         1. New graph
@@ -66,7 +67,7 @@ class ChunkedGraph:
         self._id_client = bt_client
 
     @property
-    def meta(self) -> meta.ChunkedGraphMeta:
+    def meta(self) -> ChunkedGraphMeta:
         return self._meta
 
     @property
@@ -81,7 +82,7 @@ class ChunkedGraph:
         """Creates the graph in storage client and stores meta."""
         self._client.create_graph(self._meta)
 
-    def update_meta(self, meta: meta.ChunkedGraphMeta):
+    def update_meta(self, meta: GOOGLE_APPLICATION_CREDENTIALS=/root/.cloudvolume/secrets/google-secret.jsonChunkedGraphMeta):
         """Update meta of an already existing graph."""
         self.client.update_graph_meta(meta)
 
@@ -242,7 +243,7 @@ class ChunkedGraph:
 
     def get_cross_chunk_edges(
         self, node_id: basetypes.NODE_ID, layer: int = None,
-    ) -> typing.Union[typing.Dict, np.ndarray]:
+    ) -> typing.Iterable:
         """
         Cross chunk edges for `node_id` at `layer`.
         The edges are between node IDs at the `layer`, not atomic cross edges.
