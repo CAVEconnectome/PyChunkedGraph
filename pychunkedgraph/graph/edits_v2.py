@@ -27,19 +27,18 @@ def _get_siblings(cg, new_old_ids_d: Dict) -> List:
 
 def _create_parents(
     cg,
-    new_old_ids_d: Dict,
     new_cross_edges_d: Dict,
     operation_id: basetypes.OPERATION_ID,
     time_stamp: datetime.datetime,
 ):
     """TODO docs"""
     layer_new_ids_d = defaultdict(list)
-    layer_new_ids_d[2] = list(new_old_ids_d.keys())
+    layer_new_ids_d[2] = list(new_cross_edges_d.keys())
     new_root_ids = []
     for layer in range(2, cg.meta.layer_count):
         if len(layer_new_ids_d[layer]) == 0:
             continue
-        silblings_d = _get_siblings(cg, new_old_ids_d)
+        # silblings_d = _get_siblings(cg, new_old_ids_d)
 
 
 def _analyze_atomic_edge(cg, atomic_edge) -> Tuple[Iterable, Dict]:
@@ -84,20 +83,25 @@ def add_edge_v2(
         update parent, former parents and new parents for all affected IDs
     """
     edges, new_cross_edges_d = _analyze_atomic_edge(cg, edge)
-    # TODO read cross edges for node IDs in edges
-    # add read cross chunk edges method to client
+
+    # Read cross chunk edges efficiently
     cross_edges_d = {}
+    node_ids = np.unique(edges)
+
+    for node_id in node_ids:
+        cross_edges_d[node_id] = cg.get_cross_chunk_edges(node_id)
+    
     cross_edges_d = merge_cross_edge_dicts_multiple(cross_edges_d, new_cross_edges_d)
     graph, _, _, graph_node_ids = flatgraph.build_gt_graph(edges, make_directed=True)
     ccs = flatgraph.connected_components(graph)
 
     rows = []
-    l2_components_d = {}
+    # l2_components_d = {}
     new_cross_edges_d = {}
     for cc in ccs:
         l2ids = graph_node_ids[cc]
         new_l2id = cg.get_unique_node_id(cg.get_chunk_id(l2ids[0]))
-        l2_components_d[new_l2id] = l2ids
+        # l2_components_d[new_l2id] = l2ids
         new_cross_edges_d[new_l2id] = concatenate_cross_edge_dicts(
             [cross_edges_d[l2id] for l2id in l2ids]
         )
@@ -105,7 +109,6 @@ def add_edge_v2(
     # changes up the tree
     new_root_ids, new_rows = _create_parents(
         cg,
-        l2_components_d.copy(),
         new_cross_edges_d,
         operation_id=operation_id,
         time_stamp=timestamp,
