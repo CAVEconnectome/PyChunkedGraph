@@ -38,7 +38,16 @@ def _create_parents(
     for layer in range(2, cg.meta.layer_count):
         if len(layer_new_ids_d[layer]) == 0:
             continue
-        # silblings_d = _get_siblings(cg, new_old_ids_d)
+        new_ids = layer_new_ids_d[layer]
+        for new_id in new_ids:
+            if not new_id in new_cross_edges_d:
+                new_cross_edges_d[new_id] = cg.get_cross_chunk_edges(new_id)
+            new_id_cross_edges = new_cross_edges_d[new_id]
+            new_id_ce_layer = list(new_id_cross_edges.keys())[0]
+            if not new_id_ce_layer == layer:
+                layer_new_ids_d[new_id_ce_layer].append(new_id)
+            else:
+                silblings_d = _get_siblings(cg, new_id, new_cross_edges_d)
 
 
 def _analyze_atomic_edge(cg, atomic_edge) -> Tuple[Iterable, Dict]:

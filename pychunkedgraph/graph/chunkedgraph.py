@@ -307,9 +307,9 @@ class ChunkedGraph:
         edges = [empty_2d]
         for edges_ in node_edges_d.values():
             prop = attributes.Connectivity.CrossChunkEdge[min_layer]
-            edges_ = edges_[prop][0].value.copy() if prop in edges_ else empty_2d
-            edges_[:, 1] = self.get_roots(edges_[:, 1], stop_layer=min_layer)
-            edges.append(edges_)
+            _edges = edges_[prop][0].value.copy() if prop in edges_ else empty_2d
+            _edges[:, 1] = self.get_roots(_edges[:, 1], stop_layer=min_layer)
+            edges.append(_edges)
         edges = np.concatenate(edges)
         edges[:, 0] = node_id
         return {min_layer: np.unique(edges, axis=0) if edges.size else empty_2d}
