@@ -82,7 +82,7 @@ class ChunkedGraph:
         """Creates the graph in storage client and stores meta."""
         self._client.create_graph(self._meta)
 
-    def update_meta(self, meta: GOOGLE_APPLICATION_CREDENTIALS=/root/.cloudvolume/secrets/google-secret.jsonChunkedGraphMeta):
+    def update_meta(self, meta: ChunkedGraphMeta):
         """Update meta of an already existing graph."""
         self.client.update_graph_meta(meta)
 
