@@ -13,7 +13,6 @@ import numpy as np
 
 from . import Edges
 from . import EDGE_TYPES
-from .. import attributes
 from ..types import empty_2d
 from ..utils import basetypes
 from ..chunks import utils as chunk_utils
@@ -249,9 +248,8 @@ def get_min_layer_cross_edges(
     Return the first layer with cross edges.
     """
     for layer in range(node_layer, meta.layer_count):
-        prop = attributes.Connectivity.CrossChunkEdge[layer]
-        edges_ = cross_edges_d[prop][0].value if prop in cross_edges_d else empty_2d
+        edges_ = cross_edges_d[layer] if layer in cross_edges_d else empty_2d
         if edges_.size:
-            return {layer: edges_}
+            return (layer, edges_)
     return (meta.layer_count, edges_)
 

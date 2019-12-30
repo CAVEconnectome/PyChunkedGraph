@@ -242,6 +242,25 @@ class ChunkedGraph:
             for x in node_id_or_ids
         }
 
+    def get_atomic_cross_edges(
+        self, node_ids: typing.Iterable
+    ) -> typing.Dict[np.uint64, typing.Dict[int, typing.Iterable]]:
+        """Returns cross edges for level 2 IDs."""
+        properties = [
+            attributes.Connectivity.CrossChunkEdge[l]
+            for l in range(2, self.meta.layer_count)
+        ]
+        node_edges_d_d = self.client.read_nodes(
+            node_ids=node_ids, properties=properties
+        )
+
+        result = {}
+        for node_id, edges_d in node_edges_d_d.items():
+            result[node_id] = {
+                prop.index: val[0].value.copy() for prop, val in edges_d.items()
+            }
+        return result
+
     def get_cross_chunk_edges(
         self, node_id: basetypes.NODE_ID,
     ) -> typing.Dict[int, typing.Iterable]:
@@ -283,21 +302,8 @@ class ChunkedGraph:
             )
             children_layer -= 1
 
-        properties = [
-            attributes.Connectivity.CrossChunkEdge[l]
-            for l in range(chunk_layer, self.meta.layer_count)
-        ]
-        node_edges_d_d = self.client.read_nodes(
-            node_ids=node_ids, properties=properties
-        )
-        if chunk_layer == 2:
-            cross_egdes = {}
-            raw = list(node_edges_d_d.values())[0]
-            for prop, val in raw.items():
-                cross_egdes[prop.index] = val[0].value
-            return cross_egdes
-
         # find relevant min_layer >= chunk_layer
+        node_edges_d_d = self.get_atomic_cross_edges(node_ids)
         min_layer = self.meta.layer_count
         for edges_d in node_edges_d_d.values():
             layer_, _ = edge_utils.get_min_layer_cross_edges(
@@ -305,10 +311,10 @@ class ChunkedGraph:
             )
             min_layer = min(min_layer, layer_)
 
+        print("min_layer", min_layer)
         edges = [empty_2d]
         for edges_d in node_edges_d_d.values():
-            prop = attributes.Connectivity.CrossChunkEdge[min_layer]
-            edges_ = edges_d[prop][0].value.copy() if prop in edges_d else empty_2d
+            edges_ = edges_d[min_layer] if min_layer in edges_d else empty_2d
             edges_[:, 1] = self.get_roots(edges_[:, 1], stop_layer=min_layer)
             edges.append(edges_)
         edges = np.concatenate(edges)
