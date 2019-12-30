@@ -11,6 +11,7 @@ from .utils import basetypes
 from .utils import flatgraph
 from .utils.generic import get_bounding_box
 from .connectivity.nodes import edge_exists
+from .edges.utils import get_min_layer_cross_edges
 from .edges.utils import concatenate_cross_edge_dicts
 from .edges.utils import merge_cross_edge_dicts_multiple
 
@@ -27,27 +28,27 @@ def _get_siblings(cg, new_old_ids_d: Dict) -> List:
 
 def _create_parents(
     cg,
-    new_cross_edges_d: Dict,
+    l2_cross_edges_d: Dict,
     operation_id: basetypes.OPERATION_ID,
     time_stamp: datetime.datetime,
 ):
     """TODO docs"""
     layer_new_ids_d = defaultdict(list)
-    layer_new_ids_d[2] = list(new_cross_edges_d.keys())
+    layer_new_ids_d[2] = list(l2_cross_edges_d.keys())
     new_root_ids = []
     for layer in range(2, cg.meta.layer_count):
         if len(layer_new_ids_d[layer]) == 0:
             continue
         new_ids = layer_new_ids_d[layer]
         for new_id in new_ids:
-            if not new_id in new_cross_edges_d:
-                new_cross_edges_d[new_id] = cg.get_cross_chunk_edges(new_id)
-            new_id_cross_edges = new_cross_edges_d[new_id]
+            if not new_id in l2_cross_edges_d:
+                l2_cross_edges_d[new_id] = cg.get_cross_chunk_edges(new_id)
+            new_id_cross_edges = l2_cross_edges_d[new_id]
             new_id_ce_layer = list(new_id_cross_edges.keys())[0]
             if not new_id_ce_layer == layer:
                 layer_new_ids_d[new_id_ce_layer].append(new_id)
             else:
-                silblings_d = _get_siblings(cg, new_id, new_cross_edges_d)
+                silblings_d = _get_siblings(cg, new_id, l2_cross_edges_d)
 
 
 def _analyze_atomic_edge(cg, atomic_edge) -> Tuple[Iterable, Dict]:
@@ -90,30 +91,37 @@ def add_edge_v2(
         above children + new ID will form a new component
         update parent, former parents and new parents for all affected IDs
     """
-    edges, new_cross_edges_d = _analyze_atomic_edge(cg, edge)
+    edges, l2_cross_edges_d = _analyze_atomic_edge(cg, edge)
     cross_edges_d = {}
     node_ids = np.unique(edges)
 
     for node_id in node_ids:
         cross_edges_d[node_id] = cg.get_cross_chunk_edges(node_id)
 
-    cross_edges_d = merge_cross_edge_dicts_multiple(cross_edges_d, new_cross_edges_d)
+    cross_edges_d = merge_cross_edge_dicts_multiple(cross_edges_d, l2_cross_edges_d)
     graph, _, _, graph_node_ids = flatgraph.build_gt_graph(edges, make_directed=True)
     ccs = flatgraph.connected_components(graph)
 
     rows = []
     new_l2ids = []
-    new_cross_edges_d = {}
+    l2_cross_edges_d = {}
     for cc in ccs:
         l2ids = graph_node_ids[cc]
         new_l2ids.append(cg.get_unique_node_id(cg.get_chunk_id(l2ids[0])))
-        new_cross_edges_d[new_l2ids[-1]] = concatenate_cross_edge_dicts(
+        l2_cross_edges_d[new_l2ids[-1]] = concatenate_cross_edge_dicts(
             [cross_edges_d[l2id] for l2id in l2ids]
         )
 
+    #
+    new_cross_edges_d_d = {}
+    for l2id, cross_edges_d in l2_cross_edges_d.items():
+        layer_, edges_ = get_min_layer_cross_edges(cg.meta, cross_edges_d)
+        new_cross_edges_d_d[l2id] = {layer_: edges_}
+
     # changes up the tree
+    # TODO pass only relevant layer edges
     new_root_ids, new_rows = _create_parents(
-        cg, new_cross_edges_d, operation_id=operation_id, time_stamp=timestamp,
+        cg, new_cross_edges_d_d, operation_id=operation_id, time_stamp=timestamp,
     )
     rows.extend(new_rows)
     return new_root_ids, new_l2_ids, rows

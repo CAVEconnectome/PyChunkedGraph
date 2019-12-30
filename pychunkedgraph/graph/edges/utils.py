@@ -13,6 +13,7 @@ import numpy as np
 
 from . import Edges
 from . import EDGE_TYPES
+from .. import attributes
 from ..types import empty_2d
 from ..utils import basetypes
 from ..chunks import utils as chunk_utils
@@ -238,4 +239,19 @@ def get_cross_chunk_edges_layer(meta: ChunkedGraphMeta, cross_edges: Iterable):
         cross_chunk_edge_layers[edge_diff > 0] += 1
         cross_edge_coordinates = cross_edge_coordinates // meta.graph_config.FANOUT
     return cross_chunk_edge_layers
+
+
+def get_min_layer_cross_edges(
+    meta: ChunkedGraphMeta, cross_edges_d: Dict, node_layer: int = 2
+) -> Tuple[int, Iterable]:
+    """
+    Given a dict of cross chunk edges {layer: edges}
+    Return the first layer with cross edges.
+    """
+    for layer in range(node_layer, meta.layer_count):
+        prop = attributes.Connectivity.CrossChunkEdge[layer]
+        edges_ = cross_edges_d[prop][0].value if prop in cross_edges_d else empty_2d
+        if edges_.size:
+            return {layer: edges_}
+    return (meta.layer_count, edges_)
 

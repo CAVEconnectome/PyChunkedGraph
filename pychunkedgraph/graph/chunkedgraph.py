@@ -287,7 +287,9 @@ class ChunkedGraph:
             attributes.Connectivity.CrossChunkEdge[l]
             for l in range(chunk_layer, self.meta.layer_count)
         ]
-        node_edges_d_d = self.client.read_nodes(node_ids=node_ids, properties=properties)
+        node_edges_d_d = self.client.read_nodes(
+            node_ids=node_ids, properties=properties
+        )
         if chunk_layer == 2:
             cross_egdes = {}
             raw = list(node_edges_d_d.values())[0]
@@ -296,13 +298,12 @@ class ChunkedGraph:
             return cross_egdes
 
         # find relevant min_layer >= chunk_layer
-        min_layer = self.meta.layer_count + 1
+        min_layer = self.meta.layer_count
         for edges_d in node_edges_d_d.values():
-            for idx, prop in enumerate(properties):
-                edges_ = edges_d[prop][0].value if prop in edges_d else empty_2d
-                if edges_.size:
-                    min_layer = min(min_layer, idx + chunk_layer)
-                    break
+            layer_, _ = edge_utils.get_min_layer_cross_edges(
+                self.meta, edges_d, node_layer=chunk_layer
+            )
+            min_layer = min(min_layer, layer_)
 
         edges = [empty_2d]
         for edges_d in node_edges_d_d.values():
