@@ -287,29 +287,29 @@ class ChunkedGraph:
             attributes.Connectivity.CrossChunkEdge[l]
             for l in range(chunk_layer, self.meta.layer_count)
         ]
-        node_edges_d = self.client.read_nodes(node_ids=node_ids, properties=properties)
+        node_edges_d_d = self.client.read_nodes(node_ids=node_ids, properties=properties)
         if chunk_layer == 2:
             cross_egdes = {}
-            raw = list(node_edges_d.values())[0]
+            raw = list(node_edges_d_d.values())[0]
             for prop, val in raw.items():
                 cross_egdes[prop.index] = val[0].value
             return cross_egdes
 
         # find relevant min_layer >= chunk_layer
         min_layer = self.meta.layer_count + 1
-        for edges_ in node_edges_d.values():
+        for edges_d in node_edges_d_d.values():
             for idx, prop in enumerate(properties):
-                _edges = edges_[prop][0].value if prop in edges_ else empty_2d
-                if _edges.size:
+                edges_ = edges_d[prop][0].value if prop in edges_d else empty_2d
+                if edges_.size:
                     min_layer = min(min_layer, idx + chunk_layer)
                     break
 
         edges = [empty_2d]
-        for edges_ in node_edges_d.values():
+        for edges_d in node_edges_d_d.values():
             prop = attributes.Connectivity.CrossChunkEdge[min_layer]
-            _edges = edges_[prop][0].value.copy() if prop in edges_ else empty_2d
-            _edges[:, 1] = self.get_roots(_edges[:, 1], stop_layer=min_layer)
-            edges.append(_edges)
+            edges_ = edges_d[prop][0].value.copy() if prop in edges_d else empty_2d
+            edges_[:, 1] = self.get_roots(edges_[:, 1], stop_layer=min_layer)
+            edges.append(edges_)
         edges = np.concatenate(edges)
         edges[:, 0] = node_id
         return {min_layer: np.unique(edges, axis=0) if edges.size else empty_2d}
