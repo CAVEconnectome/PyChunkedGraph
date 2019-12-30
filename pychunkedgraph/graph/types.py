@@ -4,6 +4,8 @@ import numpy as np
 
 from .utils import basetypes
 
+empty_2d = np.empty((0, 2), dtype=basetypes.NODE_ID)
+
 """
 An Agglomeration is syntactic sugar for representing
 a level 2 ID and it's supervoxels and edges.

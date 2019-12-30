@@ -18,6 +18,7 @@ from . import attributes
 from . import exceptions
 from .client import base
 from .client.bigtable import BigTableClient
+from .types import empty_2d
 from .types import Agglomeration
 from .meta import ChunkedGraphMeta
 from .meta import BackendClientInfo
@@ -242,18 +243,21 @@ class ChunkedGraph:
         }
 
     def get_cross_chunk_edges(
-        self, node_id: basetypes.NODE_ID, layer: int = None,
-    ) -> typing.Iterable:
+        self, node_id: basetypes.NODE_ID,
+    ) -> typing.Tuple[np.uint64, typing.Iterable]:
         """
-        Cross chunk edges for `node_id` at `layer`.
-        The edges are between node IDs at the `layer`, not atomic cross edges.
+        Cross chunk edges for `node_id` at `chunk_layer`.
+        The edges are between node IDs at the `chunk_layer`, not atomic cross edges.
 
-        For performance, only children that lie along chunk boundary are considered.
+        Returns tuple (layer_id, cross_edges)
+        Here, the layer_id is the first layer (>= `chunk_layer`) with atleast one cross chunk edge.
+        For current use-cases, the other layers are not relevant.
+
+        Cross edges that belong to inner level 2 IDs are within this chunk.
+        So for performance, only children that lie along chunk boundary are considered.
         This is because cross edges are stored only in level 2 IDs.
         """
         chunk_layer = self.get_chunk_layer(node_id)
-        if not layer:
-            layer = chunk_layer
         X, Y, Z = self.get_chunk_coordinates(node_id)
         node_ids = np.array([node_id], dtype=basetypes.NODE_ID)
         children_layer = chunk_layer - 1
@@ -280,18 +284,29 @@ class ChunkedGraph:
 
         properties = [
             attributes.Connectivity.CrossChunkEdge[l]
-            for l in range(layer, self.meta.layer_count)
+            for l in range(chunk_layer, self.meta.layer_count)
         ]
         node_edges_d = self.client.read_nodes(node_ids=node_ids, properties=properties)
-        edges = [np.empty((0, 2), dtype=basetypes.NODE_ID)]
+        edges = [empty_2d]
+
+        # find relevant min_layer >= chunk_layer
+        min_layer = self.meta.layer_count + 1
         for edges_ in node_edges_d.values():
-            edges_ = edges_[0].value.copy()
-            # TODO `get_roots` range of layers?
-            edges_[:, 1] = self.get_roots(edges_[:, 1], stop_layer=layer)
+            for idx, prop in enumerate(properties):
+                _edges = edges_[prop][0].value if prop in edges_ else empty_2d
+                if _edges.size:
+                    min_layer = min(min_layer, idx + chunk_layer)
+                    break
+
+        for edges_ in node_edges_d.values():
+            prop = attributes.Connectivity.CrossChunkEdge[min_layer]
+            edges_ = edges_[prop][0].value.copy() if prop in edges_ else empty_2d
+            edges_[:, 1] = self.get_roots(edges_[:, 1], stop_layer=min_layer)
             edges.append(edges_)
         edges = np.concatenate(edges)
         edges[:, 0] = node_id
-        return np.unique(edges, axis=0) if edges.size else []
+        result = np.unique(edges, axis=0) if edges.size else empty_2d
+        return (min_layer, result)
 
     def get_latest_roots(
         self,
