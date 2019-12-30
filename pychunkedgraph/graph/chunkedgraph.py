@@ -278,11 +278,15 @@ class ChunkedGraph:
             )
             children_layer -= 1
 
-        edge_attr = attributes.Connectivity.CrossChunkEdge[layer]
-        node_edges_d = self.client.read_nodes(node_ids=node_ids, properties=edge_attr)
+        properties = [
+            attributes.Connectivity.CrossChunkEdge[l]
+            for l in range(layer, self.meta.layer_count)
+        ]
+        node_edges_d = self.client.read_nodes(node_ids=node_ids, properties=properties)
         edges = [np.empty((0, 2), dtype=basetypes.NODE_ID)]
         for edges_ in node_edges_d.values():
             edges_ = edges_[0].value.copy()
+            # TODO `get_roots` range of layers?
             edges_[:, 1] = self.get_roots(edges_[:, 1], stop_layer=layer)
             edges.append(edges_)
         edges = np.concatenate(edges)
