@@ -11,7 +11,7 @@ import numpy as np
 from multiwrapper.multiprocessing_utils import multiprocess_func
 
 from .. import attributes
-from ...utils.general import chunked
+from ..types import empty_2d
 from ..utils import basetypes
 from ..utils import serializers
 from ..chunkedgraph import ChunkedGraph
@@ -19,6 +19,7 @@ from ..utils.generic import get_valid_timestamp
 from ..utils.generic import filter_failed_node_ids
 from ..chunks.atomic import get_touching_atomic_chunks
 from ..chunks.atomic import get_bounding_atomic_chunks
+from ...utils.general import chunked
 
 
 def get_children_chunk_cross_edges(cg_instance, layer, chunk_coord) -> np.ndarray:
@@ -34,7 +35,7 @@ def get_children_chunk_cross_edges(cg_instance, layer, chunk_coord) -> np.ndarra
     cg_info = cg_instance.get_serialized_info(credentials=False)
     with mp.Manager() as manager:
         edge_ids_shared = manager.list()
-        edge_ids_shared.append(np.empty([0, 2], dtype=basetypes.NODE_ID))
+        edge_ids_shared.append(empty_2d)
 
         task_size = int(math.ceil(len(atomic_chunks) / mp.cpu_count()))
         chunked_l2chunk_list = chunked(atomic_chunks, task_size)
@@ -61,7 +62,7 @@ def _get_children_chunk_cross_edges_helper(args) -> None:
     edge_ids_shared, cg_info, atomic_chunks, layer = args
     cg_instance = ChunkedGraph(**cg_info)
 
-    cross_edges = [np.empty([0, 2], dtype=basetypes.NODE_ID)]
+    cross_edges = [empty_2d]
     for layer2_chunk in atomic_chunks:
         edges = _read_atomic_chunk_cross_edges(cg_instance, layer2_chunk, layer)
         cross_edges.append(edges)
@@ -86,7 +87,7 @@ def _read_atomic_chunk_cross_edges(
         edges = range_read[l2id][cross_edge_col][0].value
         parent_neighboring_chunk_supervoxels_d[l2id] = edges[:, 1]
 
-    cross_edges = [np.empty([0, 2], dtype=basetypes.NODE_ID)]
+    cross_edges = [empty_2d]
     for l2id in parent_neighboring_chunk_supervoxels_d:
         nebor_svs = parent_neighboring_chunk_supervoxels_d[l2id]
         chunk_parent_ids = np.array([l2id] * len(nebor_svs), dtype=basetypes.NODE_ID)

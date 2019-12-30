@@ -31,6 +31,10 @@ class _Attribute(_AttributeType):
     def basetype(self):
         return self.serializer.basetype
 
+    @property
+    def index(self):
+        return int(self.key.decode("utf-8").split("_")[-1])
+
 
 class _AttributeArray:
     _attributearrays = {}

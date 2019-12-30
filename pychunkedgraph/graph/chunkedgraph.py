@@ -244,14 +244,15 @@ class ChunkedGraph:
 
     def get_cross_chunk_edges(
         self, node_id: basetypes.NODE_ID,
-    ) -> typing.Tuple[np.uint64, typing.Iterable]:
+    ) -> typing.Dict[int, typing.Iterable]:
         """
         Cross chunk edges for `node_id` at `chunk_layer`.
         The edges are between node IDs at the `chunk_layer`, not atomic cross edges.
-
-        Returns tuple (layer_id, cross_edges)
-        Here, the layer_id is the first layer (>= `chunk_layer`) with atleast one cross chunk edge.
-        For current use-cases, the other layers are not relevant.
+        Returns dict {layer_id: cross_edges}
+            1. For level 2 IDs, cross edges from all layers are returned.
+            2. For IDs in layer > 2, the first layer (>= `chunk_layer`)
+               with atleast one cross chunk edge.
+               For current use-cases, the other layers are not relevant.
 
         Cross edges that belong to inner level 2 IDs are within this chunk.
         So for performance, only children that lie along chunk boundary are considered.
@@ -287,7 +288,12 @@ class ChunkedGraph:
             for l in range(chunk_layer, self.meta.layer_count)
         ]
         node_edges_d = self.client.read_nodes(node_ids=node_ids, properties=properties)
-        edges = [empty_2d]
+        if chunk_layer == 2:
+            cross_egdes = {}
+            raw = list(node_edges_d.values())[0]
+            for prop, val in raw.items():
+                cross_egdes[prop.index] = val[0].value
+            return cross_egdes
 
         # find relevant min_layer >= chunk_layer
         min_layer = self.meta.layer_count + 1
@@ -298,6 +304,7 @@ class ChunkedGraph:
                     min_layer = min(min_layer, idx + chunk_layer)
                     break
 
+        edges = [empty_2d]
         for edges_ in node_edges_d.values():
             prop = attributes.Connectivity.CrossChunkEdge[min_layer]
             edges_ = edges_[prop][0].value.copy() if prop in edges_ else empty_2d
@@ -305,8 +312,7 @@ class ChunkedGraph:
             edges.append(edges_)
         edges = np.concatenate(edges)
         edges[:, 0] = node_id
-        result = np.unique(edges, axis=0) if edges.size else empty_2d
-        return (min_layer, result)
+        return {min_layer: np.unique(edges, axis=0) if edges.size else empty_2d}
 
     def get_latest_roots(
         self,

@@ -50,10 +50,9 @@ def _analyze_atomic_edge(cg, atomic_edge) -> Tuple[Iterable, Dict]:
     edge_layer = cg.get_cross_chunk_edges_layer([atomic_edge])[0]
     parent_edge = cg.get_parents(atomic_edge)
 
-    # edge is within chunk
     if edge_layer == 1:
+        # edge is within chunk
         return [parent_edge], {}
-    # edge crosses atomic chunk boundary
     parent_1 = parent_edge[0]
     parent_2 = parent_edge[1]
 
@@ -83,36 +82,30 @@ def add_edge_v2(
         update parent, former parents and new parents for all affected IDs
     """
     edges, new_cross_edges_d = _analyze_atomic_edge(cg, edge)
-
-    # Read cross chunk edges efficiently
     cross_edges_d = {}
     node_ids = np.unique(edges)
 
     for node_id in node_ids:
         cross_edges_d[node_id] = cg.get_cross_chunk_edges(node_id)
-    
+
     cross_edges_d = merge_cross_edge_dicts_multiple(cross_edges_d, new_cross_edges_d)
     graph, _, _, graph_node_ids = flatgraph.build_gt_graph(edges, make_directed=True)
     ccs = flatgraph.connected_components(graph)
 
     rows = []
-    # l2_components_d = {}
+    new_l2ids = []
     new_cross_edges_d = {}
     for cc in ccs:
         l2ids = graph_node_ids[cc]
-        new_l2id = cg.get_unique_node_id(cg.get_chunk_id(l2ids[0]))
-        # l2_components_d[new_l2id] = l2ids
-        new_cross_edges_d[new_l2id] = concatenate_cross_edge_dicts(
+        new_l2ids.append(cg.get_unique_node_id(cg.get_chunk_id(l2ids[0])))
+        new_cross_edges_d[new_l2ids[-1]] = concatenate_cross_edge_dicts(
             [cross_edges_d[l2id] for l2id in l2ids]
         )
 
     # changes up the tree
     new_root_ids, new_rows = _create_parents(
-        cg,
-        new_cross_edges_d,
-        operation_id=operation_id,
-        time_stamp=timestamp,
+        cg, new_cross_edges_d, operation_id=operation_id, time_stamp=timestamp,
     )
     rows.extend(new_rows)
-    return new_root_ids, list(l2_components_d.keys()), rows
+    return new_root_ids, new_l2_ids, rows
 
