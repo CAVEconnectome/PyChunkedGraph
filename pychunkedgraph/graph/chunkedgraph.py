@@ -12,14 +12,13 @@ import pytz
 from cloudvolume import CloudVolume
 from multiwrapper import multiprocessing_utils as mu
 
+from . import types
 from . import cutting
 from . import operation
 from . import attributes
 from . import exceptions
 from .client import base
 from .client.bigtable import BigTableClient
-from .types import empty_2d
-from .types import Agglomeration
 from .meta import ChunkedGraphMeta
 from .meta import BackendClientInfo
 from .utils import basetypes
@@ -262,63 +261,63 @@ class ChunkedGraph:
         return result
 
     def get_cross_chunk_edges(
-        self, node_id: basetypes.NODE_ID,
+        self,
+        node_id: basetypes.NODE_ID,
+        hierarchy: typing.Dict[np.uint64, types.Node] = None,
     ) -> typing.Dict[int, typing.Iterable]:
         """
-        Cross chunk edges for `node_id` at `chunk_layer`.
-        The edges are between node IDs at the `chunk_layer`, not atomic cross edges.
+        Cross chunk edges for `node_id` at `node_layer`.
+        The edges are between node IDs at the `node_layer`, not atomic cross edges.
         Returns dict {layer_id: cross_edges}
             1. For level 2 IDs, cross edges from all layers are returned.
-            2. For IDs in layer > 2, the first layer (>= `chunk_layer`)
+            2. For IDs in layer > 2, the first layer (>= `node_layer`)
                with atleast one cross chunk edge.
-               For current use-cases, the other layers are not relevant.
+               For current use-cases, other layers are not relevant.
 
         Cross edges that belong to inner level 2 IDs are within this chunk.
         So for performance, only children that lie along chunk boundary are considered.
         This is because cross edges are stored only in level 2 IDs.
+        `hierarchy` is needed during merge/split when new IDs are not in bigtable yet.
         """
-        chunk_layer = self.get_chunk_layer(node_id)
+        node_layer = self.get_chunk_layer(node_id)
         X, Y, Z = self.get_chunk_coordinates(node_id)
         node_ids = np.array([node_id], dtype=basetypes.NODE_ID)
-        children_layer = chunk_layer - 1
-        while children_layer >= 2:
-            bounding_chunks = chunk_utils.get_bounding_children_chunks(
-                self.meta, chunk_layer, (X, Y, Z), children_layer
+        layer_ = node_layer - 1
+        while layer_ >= 2:
+            chunks = chunk_utils.get_bounding_children_chunks(
+                self.meta, node_layer, (X, Y, Z), layer_
             )
             bounding_chunk_ids = np.array(
-                [
-                    self.get_chunk_id(layer=children_layer, x=x, y=y, z=z)
-                    for (x, y, z) in bounding_chunks
-                ]
+                [self.get_chunk_id(layer=layer_, x=x, y=y, z=z) for (x, y, z) in chunks]
             )
-            layer_mask = self.get_chunk_layers(node_ids) > children_layer
-            children = self.get_children(node_ids[layer_mask], flatten=True)
+            layer_mask = self.get_chunk_layers(node_ids) > layer_
+            children = (
+                np.concatenate([hierarchy[_].children for _ in node_ids])
+                if hierarchy
+                else self.get_children(node_ids[layer_mask], flatten=True)
+            )
             children_chunk_ids = self.get_chunk_ids_from_node_ids(children)
-            node_ids = np.concatenate(
-                [
-                    node_ids[~layer_mask],
-                    children[np.in1d(children_chunk_ids, bounding_chunk_ids)],
-                ]
-            )
-            children_layer -= 1
+            children = children[np.in1d(children_chunk_ids, bounding_chunk_ids)]
+            node_ids = np.concatenate([node_ids[~layer_mask], children])
+            layer_ -= 1
 
-        # find relevant min_layer >= chunk_layer
+        # find relevant min_layer >= node_layer
         node_edges_d_d = self.get_atomic_cross_edges(node_ids)
         min_layer = self.meta.layer_count
         for edges_d in node_edges_d_d.values():
             layer_, _ = edge_utils.get_min_layer_cross_edges(
-                self.meta, edges_d, node_layer=chunk_layer
+                self.meta, edges_d, node_layer=node_layer
             )
             min_layer = min(min_layer, layer_)
 
-        edges = [empty_2d]
+        edges = [types.empty_2d]
         for edges_d in node_edges_d_d.values():
-            edges_ = edges_d[min_layer] if min_layer in edges_d else empty_2d
+            edges_ = edges_d[min_layer] if min_layer in edges_d else types.empty_2d
             edges_[:, 1] = self.get_roots(edges_[:, 1], stop_layer=min_layer)
             edges.append(edges_)
         edges = np.concatenate(edges)
         edges[:, 0] = self.get_root(node_id, stop_layer=min_layer)
-        return {min_layer: np.unique(edges, axis=0) if edges.size else empty_2d}
+        return {min_layer: np.unique(edges, axis=0) if edges.size else types.empty_2d}
 
     def get_latest_roots(
         self,
@@ -648,10 +647,10 @@ class ChunkedGraph:
         """
         1. get level 2 children ids belonging to the agglomerations
         2. read relevant chunk edges from cloud storage (include fake edges from big table)
-        3. group nodes and edges based on level 2 ids (Agglomeration)
+        3. group nodes and edges based on level 2 ids (types.Agglomeration)
            optionally for each edge (v1,v2) active
            if parent(v1) == parent(v2) inactive otherwise
-        returns dict of {id: Agglomeration}
+        returns dict of {id: types.Agglomeration}
         """
         # 1 level 2 ids
         level2_ids = []
@@ -684,7 +683,7 @@ class ChunkedGraph:
             in_, out_, cross_ = edge_utils.categorize_edges(
                 self.meta, l2id_children_d[l2id], edges
             )
-            l2id_agglomeration_d[l2id] = Agglomeration(
+            l2id_agglomeration_d[l2id] = types.Agglomeration(
                 l2id, supervoxels, in_, out_, cross_
             )
         return l2id_agglomeration_d

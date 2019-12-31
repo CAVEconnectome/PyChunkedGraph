@@ -1,10 +1,25 @@
+from typing import Iterable
 from collections import namedtuple
 
 import numpy as np
 
 from .utils import basetypes
 
+empty_1d = np.empty(0, dtype=basetypes.NODE_ID)
 empty_2d = np.empty((0, 2), dtype=basetypes.NODE_ID)
+
+
+class Node:
+    def __init__(
+        self,
+        node_id: basetypes.NODE_ID,
+        parent_id: basetypes.NODE_ID = None,
+        children: Iterable = empty_1d,
+    ):
+        self.node_id = node_id
+        self.parent_id = parent_id
+        self.children = children
+
 
 """
 An Agglomeration is syntactic sugar for representing

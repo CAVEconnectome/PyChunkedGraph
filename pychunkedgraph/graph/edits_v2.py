@@ -7,6 +7,7 @@ from typing import Iterable
 from typing import Sequence
 from collections import defaultdict
 
+from .types import Node
 from .utils import basetypes
 from .utils import flatgraph
 from .utils.generic import get_bounding_box
@@ -14,18 +15,6 @@ from .connectivity.nodes import edge_exists
 from .edges.utils import get_min_layer_cross_edges
 from .edges.utils import concatenate_cross_edge_dicts
 from .edges.utils import merge_cross_edge_dicts_multiple
-
-
-class Node:
-    def __init__(
-        self,
-        node_id: basetypes.NODE_ID,
-        parent_id: basetypes.NODE_ID = None,
-        children: Iterable = None,
-    ):
-        self.node_id = node_id
-        self.parent_id = parent_id
-        self.children = children
 
 
 def _get_all_siblings(cg, new_id_ce_siblings: Iterable) -> List:
