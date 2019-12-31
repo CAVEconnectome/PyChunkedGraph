@@ -50,24 +50,25 @@ def _create_parents(
             continue
         new_ids = layer_new_ids_d[current_layer]
         for new_id in new_ids:
-            new_node = Node(new_id)
-            new_nodes_d[new_id] = new_node
-            if not new_id in new_cross_edges_d_d:
-                new_cross_edges_d_d[new_id] = cg.get_cross_chunk_edges(
-                    new_id, hierarchy=new_nodes_d
-                )
-            new_id_ce_d = new_cross_edges_d_d[new_id]
+            if not new_id in new_nodes_d:
+                new_nodes_d[new_id] = Node(new_id)
+            new_id_ce_d = new_cross_edges_d_d.get(
+                new_id, cg.get_cross_chunk_edges(new_id, hierarchy=new_nodes_d)
+            )
+            new_node = new_nodes_d[new_id]
             new_id_ce_layer = list(new_id_ce_d.keys())[0]
             if not new_id_ce_layer == current_layer:
                 new_parent_node = _create_parent_node(cg, new_node, new_id_ce_layer)
                 new_parent_node.children = [new_id]
+                layer_new_ids_d[new_id_ce_layer].append(new_parent_node.node_id)
             else:
                 new_parent_node = _create_parent_node(cg, new_node, current_layer + 1)
                 new_id_ce_siblings = new_id_ce_d[new_id_ce_layer][:, 1]
                 new_id_all_siblings = _get_all_siblings(cg, new_id_ce_siblings)
                 new_parent_node.children = new_id_all_siblings
+                layer_new_ids_d[current_layer + 1].append(new_parent_node.node_id)
             new_nodes_d[new_parent_node.node_id] = new_parent_node
-            layer_new_ids_d[new_id_ce_layer].append(new_parent_node.node_id)
+    return layer_new_ids_d[cg.meta.layer_count]
 
 
 def _analyze_atomic_edge(cg, atomic_edge) -> Tuple[Iterable, Dict]:
@@ -111,37 +112,26 @@ def add_edge_v2(
         update parent, former parents and new parents for all affected IDs
     """
     edges, l2_cross_edges_d = _analyze_atomic_edge(cg, edge)
-    cross_edges_d = {}
-    node_ids = np.unique(edges)
-
-    for node_id in node_ids:
-        cross_edges_d[node_id] = cg.get_cross_chunk_edges(node_id)
-
+    cross_edges_d = cg.get_atomic_cross_edges(np.unique(edges))
     cross_edges_d = merge_cross_edge_dicts_multiple(cross_edges_d, l2_cross_edges_d)
     graph, _, _, graph_node_ids = flatgraph.build_gt_graph(edges, make_directed=True)
     ccs = flatgraph.connected_components(graph)
 
-    rows = []
     new_l2ids = []
     l2_cross_edges_d = {}
     for cc in ccs:
         l2ids = graph_node_ids[cc]
-        new_l2ids.append(cg.get_unique_node_id(cg.get_chunk_id(l2ids[0])))
+        chunk_id = cg.get_chunk_id(l2ids[0])
+        new_l2ids.append(chunk_id | cg.id_client.create_segment_id(chunk_id))
         l2_cross_edges_d[new_l2ids[-1]] = concatenate_cross_edge_dicts(
             [cross_edges_d[l2id] for l2id in l2ids]
         )
 
-    #
     new_cross_edges_d_d = {}
     for l2id, cross_edges_d in l2_cross_edges_d.items():
         layer_, edges_ = get_min_layer_cross_edges(cg.meta, cross_edges_d)
         new_cross_edges_d_d[l2id] = {layer_: edges_}
 
-    # changes up the tree
-    # TODO pass only relevant layer edges
-    new_root_ids, new_rows = _create_parents(
+    return _create_parents(
         cg, new_cross_edges_d_d, operation_id=operation_id, time_stamp=timestamp,
     )
-    rows.extend(new_rows)
-    return new_root_ids, new_l2_ids, rows
-

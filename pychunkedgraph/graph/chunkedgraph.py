@@ -278,7 +278,7 @@ class ChunkedGraph:
         Cross edges that belong to inner level 2 IDs are within this chunk.
         So for performance, only children that lie along chunk boundary are considered.
         This is because cross edges are stored only in level 2 IDs.
-        `hierarchy` is needed during merge/split when new IDs are not in bigtable yet.
+        `hierarchy` is needed during merge/split when new IDs are still in memory.
         """
         node_layer = self.get_chunk_layer(node_id)
         X, Y, Z = self.get_chunk_coordinates(node_id)
@@ -292,11 +292,20 @@ class ChunkedGraph:
                 [self.get_chunk_id(layer=layer_, x=x, y=y, z=z) for (x, y, z) in chunks]
             )
             layer_mask = self.get_chunk_layers(node_ids) > layer_
-            children = (
-                np.concatenate([hierarchy[_].children for _ in node_ids])
-                if hierarchy
-                else self.get_children(node_ids[layer_mask], flatten=True)
-            )
+            if hierarchy:
+                # first read available nodes from hierarchy
+                # read from storage for the rest
+                _node_ids = node_ids[layer_mask]
+                node_ids_ = np.fromiter(hierarchy.keys(), dtype=basetypes.NODE_ID)
+                mask_ = np.in1d(_node_ids, node_ids_)
+                children = np.concatenate(
+                    [
+                        *[hierarchy[_].children for _ in _node_ids[mask_]],
+                        self.get_children(_node_ids[~mask_], flatten=True),
+                    ]
+                )
+            else:
+                children = self.get_children(node_ids[layer_mask], flatten=True)
             children_chunk_ids = self.get_chunk_ids_from_node_ids(children)
             children = children[np.in1d(children_chunk_ids, bounding_chunk_ids)]
             node_ids = np.concatenate([node_ids[~layer_mask], children])
