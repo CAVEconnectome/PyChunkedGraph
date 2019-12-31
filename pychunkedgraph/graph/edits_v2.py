@@ -16,6 +16,18 @@ from .edges.utils import concatenate_cross_edge_dicts
 from .edges.utils import merge_cross_edge_dicts_multiple
 
 
+class Node:
+    def __init__(
+        self,
+        node_id: basetypes.NODE_ID,
+        parent_id: basetypes.NODE_ID = None,
+        children: Iterable = None,
+    ):
+        self.node_id = node_id
+        self.parent_id = parent_id
+        self.children = children
+
+
 def _get_all_siblings(cg, new_id_ce_siblings: Iterable) -> List:
     """
     Get parents of `new_id_ce_siblings`
@@ -32,23 +44,28 @@ def _create_parents(
 ):
     """TODO docs"""
     layer_new_ids_d = defaultdict(list)
+    all_new_ids = {}  # cache
     layer_new_ids_d[2] = list(new_cross_edges_d_d.keys())
     new_root_ids = []
-    for layer in range(2, cg.meta.layer_count):
-        if len(layer_new_ids_d[layer]) == 0:
+    for current_layer in range(2, cg.meta.layer_count):
+        if len(layer_new_ids_d[current_layer]) == 0:
             continue
-        new_ids = layer_new_ids_d[layer]
+        new_ids = layer_new_ids_d[current_layer]
         for new_id in new_ids:
             if not new_id in new_cross_edges_d_d:
                 new_cross_edges_d_d[new_id] = cg.get_cross_chunk_edges(new_id)
             new_id_ce_d = new_cross_edges_d_d[new_id]
             new_id_ce_layer = list(new_id_ce_d.keys())[0]
-            if not new_id_ce_layer == layer:
+            if not new_id_ce_layer == current_layer:
                 # create new id at that level
+
                 layer_new_ids_d[new_id_ce_layer].append(new_id)
             else:
                 new_id_ce_siblings = new_id_ce_d[new_id_ce_layer][:, 1]
                 new_id_all_siblings = _get_all_siblings(cg, new_id_ce_siblings)
+                node = Node(new_id)
+                node.parent_id = cg.client.
+                all_new_ids[new_id] = Node(new_id)
 
 
 def _analyze_atomic_edge(cg, atomic_edge) -> Tuple[Iterable, Dict]:
