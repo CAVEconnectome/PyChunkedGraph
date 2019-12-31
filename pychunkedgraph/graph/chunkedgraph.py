@@ -311,14 +311,13 @@ class ChunkedGraph:
             )
             min_layer = min(min_layer, layer_)
 
-        print("min_layer", min_layer)
         edges = [empty_2d]
         for edges_d in node_edges_d_d.values():
             edges_ = edges_d[min_layer] if min_layer in edges_d else empty_2d
             edges_[:, 1] = self.get_roots(edges_[:, 1], stop_layer=min_layer)
             edges.append(edges_)
         edges = np.concatenate(edges)
-        edges[:, 0] = node_id
+        edges[:, 0] = self.get_root(node_id, stop_layer=min_layer)
         return {min_layer: np.unique(edges, axis=0) if edges.size else empty_2d}
 
     def get_latest_roots(
