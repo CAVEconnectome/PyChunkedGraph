@@ -45,7 +45,6 @@ def _create_parents(
     layer_new_ids_d = defaultdict(list)
     new_nodes_d = {}  # cache
     layer_new_ids_d[2] = list(new_cross_edges_d_d.keys())
-    new_root_ids = []
     for current_layer in range(2, cg.meta.layer_count):
         if len(layer_new_ids_d[current_layer]) == 0:
             continue
@@ -54,7 +53,9 @@ def _create_parents(
             new_node = Node(new_id)
             new_nodes_d[new_id] = new_node
             if not new_id in new_cross_edges_d_d:
-                new_cross_edges_d_d[new_id] = cg.get_cross_chunk_edges(new_id)
+                new_cross_edges_d_d[new_id] = cg.get_cross_chunk_edges(
+                    new_id, hierarchy=new_nodes_d
+                )
             new_id_ce_d = new_cross_edges_d_d[new_id]
             new_id_ce_layer = list(new_id_ce_d.keys())[0]
             if not new_id_ce_layer == current_layer:

@@ -263,6 +263,7 @@ class ChunkedGraph:
     def get_cross_chunk_edges(
         self,
         node_id: basetypes.NODE_ID,
+        *,
         hierarchy: typing.Dict[np.uint64, types.Node] = None,
     ) -> typing.Dict[int, typing.Iterable]:
         """
