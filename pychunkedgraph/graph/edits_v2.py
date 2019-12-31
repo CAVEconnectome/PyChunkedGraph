@@ -52,20 +52,24 @@ def _create_parents(
             continue
         new_ids = layer_new_ids_d[current_layer]
         for new_id in new_ids:
+            node = Node(new_id)
+            all_new_ids[new_id] = node
             if not new_id in new_cross_edges_d_d:
                 new_cross_edges_d_d[new_id] = cg.get_cross_chunk_edges(new_id)
             new_id_ce_d = new_cross_edges_d_d[new_id]
             new_id_ce_layer = list(new_id_ce_d.keys())[0]
             if not new_id_ce_layer == current_layer:
                 # create new id at that level
-
-                layer_new_ids_d[new_id_ce_layer].append(new_id)
+                parent_chunk_id = cg.get_parent_chunk_id_dict(new_id)[new_id_ce_layer]
+                new_parent_seg_id = cg.id_client.create_segment_id(parent_chunk_id)
+                new_parent_id = parent_chunk_id | new_parent_seg_id
+                new_parent_node = Node(new_parent_id)
+                new_parent_node.children = [new_id]
+                all_new_ids[new_parent_id] = new_parent_node
+                layer_new_ids_d[new_id_ce_layer].append(new_parent_id)
             else:
                 new_id_ce_siblings = new_id_ce_d[new_id_ce_layer][:, 1]
                 new_id_all_siblings = _get_all_siblings(cg, new_id_ce_siblings)
-                node = Node(new_id)
-                node.parent_id = cg.client.
-                all_new_ids[new_id] = Node(new_id)
 
 
 def _analyze_atomic_edge(cg, atomic_edge) -> Tuple[Iterable, Dict]:
