@@ -17,12 +17,13 @@ from .edges.utils import concatenate_cross_edge_dicts
 from .edges.utils import merge_cross_edge_dicts_multiple
 
 
-def _get_all_siblings(cg, new_id, new_id_ce_siblings: Iterable) -> List:
+def _get_all_siblings(cg, new_parent_id, new_id_ce_siblings: Iterable) -> List:
     """
     Get parents of `new_id_ce_siblings`
     Children of these parents will include all siblings.
     """
-    chunk_ids = cg.get_children_chunk_ids(new_id)
+    chunk_ids = cg.get_children_chunk_ids(new_parent_id)
+    print("children chunk_ids", new_parent_id, chunk_ids)
     children = cg.get_children(
         np.unique(cg.get_parents(new_id_ce_siblings)), flatten=True
     )
@@ -37,6 +38,7 @@ def _create_parent_node(cg, new_node: Node, parent_layer: int = None) -> Node:
     new_parent_id = parent_chunk_id | new_parent_seg_id
     new_parent_node = Node(new_parent_id)
     new_node.parent_id = new_parent_id
+    print("new_node, new_parent_node", new_node, new_parent_node)
     return new_parent_node
 
 
@@ -78,7 +80,9 @@ def _create_parents(
             else:
                 new_parent_node = _create_parent_node(cg, new_node, current_layer + 1)
                 new_id_ce_siblings = new_id_ce_d[new_id_ce_layer][:, 1]
-                new_id_all_siblings = _get_all_siblings(cg, new_id, new_id_ce_siblings)
+                new_id_all_siblings = _get_all_siblings(
+                    cg, new_parent_node.node_id, new_id_ce_siblings
+                )
                 new_parent_node.children = np.concatenate(
                     [[new_id], new_id_all_siblings]
                 )

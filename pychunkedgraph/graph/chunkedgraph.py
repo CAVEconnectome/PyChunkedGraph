@@ -1120,8 +1120,10 @@ class ChunkedGraph:
         return chunk_hierarchy.get_children_chunk_ids(self.meta, node_or_chunk_id)
 
     def get_parent_chunk_id(
-        self, node_or_chunk_id: basetypes.NODE_ID, parent_layer: int
+        self, node_or_chunk_id: basetypes.NODE_ID, parent_layer: int = None
     ):
+        if not parent_layer:
+            parent_layer = self.get_chunk_layer(node_or_chunk_id) + 1
         return chunk_hierarchy.get_parent_chunk_id(
             self.meta, node_or_chunk_id, parent_layer
         )

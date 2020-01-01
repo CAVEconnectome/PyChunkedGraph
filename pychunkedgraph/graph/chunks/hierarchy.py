@@ -54,7 +54,8 @@ def get_parent_chunk_id(
     meta: ChunkedGraphMeta, node_or_chunk_id: np.uint64, parent_layer: int
 ) -> np.ndarray:
     """Creates list of chunk parent ids (upto highest layer)."""
-    x, y, z = utils.get_chunk_coordinates(meta, node_or_chunk_id)
+    coord = utils.get_chunk_coordinates(meta, node_or_chunk_id)
+    x, y, z = coord // meta.graph_config.FANOUT
     return utils.get_chunk_id(meta, layer=parent_layer, x=x, y=y, z=z)
 
 
