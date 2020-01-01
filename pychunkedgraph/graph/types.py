@@ -20,6 +20,12 @@ class Node:
         self.parent_id = parent_id
         self.children = children
 
+    def __str__(self):
+        return f"{self.node_id}:{self.parent_id}:{self.children}"
+
+    def __repr__(self):
+        return f"{self.node_id}:{self.parent_id}:{self.children}"
+
 
 """
 An Agglomeration is syntactic sugar for representing

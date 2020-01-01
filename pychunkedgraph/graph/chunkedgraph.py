@@ -291,6 +291,7 @@ class ChunkedGraph:
             bounding_chunk_ids = np.array(
                 [self.get_chunk_id(layer=layer_, x=x, y=y, z=z) for (x, y, z) in chunks]
             )
+            print("bounding_chunk_ids", bounding_chunk_ids)
             layer_mask = self.get_chunk_layers(node_ids) > layer_
             if hierarchy:
                 # first read available nodes from hierarchy
@@ -306,8 +307,11 @@ class ChunkedGraph:
                 )
             else:
                 children = self.get_children(node_ids[layer_mask], flatten=True)
+            print("node_id, children", node_id, children)
+            print()
             children_chunk_ids = self.get_chunk_ids_from_node_ids(children)
             children = children[np.in1d(children_chunk_ids, bounding_chunk_ids)]
+            print("children_chunk_ids", children_chunk_ids)
             node_ids = np.concatenate([node_ids[~layer_mask], children])
             layer_ -= 1
 
@@ -418,6 +422,8 @@ class ChunkedGraph:
         parent_id = node_id
         all_parent_ids = []
         stop_layer = self.meta.layer_count if not stop_layer else stop_layer
+        if self.get_chunk_layer(parent_id) == stop_layer:
+            return node_id
 
         for _ in range(n_tries):
             parent_id = node_id
@@ -1112,6 +1118,13 @@ class ChunkedGraph:
 
     def get_children_chunk_ids(self, node_or_chunk_id: basetypes.NODE_ID):
         return chunk_hierarchy.get_children_chunk_ids(self.meta, node_or_chunk_id)
+
+    def get_parent_chunk_id(
+        self, node_or_chunk_id: basetypes.NODE_ID, parent_layer: int
+    ):
+        return chunk_hierarchy.get_parent_chunk_id(
+            self.meta, node_or_chunk_id, parent_layer
+        )
 
     def get_parent_chunk_ids(self, node_or_chunk_id: basetypes.NODE_ID):
         return chunk_hierarchy.get_parent_chunk_ids(self.meta, node_or_chunk_id)
