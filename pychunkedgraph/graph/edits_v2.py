@@ -23,7 +23,6 @@ def _get_all_siblings(cg, new_parent_id, new_id_ce_siblings: Iterable) -> List:
     Children of these parents will include all siblings.
     """
     chunk_ids = cg.get_children_chunk_ids(new_parent_id)
-    print("children chunk_ids", new_parent_id, chunk_ids)
     children = cg.get_children(
         np.unique(cg.get_parents(new_id_ce_siblings)), flatten=True
     )
@@ -38,7 +37,6 @@ def _create_parent_node(cg, new_node: Node, parent_layer: int = None) -> Node:
     new_parent_id = parent_chunk_id | new_parent_seg_id
     new_parent_node = Node(new_parent_id)
     new_node.parent_id = new_parent_id
-    print("new_node, new_parent_node", new_node, new_parent_node)
     return new_parent_node
 
 
@@ -53,13 +51,6 @@ def _create_parents(
     new_nodes_d = {}  # cache
     layer_new_ids_d[2] = list(new_cross_edges_d_d.keys())
     for current_layer in range(2, cg.meta.layer_count):
-        # print()
-        # print("new_cross_edges_d_d", new_cross_edges_d_d)
-        # print()
-        # print("layer_new_ids_d", layer_new_ids_d)
-        # print()
-        # print("new_nodes_d", new_nodes_d)
-        # print()
         if len(layer_new_ids_d[current_layer]) == 0:
             continue
         new_ids = layer_new_ids_d[current_layer]
