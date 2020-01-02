@@ -454,12 +454,19 @@ def _get_contact_site_edges_to_inspect(
             edges_in2.append(sv_edges_in)
             edges_out2.append(sv_edges_out)
             areas_out2.append(sv_areas_out)
-    edges_in1 = np.concatenate(edges_in1)
-    edges_out1 = np.concatenate(edges_out1)
-    areas_out1 = np.concatenate(areas_out1)
-    edges_in2 = np.concatenate(edges_in2)
-    edges_out2 = np.concatenate(edges_out2)
-    areas_out2 = np.concatenate(areas_out2)
+
+    def _concat_nonempty(x):
+        if len(x) > 0:
+            return np.concatenate(x)
+        return x
+
+    edges_in1 = _concat_nonempty(edges_in1)
+    edges_out1 = _concat_nonempty(edges_out1)
+    areas_out1 = _concat_nonempty(areas_out1)
+    edges_in2 = _concat_nonempty(edges_in2)
+    edges_out2 = _concat_nonempty(edges_out2)
+    areas_out2 = _concat_nonempty(areas_out2)
+
 
     # Check the number of contact sites from both sides. The number may be different; the higher
     # number is always more accurate.
@@ -603,6 +610,8 @@ def get_contact_sites_pairwise(
     sv_ids_set1, sv_ids_set2 = _get_sv_contact_site_candidates(
         cg, first_node_id, second_node_id
     )
+    if len(sv_ids_set1) == 0 or len(sv_ids_set2) == 0:
+        return []
     edges_to_inspect = _get_contact_site_edges_to_inspect(
         cg, sv_ids_set1, sv_ids_set2, end_time, optimize_unsafe
     )
