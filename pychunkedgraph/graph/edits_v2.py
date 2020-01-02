@@ -46,9 +46,14 @@ def _create_parents(
     operation_id: basetypes.OPERATION_ID,
     time_stamp: datetime.datetime,
 ):
-    """TODO docs"""
+    """
+    After new level 2 IDs are built, create parents in higher layers.
+    Cross edges are used to determine existing siblings.
+    """
     layer_new_ids_d = defaultdict(list)
-    new_nodes_d = {}  # cache
+    # cache for easier access
+    new_nodes_d = {}
+    # new IDs in each layer
     layer_new_ids_d[2] = list(new_cross_edges_d_d.keys())
     for current_layer in range(2, cg.meta.layer_count):
         if len(layer_new_ids_d[current_layer]) == 0:
