@@ -270,14 +270,13 @@ class ChunkedGraph:
         Cross chunk edges for `node_id` at `node_layer`.
         The edges are between node IDs at the `node_layer`, not atomic cross edges.
         Returns dict {layer_id: cross_edges}
-            1. For level 2 IDs, cross edges from all layers are returned.
-            2. For IDs in layer > 2, the first layer (>= `node_layer`)
-               with atleast one cross chunk edge.
-               For current use-cases, other layers are not relevant.
+            The first layer (>= `node_layer`) with atleast one cross chunk edge.
+            For current use-cases, other layers are not relevant.
 
-        Cross edges that belong to inner level 2 IDs are within this chunk.
-        So for performance, only children that lie along chunk boundary are considered.
+        For performance, only children that lie along chunk boundary are considered.
+        Cross edges that belong to inner level 2 IDs are subsumed within the chunk.
         This is because cross edges are stored only in level 2 IDs.
+
         `hierarchy` is needed during merge/split when new IDs are still in memory.
         """
         node_layer = self.get_chunk_layer(node_id)
