@@ -10,6 +10,7 @@ from collections import defaultdict
 from .types import Node
 from .utils import basetypes
 from .utils import flatgraph
+from .utils.context_managers import TimeIt
 from .utils.generic import get_bounding_box
 from .connectivity.nodes import edge_exists
 from .edges.utils import get_min_layer_cross_edges
@@ -98,6 +99,7 @@ def _analyze_atomic_edge(
     mask = edge_layers == 1
 
     # initialize with in-chunk edges
+    print(atomic_edges[mask])
     parent_edges = [cg.get_parents(_) for _ in atomic_edges[mask]]
 
     # cross chunk edges
@@ -106,17 +108,17 @@ def _analyze_atomic_edge(
         parent_edge = cg.get_parents(edge)
         parent_1 = parent_edge[0]
         parent_2 = parent_edge[1]
-        cross_edges_d[parent_1] = {layer: edge}
-        cross_edges_d[parent_2] = {layer: edge[::-1]}
+        atomic_cross_edges_d[parent_1] = {layer: edge}
+        atomic_cross_edges_d[parent_2] = {layer: edge[::-1]}
         parent_edges.append([parent_1, parent_1])
         parent_edges.append([parent_2, parent_2])
-    return (parent_edges, cross_edges_d)
+    return (parent_edges, atomic_cross_edges_d)
 
 
 def add_edge(
     cg,
     *,
-    edge: np.ndarray,
+    edges: np.ndarray,
     operation_id: np.uint64 = None,
     source_coords: Sequence[np.uint64] = None,
     sink_coords: Sequence[np.uint64] = None,
@@ -131,16 +133,20 @@ def add_edge(
         above children + new ID will form a new component
         update parent, former parents and new parents for all affected IDs
     """
-    edges, l2_atomic_cross_edges_d = _analyze_atomic_edge(cg, edge)
-    atomic_cross_edges_d = merge_cross_edge_dicts_multiple(
-        cg.get_atomic_cross_edges(np.unique(edges)), l2_atomic_cross_edges_d
-    )
+    edges, l2_atomic_cross_edges_d = _analyze_atomic_edge(cg, edges)
 
-    cross_edges_d = {}
+    with TimeIt("get_atomic_cross_edges multiple"):
+        atomic_cross_edges_d = merge_cross_edge_dicts_multiple(
+            cg.get_atomic_cross_edges(np.unique(edges)), l2_atomic_cross_edges_d
+        )
+
     graph, _, _, graph_node_ids = flatgraph.build_gt_graph(edges, make_directed=True)
+
     # TODO get_cross_chunk_edges multiple node IDs all at once
-    # for l2id in graph_node_ids:
-    #     cross_edges_d[l2id] = cg.get_cross_chunk_edges(l2id)
+    cross_edges_d = {}
+    with TimeIt("get_cross_chunk_edges cross_edges_d"):
+        for l2id in graph_node_ids:
+            cross_edges_d[l2id] = cg.get_cross_chunk_edges(l2id)
 
     ccs = flatgraph.connected_components(graph)
 

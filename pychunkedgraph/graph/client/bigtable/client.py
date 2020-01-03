@@ -273,6 +273,7 @@ class BigTableClient(bigtable.Client, ClientWithIDGen):
     def create_node_ids(self, chunk_id: np.uint64, size: int) -> np.ndarray:
         """Generates a list of unique node IDs for the given chunk."""
         low, high = self._get_ids_range(serialize_uint64(chunk_id), size)
+        low, high = basetypes.SEGMENT_ID.type(low), basetypes.SEGMENT_ID.type(high)
         low_id, high_id = chunk_id | low, chunk_id | high
         return np.arange(low_id, high_id + np.uint64(1), dtype=basetypes.NODE_ID)
 
@@ -308,7 +309,7 @@ class BigTableClient(bigtable.Client, ClientWithIDGen):
         f = self._table.column_family("3", gc_rule=MaxVersionsGCRule(1))
         f.create()
 
-    def _get_ids_range(self, key: bytes, size: int):
+    def _get_ids_range(self, key: bytes, size: int) -> Tuple:
         """Returns a range (min, max) of IDs for a given `key`."""
         column = attributes.Concurrency.Counter
         row = self._table.row(key, append=True)
