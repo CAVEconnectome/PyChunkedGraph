@@ -158,8 +158,7 @@ def _write_components_helper(args):
             continue
 
         parent_chunk_id = parent_chunk_id_dict[parent_layer_id]
-        # TODO create node IDs from segment IDs
-        reserved_parent_ids = cg.id_client.create_segment_ids(
+        reserved_parent_ids = cg.id_client.create_node_ids(
             parent_chunk_id, step=len(cc_connections[parent_layer_id])
         )
 

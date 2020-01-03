@@ -96,13 +96,13 @@ class ChunkedGraph:
     ) -> typing.Dict:
         """Read all nodes in a chunk."""
         layer = self.get_chunk_layer(chunk_id)
-        max_segment_id = self.id_client.get_max_segment_id(chunk_id=chunk_id)
+        max_node_id = self.id_client.get_max_node_id(chunk_id=chunk_id)
         if layer == 1:
-            max_segment_id = self.get_segment_id_limit(chunk_id)
+            max_node_id = chunk_id | self.get_segment_id_limit(chunk_id)
 
         return self.client.read_nodes(
             start_id=self.get_node_id(np.uint64(0), chunk_id=chunk_id),
-            end_id=self.get_node_id(max_segment_id, chunk_id=chunk_id),
+            end_id=max_node_id,
             end_id_inclusive=True,
             properties=properties,
             end_time=time_stamp,
