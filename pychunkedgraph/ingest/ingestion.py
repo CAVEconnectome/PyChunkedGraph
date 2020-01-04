@@ -38,7 +38,9 @@ def start_ingest(imanager: IngestionManager):
         multi_args = []
         for job in jobs:
             multi_args.append(
-                (parent_children_count_d_shared, imanager.get_serialized_info(), job)
+                (parent_children_count_d_shared,
+                 imanager.get_serialized_info(),
+                 job)
             )
         mu.multiprocess_func(
             _create_atomic_chunks_helper,
@@ -100,17 +102,25 @@ def _post_task_completion(
             get_children_coords(imanager.chunkedgraph_meta, parent_layer, parent_coords)
         )
         # set initial number of child chunks
-        parent_children_count_d_shared[parent_chunk_str] = children_count
+        parent_children_count_d_shared[parent_chunk_str] = \
+            [children_count, mp.RLock]
+        
     # decrement child count by 1
-    parent_children_count_d_shared[parent_chunk_str] -= 1
+    parent_children_count_d_shared[parent_chunk_str][0] -= 1
 
     # if zero, all dependents complete -> start parent
-    if parent_children_count_d_shared[parent_chunk_str] == 0:
-        children = get_children_coords(
-            imanager.chunkedgraph_meta, parent_layer, parent_coords
-        )
-        imanager.cg.add_layer(parent_layer, children)
-        del parent_children_count_d_shared[parent_chunk_str]
-        _post_task_completion(
-            parent_children_count_d_shared, imanager, parent_layer, parent_coords
-        )
+    if parent_children_count_d_shared[parent_chunk_str][0] == 0:
+
+        l_acq = parent_children_count_d_shared[parent_chunk_str][1].acquire(block=False)
+
+        if l_acq:
+            children = get_children_coords(
+                imanager.chunkedgraph_meta, parent_layer, parent_coords
+            )
+            imanager.cg.add_layer(parent_layer, children)
+
+            del parent_children_count_d_shared[parent_chunk_str]
+
+            _post_task_completion(
+                parent_children_count_d_shared, imanager, parent_layer, parent_coords
+            )
