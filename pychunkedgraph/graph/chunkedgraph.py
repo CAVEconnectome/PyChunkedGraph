@@ -296,14 +296,14 @@ class ChunkedGraph:
             )
             layer_mask = self.get_chunk_layers(node_ids) > layer_
             if hierarchy:
-                # first read available nodes from hierarchy
-                # read the rest from storage
                 _node_ids = node_ids[layer_mask]
                 node_ids_ = np.fromiter(hierarchy.keys(), dtype=basetypes.NODE_ID)
                 mask_ = np.in1d(_node_ids, node_ids_)
                 children = np.concatenate(
                     [
+                        # first read available nodes from hierarchy
                         *[hierarchy[_].children for _ in _node_ids[mask_]],
+                        # read the rest from storage
                         self.get_children(_node_ids[~mask_], flatten=True),
                     ]
                 )
@@ -1059,6 +1059,47 @@ class ChunkedGraph:
         #     self.logger.error("inf in cutset")
         #     return False, None
         return atomic_edges
+
+    def _get_l2_children(self, node_ids):
+        nodes_layer = self.get_chunk_layer(node_ids[0])
+        node_coords_d = {
+            node_id: self.get_chunk_coordinates(node_id) for node_id in node_ids
+        }
+        X, Y, Z = self.get_chunk_coordinates(node_id)
+        layer_ = nodes_layer - 1
+        while layer_ >= 2:
+            children_ids = []
+            for node_id in node_ids:
+                X, Y, Z = node_coords_d[node_id]
+                chunks = chunk_utils.get_bounding_children_chunks(
+                    self.meta, nodes_layer, (X, Y, Z), layer_
+                )
+                bounding_chunk_ids = np.array(
+                    [self.get_chunk_id(layer=layer_, x=x, y=y, z=z) for (x, y, z) in chunks]
+                )
+                layer_mask = self.get_chunk_layers(node_ids) > layer_
+                if hierarchy:
+                    _node_ids = node_ids[layer_mask]
+                    node_ids_ = np.fromiter(hierarchy.keys(), dtype=basetypes.NODE_ID)
+                    mask_ = np.in1d(_node_ids, node_ids_)
+                    children = np.concatenate(
+                        [
+                            # first read available nodes from hierarchy
+                            *[hierarchy[_].children for _ in _node_ids[mask_]],
+                            # read the rest from storage
+                            self.get_children(_node_ids[~mask_], flatten=True),
+                        ]
+                    )
+                else:
+                    children = self.get_children(node_ids[layer_mask], flatten=True)
+                children_chunk_ids = self.get_chunk_ids_from_node_ids(children)
+                children = children[np.in1d(children_chunk_ids, bounding_chunk_ids)]
+                node_ids = np.concatenate([node_ids[~layer_mask], children])
+            layer_ -= 1
+
+        # find relevant min_layer >= nodes_layer
+        node_edges_d_d = self.get_atomic_cross_edges(node_ids)
+        return self.get_min_layer_cross_edges(node_id, node_edges_d_d)        
 
     # OPERATION LOGGING
     def read_logs(self, operation_ids: typing.Optional[typing.List[np.uint64]] = None):
