@@ -34,7 +34,7 @@ def start_ingest(imanager: IngestionManager):
 
     with mp.Manager() as manager:
         parent_children_count_d_shared = manager.dict()
-        parent_children_count_d_lock = mp.Lock()
+        parent_children_count_d_lock = manager.Lock()  # pylint: disable=no-member
         jobs = chunked(chunk_coords, len(chunk_coords) // mp.cpu_count())
         multi_args = []
         for job in jobs:
