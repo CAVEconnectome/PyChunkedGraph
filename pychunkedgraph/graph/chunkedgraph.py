@@ -173,9 +173,13 @@ class ChunkedGraph:
     def get_parents(
         self,
         node_ids: typing.Sequence[np.uint64],
-        get_only_relevant_parents: bool = True,
+        current: bool = True,
         time_stamp: typing.Optional[datetime.datetime] = None,
     ):
+        """
+        If current=True returns only the latest parents.
+        Else all parents along with timestamps.
+        """
         time_stamp = misc_utils.get_valid_timestamp(time_stamp)
         parent_rows = self.client.read_nodes(
             node_ids=node_ids,
@@ -185,7 +189,7 @@ class ChunkedGraph:
         )
         if not parent_rows:
             return None
-        if get_only_relevant_parents:
+        if current:
             return np.array([parent_rows[node_id][0].value for node_id in node_ids])
         parents = []
         for node_id in node_ids:
@@ -312,6 +316,19 @@ class ChunkedGraph:
 
         # find relevant min_layer >= node_layer
         node_edges_d_d = self.get_atomic_cross_edges(node_ids)
+        return self.get_min_layer_cross_edges(node_id, node_edges_d_d)
+
+    def get_min_layer_cross_edges(
+        self,
+        node_id: basetypes.NODE_ID,
+        node_edges_d_d: typing.Dict[np.uint64, typing.Dict],
+    ):
+        """
+        Find edges at relevant min_layer >= node_layer.
+        `node_edges_d_d` is a dict of level 2 IDs that are
+        descendants of `node_id`, with atomic cross edges.
+        """
+        node_layer = self.get_chunk_layer(node_id)
         min_layer = self.meta.layer_count
         for edges_d in node_edges_d_d.values():
             layer_, _ = edge_utils.get_min_layer_cross_edges(
@@ -321,7 +338,7 @@ class ChunkedGraph:
 
         edges = [types.empty_2d]
         for edges_d in node_edges_d_d.values():
-            edges_ = edges_d[min_layer] if min_layer in edges_d else types.empty_2d
+            edges_ = edges_d.get(min_layer, types.empty_2d)
             edges_[:, 1] = self.get_roots(edges_[:, 1], stop_layer=min_layer)
             edges.append(edges_)
         edges = np.concatenate(edges)

@@ -250,7 +250,7 @@ def get_min_layer_cross_edges(
     Return the first layer with cross edges.
     """
     for layer in range(node_layer, meta.layer_count):
-        edges_ = cross_edges_d[layer] if layer in cross_edges_d else empty_2d
+        edges_ = cross_edges_d.get(layer, empty_2d)
         if edges_.size:
             return (layer, edges_)
     return (meta.layer_count, edges_)

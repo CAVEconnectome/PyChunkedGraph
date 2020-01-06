@@ -8,6 +8,7 @@ from typing import Sequence
 from collections import defaultdict
 
 from .types import Node
+from .types import empty_2d
 from .utils import basetypes
 from .utils import flatgraph
 from .utils.context_managers import TimeIt
@@ -99,7 +100,6 @@ def _analyze_atomic_edge(
     mask = edge_layers == 1
 
     # initialize with in-chunk edges
-    print(atomic_edges[mask])
     parent_edges = [cg.get_parents(_) for _ in atomic_edges[mask]]
 
     # cross chunk edges
@@ -146,17 +146,20 @@ def add_edge(
     cross_edges_d = {}
     with TimeIt("get_cross_chunk_edges cross_edges_d"):
         for l2id in graph_node_ids:
-            cross_edges_d[l2id] = cg.get_cross_chunk_edges(l2id)
+            if l2id in atomic_cross_edges_d:
+                cross_edges_d[l2id] = cg.get_min_layer_cross_edges(
+                    l2id, {l2id: atomic_cross_edges_d[l2id]}
+                )
+            else:
+                cross_edges_d[l2id] = cg.get_cross_chunk_edges(l2id)
 
     ccs = flatgraph.connected_components(graph)
-
     new_l2ids = []
     l2_cross_edges_d = {}
     for cc in ccs:
         l2ids = graph_node_ids[cc]
         chunk_id = cg.get_chunk_id(l2ids[0])
         new_l2ids.append(cg.id_client.create_node_id(chunk_id))
-
         l2_cross_edges_d[new_l2ids[-1]] = concatenate_cross_edge_dicts(
             [cross_edges_d[l2id] for l2id in l2ids]
         )
