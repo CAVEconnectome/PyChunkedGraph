@@ -79,6 +79,11 @@ def handle_get_manifest(table_id, node_id):
     else:
         start_layer = cg.get_chunk_layer(np.uint64(node_id))
 
+    if "flexible_start_layer" in data:
+        flexible_start_layer = int(data["flexible_start_layer"])
+    else:
+        flexible_start_layer = None
+
     seg_ids = meshgen_utils.get_highest_child_nodes_with_meshes(
         cg,
         np.uint64(node_id),
@@ -86,8 +91,21 @@ def handle_get_manifest(table_id, node_id):
         start_layer=start_layer,
         bounding_box=bounding_box,
         verify_existence=verify,
+        flexible_start_layer=flexible_start_layer
     )
 
     filenames = [meshgen_utils.get_mesh_name(cg, s) for s in seg_ids]
 
-    return jsonify(fragments=filenames)
+    resp = {
+        "fragments": filenames
+    }
+
+    if "return_seg_id_layers" in data:
+        if app_utils.toboolean(data["return_seg_id_layers"]):
+            resp["seg_id_layers"] = cg.get_chunk_layers(seg_ids)
+
+    if "return_seg_chunk_coordinates" in data:
+        if app_utils.toboolean(data["return_seg_chunk_coordinates"]):
+            resp["seg_chunk_coordinates"] = [cg.get_chunk_coordinates(seg_id) for seg_id in seg_ids]
+
+    return resp

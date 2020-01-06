@@ -119,20 +119,28 @@ def get_downstream_multi_child_nodes(cg, node_ids: Sequence[np.uint64], require_
     return recursive_helper(node_ids)
 
 
-def get_highest_child_nodes_with_meshes(cg,
-                                        node_id: np.uint64,
-                                        stop_layer=1,
-                                        start_layer=None,
-                                        verify_existence=False,
-                                        bounding_box=None):
-    if start_layer is None:
-        start_layer = cg.n_layers
-
-    candidates = cg.get_subgraph_nodes(
-        node_id,
-        bounding_box=bounding_box,
-        bb_is_coordinate=True,
-        return_layers=[start_layer])
+def get_highest_child_nodes_with_meshes(
+    cg,
+    node_id: np.uint64,
+    stop_layer=2,
+    start_layer=None,
+    verify_existence=False,
+    bounding_box=None,
+    flexible_start_layer=None,
+):
+    if flexible_start_layer is not None:
+        # Get highest children that are at flexible_start_layer or below
+        # (do this because of skip connections)
+        candidates = cg.get_children_at_layer(node_id, flexible_start_layer, True)
+    elif start_layer is None:
+        candidates = np.array([node_id], dtype=np.uint64)
+    else:
+        candidates = cg.get_subgraph_nodes(
+            node_id,
+            bounding_box=bounding_box,
+            bb_is_coordinate=True,
+            return_layers=[start_layer],
+        )
 
     if verify_existence:
         valid_node_ids = []
@@ -146,7 +154,7 @@ def get_highest_child_nodes_with_meshes(cg,
 
                 missing_meshes = []
                 for mesh_key in existence_dict:
-                    node_id = np.uint64(mesh_key.split(':')[0])
+                    node_id = np.uint64(mesh_key.split(":")[0])
                     if existence_dict[mesh_key]:
                         valid_node_ids.append(node_id)
                     else:
