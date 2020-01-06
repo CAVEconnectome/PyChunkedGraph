@@ -34,13 +34,17 @@ def start_ingest(imanager: IngestionManager):
 
     with mp.Manager() as manager:
         parent_children_count_d_shared = manager.dict()
+        parent_children_count_d_lock = mp.Lock()
         jobs = chunked(chunk_coords, len(chunk_coords) // mp.cpu_count())
         multi_args = []
         for job in jobs:
             multi_args.append(
-                (parent_children_count_d_shared,
-                 imanager.get_serialized_info(),
-                 job)
+                (
+                    parent_children_count_d_shared,
+                    parent_children_count_d_lock,
+                    imanager.get_serialized_info(),
+                    job,
+                )
             )
         mu.multiprocess_func(
             _create_atomic_chunks_helper,
@@ -51,7 +55,12 @@ def start_ingest(imanager: IngestionManager):
 
 def _create_atomic_chunks_helper(args):
     """ helper to start atomic tasks """
-    parent_children_count_d_shared, im_info, chunk_coords = args
+    (
+        parent_children_count_d_shared,
+        parent_children_count_d_lock,
+        im_info,
+        chunk_coords,
+    ) = args
     imanager = IngestionManager(**im_info)
     for chunk_coord in chunk_coords:
         chunk_coord = np.array(list(chunk_coord), dtype=np.int)
@@ -59,7 +68,13 @@ def _create_atomic_chunks_helper(args):
 
         ids, affs, areas, isolated = get_chunk_data_old_format(chunk_edges_all, mapping)
         imanager.cg.add_atomic_edges_in_chunks(ids, affs, areas, isolated)
-        _post_task_completion(parent_children_count_d_shared, imanager, 2, chunk_coord)
+        _post_task_completion(
+            parent_children_count_d_shared,
+            parent_children_count_d_lock,
+            imanager,
+            2,
+            chunk_coord,
+        )
 
 
 def _get_atomic_chunk_data(imanager: IngestionManager, coord) -> Tuple[Dict, Dict]:
@@ -84,6 +99,7 @@ def _get_atomic_chunk_data(imanager: IngestionManager, coord) -> Tuple[Dict, Dic
 
 def _post_task_completion(
     parent_children_count_d_shared: Dict,
+    parent_children_count_d_lock: mp.Lock,
     imanager: IngestionManager,
     layer: int,
     coords: np.ndarray,
@@ -97,30 +113,30 @@ def _post_task_completion(
     )
     parent_chunk_str = chunk_id_str(parent_layer, parent_coords)
 
-    if not parent_chunk_str in parent_children_count_d_shared:
-        children_count = len(
-            get_children_coords(imanager.chunkedgraph_meta, parent_layer, parent_coords)
-        )
-        # set initial number of child chunks
-        parent_children_count_d_shared[parent_chunk_str] = \
-            [children_count, mp.RLock]
-        
-    # decrement child count by 1
-    parent_children_count_d_shared[parent_chunk_str][0] -= 1
+    with parent_children_count_d_lock:
+        if not parent_chunk_str in parent_children_count_d_shared:
+            children_count = len(
+                get_children_coords(
+                    imanager.chunkedgraph_meta, parent_layer, parent_coords
+                )
+            )
+            # set initial number of child chunks
+            parent_children_count_d_shared[parent_chunk_str] = children_count
 
-    # if zero, all dependents complete -> start parent
-    if parent_children_count_d_shared[parent_chunk_str][0] == 0:
+        # decrement child count by 1
+        parent_children_count_d_shared[parent_chunk_str] -= 1
 
-        l_acq = parent_children_count_d_shared[parent_chunk_str][1].acquire(block=False)
-
-        if l_acq:
+        # if zero, all dependents complete -> start parent
+        if parent_children_count_d_shared[parent_chunk_str] == 0:
             children = get_children_coords(
                 imanager.chunkedgraph_meta, parent_layer, parent_coords
             )
             imanager.cg.add_layer(parent_layer, children)
-
             del parent_children_count_d_shared[parent_chunk_str]
-
             _post_task_completion(
-                parent_children_count_d_shared, imanager, parent_layer, parent_coords
+                parent_children_count_d_shared,
+                parent_children_count_d_lock,
+                imanager,
+                parent_layer,
+                parent_coords,
             )
