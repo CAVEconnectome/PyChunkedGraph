@@ -6,6 +6,7 @@ import logging
 from itertools import chain
 from itertools import product
 from functools import reduce
+from collections import defaultdict
 
 import numpy as np
 import pytz
@@ -1060,24 +1061,30 @@ class ChunkedGraph:
         #     return False, None
         return atomic_edges
 
-    def _get_l2_children(self, node_ids):
-        nodes_layer = self.get_chunk_layer(node_ids[0])
-        node_coords_d = {
-            node_id: self.get_chunk_coordinates(node_id) for node_id in node_ids
+    def _get_l2_children(self, parent_ids):
+        parents_layer = self.get_chunk_layer(parent_ids[0])
+        parent_coords_d = {
+            node_id: self.get_chunk_coordinates(node_id) for node_id in parent_ids
         }
-        X, Y, Z = self.get_chunk_coordinates(node_id)
-        layer_ = nodes_layer - 1
-        while layer_ >= 2:
-            children_ids = []
-            for node_id in node_ids:
-                X, Y, Z = node_coords_d[node_id]
+
+        parent_l2ids_d = defaultdict(lambda: types.empty_1d)
+        parent_children_d = defaultdict(lambda: types.empty_1d)
+
+        node_ids = parent_ids
+        children_layer = parents_layer - 1
+        while children_layer >= 2:
+
+            for parent_id, (X, Y, Z) in parent_coords_d.items():
                 chunks = chunk_utils.get_bounding_children_chunks(
-                    self.meta, nodes_layer, (X, Y, Z), layer_
+                    self.meta, parents_layer, (X, Y, Z), children_layer
                 )
                 bounding_chunk_ids = np.array(
-                    [self.get_chunk_id(layer=layer_, x=x, y=y, z=z) for (x, y, z) in chunks]
+                    [
+                        self.get_chunk_id(layer=children_layer, x=x, y=y, z=z)
+                        for (x, y, z) in chunks
+                    ]
                 )
-                layer_mask = self.get_chunk_layers(node_ids) > layer_
+                layer_mask = self.get_chunk_layers(node_ids) > children_layer
                 if hierarchy:
                     _node_ids = node_ids[layer_mask]
                     node_ids_ = np.fromiter(hierarchy.keys(), dtype=basetypes.NODE_ID)
@@ -1095,11 +1102,10 @@ class ChunkedGraph:
                 children_chunk_ids = self.get_chunk_ids_from_node_ids(children)
                 children = children[np.in1d(children_chunk_ids, bounding_chunk_ids)]
                 node_ids = np.concatenate([node_ids[~layer_mask], children])
-            layer_ -= 1
+            children_layer -= 1
 
-        # find relevant min_layer >= nodes_layer
         node_edges_d_d = self.get_atomic_cross_edges(node_ids)
-        return self.get_min_layer_cross_edges(node_id, node_edges_d_d)        
+        return self.get_min_layer_cross_edges(node_id, node_edges_d_d)
 
     # OPERATION LOGGING
     def read_logs(self, operation_ids: typing.Optional[typing.List[np.uint64]] = None):
