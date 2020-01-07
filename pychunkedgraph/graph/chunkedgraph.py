@@ -1068,6 +1068,7 @@ class ChunkedGraph:
         }
 
         parent_bounding_chunk_ids = defaultdict(lambda: types.empty_1d)
+        parent_layer_mask = {}
 
         parent_children_d = {
             parent_id: np.array([parent_id], dtype=basetypes.NODE_ID)
@@ -1077,7 +1078,6 @@ class ChunkedGraph:
         children_layer = parents_layer - 1
         while children_layer >= 2:
             for parent_id, (X, Y, Z) in parent_coords_d.items():
-                node_ids = parent_children_d[parent_id]
                 chunks = chunk_utils.get_bounding_children_chunks(
                     self.meta, parents_layer, (X, Y, Z), children_layer
                 )
@@ -1087,8 +1087,9 @@ class ChunkedGraph:
                         for (x, y, z) in chunks
                     ]
                 )
-                layer_mask = self.get_chunk_layers(node_ids) > children_layer
-                parent_children_d[parent_id] = node_ids[layer_mask]
+                parent_layer_mask[parent_id] = (
+                    self.get_chunk_layers(parent_children_d[parent_id]) > children_layer
+                )
 
             children = self.get_children(node_ids[layer_mask], flatten=True)
             children_chunk_ids = self.get_chunk_ids_from_node_ids(children)
