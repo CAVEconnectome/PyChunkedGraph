@@ -1067,41 +1067,33 @@ class ChunkedGraph:
             node_id: self.get_chunk_coordinates(node_id) for node_id in parent_ids
         }
 
-        parent_l2ids_d = defaultdict(lambda: types.empty_1d)
-        parent_children_d = defaultdict(lambda: types.empty_1d)
+        parent_bounding_chunk_ids = defaultdict(lambda: types.empty_1d)
 
-        node_ids = parent_ids
+        parent_children_d = {
+            parent_id: np.array([parent_id], dtype=basetypes.NODE_ID)
+            for parent_id in parent_ids
+        }
+
         children_layer = parents_layer - 1
         while children_layer >= 2:
-
             for parent_id, (X, Y, Z) in parent_coords_d.items():
+                node_ids = parent_children_d[parent_id]
                 chunks = chunk_utils.get_bounding_children_chunks(
                     self.meta, parents_layer, (X, Y, Z), children_layer
                 )
-                bounding_chunk_ids = np.array(
+                parent_bounding_chunk_ids[parent_id] = np.array(
                     [
                         self.get_chunk_id(layer=children_layer, x=x, y=y, z=z)
                         for (x, y, z) in chunks
                     ]
                 )
                 layer_mask = self.get_chunk_layers(node_ids) > children_layer
-                if hierarchy:
-                    _node_ids = node_ids[layer_mask]
-                    node_ids_ = np.fromiter(hierarchy.keys(), dtype=basetypes.NODE_ID)
-                    mask_ = np.in1d(_node_ids, node_ids_)
-                    children = np.concatenate(
-                        [
-                            # first read available nodes from hierarchy
-                            *[hierarchy[_].children for _ in _node_ids[mask_]],
-                            # read the rest from storage
-                            self.get_children(_node_ids[~mask_], flatten=True),
-                        ]
-                    )
-                else:
-                    children = self.get_children(node_ids[layer_mask], flatten=True)
-                children_chunk_ids = self.get_chunk_ids_from_node_ids(children)
-                children = children[np.in1d(children_chunk_ids, bounding_chunk_ids)]
-                node_ids = np.concatenate([node_ids[~layer_mask], children])
+                parent_children_d[parent_id] = node_ids[layer_mask]
+
+            children = self.get_children(node_ids[layer_mask], flatten=True)
+            children_chunk_ids = self.get_chunk_ids_from_node_ids(children)
+            children = children[np.in1d(children_chunk_ids, bounding_chunk_ids)]
+            node_ids = np.concatenate([node_ids[~layer_mask], children])
             children_layer -= 1
 
         node_edges_d_d = self.get_atomic_cross_edges(node_ids)
