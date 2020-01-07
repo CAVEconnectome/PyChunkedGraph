@@ -1091,6 +1091,14 @@ class ChunkedGraph:
                     self.get_chunk_layers(parent_children_d[parent_id]) > children_layer
                 )
 
+            """
+            TODO for each parent, get relevant layer children
+            combine these children from all parents
+            get children of these children in one call
+            update each parent with new children, include the ones that were masked out
+            (node_ids[~layer_mask])
+            """
+
             children = self.get_children(node_ids[layer_mask], flatten=True)
             children_chunk_ids = self.get_chunk_ids_from_node_ids(children)
             children = children[np.in1d(children_chunk_ids, bounding_chunk_ids)]
