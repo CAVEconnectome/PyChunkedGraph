@@ -61,8 +61,10 @@ def _create_parents(
         if len(layer_new_ids_d[current_layer]) == 0:
             continue
         new_ids = np.array(layer_new_ids_d[current_layer], basetypes.NODE_ID)
-        new_nodes_d.update({id_: Node(id_) for id_ in new_ids})
-
+        new_ids_ = np.fromiter(new_nodes_d.keys(), dtype=basetypes.NODE_ID)
+        new_nodes_d.update(
+            {id_: Node(id_) for id_ in new_ids[~np.in1d(new_ids, new_ids_)]}
+        )
         new_ids_ = np.fromiter(new_cross_edges_d_d.keys(), dtype=basetypes.NODE_ID)
         new_cross_edges_d_d.update(
             cg.get_cross_chunk_edges(
