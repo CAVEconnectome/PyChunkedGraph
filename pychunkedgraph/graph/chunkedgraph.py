@@ -1061,7 +1061,7 @@ class ChunkedGraph:
         #     return False, None
         return atomic_edges
 
-    def _get_l2_children(self, parent_ids):
+    def _get_bounding_l2_children(self, parent_ids):
         parents_layer = self.get_chunk_layer(parent_ids[0])
         parent_coords_d = {
             node_id: self.get_chunk_coordinates(node_id) for node_id in parent_ids
@@ -1093,11 +1093,9 @@ class ChunkedGraph:
                 parent_layer_mask[parent_id] = layer_mask
                 parent_masked_children_d[parent_id] = children[layer_mask]
 
-            children_ids = np.fromiter(
-                parent_masked_children_d.values(), dtype=basetypes.NODE_ID
-            )
+            children_ids = np.concatenate(list(parent_masked_children_d.values()))
             child_grand_children_d = self.get_children(children_ids)
-            for parent_id, masked_children in parent_masked_children_d:
+            for parent_id, masked_children in parent_masked_children_d.items():
                 bounding_chunk_ids = parent_bounding_chunk_ids[parent_id]
                 grand_children = [types.empty_1d]
                 for child in masked_children:
