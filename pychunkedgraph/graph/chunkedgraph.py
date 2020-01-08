@@ -1061,7 +1061,13 @@ class ChunkedGraph:
         #     return False, None
         return atomic_edges
 
-    def _get_bounding_l2_children(self, parent_ids):
+    def _get_bounding_l2_children(self, parent_ids) -> typing.Dict:
+        """
+        Helper function to get level 2 children IDs for each parent.
+        When reading cross edges, only level 2 IDs
+        at the boundary of a chunk are relevant.
+        `parent_ids` must contain node IDs at same layer.
+        """
         parents_layer = self.get_chunk_layer(parent_ids[0])
         parent_coords_d = {
             node_id: self.get_chunk_coordinates(node_id) for node_id in parent_ids
