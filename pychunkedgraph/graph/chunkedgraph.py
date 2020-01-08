@@ -1077,6 +1077,7 @@ class ChunkedGraph:
 
         children_layer = parents_layer - 1
         while children_layer >= 2:
+            parent_masked_children_d = {}
             for parent_id, (X, Y, Z) in parent_coords_d.items():
                 chunks = chunk_utils.get_bounding_children_chunks(
                     self.meta, parents_layer, (X, Y, Z), children_layer
@@ -1087,26 +1088,35 @@ class ChunkedGraph:
                         for (x, y, z) in chunks
                     ]
                 )
-                parent_layer_mask[parent_id] = (
-                    self.get_chunk_layers(parent_children_d[parent_id]) > children_layer
+                children = parent_children_d[parent_id]
+                layer_mask = self.get_chunk_layers(children) > children_layer
+                parent_layer_mask[parent_id] = layer_mask
+                parent_masked_children_d[parent_id] = children[layer_mask]
+
+            children_ids = np.fromiter(
+                parent_masked_children_d.values(), dtype=basetypes.NODE_ID
+            )
+            child_grand_children_d = self.get_children(children_ids)
+            for parent_id, masked_children in parent_masked_children_d:
+                bounding_chunk_ids = parent_bounding_chunk_ids[parent_id]
+                grand_children = [types.empty_1d]
+                for child in masked_children:
+                    grand_children_ = child_grand_children_d[child]
+                    chunk_ids = self.get_chunk_ids_from_node_ids(grand_children_)
+                    grand_children_ = grand_children_[
+                        np.in1d(chunk_ids, bounding_chunk_ids)
+                    ]
+                    grand_children.append(grand_children_)
+                grand_children = np.concatenate(grand_children)
+
+                unmasked_children = parent_children_d[parent_id]
+                layer_mask = parent_layer_mask[parent_id]
+                parent_children_d[parent_id] = np.concatenate(
+                    [unmasked_children[~layer_mask], grand_children]
                 )
 
-            """
-            TODO for each parent, get relevant layer children
-            combine these children from all parents
-            get children of these children in one call
-            update each parent with new children, include the ones that were masked out
-            (node_ids[~layer_mask])
-            """
-
-            children = self.get_children(node_ids[layer_mask], flatten=True)
-            children_chunk_ids = self.get_chunk_ids_from_node_ids(children)
-            children = children[np.in1d(children_chunk_ids, bounding_chunk_ids)]
-            node_ids = np.concatenate([node_ids[~layer_mask], children])
             children_layer -= 1
-
-        node_edges_d_d = self.get_atomic_cross_edges(node_ids)
-        return self.get_min_layer_cross_edges(node_id, node_edges_d_d)
+        return parent_children_d
 
     # OPERATION LOGGING
     def read_logs(self, operation_ids: typing.Optional[typing.List[np.uint64]] = None):
