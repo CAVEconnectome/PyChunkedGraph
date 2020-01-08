@@ -267,10 +267,10 @@ class ChunkedGraph:
 
     def get_cross_chunk_edges(
         self,
-        node_id: basetypes.NODE_ID,
+        node_ids: typing.Iterable,
         *,
-        hierarchy: typing.Dict[np.uint64, types.Node] = None,
-    ) -> typing.Dict[int, typing.Iterable]:
+        nodes_cache: typing.Dict[np.uint64, types.Node] = None,
+    ) -> typing.Dict[np.uint64, typing.Dict[int, typing.Iterable]]:
         """
         Cross chunk edges for `node_id` at `node_layer`.
         The edges are between node IDs at the `node_layer`, not atomic cross edges.
@@ -282,42 +282,17 @@ class ChunkedGraph:
         Cross edges that belong to inner level 2 IDs are subsumed within the chunk.
         This is because cross edges are stored only in level 2 IDs.
 
-        `hierarchy` is needed during merge/split when new IDs are still in memory.
+        If `nodes_cache` is passed, IDs are first looked up in the cache.
+        If the ID is not in the cache, it is read from storage.
+        This is necessary when editing because the newly created IDs are 
+        not yet written to storage. But it can also be used as cache.
         """
-        node_layer = self.get_chunk_layer(node_id)
-        X, Y, Z = self.get_chunk_coordinates(node_id)
-        node_ids = np.array([node_id], dtype=basetypes.NODE_ID)
-        layer_ = node_layer - 1
-        while layer_ >= 2:
-            chunks = chunk_utils.get_bounding_children_chunks(
-                self.meta, node_layer, (X, Y, Z), layer_
-            )
-            bounding_chunk_ids = np.array(
-                [self.get_chunk_id(layer=layer_, x=x, y=y, z=z) for (x, y, z) in chunks]
-            )
-            layer_mask = self.get_chunk_layers(node_ids) > layer_
-            if hierarchy:
-                _node_ids = node_ids[layer_mask]
-                node_ids_ = np.fromiter(hierarchy.keys(), dtype=basetypes.NODE_ID)
-                mask_ = np.in1d(_node_ids, node_ids_)
-                children = np.concatenate(
-                    [
-                        # first read available nodes from hierarchy
-                        *[hierarchy[_].children for _ in _node_ids[mask_]],
-                        # read the rest from storage
-                        self.get_children(_node_ids[~mask_], flatten=True),
-                    ]
-                )
-            else:
-                children = self.get_children(node_ids[layer_mask], flatten=True)
-            children_chunk_ids = self.get_chunk_ids_from_node_ids(children)
-            children = children[np.in1d(children_chunk_ids, bounding_chunk_ids)]
-            node_ids = np.concatenate([node_ids[~layer_mask], children])
-            layer_ -= 1
-
-        # find relevant min_layer >= node_layer
-        node_edges_d_d = self.get_atomic_cross_edges(node_ids)
-        return self.get_min_layer_cross_edges(node_id, node_edges_d_d)
+        node_l2_children_d = self._get_bounding_l2_children(node_ids, cache=nodes_cache)
+        result = {}
+        for node_id in node_ids:
+            node_edges_d_d = self.get_atomic_cross_edges(node_l2_children_d[node_id])
+            result[node_id] = self.get_min_layer_cross_edges(node_id, node_edges_d_d)
+        return result
 
     def get_min_layer_cross_edges(
         self,
@@ -1061,7 +1036,11 @@ class ChunkedGraph:
         #     return False, None
         return atomic_edges
 
-    def _get_bounding_l2_children(self, parent_ids) -> typing.Dict:
+    def _get_bounding_l2_children(
+        self,
+        parent_ids: typing.Iterable,
+        cache: typing.Dict[np.uint64, types.Node] = None,
+    ) -> typing.Dict:
         """
         Helper function to get level 2 children IDs for each parent.
         When reading cross edges, only level 2 IDs
