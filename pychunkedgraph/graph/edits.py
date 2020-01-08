@@ -57,12 +57,17 @@ def _create_parents(
     # new IDs in each layer
     layer_new_ids_d[2] = list(new_cross_edges_d_d.keys())
     for current_layer in range(2, cg.meta.layer_count):
+        print(current_layer, layer_new_ids_d[current_layer])
         if len(layer_new_ids_d[current_layer]) == 0:
             continue
-        new_ids = layer_new_ids_d[current_layer]
-        new_nodes_d.update(**{id_: Node(id_) for id_ in new_ids})
+        new_ids = np.array(layer_new_ids_d[current_layer], basetypes.NODE_ID)
+        new_nodes_d.update({id_: Node(id_) for id_ in new_ids})
+
+        new_ids_ = np.fromiter(new_cross_edges_d_d.keys(), dtype=basetypes.NODE_ID)
         new_cross_edges_d_d.update(
-            **cg.get_cross_chunk_edges(new_ids, nodes_cache=new_nodes_d)
+            cg.get_cross_chunk_edges(
+                new_ids[~np.in1d(new_ids, new_ids_)], nodes_cache=new_nodes_d
+            )
         )
         for new_id in new_ids:
             new_id_ce_d = new_cross_edges_d_d[new_id]
@@ -106,8 +111,8 @@ def _analyze_atomic_edge(
         parent_edge = cg.get_parents(edge)
         parent_1 = parent_edge[0]
         parent_2 = parent_edge[1]
-        atomic_cross_edges_d[parent_1] = {layer: edge}
-        atomic_cross_edges_d[parent_2] = {layer: edge[::-1]}
+        atomic_cross_edges_d[parent_1] = {layer: [edge]}
+        atomic_cross_edges_d[parent_2] = {layer: [edge[::-1]]}
         parent_edges.append([parent_1, parent_1])
         parent_edges.append([parent_2, parent_2])
     return (parent_edges, atomic_cross_edges_d)

@@ -267,7 +267,7 @@ class ChunkedGraph:
 
     def get_cross_chunk_edges(
         self,
-        node_ids: typing.Iterable,
+        node_ids: np.ndarray,
         *,
         nodes_cache: typing.Dict[np.uint64, types.Node] = None,
     ) -> typing.Dict[np.uint64, typing.Dict[int, typing.Iterable]]:
@@ -287,8 +287,10 @@ class ChunkedGraph:
         This is necessary when editing because the newly created IDs are 
         not yet written to storage. But it can also be used as cache.
         """
-        node_l2_children_d = self._get_bounding_l2_children(node_ids, cache=nodes_cache)
         result = {}
+        if not node_ids.size:
+            return result
+        node_l2_children_d = self._get_bounding_l2_children(node_ids, cache=nodes_cache)
         for node_id in node_ids:
             node_edges_d_d = self.get_atomic_cross_edges(node_l2_children_d[node_id])
             result[node_id] = self.get_min_layer_cross_edges(node_id, node_edges_d_d)
@@ -430,7 +432,9 @@ class ChunkedGraph:
                 time.sleep(0.5)
 
         if self.get_chunk_layer(parent_id) < stop_layer:
-            raise Exception("Cannot find root id {}, {}".format(node_id, time_stamp))
+            raise Exception(
+                f"Cannot find root id {node_id}, {stop_layer}, {time_stamp}"
+            )
 
         if get_all_parents:
             return np.array(all_parent_ids)
@@ -1043,8 +1047,6 @@ class ChunkedGraph:
     ) -> typing.Dict:
         """
         Helper function to get level 2 children IDs for each parent.
-        When reading cross edges, only level 2 IDs
-        at the boundary of a chunk are relevant.
         `parent_ids` must contain node IDs at same layer.
         """
         parents_layer = self.get_chunk_layer(parent_ids[0])
@@ -1079,7 +1081,13 @@ class ChunkedGraph:
                 parent_masked_children_d[parent_id] = children[layer_mask]
 
             children_ids = np.concatenate(list(parent_masked_children_d.values()))
-            child_grand_children_d = self.get_children(children_ids)
+            cache_node_ids = np.fromiter(cache.keys(), dtype=basetypes.NODE_ID)
+            cache_mask = np.in1d(children_ids, cache_node_ids)
+            child_grand_children_d = {
+                child_id: cache[child_id].children
+                for child_id in children_ids[cache_mask]
+            }
+            child_grand_children_d.update(self.get_children(children_ids[~cache_mask]))
             for parent_id, masked_children in parent_masked_children_d.items():
                 bounding_chunk_ids = parent_bounding_chunk_ids[parent_id]
                 grand_children = [types.empty_1d]
