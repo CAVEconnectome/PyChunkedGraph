@@ -396,10 +396,8 @@ class ChunkedGraph:
         """Takes node ids and returns the associated agglomeration ids."""
         time_stamp = misc_utils.get_valid_timestamp(time_stamp)
         stop_layer = self.meta.layer_count if not stop_layer else stop_layer
-        layer_mask = np.ones(len(node_ids), dtype=np.bool)
-
         for _ in range(n_tries):
-            layer_mask[self.get_chunk_layers(node_ids) >= stop_layer] = False
+            layer_mask = self.get_chunk_layers(node_ids) < stop_layer
             parent_ids = np.array(node_ids, dtype=basetypes.NODE_ID)
             for _ in range(int(stop_layer + 1)):
                 filtered_ids = parent_ids[layer_mask]
@@ -409,9 +407,9 @@ class ChunkedGraph:
                     break
                 else:
                     parent_ids[layer_mask] = temp_ids[inverse]
-                    layer_mask[self.get_chunk_layers(parent_ids) >= stop_layer] = False
                     if not np.any(self.get_chunk_layers(parent_ids) < stop_layer):
                         return parent_ids
+                    layer_mask[self.get_chunk_layers(parent_ids) >= stop_layer] = False
             if not np.any(self.get_chunk_layers(parent_ids) < stop_layer):
                 return parent_ids
             else:
