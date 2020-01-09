@@ -152,8 +152,8 @@ def add_edge(
     with TimeIt("get_cross_chunk_edges cross_edges_d"):
         for l2id in graph_node_ids:
             if l2id in atomic_cross_edges_d:
-                cross_edges_d[l2id] = cg.get_min_layer_cross_edges(
-                    l2id, {l2id: atomic_cross_edges_d[l2id]}
+                cross_edges_d.update(
+                    cg.get_min_layer_cross_edges({l2id: [atomic_cross_edges_d[l2id]]})
                 )
             else:
                 cross_edges_d[l2id] = cg.get_cross_chunk_edges(l2id)
