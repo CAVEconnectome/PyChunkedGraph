@@ -126,17 +126,16 @@ def _post_task_completion(
         # decrement child count by 1
         parent_children_count_d_shared[parent_chunk_str] -= 1
 
-        # if zero, all dependents complete -> start parent
-        if parent_children_count_d_shared[parent_chunk_str] == 0:
-            children = get_children_coords(
-                imanager.chunkedgraph_meta, parent_layer, parent_coords
-            )
-            imanager.cg.add_layer(parent_layer, children)
-            del parent_children_count_d_shared[parent_chunk_str]
-            _post_task_completion(
-                parent_children_count_d_shared,
-                parent_children_count_d_lock,
-                imanager,
-                parent_layer,
-                parent_coords,
-            )
+    # if zero, all dependents complete -> start parent
+    if parent_children_count_d_shared[parent_chunk_str] == 0:
+        children = get_children_coords(
+            imanager.chunkedgraph_meta, parent_layer, parent_coords
+        )
+        imanager.cg.add_layer(parent_layer, children)
+        _post_task_completion(
+            parent_children_count_d_shared,
+            parent_children_count_d_lock,
+            imanager,
+            parent_layer,
+            parent_coords,
+        )
