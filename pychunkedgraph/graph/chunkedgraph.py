@@ -336,7 +336,7 @@ class ChunkedGraph:
         start = 0
         for node_id, edges in node_cross_edges_d.items():
             edges[:, 0] = node_id_roots_d[node_id]
-            end = start + len(edges) + 1
+            end = start + len(edges)
             edges[:, 1] = all_edges[start:end, 1]
             start = end
             result[node_id] = {
@@ -1071,6 +1071,7 @@ class ChunkedGraph:
         """
         Helper function to get level 2 children IDs for each parent.
         `parent_ids` must contain node IDs at same layer.
+        TODO describe algo
         """
         parents_layer = self.get_chunk_layer(parent_ids[0])
         parent_coords_d = {

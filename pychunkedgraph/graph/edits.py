@@ -139,24 +139,31 @@ def add_edge(
         update parent, former parents and new parents for all affected IDs
     """
     edges, l2_atomic_cross_edges_d = _analyze_atomic_edge(cg, edges)
-
-    with TimeIt("get_atomic_cross_edges multiple"):
-        atomic_cross_edges_d = merge_cross_edge_dicts_multiple(
-            cg.get_atomic_cross_edges(np.unique(edges)), l2_atomic_cross_edges_d
-        )
-
+    atomic_cross_edges_d = merge_cross_edge_dicts_multiple(
+        cg.get_atomic_cross_edges(np.unique(edges)), l2_atomic_cross_edges_d
+    )
     graph, _, _, graph_node_ids = flatgraph.build_gt_graph(edges, make_directed=True)
 
-    # TODO get_cross_chunk_edges multiple node IDs all at once
     cross_edges_d = {}
     with TimeIt("get_cross_chunk_edges cross_edges_d"):
-        for l2id in graph_node_ids:
-            if l2id in atomic_cross_edges_d:
-                cross_edges_d.update(
-                    cg.get_min_layer_cross_edges({l2id: [atomic_cross_edges_d[l2id]]})
-                )
-            else:
-                cross_edges_d[l2id] = cg.get_cross_chunk_edges(l2id)
+        cross_edges_d.update(
+            cg.get_min_layer_cross_edges(
+                {id_: [atomic_cross_edges_d[id_]] for id_ in graph_node_ids}
+            )
+        )
+
+        # cross_edges_d.update(
+        #     cg.get_min_layer_cross_edges()
+        #     {id_: atomic_cross_edges_d[id_] for id_ in graph_node_ids[~np.in1d(graph_node_ids, ids_)]}
+        # )
+
+        # for l2id in graph_node_ids:
+        #     if l2id in atomic_cross_edges_d:
+        #         cross_edges_d.update(
+        #             cg.get_min_layer_cross_edges({l2id: [atomic_cross_edges_d[l2id]]})
+        #         )
+        #     else:
+        #         cross_edges_d[l2id] = cg.get_cross_chunk_edges(l2id)
 
     ccs = flatgraph.connected_components(graph)
     new_l2ids = []
