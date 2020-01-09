@@ -25,6 +25,7 @@ from .meta import BackendClientInfo
 from .utils import basetypes
 from .utils import id_helpers
 from .utils import generic as misc_utils
+from .utils.context_managers import TimeIt
 from .edges import Edges
 from .edges import utils as edge_utils
 from .chunks import utils as chunk_utils
@@ -290,16 +291,30 @@ class ChunkedGraph:
         result = {}
         if not node_ids.size:
             return result
-        node_l2_children_d = self._get_bounding_l2_children(node_ids, cache=nodes_cache)
-        for node_id in node_ids:
-            node_edges_d_d = self.get_atomic_cross_edges(node_l2_children_d[node_id])
-            result[node_id] = self.get_min_layer_cross_edges(node_id, node_edges_d_d)
+
+        with TimeIt("_get_bounding_l2_children"):
+            node_l2_children_d = self._get_bounding_l2_children(
+                node_ids, cache=nodes_cache
+            )
+
+        node_edges_d_d = {}
+        with TimeIt("get_atomic_cross_edges"):
+            for node_id in node_ids:
+                node_edges_d_d[node_id] = self.get_atomic_cross_edges(
+                    node_l2_children_d[node_id]
+                )
+
+        with TimeIt("get_min_layer_cross_edges"):
+            for node_id in node_ids:
+                result[node_id] = self.get_min_layer_cross_edges(
+                    node_id, node_edges_d_d[node_id]
+                )
         return result
 
     def get_min_layer_cross_edges(
         self,
-        node_id: basetypes.NODE_ID,
-        node_edges_d_d: typing.Dict[np.uint64, typing.Dict],
+        node_id: np.ndarray,
+        node_l2id_atomic_edges_d: typing.Dict[np.uint64, typing.Iterable],
     ):
         """
         Find edges at relevant min_layer >= node_layer.
@@ -316,11 +331,10 @@ class ChunkedGraph:
 
         edges = [types.empty_2d]
         for edges_d in node_edges_d_d.values():
-            edges_ = edges_d.get(min_layer, types.empty_2d)
-            edges_[:, 1] = self.get_roots(edges_[:, 1], stop_layer=min_layer)
-            edges.append(edges_)
+            edges.append(edges_d.get(min_layer, types.empty_2d))
         edges = np.concatenate(edges)
         edges[:, 0] = self.get_root(node_id, stop_layer=min_layer)
+        edges[:, 1] = self.get_roots(edges[:, 1], stop_layer=min_layer)
         return {min_layer: np.unique(edges, axis=0) if edges.size else types.empty_2d}
 
     def get_latest_roots(
