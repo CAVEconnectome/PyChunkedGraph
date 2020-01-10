@@ -122,7 +122,7 @@ def _analyze_atomic_edge(
 def add_edge(
     cg,
     *,
-    edges: np.ndarray,
+    atomic_edges: np.ndarray,
     operation_id: np.uint64 = None,
     source_coords: Sequence[np.uint64] = None,
     sink_coords: Sequence[np.uint64] = None,
@@ -137,12 +137,12 @@ def add_edge(
         above children + new ID will form a new component
         update parent, former parents and new parents for all affected IDs
     """
-    edges, l2_atomic_cross_edges_d = _analyze_atomic_edge(cg, edges)
+    edges, l2_atomic_cross_edges_d = _analyze_atomic_edge(cg, atomic_edges)
     atomic_cross_edges_d = merge_cross_edge_dicts_multiple(
         cg.get_atomic_cross_edges(np.unique(edges)), l2_atomic_cross_edges_d
     )
-    graph, _, _, graph_node_ids = flatgraph.build_gt_graph(edges, make_directed=True)
 
+    graph, _, _, graph_node_ids = flatgraph.build_gt_graph(edges, make_directed=True)
     cross_edges_d = {}
     with TimeIt("get_cross_chunk_edges cross_edges_d"):
         cross_edges_d.update(
@@ -150,19 +150,6 @@ def add_edge(
                 {id_: [atomic_cross_edges_d[id_]] for id_ in graph_node_ids}
             )
         )
-
-        # cross_edges_d.update(
-        #     cg.get_min_layer_cross_edges()
-        #     {id_: atomic_cross_edges_d[id_] for id_ in graph_node_ids[~np.in1d(graph_node_ids, ids_)]}
-        # )
-
-        # for l2id in graph_node_ids:
-        #     if l2id in atomic_cross_edges_d:
-        #         cross_edges_d.update(
-        #             cg.get_min_layer_cross_edges({l2id: [atomic_cross_edges_d[l2id]]})
-        #         )
-        #     else:
-        #         cross_edges_d[l2id] = cg.get_cross_chunk_edges(l2id)
 
     ccs = flatgraph.connected_components(graph)
     new_l2ids = []
@@ -179,7 +166,6 @@ def add_edge(
     for l2id, cross_edges_d in l2_cross_edges_d.items():
         layer_, edges_ = get_min_layer_cross_edges(cg.meta, cross_edges_d)
         new_cross_edges_d_d[l2id] = {layer_: edges_}
-
     return _create_parents(
         cg, new_cross_edges_d_d.copy(), operation_id=operation_id, time_stamp=timestamp,
     )
@@ -191,4 +177,152 @@ def remove_edge(
     atomic_edges: Sequence[Sequence[np.uint64]],
     time_stamp: datetime.datetime,
 ):
-    pass
+    # This view of the to be removed edges helps us to compute the mask
+    # of the retained edges in each chunk
+    atomic_edges_mirrored = np.concatenate(
+        [atomic_edges, atomic_edges[:, ::-1]], axis=0
+    )
+    n_edges = atomic_edges_mirrored.shape[0]  # pylint: disable=E1136
+    atomic_edges_mirrored = atomic_edges_mirrored.view(dtype="u8,u8").reshape(n_edges)
+
+    rows = []  # list of rows to be written to BigTable
+    lvl2_dict = {}
+    lvl2_cross_chunk_edge_dict = {}
+
+    # Analyze atomic_edges --> translate them to lvl2 edges and extract cross
+    # chunk edges to be removed
+    edges, l2_atomic_cross_edges_d = _analyze_atomic_edge(cg, atomic_edges)
+    lvl2_node_ids = np.unique(edges)
+
+    for lvl2_node_id in lvl2_node_ids:
+        chunk_id = cg.get_chunk_id(lvl2_node_id)
+        chunk_edges, _, _ = cg.get_subgraph_chunk(lvl2_node_id, make_unique=False)
+
+        child_chunk_ids = cg.get_child_chunk_ids(chunk_id)
+
+        assert len(child_chunk_ids) == 1
+        child_chunk_id = child_chunk_ids[0]
+
+        children_ids = np.unique(chunk_edges)
+        children_chunk_ids = cg.get_chunk_ids_from_node_ids(children_ids)
+        children_ids = children_ids[children_chunk_ids == child_chunk_id]
+
+        # These edges still contain the removed edges.
+        # For consistency reasons we can only write to BigTable one time.
+        # Hence, we have to evict the to be removed "atomic_edges" from the
+        # queried edges.
+        retained_edges_mask = ~np.in1d(
+            chunk_edges.view(dtype="u8,u8").reshape(chunk_edges.shape[0]),
+            double_atomic_edges_view,
+        )
+
+        chunk_edges = chunk_edges[retained_edges_mask]
+
+        edge_layers = cg.get_cross_chunk_edges_layer(chunk_edges)
+        cross_edge_mask = edge_layers != 1
+
+        cross_edges = chunk_edges[cross_edge_mask]
+        cross_edge_layers = edge_layers[cross_edge_mask]
+        chunk_edges = chunk_edges[~cross_edge_mask]
+
+        isolated_child_ids = children_ids[~np.in1d(children_ids, chunk_edges)]
+        isolated_edges = np.vstack([isolated_child_ids, isolated_child_ids]).T
+
+        graph, _, _, unique_graph_ids = flatgraph_utils.build_gt_graph(
+            np.concatenate([chunk_edges, isolated_edges]), make_directed=True
+        )
+
+        ccs = flatgraph_utils.connected_components(graph)
+
+        new_parent_ids = cg.get_unique_node_id_range(chunk_id, len(ccs))
+
+        for i_cc, cc in enumerate(ccs):
+            new_parent_id = new_parent_ids[i_cc]
+            cc_node_ids = unique_graph_ids[cc]
+
+            lvl2_dict[new_parent_id] = [lvl2_node_id]
+
+            # Write changes to atomic nodes and new lvl2 parent row
+            val_dict = {column_keys.Hierarchy.Child: cc_node_ids}
+            rows.append(
+                cg.mutate_row(
+                    serializers.serialize_uint64(new_parent_id),
+                    val_dict,
+                    time_stamp=time_stamp,
+                )
+            )
+
+            for cc_node_id in cc_node_ids:
+                val_dict = {column_keys.Hierarchy.Parent: new_parent_id}
+
+                rows.append(
+                    cg.mutate_row(
+                        serializers.serialize_uint64(cc_node_id),
+                        val_dict,
+                        time_stamp=time_stamp,
+                    )
+                )
+
+            # Cross edges ---
+            cross_edge_m = np.in1d(cross_edges[:, 0], cc_node_ids)
+            cc_cross_edges = cross_edges[cross_edge_m]
+            cc_cross_edge_layers = cross_edge_layers[cross_edge_m]
+            u_cc_cross_edge_layers = np.unique(cc_cross_edge_layers)
+
+            lvl2_cross_chunk_edge_dict[new_parent_id] = {}
+
+            for l in range(2, cg.n_layers):
+                empty_edges = column_keys.Connectivity.CrossChunkEdge.deserialize(b"")
+                lvl2_cross_chunk_edge_dict[new_parent_id][l] = empty_edges
+
+            val_dict = {}
+            for cc_layer in u_cc_cross_edge_layers:
+                edge_m = cc_cross_edge_layers == cc_layer
+                layer_cross_edges = cc_cross_edges[edge_m]
+
+                if len(layer_cross_edges) > 0:
+                    val_dict[
+                        column_keys.Connectivity.CrossChunkEdge[cc_layer]
+                    ] = layer_cross_edges
+                    lvl2_cross_chunk_edge_dict[new_parent_id][
+                        cc_layer
+                    ] = layer_cross_edges
+
+            if len(val_dict) > 0:
+                rows.append(
+                    cg.mutate_row(
+                        serializers.serialize_uint64(new_parent_id),
+                        val_dict,
+                        time_stamp=time_stamp,
+                    )
+                )
+
+        if cg.n_layers == 2:
+            rows.extend(
+                update_root_id_lineage(
+                    cg,
+                    new_parent_ids,
+                    [lvl2_node_id],
+                    operation_id=operation_id,
+                    time_stamp=time_stamp,
+                )
+            )
+
+    # Write atomic nodes
+    rows.extend(_write_atomic_split_edges(cg, atomic_edges, time_stamp=time_stamp))
+
+    # Propagate changes up the tree
+    if cg.n_layers > 2:
+        new_root_ids, new_rows = propagate_edits_to_root(
+            cg,
+            lvl2_dict.copy(),
+            lvl2_cross_chunk_edge_dict,
+            operation_id=operation_id,
+            time_stamp=time_stamp,
+        )
+        rows.extend(new_rows)
+    else:
+        new_root_ids = np.array(list(lvl2_dict.keys()))
+
+    return new_root_ids, list(lvl2_dict.keys()), rows
+
