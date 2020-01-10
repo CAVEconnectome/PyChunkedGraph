@@ -34,7 +34,7 @@ def start_ingest(imanager: IngestionManager):
 
     with mp.Manager() as manager:
         parent_children_count_d_shared = manager.dict()
-        parent_children_count_d_lock = manager.Lock()  # pylint: disable=no-member
+        parent_children_count_d_lock = manager.RLock()  # pylint: disable=no-member
         jobs = chunked(chunk_coords, len(chunk_coords) // mp.cpu_count())
         multi_args = []
         for job in jobs:
@@ -126,16 +126,17 @@ def _post_task_completion(
         # decrement child count by 1
         parent_children_count_d_shared[parent_chunk_str] -= 1
 
-    # if zero, all dependents complete -> start parent
-    if parent_children_count_d_shared[parent_chunk_str] == 0:
-        children = get_children_coords(
-            imanager.chunkedgraph_meta, parent_layer, parent_coords
-        )
-        imanager.cg.add_layer(parent_layer, children)
-        _post_task_completion(
-            parent_children_count_d_shared,
-            parent_children_count_d_lock,
-            imanager,
-            parent_layer,
-            parent_coords,
-        )
+        # if zero, all dependents complete -> start parent
+        if parent_children_count_d_shared[parent_chunk_str] == 0:
+            parent_children_count_d_shared.pop(parent_chunk_str, None)
+            children = get_children_coords(
+                imanager.chunkedgraph_meta, parent_layer, parent_coords
+            )
+            imanager.cg.add_layer(parent_layer, children)
+            _post_task_completion(
+                parent_children_count_d_shared,
+                parent_children_count_d_lock,
+                imanager,
+                parent_layer,
+                parent_coords,
+            )
