@@ -14,7 +14,7 @@ from .utils import flatgraph
 from .utils.context_managers import TimeIt
 from .utils.generic import get_bounding_box
 from .connectivity.nodes import edge_exists
-from .edges.utils import get_min_layer_cross_edges
+from .edges.utils import filter_min_layer_cross_edges
 from .edges.utils import concatenate_cross_edge_dicts
 from .edges.utils import merge_cross_edge_dicts_multiple
 
@@ -143,13 +143,12 @@ def add_edge(
     )
 
     graph, _, _, graph_node_ids = flatgraph.build_gt_graph(edges, make_directed=True)
-    cross_edges_d = {}
+
     with TimeIt("get_cross_chunk_edges cross_edges_d"):
-        cross_edges_d.update(
-            cg.get_min_layer_cross_edges(
-                {id_: [atomic_cross_edges_d[id_]] for id_ in graph_node_ids}
-            )
-        )
+        cross_edges_d = {
+            id_: cg.get_min_layer_cross_edges(id_, [atomic_cross_edges_d[id_]])
+            for id_ in graph_node_ids
+        }
 
     ccs = flatgraph.connected_components(graph)
     new_l2ids = []
@@ -164,7 +163,7 @@ def add_edge(
 
     new_cross_edges_d_d = {}
     for l2id, cross_edges_d in l2_cross_edges_d.items():
-        layer_, edges_ = get_min_layer_cross_edges(cg.meta, cross_edges_d)
+        layer_, edges_ = filter_min_layer_cross_edges(cg.meta, cross_edges_d)
         new_cross_edges_d_d[l2id] = {layer_: edges_}
     return _create_parents(
         cg, new_cross_edges_d_d.copy(), operation_id=operation_id, time_stamp=timestamp,

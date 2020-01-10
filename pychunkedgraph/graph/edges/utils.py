@@ -242,7 +242,7 @@ def get_cross_chunk_edges_layer(meta: ChunkedGraphMeta, cross_edges: Iterable):
     return cross_chunk_edge_layers
 
 
-def get_min_layer_cross_edges(
+def filter_min_layer_cross_edges(
     meta: ChunkedGraphMeta, cross_edges_d: Dict, node_layer: int = 2
 ) -> Tuple[int, Iterable]:
     """

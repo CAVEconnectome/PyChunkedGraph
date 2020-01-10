@@ -291,60 +291,37 @@ class ChunkedGraph:
         result = {}
         if not node_ids.size:
             return result
-
         node_l2_children_d = self._get_bounding_l2_children(node_ids, cache=nodes_cache)
-        node_edges_d_d = {}
         for node_id in node_ids:
-            node_edges_d_d[node_id] = self.get_atomic_cross_edges(
-                node_l2_children_d[node_id]
-            ).values()
-        return self.get_min_layer_cross_edges(node_edges_d_d)
+            node_edges_d_d = self.get_atomic_cross_edges(node_l2_children_d[node_id])
+            result[node_id] = self.get_min_layer_cross_edges(
+                node_id, node_edges_d_d.values()
+            )
+        return result
 
     def get_min_layer_cross_edges(
-        self, node_l2id_atomic_edges_d: typing.Dict[np.uint64, typing.Iterable],
+        self, node_id: basetypes.NODE_ID, node_atomic_cross_edges_ds: typing.Iterable,
     ):
         """
         Find edges at relevant min_layer >= node_layer.
-        `node_l2id_atomic_edges_d` is dict of lists of level 2 atomic cross edges.
-        {node_id: [{atomic cross edge dict of l2 descendants of node_id}]}
+        `node_atomic_cross_edges_ds` is a list of atomic cross edges of
+        level 2 IDs that are descendants of `node_id`.
         """
-        result = {}
-        node_cross_edges_d = {}
-        node_min_layer_d = {}
-        for node_id, edges_ds in node_l2id_atomic_edges_d.items():
-            node_layer = self.get_chunk_layer(node_id)
-            min_layer = self.meta.layer_count
-            for edges_d in edges_ds:
-                layer_, _ = edge_utils.get_min_layer_cross_edges(
-                    self.meta, edges_d, node_layer=node_layer
-                )
-                min_layer = min(min_layer, layer_)
+        node_layer = self.get_chunk_layer(node_id)
+        min_layer = self.meta.layer_count
+        for edges_d in node_atomic_cross_edges_ds:
+            layer_, _ = edge_utils.filter_min_layer_cross_edges(
+                self.meta, edges_d, node_layer=node_layer
+            )
+            min_layer = min(min_layer, layer_)
 
-            edges = [types.empty_2d]
-            for edges_d in edges_ds:
-                edges.append(edges_d.get(min_layer, types.empty_2d))
-            node_cross_edges_d[node_id] = np.concatenate(edges)
-            node_min_layer_d[node_id] = min_layer
-
-        node_ids = np.fromiter(node_cross_edges_d.keys(), dtype=basetypes.NODE_ID)
-        node_id_roots = self.get_roots(node_ids, stop_layer=min_layer)
-        node_id_roots_d = dict(zip(node_ids, node_id_roots))
-
-        all_edges = np.concatenate(list(node_cross_edges_d.values()))
-        all_edges[:, 1] = self.get_roots(all_edges[:, 1], stop_layer=min_layer)
-
-        start = 0
-        for node_id, edges in node_cross_edges_d.items():
-            edges[:, 0] = node_id_roots_d[node_id]
-            end = start + len(edges)
-            edges[:, 1] = all_edges[start:end, 1]
-            start = end
-            result[node_id] = {
-                node_min_layer_d[node_id]: np.unique(edges, axis=0)
-                if edges.size
-                else types.empty_2d
-            }
-        return result
+        edges = [types.empty_2d]
+        for edges_d in node_atomic_cross_edges_ds:
+            edges.append(edges_d.get(min_layer, types.empty_2d))
+        edges = np.concatenate(edges)
+        edges[:, 0] = self.get_root(node_id, stop_layer=min_layer)
+        edges[:, 1] = self.get_roots(edges[:, 1], stop_layer=min_layer)
+        return {min_layer: np.unique(edges, axis=0) if edges.size else types.empty_2d}
 
     def get_latest_roots(
         self,
