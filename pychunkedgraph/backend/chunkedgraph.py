@@ -330,22 +330,22 @@ class ChunkedGraph(object):
         self.bulk_write([row])
         return True
 
-    def set_dataset_info_from_dict(self, dict: Dict[str, Any], overwrite: bool = False):
+    def set_dataset_info_from_dict(self, dataset_dict: Dict[str, Any], overwrite: bool = False):
         """
         Add key value pairs from a dict to the dataset info. Return dict from parameter to bool
         that signifies whether each parameter in the dict was written to the info.
 
-        :param dict: Dict[str, Any]
+        :param dataset_dict: Dict[str, Any]
         :return: Dict[str, bool]
         """
         return_dict = {}
         any_set = False
-        for key in dict:
+        for key in dataset_dict:
             if key in self.dataset_info and not overwrite:
                 return_dict[key] = False
             else:
                 return_dict[key] = True
-                self.dataset_info[key] = dict[key]
+                self.dataset_info[key] = dataset_dict[key]
                 any_set = True
         if any_set:
             row = self.mutate_row(
