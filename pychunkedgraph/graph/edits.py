@@ -177,9 +177,7 @@ def remove_edge(
 ):
     # This view of the to be removed edges helps us to compute the mask
     # of the retained edges in each chunk
-    atomic_edges_mirrored = np.concatenate(
-        [atomic_edges, atomic_edges[:, ::-1]], axis=0
-    )
+    removed_edges = np.concatenate([atomic_edges, atomic_edges[:, ::-1]], axis=0)
 
     rows = []  # list of rows to be written to BigTable
     lvl2_dict = {}
@@ -198,31 +196,21 @@ def remove_edge(
         chunk_edges = np.concatenate(
             [l2_agg.in_edges.get_pairs(), l2_agg.out_edges.get_pairs()]
         )
-        chunk_edges = chunk_edges[~in2d(chunk_edges, atomic_edges_mirrored)]
+        chunk_edges = chunk_edges[~in2d(chunk_edges, removed_edges)]
+        isolated_ids = l2_agg.supervoxels[~np.in1d(l2_agg.supervoxels, chunk_edges)]
+        isolated_edges = np.vstack([isolated_ids, isolated_ids]).T
 
-        edge_layers = cg.get_cross_chunk_edges_layer(chunk_edges)
-        cross_edge_mask = edge_layers != 1
-
-        cross_edges = chunk_edges[cross_edge_mask]
-        cross_edge_layers = edge_layers[cross_edge_mask]
-        chunk_edges = chunk_edges[~cross_edge_mask]
-
-        isolated_child_ids = children_ids[~np.in1d(children_ids, chunk_edges)]
-        isolated_edges = np.vstack([isolated_child_ids, isolated_child_ids]).T
-
-        graph, _, _, unique_graph_ids = flatgraph_utils.build_gt_graph(
+        graph, _, _, unique_graph_ids = flatgraph.build_gt_graph(
             np.concatenate([chunk_edges, isolated_edges]), make_directed=True
         )
-
-        ccs = flatgraph_utils.connected_components(graph)
-
-        new_parent_ids = cg.get_unique_node_id_range(chunk_id, len(ccs))
+        ccs = flatgraph.connected_components(graph)
+        new_parent_ids = cg.id_client.create_node_ids(l2id_chunk_id_d[l2_id], len(ccs))
 
         for i_cc, cc in enumerate(ccs):
             new_parent_id = new_parent_ids[i_cc]
             cc_node_ids = unique_graph_ids[cc]
 
-            lvl2_dict[new_parent_id] = [lvl2_node_id]
+            lvl2_dict[new_parent_id] = [l2_id]
 
             # Write changes to atomic nodes and new lvl2 parent row
             val_dict = {column_keys.Hierarchy.Child: cc_node_ids}
