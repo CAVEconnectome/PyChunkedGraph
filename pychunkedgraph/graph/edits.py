@@ -92,13 +92,13 @@ def _create_parents(
     return layer_new_ids_d[cg.meta.layer_count]
 
 
-def _analyze_atomic_edge(
+def _analyze_atomic_edges(
     cg, atomic_edges: Iterable[np.ndarray]
 ) -> Tuple[Iterable, Dict]:
     """
     Determine if atomic edges are within the chunk.
     If not, they are cross edges between two L2 IDs in adjacent chunks.
-    Returns edges and cross edges accordingly.
+    Returns edges between L2 IDs and atomic cross edges.
     """
     edge_layers = cg.get_cross_chunk_edges_layer(atomic_edges)
     mask = edge_layers == 1
@@ -137,18 +137,16 @@ def add_edge(
         above children + new ID will form a new component
         update parent, former parents and new parents for all affected IDs
     """
-    edges, l2_atomic_cross_edges_d = _analyze_atomic_edge(cg, atomic_edges)
+    edges, l2_atomic_cross_edges_d = _analyze_atomic_edges(cg, atomic_edges)
     atomic_cross_edges_d = merge_cross_edge_dicts_multiple(
         cg.get_atomic_cross_edges(np.unique(edges)), l2_atomic_cross_edges_d
     )
 
     graph, _, _, graph_node_ids = flatgraph.build_gt_graph(edges, make_directed=True)
-
-    with TimeIt("get_cross_chunk_edges cross_edges_d"):
-        cross_edges_d = {
-            id_: cg.get_min_layer_cross_edges(id_, [atomic_cross_edges_d[id_]])
-            for id_ in graph_node_ids
-        }
+    cross_edges_d = {
+        id_: cg.get_min_layer_cross_edges(id_, [atomic_cross_edges_d[id_]])
+        for id_ in graph_node_ids
+    }
 
     ccs = flatgraph.connected_components(graph)
     new_l2ids = []
@@ -190,7 +188,7 @@ def remove_edge(
 
     # Analyze atomic_edges --> translate them to lvl2 edges and extract cross
     # chunk edges to be removed
-    edges, l2_atomic_cross_edges_d = _analyze_atomic_edge(cg, atomic_edges)
+    edges, l2_atomic_cross_edges_d = _analyze_atomic_edges(cg, atomic_edges)
     lvl2_node_ids = np.unique(edges)
 
     for lvl2_node_id in lvl2_node_ids:

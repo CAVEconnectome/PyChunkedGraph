@@ -164,14 +164,6 @@ class ChunkedGraph:
         # Returns None if unsuccessful
         return atomic_id
 
-    def read_first_log_row(self):
-        """Returns first log row."""
-        for operation_id in range(1, 100):
-            log_row = self.read_log_row(np.uint64(operation_id))
-            if len(log_row) > 0:
-                return log_row
-        return None
-
     def get_parents(
         self,
         node_ids: typing.Sequence[np.uint64],
@@ -332,37 +324,6 @@ class ChunkedGraph:
         pass
         # return misc.get_latest_roots(self, time_stamp=time_stamp, n_threads=n_threads)
 
-    def get_delta_roots(
-        self,
-        time_stamp_start: datetime.datetime,
-        time_stamp_end: typing.Optional[datetime.datetime] = None,
-        min_seg_id: int = 1,
-        n_threads: int = 1,
-    ) -> typing.Sequence[np.uint64]:
-        """ Returns root ids that have expired or have been created between two timestamps
-        :param time_stamp_start: datetime.datetime
-            starting timestamp to return deltas from
-        :param time_stamp_end: datetime.datetime
-            ending timestamp to return deltasfrom
-        :param min_seg_id: int (default=1)
-            only search from this seg_id and higher (note not a node_id.. use get_seg_id)
-        :param n_threads: int (default=1)
-            number of threads to use in performing search
-        :return new_ids, expired_ids: np.arrays of np.uint64
-            new_ids is an array of root_ids for roots that were created after time_stamp_start
-            and are still current as of time_stamp_end.
-            expired_ids is list of node_id's for roots the expired after time_stamp_start
-            but before time_stamp_end.
-        """
-        pass
-        # return misc.get_delta_roots(
-        #     self,
-        #     time_stamp_start=time_stamp_start,
-        #     time_stamp_end=time_stamp_end,
-        #     min_seg_id=min_seg_id,
-        #     n_threads=n_threads,
-        # )
-
     def get_roots(
         self,
         node_ids: typing.Sequence[np.uint64],
@@ -449,9 +410,6 @@ class ChunkedGraph:
             node_id=node_id, time_stamp=time_stamp, get_all_parents=True
         )
         return dict(zip(self.get_chunk_layers(parent_ids), parent_ids))
-
-    # def read_consolidated_lock_timestamp
-    # def read_lock_timestamp
 
     def get_latest_root_id(self, root_id: np.uint64) -> np.ndarray:
         """Returns the latest root id associated with the provided root id
@@ -568,84 +526,9 @@ class ChunkedGraph:
             next_ids = temp_next_ids
         return np.unique(np.array(id_history, dtype=np.uint64))
 
-    def get_change_log(
-        self,
-        root_id: np.uint64,
-        correct_for_wrong_coord_type: bool = True,
-        time_stamp_past: typing.Optional[datetime.datetime] = misc_utils.get_min_time(),
-    ) -> dict:
-        """ Returns all past root ids for this root
-        This search happens in a monotic fashion. At no point are future root
-        ids of past root ids taken into account.
-        :param root_id: np.uint64
-        :param correct_for_wrong_coord_type: bool
-            pinky100? --> True
-        :param time_stamp_past: None or datetime
-            restrict search to ids created after this time_stamp
-            None=search whole past
-        :return: past ids, merge sv ids, merge edge coords, split sv ids
-        """
-        if time_stamp_past.tzinfo is None:
-            time_stamp_past = pytz.UTC.localize(time_stamp_past)
-
-        id_history = []
-        merge_history = []
-        merge_history_edges = []
-        split_history = []
-        next_ids = [root_id]
-        while len(next_ids):
-            temp_next_ids = []
-            former_parent_col = attributes.Hierarchy.FormerParent
-            nodes_d = self.client.read_nodes(
-                node_ids=next_ids, properties=[former_parent_col]
-            )
-            for node in nodes_d.values():
-                if attributes.Hierarchy.FormerParent in node:
-                    if time_stamp_past > node[former_parent_col][0].timestamp:
-                        continue
-                    ids = node[former_parent_col][0].value
-                    lock_col = attributes.Concurrency.Lock
-                    former_node = self.client.read_node(ids[0], properties=[lock_col])
-                    operation_id = former_node[lock_col][0].value
-                    log_row = self.read_log_row(operation_id)
-                    is_merge = attributes.OperationLogs.AddedEdge in log_row
-                    for id_ in ids:
-                        if id_ in id_history:
-                            continue
-                        id_history.append(id_)
-                        temp_next_ids.append(id_)
-
-                    if is_merge:
-                        added_edges = log_row[attributes.OperationLogs.AddedEdge]
-                        merge_history.append(added_edges)
-                        coords = [
-                            log_row[attributes.OperationLogs.SourceCoordinate],
-                            log_row[attributes.OperationLogs.SinkCoordinate],
-                        ]
-                        if correct_for_wrong_coord_type:
-                            # A little hack because we got the datatype wrong...
-                            coords = [
-                                np.frombuffer(coords[0]),
-                                np.frombuffer(coords[1]),
-                            ]
-                            coords *= np.array(self.meta.cv.scale["resolution"])
-                        merge_history_edges.append(coords)
-                    if not is_merge:
-                        removed_edges = log_row[attributes.OperationLogs.RemovedEdge]
-                        split_history.append(removed_edges)
-                else:
-                    continue
-            next_ids = temp_next_ids
-        return {
-            "past_ids": np.unique(np.array(id_history, dtype=np.uint64)),
-            "merge_edges": np.array(merge_history),
-            "merge_edge_coords": np.array(merge_history_edges),
-            "split_edges": np.array(split_history),
-        }
-
     def get_subgraph(
         self,
-        agglomeration_ids: np.ndarray,
+        node_ids: np.ndarray,
         bbox: typing.Optional[typing.Sequence[typing.Sequence[int]]] = None,
         bbox_is_coordinate: bool = False,
         timestamp: datetime.datetime = None,
@@ -660,7 +543,7 @@ class ChunkedGraph:
         """
         # 1 level 2 ids
         level2_ids = []
-        for agglomeration_id in agglomeration_ids:
+        for agglomeration_id in node_ids:
             layer_nodes_d = self._get_subgraph_higher_layer_nodes(
                 node_id=agglomeration_id,
                 bounding_box=chunk_utils.normalize_bounding_box(
@@ -693,74 +576,6 @@ class ChunkedGraph:
                 l2id, supervoxels, in_, out_, cross_
             )
         return l2id_agglomeration_d
-
-    def get_subgraph_nodes(
-        self,
-        agglomeration_id: np.uint64,
-        bounding_box: typing.Optional[typing.Sequence[typing.Sequence[int]]] = None,
-        bb_is_coordinate: bool = False,
-        return_layers: typing.List[int] = [1],
-    ) -> typing.Union[typing.Dict[int, np.ndarray], np.ndarray]:
-        """ Return all nodes belonging to the specified agglomeration ID within
-            the defined bounding box and requested layers.
-        :param agglomeration_id: np.uint64
-        :param bounding_box: [[x_l, y_l, z_l], [x_h, y_h, z_h]]
-        :param bb_is_coordinate: bool
-        :param return_layers: typing.List[int]
-        :return: np.array of atomic IDs if single layer is requested,
-                 typing.Dict[int, np.array] if multiple layers are requested
-        """
-
-        def _get_subgraph_layer2_nodes(
-            node_ids: typing.Iterable[np.uint64],
-        ) -> np.ndarray:
-            return self.get_children(node_ids, flatten=True)
-
-        stop_layer = np.min(return_layers)
-        bounding_box = chunk_utils.normalize_bounding_box(
-            self.meta, bounding_box, bb_is_coordinate
-        )
-
-        # Layer 3+
-        if stop_layer >= 2:
-            nodes_per_layer = self._get_subgraph_higher_layer_nodes(
-                node_id=agglomeration_id,
-                bounding_box=bounding_box,
-                return_layers=return_layers,
-            )
-        else:
-            # Need to retrieve layer 2 even if the user doesn't require it
-            nodes_per_layer = self._get_subgraph_higher_layer_nodes(
-                node_id=agglomeration_id,
-                bounding_box=bounding_box,
-                return_layers=return_layers + [2],
-            )
-
-            # Layer 2
-            child_ids = nodes_per_layer[2]
-            if 2 not in return_layers:
-                del nodes_per_layer[2]
-
-            # Use heuristic to guess the optimal number of threads
-            n_child_ids = len(child_ids)
-            this_n_threads = np.min([int(n_child_ids // 50000) + 1, mu.n_cpus])
-
-            child_ids = np.fromiter(
-                chain.from_iterable(
-                    mu.multithread_func(
-                        _get_subgraph_layer2_nodes,
-                        np.array_split(child_ids, this_n_threads),
-                        n_threads=this_n_threads,
-                        debug=this_n_threads == 1,
-                    )
-                ),
-                dtype=np.uint64,
-            )
-            nodes_per_layer[1] = child_ids
-        if len(nodes_per_layer) == 1:
-            return list(nodes_per_layer.values())[0]
-        else:
-            return nodes_per_layer
 
     def add_edges(
         self,
@@ -870,7 +685,6 @@ class ChunkedGraph:
         ).execute()
 
     # PRIVATE
-
     def _get_subgraph_higher_layer_nodes(
         self,
         node_id: basetypes.NODE_ID,
@@ -940,17 +754,6 @@ class ChunkedGraph:
             if layer in return_layers:
                 nodes_per_layer[layer] = child_ids
         return nodes_per_layer
-
-    def _setup_logger(self, logger: typing.Optional[logging.Logger] = None) -> None:
-        if logger is None:
-            self.logger = logging.getLogger(f"{self.meta.graph_config.ID}")
-            self.logger.setLevel(logging.WARNING)
-            if not self.logger.handlers:
-                sh = logging.StreamHandler(sys.stdout)
-                sh.setLevel(logging.WARNING)
-                self.logger.addHandler(sh)
-        else:
-            self.logger = logger
 
     def _run_multicut(
         self,
@@ -1108,30 +911,6 @@ class ChunkedGraph:
             children_layer -= 1
         return parent_children_d
 
-    # OPERATION LOGGING
-    def read_logs(self, operation_ids: typing.Optional[typing.List[np.uint64]] = None):
-        if not operation_ids:
-            log_records_d = self.client.read_nodes(
-                start_id=np.uint64(0),
-                end_id=self.id_client.get_max_operation_id(),
-                end_id_inclusive=True,
-                properties=attributes.OperationLogs.all(),
-            )
-        else:
-            log_records_d = self.client.read_nodes(
-                node_ids=operation_ids, properties=attributes.OperationLogs.all()
-            )
-
-        if len(log_records_d) == 0:
-            return {}
-
-        for operation_id in log_records_d:
-            log_record = log_records_d[operation_id]
-            timestamp = log_record[attributes.OperationLogs.RootID][0].timestamp
-            log_record.update((column, v[0].value) for column, v in log_record.items())
-            log_record["timestamp"] = timestamp
-        return log_records_d
-
     # HELPERS
     def get_node_id(
         self,
@@ -1203,3 +982,13 @@ class ChunkedGraph:
             [self.get_chunk_coordinates(chunk_id) for chunk_id in chunk_ids],
             cv_threads=cv_threads,
         )
+
+
+# TODO
+# def read_consolidated_lock_timestamp
+# def read_lock_timestamp
+# def read_first_log_row
+# def get_delta_roots
+# def get_change_log
+# def _setup_logger
+# def read_logs
