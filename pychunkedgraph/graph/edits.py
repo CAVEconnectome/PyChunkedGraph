@@ -188,12 +188,14 @@ def remove_edge(
     # Analyze atomic_edges --> translate them to lvl2 edges and extract cross
     # chunk edges to be removed
     edges, l2_atomic_cross_edges_d = _analyze_atomic_edges(cg, atomic_edges)
-    lvl2_node_ids = np.unique(edges)
 
-    for lvl2_node_id in lvl2_node_ids:
-        chunk_id = cg.get_chunk_id(lvl2_node_id)
+    l2_ids = np.unique(edges)
+    l2_chunk_ids = cg.get_chunk_ids_from_node_ids(l2_ids)
+    l2id_chunk_id_d = dict(zip(l2_ids, l2_chunk_ids))
+    l2id_agglomeration_d = cg.get_subgraph(l2_ids, layer_2=True)
+
+    for l2_id, l2_agg in l2id_agglomeration_d.items():
         chunk_edges, _, _ = cg.get_subgraph_chunk(lvl2_node_id, make_unique=False)
-
         child_chunk_ids = cg.get_child_chunk_ids(chunk_id)
 
         assert len(child_chunk_ids) == 1
@@ -203,10 +205,6 @@ def remove_edge(
         children_chunk_ids = cg.get_chunk_ids_from_node_ids(children_ids)
         children_ids = children_ids[children_chunk_ids == child_chunk_id]
 
-        # These edges still contain the removed edges.
-        # For consistency reasons we can only write to BigTable one time.
-        # Hence, we have to evict the to be removed "atomic_edges" from the
-        # queried edges.
         chunk_edges = chunk_edges[~in2d(chunk_edges, atomic_edges_mirrored)]
 
         edge_layers = cg.get_cross_chunk_edges_layer(chunk_edges)

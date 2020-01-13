@@ -532,6 +532,7 @@ class ChunkedGraph:
         bbox: typing.Optional[typing.Sequence[typing.Sequence[int]]] = None,
         bbox_is_coordinate: bool = False,
         timestamp: datetime.datetime = None,
+        layer_2: bool = False,
     ) -> typing.Dict:
         """
         1. get level 2 children ids belonging to the agglomerations
@@ -542,17 +543,20 @@ class ChunkedGraph:
         returns dict of {id: types.Agglomeration}
         """
         # 1 level 2 ids
-        level2_ids = []
-        for agglomeration_id in node_ids:
-            layer_nodes_d = self._get_subgraph_higher_layer_nodes(
-                node_id=agglomeration_id,
-                bounding_box=chunk_utils.normalize_bounding_box(
-                    self.meta, bbox, bbox_is_coordinate
-                ),
-                return_layers=[2],
-            )
-            level2_ids.append(layer_nodes_d[2])
-        level2_ids = np.concatenate(level2_ids)
+        if not layer_2:
+            level2_ids = [types.empty_1d]
+            for agglomeration_id in node_ids:
+                layer_nodes_d = self._get_subgraph_higher_layer_nodes(
+                    node_id=agglomeration_id,
+                    bounding_box=chunk_utils.normalize_bounding_box(
+                        self.meta, bbox, bbox_is_coordinate
+                    ),
+                    return_layers=[2],
+                )
+                level2_ids.append(layer_nodes_d[2])
+            level2_ids = np.concatenate(level2_ids)
+        else:
+            level2_ids = node_ids
 
         # 2 edges from cloud storage
         chunk_ids = self.get_chunk_ids_from_node_ids(level2_ids)
