@@ -17,6 +17,7 @@ from .connectivity.nodes import edge_exists
 from .edges.utils import filter_min_layer_cross_edges
 from .edges.utils import concatenate_cross_edge_dicts
 from .edges.utils import merge_cross_edge_dicts_multiple
+from ..utils.general import in2d
 
 
 def _get_all_siblings(cg, new_parent_id, new_id_ce_siblings: Iterable) -> List:
@@ -179,8 +180,6 @@ def remove_edge(
     atomic_edges_mirrored = np.concatenate(
         [atomic_edges, atomic_edges[:, ::-1]], axis=0
     )
-    n_edges = atomic_edges_mirrored.shape[0]  # pylint: disable=E1136
-    atomic_edges_mirrored = atomic_edges_mirrored.view(dtype="u8,u8").reshape(n_edges)
 
     rows = []  # list of rows to be written to BigTable
     lvl2_dict = {}
@@ -208,12 +207,7 @@ def remove_edge(
         # For consistency reasons we can only write to BigTable one time.
         # Hence, we have to evict the to be removed "atomic_edges" from the
         # queried edges.
-        retained_edges_mask = ~np.in1d(
-            chunk_edges.view(dtype="u8,u8").reshape(chunk_edges.shape[0]),
-            double_atomic_edges_view,
-        )
-
-        chunk_edges = chunk_edges[retained_edges_mask]
+        chunk_edges = chunk_edges[~in2d(chunk_edges, atomic_edges_mirrored)]
 
         edge_layers = cg.get_cross_chunk_edges_layer(chunk_edges)
         cross_edge_mask = edge_layers != 1

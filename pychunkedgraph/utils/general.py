@@ -29,3 +29,9 @@ def chunked(l: Sequence, n: int):
         n = len(l)
     for i in range(0, len(l), n):
         yield l[i : i + n]
+
+
+def in2d(arr1: np.ndarray, arr2: np.ndarray) -> np.ndarray:
+    arr1_view = arr1.view(dtype="u8,u8").reshape(arr1.shape[0])
+    arr2_view = arr2.view(dtype="u8,u8").reshape(arr2.shape[0])
+    return np.in1d(arr1_view, arr2_view)
