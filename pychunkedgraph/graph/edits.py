@@ -180,12 +180,11 @@ def remove_edge(
     removed_edges = np.concatenate([atomic_edges, atomic_edges[:, ::-1]], axis=0)
 
     rows = []  # list of rows to be written to BigTable
-    lvl2_dict = {}
     lvl2_cross_chunk_edge_dict = {}
 
     # Analyze atomic_edges --> translate them to lvl2 edges and extract cross
     # chunk edges to be removed
-    edges, l2_atomic_cross_edges_d = _analyze_atomic_edges(cg, atomic_edges)
+    edges, _ = _analyze_atomic_edges(cg, atomic_edges)
 
     l2_ids = np.unique(edges)
     l2_chunk_ids = cg.get_chunk_ids_from_node_ids(l2_ids)
@@ -209,8 +208,6 @@ def remove_edge(
         for i_cc, cc in enumerate(ccs):
             new_parent_id = new_parent_ids[i_cc]
             cc_node_ids = unique_graph_ids[cc]
-
-            lvl2_dict[new_parent_id] = [l2_id]
 
             # Write changes to atomic nodes and new lvl2 parent row
             val_dict = {column_keys.Hierarchy.Child: cc_node_ids}
