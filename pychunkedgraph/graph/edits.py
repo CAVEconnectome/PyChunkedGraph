@@ -195,16 +195,9 @@ def remove_edge(
     l2id_agglomeration_d = cg.get_subgraph(l2_ids, layer_2=True)
 
     for l2_id, l2_agg in l2id_agglomeration_d.items():
-        chunk_edges, _, _ = cg.get_subgraph_chunk(lvl2_node_id, make_unique=False)
-        child_chunk_ids = cg.get_child_chunk_ids(chunk_id)
-
-        assert len(child_chunk_ids) == 1
-        child_chunk_id = child_chunk_ids[0]
-
-        children_ids = np.unique(chunk_edges)
-        children_chunk_ids = cg.get_chunk_ids_from_node_ids(children_ids)
-        children_ids = children_ids[children_chunk_ids == child_chunk_id]
-
+        chunk_edges = np.concatenate(
+            [l2_agg.in_edges.get_pairs(), l2_agg.out_edges.get_pairs()]
+        )
         chunk_edges = chunk_edges[~in2d(chunk_edges, atomic_edges_mirrored)]
 
         edge_layers = cg.get_cross_chunk_edges_layer(chunk_edges)

@@ -33,7 +33,7 @@ a level 2 ID and it's supervoxels and edges.
 `in_edges`
     edges between supervoxels belonging to the agglomeration.
 `out_edges`
-    edges between supervoxels of agglomeration 
+    edges between supervoxels of agglomeration
     and neighboring agglomeration.
 `cross_edges_d`
     dict of cross edges {layer: cross_edges_relevant_on_that_layer}

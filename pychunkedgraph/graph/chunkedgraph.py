@@ -574,7 +574,7 @@ class ChunkedGraph:
         for l2id in l2id_children_d:
             supervoxels = l2id_children_d[l2id]
             in_, out_, cross_ = edge_utils.categorize_edges(
-                self.meta, l2id_children_d[l2id], edges
+                self.meta, supervoxels, edges
             )
             l2id_agglomeration_d[l2id] = types.Agglomeration(
                 l2id, supervoxels, in_, out_, cross_
