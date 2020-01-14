@@ -34,7 +34,7 @@ def initialize_chunkedgraph(
         raise ValueError(f"{meta.graph_config.graph_id} already exists.")
 
     if meta.graph_config.overwrite:
-        _delete_table()
+        _delete_table(meta.bigtable_config, meta.graph_config.graph_id)
 
     ws_cv = cloudvolume.CloudVolume(meta.data_source.watershed)
     if size is not None:
