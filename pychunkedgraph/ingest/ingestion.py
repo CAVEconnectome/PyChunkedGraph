@@ -85,21 +85,11 @@ def _post_task_completion(
         # if zero, all dependents complete -> start parent
         if parent_children_count_d_shared[parent_chunk_str] == 0:
             parent_children_count_d_shared.pop(parent_chunk_str, None)
-            children = get_children_coords(
-                imanager.chunkedgraph_meta, parent_layer, parent_coords
-            )
-            imanager.cg.add_layer(parent_layer, children)
-            _post_task_completion(
-                parent_children_count_d_shared,
-                parent_children_count_d_lock,
-                imanager,
-                parent_layer,
-                parent_coords,
-            )
+            # queue parent
 
 
-def _create_atomic_chunks_helper(args):
-    """ helper to start atomic tasks """
+def create_atomic_chunk_helper(args):
+    """Helper to queue atomic chunk task."""
     (
         parent_children_count_d_shared,
         parent_children_count_d_lock,
@@ -117,6 +107,29 @@ def _create_atomic_chunks_helper(args):
         parent_children_count_d_lock,
         imanager,
         2,
+        chunk_coords,
+    )
+
+
+def create_parent_chunk_helper(args):
+    """Helper to queue parent chunk task."""
+    (
+        parent_children_count_d_shared,
+        parent_children_count_d_lock,
+        im_info,
+        layer,
+        chunk_coords,
+    ) = args
+    imanager = IngestionManager(**im_info)
+    chunk_coords = np.array(list(chunk_coords), dtype=np.int)
+
+    children = get_children_coords(imanager.chunkedgraph_meta, layer, chunk_coords)
+    imanager.cg.add_layer(layer, children)
+    _post_task_completion(
+        parent_children_count_d_shared,
+        parent_children_count_d_lock,
+        imanager,
+        layer,
         chunk_coords,
     )
 
