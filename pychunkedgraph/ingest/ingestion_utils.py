@@ -59,7 +59,7 @@ def initialize_chunkedgraph(
 
 
 def postprocess_edge_data(im, edge_dict):
-    data_version = im.chunkedgraph_meta.data_source.data_version
+    data_version = im.cg_meta.data_source.data_version
     if data_version == 2:
         return edge_dict
     elif data_version in [3, 4]:

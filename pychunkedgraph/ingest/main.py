@@ -92,11 +92,11 @@ def _post_task_completion(
     coords: np.ndarray,
 ):
     parent_layer = layer + 1
-    if parent_layer > imanager.chunkedgraph_meta.layer_count:
+    if parent_layer > imanager.cg_meta.layer_count:
         return
 
     parent_coords = (
-        np.array(coords, int) // imanager.chunkedgraph_meta.graph_config.fanout
+        np.array(coords, int) // imanager.cg_meta.graph_config.fanout
     )
     parent_chunk_str = chunk_id_str(parent_layer, parent_coords)
 
@@ -104,7 +104,7 @@ def _post_task_completion(
         if not parent_chunk_str in parent_children_count_d_shared:
             children_count = len(
                 get_children_coords(
-                    imanager.chunkedgraph_meta, parent_layer, parent_coords
+                    imanager.cg_meta, parent_layer, parent_coords
                 )
             )
             # set initial number of child chunks
@@ -117,7 +117,7 @@ def _post_task_completion(
         if parent_children_count_d_shared[parent_chunk_str] == 0:
             parent_children_count_d_shared.pop(parent_chunk_str, None)
             children = get_children_coords(
-                imanager.chunkedgraph_meta, parent_layer, parent_coords
+                imanager.cg_meta, parent_layer, parent_coords
             )
             imanager.cg.add_layer(parent_layer, children)
             _post_task_completion(
@@ -153,7 +153,7 @@ def _create_atomic_chunks_helper(args):
 
 
 def start_ingest(imanager: IngestionManager):
-    atomic_chunk_bounds = imanager.chunkedgraph_meta.layer_chunk_bounds[2]
+    atomic_chunk_bounds = imanager.cg_meta.layer_chunk_bounds[2]
     chunk_coords = list(product(*[range(r) for r in atomic_chunk_bounds]))
     np.random.shuffle(chunk_coords)
 
