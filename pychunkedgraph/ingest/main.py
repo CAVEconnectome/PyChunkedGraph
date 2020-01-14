@@ -55,8 +55,8 @@ def worker(
 
 def start_ingest(imanager: IngestionManager):
     atomic_chunk_bounds = imanager.cg_meta.layer_chunk_bounds[2]
-    chunks_coords = list(product(*[range(r) for r in atomic_chunk_bounds]))
-    np.random.shuffle(chunks_coords)
+    atomic_chunks = list(product(*[range(r) for r in atomic_chunk_bounds]))
+    np.random.shuffle(atomic_chunks)
 
     task_queue = Queue()
     with Manager() as manager:
@@ -68,7 +68,7 @@ def start_ingest(imanager: IngestionManager):
             parent_children_count_d_lock,
             imanager.get_serialized_info(),
         ]
-        for coords in chunks_coords:
+        for coords in atomic_chunks:
             task_queue.put(
                 (
                     create_atomic_chunk_helper,
