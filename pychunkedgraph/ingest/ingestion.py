@@ -1,4 +1,3 @@
-import time
 from typing import Dict
 from typing import Tuple
 from multiprocessing import RLock
@@ -23,47 +22,46 @@ chunk_id_str = lambda layer, coords: f"{layer}_{'_'.join(map(str, coords))}"
 def get_parent_task(
     parent_children_count_d_shared: Dict,
     parent_children_count_d_lock: RLock,
-    imanager: IngestionManager,
-    layer: int,
-    coords: np.ndarray,
+    task: ChunkTask,
 ):
-    parent_layer = layer + 1
-    parent_coords = np.array(coords, int) // imanager.cg_meta.graph_config.fanout
-    if parent_layer > imanager.cg_meta.layer_count:
-        return ChunkTask(imanager.cg_meta, parent_coords, parent_layer)
-
-    parent_chunk_str = chunk_id_str(parent_layer, parent_coords)
+    parent = task.parent()
+    if parent.layer > parent.cg_meta.layer_count:
+        return parent
 
     with parent_children_count_d_lock:
-        if not parent_chunk_str in parent_children_count_d_shared:
+        if not parent.id in parent_children_count_d_shared:
             children_count = len(
-                get_children_coords(imanager.cg_meta, parent_layer, parent_coords)
+                get_children_coords(parent.cg_meta, parent.layer, parent.coords)
             )
             # set initial number of child chunks
-            parent_children_count_d_shared[parent_chunk_str] = children_count
+            parent_children_count_d_shared[parent.id] = children_count
 
         # decrement child count by 1
-        parent_children_count_d_shared[parent_chunk_str] -= 1
-
-        # if zero, all dependents complete -> start parent
-        if parent_children_count_d_shared[parent_chunk_str] == 0:
-            parent_children_count_d_shared.pop(parent_chunk_str, None)
-            return ChunkTask(imanager.cg_meta, parent_coords, parent_layer)
+        parent_children_count_d_shared[parent.id] -= 1
+        # if zero, all dependents complete -> return parent
+        if parent_children_count_d_shared[parent.id] == 0:
+            parent_children_count_d_shared.pop(parent.id, None)
+            return parent
 
 
 def create_atomic_chunk_helper(
     parent_children_count_d_shared: Dict,
     parent_children_count_d_lock: RLock,
-    im_info: dict,
+    im_info: Dict,
     coords: np.ndarray,
 ):
     """Helper to queue atomic chunk task."""
     imanager = IngestionManager(**im_info)
-    coords = np.array(list(coords), dtype=np.int)
     chunk_edges_all, mapping = _get_atomic_chunk_data(imanager, coords)
-
     ids, affs, areas, isolated = get_chunk_data_old_format(chunk_edges_all, mapping)
-    imanager.cg.add_atomic_edges_in_chunks(ids, affs, areas, isolated)
+
+    success = False
+    while not success:
+        try:
+            imanager.cg.add_atomic_edges_in_chunks(ids, affs, areas, isolated)
+            success = True
+        except:
+            pass
     return get_parent_task(
         parent_children_count_d_shared,
         parent_children_count_d_lock,
@@ -73,20 +71,24 @@ def create_atomic_chunk_helper(
     )
 
 
-def create_parent_chunk_helper(args):
+def create_parent_chunk_helper(
+    parent_children_count_d_shared: Dict,
+    parent_children_count_d_lock: RLock,
+    im_info: Dict,
+    layer: int,
+    chunk_coords: np.ndarray,
+):
     """Helper to queue parent chunk task."""
-    (
-        parent_children_count_d_shared,
-        parent_children_count_d_lock,
-        im_info,
-        layer,
-        chunk_coords,
-    ) = args
     imanager = IngestionManager(**im_info)
-    chunk_coords = np.array(list(chunk_coords), dtype=np.int)
-
     children = get_children_coords(imanager.cg_meta, layer, chunk_coords)
-    imanager.cg.add_layer(layer, children)
+
+    success = False
+    while not success:
+        try:
+            imanager.cg.add_layer(layer, children)
+            success = True
+        except:
+            pass
     return get_parent_task(
         parent_children_count_d_shared,
         parent_children_count_d_lock,
@@ -96,7 +98,9 @@ def create_parent_chunk_helper(args):
     )
 
 
-def _get_atomic_chunk_data(imanager: IngestionManager, coord) -> Tuple[Dict, Dict]:
+def _get_atomic_chunk_data(
+    imanager: IngestionManager, coord: np.ndarray
+) -> Tuple[Dict, Dict]:
     """
     Helper to read either raw data or processed data
     If reading from raw data, save it as processed data

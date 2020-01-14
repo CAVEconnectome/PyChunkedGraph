@@ -19,8 +19,5 @@ class ChunkTask:
 
     def parent_task(self):
         parent_layer = self.layer + 1
-        if parent_layer > self.cg_meta.layer_count:
-            return
-
         parent_coords = np.array(self.coords, int) // self.cg_meta.graph_config.fanout
         return ChunkTask(self.cg_meta, parent_coords, parent_layer)

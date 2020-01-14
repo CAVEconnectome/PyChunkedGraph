@@ -2,62 +2,79 @@
 Ingest / create chunkedgraph on a single machine / instance
 """
 
-import time
-import random
+from typing import Dict
 from itertools import product
+from multiprocessing import RLock
 from multiprocessing import Queue
 from multiprocessing import Process
 from multiprocessing import Manager
 from multiprocessing import cpu_count
 from multiprocessing import current_process
 
-from numpy.random import shuffle
+import numpy as np
 
 from .types import ChunkTask
 from .manager import IngestionManager
 from .ingestion import create_atomic_chunk_helper
 from .ingestion import create_parent_chunk_helper
 
+NUMBER_OF_PROCESSES = cpu_count()
 
-def worker(task_queue):
+
+def _stop_signal(task_queue):
+    for _ in range(NUMBER_OF_PROCESSES):
+        task_queue.put("STOP")
+
+
+def worker(
+    task_queue: Queue,
+    parent_children_count_d_shared: Dict,
+    parent_children_count_d_lock: RLock,
+    im_info: dict,
+):
     for func, args in iter(task_queue.get, "STOP"):
         parent_task = func(*args)
+        if not parent_task:
+            continue
+        if parent_task.layer > parent_task.cg_meta.layer_count:
+            _stop_signal(task_queue)
+            continue
         task_queue.put(
             (
-                create_atomic_chunk_helper,
+                create_parent_chunk_helper,
                 (
                     parent_children_count_d_shared,
                     parent_children_count_d_lock,
-                    imanager.get_serialized_info(),
-                    coords,
+                    im_info,
+                    parent_task.layer,
+                    parent_task.coords,
                 ),
             )
         )
 
 
 def start_ingest(imanager: IngestionManager):
-    NUMBER_OF_PROCESSES = cpu_count()
     atomic_chunk_bounds = imanager.cg_meta.layer_chunk_bounds[2]
     chunks_coords = list(product(*[range(r) for r in atomic_chunk_bounds]))
-    shuffle(chunks_coords)
+    np.random.shuffle(chunks_coords)
 
     task_queue = Queue()
     with Manager() as manager:
         parent_children_count_d_shared = manager.dict()
         parent_children_count_d_lock = manager.RLock()  # pylint: disable=no-member
 
+        common_args = [
+            parent_children_count_d_shared,
+            parent_children_count_d_lock,
+            imanager.get_serialized_info(),
+        ]
         for coords in chunks_coords:
             task_queue.put(
                 (
                     create_atomic_chunk_helper,
-                    (
-                        parent_children_count_d_shared,
-                        parent_children_count_d_lock,
-                        imanager.get_serialized_info(),
-                        coords,
-                    ),
+                    (*common_args, np.array(coords, dtype=np.int),),
                 )
             )
 
         for _ in range(NUMBER_OF_PROCESSES):
-            Process(target=worker, args=(task_queue)).start()
+            Process(target=worker, args=(task_queue, *common_args)).start()
