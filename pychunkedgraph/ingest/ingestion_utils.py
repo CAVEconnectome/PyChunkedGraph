@@ -17,6 +17,13 @@ def _table_exists(bigtable_config: BigTableConfig, table_id: str):
     return table.exists()
 
 
+def _delete_table(bigtable_config: BigTableConfig, table_id: str):
+    client = bigtable.Client(project=bigtable_config.project_id, admin=True)
+    instance = client.instance(bigtable_config.instance_id)
+    table = instance.table(table_id)
+    table.delete()
+
+
 def initialize_chunkedgraph(
     meta: ChunkedGraphMeta, cg_mesh_dir="mesh_dir", n_bits_root_counter=8, size=None
 ):
@@ -25,6 +32,9 @@ def initialize_chunkedgraph(
         meta.bigtable_config, meta.graph_config.graph_id
     ):
         raise ValueError(f"{meta.graph_config.graph_id} already exists.")
+
+    if meta.graph_config.overwrite:
+        _delete_table()
 
     ws_cv = cloudvolume.CloudVolume(meta.data_source.watershed)
     if size is not None:
