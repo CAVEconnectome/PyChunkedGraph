@@ -46,8 +46,7 @@ def worker(
                     parent_children_count_d_shared,
                     parent_children_count_d_lock,
                     im_info,
-                    parent_task.layer,
-                    parent_task.coords,
+                    parent_task,
                 ),
             )
         )
