@@ -10,24 +10,21 @@ from pychunkedgraph.backend import chunkedgraph
 from pychunkedgraph.backend import chunkedgraph_utils
 
 
-def _table_exists(bigtable_config: BigTableConfig, graph_config: str):
+def _check_table_existence(bigtable_config: BigTableConfig, graph_config: str):
     client = bigtable.Client(project=bigtable_config.project_id, admin=True)
     instance = client.instance(bigtable_config.instance_id)
     table = instance.table(graph_config.graph_id)
     if graph_config.overwrite and table.exists():
         table.delete()
-    return table.exists()
+    else:
+        ValueError(f"{graph_config.graph_id} already exists.")
 
 
 def initialize_chunkedgraph(
     meta: ChunkedGraphMeta, cg_mesh_dir="mesh_dir", n_bits_root_counter=8, size=None
 ):
     """ Initalizes a chunkedgraph on BigTable """
-    if not meta.graph_config.overwrite and _table_exists(
-        meta.bigtable_config, meta.graph_config
-    ):
-        raise ValueError(f"{meta.graph_config.graph_id} already exists.")
-
+    _check_table_existence(meta.bigtable_config, meta.graph_config)
     ws_cv = cloudvolume.CloudVolume(meta.data_source.watershed)
     if size is not None:
         size = np.array(size)

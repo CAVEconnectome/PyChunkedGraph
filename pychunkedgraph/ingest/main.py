@@ -75,5 +75,10 @@ def start_ingest(imanager: IngestionManager):
                 )
             )
 
+        processes = []
         for _ in range(NUMBER_OF_PROCESSES):
-            Process(target=worker, args=(task_queue, *common_args)).start()
+            processes.append(Process(target=worker, args=(task_queue, *common_args)))
+
+        for proc in processes:
+            proc.start()
+            proc.join()
