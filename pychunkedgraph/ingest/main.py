@@ -84,6 +84,51 @@ def test():
         task_queue.put("STOP")
 
 
+def _post_task_completion(
+    parent_children_count_d_shared: Dict,
+    parent_children_count_d_lock: mp.Lock,
+    imanager: IngestionManager,
+    layer: int,
+    coords: np.ndarray,
+):
+    parent_layer = layer + 1
+    if parent_layer > imanager.chunkedgraph_meta.layer_count:
+        return
+
+    parent_coords = (
+        np.array(coords, int) // imanager.chunkedgraph_meta.graph_config.fanout
+    )
+    parent_chunk_str = chunk_id_str(parent_layer, parent_coords)
+
+    with parent_children_count_d_lock:
+        if not parent_chunk_str in parent_children_count_d_shared:
+            children_count = len(
+                get_children_coords(
+                    imanager.chunkedgraph_meta, parent_layer, parent_coords
+                )
+            )
+            # set initial number of child chunks
+            parent_children_count_d_shared[parent_chunk_str] = children_count
+
+        # decrement child count by 1
+        parent_children_count_d_shared[parent_chunk_str] -= 1
+
+        # if zero, all dependents complete -> start parent
+        if parent_children_count_d_shared[parent_chunk_str] == 0:
+            parent_children_count_d_shared.pop(parent_chunk_str, None)
+            children = get_children_coords(
+                imanager.chunkedgraph_meta, parent_layer, parent_coords
+            )
+            imanager.cg.add_layer(parent_layer, children)
+            _post_task_completion(
+                parent_children_count_d_shared,
+                parent_children_count_d_lock,
+                imanager,
+                parent_layer,
+                parent_coords,
+            )
+
+
 def _create_atomic_chunks_helper(args):
     """ helper to start atomic tasks """
     (

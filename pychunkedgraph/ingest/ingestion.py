@@ -53,50 +53,6 @@ def start_ingest(imanager: IngestionManager):
         )
 
 
-def _create_atomic_chunks_helper(args):
-    """ helper to start atomic tasks """
-    (
-        parent_children_count_d_shared,
-        parent_children_count_d_lock,
-        im_info,
-        chunk_coords,
-    ) = args
-    imanager = IngestionManager(**im_info)
-    for chunk_coord in chunk_coords:
-        chunk_coord = np.array(list(chunk_coord), dtype=np.int)
-        chunk_edges_all, mapping = _get_atomic_chunk_data(imanager, chunk_coord)
-
-        ids, affs, areas, isolated = get_chunk_data_old_format(chunk_edges_all, mapping)
-        imanager.cg.add_atomic_edges_in_chunks(ids, affs, areas, isolated)
-        _post_task_completion(
-            parent_children_count_d_shared,
-            parent_children_count_d_lock,
-            imanager,
-            2,
-            chunk_coord,
-        )
-
-
-def _get_atomic_chunk_data(imanager: IngestionManager, coord) -> Tuple[Dict, Dict]:
-    """
-    Helper to read either raw data or processed data
-    If reading from raw data, save it as processed data
-    """
-    chunk_edges = (
-        read_raw_edge_data(imanager, coord)
-        if imanager.chunkedgraph_meta.data_source.use_raw_edges
-        else get_chunk_edges(imanager.chunkedgraph_meta.data_source.edges, [coord])
-    )
-    mapping = (
-        read_raw_agglomeration_data(imanager, coord)
-        if imanager.chunkedgraph_meta.data_source.use_raw_components
-        else get_chunk_components(
-            imanager.chunkedgraph_meta.data_source.components, coord
-        )
-    )
-    return chunk_edges, mapping
-
-
 def _post_task_completion(
     parent_children_count_d_shared: Dict,
     parent_children_count_d_lock: mp.Lock,
@@ -140,3 +96,47 @@ def _post_task_completion(
                 parent_layer,
                 parent_coords,
             )
+
+
+def _create_atomic_chunks_helper(args):
+    """ helper to start atomic tasks """
+    (
+        parent_children_count_d_shared,
+        parent_children_count_d_lock,
+        im_info,
+        chunk_coords,
+    ) = args
+    imanager = IngestionManager(**im_info)
+    chunk_coords = np.array(list(chunk_coords), dtype=np.int)
+    chunk_edges_all, mapping = _get_atomic_chunk_data(imanager, chunk_coords)
+
+    ids, affs, areas, isolated = get_chunk_data_old_format(chunk_edges_all, mapping)
+    imanager.cg.add_atomic_edges_in_chunks(ids, affs, areas, isolated)
+    _post_task_completion(
+        parent_children_count_d_shared,
+        parent_children_count_d_lock,
+        imanager,
+        2,
+        chunk_coords,
+    )
+
+
+def _get_atomic_chunk_data(imanager: IngestionManager, coord) -> Tuple[Dict, Dict]:
+    """
+    Helper to read either raw data or processed data
+    If reading from raw data, save it as processed data
+    """
+    chunk_edges = (
+        read_raw_edge_data(imanager, coord)
+        if imanager.chunkedgraph_meta.data_source.use_raw_edges
+        else get_chunk_edges(imanager.chunkedgraph_meta.data_source.edges, [coord])
+    )
+    mapping = (
+        read_raw_agglomeration_data(imanager, coord)
+        if imanager.chunkedgraph_meta.data_source.use_raw_components
+        else get_chunk_components(
+            imanager.chunkedgraph_meta.data_source.components, coord
+        )
+    )
+    return chunk_edges, mapping
+
