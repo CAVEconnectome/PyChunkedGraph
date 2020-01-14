@@ -19,7 +19,7 @@ def get_parent_task(
     parent_children_count_d_lock: RLock,
     task: ChunkTask,
 ):
-    parent = task.parent()
+    parent = task.parent_task()
     if parent.layer > parent.cg_meta.layer_count:
         return parent
 
