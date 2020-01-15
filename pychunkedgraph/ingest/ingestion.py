@@ -16,14 +16,14 @@ from ..backend.chunks.hierarchy import get_children_coords
 
 def get_parent_task(
     parent_children_count_d_shared: Dict,
-    parent_children_count_d_lock: RLock,
+    parent_children_count_d_locks: RLock,
     task: ChunkTask,
 ):
     parent = task.parent_task()
     if parent.layer > parent.cg_meta.layer_count:
         return parent
 
-    with parent_children_count_d_lock:
+    with parent_children_count_d_locks[parent.id]:
         if not parent.id in parent_children_count_d_shared:
             children_count = len(
                 get_children_coords(parent.cg_meta, parent.layer, parent.coords)
@@ -35,19 +35,18 @@ def get_parent_task(
         parent_children_count_d_shared[parent.id] -= 1
         # if zero, all dependents complete -> return parent
         if parent_children_count_d_shared[parent.id] == 0:
-            parent_children_count_d_shared.pop(parent.id, None)
             return parent
 
 
 def create_atomic_chunk_helper(
     parent_children_count_d_shared: Dict,
-    parent_children_count_d_lock: RLock,
+    parent_children_count_d_locks: RLock,
     im_info: Dict,
-    coords: np.ndarray,
+    task: ChunkTask,
 ):
     """Helper to queue atomic chunk task."""
     imanager = IngestionManager(**im_info)
-    chunk_edges_all, mapping = _get_atomic_chunk_data(imanager, coords)
+    chunk_edges_all, mapping = _get_atomic_chunk_data(imanager, task.coords)
     ids, affs, areas, isolated = get_chunk_data_old_format(chunk_edges_all, mapping)
 
     success = False
@@ -58,15 +57,13 @@ def create_atomic_chunk_helper(
         except:
             pass
     return get_parent_task(
-        parent_children_count_d_shared,
-        parent_children_count_d_lock,
-        ChunkTask(imanager.cg_meta, coords),
+        parent_children_count_d_shared, parent_children_count_d_locks, task,
     )
 
 
 def create_parent_chunk_helper(
     parent_children_count_d_shared: Dict,
-    parent_children_count_d_lock: RLock,
+    parent_children_count_d_locks: RLock,
     im_info: Dict,
     task: ChunkTask,
 ):
@@ -82,7 +79,7 @@ def create_parent_chunk_helper(
         except:
             pass
     return get_parent_task(
-        parent_children_count_d_shared, parent_children_count_d_lock, task
+        parent_children_count_d_shared, parent_children_count_d_locks, task
     )
 
 
