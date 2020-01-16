@@ -23,14 +23,18 @@ from .ingestion import create_parent_chunk_helper
 NUMBER_OF_PROCESSES = cpu_count()
 
 
-def _progress(imanager: IngestionManager, layer_task_counts_d_shared: Dict, task_queue:Queue):
-    t = threading.Timer(60.0, _progress, args=((imanager, layer_task_counts_d_shared, task_queue)))
+def _progress(
+    imanager: IngestionManager, layer_task_counts_d_shared: Dict, task_queue: Queue
+):
+    t = threading.Timer(
+        120.0, _progress, args=((imanager, layer_task_counts_d_shared, task_queue))
+    )
     t.start()
 
     result = []
     for layer in range(2, imanager.cg_meta.layer_count):
         result.append(f"{layer} {layer_task_counts_d_shared.get(layer, 0)}")
-    print(f"{' '.join(result)} | {len(task_queue)}"
+    print(f"{' '.join(result)} | {task_queue.qsize()}")
 
 
 def _enqueue_parent(
