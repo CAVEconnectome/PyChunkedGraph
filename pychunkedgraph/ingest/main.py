@@ -28,7 +28,7 @@ def _progress(
     imanager: IngestionManager, layer_task_counts_d_shared: Dict, task_queue: Queue
 ):
     t = threading.Timer(
-        5.0, _progress, args=((imanager, layer_task_counts_d_shared, task_queue))
+        60.0, _progress, args=((imanager, layer_task_counts_d_shared, task_queue))
     )
     t.start()
 
@@ -76,6 +76,7 @@ def worker(
 ):
     while not task_queue.empty():
         func, args = task_queue.get()
+        print(args[1].id)
         task = func(*args)
         parent = task.parent_task()
         if parent.layer > parent.cg_meta.layer_count:

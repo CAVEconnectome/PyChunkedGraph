@@ -24,8 +24,10 @@ def create_atomic_chunk_helper(
     success = False
     while not success:
         try:
+            print(f"\ndoing {task.id}")
             imanager.cg.add_atomic_edges_in_chunks(ids, affs, areas, isolated)
             success = True
+            print(f"\ndone {task.id}\n")
         except:
             pass
     return task
@@ -39,8 +41,10 @@ def create_parent_chunk_helper(
     success = False
     while not success:
         try:
+            print(f"\ndoing {task.id}")
             imanager.cg.add_layer(layer, task.children_coords)
             success = True
+            print(f"\ndone {task.id}\n")
         except:
             pass
     return task
