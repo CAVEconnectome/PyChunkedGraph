@@ -2,6 +2,7 @@
 Ingest / create chunkedgraph on a single machine / instance
 """
 
+import threading
 from typing import Dict
 from itertools import product
 from multiprocessing import Queue
@@ -18,8 +19,22 @@ from .manager import IngestionManager
 from .ingestion import create_atomic_chunk_helper
 from .ingestion import create_parent_chunk_helper
 
+
 NUMBER_OF_PROCESSES = cpu_count()
 STOP_SIGNAL = "stop"
+
+
+def _progress(imanager: IngestionManager, parent_children_count_d_shared: Dict):
+    t = threading.Timer(
+        1800.0, _progress, args=((imanager, parent_children_count_d_shared,))
+    )
+    t.daemon = True
+    t.start()
+
+    result = []
+    for layer in range(2, imanager.cg_meta.layer_count):
+        result.append(f"{layer} {parent_children_count_d_shared.get(layer, 0)}")
+    print(", ".join(result))
 
 
 def _stop_signal(task_queue):
@@ -27,35 +42,51 @@ def _stop_signal(task_queue):
         task_queue.put(STOP_SIGNAL)
 
 
+def _enqueue_parent(
+    task_queue: Queue,
+    im_info: dict,
+    parent: ChunkTask,
+    parent_children_count_d_shared: Dict,
+    parent_children_count_d_lock: RLock,
+) -> None:
+    with parent_children_count_d_lock:
+        if not parent.id in parent_children_count_d_shared:
+            # set initial number of child chunks
+            parent_children_count_d_shared[parent.id] = len(parent.children_coords)
+
+        # decrement child count by 1
+        parent_children_count_d_shared[parent.id] -= 1
+        # if zero, all dependents complete -> return parent
+        if parent_children_count_d_shared[parent.id] == 0:
+            del parent_children_count_d_shared[parent.id]
+            task_queue.put((create_parent_chunk_helper, (im_info, parent,),))
+
+
 def worker(
-    manager: Manager,
     task_queue: Queue,
     parent_children_count_d_shared: Dict[str, int],
-    parent_children_count_d_locks: Dict[str, RLock],
+    parent_children_count_d_lock: RLock,
     im_info: dict,
 ):
     for func, args in iter(task_queue.get, STOP_SIGNAL):
         task = func(*args)
-        if not task:
-            continue
-        if task.layer > task.cg_meta.layer_count:
-            _stop_signal(task_queue)
-            continue
-        parent_children_count_d_shared.pop(task.id, None)
-        parent_children_count_d_locks.pop(task.id, None)
+        with parent_children_count_d_lock:
+            if task.layer in parent_children_count_d_shared:
+                parent_children_count_d_shared[task.layer] += 1
+            else:
+                parent_children_count_d_shared[task.layer] = 1
 
         parent = task.parent_task()
-        parent_children_count_d_locks[parent.id] = manager.RLock()
-        task_queue.put(
-            (
-                create_parent_chunk_helper,
-                (
-                    parent_children_count_d_shared,
-                    parent_children_count_d_locks,
-                    im_info,
-                    task,
-                ),
-            )
+        if parent.layer > parent.cg_meta.layer_count:
+            _stop_signal(task_queue)
+            continue
+
+        _enqueue_parent(
+            task_queue,
+            im_info,
+            parent,
+            parent_children_count_d_shared,
+            parent_children_count_d_lock,
         )
 
 
@@ -67,30 +98,27 @@ def start_ingest(imanager: IngestionManager, n_workers: int = NUMBER_OF_PROCESSE
     task_queue = Queue()
     with Manager() as manager:
         parent_children_count_d_shared = manager.dict()
-        parent_children_count_d_locks = manager.dict()  # pylint: disable=no-member
+        parent_children_count_d_lock = manager.RLock()  # pylint: disable=no-member
 
-        common_args = [
-            parent_children_count_d_shared,
-            parent_children_count_d_locks,
-            imanager.get_serialized_info(),
-        ]
         for coords in atomic_chunks:
             task = ChunkTask(imanager.cg.meta, np.array(coords, dtype=np.int))
-            task_queue.put((create_atomic_chunk_helper, (*common_args, task,),))
-            parent_children_count_d_locks[task.parent_task().id] = None
-
-        for parent_id in parent_children_count_d_locks:
-            parent_children_count_d_locks[parent_id] = manager.RLock()
-
-        print("parent_children_count_d_locks", len(parent_children_count_d_locks))
+            task_queue.put(
+                (create_atomic_chunk_helper, (imanager.get_serialized_info(), task,),)
+            )
 
         processes = []
+        args = (
+            task_queue,
+            parent_children_count_d_shared,
+            parent_children_count_d_lock,
+            imanager.get_serialized_info(),
+        )
         for _ in range(n_workers):
-            processes.append(
-                Process(target=worker, args=(manager, task_queue, *common_args))
-            )
+            processes.append(Process(target=worker, args=args))
             processes[-1].start()
 
-        print(f"{n_workers} started.")
+        _progress(imanager, parent_children_count_d_shared)
+        print(f"{n_workers} workers started.")
         for proc in processes:
             proc.join()
+        print("Complete.")

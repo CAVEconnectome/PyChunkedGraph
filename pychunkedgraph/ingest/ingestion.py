@@ -11,38 +11,10 @@ from .ran_agglomeration import read_raw_edge_data
 from .ran_agglomeration import read_raw_agglomeration_data
 from ..io.edges import get_chunk_edges
 from ..io.components import get_chunk_components
-from ..backend.chunks.hierarchy import get_children_coords
-
-
-def get_parent_task(
-    parent_children_count_d_shared: Dict,
-    parent_children_count_d_locks: RLock,
-    task: ChunkTask,
-):
-    parent = task.parent_task()
-    if parent.layer > parent.cg_meta.layer_count:
-        return parent
-
-    with parent_children_count_d_locks[parent.id]:
-        if not parent.id in parent_children_count_d_shared:
-            children_count = len(
-                get_children_coords(parent.cg_meta, parent.layer, parent.coords)
-            )
-            # set initial number of child chunks
-            parent_children_count_d_shared[parent.id] = children_count
-
-        # decrement child count by 1
-        parent_children_count_d_shared[parent.id] -= 1
-        # if zero, all dependents complete -> return parent
-        if parent_children_count_d_shared[parent.id] == 0:
-            return parent
 
 
 def create_atomic_chunk_helper(
-    parent_children_count_d_shared: Dict,
-    parent_children_count_d_locks: RLock,
-    im_info: Dict,
-    task: ChunkTask,
+    im_info: Dict, task: ChunkTask,
 ):
     """Helper to queue atomic chunk task."""
     imanager = IngestionManager(**im_info)
@@ -56,31 +28,22 @@ def create_atomic_chunk_helper(
             success = True
         except:
             pass
-    return get_parent_task(
-        parent_children_count_d_shared, parent_children_count_d_locks, task,
-    )
+    return task
 
 
 def create_parent_chunk_helper(
-    parent_children_count_d_shared: Dict,
-    parent_children_count_d_locks: RLock,
-    im_info: Dict,
-    task: ChunkTask,
+    im_info: Dict, task: ChunkTask,
 ):
     """Helper to queue parent chunk task."""
     imanager = IngestionManager(**im_info)
-    children = get_children_coords(imanager.cg_meta, task.layer, task.coords)
-
     success = False
     while not success:
         try:
-            imanager.cg.add_layer(layer, children)
+            imanager.cg.add_layer(layer, task.children_coords)
             success = True
         except:
             pass
-    return get_parent_task(
-        parent_children_count_d_shared, parent_children_count_d_locks, task
-    )
+    return task
 
 
 def _get_atomic_chunk_data(
