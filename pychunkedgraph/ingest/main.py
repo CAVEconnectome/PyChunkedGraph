@@ -28,7 +28,7 @@ def _progress(
     imanager: IngestionManager, layer_task_counts_d_shared: Dict, task_queue: Queue
 ):
     t = threading.Timer(
-        120.0, _progress, args=((imanager, layer_task_counts_d_shared, task_queue))
+        5.0, _progress, args=((imanager, layer_task_counts_d_shared, task_queue))
     )
     t.start()
 
@@ -99,6 +99,18 @@ def worker(
 def start_ingest(imanager: IngestionManager, n_workers: int = NUMBER_OF_PROCESSES):
     atomic_chunk_bounds = imanager.cg_meta.layer_chunk_bounds[2]
     atomic_chunks = list(product(*[range(r) for r in atomic_chunk_bounds]))
+
+    atomic_chunks = [
+        [42, 24, 10],
+        [42, 24, 11],
+        [42, 25, 10],
+        [42, 25, 11],
+        [43, 24, 10],
+        [43, 24, 11],
+        [43, 25, 10],
+        [43, 25, 11],
+    ]
+
     np.random.shuffle(atomic_chunks)
 
     manager = Manager()
