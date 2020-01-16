@@ -179,7 +179,6 @@ def remove_edge(
     # of the retained edges in each chunk
     removed_edges = np.concatenate([atomic_edges, atomic_edges[:, ::-1]], axis=0)
 
-    rows = []  # list of rows to be written to BigTable
     lvl2_cross_chunk_edge_dict = {}
 
     # Analyze atomic_edges --> translate them to lvl2 edges and extract cross
@@ -209,27 +208,6 @@ def remove_edge(
             new_parent_id = new_parent_ids[i_cc]
             cc_node_ids = unique_graph_ids[cc]
 
-            # Write changes to atomic nodes and new lvl2 parent row
-            val_dict = {column_keys.Hierarchy.Child: cc_node_ids}
-            rows.append(
-                cg.mutate_row(
-                    serializers.serialize_uint64(new_parent_id),
-                    val_dict,
-                    time_stamp=time_stamp,
-                )
-            )
-
-            for cc_node_id in cc_node_ids:
-                val_dict = {column_keys.Hierarchy.Parent: new_parent_id}
-
-                rows.append(
-                    cg.mutate_row(
-                        serializers.serialize_uint64(cc_node_id),
-                        val_dict,
-                        time_stamp=time_stamp,
-                    )
-                )
-
             # Cross edges ---
             cross_edge_m = np.in1d(cross_edges[:, 0], cc_node_ids)
             cc_cross_edges = cross_edges[cross_edge_m]
@@ -248,35 +226,9 @@ def remove_edge(
                 layer_cross_edges = cc_cross_edges[edge_m]
 
                 if len(layer_cross_edges) > 0:
-                    val_dict[
-                        column_keys.Connectivity.CrossChunkEdge[cc_layer]
-                    ] = layer_cross_edges
                     lvl2_cross_chunk_edge_dict[new_parent_id][
                         cc_layer
                     ] = layer_cross_edges
-
-            if len(val_dict) > 0:
-                rows.append(
-                    cg.mutate_row(
-                        serializers.serialize_uint64(new_parent_id),
-                        val_dict,
-                        time_stamp=time_stamp,
-                    )
-                )
-
-        if cg.n_layers == 2:
-            rows.extend(
-                update_root_id_lineage(
-                    cg,
-                    new_parent_ids,
-                    [lvl2_node_id],
-                    operation_id=operation_id,
-                    time_stamp=time_stamp,
-                )
-            )
-
-    # Write atomic nodes
-    rows.extend(_write_atomic_split_edges(cg, atomic_edges, time_stamp=time_stamp))
 
     # Propagate changes up the tree
     if cg.n_layers > 2:
