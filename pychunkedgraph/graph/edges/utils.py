@@ -123,17 +123,12 @@ def categorize_edges(
     areas = all_out_edges.areas[~cross_edges_m]
     out_edges = Edges(ids1, ids2, affinities=affinities, areas=areas)
 
-    cross_edge_layers = edge_layers[cross_edges_m]
     ids1 = all_out_edges.node_ids1[cross_edges_m]
     ids2 = all_out_edges.node_ids2[cross_edges_m]
     affinities = all_out_edges.affinities[cross_edges_m]
     areas = all_out_edges.areas[cross_edges_m]
-    cross_edges = Edges(ids1, ids2, affinities=affinities, areas=areas).get_pairs()
-
-    cross_edge_d = {}
-    for layer in range(2, meta.layer_count):
-        cross_edge_d[layer] = cross_edges[cross_edge_layers == layer]
-    return (in_edges, out_edges, cross_edge_d)
+    cross_edges = Edges(ids1, ids2, affinities=affinities, areas=areas)
+    return (in_edges, out_edges, cross_edges)
 
 
 def get_active_edges(edges: Edges, parent_children_d: Dict) -> Edges:

@@ -43,13 +43,15 @@ _agglomeration_fields = (
     "supervoxels",
     "in_edges",
     "out_edges",
+    "cross_edges",
     "cross_edges_d",
 )
 _agglomeration_defaults = (
     None,
-    np.array([], dtype=basetypes.NODE_ID),
-    np.array([], dtype=basetypes.NODE_ID).reshape(-1, 2),
-    np.array([], dtype=basetypes.NODE_ID).reshape(-1, 2),
+    empty_1d.copy(),
+    empty_2d.copy(),
+    empty_2d.copy(),
+    empty_2d.copy(),
     {},
 )
 Agglomeration = namedtuple(
