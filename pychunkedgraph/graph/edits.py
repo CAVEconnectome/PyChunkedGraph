@@ -194,6 +194,7 @@ def remove_edge(
         cross_edges = l2_agg.cross_edges.get_pairs()
         chunk_edges = chunk_edges[~in2d(chunk_edges, removed_edges)]
         cross_edges = cross_edges[~in2d(cross_edges, removed_edges)]
+        cross_edge_layers = cg.get_cross_chunk_edges_layer(cross_edges)
 
         isolated_ids = l2_agg.supervoxels[~np.in1d(l2_agg.supervoxels, chunk_edges)]
         isolated_edges = np.vstack([isolated_ids, isolated_ids]).T
