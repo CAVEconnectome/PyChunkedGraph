@@ -144,20 +144,19 @@ def add_edge(
     )
 
     graph, _, _, graph_node_ids = flatgraph.build_gt_graph(edges, make_directed=True)
-    cross_edges_d = {
-        id_: cg.get_min_layer_cross_edges(id_, [atomic_cross_edges_d[id_]])
-        for id_ in graph_node_ids
-    }
-
     ccs = flatgraph.connected_components(graph)
     new_l2ids = []
     l2_cross_edges_d = {}
     for cc in ccs:
         l2ids = graph_node_ids[cc]
-        chunk_id = cg.get_chunk_id(l2ids[0])
-        new_l2ids.append(cg.id_client.create_node_id(chunk_id))
-        l2_cross_edges_d[new_l2ids[-1]] = concatenate_cross_edge_dicts(
-            [cross_edges_d[l2id] for l2id in l2ids]
+        new_id = cg.id_client.create_node_id(cg.get_chunk_id(l2ids[0]))
+        new_l2ids.append(new_id)
+        l2_cross_edges_d[new_id] = concatenate_cross_edge_dicts(
+            [atomic_cross_edges_d[l2id] for l2id in l2ids]
+        )
+
+        l2_cross_edges_d[new_id] = cg.get_min_layer_cross_edges(
+            new_id, [l2_cross_edges_d[new_id]]
         )
 
     new_cross_edges_d_d = {}
