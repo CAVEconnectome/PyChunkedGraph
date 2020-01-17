@@ -1,6 +1,5 @@
 from typing import Dict
 from typing import Tuple
-from multiprocessing import RLock
 
 import numpy as np
 
