@@ -2,14 +2,13 @@
 Ingest / create chunkedgraph on a single machine / instance
 """
 
-import threading
 from typing import Dict
+from threading import Timer
 from itertools import product
 from multiprocessing import Queue
 from multiprocessing import Process
 from multiprocessing import Manager
 from multiprocessing import cpu_count
-from multiprocessing import current_process
 from multiprocessing.synchronize import Lock
 from multiprocessing.managers import SyncManager
 
@@ -24,11 +23,16 @@ from .ingestion import create_parent_chunk_helper
 NUMBER_OF_PROCESSES = cpu_count()
 
 
-def _progress(
-    imanager: IngestionManager, layer_task_counts_d_shared: Dict, task_queue: Queue
+def _display_progess(
+    imanager: IngestionManager,
+    layer_task_counts_d_shared: Dict,
+    task_queue: Queue,
+    interval: float,
 ):
-    t = threading.Timer(
-        120.0, _progress, args=((imanager, layer_task_counts_d_shared, task_queue))
+    t = Timer(
+        interval,
+        _display_progess,
+        args=((imanager, layer_task_counts_d_shared, task_queue)),
     )
     t.start()
 
@@ -96,7 +100,11 @@ def worker(
                 layer_task_counts_d_shared[f"{parent.layer}q"] += 1
 
 
-def start_ingest(imanager: IngestionManager, n_workers: int = NUMBER_OF_PROCESSES):
+def start_ingest(
+    imanager: IngestionManager,
+    n_workers: int = NUMBER_OF_PROCESSES,
+    progress_interval: float = 120.0,
+):
     atomic_chunk_bounds = imanager.cg_meta.layer_chunk_bounds[2]
     atomic_chunks = list(product(*[range(r) for r in atomic_chunk_bounds]))
 
@@ -153,7 +161,9 @@ def start_ingest(imanager: IngestionManager, n_workers: int = NUMBER_OF_PROCESSE
         processes[-1].start()
     print(f"{n_workers} workers started.")
 
-    _progress(imanager, layer_task_counts_d_shared, task_queue)
+    _display_progess(
+        imanager, layer_task_counts_d_shared, task_queue, progress_interval
+    )
     for proc in processes:
         proc.join()
 
