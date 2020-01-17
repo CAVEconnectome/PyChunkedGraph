@@ -145,27 +145,32 @@ def add_edge(
 
     graph, _, _, graph_node_ids = flatgraph.build_gt_graph(edges, make_directed=True)
     ccs = flatgraph.connected_components(graph)
-    new_l2ids = []
-    l2_cross_edges_d = {}
+    new_cross_edges_d_d = {}
     for cc in ccs:
         l2ids = graph_node_ids[cc]
         new_id = cg.id_client.create_node_id(cg.get_chunk_id(l2ids[0]))
-        new_l2ids.append(new_id)
-        l2_cross_edges_d[new_id] = concatenate_cross_edge_dicts(
-            [atomic_cross_edges_d[l2id] for l2id in l2ids]
+        new_cross_edges_d_d[new_id] = cg.get_min_layer_cross_edges(
+            new_id, [atomic_cross_edges_d[l2id] for l2id in l2ids]
         )
-
-        l2_cross_edges_d[new_id] = cg.get_min_layer_cross_edges(
-            new_id, [l2_cross_edges_d[new_id]]
-        )
-
-    new_cross_edges_d_d = {}
-    for l2id, cross_edges_d in l2_cross_edges_d.items():
-        layer_, edges_ = filter_min_layer_cross_edges(cg.meta, cross_edges_d)
-        new_cross_edges_d_d[l2id] = {layer_: edges_}
     return _create_parents(
         cg, new_cross_edges_d_d.copy(), operation_id=operation_id, time_stamp=timestamp,
     )
+
+
+def _filter_component_cross_edges(
+    cc_ids: np.ndarray, cross_edges: np.ndarray, cross_edge_layers: np.ndarray
+):
+    mask = np.in1d(cross_edges[:, 0], cc_ids)
+    cross_edges_ = cross_edges[mask]
+    cross_edge_layers_ = cross_edge_layers[mask]
+
+    edges_d = {}
+    for layer in np.unique(cross_edge_layers_):
+        edge_m = cross_edge_layers_ == layer
+        _cross_edges = cross_edges_[edge_m]
+        if _cross_edges.size:
+            edges_d[layer] = _cross_edges
+    return edges_d
 
 
 def remove_edge(
@@ -174,21 +179,16 @@ def remove_edge(
     atomic_edges: Sequence[Sequence[np.uint64]],
     time_stamp: datetime.datetime,
 ):
-    # This view of the to be removed edges helps us to compute the mask
-    # of the retained edges in each chunk
+    # This view of the to be removed edges helps us to
+    # compute the mask of retained edges in chunk
     removed_edges = np.concatenate([atomic_edges, atomic_edges[:, ::-1]], axis=0)
-
-    lvl2_cross_chunk_edge_dict = {}
-
-    # Analyze atomic_edges --> translate them to lvl2 edges and extract cross
-    # chunk edges to be removed
     edges, _ = _analyze_atomic_edges(cg, atomic_edges)
-
     l2_ids = np.unique(edges)
     l2_chunk_ids = cg.get_chunk_ids_from_node_ids(l2_ids)
     l2id_chunk_id_d = dict(zip(l2_ids, l2_chunk_ids))
     l2id_agglomeration_d = cg.get_subgraph(l2_ids, layer_2=True)
 
+    atomic_cross_edges_d = {}
     for l2_id, l2_agg in l2id_agglomeration_d.items():
         chunk_edges = l2_agg.in_edges.get_pairs()
         cross_edges = l2_agg.cross_edges.get_pairs()
@@ -207,42 +207,17 @@ def remove_edge(
 
         for i_cc, cc in enumerate(ccs):
             new_parent_id = new_parent_ids[i_cc]
-            cc_node_ids = unique_graph_ids[cc]
+            cc_ids = unique_graph_ids[cc]
+            atomic_cross_edges_d[new_parent_id] = _filter_component_cross_edges(
+                cc_ids, cross_edges, cross_edge_layers
+            )
 
-            # Cross edges ---
-            cross_edge_m = np.in1d(cross_edges[:, 0], cc_node_ids)
-            cc_cross_edges = cross_edges[cross_edge_m]
-            cc_cross_edge_layers = cross_edge_layers[cross_edge_m]
-            u_cc_cross_edge_layers = np.unique(cc_cross_edge_layers)
-
-            lvl2_cross_chunk_edge_dict[new_parent_id] = {}
-
-            for l in range(2, cg.n_layers):
-                empty_edges = column_keys.Connectivity.CrossChunkEdge.deserialize(b"")
-                lvl2_cross_chunk_edge_dict[new_parent_id][l] = empty_edges
-
-            val_dict = {}
-            for cc_layer in u_cc_cross_edge_layers:
-                edge_m = cc_cross_edge_layers == cc_layer
-                layer_cross_edges = cc_cross_edges[edge_m]
-
-                if len(layer_cross_edges) > 0:
-                    lvl2_cross_chunk_edge_dict[new_parent_id][
-                        cc_layer
-                    ] = layer_cross_edges
-
-    # Propagate changes up the tree
-    if cg.n_layers > 2:
-        new_root_ids, new_rows = propagate_edits_to_root(
-            cg,
-            lvl2_dict.copy(),
-            lvl2_cross_chunk_edge_dict,
-            operation_id=operation_id,
-            time_stamp=time_stamp,
+    new_cross_edges_d_d = {}
+    for new_id, cross_edges in atomic_cross_edges_d.items():
+        new_cross_edges_d_d[new_id] = cg.get_min_layer_cross_edges(
+            new_id, [cross_edges]
         )
-        rows.extend(new_rows)
-    else:
-        new_root_ids = np.array(list(lvl2_dict.keys()))
-
-    return new_root_ids, list(lvl2_dict.keys()), rows
+    return _create_parents(
+        cg, new_cross_edges_d_d.copy(), operation_id=operation_id, time_stamp=timestamp,
+    )
 
