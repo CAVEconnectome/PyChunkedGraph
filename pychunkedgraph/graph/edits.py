@@ -7,8 +7,7 @@ from typing import Iterable
 from typing import Sequence
 from collections import defaultdict
 
-from .types import Node
-from .types import empty_2d
+from . import types
 from .utils import basetypes
 from .utils import flatgraph
 from .utils.context_managers import TimeIt
@@ -33,11 +32,13 @@ def _get_all_siblings(cg, new_parent_id, new_id_ce_siblings: Iterable) -> List:
     return children[np.in1d(children_chunk_ids, chunk_ids)]
 
 
-def _create_parent_node(cg, new_node: Node, parent_layer: int = None) -> Node:
+def _create_parent_node(
+    cg, new_node: types.Node, parent_layer: int = None
+) -> types.Node:
     new_id = new_node.node_id
     parent_chunk_id = cg.get_parent_chunk_id(new_id, parent_layer)
     new_parent_id = cg.id_client.create_node_id(parent_chunk_id)
-    new_parent_node = Node(new_parent_id)
+    new_parent_node = types.Node(new_parent_id)
     new_node.parent_id = new_parent_id
     return new_parent_node
 
@@ -63,7 +64,7 @@ def _create_parents(
         new_ids = np.array(layer_new_ids_d[current_layer], basetypes.NODE_ID)
         new_ids_ = np.fromiter(new_nodes_d.keys(), dtype=basetypes.NODE_ID)
         new_nodes_d.update(
-            {id_: Node(id_) for id_ in new_ids[~np.in1d(new_ids, new_ids_)]}
+            {id_: types.Node(id_) for id_ in new_ids[~np.in1d(new_ids, new_ids_)]}
         )
         new_ids_ = np.fromiter(new_cross_edges_d_d.keys(), dtype=basetypes.NODE_ID)
         new_cross_edges_d_d.update(
@@ -157,6 +158,21 @@ def add_edge(
     )
 
 
+def _process_l2_agglomeration(agg: types.Agglomeration, removed_edges: np.ndarray):
+    chunk_edges = agg.in_edges.get_pairs()
+    cross_edges = agg.cross_edges.get_pairs()
+    chunk_edges = chunk_edges[~in2d(chunk_edges, removed_edges)]
+    cross_edges = cross_edges[~in2d(cross_edges, removed_edges)]
+
+    isolated_ids = agg.supervoxels[~np.in1d(agg.supervoxels, chunk_edges)]
+    isolated_edges = np.vstack([isolated_ids, isolated_ids]).T
+    graph, _, _, unique_graph_ids = flatgraph.build_gt_graph(
+        np.concatenate([chunk_edges, isolated_edges]), make_directed=True
+    )
+    ccs = flatgraph.connected_components(graph)
+    return ccs, unique_graph_ids, cross_edges
+
+
 def _filter_component_cross_edges(
     cc_ids: np.ndarray, cross_edges: np.ndarray, cross_edge_layers: np.ndarray
 ):
@@ -189,21 +205,14 @@ def remove_edge(
     l2id_agglomeration_d = cg.get_subgraph(l2_ids, layer_2=True)
 
     atomic_cross_edges_d = {}
-    for l2_id, l2_agg in l2id_agglomeration_d.items():
-        chunk_edges = l2_agg.in_edges.get_pairs()
-        cross_edges = l2_agg.cross_edges.get_pairs()
-        chunk_edges = chunk_edges[~in2d(chunk_edges, removed_edges)]
-        cross_edges = cross_edges[~in2d(cross_edges, removed_edges)]
-        cross_edge_layers = cg.get_cross_chunk_edges_layer(cross_edges)
-
-        isolated_ids = l2_agg.supervoxels[~np.in1d(l2_agg.supervoxels, chunk_edges)]
-        isolated_edges = np.vstack([isolated_ids, isolated_ids]).T
-
-        graph, _, _, unique_graph_ids = flatgraph.build_gt_graph(
-            np.concatenate([chunk_edges, isolated_edges]), make_directed=True
+    for l2_agg in l2id_agglomeration_d.values():
+        ccs, unique_graph_ids, cross_edges = _process_l2_agglomeration(
+            l2_agg, removed_edges
         )
-        ccs = flatgraph.connected_components(graph)
-        new_parent_ids = cg.id_client.create_node_ids(l2id_chunk_id_d[l2_id], len(ccs))
+        cross_edge_layers = cg.get_cross_chunk_edges_layer(cross_edges)
+        new_parent_ids = cg.id_client.create_node_ids(
+            l2id_chunk_id_d[l2_agg.node_id], len(ccs)
+        )
 
         for i_cc, cc in enumerate(ccs):
             new_parent_id = new_parent_ids[i_cc]
