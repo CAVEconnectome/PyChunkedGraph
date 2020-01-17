@@ -46,7 +46,7 @@ def _create_parents(
     cg,
     new_cross_edges_d_d: Dict[np.uint64, Dict],
     operation_id: basetypes.OPERATION_ID,
-    time_stamp: datetime.datetime,
+    timestamp: datetime.datetime,
 ):
     """
     After new level 2 IDs are built, create parents in higher layers.
@@ -153,7 +153,7 @@ def add_edge(
             new_id, [atomic_cross_edges_d[l2id] for l2id in l2ids]
         )
     return _create_parents(
-        cg, new_cross_edges_d_d.copy(), operation_id=operation_id, time_stamp=timestamp,
+        cg, new_cross_edges_d_d.copy(), operation_id=operation_id, timestamp=timestamp,
     )
 
 
@@ -177,7 +177,7 @@ def remove_edge(
     cg,
     operation_id: np.uint64,
     atomic_edges: Sequence[Sequence[np.uint64]],
-    time_stamp: datetime.datetime,
+    timestamp: datetime.datetime,
 ):
     # This view of the to be removed edges helps us to
     # compute the mask of retained edges in chunk
@@ -218,6 +218,6 @@ def remove_edge(
             new_id, [cross_edges]
         )
     return _create_parents(
-        cg, new_cross_edges_d_d.copy(), operation_id=operation_id, time_stamp=timestamp,
+        cg, new_cross_edges_d_d.copy(), operation_id=operation_id, timestamp=timestamp,
     )
 
