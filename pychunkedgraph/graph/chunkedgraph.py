@@ -915,7 +915,7 @@ class ChunkedGraph:
             children_layer -= 1
         return parent_children_d
 
-    # HELPERS
+    # HELPERS / WRAPPERS
     def get_node_id(
         self,
         segment_id: np.uint64,

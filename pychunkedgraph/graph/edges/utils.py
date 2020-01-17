@@ -164,23 +164,6 @@ def filter_fake_edges(added_edges: np.ndarray, subgraph_edges: np.ndarray) -> Li
     return added_edges[~reachable]
 
 
-def map_edges_to_chunks(
-    edges: np.ndarray, chunk_ids: np.ndarray, r_indices: np.ndarray
-) -> Dict:
-    """
-    maps a list of edges to corresponding chunks
-    returns a dictionary {chunk_id: [edges that are part of this chunk]}
-    """
-    chunk_ids_d = defaultdict(list)
-    for i, r_index in enumerate(r_indices):
-        sv1_index, sv2_index = r_index
-        chunk_ids_d[chunk_ids[sv1_index]].append(edges[i])
-        if chunk_ids[sv1_index] == chunk_ids[sv2_index]:
-            continue
-        chunk_ids_d[chunk_ids[sv2_index]].append(edges[i][::-1])
-    return {chunk_id: np.array(chunk_ids_d[chunk_id]) for chunk_id in chunk_ids_d}
-
-
 def get_linking_edges(
     edges: Edges, parent_children_d: Dict, parent_id1: np.uint64, parent_id2: np.uint64
 ):
@@ -249,4 +232,3 @@ def filter_min_layer_cross_edges(
         if edges_.size:
             return (layer, edges_)
     return (meta.layer_count, edges_)
-
