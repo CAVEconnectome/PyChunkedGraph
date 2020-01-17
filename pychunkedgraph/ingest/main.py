@@ -28,17 +28,17 @@ def _progress(
     imanager: IngestionManager, layer_task_counts_d_shared: Dict, task_queue: Queue
 ):
     t = threading.Timer(
-        60.0, _progress, args=((imanager, layer_task_counts_d_shared, task_queue))
+        120.0, _progress, args=((imanager, layer_task_counts_d_shared, task_queue))
     )
     t.start()
 
-    completed = []
-    queued = []
+    result = []
     for layer in range(2, imanager.cg_meta.layer_count + 1):
-        completed.append(f"{layer} {layer_task_counts_d_shared.get(f'{layer}c', 0)}")
-        queued.append(f"{layer} {layer_task_counts_d_shared.get(f'{layer}q', 0)}")
-    print(f"queued {' '.join(queued)}")
-    print(f"completed {' '.join(completed)}")
+        layer_c = layer_task_counts_d_shared.get(f"{layer}c", 0)
+        layer_q = layer_task_counts_d_shared.get(f"{layer}q", 0)
+        result.append(f"{layer}: ({layer_c}, {layer_q})")
+    print(f"status {' '.join(result)}")
+    print()
 
 
 def _enqueue_parent(
@@ -76,7 +76,6 @@ def worker(
 ):
     while not task_queue.empty():
         func, args = task_queue.get()
-        print(args[1].id)
         task = func(*args)
         parent = task.parent_task()
         if parent.layer > parent.cg_meta.layer_count:
@@ -101,16 +100,17 @@ def start_ingest(imanager: IngestionManager, n_workers: int = NUMBER_OF_PROCESSE
     atomic_chunk_bounds = imanager.cg_meta.layer_chunk_bounds[2]
     atomic_chunks = list(product(*[range(r) for r in atomic_chunk_bounds]))
 
-    atomic_chunks = [
-        [42, 24, 10],
-        [42, 24, 11],
-        [42, 25, 10],
-        [42, 25, 11],
-        [43, 24, 10],
-        [43, 24, 11],
-        [43, 25, 10],
-        [43, 25, 11],
-    ]
+    # test - pinky100
+    # atomic_chunks = [
+    #     [42, 24, 10],
+    #     [42, 24, 11],
+    #     [42, 25, 10],
+    #     [42, 25, 11],
+    #     [43, 24, 10],
+    #     [43, 24, 11],
+    #     [43, 25, 10],
+    #     [43, 25, 11],
+    # ]
 
     np.random.shuffle(atomic_chunks)
 
@@ -158,4 +158,5 @@ def start_ingest(imanager: IngestionManager, n_workers: int = NUMBER_OF_PROCESSE
         proc.join()
 
     print("Complete.")
+    task_queue.close()
     manager.shutdown()
