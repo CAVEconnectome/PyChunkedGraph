@@ -67,7 +67,6 @@ class SegmentHistory(object):
             next_ids = []
 
             for row_key, row in row_dict.items():
-
                 # Get former root ids if available
                 if former_parent_col in row:
                     former_ids = row[former_parent_col][0].value
@@ -75,7 +74,7 @@ class SegmentHistory(object):
                     next_ids.extend(former_ids)
 
                 # Read log row and add it to the dict
-                if operation_id_col in row:
+                if operation_id_col in row and row_key != self.root_id:
                     operation_id = row[operation_id_col][0].value
 
                     if operation_id in self._past_log_rows:
@@ -148,11 +147,23 @@ class LogEntry(object):
         return self.row[column_keys.OperationLogs.RootID]
 
     @property
-    def added_edge(self):
+    def sink_source_ids(self):
+        return np.concatenate([self.row[column_keys.OperationLogs.SinkID],
+                               self.row[column_keys.OperationLogs.SourceID]])
+
+    @property
+    def added_edges(self):
         if not self.is_merge:
             raise cg_exceptions.InternalServerError
 
         return self.row[column_keys.OperationLogs.AddedEdge]
+
+    @property
+    def removed_edges(self):
+        if self.is_merge:
+            raise cg_exceptions.InternalServerError
+
+        return self.row[column_keys.OperationLogs.RemovedEdge]
 
     @property
     def coordinates(self):
