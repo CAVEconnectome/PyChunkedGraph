@@ -24,6 +24,7 @@ def create_atomic_chunk_helper(
     while retry:
         try:
             imanager.cg.add_atomic_edges_in_chunks(ids, affs, areas, isolated)
+            retry = 0
         except:
             retry -= 1
     return task
@@ -38,6 +39,7 @@ def create_parent_chunk_helper(
     while retry:
         try:
             imanager.cg.add_layer(task.layer, task.children_coords)
+            retry = 0
         except:
             retry -= 1
     return task

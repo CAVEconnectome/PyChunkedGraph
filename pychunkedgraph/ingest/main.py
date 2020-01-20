@@ -32,7 +32,7 @@ def _display_progess(
     t = Timer(
         interval,
         _display_progess,
-        args=((imanager, layer_task_counts_d_shared, task_queue)),
+        args=((imanager, layer_task_counts_d_shared, task_queue, interval)),
     )
     t.start()
 
