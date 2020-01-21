@@ -34,6 +34,7 @@ def _display_progess(
         _display_progess,
         args=((imanager, layer_task_counts_d_shared, task_queue, interval)),
     )
+    t.daemon = True
     t.start()
 
     result = []
