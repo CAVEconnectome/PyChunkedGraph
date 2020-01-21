@@ -21,6 +21,7 @@ from .ingestion import create_parent_chunk_helper
 
 
 NUMBER_OF_PROCESSES = cpu_count()
+STOP_SENTINEL = "STOP"
 
 
 def _display_progess(
@@ -37,13 +38,15 @@ def _display_progess(
     t.daemon = True
     t.start()
 
-    result = []
-    for layer in range(2, imanager.cg_meta.layer_count + 1):
-        layer_c = layer_task_counts_d_shared.get(f"{layer}c", 0)
-        layer_q = layer_task_counts_d_shared.get(f"{layer}q", 0)
-        result.append(f"{layer}: ({layer_c}, {layer_q})")
-    print(f"status {' '.join(result)}")
-    print()
+    try:
+        result = []
+        for layer in range(2, imanager.cg_meta.layer_count + 1):
+            layer_c = layer_task_counts_d_shared.get(f"{layer}c", 0)
+            layer_q = layer_task_counts_d_shared.get(f"{layer}q", 0)
+            result.append(f"{layer}: ({layer_c}, {layer_q})")
+        print(f"status {' '.join(result)}")
+    except:
+        pass
 
 
 def _enqueue_parent(
@@ -70,6 +73,11 @@ def _enqueue_parent(
     return False
 
 
+def _signal_end(task_queue: Queue):
+    for _ in range(NUMBER_OF_PROCESSES):
+        task_queue.put(STOP_SENTINEL)
+
+
 def worker(
     manager: SyncManager,
     task_queue: Queue,
@@ -79,11 +87,11 @@ def worker(
     layer_task_counts_d_lock: Lock,
     im_info: dict,
 ):
-    while not task_queue.empty():
-        func, args = task_queue.get()
+    for func, args in iter(task_queue.get, STOP_SENTINEL):
         task = func(*args)
         parent = task.parent_task()
         if parent.layer > parent.cg_meta.layer_count:
+            _signal_end(task_queue)
             break
 
         queued = _enqueue_parent(
@@ -104,7 +112,7 @@ def worker(
 def start_ingest(
     imanager: IngestionManager,
     n_workers: int = NUMBER_OF_PROCESSES,
-    progress_interval: float = 120.0,
+    progress_interval: float = 300.0,
 ):
     atomic_chunk_bounds = imanager.cg_meta.layer_chunk_bounds[2]
     atomic_chunks = list(product(*[range(r) for r in atomic_chunk_bounds]))
@@ -169,5 +177,5 @@ def start_ingest(
         proc.join()
 
     print("Complete.")
-    task_queue.close()
     manager.shutdown()
+    task_queue.close()
