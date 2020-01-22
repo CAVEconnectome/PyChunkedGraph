@@ -283,32 +283,32 @@ class ChunkedGraph:
         result = {}
         if not node_ids.size:
             return result
-        node_l2_children_d = self._get_bounding_l2_children(node_ids, cache=nodes_cache)
+        node_l2ids_d = self._get_bounding_l2_children(node_ids, cache=nodes_cache)
+        all_children = np.fromiter(node_l2ids_d.values(), dtype=basetypes.NODE_ID)
+        l2_edges_d_d = self.get_atomic_cross_edges(all_children)
         for node_id in node_ids:
-            node_edges_d_d = self.get_atomic_cross_edges(node_l2_children_d[node_id])
-            result[node_id] = self.get_min_layer_cross_edges(
-                node_id, node_edges_d_d.values()
-            )
+            l2_edges_ds = [l2_edges_d_d[l2_id] for l2_id in node_l2ids_d[node_id]]
+            result[node_id] = self.get_min_layer_cross_edges(node_id, l2_edges_ds)
         return result
 
     def get_min_layer_cross_edges(
-        self, node_id: basetypes.NODE_ID, node_atomic_cross_edges_ds: typing.Iterable,
+        self, node_id: basetypes.NODE_ID, l2id_atomic_cross_edges_ds: typing.Iterable,
     ):
         """
         Find edges at relevant min_layer >= node_layer.
-        `node_atomic_cross_edges_ds` is a list of atomic cross edges of
+        `l2id_atomic_cross_edges_ds` is a list of atomic cross edges of
         level 2 IDs that are descendants of `node_id`.
         """
         node_layer = self.get_chunk_layer(node_id)
         min_layer = self.meta.layer_count
-        for edges_d in node_atomic_cross_edges_ds:
+        for edges_d in l2id_atomic_cross_edges_ds:
             layer_, _ = edge_utils.filter_min_layer_cross_edges(
                 self.meta, edges_d, node_layer=node_layer
             )
             min_layer = min(min_layer, layer_)
 
         edges = [types.empty_2d]
-        for edges_d in node_atomic_cross_edges_ds:
+        for edges_d in l2id_atomic_cross_edges_ds:
             edges.append(edges_d.get(min_layer, types.empty_2d))
         edges = np.concatenate(edges)
         edges[:, 0] = self.get_root(node_id, stop_layer=min_layer)

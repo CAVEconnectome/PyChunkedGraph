@@ -159,6 +159,10 @@ def add_edge(
 
 
 def _process_l2_agglomeration(agg: types.Agglomeration, removed_edges: np.ndarray):
+    """
+    For a given L2 id, remove given edges
+    and calculate new connected components.
+    """
     chunk_edges = agg.in_edges.get_pairs()
     cross_edges = agg.cross_edges.get_pairs()
     chunk_edges = chunk_edges[~in2d(chunk_edges, removed_edges)]
@@ -176,6 +180,10 @@ def _process_l2_agglomeration(agg: types.Agglomeration, removed_edges: np.ndarra
 def _filter_component_cross_edges(
     cc_ids: np.ndarray, cross_edges: np.ndarray, cross_edge_layers: np.ndarray
 ):
+    """
+    Filters cross edges for a connected component `cc_ids`
+    from `cross_edges` of the complete chunk.
+    """
     mask = np.in1d(cross_edges[:, 0], cc_ids)
     cross_edges_ = cross_edges[mask]
     cross_edge_layers_ = cross_edge_layers[mask]
