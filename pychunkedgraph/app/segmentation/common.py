@@ -50,9 +50,14 @@ def after_request(response):
     current_app.logger.debug("Response time: %.3fms" % dt)
 
     try:
+        if current_app.user_id is None:
+            user_id = ""
+        else:
+            user_id = current_app.user_id
+
         log_db = app_utils.get_log_db(current_app.table_id)
         log_db.add_success_log(
-            user_id=current_app.user_id,
+            user_id=user_id,
             user_ip="",
             request_time=current_app.request_start_date,
             response_time=dt,
@@ -60,8 +65,8 @@ def after_request(response):
             request_data=request.data,
             request_type=current_app.request_type,
         )
-    except:
-        current_app.logger.debug("LogDB entry not successful")
+    except Exception as e:
+        current_app.logger.debug(f"LogDB entry not successful: {e}")
 
     return response
 
