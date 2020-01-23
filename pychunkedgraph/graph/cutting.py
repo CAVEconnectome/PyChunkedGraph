@@ -423,7 +423,6 @@ def mincut(
     local_mincut_graph = LocalMincutGraph(
         edges, affs, sources, sinks, split_preview, logger
     )
-
     mincut = local_mincut_graph.compute_mincut()
     if len(mincut) == 0:
         return []

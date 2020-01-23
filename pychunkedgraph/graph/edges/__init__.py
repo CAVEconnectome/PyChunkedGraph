@@ -28,13 +28,20 @@ class Edges:
         *,
         affinities: Optional[np.ndarray] = None,
         areas: Optional[np.ndarray] = None,
+        chunk_split=False,
     ):
+        """
+        If `chunk_split` is True, the edges will have infinite affinity.
+        (An edge between parts of supervoxel split due to chunk boundary).
+        """
         self.node_ids1 = np.array(node_ids1, dtype=basetypes.NODE_ID)
         self.node_ids2 = np.array(node_ids2, dtype=basetypes.NODE_ID)
         assert self.node_ids1.size == self.node_ids2.size
         self._as_pairs = None
 
-        self.affinities = np.ones(len(self.node_ids1)) * DEFAULT_AFFINITY
+        self.affinities = np.ones(len(self.node_ids1)) * (
+            np.inf if chunk_split else DEFAULT_AFFINITY
+        )
         if affinities is not None:
             self.affinities = np.array(affinities, dtype=basetypes.EDGE_AFFINITY)
             assert self.node_ids1.size == self.affinities.size
