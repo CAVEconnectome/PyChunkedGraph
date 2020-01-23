@@ -154,7 +154,10 @@ def add_edge(
             new_id, [atomic_cross_edges_d[l2id] for l2id in l2ids]
         )
     return _create_parents(
-        cg, new_cross_edges_d_d.copy(), operation_id=operation_id, time_stamp=time_stamp,
+        cg,
+        new_cross_edges_d_d.copy(),
+        operation_id=operation_id,
+        time_stamp=time_stamp,
     )
 
 
@@ -173,8 +176,7 @@ def _process_l2_agglomeration(agg: types.Agglomeration, removed_edges: np.ndarra
     graph, _, _, unique_graph_ids = flatgraph.build_gt_graph(
         np.concatenate([chunk_edges, isolated_edges]), make_directed=True
     )
-    ccs = flatgraph.connected_components(graph)
-    return ccs, unique_graph_ids, cross_edges
+    return flatgraph.connected_components(graph), unique_graph_ids, cross_edges
 
 
 def _filter_component_cross_edges(
@@ -221,7 +223,6 @@ def remove_edges(
         new_parent_ids = cg.id_client.create_node_ids(
             l2id_chunk_id_d[l2_agg.node_id], len(ccs)
         )
-
         for i_cc, cc in enumerate(ccs):
             new_parent_id = new_parent_ids[i_cc]
             cc_ids = unique_graph_ids[cc]
@@ -235,6 +236,9 @@ def remove_edges(
             new_id, [cross_edges]
         )
     return _create_parents(
-        cg, new_cross_edges_d_d.copy(), operation_id=operation_id, time_stamp=time_stamp,
+        cg,
+        new_cross_edges_d_d.copy(),
+        operation_id=operation_id,
+        time_stamp=time_stamp,
     )
 

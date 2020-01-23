@@ -240,7 +240,7 @@ class ChunkedGraph:
         }
 
     def get_atomic_cross_edges(
-        self, node_ids: typing.Iterable
+        self, l2_node_ids: typing.Iterable
     ) -> typing.Dict[np.uint64, typing.Dict[int, typing.Iterable]]:
         """Returns cross edges for level 2 IDs."""
         properties = [
@@ -248,9 +248,8 @@ class ChunkedGraph:
             for l in range(2, self.meta.layer_count)
         ]
         node_edges_d_d = self.client.read_nodes(
-            node_ids=node_ids, properties=properties
+            node_ids=l2_node_ids, properties=properties
         )
-
         result = {}
         for node_id, edges_d in node_edges_d_d.items():
             result[node_id] = {
@@ -386,7 +385,7 @@ class ChunkedGraph:
         self,
         node_id: basetypes.NODE_ID,
         time_stamp: typing.Optional[datetime.datetime] = None,
-    ) -> dict:
+    ) -> typing.Dict:
         """Takes a node id and returns all parents up to root."""
         parent_ids = self.get_root(
             node_id=node_id, time_stamp=time_stamp, get_all_parents=True
@@ -807,18 +806,9 @@ class ChunkedGraph:
     def get_cross_chunk_edges_layer(self, cross_edges: typing.Iterable):
         return edge_utils.get_cross_chunk_edges_layer(self.meta, cross_edges)
 
-    def read_chunk_edges(self, chunk_ids: typing.Iterable, cv_threads: int = 1) -> dict:
+    def read_chunk_edges(self, chunk_ids: typing.Iterable, cv_threads: int = 1) -> typing.Dict:
         return get_chunk_edges(
             self.meta.data_source.EDGES,
             [self.get_chunk_coordinates(chunk_id) for chunk_id in chunk_ids],
             cv_threads=cv_threads,
         )
-
-
-# TODO
-# def read_consolidated_lock_timestamp
-# def read_lock_timestamp
-# def read_first_log_row
-# def get_change_log
-# def _setup_logger
-# def read_logs

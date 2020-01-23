@@ -132,3 +132,11 @@ Functions for tracking root ID changes over time.
 #     pass
 #     # return misc.get_latest_roots(self, time_stamp=time_stamp, n_threads=n_threads)
 
+# TODO
+# def read_consolidated_lock_timestamp
+# def read_lock_timestamp
+# def read_first_log_row
+# def get_change_log
+# def _setup_logger
+# def read_logs
+

@@ -238,14 +238,13 @@ def filter_min_layer_cross_edges_multiple(
     meta: ChunkedGraphMeta, l2id_atomic_cross_edges_ds: List, node_layer: int = 2
 ) -> Tuple[int, Iterable]:
     """
-    Given a dict of cross chunk edges {layer: edges}
+    Given a list of dicts of cross chunk edges [{layer: edges}]
     Return the first layer with cross edges.
     """
     min_layer = meta.layer_count
     for edges_d in l2id_atomic_cross_edges_ds:
         layer_, _ = filter_min_layer_cross_edges(meta, edges_d, node_layer=node_layer)
         min_layer = min(min_layer, layer_)
-
     edges = [empty_2d]
     for edges_d in l2id_atomic_cross_edges_ds:
         edges.append(edges_d.get(min_layer, empty_2d))
