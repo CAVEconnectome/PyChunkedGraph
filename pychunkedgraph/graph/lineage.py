@@ -122,3 +122,13 @@ Functions for tracking root ID changes over time.
 
 # def get_delta_roots
 
+
+# def get_latest_roots(
+#     self,
+#     time_stamp: typing.Optional[datetime.datetime] = misc_utils.get_max_time(),
+#     n_threads: int = 1,
+# ) -> typing.Sequence[np.uint64]:
+#     """Reads _all_ root ids."""
+#     pass
+#     # return misc.get_latest_roots(self, time_stamp=time_stamp, n_threads=n_threads)
+
