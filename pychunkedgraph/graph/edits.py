@@ -47,7 +47,7 @@ def _create_parents(
     cg,
     new_cross_edges_d_d: Dict[np.uint64, Dict],
     operation_id: basetypes.OPERATION_ID,
-    timestamp: datetime.datetime,
+    time_stamp: datetime.datetime,
 ):
     """
     After new level 2 IDs are built, create parents in higher layers.
@@ -128,7 +128,7 @@ def add_edge(
     operation_id: np.uint64 = None,
     source_coords: Sequence[np.uint64] = None,
     sink_coords: Sequence[np.uint64] = None,
-    timestamp: datetime.datetime = None,
+    time_stamp: datetime.datetime = None,
 ):
     """
     Problem: Update parent and children of the new level 2 id
@@ -154,7 +154,7 @@ def add_edge(
             new_id, [atomic_cross_edges_d[l2id] for l2id in l2ids]
         )
     return _create_parents(
-        cg, new_cross_edges_d_d.copy(), operation_id=operation_id, timestamp=timestamp,
+        cg, new_cross_edges_d_d.copy(), operation_id=operation_id, time_stamp=time_stamp,
     )
 
 
@@ -197,11 +197,11 @@ def _filter_component_cross_edges(
     return edges_d
 
 
-def remove_edge(
+def remove_edges(
     cg,
     operation_id: np.uint64,
     atomic_edges: Sequence[Sequence[np.uint64]],
-    timestamp: datetime.datetime,
+    time_stamp: datetime.datetime,
 ):
     # This view of the to be removed edges helps us to
     # compute the mask of retained edges in chunk
@@ -210,7 +210,7 @@ def remove_edge(
     l2_ids = np.unique(edges)
     l2_chunk_ids = cg.get_chunk_ids_from_node_ids(l2_ids)
     l2id_chunk_id_d = dict(zip(l2_ids, l2_chunk_ids))
-    l2id_agglomeration_d = cg.get_subgraph(l2_ids, layer_2=True)
+    l2id_agglomeration_d = cg.get_subgraph(l2_ids)
 
     atomic_cross_edges_d = {}
     for l2_agg in l2id_agglomeration_d.values():
@@ -235,6 +235,6 @@ def remove_edge(
             new_id, [cross_edges]
         )
     return _create_parents(
-        cg, new_cross_edges_d_d.copy(), operation_id=operation_id, timestamp=timestamp,
+        cg, new_cross_edges_d_d.copy(), operation_id=operation_id, time_stamp=time_stamp,
     )
 

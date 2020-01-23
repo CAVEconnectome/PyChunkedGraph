@@ -532,7 +532,6 @@ class ChunkedGraph:
         bbox: typing.Optional[typing.Sequence[typing.Sequence[int]]] = None,
         bbox_is_coordinate: bool = False,
         timestamp: datetime.datetime = None,
-        layer_2: bool = False,
     ) -> typing.Dict:
         """
         1. get level 2 children ids belonging to the agglomerations
@@ -543,26 +542,23 @@ class ChunkedGraph:
         returns dict of {id: types.Agglomeration}
         """
         # 1 level 2 ids
-        if not layer_2:
-            level2_ids = [types.empty_1d]
-            for agglomeration_id in node_ids:
-                layer_nodes_d = self._get_subgraph_higher_layer_nodes(
-                    node_id=agglomeration_id,
-                    bounding_box=chunk_utils.normalize_bounding_box(
-                        self.meta, bbox, bbox_is_coordinate
-                    ),
-                    return_layers=[2],
-                )
-                level2_ids.append(layer_nodes_d[2])
-            level2_ids = np.concatenate(level2_ids)
-        else:
-            level2_ids = node_ids
+        level2_ids = [types.empty_1d]
+        for agglomeration_id in node_ids:
+            layer_nodes_d = self._get_subgraph_higher_layer_nodes(
+                node_id=agglomeration_id,
+                bounding_box=chunk_utils.normalize_bounding_box(
+                    self.meta, bbox, bbox_is_coordinate
+                ),
+                return_layers=[2],
+            )
+            level2_ids.append(layer_nodes_d[2])
+        level2_ids = np.concatenate(level2_ids)
 
         # 2 edges from cloud storage
         chunk_ids = self.get_chunk_ids_from_node_ids(level2_ids)
         chunk_edge_dicts = mu.multithread_func(
             self.read_chunk_edges,
-            np.array_split(np.unique(chunk_ids), 4),  # TODO
+            np.array_split(np.unique(chunk_ids), 4),  # TODO hardcoded
             n_threads=4,
             debug=False,
         )
@@ -627,10 +623,11 @@ class ChunkedGraph:
         bb_offset: typing.Tuple[int, int, int] = (240, 240, 24),
         n_tries: int = 20,
     ) -> operation.GraphEditOperation.Result:
-        """ Removes edges - either directly or after applying a mincut
-            Multi-user safe through locking of the root node
-            This function acquires a lock and ensures that it still owns the
-            lock before executing the write.
+        """
+        Removes edges - either directly or after applying a mincut
+        Multi-user safe through locking of the root node
+        This function acquires a lock and ensures that it still owns the
+        lock before executing the write.
         :param atomic_edges: list of 2 uint64
         :param bb_offset: list of 3 ints
             [x, y, z] bounding box padding beyond box spanned by coordinates
@@ -767,7 +764,6 @@ class ChunkedGraph:
         sink_coords: typing.Sequence[typing.Sequence[int]],
         bb_offset: typing.Tuple[int, int, int] = (120, 120, 12),
     ):
-        time_start = time.time()
         bb_offset = np.array(list(bb_offset))
         source_coords = np.array(source_coords)
         sink_coords = np.array(sink_coords)
@@ -791,35 +787,11 @@ class ChunkedGraph:
                 f"All supervoxel must belong to the same object. Already split?"
             )
 
-        self.logger.debug(
-            "Get roots and check: %.3fms" % ((time.time() - time_start) * 1000)
-        )
-        time_start = time.time()  # ------------------------------------------
-
         root_id = root_ids.pop()
-
-        # Get edges between local supervoxels
         chunk_size = self.meta.graph_config.CHUNK_SIZE
-        n_chunks_affected = np.product(
-            (np.ceil(bounding_box[1] / chunk_size)).astype(np.int)
-            - (np.floor(bounding_box[0] / chunk_size)).astype(np.int)
-        )
-
-        self.logger.debug("Number of affected chunks: %d" % n_chunks_affected)
-        self.logger.debug(f"Bounding box: {bounding_box}")
-        self.logger.debug(f"Bounding box padding: {bb_offset}")
-        self.logger.debug(f"Source ids: {source_ids}")
-        self.logger.debug(f"Sink ids: {sink_ids}")
-        self.logger.debug(f"Root id: {root_id}")
-
         edges, affs, _ = self.get_subgraph_edges(
             root_id, bounding_box=bounding_box, bb_is_coordinate=True
         )
-        self.logger.debug(
-            f"Get edges and affs: " f"{(time.time() - time_start) * 1000:.3f}ms"
-        )
-
-        time_start = time.time()  # ------------------------------------------
 
         if len(edges) == 0:
             raise exceptions.PreconditionError(
@@ -828,21 +800,10 @@ class ChunkedGraph:
 
         # Compute mincut
         atomic_edges = cutting.mincut(edges, affs, source_ids, sink_ids)
-        self.logger.debug(f"Mincut: {(time.time() - time_start) * 1000:.3f}ms")
         if len(atomic_edges) == 0:
-            raise exceptions.PostconditionError(f"Mincut failed. Try again...")
-
-        # # Check if any edge in the cutset is infinite (== between chunks)
-        # # We would prevent such a cut
-        #
-        # atomic_edges_flattened_view = atomic_edges.view(dtype='u8,u8')
-        # edges_flattened_view = edges.view(dtype='u8,u8')
-        #
-        # cutset_mask = np.in1d(edges_flattened_view, atomic_edges_flattened_view)
-        #
-        # if np.any(np.isinf(affs[cutset_mask])):
-        #     self.logger.error("inf in cutset")
-        #     return False, None
+            raise exceptions.PostconditionError(
+                f"Mincut failed. Try again with a different set of points."
+            )
         return atomic_edges
 
     def _get_bounding_l2_children(
