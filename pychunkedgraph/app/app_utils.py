@@ -60,6 +60,7 @@ def get_cg(table_id):
         table_id.startswith("fly")
         or table_id.startswith("golden")
         or table_id.startswith("pinky100_rv")
+        or table_id.startswith("pinky100_arv")
     )
 
     if table_id not in CACHE:
