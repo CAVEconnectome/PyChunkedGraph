@@ -19,6 +19,16 @@ from .edges.utils import merge_cross_edge_dicts_multiple
 from ..utils.general import in2d
 
 
+"""
+Their children might be "too much" due to the split; even within one chunk. How do you deal with that?
+
+a good way to test this is to check all intermediate nodes from the component before the split and then after the split. Basically, get all childrens in all layers of the one component before and the (hopefully) two components afterwards. Check (1) are all intermediate nodes from before in a list after and (2) do all intermediate nodes appear exactly one time after the split (aka is there overlap between the resulting components). (edited) 
+
+for (2) Overlap can be real but then they have to be exactly the same. In that case the removed edges did not split the component in two
+
+"""
+
+
 def _get_all_siblings(cg, new_parent_id, new_id_ce_siblings: Iterable) -> List:
     """
     Get parents of `new_id_ce_siblings`
