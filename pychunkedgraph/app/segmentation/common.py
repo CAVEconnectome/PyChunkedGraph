@@ -41,6 +41,7 @@ def home():
 def before_request():
     current_app.request_start_time = time.time()
     current_app.request_start_date = datetime.utcnow()
+    current_app.user_id = None
 
 
 def after_request(response):
@@ -51,7 +52,7 @@ def after_request(response):
     try:
         log_db = app_utils.get_log_db(current_app.table_id)
         log_db.add_success_log(
-            user_id="",
+            user_id=current_app.user_id,
             user_ip="",
             request_time=current_app.request_start_date,
             response_time=dt,
@@ -186,6 +187,7 @@ def handle_merge(table_id):
 
     nodes = json.loads(request.data)
     user_id = str(g.auth_user["id"])
+    current_app.user_id = user_id
 
     current_app.logger.debug(nodes)
     assert len(nodes) == 2
@@ -260,6 +262,7 @@ def handle_split(table_id):
 
     data = json.loads(request.data)
     user_id = str(g.auth_user["id"])
+    current_app.user_id = user_id
 
     current_app.logger.debug(data)
 
@@ -335,6 +338,7 @@ def handle_undo(table_id):
 
     data = json.loads(request.data)
     user_id = str(g.auth_user["id"])
+    current_app.user_id = user_id
 
     current_app.logger.debug(data)
 
@@ -371,6 +375,7 @@ def handle_redo(table_id):
 
     data = json.loads(request.data)
     user_id = str(g.auth_user["id"])
+    current_app.user_id = user_id
 
     current_app.logger.debug(data)
 
