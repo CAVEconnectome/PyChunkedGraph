@@ -42,6 +42,7 @@ def before_request():
     current_app.request_start_time = time.time()
     current_app.request_start_date = datetime.utcnow()
     current_app.user_id = None
+    current_app.table_id = None
 
 
 def after_request(response):
@@ -50,18 +51,24 @@ def after_request(response):
     current_app.logger.debug("Response time: %.3fms" % dt)
 
     try:
-        log_db = app_utils.get_log_db(current_app.table_id)
-        log_db.add_success_log(
-            user_id=current_app.user_id,
-            user_ip="",
-            request_time=current_app.request_start_date,
-            response_time=dt,
-            url=request.url,
-            request_data=request.data,
-            request_type=current_app.request_type,
-        )
-    except:
-        current_app.logger.debug("LogDB entry not successful")
+        if current_app.user_id is None:
+            user_id = ""
+        else:
+            user_id = current_app.user_id
+
+        if current_app.table_id is not None:
+            log_db = app_utils.get_log_db(current_app.table_id)
+            log_db.add_success_log(
+                user_id=user_id,
+                user_ip="",
+                request_time=current_app.request_start_date,
+                response_time=dt,
+                url=request.url,
+                request_data=request.data,
+                request_type=current_app.request_type,
+            )
+    except Exception as e:
+        current_app.logger.debug(f"{current_app.user_id}: LogDB entry not successful: {e}")
 
     return response
 
@@ -159,6 +166,7 @@ def handle_api_versions():
 
 def handle_root(table_id, atomic_id):
     current_app.request_type = "root"
+    current_app.table_id = table_id
 
     # Convert seconds since epoch to UTC datetime
     try:
@@ -184,6 +192,7 @@ def handle_root(table_id, atomic_id):
 
 def handle_merge(table_id):
     current_app.request_type = "merge"
+    current_app.table_id = table_id
 
     nodes = json.loads(request.data)
     user_id = str(g.auth_user["id"])
@@ -259,6 +268,7 @@ def handle_merge(table_id):
 
 def handle_split(table_id):
     current_app.request_type = "split"
+    current_app.table_id = table_id
 
     data = json.loads(request.data)
     user_id = str(g.auth_user["id"])
@@ -335,6 +345,7 @@ def handle_split(table_id):
 
 def handle_undo(table_id):
     current_app.request_type = "undo"
+    current_app.table_id = table_id
 
     data = json.loads(request.data)
     user_id = str(g.auth_user["id"])
@@ -372,6 +383,7 @@ def handle_undo(table_id):
 
 def handle_redo(table_id):
     current_app.request_type = "redo"
+    current_app.table_id = table_id
 
     data = json.loads(request.data)
     user_id = str(g.auth_user["id"])
@@ -409,6 +421,9 @@ def handle_redo(table_id):
 
 def handle_children(table_id, parent_id):
     current_app.request_type = "children"
+    current_app.table_id = table_id
+    user_id = str(g.auth_user["id"])
+    current_app.user_id = user_id
 
     cg = app_utils.get_cg(table_id)
 
@@ -428,6 +443,9 @@ def handle_children(table_id, parent_id):
 
 def handle_leaves(table_id, root_id):
     current_app.request_type = "leaves"
+    current_app.table_id = table_id
+    user_id = str(g.auth_user["id"])
+    current_app.user_id = user_id
 
     if "bounds" in request.args:
         bounds = request.args["bounds"]
@@ -451,6 +469,9 @@ def handle_leaves(table_id, root_id):
 
 def handle_leaves_from_leave(table_id, atomic_id):
     current_app.request_type = "leaves_from_leave"
+    current_app.table_id = table_id
+    user_id = str(g.auth_user["id"])
+    current_app.user_id = user_id
 
     if "bounds" in request.args:
         bounds = request.args["bounds"]
@@ -476,6 +497,9 @@ def handle_leaves_from_leave(table_id, atomic_id):
 
 def handle_subgraph(table_id, root_id):
     current_app.request_type = "subgraph"
+    current_app.table_id = table_id
+    user_id = str(g.auth_user["id"])
+    current_app.user_id = user_id
 
     if "bounds" in request.args:
         bounds = request.args["bounds"]
@@ -499,6 +523,9 @@ def handle_subgraph(table_id, root_id):
 
 def change_log(table_id, root_id=None):
     current_app.request_type = "change_log"
+    current_app.table_id = table_id
+    user_id = str(g.auth_user["id"])
+    current_app.user_id = user_id
 
     try:
         time_stamp_past = float(request.args.get("timestamp", 0))
@@ -522,6 +549,9 @@ def change_log(table_id, root_id=None):
 
 def merge_log(table_id, root_id):
     current_app.request_type = "merge_log"
+    current_app.table_id = table_id
+    user_id = str(g.auth_user["id"])
+    current_app.user_id = user_id
 
     try:
         time_stamp_past = float(request.args.get("timestamp", 0))
@@ -542,6 +572,9 @@ def merge_log(table_id, root_id):
 
 def last_edit(table_id, root_id):
     current_app.request_type = "last_edit"
+    current_app.table_id = table_id
+    user_id = str(g.auth_user["id"])
+    current_app.user_id = user_id
 
     cg = app_utils.get_cg(table_id)
 
@@ -552,6 +585,9 @@ def last_edit(table_id, root_id):
 
 def oldest_timestamp(table_id):
     current_app.request_type = "timestamp"
+    current_app.table_id = table_id
+    user_id = str(g.auth_user["id"])
+    current_app.user_id = user_id
 
     cg = app_utils.get_cg(table_id)
 
@@ -570,6 +606,11 @@ def handle_contact_sites(table_id, root_id):
     partners = request.args.get("partners", True, type=app_utils.toboolean)
     as_list = request.args.get("as_list", True, type=app_utils.toboolean)
     areas_only = request.args.get("areas_only", True, type=app_utils.toboolean)
+
+    current_app.request_type = "contact_sites"
+    current_app.table_id = table_id
+    user_id = str(g.auth_user["id"])
+    current_app.user_id = user_id
 
     try:
         timestamp = float(request.args.get("timestamp", time.time()))
@@ -605,6 +646,11 @@ def handle_contact_sites(table_id, root_id):
     return cs_list
 
 def handle_pairwise_contact_sites(table_id, first_node_id, second_node_id):
+    current_app.request_type = "pairwise_contact_sites"
+    current_app.table_id = table_id
+    user_id = str(g.auth_user["id"])
+    current_app.user_id = user_id
+
     try:
         timestamp = float(request.args.get("timestamp", time.time()))
         timestamp = datetime.fromtimestamp(timestamp, UTC)
@@ -631,6 +677,9 @@ def handle_pairwise_contact_sites(table_id, first_node_id, second_node_id):
 
 def handle_split_preview(table_id):
     current_app.request_type = "split_preview"
+    current_app.table_id = table_id
+    user_id = str(g.auth_user["id"])
+    current_app.user_id = user_id
 
     data = json.loads(request.data)
     current_app.logger.debug(data)
@@ -687,6 +736,9 @@ def handle_split_preview(table_id):
 
 def handle_find_path(table_id):
     current_app.request_type = "find_path"
+    current_app.table_id = table_id
+    user_id = str(g.auth_user["id"])
+    current_app.user_id = user_id
 
     nodes = json.loads(request.data)
 
