@@ -1,6 +1,7 @@
 import datetime
 import numpy as np
 import matplotlib as mpl
+import pytz
 
 try:
     mpl.use('Agg')
@@ -10,15 +11,16 @@ except:
 from matplotlib import pyplot as plt
 
 from pychunkedgraph.logging import flask_log_db
-from pychunkedgraph.backend import chunkedgraph
 from google.cloud import datastore
 from google.auth import credentials, default as default_creds
+
+UTC = pytz.UTC
 
 
 def readout_log_db(table_id, filters, cols,
                    date_filter=datetime.datetime(year=2019, day=30, month=3)):
     if date_filter.tzinfo is None:
-        date_filter = chunkedgraph.UTC.localize(date_filter)
+        date_filter = UTC.localize(date_filter)
 
     credentials, project_id = default_creds()
     client = datastore.Client(project=project_id, credentials=credentials)
