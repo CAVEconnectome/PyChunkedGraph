@@ -7,12 +7,16 @@ import time
 import graph_tool
 import graph_tool.flow
 
-from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple, Union
+from typing import Dict
+from typing import Tuple
+from typing import Optional
+from typing import Sequence
+from typing import Iterable
 
-from pychunkedgraph.backend import flatgraph_utils
-from pychunkedgraph.backend import chunkedgraph_exceptions as cg_exceptions
+from .utils import flatgraph
+from .exceptions import PreconditionError
+from .exceptions import PostconditionError
 
-float_max = np.finfo(np.float32).max
 DEBUG_MODE = False
 
 
@@ -24,35 +28,28 @@ def merge_cross_chunk_edges_graph_tool(
     :param affs: float array of length n
     :return:
     """
-
     # mask for edges that have to be merged
     cross_chunk_edge_mask = np.isinf(affs)
-
     # graph with edges that have to be merged
-    graph, _, _, unique_supervoxel_ids = flatgraph_utils.build_gt_graph(
+    graph, _, _, unique_supervoxel_ids = flatgraph.build_gt_graph(
         edges[cross_chunk_edge_mask], make_directed=True
     )
 
     # connected components in this graph will be combined in one component
-    ccs = flatgraph_utils.connected_components(graph)
-
+    ccs = flatgraph.connected_components(graph)
     remapping = {}
     mapping = np.array([], dtype=np.uint64).reshape(-1, 2)
 
     for cc in ccs:
         nodes = unique_supervoxel_ids[cc]
         rep_node = np.min(nodes)
-
         remapping[rep_node] = nodes
-
         rep_nodes = np.ones(len(nodes), dtype=np.uint64).reshape(-1, 1) * rep_node
         m = np.concatenate([nodes.reshape(-1, 1), rep_nodes], axis=1)
-
         mapping = np.concatenate([mapping, m], axis=0)
 
     u_nodes = np.unique(edges)
     u_unmapped_nodes = u_nodes[~np.in1d(u_nodes, mapping)]
-
     unmapped_mapping = np.concatenate(
         [u_unmapped_nodes.reshape(-1, 1), u_unmapped_nodes.reshape(-1, 1)], axis=1
     )
@@ -61,10 +58,8 @@ def merge_cross_chunk_edges_graph_tool(
     sort_idx = np.argsort(complete_mapping[:, 0])
     idx = np.searchsorted(complete_mapping[:, 0], edges, sorter=sort_idx)
     mapped_edges = np.asarray(complete_mapping[:, 1])[sort_idx][idx]
-
     mapped_edges = mapped_edges[~cross_chunk_edge_mask]
     mapped_affs = affs[~cross_chunk_edge_mask]
-
     return mapped_edges, mapped_affs, mapping, complete_mapping, remapping
 
 
@@ -100,7 +95,7 @@ class LocalMincutGraph:
         time_start = time.time()
 
         if len(mapped_edges) == 0:
-            raise cg_exceptions.PostconditionError(
+            raise PostconditionError(
                 f"Local graph somehow only contains cross chunk edges"
             )
 
@@ -137,7 +132,11 @@ class LocalMincutGraph:
         # edges between sinks and sources
         comb_edges = np.concatenate([edges, self.source_edges, self.sink_edges])
         comb_affs = np.concatenate(
-            [affs, [float_max] * (len(self.source_edges) + len(self.sink_edges))]
+            [
+                affs,
+                [np.finfo(np.float32).max]
+                * (len(self.source_edges) + len(self.sink_edges)),
+            ]
         )
 
         # To make things easier for everyone involved, we map the ids to
@@ -148,7 +147,7 @@ class LocalMincutGraph:
             self.capacities,
             self.gt_edges,
             self.unique_supervoxel_ids,
-        ) = flatgraph_utils.build_gt_graph(comb_edges, comb_affs, make_directed=True)
+        ) = flatgraph.build_gt_graph(comb_edges, comb_affs, make_directed=True)
 
         self.source_graph_ids = np.where(
             np.in1d(self.unique_supervoxel_ids, self.sources)
@@ -200,7 +199,7 @@ class LocalMincutGraph:
         Remap the cut edge set from graph ids to supervoxel ids and return it
         """
         remapped_cutset = []
-        for s, t in flatgraph_utils.remap_ids_from_graph(
+        for s, t in flatgraph.remap_ids_from_graph(
             cut_edge_set, self.unique_supervoxel_ids
         ):
 
@@ -301,7 +300,7 @@ class LocalMincutGraph:
         Filter out connected components in the graph
         that are not involved in the local mincut
         """
-        ccs = flatgraph_utils.connected_components(self.weighted_graph)
+        ccs = flatgraph.connected_components(self.weighted_graph)
 
         removed = self.weighted_graph.new_vertex_property("bool")
         removed.a = False
@@ -319,19 +318,19 @@ class LocalMincutGraph:
         self.weighted_graph.set_vertex_filter(removed, inverted=True)
         pruned_graph = graph_tool.Graph(self.weighted_graph, prune=True)
         # Test that there is only one connected component left
-        ccs = flatgraph_utils.connected_components(pruned_graph)
+        ccs = flatgraph.connected_components(pruned_graph)
         if len(ccs) > 1:
             if self.logger is not None:
                 self.logger.warning(
                     "Not all sinks and sources are within the same (local)"
                     "connected component"
                 )
-            raise cg_exceptions.PreconditionError(
+            raise PreconditionError(
                 "Not all sinks and sources are within the same (local)"
                 "connected component"
             )
         elif len(ccs) == 0:
-            raise cg_exceptions.PreconditionError(
+            raise PreconditionError(
                 "Sinks and sources are not connected through the local graph. "
                 "Please try a different set of vertices to perform the mincut."
             )
@@ -372,7 +371,7 @@ class LocalMincutGraph:
                 self.edges_to_remove[edge_to_remove] = True
 
         self.weighted_graph.set_edge_filter(self.edges_to_remove, True)
-        ccs_test_post_cut = flatgraph_utils.connected_components(self.weighted_graph)
+        ccs_test_post_cut = flatgraph.connected_components(self.weighted_graph)
 
         # Make sure sinks and sources are among each other and not in different sets
         # after removing the cut edges and the fake infinity edges
@@ -392,7 +391,7 @@ class LocalMincutGraph:
                 # but return a flag to return a message to the user
                 illegal_split = True
             else:
-                raise cg_exceptions.PreconditionError(
+                raise PreconditionError(
                     "Failed to find a cut that separated the sources from the sinks. "
                     "Please try another cut that partitions the sets cleanly if possible. "
                     "If there is a clear path between all the supervoxels in each set, "
