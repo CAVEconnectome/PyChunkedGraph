@@ -96,7 +96,8 @@ def get_cg(table_id):
 def get_log_db(table_id):
     if "log_db" not in CACHE:
         client = get_datastore_client(current_app.config)
-        CACHE["log_db"] = flask_log_db.FlaskLogDatabase(table_id, client=client)
+        CACHE["log_db"] = flask_log_db.FlaskLogDatabase(table_id, client=client,
+                                                        credentials=credentials)
 
     return CACHE["log_db"]
 
