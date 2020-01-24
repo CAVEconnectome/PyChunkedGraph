@@ -397,9 +397,9 @@ class ChunkedGraph:
         node_ids: np.ndarray,
         bbox: typing.Optional[typing.Sequence[typing.Sequence[int]]] = None,
         bbox_is_coordinate: bool = False,
-        timestamp: datetime.datetime = None,
     ) -> typing.Dict:
         """
+        Returns level 2 node IDs with their edges.
         1. get level 2 children ids belonging to the agglomerations
         2. read relevant chunk edges from cloud storage (include fake edges from big table)
         3. group nodes and edges based on level 2 ids `types.Agglomeration`
@@ -418,9 +418,15 @@ class ChunkedGraph:
                 return_layers=[2],
             )
             level2_ids.append(layer_nodes_d[2])
-        level2_ids = np.concatenate(level2_ids)
+        return self.get_l2_agglomerations(np.concatenate(level2_ids))
 
-        # 2 edges from cloud storage
+    def get_l2_agglomerations(
+        self, level2_ids: np.ndarray
+    ) -> typing.Dict[int, types.Agglomeration]:
+        """
+        Children of Level 2 Node IDs and edges.
+        Edges are read from cloud storage.
+        """
         chunk_ids = self.get_chunk_ids_from_node_ids(level2_ids)
         chunk_edge_dicts = mu.multithread_func(
             self.read_chunk_edges,
@@ -757,7 +763,9 @@ class ChunkedGraph:
     def get_cross_chunk_edges_layer(self, cross_edges: typing.Iterable):
         return edge_utils.get_cross_chunk_edges_layer(self.meta, cross_edges)
 
-    def read_chunk_edges(self, chunk_ids: typing.Iterable, cv_threads: int = 1) -> typing.Dict:
+    def read_chunk_edges(
+        self, chunk_ids: typing.Iterable, cv_threads: int = 1
+    ) -> typing.Dict:
         return get_chunk_edges(
             self.meta.data_source.EDGES,
             [self.get_chunk_coordinates(chunk_id) for chunk_id in chunk_ids],

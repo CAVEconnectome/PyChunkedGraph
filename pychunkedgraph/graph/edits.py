@@ -220,10 +220,10 @@ def remove_edges(
     # compute the mask of retained edges in chunk
     removed_edges = np.concatenate([atomic_edges, atomic_edges[:, ::-1]], axis=0)
     edges, _ = _analyze_atomic_edges(cg, atomic_edges)
-    l2_ids = np.unique(edges)
-    l2_chunk_ids = cg.get_chunk_ids_from_node_ids(l2_ids)
-    l2id_chunk_id_d = dict(zip(l2_ids, l2_chunk_ids))
-    l2id_agglomeration_d = cg.get_subgraph(l2_ids)
+    l2ids = np.unique(edges)
+    l2_chunk_ids = cg.get_chunk_ids_from_node_ids(l2ids)
+    l2id_chunk_id_d = dict(zip(l2ids, l2_chunk_ids))
+    l2id_agglomeration_d = cg.get_l2_agglomerations(np.concatenate(l2ids))
 
     atomic_cross_edges_d = {}
     for l2_agg in l2id_agglomeration_d.values():
