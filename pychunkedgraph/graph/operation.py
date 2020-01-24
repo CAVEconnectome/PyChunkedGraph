@@ -664,7 +664,19 @@ class MulticutOperation(GraphEditOperation):
     def _apply(
         self, *, operation_id, timestamp
     ) -> Tuple[np.ndarray, np.ndarray, List["bigtable.row.Row"]]:
-        self.removed_edges = self.cg._run_multicut(
+
+        # Verify that sink and source are from the same root object
+        root_ids = set()
+        root_ids.update(self.cg.get_roots(np.concatenate([self.source_ids, self.sink_ids])))
+
+        if len(root_ids) > 1:
+            raise exceptions.PreconditionError(
+                f"All supervoxel must belong to the same object. Already split?"
+            )
+
+        root_id = root_ids.pop()
+
+        self.removed_edges = self.cg.run_multicut(
             self.source_ids,
             self.sink_ids,
             self.source_coords,

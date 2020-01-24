@@ -63,6 +63,45 @@ def merge_cross_chunk_edges_graph_tool(
     return mapped_edges, mapped_affs, mapping, complete_mapping, remapping
 
 
+
+def run_multicut(
+    self,
+    source_ids: Sequence[np.uint64],
+    sink_ids: Sequence[np.uint64],
+    source_coords: Sequence[Sequence[int]],
+    sink_coords: Sequence[Sequence[int]],
+    bb_offset: Tuple[int, int, int] = (120, 120, 12),
+):
+    bb_offset = np.array(list(bb_offset))
+    source_coords = np.array(source_coords)
+    sink_coords = np.array(sink_coords)
+
+    # Decide a reasonable bounding box (NOT guaranteed to be successful!)
+    coords = np.concatenate([source_coords, sink_coords])
+    bounding_box = [np.min(coords, axis=0), np.max(coords, axis=0)]
+
+    bounding_box[0] -= bb_offset
+    bounding_box[1] += bb_offset
+
+    edges, affs, _ = self.get_subgraph_edges(
+        root_id, bounding_box=bounding_box, bb_is_coordinate=True
+    )
+
+    if len(edges) == 0:
+        raise exceptions.PreconditionError(
+            f"No local edges found. " f"Something went wrong with the bounding box?"
+        )
+
+    # Compute mincut
+    atomic_edges = mincut(edges, affs, source_ids, sink_ids)
+    if len(atomic_edges) == 0:
+        raise exceptions.PostconditionError(
+            f"Mincut failed. Try again with a different set of points."
+        )
+    return atomic_edges
+
+
+
 class LocalMincutGraph:
     """
     Helper class for mincut computation. Used by the mincut_graph_tool function to:

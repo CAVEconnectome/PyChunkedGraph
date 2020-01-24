@@ -622,55 +622,6 @@ class ChunkedGraph:
                 nodes_per_layer[layer] = child_ids
         return nodes_per_layer
 
-    def _run_multicut(
-        self,
-        source_ids: typing.Sequence[np.uint64],
-        sink_ids: typing.Sequence[np.uint64],
-        source_coords: typing.Sequence[typing.Sequence[int]],
-        sink_coords: typing.Sequence[typing.Sequence[int]],
-        bb_offset: typing.Tuple[int, int, int] = (120, 120, 12),
-    ):
-        bb_offset = np.array(list(bb_offset))
-        source_coords = np.array(source_coords)
-        sink_coords = np.array(sink_coords)
-
-        # Decide a reasonable bounding box (NOT guaranteed to be successful!)
-        coords = np.concatenate([source_coords, sink_coords])
-        bounding_box = [np.min(coords, axis=0), np.max(coords, axis=0)]
-
-        bounding_box[0] -= bb_offset
-        bounding_box[1] += bb_offset
-
-        # Verify that sink and source are from the same root object
-        root_ids = set()
-        for source_id in source_ids:
-            root_ids.add(self.get_root(source_id))
-        for sink_id in sink_ids:
-            root_ids.add(self.get_root(sink_id))
-
-        if len(root_ids) > 1:
-            raise exceptions.PreconditionError(
-                f"All supervoxel must belong to the same object. Already split?"
-            )
-
-        root_id = root_ids.pop()
-        edges, affs, _ = self.get_subgraph_edges(
-            root_id, bounding_box=bounding_box, bb_is_coordinate=True
-        )
-
-        if len(edges) == 0:
-            raise exceptions.PreconditionError(
-                f"No local edges found. " f"Something went wrong with the bounding box?"
-            )
-
-        # Compute mincut
-        atomic_edges = cutting.mincut(edges, affs, source_ids, sink_ids)
-        if len(atomic_edges) == 0:
-            raise exceptions.PostconditionError(
-                f"Mincut failed. Try again with a different set of points."
-            )
-        return atomic_edges
-
     def _get_bounding_l2_children(
         self,
         parent_ids: typing.Iterable,
