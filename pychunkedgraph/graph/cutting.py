@@ -14,6 +14,7 @@ from typing import Sequence
 from typing import Iterable
 
 from .utils import flatgraph
+from .utils import basetypes
 from .exceptions import PreconditionError
 from .exceptions import PostconditionError
 
@@ -63,9 +64,8 @@ def merge_cross_chunk_edges_graph_tool(
     return mapped_edges, mapped_affs, mapping, complete_mapping, remapping
 
 
-
 def run_multicut(
-    self,
+    root_id: basetypes.NODE_ID,
     source_ids: Sequence[np.uint64],
     sink_ids: Sequence[np.uint64],
     source_coords: Sequence[Sequence[int]],
@@ -88,18 +88,17 @@ def run_multicut(
     )
 
     if len(edges) == 0:
-        raise exceptions.PreconditionError(
+        raise PreconditionError(
             f"No local edges found. " f"Something went wrong with the bounding box?"
         )
 
     # Compute mincut
     atomic_edges = mincut(edges, affs, source_ids, sink_ids)
     if len(atomic_edges) == 0:
-        raise exceptions.PostconditionError(
+        raise PostconditionError(
             f"Mincut failed. Try again with a different set of points."
         )
     return atomic_edges
-
 
 
 class LocalMincutGraph:
