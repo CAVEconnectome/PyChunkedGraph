@@ -15,6 +15,7 @@ from typing import Iterable
 
 from .utils import flatgraph
 from .utils import basetypes
+from .edges import Edges
 from .exceptions import PreconditionError
 from .exceptions import PostconditionError
 
@@ -66,35 +67,15 @@ def merge_cross_chunk_edges_graph_tool(
 
 def run_multicut(
     root_id: basetypes.NODE_ID,
+    edges: Edges,
     source_ids: Sequence[np.uint64],
     sink_ids: Sequence[np.uint64],
-    source_coords: Sequence[Sequence[int]],
-    sink_coords: Sequence[Sequence[int]],
     *,
     bb_offset: Tuple[int, int, int] = (120, 120, 12),
     split_preview: bool = False,
 ):
-    bb_offset = np.array(list(bb_offset))
-    source_coords = np.array(source_coords)
-    sink_coords = np.array(sink_coords)
-
-    # Decide a reasonable bounding box (NOT guaranteed to be successful!)
-    coords = np.concatenate([source_coords, sink_coords])
-    bounding_box = [np.min(coords, axis=0), np.max(coords, axis=0)]
-    bounding_box[0] -= bb_offset
-    bounding_box[1] += bb_offset
-
-    edges, affs, _ = self.get_subgraph(
-        root_id, bounding_box=bounding_box, bb_is_coordinate=True
-    )
-
-    if len(edges) == 0:
-        raise PreconditionError(
-            f"No local edges found. " f"Something went wrong with the bounding box?"
-        )
-
     local_mincut_graph = LocalMincutGraph(
-        edges, affs, source_ids, sink_ids, split_preview
+        edges.get_pairs(), edges.affinities, source_ids, sink_ids, split_preview
     )
     atomic_edges = local_mincut_graph.compute_mincut()
     if len(atomic_edges) == 0:

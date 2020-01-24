@@ -675,6 +675,25 @@ class MulticutOperation(GraphEditOperation):
                 f"All supervoxel must belong to the same object. Already split?"
             )
 
+        # bb_offset = np.array(list(bb_offset))
+        # source_coords = np.array(source_coords)
+        # sink_coords = np.array(sink_coords)
+
+        # # Decide a reasonable bounding box (NOT guaranteed to be successful!)
+        # coords = np.concatenate([source_coords, sink_coords])
+        # bounding_box = [np.min(coords, axis=0), np.max(coords, axis=0)]
+        # bounding_box[0] -= bb_offset
+        # bounding_box[1] += bb_offset
+
+        # edges, affs, _ = self.get_subgraph(
+        #     root_id, bounding_box=bounding_box, bb_is_coordinate=True
+        # )
+
+        # if len(edges) == 0:
+        #     raise PreconditionError(
+        #         f"No local edges found. " f"Something went wrong with the bounding box?"
+        #     )
+
         self.removed_edges = run_multicut(
             root_ids.pop(),
             self.source_ids,
