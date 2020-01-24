@@ -20,6 +20,7 @@ from . import exceptions
 from .locks import RootLock
 from .utils import basetypes
 from .utils import serializers
+from .cutting import run_multicut
 
 if TYPE_CHECKING:
     from .chunkedgraph import ChunkedGraph
@@ -468,10 +469,10 @@ class MergeOperation(GraphEditOperation):
         # )
         new_root_ids, new_lvl2_ids, rows = edits.add_edges(
             self.cg,
-            operation_id,
             atomic_edges=self.added_edges,
-            time_stamp=timestamp,
+            operation_id=operation_id,
             affinities=self.affinities,
+            time_stamp=timestamp,
         )
         # rows.extend(fake_edge_rows)
         return new_root_ids, new_lvl2_ids, rows
@@ -664,24 +665,23 @@ class MulticutOperation(GraphEditOperation):
     def _apply(
         self, *, operation_id, timestamp
     ) -> Tuple[np.ndarray, np.ndarray, List["bigtable.row.Row"]]:
-
         # Verify that sink and source are from the same root object
         root_ids = set()
-        root_ids.update(self.cg.get_roots(np.concatenate([self.source_ids, self.sink_ids])))
-
+        root_ids.update(
+            self.cg.get_roots(np.concatenate([self.source_ids, self.sink_ids]))
+        )
         if len(root_ids) > 1:
             raise exceptions.PreconditionError(
                 f"All supervoxel must belong to the same object. Already split?"
             )
 
-        root_id = root_ids.pop()
-
-        self.removed_edges = self.cg.run_multicut(
+        self.removed_edges = run_multicut(
+            root_ids.pop(),
             self.source_ids,
             self.sink_ids,
             self.source_coords,
             self.sink_coords,
-            self.bbox_offset,
+            bb_offset=self.bbox_offset,
         )
 
         if self.removed_edges.size == 0:
