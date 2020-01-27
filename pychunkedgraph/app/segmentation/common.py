@@ -43,6 +43,7 @@ def before_request():
     current_app.request_start_date = datetime.utcnow()
     current_app.user_id = None
     current_app.table_id = None
+    current_app.request_type = None
 
 
 def after_request(response):
