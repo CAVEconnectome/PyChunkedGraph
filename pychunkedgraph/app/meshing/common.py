@@ -52,13 +52,13 @@ def before_request():
     current_app.request_start_date = datetime.utcnow()
     current_app.user_id = None
     current_app.table_id = None
+    current_app.request_type = None
 
 
 def after_request(response):
     dt = (time.time() - current_app.request_start_time) * 1000
 
     current_app.logger.debug("Response time: %.3fms" % dt)
-    current_app.logger.debug(f"Request type after: {current_app.request_type}")
     try:
         if current_app.user_id is None:
             user_id = ""
@@ -146,7 +146,6 @@ def api_exception(e):
 
 
 def handle_valid_frags(table_id, node_id):
-    current_app.request_type = "fragments"
     current_app.table_id = table_id
 
     user_id = str(g.auth_user["id"])
@@ -171,14 +170,10 @@ def handle_get_manifest(table_id, node_id):
     user_id = str(g.auth_user["id"])
     current_app.user_id = user_id
 
-    current_app.logger.debug(f"Request type in fct: {current_app.request_type}")
-
-
     if len(request.data) > 0:
         data = json.loads(request.data)
     else:
         data = {}
-
 
     if "bounds" in request.args:
         bounds = request.args["bounds"]
