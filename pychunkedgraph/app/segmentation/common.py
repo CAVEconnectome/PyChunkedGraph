@@ -168,6 +168,9 @@ def handle_root(table_id, atomic_id):
     current_app.request_type = "root"
     current_app.table_id = table_id
 
+    user_id = str(g.auth_user["id"])
+    current_app.user_id = user_id
+
     # Convert seconds since epoch to UTC datetime
     try:
         timestamp = float(request.args.get("timestamp", time.time()))
