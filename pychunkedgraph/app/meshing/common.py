@@ -74,7 +74,7 @@ def after_request(response):
                 response_time=dt,
                 url=request.url,
                 request_data=request.data,
-                request_type=current_app.request_type,
+                request_type=current_app.server_request_type,
             )
     except Exception as e:
         current_app.logger.debug(f"{current_app.user_id}: LogDB entry not successful: {e}")
@@ -146,7 +146,7 @@ def api_exception(e):
 
 
 def handle_valid_frags(table_id, node_id):
-    current_app.request_type = "fragments"
+    current_app.server_request_type = "fragments"
     current_app.table_id = table_id
 
     user_id = str(g.auth_user["id"])
@@ -170,7 +170,7 @@ def handle_get_manifest(table_id, node_id):
     else:
         data = {}
 
-    current_app.request_type = "manifest"
+    current_app.server_request_type = "manifest"
     current_app.table_id = table_id
 
     user_id = str(g.auth_user["id"])
