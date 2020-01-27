@@ -58,7 +58,7 @@ def after_request(response):
     dt = (time.time() - current_app.request_start_time) * 1000
 
     current_app.logger.debug("Response time: %.3fms" % dt)
-
+    current_app.logger.debug(f"Request type after: {current_app.request_type}")
     try:
         if current_app.user_id is None:
             user_id = ""
@@ -74,7 +74,7 @@ def after_request(response):
                 response_time=dt,
                 url=request.url,
                 request_data=request.data,
-                request_type=current_app.server_request_type,
+                request_type=current_app.request_type,
             )
     except Exception as e:
         current_app.logger.debug(f"{current_app.user_id}: LogDB entry not successful: {e}")
@@ -146,7 +146,7 @@ def api_exception(e):
 
 
 def handle_valid_frags(table_id, node_id):
-    current_app.server_request_type = "fragments"
+    current_app.request_type = "fragments"
     current_app.table_id = table_id
 
     user_id = str(g.auth_user["id"])
@@ -165,16 +165,20 @@ def handle_valid_frags(table_id, node_id):
 
 
 def handle_get_manifest(table_id, node_id):
+    current_app.request_type = "manifest"
+    current_app.table_id = table_id
+
+    user_id = str(g.auth_user["id"])
+    current_app.user_id = user_id
+
+    current_app.logger.debug(f"Request type in fct: {current_app.request_type}")
+
+
     if len(request.data) > 0:
         data = json.loads(request.data)
     else:
         data = {}
 
-    current_app.server_request_type = "manifest"
-    current_app.table_id = table_id
-
-    user_id = str(g.auth_user["id"])
-    current_app.user_id = user_id
 
     if "bounds" in request.args:
         bounds = request.args["bounds"]
