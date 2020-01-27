@@ -66,7 +66,7 @@ class FlaskLogDatabase(object):
 
         url_split = url.split("/")
 
-        if request_type:
+        if request_type is None:
             if "?" in url_split[-1]:
                 request_type = url_split[-1].split("?")[0]
                 request_opt_arg = url_split[-1].split("?")[1]
