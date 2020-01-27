@@ -36,7 +36,8 @@ def _remeshing(serialized_cg_info, lvl2_nodes):
 
     # TODO: stop_layer and mip should be configurable by dataset
     meshgen.remeshing(
-        cg, lvl2_nodes, stop_layer=4, cv_path=None, cv_mesh_dir=None, mip=1, max_err=320
+        cg, lvl2_nodes, stop_layer=4, cv_path=None, cv_mesh_dir=None, mip=1,
+        max_err=320
     )
 
     return Response(status=200)
@@ -77,7 +78,8 @@ def after_request(response):
                 request_type=current_app.request_type,
             )
     except Exception as e:
-        current_app.logger.debug(f"{current_app.user_id}: LogDB entry not successful: {e}")
+        current_app.logger.debug(f"{current_app.user_id}: LogDB entry not"
+                                 f" successful: {e}")
 
     return response
 
@@ -220,6 +222,7 @@ def handle_get_manifest(table_id, node_id):
 
     if "return_seg_chunk_coordinates" in data:
         if app_utils.toboolean(data["return_seg_chunk_coordinates"]):
-            resp["seg_chunk_coordinates"] = [cg.get_chunk_coordinates(seg_id) for seg_id in seg_ids]
+            resp["seg_chunk_coordinates"] = [cg.get_chunk_coordinates(seg_id)
+                                             for seg_id in seg_ids]
 
     return resp

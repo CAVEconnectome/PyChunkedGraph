@@ -69,7 +69,8 @@ def after_request(response):
                 request_type=current_app.request_type,
             )
     except Exception as e:
-        current_app.logger.debug(f"{current_app.user_id}: LogDB entry not successful: {e}")
+        current_app.logger.debug(f"{current_app.user_id}: LogDB entry not"
+                                 f" successful: {e}")
 
     return response
 
@@ -217,7 +218,8 @@ def handle_merge(table_id):
 
         if atomic_id is None:
             raise cg_exceptions.BadRequest(
-                f"Could not determine supervoxel ID for coordinates " f"{coordinate}."
+                f"Could not determine supervoxel ID for coordinates " 
+                f"{coordinate}."
             )
 
         coords.append(coordinate)
@@ -250,7 +252,8 @@ def handle_merge(table_id):
         raise cg_exceptions.BadRequest(str(e))
 
     if ret.new_root_ids is None:
-        raise cg_exceptions.InternalServerError("Could not merge selected supervoxel.")
+        raise cg_exceptions.InternalServerError("Could not merge selected "
+                                                "supervoxel.")
 
     current_app.logger.debug(("lvl2_nodes:", ret.new_lvl2_ids))
 
@@ -648,7 +651,8 @@ def handle_pairwise_contact_sites(table_id, first_node_id, second_node_id):
                 "Timestamp parameter is not a valid" " unix timestamp"
             )
         )
-    exact_location = request.args.get("exact_location", True, type=app_utils.toboolean)
+    exact_location = request.args.get("exact_location", True,
+                                      type=app_utils.toboolean)
     cg = app_utils.get_cg(table_id)
     contact_sites_list = contact_sites.get_contact_sites_pairwise(
         cg,
