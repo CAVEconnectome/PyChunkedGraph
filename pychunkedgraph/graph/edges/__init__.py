@@ -82,6 +82,18 @@ class Edges:
     def __len__(self):
         return len(self.node_ids1)
 
+    def __getitem__(self, key):
+        """`key` must be a boolean numpy array."""
+        try:
+            return Edges(
+                self.node_ids1[key],
+                self.node_ids2[key],
+                affinities=self.affinities[key],
+                areas=self.areas[key],
+            )
+        except Exception as err:
+            raise (err)
+
     def get_pairs(self) -> np.ndarray:
         """
         return numpy array of edge pairs [[sv1, sv2] ... ]

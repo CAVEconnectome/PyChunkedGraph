@@ -101,33 +101,14 @@ def categorize_edges(
     in_mask = mask1 & mask2
     out_mask = mask1 & ~mask2
 
-    ids1 = edges.node_ids1[in_mask]
-    ids2 = edges.node_ids2[in_mask]
-    affinities = edges.affinities[in_mask]
-    areas = edges.areas[in_mask]
-    in_edges = Edges(ids1, ids2, affinities=affinities, areas=areas)
-
-    # all_out_edges = out_edges + cross_edges
-    ids1 = edges.node_ids1[out_mask]
-    ids2 = edges.node_ids2[out_mask]
-    affinities = edges.affinities[out_mask]
-    areas = edges.areas[out_mask]
-    all_out_edges = Edges(ids1, ids2, affinities=affinities, areas=areas)
+    in_edges = edges[in_mask]
+    all_out_edges = edges[out_mask]  # out_edges + cross_edges
 
     edge_layers = get_cross_chunk_edges_layer(meta, all_out_edges.get_pairs())
     cross_edges_m = edge_layers > 1
 
-    ids1 = all_out_edges.node_ids1[~cross_edges_m]
-    ids2 = all_out_edges.node_ids2[~cross_edges_m]
-    affinities = all_out_edges.affinities[~cross_edges_m]
-    areas = all_out_edges.areas[~cross_edges_m]
-    out_edges = Edges(ids1, ids2, affinities=affinities, areas=areas)
-
-    ids1 = all_out_edges.node_ids1[cross_edges_m]
-    ids2 = all_out_edges.node_ids2[cross_edges_m]
-    affinities = all_out_edges.affinities[cross_edges_m]
-    areas = all_out_edges.areas[cross_edges_m]
-    cross_edges = Edges(ids1, ids2, affinities=affinities, areas=areas)
+    out_edges = all_out_edges[~cross_edges_m]
+    cross_edges = all_out_edges[cross_edges_m]
     return (in_edges, out_edges, cross_edges)
 
 
