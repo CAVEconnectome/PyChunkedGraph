@@ -121,6 +121,17 @@ def handle_root(table_id, node_id):
     return jsonify_with_kwargs({"root_id": root_id}, int64_as_str=int64_as_str)
 
 
+### GET ROOTS -------------------------------------------------------------------
+
+
+@bp.route("/table/<table_id>/roots", methods=["POST"])
+@auth_requires_permission("view")
+def handle_roots(table_id):
+    int64_as_str = request.args.get("int64_as_str", default=False, type=toboolean)
+    root_ids = common.handle_roots(table_id)
+    return jsonify_with_kwargs(root_ids, int64_as_str=int64_as_str)
+
+
 ### CHILDREN -------------------------------------------------------------------
 
 

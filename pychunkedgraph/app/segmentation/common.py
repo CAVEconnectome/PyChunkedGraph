@@ -189,6 +189,32 @@ def handle_root(table_id, atomic_id):
     return root_id
 
 
+### GET ROOTS -------------------------------------------------------------------
+
+
+def handle_roots(table_id):
+    current_app.request_type = "roots"
+    current_app.table_id = table_id
+
+    node_ids = np.array(json.loads(request.data)["node_ids"], dtype=np.uint64)
+    # Convert seconds since epoch to UTC datetime
+    try:
+        timestamp = float(request.args.get("timestamp", time.time()))
+        timestamp = datetime.fromtimestamp(timestamp, UTC)
+    except (TypeError, ValueError) as e:
+        raise (
+            cg_exceptions.BadRequest(
+                "Timestamp parameter is not a valid" " unix timestamp"
+            )
+        )
+
+    # Call ChunkedGraph
+    cg = app_utils.get_cg(table_id)
+    root_ids = cg.get_roots(node_ids, time_stamp=timestamp)
+
+    return root_ids
+
+
 ### MERGE ----------------------------------------------------------------------
 
 
