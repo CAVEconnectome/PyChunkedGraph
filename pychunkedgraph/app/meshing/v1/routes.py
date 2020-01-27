@@ -2,6 +2,7 @@ from flask import Blueprint
 from middle_auth_client import auth_requires_permission
 
 from pychunkedgraph.app.meshing import common
+from pychunkedgraph.backend import chunkedgraph_exceptions as cg_exceptions
 
 bp = Blueprint("pcg_meshing_v1", __name__, url_prefix="/meshing/api/v1")
 
@@ -19,6 +20,31 @@ def index():
 @bp.route
 def home():
     return common.home()
+
+
+# -------------------------------
+# ------ Measurements and Logging
+# -------------------------------
+
+
+@bp.before_request
+def before_request():
+    return common.before_request()
+
+
+@bp.after_request
+def after_request(response):
+    return common.after_request(response)
+
+
+@bp.errorhandler(Exception)
+def unhandled_exception(e):
+    return common.unhandled_exception(e)
+
+
+@bp.errorhandler(cg_exceptions.ChunkedGraphAPIError)
+def api_exception(e):
+    return common.api_exception(e)
 
 
 ## VALIDFRAGMENTS --------------------------------------------------------------
