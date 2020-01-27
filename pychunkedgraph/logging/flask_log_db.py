@@ -66,13 +66,18 @@ class FlaskLogDatabase(object):
 
         url_split = url.split("/")
 
+        print(f"Request type in _add_log - 1: {request_type}")
+        if "?" in url_split[-1]:
+            request_type_from_url = url_split[-1].split("?")[0]
+            request_opt_arg = url_split[-1].split("?")[1]
+        else:
+            request_type_from_url = url_split[-1]
+            request_opt_arg = None
+
         if request_type is None:
-            if "?" in url_split[-1]:
-                request_type = url_split[-1].split("?")[0]
-                request_opt_arg = url_split[-1].split("?")[1]
-            else:
-                request_type = url_split[-1]
-                request_opt_arg = None
+            request_type = request_type_from_url
+
+        print(f"Request type in _add_log - 2: {request_type}")
 
         if len(request_data) == 0:
             request_data = None
