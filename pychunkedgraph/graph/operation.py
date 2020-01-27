@@ -685,11 +685,16 @@ class MulticutOperation(GraphEditOperation):
         bounding_box[0] -= bb_offset
         bounding_box[1] += bb_offset
 
-        edges, affs, _ = self.get_subgraph(
-            root_ids.pop(), bounding_box=bounding_box, bb_is_coordinate=True
+        l2id_agglomeration_d = self.cg.get_subgraph(
+            [root_ids.pop()], bounding_box=bounding_box, bb_is_coordinate=True
         )
 
-        if len(edges) == 0:
+        # TODO
+        # extract edges from agglomerations
+        # use egdes to perform multicut
+        # re-use agglomerations to perform split
+
+        if not l2id_agglomeration_d:
             raise exceptions.PreconditionError(
                 f"No local edges found. " f"Something went wrong with the bounding box?"
             )

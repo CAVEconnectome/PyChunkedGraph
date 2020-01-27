@@ -394,9 +394,11 @@ class ChunkedGraph:
 
     def get_subgraph(
         self,
-        node_ids: np.ndarray,
+        node_ids: typing.Iterable,
         bbox: typing.Optional[typing.Sequence[typing.Sequence[int]]] = None,
         bbox_is_coordinate: bool = False,
+        nodes_only=False,
+        edges_only=False,
     ) -> typing.Dict:
         """
         Returns level 2 node IDs with their edges.
@@ -421,8 +423,8 @@ class ChunkedGraph:
         return self.get_l2_agglomerations(np.concatenate(level2_ids))
 
     def get_l2_agglomerations(
-        self, level2_ids: np.ndarray
-    ) -> typing.Dict[int, types.Agglomeration]:
+        self, level2_ids: np.ndarray, edges_only=False
+    ) -> typing.Union[typing.Dict[int, types.Agglomeration], np.ndarray]:
         """
         Children of Level 2 Node IDs and edges.
         Edges are read from cloud storage.
@@ -436,6 +438,8 @@ class ChunkedGraph:
         )
         edges_dict = edge_utils.concatenate_chunk_edges(chunk_edge_dicts)
         edges = reduce(lambda x, y: x + y, edges_dict.values())
+        if edges_only:
+            return edges
         # TODO include fake edges
         l2id_agglomeration_d = {}
         l2id_children_d = self.get_children(level2_ids)
