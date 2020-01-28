@@ -3,20 +3,31 @@ from six.moves import http_client
 
 class ChunkedGraphError(Exception):
     """Base class for all exceptions raised by the ChunkedGraph"""
+
+    pass
+
+
+class RootNotFound(ChunkedGraphError):
+    """Raised when root does not exist for a node ID."""
+
     pass
 
 
 class LockingError(ChunkedGraphError):
     """Raised when a backend storage Lock could not be acquired"""
+
     pass
 
 
 class PreconditionError(ChunkedGraphError):
     """Raised when preconditions for Chunked Graph operations are not met"""
+
     pass
+
 
 class PostconditionError(ChunkedGraphError):
     """Raised when postconditions for Chunked Graph operations are not met"""
+
     pass
 
 
@@ -41,7 +52,7 @@ class ChunkedGraphAPIError(ChunkedGraphError):
         self.message = message
 
     def __str__(self):
-        return f'[{self.status_code}]: {self.message}'
+        return f"[{self.status_code}]: {self.message}"
 
 
 class ClientError(ChunkedGraphAPIError):
@@ -50,21 +61,25 @@ class ClientError(ChunkedGraphAPIError):
 
 class BadRequest(ClientError):
     """Exception mapping a ``400 Bad Request`` response."""
+
     status_code = http_client.BAD_REQUEST
 
 
 class Unauthorized(ClientError):
     """Exception mapping a ``401 Unauthorized`` response."""
+
     status_code = http_client.UNAUTHORIZED
 
 
 class Forbidden(ClientError):
     """Exception mapping a ``403 Forbidden`` response."""
+
     status_code = http_client.FORBIDDEN
 
 
 class Conflict(ClientError):
     """Exception mapping a ``409 Conflict`` response."""
+
     status_code = http_client.CONFLICT
 
 
@@ -74,9 +89,11 @@ class ServerError(ChunkedGraphAPIError):
 
 class InternalServerError(ServerError):
     """Exception mapping a ``500 Internal Server Error`` response."""
+
     status_code = http_client.INTERNAL_SERVER_ERROR
 
 
 class GatewayTimeout(ServerError):
     """Exception mapping a ``504 Gateway Timeout`` response."""
+
     status_code = http_client.GATEWAY_TIMEOUT

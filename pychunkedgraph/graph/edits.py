@@ -101,6 +101,7 @@ def _create_parents(
                 )
                 layer_new_ids_d[current_layer + 1].append(new_parent_node.node_id)
             new_nodes_d[new_parent_node.node_id] = new_parent_node
+        print(current_layer, layer_new_ids_d[current_layer])
     return layer_new_ids_d[cg.meta.layer_count]
 
 

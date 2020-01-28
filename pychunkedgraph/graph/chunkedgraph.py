@@ -283,7 +283,7 @@ class ChunkedGraph:
         if not node_ids.size:
             return result
         node_l2ids_d = self._get_bounding_l2_children(node_ids, cache=nodes_cache)
-        all_children = np.fromiter(node_l2ids_d.values(), dtype=basetypes.NODE_ID)
+        all_children = np.concatenate(list(node_l2ids_d.values()))
         l2_edges_d_d = self.get_atomic_cross_edges(all_children)
         for node_id in node_ids:
             l2_edges_ds = [l2_edges_d_d[l2_id] for l2_id in node_l2ids_d[node_id]]
@@ -301,7 +301,12 @@ class ChunkedGraph:
         min_layer, edges = edge_utils.filter_min_layer_cross_edges_multiple(
             self.meta, l2id_atomic_cross_edges_ds, self.get_chunk_layer(node_id)
         )
-        edges[:, 0] = self.get_root(node_id, stop_layer=min_layer)
+        node_root_id = node_id
+        try:
+            node_root_id = self.get_root(node_id, stop_layer=min_layer)
+        except exceptions.RootNotFound as err:
+            pass
+        edges[:, 0] = node_root_id
         edges[:, 1] = self.get_roots(edges[:, 1], stop_layer=min_layer)
         return {min_layer: np.unique(edges, axis=0) if edges.size else types.empty_2d}
 
@@ -372,7 +377,7 @@ class ChunkedGraph:
                 time.sleep(0.5)
 
         if self.get_chunk_layer(parent_id) < stop_layer:
-            raise Exception(
+            raise exceptions.RootNotFound(
                 f"Cannot find root id {node_id}, {stop_layer}, {time_stamp}"
             )
 
