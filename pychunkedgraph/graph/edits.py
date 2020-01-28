@@ -214,7 +214,7 @@ def remove_edges(
     *,
     operation_id: basetypes.OPERATION_ID,
     atomic_edges: Iterable[np.ndarray],
-    l2_agglomerations: Dict,
+    l2id_agglomeration_d: Dict,
     time_stamp: datetime.datetime,
 ):
     # This view of the to be removed edges helps us to
@@ -222,9 +222,7 @@ def remove_edges(
     removed_edges = np.concatenate([atomic_edges, atomic_edges[:, ::-1]], axis=0)
     edges, _ = _analyze_atomic_edges(cg, atomic_edges)
     l2ids = np.unique(edges)
-    l2_chunk_ids = cg.get_chunk_ids_from_node_ids(l2ids)
-    l2id_chunk_id_d = dict(zip(l2ids, l2_chunk_ids))
-    l2id_agglomeration_d = cg.get_l2_agglomerations(np.concatenate(l2ids))
+    l2id_chunk_id_d = dict(zip(l2ids, cg.get_chunk_ids_from_node_ids(l2ids)))
 
     atomic_cross_edges_d = {}
     for l2_agg in l2id_agglomeration_d.values():
