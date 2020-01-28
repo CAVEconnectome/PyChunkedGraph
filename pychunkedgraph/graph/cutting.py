@@ -65,24 +65,6 @@ def merge_cross_chunk_edges_graph_tool(
     return mapped_edges, mapped_affs, mapping, complete_mapping, remapping
 
 
-def run_multicut(
-    root_id: basetypes.NODE_ID,
-    edges: Edges,
-    source_ids: Sequence[np.uint64],
-    sink_ids: Sequence[np.uint64],
-    *,
-    bb_offset: Tuple[int, int, int] = (120, 120, 12),
-    split_preview: bool = False,
-):
-    local_mincut_graph = LocalMincutGraph(
-        edges.get_pairs(), edges.affinities, source_ids, sink_ids, split_preview
-    )
-    atomic_edges = local_mincut_graph.compute_mincut()
-    if len(atomic_edges) == 0:
-        raise PostconditionError(f"Mincut failed. Try with a different set of points.")
-    return atomic_edges
-
-
 class LocalMincutGraph:
     """
     Helper class for mincut computation. Used by the mincut_graph_tool function to:
@@ -423,3 +405,18 @@ class LocalMincutGraph:
             self.logger.debug("Verifying local graph: %.2fms" % (dt * 1000))
         return ccs_test_post_cut, illegal_split
 
+
+def run_multicut(
+    edges: Edges,
+    source_ids: Sequence[np.uint64],
+    sink_ids: Sequence[np.uint64],
+    *,
+    split_preview: bool = False,
+):
+    local_mincut_graph = LocalMincutGraph(
+        edges.get_pairs(), edges.affinities, source_ids, sink_ids, split_preview
+    )
+    atomic_edges = local_mincut_graph.compute_mincut()
+    if len(atomic_edges) == 0:
+        raise PostconditionError(f"Mincut failed. Try with a different set of points.")
+    return atomic_edges

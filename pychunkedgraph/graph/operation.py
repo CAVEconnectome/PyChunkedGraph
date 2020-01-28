@@ -563,7 +563,10 @@ class SplitOperation(GraphEditOperation):
         self, *, operation_id, timestamp
     ) -> Tuple[np.ndarray, np.ndarray, List["bigtable.row.Row"]]:
         new_root_ids, new_lvl2_ids, rows = edits.remove_edges(
-            self.cg, operation_id, atomic_edges=self.removed_edges, time_stamp=timestamp
+            self.cg,
+            operation_id=operation_id,
+            atomic_edges=self.removed_edges,
+            time_stamp=timestamp,
         )
         return new_root_ids, new_lvl2_ids, rows
 
@@ -685,36 +688,27 @@ class MulticutOperation(GraphEditOperation):
         bounding_box[0] -= bb_offset
         bounding_box[1] += bb_offset
 
-        l2id_agglomeration_d = self.cg.get_subgraph(
+        l2id_agglomeration_d, edges = self.cg.get_subgraph(
             [root_ids.pop()], bounding_box=bounding_box, bb_is_coordinate=True
         )
-
-        # TODO
-        # extract edges from agglomerations
-        # use egdes to perform multicut
-        # re-use agglomerations to perform split
 
         if not l2id_agglomeration_d:
             raise exceptions.PreconditionError(
                 f"No local edges found. " f"Something went wrong with the bounding box?"
             )
 
-        self.removed_edges = run_multicut(
-            root_ids.pop(),
-            self.source_ids,
-            self.sink_ids,
-            self.source_coords,
-            self.sink_coords,
-            bb_offset=self.bbox_offset,
-        )
-
+        self.removed_edges = run_multicut(edges, self.source_ids, self.sink_ids)
         if self.removed_edges.size == 0:
             raise exceptions.PostconditionError(
                 "Mincut could not find any edges to remove - weird!"
             )
 
         new_root_ids, new_lvl2_ids, rows = edits.remove_edges(
-            self.cg, operation_id, atomic_edges=self.removed_edges, time_stamp=timestamp
+            self.cg,
+            operation_id=operation_id,
+            atomic_edges=self.removed_edges,
+            l2_agglomerations=l2id_agglomeration_d,
+            time_stamp=timestamp,
         )
         return new_root_ids, new_lvl2_ids, rows
 

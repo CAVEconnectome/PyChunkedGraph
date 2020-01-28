@@ -212,8 +212,9 @@ def _filter_component_cross_edges(
 def remove_edges(
     cg,
     *,
-    atomic_edges: Iterable[np.ndarray],
     operation_id: basetypes.OPERATION_ID,
+    atomic_edges: Iterable[np.ndarray],
+    l2_agglomerations: Dict,
     time_stamp: datetime.datetime,
 ):
     # This view of the to be removed edges helps us to
