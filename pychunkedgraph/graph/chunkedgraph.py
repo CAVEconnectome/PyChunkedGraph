@@ -279,6 +279,7 @@ class ChunkedGraph:
         This is necessary when editing because the newly created IDs are 
         not yet written to storage. But it can also be used as cache.
         """
+        # TODO need to use cache properly for new IDs' parents, children and edges
         result = {}
         if not node_ids.size:
             return result
