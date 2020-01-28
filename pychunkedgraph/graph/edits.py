@@ -64,11 +64,12 @@ def _create_parents(
     Cross edges are used to determine existing siblings.
     """
     layer_new_ids_d = defaultdict(list)
-    # cache for easier access
+    # cache for node children
     new_nodes_d = {}
     # new IDs in each layer
     layer_new_ids_d[2] = list(new_cross_edges_d_d.keys())
     for current_layer in range(2, cg.meta.layer_count):
+        print(current_layer, layer_new_ids_d[current_layer])
         if len(layer_new_ids_d[current_layer]) == 0:
             continue
         new_ids = np.array(layer_new_ids_d[current_layer], basetypes.NODE_ID)
