@@ -223,8 +223,8 @@ class SegmentHistory(object):
                 else:
                     after_root_ids_list.append(after_root_ids)
 
-        before_root_ids_list = np.array(before_root_ids_list, dtype=np.str)
-        after_root_ids_list = np.array(after_root_ids_list, dtype=np.str)
+        before_root_ids_list = np.array(before_root_ids_list, dtype=np.uint64)
+        after_root_ids_list = np.array(after_root_ids_list, dtype=np.uint64)
 
         self._tabular_changelog = pd.DataFrame.from_dict(
             {"operation_id": np.sort(entry_ids),
@@ -237,7 +237,6 @@ class SegmentHistory(object):
              "is_merge": is_merge_list,
              "in_neuron": is_in_neuron_list,
              "is_relevant": is_relevant_list})
-
 
     def _before_after_root_ids(self, entry):
         before_root_ids = np.unique(
