@@ -187,6 +187,9 @@ class SegmentHistory(object):
                 before_root_ids, after_root_ids = \
                     self._before_after_root_ids(entry)
 
+                if len(before_root_ids) == 1:
+                    before_root_ids = [before_root_ids[0], 0]
+
                 if len(before_root_ids_list) > 0 and \
                         before_root_ids[0] in before_root_ids_list[-1]:
                     before_root_ids_list.append(before_root_ids)
@@ -213,6 +216,9 @@ class SegmentHistory(object):
                     self._before_after_root_ids(entry)
 
                 before_root_ids_list.append(np.array([before_root_ids[0], 0]))
+
+                if len(after_root_ids) == 1:
+                    after_root_ids = [after_root_ids[0], 0]
 
                 if len(after_root_ids_list) > 0 and \
                         after_root_ids_list[-1][0] not in before_root_ids:
