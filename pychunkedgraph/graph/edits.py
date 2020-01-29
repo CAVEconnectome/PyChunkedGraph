@@ -169,9 +169,10 @@ def add_edges(
         new_node.atomic_cross_edges = concatenate_cross_edge_dicts(
             [atomic_cross_edges_d[l2id] for l2id in l2ids_]
         )
-        new_node.cross_edges = cg.get_min_layer_cross_edges(
-            new_id, [new_node.atomic_cross_edges]
-        )
+        # TODO this should be done after creating all new layer 2 nodes
+        # new_node.cross_edges = cg.get_min_layer_cross_edges(
+        #     new_id, [new_node.atomic_cross_edges]
+        # )
         new_hierarchy_d[new_id] = new_node
         for child_id in new_node.children:
             new_hierarchy_d[child_id] = types.Node(child_id, parent_id=new_id)
@@ -291,9 +292,7 @@ class CreateParentNodes:
         Cross edges are used to determine existing siblings.
         """
         layer_new_ids_d = defaultdict(list)
-        # cache for node children
-        # new IDs in each layer
-        layer_new_ids_d[2] = list(self.new_cross_edges_d_d.keys())
+        layer_new_ids_d[2] = self.new_l2_ids
         for current_layer in range(2, self.cg.meta.layer_count):
             print(current_layer, layer_new_ids_d[current_layer])
             if len(layer_new_ids_d[current_layer]) == 0:
