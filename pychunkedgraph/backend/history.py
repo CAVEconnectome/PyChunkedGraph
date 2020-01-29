@@ -81,7 +81,7 @@ class SegmentHistory(object):
             root_id_lookup_dict = dict(zip(self.edited_sv_ids,
                                            self.cg.get_roots(self.edited_sv_ids,
                                                              time_stamp=np.max(self.edit_timestamps) +
-                                                                        datetime.timedelta(seconds=1))))
+                                                                        datetime.timedelta(seconds=.01))))
             self._root_id_lookup_vec = np.vectorize(root_id_lookup_dict.get)
 
         return self._root_id_lookup_vec
@@ -92,7 +92,7 @@ class SegmentHistory(object):
             root_id_lookup_dict = dict(zip(self.edited_sv_ids,
                                            self.cg.get_roots(self.edited_sv_ids,
                                                              time_stamp=np.min(self.edit_timestamps) -
-                                                                        datetime.timedelta(seconds=10))))
+                                                                        datetime.timedelta(seconds=.01))))
             self._original_root_id_lookup_vec = np.vectorize(root_id_lookup_dict.get)
 
         return self._original_root_id_lookup_vec
@@ -159,6 +159,8 @@ class SegmentHistory(object):
         is_relevant_list = []
         timestamp_list = []
         user_list = []
+        before_root_ids_list = []
+        after_root_ids_list = []
 
         entry_ids = list(self.past_log_entries.keys())
         for entry_id in np.sort(entry_ids):
@@ -181,6 +183,19 @@ class SegmentHistory(object):
                     is_in_neuron_list.append(True)
                 else:
                     is_in_neuron_list.append(False)
+
+                before_root_ids, after_root_ids = \
+                    self._before_after_root_ids(entry)
+
+                if before_root_ids[0] in before_root_ids_list[-1]:
+                    before_root_ids_list.append(before_root_ids)
+                else:
+                    before_root_ids_list.append(before_root_ids[::-1])
+
+                if after_root_ids_list[-1][0] not in before_root_ids:
+                    after_root_ids_list[-1] = after_root_ids_list[-1][::-1]
+
+                after_root_ids_list.append(np.array([after_root_ids[0], 0]))
             else:
                 if len(np.unique(sv_ids_current_root)) != 1:
                     is_relevant_list.append(True)
@@ -192,13 +207,49 @@ class SegmentHistory(object):
                 else:
                     is_in_neuron_list.append(False)
 
+                before_root_ids, after_root_ids = \
+                    self._before_after_root_ids(entry)
+
+                before_root_ids_list.append(np.array([before_root_ids[0], 0]))
+
+                if after_root_ids_list[-1][0] not in before_root_ids:
+                    after_root_ids_list[-1] = after_root_ids_list[-1][::-1]
+
+                if after_root_ids[1] == self.root_id:
+                    after_root_ids_list.append(after_root_ids[::-1])
+                else:
+                    after_root_ids_list.append(after_root_ids)
+
+        before_root_ids_list = np.array(before_root_ids_list)
+        after_root_ids_list = np.array(after_root_ids_list)
+
         self._tabular_changelog = pd.DataFrame.from_dict(
             {"operation_id": np.sort(entry_ids),
              "timestamp": timestamp_list,
              "user_id": user_list,
+             "before_root_id_1": before_root_ids_list[:, 0],
+             "before_root_id_2": before_root_ids_list[:, 1],
+             "after_root_id_1": after_root_ids_list[:, 0],
+             "after_root_id_2": after_root_ids_list[:, 1],
              "is_merge": is_merge_list,
              "in_neuron": is_in_neuron_list,
              "is_relevant": is_relevant_list})
+
+
+    def _before_after_root_ids(self, entry):
+        before_root_ids = np.unique(
+            self.cg.get_roots(entry.edges_failsafe,
+                              time_stamp=entry.timestamp -
+                                         datetime.timedelta(seconds=.01)))
+
+        after_root_ids = np.unique(
+            self.cg.get_roots(entry.edges_failsafe,
+                              time_stamp=entry.timestamp +
+                                         datetime.timedelta(seconds=.01)))
+
+        assert np.sum(np.in1d(before_root_ids, after_root_ids)) == 0
+
+        return before_root_ids, after_root_ids
 
 
     def merge_log(self, correct_for_wrong_coord_type=True):
