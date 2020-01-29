@@ -279,15 +279,19 @@ class ChunkedGraph:
         This is necessary when editing because the newly created IDs are 
         not yet written to storage. But it can also be used as cache.
         """
-        # TODO need to use cache properly for new IDs' parents, children and edges
         result = {}
         if not node_ids.size:
             return result
         node_l2ids_d = self._get_bounding_l2_children(node_ids, cache=nodes_cache)
         all_children = np.concatenate(list(node_l2ids_d.values()))
-        l2_edges_d_d = self.get_atomic_cross_edges(all_children)
+        cached = np.fromiter(nodes_cache.keys(), dtype=basetypes.NODE_ID)
+        not_cached = all_children[~np.in1d(all_children, cached)]
+
+        l2_edges_d_d = self.get_atomic_cross_edges(not_cached)
+        l2_edges_d_d.update(
+            {id_: nodes_cache[id_].atomic_cross_edges for id_ in cached}
+        )
         for node_id in node_ids:
-            # TODO get from cache first
             l2_edges_ds = [l2_edges_d_d[l2_id] for l2_id in node_l2ids_d[node_id]]
             result[node_id] = self.get_min_layer_cross_edges(node_id, l2_edges_ds)
         return result
