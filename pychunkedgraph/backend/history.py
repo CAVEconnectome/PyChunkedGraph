@@ -223,8 +223,8 @@ class SegmentHistory(object):
                 else:
                     after_root_ids_list.append(after_root_ids)
 
-        before_root_ids_list = np.array(before_root_ids_list)
-        after_root_ids_list = np.array(after_root_ids_list)
+        before_root_ids_list = np.array(before_root_ids_list, dtype=np.str)
+        after_root_ids_list = np.array(after_root_ids_list, dtype=np.str)
 
         self._tabular_changelog = pd.DataFrame.from_dict(
             {"operation_id": np.sort(entry_ids),
