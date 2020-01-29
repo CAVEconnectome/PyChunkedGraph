@@ -22,11 +22,13 @@ class Node:
         node_id: basetypes.NODE_ID,
         parent_id: basetypes.NODE_ID = None,
         children: Iterable = empty_1d.copy(),
+        cross_edges: Dict = dict(),
         atomic_cross_edges: Dict = dict(),
     ):
         self.node_id = node_id
         self.parent_id = parent_id
         self.children = children
+        self.cross_edges = cross_edges
         self.atomic_cross_edges = atomic_cross_edges
 
     def __str__(self):
