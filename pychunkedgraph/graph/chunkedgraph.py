@@ -286,8 +286,8 @@ class ChunkedGraph:
         node_l2ids_d = self._get_bounding_l2_children(node_ids, cache=nodes_cache)
         all_children = np.concatenate(list(node_l2ids_d.values()))
         l2_edges_d_d = self.get_atomic_cross_edges(all_children)
-        print(node_ids, node_l2ids_d, l2_edges_d_d)
         for node_id in node_ids:
+            # TODO get from cache first
             l2_edges_ds = [l2_edges_d_d[l2_id] for l2_id in node_l2ids_d[node_id]]
             result[node_id] = self.get_min_layer_cross_edges(node_id, l2_edges_ds)
         return result

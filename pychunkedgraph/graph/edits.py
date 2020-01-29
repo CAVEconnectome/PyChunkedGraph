@@ -169,10 +169,6 @@ def add_edges(
         new_node.atomic_cross_edges = concatenate_cross_edge_dicts(
             [atomic_cross_edges_d[l2id] for l2id in l2ids_]
         )
-        # TODO this should be done after creating all new layer 2 nodes
-        # new_node.cross_edges = cg.get_min_layer_cross_edges(
-        #     new_id, [new_node.atomic_cross_edges]
-        # )
         new_hierarchy_d[new_id] = new_node
         for child_id in new_node.children:
             new_hierarchy_d[child_id] = types.Node(child_id, parent_id=new_id)
@@ -291,14 +287,36 @@ class CreateParentNodes:
         After new level 2 IDs are created, create parents in higher layers.
         Cross edges are used to determine existing siblings.
         """
+
+        # cache for convenience, if `node_id` exists
+        # no need to call `get_min_layer_cross_edges`
+        cross_edges_d = {}
+
         layer_new_ids_d = defaultdict(list)
         layer_new_ids_d[2] = self.new_l2_ids
         for current_layer in range(2, self.cg.meta.layer_count):
             print(current_layer, layer_new_ids_d[current_layer])
             if len(layer_new_ids_d[current_layer]) == 0:
                 continue
+
             new_ids = np.array(layer_new_ids_d[current_layer], basetypes.NODE_ID)
-            new_ids_ = np.fromiter(self.new_hierarchy_d.keys(), dtype=basetypes.NODE_ID)
+            cached = np.fromiter(self.new_hierarchy_d.keys(), dtype=basetypes.NODE_ID)
+            not_cached = new_ids[~np.in1d(new_ids, cached)]
+            self.new_hierarchy_d.update({id_: types.Node(id_) for id_ in not_cached})
+
+            cached = np.fromiter(cross_edges_d.keys(), dtype=basetypes.NODE_ID)
+            not_cached = new_ids[~np.in1d(new_ids, cached)]
+            cross_edges_d.update(
+                self.cg.get_cross_chunk_edges(not_cached, nodes_cache=self.new_hierarchy_d)
+            )
+
+            for new_id in layer_new_ids_d[current_layer]:
+                new_node = self.new_hierarchy_d[new_id]
+                new_node.cross_edges = self.cg.get_cross_chunk_edges(
+                    new_id, [new_node.atomic_cross_edges]
+                )
+                cross_edges_d[new_id] = new_node.cross_edges
+
             self.new_hierarchy_d[current_layer].update(
                 {id_: types.Node(id_) for id_ in new_ids[~np.in1d(new_ids, new_ids_)]}
             )
