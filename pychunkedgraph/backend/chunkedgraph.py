@@ -1566,7 +1566,7 @@ class ChunkedGraph(object):
             column_keys.OperationLogs.RemovedEdge,
             column_keys.OperationLogs.BoundingBoxOffset,
         ]
-        if not operation_ids:
+        if operation_ids is None:
             log_records_d = self.read_node_id_rows(
                 start_id=np.uint64(0),
                 end_id=self.get_max_operation_id(),

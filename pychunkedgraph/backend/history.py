@@ -1,5 +1,7 @@
 import collections
 import numpy as np
+import datetime
+import pandas as pd
 
 from pychunkedgraph.backend.utils import column_keys
 from pychunkedgraph.backend import chunkedgraph_exceptions as cg_exceptions
@@ -16,6 +18,11 @@ class SegmentHistory(object):
         self.root_id = root_id
 
         self._past_log_rows = None
+        self._root_id_lookup_vec = None
+        self._original_root_id_lookup_vec = None
+        self._edited_sv_ids = None
+        self._edit_timestamps = None
+        self._tabular_changelog = None
 
     @property
     def past_log_entries(self):
@@ -53,8 +60,64 @@ class SegmentHistory(object):
             former_row = self.cg.read_node_id_row(node_id=former_ids[0])
             operation_id = former_row[operation_id_col][0].value
             log_entry = LogEntry(*self.cg.read_log_row(operation_id))
+            return log_entry
 
-        return log_entry
+    @property
+    def edit_timestamps(self):
+        if self._edit_timestamps is None:
+            self._collect_edit_timestamps()
+        return self._edit_timestamps
+
+    @property
+    def edited_sv_ids(self):
+        if self._edited_sv_ids is None:
+            self._collect_edited_sv_ids()
+
+        return self._edited_sv_ids
+
+    @property
+    def root_id_lookup_vec(self):
+        if self._root_id_lookup_vec is None:
+            root_id_lookup_dict = dict(zip(self.edited_sv_ids,
+                                           self.cg.get_roots(self.edited_sv_ids,
+                                                             time_stamp=np.max(self.edit_timestamps) +
+                                                                        datetime.timedelta(seconds=1))))
+            self._root_id_lookup_vec = np.vectorize(root_id_lookup_dict.get)
+
+        return self._root_id_lookup_vec
+
+    @property
+    def original_root_id_lookup_vec(self):
+        if self._original_root_id_lookup_vec is None:
+            root_id_lookup_dict = dict(zip(self.edited_sv_ids,
+                                           self.cg.get_roots(self.edited_sv_ids,
+                                                             time_stamp=np.min(self.edit_timestamps) -
+                                                                        datetime.timedelta(seconds=10))))
+            self._original_root_id_lookup_vec = np.vectorize(root_id_lookup_dict.get)
+
+        return self._original_root_id_lookup_vec
+
+    @property
+    def tabular_changelog(self):
+        if self._tabular_changelog is None:
+            self._build_tabular_changelog()
+
+        return self._tabular_changelog
+
+    def _collect_edit_timestamps(self):
+        self._edit_timestamps = []
+        for entry_id, entry in self.past_log_entries.items():
+            self._edit_timestamps.append(entry.timestamp)
+
+        self._edit_timestamps = np.array(self._edit_timestamps)
+
+    def _collect_edited_sv_ids(self):
+        self._edited_sv_ids = []
+        for entry_id, entry in self.past_log_entries.items():
+            self._edited_sv_ids.extend(entry.edges_failsafe)
+
+        self._edited_sv_ids = np.array(self._edited_sv_ids)
+
 
     def _collect_past_edits(self):
         self._past_log_rows = {}
@@ -89,6 +152,54 @@ class SegmentHistory(object):
 
                 self._past_log_rows[operation_id] = LogEntry(log_row,
                                                              log_timestamp)
+
+    def _build_tabular_changelog(self):
+        is_merge_list = []
+        is_in_neuron_list = []
+        is_relevant_list = []
+        timestamp_list = []
+        user_list = []
+
+        entry_ids = list(self.past_log_entries.keys())
+        for entry_id in np.sort(entry_ids):
+            entry = self.past_log_entries[entry_id]
+
+            is_merge_list.append(entry.is_merge)
+            timestamp_list.append(entry.timestamp)
+            user_list.append(entry.user_id)
+
+            sv_ids_original_root = self.original_root_id_lookup_vec(entry.edges_failsafe)
+            sv_ids_current_root = self.root_id_lookup_vec(entry.edges_failsafe)
+
+            if entry.is_merge:
+                if len(np.unique(sv_ids_original_root)) != 1:
+                    is_relevant_list.append(True)
+                else:
+                    is_relevant_list.append(False)
+
+                if np.all(sv_ids_current_root == self.root_id):
+                    is_in_neuron_list.append(True)
+                else:
+                    is_in_neuron_list.append(False)
+            else:
+                if len(np.unique(sv_ids_current_root)) != 1:
+                    is_relevant_list.append(True)
+                else:
+                    is_relevant_list.append(False)
+
+                if np.any(sv_ids_current_root == self.root_id):
+                    is_in_neuron_list.append(True)
+                else:
+                    is_in_neuron_list.append(False)
+
+        self._tabular_changelog = pd.DataFrame.from_dict(
+            {"operation_id": np.sort(entry_ids),
+             "timestamp": timestamp_list,
+             "user_id": user_list,
+             "is_merge": is_merge_list,
+             "in_neuron": is_in_neuron_list,
+             "is_relevant": is_relevant_list})
+
 
     def merge_log(self, correct_for_wrong_coord_type=True):
         merge_entries = self.past_merge_entries
@@ -143,8 +254,22 @@ class LogEntry(object):
         return self.row[column_keys.OperationLogs.UserID]
 
     @property
+    def log_type(self):
+        return "merge" if self.is_merge else "split"
+
+    @property
     def root_ids(self):
         return self.row[column_keys.OperationLogs.RootID]
+
+    @property
+    def edges_failsafe(self):
+        try:
+            return np.array(self.sink_source_ids)
+        except:
+            if self.is_merge:
+                return np.array(self.added_edges).flatten()
+            if not self.is_merge:
+                return np.array(self.removed_edges).flatten()
 
     @property
     def sink_source_ids(self):
@@ -171,12 +296,10 @@ class LogEntry(object):
                          self.row[column_keys.OperationLogs.SinkCoordinate]])
 
     def __str__(self):
-        log_type = "merge" if self.is_merge else "split"
-        return f"{self.user_id},{log_type},{self.root_ids},{self.timestamp}"
+        return f"{self.user_id},{self.log_type},{self.root_ids},{self.timestamp}"
         
     def __iter__(self):
-        log_type = "merge" if self.is_merge else "split"
-        attrs = [self.user_id, log_type, self.root_ids, self.timestamp]
+        attrs = [self.user_id, self.log_type, self.root_ids, self.timestamp]
         for attr in attrs:
             yield attr
 

@@ -547,6 +547,19 @@ def change_log(table_id, root_id=None):
     return segment_history.change_log()
 
 
+def tabular_change_log(table_id, root_id):
+    current_app.request_type = "tabular_changelog"
+    current_app.table_id = table_id
+    user_id = str(g.auth_user["id"])
+    current_app.user_id = user_id
+
+    # Call ChunkedGraph
+    cg = app_utils.get_cg(table_id)
+    segment_history = cg_history.SegmentHistory(cg, int(root_id))
+
+    return segment_history.tabular_changelog
+
+
 def merge_log(table_id, root_id):
     current_app.request_type = "merge_log"
     current_app.table_id = table_id
