@@ -215,14 +215,6 @@ def change_log(table_id, root_id):
 @bp.route("/table/<table_id>/root/<root_id>/tabular_change_log", methods=["GET"])
 @auth_requires_permission("view")
 def tabular_change_log(table_id, root_id):
-    int64_as_str = request.args.get("int64_as_str", default=False, type=toboolean)
-    tab_change_log = common.tabular_change_log(table_id, root_id)
-    return tab_change_log.to_json()
-
-
-@bp.route("/table/<table_id>/root/<root_id>/tabular_change_log", methods=["GET"])
-@auth_requires_permission("view")
-def tabular_change_log(table_id, root_id):
     disp = request.args.get("disp", default=False, type=toboolean)
     tab_change_log = common.tabular_change_log(table_id, root_id)
 
