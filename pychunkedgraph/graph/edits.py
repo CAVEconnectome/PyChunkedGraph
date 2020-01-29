@@ -281,9 +281,11 @@ class CreateParentNodes:
     ):
         self.cg = cg
         self.new_hierarchy_d = new_hierarchy_d
-        self.new_cross_edges_d_d = None
+        self.new_l2_ids = new_l2_ids
+        self.operation_id = operation_id
+        self.time_stamp = time_stamp
 
-    def run(self):
+    def run(self) -> Iterable:
         """
         After new level 2 IDs are created, create parents in higher layers.
         Cross edges are used to determine existing siblings.
