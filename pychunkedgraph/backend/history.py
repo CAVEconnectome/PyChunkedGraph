@@ -188,19 +188,12 @@ class SegmentHistory(object):
                     self._before_after_root_ids(entry)
 
                 if len(before_root_ids) == 1:
-                    before_root_ids = [before_root_ids[0], 0]
+                    before_root_ids = np.array([before_root_ids[0], 0],
+                                               dtype=np.uint64)
 
-                if len(before_root_ids_list) > 0 and \
-                        before_root_ids[0] in before_root_ids_list[-1]:
-                    before_root_ids_list.append(before_root_ids)
-                else:
-                    before_root_ids_list.append(before_root_ids[::-1])
-
-                if len(after_root_ids_list) > 0 and \
-                        after_root_ids_list[-1][0] not in before_root_ids:
-                    after_root_ids_list[-1] = after_root_ids_list[-1][::-1]
-
-                after_root_ids_list.append(np.array([after_root_ids[0], 0]))
+                before_root_ids_list.append(before_root_ids)
+                after_root_ids_list.append(np.array([after_root_ids[0], 0],
+                                                    dtype=np.uint64))
             else:
                 if len(np.unique(sv_ids_current_root)) != 1:
                     is_relevant_list.append(True)
@@ -215,19 +208,14 @@ class SegmentHistory(object):
                 before_root_ids, after_root_ids = \
                     self._before_after_root_ids(entry)
 
-                before_root_ids_list.append(np.array([before_root_ids[0], 0]))
+                before_root_ids_list.append(np.array([before_root_ids[0], 0],
+                                                     dtype=np.uint64))
 
                 if len(after_root_ids) == 1:
-                    after_root_ids = [after_root_ids[0], 0]
+                    after_root_ids = np.array([after_root_ids[0], 0],
+                                              dtype=np.uint64)
 
-                if len(after_root_ids_list) > 0 and \
-                        after_root_ids_list[-1][0] not in before_root_ids:
-                    after_root_ids_list[-1] = after_root_ids_list[-1][::-1]
-
-                if after_root_ids[1] == self.root_id:
-                    after_root_ids_list.append(after_root_ids[::-1])
-                else:
-                    after_root_ids_list.append(after_root_ids)
+                after_root_ids_list.append(after_root_ids)
 
         before_root_ids_list = np.array(before_root_ids_list, dtype=np.uint64)
         after_root_ids_list = np.array(after_root_ids_list, dtype=np.uint64)
