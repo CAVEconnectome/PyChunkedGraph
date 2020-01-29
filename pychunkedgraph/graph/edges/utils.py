@@ -56,7 +56,7 @@ def concatenate_cross_edge_dicts(cross_edge_dicts: Iterable) -> Dict:
 
 
 def merge_cross_edge_dicts_single(x_edges_d1: Dict, x_edges_d2: Dict) -> Dict:
-    """Combines two cross chunk dictionaries of form {layer id : edge list}."""
+    """Combines two cross chunk edge dicts of form {layer id : edge list}."""
     result_d = {}
     # if not x_edges_d1 and not x_edges_d2:
     #     return result_d

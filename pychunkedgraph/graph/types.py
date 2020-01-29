@@ -20,6 +20,7 @@ class Node:
     def __init__(
         self,
         node_id: basetypes.NODE_ID,
+        *,
         parent_id: basetypes.NODE_ID = None,
         children: Iterable = empty_1d.copy(),
         cross_edges: Dict = dict(),

@@ -159,25 +159,32 @@ def add_edges(
 
     graph, _, _, graph_node_ids = flatgraph.build_gt_graph(edges, make_directed=True)
     ccs = flatgraph.connected_components(graph)
-    new_cross_edges_d_d = {}
+    new_l2_ids = []
     new_hierarchy_d = {}
     for cc in ccs:
         l2ids_ = graph_node_ids[cc]
         new_id = cg.id_client.create_node_id(cg.get_chunk_id(l2ids_[0]))
         new_node = types.Node(new_id)
-
         new_node.children = np.concatenate([atomic_children_d[l2id] for l2id in l2ids_])
-        # TODO cross edges and atomic cross edges
-
-        new_cross_edges_d_d[new_id] = cg.get_min_layer_cross_edges(
-            new_id, [atomic_cross_edges_d[l2id] for l2id in l2ids_]
+        new_node.atomic_cross_edges = concatenate_cross_edge_dicts(
+            [atomic_cross_edges_d[l2id] for l2id in l2ids_]
         )
-    return _create_parents(
+        new_node.cross_edges = cg.get_min_layer_cross_edges(
+            new_id, [new_node.atomic_cross_edges]
+        )
+        new_hierarchy_d[new_id] = new_node
+        for child_id in new_node.children:
+            new_hierarchy_d[child_id] = types.Node(child_id, parent_id=new_id)
+        new_l2_ids.append(new_id)
+
+    create_parents = CreateParentNodes(
         cg,
-        new_cross_edges_d_d.copy(),
+        new_hierarchy_d=new_hierarchy_d,
+        new_l2_ids=new_l2_ids,
         operation_id=operation_id,
         time_stamp=time_stamp,
     )
+    return create_parents.run()
 
 
 def _process_l2_agglomeration(agg: types.Agglomeration, removed_edges: np.ndarray):
@@ -268,6 +275,7 @@ class CreateParentNodes:
         cg,
         *,
         new_hierarchy_d: Dict[np.uint64, types.Node],
+        new_l2_ids: Iterable,
         operation_id: basetypes.OPERATION_ID,
         time_stamp: datetime.datetime,
     ):
@@ -289,9 +297,7 @@ class CreateParentNodes:
             if len(layer_new_ids_d[current_layer]) == 0:
                 continue
             new_ids = np.array(layer_new_ids_d[current_layer], basetypes.NODE_ID)
-            new_ids_ = np.fromiter(
-                self.new_hierarchy_d.keys(), dtype=basetypes.NODE_ID
-            )
+            new_ids_ = np.fromiter(self.new_hierarchy_d.keys(), dtype=basetypes.NODE_ID)
             self.new_hierarchy_d[current_layer].update(
                 {id_: types.Node(id_) for id_ in new_ids[~np.in1d(new_ids, new_ids_)]}
             )
