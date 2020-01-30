@@ -21,6 +21,7 @@ from .locks import RootLock
 from .utils import basetypes
 from .utils import serializers
 from .cutting import run_multicut
+from .utils.generic import get_bounding_box
 
 if TYPE_CHECKING:
     from .chunkedgraph import ChunkedGraph
@@ -678,27 +679,16 @@ class MulticutOperation(GraphEditOperation):
                 f"All supervoxel must belong to the same object. Already split?"
             )
 
-        bb_offset = np.array(list(self.bbox_offset))
-        source_coords = np.array(self.source_coords)
-        sink_coords = np.array(self.sink_coords)
-
-        # Decide a reasonable bounding box (NOT guaranteed to be successful!)
-        coords = np.concatenate([source_coords, sink_coords])
-        bounding_box = [np.min(coords, axis=0), np.max(coords, axis=0)]
-        bounding_box[0] -= bb_offset
-        bounding_box[1] += bb_offset
-
+        bbox = get_bounding_box(self.source_coords, self.sink_coords, self.bbox_offset)
         l2id_agglomeration_d, edges = self.cg.get_subgraph(
-            [root_ids.pop()], bounding_box=bounding_box, bb_is_coordinate=True
+            [root_ids.pop()], bbox=bbox, bbox_is_coordinate=True
         )
 
-        if not l2id_agglomeration_d:
-            raise exceptions.PreconditionError(
-                f"No local edges found. " f"Something went wrong with the bounding box?"
-            )
+        if not len(edges):
+            raise exceptions.PreconditionError("No local edges found.")
 
         self.removed_edges = run_multicut(edges, self.source_ids, self.sink_ids)
-        if self.removed_edges.size == 0:
+        if not self.removed_edges.size:
             raise exceptions.PostconditionError(
                 "Mincut could not find any edges to remove - weird!"
             )
@@ -707,7 +697,7 @@ class MulticutOperation(GraphEditOperation):
             self.cg,
             operation_id=operation_id,
             atomic_edges=self.removed_edges,
-            l2_agglomerations=l2id_agglomeration_d,
+            l2id_agglomeration_d=l2id_agglomeration_d,
             time_stamp=timestamp,
         )
         return new_root_ids, new_lvl2_ids, rows

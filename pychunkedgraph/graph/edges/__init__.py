@@ -80,7 +80,7 @@ class Edges:
         return self
 
     def __len__(self):
-        return len(self.node_ids1)
+        return self.node_ids1.size
 
     def __getitem__(self, key):
         """`key` must be a boolean numpy array."""

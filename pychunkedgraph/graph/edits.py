@@ -11,7 +11,6 @@ from . import types
 from .utils import basetypes
 from .utils import flatgraph
 from .utils.context_managers import TimeIt
-from .utils.generic import get_bounding_box
 from .connectivity.nodes import edge_exists
 from .edges.utils import filter_min_layer_cross_edges
 from .edges.utils import concatenate_cross_edge_dicts
@@ -149,7 +148,7 @@ def _process_l2_agglomeration(agg: types.Agglomeration, removed_edges: np.ndarra
 
 def _filter_component_cross_edges(
     cc_ids: np.ndarray, cross_edges: np.ndarray, cross_edge_layers: np.ndarray
-):
+) -> Dict[int, np.ndarray]:
     """
     Filters cross edges for a connected component `cc_ids`
     from `cross_edges` of the complete chunk.
@@ -182,7 +181,8 @@ def remove_edges(
     l2ids = np.unique(edges)
     l2id_chunk_id_d = dict(zip(l2ids, cg.get_chunk_ids_from_node_ids(l2ids)))
 
-    atomic_cross_edges_d = {}
+    new_l2_ids = []
+    new_hierarchy_d = {}
     for l2_agg in l2id_agglomeration_d.values():
         ccs, unique_graph_ids, cross_edges = _process_l2_agglomeration(
             l2_agg, removed_edges
@@ -192,18 +192,21 @@ def remove_edges(
             l2id_chunk_id_d[l2_agg.node_id], len(ccs)
         )
         for i_cc, cc in enumerate(ccs):
-            new_parent_id = new_parent_ids[i_cc]
-            cc_ids = unique_graph_ids[cc]
-            atomic_cross_edges_d[new_parent_id] = _filter_component_cross_edges(
-                cc_ids, cross_edges, cross_edge_layers
+            new_id = new_parent_ids[i_cc]
+            new_node = types.Node(new_id)
+            new_node.children = unique_graph_ids[cc]
+            new_node.atomic_cross_edges = _filter_component_cross_edges(
+                new_node.children, cross_edges, cross_edge_layers
             )
-
-    new_cross_edges_d_d = {}
-    for new_id, cross_edges in atomic_cross_edges_d.items():
-        new_cross_edges_d_d[new_id] = cg.get_min_layer_cross_edges(
-            new_id, [cross_edges]
-        )
-    return
+            new_hierarchy_d[new_id] = new_node
+            for child_id in new_node.children:
+                new_hierarchy_d[child_id] = types.Node(child_id, parent_id=new_id)
+            new_l2_ids.append(new_id)
+    cg.node_hierarchy = new_hierarchy_d
+    create_parents = CreateParentNodes(
+        cg, new_l2_ids=new_l2_ids, operation_id=operation_id, time_stamp=time_stamp,
+    )
+    return create_parents.run()
 
 
 class CreateParentNodes:
