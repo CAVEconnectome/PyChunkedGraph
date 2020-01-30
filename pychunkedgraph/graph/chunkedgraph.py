@@ -85,6 +85,10 @@ class ChunkedGraph:
     def node_hierarchy(self) -> typing.Dict[np.uint64, types.Node]:
         return self._node_hierarchy
 
+    @node_hierarchy.setter
+    def node_hierarchy(self, node_hierarchy) -> None:
+        self._node_hierarchy = node_hierarchy
+
     def create(self):
         """Creates the graph in storage client and stores meta."""
         self._client.create_graph(self._meta)
@@ -641,11 +645,7 @@ class ChunkedGraph:
                 nodes_per_layer[layer] = child_ids
         return nodes_per_layer
 
-    def _get_bounding_l2_children(
-        self,
-        parent_ids: typing.Iterable,
-        cache: typing.Dict[np.uint64, types.Node] = None,
-    ) -> typing.Dict:
+    def _get_bounding_l2_children(self, parent_ids: typing.Iterable,) -> typing.Dict:
         """
         Helper function to get level 2 children IDs for each parent.
         `parent_ids` must contain node IDs at same layer.
@@ -683,10 +683,12 @@ class ChunkedGraph:
                 parent_masked_children_d[parent_id] = children[layer_mask]
 
             children_ids = np.concatenate(list(parent_masked_children_d.values()))
-            cache_node_ids = np.fromiter(cache.keys(), dtype=basetypes.NODE_ID)
+            cache_node_ids = np.fromiter(
+                self.node_hierarchy.keys(), dtype=basetypes.NODE_ID
+            )
             cache_mask = np.in1d(children_ids, cache_node_ids)
             child_grand_children_d = {
-                child_id: cache[child_id].children
+                child_id: self.node_hierarchy[child_id].children
                 for child_id in children_ids[cache_mask]
             }
             child_grand_children_d.update(self.get_children(children_ids[~cache_mask]))
