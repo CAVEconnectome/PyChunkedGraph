@@ -67,6 +67,7 @@ class ChunkedGraph:
 
         self._client = bt_client
         self._id_client = bt_client
+        self._node_hierarchy = {}
 
     @property
     def meta(self) -> ChunkedGraphMeta:
@@ -79,6 +80,10 @@ class ChunkedGraph:
     @property
     def id_client(self) -> base.ClientWithIDGen:
         return self._id_client
+
+    @property
+    def node_hierarchy(self) -> typing.Dict[np.uint64, types.Node]:
+        return self._node_hierarchy
 
     def create(self):
         """Creates the graph in storage client and stores meta."""
@@ -175,8 +180,11 @@ class ChunkedGraph:
         Else all parents along with timestamps.
         """
         time_stamp = misc_utils.get_valid_timestamp(time_stamp)
+        all_cached = np.fromiter(self.node_hierarchy.keys(), dtype=basetypes.NODE_ID)
+        cached = np.in1d(node_ids, all_cached)
+
         parent_rows = self.client.read_nodes(
-            node_ids=node_ids,
+            node_ids=node_ids[~cached],
             properties=attributes.Hierarchy.Parent,
             end_time=time_stamp,
             end_time_inclusive=True,
@@ -184,7 +192,14 @@ class ChunkedGraph:
         if not parent_rows:
             return None
         if current:
-            return np.array([parent_rows[node_id][0].value for node_id in node_ids])
+            parent_ids = node_ids.copy()
+            parent_ids[cached] = np.array(
+                [self.node_hierarchy[id_].parent_id for id_ in node_ids[cached]]
+            )
+            parent_ids[~cached] = np.array(
+                [parent_rows[node_id][0].value for node_id in node_ids[~cached]]
+            )
+            return parent_ids
         parents = []
         for node_id in node_ids:
             parents.append([(p.value, p.timestamp) for p in parent_rows[node_id]])
@@ -197,6 +212,11 @@ class ChunkedGraph:
         time_stamp: typing.Optional[datetime.datetime] = None,
     ) -> typing.Union[typing.List[typing.Tuple], np.uint64]:
         time_stamp = misc_utils.get_valid_timestamp(time_stamp)
+        try:
+            # first look in cache
+            return self.node_hierarchy[node_id].parent_id
+        except KeyError:
+            pass
         parents = self.client.read_node(
             node_id,
             properties=attributes.Hierarchy.Parent,
@@ -258,10 +278,7 @@ class ChunkedGraph:
         return result
 
     def get_cross_chunk_edges(
-        self,
-        node_ids: np.ndarray,
-        *,
-        nodes_cache: typing.Dict[np.uint64, types.Node] = None,
+        self, node_ids: np.ndarray,
     ) -> typing.Dict[np.uint64, typing.Dict[int, typing.Iterable]]:
         """
         Cross chunk edges for `node_id` at `node_layer`.
@@ -274,7 +291,7 @@ class ChunkedGraph:
         Cross edges that belong to inner level 2 IDs are subsumed within the chunk.
         This is because cross edges are stored only in level 2 IDs.
 
-        If `nodes_cache` is passed, IDs are first looked up in the cache.
+        IDs are first looked up in the cache, `self.node_hierarchy`.
         If the ID is not in the cache, it is read from storage.
         This is necessary when editing because the newly created IDs are 
         not yet written to storage. But it can also be used as cache.
@@ -282,48 +299,32 @@ class ChunkedGraph:
         result = {}
         if not node_ids.size:
             return result
-        node_l2ids_d = self._get_bounding_l2_children(node_ids, cache=nodes_cache)
-        all_children = np.concatenate(list(node_l2ids_d.values()))
-        cached = np.fromiter(nodes_cache.keys(), dtype=basetypes.NODE_ID)
-        not_cached = all_children[~np.in1d(all_children, cached)]
+        node_l2ids_d = self._get_bounding_l2_children(node_ids)
+        all_l2ids = np.concatenate(list(node_l2ids_d.values()))
+        all_cached = np.fromiter(self.node_hierarchy.keys(), dtype=basetypes.NODE_ID)
 
-        l2_edges_d_d = self.get_atomic_cross_edges(not_cached)
+        cached_mask = np.in1d(all_l2ids, all_cached)
+        cached_l2ids = all_l2ids[cached_mask]
+        non_cached_l2ids = all_l2ids[~cached_mask]
+
+        l2_edges_d_d = self.get_atomic_cross_edges(non_cached_l2ids)
         l2_edges_d_d.update(
-            {id_: nodes_cache[id_].atomic_cross_edges for id_ in cached}
+            {id_: self.node_hierarchy[id_].atomic_cross_edges for id_ in cached_l2ids}
         )
         for node_id in node_ids:
             l2_edges_ds = [l2_edges_d_d[l2_id] for l2_id in node_l2ids_d[node_id]]
-            result[node_id] = self.get_min_layer_cross_edges(node_id, l2_edges_ds)
+            result[node_id] = self._get_min_layer_cross_edges(node_id, l2_edges_ds)
         return result
-
-    def get_min_layer_cross_edges(
-        self, node_id: basetypes.NODE_ID, l2id_atomic_cross_edges_ds: typing.Iterable,
-    ):
-        """
-        Find edges at relevant min_layer >= node_layer.
-        `l2id_atomic_cross_edges_ds` is a list of atomic cross edges of
-        level 2 IDs that are descendants of `node_id`.
-        """
-        min_layer, edges = edge_utils.filter_min_layer_cross_edges_multiple(
-            self.meta, l2id_atomic_cross_edges_ds, self.get_chunk_layer(node_id)
-        )
-        node_root_id = node_id
-        try:
-            node_root_id = self.get_root(node_id, stop_layer=min_layer)
-        except exceptions.RootNotFound:
-            pass
-        edges[:, 0] = node_root_id
-        edges[:, 1] = self.get_roots(edges[:, 1], stop_layer=min_layer)
-        return {min_layer: np.unique(edges, axis=0) if edges.size else types.empty_2d}
 
     def get_roots(
         self,
         node_ids: typing.Sequence[np.uint64],
+        *,
         time_stamp: typing.Optional[datetime.datetime] = None,
         stop_layer: int = None,
         n_tries: int = 1,
     ):
-        """Takes node ids and returns the associated agglomeration ids."""
+        """Returns node IDs at the highest layer."""
         time_stamp = misc_utils.get_valid_timestamp(time_stamp)
         stop_layer = self.meta.layer_count if not stop_layer else stop_layer
         for _ in range(n_tries):
@@ -709,6 +710,27 @@ class ChunkedGraph:
 
             children_layer -= 1
         return parent_children_d
+
+    def _get_min_layer_cross_edges(
+        self, node_id: basetypes.NODE_ID, l2id_atomic_cross_edges_ds: typing.Iterable,
+    ):
+        """
+        Find edges at relevant min_layer >= node_layer.
+        `l2id_atomic_cross_edges_ds` is a list of atomic cross edges of
+        level 2 IDs that are descendants of `node_id`.
+        """
+        min_layer, edges = edge_utils.filter_min_layer_cross_edges_multiple(
+            self.meta, l2id_atomic_cross_edges_ds, self.get_chunk_layer(node_id)
+        )
+        node_root_id = node_id
+        try:
+            node_root_id = self.get_root(node_id, stop_layer=min_layer)
+        except exceptions.RootNotFound as err:
+            print(err)
+            pass
+        edges[:, 0] = node_root_id
+        edges[:, 1] = self.get_roots(edges[:, 1], stop_layer=min_layer)
+        return {min_layer: np.unique(edges, axis=0) if edges.size else types.empty_2d}
 
     # HELPERS / WRAPPERS
     def get_node_id(

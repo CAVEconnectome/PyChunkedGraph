@@ -174,12 +174,9 @@ def add_edges(
             new_hierarchy_d[child_id] = types.Node(child_id, parent_id=new_id)
         new_l2_ids.append(new_id)
 
+    cg.node_hierarchy = new_hierarchy_d
     create_parents = CreateParentNodes(
-        cg,
-        new_hierarchy_d=new_hierarchy_d,
-        new_l2_ids=new_l2_ids,
-        operation_id=operation_id,
-        time_stamp=time_stamp,
+        cg, new_l2_ids=new_l2_ids, operation_id=operation_id, time_stamp=time_stamp,
     )
     return create_parents.run()
 
@@ -271,13 +268,11 @@ class CreateParentNodes:
         self,
         cg,
         *,
-        new_hierarchy_d: Dict[np.uint64, types.Node],
         new_l2_ids: Iterable,
         operation_id: basetypes.OPERATION_ID,
         time_stamp: datetime.datetime,
     ):
         self.cg = cg
-        self.new_hierarchy_d = new_hierarchy_d
         self.new_l2_ids = new_l2_ids
         self.operation_id = operation_id
         self.time_stamp = time_stamp
@@ -300,24 +295,26 @@ class CreateParentNodes:
                 continue
 
             new_ids = np.array(layer_new_ids_d[current_layer], basetypes.NODE_ID)
-            cached = np.fromiter(self.new_hierarchy_d.keys(), dtype=basetypes.NODE_ID)
+            cached = np.fromiter(self.cg.node_hierarchy.keys(), dtype=basetypes.NODE_ID)
             not_cached = new_ids[~np.in1d(new_ids, cached)]
-            self.new_hierarchy_d.update({id_: types.Node(id_) for id_ in not_cached})
+            self.cg.node_hierarchy.update({id_: types.Node(id_) for id_ in not_cached})
 
             cached = np.fromiter(cross_edges_d.keys(), dtype=basetypes.NODE_ID)
             not_cached = new_ids[~np.in1d(new_ids, cached)]
             cross_edges_d.update(
-                self.cg.get_cross_chunk_edges(not_cached, nodes_cache=self.new_hierarchy_d)
+                self.cg.get_cross_chunk_edges(
+                    not_cached, nodes_cache=self.cg.node_hierarchy
+                )
             )
 
             for new_id in layer_new_ids_d[current_layer]:
-                new_node = self.new_hierarchy_d[new_id]
+                new_node = self.cg.node_hierarchy[new_id]
                 new_node.cross_edges = self.cg.get_cross_chunk_edges(
                     new_id, [new_node.atomic_cross_edges]
                 )
                 cross_edges_d[new_id] = new_node.cross_edges
 
-            self.new_hierarchy_d[current_layer].update(
+            self.cg.node_hierarchy[current_layer].update(
                 {id_: types.Node(id_) for id_ in new_ids[~np.in1d(new_ids, new_ids_)]}
             )
             new_ids_ = np.fromiter(
@@ -326,12 +323,12 @@ class CreateParentNodes:
             self.new_cross_edges_d_d.update(
                 self.self.cg.get_cross_chunk_edges(
                     new_ids[~np.in1d(new_ids, new_ids_)],
-                    nodes_cache=self.new_hierarchy_d,
+                    nodes_cache=self.cg.node_hierarchy,
                 )
             )
             for new_id in new_ids:
                 new_id_ce_d = self.new_cross_edges_d_d[new_id]
-                new_node = self.new_hierarchy_d[new_id]
+                new_node = self.cg.node_hierarchy[new_id]
                 new_id_ce_layer = list(new_id_ce_d.keys())[0]
                 if not new_id_ce_layer == current_layer:
                     new_parent_node = _create_parent_node(
@@ -353,5 +350,5 @@ class CreateParentNodes:
                         [[new_id], new_id_all_siblings]
                     )
                     layer_new_ids_d[current_layer + 1].append(new_parent_node.node_id)
-                self.new_hierarchy_d[new_parent_node.node_id] = new_parent_node
+                self.cg.node_hierarchy[new_parent_node.node_id] = new_parent_node
         return layer_new_ids_d[self.cg.meta.layer_count]
