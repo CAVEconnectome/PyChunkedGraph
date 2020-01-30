@@ -12,13 +12,13 @@ from ..backend.chunkedgraph import ChunkedGraph
 
 
 class IngestionManager(object):
-    def __init__(self, config: IngestConfig, chunkedgraph_meta: ChunkedGraphMeta):
+    def __init__(self, config: IngestConfig, cg_meta: ChunkedGraphMeta):
 
         self._config = config
 
         self._cg = None
-        self._chunkedgraph_meta = chunkedgraph_meta
-        self._ws_cv = CloudVolume(chunkedgraph_meta.data_source.watershed)
+        self._chunkedgraph_meta = cg_meta
+        self._ws_cv = CloudVolume(cg_meta.data_source.watershed)
         self._chunk_coords = None
         self._layer_bounds_d = None
 
@@ -31,7 +31,7 @@ class IngestionManager(object):
         return self._config
 
     @property
-    def chunkedgraph_meta(self):
+    def cg_meta(self):
         return self._chunkedgraph_meta
 
     @property
@@ -50,7 +50,7 @@ class IngestionManager(object):
         return cls(**pickle.loads(serialized_info))
 
     def get_serialized_info(self, pickled=False):
-        info = {"config": self._config, "chunkedgraph_meta": self._chunkedgraph_meta}
+        info = {"config": self._config, "cg_meta": self._chunkedgraph_meta}
         if pickled:
             return pickle.dumps(info)
         return info

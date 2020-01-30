@@ -55,9 +55,9 @@ def read_raw_edge_data(imanager, coord) -> Dict:
             sv_ids1, sv_ids2, affinities=affinities, areas=areas
         )
         no_edges = no_edges and not sv_ids1.size
-    if not no_edges and imanager.chunkedgraph_meta.data_source.edges:
+    if not no_edges and imanager.cg_meta.data_source.edges:
         put_chunk_edges(
-            imanager.chunkedgraph_meta.data_source.edges, coord, chunk_edges, 17
+            imanager.cg_meta.data_source.edges, coord, chunk_edges, 17
         )
     return chunk_edges
 
@@ -85,7 +85,7 @@ def _get_cont_chunk_coords(imanager, chunk_coord_a, chunk_coord_b):
             continue
 
         c_chunk_coord = chunk_coord_l + np.array([dx, dy, dz])
-        if imanager.chunkedgraph_meta.is_out_of_bounds(c_chunk_coord):
+        if imanager.cg_meta.is_out_of_bounds(c_chunk_coord):
             continue
         c_chunk_coords.append(c_chunk_coord)
     return c_chunk_coords
@@ -101,7 +101,7 @@ def _collect_edge_data(imanager, chunk_coord):
     :return: dict of np.ndarrays
     """
     subfolder = "chunked_rg"
-    base_path = f"{imanager.chunkedgraph_meta.data_source.agglomeration}/{subfolder}/"
+    base_path = f"{imanager.cg_meta.data_source.agglomeration}/{subfolder}/"
     chunk_coord = np.array(chunk_coord)
     x, y, z = chunk_coord
     chunk_id = compute_chunk_id(layer=1, x=x, y=y, z=z)
@@ -110,7 +110,7 @@ def _collect_edge_data(imanager, chunk_coord):
     swap = defaultdict(list)
     x, y, z = chunk_coord
     for _x, _y, _z in product([x - 1, x], [y - 1, y], [z - 1, z]):
-        if imanager.chunkedgraph_meta.is_out_of_bounds(np.array([_x, _y, _z])):
+        if imanager.cg_meta.is_out_of_bounds(np.array([_x, _y, _z])):
             continue
         filename = f"in_chunk_0_{_x}_{_y}_{_z}_{chunk_id}.data"
         filenames[EDGE_TYPES.in_chunk].append(filename)
@@ -123,7 +123,7 @@ def _collect_edge_data(imanager, chunk_coord):
             x, y, z = adjacent_chunk_coord
             adjacent_chunk_id = compute_chunk_id(layer=1, x=x, y=y, z=z)
 
-            if imanager.chunkedgraph_meta.is_out_of_bounds(adjacent_chunk_coord):
+            if imanager.cg_meta.is_out_of_bounds(adjacent_chunk_coord):
                 continue
             c_chunk_coords = _get_cont_chunk_coords(
                 imanager, chunk_coord, adjacent_chunk_coord
@@ -154,7 +154,7 @@ def _collect_edge_data(imanager, chunk_coord):
             if file["error"] or file["content"] is None:
                 continue
 
-            edge_dtype = imanager.chunkedgraph_meta.edge_dtype
+            edge_dtype = imanager.cg_meta.edge_dtype
             if swap[file["filename"]]:
                 this_dtype = [edge_dtype[1], edge_dtype[0]] + edge_dtype[2:]
                 content = np.frombuffer(file["content"], dtype=this_dtype)
@@ -240,13 +240,13 @@ def read_raw_agglomeration_data(imanager, chunk_coord: np.ndarray):
     Collects agglomeration information & builds connected component mapping
     """
     subfolder = "remap"
-    base_path = f"{imanager.chunkedgraph_meta.data_source.agglomeration}/{subfolder}/"
+    base_path = f"{imanager.cg_meta.data_source.agglomeration}/{subfolder}/"
     chunk_coord = np.array(chunk_coord)
     x, y, z = chunk_coord
     chunk_id = compute_chunk_id(layer=1, x=x, y=y, z=z)
 
     filenames = []
-    for mip_level in range(0, int(imanager.chunkedgraph_meta.layer_count - 1)):
+    for mip_level in range(0, int(imanager.cg_meta.layer_count - 1)):
         x, y, z = np.array(chunk_coord / 2 ** mip_level, dtype=np.int)
         filenames.append(f"done_{mip_level}_{x}_{y}_{z}_{chunk_id}.data.zst")
 
@@ -258,7 +258,7 @@ def read_raw_agglomeration_data(imanager, chunk_coord: np.ndarray):
             x, y, z = adjacent_chunk_coord
             adjacent_chunk_id = compute_chunk_id(layer=1, x=x, y=y, z=z)
 
-            for mip_level in range(0, int(imanager.chunkedgraph_meta.layer_count - 1)):
+            for mip_level in range(0, int(imanager.cg_meta.layer_count - 1)):
                 x, y, z = np.array(adjacent_chunk_coord / 2 ** mip_level, dtype=np.int)
                 filenames.append(
                     f"done_{mip_level}_{x}_{y}_{z}_{adjacent_chunk_id}.data.zst"
@@ -273,9 +273,9 @@ def read_raw_agglomeration_data(imanager, chunk_coord: np.ndarray):
         cc = list(cc)
         mapping.update(dict(zip(cc, [i_cc] * len(cc))))
 
-    if mapping and imanager.chunkedgraph_meta.data_source.components:
+    if mapping and imanager.cg_meta.data_source.components:
         put_chunk_components(
-            imanager.chunkedgraph_meta.data_source.components, components, chunk_coord
+            imanager.cg_meta.data_source.components, components, chunk_coord
         )
     return mapping
 

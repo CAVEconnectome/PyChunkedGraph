@@ -6,9 +6,8 @@ from .. import ChunkedGraphMeta
 
 
 def get_children_coords(
-    cg_meta: ChunkedGraphMeta, layer: int, chunk_coords
+    cg_meta: ChunkedGraphMeta, layer: int, chunk_coords: np.ndarray
 ) -> np.ndarray:
-    chunk_coords = np.array(chunk_coords, dtype=int)
     children_layer = layer - 1
     layer_boundaries = cg_meta.layer_chunk_bounds[children_layer]
     children_coords = []

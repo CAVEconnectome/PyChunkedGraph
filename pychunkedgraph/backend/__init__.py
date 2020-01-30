@@ -144,6 +144,21 @@ class ChunkedGraphMeta:
             raise Exception()
         return dtype
 
+    def __getnewargs__(self):
+        return (self.data_source, self.graph_config, self.bigtable_config)
+
+    def __getstate__(self):
+        return {
+            "data_source": self.data_source,
+            "graph_config": self.graph_config,
+            "bigtable_config": self.bigtable_config,
+        }
+
+    def __setstate__(self, state):
+        self.__init__(
+            state["data_source"], state["graph_config"], state["bigtable_config"]
+        )
+
     def is_out_of_bounds(self, chunk_coordinate):
         if not self._bitmasks:
             self._bitmasks = compute_bitmasks(
