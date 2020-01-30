@@ -1,5 +1,7 @@
 from typing import Dict
 from typing import Tuple
+from typing import Optional
+from datetime import datetime
 
 import numpy as np
 
@@ -13,7 +15,7 @@ from ..io.components import get_chunk_components
 
 
 def create_atomic_chunk_helper(
-    im_info: Dict, task: ChunkTask,
+    im_info: Dict, task: ChunkTask, time_stamp: Optional[datetime] = None
 ):
     """Helper to queue atomic chunk task."""
     imanager = IngestionManager(**im_info)
@@ -23,7 +25,9 @@ def create_atomic_chunk_helper(
     retry = 1
     while retry:
         try:
-            imanager.cg.add_atomic_edges_in_chunks(ids, affs, areas, isolated)
+            imanager.cg.add_atomic_edges_in_chunks(
+                ids, affs, areas, isolated, time_stamp=time_stamp
+            )
             retry = 0
         except Exception as err:
             print(f"{retry}: {err}")
@@ -32,14 +36,16 @@ def create_atomic_chunk_helper(
 
 
 def create_parent_chunk_helper(
-    im_info: Dict, task: ChunkTask,
+    im_info: Dict, task: ChunkTask, time_stamp: Optional[datetime] = None
 ):
     """Helper to queue parent chunk task."""
     imanager = IngestionManager(**im_info)
     retry = 1
     while retry:
         try:
-            imanager.cg.add_layer(task.layer, task.children_coords)
+            imanager.cg.add_layer(
+                task.layer, task.children_coords, time_stamp=time_stamp
+            )
             retry = 0
         except Exception as err:
             print(f"{retry}: {err}")

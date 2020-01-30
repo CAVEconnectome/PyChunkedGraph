@@ -3,7 +3,9 @@ Ingest / create chunkedgraph on a single machine / instance
 """
 
 from typing import Dict
+from typing import Optional
 from threading import Timer
+from datetime import datetime
 from itertools import product
 from multiprocessing import Queue
 from multiprocessing import Process
@@ -20,7 +22,7 @@ from .ingestion import create_atomic_chunk_helper
 from .ingestion import create_parent_chunk_helper
 
 
-NUMBER_OF_PROCESSES = cpu_count()
+NUMBER_OF_PROCESSES = cpu_count() - 1
 STOP_SENTINEL = "STOP"
 
 
@@ -56,6 +58,7 @@ def _enqueue_parent(
     parent: ChunkTask,
     parent_children_count_d_shared: Dict,
     parent_children_count_d_locks: Lock,
+    time_stamp: Optional[datetime] = None,
 ) -> None:
     with parent_children_count_d_locks[parent.id]:
         if not parent.id in parent_children_count_d_shared:
@@ -68,7 +71,7 @@ def _enqueue_parent(
         if parent_children_count_d_shared[parent.id] == 0:
             del parent_children_count_d_shared[parent.id]
             parent_children_count_d_locks[parent.parent_task().id] = manager.Lock()
-            task_queue.put((create_parent_chunk_helper, (im_info, parent,),))
+            task_queue.put((create_parent_chunk_helper, (im_info, parent, time_stamp),))
             return True
     return False
 
@@ -86,6 +89,7 @@ def worker(
     layer_task_counts_d_shared: Dict[int, int],
     layer_task_counts_d_lock: Lock,
     im_info: dict,
+    time_stamp: Optional[datetime] = None,
 ):
     for func, args in iter(task_queue.get, STOP_SENTINEL):
         task = func(*args)
@@ -101,6 +105,7 @@ def worker(
             parent,
             parent_children_count_d_shared,
             parent_children_count_d_locks,
+            time_stamp,
         )
         with layer_task_counts_d_lock:
             layer_task_counts_d_shared[f"{task.layer}c"] += 1
@@ -111,23 +116,25 @@ def worker(
 
 def start_ingest(
     imanager: IngestionManager,
+    *,
+    time_stamp: Optional[datetime] = None,
     n_workers: int = NUMBER_OF_PROCESSES,
     progress_interval: float = 300.0,
 ):
     atomic_chunk_bounds = imanager.cg_meta.layer_chunk_bounds[2]
     atomic_chunks = list(product(*[range(r) for r in atomic_chunk_bounds]))
 
-    # test - pinky100
-    # atomic_chunks = [
-    #     [42, 24, 10],
-    #     [42, 24, 11],
-    #     [42, 25, 10],
-    #     [42, 25, 11],
-    #     [43, 24, 10],
-    #     [43, 24, 11],
-    #     [43, 25, 10],
-    #     [43, 25, 11],
-    # ]
+    # test chunks - pinky100
+    atomic_chunks = [
+        [42, 24, 10],
+        [42, 24, 11],
+        [42, 25, 10],
+        [42, 25, 11],
+        [43, 24, 10],
+        [43, 24, 11],
+        [43, 25, 10],
+        [43, 25, 11],
+    ]
 
     np.random.shuffle(atomic_chunks)
 
@@ -145,7 +152,10 @@ def start_ingest(
     for coords in atomic_chunks:
         task = ChunkTask(imanager.cg.meta, np.array(coords, dtype=np.int))
         task_queue.put(
-            (create_atomic_chunk_helper, (imanager.get_serialized_info(), task,),)
+            (
+                create_atomic_chunk_helper,
+                (imanager.get_serialized_info(), task, time_stamp,),
+            )
         )
         parent_children_count_d_locks[task.parent_task().id] = None
     layer_task_counts_d_shared["2q"] += task_queue.qsize()
@@ -164,6 +174,7 @@ def start_ingest(
         layer_task_counts_d_shared,
         layer_task_counts_d_lock,
         imanager.get_serialized_info(),
+        time_stamp,
     )
     for _ in range(n_workers):
         processes.append(Process(target=worker, args=args))
