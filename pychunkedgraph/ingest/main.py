@@ -125,16 +125,16 @@ def start_ingest(
     atomic_chunks = list(product(*[range(r) for r in atomic_chunk_bounds]))
 
     # test chunks - pinky100
-    atomic_chunks = [
-        [42, 24, 10],
-        [42, 24, 11],
-        [42, 25, 10],
-        [42, 25, 11],
-        [43, 24, 10],
-        [43, 24, 11],
-        [43, 25, 10],
-        [43, 25, 11],
-    ]
+    # atomic_chunks = [
+    #     [42, 24, 10],
+    #     [42, 24, 11],
+    #     [42, 25, 10],
+    #     [42, 25, 11],
+    #     [43, 24, 10],
+    #     [43, 24, 11],
+    #     [43, 25, 10],
+    #     [43, 25, 11],
+    # ]
 
     np.random.shuffle(atomic_chunks)
 
