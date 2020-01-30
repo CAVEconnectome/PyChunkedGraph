@@ -219,6 +219,29 @@ class CreateParentNodes:
         self.new_l2_ids = new_l2_ids
         self.operation_id = operation_id
         self.time_stamp = time_stamp
+        self._layer_new_ids_d = defaultdict(list)
+
+    def _create_new_node(
+        self, new_id: basetypes.NODE_ID, layer: int, cross_edges_d: Dict
+    ) -> types.Node:
+        """Helper function."""
+        new_node = self.cg.node_hierarchy[new_id]
+        new_id_ce_layer = list(cross_edges_d.keys())[0]
+        if not new_id_ce_layer == layer:
+            # skip connection
+            new_parent_node = _create_parent_node(self.cg, new_node, new_id_ce_layer)
+            new_parent_node.children = np.array([new_id], dtype=basetypes.NODE_ID)
+            self._layer_new_ids_d[new_id_ce_layer].append(new_parent_node.node_id)
+        else:
+            new_parent_node = _create_parent_node(self.cg, new_node, layer + 1)
+            new_id_ce_siblings = cross_edges_d[new_id_ce_layer][:, 1]
+            new_id_all_siblings = _get_all_siblings(
+                self.cg, new_parent_node.node_id, new_id_ce_siblings
+            )
+            # print(new_id_ce_siblings, new_id_all_siblings)
+            new_parent_node.children = np.concatenate([[new_id], new_id_all_siblings])
+            self._layer_new_ids_d[layer + 1].append(new_parent_node.node_id)
+        self.cg.node_hierarchy[new_parent_node.node_id] = new_parent_node
 
     def run(self) -> Iterable:
         """
@@ -228,14 +251,13 @@ class CreateParentNodes:
         # cache for convenience, if `node_id` exists in this
         # no need to call `get_cross_chunk_edges`
         cross_edges_d = {}
-        layer_new_ids_d = defaultdict(list)
-        layer_new_ids_d[2] = self.new_l2_ids
+        self._layer_new_ids_d[2] = self.new_l2_ids
         for current_layer in range(2, self.cg.meta.layer_count):
-            print(current_layer, layer_new_ids_d[current_layer])
-            if len(layer_new_ids_d[current_layer]) == 0:
+            # print(current_layer, self._layer_new_ids_d[current_layer])
+            if len(self._layer_new_ids_d[current_layer]) == 0:
                 continue
 
-            new_ids = np.array(layer_new_ids_d[current_layer], basetypes.NODE_ID)
+            new_ids = np.array(self._layer_new_ids_d[current_layer], basetypes.NODE_ID)
             cached = np.fromiter(self.cg.node_hierarchy.keys(), dtype=basetypes.NODE_ID)
             not_cached = new_ids[~np.in1d(new_ids, cached)]
             self.cg.node_hierarchy.update({id_: types.Node(id_) for id_ in not_cached})
@@ -243,32 +265,7 @@ class CreateParentNodes:
             cached = np.fromiter(cross_edges_d.keys(), dtype=basetypes.NODE_ID)
             not_cached = new_ids[~np.in1d(new_ids, cached)]
             cross_edges_d.update(self.cg.get_cross_chunk_edges(not_cached))
-            for node_id in not_cached:
-                self.cg.node_hierarchy[node_id].cross_edges = cross_edges_d[node_id]
 
             for new_id in new_ids:
-                new_id_ce_d = cross_edges_d[new_id]
-                new_node = self.cg.node_hierarchy[new_id]
-                new_id_ce_layer = list(new_id_ce_d.keys())[0]
-                if not new_id_ce_layer == current_layer:
-                    new_parent_node = _create_parent_node(
-                        self.cg, new_node, new_id_ce_layer
-                    )
-                    new_parent_node.children = np.array(
-                        [new_id], dtype=basetypes.NODE_ID
-                    )
-                    layer_new_ids_d[new_id_ce_layer].append(new_parent_node.node_id)
-                else:
-                    new_parent_node = _create_parent_node(
-                        self.cg, new_node, current_layer + 1
-                    )
-                    new_id_ce_siblings = new_id_ce_d[new_id_ce_layer][:, 1]
-                    new_id_all_siblings = _get_all_siblings(
-                        self.cg, new_parent_node.node_id, new_id_ce_siblings
-                    )
-                    new_parent_node.children = np.concatenate(
-                        [[new_id], new_id_all_siblings]
-                    )
-                    layer_new_ids_d[current_layer + 1].append(new_parent_node.node_id)
-                self.cg.node_hierarchy[new_parent_node.node_id] = new_parent_node
-        return layer_new_ids_d[self.cg.meta.layer_count]
+                self._create_new_node(new_id, current_layer, cross_edges_d[new_id])
+        return self._layer_new_ids_d[self.cg.meta.layer_count]

@@ -715,7 +715,7 @@ class ChunkedGraph:
 
     def _get_min_layer_cross_edges(
         self, node_id: basetypes.NODE_ID, l2id_atomic_cross_edges_ds: typing.Iterable,
-    ):
+    ) -> typing.Dict[int, typing.Iterable]:
         """
         Find edges at relevant min_layer >= node_layer.
         `l2id_atomic_cross_edges_ds` is a list of atomic cross edges of

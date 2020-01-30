@@ -29,7 +29,6 @@ class Node:
         self.node_id = node_id
         self.parent_id = parent_id
         self.children = children
-        self.cross_edges = cross_edges
         self.atomic_cross_edges = atomic_cross_edges
 
     def __str__(self):
