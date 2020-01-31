@@ -149,7 +149,7 @@ def handle_info(table_id):
 
     cg = app_utils.get_cg(table_id)
 
-    return jsonify(cg.dataset_info)
+    return jsonify(cg.meta.dataset_info)
 
 ### GET ROOT -------------------------------------------------------------------
 

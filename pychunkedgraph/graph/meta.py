@@ -72,9 +72,7 @@ GraphConfig = namedtuple(
 
 class ChunkedGraphMeta:
     def __init__(
-        self,
-        graph_config: GraphConfig,
-        data_source: DataSource,
+        self, graph_config: GraphConfig, data_source: DataSource,
     ):
         self._graph_config = graph_config
         self._data_source = data_source
@@ -187,6 +185,16 @@ class ChunkedGraphMeta:
         else:
             raise Exception()
         return dtype
+
+    @property
+    def dataset_info(self) -> Dict:
+        info = {
+            "data_dir": self.data_source.WATERSHED,
+            "graph": {"chunk_size": self.graph_config.CHUNK_SIZE},
+        }
+        info.update(self._ws_cv.info)
+        print(info)
+        return info
 
     def __getnewargs__(self):
         return (self.graph_config, self.data_source)
