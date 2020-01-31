@@ -443,16 +443,12 @@ class MergeOperation(GraphEditOperation):
                 self.affinities = None
 
         if np.any(np.equal(self.added_edges[:, 0], self.added_edges[:, 1])):
-            raise PreconditionError(
-                "Requested merge operation contains at least one self-loop."
-            )
+            raise PreconditionError("Requested merge contains at least 1 self-loop.")
 
-        for supervoxel_id in self.added_edges.ravel():
-            layer = self.cg.get_chunk_layer(supervoxel_id)
-            if layer != 1:
-                raise PreconditionError(
-                    f"Supervoxel expected, but {supervoxel_id} is a layer {layer} node."
-                )
+        layers = self.cg.get_chunk_layers(self.added_edges.ravel())
+        assert (
+            np.sum(layers) == layers.size
+        ), "Supervoxels expected but received higher layer nodes."
 
     def _update_root_ids(self) -> np.ndarray:
         root_ids = np.unique(self.cg.get_roots(self.added_edges.ravel()))
@@ -541,16 +537,12 @@ class SplitOperation(GraphEditOperation):
         )
         self.removed_edges = np.atleast_2d(removed_edges).astype(basetypes.NODE_ID)
         if np.any(np.equal(self.removed_edges[:, 0], self.removed_edges[:, 1])):
-            raise PreconditionError(
-                f"Requested split operation contains at least one self-loop."
-            )
+            raise PreconditionError("Requested split contains at least 1 self-loop.")
 
-        for supervoxel_id in self.removed_edges.ravel():
-            layer = self.cg.get_chunk_layer(supervoxel_id)
-            if layer != 1:
-                raise PreconditionError(
-                    f"Supervoxel expected, but {supervoxel_id} is a layer {layer} node."
-                )
+        layers = self.cg.get_chunk_layers(self.removed_edges.ravel())
+        assert (
+            np.sum(layers) == layers.size
+        ), "Supervoxels expected but received higher layer nodes."
 
     def _update_root_ids(self) -> np.ndarray:
         root_ids = np.unique(self.cg.get_roots(self.removed_edges.ravel()))
@@ -643,18 +635,15 @@ class MulticutOperation(GraphEditOperation):
         self.source_ids = np.atleast_1d(source_ids).astype(basetypes.NODE_ID)
         self.sink_ids = np.atleast_1d(sink_ids).astype(basetypes.NODE_ID)
         self.bbox_offset = np.atleast_1d(bbox_offset).astype(basetypes.COORDINATES)
-
         if np.any(np.in1d(self.sink_ids, self.source_ids)):
-            raise PreconditionError(
-                f"One or more supervoxel exists as both, sink and source."
-            )
+            raise PreconditionError("Supervoxels exists as in both sink and source.")
 
-        for supervoxel_id in itertools.chain(self.source_ids, self.sink_ids):
-            layer = self.cg.get_chunk_layer(supervoxel_id)
-            if layer != 1:
-                raise PreconditionError(
-                    f"Supervoxel expected, but {supervoxel_id} is a layer {layer} node."
-                )
+        layers = self.cg.get_chunk_layers(
+            np.concatenate([self.source_ids, self.sink_ids])
+        )
+        assert (
+            np.sum(layers) == layers.size
+        ), "Supervoxels expected but received higher layer nodes."
 
     def _update_root_ids(self) -> np.ndarray:
         sink_and_source_ids = np.concatenate((self.source_ids, self.sink_ids))
