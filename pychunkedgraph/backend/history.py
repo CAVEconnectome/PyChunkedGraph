@@ -187,13 +187,8 @@ class SegmentHistory(object):
                 before_root_ids, after_root_ids = \
                     self._before_after_root_ids(entry)
 
-                if len(before_root_ids) == 1:
-                    before_root_ids = np.array([before_root_ids[0], 0],
-                                               dtype=np.uint64)
-
                 before_root_ids_list.append(before_root_ids)
-                after_root_ids_list.append(np.array([after_root_ids[0], 0],
-                                                    dtype=np.uint64))
+                after_root_ids_list.append(after_root_ids)
             else:
                 if len(np.unique(sv_ids_current_root)) != 1:
                     is_relevant_list.append(True)
@@ -208,26 +203,18 @@ class SegmentHistory(object):
                 before_root_ids, after_root_ids = \
                     self._before_after_root_ids(entry)
 
-                before_root_ids_list.append(np.array([before_root_ids[0], 0],
-                                                     dtype=np.uint64))
-
-                if len(after_root_ids) == 1:
-                    after_root_ids = np.array([after_root_ids[0], 0],
-                                              dtype=np.uint64)
-
+                before_root_ids_list.append(before_root_ids)
                 after_root_ids_list.append(after_root_ids)
 
-        before_root_ids_list = np.array(before_root_ids_list, dtype=np.uint64)
-        after_root_ids_list = np.array(after_root_ids_list, dtype=np.uint64)
+        # before_root_ids_list = np.array(before_root_ids_list, dtype=np.uint64)
+        # after_root_ids_list = np.array(after_root_ids_list, dtype=np.uint64)
 
         self._tabular_changelog = pd.DataFrame.from_dict(
             {"operation_id": np.sort(entry_ids),
              "timestamp": timestamp_list,
              "user_id": user_list,
-             "before_root_id_1": before_root_ids_list[:, 0],
-             "before_root_id_2": before_root_ids_list[:, 1],
-             "after_root_id_1": after_root_ids_list[:, 0],
-             "after_root_id_2": after_root_ids_list[:, 1],
+             "before_root_ids": before_root_ids_list,
+             "after_root_ids": after_root_ids_list,
              "is_merge": is_merge_list,
              "in_neuron": is_in_neuron_list,
              "is_relevant": is_relevant_list})
