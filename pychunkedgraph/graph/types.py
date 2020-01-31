@@ -32,10 +32,10 @@ class Node:
         self.atomic_cross_edges = atomic_cross_edges
 
     def __str__(self):
-        return f"{self.node_id}:{self.parent_id}:{self.children}"
+        return f"({self.node_id}:{self.parent_id}:{self.children})"
 
     def __repr__(self):
-        return f"{self.node_id}:{self.parent_id}:{self.children}"
+        return f"({self.node_id}:{self.parent_id}:{self.children})"
 
 
 """

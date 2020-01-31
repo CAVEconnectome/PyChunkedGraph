@@ -16,11 +16,12 @@ from google.cloud import bigtable
 
 from . import attributes
 from . import edits
-from . import exceptions
 from .locks import RootLock
 from .utils import basetypes
 from .utils import serializers
 from .cutting import run_multicut
+from .exceptions import PreconditionError
+from .exceptions import PostconditionError
 from .utils.generic import get_bounding_box
 
 if TYPE_CHECKING:
@@ -442,14 +443,14 @@ class MergeOperation(GraphEditOperation):
                 self.affinities = None
 
         if np.any(np.equal(self.added_edges[:, 0], self.added_edges[:, 1])):
-            raise exceptions.PreconditionError(
-                f"Requested merge operation contains at least one self-loop."
+            raise PreconditionError(
+                "Requested merge operation contains at least one self-loop."
             )
 
         for supervoxel_id in self.added_edges.ravel():
             layer = self.cg.get_chunk_layer(supervoxel_id)
             if layer != 1:
-                raise exceptions.PreconditionError(
+                raise PreconditionError(
                     f"Supervoxel expected, but {supervoxel_id} is a layer {layer} node."
                 )
 
@@ -539,23 +540,22 @@ class SplitOperation(GraphEditOperation):
             cg, user_id=user_id, source_coords=source_coords, sink_coords=sink_coords
         )
         self.removed_edges = np.atleast_2d(removed_edges).astype(basetypes.NODE_ID)
-
         if np.any(np.equal(self.removed_edges[:, 0], self.removed_edges[:, 1])):
-            raise exceptions.PreconditionError(
+            raise PreconditionError(
                 f"Requested split operation contains at least one self-loop."
             )
 
         for supervoxel_id in self.removed_edges.ravel():
             layer = self.cg.get_chunk_layer(supervoxel_id)
             if layer != 1:
-                raise exceptions.PreconditionError(
+                raise PreconditionError(
                     f"Supervoxel expected, but {supervoxel_id} is a layer {layer} node."
                 )
 
     def _update_root_ids(self) -> np.ndarray:
         root_ids = np.unique(self.cg.get_roots(self.removed_edges.ravel()))
         if len(root_ids) > 1:
-            raise exceptions.PreconditionError(
+            raise PreconditionError(
                 f"All supervoxel must belong to the same object. Already split?"
             )
         return root_ids
@@ -563,13 +563,12 @@ class SplitOperation(GraphEditOperation):
     def _apply(
         self, *, operation_id, timestamp
     ) -> Tuple[np.ndarray, np.ndarray, List["bigtable.row.Row"]]:
-        new_root_ids, new_lvl2_ids, rows = edits.remove_edges(
+        return edits.remove_edges(
             self.cg,
             operation_id=operation_id,
             atomic_edges=self.removed_edges,
             time_stamp=timestamp,
         )
-        return new_root_ids, new_lvl2_ids, rows
 
     def _create_log_record(
         self,
@@ -646,14 +645,14 @@ class MulticutOperation(GraphEditOperation):
         self.bbox_offset = np.atleast_1d(bbox_offset).astype(basetypes.COORDINATES)
 
         if np.any(np.in1d(self.sink_ids, self.source_ids)):
-            raise exceptions.PreconditionError(
+            raise PreconditionError(
                 f"One or more supervoxel exists as both, sink and source."
             )
 
         for supervoxel_id in itertools.chain(self.source_ids, self.sink_ids):
             layer = self.cg.get_chunk_layer(supervoxel_id)
             if layer != 1:
-                raise exceptions.PreconditionError(
+                raise PreconditionError(
                     f"Supervoxel expected, but {supervoxel_id} is a layer {layer} node."
                 )
 
@@ -661,7 +660,7 @@ class MulticutOperation(GraphEditOperation):
         sink_and_source_ids = np.concatenate((self.source_ids, self.sink_ids))
         root_ids = np.unique(self.cg.get_roots(sink_and_source_ids))
         if len(root_ids) > 1:
-            raise exceptions.PreconditionError(
+            raise PreconditionError(
                 f"All supervoxel must belong to the same object. Already split?"
             )
         return root_ids
@@ -675,32 +674,25 @@ class MulticutOperation(GraphEditOperation):
             self.cg.get_roots(np.concatenate([self.source_ids, self.sink_ids]))
         )
         if len(root_ids) > 1:
-            raise exceptions.PreconditionError(
-                f"All supervoxel must belong to the same object. Already split?"
-            )
+            raise PreconditionError("Supervoxels must belong to the same object.")
 
         bbox = get_bounding_box(self.source_coords, self.sink_coords, self.bbox_offset)
         l2id_agglomeration_d, edges = self.cg.get_subgraph(
             [root_ids.pop()], bbox=bbox, bbox_is_coordinate=True
         )
-
         if not len(edges):
-            raise exceptions.PreconditionError("No local edges found.")
+            raise PreconditionError("No local edges found.")
 
         self.removed_edges = run_multicut(edges, self.source_ids, self.sink_ids)
         if not self.removed_edges.size:
-            raise exceptions.PostconditionError(
-                "Mincut could not find any edges to remove - weird!"
-            )
-
-        new_root_ids, new_lvl2_ids, rows = edits.remove_edges(
+            raise PostconditionError("Mincut could not find any edges to remove.")
+        return edits.remove_edges(
             self.cg,
             operation_id=operation_id,
             atomic_edges=self.removed_edges,
             l2id_agglomeration_d=l2id_agglomeration_d,
             time_stamp=timestamp,
         )
-        return new_root_ids, new_lvl2_ids, rows
 
     def _create_log_record(
         self,

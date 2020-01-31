@@ -186,7 +186,6 @@ class ChunkedGraph:
         time_stamp = misc_utils.get_valid_timestamp(time_stamp)
         all_cached = np.fromiter(self.node_hierarchy.keys(), dtype=basetypes.NODE_ID)
         cached = np.in1d(node_ids, all_cached)
-
         parent_rows = self.client.read_nodes(
             node_ids=node_ids[~cached],
             properties=attributes.Hierarchy.Parent,
