@@ -243,25 +243,23 @@ class ChunkedGraph:
         If flatten == True, an array is returned, else a dict {node_id: children}.
         """
         if np.isscalar(node_id_or_ids):
+            try:
+                # first look in cache
+                return self.node_hierarchy[node_id_or_ids].children
+            except KeyError:
+                pass
             children = self.client.read_node(
                 node_id=node_id_or_ids, properties=attributes.Hierarchy.Child
             )
             if not children:
-                return np.empty(0, dtype=basetypes.NODE_ID)
+                return types.empty_1d.copy()
             return children[0].value
-        children = self.client.read_nodes(
-            node_ids=node_id_or_ids, properties=attributes.Hierarchy.Child
-        )
+        node_children_d = self._get_children_multiple(node_id_or_ids)
         if flatten:
-            if not children:
-                return np.empty(0, dtype=basetypes.NODE_ID)
-            return np.concatenate([x[0].value for x in children.values()])
-        return {
-            x: children[x][0].value
-            if x in children
-            else np.empty(0, dtype=basetypes.NODE_ID)
-            for x in node_id_or_ids
-        }
+            if not node_children_d:
+                return types.empty_1d.copy()
+            return np.concatenate([*node_children_d.values()])
+        return node_children_d
 
     def get_atomic_cross_edges(
         self, l2_node_ids: typing.Iterable
@@ -733,6 +731,21 @@ class ChunkedGraph:
         edges[:, 0] = node_root_id
         edges[:, 1] = self.get_roots(edges[:, 1], stop_layer=min_layer)
         return {min_layer: np.unique(edges, axis=0) if edges.size else types.empty_2d}
+
+    def _get_children_multiple(
+        self, node_ids: typing.Iterable[np.uint64]
+    ) -> typing.Dict:
+        all_cached = np.fromiter(self.node_hierarchy.keys(), dtype=basetypes.NODE_ID)
+        cached = np.in1d(node_ids, all_cached)
+        children = self.client.read_nodes(
+            node_ids=node_ids[~cached], properties=attributes.Hierarchy.Child
+        )
+        children = {
+            x: children[x][0].value if x in children else types.empty_1d.copy()
+            for x in node_ids
+        }
+        children.update({x: self.node_hierarchy[x].children for x in node_ids[cached]})
+        return children
 
     # HELPERS / WRAPPERS
     def get_node_id(
