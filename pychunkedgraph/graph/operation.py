@@ -638,20 +638,15 @@ class MulticutOperation(GraphEditOperation):
         if np.any(np.in1d(self.sink_ids, self.source_ids)):
             raise PreconditionError("Supervoxels exists as in both sink and source.")
 
-        layers = self.cg.get_chunk_layers(
-            np.concatenate([self.source_ids, self.sink_ids])
-        )
-        assert (
-            np.sum(layers) == layers.size
-        ), "Supervoxels expected but received higher layer nodes."
+        ids = np.concatenate([self.source_ids, self.sink_ids])
+        layers = self.cg.get_chunk_layers(ids)
+        assert np.sum(layers) == layers.size, "IDs must be supervoxels."
 
     def _update_root_ids(self) -> np.ndarray:
         sink_and_source_ids = np.concatenate((self.source_ids, self.sink_ids))
         root_ids = np.unique(self.cg.get_roots(sink_and_source_ids))
         if len(root_ids) > 1:
-            raise PreconditionError(
-                f"All supervoxel must belong to the same object. Already split?"
-            )
+            raise PreconditionError("Supervoxels must belong to the same object.")
         return root_ids
 
     def _apply(

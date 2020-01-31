@@ -414,6 +414,7 @@ class ChunkedGraph:
     ) -> typing.Tuple[typing.Dict[int, types.Agglomeration], np.ndarray]:
         """
         Returns level 2 node IDs with their edges.
+        If `nodes_only`, returns only supervoxels.
         1. get level 2 children ids belonging to the agglomerations
         2. read relevant chunk edges from cloud storage (include fake edges from big table)
         3. group nodes and edges based on level 2 ids `types.Agglomeration`
