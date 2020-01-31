@@ -432,7 +432,10 @@ class ChunkedGraph:
                 return_layers=[2],
             )
             level2_ids.append(layer_nodes_d[2])
-        return self.get_l2_agglomerations(np.concatenate(level2_ids))
+        level2_ids = np.concatenate(level2_ids)
+        if nodes_only:
+            return self.get_children(level2_ids, flatten=True)
+        return self.get_l2_agglomerations(level2_ids)
 
     def get_l2_agglomerations(
         self, level2_ids: np.ndarray
