@@ -504,6 +504,7 @@ class ChunkedGraph:
     def remove_edges(
         self,
         user_id: str,
+        *,
         source_ids: typing.Sequence[np.uint64] = None,
         sink_ids: typing.Sequence[np.uint64] = None,
         source_coords: typing.Sequence[typing.Sequence[int]] = None,
