@@ -450,19 +450,21 @@ class ChunkedGraph:
             debug=False,
         )
         edges_dict = edge_utils.concatenate_chunk_edges(chunk_edge_dicts)
-        edges = reduce(lambda x, y: x + y, edges_dict.values())
+        all_chunk_edges = reduce(lambda x, y: x + y, edges_dict.values())
+        agg_edges = set()
         # TODO include fake edges
         l2id_agglomeration_d = {}
         l2id_children_d = self.get_children(level2_ids)
         for l2id in l2id_children_d:
             supervoxels = l2id_children_d[l2id]
             in_, out_, cross_ = edge_utils.categorize_edges(
-                self.meta, supervoxels, edges
+                self.meta, supervoxels, all_chunk_edges
             )
             l2id_agglomeration_d[l2id] = types.Agglomeration(
                 l2id, supervoxels, in_, out_, cross_
             )
-        return (l2id_agglomeration_d, edges)
+            agg_edges.update([in_, out_])
+        return (l2id_agglomeration_d, reduce(lambda x, y: x + y, agg_edges))
 
     def add_edges(
         self,

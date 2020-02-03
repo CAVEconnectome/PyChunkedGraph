@@ -60,18 +60,24 @@ def _analyze_atomic_edges(
     If not, they are cross edges between two L2 IDs in adjacent chunks.
     Returns edges between L2 IDs and atomic cross edges.
     """
+    nodes = np.unique(atomic_edges)
+    parents = cg.get_parents(nodes)
+    parents_d = dict(zip(nodes, parents))
     edge_layers = cg.get_cross_chunk_edges_layer(atomic_edges)
     mask = edge_layers == 1
 
     # initialize with in-chunk edges
-    parent_edges = [cg.get_parents(_) for _ in atomic_edges[mask]]
+    with TimeIt("get_parents edges"):
+        parent_edges = [
+            [parents_d[edge_[0]], parents_d[edge_[1]]] for edge_ in atomic_edges[mask]
+        ]
+    print(len(atomic_edges[mask]))
 
     # cross chunk edges
     atomic_cross_edges_d = {}
     for edge, layer in zip(atomic_edges[~mask], edge_layers[~mask]):
-        parent_edge = cg.get_parents(edge)
-        parent_1 = parent_edge[0]
-        parent_2 = parent_edge[1]
+        parent_1 = parents_d[edge[0]]
+        parent_2 = parents_d[edge[1]]
         atomic_cross_edges_d[parent_1] = {layer: [edge]}
         atomic_cross_edges_d[parent_2] = {layer: [edge[::-1]]}
         parent_edges.append([parent_1, parent_1])
