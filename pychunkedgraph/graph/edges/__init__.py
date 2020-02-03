@@ -100,7 +100,7 @@ class Edges:
         """
         if not self._as_pairs is None:
             return self._as_pairs
-        self._as_pairs = np.vstack([self.node_ids1, self.node_ids2]).T
+        self._as_pairs = np.column_stack((self.node_ids1, self.node_ids2))
         return self._as_pairs
 
 
