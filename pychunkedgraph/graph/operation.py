@@ -22,7 +22,9 @@ from .utils import serializers
 from .cutting import run_multicut
 from .exceptions import PreconditionError
 from .exceptions import PostconditionError
+from .utils.context_managers import TimeIt
 from .utils.generic import get_bounding_box
+
 
 if TYPE_CHECKING:
     from .chunkedgraph import ChunkedGraph
@@ -661,9 +663,10 @@ class MulticutOperation(GraphEditOperation):
             raise PreconditionError("Supervoxels must belong to the same object.")
 
         bbox = get_bounding_box(self.source_coords, self.sink_coords, self.bbox_offset)
-        l2id_agglomeration_d, edges = self.cg.get_subgraph(
-            [root_ids.pop()], bbox=bbox, bbox_is_coordinate=True
-        )
+        with TimeIt("get_subgraph"):
+            l2id_agglomeration_d, edges = self.cg.get_subgraph(
+                [root_ids.pop()], bbox=bbox, bbox_is_coordinate=True
+            )
         if not len(edges):
             raise PreconditionError("No local edges found.")
 

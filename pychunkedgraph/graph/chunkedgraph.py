@@ -423,17 +423,15 @@ class ChunkedGraph:
         returns dict of {id: types.Agglomeration}
         """
         # 1 level 2 ids
+        bbox = chunk_utils.normalize_bounding_box(self.meta, bbox, bbox_is_coordinate)
         level2_ids = [types.empty_1d]
         for agglomeration_id in node_ids:
             layer_nodes_d = self._get_subgraph_higher_layer_nodes(
-                node_id=agglomeration_id,
-                bounding_box=chunk_utils.normalize_bounding_box(
-                    self.meta, bbox, bbox_is_coordinate
-                ),
-                return_layers=[2],
+                node_id=agglomeration_id, bounding_box=bbox, return_layers=[2],
             )
             level2_ids.append(layer_nodes_d[2])
         level2_ids = np.concatenate(level2_ids)
+        print(level2_ids)
         if nodes_only:
             return self.get_children(level2_ids, flatten=True)
         return self.get_l2_agglomerations(level2_ids)
