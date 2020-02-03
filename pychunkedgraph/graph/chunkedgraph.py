@@ -525,6 +525,7 @@ class ChunkedGraph:
         :return: GraphEditOperation.Result
         """
         if mincut:
+            print("multicut")
             return operation.MulticutOperation(
                 self,
                 user_id=user_id,

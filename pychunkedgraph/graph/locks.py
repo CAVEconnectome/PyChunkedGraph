@@ -30,6 +30,7 @@ class RootLock:
         self.operation_id = None
 
     def __enter__(self):
+        return self
         self.operation_id = self.cg.get_unique_operation_id()
         self.lock_acquired, self.locked_root_ids = self.cg.lock_root_loop(
             root_ids=self.locked_root_ids, operation_id=self.operation_id, max_tries=7
@@ -39,6 +40,7 @@ class RootLock:
         return self
 
     def __exit__(self, exception_type, exception_value, traceback):
+        return self
         if self.lock_acquired:
             for locked_root_id in self.locked_root_ids:
                 self.cg.unlock_root(locked_root_id, self.operation_id)
