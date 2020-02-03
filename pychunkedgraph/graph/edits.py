@@ -135,11 +135,17 @@ def _process_l2_agglomeration(agg: types.Agglomeration, removed_edges: np.ndarra
     """
     chunk_edges = agg.in_edges.get_pairs()
     cross_edges = agg.cross_edges.get_pairs()
+
+    print()
+    print(chunk_edges.shape)
+    print(cross_edges.shape)
     chunk_edges = chunk_edges[~in2d(chunk_edges, removed_edges)]
     cross_edges = cross_edges[~in2d(cross_edges, removed_edges)]
+    print(chunk_edges.shape)
+    print(cross_edges.shape)
 
     isolated_ids = agg.supervoxels[~np.in1d(agg.supervoxels, chunk_edges)]
-    isolated_edges = np.vstack([isolated_ids, isolated_ids]).T
+    isolated_edges = np.column_stack((isolated_ids, isolated_ids))
     graph, _, _, unique_graph_ids = flatgraph.build_gt_graph(
         np.concatenate([chunk_edges, isolated_edges]), make_directed=True
     )
@@ -174,16 +180,19 @@ def remove_edges(
     l2id_agglomeration_d: Dict,
     time_stamp: datetime.datetime,
 ):
-    # This view of the to be removed edges helps us to
-    # compute the mask of retained edges in chunk
-    removed_edges = np.concatenate([atomic_edges, atomic_edges[:, ::-1]], axis=0)
     edges, _ = _analyze_atomic_edges(cg, atomic_edges)
     l2ids = np.unique(edges)
     l2id_chunk_id_d = dict(zip(l2ids, cg.get_chunk_ids_from_node_ids(l2ids)))
 
+    # This view of the to be removed edges helps us to
+    # compute the mask of retained edges in chunk
+    removed_edges = np.concatenate([atomic_edges, atomic_edges[:, ::-1]], axis=0)
+    print(removed_edges.shape)
+
     new_l2_ids = []
     new_hierarchy_d = {}
-    for l2_agg in l2id_agglomeration_d.values():
+    for id_ in l2ids:
+        l2_agg = l2id_agglomeration_d[id_]
         ccs, unique_graph_ids, cross_edges = _process_l2_agglomeration(
             l2_agg, removed_edges
         )

@@ -664,13 +664,15 @@ class MulticutOperation(GraphEditOperation):
 
         bbox = get_bounding_box(self.source_coords, self.sink_coords, self.bbox_offset)
         with TimeIt("get_subgraph"):
+            print("hi")
             l2id_agglomeration_d, edges = self.cg.get_subgraph(
                 [root_ids.pop()], bbox=bbox, bbox_is_coordinate=True
             )
         if not len(edges):
             raise PreconditionError("No local edges found.")
 
-        self.removed_edges = run_multicut(edges, self.source_ids, self.sink_ids)
+        with TimeIt("run_multicut"):
+            self.removed_edges = run_multicut(edges, self.source_ids, self.sink_ids)
         if not self.removed_edges.size:
             raise PostconditionError("Mincut could not find any edges to remove.")
         return edits.remove_edges(

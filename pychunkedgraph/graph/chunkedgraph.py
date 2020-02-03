@@ -431,7 +431,6 @@ class ChunkedGraph:
             )
             level2_ids.append(layer_nodes_d[2])
         level2_ids = np.concatenate(level2_ids)
-        print(level2_ids)
         if nodes_only:
             return self.get_children(level2_ids, flatten=True)
         return self.get_l2_agglomerations(level2_ids)
