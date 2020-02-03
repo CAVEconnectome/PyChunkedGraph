@@ -664,10 +664,10 @@ class MulticutOperation(GraphEditOperation):
 
         bbox = get_bounding_box(self.source_coords, self.sink_coords, self.bbox_offset)
         with TimeIt("get_subgraph"):
-            print("hi")
             l2id_agglomeration_d, edges = self.cg.get_subgraph(
                 [root_ids.pop()], bbox=bbox, bbox_is_coordinate=True
             )
+            print("len(edges)", len(edges))
         if not len(edges):
             raise PreconditionError("No local edges found.")
 

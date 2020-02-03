@@ -71,7 +71,6 @@ def _analyze_atomic_edges(
         parent_edges = [
             [parents_d[edge_[0]], parents_d[edge_[1]]] for edge_ in atomic_edges[mask]
         ]
-    print(len(atomic_edges[mask]))
 
     # cross chunk edges
     atomic_cross_edges_d = {}
