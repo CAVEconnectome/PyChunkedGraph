@@ -140,14 +140,8 @@ def _process_l2_agglomeration(agg: types.Agglomeration, removed_edges: np.ndarra
     """
     chunk_edges = agg.in_edges.get_pairs()
     cross_edges = agg.cross_edges.get_pairs()
-
-    print()
-    print(chunk_edges.shape)
-    print(cross_edges.shape)
     chunk_edges = chunk_edges[~in2d(chunk_edges, removed_edges)]
     cross_edges = cross_edges[~in2d(cross_edges, removed_edges)]
-    print(chunk_edges.shape)
-    print(cross_edges.shape)
 
     isolated_ids = agg.supervoxels[~np.in1d(agg.supervoxels, chunk_edges)]
     isolated_edges = np.column_stack((isolated_ids, isolated_ids))
@@ -192,7 +186,6 @@ def remove_edges(
     # This view of the to be removed edges helps us to
     # compute the mask of retained edges in chunk
     removed_edges = np.concatenate([atomic_edges, atomic_edges[:, ::-1]], axis=0)
-    print(removed_edges.shape)
 
     new_l2_ids = []
     new_hierarchy_d = {}
