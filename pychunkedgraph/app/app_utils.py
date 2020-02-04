@@ -44,13 +44,56 @@ def get_datastore_client(config):
     return client
 
 
+def foo(cg):
+    data = {
+        "sources": [["91356497812394262", 815458.9375, 884707.6875, 859720]],
+        "sinks": [["91356497812401228", 816143.625, 884547.3125, 859720]],
+    }
+
+    from collections import defaultdict
+
+    data_dict = {}
+    for k in ["sources", "sinks"]:
+        data_dict[k] = defaultdict(list)
+        for node in data[k]:
+            node_id = node[0]
+            x, y, z = node[1:]
+            coordinate = np.array([x, y, z]) / cg.meta._ws_cv.resolution
+
+            atomic_id = cg.get_atomic_id_from_coord(
+                coordinate[0],
+                coordinate[1],
+                coordinate[2],
+                parent_id=np.uint64(node_id),
+            )
+
+            if atomic_id is None:
+                raise ValueError("aha")
+
+            data_dict[k]["id"].append(atomic_id)
+            data_dict[k]["coord"].append(coordinate)
+
+    from pychunkedgraph.graph.operation import MulticutOperation
+
+    op = MulticutOperation(
+        cg,
+        user_id="test",
+        source_ids=data_dict["sources"]["id"],
+        sink_ids=data_dict["sinks"]["id"],
+        source_coords=data_dict["sources"]["coord"],
+        sink_coords=data_dict["sinks"]["coord"],
+        bbox_offset=(240, 240, 24),
+    )
+
+    print(op._apply(operation_id="", timestamp=None))
+
+
 def get_cg(table_id):
     # assert table_id.startswith("fly") or table_id.startswith("golden") or \
     #        table_id.startswith("pinky100_rv")
 
     if table_id not in cache:
         instance_id = current_app.config["CHUNKGRAPH_INSTANCE_ID"]
-        client = get_bigtable_client(current_app.config)
 
         # Create ChunkedGraph logging
         logger = logging.getLogger(f"{instance_id}/{table_id}")
@@ -71,6 +114,7 @@ def get_cg(table_id):
 
         # Create ChunkedGraph
         cache[table_id] = chunkedgraph.ChunkedGraph(graph_id=table_id)
+        foo(cache[table_id])
     current_app.table_id = table_id
     return cache[table_id]
 
