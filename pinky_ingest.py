@@ -30,8 +30,8 @@ if __name__ == "__main__":
         watershed="gs://neuroglancer/pinky100_v0/ws/pinky100_ca_com",
         edges="gs://akhilesh-pcg/1638876bcc1a25b55688bed837db6e73/edges",
         components="gs://akhilesh-pcg/1638876bcc1a25b55688bed837db6e73/components",
-        use_raw_edges=True,
-        use_raw_components=True,
+        use_raw_edges=False,
+        use_raw_components=False,
     )
 
     meta = ChunkedGraphMeta(data_source, graph_config, bigtable_config)
