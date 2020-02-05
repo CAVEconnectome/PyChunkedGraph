@@ -73,6 +73,10 @@ class ChunkedGraphMeta:
         return self._bigtable_config
 
     @property
+    def resolution(self) -> np.ndarray:
+        return np.array(self._ws_cv.resolution)        
+
+    @property
     def layer_count(self) -> int:
         if self._layer_count:
             return self._layer_count
