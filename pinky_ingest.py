@@ -16,7 +16,7 @@ from pychunkedgraph.backend import ChunkedGraphMeta
 if __name__ == "__main__":
     name = sys.argv[1]
     count = int(sys.argv[2])
-    ingest_config = IngestConfig(build_graph=False)
+    ingest_config = IngestConfig(build_graph=True)
     bigtable_config = BigTableConfig(table_id_prefix=name)
 
     graph_config = GraphConfig(
