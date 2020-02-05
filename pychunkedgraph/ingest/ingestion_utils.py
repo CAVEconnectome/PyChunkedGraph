@@ -65,15 +65,15 @@ def postprocess_edge_data(im, edge_dict):
         new_edge_dict = {}
         for k in edge_dict:
             areas = (
-                edge_dict[k]["area_x"] * im.cg.cv.resolution[0]
-                + edge_dict[k]["area_y"] * im.cg.cv.resolution[1]
-                + edge_dict[k]["area_z"] * im.cg.cv.resolution[2]
+                edge_dict[k]["area_x"] * im.cg_meta.resolution[0]
+                + edge_dict[k]["area_y"] * im.cg_meta.resolution[1]
+                + edge_dict[k]["area_z"] * im.cg_meta.resolution[2]
             )
 
             affs = (
-                edge_dict[k]["aff_x"] * im.cg.cv.resolution[0]
-                + edge_dict[k]["aff_y"] * im.cg.cv.resolution[1]
-                + edge_dict[k]["aff_z"] * im.cg.cv.resolution[2]
+                edge_dict[k]["aff_x"] * im.cg_meta.resolution[0]
+                + edge_dict[k]["aff_y"] * im.cg_meta.resolution[1]
+                + edge_dict[k]["aff_z"] * im.cg_meta.resolution[2]
             )
 
             new_edge_dict[k] = {}
