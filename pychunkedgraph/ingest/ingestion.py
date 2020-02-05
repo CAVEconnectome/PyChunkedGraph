@@ -20,6 +20,8 @@ def create_atomic_chunk_helper(
     """Helper to queue atomic chunk task."""
     imanager = IngestionManager(**im_info)
     chunk_edges_all, mapping = _get_atomic_chunk_data(imanager, task.coords)
+    if not imanager.config.build_graph:
+        return task
     ids, affs, areas, isolated = get_chunk_data_old_format(chunk_edges_all, mapping)
 
     retry = 1

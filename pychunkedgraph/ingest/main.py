@@ -15,6 +15,7 @@ from multiprocessing.synchronize import Lock
 from multiprocessing.managers import SyncManager
 
 import numpy as np
+from memory_profiler import profile
 
 from .types import ChunkTask
 from .manager import IngestionManager
@@ -93,20 +94,23 @@ def worker(
 ):
     for func, args in iter(task_queue.get, STOP_SENTINEL):
         task = func(*args)
-        parent = task.parent_task()
-        if parent.layer > parent.cg_meta.layer_count:
-            _signal_end(task_queue)
-            break
+        imanager = IngestionManager(**im_info)
+        queued = False
+        if imanager.config.build_graph:
+            parent = task.parent_task()
+            if parent.layer > parent.cg_meta.layer_count:
+                _signal_end(task_queue)
+                break
 
-        queued = _enqueue_parent(
-            manager,
-            task_queue,
-            im_info,
-            parent,
-            parent_children_count_d_shared,
-            parent_children_count_d_locks,
-            time_stamp,
-        )
+            queued = _enqueue_parent(
+                manager,
+                task_queue,
+                im_info,
+                parent,
+                parent_children_count_d_shared,
+                parent_children_count_d_locks,
+                time_stamp,
+            )
         with layer_task_counts_d_lock:
             layer_task_counts_d_shared[f"{task.layer}c"] += 1
             layer_task_counts_d_shared[f"{task.layer}q"] -= 1
@@ -114,6 +118,7 @@ def worker(
                 layer_task_counts_d_shared[f"{parent.layer}q"] += 1
 
 
+@profile
 def start_ingest(
     imanager: IngestionManager,
     *,
@@ -150,7 +155,7 @@ def start_ingest(
         layer_task_counts_d_shared[f"{layer}q"] = 0
 
     for coords in atomic_chunks:
-        task = ChunkTask(imanager.cg.meta, np.array(coords, dtype=np.int))
+        task = ChunkTask(imanager.cg_meta, np.array(coords, dtype=np.int))
         task_queue.put(
             (
                 create_atomic_chunk_helper,
@@ -159,6 +164,9 @@ def start_ingest(
         )
         parent_children_count_d_locks[task.parent_task().id] = None
     layer_task_counts_d_shared["2q"] += task_queue.qsize()
+
+    if not imanager.config.build_graph:
+        _signal_end(task_queue)
 
     for parent_id in parent_children_count_d_locks:
         parent_children_count_d_locks[

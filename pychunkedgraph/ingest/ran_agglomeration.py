@@ -56,9 +56,7 @@ def read_raw_edge_data(imanager, coord) -> Dict:
         )
         no_edges = no_edges and not sv_ids1.size
     if not no_edges and imanager.cg_meta.data_source.edges:
-        put_chunk_edges(
-            imanager.cg_meta.data_source.edges, coord, chunk_edges, 17
-        )
+        put_chunk_edges(imanager.cg_meta.data_source.edges, coord, chunk_edges, 17)
     return chunk_edges
 
 
@@ -269,6 +267,7 @@ def read_raw_agglomeration_data(imanager, chunk_coord: np.ndarray):
     G.add_edges_from(np.concatenate(edges_list))
     mapping = {}
     components = list(nx.connected_components(G))
+    G.clear()
     for i_cc, cc in enumerate(components):
         cc = list(cc)
         mapping.update(dict(zip(cc, [i_cc] * len(cc))))

@@ -1,7 +1,7 @@
 from collections import namedtuple
 
 _ingestconfig_fields = (
-    "build_graph",
+    "build_graph", # if False, only creates edges and components files
     "redis_url",
     "atomic_q_name",
     "atomic_q_limit",

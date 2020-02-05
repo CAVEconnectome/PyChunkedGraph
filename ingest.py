@@ -15,7 +15,8 @@ from pychunkedgraph.backend import ChunkedGraphMeta
 
 if __name__ == "__main__":
     name = sys.argv[1]
-    ingest_config = IngestConfig()
+    count = int(sys.argv[2])
+    ingest_config = IngestConfig(build_graph=False)
     bigtable_config = BigTableConfig(table_id_prefix=name)
 
     graph_config = GraphConfig(
@@ -25,14 +26,15 @@ if __name__ == "__main__":
     )
 
     data_source = DataSource(
-        agglomeration="gs://ranl/scratch/pinky100_ca_com/agg",
+        agglomeration="gs://ranl/scratch/1638876bcc1a25b55688bed837db6e73/agg",
         watershed="gs://neuroglancer/pinky100_v0/ws/pinky100_ca_com",
-        edges="gs://akhilesh-pcg/chunkedgraph/pinky100_sven/edges",
-        components="gs://akhilesh-pcg/chunkedgraph/pinky100_sven/components",
-        use_raw_edges=False,
-        use_raw_components=False,
+        edges="gs://akhilesh-pcg/1638876bcc1a25b55688bed837db6e73/edges",
+        components="gs://akhilesh-pcg/1638876bcc1a25b55688bed837db6e73/components",
+        use_raw_edges=True,
+        use_raw_components=True,
     )
 
     meta = ChunkedGraphMeta(data_source, graph_config, bigtable_config)
-    initialize_chunkedgraph(meta)
-    start_ingest(IngestionManager(ingest_config, meta))
+    if ingest_config.build_graph:
+        initialize_chunkedgraph(meta)
+    start_ingest(IngestionManager(ingest_config, meta), n_workers=count)
