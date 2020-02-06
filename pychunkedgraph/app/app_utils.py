@@ -53,7 +53,11 @@ def foo(cg):
         "sources": [["91356497812394262", 815458.9375, 884707.6875, 859720]],
         "sinks": [["91356497812401228", 816143.625, 884547.3125, 859720]],
     }
-    data = data1
+    data3 = {
+        "sources": [["95302094482834765", 930180.9375, 1031548.5625, 595360]],
+        "sinks": [["95302094482834732", 930355.1875, 1031461.4375, 595360]],
+    }
+    data = data3
 
     from collections import defaultdict
 
@@ -123,7 +127,8 @@ def get_cg(table_id):
 
         # Create ChunkedGraph
         cache[table_id] = chunkedgraph.ChunkedGraph(graph_id=table_id)
-        goo(cache[table_id])
+        # foo(cache[table_id])
+        # goo(cache[table_id])
     current_app.table_id = table_id
     return cache[table_id]
 

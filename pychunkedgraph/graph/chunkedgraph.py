@@ -419,8 +419,6 @@ class ChunkedGraph:
         1. get level 2 children ids belonging to the agglomerations
         2. read relevant chunk edges from cloud storage (include fake edges from big table)
         3. group nodes and edges based on level 2 ids `types.Agglomeration`
-           optionally for each edge (v1,v2) active
-           if parent(v1) == parent(v2) inactive otherwise
         returns dict of {id: types.Agglomeration}
         """
         # 1 level 2 ids

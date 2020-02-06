@@ -667,6 +667,7 @@ class MulticutOperation(GraphEditOperation):
             l2id_agglomeration_d, edges = self.cg.get_subgraph(
                 [root_ids.pop()], bbox=bbox, bbox_is_coordinate=True
             )
+            print(l2id_agglomeration_d.keys())
             print("len(edges)", len(edges))
         if not len(edges):
             raise PreconditionError("No local edges found.")
