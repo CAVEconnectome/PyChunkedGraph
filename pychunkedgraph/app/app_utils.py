@@ -45,14 +45,15 @@ def get_datastore_client(config):
 
 
 def foo(cg):
-    data = {
+    data1 = {
         "sources": [["91356497812401200", 815562.1875, 884530.4375, 859720]],
         "sinks": [["91356497812399839", 816066.8125, 884512.25, 859720]],
     }
-    # data = {
-    #     "sources": [["91356497812394262", 815458.9375, 884707.6875, 859720]],
-    #     "sinks": [["91356497812401228", 816143.625, 884547.3125, 859720]],
-    # }
+    data2 = {
+        "sources": [["91356497812394262", 815458.9375, 884707.6875, 859720]],
+        "sinks": [["91356497812401228", 816143.625, 884547.3125, 859720]],
+    }
+    data = data1
 
     from collections import defaultdict
 
@@ -71,9 +72,6 @@ def foo(cg):
                 parent_id=np.uint64(node_id),
             )
 
-            if atomic_id is None:
-                raise ValueError("aha")
-
             data_dict[k]["id"].append(atomic_id)
             data_dict[k]["coord"].append(coordinate)
 
@@ -90,6 +88,13 @@ def foo(cg):
     )
 
     print(op._apply(operation_id="", timestamp=None))
+
+
+def goo(cg):
+    from pychunkedgraph.graph.edits import add_edges
+
+    edges = np.array([[95372463227012287, 95372463227012312]])
+    print(add_edges(cg, atomic_edges=edges))
 
 
 def get_cg(table_id):
@@ -118,7 +123,7 @@ def get_cg(table_id):
 
         # Create ChunkedGraph
         cache[table_id] = chunkedgraph.ChunkedGraph(graph_id=table_id)
-        foo(cache[table_id])
+        goo(cache[table_id])
     current_app.table_id = table_id
     return cache[table_id]
 

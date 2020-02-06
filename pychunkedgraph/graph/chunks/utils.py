@@ -138,15 +138,7 @@ def _get_chunk_coordinates_from_vol_coordinates(
     ceil: bool = False,
     layer: int = 1,
 ) -> np.ndarray:
-    """ Translates volume coordinates to chunk_coordinates
-    :param x: np.int
-    :param y: np.int
-    :param z: np.int
-    :param resolution: np.ndarray
-    :param ceil bool
-    :param layer: int
-    :return:
-    """
+    """Translates volume coordinates to chunk_coordinates."""
     resolution = np.array(resolution)
     scaling = np.array(meta._ws_cv.resolution / resolution, dtype=np.int)
 

@@ -272,7 +272,8 @@ class ChunkedGraph:
             node_ids=l2_node_ids, properties=properties
         )
         result = {}
-        for node_id, edges_d in node_edges_d_d.items():
+        for node_id in l2_node_ids:
+            edges_d = node_edges_d_d.get(node_id, {})
             result[node_id] = {
                 prop.index: val[0].value.copy() for prop, val in edges_d.items()
             }

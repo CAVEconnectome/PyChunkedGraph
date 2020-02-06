@@ -193,7 +193,6 @@ class ChunkedGraphMeta:
             "graph": {"chunk_size": self.graph_config.CHUNK_SIZE},
         }
         info.update(self._ws_cv.info)
-        print(info)
         return info
 
     def __getnewargs__(self):
