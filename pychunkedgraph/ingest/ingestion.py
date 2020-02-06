@@ -23,17 +23,9 @@ def create_atomic_chunk_helper(
     if not imanager.config.build_graph:
         return task
     ids, affs, areas, isolated = get_chunk_data_old_format(chunk_edges_all, mapping)
-
-    retry = 1
-    while retry:
-        try:
-            imanager.cg.add_atomic_edges_in_chunks(
-                ids, affs, areas, isolated, time_stamp=time_stamp
-            )
-            retry = 0
-        except Exception as err:
-            print(f"{retry}: {err}")
-            retry += 1
+    imanager.cg.add_atomic_edges_in_chunks(
+        ids, affs, areas, isolated, time_stamp=time_stamp
+    )
     return task
 
 
@@ -42,16 +34,7 @@ def create_parent_chunk_helper(
 ):
     """Helper to queue parent chunk task."""
     imanager = IngestionManager(**im_info)
-    retry = 1
-    while retry:
-        try:
-            imanager.cg.add_layer(
-                task.layer, task.children_coords, time_stamp=time_stamp
-            )
-            retry = 0
-        except Exception as err:
-            print(f"{retry}: {err}")
-            retry += 1
+    imanager.cg.add_layer(task.layer, task.children_coords, time_stamp=time_stamp)
     return task
 
 

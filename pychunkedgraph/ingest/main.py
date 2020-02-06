@@ -89,14 +89,21 @@ def worker(
     parent_children_count_d_locks: Lock,
     layer_task_counts_d_shared: Dict[int, int],
     layer_task_counts_d_lock: Lock,
-    im_info: dict,
+    build_graph: bool,
     time_stamp: Optional[datetime] = None,
 ):
     for func, args in iter(task_queue.get, STOP_SENTINEL):
-        task = func(*args)
-        imanager = IngestionManager(**im_info)
+        retry = 1
+        while retry:
+            try:
+                task = func(*args)
+                retry = 0
+            except Exception as err:
+                print(f"{retry}: {err}")
+                retry += 1
+
         queued = False
-        if imanager.config.build_graph:
+        if build_graph:
             parent = task.parent_task()
             if parent.layer > parent.cg_meta.layer_count:
                 _signal_end(task_queue)
@@ -172,7 +179,7 @@ def start_ingest(
         parent_children_count_d_locks,
         layer_task_counts_d_shared,
         layer_task_counts_d_lock,
-        imanager.get_serialized_info(),
+        imanager.config.build_graph,
         time_stamp,
     )
     for _ in range(n_workers):
