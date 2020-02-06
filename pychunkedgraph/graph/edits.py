@@ -277,5 +277,6 @@ class CreateParentNodes:
             cross_edges_d.update(self.cg.get_cross_chunk_edges(not_cached))
 
             for new_id in new_ids:
+                # TODO handle case when a new id is sibling
                 self._create_new_node(new_id, current_layer, cross_edges_d[new_id])
         return self._layer_new_ids_d[self.cg.meta.layer_count]
