@@ -230,6 +230,15 @@ class CreateParentNodes:
         new_node.parent_id = new_parent_id
         return new_parent_node
 
+    def _update_new_id_siblings(self, new_id_siblings, parent_id: basetypes.NODE_ID):
+        """
+        When new IDs turn out to be siblings of a new ID,
+        They all need to be updated to have the same parent.
+        """
+        for id_ in new_id_siblings:
+            self.cg.node_hierarchy[id_].parent_id = parent_id
+        self._done.update(new_id_siblings)
+
     def _update_parent(
         self, new_id: basetypes.NODE_ID, layer: int, cross_edges_d: Dict
     ) -> types.Node:
@@ -246,12 +255,21 @@ class CreateParentNodes:
             self._layer_new_ids_d[new_id_ce_layer].add(new_parent_node.node_id)
         else:
             new_parent_node = self._create_parent_node(new_node, layer + 1)
-            new_id_ce_siblings = cross_edges_d[new_id_ce_layer][:, 1]
+            new_id_ce_siblings = set(cross_edges_d[new_id_ce_layer][:, 1])
+
+            # new ids that are also siblings
+            # they do not have parents yet so exclude them
+            common = self._layer_new_ids_d[layer] & new_id_ce_siblings
             new_id_all_siblings = self._get_all_siblings(
-                new_parent_node.node_id, new_id_ce_siblings
+                new_parent_node.node_id,
+                np.array(new_id_ce_siblings - common, dtype=basetypes.NODE_ID),
             )
-            new_parent_node.children = np.concatenate([[new_id], new_id_all_siblings])
+            new_parent_node.children = np.unique(
+                np.concatenate([[new_id], new_id_ce_siblings, new_id_all_siblings])
+            )
             self._layer_new_ids_d[layer + 1].add(new_parent_node.node_id)
+            self._update_new_id_siblings(common, new_parent_node.node_id)
+        self._done.add(new_id)
         self.cg.node_hierarchy[new_parent_node.node_id] = new_parent_node
 
     def run(self) -> Iterable:
