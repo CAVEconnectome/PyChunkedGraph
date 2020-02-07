@@ -28,30 +28,6 @@ for (2) Overlap can be real but then they have to be exactly the same. In that c
 """
 
 
-def _get_all_siblings(cg, new_parent_id, new_id_ce_siblings: Iterable) -> List:
-    """
-    Get parents of `new_id_ce_siblings`
-    Children of these parents will include all siblings.
-    """
-    chunk_ids = cg.get_children_chunk_ids(new_parent_id)
-    children = cg.get_children(
-        np.unique(cg.get_parents(new_id_ce_siblings)), flatten=True
-    )
-    children_chunk_ids = cg.get_chunk_ids_from_node_ids(children)
-    return children[np.in1d(children_chunk_ids, chunk_ids)]
-
-
-def _create_parent_node(
-    cg, new_node: types.Node, parent_layer: int = None
-) -> types.Node:
-    new_id = new_node.node_id
-    parent_chunk_id = cg.get_parent_chunk_id(new_id, parent_layer)
-    new_parent_id = cg.id_client.create_node_id(parent_chunk_id)
-    new_parent_node = types.Node(new_parent_id)
-    new_node.parent_id = new_parent_id
-    return new_parent_node
-
-
 def _analyze_atomic_edges(
     cg, atomic_edges: Iterable[np.ndarray]
 ) -> Tuple[Iterable, Dict]:
@@ -229,28 +205,53 @@ class CreateParentNodes:
         self.new_l2_ids = new_l2_ids
         self.operation_id = operation_id
         self.time_stamp = time_stamp
-        self._layer_new_ids_d = defaultdict(list)
+        self._layer_new_ids_d = defaultdict(set)
+        self._done = set()
 
-    def _create_new_node(
+    def _get_all_siblings(self, new_parent_id, new_id_ce_siblings: Iterable) -> List:
+        """
+        Get parents of `new_id_ce_siblings`
+        Children of these parents will include all siblings.
+        """
+        chunk_ids = self.cg.get_children_chunk_ids(new_parent_id)
+        children = self.cg.get_children(
+            np.unique(self.cg.get_parents(new_id_ce_siblings)), flatten=True
+        )
+        children_chunk_ids = self.cg.get_chunk_ids_from_node_ids(children)
+        return children[np.in1d(children_chunk_ids, chunk_ids)]
+
+    def _create_parent_node(
+        self, new_node: types.Node, parent_layer: int = None
+    ) -> types.Node:
+        new_id = new_node.node_id
+        parent_chunk_id = self.cg.get_parent_chunk_id(new_id, parent_layer)
+        new_parent_id = self.cg.id_client.create_node_id(parent_chunk_id)
+        new_parent_node = types.Node(new_parent_id)
+        new_node.parent_id = new_parent_id
+        return new_parent_node
+
+    def _update_parent(
         self, new_id: basetypes.NODE_ID, layer: int, cross_edges_d: Dict
     ) -> types.Node:
         """Helper function."""
+        if new_id in self._done:
+            # parent already updated
+            return
         new_node = self.cg.node_hierarchy[new_id]
         new_id_ce_layer = list(cross_edges_d.keys())[0]
         if not new_id_ce_layer == layer:
             # skip connection
-            new_parent_node = _create_parent_node(self.cg, new_node, new_id_ce_layer)
+            new_parent_node = self._create_parent_node(new_node, new_id_ce_layer)
             new_parent_node.children = np.array([new_id], dtype=basetypes.NODE_ID)
-            self._layer_new_ids_d[new_id_ce_layer].append(new_parent_node.node_id)
+            self._layer_new_ids_d[new_id_ce_layer].add(new_parent_node.node_id)
         else:
-            new_parent_node = _create_parent_node(self.cg, new_node, layer + 1)
+            new_parent_node = self._create_parent_node(new_node, layer + 1)
             new_id_ce_siblings = cross_edges_d[new_id_ce_layer][:, 1]
-            new_id_all_siblings = _get_all_siblings(
-                self.cg, new_parent_node.node_id, new_id_ce_siblings
+            new_id_all_siblings = self._get_all_siblings(
+                new_parent_node.node_id, new_id_ce_siblings
             )
-            # print(new_id_ce_siblings, new_id_all_siblings)
             new_parent_node.children = np.concatenate([[new_id], new_id_all_siblings])
-            self._layer_new_ids_d[layer + 1].append(new_parent_node.node_id)
+            self._layer_new_ids_d[layer + 1].add(new_parent_node.node_id)
         self.cg.node_hierarchy[new_parent_node.node_id] = new_parent_node
 
     def run(self) -> Iterable:
@@ -261,7 +262,7 @@ class CreateParentNodes:
         # cache for convenience, if `node_id` exists in this
         # no need to call `get_cross_chunk_edges`
         cross_edges_d = {}
-        self._layer_new_ids_d[2] = self.new_l2_ids
+        self._layer_new_ids_d[2] = set(self.new_l2_ids)
         for current_layer in range(2, self.cg.meta.layer_count):
             # print(current_layer, self._layer_new_ids_d[current_layer])
             if len(self._layer_new_ids_d[current_layer]) == 0:
@@ -278,5 +279,5 @@ class CreateParentNodes:
 
             for new_id in new_ids:
                 # TODO handle case when a new id is sibling
-                self._create_new_node(new_id, current_layer, cross_edges_d[new_id])
+                self._update_parent(new_id, current_layer, cross_edges_d[new_id])
         return self._layer_new_ids_d[self.cg.meta.layer_count]
