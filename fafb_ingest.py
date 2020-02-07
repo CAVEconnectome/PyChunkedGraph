@@ -39,15 +39,17 @@ if __name__ == "__main__":
     if ingest_config.build_graph:
         initialize_chunkedgraph(meta)
 
-    # test_chunks = [
-    #     [104, 54, 6],
-    #     [104, 54, 7],
-    #     [104, 55, 6],
-    #     [104, 55, 7],
-    #     [105, 54, 6],
-    #     [105, 54, 7],
-    #     [105, 55, 6],
-    #     [105, 55, 7],
-    # ]
+    test = [
+        [104, 54, 6],
+        [104, 54, 7],
+        [104, 55, 6],
+        [104, 55, 7],
+        [105, 54, 6],
+        [105, 54, 7],
+        [105, 55, 6],
+        [105, 55, 7],
+    ]
 
-    start_ingest(IngestionManager(ingest_config, meta), n_workers=count)
+    imanager = IngestionManager(ingest_config, meta)
+    # start_ingest(imanager, n_workers=count, test_chunks=test)
+    start_ingest(imanager, n_workers=count)
