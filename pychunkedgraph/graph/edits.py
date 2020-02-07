@@ -262,7 +262,7 @@ class CreateParentNodes:
             common = self._layer_new_ids_d[layer] & new_id_ce_siblings
             new_id_all_siblings = self._get_all_siblings(
                 new_parent_node.node_id,
-                np.array(new_id_ce_siblings - common, dtype=basetypes.NODE_ID),
+                np.array(list(new_id_ce_siblings - common), dtype=basetypes.NODE_ID),
             )
             new_parent_node.children = np.unique(
                 np.concatenate([[new_id], new_id_ce_siblings, new_id_all_siblings])
@@ -286,7 +286,10 @@ class CreateParentNodes:
             if len(self._layer_new_ids_d[current_layer]) == 0:
                 continue
 
-            new_ids = np.array(self._layer_new_ids_d[current_layer], basetypes.NODE_ID)
+            # TODO use numpy set operations
+            new_ids = np.array(
+                list(self._layer_new_ids_d[current_layer]), basetypes.NODE_ID
+            )
             cached = np.fromiter(self.cg.node_hierarchy.keys(), dtype=basetypes.NODE_ID)
             not_cached = new_ids[~np.in1d(new_ids, cached)]
             self.cg.node_hierarchy.update({id_: types.Node(id_) for id_ in not_cached})
