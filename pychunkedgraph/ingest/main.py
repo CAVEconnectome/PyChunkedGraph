@@ -4,6 +4,7 @@ Ingest / create chunkedgraph on a single machine / instance
 
 from typing import Dict
 from typing import Optional
+from typing import Iterable
 from threading import Timer
 from datetime import datetime
 from itertools import product
@@ -15,7 +16,6 @@ from multiprocessing.synchronize import Lock
 from multiprocessing.managers import SyncManager
 
 import numpy as np
-from memory_profiler import profile
 
 from .types import ChunkTask
 from .manager import IngestionManager
@@ -82,50 +82,64 @@ def _signal_end(task_queue: Queue):
         task_queue.put(STOP_SENTINEL)
 
 
-def worker(
-    manager: SyncManager,
+def _work(
+    func: callable,
+    args: Iterable,
     task_queue: Queue,
+    *,
+    manager: SyncManager,
     parent_children_count_d_shared: Dict[str, int],
     parent_children_count_d_locks: Lock,
     layer_task_counts_d_shared: Dict[int, int],
     layer_task_counts_d_lock: Lock,
     build_graph: bool,
+    im_info: dict,
     time_stamp: Optional[datetime] = None,
 ):
+    retry = 1
+    while retry:
+        try:
+            task = func(*args)
+            retry = 0
+        except Exception as err:
+            print(f"{retry}: {err}")
+            retry += 1
+
+    queued = False
+    if build_graph:
+        parent = task.parent_task()
+        if parent.layer > parent.cg_meta.layer_count:
+            _signal_end(task_queue)
+            return
+
+        queued = _enqueue_parent(
+            manager,
+            task_queue,
+            im_info,
+            parent,
+            parent_children_count_d_shared,
+            parent_children_count_d_locks,
+            time_stamp,
+        )
+    with layer_task_counts_d_lock:
+        layer_task_counts_d_shared[f"{task.layer}c"] += 1
+        layer_task_counts_d_shared[f"{task.layer}q"] -= 1
+        if queued:
+            layer_task_counts_d_shared[f"{parent.layer}q"] += 1
+
+
+def _worker(
+    task_queue: Queue, **kwargs,
+):
     for func, args in iter(task_queue.get, STOP_SENTINEL):
-        retry = 1
-        while retry:
-            try:
-                task = func(*args)
-                retry = 0
-            except Exception as err:
-                print(f"{retry}: {err}")
-                retry += 1
-
-        queued = False
-        if build_graph:
-            parent = task.parent_task()
-            if parent.layer > parent.cg_meta.layer_count:
-                _signal_end(task_queue)
-                break
-
-            queued = _enqueue_parent(
-                manager,
-                task_queue,
-                im_info,
-                parent,
-                parent_children_count_d_shared,
-                parent_children_count_d_locks,
-                time_stamp,
-            )
-        with layer_task_counts_d_lock:
-            layer_task_counts_d_shared[f"{task.layer}c"] += 1
-            layer_task_counts_d_shared[f"{task.layer}q"] -= 1
-            if queued:
-                layer_task_counts_d_shared[f"{parent.layer}q"] += 1
+        try:
+            _work(func, args, task_queue, **kwargs)
+        except Exception as err:
+            # requeue task
+            task_queue.put((func, args,))
+            print(f"requeued: {err}")
 
 
-@profile
 def start_ingest(
     imanager: IngestionManager,
     *,
@@ -172,18 +186,19 @@ def start_ingest(
         ] = manager.Lock()  # pylint: disable=no-member
 
     processes = []
-    args = (
-        manager,
-        task_queue,
-        parent_children_count_d_shared,
-        parent_children_count_d_locks,
-        layer_task_counts_d_shared,
-        layer_task_counts_d_lock,
-        imanager.config.build_graph,
-        time_stamp,
-    )
+    args = (task_queue,)
+    kwargs = {
+        "manager": manager,
+        "parent_children_count_d_shared": parent_children_count_d_shared,
+        "parent_children_count_d_locks": parent_children_count_d_locks,
+        "layer_task_counts_d_shared": layer_task_counts_d_shared,
+        "layer_task_counts_d_lock": layer_task_counts_d_lock,
+        "build_graph": imanager.config.build_graph,
+        "im_info": imanager.get_serialized_info(),
+        "time_stamp": time_stamp,
+    }
     for _ in range(n_workers):
-        processes.append(Process(target=worker, args=args))
+        processes.append(Process(target=_worker, args=args, kwargs=kwargs))
         processes[-1].start()
     print(f"{n_workers} workers started.")
 
