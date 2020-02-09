@@ -14,6 +14,7 @@ from multiprocessing import Manager
 from multiprocessing import cpu_count
 from multiprocessing.synchronize import Lock
 from multiprocessing.managers import SyncManager
+from traceback import format_exc
 
 import numpy as np
 
@@ -101,8 +102,8 @@ def _work(
         try:
             task = func(*args)
             retry = 0
-        except Exception as err:
-            print(f"{retry}: {err}")
+        except:
+            print(f"{retry}: {format_exc()}")
             retry += 1
 
     queued = False
@@ -134,10 +135,10 @@ def _worker(
     for func, args in iter(task_queue.get, STOP_SENTINEL):
         try:
             _work(func, args, task_queue, **kwargs)
-        except Exception as err:
+        except:
             # requeue task
             task_queue.put((func, args,))
-            print(f"requeued: {err}")
+            print(f"requeued: {format_exc()}")
 
 
 def start_ingest(
