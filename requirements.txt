@@ -1,3 +1,4 @@
+pyopenssl
 cloud-volume
 numpy
 pandas
@@ -16,5 +17,4 @@ middle-auth-client==1.2.3
 dracopy
 zmesh
 fastremap
-pyopenssl
 contact-points
