@@ -96,15 +96,13 @@ def _work(
     build_graph: bool,
     im_info: dict,
     time_stamp: Optional[datetime] = None,
-):
-    retry = 1
-    while retry:
-        try:
-            task = func(*args)
-            retry = 0
-        except:
-            print(f"{retry}: {format_exc()}")
-            retry += 1
+) -> bool:
+    try:
+        task = func(*args)
+    except:
+        print(f"failed: {format_exc()}")
+        # needs to be requeued
+        return False
 
     queued = False
     if build_graph:
@@ -127,18 +125,17 @@ def _work(
         layer_task_counts_d_shared[f"{task.layer}q"] -= 1
         if queued:
             layer_task_counts_d_shared[f"{parent.layer}q"] += 1
+    return True
 
 
 def _worker(
     task_queue: Queue, **kwargs,
 ):
     for func, args in iter(task_queue.get, STOP_SENTINEL):
-        try:
-            _work(func, args, task_queue, **kwargs)
-        except:
+        success = _work(func, args, task_queue, **kwargs) # pylint: disable=missing-kwoa
+        if not success:
             # requeue task
             task_queue.put((func, args,))
-            print(f"requeued: {format_exc()}")
 
 
 def start_ingest(
