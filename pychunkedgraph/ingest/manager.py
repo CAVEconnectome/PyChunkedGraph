@@ -11,8 +11,10 @@ from ..backend import ChunkedGraphMeta
 from ..backend.chunkedgraph import ChunkedGraph
 
 
-class IngestionManager(object):
-    def __init__(self, config: IngestConfig, cg_meta: ChunkedGraphMeta):
+class IngestionManager:
+    def __init__(
+        self, config: IngestConfig, *, cg_meta: ChunkedGraphMeta,
+    ):
 
         self._config = config
 
