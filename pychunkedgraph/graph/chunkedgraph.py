@@ -82,12 +82,12 @@ class ChunkedGraph:
         return self._id_client
 
     @property
-    def node_hierarchy(self) -> typing.Dict[np.uint64, types.Node]:
+    def node_cache(self) -> typing.Dict[np.uint64, types.Node]:
         return self._node_hierarchy
 
-    @node_hierarchy.setter
-    def node_hierarchy(self, node_hierarchy) -> None:
-        self._node_hierarchy = node_hierarchy
+    @node_cache.setter
+    def node_cache(self, node_cache) -> None:
+        self._node_hierarchy = node_cache
 
     def create(self):
         """Creates the graph in storage client and stores meta."""
@@ -184,7 +184,7 @@ class ChunkedGraph:
         Else all parents along with timestamps.
         """
         time_stamp = misc_utils.get_valid_timestamp(time_stamp)
-        all_cached = np.fromiter(self.node_hierarchy.keys(), dtype=basetypes.NODE_ID)
+        all_cached = np.fromiter(self.node_cache.keys(), dtype=basetypes.NODE_ID)
         cached = np.in1d(node_ids, all_cached)
         parent_rows = self.client.read_nodes(
             node_ids=node_ids[~cached],
@@ -197,7 +197,7 @@ class ChunkedGraph:
         if current:
             parent_ids = node_ids.copy()
             parent_ids[cached] = np.array(
-                [self.node_hierarchy[id_].parent_id for id_ in node_ids[cached]]
+                [self.node_cache[id_].parent_id for id_ in node_ids[cached]]
             )
             parent_ids[~cached] = np.array(
                 [parent_rows[node_id][0].value for node_id in node_ids[~cached]]
@@ -217,7 +217,7 @@ class ChunkedGraph:
         time_stamp = misc_utils.get_valid_timestamp(time_stamp)
         try:
             # first look in cache
-            return self.node_hierarchy[node_id].parent_id
+            return self.node_cache[node_id].parent_id
         except KeyError:
             pass
         parents = self.client.read_node(
@@ -244,7 +244,7 @@ class ChunkedGraph:
         if np.isscalar(node_id_or_ids):
             try:
                 # first look in cache
-                return self.node_hierarchy[node_id_or_ids].children
+                return self.node_cache[node_id_or_ids].children
             except KeyError:
                 pass
             children = self.client.read_node(
@@ -293,7 +293,7 @@ class ChunkedGraph:
         Cross edges that belong to inner level 2 IDs are subsumed within the chunk.
         This is because cross edges are stored only in level 2 IDs.
 
-        IDs are first looked up in the cache, `self.node_hierarchy`.
+        IDs are first looked up in the cache, `self.node_cache`.
         If the ID is not in the cache, it is read from storage.
         This is necessary when editing because the newly created IDs are 
         not yet written to storage. But it can also be used as cache.
@@ -303,7 +303,7 @@ class ChunkedGraph:
             return result
         node_l2ids_d = self._get_bounding_l2_children(node_ids)
         all_l2ids = np.concatenate(list(node_l2ids_d.values()))
-        all_cached = np.fromiter(self.node_hierarchy.keys(), dtype=basetypes.NODE_ID)
+        all_cached = np.fromiter(self.node_cache.keys(), dtype=basetypes.NODE_ID)
 
         cached_mask = np.in1d(all_l2ids, all_cached)
         cached_l2ids = all_l2ids[cached_mask]
@@ -311,7 +311,7 @@ class ChunkedGraph:
 
         l2_edges_d_d = self.get_atomic_cross_edges(non_cached_l2ids)
         l2_edges_d_d.update(
-            {id_: self.node_hierarchy[id_].atomic_cross_edges for id_ in cached_l2ids}
+            {id_: self.node_cache[id_].atomic_cross_edges for id_ in cached_l2ids}
         )
         for node_id in node_ids:
             l2_edges_ds = [l2_edges_d_d[l2_id] for l2_id in node_l2ids_d[node_id]]
@@ -666,6 +666,7 @@ class ChunkedGraph:
         }
 
         children_layer = parents_layer - 1
+        cache_node_ids = np.fromiter(self.node_cache.keys(), dtype=basetypes.NODE_ID)
         while children_layer >= 2:
             parent_masked_children_d = {}
             for parent_id, (X, Y, Z) in parent_coords_d.items():
@@ -684,12 +685,10 @@ class ChunkedGraph:
                 parent_masked_children_d[parent_id] = children[layer_mask]
 
             children_ids = np.concatenate(list(parent_masked_children_d.values()))
-            cache_node_ids = np.fromiter(
-                self.node_hierarchy.keys(), dtype=basetypes.NODE_ID
-            )
+
             cache_mask = np.in1d(children_ids, cache_node_ids)
             child_grand_children_d = {
-                child_id: self.node_hierarchy[child_id].children
+                child_id: self.node_cache[child_id].children
                 for child_id in children_ids[cache_mask]
             }
             child_grand_children_d.update(self.get_children(children_ids[~cache_mask]))
@@ -738,7 +737,7 @@ class ChunkedGraph:
     def _get_children_multiple(
         self, node_ids: typing.Iterable[np.uint64]
     ) -> typing.Dict:
-        all_cached = np.fromiter(self.node_hierarchy.keys(), dtype=basetypes.NODE_ID)
+        all_cached = np.fromiter(self.node_cache.keys(), dtype=basetypes.NODE_ID)
         cached = np.in1d(node_ids, all_cached)
         children = self.client.read_nodes(
             node_ids=node_ids[~cached], properties=attributes.Hierarchy.Child
@@ -747,7 +746,7 @@ class ChunkedGraph:
             x: children[x][0].value if x in children else types.empty_1d.copy()
             for x in node_ids
         }
-        children.update({x: self.node_hierarchy[x].children for x in node_ids[cached]})
+        children.update({x: self.node_cache[x].children for x in node_ids[cached]})
         return children
 
     # HELPERS / WRAPPERS

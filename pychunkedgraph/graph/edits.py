@@ -19,6 +19,16 @@ from ..utils.general import in2d
 
 
 """
+TODO
+1. get split working
+2. handle fake edges 
+3. unit tests, edit old and create new
+4. split merge manual tests
+5. performance
+6. meshing
+7. ingest instructions, pinky test run
+
+
 Their children might be "too much" due to the split; even within one chunk. How do you deal with that?
 
 a good way to test this is to check all intermediate nodes from the component before the split and then after the split. Basically, get all childrens in all layers of the one component before and the (hopefully) two components afterwards. Check (1) are all intermediate nodes from before in a list after and (2) do all intermediate nodes appear exactly one time after the split (aka is there overlap between the resulting components). (edited) 
@@ -102,7 +112,7 @@ def add_edges(
             new_hierarchy_d[child_id] = types.Node(child_id, parent_id=new_id)
         new_l2_ids.append(new_id)
 
-    cg.node_hierarchy = new_hierarchy_d
+    cg.node_cache = new_hierarchy_d
     create_parents = CreateParentNodes(
         cg, new_l2_ids=new_l2_ids, operation_id=operation_id, time_stamp=time_stamp,
     )
@@ -185,7 +195,7 @@ def remove_edges(
             for child_id in new_node.children:
                 new_hierarchy_d[child_id] = types.Node(child_id, parent_id=new_id)
             new_l2_ids.append(new_id)
-    cg.node_hierarchy = new_hierarchy_d
+    cg.node_cache = new_hierarchy_d
     create_parents = CreateParentNodes(
         cg, new_l2_ids=new_l2_ids, operation_id=operation_id, time_stamp=time_stamp,
     )
@@ -205,7 +215,7 @@ class CreateParentNodes:
         self.new_l2_ids = new_l2_ids
         self.operation_id = operation_id
         self.time_stamp = time_stamp
-        self._layer_new_ids_d = defaultdict(set)
+        self._layer_new_ids_d = defaultdict(list)
         self._done = set()
 
     def _get_all_siblings(self, new_parent_id, new_id_ce_siblings: Iterable) -> List:
@@ -236,7 +246,7 @@ class CreateParentNodes:
         They all need to be updated to have the same parent.
         """
         for id_ in new_id_siblings:
-            self.cg.node_hierarchy[id_].parent_id = parent_id
+            self.cg.node_cache[id_].parent_id = parent_id
         self._done.update(new_id_siblings)
 
     def _update_parent(
@@ -246,31 +256,33 @@ class CreateParentNodes:
         if new_id in self._done:
             # parent already updated
             return
-        new_node = self.cg.node_hierarchy[new_id]
+        new_node = self.cg.node_cache[new_id]
         new_id_ce_layer = list(cross_edges_d.keys())[0]
         if not new_id_ce_layer == layer:
             # skip connection
             new_parent_node = self._create_parent_node(new_node, new_id_ce_layer)
             new_parent_node.children = np.array([new_id], dtype=basetypes.NODE_ID)
-            self._layer_new_ids_d[new_id_ce_layer].add(new_parent_node.node_id)
+            self._layer_new_ids_d[new_id_ce_layer].append(new_parent_node.node_id)
         else:
             new_parent_node = self._create_parent_node(new_node, layer + 1)
-            new_id_ce_siblings = set(cross_edges_d[new_id_ce_layer][:, 1])
+            new_id_ce_siblings = cross_edges_d[new_id_ce_layer][:, 1]
 
-            # new ids that are also siblings
+            # siblings that are also new IDs
+            common = np.intersect1d(
+                new_id_ce_siblings, self._layer_new_ids_d[layer], assume_unique=True
+            )
             # they do not have parents yet so exclude them
-            common = self._layer_new_ids_d[layer] & new_id_ce_siblings
             new_id_all_siblings = self._get_all_siblings(
                 new_parent_node.node_id,
-                np.array(list(new_id_ce_siblings - common), dtype=basetypes.NODE_ID),
+                np.setdiff1d(new_id_ce_siblings, common, assume_unique=True),
             )
             new_parent_node.children = np.unique(
                 np.concatenate([[new_id], new_id_ce_siblings, new_id_all_siblings])
             )
-            self._layer_new_ids_d[layer + 1].add(new_parent_node.node_id)
+            self._layer_new_ids_d[layer + 1].append(new_parent_node.node_id)
             self._update_new_id_siblings(common, new_parent_node.node_id)
         self._done.add(new_id)
-        self.cg.node_hierarchy[new_parent_node.node_id] = new_parent_node
+        self.cg.node_cache[new_parent_node.node_id] = new_parent_node
 
     def run(self) -> Iterable:
         """
@@ -280,25 +292,21 @@ class CreateParentNodes:
         # cache for convenience, if `node_id` exists in this
         # no need to call `get_cross_chunk_edges`
         cross_edges_d = {}
-        self._layer_new_ids_d[2] = set(self.new_l2_ids)
+        self._layer_new_ids_d[2] = self.new_l2_ids
         for current_layer in range(2, self.cg.meta.layer_count):
             # print(current_layer, self._layer_new_ids_d[current_layer])
             if len(self._layer_new_ids_d[current_layer]) == 0:
                 continue
 
-            # TODO use numpy set operations
-            new_ids = np.array(
-                list(self._layer_new_ids_d[current_layer]), basetypes.NODE_ID
-            )
-            cached = np.fromiter(self.cg.node_hierarchy.keys(), dtype=basetypes.NODE_ID)
+            new_ids = np.array(self._layer_new_ids_d[current_layer], basetypes.NODE_ID)
+            cached = np.fromiter(self.cg.node_cache.keys(), dtype=basetypes.NODE_ID)
             not_cached = new_ids[~np.in1d(new_ids, cached)]
-            self.cg.node_hierarchy.update({id_: types.Node(id_) for id_ in not_cached})
+            self.cg.node_cache.update({id_: types.Node(id_) for id_ in not_cached})
 
             cached = np.fromiter(cross_edges_d.keys(), dtype=basetypes.NODE_ID)
             not_cached = new_ids[~np.in1d(new_ids, cached)]
             cross_edges_d.update(self.cg.get_cross_chunk_edges(not_cached))
 
             for new_id in new_ids:
-                # TODO handle case when a new id is sibling
                 self._update_parent(new_id, current_layer, cross_edges_d[new_id])
         return self._layer_new_ids_d[self.cg.meta.layer_count]

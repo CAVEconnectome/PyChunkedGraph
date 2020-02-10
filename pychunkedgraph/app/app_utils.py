@@ -11,6 +11,7 @@ import functools
 
 from pychunkedgraph.logging import jsonformatter, flask_log_db
 from pychunkedgraph.graph import chunkedgraph
+from ..graph.utils.context_managers import TimeIt
 
 cache = {}
 
@@ -97,8 +98,10 @@ def foo_split(cg):
 def foo_merge(cg):
     from pychunkedgraph.graph.edits import add_edges
 
-    edges = np.array([[95372463227012287, 95372463227012312]])
-    print(add_edges(cg, atomic_edges=edges))
+    # cross
+    edges = np.array([[94879882017803318, 94809513273628034]],dtype=np.uint64)
+    with TimeIt("add_edges"):
+        print(add_edges(cg, atomic_edges=edges))
 
 
 def get_cg(table_id):
