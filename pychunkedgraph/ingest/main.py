@@ -31,13 +31,13 @@ STOP_SENTINEL = "STOP"
 def _display_progess(
     imanager: IngestionManager,
     layer_task_counts_d_shared: Dict,
-    task_queue: Queue,
+    task_q: Queue,
     interval: float,
 ):
     t = Timer(
         interval,
         _display_progess,
-        args=((imanager, layer_task_counts_d_shared, task_queue, interval)),
+        args=((imanager, layer_task_counts_d_shared, task_q, interval)),
     )
     t.daemon = True
     t.start()
@@ -55,8 +55,7 @@ def _display_progess(
 
 def _enqueue_parent(
     manager: SyncManager,
-    task_queue: Queue,
-    im_info: dict,
+    task_q: Queue,
     parent: ChunkTask,
     parent_children_count_d_shared: Dict,
     parent_children_count_d_locks: Lock,
@@ -73,20 +72,20 @@ def _enqueue_parent(
         if parent_children_count_d_shared[parent.id] == 0:
             del parent_children_count_d_shared[parent.id]
             parent_children_count_d_locks[parent.parent_task().id] = manager.Lock()
-            task_queue.put((create_parent_chunk_helper, (im_info, parent, time_stamp),))
+            task_q.put((create_parent_chunk_helper, (parent, None, time_stamp),))
             return True
     return False
 
 
-def _signal_end(task_queue: Queue):
+def _signal_end(task_q: Queue):
     for _ in range(NUMBER_OF_PROCESSES):
-        task_queue.put(STOP_SENTINEL)
+        task_q.put(STOP_SENTINEL)
 
 
 def _work(
     func: callable,
     args: Iterable,
-    task_queue: Queue,
+    task_q: Queue,
     *,
     manager: SyncManager,
     parent_children_count_d_shared: Dict[str, int],
@@ -94,7 +93,6 @@ def _work(
     layer_task_counts_d_shared: Dict[int, int],
     layer_task_counts_d_lock: Lock,
     build_graph: bool,
-    im_info: dict,
     time_stamp: Optional[datetime] = None,
 ) -> bool:
     try:
@@ -108,13 +106,12 @@ def _work(
     if build_graph:
         parent = task.parent_task()
         if parent.layer > parent.cg_meta.layer_count:
-            _signal_end(task_queue)
+            _signal_end(task_q)
             return
 
         queued = _enqueue_parent(
             manager,
-            task_queue,
-            im_info,
+            task_q,
             parent,
             parent_children_count_d_shared,
             parent_children_count_d_locks,
@@ -129,13 +126,16 @@ def _work(
 
 
 def _worker(
-    task_queue: Queue, **kwargs,
+    task_q: Queue, **kwargs,
 ):
-    for func, args in iter(task_queue.get, STOP_SENTINEL):
-        success = _work(func, args, task_queue, **kwargs) # pylint: disable=missing-kwoa
+    imanager = IngestionManager(**kwargs.pop("im_info"))
+    _ = imanager.cg  # init cg instance
+    for func, args in iter(task_q.get, STOP_SENTINEL):
+        args = (args[0], imanager)
+        success = _work(func, args, task_q, **kwargs)  # pylint: disable=missing-kwoa
         if not success:
             # requeue task
-            task_queue.put((func, args,))
+            task_q.put((func, args,))
 
 
 def start_ingest(
@@ -154,7 +154,7 @@ def start_ingest(
 
     np.random.shuffle(atomic_chunks)
     manager = Manager()
-    task_queue = Queue()
+    task_q = Queue()
     parent_children_count_d_shared = manager.dict()
     parent_children_count_d_locks = manager.dict()
     layer_task_counts_d_shared = manager.dict()
@@ -166,17 +166,12 @@ def start_ingest(
 
     for coords in atomic_chunks:
         task = ChunkTask(imanager.cg_meta, np.array(coords, dtype=np.int))
-        task_queue.put(
-            (
-                create_atomic_chunk_helper,
-                (imanager.get_serialized_info(), task, time_stamp,),
-            )
-        )
+        task_q.put((create_atomic_chunk_helper, (task, None,),))
         parent_children_count_d_locks[task.parent_task().id] = None
-    layer_task_counts_d_shared["2q"] += task_queue.qsize()
+    layer_task_counts_d_shared["2q"] += task_q.qsize()
 
     if not imanager.config.build_graph:
-        _signal_end(task_queue)
+        _signal_end(task_q)
 
     for parent_id in parent_children_count_d_locks:
         parent_children_count_d_locks[
@@ -184,7 +179,7 @@ def start_ingest(
         ] = manager.Lock()  # pylint: disable=no-member
 
     processes = []
-    args = (task_queue,)
+    args = (task_q,)
     kwargs = {
         "manager": manager,
         "parent_children_count_d_shared": parent_children_count_d_shared,
@@ -200,12 +195,10 @@ def start_ingest(
         processes[-1].start()
     print(f"{n_workers} workers started.")
 
-    _display_progess(
-        imanager, layer_task_counts_d_shared, task_queue, progress_interval
-    )
+    _display_progess(imanager, layer_task_counts_d_shared, task_q, progress_interval)
     for proc in processes:
         proc.join()
 
     print("Complete.")
     manager.shutdown()
-    task_queue.close()
+    task_q.close()

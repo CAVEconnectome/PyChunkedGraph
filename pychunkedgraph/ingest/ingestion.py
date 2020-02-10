@@ -1,7 +1,5 @@
 from typing import Dict
 from typing import Tuple
-from typing import Optional
-from datetime import datetime
 
 import numpy as np
 
@@ -14,27 +12,23 @@ from ..io.edges import get_chunk_edges
 from ..io.components import get_chunk_components
 
 
-def create_atomic_chunk_helper(
-    im_info: Dict, task: ChunkTask, time_stamp: Optional[datetime] = None
-):
+def create_atomic_chunk_helper(task: ChunkTask, imanager: IngestionManager):
     """Helper to queue atomic chunk task."""
-    imanager = IngestionManager(**im_info)
     chunk_edges_all, mapping = _get_atomic_chunk_data(imanager, task.coords)
     if not imanager.config.build_graph:
         return task
     ids, affs, areas, isolated = get_chunk_data_old_format(chunk_edges_all, mapping)
     imanager.cg.add_atomic_edges_in_chunks(
-        ids, affs, areas, isolated, time_stamp=time_stamp
+        ids, affs, areas, isolated, time_stamp=imanager.graph_config.time_stamp
     )
     return task
 
 
-def create_parent_chunk_helper(
-    im_info: Dict, task: ChunkTask, time_stamp: Optional[datetime] = None
-):
+def create_parent_chunk_helper(task: ChunkTask, imanager: IngestionManager):
     """Helper to queue parent chunk task."""
-    imanager = IngestionManager(**im_info)
-    imanager.cg.add_layer(task.layer, task.children_coords, time_stamp=time_stamp)
+    imanager.cg.add_layer(
+        task.layer, task.children_coords, time_stamp=imanager.graph_config.time_stamp
+    )
     return task
 
 

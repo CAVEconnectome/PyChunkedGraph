@@ -39,7 +39,7 @@ data_source = DataSource(
 meta = ChunkedGraphMeta(data_source, graph_config, bigtable_config)
 
 initialize_chunkedgraph(meta)
-start_ingest(IngestionManager(ingest_config, meta))
+start_ingest(IngestionManager(ingest_config, cg_meta=meta))
 ```
 
 Raw data is processed and stored as edges and connected components per chunk for convenience.

@@ -37,4 +37,4 @@ if __name__ == "__main__":
     meta = ChunkedGraphMeta(data_source, graph_config, bigtable_config)
     if ingest_config.build_graph:
         initialize_chunkedgraph(meta)
-    start_ingest(IngestionManager(ingest_config, meta), n_workers=count)
+    start_ingest(IngestionManager(ingest_config, cg_meta=meta), n_workers=count)
