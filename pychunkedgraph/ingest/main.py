@@ -72,7 +72,7 @@ def _enqueue_parent(
         if parent_children_count_d_shared[parent.id] == 0:
             del parent_children_count_d_shared[parent.id]
             parent_children_count_d_locks[parent.parent_task().id] = manager.Lock()
-            task_q.put((create_parent_chunk_helper, (parent, None, time_stamp),))
+            task_q.put((create_parent_chunk_helper, (parent, None),))
             return True
     return False
 
@@ -131,8 +131,9 @@ def _worker(
     imanager = IngestionManager(**kwargs.pop("im_info"))
     _ = imanager.cg  # init cg instance
     for func, args in iter(task_q.get, STOP_SENTINEL):
-        args = (args[0], imanager)
-        success = _work(func, args, task_q, **kwargs)  # pylint: disable=missing-kwoa
+        success = _work(  # pylint: disable=missing-kwoa
+            func, (args[0], imanager), task_q, **kwargs
+        )
         if not success:
             # requeue task
             task_q.put((func, args,))

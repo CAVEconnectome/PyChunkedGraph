@@ -19,7 +19,7 @@ def create_atomic_chunk_helper(task: ChunkTask, imanager: IngestionManager):
         return task
     ids, affs, areas, isolated = get_chunk_data_old_format(chunk_edges_all, mapping)
     imanager.cg.add_atomic_edges_in_chunks(
-        ids, affs, areas, isolated, time_stamp=imanager.graph_config.time_stamp
+        ids, affs, areas, isolated, time_stamp=imanager.cg_meta.graph_config.time_stamp
     )
     return task
 
@@ -27,7 +27,9 @@ def create_atomic_chunk_helper(task: ChunkTask, imanager: IngestionManager):
 def create_parent_chunk_helper(task: ChunkTask, imanager: IngestionManager):
     """Helper to queue parent chunk task."""
     imanager.cg.add_layer(
-        task.layer, task.children_coords, time_stamp=imanager.graph_config.time_stamp
+        task.layer,
+        task.children_coords,
+        time_stamp=imanager.cg_meta.graph_config.time_stamp,
     )
     return task
 
