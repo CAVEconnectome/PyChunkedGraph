@@ -51,5 +51,5 @@ if __name__ == "__main__":
     ]
 
     imanager = IngestionManager(ingest_config, cg_meta=meta)
-    start_ingest(imanager, n_workers=count)
-    # start_ingest(imanager, n_workers=count, test_chunks=test, progress_interval=5.0)
+    # start_ingest(imanager, n_workers=count)
+    start_ingest(imanager, n_workers=count, test_chunks=test, progress_interval=15.0)
