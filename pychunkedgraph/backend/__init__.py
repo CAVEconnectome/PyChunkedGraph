@@ -29,9 +29,10 @@ _graphconfig_fields = (
     "fanout",
     "s_bits_atomic_layer",  # number of bits used for each spatial in id creation on level 1
     "use_skip_connections",
-    "overwrite",  # overwrite existing, use for development and testing
+    "overwrite",  # overwrite existing, use for development and testing,
+    "time_stamp",
 )
-_graphconfig_defaults = (None, None, 2, 10, True, False)
+_graphconfig_defaults = (None, None, 2, 10, True, False, None)
 GraphConfig = namedtuple(
     "GraphConfig", _graphconfig_fields, defaults=_graphconfig_defaults
 )
