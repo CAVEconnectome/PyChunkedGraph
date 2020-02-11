@@ -98,10 +98,8 @@ def foo_split(cg):
 def foo_merge(cg):
     from pychunkedgraph.graph.edits import add_edges
 
-    # in
-    edges = np.array([[87693611457606380, 87693611457606335]], dtype=np.uint64)
     # between 2
-    edges = np.array([[87693611457606380, 87763980201782947]], dtype=np.uint64)
+    edges = np.array([[94803535283198313, 94803466563722624]], dtype=np.uint64)
     with TimeIt("add_edges"):
         print(add_edges(cg, atomic_edges=edges))
 

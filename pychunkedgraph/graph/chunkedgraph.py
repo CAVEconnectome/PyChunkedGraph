@@ -192,17 +192,20 @@ class ChunkedGraph:
             end_time=time_stamp,
             end_time_inclusive=True,
         )
-        if not parent_rows:
-            return None
         if current:
             parent_ids = node_ids.copy()
             parent_ids[cached] = np.array(
-                [self.node_cache[id_].parent_id for id_ in node_ids[cached]]
+                [self.node_cache[id_].parent_id for id_ in node_ids[cached]],
+                dtype=basetypes.NODE_ID,
             )
-            parent_ids[~cached] = np.array(
-                [parent_rows[node_id][0].value for node_id in node_ids[~cached]]
-            )
+            if parent_rows:
+                parent_ids[~cached] = np.array(
+                    [parent_rows[node_id][0].value for node_id in node_ids[~cached]],
+                    dtype=basetypes.NODE_ID,
+                )
             return parent_ids
+        if not parent_rows:
+            return None
         parents = []
         for node_id in node_ids:
             parents.append([(p.value, p.timestamp) for p in parent_rows[node_id]])
@@ -326,7 +329,7 @@ class ChunkedGraph:
         stop_layer: int = None,
         n_tries: int = 1,
     ):
-        """Returns node IDs at the highest layer."""
+        """Returns node IDs at the highest layer/stop_layer."""
         time_stamp = misc_utils.get_valid_timestamp(time_stamp)
         stop_layer = self.meta.layer_count if not stop_layer else stop_layer
         for _ in range(n_tries):
@@ -391,7 +394,7 @@ class ChunkedGraph:
             )
 
         if get_all_parents:
-            return np.array(all_parent_ids)
+            return np.array(all_parent_ids, dtype=basetypes.NODE_ID)
         else:
             return parent_id
 
@@ -542,7 +545,9 @@ class ChunkedGraph:
                 raise exceptions.PreconditionError(
                     "Split operation require the same number of source and sink IDs"
                 )
-            atomic_edges = np.array([source_ids, sink_ids]).transpose()
+            atomic_edges = np.array(
+                [source_ids, sink_ids], dtype=basetypes.NODE_ID
+            ).transpose()
         return operation.SplitOperation(
             self,
             user_id=user_id,
@@ -613,7 +618,7 @@ class ChunkedGraph:
         assert layer > 1
 
         nodes_per_layer = {}
-        child_ids = np.array([node_id], dtype=np.uint64)
+        child_ids = np.array([node_id], dtype=basetypes.NODE_ID)
         stop_layer = max(2, np.min(return_layers))
 
         if layer in return_layers:
@@ -677,7 +682,8 @@ class ChunkedGraph:
                     [
                         self.get_chunk_id(layer=children_layer, x=x, y=y, z=z)
                         for (x, y, z) in chunks
-                    ]
+                    ],
+                    dtype=basetypes.CHUNK_ID,
                 )
                 children = parent_children_d[parent_id]
                 layer_mask = self.get_chunk_layers(children) > children_layer

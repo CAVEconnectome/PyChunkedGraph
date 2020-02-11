@@ -23,7 +23,6 @@ class Node:
         *,
         parent_id: basetypes.NODE_ID = None,
         children: Iterable = empty_1d.copy(),
-        cross_edges: Dict = dict(),
         atomic_cross_edges: Dict = dict(),
     ):
         self.node_id = node_id

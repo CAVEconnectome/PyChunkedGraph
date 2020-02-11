@@ -218,11 +218,18 @@ class CreateParentNodes:
         self._layer_new_ids_d = defaultdict(list)
         self._done = set()
 
+    def _create_new_skip_parent(self):
+        """Create new sibling when a new ID has none due to skip connections."""
+        pass
+
     def _get_all_siblings(self, new_parent_id, new_id_ce_siblings: Iterable) -> List:
         """
         Get parents of `new_id_ce_siblings`
         Children of these parents will include all siblings.
         """
+        # print(new_parent_id, new_id_ce_siblings)
+        # print(self.cg.get_chunk_layer(new_parent_id), self.cg.get_chunk_layers(new_id_ce_siblings))
+        # print()
         chunk_ids = self.cg.get_children_chunk_ids(new_parent_id)
         children = self.cg.get_children(
             np.unique(self.cg.get_parents(new_id_ce_siblings)), flatten=True
