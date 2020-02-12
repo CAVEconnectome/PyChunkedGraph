@@ -14,6 +14,7 @@ class BaseConfig(object):
     LOGGING_LEVEL = logging.DEBUG
 
     CHUNKGRAPH_INSTANCE_ID = "pychunkedgraph"
+    PROJECT_ID = os.environ.get('PROJECT_ID', None)
 
     # TODO what is this suppose to be by default?
     CHUNKGRAPH_TABLE_ID = "pinky100_sv16"

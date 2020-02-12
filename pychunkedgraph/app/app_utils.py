@@ -32,10 +32,12 @@ def jsonify_with_kwargs(data, **kwargs):
 
 
 def get_bigtable_client(config):
-    project_id = config.get("project_id", "pychunkedgraph")
+    project_id = config.get("PROJECT_ID", None)
 
     if config.get("emulate", False):
         credentials = DoNothingCreds()
+    elif project_id is not None:
+        credentials, _ = default_creds()
     else:
         credentials, project_id = default_creds()
 
@@ -44,10 +46,12 @@ def get_bigtable_client(config):
 
 
 def get_datastore_client(config):
-    project_id = config.get("project_id", "pychunkedgraph")
+    project_id = config.get("PROJECT_ID", None)
 
     if config.get("emulate", False):
         credentials = DoNothingCreds()
+    elif project_id is not None:
+        credentials, _ = default_creds()
     else:
         credentials, project_id = default_creds()
 
