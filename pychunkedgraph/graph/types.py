@@ -21,11 +21,17 @@ class Node:
         self,
         node_id: basetypes.NODE_ID,
         *,
+        is_new: bool = True,
         parent_id: basetypes.NODE_ID = None,
         children: Iterable = empty_1d.copy(),
         atomic_cross_edges: Dict = dict(),
     ):
+        """
+        `is_new` flag to check if a node is to be updated/written to storage.
+        if False, meant to be used as cache to avoid costly lookups.
+        """
         self.node_id = node_id
+        self.is_new = is_new
         self.parent_id = parent_id
         self.children = children
         self.atomic_cross_edges = atomic_cross_edges

@@ -328,9 +328,16 @@ class ChunkedGraph:
         *,
         time_stamp: typing.Optional[datetime.datetime] = None,
         stop_layer: int = None,
+        ceil_parent: bool = True,
         n_tries: int = 1,
     ) -> typing.Union[np.ndarray, typing.Dict[int, np.ndarray]]:
-        """Returns node IDs at the highest layer/stop_layer."""
+        """
+        Returns node IDs at the highest layer/stop_layer.
+        `ceil_parent` return parent at layer >= `stop_layer`
+        if False, returns parent at highest layer < `stop_layer`
+        ideally it should be parent at layer == `stop_layer`
+        but parents might be missing because of skip connections
+        """
         time_stamp = misc_utils.get_valid_timestamp(time_stamp)
         stop_layer = self.meta.layer_count if not stop_layer else stop_layer
         for _ in range(n_tries):
@@ -342,27 +349,35 @@ class ChunkedGraph:
                 temp_ids = self.get_parents(unique_ids, time_stamp=time_stamp)
                 if temp_ids is None:
                     break
-                else:
-                    temp = parent_ids.copy()
-                    temp[layer_mask] = temp_ids[inverse]
-                    if not np.any(self.get_chunk_layers(temp) < stop_layer):
-                        if np.any(self.get_chunk_layers(temp) > stop_layer):
-                            return parent_ids
-                        else:
-                            pass
-                    parent_ids = temp
-                    layer_mask[self.get_chunk_layers(parent_ids) >= stop_layer] = False
+                temp = parent_ids.copy()
+                temp[layer_mask] = temp_ids[inverse]
+                if not np.any(self.get_chunk_layers(temp) < stop_layer):
+                    if ceil_parent:
+                        return temp
+                    # cache the IDs that have layer > stop_layer because of
+                    # skip connections this cached information is needed
+                    # when creating new IDs for missing siblings
+                    layer_exceed_mask = self.get_chunk_layers(temp) > stop_layer
+                    exceeded = temp[layer_exceed_mask]
+                    exceeded_children = parent_ids[layer_exceed_mask]
+                    for idx, id_ in enumerate(exceeded):
+                        child_id = exceeded_children[idx]
+                        self.node_cache[child_id] = types.Node(child_id)
+                        self.node_cache[child_id].parent_id = id_
+                    return parent_ids
+                parent_ids = temp
+                layer_mask[self.get_chunk_layers(parent_ids) >= stop_layer] = False
             if not np.any(self.get_chunk_layers(parent_ids) < stop_layer):
                 return parent_ids
-            else:
-                time.sleep(0.5)
+            time.sleep(0.5)
         return parent_ids
 
     def get_root(
         self,
         node_id: np.uint64,
+        *,
         time_stamp: typing.Optional[datetime.datetime] = None,
-        get_all_parents=False,
+        get_all_parents: bool = False,
         stop_layer: int = None,
         n_tries: int = 1,
     ) -> typing.Union[typing.List[np.uint64], np.uint64]:

@@ -218,19 +218,26 @@ class CreateParentNodes:
         self._layer_new_ids_d = defaultdict(list)
         self._done = set()
 
-    def _create_new_sibling(self, node_id):
-        pass
+    def _create_new_sibling(self, child_id, sibling_layer):
+        """
+        `child_id` child ID of the missing sibling
+        `layer` layer at which the missing sibling needs to be created
+        """
+        old_parent_id = self.cg.get_parent(child_id)
+        missing_sibling_child = self.cg.node_cache.get(child_id, types.Node(child_id))
+        new_sibling_id = self.cg.id_client.create_node_id(
+            self.cg.get_parent_chunk_id(child_id, sibling_layer)
+        )
+        new_sibling = types.Node(new_sibling_id)
+        new_sibling.children = np.array(child_id, dtype=basetypes.NODE_ID)
+        missing_sibling_child.parent_id = new_sibling_id
 
     def _handle_missing_siblings(self, layer, new_id_ce_siblings) -> np.ndarray:
-        """Create new sibling when a new ID has none due to skip connections."""
+        """Create new sibling when a new ID has none because of skip connections."""
         mask = self.cg.get_chunk_layers(new_id_ce_siblings) < layer
         missing_sibling_children = new_id_ce_siblings[mask]
         for id_ in missing_sibling_children:
-            missing_sibling_child = self.cg.node_cache.get(id_, types.Node(id_))
-            chunk_id = self.cg.get_parent_chunk_id(id_, layer)
-            new_sibling_id = self.cg.id_client.create_node_id(chunk_id)
-            new_sibling = types.Node(new_sibling_id)
-            missing_sibling_child.parent_id = new_sibling_id
+            self._create_new_sibling(id_)
 
     def _get_all_siblings(self, new_parent_id, new_id_ce_siblings: Iterable) -> List:
         """
