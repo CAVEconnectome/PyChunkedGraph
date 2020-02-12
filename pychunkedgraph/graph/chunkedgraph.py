@@ -316,7 +316,6 @@ class ChunkedGraph:
         l2_edges_d_d.update(
             {id_: self.node_cache[id_].atomic_cross_edges for id_ in cached_l2ids}
         )
-        print()
         for node_id in node_ids:
             l2_edges_ds = [l2_edges_d_d[l2_id] for l2_id in node_l2ids_d[node_id]]
             result[node_id] = self._get_min_layer_cross_edges(node_id, l2_edges_ds)

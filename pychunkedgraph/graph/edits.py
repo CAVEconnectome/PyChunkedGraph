@@ -256,7 +256,9 @@ class CreateParentNodes:
         mask = self.cg.get_chunk_layers(new_id_ce_siblings) < layer
         missing_sibling_children = new_id_ce_siblings[mask]
         for id_ in missing_sibling_children:
-            self._create_new_sibling(id_)
+            self._create_new_sibling(id_, layer)
+        new_id_ce_siblings[mask] = self.cg.get_parents(missing_sibling_children)
+        return new_id_ce_siblings
 
     def _get_all_siblings(self, new_parent_id, new_id_ce_siblings: Iterable) -> List:
         """
