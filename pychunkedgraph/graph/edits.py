@@ -218,9 +218,11 @@ class CreateParentNodes:
         self._layer_new_ids_d = defaultdict(list)
         self._done = set()
 
-    def _create_new_skip_parent(self):
+    def _create_new_skip_connection_sibling(
+        self, layer, new_id_ce_siblings
+    ) -> np.ndarray:
         """Create new sibling when a new ID has none due to skip connections."""
-        pass
+        mask = self.cg.get_chunk_layers(new_id_ce_siblings) < layer
 
     def _get_all_siblings(self, new_parent_id, new_id_ce_siblings: Iterable) -> List:
         """
@@ -273,6 +275,9 @@ class CreateParentNodes:
         else:
             new_parent_node = self._create_parent_node(new_node, layer + 1)
             new_id_ce_siblings = cross_edges_d[new_id_ce_layer][:, 1]
+            new_id_ce_siblings = self._create_new_skip_connection_sibling(
+                new_id_ce_layer, new_id_ce_siblings
+            )
 
             # siblings that are also new IDs
             common = np.intersect1d(

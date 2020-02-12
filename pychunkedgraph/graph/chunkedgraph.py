@@ -316,6 +316,7 @@ class ChunkedGraph:
         l2_edges_d_d.update(
             {id_: self.node_cache[id_].atomic_cross_edges for id_ in cached_l2ids}
         )
+        print()
         for node_id in node_ids:
             l2_edges_ds = [l2_edges_d_d[l2_id] for l2_id in node_l2ids_d[node_id]]
             result[node_id] = self._get_min_layer_cross_edges(node_id, l2_edges_ds)
@@ -328,7 +329,7 @@ class ChunkedGraph:
         time_stamp: typing.Optional[datetime.datetime] = None,
         stop_layer: int = None,
         n_tries: int = 1,
-    ):
+    ) -> typing.Union[np.ndarray, typing.Dict[int, np.ndarray]]:
         """Returns node IDs at the highest layer/stop_layer."""
         time_stamp = misc_utils.get_valid_timestamp(time_stamp)
         stop_layer = self.meta.layer_count if not stop_layer else stop_layer
@@ -342,9 +343,14 @@ class ChunkedGraph:
                 if temp_ids is None:
                     break
                 else:
-                    parent_ids[layer_mask] = temp_ids[inverse]
-                    if not np.any(self.get_chunk_layers(parent_ids) < stop_layer):
-                        return parent_ids
+                    temp = parent_ids.copy()
+                    temp[layer_mask] = temp_ids[inverse]
+                    if not np.any(self.get_chunk_layers(temp) < stop_layer):
+                        if np.any(self.get_chunk_layers(temp) > stop_layer):
+                            return parent_ids
+                        else:
+                            pass
+                    parent_ids = temp
                     layer_mask[self.get_chunk_layers(parent_ids) >= stop_layer] = False
             if not np.any(self.get_chunk_layers(parent_ids) < stop_layer):
                 return parent_ids
