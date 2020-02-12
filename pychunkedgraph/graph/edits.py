@@ -218,20 +218,25 @@ class CreateParentNodes:
         self._layer_new_ids_d = defaultdict(list)
         self._done = set()
 
-    def _create_new_skip_connection_sibling(
-        self, layer, new_id_ce_siblings
-    ) -> np.ndarray:
+    def _create_new_sibling(self, node_id):
+        pass
+
+    def _handle_missing_siblings(self, layer, new_id_ce_siblings) -> np.ndarray:
         """Create new sibling when a new ID has none due to skip connections."""
         mask = self.cg.get_chunk_layers(new_id_ce_siblings) < layer
+        missing_sibling_children = new_id_ce_siblings[mask]
+        for id_ in missing_sibling_children:
+            missing_sibling_child = self.cg.node_cache.get(id_, types.Node(id_))
+            chunk_id = self.cg.get_parent_chunk_id(id_, layer)
+            new_sibling_id = self.cg.id_client.create_node_id(chunk_id)
+            new_sibling = types.Node(new_sibling_id)
+            missing_sibling_child.parent_id = new_sibling_id
 
     def _get_all_siblings(self, new_parent_id, new_id_ce_siblings: Iterable) -> List:
         """
         Get parents of `new_id_ce_siblings`
         Children of these parents will include all siblings.
         """
-        # print(new_parent_id, new_id_ce_siblings)
-        # print(self.cg.get_chunk_layer(new_parent_id), self.cg.get_chunk_layers(new_id_ce_siblings))
-        # print()
         chunk_ids = self.cg.get_children_chunk_ids(new_parent_id)
         children = self.cg.get_children(
             np.unique(self.cg.get_parents(new_id_ce_siblings)), flatten=True
@@ -275,7 +280,7 @@ class CreateParentNodes:
         else:
             new_parent_node = self._create_parent_node(new_node, layer + 1)
             new_id_ce_siblings = cross_edges_d[new_id_ce_layer][:, 1]
-            new_id_ce_siblings = self._create_new_skip_connection_sibling(
+            new_id_ce_siblings = self._handle_missing_siblings(
                 new_id_ce_layer, new_id_ce_siblings
             )
 
