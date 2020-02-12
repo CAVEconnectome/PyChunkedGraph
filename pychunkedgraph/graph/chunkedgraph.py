@@ -327,12 +327,12 @@ class ChunkedGraph:
         *,
         time_stamp: typing.Optional[datetime.datetime] = None,
         stop_layer: int = None,
-        ceil_parent: bool = True,
+        ceil: bool = True,
         n_tries: int = 1,
     ) -> typing.Union[np.ndarray, typing.Dict[int, np.ndarray]]:
         """
         Returns node IDs at the highest layer/stop_layer.
-        `ceil_parent` return parent at layer >= `stop_layer`
+        `ceil` return parent at layer >= `stop_layer`
         if False, returns parent at highest layer < `stop_layer`
         ideally it should be parent at layer == `stop_layer`
         but parents might be missing because of skip connections
@@ -351,12 +351,12 @@ class ChunkedGraph:
                 temp = parent_ids.copy()
                 temp[layer_mask] = temp_ids[inverse]
                 if not np.any(self.get_chunk_layers(temp) < stop_layer):
-                    if ceil_parent:
+                    layer_exceed_mask = self.get_chunk_layers(temp) > stop_layer
+                    if ceil or not np.any(layer_exceed_mask):
                         return temp
                     # cache the IDs that have layer > stop_layer because of
                     # skip connections this cached information is needed
                     # when creating new IDs for missing siblings
-                    layer_exceed_mask = self.get_chunk_layers(temp) > stop_layer
                     exceeded = temp[layer_exceed_mask]
                     exceeded_children = parent_ids[layer_exceed_mask]
                     for idx, id_ in enumerate(exceeded):
@@ -757,7 +757,7 @@ class ChunkedGraph:
             print(err)
             pass
         edges[:, 0] = node_root_id
-        edges[:, 1] = self.get_roots(edges[:, 1], stop_layer=min_layer)
+        edges[:, 1] = self.get_roots(edges[:, 1], stop_layer=min_layer, ceil=False)
         return {min_layer: np.unique(edges, axis=0) if edges.size else types.empty_2d}
 
     def _get_children_multiple(
