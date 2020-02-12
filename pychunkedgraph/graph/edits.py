@@ -218,19 +218,38 @@ class CreateParentNodes:
         self._layer_new_ids_d = defaultdict(list)
         self._done = set()
 
-    def _create_new_sibling(self, child_id, sibling_layer):
+    def _create_new_sibling(self, grand_child_id, sibling_layer):
         """
-        `child_id` child ID of the missing sibling
+        `grand_child_id` child ID of the missing sibling
         `layer` layer at which the missing sibling needs to be created
         """
-        old_parent_id = self.cg.get_parent(child_id)
-        missing_sibling_child = self.cg.node_cache.get(child_id, types.Node(child_id))
-        new_sibling_id = self.cg.id_client.create_node_id(
-            self.cg.get_parent_chunk_id(child_id, sibling_layer)
+        grand_parent_id = self.cg.get_parent(grand_child_id)
+        grand_parent_node = self.cg.node_cache.get(
+            grand_parent_id, types.Node(grand_parent_id)
         )
-        new_sibling = types.Node(new_sibling_id)
-        new_sibling.children = np.array(child_id, dtype=basetypes.NODE_ID)
-        missing_sibling_child.parent_id = new_sibling_id
+        grand_child_node = self.cg.node_cache[grand_child_id]
+        new_sibling_id = self.cg.id_client.create_node_id(
+            self.cg.get_parent_chunk_id(grand_child_id, sibling_layer)
+        )
+        new_sibling_node = types.Node(new_sibling_id)
+
+        grand_child_node.parent_id = new_sibling_node.node_id
+        grand_child_node.is_new = True
+        new_sibling_node.children = np.array(grand_child_id, dtype=basetypes.NODE_ID)
+        new_sibling_node.parent_id = grand_parent_node.node_id
+        grand_parent_node.children = np.unique(
+            np.concatenate(
+                [
+                    np.array([new_sibling_node.node_id], basetypes.NODE_ID),
+                    grand_parent_node.children,
+                ]
+            )
+        )
+        grand_parent_node.is_new = True
+
+        self.cg.node_cache[grand_child_node.node_id] = grand_child_node
+        self.cg.node_cache[new_sibling_node.node_id] = new_sibling_node
+        self.cg.node_cache[grand_parent_node.node_id] = grand_parent_node
 
     def _handle_missing_siblings(self, layer, new_id_ce_siblings) -> np.ndarray:
         """Create new sibling when a new ID has none because of skip connections."""

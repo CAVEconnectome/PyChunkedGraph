@@ -362,7 +362,7 @@ class ChunkedGraph:
                     exceeded_children = parent_ids[layer_exceed_mask]
                     for idx, id_ in enumerate(exceeded):
                         child_id = exceeded_children[idx]
-                        self.node_cache[child_id] = types.Node(child_id)
+                        self.node_cache[child_id] = types.Node(child_id, is_new=False)
                         self.node_cache[child_id].parent_id = id_
                     return parent_ids
                 parent_ids = temp
