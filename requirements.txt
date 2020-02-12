@@ -13,7 +13,7 @@ python-json-logger
 zstandard
 redis
 rq
-middle-auth-client==1.2.3
+middle-auth-client==1.3.2
 dracopy
 zmesh
 fastremap
