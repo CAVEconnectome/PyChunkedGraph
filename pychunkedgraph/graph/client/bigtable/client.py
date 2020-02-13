@@ -275,8 +275,6 @@ class BigTableClient(bigtable.Client, ClientWithIDGen):
         low, high = self._get_ids_range(serialize_uint64(chunk_id, counter=True), size)
         low, high = basetypes.SEGMENT_ID.type(low), basetypes.SEGMENT_ID.type(high)
         low_id, high_id = chunk_id | low, chunk_id | high
-        print()
-        print(low_id, high_id)
         return np.arange(low_id, high_id + np.uint64(1), dtype=basetypes.NODE_ID)
 
     def create_node_id(self, chunk_id: np.uint64) -> basetypes.NODE_ID:

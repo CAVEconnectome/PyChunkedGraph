@@ -229,7 +229,6 @@ class ChunkedGraph:
             end_time=time_stamp,
             end_time_inclusive=True,
         )
-        print(parents)
         if not parents:
             return None
         if get_only_relevant_parent:
