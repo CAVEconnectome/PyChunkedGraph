@@ -312,12 +312,12 @@ class CreateParentNodes:
         else:
             new_parent_node = self._create_parent_node(new_node, layer + 1)
             new_id_ce_siblings = cross_edges_d[new_id_ce_layer][:, 1]
-            print()
-            print(layer, new_id_ce_layer, new_id_ce_siblings)
+            # print()
+            # print(layer, new_id_ce_layer, new_id_ce_siblings)
             new_id_ce_siblings = self._handle_missing_siblings(
                 new_id_ce_layer, new_id_ce_siblings
             )
-            print(layer, new_id_ce_layer, new_id_ce_siblings)
+            # print(layer, new_id_ce_layer, new_id_ce_siblings)
 
             # siblings that are also new IDs
             common = np.intersect1d(

@@ -275,6 +275,8 @@ class BigTableClient(bigtable.Client, ClientWithIDGen):
         low, high = self._get_ids_range(serialize_uint64(chunk_id), size)
         low, high = basetypes.SEGMENT_ID.type(low), basetypes.SEGMENT_ID.type(high)
         low_id, high_id = chunk_id | low, chunk_id | high
+        print()
+        print(low_id, high_id)
         return np.arange(low_id, high_id + np.uint64(1), dtype=basetypes.NODE_ID)
 
     def create_node_id(self, chunk_id: np.uint64) -> basetypes.NODE_ID:
@@ -314,7 +316,6 @@ class BigTableClient(bigtable.Client, ClientWithIDGen):
         column = attributes.Concurrency.Counter
         row = self._table.row(key, append=True)
         row.increment_cell_value(column.family_id, column.key, size)
-
         row = row.commit()
         high = column.deserialize(row[column.family_id][column.key][0][0])
         return high + np.uint64(1) - size, high
