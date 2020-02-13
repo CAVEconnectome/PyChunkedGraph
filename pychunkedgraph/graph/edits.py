@@ -235,7 +235,7 @@ class CreateParentNodes:
 
         grand_child_node.parent_id = new_sibling_node.node_id
         grand_child_node.is_new = True
-        new_sibling_node.children = np.array(grand_child_id, dtype=basetypes.NODE_ID)
+        new_sibling_node.children = np.array([grand_child_id], dtype=basetypes.NODE_ID)
         new_sibling_node.parent_id = grand_parent_node.node_id
         grand_parent_node.children = np.unique(
             np.concatenate(
@@ -308,10 +308,12 @@ class CreateParentNodes:
         else:
             new_parent_node = self._create_parent_node(new_node, layer + 1)
             new_id_ce_siblings = cross_edges_d[new_id_ce_layer][:, 1]
+            print()
             print(layer, new_id_ce_layer, new_id_ce_siblings)
             new_id_ce_siblings = self._handle_missing_siblings(
                 new_id_ce_layer, new_id_ce_siblings
             )
+            print(layer, new_id_ce_layer, new_id_ce_siblings)
 
             # siblings that are also new IDs
             common = np.intersect1d(

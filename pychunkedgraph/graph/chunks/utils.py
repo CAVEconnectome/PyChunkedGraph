@@ -104,6 +104,7 @@ def get_chunk_ids_from_node_ids(meta, node_ids: Iterable[np.uint64]) -> np.ndarr
     :param node_ids: np.ndarray(dtype=np.uint64)
     :return: np.ndarray(dtype=np.uint64)
     """
+    print("node_ids", node_ids)
     if len(node_ids) == 0:
         return np.array([], dtype=np.int)
     return np.vectorize(get_chunk_id)(meta, node_ids)

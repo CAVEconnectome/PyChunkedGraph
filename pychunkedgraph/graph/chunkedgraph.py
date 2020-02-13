@@ -675,7 +675,7 @@ class ChunkedGraph:
         """
         Helper function to get level 2 children IDs for each parent.
         `parent_ids` must contain node IDs at same layer.
-        TODO describe algo
+        TODO what have i done (describe algo)
         """
         parents_layer = self.get_chunk_layer(parent_ids[0])
         parent_coords_d = {
