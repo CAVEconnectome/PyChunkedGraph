@@ -241,7 +241,11 @@ class CreateParentNodes:
             np.concatenate(
                 [
                     np.array([new_sibling_node.node_id], basetypes.NODE_ID),
-                    grand_parent_node.children,
+                    np.setdiff1d(
+                        grand_parent_node.children,
+                        new_sibling_node.children,
+                        assume_unique=True,
+                    ),
                 ]
             )
         )
