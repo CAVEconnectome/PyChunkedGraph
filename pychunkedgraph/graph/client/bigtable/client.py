@@ -272,7 +272,7 @@ class BigTableClient(bigtable.Client, ClientWithIDGen):
     # IDs
     def create_node_ids(self, chunk_id: np.uint64, size: int) -> np.ndarray:
         """Generates a list of unique node IDs for the given chunk."""
-        low, high = self._get_ids_range(serialize_uint64(chunk_id), size)
+        low, high = self._get_ids_range(serialize_uint64(chunk_id, counter=True), size)
         low, high = basetypes.SEGMENT_ID.type(low), basetypes.SEGMENT_ID.type(high)
         low_id, high_id = chunk_id | low, chunk_id | high
         print()
@@ -286,7 +286,7 @@ class BigTableClient(bigtable.Client, ClientWithIDGen):
     def get_max_node_id(self, chunk_id: basetypes.CHUNK_ID) -> basetypes.NODE_ID:
         """Gets the current maximum segment ID in the chunk."""
         column = attributes.Concurrency.Counter
-        row = self._read_row(serialize_uint64(chunk_id), columns=column)
+        row = self._read_row(serialize_uint64(chunk_id, counter=True), columns=column)
         return chunk_id | basetypes.SEGMENT_ID.type(row[0].value if row else 0)
 
     def create_operation_id(self):
