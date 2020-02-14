@@ -35,6 +35,8 @@ class Node:
         self.parent_id = parent_id
         self.children = children
         self.atomic_cross_edges = atomic_cross_edges
+        # TODO add dirty bit array
+        # method to update in storage?
 
     def __str__(self):
         return f"({self.node_id}:{self.parent_id}:{self.children})"
