@@ -251,6 +251,7 @@ class CreateParentNodes:
         self.cg.node_cache[child_node.node_id] = child_node
         self.cg.node_cache[new_sibling_node.node_id] = new_sibling_node
         self.cg.node_cache[grandpa_node.node_id] = grandpa_node
+        self._layer_new_ids_d[sibling_layer].append(new_sibling_node.node_id)
 
     def _handle_missing_siblings(self, layer, new_id_ce_siblings) -> np.ndarray:
         """Create new sibling when a new ID has none because of skip connections."""
@@ -266,10 +267,16 @@ class CreateParentNodes:
         Get parents of `new_id_ce_siblings`
         Children of these parents will include all siblings.
         """
+        # update cache
+        parents = self.cg.get_parents(new_id_ce_siblings)
+        for id_, parent_id in zip(new_id_ce_siblings, parents):
+            try:
+                self.cg.node_cache[id_].parent_id = parent_id
+            except KeyError:
+                self.cg.node_cache[id_] = types.Node(id_, parent_id=parent_id)
+
         chunk_ids = self.cg.get_children_chunk_ids(new_parent_id)
-        children = self.cg.get_children(
-            np.unique(self.cg.get_parents(new_id_ce_siblings)), flatten=True
-        )
+        children = self.cg.get_children(np.unique(parents), flatten=True)
         children_chunk_ids = self.cg.get_chunk_ids_from_node_ids(children)
         return children[np.in1d(children_chunk_ids, chunk_ids)]
 
@@ -283,14 +290,18 @@ class CreateParentNodes:
         new_node.parent_id = new_parent_id
         return new_parent_node
 
-    def _update_new_id_siblings(self, new_id_siblings, parent_id: basetypes.NODE_ID):
+    def _update_children(self, new_parent_node: types.Node):
         """
         When new IDs turn out to be siblings of a new ID,
         They all need to be updated to have the same parent.
         """
-        for id_ in new_id_siblings:
-            self.cg.node_cache[id_].parent_id = parent_id
-        self._done.update(new_id_siblings)
+        for id_ in new_parent_node.children:
+            try:
+                self.cg.node_cache[id_].parent_id = new_parent_node.node_id
+            except KeyError:
+                self.cg.node_cache[id_] = types.Node(id_)
+                self.cg.node_cache[id_].parent_id = new_parent_node.node_id
+        self._done.update(new_parent_node.children)
 
     def _update_parent(
         self, new_id: basetypes.NODE_ID, layer: int, cross_edges_d: Dict
@@ -326,12 +337,12 @@ class CreateParentNodes:
                 new_parent_node.node_id,
                 np.setdiff1d(new_id_ce_siblings, common, assume_unique=True),
             )
-            print(new_parent_node.node_id, new_id_all_siblings)
             new_parent_node.children = np.unique(
                 np.concatenate([[new_id], new_id_ce_siblings, new_id_all_siblings])
             )
+            print(new_parent_node.node_id, new_parent_node.children)
             self._layer_new_ids_d[layer + 1].append(new_parent_node.node_id)
-            self._update_new_id_siblings(common, new_parent_node.node_id)
+            self._update_children(new_parent_node)
         self._done.add(new_id)
         self.cg.node_cache[new_parent_node.node_id] = new_parent_node
 
@@ -345,7 +356,8 @@ class CreateParentNodes:
         cross_edges_d = {}
         self._layer_new_ids_d[2] = self.new_l2_ids
         for current_layer in range(2, self.cg.meta.layer_count):
-            # print(current_layer, self._layer_new_ids_d[current_layer])
+            print("*" * 50)
+            print(current_layer, self._layer_new_ids_d[current_layer])
             if len(self._layer_new_ids_d[current_layer]) == 0:
                 continue
 

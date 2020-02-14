@@ -194,6 +194,7 @@ class ChunkedGraph:
         )
         if current:
             parent_ids = node_ids.copy()
+            print("node_ids[cached]", node_ids[cached], node_ids)
             parent_ids[cached] = np.array(
                 [self.node_cache[id_].parent_id for id_ in node_ids[cached]],
                 dtype=basetypes.NODE_ID,
@@ -747,15 +748,20 @@ class ChunkedGraph:
         `l2id_atomic_cross_edges_ds` is a list of atomic cross edges of
         level 2 IDs that are descendants of `node_id`.
         """
+        node_layer = self.get_chunk_layer(node_id)
         min_layer, edges = edge_utils.filter_min_layer_cross_edges_multiple(
             self.meta, l2id_atomic_cross_edges_ds, self.get_chunk_layer(node_id)
         )
+        if node_layer < min_layer:
+            # cross edges irrelevant
+            return {min_layer: np.unique(edges, axis=0)}
         node_root_id = node_id
         try:
             node_root_id = self.get_root(node_id, stop_layer=min_layer)
         except exceptions.RootNotFound as err:
             print(err)
             pass
+        print("min_layer", min_layer)
         edges[:, 0] = node_root_id
         edges[:, 1] = self.get_roots(edges[:, 1], stop_layer=min_layer, ceil=False)
         return {min_layer: np.unique(edges, axis=0) if edges.size else types.empty_2d}
