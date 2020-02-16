@@ -222,7 +222,7 @@ class ChunkedGraph:
             # first look in cache
             return self.node_cache[node_id].parent_id
         except KeyError:
-            pass
+            self.node_cache[node_id] = types.Node(node_id)
         parents = self.client.read_node(
             node_id,
             properties=attributes.Hierarchy.Parent,
@@ -232,6 +232,7 @@ class ChunkedGraph:
         if not parents:
             return None
         if get_only_relevant_parent:
+            self.node_cache[node_id].parent_id = parents[0].value
             return parents[0].value
         return [(p.value, p.timestamp) for p in parents]
 
@@ -247,14 +248,17 @@ class ChunkedGraph:
         if np.isscalar(node_id_or_ids):
             try:
                 # first look in cache
-                return self.node_cache[node_id_or_ids].children
+                children = self.node_cache[node_id_or_ids].children
+                if children.size:
+                    return children
             except KeyError:
-                pass
+                self.node_cache[node_id_or_ids] = types.Node(node_id_or_ids)
             children = self.client.read_node(
                 node_id=node_id_or_ids, properties=attributes.Hierarchy.Child
             )
             if not children:
                 return types.empty_1d.copy()
+            self.node_cache[node_id_or_ids].children = children[0].value
             return children[0].value
         node_children_d = self._get_children_multiple(node_id_or_ids)
         if flatten:
