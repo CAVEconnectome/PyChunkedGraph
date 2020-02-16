@@ -264,22 +264,41 @@ class ChunkedGraph:
         return node_children_d
 
     def get_atomic_cross_edges(
-        self, l2_node_ids: typing.Iterable
+        self, l2_ids: typing.Iterable
     ) -> typing.Dict[np.uint64, typing.Dict[int, typing.Iterable]]:
         """Returns cross edges for level 2 IDs."""
-        properties = [
-            attributes.Connectivity.CrossChunkEdge[l]
-            for l in range(2, self.meta.layer_count)
-        ]
-        node_edges_d_d = self.client.read_nodes(
-            node_ids=l2_node_ids, properties=properties
+        cached_edges_d_d = {}
+        cached_mask = np.in1d(
+            l2_ids, np.fromiter(self.node_cache.keys(), dtype=basetypes.NODE_ID)
         )
+        for idx, id_ in enumerate(l2_ids[cached_mask]):
+            edges_d = self.node_cache[id_].atomic_cross_edges
+            if not edges_d:
+                cached_mask[idx] = False
+                continue
+            cached_edges_d_d[id_] = edges_d
+
+        node_edges_d_d = self.client.read_nodes(
+            node_ids=l2_ids[~cached_mask],
+            properties=[
+                attributes.Connectivity.CrossChunkEdge[l]
+                for l in range(2, self.meta.layer_count)
+            ],
+        )
+
         result = {}
-        for node_id in l2_node_ids:
-            edges_d = node_edges_d_d.get(node_id, {})
-            result[node_id] = {
-                prop.index: val[0].value.copy() for prop, val in edges_d.items()
-            }
+        for node_id in l2_ids:
+            try:
+                edges_d = cached_edges_d_d[node_id]
+            except KeyError:
+                edges_d = {
+                    prop.index: val[0].value.copy()
+                    for prop, val in node_edges_d_d[node_id].items()
+                }
+                node = self.node_cache.get(node_id, types.Node(node_id))
+                node.atomic_cross_edges = edges_d
+                self.node_cache[node_id] = node
+            result[node_id] = edges_d
         return result
 
     def get_cross_chunk_edges(
@@ -305,17 +324,15 @@ class ChunkedGraph:
         if not node_ids.size:
             return result
         node_l2ids_d = self._get_bounding_l2_children(node_ids)
-        all_l2ids = np.concatenate(list(node_l2ids_d.values()))
-        all_cached = np.fromiter(self.node_cache.keys(), dtype=basetypes.NODE_ID)
-
-        cached_mask = np.in1d(all_l2ids, all_cached)
-        cached_l2ids = all_l2ids[cached_mask]
-        non_cached_l2ids = all_l2ids[~cached_mask]
-
-        l2_edges_d_d = self.get_atomic_cross_edges(non_cached_l2ids)
-        l2_edges_d_d.update(
-            {id_: self.node_cache[id_].atomic_cross_edges for id_ in cached_l2ids}
+        l2_edges_d_d = self.get_atomic_cross_edges(
+            np.concatenate(list(node_l2ids_d.values()))
         )
+        print("l2_edges_d_d", node_ids)
+        for k, v in l2_edges_d_d.items():
+            print(k)
+            for a, b in v.items():
+                print(a, len(b))
+            print()
         for node_id in node_ids:
             l2_edges_ds = [l2_edges_d_d[l2_id] for l2_id in node_l2ids_d[node_id]]
             result[node_id] = self._get_min_layer_cross_edges(node_id, l2_edges_ds)
@@ -361,7 +378,7 @@ class ChunkedGraph:
                     exceeded_children = parent_ids[layer_exceed_mask]
                     for idx, id_ in enumerate(exceeded):
                         child_id = exceeded_children[idx]
-                        self.node_cache[child_id] = types.Node(child_id, is_new=False)
+                        self.node_cache[child_id] = types.Node(child_id)
                         self.node_cache[child_id].parent_id = id_
                     return parent_ids
                 parent_ids = temp
@@ -752,6 +769,7 @@ class ChunkedGraph:
         )
         if self.get_chunk_layer(node_id) < min_layer:
             # cross edges irrelevant
+            print("haha", min_layer)
             return {min_layer: types.empty_2d}
         node_root_id = node_id
         try:

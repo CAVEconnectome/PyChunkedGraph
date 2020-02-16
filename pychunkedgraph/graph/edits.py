@@ -152,7 +152,6 @@ class CreateParentNodes:
         )
         new_sibling_node = types.Node(new_sibling_id)
 
-        child_node.is_new = True  # won't need with dirty bit array
         child_node.parent_id = new_sibling_node.node_id
         new_sibling_node.children = np.array([child_id], dtype=basetypes.NODE_ID)
         new_sibling_node.parent_id = grandpa_node.node_id
@@ -165,7 +164,6 @@ class CreateParentNodes:
                 np.setdiff1d(old_children, [child_id], assume_unique=True,),
             ]
         )
-        grandpa_node.is_new = True  # won't need with dirty bit array
 
         self.cg.node_cache[child_node.node_id] = child_node
         self.cg.node_cache[new_sibling_node.node_id] = new_sibling_node
@@ -290,7 +288,7 @@ class CreateParentNodes:
 
             print("\n", "*" * 50)
             print(current_layer, new_ids)
-            print("self._done", self._done)
+            # print("self._done", self._done)
             for new_id in new_ids:
                 self._update_parent(new_id, current_layer, cross_edges_d[new_id])
         return self._layer_new_ids_d[self.cg.meta.layer_count]
