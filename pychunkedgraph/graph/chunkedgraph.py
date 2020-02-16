@@ -67,7 +67,6 @@ class ChunkedGraph:
 
         self._client = bt_client
         self._id_client = bt_client
-        self._node_hierarchy = {}
 
     @property
     def meta(self) -> ChunkedGraphMeta:
@@ -80,14 +79,6 @@ class ChunkedGraph:
     @property
     def id_client(self) -> base.ClientWithIDGen:
         return self._id_client
-
-    @property
-    def node_cache(self) -> typing.Dict[np.uint64, types.Node]:
-        return self._node_hierarchy
-
-    @node_cache.setter
-    def node_cache(self, node_cache) -> None:
-        self._node_hierarchy = node_cache
 
     def create(self):
         """Creates the graph in storage client and stores meta."""
@@ -184,45 +175,32 @@ class ChunkedGraph:
         Else all parents along with timestamps.
         """
         time_stamp = misc_utils.get_valid_timestamp(time_stamp)
-        all_cached = np.fromiter(self.node_cache.keys(), dtype=basetypes.NODE_ID)
-        cached = np.in1d(node_ids, all_cached)
         parent_rows = self.client.read_nodes(
-            node_ids=node_ids[~cached],
+            node_ids=node_ids,
             properties=attributes.Hierarchy.Parent,
             end_time=time_stamp,
             end_time_inclusive=True,
         )
-        if current:
-            parent_ids = node_ids.copy()
-            parent_ids[cached] = np.array(
-                [self.node_cache[id_].parent_id for id_ in node_ids[cached]],
-                dtype=basetypes.NODE_ID,
-            )
-            if parent_rows:
-                parent_ids[~cached] = np.array(
-                    [parent_rows[node_id][0].value for node_id in node_ids[~cached]],
-                    dtype=basetypes.NODE_ID,
-                )
-            return parent_ids
         if not parent_rows:
             return None
+        if current:
+            return np.array(
+                [parent_rows[id_][0].value for id_ in node_ids],
+                dtype=basetypes.NODE_ID,
+            )
         parents = []
-        for node_id in node_ids:
-            parents.append([(p.value, p.timestamp) for p in parent_rows[node_id]])
+        for id_ in node_ids:
+            parents.append([(p.value, p.timestamp) for p in parent_rows[id_]])
         return parents
 
     def get_parent(
         self,
         node_id: np.uint64,
-        get_only_relevant_parent: bool = True,
+        *,
+        latest: bool = True,
         time_stamp: typing.Optional[datetime.datetime] = None,
     ) -> typing.Union[typing.List[typing.Tuple], np.uint64]:
         time_stamp = misc_utils.get_valid_timestamp(time_stamp)
-        try:
-            # first look in cache
-            return self.node_cache[node_id].parent_id
-        except KeyError:
-            self.node_cache[node_id] = types.Node(node_id)
         parents = self.client.read_node(
             node_id,
             properties=attributes.Hierarchy.Parent,
@@ -231,8 +209,7 @@ class ChunkedGraph:
         )
         if not parents:
             return None
-        if get_only_relevant_parent:
-            self.node_cache[node_id].parent_id = parents[0].value
+        if latest:
             return parents[0].value
         return [(p.value, p.timestamp) for p in parents]
 
@@ -246,19 +223,11 @@ class ChunkedGraph:
         If flatten == True, an array is returned, else a dict {node_id: children}.
         """
         if np.isscalar(node_id_or_ids):
-            try:
-                # first look in cache
-                children = self.node_cache[node_id_or_ids].children
-                if children.size:
-                    return children
-            except KeyError:
-                self.node_cache[node_id_or_ids] = types.Node(node_id_or_ids)
             children = self.client.read_node(
                 node_id=node_id_or_ids, properties=attributes.Hierarchy.Child
             )
             if not children:
                 return types.empty_1d.copy()
-            self.node_cache[node_id_or_ids].children = children[0].value
             return children[0].value
         node_children_d = self._get_children_multiple(node_id_or_ids)
         if flatten:
@@ -271,39 +240,20 @@ class ChunkedGraph:
         self, l2_ids: typing.Iterable
     ) -> typing.Dict[np.uint64, typing.Dict[int, typing.Iterable]]:
         """Returns cross edges for level 2 IDs."""
-        cached_edges_d_d = {}
-        cached_mask = np.in1d(
-            l2_ids, np.fromiter(self.node_cache.keys(), dtype=basetypes.NODE_ID)
-        )
-        for idx, id_ in enumerate(l2_ids[cached_mask]):
-            edges_d = self.node_cache[id_].atomic_cross_edges
-            if not edges_d:
-                cached_mask[idx] = False
-                continue
-            cached_edges_d_d[id_] = edges_d
-
         node_edges_d_d = self.client.read_nodes(
-            node_ids=l2_ids[~cached_mask],
+            node_ids=l2_ids,
             properties=[
                 attributes.Connectivity.CrossChunkEdge[l]
                 for l in range(2, self.meta.layer_count)
             ],
         )
-
-        result = {}
-        for node_id in l2_ids:
-            try:
-                edges_d = cached_edges_d_d[node_id]
-            except KeyError:
-                edges_d = {
-                    prop.index: val[0].value.copy()
-                    for prop, val in node_edges_d_d[node_id].items()
-                }
-                node = self.node_cache.get(node_id, types.Node(node_id))
-                node.atomic_cross_edges = edges_d
-                self.node_cache[node_id] = node
-            result[node_id] = edges_d
-        return result
+        return {
+            id_: {
+                prop.index: val[0].value.copy()
+                for prop, val in node_edges_d_d[id_].items()
+            }
+            for id_ in l2_ids
+        }
 
     def get_cross_chunk_edges(
         self, node_ids: np.ndarray,
@@ -318,11 +268,6 @@ class ChunkedGraph:
         For performance, only children that lie along chunk boundary are considered.
         Cross edges that belong to inner level 2 IDs are subsumed within the chunk.
         This is because cross edges are stored only in level 2 IDs.
-
-        IDs are first looked up in the cache, `self.node_cache`.
-        If the ID is not in the cache, it is read from storage.
-        This is necessary when editing because the newly created IDs are 
-        not yet written to storage. But it can also be used as cache.
         """
         result = {}
         if not node_ids.size:
@@ -331,12 +276,6 @@ class ChunkedGraph:
         l2_edges_d_d = self.get_atomic_cross_edges(
             np.concatenate(list(node_l2ids_d.values()))
         )
-        print("l2_edges_d_d", node_ids)
-        for k, v in l2_edges_d_d.items():
-            print(k)
-            for a, b in v.items():
-                print(a, len(b))
-            print()
         for node_id in node_ids:
             l2_edges_ds = [l2_edges_d_d[l2_id] for l2_id in node_l2ids_d[node_id]]
             result[node_id] = self._get_min_layer_cross_edges(node_id, l2_edges_ds)
@@ -375,15 +314,6 @@ class ChunkedGraph:
                     layer_exceed_mask = self.get_chunk_layers(temp) > stop_layer
                     if ceil or not np.any(layer_exceed_mask):
                         return temp
-                    # cache the IDs that have layer > stop_layer because of
-                    # skip connections this cached information is needed
-                    # when creating new IDs for missing siblings
-                    exceeded = temp[layer_exceed_mask]
-                    exceeded_children = parent_ids[layer_exceed_mask]
-                    for idx, id_ in enumerate(exceeded):
-                        child_id = exceeded_children[idx]
-                        self.node_cache[child_id] = types.Node(child_id)
-                        self.node_cache[child_id].parent_id = id_
                     return parent_ids
                 parent_ids = temp
                 layer_mask[self.get_chunk_layers(parent_ids) >= stop_layer] = False
@@ -712,7 +642,6 @@ class ChunkedGraph:
         }
 
         children_layer = parents_layer - 1
-        cache_node_ids = np.fromiter(self.node_cache.keys(), dtype=basetypes.NODE_ID)
         while children_layer >= 2:
             parent_masked_children_d = {}
             for parent_id, (X, Y, Z) in parent_coords_d.items():
@@ -733,12 +662,7 @@ class ChunkedGraph:
 
             children_ids = np.concatenate(list(parent_masked_children_d.values()))
 
-            cache_mask = np.in1d(children_ids, cache_node_ids)
-            child_grand_children_d = {
-                child_id: self.node_cache[child_id].children
-                for child_id in children_ids[cache_mask]
-            }
-            child_grand_children_d.update(self.get_children(children_ids[~cache_mask]))
+            child_grand_children_d = self.get_children(children_ids)
             for parent_id, masked_children in parent_masked_children_d.items():
                 bounding_chunk_ids = parent_bounding_chunk_ids[parent_id]
                 grand_children = [types.empty_1d]
@@ -773,7 +697,6 @@ class ChunkedGraph:
         )
         if self.get_chunk_layer(node_id) < min_layer:
             # cross edges irrelevant
-            print("haha", min_layer)
             return {min_layer: types.empty_2d}
         node_root_id = node_id
         try:
@@ -788,17 +711,10 @@ class ChunkedGraph:
     def _get_children_multiple(
         self, node_ids: typing.Iterable[np.uint64]
     ) -> typing.Dict:
-        all_cached = np.fromiter(self.node_cache.keys(), dtype=basetypes.NODE_ID)
-        cached = np.in1d(node_ids, all_cached)
-        children = self.client.read_nodes(
-            node_ids=node_ids[~cached], properties=attributes.Hierarchy.Child
+        node_children_d = self.client.read_nodes(
+            node_ids=node_ids, properties=attributes.Hierarchy.Child
         )
-        children = {
-            x: children[x][0].value if x in children else types.empty_1d.copy()
-            for x in node_ids
-        }
-        children.update({x: self.node_cache[x].children for x in node_ids[cached]})
-        return children
+        return {x: node_children_d[x][0].value for x in node_ids}
 
     # HELPERS / WRAPPERS
     def get_node_id(
