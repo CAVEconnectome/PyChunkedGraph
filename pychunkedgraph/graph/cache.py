@@ -42,19 +42,21 @@ class CacheService:
         cache=PARENTS, key=lambda self, node_id: node_id,
     )
     def parent(self, node_id):
-        return self._cg.get_parent(node_id)
+        return self._cg.get_parent(node_id, raw_only=True)
 
     @cached(
         cache=CHILDREN, key=lambda self, node_id: node_id,
     )
     def children(self, node_id):
-        return self._cg.get_children(node_id)
+        return self._cg.get_children(node_id, raw_only=True)
 
     @cached(
         cache=ATOMIC_CX_EDGES, key=lambda self, node_id: node_id,
     )
     def atomic_cross_edges(self, node_id):
-        edges = self._cg.get_atomic_cross_edges(np.array([node_id], dtype=NODE_ID))
+        edges = self._cg.get_atomic_cross_edges(
+            np.array([node_id], dtype=NODE_ID), raw_only=True
+        )
         return edges[node_id]
 
     def parents_multiple(self, node_ids: np.ndarray):
@@ -63,7 +65,7 @@ class CacheService:
         mask = np.in1d(node_ids, np.fromiter(PARENTS.keys(), dtype=NODE_ID))
         parents = node_ids.copy()
         parents[mask] = self.parent_vec(node_ids[mask])
-        parents[~mask] = self._cg.get_parents(node_ids[~mask])
+        parents[~mask] = self._cg.get_parents(node_ids[~mask], raw_only=True)
         update(PARENTS, node_ids[~mask], parents[~mask])
         return parents
 
@@ -74,7 +76,7 @@ class CacheService:
         mask = np.in1d(node_ids, np.fromiter(CHILDREN.keys(), dtype=NODE_ID))
         cached_children_ = self.children_vec(node_ids[mask])
         result.update({id_: c_ for id_, c_ in zip(node_ids[mask], cached_children_)})
-        result.update(self._cg.get_children(node_ids[~mask]))
+        result.update(self._cg.get_children(node_ids[~mask], raw_only=True))
         update(CHILDREN, node_ids[~mask], [result[k] for k in node_ids[~mask]])
         if flatten:
             return np.concatenate([*result.values()])
@@ -89,6 +91,6 @@ class CacheService:
         result.update(
             {id_: edges_ for id_, edges_ in zip(node_ids[mask], cached_edges_)}
         )
-        result.update(self._cg.get_atomic_cross_edges(node_ids[~mask]))
+        result.update(self._cg.get_atomic_cross_edges(node_ids[~mask], raw_only=True))
         update(ATOMIC_CX_EDGES, node_ids[~mask], [result[k] for k in node_ids[~mask]])
         return result

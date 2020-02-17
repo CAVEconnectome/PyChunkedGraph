@@ -99,7 +99,7 @@ def foo_merge(cg):
     from pychunkedgraph.graph.edits import add_edges
 
     # between 2
-    edges = np.array([[94803535283198313, 94803466563722624]], dtype=np.uint64)
+    edges = np.array([[94524946524577880, 94595315268752176]], dtype=np.uint64)
     with TimeIt("add_edges"):
         print(add_edges(cg, atomic_edges=edges))
 

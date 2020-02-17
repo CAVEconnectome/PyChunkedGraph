@@ -146,12 +146,12 @@ class CreateParentNodes:
         `layer` layer at which the missing sibling needs to be created
         """
         # current parent skipped this layer, so it would be grand parent
-        grandpa_id = self.cg.get_parent(child_id, cache_lookup=True)
+        grandpa_id = self.cg.get_parent(child_id)
         new_sibling_id = self.cg.id_client.create_node_id(
             self.cg.get_parent_chunk_id(child_id, sibling_layer)
         )
 
-        old_children = self.cg.get_children(grandpa_id, cache_lookup=True)
+        old_children = self.cg.get_children(grandpa_id)
         cache.CHILDREN[grandpa_id] = np.setdiff1d(
             old_children, [child_id], assume_unique=True,
         )
@@ -160,18 +160,18 @@ class CreateParentNodes:
         )
         cache.CHILDREN[new_sibling_id] = np.array([child_id], dtype=basetypes.NODE_ID)
         cache.PARENTS[child_id] = new_sibling_id
-        print("new_sibling_id", child_id, new_sibling_id)
+        # print("new_sibling_id", child_id, new_sibling_id)
         return new_sibling_id
 
     def _handle_missing_siblings(self, layer, new_id_ce_siblings) -> np.ndarray:
         """Create new sibling when a new ID has none because of skip connections."""
-        print("before", layer, new_id_ce_siblings)
+        # print("before", layer, new_id_ce_siblings)
         mask = self.cg.get_chunk_layers(new_id_ce_siblings) < layer
         missing = new_id_ce_siblings[mask]
         for id_ in missing:
             self._layer_new_ids_d[layer].append(self._create_new_sibling(id_, layer))
-        new_id_ce_siblings[mask] = self.cg.get_parents(missing, cache_lookup=True)
-        print("after", layer, new_id_ce_siblings)
+        new_id_ce_siblings[mask] = self.cg.get_parents(missing)
+        # print("after", layer, new_id_ce_siblings)
         return new_id_ce_siblings
 
     def _get_all_siblings(self, new_parent_id, new_id_ce_siblings: Iterable) -> List:
@@ -179,12 +179,10 @@ class CreateParentNodes:
         Get parents of `new_id_ce_siblings`
         Children of these parents will include all siblings (filter by chunk IDs)
         """
-        parents = self.cg.get_parents(new_id_ce_siblings, cache_lookup=True)
+        parents = self.cg.get_parents(new_id_ce_siblings)
         cache.update(cache.PARENTS, new_id_ce_siblings, parents)
         chunk_ids = self.cg.get_children_chunk_ids(new_parent_id)
-        children = self.cg.get_children(
-            np.unique(parents), cache_lookup=True, flatten=True
-        )
+        children = self.cg.get_children(np.unique(parents), flatten=True)
         children_chunk_ids = self.cg.get_chunk_ids_from_node_ids(children)
         return children[np.in1d(children_chunk_ids, chunk_ids)]
 
@@ -199,7 +197,7 @@ class CreateParentNodes:
         if new_id in self._done:
             # parent already updated
             return
-        print("ce_layer", new_id, ce_layer)
+        # print("ce_layer", new_id, ce_layer)
         if ce_layer > layer:
             # skip connection
             new_parent_id = self.cg.id_client.create_node_id(
@@ -227,8 +225,8 @@ class CreateParentNodes:
             self._layer_new_ids_d[layer + 1].append(new_parent_id)
 
         cache.update(cache.PARENTS, cache.CHILDREN[new_parent_id], new_parent_id)
-        print(new_parent_id, cache.CHILDREN[new_parent_id])
-        print()
+        # print(new_parent_id, cache.CHILDREN[new_parent_id])
+        # print()
         self._done.add(new_id)
 
     def run(self) -> Iterable:
@@ -247,12 +245,10 @@ class CreateParentNodes:
             new_ids = np.array(self._layer_new_ids_d[current_layer], basetypes.NODE_ID)
             cached = np.fromiter(cross_edges_d.keys(), dtype=basetypes.NODE_ID)
             not_cached = new_ids[~np.in1d(new_ids, cached)]
-            cross_edges_d.update(
-                self.cg.get_cross_chunk_edges(not_cached, cache_lookup=True)
-            )
+            cross_edges_d.update(self.cg.get_cross_chunk_edges(not_cached))
 
-            print("\n", "*" * 50)
-            print(current_layer, new_ids)
+            # print("\n", "*" * 50)
+            # print(current_layer, new_ids)
             for new_id in new_ids:
                 ce_layer = list(cross_edges_d[new_id].keys())[0]
                 ce_siblings = cross_edges_d[new_id][ce_layer][:, 1]
