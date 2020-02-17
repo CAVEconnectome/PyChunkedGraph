@@ -140,7 +140,7 @@ class CreateParentNodes:
 
         self.cg.cache = cache.CacheService(self.cg)
 
-    def _create_new_sibling(self, child_id, sibling_layer):
+    def _create_new_sibling(self, child_id, sibling_layer) -> basetypes.NODE_ID:
         """
         `child_id` child ID of the missing sibling
         `layer` layer at which the missing sibling needs to be created
@@ -151,26 +151,26 @@ class CreateParentNodes:
             self.cg.get_parent_chunk_id(child_id, sibling_layer)
         )
 
+        old_children = self.cg.get_children(grandpa_id, cache_lookup=True)
+        cache.CHILDREN[grandpa_id] = np.setdiff1d(
+            old_children, [child_id], assume_unique=True,
+        )
+        cache.update(
+            cache.PARENTS, cache.CHILDREN[grandpa_id], grandpa_id,
+        )
         cache.CHILDREN[new_sibling_id] = np.array([child_id], dtype=basetypes.NODE_ID)
         cache.PARENTS[child_id] = new_sibling_id
-        old_children = self.cg.get_children(grandpa_id, cache_lookup=True)
-        cache.update(
-            cache.PARENTS,
-            np.setdiff1d(old_children, [child_id], assume_unique=True,),
-            grandpa_id,
-        )
-        self._layer_new_ids_d[sibling_layer].append(new_sibling_id)
+        print("new_sibling_id", child_id, new_sibling_id)
+        return new_sibling_id
 
     def _handle_missing_siblings(self, layer, new_id_ce_siblings) -> np.ndarray:
         """Create new sibling when a new ID has none because of skip connections."""
         print("before", layer, new_id_ce_siblings)
         mask = self.cg.get_chunk_layers(new_id_ce_siblings) < layer
-        missing_sibling_children = new_id_ce_siblings[mask]
-        for id_ in missing_sibling_children:
-            self._create_new_sibling(id_, layer)
-        new_id_ce_siblings[mask] = self.cg.get_parents(
-            missing_sibling_children, cache_lookup=True
-        )
+        missing = new_id_ce_siblings[mask]
+        for id_ in missing:
+            self._layer_new_ids_d[layer].append(self._create_new_sibling(id_, layer))
+        new_id_ce_siblings[mask] = self.cg.get_parents(missing, cache_lookup=True)
         print("after", layer, new_id_ce_siblings)
         return new_id_ce_siblings
 
@@ -188,14 +188,6 @@ class CreateParentNodes:
         children_chunk_ids = self.cg.get_chunk_ids_from_node_ids(children)
         return children[np.in1d(children_chunk_ids, chunk_ids)]
 
-    def _create_parent_id(
-        self, new_id: basetypes.NODE_ID, parent_layer: int = None
-    ) -> basetypes.NODE_ID:
-        parent_chunk_id = self.cg.get_parent_chunk_id(new_id, parent_layer)
-        new_parent_id = self.cg.id_client.create_node_id(parent_chunk_id)
-        cache.PARENTS[new_id] = new_parent_id
-        return new_parent_id
-
     def _create_parent(
         self,
         new_id: basetypes.NODE_ID,
@@ -207,14 +199,18 @@ class CreateParentNodes:
         if new_id in self._done:
             # parent already updated
             return
-        print("ce_layer", ce_layer, new_id)
-        if not ce_layer == layer:
+        print("ce_layer", new_id, ce_layer)
+        if ce_layer > layer:
             # skip connection
-            new_parent_id = self._create_parent_id(new_id, ce_layer)
+            new_parent_id = self.cg.id_client.create_node_id(
+                self.cg.get_parent_chunk_id(new_id, ce_layer)
+            )
             cache.CHILDREN[new_parent_id] = np.array([new_id], dtype=basetypes.NODE_ID)
             self._layer_new_ids_d[ce_layer].append(new_parent_id)
         else:
-            new_parent_id = self._create_parent_id(new_id, layer + 1)
+            new_parent_id = self.cg.id_client.create_node_id(
+                self.cg.get_parent_chunk_id(new_id, layer + 1)
+            )
             ce_siblings = self._handle_missing_siblings(ce_layer, ce_siblings)
 
             # siblings that are also new IDs
@@ -222,17 +218,17 @@ class CreateParentNodes:
                 ce_siblings, self._layer_new_ids_d[layer], assume_unique=True
             )
             # they do not have parents yet so exclude them
-            new_id_all_siblings = self._get_all_siblings(
+            siblings = self._get_all_siblings(
                 new_parent_id, np.setdiff1d(ce_siblings, common, assume_unique=True),
             )
-            children = np.unique(
-                np.concatenate([[new_id], ce_siblings, new_id_all_siblings])
+            cache.CHILDREN[new_parent_id] = np.unique(
+                np.concatenate([[new_id], common, siblings])
             )
-            cache.CHILDREN[new_parent_id] = children
-            cache.update(cache.PARENTS, children, new_parent_id)
-            print(new_parent_id, children)
-            print()
             self._layer_new_ids_d[layer + 1].append(new_parent_id)
+
+        cache.update(cache.PARENTS, cache.CHILDREN[new_parent_id], new_parent_id)
+        print(new_parent_id, cache.CHILDREN[new_parent_id])
+        print()
         self._done.add(new_id)
 
     def run(self) -> Iterable:
@@ -257,12 +253,11 @@ class CreateParentNodes:
 
             print("\n", "*" * 50)
             print(current_layer, new_ids)
-            # print("self._done", self._done)
             for new_id in new_ids:
                 ce_layer = list(cross_edges_d[new_id].keys())[0]
                 ce_siblings = cross_edges_d[new_id][ce_layer][:, 1]
                 self._create_parent(new_id, current_layer, ce_layer, ce_siblings)
-        return self._layer_new_ids_d[self.cg.meta.layer_count]
+        return self._done, self._layer_new_ids_d[self.cg.meta.layer_count]
 
 
 # def _process_l2_agglomeration(agg: types.Agglomeration, removed_edges: np.ndarray):

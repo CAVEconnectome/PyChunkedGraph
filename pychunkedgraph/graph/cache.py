@@ -33,7 +33,7 @@ class CacheService:
         self._cg = cg
 
         self.parent_vec = np.vectorize(self.parent, otypes=[np.uint64])
-        self.children_vec = np.vectorize(self.children, otypes=[np.uint64])
+        self.children_vec = np.vectorize(self.children, otypes=[np.ndarray])
         self.atomic_cross_edges_vec = np.vectorize(
             self.atomic_cross_edges, otypes=[dict]
         )
@@ -72,8 +72,8 @@ class CacheService:
         if not node_ids.size:
             return result
         mask = np.in1d(node_ids, np.fromiter(CHILDREN.keys(), dtype=NODE_ID))
-        all_children_ = self.children_vec(node_ids[mask])
-        result.update({id_: c_ for id_, c_ in zip(node_ids, all_children_)})
+        cached_children_ = self.children_vec(node_ids[mask])
+        result.update({id_: c_ for id_, c_ in zip(node_ids[mask], cached_children_)})
         result.update(self._cg.get_children(node_ids[~mask]))
         update(CHILDREN, node_ids[~mask], [result[k] for k in node_ids[~mask]])
         if flatten:
@@ -85,8 +85,10 @@ class CacheService:
         if not node_ids.size:
             return result
         mask = np.in1d(node_ids, np.fromiter(ATOMIC_CX_EDGES.keys(), dtype=NODE_ID))
-        all_edges_ = self.atomic_cross_edges_vec(node_ids[mask])
-        result.update({id_: edges_ for id_, edges_ in zip(node_ids, all_edges_)})
+        cached_edges_ = self.atomic_cross_edges_vec(node_ids[mask])
+        result.update(
+            {id_: edges_ for id_, edges_ in zip(node_ids[mask], cached_edges_)}
+        )
         result.update(self._cg.get_atomic_cross_edges(node_ids[~mask]))
         update(ATOMIC_CX_EDGES, node_ids[~mask], [result[k] for k in node_ids[~mask]])
         return result

@@ -195,14 +195,14 @@ class ChunkedGraph:
             end_time=time_stamp,
             end_time_inclusive=True,
         )
+        parents = []
         if not parent_rows:
-            return None
+            return parents
         if current:
             return np.array(
                 [parent_rows[id_][0].value for id_ in node_ids],
                 dtype=basetypes.NODE_ID,
             )
-        parents = []
         for id_ in node_ids:
             parents.append([(p.value, p.timestamp) for p in parent_rows[id_]])
         return parents
