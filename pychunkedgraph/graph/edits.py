@@ -7,6 +7,7 @@ from typing import Iterable
 from typing import Sequence
 from collections import defaultdict
 
+from . import cache
 from . import types
 from .utils import basetypes
 from .utils import flatgraph
@@ -100,21 +101,21 @@ def add_edges(
     graph, _, _, graph_node_ids = flatgraph.build_gt_graph(edges, make_directed=True)
     ccs = flatgraph.connected_components(graph)
     new_l2_ids = []
-    new_hierarchy_d = {}
     for cc in ccs:
         l2ids_ = graph_node_ids[cc]
         new_id = cg.id_client.create_node_id(cg.get_chunk_id(l2ids_[0]))
-        new_node = types.Node(new_id)
-        new_node.children = np.concatenate([atomic_children_d[l2id] for l2id in l2ids_])
-        new_node.atomic_cross_edges = concatenate_cross_edge_dicts(
+
+        cache.CHILDREN[new_id] = np.concatenate(
+            [atomic_children_d[l2id] for l2id in l2ids_]
+        )
+        cache.ATOMIC_CX_EDGES[new_id] = concatenate_cross_edge_dicts(
             [atomic_cross_edges_d[l2id] for l2id in l2ids_]
         )
-        new_hierarchy_d[new_id] = new_node
-        for child_id in new_node.children:
-            new_hierarchy_d[child_id] = types.Node(child_id, parent_id=new_id)
+        cache.update(cache.PARENTS, cache.CHILDREN[new_id], new_id)
         new_l2_ids.append(new_id)
 
-    cg.node_cache = new_hierarchy_d
+    # for k in cache.ATOMIC_CX_EDGES.keys():
+    #     print(k)
     create_parents = CreateParentNodes(
         cg, new_l2_ids=new_l2_ids, operation_id=operation_id, time_stamp=time_stamp,
     )
@@ -137,132 +138,102 @@ class CreateParentNodes:
         self._layer_new_ids_d = defaultdict(list)
         self._done = set()
 
+        self.cg.cache = cache.CacheService(self.cg)
+
     def _create_new_sibling(self, child_id, sibling_layer):
         """
         `child_id` child ID of the missing sibling
         `layer` layer at which the missing sibling needs to be created
         """
         # current parent skipped this layer, so it would be grand parent
-        grandpa_id = self.cg.get_parent(child_id)
-        # TODO move this to read_node
-        grandpa_node = self.cg.node_cache.get(grandpa_id, types.Node(grandpa_id))
-        child_node = self.cg.node_cache.get(child_id, types.Node(child_id))
+        grandpa_id = self.cg.get_parent(child_id, cache_lookup=True)
         new_sibling_id = self.cg.id_client.create_node_id(
             self.cg.get_parent_chunk_id(child_id, sibling_layer)
         )
-        new_sibling_node = types.Node(new_sibling_id)
 
-        child_node.parent_id = new_sibling_node.node_id
-        new_sibling_node.children = np.array([child_id], dtype=basetypes.NODE_ID)
-        new_sibling_node.parent_id = grandpa_node.node_id
-
-        old_children = grandpa_node.children.copy()
-        grandpa_node.children = np.array([new_sibling_node.node_id], basetypes.NODE_ID)
-        grandpa_node.children = np.concatenate(
-            [
-                grandpa_node.children,
-                np.setdiff1d(old_children, [child_id], assume_unique=True,),
-            ]
+        cache.CHILDREN[new_sibling_id] = np.array([child_id], dtype=basetypes.NODE_ID)
+        cache.PARENTS[child_id] = new_sibling_id
+        old_children = self.cg.get_children(grandpa_id, cache_lookup=True)
+        cache.update(
+            cache.PARENTS,
+            np.setdiff1d(old_children, [child_id], assume_unique=True,),
+            grandpa_id,
         )
-
-        self.cg.node_cache[child_node.node_id] = child_node
-        self.cg.node_cache[new_sibling_node.node_id] = new_sibling_node
-        self.cg.node_cache[grandpa_node.node_id] = grandpa_node
-        self._layer_new_ids_d[sibling_layer].append(new_sibling_node.node_id)
+        self._layer_new_ids_d[sibling_layer].append(new_sibling_id)
 
     def _handle_missing_siblings(self, layer, new_id_ce_siblings) -> np.ndarray:
         """Create new sibling when a new ID has none because of skip connections."""
+        print("before", layer, new_id_ce_siblings)
         mask = self.cg.get_chunk_layers(new_id_ce_siblings) < layer
         missing_sibling_children = new_id_ce_siblings[mask]
         for id_ in missing_sibling_children:
             self._create_new_sibling(id_, layer)
-        new_id_ce_siblings[mask] = self.cg.get_parents(missing_sibling_children)
+        new_id_ce_siblings[mask] = self.cg.get_parents(
+            missing_sibling_children, cache_lookup=True
+        )
+        print("after", layer, new_id_ce_siblings)
         return new_id_ce_siblings
 
     def _get_all_siblings(self, new_parent_id, new_id_ce_siblings: Iterable) -> List:
         """
         Get parents of `new_id_ce_siblings`
-        Children of these parents will include all siblings.
+        Children of these parents will include all siblings (filter by chunk IDs)
         """
-        # update cache
-        parents = self.cg.get_parents(new_id_ce_siblings)
-        for id_, parent_id in zip(new_id_ce_siblings, parents):
-            try:
-                self.cg.node_cache[id_].parent_id = parent_id
-            except KeyError:
-                self.cg.node_cache[id_] = types.Node(id_, parent_id=parent_id)
-
+        parents = self.cg.get_parents(new_id_ce_siblings, cache_lookup=True)
+        cache.update(cache.PARENTS, new_id_ce_siblings, parents)
         chunk_ids = self.cg.get_children_chunk_ids(new_parent_id)
-        children = self.cg.get_children(np.unique(parents), flatten=True)
+        children = self.cg.get_children(
+            np.unique(parents), cache_lookup=True, flatten=True
+        )
         children_chunk_ids = self.cg.get_chunk_ids_from_node_ids(children)
         return children[np.in1d(children_chunk_ids, chunk_ids)]
 
-    def _create_parent_node(
-        self, new_node: types.Node, parent_layer: int = None
-    ) -> types.Node:
-        new_id = new_node.node_id
+    def _create_parent_id(
+        self, new_id: basetypes.NODE_ID, parent_layer: int = None
+    ) -> basetypes.NODE_ID:
         parent_chunk_id = self.cg.get_parent_chunk_id(new_id, parent_layer)
         new_parent_id = self.cg.id_client.create_node_id(parent_chunk_id)
-        new_parent_node = types.Node(new_parent_id)
-        new_node.parent_id = new_parent_id
-        return new_parent_node
+        cache.PARENTS[new_id] = new_parent_id
+        return new_parent_id
 
-    def _update_children(self, new_parent_node: types.Node):
-        """
-        When new IDs turn out to be siblings of a new ID,
-        They all need to be updated to have the same parent.
-        """
-        for id_ in new_parent_node.children:
-            try:
-                self.cg.node_cache[id_].parent_id = new_parent_node.node_id
-            except KeyError:
-                self.cg.node_cache[id_] = types.Node(id_)
-                self.cg.node_cache[id_].parent_id = new_parent_node.node_id
-        self._done.update(new_parent_node.children)
-
-    def _update_parent(
-        self, new_id: basetypes.NODE_ID, layer: int, cross_edges_d: Dict
-    ) -> types.Node:
+    def _create_parent(
+        self,
+        new_id: basetypes.NODE_ID,
+        layer: int,
+        ce_layer: int,
+        ce_siblings: np.ndarray,
+    ) -> None:
         """Helper function."""
         if new_id in self._done:
             # parent already updated
             return
-        new_node = self.cg.node_cache[new_id]
-        new_id_ce_layer = list(cross_edges_d.keys())[0]
-        print("new_id_ce_layer", new_id_ce_layer, new_id, cross_edges_d)
-        if not new_id_ce_layer == layer:
+        print("ce_layer", ce_layer, new_id)
+        if not ce_layer == layer:
             # skip connection
-            new_parent_node = self._create_parent_node(new_node, new_id_ce_layer)
-            new_parent_node.children = np.array([new_id], dtype=basetypes.NODE_ID)
-            self._layer_new_ids_d[new_id_ce_layer].append(new_parent_node.node_id)
+            new_parent_id = self._create_parent_id(new_id, ce_layer)
+            cache.CHILDREN[new_parent_id] = np.array([new_id], dtype=basetypes.NODE_ID)
+            self._layer_new_ids_d[ce_layer].append(new_parent_id)
         else:
-            new_parent_node = self._create_parent_node(new_node, layer + 1)
-            new_id_ce_siblings = cross_edges_d[new_id_ce_layer][:, 1]
-            print("before", layer, new_id, new_id_ce_siblings)
-            new_id_ce_siblings = self._handle_missing_siblings(
-                new_id_ce_layer, new_id_ce_siblings
-            )
-            print("after", layer, new_id, new_id_ce_siblings)
-            # TODO all these have different parents for some reason
+            new_parent_id = self._create_parent_id(new_id, layer + 1)
+            ce_siblings = self._handle_missing_siblings(ce_layer, ce_siblings)
 
             # siblings that are also new IDs
             common = np.intersect1d(
-                new_id_ce_siblings, self._layer_new_ids_d[layer], assume_unique=True
+                ce_siblings, self._layer_new_ids_d[layer], assume_unique=True
             )
             # they do not have parents yet so exclude them
             new_id_all_siblings = self._get_all_siblings(
-                new_parent_node.node_id,
-                np.setdiff1d(new_id_ce_siblings, common, assume_unique=True),
+                new_parent_id, np.setdiff1d(ce_siblings, common, assume_unique=True),
             )
-            new_parent_node.children = np.unique(
-                np.concatenate([[new_id], new_id_ce_siblings, new_id_all_siblings])
+            children = np.unique(
+                np.concatenate([[new_id], ce_siblings, new_id_all_siblings])
             )
-            print(new_parent_node.node_id, new_parent_node.children)
+            cache.CHILDREN[new_parent_id] = children
+            cache.update(cache.PARENTS, children, new_parent_id)
+            print(new_parent_id, children)
             print()
-            self._layer_new_ids_d[layer + 1].append(new_parent_node.node_id)
-            self._update_children(new_parent_node)
+            self._layer_new_ids_d[layer + 1].append(new_parent_id)
         self._done.add(new_id)
-        self.cg.node_cache[new_parent_node.node_id] = new_parent_node
 
     def run(self) -> Iterable:
         """
@@ -278,101 +249,101 @@ class CreateParentNodes:
                 continue
 
             new_ids = np.array(self._layer_new_ids_d[current_layer], basetypes.NODE_ID)
-            cached = np.fromiter(self.cg.node_cache.keys(), dtype=basetypes.NODE_ID)
-            not_cached = new_ids[~np.in1d(new_ids, cached)]
-            self.cg.node_cache.update({id_: types.Node(id_) for id_ in not_cached})
-
             cached = np.fromiter(cross_edges_d.keys(), dtype=basetypes.NODE_ID)
             not_cached = new_ids[~np.in1d(new_ids, cached)]
-            cross_edges_d.update(self.cg.get_cross_chunk_edges(not_cached))
+            cross_edges_d.update(
+                self.cg.get_cross_chunk_edges(not_cached, cache_lookup=True)
+            )
 
             print("\n", "*" * 50)
             print(current_layer, new_ids)
             # print("self._done", self._done)
             for new_id in new_ids:
-                self._update_parent(new_id, current_layer, cross_edges_d[new_id])
+                ce_layer = list(cross_edges_d[new_id].keys())[0]
+                ce_siblings = cross_edges_d[new_id][ce_layer][:, 1]
+                self._create_parent(new_id, current_layer, ce_layer, ce_siblings)
         return self._layer_new_ids_d[self.cg.meta.layer_count]
 
 
-def _process_l2_agglomeration(agg: types.Agglomeration, removed_edges: np.ndarray):
-    """
-    For a given L2 id, remove given edges
-    and calculate new connected components.
-    """
-    chunk_edges = agg.in_edges.get_pairs()
-    cross_edges = agg.cross_edges.get_pairs()
-    chunk_edges = chunk_edges[~in2d(chunk_edges, removed_edges)]
-    cross_edges = cross_edges[~in2d(cross_edges, removed_edges)]
+# def _process_l2_agglomeration(agg: types.Agglomeration, removed_edges: np.ndarray):
+#     """
+#     For a given L2 id, remove given edges
+#     and calculate new connected components.
+#     """
+#     chunk_edges = agg.in_edges.get_pairs()
+#     cross_edges = agg.cross_edges.get_pairs()
+#     chunk_edges = chunk_edges[~in2d(chunk_edges, removed_edges)]
+#     cross_edges = cross_edges[~in2d(cross_edges, removed_edges)]
 
-    isolated_ids = agg.supervoxels[~np.in1d(agg.supervoxels, chunk_edges)]
-    isolated_edges = np.column_stack((isolated_ids, isolated_ids))
-    graph, _, _, unique_graph_ids = flatgraph.build_gt_graph(
-        np.concatenate([chunk_edges, isolated_edges]), make_directed=True
-    )
-    return flatgraph.connected_components(graph), unique_graph_ids, cross_edges
-
-
-def _filter_component_cross_edges(
-    cc_ids: np.ndarray, cross_edges: np.ndarray, cross_edge_layers: np.ndarray
-) -> Dict[int, np.ndarray]:
-    """
-    Filters cross edges for a connected component `cc_ids`
-    from `cross_edges` of the complete chunk.
-    """
-    mask = np.in1d(cross_edges[:, 0], cc_ids)
-    cross_edges_ = cross_edges[mask]
-    cross_edge_layers_ = cross_edge_layers[mask]
-
-    edges_d = {}
-    for layer in np.unique(cross_edge_layers_):
-        edge_m = cross_edge_layers_ == layer
-        _cross_edges = cross_edges_[edge_m]
-        if _cross_edges.size:
-            edges_d[layer] = _cross_edges
-    return edges_d
+#     isolated_ids = agg.supervoxels[~np.in1d(agg.supervoxels, chunk_edges)]
+#     isolated_edges = np.column_stack((isolated_ids, isolated_ids))
+#     graph, _, _, unique_graph_ids = flatgraph.build_gt_graph(
+#         np.concatenate([chunk_edges, isolated_edges]), make_directed=True
+#     )
+#     return flatgraph.connected_components(graph), unique_graph_ids, cross_edges
 
 
-def remove_edges(
-    cg,
-    *,
-    operation_id: basetypes.OPERATION_ID,
-    atomic_edges: Iterable[np.ndarray],
-    l2id_agglomeration_d: Dict,
-    time_stamp: datetime.datetime,
-):
-    edges, _ = _analyze_atomic_edges(cg, atomic_edges)
-    l2ids = np.unique(edges)
-    l2id_chunk_id_d = dict(zip(l2ids, cg.get_chunk_ids_from_node_ids(l2ids)))
+# def _filter_component_cross_edges(
+#     cc_ids: np.ndarray, cross_edges: np.ndarray, cross_edge_layers: np.ndarray
+# ) -> Dict[int, np.ndarray]:
+#     """
+#     Filters cross edges for a connected component `cc_ids`
+#     from `cross_edges` of the complete chunk.
+#     """
+#     mask = np.in1d(cross_edges[:, 0], cc_ids)
+#     cross_edges_ = cross_edges[mask]
+#     cross_edge_layers_ = cross_edge_layers[mask]
 
-    # This view of the to be removed edges helps us to
-    # compute the mask of retained edges in chunk
-    removed_edges = np.concatenate([atomic_edges, atomic_edges[:, ::-1]], axis=0)
+#     edges_d = {}
+#     for layer in np.unique(cross_edge_layers_):
+#         edge_m = cross_edge_layers_ == layer
+#         _cross_edges = cross_edges_[edge_m]
+#         if _cross_edges.size:
+#             edges_d[layer] = _cross_edges
+#     return edges_d
 
-    new_l2_ids = []
-    new_hierarchy_d = {}
-    for id_ in l2ids:
-        l2_agg = l2id_agglomeration_d[id_]
-        ccs, unique_graph_ids, cross_edges = _process_l2_agglomeration(
-            l2_agg, removed_edges
-        )
-        cross_edge_layers = cg.get_cross_chunk_edges_layer(cross_edges)
-        new_parent_ids = cg.id_client.create_node_ids(
-            l2id_chunk_id_d[l2_agg.node_id], len(ccs)
-        )
-        for i_cc, cc in enumerate(ccs):
-            new_id = new_parent_ids[i_cc]
-            new_node = types.Node(new_id)
-            new_node.children = unique_graph_ids[cc]
-            new_node.atomic_cross_edges = _filter_component_cross_edges(
-                new_node.children, cross_edges, cross_edge_layers
-            )
-            new_hierarchy_d[new_id] = new_node
-            for child_id in new_node.children:
-                new_hierarchy_d[child_id] = types.Node(child_id, parent_id=new_id)
-            new_l2_ids.append(new_id)
-    cg.node_cache = new_hierarchy_d
-    create_parents = CreateParentNodes(
-        cg, new_l2_ids=new_l2_ids, operation_id=operation_id, time_stamp=time_stamp,
-    )
-    return create_parents.run()
+
+# def remove_edges(
+#     cg,
+#     *,
+#     operation_id: basetypes.OPERATION_ID,
+#     atomic_edges: Iterable[np.ndarray],
+#     l2id_agglomeration_d: Dict,
+#     time_stamp: datetime.datetime,
+# ):
+#     edges, _ = _analyze_atomic_edges(cg, atomic_edges)
+#     l2ids = np.unique(edges)
+#     l2id_chunk_id_d = dict(zip(l2ids, cg.get_chunk_ids_from_node_ids(l2ids)))
+
+#     # This view of the to be removed edges helps us to
+#     # compute the mask of retained edges in chunk
+#     removed_edges = np.concatenate([atomic_edges, atomic_edges[:, ::-1]], axis=0)
+
+#     new_l2_ids = []
+#     new_hierarchy_d = {}
+#     for id_ in l2ids:
+#         l2_agg = l2id_agglomeration_d[id_]
+#         ccs, unique_graph_ids, cross_edges = _process_l2_agglomeration(
+#             l2_agg, removed_edges
+#         )
+#         cross_edge_layers = cg.get_cross_chunk_edges_layer(cross_edges)
+#         new_parent_ids = cg.id_client.create_node_ids(
+#             l2id_chunk_id_d[l2_agg.node_id], len(ccs)
+#         )
+#         for i_cc, cc in enumerate(ccs):
+#             new_id = new_parent_ids[i_cc]
+#             new_node = types.Node(new_id)
+#             new_node.children = unique_graph_ids[cc]
+#             new_node.atomic_cross_edges = _filter_component_cross_edges(
+#                 new_node.children, cross_edges, cross_edge_layers
+#             )
+#             new_hierarchy_d[new_id] = new_node
+#             for child_id in new_node.children:
+#                 new_hierarchy_d[child_id] = types.Node(child_id, parent_id=new_id)
+#             new_l2_ids.append(new_id)
+#     cg.node_cache = new_hierarchy_d
+#     create_parents = CreateParentNodes(
+#         cg, new_l2_ids=new_l2_ids, operation_id=operation_id, time_stamp=time_stamp,
+#     )
+#     return create_parents.run()
 
