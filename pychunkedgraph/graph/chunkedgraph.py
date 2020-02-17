@@ -20,6 +20,7 @@ from . import attributes
 from . import exceptions
 from .client import base
 from .client.bigtable import BigTableClient
+from .cache import CacheService
 from .meta import ChunkedGraphMeta
 from .meta import BackendClientInfo
 from .utils import basetypes
@@ -67,6 +68,7 @@ class ChunkedGraph:
 
         self._client = bt_client
         self._id_client = bt_client
+        self._cache_service = None
 
     @property
     def meta(self) -> ChunkedGraphMeta:
@@ -79,6 +81,14 @@ class ChunkedGraph:
     @property
     def id_client(self) -> base.ClientWithIDGen:
         return self._id_client
+
+    @property
+    def cache(self):
+        return self._cache_service
+
+    @cache.setter
+    def cache(self, cache_service: CacheService):
+        self._cache_service = cache_service
 
     def create(self):
         """Creates the graph in storage client and stores meta."""
@@ -167,6 +177,8 @@ class ChunkedGraph:
     def get_parents(
         self,
         node_ids: typing.Sequence[np.uint64],
+        *,
+        cache_lookup=False,
         current: bool = True,
         time_stamp: typing.Optional[datetime.datetime] = None,
     ):
@@ -174,6 +186,8 @@ class ChunkedGraph:
         If current=True returns only the latest parents.
         Else all parents along with timestamps.
         """
+        if cache_lookup and self.cache:
+            return self.cache.parents_multiple(node_ids)
         time_stamp = misc_utils.get_valid_timestamp(time_stamp)
         parent_rows = self.client.read_nodes(
             node_ids=node_ids,
@@ -197,9 +211,12 @@ class ChunkedGraph:
         self,
         node_id: np.uint64,
         *,
+        cache_lookup=False,
         latest: bool = True,
         time_stamp: typing.Optional[datetime.datetime] = None,
     ) -> typing.Union[typing.List[typing.Tuple], np.uint64]:
+        if cache_lookup and self.cache:
+            return self.cache.parent(node_id)
         time_stamp = misc_utils.get_valid_timestamp(time_stamp)
         parents = self.client.read_node(
             node_id,
@@ -216,6 +233,8 @@ class ChunkedGraph:
     def get_children(
         self,
         node_id_or_ids: typing.Union[typing.Iterable[np.uint64], np.uint64],
+        *,
+        cache_lookup=False,
         flatten: bool = False,
     ) -> typing.Union[typing.Dict, np.ndarray]:
         """
@@ -223,6 +242,8 @@ class ChunkedGraph:
         If flatten == True, an array is returned, else a dict {node_id: children}.
         """
         if np.isscalar(node_id_or_ids):
+            if cache_lookup and self.cache:
+                return self.cache.children(node_id_or_ids)
             children = self.client.read_node(
                 node_id=node_id_or_ids, properties=attributes.Hierarchy.Child
             )
@@ -237,9 +258,11 @@ class ChunkedGraph:
         return node_children_d
 
     def get_atomic_cross_edges(
-        self, l2_ids: typing.Iterable
+        self, l2_ids: typing.Iterable, *, cache_lookup=False
     ) -> typing.Dict[np.uint64, typing.Dict[int, typing.Iterable]]:
         """Returns cross edges for level 2 IDs."""
+        if cache_lookup and self.cache:
+            return self.cache.atomic_cross_edges_multiple(l2_ids)
         node_edges_d_d = self.client.read_nodes(
             node_ids=l2_ids,
             properties=[
@@ -709,8 +732,10 @@ class ChunkedGraph:
         return {min_layer: np.unique(edges, axis=0) if edges.size else types.empty_2d}
 
     def _get_children_multiple(
-        self, node_ids: typing.Iterable[np.uint64]
+        self, node_ids: typing.Iterable[np.uint64], *, cache_lookup=False
     ) -> typing.Dict:
+        if cache_lookup and self.cache:
+            return self.cache.children_multiple(node_ids)
         node_children_d = self.client.read_nodes(
             node_ids=node_ids, properties=attributes.Hierarchy.Child
         )
