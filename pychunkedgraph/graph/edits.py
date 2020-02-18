@@ -184,6 +184,7 @@ class CreateParentNodes:
         Get parents of `new_id_ce_siblings`
         Children of these parents will include all siblings (filter by chunk IDs)
         """
+        # parents = self.cg.get_parents(np.concatenate([[new_id], new_id_ce_siblings]))
         parents = self.cg.get_parents(new_id_ce_siblings)
         cache.update(cache.PARENTS, new_id_ce_siblings, parents)
         chunk_ids = self.cg.get_children_chunk_ids(new_parent_id)
