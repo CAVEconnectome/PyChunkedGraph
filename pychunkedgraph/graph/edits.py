@@ -174,7 +174,12 @@ class CreateParentNodes:
         # print("after", layer, new_id_ce_siblings)
         return new_id_ce_siblings
 
-    def _get_all_siblings(self, new_parent_id, new_id_ce_siblings: Iterable) -> List:
+    def _get_all_siblings(
+        self,
+        new_id: basetypes.NODE_ID,
+        new_parent_id: basetypes.NODE_ID,
+        new_id_ce_siblings: Iterable,
+    ) -> List:
         """
         Get parents of `new_id_ce_siblings`
         Children of these parents will include all siblings (filter by chunk IDs)
@@ -182,6 +187,7 @@ class CreateParentNodes:
         parents = self.cg.get_parents(new_id_ce_siblings)
         cache.update(cache.PARENTS, new_id_ce_siblings, parents)
         chunk_ids = self.cg.get_children_chunk_ids(new_parent_id)
+        chunk_ids = np.setdiff1d(chunk_ids, [self.cg.get_chunk_id(new_id)])
         children = self.cg.get_children(np.unique(parents), flatten=True)
         children_chunk_ids = self.cg.get_chunk_ids_from_node_ids(children)
         return children[np.in1d(children_chunk_ids, chunk_ids)]
@@ -197,7 +203,7 @@ class CreateParentNodes:
         if new_id in self._done:
             # parent already updated
             return
-        # print("ce_layer", new_id, ce_layer)
+        # print("ce_layer", new_id, ce_layer, ce_siblings)
         if ce_layer > layer:
             # skip connection
             new_parent_id = self.cg.id_client.create_node_id(
@@ -217,7 +223,9 @@ class CreateParentNodes:
             )
             # they do not have parents yet so exclude them
             siblings = self._get_all_siblings(
-                new_parent_id, np.setdiff1d(ce_siblings, common, assume_unique=True),
+                new_id,
+                new_parent_id,
+                np.setdiff1d(ce_siblings, common, assume_unique=True),
             )
             cache.CHILDREN[new_parent_id] = np.unique(
                 np.concatenate([[new_id], common, siblings])
