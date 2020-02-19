@@ -705,19 +705,22 @@ class ChunkedGraph:
                 grand_children = [types.empty_1d]
                 for child in masked_children:
                     grand_children_ = child_grand_children_d[child]
-                    chunk_ids = self.get_chunk_ids_from_node_ids(grand_children_)
-                    grand_children_ = grand_children_[
+                    mask = self.get_chunk_layers(grand_children_) == children_layer
+                    masked_grand_children_ = grand_children_[mask]
+                    chunk_ids = self.get_chunk_ids_from_node_ids(masked_grand_children_)
+                    masked_grand_children_ = masked_grand_children_[
                         np.in1d(chunk_ids, bounding_chunk_ids)
                     ]
+                    grand_children_ = np.concatenate(
+                        [masked_grand_children_, grand_children_[~mask]]
+                    )
                     grand_children.append(grand_children_)
                 grand_children = np.concatenate(grand_children)
-
                 unmasked_children = parent_children_d[parent_id]
                 layer_mask = parent_layer_mask[parent_id]
                 parent_children_d[parent_id] = np.concatenate(
                     [unmasked_children[~layer_mask], grand_children]
                 )
-
             children_layer -= 1
         return parent_children_d
 
