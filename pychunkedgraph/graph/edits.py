@@ -142,6 +142,88 @@ def add_edges(
     return create_parents.run()
 
 
+def _process_l2_agglomeration(agg: types.Agglomeration, removed_edges: np.ndarray):
+    """
+    For a given L2 id, remove given edges
+    and calculate new connected components.
+    """
+    chunk_edges = agg.in_edges.get_pairs()
+    cross_edges = agg.cross_edges.get_pairs()
+    chunk_edges = chunk_edges[~in2d(chunk_edges, removed_edges)]
+    cross_edges = cross_edges[~in2d(cross_edges, removed_edges)]
+
+    isolated_ids = agg.supervoxels[~np.in1d(agg.supervoxels, chunk_edges)]
+    isolated_edges = np.column_stack((isolated_ids, isolated_ids))
+    graph, _, _, unique_graph_ids = flatgraph.build_gt_graph(
+        np.concatenate([chunk_edges, isolated_edges]), make_directed=True
+    )
+    return flatgraph.connected_components(graph), unique_graph_ids, cross_edges
+
+
+def _filter_component_cross_edges(
+    cc_ids: np.ndarray, cross_edges: np.ndarray, cross_edge_layers: np.ndarray
+) -> Dict[int, np.ndarray]:
+    """
+    Filters cross edges for a connected component `cc_ids`
+    from `cross_edges` of the complete chunk.
+    """
+    mask = np.in1d(cross_edges[:, 0], cc_ids)
+    cross_edges_ = cross_edges[mask]
+    cross_edge_layers_ = cross_edge_layers[mask]
+
+    edges_d = {}
+    for layer in np.unique(cross_edge_layers_):
+        edge_m = cross_edge_layers_ == layer
+        _cross_edges = cross_edges_[edge_m]
+        if _cross_edges.size:
+            edges_d[layer] = _cross_edges
+    return edges_d
+
+
+def remove_edges(
+    cg,
+    *,
+    atomic_edges: Iterable[np.ndarray],
+    l2id_agglomeration_d: Dict,
+    operation_id: basetypes.OPERATION_ID = None,
+    time_stamp: datetime.datetime = None,
+):
+    edges, _ = _analyze_atomic_edges(cg, atomic_edges)
+    l2ids = np.unique(edges)
+    old_ids = _get_all_old_ids(cg, l2ids)
+    l2id_chunk_id_d = dict(zip(l2ids, cg.get_chunk_ids_from_node_ids(l2ids)))
+
+    # This view of the to be removed edges helps us to
+    # compute the mask of retained edges in chunk
+    removed_edges = np.concatenate([atomic_edges, atomic_edges[:, ::-1]], axis=0)
+    new_l2_ids = []
+    for id_ in l2ids:
+        l2_agg = l2id_agglomeration_d[id_]
+        ccs, unique_graph_ids, cross_edges = _process_l2_agglomeration(
+            l2_agg, removed_edges
+        )
+        cross_edge_layers = cg.get_cross_chunk_edges_layer(cross_edges)
+        new_parent_ids = cg.id_client.create_node_ids(
+            l2id_chunk_id_d[l2_agg.node_id], len(ccs)
+        )
+        for i_cc, cc in enumerate(ccs):
+            new_id = new_parent_ids[i_cc]
+            cache.CHILDREN[new_id] = unique_graph_ids[cc]
+            cache.ATOMIC_CX_EDGES[new_id] = _filter_component_cross_edges(
+                cache.CHILDREN[new_id], cross_edges, cross_edge_layers
+            )
+            cache.update(cache.PARENTS, cache.CHILDREN[new_id], new_id)
+            new_l2_ids.append(new_id)
+    create_parents = CreateParentNodes(
+        cg,
+        new_l2_ids=new_l2_ids,
+        old_ids=old_ids,
+        operation_id=operation_id,
+        time_stamp=time_stamp,
+    )
+    return create_parents.run()
+
+
 class CreateParentNodes:
     def __init__(
         self,
@@ -160,8 +242,6 @@ class CreateParentNodes:
         self._layer_ids_d = defaultdict(list)  # new IDs in each layer
         self._cross_edges_d = {}
         self._done = set()
-
-        self.cg.cache = cache.CacheService(self.cg)
 
     def _create_new_sibling(self, child_id, sibling_layer) -> basetypes.NODE_ID:
         """
@@ -288,87 +368,3 @@ class CreateParentNodes:
                 ce_siblings = self._cross_edges_d[new_id][ce_layer][:, 1]
                 self._create_parent(new_id, current_layer, ce_layer, ce_siblings)
         return self._done, self._layer_ids_d
-
-
-# def _process_l2_agglomeration(agg: types.Agglomeration, removed_edges: np.ndarray):
-#     """
-#     For a given L2 id, remove given edges
-#     and calculate new connected components.
-#     """
-#     chunk_edges = agg.in_edges.get_pairs()
-#     cross_edges = agg.cross_edges.get_pairs()
-#     chunk_edges = chunk_edges[~in2d(chunk_edges, removed_edges)]
-#     cross_edges = cross_edges[~in2d(cross_edges, removed_edges)]
-
-#     isolated_ids = agg.supervoxels[~np.in1d(agg.supervoxels, chunk_edges)]
-#     isolated_edges = np.column_stack((isolated_ids, isolated_ids))
-#     graph, _, _, unique_graph_ids = flatgraph.build_gt_graph(
-#         np.concatenate([chunk_edges, isolated_edges]), make_directed=True
-#     )
-#     return flatgraph.connected_components(graph), unique_graph_ids, cross_edges
-
-
-# def _filter_component_cross_edges(
-#     cc_ids: np.ndarray, cross_edges: np.ndarray, cross_edge_layers: np.ndarray
-# ) -> Dict[int, np.ndarray]:
-#     """
-#     Filters cross edges for a connected component `cc_ids`
-#     from `cross_edges` of the complete chunk.
-#     """
-#     mask = np.in1d(cross_edges[:, 0], cc_ids)
-#     cross_edges_ = cross_edges[mask]
-#     cross_edge_layers_ = cross_edge_layers[mask]
-
-#     edges_d = {}
-#     for layer in np.unique(cross_edge_layers_):
-#         edge_m = cross_edge_layers_ == layer
-#         _cross_edges = cross_edges_[edge_m]
-#         if _cross_edges.size:
-#             edges_d[layer] = _cross_edges
-#     return edges_d
-
-
-# def remove_edges(
-#     cg,
-#     *,
-#     operation_id: basetypes.OPERATION_ID,
-#     atomic_edges: Iterable[np.ndarray],
-#     l2id_agglomeration_d: Dict,
-#     time_stamp: datetime.datetime,
-# ):
-#     edges, _ = _analyze_atomic_edges(cg, atomic_edges)
-#     l2ids = np.unique(edges)
-#     l2id_chunk_id_d = dict(zip(l2ids, cg.get_chunk_ids_from_node_ids(l2ids)))
-
-#     # This view of the to be removed edges helps us to
-#     # compute the mask of retained edges in chunk
-#     removed_edges = np.concatenate([atomic_edges, atomic_edges[:, ::-1]], axis=0)
-
-#     new_l2_ids = []
-#     new_hierarchy_d = {}
-#     for id_ in l2ids:
-#         l2_agg = l2id_agglomeration_d[id_]
-#         ccs, unique_graph_ids, cross_edges = _process_l2_agglomeration(
-#             l2_agg, removed_edges
-#         )
-#         cross_edge_layers = cg.get_cross_chunk_edges_layer(cross_edges)
-#         new_parent_ids = cg.id_client.create_node_ids(
-#             l2id_chunk_id_d[l2_agg.node_id], len(ccs)
-#         )
-#         for i_cc, cc in enumerate(ccs):
-#             new_id = new_parent_ids[i_cc]
-#             new_node = types.Node(new_id)
-#             new_node.children = unique_graph_ids[cc]
-#             new_node.atomic_cross_edges = _filter_component_cross_edges(
-#                 new_node.children, cross_edges, cross_edge_layers
-#             )
-#             new_hierarchy_d[new_id] = new_node
-#             for child_id in new_node.children:
-#                 new_hierarchy_d[child_id] = types.Node(child_id, parent_id=new_id)
-#             new_l2_ids.append(new_id)
-#     cg.node_cache = new_hierarchy_d
-#     create_parents = CreateParentNodes(
-#         cg, new_l2_ids=new_l2_ids, operation_id=operation_id, time_stamp=time_stamp,
-#     )
-#     return create_parents.run()
-

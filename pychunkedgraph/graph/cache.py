@@ -17,6 +17,12 @@ CHILDREN = LRUCache(maxsize=maxsize)
 ATOMIC_CX_EDGES = LRUCache(maxsize=maxsize)
 
 
+def clear():
+    PARENTS.clear()
+    CHILDREN.clear()
+    ATOMIC_CX_EDGES.clear()
+
+
 def update(cache, keys, vals):
     try:
         # 1 to 1
