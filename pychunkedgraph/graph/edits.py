@@ -226,7 +226,7 @@ def remove_edges(
         operation_id=operation_id,
         time_stamp=time_stamp,
     )
-    return create_parents.run()
+    return atomic_edges, create_parents.run()
 
 
 class CreateParentNodes:

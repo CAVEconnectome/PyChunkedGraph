@@ -16,7 +16,7 @@ _edge_type_defaults = ("in", "between", "cross")
 EdgeTypes = namedtuple("EdgeTypes", _edge_type_fileds, defaults=_edge_type_defaults)
 EDGE_TYPES = EdgeTypes()
 
-DEFAULT_AFFINITY = np.finfo(np.float32).tiny
+DEFAULT_AFFINITY = np.inf
 DEFAULT_AREA = np.finfo(np.float32).tiny
 
 
