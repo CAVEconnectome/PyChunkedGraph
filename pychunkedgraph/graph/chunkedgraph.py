@@ -474,7 +474,7 @@ class ChunkedGraph:
             l2id_agglomeration_d[l2id] = types.Agglomeration(
                 l2id, supervoxels, in_, out_, cross_
             )
-            agg_edges.add(in_)
+            agg_edges.update([in_, cross_])
         return (l2id_agglomeration_d, reduce(lambda x, y: x + y, agg_edges))
 
     def add_edges(

@@ -46,19 +46,15 @@ def get_datastore_client(config):
 
 
 def foo_split(cg):
-    data1 = {
-        "sources": [["91356497812401200", 815562.1875, 884530.4375, 859720]],
-        "sinks": [["91356497812399839", 816066.8125, 884512.25, 859720]],
+    d1 = {
+        "sources": [["88961898120241790", 746048.8125, 822299.6875, 596280]],
+        "sinks": [["88961898120239439", 746356.5625, 822256.9375, 596280]],
     }
-    data2 = {
-        "sources": [["91356497812394262", 815458.9375, 884707.6875, 859720]],
-        "sinks": [["91356497812401228", 816143.625, 884547.3125, 859720]],
+    d2 = {
+        "sources": [["88961898120229847", 746628.5, 822598.5, 596040]],
+        "sinks": [["88961966839705767", 746603.4375, 823428.5625, 596040]],
     }
-    data3 = {
-        "sources": [["95302094482834765", 930180.9375, 1031548.5625, 595360]],
-        "sinks": [["95302094482834732", 930355.1875, 1031461.4375, 595360]],
-    }
-    data = data3
+    data = d2
 
     from collections import defaultdict
 
@@ -130,7 +126,7 @@ def get_cg(table_id):
 
         # Create ChunkedGraph
         cache[table_id] = chunkedgraph.ChunkedGraph(graph_id=table_id)
-        # foo_split(cache[table_id])
+        foo_split(cache[table_id])
         # foo_merge(cache[table_id])
     current_app.table_id = table_id
     return cache[table_id]
