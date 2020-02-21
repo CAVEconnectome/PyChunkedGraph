@@ -204,6 +204,18 @@ def change_log_full(table_id):
     return output
 
 
+@bp.route("/table/<table_id>/tabular_change_log_weekly", methods=["GET"])
+@auth_requires_permission("view")
+def tabular_change_log_weekly(table_id, root_id):
+    disp = request.args.get("disp", default=False, type=toboolean)
+    weekly_tab_change_log = common.tabular_change_log_weekly(table_id)
+
+    if disp:
+        return weekly_tab_change_log.to_html()
+    else:
+        return weekly_tab_change_log.to_json()
+
+
 @bp.route("/table/<table_id>/root/<root_id>/change_log", methods=["GET"])
 @auth_requires_permission("view")
 def change_log(table_id, root_id):
