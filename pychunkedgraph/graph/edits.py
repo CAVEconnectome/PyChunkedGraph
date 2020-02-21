@@ -198,10 +198,17 @@ def remove_edges(
     l2id_chunk_id_d = dict(zip(l2ids, cg.get_chunk_ids_from_node_ids(l2ids)))
     atomic_cross_edges_d = cg.get_atomic_cross_edges(l2ids)
 
+    old_hierarchy = {id_: {2: id_} for id_ in l2ids}
+    for id_ in l2ids:
+        old_hierarchy[id_].update(cg.get_all_parents_dict(id_))
+    new_old_id_mapping = {}
+    old_new_id_mapping = {}
+
     # This view of the to be removed edges helps us to
     # compute the mask of retained edges in chunk
     removed_edges = np.concatenate([atomic_edges, atomic_edges[:, ::-1]], axis=0)
     new_l2_ids = []
+    print("l2ids", l2ids)
     for id_ in l2ids:
         l2_agg = l2id_agglomeration_d[id_]
         ccs, unique_graph_ids, cross_edges = _process_l2_agglomeration(
@@ -219,10 +226,15 @@ def remove_edges(
             )
             cache.update(cache.PARENTS, cache.CHILDREN[new_id], new_id)
             new_l2_ids.append(new_id)
+            new_old_id_mapping[new_id] = id_
+            old_new_id_mapping[id_] = new_id
     create_parents = CreateParentNodes(
         cg,
         new_l2_ids=new_l2_ids,
         old_ids=old_ids,
+        old_hierarchy=old_hierarchy,
+        new_old_id_mapping=new_old_id_mapping,
+        old_new_id_mapping=old_new_id_mapping,
         operation_id=operation_id,
         time_stamp=time_stamp,
     )
@@ -236,17 +248,25 @@ class CreateParentNodes:
         *,
         new_l2_ids: Iterable,
         old_ids: np.ndarray,
+        old_hierarchy: Dict[np.uint64, Dict[int, np.uint64]] = None,
+        new_old_id_mapping: Dict[np.uint64, np.uint64] = None,
+        old_new_id_mapping: Dict[np.uint64, np.uint64] = None,
         operation_id: basetypes.OPERATION_ID,
         time_stamp: datetime.datetime,
     ):
         self.cg = cg
         self.new_l2_ids = new_l2_ids
         self.old_ids = old_ids
+        self.old_hierarchy = old_hierarchy
+        self.new_old_id_mapping = new_old_id_mapping
+        self.old_new_id_mapping = old_new_id_mapping
         self.operation_id = operation_id
         self.time_stamp = time_stamp
         self._layer_ids_d = defaultdict(list)  # new IDs in each layer
         self._cross_edges_d = {}
         self._done = set()
+
+        print(self.old_ids)
 
     def _create_new_sibling(self, child_id, sibling_layer) -> basetypes.NODE_ID:
         """
@@ -271,6 +291,35 @@ class CreateParentNodes:
         # print("new_sibling_id", child_id, new_sibling_id)
         return new_sibling_id
 
+    def _get_all_siblings(
+        self,
+        new_id: basetypes.NODE_ID,
+        parent_id: basetypes.NODE_ID,
+        layer: int = None,
+        new_id_ce_siblings: Iterable = None,
+    ) -> List:
+        """
+        Get parents of `new_id_ce_siblings`
+        Children of these parents will include all siblings (filter by chunk IDs)
+        """
+        parents = self.cg.get_parents(new_id_ce_siblings)
+        cache.update(cache.PARENTS, new_id_ce_siblings, parents)
+
+        old_id = self.old_hierarchy[self.new_old_id_mapping[new_id]][layer]
+        old_new_id = self.old_new_id_mapping[old_id]
+
+        chunk_ids = self.cg.get_children_chunk_ids(parent_id)
+        children = self.cg.get_children(np.unique(parents), flatten=True)
+        children_chunk_ids = self.cg.get_chunk_ids_from_node_ids(children)
+        children = children[np.in1d(children_chunk_ids, chunk_ids)]
+        print("$$$$$$$ old_id", old_id, old_new_id)
+        print(
+            "self.old_ids",
+            old_id in self.old_ids,
+            old_new_id in self._layer_ids_d[layer] and old_id in children,
+        )
+        return np.setdiff1d(children, self.old_ids, assume_unique=True)
+
     def _handle_missing_siblings(self, layer, new_id_ce_siblings) -> np.ndarray:
         """Create new sibling when a new ID has none because of skip connections."""
         mask = self.cg.get_chunk_layers(new_id_ce_siblings) < layer
@@ -279,24 +328,6 @@ class CreateParentNodes:
             self._layer_ids_d[layer].append(self._create_new_sibling(id_, layer))
         new_id_ce_siblings[mask] = self.cg.get_parents(missing)
         return new_id_ce_siblings
-
-    def _get_all_siblings(
-        self,
-        new_id: basetypes.NODE_ID,
-        parent_id: basetypes.NODE_ID,
-        new_id_ce_siblings: Iterable,
-    ) -> List:
-        """
-        Get parents of `new_id_ce_siblings`
-        Children of these parents will include all siblings (filter by chunk IDs)
-        """
-        parents = self.cg.get_parents(new_id_ce_siblings)
-        cache.update(cache.PARENTS, new_id_ce_siblings, parents)
-        chunk_ids = self.cg.get_children_chunk_ids(parent_id)
-        children = self.cg.get_children(np.unique(parents), flatten=True)
-        children_chunk_ids = self.cg.get_chunk_ids_from_node_ids(children)
-        children = children[np.in1d(children_chunk_ids, chunk_ids)]
-        return np.setdiff1d(children, self.old_ids, assume_unique=True)
 
     def _get_all_new_sibling_siblings(
         self, layer: int, ce_siblings: np.ndarray
@@ -318,6 +349,9 @@ class CreateParentNodes:
         ce_siblings: np.ndarray,
     ) -> None:
         """Helper function."""
+        print()
+        print("-" * 100)
+        print("new_id", new_id, ce_layer, ce_siblings)
         if new_id in self._done:
             return  # parent already updated
         chunk_id = self.cg.get_parent_chunk_id
@@ -326,28 +360,53 @@ class CreateParentNodes:
             parent_id = self.cg.id_client.create_node_id(chunk_id(new_id, ce_layer))
             cache.CHILDREN[parent_id] = np.array([new_id], dtype=basetypes.NODE_ID)
             self._layer_ids_d[ce_layer].append(parent_id)
+            old_id = self.old_hierarchy[self.new_old_id_mapping[new_id]][ce_layer]
+            self.old_new_id_mapping[old_id] = parent_id
         else:
             parent_id = self.cg.id_client.create_node_id(chunk_id(new_id, layer + 1))
+            old_id = self.old_hierarchy[self.new_old_id_mapping[new_id]][layer + 1]
+            self.old_new_id_mapping[old_id] = parent_id
             ce_siblings = self._get_all_new_sibling_siblings(layer, ce_siblings)
             # siblings that are also new IDs
             common = np.intersect1d(
                 ce_siblings, self._layer_ids_d[layer], assume_unique=True
             )
 
+            print()
+            old_id = self.old_hierarchy[self.new_old_id_mapping[new_id]][layer]
+            print(
+                "cross",
+                self.cg.get_cross_chunk_edges(np.array([old_id], dtype=np.uint64)),
+            )
+            print("parent", self.cg.get_parent(old_id))
+            p = self.cg.get_parent(old_id, raw_only=True)
+            print("parent raw", p)
+            print("p children", self.cg.get_children(p))
+            print("bwahahhahaha\n")
+
             # they do not have parents yet so exclude them
             siblings = self._get_all_siblings(
                 new_id,
                 parent_id,
+                layer,
                 np.setdiff1d(ce_siblings, common, assume_unique=True),
             )
+
             cache.CHILDREN[parent_id] = np.unique(
                 np.concatenate([[new_id], common, siblings])
             )
             self._layer_ids_d[layer + 1].append(parent_id)
-            self._done.update(common)
-
+            self._done.update(  # flag children that are new as done
+                np.intersect1d(
+                    cache.CHILDREN[parent_id],
+                    self._layer_ids_d[layer],
+                    assume_unique=True,
+                )
+            )
         cache.update(cache.PARENTS, cache.CHILDREN[parent_id], parent_id)
         self._done.add(new_id)
+        self.new_old_id_mapping[parent_id] = self.new_old_id_mapping[new_id]
+        self.old_new_id_mapping[self.new_old_id_mapping[parent_id]] = parent_id
 
     def run(self) -> Iterable:
         """
@@ -358,6 +417,8 @@ class CreateParentNodes:
         # no need to call `get_cross_chunk_edges`
         self._layer_ids_d[2] = self.new_l2_ids
         for current_layer in range(2, self.cg.meta.layer_count):
+            print("*" * 100)
+            print("layer", current_layer, self._layer_ids_d[current_layer])
             if len(self._layer_ids_d[current_layer]) == 0:
                 continue
 
@@ -365,11 +426,9 @@ class CreateParentNodes:
             cached = np.fromiter(self._cross_edges_d.keys(), dtype=basetypes.NODE_ID)
             not_cached = new_ids[~np.in1d(new_ids, cached)]
             self._cross_edges_d.update(self.cg.get_cross_chunk_edges(not_cached))
-
-            # print("\n", "*" * 50)
-            # print(current_layer, new_ids)
             for new_id in new_ids:
                 ce_layer = list(self._cross_edges_d[new_id].keys())[0]
                 ce_siblings = self._cross_edges_d[new_id][ce_layer][:, 1]
                 self._create_parent(new_id, current_layer, ce_layer, ce_siblings)
-        return self._layer_ids_d[self.cg.meta.layer_count]
+        # return self._layer_ids_d[self.cg.meta.layer_count]
+        return self._done, self._layer_ids_d
