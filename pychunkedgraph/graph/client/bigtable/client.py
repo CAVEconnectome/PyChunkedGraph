@@ -274,8 +274,8 @@ class BigTableClient(bigtable.Client, ClientWithIDGen):
         """Generates a list of unique node IDs for the given chunk."""
         low, high = self._get_ids_range(serialize_uint64(chunk_id, counter=True), size)
         low, high = basetypes.SEGMENT_ID.type(low), basetypes.SEGMENT_ID.type(high)
-        low_id, high_id = chunk_id | low, chunk_id | high
-        return np.arange(low_id, high_id + np.uint64(1), dtype=basetypes.NODE_ID)
+        new_ids = np.arange(low, high + np.uint64(1), dtype=basetypes.SEGMENT_ID)
+        return new_ids | chunk_id
 
     def create_node_id(self, chunk_id: np.uint64) -> basetypes.NODE_ID:
         """Generate a unique node ID in the chunk."""

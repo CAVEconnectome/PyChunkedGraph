@@ -123,12 +123,10 @@ def _write_connected_components(
     chunked_ccs = chunked(ccs_with_node_ids, task_size)
     cg_info = cg.get_serialized_info(credentials=False)
     multi_args = []
-
     for ccs in chunked_ccs:
         multi_args.append(
             (cg_info, layer_id, parent_coords, ccs, node_layer_d_shared, time_stamp)
         )
-
     mu.multiprocess_func(
         _write_components_helper,
         multi_args,
@@ -139,7 +137,6 @@ def _write_connected_components(
 def _write_components_helper(args):
     cg_info, layer_id, parent_coords, ccs, node_layer_d_shared, time_stamp = args
     cg = ChunkedGraph(**cg_info)
-
     parent_layer_ids = range(layer_id, cg.meta.layer_count + 1)
     cc_connections = {l: [] for l in parent_layer_ids}
     for node_ids in ccs:
