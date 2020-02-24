@@ -388,9 +388,13 @@ def get_tabular_changelog_weekly(cg_instance):
     for entry_id in entry_ids:
         entry = log_rows[entry_id]
 
-        raise Exception('entry: ' + str(entry))
-        timestamp_list.append(entry["timestamp"])
-        user_list.append(entry.user_id)
+        timestamp = entry["timestamp"]
+        timestamp_list.append(timestamp)
+
+        user_id = entry[column_keys.OperationLogs.UserID]
+        user_list.append(user_id)
+
+        #raise Exception('entry: ' + str(entry))
 
     return pd.DataFrame.from_dict(
         {"operation_id": entry_ids,
