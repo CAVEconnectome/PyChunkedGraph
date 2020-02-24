@@ -128,7 +128,7 @@ def get_cg(table_id):
 
         # Create ChunkedGraph
         cache[table_id] = chunkedgraph.ChunkedGraph(graph_id=table_id)
-        # foo_split(cache[table_id])
+        foo_split(cache[table_id])
         # foo_merge(cache[table_id])
     current_app.table_id = table_id
     return cache[table_id]
