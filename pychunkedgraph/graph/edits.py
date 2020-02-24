@@ -379,6 +379,15 @@ class CreateParentNodes:
             siblings[new_id][mask] = np.array([old_new_id_d[id_] for id_ in old_ids_])
             print("siblings a", siblings[new_id])
 
+        # TODO
+        # keep track of old IDs
+        # merge - one new ID has 2 old IDs
+        # split - two new IDs have the same old ID
+        # get parents of old IDs, their children are the siblings
+        # those siblings include old IDs, replace with new
+        # get cross edges of all, find connected components
+        # handle skip connection
+
     def run(self) -> Iterable:
         """
         After new level 2 IDs are created, create parents in higher layers.
