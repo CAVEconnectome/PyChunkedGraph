@@ -1621,6 +1621,9 @@ class ChunkedGraph(object):
         ]
 
         log_records_d = self.read_node_id_rows(
+            start_id=np.uint64(0),
+            end_id=self.get_max_operation_id(),
+            end_id_inclusive=True,
             columns=columns,
             start_time=start_time,
             end_time=end_time,
