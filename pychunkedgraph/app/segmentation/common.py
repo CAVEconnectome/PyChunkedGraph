@@ -568,14 +568,14 @@ def change_log(table_id, root_id=None):
     return segment_history.change_log()
 
 
-def tabular_change_log_weekly(table_id):
+def tabular_change_log_recent(table_id, start_time):
     current_app.table_id = table_id
     user_id = str(g.auth_user["id"])
     current_app.user_id = user_id
 
     # Call ChunkedGraph
     cg = app_utils.get_cg(table_id)
-    return cg_history.get_tabular_changelog_weekly(cg)
+    return cg_history.get_tabular_changelog_recent(cg, start_time)
 
 
 def tabular_change_log(table_id, root_id):

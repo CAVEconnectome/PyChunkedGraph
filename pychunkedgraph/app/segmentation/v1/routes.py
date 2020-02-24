@@ -204,11 +204,12 @@ def change_log_full(table_id):
     return output
 
 
-@bp.route("/table/<table_id>/tabular_change_log_weekly", methods=["GET"])
+@bp.route("/table/<table_id>/tabular_change_log_recent", methods=["GET"])
 @auth_requires_permission("view")
 def tabular_change_log_weekly(table_id):
+    start_time = request.args.get("start_time", default=0, type=int)
     disp = request.args.get("disp", default=False, type=toboolean)
-    weekly_tab_change_log = common.tabular_change_log_weekly(table_id)
+    weekly_tab_change_log = common.tabular_change_log_recent(table_id, start_time)
 
     if disp:
         return weekly_tab_change_log.to_html()

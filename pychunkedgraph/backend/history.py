@@ -353,9 +353,8 @@ def get_all_log_entries(cg_instance):
             continue
     return log_entries
 
-def get_tabular_changelog_weekly(cg_instance):
-    log_entries = []
-    start_time = datetime.datetime.now() - datetime.timedelta(days=7)
+def get_tabular_changelog_recent(cg_instance, start_time_int):
+    start_time = datetime.datetime.fromtimestamp(start_time_int / 1000.0)
     log_rows = cg_instance.read_log_rows_for_timespan(start_time=start_time)
 
     timestamp_list = []
