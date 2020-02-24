@@ -388,7 +388,8 @@ def get_tabular_changelog_weekly(cg_instance):
     for entry_id in entry_ids:
         entry = log_rows[entry_id]
 
-        timestamp_list.append(entry.timestamp)
+        raise Error('entry: ' + str(entry))
+        timestamp_list.append(entry["timestamp"])
         user_list.append(entry.user_id)
 
     return pd.DataFrame.from_dict(
