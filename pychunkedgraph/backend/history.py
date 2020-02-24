@@ -358,33 +358,10 @@ def get_tabular_changelog_weekly(cg_instance):
     start_time = datetime.datetime.now() - datetime.timedelta(days=7)
     log_rows = cg_instance.read_log_rows_for_timespan(start_time=start_time)
 
-    """
-            row_dict = self.cg.read_node_id_rows(node_ids=next_ids)
-
-            for row_key, row in row_dict.items():
-                
-                # Read log row and add it to the dict
-                if operation_id_col in row and row_key != self.root_id:
-                    operation_id = row[operation_id_col][0].value
-
-                    if operation_id in self._past_log_rows:
-                        continue
-                else:
-                    if row_key != self.root_id:
-                        raise cg_exceptions.InternalServerError
-                    else:
-                        continue
-
-                log_row, log_timestamp = self.cg.read_log_row(operation_id)
-
-                self._past_log_rows[operation_id] = LogEntry(log_row,
-                                                             log_timestamp)
-    """
-
     timestamp_list = []
     user_list = []
 
-    entry_ids = np.sort(list(log_rows.keys())) #TODO is this necessary to sort? or is it already sorted
+    entry_ids = np.sort(list(log_rows.keys()))
     for entry_id in entry_ids:
         entry = log_rows[entry_id]
 
@@ -394,23 +371,7 @@ def get_tabular_changelog_weekly(cg_instance):
         user_id = entry[column_keys.OperationLogs.UserID]
         user_list.append(user_id)
 
-        #raise Exception('entry: ' + str(entry))
-
     return pd.DataFrame.from_dict(
         {"operation_id": entry_ids,
             "timestamp": timestamp_list,
             "user_id": user_list})
-
-    """
-    for operation_id in range(cg_instance.get_max_operation_id()):
-        try:
-            log_entries.append(
-                LogEntry(
-                    log_rows[operation_id],
-                    log_rows[operation_id]["timestamp"]
-                )
-            )
-        except KeyError:
-            continue
-    return log_entries
-    """
