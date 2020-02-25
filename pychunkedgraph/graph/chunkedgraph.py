@@ -426,27 +426,20 @@ class ChunkedGraph:
         bbox: typing.Optional[typing.Sequence[typing.Sequence[int]]] = None,
         bbox_is_coordinate: bool = False,
         nodes_only=False,
-    ) -> typing.Tuple[typing.Dict[int, types.Agglomeration], np.ndarray]:
-        """
-        Returns level 2 node IDs with their edges.
-        If `nodes_only`, returns only supervoxels.
-        1. get level 2 children ids belonging to the agglomerations
-        2. read relevant chunk edges from cloud storage (include fake edges from big table)
-        3. group nodes and edges based on level 2 ids `types.Agglomeration`
-        returns dict of {id: types.Agglomeration}
-        """
-        # 1 level 2 ids
+    ) -> typing.Tuple[typing.Dict, typing.Dict, Edges]:
+        """TODO docs"""
         bbox = chunk_utils.normalize_bounding_box(self.meta, bbox, bbox_is_coordinate)
-        level2_ids = [types.empty_1d]
-        for agglomeration_id in node_ids:
+        node_l2ids_d = {}
+        for node_id in node_ids:
             layer_nodes_d = self._get_subgraph_higher_layer_nodes(
-                node_id=agglomeration_id, bounding_box=bbox, return_layers=[2],
+                node_id=node_id, bounding_box=bbox, return_layers=[2],
             )
-            level2_ids.append(layer_nodes_d[2])
-        level2_ids = np.concatenate(level2_ids)
+            node_l2ids_d[node_id] = layer_nodes_d[2]
+        level2_ids = np.concatenate([*node_l2ids_d.values()])
         if nodes_only:
             return self.get_children(level2_ids, flatten=True)
-        return self.get_l2_agglomerations(level2_ids)
+        l2id_agglomeration_d, edges = self.get_l2_agglomerations(level2_ids)
+        return node_l2ids_d, l2id_agglomeration_d, edges
 
     def get_l2_agglomerations(
         self, level2_ids: np.ndarray
@@ -464,7 +457,9 @@ class ChunkedGraph:
         )
         edges_dict = edge_utils.concatenate_chunk_edges(chunk_edge_dicts)
         all_chunk_edges = reduce(lambda x, y: x + y, edges_dict.values())
-        agg_edges = set()
+        in_edges = set()
+        out_edges = set()
+        cross_edges = set()
         # TODO include fake edges
         l2id_agglomeration_d = {}
         l2id_children_d = self.get_children(level2_ids)
@@ -476,8 +471,13 @@ class ChunkedGraph:
             l2id_agglomeration_d[l2id] = types.Agglomeration(
                 l2id, supervoxels, in_, out_, cross_
             )
-            agg_edges.update([in_, cross_])
-        return (l2id_agglomeration_d, reduce(lambda x, y: x + y, agg_edges))
+            in_edges.add(in_)
+            out_edges.add(out_)
+            cross_edges.add(cross_)
+        in_edges = reduce(lambda x, y: x + y, in_edges)
+        out_edges = reduce(lambda x, y: x + y, out_edges)
+        cross_edges = reduce(lambda x, y: x + y, cross_edges)
+        return l2id_agglomeration_d, (in_edges, out_edges, cross_edges)
 
     def add_edges(
         self,
@@ -598,7 +598,7 @@ class ChunkedGraph:
         bounding_box: typing.Optional[typing.Sequence[typing.Sequence[int]]],
         return_layers: typing.Sequence[int],
     ):
-        def _get_subgraph_higher_layer_nodes_threaded(
+        def _get_subgraph_higher_layer_nodes_thread(
             node_ids: typing.Iterable[np.uint64],
         ) -> typing.List[np.uint64]:
             children = self.get_children(node_ids, flatten=True)
@@ -648,7 +648,7 @@ class ChunkedGraph:
             child_ids = np.fromiter(
                 chain.from_iterable(
                     mu.multithread_func(
-                        _get_subgraph_higher_layer_nodes_threaded,
+                        _get_subgraph_higher_layer_nodes_thread,
                         np.array_split(this_layer_child_ids, this_n_threads),
                         n_threads=this_n_threads,
                         debug=this_n_threads == 1,

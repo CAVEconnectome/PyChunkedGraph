@@ -13,6 +13,7 @@ from .utils import basetypes
 from .utils import flatgraph
 from .utils.context_managers import TimeIt
 from .connectivity.nodes import edge_exists
+from .connectivity.search import check_reachability
 from .edges.utils import filter_min_layer_cross_edges
 from .edges.utils import concatenate_cross_edge_dicts
 from .edges.utils import merge_cross_edge_dicts_multiple
@@ -64,13 +65,54 @@ def _analyze_atomic_edges(
     return (parent_edges, atomic_cross_edges_d)
 
 
+def merge_preprocess(
+    cg,
+    edges: Iterable[np.ndarray],
+    subgraph_edges: Iterable[np.ndarray],
+    root_l2ids_d: Dict,
+    l2id_agglomeration_d: Dict,
+):
+    """
+    Determine if a fake edge needs to be added.
+    Get subgraph within the bounding box
+        If there is a path between the supervoxels, fake edge is not necessary.
+            Determine all the inactive edges between the L2 chidlren of the 2 node IDs.
+        If no path exists, add user input as a fake edge.
+    """
+    node_ids = np.unique(edges)
+    subgraph_edges = np.concatenate([subgraph_edges, np.vstack([node_ids, node_ids]).T])
+    graph, _, _, node_ids = flatgraph.build_gt_graph(subgraph_edges, is_directed=False)
+    reachable = check_reachability(graph, edges[:, 0], edges[:, 1], node_ids)
+    if reachable[0]:
+        # determine
+        print("hahahahhaha", len(root_l2ids_d), len(l2id_agglomeration_d))
+        nodes1 = np.concatenate([*root_l2ids_d.values()])
+
+        sv_parent_d = {}
+        out_cross_edges = [types.empty_2d]
+        for l2_agg in l2id_agglomeration_d.values():
+            edges_ = (l2_agg.out_edges + l2_agg.cross_edges).get_pairs()
+            sv_parent_d.update(dict(zip(edges_[:, 0], [l2_agg.node_id] * edges_.size)))
+            out_cross_edges.append(edges_)
+
+        get_sv_parents = np.vectorize(
+            lambda x: sv_parent_d.get(x, 0), otypes=[np.uint64]
+        )
+        out_cross_edges = get_sv_parents(np.concatenate(out_cross_edges))
+        del sv_parent_d
+
+        out_cross_edges = np.unique(out_cross_edges, axis=0)
+        nodes2 = np.unique(out_cross_edges)
+        print("out_cross_edge nodes", np.intersect1d(nodes1, nodes2))
+        return
+    return edges
+
+
 def add_edges(
     cg,
     *,
     atomic_edges: Iterable[np.ndarray],
     operation_id: np.uint64 = None,
-    source_coords: Sequence[np.uint64] = None,
-    sink_coords: Sequence[np.uint64] = None,
     time_stamp: datetime.datetime = None,
 ):
     # TODO add docs
@@ -266,7 +308,7 @@ class CreateParentNodes:
         del sv_parent_d
         cross_edges = np.concatenate([cross_edges, np.vstack([node_ids, node_ids]).T])
         graph, _, _, graph_ids = flatgraph.build_gt_graph(
-            cross_edges, make_directed=True
+            np.unique(cross_edges, axis=0), make_directed=True
         )
         return flatgraph.connected_components(graph), graph_ids
 

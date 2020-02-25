@@ -67,7 +67,6 @@ def foo_split(cg):
             node_id = node[0]
             x, y, z = node[1:]
             coordinate = np.array([x, y, z]) / cg.meta._ws_cv.resolution
-
             atomic_id = cg.get_atomic_id_from_coord(
                 coordinate[0],
                 coordinate[1],
@@ -79,7 +78,6 @@ def foo_split(cg):
             data_dict[k]["coord"].append(coordinate)
 
     from pychunkedgraph.graph.operation import MulticutOperation
-
     op = MulticutOperation(
         cg,
         user_id="test",
@@ -132,7 +130,7 @@ def get_cg(table_id):
         # Create ChunkedGraph
         cache[table_id] = chunkedgraph.ChunkedGraph(graph_id=table_id)
         # foo_split(cache[table_id])
-        foo_merge(cache[table_id])
+        # foo_merge(cache[table_id])
     current_app.table_id = table_id
     return cache[table_id]
 
