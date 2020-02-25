@@ -103,10 +103,8 @@ def categorize_edges(
 
     in_edges = edges[in_mask]
     all_out_edges = edges[out_mask]  # out_edges + cross_edges
-
     edge_layers = get_cross_chunk_edges_layer(meta, all_out_edges.get_pairs())
     cross_edges_m = edge_layers > 1
-
     out_edges = all_out_edges[~cross_edges_m]
     cross_edges = all_out_edges[cross_edges_m]
     return (in_edges, out_edges, cross_edges)
@@ -118,7 +116,6 @@ def get_active_edges(edges: Edges, parent_children_d: Dict) -> Edges:
     -> assume active if v1 and v2 belong to same connected component
     """
     child_parent_d = reverse_dictionary(parent_children_d)
-
     sv_ids1 = edges.node_ids1
     sv_ids2 = edges.node_ids2
     parent_ids1 = np.array([child_parent_d.get(sv_id, sv_id) for sv_id in sv_ids1])
@@ -129,7 +126,6 @@ def get_active_edges(edges: Edges, parent_children_d: Dict) -> Edges:
     sv_ids2 = sv_ids2[mask]
     affinities = edges.affinities[mask]
     areas = edges.areas[mask]
-
     return Edges(sv_ids1, sv_ids2, affinities=affinities, areas=areas)
 
 

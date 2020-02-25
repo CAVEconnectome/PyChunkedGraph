@@ -471,7 +471,6 @@ class MergeOperation(GraphEditOperation):
             self.cg,
             atomic_edges=self.added_edges,
             operation_id=operation_id,
-            affinities=self.affinities,
             time_stamp=timestamp,
         )
         # rows.extend(fake_edge_rows)

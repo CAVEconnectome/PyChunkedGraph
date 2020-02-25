@@ -56,7 +56,7 @@ def foo_split(cg):
         "sources": [["88399772800622120", 729368.5, 847633.8125, 599680]],
         "sinks": [["88329404056440986", 728994.5, 847396.625, 599680]],
     }
-    data = d1
+    data = d2
 
     from collections import defaultdict
 
@@ -97,7 +97,10 @@ def foo_merge(cg):
     from pychunkedgraph.graph.edits import add_edges
 
     # between 2
-    edges = np.array([[94524946524577880, 94595315268752176]], dtype=np.uint64)
+    edges = np.array([[94803535283198313, 94803466563722624]], dtype=np.uint64)
+
+    # between 8
+    # edges = np.array([[94524946524577880, 94595315268752176]], dtype=np.uint64)
     with TimeIt("add_edges"):
         print(add_edges(cg, atomic_edges=edges))
 
@@ -128,8 +131,8 @@ def get_cg(table_id):
 
         # Create ChunkedGraph
         cache[table_id] = chunkedgraph.ChunkedGraph(graph_id=table_id)
-        foo_split(cache[table_id])
-        # foo_merge(cache[table_id])
+        # foo_split(cache[table_id])
+        foo_merge(cache[table_id])
     current_app.table_id = table_id
     return cache[table_id]
 

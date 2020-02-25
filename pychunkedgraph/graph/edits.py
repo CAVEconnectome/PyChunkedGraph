@@ -20,24 +20,16 @@ from ..utils.general import in2d
 from ..utils.general import reverse_dictionary
 
 
-"""
-TODO
-1. get split working
-2. handle fake edges 
-3. unit tests, edit old and create new
-4. split merge manual tests
-5. performance
-6. meshing
-7. ingest instructions, pinky test run
-
-
-Their children might be "too much" due to the split; even within one chunk. How do you deal with that?
-
-a good way to test this is to check all intermediate nodes from the component before the split and then after the split. Basically, get all childrens in all layers of the one component before and the (hopefully) two components afterwards. Check (1) are all intermediate nodes from before in a list after and (2) do all intermediate nodes appear exactly one time after the split (aka is there overlap between the resulting components). (edited) 
-
-for (2) Overlap can be real but then they have to be exactly the same. In that case the removed edges did not split the component in two
-
-"""
+def _init_old_hierarchy(cg, l2ids: np.ndarray):
+    new_old_id_d = defaultdict(list)
+    old_new_id_d = defaultdict(list)
+    old_hierarchy_d = {id_: {2: id_} for id_ in l2ids}
+    for id_ in l2ids:
+        parents_d = cg.get_all_parents_dict(id_)
+        old_hierarchy_d[id_].update(parents_d)
+        for parent in parents_d.values():
+            old_hierarchy_d[parent] = old_hierarchy_d[id_]
+    return new_old_id_d, old_new_id_d, old_hierarchy_d
 
 
 def _analyze_atomic_edges(
@@ -72,23 +64,6 @@ def _analyze_atomic_edges(
     return (parent_edges, atomic_cross_edges_d)
 
 
-def _get_all_old_ids(cg, l2ids: np.ndarray) -> np.ndarray:
-    """
-    Parents of IDs affected by an edit.
-    They need to be excluded when building new hierarchy.
-    """
-    layer = 3
-    old_ids = [l2ids]
-    parents = l2ids.copy()
-    mask = cg.get_chunk_layers(parents) < layer
-    while np.any(mask):
-        parents[mask] = cg.get_roots(parents[mask], stop_layer=layer)
-        old_ids.append(parents.copy())
-        layer += 1
-        mask = cg.get_chunk_layers(parents) < layer
-    return np.unique(np.concatenate(old_ids))
-
-
 def add_edges(
     cg,
     *,
@@ -98,20 +73,13 @@ def add_edges(
     sink_coords: Sequence[np.uint64] = None,
     time_stamp: datetime.datetime = None,
 ):
-    """
-    Problem: Update parent and children of the new level 2 id
-    For each layer >= 2
-        get cross edges
-        get parents
-            get children
-        above children + new ID will form a new component
-        update parent, former parents and new parents for all affected IDs
-    """
+    # TODO add docs
+    cache.clear()
+    cg.cache = cache.CacheService(cg)
     edges, l2_atomic_cross_edges_d = _analyze_atomic_edges(cg, atomic_edges)
     l2ids = np.unique(edges)
-    old_ids = _get_all_old_ids(cg, l2ids)
+    new_old_id_d, old_new_id_d, old_hierarchy_d = _init_old_hierarchy(cg, l2ids)
 
-    # setup relevant children and atomic cross edges
     atomic_children_d = cg.get_children(l2ids)
     atomic_cross_edges_d = merge_cross_edge_dicts_multiple(
         cg.get_atomic_cross_edges(l2ids), l2_atomic_cross_edges_d
@@ -131,11 +99,16 @@ def add_edges(
         )
         cache.update(cache.PARENTS, cache.CHILDREN[new_id], new_id)
         new_l2_ids.append(new_id)
+        new_old_id_d[new_id].extend(l2ids_)
+        for id_ in l2ids_:
+            old_new_id_d[id_].append(new_id)
 
     create_parents = CreateParentNodes(
         cg,
         new_l2_ids=new_l2_ids,
-        old_ids=old_ids,
+        old_hierarchy_d=old_hierarchy_d,
+        new_old_id_d=new_old_id_d,
+        old_new_id_d=old_new_id_d,
         operation_id=operation_id,
         time_stamp=time_stamp,
     )
@@ -191,26 +164,15 @@ def remove_edges(
     operation_id: basetypes.OPERATION_ID = None,
     time_stamp: datetime.datetime = None,
 ):
+    # TODO add docs
     cache.clear()
     cg.cache = cache.CacheService(cg)
     edges, _ = _analyze_atomic_edges(cg, atomic_edges)
     l2ids = np.unique(edges)
-    # print("l2ids", l2ids)
-    old_ids = _get_all_old_ids(cg, l2ids)
+    new_old_id_d, old_new_id_d, old_hierarchy_d = _init_old_hierarchy(cg, l2ids)
     l2id_chunk_id_d = dict(zip(l2ids, cg.get_chunk_ids_from_node_ids(l2ids)))
     atomic_cross_edges_d = cg.get_atomic_cross_edges(l2ids)
 
-    new_old_id_d = defaultdict(list)
-    old_new_id_d = defaultdict(list)
-    old_hierarchy_d = {id_: {2: id_} for id_ in l2ids}
-    for id_ in l2ids:
-        parents_d = cg.get_all_parents_dict(id_)
-        old_hierarchy_d[id_].update(parents_d)
-        for parent in parents_d.values():
-            old_hierarchy_d[parent] = old_hierarchy_d[id_]
-
-    # This view of the to be removed edges helps us to
-    # compute the mask of retained edges in chunk
     removed_edges = np.concatenate([atomic_edges, atomic_edges[:, ::-1]], axis=0)
     new_l2_ids = []
     for id_ in l2ids:
@@ -236,7 +198,6 @@ def remove_edges(
     create_parents = CreateParentNodes(
         cg,
         new_l2_ids=new_l2_ids,
-        old_ids=old_ids,
         old_hierarchy_d=old_hierarchy_d,
         new_old_id_d=new_old_id_d,
         old_new_id_d=old_new_id_d,
@@ -252,23 +213,22 @@ class CreateParentNodes:
         cg,
         *,
         new_l2_ids: Iterable,
-        old_ids: np.ndarray,
         old_hierarchy_d: Dict[np.uint64, Dict[int, np.uint64]] = None,
         new_old_id_d: Dict[np.uint64, Iterable[np.uint64]] = None,
         old_new_id_d: Dict[np.uint64, Iterable[np.uint64]] = None,
         operation_id: basetypes.OPERATION_ID,
         time_stamp: datetime.datetime,
     ):
+        # TODO add docs
         self.cg = cg
-        self.new_l2_ids = new_l2_ids
-        self.old_ids = old_ids
-        self.operation_id = operation_id
-        self.old_hierarchy_d = old_hierarchy_d
-        self.new_old_id_d = new_old_id_d
-        self.old_new_id_d = old_new_id_d
-        self.time_stamp = time_stamp
-        self._layer_ids_d = defaultdict(list)  # new IDs in each layer
+        self._new_l2_ids = new_l2_ids
+        self._old_hierarchy_d = old_hierarchy_d
+        self._new_old_id_d = new_old_id_d
+        self._old_new_id_d = old_new_id_d
+        self._new_ids_d = defaultdict(list)  # new IDs in each layer
         self._cross_edges_d = {}
+        self.operation_id = operation_id
+        self.time_stamp = time_stamp
 
     def _update_id_lineage(
         self,
@@ -277,25 +237,26 @@ class CreateParentNodes:
         layer: int,
         parent_layer: int,
     ):
-        mask = np.in1d(children, self._layer_ids_d[layer], assume_unique=True)
-        # print()
-        # print(layer, parent_layer)
+        mask = np.in1d(children, self._new_ids_d[layer], assume_unique=True)
         for child_id in children[mask]:
-            child_old_ids = self.new_old_id_d[child_id]
+            child_old_ids = self._new_old_id_d[child_id]
             for id_ in child_old_ids:
-                old_id = self.old_hierarchy_d[id_][parent_layer]
-                self.new_old_id_d[parent].append(old_id)
-                self.old_new_id_d[old_id].append(parent)
+                try:
+                    old_id = self._old_hierarchy_d[id_][parent_layer]
+                    self._new_old_id_d[parent].append(old_id)
+                    self._old_new_id_d[old_id].append(parent)
+                except KeyError:
+                    pass
 
-    def _get_connected_components(self, layer_ids: np.ndarray, layer: int):
+    def _get_connected_components(self, node_ids: np.ndarray, layer: int):
         cached = np.fromiter(self._cross_edges_d.keys(), dtype=basetypes.NODE_ID)
-        not_cached = layer_ids[~np.in1d(layer_ids, cached)]
+        not_cached = node_ids[~np.in1d(node_ids, cached)]
         self._cross_edges_d.update(
             self.cg.get_cross_chunk_edges(not_cached, uplift=False)
         )
         sv_parent_d = {}
         sv_cross_edges = [types.empty_2d]
-        for id_ in layer_ids:
+        for id_ in node_ids:
             edges_ = self._cross_edges_d[id_].get(layer, types.empty_2d)
             sv_parent_d.update(dict(zip(edges_[:, 0], [id_] * edges_.size)))
             sv_cross_edges.append(edges_)
@@ -303,24 +264,24 @@ class CreateParentNodes:
         get_sv_parents = np.vectorize(sv_parent_d.get, otypes=[np.uint64])
         cross_edges = get_sv_parents(np.concatenate(sv_cross_edges))
         del sv_parent_d
-        cross_edges = np.concatenate([cross_edges, np.vstack([layer_ids, layer_ids]).T])
+        cross_edges = np.concatenate([cross_edges, np.vstack([node_ids, node_ids]).T])
         graph, _, _, graph_ids = flatgraph.build_gt_graph(
             cross_edges, make_directed=True
         )
         return flatgraph.connected_components(graph), graph_ids
 
-    def _get_layer_ids(self, new_ids: np.ndarray):
-        old_ids = [self.new_old_id_d[id_] for id_ in new_ids]
+    def _get_layer_node_ids(self, new_ids: np.ndarray):
+        old_ids = [self._new_old_id_d[id_] for id_ in new_ids]
         old_ids = np.unique(np.array(old_ids, dtype=basetypes.NODE_ID))
         children_d = self.cg.get_children(np.unique(self.cg.get_parents(old_ids)))
-        layer_ids = np.concatenate([*children_d.values()])
-        mask = np.in1d(layer_ids, old_ids, assume_unique=True)
+        node_ids = np.concatenate([*children_d.values()])
+        mask = np.in1d(node_ids, old_ids, assume_unique=True)
         return np.concatenate(
             [
-                np.array(self.old_new_id_d[id_], dtype=basetypes.NODE_ID)
-                for id_ in layer_ids[mask]
+                np.array(self._old_new_id_d[id_], dtype=basetypes.NODE_ID)
+                for id_ in node_ids[mask]
             ]
-            + [layer_ids[~mask]]
+            + [node_ids[~mask]]
         )
 
     def _create_new_parents(self, layer: int):
@@ -333,9 +294,9 @@ class CreateParentNodes:
         get cross edges of all, find connected components
         update parent old IDs
         """
-        new_ids = self._layer_ids_d[layer]
+        new_ids = self._new_ids_d[layer]
         components, graph_ids = self._get_connected_components(
-            self._get_layer_ids(new_ids), layer
+            self._get_layer_node_ids(new_ids), layer
         )
         for cc_indices in components:
             parent_layer = layer + 1
@@ -345,7 +306,7 @@ class CreateParentNodes:
             parent_id = self.cg.id_client.create_node_id(
                 self.cg.get_parent_chunk_id(cc_ids[0], parent_layer)
             )
-            self._layer_ids_d[parent_layer].append(parent_id)
+            self._new_ids_d[parent_layer].append(parent_id)
             cache.CHILDREN[parent_id] = cc_ids
             cache.update(cache.PARENTS, cache.CHILDREN[parent_id], parent_id)
             self._update_id_lineage(parent_id, cc_ids, layer, parent_layer)
@@ -355,13 +316,13 @@ class CreateParentNodes:
         After new level 2 IDs are created, create parents in higher layers.
         Cross edges are used to determine existing siblings.
         """
-        self._layer_ids_d[2] = self.new_l2_ids
+        self._new_ids_d[2] = self._new_l2_ids
         for layer in range(2, self.cg.meta.layer_count):
+            # print()
             # print("*" * 100)
-            # print("layer", layer, self._layer_ids_d[layer])
-            if len(self._layer_ids_d[layer]) == 0:
+            # print("layer", layer, self._new_ids_d[layer])
+            if len(self._new_ids_d[layer]) == 0:
                 continue
             self._create_new_parents(layer)
-            # print()
-        return self._layer_ids_d
-        # return self._layer_ids_d[self.cg.meta.layer_count]
+        return self._new_ids_d
+        # return self._new_ids_d[self.cg.meta.layer_count]
