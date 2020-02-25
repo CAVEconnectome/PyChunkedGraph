@@ -294,7 +294,7 @@ class ChunkedGraph:
         return self.cache.atomic_cross_edges_multiple(l2_ids)
 
     def get_cross_chunk_edges(
-        self, node_ids: np.ndarray
+        self, node_ids: np.ndarray, uplift=True
     ) -> typing.Dict[np.uint64, typing.Dict[int, typing.Iterable]]:
         """
         Cross chunk edges for `node_id` at `node_layer`.
@@ -316,7 +316,9 @@ class ChunkedGraph:
         )
         for node_id in node_ids:
             l2_edges_ds = [l2_edges_d_d[l2_id] for l2_id in node_l2ids_d[node_id]]
-            result[node_id] = self._get_min_layer_cross_edges(node_id, l2_edges_ds)
+            result[node_id] = self._get_min_layer_cross_edges(
+                node_id, l2_edges_ds, uplift=uplift
+            )
         return result
 
     def get_roots(
@@ -725,7 +727,10 @@ class ChunkedGraph:
         return parent_children_d
 
     def _get_min_layer_cross_edges(
-        self, node_id: basetypes.NODE_ID, l2id_atomic_cross_edges_ds: typing.Iterable,
+        self,
+        node_id: basetypes.NODE_ID,
+        l2id_atomic_cross_edges_ds: typing.Iterable,
+        uplift=True,
     ) -> typing.Dict[int, typing.Iterable]:
         """
         Find edges at relevant min_layer >= node_layer.
@@ -738,6 +743,8 @@ class ChunkedGraph:
         if self.get_chunk_layer(node_id) < min_layer:
             # cross edges irrelevant
             return {min_layer: types.empty_2d}
+        if not uplift:
+            return {min_layer: edges}
         node_root_id = node_id
         try:
             node_root_id = self.get_root(node_id, stop_layer=min_layer)

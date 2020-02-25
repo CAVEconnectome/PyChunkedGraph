@@ -5,22 +5,13 @@ Ingest / create chunkedgraph on a single machine / instance
 import time
 import math
 import multiprocessing as mp
-from itertools import product
-from typing import List
-from typing import Sequence
 from typing import Dict
-from typing import Tuple
+from itertools import product
 
 import numpy as np
 from multiwrapper import multiprocessing_utils as mu
 
 from .manager import IngestionManager
-from .ran_agglomeration import read_raw_edge_data
-from .ran_agglomeration import read_raw_agglomeration_data
-from .ran_agglomeration import get_active_edges
-from ..io.edges import get_chunk_edges
-from ..io.edges import put_chunk_edges
-from ..io.components import get_chunk_components
 from ..utils.general import chunked
 from ..graph.chunks.hierarchy import get_children_chunk_coords
 
@@ -78,7 +69,9 @@ def _post_task_completion(
 
     if not parent_chunk_str in parent_children_count_d_shared:
         children_count = len(
-            get_children_chunk_coords(imanager.chunkedgraph_meta, parent_layer, parent_coords)
+            get_children_chunk_coords(
+                imanager.chunkedgraph_meta, parent_layer, parent_coords
+            )
         )
         # set initial number of child chunks
         parent_children_count_d_shared[parent_chunk_str] = children_count
