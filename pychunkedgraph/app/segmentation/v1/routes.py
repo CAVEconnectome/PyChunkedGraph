@@ -1,5 +1,6 @@
 import io
 import csv
+import zlib
 
 from flask import make_response
 from flask import Blueprint, request
@@ -7,7 +8,7 @@ from middle_auth_client import auth_requires_permission
 from middle_auth_client import auth_requires_admin
 from middle_auth_client import auth_required
 
-from pychunkedgraph.app.app_utils import jsonify_with_kwargs, toboolean
+from pychunkedgraph.app.app_utils import jsonify_with_kwargs, toboolean, tobinary
 from pychunkedgraph.app.segmentation import common
 from pychunkedgraph.backend import chunkedgraph_exceptions as cg_exceptions
 
@@ -38,7 +39,7 @@ def home():
 
 
 @bp.before_request
-@auth_required
+# @auth_required
 def before_request():
     return common.before_request()
 
@@ -136,7 +137,18 @@ def handle_roots(table_id):
     int64_as_str = request.args.get("int64_as_str", default=False, type=toboolean)
     root_ids = common.handle_roots(table_id)
     resp = {"root_ids": root_ids}
-    return jsonify_with_kwargs(resp, int64_as_str=int64_as_str)
+
+    arg_as_binary = request.args.get("as_binary", default="", type=str)
+    if len(arg_as_binary) in resp:
+        if request.args.get("gzip", default=False, type=toboolean):
+            return tobinary(zlib.compress(root_ids[arg_as_binary]))
+        else:
+            return tobinary(root_ids[arg_as_binary])
+    else:
+        if request.args.get("gzip", default=False, type=toboolean):
+            return zlib.compress(resp)
+        else:
+            return jsonify_with_kwargs(resp, int64_as_str=int64_as_str)
 
 
 ### CHILDREN -------------------------------------------------------------------
