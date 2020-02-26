@@ -19,16 +19,18 @@ class DoNothingCreds(credentials.Credentials):
         pass
 
 
-def jsonify_with_kwargs(data, **kwargs):
+def jsonify_with_kwargs(data, as_response=True, **kwargs):
     kwargs.setdefault("separators", (",", ":"))
 
     if current_app.config["JSONIFY_PRETTYPRINT_REGULAR"] or current_app.debug:
         kwargs["indent"] = 2
         kwargs["separators"] = (", ", ": ")
 
-    return current_app.response_class(
-        json.dumps(data, **kwargs) + "\n", mimetype=current_app.config["JSONIFY_MIMETYPE"]
-    )
+    resp = json.dumps(data, **kwargs)
+    if as_response:
+        return current_app.response_class(resp + "\n", mimetype=current_app.config["JSONIFY_MIMETYPE"])
+    else:
+        return resp
 
 
 def get_bigtable_client(config):

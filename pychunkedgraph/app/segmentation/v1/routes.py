@@ -2,7 +2,7 @@ import io
 import csv
 import zlib
 
-from flask import make_response
+from flask import make_response, current_app
 from flask import Blueprint, request
 from middle_auth_client import auth_requires_permission
 from middle_auth_client import auth_requires_admin
@@ -138,12 +138,12 @@ def handle_roots(table_id):
     root_ids = common.handle_roots(table_id)
     resp = {"root_ids": root_ids}
 
-    arg_as_binary = request.args.get("as_binary", default="", type=str)
+    arg_as_binary = request.args.get("as_binary", default="", typ=str)
     if arg_as_binary in resp:
         if request.args.get("gzip", default=False, type=toboolean):
-            return tobinary(zlib.compress(root_ids[arg_as_binary]))
+            return tobinary(zlib.compress(resp[arg_as_binary]))
         else:
-            return tobinary(root_ids[arg_as_binary])
+            return tobinary(resp[arg_as_binary])
     else:
         if request.args.get("gzip", default=False, type=toboolean):
             return zlib.compress(jsonify_with_kwargs(resp,
