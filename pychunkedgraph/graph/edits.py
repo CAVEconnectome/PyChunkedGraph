@@ -84,10 +84,6 @@ def merge_preprocess(
     graph, _, _, node_ids = flatgraph.build_gt_graph(subgraph_edges, is_directed=False)
     reachable = check_reachability(graph, edges[:, 0], edges[:, 1], node_ids)
     if reachable[0]:
-        # determine
-        print("hahahahhaha", len(root_l2ids_d), len(l2id_agglomeration_d))
-        nodes1 = np.concatenate([*root_l2ids_d.values()])
-
         sv_parent_d = {}
         out_cross_edges = [types.empty_2d]
         for l2_agg in l2id_agglomeration_d.values():
@@ -95,16 +91,24 @@ def merge_preprocess(
             sv_parent_d.update(dict(zip(edges_[:, 0], [l2_agg.node_id] * edges_.size)))
             out_cross_edges.append(edges_)
 
+        out_cross_edges_sv = np.concatenate(out_cross_edges)
         get_sv_parents = np.vectorize(
             lambda x: sv_parent_d.get(x, 0), otypes=[np.uint64]
         )
-        out_cross_edges = get_sv_parents(np.concatenate(out_cross_edges))
+
+        out_cross_edges = get_sv_parents(out_cross_edges_sv)
         del sv_parent_d
 
-        out_cross_edges = np.unique(out_cross_edges, axis=0)
-        nodes2 = np.unique(out_cross_edges)
-        print("out_cross_edge nodes", np.intersect1d(nodes1, nodes2))
-        return
+        out_cross_edges_unique = np.unique(out_cross_edges, axis=0)
+        mask = np.in1d(out_cross_edges, out_cross_edges_unique)
+
+        add_edges = [types.empty_2d]
+
+        for edge in out_cross_edges_unique:
+            mask = np.in1d(out_cross_edges, edge)
+            print("mask", mask)
+            add_edges.append(out_cross_edges_sv[mask])
+        return np.concatenate(add_edges)
     return edges
 
 
@@ -121,7 +125,6 @@ def add_edges(
     edges, l2_atomic_cross_edges_d = _analyze_atomic_edges(cg, atomic_edges)
     l2ids = np.unique(edges)
     new_old_id_d, old_new_id_d, old_hierarchy_d = _init_old_hierarchy(cg, l2ids)
-
     atomic_children_d = cg.get_children(l2ids)
     atomic_cross_edges_d = merge_cross_edge_dicts_multiple(
         cg.get_atomic_cross_edges(l2ids), l2_atomic_cross_edges_d

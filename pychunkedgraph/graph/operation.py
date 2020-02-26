@@ -482,15 +482,15 @@ class MergeOperation(GraphEditOperation):
                 root_l2ids_d,
                 l2id_agglomeration_d,
             )
-        return
-        new_root_ids, new_lvl2_ids, rows = edits.add_edges(
+        print("self.added_edges", self.added_edges.size)
+        new_ids = edits.add_edges(
             self.cg,
             atomic_edges=self.added_edges,
             operation_id=operation_id,
             time_stamp=timestamp,
         )
         # rows.extend(fake_edge_rows)
-        return new_root_ids, new_lvl2_ids, rows
+        return new_ids
 
     def _create_log_record(
         self, *, operation_id, timestamp, new_root_ids
