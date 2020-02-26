@@ -3,7 +3,8 @@ import json
 import numpy as np
 
 from flask import Blueprint, jsonify, request
-from middle_auth_client import auth_requires_admin, auth_requires_permission
+from middle_auth_client import auth_requires_admin, auth_requires_permission, \
+    auth_required
 from pychunkedgraph.app import app_utils
 from pychunkedgraph.app.segmentation import common
 from pychunkedgraph.backend import chunkedgraph_exceptions as cg_exceptions
@@ -18,11 +19,13 @@ bp = Blueprint("pcg_segmentation_v0", __name__, url_prefix="/segmentation/1.0")
 
 @bp.route("/")
 @bp.route("/index")
+@auth_required
 def index():
     return common.index()
 
 
 @bp.route
+@auth_required
 def home():
     return common.home()
 
@@ -33,11 +36,13 @@ def home():
 
 
 @bp.before_request
+@auth_required
 def before_request():
     return common.before_request()
 
 
 @bp.after_request
+@auth_required
 def after_request(response):
     return common.after_request(response)
 

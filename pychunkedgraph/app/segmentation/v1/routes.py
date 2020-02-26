@@ -5,6 +5,7 @@ from flask import make_response
 from flask import Blueprint, request
 from middle_auth_client import auth_requires_permission
 from middle_auth_client import auth_requires_admin
+from middle_auth_client import auth_required
 
 from pychunkedgraph.app.app_utils import jsonify_with_kwargs, toboolean
 from pychunkedgraph.app.segmentation import common
@@ -20,11 +21,13 @@ bp = Blueprint("pcg_segmentation_v1", __name__, url_prefix="/segmentation/api/v1
 
 @bp.route("/")
 @bp.route("/index")
+@auth_required
 def index():
     return common.index()
 
 
 @bp.route
+@auth_required
 def home():
     return common.home()
 
@@ -35,11 +38,13 @@ def home():
 
 
 @bp.before_request
+@auth_required
 def before_request():
     return common.before_request()
 
 
 @bp.after_request
+@auth_required
 def after_request(response):
     return common.after_request(response)
 
@@ -118,7 +123,8 @@ def handle_redo(table_id):
 def handle_root(table_id, node_id):
     int64_as_str = request.args.get("int64_as_str", default=False, type=toboolean)
     root_id = common.handle_root(table_id, node_id)
-    return jsonify_with_kwargs({"root_id": root_id}, int64_as_str=int64_as_str)
+    resp = {"root_id": root_id}
+    return jsonify_with_kwargs(resp, int64_as_str=int64_as_str)
 
 
 ### GET ROOTS -------------------------------------------------------------------
@@ -129,7 +135,8 @@ def handle_root(table_id, node_id):
 def handle_roots(table_id):
     int64_as_str = request.args.get("int64_as_str", default=False, type=toboolean)
     root_ids = common.handle_roots(table_id)
-    return jsonify_with_kwargs(root_ids, int64_as_str=int64_as_str)
+    resp = {"root_ids": root_ids}
+    return jsonify_with_kwargs(resp, int64_as_str=int64_as_str)
 
 
 ### CHILDREN -------------------------------------------------------------------
