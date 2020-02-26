@@ -33,7 +33,7 @@ def _init_old_hierarchy(cg, l2ids: np.ndarray):
     return new_old_id_d, old_new_id_d, old_hierarchy_d
 
 
-def _analyze_atomic_edges(
+def _analyze_edges_to_add(
     cg, atomic_edges: Iterable[np.ndarray]
 ) -> Tuple[Iterable, Dict]:
     """
@@ -43,35 +43,41 @@ def _analyze_atomic_edges(
     """
     nodes = np.unique(atomic_edges)
     parents = cg.get_parents(nodes)
-    parents_d = dict(zip(nodes, parents))
+    sv_parent_d = dict(zip(nodes, parents))
     edge_layers = cg.get_cross_chunk_edges_layer(atomic_edges)
-    mask = edge_layers == 1
-
-    # initialize with in-chunk edges
-    with TimeIt("get_parents edges"):
-        parent_edges = [
-            [parents_d[edge_[0]], parents_d[edge_[1]]] for edge_ in atomic_edges[mask]
-        ]
+    parent_edges = [
+        [sv_parent_d[edge_[0]], sv_parent_d[edge_[1]]]
+        for edge_ in atomic_edges[edge_layers == 1]
+    ]
 
     # cross chunk edges
-    atomic_cross_edges_d = {}
-    for edge, layer in zip(atomic_edges[~mask], edge_layers[~mask]):
-        parent_1 = parents_d[edge[0]]
-        parent_2 = parents_d[edge[1]]
-        atomic_cross_edges_d[parent_1] = {layer: [edge]}
-        atomic_cross_edges_d[parent_2] = {layer: [edge[::-1]]}
-        parent_edges.append([parent_1, parent_1])
-        parent_edges.append([parent_2, parent_2])
+    atomic_cross_edges_d = defaultdict(lambda: defaultdict(list))
+    for layer in np.unique(edge_layers[edge_layers > 1]):
+        layer_edges = atomic_edges[edge_layers == layer]
+        for edge in layer_edges:
+            parent_1 = sv_parent_d[edge[0]]
+            parent_2 = sv_parent_d[edge[1]]
+            atomic_cross_edges_d[parent_1][layer].append(edge)
+            atomic_cross_edges_d[parent_2][layer].append(edge[::-1])
+            parent_edges.extend([[parent_1, parent_1], [parent_2, parent_2]])
     return (parent_edges, atomic_cross_edges_d)
 
 
-def merge_preprocess(
-    cg,
-    edges: Iterable[np.ndarray],
-    subgraph_edges: Iterable[np.ndarray],
-    root_l2ids_d: Dict,
-    l2id_agglomeration_d: Dict,
-):
+def _get_relevant_components(edges: np.ndarray, supervoxels: np.ndarray) -> Tuple:
+    graph, _, _, graph_ids = flatgraph.build_gt_graph(edges, make_directed=True)
+    ccs = flatgraph.connected_components(graph)
+    relevant_ccs = []
+    # remove if connected component contains no sources or no sinks
+    # when merging, there must be only two components
+    for cc_idx in ccs:
+        cc = graph_ids[cc_idx]
+        if np.any(np.in1d(supervoxels, cc)):
+            relevant_ccs.append(cc)
+    assert len(relevant_ccs) == 2
+    return relevant_ccs
+
+
+def merge_preprocess(cg, *, subgraph_edges: np.ndarray, supervoxels: np.ndarray):
     """
     Determine if a fake edge needs to be added.
     Get subgraph within the bounding box
@@ -79,37 +85,13 @@ def merge_preprocess(
             Determine all the inactive edges between the L2 chidlren of the 2 node IDs.
         If no path exists, add user input as a fake edge.
     """
-    node_ids = np.unique(edges)
-    subgraph_edges = np.concatenate([subgraph_edges, np.vstack([node_ids, node_ids]).T])
-    graph, _, _, node_ids = flatgraph.build_gt_graph(subgraph_edges, is_directed=False)
-    reachable = check_reachability(graph, edges[:, 0], edges[:, 1], node_ids)
-    if reachable[0]:
-        sv_parent_d = {}
-        out_cross_edges = [types.empty_2d]
-        for l2_agg in l2id_agglomeration_d.values():
-            edges_ = (l2_agg.out_edges + l2_agg.cross_edges).get_pairs()
-            sv_parent_d.update(dict(zip(edges_[:, 0], [l2_agg.node_id] * edges_.size)))
-            out_cross_edges.append(edges_)
-
-        out_cross_edges_sv = np.concatenate(out_cross_edges)
-        get_sv_parents = np.vectorize(
-            lambda x: sv_parent_d.get(x, 0), otypes=[np.uint64]
-        )
-
-        out_cross_edges = get_sv_parents(out_cross_edges_sv)
-        del sv_parent_d
-
-        out_cross_edges_unique = np.unique(out_cross_edges, axis=0)
-        mask = np.in1d(out_cross_edges, out_cross_edges_unique)
-
-        add_edges = [types.empty_2d]
-
-        for edge in out_cross_edges_unique:
-            mask = np.in1d(out_cross_edges, edge)
-            print("mask", mask)
-            add_edges.append(out_cross_edges_sv[mask])
-        return np.concatenate(add_edges)
-    return edges
+    edges_roots = cg.get_roots(subgraph_edges.ravel()).reshape(-1, 2)
+    active_mask = edges_roots[:, 0] == edges_roots[:, 1]
+    active, inactive = subgraph_edges[active_mask], subgraph_edges[~active_mask]
+    relevant_ccs = _get_relevant_components(active, supervoxels)
+    source_mask = np.in1d(inactive[:, 0], relevant_ccs[0])
+    sink_mask = np.in1d(inactive[:, 1], relevant_ccs[1])
+    return inactive[source_mask & sink_mask]
 
 
 def add_edges(
@@ -120,9 +102,7 @@ def add_edges(
     time_stamp: datetime.datetime = None,
 ):
     # TODO add docs
-    cache.clear()
-    cg.cache = cache.CacheService(cg)
-    edges, l2_atomic_cross_edges_d = _analyze_atomic_edges(cg, atomic_edges)
+    edges, l2_atomic_cross_edges_d = _analyze_edges_to_add(cg, atomic_edges)
     l2ids = np.unique(edges)
     new_old_id_d, old_new_id_d, old_hierarchy_d = _init_old_hierarchy(cg, l2ids)
     atomic_children_d = cg.get_children(l2ids)
@@ -212,7 +192,7 @@ def remove_edges(
     # TODO add docs
     cache.clear()
     cg.cache = cache.CacheService(cg)
-    edges, _ = _analyze_atomic_edges(cg, atomic_edges)
+    edges, _ = _analyze_edges_to_add(cg, atomic_edges)
     l2ids = np.unique(edges)
     new_old_id_d, old_new_id_d, old_hierarchy_d = _init_old_hierarchy(cg, l2ids)
     l2id_chunk_id_d = dict(zip(l2ids, cg.get_chunk_ids_from_node_ids(l2ids)))
@@ -369,5 +349,5 @@ class CreateParentNodes:
             if len(self._new_ids_d[layer]) == 0:
                 continue
             self._create_new_parents(layer)
-        return self._new_ids_d
-        # return self._new_ids_d[self.cg.meta.layer_count]
+        # return self._new_ids_d
+        return self._new_ids_d[self.cg.meta.layer_count]

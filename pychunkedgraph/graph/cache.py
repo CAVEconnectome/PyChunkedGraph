@@ -54,7 +54,9 @@ class CacheService:
         cache=CHILDREN, key=lambda self, node_id: node_id,
     )
     def children(self, node_id):
-        return self._cg.get_children(node_id, raw_only=True)
+        children = self._cg.get_children(node_id, raw_only=True)
+        update(PARENTS, children, node_id)
+        return children
 
     @cached(
         cache=ATOMIC_CX_EDGES, key=lambda self, node_id: node_id,

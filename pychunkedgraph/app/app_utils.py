@@ -78,6 +78,7 @@ def foo_split(cg):
             data_dict[k]["coord"].append(coordinate)
 
     from pychunkedgraph.graph.operation import MulticutOperation
+
     op = MulticutOperation(
         cg,
         user_id="test",
@@ -95,12 +96,49 @@ def foo_merge(cg):
     from pychunkedgraph.graph.edits import add_edges
 
     # between 2
-    edges = np.array([[94803535283198313, 94803466563722624]], dtype=np.uint64)
+    data = {
+        "sources": [["94803466563722624", 916778, 851942.625, 783023.25]],  # 354
+        "sinks": [
+            ["94803535283198313", 916697.1875, 852031.75, 783023.25]
+        ],  # 832 = 1186
+    }
 
     # between 8
     # edges = np.array([[94524946524577880, 94595315268752176]], dtype=np.uint64)
-    with TimeIt("add_edges"):
-        print(add_edges(cg, atomic_edges=edges))
+
+    from collections import defaultdict
+
+    data_dict = {}
+    for k in ["sources", "sinks"]:
+        data_dict[k] = defaultdict(list)
+        for node in data[k]:
+            node_id = node[0]
+            x, y, z = node[1:]
+            coordinate = np.array([x, y, z]) / cg.meta._ws_cv.resolution
+            atomic_id = cg.get_atomic_id_from_coord(
+                coordinate[0],
+                coordinate[1],
+                coordinate[2],
+                parent_id=np.uint64(node_id),
+            )
+
+            if atomic_id is None:
+                raise ValueError("aha")
+            data_dict[k]["id"].append(atomic_id)
+            data_dict[k]["coord"].append(coordinate)
+    edges = [
+        [data_dict["sources"]["id"][0], data_dict["sinks"]["id"][0]],
+    ]
+    from pychunkedgraph.graph.operation import MergeOperation
+
+    op = MergeOperation(
+        cg,
+        user_id="test",
+        added_edges=edges,
+        source_coords=data_dict["sources"]["coord"],
+        sink_coords=data_dict["sinks"]["coord"],
+    )
+    print(op._apply(operation_id="", timestamp=None))
 
 
 def get_cg(table_id):
@@ -130,7 +168,7 @@ def get_cg(table_id):
         # Create ChunkedGraph
         cache[table_id] = chunkedgraph.ChunkedGraph(graph_id=table_id)
         # foo_split(cache[table_id])
-        # foo_merge(cache[table_id])
+        foo_merge(cache[table_id])
     current_app.table_id = table_id
     return cache[table_id]
 

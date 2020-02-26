@@ -15,8 +15,9 @@ from functools import reduce
 import numpy as np
 from google.cloud import bigtable
 
-from . import attributes
 from . import edits
+from . import cache
+from . import attributes
 from .locks import RootLock
 from .utils import basetypes
 from .utils import serializers
@@ -463,33 +464,33 @@ class MergeOperation(GraphEditOperation):
     def _apply(
         self, *, operation_id, timestamp
     ) -> Tuple[np.ndarray, np.ndarray, List["bigtable.row.Row"]]:
+        cache.clear()
+        self.cg.cache = cache.CacheService(self.cg)
         root_ids = set(self.cg.get_roots(self.added_edges.ravel()))
         if len(root_ids) < 2:
             raise PreconditionError("Supervoxels must belong to different objects.")
 
         bbox = get_bbox(self.source_coords, self.sink_coords, self.bbox_offset)
         with TimeIt("get_subgraph"):
-            (root_l2ids_d, l2id_agglomeration_d, edges) = self.cg.get_subgraph(
+            (_, _, edges) = self.cg.get_subgraph(
                 root_ids, bbox=bbox, bbox_is_coordinate=True
             )
 
-        with TimeIt("merge_preprocess"):
+        with TimeIt("edits.merge_preprocess"):
             edges = reduce(lambda x, y: x + y, edges)
             self.added_edges = edits.merge_preprocess(
                 self.cg,
-                self.added_edges,
-                edges.get_pairs(),
-                root_l2ids_d,
-                l2id_agglomeration_d,
+                subgraph_edges=edges.get_pairs(),
+                supervoxels=self.added_edges.ravel(),
             )
-        print("self.added_edges", self.added_edges.size)
-        new_ids = edits.add_edges(
-            self.cg,
-            atomic_edges=self.added_edges,
-            operation_id=operation_id,
-            time_stamp=timestamp,
-        )
-        # rows.extend(fake_edge_rows)
+
+        with TimeIt("edits.add_edges"):
+            new_ids = edits.add_edges(
+                self.cg,
+                atomic_edges=np.unique(self.added_edges, axis=0),
+                operation_id=operation_id,
+                time_stamp=timestamp,
+            )
         return new_ids
 
     def _create_log_record(

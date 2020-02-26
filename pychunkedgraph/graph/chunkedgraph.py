@@ -429,17 +429,19 @@ class ChunkedGraph:
     ) -> typing.Tuple[typing.Dict, typing.Dict, Edges]:
         """TODO docs"""
         bbox = chunk_utils.normalize_bounding_box(self.meta, bbox, bbox_is_coordinate)
-        node_l2ids_d = {}
+        node_layer_children_d = {}
         for node_id in node_ids:
             layer_nodes_d = self._get_subgraph_higher_layer_nodes(
-                node_id=node_id, bounding_box=bbox, return_layers=[2],
+                node_id=node_id,
+                bounding_box=bbox,
+                return_layers=list(range(2, self.meta.layer_count)),
             )
-            node_l2ids_d[node_id] = layer_nodes_d[2]
-        level2_ids = np.concatenate([*node_l2ids_d.values()])
+            node_layer_children_d[node_id] = layer_nodes_d
+        level2_ids = np.concatenate([x[2] for x in node_layer_children_d.values()])
         if nodes_only:
             return self.get_children(level2_ids, flatten=True)
         l2id_agglomeration_d, edges = self.get_l2_agglomerations(level2_ids)
-        return node_l2ids_d, l2id_agglomeration_d, edges
+        return node_layer_children_d, l2id_agglomeration_d, edges
 
     def get_l2_agglomerations(
         self, level2_ids: np.ndarray
