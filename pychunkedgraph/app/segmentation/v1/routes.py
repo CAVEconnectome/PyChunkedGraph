@@ -138,7 +138,7 @@ def handle_roots(table_id):
     root_ids = common.handle_roots(table_id)
     resp = {"root_ids": root_ids}
 
-    arg_as_binary = request.args.get("as_binary", default="", typ=str)
+    arg_as_binary = request.args.get("as_binary", default="", type=str)
     if arg_as_binary in resp:
         if request.args.get("gzip", default=False, type=toboolean):
             return tobinary(zlib.compress(resp[arg_as_binary]))
