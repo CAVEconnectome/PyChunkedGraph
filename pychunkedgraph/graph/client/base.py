@@ -85,8 +85,12 @@ class SimpleClient(ABC):
         """Renews existing node locks with operation_id for extended time."""
 
     @abstractmethod
-    def read_lock_timestamp(self, node_ids, operation_id):
+    def get_lock_timestamp(self, node_ids, operation_id):
         """Reads timestamp from lock row to get a consistent timestamp."""
+
+    @abstractmethod
+    def get_consolidated_lock_timestamp(self, root_ids, operation_ids):
+        """Minimum of multiple lock timestamps."""
 
     @abstractmethod
     def get_compatible_timestamp(self, time_stamp):

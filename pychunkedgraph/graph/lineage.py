@@ -56,7 +56,6 @@ def get_future_root_ids(
                 row_time_stamp = node[attributes.Hierarchy.Child][0].timestamp
             else:
                 raise ChunkedGraphError(f"Error retrieving future root ID of {next_id}")
-
             if row_time_stamp < cg.client.get_compatible_timestamp(time_stamp):
                 if ids is not None:
                     temp_next_ids.extend(ids)
@@ -123,8 +122,6 @@ def get_root_id_history(
 
 
 # TODO
-# def read_consolidated_lock_timestamp
-# def read_lock_timestamp
 # def read_first_log_row
 # def get_change_log
 # def read_logs

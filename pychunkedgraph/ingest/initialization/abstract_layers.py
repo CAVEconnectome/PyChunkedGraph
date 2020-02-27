@@ -27,7 +27,7 @@ from ...graph.connectivity.cross_edges import get_chunk_nodes_cross_edge_layer
 
 
 def add_layer(
-    cg,
+    cg: ChunkedGraph,
     layer_id: int,
     parent_coords: Sequence[int],
     children_coords: Sequence[Sequence[int]],
@@ -44,22 +44,15 @@ def add_layer(
 
     edge_ids = list(edge_ids)
     edge_ids.extend(add_edge_ids)
-    graph, _, _, graph_ids = flatgraph.build_gt_graph(
-        edge_ids, make_directed=True
-    )
+    graph, _, _, graph_ids = flatgraph.build_gt_graph(edge_ids, make_directed=True)
     ccs = flatgraph.connected_components(graph)
     _write_connected_components(
-        cg,
-        layer_id,
-        parent_coords,
-        ccs,
-        graph_ids,
-        get_valid_timestamp(time_stamp),
+        cg, layer_id, parent_coords, ccs, graph_ids, get_valid_timestamp(time_stamp),
     )
     return f"{layer_id}_{'_'.join(map(str, parent_coords))}"
 
 
-def _read_children_chunks(cg, layer_id, children_coords):
+def _read_children_chunks(cg: ChunkedGraph, layer_id, children_coords):
     with mp.Manager() as manager:
         children_ids_shared = manager.list()
         multi_args = []
@@ -86,7 +79,7 @@ def _read_chunk_helper(args):
     _read_chunk(children_ids_shared, cg, layer_id, chunk_coord)
 
 
-def _read_chunk(children_ids_shared, cg, layer_id, chunk_coord):
+def _read_chunk(children_ids_shared, cg: ChunkedGraph, layer_id: int, chunk_coord):
     x, y, z = chunk_coord
     range_read = cg.range_read_chunk(
         layer_id, x, y, z, columns=attributes.Hierarchy.Child
@@ -104,7 +97,7 @@ def _read_chunk(children_ids_shared, cg, layer_id, chunk_coord):
 
 
 def _write_connected_components(
-    cg, layer_id, parent_coords, ccs, graph_ids, time_stamp
+    cg: ChunkedGraph, layer_id: int, parent_coords, ccs, graph_ids, time_stamp
 ) -> None:
     if not ccs:
         return
@@ -163,7 +156,7 @@ def _write_components_helper(args):
             parent_id = reserved_parent_ids[i_cc]
             for node_id in node_ids:
                 rows.append(
-                    cg.mutate_row(
+                    cg.client.mutate_row(
                         serializers.serialize_uint64(node_id),
                         {attributes.Hierarchy.Parent: parent_id},
                         time_stamp=time_stamp,
@@ -171,7 +164,7 @@ def _write_components_helper(args):
                 )
 
             rows.append(
-                cg.mutate_row(
+                cg.client.mutate_row(
                     serializers.serialize_uint64(parent_id),
                     {attributes.Hierarchy.Child: node_ids},
                     time_stamp=time_stamp,
@@ -179,7 +172,7 @@ def _write_components_helper(args):
             )
 
             if len(rows) > 100000:
-                cg.bulk_write(rows)
+                cg.client.write(rows)
                 rows = []
-    cg.bulk_write(rows)
+    cg.client.write(rows)
 

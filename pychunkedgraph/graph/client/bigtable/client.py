@@ -66,21 +66,21 @@ class BigTableClient(bigtable.Client, ClientWithIDGen):
 
     def update_graph_meta(self, meta: ChunkedGraphMeta):
         self._graph_meta = meta
-        row = self._mutate_row(
+        row = self.mutate_row(
             attributes.GraphMeta.key, {attributes.GraphMeta.Meta: meta},
         )
-        self._write([row])
+        self.write([row])
 
     def read_graph_meta(self) -> ChunkedGraphMeta:
         row = self._read_byte_row(attributes.GraphMeta.key)
         return row[attributes.GraphMeta.Meta][0].value
 
     def update_graph_provenance(self, provenance: IngestConfig):
-        row = self._mutate_row(
+        row = self.mutate_row(
             attributes.GraphProvenance.key,
             {attributes.GraphProvenance.Provenance: provenance},
         )
-        self._write([row])
+        self.write([row])
 
     def read_graph_provenance(self) -> IngestConfig:
         return self._read_byte_row(attributes.GraphProvenance.key)
@@ -164,11 +164,11 @@ class BigTableClient(bigtable.Client, ClientWithIDGen):
         by locking root nodes until changes are written.
         """
         # TODO convert nodes and properties to bigtable rows
-        self._write(nodes, root_ids, operation_id)
+        self.write(nodes, root_ids, operation_id)
 
     # Locking
     def lock_root(self, root_id: np.uint64, operation_id: np.uint64) -> bool:
-        """Attempts to lock the latest version of a root node"""
+        """Attempts to lock the latest version of a root node."""
         lock_expiry = self.graph_meta.graph_config.ROOT_LOCK_EXPIRY
         lock_column = attributes.Concurrency.Lock
         combined_filter = utils.get_root_lock_filter(lock_column, lock_expiry)
@@ -186,7 +186,6 @@ class BigTableClient(bigtable.Client, ClientWithIDGen):
 
         # The lock was acquired when set_cell returns False (state)
         lock_acquired = not root_row.commit()
-
         if not lock_acquired:
             row = self._read_byte_row(root_id, columns=lock_column)
             l_operation_ids = [cell.value for cell in row]
@@ -197,6 +196,7 @@ class BigTableClient(bigtable.Client, ClientWithIDGen):
         self,
         root_ids: typing.Sequence[np.uint64],
         operation_id: np.uint64,
+        future_root_ids_d: typing.Dict,
         max_tries: int = 1,
         waittime_s: float = 0.5,
     ) -> bool:
@@ -207,8 +207,8 @@ class BigTableClient(bigtable.Client, ClientWithIDGen):
             # Collect latest root ids
             new_root_ids: typing.List[np.uint64] = []
             for idx in range(len(root_ids)):
-                future_root_ids = self.get_future_root_ids(root_ids[idx])
-                if len(future_root_ids) == 0:
+                future_root_ids = future_root_ids_d.get(root_ids[idx])
+                if not future_root_ids.size:
                     new_root_ids.append(root_ids[idx])
                 else:
                     new_root_ids.extend(future_root_ids)
@@ -228,7 +228,6 @@ class BigTableClient(bigtable.Client, ClientWithIDGen):
 
             if lock_acquired:
                 return True, root_ids
-
             time.sleep(waittime_s)
             i_try += 1
             self.logger.debug(f"Try {i_try}")
@@ -243,7 +242,6 @@ class BigTableClient(bigtable.Client, ClientWithIDGen):
         )
         # Get conditional row using the chained filter
         root_row = self._table.row(serialize_uint64(root_id), filter_=chained_filter)
-
         # Delete row if conditions are met (state == True)
         root_row.delete_cell(lock_column.family_id, lock_column.key, state=True)
         return root_row.commit()
@@ -262,7 +260,6 @@ class BigTableClient(bigtable.Client, ClientWithIDGen):
             lock_column.serialize(operation_id),
             state=False,
         )
-
         # The lock was acquired when set_cell returns True (state)
         return not root_row.commit()
 
@@ -274,10 +271,10 @@ class BigTableClient(bigtable.Client, ClientWithIDGen):
                 return False
         return True
 
-    def read_lock_timestamp(
+    def get_lock_timestamp(
         self, root_id: np.uint64, operation_id: np.uint64
     ) -> typing.Union[datetime.datetime, None]:
-        """Reads timestamp from lock row to get a consistent timestamp."""
+        """Lock timestamp for a Root ID operation."""
         row = self.read_node(root_id, properties=attributes.Concurrency.Lock)
         if len(row) == 0:
             self.logger.warning(f"No lock found for {root_id}")
@@ -286,6 +283,22 @@ class BigTableClient(bigtable.Client, ClientWithIDGen):
             self.logger.warning(f"{root_id} not locked with {operation_id}")
             return None
         return row[0].timestamp
+
+    def get_consolidated_lock_timestamp(
+        self,
+        root_ids: typing.Sequence[np.uint64],
+        operation_ids: typing.Sequence[np.uint64],
+    ) -> typing.Union[datetime.datetime, None]:
+        """Minimum of multiple lock timestamps."""
+        time_stamps = []
+        for root_id, operation_id in zip(root_ids, operation_ids):
+            time_stamp = self.get_lock_timestamp(root_id, operation_id)
+            if time_stamp is None:
+                return None
+            time_stamps.append(time_stamp)
+        if len(time_stamps) == 0:
+            return None
+        return np.min(time_stamps)
 
     # IDs
     def create_node_ids(self, chunk_id: np.uint64, size: int) -> np.ndarray:
@@ -534,7 +547,7 @@ class BigTableClient(bigtable.Client, ClientWithIDGen):
             combined_response.update(resp)
         return combined_response
 
-    def _write(
+    def write(
         self,
         rows: typing.Iterable[bigtable.row.DirectRow],
         root_ids: typing.Optional[
@@ -588,13 +601,13 @@ class BigTableClient(bigtable.Client, ClientWithIDGen):
                     f"Bulk write failed: operation {operation_id}"
                 )
 
-    def _mutate_row(
+    def mutate_row(
         self,
         row_key: bytes,
         val_dict: typing.Dict[attributes._Attribute, typing.Any],
         time_stamp: typing.Optional[datetime] = None,
     ) -> bigtable.row.Row:
-        """ Mutates a single row (doesn't actually write to big table)
+        """ Mutates a single row (doesn't write to big table)
         :param row_key: serialized bigtable row key
         :param val_dict: typing.Dict[attributes._Attribute: typing.Any]
         :param time_stamp: None or datetime

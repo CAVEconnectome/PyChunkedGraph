@@ -47,11 +47,11 @@ def test_successful_lock_acquisition(mocker, root_lock_tracker):
     fake_locked_root_ids = np.array((big_uint64(), big_uint64()))
 
     cg = mocker.MagicMock()
-    cg.get_unique_operation_id = mocker.MagicMock(return_value=fake_operation_id)
-    cg.lock_root_loop = mocker.MagicMock(
+    cg.id_client.create_operation_id = mocker.MagicMock(return_value=fake_operation_id)
+    cg.client.lock_roots = mocker.MagicMock(
         return_value=(True, fake_locked_root_ids), side_effect=root_lock_tracker.add_locks
     )
-    cg.unlock_root = mocker.MagicMock(return_value=True, side_effect=root_lock_tracker.remove_lock)
+    cg.client.unlock_root = mocker.MagicMock(return_value=True, side_effect=root_lock_tracker.remove_lock)
 
     with RootLock(cg, fake_locked_root_ids):
         assert fake_operation_id in root_lock_tracker.active_locks
@@ -68,8 +68,8 @@ def test_failed_lock_acquisition(mocker):
     fake_locked_root_ids = np.array((big_uint64(), big_uint64()))
 
     cg = mocker.MagicMock()
-    cg.get_unique_operation_id = mocker.MagicMock(return_value=fake_operation_id)
-    cg.lock_root_loop = mocker.MagicMock(
+    cg.id_client.create_operation_id = mocker.MagicMock(return_value=fake_operation_id)
+    cg.client.lock_roots = mocker.MagicMock(
         return_value=(False, fake_locked_root_ids), side_effect=None
     )
 
@@ -85,11 +85,11 @@ def test_failed_graph_operation(mocker, root_lock_tracker):
     fake_locked_root_ids = np.array((big_uint64(), big_uint64()))
 
     cg = mocker.MagicMock()
-    cg.get_unique_operation_id = mocker.MagicMock(return_value=fake_operation_id)
-    cg.lock_root_loop = mocker.MagicMock(
+    cg.id_client.create_operation_id = mocker.MagicMock(return_value=fake_operation_id)
+    cg.client.lock_roots = mocker.MagicMock(
         return_value=(True, fake_locked_root_ids), side_effect=root_lock_tracker.add_locks
     )
-    cg.unlock_root = mocker.MagicMock(return_value=True, side_effect=root_lock_tracker.remove_lock)
+    cg.client.unlock_root = mocker.MagicMock(return_value=True, side_effect=root_lock_tracker.remove_lock)
 
     with pytest.raises(exceptions.PreconditionError):
         with RootLock(cg, fake_locked_root_ids):

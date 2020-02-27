@@ -370,10 +370,9 @@ class GraphEditOperation(ABC):
             lock_operation_ids = np.array(
                 [root_lock.operation_id] * len(root_lock.locked_root_ids)
             )
-            timestamp = self.cg.read_consolidated_lock_timestamp(
+            timestamp = self.cg.client.get_consolidated_lock_timestamp(
                 root_lock.locked_root_ids, lock_operation_ids
             )
-
             new_root_ids, new_lvl2_ids, rows = self._apply(
                 operation_id=root_lock.operation_id, timestamp=timestamp
             )
@@ -381,7 +380,6 @@ class GraphEditOperation(ABC):
             # FIXME: Remove once edits.remove_edges/edits.add_edges return consistent type
             new_root_ids = np.array(new_root_ids, dtype=basetypes.NODE_ID)
             new_lvl2_ids = np.array(new_lvl2_ids, dtype=basetypes.NODE_ID)
-
             # Add a row to the log
             log_row = self._create_log_record(
                 operation_id=root_lock.operation_id,
@@ -391,9 +389,8 @@ class GraphEditOperation(ABC):
 
             # Put log row first!
             rows = [log_row] + rows
-
             # Execute write (makes sure that we are still owning the lock)
-            self.cg.bulk_write(
+            self.cg.client.write(
                 rows,
                 root_lock.locked_root_ids,
                 operation_id=root_lock.operation_id,
@@ -478,9 +475,7 @@ class MergeOperation(GraphEditOperation):
 
         with TimeIt("edits.merge_preprocess"):
             self.added_edges = edits.merge_preprocess(
-                self.cg,
-                subgraph_edges=edges,
-                supervoxels=self.added_edges.ravel(),
+                self.cg, subgraph_edges=edges, supervoxels=self.added_edges.ravel(),
             )
 
         with TimeIt("edits.add_edges"):
@@ -507,7 +502,7 @@ class MergeOperation(GraphEditOperation):
         if self.affinities is not None:
             val_dict[attributes.OperationLogs.Affinity] = self.affinities
 
-        return self.cg.mutate_row(
+        return self.cg.client.mutate_row(
             serializers.serialize_uint64(operation_id), val_dict, timestamp
         )
 
@@ -604,7 +599,7 @@ class SplitOperation(GraphEditOperation):
         if self.sink_coords is not None:
             val_dict[attributes.OperationLogs.SinkCoordinate] = self.sink_coords
 
-        return self.cg.mutate_row(
+        return self.cg.client.mutate_row(
             serializers.serialize_uint64(operation_id), val_dict, timestamp
         )
 
@@ -721,7 +716,7 @@ class MulticutOperation(GraphEditOperation):
             attributes.OperationLogs.SinkID: self.sink_ids,
             attributes.OperationLogs.BoundingBoxOffset: self.bbox_offset,
         }
-        return self.cg.mutate_row(
+        return self.cg.client.mutate_row(
             serializers.serialize_uint64(operation_id), val_dict, timestamp
         )
 
@@ -805,7 +800,7 @@ class RedoOperation(GraphEditOperation):
             attributes.OperationLogs.RedoOperationID: self.superseded_operation_id,
             attributes.OperationLogs.RootID: new_root_ids,
         }
-        return self.cg.mutate_row(
+        return self.cg.client.mutate_row(
             serializers.serialize_uint64(operation_id), val_dict, timestamp
         )
 
@@ -890,7 +885,7 @@ class UndoOperation(GraphEditOperation):
             attributes.OperationLogs.UndoOperationID: self.superseded_operation_id,
             attributes.OperationLogs.RootID: new_root_ids,
         }
-        return self.cg.mutate_row(
+        return self.cg.client.mutate_row(
             serializers.serialize_uint64(operation_id), val_dict, timestamp
         )
 

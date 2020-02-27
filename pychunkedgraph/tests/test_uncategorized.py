@@ -2630,19 +2630,19 @@ class TestGraphLocks:
         cgraph.add_layer(3, np.array([[0, 0, 0], [1, 0, 0]]),
                          time_stamp=fake_timestamp, n_threads=1)
 
-        operation_id_1 = cgraph.get_unique_operation_id()
+        operation_id_1 = cgraph.id_client.create_operation_id()
         root_id = cgraph.get_root(to_label(cgraph, 1, 0, 0, 0, 1))
-        assert cgraph.lock_root_loop(root_ids=[root_id],
+        assert cgraph.client.lock_roots(root_ids=[root_id],
                                      operation_id=operation_id_1)[0]
 
-        operation_id_2 = cgraph.get_unique_operation_id()
-        assert not cgraph.lock_root_loop(root_ids=[root_id],
+        operation_id_2 = cgraph.id_client.create_operation_id()
+        assert not cgraph.client.lock_roots(root_ids=[root_id],
                                          operation_id=operation_id_2)[0]
 
         assert cgraph.unlock_root(root_id=root_id,
                                   operation_id=operation_id_1)
 
-        assert cgraph.lock_root_loop(root_ids=[root_id],
+        assert cgraph.client.lock_roots(root_ids=[root_id],
                                      operation_id=operation_id_2)[0]
 
     @pytest.mark.timeout(30)
@@ -2679,16 +2679,16 @@ class TestGraphLocks:
         cgraph.add_layer(3, np.array([[0, 0, 0], [1, 0, 0]]),
                          time_stamp=fake_timestamp, n_threads=1)
 
-        operation_id_1 = cgraph.get_unique_operation_id()
+        operation_id_1 = cgraph.id_client.create_operation_id()
         root_id = cgraph.get_root(to_label(cgraph, 1, 0, 0, 0, 1))
-        assert cgraph.lock_root_loop(root_ids=[root_id],
+        assert cgraph.client.lock_roots(root_ids=[root_id],
                                      operation_id=operation_id_1)[0]
 
-        operation_id_2 = cgraph.get_unique_operation_id()
-        assert not cgraph.lock_root_loop(root_ids=[root_id],
+        operation_id_2 = cgraph.id_client.create_operation_id()
+        assert not cgraph.client.lock_roots(root_ids=[root_id],
                                          operation_id=operation_id_2)[0]
 
-        assert cgraph.lock_root_loop(root_ids=[root_id],
+        assert cgraph.client.lock_roots(root_ids=[root_id],
                                      operation_id=operation_id_2,
                                      max_tries=10, waittime_s=.5)[0]
 
@@ -2726,9 +2726,9 @@ class TestGraphLocks:
         cgraph.add_layer(3, np.array([[0, 0, 0], [1, 0, 0]]),
                          time_stamp=fake_timestamp, n_threads=1)
 
-        operation_id_1 = cgraph.get_unique_operation_id()
+        operation_id_1 = cgraph.id_client.create_operation_id()
         root_id = cgraph.get_root(to_label(cgraph, 1, 0, 0, 0, 1))
-        assert cgraph.lock_root_loop(root_ids=[root_id],
+        assert cgraph.client.lock_roots(root_ids=[root_id],
                                      operation_id=operation_id_1)[0]
 
         assert cgraph.check_and_renew_root_locks(root_ids=[root_id],
@@ -2774,8 +2774,8 @@ class TestGraphLocks:
 
         assert new_root_ids is not None
 
-        operation_id_2 = cgraph.get_unique_operation_id()
-        success, new_root_id = cgraph.lock_root_loop(root_ids=[root_id],
+        operation_id_2 = cgraph.id_client.create_operation_id()
+        success, new_root_id = cgraph.client.lock_roots(root_ids=[root_id],
                                                       operation_id=operation_id_2,
                                                       max_tries=10, waittime_s=.5)
 

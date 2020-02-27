@@ -160,9 +160,9 @@ def get_delta_roots(
 
     # filter out the expired root id's whose creation (measured by the timestamp
     # of their Child links) is after the time_stamp_start
-    rows = cg.read_node_id_rows(
+    rows = cg.client.read_nodes(
         node_ids=expired_root_id_candidates,
-        columns=[attributes.Hierarchy.Child],
+        properties=[attributes.Hierarchy.Child],
         end_time=time_stamp_start,
     )
     expired_root_ids = np.array([k for (k, v) in rows.items()], dtype=np.uint64)
