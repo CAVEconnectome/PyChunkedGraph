@@ -7,13 +7,13 @@ from datetime import datetime
 import numpy as np
 
 from . import attributes
-from .chunkedgraph import ChunkedGraph
 from .exceptions import ChunkedGraphError
 from .utils.generic import get_min_time
 from .utils.generic import get_max_time
+from .utils.generic import get_valid_timestamp
 
 
-def get_latest_root_id(cg: ChunkedGraph, root_id: np.uint64) -> np.ndarray:
+def get_latest_root_id(cg, root_id: np.uint64) -> np.ndarray:
     """ Returns the latest root id associated with the provided root id"""
     id_working_set = [root_id]
     latest_root_ids = []
@@ -30,9 +30,7 @@ def get_latest_root_id(cg: ChunkedGraph, root_id: np.uint64) -> np.ndarray:
 
 
 def get_future_root_ids(
-    cg: ChunkedGraph,
-    root_id: np.uint64,
-    time_stamp: Optional[datetime] = get_max_time(),
+    cg, root_id: np.uint64, time_stamp: Optional[datetime] = get_max_time(),
 ) -> np.ndarray:
     """
     Returns all future root ids emerging from this root
@@ -56,7 +54,7 @@ def get_future_root_ids(
                 row_time_stamp = node[attributes.Hierarchy.Child][0].timestamp
             else:
                 raise ChunkedGraphError(f"Error retrieving future root ID of {next_id}")
-            if row_time_stamp < cg.client.get_compatible_timestamp(time_stamp):
+            if row_time_stamp < get_valid_timestamp(time_stamp):
                 if ids is not None:
                     temp_next_ids.extend(ids)
                 if next_id != root_id:
@@ -66,9 +64,7 @@ def get_future_root_ids(
 
 
 def get_past_root_ids(
-    cg: ChunkedGraph,
-    root_id: np.uint64,
-    time_stamp: Optional[datetime] = get_min_time(),
+    cg, root_id: np.uint64, time_stamp: Optional[datetime] = get_min_time(),
 ) -> np.ndarray:
     """
     Returns all future root ids emerging from this root.
@@ -95,7 +91,7 @@ def get_past_root_ids(
                 row_time_stamp = node[attributes.Hierarchy.Child][0].timestamp
             else:
                 raise ChunkedGraphError(f"Error retrieving past root ID of {next_id}.")
-            if row_time_stamp > cg.client.get_compatible_timestamp(time_stamp):
+            if row_time_stamp > get_valid_timestamp(time_stamp):
                 if ids is not None:
                     temp_next_ids.extend(ids)
                 if next_id != root_id:

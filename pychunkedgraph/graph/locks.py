@@ -3,6 +3,7 @@ from typing import TYPE_CHECKING, Sequence, Union
 import numpy as np
 
 from . import exceptions as exceptions
+from .lineage import get_future_root_ids
 
 if TYPE_CHECKING:
     from pychunkedgraph.graph.chunkedgraph import ChunkedGraph
@@ -30,8 +31,14 @@ class RootLock:
 
     def __enter__(self):
         self.operation_id = self.cg.id_client.create_operation_id()
+        future_root_ids_d = {}
+        for id_ in self.locked_root_ids:
+            future_root_ids_d[id_] = get_future_root_ids(self.cg, id_)
         self.lock_acquired, self.locked_root_ids = self.cg.client.lock_roots(
-            root_ids=self.locked_root_ids, operation_id=self.operation_id, max_tries=7
+            root_ids=self.locked_root_ids,
+            operation_id=self.operation_id,
+            future_root_ids_d=future_root_ids_d,
+            max_tries=7,
         )
         if not self.lock_acquired:
             raise exceptions.LockingError("Could not acquire root lock")

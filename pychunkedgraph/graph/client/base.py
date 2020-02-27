@@ -69,7 +69,7 @@ class SimpleClient(ABC):
         """Locks root node with operation_id to prevent race conditions."""
 
     @abstractmethod
-    def lock_roots(self, node_ids):
+    def lock_roots(self, node_ids, operation_id):
         """Locks root nodes to prevent race conditions."""
 
     @abstractmethod

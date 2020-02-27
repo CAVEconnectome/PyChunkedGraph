@@ -34,7 +34,12 @@ from ....ingest import IngestConfig
 
 
 class BigTableClient(bigtable.Client, ClientWithIDGen):
-    def __init__(self, table_id: str, config: BigTableConfig = BigTableConfig()):
+    def __init__(
+        self,
+        table_id: str,
+        config: BigTableConfig = BigTableConfig(),
+        graph_meta: ChunkedGraphMeta = None,
+    ):
         super(BigTableClient, self).__init__(
             project=config.PROJECT, read_only=config.READ_ONLY, admin=config.ADMIN,
         )
@@ -49,6 +54,7 @@ class BigTableClient(bigtable.Client, ClientWithIDGen):
             sh = logging.StreamHandler(sys.stdout)
             sh.setLevel(logging.WARNING)
             self.logger.addHandler(sh)
+        self._graph_meta = graph_meta
 
     @property
     def graph_meta(self):
@@ -73,7 +79,8 @@ class BigTableClient(bigtable.Client, ClientWithIDGen):
 
     def read_graph_meta(self) -> ChunkedGraphMeta:
         row = self._read_byte_row(attributes.GraphMeta.key)
-        return row[attributes.GraphMeta.Meta][0].value
+        self._graph_meta = row[attributes.GraphMeta.Meta][0].value
+        return self._graph_meta
 
     def update_graph_provenance(self, provenance: IngestConfig):
         row = self.mutate_row(
@@ -207,6 +214,7 @@ class BigTableClient(bigtable.Client, ClientWithIDGen):
             # Collect latest root ids
             new_root_ids: typing.List[np.uint64] = []
             for idx in range(len(root_ids)):
+                # future_root_ids = self.get_future_root_ids(root_ids[i_root_id])
                 future_root_ids = future_root_ids_d.get(root_ids[idx])
                 if not future_root_ids.size:
                     new_root_ids.append(root_ids[idx])
@@ -273,7 +281,7 @@ class BigTableClient(bigtable.Client, ClientWithIDGen):
 
     def get_lock_timestamp(
         self, root_id: np.uint64, operation_id: np.uint64
-    ) -> typing.Union[datetime.datetime, None]:
+    ) -> typing.Union[datetime, None]:
         """Lock timestamp for a Root ID operation."""
         row = self.read_node(root_id, properties=attributes.Concurrency.Lock)
         if len(row) == 0:
@@ -288,7 +296,7 @@ class BigTableClient(bigtable.Client, ClientWithIDGen):
         self,
         root_ids: typing.Sequence[np.uint64],
         operation_ids: typing.Sequence[np.uint64],
-    ) -> typing.Union[datetime.datetime, None]:
+    ) -> typing.Union[datetime, None]:
         """Minimum of multiple lock timestamps."""
         time_stamps = []
         for root_id, operation_id in zip(root_ids, operation_ids):

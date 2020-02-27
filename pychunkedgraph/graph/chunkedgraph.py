@@ -14,13 +14,13 @@ from cloudvolume import CloudVolume
 from multiwrapper import multiprocessing_utils as mu
 
 from . import types
+from . import cache as cache_utils
 from . import cutting
 from . import operation
 from . import attributes
 from . import exceptions
 from .client import base
 from .client.bigtable import BigTableClient
-from .cache import CacheService
 from .meta import ChunkedGraphMeta
 from .meta import BackendClientInfo
 from .utils import basetypes
@@ -60,7 +60,9 @@ class ChunkedGraph:
 
         if meta:
             graph_id = meta.graph_config.ID_PREFIX + meta.graph_config.ID
-            bt_client = BigTableClient(graph_id, config=client_info.CONFIG)
+            bt_client = BigTableClient(
+                graph_id, config=client_info.CONFIG, graph_meta=meta
+            )
             self._meta = meta
         else:
             bt_client = BigTableClient(graph_id, config=client_info.CONFIG)
@@ -87,7 +89,7 @@ class ChunkedGraph:
         return self._cache_service
 
     @cache.setter
-    def cache(self, cache_service: CacheService):
+    def cache(self, cache_service: cache_utils.CacheService):
         self._cache_service = cache_service
 
     def create(self):
@@ -494,10 +496,10 @@ class ChunkedGraph:
         self,
         user_id: str,
         atomic_edges: typing.Sequence[np.uint64],
+        *,
         affinities: typing.Sequence[np.float32] = None,
-        source_coord: typing.Sequence[int] = None,
-        sink_coord: typing.Sequence[int] = None,
-        n_tries: int = 60,
+        source_coords: typing.Sequence[int] = None,
+        sink_coords: typing.Sequence[int] = None,
     ) -> operation.GraphEditOperation.Result:
         """ Adds an edge to the chunkedgraph
             Multi-user safe through locking of the root node
@@ -512,30 +514,30 @@ class ChunkedGraph:
             will eventually be set to 1 if None
         :param source_coord: list of int (n x 3)
         :param sink_coord: list of int (n x 3)
-        :param n_tries: int
         :return: GraphEditOperation.Result
         """
+        cache_utils.clear()
+        self.cache = cache_utils.CacheService(self)
         return operation.MergeOperation(
             self,
             user_id=user_id,
             added_edges=atomic_edges,
             affinities=affinities,
-            source_coords=source_coord,
-            sink_coords=sink_coord,
+            source_coords=source_coords,
+            sink_coords=sink_coords,
         ).execute()
 
     def remove_edges(
         self,
         user_id: str,
+        atomic_edges: typing.Sequence[typing.Tuple[np.uint64, np.uint64]] = None,
         *,
         source_ids: typing.Sequence[np.uint64] = None,
         sink_ids: typing.Sequence[np.uint64] = None,
         source_coords: typing.Sequence[typing.Sequence[int]] = None,
         sink_coords: typing.Sequence[typing.Sequence[int]] = None,
-        atomic_edges: typing.Sequence[typing.Tuple[np.uint64, np.uint64]] = None,
         mincut: bool = True,
         bb_offset: typing.Tuple[int, int, int] = (240, 240, 24),
-        n_tries: int = 20,
     ) -> operation.GraphEditOperation.Result:
         """
         Removes edges - either directly or after applying a mincut
@@ -547,6 +549,8 @@ class ChunkedGraph:
             [x, y, z] bounding box padding beyond box spanned by coordinates
         :return: GraphEditOperation.Result
         """
+        cache_utils.clear()
+        self.cache = cache_utils.CacheService(self)
         if mincut:
             print("multicut")
             return operation.MulticutOperation(

@@ -365,7 +365,6 @@ class GraphEditOperation(ABC):
         :rtype: GraphEditOperation.Result
         """
         root_ids = self._update_root_ids()
-
         with RootLock(self.cg, root_ids) as root_lock:
             lock_operation_ids = np.array(
                 [root_lock.operation_id] * len(root_lock.locked_root_ids)
@@ -373,13 +372,13 @@ class GraphEditOperation(ABC):
             timestamp = self.cg.client.get_consolidated_lock_timestamp(
                 root_lock.locked_root_ids, lock_operation_ids
             )
-            new_root_ids, new_lvl2_ids, rows = self._apply(
+            new_root_ids = self._apply(
                 operation_id=root_lock.operation_id, timestamp=timestamp
             )
 
             # FIXME: Remove once edits.remove_edges/edits.add_edges return consistent type
             new_root_ids = np.array(new_root_ids, dtype=basetypes.NODE_ID)
-            new_lvl2_ids = np.array(new_lvl2_ids, dtype=basetypes.NODE_ID)
+            # new_lvl2_ids = np.array(new_lvl2_ids, dtype=basetypes.NODE_ID)
             # Add a row to the log
             log_row = self._create_log_record(
                 operation_id=root_lock.operation_id,
@@ -388,18 +387,21 @@ class GraphEditOperation(ABC):
             )
 
             # Put log row first!
-            rows = [log_row] + rows
+            # rows = [log_row] + rows
             # Execute write (makes sure that we are still owning the lock)
-            self.cg.client.write(
-                rows,
-                root_lock.locked_root_ids,
-                operation_id=root_lock.operation_id,
-                slow_retry=False,
-            )
+            # self.cg.client.write(
+            #     [log_row],
+            #     root_lock.locked_root_ids,
+            #     operation_id=root_lock.operation_id,
+            #     slow_retry=False,
+            # )
+            # self.cg.cache = None
+            print("root_lock.operation_id", root_lock.operation_id)
+            return new_root_ids
             return GraphEditOperation.Result(
                 operation_id=root_lock.operation_id,
                 new_root_ids=new_root_ids,
-                new_lvl2_ids=new_lvl2_ids,
+                # new_lvl2_ids=new_lvl2_ids,
             )
 
 
@@ -461,12 +463,9 @@ class MergeOperation(GraphEditOperation):
     def _apply(
         self, *, operation_id, timestamp
     ) -> Tuple[np.ndarray, np.ndarray, List["bigtable.row.Row"]]:
-        cache.clear()
-        self.cg.cache = cache.CacheService(self.cg)
         root_ids = set(self.cg.get_roots(self.added_edges.ravel()))
         if len(root_ids) < 2:
             raise PreconditionError("Supervoxels must belong to different objects.")
-
         bbox = get_bbox(self.source_coords, self.sink_coords, self.bbox_offset)
         with TimeIt("get_subgraph"):
             edges = self.cg.get_subgraph(
@@ -501,7 +500,6 @@ class MergeOperation(GraphEditOperation):
             val_dict[attributes.OperationLogs.SinkCoordinate] = self.sink_coords
         if self.affinities is not None:
             val_dict[attributes.OperationLogs.Affinity] = self.affinities
-
         return self.cg.client.mutate_row(
             serializers.serialize_uint64(operation_id), val_dict, timestamp
         )
