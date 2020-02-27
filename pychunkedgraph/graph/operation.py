@@ -372,13 +372,16 @@ class GraphEditOperation(ABC):
             timestamp = self.cg.client.get_consolidated_lock_timestamp(
                 root_lock.locked_root_ids, lock_operation_ids
             )
-            new_root_ids = self._apply(
+            new_root_ids, new_lvl2_ids, rows = self._apply(
                 operation_id=root_lock.operation_id, timestamp=timestamp
             )
 
+            print("rows", len(rows))
+            print(rows)
+
             # FIXME: Remove once edits.remove_edges/edits.add_edges return consistent type
             new_root_ids = np.array(new_root_ids, dtype=basetypes.NODE_ID)
-            # new_lvl2_ids = np.array(new_lvl2_ids, dtype=basetypes.NODE_ID)
+            new_lvl2_ids = np.array(new_lvl2_ids, dtype=basetypes.NODE_ID)
             # Add a row to the log
             log_row = self._create_log_record(
                 operation_id=root_lock.operation_id,
@@ -386,22 +389,17 @@ class GraphEditOperation(ABC):
                 timestamp=timestamp,
             )
 
-            # Put log row first!
-            # rows = [log_row] + rows
-            # Execute write (makes sure that we are still owning the lock)
-            # self.cg.client.write(
-            #     [log_row],
-            #     root_lock.locked_root_ids,
-            #     operation_id=root_lock.operation_id,
-            #     slow_retry=False,
-            # )
+            self.cg.client.write(
+                [log_row] + rows,
+                root_lock.locked_root_ids,
+                operation_id=root_lock.operation_id,
+                slow_retry=False,
+            )
             # self.cg.cache = None
-            print("root_lock.operation_id", root_lock.operation_id)
-            return new_root_ids
             return GraphEditOperation.Result(
                 operation_id=root_lock.operation_id,
                 new_root_ids=new_root_ids,
-                # new_lvl2_ids=new_lvl2_ids,
+                new_lvl2_ids=new_lvl2_ids,
             )
 
 
@@ -478,13 +476,12 @@ class MergeOperation(GraphEditOperation):
             )
 
         with TimeIt("edits.add_edges"):
-            new_ids = edits.add_edges(
+            return edits.add_edges(
                 self.cg,
                 atomic_edges=np.unique(self.added_edges, axis=0),
                 operation_id=operation_id,
                 time_stamp=timestamp,
             )
-        return new_ids
 
     def _create_log_record(
         self, *, operation_id, timestamp, new_root_ids

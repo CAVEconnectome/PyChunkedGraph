@@ -9,9 +9,11 @@ from collections import defaultdict
 
 from . import cache
 from . import types
+from . import attributes
 from .utils import basetypes
 from .utils import flatgraph
 from .utils.context_managers import TimeIt
+from .utils.serializers import serialize_uint64
 from .connectivity.nodes import edge_exists
 from .connectivity.search import check_reachability
 from .edges.utils import filter_min_layer_cross_edges
@@ -137,7 +139,7 @@ def add_edges(
         operation_id=operation_id,
         time_stamp=time_stamp,
     )
-    return create_parents.run()
+    return create_parents.run(), new_l2_ids, create_parents.create_new_id_entries()
 
 
 def _process_l2_agglomeration(
@@ -229,7 +231,7 @@ def remove_edges(
         operation_id=operation_id,
         time_stamp=time_stamp,
     )
-    return atomic_edges, create_parents.run()
+    return create_parents.run(), new_l2_ids, create_parents.create_new_id_entries()
 
 
 class CreateParentNodes:
@@ -252,8 +254,8 @@ class CreateParentNodes:
         self._old_new_id_d = old_new_id_d
         self._new_ids_d = defaultdict(list)  # new IDs in each layer
         self._cross_edges_d = {}
-        self.operation_id = operation_id
-        self.time_stamp = time_stamp
+        self._operation_id = operation_id
+        self._time_stamp = time_stamp
 
     def _update_id_lineage(
         self,
@@ -351,3 +353,75 @@ class CreateParentNodes:
             self._create_new_parents(layer)
         # return self._new_ids_d
         return self._new_ids_d[self.cg.meta.layer_count]
+
+    def _update_root_id_lineage(self):
+        new_root_ids = self._new_ids_d[self.cg.meta.layer_count]
+        former_root_ids = [self._new_old_id_d[id_] for id_ in new_root_ids]
+        former_root_ids = np.unique(np.array(former_root_ids, dtype=basetypes.NODE_ID))
+        assert len(former_root_ids) < 2 or len(new_root_ids) < 2
+        rows = []
+        for new_root_id in new_root_ids:
+            val_dict = {
+                attributes.Hierarchy.FormerParent: np.array(former_root_ids),
+                attributes.OperationLogs.OperationID: self._operation_id,
+            }
+            rows.append(
+                self.cg.client.mutate_row(
+                    serialize_uint64(new_root_id),
+                    val_dict,
+                    time_stamp=self._time_stamp,
+                )
+            )
+
+        for former_root_id in former_root_ids:
+            val_dict = {
+                attributes.Hierarchy.NewParent: np.array(new_root_ids),
+                attributes.OperationLogs.OperationID: self._operation_id,
+            }
+            rows.append(
+                self.cg.client.mutate_row(
+                    serialize_uint64(former_root_id),
+                    val_dict,
+                    time_stamp=self._time_stamp,
+                )
+            )
+        return rows
+
+    def _get_atomic_cross_edges_val_dict(self):
+        new_ids = np.array(self._new_ids_d[2], dtype=basetypes.NODE_ID)
+        val_dicts = {}
+        atomic_cross_edges_d = self.cg.get_atomic_cross_edges(new_ids)
+        for id_ in new_ids:
+            val_dict = {}
+            for layer, edges in atomic_cross_edges_d[id_].items():
+                val_dict[attributes.Connectivity.CrossChunkEdge[layer]] = edges
+            val_dicts[id_] = val_dict
+        return val_dicts
+
+    def create_new_id_entries(self):
+        rows = []
+        val_dicts = self._get_atomic_cross_edges_val_dict()
+        for layer in range(2, self.cg.meta.layer_count + 1):
+            new_ids = self._new_ids_d[layer]
+            for id_ in new_ids:
+                val_dict = val_dicts.get(id_, {})
+                children = self.cg.get_children(id_)
+                assert np.max(
+                    self.cg.get_chunk_layers(children)
+                ) < self.cg.get_chunk_layer(id_), "Parent layer less than children."
+                val_dict[attributes.Hierarchy.Child] = children
+                rows.append(
+                    self.cg.client.mutate_row(
+                        serialize_uint64(id_), val_dict, time_stamp=self._time_stamp,
+                    )
+                )
+                for child_id in children:
+                    val_dict = {attributes.Hierarchy.Parent: id_}
+                    rows.append(
+                        self.cg.client.mutate_row(
+                            serialize_uint64(child_id),
+                            val_dict,
+                            time_stamp=self._time_stamp,
+                        )
+                    )
+        return rows + self._update_root_id_lineage()
