@@ -84,6 +84,14 @@ class SimpleClient(ABC):
     def renew_locks(self, node_ids, operation_id):
         """Renews existing node locks with operation_id for extended time."""
 
+    @abstractmethod
+    def read_lock_timestamp(self, node_ids, operation_id):
+        """Reads timestamp from lock row to get a consistent timestamp."""
+
+    @abstractmethod
+    def get_compatible_timestamp(self, time_stamp):
+        """Datetime time stamp compatible with client's services."""
+
 
 class ClientWithIDGen(SimpleClient):
     """

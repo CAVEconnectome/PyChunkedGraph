@@ -20,9 +20,7 @@ def _read_delta_root_rows_thread(args) -> Sequence[list]:
         time_stamp_start,
         time_stamp_end,
     ) = args
-
     cg = ChunkedGraph(**serialized_cg_info)
-
     start_id = cg.get_node_id(segment_id=start_seg_id, chunk_id=cg.root_chunk_id)
     end_id = cg.get_node_id(segment_id=end_seg_id, chunk_id=cg.root_chunk_id)
 
@@ -45,23 +43,19 @@ def _read_delta_root_rows_thread(args) -> Sequence[list]:
     # expired roots are the IDs of FormerParent's
     # whose timestamp is before the start_time
     expired_root_ids = []
-    for k, v in rows.items():
+    for v in rows.values():
         if attributes.Hierarchy.FormerParent in v:
             fp = v[attributes.Hierarchy.FormerParent]
             for cell_entry in fp:
                 expired_root_ids.extend(cell_entry.value)
-
     return new_root_ids, expired_root_ids
 
 
 def _read_root_rows_thread(args) -> list:
     start_seg_id, end_seg_id, serialized_cg_info, time_stamp = args
-
     cg = ChunkedGraph(**serialized_cg_info)
-
     start_id = cg.get_node_id(segment_id=start_seg_id, chunk_id=cg.root_chunk_id)
     end_id = cg.get_node_id(segment_id=end_seg_id, chunk_id=cg.root_chunk_id)
-
     rows = cg.client.read_nodes(
         start_id=start_id,
         end_id=end_id,
@@ -69,23 +63,18 @@ def _read_root_rows_thread(args) -> list:
         end_time=time_stamp,
         end_time_inclusive=True,
     )
-
     root_ids = [k for (k, v) in rows.items() if attributes.Hierarchy.NewParent not in v]
-
     return root_ids
 
 
 def get_latest_roots(
     cg, time_stamp: Optional[datetime.datetime] = None, n_threads: int = 1
 ) -> Sequence[np.uint64]:
-
     # Create filters: time and id range
     max_seg_id = cg.get_max_seg_id(cg.root_chunk_id) + 1
-
     n_blocks = 1 if n_threads == 1 else int(np.min([n_threads * 3 + 1, max_seg_id]))
     seg_id_blocks = np.linspace(1, max_seg_id, n_blocks + 1, dtype=np.uint64)
     cg_serialized_info = cg.get_serialized_info()
-
     if n_threads > 1:
         del cg_serialized_info["credentials"]
 
@@ -112,11 +101,9 @@ def get_latest_roots(
         results = mu.multisubprocess_func(
             _read_root_rows_thread, multi_args, n_threads=n_threads
         )
-
     root_ids = []
     for result in results:
         root_ids.extend(result)
-
     return np.array(root_ids, dtype=np.uint64)
 
 
@@ -127,15 +114,11 @@ def get_delta_roots(
     min_seg_id: int = 1,
     n_threads: int = 1,
 ) -> Sequence[np.uint64]:
-
     # Create filters: time and id range
     max_seg_id = cg.get_max_seg_id(cg.root_chunk_id) + 1
-
     n_blocks = int(np.min([n_threads + 1, max_seg_id - min_seg_id + 1]))
     seg_id_blocks = np.linspace(min_seg_id, max_seg_id, n_blocks, dtype=np.uint64)
-
     cg_serialized_info = cg.get_serialized_info()
-
     if n_threads > 1:
         del cg_serialized_info["credentials"]
 
@@ -183,7 +166,6 @@ def get_delta_roots(
         end_time=time_stamp_start,
     )
     expired_root_ids = np.array([k for (k, v) in rows.items()], dtype=np.uint64)
-
     return np.array(new_root_ids, dtype=np.uint64), expired_root_ids
 
 
@@ -215,23 +197,18 @@ def get_contact_sites(
         area_dict[sv_id] += area
 
     area_dict_vec = np.vectorize(area_dict.get)
-
     # Extract svs from contacting root ids
     u_cs_svs = np.unique(cs_svs)
-
     # Load edges of these cs_svs
     edges_cs_svs_rows = cg.client.read_nodes(
         node_ids=u_cs_svs,
         # columns=[attributes.Connectivity.Partner, attributes.Connectivity.Connected],
     )
-
     pre_cs_edges = []
     for ri in edges_cs_svs_rows.items():
         r = cg._retrieve_connectivity(ri)
         pre_cs_edges.extend(r[0])
-
     graph, _, _, unique_ids = flatgraph.build_gt_graph(pre_cs_edges, make_directed=True)
-
     # connected components in this graph will be combined in one component
     ccs = flatgraph.connected_components(graph)
     cs_dict = collections.defaultdict(list)
@@ -242,6 +219,5 @@ def get_contact_sites(
         partner_root_id = (
             int(cg.get_root(cc_sv_ids[0])) if compute_partner else len(cs_dict)
         )
-
         cs_dict[partner_root_id].append(np.sum(cs_areas))
     return cs_dict
