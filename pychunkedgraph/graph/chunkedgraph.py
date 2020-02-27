@@ -426,6 +426,7 @@ class ChunkedGraph:
         bbox: typing.Optional[typing.Sequence[typing.Sequence[int]]] = None,
         bbox_is_coordinate: bool = False,
         nodes_only=False,
+        edges_only=False,
     ) -> typing.Tuple[typing.Dict, typing.Dict, Edges]:
         """TODO docs"""
         bbox = chunk_utils.normalize_bounding_box(self.meta, bbox, bbox_is_coordinate)
@@ -440,11 +441,13 @@ class ChunkedGraph:
         level2_ids = np.concatenate([x[2] for x in node_layer_children_d.values()])
         if nodes_only:
             return self.get_children(level2_ids, flatten=True)
+        if edges_only:
+            return self.get_l2_agglomerations(level2_ids, edges_only=True)
         l2id_agglomeration_d, edges = self.get_l2_agglomerations(level2_ids)
         return node_layer_children_d, l2id_agglomeration_d, edges
 
     def get_l2_agglomerations(
-        self, level2_ids: np.ndarray
+        self, level2_ids: np.ndarray, edges_only: bool = False
     ) -> typing.Tuple[typing.Dict[int, types.Agglomeration], np.ndarray]:
         """
         Children of Level 2 Node IDs and edges.
@@ -453,12 +456,18 @@ class ChunkedGraph:
         chunk_ids = self.get_chunk_ids_from_node_ids(level2_ids)
         chunk_edge_dicts = mu.multithread_func(
             self.read_chunk_edges,
-            np.array_split(np.unique(chunk_ids), 4),  # TODO hardcoded
-            n_threads=4,
+            np.array_split(np.unique(chunk_ids), 8),  # TODO hardcoded
+            n_threads=8,
             debug=False,
         )
         edges_dict = edge_utils.concatenate_chunk_edges(chunk_edge_dicts)
         all_chunk_edges = reduce(lambda x, y: x + y, edges_dict.values())
+        if edges_only:
+            all_chunk_edges = all_chunk_edges.get_pairs()
+            supervoxels = self.get_children(level2_ids, flatten=True)
+            mask0 = np.in1d(all_chunk_edges[:, 0], supervoxels)
+            mask1 = np.in1d(all_chunk_edges[:, 1], supervoxels)
+            return all_chunk_edges[mask0 & mask1]
         in_edges = set()
         out_edges = set()
         cross_edges = set()

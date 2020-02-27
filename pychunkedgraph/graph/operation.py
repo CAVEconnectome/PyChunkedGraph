@@ -472,15 +472,14 @@ class MergeOperation(GraphEditOperation):
 
         bbox = get_bbox(self.source_coords, self.sink_coords, self.bbox_offset)
         with TimeIt("get_subgraph"):
-            (_, _, edges) = self.cg.get_subgraph(
-                root_ids, bbox=bbox, bbox_is_coordinate=True
+            edges = self.cg.get_subgraph(
+                root_ids, bbox=bbox, bbox_is_coordinate=True, edges_only=True
             )
 
         with TimeIt("edits.merge_preprocess"):
-            edges = reduce(lambda x, y: x + y, edges)
             self.added_edges = edits.merge_preprocess(
                 self.cg,
-                subgraph_edges=edges.get_pairs(),
+                subgraph_edges=edges,
                 supervoxels=self.added_edges.ravel(),
             )
 
