@@ -331,7 +331,8 @@ class CreateParentNodes:
             if len(cc_ids) == 1:
                 parent_layer = list(self._cross_edges_d[cc_ids[0]].keys())[0]
             parent_id = self.cg.id_client.create_node_id(
-                self.cg.get_parent_chunk_id(cc_ids[0], parent_layer)
+                self.cg.get_parent_chunk_id(cc_ids[0], parent_layer),
+                root_chunk=parent_layer == self.cg.meta.layer_count,
             )
             self._new_ids_d[parent_layer].append(parent_id)
             cache.CHILDREN[parent_id] = cc_ids
@@ -403,7 +404,10 @@ class CreateParentNodes:
         val_dicts = self._get_atomic_cross_edges_val_dict()
         for layer in range(2, self.cg.meta.layer_count + 1):
             new_ids = self._new_ids_d[layer]
+            print()
+            print("layer", layer)
             for id_ in new_ids:
+                print(id_, self.cg.get_segment_id(id_), self.cg.get_chunk_id(id_))
                 val_dict = val_dicts.get(id_, {})
                 children = self.cg.get_children(id_)
                 assert np.max(

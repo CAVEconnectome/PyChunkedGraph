@@ -54,6 +54,7 @@ _graphconfig_fields = (
     "SPATIAL_BITS",  # number of bits used for each spatial in id creation on level 1
     "OVERWRITE",  # overwrites existing graph
     "ROOT_LOCK_EXPIRY",
+    "ROOT_COUNTERS",
 )
 _graphconfig_defaults = (
     None,
@@ -64,6 +65,7 @@ _graphconfig_defaults = (
     10,
     False,
     timedelta(minutes=3, seconds=0),
+    8,
 )
 GraphConfig = namedtuple(
     "GraphConfig", _graphconfig_fields, defaults=_graphconfig_defaults

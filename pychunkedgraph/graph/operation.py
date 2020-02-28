@@ -376,8 +376,7 @@ class GraphEditOperation(ABC):
                 operation_id=root_lock.operation_id, timestamp=timestamp
             )
 
-            print("rows", len(rows))
-            print(rows)
+            print("new rows", len(rows))
 
             # FIXME: Remove once edits.remove_edges/edits.add_edges return consistent type
             new_root_ids = np.array(new_root_ids, dtype=basetypes.NODE_ID)

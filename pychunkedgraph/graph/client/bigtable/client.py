@@ -25,6 +25,8 @@ from ..base import ClientWithIDGen
 from ... import attributes
 from ... import exceptions
 from ...utils import basetypes
+from ...utils.serializers import pad_node_id
+from ...utils.serializers import serialize_key
 from ...utils.serializers import serialize_uint64
 from ...utils.serializers import deserialize_uint64
 from ...meta import ChunkedGraphMeta
@@ -309,16 +311,25 @@ class BigTableClient(bigtable.Client, ClientWithIDGen):
         return np.min(time_stamps)
 
     # IDs
-    def create_node_ids(self, chunk_id: np.uint64, size: int) -> np.ndarray:
+    def create_node_ids(
+        self, chunk_id: np.uint64, size: int, root_chunk=False
+    ) -> np.ndarray:
         """Generates a list of unique node IDs for the given chunk."""
-        low, high = self._get_ids_range(serialize_uint64(chunk_id, counter=True), size)
-        low, high = basetypes.SEGMENT_ID.type(low), basetypes.SEGMENT_ID.type(high)
-        new_ids = np.arange(low, high + np.uint64(1), dtype=basetypes.SEGMENT_ID)
+        if root_chunk:
+            new_ids = self._get_root_segment_ids_range(chunk_id, size)
+        else:
+            low, high = self._get_ids_range(
+                serialize_uint64(chunk_id, counter=True), size
+            )
+            low, high = basetypes.SEGMENT_ID.type(low), basetypes.SEGMENT_ID.type(high)
+            new_ids = np.arange(low, high + np.uint64(1), dtype=basetypes.SEGMENT_ID)
         return new_ids | chunk_id
 
-    def create_node_id(self, chunk_id: np.uint64) -> basetypes.NODE_ID:
+    def create_node_id(
+        self, chunk_id: np.uint64, root_chunk=False
+    ) -> basetypes.NODE_ID:
         """Generate a unique node ID in the chunk."""
-        return self.create_node_ids(chunk_id, 1)[0]
+        return self.create_node_ids(chunk_id, 1, root_chunk=root_chunk)[0]
 
     def get_max_node_id(self, chunk_id: basetypes.CHUNK_ID) -> basetypes.NODE_ID:
         """Gets the current maximum segment ID in the chunk."""
@@ -363,6 +374,25 @@ class BigTableClient(bigtable.Client, ClientWithIDGen):
         row = row.commit()
         high = column.deserialize(row[column.family_id][column.key][0][0])
         return high + np.uint64(1) - size, high
+
+    def _get_root_segment_ids_range(
+        self, chunk_id: basetypes.CHUNK_ID, size: int = 1, counter: int = None
+    ) -> np.ndarray:
+        """Return unique segment ID for the root chunk."""
+        n_counters = np.uint64(2 ** 8)
+        counter = (
+            np.uint64(counter % n_counters)
+            if counter
+            else np.uint64(np.random.randint(0, n_counters))
+        )
+        key = serialize_key(f"i{pad_node_id(chunk_id)}_{counter}")
+        min_, max_ = self._get_ids_range(key=key, size=size)
+        return np.arange(
+            min_ * n_counters + counter,
+            max_ * n_counters + np.uint64(1) + counter,
+            n_counters,
+            dtype=basetypes.SEGMENT_ID,
+        )
 
     def _read_byte_rows(
         self,
