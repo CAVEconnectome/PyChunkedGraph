@@ -132,6 +132,7 @@ class BigTableClient(bigtable.Client, ClientWithIDGen):
         start_time: typing.Optional[datetime] = None,
         end_time: typing.Optional[datetime] = None,
         end_time_inclusive: bool = False,
+        fake_edges: bool=False,
     ) -> typing.Union[
         typing.Dict[attributes._Attribute, typing.List[bigtable.row_data.Cell]],
         typing.List[bigtable.row_data.Cell],
@@ -160,7 +161,7 @@ class BigTableClient(bigtable.Client, ClientWithIDGen):
                 directly.
         """
         return self._read_byte_row(
-            row_key=serialize_uint64(node_id),
+            row_key=serialize_uint64(node_id, fake_edges=fake_edges),
             columns=properties,
             start_time=start_time,
             end_time=end_time,
@@ -645,12 +646,7 @@ class BigTableClient(bigtable.Client, ClientWithIDGen):
         val_dict: typing.Dict[attributes._Attribute, typing.Any],
         time_stamp: typing.Optional[datetime] = None,
     ) -> bigtable.row.Row:
-        """ Mutates a single row (doesn't write to big table)
-        :param row_key: serialized bigtable row key
-        :param val_dict: typing.Dict[attributes._Attribute: typing.Any]
-        :param time_stamp: None or datetime
-        :return: list
-        """
+        """Mutates a single row (doesn't write to big table)."""
         row = self._table.row(row_key)
         for column, value in val_dict.items():
             row.set_cell(

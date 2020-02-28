@@ -96,14 +96,52 @@ def merge_preprocess(
     return inactive[source_mask & sink_mask]
 
 
+def _check_fake_edges(
+    cg,
+    *,
+    atomic_edges: Iterable[np.ndarray],
+    inactive_edges: Iterable[np.ndarray],
+    time_stamp: datetime.datetime,
+) -> Tuple[Iterable[np.ndarray], Iterable]:
+    if inactive_edges.size:
+        return inactive_edges, []
+
+    rows = []
+    supervoxels = atomic_edges.ravel()
+    chunk_ids = cg.get_chunk_ids_from_node_ids(cg.get_parents(supervoxels))
+    sv_chunk_id_d = dict(zip(supervoxels, chunk_ids))
+    for edge in atomic_edges:
+        id1, id2 = sv_chunk_id_d[edge[0]], sv_chunk_id_d[edge[1]]
+        val_dict = {}
+        val_dict[attributes.Connectivity.FakeEdges] = np.array(
+            [[edge]], dtype=basetypes.NODE_ID
+        )
+        id1 = serialize_uint64(id1, fake_edges=True)
+        rows.append(cg.client.mutate_row(id1, val_dict, time_stamp=time_stamp,))
+        val_dict = {}
+        val_dict[attributes.Connectivity.FakeEdges] = np.array(
+            [edge[::-1]], dtype=basetypes.NODE_ID
+        )
+        id2 = serialize_uint64(id2, fake_edges=True)
+        rows.append(cg.client.mutate_row(id2, val_dict, time_stamp=time_stamp,))
+    return atomic_edges, rows
+
+
 def add_edges(
     cg,
     *,
     atomic_edges: Iterable[np.ndarray],
+    inactive_edges: Iterable[np.ndarray],
     operation_id: np.uint64 = None,
     time_stamp: datetime.datetime = None,
 ):
     # TODO add docs
+    atomic_edges, rows = _check_fake_edges(
+        cg,
+        atomic_edges=atomic_edges,
+        inactive_edges=inactive_edges,
+        time_stamp=time_stamp,
+    )
     edges, l2_atomic_cross_edges_d = _analyze_edges_to_add(cg, atomic_edges)
     l2ids = np.unique(edges)
     new_old_id_d, old_new_id_d, old_hierarchy_d = _init_old_hierarchy(cg, l2ids)
@@ -139,7 +177,7 @@ def add_edges(
         operation_id=operation_id,
         time_stamp=time_stamp,
     )
-    return create_parents.run(), new_l2_ids, create_parents.create_new_id_entries()
+    return create_parents.run(), new_l2_ids, rows + create_parents.create_new_entries()
 
 
 def _process_l2_agglomeration(
@@ -232,7 +270,7 @@ def remove_edges(
         operation_id=operation_id,
         time_stamp=time_stamp,
     )
-    return create_parents.run(), new_l2_ids, create_parents.create_new_id_entries()
+    return create_parents.run(), new_l2_ids, create_parents.create_new_entries()
 
 
 class CreateParentNodes:
@@ -351,13 +389,9 @@ class CreateParentNodes:
         """
         self._new_ids_d[2] = self._new_l2_ids
         for layer in range(2, self.cg.meta.layer_count):
-            # print()
-            # print("*" * 100)
-            # print("layer", layer, self._new_ids_d[layer])
             if len(self._new_ids_d[layer]) == 0:
                 continue
             self._create_new_parents(layer)
-        # return self._new_ids_d
         return self._new_ids_d[self.cg.meta.layer_count]
 
     def _update_root_id_lineage(self):
@@ -404,15 +438,12 @@ class CreateParentNodes:
             val_dicts[id_] = val_dict
         return val_dicts
 
-    def create_new_id_entries(self):
+    def create_new_entries(self):
         rows = []
         val_dicts = self._get_atomic_cross_edges_val_dict()
         for layer in range(2, self.cg.meta.layer_count + 1):
             new_ids = self._new_ids_d[layer]
-            print()
-            print("layer", layer)
             for id_ in new_ids:
-                print(id_, self.cg.get_segment_id(id_), self.cg.get_chunk_id(id_))
                 val_dict = val_dicts.get(id_, {})
                 children = self.cg.get_children(id_)
                 assert np.max(

@@ -377,8 +377,6 @@ class GraphEditOperation(ABC):
                 operation_id=root_lock.operation_id, timestamp=timestamp
             )
 
-            print("new rows", len(rows))
-
             # FIXME: Remove once edits.remove_edges/edits.add_edges return consistent type
             new_root_ids = np.array(new_root_ids, dtype=basetypes.NODE_ID)
             new_lvl2_ids = np.array(new_lvl2_ids, dtype=basetypes.NODE_ID)
@@ -472,14 +470,15 @@ class MergeOperation(GraphEditOperation):
             )
 
         with TimeIt("edits.merge_preprocess"):
-            self.added_edges = edits.merge_preprocess(
+            inactive_edges = edits.merge_preprocess(
                 self.cg, subgraph_edges=edges, supervoxels=self.added_edges.ravel(),
             )
 
         with TimeIt("edits.add_edges"):
             return edits.add_edges(
                 self.cg,
-                atomic_edges=np.unique(self.added_edges, axis=0),
+                atomic_edges=self.added_edges,
+                inactive_edges=np.unique(inactive_edges, axis=0),
                 operation_id=operation_id,
                 time_stamp=timestamp,
             )

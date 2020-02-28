@@ -78,7 +78,7 @@ def get_past_root_ids(
         for next_id in next_ids:
             node = cg.client.read_node(
                 next_id,
-                columns=[
+                properties=[
                     attributes.Hierarchy.FormerParent,
                     attributes.Hierarchy.Child,
                 ],

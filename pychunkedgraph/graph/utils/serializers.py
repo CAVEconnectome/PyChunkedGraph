@@ -104,7 +104,7 @@ def pad_node_id(node_id: np.uint64) -> str:
     return "%.20d" % node_id
 
 
-def serialize_uint64(node_id: np.uint64, counter=False) -> bytes:
+def serialize_uint64(node_id: np.uint64, counter=False, fake_edges=False) -> bytes:
     """ Serializes an id to be ingested by a bigtable table row
 
     :param node_id: int
@@ -112,6 +112,8 @@ def serialize_uint64(node_id: np.uint64, counter=False) -> bytes:
     """
     if counter:
         return serialize_key("i%s" % pad_node_id(node_id))  # type: ignore
+    if fake_edges:
+        return serialize_key("f%s" % pad_node_id(node_id))  # type: ignore
     return serialize_key(pad_node_id(node_id))  # type: ignore
 
 

@@ -27,6 +27,7 @@ from .utils import basetypes
 from .utils import id_helpers
 from .utils import generic as misc_utils
 from .utils.context_managers import TimeIt
+from .utils.serializers import serialize_uint64
 from .edges import Edges
 from .edges import utils as edge_utils
 from .chunks import utils as chunk_utils
@@ -448,6 +449,23 @@ class ChunkedGraph:
         l2id_agglomeration_d, edges = self.get_l2_agglomerations(level2_ids)
         return node_layer_children_d, l2id_agglomeration_d, edges
 
+    def get_fake_edges(
+        self, chunk_ids: np.ndarray, time_stamp: datetime.datetime = None
+    ) -> typing.Dict:
+        result = {}
+        fake_edges_d = self.client.read_nodes(
+            node_ids=chunk_ids,
+            properties=attributes.Connectivity.FakeEdges,
+            end_time=time_stamp,
+            end_time_inclusive=True,
+        )
+        for id_, val in fake_edges_d.keys():
+            edges = np.concatenate(
+                [np.array(e.value, dtype=basetypes.NODE_ID) for e in val]
+            )
+            result[id_] = Edges(edges[:, 0], edges[:, 1], fake_edges=True)
+        return result
+
     def get_l2_agglomerations(
         self, level2_ids: np.ndarray, edges_only: bool = False
     ) -> typing.Tuple[typing.Dict[int, types.Agglomeration], np.ndarray]:
@@ -462,8 +480,13 @@ class ChunkedGraph:
             n_threads=8,
             debug=False,
         )
-        edges_dict = edge_utils.concatenate_chunk_edges(chunk_edge_dicts)
-        all_chunk_edges = reduce(lambda x, y: x + y, edges_dict.values())
+        edges_d = edge_utils.concatenate_chunk_edges(chunk_edge_dicts)
+        all_chunk_edges = reduce(lambda x, y: x + y, edges_d.values(), Edges([], []))
+        print("all_chunk_edges b", len(all_chunk_edges))
+        all_chunk_edges += reduce(
+            lambda x, y: x + y, self.get_fake_edges(chunk_ids).values(), Edges([], [])
+        )
+        print("all_chunk_edges b", len(all_chunk_edges))
         if edges_only:
             all_chunk_edges = all_chunk_edges.get_pairs()
             supervoxels = self.get_children(level2_ids, flatten=True)
