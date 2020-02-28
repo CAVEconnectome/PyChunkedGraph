@@ -16,6 +16,7 @@ import numpy as np
 from google.cloud import bigtable
 
 from . import edits
+from . import types
 from . import attributes
 from .locks import RootLock
 from .utils import basetypes
@@ -478,7 +479,9 @@ class MergeOperation(GraphEditOperation):
             return edits.add_edges(
                 self.cg,
                 atomic_edges=self.added_edges,
-                inactive_edges=np.unique(inactive_edges, axis=0),
+                inactive_edges=np.unique(inactive_edges, axis=0)
+                if inactive_edges.size
+                else types.empty_2d,
                 operation_id=operation_id,
                 time_stamp=timestamp,
             )
