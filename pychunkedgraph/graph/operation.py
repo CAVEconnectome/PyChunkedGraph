@@ -16,11 +16,11 @@ import numpy as np
 from google.cloud import bigtable
 
 from . import edits
-from . import cache
 from . import attributes
 from .locks import RootLock
 from .utils import basetypes
 from .utils import serializers
+from .cache import CacheService
 from .cutting import run_multicut
 from .exceptions import PreconditionError
 from .exceptions import PostconditionError
@@ -366,6 +366,7 @@ class GraphEditOperation(ABC):
         """
         root_ids = self._update_root_ids()
         with RootLock(self.cg, root_ids) as root_lock:
+            self.cg.cache = CacheService(self.cg)
             lock_operation_ids = np.array(
                 [root_lock.operation_id] * len(root_lock.locked_root_ids)
             )
@@ -394,7 +395,8 @@ class GraphEditOperation(ABC):
                 operation_id=root_lock.operation_id,
                 slow_retry=False,
             )
-            # self.cg.cache = None
+            self.cg.cache.clear()
+            self.cg.cache = None
             return GraphEditOperation.Result(
                 operation_id=root_lock.operation_id,
                 new_root_ids=new_root_ids,

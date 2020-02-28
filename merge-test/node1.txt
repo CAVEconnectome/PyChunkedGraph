@@ -1,9 +1,0 @@
-# between 8, 239 + 2965 = 3204
-edges = np.array([[94524946524577880, 94595315268752176]],dtype=np.uint64)
-# between 2, 832 + 354 = 1186
-edges = np.array([[94803535283198313, 94803466563722624]],dtype=np.uint64)
-
-print(cg.get_cross_chunk_edges_layer(edges))
-print(cg.get_parents(edges[0]))
-roots_old = cg.get_roots(edges[0])
-print(roots_old)

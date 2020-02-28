@@ -79,13 +79,13 @@ def _get_relevant_components(edges: np.ndarray, supervoxels: np.ndarray) -> Tupl
     return relevant_ccs
 
 
-def merge_preprocess(cg, *, subgraph_edges: np.ndarray, supervoxels: np.ndarray):
+def merge_preprocess(
+    cg, *, subgraph_edges: np.ndarray, supervoxels: np.ndarray
+) -> np.ndarray:
     """
     Determine if a fake edge needs to be added.
     Get subgraph within the bounding box
-        If there is a path between the supervoxels, fake edge is not necessary.
-            Determine all the inactive edges between the L2 chidlren of the 2 node IDs.
-        If no path exists, add user input as a fake edge.
+    Add fake edge if there are no inactive edges between two components.
     """
     edges_roots = cg.get_roots(subgraph_edges.ravel()).reshape(-1, 2)
     active_mask = edges_roots[:, 0] == edges_roots[:, 1]
@@ -118,13 +118,13 @@ def add_edges(
     for cc_indices in components:
         l2ids_ = graph_ids[cc_indices]
         new_id = cg.id_client.create_node_id(cg.get_chunk_id(l2ids_[0]))
-        cache.CHILDREN[new_id] = np.concatenate(
+        cg.cache.children_cache[new_id] = np.concatenate(
             [atomic_children_d[l2id] for l2id in l2ids_]
         )
-        cache.ATOMIC_CX_EDGES[new_id] = concatenate_cross_edge_dicts(
+        cg.cache.atomic_cx_edges_cache[new_id] = concatenate_cross_edge_dicts(
             [atomic_cross_edges_d[l2id] for l2id in l2ids_]
         )
-        cache.update(cache.PARENTS, cache.CHILDREN[new_id], new_id)
+        cache.update(cg.cache.parents_cache, cg.cache.children_cache[new_id], new_id)
         new_l2_ids.append(new_id)
         new_old_id_d[new_id].extend(l2ids_)
         for id_ in l2ids_:
@@ -192,7 +192,6 @@ def remove_edges(
     time_stamp: datetime.datetime = None,
 ):
     # TODO add docs
-    cache.clear()
     cg.cache = cache.CacheService(cg)
     edges, _ = _analyze_edges_to_add(cg, atomic_edges)
     l2ids = np.unique(edges)
@@ -213,11 +212,13 @@ def remove_edges(
         )
         for i_cc, cc in enumerate(ccs):
             new_id = new_parent_ids[i_cc]
-            cache.CHILDREN[new_id] = graph_ids[cc]
-            cache.ATOMIC_CX_EDGES[new_id] = _filter_component_cross_edges(
-                cache.CHILDREN[new_id], cross_edges, cross_edge_layers
+            cg.cache.children_cache[new_id] = graph_ids[cc]
+            cg.cache.atomic_cx_edges_cache[new_id] = _filter_component_cross_edges(
+                cg.cache.children_cache[new_id], cross_edges, cross_edge_layers
             )
-            cache.update(cache.PARENTS, cache.CHILDREN[new_id], new_id)
+            cache.update(
+                cg.cache.parents_cache, cg.cache.children_cache[new_id], new_id
+            )
             new_l2_ids.append(new_id)
             new_old_id_d[new_id].append(id_)
             old_new_id_d[id_].append(new_id)
@@ -335,8 +336,12 @@ class CreateParentNodes:
                 root_chunk=parent_layer == self.cg.meta.layer_count,
             )
             self._new_ids_d[parent_layer].append(parent_id)
-            cache.CHILDREN[parent_id] = cc_ids
-            cache.update(cache.PARENTS, cache.CHILDREN[parent_id], parent_id)
+            self.cg.cache.children_cache[parent_id] = cc_ids
+            cache.update(
+                self.cg.cache.parents_cache,
+                self.cg.cache.children_cache[parent_id],
+                parent_id,
+            )
             self._update_id_lineage(parent_id, cc_ids, layer, parent_layer)
 
     def run(self) -> Iterable:

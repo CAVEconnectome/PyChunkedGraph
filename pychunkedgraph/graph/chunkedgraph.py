@@ -14,13 +14,13 @@ from cloudvolume import CloudVolume
 from multiwrapper import multiprocessing_utils as mu
 
 from . import types
-from . import cache as cache_utils
 from . import cutting
 from . import operation
 from . import attributes
 from . import exceptions
 from .client import base
 from .client.bigtable import BigTableClient
+from .cache import CacheService
 from .meta import ChunkedGraphMeta
 from .meta import BackendClientInfo
 from .utils import basetypes
@@ -89,7 +89,7 @@ class ChunkedGraph:
         return self._cache_service
 
     @cache.setter
-    def cache(self, cache_service: cache_utils.CacheService):
+    def cache(self, cache_service: CacheService):
         self._cache_service = cache_service
 
     def create(self):
@@ -516,8 +516,6 @@ class ChunkedGraph:
         :param sink_coord: list of int (n x 3)
         :return: GraphEditOperation.Result
         """
-        cache_utils.clear()
-        self.cache = cache_utils.CacheService(self)
         return operation.MergeOperation(
             self,
             user_id=user_id,
@@ -549,8 +547,6 @@ class ChunkedGraph:
             [x, y, z] bounding box padding beyond box spanned by coordinates
         :return: GraphEditOperation.Result
         """
-        cache_utils.clear()
-        self.cache = cache_utils.CacheService(self)
         if mincut:
             print("multicut")
             return operation.MulticutOperation(
