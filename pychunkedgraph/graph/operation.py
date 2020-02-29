@@ -10,20 +10,23 @@ from typing import Tuple
 from typing import Union
 from typing import Optional
 from typing import Sequence
+from functools import reduce
 
 import numpy as np
 from google.cloud import bigtable
 
-from . import attributes
 from . import edits
+from . import types
+from . import attributes
 from .locks import RootLock
 from .utils import basetypes
 from .utils import serializers
+from .cache import CacheService
 from .cutting import run_multicut
 from .exceptions import PreconditionError
 from .exceptions import PostconditionError
 from .utils.context_managers import TimeIt
-from .utils.generic import get_bounding_box
+from .utils.generic import get_bounding_box as get_bbox
 
 
 if TYPE_CHECKING:
@@ -363,15 +366,14 @@ class GraphEditOperation(ABC):
         :rtype: GraphEditOperation.Result
         """
         root_ids = self._update_root_ids()
-
         with RootLock(self.cg, root_ids) as root_lock:
+            self.cg.cache = CacheService(self.cg)
             lock_operation_ids = np.array(
                 [root_lock.operation_id] * len(root_lock.locked_root_ids)
             )
-            timestamp = self.cg.read_consolidated_lock_timestamp(
+            timestamp = self.cg.client.get_consolidated_lock_timestamp(
                 root_lock.locked_root_ids, lock_operation_ids
             )
-
             new_root_ids, new_lvl2_ids, rows = self._apply(
                 operation_id=root_lock.operation_id, timestamp=timestamp
             )
@@ -379,7 +381,6 @@ class GraphEditOperation(ABC):
             # FIXME: Remove once edits.remove_edges/edits.add_edges return consistent type
             new_root_ids = np.array(new_root_ids, dtype=basetypes.NODE_ID)
             new_lvl2_ids = np.array(new_lvl2_ids, dtype=basetypes.NODE_ID)
-
             # Add a row to the log
             log_row = self._create_log_record(
                 operation_id=root_lock.operation_id,
@@ -387,16 +388,14 @@ class GraphEditOperation(ABC):
                 timestamp=timestamp,
             )
 
-            # Put log row first!
-            rows = [log_row] + rows
-
-            # Execute write (makes sure that we are still owning the lock)
-            self.cg.bulk_write(
-                rows,
+            self.cg.client.write(
+                [log_row] + rows,
                 root_lock.locked_root_ids,
                 operation_id=root_lock.operation_id,
                 slow_retry=False,
             )
+            self.cg.cache.clear()
+            self.cg.cache = None
             return GraphEditOperation.Result(
                 operation_id=root_lock.operation_id,
                 new_root_ids=new_root_ids,
@@ -413,15 +412,18 @@ class MergeOperation(GraphEditOperation):
     :type user_id: str
     :param added_edges: Supervoxel IDs of all added edges [[source, sink]]
     :type added_edges: Sequence[Sequence[np.uint64]]
-    :param source_coords: world space coordinates in nm, corresponding to IDs in added_edges[:,0], defaults to None
+    :param source_coords: world space coordinates in nm,
+        corresponding to IDs in added_edges[:,0], defaults to None
     :type source_coords: Optional[Sequence[Sequence[np.int]]], optional
-    :param sink_coords: world space coordinates in nm, corresponding to IDs in added_edges[:,1], defaults to None
+    :param sink_coords: world space coordinates in nm,
+        corresponding to IDs in added_edges[:,1], defaults to None
     :type sink_coords: Optional[Sequence[Sequence[np.int]]], optional
-    :param affinities: edge weights for newly added edges, entries corresponding to added_edges, defaults to None
+    :param affinities: edge weights for newly added edges,
+        entries corresponding to added_edges, defaults to None
     :type affinities: Optional[Sequence[np.float32]], optional
     """
 
-    __slots__ = ["added_edges", "affinities"]
+    __slots__ = ["source_ids", "sink_ids", "added_edges", "affinities", "bbox_offset"]
 
     def __init__(
         self,
@@ -429,16 +431,18 @@ class MergeOperation(GraphEditOperation):
         *,
         user_id: str,
         added_edges: Sequence[Sequence[np.uint64]],
-        source_coords: Optional[Sequence[Sequence[np.int]]] = None,
-        sink_coords: Optional[Sequence[Sequence[np.int]]] = None,
+        source_coords: Sequence[Sequence[np.int]],
+        sink_coords: Sequence[Sequence[np.int]],
+        bbox_offset: Tuple[int, int, int] = (240, 240, 24),
         affinities: Optional[Sequence[np.float32]] = None,
     ) -> None:
         super().__init__(
             cg, user_id=user_id, source_coords=source_coords, sink_coords=sink_coords
         )
         self.added_edges = np.atleast_2d(added_edges).astype(basetypes.NODE_ID)
-        self.affinities = None
+        self.bbox_offset = np.atleast_1d(bbox_offset).astype(basetypes.COORDINATES)
 
+        self.affinities = None
         if affinities is not None:
             self.affinities = np.atleast_1d(affinities).astype(basetypes.EDGE_AFFINITY)
             if self.affinities.size == 0:
@@ -448,9 +452,7 @@ class MergeOperation(GraphEditOperation):
             raise PreconditionError("Requested merge contains at least 1 self-loop.")
 
         layers = self.cg.get_chunk_layers(self.added_edges.ravel())
-        assert (
-            np.sum(layers) == layers.size
-        ), "Supervoxels expected but received higher layer nodes."
+        assert np.sum(layers) == layers.size, "Supervoxels expected."
 
     def _update_root_ids(self) -> np.ndarray:
         root_ids = np.unique(self.cg.get_roots(self.added_edges.ravel()))
@@ -459,22 +461,30 @@ class MergeOperation(GraphEditOperation):
     def _apply(
         self, *, operation_id, timestamp
     ) -> Tuple[np.ndarray, np.ndarray, List["bigtable.row.Row"]]:
-        # fake_edge_rows = edits.add_fake_edges(
-        #     self.cg,
-        #     operation_id=operation_id,
-        #     added_edges=self.added_edges,
-        #     source_coords=self.source_coords,
-        #     sink_coords=self.sink_coords,
-        #     timestamp=timestamp
-        # )
-        new_root_ids, new_lvl2_ids, rows = edits.add_edges(
-            self.cg,
-            atomic_edges=self.added_edges,
-            operation_id=operation_id,
-            time_stamp=timestamp,
-        )
-        # rows.extend(fake_edge_rows)
-        return new_root_ids, new_lvl2_ids, rows
+        root_ids = set(self.cg.get_roots(self.added_edges.ravel()))
+        if len(root_ids) < 2:
+            raise PreconditionError("Supervoxels must belong to different objects.")
+        bbox = get_bbox(self.source_coords, self.sink_coords, self.bbox_offset)
+        with TimeIt("get_subgraph"):
+            edges = self.cg.get_subgraph(
+                root_ids, bbox=bbox, bbox_is_coordinate=True, edges_only=True
+            )
+
+        with TimeIt("edits.merge_preprocess"):
+            inactive_edges = edits.merge_preprocess(
+                self.cg, subgraph_edges=edges, supervoxels=self.added_edges.ravel(),
+            )
+
+        with TimeIt("edits.add_edges"):
+            return edits.add_edges(
+                self.cg,
+                atomic_edges=self.added_edges,
+                inactive_edges=np.unique(inactive_edges, axis=0)
+                if inactive_edges.size
+                else types.empty_2d,
+                operation_id=operation_id,
+                time_stamp=timestamp,
+            )
 
     def _create_log_record(
         self, *, operation_id, timestamp, new_root_ids
@@ -490,8 +500,7 @@ class MergeOperation(GraphEditOperation):
             val_dict[attributes.OperationLogs.SinkCoordinate] = self.sink_coords
         if self.affinities is not None:
             val_dict[attributes.OperationLogs.Affinity] = self.affinities
-
-        return self.cg.mutate_row(
+        return self.cg.client.mutate_row(
             serializers.serialize_uint64(operation_id), val_dict, timestamp
         )
 
@@ -522,7 +531,7 @@ class SplitOperation(GraphEditOperation):
     :type sink_coords: Optional[Sequence[Sequence[np.int]]], optional
     """
 
-    __slots__ = ["removed_edges"]
+    __slots__ = ["removed_edges", "bbox_offset"]
 
     def __init__(
         self,
@@ -532,18 +541,18 @@ class SplitOperation(GraphEditOperation):
         removed_edges: Sequence[Sequence[np.uint64]],
         source_coords: Optional[Sequence[Sequence[np.int]]] = None,
         sink_coords: Optional[Sequence[Sequence[np.int]]] = None,
+        bbox_offset: Tuple[int] = (240, 240, 24),
     ) -> None:
         super().__init__(
             cg, user_id=user_id, source_coords=source_coords, sink_coords=sink_coords
         )
         self.removed_edges = np.atleast_2d(removed_edges).astype(basetypes.NODE_ID)
+        self.bbox_offset = np.atleast_1d(bbox_offset).astype(basetypes.COORDINATES)
         if np.any(np.equal(self.removed_edges[:, 0], self.removed_edges[:, 1])):
             raise PreconditionError("Requested split contains at least 1 self-loop.")
 
         layers = self.cg.get_chunk_layers(self.removed_edges.ravel())
-        assert (
-            np.sum(layers) == layers.size
-        ), "Supervoxels expected but received higher layer nodes."
+        assert np.sum(layers) == layers.size, "IDs must be supervoxels."
 
     def _update_root_ids(self) -> np.ndarray:
         root_ids = np.unique(self.cg.get_roots(self.removed_edges.ravel()))
@@ -556,10 +565,18 @@ class SplitOperation(GraphEditOperation):
     def _apply(
         self, *, operation_id, timestamp
     ) -> Tuple[np.ndarray, np.ndarray, List["bigtable.row.Row"]]:
+        if len(set(self.cg.get_roots(self.removed_edges.ravel()))) > 1:
+            raise PreconditionError("Supervoxels must belong to the same object.")
+
+        with TimeIt("get_subgraph"):
+            l2id_agglomeration_d, _ = self.cg.self.get_l2_agglomerations(
+                self.cg.get_parents(self.removed_edges.ravel())
+            )
         return edits.remove_edges(
             self.cg,
             operation_id=operation_id,
             atomic_edges=self.removed_edges,
+            l2id_agglomeration_d=l2id_agglomeration_d,
             time_stamp=timestamp,
         )
 
@@ -580,7 +597,7 @@ class SplitOperation(GraphEditOperation):
         if self.sink_coords is not None:
             val_dict[attributes.OperationLogs.SinkCoordinate] = self.sink_coords
 
-        return self.cg.mutate_row(
+        return self.cg.client.mutate_row(
             serializers.serialize_uint64(operation_id), val_dict, timestamp
         )
 
@@ -637,7 +654,7 @@ class MulticutOperation(GraphEditOperation):
         self.sink_ids = np.atleast_1d(sink_ids).astype(basetypes.NODE_ID)
         self.bbox_offset = np.atleast_1d(bbox_offset).astype(basetypes.COORDINATES)
         if np.any(np.in1d(self.sink_ids, self.source_ids)):
-            raise PreconditionError("Supervoxels exists as in both sink and source.")
+            raise PreconditionError("Supervoxels exist in both sink and source.")
 
         ids = np.concatenate([self.source_ids, self.sink_ids])
         layers = self.cg.get_chunk_layers(ids)
@@ -654,18 +671,18 @@ class MulticutOperation(GraphEditOperation):
         self, *, operation_id, timestamp
     ) -> Tuple[np.ndarray, np.ndarray, List["bigtable.row.Row"]]:
         # Verify that sink and source are from the same root object
-        root_ids = set()
-        root_ids.update(
+        root_ids = set(
             self.cg.get_roots(np.concatenate([self.source_ids, self.sink_ids]))
         )
         if len(root_ids) > 1:
             raise PreconditionError("Supervoxels must belong to the same object.")
 
-        bbox = get_bounding_box(self.source_coords, self.sink_coords, self.bbox_offset)
+        bbox = get_bbox(self.source_coords, self.sink_coords, self.bbox_offset)
         with TimeIt("get_subgraph"):
-            l2id_agglomeration_d, edges = self.cg.get_subgraph(
+            (_, l2id_agglomeration_d, edges) = self.cg.get_subgraph(
                 [root_ids.pop()], bbox=bbox, bbox_is_coordinate=True
             )
+        edges = edges[0] + edges[2]  # TODO maybe dict is better
         if not len(edges):
             raise PreconditionError("No local edges found.")
 
@@ -697,7 +714,7 @@ class MulticutOperation(GraphEditOperation):
             attributes.OperationLogs.SinkID: self.sink_ids,
             attributes.OperationLogs.BoundingBoxOffset: self.bbox_offset,
         }
-        return self.cg.mutate_row(
+        return self.cg.client.mutate_row(
             serializers.serialize_uint64(operation_id), val_dict, timestamp
         )
 
@@ -781,7 +798,7 @@ class RedoOperation(GraphEditOperation):
             attributes.OperationLogs.RedoOperationID: self.superseded_operation_id,
             attributes.OperationLogs.RootID: new_root_ids,
         }
-        return self.cg.mutate_row(
+        return self.cg.client.mutate_row(
             serializers.serialize_uint64(operation_id), val_dict, timestamp
         )
 
@@ -866,7 +883,7 @@ class UndoOperation(GraphEditOperation):
             attributes.OperationLogs.UndoOperationID: self.superseded_operation_id,
             attributes.OperationLogs.RootID: new_root_ids,
         }
-        return self.cg.mutate_row(
+        return self.cg.client.mutate_row(
             serializers.serialize_uint64(operation_id), val_dict, timestamp
         )
 

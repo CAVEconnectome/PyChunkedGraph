@@ -28,19 +28,16 @@ class Edges:
         *,
         affinities: Optional[np.ndarray] = None,
         areas: Optional[np.ndarray] = None,
-        chunk_split=False,
+        fake_edges=False,
     ):
-        """
-        If `chunk_split` is True, the edges will have infinite affinity.
-        (An edge between parts of supervoxel split due to chunk boundary).
-        """
+        """If `fake_edges` is True, the edges will have low affinity."""
         self.node_ids1 = np.array(node_ids1, dtype=basetypes.NODE_ID)
         self.node_ids2 = np.array(node_ids2, dtype=basetypes.NODE_ID)
         assert self.node_ids1.size == self.node_ids2.size
         self._affinities = None
         self._areas = None
         self._as_pairs = None
-        self._chunk_split = chunk_split
+        self._fake_edges = fake_edges
 
         if affinities is not None:
             self._affinities = np.array(affinities, dtype=basetypes.EDGE_AFFINITY)
@@ -55,14 +52,22 @@ class Edges:
         if self._affinities is not None:
             return self._affinities
         return np.ones(len(self.node_ids1)) * (
-            np.inf if self._chunk_split else DEFAULT_AFFINITY
+            np.finfo(np.float32).tiny if self._fake_edges else DEFAULT_AFFINITY
         )
+
+    @affinities.setter
+    def affinities(self, affinities):
+        self._affinities = affinities
 
     @property
     def areas(self) -> np.ndarray:
         if self._areas is not None:
             return self._affinities
         return np.ones(len(self.node_ids1)) * DEFAULT_AREA
+
+    @areas.setter
+    def areas(self, areas):
+        self._areas = areas
 
     def __add__(self, other):
         """add two Edges instances"""
@@ -104,6 +109,6 @@ class Edges:
         return self._as_pairs
 
 
-_chunk_edges_defaults = (Edges([], []), Edges([], []), Edges([], [], chunk_split=True))
-ChunkEdges = namedtuple("ChunkEdges", _edge_type_fileds, defaults=_chunk_edges_defaults)
+# _chunk_edges_defaults = (Edges([], []), Edges([], []), Edges([], [], chunk_split=True))
+# ChunkEdges = namedtuple("ChunkEdges", _edge_type_fileds, defaults=_chunk_edges_defaults)
 

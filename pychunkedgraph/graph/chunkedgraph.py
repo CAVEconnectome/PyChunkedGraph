@@ -27,6 +27,7 @@ from .utils import basetypes
 from .utils import id_helpers
 from .utils import generic as misc_utils
 from .utils.context_managers import TimeIt
+from .utils.serializers import serialize_uint64
 from .edges import Edges
 from .edges import utils as edge_utils
 from .chunks import utils as chunk_utils
@@ -60,7 +61,9 @@ class ChunkedGraph:
 
         if meta:
             graph_id = meta.graph_config.ID_PREFIX + meta.graph_config.ID
-            bt_client = BigTableClient(graph_id, config=client_info.CONFIG)
+            bt_client = BigTableClient(
+                graph_id, config=client_info.CONFIG, graph_meta=meta
+            )
             self._meta = meta
         else:
             bt_client = BigTableClient(graph_id, config=client_info.CONFIG)
@@ -426,30 +429,46 @@ class ChunkedGraph:
         bbox: typing.Optional[typing.Sequence[typing.Sequence[int]]] = None,
         bbox_is_coordinate: bool = False,
         nodes_only=False,
-    ) -> typing.Tuple[typing.Dict[int, types.Agglomeration], np.ndarray]:
-        """
-        Returns level 2 node IDs with their edges.
-        If `nodes_only`, returns only supervoxels.
-        1. get level 2 children ids belonging to the agglomerations
-        2. read relevant chunk edges from cloud storage (include fake edges from big table)
-        3. group nodes and edges based on level 2 ids `types.Agglomeration`
-        returns dict of {id: types.Agglomeration}
-        """
-        # 1 level 2 ids
+        edges_only=False,
+    ) -> typing.Tuple[typing.Dict, typing.Dict, Edges]:
+        """TODO docs"""
         bbox = chunk_utils.normalize_bounding_box(self.meta, bbox, bbox_is_coordinate)
-        level2_ids = [types.empty_1d]
-        for agglomeration_id in node_ids:
+        node_layer_children_d = {}
+        for node_id in node_ids:
             layer_nodes_d = self._get_subgraph_higher_layer_nodes(
-                node_id=agglomeration_id, bounding_box=bbox, return_layers=[2],
+                node_id=node_id,
+                bounding_box=bbox,
+                return_layers=list(range(2, self.meta.layer_count)),
             )
-            level2_ids.append(layer_nodes_d[2])
-        level2_ids = np.concatenate(level2_ids)
+            node_layer_children_d[node_id] = layer_nodes_d
+        level2_ids = np.concatenate([x[2] for x in node_layer_children_d.values()])
         if nodes_only:
             return self.get_children(level2_ids, flatten=True)
-        return self.get_l2_agglomerations(level2_ids)
+        if edges_only:
+            return self.get_l2_agglomerations(level2_ids, edges_only=True)
+        l2id_agglomeration_d, edges = self.get_l2_agglomerations(level2_ids)
+        return node_layer_children_d, l2id_agglomeration_d, edges
+
+    def get_fake_edges(
+        self, chunk_ids: np.ndarray, time_stamp: datetime.datetime = None
+    ) -> typing.Dict:
+        result = {}
+        fake_edges_d = self.client.read_nodes(
+            node_ids=chunk_ids,
+            properties=attributes.Connectivity.FakeEdges,
+            end_time=time_stamp,
+            end_time_inclusive=True,
+            fake_edges=True,
+        )
+        for id_, val in fake_edges_d.items():
+            edges = np.concatenate(
+                [np.array(e.value, dtype=basetypes.NODE_ID) for e in val]
+            )
+            result[id_] = Edges(edges[:, 0], edges[:, 1], fake_edges=True)
+        return result
 
     def get_l2_agglomerations(
-        self, level2_ids: np.ndarray
+        self, level2_ids: np.ndarray, edges_only: bool = False
     ) -> typing.Tuple[typing.Dict[int, types.Agglomeration], np.ndarray]:
         """
         Children of Level 2 Node IDs and edges.
@@ -458,13 +477,26 @@ class ChunkedGraph:
         chunk_ids = self.get_chunk_ids_from_node_ids(level2_ids)
         chunk_edge_dicts = mu.multithread_func(
             self.read_chunk_edges,
-            np.array_split(np.unique(chunk_ids), 4),  # TODO hardcoded
-            n_threads=4,
+            np.array_split(np.unique(chunk_ids), 8),  # TODO hardcoded
+            n_threads=8,
             debug=False,
         )
-        edges_dict = edge_utils.concatenate_chunk_edges(chunk_edge_dicts)
-        all_chunk_edges = reduce(lambda x, y: x + y, edges_dict.values())
-        agg_edges = set()
+        edges_d = edge_utils.concatenate_chunk_edges(chunk_edge_dicts)
+        all_chunk_edges = reduce(lambda x, y: x + y, edges_d.values(), Edges([], []))
+        print("all_chunk_edges b", len(all_chunk_edges))
+        all_chunk_edges += reduce(
+            lambda x, y: x + y, self.get_fake_edges(chunk_ids).values(), Edges([], [])
+        )
+        print("all_chunk_edges b", len(all_chunk_edges))
+        if edges_only:
+            all_chunk_edges = all_chunk_edges.get_pairs()
+            supervoxels = self.get_children(level2_ids, flatten=True)
+            mask0 = np.in1d(all_chunk_edges[:, 0], supervoxels)
+            mask1 = np.in1d(all_chunk_edges[:, 1], supervoxels)
+            return all_chunk_edges[mask0 & mask1]
+        in_edges = set()
+        out_edges = set()
+        cross_edges = set()
         # TODO include fake edges
         l2id_agglomeration_d = {}
         l2id_children_d = self.get_children(level2_ids)
@@ -476,17 +508,22 @@ class ChunkedGraph:
             l2id_agglomeration_d[l2id] = types.Agglomeration(
                 l2id, supervoxels, in_, out_, cross_
             )
-            agg_edges.update([in_, cross_])
-        return (l2id_agglomeration_d, reduce(lambda x, y: x + y, agg_edges))
+            in_edges.add(in_)
+            out_edges.add(out_)
+            cross_edges.add(cross_)
+        in_edges = reduce(lambda x, y: x + y, in_edges)
+        out_edges = reduce(lambda x, y: x + y, out_edges)
+        cross_edges = reduce(lambda x, y: x + y, cross_edges)
+        return l2id_agglomeration_d, (in_edges, out_edges, cross_edges)
 
     def add_edges(
         self,
         user_id: str,
         atomic_edges: typing.Sequence[np.uint64],
+        *,
         affinities: typing.Sequence[np.float32] = None,
-        source_coord: typing.Sequence[int] = None,
-        sink_coord: typing.Sequence[int] = None,
-        n_tries: int = 60,
+        source_coords: typing.Sequence[int] = None,
+        sink_coords: typing.Sequence[int] = None,
     ) -> operation.GraphEditOperation.Result:
         """ Adds an edge to the chunkedgraph
             Multi-user safe through locking of the root node
@@ -501,7 +538,6 @@ class ChunkedGraph:
             will eventually be set to 1 if None
         :param source_coord: list of int (n x 3)
         :param sink_coord: list of int (n x 3)
-        :param n_tries: int
         :return: GraphEditOperation.Result
         """
         return operation.MergeOperation(
@@ -509,22 +545,21 @@ class ChunkedGraph:
             user_id=user_id,
             added_edges=atomic_edges,
             affinities=affinities,
-            source_coords=source_coord,
-            sink_coords=sink_coord,
+            source_coords=source_coords,
+            sink_coords=sink_coords,
         ).execute()
 
     def remove_edges(
         self,
         user_id: str,
+        atomic_edges: typing.Sequence[typing.Tuple[np.uint64, np.uint64]] = None,
         *,
         source_ids: typing.Sequence[np.uint64] = None,
         sink_ids: typing.Sequence[np.uint64] = None,
         source_coords: typing.Sequence[typing.Sequence[int]] = None,
         sink_coords: typing.Sequence[typing.Sequence[int]] = None,
-        atomic_edges: typing.Sequence[typing.Tuple[np.uint64, np.uint64]] = None,
         mincut: bool = True,
         bb_offset: typing.Tuple[int, int, int] = (240, 240, 24),
-        n_tries: int = 20,
     ) -> operation.GraphEditOperation.Result:
         """
         Removes edges - either directly or after applying a mincut
@@ -598,7 +633,7 @@ class ChunkedGraph:
         bounding_box: typing.Optional[typing.Sequence[typing.Sequence[int]]],
         return_layers: typing.Sequence[int],
     ):
-        def _get_subgraph_higher_layer_nodes_threaded(
+        def _get_subgraph_higher_layer_nodes_thread(
             node_ids: typing.Iterable[np.uint64],
         ) -> typing.List[np.uint64]:
             children = self.get_children(node_ids, flatten=True)
@@ -648,7 +683,7 @@ class ChunkedGraph:
             child_ids = np.fromiter(
                 chain.from_iterable(
                     mu.multithread_func(
-                        _get_subgraph_higher_layer_nodes_threaded,
+                        _get_subgraph_higher_layer_nodes_thread,
                         np.array_split(this_layer_child_ids, this_n_threads),
                         n_threads=this_n_threads,
                         debug=this_n_threads == 1,

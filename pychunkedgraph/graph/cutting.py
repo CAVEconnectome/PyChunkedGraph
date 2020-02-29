@@ -32,7 +32,6 @@ def merge_cross_chunk_edges_graph_tool(
     """
     # mask for edges that have to be merged
     cross_chunk_edge_mask = np.isinf(affs)
-    print("split egdes count", sum(cross_chunk_edge_mask == True))
     # graph with edges that have to be merged
     graph, _, _, unique_supervoxel_ids = flatgraph.build_gt_graph(
         edges[cross_chunk_edge_mask], make_directed=True

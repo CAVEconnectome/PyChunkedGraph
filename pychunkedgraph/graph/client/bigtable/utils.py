@@ -35,20 +35,15 @@ def partial_row_data_to_column_dict(
 def get_google_compatible_time_stamp(
     time_stamp: datetime, round_up: bool = False
 ) -> datetime:
-    """ Makes a datetime time stamp compatible with googles' services.
+    """
+    Makes a datetime time stamp compatible with googles' services.
     Google restricts the accuracy of time stamps to milliseconds. Hence, the
     microseconds are cut of. By default, time stamps are rounded to the lower
     number.
-
-    :param time_stamp: datetime
-    :param round_up: bool
-    :return: datetime
     """
-
     micro_s_gap = timedelta(microseconds=time_stamp.microsecond % 1000)
     if micro_s_gap == 0:
         return time_stamp
-
     if round_up:
         time_stamp += timedelta(microseconds=1000) - micro_s_gap
     else:
@@ -60,7 +55,6 @@ def _get_column_filter(
     columns: Union[Iterable[attributes._Attribute], attributes._Attribute] = None
 ) -> RowFilter:
     """ Generates a RowFilter that accepts the specified columns """
-
     if isinstance(columns, attributes._Attribute):
         return ColumnRangeFilter(
             columns.family_id, start_column=columns.key, end_column=columns.key
@@ -69,7 +63,6 @@ def _get_column_filter(
         return ColumnRangeFilter(
             columns[0].family_id, start_column=columns[0].key, end_column=columns[0].key
         )
-
     return RowFilterUnion(
         [
             ColumnRangeFilter(col.family_id, start_column=col.key, end_column=col.key)
@@ -94,7 +87,6 @@ def _get_time_range_filter(
         start_time = get_google_compatible_time_stamp(start_time, round_up=False)
     if end_time is not None:
         end_time = get_google_compatible_time_stamp(end_time, round_up=end_inclusive)
-
     return TimestampRangeFilter(TimestampRange(start=start_time, end=end_time))
 
 

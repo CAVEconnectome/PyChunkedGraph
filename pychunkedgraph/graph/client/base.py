@@ -69,7 +69,7 @@ class SimpleClient(ABC):
         """Locks root node with operation_id to prevent race conditions."""
 
     @abstractmethod
-    def lock_roots(self, node_ids):
+    def lock_roots(self, node_ids, operation_id):
         """Locks root nodes to prevent race conditions."""
 
     @abstractmethod
@@ -83,6 +83,18 @@ class SimpleClient(ABC):
     @abstractmethod
     def renew_locks(self, node_ids, operation_id):
         """Renews existing node locks with operation_id for extended time."""
+
+    @abstractmethod
+    def get_lock_timestamp(self, node_ids, operation_id):
+        """Reads timestamp from lock row to get a consistent timestamp."""
+
+    @abstractmethod
+    def get_consolidated_lock_timestamp(self, root_ids, operation_ids):
+        """Minimum of multiple lock timestamps."""
+
+    @abstractmethod
+    def get_compatible_timestamp(self, time_stamp):
+        """Datetime time stamp compatible with client's services."""
 
 
 class ClientWithIDGen(SimpleClient):

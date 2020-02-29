@@ -104,9 +104,9 @@ def categorize_edges(
     in_edges = edges[in_mask]
     all_out_edges = edges[out_mask]  # out_edges + cross_edges
     edge_layers = get_cross_chunk_edges_layer(meta, all_out_edges.get_pairs())
-    cross_edges_m = edge_layers > 1
-    out_edges = all_out_edges[~cross_edges_m]
-    cross_edges = all_out_edges[cross_edges_m]
+    cross_edges_mask = edge_layers > 1
+    out_edges = all_out_edges[~cross_edges_mask]
+    cross_edges = all_out_edges[cross_edges_mask]
     return (in_edges, out_edges, cross_edges)
 
 

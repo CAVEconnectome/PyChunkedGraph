@@ -1,13 +1,8 @@
+import sys
 import time
+import typing
+import logging
 import datetime
-from typing import Any
-from typing import Dict
-from typing import List
-from typing import Union
-from typing import Tuple
-from typing import Iterable
-from typing import Optional
-from typing import Sequence
 from datetime import datetime
 from datetime import timedelta
 
@@ -30,6 +25,8 @@ from ..base import ClientWithIDGen
 from ... import attributes
 from ... import exceptions
 from ...utils import basetypes
+from ...utils.serializers import pad_node_id
+from ...utils.serializers import serialize_key
 from ...utils.serializers import serialize_uint64
 from ...utils.serializers import deserialize_uint64
 from ...meta import ChunkedGraphMeta
@@ -39,12 +36,27 @@ from ....ingest import IngestConfig
 
 
 class BigTableClient(bigtable.Client, ClientWithIDGen):
-    def __init__(self, table_id: str, config: BigTableConfig = BigTableConfig()):
+    def __init__(
+        self,
+        table_id: str,
+        config: BigTableConfig = BigTableConfig(),
+        graph_meta: ChunkedGraphMeta = None,
+    ):
         super(BigTableClient, self).__init__(
             project=config.PROJECT, read_only=config.READ_ONLY, admin=config.ADMIN,
         )
         self._instance = self.instance(config.INSTANCE)
         self._table = self._instance.table(table_id)
+
+        self.logger = logging.getLogger(
+            f"{config.PROJECT}/{config.INSTANCE}/{table_id}"
+        )
+        self.logger.setLevel(logging.WARNING)
+        if not self.logger.handlers:
+            sh = logging.StreamHandler(sys.stdout)
+            sh.setLevel(logging.WARNING)
+            self.logger.addHandler(sh)
+        self._graph_meta = graph_meta
 
     @property
     def graph_meta(self):
@@ -62,24 +74,25 @@ class BigTableClient(bigtable.Client, ClientWithIDGen):
 
     def update_graph_meta(self, meta: ChunkedGraphMeta):
         self._graph_meta = meta
-        row = self._mutate_row(
+        row = self.mutate_row(
             attributes.GraphMeta.key, {attributes.GraphMeta.Meta: meta},
         )
-        self._write([row])
+        self.write([row])
 
     def read_graph_meta(self) -> ChunkedGraphMeta:
-        row = self._read_row(attributes.GraphMeta.key)
-        return row[attributes.GraphMeta.Meta][0].value
+        row = self._read_byte_row(attributes.GraphMeta.key)
+        self._graph_meta = row[attributes.GraphMeta.Meta][0].value
+        return self._graph_meta
 
     def update_graph_provenance(self, provenance: IngestConfig):
-        row = self._mutate_row(
+        row = self.mutate_row(
             attributes.GraphProvenance.key,
             {attributes.GraphProvenance.Provenance: provenance},
         )
-        self._write([row])
+        self.write([row])
 
     def read_graph_provenance(self) -> IngestConfig:
-        return self._read_row(attributes.GraphProvenance.key)
+        return self._read_byte_row(attributes.GraphProvenance.key)
 
     def read_nodes(
         self,
@@ -90,17 +103,24 @@ class BigTableClient(bigtable.Client, ClientWithIDGen):
         properties=None,
         start_time=None,
         end_time=None,
-        end_time_inclusive=False,
+        end_time_inclusive: bool = False,
+        fake_edges: bool = False,
     ):
         """
         Read nodes and their properties.
         Accepts a range of node IDs or specific node IDs.
         """
-        rows = self._read_rows(
-            start_key=serialize_uint64(start_id) if start_id is not None else None,
-            end_key=serialize_uint64(end_id) if end_id is not None else None,
+        rows = self._read_byte_rows(
+            start_key=serialize_uint64(start_id, fake_edges=fake_edges)
+            if start_id is not None
+            else None,
+            end_key=serialize_uint64(end_id, fake_edges=fake_edges)
+            if end_id is not None
+            else None,
             end_key_inclusive=end_id_inclusive,
-            row_keys=(serialize_uint64(node_id) for node_id in node_ids)
+            row_keys=(
+                serialize_uint64(node_id, fake_edges=fake_edges) for node_id in node_ids
+            )
             if node_ids is not None
             else None,
             columns=properties,
@@ -108,46 +128,50 @@ class BigTableClient(bigtable.Client, ClientWithIDGen):
             end_time=end_time,
             end_time_inclusive=end_time_inclusive,
         )
-        return {deserialize_uint64(row_key): data for (row_key, data) in rows.items()}
+        return {
+            deserialize_uint64(row_key, fake_edges=fake_edges): data
+            for (row_key, data) in rows.items()
+        }
 
     def read_node(
         self,
         node_id: np.uint64,
-        properties: Optional[
-            Union[Iterable[attributes._Attribute], attributes._Attribute]
+        properties: typing.Optional[
+            typing.Union[typing.Iterable[attributes._Attribute], attributes._Attribute]
         ] = None,
-        start_time: Optional[datetime] = None,
-        end_time: Optional[datetime] = None,
+        start_time: typing.Optional[datetime] = None,
+        end_time: typing.Optional[datetime] = None,
         end_time_inclusive: bool = False,
-    ) -> Union[
-        Dict[attributes._Attribute, List[bigtable.row_data.Cell]],
-        List[bigtable.row_data.Cell],
+        fake_edges: bool = False,
+    ) -> typing.Union[
+        typing.Dict[attributes._Attribute, typing.List[bigtable.row_data.Cell]],
+        typing.List[bigtable.row_data.Cell],
     ]:
         """Convenience function for reading a single node from Bigtable.
         Arguments:
             node_id {np.uint64} -- the NodeID of the row to be read.
         Keyword Arguments:
-            columns {Optional[Union[Iterable[attributes._Attribute], attributes._Attribute]]} --
-                Optional filtering by columns to speed up the query. If `columns` is a single
+            columns {typing.Optional[typing.Union[typing.Iterable[attributes._Attribute], attributes._Attribute]]} --
+                typing.Optional filtering by columns to speed up the query. If `columns` is a single
                 column (not iterable), the column key will be omitted from the result.
                 (default: {None})
-            start_time {Optional[datetime]} -- Ignore cells with timestamp before
+            start_time {typing.Optional[datetime]} -- Ignore cells with timestamp before
                 `start_time`. If None, no lower bound. (default: {None})
-            end_time {Optional[datetime]} -- Ignore cells with timestamp after `end_time`.
+            end_time {typing.Optional[datetime]} -- Ignore cells with timestamp after `end_time`.
                 If None, no upper bound. (default: {None})
             end_time_inclusive {bool} -- Whether or not `end_time` itself should be included in the
                 request, ignored if `end_time` is None. (default: {False})
         Returns:
-            Union[Dict[attributes._Attribute, List[bigtable.row_data.Cell]],
-                  List[bigtable.row_data.Cell]] --
-                Returns a mapping of columns to a List of cells (one cell per timestamp). Each cell
+            typing.Union[typing.Dict[attributes._Attribute, typing.List[bigtable.row_data.Cell]],
+                  typing.List[bigtable.row_data.Cell]] --
+                Returns a mapping of columns to a typing.List of cells (one cell per timestamp). Each cell
                 has a `value` property, which returns the deserialized field, and a `timestamp`
                 property, which returns the timestamp as `datetime` object.
-                If only a single `attributes._Attribute` was requested, the List of cells is returned
+                If only a single `attributes._Attribute` was requested, the typing.List of cells is returned
                 directly.
         """
-        return self._read_row(
-            row_key=serialize_uint64(node_id),
+        return self._read_byte_row(
+            row_key=serialize_uint64(node_id, fake_edges=fake_edges),
             columns=properties,
             start_time=start_time,
             end_time=end_time,
@@ -160,10 +184,11 @@ class BigTableClient(bigtable.Client, ClientWithIDGen):
         by locking root nodes until changes are written.
         """
         # TODO convert nodes and properties to bigtable rows
-        self._write(nodes, root_ids, operation_id)
+        self.write(nodes, root_ids, operation_id)
 
+    # Locking
     def lock_root(self, root_id: np.uint64, operation_id: np.uint64) -> bool:
-        """Attempts to lock the latest version of a root node"""
+        """Attempts to lock the latest version of a root node."""
         lock_expiry = self.graph_meta.graph_config.ROOT_LOCK_EXPIRY
         lock_column = attributes.Concurrency.Lock
         combined_filter = utils.get_root_lock_filter(lock_column, lock_expiry)
@@ -181,17 +206,17 @@ class BigTableClient(bigtable.Client, ClientWithIDGen):
 
         # The lock was acquired when set_cell returns False (state)
         lock_acquired = not root_row.commit()
-
         if not lock_acquired:
-            row = self._read_row(root_id, columns=lock_column)
+            row = self._read_byte_row(root_id, columns=lock_column)
             l_operation_ids = [cell.value for cell in row]
             self.logger.debug(f"Locked operation ids: {l_operation_ids}")
         return lock_acquired
 
     def lock_roots(
         self,
-        root_ids: Sequence[np.uint64],
+        root_ids: typing.Sequence[np.uint64],
         operation_id: np.uint64,
+        future_root_ids_d: typing.Dict,
         max_tries: int = 1,
         waittime_s: float = 0.5,
     ) -> bool:
@@ -200,10 +225,11 @@ class BigTableClient(bigtable.Client, ClientWithIDGen):
         while i_try < max_tries:
             lock_acquired = False
             # Collect latest root ids
-            new_root_ids: List[np.uint64] = []
+            new_root_ids: typing.List[np.uint64] = []
             for idx in range(len(root_ids)):
-                future_root_ids = self.get_future_root_ids(root_ids[idx])
-                if len(future_root_ids) == 0:
+                # future_root_ids = self.get_future_root_ids(root_ids[i_root_id])
+                future_root_ids = future_root_ids_d.get(root_ids[idx])
+                if not future_root_ids.size:
                     new_root_ids.append(root_ids[idx])
                 else:
                     new_root_ids.extend(future_root_ids)
@@ -223,7 +249,6 @@ class BigTableClient(bigtable.Client, ClientWithIDGen):
 
             if lock_acquired:
                 return True, root_ids
-
             time.sleep(waittime_s)
             i_try += 1
             self.logger.debug(f"Try {i_try}")
@@ -238,7 +263,6 @@ class BigTableClient(bigtable.Client, ClientWithIDGen):
         )
         # Get conditional row using the chained filter
         root_row = self._table.row(serialize_uint64(root_id), filter_=chained_filter)
-
         # Delete row if conditions are met (state == True)
         root_row.delete_cell(lock_column.family_id, lock_column.key, state=True)
         return root_row.commit()
@@ -257,7 +281,6 @@ class BigTableClient(bigtable.Client, ClientWithIDGen):
             lock_column.serialize(operation_id),
             state=False,
         )
-
         # The lock was acquired when set_cell returns True (state)
         return not root_row.commit()
 
@@ -269,22 +292,62 @@ class BigTableClient(bigtable.Client, ClientWithIDGen):
                 return False
         return True
 
+    def get_lock_timestamp(
+        self, root_id: np.uint64, operation_id: np.uint64
+    ) -> typing.Union[datetime, None]:
+        """Lock timestamp for a Root ID operation."""
+        row = self.read_node(root_id, properties=attributes.Concurrency.Lock)
+        if len(row) == 0:
+            self.logger.warning(f"No lock found for {root_id}")
+            return None
+        if row[0].value != operation_id:
+            self.logger.warning(f"{root_id} not locked with {operation_id}")
+            return None
+        return row[0].timestamp
+
+    def get_consolidated_lock_timestamp(
+        self,
+        root_ids: typing.Sequence[np.uint64],
+        operation_ids: typing.Sequence[np.uint64],
+    ) -> typing.Union[datetime, None]:
+        """Minimum of multiple lock timestamps."""
+        time_stamps = []
+        for root_id, operation_id in zip(root_ids, operation_ids):
+            time_stamp = self.get_lock_timestamp(root_id, operation_id)
+            if time_stamp is None:
+                return None
+            time_stamps.append(time_stamp)
+        if len(time_stamps) == 0:
+            return None
+        return np.min(time_stamps)
+
     # IDs
-    def create_node_ids(self, chunk_id: np.uint64, size: int) -> np.ndarray:
+    def create_node_ids(
+        self, chunk_id: np.uint64, size: int, root_chunk=False
+    ) -> np.ndarray:
         """Generates a list of unique node IDs for the given chunk."""
-        low, high = self._get_ids_range(serialize_uint64(chunk_id, counter=True), size)
-        low, high = basetypes.SEGMENT_ID.type(low), basetypes.SEGMENT_ID.type(high)
-        new_ids = np.arange(low, high + np.uint64(1), dtype=basetypes.SEGMENT_ID)
+        if root_chunk:
+            new_ids = self._get_root_segment_ids_range(chunk_id, size)
+        else:
+            low, high = self._get_ids_range(
+                serialize_uint64(chunk_id, counter=True), size
+            )
+            low, high = basetypes.SEGMENT_ID.type(low), basetypes.SEGMENT_ID.type(high)
+            new_ids = np.arange(low, high + np.uint64(1), dtype=basetypes.SEGMENT_ID)
         return new_ids | chunk_id
 
-    def create_node_id(self, chunk_id: np.uint64) -> basetypes.NODE_ID:
+    def create_node_id(
+        self, chunk_id: np.uint64, root_chunk=False
+    ) -> basetypes.NODE_ID:
         """Generate a unique node ID in the chunk."""
-        return self.create_node_ids(chunk_id, 1)[0]
+        return self.create_node_ids(chunk_id, 1, root_chunk=root_chunk)[0]
 
     def get_max_node_id(self, chunk_id: basetypes.CHUNK_ID) -> basetypes.NODE_ID:
         """Gets the current maximum segment ID in the chunk."""
         column = attributes.Concurrency.Counter
-        row = self._read_row(serialize_uint64(chunk_id, counter=True), columns=column)
+        row = self._read_byte_row(
+            serialize_uint64(chunk_id, counter=True), columns=column
+        )
         return chunk_id | basetypes.SEGMENT_ID.type(row[0].value if row else 0)
 
     def create_operation_id(self):
@@ -294,8 +357,13 @@ class BigTableClient(bigtable.Client, ClientWithIDGen):
     def get_max_operation_id(self):
         """Gets the current maximum operation ID."""
         column = attributes.Concurrency.Counter
-        row = self._read_row(attributes.OperationLogs.key, columns=column)
+        row = self._read_byte_row(attributes.OperationLogs.key, columns=column)
         return row[0].value if row else column.basetype(0)
+
+    def get_compatible_timestamp(
+        self, time_stamp: datetime, round_up: bool = False
+    ) -> datetime:
+        return utils.get_google_compatible_time_stamp(time_stamp, round_up=False)
 
     # PRIVATE METHODS
     def _create_column_families(self):
@@ -309,7 +377,7 @@ class BigTableClient(bigtable.Client, ClientWithIDGen):
         f = self._table.column_family("3", gc_rule=MaxVersionsGCRule(1))
         f.create()
 
-    def _get_ids_range(self, key: bytes, size: int) -> Tuple:
+    def _get_ids_range(self, key: bytes, size: int) -> typing.Tuple:
         """Returns a range (min, max) of IDs for a given `key`."""
         column = attributes.Concurrency.Counter
         row = self._table.row(key, append=True)
@@ -318,57 +386,76 @@ class BigTableClient(bigtable.Client, ClientWithIDGen):
         high = column.deserialize(row[column.family_id][column.key][0][0])
         return high + np.uint64(1) - size, high
 
-    def _read_rows(
+    def _get_root_segment_ids_range(
+        self, chunk_id: basetypes.CHUNK_ID, size: int = 1, counter: int = None
+    ) -> np.ndarray:
+        """Return unique segment ID for the root chunk."""
+        n_counters = np.uint64(2 ** 8)
+        counter = (
+            np.uint64(counter % n_counters)
+            if counter
+            else np.uint64(np.random.randint(0, n_counters))
+        )
+        key = serialize_key(f"i{pad_node_id(chunk_id)}_{counter}")
+        min_, max_ = self._get_ids_range(key=key, size=size)
+        return np.arange(
+            min_ * n_counters + counter,
+            max_ * n_counters + np.uint64(1) + counter,
+            n_counters,
+            dtype=basetypes.SEGMENT_ID,
+        )
+
+    def _read_byte_rows(
         self,
-        start_key: Optional[bytes] = None,
-        end_key: Optional[bytes] = None,
+        start_key: typing.Optional[bytes] = None,
+        end_key: typing.Optional[bytes] = None,
         end_key_inclusive: bool = False,
-        row_keys: Optional[Iterable[bytes]] = None,
-        columns: Optional[
-            Union[Iterable[attributes._Attribute], attributes._Attribute]
+        row_keys: typing.Optional[typing.Iterable[bytes]] = None,
+        columns: typing.Optional[
+            typing.Union[typing.Iterable[attributes._Attribute], attributes._Attribute]
         ] = None,
-        start_time: Optional[datetime] = None,
-        end_time: Optional[datetime] = None,
+        start_time: typing.Optional[datetime] = None,
+        end_time: typing.Optional[datetime] = None,
         end_time_inclusive: bool = False,
-    ) -> Dict[
+    ) -> typing.Dict[
         bytes,
-        Union[
-            Dict[attributes._Attribute, List[bigtable.row_data.Cell]],
-            List[bigtable.row_data.Cell],
+        typing.Union[
+            typing.Dict[attributes._Attribute, typing.List[bigtable.row_data.Cell]],
+            typing.List[bigtable.row_data.Cell],
         ],
     ]:
         """Main function for reading a row range or non-contiguous row sets from Bigtable using
         `bytes` keys.
 
         Keyword Arguments:
-            start_key {Optional[bytes]} -- The first row to be read, ignored if `row_keys` is set.
+            start_key {typing.Optional[bytes]} -- The first row to be read, ignored if `row_keys` is set.
                 If None, no lower boundary is used. (default: {None})
-            end_key {Optional[bytes]} -- The end of the row range, ignored if `row_keys` is set.
+            end_key {typing.Optional[bytes]} -- The end of the row range, ignored if `row_keys` is set.
                 If None, no upper boundary is used. (default: {None})
             end_key_inclusive {bool} -- Whether or not `end_key` itself should be included in the
                 request, ignored if `row_keys` is set or `end_key` is None. (default: {False})
-            row_keys {Optional[Iterable[bytes]]} -- An `Iterable` containing possibly
+            row_keys {typing.Optional[typing.Iterable[bytes]]} -- An `typing.Iterable` containing possibly
                 non-contiguous row keys. Takes precedence over `start_key` and `end_key`.
                 (default: {None})
-            columns {Optional[Union[Iterable[attributes._Attribute], attributes._Attribute]]} --
-                Optional filtering by columns to speed up the query. If `columns` is a single
+            columns {typing.Optional[typing.Union[typing.Iterable[attributes._Attribute], attributes._Attribute]]} --
+                typing.Optional filtering by columns to speed up the query. If `columns` is a single
                 column (not iterable), the column key will be omitted from the result.
                 (default: {None})
-            start_time {Optional[datetime]} -- Ignore cells with timestamp before
+            start_time {typing.Optional[datetime]} -- Ignore cells with timestamp before
                 `start_time`. If None, no lower bound. (default: {None})
-            end_time {Optional[datetime]} -- Ignore cells with timestamp after `end_time`.
+            end_time {typing.Optional[datetime]} -- Ignore cells with timestamp after `end_time`.
                 If None, no upper bound. (default: {None})
             end_time_inclusive {bool} -- Whether or not `end_time` itself should be included in the
                 request, ignored if `end_time` is None. (default: {False})
 
         Returns:
-            Dict[bytes, Union[Dict[attributes._Attribute, List[bigtable.row_data.Cell]],
-                              List[bigtable.row_data.Cell]]] --
+            typing.Dict[bytes, typing.Union[typing.Dict[attributes._Attribute, typing.List[bigtable.row_data.Cell]],
+                              typing.List[bigtable.row_data.Cell]]] --
                 Returns a dictionary of `byte` rows as keys. Their value will be a mapping of
-                columns to a List of cells (one cell per timestamp). Each cell has a `value`
+                columns to a typing.List of cells (one cell per timestamp). Each cell has a `value`
                 property, which returns the deserialized field, and a `timestamp` property, which
                 returns the timestamp as `datetime` object.
-                If only a single `attributes._Attribute` was requested, the List of cells will be
+                If only a single `attributes._Attribute` was requested, the typing.List of cells will be
                 attached to the row dictionary directly (skipping the column dictionary).
         """
 
@@ -389,7 +476,6 @@ class BigTableClient(bigtable.Client, ClientWithIDGen):
                 "Need to either provide a valid set of rows, or"
                 " both, a start row and an end row."
             )
-
         filter_ = utils.get_time_range_and_column_filter(
             columns=columns,
             start_time=start_time,
@@ -409,18 +495,18 @@ class BigTableClient(bigtable.Client, ClientWithIDGen):
                 rows[row_key] = cell_entries
         return rows
 
-    def _read_row(
+    def _read_byte_row(
         self,
         row_key: bytes,
-        columns: Optional[
-            Union[Iterable[attributes._Attribute], attributes._Attribute]
+        columns: typing.Optional[
+            typing.Union[typing.Iterable[attributes._Attribute], attributes._Attribute]
         ] = None,
-        start_time: Optional[datetime] = None,
-        end_time: Optional[datetime] = None,
+        start_time: typing.Optional[datetime] = None,
+        end_time: typing.Optional[datetime] = None,
         end_time_inclusive: bool = False,
-    ) -> Union[
-        Dict[attributes._Attribute, List[bigtable.row_data.Cell]],
-        List[bigtable.row_data.Cell],
+    ) -> typing.Union[
+        typing.Dict[attributes._Attribute, typing.List[bigtable.row_data.Cell]],
+        typing.List[bigtable.row_data.Cell],
     ]:
         """Convenience function for reading a single row from Bigtable using its `bytes` keys.
 
@@ -428,27 +514,27 @@ class BigTableClient(bigtable.Client, ClientWithIDGen):
             row_key {bytes} -- The row to be read.
 
         Keyword Arguments:
-            columns {Optional[Union[Iterable[attributes._Attribute], attributes._Attribute]]} --
-                Optional filtering by columns to speed up the query. If `columns` is a single
+            columns {typing.Optional[typing.Union[typing.Iterable[attributes._Attribute], attributes._Attribute]]} --
+                typing.Optional filtering by columns to speed up the query. If `columns` is a single
                 column (not iterable), the column key will be omitted from the result.
                 (default: {None})
-            start_time {Optional[datetime]} -- Ignore cells with timestamp before
+            start_time {typing.Optional[datetime]} -- Ignore cells with timestamp before
                 `start_time`. If None, no lower bound. (default: {None})
-            end_time {Optional[datetime]} -- Ignore cells with timestamp after `end_time`.
+            end_time {typing.Optional[datetime]} -- Ignore cells with timestamp after `end_time`.
                 If None, no upper bound. (default: {None})
             end_time_inclusive {bool} -- Whether or not `end_time` itself should be included in the
                 request, ignored if `end_time` is None. (default: {False})
 
         Returns:
-            Union[Dict[attributes._Attribute, List[bigtable.row_data.Cell]],
-                  List[bigtable.row_data.Cell]] --
-                Returns a mapping of columns to a List of cells (one cell per timestamp). Each cell
+            typing.Union[typing.Dict[attributes._Attribute, typing.List[bigtable.row_data.Cell]],
+                  typing.List[bigtable.row_data.Cell]] --
+                Returns a mapping of columns to a typing.List of cells (one cell per timestamp). Each cell
                 has a `value` property, which returns the deserialized field, and a `timestamp`
                 property, which returns the timestamp as `datetime` object.
-                If only a single `attributes._Attribute` was requested, the List of cells is returned
+                If only a single `attributes._Attribute` was requested, the typing.List of cells is returned
                 directly.
         """
-        row = self._read_rows(
+        row = self._read_byte_rows(
             row_keys=[row_key],
             columns=columns,
             start_time=start_time,
@@ -461,24 +547,25 @@ class BigTableClient(bigtable.Client, ClientWithIDGen):
             else row.get(row_key, {})
         )
 
-    def _execute_read_thread(self, args: Tuple[Table, RowSet, RowFilter]):
+    def _execute_read_thread(self, args: typing.Tuple[Table, RowSet, RowFilter]):
         table, row_set, row_filter = args
         if not row_set.row_keys and not row_set.row_ranges:
             # Check for everything falsy, because Bigtable considers even empty
             # lists of row_keys as no upper/lower bound!
             return {}
-
         range_read = table.read_rows(row_set=row_set, filter_=row_filter)
         res = {v.row_key: utils.partial_row_data_to_column_dict(v) for v in range_read}
         return res
 
     def _read(
         self, row_set: RowSet, row_filter: RowFilter = None
-    ) -> Dict[bytes, Dict[attributes._Attribute, bigtable.row_data.PartialRowData]]:
+    ) -> typing.Dict[
+        bytes, typing.Dict[attributes._Attribute, bigtable.row_data.PartialRowData]
+    ]:
         """ Core function to read rows from Bigtable. Uses standard Bigtable retry logic
         :param row_set: BigTable RowSet
         :param row_filter: BigTable RowFilter
-        :return: Dict[bytes, Dict[attributes._Attribute, bigtable.row_data.PartialRowData]]
+        :return: typing.Dict[bytes, typing.Dict[attributes._Attribute, bigtable.row_data.PartialRowData]]
         """
         # FIXME: Bigtable limits the length of the serialized request to 512 KiB. We should
         # calculate this properly (range_read.request.SerializeToString()), but this estimate is
@@ -509,11 +596,13 @@ class BigTableClient(bigtable.Client, ClientWithIDGen):
             combined_response.update(resp)
         return combined_response
 
-    def _write(
+    def write(
         self,
-        rows: Iterable[bigtable.row.DirectRow],
-        root_ids: Optional[Union[np.uint64, Iterable[np.uint64]]] = None,
-        operation_id: Optional[np.uint64] = None,
+        rows: typing.Iterable[bigtable.row.DirectRow],
+        root_ids: typing.Optional[
+            typing.Union[np.uint64, typing.Iterable[np.uint64]]
+        ] = None,
+        operation_id: typing.Optional[np.uint64] = None,
         slow_retry: bool = True,
         block_size: int = 2000,
     ):
@@ -561,18 +650,13 @@ class BigTableClient(bigtable.Client, ClientWithIDGen):
                     f"Bulk write failed: operation {operation_id}"
                 )
 
-    def _mutate_row(
+    def mutate_row(
         self,
         row_key: bytes,
-        val_dict: Dict[attributes._Attribute, Any],
-        time_stamp: Optional[datetime] = None,
+        val_dict: typing.Dict[attributes._Attribute, typing.Any],
+        time_stamp: typing.Optional[datetime] = None,
     ) -> bigtable.row.Row:
-        """ Mutates a single row (doesn't actually write to big table)
-        :param row_key: serialized bigtable row key
-        :param val_dict: Dict[attributes._Attribute: Any]
-        :param time_stamp: None or datetime
-        :return: list
-        """
+        """Mutates a single row (doesn't write to big table)."""
         row = self._table.row(row_key)
         for column, value in val_dict.items():
             row.set_cell(
