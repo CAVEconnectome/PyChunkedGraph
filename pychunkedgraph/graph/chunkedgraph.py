@@ -458,8 +458,9 @@ class ChunkedGraph:
             properties=attributes.Connectivity.FakeEdges,
             end_time=time_stamp,
             end_time_inclusive=True,
+            fake_edges=True,
         )
-        for id_, val in fake_edges_d.keys():
+        for id_, val in fake_edges_d.items():
             edges = np.concatenate(
                 [np.array(e.value, dtype=basetypes.NODE_ID) for e in val]
             )

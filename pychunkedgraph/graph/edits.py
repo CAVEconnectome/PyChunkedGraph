@@ -104,6 +104,7 @@ def _check_fake_edges(
     time_stamp: datetime.datetime,
 ) -> Tuple[Iterable[np.ndarray], Iterable]:
     if inactive_edges.size:
+        print("inactive", len(inactive_edges))
         return inactive_edges, []
 
     rows = []
@@ -124,6 +125,7 @@ def _check_fake_edges(
         )
         id2 = serialize_uint64(id2, fake_edges=True)
         rows.append(cg.client.mutate_row(id2, val_dict, time_stamp=time_stamp,))
+    print("no inactive", len(atomic_edges))
     return atomic_edges, rows
 
 
@@ -230,7 +232,6 @@ def remove_edges(
     time_stamp: datetime.datetime = None,
 ):
     # TODO add docs
-    cg.cache = cache.CacheService(cg)
     edges, _ = _analyze_edges_to_add(cg, atomic_edges)
     l2ids = np.unique(edges)
     new_old_id_d, old_new_id_d, old_hierarchy_d = _init_old_hierarchy(cg, l2ids)

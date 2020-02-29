@@ -103,17 +103,24 @@ class BigTableClient(bigtable.Client, ClientWithIDGen):
         properties=None,
         start_time=None,
         end_time=None,
-        end_time_inclusive=False,
+        end_time_inclusive: bool = False,
+        fake_edges: bool = False,
     ):
         """
         Read nodes and their properties.
         Accepts a range of node IDs or specific node IDs.
         """
         rows = self._read_byte_rows(
-            start_key=serialize_uint64(start_id) if start_id is not None else None,
-            end_key=serialize_uint64(end_id) if end_id is not None else None,
+            start_key=serialize_uint64(start_id, fake_edges=fake_edges)
+            if start_id is not None
+            else None,
+            end_key=serialize_uint64(end_id, fake_edges=fake_edges)
+            if end_id is not None
+            else None,
             end_key_inclusive=end_id_inclusive,
-            row_keys=(serialize_uint64(node_id) for node_id in node_ids)
+            row_keys=(
+                serialize_uint64(node_id, fake_edges=fake_edges) for node_id in node_ids
+            )
             if node_ids is not None
             else None,
             columns=properties,
@@ -121,7 +128,10 @@ class BigTableClient(bigtable.Client, ClientWithIDGen):
             end_time=end_time,
             end_time_inclusive=end_time_inclusive,
         )
-        return {deserialize_uint64(row_key): data for (row_key, data) in rows.items()}
+        return {
+            deserialize_uint64(row_key, fake_edges=fake_edges): data
+            for (row_key, data) in rows.items()
+        }
 
     def read_node(
         self,
@@ -132,7 +142,7 @@ class BigTableClient(bigtable.Client, ClientWithIDGen):
         start_time: typing.Optional[datetime] = None,
         end_time: typing.Optional[datetime] = None,
         end_time_inclusive: bool = False,
-        fake_edges: bool=False,
+        fake_edges: bool = False,
     ) -> typing.Union[
         typing.Dict[attributes._Attribute, typing.List[bigtable.row_data.Cell]],
         typing.List[bigtable.row_data.Cell],

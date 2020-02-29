@@ -127,12 +127,14 @@ def serialize_uint64s_to_regex(node_ids: Iterable[np.uint64]) -> bytes:
     return serialize_key(node_id_str)  # type: ignore
 
 
-def deserialize_uint64(node_id: bytes) -> np.uint64:
+def deserialize_uint64(node_id: bytes, fake_edges=False) -> np.uint64:
     """ De-serializes a node id from a BigTable row
 
     :param node_id: bytes
     :return: np.uint64
     """
+    if fake_edges:
+        return np.uint64(node_id[1:].decode())  # type: ignore
     return np.uint64(node_id.decode())  # type: ignore
 
 
