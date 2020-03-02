@@ -355,13 +355,14 @@ class GraphEditOperation(ABC):
         """
 
     def execute(self) -> "GraphEditOperation.Result":
-        """Executes current GraphEditOperation:
-            * Calls the subclass's _update_root_ids method
-            * Locks root IDs
-            * Calls the subclass's _apply method
-            * Calls the subclass's _create_log_record method
-            * Writes all new rows to Bigtable
-            * Releases root ID lock
+        """
+        Executes current GraphEditOperation:
+        * Calls the subclass's _update_root_ids method
+        * Locks root IDs
+        * Calls the subclass's _apply method
+        * Calls the subclass's _create_log_record method
+        * Writes all new rows to Bigtable
+        * Releases root ID lock
         :return: Result of successful graph operation
         :rtype: GraphEditOperation.Result
         """
@@ -374,9 +375,15 @@ class GraphEditOperation(ABC):
             timestamp = self.cg.client.get_consolidated_lock_timestamp(
                 root_lock.locked_root_ids, lock_operation_ids
             )
-            new_root_ids, new_lvl2_ids, rows = self._apply(
-                operation_id=root_lock.operation_id, timestamp=timestamp
-            )
+            try:
+                new_root_ids, new_lvl2_ids, rows = self._apply(
+                    operation_id=root_lock.operation_id, timestamp=timestamp
+                )
+            except Exception as err:
+                self.cg.cache.clear()
+                assert len(self.cg.cache) == 0, "cache not reliable"
+                self.cg.cache = None
+                raise Exception(str(err))
 
             # FIXME: Remove once edits.remove_edges/edits.add_edges return consistent type
             new_root_ids = np.array(new_root_ids, dtype=basetypes.NODE_ID)
@@ -388,14 +395,12 @@ class GraphEditOperation(ABC):
                 timestamp=timestamp,
             )
 
-            self.cg.client.write(
-                [log_row] + rows,
-                root_lock.locked_root_ids,
-                operation_id=root_lock.operation_id,
-                slow_retry=False,
-            )
-            self.cg.cache.clear()
-            self.cg.cache = None
+            # self.cg.client.write(
+            #     [log_row] + rows,
+            #     root_lock.locked_root_ids,
+            #     operation_id=root_lock.operation_id,
+            #     slow_retry=False,
+            # )
             return GraphEditOperation.Result(
                 operation_id=root_lock.operation_id,
                 new_root_ids=new_root_ids,
@@ -461,6 +466,7 @@ class MergeOperation(GraphEditOperation):
     def _apply(
         self, *, operation_id, timestamp
     ) -> Tuple[np.ndarray, np.ndarray, List["bigtable.row.Row"]]:
+        print("layers", self.cg.get_cross_chunk_edges_layer(self.added_edges))
         root_ids = set(self.cg.get_roots(self.added_edges.ravel()))
         if len(root_ids) < 2:
             raise PreconditionError("Supervoxels must belong to different objects.")
@@ -682,7 +688,13 @@ class MulticutOperation(GraphEditOperation):
             (_, l2id_agglomeration_d, edges) = self.cg.get_subgraph(
                 [root_ids.pop()], bbox=bbox, bbox_is_coordinate=True
             )
-        edges = edges[0] + edges[2]  # TODO maybe dict is better
+            edges = reduce(lambda x, y: x + y, edges)
+            supervoxels = np.concatenate(
+                [agg.supervoxels for agg in l2id_agglomeration_d.values()]
+            )
+            mask0 = np.in1d(edges.node_ids1, supervoxels)
+            mask1 = np.in1d(edges.node_ids2, supervoxels)
+            edges = edges[mask0 & mask1]
         if not len(edges):
             raise PreconditionError("No local edges found.")
 
@@ -690,6 +702,7 @@ class MulticutOperation(GraphEditOperation):
             self.removed_edges = run_multicut(edges, self.source_ids, self.sink_ids)
         if not self.removed_edges.size:
             raise PostconditionError("Mincut could not find any edges to remove.")
+        print("self.removed_edges", len(self.removed_edges))
         return edits.remove_edges(
             self.cg,
             operation_id=operation_id,

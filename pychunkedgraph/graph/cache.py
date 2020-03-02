@@ -37,6 +37,13 @@ class CacheService:
         self.children_cache = LRUCache(maxsize=maxsize)
         self.atomic_cx_edges_cache = LRUCache(maxsize=maxsize)
 
+    def __len__(self):
+        return (
+            len(self.parents_cache)
+            + len(self.children_cache)
+            + len(self.atomic_cx_edges_cache)
+        )
+
     def clear(self):
         self.parents_cache.clear()
         self.children_cache.clear()

@@ -49,6 +49,7 @@ def concatenate_chunk_edges(chunk_edge_dicts: List) -> Dict:
 
 def concatenate_cross_edge_dicts(cross_edge_dicts: Iterable) -> Dict:
     """Combines multiple cross edge dicts."""
+    # print(cross_edge_dicts)
     result_d = {}
     for cross_edge_d in cross_edge_dicts:
         result_d = merge_cross_edge_dicts_single(result_d, cross_edge_d)
@@ -64,6 +65,8 @@ def merge_cross_edge_dicts_single(x_edges_d1: Dict, x_edges_d2: Dict) -> Dict:
     for layer in range(2, max(layers) + 1):
         edges1 = x_edges_d1.get(layer, empty_2d)
         edges2 = x_edges_d2.get(layer, empty_2d)
+        edges1 = np.array(edges1, dtype=basetypes.NODE_ID)
+        edges2 = np.array(edges2, dtype=basetypes.NODE_ID)
         result_d[layer] = np.concatenate([edges1, edges2])
     return result_d
 
@@ -108,62 +111,6 @@ def categorize_edges(
     out_edges = all_out_edges[~cross_edges_mask]
     cross_edges = all_out_edges[cross_edges_mask]
     return (in_edges, out_edges, cross_edges)
-
-
-def get_active_edges(edges: Edges, parent_children_d: Dict) -> Edges:
-    """
-    get edges [(v1, v2) ...] where parent(v1) == parent(v2)
-    -> assume active if v1 and v2 belong to same connected component
-    """
-    child_parent_d = reverse_dictionary(parent_children_d)
-    sv_ids1 = edges.node_ids1
-    sv_ids2 = edges.node_ids2
-    parent_ids1 = np.array([child_parent_d.get(sv_id, sv_id) for sv_id in sv_ids1])
-    parent_ids2 = np.array([child_parent_d.get(sv_id, sv_id) for sv_id in sv_ids2])
-
-    mask = parent_ids1 == parent_ids2
-    sv_ids1 = sv_ids1[mask]
-    sv_ids2 = sv_ids2[mask]
-    affinities = edges.affinities[mask]
-    areas = edges.areas[mask]
-    return Edges(sv_ids1, sv_ids2, affinities=affinities, areas=areas)
-
-
-def filter_fake_edges(added_edges: np.ndarray, subgraph_edges: np.ndarray) -> List:
-    """run bfs to check if a path exists"""
-    self_edges = np.array([[node_id, node_id] for node_id in np.unique(added_edges)])
-    subgraph_edges = np.concatenate([subgraph_edges, self_edges])
-
-    graph, _, _, original_ids = build_gt_graph(subgraph_edges, is_directed=False)
-    reachable = check_reachability(
-        graph, added_edges[:, 0], added_edges[:, 1], original_ids
-    )
-    return added_edges[~reachable]
-
-
-def get_linking_edges(
-    edges: Edges, parent_children_d: Dict, parent_id1: np.uint64, parent_id2: np.uint64
-):
-    """
-    Find edges that link two level 2 ids
-    include (sv1, sv2) if parent(sv1) == parent_id1 and parent(sv2) == parent_id2
-    or if parent(sv1) == parent_id2 and parent(sv2) == parent_id1
-    """
-    child_parent_d = reverse_dictionary(parent_children_d)
-    sv_ids1 = edges.node_ids1
-    sv_ids2 = edges.node_ids2
-
-    parent_ids1 = np.array([child_parent_d.get(sv_id, sv_id) for sv_id in sv_ids1])
-    parent_ids2 = np.array([child_parent_d.get(sv_id, sv_id) for sv_id in sv_ids2])
-
-    mask = (parent_ids1 == parent_id1) & (parent_ids2 == parent_id2)
-    mask |= (parent_ids1 == parent_id2) & (parent_ids2 == parent_id1)
-
-    sv_ids1 = sv_ids1[mask]
-    sv_ids2 = sv_ids2[mask]
-    affinities = edges.affinities[mask]
-    areas = edges.areas[mask]
-    return Edges(sv_ids1, sv_ids2, affinities=affinities, areas=areas)
 
 
 def get_cross_chunk_edges_layer(meta: ChunkedGraphMeta, cross_edges: Iterable):

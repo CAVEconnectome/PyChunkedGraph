@@ -16,7 +16,7 @@ _edge_type_defaults = ("in", "between", "cross")
 EdgeTypes = namedtuple("EdgeTypes", _edge_type_fileds, defaults=_edge_type_defaults)
 EDGE_TYPES = EdgeTypes()
 
-DEFAULT_AFFINITY = np.inf
+DEFAULT_AFFINITY = np.finfo(np.float32).tiny
 DEFAULT_AREA = np.finfo(np.float32).tiny
 
 
@@ -30,7 +30,6 @@ class Edges:
         areas: Optional[np.ndarray] = None,
         fake_edges=False,
     ):
-        """If `fake_edges` is True, the edges will have low affinity."""
         self.node_ids1 = np.array(node_ids1, dtype=basetypes.NODE_ID)
         self.node_ids2 = np.array(node_ids2, dtype=basetypes.NODE_ID)
         assert self.node_ids1.size == self.node_ids2.size
@@ -51,9 +50,7 @@ class Edges:
     def affinities(self) -> np.ndarray:
         if self._affinities is not None:
             return self._affinities
-        return np.ones(len(self.node_ids1)) * (
-            np.finfo(np.float32).tiny if self._fake_edges else DEFAULT_AFFINITY
-        )
+        return np.ones(len(self.node_ids1)) * DEFAULT_AFFINITY
 
     @affinities.setter
     def affinities(self, affinities):
@@ -107,8 +104,3 @@ class Edges:
             return self._as_pairs
         self._as_pairs = np.column_stack((self.node_ids1, self.node_ids2))
         return self._as_pairs
-
-
-# _chunk_edges_defaults = (Edges([], []), Edges([], []), Edges([], [], chunk_split=True))
-# ChunkEdges = namedtuple("ChunkEdges", _edge_type_fileds, defaults=_chunk_edges_defaults)
-

@@ -227,20 +227,22 @@ def handle_merge(table_id):
     current_app.request_type = "merge"
 
     nodes = json.loads(request.data)
-    user_id = str(g.auth_user["id"])
+    try:
+        user_id = str(g.auth_user["id"])
+    except:
+        user_id = "test"
 
     current_app.logger.debug(nodes)
     assert len(nodes) == 2
 
     # Call ChunkedGraph
     cg = app_utils.get_cg(table_id)
-
     atomic_edge = []
     coords = []
     for node in nodes:
         node_id = node[0]
         x, y, z = node[1:]
-        coordinate = np.array([x, y, z]) / cg.segmentation_resolution
+        coordinate = np.array([x, y, z]) / cg.meta.resolution
 
         atomic_id = cg.get_atomic_id_from_coord(
             coordinate[0], coordinate[1], coordinate[2], parent_id=np.uint64(node_id)
@@ -269,8 +271,8 @@ def handle_merge(table_id):
         ret = cg.add_edges(
             user_id=user_id,
             atomic_edges=np.array(atomic_edge, dtype=np.uint64),
-            source_coord=coords[:1],
-            sink_coord=coords[1:],
+            source_coords=coords[:1],
+            sink_coords=coords[1:],
         )
 
     except exceptions.LockingError as e:
@@ -285,12 +287,12 @@ def handle_merge(table_id):
 
     current_app.logger.debug(("lvl2_nodes:", ret.new_lvl2_ids))
 
-    if len(ret.new_lvl2_ids) > 0:
-        t = threading.Thread(
-            target=meshing_app_blueprint._remeshing,
-            args=(cg.get_serialized_info(), ret.new_lvl2_ids),
-        )
-        t.start()
+    # if len(ret.new_lvl2_ids) > 0:
+    #     t = threading.Thread(
+    #         target=meshing_app_blueprint._remeshing,
+    #         args=(cg.get_serialized_info(), ret.new_lvl2_ids),
+    #     )
+    #     t.start()
 
     # NOTE: JS can't safely read integers larger than 2^53 - 1
     resp = {
@@ -311,7 +313,10 @@ def handle_split(table_id):
     current_app.request_type = "split"
 
     data = json.loads(request.data)
-    user_id = str(g.auth_user["id"])
+    try:
+        user_id = str(g.auth_user["id"])
+    except:
+        user_id = "test"
 
     current_app.logger.debug(data)
 
@@ -325,7 +330,7 @@ def handle_split(table_id):
         for node in data[k]:
             node_id = node[0]
             x, y, z = node[1:]
-            coordinate = np.array([x, y, z]) / cg.segmentation_resolution
+            coordinate = np.array([x, y, z]) / cg.meta.resolution
 
             atomic_id = cg.get_atomic_id_from_coord(
                 coordinate[0],
@@ -368,12 +373,12 @@ def handle_split(table_id):
     current_app.logger.debug(("after split:", ret.new_root_ids))
     current_app.logger.debug(("lvl2_nodes:", ret.new_lvl2_ids))
 
-    if len(ret.new_lvl2_ids) > 0:
-        t = threading.Thread(
-            target=meshing_app_blueprint._remeshing,
-            args=(cg.get_serialized_info(), ret.new_lvl2_ids),
-        )
-        t.start()
+    # if len(ret.new_lvl2_ids) > 0:
+    #     t = threading.Thread(
+    #         target=meshing_app_blueprint._remeshing,
+    #         args=(cg.get_serialized_info(), ret.new_lvl2_ids),
+    #     )
+    #     t.start()
 
     # NOTE: JS can't safely read integers larger than 2^53 - 1
     resp = {
@@ -394,7 +399,10 @@ def handle_undo(table_id):
     current_app.request_type = "undo"
 
     data = json.loads(request.data)
-    user_id = str(g.auth_user["id"])
+    try:
+        user_id = str(g.auth_user["id"])
+    except:
+        user_id = "test"
 
     current_app.logger.debug(data)
 
@@ -414,12 +422,12 @@ def handle_undo(table_id):
     current_app.logger.debug(("after undo:", ret.new_root_ids))
     current_app.logger.debug(("lvl2_nodes:", ret.new_lvl2_ids))
 
-    if ret.new_lvl2_ids.size > 0:
-        t = threading.Thread(
-            target=meshing_app_blueprint._remeshing,
-            args=(cg.get_serialized_info(), ret.new_lvl2_ids),
-        )
-        t.start()
+    # if ret.new_lvl2_ids.size > 0:
+    #     t = threading.Thread(
+    #         target=meshing_app_blueprint._remeshing,
+    #         args=(cg.get_serialized_info(), ret.new_lvl2_ids),
+    #     )
+    #     t.start()
 
     # NOTE: JS can't safely read integers larger than 2^53 - 1
     resp = {
@@ -440,7 +448,10 @@ def handle_redo(table_id):
     current_app.request_type = "redo"
 
     data = json.loads(request.data)
-    user_id = str(g.auth_user["id"])
+    try:
+        user_id = str(g.auth_user["id"])
+    except:
+        user_id = "test"
 
     current_app.logger.debug(data)
 
@@ -460,12 +471,12 @@ def handle_redo(table_id):
     current_app.logger.debug(("after redo:", ret.new_root_ids))
     current_app.logger.debug(("lvl2_nodes:", ret.new_lvl2_ids))
 
-    if ret.new_lvl2_ids.size > 0:
-        t = threading.Thread(
-            target=meshing_app_blueprint._remeshing,
-            args=(cg.get_serialized_info(), ret.new_lvl2_ids),
-        )
-        t.start()
+    # if ret.new_lvl2_ids.size > 0:
+    #     t = threading.Thread(
+    #         target=meshing_app_blueprint._remeshing,
+    #         args=(cg.get_serialized_info(), ret.new_lvl2_ids),
+    #     )
+    #     t.start()
 
     # NOTE: JS can't safely read integers larger than 2^53 - 1
     resp = {

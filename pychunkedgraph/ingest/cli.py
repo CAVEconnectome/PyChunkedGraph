@@ -39,10 +39,10 @@ def ingest_graph(graph_id: str, dataset: click.Path, overwrite: bool, raw: bool)
         except yaml.YAMLError as exc:
             print(exc)
 
-    meta, imanager = bootstrap(graph_id, config, overwrite, raw)
+    meta, _, _ = bootstrap(graph_id, config, overwrite, raw)
     # TODO fix create chunkedgraph
-    cg = ChunkedGraph(meta)
-    enqueue_atomic_tasks(imanager)
+    cg = ChunkedGraph(meta=meta)
+    # enqueue_atomic_tasks(imanager)
 
 
 @ingest_cli.command("parent")

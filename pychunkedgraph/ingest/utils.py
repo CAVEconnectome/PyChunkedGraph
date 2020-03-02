@@ -29,13 +29,9 @@ def bootstrap(
     client_info = BackendClientInfo(config["backend_client"]["TYPE"], bigtable_config)
 
     graph_config = GraphConfig(
-        ID=f"{bigtable_config.TABLE_PREFIX}{graph_id}",
-        OVERWRITE=overwrite,
-        **config["graph_config"],
+        ID=f"{graph_id}", OVERWRITE=overwrite, **config["graph_config"],
     )
-    data_source = DataSource(
-        **config["data_source"], use_raw_components=raw_data, use_raw_edges=raw_data
-    )
+    data_source = DataSource(**config["data_source"])
 
     meta = ChunkedGraphMeta(graph_config, data_source)
     return (meta, ingest_config, client_info)

@@ -86,6 +86,7 @@ class ChunkedGraphMeta:
         self._bitmasks = compute_bitmasks(
             self.layer_count, s_bits_atomic_layer=self._graph_config.SPATIAL_BITS,
         )
+        self.resolution = self._ws_cv.resolution
 
     @property
     def graph_config(self):
