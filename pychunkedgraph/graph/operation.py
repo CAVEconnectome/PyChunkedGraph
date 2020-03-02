@@ -380,9 +380,9 @@ class GraphEditOperation(ABC):
                     operation_id=root_lock.operation_id, timestamp=timestamp
                 )
             except Exception as err:
-                self.cg.cache.clear()
-                assert len(self.cg.cache) == 0, "cache not reliable"
-                self.cg.cache = None
+                # self.cg.cache.clear()
+                # assert len(self.cg.cache) == 0, "cache not reliable"
+                # self.cg.cache = None
                 raise Exception(str(err))
 
             # FIXME: Remove once edits.remove_edges/edits.add_edges return consistent type
@@ -485,9 +485,7 @@ class MergeOperation(GraphEditOperation):
             return edits.add_edges(
                 self.cg,
                 atomic_edges=self.added_edges,
-                inactive_edges=np.unique(inactive_edges, axis=0)
-                if inactive_edges.size
-                else types.empty_2d,
+                inactive_edges=inactive_edges,
                 operation_id=operation_id,
                 time_stamp=timestamp,
             )
@@ -685,7 +683,7 @@ class MulticutOperation(GraphEditOperation):
 
         bbox = get_bbox(self.source_coords, self.sink_coords, self.bbox_offset)
         with TimeIt("get_subgraph"):
-            (_, l2id_agglomeration_d, edges) = self.cg.get_subgraph(
+            l2id_agglomeration_d, edges = self.cg.get_subgraph(
                 [root_ids.pop()], bbox=bbox, bbox_is_coordinate=True
             )
             edges = reduce(lambda x, y: x + y, edges)

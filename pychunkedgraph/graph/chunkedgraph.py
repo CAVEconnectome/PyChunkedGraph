@@ -296,6 +296,33 @@ class ChunkedGraph:
             }
         return self.cache.atomic_cross_edges_multiple(l2_ids)
 
+    def _test_l2_ids(self, node_l2ids_d):
+        # TODO remove, just for testing
+        node_ids = node_l2ids_d.keys()
+        node_all_l2ids_d = {}
+        for node_id in node_ids:
+            layer_nodes_d = self._get_subgraph_higher_layer_nodes(
+                node_id=node_id, bounding_box=None, return_layers=[2],
+            )
+            node_all_l2ids_d[node_id] = layer_nodes_d[2]
+        node_coords_d = {
+            node_id: self.get_chunk_coordinates(node_id) for node_id in node_ids
+        }
+        for node_id, (X, Y, Z) in node_coords_d.items():
+            chunks = chunk_utils.get_bounding_children_chunks(
+                self.meta, self.get_chunk_layer(node_id), (X, Y, Z), 2
+            )
+            bounding_chunk_ids = np.array(
+                [self.get_chunk_id(layer=2, x=x, y=y, z=z) for (x, y, z) in chunks],
+                dtype=basetypes.CHUNK_ID,
+            )
+            l2_chunk_ids = self.get_chunk_ids_from_node_ids(node_all_l2ids_d[node_id])
+            mask = np.in1d(l2_chunk_ids, bounding_chunk_ids)
+            bounding_l2_ids = node_all_l2ids_d[node_id][mask]
+            common = np.intersect1d(bounding_l2_ids, node_l2ids_d[node_id])
+            assert np.setdiff1d(bounding_l2_ids, common).size == 0
+            assert np.setdiff1d(node_l2ids_d[node_id], common).size == 0
+
     def get_cross_chunk_edges(
         self, node_ids: np.ndarray, uplift=True, all_layers=False
     ) -> typing.Dict[np.uint64, typing.Dict[int, typing.Iterable]]:
@@ -315,33 +342,7 @@ class ChunkedGraph:
             return result
 
         node_l2ids_d = self._get_bounding_l2_children(node_ids)
-        node_all_l2ids_d = {}
-        for node_id in node_ids:
-            layer_nodes_d = self._get_subgraph_higher_layer_nodes(
-                node_id=node_id, bounding_box=None, return_layers=[2],
-            )
-            node_all_l2ids_d[node_id] = layer_nodes_d[2]
-        node_coords_d = {
-            node_id: self.get_chunk_coordinates(node_id) for node_id in node_ids
-        }
-        for node_id, (X, Y, Z) in node_coords_d.items():
-            print()
-            print("*" * 50)
-            print(node_id)
-            chunks = chunk_utils.get_bounding_children_chunks(
-                self.meta, self.get_chunk_layer(node_id), (X, Y, Z), 2
-            )
-            bounding_chunk_ids = np.array(
-                [self.get_chunk_id(layer=2, x=x, y=y, z=z) for (x, y, z) in chunks],
-                dtype=basetypes.CHUNK_ID,
-            )
-            l2_chunk_ids = self.get_chunk_ids_from_node_ids(node_all_l2ids_d[node_id])
-            mask = np.in1d(l2_chunk_ids, bounding_chunk_ids)
-            bounding_l2_ids = node_all_l2ids_d[node_id][mask]
-            print(len(np.intersect1d(bounding_l2_ids, node_l2ids_d[node_id])))
-            print(bounding_l2_ids)
-            print(node_l2ids_d[node_id])
-
+        # self._test_l2_ids(node_l2ids_d)
         l2_edges_d_d = self.get_atomic_cross_edges(
             np.concatenate(list(node_l2ids_d.values()))
         )
@@ -493,19 +494,19 @@ class ChunkedGraph:
     ) -> typing.Tuple[typing.Dict, typing.Dict, Edges]:
         """TODO docs"""
         bbox = chunk_utils.normalize_bounding_box(self.meta, bbox, bbox_is_coordinate)
-        node_layer_children_d = {}
+        level2_ids = [types.empty_1d]
         for node_id in node_ids:
             layer_nodes_d = self._get_subgraph_higher_layer_nodes(
                 node_id=node_id, bounding_box=bbox, return_layers=[2],
             )
-            node_layer_children_d[node_id] = layer_nodes_d
-        level2_ids = np.concatenate([x[2] for x in node_layer_children_d.values()])
+            level2_ids.append(layer_nodes_d[2])
+        level2_ids = np.concatenate(level2_ids)
         if nodes_only:
             return self.get_children(level2_ids, flatten=True)
         if edges_only:
             return self.get_l2_agglomerations(level2_ids, edges_only=True)
         l2id_agglomeration_d, edges = self.get_l2_agglomerations(level2_ids)
-        return node_layer_children_d, l2id_agglomeration_d, edges
+        return l2id_agglomeration_d, edges
 
     def get_fake_edges(
         self, chunk_ids: np.ndarray, time_stamp: datetime.datetime = None
@@ -532,10 +533,10 @@ class ChunkedGraph:
         Children of Level 2 Node IDs and edges.
         Edges are read from cloud storage.
         """
-        chunk_ids = self.get_chunk_ids_from_node_ids(level2_ids)
+        chunk_ids = np.unique(self.get_chunk_ids_from_node_ids(level2_ids))
         chunk_edge_dicts = mu.multithread_func(
             self.read_chunk_edges,
-            np.array_split(np.unique(chunk_ids), 8),  # TODO hardcoded
+            np.array_split(chunk_ids, 8),  # TODO hardcoded
             n_threads=8,
             debug=False,
         )
@@ -679,32 +680,40 @@ class ChunkedGraph:
     # PRIVATE
     def _get_subgraph_higher_layer_nodes(
         self,
-        node_id: basetypes.NODE_ID,
+        node_id: np.uint64,
         bounding_box: typing.Optional[typing.Sequence[typing.Sequence[int]]],
         return_layers: typing.Sequence[int],
     ):
-        def _get_subgraph_higher_layer_nodes_thread(
+        def _get_subgraph_higher_layer_nodes_threaded(
             node_ids: typing.Iterable[np.uint64],
         ) -> typing.List[np.uint64]:
             children = self.get_children(node_ids, flatten=True)
+
             if len(children) > 0 and bounding_box is not None:
-                chunk_coords = np.array(
+                chunk_coordinates = np.array(
                     [self.get_chunk_coordinates(c) for c in children]
                 )
-                child_layers = self.get_chunk_layers(children) - 2
-                child_layers[child_layers < 0] = 0
+                child_layers = self.get_chunk_layers(children)
+                adapt_child_layers = child_layers - 2
+                adapt_child_layers[adapt_child_layers < 0] = 0
+
                 fanout = self.meta.graph_config.FANOUT
-                bbox_layer = (
-                    bounding_box[None] / (fanout ** child_layers)[:, None, None]
+                bounding_box_layer = (
+                    bounding_box[None] / (fanout ** adapt_child_layers)[:, None, None]
                 )
+
                 bound_check = np.array(
                     [
-                        np.all(chunk_coords < bbox_layer[:, 1], axis=1),
-                        np.all(chunk_coords + 1 > bbox_layer[:, 0], axis=1),
+                        np.all(chunk_coordinates < bounding_box_layer[:, 1], axis=1),
+                        np.all(
+                            chunk_coordinates + 1 > bounding_box_layer[:, 0], axis=1
+                        ),
                     ]
                 ).T
+
                 bound_check_mask = np.all(bound_check, axis=1)
                 children = children[bound_check_mask]
+
             return children
 
         if bounding_box is not None:
@@ -714,7 +723,7 @@ class ChunkedGraph:
         assert layer > 1
 
         nodes_per_layer = {}
-        child_ids = np.array([node_id], dtype=basetypes.NODE_ID)
+        child_ids = np.array([node_id], dtype=np.uint64)
         stop_layer = max(2, np.min(return_layers))
 
         if layer in return_layers:
@@ -733,7 +742,7 @@ class ChunkedGraph:
             child_ids = np.fromiter(
                 chain.from_iterable(
                     mu.multithread_func(
-                        _get_subgraph_higher_layer_nodes_thread,
+                        _get_subgraph_higher_layer_nodes_threaded,
                         np.array_split(this_layer_child_ids, this_n_threads),
                         n_threads=this_n_threads,
                         debug=this_n_threads == 1,
