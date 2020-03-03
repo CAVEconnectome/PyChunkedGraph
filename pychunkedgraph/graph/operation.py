@@ -395,12 +395,12 @@ class GraphEditOperation(ABC):
                 timestamp=timestamp,
             )
 
-            # self.cg.client.write(
-            #     [log_row] + rows,
-            #     root_lock.locked_root_ids,
-            #     operation_id=root_lock.operation_id,
-            #     slow_retry=False,
-            # )
+            self.cg.client.write(
+                [log_row] + rows,
+                root_lock.locked_root_ids,
+                operation_id=root_lock.operation_id,
+                slow_retry=False,
+            )
             return GraphEditOperation.Result(
                 operation_id=root_lock.operation_id,
                 new_root_ids=new_root_ids,

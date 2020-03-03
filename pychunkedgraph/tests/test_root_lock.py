@@ -3,8 +3,8 @@ from unittest.mock import DEFAULT
 import numpy as np
 import pytest
 
-import pychunkedgraph.graph.exceptions as exceptions
-from pychunkedgraph.graph.locks import RootLock
+from ..graph import exceptions
+from ..graph.locks import RootLock
 
 G_UINT64 = np.uint64(2 ** 63)
 
@@ -49,9 +49,12 @@ def test_successful_lock_acquisition(mocker, root_lock_tracker):
     cg = mocker.MagicMock()
     cg.id_client.create_operation_id = mocker.MagicMock(return_value=fake_operation_id)
     cg.client.lock_roots = mocker.MagicMock(
-        return_value=(True, fake_locked_root_ids), side_effect=root_lock_tracker.add_locks
+        return_value=(True, fake_locked_root_ids),
+        side_effect=root_lock_tracker.add_locks,
     )
-    cg.client.unlock_root = mocker.MagicMock(return_value=True, side_effect=root_lock_tracker.remove_lock)
+    cg.client.unlock_root = mocker.MagicMock(
+        return_value=True, side_effect=root_lock_tracker.remove_lock
+    )
 
     with RootLock(cg, fake_locked_root_ids):
         assert fake_operation_id in root_lock_tracker.active_locks
@@ -87,9 +90,12 @@ def test_failed_graph_operation(mocker, root_lock_tracker):
     cg = mocker.MagicMock()
     cg.id_client.create_operation_id = mocker.MagicMock(return_value=fake_operation_id)
     cg.client.lock_roots = mocker.MagicMock(
-        return_value=(True, fake_locked_root_ids), side_effect=root_lock_tracker.add_locks
+        return_value=(True, fake_locked_root_ids),
+        side_effect=root_lock_tracker.add_locks,
     )
-    cg.client.unlock_root = mocker.MagicMock(return_value=True, side_effect=root_lock_tracker.remove_lock)
+    cg.client.unlock_root = mocker.MagicMock(
+        return_value=True, side_effect=root_lock_tracker.remove_lock
+    )
 
     with pytest.raises(exceptions.PreconditionError):
         with RootLock(cg, fake_locked_root_ids):

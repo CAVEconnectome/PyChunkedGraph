@@ -442,6 +442,7 @@ class CreateParentNodes:
         # print()
         # for i in range(2, self.cg.meta.layer_count + 1):
         #     print("layer", i, self._new_ids_d[i])
+        print(self._new_ids_d[self.cg.meta.layer_count])
         return self._new_ids_d[self.cg.meta.layer_count]
 
     def _update_root_id_lineage(self):
