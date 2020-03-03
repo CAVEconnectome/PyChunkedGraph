@@ -8,6 +8,7 @@ from datetime import timedelta
 
 import numpy as np
 from multiwrapper import multiprocessing_utils as mu
+from google.auth import credentials
 from google.cloud import bigtable
 from google.api_core.retry import Retry
 from google.api_core.retry import if_exception_type
@@ -43,8 +44,22 @@ class BigTableClient(bigtable.Client, ClientWithIDGen):
         graph_meta: ChunkedGraphMeta = None,
     ):
         super(BigTableClient, self).__init__(
-            project=config.PROJECT, read_only=config.READ_ONLY, admin=config.ADMIN,
-        )
+            project=config.PROJECT,
+            read_only=config.READ_ONLY,
+            admin=config.ADMIN,
+            credentials=credentials.AnonymousCredentials(),
+        )    
+        # if config.CREDENTIALS:
+        #     super(BigTableClient, self).__init__(
+        #         project=config.PROJECT,
+        #         read_only=config.READ_ONLY,
+        #         admin=config.ADMIN,
+        #         credentials=config.CREDENTIALS,
+        #     )
+        # else:
+        #     super(BigTableClient, self).__init__(
+        #         project=config.PROJECT, read_only=config.READ_ONLY, admin=config.ADMIN,
+        #     )
         self._instance = self.instance(config.INSTANCE)
         self._table = self._instance.table(table_id)
 
@@ -65,8 +80,7 @@ class BigTableClient(bigtable.Client, ClientWithIDGen):
     # BASE
     def create_graph(self, meta: ChunkedGraphMeta) -> None:
         """Initialize the graph and store associated meta."""
-        config = meta.graph_config
-        if not config.overwrite and self._table.exists():
+        if not meta.graph_config.OVERWRITE and self._table.exists():
             ValueError(f"{self._table.table_id} already exists.")
         self._table.create()
         self._create_column_families()

@@ -11,7 +11,13 @@ import pytest
 from google.auth import credentials
 from google.cloud import bigtable
 
-from pychunkedgraph.graph import chunkedgraph
+from ..ingest.utils import bootstrap
+from ..ingest.initialization.atomic_layer import add_atomic_edges
+from ..graph.edges import Edges
+from ..graph.edges import EDGE_TYPES
+from ..graph.utils import basetypes
+from ..graph.chunkedgraph import ChunkedGraph
+from ..ingest.initialization.abstract_layers import add_layer
 
 
 class CloudVolumeBounds(object):
@@ -39,7 +45,9 @@ def setup_emulator_env():
     bt_env_init = subprocess.run(
         ["gcloud", "beta", "emulators", "bigtable", "env-init"], stdout=subprocess.PIPE
     )
-    os.environ["BIGTABLE_EMULATOR_HOST"] = bt_env_init.stdout.decode("utf-8").strip().split("=")[-1]
+    os.environ["BIGTABLE_EMULATOR_HOST"] = (
+        bt_env_init.stdout.decode("utf-8").strip().split("=")[-1]
+    )
 
     c = bigtable.Client(
         project="IGNORE_ENVIRONMENT_PROJECT",
@@ -60,7 +68,14 @@ def setup_emulator_env():
 def bigtable_emulator(request):
     # Start Emulator
     bigtable_emulator = subprocess.Popen(
-        ["gcloud", "beta", "emulators", "bigtable", "start"],
+        [
+            "gcloud",
+            "beta",
+            "emulators",
+            "bigtable",
+            "start",
+            "--host-port=localhost:8539",
+        ],
         preexec_fn=os.setsid,
         stdout=subprocess.PIPE,
     )
@@ -76,7 +91,9 @@ def bigtable_emulator(request):
             sleep(5)
 
     if retries == 0:
-        print("\nCouldn't start Bigtable Emulator. Make sure it is installed correctly.")
+        print(
+            "\nCouldn't start Bigtable Emulator. Make sure it is installed correctly."
+        )
         exit(1)
 
     # Setup Emulator-Finalizer
@@ -88,45 +105,42 @@ def bigtable_emulator(request):
 
 
 @pytest.fixture(scope="function")
-def lock_expired_timedelta_override(request):
-    # HACK: For the duration of the test, set global LOCK_EXPIRED_TIME_DELTA
-    # to 1 second (otherwise test would have to run for several minutes)
-
-    original_timedelta = chunkedgraph.LOCK_EXPIRED_TIME_DELTA
-
-    chunkedgraph.LOCK_EXPIRED_TIME_DELTA = timedelta(seconds=1)
-
-    # Ensure that we restore the original value, even if the test fails.
-    def fin():
-        chunkedgraph.LOCK_EXPIRED_TIME_DELTA = original_timedelta
-
-    request.addfinalizer(fin)
-    return chunkedgraph.LOCK_EXPIRED_TIME_DELTA
-
-
-@pytest.fixture(scope="function")
 def gen_graph(request):
     def _cgraph(request, fan_out=2, n_layers=10):
-        # setup Chunked Graph
-        dataset_info = {"data_dir": ""}
 
-        graph = chunkedgraph.ChunkedGraph(
-            request.function.__name__,
-            project_id="IGNORE_ENVIRONMENT_PROJECT",
-            credentials=credentials.AnonymousCredentials(),
-            instance_id="emulated_instance",
-            dataset_info=dataset_info,
-            chunk_size=np.array([512, 512, 64], dtype=np.uint64),
-            is_new=True,
-            fan_out=np.uint64(fan_out),
-            n_layers=np.uint64(n_layers),
-        )
+        config = {
+            "data_source": {
+                "EDGES": "gs://chunkedgraph/minnie65_0/edges",
+                "COMPONENTS": "gs://chunkedgraph/minnie65_0/components",
+                "WATERSHED": "gs://microns-seunglab/minnie65/ws_minnie65_0",
+            },
+            "graph_config": {
+                "CHUNK_SIZE": [512, 512, 64],
+                "FANOUT": 2,
+                "SPATIAL_BITS": 10,
+                "ID_PREFIX": "",
+            },
+            "backend_client": {
+                "TYPE": "bigtable",
+                "CONFIG": {
+                    "ADMIN": True,
+                    "READ_ONLY": False,
+                    "PROJECT": "IGNORE_ENVIRONMENT_PROJECT",
+                    "INSTANCE": "emulated_instance",
+                    "CREDENTIALS": credentials.AnonymousCredentials(),
+                },
+            },
+            "ingest_config": {},
+        }
 
-        graph._cv = CloudVolumeMock()
+        meta, _, client_info = bootstrap("test", config=config)
+        graph = ChunkedGraph(graph_id="test", meta=meta, client_info=client_info)
+        graph.meta._ws_cv = CloudVolumeMock()
+        graph.create()
 
         # setup Chunked Graph - Finalizer
         def fin():
-            graph.table.delete()
+            graph.client._table.delete()
 
         request.addfinalizer(fin)
         return graph
@@ -166,88 +180,73 @@ def gen_graph_simplequerytest(request, gen_graph):
         edges=[(to_label(graph, 1, 2, 0, 0, 0), to_label(graph, 1, 1, 0, 0, 0), inf)],
     )
 
-    graph.add_layer(3, np.array([[0, 0, 0], [1, 0, 0]]), n_threads=1)
-    graph.add_layer(3, np.array([[2, 0, 0]]), n_threads=1)
-    graph.add_layer(4, np.array([[0, 0, 0], [1, 0, 0]]), n_threads=1)
+    add_layer(graph, 3, [0, 0, 0], np.array([[0, 0, 0], [1, 0, 0]]))
+    add_layer(graph, 3, [0, 0, 0], np.array([[2, 0, 0]]))
+    add_layer(graph, 4, [0, 0, 0], np.array([[0, 0, 0], [1, 0, 0]]))
 
     return graph
 
 
-def create_chunk(cgraph, vertices=None, edges=None, timestamp=None):
+def create_chunk(cg, vertices=None, edges=None, timestamp=None):
     """
     Helper function to add vertices and edges to the chunkedgraph - no safety checks!
     """
-    if not vertices:
-        vertices = []
-
-    if not edges:
-        edges = []
-
+    edges = edges if edges else []
+    vertices = vertices if vertices else []
     vertices = np.unique(np.array(vertices, dtype=np.uint64))
     edges = [(np.uint64(v1), np.uint64(v2), np.float32(aff)) for v1, v2, aff in edges]
-
-    isolated_node_ids = [
+    isolated_ids = [
         x
         for x in vertices
         if (x not in [edges[i][0] for i in range(len(edges))])
         and (x not in [edges[i][1] for i in range(len(edges))])
     ]
 
-    edge_ids = {
-        "in_connected": np.array([], dtype=np.uint64).reshape(0, 2),
-        "in_disconnected": np.array([], dtype=np.uint64).reshape(0, 2),
-        "cross": np.array([], dtype=np.uint64).reshape(0, 2),
-        "between_connected": np.array([], dtype=np.uint64).reshape(0, 2),
-        "between_disconnected": np.array([], dtype=np.uint64).reshape(0, 2),
-    }
-    edge_affs = {
-        "in_connected": np.array([], dtype=np.float32),
-        "in_disconnected": np.array([], dtype=np.float32),
-        "between_connected": np.array([], dtype=np.float32),
-        "between_disconnected": np.array([], dtype=np.float32),
-    }
+    chunk_edges_active = {}
+    for edge_type in EDGE_TYPES:
+        chunk_edges_active[edge_type] = Edges([], [])
 
     for e in edges:
-        if cgraph.test_if_nodes_are_in_same_chunk(e[0:2]):
-            this_edge = np.array([e[0], e[1]], dtype=np.uint64).reshape(-1, 2)
-            edge_ids["in_connected"] = np.concatenate([edge_ids["in_connected"], this_edge])
-            edge_affs["in_connected"] = np.concatenate([edge_affs["in_connected"], [e[2]]])
+        if cg.get_chunk_id(e[0]) == cg.get_chunk_id(e[1]):
+            sv1s = np.array([e[0]], dtype=basetypes.NODE_ID)
+            sv2s = np.array([e[1]], dtype=basetypes.NODE_ID)
+            affs = np.array([e[2]], dtype=basetypes.EDGE_AFFINITY)
+            chunk_edges_active[EDGE_TYPES.in_chunk] += Edges(
+                sv1s, sv2s, affinities=affs
+            )
 
-    if len(edge_ids["in_connected"]) > 0:
-        chunk_id = cgraph.get_chunk_id(edge_ids["in_connected"][0][0])
-    elif len(vertices) > 0:
-        chunk_id = cgraph.get_chunk_id(vertices[0])
-    else:
-        chunk_id = None
+    chunk_id = None
+    if len(chunk_edges_active[EDGE_TYPES.in_chunk]):
+        chunk_id = cg.get_chunk_id(chunk_edges_active[EDGE_TYPES.in_chunk].node_ids1[0])
+    elif len(vertices):
+        chunk_id = cg.get_chunk_id(vertices[0])
 
     for e in edges:
-        if not cgraph.test_if_nodes_are_in_same_chunk(e[0:2]):
+        if not cg.get_chunk_id(e[0]) == cg.get_chunk_id(e[1]):
             # Ensure proper order
             if chunk_id is not None:
-                if cgraph.get_chunk_id(e[0]) != chunk_id:
+                if not chunk_id == cg.get_chunk_id(e[0]):
                     e = [e[1], e[0], e[2]]
-            this_edge = np.array([e[0], e[1]], dtype=np.uint64).reshape(-1, 2)
-
+            sv1s = np.array([e[0]], dtype=basetypes.NODE_ID)
+            sv2s = np.array([e[1]], dtype=basetypes.NODE_ID)
+            affs = np.array([e[2]], dtype=basetypes.EDGE_AFFINITY)
             if np.isinf(e[2]):
-                edge_ids["cross"] = np.concatenate([edge_ids["cross"], this_edge])
+                chunk_edges_active[EDGE_TYPES.cross_chunk] += Edges(
+                    sv1s, sv2s, affinities=affs
+                )
             else:
-                edge_ids["between_connected"] = np.concatenate(
-                    [edge_ids["between_connected"], this_edge]
-                )
-                edge_affs["between_connected"] = np.concatenate(
-                    [edge_affs["between_connected"], [e[2]]]
+                chunk_edges_active[EDGE_TYPES.between_chunk] += Edges(
+                    sv1s, sv2s, affinities=affs
                 )
 
-    isolated_node_ids = np.array(isolated_node_ids, dtype=np.uint64)
-
-    cgraph.logger.debug(edge_ids)
-    cgraph.logger.debug(edge_affs)
-
-    # Use affinities as areas
-    cgraph.add_atomic_edges_in_chunks(
-        edge_ids, edge_affs, edge_affs, isolated_node_ids, time_stamp=timestamp
+    isolated_ids = np.array(isolated_ids, dtype=np.uint64)
+    add_atomic_edges(
+        cg,
+        cg.get_chunk_coordinates(chunk_id),
+        chunk_edges_active,
+        isolated=isolated_ids,
     )
 
 
-def to_label(cgraph, l, x, y, z, segment_id):
-    return cgraph.get_node_id(np.uint64(segment_id), layer=l, x=x, y=y, z=z)
+def to_label(cg, l, x, y, z, segment_id):
+    return cg.get_node_id(np.uint64(segment_id), layer=l, x=x, y=y, z=z)

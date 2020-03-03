@@ -24,12 +24,14 @@ _bigtableconfig_fields = (
     "INSTANCE",
     "ADMIN",
     "READ_ONLY",
+    "CREDENTIALS",
 )
 _bigtableconfig_defaults = (
     "neuromancer-seung-import",
     "pychunkedgraph",
     True,
     False,
+    None,
 )
 BigTableConfig = namedtuple(
     "BigTableConfig", _bigtableconfig_fields, defaults=_bigtableconfig_defaults

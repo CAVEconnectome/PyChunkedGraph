@@ -32,7 +32,7 @@ def get_children_chunk_cross_edges(cg_instance, layer, chunk_coord) -> np.ndarra
         return []
 
     start = time.time()
-    cg_info = cg_instance.get_serialized_info(credentials=False)
+    cg_info = cg_instance.get_serialized_info()
     with mp.Manager() as manager:
         edge_ids_shared = manager.list()
         edge_ids_shared.append(empty_2d)
@@ -108,7 +108,7 @@ def get_chunk_nodes_cross_edge_layer(
     if not len(atomic_chunks):
         return {}
 
-    cg_info = cg_instance.get_serialized_info(credentials=False)
+    cg_info = cg_instance.get_serialized_info()
     manager = mp.Manager()  # needs to be closed?
     ids_l_shared = manager.list()
     layers_l_shared = manager.list()

@@ -24,7 +24,7 @@ from ...graph.utils.flatgraph import connected_components
 
 
 def add_atomic_edges(
-    cg_instance: ChunkedGraph,
+    cg: ChunkedGraph,
     chunk_coord: np.ndarray,
     chunk_edges_d: Dict[str, Edges],
     isolated: Sequence[int],
@@ -32,26 +32,28 @@ def add_atomic_edges(
 ):
     chunk_node_ids, chunk_edge_ids = _get_chunk_nodes_and_edges(chunk_edges_d, isolated)
     print(f"nodes {len(chunk_node_ids)}, edges {len(chunk_edge_ids)}")
+    print(chunk_node_ids)
+    print(chunk_edge_ids)
     if not chunk_node_ids.size:
         return 0
 
-    chunk_ids = cg_instance.get_chunk_ids_from_node_ids(chunk_node_ids)
+    chunk_ids = cg.get_chunk_ids_from_node_ids(chunk_node_ids)
     assert len(np.unique(chunk_ids)) == 1
 
     graph, _, _, unique_ids = build_gt_graph(chunk_edge_ids, make_directed=True)
     ccs = connected_components(graph)
 
-    parent_chunk_id = cg_instance.get_chunk_id(
+    parent_chunk_id = cg.get_chunk_id(
         layer=2, x=chunk_coord[0], y=chunk_coord[1], z=chunk_coord[2]
     )
-    parent_ids = cg_instance.get_unique_node_id_range(parent_chunk_id, step=len(ccs))
+    parent_ids = cg.id_client.create_node_ids(parent_chunk_id, size=len(ccs))
 
     sparse_indices, remapping = _get_remapping(chunk_edges_d)
     time_stamp = get_valid_timestamp(time_stamp)
     nodes = []
     for i_cc, component in enumerate(ccs):
         _nodes = _process_component(
-            cg_instance,
+            cg,
             chunk_edges_d,
             parent_ids[i_cc],
             unique_ids[component],
@@ -62,9 +64,9 @@ def add_atomic_edges(
         nodes.extend(_nodes)
 
         if len(nodes) > 100000:
-            cg_instance.client.write_nodes(nodes)
+            cg.client.write(nodes)
             nodes = []
-    cg_instance.client.write_nodes(nodes)
+    cg.client.write(nodes)
 
 
 def _get_chunk_nodes_and_edges(chunk_edges_d: dict, isolated_ids: Sequence[int]):
@@ -102,13 +104,7 @@ def _get_remapping(chunk_edges_d: dict):
 
 
 def _process_component(
-    cg_instance,
-    chunk_edges_d,
-    parent_id,
-    node_ids,
-    sparse_indices,
-    remapping,
-    time_stamp,
+    cg, chunk_edges_d, parent_id, node_ids, sparse_indices, remapping, time_stamp,
 ):
     nodes = []
     chunk_out_edges = []  # out = between + cross
@@ -117,10 +113,10 @@ def _process_component(
         chunk_out_edges.append(_edges)
         val_dict = {attributes.Hierarchy.Parent: parent_id}
         r_key = serializers.serialize_uint64(node_id)
-        nodes.append(cg_instance.mutate_row(r_key, val_dict, time_stamp=time_stamp))
+        nodes.append(cg.client.mutate_row(r_key, val_dict, time_stamp=time_stamp))
 
     chunk_out_edges = np.concatenate(chunk_out_edges)
-    cce_layers = cg_instance.get_cross_chunk_edges_layer(chunk_out_edges)
+    cce_layers = cg.get_cross_chunk_edges_layer(chunk_out_edges)
     u_cce_layers = np.unique(cce_layers)
 
     val_dict = {attributes.Hierarchy.Child: node_ids}
@@ -131,7 +127,7 @@ def _process_component(
             val_dict[col] = layer_out_edges
 
     r_key = serializers.serialize_uint64(parent_id)
-    nodes.append(cg_instance.mutate_row(r_key, val_dict, time_stamp=time_stamp))
+    nodes.append(cg.client.mutate_row(r_key, val_dict, time_stamp=time_stamp))
     return nodes
 
 

@@ -821,6 +821,12 @@ class ChunkedGraph:
         return parent_children_d
 
     # HELPERS / WRAPPERS
+
+    def get_serialized_info(self):
+        return {
+            "graph_id": "test"
+        }
+
     def get_node_id(
         self,
         segment_id: np.uint64,

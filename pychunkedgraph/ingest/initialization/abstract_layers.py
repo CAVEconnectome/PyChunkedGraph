@@ -34,6 +34,8 @@ def add_layer(
     *,
     time_stamp: Optional[datetime.datetime] = None,
 ) -> None:
+    children_coord = np.array(children_coords[0], dtype=int)
+    parent_coords = children_coord // 2
     children_ids = _read_children_chunks(cg, layer_id, children_coords)
     edge_ids = get_children_chunk_cross_edges(cg, layer_id, parent_coords)
 
@@ -60,7 +62,7 @@ def _read_children_chunks(cg: ChunkedGraph, layer_id, children_coords):
             multi_args.append(
                 (
                     children_ids_shared,
-                    cg.get_serialized_info(credentials=False),
+                    cg.get_serialized_info(),
                     layer_id - 1,
                     child_coord,
                 )
@@ -114,7 +116,7 @@ def _write_connected_components(
 
     task_size = int(math.ceil(len(ccs_with_node_ids) / mp.cpu_count()))
     chunked_ccs = chunked(ccs_with_node_ids, task_size)
-    cg_info = cg.get_serialized_info(credentials=False)
+    cg_info = cg.get_serialized_info()
     multi_args = []
     for ccs in chunked_ccs:
         multi_args.append(
@@ -149,7 +151,7 @@ def _write_components_helper(args):
 
         parent_chunk_id = parent_chunk_id_dict[parent_layer_id]
         reserved_parent_ids = cg.id_client.create_node_ids(
-            parent_chunk_id, step=len(cc_connections[parent_layer_id])
+            parent_chunk_id, size=len(cc_connections[parent_layer_id])
         )
 
         for i_cc, node_ids in enumerate(cc_connections[parent_layer_id]):
