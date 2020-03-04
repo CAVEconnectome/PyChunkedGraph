@@ -403,6 +403,7 @@ class ChunkedGraph:
         """
         time_stamp = misc_utils.get_valid_timestamp(time_stamp)
         stop_layer = self.meta.layer_count if not stop_layer else stop_layer
+        print("self.meta.layer_count ", self.meta.layer_count)
         for _ in range(n_tries):
             layer_mask = self.get_chunk_layers(node_ids) < stop_layer
             parent_ids = np.array(node_ids, dtype=basetypes.NODE_ID)
@@ -603,8 +604,8 @@ class ChunkedGraph:
     def remove_edges(
         self,
         user_id: str,
-        atomic_edges: typing.Sequence[typing.Tuple[np.uint64, np.uint64]] = None,
         *,
+        atomic_edges: typing.Sequence[typing.Tuple[np.uint64, np.uint64]] = None,
         source_ids: typing.Sequence[np.uint64] = None,
         sink_ids: typing.Sequence[np.uint64] = None,
         source_coords: typing.Sequence[typing.Sequence[int]] = None,
@@ -622,8 +623,9 @@ class ChunkedGraph:
             [x, y, z] bounding box padding beyond box spanned by coordinates
         :return: GraphEditOperation.Result
         """
+        source_ids = [source_ids] if np.isscalar(source_ids) else source_ids
+        sink_ids = [sink_ids] if np.isscalar(sink_ids) else sink_ids
         if mincut:
-            print("multicut")
             return operation.MulticutOperation(
                 self,
                 user_id=user_id,
@@ -636,8 +638,6 @@ class ChunkedGraph:
 
         if not atomic_edges:
             # Shim - can remove this check once all functions call the split properly/directly
-            source_ids = [source_ids] if np.isscalar(source_ids) else source_ids
-            sink_ids = [sink_ids] if np.isscalar(sink_ids) else sink_ids
             if len(source_ids) != len(sink_ids):
                 raise exceptions.PreconditionError(
                     "Split operation require the same number of source and sink IDs"
@@ -823,9 +823,7 @@ class ChunkedGraph:
     # HELPERS / WRAPPERS
 
     def get_serialized_info(self):
-        return {
-            "graph_id": "test"
-        }
+        return {"graph_id": "test"}
 
     def get_node_id(
         self,

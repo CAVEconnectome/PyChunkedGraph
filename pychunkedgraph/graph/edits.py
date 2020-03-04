@@ -36,7 +36,7 @@ def _init_old_hierarchy(cg, l2ids: np.ndarray):
     return new_old_id_d, old_new_id_d, old_hierarchy_d
 
 
-def _analyze_edges_to_add(
+def _analyze_affected_edges(
     cg, atomic_edges: Iterable[np.ndarray]
 ) -> Tuple[Iterable, Dict]:
     """
@@ -153,7 +153,7 @@ def add_edges(
         inactive_edges=inactive_edges,
         time_stamp=time_stamp,
     )
-    edges, l2_atomic_cross_edges_d = _analyze_edges_to_add(cg, atomic_edges)
+    edges, l2_atomic_cross_edges_d = _analyze_affected_edges(cg, atomic_edges)
     l2ids = np.unique(edges)
     assert (
         np.unique(cg.get_roots(l2ids)).size == 2
@@ -248,7 +248,7 @@ def remove_edges(
     time_stamp: datetime.datetime = None,
 ):
     # TODO add docs
-    edges, _ = _analyze_edges_to_add(cg, atomic_edges)
+    edges, _ = _analyze_affected_edges(cg, atomic_edges)
     l2ids = np.unique(edges)
     assert np.unique(cg.get_roots(l2ids)).size == 1, "L2 IDs must belong to same root."
     new_old_id_d, old_new_id_d, old_hierarchy_d = _init_old_hierarchy(cg, l2ids)

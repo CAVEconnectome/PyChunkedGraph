@@ -106,7 +106,7 @@ def bigtable_emulator(request):
 
 @pytest.fixture(scope="function")
 def gen_graph(request):
-    def _cgraph(request, fan_out=2, n_layers=10):
+    def _cgraph(request, n_layers=10):
 
         config = {
             "data_source": {
@@ -127,7 +127,6 @@ def gen_graph(request):
                     "READ_ONLY": False,
                     "PROJECT": "IGNORE_ENVIRONMENT_PROJECT",
                     "INSTANCE": "emulated_instance",
-                    "CREDENTIALS": credentials.AnonymousCredentials(),
                 },
             },
             "ingest_config": {},
@@ -136,6 +135,7 @@ def gen_graph(request):
         meta, _, client_info = bootstrap("test", config=config)
         graph = ChunkedGraph(graph_id="test", meta=meta, client_info=client_info)
         graph.meta._ws_cv = CloudVolumeMock()
+        graph.meta.layer_count = n_layers
         graph.create()
 
         # setup Chunked Graph - Finalizer

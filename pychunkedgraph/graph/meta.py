@@ -111,6 +111,10 @@ class ChunkedGraphMeta:
         )
         return self._layer_count
 
+    @layer_count.setter
+    def layer_count(self, count):
+        self._layer_count = count
+
     @property
     def cv(self):
         return self._ws_cv
