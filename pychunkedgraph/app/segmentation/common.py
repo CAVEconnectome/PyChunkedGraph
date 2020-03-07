@@ -663,7 +663,7 @@ def handle_contact_sites(table_id, root_id):
     # Call ChunkedGraph
     cg = app_utils.get_cg(table_id)
 
-    cs_list = contact_sites.get_contact_sites(
+    cs_list, cs_metadata = contact_sites.get_contact_sites(
         cg,
         np.uint64(root_id),
         bounding_box=bounding_box,
@@ -673,7 +673,7 @@ def handle_contact_sites(table_id, root_id):
         areas_only=areas_only
     )
 
-    return cs_list
+    return cs_list, cs_metadata
 
 def handle_pairwise_contact_sites(table_id, first_node_id, second_node_id):
     current_app.request_type = "pairwise_contact_sites"
@@ -693,14 +693,14 @@ def handle_pairwise_contact_sites(table_id, first_node_id, second_node_id):
     exact_location = request.args.get("exact_location", True,
                                       type=app_utils.toboolean)
     cg = app_utils.get_cg(table_id)
-    contact_sites_list = contact_sites.get_contact_sites_pairwise(
+    contact_sites_list, cs_metadata = contact_sites.get_contact_sites_pairwise(
         cg,
         np.uint64(first_node_id),
         np.uint64(second_node_id),
         end_time=timestamp,
         exact_location=exact_location,
     )
-    return contact_sites_list
+    return contact_sites_list, cs_metadata
 
 
 ### SPLIT PREVIEW --------------------------------------------------------------
