@@ -379,10 +379,14 @@ class GraphEditOperation(ABC):
                 new_root_ids, new_lvl2_ids, rows = self._apply(
                     operation_id=root_lock.operation_id, timestamp=timestamp
                 )
+            except PreconditionError as err:
+                self.cg.cache = None
+                raise PreconditionError(str(err))
+            except PostconditionError as err:
+                self.cg.cache = None
+                raise PostconditionError(str(err))
             except Exception as err:
-                # self.cg.cache.clear()
-                # assert len(self.cg.cache) == 0, "cache not reliable"
-                # self.cg.cache = None
+                self.cg.cache = None
                 raise Exception(str(err))
 
             # FIXME: Remove once edits.remove_edges/edits.add_edges return consistent type
@@ -466,7 +470,6 @@ class MergeOperation(GraphEditOperation):
     def _apply(
         self, *, operation_id, timestamp
     ) -> Tuple[np.ndarray, np.ndarray, List["bigtable.row.Row"]]:
-        print("layers", self.cg.get_cross_chunk_edges_layer(self.added_edges))
         root_ids = set(self.cg.get_roots(self.added_edges.ravel()))
         if len(root_ids) < 2:
             raise PreconditionError("Supervoxels must belong to different objects.")
@@ -573,7 +576,7 @@ class SplitOperation(GraphEditOperation):
             raise PreconditionError("Supervoxels must belong to the same object.")
 
         with TimeIt("get_subgraph"):
-            l2id_agglomeration_d, _ = self.cg.self.get_l2_agglomerations(
+            l2id_agglomeration_d, _ = self.cg.get_l2_agglomerations(
                 self.cg.get_parents(self.removed_edges.ravel())
             )
         return edits.remove_edges(
@@ -700,7 +703,6 @@ class MulticutOperation(GraphEditOperation):
             self.removed_edges = run_multicut(edges, self.source_ids, self.sink_ids)
         if not self.removed_edges.size:
             raise PostconditionError("Mincut could not find any edges to remove.")
-        print("self.removed_edges", len(self.removed_edges))
         return edits.remove_edges(
             self.cg,
             operation_id=operation_id,

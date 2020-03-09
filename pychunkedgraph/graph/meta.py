@@ -67,6 +67,7 @@ _graphconfig_defaults = (
     10,
     False,
     timedelta(minutes=3, seconds=0),
+    # timedelta(seconds=1),
     8,
 )
 GraphConfig = namedtuple(
@@ -75,9 +76,7 @@ GraphConfig = namedtuple(
 
 
 class ChunkedGraphMeta:
-    def __init__(
-        self, graph_config: GraphConfig, data_source: DataSource,
-    ):
+    def __init__(self, graph_config: GraphConfig, data_source: DataSource):
         self._graph_config = graph_config
         self._data_source = data_source
 
@@ -114,6 +113,9 @@ class ChunkedGraphMeta:
     @layer_count.setter
     def layer_count(self, count):
         self._layer_count = count
+        self._bitmasks = compute_bitmasks(
+            self._layer_count, s_bits_atomic_layer=self._graph_config.SPATIAL_BITS,
+        )
 
     @property
     def cv(self):
@@ -151,6 +153,10 @@ class ChunkedGraphMeta:
             layer_bounds_d[layer] = np.ceil(layer_bounds).astype(np.int)
         self._layer_bounds_d = layer_bounds_d
         return self._layer_bounds_d
+
+    @layer_chunk_bounds.setter
+    def layer_chunk_bounds(self, layer_chunk_bounds_d):
+        self._layer_bounds_d = layer_chunk_bounds_d
 
     @property
     def layer_chunk_counts(self) -> List:

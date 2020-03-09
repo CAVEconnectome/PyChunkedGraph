@@ -11,9 +11,9 @@ from typing import Sequence
 
 import numpy as np
 
+from .utils import chunk_id_str
 from .manager import IngestionManager
 from .common import get_atomic_chunk_data
-from .utils import chunk_id_str
 from .ran_agglomeration import get_active_edges
 from .initialization.atomic_layer import add_atomic_edges
 from .initialization.abstract_layers import add_layer
@@ -37,7 +37,9 @@ def _post_task_completion(imanager: IngestionManager, layer: int, coords: np.nda
     parent_chunk_str = "_".join(map(str, parent_coords))
     if not imanager.redis.hget(parent_layer, parent_chunk_str):
         children_count = len(
-            get_children_chunk_coords(imanager.chunkedgraph_meta, parent_layer, parent_coords)
+            get_children_chunk_coords(
+                imanager.chunkedgraph_meta, parent_layer, parent_coords
+            )
         )
         imanager.redis.hset(parent_layer, parent_chunk_str, children_count)
     imanager.redis.hincrby(parent_layer, parent_chunk_str, -1)

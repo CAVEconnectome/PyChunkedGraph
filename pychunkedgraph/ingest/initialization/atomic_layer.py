@@ -31,11 +31,8 @@ def add_atomic_edges(
     time_stamp: Optional[datetime.datetime] = None,
 ):
     chunk_node_ids, chunk_edge_ids = _get_chunk_nodes_and_edges(chunk_edges_d, isolated)
-    print(f"nodes {len(chunk_node_ids)}, edges {len(chunk_edge_ids)}")
-    print(chunk_node_ids)
-    print(chunk_edge_ids)
     if not chunk_node_ids.size:
-        return 0
+        return
 
     chunk_ids = cg.get_chunk_ids_from_node_ids(chunk_node_ids)
     assert len(np.unique(chunk_ids)) == 1
@@ -84,6 +81,7 @@ def _get_chunk_nodes_and_edges(chunk_edges_d: dict, isolated_ids: Sequence[int])
             edge_ids.append(edges.get_pairs())
 
     chunk_node_ids = np.unique(np.concatenate(node_ids))
+    edge_ids.append(np.vstack([chunk_node_ids, chunk_node_ids]).T)
     return (chunk_node_ids, np.concatenate(edge_ids))
 
 

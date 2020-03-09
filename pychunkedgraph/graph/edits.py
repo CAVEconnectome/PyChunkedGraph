@@ -69,6 +69,7 @@ def _analyze_affected_edges(
 
 
 def _get_relevant_components(edges: np.ndarray, supervoxels: np.ndarray) -> Tuple:
+    edges = np.concatenate([edges, np.vstack([supervoxels, supervoxels]).T])
     graph, _, _, graph_ids = flatgraph.build_gt_graph(edges, make_directed=True)
     ccs = flatgraph.connected_components(graph)
     relevant_ccs = []

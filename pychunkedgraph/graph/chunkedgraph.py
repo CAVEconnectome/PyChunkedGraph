@@ -72,6 +72,7 @@ class ChunkedGraph:
         self._client = bt_client
         self._id_client = bt_client
         self._cache_service = None
+        self.mock_edges = Edges([], [])
 
     @property
     def meta(self) -> ChunkedGraphMeta:
@@ -287,13 +288,16 @@ class ChunkedGraph:
                     for l in range(2, self.meta.layer_count)
                 ],
             )
-            return {
-                id_: {
-                    prop.index: val[0].value.copy()
-                    for prop, val in node_edges_d_d[id_].items()
-                }
-                for id_ in l2_ids
-            }
+            result = {}
+            for id_ in l2_ids:
+                try:
+                    result[id_] = {
+                        prop.index: val[0].value.copy()
+                        for prop, val in node_edges_d_d[id_].items()
+                    }
+                except KeyError:
+                    result[id_] = {}
+            return result
         return self.cache.atomic_cross_edges_multiple(l2_ids)
 
     def _test_l2_ids(self, node_l2ids_d):
@@ -403,10 +407,11 @@ class ChunkedGraph:
         """
         time_stamp = misc_utils.get_valid_timestamp(time_stamp)
         stop_layer = self.meta.layer_count if not stop_layer else stop_layer
-        print("self.meta.layer_count ", self.meta.layer_count)
         for _ in range(n_tries):
             layer_mask = self.get_chunk_layers(node_ids) < stop_layer
             parent_ids = np.array(node_ids, dtype=basetypes.NODE_ID)
+            if not np.any(self.get_chunk_layers(parent_ids) < stop_layer):
+                return parent_ids
             for _ in range(int(stop_layer + 1)):
                 filtered_ids = parent_ids[layer_mask]
                 unique_ids, inverse = np.unique(filtered_ids, return_inverse=True)
@@ -446,7 +451,11 @@ class ChunkedGraph:
         all_parent_ids = []
         stop_layer = self.meta.layer_count if not stop_layer else stop_layer
         if self.get_chunk_layer(parent_id) == stop_layer:
-            return node_id
+            return (
+                np.array([node_id], dtype=basetypes.NODE_ID)
+                if get_all_parents
+                else node_id
+            )
 
         for _ in range(n_tries):
             parent_id = node_id
@@ -547,13 +556,18 @@ class ChunkedGraph:
         all_chunk_edges += reduce(
             lambda x, y: x + y, self.get_fake_edges(chunk_ids).values(), Edges([], [])
         )
-        print("all_chunk_edges b", len(all_chunk_edges))
+        print("all_chunk_edges a", len(all_chunk_edges))
         if edges_only:
-            all_chunk_edges = all_chunk_edges.get_pairs()
+            if len(self.mock_edges):
+                all_chunk_edges = self.mock_edges.get_pairs()
+            else:
+                all_chunk_edges = all_chunk_edges.get_pairs()
             supervoxels = self.get_children(level2_ids, flatten=True)
             mask0 = np.in1d(all_chunk_edges[:, 0], supervoxels)
             mask1 = np.in1d(all_chunk_edges[:, 1], supervoxels)
-            return all_chunk_edges[mask0 & mask1]
+            mask2 = np.in1d(all_chunk_edges[:, 1], supervoxels)
+            mask3 = np.in1d(all_chunk_edges[:, 0], supervoxels)
+            return all_chunk_edges[mask0 & mask1 | mask2 & mask3]
         in_edges = set()
         out_edges = set()
         cross_edges = set()
@@ -574,7 +588,12 @@ class ChunkedGraph:
         in_edges = reduce(lambda x, y: x + y, in_edges)
         out_edges = reduce(lambda x, y: x + y, out_edges)
         cross_edges = reduce(lambda x, y: x + y, cross_edges)
-        return l2id_agglomeration_d, (in_edges, out_edges, cross_edges)
+        return (
+            l2id_agglomeration_d,
+            (self.mock_edges,)
+            if len(self.mock_edges)
+            else (in_edges, out_edges, cross_edges),
+        )
 
     def add_edges(
         self,
@@ -823,7 +842,9 @@ class ChunkedGraph:
     # HELPERS / WRAPPERS
 
     def get_serialized_info(self):
-        return {"graph_id": "test"}
+        return {
+            "graph_id": self.meta.graph_config.ID_PREFIX + self.meta.graph_config.ID
+        }
 
     def get_node_id(
         self,

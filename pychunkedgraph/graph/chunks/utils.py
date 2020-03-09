@@ -111,7 +111,6 @@ def get_chunk_ids_from_node_ids(meta, node_ids: Iterable[np.uint64]) -> np.ndarr
 
 def _compute_chunk_id(meta, layer: int, x: int, y: int, z: int,) -> np.uint64:
     s_bits_per_dim = meta.bitmasks[layer]
-    n_bits_layer_id = meta.graph_config.LAYER_ID_BITS
     if not (
         x < 2 ** s_bits_per_dim and y < 2 ** s_bits_per_dim and z < 2 ** s_bits_per_dim
     ):
@@ -120,7 +119,7 @@ def _compute_chunk_id(meta, layer: int, x: int, y: int, z: int,) -> np.uint64:
             layer: {layer} bits/dim {s_bits_per_dim}. \
             [{x}, {y}, {z}]; max = {2 ** s_bits_per_dim}."
         )
-    layer_offset = 64 - n_bits_layer_id
+    layer_offset = 64 - meta.graph_config.LAYER_ID_BITS
     x_offset = layer_offset - s_bits_per_dim
     y_offset = x_offset - s_bits_per_dim
     z_offset = y_offset - s_bits_per_dim

@@ -21,7 +21,7 @@ chunk_id_str = lambda layer, coords: f"{layer}_{'_'.join(map(str, coords))}"
 def bootstrap(
     graph_id: str, config: dict, overwrite: bool = False
 ) -> Tuple[ChunkedGraphMeta, IngestConfig, BackendClientInfo]:
-    """Create ChunkedGraph instance with config loaded from a yaml file."""
+    """Parse config loaded from a yaml file."""
     ingest_config = IngestConfig(
         **config["ingest_config"], CLUSTER=ClusterIngestConfig(FLUSH_REDIS=True)
     )

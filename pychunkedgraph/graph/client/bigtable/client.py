@@ -43,23 +43,17 @@ class BigTableClient(bigtable.Client, ClientWithIDGen):
         config: BigTableConfig = BigTableConfig(),
         graph_meta: ChunkedGraphMeta = None,
     ):
-        super(BigTableClient, self).__init__(
-            project=config.PROJECT,
-            read_only=config.READ_ONLY,
-            admin=config.ADMIN,
-            credentials=credentials.AnonymousCredentials(),
-        )    
-        # if config.CREDENTIALS:
-        #     super(BigTableClient, self).__init__(
-        #         project=config.PROJECT,
-        #         read_only=config.READ_ONLY,
-        #         admin=config.ADMIN,
-        #         credentials=config.CREDENTIALS,
-        #     )
-        # else:
-        #     super(BigTableClient, self).__init__(
-        #         project=config.PROJECT, read_only=config.READ_ONLY, admin=config.ADMIN,
-        #     )
+        if config.CREDENTIALS:
+            super(BigTableClient, self).__init__(
+                project=config.PROJECT,
+                read_only=config.READ_ONLY,
+                admin=config.ADMIN,
+                credentials=config.CREDENTIALS,
+            )
+        else:
+            super(BigTableClient, self).__init__(
+                project=config.PROJECT, read_only=config.READ_ONLY, admin=config.ADMIN,
+            )
         self._instance = self.instance(config.INSTANCE)
         self._table = self._instance.table(table_id)
 
@@ -201,7 +195,7 @@ class BigTableClient(bigtable.Client, ClientWithIDGen):
         self.write(nodes, root_ids, operation_id)
 
     # Locking
-    def lock_root(self, root_id: np.uint64, operation_id: np.uint64) -> bool:
+    def lock_root(self, root_id: np.uint64, operation_id: np.uint64,) -> bool:
         """Attempts to lock the latest version of a root node."""
         lock_expiry = self.graph_meta.graph_config.ROOT_LOCK_EXPIRY
         lock_column = attributes.Concurrency.Lock
@@ -221,7 +215,7 @@ class BigTableClient(bigtable.Client, ClientWithIDGen):
         # The lock was acquired when set_cell returns False (state)
         lock_acquired = not root_row.commit()
         if not lock_acquired:
-            row = self._read_byte_row(root_id, columns=lock_column)
+            row = self._read_byte_row(serialize_uint64(root_id), columns=lock_column)
             l_operation_ids = [cell.value for cell in row]
             self.logger.debug(f"Locked operation ids: {l_operation_ids}")
         return lock_acquired
@@ -356,8 +350,24 @@ class BigTableClient(bigtable.Client, ClientWithIDGen):
         """Generate a unique node ID in the chunk."""
         return self.create_node_ids(chunk_id, 1, root_chunk=root_chunk)[0]
 
-    def get_max_node_id(self, chunk_id: basetypes.CHUNK_ID) -> basetypes.NODE_ID:
+    def get_max_node_id(
+        self, chunk_id: basetypes.CHUNK_ID, root_chunk=False
+    ) -> basetypes.NODE_ID:
         """Gets the current maximum segment ID in the chunk."""
+        if root_chunk:
+            n_counters = np.uint64(2 ** 8)
+            max_value = 0
+            for counter in range(n_counters):
+                row = self._read_byte_row(
+                    serialize_key(f"i{pad_node_id(chunk_id)}_{counter}"),
+                    columns=attributes.Concurrency.Counter,
+                )
+                val = (
+                    basetypes.SEGMENT_ID.type(row[0].value if row else 0) * n_counters
+                    + counter
+                )
+                max_value = val if val > max_value else max_value
+            return chunk_id | basetypes.SEGMENT_ID.type(max_value)
         column = attributes.Concurrency.Counter
         row = self._read_byte_row(
             serialize_uint64(chunk_id, counter=True), columns=column

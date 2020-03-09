@@ -33,8 +33,8 @@ class Edges:
         self.node_ids1 = np.array(node_ids1, dtype=basetypes.NODE_ID)
         self.node_ids2 = np.array(node_ids2, dtype=basetypes.NODE_ID)
         assert self.node_ids1.size == self.node_ids2.size
-        self._affinities = None
-        self._areas = None
+        self._affinities = np.ones(len(self.node_ids1)) * DEFAULT_AFFINITY
+        self._areas = np.ones(len(self.node_ids1)) * DEFAULT_AREA
         self._as_pairs = None
         self._fake_edges = fake_edges
 
@@ -48,9 +48,7 @@ class Edges:
 
     @property
     def affinities(self) -> np.ndarray:
-        if self._affinities is not None:
-            return self._affinities
-        return np.ones(len(self.node_ids1)) * DEFAULT_AFFINITY
+        return self._affinities
 
     @affinities.setter
     def affinities(self, affinities):
@@ -58,9 +56,7 @@ class Edges:
 
     @property
     def areas(self) -> np.ndarray:
-        if self._areas is not None:
-            return self._affinities
-        return np.ones(len(self.node_ids1)) * DEFAULT_AREA
+        return self._affinities
 
     @areas.setter
     def areas(self, areas):

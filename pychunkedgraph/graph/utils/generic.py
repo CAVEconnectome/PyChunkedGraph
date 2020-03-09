@@ -114,6 +114,8 @@ def get_bounding_box(
     sink_coords: Sequence[Sequence[int]],
     bb_offset: Tuple[int, int, int] = (120, 120, 12),
 ):
+    if source_coords is None or sink_coords is None:
+        return
     bb_offset = np.array(list(bb_offset))
     source_coords = np.array(source_coords)
     sink_coords = np.array(sink_coords)

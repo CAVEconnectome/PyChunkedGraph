@@ -1,13 +1,15 @@
 import os
 import subprocess
-from datetime import timedelta
-from functools import partial
 from math import inf
-from signal import SIGTERM
 from time import sleep
+from signal import SIGTERM
+from functools import reduce
+from functools import partial
+from datetime import timedelta
 
-import numpy as np
+
 import pytest
+import numpy as np
 from google.auth import credentials
 from google.cloud import bigtable
 
@@ -64,7 +66,7 @@ def setup_emulator_env():
         return False
 
 
-@pytest.fixture(scope="session", autouse=True)
+@pytest.fixture(scope="package", autouse=True)
 def bigtable_emulator(request):
     # Start Emulator
     bigtable_emulator = subprocess.Popen(
@@ -106,8 +108,7 @@ def bigtable_emulator(request):
 
 @pytest.fixture(scope="function")
 def gen_graph(request):
-    def _cgraph(request, n_layers=10):
-
+    def _cgraph(request, n_layers=10, atomic_chunk_bounds: np.ndarray = np.array([])):
         config = {
             "data_source": {
                 "EDGES": "gs://chunkedgraph/minnie65_0/edges",
@@ -127,6 +128,7 @@ def gen_graph(request):
                     "READ_ONLY": False,
                     "PROJECT": "IGNORE_ENVIRONMENT_PROJECT",
                     "INSTANCE": "emulated_instance",
+                    "CREDENTIALS": credentials.AnonymousCredentials(),
                 },
             },
             "ingest_config": {},
@@ -136,6 +138,10 @@ def gen_graph(request):
         graph = ChunkedGraph(graph_id="test", meta=meta, client_info=client_info)
         graph.meta._ws_cv = CloudVolumeMock()
         graph.meta.layer_count = n_layers
+        graph.meta.layer_chunk_bounds = get_layer_chunk_bounds(
+            n_layers, atomic_chunk_bounds=atomic_chunk_bounds
+        )
+
         graph.create()
 
         # setup Chunked Graph - Finalizer
@@ -180,9 +186,9 @@ def gen_graph_simplequerytest(request, gen_graph):
         edges=[(to_label(graph, 1, 2, 0, 0, 0), to_label(graph, 1, 1, 0, 0, 0), inf)],
     )
 
-    add_layer(graph, 3, [0, 0, 0], np.array([[0, 0, 0], [1, 0, 0]]))
-    add_layer(graph, 3, [0, 0, 0], np.array([[2, 0, 0]]))
-    add_layer(graph, 4, [0, 0, 0], np.array([[0, 0, 0], [1, 0, 0]]))
+    add_layer(graph, 3, [0, 0, 0], n_threads=1)
+    add_layer(graph, 3, [1, 0, 0], n_threads=1)
+    add_layer(graph, 4, [0, 0, 0], n_threads=1)
 
     return graph
 
@@ -239,6 +245,9 @@ def create_chunk(cg, vertices=None, edges=None, timestamp=None):
                     sv1s, sv2s, affinities=affs
                 )
 
+    all_edges = reduce(lambda x, y: x + y, chunk_edges_active.values())
+    cg.mock_edges += all_edges
+
     isolated_ids = np.array(isolated_ids, dtype=np.uint64)
     add_atomic_edges(
         cg,
@@ -250,3 +259,17 @@ def create_chunk(cg, vertices=None, edges=None, timestamp=None):
 
 def to_label(cg, l, x, y, z, segment_id):
     return cg.get_node_id(np.uint64(segment_id), layer=l, x=x, y=y, z=z)
+
+
+def get_layer_chunk_bounds(
+    n_layers: int, atomic_chunk_bounds: np.ndarray = np.array([])
+) -> dict:
+    if atomic_chunk_bounds.size == 0:
+        limit = 2 ** (n_layers - 2)
+        atomic_chunk_bounds = np.array([limit, limit, limit])
+    layer_bounds_d = {}
+    for layer in range(2, n_layers):
+        layer_bounds = atomic_chunk_bounds / (2 ** (layer - 2))
+        layer_bounds_d[layer] = np.ceil(layer_bounds).astype(np.int)
+    return layer_bounds_d
+

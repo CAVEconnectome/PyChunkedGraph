@@ -72,7 +72,8 @@ def get_parent_chunk_ids(
     chunk_coord = utils.get_chunk_coordinates(meta, node_or_chunk_id)
     parent_chunk_ids = [utils.get_chunk_id(meta, node_or_chunk_id)]
     for layer in parent_chunk_layers:
-        x, y, z = chunk_coord // meta.graph_config.FANOUT
+        chunk_coord = chunk_coord // meta.graph_config.FANOUT
+        x, y, z = chunk_coord
         parent_chunk_ids.append(utils.get_chunk_id(meta, layer=layer, x=x, y=y, z=z))
     return np.array(parent_chunk_ids, dtype=np.uint64)
 

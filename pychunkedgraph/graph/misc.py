@@ -1,4 +1,4 @@
-# TODO better categorization
+# TODO categorize these
 
 import numpy as np
 import datetime
@@ -12,18 +12,9 @@ from . import attributes
 from .utils import flatgraph
 
 
-def _read_delta_root_rows_thread(args) -> Sequence[list]:
-    (
-        start_seg_id,
-        end_seg_id,
-        serialized_cg_info,
-        time_stamp_start,
-        time_stamp_end,
-    ) = args
-    cg = ChunkedGraph(**serialized_cg_info)
-    start_id = cg.get_node_id(segment_id=start_seg_id, chunk_id=cg.root_chunk_id)
-    end_id = cg.get_node_id(segment_id=end_seg_id, chunk_id=cg.root_chunk_id)
-
+def _read_delta_root_rows(
+    cg, start_id, end_id, time_stamp_start, time_stamp_end,
+) -> Sequence[list]:
     # apply column filters to avoid Lock columns
     rows = cg.client.read_nodes(
         start_id=start_id,
@@ -115,45 +106,16 @@ def get_delta_roots(
     n_threads: int = 1,
 ) -> Sequence[np.uint64]:
     # Create filters: time and id range
-    max_seg_id = cg.get_max_seg_id(cg.root_chunk_id) + 1
-    n_blocks = int(np.min([n_threads + 1, max_seg_id - min_seg_id + 1]))
-    seg_id_blocks = np.linspace(min_seg_id, max_seg_id, n_blocks, dtype=np.uint64)
-    cg_serialized_info = cg.get_serialized_info()
-    if n_threads > 1:
-        del cg_serialized_info["credentials"]
-
-    multi_args = []
-    for i_id_block in range(0, len(seg_id_blocks) - 1):
-        multi_args.append(
-            [
-                seg_id_blocks[i_id_block],
-                seg_id_blocks[i_id_block + 1],
-                cg_serialized_info,
-                time_stamp_start,
-                time_stamp_end,
-            ]
-        )
-
-    # Run parallelizing
-    if n_threads == 1:
-        results = mu.multiprocess_func(
-            _read_delta_root_rows_thread,
-            multi_args,
-            n_threads=n_threads,
-            verbose=False,
-            debug=n_threads == 1,
-        )
-    else:
-        results = mu.multisubprocess_func(
-            _read_delta_root_rows_thread, multi_args, n_threads=n_threads
-        )
+    start_id = np.uint64(cg.get_chunk_id(layer=cg.meta.layer_count) + 1)
+    end_id = cg.id_client.get_max_node_id(
+        cg.get_chunk_id(layer=cg.meta.layer_count), root_chunk=True
+    ) + np.uint64(1)
+    new_root_ids, expired_root_id_candidates = _read_delta_root_rows(
+        cg, start_id, end_id, time_stamp_start, time_stamp_end
+    )
 
     # aggregate all the results together
-    new_root_ids = []
-    expired_root_id_candidates = []
-    for r1, r2 in results:
-        new_root_ids.extend(r1)
-        expired_root_id_candidates.extend(r2)
+    new_root_ids = np.array(new_root_ids, dtype=np.uint64)
     expired_root_id_candidates = np.array(expired_root_id_candidates, dtype=np.uint64)
     # filter for uniqueness
     expired_root_id_candidates = np.unique(expired_root_id_candidates)
