@@ -3,6 +3,7 @@ import json
 import threading
 import time
 import traceback
+import zlib
 from datetime import datetime
 
 import numpy as np
@@ -71,6 +72,24 @@ def after_request(response):
     except Exception as e:
         current_app.logger.debug(f"{current_app.user_id}: LogDB entry not"
                                  f" successful: {e}")
+
+    accept_encoding = request.headers.get('Accept-Encoding', '')
+
+    if 'gzip' not in accept_encoding.lower():
+        return response
+
+    response.direct_passthrough = False
+
+    if (response.status_code < 200 or
+            response.status_code >= 300 or
+            'Content-Encoding' in response.headers):
+        return response
+
+    response.data = zlib.compress(response.data)
+
+    response.headers['Content-Encoding'] = 'gzip'
+    response.headers['Vary'] = 'Accept-Encoding'
+    response.headers['Content-Length'] = len(response.data)
 
     return response
 
