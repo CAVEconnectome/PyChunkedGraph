@@ -3,7 +3,8 @@ import json
 import threading
 import time
 import traceback
-import zlib
+import gzip
+from io import BytesIO as IO
 from datetime import datetime
 
 import numpy as np
@@ -85,7 +86,13 @@ def after_request(response):
             'Content-Encoding' in response.headers):
         return response
 
-    response.data = zlib.compress(response.data)
+    gzip_buffer = IO()
+    gzip_file = gzip.GzipFile(mode='wb',
+                              fileobj=gzip_buffer)
+    gzip_file.write(response.data)
+    gzip_file.close()
+
+    response.data = gzip_buffer.getvalue()
 
     response.headers['Content-Encoding'] = 'gzip'
     response.headers['Vary'] = 'Accept-Encoding'
