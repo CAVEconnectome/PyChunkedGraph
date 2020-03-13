@@ -218,11 +218,14 @@ def handle_root(table_id, atomic_id):
 ### GET ROOTS -------------------------------------------------------------------
 
 
-def handle_roots(table_id):
+def handle_roots(table_id, is_binary=False):
     current_app.request_type = "roots"
     current_app.table_id = table_id
 
-    node_ids = np.array(json.loads(request.data)["node_ids"], dtype=np.uint64)
+    if is_binary:
+        node_ids = np.frombuffer(request.data, np.uint64)
+    else:
+        node_ids = np.array(json.loads(request.data)["node_ids"], dtype=np.uint64)
     # Convert seconds since epoch to UTC datetime
     try:
         timestamp = float(request.args.get("timestamp", time.time()))

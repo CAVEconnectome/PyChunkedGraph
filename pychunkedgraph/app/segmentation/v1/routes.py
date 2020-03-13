@@ -134,7 +134,7 @@ def handle_root(table_id, node_id):
 @auth_requires_permission("view")
 def handle_roots(table_id):
     int64_as_str = request.args.get("int64_as_str", default=False, type=toboolean)
-    root_ids = common.handle_roots(table_id)
+    root_ids = common.handle_roots(table_id, is_binary=False)
     resp = {"root_ids": root_ids}
 
     arg_as_binary = request.args.get("as_binary", default="", type=str)
@@ -142,6 +142,13 @@ def handle_roots(table_id):
         return tobinary(resp[arg_as_binary])
     else:
         return jsonify_with_kwargs(resp, int64_as_str=int64_as_str)
+
+
+@bp.route("/table/<table_id>/roots_binary", methods=["POST"])
+@auth_requires_permission("view")
+def handle_roots_binary(table_id):
+    root_ids = common.handle_roots(table_id, is_binary=True)
+    return tobinary(root_ids)
 
 
 ### CHILDREN -------------------------------------------------------------------
