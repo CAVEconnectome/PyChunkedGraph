@@ -93,14 +93,6 @@ def after_request(response):
             'Content-Encoding' in response.headers):
         return response
 
-    # gzip_buffer = IO()
-    # gzip_file = gzip.GzipFile(mode='wb',
-    #                           fileobj=gzip_buffer)
-    # gzip_file.write(response.data)
-    # gzip_file.close()
-    #
-    # response.data = gzip_buffer.getvalue()
-
     response.data = compression.gzip_compress(response.data)
 
     response.headers['Content-Encoding'] = 'gzip'
