@@ -127,7 +127,7 @@ def handle_root(table_id, node_id):
     return jsonify_with_kwargs(resp, int64_as_str=int64_as_str)
 
 
-### GET ROOTS -------------------------------------------------------------------
+### GET ROOTS ------------------------------------------------------------------
 
 
 @bp.route("/table/<table_id>/roots", methods=["POST"])
@@ -143,6 +143,7 @@ def handle_roots(table_id):
     else:
         return jsonify_with_kwargs(resp, int64_as_str=int64_as_str)
 
+### GET ROOTS BINARY -----------------------------------------------------------
 
 @bp.route("/table/<table_id>/roots_binary", methods=["POST"])
 @auth_requires_permission("view")
@@ -152,7 +153,6 @@ def handle_roots_binary(table_id):
 
 
 ### CHILDREN -------------------------------------------------------------------
-
 
 @bp.route("/table/<table_id>/node/<node_id>/children", methods=["GET"])
 @auth_requires_permission("view")

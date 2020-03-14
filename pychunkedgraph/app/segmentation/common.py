@@ -10,6 +10,8 @@ from datetime import datetime
 import numpy as np
 from pytz import UTC
 
+from cloudvolume import compression
+
 from flask import current_app, g, jsonify, make_response, request
 from pychunkedgraph import __version__
 from pychunkedgraph.app import app_utils
@@ -46,6 +48,10 @@ def before_request():
     current_app.user_id = None
     current_app.table_id = None
     current_app.request_type = None
+
+    content_encoding = request.headers.get('Content-Encoding', '')
+    if "gzip" in content_encoding.lower():
+        request.data = compression.gzip_compress(request.data)
 
 
 def after_request(response):
@@ -86,13 +92,15 @@ def after_request(response):
             'Content-Encoding' in response.headers):
         return response
 
-    gzip_buffer = IO()
-    gzip_file = gzip.GzipFile(mode='wb',
-                              fileobj=gzip_buffer)
-    gzip_file.write(response.data)
-    gzip_file.close()
+    # gzip_buffer = IO()
+    # gzip_file = gzip.GzipFile(mode='wb',
+    #                           fileobj=gzip_buffer)
+    # gzip_file.write(response.data)
+    # gzip_file.close()
+    #
+    # response.data = gzip_buffer.getvalue()
 
-    response.data = gzip_buffer.getvalue()
+    response.data = compression.gzip_compress(response.data)
 
     response.headers['Content-Encoding'] = 'gzip'
     response.headers['Vary'] = 'Accept-Encoding'
@@ -225,7 +233,8 @@ def handle_roots(table_id, is_binary=False):
     if is_binary:
         node_ids = np.frombuffer(request.data, np.uint64)
     else:
-        node_ids = np.array(json.loads(request.data)["node_ids"], dtype=np.uint64)
+        node_ids = np.array(json.loads(request.data)["node_ids"],
+                            dtype=np.uint64)
     # Convert seconds since epoch to UTC datetime
     try:
         timestamp = float(request.args.get("timestamp", time.time()))
