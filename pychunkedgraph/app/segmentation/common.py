@@ -50,8 +50,9 @@ def before_request():
     current_app.request_type = None
 
     content_encoding = request.headers.get('Content-Encoding', '')
+
     if "gzip" in content_encoding.lower():
-        request.data = compression.gzip_compress(request.data)
+        request.data = compression.decompress(request.data, "gzip")
 
 
 def after_request(response):
