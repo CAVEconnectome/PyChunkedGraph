@@ -1,12 +1,13 @@
 import io
 import csv
 
-from flask import make_response
+from flask import make_response, current_app
 from flask import Blueprint, request
 from middle_auth_client import auth_requires_permission
 from middle_auth_client import auth_requires_admin
+from middle_auth_client import auth_required
 
-from pychunkedgraph.app.app_utils import jsonify_with_kwargs, toboolean
+from pychunkedgraph.app.app_utils import jsonify_with_kwargs, toboolean, tobinary
 from pychunkedgraph.app.segmentation import common
 from pychunkedgraph.backend import chunkedgraph_exceptions as cg_exceptions
 
@@ -20,11 +21,13 @@ bp = Blueprint("pcg_segmentation_v1", __name__, url_prefix="/segmentation/api/v1
 
 @bp.route("/")
 @bp.route("/index")
+@auth_required
 def index():
     return common.index()
 
 
 @bp.route
+@auth_required
 def home():
     return common.home()
 
@@ -35,11 +38,13 @@ def home():
 
 
 @bp.before_request
+@auth_required
 def before_request():
     return common.before_request()
 
 
 @bp.after_request
+@auth_required
 def after_request(response):
     return common.after_request(response)
 
@@ -118,22 +123,36 @@ def handle_redo(table_id):
 def handle_root(table_id, node_id):
     int64_as_str = request.args.get("int64_as_str", default=False, type=toboolean)
     root_id = common.handle_root(table_id, node_id)
-    return jsonify_with_kwargs({"root_id": root_id}, int64_as_str=int64_as_str)
+    resp = {"root_id": root_id}
+    return jsonify_with_kwargs(resp, int64_as_str=int64_as_str)
 
 
-### GET ROOTS -------------------------------------------------------------------
+### GET ROOTS ------------------------------------------------------------------
 
 
 @bp.route("/table/<table_id>/roots", methods=["POST"])
 @auth_requires_permission("view")
 def handle_roots(table_id):
     int64_as_str = request.args.get("int64_as_str", default=False, type=toboolean)
-    root_ids = common.handle_roots(table_id)
-    return jsonify_with_kwargs(root_ids, int64_as_str=int64_as_str)
+    root_ids = common.handle_roots(table_id, is_binary=False)
+    resp = {"root_ids": root_ids}
+
+    arg_as_binary = request.args.get("as_binary", default="", type=str)
+    if arg_as_binary in resp:
+        return tobinary(resp[arg_as_binary])
+    else:
+        return jsonify_with_kwargs(resp, int64_as_str=int64_as_str)
+
+### GET ROOTS BINARY -----------------------------------------------------------
+
+@bp.route("/table/<table_id>/roots_binary", methods=["POST"])
+@auth_requires_permission("view")
+def handle_roots_binary(table_id):
+    root_ids = common.handle_roots(table_id, is_binary=True)
+    return tobinary(root_ids)
 
 
 ### CHILDREN -------------------------------------------------------------------
-
 
 @bp.route("/table/<table_id>/node/<node_id>/children", methods=["GET"])
 @auth_requires_permission("view")
@@ -175,17 +194,28 @@ def handle_subgraph(table_id, node_id):
 @auth_requires_permission("view")
 def handle_contact_sites(table_id, node_id):
     int64_as_str = request.args.get("int64_as_str", default=False, type=toboolean)
-    contact_sites = common.handle_contact_sites(table_id, node_id)
-    return jsonify_with_kwargs(contact_sites, int64_as_str=int64_as_str)
+    contact_sites, contact_site_metadata = common.handle_contact_sites(
+        table_id, node_id
+    )
+    resp = {
+        "contact_sites": contact_sites,
+        "contact_site_metadata": contact_site_metadata,
+    }
+    return jsonify_with_kwargs(resp, int64_as_str=int64_as_str)
 
 
 @bp.route("/table/<table_id>/node/contact_sites_pair/<first_node_id>/<second_node_id>", methods=["GET"])
 @auth_requires_permission("view")
 def handle_pairwise_contact_sites(table_id, first_node_id, second_node_id):
     int64_as_str = request.args.get("int64_as_str", default=False, type=toboolean)
-    contact_sites = common.handle_pairwise_contact_sites(table_id, first_node_id, second_node_id)
-    return jsonify_with_kwargs(contact_sites, int64_as_str=int64_as_str)
-
+    contact_sites, contact_site_metadata = common.handle_pairwise_contact_sites(
+        table_id, first_node_id, second_node_id
+    )
+    resp = {
+        "contact_sites": contact_sites,
+        "contact_site_metadata": contact_site_metadata,
+    }
+    return jsonify_with_kwargs(resp, int64_as_str=int64_as_str)
 
 ### CHANGE LOG -----------------------------------------------------------------
 

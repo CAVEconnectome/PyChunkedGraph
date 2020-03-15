@@ -72,21 +72,25 @@ def get_contact_sites(
     bb_is_coordinate=True,
     compute_partner=True,
     end_time=None,
-    voxel_location=False,
+    voxel_location=True,
     areas_only=False,
     as_list=False
 ):
     """
-    Given a root id, return a dictionary containing all the contact sites with other roots in the dataset.
+    Given a root id, return two lists: the first contains all the contact sites with other roots in the dataset,
+    the second is metadata specifying exactly what data the first list contains.
 
-    If compute_partner=True, the keys of the dictionary are other root ids and the values are lists of all the contact sites
-    these two roots make. Each value in the list is a tuple containing three entries. If voxel_location=False, 
-    then the first two entries are chunk coordinates that bound part of the contact site; the third entry 
-    is the area of the contact site. If voxel_location=True, the first two entries are the positions of those two chunks
-    in global coordinates instead. If areas_only=True, then the value is just the area and no location is returned.
+    If compute_partner=True, the first returned list is a list of tuples of length two. The first element of the tuple
+    is a contact site partner root id. The second element is a list of all the contact sites (tuples) root_id makes
+    with this contact partner. 
     
-    If compute_partner=False, the keys of the dictionary are unsigned integers counting up from 0. The values are 
-    the lists containing one tuple of the kind specified in the above paragraph.
+    If compute_partner=False, the first returned list is a list of all the contact sites. 
+
+    The voxel_location and areas_only parameters affect the tuples in the list of contact sites mentioned above.
+    If voxel_location=False, then the first two entries of the tuple are chunk coordinates that 
+    bound part of the contact site; the third entry is the area of the contact site. If voxel_location=True, 
+    the first two entries are the positions of those two chunks in global coordinates instead.
+    If areas_only=True, then the tuple is just the area and no location is returned.
     """
     contact_sites_graph_edges, contact_sites_svs_area_dict, any_contact_sites = _get_edges_for_contact_site_graph(
         cg, root_id, bounding_box, bb_is_coordinate, end_time
@@ -148,22 +152,19 @@ def get_contact_sites(
                 intermediary_sv_dict.get(int(sv_list[i]))
             )
 
-    if as_list:
-        contact_site_list = []
-        for partner_id in contact_site_dict:
-            if compute_partner:
-                contact_site_list.append({
-                    'segment_id': np.uint64(partner_id),
-                    'contact_site_areas': contact_site_dict[partner_id]
-                })
-            else:
-                contact_site_list.append({
-                    'segment_id': partner_id,
-                    'contact_site_areas': contact_site_dict[partner_id]
-                })
-        return contact_site_list
+    contact_site_list = []
+    for partner_id in contact_site_dict:
+        if compute_partner:
+            contact_site_list.append((np.uint64(partner_id), contact_site_dict[partner_id]))
+        else:
+            contact_site_list.append((*contact_site_dict[partner_id]))
+    
+    if compute_partner:
+        contact_site_metadata = ['segment id', 'lower bound coordinate', 'upper bound coordinate', 'area']
+    else:
+        contact_site_metadata = ['lower bound coordinate', 'upper bound coordinate', 'area']
 
-    return contact_site_dict
+    return contact_site_list, contact_site_metadata
 
 
 def _retrieve_connectivity_optimized(cg, dict_item):
@@ -598,12 +599,14 @@ def get_contact_sites_pairwise(
 ):
     """
     Given two node ids, find the locations and areas of their contact sites in the dataset.
+    This function returns two lists, the first representing the contact sites, and the second
+    is metadata specifying the exact data contained in the first list.
 
-    If exact_location=True, this function returns a list of tuples of two elements,
+    If exact_location=True, the first return value is a list of tuples of two elements,
     where the first element in the tuple is a global coordinate in the dataset, and
     the second is an area.
 
-    If exact_location=False, this function returns a list of tuples of three elements.
+    If exact_location=False, the first return value is a list of tuples of three elements.
     The first and second elements are the global coordinates that the contact site appears somewhere
     between, and the third is an area.
     """
@@ -616,9 +619,11 @@ def get_contact_sites_pairwise(
         cg, sv_ids_set1, sv_ids_set2, end_time, optimize_unsafe
     )
     if exact_location:
-        return _get_exact_contact_sites(cg, edges_to_inspect)
+        contact_sites = _get_exact_contact_sites(cg, edges_to_inspect)
+        contact_site_metadata = ['coordinate', 'area']
     else:
         contact_sites = []
+        contact_site_metadata = ['lower_bound_coordinate', 'upper_bound_coordinate', 'area']
         for edge_to_inspect in edges_to_inspect:
             edge, _, area = edge_to_inspect
             contact_sites.append(
@@ -628,4 +633,4 @@ def get_contact_sites_pairwise(
                     area,
                 )
             )
-    return contact_sites
+    return contact_sites, contact_site_metadata

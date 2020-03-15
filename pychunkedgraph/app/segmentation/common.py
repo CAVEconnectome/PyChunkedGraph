@@ -3,10 +3,14 @@ import json
 import threading
 import time
 import traceback
+import gzip
+from io import BytesIO as IO
 from datetime import datetime
 
 import numpy as np
 from pytz import UTC
+
+from cloudvolume import compression
 
 from flask import current_app, g, jsonify, make_response, request
 from pychunkedgraph import __version__
@@ -45,6 +49,11 @@ def before_request():
     current_app.table_id = None
     current_app.request_type = None
 
+    content_encoding = request.headers.get('Content-Encoding', '')
+
+    if "gzip" in content_encoding.lower():
+        request.data = compression.decompress(request.data, "gzip")
+
 
 def after_request(response):
     dt = (time.time() - current_app.request_start_time) * 1000
@@ -71,6 +80,24 @@ def after_request(response):
     except Exception as e:
         current_app.logger.debug(f"{current_app.user_id}: LogDB entry not"
                                  f" successful: {e}")
+
+    accept_encoding = request.headers.get('Accept-Encoding', '')
+
+    if 'gzip' not in accept_encoding.lower():
+        return response
+
+    response.direct_passthrough = False
+
+    if (response.status_code < 200 or
+            response.status_code >= 300 or
+            'Content-Encoding' in response.headers):
+        return response
+
+    response.data = compression.gzip_compress(response.data)
+
+    response.headers['Content-Encoding'] = 'gzip'
+    response.headers['Vary'] = 'Accept-Encoding'
+    response.headers['Content-Length'] = len(response.data)
 
     return response
 
@@ -192,11 +219,15 @@ def handle_root(table_id, atomic_id):
 ### GET ROOTS -------------------------------------------------------------------
 
 
-def handle_roots(table_id):
+def handle_roots(table_id, is_binary=False):
     current_app.request_type = "roots"
     current_app.table_id = table_id
 
-    node_ids = np.array(json.loads(request.data)["node_ids"], dtype=np.uint64)
+    if is_binary:
+        node_ids = np.frombuffer(request.data, np.uint64)
+    else:
+        node_ids = np.array(json.loads(request.data)["node_ids"],
+                            dtype=np.uint64)
     # Convert seconds since epoch to UTC datetime
     try:
         timestamp = float(request.args.get("timestamp", time.time()))
@@ -663,7 +694,7 @@ def handle_contact_sites(table_id, root_id):
     # Call ChunkedGraph
     cg = app_utils.get_cg(table_id)
 
-    cs_list = contact_sites.get_contact_sites(
+    cs_list, cs_metadata = contact_sites.get_contact_sites(
         cg,
         np.uint64(root_id),
         bounding_box=bounding_box,
@@ -673,7 +704,7 @@ def handle_contact_sites(table_id, root_id):
         areas_only=areas_only
     )
 
-    return cs_list
+    return cs_list, cs_metadata
 
 def handle_pairwise_contact_sites(table_id, first_node_id, second_node_id):
     current_app.request_type = "pairwise_contact_sites"
@@ -693,14 +724,14 @@ def handle_pairwise_contact_sites(table_id, first_node_id, second_node_id):
     exact_location = request.args.get("exact_location", True,
                                       type=app_utils.toboolean)
     cg = app_utils.get_cg(table_id)
-    contact_sites_list = contact_sites.get_contact_sites_pairwise(
+    contact_sites_list, cs_metadata = contact_sites.get_contact_sites_pairwise(
         cg,
         np.uint64(first_node_id),
         np.uint64(second_node_id),
         end_time=timestamp,
         exact_location=exact_location,
     )
-    return contact_sites_list
+    return contact_sites_list, cs_metadata
 
 
 ### SPLIT PREVIEW --------------------------------------------------------------

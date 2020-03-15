@@ -1,5 +1,6 @@
 from flask import Blueprint
-from middle_auth_client import auth_requires_admin
+from middle_auth_client import auth_requires_admin, auth_required, \
+    auth_requires_permission
 from pychunkedgraph.app.segmentation import common
 
 bp = Blueprint("pcg_generic_v1", __name__, url_prefix="/segmentation")
@@ -12,11 +13,13 @@ bp = Blueprint("pcg_generic_v1", __name__, url_prefix="/segmentation")
 
 @bp.route("/")
 @bp.route("/index")
+@auth_required
 def index():
     return common.index()
 
 
 @bp.route
+@auth_required
 def home():
     return common.home()
 
@@ -33,6 +36,7 @@ def sleep_me(sleep):
 
 
 @bp.route("/table/<table_id>/info", methods=["GET"])
+@auth_requires_permission("view")
 def handle_info(table_id):
     return common.handle_info(table_id)
 
@@ -43,5 +47,6 @@ def handle_info(table_id):
 
 
 @bp.route("/api/versions", methods=["GET"])
+@auth_required
 def handle_api_versions():
     return common.handle_api_versions()

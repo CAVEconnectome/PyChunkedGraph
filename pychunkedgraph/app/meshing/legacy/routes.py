@@ -1,5 +1,5 @@
 from flask import Blueprint
-from middle_auth_client import auth_requires_permission
+from middle_auth_client import auth_requires_permission, auth_required
 
 from pychunkedgraph.app.meshing import common
 from pychunkedgraph.backend import chunkedgraph_exceptions as cg_exceptions
@@ -13,11 +13,13 @@ bp = Blueprint("pcg_meshing_v0", __name__, url_prefix="/meshing/1.0")
 
 @bp.route("/")
 @bp.route("/index")
+@auth_required
 def index():
     return common.index()
 
 
 @bp.route
+@auth_required
 def home():
     return common.home()
 
@@ -28,6 +30,7 @@ def home():
 
 
 @bp.before_request
+@auth_required
 def before_request():
     return common.before_request()
 
