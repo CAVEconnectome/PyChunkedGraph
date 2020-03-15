@@ -12,4 +12,7 @@ cloud-volume
 python-json-logger
 zstandard
 dracopy
+redis
+rq
+middle-auth-client==2.0.1
 -e git+https://github.com/seung-lab/igneous.git#egg=igneous
