@@ -6,7 +6,7 @@ import time
 
 from multiwrapper import multiprocessing_utils as mu
 from cloudvolume import Storage, EmptyVolumeException
-from cloudvolume.meshservice import decode_mesh_buffer
+import DracoPy
 from igneous.tasks import MeshTask
 
 sys.path.insert(0, os.path.join(sys.path[0], '../..'))
@@ -16,6 +16,27 @@ from pychunkedgraph.backend import chunkedgraph   # noqa
 from pychunkedgraph.backend.utils import serializers, column_keys  # noqa
 from pychunkedgraph.meshing import meshgen_utils # noqa
 
+
+def decode_draco_mesh_buffer(fragment):
+    try:
+        mesh_object = DracoPy.decode_buffer_to_mesh(fragment)
+        vertices = np.array(mesh_object.points)
+        faces = np.array(mesh_object.faces)
+    except ValueError:
+        raise ValueError("Not a valid draco mesh")
+
+    assert len(vertices) % 3 == 0, "Draco mesh vertices not 3-D"
+    num_vertices = len(vertices) // 3
+
+    # For now, just return this dict until we figure out
+    # how exactly to deal with Draco's lossiness/duplicate vertices
+    return {
+        "num_vertices": num_vertices,
+        "vertices": vertices.reshape(num_vertices, 3),
+        "faces": faces,
+        # "encoding_options": mesh_object.encoding_options,
+        # "encoding_type": "draco",
+    }
 
 def get_connected(connectivity):
     u_ids, c_ids = np.unique(connectivity, return_counts=True)
@@ -285,7 +306,7 @@ def chunk_mesh_task(cg, chunk_id, cv_path,
 
                 fragment_contents = storage.get_files(fragment_ids_to_fetch)
                 fragment_contents = {
-                    x['filename']: decode_mesh_buffer(x['filename'], x['content'])
+                    x['filename']: decode_draco_mesh_buffer(x['content'])
                     for x in fragment_contents
                     if x['content'] is not None and x['error'] is None
                 }

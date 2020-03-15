@@ -11,4 +11,5 @@ multiwrapper
 cloud-volume
 python-json-logger
 zstandard
+dracopy
 -e git+https://github.com/seung-lab/igneous.git#egg=igneous
