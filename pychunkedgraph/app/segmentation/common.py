@@ -17,8 +17,8 @@ from pychunkedgraph import __version__
 from pychunkedgraph.app import app_utils
 from pychunkedgraph.app.meshing.common import _remeshing
 from pychunkedgraph.backend import chunkedgraph_exceptions as cg_exceptions
-from pychunkedgraph.backend import history as cg_history
-from pychunkedgraph.graph_analysis import analysis, contact_sites
+# from pychunkedgraph.backend import history as cg_history
+# from pychunkedgraph.graph_analysis import analysis, contact_sites
 
 __api_versions__ = [0, 1]
 
@@ -624,10 +624,10 @@ def tabular_change_log(table_id, root_id):
     # current_app.user_id = user_id
 
     # Call ChunkedGraph
-    cg = app_utils.get_cg(table_id)
-    segment_history = cg_history.SegmentHistory(cg, int(root_id))
-
-    return segment_history.tabular_changelog
+    # cg = app_utils.get_cg(table_id)
+    # segment_history = cg_history.SegmentHistory(cg, int(root_id))
+    #
+    # return segment_history.tabular_changelog
 
 
 def merge_log(table_id, root_id):
