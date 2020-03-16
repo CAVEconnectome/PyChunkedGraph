@@ -208,9 +208,12 @@ def handle_root(table_id, atomic_id):
             )
         )
 
+    stop_layer = request.args.get("stop_layer", None)
+
     # Call ChunkedGraph
     cg = app_utils.get_cg(table_id)
-    root_id = cg.get_root(np.uint64(atomic_id), time_stamp=timestamp)
+    root_id = cg.get_root(np.uint64(atomic_id), stop_layer=stop_layer,
+                          time_stamp=timestamp)
 
     # Return root ID
     return root_id
@@ -239,9 +242,12 @@ def handle_roots(table_id, is_binary=False):
             )
         )
 
+    stop_layer = request.args.get("stop_layer", None)
+
     # Call ChunkedGraph
     cg = app_utils.get_cg(table_id)
-    root_ids = cg.get_roots(node_ids, time_stamp=timestamp)
+    root_ids = cg.get_roots(node_ids, stop_layer=stop_layer,
+                            time_stamp=timestamp)
 
     return root_ids
 
@@ -837,3 +843,4 @@ def handle_find_path(table_id):
         "failed_l2_ids": failed_l2_ids,
         "l2_path": l2_path
     }
+
