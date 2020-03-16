@@ -179,7 +179,9 @@ def handle_info(table_id):
 
     dataset_info = cg.dataset_info
     app_info = {"app": {"supported_api_versions": list(__api_versions__)}}
-    combined_info = {**dataset_info, **app_info}
+    hardcoded_info = {"n_bits_for_layer_id": cg._n_bits_for_layer_id,
+                      "cv_mip": cg._cv_mip}
+    combined_info = {**dataset_info, **app_info, **hardcoded_info}
 
     return jsonify(combined_info)
 
