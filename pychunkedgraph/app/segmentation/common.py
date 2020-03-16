@@ -210,7 +210,7 @@ def handle_root(table_id, atomic_id):
             )
         )
 
-    stop_layer = int(request.kwargs.get("stop_layer", None))
+    stop_layer = int(request.args.get("stop_layer", None))
 
     # Call ChunkedGraph
     cg = app_utils.get_cg(table_id)
@@ -244,7 +244,7 @@ def handle_roots(table_id, is_binary=False):
             )
         )
 
-    stop_layer = int(request.kwargs.get("stop_layer", None))
+    stop_layer = int(request.args.get("stop_layer", None))
 
     # Call ChunkedGraph
     cg = app_utils.get_cg(table_id)
