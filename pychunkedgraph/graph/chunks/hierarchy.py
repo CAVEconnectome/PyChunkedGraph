@@ -26,7 +26,7 @@ def get_children_chunk_coords(
         check_bounds = np.less(child_coords, layer_boundaries)
         if np.all(check_bounds):
             children_coords.append(child_coords)
-    return children_coords
+    return np.array(children_coords)
 
 
 def get_children_chunk_ids(

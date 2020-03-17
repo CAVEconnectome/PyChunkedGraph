@@ -31,7 +31,7 @@ ingest_cli = AppGroup("ingest")
 def ingest_graph(graph_id: str, dataset: click.Path, overwrite: bool, raw: bool):
     """
     Main ingest command
-    Takes ingest config from a yaml file and queues atomic tasks    
+    Takes ingest config from a yaml file and queues atomic tasks
     """
     with open(dataset, "r") as stream:
         try:
@@ -39,10 +39,11 @@ def ingest_graph(graph_id: str, dataset: click.Path, overwrite: bool, raw: bool)
         except yaml.YAMLError as exc:
             print(exc)
 
-    meta, _, _ = bootstrap(graph_id, config, overwrite, raw)
-    # TODO fix create chunkedgraph
+    meta, ingest_config, _ = bootstrap(graph_id, config=config, overwrite=overwrite)
+    # TODO overwrite -  deleting and creating new table immediately causes problems
     cg = ChunkedGraph(meta=meta)
-    # enqueue_atomic_tasks(imanager)
+    cg.create()
+    enqueue_atomic_tasks(IngestionManager(ingest_config, meta))
 
 
 @ingest_cli.command("parent")
@@ -61,7 +62,7 @@ def queue_parent(chunk_info):
     )
     parent_chunk_str = "_".join(map(str, parent_coords))
 
-    parents_queue = imanager.get_task_queue(imanager.config.parents_q_name)
+    parents_queue = imanager.get_task_queue(imanager.config.PARENTS_Q_NAME)
     parents_queue.enqueue(
         create_parent_chunk,
         job_id=chunk_id_str(parent_layer, parent_coords),
@@ -98,7 +99,7 @@ def queue_children(chunk_info):
     )
     children_layer = parent_layer - 1
     for coords in children:
-        task_q = imanager.get_task_queue(imanager.config.parents_q_name)
+        task_q = imanager.get_task_queue(imanager.config.PARENTS_Q_NAME)
         task_q.enqueue(
             create_parent_chunk,
             job_id=chunk_id_str(children_layer, coords),
@@ -131,7 +132,7 @@ def queue_layer(parent_layer):
     np.random.shuffle(chunk_coords)
 
     for coords in chunk_coords:
-        task_q = imanager.get_task_queue(imanager.config.parents_q_name)
+        task_q = imanager.get_task_queue(imanager.config.PARENTS_Q_NAME)
         task_q.enqueue(
             create_parent_chunk,
             job_id=chunk_id_str(parent_layer, coords),

@@ -48,14 +48,14 @@ def _post_task_completion(imanager: IngestionManager, layer: int, coords: np.nda
     )
 
     if children_left == 0:
-        parents_queue = imanager.get_task_queue(imanager.config.cluster.parents_q_name)
+        parents_queue = imanager.get_task_queue(imanager.config.CLUSTER.PARENTS_Q_NAME)
         parents_queue.enqueue(
             create_parent_chunk,
             job_id=chunk_id_str(parent_layer, parent_coords),
             job_timeout=f"{10*parent_layer}m",
             result_ttl=0,
             args=(
-                imanager.serialized(),
+                imanager.serialized(pickled=True),
                 parent_layer,
                 parent_coords,
                 get_children_chunk_coords(
@@ -70,28 +70,29 @@ def _post_task_completion(imanager: IngestionManager, layer: int, coords: np.nda
 def create_parent_chunk(
     im_info: str, layer: int, parent_coords: Sequence[int], child_chunk_coords: List
 ) -> None:
-    imanager = IngestionManager(**im_info)
+    imanager = IngestionManager.from_pickle(im_info)
     add_layer(imanager.cg, layer, parent_coords, child_chunk_coords)
     _post_task_completion(imanager, layer, parent_coords)
 
 
 def enqueue_atomic_tasks(imanager: IngestionManager):
+    imanager.redis.flushdb()
     atomic_chunk_bounds = imanager.chunkedgraph_meta.layer_chunk_bounds[2]
     chunk_coords = list(product(*[range(r) for r in atomic_chunk_bounds]))
     np.random.shuffle(chunk_coords)
 
     # test chunks
     # pinky100
-    # chunk_coords = [
-    #     [42, 24, 10],
-    #     [42, 24, 11],
-    #     [42, 25, 10],
-    #     [42, 25, 11],
-    #     [43, 24, 10],
-    #     [43, 24, 11],
-    #     [43, 25, 10],
-    #     [43, 25, 11],
-    # ]
+    chunk_coords = [
+        [42, 24, 10],
+        [42, 24, 11],
+        [42, 25, 10],
+        [42, 25, 11],
+        [43, 24, 10],
+        [43, 24, 11],
+        [43, 25, 10],
+        [43, 25, 11],
+    ]
 
     # minnie 65
     # chunk_coords = [
@@ -106,31 +107,32 @@ def enqueue_atomic_tasks(imanager: IngestionManager):
     # ]
 
     for chunk_coord in chunk_coords:
-        atomic_queue = imanager.get_task_queue(imanager.config.cluster.atomic_q_name)
+        atomic_queue = imanager.get_task_queue(imanager.config.CLUSTER.ATOMIC_Q_NAME)
         # for optimal use of redis memory wait if queue limit is reached
-        if len(atomic_queue) > imanager.config.cluster.atomic_q_limit:
-            print(f"Sleeping {imanager.config.cluster.atomic_q_interval}s...")
-            time.sleep(imanager.config.cluster.atomic_q_interval)
+        if len(atomic_queue) > imanager.config.CLUSTER.ATOMIC_Q_LIMIT:
+            print(f"Sleeping {imanager.config.CLUSTER.ATOMIC_Q_INTERVAL}s...")
+            time.sleep(imanager.config.CLUSTER.ATOMIC_Q_INTERVAL)
         atomic_queue.enqueue(
             _create_atomic_chunk,
             job_id=chunk_id_str(2, chunk_coord),
             job_timeout="1m",
             result_ttl=0,
-            args=(imanager.serialized(), chunk_coord),
+            args=(imanager.serialized(pickled=True), chunk_coord),
         )
 
 
 def _create_atomic_chunk(im_info: str, coord: Sequence[int]):
     """ Creates single atomic chunk """
-    imanager = IngestionManager(**im_info)
+    imanager = IngestionManager.from_pickle(im_info)
     coord = np.array(list(coord), dtype=np.int)
     chunk_edges_all, mapping = get_atomic_chunk_data(imanager, coord)
     chunk_edges_active, isolated_ids = get_active_edges(
         imanager, coord, chunk_edges_all, mapping
     )
-    if not imanager.config.build_graph:
-        # to keep track of jobs when only creating edges and components per chunk
-        imanager.redis.hset(r_keys.ATOMIC_HASH_FINISHED, chunk_id_str(2, coord), "")
-        return
+    # if not imanager.config.build_graph:
+    #     # to keep track of jobs when only creating edges and components per chunk
+    #     imanager.redis.hset(r_keys.ATOMIC_HASH_FINISHED, chunk_id_str(2, coord), "")
+    #     return
     add_atomic_edges(imanager.cg, coord, chunk_edges_active, isolated=isolated_ids)
     _post_task_completion(imanager, 2, coord)
+    print("woohoo2")

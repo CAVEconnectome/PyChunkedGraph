@@ -66,7 +66,7 @@ def setup_emulator_env():
         return False
 
 
-@pytest.fixture(scope="package", autouse=True)
+@pytest.fixture(scope="session", autouse=True)
 def bigtable_emulator(request):
     # Start Emulator
     bigtable_emulator = subprocess.Popen(

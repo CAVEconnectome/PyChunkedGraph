@@ -29,25 +29,14 @@ class IngestionManager:
     @property
     def cg(self):
         if self._cg is None:
-            # TODO simplify ChunkedGraph class
-            self._cg = ChunkedGraph(
-                table_id=self._chunkedgraph_meta.graph_config.ID,
-                project_id=self._chunkedgraph_meta.bigtable_config.PROJECT,
-                instance_id=self._chunkedgraph_meta.bigtable_config.INSTANCE,
-                s_bits_atomic_layer=self._chunkedgraph_meta.graph_config.SPATIAL_BITS,
-                n_bits_root_counter=8,
-                meta=self._chunkedgraph_meta,
-            )
+            self._cg = ChunkedGraph(meta=self._chunkedgraph_meta,)
         return self._cg
 
     @property
     def redis(self):
         if self._redis is not None:
             return self._redis
-        self._redis = get_redis_connection(self._config.redis_url)
-
-        if self._config.cluster.flush_redis:
-            self._redis.flushdb()
+        self._redis = get_redis_connection(self._config.CLUSTER.REDIS_URL)
         self._redis.set(r_keys.INGESTION_MANAGER, self.serialized(pickled=True))
         return self._redis
 

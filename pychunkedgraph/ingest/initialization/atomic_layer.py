@@ -59,7 +59,6 @@ def add_atomic_edges(
             time_stamp,
         )
         nodes.extend(_nodes)
-
         if len(nodes) > 100000:
             cg.client.write(nodes)
             nodes = []

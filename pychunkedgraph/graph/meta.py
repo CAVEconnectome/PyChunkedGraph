@@ -67,7 +67,6 @@ _graphconfig_defaults = (
     10,
     False,
     timedelta(minutes=3, seconds=0),
-    # timedelta(seconds=1),
     8,
 )
 GraphConfig = namedtuple(
