@@ -52,7 +52,7 @@ def _post_task_completion(imanager: IngestionManager, layer: int, coords: np.nda
         parents_queue.enqueue(
             create_parent_chunk,
             job_id=chunk_id_str(parent_layer, parent_coords),
-            job_timeout=f"{10*parent_layer}m",
+            job_timeout=f"{parent_layer*parent_layer}m",
             result_ttl=0,
             args=(
                 imanager.serialized(pickled=True),
@@ -83,16 +83,16 @@ def enqueue_atomic_tasks(imanager: IngestionManager):
 
     # test chunks
     # pinky100
-    chunk_coords = [
-        [42, 24, 10],
-        [42, 24, 11],
-        [42, 25, 10],
-        [42, 25, 11],
-        [43, 24, 10],
-        [43, 24, 11],
-        [43, 25, 10],
-        [43, 25, 11],
-    ]
+    # chunk_coords = [
+    #     [42, 24, 10],
+    #     [42, 24, 11],
+    #     [42, 25, 10],
+    #     [42, 25, 11],
+    #     [43, 24, 10],
+    #     [43, 24, 11],
+    #     [43, 25, 10],
+    #     [43, 25, 11],
+    # ]
 
     # minnie 65
     # chunk_coords = [
@@ -115,7 +115,7 @@ def enqueue_atomic_tasks(imanager: IngestionManager):
         atomic_queue.enqueue(
             _create_atomic_chunk,
             job_id=chunk_id_str(2, chunk_coord),
-            job_timeout="1m",
+            job_timeout="2m",
             result_ttl=0,
             args=(imanager.serialized(pickled=True), chunk_coord),
         )
@@ -135,4 +135,3 @@ def _create_atomic_chunk(im_info: str, coord: Sequence[int]):
     #     return
     add_atomic_edges(imanager.cg, coord, chunk_edges_active, isolated=isolated_ids)
     _post_task_completion(imanager, 2, coord)
-    print("woohoo2")

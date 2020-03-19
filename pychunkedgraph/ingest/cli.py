@@ -46,6 +46,25 @@ def ingest_graph(graph_id: str, dataset: click.Path, overwrite: bool, raw: bool)
     enqueue_atomic_tasks(IngestionManager(ingest_config, meta))
 
 
+@ingest_cli.command("imanager")
+@click.argument("graph_id", type=str)
+@click.argument("dataset", type=click.Path(exists=True))
+def pickle_imanager(graph_id: str, dataset: click.Path):
+    """
+    Main ingest command
+    Takes ingest config from a yaml file and queues atomic tasks
+    """
+    with open(dataset, "r") as stream:
+        try:
+            config = yaml.safe_load(stream)
+        except yaml.YAMLError as exc:
+            print(exc)
+
+    meta, ingest_config, _ = bootstrap(graph_id, config=config)
+    imanager = IngestionManager(ingest_config, meta)
+    imanager.redis
+
+
 @ingest_cli.command("parent")
 @click.argument("chunk_info", nargs=4, type=int)
 def queue_parent(chunk_info):
@@ -62,7 +81,7 @@ def queue_parent(chunk_info):
     )
     parent_chunk_str = "_".join(map(str, parent_coords))
 
-    parents_queue = imanager.get_task_queue(imanager.config.PARENTS_Q_NAME)
+    parents_queue = imanager.get_task_queue(imanager.config.CLUSTER.PARENTS_Q_NAME)
     parents_queue.enqueue(
         create_parent_chunk,
         job_id=chunk_id_str(parent_layer, parent_coords),
@@ -99,7 +118,7 @@ def queue_children(chunk_info):
     )
     children_layer = parent_layer - 1
     for coords in children:
-        task_q = imanager.get_task_queue(imanager.config.PARENTS_Q_NAME)
+        task_q = imanager.get_task_queue(imanager.config.CLUSTER.PARENTS_Q_NAME)
         task_q.enqueue(
             create_parent_chunk,
             job_id=chunk_id_str(children_layer, coords),
@@ -132,14 +151,14 @@ def queue_layer(parent_layer):
     np.random.shuffle(chunk_coords)
 
     for coords in chunk_coords:
-        task_q = imanager.get_task_queue(imanager.config.PARENTS_Q_NAME)
+        task_q = imanager.get_task_queue(imanager.config.CLUSTER.PARENTS_Q_NAME)
         task_q.enqueue(
             create_parent_chunk,
             job_id=chunk_id_str(parent_layer, coords),
-            job_timeout=f"{int(10 * parent_layer)}m",
+            job_timeout=f"{int(parent_layer * parent_layer)}m",
             result_ttl=0,
             args=(
-                imanager.serialized(),
+                imanager.serialized(pickled=True),
                 parent_layer,
                 coords,
                 get_children_chunk_coords(
