@@ -46,7 +46,6 @@ from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple, Union, 
 
 HOME = os.path.expanduser("~")
 N_DIGITS_UINT64 = len(str(np.iinfo(np.uint64).max))
-N_BITS_PER_ROOT_COUNTER = np.uint64(8)
 LOCK_EXPIRED_TIME_DELTA = datetime.timedelta(minutes=3, seconds=0)
 UTC = pytz.UTC
 
@@ -127,9 +126,6 @@ class ChunkedGraph(object):
             column_keys.GraphSettings.ChunkSize, chunk_size,
             required=True, is_new=is_new)
 
-        # Convert from NumPy array to list for serialization
-        self._dataset_info["graph"] = {"chunk_size": [int(x) for x in self.chunk_size]}
-
         self._bitmasks = compute_bitmasks(self.n_layers, self.fan_out,
                                           s_bits_atomic_layer)
 
@@ -142,6 +138,13 @@ class ChunkedGraph(object):
         # Vectorized calls
         self._get_chunk_layer_vec = np.vectorize(self.get_chunk_layer)
         self._get_chunk_id_vec = np.vectorize(self.get_chunk_id)
+
+        # Augment dataset info
+        self._dataset_info["graph"] = {"chunk_size": [int(x) for x in self.chunk_size],
+                                       "n_bits_for_layer_id": self._n_bits_for_layer_id,
+                                       "cv_mip": self._cv_mip,
+                                       "n_layers": self.n_layers,
+                                       "spatial_bit_masks": self.bitmasks}
 
         self.meta = meta
 
