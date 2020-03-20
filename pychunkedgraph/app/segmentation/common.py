@@ -179,9 +179,7 @@ def handle_info(table_id):
 
     dataset_info = cg.dataset_info
     app_info = {"app": {"supported_api_versions": list(__api_versions__)}}
-    hardcoded_info = {"n_bits_for_layer_id": cg._n_bits_for_layer_id,
-                      "cv_mip": cg._cv_mip, "n_layers": cg.n_layers}
-    combined_info = {**dataset_info, **app_info, **hardcoded_info}
+    combined_info = {**dataset_info, **app_info}
 
     return jsonify(combined_info)
 
@@ -206,13 +204,20 @@ def handle_root(table_id, atomic_id):
     except (TypeError, ValueError) as e:
         raise (
             cg_exceptions.BadRequest(
-                "Timestamp parameter is not a valid" " unix timestamp"
+                "Timestamp parameter is not a valid unix timestamp"
             )
         )
 
     stop_layer = request.args.get("stop_layer", None)
     if stop_layer is not None:
-        stop_layer = int(stop_layer)
+        try:
+            stop_layer = int(stop_layer)
+        except (TypeError, ValueError) as e:
+            raise (
+                cg_exceptions.BadRequest(
+                    "stop_layer is not an integer"
+                )
+            )
 
     # Call ChunkedGraph
     cg = app_utils.get_cg(table_id)
