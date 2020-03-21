@@ -36,7 +36,6 @@ def get_children_chunk_cross_edges(
     if not use_threads:
         return _get_children_chunk_cross_edges(cg, atomic_chunks, layer - 1)
 
-    cg_info = cg.get_serialized_info()
     with mp.Manager() as manager:
         edge_ids_shared = manager.list()
         edge_ids_shared.append(empty_2d)
@@ -45,7 +44,9 @@ def get_children_chunk_cross_edges(
         chunked_l2chunk_list = chunked(atomic_chunks, task_size)
         multi_args = []
         for atomic_chunks in chunked_l2chunk_list:
-            multi_args.append((edge_ids_shared, cg_info, atomic_chunks, layer - 1))
+            multi_args.append(
+                (edge_ids_shared, cg.get_serialized_info(), atomic_chunks, layer - 1)
+            )
 
         multiprocess_func(
             _get_children_chunk_cross_edges_helper,
@@ -72,6 +73,8 @@ def _get_children_chunk_cross_edges(cg, atomic_chunks, layer) -> None:
         cross_edges.append(edges)
 
     cross_edges = np.concatenate(cross_edges)
+    if not cross_edges.size:
+        return empty_2d
     cross_edges[:, 0] = cg.get_roots(cross_edges[:, 0], stop_layer=layer)
     cross_edges[:, 1] = cg.get_roots(cross_edges[:, 1], stop_layer=layer)
     return np.unique(cross_edges, axis=0) if cross_edges.size else empty_2d

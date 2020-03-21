@@ -65,6 +65,27 @@ def pickle_imanager(graph_id: str, dataset: click.Path):
     imanager.redis
 
 
+@ingest_cli.command("chunk")
+@click.argument("chunk_info", nargs=4, type=int)
+def ingest_chunk(chunk_info):
+    """
+    Helper command
+    Directly ingest chunk
+    """
+    redis = get_redis_connection()
+    imanager = IngestionManager.from_pickle(redis.get(r_keys.INGESTION_MANAGER))
+    parent_layer = chunk_info[0] + 1
+    parent_coords = (
+        np.array(chunk_info[1:], int) // imanager.chunkedgraph_meta.graph_config.FANOUT
+    )
+    parent_chunk_str = "_".join(map(str, parent_coords))
+    create_parent_chunk(
+        imanager.serialized(pickled=True), parent_layer, parent_coords,
+    )
+    imanager.redis.hdel(parent_layer, parent_chunk_str)
+    imanager.redis.hset(f"{parent_layer}q", parent_chunk_str, "")
+
+
 @ingest_cli.command("parent")
 @click.argument("chunk_info", nargs=4, type=int)
 def queue_parent(chunk_info):
@@ -87,14 +108,7 @@ def queue_parent(chunk_info):
         job_id=chunk_id_str(parent_layer, parent_coords),
         job_timeout=f"{int(10 * parent_layer)}m",
         result_ttl=0,
-        args=(
-            imanager.serialized(),
-            parent_layer,
-            parent_coords,
-            get_children_chunk_coords(
-                imanager.chunkedgraph_meta, parent_layer, parent_coords
-            ),
-        ),
+        args=(imanager.serialized(pickled=True), parent_layer, parent_coords,),
     )
     imanager.redis.hdel(parent_layer, parent_chunk_str)
     imanager.redis.hset(f"{parent_layer}q", parent_chunk_str, "")
@@ -124,14 +138,7 @@ def queue_children(chunk_info):
             job_id=chunk_id_str(children_layer, coords),
             job_timeout=f"{int(10 * parent_layer)}m",
             result_ttl=0,
-            args=(
-                imanager.serialized(),
-                children_layer,
-                coords,
-                get_children_chunk_coords(
-                    imanager.chunkedgraph_meta, children_layer, coords
-                ),
-            ),
+            args=(imanager.serialized(pickled=True), children_layer, coords,),
         )
 
 
@@ -157,14 +164,7 @@ def queue_layer(parent_layer):
             job_id=chunk_id_str(parent_layer, coords),
             job_timeout=f"{int(parent_layer * parent_layer)}m",
             result_ttl=0,
-            args=(
-                imanager.serialized(pickled=True),
-                parent_layer,
-                coords,
-                get_children_chunk_coords(
-                    imanager.chunkedgraph_meta, parent_layer, coords
-                ),
-            ),
+            args=(imanager.serialized(pickled=True), parent_layer, coords,),
         )
 
 

@@ -54,24 +54,22 @@ def _post_task_completion(imanager: IngestionManager, layer: int, coords: np.nda
             job_id=chunk_id_str(parent_layer, parent_coords),
             job_timeout=f"{parent_layer*parent_layer}m",
             result_ttl=0,
-            args=(
-                imanager.serialized(pickled=True),
-                parent_layer,
-                parent_coords,
-                get_children_chunk_coords(
-                    imanager.chunkedgraph_meta, parent_layer, parent_coords
-                ),
-            ),
+            args=(imanager.serialized(pickled=True), parent_layer, parent_coords,),
         )
         imanager.redis.hdel(parent_layer, parent_chunk_str)
         imanager.redis.hset(f"{parent_layer}q", parent_chunk_str, "")
 
 
 def create_parent_chunk(
-    im_info: str, layer: int, parent_coords: Sequence[int], child_chunk_coords: List
+    im_info: str, layer: int, parent_coords: Sequence[int],
 ) -> None:
     imanager = IngestionManager.from_pickle(im_info)
-    add_layer(imanager.cg, layer, parent_coords, child_chunk_coords)
+    add_layer(
+        imanager.cg,
+        layer,
+        parent_coords,
+        get_children_chunk_coords(imanager.chunkedgraph_meta, layer, parent_coords),
+    )
     _post_task_completion(imanager, layer, parent_coords)
 
 
