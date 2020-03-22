@@ -198,14 +198,21 @@ class ChunkedGraph:
                 end_time=time_stamp,
                 end_time_inclusive=True,
             )
-            parents = []
             if not parent_rows:
-                return parents
+                return types.empty_1d
             if current:
+                # parents = []
+                # for id_ in node_ids:
+                #     try:
+                #         parents.append(parent_rows[id_][0].value)
+                #     except KeyError:
+                #         parents.append(id_)
+                # return np.array(parents, dtype=basetypes.NODE_ID,)
                 return np.array(
                     [parent_rows[id_][0].value for id_ in node_ids],
                     dtype=basetypes.NODE_ID,
                 )
+            parents = []
             for id_ in node_ids:
                 parents.append([(p.value, p.timestamp) for p in parent_rows[id_]])
             return parents
@@ -408,25 +415,31 @@ class ChunkedGraph:
         time_stamp = misc_utils.get_valid_timestamp(time_stamp)
         stop_layer = self.meta.layer_count if not stop_layer else stop_layer
         for _ in range(n_tries):
-            layer_mask = self.get_chunk_layers(node_ids) < stop_layer
             parent_ids = np.array(node_ids, dtype=basetypes.NODE_ID)
-            if not np.any(self.get_chunk_layers(parent_ids) < stop_layer):
-                return parent_ids
             for _ in range(int(stop_layer + 1)):
+                layer_mask = self.get_chunk_layers(parent_ids) < stop_layer
+                if not np.any(layer_mask):
+                    return parent_ids
                 filtered_ids = parent_ids[layer_mask]
                 unique_ids, inverse = np.unique(filtered_ids, return_inverse=True)
                 temp_ids = self.get_parents(unique_ids, time_stamp=time_stamp)
-                if temp_ids is None:
+                if not temp_ids.size:
                     break
                 temp = parent_ids.copy()
-                temp[layer_mask] = temp_ids[inverse]
+                try:
+                    temp[layer_mask] = temp_ids[inverse]
+                except Exception as err:
+                    print("node_ids", node_ids)
+                    print("layer_mask", layer_mask)
+                    print("temp_ids", temp_ids)
+                    print("temp", temp)
+                    print(err)
                 if not np.any(self.get_chunk_layers(temp) < stop_layer):
                     layer_exceed_mask = self.get_chunk_layers(temp) > stop_layer
                     if ceil or not np.any(layer_exceed_mask):
                         return temp
                     return parent_ids
                 parent_ids = temp
-                layer_mask[self.get_chunk_layers(parent_ids) >= stop_layer] = False
             if not np.any(self.get_chunk_layers(parent_ids) < stop_layer):
                 return parent_ids
             time.sleep(0.5)

@@ -74,7 +74,7 @@ def ingest_chunk(chunk_info):
     """
     redis = get_redis_connection()
     imanager = IngestionManager.from_pickle(redis.get(r_keys.INGESTION_MANAGER))
-    parent_layer = chunk_info[0] + 1
+    parent_layer = chunk_info[0]
     parent_coords = (
         np.array(chunk_info[1:], int) // imanager.chunkedgraph_meta.graph_config.FANOUT
     )
@@ -106,7 +106,7 @@ def queue_parent(chunk_info):
     parents_queue.enqueue(
         create_parent_chunk,
         job_id=chunk_id_str(parent_layer, parent_coords),
-        job_timeout=f"{int(10 * parent_layer)}m",
+        job_timeout=f"{int(parent_layer * parent_layer)}m",
         result_ttl=0,
         args=(imanager.serialized(pickled=True), parent_layer, parent_coords,),
     )
@@ -136,7 +136,7 @@ def queue_children(chunk_info):
         task_q.enqueue(
             create_parent_chunk,
             job_id=chunk_id_str(children_layer, coords),
-            job_timeout=f"{int(10 * parent_layer)}m",
+            job_timeout=f"{int(children_layer * children_layer)}m",
             result_ttl=0,
             args=(imanager.serialized(pickled=True), children_layer, coords,),
         )
@@ -148,7 +148,7 @@ def queue_layer(parent_layer):
     """
     Helper command
     Queue all chunk tasks at a given layer
-    Use this only when all the chunks at `layer - 1` have been built.
+    Use this only when all the chunks at `parent_layer - 1` have been built.
     """
     redis = get_redis_connection()
     imanager = IngestionManager.from_pickle(redis.get(r_keys.INGESTION_MANAGER))
