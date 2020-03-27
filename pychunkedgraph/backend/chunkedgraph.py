@@ -1551,53 +1551,15 @@ class ChunkedGraph(object):
         log_record.update((column, v[0].value) for column, v in log_record.items())
         return log_record, timestamp
 
-    def read_log_rows(self, operation_ids: Optional[Sequence] = None):
-        """ Retrieves log records from Bigtable for given operation IDs
-        If None, returns all operation rows
-        """
-        columns = [
-            column_keys.OperationLogs.UndoOperationID,
-            column_keys.OperationLogs.RedoOperationID,
-            column_keys.OperationLogs.UserID,
-            column_keys.OperationLogs.RootID,
-            column_keys.OperationLogs.SinkID,
-            column_keys.OperationLogs.SourceID,
-            column_keys.OperationLogs.SourceCoordinate,
-            column_keys.OperationLogs.SinkCoordinate,
-            column_keys.OperationLogs.AddedEdge,
-            column_keys.OperationLogs.Affinity,
-            column_keys.OperationLogs.RemovedEdge,
-            column_keys.OperationLogs.BoundingBoxOffset,
-        ]
-        if operation_ids is None:
-            log_records_d = self.read_node_id_rows(
-                start_id=np.uint64(0),
-                end_id=self.get_max_operation_id(),
-                end_id_inclusive=True,
-                columns=columns
-            )
-        else:
-            log_records_d = self.read_node_id_rows(
-                node_ids=operation_ids, columns=columns
-            )
-
-        if len(log_records_d) == 0:
-            return {}
-
-        for operation_id in log_records_d:
-            log_record = log_records_d[operation_id]
-            timestamp = log_record[column_keys.OperationLogs.RootID][0].timestamp
-            log_record.update((column, v[0].value) for column, v in log_record.items())
-            log_record["timestamp"] = timestamp
-
-        return log_records_d
-
-    def read_log_rows_for_timespan(self, start_time: Optional[datetime.datetime] = None,
+    def read_log_rows(self, operation_ids: Optional[Sequence] = None,
+            start_time: Optional[datetime.datetime] = None,
             end_time: Optional[datetime.datetime] = None,
             end_time_inclusive: bool = False):
-        """ Retrieves log records from Bigtable for all operations in given timespan
+        """ Retrieves log records from Bigtable.
 
         Keyword Arguments:
+            operation_ids {Optional[datetime.datetime]} -- IDs of operations to limit to. If None,
+                operations will not be limited by ID. (default: {None})
             start_time {Optional[datetime.datetime]} -- Ignore cells with timestamp before
                 `start_time`. If None, no lower bound. (default: {None})
             end_time {Optional[datetime.datetime]} -- Ignore cells with timestamp after `end_time`.
@@ -1619,16 +1581,24 @@ class ChunkedGraph(object):
             column_keys.OperationLogs.RemovedEdge,
             column_keys.OperationLogs.BoundingBoxOffset,
         ]
-
-        log_records_d = self.read_node_id_rows(
-            start_id=np.uint64(0),
-            end_id=self.get_max_operation_id(),
-            end_id_inclusive=True,
-            columns=columns,
-            start_time=start_time,
-            end_time=end_time,
-            end_time_inclusive=end_time_inclusive
-        )
+        if operation_ids is None:
+            log_records_d = self.read_node_id_rows(
+                start_id=np.uint64(0),
+                end_id=self.get_max_operation_id(),
+                end_id_inclusive=True,
+                columns=columns,
+                start_time=start_time,
+                end_time=end_time,
+                end_time_inclusive=end_time_inclusive
+            )
+        else:
+            log_records_d = self.read_node_id_rows(
+                node_ids=operation_ids,
+                columns=columns,
+                start_time=start_time,
+                end_time=end_time,
+                end_time_inclusive=end_time_inclusive
+            )
 
         if len(log_records_d) == 0:
             return {}

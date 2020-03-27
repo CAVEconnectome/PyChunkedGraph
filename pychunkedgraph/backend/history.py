@@ -355,7 +355,7 @@ def get_all_log_entries(cg_instance):
 
 def get_tabular_changelog_recent(cg_instance, start_time_int):
     start_time = datetime.datetime.fromtimestamp(start_time_int / 1000.0)
-    log_rows = cg_instance.read_log_rows_for_timespan(start_time=start_time)
+    log_rows = cg_instance.read_log_rows(start_time=start_time)
 
     timestamp_list = []
     user_list = []
