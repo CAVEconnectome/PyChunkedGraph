@@ -207,9 +207,8 @@ def change_log_full(table_id):
 @bp.route("/table/<table_id>/tabular_change_log_recent", methods=["GET"])
 @auth_requires_permission("view") #TODO: admin_view
 def tabular_change_log_weekly(table_id):
-    start_time = request.args.get("start_time", default=0, type=int) #TODO parsing
     disp = request.args.get("disp", default=False, type=toboolean)
-    weekly_tab_change_log = common.tabular_change_log_recent(table_id, start_time)
+    weekly_tab_change_log = common.tabular_change_log_recent(table_id)
 
     if disp:
         return weekly_tab_change_log.to_html()
