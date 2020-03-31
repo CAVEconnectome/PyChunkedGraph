@@ -616,10 +616,20 @@ def change_log(table_id, root_id=None):
     return segment_history.change_log()
 
 
-def tabular_change_log_recent(table_id, start_time):
+def tabular_change_log_recent(table_id):
     current_app.table_id = table_id
     user_id = str(g.auth_user["id"])
     current_app.user_id = user_id
+
+    try:
+        start_time = float(request.args.get("start_time", 0))
+        start_time = datetime.fromtimestamp(start_time, UTC)
+    except (TypeError, ValueError):
+        raise (
+            cg_exceptions.BadRequest(
+                "start_time parameter is not a valid unix timestamp"
+            )
+        )
 
     # Call ChunkedGraph
     cg = app_utils.get_cg(table_id)
