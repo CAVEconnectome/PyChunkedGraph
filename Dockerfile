@@ -26,8 +26,7 @@ RUN mkdir -p /home/nginx/.cloudvolume/secrets \
   # WARNING: This is ugly, graph-tools will use Debian's Python version and install as dist-util,
   #          but all our packages use the site-util Python version - we just create a sym_link,
   #          because it _seems_ to work and saves 80 minutes compilation time ...
-  && echo "deb http://downloads.skewed.de/apt/$(lsb_release -s -c) $(lsb_release -s -c) main" > /etc/apt/sources.list.d/graph-tool.list \
-  && echo "deb-src http://downloads.skewed.de/apt/$(lsb_release -s -c) $(lsb_release -s -c) main" >> /etc/apt/sources.list.d/graph-tool.list \
+  && echo "deb http://downloads.skewed.de/apt $(lsb_release -s -c) main" > /etc/apt/sources.list.d/graph-tool.list \
   && apt-key adv --no-tty --keyserver hkp://keyserver.ubuntu.com --recv-key 612DEFB798507F25 \
   && apt-get update \
   && apt-get install -y python3-graph-tool \
