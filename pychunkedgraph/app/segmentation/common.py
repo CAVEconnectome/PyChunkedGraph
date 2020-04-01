@@ -7,6 +7,7 @@ from datetime import datetime
 
 import numpy as np
 from pytz import UTC
+import pandas as pd
 
 from flask import current_app, g, jsonify, make_response, request
 from pychunkedgraph import __version__
@@ -14,6 +15,7 @@ from pychunkedgraph.app import app_utils
 from pychunkedgraph.app.meshing.common import _remeshing
 from pychunkedgraph.backend import chunkedgraph_exceptions as cg_exceptions
 from pychunkedgraph.backend import history as cg_history
+from pychunkedgraph.backend.utils import column_keys
 from pychunkedgraph.graph_analysis import analysis, contact_sites
 
 __api_versions__ = [0, 1]
@@ -585,7 +587,28 @@ def tabular_change_log_recent(table_id):
 
     # Call ChunkedGraph
     cg = app_utils.get_cg(table_id)
-    return cg_history.get_tabular_changelog_recent(cg, start_time)
+    return get_tabular_changelog_recent(cg, start_time)
+
+def get_tabular_changelog_recent(cg_instance, start_time):
+    log_rows = cg_instance.read_log_rows(start_time=start_time)
+
+    timestamp_list = []
+    user_list = []
+
+    entry_ids = np.sort(list(log_rows.keys()))
+    for entry_id in entry_ids:
+        entry = log_rows[entry_id]
+
+        timestamp = entry["timestamp"]
+        timestamp_list.append(timestamp)
+
+        user_id = entry[column_keys.OperationLogs.UserID]
+        user_list.append(user_id)
+
+    return pd.DataFrame.from_dict(
+        {"operation_id": entry_ids,
+            "timestamp": timestamp_list,
+            "user_id": user_list})
 
 
 def tabular_change_log(table_id, root_id):

@@ -352,24 +352,3 @@ def get_all_log_entries(cg_instance):
         except KeyError:
             continue
     return log_entries
-
-def get_tabular_changelog_recent(cg_instance, start_time):
-    log_rows = cg_instance.read_log_rows(start_time=start_time)
-
-    timestamp_list = []
-    user_list = []
-
-    entry_ids = np.sort(list(log_rows.keys()))
-    for entry_id in entry_ids:
-        entry = log_rows[entry_id]
-
-        timestamp = entry["timestamp"]
-        timestamp_list.append(timestamp)
-
-        user_id = entry[column_keys.OperationLogs.UserID]
-        user_list.append(user_id)
-
-    return pd.DataFrame.from_dict(
-        {"operation_id": entry_ids,
-            "timestamp": timestamp_list,
-            "user_id": user_list})
