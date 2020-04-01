@@ -586,10 +586,8 @@ def tabular_change_log_recent(table_id):
         )
 
     # Call ChunkedGraph
-    cg = app_utils.get_cg(table_id)
-    return get_tabular_changelog_recent(cg, start_time)
+    cg_instance = app_utils.get_cg(table_id)
 
-def get_tabular_changelog_recent(cg_instance, start_time):
     log_rows = cg_instance.read_log_rows(start_time=start_time)
 
     timestamp_list = []
