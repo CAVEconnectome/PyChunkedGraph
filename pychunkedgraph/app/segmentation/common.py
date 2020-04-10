@@ -18,6 +18,7 @@ from pychunkedgraph.app import app_utils
 from pychunkedgraph.app.meshing.common import _remeshing
 from pychunkedgraph.backend import chunkedgraph_exceptions as cg_exceptions
 from pychunkedgraph.backend import history as cg_history
+from pychunkedgraph.backend.utils import column_keys
 from pychunkedgraph.graph_analysis import analysis, contact_sites
 
 __api_versions__ = [0, 1]
@@ -261,6 +262,33 @@ def handle_roots(table_id, is_binary=False):
                             time_stamp=timestamp)
 
     return root_ids
+
+
+### RANGE READ -------------------------------------------------------------------
+
+
+def handle_range_read(table_id, chunk_id):
+    current_app.request_type = "range_read"
+    current_app.table_id = table_id
+
+    # Convert seconds since epoch to UTC datetime
+    try:
+        timestamp = float(request.args.get("timestamp", time.time()))
+        timestamp = datetime.fromtimestamp(timestamp, UTC)
+    except (TypeError, ValueError) as e:
+        raise (
+            cg_exceptions.BadRequest(
+                "Timestamp parameter is not a valid" " unix timestamp"
+            )
+        )
+
+    # Call ChunkedGraph
+    cg = app_utils.get_cg(table_id)
+    rr_chunk = cg.range_read_chunk(
+        chunk_id=np.uint64(chunk_id), columns=column_keys.Hierarchy.Child, time_stamp=timestamp
+    )
+
+    return rr_chunk
 
 
 ### MERGE ----------------------------------------------------------------------
