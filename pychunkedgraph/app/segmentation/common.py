@@ -284,6 +284,15 @@ def handle_range_read(table_id, chunk_id):
 
     # Call ChunkedGraph
     cg = app_utils.get_cg(table_id)
+
+    chunk_layer = cg.get_chunk_layer(chunk_id)
+    if chunk_layer != 2:
+        raise (
+            cg_exceptions.PreconditionError(
+                "Only range read requests for lvl 2 chunks are allowed."
+            )
+        )
+
     rr_chunk = cg.range_read_chunk(
         chunk_id=np.uint64(chunk_id), columns=column_keys.Hierarchy.Child, time_stamp=timestamp
     )

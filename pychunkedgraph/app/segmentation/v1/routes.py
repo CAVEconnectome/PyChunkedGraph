@@ -168,6 +168,17 @@ def handle_children(table_id, node_id):
 @bp.route("/table/<table_id>/range_read/<chunk_id>", methods=["GET"])
 @auth_requires_permission("view")
 def handle_range_read(table_id, chunk_id):
+    int64_as_str = request.args.get("int64_as_str", default=False, type=toboolean)
+    range_read = common.handle_range_read(table_id, chunk_id)
+    resp = {"range_read": pickle.dumps(range_read)}
+    return jsonify_with_kwargs(resp, int64_as_str=int64_as_str)
+
+
+### RANGE READ BINARY------------------------------------------------------------------
+
+@bp.route("/table/<table_id>/range_read_binary/<chunk_id>", methods=["GET"])
+@auth_requires_permission("view")
+def handle_range_read_binary(table_id, chunk_id):
     range_read = common.handle_range_read(table_id, chunk_id)
     return pickle.dumps(range_read)
 
