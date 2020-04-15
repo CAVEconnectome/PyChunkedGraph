@@ -147,6 +147,7 @@ class ChunkedGraph(object):
                                        "spatial_bit_masks": self.bitmasks}
 
         self.meta = meta
+        self.sharded_meshes = self._dataset_info.get("sharded_meshes", False)
 
     @property
     def client(self) -> bigtable.Client:

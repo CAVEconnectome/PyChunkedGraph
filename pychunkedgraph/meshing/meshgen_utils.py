@@ -11,16 +11,18 @@ from pychunkedgraph.backend import chunkedgraph  # noqa
 
 def str_to_slice(slice_str: str):
     match = re.match(r"(\d+)-(\d+)_(\d+)-(\d+)_(\d+)-(\d+)", slice_str)
-    return (slice(int(match.group(1)), int(match.group(2))),
-            slice(int(match.group(3)), int(match.group(4))),
-            slice(int(match.group(5)), int(match.group(6))))
+    return (
+        slice(int(match.group(1)), int(match.group(2))),
+        slice(int(match.group(3)), int(match.group(4))),
+        slice(int(match.group(5)), int(match.group(6))),
+    )
 
 
 def slice_to_str(slices) -> str:
     if isinstance(slices, slice):
         return "%d-%d" % (slices.start, slices.stop)
     else:
-        return '_'.join(map(slice_to_str, slices))
+        return "_".join(map(slice_to_str, slices))
 
 
 def get_chunk_bbox(cg, chunk_id: np.uint64):
@@ -53,8 +55,7 @@ def get_mesh_block_shape(cg, graphlayer: int) -> np.ndarray:
     return cg.chunk_size * cg.fan_out ** np.max([0, graphlayer - 2])
 
 
-def get_mesh_block_shape_for_mip(cg, graphlayer: int,
-                         source_mip: int) -> np.ndarray:
+def get_mesh_block_shape_for_mip(cg, graphlayer: int, source_mip: int) -> np.ndarray:
     """
     Calculate the dimensions of a segmentation block at `source_mip` that covers
     the same region as a ChunkedGraph chunk at layer `graphlayer`.
@@ -62,18 +63,18 @@ def get_mesh_block_shape_for_mip(cg, graphlayer: int,
     info = get_segmentation_info(cg)
 
     # Segmentation is not always uniformly downsampled in all directions.
-    scale_0 = info['scales'][0]
-    scale_mip = info['scales'][source_mip]
-    distortion = np.floor_divide(scale_mip['resolution'], scale_0['resolution'])
+    scale_0 = info["scales"][0]
+    scale_mip = info["scales"][source_mip]
+    distortion = np.floor_divide(scale_mip["resolution"], scale_0["resolution"])
 
     graphlayer_chunksize = cg.chunk_size * cg.fan_out ** np.max([0, graphlayer - 2])
 
-    return np.floor_divide(graphlayer_chunksize, distortion, dtype=np.int,
-                           casting='unsafe')
+    return np.floor_divide(
+        graphlayer_chunksize, distortion, dtype=np.int, casting="unsafe"
+    )
 
 
-def get_downstream_multi_child_node(cg, node_id: np.uint64,
-                                    stop_layer: int = 1):
+def get_downstream_multi_child_node(cg, node_id: np.uint64, stop_layer: int = 1):
     """
     Return the first descendant of `node_id` (including itself) with more than
     one child, or the first descendant of `node_id` (including itself) on or
@@ -93,7 +94,9 @@ def get_downstream_multi_child_node(cg, node_id: np.uint64,
     return get_downstream_multi_child_node(cg, children[0], stop_layer)
 
 
-def get_downstream_multi_child_nodes(cg, node_ids: Sequence[np.uint64], require_children=True):
+def get_downstream_multi_child_nodes(
+    cg, node_ids: Sequence[np.uint64], require_children=True
+):
     """
     Return the first descendant of `node_ids` (including themselves) with more than
     one child, or the first descendant of `node_ids` (including themselves) on or
@@ -104,22 +107,48 @@ def get_downstream_multi_child_nodes(cg, node_ids: Sequence[np.uint64], require_
 
     def recursive_helper(cur_node_ids):
         cur_node_ids, unique_to_original = np.unique(cur_node_ids, return_inverse=True)
-        stop_layer_mask = np.array([cg.get_chunk_layer(node_id) > stop_layer for node_id in cur_node_ids])
+        stop_layer_mask = np.array(
+            [cg.get_chunk_layer(node_id) > stop_layer for node_id in cur_node_ids]
+        )
         if np.any(stop_layer_mask):
             node_to_children_dict = cg.get_children(cur_node_ids[stop_layer_mask])
             children_array = np.array(list(node_to_children_dict.values()))
-            only_child_mask = np.array([len(children_for_node) == 1 for children_for_node in children_array])
+            only_child_mask = np.array(
+                [len(children_for_node) == 1 for children_for_node in children_array]
+            )
             only_children = children_array[only_child_mask].astype(np.uint64).ravel()
             if np.any(only_child_mask):
                 temp_array = cur_node_ids[stop_layer_mask]
                 temp_array[only_child_mask] = recursive_helper(only_children)
                 cur_node_ids[stop_layer_mask] = temp_array
         return cur_node_ids[unique_to_original]
-    
+
     return recursive_helper(node_ids)
 
 
 def get_highest_child_nodes_with_meshes(
+    cg,
+    node_id: np.uint64,
+    stop_layer=2,
+    start_layer=None,
+    verify_existence=False,
+    bounding_box=None,
+    flexible_start_layer=None,
+):
+    if not cg.sharded_meshes:
+        return children_meshes_non_sharded(
+            cg,
+            node_id,
+            stop_layer=stop_layer,
+            start_layer=start_layer,
+            verify_existence=verify_existence,
+            bounding_box=bounding_box,
+            flexible_start_layer=flexible_start_layer,
+        )
+    return children_meshes_sharded()
+
+
+def children_meshes_non_sharded(
     cg,
     node_id: np.uint64,
     stop_layer=2,
@@ -172,3 +201,8 @@ def get_highest_child_nodes_with_meshes(
         valid_node_ids = candidates
 
     return valid_node_ids
+
+
+def children_meshes_sharded():
+    # TODO sharded mesh manifest
+    pass

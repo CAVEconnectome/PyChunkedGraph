@@ -21,7 +21,11 @@ def _check_table_existence(bigtable_config: BigTableConfig, graph_config: str):
 
 
 def initialize_chunkedgraph(
-    meta: ChunkedGraphMeta, cg_mesh_dir="mesh_dir", n_bits_root_counter=8, size=None
+    meta: ChunkedGraphMeta,
+    cg_mesh_dir="mesh_dir",
+    sharded_meshes=False,
+    n_bits_root_counter=8,
+    size=None
 ):
     """ Initalizes a chunkedgraph on BigTable """
     _check_table_existence(meta.bigtable_config, meta.graph_config)
@@ -36,6 +40,7 @@ def initialize_chunkedgraph(
 
     dataset_info = ws_cv.info
     dataset_info["mesh"] = cg_mesh_dir
+    dataset_info["sharded_meshes"] = sharded_meshes
     dataset_info["data_dir"] = meta.data_source.watershed
     dataset_info["graph"] = {
         "chunk_size": [int(s) for s in meta.graph_config.chunk_size]
