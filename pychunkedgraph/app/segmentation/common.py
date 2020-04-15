@@ -267,8 +267,8 @@ def handle_roots(table_id, is_binary=False):
 ### RANGE READ -------------------------------------------------------------------
 
 
-def handle_range_read(table_id, chunk_id):
-    current_app.request_type = "range_read"
+def handle_l2_chunk_children(table_id, chunk_id):
+    current_app.request_type = "l2_chunk_children"
     current_app.table_id = table_id
 
     # Convert seconds since epoch to UTC datetime
@@ -289,7 +289,7 @@ def handle_range_read(table_id, chunk_id):
     if chunk_layer != 2:
         raise (
             cg_exceptions.PreconditionError(
-                "Only range read requests for lvl 2 chunks are allowed."
+                f'This function only accepts level 2 chunks, the chunk requested is a level {chunk_layer} chunk'
             )
         )
 
