@@ -1,5 +1,6 @@
 import io
 import csv
+import pickle
 
 from flask import make_response, current_app
 from flask import Blueprint, request
@@ -12,7 +13,6 @@ from pychunkedgraph.app.segmentation import common
 from pychunkedgraph.backend import chunkedgraph_exceptions as cg_exceptions
 
 bp = Blueprint("pcg_segmentation_v1", __name__, url_prefix="/segmentation/api/v1")
-
 
 # -------------------------------
 # ------ Access control and index
@@ -161,6 +161,26 @@ def handle_children(table_id, node_id):
     children_ids = common.handle_children(table_id, node_id)
     resp = {"children_ids": children_ids}
     return jsonify_with_kwargs(resp, int64_as_str=int64_as_str)
+
+
+### GET L2:SV MAPPINGS OF A L2 CHUNK ------------------------------------------------------------------
+
+@bp.route("/table/<table_id>/l2_chunk_children/<chunk_id>", methods=["GET"])
+@auth_requires_permission("view")
+def handle_l2_chunk_children(table_id, chunk_id):
+    int64_as_str = request.args.get("int64_as_str", default=False, type=toboolean)
+    range_read = common.handle_l2_chunk_children(table_id, chunk_id)
+    resp = {"range_read": pickle.dumps(range_read)}
+    return jsonify_with_kwargs(resp, int64_as_str=int64_as_str)
+
+
+### GET L2:SV MAPPINGS OF A L2 CHUNK BINARY ------------------------------------------------------------------
+
+@bp.route("/table/<table_id>/l2_chunk_children_binary/<chunk_id>", methods=["GET"])
+@auth_requires_permission("view")
+def handle_l2_chunk_children_binary(table_id, chunk_id):
+    range_read = common.handle_l2_chunk_children(table_id, chunk_id)
+    return pickle.dumps(range_read)
 
 
 ### LEAVES ---------------------------------------------------------------------
