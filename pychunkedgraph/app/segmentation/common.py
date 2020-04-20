@@ -303,7 +303,7 @@ def handle_l2_chunk_children(table_id, chunk_id):
     for k in rr_chunk:
         l2_chunk_dict[k] = rr_chunk[k][0].value
 
-    return rr_chunk
+    return l2_chunk_dict
 
 
 ### MERGE ----------------------------------------------------------------------
