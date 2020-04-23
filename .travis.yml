@@ -21,8 +21,14 @@ jobs:
         - ci_env=`bash <(curl -s https://codecov.io/env)`
 
       script:
+        - openssl aes-256-cbc -K $encrypted_506e835c2891_key -iv $encrypted_506e835c2891_iv -in key.json.enc -out key.json -d
+        - curl https://sdk.cloud.google.com | bash > /dev/null
+        - source "$HOME/google-cloud-sdk/path.bash.inc"
+        - gcloud auth activate-service-account --key-file=key.json
+        - gcloud auth configure-docker
         - docker build --tag seunglab/pychunkedgraph:$TRAVIS_BRANCH . || travis_terminate 1
         - docker run $ci_env --rm seunglab/pychunkedgraph:$TRAVIS_BRANCH /bin/sh -c "tox -v -- --cov-config .coveragerc --cov=pychunkedgraph && codecov"
+
 
     - stage: merge-deploy
       name: "version bump and merge into master"
