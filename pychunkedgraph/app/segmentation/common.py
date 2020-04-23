@@ -298,7 +298,12 @@ def handle_l2_chunk_children(table_id, chunk_id):
         chunk_id=np.uint64(chunk_id), columns=column_keys.Hierarchy.Child, time_stamp=timestamp
     )
 
-    return rr_chunk
+    # store in dict of keys to arrays to remove reliance on bigtable
+    l2_chunk_dict = {}
+    for k in rr_chunk:
+        l2_chunk_dict[k] = rr_chunk[k][0].value
+
+    return l2_chunk_dict
 
 
 ### MERGE ----------------------------------------------------------------------
