@@ -142,7 +142,6 @@ def get_highest_child_nodes_with_meshes(
     bounding_box=None,
     flexible_start_layer=None,
 ):
-<<<<<<< HEAD
     # if not cg.sharded_meshes:
     #     return children_meshes_non_sharded(
     #         cg,
@@ -161,19 +160,6 @@ def get_highest_child_nodes_with_meshes(
         verify_existence=verify_existence,
         bounding_box=bounding_box,
     )
-=======
-    if not cg.sharded_meshes:
-        return children_meshes_non_sharded(
-            cg,
-            node_id,
-            stop_layer=stop_layer,
-            start_layer=start_layer,
-            verify_existence=verify_existence,
-            bounding_box=bounding_box,
-            flexible_start_layer=flexible_start_layer,
-        )
-    return children_meshes_sharded()
->>>>>>> wip: sharded mesh manifest
 
 
 def children_meshes_non_sharded(
@@ -242,7 +228,6 @@ def get_json_info(cg, mesh_dir: str = None):
     return loads(info_str)
 
 
-<<<<<<< HEAD
 def children_meshes_sharded(
     cg,
     node_id: np.uint64,
@@ -351,11 +336,3 @@ def _get_shards_info(
             )
         mu.multiprocess_func(_get_shard_info_task, multi_args, n_threads=mp.cpu_count())
         return dict(info_d_shared)
-=======
-    return valid_node_ids
-
-
-def children_meshes_sharded():
-    # TODO sharded mesh manifest
-    pass
->>>>>>> wip: sharded mesh manifest
