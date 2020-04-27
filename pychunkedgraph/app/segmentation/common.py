@@ -182,6 +182,8 @@ def handle_info(table_id):
     dataset_info = cg.dataset_info
     app_info = {"app": {"supported_api_versions": list(__api_versions__)}}
     combined_info = {**dataset_info, **app_info}
+    combined_info["sharded_mesh"] = True
+    combined_info["mesh"] = "graphene_meshes"    
 
     return jsonify(combined_info)
 
