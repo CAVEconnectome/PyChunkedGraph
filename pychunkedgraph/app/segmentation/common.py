@@ -268,7 +268,7 @@ def handle_roots(table_id, is_binary=False):
 ### RANGE READ -------------------------------------------------------------------
 
 
-def handle_l2_chunk_children(table_id, chunk_id):
+def handle_l2_chunk_children(table_id, chunk_id, as_array):
     current_app.request_type = "l2_chunk_children"
     current_app.table_id = table_id
 
@@ -298,12 +298,22 @@ def handle_l2_chunk_children(table_id, chunk_id):
         chunk_id=np.uint64(chunk_id), columns=column_keys.Hierarchy.Child, time_stamp=timestamp
     )
 
-    # store in dict of keys to arrays to remove reliance on bigtable
-    l2_chunk_dict = {}
-    for k in rr_chunk:
-        l2_chunk_dict[k] = rr_chunk[k][0].value
+    if as_array:
+        l2_chunk_array = []
 
-    return l2_chunk_dict
+        for l2 in rr_chunk:
+            svs = rr_chunk[l2][0].value
+            for sv in svs:
+                l2_chunk_array.extend([l2, sv])
+
+        return np.array(l2_chunk_array)
+    else:
+        # store in dict of keys to arrays to remove reliance on bigtable
+        l2_chunk_dict = {}
+        for k in rr_chunk:
+            l2_chunk_dict[k] = rr_chunk[k][0].value
+
+        return l2_chunk_dict
 
 
 ### MERGE ----------------------------------------------------------------------
