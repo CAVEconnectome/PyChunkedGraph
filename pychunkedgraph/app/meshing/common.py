@@ -202,30 +202,24 @@ def handle_get_manifest(table_id, node_id):
     else:
         flexible_start_layer = None
 
-    seg_ids = meshgen_utils.get_highest_child_nodes_with_meshes(
-        cg,
-        np.uint64(node_id),
-        stop_layer=2,
-        start_layer=start_layer,
-        bounding_box=bounding_box,
-        verify_existence=verify,
-        flexible_start_layer=flexible_start_layer
-    )
+    # seg_ids, fragment_URIs = meshgen_utils.get_highest_child_nodes_with_meshes(
+    #     cg,
+    #     np.uint64(node_id),
+    #     stop_layer=2,
+    #     start_layer=start_layer,
+    #     bounding_box=bounding_box,
+    #     verify_existence=verify,
+    #     flexible_start_layer=flexible_start_layer
+    # )
+    seg_ids = []
 
-    filenames = [meshgen_utils.get_mesh_name(cg, s) for s in seg_ids]
-
-    # filenames = [
-    #     "245565030026709586:0:26624-27136_13824-14336_3072-4096",
-    #     "460211586922036440:0:24576-28672_12288-16384_0-8192",
-    # ]
-
-    # filenames = [
-    #     "317732747026113833:0:26624-27648_13312-14336_2048-4096",
-    #     "245565030026712054:0:26624-27136_13824-14336_3072-4096"
-    # ]
+    fragment_URIs = [
+        "317732747026113833:0:26624-27648_13312-14336_2048-4096",
+        "~2/6829831-0.shard:30004:2167",
+    ]
 
     resp = {
-        "fragments": filenames
+        "fragments": fragment_URIs
     }
 
     if "return_seg_id_layers" in data:

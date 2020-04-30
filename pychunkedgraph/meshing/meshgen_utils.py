@@ -1,12 +1,14 @@
+import os
 import re
-import numpy as np
 import time
-
-from functools import lru_cache
-from cloudvolume import CloudVolume, Storage
 from typing import Sequence
+from functools import lru_cache
+
+import numpy as np
+from cloudvolume import CloudVolume, Storage
 
 from pychunkedgraph.backend import chunkedgraph  # noqa
+from pychunkedgraph.backend.utils import basetypes  # noqa
 
 
 def str_to_slice(slice_str: str):
@@ -145,7 +147,14 @@ def get_highest_child_nodes_with_meshes(
             bounding_box=bounding_box,
             flexible_start_layer=flexible_start_layer,
         )
-    return children_meshes_sharded()
+    return children_meshes_sharded(
+        cg,
+        node_id,
+        start_layer=start_layer,
+        stop_layer=stop_layer,
+        verify_existence=verify_existence,
+        bounding_box=bounding_box,
+    )
 
 
 def children_meshes_non_sharded(
@@ -196,13 +205,68 @@ def children_meshes_non_sharded(
                 else:
                     break
                 print("ChunkedGraph lookup took: %.3fs" % (time.time() - time_start))
-
     else:
         valid_node_ids = candidates
+    return valid_node_ids, [get_mesh_name(cg, s) for s in valid_node_ids]
 
-    return valid_node_ids
 
+def children_meshes_sharded(
+    cg,
+    node_id: np.uint64,
+    start_layer: None,
+    stop_layer=2,
+    verify_existence=False,
+    bounding_box=None,
+):
+    """
+    For each ID, first check for new meshes,
+    If not found check initial meshes.
+    """
 
-def children_meshes_sharded():
-    # TODO sharded mesh manifest
-    pass
+    if not start_layer:
+        start_layer = cg.get_chunk_layer(node_id)
+
+    candidates = cg.get_subgraph_nodes(
+        node_id,
+        bounding_box=bounding_box,
+        bb_is_coordinate=True,
+        return_layers=list(range(stop_layer, start_layer)),
+    )
+
+    data_dir = "gs://seunglab2/drosophila_v0/ws_190410_FAFB_v02_ws_size_threshold_200"
+    mesh_dir = f"{data_dir}/graphene_meshes"
+
+    missing_ids = []
+    dynamic_mesh_files = []
+
+    with Storage(f"{mesh_dir}/dynamic") as stor:
+        time_start = time.time()
+        existence_dict = stor.files_exist([get_mesh_name(cg, c) for c in candidates])
+        print("Existence took: %.3fs" % (time.time() - time_start))
+
+        for mesh_key in existence_dict:
+            if existence_dict[mesh_key]:
+                dynamic_mesh_files.append(mesh_key)
+            else:
+                missing_ids.append(np.uint64(mesh_key.split(":")[0]))
+
+    initial_mesh_files = []
+    missing_ids = np.array(missing_ids, dtype=basetypes.NODE_ID)
+    cv = CloudVolume(
+        f"graphene://{os.environ['GRAPHENE_CV_API']}/{cg.table_id}",
+        mesh_dir="graphene_meshes",
+    )
+
+    layers = cg.get_chunk_layers()
+    for layer_ in np.unique(layers):
+        shard_infos = cv.mesh.readers[layer_].exists(  # pylint: disable=no-member
+            labels=missing_ids[layers == layer_],
+            path=f"graphene_meshes/initial/{layer_}/",
+            return_byte_range=True,
+        )
+        for val in shard_infos.values():
+            path, offset, size = val
+            path = path.split("initial/")[-1]
+            initial_mesh_files.append(f"~{path}:{offset}:{size}")
+    return candidates, dynamic_mesh_files + initial_mesh_files
+
