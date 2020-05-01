@@ -200,15 +200,15 @@ def handle_get_manifest(table_id, node_id):
     else:
         flexible_start_layer = None
 
-    # seg_ids, fragment_URIs = meshgen_utils.get_highest_child_nodes_with_meshes(
-    #     cg,
-    #     np.uint64(node_id),
-    #     stop_layer=2,
-    #     start_layer=start_layer,
-    #     bounding_box=bounding_box,
-    #     verify_existence=verify,
-    #     flexible_start_layer=flexible_start_layer
-    # )
+    seg_ids, fragment_URIs = meshgen_utils.get_highest_child_nodes_with_meshes(
+        cg,
+        np.uint64(node_id),
+        stop_layer=2,
+        start_layer=start_layer,
+        bounding_box=bounding_box,
+        verify_existence=verify,
+        flexible_start_layer=flexible_start_layer
+    )
     seg_ids = []
 
     fragment_URIs = [
