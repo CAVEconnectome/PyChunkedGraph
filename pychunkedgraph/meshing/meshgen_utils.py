@@ -210,6 +210,19 @@ def children_meshes_non_sharded(
     return valid_node_ids, [get_mesh_name(cg, s) for s in valid_node_ids]
 
 
+def _get_json_info(cg, mesh_dir: str = None):
+    from json import loads, dumps
+
+    dataset_info = cg.dataset_info
+    dummy_app_info = {"app": {"supported_api_versions": [0, 1]}}
+    info = {**dataset_info, **dummy_app_info}
+    if mesh_dir:
+        info["mesh"] = mesh_dir
+
+    info_str = dumps(info)
+    return loads(info_str)
+
+
 def children_meshes_sharded(
     cg,
     node_id: np.uint64,
@@ -234,12 +247,12 @@ def children_meshes_sharded(
     )
 
     data_dir = "gs://seunglab2/drosophila_v0/ws_190410_FAFB_v02_ws_size_threshold_200"
-    mesh_dir = f"{data_dir}/graphene_meshes"
+    mesh_dir = "graphene_meshes"
 
     missing_ids = []
     dynamic_mesh_files = []
 
-    with Storage(f"{mesh_dir}/dynamic") as stor:
+    with Storage(f"{data_dir}/{mesh_dir}/dynamic") as stor:
         time_start = time.time()
         existence_dict = stor.files_exist([get_mesh_name(cg, c) for c in candidates])
         print("Existence took: %.3fs" % (time.time() - time_start))
@@ -252,16 +265,18 @@ def children_meshes_sharded(
 
     initial_mesh_files = []
     missing_ids = np.array(missing_ids, dtype=basetypes.NODE_ID)
+
     cv = CloudVolume(
-        f"graphene://{os.environ['GRAPHENE_CV_API']}/{cg.table_id}",
-        mesh_dir="graphene_meshes",
+        f"graphene://https://localhost/segmentation/table/{cg.table_id}",
+        mesh_dir=mesh_key,
+        info=_get_json_info(cg, mesh_dir=mesh_dir),
     )
 
     layers = cg.get_chunk_layers()
     for layer_ in np.unique(layers):
         shard_infos = cv.mesh.readers[layer_].exists(  # pylint: disable=no-member
             labels=missing_ids[layers == layer_],
-            path=f"graphene_meshes/initial/{layer_}/",
+            path=f"{mesh_dir}/initial/{layer_}/",
             return_byte_range=True,
         )
         for val in shard_infos.values():
