@@ -3900,3 +3900,21 @@ class ChunkedGraph(object):
             chunk_start[2] : chunk_end[2],
         ].squeeze()
         return ws_seg
+
+
+    def get_node_timestamps(self, node_ids: Sequence[np.uint64]) -> Iterable:
+        """
+        The timestamp of the children column can be assumed
+        to be the timestamp at which the node ID was created.
+        """
+        children = self.read_node_id_rows(
+            node_ids=node_ids,
+            columns=column_keys.Hierarchy.Child
+        )
+
+        if not children:
+            return []
+        return [x[0].timestamp for x in children.values()]
+        # return {x: children[x][0].value
+        #             if x in children else np.empty(0, dtype=basetypes.NODE_ID)
+        #         for x in node_id}
