@@ -137,16 +137,16 @@ def get_highest_child_nodes_with_meshes(
     bounding_box=None,
     flexible_start_layer=None,
 ):
-    if not cg.sharded_meshes:
-        return children_meshes_non_sharded(
-            cg,
-            node_id,
-            stop_layer=stop_layer,
-            start_layer=start_layer,
-            verify_existence=verify_existence,
-            bounding_box=bounding_box,
-            flexible_start_layer=flexible_start_layer,
-        )
+    # if not cg.sharded_meshes:
+    #     return children_meshes_non_sharded(
+    #         cg,
+    #         node_id,
+    #         stop_layer=stop_layer,
+    #         start_layer=start_layer,
+    #         verify_existence=verify_existence,
+    #         bounding_box=bounding_box,
+    #         flexible_start_layer=flexible_start_layer,
+    #     )
     return children_meshes_sharded(
         cg,
         node_id,
@@ -239,12 +239,20 @@ def children_meshes_sharded(
     if not start_layer:
         start_layer = cg.get_chunk_layer(node_id)
 
+    print(list(range(stop_layer, start_layer)))
+
     candidates = cg.get_subgraph_nodes(
         node_id,
         bounding_box=bounding_box,
         bb_is_coordinate=True,
         return_layers=list(range(stop_layer, start_layer)),
     )
+
+    if isinstance(candidates, dict):
+        candidates = np.concatenate([*candidates.values()])
+
+    print("candidates", len(candidates))
+    print(cg.get_node_timestamps(candidates)[:25])
 
     data_dir = "gs://seunglab2/drosophila_v0/ws_190410_FAFB_v02_ws_size_threshold_200"
     mesh_dir = "graphene_meshes"
