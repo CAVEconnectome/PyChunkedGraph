@@ -3914,7 +3914,7 @@ class ChunkedGraph(object):
 
         if not children:
             return []
-        return [x[0].timestamp for x in children.values()]
+        return np.array([x[0].timestamp for x in children.values()], dtype=np.datetime64)
         # return {x: children[x][0].value
         #             if x in children else np.empty(0, dtype=basetypes.NODE_ID)
         #         for x in node_id}
