@@ -3,12 +3,17 @@ import re
 import time
 from typing import Sequence
 from functools import lru_cache
+import multiprocessing as mp
+
 
 import numpy as np
 from cloudvolume import CloudVolume, Storage
+from multiwrapper import multiprocessing_utils as mu
+
 
 from pychunkedgraph.backend import chunkedgraph  # noqa
 from pychunkedgraph.backend.utils import basetypes  # noqa
+from ..utils.general import chunked
 
 
 def str_to_slice(slice_str: str):
@@ -210,7 +215,7 @@ def children_meshes_non_sharded(
     return valid_node_ids, [get_mesh_name(cg, s) for s in valid_node_ids]
 
 
-def _get_json_info(cg, mesh_dir: str = None):
+def get_json_info(cg, mesh_dir: str = None):
     from json import loads, dumps
 
     dataset_info = cg.dataset_info
@@ -235,61 +240,99 @@ def children_meshes_sharded(
     For each ID, first check for new meshes,
     If not found check initial meshes.
     """
+    # UNIX_TIMESTAMP = 1562100638 # {"iso":"2019-07-02 20:50:38.934000+00:00"}
 
     if not start_layer:
         start_layer = cg.get_chunk_layer(node_id)
 
-    print(list(range(stop_layer, start_layer)))
-
-    candidates = cg.get_subgraph_nodes(
+    time_start = time.time()
+    node_ids = cg.get_subgraph_nodes(
         node_id,
         bounding_box=bounding_box,
         bb_is_coordinate=True,
         return_layers=list(range(stop_layer, start_layer)),
     )
+    print("get_subgraph_nodes took: %.3fs" % (time.time() - time_start))
 
-    if isinstance(candidates, dict):
-        candidates = np.concatenate([*candidates.values()])
+    if isinstance(node_ids, dict):
+        # `get_subgraph_nodes` returns a dict if len(return_layers) > 1
+        node_ids = np.unique(np.concatenate([*node_ids.values()]))
 
-    print("candidates", len(candidates))
-    print(cg.get_node_timestamps(candidates)[:25])
+    print("node_ids", len(node_ids))
+    time_start = time.time()
+    node_ids_ts = cg.get_node_timestamps(node_ids)
+    print("node_ids ts took: %.3fs" % (time.time() - time_start))
 
-    data_dir = "gs://seunglab2/drosophila_v0/ws_190410_FAFB_v02_ws_size_threshold_200"
-    mesh_dir = "graphene_meshes"
+    from datetime import datetime
 
-    missing_ids = []
-    dynamic_mesh_files = []
+    initial_mesh_dt = np.datetime64(datetime(2019, 7, 2, 20, 50, 38, 934000))
+    initial_mesh_mask = node_ids_ts < initial_mesh_dt
 
-    with Storage(f"{data_dir}/{mesh_dir}/dynamic") as stor:
-        time_start = time.time()
-        existence_dict = stor.files_exist([get_mesh_name(cg, c) for c in candidates])
-        print("Existence took: %.3fs" % (time.time() - time_start))
+    dynamic_mesh_files = [get_mesh_name(cg, c) for c in node_ids[~initial_mesh_mask]]
 
-        for mesh_key in existence_dict:
-            if existence_dict[mesh_key]:
-                dynamic_mesh_files.append(mesh_key)
-            else:
-                missing_ids.append(np.uint64(mesh_key.split(":")[0]))
-
+    time_start = time.time()
     initial_mesh_files = []
-    missing_ids = np.array(missing_ids, dtype=basetypes.NODE_ID)
+    mesh_dir = "graphene_meshes"
+    initial_ids = node_ids[initial_mesh_mask]
+    shard_infos = _get_shards_info(
+        cg, initial_ids, cg.get_chunk_layers(initial_ids), mesh_dir
+    )
+    for val in shard_infos.values():
+        if not val:
+            continue
+        path, offset, size = val
+        path = path.split("initial/")[-1]
+        initial_mesh_files.append(f"~{path}:{offset}:{size}")
+    print("shard lookups took: %.3fs" % (time.time() - time_start))
+    return node_ids, dynamic_mesh_files + initial_mesh_files
 
+
+def _get_shard_info_thread(args):
+    info_d_shared, cv, mesh_dir, node_ids, node_id_layers = args
+    for id_, layer_ in zip(node_ids, node_id_layers):
+        reader = cv.mesh.readers[layer_]
+        try:
+            info_d_shared[id_] = reader.exists(  # pylint: disable=no-member
+                labels=id_,
+                path=f"{mesh_dir}/initial/{layer_}/",
+                return_byte_range=True,
+            )
+        except:
+            pass
+
+
+def _get_shard_info_task(args):
+    info_d_shared, cv_info, table_id, mesh_dir, node_ids, node_id_layers = args
     cv = CloudVolume(
-        f"graphene://https://localhost/segmentation/table/{cg.table_id}",
-        mesh_dir=mesh_key,
-        info=_get_json_info(cg, mesh_dir=mesh_dir),
+        f"graphene://https://localhost/segmentation/table/{table_id}",
+        mesh_dir=mesh_dir,
+        info=cv_info,
     )
 
-    layers = cg.get_chunk_layers()
-    for layer_ in np.unique(layers):
-        shard_infos = cv.mesh.readers[layer_].exists(  # pylint: disable=no-member
-            labels=missing_ids[layers == layer_],
-            path=f"{mesh_dir}/initial/{layer_}/",
-            return_byte_range=True,
-        )
-        for val in shard_infos.values():
-            path, offset, size = val
-            path = path.split("initial/")[-1]
-            initial_mesh_files.append(f"~{path}:{offset}:{size}")
-    return candidates, dynamic_mesh_files + initial_mesh_files
+    batch_size = int(len(node_ids) / mp.cpu_count())
+    jobs_ids = chunked(node_ids, batch_size)
+    jobs_layers = chunked(node_id_layers, batch_size)
 
+    multi_args = []
+    for job_ids, job_layers in zip(jobs_ids, jobs_layers):
+        multi_args.append((info_d_shared, cv, mesh_dir, job_ids, job_layers))
+    mu.multithread_func(_get_shard_info_thread, multi_args, n_threads=mp.cpu_count())
+
+
+def _get_shards_info(
+    cg, node_ids: Sequence[np.uint64], node_id_layers: Sequence[int], mesh_dir: str,
+) -> dict:
+    batch_size = int(len(node_ids) / mp.cpu_count())
+    with mp.Manager() as manager:
+        cv_info = get_json_info(cg, mesh_dir=mesh_dir)
+        info_d_shared = manager.dict()
+        jobs_ids = chunked(node_ids, batch_size)
+        jobs_layers = chunked(node_id_layers, batch_size)
+
+        multi_args = []
+        for job_ids, job_layers in zip(jobs_ids, jobs_layers):
+            multi_args.append(
+                (info_d_shared, cv_info, cg.table_id, mesh_dir, job_ids, job_layers)
+            )
+        mu.multiprocess_func(_get_shard_info_task, multi_args, n_threads=mp.cpu_count())
+        return dict(info_d_shared)
