@@ -192,7 +192,7 @@ class BigTableClient(bigtable.Client, ClientWithIDGen):
         by locking root nodes until changes are written.
         """
         # TODO convert nodes and properties to bigtable rows
-        self.write(nodes, root_ids, operation_id)
+        pass
 
     # Locking
     def lock_root(self, root_id: np.uint64, operation_id: np.uint64,) -> bool:

@@ -32,7 +32,6 @@ from .edges import Edges
 from .edges import utils as edge_utils
 from .chunks import utils as chunk_utils
 from .chunks import hierarchy as chunk_hierarchy
-from ..ingest import IngestConfig
 from ..io.edges import get_chunk_edges
 
 

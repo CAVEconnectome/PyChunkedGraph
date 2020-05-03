@@ -12,8 +12,8 @@ from .utils.generic import log_n
 from .chunks.utils import get_chunks_boundary
 
 
-_datasource_fields = ("EDGES", "COMPONENTS", "WATERSHED", "CV_MIP")
-_datasource_defaults = (None, None, None, 0)
+_datasource_fields = ("EDGES", "COMPONENTS", "WATERSHED", "DATA_VERSION", "CV_MIP")
+_datasource_defaults = (None, None, None, None, 0)
 DataSource = namedtuple(
     "DataSource", _datasource_fields, defaults=_datasource_defaults,
 )
@@ -167,7 +167,7 @@ class ChunkedGraphMeta:
 
     @property
     def edge_dtype(self):
-        if self.data_source.data_version == 4:
+        if self.data_source.DATA_VERSION == 4:
             dtype = [
                 ("sv1", np.uint64),
                 ("sv2", np.uint64),
@@ -178,7 +178,7 @@ class ChunkedGraphMeta:
                 ("aff_z", np.float32),
                 ("area_z", np.uint64),
             ]
-        elif self.data_source.data_version == 3:
+        elif self.data_source.DATA_VERSION == 3:
             dtype = [
                 ("sv1", np.uint64),
                 ("sv2", np.uint64),
@@ -189,7 +189,7 @@ class ChunkedGraphMeta:
                 ("aff_z", np.float64),
                 ("area_z", np.uint64),
             ]
-        elif self.data_source.data_version == 2:
+        elif self.data_source.DATA_VERSION == 2:
             dtype = [
                 ("sv1", np.uint64),
                 ("sv2", np.uint64),
@@ -217,6 +217,17 @@ class ChunkedGraphMeta:
 
     def __setstate__(self, state):
         self.__init__(state["graph_config"], state["data_source"])
+
+    def __str__(self):
+        meta_str = f"GRAPH_CONFIG\n{self.graph_config}\n"
+        meta_str += f"\nDATA_SOURCE\n{self.data_source}\n"
+        meta_str += f"\nBITMASKS\n{self.bitmasks}\n"
+        meta_str += f"\nVOXEL_BOUNDS\n{self.voxel_bounds}\n"
+        meta_str += f"\nVOXEL_COUNTS\n{self.voxel_counts}\n"
+        meta_str += f"\nLAYER_CHUNK_BOUNDS\n{self.layer_chunk_bounds}\n"
+        meta_str += f"\nLAYER_CHUNK_COUNTS\n{self.layer_chunk_counts}\n"
+        meta_str += f"\nDATASET_INFO\n{self.dataset_info}\n"
+        return meta_str
 
     def is_out_of_bounds(self, chunk_coordinate):
         return np.any(chunk_coordinate < 0) or np.any(

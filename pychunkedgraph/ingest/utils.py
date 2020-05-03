@@ -19,11 +19,14 @@ chunk_id_str = lambda layer, coords: f"{layer}_{'_'.join(map(str, coords))}"
 
 
 def bootstrap(
-    graph_id: str, config: dict, overwrite: bool = False
+    graph_id: str, config: dict, overwrite: bool = False, raw: bool = False
 ) -> Tuple[ChunkedGraphMeta, IngestConfig, BackendClientInfo]:
     """Parse config loaded from a yaml file."""
     ingest_config = IngestConfig(
-        **config["ingest_config"], CLUSTER=ClusterIngestConfig(FLUSH_REDIS=True)
+        **config["ingest_config"],
+        CLUSTER=ClusterIngestConfig(FLUSH_REDIS=True),
+        USE_RAW_EDGES=raw,
+        USE_RAW_COMPONENTS=raw,
     )
     bigtable_config = BigTableConfig(**config["backend_client"]["CONFIG"])
     client_info = BackendClientInfo(config["backend_client"]["TYPE"], bigtable_config)
@@ -38,22 +41,22 @@ def bootstrap(
 
 
 def postprocess_edge_data(im, edge_dict):
-    data_version = im.chunkedgraph_meta.data_source.data_version
+    data_version = im.chunkedgraph_meta.data_source.DATA_VERSION
     if data_version == 2:
         return edge_dict
     elif data_version in [3, 4]:
         new_edge_dict = {}
         for k in edge_dict:
             areas = (
-                edge_dict[k]["area_x"] * im.cg.cv.resolution[0]
-                + edge_dict[k]["area_y"] * im.cg.cv.resolution[1]
-                + edge_dict[k]["area_z"] * im.cg.cv.resolution[2]
+                edge_dict[k]["area_x"] * im.chunkedgraph_meta.resolution[0]
+                + edge_dict[k]["area_y"] * im.chunkedgraph_meta.resolution[1]
+                + edge_dict[k]["area_z"] * im.chunkedgraph_meta.resolution[2]
             )
 
             affs = (
-                edge_dict[k]["aff_x"] * im.cg.cv.resolution[0]
-                + edge_dict[k]["aff_y"] * im.cg.cv.resolution[1]
-                + edge_dict[k]["aff_z"] * im.cg.cv.resolution[2]
+                edge_dict[k]["aff_x"] * im.chunkedgraph_meta.resolution[0]
+                + edge_dict[k]["aff_y"] * im.chunkedgraph_meta.resolution[1]
+                + edge_dict[k]["aff_z"] * im.chunkedgraph_meta.resolution[2]
             )
 
             new_edge_dict[k] = {}

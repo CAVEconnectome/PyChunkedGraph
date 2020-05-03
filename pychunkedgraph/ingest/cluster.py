@@ -93,16 +93,16 @@ def enqueue_atomic_tasks(imanager: IngestionManager):
     # ]
 
     # minnie 65
-    # chunk_coords = [
-    #     [300, 100, 10],
-    #     [300, 100, 11],
-    #     [300, 101, 10],
-    #     [300, 101, 11],
-    #     [301, 100, 10],
-    #     [301, 100, 11],
-    #     [301, 101, 10],
-    #     [301, 101, 11],
-    # ]
+    chunk_coords = [
+        [300, 100, 10],
+        [300, 100, 11],
+        [300, 101, 10],
+        [300, 101, 11],
+        [301, 100, 10],
+        [301, 100, 11],
+        [301, 101, 10],
+        [301, 101, 11],
+    ]
 
     for chunk_coord in chunk_coords:
         atomic_queue = imanager.get_task_queue(imanager.config.CLUSTER.ATOMIC_Q_NAME)
@@ -132,4 +132,6 @@ def _create_atomic_chunk(im_info: str, coord: Sequence[int]):
     #     imanager.redis.hset(r_keys.ATOMIC_HASH_FINISHED, chunk_id_str(2, coord), "")
     #     return
     add_atomic_edges(imanager.cg, coord, chunk_edges_active, isolated=isolated_ids)
+    for k, v in chunk_edges_active.items():
+        print(k, len(v))
     _post_task_completion(imanager, 2, coord)

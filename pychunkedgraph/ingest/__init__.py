@@ -34,11 +34,10 @@ _ingestconfig_fields = (
     "CLUSTER",  # run ingest on a single machine (simple) or on a cluster
     "AGGLOMERATION",
     "WATERSHED",
-    "DATA_VERSION",
     "USE_RAW_EDGES",
     "USE_RAW_COMPONENTS",
 )
-_ingestconfig_defaults = (None, None, None, None, False, False)
+_ingestconfig_defaults = (None, None, None, False, False)
 IngestConfig = namedtuple(
     "IngestConfig", _ingestconfig_fields, defaults=_ingestconfig_defaults
 )

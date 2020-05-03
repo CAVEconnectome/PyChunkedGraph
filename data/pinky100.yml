@@ -2,6 +2,7 @@ data_source:
   EDGES: "gs://chunkedgraph/pinky100/edges"
   COMPONENTS: "gs://chunkedgraph/pinky100/components"
   WATERSHED: "gs://neuroglancer/pinky100_v0/ws/pinky100_ca_com"
+  DATA_VERSION: 4
 
 graph_config:
   CHUNK_SIZE: [512, 512, 128]
@@ -18,4 +19,3 @@ backend_client:
 ingest_config:
   AGGLOMERATION: "gs://ranl/scratch/pinky100_ca_com/agg"
   WATERSHED: "gs://neuroglancer/pinky100_v0/ws/pinky100_ca_com"
-  DATA_VERSION: 4

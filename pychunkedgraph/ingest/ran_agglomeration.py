@@ -93,10 +93,12 @@ def _collect_edge_data(imanager: IngestionManager, chunk_coord):
     :return: dict of np.ndarrays
     """
     subfolder = "chunked_rg"
-    base_path = f"{imanager.chunkedgraph_meta.data_source.AGGLOMERATION}/{subfolder}/"
+    base_path = f"{imanager.config.AGGLOMERATION}/{subfolder}/"
     chunk_coord = np.array(chunk_coord)
     x, y, z = chunk_coord
-    chunk_id = get_chunk_id(layer=1, x=x, y=y, z=z)
+    chunk_id = get_chunk_id(imanager.chunkedgraph_meta, layer=1, x=x, y=y, z=z)
+
+    # print(imanager.chunkedgraph_meta)
 
     filenames = defaultdict(list)
     swap = defaultdict(list)
@@ -113,7 +115,9 @@ def _collect_edge_data(imanager: IngestionManager, chunk_coord):
             diff[dim] = d
             adjacent_chunk_coord = chunk_coord + diff
             x, y, z = adjacent_chunk_coord
-            adjacent_chunk_id = get_chunk_id(layer=1, x=x, y=y, z=z)
+            adjacent_chunk_id = get_chunk_id(
+                imanager.chunkedgraph_meta, layer=1, x=x, y=y, z=z
+            )
 
             if imanager.chunkedgraph_meta.is_out_of_bounds(adjacent_chunk_coord):
                 continue
@@ -232,10 +236,10 @@ def read_raw_agglomeration_data(imanager: IngestionManager, chunk_coord: np.ndar
     Collects agglomeration information & builds connected component mapping
     """
     subfolder = "remap"
-    base_path = f"{imanager.chunkedgraph_meta.data_source.AGGLOMERATION}/{subfolder}/"
+    base_path = f"{imanager.config.AGGLOMERATION}/{subfolder}/"
     chunk_coord = np.array(chunk_coord)
     x, y, z = chunk_coord
-    chunk_id = get_chunk_id(layer=1, x=x, y=y, z=z)
+    chunk_id = get_chunk_id(imanager.chunkedgraph_meta, layer=1, x=x, y=y, z=z)
 
     filenames = []
     for mip_level in range(0, int(imanager.chunkedgraph_meta.layer_count - 1)):
@@ -248,7 +252,9 @@ def read_raw_agglomeration_data(imanager: IngestionManager, chunk_coord: np.ndar
             diff[dim] = d
             adjacent_chunk_coord = chunk_coord + diff
             x, y, z = adjacent_chunk_coord
-            adjacent_chunk_id = get_chunk_id(layer=1, x=x, y=y, z=z)
+            adjacent_chunk_id = get_chunk_id(
+                imanager.chunkedgraph_meta, layer=1, x=x, y=y, z=z
+            )
 
             for mip_level in range(0, int(imanager.chunkedgraph_meta.layer_count - 1)):
                 x, y, z = np.array(adjacent_chunk_coord / 2 ** mip_level, dtype=np.int)

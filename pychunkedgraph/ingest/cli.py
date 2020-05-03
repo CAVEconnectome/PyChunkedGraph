@@ -39,7 +39,9 @@ def ingest_graph(graph_id: str, dataset: click.Path, overwrite: bool, raw: bool)
         except yaml.YAMLError as exc:
             print(exc)
 
-    meta, ingest_config, _ = bootstrap(graph_id, config=config, overwrite=overwrite)
+    meta, ingest_config, _ = bootstrap(
+        graph_id, config=config, overwrite=overwrite, raw=raw
+    )
     # TODO overwrite -  deleting and creating new table immediately causes problems
     cg = ChunkedGraph(meta=meta)
     cg.create()
@@ -49,9 +51,10 @@ def ingest_graph(graph_id: str, dataset: click.Path, overwrite: bool, raw: bool)
 @ingest_cli.command("imanager")
 @click.argument("graph_id", type=str)
 @click.argument("dataset", type=click.Path(exists=True))
-def pickle_imanager(graph_id: str, dataset: click.Path):
+@click.option("--raw", is_flag=True)
+def pickle_imanager(graph_id: str, dataset: click.Path, raw: bool):
     """
-    Main ingest command
+    Loads ingest config into redis server.
     Takes ingest config from a yaml file and queues atomic tasks
     """
     with open(dataset, "r") as stream:
@@ -60,7 +63,7 @@ def pickle_imanager(graph_id: str, dataset: click.Path):
         except yaml.YAMLError as exc:
             print(exc)
 
-    meta, ingest_config, _ = bootstrap(graph_id, config=config)
+    meta, ingest_config, _ = bootstrap(graph_id, config=config, raw=raw)
     imanager = IngestionManager(ingest_config, meta)
     imanager.redis
 

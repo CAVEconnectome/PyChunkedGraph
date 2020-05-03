@@ -2,6 +2,7 @@ data_source:
   EDGES: "gs://chunkedgraph/minnie65_0/edges"
   COMPONENTS: "gs://chunkedgraph/minnie65_0/components"
   WATERSHED: "gs://microns-seunglab/minnie65/ws_minnie65_0"
+  DATA_VERSION: 2
 
 graph_config:
   CHUNK_SIZE: [256, 256, 512]
@@ -18,4 +19,3 @@ backend_client:
 ingest_config:
   AGGLOMERATION: "gs://ranl-scratch/minnie65_0/agg"
   WATERSHED: "gs://microns-seunglab/minnie65/ws_minnie65_0"
-  DATA_VERSION: 2
