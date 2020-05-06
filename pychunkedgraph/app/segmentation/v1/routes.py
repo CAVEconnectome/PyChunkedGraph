@@ -12,7 +12,7 @@ from pychunkedgraph.app.app_utils import jsonify_with_kwargs, toboolean, tobinar
 from pychunkedgraph.app.segmentation import common
 from pychunkedgraph.backend import chunkedgraph_exceptions as cg_exceptions
 
-bp = Blueprint("pcg_segmentation_v1", __name__, url_prefix="/segmentation/api/v1")
+bp = Blueprint("pcg_segmentation_v1", __name__, url_prefix=f"/{common.__segmentation_url_prefix__}/api/v1")
 
 # -------------------------------
 # ------ Access control and index
@@ -330,3 +330,15 @@ def find_path(table_id):
     int64_as_str = request.args.get("int64_as_str", default=False, type=toboolean)
     find_path_result = common.handle_find_path(table_id)
     return jsonify_with_kwargs(find_path_result, int64_as_str=int64_as_str)
+
+
+### IS LATEST ROOTS --------------------------------------------------------------
+
+@bp.route("/table/<table_id>/is_latest_roots", methods=["POST"])
+@auth_requires_permission("view")
+def handle_is_latest_roots(table_id):
+    int64_as_str = request.args.get("int64_as_str", default=False, type=toboolean)
+    is_latest_roots = common.handle_is_latest_roots(table_id, is_binary=False)
+    resp = {"is_latest": is_latest_roots}
+
+    return jsonify_with_kwargs(resp, int64_as_str=int64_as_str)

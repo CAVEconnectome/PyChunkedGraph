@@ -4,6 +4,7 @@ import threading
 import time
 import traceback
 import gzip
+import os
 from io import BytesIO as IO
 from datetime import datetime
 
@@ -23,7 +24,7 @@ from pychunkedgraph.backend.utils import column_keys
 from pychunkedgraph.graph_analysis import analysis, contact_sites
 
 __api_versions__ = [0, 1]
-
+__segmentation_url_prefix__ = os.environ.get('SEGMENTATION_URL_PREFIX', 'segmentation')
 
 def index():
     return f"PyChunkedGraph Segmentation v{__version__}"
@@ -947,3 +948,32 @@ def handle_find_path(table_id):
         "l2_path": l2_path
     }
 
+
+### IS LATEST ROOTS --------------------------------------------------------------
+
+def handle_is_latest_roots(table_id, is_binary):
+    current_app.request_type = "is_latest_roots"
+    current_app.table_id = table_id
+
+    if is_binary:
+        node_ids = np.frombuffer(request.data, np.uint64)
+    else:
+        node_ids = np.array(json.loads(request.data)["node_ids"],
+                            dtype=np.uint64)
+    # Convert seconds since epoch to UTC datetime
+    try:
+        timestamp = float(request.args.get("timestamp", time.time()))
+        timestamp = datetime.fromtimestamp(timestamp, UTC)
+    except (TypeError, ValueError) as e:
+        raise (
+            cg_exceptions.BadRequest(
+                "Timestamp parameter is not a valid" " unix timestamp"
+            )
+        )
+    # Call ChunkedGraph
+    cg = app_utils.get_cg(table_id)
+
+    row_dict = cg.read_node_id_rows(node_ids=node_ids, columns=column_keys.Hierarchy.NewParent)
+    is_latest = ~np.isin(node_ids, list(row_dict.keys()))
+
+    return is_latest
