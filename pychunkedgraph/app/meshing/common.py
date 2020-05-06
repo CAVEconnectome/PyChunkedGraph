@@ -1,4 +1,5 @@
 import json
+import os
 
 import numpy as np
 import time
@@ -16,6 +17,7 @@ from pychunkedgraph.meshing import meshgen, meshgen_utils
 # ------ Access control and index
 # -------------------------------
 
+__meshing_url_prefix__ = os.environ.get('MESHING_URL_PREFIX', 'meshing')
 
 def index():
     return f"PyChunkedGraph Meshing v{__version__}"

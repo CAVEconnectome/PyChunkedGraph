@@ -4,6 +4,7 @@ import threading
 import time
 import traceback
 import gzip
+import os
 from io import BytesIO as IO
 from datetime import datetime
 
@@ -23,7 +24,7 @@ from pychunkedgraph.backend.utils import column_keys
 from pychunkedgraph.graph_analysis import analysis, contact_sites
 
 __api_versions__ = [0, 1]
-
+__segmentation_url_prefix__ = os.environ.get('SEGMENTATION_URL_PREFIX', 'segmentation')
 
 def index():
     return f"PyChunkedGraph Segmentation v{__version__}"

@@ -9,7 +9,7 @@ from pychunkedgraph.app import app_utils
 from pychunkedgraph.app.segmentation import common
 from pychunkedgraph.backend import chunkedgraph_exceptions as cg_exceptions
 
-bp = Blueprint("pcg_segmentation_v0", __name__, url_prefix="/segmentation/1.0")
+bp = Blueprint("pcg_segmentation_v0", __name__, url_prefix="/{common.__segmentation_url_prefix__}/1.0")
 
 
 # -------------------------------

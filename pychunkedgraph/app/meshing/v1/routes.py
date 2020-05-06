@@ -4,7 +4,7 @@ from middle_auth_client import auth_requires_permission, auth_required
 from pychunkedgraph.app.meshing import common
 from pychunkedgraph.backend import chunkedgraph_exceptions as cg_exceptions
 
-bp = Blueprint("pcg_meshing_v1", __name__, url_prefix="/meshing/api/v1")
+bp = Blueprint("pcg_meshing_v1", __name__, url_prefix="/{common.__meshing_url_prefix__}/api/v1")
 
 # -------------------------------
 # ------ Access control and index
