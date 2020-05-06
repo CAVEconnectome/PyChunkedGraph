@@ -36,8 +36,9 @@ _ingestconfig_fields = (
     "WATERSHED",
     "USE_RAW_EDGES",
     "USE_RAW_COMPONENTS",
+    "TEST_RUN",
 )
-_ingestconfig_defaults = (None, None, None, False, False)
+_ingestconfig_defaults = (None, None, None, False, False, False)
 IngestConfig = namedtuple(
     "IngestConfig", _ingestconfig_fields, defaults=_ingestconfig_defaults
 )

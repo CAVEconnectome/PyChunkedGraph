@@ -75,10 +75,47 @@ def create_parent_chunk(
 
 def enqueue_atomic_tasks(imanager: IngestionManager):
     imanager.redis.flushdb()
-    atomic_chunk_bounds = imanager.chunkedgraph_meta.layer_chunk_bounds[2]
-    chunk_coords = list(product(*[range(r) for r in atomic_chunk_bounds]))
-    np.random.shuffle(chunk_coords)
+    chunk_coords = _get_test_chunks()
 
+    if not imanager.config.TEST_RUN:
+        atomic_chunk_bounds = imanager.chunkedgraph_meta.layer_chunk_bounds[2]
+        chunk_coords = list(product(*[range(r) for r in atomic_chunk_bounds]))
+        np.random.shuffle(chunk_coords)
+
+    for chunk_coord in chunk_coords:
+        atomic_queue = imanager.get_task_queue(imanager.config.CLUSTER.ATOMIC_Q_NAME)
+        # for optimal use of redis memory wait if queue limit is reached
+        if len(atomic_queue) > imanager.config.CLUSTER.ATOMIC_Q_LIMIT:
+            print(f"Sleeping {imanager.config.CLUSTER.ATOMIC_Q_INTERVAL}s...")
+            time.sleep(imanager.config.CLUSTER.ATOMIC_Q_INTERVAL)
+        atomic_queue.enqueue(
+            _create_atomic_chunk,
+            job_id=chunk_id_str(2, chunk_coord),
+            job_timeout="4m",
+            result_ttl=0,
+            args=(imanager.serialized(pickled=True), chunk_coord),
+        )
+
+
+def _create_atomic_chunk(im_info: str, coord: Sequence[int]):
+    """ Creates single atomic chunk """
+    imanager = IngestionManager.from_pickle(im_info)
+    coord = np.array(list(coord), dtype=np.int)
+    chunk_edges_all, mapping = get_atomic_chunk_data(imanager, coord)
+    chunk_edges_active, isolated_ids = get_active_edges(
+        imanager, coord, chunk_edges_all, mapping
+    )
+    # if not imanager.config.build_graph:
+    #     # to keep track of jobs when only creating edges and components per chunk
+    #     imanager.redis.hset(r_keys.ATOMIC_HASH_FINISHED, chunk_id_str(2, coord), "")
+    #     return
+    add_atomic_edges(imanager.cg, coord, chunk_edges_active, isolated=isolated_ids)
+    for k, v in chunk_edges_active.items():
+        print(k, len(v))
+    _post_task_completion(imanager, 2, coord)
+
+
+def _get_test_chunks():
     # test chunks
     # pinky100
     # chunk_coords = [
@@ -103,35 +140,4 @@ def enqueue_atomic_tasks(imanager: IngestionManager):
         [301, 101, 10],
         [301, 101, 11],
     ]
-
-    for chunk_coord in chunk_coords:
-        atomic_queue = imanager.get_task_queue(imanager.config.CLUSTER.ATOMIC_Q_NAME)
-        # for optimal use of redis memory wait if queue limit is reached
-        if len(atomic_queue) > imanager.config.CLUSTER.ATOMIC_Q_LIMIT:
-            print(f"Sleeping {imanager.config.CLUSTER.ATOMIC_Q_INTERVAL}s...")
-            time.sleep(imanager.config.CLUSTER.ATOMIC_Q_INTERVAL)
-        atomic_queue.enqueue(
-            _create_atomic_chunk,
-            job_id=chunk_id_str(2, chunk_coord),
-            job_timeout="2m",
-            result_ttl=0,
-            args=(imanager.serialized(pickled=True), chunk_coord),
-        )
-
-
-def _create_atomic_chunk(im_info: str, coord: Sequence[int]):
-    """ Creates single atomic chunk """
-    imanager = IngestionManager.from_pickle(im_info)
-    coord = np.array(list(coord), dtype=np.int)
-    chunk_edges_all, mapping = get_atomic_chunk_data(imanager, coord)
-    chunk_edges_active, isolated_ids = get_active_edges(
-        imanager, coord, chunk_edges_all, mapping
-    )
-    # if not imanager.config.build_graph:
-    #     # to keep track of jobs when only creating edges and components per chunk
-    #     imanager.redis.hset(r_keys.ATOMIC_HASH_FINISHED, chunk_id_str(2, coord), "")
-    #     return
-    add_atomic_edges(imanager.cg, coord, chunk_edges_active, isolated=isolated_ids)
-    for k, v in chunk_edges_active.items():
-        print(k, len(v))
-    _post_task_completion(imanager, 2, coord)
+    return chunk_coords

@@ -19,7 +19,11 @@ chunk_id_str = lambda layer, coords: f"{layer}_{'_'.join(map(str, coords))}"
 
 
 def bootstrap(
-    graph_id: str, config: dict, overwrite: bool = False, raw: bool = False
+    graph_id: str,
+    config: dict,
+    overwrite: bool = False,
+    raw: bool = False,
+    test_run: bool = False,
 ) -> Tuple[ChunkedGraphMeta, IngestConfig, BackendClientInfo]:
     """Parse config loaded from a yaml file."""
     ingest_config = IngestConfig(
@@ -27,6 +31,7 @@ def bootstrap(
         CLUSTER=ClusterIngestConfig(FLUSH_REDIS=True),
         USE_RAW_EDGES=raw,
         USE_RAW_COMPONENTS=raw,
+        TEST_RUN=test_run,
     )
     bigtable_config = BigTableConfig(**config["backend_client"]["CONFIG"])
     client_info = BackendClientInfo(config["backend_client"]["TYPE"], bigtable_config)

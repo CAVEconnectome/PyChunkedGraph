@@ -28,7 +28,10 @@ ingest_cli = AppGroup("ingest")
 @click.argument("dataset", type=click.Path(exists=True))
 @click.option("--raw", is_flag=True)
 @click.option("--overwrite", is_flag=True, help="Overwrite existing graph")
-def ingest_graph(graph_id: str, dataset: click.Path, overwrite: bool, raw: bool):
+@click.option("--test", is_flag=True)
+def ingest_graph(
+    graph_id: str, dataset: click.Path, overwrite: bool, raw: bool, test: bool
+):
     """
     Main ingest command
     Takes ingest config from a yaml file and queues atomic tasks
@@ -40,7 +43,7 @@ def ingest_graph(graph_id: str, dataset: click.Path, overwrite: bool, raw: bool)
             print(exc)
 
     meta, ingest_config, _ = bootstrap(
-        graph_id, config=config, overwrite=overwrite, raw=raw
+        graph_id, config=config, overwrite=overwrite, raw=raw, test_run=test,
     )
     # TODO overwrite -  deleting and creating new table immediately causes problems
     cg = ChunkedGraph(meta=meta)
