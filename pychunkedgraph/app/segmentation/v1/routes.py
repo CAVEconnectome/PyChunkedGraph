@@ -12,7 +12,7 @@ from pychunkedgraph.app.app_utils import jsonify_with_kwargs, toboolean, tobinar
 from pychunkedgraph.app.segmentation import common
 from pychunkedgraph.backend import chunkedgraph_exceptions as cg_exceptions
 
-bp = Blueprint("pcg_segmentation_v1", __name__, url_prefix="/{common.__segmentation_url_prefix__}/api/v1")
+bp = Blueprint("pcg_segmentation_v1", __name__, url_prefix=f"/{common.__segmentation_url_prefix__}/api/v1")
 
 # -------------------------------
 # ------ Access control and index

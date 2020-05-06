@@ -3,7 +3,7 @@ from middle_auth_client import auth_requires_admin, auth_required, \
     auth_requires_permission
 from pychunkedgraph.app.segmentation import common
 
-bp = Blueprint("pcg_generic_v1", __name__, url_prefix="/{common.__segmentation_url_prefix__}")
+bp = Blueprint("pcg_generic_v1", __name__, url_prefix=f"/{common.__segmentation_url_prefix__}")
 
 
 # -------------------------------
