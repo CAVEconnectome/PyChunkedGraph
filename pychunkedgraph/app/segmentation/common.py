@@ -19,6 +19,7 @@ from pychunkedgraph import __version__
 from pychunkedgraph.app import app_utils
 from pychunkedgraph.app.meshing.common import _remeshing
 from pychunkedgraph.graph import exceptions as cg_exceptions
+from pychunkedgraph.graph.attributes import Hierarchy
 
 # from pychunkedgraph.graph. import history as cg_history
 # from pychunkedgraph.backend.utils import column_keys
@@ -271,55 +272,56 @@ def handle_roots(table_id, is_binary=False):
 ### RANGE READ -------------------------------------------------------------------
 
 
-# def handle_l2_chunk_children(table_id, chunk_id, as_array):
-#     current_app.request_type = "l2_chunk_children"
-#     current_app.table_id = table_id
+def handle_l2_chunk_children(table_id, chunk_id, as_array):
+    current_app.request_type = "l2_chunk_children"
+    current_app.table_id = table_id
 
-#     # Convert seconds since epoch to UTC datetime
-#     try:
-#         timestamp = float(request.args.get("timestamp", time.time()))
-#         timestamp = datetime.fromtimestamp(timestamp, UTC)
-#     except (TypeError, ValueError) as e:
-#         raise (
-#             cg_exceptions.BadRequest(
-#                 "Timestamp parameter is not a valid" " unix timestamp"
-#             )
-#         )
+    # Convert seconds since epoch to UTC datetime
+    try:
+        timestamp = float(request.args.get("timestamp", time.time()))
+        timestamp = datetime.fromtimestamp(timestamp, UTC)
+    except (TypeError, ValueError) as e:
+        print(e)
+        raise (
+            cg_exceptions.BadRequest(
+                "Timestamp parameter is not a valid" " unix timestamp"
+            )
+        )
 
-#     # Call ChunkedGraph
-#     cg = app_utils.get_cg(table_id)
+    # Call ChunkedGraph
+    cg = app_utils.get_cg(table_id)
 
-#     chunk_layer = cg.get_chunk_layer(chunk_id)
-#     if chunk_layer != 2:
-#         raise (
-#             cg_exceptions.PreconditionError(
-#                 f"This function only accepts level 2 chunks,
-#                 the chunk requested is a level {chunk_layer} chunk"
-#             )
-#         )
+    chunk_layer = cg.get_chunk_layer(chunk_id)
+    if chunk_layer != 2:
+        raise (
+            cg_exceptions.PreconditionError(
+                "This function only accepts level 2 chunks,"
+                f"the chunk requested is a level {chunk_layer} chunk"
+            )
+        )
 
-#     rr_chunk = cg.range_read_chunk(
-#         chunk_id=np.uint64(chunk_id),
-#         columns=column_keys.Hierarchy.Child,
-#         time_stamp=timestamp,
-#     )
+    rr_chunk = cg.range_read_chunk(
+        chunk_id=np.uint64(chunk_id),
+        properties=Hierarchy.Child,
+        time_stamp=timestamp,
+    )
 
-#     if as_array:
-#         l2_chunk_array = []
+    if as_array:
+        l2_chunk_array = []
 
-#         for l2 in rr_chunk:
-#             svs = rr_chunk[l2][0].value
-#             for sv in svs:
-#                 l2_chunk_array.extend([l2, sv])
+        for l2 in rr_chunk:
+            svs = rr_chunk[l2][0].value
+            for sv in svs:
+                l2_chunk_array.extend([l2, sv])
 
-#         return np.array(l2_chunk_array)
-#     else:
-#         # store in dict of keys to arrays to remove reliance on bigtable
-#         l2_chunk_dict = {}
-#         for k in rr_chunk:
-#             l2_chunk_dict[k] = rr_chunk[k][0].value
+        return np.array(l2_chunk_array)
+    else:
+        # store in dict of keys to arrays to remove reliance on bigtable
+        l2_chunk_dict = {}
+        for k in rr_chunk:
+            l2_chunk_dict[k] = rr_chunk[k][0].value
 
-#         return l2_chunk_dict
+        return l2_chunk_dict
 
 
 ### MERGE ----------------------------------------------------------------------

@@ -182,34 +182,34 @@ def handle_children(table_id, node_id):
     return jsonify_with_kwargs(resp, int64_as_str=int64_as_str)
 
 
-### GET L2:SV MAPPINGS OF A L2 CHUNK ------------------------------------------------------------------
+### GET L2:SV MAPPINGS OF A L2 CHUNK ----------------------------------------------
 
 
-# @bp.route("/table/<table_id>/l2_chunk_children/<chunk_id>", methods=["GET"])
-# @auth_requires_permission("view")
-# def handle_l2_chunk_children(table_id, chunk_id):
-#     int64_as_str = request.args.get("int64_as_str", default=False, type=toboolean)
-#     as_array = request.args.get("as_array", default=False, type=toboolean)
-#     l2_chunk_children = common.handle_l2_chunk_children(table_id, chunk_id, as_array)
-#     if as_array:
-#         resp = {"l2_chunk_children": l2_chunk_children}
-#     else:
-#         resp = {"l2_chunk_children": pickle.dumps(l2_chunk_children)}
-#     return jsonify_with_kwargs(resp, int64_as_str=int64_as_str)
+@bp.route("/table/<table_id>/l2_chunk_children/<chunk_id>", methods=["GET"])
+@auth_requires_permission("view")
+def handle_l2_chunk_children(table_id, chunk_id):
+    int64_as_str = request.args.get("int64_as_str", default=False, type=toboolean)
+    as_array = request.args.get("as_array", default=False, type=toboolean)
+    l2_chunk_children = common.handle_l2_chunk_children(table_id, chunk_id, as_array)
+    if as_array:
+        resp = {"l2_chunk_children": l2_chunk_children}
+    else:
+        resp = {"l2_chunk_children": pickle.dumps(l2_chunk_children)}
+    return jsonify_with_kwargs(resp, int64_as_str=int64_as_str)
 
 
-### GET L2:SV MAPPINGS OF A L2 CHUNK BINARY ------------------------------------------------------------------
+### GET L2:SV MAPPINGS OF A L2 CHUNK BINARY --------------------------------------
 
 
-# @bp.route("/table/<table_id>/l2_chunk_children_binary/<chunk_id>", methods=["GET"])
-# @auth_requires_permission("view")
-# def handle_l2_chunk_children_binary(table_id, chunk_id):
-#     as_array = request.args.get("as_array", default=False, type=toboolean)
-#     l2_chunk_children = common.handle_l2_chunk_children(table_id, chunk_id, as_array)
-#     if as_array:
-#         return tobinary(l2_chunk_children)
-#     else:
-#         return pickle.dumps(l2_chunk_children)
+@bp.route("/table/<table_id>/l2_chunk_children_binary/<chunk_id>", methods=["GET"])
+@auth_requires_permission("view")
+def handle_l2_chunk_children_binary(table_id, chunk_id):
+    as_array = request.args.get("as_array", default=False, type=toboolean)
+    l2_chunk_children = common.handle_l2_chunk_children(table_id, chunk_id, as_array)
+    if as_array:
+        return tobinary(l2_chunk_children)
+    else:
+        return pickle.dumps(l2_chunk_children)
 
 
 ### LEAVES ---------------------------------------------------------------------
@@ -239,35 +239,35 @@ def handle_subgraph(table_id, node_id):
 ### CONTACT SITES --------------------------------------------------------------
 
 
-@bp.route("/table/<table_id>/node/<node_id>/contact_sites", methods=["GET"])
-@auth_requires_permission("view")
-def handle_contact_sites(table_id, node_id):
-    int64_as_str = request.args.get("int64_as_str", default=False, type=toboolean)
-    contact_sites, contact_site_metadata = common.handle_contact_sites(
-        table_id, node_id
-    )
-    resp = {
-        "contact_sites": contact_sites,
-        "contact_site_metadata": contact_site_metadata,
-    }
-    return jsonify_with_kwargs(resp, int64_as_str=int64_as_str)
+# @bp.route("/table/<table_id>/node/<node_id>/contact_sites", methods=["GET"])
+# @auth_requires_permission("view")
+# def handle_contact_sites(table_id, node_id):
+#     int64_as_str = request.args.get("int64_as_str", default=False, type=toboolean)
+#     contact_sites, contact_site_metadata = common.handle_contact_sites(
+#         table_id, node_id
+#     )
+#     resp = {
+#         "contact_sites": contact_sites,
+#         "contact_site_metadata": contact_site_metadata,
+#     }
+#     return jsonify_with_kwargs(resp, int64_as_str=int64_as_str)
 
 
-@bp.route(
-    "/table/<table_id>/node/contact_sites_pair/<first_node_id>/<second_node_id>",
-    methods=["GET"],
-)
-@auth_requires_permission("view")
-def handle_pairwise_contact_sites(table_id, first_node_id, second_node_id):
-    int64_as_str = request.args.get("int64_as_str", default=False, type=toboolean)
-    contact_sites, contact_site_metadata = common.handle_pairwise_contact_sites(
-        table_id, first_node_id, second_node_id
-    )
-    resp = {
-        "contact_sites": contact_sites,
-        "contact_site_metadata": contact_site_metadata,
-    }
-    return jsonify_with_kwargs(resp, int64_as_str=int64_as_str)
+# @bp.route(
+#     "/table/<table_id>/node/contact_sites_pair/<first_node_id>/<second_node_id>",
+#     methods=["GET"],
+# )
+# @auth_requires_permission("view")
+# def handle_pairwise_contact_sites(table_id, first_node_id, second_node_id):
+#     int64_as_str = request.args.get("int64_as_str", default=False, type=toboolean)
+#     contact_sites, contact_site_metadata = common.handle_pairwise_contact_sites(
+#         table_id, first_node_id, second_node_id
+#     )
+#     resp = {
+#         "contact_sites": contact_sites,
+#         "contact_site_metadata": contact_site_metadata,
+#     }
+#     return jsonify_with_kwargs(resp, int64_as_str=int64_as_str)
 
 
 ### CHANGE LOG -----------------------------------------------------------------
@@ -350,12 +350,12 @@ def oldest_timestamp(table_id):
 ### FIND PATH ------------------------------------------------------------------
 
 
-@bp.route("/table/<table_id>/graph/find_path", methods=["POST"])
-@auth_requires_permission("view")
-def find_path(table_id):
-    int64_as_str = request.args.get("int64_as_str", default=False, type=toboolean)
-    find_path_result = common.handle_find_path(table_id)
-    return jsonify_with_kwargs(find_path_result, int64_as_str=int64_as_str)
+# @bp.route("/table/<table_id>/graph/find_path", methods=["POST"])
+# @auth_requires_permission("view")
+# def find_path(table_id):
+#     int64_as_str = request.args.get("int64_as_str", default=False, type=toboolean)
+#     find_path_result = common.handle_find_path(table_id)
+#     return jsonify_with_kwargs(find_path_result, int64_as_str=int64_as_str)
 
 
 ### IS LATEST ROOTS --------------------------------------------------------------
