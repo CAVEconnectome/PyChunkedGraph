@@ -44,3 +44,60 @@ def get_node_id(
         return chunk_id | segment_id
     else:
         return chunk_utils.get_chunk_id(meta, layer=layer, x=x, y=y, z=z) | segment_id
+
+
+def get_atomic_id_from_coord(
+    meta: ChunkedGraphMeta,
+    get_root: callable,
+    x: int,
+    y: int,
+    z: int,
+    parent_id: np.uint64,
+    n_tries: int = 5,
+) -> np.uint64:
+    """Determines atomic id given a coordinate."""
+    x = int(x / 2 ** meta.data_source.CV_MIP)
+    y = int(y / 2 ** meta.data_source.CV_MIP)
+
+    checked = []
+    atomic_id = None
+    root_id = get_root(parent_id)
+
+    for i_try in range(n_tries):
+        # Define block size -- increase by one each try
+        x_l = x - (i_try - 1) ** 2
+        y_l = y - (i_try - 1) ** 2
+        z_l = z - (i_try - 1) ** 2
+
+        x_h = x + 1 + (i_try - 1) ** 2
+        y_h = y + 1 + (i_try - 1) ** 2
+        z_h = z + 1 + (i_try - 1) ** 2
+
+        x_l = 0 if x_l < 0 else x_l
+        y_l = 0 if y_l < 0 else y_l
+        z_l = 0 if z_l < 0 else z_l
+
+        # Get atomic ids from cloudvolume
+        atomic_id_block = meta.cv[x_l:x_h, y_l:y_h, z_l:z_h]
+        atomic_ids, atomic_id_count = np.unique(atomic_id_block, return_counts=True)
+
+        # sort by frequency and discard those ids that have been checked
+        # previously
+        sorted_atomic_ids = atomic_ids[np.argsort(atomic_id_count)]
+        sorted_atomic_ids = sorted_atomic_ids[~np.in1d(sorted_atomic_ids, checked)]
+
+        # For each candidate id check whether its root id corresponds to the
+        # given root id
+        for candidate_atomic_id in sorted_atomic_ids:
+            ass_root_id = get_root(candidate_atomic_id)
+            if ass_root_id == root_id:
+                # atomic_id is not None will be our indicator that the
+                # search was successful
+                atomic_id = candidate_atomic_id
+                break
+            else:
+                checked.append(candidate_atomic_id)
+        if atomic_id is not None:
+            break
+    # Returns None if unsuccessful
+    return atomic_id
