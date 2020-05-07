@@ -1,6 +1,6 @@
 import logging
 import sys
-import time
+from time import gmtime
 
 import numpy as np
 from flask import current_app, json
@@ -63,33 +63,48 @@ def get_datastore_client(config):
     return client
 
 
+def _get_cg_backend_client_info():
+    from pychunkedgraph.graph.meta import BigTableConfig
+    from pychunkedgraph.graph.meta import BackendClientInfo
+
+    if not current_app.config["CG_READ_ONLY"]:
+        return BackendClientInfo()
+
+    bt_config = BigTableConfig(ADMIN=False, READ_ONLY=True)
+    return BackendClientInfo(CONFIG=bt_config)
+
+
 def get_cg(table_id):
-    if table_id not in CACHE:
-        instance_id = current_app.config["CHUNKGRAPH_INSTANCE_ID"]
-        client = get_bigtable_client(current_app.config)
-
-        # Create ChunkedGraph logging
-        logger = logging.getLogger(f"{instance_id}/{table_id}")
-        logger.setLevel(current_app.config["LOGGING_LEVEL"])
-
-        # prevent duplicate logs from Flasks(?) parent logger
-        logger.propagate = False
-
-        handler = logging.StreamHandler(sys.stdout)
-        handler.setLevel(current_app.config["LOGGING_LEVEL"])
-        formatter = jsonformatter.JsonFormatter(
-            fmt=current_app.config["LOGGING_FORMAT"],
-            datefmt=current_app.config["LOGGING_DATEFORMAT"],
-        )
-        formatter.converter = time.gmtime
-        handler.setFormatter(formatter)
-
-        logger.addHandler(handler)
-
-        # Create ChunkedGraph
-        CACHE[table_id] = ChunkedGraph(graph_id=table_id)
-
     current_app.table_id = table_id
+    try:
+        return CACHE[table_id]
+    except KeyError:
+        pass
+
+    instance_id = current_app.config["CHUNKGRAPH_INSTANCE_ID"]
+
+    # Create ChunkedGraph logging
+    logger = logging.getLogger(f"{instance_id}/{table_id}")
+    logger.setLevel(current_app.config["LOGGING_LEVEL"])
+
+    # prevent duplicate logs from Flasks(?) parent logger
+    logger.propagate = False
+
+    handler = logging.StreamHandler(sys.stdout)
+    handler.setLevel(current_app.config["LOGGING_LEVEL"])
+    formatter = jsonformatter.JsonFormatter(
+        fmt=current_app.config["LOGGING_FORMAT"],
+        datefmt=current_app.config["LOGGING_DATEFORMAT"],
+    )
+    formatter.converter = gmtime
+    handler.setFormatter(formatter)
+
+    logger.addHandler(handler)
+
+    # Create ChunkedGraph
+    CACHE[table_id] = ChunkedGraph(
+        graph_id=table_id, client_info=_get_cg_backend_client_info(),
+    )
     return CACHE[table_id]
 
 
