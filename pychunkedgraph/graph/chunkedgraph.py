@@ -1,20 +1,12 @@
-import sys
 import time
 import typing
 import datetime
-import logging
-from itertools import chain
-from itertools import product
 from functools import reduce
-from collections import defaultdict
 
 import numpy as np
-import pytz
-from cloudvolume import CloudVolume
 from multiwrapper import multiprocessing_utils as mu
 
 from . import types
-from . import cutting
 from . import operation
 from . import attributes
 from . import exceptions
@@ -26,13 +18,10 @@ from .meta import BackendClientInfo
 from .utils import basetypes
 from .utils import id_helpers
 from .utils import generic as misc_utils
-from .utils.context_managers import TimeIt
-from .utils.serializers import serialize_uint64
 from .edges import Edges
 from .edges import utils as edge_utils
 from .chunks import utils as chunk_utils
 from .chunks import hierarchy as chunk_hierarchy
-from ..io.edges import get_chunk_edges
 
 
 # TODO logging with context manager?
@@ -388,7 +377,7 @@ class ChunkedGraph:
         node_root_id = node_id
         try:
             node_root_id = self.get_root(node_id, stop_layer=min_layer)
-        except exceptions.RootNotFound as err:
+        except exceptions.ChunkedGraphError as err:
             print(err)
             pass
         edges[:, 0] = node_root_id
@@ -486,7 +475,7 @@ class ChunkedGraph:
                 time.sleep(0.5)
 
         if self.get_chunk_layer(parent_id) < stop_layer:
-            raise exceptions.RootNotFound(
+            raise exceptions.ChunkedGraphError(
                 f"Cannot find root id {node_id}, {stop_layer}, {time_stamp}"
             )
 
@@ -770,6 +759,8 @@ class ChunkedGraph:
             n_child_ids = len(child_ids)
             this_n_threads = np.min([int(n_child_ids // 50000) + 1, mu.n_cpus])
 
+            from itertools import chain
+
             child_ids = np.fromiter(
                 chain.from_iterable(
                     mu.multithread_func(
@@ -797,6 +788,8 @@ class ChunkedGraph:
         parent_coords_d = {
             node_id: self.get_chunk_coordinates(node_id) for node_id in parent_ids
         }
+
+        from collections import defaultdict
 
         parent_bounding_chunk_ids = defaultdict(lambda: types.empty_1d)
         parent_layer_mask = {}
@@ -925,6 +918,8 @@ class ChunkedGraph:
     def read_chunk_edges(
         self, chunk_ids: typing.Iterable, cv_threads: int = 1
     ) -> typing.Dict:
+        from ..io.edges import get_chunk_edges
+
         return get_chunk_edges(
             self.meta.data_source.EDGES,
             [self.get_chunk_coordinates(chunk_id) for chunk_id in chunk_ids],
