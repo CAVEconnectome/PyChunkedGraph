@@ -1,15 +1,13 @@
 import os
 import re
-import time
+import multiprocessing as mp
+from time import time
 from typing import Sequence
 from functools import lru_cache
-import multiprocessing as mp
-
 
 import numpy as np
 from cloudvolume import CloudVolume, Storage
 from multiwrapper import multiprocessing_utils as mu
-
 
 from pychunkedgraph.backend import chunkedgraph  # noqa
 from pychunkedgraph.backend.utils import basetypes  # noqa
@@ -191,9 +189,9 @@ def children_meshes_non_sharded(
             while True:
                 filenames = [get_mesh_name(cg, c) for c in candidates]
 
-                time_start = time.time()
+                time_start = time()
                 existence_dict = stor.files_exist(filenames)
-                print("Existence took: %.3fs" % (time.time() - time_start))
+                print("Existence took: %.3fs" % (time() - time_start))
 
                 missing_meshes = []
                 for mesh_key in existence_dict:
@@ -204,15 +202,25 @@ def children_meshes_non_sharded(
                         if cg.get_chunk_layer(node_id) > stop_layer:
                             missing_meshes.append(node_id)
 
-                time_start = time.time()
+                time_start = time()
                 if missing_meshes:
                     candidates = cg.get_children(missing_meshes, flatten=True)
                 else:
                     break
-                print("ChunkedGraph lookup took: %.3fs" % (time.time() - time_start))
+                print("ChunkedGraph lookup took: %.3fs" % (time() - time_start))
     else:
         valid_node_ids = candidates
     return valid_node_ids, [get_mesh_name(cg, s) for s in valid_node_ids]
+
+
+def del_none_keys(d: dict):
+    none_keys = []
+    for k, v in d.items():
+        if v:
+            continue
+        none_keys.append(k)
+        del d[k]
+    return d, none_keys
 
 
 def get_json_info(cg, mesh_dir: str = None):
@@ -226,65 +234,6 @@ def get_json_info(cg, mesh_dir: str = None):
 
     info_str = dumps(info)
     return loads(info_str)
-
-
-def children_meshes_sharded(
-    cg,
-    node_id: np.uint64,
-    start_layer: None,
-    stop_layer=2,
-    verify_existence=False,
-    bounding_box=None,
-):
-    """
-    For each ID, first check for new meshes,
-    If not found check initial meshes.
-    """
-    # UNIX_TIMESTAMP = 1562100638 # {"iso":"2019-07-02 20:50:38.934000+00:00"}
-
-    if not start_layer:
-        start_layer = cg.get_chunk_layer(node_id)
-
-    time_start = time.time()
-    node_ids = cg.get_subgraph_nodes(
-        node_id,
-        bounding_box=bounding_box,
-        bb_is_coordinate=True,
-        return_layers=list(range(stop_layer, start_layer)),
-    )
-    print("get_subgraph_nodes took: %.3fs" % (time.time() - time_start))
-
-    if isinstance(node_ids, dict):
-        # `get_subgraph_nodes` returns a dict if len(return_layers) > 1
-        node_ids = np.unique(np.concatenate([*node_ids.values()]))
-
-    print("node_ids", len(node_ids))
-    time_start = time.time()
-    node_ids_ts = cg.get_node_timestamps(node_ids)
-    print("node_ids ts took: %.3fs" % (time.time() - time_start))
-
-    from datetime import datetime
-
-    initial_mesh_dt = np.datetime64(datetime(2019, 7, 2, 20, 50, 38, 934000))
-    initial_mesh_mask = node_ids_ts < initial_mesh_dt
-
-    dynamic_mesh_files = [get_mesh_name(cg, c) for c in node_ids[~initial_mesh_mask]]
-
-    time_start = time.time()
-    initial_mesh_files = []
-    mesh_dir = "graphene_meshes"
-    initial_ids = node_ids[initial_mesh_mask]
-    shard_infos = _get_shards_info(
-        cg, initial_ids, cg.get_chunk_layers(initial_ids), mesh_dir
-    )
-    for val in shard_infos.values():
-        if not val:
-            continue
-        path, offset, size = val
-        path = path.split("initial/")[-1]
-        initial_mesh_files.append(f"~{path}:{offset}:{size}")
-    print("shard lookups took: %.3fs" % (time.time() - time_start))
-    return node_ids, dynamic_mesh_files + initial_mesh_files
 
 
 def _get_shard_info_thread(args):
@@ -320,7 +269,10 @@ def _get_shard_info_task(args):
 
 
 def _get_shards_info(
-    cg, node_ids: Sequence[np.uint64], node_id_layers: Sequence[int], mesh_dir: str,
+    cg,
+    node_ids: Sequence[np.uint64],
+    node_id_layers: Sequence[int],
+    mesh_dir: str = "graphene_meshes",
 ) -> dict:
     batch_size = int(len(node_ids) / mp.cpu_count())
     with mp.Manager() as manager:
@@ -336,3 +288,84 @@ def _get_shards_info(
             )
         mu.multiprocess_func(_get_shard_info_task, multi_args, n_threads=mp.cpu_count())
         return dict(info_d_shared)
+
+
+def _get_sharded_meshes(
+    cg,
+    node_ids: Sequence[np.uint64],
+    stop_layer: int = 2,
+    mesh_dir: str = "graphene_meshes",
+):
+    result = {}
+    cv = CloudVolume(
+        f"graphene://https://localhost/segmentation/table/dummy",
+        mesh_dir=mesh_dir,
+        info=get_json_info(cg, mesh_dir=mesh_dir),
+    )
+    readers = cv.mesh.readers  # pylint: disable=no-member
+    node_layers = cg.get_chunk_layers(node_ids)
+    while np.any(node_layers > stop_layer):
+        result_ = {}
+        missing_ids = []
+        for layer_ in np.unique(node_layers[node_layers > stop_layer]):
+            result_.update(
+                readers[layer_].exists(
+                    labels=node_ids[node_layers == layer_],
+                    path=f"{mesh_dir}/initial/{layer_}/",
+                    return_byte_range=True,
+                )
+            )
+        for k, v in result_.items():
+            if v:
+                continue
+            missing_ids.append(k)
+            del result_[k]
+        node_ids = cg.get_children(missing_ids, flatten=True)
+        node_layers = cg.get_chunk_layers(node_ids)
+        result.update(result_)
+
+    # remainder IDs
+    result_ = readers[layer_].exists(
+        labels=node_ids[node_layers == stop_layer],
+        path=f"{mesh_dir}/initial/{layer_}/",
+        return_byte_range=True,
+    )
+    for k, v in result_.items():
+        if v:
+            continue
+        del result_[k]
+    result.update(result_)
+    return result
+
+
+def _get_mesh_paths(cg, node_ids: Sequence[np.uint64], stop_layer: int):
+    node_ids_ts = cg.get_node_timestamps(node_ids)
+
+    from datetime import datetime
+
+    initial_mesh_dt = np.datetime64(datetime(2019, 7, 2, 20, 50, 38, 934000))
+    initial_mesh_mask = node_ids_ts <= initial_mesh_dt
+
+    initial_ids = node_ids[initial_mesh_mask]
+
+
+def children_meshes_sharded(
+    cg, node_id: np.uint64, stop_layer=2, verify_existence=False, bounding_box=None,
+):
+    """
+    For each ID, first check for new meshes,
+    If not found check initial meshes.
+    """
+    # UNIX_TIMESTAMP = 1562100638 # {"iso":"2019-07-02 20:50:38.934000+00:00"}
+    MAX_STITCH_LAYER = 6  # make this part of meta?
+
+    time_start = time()
+    node_ids = cg.get_subgraph_nodes(
+        node_id,
+        bounding_box=bounding_box,
+        bb_is_coordinate=True,
+        return_layers=[MAX_STITCH_LAYER],
+    )
+    print("get_subgraph_nodes took: %.3fs" % (time() - time_start))
+    print("node_ids", len(node_ids))
+
