@@ -1,15 +1,13 @@
 from datetime import timedelta
-from typing import Sequence
 from typing import Dict
 from typing import List
+from typing import Sequence
 from collections import namedtuple
 
 import numpy as np
 from cloudvolume import CloudVolume
 
 from .utils.generic import compute_bitmasks
-from .utils.generic import log_n
-from .chunks.utils import get_chunks_boundary
 
 
 _datasource_fields = ("EDGES", "COMPONENTS", "WATERSHED", "DATA_VERSION", "CV_MIP")
@@ -86,7 +84,7 @@ class ChunkedGraphMeta:
         self._bitmasks = compute_bitmasks(
             self.layer_count, s_bits_atomic_layer=self._graph_config.SPATIAL_BITS,
         )
-        self.resolution = self._ws_cv.resolution
+        self.resolution = self._ws_cv.resolution  # pylint: disable=no-member
 
     @property
     def graph_config(self):
@@ -98,9 +96,12 @@ class ChunkedGraphMeta:
 
     @property
     def layer_count(self) -> int:
+        from .utils.generic import log_n
+
         if self._layer_count:
             return self._layer_count
-        bbox = np.array(self._ws_cv.bounds.to_list()).reshape(2, 3)
+        bbox = np.array(self._ws_cv.bounds.to_list())  # pylint: disable=no-member
+        bbox = bbox.reshape(2, 3)
         n_chunks = (
             (bbox[1] - bbox[0]) / np.array(self._graph_config.CHUNK_SIZE, dtype=int)
         ).astype(np.int)
@@ -126,19 +127,23 @@ class ChunkedGraphMeta:
 
     @property
     def voxel_bounds(self):
-        return np.array(self._ws_cv.bounds.to_list()).reshape(2, -1).T
+        bounds = np.array(self._ws_cv.bounds.to_list())  # pylint: disable=no-member
+        return bounds.reshape(2, -1).T
 
     @property
     def voxel_counts(self) -> Sequence[int]:
         """returns number of voxels in each dimension"""
-        cv_bounds = np.array(self._ws_cv.bounds.to_list()).reshape(2, -1).T
+        cv_bounds = np.array(self._ws_cv.bounds.to_list())  # pylint: disable=no-member
+        cv_bounds = cv_bounds.reshape(2, -1).T
         voxel_counts = cv_bounds.copy()
-        voxel_counts -= cv_bounds[:, 0:1]
+        voxel_counts -= cv_bounds[:, 0:1]  # pylint: disable=unsubscriptable-object
         voxel_counts = voxel_counts[:, 1]
         return voxel_counts
 
     @property
     def layer_chunk_bounds(self) -> Dict:
+        from .chunks.utils import get_chunks_boundary
+
         """number of chunks in each dimension in each layer {layer: [x,y,z]}"""
         if self._layer_bounds_d:
             return self._layer_bounds_d
@@ -204,9 +209,15 @@ class ChunkedGraphMeta:
     def dataset_info(self) -> Dict:
         info = {
             "data_dir": self.data_source.WATERSHED,
-            "graph": {"chunk_size": self.graph_config.CHUNK_SIZE},
+            "graph": {
+                "chunk_size": self.graph_config.CHUNK_SIZE,
+                "n_bits_for_layer_id": self.graph_config.LAYER_ID_BITS,
+                "cv_mip": self.data_source.CV_MIP,
+                "n_layers": self.layer_count,
+                "spatial_bit_masks": self.bitmasks,
+            },
         }
-        info.update(self._ws_cv.info)
+        info.update(self._ws_cv.info)  # pylint: disable=no-member
         return info
 
     def __getnewargs__(self):
@@ -219,6 +230,8 @@ class ChunkedGraphMeta:
         self.__init__(state["graph_config"], state["data_source"])
 
     def __str__(self):
+        from json import dumps
+
         meta_str = f"GRAPH_CONFIG\n{self.graph_config}\n"
         meta_str += f"\nDATA_SOURCE\n{self.data_source}\n"
         meta_str += f"\nBITMASKS\n{self.bitmasks}\n"
@@ -226,7 +239,7 @@ class ChunkedGraphMeta:
         meta_str += f"\nVOXEL_COUNTS\n{self.voxel_counts}\n"
         meta_str += f"\nLAYER_CHUNK_BOUNDS\n{self.layer_chunk_bounds}\n"
         meta_str += f"\nLAYER_CHUNK_COUNTS\n{self.layer_chunk_counts}\n"
-        meta_str += f"\nDATASET_INFO\n{self.dataset_info}\n"
+        meta_str += f"\nDATASET_INFO\n{dumps(self.dataset_info, indent=4)}\n"
         return meta_str
 
     def is_out_of_bounds(self, chunk_coordinate):

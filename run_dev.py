@@ -6,9 +6,9 @@ from pychunkedgraph.app import create_app
 
 app = create_app()
 
-if __name__ == '__main__':
+if __name__ == "__main__":
 
-    assert len(sys.argv) == 2
+    assert len(sys.argv) >= 2
     HOME = os.path.expanduser("~")
 
     port = int(sys.argv[1])
@@ -17,11 +17,12 @@ if __name__ == '__main__':
     WSGIRequestHandler.protocol_version = "HTTP/1.1"
     # WSGIRequestHandler.protocol_version = "HTTP/2.0"
 
-    print("Table: %s; Port: %d" %
-          (app.config['CHUNKGRAPH_TABLE_ID'], port))
+    print("Table: %s; Port: %d" % (app.config["CHUNKGRAPH_TABLE_ID"], port))
 
-    app.run(host='0.0.0.0',
-            port=port,
-            debug=True,
-            threaded=True,
-            ssl_context='adhoc')
+    if len(sys.argv) == 2:
+        app.run(
+            host="0.0.0.0", port=port, debug=True, threaded=True, ssl_context="adhoc"
+        )
+    else:
+        app.run(host="0.0.0.0", port=port, debug=True, threaded=True)
+
