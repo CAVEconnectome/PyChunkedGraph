@@ -342,3 +342,12 @@ def handle_is_latest_roots(table_id):
     resp = {"is_latest": is_latest_roots}
 
     return jsonify_with_kwargs(resp, int64_as_str=int64_as_str)
+
+
+## Lookup root id from coordinate -----------------------------------------------
+
+@bp.route("/table/<table_id>/roots_from_coords", methods=["POST"])
+def handle_roots_from_coords(table_id):
+    int64_as_str = request.args.get("int64_as_str", default=False, type=toboolean)
+    resp = common.handle_roots_from_coord(table_id, is_binary=False)
+    return jsonify_with_kwargs(resp, int64_as_str=int64_as_str)
