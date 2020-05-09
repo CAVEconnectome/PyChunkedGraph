@@ -384,5 +384,5 @@ def children_meshes_sharded(
         except:
             mesh_files.append(val)
     print("shard lookups took: %.3fs" % (time() - start))
-    return node_ids, initial_mesh_files
+    return node_ids, mesh_files
 
