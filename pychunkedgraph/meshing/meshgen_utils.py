@@ -375,12 +375,14 @@ def children_meshes_sharded(
     result = _get_mesh_paths(cg, node_ids)
     node_ids = np.fromiter(result.keys(), dtype=basetypes.NODE_ID)
 
-    initial_mesh_files = []
+    mesh_files = []
     for val in result.values():
-        path, offset, size = val
-        path = path.split("initial/")[-1]
-        initial_mesh_files.append(f"~{path}:{offset}:{size}")
-
+        try:
+            path, offset, size = val
+            path = path.split("initial/")[-1]
+            initial_mesh_files.append(f"~{path}:{offset}:{size}")
+        except:
+            mesh_files.append(val)
     print("shard lookups took: %.3fs" % (time() - start))
     return node_ids, initial_mesh_files
 
