@@ -218,8 +218,9 @@ class ChunkedGraphMeta:
             },
         }
         info.update(self._ws_cv.info)  # pylint: disable=no-member
+        info["chunks_start_at_voxel_offset"] = True
         return info
-
+        
     def __getnewargs__(self):
         return (self.graph_config, self.data_source)
 
