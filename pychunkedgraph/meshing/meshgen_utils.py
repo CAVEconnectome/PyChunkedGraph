@@ -307,6 +307,11 @@ def _get_sharded_unsharded_meshes(
 ) -> Tuple[Dict, Dict, List]:
     from datetime import datetime
 
+    if len(node_ids):
+        node_ids = np.unique(node_ids)
+    else:
+        return {}, {}, []
+
     initial_mesh_dt = np.datetime64(datetime(2019, 7, 2, 20, 50, 38, 934000))
     node_ids_ts = cg.get_node_timestamps(node_ids)
     initial_mesh_mask = node_ids_ts < initial_mesh_dt
@@ -380,7 +385,7 @@ def children_meshes_sharded(
         try:
             path, offset, size = val
             path = path.split("initial/")[-1]
-            initial_mesh_files.append(f"~{path}:{offset}:{size}")
+            mesh_files.append(f"~{path}:{offset}:{size}")
         except:
             mesh_files.append(val)
     print("shard lookups took: %.3fs" % (time() - start))
