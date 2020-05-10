@@ -977,3 +977,43 @@ def handle_is_latest_roots(table_id, is_binary):
     is_latest = ~np.isin(node_ids, list(row_dict.keys()))
 
     return is_latest
+
+
+## Lookup root id from coordinate -----------------------------------------------
+
+def handle_roots_from_coord(table_id):
+    current_app.table_id = table_id
+
+    data = json.loads(request.data)
+    user_id = str(g.auth_user["id"])
+    current_app.user_id = user_id
+
+    coords_nm = np.array(json.loads(request.data)["coords"], dtype=np.int)
+    if len(coords_nm.shape) == 1:
+        coords_nm = [coords_nm]
+
+    # Convert seconds since epoch to UTC datetime
+    try:
+        timestamp = float(request.args.get("timestamp", time.time()))
+        timestamp = datetime.fromtimestamp(timestamp, UTC)
+    except (TypeError, ValueError) as e:
+        raise (
+            cg_exceptions.BadRequest(
+                "Timestamp parameter is not a valid" " unix timestamp"
+            )
+        )
+
+    # Call ChunkedGraph
+    cg = app_utils.get_cg(table_id)
+
+    supervoxel_ids = []
+
+    for coord_nm in coords_nm:
+        coord = (coord_nm / cg.segmentation_resolution).astype(np.int)
+        supervoxel_ids.append(cg.cv.download_point(coord, size=1).squeeze())
+
+    root_ids = cg.get_roots(np.array(supervoxel_ids, dtype=np.uint64),
+                            time_stamp=timestamp)
+
+    resp = {"supervoxel_ids": supervoxel_ids, "root_ids": root_ids}
+    return resp
