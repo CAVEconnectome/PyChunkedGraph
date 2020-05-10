@@ -26,6 +26,7 @@ def _post_task_completion(imanager: IngestionManager, layer: int, coords: np.nda
     # remove from queued hash and put in completed hash
     imanager.redis.hdel(f"{layer}q", chunk_str)
     imanager.redis.hset(f"{layer}c", chunk_str, "")
+    return
 
     parent_layer = layer + 1
     if parent_layer > imanager.chunkedgraph_meta.layer_count:

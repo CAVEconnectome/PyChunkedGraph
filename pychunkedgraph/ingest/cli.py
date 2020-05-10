@@ -159,9 +159,12 @@ def queue_layer(parent_layer):
     redis = get_redis_connection()
     imanager = IngestionManager.from_pickle(redis.get(r_keys.INGESTION_MANAGER))
 
-    layer_chunk_bounds = imanager.chunkedgraph_meta.layer_chunk_bounds[parent_layer]
-    chunk_coords = list(product(*[range(r) for r in layer_chunk_bounds]))
-    np.random.shuffle(chunk_coords)
+    if parent_layer == imanager.chunkedgraph_meta.layer_count:
+        chunk_coords = [(0, 0, 0)]
+    else:
+        bounds = imanager.chunkedgraph_meta.layer_chunk_bounds[parent_layer]
+        chunk_coords = list(product(*[range(r) for r in bounds]))
+        np.random.shuffle(chunk_coords)
 
     for coords in chunk_coords:
         task_q = imanager.get_task_queue(imanager.config.CLUSTER.PARENTS_Q_NAME)

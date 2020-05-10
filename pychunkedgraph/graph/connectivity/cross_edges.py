@@ -40,7 +40,7 @@ def get_children_chunk_cross_edges(
         edge_ids_shared = manager.list()
         edge_ids_shared.append(empty_2d)
 
-        task_size = int(math.ceil(len(atomic_chunks) / mp.cpu_count()))
+        task_size = int(math.ceil(len(atomic_chunks) / mp.cpu_count() / 10))
         chunked_l2chunk_list = chunked(atomic_chunks, task_size)
         multi_args = []
         for atomic_chunks in chunked_l2chunk_list:
@@ -110,24 +110,28 @@ def get_chunk_nodes_cross_edge_layer(
     return_type dict {node_id: layer}
     the lowest layer (>= current layer) at which a node_id is part of a cross edge
     """
+    print("get_bounding_atomic_chunks")
     atomic_chunks = get_bounding_atomic_chunks(cg.meta, layer, chunk_coord)
+    print("get_bounding_atomic_chunks complete")
     if not len(atomic_chunks):
         return {}
 
     if not use_threads:
         return _get_chunk_nodes_cross_edge_layer(cg, atomic_chunks, layer)
 
+    print("divide tasks")
     cg_info = cg.get_serialized_info()
     manager = mp.Manager()
     ids_l_shared = manager.list()
     layers_l_shared = manager.list()
-    task_size = int(math.ceil(len(atomic_chunks) / mp.cpu_count()))
+    task_size = int(math.ceil(len(atomic_chunks) / mp.cpu_count() / 10))
     chunked_l2chunk_list = chunked(atomic_chunks, task_size)
     multi_args = []
     for atomic_chunks in chunked_l2chunk_list:
         multi_args.append(
             (ids_l_shared, layers_l_shared, cg_info, atomic_chunks, layer)
         )
+    print("divide tasks complete")
 
     multiprocess_func(
         _get_chunk_nodes_cross_edge_layer_helper,
@@ -137,6 +141,7 @@ def get_chunk_nodes_cross_edge_layer(
 
     node_layer_d_shared = manager.dict()
     _find_min_layer(node_layer_d_shared, ids_l_shared, layers_l_shared)
+    print("_find_min_layer complete")
     return node_layer_d_shared
 
 

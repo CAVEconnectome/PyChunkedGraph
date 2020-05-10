@@ -146,13 +146,6 @@ class ChunkedGraph:
             if not parent_rows:
                 return types.empty_1d
             if current:
-                # parents = []
-                # for id_ in node_ids:
-                #     try:
-                #         parents.append(parent_rows[id_][0].value)
-                #     except KeyError:
-                #         parents.append(id_)
-                # return np.array(parents, dtype=basetypes.NODE_ID,)
                 return np.array(
                     [parent_rows[id_][0].value for id_ in node_ids],
                     dtype=basetypes.NODE_ID,
