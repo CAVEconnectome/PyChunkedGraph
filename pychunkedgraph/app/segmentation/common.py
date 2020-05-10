@@ -1010,9 +1010,9 @@ def handle_roots_from_coord(table_id):
 
     for coord_nm in coords_nm:
         coord = (coord_nm / cg.segmentation_resolution).astype(np.int)
-        supervoxel_ids.append(cg.get_atomic_id_from_coord(*coord))
+        supervoxel_ids.append(cg.cv.download_point(coord, size=1).squeeze())
 
-    root_ids = cg.get_roots(np.array(supervoxel_ids),
+    root_ids = cg.get_roots(np.array(supervoxel_ids, dtype=np.uint64),
                             time_stamp=timestamp)
 
     resp = {"supervoxel_ids": supervoxel_ids, "root_ids": root_ids}
