@@ -988,7 +988,7 @@ def handle_roots_from_coord(table_id):
     user_id = str(g.auth_user["id"])
     current_app.user_id = user_id
 
-    coords_nm = np.array(json.loads(request.data)["coords"], dtype=np.uint64)
+    coords_nm = np.array(json.loads(request.data)["coords"], dtype=np.int)
     if len(coords_nm.shape) == 1:
         coords_nm = [coords_nm]
 
