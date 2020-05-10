@@ -73,6 +73,9 @@ class FlaskLogDatabase(object):
             else:
                 request_type = url_split[-1]
                 request_opt_arg = None
+        else:
+            request_type = None
+            request_opt_arg = None
 
         if len(request_data) == 0:
             request_data = None
