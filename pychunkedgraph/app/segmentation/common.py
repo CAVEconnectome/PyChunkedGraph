@@ -298,7 +298,7 @@ def handle_l2_chunk_children(table_id, chunk_id, as_array):
         )
 
     rr_chunk = cg.range_read_chunk(
-        chunk_id=np.uint64(chunk_id), columns=attributes.Hierarchy.Child, time_stamp=timestamp
+        chunk_id=np.uint64(chunk_id), properties=attributes.Hierarchy.Child, time_stamp=timestamp
     )
 
     if as_array:
