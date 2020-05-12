@@ -1,7 +1,7 @@
 from flask import Blueprint
 from middle_auth_client import auth_requires_permission, auth_required
 
-from ...meshing import common
+from pychunkedgraph.app.meshing import common
 from pychunkedgraph.graph import exceptions as cg_exceptions
 
 bp = Blueprint("pcg_meshing_v0", __name__, url_prefix=f"/{common.__meshing_url_prefix__}/1.0")

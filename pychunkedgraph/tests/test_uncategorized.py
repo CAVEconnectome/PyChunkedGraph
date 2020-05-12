@@ -639,8 +639,8 @@ class TestGraphSimpleQueries:
         root1 = cg.get_root(to_label(cg, 1, 0, 0, 0, 0))
         root2 = cg.get_root(to_label(cg, 1, 1, 0, 0, 0))
 
-        lvl1_nodes_1 = cg.get_subgraph([root1], nodes_only=True)
-        lvl1_nodes_2 = cg.get_subgraph([root2], nodes_only=True)
+        lvl1_nodes_1 = cg.get_subgraph([root1], leaves_only=True)
+        lvl1_nodes_2 = cg.get_subgraph([root2], leaves_only=True)
         assert len(lvl1_nodes_1) == 1
         assert len(lvl1_nodes_2) == 3
         assert to_label(cg, 1, 0, 0, 0, 0) in lvl1_nodes_1
@@ -649,7 +649,7 @@ class TestGraphSimpleQueries:
         assert to_label(cg, 1, 2, 0, 0, 0) in lvl1_nodes_2
 
         lvl2_parent = cg.get_parent(to_label(cg, 1, 1, 0, 0, 0))
-        lvl1_nodes = cg.get_subgraph([lvl2_parent], nodes_only=True)
+        lvl1_nodes = cg.get_subgraph([lvl2_parent], leaves_only=True)
         assert len(lvl1_nodes) == 2
         assert to_label(cg, 1, 1, 0, 0, 0) in lvl1_nodes
         assert to_label(cg, 1, 1, 0, 0, 1) in lvl1_nodes
@@ -694,13 +694,13 @@ class TestGraphSimpleQueries:
         bb = np.array([[1, 0, 0], [2, 1, 1]], dtype=np.int)
         bb_coord = bb * cg.meta.graph_config.CHUNK_SIZE
         childs_1 = cg.get_subgraph(
-            [cg.get_root(to_label(cg, 1, 1, 0, 0, 1))], bbox=bb, nodes_only=True
+            [cg.get_root(to_label(cg, 1, 1, 0, 0, 1))], bbox=bb, leaves_only=True
         )
         childs_2 = cg.get_subgraph(
             [cg.get_root(to_label(cg, 1, 1, 0, 0, 1))],
             bbox=bb_coord,
             bbox_is_coordinate=True,
-            nodes_only=True,
+            leaves_only=True,
         )
         assert np.all(~(np.sort(childs_1) - np.sort(childs_2)))
 
@@ -743,7 +743,7 @@ class TestGraphMerge:
         # Check
         assert cg.get_parent(to_label(cg, 1, 0, 0, 0, 0)) == new_root_id
         assert cg.get_parent(to_label(cg, 1, 0, 0, 0, 1)) == new_root_id
-        leaves = np.unique(cg.get_subgraph([new_root_id], nodes_only=True))
+        leaves = np.unique(cg.get_subgraph([new_root_id], leaves_only=True))
         assert len(leaves) == 2
         assert to_label(cg, 1, 0, 0, 0, 0) in leaves
         assert to_label(cg, 1, 0, 0, 0, 1) in leaves
@@ -795,7 +795,7 @@ class TestGraphMerge:
         # Check
         assert cg.get_root(to_label(cg, 1, 0, 0, 0, 0)) == new_root_id
         assert cg.get_root(to_label(cg, 1, 1, 0, 0, 0)) == new_root_id
-        leaves = np.unique(cg.get_subgraph([new_root_id], nodes_only=True))
+        leaves = np.unique(cg.get_subgraph([new_root_id], leaves_only=True))
         assert len(leaves) == 2
         assert to_label(cg, 1, 0, 0, 0, 0) in leaves
         assert to_label(cg, 1, 1, 0, 0, 0) in leaves
@@ -862,7 +862,7 @@ class TestGraphMerge:
         # Check
         assert cg.get_root(to_label(cg, 1, 0, 0, 0, 0)) == new_root_id
         assert cg.get_root(to_label(cg, 1, 7, 7, 7, 0)) == new_root_id
-        leaves = np.unique(cg.get_subgraph([new_root_id], nodes_only=True))
+        leaves = np.unique(cg.get_subgraph(new_root_id, leaves_only=True))
         assert len(leaves) == 2
         assert to_label(cg, 1, 0, 0, 0, 0) in leaves
         assert to_label(cg, 1, 7, 7, 7, 0) in leaves
@@ -1053,7 +1053,7 @@ class TestGraphMerge:
         assert cg.get_root(to_label(cg, 1, 0, 0, 0, 0)) == new_root_id
         assert cg.get_root(to_label(cg, 1, 0, 0, 0, 1)) == new_root_id
         assert cg.get_root(to_label(cg, 1, 7, 7, 7, 0)) == new_root_id
-        leaves = np.unique(cg.get_subgraph([new_root_id], nodes_only=True))
+        leaves = np.unique(cg.get_subgraph(new_root_id, leaves_only=True))
         assert len(leaves) == 3
         assert to_label(cg, 1, 0, 0, 0, 0) in leaves
         assert to_label(cg, 1, 0, 0, 0, 1) in leaves
@@ -1211,7 +1211,7 @@ class TestGraphMerge:
 
         child_ids = []
         for root_id in root_ids_t0:
-            child_ids.extend(cg.get_subgraph([root_id], nodes_only=True))
+            child_ids.extend(cg.get_subgraph(root_id, leaves_only=True))
 
         new_roots = cg.add_edges(
             "Jane Doe",
@@ -1322,11 +1322,11 @@ class TestGraphMerge:
 #             to_label(cg, 1, 0, 0, 0, 1)
 #         )
 #         leaves = np.unique(
-#             cg.get_subgraph([cg.get_root(to_label(cg, 1, 0, 0, 0, 0))], nodes_only=True)
+#             cg.get_subgraph([cg.get_root(to_label(cg, 1, 0, 0, 0, 0))], leaves_only=True)
 #         )
 #         assert len(leaves) == 1 and to_label(cg, 1, 0, 0, 0, 0) in leaves
 #         leaves = np.unique(
-#             cg.get_subgraph([cg.get_root(to_label(cg, 1, 0, 0, 0, 1))], nodes_only=True)
+#             cg.get_subgraph([cg.get_root(to_label(cg, 1, 0, 0, 0, 1))], leaves_only=True)
 #         )
 #         assert len(leaves) == 1 and to_label(cg, 1, 0, 0, 0, 1) in leaves
 
@@ -1337,7 +1337,7 @@ class TestGraphMerge:
 #         leaves = np.unique(
 #             cg.get_subgraph(
 #                 [cg.get_root(to_label(cg, 1, 0, 0, 0, 0), time_stamp=fake_timestamp)],
-#                 nodes_only=True,
+#                 leaves_only=True,
 #             )
 #         )
 #         assert len(leaves) == 2
@@ -1436,11 +1436,11 @@ class TestGraphMerge:
 #             to_label(cg, 1, 1, 0, 0, 0)
 #         )
 #         leaves = np.unique(
-#             cg.get_subgraph([cg.get_root(to_label(cg, 1, 0, 0, 0, 0))], nodes_only=True)
+#             cg.get_subgraph([cg.get_root(to_label(cg, 1, 0, 0, 0, 0))], leaves_only=True)
 #         )
 #         assert len(leaves) == 1 and to_label(cg, 1, 0, 0, 0, 0) in leaves
 #         leaves = np.unique(
-#             cg.get_subgraph([cg.get_root(to_label(cg, 1, 1, 0, 0, 0))], nodes_only=True)
+#             cg.get_subgraph([cg.get_root(to_label(cg, 1, 1, 0, 0, 0))], leaves_only=True)
 #         )
 #         assert len(leaves) == 1 and to_label(cg, 1, 1, 0, 0, 0) in leaves
 
@@ -1451,7 +1451,7 @@ class TestGraphMerge:
 #         leaves = np.unique(
 #             cg.get_subgraph(
 #                 [cg.get_root(to_label(cg, 1, 0, 0, 0, 0), time_stamp=fake_timestamp)],
-#                 nodes_only=True,
+#                 leaves_only=True,
 #             )
 #         )
 #         assert len(leaves) == 2
@@ -1537,8 +1537,8 @@ class TestGraphMerge:
 
 #         assert len(new_root_ids) == 2
 
-#         svs2 = cg.get_subgraph([new_root_ids[0]], nodes_only=True)
-#         svs1 = cg.get_subgraph([new_root_ids[1]], nodes_only=True)
+#         svs2 = cg.get_subgraph([new_root_ids[0]], leaves_only=True)
+#         svs1 = cg.get_subgraph([new_root_ids[1]], leaves_only=True)
 #         len_set = {1, 2}
 #         assert len(svs1) in len_set
 #         len_set.remove(len(svs1))
@@ -1820,11 +1820,11 @@ class TestGraphMerge:
 #             to_label(cg, 1, 7, 7, 7, 0)
 #         )
 #         leaves = np.unique(
-#             cg.get_subgraph([cg.get_root(to_label(cg, 1, 0, 0, 0, 0))], nodes_only=True)
+#             cg.get_subgraph([cg.get_root(to_label(cg, 1, 0, 0, 0, 0))], leaves_only=True)
 #         )
 #         assert len(leaves) == 1 and to_label(cg, 1, 0, 0, 0, 0) in leaves
 #         leaves = np.unique(
-#             cg.get_subgraph([cg.get_root(to_label(cg, 1, 7, 7, 7, 0))], nodes_only=True)
+#             cg.get_subgraph([cg.get_root(to_label(cg, 1, 7, 7, 7, 0))], leaves_only=True)
 #         )
 #         assert len(leaves) == 1 and to_label(cg, 1, 7, 7, 7, 0) in leaves
 
@@ -1835,7 +1835,7 @@ class TestGraphMerge:
 #         leaves = np.unique(
 #             cg.get_subgraph(
 #                 [cg.get_root(to_label(cg, 1, 0, 0, 0, 0), time_stamp=fake_timestamp)],
-#                 nodes_only=True,
+#                 leaves_only=True,
 #             )
 #         )
 #         assert len(leaves) == 2
@@ -1930,7 +1930,7 @@ class TestGraphMerge:
 #         assert cg.get_root(to_label(cg, 1, 0, 0, 0, 0)) == new_root_ids[0]
 #         assert cg.get_root(to_label(cg, 1, 0, 0, 0, 1)) == new_root_ids[0]
 #         assert cg.get_root(to_label(cg, 1, 0, 0, 0, 2)) == new_root_ids[0]
-#         leaves = np.unique(cg.get_subgraph([new_root_ids[0]], nodes_only=True))
+#         leaves = np.unique(cg.get_subgraph([new_root_ids[0]], leaves_only=True))
 #         assert len(leaves) == 3
 #         assert to_label(cg, 1, 0, 0, 0, 0) in leaves
 #         assert to_label(cg, 1, 0, 0, 0, 1) in leaves
@@ -2004,7 +2004,7 @@ class TestGraphMerge:
 #         assert cg.get_root(to_label(cg, 1, 0, 0, 0, 0)) == new_root_ids[0]
 #         assert cg.get_root(to_label(cg, 1, 0, 0, 0, 1)) == new_root_ids[0]
 #         assert cg.get_root(to_label(cg, 1, 1, 0, 0, 0)) == new_root_ids[0]
-#         leaves = np.unique(cg.get_subgraph([new_root_ids[0]], nodes_only=True))
+#         leaves = np.unique(cg.get_subgraph([new_root_ids[0]], leaves_only=True))
 #         assert len(leaves) == 3
 #         assert to_label(cg, 1, 0, 0, 0, 0) in leaves
 #         assert to_label(cg, 1, 0, 0, 0, 1) in leaves
@@ -2114,7 +2114,7 @@ class TestGraphMerge:
 #         assert cg.get_root(to_label(cg, 1, 0, 0, 0, 0)) == new_root_ids[0]
 #         assert cg.get_root(to_label(cg, 1, 0, 0, 0, 1)) == new_root_ids[0]
 #         assert cg.get_root(to_label(cg, 1, loc, loc, loc, 0)) == new_root_ids[0]
-#         leaves = np.unique(cg.get_subgraph([new_root_ids[0]], nodes_only=True))
+#         leaves = np.unique(cg.get_subgraph([new_root_ids[0]], leaves_only=True))
 #         assert len(leaves) == 3
 #         assert to_label(cg, 1, 0, 0, 0, 0) in leaves
 #         assert to_label(cg, 1, 0, 0, 0, 1) in leaves
@@ -2293,7 +2293,7 @@ class TestGraphMerge:
 
 #         child_ids = []
 #         for root_id in root_ids_t0:
-#             child_ids.extend([cg.get_subgraph([root_id])], nodes_only=True)
+#             child_ids.extend([cg.get_subgraph([root_id])], leaves_only=True)
 
 #         new_roots = cg.remove_edges(
 #             "Jane Doe",
@@ -2327,7 +2327,7 @@ class TestGraphMergeSplit:
         root_ids_t0 = list(rr.keys())
         child_ids = [types.empty_1d]
         for root_id in root_ids_t0:
-            child_ids.append(cg.get_subgraph([root_id], nodes_only=True))
+            child_ids.append(cg.get_subgraph([root_id], leaves_only=True))
         child_ids = np.concatenate(child_ids)
 
         for i in range(10):
@@ -2340,7 +2340,7 @@ class TestGraphMergeSplit:
                 affinities=0.9,
             ).new_root_ids
             assert len(new_roots) == 1
-            assert len(cg.get_subgraph([new_roots[0]], nodes_only=True)) == 4
+            assert len(cg.get_subgraph([new_roots[0]], leaves_only=True)) == 4
 
             root_ids = []
             for child_id in child_ids:
@@ -2366,7 +2366,7 @@ class TestGraphMergeSplit:
             u_root_ids = np.unique(root_ids)
             these_child_ids = []
             for root_id in u_root_ids:
-                these_child_ids.extend(cg.get_subgraph([root_id], nodes_only=True))
+                these_child_ids.extend(cg.get_subgraph([root_id], leaves_only=True))
 
             assert len(these_child_ids) == 4
             assert len(u_root_ids) == 2
@@ -2480,11 +2480,11 @@ class TestGraphMinCut:
             to_label(cg, 1, 1, 0, 0, 0)
         )
         leaves = np.unique(
-            cg.get_subgraph([cg.get_root(to_label(cg, 1, 0, 0, 0, 0))], nodes_only=True)
+            cg.get_subgraph([cg.get_root(to_label(cg, 1, 0, 0, 0, 0))], leaves_only=True)
         )
         assert len(leaves) == 1 and to_label(cg, 1, 0, 0, 0, 0) in leaves
         leaves = np.unique(
-            cg.get_subgraph([cg.get_root(to_label(cg, 1, 1, 0, 0, 0))], nodes_only=True)
+            cg.get_subgraph([cg.get_root(to_label(cg, 1, 1, 0, 0, 0))], leaves_only=True)
         )
         assert len(leaves) == 1 and to_label(cg, 1, 1, 0, 0, 0) in leaves
 

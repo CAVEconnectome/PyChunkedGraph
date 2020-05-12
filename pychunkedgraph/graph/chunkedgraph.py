@@ -447,14 +447,30 @@ class ChunkedGraph:
 
     def get_subgraph(
         self,
-        node_ids: typing.Iterable,
+        node_id_or_ids: typing.Union[np.uint64, typing.Iterable],
         bbox: typing.Optional[typing.Sequence[typing.Sequence[int]]] = None,
         bbox_is_coordinate: bool = False,
-        nodes_only=False,
-        edges_only=False,
+        return_layers: typing.List = [2],
+        nodes_only: bool = False,
+        edges_only: bool = False,
+        leaves_only: bool = False,
     ) -> typing.Tuple[typing.Dict, typing.Dict, Edges]:
         """TODO docs"""
+        single = False
+        node_ids = node_id_or_ids
         bbox = chunk_utils.normalize_bounding_box(self.meta, bbox, bbox_is_coordinate)
+        if isinstance(node_id_or_ids, np.uint64) or isinstance(node_id_or_ids, int):
+            single = True
+            node_ids = [node_id_or_ids]
+        layer_nodes_d = {}
+        for node_id in node_ids:
+            layer_nodes_d[node_id] = self._get_subgraph_higher_layer_nodes(
+                node_id=node_id, bounding_box=bbox, return_layers=return_layers,
+            )
+        if nodes_only:
+            if single:
+                return layer_nodes_d[node_id_or_ids]
+            return layer_nodes_d
         level2_ids = [types.empty_1d]
         for node_id in node_ids:
             layer_nodes_d = self._get_subgraph_higher_layer_nodes(
@@ -462,7 +478,7 @@ class ChunkedGraph:
             )
             level2_ids.append(layer_nodes_d[2])
         level2_ids = np.concatenate(level2_ids)
-        if nodes_only:
+        if leaves_only:
             return self.get_children(level2_ids, flatten=True)
         if edges_only:
             return self.get_l2_agglomerations(level2_ids, edges_only=True)
@@ -875,3 +891,21 @@ class ChunkedGraph:
             [self.get_chunk_coordinates(chunk_id) for chunk_id in chunk_ids],
             cv_threads=cv_threads,
         )
+
+    def get_node_timestamps(
+        self, node_ids: typing.Sequence[np.uint64]
+    ) -> typing.Iterable:
+        """
+        The timestamp of the children column can be assumed
+        to be the timestamp at which the node ID was created.
+        """
+        children = self.client.read_nodes(
+            node_ids=node_ids, properties=attributes.Hierarchy.Child
+        )
+
+        if not children:
+            return np.array([], dtype=np.datetime64)
+        return np.array(
+            [x[0].timestamp for x in children.values()], dtype=np.datetime64
+        )
+

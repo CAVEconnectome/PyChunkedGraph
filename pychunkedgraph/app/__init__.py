@@ -90,8 +90,8 @@ def configure_app(app):
         app.redis = redis.Redis.from_url(app.config['REDIS_URL'])
         app.test_q = Queue('test', connection=app.redis)
         with app.app_context():
-            from .rq_cli import init_rq_cmds
+            from ..ingest.rq_cli import init_rq_cmds
             from ..ingest.cli import init_ingest_cmds
 
             init_rq_cmds(app)
-            init_ingest_cmds(app)        
+            init_ingest_cmds(app)     
