@@ -12,11 +12,7 @@ from pychunkedgraph.app.app_utils import jsonify_with_kwargs, toboolean, tobinar
 from pychunkedgraph.app.segmentation import common
 from pychunkedgraph.graph import exceptions as cg_exceptions
 
-bp = Blueprint(
-    "pcg_segmentation_v1",
-    __name__,
-    url_prefix=f"/{common.__segmentation_url_prefix__}/api/v1",
-)
+bp = Blueprint("pcg_segmentation_v1", __name__, url_prefix=f"/{common.__segmentation_url_prefix__}/api/v1")
 
 # -------------------------------
 # ------ Access control and index
@@ -71,10 +67,7 @@ def api_exception(e):
 def handle_merge(table_id):
     int64_as_str = request.args.get("int64_as_str", default=False, type=toboolean)
     merge_result = common.handle_merge(table_id)
-    resp = {
-        "operation_id": merge_result.operation_id,
-        "new_root_ids": merge_result.new_root_ids,
-    }
+    resp = {"operation_id": merge_result.operation_id, "new_root_ids": merge_result.new_root_ids}
     return jsonify_with_kwargs(resp, int64_as_str=int64_as_str)
 
 
@@ -86,14 +79,11 @@ def handle_merge(table_id):
 def handle_split(table_id):
     int64_as_str = request.args.get("int64_as_str", default=False, type=toboolean)
     split_result = common.handle_split(table_id)
-    resp = {
-        "operation_id": split_result.operation_id,
-        "new_root_ids": split_result.new_root_ids,
-    }
+    resp = {"operation_id": split_result.operation_id, "new_root_ids": split_result.new_root_ids}
     return jsonify_with_kwargs(resp, int64_as_str=int64_as_str)
 
 
-@bp.route("/table/<table_id>/graph/split_preview", methods=["POST"])
+@bp.route('/table/<table_id>/graph/split_preview', methods=["POST"])
 @auth_requires_permission("view")
 def handle_split_preview(table_id):
     int64_as_str = request.args.get("int64_as_str", default=False, type=toboolean)
@@ -109,10 +99,7 @@ def handle_split_preview(table_id):
 def handle_undo(table_id):
     int64_as_str = request.args.get("int64_as_str", default=False, type=toboolean)
     undo_result = common.handle_undo(table_id)
-    resp = {
-        "operation_id": undo_result.operation_id,
-        "new_root_ids": undo_result.new_root_ids,
-    }
+    resp = {"operation_id": undo_result.operation_id, "new_root_ids": undo_result.new_root_ids}
     return jsonify_with_kwargs(resp, int64_as_str=int64_as_str)
 
 
@@ -124,10 +111,7 @@ def handle_undo(table_id):
 def handle_redo(table_id):
     int64_as_str = request.args.get("int64_as_str", default=False, type=toboolean)
     redo_result = common.handle_redo(table_id)
-    resp = {
-        "operation_id": redo_result.operation_id,
-        "new_root_ids": redo_result.new_root_ids,
-    }
+    resp = {"operation_id": redo_result.operation_id, "new_root_ids": redo_result.new_root_ids}
     return jsonify_with_kwargs(resp, int64_as_str=int64_as_str)
 
 
@@ -159,9 +143,7 @@ def handle_roots(table_id):
     else:
         return jsonify_with_kwargs(resp, int64_as_str=int64_as_str)
 
-
 ### GET ROOTS BINARY -----------------------------------------------------------
-
 
 @bp.route("/table/<table_id>/roots_binary", methods=["POST"])
 @auth_requires_permission("view")
@@ -172,7 +154,6 @@ def handle_roots_binary(table_id):
 
 ### CHILDREN -------------------------------------------------------------------
 
-
 @bp.route("/table/<table_id>/node/<node_id>/children", methods=["GET"])
 @auth_requires_permission("view")
 def handle_children(table_id, node_id):
@@ -182,8 +163,7 @@ def handle_children(table_id, node_id):
     return jsonify_with_kwargs(resp, int64_as_str=int64_as_str)
 
 
-### GET L2:SV MAPPINGS OF A L2 CHUNK ----------------------------------------------
-
+### GET L2:SV MAPPINGS OF A L2 CHUNK ------------------------------------------------------------------
 
 @bp.route("/table/<table_id>/l2_chunk_children/<chunk_id>", methods=["GET"])
 @auth_requires_permission("view")
@@ -198,8 +178,7 @@ def handle_l2_chunk_children(table_id, chunk_id):
     return jsonify_with_kwargs(resp, int64_as_str=int64_as_str)
 
 
-### GET L2:SV MAPPINGS OF A L2 CHUNK BINARY --------------------------------------
-
+### GET L2:SV MAPPINGS OF A L2 CHUNK BINARY ------------------------------------------------------------------
 
 @bp.route("/table/<table_id>/l2_chunk_children_binary/<chunk_id>", methods=["GET"])
 @auth_requires_permission("view")
@@ -239,92 +218,87 @@ def handle_subgraph(table_id, node_id):
 ### CONTACT SITES --------------------------------------------------------------
 
 
-# @bp.route("/table/<table_id>/node/<node_id>/contact_sites", methods=["GET"])
-# @auth_requires_permission("view")
-# def handle_contact_sites(table_id, node_id):
-#     int64_as_str = request.args.get("int64_as_str", default=False, type=toboolean)
-#     contact_sites, contact_site_metadata = common.handle_contact_sites(
-#         table_id, node_id
-#     )
-#     resp = {
-#         "contact_sites": contact_sites,
-#         "contact_site_metadata": contact_site_metadata,
-#     }
-#     return jsonify_with_kwargs(resp, int64_as_str=int64_as_str)
+@bp.route("/table/<table_id>/node/<node_id>/contact_sites", methods=["GET"])
+@auth_requires_permission("view")
+def handle_contact_sites(table_id, node_id):
+    int64_as_str = request.args.get("int64_as_str", default=False, type=toboolean)
+    contact_sites, contact_site_metadata = common.handle_contact_sites(
+        table_id, node_id
+    )
+    resp = {
+        "contact_sites": contact_sites,
+        "contact_site_metadata": contact_site_metadata,
+    }
+    return jsonify_with_kwargs(resp, int64_as_str=int64_as_str)
 
 
-# @bp.route(
-#     "/table/<table_id>/node/contact_sites_pair/<first_node_id>/<second_node_id>",
-#     methods=["GET"],
-# )
-# @auth_requires_permission("view")
-# def handle_pairwise_contact_sites(table_id, first_node_id, second_node_id):
-#     int64_as_str = request.args.get("int64_as_str", default=False, type=toboolean)
-#     contact_sites, contact_site_metadata = common.handle_pairwise_contact_sites(
-#         table_id, first_node_id, second_node_id
-#     )
-#     resp = {
-#         "contact_sites": contact_sites,
-#         "contact_site_metadata": contact_site_metadata,
-#     }
-#     return jsonify_with_kwargs(resp, int64_as_str=int64_as_str)
-
+@bp.route("/table/<table_id>/node/contact_sites_pair/<first_node_id>/<second_node_id>", methods=["GET"])
+@auth_requires_permission("view")
+def handle_pairwise_contact_sites(table_id, first_node_id, second_node_id):
+    int64_as_str = request.args.get("int64_as_str", default=False, type=toboolean)
+    contact_sites, contact_site_metadata = common.handle_pairwise_contact_sites(
+        table_id, first_node_id, second_node_id
+    )
+    resp = {
+        "contact_sites": contact_sites,
+        "contact_site_metadata": contact_site_metadata,
+    }
+    return jsonify_with_kwargs(resp, int64_as_str=int64_as_str)
 
 ### CHANGE LOG -----------------------------------------------------------------
 
 
-# @bp.route("/table/<table_id>/change_log", methods=["GET"])
-# @auth_requires_admin
-# def change_log_full(table_id):
-#     si = io.StringIO()
-#     cw = csv.writer(si)
-#     log_entries = common.change_log(table_id)
-#     cw.writerow(["user_id", "action", "root_ids", "timestamp"])
-#     cw.writerows(log_entries)
-#     output = make_response(si.getvalue())
-#     output.headers["Content-Disposition"] = f"attachment; filename={table_id}.csv"
-#     output.headers["Content-type"] = "text/csv"
-#     return output
+@bp.route("/table/<table_id>/change_log", methods=["GET"])
+@auth_requires_admin
+def change_log_full(table_id):
+    si = io.StringIO()
+    cw = csv.writer(si)
+    log_entries = common.change_log(table_id)
+    cw.writerow(["user_id","action","root_ids","timestamp"])
+    cw.writerows(log_entries)
+    output = make_response(si.getvalue())
+    output.headers["Content-Disposition"] = f"attachment; filename={table_id}.csv"
+    output.headers["Content-type"] = "text/csv"
+    return output
 
 
-# @bp.route("/table/<table_id>/tabular_change_log_recent", methods=["GET"])
-# @auth_requires_permission("view")  # TODO: admin_view
-# def tabular_change_log_weekly(table_id):
-#     disp = request.args.get("disp", default=False, type=toboolean)
-#     weekly_tab_change_log = common.tabular_change_log_recent(table_id)
+@bp.route("/table/<table_id>/tabular_change_log_recent", methods=["GET"])
+@auth_requires_permission("view") #TODO: admin_view
+def tabular_change_log_weekly(table_id):
+    disp = request.args.get("disp", default=False, type=toboolean)
+    weekly_tab_change_log = common.tabular_change_log_recent(table_id)
 
-#     if disp:
-#         return weekly_tab_change_log.to_html()
-#     else:
-#         return weekly_tab_change_log.to_json()
-
-
-# @bp.route("/table/<table_id>/root/<root_id>/change_log", methods=["GET"])
-# @auth_requires_permission("view")
-# def change_log(table_id, root_id):
-#     int64_as_str = request.args.get("int64_as_str", default=False, type=toboolean)
-#     log = common.change_log(table_id, root_id)
-#     return jsonify_with_kwargs(log, int64_as_str=int64_as_str)
+    if disp:
+        return weekly_tab_change_log.to_html()
+    else:
+        return weekly_tab_change_log.to_json()
 
 
-# @bp.route("/table/<table_id>/root/<root_id>/tabular_change_log", methods=["GET"])
-# @auth_requires_permission("view")
-# def tabular_change_log(table_id, root_id):
-#     disp = request.args.get("disp", default=False, type=toboolean)
-#     tab_change_log = common.tabular_change_log(table_id, root_id)
-
-#     if disp:
-#         return tab_change_log.to_html()
-#     else:
-#         return tab_change_log.to_json()
+@bp.route("/table/<table_id>/root/<root_id>/change_log", methods=["GET"])
+@auth_requires_permission("view")
+def change_log(table_id, root_id):
+    int64_as_str = request.args.get("int64_as_str", default=False, type=toboolean)
+    log = common.change_log(table_id, root_id)
+    return jsonify_with_kwargs(log, int64_as_str=int64_as_str)
 
 
-# @bp.route("/table/<table_id>/root/<root_id>/merge_log", methods=["GET"])
-# @auth_requires_permission("view")
-# def merge_log(table_id, root_id):
-#     int64_as_str = request.args.get("int64_as_str", default=False, type=toboolean)
-#     log = common.merge_log(table_id, root_id)
-#     return jsonify_with_kwargs(log, int64_as_str=int64_as_str)
+@bp.route("/table/<table_id>/root/<root_id>/tabular_change_log", methods=["GET"])
+@auth_requires_permission("view")
+def tabular_change_log(table_id, root_id):
+    disp = request.args.get("disp", default=False, type=toboolean)
+    tab_change_log = common.tabular_change_log(table_id, root_id)
+
+    if disp:
+        return tab_change_log.to_html()
+    else:
+        return tab_change_log.to_json()
+
+@bp.route("/table/<table_id>/root/<root_id>/merge_log", methods=["GET"])
+@auth_requires_permission("view")
+def merge_log(table_id, root_id):
+    int64_as_str = request.args.get("int64_as_str", default=False, type=toboolean)
+    log = common.merge_log(table_id, root_id)
+    return jsonify_with_kwargs(log, int64_as_str=int64_as_str)
 
 
 @bp.route("/table/<table_id>/oldest_timestamp", methods=["GET"])
@@ -337,35 +311,44 @@ def oldest_timestamp(table_id):
     return jsonify_with_kwargs(resp, int64_as_str=int64_as_str)
 
 
-# @bp.route("/table/<table_id>/root/<root_id>/last_edit", methods=["GET"])
-# @auth_requires_permission("view")
-# def last_edit(table_id, root_id):
-#     int64_as_str = request.args.get("int64_as_str", default=False, type=toboolean)
-#     delimiter = request.args.get("delimiter", default=" ", type=str)
-#     latest_timestamp = common.last_edit(table_id, root_id)
-#     resp = {"iso": latest_timestamp.isoformat(delimiter)}
-#     return jsonify_with_kwargs(resp, int64_as_str=int64_as_str)
+@bp.route("/table/<table_id>/root/<root_id>/last_edit", methods=["GET"])
+@auth_requires_permission("view")
+def last_edit(table_id, root_id):
+    int64_as_str = request.args.get("int64_as_str", default=False, type=toboolean)
+    delimiter = request.args.get("delimiter", default=" ", type=str)
+    latest_timestamp = common.last_edit(table_id, root_id)
+    resp = {"iso": latest_timestamp.isoformat(delimiter)}
+    return jsonify_with_kwargs(resp, int64_as_str=int64_as_str)
 
 
 ### FIND PATH ------------------------------------------------------------------
 
 
-# @bp.route("/table/<table_id>/graph/find_path", methods=["POST"])
-# @auth_requires_permission("view")
-# def find_path(table_id):
-#     int64_as_str = request.args.get("int64_as_str", default=False, type=toboolean)
-#     find_path_result = common.handle_find_path(table_id)
-#     return jsonify_with_kwargs(find_path_result, int64_as_str=int64_as_str)
+@bp.route("/table/<table_id>/graph/find_path", methods=["POST"])
+@auth_requires_permission("view")
+def find_path(table_id):
+    int64_as_str = request.args.get("int64_as_str", default=False, type=toboolean)
+    find_path_result = common.handle_find_path(table_id)
+    return jsonify_with_kwargs(find_path_result, int64_as_str=int64_as_str)
 
 
 ### IS LATEST ROOTS --------------------------------------------------------------
 
+@bp.route("/table/<table_id>/is_latest_roots", methods=["POST"])
+@auth_requires_permission("view")
+def handle_is_latest_roots(table_id):
+    int64_as_str = request.args.get("int64_as_str", default=False, type=toboolean)
+    is_latest_roots = common.handle_is_latest_roots(table_id, is_binary=False)
+    resp = {"is_latest": is_latest_roots}
 
-# @bp.route("/table/<table_id>/is_latest_roots", methods=["POST"])
-# @auth_requires_permission("view")
-# def handle_is_latest_roots(table_id):
-#     int64_as_str = request.args.get("int64_as_str", default=False, type=toboolean)
-#     is_latest_roots = common.handle_is_latest_roots(table_id, is_binary=False)
-#     resp = {"is_latest": is_latest_roots}
+    return jsonify_with_kwargs(resp, int64_as_str=int64_as_str)
 
-#     return jsonify_with_kwargs(resp, int64_as_str=int64_as_str)
+
+## Lookup root id from coordinate -----------------------------------------------
+
+@bp.route("/table/<table_id>/roots_from_coords", methods=["POST"])
+@auth_requires_permission("view")
+def handle_roots_from_coords(table_id):
+    int64_as_str = request.args.get("int64_as_str", default=False, type=toboolean)
+    resp = common.handle_roots_from_coord(table_id)
+    return jsonify_with_kwargs(resp, int64_as_str=int64_as_str)

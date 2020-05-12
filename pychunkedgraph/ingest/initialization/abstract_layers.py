@@ -44,6 +44,11 @@ def add_layer(
         cg, layer_id, parent_coords, use_threads=n_threads > 1
     )
 
+    print("children_coords", children_coords.size, layer_id, parent_coords)
+    print(
+        "n e", len(children_ids), len(edge_ids), layer_id, parent_coords,
+    )
+
     # Extract connected components
     # isolated_node_mask = ~np.in1d(children_ids, np.unique(edge_ids))
     # add_node_ids = children_ids[isolated_node_mask].squeeze()
@@ -53,6 +58,7 @@ def add_layer(
     edge_ids.extend(add_edge_ids)
     graph, _, _, graph_ids = flatgraph.build_gt_graph(edge_ids, make_directed=True)
     ccs = flatgraph.connected_components(graph)
+    print("ccs", len(ccs))
     _write_connected_components(
         cg,
         layer_id,
@@ -133,9 +139,12 @@ def _write_connected_components(
 
     node_layer_d_shared = {}
     if layer_id < cg.meta.layer_count:
+        print("getting node_layer_d_shared")
         node_layer_d_shared = get_chunk_nodes_cross_edge_layer(
             cg, layer_id, parent_coords, use_threads=use_threads
         )
+
+    print("node_layer_d_shared", len(node_layer_d_shared))
 
     ccs_with_node_ids = []
     for cc in ccs:
@@ -153,7 +162,7 @@ def _write_connected_components(
         )
         return
 
-    task_size = int(math.ceil(len(ccs_with_node_ids) / mp.cpu_count()))
+    task_size = int(math.ceil(len(ccs_with_node_ids) / mp.cpu_count() / 10))
     chunked_ccs = chunked(ccs_with_node_ids, task_size)
     cg_info = cg.get_serialized_info()
     multi_args = []
@@ -169,6 +178,7 @@ def _write_connected_components(
 
 
 def _write_components_helper(args):
+    print("running _write_components_helper")
     cg_info, layer_id, parent_coords, ccs, node_layer_d_shared, time_stamp = args
     cg = ChunkedGraph(**cg_info)
     _write(cg, layer_id, parent_coords, ccs, node_layer_d_shared, time_stamp)
@@ -223,6 +233,8 @@ def _write(
 
             if len(rows) > 100000:
                 cg.client.write(rows)
+                print("wrote rows", len(rows), layer_id, parent_coords)
                 rows = []
     cg.client.write(rows)
+    print("wrote rows", len(rows), layer_id, parent_coords)
 

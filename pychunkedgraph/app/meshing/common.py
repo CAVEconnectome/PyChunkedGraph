@@ -8,8 +8,8 @@ import traceback
 from flask import Response, current_app, g, jsonify, make_response, request
 
 from pychunkedgraph import __version__
-from .. import app_utils
-from pychunkedgraph.graph import ChunkedGraph
+from pychunkedgraph.app import app_utils
+from pychunkedgraph.graph import chunkedgraph
 from pychunkedgraph.meshing import meshgen, meshgen_utils
 
 
@@ -17,8 +17,7 @@ from pychunkedgraph.meshing import meshgen, meshgen_utils
 # ------ Access control and index
 # -------------------------------
 
-__meshing_url_prefix__ = os.environ.get("MESHING_URL_PREFIX", "meshing")
-
+__meshing_url_prefix__ = os.environ.get('MESHING_URL_PREFIX', 'meshing')
 
 def index():
     return f"PyChunkedGraph Meshing v{__version__}"
@@ -34,13 +33,13 @@ def home():
     return resp
 
 
-def _remeshing(table_id, lvl2_nodes):
-    cg = ChunkedGraph(graph_id=table_id)
+def _remeshing(serialized_cg_info, lvl2_nodes):
+    cg = chunkedgraph.ChunkedGraph(**serialized_cg_info)
 
-    # # TODO: stop_layer and mip should be configurable by dataset
-    # meshgen.remeshing(
-    #     cg, lvl2_nodes, stop_layer=4, cv_path=None, cv_mesh_dir=None, mip=1, max_err=320
-    # )
+    # TODO: stop_layer and mip should be configurable by dataset
+    meshgen.remeshing(
+        cg, lvl2_nodes, stop_layer=4, cv_path=None, cv_mesh_dir=None, mip=1, max_err=320
+    )
 
     return Response(status=200)
 
@@ -214,6 +213,7 @@ def handle_get_manifest(table_id, node_id):
     )
 
     resp = {"fragments": fragment_URIs}
+
 
     if "return_seg_id_layers" in data:
         if app_utils.toboolean(data["return_seg_id_layers"]):

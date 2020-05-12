@@ -687,7 +687,7 @@ class MulticutOperation(GraphEditOperation):
         bbox = get_bbox(self.source_coords, self.sink_coords, self.bbox_offset)
         with TimeIt("get_subgraph"):
             l2id_agglomeration_d, edges = self.cg.get_subgraph(
-                [root_ids.pop()], bbox=bbox, bbox_is_coordinate=True
+                root_ids.pop(), bbox=bbox, bbox_is_coordinate=True
             )
             edges = reduce(lambda x, y: x + y, edges)
             supervoxels = np.concatenate(
