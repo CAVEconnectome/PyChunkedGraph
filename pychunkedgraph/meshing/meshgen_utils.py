@@ -249,6 +249,7 @@ def _get_sharded_meshes(
     if not len(node_ids):
         return result
     node_layers = cg.get_chunk_layers(node_ids)
+    l2_ids = node_ids[node_layers == stop_layer]
     while np.any(node_layers > stop_layer):
         result_ = {}
         for layer_ in np.unique(node_layers[node_layers > stop_layer]):
@@ -269,12 +270,11 @@ def _get_sharded_meshes(
 
     # remainder IDs
     start = time()
+    l2_ids = np.concatenate([l2_ids, node_ids[node_layers == stop_layer]])
     result_ = shard_readers[stop_layer].exists(
-        labels=node_ids[node_layers == stop_layer],
-        path=f"{mesh_dir}/initial/{stop_layer}/",
-        return_byte_range=True,
+        labels=l2_ids, path=f"{mesh_dir}/initial/{stop_layer}/", return_byte_range=True,
     )
-    print(f"{stop_layer}:{node_ids[node_layers == stop_layer].size} {time()-start}")
+    print(f"{stop_layer}:{l2_ids.size} {time()-start}")
     result_, _ = del_none_keys(result_)
     result.update(result_)
     return result
@@ -387,15 +387,16 @@ def children_meshes_sharded(
     MAX_STITCH_LAYER = 4  # make this part of meta?
 
     start = time()
-    # node_ids = cg.get_subgraph(
-    #     node_id,
-    #     bbox=bounding_box,
-    #     bbox_is_coordinate=True,
-    #     nodes_only=True,
-    #     return_layers=[MAX_STITCH_LAYER],
-    # )
-    node_ids = _get_children_before_start_layer(cg, node_id)
-    print("get start_layer children took: %.3fs" % (time() - start))
+    node_ids = cg.get_subgraph(
+        node_id,
+        bbox=bounding_box,
+        bbox_is_coordinate=True,
+        nodes_only=True,
+        return_layers=[2],
+    )
+    node_ids = node_ids[2]
+    # node_ids = _get_children_before_start_layer(cg, node_id)
+    print("get_subgraph children took: %.3fs" % (time() - start))
     print("node_ids", len(node_ids))
 
     start = time()
