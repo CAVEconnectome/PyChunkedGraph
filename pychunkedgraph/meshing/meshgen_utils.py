@@ -363,13 +363,17 @@ def _get_children_before_start_layer(cg, node_id: np.uint64, start_layer: int = 
     Due to skip connections, to make sure no meshes are missed
     return immediately as soon as an ID in `start_layer` is found.
     """
+    from ..graph.types import empty_1d
+
+    result = [empty_1d]
     parents = np.array([node_id], dtype=np.uint64)
-    while True:
+    while parents.size:
         children = cg.get_children(parents, flatten=True)
         layers = cg.get_chunk_layers(children)
-        if np.any(layers <= start_layer):
-            return parents
-        parents = children
+        children_ = children[layers <= start_layer]
+        result.append(children_)
+        parents = children[layers > start_layer]
+    return np.concatenate(result)
 
 
 def children_meshes_sharded(
