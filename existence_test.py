@@ -4,11 +4,13 @@ import numpy as np
 os.environ["GOOGLE_APPLICATION_CREDENTIALS"] =  "/home/svenmd/.cloudvolume/secrets/google-secret.json" 
 
 from pychunkedgraph.graph import chunkedgraph
+from pychunkedgraph.graph import attributes
 
 layer = 2
-n_chunks = 100
-n_segments_per_chunk = 20
-timestamp = datetime.datetime.fromtimestamp(1588875769) 
+n_chunks = 10000
+n_segments_per_chunk = 200
+# timestamp = datetime.datetime.fromtimestamp(1588875769) 
+timestamp = datetime.datetime.utcnow()
 
 cg = chunkedgraph.ChunkedGraph(graph_id="minnie3_v0")
 
@@ -32,7 +34,8 @@ for _ in range(n_chunks):
     for segment_id in segment_ids:
         node_ids.append(cg.get_node_id(np.uint64(segment_id), np.uint64(chunk_id)))
 
-rows = cg.client.read_nodes(node_ids=node_ids, end_time=timestamp)
+rows = cg.client.read_nodes(node_ids=node_ids, end_time=timestamp, 
+                            properties=attributes.Hierarchy.Parent)
 valid_node_ids = []
 non_valid_node_ids = []
 for k in rows.keys():
@@ -43,25 +46,33 @@ for k in rows.keys():
 
 # roots = cg.get_roots(valid_node_ids, time_stamp=timestamp)
 
+roots = []
+try:
+    roots = cg.get_roots(valid_node_ids)
+    assert len(roots) == len(valid_node_ids)
+    print(f"ALL {len(roots)} have been successful!")
+except:
+    print("At least one node failed. Checking nodes one by one now")
 
-log_dict = {}
-success_dict = {}
-for node_id in valid_node_ids:
-    try:
-        root = cg.get_root(node_id, time_stamp=timestamp)
-        print(f"Success: {node_id} from chunk {cg.get_chunk_id(node_id)}")
-        success_dict[node_id] = True
-    except Exception as e:
-        print(f"{node_id} from chunk {cg.get_chunk_id(node_id)} failed with {e}")
-        success_dict[node_id] = False
+if len(roots) != len(valid_node_ids):
+    log_dict = {}
+    success_dict = {}
+    for node_id in valid_node_ids:
+        try:
+            root = cg.get_root(node_id, time_stamp=timestamp)
+            print(f"Success: {node_id} from chunk {cg.get_chunk_id(node_id)}")
+            success_dict[node_id] = True
+        except Exception as e:
+            print(f"{node_id} from chunk {cg.get_chunk_id(node_id)} failed with {e}")
+            success_dict[node_id] = False
 
-        t_id = node_id
+            t_id = node_id
 
-        while t_id is not None:
-            last_working_chunk = cg.get_chunk_id(t_id)
-            t_id = cg.get_parent(t_id)
+            while t_id is not None:
+                last_working_chunk = cg.get_chunk_id(t_id)
+                t_id = cg.get_parent(t_id)
 
-        print(f"Failed on layer {cg.get_chunk_layer(last_working_chunk)} in chunk {last_working_chunk}")
-        log_dict[node_id] = last_working_chunk
+            print(f"Failed on layer {cg.get_chunk_layer(last_working_chunk)} in chunk {last_working_chunk}")
+            log_dict[node_id] = last_working_chunk
 
 
