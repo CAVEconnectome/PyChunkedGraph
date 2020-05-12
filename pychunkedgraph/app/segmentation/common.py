@@ -586,7 +586,7 @@ def handle_leaves(table_id, root_id):
     # Call ChunkedGraph
     cg = app_utils.get_cg(table_id)
     atomic_ids = cg.get_subgraph(
-        int(root_id), bbox=bounding_box, bbox_is_coordinate=True, nodes_only=True
+        int(root_id), bbox=bounding_box, bbox_is_coordinate=True, leaves_only=True
     )
 
     return atomic_ids
