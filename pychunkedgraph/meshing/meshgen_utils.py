@@ -264,6 +264,7 @@ def _get_sharded_meshes(
             )
             print(f"{layer_}:{labels.size} {time()-start}")
         result_, missing_ids = del_none_keys(result_)
+        print("missing_ids", len(missing_ids))
         result.update(result_)
         node_ids = cg.get_children(missing_ids, flatten=True)
         node_layers = cg.get_chunk_layers(node_ids)
@@ -275,7 +276,8 @@ def _get_sharded_meshes(
         labels=l2_ids, path=f"{mesh_dir}/initial/{stop_layer}/", return_byte_range=True,
     )
     print(f"{stop_layer}:{l2_ids.size} {time()-start}")
-    result_, _ = del_none_keys(result_)
+    result_, temp = del_none_keys(result_)
+    print("missing_ids", len(temp))
     result.update(result_)
     return result
 

@@ -245,33 +245,6 @@ class ChunkedGraph:
             return result
         return self.cache.atomic_cross_edges_multiple(l2_ids)
 
-    def _test_l2_ids(self, node_l2ids_d):
-        # TODO remove, just for testing
-        node_ids = node_l2ids_d.keys()
-        node_all_l2ids_d = {}
-        for node_id in node_ids:
-            layer_nodes_d = self._get_subgraph_higher_layer_nodes(
-                node_id=node_id, bounding_box=None, return_layers=[2],
-            )
-            node_all_l2ids_d[node_id] = layer_nodes_d[2]
-        node_coords_d = {
-            node_id: self.get_chunk_coordinates(node_id) for node_id in node_ids
-        }
-        for node_id, (X, Y, Z) in node_coords_d.items():
-            chunks = chunk_utils.get_bounding_children_chunks(
-                self.meta, self.get_chunk_layer(node_id), (X, Y, Z), 2
-            )
-            bounding_chunk_ids = np.array(
-                [self.get_chunk_id(layer=2, x=x, y=y, z=z) for (x, y, z) in chunks],
-                dtype=basetypes.CHUNK_ID,
-            )
-            l2_chunk_ids = self.get_chunk_ids_from_node_ids(node_all_l2ids_d[node_id])
-            mask = np.in1d(l2_chunk_ids, bounding_chunk_ids)
-            bounding_l2_ids = node_all_l2ids_d[node_id][mask]
-            common = np.intersect1d(bounding_l2_ids, node_l2ids_d[node_id])
-            assert np.setdiff1d(bounding_l2_ids, common).size == 0
-            assert np.setdiff1d(node_l2ids_d[node_id], common).size == 0
-
     def get_cross_chunk_edges(
         self, node_ids: np.ndarray, uplift=True, all_layers=False
     ) -> typing.Dict[np.uint64, typing.Dict[int, typing.Iterable]]:
@@ -291,7 +264,6 @@ class ChunkedGraph:
             return result
 
         node_l2ids_d = self._get_bounding_l2_children(node_ids)
-        # self._test_l2_ids(node_l2ids_d)
         l2_edges_d_d = self.get_atomic_cross_edges(
             np.concatenate(list(node_l2ids_d.values()))
         )
@@ -392,11 +364,7 @@ class ChunkedGraph:
         stop_layer: int = None,
         n_tries: int = 1,
     ) -> typing.Union[typing.List[np.uint64], np.uint64]:
-        """ Takes a node id and returns the associated agglomeration ids
-        :param node_id: uint64
-        :param time_stamp: None or datetime
-        :return: np.uint64
-        """
+        """Takes a node id and returns the associated agglomeration ids."""
         time_stamp = misc_utils.get_valid_timestamp(time_stamp)
         parent_id = node_id
         all_parent_ids = []
@@ -562,6 +530,24 @@ class ChunkedGraph:
             else (in_edges, out_edges, cross_edges),
         )
 
+    def get_node_timestamps(
+        self, node_ids: typing.Sequence[np.uint64]
+    ) -> typing.Iterable:
+        """
+        The timestamp of the children column can be assumed
+        to be the timestamp at which the node ID was created.
+        """
+        children = self.client.read_nodes(
+            node_ids=node_ids, properties=attributes.Hierarchy.Child
+        )
+
+        if not children:
+            return np.array([], dtype=np.datetime64)
+        return np.array(
+            [x[0].timestamp for x in children.values()], dtype=np.datetime64
+        )
+
+    # OPERATIONS
     def add_edges(
         self,
         user_id: str,
@@ -890,22 +876,5 @@ class ChunkedGraph:
             self.meta.data_source.EDGES,
             [self.get_chunk_coordinates(chunk_id) for chunk_id in chunk_ids],
             cv_threads=cv_threads,
-        )
-
-    def get_node_timestamps(
-        self, node_ids: typing.Sequence[np.uint64]
-    ) -> typing.Iterable:
-        """
-        The timestamp of the children column can be assumed
-        to be the timestamp at which the node ID was created.
-        """
-        children = self.client.read_nodes(
-            node_ids=node_ids, properties=attributes.Hierarchy.Child
-        )
-
-        if not children:
-            return np.array([], dtype=np.datetime64)
-        return np.array(
-            [x[0].timestamp for x in children.values()], dtype=np.datetime64
         )
 
