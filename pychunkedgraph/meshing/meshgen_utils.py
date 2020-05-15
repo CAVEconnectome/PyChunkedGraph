@@ -394,9 +394,9 @@ def children_meshes_sharded(
         bbox=bounding_box,
         bbox_is_coordinate=True,
         nodes_only=True,
-        return_layers=[2],
+        return_layers=[3],
     )
-    node_ids = node_ids[2]
+    node_ids = node_ids[3]
     # node_ids = _get_children_before_start_layer(cg, node_id)
     print("get_subgraph children took: %.3fs" % (time() - start))
     print("node_ids", len(node_ids))
