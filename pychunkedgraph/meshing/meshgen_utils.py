@@ -13,6 +13,7 @@ from cloudvolume import CloudVolume, Storage
 from multiwrapper import multiprocessing_utils as mu
 
 from pychunkedgraph.graph.utils import basetypes  # noqa
+from ..graph.types import empty_1d
 
 
 def str_to_slice(slice_str: str):
@@ -238,6 +239,23 @@ def get_json_info(cg, mesh_dir: str = None):
     return loads(info_str)
 
 
+def _skip_single_child_parents(cg, node_ids):
+    """
+    If a parent has a single child,
+    it does not have an associated mesh to avoid duplication.
+    """
+    result = []
+    children_d = cg.get_children(node_ids)
+
+    for p, c in children_d.items():
+        if c.size > 1:
+            result.append(p)
+            continue
+        assert c.size == 1, f"{p} does not seem to have children."
+        result.append(c[0])
+    return np.array(result, dtype=basetypes.NODE_ID)
+
+
 def _get_sharded_meshes(
     cg,
     shard_readers,
@@ -265,8 +283,10 @@ def _get_sharded_meshes(
             print(f"{layer_}:{labels.size} {time()-start}")
         result_, missing_ids = del_none_keys(result_)
         print("missing_ids", len(missing_ids))
+        print(missing_ids)
         result.update(result_)
         node_ids = cg.get_children(missing_ids, flatten=True)
+        node_ids = _skip_single_child_parents(cg, node_ids)
         node_layers = cg.get_chunk_layers(node_ids)
 
     # remainder IDs
@@ -360,13 +380,7 @@ def _get_mesh_paths(
     return result
 
 
-def _get_children_before_start_layer(cg, node_id: np.uint64, start_layer: int = 4):
-    """
-    Due to skip connections, to make sure no meshes are missed
-    return immediately as soon as an ID in `start_layer` is found.
-    """
-    from ..graph.types import empty_1d
-
+def _get_children_before_start_layer(cg, node_id: np.uint64, start_layer: int = 6):
     result = [empty_1d]
     parents = np.array([node_id], dtype=np.uint64)
     while parents.size:
@@ -374,7 +388,7 @@ def _get_children_before_start_layer(cg, node_id: np.uint64, start_layer: int = 
         layers = cg.get_chunk_layers(children)
         result.append(children[layers <= start_layer])
         parents = children[layers > start_layer]
-    return np.concatenate(result)
+    return _skip_single_child_parents(cg, np.concatenate(result))
 
 
 def children_meshes_sharded(
@@ -384,8 +398,10 @@ def children_meshes_sharded(
     For each ID, first check for new meshes,
     If not found check initial meshes.
     """
+    import os
+
     # UNIX_TIMESTAMP = 1562100638 # {"iso":"2019-07-02 20:50:38.934000+00:00"}
-    MAX_STITCH_LAYER = 4  # make this part of meta?
+    MAX_STITCH_LAYER = int(os.environ.get("MESH_START_LAYER", 5))  # make this part of meta?
 
     start = time()
     # node_ids = cg.get_subgraph(
@@ -396,7 +412,7 @@ def children_meshes_sharded(
     #     return_layers=[3],
     # )
     # node_ids = node_ids[3]
-    node_ids = _get_children_before_start_layer(cg, node_id)
+    node_ids = _get_children_before_start_layer(cg, node_id, MAX_STITCH_LAYER)
     print("_get_children_before_start_layer: %.3fs" % (time() - start))
     print("node_ids", len(node_ids))
 
