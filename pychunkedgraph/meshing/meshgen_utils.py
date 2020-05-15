@@ -372,8 +372,7 @@ def _get_children_before_start_layer(cg, node_id: np.uint64, start_layer: int = 
     while parents.size:
         children = cg.get_children(parents, flatten=True)
         layers = cg.get_chunk_layers(children)
-        children_ = children[layers <= start_layer]
-        result.append(children_)
+        result.append(children[layers <= start_layer])
         parents = children[layers > start_layer]
     return np.concatenate(result)
 
@@ -389,16 +388,16 @@ def children_meshes_sharded(
     MAX_STITCH_LAYER = 4  # make this part of meta?
 
     start = time()
-    node_ids = cg.get_subgraph(
-        node_id,
-        bbox=bounding_box,
-        bbox_is_coordinate=True,
-        nodes_only=True,
-        return_layers=[3],
-    )
-    node_ids = node_ids[3]
-    # node_ids = _get_children_before_start_layer(cg, node_id)
-    print("get_subgraph children took: %.3fs" % (time() - start))
+    # node_ids = cg.get_subgraph(
+    #     node_id,
+    #     bbox=bounding_box,
+    #     bbox_is_coordinate=True,
+    #     nodes_only=True,
+    #     return_layers=[3],
+    # )
+    # node_ids = node_ids[3]
+    node_ids = _get_children_before_start_layer(cg, node_id)
+    print("_get_children_before_start_layer: %.3fs" % (time() - start))
     print("node_ids", len(node_ids))
 
     start = time()
