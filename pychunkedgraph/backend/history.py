@@ -98,6 +98,13 @@ class SegmentHistory(object):
         return self._original_root_id_lookup_vec
 
     @property
+    def tabular_changelog_with_ids(self):
+        if "before_root_ids" not in self.tabular_changelog:
+            self._add_ids_to_tabular_changelog()
+
+        return self._tabular_changelog
+
+    @property
     def tabular_changelog(self):
         if self._tabular_changelog is None:
             self._build_tabular_changelog()
@@ -159,11 +166,12 @@ class SegmentHistory(object):
         is_relevant_list = []
         timestamp_list = []
         user_list = []
-        before_root_ids_list = []
-        after_root_ids_list = []
+        # before_root_ids_list = []
+        # after_root_ids_list = []
 
         entry_ids = list(self.past_log_entries.keys())
-        for entry_id in np.sort(entry_ids):
+        sorted_entry_ids = np.sort(entry_ids)
+        for entry_id in sorted_entry_ids:
             entry = self.past_log_entries[entry_id]
 
             is_merge_list.append(entry.is_merge)
@@ -183,12 +191,6 @@ class SegmentHistory(object):
                     is_in_neuron_list.append(True)
                 else:
                     is_in_neuron_list.append(False)
-
-                before_root_ids, after_root_ids = \
-                    self._before_after_root_ids(entry)
-
-                before_root_ids_list.append(before_root_ids)
-                after_root_ids_list.append(after_root_ids)
             else:
                 if len(np.unique(sv_ids_current_root)) != 1:
                     is_relevant_list.append(True)
@@ -200,24 +202,44 @@ class SegmentHistory(object):
                 else:
                     is_in_neuron_list.append(False)
 
+        self._tabular_changelog = pd.DataFrame.from_dict(
+            {"operation_id": sorted_entry_ids,
+             "timestamp": timestamp_list,
+             "user_id": user_list,
+            #  "before_root_ids": before_root_ids_list,
+            #  "after_root_ids": after_root_ids_list,
+             "is_merge": is_merge_list,
+             "in_neuron": is_in_neuron_list,
+             "is_relevant": is_relevant_list})
+
+    def _add_ids_to_tabular_changelog(self):
+        tab_dict = self.tabular_changelog.to_dict(orient='list')
+        before_root_ids_list = []
+        after_root_ids_list = []
+
+        for entry_id in tab_dict["operation_id"]:
+            entry = self.past_log_entries[entry_id]
+
+            sv_ids_original_root = self.original_root_id_lookup_vec(entry.edges_failsafe)
+            sv_ids_current_root = self.root_id_lookup_vec(entry.edges_failsafe)
+
+            if entry.is_merge:
+                before_root_ids, after_root_ids = \
+                    self._before_after_root_ids(entry)
+
+                before_root_ids_list.append(before_root_ids)
+                after_root_ids_list.append(after_root_ids)
+            else:
                 before_root_ids, after_root_ids = \
                     self._before_after_root_ids(entry)
 
                 before_root_ids_list.append(before_root_ids)
                 after_root_ids_list.append(after_root_ids)
 
-        # before_root_ids_list = np.array(before_root_ids_list, dtype=np.uint64)
-        # after_root_ids_list = np.array(after_root_ids_list, dtype=np.uint64)
+        tab_dict["before_root_ids"] = before_root_ids
+        tab_dict["after_root_ids"] = after_root_ids
 
-        self._tabular_changelog = pd.DataFrame.from_dict(
-            {"operation_id": np.sort(entry_ids),
-             "timestamp": timestamp_list,
-             "user_id": user_list,
-             "before_root_ids": before_root_ids_list,
-             "after_root_ids": after_root_ids_list,
-             "is_merge": is_merge_list,
-             "in_neuron": is_in_neuron_list,
-             "is_relevant": is_relevant_list})
+        self._tabular_changelog = pd.DataFrame.from_dict(tab_dict)
 
     def _before_after_root_ids(self, entry):
         before_root_ids = np.unique(

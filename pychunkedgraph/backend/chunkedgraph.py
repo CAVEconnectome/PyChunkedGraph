@@ -1528,28 +1528,12 @@ class ChunkedGraph(object):
         :param operation_id: np.uint64
         :return: Dict[column_keys._Column, Union[np.ndarray, np.number]]
         """
-        columns = [
-            column_keys.OperationLogs.UndoOperationID,
-            column_keys.OperationLogs.RedoOperationID,
-            column_keys.OperationLogs.UserID,
-            column_keys.OperationLogs.RootID,
-            column_keys.OperationLogs.SinkID,
-            column_keys.OperationLogs.SourceID,
-            column_keys.OperationLogs.SourceCoordinate,
-            column_keys.OperationLogs.SinkCoordinate,
-            column_keys.OperationLogs.AddedEdge,
-            column_keys.OperationLogs.Affinity,
-            column_keys.OperationLogs.RemovedEdge,
-            column_keys.OperationLogs.BoundingBoxOffset,
-        ]
-        log_record = self.read_node_id_row(operation_id, columns=columns)
-
+        log_record = self.read_log_rows([operation_id])[0]
+        
         if len(log_record) == 0:
             return {}, None
 
-        timestamp = log_record[column_keys.OperationLogs.RootID][0].timestamp
-        log_record.update((column, v[0].value) for column, v in log_record.items())
-        return log_record, timestamp
+        return log_record, log_record["timestamp"]
 
     def read_log_rows(self, operation_ids: Optional[Sequence] = None,
             start_time: Optional[datetime.datetime] = None,
