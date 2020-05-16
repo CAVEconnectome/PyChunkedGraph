@@ -287,7 +287,8 @@ def change_log(table_id, root_id):
 def tabular_change_log(table_id, root_id):
     disp = request.args.get("disp", default=False, type=toboolean)
     get_root_ids = request.args.get("root_ids", default=False, type=toboolean)
-    tab_change_log = common.tabular_change_log(table_id, root_id, get_root_ids)
+    filtered = request.args.get("filtered", default=True, type=toboolean)
+    tab_change_log = common.tabular_change_log(table_id, root_id, get_root_ids, filtered)
 
     if disp:
         return tab_change_log.to_html()
