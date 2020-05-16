@@ -1528,7 +1528,7 @@ class ChunkedGraph(object):
         :param operation_id: np.uint64
         :return: Dict[column_keys._Column, Union[np.ndarray, np.number]]
         """
-        log_record = self.read_log_rows([operation_id])[0]
+        log_record = list(self.read_log_rows([operation_id]).values())[0]
         
         if len(log_record) == 0:
             return {}, None
