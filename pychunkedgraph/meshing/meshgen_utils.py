@@ -12,7 +12,7 @@ import numpy as np
 from cloudvolume import CloudVolume, Storage
 from multiwrapper import multiprocessing_utils as mu
 
-from pychunkedgraph.graph.utils import basetypes  # noqa
+from pychunkedgraph.graph.utils.basetypes import NODE_ID  # noqa
 from ..graph.types import empty_1d
 
 
@@ -239,21 +239,35 @@ def get_json_info(cg, mesh_dir: str = None):
     return loads(info_str)
 
 
-def _skip_single_child_parents(cg, node_ids):
-    """
-    If a parent has a single child,
-    it does not have an associated mesh to avoid duplication.
-    """
-    result = []
-    children_d = cg.get_children(node_ids)
+def _get_children(cg, node_ids: Sequence[np.uint64], children_cache: dict = {}):
+    if not len(node_ids):
+        return empty_1d.copy()
+    node_ids = np.array(node_ids, dtype=NODE_ID)
+    mask = np.in1d(node_ids, np.fromiter(children_cache.keys(), dtype=NODE_ID))
+    children_d = cg.get_children(node_ids[~mask])
+    children_cache.update(children_d)
 
+    children = [empty_1d]
+    for id_ in node_ids:
+        children.append(children_cache[id_])
+    return np.concatenate(children)
+
+
+def _check_skips(cg, node_ids: Sequence[np.uint64], children_cache: dict = {}):
+    layers = cg.get_chunk_layers(node_ids)
+    skips = []
+    result = [empty_1d, node_ids[layers == 2]]
+
+    children_d = cg.get_children(node_ids[layers > 2])
     for p, c in children_d.items():
         if c.size > 1:
-            result.append(p)
+            result.append([p])
+            children_cache[p] = c
             continue
         assert c.size == 1, f"{p} does not seem to have children."
-        result.append(c[0])
-    return np.array(result, dtype=basetypes.NODE_ID)
+        skips.append(c[0])
+    print("skips", len(skips))
+    return np.concatenate(result), np.array(skips, dtype=np.uint64)
 
 
 def _get_sharded_meshes(
@@ -263,41 +277,41 @@ def _get_sharded_meshes(
     stop_layer: int = 2,
     mesh_dir: str = "graphene_meshes",
 ) -> Dict:
+    children_cache = {}
     result = {}
+    only_l2_ids = True
     if not len(node_ids):
         return result
     node_layers = cg.get_chunk_layers(node_ids)
     l2_ids = node_ids[node_layers == stop_layer]
     while np.any(node_layers > stop_layer):
-        result_ = {}
-        for layer_ in np.unique(node_layers[node_layers > stop_layer]):
-            start = time()
-            labels = node_ids[node_layers == layer_]
-            result_.update(
-                shard_readers[layer_].exists(
-                    labels=labels,
-                    path=f"{mesh_dir}/initial/{layer_}/",
-                    return_byte_range=True,
-                )
-            )
-            print(f"{layer_}:{labels.size} {time()-start}")
+        only_l2_ids = False
+        ids_ = node_ids[node_layers > stop_layer]
+        ids_, skips = _check_skips(cg, ids_, children_cache=children_cache)
+
+        start = time()
+        result_ = shard_readers.initial_exists(ids_, return_byte_range=True)
         result_, missing_ids = del_none_keys(result_)
-        print("missing_ids", len(missing_ids))
-        print(missing_ids)
         result.update(result_)
-        node_ids = cg.get_children(missing_ids, flatten=True)
-        node_ids = _skip_single_child_parents(cg, node_ids)
+        print("ids, missing", ids_.size, len(missing_ids), time() - start)
+
+        # node_ids = cg.get_children(missing_ids, flatten=True)
+        node_ids = _get_children(cg, missing_ids, children_cache=children_cache)
+        node_ids = np.concatenate([node_ids, skips])
         node_layers = cg.get_chunk_layers(node_ids)
 
     # remainder IDs
     start = time()
-    l2_ids = np.concatenate([l2_ids, node_ids[node_layers == stop_layer]])
-    result_ = shard_readers[stop_layer].exists(
-        labels=l2_ids, path=f"{mesh_dir}/initial/{stop_layer}/", return_byte_range=True,
-    )
+    if not only_l2_ids:
+        l2_ids = np.concatenate([l2_ids, node_ids[node_layers == stop_layer]])
+    # result_ = shard_readers.readers[stop_layer].exists(
+    #     labels=l2_ids, path=f"{mesh_dir}/initial/{stop_layer}/", return_byte_range=True,
+    # )
+    result_ = shard_readers.initial_exists(l2_ids, return_byte_range=True)
     print(f"{stop_layer}:{l2_ids.size} {time()-start}")
     result_, temp = del_none_keys(result_)
     print("missing_ids", len(temp))
+    print(temp)
     result.update(result_)
     return result
 
@@ -319,7 +333,7 @@ def _get_unsharded_meshes(cg, node_ids: Sequence[np.uint64]) -> Tuple[Dict, List
                 result[node_id] = mesh_key
                 continue
             missing_ids.append(node_id)
-    missing_ids = np.array(missing_ids, dtype=basetypes.NODE_ID)
+    missing_ids = np.array(missing_ids, dtype=NODE_ID)
     return result, missing_ids
 
 
@@ -359,7 +373,7 @@ def _get_mesh_paths(
         f"graphene://https://localhost/segmentation/table/dummy",
         mesh_dir=mesh_dir,
         info=get_json_info(cg, mesh_dir=mesh_dir),
-    ).mesh.readers
+    ).mesh
 
     result = {}
     node_layers = cg.get_chunk_layers(node_ids)
@@ -388,7 +402,7 @@ def _get_children_before_start_layer(cg, node_id: np.uint64, start_layer: int = 
         layers = cg.get_chunk_layers(children)
         result.append(children[layers <= start_layer])
         parents = children[layers > start_layer]
-    return _skip_single_child_parents(cg, np.concatenate(result))
+    return np.concatenate(result)
 
 
 def children_meshes_sharded(
@@ -401,7 +415,9 @@ def children_meshes_sharded(
     import os
 
     # UNIX_TIMESTAMP = 1562100638 # {"iso":"2019-07-02 20:50:38.934000+00:00"}
-    MAX_STITCH_LAYER = int(os.environ.get("MESH_START_LAYER", 5))  # make this part of meta?
+    MAX_STITCH_LAYER = int(
+        os.environ.get("MESH_START_LAYER", 5)
+    )  # make this part of meta?
 
     start = time()
     # node_ids = cg.get_subgraph(
@@ -418,7 +434,7 @@ def children_meshes_sharded(
 
     start = time()
     result = _get_mesh_paths(cg, node_ids)
-    node_ids = np.fromiter(result.keys(), dtype=basetypes.NODE_ID)
+    node_ids = np.fromiter(result.keys(), dtype=NODE_ID)
 
     mesh_files = []
     for val in result.values():
