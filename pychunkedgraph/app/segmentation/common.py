@@ -705,12 +705,16 @@ def tabular_change_log_recent(table_id):
 
     return pd.DataFrame.from_dict(
         {"operation_id": entry_ids,
-            "timestamp": timestamp_list,
-            "user_id": user_list})
+         "timestamp": timestamp_list,
+         "user_id": user_list})
 
 
-def tabular_change_log(table_id, root_id):
-    current_app.request_type = "tabular_changelog"
+def tabular_change_log(table_id, root_id, get_root_ids, filtered):
+    if get_root_ids:
+        current_app.request_type = "tabular_changelog_wo_ids"
+    else:
+        current_app.request_type = "tabular_changelog"
+
     current_app.table_id = table_id
     user_id = str(g.auth_user["id"])
     current_app.user_id = user_id
@@ -719,7 +723,19 @@ def tabular_change_log(table_id, root_id):
     cg = app_utils.get_cg(table_id)
     segment_history = cg_history.SegmentHistory(cg, int(root_id))
 
-    return segment_history.tabular_changelog
+    if get_root_ids:
+        tab = segment_history.tabular_changelog_with_ids
+    else:
+        tab = segment_history.tabular_changelog
+
+    if filtered:
+        tab = tab[np.array(tab[["in_neuron"]])]
+        tab = tab[np.array(tab[["is_relevant"]])]
+
+        tab = tab.drop("in_neuron", axis=1)
+        tab = tab.drop("is_relevant", axis=1)
+
+    return tab
 
 
 def merge_log(table_id, root_id):
