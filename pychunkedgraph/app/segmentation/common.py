@@ -732,8 +732,8 @@ def tabular_change_log(table_id, root_id, get_root_ids, filtered):
         tab = tab[np.array(tab[["in_neuron"]])]
         tab = tab[np.array(tab[["is_relevant"]])]
 
-        tab.drop("in_neuron", axis=1)
-        tab.drop("is_relevant", axis=1)
+        tab = tab.drop("in_neuron", axis=1)
+        tab = tab.drop("is_relevant", axis=1)
 
     return tab
 
