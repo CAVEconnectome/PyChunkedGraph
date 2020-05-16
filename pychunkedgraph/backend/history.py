@@ -236,8 +236,8 @@ class SegmentHistory(object):
                 before_root_ids_list.append(before_root_ids)
                 after_root_ids_list.append(after_root_ids)
 
-        tab_dict["before_root_ids"] = before_root_ids
-        tab_dict["after_root_ids"] = after_root_ids
+        tab_dict["before_root_ids"] = before_root_ids_list
+        tab_dict["after_root_ids"] = after_root_ids_list
 
         self._tabular_changelog = pd.DataFrame.from_dict(tab_dict)
 
