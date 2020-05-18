@@ -18,3 +18,4 @@ zmesh
 fastremap
 pyyaml
 cachetools
+task-queue

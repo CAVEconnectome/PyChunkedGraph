@@ -58,7 +58,7 @@ def get_mesh_block_shape(cg, graphlayer: int) -> np.ndarray:
     the same region as a ChunkedGraph chunk at layer `graphlayer`.
     """
     # Segmentation is not always uniformly downsampled in all directions.
-    return cg.chunk_size * cg.fan_out ** np.max([0, graphlayer - 2])
+    return np.array(cg.meta.graph_config.CHUNK_SIZE) * cg.meta.graph_config.FANOUT ** np.max([0, graphlayer - 2])
 
 
 def get_mesh_block_shape_for_mip(cg, graphlayer: int, source_mip: int) -> np.ndarray:
@@ -73,7 +73,7 @@ def get_mesh_block_shape_for_mip(cg, graphlayer: int, source_mip: int) -> np.nda
     scale_mip = info["scales"][source_mip]
     distortion = np.floor_divide(scale_mip["resolution"], scale_0["resolution"])
 
-    graphlayer_chunksize = cg.chunk_size * cg.fan_out ** np.max([0, graphlayer - 2])
+    graphlayer_chunksize = np.array(cg.meta.graph_config.CHUNK_SIZE) * cg.meta.graph_config.FANOUT ** np.max([0, graphlayer - 2])
 
     return np.floor_divide(
         graphlayer_chunksize, distortion, dtype=np.int, casting="unsafe"

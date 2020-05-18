@@ -14,7 +14,7 @@ ingest_cli = AppGroup('mesh')
 
 num_messages = 0
 messages = []
-cg = ChunkedGraph('fly_v31')
+cg = ChunkedGraph(graph_id='minnie3_v0')
 def handlerino_write_to_cloud(*args, **kwargs):
     global num_messages
     num_messages = num_messages + 1
@@ -24,7 +24,7 @@ def handlerino_write_to_cloud(*args, **kwargs):
         f.write(str(args[0]['data']) + '\n')
     if num_messages == 1000:
         print('DONE')
-        cv_path = cg._cv_path
+        cv_path = cg.meta._ws_cv.base_cloudpath
         with cloudvolume.Storage(cv_path) as storage:
             storage.put_file(
                     file_path='frag_test/frag_test_summary_no_dust_threshold',
@@ -49,13 +49,15 @@ def handlerino_print(*args, **kwargs):
 def handlerino_periodically_write_to_cloud(*args, **kwargs):
     global num_messages
     num_messages = num_messages + 1
-    print(num_messages, args[0]['data'])
-    messages.append(args[0]['data'])
+    import pickle
+    data = pickle.loads(args[0]['data'])
+    print(num_messages, data)
+    messages.append(data)
     with open('output.txt', 'a') as f:
-        f.write(str(args[0]['data']) + '\n')
+        f.write(str(data) + '\n')
     if num_messages % 1000 == 0:
         print('Writing result data to cloud')
-        cv_path = cg._cv_path
+        cv_path = cg.meta._ws_cv.base_cloudpath
         filename = f'{datetime.now()}_meshes_{num_messages}'
         with cloudvolume.Storage(cv_path) as storage:
             storage.put_file(
@@ -114,14 +116,12 @@ def mesh_chunks(layer, x_start, y_start, z_start, x_end, y_end, z_end, fragment_
 @click.argument('x_end', type=int)
 @click.argument('y_end', type=int)
 @click.argument('z_end', type=int)
-@click.argument('fragment_batch_size', type=int, default=None)
-@click.argument('mesh_dir', type=str, default=None)
-def mesh_chunks_shuffled(layer, x_start, y_start, z_start, x_end, y_end, z_end, fragment_batch_size, mesh_dir):
+def mesh_chunks_shuffled(layer, x_start, y_start, z_start, x_end, y_end, z_end):
     print(f'Queueing...')
-    chunk_pubsub = current_app.redis.pubsub()
-    chunk_pubsub.subscribe(**{'mesh_frag_test_channel': handlerino_periodically_write_to_cloud})
+    # chunk_pubsub = current_app.redis.pubsub()
+    # chunk_pubsub.subscribe(**{'mesh_frag_test_channel': handlerino_periodically_write_to_cloud})
 
-    cg = ChunkedGraph('fly_v31')
+    cg = ChunkedGraph(graph_id='minnie3_v0')
     chunks_arr = []
     for x in range(x_start,x_end):
         for y in range(y_start, y_end):
@@ -135,24 +135,28 @@ def mesh_chunks_shuffled(layer, x_start, y_start, z_start, x_end, y_end, z_end, 
     for chunk in chunks_arr:
         chunk_id = cg.get_chunk_id(None, layer, chunk[0], chunk[1], chunk[2])
         current_app.test_q.enqueue(
-            meshgen.chunk_mesh_task_new_remapping,
+            meshgen.chunk_mesh_task_sharded_meshing_opt,
             job_timeout='300m',
             args=(
-                cg.get_serialized_info(), 
+                'minnie3_v0',
+                # cg.get_serialized_info(), 
                 chunk_id,
-                cg._cv_path,
-                mesh_dir
-            ),
-            kwargs={
+                2,
+                'graphene://https://minniev1.microns-daf.com/segmentation/table/minnie3_v0',
+                'graphene_meshes'
+                # cg._cv_path,
+                # mesh_dir
+            ))
+            # kwargs={
                 # 'cv_mesh_dir': 'mesh_testing/initial_testrun_meshes',
-                'mip': 1,
-                'max_err': 320,
-                'fragment_batch_size': fragment_batch_size
+                # 'mip': 1,
+                # 'max_err': 320,
+                # 'fragment_batch_size': fragment_batch_size
                 # 'dust_threshold': 100
-            })
+            # })
     
     print(f'Queued jobs: {len(current_app.test_q)}')
-    thread = chunk_pubsub.run_in_thread(sleep_time=0.1)
+    # thread = chunk_pubsub.run_in_thread(sleep_time=0.1)
                 
     return 'Queued'
 
