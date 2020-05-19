@@ -723,17 +723,8 @@ def tabular_change_log(table_id, root_id, get_root_ids, filtered):
     cg = app_utils.get_cg(table_id)
     segment_history = cg_history.SegmentHistory(cg, int(root_id))
 
-    if get_root_ids:
-        tab = segment_history.tabular_changelog_with_ids
-    else:
-        tab = segment_history.tabular_changelog
-
-    if filtered:
-        tab = tab[np.array(tab[["in_neuron"]])]
-        tab = tab[np.array(tab[["is_relevant"]])]
-
-        tab = tab.drop("in_neuron", axis=1)
-        tab = tab.drop("is_relevant", axis=1)
+    tab = segment_history.get_tabular_changelog(with_ids=get_root_ids, 
+                                                filtered=filtered)
 
     return tab
 
