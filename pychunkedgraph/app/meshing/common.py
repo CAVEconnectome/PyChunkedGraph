@@ -17,7 +17,8 @@ from pychunkedgraph.meshing import meshgen, meshgen_utils
 # ------ Access control and index
 # -------------------------------
 
-__meshing_url_prefix__ = os.environ.get('MESHING_URL_PREFIX', 'meshing')
+__meshing_url_prefix__ = os.environ.get("MESHING_URL_PREFIX", "meshing")
+
 
 def index():
     return f"PyChunkedGraph Meshing v{__version__}"
@@ -190,6 +191,9 @@ def handle_get_manifest(table_id, node_id):
     verify = request.args.get("verify", False)
     verify = verify in ["True", "true", "1", True]
 
+    return_seg_ids = request.args.get("return_seg_ids", False)
+    return_seg_ids = return_seg_ids in ["True", "true", "1", True]
+
     cg = app_utils.get_cg(table_id)
 
     if "start_layer" in data:
@@ -214,7 +218,6 @@ def handle_get_manifest(table_id, node_id):
 
     resp = {"fragments": fragment_URIs}
 
-
     if "return_seg_id_layers" in data:
         if app_utils.toboolean(data["return_seg_id_layers"]):
             resp["seg_id_layers"] = cg.get_chunk_layers(seg_ids)
@@ -224,4 +227,6 @@ def handle_get_manifest(table_id, node_id):
             resp["seg_chunk_coordinates"] = [
                 cg.get_chunk_coordinates(seg_id) for seg_id in seg_ids
             ]
+    if return_seg_ids:
+        resp["seg_ids"] = seg_ids
     return resp
