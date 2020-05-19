@@ -521,7 +521,7 @@ def get_root_remapping_for_nodes_and_svs(
         chunk_id=chunk_id, properties=attributes.Hierarchy.Child, time_stamp=time_stamp
     )
     upper_lvl_ids = [id[0].value for id in rr.values()]
-    combined_ids = np.concatenate((node_ids, sv_ids, upper_lvl_ids))
+    combined_ids = np.concatenate((node_ids, sv_ids, np.concatenate(upper_lvl_ids)))
 
     root_ids = np.zeros(len(combined_ids), dtype=np.uint64)
     n_jobs = np.min([n_threads, len(combined_ids)])
@@ -531,7 +531,6 @@ def get_root_remapping_for_nodes_and_svs(
         multi_args.append([start_ids[i_block], start_ids[i_block + 1]])
 
     if n_jobs > 0:
-        import ipdb; ipdb.set_trace()
         mu.multithread_func(_get_root_ids, multi_args, n_threads=n_threads)
 
     sv_ids_index = len(node_ids)
@@ -1541,14 +1540,17 @@ def chunk_mesh_task_new_remapping(
             for i in range(len(files_contents)):
                 cur_file = files_contents[i]
                 if cur_file['content'] is None:
-                    files_to_get.append(cur_file[:cur_file['filename'].find(':')])
+                    files_to_get.append(cur_file['filename'][:cur_file['filename'].find(':')])
                     indices.append(i)
-            initial_meshes = cv.mesh.get(files_to_get)
+            initial_meshes = cv.mesh.get(files_to_get, bypass=True, deduplicate_chunk_boundaries=False)
             for i in range(len(files_to_get)):
-                if initial_meshes[files_to_get[i]] is not None:
+                mesh_to_get = np.uint64(files_to_get[i])
+                if mesh_to_get in initial_meshes and initial_meshes[mesh_to_get] is not None:
                     cur_index = indices[i]
-                    files_contents[cur_index]['content'] = initial_meshes[files_to_get[i]]
+                    files_contents[cur_index]['content'] = initial_meshes[mesh_to_get]
                     files_contents[cur_index]['skip_decode'] = True
+            # import ipdb
+            # ipdb.set_trace()
             fragment_map = {}
             for i in range(len(files_contents)):
                 fragment_map[files_contents[i]["filename"]] = files_contents[i]
@@ -1575,6 +1577,19 @@ def chunk_mesh_task_new_remapping(
                                     + fragment_batch_size
                                 ]
                             )
+                            files_to_get = []
+                            indices = []
+                            for i in range(len(files_contents)):
+                                cur_file = files_contents[i]
+                                if cur_file['content'] is None:
+                                    files_to_get.append(cur_file['filename'][:cur_file['filename'].find(':')])
+                                    indices.append(i)
+                            initial_meshes = cv.mesh.get(files_to_get, bypass=True, deduplicate_chunk_boundaries=False)
+                            for i in range(len(files_to_get)):
+                                if files_to_get[i] in initial_meshes and initial_meshes[files_to_get[i]] is not None:
+                                    cur_index = indices[i]
+                                    files_contents[cur_index]['content'] = initial_meshes[files_to_get[i]]
+                                    files_contents[cur_index]['skip_decode'] = True
                             fragment_map = {}
                             for j in range(len(files_contents)):
                                 fragment_map[
@@ -1589,7 +1604,7 @@ def chunk_mesh_task_new_remapping(
                         )
                         missing_fragments = True
                     node_id_str = filename[:end_of_node_id_index]
-                    if fragment["skip_decode"]:
+                    if "skip_decode" in fragment:
                         old_frag = fragment["content"]
                         new_old_frag = {
                             "num_vertices": len(old_frag.vertices),
