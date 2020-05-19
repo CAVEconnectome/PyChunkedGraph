@@ -100,7 +100,7 @@ class SegmentHistory(object):
     @property
     def tabular_changelog_with_ids(self):
         if "before_root_ids" not in self.tabular_changelog:
-            self._add_ids_to_tabular_changelog()
+            self._tabular_changelog = self._add_ids_to_tabular_changelog()
 
         return self._tabular_changelog
 
@@ -110,6 +110,38 @@ class SegmentHistory(object):
             self._build_tabular_changelog()
 
         return self._tabular_changelog
+
+    @property
+    def filtered_log_mask(self):
+        return np.logical_and(~np.array(self.tabular_changelog[["in_neuron"]]),
+                              ~np.array(self.tabular_changelog[["is_relevant"]])).squeeze()
+
+
+
+    def get_tabular_changelog(self, with_ids=False, filtered=False):
+        if not with_ids and not filtered:
+            return self.tabular_changelog
+        elif not with_ids and filtered:
+            tab = self.tabular_changelog[self.filtered_log_mask]
+            tab = tab.drop("in_neuron", axis=1)
+            tab = tab.drop("is_relevant", axis=1)
+
+            return tab
+        elif with_ids and not filtered:
+            return self.tabular_changelog_with_ids
+        else:
+            if "before_root_ids" in self.tabular_changelog:
+                tab = self.tabular_changelog[self.filtered_log_mask]
+                tab = tab.drop("in_neuron", axis=1)
+                tab = tab.drop("is_relevant", axis=1)
+
+                return tab
+            else:
+                tab = self.tabular_changelog[self.filtered_log_mask]
+                tab = tab.drop("in_neuron", axis=1)
+                tab = tab.drop("is_relevant", axis=1)
+
+                return self._add_ids_to_tabular_changelog(tab)
 
     def _collect_edit_timestamps(self):
         self._edit_timestamps = []
@@ -212,8 +244,11 @@ class SegmentHistory(object):
              "in_neuron": is_in_neuron_list,
              "is_relevant": is_relevant_list})
 
-    def _add_ids_to_tabular_changelog(self):
-        tab_dict = self.tabular_changelog.to_dict(orient='list')
+    def _add_ids_to_tabular_changelog(self, tabular_changelog=None):
+        if tabular_changelog is None:
+            tab_dict = self.tabular_changelog.to_dict(orient='list')
+        else:
+            tab_dict = tabular_changelog.to_dict(orient='list')
         before_root_ids_list = []
         after_root_ids_list = []
 
@@ -239,7 +274,7 @@ class SegmentHistory(object):
         tab_dict["before_root_ids"] = before_root_ids_list
         tab_dict["after_root_ids"] = after_root_ids_list
 
-        self._tabular_changelog = pd.DataFrame.from_dict(tab_dict)
+        return pd.DataFrame.from_dict(tab_dict)
 
     def _before_after_root_ids(self, entry):
         before_root_ids = np.unique(
