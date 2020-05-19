@@ -34,7 +34,7 @@ from pychunkedgraph.meshing import meshgen_utils  # noqa
 # Change below to true if debugging and want to see results in stdout
 PRINT_FOR_DEBUGGING = True
 # Change below to false if debugging and do not need to write to cloud (warning: do not deploy w/ below set to false)
-WRITING_TO_CLOUD = False
+WRITING_TO_CLOUD = True
 
 
 def decode_draco_mesh_buffer(fragment):
@@ -531,6 +531,7 @@ def get_root_remapping_for_nodes_and_svs(
         multi_args.append([start_ids[i_block], start_ids[i_block + 1]])
 
     if n_jobs > 0:
+        import ipdb; ipdb.set_trace()
         mu.multithread_func(_get_root_ids, multi_args, n_threads=n_threads)
 
     sv_ids_index = len(node_ids)
@@ -918,6 +919,9 @@ def black_out_dust_from_segmentation(seg, dust_threshold):
 def remeshing(
     cg,
     l2_node_ids: Sequence[np.uint64],
+    cv_graphene_path: str,
+    cv_sharded_mesh_dir: str,
+    cv_unsharded_mesh_dir: str,
     stop_layer: int = None,
     cv_path: str = None,
     cv_mesh_dir: str = None,
@@ -951,12 +955,15 @@ def remeshing(
         chunk_mesh_task_new_remapping(
             cg.get_serialized_info(),
             chunk_id,
-            cg._cv_path,
+            cv_graphene_path,
             cv_mesh_dir=cv_mesh_dir,
             mip=mip,
             fragment_batch_size=20,
             node_id_subset=node_ids,
             cg=cg,
+            cv_graphene_path=cv_graphene_path,
+            cv_sharded_mesh_dir=cv_sharded_mesh_dir,
+            cv_unsharded_mesh_dir=cv_unsharded_mesh_dir,
         )
     chunk_dicts = []
     max_layer = stop_layer or cg._n_layers
@@ -982,12 +989,15 @@ def remeshing(
             chunk_mesh_task_new_remapping(
                 cg.get_serialized_info(),
                 chunk_id,
-                cg._cv_path,
+                cv_graphene_path,
                 cv_mesh_dir=cv_mesh_dir,
                 mip=mip,
                 fragment_batch_size=20,
                 node_id_subset=node_ids,
                 cg=cg,
+                cv_graphene_path=cv_graphene_path,
+                cv_sharded_mesh_dir=cv_sharded_mesh_dir,
+                cv_unsharded_mesh_dir=cv_unsharded_mesh_dir,
             )
 
 
@@ -1349,10 +1359,14 @@ def chunk_mesh_task_sharded_meshing(
 
 # @redis_job(REDIS_URL, 'mesh_frag_test_channel')
 # TODO: refactor this bloated function
+# @profile
 def chunk_mesh_task_new_remapping(
     cg_info,
     chunk_id,
     cv_path,
+    cv_graphene_path,
+    cv_sharded_mesh_dir,
+    cv_unsharded_mesh_dir,
     cv_mesh_dir=None,
     mip=2,
     max_err=320,
@@ -1367,7 +1381,6 @@ def chunk_mesh_task_new_remapping(
 ):
     if cg is None:
         cg = chunkedgraph.ChunkedGraph(**cg_info)
-    mesh_dir = cv_mesh_dir or cg._mesh_dir
     result = []
 
     layer, _, chunk_offset = get_meshing_necessities_from_graph(cg, chunk_id, mip)
@@ -1404,10 +1417,9 @@ def chunk_mesh_task_new_remapping(
             return np.unique(seg).shape[0]
         mesher.mesh(seg.T)
         del seg
-        with Storage(cv_path) as storage:
+        with Storage(cv_unsharded_mesh_dir) as storage:
             if PRINT_FOR_DEBUGGING:
-                print("cv path", cv_path)
-                print("mesh_dir", mesh_dir)
+                print("cv path", cv_unsharded_mesh_dir)
                 print("num ids", len(mesher.ids()))
             result.append(len(mesher.ids()))
             for obj_id in mesher.ids():
@@ -1436,7 +1448,7 @@ def chunk_mesh_task_new_remapping(
                     compress = True
                 if WRITING_TO_CLOUD:
                     storage.put_file(
-                        file_path=f"{mesh_dir}/{meshgen_utils.get_mesh_name(cg, obj_id)}",
+                        file_path=f"{meshgen_utils.get_mesh_name(cg, obj_id)}",
                         content=file_contents,
                         compress=compress,
                         cache_control="no-cache",
@@ -1453,10 +1465,6 @@ def chunk_mesh_task_new_remapping(
             range_read = cg.range_read_chunk(
                 chunk_id, properties=attributes.Hierarchy.Child
             )
-            # range_read = cg.range_read_chunk(
-                    #  cg.get_chunk_id(layer=layer_id, x=x, y=y, z=z),
-                    #  properties=attributes.Hierarchy.Child,
-            # )
         else:
             range_read = cg.client.read_nodes(
                 node_ids=node_id_subset, properties=attributes.Hierarchy.Child
@@ -1512,15 +1520,15 @@ def chunk_mesh_task_new_remapping(
             print("Nothing to do", cx, cy, cz)
             return ", ".join(str(x) for x in result)
 
-        with Storage(os.path.join(cv_path, mesh_dir)) as storage:
+        cv = cloudvolume.CloudVolume(cv_graphene_path, mesh_dir=cv_sharded_mesh_dir)
+
+        with Storage(cv_unsharded_mesh_dir) as storage:
             vals = multi_child_nodes.values()
             fragment_to_fetch = [
                 fragment for child_fragments in vals for fragment in child_fragments
             ]
             if fragment_batch_size is None:
-                lol_time = time.time()
                 files_contents = storage.get_files(fragment_to_fetch)
-                print(time.time() - lol_time)
             else:
                 files_contents = storage.get_files(
                     fragment_to_fetch[0:fragment_batch_size]
@@ -1528,6 +1536,19 @@ def chunk_mesh_task_new_remapping(
                 fragments_in_batch_processed = 0
                 batches_processed = 0
                 num_fragments_processed = 0
+            files_to_get = []
+            indices = []
+            for i in range(len(files_contents)):
+                cur_file = files_contents[i]
+                if cur_file['content'] is None:
+                    files_to_get.append(cur_file[:cur_file['filename'].find(':')])
+                    indices.append(i)
+            initial_meshes = cv.mesh.get(files_to_get)
+            for i in range(len(files_to_get)):
+                if initial_meshes[files_to_get[i]] is not None:
+                    cur_index = indices[i]
+                    files_contents[cur_index]['content'] = initial_meshes[files_to_get[i]]
+                    files_contents[cur_index]['skip_decode'] = True
             fragment_map = {}
             for i in range(len(files_contents)):
                 fragment_map[files_contents[i]["filename"]] = files_contents[i]
@@ -1568,7 +1589,21 @@ def chunk_mesh_task_new_remapping(
                         )
                         missing_fragments = True
                     node_id_str = filename[:end_of_node_id_index]
-                    if fragment["content"] is not None and fragment["error"] is None:
+                    if fragment["skip_decode"]:
+                        old_frag = fragment["content"]
+                        new_old_frag = {
+                            "num_vertices": len(old_frag.vertices),
+                            "vertices": old_frag.vertices,
+                            "faces": old_frag.faces.reshape(-1),
+                            "encoding_options": old_frag.encoding_options,
+                            "encoding_type": "draco"
+                        }
+                        wrapper_object = {
+                            "mesh": new_old_frag,
+                            "node_id": np.uint64(old_frag.segid)
+                        }
+                        old_fragments.append(wrapper_object)
+                    elif fragment["content"] is not None and fragment["error"] is None:
                         try:
                             old_fragments.append(
                                 {
@@ -1621,6 +1656,7 @@ def chunk_mesh_task_new_remapping(
                 )
 
                 try:
+                    print(f'num_vertices = ${len(new_fragment["vertices"])}')
                     new_fragment_b = DracoPy.encode_mesh_to_buffer(
                         new_fragment["vertices"],
                         new_fragment["faces"],
