@@ -111,3 +111,4 @@ venv.bak/
 
 # local dev stuff
 .devcontainer/
+*.ipynb
