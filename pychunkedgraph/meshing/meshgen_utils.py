@@ -10,6 +10,7 @@ from functools import lru_cache
 
 import numpy as np
 from cloudvolume import CloudVolume, Storage
+from cloudvolume.lib import Vec
 from multiwrapper import multiprocessing_utils as mu
 
 from pychunkedgraph.graph.utils.basetypes import NODE_ID  # noqa
