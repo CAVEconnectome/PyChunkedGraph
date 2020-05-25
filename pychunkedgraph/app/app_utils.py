@@ -75,6 +75,11 @@ def _get_cg_backend_client_info():
 
 
 def get_cg(table_id):
+    assert (
+        table_id.startswith("minnie")
+        or table_id.startswith("pinky_")
+    )
+
     current_app.table_id = table_id
     try:
         return CACHE[table_id]

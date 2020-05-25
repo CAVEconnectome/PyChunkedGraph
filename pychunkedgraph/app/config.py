@@ -28,9 +28,10 @@ class DevelopmentConfig(BaseConfig):
     """Development configuration."""
     USE_REDIS_JOBS = False
     DEBUG = True
+    LOGGING_LEVEL = logging.ERROR
 
 
-class DockerDevelopmentConfig(BaseConfig):
+class DockerDevelopmentConfig(DevelopmentConfig):
     """Development configuration."""
     USE_REDIS_JOBS = True
     REDIS_HOST = os.environ.get('REDIS_SERVICE_HOST', 'localhost')

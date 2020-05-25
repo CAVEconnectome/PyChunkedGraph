@@ -279,13 +279,12 @@ def _get_sharded_meshes(
 ) -> Dict:
     children_cache = {}
     result = {}
-    only_l2_ids = True
     if not len(node_ids):
         return result
     node_layers = cg.get_chunk_layers(node_ids)
-    l2_ids = node_ids[node_layers == stop_layer]
+    l2_ids = [node_ids[node_layers == stop_layer]]
     while np.any(node_layers > stop_layer):
-        only_l2_ids = False
+        l2_ids.append(node_ids[node_layers == stop_layer])
         ids_ = node_ids[node_layers > stop_layer]
         ids_, skips = _check_skips(cg, ids_, children_cache=children_cache)
 
@@ -302,8 +301,7 @@ def _get_sharded_meshes(
 
     # remainder IDs
     start = time()
-    if not only_l2_ids:
-        l2_ids = np.concatenate([l2_ids, node_ids[node_layers == stop_layer]])
+    l2_ids = np.concatenate([*l2_ids, node_ids[node_layers == stop_layer]])
     # result_ = shard_readers.readers[stop_layer].exists(
     #     labels=l2_ids, path=f"{mesh_dir}/initial/{stop_layer}/", return_byte_range=True,
     # )
@@ -416,7 +414,7 @@ def children_meshes_sharded(
 
     # UNIX_TIMESTAMP = 1562100638 # {"iso":"2019-07-02 20:50:38.934000+00:00"}
     MAX_STITCH_LAYER = int(
-        os.environ.get("MESH_START_LAYER", 5)
+        os.environ.get("MESH_START_LAYER", 6)
     )  # make this part of meta?
 
     start = time()
