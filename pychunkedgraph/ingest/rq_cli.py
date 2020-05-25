@@ -122,5 +122,15 @@ def clean_start_registry(queue):
     print(f"Requeued {len(cleaned_jobs)} jobs from the started job registry.")
 
 
+@rq_cli.command("clear_failed")
+@click.argument("queue", type=str)
+def clear_failed_registry(queue):
+    failed_job_registry = FailedJobRegistry(queue, connection=connection)
+    job_ids = failed_job_registry.get_job_ids()
+    for job_id in job_ids:
+        failed_job_registry.remove(job_id, delete_job=True)
+    print(f"Deleted {len(job_ids)} jobs from the failed job registry.")
+
+
 def init_rq_cmds(app):
     app.cli.add_command(rq_cli)
