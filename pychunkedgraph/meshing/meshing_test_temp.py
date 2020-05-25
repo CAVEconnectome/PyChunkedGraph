@@ -15,24 +15,6 @@ ingest_cli = AppGroup('mesh')
 num_messages = 0
 messages = []
 cg = ChunkedGraph(graph_id='minnie3_v0')
-def handlerino_write_to_cloud(*args, **kwargs):
-    global num_messages
-    num_messages = num_messages + 1
-    print(num_messages, args[0]['data'])
-    messages.append(args[0]['data'])
-    with open('output.txt', 'a') as f:
-        f.write(str(args[0]['data']) + '\n')
-    if num_messages == 1000:
-        print('DONE')
-        cv_path = cg.meta._ws_cv.base_cloudpath
-        with cloudvolume.Storage(cv_path) as storage:
-            storage.put_file(
-                    file_path='frag_test/frag_test_summary_no_dust_threshold',
-                    content=','.join(map(str, messages)),
-                    compress=False,
-                    cache_control='no-cache'
-                )
-
 
 def exc_handler(job, exc_type, exc_value, tb):
     with open('exceptions.txt', 'a') as f:
@@ -68,46 +50,6 @@ def handlerino_periodically_write_to_cloud(*args, **kwargs):
                 )
 
 
-@ingest_cli.command('mesh_chunks')
-@click.argument('layer', type=int)
-@click.argument('x_start', type=int)
-@click.argument('y_start', type=int)
-@click.argument('z_start', type=int)
-@click.argument('x_end', type=int)
-@click.argument('y_end', type=int)
-@click.argument('z_end', type=int)
-@click.argument('fragment_batch_size', type=int)
-@click.argument('mesh_dir', type=str, default=None)
-def mesh_chunks(layer, x_start, y_start, z_start, x_end, y_end, z_end, fragment_batch_size, mesh_dir):
-    print(f'Queueing...')
-    chunk_pubsub = current_app.redis.pubsub()
-    chunk_pubsub.subscribe(**{'mesh_frag_test_channel': handlerino_print})
-    thread = chunk_pubsub.run_in_thread(sleep_time=0.1)
-
-    cg = ChunkedGraph('fly_v31')
-    for x in range(x_start,x_end):
-        for y in range(y_start, y_end):
-            for z in range(z_start, z_end):
-                chunk_id = cg.get_chunk_id(None, layer, x, y, z)
-                current_app.test_q.enqueue(
-                    meshgen.chunk_mesh_task_new_remapping,
-                    job_timeout='20m',
-                    args=(
-                        cg.get_serialized_info(), 
-                        chunk_id,
-                        cg._cv_path,
-                        mesh_dir
-                    ),
-                    kwargs={
-                        # 'cv_mesh_dir': 'mesh_testing/initial_testrun_meshes',
-                        'mip': 1,
-                        'max_err': 320,
-                        'fragment_batch_size': fragment_batch_size
-                        # 'dust_threshold': 100
-                    })
-                
-    return 'Queued'
-
 @ingest_cli.command('mesh_chunks_shuffled')
 @click.argument('layer', type=int)
 @click.argument('x_start', type=int)
@@ -118,10 +60,12 @@ def mesh_chunks(layer, x_start, y_start, z_start, x_end, y_end, z_end, fragment_
 @click.argument('z_end', type=int)
 def mesh_chunks_shuffled(layer, x_start, y_start, z_start, x_end, y_end, z_end):
     print(f'Queueing...')
-    # chunk_pubsub = current_app.redis.pubsub()
-    # chunk_pubsub.subscribe(**{'mesh_frag_test_channel': handlerino_periodically_write_to_cloud})
 
-    cg = ChunkedGraph(graph_id='minnie3_v0')
+    if layer < 3:
+        raise ValueError('Only layers >= 3 supported')
+
+    chunk_pubsub = current_app.redis.pubsub()
+    chunk_pubsub.subscribe(**{'mesh_frag_test_channel': handlerino_periodically_write_to_cloud})
     chunks_arr = []
     for x in range(x_start,x_end):
         for y in range(y_start, y_end):
@@ -129,34 +73,23 @@ def mesh_chunks_shuffled(layer, x_start, y_start, z_start, x_end, y_end, z_end):
                 chunks_arr.append((x, y, z))
 
     print(f'Total jobs: {len(chunks_arr)}')
-    
     np.random.shuffle(chunks_arr)
 
     for chunk in chunks_arr:
         chunk_id = cg.get_chunk_id(None, layer, chunk[0], chunk[1], chunk[2])
         current_app.test_q.enqueue(
-            meshgen.chunk_mesh_task_sharded_meshing_opt,
-            job_timeout='300m',
+            meshgen.chunk_initial_sharded_stitching_task,
+            job_timeout='30m',
             args=(
                 'minnie3_v0',
-                # cg.get_serialized_info(), 
                 chunk_id,
                 2,
                 'graphene://https://minniev1.microns-daf.com/segmentation/table/minnie3_v0',
                 'graphene_meshes'
-                # cg._cv_path,
-                # mesh_dir
             ))
-            # kwargs={
-                # 'cv_mesh_dir': 'mesh_testing/initial_testrun_meshes',
-                # 'mip': 1,
-                # 'max_err': 320,
-                # 'fragment_batch_size': fragment_batch_size
-                # 'dust_threshold': 100
-            # })
     
     print(f'Queued jobs: {len(current_app.test_q)}')
-    # thread = chunk_pubsub.run_in_thread(sleep_time=0.1)
+    thread = chunk_pubsub.run_in_thread(sleep_time=0.1)
                 
     return 'Queued'
 
@@ -168,7 +101,6 @@ def mesh_chunks_from_file(filename):
     chunk_pubsub = current_app.redis.pubsub()
     chunk_pubsub.subscribe(**{'mesh_frag_test_channel': handlerino_periodically_write_to_cloud})
     thread = chunk_pubsub.run_in_thread(sleep_time=0.1)
-    cg = ChunkedGraph('fly_v31')
     chunk_ids = []
     with open(filename, 'r') as f:
         line = f.readline()
@@ -177,19 +109,15 @@ def mesh_chunks_from_file(filename):
             line = f.readline()
     for chunk_id in chunk_ids:
         current_app.test_q.enqueue(
-            meshgen.chunk_mesh_task_new_remapping,
-            job_timeout='20m',
+            meshgen.chunk_initial_sharded_stitching_task,
+            job_timeout='30m',
             args=(
-                cg.get_serialized_info(), 
+                'minnie3_v0',
                 chunk_id,
-                cg._cv_path
-            ),
-            kwargs={
-                # 'cv_mesh_dir': 'mesh_testing/initial_testrun_meshes',
-                'mip': 1,
-                'max_err': 320
-                # 'dust_threshold': 100
-            })
+                2,
+                'graphene://https://minniev1.microns-daf.com/segmentation/table/minnie3_v0',
+                'graphene_meshes'
+            ))
                 
     return 'Queued'
 
@@ -209,7 +137,6 @@ def mesh_chunks_exclude_file(layer, x_start, y_start, z_start, x_end, y_end, z_e
     print(f'Queueing...')
     chunk_pubsub = current_app.redis.pubsub()
     chunk_pubsub.subscribe(**{'mesh_frag_test_channel': handlerino_periodically_write_to_cloud})
-    cg = ChunkedGraph('fly_v31')
     chunk_ids = []
     with open(filename, 'r') as f:
         line = f.readline()
@@ -230,21 +157,15 @@ def mesh_chunks_exclude_file(layer, x_start, y_start, z_start, x_end, y_end, z_e
 
     for chunk_id in chunks_arr:
         current_app.test_q.enqueue(
-            meshgen.chunk_mesh_task_new_remapping,
-            job_timeout='180m',
+            meshgen.chunk_initial_sharded_stitching_task,
+            job_timeout='30m',
             args=(
-                cg.get_serialized_info(), 
+                'minnie3_v0',
                 chunk_id,
-                cg._cv_path,
-                mesh_dir
-            ),
-            kwargs={
-                # 'cv_mesh_dir': 'mesh_testing/initial_testrun_meshes',
-                'mip': 1,
-                'max_err': 320,
-                'fragment_batch_size': fragment_batch_size
-                # 'dust_threshold': 100
-            })
+                2,
+                'graphene://https://minniev1.microns-daf.com/segmentation/table/minnie3_v0',
+                'graphene_meshes'
+            ))
 
     print(f'Queued jobs: {len(current_app.test_q)}')
     thread = chunk_pubsub.run_in_thread(sleep_time=0.1)
@@ -261,70 +182,22 @@ def mesh_chunk_ids_shuffled(chunk_ids_string):
     chunk_pubsub.subscribe(**{'mesh_frag_test_channel': handlerino_periodically_write_to_cloud})
     thread = chunk_pubsub.run_in_thread(sleep_time=0.1)
 
-    cg = ChunkedGraph('fly_v31')
-    
     chunk_ids = np.uint64(chunk_ids_string.split(','))
     np.random.shuffle(chunk_ids)
 
     for chunk_id in chunk_ids:
         current_app.test_q.enqueue(
-            meshgen.chunk_mesh_task_new_remapping,
-            job_timeout='20m',
+            meshgen.chunk_initial_sharded_stitching_task,
+            job_timeout='30m',
             args=(
-                cg.get_serialized_info(),
+                'minnie3_v0',
                 chunk_id,
-                cg._cv_path
-            ),
-            kwargs={
-                # 'cv_mesh_dir': 'mesh_testing/initial_testrun_meshes',
-                'mip': 1,
-                'max_err': 320
-                # 'dust_threshold': 100
-            })
+                2,
+                'graphene://https://minniev1.microns-daf.com/segmentation/table/minnie3_v0',
+                'graphene_meshes'
+            ))
                 
     return 'Queued'
-
-
-@ingest_cli.command('frag_test')
-@click.argument('n', type=int)
-@click.argument('layer', type=int)
-def mesh_frag_test(n, layer):
-    print(f'Queueing...')
-    chunk_pubsub = current_app.redis.pubsub()
-    chunk_pubsub.subscribe(**{'mesh_frag_test_channel': handlerino_write_to_cloud})
-    thread = chunk_pubsub.run_in_thread(sleep_time=0.1)
-
-    cg = ChunkedGraph('fly_v31')
-    new_info = cg.cv.info
-
-    dataset_size = np.array(new_info['scales'][0]['size'])
-    dim_in_chunks = np.ceil(dataset_size / new_info['graph']['chunk_size'])
-    num_chunks = np.prod(dim_in_chunks, dtype=np.int32)
-    rand_chunks = np.random.choice(num_chunks, n, replace=False)
-    for chunk in rand_chunks:
-        x_span = dim_in_chunks[1] * dim_in_chunks[2]
-        x = np.floor(chunk / x_span)
-        rem = chunk - (x * x_span)
-        y = np.floor(rem / dim_in_chunks[2])
-        rem = rem - (y * dim_in_chunks[2])
-        z = rem
-        chunk_id = cg.get_chunk_id(None, layer, np.int32(x), np.int32(y), np.int32(z))
-        current_app.test_q.enqueue(
-            meshgen.chunk_mesh_task_new_remapping,
-            job_timeout='60m',
-            args=(
-                cg.get_serialized_info(), 
-                chunk_id,
-                cg._cv_path
-            ),
-            kwargs={
-                # 'cv_mesh_dir': 'mesh_testing/initial_testrun_meshes',
-                'mip': 1,
-                'max_err': 320,
-                'return_frag_count': True
-            })
-                
-    return 'Queued'    
 
 
 @ingest_cli.command('listen')

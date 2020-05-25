@@ -14,7 +14,7 @@ class MeshTask(RegisteredTask):
         cv_graphene_path = self.cv_graphene_path
         cv_mesh_dir = self.cv_mesh_dir
         mip = self.mip
-        blah = meshgen.chunk_mesh_task_sharded_meshing_opt(
+        blah = meshgen.chunk_initial_sharded_stitching_task(
             cg_name, chunk_id, mip, cv_graphene_path, cv_mesh_dir
         )
         print(pickle.loads(blah))

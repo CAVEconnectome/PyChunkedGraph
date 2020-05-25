@@ -447,3 +447,31 @@ def children_meshes_sharded(
     print("shard lookups took: %.3fs" % (time() - start))
     return node_ids, mesh_files
 
+
+def get_ws_seg_for_chunk(cg, chunk_id, mip, overlap_vx=1):
+    cv = CloudVolume(cg.meta.cv.cloudpath, mip=mip)
+    mip_diff = mip - cg.meta.cv.mip
+
+    mip_chunk_size = np.array(cg.meta.graph_config.CHUNK_SIZE, dtype=np.int) / np.array(
+        [2 ** mip_diff, 2 ** mip_diff, 1]
+    )
+    mip_chunk_size = mip_chunk_size.astype(np.int)
+
+    chunk_start = (
+        cg.meta.cv.mip_voxel_offset(mip)
+        + cg.get_chunk_coordinates(chunk_id) * mip_chunk_size
+    )
+    chunk_end = chunk_start + mip_chunk_size + overlap_vx
+    chunk_end = Vec.clamp(
+        chunk_end,
+        cg.meta.cv.mip_voxel_offset(mip),
+        cg.meta.cv.mip_voxel_offset(mip) + cg.meta.cv.mip_volume_size(mip),
+    )
+
+    ws_seg = cv[
+        chunk_start[0] : chunk_end[0],
+        chunk_start[1] : chunk_end[1],
+        chunk_start[2] : chunk_end[2],
+    ].squeeze()
+
+    return ws_seg
