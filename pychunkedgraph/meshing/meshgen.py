@@ -1097,7 +1097,7 @@ def chunk_stitch_remeshing_task(
     )
 
     multi_child_nodes, _ = get_multi_child_nodes(cg, chunk_id, node_id_subset, True)
-    print(f"${len(multi_child_nodes)} nodes with more than one child")
+    print(f"{len(multi_child_nodes)} nodes with more than one child")
     result.append((chunk_id, len(multi_child_nodes)))
     if not multi_child_nodes:
         print("Nothing to do", cx, cy, cz)

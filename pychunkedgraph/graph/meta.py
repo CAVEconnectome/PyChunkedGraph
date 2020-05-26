@@ -10,8 +10,8 @@ from cloudvolume import CloudVolume
 from .utils.generic import compute_bitmasks
 
 
-_datasource_fields = ("EDGES", "COMPONENTS", "WATERSHED", "DATA_VERSION", "CV_MIP", "CV_GRAPHENE_PATH", "CV_MESH_DIR", "CV_UNSHARDED_MESH_PATH")
-_datasource_defaults = (None, None, None, None, 0, "", "graphene_meshes", "")
+_datasource_fields = ("EDGES", "COMPONENTS", "WATERSHED", "DATA_VERSION", "CV_MIP")
+_datasource_defaults = (None, None, None, None, 0)
 DataSource = namedtuple(
     "DataSource", _datasource_fields, defaults=_datasource_defaults,
 )
@@ -215,7 +215,7 @@ class ChunkedGraphMeta:
                 "cv_mip": self.data_source.CV_MIP,
                 "n_layers": self.layer_count,
                 "spatial_bit_masks": self.bitmasks,
-            }
+            },
         }
         info.update(self._ws_cv.info)  # pylint: disable=no-member
         info["chunks_start_at_voxel_offset"] = True
