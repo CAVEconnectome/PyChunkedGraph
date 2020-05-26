@@ -55,7 +55,6 @@ _graphconfig_fields = (
     "OVERWRITE",  # overwrites existing graph
     "ROOT_LOCK_EXPIRY",
     "ROOT_COUNTERS",
-    "UNIFORM_DRACO_GRID_SIZE"
 )
 _graphconfig_defaults = (
     None,
@@ -67,7 +66,6 @@ _graphconfig_defaults = (
     False,
     timedelta(minutes=3, seconds=0),
     8,
-    21
 )
 GraphConfig = namedtuple(
     "GraphConfig", _graphconfig_fields, defaults=_graphconfig_defaults
@@ -217,22 +215,10 @@ class ChunkedGraphMeta:
                 "cv_mip": self.data_source.CV_MIP,
                 "n_layers": self.layer_count,
                 "spatial_bit_masks": self.bitmasks,
-            },
-            "mesh_metadata": {
-                "uniform_draco_grid_size": self.graph_config.UNIFORM_DRACO_GRID_SIZE
             }
         }
         info.update(self._ws_cv.info)  # pylint: disable=no-member
         info["chunks_start_at_voxel_offset"] = True
-        return info
-
-    @property
-    def mesh_location_info(self) -> Dict:
-        info = {
-            "cv_graphene_path": self.data_source.CV_GRAPHENE_PATH,
-            "cv_mesh_dir": self.data_source.CV_MESH_DIR,
-            "cv_unsharded_mesh_path": self.data_source.CV_UNSHARDED_MESH_PATH
-        }
         return info
         
     def __getnewargs__(self):

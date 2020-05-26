@@ -2,10 +2,9 @@
 generic helper funtions
 """
 from typing import Sequence
-import functools
+
 
 import numpy as np
-import redis
 
 
 def reverse_dictionary(dictionary):
@@ -36,24 +35,3 @@ def in2d(arr1: np.ndarray, arr2: np.ndarray) -> np.ndarray:
     arr1_view = arr1.view(dtype="u8,u8").reshape(arr1.shape[0])
     arr2_view = arr2.view(dtype="u8,u8").reshape(arr2.shape[0])
     return np.in1d(arr1_view, arr2_view)
-
-
-def redis_job(redis_url, redis_channel):
-    """
-    Decorator factory
-    Returns a decorator that connects to a redis instance 
-    and publish a message (return value of the function) when the job is done.
-    """
-
-    def redis_job_decorator(func):
-        r = redis.Redis.from_url(redis_url)
-
-        @functools.wraps(func)
-        def wrapper(*args, **kwargs):
-            job_result = func(*args, **kwargs)
-            if not job_result:
-                job_result = str(job_result)
-            r.publish(redis_channel, job_result)
-
-        return wrapper
-    return redis_job_decorator
