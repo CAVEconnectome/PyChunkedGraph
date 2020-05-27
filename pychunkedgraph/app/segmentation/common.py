@@ -340,7 +340,7 @@ def handle_merge(table_id):
     for node in nodes:
         node_id = node[0]
         x, y, z = node[1:]
-        coordinate = np.array([x, y, z]) / cg.segmentation_resolution
+        coordinate = np.array([x, y, z]) / cg.meta.resolution
 
         atomic_id = cg.get_atomic_id_from_coord(
             coordinate[0], coordinate[1], coordinate[2], parent_id=np.uint64(node_id)
@@ -418,7 +418,7 @@ def handle_split(table_id):
         for node in data[k]:
             node_id = node[0]
             x, y, z = node[1:]
-            coordinate = np.array([x, y, z]) / cg.segmentation_resolution
+            coordinate = np.array([x, y, z]) / cg.meta.resolution
 
             atomic_id = cg.get_atomic_id_from_coord(
                 coordinate[0],
@@ -866,7 +866,7 @@ def handle_split_preview(table_id):
         for node in data[k]:
             node_id = node[0]
             x, y, z = node[1:]
-            coordinate = np.array([x, y, z]) / cg.segmentation_resolution
+            coordinate = np.array([x, y, z]) / cg.meta.resolution
 
             atomic_id = cg.get_atomic_id_from_coord(coordinate[0],
                                                     coordinate[1],
@@ -922,7 +922,7 @@ def handle_find_path(table_id):
     def _get_supervoxel_id_from_node(node):
         node_id = node[0]
         x, y, z = node[1:]
-        coordinate = np.array([x, y, z]) / cg.segmentation_resolution
+        coordinate = np.array([x, y, z]) / cg.meta.resolution
 
         supervoxel_id = cg.get_atomic_id_from_coord(coordinate[0],
                                                 coordinate[1],
