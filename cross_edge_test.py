@@ -8,7 +8,7 @@ from pychunkedgraph.graph import attributes
 os.environ["GOOGLE_APPLICATION_CREDENTIALS"] =  "/home/svenmd/.cloudvolume/secrets/google-secret.json"
 
 layer = 2
-n_chunks = 100
+n_chunks = 1000
 n_segments_per_chunk = 200
 # timestamp = datetime.datetime.fromtimestamp(1588875769) 
 timestamp = datetime.utcnow()
@@ -45,34 +45,16 @@ for k in rows.keys():
     else:
         non_valid_node_ids.append(k)
 
-roots = cg.get_roots(valid_node_ids, time_stamp=timestamp)
+cc_edges = cg.get_atomic_cross_edges(valid_node_ids)
+cc_ids = np.unique(np.concatenate([np.concatenate(list(v.values())) for v in list(cc_edges.values()) if len(v.values())]))
 
-roots = []
-try:
-    roots = cg.get_roots(valid_node_ids)
-    assert len(roots) == len(valid_node_ids)
-    print(f"ALL {len(roots)} have been successful!")
-except:
-    print("At least one node failed. Checking nodes one by one now")
+roots = cg.get_roots(cc_ids)
+root_dict = dict(zip(cc_ids, roots)) 
+root_dict_vec = np.vectorize(root_dict.get)
 
-if len(roots) != len(valid_node_ids):
-    log_dict = {}
-    success_dict = {}
-    for node_id in valid_node_ids:
-        try:
-            root = cg.get_root(node_id, time_stamp=timestamp)
-            print(f"Success: {node_id} from chunk {cg.get_chunk_id(node_id)}")
-            success_dict[node_id] = True
-        except Exception as e:
-            print(f"{node_id} from chunk {cg.get_chunk_id(node_id)} failed with {e}")
-            success_dict[node_id] = False
-
-            t_id = node_id
-
-            while t_id is not None:
-                last_working_chunk = cg.get_chunk_id(t_id)
-                t_id = cg.get_parent(t_id)
-
-            print(f"Failed on layer {cg.get_chunk_layer(last_working_chunk)} in chunk {last_working_chunk}")
-            log_dict[node_id] = last_working_chunk
-
+for k in cc_edges:
+    if len(cc_edges[k]) == 0:
+        continue
+    local_ids = np.unique(np.concatenate(list(cc_edges[k].values())))
+    
+    assert len(np.unique(root_dict_vec(local_ids)))
