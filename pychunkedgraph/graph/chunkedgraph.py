@@ -297,11 +297,7 @@ class ChunkedGraph:
         if not uplift:
             return {min_layer: edges}
         node_root_id = node_id
-        try:
-            node_root_id = self.get_root(node_id, stop_layer=min_layer)
-        except exceptions.ChunkedGraphError as err:
-            print(err)
-            pass
+        node_root_id = self.get_root(node_id, stop_layer=min_layer)
         edges[:, 0] = node_root_id
         edges[:, 1] = self.get_roots(edges[:, 1], stop_layer=min_layer, ceil=False)
         return {min_layer: np.unique(edges, axis=0) if edges.size else types.empty_2d}
@@ -344,11 +340,11 @@ class ChunkedGraph:
                     print("temp_ids", temp_ids)
                     print("temp", temp)
                     print(err)
+                    raise Exception(err)
                 if not np.any(self.get_chunk_layers(temp) < stop_layer):
                     layer_exceed_mask = self.get_chunk_layers(temp) > stop_layer
-                    if ceil or not np.any(layer_exceed_mask):
-                        return temp
-                    return parent_ids
+                    temp[layer_exceed_mask] = parent_ids[layer_exceed_mask]
+                    return temp
                 parent_ids = temp
             if not np.any(self.get_chunk_layers(parent_ids) < stop_layer):
                 return parent_ids
@@ -660,7 +656,6 @@ class ChunkedGraph:
             node_ids: typing.Iterable[np.uint64],
         ) -> typing.List[np.uint64]:
             children = self.get_children(node_ids, flatten=True)
-
             if len(children) > 0 and bounding_box is not None:
                 chunk_coordinates = np.array(
                     [self.get_chunk_coordinates(c) for c in children]
@@ -877,4 +872,3 @@ class ChunkedGraph:
             [self.get_chunk_coordinates(chunk_id) for chunk_id in chunk_ids],
             cv_threads=cv_threads,
         )
-

@@ -75,8 +75,8 @@ def _get_children_chunk_cross_edges(cg, atomic_chunks, layer) -> None:
     cross_edges = np.concatenate(cross_edges)
     if not cross_edges.size:
         return empty_2d
-    cross_edges[:, 0] = cg.get_roots(cross_edges[:, 0], stop_layer=layer)
-    cross_edges[:, 1] = cg.get_roots(cross_edges[:, 1], stop_layer=layer)
+    cross_edges[:, 0] = cg.get_roots(cross_edges[:, 0], stop_layer=layer, ceil=False)
+    cross_edges[:, 1] = cg.get_roots(cross_edges[:, 1], stop_layer=layer, ceil=False)
     return np.unique(cross_edges, axis=0) if cross_edges.size else empty_2d
 
 
@@ -162,7 +162,7 @@ def _get_chunk_nodes_cross_edge_layer(cg, atomic_chunks, layer):
         atomic_node_layer_d.update(chunk_node_layer_d)
 
     l2ids = np.fromiter(atomic_node_layer_d.keys(), dtype=basetypes.NODE_ID)
-    parents = cg.get_roots(l2ids, stop_layer=layer - 1)
+    parents = cg.get_roots(l2ids, stop_layer=layer - 1, ceil=False)
     layers = np.fromiter(atomic_node_layer_d.values(), dtype=np.int)
 
     node_layer_d = defaultdict(lambda: cg.meta.layer_count)
