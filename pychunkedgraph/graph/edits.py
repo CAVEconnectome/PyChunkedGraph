@@ -209,7 +209,7 @@ def _process_l2_agglomeration(
     and calculate new connected components.
     """
     chunk_edges = agg.in_edges.get_pairs()
-    cross_edges = np.concatenate([*atomic_cross_edges_d.values()])
+    cross_edges = np.concatenate([types.empty_2d, *atomic_cross_edges_d.values()])
     chunk_edges = chunk_edges[~in2d(chunk_edges, removed_edges)]
     cross_edges = cross_edges[~in2d(cross_edges, removed_edges)]
 
