@@ -206,17 +206,24 @@ def handle_get_manifest(table_id, node_id):
     else:
         flexible_start_layer = None
 
-    seg_ids, fragment_URIs = meshgen_utils.get_highest_child_nodes_with_meshes(
-        cg,
-        np.uint64(node_id),
-        stop_layer=2,
-        start_layer=start_layer,
-        bounding_box=bounding_box,
-        verify_existence=verify,
-        flexible_start_layer=flexible_start_layer,
-    )
+    resp = {}
+    seg_ids, fragment_URIs = [], []
+    if verify:
+        seg_ids, fragment_URIs = meshgen_utils.get_highest_child_nodes_with_meshes(
+            cg,
+            np.uint64(node_id),
+            stop_layer=2,
+            start_layer=start_layer,
+            bounding_box=bounding_box,
+            flexible_start_layer=flexible_start_layer,
+        )
+        resp["fragments"] = fragment_URIs
+    else:
+        from pychunkedgraph.meshing.manifest import speculative_manifest
 
-    resp = {"fragments": fragment_URIs}
+        # update `seg_ids` in case `return_seg_ids` is True
+        seg_ids = speculative_manifest(cg, node_id)
+        resp["seg_ids"] = seg_ids
 
     if "return_seg_id_layers" in data:
         if app_utils.toboolean(data["return_seg_id_layers"]):
