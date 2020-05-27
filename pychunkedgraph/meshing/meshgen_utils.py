@@ -10,6 +10,7 @@ from functools import lru_cache
 
 import numpy as np
 from cloudvolume import CloudVolume, Storage
+from cloudvolume.lib import Vec
 from multiwrapper import multiprocessing_utils as mu
 
 from pychunkedgraph.graph.utils.basetypes import NODE_ID  # noqa
@@ -59,7 +60,7 @@ def get_mesh_block_shape(cg, graphlayer: int) -> np.ndarray:
     the same region as a ChunkedGraph chunk at layer `graphlayer`.
     """
     # Segmentation is not always uniformly downsampled in all directions.
-    return cg.chunk_size * cg.fan_out ** np.max([0, graphlayer - 2])
+    return np.array(cg.meta.graph_config.CHUNK_SIZE) * cg.meta.graph_config.FANOUT ** np.max([0, graphlayer - 2])
 
 
 def get_mesh_block_shape_for_mip(cg, graphlayer: int, source_mip: int) -> np.ndarray:
@@ -74,7 +75,7 @@ def get_mesh_block_shape_for_mip(cg, graphlayer: int, source_mip: int) -> np.nda
     scale_mip = info["scales"][source_mip]
     distortion = np.floor_divide(scale_mip["resolution"], scale_0["resolution"])
 
-    graphlayer_chunksize = cg.chunk_size * cg.fan_out ** np.max([0, graphlayer - 2])
+    graphlayer_chunksize = np.array(cg.meta.graph_config.CHUNK_SIZE) * cg.meta.graph_config.FANOUT ** np.max([0, graphlayer - 2])
 
     return np.floor_divide(
         graphlayer_chunksize, distortion, dtype=np.int, casting="unsafe"
@@ -445,3 +446,31 @@ def children_meshes_sharded(
     print("shard lookups took: %.3fs" % (time() - start))
     return node_ids, mesh_files
 
+
+def get_ws_seg_for_chunk(cg, chunk_id, mip, overlap_vx=1):
+    cv = CloudVolume(cg.meta.cv.cloudpath, mip=mip)
+    mip_diff = mip - cg.meta.cv.mip
+
+    mip_chunk_size = np.array(cg.meta.graph_config.CHUNK_SIZE, dtype=np.int) / np.array(
+        [2 ** mip_diff, 2 ** mip_diff, 1]
+    )
+    mip_chunk_size = mip_chunk_size.astype(np.int)
+
+    chunk_start = (
+        cg.meta.cv.mip_voxel_offset(mip)
+        + cg.get_chunk_coordinates(chunk_id) * mip_chunk_size
+    )
+    chunk_end = chunk_start + mip_chunk_size + overlap_vx
+    chunk_end = Vec.clamp(
+        chunk_end,
+        cg.meta.cv.mip_voxel_offset(mip),
+        cg.meta.cv.mip_voxel_offset(mip) + cg.meta.cv.mip_volume_size(mip),
+    )
+
+    ws_seg = cv[
+        chunk_start[0] : chunk_end[0],
+        chunk_start[1] : chunk_end[1],
+        chunk_start[2] : chunk_end[2],
+    ].squeeze()
+
+    return ws_seg

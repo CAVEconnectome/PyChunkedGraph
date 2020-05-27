@@ -8,13 +8,14 @@ flask
 flask_cors
 codecov
 multiwrapper
-cloud-volume
 python-json-logger
 zstandard
 redis
 rq
-middle-auth-client==2.4.1
+middle-auth-client==2.4.2
 zmesh
 fastremap
 pyyaml
 cachetools
+task-queue
+-e git+https://github.com/seung-lab/cloud-volume.git@d3eacb5ada1747dcff4afc34b527fdb6329a5d67#egg=cloud-volume
