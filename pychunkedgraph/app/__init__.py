@@ -21,8 +21,6 @@ from .segmentation.legacy.routes import bp as segmentation_api_legacy
 from .segmentation.v1.routes import bp as segmentation_api_v1
 from .segmentation.generic.routes import bp as generic_api
 
-from ..meshing.meshing_test_temp import init_mesh_cmds
-
 
 class CustomJsonEncoder(json.JSONEncoder):
     def __init__(self, int64_as_str=False, **kwargs):
@@ -96,5 +94,4 @@ def configure_app(app):
             from ..ingest.cli import init_ingest_cmds
 
             init_rq_cmds(app)
-            init_ingest_cmds(app)
-            init_mesh_cmds(app)
+            init_ingest_cmds(app)     

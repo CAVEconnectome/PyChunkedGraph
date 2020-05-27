@@ -36,12 +36,14 @@ def home():
 
 def _remeshing(serialized_cg_info, lvl2_nodes):
     cg = chunkedgraph.ChunkedGraph(**serialized_cg_info)
-    mesh_location_info = cg.meta.mesh_location_info
+    cv_mesh_dir = cg.meta.dataset_info["mesh"]
+    cv_unsharded_mesh_dir = cg.meta.dataset_info["mesh_metadata"]["unsharded_mesh_dir"]
+    cv_unsharded_mesh_path = os.path.join(cg.meta.data_source.WATERSHED, cv_mesh_dir, cv_unsharded_mesh_dir)
 
     # TODO: stop_layer and mip should be configurable by dataset
     meshgen.remeshing(
-        cg, lvl2_nodes, stop_layer=6, mip=2, max_err=40, cv_graphene_path=mesh_location_info["cv_graphene_path"],
-        cv_sharded_mesh_dir=mesh_location_info["cv_mesh_dir"], cv_unsharded_mesh_path=["cv_unsharded_mesh_path"]
+        cg, lvl2_nodes, stop_layer=6, mip=2, max_err=40,
+        cv_sharded_mesh_dir=cv_mesh_dir, cv_unsharded_mesh_path=cv_unsharded_mesh_path
     )
 
     return Response(status=200)

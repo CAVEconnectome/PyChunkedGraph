@@ -1,4 +1,3 @@
-from pychunkedgraph.utils.general import redis_job
 from typing import Sequence
 import sys
 import os
@@ -817,7 +816,6 @@ def black_out_dust_from_segmentation(seg, dust_threshold):
 def remeshing(
     cg,
     l2_node_ids: Sequence[np.uint64],
-    cv_graphene_path: str,
     cv_sharded_mesh_dir: str,
     cv_unsharded_mesh_path: str,
     stop_layer: int = None,
@@ -885,7 +883,6 @@ def remeshing(
                 fragment_batch_size=40,
                 node_id_subset=node_ids,
                 cg=cg,
-                cv_graphene_path=cv_graphene_path,
                 cv_sharded_mesh_dir=cv_sharded_mesh_dir,
                 cv_unsharded_mesh_path=cv_unsharded_mesh_path,
             )
@@ -1073,7 +1070,6 @@ def get_missing_initial_meshes(cv, files_contents):
 def chunk_stitch_remeshing_task(
     cg_name,
     chunk_id,
-    cv_graphene_path,
     cv_sharded_mesh_dir,
     cv_unsharded_mesh_path,
     mip=2,
@@ -1101,13 +1097,17 @@ def chunk_stitch_remeshing_task(
     )
 
     multi_child_nodes, _ = get_multi_child_nodes(cg, chunk_id, node_id_subset, True)
-    print(f"${len(multi_child_nodes)} nodes with more than one child")
+    print(f"{len(multi_child_nodes)} nodes with more than one child")
     result.append((chunk_id, len(multi_child_nodes)))
     if not multi_child_nodes:
         print("Nothing to do", cx, cy, cz)
         return ", ".join(str(x) for x in result)
 
-    cv = CloudVolume(cv_graphene_path, mesh_dir=cv_sharded_mesh_dir)
+    cv = CloudVolume(
+        f"graphene://https://localhost/segmentation/table/dummy",
+        mesh_dir=cv_sharded_mesh_dir,
+        info=meshgen_utils.get_json_info(cg, mesh_dir=cv_sharded_mesh_dir),
+    )
 
     fragments_in_batch_processed = 0
     batches_processed = 0

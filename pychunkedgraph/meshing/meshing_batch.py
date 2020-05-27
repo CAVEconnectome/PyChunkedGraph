@@ -34,13 +34,8 @@ if __name__ == "__main__":
             for chunk in self.chunks:
                 chunk_id = cg.get_chunk_id(layer=args.layer, x=chunk[0], y=chunk[1], z=chunk[2])
                 yield MeshTask(args.cg_name, int(chunk_id), args.mip, cv_graphene_path, cv_mesh_dir)
-                # import ipdb; ipdb.set_trace()
-
-    # ptask = [MeshTaskIterator(chunks_arr)]
 
     if args.queue_name is not None:
-        # with TaskQueue(queue_name=args.queue_name) as tq:
-        # with TaskQueue(qurl='https://sqs.us-east-1.amazonaws.com/098703261575/manuel-seamless-work', queue_server='sqs') as tq:
         with TaskQueue(queue_name=args.queue_name) as tq:
             tq.insert_all(MeshTaskIterator(chunks_arr))
     else:
