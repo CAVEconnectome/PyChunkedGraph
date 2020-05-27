@@ -1,6 +1,6 @@
 data_source:
-  EDGES: "gs://chunkedgraph/pinky100/edges"
-  COMPONENTS: "gs://chunkedgraph/pinky100/components"
+  EDGES: "gs://chunked-graph/pinky100/edges"
+  COMPONENTS: "gs://chunked-graph/pinky100/components"
   WATERSHED: "gs://neuroglancer/pinky100_v0/ws/pinky100_ca_com"
   DATA_VERSION: 4
 

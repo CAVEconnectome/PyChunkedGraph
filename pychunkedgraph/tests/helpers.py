@@ -111,8 +111,8 @@ def gen_graph(request):
     def _cgraph(request, n_layers=10, atomic_chunk_bounds: np.ndarray = np.array([])):
         config = {
             "data_source": {
-                "EDGES": "gs://chunkedgraph/minnie65_0/edges",
-                "COMPONENTS": "gs://chunkedgraph/minnie65_0/components",
+                "EDGES": "gs://chunked-graph/minnie65_0/edges",
+                "COMPONENTS": "gs://chunked-graph/minnie65_0/components",
                 "WATERSHED": "gs://microns-seunglab/minnie65/ws_minnie65_0",
             },
             "graph_config": {

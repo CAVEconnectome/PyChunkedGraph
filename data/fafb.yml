@@ -1,6 +1,6 @@
 data_source:
-  EDGES: "gs://chunkedgraph/190410_FAFB_v02/edges"
-  COMPONENTS: "gs://chunkedgraph/190410_FAFB_v02/components"
+  EDGES: "gs://chunked-graph/190410_FAFB_v02/edges"
+  COMPONENTS: "gs://chunked-graph/190410_FAFB_v02/components"
   WATERSHED: "gs://microns-seunglab/drosophila_v0/ws_190410_FAFB_v02_ws_size_threshold_200"
   DATA_VERSION: 2
 
