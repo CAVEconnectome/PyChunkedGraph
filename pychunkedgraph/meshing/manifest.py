@@ -1,5 +1,3 @@
-import os
-import re
 import multiprocessing as mp
 from time import time
 from typing import List
@@ -17,7 +15,9 @@ from ..graph.types import empty_1d
 
 
 def str_to_slice(slice_str: str):
-    match = re.match(r"(\d+)-(\d+)_(\d+)-(\d+)_(\d+)-(\d+)", slice_str)
+    from re import match
+
+    match = match(r"(\d+)-(\d+)_(\d+)-(\d+)_(\d+)-(\d+)", slice_str)
     return (
         slice(int(match.group(1)), int(match.group(2))),
         slice(int(match.group(3)), int(match.group(4))),
@@ -255,12 +255,8 @@ def children_meshes_sharded(
     For each ID, first check for new meshes,
     If not found check initial meshes.
     """
-    import os
-
     # UNIX_TIMESTAMP = 1562100638 # {"iso":"2019-07-02 20:50:38.934000+00:00"}
-    MAX_STITCH_LAYER = int(
-        os.environ.get("MESH_START_LAYER", 6)
-    )  # make this part of meta?
+    MAX_STITCH_LAYER = cg.meta.custom_data.get("mesh", {}).get("max_layer", 6)
 
     start = time()
     node_ids = _get_children_before_start_layer(cg, node_id, MAX_STITCH_LAYER)
@@ -283,17 +279,15 @@ def children_meshes_sharded(
     return node_ids, mesh_files
 
 
-def speculative_manifest(cg, node_id, stop_layer: int = 2):
+def speculative_manifest(
+    cg, node_id, stop_layer: int = 2, mesh_dir: str = "graphene_meshes"
+):
     """
     This assumes children IDs have meshes.
     Not checking for their existence reduces latency.
     """
-    import os
-
     # UNIX_TIMESTAMP = 1562100638 # {"iso":"2019-07-02 20:50:38.934000+00:00"}
-    MAX_STITCH_LAYER = int(
-        os.environ.get("MESH_START_LAYER", 6)
-    )  # make this part of meta?
+    MAX_STITCH_LAYER = cg.meta.custom_data.get("mesh", {}).get("max_layer", 2)
 
     start = time()
     node_ids = _get_children_before_start_layer(cg, node_id, MAX_STITCH_LAYER)
@@ -313,4 +307,18 @@ def speculative_manifest(cg, node_id, stop_layer: int = 2):
 
     result.append(node_ids[node_layers == stop_layer])
     print("chilren IDs", len(result), time() - start)
-    return np.concatenate(result)
+
+    readers = CloudVolume(  # pylint: disable=no-member
+        f"graphene://https://localhost/segmentation/table/dummy",
+        mesh_dir=mesh_dir,
+        info=get_json_info(cg, mesh_dir=mesh_dir),
+    ).mesh.readers
+
+    node_ids = np.concatenate(result)
+    layers = cg.get_chunk_layers(node_ids)
+    chunk_ids = cg.get_chunk_ids_from_node_ids(node_ids)
+    fragment_URIs = []
+    for id_, layer, chunk_id in zip(node_ids, layers, chunk_ids):
+        fname, minishard = readers[layer].compute_shard_location(id_)
+        fragment_URIs.append(f"{id_}:{layer}:{chunk_id}:{fname}:{minishard}")
+    return fragment_URIs

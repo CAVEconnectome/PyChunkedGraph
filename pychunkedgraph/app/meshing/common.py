@@ -38,12 +38,19 @@ def _remeshing(serialized_cg_info, lvl2_nodes):
     cg = chunkedgraph.ChunkedGraph(**serialized_cg_info)
     cv_mesh_dir = cg.meta.dataset_info["mesh"]
     cv_unsharded_mesh_dir = cg.meta.dataset_info["mesh_metadata"]["unsharded_mesh_dir"]
-    cv_unsharded_mesh_path = os.path.join(cg.meta.data_source.WATERSHED, cv_mesh_dir, cv_unsharded_mesh_dir)
+    cv_unsharded_mesh_path = os.path.join(
+        cg.meta.data_source.WATERSHED, cv_mesh_dir, cv_unsharded_mesh_dir
+    )
 
     # TODO: stop_layer and mip should be configurable by dataset
     meshgen.remeshing(
-        cg, lvl2_nodes, stop_layer=6, mip=2, max_err=40,
-        cv_sharded_mesh_dir=cv_mesh_dir, cv_unsharded_mesh_path=cv_unsharded_mesh_path
+        cg,
+        lvl2_nodes,
+        stop_layer=6,
+        mip=2,
+        max_err=40,
+        cv_sharded_mesh_dir=cv_mesh_dir,
+        cv_unsharded_mesh_path=cv_unsharded_mesh_path,
     )
 
     return Response(status=200)
@@ -226,8 +233,7 @@ def handle_get_manifest(table_id, node_id):
         from pychunkedgraph.meshing.manifest import speculative_manifest
 
         # update `seg_ids` in case `return_seg_ids` is True
-        seg_ids = speculative_manifest(cg, node_id)
-        resp["seg_ids"] = seg_ids
+        resp["fragments"] = speculative_manifest(cg, node_id)
 
     if "return_seg_id_layers" in data:
         if app_utils.toboolean(data["return_seg_id_layers"]):
