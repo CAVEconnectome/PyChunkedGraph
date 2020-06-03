@@ -41,14 +41,15 @@ def _remeshing(serialized_cg_info, lvl2_nodes):
     cv_unsharded_mesh_path = os.path.join(
         cg.meta.data_source.WATERSHED, cv_mesh_dir, cv_unsharded_mesh_dir
     )
+    mesh_data = cg.meta.custom_data["mesh"]
 
     # TODO: stop_layer and mip should be configurable by dataset
     meshgen.remeshing(
         cg,
         lvl2_nodes,
-        stop_layer=6,
-        mip=2,
-        max_err=40,
+        stop_layer=mesh_data["max_layer"],
+        mip=mesh_data["mip"],
+        max_err=mesh_data["max_error"],
         cv_sharded_mesh_dir=cv_mesh_dir,
         cv_unsharded_mesh_path=cv_unsharded_mesh_path,
     )
