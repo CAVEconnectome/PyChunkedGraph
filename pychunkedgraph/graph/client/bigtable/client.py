@@ -612,6 +612,7 @@ class BigTableClient(bigtable.Client, ClientWithIDGen):
         responses = mu.multithread_func(
             self._execute_read_thread,
             params=((self._table, r, row_filter) for r in row_sets),
+            debug=n_threads == 1,
             n_threads=n_threads,
         )
 
