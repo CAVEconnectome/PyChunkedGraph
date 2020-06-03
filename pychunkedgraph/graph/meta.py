@@ -73,9 +73,15 @@ GraphConfig = namedtuple(
 
 
 class ChunkedGraphMeta:
-    def __init__(self, graph_config: GraphConfig, data_source: DataSource):
+    def __init__(
+        self, graph_config: GraphConfig, data_source: DataSource, custom_data: Dict = {}
+    ):
+        """
+        `custom_data`: stores arbitray key value information for flexibility.
+        """
         self._graph_config = graph_config
         self._data_source = data_source
+        self._custom_data = custom_data
 
         self._ws_cv = CloudVolume(data_source.WATERSHED)
         self._layer_bounds_d = None
@@ -93,6 +99,10 @@ class ChunkedGraphMeta:
     @property
     def data_source(self):
         return self._data_source
+
+    @property
+    def custom_data(self):
+        return self._custom_data
 
     @property
     def layer_count(self) -> int:
@@ -220,21 +230,28 @@ class ChunkedGraphMeta:
         info.update(self._ws_cv.info)  # pylint: disable=no-member
         info["chunks_start_at_voxel_offset"] = True
         return info
-        
+
     def __getnewargs__(self):
         return (self.graph_config, self.data_source)
 
     def __getstate__(self):
-        return {"graph_config": self.graph_config, "data_source": self.data_source}
+        return {
+            "graph_config": self.graph_config,
+            "data_source": self.data_source,
+            "custom_data": self.custom_data,
+        }
 
     def __setstate__(self, state):
-        self.__init__(state["graph_config"], state["data_source"])
+        self.__init__(
+            state["graph_config"], state["data_source"], state.get("custom_data", {})
+        )
 
     def __str__(self):
         from json import dumps
 
         meta_str = f"GRAPH_CONFIG\n{self.graph_config}\n"
         meta_str += f"\nDATA_SOURCE\n{self.data_source}\n"
+        meta_str += f"\nCUSTOM_DATA\n{self.custom_data}\n"
         meta_str += f"\nBITMASKS\n{self.bitmasks}\n"
         meta_str += f"\nVOXEL_BOUNDS\n{self.voxel_bounds}\n"
         meta_str += f"\nVOXEL_COUNTS\n{self.voxel_counts}\n"
