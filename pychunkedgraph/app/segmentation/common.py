@@ -388,11 +388,11 @@ def handle_merge(table_id):
 
     current_app.logger.debug(("lvl2_nodes:", ret.new_lvl2_ids))
 
-    # if len(ret.new_lvl2_ids) > 0:
-    #     t = threading.Thread(
-    #         target=_remeshing, args=(cg.get_serialized_info(), ret.new_lvl2_ids)
-    #     )
-    #     t.start()
+    if len(ret.new_lvl2_ids) > 0:
+        t = threading.Thread(
+            target=_remeshing, args=(cg.get_serialized_info(), ret.new_lvl2_ids)
+        )
+        t.start()
 
     return ret
 
@@ -464,11 +464,11 @@ def handle_split(table_id):
     current_app.logger.debug(("after split:", ret.new_root_ids))
     current_app.logger.debug(("lvl2_nodes:", ret.new_lvl2_ids))
 
-    # if len(ret.new_lvl2_ids) > 0:
-    #     t = threading.Thread(
-    #         target=_remeshing, args=(cg.get_serialized_info(), ret.new_lvl2_ids)
-    #     )
-    #     t.start()
+    if len(ret.new_lvl2_ids) > 0:
+        t = threading.Thread(
+            target=_remeshing, args=(cg.get_serialized_info(), ret.new_lvl2_ids)
+        )
+        t.start()
 
     return ret
 

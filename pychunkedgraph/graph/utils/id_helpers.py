@@ -58,6 +58,7 @@ def get_atomic_id_from_coord(
     """Determines atomic id given a coordinate."""
     x = int(x / 2 ** meta.data_source.CV_MIP)
     y = int(y / 2 ** meta.data_source.CV_MIP)
+    z = int(z)
 
     checked = []
     atomic_id = None
