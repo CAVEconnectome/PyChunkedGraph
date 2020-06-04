@@ -250,7 +250,7 @@ def children_meshes_sharded(
     If not found check initial meshes.
     """
     # UNIX_TIMESTAMP = 1562100638 # {"iso":"2019-07-02 20:50:38.934000+00:00"}
-    MAX_STITCH_LAYER = cg.meta.custom_data.get("mesh", {}).get("max_layer", 6)
+    MAX_STITCH_LAYER = cg.meta.custom_data.get("mesh", {}).get("max_layer", 2)
 
     start = time()
     node_ids = _get_children_before_start_layer(cg, node_id, MAX_STITCH_LAYER)
@@ -273,9 +273,7 @@ def children_meshes_sharded(
     return node_ids, mesh_files
 
 
-def speculative_manifest(
-    cg, node_id, stop_layer: int = 2, mesh_dir: str = "graphene_meshes"
-):
+def speculative_manifest(cg, node_id, stop_layer: int = 2):
     """
     This assumes children IDs have meshes.
     Not checking for their existence reduces latency.

@@ -1,4 +1,3 @@
-import os
 import re
 import multiprocessing as mp
 from time import time
@@ -60,7 +59,9 @@ def get_mesh_block_shape(cg, graphlayer: int) -> np.ndarray:
     the same region as a ChunkedGraph chunk at layer `graphlayer`.
     """
     # Segmentation is not always uniformly downsampled in all directions.
-    return np.array(cg.meta.graph_config.CHUNK_SIZE) * cg.meta.graph_config.FANOUT ** np.max([0, graphlayer - 2])
+    return np.array(
+        cg.meta.graph_config.CHUNK_SIZE
+    ) * cg.meta.graph_config.FANOUT ** np.max([0, graphlayer - 2])
 
 
 def get_mesh_block_shape_for_mip(cg, graphlayer: int, source_mip: int) -> np.ndarray:
@@ -75,7 +76,9 @@ def get_mesh_block_shape_for_mip(cg, graphlayer: int, source_mip: int) -> np.nda
     scale_mip = info["scales"][source_mip]
     distortion = np.floor_divide(scale_mip["resolution"], scale_0["resolution"])
 
-    graphlayer_chunksize = np.array(cg.meta.graph_config.CHUNK_SIZE) * cg.meta.graph_config.FANOUT ** np.max([0, graphlayer - 2])
+    graphlayer_chunksize = np.array(
+        cg.meta.graph_config.CHUNK_SIZE
+    ) * cg.meta.graph_config.FANOUT ** np.max([0, graphlayer - 2])
 
     return np.floor_divide(
         graphlayer_chunksize, distortion, dtype=np.int, casting="unsafe"
@@ -227,15 +230,13 @@ def del_none_keys(d: dict):
     return d_new, none_keys
 
 
-def get_json_info(cg, mesh_dir: str = None):
+def get_json_info(cg):
     from json import loads, dumps
 
     dataset_info = cg.meta.dataset_info
     dummy_app_info = {"app": {"supported_api_versions": [0, 1]}}
     info = {**dataset_info, **dummy_app_info}
-    if mesh_dir:
-        info["mesh"] = mesh_dir
-
+    info["mesh"] = (cg.meta.custom_data.get("mesh", {}).get("dir", "graphene_meshes"),)
     info_str = dumps(info)
     return loads(info_str)
 
@@ -272,11 +273,7 @@ def _check_skips(cg, node_ids: Sequence[np.uint64], children_cache: dict = {}):
 
 
 def _get_sharded_meshes(
-    cg,
-    shard_readers,
-    node_ids: Sequence[np.uint64],
-    stop_layer: int = 2,
-    mesh_dir: str = "graphene_meshes",
+    cg, shard_readers, node_ids: Sequence[np.uint64], stop_layer: int = 2,
 ) -> Dict:
     children_cache = {}
     result = {}
@@ -362,16 +359,11 @@ def _get_sharded_unsharded_meshes(
     return initial_meshes_d, new_meshes_d, missing_ids
 
 
-def _get_mesh_paths(
-    cg,
-    node_ids: Sequence[np.uint64],
-    stop_layer: int = 2,
-    mesh_dir: str = "graphene_meshes",
-) -> Dict:
+def _get_mesh_paths(cg, node_ids: Sequence[np.uint64], stop_layer: int = 2,) -> Dict:
     shard_readers = CloudVolume(  # pylint: disable=no-member
         f"graphene://https://localhost/segmentation/table/dummy",
-        mesh_dir=mesh_dir,
-        info=get_json_info(cg, mesh_dir=mesh_dir),
+        mesh_dir=cg.meta.custom_data.get("mesh", {}).get("dir", "graphene_meshes"),
+        info=get_json_info(cg),
     ).mesh
 
     result = {}
@@ -414,19 +406,9 @@ def children_meshes_sharded(
     import os
 
     # UNIX_TIMESTAMP = 1562100638 # {"iso":"2019-07-02 20:50:38.934000+00:00"}
-    MAX_STITCH_LAYER = int(
-        os.environ.get("MESH_START_LAYER", 6)
-    )  # make this part of meta?
+    MAX_STITCH_LAYER = cg.meta.custom_data.get("mesh", {}).get("max_layer", 2)
 
     start = time()
-    # node_ids = cg.get_subgraph(
-    #     node_id,
-    #     bbox=bounding_box,
-    #     bbox_is_coordinate=True,
-    #     nodes_only=True,
-    #     return_layers=[3],
-    # )
-    # node_ids = node_ids[3]
     node_ids = _get_children_before_start_layer(cg, node_id, MAX_STITCH_LAYER)
     print("_get_children_before_start_layer: %.3fs" % (time() - start))
     print("node_ids", len(node_ids))
