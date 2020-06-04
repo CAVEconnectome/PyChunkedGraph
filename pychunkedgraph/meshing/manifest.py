@@ -68,15 +68,13 @@ def del_none_keys(d: dict):
     return d_new, none_keys
 
 
-def get_json_info(cg, mesh_dir: str = None):
+def get_json_info(cg):
     from json import loads, dumps
 
     dataset_info = cg.meta.dataset_info
     dummy_app_info = {"app": {"supported_api_versions": [0, 1]}}
     info = {**dataset_info, **dummy_app_info}
-    if mesh_dir:
-        info["mesh"] = mesh_dir
-
+    info["mesh"] = cg.meta.custom_data.get("mesh", {}).get("dir", "graphene_meshes")
     info_str = dumps(info)
     return loads(info_str)
 
@@ -114,11 +112,7 @@ def _check_skips(cg, node_ids: Sequence[np.uint64], children_cache: dict = {}):
 
 
 def _get_sharded_meshes(
-    cg,
-    shard_readers,
-    node_ids: Sequence[np.uint64],
-    stop_layer: int = 2,
-    mesh_dir: str = "graphene_meshes",
+    cg, shard_readers, node_ids: Sequence[np.uint64], stop_layer: int = 2,
 ) -> Dict:
     children_cache = {}
     result = {}
@@ -212,8 +206,8 @@ def _get_mesh_paths(
 ) -> Dict:
     shard_readers = CloudVolume(  # pylint: disable=no-member
         f"graphene://https://localhost/segmentation/table/dummy",
-        mesh_dir=mesh_dir,
-        info=get_json_info(cg, mesh_dir=mesh_dir),
+        mesh_dir=cg.meta.custom_data.get("mesh", {}).get("dir", "graphene_meshes"),
+        info=get_json_info(cg),
     ).mesh
 
     result = {}
@@ -310,8 +304,8 @@ def speculative_manifest(
 
     readers = CloudVolume(  # pylint: disable=no-member
         f"graphene://https://localhost/segmentation/table/dummy",
-        mesh_dir=mesh_dir,
-        info=get_json_info(cg, mesh_dir=mesh_dir),
+        mesh_dir=cg.meta.custom_data.get("mesh", {}).get("dir", "graphene_meshes"),
+        info=get_json_info(cg),
     ).mesh.readers
 
     node_ids = np.concatenate(result)
