@@ -123,3 +123,20 @@ class ClientWithIDGen(SimpleClient):
     @abstractmethod
     def get_max_operation_id(self):
         """Gets the current maximum operation ID."""
+
+
+class OperationLogger(ABC):
+    """
+    Abstract class for interacting with backend data store where the chunkedgraph is stored.
+    Eg., BigTableClient for using big table as storage.
+    """
+
+    # TODO add functions for writing
+
+    @abstractmethod
+    def read_log_entry(self, operation_id: int) -> None:
+        """Read log entry for a given operation ID."""
+
+    @abstractmethod
+    def read_log_entries(self, operation_ids) -> None:
+        """Read log entries for given operation IDs."""

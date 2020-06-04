@@ -23,6 +23,7 @@ from google.cloud.bigtable.column_family import MaxVersionsGCRule
 
 from . import utils
 from ..base import ClientWithIDGen
+from ..base import OperationLogger
 from ... import attributes
 from ... import exceptions
 from ...utils import basetypes
@@ -36,7 +37,7 @@ from ...utils.generic import get_valid_timestamp
 from ....ingest import IngestConfig
 
 
-class BigTableClient(bigtable.Client, ClientWithIDGen):
+class BigTableClient(bigtable.Client, ClientWithIDGen, OperationLogger):
     def __init__(
         self,
         table_id: str,
@@ -193,6 +194,124 @@ class BigTableClient(bigtable.Client, ClientWithIDGen):
         """
         # TODO convert nodes and properties to bigtable rows
         pass
+
+    def read_log_entry(
+        self, operation_id: np.uint64
+    ) -> typing.Tuple[typing.Dict, datetime]:
+        log_record = self.read_node(
+            operation_id, properties=attributes.OperationLogs.all()
+        )
+        if len(log_record) == 0:
+            return {}, None
+        timestamp = log_record[attributes.OperationLogs.RootID][0].timestamp
+        log_record.update((column, v[0].value) for column, v in log_record.items())
+        return log_record, timestamp
+
+    def read_log_entries(
+        self,
+        operation_ids: typing.Optional[typing.Iterable] = None,
+        start_time: typing.Optional[datetime] = None,
+        end_time: typing.Optional[datetime] = None,
+        end_time_inclusive: bool = False,
+    ):
+        if operation_ids is None:
+            logs_d = self.read_nodes(
+                start_id=np.uint64(0),
+                end_id=self.get_max_operation_id(),
+                end_id_inclusive=True,
+                properties=attributes.OperationLogs.all(),
+                start_time=start_time,
+                end_time=end_time,
+                end_time_inclusive=end_time_inclusive,
+            )
+        else:
+            logs_d = self.read_nodes(
+                node_ids=operation_ids,
+                properties=attributes.OperationLogs.all(),
+                start_time=start_time,
+                end_time=end_time,
+                end_time_inclusive=end_time_inclusive,
+            )
+        if not logs_d:
+            return {}
+        for operation_id in logs_d:
+            log_record = logs_d[operation_id]
+            timestamp = log_record[attributes.OperationLogs.RootID][0].timestamp
+            log_record.update((column, v[0].value) for column, v in log_record.items())
+            log_record["timestamp"] = timestamp
+        return logs_d
+
+    # Helpers
+    def write(
+        self,
+        rows: typing.Iterable[bigtable.row.DirectRow],
+        root_ids: typing.Optional[
+            typing.Union[np.uint64, typing.Iterable[np.uint64]]
+        ] = None,
+        operation_id: typing.Optional[np.uint64] = None,
+        slow_retry: bool = True,
+        block_size: int = 2000,
+    ):
+        """ Writes a list of mutated rows in bulk
+        WARNING: If <rows> contains the same row (same row_key) and column
+        key two times only the last one is effectively written to the BigTable
+        (even when the mutations were applied to different columns)
+        --> no versioning!
+        :param rows: list
+            list of mutated rows
+        :param root_ids: list if uint64
+        :param operation_id: uint64 or None
+            operation_id (or other unique id) that *was* used to lock the root
+            the bulk write is only executed if the root is still locked with
+            the same id.
+        :param slow_retry: bool
+        :param block_size: int
+        """
+        if slow_retry:
+            initial = 5
+        else:
+            initial = 1
+
+        exception_types = (Aborted, DeadlineExceeded, ServiceUnavailable)
+        retry = Retry(
+            predicate=if_exception_type(exception_types),
+            initial=initial,
+            maximum=15.0,
+            multiplier=2.0,
+            deadline=self.graph_meta.graph_config.ROOT_LOCK_EXPIRY.seconds,
+        )
+
+        if root_ids is not None and operation_id is not None:
+            if isinstance(root_ids, int):
+                root_ids = [root_ids]
+            if not self.renew_locks(root_ids, operation_id):
+                raise exceptions.LockingError(
+                    f"Root lock renewal failed: operation {operation_id}"
+                )
+
+        for i in range(0, len(rows), block_size):
+            status = self._table.mutate_rows(rows[i : i + block_size], retry=retry)
+            if not all(status):
+                raise exceptions.ChunkedGraphError(
+                    f"Bulk write failed: operation {operation_id}"
+                )
+
+    def mutate_row(
+        self,
+        row_key: bytes,
+        val_dict: typing.Dict[attributes._Attribute, typing.Any],
+        time_stamp: typing.Optional[datetime] = None,
+    ) -> bigtable.row.Row:
+        """Mutates a single row (doesn't write to big table)."""
+        row = self._table.row(row_key)
+        for column, value in val_dict.items():
+            row.set_cell(
+                column_family_id=column.family_id,
+                column=column.key,
+                value=column.serialize(value),
+                timestamp=time_stamp,
+            )
+        return row
 
     # Locking
     def lock_root(self, root_id: np.uint64, operation_id: np.uint64,) -> bool:
@@ -620,74 +739,3 @@ class BigTableClient(bigtable.Client, ClientWithIDGen):
         for resp in responses:
             combined_response.update(resp)
         return combined_response
-
-    def write(
-        self,
-        rows: typing.Iterable[bigtable.row.DirectRow],
-        root_ids: typing.Optional[
-            typing.Union[np.uint64, typing.Iterable[np.uint64]]
-        ] = None,
-        operation_id: typing.Optional[np.uint64] = None,
-        slow_retry: bool = True,
-        block_size: int = 2000,
-    ):
-        """ Writes a list of mutated rows in bulk
-        WARNING: If <rows> contains the same row (same row_key) and column
-        key two times only the last one is effectively written to the BigTable
-        (even when the mutations were applied to different columns)
-        --> no versioning!
-        :param rows: list
-            list of mutated rows
-        :param root_ids: list if uint64
-        :param operation_id: uint64 or None
-            operation_id (or other unique id) that *was* used to lock the root
-            the bulk write is only executed if the root is still locked with
-            the same id.
-        :param slow_retry: bool
-        :param block_size: int
-        """
-        if slow_retry:
-            initial = 5
-        else:
-            initial = 1
-
-        exception_types = (Aborted, DeadlineExceeded, ServiceUnavailable)
-        retry = Retry(
-            predicate=if_exception_type(exception_types),
-            initial=initial,
-            maximum=15.0,
-            multiplier=2.0,
-            deadline=self.graph_meta.graph_config.ROOT_LOCK_EXPIRY.seconds,
-        )
-
-        if root_ids is not None and operation_id is not None:
-            if isinstance(root_ids, int):
-                root_ids = [root_ids]
-            if not self.renew_locks(root_ids, operation_id):
-                raise exceptions.LockingError(
-                    f"Root lock renewal failed: operation {operation_id}"
-                )
-
-        for i in range(0, len(rows), block_size):
-            status = self._table.mutate_rows(rows[i : i + block_size], retry=retry)
-            if not all(status):
-                raise exceptions.ChunkedGraphError(
-                    f"Bulk write failed: operation {operation_id}"
-                )
-
-    def mutate_row(
-        self,
-        row_key: bytes,
-        val_dict: typing.Dict[attributes._Attribute, typing.Any],
-        time_stamp: typing.Optional[datetime] = None,
-    ) -> bigtable.row.Row:
-        """Mutates a single row (doesn't write to big table)."""
-        row = self._table.row(row_key)
-        for column, value in val_dict.items():
-            row.set_cell(
-                column_family_id=column.family_id,
-                column=column.key,
-                value=column.serialize(value),
-                timestamp=time_stamp,
-            )
-        return row
