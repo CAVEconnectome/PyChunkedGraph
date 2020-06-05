@@ -1106,7 +1106,7 @@ def chunk_stitch_remeshing_task(
     cv = CloudVolume(
         f"graphene://https://localhost/segmentation/table/dummy",
         mesh_dir=cv_sharded_mesh_dir,
-        info=meshgen_utils.get_json_info(cg, mesh_dir=cv_sharded_mesh_dir),
+        info=meshgen_utils.get_json_info(cg),
     )
 
     fragments_in_batch_processed = 0
