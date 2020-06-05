@@ -317,7 +317,9 @@ def _get_unsharded_meshes(cg, node_ids: Sequence[np.uint64]) -> Tuple[Dict, List
     missing_ids = []
     if not len(node_ids):
         return result, missing_ids
-    with Storage(cg.cv_mesh_path) as stor:
+    mesh_dir = cg.meta.custom_data.get("mesh", {}).get("dir", "graphene_meshes")
+    mesh_path = f"{cg.meta.data_source.WATERSHED}/{mesh_dir}/dynamic"
+    with Storage(mesh_path) as stor:
         filenames = [get_mesh_name(cg, c) for c in node_ids]
         start = time()
         existence_dict = stor.files_exist(filenames)
@@ -343,12 +345,16 @@ def _get_sharded_unsharded_meshes(
     else:
         return {}, {}, []
 
-    # initial_mesh_dt = np.datetime64(datetime(2020, 5, 10, 20, 50, 38, 934000))
-    # node_ids_ts = cg.get_node_timestamps(node_ids)
-    # initial_mesh_mask = node_ids_ts < initial_mesh_dt
+    initial_mesh_dt = np.datetime64(
+        datetime.fromtimestamp(
+            cg.meta.custom_data.get("mesh", {}).get("initial_ts", datetime.now())
+        )
+    )
+    node_ids_ts = cg.get_node_timestamps(node_ids)
+    initial_mesh_mask = node_ids_ts < initial_mesh_dt
 
-    # initial_ids = node_ids[initial_mesh_mask]
-    # new_ids = node_ids[~initial_mesh_mask]
+    initial_ids = node_ids[initial_mesh_mask]
+    new_ids = node_ids[~initial_mesh_mask]
 
     initial_ids = node_ids.copy()
     new_ids = np.array([])
@@ -385,7 +391,7 @@ def _get_mesh_paths(cg, node_ids: Sequence[np.uint64], stop_layer: int = 2,) -> 
     return result
 
 
-def _get_children_before_start_layer(cg, node_id: np.uint64, start_layer: int = 6):
+def _get_children_before_start_layer(cg, node_id: np.uint64, start_layer: int):
     result = [empty_1d]
     parents = np.array([node_id], dtype=np.uint64)
     while parents.size:
@@ -403,8 +409,6 @@ def children_meshes_sharded(
     For each ID, first check for new meshes,
     If not found check initial meshes.
     """
-    import os
-
     # UNIX_TIMESTAMP = 1562100638 # {"iso":"2019-07-02 20:50:38.934000+00:00"}
     MAX_STITCH_LAYER = cg.meta.custom_data.get("mesh", {}).get("max_layer", 2)
 
