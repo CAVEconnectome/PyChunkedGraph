@@ -356,8 +356,8 @@ def _get_sharded_unsharded_meshes(
     initial_ids = node_ids[initial_mesh_mask]
     new_ids = node_ids[~initial_mesh_mask]
 
-    initial_ids = node_ids.copy()
-    new_ids = np.array([])
+    # initial_ids = node_ids.copy()
+    # new_ids = np.array([])
 
     print("new_ids, initial_ids", new_ids.size, initial_ids.size)
     initial_meshes_d = _get_sharded_meshes(cg, shard_readers, initial_ids)

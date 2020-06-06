@@ -1,9 +1,9 @@
+cloud-volume
 numpy
 pandas
 networkx==2.1
 google-cloud-bigtable>=0.33.0
 google-cloud-datastore>=1.8<=2.0dev
-google-cloud-storage==1.21.0
 flask
 flask_cors
 codecov
@@ -18,4 +18,3 @@ fastremap
 pyyaml
 cachetools
 task-queue
--e git+https://github.com/seung-lab/cloud-volume.git@d3eacb5ada1747dcff4afc34b527fdb6329a5d67#egg=cloud-volume
