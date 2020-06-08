@@ -389,11 +389,11 @@ def handle_merge(table_id):
     current_app.logger.debug(("lvl2_nodes:", ret.new_lvl2_ids))
 
     if len(ret.new_lvl2_ids) > 0:
-        _remeshing(cg.get_serialized_info(), ret.new_lvl2_ids)
-        # t = threading.Thread(
-        #     target=_remeshing, args=(cg.get_serialized_info(), ret.new_lvl2_ids)
-        # )
-        # t.start()
+        # _remeshing(cg.get_serialized_info(), ret.new_lvl2_ids)
+        t = threading.Thread(
+            target=_remeshing, args=(cg.get_serialized_info(), ret.new_lvl2_ids)
+        )
+        t.start()
 
     return ret
 
@@ -466,11 +466,11 @@ def handle_split(table_id):
     current_app.logger.debug(("lvl2_nodes:", ret.new_lvl2_ids))
 
     if len(ret.new_lvl2_ids) > 0:
-        _remeshing(cg.get_serialized_info(), ret.new_lvl2_ids)
-        # t = threading.Thread(
-        #     target=_remeshing, args=(cg.get_serialized_info(), ret.new_lvl2_ids)
-        # )
-        # t.start()
+        # _remeshing(cg.get_serialized_info(), ret.new_lvl2_ids)
+        t = threading.Thread(
+            target=_remeshing, args=(cg.get_serialized_info(), ret.new_lvl2_ids)
+        )
+        t.start()
 
     return ret
 
@@ -504,11 +504,11 @@ def handle_undo(table_id):
     current_app.logger.debug(("lvl2_nodes:", ret.new_lvl2_ids))
 
     if ret.new_lvl2_ids.size > 0:
-        _remeshing(cg.get_serialized_info(), ret.new_lvl2_ids)
-        # t = threading.Thread(
-        #     target=_remeshing, args=(cg.get_serialized_info(), ret.new_lvl2_ids)
-        # )
-        # t.start()
+        # _remeshing(cg.get_serialized_info(), ret.new_lvl2_ids)
+        t = threading.Thread(
+            target=_remeshing, args=(cg.get_serialized_info(), ret.new_lvl2_ids)
+        )
+        t.start()
 
     return ret
 
@@ -542,11 +542,11 @@ def handle_redo(table_id):
     current_app.logger.debug(("lvl2_nodes:", ret.new_lvl2_ids))
 
     if ret.new_lvl2_ids.size > 0:
-        _remeshing(cg.get_serialized_info(), ret.new_lvl2_ids)
-        # t = threading.Thread(
-        #     target=_remeshing, args=(cg.get_serialized_info(), ret.new_lvl2_ids)
-        # )
-        # t.start()
+        # _remeshing(cg.get_serialized_info(), ret.new_lvl2_ids)
+        t = threading.Thread(
+            target=_remeshing, args=(cg.get_serialized_info(), ret.new_lvl2_ids)
+        )
+        t.start()
 
     return ret
 
