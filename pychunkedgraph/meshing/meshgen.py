@@ -974,7 +974,7 @@ def chunk_initial_unsharded_mesh_task(
                     file_path=f"{meshgen_utils.get_mesh_name(cg, obj_id)}",
                     content=file_contents,
                     compress=compress,
-                    cache_control="no-cache",
+                    cache_control="public",
                 )
     if PRINT_FOR_DEBUGGING:
         print(", ".join(str(x) for x in result))
@@ -1228,7 +1228,7 @@ def chunk_stitch_remeshing_task(
                     new_fragment_b,
                     content_type="application/octet-stream",
                     compress=False,
-                    cache_control="no-cache",
+                    cache_control="public",
                 )
 
     if PRINT_FOR_DEBUGGING:
