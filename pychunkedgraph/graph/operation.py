@@ -405,6 +405,7 @@ class GraphEditOperation(ABC):
                 operation_id=root_lock.operation_id,
                 slow_retry=False,
             )
+            self.cg.cache = None
             return GraphEditOperation.Result(
                 operation_id=root_lock.operation_id,
                 new_root_ids=new_root_ids,
