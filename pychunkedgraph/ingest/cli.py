@@ -74,7 +74,8 @@ def pickle_imanager(graph_id: str, dataset: click.Path, raw: bool):
 @ingest_cli.command("chunk")
 @click.argument("graph_id", type=str)
 @click.argument("chunk_info", nargs=4, type=int)
-def ingest_chunk(graph_id: str, chunk_info):
+@click.option("--single", is_flag=True)
+def ingest_chunk(graph_id: str, chunk_info, single: bool):
     """
     Helper command
     Directly ingest chunk
@@ -95,6 +96,8 @@ def ingest_chunk(graph_id: str, chunk_info):
 
     cg = ChunkedGraph(graph_id=graph_id)
 
+    if single:
+        add_layer(cg, chunk_info[0], chunk_info[1:], n_threads=1)
     add_layer(cg, chunk_info[0], chunk_info[1:])
 
 

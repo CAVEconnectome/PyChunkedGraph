@@ -33,9 +33,11 @@ def get_children_chunk_cross_edges(
     if not len(atomic_chunks):
         return []
 
+    print(f"touching atomic chunk count {len(atomic_chunks)}")
     if not use_threads:
         return _get_children_chunk_cross_edges(cg, atomic_chunks, layer - 1)
 
+    print("get_children_chunk_cross_edges, atomic chunks", len(atomic_chunks))
     with mp.Manager() as manager:
         edge_ids_shared = manager.list()
         edge_ids_shared.append(empty_2d)
@@ -67,6 +69,9 @@ def _get_children_chunk_cross_edges_helper(args) -> None:
 
 
 def _get_children_chunk_cross_edges(cg, atomic_chunks, layer) -> None:
+    print(
+        f"_get_children_chunk_cross_edges {layer} atomic_chunks count {len(atomic_chunks)}"
+    )
     cross_edges = [empty_2d]
     for layer2_chunk in atomic_chunks:
         edges = _read_atomic_chunk_cross_edges(cg, layer2_chunk, layer)
@@ -77,7 +82,9 @@ def _get_children_chunk_cross_edges(cg, atomic_chunks, layer) -> None:
         return empty_2d
     cross_edges[:, 0] = cg.get_roots(cross_edges[:, 0], stop_layer=layer, ceil=False)
     cross_edges[:, 1] = cg.get_roots(cross_edges[:, 1], stop_layer=layer, ceil=False)
-    return np.unique(cross_edges, axis=0) if cross_edges.size else empty_2d
+    result = np.unique(cross_edges, axis=0) if cross_edges.size else empty_2d
+    print(f"_get_children_chunk_cross_edges {len(atomic_chunks)} done {result.shape}")
+    return result
 
 
 def _read_atomic_chunk_cross_edges(

@@ -49,6 +49,10 @@ def add_layer(
         "n e", len(children_ids), len(edge_ids), layer_id, parent_coords,
     )
 
+    node_layers = cg.get_chunk_layers(children_ids)
+    edge_layers = cg.get_chunk_layers(np.unique(edge_ids))
+    assert np.all(node_layers < layer_id), "invalid node layers"
+    assert np.all(edge_layers < layer_id), "invalid edge layers"
     # Extract connected components
     # isolated_node_mask = ~np.in1d(children_ids, np.unique(edge_ids))
     # add_node_ids = children_ids[isolated_node_mask].squeeze()
@@ -80,6 +84,7 @@ def _read_children_chunks(
             children_ids.append(_read_chunk([], cg, layer_id - 1, child_coord))
         return np.concatenate(children_ids)
 
+    print("_read_children_chunks")
     with mp.Manager() as manager:
         children_ids_shared = manager.list()
         multi_args = []
@@ -97,6 +102,7 @@ def _read_children_chunks(
             multi_args,
             n_threads=min(len(multi_args), mp.cpu_count()),
         )
+        print("_read_children_chunks done")
         return np.concatenate(children_ids_shared)
 
 
@@ -107,6 +113,7 @@ def _read_chunk_helper(args):
 
 
 def _read_chunk(children_ids_shared, cg: ChunkedGraph, layer_id: int, chunk_coord):
+    print(f"_read_chunk {layer_id}, {chunk_coord}")
     x, y, z = chunk_coord
     range_read = cg.range_read_chunk(
         cg.get_chunk_id(layer=layer_id, x=x, y=y, z=z),
@@ -122,6 +129,7 @@ def _read_chunk(children_ids_shared, cg: ChunkedGraph, layer_id: int, chunk_coor
 
     row_ids = filter_failed_node_ids(row_ids, segment_ids, max_children_ids)
     children_ids_shared.append(row_ids)
+    print(f"_read_chunk {layer_id}, {chunk_coord} done {len(row_ids)}")
     return row_ids
 
 
@@ -237,4 +245,3 @@ def _write(
                 rows = []
     cg.client.write(rows)
     print("wrote rows", len(rows), layer_id, parent_coords)
-
