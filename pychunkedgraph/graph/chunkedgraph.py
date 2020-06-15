@@ -60,7 +60,7 @@ class ChunkedGraph:
         self._client = bt_client
         self._id_client = bt_client
         self._cache_service = None
-        self.mock_edges = Edges([], []) # for unit tests
+        self.mock_edges = Edges([], [])  # for unit tests
 
     @property
     def meta(self) -> ChunkedGraphMeta:
@@ -315,37 +315,27 @@ class ChunkedGraph:
         """
         time_stamp = misc_utils.get_valid_timestamp(time_stamp)
         stop_layer = self.meta.layer_count if not stop_layer else stop_layer
+        assert stop_layer <= self.meta.layer_count
+        layer_mask = np.ones(len(node_ids), dtype=np.bool)
+
         for _ in range(n_tries):
-            layer_mask = np.ones(len(node_ids), dtype=np.bool)
             layer_mask[self.get_chunk_layers(node_ids) >= stop_layer] = False
             parent_ids = np.array(node_ids, dtype=basetypes.NODE_ID)
             for _ in range(int(stop_layer + 1)):
-                # layer_mask = self.get_chunk_layers(parent_ids) < stop_layer
-                if not np.any(layer_mask):
-                    return parent_ids
                 filtered_ids = parent_ids[layer_mask]
                 unique_ids, inverse = np.unique(filtered_ids, return_inverse=True)
                 temp_ids = self.get_parents(unique_ids, time_stamp=time_stamp)
                 if not temp_ids.size:
                     break
-                temp = parent_ids.copy()
-                try:
-                    temp[layer_mask] = temp_ids[inverse]
-                except Exception as err:
-                    print("node_ids", node_ids)
-                    print("layer_mask", layer_mask)
-                    print("temp_ids", temp_ids)
-                    print("temp", temp)
-                    raise Exception(err)
-                layer_exceed_mask = self.get_chunk_layers(temp) >= stop_layer
-                temp[layer_exceed_mask] = parent_ids[layer_exceed_mask]
-                layer_mask[layer_exceed_mask] = False
-                if not np.any(self.get_chunk_layers(temp) < stop_layer):
-                    return temp
-                parent_ids = temp
+                else:
+                    parent_ids[layer_mask] = temp_ids[inverse]
+                    layer_mask[self.get_chunk_layers(parent_ids) >= stop_layer] = False
+                    if not np.any(self.get_chunk_layers(parent_ids) < stop_layer):
+                        return parent_ids
             if not np.any(self.get_chunk_layers(parent_ids) < stop_layer):
                 return parent_ids
-            time.sleep(0.5)
+            else:
+                time.sleep(0.5)
         return parent_ids
 
     def get_root(
