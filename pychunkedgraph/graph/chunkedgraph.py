@@ -308,6 +308,7 @@ class ChunkedGraph:
         *,
         time_stamp: typing.Optional[datetime.datetime] = None,
         stop_layer: int = None,
+        ceil: bool = True,
         n_tries: int = 1,
     ) -> typing.Union[np.ndarray, typing.Dict[int, np.ndarray]]:
         """
@@ -328,11 +329,23 @@ class ChunkedGraph:
                 if not temp_ids.size:
                     break
                 else:
-                    parent_ids[layer_mask] = temp_ids[inverse]
-                    layer_mask[self.get_chunk_layers(parent_ids) >= stop_layer] = False
-                    if not np.any(self.get_chunk_layers(parent_ids) < stop_layer):
+                    temp_ids_i = temp_ids[inverse]
+                    new_layer_mask = layer_mask.copy()
+                    new_layer_mask[new_layer_mask] = self.get_chunk_layers(temp_ids_i) < stop_layer
+                    
+                    if not ceil:
+                        rev_m = self.get_chunk_layers(temp_ids_i) > stop_layer
+                        temp_ids_i[rev_m] = unique_ids[rev_m]
+                               
+                    parent_ids[layer_mask] = temp_ids_i
+                    layer_mask = new_layer_mask
+                    
+                    if np.all(~layer_mask):
                         return parent_ids
-            if not np.any(self.get_chunk_layers(parent_ids) < stop_layer):
+                    
+            if not ceil and np.all(self.get_chunk_layers(parent_ids) >= stop_layer):
+                return parent_ids
+            elif ceil:
                 return parent_ids
             else:
                 time.sleep(0.5)
