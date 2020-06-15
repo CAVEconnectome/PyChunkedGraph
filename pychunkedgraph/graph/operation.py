@@ -690,7 +690,9 @@ class MulticutOperation(GraphEditOperation):
             l2id_agglomeration_d, edges = self.cg.get_subgraph(
                 root_ids.pop(), bbox=bbox, bbox_is_coordinate=True
             )
-            edges = reduce(lambda x, y: x + y, edges)
+            in_edges, out_edges, cross_edges = edges
+            assert np.all(cross_edges.affinities == np.inf)
+            edges = in_edges + out_edges + cross_edges
             supervoxels = np.concatenate(
                 [agg.supervoxels for agg in l2id_agglomeration_d.values()]
             )

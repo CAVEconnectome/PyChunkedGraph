@@ -60,7 +60,7 @@ class ChunkedGraph:
         self._client = bt_client
         self._id_client = bt_client
         self._cache_service = None
-        self.mock_edges = Edges([], [])
+        self.mock_edges = Edges([], []) # for unit tests
 
     @property
     def meta(self) -> ChunkedGraphMeta:
@@ -337,7 +337,7 @@ class ChunkedGraph:
                     print("temp_ids", temp_ids)
                     print("temp", temp)
                     raise Exception(err)
-                layer_exceed_mask = self.get_chunk_layers(temp) > stop_layer
+                layer_exceed_mask = self.get_chunk_layers(temp) >= stop_layer
                 temp[layer_exceed_mask] = parent_ids[layer_exceed_mask]
                 layer_mask[layer_exceed_mask] = False
                 if not np.any(self.get_chunk_layers(temp) < stop_layer):
