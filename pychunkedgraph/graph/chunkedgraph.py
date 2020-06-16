@@ -335,7 +335,7 @@ class ChunkedGraph:
                     
                     if not ceil:
                         rev_m = self.get_chunk_layers(temp_ids_i) > stop_layer
-                        temp_ids_i[rev_m] = unique_ids[rev_m]
+                        temp_ids_i[rev_m] = filtered_ids[rev_m]
                                
                     parent_ids[layer_mask] = temp_ids_i
                     layer_mask = new_layer_mask
