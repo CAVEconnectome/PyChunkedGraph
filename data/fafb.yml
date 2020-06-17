@@ -1,7 +1,7 @@
 data_source:
   EDGES: "gs://chunked-graph/190410_FAFB_v02/edges"
   COMPONENTS: "gs://chunked-graph/190410_FAFB_v02/components"
-  WATERSHED: "gs://microns-seunglab/drosophila_v0/ws_190410_FAFB_v02_ws_size_threshold_200"
+  WATERSHED: "gs://seunglab2/drosophila_v0/ws_190410_FAFB_v02_ws_size_threshold_200"
   DATA_VERSION: 2
 
 graph_config:
@@ -18,4 +18,4 @@ backend_client:
 
 ingest_config:
   AGGLOMERATION: "gs://ranl-scratch/190410_FAFB_v02_ws_size_threshold_200/agg"
-  WATERSHED: "gs://microns-seunglab/drosophila_v0/ws_190410_FAFB_v02_ws_size_threshold_200"
+  WATERSHED: "gs://seunglab2/drosophila_v0/ws_190410_FAFB_v02_ws_size_threshold_200"

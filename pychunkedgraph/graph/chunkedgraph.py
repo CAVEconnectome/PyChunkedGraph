@@ -297,9 +297,9 @@ class ChunkedGraph:
         if not uplift:
             return {min_layer: edges}
         node_root_id = node_id
-        node_root_id = self.get_root(node_id, stop_layer=min_layer)
+        node_root_id = self.get_root(node_id, stop_layer=min_layer, ceil=False)
         edges[:, 0] = node_root_id
-        edges[:, 1] = self.get_roots(edges[:, 1], stop_layer=min_layer)
+        edges[:, 1] = self.get_roots(edges[:, 1], stop_layer=min_layer, ceil=False)
         return {min_layer: np.unique(edges, axis=0) if edges.size else types.empty_2d}
 
     def get_roots(
@@ -331,18 +331,19 @@ class ChunkedGraph:
                 else:
                     temp_ids_i = temp_ids[inverse]
                     new_layer_mask = layer_mask.copy()
-                    new_layer_mask[new_layer_mask] = self.get_chunk_layers(temp_ids_i) < stop_layer
-                    
+                    new_layer_mask[new_layer_mask] = (
+                        self.get_chunk_layers(temp_ids_i) < stop_layer
+                    )
                     if not ceil:
                         rev_m = self.get_chunk_layers(temp_ids_i) > stop_layer
                         temp_ids_i[rev_m] = filtered_ids[rev_m]
-                               
+
                     parent_ids[layer_mask] = temp_ids_i
                     layer_mask = new_layer_mask
-                    
+
                     if np.all(~layer_mask):
                         return parent_ids
-                    
+
             if not ceil and np.all(self.get_chunk_layers(parent_ids) >= stop_layer):
                 return parent_ids
             elif ceil:
@@ -358,6 +359,7 @@ class ChunkedGraph:
         time_stamp: typing.Optional[datetime.datetime] = None,
         get_all_parents: bool = False,
         stop_layer: int = None,
+        ceil: bool = True,
         n_tries: int = 1,
     ) -> typing.Union[typing.List[np.uint64], np.uint64]:
         """Takes a node id and returns the associated agglomeration ids."""
