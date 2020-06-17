@@ -10,51 +10,91 @@ import numpy as np
 from cloudvolume import CloudVolume, Storage
 from multiwrapper import multiprocessing_utils as mu
 
-from pychunkedgraph.graph.utils.basetypes import NODE_ID  # noqa
+from .meshgen_utils import get_mesh_name
 from ..graph.types import empty_1d
+from ..graph.utils.basetypes import NODE_ID
 
 
-def str_to_slice(slice_str: str):
-    from re import match
-
-    match = match(r"(\d+)-(\d+)_(\d+)-(\d+)_(\d+)-(\d+)", slice_str)
-    return (
-        slice(int(match.group(1)), int(match.group(2))),
-        slice(int(match.group(3)), int(match.group(4))),
-        slice(int(match.group(5)), int(match.group(6))),
+def get_highest_child_nodes_with_meshes(
+    cg,
+    node_id: np.uint64,
+    stop_layer=2,
+    start_layer=None,
+    verify_existence=False,
+    bounding_box=None,
+    flexible_start_layer=None,
+):
+    # if not cg.sharded_meshes:
+    #     return children_meshes_non_sharded(
+    #         cg,
+    #         node_id,
+    #         stop_layer=stop_layer,
+    #         start_layer=start_layer,
+    #         verify_existence=verify_existence,
+    #         bounding_box=bounding_box,
+    #         flexible_start_layer=flexible_start_layer,
+    #     )
+    return children_meshes_sharded(
+        cg,
+        node_id,
+        stop_layer=stop_layer,
+        verify_existence=verify_existence,
+        bounding_box=bounding_box,
     )
 
 
-def slice_to_str(slices) -> str:
-    if isinstance(slices, slice):
-        return "%d-%d" % (slices.start, slices.stop)
+def children_meshes_non_sharded(
+    cg,
+    node_id: np.uint64,
+    stop_layer=2,
+    start_layer=None,
+    verify_existence=False,
+    bounding_box=None,
+    flexible_start_layer=None,
+):
+    if flexible_start_layer is not None:
+        # Get highest children that are at flexible_start_layer or below
+        # (do this because of skip connections)
+        candidates = cg.get_children_at_layer(node_id, flexible_start_layer, True)
+    elif start_layer is None:
+        candidates = np.array([node_id], dtype=np.uint64)
     else:
-        return "_".join(map(slice_to_str, slices))
+        candidates = cg.get_subgraph(
+            node_id,
+            bbox=bounding_box,
+            bbox_is_coordinate=True,
+            return_layers=[start_layer],
+            nodes_only=True,
+        )
 
+    if verify_existence:
+        valid_node_ids = []
+        with Storage(cg.cv_mesh_path) as stor:  # pylint: disable=not-context-manager
+            while True:
+                filenames = [get_mesh_name(cg, c) for c in candidates]
 
-def get_chunk_bbox(cg, chunk_id: np.uint64):
-    layer = cg.get_chunk_layer(chunk_id)
-    chunk_block_shape = get_mesh_block_shape(cg, layer)
-    bbox_start = cg.get_chunk_coordinates(chunk_id) * chunk_block_shape
-    bbox_end = bbox_start + chunk_block_shape
-    return tuple(slice(bbox_start[i], bbox_end[i]) for i in range(3))
+                start = time()
+                existence_dict = stor.files_exist(filenames)
+                print("Existence took: %.3fs" % (time() - start))
 
+                missing_meshes = []
+                for mesh_key in existence_dict:
+                    node_id = np.uint64(mesh_key.split(":")[0])
+                    if existence_dict[mesh_key]:
+                        valid_node_ids.append(node_id)
+                    else:
+                        if cg.get_chunk_layer(node_id) > stop_layer:
+                            missing_meshes.append(node_id)
 
-def get_chunk_bbox_str(cg, chunk_id: np.uint64) -> str:
-    return slice_to_str(get_chunk_bbox(cg, chunk_id))
-
-
-def get_mesh_name(cg, node_id: np.uint64) -> str:
-    return f"{node_id}:0:{get_chunk_bbox_str(cg, node_id)}"
-
-
-def get_mesh_block_shape(cg, graphlayer: int) -> np.ndarray:
-    """
-    Calculate the dimensions of a segmentation block that covers
-    the same region as a ChunkedGraph chunk at layer `graphlayer`.
-    """
-    # Segmentation is not always uniformly downsampled in all directions.
-    return cg.chunk_size * cg.fan_out ** np.max([0, graphlayer - 2])
+                start = time()
+                if missing_meshes:
+                    candidates = cg.get_children(missing_meshes, flatten=True)
+                else:
+                    break
+                print("ChunkedGraph lookup took: %.3fs" % (time() - start))
+    else:
+        valid_node_ids = candidates
+    return valid_node_ids, [get_mesh_name(cg, s) for s in valid_node_ids]
 
 
 def del_none_keys(d: dict):
@@ -79,6 +119,21 @@ def get_json_info(cg):
     return loads(info_str)
 
 
+def _segregate_node_ids(cg, node_ids):
+    from datetime import datetime
+
+    initial_mesh_dt = np.datetime64(
+        datetime.fromtimestamp(
+            cg.meta.custom_data.get("mesh", {}).get("initial_ts", datetime.now())
+        )
+    )
+    node_ids_ts = cg.get_node_timestamps(node_ids)
+    initial_mesh_mask = node_ids_ts < initial_mesh_dt
+    initial_ids = node_ids[initial_mesh_mask]
+    new_ids = node_ids[~initial_mesh_mask]
+    return initial_ids, new_ids
+
+
 def _get_children(cg, node_ids: Sequence[np.uint64], children_cache: dict = {}):
     if not len(node_ids):
         return empty_1d.copy()
@@ -94,11 +149,14 @@ def _get_children(cg, node_ids: Sequence[np.uint64], children_cache: dict = {}):
 
 
 def _check_skips(cg, node_ids: Sequence[np.uint64], children_cache: dict = {}):
+    """
+    If a node ID has a single child, it is considered a skip.
+    Such IDs won't have meshes because the child mesh will be identical.
+    """
     start = time()
     layers = cg.get_chunk_layers(node_ids)
     skips = []
     result = [empty_1d, node_ids[layers == 2]]
-
     children_d = cg.get_children(node_ids[layers > 2])
     for p, c in children_d.items():
         if c.size > 1:
@@ -156,7 +214,9 @@ def _get_unsharded_meshes(cg, node_ids: Sequence[np.uint64]) -> Tuple[Dict, List
     missing_ids = []
     if not len(node_ids):
         return result, missing_ids
-    with Storage(cg.cv_mesh_path) as stor:  # pylint: disable=not-context-manager
+    mesh_dir = cg.meta.custom_data.get("mesh", {}).get("dir", "graphene_meshes")
+    mesh_path = f"{cg.meta.data_source.WATERSHED}/{mesh_dir}/dynamic"
+    with Storage(mesh_path) as stor:  # pylint: disable=not-context-manager
         filenames = [get_mesh_name(cg, c) for c in node_ids]
         start = time()
         existence_dict = stor.files_exist(filenames)
@@ -175,35 +235,19 @@ def _get_unsharded_meshes(cg, node_ids: Sequence[np.uint64]) -> Tuple[Dict, List
 def _get_sharded_unsharded_meshes(
     cg, shard_readers: Dict, node_ids: Sequence[np.uint64],
 ) -> Tuple[Dict, Dict, List]:
-    from datetime import datetime
-
     if len(node_ids):
         node_ids = np.unique(node_ids)
     else:
         return {}, {}, []
 
-    # initial_mesh_dt = np.datetime64(datetime(2020, 5, 10, 20, 50, 38, 934000))
-    # node_ids_ts = cg.get_node_timestamps(node_ids)
-    # initial_mesh_mask = node_ids_ts < initial_mesh_dt
-
-    # initial_ids = node_ids[initial_mesh_mask]
-    # new_ids = node_ids[~initial_mesh_mask]
-
-    initial_ids = node_ids.copy()
-    new_ids = np.array([])
-
+    initial_ids, new_ids = _segregate_node_ids(cg, node_ids)
     print("new_ids, initial_ids", new_ids.size, initial_ids.size)
     initial_meshes_d = _get_sharded_meshes(cg, shard_readers, initial_ids)
     new_meshes_d, missing_ids = _get_unsharded_meshes(cg, new_ids)
     return initial_meshes_d, new_meshes_d, missing_ids
 
 
-def _get_mesh_paths(
-    cg,
-    node_ids: Sequence[np.uint64],
-    stop_layer: int = 2,
-    mesh_dir: str = "graphene_meshes",
-) -> Dict:
+def _get_mesh_paths(cg, node_ids: Sequence[np.uint64], stop_layer: int = 2,) -> Dict:
     shard_readers = CloudVolume(  # pylint: disable=no-member
         f"graphene://https://localhost/segmentation/table/dummy",
         mesh_dir=cg.meta.custom_data.get("mesh", {}).get("dir", "graphene_meshes"),
@@ -249,13 +293,10 @@ def children_meshes_sharded(
     For each ID, first check for new meshes,
     If not found check initial meshes.
     """
-    # UNIX_TIMESTAMP = 1562100638 # {"iso":"2019-07-02 20:50:38.934000+00:00"}
     MAX_STITCH_LAYER = cg.meta.custom_data.get("mesh", {}).get("max_layer", 2)
-
     start = time()
     node_ids = _get_children_before_start_layer(cg, node_id, MAX_STITCH_LAYER)
-    print("_get_children_before_start_layer: %.3fs" % (time() - start))
-    print("node_ids", len(node_ids))
+    print(f"children_before_start_layer {time() - start}, count {len(node_ids)}")
 
     start = time()
     result = _get_mesh_paths(cg, node_ids)
@@ -266,6 +307,7 @@ def children_meshes_sharded(
         try:
             path, offset, size = val
             path = path.split("initial/")[-1]
+            # TODO change this to include node ID in response
             mesh_files.append(f"~{path}:{offset}:{size}")
         except:
             mesh_files.append(val)
@@ -278,12 +320,11 @@ def speculative_manifest(cg, node_id, stop_layer: int = 2):
     This assumes children IDs have meshes.
     Not checking for their existence reduces latency.
     """
-    # UNIX_TIMESTAMP = 1562100638 # {"iso":"2019-07-02 20:50:38.934000+00:00"}
     MAX_STITCH_LAYER = cg.meta.custom_data.get("mesh", {}).get("max_layer", 2)
 
     start = time()
     node_ids = _get_children_before_start_layer(cg, node_id, MAX_STITCH_LAYER)
-    print("_get_children_before_start_layer", time() - start)
+    print("children_before_start_layer", time() - start)
 
     start = time()
     result = [empty_1d]
@@ -307,10 +348,16 @@ def speculative_manifest(cg, node_id, stop_layer: int = 2):
     ).mesh.readers
 
     node_ids = np.concatenate(result)
-    layers = cg.get_chunk_layers(node_ids)
-    chunk_ids = cg.get_chunk_ids_from_node_ids(node_ids)
-    fragment_URIs = []
-    for id_, layer, chunk_id in zip(node_ids, layers, chunk_ids):
+    initial_ids, new_ids = _segregate_node_ids(cg, node_ids)
+
+    # get shards for initial IDs
+    layers = cg.get_chunk_layers(initial_ids)
+    chunk_ids = cg.get_chunk_ids_from_node_ids(initial_ids)
+    mesh_shards = []
+    for id_, layer, chunk_id in zip(initial_ids, layers, chunk_ids):
         fname, minishard = readers[layer].compute_shard_location(id_)
-        fragment_URIs.append(f"{id_}:{layer}:{chunk_id}:{fname}:{minishard}")
-    return fragment_URIs
+        mesh_shards.append(f"~{id_}:{layer}:{chunk_id}:{fname}:{minishard}")
+
+    # get mesh files for new IDs
+    mesh_files = [f"{id_}:{get_mesh_name(cg, id_)}" for id_ in new_ids]
+    return np.concatenate([initial_ids, new_ids]), mesh_shards + mesh_files
