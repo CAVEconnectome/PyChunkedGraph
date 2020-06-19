@@ -11,6 +11,7 @@ from cloudvolume import CloudVolume, Storage
 from multiwrapper import multiprocessing_utils as mu
 
 from .meshgen_utils import get_mesh_name
+from .meshgen_utils import get_json_info
 from ..graph.types import empty_1d
 from ..graph.utils.basetypes import NODE_ID
 
@@ -106,17 +107,6 @@ def del_none_keys(d: dict):
         none_keys.append(k)
         del d_new[k]
     return d_new, none_keys
-
-
-def get_json_info(cg):
-    from json import loads, dumps
-
-    dataset_info = cg.meta.dataset_info
-    dummy_app_info = {"app": {"supported_api_versions": [0, 1]}}
-    info = {**dataset_info, **dummy_app_info}
-    info["mesh"] = cg.meta.custom_data.get("mesh", {}).get("dir", "graphene_meshes")
-    info_str = dumps(info)
-    return loads(info_str)
 
 
 def _segregate_node_ids(cg, node_ids):
@@ -359,5 +349,5 @@ def speculative_manifest(cg, node_id, stop_layer: int = 2):
         mesh_shards.append(f"~{id_}:{layer}:{chunk_id}:{fname}:{minishard}")
 
     # get mesh files for new IDs
-    mesh_files = [f"{id_}:{get_mesh_name(cg, id_)}" for id_ in new_ids]
+    mesh_files = [f"{get_mesh_name(cg, id_)}" for id_ in new_ids]
     return np.concatenate([initial_ids, new_ids]), mesh_shards + mesh_files

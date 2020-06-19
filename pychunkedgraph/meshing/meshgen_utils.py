@@ -137,6 +137,17 @@ def get_downstream_multi_child_nodes(
     return recursive_helper(node_ids)
 
 
+def get_json_info(cg):
+    from json import loads, dumps
+
+    dataset_info = cg.meta.dataset_info
+    dummy_app_info = {"app": {"supported_api_versions": [0, 1]}}
+    info = {**dataset_info, **dummy_app_info}
+    info["mesh"] = cg.meta.custom_data.get("mesh", {}).get("dir", "graphene_meshes")
+    info_str = dumps(info)
+    return loads(info_str)
+
+
 def get_ws_seg_for_chunk(cg, chunk_id, mip, overlap_vx=1):
     cv = CloudVolume(cg.meta.cv.cloudpath, mip=mip)
     mip_diff = mip - cg.meta.cv.mip
