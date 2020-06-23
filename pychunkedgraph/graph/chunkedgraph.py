@@ -552,7 +552,7 @@ class ChunkedGraph:
         if not children:
             return np.array([], dtype=np.datetime64)
         return np.array(
-            [x[0].timestamp for x in children.values()], dtype=np.datetime64
+            [children[x][0].timestamp for x in node_ids], dtype=np.datetime64
         )
 
     # OPERATIONS
