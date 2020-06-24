@@ -442,12 +442,8 @@ class CreateParentNodes:
         for layer in range(2, self.cg.meta.layer_count):
             if len(self._new_ids_d[layer]) == 0:
                 continue
-            # print()
-            # print("layer", layer)
-            self._create_new_parents(layer)
-        # print()
-        # for i in range(2, self.cg.meta.layer_count + 1):
-        #     print("layer", i, self._new_ids_d[i])
+            with TimeIt(f"self._create_new_parents(layer) {layer}"):
+                self._create_new_parents(layer)
         print(self._new_ids_d[self.cg.meta.layer_count])
         return self._new_ids_d[self.cg.meta.layer_count]
 
