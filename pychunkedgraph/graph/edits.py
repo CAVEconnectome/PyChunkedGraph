@@ -355,6 +355,7 @@ class CreateParentNodes:
         cached = np.fromiter(self._cross_edges_d.keys(), dtype=basetypes.NODE_ID)
         not_cached = node_ids[~np.in1d(node_ids, cached)]
         with TimeIt(f"self._cross_edges_d.update {layer}"):
+            print(f"cross edges for {len(not_cached)} IDs")
             self._cross_edges_d.update(
                 self.cg.get_cross_chunk_edges(not_cached, all_layers=True)
             )
