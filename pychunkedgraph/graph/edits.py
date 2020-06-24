@@ -354,9 +354,10 @@ class CreateParentNodes:
     def _get_connected_components(self, node_ids: np.ndarray, layer: int):
         cached = np.fromiter(self._cross_edges_d.keys(), dtype=basetypes.NODE_ID)
         not_cached = node_ids[~np.in1d(node_ids, cached)]
-        self._cross_edges_d.update(
-            self.cg.get_cross_chunk_edges(not_cached, all_layers=True)
-        )
+        with TimeIt(f"self._cross_edges_d.update {layer}"):
+            self._cross_edges_d.update(
+                self.cg.get_cross_chunk_edges(not_cached, all_layers=True)
+            )
         sv_parent_d = {}
         sv_cross_edges = [types.empty_2d]
         for id_ in node_ids:
@@ -364,9 +365,10 @@ class CreateParentNodes:
             sv_parent_d.update(dict(zip(edges_[:, 0], [id_] * len(edges_))))
             sv_cross_edges.append(edges_)
 
-        get_sv_parents = np.vectorize(sv_parent_d.get, otypes=[np.uint64])
-        cross_edges = get_sv_parents(np.concatenate(sv_cross_edges))
-        del sv_parent_d
+        with TimeIt(f"get_sv_parents {layer}")
+            get_sv_parents = np.vectorize(sv_parent_d.get, otypes=[np.uint64])
+            cross_edges = get_sv_parents(np.concatenate(sv_cross_edges))
+            del sv_parent_d
         cross_edges = np.concatenate([cross_edges, np.vstack([node_ids, node_ids]).T])
         graph, _, _, graph_ids = flatgraph.build_gt_graph(
             np.unique(cross_edges, axis=0), make_directed=True
@@ -408,9 +410,10 @@ class CreateParentNodes:
         update parent old IDs
         """
         new_ids = self._new_ids_d[layer]
-        components, graph_ids = self._get_connected_components(
-            np.unique(self._get_layer_node_ids(new_ids, layer)), layer
-        )
+        with TimeIt(f"_get_connected_components {layer}"):
+            components, graph_ids = self._get_connected_components(
+                np.unique(self._get_layer_node_ids(new_ids, layer)), layer
+            )
         for cc_indices in components:
             parent_layer = layer + 1
             cc_ids = graph_ids[cc_indices]
