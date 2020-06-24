@@ -365,10 +365,9 @@ class CreateParentNodes:
             sv_parent_d.update(dict(zip(edges_[:, 0], [id_] * len(edges_))))
             sv_cross_edges.append(edges_)
 
-        with TimeIt(f"get_sv_parents {layer}"):
-            get_sv_parents = np.vectorize(sv_parent_d.get, otypes=[np.uint64])
-            cross_edges = get_sv_parents(np.concatenate(sv_cross_edges))
-            del sv_parent_d
+        get_sv_parents = np.vectorize(sv_parent_d.get, otypes=[np.uint64])
+        cross_edges = get_sv_parents(np.concatenate(sv_cross_edges))
+        del sv_parent_d
         cross_edges = np.concatenate([cross_edges, np.vstack([node_ids, node_ids]).T])
         graph, _, _, graph_ids = flatgraph.build_gt_graph(
             np.unique(cross_edges, axis=0), make_directed=True
