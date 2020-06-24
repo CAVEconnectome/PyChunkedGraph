@@ -49,12 +49,11 @@ def get_touching_atomic_chunks(
             chunk_2 = chunk_offset + np.array((mid + 1, axis_1, axis_2))
             touching_atomic_chunks.append(chunk_2)
 
-    result = []
-    for coords in touching_atomic_chunks:
-        if np.all(np.less(coords, layer2_chunk_bounds)):
-            result.append(coords)
-    if result:
-        return np.unique(np.array(result, dtype=int), axis=0)
+    chunks = np.array(touching_atomic_chunks, dtype=np.int)
+    mask = np.all(chunks < layer2_chunk_bounds, axis=1)
+    result = chunks[mask]
+    if result.size:
+        return np.unique(result, axis=0)
     return []
 
 

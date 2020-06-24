@@ -263,7 +263,10 @@ class ChunkedGraph:
         if not node_ids.size:
             return result
 
-        node_l2ids_d = self._get_bounding_l2_children(node_ids)
+        from .utils.context_managers import TimeIt
+
+        with TimeIt(f"_get_bounding_l2_children {len(node_ids)}"):
+            node_l2ids_d = self._get_bounding_l2_children(node_ids)
         l2_edges_d_d = self.get_atomic_cross_edges(
             np.concatenate(list(node_l2ids_d.values()))
         )
@@ -382,7 +385,7 @@ class ChunkedGraph:
                     break
                 else:
                     parent_id = temp_parent_id
-                    
+
                     if self.get_chunk_layer(parent_id) >= stop_layer:
                         if self.get_chunk_layer(parent_id) == stop_layer:
                             all_parent_ids.append(parent_id)
@@ -391,7 +394,7 @@ class ChunkedGraph:
                         break
                     else:
                         all_parent_ids.append(parent_id)
-                        
+
             if self.get_chunk_layer(parent_id) >= stop_layer:
                 break
             else:

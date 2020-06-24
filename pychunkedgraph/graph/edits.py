@@ -256,29 +256,28 @@ def remove_edges(
     l2id_chunk_id_d = dict(zip(l2ids, cg.get_chunk_ids_from_node_ids(l2ids)))
     atomic_cross_edges_d = cg.get_atomic_cross_edges(l2ids)
 
-    with TimeIt("new_l2_ids"):
-        removed_edges = np.concatenate([atomic_edges, atomic_edges[:, ::-1]], axis=0)
-        new_l2_ids = []
-        for id_ in l2ids:
-            l2_agg = l2id_agglomeration_d[id_]
-            ccs, graph_ids, cross_edges = _process_l2_agglomeration(
-                l2_agg, removed_edges, atomic_cross_edges_d[id_]
+    removed_edges = np.concatenate([atomic_edges, atomic_edges[:, ::-1]], axis=0)
+    new_l2_ids = []
+    for id_ in l2ids:
+        l2_agg = l2id_agglomeration_d[id_]
+        ccs, graph_ids, cross_edges = _process_l2_agglomeration(
+            l2_agg, removed_edges, atomic_cross_edges_d[id_]
+        )
+        # calculated here to avoid repeat computation in loop
+        cross_edge_layers = cg.get_cross_chunk_edges_layer(cross_edges)
+        new_parent_ids = cg.id_client.create_node_ids(
+            l2id_chunk_id_d[l2_agg.node_id], len(ccs)
+        )
+        for i_cc, cc in enumerate(ccs):
+            new_id = new_parent_ids[i_cc]
+            cg.cache.children_cache[new_id] = graph_ids[cc]
+            cg.cache.atomic_cx_edges_cache[new_id] = _filter_component_cross_edges(
+                graph_ids[cc], cross_edges, cross_edge_layers
             )
-            # calculated here to avoid repeat computation in loop
-            cross_edge_layers = cg.get_cross_chunk_edges_layer(cross_edges)
-            new_parent_ids = cg.id_client.create_node_ids(
-                l2id_chunk_id_d[l2_agg.node_id], len(ccs)
-            )
-            for i_cc, cc in enumerate(ccs):
-                new_id = new_parent_ids[i_cc]
-                cg.cache.children_cache[new_id] = graph_ids[cc]
-                cg.cache.atomic_cx_edges_cache[new_id] = _filter_component_cross_edges(
-                    graph_ids[cc], cross_edges, cross_edge_layers
-                )
-                cache.update(cg.cache.parents_cache, graph_ids[cc], new_id)
-                new_l2_ids.append(new_id)
-                new_old_id_d[new_id].add(id_)
-                old_new_id_d[id_].add(new_id)
+            cache.update(cg.cache.parents_cache, graph_ids[cc], new_id)
+            new_l2_ids.append(new_id)
+            new_old_id_d[new_id].add(id_)
+            old_new_id_d[id_].add(new_id)
 
     create_parents = CreateParentNodes(
         cg,
@@ -291,8 +290,7 @@ def remove_edges(
     )
     with TimeIt("create_parents.run()"):
         new_roots = create_parents.run()
-    with TimeIt("create_parents.create_new_entries()"):
-        new_entries = create_parents.create_new_entries()
+    new_entries = create_parents.create_new_entries()
     return new_roots, new_l2_ids, new_entries
 
 
@@ -354,11 +352,9 @@ class CreateParentNodes:
     def _get_connected_components(self, node_ids: np.ndarray, layer: int):
         cached = np.fromiter(self._cross_edges_d.keys(), dtype=basetypes.NODE_ID)
         not_cached = node_ids[~np.in1d(node_ids, cached)]
-        with TimeIt(f"self._cross_edges_d.update {layer}"):
-            print(f"cross edges for {len(not_cached)} IDs")
-            self._cross_edges_d.update(
-                self.cg.get_cross_chunk_edges(not_cached, all_layers=True)
-            )
+        self._cross_edges_d.update(
+            self.cg.get_cross_chunk_edges(not_cached, all_layers=True)
+        )
         sv_parent_d = {}
         sv_cross_edges = [types.empty_2d]
         for id_ in node_ids:
@@ -410,10 +406,9 @@ class CreateParentNodes:
         update parent old IDs
         """
         new_ids = self._new_ids_d[layer]
-        with TimeIt(f"_get_connected_components {layer}"):
-            components, graph_ids = self._get_connected_components(
-                np.unique(self._get_layer_node_ids(new_ids, layer)), layer
-            )
+        components, graph_ids = self._get_connected_components(
+            np.unique(self._get_layer_node_ids(new_ids, layer)), layer
+        )
         for cc_indices in components:
             parent_layer = layer + 1
             cc_ids = graph_ids[cc_indices]

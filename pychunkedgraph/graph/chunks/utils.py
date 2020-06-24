@@ -170,6 +170,8 @@ def get_bounding_children_chunks(
     x2, y2, z2 = chunk_offset + chunks_count
 
     f = lambda range1, range2: product(range(*range1), range(*range2))
+    from ..utils.context_managers import TimeIt
+
     chunks.extend([np.array([x1, d1, d2]) for d1, d2 in f((y1, y2), (z1, z2))])
     chunks.extend([np.array([x2 - 1, d1, d2]) for d1, d2 in f((y1, y2), (z1, z2))])
 
@@ -180,10 +182,7 @@ def get_bounding_children_chunks(
     chunks.extend([np.array([d1, d2, z2 - 1]) for d1, d2 in f((x1, x2), (y1, y2))])
 
     chunk_bounds = chunkedgraph_meta.layer_chunk_bounds[children_layer]
-    result = []
-    for coords in chunks:
-        if np.all(np.less(coords, chunk_bounds)):
-            result.append(coords)
-
-    result = np.array(result, dtype=int)
+    chunks = np.array(chunks, dtype=np.int)
+    mask = np.all(chunks < chunk_bounds, axis=1)
+    result = chunks[mask]
     return np.unique(result, axis=0) if result.size else result
