@@ -246,8 +246,8 @@ def _get_mesh_paths(cg, node_ids: Sequence[np.uint64], stop_layer: int = 2,) -> 
 
     result = {}
     node_layers = cg.get_chunk_layers(node_ids)
-    node_ids = node_ids[node_layers > 1]
     while np.any(node_layers > stop_layer):
+        node_ids = node_ids[node_layers > 1]
         resp = _get_sharded_unsharded_meshes(cg, shard_readers, node_ids)
         initial_meshes_d, new_meshes_d, missing_ids = resp
         result.update(initial_meshes_d)
