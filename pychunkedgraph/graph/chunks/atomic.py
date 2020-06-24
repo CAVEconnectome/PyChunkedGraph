@@ -27,6 +27,7 @@ def get_touching_atomic_chunks(
     chunk_offset = chunk_coords * atomic_chunk_count
     mid = (atomic_chunk_count // 2) - 1
 
+    # TODO (akhileshh) convert this for loop to numpy
     # relevant chunks along touching planes at center
     for axis_1, axis_2 in product(*[range(atomic_chunk_count)] * 2):
         # x-y plane
