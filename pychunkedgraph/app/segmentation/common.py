@@ -21,7 +21,7 @@ from pychunkedgraph.app.meshing.common import _remeshing
 from pychunkedgraph.graph import exceptions as cg_exceptions
 # from pychunkedgraph.graph import history as cg_history
 from pychunkedgraph.graph import attributes
-# from pychunkedgraph.graph_analysis import analysis, contact_sites
+from pychunkedgraph.graph_analysis import analysis
 
 __api_versions__ = [0, 1]
 __segmentation_url_prefix__ = os.environ.get('SEGMENTATION_URL_PREFIX', 'segmentation')
@@ -200,7 +200,8 @@ def handle_api_versions():
 def handle_root(table_id, atomic_id):
     current_app.table_id = table_id
 
-    user_id = str(g.auth_user["id"])
+    # user_id = str(g.auth_user["id"])
+    user_id = "manuel_test"
     current_app.user_id = user_id
 
     # Convert seconds since epoch to UTC datetime
@@ -405,7 +406,8 @@ def handle_split(table_id):
     current_app.table_id = table_id
 
     data = json.loads(request.data)
-    user_id = str(g.auth_user["id"])
+    # user_id = str(g.auth_user["id"])
+    user_id = 'manuel_test'
     current_app.user_id = user_id
 
     current_app.logger.debug(data)
@@ -577,7 +579,8 @@ def handle_children(table_id, parent_id):
 
 def handle_leaves(table_id, root_id):
     current_app.table_id = table_id
-    user_id = str(g.auth_user["id"])
+    # user_id = str(g.auth_user["id"])
+    user_id = "manuel_test"
     current_app.user_id = user_id
 
     if "bounds" in request.args:
@@ -765,7 +768,8 @@ def last_edit(table_id, root_id):
 
 def oldest_timestamp(table_id):
     current_app.table_id = table_id
-    user_id = str(g.auth_user["id"])
+    # user_id = str(g.auth_user["id"])
+    user_id = "manuel_test"
     current_app.user_id = user_id
 
     cg = app_utils.get_cg(table_id)
@@ -914,7 +918,8 @@ def handle_split_preview(table_id):
 
 def handle_find_path(table_id):
     current_app.table_id = table_id
-    user_id = str(g.auth_user["id"])
+    # user_id = str(g.auth_user["id"])
+    user_id = "manuel_test"
     current_app.user_id = user_id
 
     nodes = json.loads(request.data)
@@ -946,9 +951,15 @@ def handle_find_path(table_id):
     source_l2_id = cg.get_parent(source_supervoxel_id)
     target_l2_id = cg.get_parent(target_supervoxel_id)
 
-    l2_path = analysis.find_l2_shortest_path(cg, source_l2_id, target_l2_id)
-    centroids, failed_l2_ids = analysis.compute_mesh_centroids_of_l2_ids(cg, l2_path, flatten=True)
+    print("Finding path...")
+    print(f'Source: {source_supervoxel_id}')
+    print(f'Target: {target_supervoxel_id}')
 
+    l2_path = analysis.find_l2_shortest_path(cg, source_l2_id, target_l2_id)
+    print(f'Path: {l2_path}')
+    centroids, failed_l2_ids = analysis.compute_mesh_centroids_of_l2_ids(cg, l2_path, flatten=True)
+    print(f'Centroids: {centroids}')
+    print(f'Failed L2 ids: {failed_l2_ids}')
     return {
         "centroids_list": centroids,
         "failed_l2_ids": failed_l2_ids,

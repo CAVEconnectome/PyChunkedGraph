@@ -38,6 +38,7 @@ def sleep_me(sleep):
 @bp.route("/table/<table_id>/info", methods=["GET"])
 @auth_requires_permission("view")
 def handle_info(table_id):
+    print('info')
     return common.handle_info(table_id)
 
 

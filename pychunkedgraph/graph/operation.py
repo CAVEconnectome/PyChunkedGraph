@@ -27,6 +27,7 @@ from .exceptions import PreconditionError
 from .exceptions import PostconditionError
 from .utils.context_managers import TimeIt
 from .utils.generic import get_bounding_box as get_bbox
+import time
 
 
 if TYPE_CHECKING:
@@ -686,6 +687,7 @@ class MulticutOperation(GraphEditOperation):
             raise PreconditionError("Supervoxels must belong to the same object.")
 
         bbox = get_bbox(self.source_coords, self.sink_coords, self.bbox_offset)
+        bgs = time.time()
         with TimeIt("get_subgraph"):
             l2id_agglomeration_d, edges = self.cg.get_subgraph(
                 root_ids.pop(), bbox=bbox, bbox_is_coordinate=True
@@ -699,11 +701,14 @@ class MulticutOperation(GraphEditOperation):
             mask0 = np.in1d(edges.node_ids1, supervoxels)
             mask1 = np.in1d(edges.node_ids2, supervoxels)
             edges = edges[mask0 & mask1]
+        print(f'get subgraph: {time.time() - bgs}')
         if not len(edges):
             raise PreconditionError("No local edges found.")
-
+        brm = time.time()
         with TimeIt("run_multicut"):
             self.removed_edges = run_multicut(edges, self.source_ids, self.sink_ids)
+        print(f'run multicut: {time.time() - brm}')
+        import ipdb; ipdb.set_trace()
         if not self.removed_edges.size:
             raise PostconditionError("Mincut could not find any edges to remove.")
         return edits.remove_edges(

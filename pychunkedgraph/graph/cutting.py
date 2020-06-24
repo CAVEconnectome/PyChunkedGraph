@@ -21,6 +21,8 @@ from .exceptions import PostconditionError
 
 DEBUG_MODE = False
 
+import time
+
 
 def merge_cross_chunk_edges_graph_tool(
     edges: Iterable[Sequence[np.uint64]], affs: Sequence[np.uint64]
@@ -40,7 +42,7 @@ def merge_cross_chunk_edges_graph_tool(
     # connected components in this graph will be combined in one component
     ccs = flatgraph.connected_components(graph)
     remapping = {}
-    mapping = np.array([], dtype=np.uint64).reshape(-1, 2)
+    mapping = []
 
     for cc in ccs:
         nodes = unique_supervoxel_ids[cc]
@@ -48,8 +50,9 @@ def merge_cross_chunk_edges_graph_tool(
         remapping[rep_node] = nodes
         rep_nodes = np.ones(len(nodes), dtype=np.uint64).reshape(-1, 1) * rep_node
         m = np.concatenate([nodes.reshape(-1, 1), rep_nodes], axis=1)
-        mapping = np.concatenate([mapping, m], axis=0)
+        mapping.append(m)
 
+    mapping = np.concatenate(mapping)
     u_nodes = np.unique(edges)
     u_unmapped_nodes = u_nodes[~np.in1d(u_nodes, mapping)]
     unmapped_mapping = np.concatenate(
@@ -413,10 +416,14 @@ def run_multicut(
     *,
     split_preview: bool = False,
 ):
+    bgc = time.time()
     local_mincut_graph = LocalMincutGraph(
         edges.get_pairs(), edges.affinities, source_ids, sink_ids, split_preview
     )
+    print(f'graph construction time: {time.time() - bgc}')
+    bcm = time.time()
     atomic_edges = local_mincut_graph.compute_mincut()
+    print(f'compute mincut time: {time.time() - bcm}')
     if len(atomic_edges) == 0:
         raise PostconditionError(f"Mincut failed. Try with a different set of points.")
     return atomic_edges
