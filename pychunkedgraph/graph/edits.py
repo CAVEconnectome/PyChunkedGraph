@@ -365,7 +365,7 @@ class CreateParentNodes:
             sv_parent_d.update(dict(zip(edges_[:, 0], [id_] * len(edges_))))
             sv_cross_edges.append(edges_)
 
-        with TimeIt(f"get_sv_parents {layer}")
+        with TimeIt(f"get_sv_parents {layer}"):
             get_sv_parents = np.vectorize(sv_parent_d.get, otypes=[np.uint64])
             cross_edges = get_sv_parents(np.concatenate(sv_cross_edges))
             del sv_parent_d
