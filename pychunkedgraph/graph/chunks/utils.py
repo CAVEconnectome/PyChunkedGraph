@@ -3,7 +3,6 @@ from typing import Union
 from typing import Optional
 from typing import Sequence
 from typing import Iterable
-from itertools import product
 
 import numpy as np
 
@@ -157,32 +156,35 @@ def _get_chunk_coordinates_from_vol_coordinates(
 
 
 def get_bounding_children_chunks(
-    chunkedgraph_meta, layer: int, chunk_coords: Sequence[int], children_layer
+    cg_meta, layer: int, chunk_coords: Sequence[int], children_layer
 ) -> np.ndarray:
     """Children chunk coordinates at given layer, along the boundary of a chunk"""
     chunk_coords = np.array(chunk_coords, dtype=int)
     chunks = []
 
     # children chunk count along one dimension
-    chunks_count = chunkedgraph_meta.graph_config.FANOUT ** (layer - children_layer)
+    chunks_count = cg_meta.graph_config.FANOUT ** (layer - children_layer)
     chunk_offset = chunk_coords * chunks_count
     x1, y1, z1 = chunk_offset
     x2, y2, z2 = chunk_offset + chunks_count
 
-    f = lambda range1, range2: product(range(*range1), range(*range2))
-    from ..utils.context_managers import TimeIt
+    # f = lambda range1, range2: product(range(*range1), range(*range2))
+    # https://stackoverflow.com/a/35608701/2683367
+    f = lambda r1, r2, r3: np.array(np.meshgrid(r1, r2, r3), dtype=int).T.reshape(-1, 3)
 
-    chunks.extend([np.array([x1, d1, d2]) for d1, d2 in f((y1, y2), (z1, z2))])
-    chunks.extend([np.array([x2 - 1, d1, d2]) for d1, d2 in f((y1, y2), (z1, z2))])
+    # chunks.extend([np.array([x1, d1, d2]) for d1, d2 in f((y1, y2), (z1, z2))])
+    # chunks.extend([np.array([x2 - 1, d1, d2]) for d1, d2 in f((y1, y2), (z1, z2))])
+    chunks.append(f((x1, x2 - 1), range(y1, y2), range(z1, z2)))
 
-    chunks.extend([np.array([d1, y1, d2]) for d1, d2 in f((x1, x2), (z1, z2))])
-    chunks.extend([np.array([d1, y2 - 1, d2]) for d1, d2 in f((x1, x2), (z1, z2))])
+    # chunks.extend([np.array([d1, y1, d2]) for d1, d2 in f((x1, x2), (z1, z2))])
+    # chunks.extend([np.array([d1, y2 - 1, d2]) for d1, d2 in f((x1, x2), (z1, z2))])
+    chunks.append(f(range(x1, x2), [y1, y2 - 1], range(z1, z2)))
 
-    chunks.extend([np.array([d1, d2, z1]) for d1, d2 in f((x1, x2), (y1, y2))])
-    chunks.extend([np.array([d1, d2, z2 - 1]) for d1, d2 in f((x1, x2), (y1, y2))])
+    # chunks.extend([np.array([d1, d2, z1]) for d1, d2 in f((x1, x2), (y1, y2))])
+    # chunks.extend([np.array([d1, d2, z2 - 1]) for d1, d2 in f((x1, x2), (y1, y2))])
+    chunks.append(f(range(x1, x2), range(y1, y2), [z1, z2 - 1]))
 
-    chunk_bounds = chunkedgraph_meta.layer_chunk_bounds[children_layer]
-    chunks = np.array(chunks, dtype=np.int)
-    mask = np.all(chunks < chunk_bounds, axis=1)
+    chunks = np.concatenate(chunks)
+    mask = np.all(chunks < cg_meta.layer_chunk_bounds[children_layer], axis=1)
     result = chunks[mask]
     return np.unique(result, axis=0) if result.size else result
