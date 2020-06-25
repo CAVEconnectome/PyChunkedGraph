@@ -98,6 +98,23 @@ def get_chunk_id(
     return _compute_chunk_id(meta, layer, x, y, z)
 
 
+def get_chunk_ids(meta, layer: int, coords: np.ndarray):
+    result = np.zeros(len(coords), dtype=np.uint64)
+    s_bits_per_dim = meta.bitmasks[layer]
+
+    layer_offset = 64 - meta.graph_config.LAYER_ID_BITS
+    x_offset = layer_offset - s_bits_per_dim
+    y_offset = x_offset - s_bits_per_dim
+    z_offset = y_offset - s_bits_per_dim
+    coords = np.array(coords, dtype=np.uint64)
+
+    result |= layer << layer_offset
+    result |= coords[:, 0] << x_offset
+    result |= coords[:, 1] << y_offset
+    result |= coords[:, 2] << z_offset
+    return result
+
+
 def get_chunk_ids_from_node_ids(meta, node_ids: Iterable[np.uint64]) -> np.ndarray:
     """ Extract a list of Chunk IDs from a list of Node IDs
     :param node_ids: np.ndarray(dtype=np.uint64)
@@ -168,23 +185,14 @@ def get_bounding_children_chunks(
     x1, y1, z1 = chunk_offset
     x2, y2, z2 = chunk_offset + chunks_count
 
-    # f = lambda range1, range2: product(range(*range1), range(*range2))
     # https://stackoverflow.com/a/35608701/2683367
     f = lambda r1, r2, r3: np.array(np.meshgrid(r1, r2, r3), dtype=int).T.reshape(-1, 3)
-
-    # chunks.extend([np.array([x1, d1, d2]) for d1, d2 in f((y1, y2), (z1, z2))])
-    # chunks.extend([np.array([x2 - 1, d1, d2]) for d1, d2 in f((y1, y2), (z1, z2))])
     chunks.append(f((x1, x2 - 1), range(y1, y2), range(z1, z2)))
-
-    # chunks.extend([np.array([d1, y1, d2]) for d1, d2 in f((x1, x2), (z1, z2))])
-    # chunks.extend([np.array([d1, y2 - 1, d2]) for d1, d2 in f((x1, x2), (z1, z2))])
-    chunks.append(f(range(x1, x2), [y1, y2 - 1], range(z1, z2)))
-
-    # chunks.extend([np.array([d1, d2, z1]) for d1, d2 in f((x1, x2), (y1, y2))])
-    # chunks.extend([np.array([d1, d2, z2 - 1]) for d1, d2 in f((x1, x2), (y1, y2))])
-    chunks.append(f(range(x1, x2), range(y1, y2), [z1, z2 - 1]))
+    chunks.append(f(range(x1, x2), (y1, y2 - 1), range(z1, z2)))
+    chunks.append(f(range(x1, x2), range(y1, y2), (z1, z2 - 1)))
 
     chunks = np.concatenate(chunks)
     mask = np.all(chunks < cg_meta.layer_chunk_bounds[children_layer], axis=1)
     result = chunks[mask]
     return np.unique(result, axis=0) if result.size else result
+

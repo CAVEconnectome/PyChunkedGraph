@@ -576,7 +576,7 @@ class SplitOperation(GraphEditOperation):
         if len(set(self.cg.get_roots(self.removed_edges.ravel()))) > 1:
             raise PreconditionError("Supervoxels must belong to the same object.")
 
-        with TimeIt("get_subgraph"):
+        with TimeIt("get_l2_agglomerations (subgraph)"):
             l2id_agglomeration_d, _ = self.cg.get_l2_agglomerations(
                 self.cg.get_parents(self.removed_edges.ravel())
             )

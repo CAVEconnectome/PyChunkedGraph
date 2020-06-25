@@ -746,42 +746,54 @@ class ChunkedGraph:
         `parent_ids` must contain node IDs at same layer.
         TODO what have i done (describe algo)
         """
-        parents_layer = self.get_chunk_layer(parent_ids[0])
-        parent_coords_d = {
-            node_id: self.get_chunk_coordinates(node_id) for node_id in parent_ids
-        }
-
         from collections import defaultdict
+        from .utils.context_managers import TimeIt
 
-        parent_bounding_chunk_ids = defaultdict(lambda: types.empty_1d)
-        parent_layer_mask = {}
+        with TimeIt("_get_bounding_l2_children init"):
+            parents_layer = self.get_chunk_layer(parent_ids[0])
+            parent_coords_d = {
+                node_id: self.get_chunk_coordinates(node_id) for node_id in parent_ids
+            }
 
-        parent_children_d = {
-            parent_id: np.array([parent_id], dtype=basetypes.NODE_ID)
-            for parent_id in parent_ids
-        }
+            parent_bounding_chunk_ids = defaultdict(lambda: types.empty_1d)
+            parent_layer_mask = {}
+
+            parent_children_d = {
+                parent_id: np.array([parent_id], dtype=basetypes.NODE_ID)
+                for parent_id in parent_ids
+            }
 
         children_layer = parents_layer - 1
         while children_layer >= 2:
+            # with TimeIt("before get children"):
             parent_masked_children_d = {}
             for parent_id, (X, Y, Z) in parent_coords_d.items():
-                chunks = chunk_utils.get_bounding_children_chunks(
-                    self.meta, parents_layer, (X, Y, Z), children_layer
+                coords = chunk_utils.get_bounding_children_chunks(
+                    self.meta, parents_layer, (X, Y, Z), children_layer,
                 )
-                parent_bounding_chunk_ids[parent_id] = np.array(
-                    [
-                        self.get_chunk_id(layer=children_layer, x=x, y=y, z=z)
-                        for (x, y, z) in chunks
-                    ],
-                    dtype=basetypes.CHUNK_ID,
+                chunks_ids = chunk_utils.get_chunk_ids(
+                    self.meta, children_layer, coords
                 )
+                # chunks_ids_1 = np.array(
+                #     [
+                #         self.get_chunk_id(
+                #             layer=children_layer, x=x, y=y, z=z
+                #         )
+                #         for (x, y, z) in coords
+                #     ],
+                #     dtype=basetypes.CHUNK_ID,
+                # )
+                # assert np.all(chunks_ids == chunks_ids_1)
+                parent_bounding_chunk_ids[parent_id] = chunks_ids
                 children = parent_children_d[parent_id]
                 layer_mask = self.get_chunk_layers(children) > children_layer
                 parent_layer_mask[parent_id] = layer_mask
                 parent_masked_children_d[parent_id] = children[layer_mask]
 
+            # with TimeIt("get children"):
             children_ids = np.concatenate(list(parent_masked_children_d.values()))
             child_grand_children_d = self.get_children(children_ids)
+            # with TimeIt("after get children"):
             for parent_id, masked_children in parent_masked_children_d.items():
                 bounding_chunk_ids = parent_bounding_chunk_ids[parent_id]
                 grand_children = [types.empty_1d]

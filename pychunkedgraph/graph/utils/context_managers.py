@@ -12,21 +12,28 @@ def foo(*args, **kwargs):
 
 
 class TimeIt:
-    def __init__(self, message="", tablen=2):
+    def __init__(self, message="", *args, **kwargs):
         self._message = message
+        self._args = args
+        self._kwargs = kwargs
         self._start = None
-        self._tablen = tablen
-
-        global indent
-        indent += tablen
 
     def __enter__(self):
-        print(f"start {self._message}")
-        self._start = time()
         builtins.print = foo
+        print(f"start {self._message}")
+        global indent
+        indent += 2
+        if self._args:
+            args_str = " ".join(str(x) for x in self._args)
+            print(args_str)
+        if self._kwargs:
+            kwargs_str = " ".join(f"{k}:{v}" for k, v in self._kwargs)
+            print(kwargs_str)
+        self._start = time()
 
     def __exit__(self, *args):
-        print(f"end {self._message}: {time()-self._start}\n")
+        builtins.print = foo
         global indent
-        indent -= self._tablen
+        indent -= 2
+        print(f"end {self._message}: {time()-self._start}")
         builtins.print = builtin_print
