@@ -860,7 +860,8 @@ def handle_pairwise_contact_sites(table_id, first_node_id, second_node_id):
 
 def handle_split_preview(table_id):
     current_app.table_id = table_id
-    user_id = str(g.auth_user["id"])
+    # user_id = str(g.auth_user["id"])
+    user_id = "manuel_test"
     current_app.user_id = user_id
 
     data = json.loads(request.data)
@@ -916,7 +917,7 @@ def handle_split_preview(table_id):
 ### FIND PATH --------------------------------------------------------------
 
 
-def handle_find_path(table_id):
+def handle_find_path(table_id, precision_mode):
     current_app.table_id = table_id
     # user_id = str(g.auth_user["id"])
     user_id = "manuel_test"
@@ -957,14 +958,23 @@ def handle_find_path(table_id):
 
     l2_path = analysis.find_l2_shortest_path(cg, source_l2_id, target_l2_id)
     print(f'Path: {l2_path}')
-    centroids, failed_l2_ids = analysis.compute_mesh_centroids_of_l2_ids(cg, l2_path, flatten=True)
-    print(f'Centroids: {centroids}')
-    print(f'Failed L2 ids: {failed_l2_ids}')
-    return {
-        "centroids_list": centroids,
-        "failed_l2_ids": failed_l2_ids,
-        "l2_path": l2_path
-    }
+    if precision_mode:
+        centroids, failed_l2_ids = analysis.compute_mesh_centroids_of_l2_ids(cg, l2_path, flatten=True)
+        print(f'Centroids: {centroids}')
+        print(f'Failed L2 ids: {failed_l2_ids}')
+        return {
+            "centroids_list": centroids,
+            "failed_l2_ids": failed_l2_ids,
+            "l2_path": l2_path
+        }
+    else:
+        centroids = analysis.compute_rough_coordinate_path(cg, l2_path)
+        print(f'Centroids: {centroids}')
+        return {
+            "centroids_list": centroids,
+            "failed_l2_ids": [],
+            "l2_path": l2_path
+        }
 
 
 ### IS LATEST ROOTS --------------------------------------------------------------

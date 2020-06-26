@@ -5,6 +5,7 @@ from pychunkedgraph.graph.utils import flatgraph
 from pychunkedgraph.meshing import meshgen, meshgen_utils
 from cloudvolume import CloudVolume, Storage
 import os
+import time
 
 
 def get_first_shared_parent(cg, first_node_id: np.uint64, second_node_id: np.uint64):
@@ -36,8 +37,8 @@ def get_first_shared_parent(cg, first_node_id: np.uint64, second_node_id: np.uin
 
 
 def get_children_at_layer(
-        cg, agglomeration_id: np.uint64, layer: int, allow_lower_layers: bool = False
-    ):
+    cg, agglomeration_id: np.uint64, layer: int, allow_lower_layers: bool = False
+):
     """
     Get the children of agglomeration_id that have layer = layer.
     :param agglomeration_id: np.uint64
@@ -77,23 +78,15 @@ def find_l2_shortest_path(cg, source_l2_id: np.uint64, target_l2_id: np.uint64):
     if shared_parent_id is None:
         return None
     lvl2_ids = get_children_at_layer(cg, shared_parent_id, 2)
-    # cce_dict = cg.read_cross_chunk_edges_for_nodes(
-    #     lvl2_ids, start_layer=2, end_layer=cg.get_chunk_layer(shared_parent_id)
-    # )
     cce_dict = cg.get_atomic_cross_edges(lvl2_ids)
-    # import ipdb
-    # ipdb.set_trace()
 
     # Gather all of the supervoxel ids into two lists, we will map them to
     # their parent lvl2 ids
     edge_array = []
     for l2_id in cce_dict:
-        # ipdb.set_trace()
-        # if 2 in cce_dict[l2_id]:
         for level in cce_dict[l2_id]:
             edge_array.append(cce_dict[l2_id][level])
     edge_array = np.concatenate(edge_array)
-    # edge_array = np.concatenate(list(cce_dict.values()))
     known_supervoxels_list = []
     known_l2_list = []
     unknown_supervoxel_list = []
@@ -104,9 +97,6 @@ def find_l2_shortest_path(cg, source_l2_id: np.uint64, target_l2_id: np.uint64):
             known_supervoxels_list.append(known_supervoxels_for_lv2_id)
             known_l2_list.append(np.full(known_supervoxels_for_lv2_id.shape, lvl2_id))
             unknown_supervoxel_list.append(unknown_supervoxels_for_lv2_id)
-
-    # import ipdb
-    # ipdb.set_trace()
 
     # Create two arrays to map supervoxels for which we know their parents
     known_supervoxel_array, unique_indices = np.unique(
@@ -226,10 +216,10 @@ def compute_mesh_centroids_of_l2_ids(cg, l2_ids, flatten=False):
     last_l2_id = None
     failed_l2_ids = []
     with Storage(cv_unsharded_mesh_path) as storage:
+        bgm = time.time()
         files_contents = storage.get_files(fragments_to_fetch)
         fragment_map = meshgen.get_missing_initial_meshes(cv, files_contents)
-        # for i in range(len(files_contents)):
-        #     fragment_map[files_contents[i]["filename"]] = files_contents[i]
+        print(f"get mesh time: {time.time() - bgm}")
         for i in range(len(fragments_to_fetch)):
             fragment_to_fetch = fragments_to_fetch[i]
             l2_id = l2_ids[i]
@@ -257,3 +247,23 @@ def compute_mesh_centroids_of_l2_ids(cg, l2_ids, flatten=False):
                 failed_l2_ids.append(l2_id)
             last_l2_id = l2_id
     return centroids_with_chunk_boundary_points, failed_l2_ids
+
+
+def compute_rough_coordinate_path(cg, l2_ids):
+    """
+    Given a list of l2_ids, return a list of rough coordinates representing
+    the path the l2_ids form.
+    :param cg: ChunkedGraph object
+    :param l2_ids: Sequence[np.uint64]
+    :return: [np.ndarray]
+    """
+    coordinate_path = []
+    for l2_id in l2_ids:
+        chunk_center = cg.get_chunk_coordinates(l2_id) + np.array([0.5, 0.5, 0.5])
+        coordinate = chunk_center * np.array(
+            cg.meta.graph_config.CHUNK_SIZE
+        ) + np.array(cg.meta.cv.mip_voxel_offset(0))
+        coordinate = coordinate * np.array(cg.meta.cv.mip_resolution(0))
+        coordinate = coordinate.astype(np.float32)
+        coordinate_path.append(coordinate)
+    return coordinate_path
