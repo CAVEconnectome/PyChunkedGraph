@@ -743,7 +743,7 @@ class ChunkedGraph:
     def _get_bounding_l2_children(self, parent_ids: typing.Iterable) -> typing.Dict:
         """
         Helper function to get level 2 children IDs for each parent.
-        `parent_ids` must contain node IDs at same layer.
+        `parent_ids` must be node IDs at same layer.
         TODO what have i done (describe algo)
         """
         from collections import defaultdict
@@ -768,22 +768,18 @@ class ChunkedGraph:
             # with TimeIt("before get children"):
             parent_masked_children_d = {}
             for parent_id, (X, Y, Z) in parent_coords_d.items():
+                # with TimeIt("bounding chunk coords"):
                 coords = chunk_utils.get_bounding_children_chunks(
-                    self.meta, parents_layer, (X, Y, Z), children_layer,
+                    self.meta,
+                    parents_layer,
+                    (X, Y, Z),
+                    children_layer,
+                    return_unique=False,
                 )
-                chunks_ids = chunk_utils.get_chunk_ids(
+                # with TimeIt("rest"):
+                chunks_ids = chunk_utils.get_chunk_ids_from_coords(
                     self.meta, children_layer, coords
                 )
-                # chunks_ids_1 = np.array(
-                #     [
-                #         self.get_chunk_id(
-                #             layer=children_layer, x=x, y=y, z=z
-                #         )
-                #         for (x, y, z) in coords
-                #     ],
-                #     dtype=basetypes.CHUNK_ID,
-                # )
-                # assert np.all(chunks_ids == chunks_ids_1)
                 parent_bounding_chunk_ids[parent_id] = chunks_ids
                 children = parent_children_d[parent_id]
                 layer_mask = self.get_chunk_layers(children) > children_layer
