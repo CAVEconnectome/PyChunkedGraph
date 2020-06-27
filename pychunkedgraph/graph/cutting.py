@@ -420,21 +420,26 @@ def run_multicut(
     local_mincut_graph = LocalMincutGraph(
         edges.get_pairs(), edges.affinities, source_ids, sink_ids, split_preview
     )
-    print(f'graph construction time: {time.time() - bgc}')
+    print(f"graph construction time: {time.time() - bgc}")
     bcm = time.time()
     atomic_edges = local_mincut_graph.compute_mincut()
-    print(f'compute mincut time: {time.time() - bcm}')
+    print(f"compute mincut time: {time.time() - bcm}")
     if len(atomic_edges) == 0:
         raise PostconditionError(f"Mincut failed. Try with a different set of points.")
     return atomic_edges
 
 
-def run_split_preview(source_ids: Sequence[np.uint64],
+def run_split_preview(
+    source_ids: Sequence[np.uint64],
     sink_ids: Sequence[np.uint64],
     source_coords: Sequence[Sequence[int]],
     sink_coords: Sequence[Sequence[int]],
     bb_offset: Tuple[int, int, int] = (120, 120, 12),
-    split_preview: bool = False):
+):
+
+    root_ids = set(self.cg.get_roots(np.concatenate([self.source_ids, self.sink_ids])))
+    if len(root_ids) > 1:
+        raise PreconditionError("Supervoxels must belong to the same object.")
 
     bb_offset = np.array(list(bb_offset))
     source_coords = np.array(source_coords)
@@ -459,15 +464,18 @@ def run_split_preview(source_ids: Sequence[np.uint64],
             f"All supervoxel must belong to the same object. Already split?"
         )
 
-    self.logger.debug("Get roots and check: %.3fms" %
-                        ((time.time() - time_start) * 1000))
+    self.logger.debug(
+        "Get roots and check: %.3fms" % ((time.time() - time_start) * 1000)
+    )
     time_start = time.time()  # ------------------------------------------
 
     root_id = root_ids.pop()
 
     # Get edges between local supervoxels
-    n_chunks_affected = np.product((np.ceil(bounding_box[1] / self.chunk_size)).astype(np.int) -
-                                    (np.floor(bounding_box[0] / self.chunk_size)).astype(np.int))
+    n_chunks_affected = np.product(
+        (np.ceil(bounding_box[1] / self.chunk_size)).astype(np.int)
+        - (np.floor(bounding_box[0] / self.chunk_size)).astype(np.int)
+    )
 
     self.logger.debug("Number of affected chunks: %d" % n_chunks_affected)
     self.logger.debug(f"Bounding box: {bounding_box}")
@@ -476,28 +484,29 @@ def run_split_preview(source_ids: Sequence[np.uint64],
     self.logger.debug(f"Sink ids: {sink_ids}")
     self.logger.debug(f"Root id: {root_id}")
 
-    edges, affs, areas = self.get_subgraph_edges(root_id,
-                                                    bounding_box=bounding_box,
-                                                    bb_is_coordinate=True)
-    self.logger.debug(f"Get edges and affs: "
-                        f"{(time.time() - time_start) * 1000:.3f}ms")
+    edges, affs, areas = self.get_subgraph_edges(
+        root_id, bounding_box=bounding_box, bb_is_coordinate=True
+    )
+    self.logger.debug(
+        f"Get edges and affs: " f"{(time.time() - time_start) * 1000:.3f}ms"
+    )
 
     time_start = time.time()  # ------------------------------------------
 
     if len(edges) == 0:
         raise cg_exceptions.PreconditionError(
-            f"No local edges found. "
-            f"Something went wrong with the bounding box?"
+            f"No local edges found. " f"Something went wrong with the bounding box?"
         )
 
     # Compute mincut
-    atomic_edges = cutting.mincut(edges, affs, source_ids, sink_ids, split_preview=split_preview)
+    atomic_edges = cutting.run_multicut(
+        edges, affs, source_ids, sink_ids, split_preview=True
+    )
 
     self.logger.debug(f"Mincut: {(time.time() - time_start) * 1000:.3f}ms")
 
     if len(atomic_edges) == 0:
-        raise cg_exceptions.PostconditionError(
-            f"Mincut failed. Try again...")
+        raise cg_exceptions.PostconditionError(f"Mincut failed. Try again...")
 
     # # Check if any edge in the cutset is infinite (== between chunks)
     # # We would prevent such a cut
