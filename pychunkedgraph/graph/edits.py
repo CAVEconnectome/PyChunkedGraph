@@ -7,9 +7,9 @@ from typing import Iterable
 from typing import Sequence
 from collections import defaultdict
 
-from . import cache
 from . import types
 from . import attributes
+from . import cache as cache_utils
 from .utils import basetypes
 from .utils import flatgraph
 from .utils.context_managers import TimeIt
@@ -177,7 +177,9 @@ def add_edges(
         cg.cache.atomic_cx_edges_cache[new_id] = concatenate_cross_edge_dicts(
             [atomic_cross_edges_d[l2id] for l2id in l2ids_]
         )
-        cache.update(cg.cache.parents_cache, cg.cache.children_cache[new_id], new_id)
+        cache_utils.update(
+            cg.cache.parents_cache, cg.cache.children_cache[new_id], new_id
+        )
         new_l2_ids.append(new_id)
         new_old_id_d[new_id].update(l2ids_)
         for id_ in l2ids_:
@@ -274,7 +276,7 @@ def remove_edges(
             cg.cache.atomic_cx_edges_cache[new_id] = _filter_component_cross_edges(
                 graph_ids[cc], cross_edges, cross_edge_layers
             )
-            cache.update(cg.cache.parents_cache, graph_ids[cc], new_id)
+            cache_utils.update(cg.cache.parents_cache, graph_ids[cc], new_id)
             new_l2_ids.append(new_id)
             new_old_id_d[new_id].add(id_)
             old_new_id_d[id_].add(new_id)
@@ -426,7 +428,7 @@ class CreateParentNodes:
             )
             self._new_ids_d[parent_layer].append(parent_id)
             self.cg.cache.children_cache[parent_id] = cc_ids
-            cache.update(
+            cache_utils.update(
                 self.cg.cache.parents_cache, cc_ids, parent_id,
             )
             self._update_id_lineage(parent_id, cc_ids, layer, parent_layer)

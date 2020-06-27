@@ -74,17 +74,15 @@ def _get_cg_backend_client_info():
     return BackendClientInfo(CONFIG=bt_config)
 
 
-def get_cg(table_id):
-    assert (
-        table_id.startswith("minnie")
-        or table_id.startswith("pinky_")
-    )
+def get_cg(table_id, skip_cache: bool = False):
+    assert table_id.startswith("minnie") or table_id.startswith("pinky_")
 
     current_app.table_id = table_id
-    try:
-        return CACHE[table_id]
-    except KeyError:
-        pass
+    if skip_cache is False:
+        try:
+            return CACHE[table_id]
+        except KeyError:
+            pass
 
     instance_id = current_app.config["CHUNKGRAPH_INSTANCE_ID"]
 
@@ -107,10 +105,10 @@ def get_cg(table_id):
     logger.addHandler(handler)
 
     # Create ChunkedGraph
-    CACHE[table_id] = ChunkedGraph(
-        graph_id=table_id, client_info=_get_cg_backend_client_info(),
-    )
-    return CACHE[table_id]
+    cg = ChunkedGraph(graph_id=table_id, client_info=_get_cg_backend_client_info())
+    if skip_cache is False:
+        CACHE[table_id] = cg
+    return cg
 
 
 def get_log_db(table_id):

@@ -334,7 +334,7 @@ def handle_merge(table_id):
     assert len(nodes) == 2
 
     # Call ChunkedGraph
-    cg = app_utils.get_cg(table_id)
+    cg = app_utils.get_cg(table_id, skip_cache=True)
 
     atomic_edge = []
     coords = []
@@ -411,7 +411,7 @@ def handle_split(table_id):
     current_app.logger.debug(data)
 
     # Call ChunkedGraph
-    cg = app_utils.get_cg(table_id)
+    cg = app_utils.get_cg(table_id, skip_cache=True)
 
     data_dict = {}
     for k in ["sources", "sinks"]:
