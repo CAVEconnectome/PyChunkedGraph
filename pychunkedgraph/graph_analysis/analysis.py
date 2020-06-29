@@ -5,7 +5,6 @@ from pychunkedgraph.graph.utils import flatgraph
 from pychunkedgraph.meshing import meshgen, meshgen_utils
 from cloudvolume import CloudVolume, Storage
 import os
-import time
 
 
 def get_first_shared_parent(cg, first_node_id: np.uint64, second_node_id: np.uint64):
@@ -216,10 +215,8 @@ def compute_mesh_centroids_of_l2_ids(cg, l2_ids, flatten=False):
     last_l2_id = None
     failed_l2_ids = []
     with Storage(cv_unsharded_mesh_path) as storage:
-        bgm = time.time()
         files_contents = storage.get_files(fragments_to_fetch)
         fragment_map = meshgen.get_missing_initial_meshes(cv, files_contents)
-        print(f"get mesh time: {time.time() - bgm}")
         for i in range(len(fragments_to_fetch)):
             fragment_to_fetch = fragments_to_fetch[i]
             l2_id = l2_ids[i]

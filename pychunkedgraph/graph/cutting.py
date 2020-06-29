@@ -15,19 +15,12 @@ from typing import Iterable
 
 from .utils import flatgraph
 from .utils import basetypes
+from .utils.generic import get_bounding_box
 from .edges import Edges
 from .exceptions import PreconditionError
 from .exceptions import PostconditionError
 
-# from .chunkedgraph import ChunkedGraph
-from .utils.generic import get_bounding_box
-
-# from pychunkedgraph.graph.chunkedgraph import ChunkedGraph
-# from pychunkedgraph.graph.utils.generic import get_bounding_box
-
 DEBUG_MODE = False
-
-import time
 
 
 def merge_cross_chunk_edges_graph_tool(
@@ -422,14 +415,10 @@ def run_multicut(
     *,
     split_preview: bool = False,
 ):
-    bgc = time.time()
     local_mincut_graph = LocalMincutGraph(
         edges.get_pairs(), edges.affinities, source_ids, sink_ids, split_preview
     )
-    print(f"graph construction time: {time.time() - bgc}")
-    bcm = time.time()
     atomic_edges = local_mincut_graph.compute_mincut()
-    print(f"compute mincut time: {time.time() - bcm}")
     if len(atomic_edges) == 0:
         raise PostconditionError(f"Mincut failed. Try with a different set of points.")
     return atomic_edges

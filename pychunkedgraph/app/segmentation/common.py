@@ -200,8 +200,7 @@ def handle_api_versions():
 def handle_root(table_id, atomic_id):
     current_app.table_id = table_id
 
-    # user_id = str(g.auth_user["id"])
-    user_id = "manuel_test"
+    user_id = str(g.auth_user["id"])
     current_app.user_id = user_id
 
     # Convert seconds since epoch to UTC datetime
@@ -406,8 +405,7 @@ def handle_split(table_id):
     current_app.table_id = table_id
 
     data = json.loads(request.data)
-    # user_id = str(g.auth_user["id"])
-    user_id = 'manuel_test'
+    user_id = str(g.auth_user["id"])
     current_app.user_id = user_id
 
     current_app.logger.debug(data)
@@ -579,8 +577,7 @@ def handle_children(table_id, parent_id):
 
 def handle_leaves(table_id, root_id):
     current_app.table_id = table_id
-    # user_id = str(g.auth_user["id"])
-    user_id = "manuel_test"
+    user_id = str(g.auth_user["id"])
     current_app.user_id = user_id
 
     if "bounds" in request.args:
@@ -768,8 +765,7 @@ def last_edit(table_id, root_id):
 
 def oldest_timestamp(table_id):
     current_app.table_id = table_id
-    # user_id = str(g.auth_user["id"])
-    user_id = "manuel_test"
+    user_id = str(g.auth_user["id"])
     current_app.user_id = user_id
 
     cg = app_utils.get_cg(table_id)
@@ -860,8 +856,7 @@ def handle_pairwise_contact_sites(table_id, first_node_id, second_node_id):
 
 def handle_split_preview(table_id):
     current_app.table_id = table_id
-    # user_id = str(g.auth_user["id"])
-    user_id = "manuel_test"
+    user_id = str(g.auth_user["id"])
     current_app.user_id = user_id
 
     data = json.loads(request.data)
@@ -919,8 +914,7 @@ def handle_split_preview(table_id):
 
 def handle_find_path(table_id, precision_mode):
     current_app.table_id = table_id
-    # user_id = str(g.auth_user["id"])
-    user_id = "manuel_test"
+    user_id = str(g.auth_user["id"])
     current_app.user_id = user_id
 
     nodes = json.loads(request.data)
