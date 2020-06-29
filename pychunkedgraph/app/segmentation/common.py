@@ -20,7 +20,7 @@ from pychunkedgraph.app import app_utils
 from pychunkedgraph.app.meshing.common import _remeshing
 from pychunkedgraph.graph import exceptions as cg_exceptions
 # from pychunkedgraph.graph import history as cg_history
-from pychunkedgraph.graph import attributes
+from pychunkedgraph.graph import attributes, cutting
 from pychunkedgraph.graph_analysis import analysis
 
 __api_versions__ = [0, 1]
@@ -895,13 +895,13 @@ def handle_split_preview(table_id):
     current_app.logger.debug(data_dict)
 
     try:
-        supervoxel_ccs, illegal_split = cg._run_multicut(
+        supervoxel_ccs, illegal_split = cutting.run_split_preview(
+            cg=cg,
             source_ids=data_dict["sources"]["id"],
             sink_ids=data_dict["sinks"]["id"],
             source_coords=data_dict["sources"]["coord"],
             sink_coords=data_dict["sinks"]["coord"],
-            bb_offset=(240,240,24),
-            split_preview=True
+            bb_offset=(240,240,24)
         )
 
     except cg_exceptions.PreconditionError as e:

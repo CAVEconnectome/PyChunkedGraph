@@ -19,6 +19,12 @@ from .edges import Edges
 from .exceptions import PreconditionError
 from .exceptions import PostconditionError
 
+# from .chunkedgraph import ChunkedGraph
+from .utils.generic import get_bounding_box
+
+# from pychunkedgraph.graph.chunkedgraph import ChunkedGraph
+# from pychunkedgraph.graph.utils.generic import get_bounding_box
+
 DEBUG_MODE = False
 
 import time
@@ -430,94 +436,34 @@ def run_multicut(
 
 
 def run_split_preview(
+    cg,
     source_ids: Sequence[np.uint64],
     sink_ids: Sequence[np.uint64],
     source_coords: Sequence[Sequence[int]],
     sink_coords: Sequence[Sequence[int]],
     bb_offset: Tuple[int, int, int] = (120, 120, 12),
 ):
-
-    root_ids = set(self.cg.get_roots(np.concatenate([self.source_ids, self.sink_ids])))
+    root_ids = set(cg.get_roots(np.concatenate([source_ids, sink_ids])))
     if len(root_ids) > 1:
         raise PreconditionError("Supervoxels must belong to the same object.")
 
-    bb_offset = np.array(list(bb_offset))
-    source_coords = np.array(source_coords)
-    sink_coords = np.array(sink_coords)
-
-    # Decide a reasonable bounding box (NOT guaranteed to be successful!)
-    coords = np.concatenate([source_coords, sink_coords])
-    bounding_box = [np.min(coords, axis=0), np.max(coords, axis=0)]
-
-    bounding_box[0] -= bb_offset
-    bounding_box[1] += bb_offset
-
-    # Verify that sink and source are from the same root object
-    root_ids = set()
-    for source_id in source_ids:
-        root_ids.add(self.get_root(source_id))
-    for sink_id in sink_ids:
-        root_ids.add(self.get_root(sink_id))
-
-    if len(root_ids) > 1:
-        raise cg_exceptions.PreconditionError(
-            f"All supervoxel must belong to the same object. Already split?"
-        )
-
-    self.logger.debug(
-        "Get roots and check: %.3fms" % ((time.time() - time_start) * 1000)
+    bbox = get_bounding_box(source_coords, sink_coords, bb_offset)
+    l2id_agglomeration_d, edges = cg.get_subgraph(
+        root_ids.pop(), bbox=bbox, bbox_is_coordinate=True
     )
-    time_start = time.time()  # ------------------------------------------
-
-    root_id = root_ids.pop()
-
-    # Get edges between local supervoxels
-    n_chunks_affected = np.product(
-        (np.ceil(bounding_box[1] / self.chunk_size)).astype(np.int)
-        - (np.floor(bounding_box[0] / self.chunk_size)).astype(np.int)
+    in_edges, out_edges, cross_edges = edges
+    edges = in_edges + out_edges + cross_edges
+    supervoxels = np.concatenate(
+        [agg.supervoxels for agg in l2id_agglomeration_d.values()]
+    )
+    mask0 = np.in1d(edges.node_ids1, supervoxels)
+    mask1 = np.in1d(edges.node_ids2, supervoxels)
+    edges = edges[mask0 & mask1]
+    edges_to_remove, illegal_split = run_multicut(
+        edges, source_ids, sink_ids, split_preview=True
     )
 
-    self.logger.debug("Number of affected chunks: %d" % n_chunks_affected)
-    self.logger.debug(f"Bounding box: {bounding_box}")
-    self.logger.debug(f"Bounding box padding: {bb_offset}")
-    self.logger.debug(f"Source ids: {source_ids}")
-    self.logger.debug(f"Sink ids: {sink_ids}")
-    self.logger.debug(f"Root id: {root_id}")
+    if len(edges_to_remove) == 0:
+        raise PostconditionError("Mincut could not find any edges to remove.")
 
-    edges, affs, areas = self.get_subgraph_edges(
-        root_id, bounding_box=bounding_box, bb_is_coordinate=True
-    )
-    self.logger.debug(
-        f"Get edges and affs: " f"{(time.time() - time_start) * 1000:.3f}ms"
-    )
-
-    time_start = time.time()  # ------------------------------------------
-
-    if len(edges) == 0:
-        raise cg_exceptions.PreconditionError(
-            f"No local edges found. " f"Something went wrong with the bounding box?"
-        )
-
-    # Compute mincut
-    atomic_edges = cutting.run_multicut(
-        edges, affs, source_ids, sink_ids, split_preview=True
-    )
-
-    self.logger.debug(f"Mincut: {(time.time() - time_start) * 1000:.3f}ms")
-
-    if len(atomic_edges) == 0:
-        raise cg_exceptions.PostconditionError(f"Mincut failed. Try again...")
-
-    # # Check if any edge in the cutset is infinite (== between chunks)
-    # # We would prevent such a cut
-    #
-    # atomic_edges_flattened_view = atomic_edges.view(dtype='u8,u8')
-    # edges_flattened_view = edges.view(dtype='u8,u8')
-    #
-    # cutset_mask = np.in1d(edges_flattened_view, atomic_edges_flattened_view)
-    #
-    # if np.any(np.isinf(affs[cutset_mask])):
-    #     self.logger.error("inf in cutset")
-    #     return False, None
-
-    return atomic_edges
+    return edges_to_remove, illegal_split
