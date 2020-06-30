@@ -752,7 +752,7 @@ class UndoOperation(GraphEditOperation):
         multicut_as_split: bool,
     ) -> None:
         super().__init__(cg, user_id=user_id)
-        log_record = cg.read_log_row(superseded_operation_id)
+        log_record = cg.read_log_row(superseded_operation_id)[0] #TODO I don't know why this made it work...?
         log_record_type = GraphEditOperation.get_log_record_type(log_record)
         if log_record_type in (RedoOperation, UndoOperation):
             raise ValueError(
