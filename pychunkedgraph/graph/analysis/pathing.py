@@ -1,7 +1,6 @@
 import fastremap
 import graph_tool
 import numpy as np
-import os
 from pychunkedgraph.graph.utils import flatgraph
 
 
@@ -136,52 +135,6 @@ def find_l2_shortest_path(cg, source_l2_id: np.uint64, target_l2_id: np.uint64):
     vertex_indices = [weighted_graph.vertex_index[vertex] for vertex in vertex_list]
     l2_traversal_path = graph_indexed_l2_ids[vertex_indices]
     return l2_traversal_path
-
-
-def compute_centroid_by_range(vertices):
-    bbox_min = np.amin(vertices, axis=0)
-    bbox_max = np.amax(vertices, axis=0)
-    return bbox_min + ((bbox_max - bbox_min) / 2)
-
-
-def compute_centroid_with_chunk_boundary(cg, vertices, l2_id, last_l2_id):
-    """
-    Given a level 2 id, the vertices of its mesh, and the level 2 id preceding it in
-    a path, return the center point of the mesh on the chunk boundary separating the two
-    ids, and the center point of the entire mesh.
-    :param cg: ChunkedGraph object
-    :param vertices: [[np.float]]
-    :param l2_id: np.uint64
-    :param last_l2_id: np.uint64 or None
-    :return: [np.float]
-    """
-    centroid_by_range = compute_centroid_by_range(vertices)
-    if last_l2_id is None:
-        return [centroid_by_range]
-    l2_id_cc = cg.get_chunk_coordinates(l2_id)
-    last_l2_id_cc = cg.get_chunk_coordinates(last_l2_id)
-
-    # Given the coordinates of the two level 2 ids, find the chunk boundary
-    axis_change = 2
-    look_for_max = True
-    if l2_id_cc[0] != last_l2_id_cc[0]:
-        axis_change = 0
-    elif l2_id_cc[1] != last_l2_id_cc[1]:
-        axis_change = 1
-    if np.sum(l2_id_cc - last_l2_id_cc) > 0:
-        look_for_max = False
-    if look_for_max:
-        value_to_filter = np.amax(vertices[:, axis_change])
-    else:
-        value_to_filter = np.amin(vertices[:, axis_change])
-    chunk_boundary_vertices = vertices[
-        np.where(vertices[:, axis_change] == value_to_filter)
-    ]
-
-    # Get the center point of the mesh on the chunk boundary
-    bbox_min = np.amin(chunk_boundary_vertices, axis=0)
-    bbox_max = np.amax(chunk_boundary_vertices, axis=0)
-    return [bbox_min + ((bbox_max - bbox_min) / 2), centroid_by_range]
 
 
 def compute_rough_coordinate_path(cg, l2_ids):
