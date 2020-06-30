@@ -18,10 +18,10 @@ from flask import current_app, g, jsonify, make_response, request
 from pychunkedgraph import __version__
 from pychunkedgraph.app import app_utils
 from pychunkedgraph.app.meshing.common import _remeshing
-from pychunkedgraph.graph import exceptions as cg_exceptions
+from pychunkedgraph.graph import attributes, cutting, exceptions as cg_exceptions
 # from pychunkedgraph.graph import history as cg_history
-from pychunkedgraph.graph import attributes, cutting
-from pychunkedgraph.graph_analysis import analysis
+from pychunkedgraph.graph.analysis import pathing
+from pychunkedgraph.meshing import mesh_analysis
 
 __api_versions__ = [0, 1]
 __segmentation_url_prefix__ = os.environ.get('SEGMENTATION_URL_PREFIX', 'segmentation')
@@ -950,10 +950,10 @@ def handle_find_path(table_id, precision_mode):
     print(f'Source: {source_supervoxel_id}')
     print(f'Target: {target_supervoxel_id}')
 
-    l2_path = analysis.find_l2_shortest_path(cg, source_l2_id, target_l2_id)
+    l2_path = pathing.find_l2_shortest_path(cg, source_l2_id, target_l2_id)
     print(f'Path: {l2_path}')
     if precision_mode:
-        centroids, failed_l2_ids = analysis.compute_mesh_centroids_of_l2_ids(cg, l2_path, flatten=True)
+        centroids, failed_l2_ids = mesh_analysis.compute_mesh_centroids_of_l2_ids(cg, l2_path, flatten=True)
         print(f'Centroids: {centroids}')
         print(f'Failed L2 ids: {failed_l2_ids}')
         return {
@@ -962,7 +962,7 @@ def handle_find_path(table_id, precision_mode):
             "l2_path": l2_path
         }
     else:
-        centroids = analysis.compute_rough_coordinate_path(cg, l2_path)
+        centroids = pathing.compute_rough_coordinate_path(cg, l2_path)
         print(f'Centroids: {centroids}')
         return {
             "centroids_list": centroids,
