@@ -53,7 +53,7 @@ class GraphEditOperation(ABC):
         is_undo: bool,
         multicut_as_split: bool,
     ):
-        log_record = cg.read_log_row(operation_id)
+        log_record = cg.read_log_row(operation_id)[0]
         log_record_type = cls.get_log_record_type(log_record)
 
         while log_record_type in (RedoOperation, UndoOperation):
@@ -62,7 +62,7 @@ class GraphEditOperation(ABC):
             else:
                 is_undo = not is_undo
                 operation_id = log_record[column_keys.OperationLogs.UndoOperationID]
-            log_record = cg.read_log_row(operation_id)
+            log_record = cg.read_log_row(operation_id)[0]
             log_record_type = cls.get_log_record_type(log_record)
 
         if is_undo:
@@ -211,7 +211,7 @@ class GraphEditOperation(ABC):
         :return: The matching GraphEditOperation subclass
         :rtype: "GraphEditOperation"
         """
-        log_record = cg.read_log_row(operation_id)
+        log_record = cg.read_log_row(operation_id)[0]
         return cls.from_log_record(cg, log_record, multicut_as_split=multicut_as_split)
 
     @classmethod
@@ -675,7 +675,7 @@ class RedoOperation(GraphEditOperation):
         multicut_as_split: bool,
     ) -> None:
         super().__init__(cg, user_id=user_id)
-        log_record = cg.read_log_row(superseded_operation_id)
+        log_record = cg.read_log_row(superseded_operation_id)[0]
         log_record_type = GraphEditOperation.get_log_record_type(log_record)
         if log_record_type in (RedoOperation, UndoOperation):
             raise ValueError(
@@ -752,7 +752,7 @@ class UndoOperation(GraphEditOperation):
         multicut_as_split: bool,
     ) -> None:
         super().__init__(cg, user_id=user_id)
-        log_record = cg.read_log_row(superseded_operation_id)[0] #TODO I don't know why this made it work...?
+        log_record = cg.read_log_row(superseded_operation_id)[0]
         log_record_type = GraphEditOperation.get_log_record_type(log_record)
         if log_record_type in (RedoOperation, UndoOperation):
             raise ValueError(
