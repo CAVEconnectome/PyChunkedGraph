@@ -328,7 +328,8 @@ def last_edit(table_id, root_id):
 @auth_requires_permission("view")
 def find_path(table_id):
     int64_as_str = request.args.get("int64_as_str", default=False, type=toboolean)
-    find_path_result = common.handle_find_path(table_id)
+    precision_mode = request.args.get("precision_mode", default=True, type=toboolean)
+    find_path_result = common.handle_find_path(table_id, precision_mode)
     return jsonify_with_kwargs(find_path_result, int64_as_str=int64_as_str)
 
 

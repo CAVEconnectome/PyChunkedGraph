@@ -15,6 +15,7 @@ from typing import Iterable
 
 from .utils import flatgraph
 from .utils import basetypes
+from .utils.generic import get_bounding_box
 from .edges import Edges
 from .exceptions import PreconditionError
 from .exceptions import PostconditionError
@@ -40,7 +41,7 @@ def merge_cross_chunk_edges_graph_tool(
     # connected components in this graph will be combined in one component
     ccs = flatgraph.connected_components(graph)
     remapping = {}
-    mapping = np.array([], dtype=np.uint64).reshape(-1, 2)
+    mapping = []
 
     for cc in ccs:
         nodes = unique_supervoxel_ids[cc]
@@ -48,8 +49,9 @@ def merge_cross_chunk_edges_graph_tool(
         remapping[rep_node] = nodes
         rep_nodes = np.ones(len(nodes), dtype=np.uint64).reshape(-1, 1) * rep_node
         m = np.concatenate([nodes.reshape(-1, 1), rep_nodes], axis=1)
-        mapping = np.concatenate([mapping, m], axis=0)
+        mapping.append(m)
 
+    mapping = np.concatenate(mapping)
     u_nodes = np.unique(edges)
     u_unmapped_nodes = u_nodes[~np.in1d(u_nodes, mapping)]
     unmapped_mapping = np.concatenate(
@@ -420,3 +422,37 @@ def run_multicut(
     if len(atomic_edges) == 0:
         raise PostconditionError(f"Mincut failed. Try with a different set of points.")
     return atomic_edges
+
+
+def run_split_preview(
+    cg,
+    source_ids: Sequence[np.uint64],
+    sink_ids: Sequence[np.uint64],
+    source_coords: Sequence[Sequence[int]],
+    sink_coords: Sequence[Sequence[int]],
+    bb_offset: Tuple[int, int, int] = (120, 120, 12),
+):
+    root_ids = set(cg.get_roots(np.concatenate([source_ids, sink_ids])))
+    if len(root_ids) > 1:
+        raise PreconditionError("Supervoxels must belong to the same object.")
+
+    bbox = get_bounding_box(source_coords, sink_coords, bb_offset)
+    l2id_agglomeration_d, edges = cg.get_subgraph(
+        root_ids.pop(), bbox=bbox, bbox_is_coordinate=True
+    )
+    in_edges, out_edges, cross_edges = edges
+    edges = in_edges + out_edges + cross_edges
+    supervoxels = np.concatenate(
+        [agg.supervoxels for agg in l2id_agglomeration_d.values()]
+    )
+    mask0 = np.in1d(edges.node_ids1, supervoxels)
+    mask1 = np.in1d(edges.node_ids2, supervoxels)
+    edges = edges[mask0 & mask1]
+    edges_to_remove, illegal_split = run_multicut(
+        edges, source_ids, sink_ids, split_preview=True
+    )
+
+    if len(edges_to_remove) == 0:
+        raise PostconditionError("Mincut could not find any edges to remove.")
+
+    return edges_to_remove, illegal_split

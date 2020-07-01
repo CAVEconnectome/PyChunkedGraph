@@ -701,7 +701,6 @@ class MulticutOperation(GraphEditOperation):
             edges = edges[mask0 & mask1]
         if not len(edges):
             raise PreconditionError("No local edges found.")
-
         with TimeIt("run_multicut"):
             self.removed_edges = run_multicut(edges, self.source_ids, self.sink_ids)
         if not self.removed_edges.size:

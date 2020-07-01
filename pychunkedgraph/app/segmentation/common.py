@@ -18,10 +18,10 @@ from flask import current_app, g, jsonify, make_response, request
 from pychunkedgraph import __version__
 from pychunkedgraph.app import app_utils
 from pychunkedgraph.app.meshing.common import _remeshing
-from pychunkedgraph.graph import exceptions as cg_exceptions
+from pychunkedgraph.graph import attributes, cutting, exceptions as cg_exceptions
 # from pychunkedgraph.graph import history as cg_history
-from pychunkedgraph.graph import attributes
-# from pychunkedgraph.graph_analysis import analysis, contact_sites
+from pychunkedgraph.graph.analysis import pathing
+from pychunkedgraph.meshing import mesh_analysis
 
 __api_versions__ = [0, 1]
 __segmentation_url_prefix__ = os.environ.get('SEGMENTATION_URL_PREFIX', 'segmentation')
@@ -890,13 +890,13 @@ def handle_split_preview(table_id):
     current_app.logger.debug(data_dict)
 
     try:
-        supervoxel_ccs, illegal_split = cg._run_multicut(
+        supervoxel_ccs, illegal_split = cutting.run_split_preview(
+            cg=cg,
             source_ids=data_dict["sources"]["id"],
             sink_ids=data_dict["sinks"]["id"],
             source_coords=data_dict["sources"]["coord"],
             sink_coords=data_dict["sinks"]["coord"],
-            bb_offset=(240,240,24),
-            split_preview=True
+            bb_offset=(240,240,24)
         )
 
     except cg_exceptions.PreconditionError as e:
@@ -912,7 +912,7 @@ def handle_split_preview(table_id):
 ### FIND PATH --------------------------------------------------------------
 
 
-def handle_find_path(table_id):
+def handle_find_path(table_id, precision_mode):
     current_app.table_id = table_id
     user_id = str(g.auth_user["id"])
     current_app.user_id = user_id
@@ -946,14 +946,29 @@ def handle_find_path(table_id):
     source_l2_id = cg.get_parent(source_supervoxel_id)
     target_l2_id = cg.get_parent(target_supervoxel_id)
 
-    l2_path = analysis.find_l2_shortest_path(cg, source_l2_id, target_l2_id)
-    centroids, failed_l2_ids = analysis.compute_mesh_centroids_of_l2_ids(cg, l2_path, flatten=True)
+    print("Finding path...")
+    print(f'Source: {source_supervoxel_id}')
+    print(f'Target: {target_supervoxel_id}')
 
-    return {
-        "centroids_list": centroids,
-        "failed_l2_ids": failed_l2_ids,
-        "l2_path": l2_path
-    }
+    l2_path = pathing.find_l2_shortest_path(cg, source_l2_id, target_l2_id)
+    print(f'Path: {l2_path}')
+    if precision_mode:
+        centroids, failed_l2_ids = mesh_analysis.compute_mesh_centroids_of_l2_ids(cg, l2_path, flatten=True)
+        print(f'Centroids: {centroids}')
+        print(f'Failed L2 ids: {failed_l2_ids}')
+        return {
+            "centroids_list": centroids,
+            "failed_l2_ids": failed_l2_ids,
+            "l2_path": l2_path
+        }
+    else:
+        centroids = pathing.compute_rough_coordinate_path(cg, l2_path)
+        print(f'Centroids: {centroids}')
+        return {
+            "centroids_list": centroids,
+            "failed_l2_ids": [],
+            "l2_path": l2_path
+        }
 
 
 ### IS LATEST ROOTS --------------------------------------------------------------
