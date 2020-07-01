@@ -68,7 +68,7 @@ class FakeLogRecords:
     @classmethod
     def get(cls, idx: int):
         try:
-            return cls._records[idx]
+            return cls._records[idx], "2020-01-01 00:00:00.000000+00:00"
         except IndexError as err:
             raise KeyError(err)  # Bigtable would throw KeyError instead
 
