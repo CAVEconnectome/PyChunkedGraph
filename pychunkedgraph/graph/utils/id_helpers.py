@@ -90,14 +90,15 @@ def get_atomic_id_from_coord(
         # For each candidate id check whether its root id corresponds to the
         # given root id
         for candidate_atomic_id in sorted_atomic_ids:
-            ass_root_id = get_root(candidate_atomic_id)
-            if ass_root_id == root_id:
-                # atomic_id is not None will be our indicator that the
-                # search was successful
-                atomic_id = candidate_atomic_id
-                break
-            else:
-                checked.append(candidate_atomic_id)
+            if candidate_atomic_id != 0:
+                ass_root_id = get_root(candidate_atomic_id)
+                if ass_root_id == root_id:
+                    # atomic_id is not None will be our indicator that the
+                    # search was successful
+                    atomic_id = candidate_atomic_id
+                    break
+                else:
+                    checked.append(candidate_atomic_id)
         if atomic_id is not None:
             break
     # Returns None if unsuccessful
