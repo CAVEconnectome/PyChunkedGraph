@@ -201,7 +201,9 @@ def handle_get_manifest(table_id, node_id):
     verify = request.args.get("verify", False)
     verify = verify in ["True", "true", "1", True]
     return_seg_ids = request.args.get("return_seg_ids", False)
+    prepend_seg_ids = request.args.get("prepend_seg_ids", False)
     return_seg_ids = return_seg_ids in ["True", "true", "1", True]
+    prepend_seg_ids = prepend_seg_ids in ["True", "true", "1", True]
     start_layer = cg.get_chunk_layer(np.uint64(node_id))
     if "start_layer" in data:
         start_layer = int(data["start_layer"])
@@ -213,6 +215,7 @@ def handle_get_manifest(table_id, node_id):
         node_id,
         verify,
         return_seg_ids,
+        prepend_seg_ids,
         start_layer,
         flexible_start_layer,
         bounding_box,
@@ -229,6 +232,7 @@ def manifest_response(cg, args):
         node_id,
         verify,
         return_seg_ids,
+        prepend_seg_ids,
         start_layer,
         flexible_start_layer,
         bounding_box,
@@ -247,6 +251,10 @@ def manifest_response(cg, args):
             bounding_box=bounding_box,
             flexible_start_layer=flexible_start_layer,
         )
+        if prepend_seg_ids:
+            resp["fragments"] = [
+                f"~{i}:{f}" for i, f in zip(seg_ids, resp["fragments"])
+            ]
     if return_seg_ids:
         resp["seg_ids"] = seg_ids
     return _check_post_options(cg, resp, data, seg_ids)
