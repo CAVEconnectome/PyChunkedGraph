@@ -26,7 +26,7 @@ def normalize_bounding_box(
             bounding_box[0][0],
             bounding_box[0][1],
             bounding_box[0][2],
-            resolution=meta._ws_cv.resolution,
+            resolution=meta.resolution,
             ceil=False,
         )
         bounding_box[1] = _get_chunk_coordinates_from_vol_coordinates(
@@ -34,7 +34,7 @@ def normalize_bounding_box(
             bounding_box[1][0],
             bounding_box[1][1],
             bounding_box[1][2],
-            resolution=meta._ws_cv.resolution,
+            resolution=meta.resolution,
             ceil=True,
         )
         return bounding_box
@@ -168,7 +168,7 @@ def _get_chunk_coordinates_from_vol_coordinates(
 ) -> np.ndarray:
     """Translates volume coordinates to chunk_coordinates."""
     resolution = np.array(resolution)
-    scaling = np.array(meta._ws_cv.resolution / resolution, dtype=np.int)
+    scaling = np.array(meta.resolution / resolution, dtype=np.int)
 
     chunk_size = meta.graph_config.CHUNK_SIZE
     x = (x / scaling[0] - meta.voxel_bounds[0, 0]) / chunk_size[0]

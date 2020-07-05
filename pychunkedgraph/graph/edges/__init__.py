@@ -56,7 +56,7 @@ class Edges:
 
     @property
     def areas(self) -> np.ndarray:
-        return self._affinities
+        return self._areas
 
     @areas.setter
     def areas(self, areas):
