@@ -129,6 +129,7 @@ class ChunkedGraph:
         *,
         raw_only=False,
         current: bool = True,
+        fail_to_zero: bool = False,
         time_stamp: typing.Optional[datetime.datetime] = None,
     ):
         """
@@ -145,14 +146,28 @@ class ChunkedGraph:
             )
             if not parent_rows:
                 return types.empty_1d
-            if current:
-                return np.array(
-                    [parent_rows[id_][0].value for id_ in node_ids],
-                    dtype=basetypes.NODE_ID,
-                )
+            
             parents = []
-            for id_ in node_ids:
-                parents.append([(p.value, p.timestamp) for p in parent_rows[id_]])
+            if current:
+                for id_ in node_ids:
+                    try:
+                        parents.append(parent_rows[id_][0].value)
+                    except KeyError:
+                        if fail_to_zero:
+                            parents.append(0)
+                        else:
+                            raise KeyError
+                parents = np.array(parents, dtype=basetypes.NODE_ID)
+            else:
+                for id_ in node_ids:
+                    try:
+                        parents.append([(p.value, p.timestamp) 
+                                        for p in parent_rows[id_]])
+                    except KeyError:
+                        if fail_to_zero:
+                            parents.append([(0, datetime.datetime.fromtimestamp(0))])
+                        else:
+                            raise KeyError
             return parents
         return self.cache.parents_multiple(node_ids)
 
@@ -323,12 +338,17 @@ class ChunkedGraph:
         layer_mask = np.ones(len(node_ids), dtype=np.bool)
 
         for _ in range(n_tries):
-            layer_mask[self.get_chunk_layers(node_ids) >= stop_layer] = False
+            chunk_layers = self.get_chunk_layers(node_ids)
+            layer_mask[chunk_layers >= stop_layer] = False
+            layer_mask[node_ids == 0] = False
+            
             parent_ids = np.array(node_ids, dtype=basetypes.NODE_ID)
             for _ in range(int(stop_layer + 1)):
                 filtered_ids = parent_ids[layer_mask]
-                unique_ids, inverse = np.unique(filtered_ids, return_inverse=True)
-                temp_ids = self.get_parents(unique_ids, time_stamp=time_stamp)
+                unique_ids, inverse = np.unique(filtered_ids,
+                                                return_inverse=True)
+                temp_ids = self.get_parents(unique_ids, time_stamp=time_stamp,
+                                            fail_to_zero=True)
                 if not temp_ids.size:
                     break
                 else:
@@ -347,7 +367,7 @@ class ChunkedGraph:
                     if np.all(~layer_mask):
                         return parent_ids
 
-            if not ceil and np.all(self.get_chunk_layers(parent_ids) >= stop_layer):
+            if not ceil and np.all(self.get_chunk_layers(parent_ids[parent_ids != 0]) >= stop_layer):
                 return parent_ids
             elif ceil:
                 return parent_ids
