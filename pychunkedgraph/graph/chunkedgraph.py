@@ -453,6 +453,7 @@ class ChunkedGraph:
         nodes_only: bool = False,
         edges_only: bool = False,
         leaves_only: bool = False,
+        n_threads: int = 1,
     ) -> typing.Tuple[typing.Dict, typing.Dict, Edges]:
         """TODO docs"""
         single = False
@@ -480,8 +481,10 @@ class ChunkedGraph:
         if leaves_only:
             return self.get_children(level2_ids, flatten=True)
         if edges_only:
-            return self.get_l2_agglomerations(level2_ids, edges_only=True)
-        l2id_agglomeration_d, edges = self.get_l2_agglomerations(level2_ids)
+            return self.get_l2_agglomerations(level2_ids, edges_only=True, 
+                                              n_threads=n_threads)
+        l2id_agglomeration_d, edges = self.get_l2_agglomerations(level2_ids, 
+                                                                 n_threads=n_threads)
         return l2id_agglomeration_d, edges
 
     def get_fake_edges(
@@ -503,7 +506,7 @@ class ChunkedGraph:
         return result
 
     def get_l2_agglomerations(
-        self, level2_ids: np.ndarray, edges_only: bool = False
+        self, level2_ids: np.ndarray, edges_only: bool = False, n_threads: int = 1,
     ) -> typing.Tuple[typing.Dict[int, types.Agglomeration], np.ndarray]:
         """
         Children of Level 2 Node IDs and edges.
@@ -512,9 +515,9 @@ class ChunkedGraph:
         chunk_ids = np.unique(self.get_chunk_ids_from_node_ids(level2_ids))
         chunk_edge_dicts = mu.multithread_func(
             self.read_chunk_edges,
-            np.array_split(chunk_ids, 8),  # TODO hardcoded
-            n_threads=8,
-            debug=False,
+            np.array_split(chunk_ids, n_threads),  # TODO hardcoded
+            n_threads=n_threads,
+            debug=n_threads == 1,
         )
         edges_d = edge_utils.concatenate_chunk_edges(chunk_edge_dicts)
         all_chunk_edges = reduce(lambda x, y: x + y, edges_d.values(), Edges([], []))
