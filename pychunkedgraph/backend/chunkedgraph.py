@@ -3883,3 +3883,16 @@ class ChunkedGraph(object):
             chunk_start[2] : chunk_end[2],
         ].squeeze()
         return ws_seg
+
+    def get_proofread_root_ids(self,            
+                               start_time: Optional[datetime.datetime] = None,
+                               end_time: Optional[datetime.datetime] = None):
+        log_entries = self.read_log_rows(start_time=start_time, end_time=end_time)
+        new_roots = np.concatenate([e[column_keys.OperationLogs.RootID] 
+                                    for e in log_entries.values()])
+        root_rows = self.read_node_id_rows(node_ids=new_roots,
+                                            columns=[column_keys.Hierarchy.FormerParent])
+        old_roots = np.concatenate([e[column_keys.Hierarchy.FormerParent][0].value 
+                                    for e in root_rows.values()])
+
+        return old_roots, new_roots
