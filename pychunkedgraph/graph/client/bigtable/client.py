@@ -210,16 +210,20 @@ class BigTableClient(bigtable.Client, ClientWithIDGen, OperationLogger):
     def read_log_entries(
         self,
         operation_ids: typing.Optional[typing.Iterable] = None,
+        properties: typing.Optional[typing.Iterable[attributes._Attribute]] = None,
         start_time: typing.Optional[datetime] = None,
         end_time: typing.Optional[datetime] = None,
         end_time_inclusive: bool = False,
     ):
+        if properties is None:
+            properties = attributes.OperationLogs.all()
+            
         if operation_ids is None:
             logs_d = self.read_nodes(
                 start_id=np.uint64(0),
                 end_id=self.get_max_operation_id(),
                 end_id_inclusive=True,
-                properties=attributes.OperationLogs.all(),
+                properties=properties,
                 start_time=start_time,
                 end_time=end_time,
                 end_time_inclusive=end_time_inclusive,
@@ -227,7 +231,7 @@ class BigTableClient(bigtable.Client, ClientWithIDGen, OperationLogger):
         else:
             logs_d = self.read_nodes(
                 node_ids=operation_ids,
-                properties=attributes.OperationLogs.all(),
+                properties=properties,
                 start_time=start_time,
                 end_time=end_time,
                 end_time_inclusive=end_time_inclusive,

@@ -918,3 +918,17 @@ class ChunkedGraph:
             [self.get_chunk_coordinates(chunk_id) for chunk_id in chunk_ids],
             cv_threads=cv_threads,
         )
+        
+    def get_proofread_root_ids(self,
+                               start_time: typing.Optional[datetime.datetime] = None,
+                               end_time: typing.Optional[datetime.datetime] = None):
+        log_entries = self.client.read_log_entries(
+            properties=[attributes.OperationLogs.RootID])
+        new_roots = np.concatenate([e[attributes.OperationLogs.RootID]
+                                    for e in log_entries.values()])
+        root_rows = self.client.read_nodes(node_ids=new_roots,
+                                           properties=[attributes.Hierarchy.FormerParent])
+        old_roots = np.concatenate([e[attributes.Hierarchy.FormerParent][0].value
+                                   for e in root_rows.values()])
+
+        return old_roots, new_roots
