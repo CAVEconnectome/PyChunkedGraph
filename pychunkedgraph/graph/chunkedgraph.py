@@ -67,6 +67,10 @@ class ChunkedGraph:
         return self._meta
 
     @property
+    def graph_id(self) -> str:
+        return self.meta.graph_config.ID_PREFIX + self.meta.graph_config.ID
+
+    @property
     def client(self) -> base.SimpleClient:
         return self._client
 
@@ -146,7 +150,7 @@ class ChunkedGraph:
             )
             if not parent_rows:
                 return types.empty_1d
-            
+
             parents = []
             if current:
                 for id_ in node_ids:
@@ -161,8 +165,9 @@ class ChunkedGraph:
             else:
                 for id_ in node_ids:
                     try:
-                        parents.append([(p.value, p.timestamp) 
-                                        for p in parent_rows[id_]])
+                        parents.append(
+                            [(p.value, p.timestamp) for p in parent_rows[id_]]
+                        )
                     except KeyError:
                         if fail_to_zero:
                             parents.append([(0, datetime.datetime.fromtimestamp(0))])
@@ -341,14 +346,14 @@ class ChunkedGraph:
             chunk_layers = self.get_chunk_layers(node_ids)
             layer_mask[chunk_layers >= stop_layer] = False
             layer_mask[node_ids == 0] = False
-            
+
             parent_ids = np.array(node_ids, dtype=basetypes.NODE_ID)
             for _ in range(int(stop_layer + 1)):
                 filtered_ids = parent_ids[layer_mask]
-                unique_ids, inverse = np.unique(filtered_ids,
-                                                return_inverse=True)
-                temp_ids = self.get_parents(unique_ids, time_stamp=time_stamp,
-                                            fail_to_zero=True)
+                unique_ids, inverse = np.unique(filtered_ids, return_inverse=True)
+                temp_ids = self.get_parents(
+                    unique_ids, time_stamp=time_stamp, fail_to_zero=True
+                )
                 if not temp_ids.size:
                     break
                 else:
@@ -367,7 +372,9 @@ class ChunkedGraph:
                     if np.all(~layer_mask):
                         return parent_ids
 
-            if not ceil and np.all(self.get_chunk_layers(parent_ids[parent_ids != 0]) >= stop_layer):
+            if not ceil and np.all(
+                self.get_chunk_layers(parent_ids[parent_ids != 0]) >= stop_layer
+            ):
                 return parent_ids
             elif ceil:
                 return parent_ids
@@ -481,10 +488,12 @@ class ChunkedGraph:
         if leaves_only:
             return self.get_children(level2_ids, flatten=True)
         if edges_only:
-            return self.get_l2_agglomerations(level2_ids, edges_only=True, 
-                                              n_threads=n_threads)
-        l2id_agglomeration_d, edges = self.get_l2_agglomerations(level2_ids, 
-                                                                 n_threads=n_threads)
+            return self.get_l2_agglomerations(
+                level2_ids, edges_only=True, n_threads=n_threads
+            )
+        l2id_agglomeration_d, edges = self.get_l2_agglomerations(
+            level2_ids, n_threads=n_threads
+        )
         return l2id_agglomeration_d, edges
 
     def get_fake_edges(
@@ -919,17 +928,24 @@ class ChunkedGraph:
             cv_threads=cv_threads,
         )
 
-    def get_proofread_root_ids(self,
-                               start_time: typing.Optional[datetime.datetime] = None,
-                               end_time: typing.Optional[datetime.datetime] = None):
+    def get_proofread_root_ids(
+        self,
+        start_time: typing.Optional[datetime.datetime] = None,
+        end_time: typing.Optional[datetime.datetime] = None,
+    ):
         log_entries = self.client.read_log_entries(
-            start_time=start_time, end_time=end_time,
-            properties=[attributes.OperationLogs.RootID])
-        new_roots = np.concatenate([e[attributes.OperationLogs.RootID]
-                                    for e in log_entries.values()])
-        root_rows = self.client.read_nodes(node_ids=new_roots,
-                                           properties=[attributes.Hierarchy.FormerParent])
-        old_roots = np.concatenate([e[attributes.Hierarchy.FormerParent][0].value
-                                   for e in root_rows.values()])
+            start_time=start_time,
+            end_time=end_time,
+            properties=[attributes.OperationLogs.RootID],
+        )
+        new_roots = np.concatenate(
+            [e[attributes.OperationLogs.RootID] for e in log_entries.values()]
+        )
+        root_rows = self.client.read_nodes(
+            node_ids=new_roots, properties=[attributes.Hierarchy.FormerParent]
+        )
+        old_roots = np.concatenate(
+            [e[attributes.Hierarchy.FormerParent][0].value for e in root_rows.values()]
+        )
 
         return old_roots, new_roots
