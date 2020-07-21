@@ -378,7 +378,7 @@ class GraphEditOperation(ABC):
                 operation_id=root_lock.operation_id,
                 new_root_ids=[],
                 timestamp=timestamp,
-                status=attributes.OperationLogs.StatusCodes.CREATED,
+                status=attributes.OperationLogs.StatusCodes.CREATED.value,
             )
             self.cg.client.write([log_record_before_edit])
 
@@ -399,7 +399,7 @@ class GraphEditOperation(ABC):
                     operation_id=root_lock.operation_id,
                     new_root_ids=[],
                     timestamp=timestamp,
-                    status=attributes.OperationLogs.StatusCodes.EXCEPTION,
+                    status=attributes.OperationLogs.StatusCodes.EXCEPTION.value,
                     exception=str(err),
                 )
                 self.cg.client.write([log_record_error])
@@ -418,7 +418,7 @@ class GraphEditOperation(ABC):
             operation_id=root_lock.operation_id,
             new_root_ids=new_root_ids,
             timestamp=timestamp,
-            status=attributes.OperationLogs.StatusCodes.WRITE_STARTED,
+            status=attributes.OperationLogs.StatusCodes.WRITE_STARTED.value,
         )
 
         # TODO handle write failures
@@ -433,7 +433,7 @@ class GraphEditOperation(ABC):
             operation_id=root_lock.operation_id,
             new_root_ids=new_root_ids,
             timestamp=timestamp,
-            status=attributes.OperationLogs.StatusCodes.SUCCESS,
+            status=attributes.OperationLogs.StatusCodes.SUCCESS.value,
         )
         self.cg.client.write([log_record_success])
         self.cg.cache = None
