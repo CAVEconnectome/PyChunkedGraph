@@ -77,7 +77,7 @@ class ChunkedGraphMeta:
         self, graph_config: GraphConfig, data_source: DataSource, custom_data: Dict = {}
     ):
         """
-        `custom_data`: stores arbitray key value information for flexibility.
+        `custom_data`: stores arbitray key value information, for flexibility.
         """
         self._graph_config = graph_config
         self._data_source = data_source

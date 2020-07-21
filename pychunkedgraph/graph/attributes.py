@@ -145,15 +145,18 @@ class GraphMeta:
     Meta = _Attribute(key=b"meta", family_id="0", serializer=serializers.Pickle())
 
 
-class GraphProvenance:
-    key = b"provenance"
-    Provenance = _Attribute(
-        key=b"provenance", family_id="0", serializer=serializers.Pickle()
-    )
-
-
 class OperationLogs:
     key = b"ioperations"
+
+    from enum import Enum
+
+    class StatusCodes(Enum):
+        SUCCESS = 0  # all is well, new changes persisted
+        CREATED = 1  # log record created in storage
+        EXCEPTION = 2  # edit unsuccessful, unknown error
+        WRITE_STARTED = 3  # edit successful, start persisting changes
+        WRITE_FAILED = 4  # edit successful, but changes not persisted
+
     OperationID = _Attribute(
         key=b"operation_id", family_id="0", serializer=serializers.UInt64String()
     )
@@ -224,6 +227,16 @@ class OperationLogs:
         serializer=serializers.NumPyArray(dtype=basetypes.EDGE_AFFINITY),
     )
 
+    Status = _Attribute(
+        key=b"operation_status", family_id="0", serializer=serializers.UInt64String()
+    )
+
+    OperationException = _Attribute(
+        key=b"operation_exception",
+        family_id="0",
+        serializer=serializers.String("utf-8"),
+    )
+
     @staticmethod
     def all():
         return [
@@ -240,6 +253,8 @@ class OperationLogs:
             OperationLogs.AddedEdge,
             OperationLogs.RemovedEdge,
             OperationLogs.Affinity,
+            OperationLogs.Status,
+            OperationLogs.OperationException,
         ]
 
 

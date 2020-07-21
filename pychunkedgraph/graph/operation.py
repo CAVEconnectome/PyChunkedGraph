@@ -332,13 +332,13 @@ class GraphEditOperation(ABC):
         self, *, operation_id, timestamp
     ) -> Tuple[np.ndarray, np.ndarray, List["bigtable.row.Row"]]:
         """Initiates the graph operation calculation.
-        :return: New root IDs, new Lvl2 node IDs, and affected Bigtable rows
+        :return: New root IDs, new Lvl2 node IDs, and affected records
         :rtype: Tuple[np.ndarray, np.ndarray, List["bigtable.row.Row"]]
         """
 
     @abstractmethod
     def _create_log_record(
-        self, *, operation_id, timestamp, new_root_ids
+        self, *, operation_id, timestamp, new_root_ids, status=1, exception=""
     ) -> "bigtable.row.Row":
         """Creates a log record with all necessary information to replay the current
             GraphEditOperation
@@ -361,10 +361,8 @@ class GraphEditOperation(ABC):
         * Locks root IDs
         * Calls the subclass's _apply method
         * Calls the subclass's _create_log_record method
-        * Writes all new rows to Bigtable
+        * Persist changes
         * Releases root ID lock
-        :return: Result of successful graph operation
-        :rtype: GraphEditOperation.Result
         """
         root_ids = self._update_root_ids()
         with RootLock(self.cg, root_ids) as root_lock:
@@ -375,8 +373,17 @@ class GraphEditOperation(ABC):
             timestamp = self.cg.client.get_consolidated_lock_timestamp(
                 root_lock.locked_root_ids, lock_operation_ids
             )
+
+            log_record_before_edit = self._create_log_record(
+                operation_id=root_lock.operation_id,
+                new_root_ids=[],
+                timestamp=timestamp,
+                status=attributes.OperationLogs.StatusCodes.CREATED,
+            )
+            self.cg.client.write([log_record_before_edit])
+
             try:
-                new_root_ids, new_lvl2_ids, rows = self._apply(
+                new_root_ids, new_lvl2_ids, affected_records = self._apply(
                     operation_id=root_lock.operation_id, timestamp=timestamp
                 )
             except PreconditionError as err:
@@ -386,31 +393,55 @@ class GraphEditOperation(ABC):
                 self.cg.cache = None
                 raise PostconditionError(str(err))
             except Exception as err:
+                # unknown exception, update log record with error
                 self.cg.cache = None
+                log_record_error = self._create_log_record(
+                    operation_id=root_lock.operation_id,
+                    new_root_ids=[],
+                    timestamp=timestamp,
+                    status=attributes.OperationLogs.StatusCodes.EXCEPTION,
+                    exception=str(err),
+                )
+                self.cg.client.write([log_record_error])
                 raise Exception(str(err))
-
-            # FIXME: Remove once edits.remove_edges/edits.add_edges return consistent type
-            new_root_ids = np.array(new_root_ids, dtype=basetypes.NODE_ID)
-            new_lvl2_ids = np.array(new_lvl2_ids, dtype=basetypes.NODE_ID)
-            # Add a row to the log
-            log_row = self._create_log_record(
-                operation_id=root_lock.operation_id,
-                new_root_ids=new_root_ids,
-                timestamp=timestamp,
+            return self._write(
+                root_lock, timestamp, new_root_ids, new_lvl2_ids, affected_records
             )
 
-            self.cg.client.write(
-                [log_row] + rows,
-                root_lock.locked_root_ids,
-                operation_id=root_lock.operation_id,
-                slow_retry=False,
-            )
-            self.cg.cache = None
-            return GraphEditOperation.Result(
-                operation_id=root_lock.operation_id,
-                new_root_ids=new_root_ids,
-                new_lvl2_ids=new_lvl2_ids,
-            )
+    def _write(
+        self, root_lock, timestamp, new_root_ids, new_lvl2_ids, affected_records
+    ):
+        """Helper to persist changes after an edit."""
+        new_root_ids = np.array(new_root_ids, dtype=basetypes.NODE_ID)
+        new_lvl2_ids = np.array(new_lvl2_ids, dtype=basetypes.NODE_ID)
+        log_record_after_edit = self._create_log_record(
+            operation_id=root_lock.operation_id,
+            new_root_ids=new_root_ids,
+            timestamp=timestamp,
+            status=attributes.OperationLogs.StatusCodes.WRITE_STARTED,
+        )
+
+        # TODO handle write failures
+        self.cg.client.write(
+            [log_record_after_edit] + affected_records,
+            root_lock.locked_root_ids,
+            operation_id=root_lock.operation_id,
+            slow_retry=False,
+        )
+
+        log_record_success = self._create_log_record(
+            operation_id=root_lock.operation_id,
+            new_root_ids=new_root_ids,
+            timestamp=timestamp,
+            status=attributes.OperationLogs.StatusCodes.SUCCESS,
+        )
+        self.cg.client.write([log_record_success])
+        self.cg.cache = None
+        return GraphEditOperation.Result(
+            operation_id=root_lock.operation_id,
+            new_root_ids=new_root_ids,
+            new_lvl2_ids=new_lvl2_ids,
+        )
 
 
 class MergeOperation(GraphEditOperation):
@@ -495,12 +526,20 @@ class MergeOperation(GraphEditOperation):
             )
 
     def _create_log_record(
-        self, *, operation_id, timestamp, new_root_ids
+        self,
+        *,
+        operation_id,
+        timestamp,
+        new_root_ids,
+        status: int = 1,
+        exception: str = "",
     ) -> "bigtable.row.Row":
         val_dict = {
             attributes.OperationLogs.UserID: self.user_id,
             attributes.OperationLogs.RootID: new_root_ids,
             attributes.OperationLogs.AddedEdge: self.added_edges,
+            attributes.OperationLogs.Status: status,
+            attributes.OperationLogs.OperationException: exception,
         }
         if self.source_coords is not None:
             val_dict[attributes.OperationLogs.SourceCoordinate] = self.source_coords
@@ -594,11 +633,15 @@ class SplitOperation(GraphEditOperation):
         operation_id: np.uint64,
         timestamp: datetime,
         new_root_ids: Sequence[np.uint64],
+        status: int = 1,
+        exception: str = "",
     ) -> "bigtable.row.Row":
         val_dict = {
             attributes.OperationLogs.UserID: self.user_id,
             attributes.OperationLogs.RootID: new_root_ids,
             attributes.OperationLogs.RemovedEdge: self.removed_edges,
+            attributes.OperationLogs.Status: status,
+            attributes.OperationLogs.OperationException: exception,
         }
         if self.source_coords is not None:
             val_dict[attributes.OperationLogs.SourceCoordinate] = self.source_coords
@@ -719,6 +762,8 @@ class MulticutOperation(GraphEditOperation):
         operation_id: np.uint64,
         timestamp: datetime,
         new_root_ids: Sequence[np.uint64],
+        status: int = 1,
+        exception: str = "",
     ) -> "bigtable.row.Row":
         val_dict = {
             attributes.OperationLogs.UserID: self.user_id,
@@ -728,6 +773,8 @@ class MulticutOperation(GraphEditOperation):
             attributes.OperationLogs.SourceID: self.source_ids,
             attributes.OperationLogs.SinkID: self.sink_ids,
             attributes.OperationLogs.BoundingBoxOffset: self.bbox_offset,
+            attributes.OperationLogs.Status: status,
+            attributes.OperationLogs.OperationException: exception,
         }
         return self.cg.client.mutate_row(
             serializers.serialize_uint64(operation_id), val_dict, timestamp
@@ -807,6 +854,8 @@ class RedoOperation(GraphEditOperation):
         operation_id: np.uint64,
         timestamp: datetime,
         new_root_ids: Sequence[np.uint64],
+        status: int = 0,
+        exception: str = "",
     ) -> "bigtable.row.Row":
         val_dict = {
             attributes.OperationLogs.UserID: self.user_id,
@@ -892,6 +941,8 @@ class UndoOperation(GraphEditOperation):
         operation_id: np.uint64,
         timestamp: datetime,
         new_root_ids: Sequence[np.uint64],
+        status: int = 0,
+        exception: str = "",
     ) -> "bigtable.row.Row":
         val_dict = {
             attributes.OperationLogs.UserID: self.user_id,

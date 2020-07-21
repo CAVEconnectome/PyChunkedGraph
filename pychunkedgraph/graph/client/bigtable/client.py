@@ -93,16 +93,6 @@ class BigTableClient(bigtable.Client, ClientWithIDGen, OperationLogger):
         self._graph_meta = row[attributes.GraphMeta.Meta][0].value
         return self._graph_meta
 
-    def update_graph_provenance(self, provenance: IngestConfig):
-        row = self.mutate_row(
-            attributes.GraphProvenance.key,
-            {attributes.GraphProvenance.Provenance: provenance},
-        )
-        self.write([row])
-
-    def read_graph_provenance(self) -> IngestConfig:
-        return self._read_byte_row(attributes.GraphProvenance.key)
-
     def read_nodes(
         self,
         start_id=None,

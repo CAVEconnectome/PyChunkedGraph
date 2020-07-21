@@ -5,8 +5,8 @@ from collections import namedtuple
 
 from google.cloud import datastore
 
-from ..operation_logs import get_parsed_logs
-from ...graph import ChunkedGraph
+from ...operation_logs import get_parsed_logs
+from ....graph import ChunkedGraph
 
 
 _operation_log_fields = ("NAMESPACE", "PARENT_KEY")
@@ -16,20 +16,9 @@ OperationLogsConfig = namedtuple(
 )
 
 
-def _ensure_str_keys(log: dict) -> dict:
-    result = {}
-    for k, v in log.items():
-        try:
-            result[k.decode("utf-8")] = v
-        except AttributeError:
-            result[k] = v
-    return result
-
-
 def export_operation_logs(cg: ChunkedGraph) -> None:
     client = datastore.Client()
     log = get_parsed_logs(cg)[0]
-    log = _ensure_str_keys(log)
 
     print(log)
 
