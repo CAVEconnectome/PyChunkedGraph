@@ -1,8 +1,8 @@
-from typing import TYPE_CHECKING, Sequence, Union
+from typing import Union
+from typing import Sequence
 
 import numpy as np
 
-from . import ChunkedGraph
 from . import exceptions
 from .lineage import get_future_root_ids
 
@@ -17,9 +17,7 @@ class RootLock:
     # FIXME: `locked_root_ids` is only required and exposed because `cg.client.lock_roots`
     #        currently might lock different (more recent) root IDs than requested.
 
-    def __init__(
-        self, cg: ChunkedGraph, root_ids: Union[np.uint64, Sequence[np.uint64]]
-    ) -> None:
+    def __init__(self, cg, root_ids: Union[np.uint64, Sequence[np.uint64]]) -> None:
         self.cg = cg
         self.root_ids = np.atleast_1d(root_ids)
         self.locked_root_ids = None
@@ -56,9 +54,7 @@ class IndefiniteRootLock:
 
     __slots__ = ["cg", "root_ids", "acquired", "operation_id"]
 
-    def __init__(
-        self, cg: ChunkedGraph, root_ids: Union[np.uint64, Sequence[np.uint64]]
-    ) -> None:
+    def __init__(self, cg, root_ids: Union[np.uint64, Sequence[np.uint64]]) -> None:
         self.cg = cg
         self.root_ids = np.atleast_1d(root_ids)
         self.acquired = False

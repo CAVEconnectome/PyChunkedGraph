@@ -29,6 +29,8 @@ def get_parsed_logs(
     logs = cg.client.read_log_entries(start_time=start_time)
     result = []
     for _id, _log in logs.items():
+        if _id not in range(14160, 14167):
+            continue
         log = {"id": int(_id)}
         log["status"] = int(_log.get("operation_status", 0))
         for attr, val in _log.items():
