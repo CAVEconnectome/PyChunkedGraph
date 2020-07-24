@@ -60,8 +60,23 @@ class SimpleClient(ABC):
         """Locks root nodes to prevent race conditions."""
 
     @abstractmethod
+    def lock_root_indefinitely(self, node_id, operation_id):
+        """Locks root node with operation_id to prevent race conditions."""
+
+    @abstractmethod
+    def lock_roots_indefinitely(self, node_ids, operation_id):
+        """
+        Locks root nodes indefinitely to prevent structural damage to graph.
+        This scenario is rare and needs asynchronous fix or inspection to unlock.
+        """
+
+    @abstractmethod
     def unlock_root(self, node_id, operation_id):
         """Unlocks root node that is locked with operation_id."""
+
+    @abstractmethod
+    def unlock_indefinitely_locked_root(self, node_id, operation_id):
+        """Unlocks root node that is indefinitely locked with operation_id."""
 
     @abstractmethod
     def renew_lock(self, node_id, operation_id):

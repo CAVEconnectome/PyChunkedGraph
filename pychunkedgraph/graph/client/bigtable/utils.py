@@ -143,6 +143,31 @@ def get_root_lock_filter(lock_column, lock_expiry) -> ConditionalRowFilter:
     )
 
 
+def get_indefinite_root_lock_filter(lock_column) -> ConditionalRowFilter:
+    lock_key_filter = ColumnRangeFilter(
+        column_family_id=lock_column.family_id,
+        start_column=lock_column.key,
+        end_column=lock_column.key,
+        inclusive_start=True,
+        inclusive_end=True,
+    )
+
+    new_parents_column = attributes.Hierarchy.NewParent
+    new_parents_key_filter = ColumnRangeFilter(
+        column_family_id=new_parents_column.family_id,
+        start_column=new_parents_column.key,
+        end_column=new_parents_column.key,
+        inclusive_start=True,
+        inclusive_end=True,
+    )
+
+    return ConditionalRowFilter(
+        base_filter=RowFilterChain([lock_key_filter]),
+        true_filter=PassAllFilter(True),
+        false_filter=new_parents_key_filter,
+    )
+
+
 def get_renew_lock_filter(
     lock_column: attributes._Attribute, operation_id: np.uint64
 ) -> ConditionalRowFilter:
@@ -171,7 +196,7 @@ def get_renew_lock_filter(
     )
 
     new_parents_key_filter = ColumnRangeFilter(
-        column_family_id="0",  # TODO
+        column_family_id=new_parents_column.family_id,
         start_column=new_parents_column.key,
         end_column=new_parents_column.key,
         inclusive_start=True,
@@ -212,4 +237,24 @@ def get_unlock_root_filter(lock_column, lock_expiry, operation_id) -> RowFilterC
 
     # Chain these filters together
     return RowFilterChain([time_filter, column_key_filter, value_filter])
+
+
+def get_indefinite_unlock_root_filter(lock_column, operation_id) -> RowFilterChain:
+    column_key_filter = ColumnRangeFilter(
+        column_family_id=lock_column.family_id,
+        start_column=lock_column.key,
+        end_column=lock_column.key,
+        inclusive_start=True,
+        inclusive_end=True,
+    )
+
+    value_filter = ValueRangeFilter(
+        start_value=lock_column.serialize(operation_id),
+        end_value=lock_column.serialize(operation_id),
+        inclusive_start=True,
+        inclusive_end=True,
+    )
+
+    # Chain these filters together
+    return RowFilterChain([column_key_filter, value_filter])
 

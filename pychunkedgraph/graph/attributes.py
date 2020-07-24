@@ -83,6 +83,10 @@ class Concurrency:
 
     Lock = _Attribute(key=b"lock", family_id="0", serializer=serializers.UInt64String())
 
+    IndefiniteLock = _Attribute(
+        key=b"indefinite_lock", family_id="0", serializer=serializers.UInt64String()
+    )
+
 
 class Connectivity:
     Affinity = _Attribute(
