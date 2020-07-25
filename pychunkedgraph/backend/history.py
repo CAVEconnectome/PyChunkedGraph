@@ -116,8 +116,6 @@ class SegmentHistory(object):
         return np.logical_and(np.array(self.tabular_changelog[["in_neuron"]]),
                               np.array(self.tabular_changelog[["is_relevant"]])).reshape(-1)
 
-
-
     def get_tabular_changelog(self, with_ids=False, filtered=False):
         if not with_ids and not filtered:
             return self.tabular_changelog
