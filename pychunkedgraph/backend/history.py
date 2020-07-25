@@ -114,7 +114,7 @@ class SegmentHistory(object):
     @property
     def filtered_log_mask(self):
         return np.logical_and(np.array(self.tabular_changelog[["in_neuron"]]),
-                              np.array(self.tabular_changelog[["is_relevant"]])).squeeze()
+                              np.array(self.tabular_changelog[["is_relevant"]])).reshape(-1)
 
 
 
