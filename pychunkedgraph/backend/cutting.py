@@ -37,7 +37,7 @@ def merge_cross_chunk_edges_graph_tool(
     ccs = flatgraph_utils.connected_components(graph)
 
     remapping = {}
-    mapping = np.array([], dtype=np.uint64).reshape(-1, 2)
+    mapping = []
 
     for cc in ccs:
         nodes = unique_supervoxel_ids[cc]
@@ -48,15 +48,20 @@ def merge_cross_chunk_edges_graph_tool(
         rep_nodes = np.ones(len(nodes), dtype=np.uint64).reshape(-1, 1) * rep_node
         m = np.concatenate([nodes.reshape(-1, 1), rep_nodes], axis=1)
 
-        mapping = np.concatenate([mapping, m], axis=0)
+        mapping.append(m)
 
+    if len(mapping) > 0:
+        mapping = np.concatenate(mapping)
     u_nodes = np.unique(edges)
     u_unmapped_nodes = u_nodes[~np.in1d(u_nodes, mapping)]
 
     unmapped_mapping = np.concatenate(
         [u_unmapped_nodes.reshape(-1, 1), u_unmapped_nodes.reshape(-1, 1)], axis=1
     )
-    complete_mapping = np.concatenate([mapping, unmapped_mapping], axis=0)
+    if len(mapping) > 0:
+        complete_mapping = np.concatenate([mapping, unmapped_mapping], axis=0)
+    else:
+        complete_mapping = unmapped_mapping
 
     sort_idx = np.argsort(complete_mapping[:, 0])
     idx = np.searchsorted(complete_mapping[:, 0], edges, sorter=sort_idx)
