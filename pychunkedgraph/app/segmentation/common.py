@@ -7,6 +7,7 @@ import gzip
 import os
 from io import BytesIO as IO
 from datetime import datetime
+import requests  
 
 import numpy as np
 from pytz import UTC
@@ -386,10 +387,12 @@ def handle_merge(table_id):
     current_app.logger.debug(("lvl2_nodes:", ret.new_lvl2_ids))
 
     if len(ret.new_lvl2_ids) > 0:
-        t = threading.Thread(
-            target=_remeshing, args=(cg.get_serialized_info(), ret.new_lvl2_ids)
-        )
-        t.start()
+        auth_header = {"Authorization": f"Bearer {current_app.config['AUTH_TOKEN']}"}
+        resp = requests.post(f"{current_app.config['MESHING_ENDPOINT']}/table/{table_id}/remeshing",
+                             data=json.dumps({"new_lvl2_ids": ret.new_lvl2_ids},
+                                             cls=current_app.json_encoder), 
+                             headers=auth_header)
+        resp.raise_for_status()
 
     return ret
 
@@ -462,10 +465,11 @@ def handle_split(table_id):
     current_app.logger.debug(("lvl2_nodes:", ret.new_lvl2_ids))
 
     if len(ret.new_lvl2_ids) > 0:
-        t = threading.Thread(
-            target=_remeshing, args=(cg.get_serialized_info(), ret.new_lvl2_ids)
-        )
-        t.start()
+        auth_header = {"Authorization": f"Bearer {current_app.config['AUTH_TOKEN']}"}
+        resp = requests.post(data=json.dumps({"new_lvl2_ids": ret.new_lvl2_ids},
+                                             cls=current_app.json_encoder), 
+                             headers=auth_header)
+        resp.raise_for_status()
 
     return ret
 
@@ -499,10 +503,11 @@ def handle_undo(table_id):
     current_app.logger.debug(("lvl2_nodes:", ret.new_lvl2_ids))
 
     if ret.new_lvl2_ids.size > 0:
-        t = threading.Thread(
-            target=_remeshing, args=(cg.get_serialized_info(), ret.new_lvl2_ids)
-        )
-        t.start()
+        auth_header = {"Authorization": f"Bearer {current_app.config['AUTH_TOKEN']}"}
+        resp = requests.post(data=json.dumps({"new_lvl2_ids": ret.new_lvl2_ids},
+                                             cls=current_app.json_encoder), 
+                             headers=auth_header)
+        resp.raise_for_status()
 
     return ret
 
@@ -536,10 +541,11 @@ def handle_redo(table_id):
     current_app.logger.debug(("lvl2_nodes:", ret.new_lvl2_ids))
 
     if ret.new_lvl2_ids.size > 0:
-        t = threading.Thread(
-            target=_remeshing, args=(cg.get_serialized_info(), ret.new_lvl2_ids)
-        )
-        t.start()
+        auth_header = {"Authorization": f"Bearer {current_app.config['AUTH_TOKEN']}"}
+        resp = requests.post(data=json.dumps({"new_lvl2_ids": ret.new_lvl2_ids},
+                                             cls=current_app.json_encoder), 
+                             headers=auth_header)
+        resp.raise_for_status()
 
     return ret
 
