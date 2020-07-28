@@ -3,6 +3,7 @@ from pychunkedgraph.meshing import meshgen
 
 
 def remeshing(table_id, lvl2_nodes):
+    print(f"remeshing {lvl2_nodes}")
     cg = app_utils.get_cg(table_id)
 
     # TODO: stop_layer and mip should be configurable by dataset
