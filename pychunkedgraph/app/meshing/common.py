@@ -11,7 +11,7 @@ from flask import Response, current_app, g, jsonify, make_response, request
 
 from pychunkedgraph import __version__
 from pychunkedgraph.app import app_utils
-from pychunkedgraph.meshing import tasks as meshing_tasks
+from pychunkedgraph.app.meshing import tasks as meshing_tasks
 from pychunkedgraph.backend import chunkedgraph
 from pychunkedgraph.meshing import meshgen, meshgen_utils
 
