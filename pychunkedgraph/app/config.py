@@ -24,8 +24,8 @@ class BaseConfig(object):
     USE_REDIS_JOBS = False
     
     MESHING_ENDPOINT = os.environ.get("MESHING_ENDPOINT", "http://meshing-service/meshing")
-    with open(os.environ.get("DAF_CREDENTIALS"), "r"):
-        AUTH_TOKEN = json.load("token")
+    with open(os.environ.get("DAF_CREDENTIALS"), "r") as f:
+        AUTH_TOKEN = json.load(f)["token"]
 
 
 class DevelopmentConfig(BaseConfig):
