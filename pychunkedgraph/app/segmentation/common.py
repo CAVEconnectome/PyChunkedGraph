@@ -18,7 +18,6 @@ from cloudvolume import compression
 from flask import current_app, g, jsonify, make_response, request
 from pychunkedgraph import __version__
 from pychunkedgraph.app import app_utils
-from pychunkedgraph.app.meshing.common import _remeshing
 from pychunkedgraph.backend import chunkedgraph_exceptions as cg_exceptions
 from pychunkedgraph.backend import history as cg_history
 from pychunkedgraph.backend.utils import column_keys
