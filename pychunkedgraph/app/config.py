@@ -24,7 +24,7 @@ class BaseConfig(object):
     USE_REDIS_JOBS = False
     
     MESHING_ENDPOINT = os.environ.get("MESHING_ENDPOINT", "http://meshing-service/meshing")
-    with open("~/.cloudvolume/secrets/chunkedgraph-secret.json", "r"):
+    with open(os.environ.get("DAF_CREDENTIALS"), "r"):
         AUTH_TOKEN = json.load("token")
 
 
