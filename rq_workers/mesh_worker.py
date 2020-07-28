@@ -27,11 +27,10 @@ QUEUES = ['default', 'mesh-chunks']
 
 app = create_app()
 
-redis_url = app.config["REDIS_URL"]
-redis_connection = redis.from_url(redis_url)
+redis_connection = redis.from_url(app.config["REDIS_URL"])
 with app.app_context():
     with Connection(redis_connection):
-        worker = Worker([Queue("mesh-chunks")],
+        worker = Worker(["mesh-chunks"],
                         default_worker_ttl=600,
                         job_monitoring_interval=1)
         worker.work()
