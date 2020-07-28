@@ -8,7 +8,7 @@ def remeshing(table_id, lvl2_nodes):
     lvl2_nodes = np.array(lvl2_nodes, dtype=np.uint64)
     cg = app_utils.get_cg(table_id)
     
-    current_app.logger.debug(f"remeshing {lvl2_nodes} {cg.serialized_info()}")
+    current_app.logger.debug(f"remeshing {lvl2_nodes} {cg.get_serialized_info()}")
 
     # TODO: stop_layer and mip should be configurable by dataset
     meshgen.remeshing(
