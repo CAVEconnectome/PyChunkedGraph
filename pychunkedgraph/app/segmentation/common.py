@@ -465,7 +465,8 @@ def handle_split(table_id):
 
     if len(ret.new_lvl2_ids) > 0:
         auth_header = {"Authorization": f"Bearer {current_app.config['AUTH_TOKEN']}"}
-        resp = requests.post(data=json.dumps({"new_lvl2_ids": ret.new_lvl2_ids},
+        resp = requests.post(f"{current_app.config['MESHING_ENDPOINT']}/table/{table_id}/remeshing",
+                             data=json.dumps({"new_lvl2_ids": ret.new_lvl2_ids},
                                              cls=current_app.json_encoder), 
                              headers=auth_header)
         resp.raise_for_status()
@@ -503,7 +504,8 @@ def handle_undo(table_id):
 
     if ret.new_lvl2_ids.size > 0:
         auth_header = {"Authorization": f"Bearer {current_app.config['AUTH_TOKEN']}"}
-        resp = requests.post(data=json.dumps({"new_lvl2_ids": ret.new_lvl2_ids},
+        resp = requests.post(f"{current_app.config['MESHING_ENDPOINT']}/table/{table_id}/remeshing",
+                             data=json.dumps({"new_lvl2_ids": ret.new_lvl2_ids},
                                              cls=current_app.json_encoder), 
                              headers=auth_header)
         resp.raise_for_status()
@@ -541,7 +543,8 @@ def handle_redo(table_id):
 
     if ret.new_lvl2_ids.size > 0:
         auth_header = {"Authorization": f"Bearer {current_app.config['AUTH_TOKEN']}"}
-        resp = requests.post(data=json.dumps({"new_lvl2_ids": ret.new_lvl2_ids},
+        resp = requests.post(f"{current_app.config['MESHING_ENDPOINT']}/table/{table_id}/remeshing",
+                             data=json.dumps({"new_lvl2_ids": ret.new_lvl2_ids},
                                              cls=current_app.json_encoder), 
                              headers=auth_header)
         resp.raise_for_status()
