@@ -109,7 +109,9 @@ def get_time_range_and_column_filter(
         return time_filter
 
 
-def get_root_lock_filter(lock_column, lock_expiry) -> ConditionalRowFilter:
+def get_root_lock_filter(
+    lock_column, lock_expiry, indefinite_lock_column
+) -> ConditionalRowFilter:
     time_cutoff = datetime.utcnow() - lock_expiry
     # Comply to resolution of BigTables TimeRange
     time_cutoff -= timedelta(microseconds=time_cutoff.microsecond % 1000)
@@ -127,6 +129,14 @@ def get_root_lock_filter(lock_column, lock_expiry) -> ConditionalRowFilter:
         inclusive_end=True,
     )
 
+    indefinite_lock_key_filter = ColumnRangeFilter(
+        column_family_id=indefinite_lock_column.family_id,
+        start_column=indefinite_lock_column.key,
+        end_column=indefinite_lock_column.key,
+        inclusive_start=True,
+        inclusive_end=True,
+    )
+
     new_parents_column = attributes.Hierarchy.NewParent
     new_parents_key_filter = ColumnRangeFilter(
         column_family_id=new_parents_column.family_id,
@@ -137,7 +147,9 @@ def get_root_lock_filter(lock_column, lock_expiry) -> ConditionalRowFilter:
     )
 
     return ConditionalRowFilter(
-        base_filter=RowFilterChain([time_filter, lock_key_filter]),
+        base_filter=RowFilterChain(
+            [time_filter, lock_key_filter, indefinite_lock_key_filter]
+        ),
         true_filter=PassAllFilter(True),
         false_filter=new_parents_key_filter,
     )
@@ -162,7 +174,7 @@ def get_indefinite_root_lock_filter(lock_column) -> ConditionalRowFilter:
     )
 
     return ConditionalRowFilter(
-        base_filter=RowFilterChain([lock_key_filter]),
+        base_filter=lock_key_filter,
         true_filter=PassAllFilter(True),
         false_filter=new_parents_key_filter,
     )

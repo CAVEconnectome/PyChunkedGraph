@@ -15,10 +15,10 @@ from functools import reduce
 import numpy as np
 from google.cloud import bigtable
 
+from . import locks
 from . import edits
 from . import types
 from . import attributes
-from .locks import RootLock
 from .utils import basetypes
 from .utils import serializers
 from .cache import CacheService
@@ -365,7 +365,7 @@ class GraphEditOperation(ABC):
         * Releases root ID lock
         """
         root_ids = self._update_root_ids()
-        with RootLock(self.cg, root_ids) as root_lock:
+        with locks.RootLock(self.cg, root_ids) as root_lock:
             self.cg.cache = CacheService(self.cg)
             lock_operation_ids = np.array(
                 [root_lock.operation_id] * len(root_lock.locked_root_ids)
@@ -376,7 +376,7 @@ class GraphEditOperation(ABC):
 
             log_record_before_edit = self._create_log_record(
                 operation_id=root_lock.operation_id,
-                new_root_ids=[],
+                new_root_ids=types.empty_1d,
                 timestamp=timestamp,
                 status=attributes.OperationLogs.StatusCodes.CREATED.value,
             )
@@ -397,7 +397,7 @@ class GraphEditOperation(ABC):
                 self.cg.cache = None
                 log_record_error = self._create_log_record(
                     operation_id=root_lock.operation_id,
-                    new_root_ids=[],
+                    new_root_ids=types.empty_1d,
                     timestamp=timestamp,
                     status=attributes.OperationLogs.StatusCodes.EXCEPTION.value,
                     exception=str(err),
@@ -408,37 +408,38 @@ class GraphEditOperation(ABC):
                 root_lock, timestamp, new_root_ids, new_lvl2_ids, affected_records
             )
 
-    def _write(
-        self, root_lock, timestamp, new_root_ids, new_lvl2_ids, affected_records
-    ):
+    def _write(self, lock, timestamp, new_root_ids, new_lvl2_ids, affected_records):
         """Helper to persist changes after an edit."""
         new_root_ids = np.array(new_root_ids, dtype=basetypes.NODE_ID)
         new_lvl2_ids = np.array(new_lvl2_ids, dtype=basetypes.NODE_ID)
+
+        # this must be written first to indicate writing has started.
         log_record_after_edit = self._create_log_record(
-            operation_id=root_lock.operation_id,
+            operation_id=lock.operation_id,
             new_root_ids=new_root_ids,
             timestamp=timestamp,
             status=attributes.OperationLogs.StatusCodes.WRITE_STARTED.value,
         )
-
-        # TODO handle write failures
-        self.cg.client.write(
-            [log_record_after_edit] + affected_records,
-            root_lock.locked_root_ids,
-            operation_id=root_lock.operation_id,
-            slow_retry=False,
-        )
-
+        # this must be written last to indicate write was successful.
         log_record_success = self._create_log_record(
-            operation_id=root_lock.operation_id,
+            operation_id=lock.operation_id,
             new_root_ids=new_root_ids,
             timestamp=timestamp,
             status=attributes.OperationLogs.StatusCodes.SUCCESS.value,
         )
-        self.cg.client.write([log_record_success])
+
+        with locks.IndefiniteRootLock(self.cg, lock.operation_id, lock.locked_root_ids):
+            # indefinite lock for writing, if a node instance or pod dies during this
+            # the roots must stay locked indefinitely to prevent further corruption.
+            self.cg.client.write(
+                [log_record_after_edit] + affected_records + [log_record_success],
+                lock.locked_root_ids,
+                operation_id=lock.operation_id,
+                slow_retry=False,
+            )
         self.cg.cache = None
         return GraphEditOperation.Result(
-            operation_id=root_lock.operation_id,
+            operation_id=lock.operation_id,
             new_root_ids=new_root_ids,
             new_lvl2_ids=new_lvl2_ids,
         )

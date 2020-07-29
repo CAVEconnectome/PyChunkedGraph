@@ -312,7 +312,10 @@ class BigTableClient(bigtable.Client, ClientWithIDGen, OperationLogger):
         """Attempts to lock the latest version of a root node."""
         lock_expiry = self.graph_meta.graph_config.ROOT_LOCK_EXPIRY
         lock_column = attributes.Concurrency.Lock
-        combined_filter = utils.get_root_lock_filter(lock_column, lock_expiry)
+        indefinite_lock_column = attributes.Concurrency.IndefiniteLock
+        combined_filter = utils.get_root_lock_filter(
+            lock_column, lock_expiry, indefinite_lock_column
+        )
 
         root_row = self._table.row(serialize_uint64(root_id), filter_=combined_filter)
         # Set row lock if condition returns no results (state == False)
@@ -338,7 +341,6 @@ class BigTableClient(bigtable.Client, ClientWithIDGen, OperationLogger):
         """Attempts to indefinitely lock the latest version of a root node."""
         lock_column = attributes.Concurrency.IndefiniteLock
         combined_filter = utils.get_indefinite_root_lock_filter(lock_column)
-
         root_row = self._table.row(serialize_uint64(root_id), filter_=combined_filter)
         # Set row lock if condition returns no results (state == False)
         root_row.set_cell(
@@ -426,7 +428,6 @@ class BigTableClient(bigtable.Client, ClientWithIDGen, OperationLogger):
                 for id_ in root_ids:
                     self.unlock_indefinitely_locked_root(id_, operation_id)
                 break
-
         if lock_acquired:
             return True, root_ids, failed_to_lock_id
         return False, root_ids, failed_to_lock_id

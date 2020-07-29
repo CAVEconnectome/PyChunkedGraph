@@ -27,7 +27,7 @@ class RootLock:
     def __enter__(self):
         self.operation_id = self.cg.id_client.create_operation_id()
         future_root_ids_d = {}
-        for id_ in self.locked_root_ids:
+        for id_ in self.root_ids:
             future_root_ids_d[id_] = get_future_root_ids(self.cg, id_)
         self.lock_acquired, self.locked_root_ids = self.cg.client.lock_roots(
             root_ids=self.root_ids,
@@ -46,22 +46,34 @@ class RootLock:
 
 
 class IndefiniteRootLock:
-    """Attempts to lock the requested root IDs using a unique operation ID.
-    TODO details of use case
+    """
+    Attempts to lock the requested root IDs using a unique operation ID.
+    Assumes the root IDs have already been locked temporally.
+    Also renews temporal lock before creating locking indefinitely,
+    fails to lock indefinitely if the temporal lock cannot be acquired.
+
     :raises exceptions.LockingError:
-    throws when one or more root ID locks could not be acquired.
+    when a root ID lock cannot be renewed
+    or when it has already been locked indefinitely.
     """
 
     __slots__ = ["cg", "root_ids", "acquired", "operation_id"]
 
-    def __init__(self, cg, root_ids: Union[np.uint64, Sequence[np.uint64]]) -> None:
+    def __init__(
+        self,
+        cg,
+        operation_id: np.uint64,
+        root_ids: Union[np.uint64, Sequence[np.uint64]],
+    ) -> None:
         self.cg = cg
+        self.operation_id = operation_id
         self.root_ids = np.atleast_1d(root_ids)
         self.acquired = False
-        self.operation_id = None
 
     def __enter__(self):
-        self.operation_id = self.cg.id_client.create_operation_id()
+        if not self.cg.client.renew_locks(self.root_ids, self.operation_id):
+            raise exceptions.LockingError("Could not renew locks before writing.")
+
         future_root_ids_d = {}
         for id_ in self.root_ids:
             future_root_ids_d[id_] = get_future_root_ids(self.cg, id_)
@@ -77,4 +89,6 @@ class IndefiniteRootLock:
     def __exit__(self, exception_type, exception_value, traceback):
         if self.acquired:
             for locked_root_id in self.root_ids:
-                self.cg.client.unlock_root(locked_root_id, self.operation_id)
+                self.cg.client.unlock_indefinitely_locked_root(
+                    locked_root_id, self.operation_id
+                )
