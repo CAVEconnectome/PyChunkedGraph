@@ -5,10 +5,13 @@ import numpy as np
 import time
 from datetime import datetime
 import traceback
+import redis
+from rq import Queue, Connection
 from flask import Response, current_app, g, jsonify, make_response, request
 
 from pychunkedgraph import __version__
 from pychunkedgraph.app import app_utils
+from pychunkedgraph.app.meshing import tasks as meshing_tasks
 from pychunkedgraph.backend import chunkedgraph
 from pychunkedgraph.meshing import meshgen, meshgen_utils
 
@@ -31,18 +34,6 @@ def home():
     resp.headers["Access-Control-Allow-Methods"] = "POST, GET, OPTIONS"
     resp.headers["Connection"] = "keep-alive"
     return resp
-
-
-def _remeshing(serialized_cg_info, lvl2_nodes):
-    cg = chunkedgraph.ChunkedGraph(**serialized_cg_info)
-
-    # TODO: stop_layer and mip should be configurable by dataset
-    meshgen.remeshing(
-        cg, lvl2_nodes, stop_layer=4, cv_path=None, cv_mesh_dir=None, mip=1,
-        max_err=320
-    )
-
-    return Response(status=200)
 
 
 # -------------------------------
@@ -228,3 +219,28 @@ def handle_get_manifest(table_id, node_id):
                                              for seg_id in seg_ids]
 
     return resp
+
+
+## REMESHING -----------------------------------------------------
+def handle_remesh(table_id):
+    current_app.request_type = "remesh_enque"
+    current_app.table_id = table_id
+
+    user_id = str(g.auth_user["id"])
+    current_app.user_id = user_id
+
+    new_lvl2_ids = json.loads(request.data)["new_lvl2_ids"]
+    
+    with Connection(redis.from_url(current_app.config["REDIS_URL"])):
+        q = Queue("mesh-chunks")
+        task = q.enqueue(meshing_tasks.remeshing, table_id, 
+                         new_lvl2_ids)
+
+    response_object = {
+        "status": "success",
+        "data": {
+            "task_id": task.get_id()
+        }
+    }
+      
+    return jsonify(response_object), 202

@@ -1,5 +1,6 @@
 import logging
 import os
+import json
 
 
 class BaseConfig(object):
@@ -21,6 +22,10 @@ class BaseConfig(object):
     # CHUNKGRAPH_TABLE_ID = "pinky100_benchmark_v92"
 
     USE_REDIS_JOBS = False
+    
+    MESHING_ENDPOINT = os.environ.get("MESHING_ENDPOINT", "http://meshing-service/meshing")
+    with open(os.environ.get("DAF_CREDENTIALS"), "r") as f:
+        AUTH_TOKEN = json.load(f)["token"]
 
 
 class DevelopmentConfig(BaseConfig):
