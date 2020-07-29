@@ -261,7 +261,7 @@ def handle_remesh(table_id):
     new_lvl2_ids = json.loads(request.data)["new_lvl2_ids"]
     
     with Connection(redis.from_url(current_app.config["REDIS_URL"])):
-        q = Queue("mesh-chunks")
+        q = Queue("mesh-chunks", default_timeout=1200)
         task = q.enqueue(meshing_tasks.remeshing, table_id, 
                          new_lvl2_ids)
 
