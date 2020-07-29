@@ -1,5 +1,6 @@
 import logging
 import os
+import json
 
 
 class BaseConfig(object):
@@ -23,7 +24,16 @@ class BaseConfig(object):
 
     USE_REDIS_JOBS = False
 
-
+    MESHING_ENDPOINT = os.environ.get("MESHING_ENDPOINT", "http://meshing-service/meshing")
+    daf_credential_path = os.environ.get("DAF_CREDENTIALS", None)
+    
+    if daf_credential_path is not None:
+        with open(daf_credential_path, "r") as f:
+            AUTH_TOKEN = json.load(f)["token"]
+    else:
+        AUTH_TOKEN = ""        
+        
+        
 class DevelopmentConfig(BaseConfig):
     """Development configuration."""
     USE_REDIS_JOBS = False
