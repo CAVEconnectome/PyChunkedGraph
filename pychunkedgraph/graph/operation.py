@@ -398,7 +398,7 @@ class GraphEditOperation(ABC):
                 log_record_error = self._create_log_record(
                     operation_id=root_lock.operation_id,
                     new_root_ids=types.empty_1d,
-                    timestamp=timestamp,
+                    timestamp=None,
                     status=attributes.OperationLogs.StatusCodes.EXCEPTION.value,
                     exception=str(err),
                 )
@@ -417,26 +417,26 @@ class GraphEditOperation(ABC):
         log_record_after_edit = self._create_log_record(
             operation_id=lock.operation_id,
             new_root_ids=new_root_ids,
-            timestamp=timestamp,
+            timestamp=None,
             status=attributes.OperationLogs.StatusCodes.WRITE_STARTED.value,
-        )
-        # this must be written last to indicate write was successful.
-        log_record_success = self._create_log_record(
-            operation_id=lock.operation_id,
-            new_root_ids=new_root_ids,
-            timestamp=timestamp,
-            status=attributes.OperationLogs.StatusCodes.SUCCESS.value,
         )
 
         with locks.IndefiniteRootLock(self.cg, lock.operation_id, lock.locked_root_ids):
             # indefinite lock for writing, if a node instance or pod dies during this
             # the roots must stay locked indefinitely to prevent further corruption.
             self.cg.client.write(
-                [log_record_after_edit] + affected_records + [log_record_success],
+                [log_record_after_edit] + affected_records,
                 lock.locked_root_ids,
                 operation_id=lock.operation_id,
                 slow_retry=False,
             )
+            log_record_success = self._create_log_record(
+                operation_id=lock.operation_id,
+                new_root_ids=new_root_ids,
+                timestamp=None,
+                status=attributes.OperationLogs.StatusCodes.SUCCESS.value,
+            )
+            self.cg.client.write([log_record_success])
         self.cg.cache = None
         return GraphEditOperation.Result(
             operation_id=lock.operation_id,
