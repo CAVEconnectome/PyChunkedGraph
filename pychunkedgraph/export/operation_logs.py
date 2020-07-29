@@ -29,8 +29,6 @@ def get_parsed_logs(
     logs = cg.client.read_log_entries(start_time=start_time)
     result = []
     for _id, _log in logs.items():
-        if _id not in range(14160, 14167):
-            continue
         log = {"id": int(_id)}
         log["status"] = int(_log.get("operation_status", 0))
         for attr, val in _log.items():
@@ -68,7 +66,7 @@ def get_logs_with_previous_roots(cg: ChunkedGraph, parsed_logs: Iterable) -> Ite
             old_roots = concatenate([old_roots_d[id_] for id_ in log.roots])
             log.old_roots = unique(old_roots).tolist()
             log.old_roots_ts = [old_roots_ts_d[id_] for id_ in log.old_roots]
-        except KeyError:
+        except (KeyError, ValueError):
             log.status = OperationLogs.StatusCodes.WRITE_FAILED.value
-            print("failed write", log.id, log.roots)
+            # print("failed write", log.id, log.roots)
     return parsed_logs
