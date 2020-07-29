@@ -6,7 +6,7 @@ import os
 
 def remeshing(table_id, lvl2_nodes):
     lvl2_nodes = np.array(lvl2_nodes, dtype=np.uint64)
-    cg = app_utils.get_cg(table_id)
+    cg = app_utils.get_cg(table_id, skip_cache=True)
 
     cv_mesh_dir = cg.meta.dataset_info["mesh"]
     cv_unsharded_mesh_dir = cg.meta.dataset_info["mesh_metadata"]["unsharded_mesh_dir"]
