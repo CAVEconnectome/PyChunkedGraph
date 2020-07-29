@@ -230,7 +230,6 @@ def handle_remesh(table_id):
     current_app.user_id = user_id
 
     new_lvl2_ids = json.loads(request.data)["new_lvl2_ids"]
-
     
     with Connection(redis.from_url(current_app.config["REDIS_URL"])):
         q = Queue("mesh-chunks")
