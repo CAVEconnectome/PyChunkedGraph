@@ -198,7 +198,8 @@ def handle_l2_chunk_children_binary(table_id, chunk_id):
 @auth_requires_permission("view")
 def handle_leaves(table_id, node_id):
     int64_as_str = request.args.get("int64_as_str", default=False, type=toboolean)
-    leaf_ids = common.handle_leaves(table_id, node_id)
+    return_layers = request.args.get("return_layers", None)
+    leaf_ids = common.handle_leaves(table_id, node_id, return_layers=return_layers)
     resp = {"leaf_ids": leaf_ids}
     return jsonify_with_kwargs(resp, int64_as_str=int64_as_str)
 
