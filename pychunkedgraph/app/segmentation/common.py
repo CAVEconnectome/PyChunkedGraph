@@ -576,7 +576,9 @@ def handle_children(table_id, parent_id):
 ### LEAVES ---------------------------------------------------------------------
 
 
-def handle_leaves(table_id, root_id):
+def handle_leaves(table_id, root_id, return_layers=None):
+    print("return_layers")
+    print(return_layers)
     current_app.table_id = table_id
     user_id = str(g.auth_user["id"])
     current_app.user_id = user_id
@@ -591,12 +593,15 @@ def handle_leaves(table_id, root_id):
 
     # Call ChunkedGraph
     cg = app_utils.get_cg(table_id)
-    atomic_ids = cg.get_subgraph_nodes(
-        int(root_id), bounding_box=bounding_box, bb_is_coordinate=True
-    )
 
-    return atomic_ids
-
+    if return_layers:
+        return cg.get_subgraph_nodes(
+            int(root_id), bounding_box=bounding_box, bb_is_coordinate=True, return_layers=return_layers
+        )
+    else:
+        return cg.get_subgraph_nodes(
+            int(root_id), bounding_box=bounding_box, bb_is_coordinate=True
+        )
 
 ### LEAVES FROM LEAVES ---------------------------------------------------------
 
