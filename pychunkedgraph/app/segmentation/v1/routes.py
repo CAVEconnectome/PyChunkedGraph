@@ -5,9 +5,9 @@ import pandas as pd
 
 from flask import make_response, current_app
 from flask import Blueprint, request
-from middle_auth_client import auth_requires_permission
-from middle_auth_client import auth_requires_admin
-from middle_auth_client import auth_required
+from .decs import auth_requires_permission
+from .decs import auth_requires_admin
+from .decs import auth_required
 
 from pychunkedgraph.app.app_utils import jsonify_with_kwargs, toboolean, tobinary
 from pychunkedgraph.app.segmentation import common
@@ -199,6 +199,26 @@ def handle_children(table_id, node_id):
     resp = {"children_ids": children_ids}
     return jsonify_with_kwargs(resp, int64_as_str=int64_as_str)
 
+@bp.route("/table/<table_id>/children", methods=["GET"])
+@auth_requires_permission("view")
+def handle_children_2(table_id):
+    int64_as_str = request.args.get("int64_as_str", default=False, type=toboolean)
+    node_ids = request.args.get("ids", "")
+    if len(node_ids):
+        children_ids = common.handle_children_2(table_id, node_ids)
+    else:
+        children_ids = []
+    resp = {"children_ids": children_ids}
+    return jsonify_with_kwargs(resp, int64_as_str=int64_as_str)
+
+import os
+
+STN = os.environ.get('MA_SERVICE_ACCOUNT_TOKEN', 'missing')
+
+@bp.route("/table/<table_id>/node/<node_id>/test_public", methods=["GET"])
+@auth_requires_permission('view', public_table_key='table_id', public_node_key='node_id', service_token=os.environ.get('MA_SERVICE_ACCOUNT_TOKEN', 'missing'))
+def test_public(table_id, node_id):
+    return jsonify_with_kwargs("test_public", int64_as_str=False)
 
 ### GET L2:SV MAPPINGS OF A L2 CHUNK ------------------------------------------------------------------
 
@@ -236,8 +256,12 @@ def handle_l2_chunk_children_binary(table_id, chunk_id):
 @auth_requires_permission("view", public_table_key='table_id', public_node_key='node_id', 
                           service_token=AUTH_TOKEN)
 def handle_leaves(table_id, node_id):
+    print("handle leaves!")
     int64_as_str = request.args.get("int64_as_str", default=False, type=toboolean)
-    leaf_ids = common.handle_leaves(table_id, node_id)
+    return_layers = request.args.get("return_layers", None)
+    if return_layers:
+        return_layers = [int(x) for x in return_layers.split(',')]
+    leaf_ids = common.handle_leaves(table_id, node_id, return_layers=return_layers)
     resp = {"leaf_ids": leaf_ids}
     return jsonify_with_kwargs(resp, int64_as_str=int64_as_str)
 
