@@ -128,7 +128,7 @@ def handle_children(table_id, parent_id):
 @bp.route("/<table_id>/segment/<root_id>/leaves", methods=["POST", "GET"])
 @auth_requires_permission("view")
 def handle_leaves(table_id, root_id):
-    leaf_ids = common.handle_leaves(table_id, root_id)
+    leaf_ids = common.handle_leaves(table_id, root_id, return_layers=request.args.get("return_layers", None))
     return app_utils.tobinary(leaf_ids)
 
 
