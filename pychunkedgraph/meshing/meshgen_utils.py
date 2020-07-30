@@ -26,6 +26,8 @@ def slice_to_str(slices) -> str:
 def get_chunk_bbox(cg, chunk_id: np.uint64):
     layer = cg.get_chunk_layer(chunk_id)
     chunk_block_shape = get_mesh_block_shape(cg, layer)
+    print(f"cid: {chunk_id}")
+    print(f"chunk_pos: {cg.get_chunk_coordinates(chunk_id)} - block_shape - {chunk_block_shape}")
     bbox_start = cg.get_chunk_coordinates(chunk_id) * chunk_block_shape
     bbox_end = bbox_start + chunk_block_shape
     return tuple(slice(bbox_start[i], bbox_end[i]) for i in range(3))
@@ -50,6 +52,7 @@ def get_mesh_block_shape(cg, graphlayer: int) -> np.ndarray:
     the same region as a ChunkedGraph chunk at layer `graphlayer`.
     """
     # Segmentation is not always uniformly downsampled in all directions.
+    print(f"chunk_size: {cv.chunk_size} - fan-out - {cv.meta.fan_out}")
     return cg.chunk_size * cg.fan_out ** np.max([0, graphlayer - 2])
 
 
@@ -135,12 +138,15 @@ def get_highest_child_nodes_with_meshes(
     elif start_layer is None:
         candidates = np.array([node_id], dtype=np.uint64)
     else:
+        print(f"start_layer: {start_layer}")
         candidates = cg.get_subgraph_nodes(
             node_id,
             bounding_box=bounding_box,
             bb_is_coordinate=True,
             return_layers=[start_layer],
         )
+
+    print(f"candidates: {candidates}")
 
     if verify_existence:
         valid_node_ids = []
