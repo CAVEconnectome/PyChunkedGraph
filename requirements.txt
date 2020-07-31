@@ -18,3 +18,4 @@ fastremap
 pyyaml
 cachetools
 task-queue
+-e git+https://github.com/crispyDyne/rq-manager.git#egg=rq_manager

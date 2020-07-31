@@ -270,7 +270,7 @@ def handle_remesh(table_id):
             queue_name = "mesh-chunks-low-priority"
         q = Queue(queue_name, retry=retry, default_timeout=1200)
         task = q.enqueue(meshing_tasks.remeshing, table_id, 
-                         new_lvl2_ids)
+                         new_lvl2_ids, is_priority)
 
     response_object = {
         "status": "success",
@@ -280,3 +280,4 @@ def handle_remesh(table_id):
     }
       
     return jsonify(response_object), 202
+
