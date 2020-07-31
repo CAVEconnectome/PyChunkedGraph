@@ -629,6 +629,7 @@ class MulticutOperation(GraphEditOperation):
             column_keys.OperationLogs.SourceID: self.source_ids,
             column_keys.OperationLogs.SinkID: self.sink_ids,
             column_keys.OperationLogs.BoundingBoxOffset: self.bbox_offset,
+            column_keys.OperationLogs.RemovedEdge: self.removed_edges,
         }
         return self.cg.mutate_row(serializers.serialize_uint64(operation_id), val_dict, timestamp)
 
