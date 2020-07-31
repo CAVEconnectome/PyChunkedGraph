@@ -119,13 +119,12 @@ def handle_redo(table_id):
 ### ROLLBACK USER --------------------------------------------------------------
 
 
-@bp.route("/table/<table_id>/rollback_user", methods=["GET"]) #TODO this should be post... but then how is it called???
+@bp.route("/table/<table_id>/rollback_user", methods=["POST"])
 @auth_requires_admin
 def handle_rollback(table_id):
     int64_as_str = request.args.get("int64_as_str", default=False, type=toboolean)
     rollback_result = common.handle_rollback(table_id)
-    #resp = {"operation_id": undo_result.operation_id, "new_root_ids": undo_result.new_root_ids}
-    resp = rollback_result #TODO what should the response be?
+    resp = rollback_result
     return jsonify_with_kwargs(resp, int64_as_str=int64_as_str)
 
 
