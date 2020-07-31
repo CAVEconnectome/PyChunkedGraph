@@ -22,6 +22,7 @@ from pychunkedgraph.backend import chunkedgraph_exceptions as cg_exceptions
 from pychunkedgraph.backend import history as cg_history
 from pychunkedgraph.backend.utils import column_keys
 from pychunkedgraph.graph_analysis import analysis, contact_sites
+from pychunkedgraph.backend.graphoperation import GraphEditOperation
 
 __api_versions__ = [0, 1]
 __segmentation_url_prefix__ = os.environ.get('SEGMENTATION_URL_PREFIX', 'segmentation')
@@ -572,14 +573,12 @@ def handle_rollback(table_id):
     operation_ids = user_operations["operation_id"]
     timestamps = user_operations["timestamp"]
     operations = list(zip(operation_ids, timestamps))
-    operations.sort(key=lambda op: op[1]) #TODO is this necessary?
-    print("operations: " + str(operations))
+    operations.sort(key=lambda op: op[1])
 
     for operation in operations:
         operation_id = operation[0]
         try:
-            ret = cg.undo_operation(user_id=target_user_id, operation_id=operation_id) #TODO is undo_operation working??
-            #TODO: should they be undone by the target user or the actual current user? current user would mean you shouldn't undo twice...
+            ret = cg.undo_operation(user_id=target_user_id, operation_id=operation_id)
         except cg_exceptions.LockingError as e:
             raise cg_exceptions.InternalServerError(
                 "Could not acquire root lock for undo operation."
@@ -587,15 +586,15 @@ def handle_rollback(table_id):
         except (cg_exceptions.PreconditionError, cg_exceptions.PostconditionError) as e:
             raise cg_exceptions.BadRequest(str(e))
 
-        print("undid op " + str(operation_id))
-        #TODO do this every time??? or ever???
         if ret.new_lvl2_ids.size > 0:
-            t = threading.Thread(
-                target=_remeshing, args=(cg.get_serialized_info(), ret.new_lvl2_ids)
-            )
-            t.start()
+            auth_header = {"Authorization": f"Bearer {current_app.config['AUTH_TOKEN']}"}
+            resp = requests.post(f"{current_app.config['MESHING_ENDPOINT']}/api/v1/table/{table_id}/remeshing",
+                                data=json.dumps({"new_lvl2_ids": ret.new_lvl2_ids},
+                                                cls=current_app.json_encoder), 
+                                headers=auth_header)
+            resp.raise_for_status()
 
-    return user_operations #TODO what should this return???
+    return user_operations
 
 
 ### USER OPERATIONS -------------------------------------------------------------
