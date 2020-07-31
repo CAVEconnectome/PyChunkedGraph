@@ -225,7 +225,7 @@ def handle_get_manifest(table_id, node_id):
 def handle_remesh(table_id):
     current_app.request_type = "remesh_enque"
     current_app.table_id = table_id
-    is_priority = request.params.get('priority', True)
+    is_priority = request.args.get('priority', True)
     user_id = str(g.auth_user["id"])
     current_app.user_id = user_id
 d

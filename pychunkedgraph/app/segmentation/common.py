@@ -332,7 +332,7 @@ def handle_merge(table_id):
     current_app.table_id = table_id
 
     nodes = json.loads(request.data)
-    is_priority = request.params.get('priority', True )
+    is_priority = request.args.get('priority', True )
     user_id = str(g.auth_user["id"])
     current_app.user_id = user_id
 
@@ -407,7 +407,7 @@ def handle_split(table_id):
     current_app.table_id = table_id
 
     data = json.loads(request.data)
-    is_priority = request.params.get('priority', True )
+    is_priority = request.args.get('priority', True )
     user_id = str(g.auth_user["id"])
     current_app.user_id = user_id
 
@@ -481,7 +481,7 @@ def handle_undo(table_id):
     current_app.table_id = table_id
 
     data = json.loads(request.data)
-    is_priority = request.params.get('priority', True )
+    is_priority = request.args.get('priority', True )
     user_id = str(g.auth_user["id"])
     current_app.user_id = user_id
 
@@ -516,7 +516,7 @@ def handle_redo(table_id):
     current_app.table_id = table_id
 
     data = json.loads(request.data)
-    is_priority = request.params.get('priority', True )
+    is_priority = request.args.get('priority', True )
     user_id = str(g.auth_user["id"])
     current_app.user_id = user_id
 
