@@ -15,7 +15,7 @@ from rq import Connection, Worker, Queue
 #     REDIS_URL = f'redis://:{REDIS_PASSWORD}@{REDIS_HOST}:{REDIS_PORT}/0'
 
 # Queues to listen on
-QUEUES = ['default', 'mesh-chunks']
+QUEUES = ['mesh-chunks','mesh-chunks-low-priority']
 
 # If you're using Sentry to collect your runtime exceptions, you can use this
 # to configure RQ for it in a single step
@@ -30,7 +30,7 @@ app = create_app()
 redis_connection = redis.from_url(app.config["REDIS_URL"])
 with app.app_context():
     with Connection(redis_connection):
-        worker = Worker(["mesh-chunks"],
+        worker = Worker(QUEUES,
                         default_worker_ttl=600,
                         job_monitoring_interval=1)
         worker.work()

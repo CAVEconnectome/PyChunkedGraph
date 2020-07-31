@@ -6,7 +6,7 @@ import time
 from datetime import datetime
 import traceback
 import redis
-from rq import Queue, Connection
+from rq import Queue, Connection, Retry
 from flask import Response, current_app, g, jsonify, make_response, request
 
 from pychunkedgraph import __version__
@@ -254,14 +254,21 @@ def _check_post_options(cg, resp, data, seg_ids):
 def handle_remesh(table_id):
     current_app.request_type = "remesh_enque"
     current_app.table_id = table_id
-
+    is_priority = request.params.get('priority', True)
     user_id = str(g.auth_user["id"])
     current_app.user_id = user_id
 
     new_lvl2_ids = json.loads(request.data)["new_lvl2_ids"]
     
     with Connection(redis.from_url(current_app.config["REDIS_URL"])):
-        q = Queue("mesh-chunks", default_timeout=1200)
+        
+        if is_priority:
+            retry=Retry(max=3, interval=[1, 10, 60])
+            queue_name = "mesh-chunks"
+        else:
+            retry=Retry(max=3, interval=[60, 60, 60])
+            queue_name = "mesh-chunks-low-priority"
+        q = Queue(queue_name, retry=retry, default_timeout=1200)
         task = q.enqueue(meshing_tasks.remeshing, table_id, 
                          new_lvl2_ids)
 
