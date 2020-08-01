@@ -316,6 +316,14 @@ def handle_l2_chunk_children(table_id, chunk_id, as_array):
 
         return l2_chunk_dict
 
+def trigger_remesh(new_lvl2_ids, is_priority=True):
+    auth_header = {"Authorization": f"Bearer {current_app.config['AUTH_TOKEN']}"}
+    resp = requests.post(f"{current_app.config['MESHING_ENDPOINT']}/api/v1/table/{table_id}/remeshing",
+                            data=json.dumps({"new_lvl2_ids": new_lvl2_ids},
+                                            cls=current_app.json_encoder), 
+                            params={'priority': is_priority},
+                            headers=auth_header)
+    resp.raise_for_status()
 
 def str2bool(v):
     return v.lower() in ("yes", "true", "t", "1")
