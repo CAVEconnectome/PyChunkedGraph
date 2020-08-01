@@ -51,13 +51,17 @@ def merge_cross_chunk_edges_graph_tool(
         m = np.concatenate([nodes.reshape(-1, 1), rep_nodes], axis=1)
         mapping.append(m)
 
-    mapping = np.concatenate(mapping)
+    if len(mapping) > 0:
+        mapping = np.concatenate(mapping)
     u_nodes = np.unique(edges)
     u_unmapped_nodes = u_nodes[~np.in1d(u_nodes, mapping)]
     unmapped_mapping = np.concatenate(
         [u_unmapped_nodes.reshape(-1, 1), u_unmapped_nodes.reshape(-1, 1)], axis=1
     )
-    complete_mapping = np.concatenate([mapping, unmapped_mapping], axis=0)
+    if len(mapping) > 0:
+        complete_mapping = np.concatenate([mapping, unmapped_mapping], axis=0)
+    else:
+        complete_mapping = unmapped_mapping
 
     sort_idx = np.argsort(complete_mapping[:, 0])
     idx = np.searchsorted(complete_mapping[:, 0], edges, sorter=sort_idx)
