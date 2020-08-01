@@ -318,7 +318,10 @@ def handle_l2_chunk_children(table_id, chunk_id, as_array):
             l2_chunk_dict[k] = rr_chunk[k][0].value
 
         return l2_chunk_dict
-        
+
+def str2bool(v):
+    return v.lower() in ("yes", "true", "t", "1")
+
 def trigger_remesh(table_id, new_lvl2_ids, is_priority=True):
     auth_header = {"Authorization": f"Bearer {current_app.config['AUTH_TOKEN']}"}
     resp = requests.post(f"{current_app.config['MESHING_ENDPOINT']}/api/v1/table/{table_id}/remeshing",
@@ -335,7 +338,7 @@ def handle_merge(table_id):
     current_app.table_id = table_id
 
     nodes = json.loads(request.data)
-    is_priority = request.args.get('priority', True )
+    is_priority = request.args.get('priority', True, type=str2bool)
     user_id = str(g.auth_user["id"])
     current_app.user_id = user_id
 
@@ -411,7 +414,7 @@ def handle_split(table_id):
     current_app.table_id = table_id
 
     data = json.loads(request.data)
-    is_priority = request.args.get('priority', True )
+    is_priority = request.args.get('priority', True, type=str2bool)
     user_id = str(g.auth_user["id"])
     current_app.user_id = user_id
 
@@ -486,7 +489,7 @@ def handle_undo(table_id):
     current_app.table_id = table_id
 
     data = json.loads(request.data)
-    is_priority = request.args.get('priority', True )
+    is_priority = request.args.get('priority', True, type=str2bool)
     user_id = str(g.auth_user["id"])
     current_app.user_id = user_id
 
@@ -522,7 +525,7 @@ def handle_redo(table_id):
     current_app.table_id = table_id
 
     data = json.loads(request.data)
-    is_priority = request.args.get('priority', True )
+    is_priority = request.args.get('priority', True, type=str2bool)
     user_id = str(g.auth_user["id"])
     current_app.user_id = user_id
 
