@@ -3,8 +3,10 @@ from pychunkedgraph.meshing import meshgen, meshgen_utils
 import numpy as np
 import os
 import redis
-from rq import Queue
+from rq import Queue, Connection, Retry
 from rq_manager import manager
+from flask import current_app
+import collections
 
 def remeshing(table_id, lvl2_nodes):
     lvl2_nodes = np.array(lvl2_nodes, dtype=np.uint64)
@@ -56,12 +58,10 @@ def remeshing_v2(table_id, lvl2_nodes, is_priority):
                 chunk_id = cg.get_chunk_id(node_id)
                 l2_chunk_dict[chunk_id].add(node_id)
 
-        add_nodes_to_l2_chunk_dict(l2_node_ids)
+        add_nodes_to_l2_chunk_dict(lvl2_nodes)
         
         lvl_2_jobs = []
         for chunk_id, node_ids in l2_chunk_dict.items():
-            if PRINT_FOR_DEBUGGING:
-                print("remeshing", chunk_id, node_ids)
             job = {
                   'func': mesh_lvl2_node,
                   'args': (table_id,
@@ -97,19 +97,17 @@ def remeshing_v2(table_id, lvl2_nodes, is_priority):
                         chunk_id = cg.get_chunk_id(parent_node)
                         chunk_dicts[index_in_dict_array][chunk_id].add(parent_node)
             cur_chunk_dict = chunk_dicts[layer - 3]
-        prev_layer_jobs = lvl_2_jobs
+
         for chunk_dict in chunk_dicts:
             layer_subjobs = []
             for chunk_id, node_ids in chunk_dict.items():
-                if PRINT_FOR_DEBUGGING:
-                    print("remeshing", chunk_id, node_ids)
                 job = {'func': stitch_chunks,
                        'args': (table_id,
                                 chunk_id,
-                                mip,
+                                mesh_data["mip"],
                                 40,
                                 node_ids,
-                                cv_sharded_mesh_dir,
+                                cv_mesh_dir,
                                 cv_unsharded_mesh_path)
                 }
                 layer_subjobs.append(job)
@@ -120,8 +118,6 @@ def remeshing_v2(table_id, lvl2_nodes, is_priority):
             project['jobs'].append(layer_job)
 
         task = q.enqueue(manager, project)
-
-
 
 def mesh_lvl2_node(
     table_id,
@@ -143,4 +139,20 @@ def mesh_lvl2_node(
     )
     
 def stitch_chunks(table_id,
-                )
+                  chunk_id,
+                  mip,
+                  fragment_batch_size,
+                  node_ids,
+                  cv_sharded_mesh_dir,
+                  cv_unsharded_mesh_path):
+
+    cg = app_utils.get_cg(table_id, skip_cache=True)
+    meshgen.chunk_stitch_remeshing_task(
+                None,
+                chunk_id,
+                mip=mip,
+                fragment_batch_size=fragment_batch_size,
+                node_id_subset=node_ids,
+                cg=cg,
+                cv_sharded_mesh_dir=cv_sharded_mesh_dir,
+                cv_unsharded_mesh_path=cv_unsharded_mesh_path)
