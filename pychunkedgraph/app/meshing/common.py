@@ -254,7 +254,7 @@ def _check_post_options(cg, resp, data, seg_ids):
 def handle_remesh(table_id):
     current_app.request_type = "remesh_enque"
     current_app.table_id = table_id
-    is_priority = request.args.get('priority', True)
+    is_priority = request.args.get('priority', True, type=bool)
     user_id = str(g.auth_user["id"])
     current_app.user_id = user_id
 
