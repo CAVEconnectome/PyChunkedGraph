@@ -250,11 +250,15 @@ def _check_post_options(cg, resp, data, seg_ids):
         ]
     return resp
 
+
+def str2bool(v):
+  return v.lower() in ("yes", "true", "t", "1")
+
 ## REMESHING -----------------------------------------------------
 def handle_remesh(table_id):
     current_app.request_type = "remesh_enque"
     current_app.table_id = table_id
-    is_priority = request.args.get('priority', True, type=bool)
+    is_priority = request.args.get('priority', True, type=str2bool)
     user_id = str(g.auth_user["id"])
     current_app.user_id = user_id
 
