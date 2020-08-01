@@ -94,7 +94,7 @@ def remeshing(table_id, lvl2_nodes, is_priority):
                 'jobs': layer_subjobs
             }
             project['jobs'].append(layer_job)
-
+        manager.q=q
         task = q.enqueue(manager, project)
 
 def mesh_lvl2_node(
