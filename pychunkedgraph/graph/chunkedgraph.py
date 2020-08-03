@@ -60,7 +60,7 @@ class ChunkedGraph:
         self._client = bt_client
         self._id_client = bt_client
         self._cache_service = None
-        self.mock_edges = Edges([], [])  # for unit tests
+        self.mock_edges = None  # hack for unit tests
 
     @property
     def meta(self) -> ChunkedGraphMeta:
@@ -523,9 +523,10 @@ class ChunkedGraph:
         """
         chunk_ids = np.unique(self.get_chunk_ids_from_node_ids(level2_ids))
         # google does not provide a storage emulator at the moment
-        # this is a hack to avoid permission issues in tests
+        # this is an ugly hack to avoid permission issues in tests
+        # TODO find a better way to test
         chunk_edge_dicts = {}
-        if not len(self.mock_edges):
+        if self.mock_edges is None:
             chunk_edge_dicts = mu.multithread_func(
                 self.read_chunk_edges,
                 np.array_split(chunk_ids, n_threads),  # TODO hardcoded
@@ -540,7 +541,7 @@ class ChunkedGraph:
         )
         print("all_chunk_edges a", len(all_chunk_edges))
         if edges_only:
-            if len(self.mock_edges):
+            if self.mock_edges is not None:
                 all_chunk_edges = self.mock_edges.get_pairs()
             else:
                 all_chunk_edges = all_chunk_edges.get_pairs()
@@ -573,7 +574,7 @@ class ChunkedGraph:
         return (
             l2id_agglomeration_d,
             (self.mock_edges,)
-            if len(self.mock_edges)
+            if self.mock_edges is not None
             else (in_edges, out_edges, cross_edges),
         )
 

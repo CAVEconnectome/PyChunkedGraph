@@ -136,6 +136,7 @@ def gen_graph(request):
 
         meta, _, client_info = bootstrap("test", config=config)
         graph = ChunkedGraph(graph_id="test", meta=meta, client_info=client_info)
+        graph.mock_edges = Edges([], [])
         graph.meta._ws_cv = CloudVolumeMock()
         graph.meta.layer_count = n_layers
         graph.meta.layer_chunk_bounds = get_layer_chunk_bounds(
