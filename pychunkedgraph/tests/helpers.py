@@ -120,6 +120,7 @@ def gen_graph(request):
                 "FANOUT": 2,
                 "SPATIAL_BITS": 10,
                 "ID_PREFIX": "",
+                "ROOT_LOCK_EXPIRY": timedelta(seconds=5)
             },
             "backend_client": {
                 "TYPE": "bigtable",
