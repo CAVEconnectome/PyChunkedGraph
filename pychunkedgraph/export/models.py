@@ -18,6 +18,7 @@ class OperationLogBase:
     old_roots: list
     old_roots_ts: list
     exception: str
+    operation_ts: datetime
 
     def __init__(self, **kwargs):
         self.id = kwargs.get("id")
@@ -30,6 +31,9 @@ class OperationLogBase:
         self.old_roots = kwargs.get("old_roots")
         self.old_roots_ts = kwargs.get("old_roots_ts")
         self.exception = kwargs.get("operation_exception")
+        # this was added recently
+        # for older logs assume log_timestamp = operation_timestamp
+        self.operation_ts = kwargs.get("operation_ts", self.timestamp)
 
 
 class OperationLog:

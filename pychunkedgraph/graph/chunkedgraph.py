@@ -522,12 +522,16 @@ class ChunkedGraph:
         Edges are read from cloud storage.
         """
         chunk_ids = np.unique(self.get_chunk_ids_from_node_ids(level2_ids))
-        chunk_edge_dicts = mu.multithread_func(
-            self.read_chunk_edges,
-            np.array_split(chunk_ids, n_threads),  # TODO hardcoded
-            n_threads=n_threads,
-            debug=n_threads == 1,
-        )
+        # google does not provide a storage emulator at the moment
+        # this is a hack to avoid permission issues in tests
+        chunk_edge_dicts = {}
+        if not len(self.mock_edges):
+            chunk_edge_dicts = mu.multithread_func(
+                self.read_chunk_edges,
+                np.array_split(chunk_ids, n_threads),  # TODO hardcoded
+                n_threads=n_threads,
+                debug=n_threads == 1,
+            )
         edges_d = edge_utils.concatenate_chunk_edges(chunk_edge_dicts)
         all_chunk_edges = reduce(lambda x, y: x + y, edges_d.values(), Edges([], []))
         print("all_chunk_edges b", len(all_chunk_edges))

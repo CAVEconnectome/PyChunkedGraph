@@ -146,10 +146,9 @@ def get_root_lock_filter(
         inclusive_end=True,
     )
 
+    temporal_lock_filter = RowFilterChain([time_filter, lock_key_filter])
     return ConditionalRowFilter(
-        base_filter=RowFilterChain(
-            [time_filter, lock_key_filter, indefinite_lock_key_filter]
-        ),
+        base_filter=RowFilterUnion([indefinite_lock_key_filter, temporal_lock_filter]),
         true_filter=PassAllFilter(True),
         false_filter=new_parents_key_filter,
     )

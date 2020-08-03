@@ -245,7 +245,7 @@ class OperationLogs:
     # this is needed because the timestamp of the operation log
     # will change with change in status
     OperationTimeStamp = _Attribute(
-        key=b"operation_ts", family_id="0", serializer=serializers.JSON()
+        key=b"operation_ts", family_id="0", serializer=serializers.Pickle()
     )
 
     @staticmethod

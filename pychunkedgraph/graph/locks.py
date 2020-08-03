@@ -50,7 +50,7 @@ class IndefiniteRootLock:
     Attempts to lock the requested root IDs using a unique operation ID.
     Assumes the root IDs have already been locked temporally.
     Also renews temporal lock before creating locking indefinitely,
-    fails to lock indefinitely if the temporal lock cannot be acquired.
+    fails to lock indefinitely if the temporal lock cannot be re-acquired.
 
     :raises exceptions.LockingError:
     when a root ID lock cannot be renewed

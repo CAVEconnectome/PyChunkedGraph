@@ -50,11 +50,14 @@ def get_future_root_ids(
             if attributes.Hierarchy.NewParent in node:
                 ids = node[attributes.Hierarchy.NewParent][0].value
                 row_time_stamp = node[attributes.Hierarchy.NewParent][0].timestamp
-            elif attributes.Hierarchy.Child in node:
+            # elif attributes.Hierarchy.Child in node:
+            #     ids = None
+            #     row_time_stamp = node[attributes.Hierarchy.Child][0].timestamp
+            # else:
+            #     raise ChunkedGraphError(f"Error retrieving future root ID of {next_id}")
+            else:
                 ids = None
                 row_time_stamp = node[attributes.Hierarchy.Child][0].timestamp
-            else:
-                raise ChunkedGraphError(f"Error retrieving future root ID of {next_id}")
             if row_time_stamp < get_valid_timestamp(time_stamp):
                 if ids is not None:
                     temp_next_ids.extend(ids)

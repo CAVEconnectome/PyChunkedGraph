@@ -93,8 +93,10 @@ def export_operation_logs(cg: ChunkedGraph, timestamp: datetime = None) -> None:
     from ....utils.general import chunked
 
     # datastore has a 10MiB limit on batch/transaction requests
+    # and 500 entities per request
     count = 0
-    for chunk in chunked(logs, 1000):
+    print(f"Logs to export {len(logs)}")
+    for chunk in chunked(logs, 500):
         entities = []
         for log in chunk:
             task_key = client.key(cg.graph_id, log["id"], namespace=config.NAMESPACE)
