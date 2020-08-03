@@ -2480,11 +2480,15 @@ class TestGraphMinCut:
             to_label(cg, 1, 1, 0, 0, 0)
         )
         leaves = np.unique(
-            cg.get_subgraph([cg.get_root(to_label(cg, 1, 0, 0, 0, 0))], leaves_only=True)
+            cg.get_subgraph(
+                [cg.get_root(to_label(cg, 1, 0, 0, 0, 0))], leaves_only=True
+            )
         )
         assert len(leaves) == 1 and to_label(cg, 1, 0, 0, 0, 0) in leaves
         leaves = np.unique(
-            cg.get_subgraph([cg.get_root(to_label(cg, 1, 1, 0, 0, 0))], leaves_only=True)
+            cg.get_subgraph(
+                [cg.get_root(to_label(cg, 1, 1, 0, 0, 0))], leaves_only=True
+            )
         )
         assert len(leaves) == 1 and to_label(cg, 1, 1, 0, 0, 0) in leaves
 
@@ -3086,6 +3090,72 @@ class TestGraphLocks:
 
         assert success
         assert new_root_ids[0] == new_root_id
+
+    @pytest.mark.timeout(30)
+    def test_indefinite_lock(self, gen_graph):
+        """
+        No connection between 1, 2 and 3
+        ┌─────┬─────┐
+        │  A¹ │  B¹ │
+        │  1  │  3  │
+        │  2  │     │
+        └─────┴─────┘
+
+        (1) Try indefinite lock (opid = 1), get indefinite lock
+        (2) Try normal lock (opid = 2), doesn't get the normal lock
+        (3) Try unlock indefinite lock (opid = 1), should unlock indefinite lock
+        (4) Try lock (opid = 2), should get the normal lock
+        """
+
+        cg = gen_graph(n_layers=3)
+
+        # Preparation: Build Chunk A
+        fake_timestamp = datetime.utcnow() - timedelta(days=10)
+        create_chunk(
+            cg,
+            vertices=[to_label(cg, 1, 0, 0, 0, 1), to_label(cg, 1, 0, 0, 0, 2)],
+            edges=[],
+            timestamp=fake_timestamp,
+        )
+
+        # Preparation: Build Chunk B
+        create_chunk(
+            cg,
+            vertices=[to_label(cg, 1, 1, 0, 0, 1)],
+            edges=[],
+            timestamp=fake_timestamp,
+        )
+
+        add_layer(
+            cg, 3, [0, 0, 0], time_stamp=fake_timestamp, n_threads=1,
+        )
+
+        operation_id_1 = cg.id_client.create_operation_id()
+        root_id = cg.get_root(to_label(cg, 1, 0, 0, 0, 1))
+
+        future_root_ids_d = {root_id: get_future_root_ids(cg, root_id)}
+        assert cg.client.lock_roots_indefinitely(
+            root_ids=[root_id],
+            operation_id=operation_id_1,
+            future_root_ids_d=future_root_ids_d,
+        )[0]
+
+        operation_id_2 = cg.id_client.create_operation_id()
+        assert not cg.client.lock_roots(
+            root_ids=[root_id],
+            operation_id=operation_id_2,
+            future_root_ids_d=future_root_ids_d,
+        )[0]
+
+        assert cg.client.unlock_indefinitely_locked_root(
+            root_id=root_id, operation_id=operation_id_1
+        )
+
+        assert cg.client.lock_roots(
+            root_ids=[root_id],
+            operation_id=operation_id_2,
+            future_root_ids_d=future_root_ids_d,
+        )[0]
 
 
 # class MockChunkedGraph:
