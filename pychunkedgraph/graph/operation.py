@@ -338,7 +338,14 @@ class GraphEditOperation(ABC):
 
     @abstractmethod
     def _create_log_record(
-        self, *, operation_id, timestamp, new_root_ids, status=1, exception=""
+        self,
+        *,
+        operation_id,
+        timestamp,
+        operation_ts,
+        new_root_ids,
+        status=1,
+        exception="",
     ) -> "bigtable.row.Row":
         """Creates a log record with all necessary information to replay the current
             GraphEditOperation
@@ -378,6 +385,7 @@ class GraphEditOperation(ABC):
                 operation_id=root_lock.operation_id,
                 new_root_ids=types.empty_1d,
                 timestamp=timestamp,
+                operation_ts=timestamp,
                 status=attributes.OperationLogs.StatusCodes.CREATED.value,
             )
             self.cg.client.write([log_record_before_edit])
@@ -399,6 +407,7 @@ class GraphEditOperation(ABC):
                     operation_id=root_lock.operation_id,
                     new_root_ids=types.empty_1d,
                     timestamp=None,
+                    operation_ts=timestamp,
                     status=attributes.OperationLogs.StatusCodes.EXCEPTION.value,
                     exception=str(err),
                 )
@@ -418,6 +427,7 @@ class GraphEditOperation(ABC):
             operation_id=lock.operation_id,
             new_root_ids=new_root_ids,
             timestamp=None,
+            operation_ts=timestamp,
             status=attributes.OperationLogs.StatusCodes.WRITE_STARTED.value,
         )
 
@@ -434,6 +444,7 @@ class GraphEditOperation(ABC):
                 operation_id=lock.operation_id,
                 new_root_ids=new_root_ids,
                 timestamp=None,
+                operation_ts=timestamp,
                 status=attributes.OperationLogs.StatusCodes.SUCCESS.value,
             )
             self.cg.client.write([log_record_success])
@@ -529,9 +540,10 @@ class MergeOperation(GraphEditOperation):
     def _create_log_record(
         self,
         *,
-        operation_id,
-        timestamp,
-        new_root_ids,
+        operation_id: np.uint64,
+        timestamp: datetime,
+        operation_ts: datetime,
+        new_root_ids: Sequence[np.uint64],
         status: int = 1,
         exception: str = "",
     ) -> "bigtable.row.Row":
@@ -541,6 +553,7 @@ class MergeOperation(GraphEditOperation):
             attributes.OperationLogs.AddedEdge: self.added_edges,
             attributes.OperationLogs.Status: status,
             attributes.OperationLogs.OperationException: exception,
+            attributes.OperationLogs.OperationTimeStamp: operation_ts,
         }
         if self.source_coords is not None:
             val_dict[attributes.OperationLogs.SourceCoordinate] = self.source_coords
@@ -633,6 +646,7 @@ class SplitOperation(GraphEditOperation):
         *,
         operation_id: np.uint64,
         timestamp: datetime,
+        operation_ts: datetime,
         new_root_ids: Sequence[np.uint64],
         status: int = 1,
         exception: str = "",
@@ -643,6 +657,7 @@ class SplitOperation(GraphEditOperation):
             attributes.OperationLogs.RemovedEdge: self.removed_edges,
             attributes.OperationLogs.Status: status,
             attributes.OperationLogs.OperationException: exception,
+            attributes.OperationLogs.OperationTimeStamp: operation_ts,
         }
         if self.source_coords is not None:
             val_dict[attributes.OperationLogs.SourceCoordinate] = self.source_coords
@@ -762,6 +777,7 @@ class MulticutOperation(GraphEditOperation):
         *,
         operation_id: np.uint64,
         timestamp: datetime,
+        operation_ts: datetime,
         new_root_ids: Sequence[np.uint64],
         status: int = 1,
         exception: str = "",
@@ -776,6 +792,7 @@ class MulticutOperation(GraphEditOperation):
             attributes.OperationLogs.BoundingBoxOffset: self.bbox_offset,
             attributes.OperationLogs.Status: status,
             attributes.OperationLogs.OperationException: exception,
+            attributes.OperationLogs.OperationTimeStamp: operation_ts,
         }
         return self.cg.client.mutate_row(
             serializers.serialize_uint64(operation_id), val_dict, timestamp
@@ -854,6 +871,7 @@ class RedoOperation(GraphEditOperation):
         *,
         operation_id: np.uint64,
         timestamp: datetime,
+        operation_ts: datetime,
         new_root_ids: Sequence[np.uint64],
         status: int = 0,
         exception: str = "",
@@ -862,6 +880,7 @@ class RedoOperation(GraphEditOperation):
             attributes.OperationLogs.UserID: self.user_id,
             attributes.OperationLogs.RedoOperationID: self.superseded_operation_id,
             attributes.OperationLogs.RootID: new_root_ids,
+            attributes.OperationLogs.OperationTimeStamp: operation_ts,
         }
         return self.cg.client.mutate_row(
             serializers.serialize_uint64(operation_id), val_dict, timestamp
@@ -941,6 +960,7 @@ class UndoOperation(GraphEditOperation):
         *,
         operation_id: np.uint64,
         timestamp: datetime,
+        operation_ts: datetime,
         new_root_ids: Sequence[np.uint64],
         status: int = 0,
         exception: str = "",
@@ -949,6 +969,7 @@ class UndoOperation(GraphEditOperation):
             attributes.OperationLogs.UserID: self.user_id,
             attributes.OperationLogs.UndoOperationID: self.superseded_operation_id,
             attributes.OperationLogs.RootID: new_root_ids,
+            attributes.OperationLogs.OperationTimeStamp: operation_ts,
         }
         return self.cg.client.mutate_row(
             serializers.serialize_uint64(operation_id), val_dict, timestamp

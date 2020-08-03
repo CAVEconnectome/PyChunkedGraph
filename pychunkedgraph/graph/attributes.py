@@ -241,6 +241,13 @@ class OperationLogs:
         serializer=serializers.String("utf-8"),
     )
 
+    # timestamp at which the new IDs were created during the operation
+    # this is needed because the timestamp of the operation log
+    # will change with change in status
+    OperationTimeStamp = _Attribute(
+        key=b"operation_ts", family_id="0", serializer=serializers.JSON()
+    )
+
     @staticmethod
     def all():
         return [
@@ -259,6 +266,7 @@ class OperationLogs:
             OperationLogs.Affinity,
             OperationLogs.Status,
             OperationLogs.OperationException,
+            OperationLogs.OperationTimeStamp,
         ]
 
 
