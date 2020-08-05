@@ -11,6 +11,7 @@ from . import operation
 from . import attributes
 from . import exceptions
 from .client import base
+from .client.utils import get_default_client_info
 from .client.bigtable import BigTableClient
 from .cache import CacheService
 from .meta import ChunkedGraphMeta
@@ -33,7 +34,7 @@ class ChunkedGraph:
         *,
         graph_id: str = None,
         meta: ChunkedGraphMeta = None,
-        client_info: BackendClientInfo = BackendClientInfo(),
+        client_info: BackendClientInfo = get_default_client_info(),
     ):
         """
         1. New graph
@@ -938,19 +939,6 @@ class ChunkedGraph:
         start_time: typing.Optional[datetime.datetime] = None,
         end_time: typing.Optional[datetime.datetime] = None,
     ):
-        log_entries = self.client.read_log_entries(
-            start_time=start_time,
-            end_time=end_time,
-            properties=[attributes.OperationLogs.RootID],
-        )
-        new_roots = np.concatenate(
-            [e[attributes.OperationLogs.RootID] for e in log_entries.values()]
-        )
-        root_rows = self.client.read_nodes(
-            node_ids=new_roots, properties=[attributes.Hierarchy.FormerParent]
-        )
-        old_roots = np.concatenate(
-            [e[attributes.Hierarchy.FormerParent][0].value for e in root_rows.values()]
-        )
+        from .misc import get_proofread_root_ids
 
-        return old_roots, new_roots
+        return get_proofread_root_ids(self, start_time, end_time)

@@ -31,6 +31,7 @@ _bigtableconfig_defaults = (
     False,
     None,
 )
+# TODO move this to bigtable client folder
 BigTableConfig = namedtuple(
     "BigTableConfig", _bigtableconfig_fields, defaults=_bigtableconfig_defaults
 )
