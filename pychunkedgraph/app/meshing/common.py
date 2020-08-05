@@ -264,8 +264,8 @@ def str2bool(v):
 def handle_remesh(table_id):
     current_app.request_type = "remesh_enque"
     current_app.table_id = table_id
-    is_priority = request.params.get('priority', True type=str2bool)
-    is_redisjob = request.params.get('use_redis', False type=str2bool)
+    is_priority = request.params.get('priority', True, type=str2bool)
+    is_redisjob = request.params.get('use_redis', False, type=str2bool)
     user_id = str(g.auth_user["id"])
     current_app.user_id = user_id
 
