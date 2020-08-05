@@ -9,6 +9,7 @@ import redis
 from rq import Queue, Connection, Retry
 from flask import Response, current_app, g, jsonify, make_response, request
 import threading
+import str2bool
 
 from pychunkedgraph import __version__
 from pychunkedgraph.app import app_utils
@@ -22,6 +23,9 @@ from pychunkedgraph.meshing import meshgen
 # -------------------------------
 
 __meshing_url_prefix__ = os.environ.get("MESHING_URL_PREFIX", "meshing")
+
+def str2bool(v):
+    return v.lower() in ("yes", "true", "t", "1")
 
 
 def index():
@@ -252,12 +256,16 @@ def _check_post_options(cg, resp, data, seg_ids):
         ]
     return resp
 
+
+def str2bool(v):
+  return v.lower() in ("yes", "true", "t", "1")
+
 ## REMESHING -----------------------------------------------------
 def handle_remesh(table_id):
     current_app.request_type = "remesh_enque"
     current_app.table_id = table_id
-    is_priority = request.params.get('priority', True)
-    is_redisjob = request.params.get('use_redis', False)
+    is_priority = request.params.get('priority', True type=str2bool)
+    is_redisjob = request.params.get('use_redis', False type=str2bool)
     user_id = str(g.auth_user["id"])
     current_app.user_id = user_id
 
