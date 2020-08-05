@@ -264,8 +264,8 @@ def handle_remesh(table_id):
                                  args=(cg.get_serialized_info(), new_lvl2_ids))
             t.start()
     
-        return 202
-
+        return Response(status=202)
+    
 
 def _remeshing(serialized_cg_info, lvl2_nodes):
     cg = chunkedgraph.ChunkedGraph(**serialized_cg_info)
@@ -275,3 +275,5 @@ def _remeshing(serialized_cg_info, lvl2_nodes):
         cg, lvl2_nodes, stop_layer=4, cv_path=None, cv_mesh_dir=None, mip=1,
         max_err=320
     )
+    
+    return Response(status=200)
