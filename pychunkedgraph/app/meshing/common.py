@@ -301,7 +301,7 @@ def handle_remesh(table_id):
                                  args=(cg.get_serialized_info(), new_lvl2_ids))
             t.start()
     
-        return 202
+        return Response(status=202)
 
 
 def _remeshing(serialized_cg_info, lvl2_nodes):
@@ -323,3 +323,5 @@ def _remeshing(serialized_cg_info, lvl2_nodes):
         cv_sharded_mesh_dir=cv_mesh_dir,
         cv_unsharded_mesh_path=cv_unsharded_mesh_path,
     )
+    
+    return Response(status=200)
