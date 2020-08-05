@@ -325,6 +325,18 @@ def trigger_remesh(new_lvl2_ids, is_priority=True):
                             headers=auth_header)
     resp.raise_for_status()
 
+def str2bool(v):
+    return v.lower() in ("yes", "true", "t", "1")
+
+def trigger_remesh(table_id, new_lvl2_ids, is_priority=True):
+    auth_header = {"Authorization": f"Bearer {current_app.config['AUTH_TOKEN']}"}
+    resp = requests.post(f"{current_app.config['MESHING_ENDPOINT']}/api/v1/table/{table_id}/remeshing",
+                            data=json.dumps({"new_lvl2_ids": new_lvl2_ids},
+                                            cls=current_app.json_encoder), 
+                            params={'priority': is_priority},
+                            headers=auth_header)
+    resp.raise_for_status()
+
 ### MERGE ----------------------------------------------------------------------
 
 
@@ -332,7 +344,7 @@ def handle_merge(table_id):
     current_app.table_id = table_id
 
     nodes = json.loads(request.data)
-    is_priority = request.params.get('priority', True )
+    is_priority = request.args.get('priority', True, type=str2bool)
     user_id = str(g.auth_user["id"])
     current_app.user_id = user_id
 
@@ -395,7 +407,7 @@ def handle_merge(table_id):
     current_app.logger.debug(("lvl2_nodes:", ret.new_lvl2_ids))
 
     if len(ret.new_lvl2_ids) > 0:
-        trigger_remesh(ret.new_lvl2_ids, is_priority=is_priority)
+        trigger_remesh(table_id, ret.new_lvl2_ids, is_priority=is_priority)
 
     return ret
 
@@ -407,7 +419,7 @@ def handle_split(table_id):
     current_app.table_id = table_id
 
     data = json.loads(request.data)
-    is_priority = request.params.get('priority', True )
+    is_priority = request.args.get('priority', True, type=str2bool)
     user_id = str(g.auth_user["id"])
     current_app.user_id = user_id
 
@@ -469,7 +481,7 @@ def handle_split(table_id):
     current_app.logger.debug(("lvl2_nodes:", ret.new_lvl2_ids))
 
     if len(ret.new_lvl2_ids) > 0:
-        trigger_remesh(ret.new_lvl2_ids, is_priority=is_priority)
+        trigger_remesh(table_id, ret.new_lvl2_ids, is_priority=is_priority)
 
     return ret
 
@@ -481,7 +493,7 @@ def handle_undo(table_id):
     current_app.table_id = table_id
 
     data = json.loads(request.data)
-    is_priority = request.params.get('priority', True )
+    is_priority = request.args.get('priority', True, type=str2bool)
     user_id = str(g.auth_user["id"])
     current_app.user_id = user_id
 
@@ -504,7 +516,7 @@ def handle_undo(table_id):
     current_app.logger.debug(("lvl2_nodes:", ret.new_lvl2_ids))
 
     if ret.new_lvl2_ids.size > 0:
-        trigger_remesh(ret.new_lvl2_ids, is_priority=is_priority)
+        trigger_remesh(table_id, ret.new_lvl2_ids, is_priority=is_priority)
 
     return ret
 
@@ -516,7 +528,7 @@ def handle_redo(table_id):
     current_app.table_id = table_id
 
     data = json.loads(request.data)
-    is_priority = request.params.get('priority', True )
+    is_priority = request.args.get('priority', True, type=str2bool)
     user_id = str(g.auth_user["id"])
     current_app.user_id = user_id
 
@@ -539,7 +551,7 @@ def handle_redo(table_id):
     current_app.logger.debug(("lvl2_nodes:", ret.new_lvl2_ids))
 
     if ret.new_lvl2_ids.size > 0:
-        trigger_remesh(ret.new_lvl2_ids, is_priority=is_priority)
+        trigger_remesh(table_id, ret.new_lvl2_ids, is_priority=is_priority)
 
     return ret
 

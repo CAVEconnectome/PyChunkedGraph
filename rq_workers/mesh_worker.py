@@ -30,5 +30,6 @@ app = create_app()
 redis_connection = redis.from_url(app.config["REDIS_URL"])
 with app.app_context():
     with Connection(redis_connection):
-        worker = Worker(QUEUES)
+        worker = Worker(QUEUES,
+                        default_worker_ttl=600)
         worker.work()
