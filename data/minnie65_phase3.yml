@@ -13,8 +13,8 @@ graph_config:
 backend_client:
   TYPE: "bigtable"
   CONFIG:
-    ADMIN: y
-    READ_ONLY: n
+    ADMIN: true
+    READ_ONLY: false
 
 ingest_config:
   AGGLOMERATION: "gs://ranl-minnie-rg/minnie_p3/agg"

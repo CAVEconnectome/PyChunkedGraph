@@ -22,6 +22,7 @@ from google.cloud.bigtable.row_filters import RowFilter
 from google.cloud.bigtable.column_family import MaxVersionsGCRule
 
 from . import utils
+from . import BigTableConfig
 from ..base import ClientWithIDGen
 from ..base import OperationLogger
 from ... import attributes
@@ -32,7 +33,6 @@ from ...utils.serializers import serialize_key
 from ...utils.serializers import serialize_uint64
 from ...utils.serializers import deserialize_uint64
 from ...meta import ChunkedGraphMeta
-from ...meta import BigTableConfig
 from ...utils.generic import get_valid_timestamp
 from ....ingest import IngestConfig
 

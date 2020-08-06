@@ -21,33 +21,6 @@ from google.cloud.bigtable.row_filters import ColumnQualifierRegexFilter
 from ... import attributes
 
 
-def get_bigtable_client_info(
-    project: str = None,
-    instance: str = None,
-    admin: bool = False,
-    read_only: bool = True,
-):
-    """Helper function to load config from env."""
-    from os import environ
-    from ...meta import BigTableConfig
-
-    _project = environ.get("BIGTABLE_PROJECT", "zetta-lee-fly-vnc-001")
-    if project:
-        _project = project
-
-    _instance = environ.get("BIGTABLE_INSTANCE", "zetta-lee-fly-vnc-graph-test")
-    if instance:
-        _instance = instance
-
-    kwargs = {
-        "PROJECT": _project,
-        "INSTANCE": _instance,
-        "ADMIN": admin,
-        "READ_ONLY": read_only,
-    }
-    return BigTableConfig(**kwargs)
-
-
 def partial_row_data_to_column_dict(
     partial_row_data: PartialRowData,
 ) -> Dict[attributes._Attribute, PartialRowData]:
