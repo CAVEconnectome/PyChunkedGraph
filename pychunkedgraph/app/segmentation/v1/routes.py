@@ -132,7 +132,7 @@ def handle_rollback(table_id):
 
 
 @bp.route("/table/<table_id>/user_operations", methods=["GET"])
-@auth_requires_permission("view") #TODO admin_view
+@auth_requires_permission("admin_view")
 def handle_user_operations(table_id):
     disp = request.args.get("disp", default=False, type=toboolean)
     user_operations = pd.DataFrame.from_dict(common.all_user_operations(table_id))
