@@ -587,7 +587,7 @@ def handle_rollback(table_id):
             raise cg_exceptions.BadRequest(str(e))
 
         if ret.new_lvl2_ids.size > 0:
-            trigger_remesh(table_id, ret.new_lvl2_ids, is_priority=True)
+            trigger_remesh(table_id, ret.new_lvl2_ids, is_priority=False)
 
     return user_operations
 
