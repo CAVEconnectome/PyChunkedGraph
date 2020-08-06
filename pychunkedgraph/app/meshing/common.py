@@ -9,7 +9,6 @@ import redis
 from rq import Queue, Connection, Retry
 from flask import Response, current_app, g, jsonify, make_response, request
 import threading
-import str2bool
 
 from pychunkedgraph import __version__
 from pychunkedgraph.app import app_utils
