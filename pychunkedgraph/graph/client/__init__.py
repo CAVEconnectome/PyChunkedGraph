@@ -19,6 +19,8 @@ Please see `base.py` for more details.
 
 from collections import namedtuple
 
+from .bigtable.client import Client as BigTableClient
+
 
 _backend_clientinfo_fields = ("TYPE", "CONFIG")
 _backend_clientinfo_defaults = (None, None)

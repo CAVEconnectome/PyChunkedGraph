@@ -37,7 +37,7 @@ from ...utils.generic import get_valid_timestamp
 from ....ingest import IngestConfig
 
 
-class BigTableClient(bigtable.Client, ClientWithIDGen, OperationLogger):
+class Client(bigtable.Client, ClientWithIDGen, OperationLogger):
     def __init__(
         self,
         table_id: str,
@@ -45,14 +45,14 @@ class BigTableClient(bigtable.Client, ClientWithIDGen, OperationLogger):
         graph_meta: ChunkedGraphMeta = None,
     ):
         if config.CREDENTIALS:
-            super(BigTableClient, self).__init__(
+            super(Client, self).__init__(
                 project=config.PROJECT,
                 read_only=config.READ_ONLY,
                 admin=config.ADMIN,
                 credentials=config.CREDENTIALS,
             )
         else:
-            super(BigTableClient, self).__init__(
+            super(Client, self).__init__(
                 project=config.PROJECT, read_only=config.READ_ONLY, admin=config.ADMIN,
             )
         self._instance = self.instance(config.INSTANCE)

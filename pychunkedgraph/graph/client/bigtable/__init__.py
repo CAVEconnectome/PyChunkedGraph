@@ -1,8 +1,5 @@
 from collections import namedtuple
 
-from .client import BigTableClient
-
-
 _bigtableconfig_fields = (
     "PROJECT",
     "INSTANCE",

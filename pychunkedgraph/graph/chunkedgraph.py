@@ -11,9 +11,9 @@ from . import operation
 from . import attributes
 from . import exceptions
 from .client import base
+from .client import BigTableClient
 from .client import BackendClientInfo
 from .client import get_default_client_info
-from .client.bigtable import BigTableClient
 from .cache import CacheService
 from .meta import ChunkedGraphMeta
 from .utils import basetypes

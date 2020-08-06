@@ -129,8 +129,8 @@ class ClientWithIDGen(SimpleClient):
 
 class OperationLogger(ABC):
     """
-    Abstract class for interacting with backend data store where the chunkedgraph is stored.
-    Eg., BigTableClient for using big table as storage.
+    Abstract class for interacting with backend data store where the operation logs are stored.
+    Eg., BigTableClient can be used to store logs in Google BigTable.
     """
 
     # TODO add functions for writing
