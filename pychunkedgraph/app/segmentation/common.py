@@ -587,12 +587,7 @@ def handle_rollback(table_id):
             raise cg_exceptions.BadRequest(str(e))
 
         if ret.new_lvl2_ids.size > 0:
-            auth_header = {"Authorization": f"Bearer {current_app.config['AUTH_TOKEN']}"}
-            resp = requests.post(f"{current_app.config['MESHING_ENDPOINT']}/api/v1/table/{table_id}/remeshing",
-                                data=json.dumps({"new_lvl2_ids": ret.new_lvl2_ids},
-                                                cls=current_app.json_encoder), 
-                                headers=auth_header)
-            resp.raise_for_status()
+            trigger_remesh(table_id, ret.new_lvl2_ids, is_priority=True)
 
     return user_operations
 
