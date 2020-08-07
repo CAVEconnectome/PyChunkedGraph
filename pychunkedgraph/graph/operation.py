@@ -790,6 +790,7 @@ class MulticutOperation(GraphEditOperation):
             attributes.OperationLogs.SourceID: self.source_ids,
             attributes.OperationLogs.SinkID: self.sink_ids,
             attributes.OperationLogs.BoundingBoxOffset: self.bbox_offset,
+            attributes.OperationLogs.RemovedEdge: self.removed_edges,
             attributes.OperationLogs.Status: status,
             attributes.OperationLogs.OperationException: exception,
             attributes.OperationLogs.OperationTimeStamp: operation_ts,

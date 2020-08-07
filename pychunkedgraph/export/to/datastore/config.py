@@ -19,6 +19,7 @@ _operation_log_defaults = (
     ExportInfo(),
     (
         "added_edges",
+        "removed_edges",
         "source_coords",
         "sink_coords",
         "exception",

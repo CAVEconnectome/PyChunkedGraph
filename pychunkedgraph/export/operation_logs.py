@@ -74,5 +74,6 @@ def get_logs_with_previous_roots(
             log.old_roots_ts = [old_roots_ts_d[id_] for id_ in log.old_roots]
         except Exception as e:
             log.status = OperationLogs.StatusCodes.WRITE_FAILED.value
-            log.exception = str(e)
+            if not log.exception:
+                log.exception = str(e)
     return parsed_logs

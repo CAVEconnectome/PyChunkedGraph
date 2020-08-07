@@ -67,13 +67,16 @@ class SplitLog(OperationLogBase):
     source_ids: Iterable
     sink_ids: Iterable
     bb_offset: Iterable
+    removed_edges: Iterable
 
     def __init__(self, **kwargs):
         source_ids = kwargs.pop("source_ids")
         sink_ids = kwargs.pop("sink_ids")
         bb_offset = kwargs.pop("bb_offset")
+        removed_edges = kwargs.pop("removed_edges")
         super().__init__(**kwargs)
         self.source_ids = source_ids
         self.sink_ids = sink_ids
         self.bb_offset = bb_offset
+        self.removed_edges = removed_edges
 
