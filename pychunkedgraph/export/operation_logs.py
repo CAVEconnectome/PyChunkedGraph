@@ -72,8 +72,8 @@ def get_logs_with_previous_roots(
             old_roots = concatenate([old_roots_d[id_] for id_ in log.roots])
             log.old_roots = unique(old_roots).tolist()
             log.old_roots_ts = [old_roots_ts_d[id_] for id_ in log.old_roots]
-        except Exception as e:
-            log.status = OperationLogs.StatusCodes.WRITE_FAILED.value
-            if not log.exception:
-                log.exception = str(e)
+        except (ValueError, KeyError):
+            # if old roots don't exist that means writing was not successful
+            if log.status == OperationLogs.StatusCodes.WRITE_STARTED.value:
+                log.status = OperationLogs.StatusCodes.WRITE_FAILED.value
     return parsed_logs

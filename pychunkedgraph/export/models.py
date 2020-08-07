@@ -25,7 +25,7 @@ class OperationLogBase:
         self.id = kwargs.get("id")
         self.user = kwargs.get("user")
         self.timestamp = kwargs.get("timestamp")
-        self.status = kwargs.get("operation_status", 0)
+        self.status = kwargs.get("status")
         self.roots = kwargs.get("roots")
         self.source_coords = kwargs.get("source_coords")
         self.sink_coords = kwargs.get("sink_coords")
@@ -73,7 +73,7 @@ class SplitLog(OperationLogBase):
         source_ids = kwargs.pop("source_ids")
         sink_ids = kwargs.pop("sink_ids")
         bb_offset = kwargs.pop("bb_offset")
-        removed_edges = kwargs.pop("removed_edges")
+        removed_edges = kwargs.pop("removed_edges", [])
         super().__init__(**kwargs)
         self.source_ids = source_ids
         self.sink_ids = sink_ids
