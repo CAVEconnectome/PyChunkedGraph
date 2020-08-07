@@ -104,15 +104,14 @@ def get_past_root_ids(
     return np.unique(np.array(id_history, dtype=np.uint64))
 
 
-def get_previous_root_ids(cg, root_ids: Iterable[np.uint64],) -> np.ndarray:
+def get_previous_root_ids(cg, root_ids: Iterable[np.uint64],) -> dict:
     """Returns immediate former root IDs (1 step history)"""
     nodes_d = cg.client.read_nodes(
-        node_ids=root_ids, properties=[attributes.Hierarchy.FormerParent],
+        node_ids=root_ids, properties=attributes.Hierarchy.FormerParent,
     )
     result = {}
-    for root in nodes_d.keys():
-        if attributes.Hierarchy.FormerParent in nodes_d[root]:
-            result[root] = nodes_d[root][attributes.Hierarchy.FormerParent][0].value
+    for root, val in nodes_d.items():
+        result[root] = val[0].value
     return result
 
 

@@ -1,3 +1,4 @@
+from typing import Iterable
 from dataclasses import dataclass
 from datetime import datetime
 
@@ -12,11 +13,11 @@ class OperationLogBase:
     user: str
     timestamp: datetime
     status: int
-    roots: list
-    source_coords: list
-    sink_coords: list
-    old_roots: list
-    old_roots_ts: list
+    roots: Iterable
+    source_coords: Iterable
+    sink_coords: Iterable
+    old_roots: Iterable
+    old_roots_ts: Iterable
     exception: str
     operation_ts: datetime
 
@@ -51,7 +52,7 @@ class OperationLog:
 class MergeLog(OperationLogBase):
     """Log class for merge operation."""
 
-    added_edges: list
+    added_edges: Iterable
 
     def __init__(self, **kwargs):
         added_edges = kwargs.pop("added_edges")
@@ -63,9 +64,9 @@ class MergeLog(OperationLogBase):
 class SplitLog(OperationLogBase):
     """Log class for split operation."""
 
-    source_ids: list
-    sink_ids: list
-    bb_offset: list
+    source_ids: Iterable
+    sink_ids: Iterable
+    bb_offset: Iterable
 
     def __init__(self, **kwargs):
         source_ids = kwargs.pop("source_ids")

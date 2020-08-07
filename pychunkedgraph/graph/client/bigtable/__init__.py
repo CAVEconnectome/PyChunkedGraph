@@ -1,5 +1,8 @@
 from collections import namedtuple
 
+DEFAULT_PROJECT = "neuromancer-seung-import"
+DEFAULT_INSTANCE = "pychunkedgraph"
+
 _bigtableconfig_fields = (
     "PROJECT",
     "INSTANCE",
@@ -8,8 +11,8 @@ _bigtableconfig_fields = (
     "CREDENTIALS",
 )
 _bigtableconfig_defaults = (
-    "neuromancer-seung-import",
-    "pychunkedgraph",
+    DEFAULT_PROJECT,
+    DEFAULT_INSTANCE,
     False,
     True,
     None,
@@ -28,11 +31,11 @@ def get_client_info(
     """Helper function to load config from env."""
     from os import environ
 
-    _project = environ.get("BIGTABLE_PROJECT", "zetta-lee-fly-vnc-001")
+    _project = environ.get("BIGTABLE_PROJECT", DEFAULT_PROJECT)
     if project:
         _project = project
 
-    _instance = environ.get("BIGTABLE_INSTANCE", "zetta-lee-fly-vnc-graph-test")
+    _instance = environ.get("BIGTABLE_INSTANCE", DEFAULT_INSTANCE)
     if instance:
         _instance = instance
 
