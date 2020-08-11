@@ -232,7 +232,7 @@ class OperationLogs:
     )
 
     Status = _Attribute(
-        key=b"operation_status", family_id="0", serializer=serializers.UInt64String()
+        key=b"operation_status", family_id="0", serializer=serializers.Pickle()
     )
 
     OperationException = _Attribute(

@@ -21,11 +21,12 @@ def _parse_attr(attr, val) -> str:
 
 
 def get_parsed_logs(
-    cg: ChunkedGraph, start_time: Optional[datetime] = None
+    cg: ChunkedGraph,
+    start_time: Optional[datetime] = None,
+    end_time: Optional[datetime] = None,
 ) -> Iterable[OperationLog]:
     """Parse logs for compatibility with destination platform."""
-
-    logs = cg.client.read_log_entries(start_time=start_time)
+    logs = cg.client.read_log_entries(start_time=start_time, end_time=end_time)
     result = []
     for _id, _log in logs.items():
         log = {"id": int(_id)}
@@ -37,7 +38,7 @@ def get_parsed_logs(
             except AttributeError:
                 log[attr] = val
         result.append(OperationLog(**log))
-    # return result[11000:11200]
+    print(f"total logs {len(result)}")
     return result
 
 
@@ -74,6 +75,7 @@ def get_logs_with_previous_roots(
             log.old_roots_ts = [old_roots_ts_d[id_] for id_ in log.old_roots]
         except (ValueError, KeyError):
             # if old roots don't exist that means writing was not successful
+            # WARNING: if status is `WRITE_STARTED` writing is assumed to have failed
             if log.status == OperationLogs.StatusCodes.WRITE_STARTED.value:
                 log.status = OperationLogs.StatusCodes.WRITE_FAILED.value
     return parsed_logs

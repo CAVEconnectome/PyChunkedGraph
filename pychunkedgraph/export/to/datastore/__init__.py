@@ -65,9 +65,6 @@ def delete_entities(namespace: str, kind: str) -> None:
     Deletes all entities of the given kind in given namespace.
     Use this only when you need to "clean up".
     """
-    from google.cloud import datastore
-    from datetime import timedelta
-
     client = datastore.Client()
 
     query = client.query(kind=kind, namespace=namespace)
@@ -77,6 +74,7 @@ def delete_entities(namespace: str, kind: str) -> None:
 
     for chunk in chunked(keys, 500):
         client.delete_multi(chunk)
+    print(f"deleted {len(keys)} entities")
 
 
 def _get_last_timestamp(
@@ -86,26 +84,25 @@ def _get_last_timestamp(
 ):
     from datetime import timedelta
 
-    new_timestamp = None
     export_info = client.get(last_export_key)
     try:
-        timestamp_ = export_info.get(operation_logs_config.EXPORT.LAST_EXPORT_TS)
-        # set window to hour of the previous timestamp
-        timestamp_ = datetime(*list(timestamp_.utctimetuple()[:4]))
-        new_timestamp = timestamp_ + timedelta(hours=1)
+        start_ts = export_info.get(operation_logs_config.EXPORT.LAST_EXPORT_TS)
+        start_ts = datetime(*list(start_ts.utctimetuple()[:4]))
     except AttributeError:
-        timestamp_ = None
-    # to make sure no logs are missed for next export
-    # (new logs that could be generated during the process)
-    # use timestamp before getting logs
-    if not new_timestamp:
-        # when export is run for the first time, there will be no new timestamp
-        new_timestamp = datetime.now()
-    return timestamp_, new_timestamp
+        start_ts = None
+    export_ts = datetime.now()
+    # operation status changes while operation is running
+    # export is at least an hour behind to ensure all logs have a finalized status.
+    end_ts = datetime(*list(export_ts.utctimetuple()[:4]))
+    end_ts = end_ts - timedelta(hours=1)
+    return start_ts, end_ts, export_ts
 
 
 def export_operation_logs(
-    cg: ChunkedGraph, timestamp: datetime = None, namespace: str = None,
+    cg: ChunkedGraph,
+    start_ts: datetime = None,
+    end_ts: datetime = None,
+    namespace: str = None,
 ) -> None:
     """
     Exports operation logs from the given timestamp.
@@ -122,19 +119,18 @@ def export_operation_logs(
         namespace_ = namespace
     config = OperationLogsConfig(NAMESPACE=namespace_)
 
-    # next export starts from this timestamp
-    # unless overridden by passing custom timestamp
-    new_timestamp = None
     last_export_key = client.key(
         config.EXPORT.KIND, cg.graph_id, namespace=config.NAMESPACE
     )
+    start_ts_, end_ts_, export_ts = _get_last_timestamp(client, last_export_key, config)
+    if not start_ts:
+        start_ts = start_ts_
+    if not end_ts:
+        end_ts = end_ts_
 
-    timestamp_, new_timestamp = _get_last_timestamp(client, last_export_key, config)
-    if not timestamp:
-        timestamp = timestamp_
-
-    logs = operation_logs.get_parsed_logs(cg, start_time=timestamp)
-    logs = operation_logs.get_logs_with_previous_roots(cg, logs)
+    print(f"getting logs from chunkedgraph {cg.graph_id}")
+    logs = operation_logs.get_parsed_logs(cg, start_time=start_ts, end_time=end_ts)
+    logs = operation_logs.get_logs_with_previous_roots(cg, logs)[-10:]
     logs = _create_col_for_each_root(logs)
     logs = _nested_lists_to_string(logs)
 
@@ -155,8 +151,7 @@ def export_operation_logs(
             entities.append(op_log)
         client.put_multi(entities)
         count += len(entities)
-        print(f"exported {count}")
-    _update_stats(cg.graph_id, client, config, last_export_key, count, new_timestamp)
+    _update_stats(cg.graph_id, client, config, last_export_key, count, export_ts)
 
 
 def _update_stats(
@@ -165,24 +160,25 @@ def _update_stats(
     config: OperationLogsConfig,
     last_export_key: datastore.Key,
     logs_count: int,
-    new_timestamp: datetime,
+    export_ts: datetime,
 ):
     export_log = datastore.Entity(
         key=last_export_key, exclude_from_indexes=config.EXPORT.EXCLUDE_FROM_INDICES
     )
-    export_log[config.EXPORT.LAST_EXPORT_TS] = new_timestamp
+    export_log[config.EXPORT.LAST_EXPORT_TS] = export_ts
     export_log[config.EXPORT.LOGS_COUNT] = logs_count
 
     this_export_key = client.key(
         config.EXPORT.KIND,
-        f"{graph_id}_{int(new_timestamp.timestamp())}",
+        f"{graph_id}_{int(export_ts.timestamp())}",
         namespace=config.NAMESPACE,
     )
     this_export_log = datastore.Entity(
         key=this_export_key, exclude_from_indexes=config.EXPORT.EXCLUDE_FROM_INDICES
     )
-    this_export_log[config.EXPORT.LAST_EXPORT_TS] = new_timestamp
+    this_export_log[config.EXPORT.LAST_EXPORT_TS] = export_ts
     this_export_log[config.EXPORT.LOGS_COUNT] = logs_count
 
     client.put_multi([export_log, this_export_log])
+    print(f"export time {export_ts}, count {logs_count}")
 
