@@ -114,7 +114,9 @@ def _segregate_node_ids(cg, node_ids):
 
     initial_mesh_dt = np.datetime64(
         datetime.fromtimestamp(
-            cg.meta.custom_data.get("mesh", {}).get("initial_ts", datetime.now())
+            cg.meta.custom_data.get("mesh", {}).get(
+                "initial_ts", datetime.now().timestamp()
+            )
         )
     )
     node_ids_ts = cg.get_node_timestamps(node_ids)
