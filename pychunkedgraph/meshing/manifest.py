@@ -112,13 +112,8 @@ def del_none_keys(d: dict):
 def _segregate_node_ids(cg, node_ids):
     from datetime import datetime
 
-    initial_mesh_dt = np.datetime64(
-        datetime.fromtimestamp(
-            cg.meta.custom_data.get("mesh", {}).get(
-                "initial_ts", datetime.now().timestamp()
-            )
-        )
-    )
+    initial_ts = cg.meta.custom_data["mesh"]["initial_ts"]
+    initial_mesh_dt = np.datetime64(datetime.fromtimestamp(initial_ts))
     node_ids_ts = cg.get_node_timestamps(node_ids)
     initial_mesh_mask = node_ids_ts < initial_mesh_dt
     initial_ids = node_ids[initial_mesh_mask]

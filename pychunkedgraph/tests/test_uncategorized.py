@@ -3169,6 +3169,7 @@ class TestGraphLocks:
         (4) Try lock (opid = 2), should get the normal lock
         """
 
+        # 1. TODO renew lock test when getting indefinite lock
         cg = gen_graph(n_layers=3)
 
         # Preparation: Build Chunk A
