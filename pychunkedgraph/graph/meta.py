@@ -234,6 +234,7 @@ class ChunkedGraphMeta:
             "data_dir": self.data_source.WATERSHED,
             "graph": {
                 "chunk_size": self.graph_config.CHUNK_SIZE,
+                "bounding_box": [2048, 2048, 512],
                 "n_bits_for_layer_id": self.graph_config.LAYER_ID_BITS,
                 "cv_mip": self.data_source.CV_MIP,
                 "n_layers": self.layer_count,
