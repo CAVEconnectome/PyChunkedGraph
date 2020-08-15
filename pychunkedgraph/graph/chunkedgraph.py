@@ -473,7 +473,7 @@ class ChunkedGraph:
         layer_nodes_d = {}
         for node_id in node_ids:
             layer_nodes_d[node_id] = self._get_subgraph_higher_layer_nodes(
-                node_id=node_id, bounding_box=bbox, return_layers=return_layers,
+                node_id=node_id, bounding_box=bbox, return_layers=return_layers+[2],
             )
         if nodes_only:
             if single:
@@ -481,10 +481,7 @@ class ChunkedGraph:
             return layer_nodes_d
         level2_ids = [types.empty_1d]
         for node_id in node_ids:
-            layer_nodes_d = self._get_subgraph_higher_layer_nodes(
-                node_id=node_id, bounding_box=bbox, return_layers=[2],
-            )
-            level2_ids.append(layer_nodes_d[2])
+            level2_ids.append(layer_nodes_d[node_id][2])
         level2_ids = np.concatenate(level2_ids)
         if leaves_only:
             return self.get_children(level2_ids, flatten=True)
