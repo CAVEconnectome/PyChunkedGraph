@@ -297,7 +297,7 @@ class Client(bigtable.Client, ClientWithIDGen, OperationLogger):
         time_stamp: typing.Optional[datetime] = None,
     ) -> bigtable.row.Row:
         """Mutates a single row (doesn't write to big table)."""
-        row = self._table.row(row_key)
+        row = self._table.direct_row(row_key)
         for column, value in val_dict.items():
             row.set_cell(
                 column_family_id=column.family_id,
@@ -317,7 +317,9 @@ class Client(bigtable.Client, ClientWithIDGen, OperationLogger):
             lock_column, lock_expiry, indefinite_lock_column
         )
 
-        root_row = self._table.row(serialize_uint64(root_id), filter_=filter_)
+        root_row = self._table.conditional_row(
+            serialize_uint64(root_id), filter_=filter_
+        )
         # Set row lock if condition returns no results (state == False)
         root_row.set_cell(
             lock_column.family_id,
@@ -341,7 +343,9 @@ class Client(bigtable.Client, ClientWithIDGen, OperationLogger):
         """Attempts to indefinitely lock the latest version of a root node."""
         lock_column = attributes.Concurrency.IndefiniteLock
         filter_ = utils.get_indefinite_root_lock_filter(lock_column)
-        root_row = self._table.row(serialize_uint64(root_id), filter_=filter_)
+        root_row = self._table.conditional_row(
+            serialize_uint64(root_id), filter_=filter_
+        )
         # Set row lock if condition returns no results (state == False)
         root_row.set_cell(
             lock_column.family_id,
@@ -436,7 +440,7 @@ class Client(bigtable.Client, ClientWithIDGen, OperationLogger):
         """Unlocks root node that is locked with operation_id."""
         lock_column = attributes.Concurrency.Lock
         expiry = self.graph_meta.graph_config.ROOT_LOCK_EXPIRY
-        root_row = self._table.row(
+        root_row = self._table.conditional_row(
             serialize_uint64(root_id),
             filter_=utils.get_unlock_root_filter(lock_column, expiry, operation_id),
         )
@@ -450,7 +454,7 @@ class Client(bigtable.Client, ClientWithIDGen, OperationLogger):
         """Unlocks root node that is indefinitely locked with operation_id."""
         lock_column = attributes.Concurrency.IndefiniteLock
         # Get conditional row using the chained filter
-        root_row = self._table.row(
+        root_row = self._table.conditional_row(
             serialize_uint64(root_id),
             filter_=utils.get_indefinite_unlock_root_filter(lock_column, operation_id),
         )
@@ -461,7 +465,7 @@ class Client(bigtable.Client, ClientWithIDGen, OperationLogger):
     def renew_lock(self, root_id: np.uint64, operation_id: np.uint64) -> bool:
         """Renews existing root node lock with operation_id to extend time."""
         lock_column = attributes.Concurrency.Lock
-        root_row = self._table.row(
+        root_row = self._table.conditional_row(
             serialize_uint64(root_id),
             filter_=utils.get_renew_lock_filter(lock_column, operation_id),
         )
@@ -587,7 +591,7 @@ class Client(bigtable.Client, ClientWithIDGen, OperationLogger):
     def _get_ids_range(self, key: bytes, size: int) -> typing.Tuple:
         """Returns a range (min, max) of IDs for a given `key`."""
         column = attributes.Concurrency.Counter
-        row = self._table.row(key, append=True)
+        row = self._table.append_row(key)
         row.increment_cell_value(column.family_id, column.key, size)
         row = row.commit()
         high = column.deserialize(row[column.family_id][column.key][0][0])
