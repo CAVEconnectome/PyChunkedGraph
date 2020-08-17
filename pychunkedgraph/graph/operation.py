@@ -401,6 +401,9 @@ class GraphEditOperation(ABC):
                 self.cg.cache = None
                 raise PostconditionError(str(err))
             except Exception as err:
+                from traceback import format_exception
+                from sys import exc_info
+
                 # unknown exception, update log record with error
                 self.cg.cache = None
                 log_record_error = self._create_log_record(
@@ -409,10 +412,10 @@ class GraphEditOperation(ABC):
                     timestamp=None,
                     operation_ts=timestamp,
                     status=attributes.OperationLogs.StatusCodes.EXCEPTION.value,
-                    exception=str(err),
+                    exception=repr(format_exception(*exc_info)),
                 )
                 self.cg.client.write([log_record_error])
-                raise Exception(str(err))
+                raise Exception(err)
             return self._write(
                 root_lock, timestamp, new_root_ids, new_lvl2_ids, affected_records
             )
