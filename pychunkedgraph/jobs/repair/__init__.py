@@ -17,7 +17,14 @@ def _read_failed_logs(graph_id: str = None, datastore_ns: str = None):
     if not datastore_ns:
         datastore_ns = environ.get("DATASTORE_NS")
 
-    client = datastore.Client()
+    try:
+        client = datastore.Client().from_service_account_json(
+            environ["OPERATION_LOGS_DATASTORE_CREDENTIALS"]
+        )
+    except KeyError:
+        # use GOOGLE_APPLICATION_CREDENTIALS
+        # this is usually set to "/root/.cloudvolume/secrets/<some_secret>.json"
+        client = datastore.Client()
     query = client.query(kind=f"{graph_id}_failed", namespace=datastore_ns)
 
     failed_operations = []

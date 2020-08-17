@@ -104,16 +104,19 @@ def export_operation_logs(
     end_ts: datetime = None,
     namespace: str = None,
 ) -> None:
-    """
-    Exports operation logs from the given timestamp.
-    If timestamp is None, logs since the last export are fetched.
-        Timestamp of last export is stored in an entity, along with other information.
-        Kind for this entity is `export_info` and key is `cg.graph_id`.
-    """
+    from os import environ
     from .config import OperationLogsConfig
     from ... import operation_logs
 
-    client = datastore.Client()
+    try:
+        client = datastore.Client().from_service_account_json(
+            environ["OPERATION_LOGS_DATASTORE_CREDENTIALS"]
+        )
+    except KeyError:
+        # use GOOGLE_APPLICATION_CREDENTIALS
+        # this is usually set to "/root/.cloudvolume/secrets/<some_secret>.json"
+        client = datastore.Client()
+
     namespace_ = "pychunkedgraph_operation_logs"
     if namespace:
         namespace_ = namespace
