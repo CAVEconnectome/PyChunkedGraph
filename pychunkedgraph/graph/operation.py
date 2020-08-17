@@ -716,7 +716,7 @@ class MulticutOperation(GraphEditOperation):
         super().__init__(
             cg, user_id=user_id, source_coords=source_coords, sink_coords=sink_coords
         )
-        self.removed_edges = None  # Calculated from coordinates and IDs
+        self.removed_edges = types.empty_2d
         self.source_ids = np.atleast_1d(source_ids).astype(basetypes.NODE_ID)
         self.sink_ids = np.atleast_1d(sink_ids).astype(basetypes.NODE_ID)
         self.bbox_offset = np.atleast_1d(bbox_offset).astype(basetypes.COORDINATES)
