@@ -35,14 +35,14 @@ def _read_failed_logs(graph_id: str = None, datastore_ns: str = None):
         operation = GraphEditOperation.from_operation_id(
             cg, log.id, multicut_as_split=False
         )
-
-        timestamp = log["timestamp"]
-        operation.last_successful_ts = timestamp - timedelta(seconds=1)
-
-        timestamp += timedelta(microseconds=(timestamp.microsecond % 1000) + 10)
+        ts = log["timestamp"]
 
         print(f"Re-trying operation ID {log.id}")
-        operation.execute(operation_id=log.id, override_ts=timestamp)
+        operation.execute(
+            operation_id=log.id,
+            override_ts=ts + timedelta(microseconds=(ts.microsecond % 1000) + 10),
+            last_successful_ts=ts - timedelta(seconds=1),
+        )
         client.delete(log.key)
         break
 

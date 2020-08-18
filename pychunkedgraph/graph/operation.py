@@ -452,6 +452,7 @@ class GraphEditOperation(ABC):
         with locks.IndefiniteRootLock(self.cg, lock.operation_id, lock.locked_root_ids):
             # indefinite lock for writing, if a node instance or pod dies during this
             # the roots must stay locked indefinitely to prevent further corruption.
+            print("persisting changes")
             self.cg.client.write(
                 [log_record_after_edit] + affected_records,
                 lock.locked_root_ids,
@@ -466,6 +467,7 @@ class GraphEditOperation(ABC):
                 status=attributes.OperationLogs.StatusCodes.SUCCESS.value,
             )
             self.cg.client.write([log_record_success])
+            print("persisting changes complete")
         self.cg.cache = None
         return GraphEditOperation.Result(
             operation_id=lock.operation_id,
