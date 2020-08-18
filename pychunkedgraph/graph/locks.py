@@ -1,9 +1,11 @@
 from typing import Union
 from typing import Sequence
+from collections import defaultdict
 
 import numpy as np
 
 from . import exceptions
+from .types import empty_1d
 from .lineage import get_future_root_ids
 
 
@@ -33,9 +35,11 @@ class RootLock:
     def __enter__(self):
         if not self.operation_id:
             self.operation_id = self.cg.id_client.create_operation_id()
-        future_root_ids_d = {}
+
+        future_root_ids_d = defaultdict(lambda: empty_1d)
         for id_ in self.root_ids:
             future_root_ids_d[id_] = get_future_root_ids(self.cg, id_)
+
         self.lock_acquired, self.locked_root_ids = self.cg.client.lock_roots(
             root_ids=self.root_ids,
             operation_id=self.operation_id,
@@ -81,7 +85,7 @@ class IndefiniteRootLock:
         if not self.cg.client.renew_locks(self.root_ids, self.operation_id):
             raise exceptions.LockingError("Could not renew locks before writing.")
 
-        future_root_ids_d = {}
+        future_root_ids_d = defaultdict(lambda: empty_1d)
         for id_ in self.root_ids:
             future_root_ids_d[id_] = get_future_root_ids(self.cg, id_)
         self.acquired, self.root_ids, failed = self.cg.client.lock_roots_indefinitely(

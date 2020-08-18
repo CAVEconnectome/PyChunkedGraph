@@ -382,6 +382,7 @@ class GraphEditOperation(ABC):
         """
         self.last_successful_ts = last_successful_ts
         root_ids = self._update_root_ids()
+        print("root ids", root_ids)
         with locks.RootLock(self.cg, root_ids, operation_id=operation_id) as root_lock:
             self.cg.cache = CacheService(self.cg)
             lock_operation_ids = np.array(

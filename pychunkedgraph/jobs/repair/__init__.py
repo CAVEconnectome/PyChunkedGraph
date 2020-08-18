@@ -41,7 +41,7 @@ def _read_failed_logs(graph_id: str = None, datastore_ns: str = None):
         operation.execute(
             operation_id=log.id,
             override_ts=ts + timedelta(microseconds=(ts.microsecond % 1000) + 10),
-            last_successful_ts=ts - timedelta(seconds=1),
+            last_successful_ts=ts - timedelta(seconds=0.1),
         )
         client.delete(log.key)
         break
