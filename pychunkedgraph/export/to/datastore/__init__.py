@@ -133,7 +133,7 @@ def export_operation_logs(
 
     print(f"getting logs from chunkedgraph {cg.graph_id}")
     logs = operation_logs.get_parsed_logs(cg, start_time=start_ts, end_time=end_ts)
-    logs = operation_logs.get_logs_with_previous_roots(cg, logs)[-10:]
+    logs = operation_logs.get_logs_with_previous_roots(cg, logs)
     logs = _create_col_for_each_root(logs)
     logs = _nested_lists_to_string(logs)
 

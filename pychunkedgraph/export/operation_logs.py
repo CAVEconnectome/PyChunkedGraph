@@ -63,7 +63,6 @@ def get_logs_with_previous_roots(
     # get previous roots for all to avoid multiple network calls
     old_roots_d = get_previous_root_ids(cg, roots)
     old_roots_all = concatenate([empty_1d, *old_roots_d.values()])
-    print(f"roots {len(roots)}, old {len(old_roots_all)}")
 
     old_roots_ts = cg.get_node_timestamps(old_roots_all).tolist()
     old_roots_ts_d = dict(zip(old_roots_all, old_roots_ts))
@@ -76,6 +75,6 @@ def get_logs_with_previous_roots(
         except (ValueError, KeyError):
             # if old roots don't exist that means writing was not successful
             # WARNING: if status is `WRITE_STARTED` writing is assumed to have failed
-            if log.status == OperationLogs.StatusCodes.WRITE_STARTED.value:
-                log.status = OperationLogs.StatusCodes.WRITE_FAILED.value
+            # if log.status == OperationLogs.StatusCodes.WRITE_STARTED.value:
+            log.status = OperationLogs.StatusCodes.WRITE_FAILED.value
     return parsed_logs

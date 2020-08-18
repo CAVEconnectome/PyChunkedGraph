@@ -25,9 +25,6 @@ from .chunks import utils as chunk_utils
 from .chunks import hierarchy as chunk_hierarchy
 
 
-# TODO logging with context manager?
-
-
 class ChunkedGraph:
     def __init__(
         self,
@@ -473,7 +470,7 @@ class ChunkedGraph:
         layer_nodes_d = {}
         for node_id in node_ids:
             layer_nodes_d[node_id] = self._get_subgraph_higher_layer_nodes(
-                node_id=node_id, bounding_box=bbox, return_layers=return_layers+[2],
+                node_id=node_id, bounding_box=bbox, return_layers=return_layers + [2],
             )
         if nodes_only:
             if single:

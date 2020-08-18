@@ -1,16 +1,16 @@
 """
 Re run failed edit operations.
 
-These jobs currently get data (failed operations) from Google Datastore.
+These jobs get data (failed operations) from Google Datastore.
 """
 
 
 def _read_failed_logs(graph_id: str = None, datastore_ns: str = None):
     from os import environ
+    from datetime import timedelta
     from google.cloud import datastore
     from pychunkedgraph.graph import ChunkedGraph
-    from pychunkedgraph.export.models import OperationLog
-    from pychunkedgraph.export.to.datastore import export_operation_logs
+    from pychunkedgraph.graph.operation import GraphEditOperation
 
     if not graph_id:
         graph_id = environ["GRAPH_ID"]
@@ -22,35 +22,22 @@ def _read_failed_logs(graph_id: str = None, datastore_ns: str = None):
             environ["OPERATION_LOGS_DATASTORE_CREDENTIALS"]
         )
     except KeyError:
+        print("Datastore credentials not provided.")
+        print(f"Using {environ['GOOGLE_APPLICATION_CREDENTIALS']}")
         # use GOOGLE_APPLICATION_CREDENTIALS
-        # this is usually set to "/root/.cloudvolume/secrets/<some_secret>.json"
+        # this is usually "/root/.cloudvolume/secrets/<some_secret>.json"
         client = datastore.Client()
+
     query = client.query(kind=f"{graph_id}_failed", namespace=datastore_ns)
-
-    failed_operations = []
+    cg = ChunkedGraph(graph_id=graph_id)
     for log in query.fetch():
-        failed_operations.append(OperationLog(**log))
-        print(OperationLog(**log))
-        print()
+        operation = GraphEditOperation.from_operation_id(
+            cg, log.id, multicut_as_split=False
+        )
 
-    print(f"failed count {len(failed_operations)}")
-    # cg = ChunkedGraph(graph_id=graph_id)
-
-    # ret = cg.add_edges(
-    #     user_id=user_id,
-    #     atomic_edges=np.array(atomic_edge, dtype=np.uint64),
-    #     source_coords=coords[:1],
-    #     sink_coords=coords[1:],
-    # )
-
-    # ret = cg.remove_edges(
-    #     user_id=user_id,
-    #     source_ids=data_dict["sources"]["id"],
-    #     sink_ids=data_dict["sinks"]["id"],
-    #     source_coords=data_dict["sources"]["coord"],
-    #     sink_coords=data_dict["sinks"]["coord"],
-    #     mincut=True,
-    # )
+        timestamp = log["timestamp"]
+        timestamp += timedelta(microseconds=(timestamp.microsecond % 1000) + 1)
+        operation.execute(operation_id=log.id, override_ts=timestamp)
 
 
 def repair_operations():

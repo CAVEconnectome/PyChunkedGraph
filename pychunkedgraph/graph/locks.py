@@ -17,15 +17,22 @@ class RootLock:
     # FIXME: `locked_root_ids` is only required and exposed because `cg.client.lock_roots`
     #        currently might lock different (more recent) root IDs than requested.
 
-    def __init__(self, cg, root_ids: Union[np.uint64, Sequence[np.uint64]]) -> None:
+    def __init__(
+        self,
+        cg,
+        root_ids: Union[np.uint64, Sequence[np.uint64]],
+        *,
+        operation_id: np.uint64 = None,
+    ) -> None:
         self.cg = cg
         self.root_ids = np.atleast_1d(root_ids)
         self.locked_root_ids = None
         self.lock_acquired = False
-        self.operation_id = None
+        self.operation_id = operation_id
 
     def __enter__(self):
-        self.operation_id = self.cg.id_client.create_operation_id()
+        if not self.operation_id:
+            self.operation_id = self.cg.id_client.create_operation_id()
         future_root_ids_d = {}
         for id_ in self.root_ids:
             future_root_ids_d[id_] = get_future_root_ids(self.cg, id_)

@@ -72,7 +72,7 @@ class GraphEditOperation(ABC):
         is_undo: bool,
         multicut_as_split: bool,
     ):
-        log_record = cg.read_log_row(operation_id)
+        log_record, _ = cg.client.read_log_entry(operation_id)
         log_record_type = cls.get_log_record_type(log_record)
 
         while log_record_type in (RedoOperation, UndoOperation):
@@ -81,7 +81,7 @@ class GraphEditOperation(ABC):
             else:
                 is_undo = not is_undo
                 operation_id = log_record[attributes.OperationLogs.UndoOperationID]
-            log_record = cg.read_log_row(operation_id)
+            log_record, _ = cg.client.read_log_entry(operation_id)
             log_record_type = cls.get_log_record_type(log_record)
 
         if is_undo:
@@ -125,6 +125,8 @@ class GraphEditOperation(ABC):
                 or attributes.OperationLogs.BoundingBoxOffset not in log_record
             ):
                 return SplitOperation
+            return MulticutOperation
+        if attributes.OperationLogs.BoundingBoxOffset in log_record:
             return MulticutOperation
         raise TypeError(f"Could not determine graph operation type.")
 
@@ -243,7 +245,7 @@ class GraphEditOperation(ABC):
         :return: The matching GraphEditOperation subclass
         :rtype: "GraphEditOperation"
         """
-        log_record = cg.read_log_row(operation_id)
+        log_record, _ = cg.client.read_log_entry(operation_id)
         return cls.from_log_record(cg, log_record, multicut_as_split=multicut_as_split)
 
     @classmethod
@@ -361,7 +363,9 @@ class GraphEditOperation(ABC):
         :rtype: GraphEditOperation
         """
 
-    def execute(self) -> "GraphEditOperation.Result":
+    def execute(
+        self, *, operation_id=None, override_ts=None
+    ) -> "GraphEditOperation.Result":
         """
         Executes current GraphEditOperation:
         * Calls the subclass's _update_root_ids method
@@ -372,7 +376,7 @@ class GraphEditOperation(ABC):
         * Releases root ID lock
         """
         root_ids = self._update_root_ids()
-        with locks.RootLock(self.cg, root_ids) as root_lock:
+        with locks.RootLock(self.cg, root_ids, operation_id=operation_id) as root_lock:
             self.cg.cache = CacheService(self.cg)
             lock_operation_ids = np.array(
                 [root_lock.operation_id] * len(root_lock.locked_root_ids)
@@ -385,21 +389,22 @@ class GraphEditOperation(ABC):
                 operation_id=root_lock.operation_id,
                 new_root_ids=types.empty_1d,
                 timestamp=timestamp,
-                operation_ts=timestamp,
+                operation_ts=override_ts if override_ts else timestamp,
                 status=attributes.OperationLogs.StatusCodes.CREATED.value,
             )
             self.cg.client.write([log_record_before_edit])
 
             try:
                 new_root_ids, new_lvl2_ids, affected_records = self._apply(
-                    operation_id=root_lock.operation_id, timestamp=timestamp
+                    operation_id=root_lock.operation_id,
+                    timestamp=override_ts if override_ts else timestamp,
                 )
             except PreconditionError as err:
                 self.cg.cache = None
-                raise PreconditionError(str(err))
+                raise PreconditionError(err)
             except PostconditionError as err:
                 self.cg.cache = None
-                raise PostconditionError(str(err))
+                raise PostconditionError(err)
             except Exception as err:
                 from traceback import format_exception
                 from sys import exc_info
@@ -410,14 +415,18 @@ class GraphEditOperation(ABC):
                     operation_id=root_lock.operation_id,
                     new_root_ids=types.empty_1d,
                     timestamp=None,
-                    operation_ts=timestamp,
+                    operation_ts=override_ts if override_ts else timestamp,
                     status=attributes.OperationLogs.StatusCodes.EXCEPTION.value,
                     exception=repr(format_exception(*exc_info)),
                 )
                 self.cg.client.write([log_record_error])
                 raise Exception(err)
             return self._write(
-                root_lock, timestamp, new_root_ids, new_lvl2_ids, affected_records
+                root_lock,
+                override_ts if override_ts else timestamp,
+                new_root_ids,
+                new_lvl2_ids,
+                affected_records,
             )
 
     def _write(self, lock, timestamp, new_root_ids, new_lvl2_ids, affected_records):
@@ -845,7 +854,7 @@ class RedoOperation(GraphEditOperation):
         multicut_as_split: bool,
     ) -> None:
         super().__init__(cg, user_id=user_id)
-        log_record = cg.read_log_row(superseded_operation_id)
+        log_record, _ = cg.client.read_log_entry(superseded_operation_id)
         log_record_type = GraphEditOperation.get_log_record_type(log_record)
         if log_record_type in (RedoOperation, UndoOperation):
             raise ValueError(
@@ -877,7 +886,7 @@ class RedoOperation(GraphEditOperation):
         timestamp: datetime,
         operation_ts: datetime,
         new_root_ids: Sequence[np.uint64],
-        status: int = 0,
+        status: int = 1,
         exception: str = "",
     ) -> "bigtable.row.Row":
         val_dict = {
@@ -934,7 +943,7 @@ class UndoOperation(GraphEditOperation):
         multicut_as_split: bool,
     ) -> None:
         super().__init__(cg, user_id=user_id)
-        log_record = cg.read_log_row(superseded_operation_id)
+        log_record, _ = cg.client.read_log_entry(superseded_operation_id)
         log_record_type = GraphEditOperation.get_log_record_type(log_record)
         if log_record_type in (RedoOperation, UndoOperation):
             raise ValueError(
@@ -966,7 +975,7 @@ class UndoOperation(GraphEditOperation):
         timestamp: datetime,
         operation_ts: datetime,
         new_root_ids: Sequence[np.uint64],
-        status: int = 0,
+        status: int = 1,
         exception: str = "",
     ) -> "bigtable.row.Row":
         val_dict = {
