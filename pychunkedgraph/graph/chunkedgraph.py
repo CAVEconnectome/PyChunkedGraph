@@ -335,6 +335,9 @@ class ChunkedGraph:
     ) -> typing.Union[np.ndarray, typing.Dict[int, np.ndarray]]:
         """
         Returns node IDs at the root_layer/ <= stop_layer.
+        Use `assert_roots=True` to ensure returned IDs are at root level.
+        When `assert_roots=False`, returns highest available IDs and
+        cases where there are no root IDs are silently ignored.
         """
         time_stamp = misc_utils.get_valid_timestamp(time_stamp)
         stop_layer = self.meta.layer_count if not stop_layer else stop_layer
