@@ -327,6 +327,7 @@ class ChunkedGraph:
         self,
         node_ids: typing.Sequence[np.uint64],
         *,
+        assert_roots: bool = False,
         time_stamp: typing.Optional[datetime.datetime] = None,
         stop_layer: int = None,
         ceil: bool = True,
@@ -368,16 +369,33 @@ class ChunkedGraph:
                     layer_mask = new_layer_mask
 
                     if np.all(~layer_mask):
+                        if assert_roots:
+                            assert not np.any(
+                                self.get_chunk_layers(parent_ids)
+                                < self.meta.layer_count
+                            ), "roots not found for some IDs"
                         return parent_ids
 
             if not ceil and np.all(
                 self.get_chunk_layers(parent_ids[parent_ids != 0]) >= stop_layer
             ):
+                if assert_roots:
+                    assert not np.any(
+                        self.get_chunk_layers(parent_ids) < self.meta.layer_count
+                    ), "roots not found for some IDs"
                 return parent_ids
             elif ceil:
+                if assert_roots:
+                    assert not np.any(
+                        self.get_chunk_layers(parent_ids) < self.meta.layer_count
+                    ), "roots not found for some IDs"
                 return parent_ids
             else:
                 time.sleep(0.5)
+        if assert_roots:
+            assert not np.any(
+                self.get_chunk_layers(parent_ids) < self.meta.layer_count
+            ), "roots not found for some IDs"
         return parent_ids
 
     def get_root(

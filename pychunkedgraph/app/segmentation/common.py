@@ -264,7 +264,7 @@ def handle_roots(table_id, is_binary=False):
     # Call ChunkedGraph
     cg = app_utils.get_cg(table_id)
     root_ids = cg.get_roots(node_ids, stop_layer=stop_layer,
-                            time_stamp=timestamp)
+                            time_stamp=timestamp, assert_roots=True)
 
     return root_ids
 

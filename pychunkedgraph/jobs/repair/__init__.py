@@ -37,6 +37,7 @@ def _read_failed_logs(graph_id: str = None, datastore_ns: str = None):
 
         timestamp = log["timestamp"]
         timestamp += timedelta(microseconds=(timestamp.microsecond % 1000) + 1)
+        print(f"Re-trying operation ID {log.id}")
         operation.execute(operation_id=log.id, override_ts=timestamp)
 
 

@@ -22,6 +22,7 @@ def export_operation_logs(graph_id: str = None, datastore_ns: str = None):
     if not datastore_ns:
         datastore_ns = environ.get("DATASTORE_NS")
 
+    print("Start log export job")
     cg = ChunkedGraph(graph_id=graph_id)
     export_operation_logs(cg, namespace=datastore_ns)
 

@@ -91,8 +91,8 @@ def merge_preprocess(
     Get subgraph within the bounding box
     Add fake edge if there are no inactive edges between two components.
     """
-    edges_roots = cg.get_roots(subgraph_edges.ravel()).reshape(-1, 2)
-    # active -> edges belong to same root
+    edges_roots = cg.get_roots(subgraph_edges.ravel(), assert_roots=True).reshape(-1, 2)
+    # active : edges belong to same root
     active_mask = edges_roots[:, 0] == edges_roots[:, 1]
     active, inactive = subgraph_edges[active_mask], subgraph_edges[~active_mask]
     relevant_ccs = _get_relevant_components(active, supervoxels)
@@ -112,7 +112,7 @@ def _check_fake_edges(
 ) -> Tuple[Iterable[np.ndarray], Iterable]:
     """if no inactive edges found, add user input as fake edge."""
     if inactive_edges.size:
-        roots = np.unique(cg.get_roots(np.unique(inactive_edges)))
+        roots = np.unique(cg.get_roots(np.unique(inactive_edges), assert_roots=True))
         assert len(roots) == 2, "edges must be from 2 roots"
         print("found inactive", len(inactive_edges))
         return inactive_edges, []
@@ -157,7 +157,7 @@ def add_edges(
     edges, l2_atomic_cross_edges_d = _analyze_affected_edges(cg, atomic_edges)
     l2ids = np.unique(edges)
     assert (
-        np.unique(cg.get_roots(l2ids)).size == 2
+        np.unique(cg.get_roots(l2ids, assert_roots=True)).size == 2
     ), "L2 IDs must belong to different roots."
     new_old_id_d, old_new_id_d, old_hierarchy_d = _init_old_hierarchy(cg, l2ids)
     atomic_children_d = cg.get_children(l2ids)
@@ -184,10 +184,6 @@ def add_edges(
         new_old_id_d[new_id].update(l2ids_)
         for id_ in l2ids_:
             old_new_id_d[id_].add(new_id)
-
-        # print()
-        # print(new_id, l2ids_)
-        # print("old l2 roots", cg.get_roots(l2ids_))
 
     create_parents = CreateParentNodes(
         cg,
@@ -253,7 +249,9 @@ def remove_edges(
     # TODO add docs
     edges, _ = _analyze_affected_edges(cg, atomic_edges)
     l2ids = np.unique(edges)
-    assert np.unique(cg.get_roots(l2ids)).size == 1, "L2 IDs must belong to same root."
+    assert (
+        np.unique(cg.get_roots(l2ids, assert_roots=True)).size == 1
+    ), "L2 IDs must belong to same root."
     new_old_id_d, old_new_id_d, old_hierarchy_d = _init_old_hierarchy(cg, l2ids)
     l2id_chunk_id_d = dict(zip(l2ids, cg.get_chunk_ids_from_node_ids(l2ids)))
     atomic_cross_edges_d = cg.get_atomic_cross_edges(l2ids)
