@@ -2,6 +2,8 @@
 Cache nodes, parents, children and cross edges.
 """
 from sys import maxsize
+from datetime import datetime
+
 from cachetools import cached
 from cachetools import LRUCache
 
@@ -49,10 +51,10 @@ class CacheService:
         self.children_cache.clear()
         self.atomic_cx_edges_cache.clear()
 
-    def parent(self, node_id):
+    def parent(self, node_id: np.uint64, *, time_stamp: datetime = None):
         @cached(cache=self.parents_cache, key=lambda node_id: node_id)
         def parent_decorated(node_id):
-            return self._cg.get_parent(node_id, raw_only=True)
+            return self._cg.get_parent(node_id, raw_only=True, time_stamp=time_stamp)
 
         return parent_decorated(node_id)
 
@@ -75,13 +77,15 @@ class CacheService:
 
         return atomic_cross_edges_decorated(node_id)
 
-    def parents_multiple(self, node_ids: np.ndarray):
+    def parents_multiple(self, node_ids: np.ndarray, *, time_stamp: datetime = None):
         if not node_ids.size:
             return node_ids
         mask = np.in1d(node_ids, np.fromiter(self.parents_cache.keys(), dtype=NODE_ID))
         parents = node_ids.copy()
         parents[mask] = self._parent_vec(node_ids[mask])
-        parents[~mask] = self._cg.get_parents(node_ids[~mask], raw_only=True)
+        parents[~mask] = self._cg.get_parents(
+            node_ids[~mask], raw_only=True, time_stamp=time_stamp
+        )
         update(self.parents_cache, node_ids[~mask], parents[~mask])
         return parents
 

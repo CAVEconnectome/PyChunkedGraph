@@ -7,6 +7,7 @@ These jobs get data (failed operations) from Google Datastore.
 
 def _read_failed_logs(graph_id: str = None, datastore_ns: str = None):
     from os import environ
+    from datetime import datetime
     from datetime import timedelta
     from google.cloud import datastore
     from pychunkedgraph.graph import ChunkedGraph
@@ -36,9 +37,14 @@ def _read_failed_logs(graph_id: str = None, datastore_ns: str = None):
         )
 
         timestamp = log["timestamp"]
-        timestamp += timedelta(microseconds=(timestamp.microsecond % 1000) + 1)
+        operation.last_successful_ts = timestamp - timedelta(seconds=1)
+
+        timestamp += timedelta(microseconds=(timestamp.microsecond % 1000) + 10)
+
         print(f"Re-trying operation ID {log.id}")
         operation.execute(operation_id=log.id, override_ts=timestamp)
+        client.delete(log.key)
+        break
 
 
 def repair_operations():

@@ -172,7 +172,7 @@ class ChunkedGraph:
                         else:
                             raise KeyError
             return parents
-        return self.cache.parents_multiple(node_ids)
+        return self.cache.parents_multiple(node_ids, time_stamp=time_stamp)
 
     def get_parent(
         self,
@@ -195,7 +195,7 @@ class ChunkedGraph:
             if latest:
                 return parents[0].value
             return [(p.value, p.timestamp) for p in parents]
-        return self.cache.parent(node_id)
+        return self.cache.parent(node_id, time_stamp=time_stamp)
 
     def get_children(
         self,
@@ -462,6 +462,7 @@ class ChunkedGraph:
     def get_all_parents_dict(
         self,
         node_id: basetypes.NODE_ID,
+        *,
         time_stamp: typing.Optional[datetime.datetime] = None,
     ) -> typing.Dict:
         """Takes a node id and returns all parents up to root."""

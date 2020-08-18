@@ -34,7 +34,7 @@ if TYPE_CHECKING:
 
 
 class GraphEditOperation(ABC):
-    __slots__ = ["cg", "user_id", "source_coords", "sink_coords"]
+    __slots__ = ["cg", "user_id", "source_coords", "sink_coords", "last_successful_ts"]
     Result = namedtuple("Result", ["operation_id", "new_root_ids", "new_lvl2_ids"])
 
     def __init__(
@@ -50,6 +50,11 @@ class GraphEditOperation(ABC):
         self.user_id = user_id
         self.source_coords = None
         self.sink_coords = None
+        # `last_successful_ts` is the timestamp to get parents/roots
+        # after an operation fails while persisting changes.
+        # When that happens, parents/roots before the operation must be used to fix it.
+        # it is passed as an argument to `GraphEditOperation.execute()`
+        self.last_successful_ts = None
 
         if source_coords is not None:
             self.source_coords = np.atleast_2d(source_coords).astype(
@@ -364,7 +369,7 @@ class GraphEditOperation(ABC):
         """
 
     def execute(
-        self, *, operation_id=None, override_ts=None
+        self, *, operation_id=None, override_ts=None, last_successful_ts=None
     ) -> "GraphEditOperation.Result":
         """
         Executes current GraphEditOperation:
@@ -375,6 +380,7 @@ class GraphEditOperation(ABC):
         * Persist changes
         * Releases root ID lock
         """
+        self.last_successful_ts = last_successful_ts
         root_ids = self._update_root_ids()
         with locks.RootLock(self.cg, root_ids, operation_id=operation_id) as root_lock:
             self.cg.cache = CacheService(self.cg)
@@ -520,13 +526,25 @@ class MergeOperation(GraphEditOperation):
         assert np.sum(layers) == layers.size, "Supervoxels expected."
 
     def _update_root_ids(self) -> np.ndarray:
-        root_ids = np.unique(self.cg.get_roots(self.added_edges.ravel()))
+        root_ids = np.unique(
+            self.cg.get_roots(
+                self.added_edges.ravel(),
+                assert_roots=True,
+                time_stamp=self.last_successful_ts,
+            )
+        )
         return root_ids
 
     def _apply(
         self, *, operation_id, timestamp
     ) -> Tuple[np.ndarray, np.ndarray, List["bigtable.row.Row"]]:
-        root_ids = set(self.cg.get_roots(self.added_edges.ravel()))
+        root_ids = set(
+            self.cg.get_roots(
+                self.added_edges.ravel(),
+                assert_roots=True,
+                time_stamp=self.last_successful_ts,
+            )
+        )
         if len(root_ids) < 2:
             raise PreconditionError("Supervoxels must belong to different objects.")
         bbox = get_bbox(self.source_coords, self.sink_coords, self.bbox_offset)
@@ -537,7 +555,10 @@ class MergeOperation(GraphEditOperation):
 
         with TimeIt("edits.merge_preprocess"):
             inactive_edges = edits.merge_preprocess(
-                self.cg, subgraph_edges=edges, supervoxels=self.added_edges.ravel(),
+                self.cg,
+                subgraph_edges=edges,
+                supervoxels=self.added_edges.ravel(),
+                last_successful_ts=self.last_successful_ts,
             )
 
         with TimeIt("edits.add_edges"):
@@ -547,6 +568,7 @@ class MergeOperation(GraphEditOperation):
                 inactive_edges=inactive_edges,
                 operation_id=operation_id,
                 time_stamp=timestamp,
+                last_successful_ts=self.last_successful_ts,
             )
 
     def _create_log_record(
@@ -628,7 +650,13 @@ class SplitOperation(GraphEditOperation):
         assert np.sum(layers) == layers.size, "IDs must be supervoxels."
 
     def _update_root_ids(self) -> np.ndarray:
-        root_ids = np.unique(self.cg.get_roots(self.removed_edges.ravel()))
+        root_ids = np.unique(
+            self.cg.get_roots(
+                self.removed_edges.ravel(),
+                assert_roots=True,
+                time_stamp=self.last_successful_ts,
+            )
+        )
         if len(root_ids) > 1:
             raise PreconditionError(
                 f"All supervoxel must belong to the same object. Already split?"
@@ -638,12 +666,25 @@ class SplitOperation(GraphEditOperation):
     def _apply(
         self, *, operation_id, timestamp
     ) -> Tuple[np.ndarray, np.ndarray, List["bigtable.row.Row"]]:
-        if len(set(self.cg.get_roots(self.removed_edges.ravel()))) > 1:
+        if (
+            len(
+                set(
+                    self.cg.get_roots(
+                        self.removed_edges.ravel(),
+                        assert_roots=True,
+                        time_stamp=self.last_successful_ts,
+                    )
+                )
+            )
+            > 1
+        ):
             raise PreconditionError("Supervoxels must belong to the same object.")
 
         with TimeIt("get_l2_agglomerations (subgraph)"):
             l2id_agglomeration_d, _ = self.cg.get_l2_agglomerations(
-                self.cg.get_parents(self.removed_edges.ravel())
+                self.cg.get_parents(
+                    self.removed_edges.ravel(), time_stamp=self.last_successful_ts,
+                )
             )
         return edits.remove_edges(
             self.cg,
@@ -651,6 +692,7 @@ class SplitOperation(GraphEditOperation):
             atomic_edges=self.removed_edges,
             l2id_agglomeration_d=l2id_agglomeration_d,
             time_stamp=timestamp,
+            last_successful_ts=self.last_successful_ts,
         )
 
     def _create_log_record(
@@ -741,7 +783,13 @@ class MulticutOperation(GraphEditOperation):
 
     def _update_root_ids(self) -> np.ndarray:
         sink_and_source_ids = np.concatenate((self.source_ids, self.sink_ids))
-        root_ids = np.unique(self.cg.get_roots(sink_and_source_ids))
+        root_ids = np.unique(
+            self.cg.get_roots(
+                sink_and_source_ids,
+                assert_roots=True,
+                time_stamp=self.last_successful_ts,
+            )
+        )
         if len(root_ids) > 1:
             raise PreconditionError("Supervoxels must belong to the same object.")
         return root_ids
@@ -751,7 +799,11 @@ class MulticutOperation(GraphEditOperation):
     ) -> Tuple[np.ndarray, np.ndarray, List["bigtable.row.Row"]]:
         # Verify that sink and source are from the same root object
         root_ids = set(
-            self.cg.get_roots(np.concatenate([self.source_ids, self.sink_ids]))
+            self.cg.get_roots(
+                np.concatenate([self.source_ids, self.sink_ids]),
+                assert_roots=True,
+                time_stamp=self.last_successful_ts,
+            )
         )
         if len(root_ids) > 1:
             raise PreconditionError("Supervoxels must belong to the same object.")
@@ -776,13 +828,15 @@ class MulticutOperation(GraphEditOperation):
             self.removed_edges = run_multicut(edges, self.source_ids, self.sink_ids)
         if not self.removed_edges.size:
             raise PostconditionError("Mincut could not find any edges to remove.")
-        return edits.remove_edges(
-            self.cg,
-            operation_id=operation_id,
-            atomic_edges=self.removed_edges,
-            l2id_agglomeration_d=l2id_agglomeration_d,
-            time_stamp=timestamp,
-        )
+        with TimeIt("edits.remove_edges"):
+            return edits.remove_edges(
+                self.cg,
+                operation_id=operation_id,
+                atomic_edges=self.removed_edges,
+                l2id_agglomeration_d=l2id_agglomeration_d,
+                time_stamp=timestamp,
+                last_successful_ts=self.last_successful_ts,
+            )
 
     def _create_log_record(
         self,
