@@ -424,7 +424,7 @@ class GraphEditOperation(ABC):
                     timestamp=None,
                     operation_ts=override_ts if override_ts else timestamp,
                     status=attributes.OperationLogs.StatusCodes.EXCEPTION.value,
-                    exception=repr(format_exception(*exc_info)),
+                    exception=repr(format_exception(*exc_info())),
                 )
                 self.cg.client.write([log_record_error])
                 raise Exception(err)

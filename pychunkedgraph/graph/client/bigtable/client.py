@@ -380,7 +380,6 @@ class Client(bigtable.Client, ClientWithIDGen, OperationLogger):
             for idx in range(len(root_ids)):
                 future_root_ids = future_root_ids_d[root_ids[idx]]
                 if not future_root_ids.size:
-                    print("future_root_ids", future_root_ids, root_ids[idx])
                     new_root_ids.append(root_ids[idx])
                 else:
                     new_root_ids.extend(future_root_ids)
@@ -392,11 +391,9 @@ class Client(bigtable.Client, ClientWithIDGen, OperationLogger):
                 lock_acquired = self.lock_root(root_ids[idx], operation_id)
                 # Roll back locks if one root cannot be locked
                 if not lock_acquired:
-                    print(f"could not lock {root_ids[idx]}")
                     for id_ in root_ids:
                         self.unlock_root(id_, operation_id)
                     break
-                print(f"locked {root_ids[idx]}")
 
             if lock_acquired:
                 return True, root_ids

@@ -284,7 +284,12 @@ class ChunkedGraph:
         from .utils.context_managers import TimeIt
 
         with TimeIt(f"_get_bounding_l2_children {len(node_ids)}"):
-            node_l2ids_d = self._get_bounding_l2_children(node_ids)
+            node_l2ids_d = {}
+            layers_ = self.get_chunk_layers(node_ids)
+            for layer_ in set(layers_):
+                node_l2ids_d.update(
+                    self._get_bounding_l2_children(node_ids[layers_ == layer_])
+                )
         l2_edges_d_d = self.get_atomic_cross_edges(
             np.concatenate(list(node_l2ids_d.values()))
         )
@@ -314,7 +319,7 @@ class ChunkedGraph:
         )
         if self.get_chunk_layer(node_id) < min_layer:
             # cross edges irrelevant
-            return {min_layer: types.empty_2d}
+            return {self.get_chunk_layer(node_id): types.empty_2d}
         if not uplift:
             return {min_layer: edges}
         node_root_id = node_id

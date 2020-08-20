@@ -365,26 +365,9 @@ class CreateParentNodes:
         for child_id in children[mask]:
             child_old_ids = self._new_old_id_d[child_id]
             for id_ in child_old_ids:
-                counter = 0
-                while True:
-                    try:
-                        old_id = self._old_hierarchy_d[id_][parent_layer + counter]
-                        self._new_old_id_d[parent].add(old_id)
-                        self._old_new_id_d[old_id].add(parent)
-                        break
-                    except KeyError:
-                        counter += 1
-        # for child_id in children[~mask]:
-        #     counter = 0
-        #     while True:
-        #         try:
-        #             old_id = self._old_hierarchy_d[child_id][parent_layer + counter]
-        #             self._new_old_id_d[parent].add(old_id)
-        #             self._old_new_id_d[old_id].add(parent)
-        #             break
-        #         except KeyError:
-        #             print("missing", child_id, parent, layer, parent_layer + counter)
-        #             counter += 1
+                old_id = self._old_hierarchy_d[id_].get(parent_layer, id_)
+                self._new_old_id_d[parent].add(old_id)
+                self._old_new_id_d[old_id].add(parent)
 
     def _get_connected_components(self, node_ids: np.ndarray, layer: int):
         cached = np.fromiter(self._cross_edges_d.keys(), dtype=basetypes.NODE_ID)
@@ -404,7 +387,7 @@ class CreateParentNodes:
         del sv_parent_d
         cross_edges = np.concatenate([cross_edges, np.vstack([node_ids, node_ids]).T])
         graph, _, _, graph_ids = flatgraph.build_gt_graph(
-            np.unique(cross_edges, axis=0), make_directed=True
+            cross_edges, make_directed=True
         )
         return flatgraph.connected_components(graph), graph_ids
 
@@ -414,8 +397,7 @@ class CreateParentNodes:
             np.array(list(self._new_old_id_d[id_]), dtype=basetypes.NODE_ID)
             for id_ in new_ids
         ]
-        old_ids = np.unique(np.concatenate(old_ids))
-        old_ids = old_ids[self.cg.get_chunk_layers(old_ids) == layer]
+        old_ids = np.concatenate(old_ids)
         # get their parents, then children of those parents
         node_ids = self.cg.get_children(
             np.unique(
@@ -446,9 +428,8 @@ class CreateParentNodes:
         update parent old IDs
         """
         new_ids = self._new_ids_d[layer]
-        components, graph_ids = self._get_connected_components(
-            np.unique(self._get_layer_node_ids(new_ids, layer)), layer
-        )
+        layer_node_ids = self._get_layer_node_ids(new_ids, layer)
+        components, graph_ids = self._get_connected_components(layer_node_ids, layer)
         for cc_indices in components:
             parent_layer = layer + 1
             cc_ids = graph_ids[cc_indices]
