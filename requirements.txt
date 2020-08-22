@@ -1,4 +1,4 @@
-git+https://github.com/ZettaAI/cloud-volume.git@nkem-float-res-fix#egg=cloud-volume-2.0.0
+-e git+https://github.com/ZettaAI/cloud-volume.git@nkem-float-res-fix#egg=cloud-volume
 numpy
 pandas
 networkx==2.1
@@ -13,7 +13,7 @@ zstandard
 redis
 rq
 middle-auth-client==2.4.3
-git+https://github.com/ZettaAI/zmesh.git@nkem-float-res#egg=zmesh-0.4.0
+-e git+https://github.com/ZettaAI/zmesh.git@nkem-float-res#egg=zmesh
 fastremap
 pyyaml
 cachetools
