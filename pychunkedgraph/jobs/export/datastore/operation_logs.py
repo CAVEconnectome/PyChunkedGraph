@@ -7,8 +7,8 @@ def export_operation_logs(graph_id: str = None, datastore_ns: str = None):
     """
     Export job for processing edit logs and storing them in Datastore.
     
-    If `graph_id` is passed, env var `GRAPH_ID` is ignored.
-    One of `graph_id` or `GRAPH_ID` is required.
+    If `graph_id` is passed, env var `GRAPH_IDS` is ignored.
+    One of `graph_id` or `GRAPH_IDS` is required.
     
     Same applies for `datastore_ns` (namespace), but it is optional.
     Default ns: "pychunkedgraph_operation_logs"
@@ -18,7 +18,7 @@ def export_operation_logs(graph_id: str = None, datastore_ns: str = None):
     from pychunkedgraph.export.to.datastore import export_operation_logs
 
     if not graph_id:
-        graph_id = environ["GRAPH_ID"]
+        graph_id = environ["GRAPH_IDS"]
     if not datastore_ns:
         datastore_ns = environ.get("DATASTORE_NS")
 

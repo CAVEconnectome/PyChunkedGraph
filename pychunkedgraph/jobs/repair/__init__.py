@@ -1,6 +1,5 @@
 """
 Re run failed edit operations.
-
 These jobs get data (failed operations) from Google Datastore.
 """
 
@@ -14,7 +13,7 @@ def _read_failed_logs(graph_id: str = None, datastore_ns: str = None):
     from pychunkedgraph.graph.operation import GraphEditOperation
 
     if not graph_id:
-        graph_id = environ["GRAPH_ID"]
+        graph_id = environ["GRAPH_IDS"]
     if not datastore_ns:
         datastore_ns = environ.get("DATASTORE_NS")
 
@@ -41,7 +40,7 @@ def _read_failed_logs(graph_id: str = None, datastore_ns: str = None):
         operation.execute(
             operation_id=log.id,
             override_ts=ts + timedelta(microseconds=(ts.microsecond % 1000) + 10),
-            last_successful_ts=ts - timedelta(seconds=0.1),
+            parent_ts=ts - timedelta(seconds=0.1),
         )
         client.delete(log.key)
         break

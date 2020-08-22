@@ -34,7 +34,7 @@ if TYPE_CHECKING:
 
 
 class GraphEditOperation(ABC):
-    __slots__ = ["cg", "user_id", "source_coords", "sink_coords", "last_successful_ts"]
+    __slots__ = ["cg", "user_id", "source_coords", "sink_coords", "parent_ts"]
     Result = namedtuple("Result", ["operation_id", "new_root_ids", "new_lvl2_ids"])
 
     def __init__(
@@ -50,11 +50,11 @@ class GraphEditOperation(ABC):
         self.user_id = user_id
         self.source_coords = None
         self.sink_coords = None
-        # `last_successful_ts` is the timestamp to get parents/roots
+        # `parent_ts` is the timestamp to get parents/roots
         # after an operation fails while persisting changes.
         # When that happens, parents/roots before the operation must be used to fix it.
         # it is passed as an argument to `GraphEditOperation.execute()`
-        self.last_successful_ts = None
+        self.parent_ts = None
 
         if source_coords is not None:
             self.source_coords = np.atleast_2d(source_coords).astype(
@@ -369,20 +369,28 @@ class GraphEditOperation(ABC):
         """
 
     def execute(
-        self, *, operation_id=None, override_ts=None, last_successful_ts=None
+        self, *, operation_id=None, parent_ts=None, override_ts=None
     ) -> "GraphEditOperation.Result":
         """
         Executes current GraphEditOperation:
         * Calls the subclass's _update_root_ids method
-        * Locks root IDs
+        * Locks root IDs normally
         * Calls the subclass's _apply method
         * Calls the subclass's _create_log_record method
+        * Lock roots indefinitely to prevent corruption in case persisting changes fails
+          Such cases are retired in a cron job.
         * Persist changes
-        * Releases root ID lock
+        * Release indefinite locks
+        * Releases normal root ID lock
+
+        `parent_ts` is the timestamp to get parents/roots
+        for normal edits it is None, which means latest parents/roots
+        But after an operation fails while persisting changes,
+        parents/roots before the operation must be used to fix it.
+        `override_ts` can be used to preserve proper timestamp in such cases.
         """
-        self.last_successful_ts = last_successful_ts
+        self.parent_ts = parent_ts
         root_ids = self._update_root_ids()
-        print("root ids", root_ids)
         with locks.RootLock(self.cg, root_ids, operation_id=operation_id) as root_lock:
             self.cg.cache = CacheService(self.cg)
             lock_operation_ids = np.array(
@@ -531,9 +539,7 @@ class MergeOperation(GraphEditOperation):
     def _update_root_ids(self) -> np.ndarray:
         root_ids = np.unique(
             self.cg.get_roots(
-                self.added_edges.ravel(),
-                assert_roots=True,
-                time_stamp=self.last_successful_ts,
+                self.added_edges.ravel(), assert_roots=True, time_stamp=self.parent_ts,
             )
         )
         return root_ids
@@ -543,9 +549,7 @@ class MergeOperation(GraphEditOperation):
     ) -> Tuple[np.ndarray, np.ndarray, List["bigtable.row.Row"]]:
         root_ids = set(
             self.cg.get_roots(
-                self.added_edges.ravel(),
-                assert_roots=True,
-                time_stamp=self.last_successful_ts,
+                self.added_edges.ravel(), assert_roots=True, time_stamp=self.parent_ts,
             )
         )
         if len(root_ids) < 2:
@@ -561,7 +565,7 @@ class MergeOperation(GraphEditOperation):
                 self.cg,
                 subgraph_edges=edges,
                 supervoxels=self.added_edges.ravel(),
-                last_successful_ts=self.last_successful_ts,
+                parent_ts=self.parent_ts,
             )
 
         with TimeIt("edits.add_edges"):
@@ -571,7 +575,7 @@ class MergeOperation(GraphEditOperation):
                 inactive_edges=inactive_edges,
                 operation_id=operation_id,
                 time_stamp=timestamp,
-                last_successful_ts=self.last_successful_ts,
+                parent_ts=self.parent_ts,
             )
 
     def _create_log_record(
@@ -657,7 +661,7 @@ class SplitOperation(GraphEditOperation):
             self.cg.get_roots(
                 self.removed_edges.ravel(),
                 assert_roots=True,
-                time_stamp=self.last_successful_ts,
+                time_stamp=self.parent_ts,
             )
         )
         if len(root_ids) > 1:
@@ -675,7 +679,7 @@ class SplitOperation(GraphEditOperation):
                     self.cg.get_roots(
                         self.removed_edges.ravel(),
                         assert_roots=True,
-                        time_stamp=self.last_successful_ts,
+                        time_stamp=self.parent_ts,
                     )
                 )
             )
@@ -686,7 +690,7 @@ class SplitOperation(GraphEditOperation):
         with TimeIt("get_l2_agglomerations (subgraph)"):
             l2id_agglomeration_d, _ = self.cg.get_l2_agglomerations(
                 self.cg.get_parents(
-                    self.removed_edges.ravel(), time_stamp=self.last_successful_ts,
+                    self.removed_edges.ravel(), time_stamp=self.parent_ts,
                 )
             )
         return edits.remove_edges(
@@ -695,7 +699,7 @@ class SplitOperation(GraphEditOperation):
             atomic_edges=self.removed_edges,
             l2id_agglomeration_d=l2id_agglomeration_d,
             time_stamp=timestamp,
-            last_successful_ts=self.last_successful_ts,
+            parent_ts=self.parent_ts,
         )
 
     def _create_log_record(
@@ -788,9 +792,7 @@ class MulticutOperation(GraphEditOperation):
         sink_and_source_ids = np.concatenate((self.source_ids, self.sink_ids))
         root_ids = np.unique(
             self.cg.get_roots(
-                sink_and_source_ids,
-                assert_roots=True,
-                time_stamp=self.last_successful_ts,
+                sink_and_source_ids, assert_roots=True, time_stamp=self.parent_ts,
             )
         )
         if len(root_ids) > 1:
@@ -805,7 +807,7 @@ class MulticutOperation(GraphEditOperation):
             self.cg.get_roots(
                 np.concatenate([self.source_ids, self.sink_ids]),
                 assert_roots=True,
-                time_stamp=self.last_successful_ts,
+                time_stamp=self.parent_ts,
             )
         )
         if len(root_ids) > 1:
@@ -838,7 +840,7 @@ class MulticutOperation(GraphEditOperation):
                 atomic_edges=self.removed_edges,
                 l2id_agglomeration_d=l2id_agglomeration_d,
                 time_stamp=timestamp,
-                last_successful_ts=self.last_successful_ts,
+                parent_ts=self.parent_ts,
             )
 
     def _create_log_record(
