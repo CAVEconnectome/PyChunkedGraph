@@ -75,6 +75,7 @@ def get_logs_with_previous_roots(
         except (ValueError, KeyError):
             # if old roots don't exist that means writing was not successful
             # WARNING: if status is `WRITE_STARTED` writing is assumed to have failed
-            # if log.status == OperationLogs.StatusCodes.WRITE_STARTED.value:
-            log.status = OperationLogs.StatusCodes.WRITE_FAILED.value
+            # for this reason export job must be at least an hour behind current time.
+            if log.status == OperationLogs.StatusCodes.WRITE_STARTED.value:
+                log.status = OperationLogs.StatusCodes.WRITE_FAILED.value
     return parsed_logs

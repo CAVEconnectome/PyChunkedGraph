@@ -1,5 +1,7 @@
 from collections import namedtuple
 
+DEFAULT_NS = "pychunkedgraph_operation_logs"
+
 
 _export_info_fields = ("KIND", "LOGS_COUNT", "LAST_EXPORT_TS", "EXCLUDE_FROM_INDICES")
 _export_info_defaults = (
@@ -15,7 +17,7 @@ ExportInfo = namedtuple(
 
 _operation_log_fields = ("NAMESPACE", "EXPORT", "EXCLUDE_FROM_INDICES")
 _operation_log_defaults = (
-    "pychunkedgraph_operation_logs",
+    DEFAULT_NS,
     ExportInfo(),
     (
         "added_edges",

@@ -103,8 +103,13 @@ def export_operation_logs(
     start_ts: datetime = None,
     end_ts: datetime = None,
     namespace: str = None,
-) -> None:
+) -> int:
+    """
+    Main function to export logs to Datastore.
+    Returns number of operations that failed to while persisting new IDs.
+    """
     from os import environ
+    from .config import DEFAULT_NS
     from .config import OperationLogsConfig
     from ... import operation_logs
 
@@ -117,7 +122,7 @@ def export_operation_logs(
         # this is usually set to "/root/.cloudvolume/secrets/<some_secret>.json"
         client = datastore.Client()
 
-    namespace_ = "pychunkedgraph_operation_logs"
+    namespace_ = DEFAULT_NS
     if namespace:
         namespace_ = namespace
     config = OperationLogsConfig(NAMESPACE=namespace_)
@@ -140,12 +145,14 @@ def export_operation_logs(
     # datastore limits 500 entities per request
     print(f"total logs {len(logs)}")
     count = 0
+    failed_count = 0
     for chunk in chunked(logs, 500):
         entities = []
         for log in chunk:
             kind = cg.graph_id
             if log["status"] == 4:
                 kind = f"{cg.graph_id}_failed"
+                failed_count += 1
             op_log = datastore.Entity(
                 key=client.key(kind, log.pop("id"), namespace=config.NAMESPACE),
                 exclude_from_indexes=config.EXCLUDE_FROM_INDICES,
@@ -155,6 +162,7 @@ def export_operation_logs(
         client.put_multi(entities)
         count += len(entities)
     _update_stats(cg.graph_id, client, config, last_export_key, count, export_ts)
+    return failed_count
 
 
 def _update_stats(
