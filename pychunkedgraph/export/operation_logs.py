@@ -38,7 +38,7 @@ def get_parsed_logs(
             except AttributeError:
                 log[attr] = val
         result.append(OperationLog(**log))
-    print(f"total logs {len(result)}")
+    print(f"total raw logs {len(result)}")
     return result
 
 
@@ -55,7 +55,7 @@ def get_logs_with_previous_roots(
     from ..graph.lineage import get_previous_root_ids
     from ..graph.utils.context_managers import TimeIt
 
-    roots = []
+    roots = [empty_1d]
     for log in parsed_logs:
         if len(log.roots):
             roots.append(log.roots)

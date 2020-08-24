@@ -36,7 +36,7 @@ def run_export(chunkedgraphs: List[ChunkedGraph], datastore_ns: str = None) -> N
     Sends an email alert when there are failed writes.
     These must be inspected manually and are expected to be rare.
     """
-    from pychunkedgraph.export.to.datastore import export_operation_logs
+    from ....export.to.datastore import export_operation_logs
 
     if not datastore_ns:
         datastore_ns = environ.get("DATASTORE_NS")

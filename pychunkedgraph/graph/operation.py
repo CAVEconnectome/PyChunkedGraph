@@ -34,7 +34,14 @@ if TYPE_CHECKING:
 
 
 class GraphEditOperation(ABC):
-    __slots__ = ["cg", "user_id", "source_coords", "sink_coords", "parent_ts"]
+    __slots__ = [
+        "cg",
+        "user_id",
+        "source_coords",
+        "sink_coords",
+        "parent_ts",
+        "privileged_mode",
+    ]
     Result = namedtuple("Result", ["operation_id", "new_root_ids", "new_lvl2_ids"])
 
     def __init__(
@@ -55,6 +62,10 @@ class GraphEditOperation(ABC):
         # When that happens, parents/roots before the operation must be used to fix it.
         # it is passed as an argument to `GraphEditOperation.execute()`
         self.parent_ts = None
+        # `privileged_mode` if True, override locking.
+        # This is intended to be used in extremely rare cases to fix errors
+        # caused by failed writes.
+        self.privileged_mode = False
 
         if source_coords is not None:
             self.source_coords = np.atleast_2d(source_coords).astype(
@@ -237,6 +248,7 @@ class GraphEditOperation(ABC):
         operation_id: np.uint64,
         *,
         multicut_as_split: bool = True,
+        privileged_mode: Optional[bool] = False,
     ):
         """Generates the correct GraphEditOperation given a operation ID.
         :param cg: The "ChunkedGraph" instance
@@ -247,11 +259,17 @@ class GraphEditOperation(ABC):
             use the resulting removed edges and generate SplitOperation instead (faster).
         :type multicut_as_split: bool
 
+        `privileged_mode` if True, override locking.
+        This is intended to be used in extremely rare cases to fix errors
+        caused by failed writes.
+
         :return: The matching GraphEditOperation subclass
         :rtype: "GraphEditOperation"
         """
-        log_record, _ = cg.client.read_log_entry(operation_id)
-        return cls.from_log_record(cg, log_record, multicut_as_split=multicut_as_split)
+        log, _ = cg.client.read_log_entry(operation_id)
+        operation = cls.from_log_record(cg, log, multicut_as_split=multicut_as_split,)
+        operation.privileged_mode = privileged_mode
+        return operation
 
     @classmethod
     def undo_operation(
@@ -391,13 +409,16 @@ class GraphEditOperation(ABC):
         """
         self.parent_ts = parent_ts
         root_ids = self._update_root_ids()
-        with locks.RootLock(self.cg, root_ids, operation_id=operation_id) as root_lock:
+        with locks.RootLock(
+            self.cg,
+            root_ids,
+            operation_id=operation_id,
+            privileged_mode=self.privileged_mode,
+        ) as root_lock:
             self.cg.cache = CacheService(self.cg)
-            lock_operation_ids = np.array(
-                [root_lock.operation_id] * len(root_lock.locked_root_ids)
-            )
             timestamp = self.cg.client.get_consolidated_lock_timestamp(
-                root_lock.locked_root_ids, lock_operation_ids
+                root_lock.locked_root_ids,
+                np.array([root_lock.operation_id] * len(root_lock.locked_root_ids)),
             )
 
             log_record_before_edit = self._create_log_record(
@@ -458,7 +479,12 @@ class GraphEditOperation(ABC):
             status=attributes.OperationLogs.StatusCodes.WRITE_STARTED.value,
         )
 
-        with locks.IndefiniteRootLock(self.cg, lock.operation_id, lock.locked_root_ids):
+        with locks.IndefiniteRootLock(
+            self.cg,
+            lock.operation_id,
+            lock.locked_root_ids,
+            privileged_mode=lock.privileged_mode,
+        ):
             # indefinite lock for writing, if a node instance or pod dies during this
             # the roots must stay locked indefinitely to prevent further corruption.
             print("persisting changes")

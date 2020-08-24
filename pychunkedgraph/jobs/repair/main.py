@@ -2,20 +2,45 @@
 Re run failed edit operations.
 These jobs get data (failed operations) from Google Datastore.
 """
+from ...graph import ChunkedGraph
+from ...export.models import OperationLog
 
 
-def _read_failed_logs(graph_id: str = None, datastore_ns: str = None):
+def _repair_operation(cg: ChunkedGraph, log: OperationLog):
+    from datetime import timedelta
+    from ...graph.operation import GraphEditOperation
+
+    operation = GraphEditOperation.from_operation_id(
+        cg, log.id, multicut_as_split=False, privileged_mode=True
+    )
+    ts = log["timestamp"]
+    result = operation.execute(
+        operation_id=log.id,
+        parent_ts=ts - timedelta(seconds=0.1),
+        override_ts=ts + timedelta(microseconds=(ts.microsecond % 1000) + 10),
+    )
+
+    old_roots = operation._update_root_ids()
+    print("roots", old_roots, result.new_root_ids)
+
+    for root_ in old_roots:
+        cg.client.unlock_indefinitely_locked_root(root_, result.operation_id)
+
+
+def _repair_failed_operations(graph_id: str = None, datastore_ns: str = None):
     from os import environ
     from datetime import datetime
     from datetime import timedelta
     from google.cloud import datastore
-    from pychunkedgraph.graph import ChunkedGraph
-    from pychunkedgraph.graph.operation import GraphEditOperation
+    from ...graph.operation import GraphEditOperation
 
-    if not graph_id:
-        graph_id = environ["GRAPH_IDS"]
-    if not datastore_ns:
-        datastore_ns = environ.get("DATASTORE_NS")
+    # if not graph_id:
+    #     graph_id = environ["GRAPH_IDS"]
+    # if not datastore_ns:
+    #     datastore_ns = environ.get("DATASTORE_NS")
+
+    graph_id = "minnie3_v1"
+    datastore_ns = "pcg_test"
 
     try:
         client = datastore.Client().from_service_account_json(
@@ -31,23 +56,13 @@ def _read_failed_logs(graph_id: str = None, datastore_ns: str = None):
     query = client.query(kind=f"{graph_id}_failed", namespace=datastore_ns)
     cg = ChunkedGraph(graph_id=graph_id)
     for log in query.fetch():
-        operation = GraphEditOperation.from_operation_id(
-            cg, log.id, multicut_as_split=False
-        )
-        ts = log["timestamp"]
-
         print(f"Re-trying operation ID {log.id}")
-        operation.execute(
-            operation_id=log.id,
-            override_ts=ts + timedelta(microseconds=(ts.microsecond % 1000) + 10),
-            parent_ts=ts - timedelta(seconds=0.1),
-        )
+        _repair_operation(cg, log)
         client.delete(log.key)
-        break
 
 
 def repair_operations():
-    _read_failed_logs()
+    _repair_failed_operations()
 
 
 if __name__ == "__main__":

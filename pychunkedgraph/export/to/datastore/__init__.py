@@ -88,6 +88,7 @@ def _get_last_timestamp(
     try:
         start_ts = export_info.get(operation_logs_config.EXPORT.LAST_EXPORT_TS)
         start_ts = datetime(*list(start_ts.utctimetuple()[:4]))
+        start_ts = start_ts - timedelta(hours=1)
     except AttributeError:
         start_ts = None
     export_ts = datetime.now()
@@ -141,14 +142,15 @@ def export_operation_logs(
     logs = operation_logs.get_logs_with_previous_roots(cg, logs)
     logs = _create_col_for_each_root(logs)
     logs = _nested_lists_to_string(logs)
-
-    # datastore limits 500 entities per request
     print(f"total logs {len(logs)}")
+
     count = 0
     failed_count = 0
+    # datastore limits 500 entities per request
     for chunk in chunked(logs, 500):
         entities = []
         for log in chunk:
+            print(log["id"])
             kind = cg.graph_id
             if log["status"] == 4:
                 kind = f"{cg.graph_id}_failed"
