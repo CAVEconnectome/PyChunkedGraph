@@ -490,7 +490,9 @@ class ChunkedGraph:
         """TODO docs"""
         single = False
         node_ids = node_id_or_ids
-        bbox = chunk_utils.normalize_bounding_box(self.meta, bbox, bbox_is_coordinate)
+        bbox = chunk_utils.normalize_bounding_box(
+            self.meta, bbox.copy(), bbox_is_coordinate
+        )
         if isinstance(node_id_or_ids, np.uint64) or isinstance(node_id_or_ids, int):
             single = True
             node_ids = [node_id_or_ids]
