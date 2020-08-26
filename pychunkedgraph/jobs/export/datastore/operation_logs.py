@@ -34,8 +34,9 @@ def run_export(chunkedgraphs: List[ChunkedGraph], datastore_ns: str = None) -> N
     Default namespace: pychunkedgraph.export.to.datastore.config.DEFAULT_NS
 
     Sends an email alert when there are failed writes.
-    These must be inspected manually and are expected to be rare.
+    These cases must be inspected manually and are expected to be rare.
     """
+    from ...alert import send_email
     from ....export.to.datastore import export_operation_logs
 
     if not datastore_ns:
@@ -46,7 +47,12 @@ def run_export(chunkedgraphs: List[ChunkedGraph], datastore_ns: str = None) -> N
         failed = export_operation_logs(cg, namespace=datastore_ns)
         if failed:
             print(f"Failed writes {failed}")
-            # send alert
+        alert_emails = environ["EMAIL_LIST_FAILED_WRITES"]
+        send_email(
+            alert_emails.split(","),
+            "Failed Writes",
+            f"TEST: There are {failed} failed writes for {cg.graph_id}.",
+        )
 
 
 if __name__ == "__main__":
