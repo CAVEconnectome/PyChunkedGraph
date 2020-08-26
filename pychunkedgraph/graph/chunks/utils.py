@@ -20,26 +20,27 @@ def normalize_bounding_box(
     if bounding_box is None:
         return None
 
+    bbox = bounding_box.copy()
     if bb_is_coordinate:
-        bounding_box[0] = _get_chunk_coordinates_from_vol_coordinates(
+        bbox[0] = _get_chunk_coordinates_from_vol_coordinates(
             meta,
-            bounding_box[0][0],
-            bounding_box[0][1],
-            bounding_box[0][2],
+            bbox[0][0],
+            bbox[0][1],
+            bbox[0][2],
             resolution=meta.resolution,
             ceil=False,
         )
-        bounding_box[1] = _get_chunk_coordinates_from_vol_coordinates(
+        bbox[1] = _get_chunk_coordinates_from_vol_coordinates(
             meta,
-            bounding_box[1][0],
-            bounding_box[1][1],
-            bounding_box[1][2],
+            bbox[1][0],
+            bbox[1][1],
+            bbox[1][2],
             resolution=meta.resolution,
             ceil=True,
         )
-        return bounding_box
+        return bbox
     else:
-        return np.array(bounding_box, dtype=np.int)
+        return np.array(bbox, dtype=np.int)
 
 
 def get_chunk_layer(meta, node_or_chunk_id: np.uint64) -> int:
