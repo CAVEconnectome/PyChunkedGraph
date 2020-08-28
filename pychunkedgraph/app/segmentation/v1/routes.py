@@ -39,13 +39,13 @@ def home():
 
 
 @bp.before_request
-@auth_required
+# @auth_required
 def before_request():
     return common.before_request()
 
 
 @bp.after_request
-@auth_required
+# @auth_required
 def after_request(response):
     return common.after_request(response)
 
