@@ -15,6 +15,8 @@ import pandas as pd
 
 from cloudvolume import compression
 
+from middle_auth_client import get_usernames
+
 from flask import current_app, g, jsonify, make_response, request
 from pychunkedgraph import __version__
 from pychunkedgraph.app import app_utils
@@ -814,6 +816,8 @@ def tabular_change_log(table_id, root_id, get_root_ids, filtered):
 
     tab = segment_history.get_tabular_changelog(with_ids=get_root_ids, 
                                                 filtered=filtered)
+    tab["user_name"] = get_usernames(np.array(tab["user_id"]).squeeze(),
+                                     current_app.config['AUTH_TOKEN'])
 
     return tab
 
