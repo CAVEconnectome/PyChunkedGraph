@@ -831,9 +831,10 @@ def tabular_change_log(table_id, root_id, get_root_ids, filtered):
 
     tab = segment_history.get_tabular_changelog(with_ids=get_root_ids, 
                                                 filtered=filtered)
-    tab["user_name"] = get_usernames(np.array(tab["user_id"]).squeeze(),
-                                     current_app.config['AUTH_TOKEN'])
-
+    username_json = get_usernames(np.array(tab["user_id"]).squeeze(),
+                                    current_app.config['AUTH_TOKEN'])
+    tab["user_name"] = [j["name"] for j in username_json]
+    
     return tab
 
 
