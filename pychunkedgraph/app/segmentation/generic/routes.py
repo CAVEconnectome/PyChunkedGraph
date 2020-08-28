@@ -3,6 +3,15 @@ from middle_auth_client import auth_requires_admin, auth_required, \
     auth_requires_permission
 from pychunkedgraph.app.segmentation import common
 
+import os
+import json
+
+if os.environ.get("DAF_CREDENTIALS", None) is not None:
+    with open(os.environ.get("DAF_CREDENTIALS"), "r") as f:
+        AUTH_TOKEN = json.load(f)["token"]
+else:
+    AUTH_TOKEN = ""
+
 bp = Blueprint("pcg_generic_v1", __name__, url_prefix=f"/{common.__segmentation_url_prefix__}")
 
 
@@ -38,7 +47,7 @@ def sleep_me(sleep):
 @bp.route("/table/<table_id>/info", methods=["GET"])
 # @auth_required
 @auth_requires_permission("view", public_table_key='table_id', 
-                          service_token=current_app.config['AUTH_TOKEN'])
+                          service_token=AUTH_TOKEN)
 def handle_info(table_id):
     return common.handle_info(table_id)
 
