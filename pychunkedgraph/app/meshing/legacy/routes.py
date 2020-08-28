@@ -1,4 +1,4 @@
-from flask import Blueprint
+from flask import Blueprint, current_app
 from middle_auth_client import auth_requires_permission, auth_required
 
 from pychunkedgraph.app.meshing import common

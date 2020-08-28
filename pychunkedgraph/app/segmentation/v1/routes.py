@@ -223,7 +223,9 @@ def handle_l2_chunk_children_binary(table_id, chunk_id):
 
 
 @bp.route("/table/<table_id>/node/<node_id>/leaves", methods=["GET"])
-@auth_requires_permission("view")
+# @auth_requires_permission("view")
+@auth_requires_permission("view", public_table_key='table_id', public_node_key='node_id', 
+                          service_token=current_app.config['AUTH_TOKEN'])
 def handle_leaves(table_id, node_id):
     int64_as_str = request.args.get("int64_as_str", default=False, type=toboolean)
     leaf_ids = common.handle_leaves(table_id, node_id)

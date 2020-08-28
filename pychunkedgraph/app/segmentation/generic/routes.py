@@ -1,4 +1,4 @@
-from flask import Blueprint
+from flask import Blueprint, current_app
 from middle_auth_client import auth_requires_admin, auth_required, \
     auth_requires_permission
 from pychunkedgraph.app.segmentation import common
@@ -36,8 +36,9 @@ def sleep_me(sleep):
 
 
 @bp.route("/table/<table_id>/info", methods=["GET"])
-# @auth_requires_permission("view")
-@auth_required
+# @auth_required
+@auth_requires_permission("view", public_table_key='table_id', 
+                          service_token=current_app.config['AUTH_TOKEN'])
 def handle_info(table_id):
     return common.handle_info(table_id)
 

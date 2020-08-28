@@ -1,4 +1,4 @@
-from flask import Blueprint
+from flask import Blueprint, current_app
 from middle_auth_client import auth_requires_permission, auth_required
 
 from pychunkedgraph.app.meshing import common
@@ -64,7 +64,8 @@ def handle_valid_frags(table_id, node_id):
 
 
 @bp.route("/table/<table_id>/manifest/<node_id>:0", methods=["GET"])
-@auth_requires_permission("view")
+@auth_requires_permission("view", public_table_key='table_id', public_node_key='node_id', 
+                          service_token=current_app.config['AUTH_TOKEN'])
 def handle_get_manifest(table_id, node_id):
     return common.handle_get_manifest(table_id, node_id)
 
