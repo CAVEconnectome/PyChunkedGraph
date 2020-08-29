@@ -493,7 +493,7 @@ def handle_split(table_id):
 
 
 def handle_undo(table_id):
-    if table_id is in ["fly_v26", "fly_v31"]:
+    if table_id in ["fly_v26", "fly_v31"]:
         raise cg_exceptions.InternalServerError(
             "Undo not supported for this chunkedgraph table."
         )
@@ -533,7 +533,7 @@ def handle_undo(table_id):
 
 
 def handle_redo(table_id):
-    if table_id is in ["fly_v26", "fly_v31"]:
+    if table_id in ["fly_v26", "fly_v31"]:
         raise cg_exceptions.InternalServerError(
             "Redo not supported for this chunkedgraph table."
         )
@@ -573,7 +573,7 @@ def handle_redo(table_id):
 
 
 def handle_rollback(table_id):
-    if table_id is in ["fly_v26", "fly_v31"]:
+    if table_id in ["fly_v26", "fly_v31"]:
         raise cg_exceptions.InternalServerError(
             "Rollback not supported for this chunkedgraph table."
         )
