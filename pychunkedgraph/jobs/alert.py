@@ -8,9 +8,9 @@ def send_email(to: Iterable[str], subject: str, message: str) -> None:
     from os import environ
     from smtplib import SMTP_SSL
 
-    email = environ["ALERT_BOT_EMAIL"]
-    password = environ["ALERT_BOT_PASSWORD"]
-    text = f"From: AlertBot <{email}>" f"\nSubject: {subject}\n{message}"
+    email = environ["ALERT_BOT_EMAIL_ID"]
+    password = environ["ALERT_BOT_EMAIL_PASSWORD"]
+    text = f"From: AlertBot <{email}>" f"\nSubject: {subject}\n\n{message}"
 
     server = SMTP_SSL("smtp.gmail.com", 465)
     server.ehlo()

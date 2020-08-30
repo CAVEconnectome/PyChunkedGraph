@@ -3,6 +3,9 @@ Export operation log data to Datastore.
 
 Accepts a comma separated list of graph IDs
 as command line argument or env variable `GRAPH_IDS`
+
+Uses `GOOGLE_APPLICATION_CREDENTIALS` service account
+if `OPERATION_LOGS_DATASTORE_CREDENTIALS` not provided.
 """
 from typing import List
 from typing import Optional
@@ -47,16 +50,17 @@ def run_export(chunkedgraphs: List[ChunkedGraph], datastore_ns: str = None) -> N
         failed = export_operation_logs(cg, namespace=datastore_ns)
         if failed:
             print(f"Failed writes {failed}")
-        alert_emails = environ["EMAIL_LIST_FAILED_WRITES"]
-        send_email(
-            alert_emails.split(","),
-            "Failed Writes",
-            f"TEST: There are {failed} failed writes for {cg.graph_id}.",
-        )
+            alert_emails = environ["EMAIL_LIST_FAILED_WRITES"]
+            send_email(
+                [e.strip() for e in alert_emails.split(",")],
+                "Failed Writes",
+                f"TEST: There are {failed} failed writes for {cg.graph_id}.",
+            )
 
 
 if __name__ == "__main__":
     from sys import argv
+    from ....export.to.datastore.config import DEFAULT_NS
 
     assert len(argv) <= 3
 
@@ -72,8 +76,9 @@ if __name__ == "__main__":
     except IndexError:
         print("`datastore_namespace` not provided, using env variable `DATASTORE_NS`.")
         print(
-            "Default `pychunkedgraph.export.to.datastore.config.DEFAULT_NS`\
-             if env variable `DATASTORE_NS` is not provided."
+            f"Default `pychunkedgraph.export.to.datastore.config.DEFAULT_NS`\n"
+            f"{DEFAULT_NS} will be used\n"
+            f"if env variable `DATASTORE_NS` is not provided."
         )
 
     run_export(_get_chunkedgraphs(graph_ids=graph_ids), datastore_ns=datastore_ns)

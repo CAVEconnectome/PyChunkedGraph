@@ -88,14 +88,16 @@ def _get_last_timestamp(
     try:
         start_ts = export_info.get(operation_logs_config.EXPORT.LAST_EXPORT_TS)
         start_ts = datetime(*list(start_ts.utctimetuple()[:4]))
-        start_ts = start_ts - timedelta(hours=1)
+        start_ts -= timedelta(hours=1)
     except AttributeError:
         start_ts = None
     export_ts = datetime.now()
     # operation status changes while operation is running
     # export is at least an hour behind to ensure all logs have a finalized status.
     end_ts = datetime(*list(export_ts.utctimetuple()[:4]))
-    end_ts = end_ts - timedelta(hours=1)
+    end_ts -= timedelta(hours=1)
+    if start_ts == end_ts:
+        end_ts += timedelta(seconds=1)
     return start_ts, end_ts, export_ts
 
 
@@ -138,6 +140,7 @@ def export_operation_logs(
         end_ts = end_ts_
 
     print(f"getting logs from chunkedgraph {cg.graph_id}")
+    print(f"start: {start_ts} end: {end_ts}")
     logs = operation_logs.get_parsed_logs(cg, start_time=start_ts, end_time=end_ts)
     logs = operation_logs.get_logs_with_previous_roots(cg, logs)
     logs = _create_col_for_each_root(logs)

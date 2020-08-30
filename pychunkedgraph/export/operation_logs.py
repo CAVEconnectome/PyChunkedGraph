@@ -49,16 +49,19 @@ def get_logs_with_previous_roots(
     Adds a new entry for new roots' previous IDs.
     And timestamps for those roots.
     """
+    from numpy import array
     from numpy import unique
     from numpy import concatenate
     from ..graph.types import empty_1d
     from ..graph.lineage import get_previous_root_ids
+    from ..graph.utils.basetypes import NODE_ID
     from ..graph.utils.context_managers import TimeIt
 
+    print(f"getting olg roots for {len(parsed_logs)} logs.")
     roots = [empty_1d]
     for log in parsed_logs:
         if len(log.roots):
-            roots.append(log.roots)
+            roots.append(array(log.roots, dtype=NODE_ID))
     roots = concatenate(roots)
     # get previous roots for all to avoid multiple network calls
     old_roots_d = get_previous_root_ids(cg, roots)
@@ -76,6 +79,7 @@ def get_logs_with_previous_roots(
             # if old roots don't exist that means writing was not successful
             # WARNING: if status is `WRITE_STARTED` writing is assumed to have failed
             # for this reason export job must be at least an hour behind current time.
+            print(log.id)
             if log.status == OperationLogs.StatusCodes.WRITE_STARTED.value:
                 log.status = OperationLogs.StatusCodes.WRITE_FAILED.value
     return parsed_logs
