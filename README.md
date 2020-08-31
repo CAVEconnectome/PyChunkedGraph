@@ -4,27 +4,19 @@
 [![Build Status](https://travis-ci.org/seung-lab/PyChunkedGraph.svg?branch=master)](https://travis-ci.org/seung-lab/PyChunkedGraph)
 [![codecov](https://codecov.io/gh/seung-lab/PyChunkedGraph/branch/master/graph/badge.svg)](https://codecov.io/gh/seung-lab/PyChunkedGraph)
 
-The PyChunkedGraph is a proofreading and segmentation data management backend with (not limited to) the following features:
-- Concurrent proofreading by multiple users without restrictions on the workflow
-- Continuous versioning of proofreading edits
-- Making changes visible to all users immediately
-- Local mincut computations
+The PyChunkedGraph is a proofreading and segmentation data management backend powering FlyWire and other proofreading platforms. 
 
-## Scaling to large datasets
-
-
-## Deployment 
-
-While the PyChunkedGraph can be deployed as a stand-alone entity, we deploy it within our [annotation infrastructure](https://github.com/seung-lab/AnnotationPipelineOverview) which uses a CI Kubernetes deployment. We will make instructions and scripts for a mostly automated deployment to Google Cloud available soon.
-
-## Building your own PyChunkedGraph
-
-
-
-## System Design
-
-As a backend the PyChunkedGraph can be combined with any frontend that adheres to its API. We use an adapted version of [neuroglancer](https://github.com/seung-lab/neuroglancer/tree/nkem-multicut) which is publicly available.
-
-
-[system_design]: https://github.com/seung-lab/PyChunkedGraph/blob/master/ProofreadingDiagram.png "System Design"
-![alt text][system_design]
+\[1\] [FlyWire: Online community for whole-brain connectomics](https://www.biorxiv.org/content/10.1101/2020.08.30.274225v1)
+```
+@article {FlyWire2020,
+  	  author = {Dorkenwald, Sven and McKellar, Claire and Macrina, Thomas and Kemnitz, Nico and Lee, Kisuk and Lu, Ran and Wu, Jingpeng and Popovych, Sergiy and Mitchell, Eric and Nehoran, Barak and Jia, Zhen and Bae, J. Alexander and Mu, Shang and Ih, Dodam and Castro, Manuel and Ogedengbe, Oluwaseun and Halageri, Akhilesh and Ashwood, Zoe and Zung, Jonathan and Brittain, Derrick and Collman, Forrest and Schneider-Mizell, Casey and Jordan, Chris and Silversmith, William and Baker, Christa and Deutsch, David M and Encarnacion-Rivera, Lucas and Kumar, Sandeep and Burke, Austin and Gager, Jay and Hebditch, James and Koolman, Selden and Moore, Merlin and Morejohn, Sarah and Silverman, Ben and Willie, Kyle and Willie, Ryan and Yu, Szi-chieh and Murthy, Mala and Seung, Hyunjune Sebastian},
+	  title = {FlyWire: Online community for whole-brain connectomics},
+	  elocation-id = {2020.08.30.274225},
+	  year = {2020},
+	  doi = {10.1101/2020.08.30.274225},
+	  publisher = {Cold Spring Harbor Laboratory},
+	  URL = {https://www.biorxiv.org/content/early/2020/08/30/2020.08.30.274225},
+	  eprint = {https://www.biorxiv.org/content/early/2020/08/30/2020.08.30.274225.full.pdf},
+	  journal = {bioRxiv}
+}
+```
