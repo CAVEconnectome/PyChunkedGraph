@@ -194,6 +194,33 @@ class ChunkedGraph:
             return [(p.value, p.timestamp) for p in parents]
         return self.cache.parent(node_id)
 
+    def mask_nodes_by_bounding_box(self,
+                                   nodes: typing.Union[typing.Iterable[np.uint64], np.uint64],
+                                   bounding_box: typing.Optional[typing.Sequence[typing.Sequence[int]]] = None):
+        if bounding_box is None:
+            return np.ones(len(nodes), np.bool)
+        else:
+            chunk_coordinates = np.array(
+                        [self.get_chunk_coordinates(c) for c in nodes]
+                    )
+            layers = self.get_chunk_layers(nodes)
+            adapt_layers = layers - 2
+            adapt_layers[adapt_layers < 0] = 0
+            fanout = self.meta.graph_config.FANOUT
+            bounding_box_layer = (
+                bounding_box[None] / (fanout ** adapt_layers)[:, None, None]
+            )
+            bound_check = np.array(
+                [
+                    np.all(chunk_coordinates < bounding_box_layer[:, 1], axis=1),
+                    np.all(
+                        chunk_coordinates + 1 > bounding_box_layer[:, 0], axis=1
+                    ),
+                ]
+            ).T
+
+            return np.all(bound_check, axis=1)
+
     def get_children(
         self,
         node_id_or_ids: typing.Union[typing.Iterable[np.uint64], np.uint64],

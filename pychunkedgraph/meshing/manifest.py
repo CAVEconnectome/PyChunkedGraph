@@ -39,6 +39,7 @@ def get_highest_child_nodes_with_meshes(
         cg,
         node_id,
         stop_layer=stop_layer,
+        start_layer=start_layer,
         verify_existence=verify_existence,
         bounding_box=bounding_box,
     )
@@ -264,30 +265,36 @@ def _get_mesh_paths(cg, node_ids: Sequence[np.uint64], stop_layer: int = 2,) -> 
     result.update(new_meshes_d)
     return result
 
-
-def _get_children_before_start_layer(cg, node_id: np.uint64, start_layer: int = 6):
+def _get_children_before_start_layer(cg, node_id: np.uint64,
+                                     start_layer: int = 6,
+                                     bounding_box = None):
     if cg.get_chunk_layer(node_id) == 2:
         return np.array([node_id], dtype=NODE_ID)
     result = [empty_1d]
     parents = np.array([node_id], dtype=np.uint64)
     while parents.size:
         children = cg.get_children(parents, flatten=True)
+        bound_mask = cg.mask_nodes_by_bounding_box(children, bounding_box=bounding_box)
         layers = cg.get_chunk_layers(children)
-        result.append(children[layers <= start_layer])
-        parents = children[layers > start_layer]
+        result.append(children[(layers <= start_layer) & bound_mask])
+        parents = children[(layers > start_layer) &  bound_mask]
     return np.concatenate(result)
 
 
 def children_meshes_sharded(
-    cg, node_id: np.uint64, stop_layer=2, verify_existence=False, bounding_box=None,
+    cg, node_id: np.uint64, stop_layer=2, start_layer=None,
+    bounding_box=None, verify_existence=False
 ):
     """
     For each ID, first check for new meshes,
     If not found check initial meshes.
     """
-    MAX_STITCH_LAYER = cg.meta.custom_data.get("mesh", {}).get("max_layer", 2)
+    if start_layer is None:
+        MAX_STITCH_LAYER = cg.meta.custom_data.get("mesh", {}).get("max_layer", 2)
+    else:
+        MAX_STITCH_LAYER = start_layer
     start = time()
-    node_ids = _get_children_before_start_layer(cg, node_id, MAX_STITCH_LAYER)
+    node_ids = _get_children_before_start_layer(cg, node_id, MAX_STITCH_LAYER, bounding_box=bounding_box)
     print(f"children_before_start_layer {time() - start}, count {len(node_ids)}")
 
     start = time()
