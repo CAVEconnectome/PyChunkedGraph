@@ -67,3 +67,10 @@ def handle_valid_frags(table_id, node_id):
 @auth_requires_permission("view")
 def handle_get_manifest(table_id, node_id):
     return common.handle_get_manifest(table_id, node_id)
+
+## ENQUE MESHING JOBS ----------------------------------------------------------
+
+@bp.route("/table/<table_id>/remeshing", methods=["POST"])
+@auth_requires_permission("edit")
+def handle_remesh(table_id):
+    return common.handle_remesh(table_id)

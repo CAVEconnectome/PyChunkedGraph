@@ -41,6 +41,7 @@ def normalize_bounding_box(
     return np.array(bbox, dtype=np.int)
 
 
+
 def get_chunk_layer(meta, node_or_chunk_id: np.uint64) -> int:
     """ Extract Layer from Node ID or Chunk ID """
     return int(int(node_or_chunk_id) >> 64 - meta.graph_config.LAYER_ID_BITS)

@@ -5,12 +5,16 @@ import numpy as np
 import time
 from datetime import datetime
 import traceback
+import redis
+from rq import Queue, Connection, Retry
 from flask import Response, current_app, g, jsonify, make_response, request
+import threading
 
 from pychunkedgraph import __version__
 from pychunkedgraph.app import app_utils
 from pychunkedgraph.graph import chunkedgraph
-from pychunkedgraph.meshing import meshgen, meshgen_utils
+from pychunkedgraph.app.meshing import tasks as meshing_tasks
+from pychunkedgraph.meshing import meshgen
 
 
 # -------------------------------
@@ -18,6 +22,9 @@ from pychunkedgraph.meshing import meshgen, meshgen_utils
 # -------------------------------
 
 __meshing_url_prefix__ = os.environ.get("MESHING_URL_PREFIX", "meshing")
+
+def str2bool(v):
+    return v.lower() in ("yes", "true", "t", "1")
 
 
 def index():
@@ -32,29 +39,6 @@ def home():
     resp.headers["Access-Control-Allow-Methods"] = "POST, GET, OPTIONS"
     resp.headers["Connection"] = "keep-alive"
     return resp
-
-
-def _remeshing(serialized_cg_info, lvl2_nodes):
-    cg = chunkedgraph.ChunkedGraph(**serialized_cg_info)
-    cv_mesh_dir = cg.meta.dataset_info["mesh"]
-    cv_unsharded_mesh_dir = cg.meta.dataset_info["mesh_metadata"]["unsharded_mesh_dir"]
-    cv_unsharded_mesh_path = os.path.join(
-        cg.meta.data_source.WATERSHED, cv_mesh_dir, cv_unsharded_mesh_dir
-    )
-    mesh_data = cg.meta.custom_data["mesh"]
-
-    # TODO: stop_layer and mip should be configurable by dataset
-    meshgen.remeshing(
-        cg,
-        lvl2_nodes,
-        stop_layer=mesh_data["max_layer"],
-        mip=mesh_data["mip"],
-        max_err=mesh_data["max_error"],
-        cv_sharded_mesh_dir=cv_mesh_dir,
-        cv_unsharded_mesh_path=cv_unsharded_mesh_path,
-    )
-
-    return Response(status=200)
 
 
 # -------------------------------
@@ -270,3 +254,73 @@ def _check_post_options(cg, resp, data, seg_ids):
             cg.get_chunk_coordinates(seg_id) for seg_id in seg_ids
         ]
     return resp
+
+
+def str2bool(v):
+  return v.lower() in ("yes", "true", "t", "1")
+
+## REMESHING -----------------------------------------------------
+def handle_remesh(table_id):
+    current_app.request_type = "remesh_enque"
+    current_app.table_id = table_id
+    is_priority = request.args.get('priority', True, type=str2bool)
+    is_redisjob = request.args.get('use_redis', False, type=str2bool)
+    user_id = str(g.auth_user["id"])
+    current_app.user_id = user_id
+
+    new_lvl2_ids = json.loads(request.data)["new_lvl2_ids"]
+    
+    if is_redisjob:    
+        with Connection(redis.from_url(current_app.config["REDIS_URL"])):
+            
+            if is_priority:
+                retry = Retry(max=3, interval=[1, 10, 60])
+                queue_name = "mesh-chunks"
+            else:
+                retry = Retry(max=3, interval=[60, 60, 60])
+                queue_name = "mesh-chunks-low-priority"
+            q = Queue(queue_name, retry=retry, default_timeout=1200)
+            task = q.enqueue(meshing_tasks.remeshing, table_id, 
+                             new_lvl2_ids)
+
+        response_object = {
+            "status": "success",
+            "data": {
+                "task_id": task.get_id()
+            }
+        }
+        
+        return jsonify(response_object), 202
+    else:
+        new_lvl2_ids = np.array(new_lvl2_ids, dtype=np.uint64)
+        cg = app_utils.get_cg(table_id)
+        
+        if len(new_lvl2_ids) > 0:
+            t = threading.Thread(target=_remeshing, 
+                                 args=(cg.get_serialized_info(), new_lvl2_ids))
+            t.start()
+    
+        return Response(status=202)
+
+
+def _remeshing(serialized_cg_info, lvl2_nodes):
+    cg = chunkedgraph.ChunkedGraph(**serialized_cg_info)
+    cv_mesh_dir = cg.meta.dataset_info["mesh"]
+    cv_unsharded_mesh_dir = cg.meta.dataset_info["mesh_metadata"]["unsharded_mesh_dir"]
+    cv_unsharded_mesh_path = os.path.join(
+        cg.meta.data_source.WATERSHED, cv_mesh_dir, cv_unsharded_mesh_dir
+    )
+    mesh_data = cg.meta.custom_data["mesh"]
+
+    # TODO: stop_layer and mip should be configurable by dataset
+    meshgen.remeshing(
+        cg,
+        lvl2_nodes,
+        stop_layer=mesh_data["max_layer"],
+        mip=mesh_data["mip"],
+        max_err=mesh_data["max_error"],
+        cv_sharded_mesh_dir=cv_mesh_dir,
+        cv_unsharded_mesh_path=cv_unsharded_mesh_path,
+    )
+    
+    return Response(status=200)

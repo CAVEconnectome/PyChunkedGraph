@@ -5,6 +5,7 @@ import time
 import traceback
 import gzip
 import os
+import requests  
 from io import BytesIO as IO
 from datetime import datetime
 
@@ -17,7 +18,6 @@ from cloudvolume import compression
 from flask import current_app, g, jsonify, make_response, request
 from pychunkedgraph import __version__
 from pychunkedgraph.app import app_utils
-from pychunkedgraph.app.meshing.common import _remeshing
 from pychunkedgraph.graph import attributes, cutting, exceptions as cg_exceptions
 # from pychunkedgraph.graph import history as cg_history
 from pychunkedgraph.graph.analysis import pathing
@@ -319,6 +319,17 @@ def handle_l2_chunk_children(table_id, chunk_id, as_array):
 
         return l2_chunk_dict
 
+def str2bool(v):
+    return v.lower() in ("yes", "true", "t", "1")
+
+def trigger_remesh(table_id, new_lvl2_ids, is_priority=True):
+    auth_header = {"Authorization": f"Bearer {current_app.config['AUTH_TOKEN']}"}
+    resp = requests.post(f"{current_app.config['MESHING_ENDPOINT']}/api/v1/table/{table_id}/remeshing",
+                            data=json.dumps({"new_lvl2_ids": new_lvl2_ids},
+                                            cls=current_app.json_encoder), 
+                            params={'priority': is_priority},
+                            headers=auth_header)
+    resp.raise_for_status()
 
 ### MERGE ----------------------------------------------------------------------
 
@@ -327,6 +338,7 @@ def handle_merge(table_id):
     current_app.table_id = table_id
 
     nodes = json.loads(request.data)
+    is_priority = request.args.get('priority', True, type=str2bool)
     user_id = str(g.auth_user["id"])
     current_app.user_id = user_id
 
@@ -387,11 +399,8 @@ def handle_merge(table_id):
     current_app.logger.debug(("lvl2_nodes:", ret.new_lvl2_ids))
 
     if len(ret.new_lvl2_ids) > 0:
-        # _remeshing(cg.get_serialized_info(), ret.new_lvl2_ids)
-        t = threading.Thread(
-            target=_remeshing, args=(cg.get_serialized_info(), ret.new_lvl2_ids)
-        )
-        t.start()
+        trigger_remesh(table_id, ret.new_lvl2_ids, is_priority=is_priority)
+
 
     return ret
 
@@ -403,6 +412,7 @@ def handle_split(table_id):
     current_app.table_id = table_id
 
     data = json.loads(request.data)
+    is_priority = request.args.get('priority', True, type=str2bool)
     user_id = str(g.auth_user["id"])
     current_app.user_id = user_id
 
@@ -462,11 +472,8 @@ def handle_split(table_id):
     current_app.logger.debug(("lvl2_nodes:", ret.new_lvl2_ids))
 
     if len(ret.new_lvl2_ids) > 0:
-        # _remeshing(cg.get_serialized_info(), ret.new_lvl2_ids)
-        t = threading.Thread(
-            target=_remeshing, args=(cg.get_serialized_info(), ret.new_lvl2_ids)
-        )
-        t.start()
+        trigger_remesh(table_id, ret.new_lvl2_ids, is_priority=is_priority)
+
 
     return ret
 
@@ -478,6 +485,7 @@ def handle_undo(table_id):
     current_app.table_id = table_id
 
     data = json.loads(request.data)
+    is_priority = request.args.get('priority', True, type=str2bool)
     user_id = str(g.auth_user["id"])
     current_app.user_id = user_id
 
@@ -498,11 +506,8 @@ def handle_undo(table_id):
     current_app.logger.debug(("lvl2_nodes:", ret.new_lvl2_ids))
 
     if ret.new_lvl2_ids.size > 0:
-        # _remeshing(cg.get_serialized_info(), ret.new_lvl2_ids)
-        t = threading.Thread(
-            target=_remeshing, args=(cg.get_serialized_info(), ret.new_lvl2_ids)
-        )
-        t.start()
+        trigger_remesh(table_id, ret.new_lvl2_ids, is_priority=is_priority)
+
 
     return ret
 
@@ -514,6 +519,7 @@ def handle_redo(table_id):
     current_app.table_id = table_id
 
     data = json.loads(request.data)
+    is_priority = request.args.get('priority', True, type=str2bool)
     user_id = str(g.auth_user["id"])
     current_app.user_id = user_id
 
@@ -534,13 +540,10 @@ def handle_redo(table_id):
     current_app.logger.debug(("lvl2_nodes:", ret.new_lvl2_ids))
 
     if ret.new_lvl2_ids.size > 0:
-        # _remeshing(cg.get_serialized_info(), ret.new_lvl2_ids)
-        t = threading.Thread(
-            target=_remeshing, args=(cg.get_serialized_info(), ret.new_lvl2_ids)
-        )
-        t.start()
+        trigger_remesh(table_id, ret.new_lvl2_ids, is_priority=is_priority)
 
     return ret
+
 
 
 ### CHILDREN -------------------------------------------------------------------
