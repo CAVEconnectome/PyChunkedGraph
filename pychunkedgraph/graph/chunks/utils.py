@@ -38,9 +38,8 @@ def normalize_bounding_box(
             resolution=meta.resolution,
             ceil=True,
         )
-        return bbox
-    else:
-        return np.array(bbox, dtype=np.int)
+    return np.array(bbox, dtype=np.int)
+
 
 
 def get_chunk_layer(meta, node_or_chunk_id: np.uint64) -> int:

@@ -1,10 +1,5 @@
 from abc import ABC
-from abc import ABCMeta
 from abc import abstractmethod
-
-import numpy as np
-
-from ..meta import ChunkedGraphMeta
 
 
 class SimpleClient(ABC):
@@ -24,14 +19,6 @@ class SimpleClient(ABC):
     @abstractmethod
     def read_graph_meta(self):
         """Read stored graph meta."""
-
-    @abstractmethod
-    def update_graph_provenance(self, provenance):
-        """Update how the graph was created."""
-
-    @abstractmethod
-    def read_graph_provenance(self):
-        """Read how the graph was created."""
 
     @abstractmethod
     def read_nodes(
@@ -73,8 +60,23 @@ class SimpleClient(ABC):
         """Locks root nodes to prevent race conditions."""
 
     @abstractmethod
+    def lock_root_indefinitely(self, node_id, operation_id):
+        """Locks root node with operation_id to prevent race conditions."""
+
+    @abstractmethod
+    def lock_roots_indefinitely(self, node_ids, operation_id):
+        """
+        Locks root nodes indefinitely to prevent structural damage to graph.
+        This scenario is rare and needs asynchronous fix or inspection to unlock.
+        """
+
+    @abstractmethod
     def unlock_root(self, node_id, operation_id):
         """Unlocks root node that is locked with operation_id."""
+
+    @abstractmethod
+    def unlock_indefinitely_locked_root(self, node_id, operation_id):
+        """Unlocks root node that is indefinitely locked with operation_id."""
 
     @abstractmethod
     def renew_lock(self, node_id, operation_id):
@@ -105,15 +107,15 @@ class ClientWithIDGen(SimpleClient):
     """
 
     @abstractmethod
-    def create_node_ids(self, chunk_id: np.uint64):
+    def create_node_ids(self, chunk_id):
         """Generate a range of unique IDs in the chunk."""
 
     @abstractmethod
-    def create_node_id(self, chunk_id: np.uint64):
+    def create_node_id(self, chunk_id):
         """Generate a unique ID in the chunk."""
 
     @abstractmethod
-    def get_max_node_id(self, chunk_id: np.uint64):
+    def get_max_node_id(self, chunk_id):
         """Gets the current maximum node ID in the chunk."""
 
     @abstractmethod
@@ -127,8 +129,8 @@ class ClientWithIDGen(SimpleClient):
 
 class OperationLogger(ABC):
     """
-    Abstract class for interacting with backend data store where the chunkedgraph is stored.
-    Eg., BigTableClient for using big table as storage.
+    Abstract class for interacting with backend data store where the operation logs are stored.
+    Eg., BigTableClient can be used to store logs in Google BigTable.
     """
 
     # TODO add functions for writing

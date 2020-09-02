@@ -2,6 +2,7 @@
 Functions for tracking root ID changes over time.
 """
 from typing import Optional
+from typing import Iterable
 from datetime import datetime
 
 import numpy as np
@@ -67,7 +68,7 @@ def get_past_root_ids(
     cg, root_id: np.uint64, time_stamp: Optional[datetime] = get_min_time(),
 ) -> np.ndarray:
     """
-    Returns all future root ids emerging from this root.
+    Returns all past root ids emerging from this root.
     This search happens in a monotic fashion. At no point are future root
     ids of past root ids taken into account.
     """
@@ -98,6 +99,17 @@ def get_past_root_ids(
                     id_history.append(next_id)
         next_ids = temp_next_ids
     return np.unique(np.array(id_history, dtype=np.uint64))
+
+
+def get_previous_root_ids(cg, root_ids: Iterable[np.uint64],) -> dict:
+    """Returns immediate former root IDs (1 step history)"""
+    nodes_d = cg.client.read_nodes(
+        node_ids=root_ids, properties=attributes.Hierarchy.FormerParent,
+    )
+    result = {}
+    for root, val in nodes_d.items():
+        result[root] = val[0].value
+    return result
 
 
 def get_root_id_history(

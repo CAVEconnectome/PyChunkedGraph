@@ -18,6 +18,7 @@ from .ran_agglomeration import get_active_edges
 from .initialization.atomic_layer import add_atomic_edges
 from .initialization.abstract_layers import add_layer
 from ..utils.redis import keys as r_keys
+from ..graph.meta import ChunkedGraphMeta
 from ..graph.chunks.hierarchy import get_children_chunk_coords
 
 
@@ -26,7 +27,7 @@ def _post_task_completion(imanager: IngestionManager, layer: int, coords: np.nda
     # remove from queued hash and put in completed hash
     imanager.redis.hdel(f"{layer}q", chunk_str)
     imanager.redis.hset(f"{layer}c", chunk_str, "")
-    return
+    return  # TODO remove this once ingest process is robust
 
     parent_layer = layer + 1
     if parent_layer > imanager.chunkedgraph_meta.layer_count:
@@ -76,7 +77,7 @@ def create_parent_chunk(
 
 def enqueue_atomic_tasks(imanager: IngestionManager):
     imanager.redis.flushdb()
-    chunk_coords = _get_test_chunks()
+    chunk_coords = _get_test_chunks(imanager.cg.meta)
 
     if not imanager.config.TEST_RUN:
         atomic_chunk_bounds = imanager.chunkedgraph_meta.layer_chunk_bounds[2]
@@ -116,29 +117,10 @@ def _create_atomic_chunk(im_info: str, coord: Sequence[int]):
     _post_task_completion(imanager, 2, coord)
 
 
-def _get_test_chunks():
-    # test chunks
-    # pinky100
-    # chunk_coords = [
-    #     [42, 24, 10],
-    #     [42, 24, 11],
-    #     [42, 25, 10],
-    #     [42, 25, 11],
-    #     [43, 24, 10],
-    #     [43, 24, 11],
-    #     [43, 25, 10],
-    #     [43, 25, 11],
-    # ]
-
-    # minnie 65
-    chunk_coords = [
-        [300, 100, 10],
-        [300, 100, 11],
-        [300, 101, 10],
-        [300, 101, 11],
-        [301, 100, 10],
-        [301, 100, 11],
-        [301, 101, 10],
-        [301, 101, 11],
-    ]
-    return chunk_coords
+def _get_test_chunks(meta: ChunkedGraphMeta):
+    """
+    Returns chunks that lie at the center of the dataset
+    """
+    f = lambda r1, r2, r3: np.array(np.meshgrid(r1, r2, r3), dtype=int).T.reshape(-1, 3)
+    x, y, z = np.array(meta.layer_chunk_bounds[2]) // 2
+    return f((x, x + 1), (y, y + 1), (z, z + 1))

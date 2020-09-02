@@ -26,7 +26,7 @@ from pychunkedgraph.graph import attributes  # noqa
 from pychunkedgraph.meshing import meshgen_utils  # noqa
 
 # Change below to true if debugging and want to see results in stdout
-PRINT_FOR_DEBUGGING = True
+PRINT_FOR_DEBUGGING = False
 # Change below to false if debugging and do not need to write to cloud (warning: do not deploy w/ below set to false)
 WRITING_TO_CLOUD = True
 
@@ -206,7 +206,7 @@ def get_higher_to_lower_remapping(cg, chunk_id, time_stamp):
         return np.concatenate([lower_remaps[k] for k in ks])
 
     assert cg.get_chunk_layer(chunk_id) >= 2
-    assert cg.get_chunk_layer(chunk_id) <= cg.n_layers
+    assert cg.get_chunk_layer(chunk_id) <= cg.meta.layer_count
 
     print(f"\n{chunk_id} ----------------\n")
 
@@ -548,9 +548,10 @@ def get_meshing_necessities_from_graph(cg, chunk_id: np.uint64, mip: int):
     layer = cg.get_chunk_layer(chunk_id)
     cx, cy, cz = cg.get_chunk_coordinates(chunk_id)
     mesh_block_shape = meshgen_utils.get_mesh_block_shape_for_mip(cg, layer, mip)
+    voxel_resolution = cg.meta.cv.mip_resolution(mip)
     chunk_offset = (
         (cx, cy, cz) * mesh_block_shape + cg.meta.cv.mip_voxel_offset(mip)
-    ) * cg.meta.cv.mip_resolution(mip)
+    ) * voxel_resolution
     return layer, mesh_block_shape, chunk_offset
 
 
@@ -589,7 +590,7 @@ def get_draco_encoding_settings_for_chunk(
     _, mesh_block_shape, chunk_offset = get_meshing_necessities_from_graph(
         cg, chunk_id, mip
     )
-    segmentation_resolution = cg.meta.cv.scales[mip]["resolution"]
+    segmentation_resolution = cg.meta.cv.mip_resolution(mip)
     min_quantization_range = max(
         (mesh_block_shape + high_padding) * segmentation_resolution
     )
@@ -620,7 +621,7 @@ def get_next_layer_draco_encoding_settings(
     _, mesh_block_shape, chunk_offset = get_meshing_necessities_from_graph(
         cg, next_layer_chunk_id, mip
     )
-    segmentation_resolution = cg.meta.cv.scales[mip]["resolution"]
+    segmentation_resolution = cg.meta.cv.mip_resolution(mip)
     min_quantization_range = (
         max(mesh_block_shape * segmentation_resolution) + 2 * old_draco_bin_size
     )
@@ -846,7 +847,7 @@ def remeshing(
         if PRINT_FOR_DEBUGGING:
             print("remeshing", chunk_id, node_ids)
         # Remesh the l2_node_ids
-        chunk_initial_unsharded_mesh_task(
+        chunk_initial_mesh_task(
             None,
             chunk_id,
             mip=mip,
@@ -854,6 +855,7 @@ def remeshing(
             cg=cg,
             cv_unsharded_mesh_path=cv_unsharded_mesh_path,
             max_err=max_err,
+            sharded=False,
         )
     chunk_dicts = []
     max_layer = stop_layer or cg._n_layers
@@ -889,8 +891,7 @@ def remeshing(
 
 
 # @redis_job(REDIS_URL, 'mesh_frag_test_channel')
-# @profile
-def chunk_initial_unsharded_mesh_task(
+def chunk_initial_mesh_task(
     cg_name,
     chunk_id,
     cv_unsharded_mesh_path,
@@ -903,6 +904,9 @@ def chunk_initial_unsharded_mesh_task(
     return_frag_count=False,
     node_id_subset=None,
     cg=None,
+    sharded=False,
+    cv_graphene_path=None,
+    cv_mesh_dir=None,
 ):
     if cg is None:
         cg = ChunkedGraph(graph_id=cg_name)
@@ -913,6 +917,17 @@ def chunk_initial_unsharded_mesh_task(
     high_padding = 1
     assert layer == 2
     assert mip >= cg.meta.cv.mip
+
+    if sharded:
+        assert cv_graphene_path is not None
+        assert cv_mesh_dir is not None
+        cv = CloudVolume(cv_graphene_path, mesh_dir=cv_mesh_dir)
+        sharding_info = cv.mesh.meta.info["sharding"]["2"]
+        sharding_spec = ShardingSpecification.from_dict(sharding_info)
+        merged_meshes = {}
+        mesh_dst = os.path.join(cv.cloudpath, cv.mesh.meta.mesh_path, "initial", str(layer))
+    else:
+        mesh_dst = cv_unsharded_mesh_path
 
     result.append((chunk_id, layer, cx, cy, cz))
     print(
@@ -942,9 +957,9 @@ def chunk_initial_unsharded_mesh_task(
         return np.unique(seg).shape[0]
     mesher.mesh(seg.T)
     del seg
-    with Storage(cv_unsharded_mesh_path) as storage:
+    with Storage(mesh_dst) as storage:
         if PRINT_FOR_DEBUGGING:
-            print("cv path", cv_unsharded_mesh_path)
+            print("cv path", mesh_dst)
             print("num ids", len(mesher.ids()))
         result.append(len(mesher.ids()))
         for obj_id in mesher.ids():
@@ -970,16 +985,28 @@ def chunk_initial_unsharded_mesh_task(
                 file_contents = mesh.to_precomputed()
                 compress = True
             if WRITING_TO_CLOUD:
-                storage.put_file(
-                    file_path=f"{meshgen_utils.get_mesh_name(cg, obj_id)}",
-                    content=file_contents,
-                    compress=compress,
-                    cache_control="public",
-                )
+                if sharded:
+                    merged_meshes[int(obj_id)] = file_contents
+                else:
+                    storage.put_file(
+                        file_path=f"{meshgen_utils.get_mesh_name(cg, obj_id)}",
+                        content=file_contents,
+                        compress=compress,
+                        cache_control="public",
+                    )
+        if sharded and WRITING_TO_CLOUD:
+            shard_binary = sharding_spec.synthesize_shard(merged_meshes)
+            shard_filename = cv.mesh.readers[layer].get_filename(chunk_id)
+            storage.put_file(
+                shard_filename,
+                shard_binary,
+                content_type="application/octet-stream",
+                compress=False,
+                cache_control="public",
+            )
     if PRINT_FOR_DEBUGGING:
         print(", ".join(str(x) for x in result))
-    return ", ".join(str(x) for x in result)
-
+    return result
 
 def get_multi_child_nodes(cg, chunk_id, node_id_subset=None, chunk_bbox_string=False):
     if node_id_subset is None:
@@ -1000,10 +1027,13 @@ def get_multi_child_nodes(cg, chunk_id, node_id_subset=None, chunk_bbox_string=F
             for fragment in child_fragments_for_node
         ]
     )
+    # Filter out node ids that do not have roots (caused by failed ingest tasks)
+    root_ids = cg.get_roots(node_ids)
     # Only keep nodes with more than one child
-    multi_child_mask = [len(fragments) > 1 for fragments in child_fragments]
-    multi_child_node_ids = node_ids[multi_child_mask]
-    multi_child_children_ids = child_fragments[multi_child_mask]
+    multi_child_mask = np.array([len(fragments) > 1 for fragments in child_fragments], dtype=np.bool)
+    root_id_mask = np.array([root_id != 0 for root_id in root_ids], dtype=np.bool)
+    multi_child_node_ids = node_ids[multi_child_mask & root_id_mask]
+    multi_child_children_ids = child_fragments[multi_child_mask & root_id_mask]
     # Store how many children each node has, because we will retrieve all children at once
     multi_child_num_children = [len(children) for children in multi_child_children_ids]
     child_fragments_flat = np.array(
@@ -1236,7 +1266,6 @@ def chunk_stitch_remeshing_task(
     return ", ".join(str(x) for x in result)
 
 
-# @redis_job(REDIS_URL, 'mesh_frag_test_channel')
 def chunk_initial_sharded_stitching_task(
     cg_name, chunk_id, mip, cv_graphene_path, cv_mesh_dir, cg=None, high_padding=1
 ):
@@ -1347,10 +1376,9 @@ def chunk_initial_sharded_stitching_task(
             shard_binary,
             content_type="application/octet-stream",
             compress=False,
-            cache_control="no-cache",
+            cache_control="public",
         )
     total_time = time.time() - start_existence_check_time
-    import pickle
 
     ret = {
         "chunk_id": chunk_id,
@@ -1360,4 +1388,4 @@ def chunk_initial_sharded_stitching_task(
         "number_frag": number_frags_proc,
         "bad meshes": bad_meshes,
     }
-    return pickle.dumps(ret)
+    return ret

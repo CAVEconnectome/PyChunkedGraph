@@ -3,7 +3,8 @@
 import numpy as np
 import datetime
 import collections
-from typing import Optional, Sequence
+from typing import Optional
+from typing import Sequence
 
 from multiwrapper import multiprocessing_utils as mu
 
@@ -58,6 +59,29 @@ def _read_root_rows_thread(args) -> list:
     return root_ids
 
 
+def get_proofread_root_ids(
+    cg: ChunkedGraph,
+    start_time: Optional[datetime.datetime] = None,
+    end_time: Optional[datetime.datetime] = None,
+):
+    log_entries = cg.client.read_log_entries(
+        start_time=start_time,
+        end_time=end_time,
+        properties=[attributes.OperationLogs.RootID],
+    )
+    new_roots = np.concatenate(
+        [e[attributes.OperationLogs.RootID] for e in log_entries.values()]
+    )
+    root_rows = cg.client.read_nodes(
+        node_ids=new_roots, properties=[attributes.Hierarchy.FormerParent]
+    )
+    old_roots = np.concatenate(
+        [e[attributes.Hierarchy.FormerParent][0].value for e in root_rows.values()]
+    )
+
+    return old_roots, new_roots
+
+
 def get_latest_roots(
     cg, time_stamp: Optional[datetime.datetime] = None, n_threads: int = 1
 ) -> Sequence[np.uint64]:
@@ -99,7 +123,7 @@ def get_latest_roots(
 
 
 def get_delta_roots(
-    cg,
+    cg: ChunkedGraph,
     time_stamp_start: datetime.datetime,
     time_stamp_end: Optional[datetime.datetime] = None,
     min_seg_id: int = 1,
@@ -141,7 +165,10 @@ def get_contact_sites(
     # Get information about the root id
     # All supervoxels
     sv_ids = cg.get_subgraph(
-        root_id, bounding_box=bounding_box, bb_is_coordinate=bb_is_coordinate, nodes_only=True
+        root_id,
+        bounding_box=bounding_box,
+        bb_is_coordinate=bb_is_coordinate,
+        nodes_only=True,
     )
     # All edges that are _not_ connected / on
     edges, affs, areas = cg.get_subgraph_edges(

@@ -42,11 +42,11 @@ def ingest_graph(
         except yaml.YAMLError as exc:
             print(exc)
 
-    meta, ingest_config, _ = bootstrap(
+    meta, ingest_config, client_info = bootstrap(
         graph_id, config=config, overwrite=overwrite, raw=raw, test_run=test,
     )
     # TODO overwrite -  deleting and creating new table immediately causes problems
-    cg = ChunkedGraph(meta=meta)
+    cg = ChunkedGraph(meta=meta, client_info=client_info)
     cg.create()
     enqueue_atomic_tasks(IngestionManager(ingest_config, meta))
 

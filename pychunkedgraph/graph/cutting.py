@@ -436,7 +436,7 @@ def run_split_preview(
     sink_coords: Sequence[Sequence[int]],
     bb_offset: Tuple[int, int, int] = (120, 120, 12),
 ):
-    root_ids = set(cg.get_roots(np.concatenate([source_ids, sink_ids])))
+    root_ids = set(cg.get_roots(np.concatenate([source_ids, sink_ids]), assert_roots=True))
     if len(root_ids) > 1:
         raise PreconditionError("Supervoxels must belong to the same object.")
 
