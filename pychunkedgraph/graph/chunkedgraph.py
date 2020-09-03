@@ -722,28 +722,7 @@ class ChunkedGraph:
         ) -> typing.List[np.uint64]:
             children = self.get_children(node_ids, flatten=True)
             if len(children) > 0 and bounding_box is not None:
-                chunk_coordinates = np.array(
-                    [self.get_chunk_coordinates(c) for c in children]
-                )
-                child_layers = self.get_chunk_layers(children)
-                adapt_child_layers = child_layers - 2
-                adapt_child_layers[adapt_child_layers < 0] = 0
-
-                fanout = self.meta.graph_config.FANOUT
-                bounding_box_layer = (
-                    bounding_box[None] / (fanout ** adapt_child_layers)[:, None, None]
-                )
-
-                bound_check = np.array(
-                    [
-                        np.all(chunk_coordinates < bounding_box_layer[:, 1], axis=1),
-                        np.all(
-                            chunk_coordinates + 1 > bounding_box_layer[:, 0], axis=1
-                        ),
-                    ]
-                ).T
-
-                bound_check_mask = np.all(bound_check, axis=1)
+                bound_check_mask=self.mask_nodes_by_bounding_box(children, bounding_box)
                 children = children[bound_check_mask]
 
             return children
