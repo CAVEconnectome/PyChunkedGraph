@@ -142,11 +142,16 @@ class ChunkedGraph(object):
         self._get_chunk_id_vec = np.vectorize(self.get_chunk_id)
 
         # Augment dataset info
+        if "leaves_request_bounding_box" in self._dataset_info:
+            lrbb = self._dataset_info["leaves_request_bounding_box"]
+        else:
+            lrbb = [int(x) for x in self.chunk_size]
         self._dataset_info["graph"] = {"chunk_size": [int(x) for x in self.chunk_size],
                                        "n_bits_for_layer_id": self._n_bits_for_layer_id,
                                        "cv_mip": self._cv_mip,
                                        "n_layers": self.n_layers,
-                                       "spatial_bit_masks": self.bitmasks}
+                                       "spatial_bit_masks": self.bitmasks,
+                                       "bounding_box": lrbb}
 
         self.meta = meta
 
