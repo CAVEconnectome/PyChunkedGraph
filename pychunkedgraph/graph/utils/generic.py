@@ -21,11 +21,12 @@ from google.cloud import bigtable
 from google.cloud.bigtable.row_filters import RowFilter
 from cloudvolume import CloudVolume
 
+from ..chunks import utils as chunk_utils
 from . import serializers
 
 
 def compute_indices_pandas(data) -> pd.Series:
-    """ Computes indices of all unique entries
+    """Computes indices of all unique entries
     Make sure to remap your array to a dense range starting at zero
     https://stackoverflow.com/questions/33281957/faster-alternative-to-numpy-where
     :param data: np.ndarray
@@ -37,7 +38,7 @@ def compute_indices_pandas(data) -> pd.Series:
 
 
 def log_n(arr, n):
-    """ Computes log to base n
+    """Computes log to base n
     :param arr: array or float
     :param n: int
         base
@@ -52,7 +53,7 @@ def log_n(arr, n):
 
 
 def compute_bitmasks(n_layers: int, s_bits_atomic_layer: int = 8) -> Dict[int, int]:
-    """ Computes the bitmasks for each layer. A bitmasks encodes how many bits
+    """Computes the bitmasks for each layer. A bitmasks encodes how many bits
     are used to store the chunk id in each dimension. The smallest number of
     bits needed to encode this information is chosen. The layer id is always
     encoded with 8 bits as this information is required a priori.
@@ -80,21 +81,21 @@ def compute_bitmasks(n_layers: int, s_bits_atomic_layer: int = 8) -> Dict[int, i
 
 
 def get_max_time():
-    """ Returns the (almost) max time in datetime.datetime
+    """Returns the (almost) max time in datetime.datetime
     :return: datetime.datetime
     """
     return datetime.datetime(9999, 12, 31, 23, 59, 59, 0)
 
 
 def get_min_time():
-    """ Returns the min time in datetime.datetime
+    """Returns the min time in datetime.datetime
     :return: datetime.datetime
     """
     return datetime.datetime.strptime("01/01/00 00:00", "%d/%m/%y %H:%M")
 
 
 def time_min():
-    """ Returns a minimal time stamp that still works with google
+    """Returns a minimal time stamp that still works with google
     :return: datetime.datetime
     """
     return datetime.datetime.strptime("01/01/00 00:00", "%d/%m/%y %H:%M")
@@ -144,7 +145,7 @@ def filter_failed_node_ids(row_ids, segment_ids, max_children_ids):
 def _get_google_compatible_time_stamp(
     time_stamp: datetime.datetime, round_up: bool = False
 ) -> datetime.datetime:
-    """ Makes a datetime.datetime time stamp compatible with googles' services.
+    """Makes a datetime.datetime time stamp compatible with googles' services.
     Google restricts the accuracy of time stamps to milliseconds. Hence, the
     microseconds are cut of. By default, time stamps are rounded to the lower
     number.
@@ -160,3 +161,31 @@ def _get_google_compatible_time_stamp(
     else:
         time_stamp -= micro_s_gap
     return time_stamp
+
+
+def mask_nodes_by_bounding_box(
+    meta,
+    nodes: Union[Iterable[np.uint64], np.uint64],
+    bounding_box: Optional[Sequence[Sequence[int]]] = None,
+) -> Iterable[np.bool]:
+    if bounding_box is None:
+        return np.ones(len(nodes), np.bool)
+    else:
+        chunk_coordinates = np.array(
+            [chunk_utils.get_chunk_coordinates(meta, c) for c in nodes]
+        )
+        layers = chunk_utils.get_chunk_layers(meta, nodes)
+        adapt_layers = layers - 2
+        adapt_layers[adapt_layers < 0] = 0
+        fanout = meta.graph_config.FANOUT
+        bounding_box_layer = (
+            bounding_box[None] / (fanout ** adapt_layers)[:, None, None]
+        )
+        bound_check = np.array(
+            [
+                np.all(chunk_coordinates < bounding_box_layer[:, 1], axis=1),
+                np.all(chunk_coordinates + 1 > bounding_box_layer[:, 0], axis=1),
+            ]
+        ).T
+
+        return np.all(bound_check, axis=1)
