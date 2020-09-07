@@ -63,18 +63,9 @@ def get_datastore_client(config):
     return client
 
 
-def _get_cg_backend_client_info():
-    from pychunkedgraph.graph.meta import BigTableConfig
-    from pychunkedgraph.graph.meta import BackendClientInfo
-
-    if not current_app.config["CG_READ_ONLY"]:
-        return BackendClientInfo()
-
-    bt_config = BigTableConfig(ADMIN=False, READ_ONLY=True)
-    return BackendClientInfo(CONFIG=bt_config)
-
-
 def get_cg(table_id, skip_cache: bool = False):
+    from pychunkedgraph.graph.client import get_default_client_info
+
     assert table_id.startswith("minnie") or table_id.startswith("pinky_")
 
     current_app.table_id = table_id
@@ -105,7 +96,7 @@ def get_cg(table_id, skip_cache: bool = False):
     logger.addHandler(handler)
 
     # Create ChunkedGraph
-    cg = ChunkedGraph(graph_id=table_id, client_info=_get_cg_backend_client_info())
+    cg = ChunkedGraph(graph_id=table_id, client_info=get_default_client_info())
     if skip_cache is False:
         CACHE[table_id] = cg
     return cg

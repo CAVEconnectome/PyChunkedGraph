@@ -11,10 +11,11 @@ from . import operation
 from . import attributes
 from . import exceptions
 from .client import base
-from .client.bigtable import BigTableClient
+from .client import BigTableClient
+from .client import BackendClientInfo
+from .client import get_default_client_info
 from .cache import CacheService
 from .meta import ChunkedGraphMeta
-from .meta import BackendClientInfo
 from .utils import basetypes
 from .utils import id_helpers
 from .utils import generic as misc_utils
@@ -24,16 +25,13 @@ from .chunks import utils as chunk_utils
 from .chunks import hierarchy as chunk_hierarchy
 
 
-# TODO logging with context manager?
-
-
 class ChunkedGraph:
     def __init__(
         self,
         *,
         graph_id: str = None,
         meta: ChunkedGraphMeta = None,
-        client_info: BackendClientInfo = BackendClientInfo(),
+        client_info: BackendClientInfo = get_default_client_info(),
     ):
         """
         1. New graph
@@ -60,11 +58,15 @@ class ChunkedGraph:
         self._client = bt_client
         self._id_client = bt_client
         self._cache_service = None
-        self.mock_edges = Edges([], [])  # for unit tests
+        self.mock_edges = None  # hack for unit tests
 
     @property
     def meta(self) -> ChunkedGraphMeta:
         return self._meta
+
+    @property
+    def graph_id(self) -> str:
+        return self.meta.graph_config.ID_PREFIX + self.meta.graph_config.ID
 
     @property
     def client(self) -> base.SimpleClient:
@@ -176,7 +178,7 @@ class ChunkedGraph:
                         else:
                             raise KeyError
             return parents
-        return self.cache.parents_multiple(node_ids)
+        return self.cache.parents_multiple(node_ids, time_stamp=time_stamp)
 
     def get_parent(
         self,
@@ -199,7 +201,7 @@ class ChunkedGraph:
             if latest:
                 return parents[0].value
             return [(p.value, p.timestamp) for p in parents]
-        return self.cache.parent(node_id)
+        return self.cache.parent(node_id, time_stamp=time_stamp)
 
     def get_children(
         self,
@@ -294,7 +296,12 @@ class ChunkedGraph:
         from .utils.context_managers import TimeIt
 
         with TimeIt(f"_get_bounding_l2_children {len(node_ids)}"):
-            node_l2ids_d = self._get_bounding_l2_children(node_ids)
+            node_l2ids_d = {}
+            layers_ = self.get_chunk_layers(node_ids)
+            for layer_ in set(layers_):
+                node_l2ids_d.update(
+                    self._get_bounding_l2_children(node_ids[layers_ == layer_])
+                )
         l2_edges_d_d = self.get_atomic_cross_edges(
             np.concatenate(list(node_l2ids_d.values()))
         )
@@ -324,7 +331,7 @@ class ChunkedGraph:
         )
         if self.get_chunk_layer(node_id) < min_layer:
             # cross edges irrelevant
-            return {min_layer: types.empty_2d}
+            return {self.get_chunk_layer(node_id): types.empty_2d}
         if not uplift:
             return {min_layer: edges}
         node_root_id = node_id
@@ -337,6 +344,7 @@ class ChunkedGraph:
         self,
         node_ids: typing.Sequence[np.uint64],
         *,
+        assert_roots: bool = False,
         time_stamp: typing.Optional[datetime.datetime] = None,
         stop_layer: int = None,
         ceil: bool = True,
@@ -344,6 +352,9 @@ class ChunkedGraph:
     ) -> typing.Union[np.ndarray, typing.Dict[int, np.ndarray]]:
         """
         Returns node IDs at the root_layer/ <= stop_layer.
+        Use `assert_roots=True` to ensure returned IDs are at root level.
+        When `assert_roots=False`, returns highest available IDs and
+        cases where there are no root IDs are silently ignored.
         """
         time_stamp = misc_utils.get_valid_timestamp(time_stamp)
         stop_layer = self.meta.layer_count if not stop_layer else stop_layer
@@ -378,16 +389,33 @@ class ChunkedGraph:
                     layer_mask = new_layer_mask
 
                     if np.all(~layer_mask):
+                        if assert_roots:
+                            assert not np.any(
+                                self.get_chunk_layers(parent_ids)
+                                < self.meta.layer_count
+                            ), "roots not found for some IDs"
                         return parent_ids
 
             if not ceil and np.all(
                 self.get_chunk_layers(parent_ids[parent_ids != 0]) >= stop_layer
             ):
+                if assert_roots:
+                    assert not np.any(
+                        self.get_chunk_layers(parent_ids) < self.meta.layer_count
+                    ), "roots not found for some IDs"
                 return parent_ids
             elif ceil:
+                if assert_roots:
+                    assert not np.any(
+                        self.get_chunk_layers(parent_ids) < self.meta.layer_count
+                    ), "roots not found for some IDs"
                 return parent_ids
             else:
                 time.sleep(0.5)
+        if assert_roots:
+            assert not np.any(
+                self.get_chunk_layers(parent_ids) < self.meta.layer_count
+            ), "roots not found for some IDs"
         return parent_ids
 
     def get_root(
@@ -451,6 +479,7 @@ class ChunkedGraph:
     def get_all_parents_dict(
         self,
         node_id: basetypes.NODE_ID,
+        *,
         time_stamp: typing.Optional[datetime.datetime] = None,
     ) -> typing.Dict:
         """Takes a node id and returns all parents up to root."""
@@ -480,9 +509,7 @@ class ChunkedGraph:
         layer_nodes_d = {}
         for node_id in node_ids:
             layer_nodes_d[node_id] = self._get_subgraph_higher_layer_nodes(
-                node_id=node_id,
-                bounding_box=bbox,
-                return_layers=return_layers,
+                node_id=node_id, bounding_box=bbox, return_layers=return_layers + [2],
             )
         if nodes_only:
             if single:
@@ -490,12 +517,7 @@ class ChunkedGraph:
             return layer_nodes_d
         level2_ids = [types.empty_1d]
         for node_id in node_ids:
-            layer_nodes_d = self._get_subgraph_higher_layer_nodes(
-                node_id=node_id,
-                bounding_box=bbox,
-                return_layers=[2],
-            )
-            level2_ids.append(layer_nodes_d[2])
+            level2_ids.append(layer_nodes_d[node_id][2])
         level2_ids = np.concatenate(level2_ids)
         if leaves_only:
             return self.get_children(level2_ids, flatten=True)
@@ -537,12 +559,17 @@ class ChunkedGraph:
         Edges are read from cloud storage.
         """
         chunk_ids = np.unique(self.get_chunk_ids_from_node_ids(level2_ids))
-        chunk_edge_dicts = mu.multithread_func(
-            self.read_chunk_edges,
-            np.array_split(chunk_ids, n_threads),  # TODO hardcoded
-            n_threads=n_threads,
-            debug=n_threads == 1,
-        )
+        # google does not provide a storage emulator at the moment
+        # this is an ugly hack to avoid permission issues in tests
+        # TODO find a better way to test
+        chunk_edge_dicts = {}
+        if self.mock_edges is None:
+            chunk_edge_dicts = mu.multithread_func(
+                self.read_chunk_edges,
+                np.array_split(chunk_ids, n_threads),  # TODO hardcoded
+                n_threads=n_threads,
+                debug=n_threads == 1,
+            )
         edges_d = edge_utils.concatenate_chunk_edges(chunk_edge_dicts)
         all_chunk_edges = reduce(lambda x, y: x + y, edges_d.values(), Edges([], []))
         print("all_chunk_edges b", len(all_chunk_edges))
@@ -551,7 +578,7 @@ class ChunkedGraph:
         )
         print("all_chunk_edges a", len(all_chunk_edges))
         if edges_only:
-            if len(self.mock_edges):
+            if self.mock_edges is not None:
                 all_chunk_edges = self.mock_edges.get_pairs()
             else:
                 all_chunk_edges = all_chunk_edges.get_pairs()
@@ -584,7 +611,7 @@ class ChunkedGraph:
         return (
             l2id_agglomeration_d,
             (self.mock_edges,)
-            if len(self.mock_edges)
+            if self.mock_edges is not None
             else (in_edges, out_edges, cross_edges),
         )
 
@@ -929,19 +956,6 @@ class ChunkedGraph:
         start_time: typing.Optional[datetime.datetime] = None,
         end_time: typing.Optional[datetime.datetime] = None,
     ):
-        log_entries = self.client.read_log_entries(
-            start_time=start_time,
-            end_time=end_time,
-            properties=[attributes.OperationLogs.RootID],
-        )
-        new_roots = np.concatenate(
-            [e[attributes.OperationLogs.RootID] for e in log_entries.values()]
-        )
-        root_rows = self.client.read_nodes(
-            node_ids=new_roots, properties=[attributes.Hierarchy.FormerParent]
-        )
-        old_roots = np.concatenate(
-            [e[attributes.Hierarchy.FormerParent][0].value for e in root_rows.values()]
-        )
+        from .misc import get_proofread_root_ids
 
-        return old_roots, new_roots
+        return get_proofread_root_ids(self, start_time, end_time)

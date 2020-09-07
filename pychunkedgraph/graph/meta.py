@@ -17,34 +17,6 @@ DataSource = namedtuple(
 )
 
 
-_bigtableconfig_fields = (
-    "PROJECT",
-    "INSTANCE",
-    "ADMIN",
-    "READ_ONLY",
-    "CREDENTIALS",
-)
-_bigtableconfig_defaults = (
-    "neuromancer-seung-import",
-    "pychunkedgraph",
-    True,
-    False,
-    None,
-)
-BigTableConfig = namedtuple(
-    "BigTableConfig", _bigtableconfig_fields, defaults=_bigtableconfig_defaults
-)
-
-
-_backend_clientinfo_fields = ("TYPE", "CONFIG")
-_backend_clientinfo_defaults = ("bigtable", BigTableConfig())
-BackendClientInfo = namedtuple(
-    "BackendClientInfo",
-    _backend_clientinfo_fields,
-    defaults=_backend_clientinfo_defaults,
-)
-
-
 _graphconfig_fields = (
     "ID",  # ID_PREFIX and ID are together used when creating the graph
     "ID_PREFIX",
@@ -77,7 +49,7 @@ class ChunkedGraphMeta:
         self, graph_config: GraphConfig, data_source: DataSource, custom_data: Dict = {}
     ):
         """
-        `custom_data`: stores arbitray key value information for flexibility.
+        `custom_data`: stores arbitray key value information, for flexibility.
         """
         self._graph_config = graph_config
         self._data_source = data_source

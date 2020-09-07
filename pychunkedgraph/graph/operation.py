@@ -15,10 +15,10 @@ from functools import reduce
 import numpy as np
 from google.cloud import bigtable
 
+from . import locks
 from . import edits
 from . import types
 from . import attributes
-from .locks import RootLock
 from .utils import basetypes
 from .utils import serializers
 from .cache import CacheService
@@ -34,7 +34,14 @@ if TYPE_CHECKING:
 
 
 class GraphEditOperation(ABC):
-    __slots__ = ["cg", "user_id", "source_coords", "sink_coords"]
+    __slots__ = [
+        "cg",
+        "user_id",
+        "source_coords",
+        "sink_coords",
+        "parent_ts",
+        "privileged_mode",
+    ]
     Result = namedtuple("Result", ["operation_id", "new_root_ids", "new_lvl2_ids"])
 
     def __init__(
@@ -50,6 +57,15 @@ class GraphEditOperation(ABC):
         self.user_id = user_id
         self.source_coords = None
         self.sink_coords = None
+        # `parent_ts` is the timestamp to get parents/roots
+        # after an operation fails while persisting changes.
+        # When that happens, parents/roots before the operation must be used to fix it.
+        # it is passed as an argument to `GraphEditOperation.execute()`
+        self.parent_ts = None
+        # `privileged_mode` if True, override locking.
+        # This is intended to be used in extremely rare cases to fix errors
+        # caused by failed writes.
+        self.privileged_mode = False
 
         if source_coords is not None:
             self.source_coords = np.atleast_2d(source_coords).astype(
@@ -72,7 +88,7 @@ class GraphEditOperation(ABC):
         is_undo: bool,
         multicut_as_split: bool,
     ):
-        log_record = cg.read_log_row(operation_id)
+        log_record, _ = cg.client.read_log_entry(operation_id)
         log_record_type = cls.get_log_record_type(log_record)
 
         while log_record_type in (RedoOperation, UndoOperation):
@@ -81,7 +97,7 @@ class GraphEditOperation(ABC):
             else:
                 is_undo = not is_undo
                 operation_id = log_record[attributes.OperationLogs.UndoOperationID]
-            log_record = cg.read_log_row(operation_id)
+            log_record, _ = cg.client.read_log_entry(operation_id)
             log_record_type = cls.get_log_record_type(log_record)
 
         if is_undo:
@@ -125,6 +141,8 @@ class GraphEditOperation(ABC):
                 or attributes.OperationLogs.BoundingBoxOffset not in log_record
             ):
                 return SplitOperation
+            return MulticutOperation
+        if attributes.OperationLogs.BoundingBoxOffset in log_record:
             return MulticutOperation
         raise TypeError(f"Could not determine graph operation type.")
 
@@ -230,6 +248,7 @@ class GraphEditOperation(ABC):
         operation_id: np.uint64,
         *,
         multicut_as_split: bool = True,
+        privileged_mode: Optional[bool] = False,
     ):
         """Generates the correct GraphEditOperation given a operation ID.
         :param cg: The "ChunkedGraph" instance
@@ -240,11 +259,17 @@ class GraphEditOperation(ABC):
             use the resulting removed edges and generate SplitOperation instead (faster).
         :type multicut_as_split: bool
 
+        `privileged_mode` if True, override locking.
+        This is intended to be used in extremely rare cases to fix errors
+        caused by failed writes.
+
         :return: The matching GraphEditOperation subclass
         :rtype: "GraphEditOperation"
         """
-        log_record = cg.read_log_row(operation_id)
-        return cls.from_log_record(cg, log_record, multicut_as_split=multicut_as_split)
+        log, _ = cg.client.read_log_entry(operation_id)
+        operation = cls.from_log_record(cg, log, multicut_as_split=multicut_as_split,)
+        operation.privileged_mode = privileged_mode
+        return operation
 
     @classmethod
     def undo_operation(
@@ -332,13 +357,20 @@ class GraphEditOperation(ABC):
         self, *, operation_id, timestamp
     ) -> Tuple[np.ndarray, np.ndarray, List["bigtable.row.Row"]]:
         """Initiates the graph operation calculation.
-        :return: New root IDs, new Lvl2 node IDs, and affected Bigtable rows
+        :return: New root IDs, new Lvl2 node IDs, and affected records
         :rtype: Tuple[np.ndarray, np.ndarray, List["bigtable.row.Row"]]
         """
 
     @abstractmethod
     def _create_log_record(
-        self, *, operation_id, timestamp, new_root_ids
+        self,
+        *,
+        operation_id,
+        timestamp,
+        operation_ts,
+        new_root_ids,
+        status=1,
+        exception="",
     ) -> "bigtable.row.Row":
         """Creates a log record with all necessary information to replay the current
             GraphEditOperation
@@ -354,63 +386,129 @@ class GraphEditOperation(ABC):
         :rtype: GraphEditOperation
         """
 
-    def execute(self) -> "GraphEditOperation.Result":
+    def execute(
+        self, *, operation_id=None, parent_ts=None, override_ts=None
+    ) -> "GraphEditOperation.Result":
         """
         Executes current GraphEditOperation:
         * Calls the subclass's _update_root_ids method
-        * Locks root IDs
+        * Locks root IDs normally
         * Calls the subclass's _apply method
         * Calls the subclass's _create_log_record method
-        * Writes all new rows to Bigtable
-        * Releases root ID lock
-        :return: Result of successful graph operation
-        :rtype: GraphEditOperation.Result
+        * Lock roots indefinitely to prevent corruption in case persisting changes fails
+          Such cases are retired in a cron job.
+        * Persist changes
+        * Release indefinite locks
+        * Releases normal root ID lock
+
+        `parent_ts` is the timestamp to get parents/roots
+        for normal edits it is None, which means latest parents/roots
+        But after an operation fails while persisting changes,
+        parents/roots before the operation must be used to fix it.
+        `override_ts` can be used to preserve proper timestamp in such cases.
         """
+        self.parent_ts = parent_ts
         root_ids = self._update_root_ids()
-        with RootLock(self.cg, root_ids) as root_lock:
+        with locks.RootLock(
+            self.cg,
+            root_ids,
+            operation_id=operation_id,
+            privileged_mode=self.privileged_mode,
+        ) as root_lock:
             self.cg.cache = CacheService(self.cg)
-            lock_operation_ids = np.array(
-                [root_lock.operation_id] * len(root_lock.locked_root_ids)
-            )
             timestamp = self.cg.client.get_consolidated_lock_timestamp(
-                root_lock.locked_root_ids, lock_operation_ids
+                root_lock.locked_root_ids,
+                np.array([root_lock.operation_id] * len(root_lock.locked_root_ids)),
             )
+
+            log_record_before_edit = self._create_log_record(
+                operation_id=root_lock.operation_id,
+                new_root_ids=types.empty_1d,
+                timestamp=timestamp,
+                operation_ts=override_ts if override_ts else timestamp,
+                status=attributes.OperationLogs.StatusCodes.CREATED.value,
+            )
+            self.cg.client.write([log_record_before_edit])
+
             try:
-                new_root_ids, new_lvl2_ids, rows = self._apply(
-                    operation_id=root_lock.operation_id, timestamp=timestamp
+                new_root_ids, new_lvl2_ids, affected_records = self._apply(
+                    operation_id=root_lock.operation_id,
+                    timestamp=override_ts if override_ts else timestamp,
                 )
             except PreconditionError as err:
                 self.cg.cache = None
-                raise PreconditionError(str(err))
+                raise PreconditionError(err)
             except PostconditionError as err:
                 self.cg.cache = None
-                raise PostconditionError(str(err))
+                raise PostconditionError(err)
             except Exception as err:
-                self.cg.cache = None
-                raise Exception(str(err))
+                from traceback import format_exception
+                from sys import exc_info
 
-            # FIXME: Remove once edits.remove_edges/edits.add_edges return consistent type
-            new_root_ids = np.array(new_root_ids, dtype=basetypes.NODE_ID)
-            new_lvl2_ids = np.array(new_lvl2_ids, dtype=basetypes.NODE_ID)
-            # Add a row to the log
-            log_row = self._create_log_record(
-                operation_id=root_lock.operation_id,
-                new_root_ids=new_root_ids,
-                timestamp=timestamp,
+                # unknown exception, update log record with error
+                self.cg.cache = None
+                log_record_error = self._create_log_record(
+                    operation_id=root_lock.operation_id,
+                    new_root_ids=types.empty_1d,
+                    timestamp=None,
+                    operation_ts=override_ts if override_ts else timestamp,
+                    status=attributes.OperationLogs.StatusCodes.EXCEPTION.value,
+                    exception=repr(format_exception(*exc_info())),
+                )
+                self.cg.client.write([log_record_error])
+                raise Exception(err)
+            return self._write(
+                root_lock,
+                override_ts if override_ts else timestamp,
+                new_root_ids,
+                new_lvl2_ids,
+                affected_records,
             )
 
+    def _write(self, lock, timestamp, new_root_ids, new_lvl2_ids, affected_records):
+        """Helper to persist changes after an edit."""
+        new_root_ids = np.array(new_root_ids, dtype=basetypes.NODE_ID)
+        new_lvl2_ids = np.array(new_lvl2_ids, dtype=basetypes.NODE_ID)
+
+        # this must be written first to indicate writing has started.
+        log_record_after_edit = self._create_log_record(
+            operation_id=lock.operation_id,
+            new_root_ids=new_root_ids,
+            timestamp=None,
+            operation_ts=timestamp,
+            status=attributes.OperationLogs.StatusCodes.WRITE_STARTED.value,
+        )
+
+        with locks.IndefiniteRootLock(
+            self.cg,
+            lock.operation_id,
+            lock.locked_root_ids,
+            privileged_mode=lock.privileged_mode,
+        ):
+            # indefinite lock for writing, if a node instance or pod dies during this
+            # the roots must stay locked indefinitely to prevent further corruption.
+            print("persisting changes")
             self.cg.client.write(
-                [log_row] + rows,
-                root_lock.locked_root_ids,
-                operation_id=root_lock.operation_id,
+                [log_record_after_edit] + affected_records,
+                lock.locked_root_ids,
+                operation_id=lock.operation_id,
                 slow_retry=False,
             )
-            self.cg.cache = None
-            return GraphEditOperation.Result(
-                operation_id=root_lock.operation_id,
+            log_record_success = self._create_log_record(
+                operation_id=lock.operation_id,
                 new_root_ids=new_root_ids,
-                new_lvl2_ids=new_lvl2_ids,
+                timestamp=None,
+                operation_ts=timestamp,
+                status=attributes.OperationLogs.StatusCodes.SUCCESS.value,
             )
+            self.cg.client.write([log_record_success])
+            print("persisting changes complete")
+        self.cg.cache = None
+        return GraphEditOperation.Result(
+            operation_id=lock.operation_id,
+            new_root_ids=new_root_ids,
+            new_lvl2_ids=new_lvl2_ids,
+        )
 
 
 class MergeOperation(GraphEditOperation):
@@ -465,13 +563,21 @@ class MergeOperation(GraphEditOperation):
         assert np.sum(layers) == layers.size, "Supervoxels expected."
 
     def _update_root_ids(self) -> np.ndarray:
-        root_ids = np.unique(self.cg.get_roots(self.added_edges.ravel()))
+        root_ids = np.unique(
+            self.cg.get_roots(
+                self.added_edges.ravel(), assert_roots=True, time_stamp=self.parent_ts,
+            )
+        )
         return root_ids
 
     def _apply(
         self, *, operation_id, timestamp
     ) -> Tuple[np.ndarray, np.ndarray, List["bigtable.row.Row"]]:
-        root_ids = set(self.cg.get_roots(self.added_edges.ravel()))
+        root_ids = set(
+            self.cg.get_roots(
+                self.added_edges.ravel(), assert_roots=True, time_stamp=self.parent_ts,
+            )
+        )
         if len(root_ids) < 2:
             raise PreconditionError("Supervoxels must belong to different objects.")
         bbox = get_bbox(self.source_coords, self.sink_coords, self.bbox_offset)
@@ -482,7 +588,10 @@ class MergeOperation(GraphEditOperation):
 
         with TimeIt("edits.merge_preprocess"):
             inactive_edges = edits.merge_preprocess(
-                self.cg, subgraph_edges=edges, supervoxels=self.added_edges.ravel(),
+                self.cg,
+                subgraph_edges=edges,
+                supervoxels=self.added_edges.ravel(),
+                parent_ts=self.parent_ts,
             )
 
         with TimeIt("edits.add_edges"):
@@ -492,15 +601,26 @@ class MergeOperation(GraphEditOperation):
                 inactive_edges=inactive_edges,
                 operation_id=operation_id,
                 time_stamp=timestamp,
+                parent_ts=self.parent_ts,
             )
 
     def _create_log_record(
-        self, *, operation_id, timestamp, new_root_ids
+        self,
+        *,
+        operation_id: np.uint64,
+        timestamp: datetime,
+        operation_ts: datetime,
+        new_root_ids: Sequence[np.uint64],
+        status: int = 1,
+        exception: str = "",
     ) -> "bigtable.row.Row":
         val_dict = {
             attributes.OperationLogs.UserID: self.user_id,
             attributes.OperationLogs.RootID: new_root_ids,
             attributes.OperationLogs.AddedEdge: self.added_edges,
+            attributes.OperationLogs.Status: status,
+            attributes.OperationLogs.OperationException: exception,
+            attributes.OperationLogs.OperationTimeStamp: operation_ts,
         }
         if self.source_coords is not None:
             val_dict[attributes.OperationLogs.SourceCoordinate] = self.source_coords
@@ -563,7 +683,13 @@ class SplitOperation(GraphEditOperation):
         assert np.sum(layers) == layers.size, "IDs must be supervoxels."
 
     def _update_root_ids(self) -> np.ndarray:
-        root_ids = np.unique(self.cg.get_roots(self.removed_edges.ravel()))
+        root_ids = np.unique(
+            self.cg.get_roots(
+                self.removed_edges.ravel(),
+                assert_roots=True,
+                time_stamp=self.parent_ts,
+            )
+        )
         if len(root_ids) > 1:
             raise PreconditionError(
                 f"All supervoxel must belong to the same object. Already split?"
@@ -573,12 +699,25 @@ class SplitOperation(GraphEditOperation):
     def _apply(
         self, *, operation_id, timestamp
     ) -> Tuple[np.ndarray, np.ndarray, List["bigtable.row.Row"]]:
-        if len(set(self.cg.get_roots(self.removed_edges.ravel()))) > 1:
+        if (
+            len(
+                set(
+                    self.cg.get_roots(
+                        self.removed_edges.ravel(),
+                        assert_roots=True,
+                        time_stamp=self.parent_ts,
+                    )
+                )
+            )
+            > 1
+        ):
             raise PreconditionError("Supervoxels must belong to the same object.")
 
         with TimeIt("get_l2_agglomerations (subgraph)"):
             l2id_agglomeration_d, _ = self.cg.get_l2_agglomerations(
-                self.cg.get_parents(self.removed_edges.ravel())
+                self.cg.get_parents(
+                    self.removed_edges.ravel(), time_stamp=self.parent_ts,
+                )
             )
         return edits.remove_edges(
             self.cg,
@@ -586,6 +725,7 @@ class SplitOperation(GraphEditOperation):
             atomic_edges=self.removed_edges,
             l2id_agglomeration_d=l2id_agglomeration_d,
             time_stamp=timestamp,
+            parent_ts=self.parent_ts,
         )
 
     def _create_log_record(
@@ -593,12 +733,18 @@ class SplitOperation(GraphEditOperation):
         *,
         operation_id: np.uint64,
         timestamp: datetime,
+        operation_ts: datetime,
         new_root_ids: Sequence[np.uint64],
+        status: int = 1,
+        exception: str = "",
     ) -> "bigtable.row.Row":
         val_dict = {
             attributes.OperationLogs.UserID: self.user_id,
             attributes.OperationLogs.RootID: new_root_ids,
             attributes.OperationLogs.RemovedEdge: self.removed_edges,
+            attributes.OperationLogs.Status: status,
+            attributes.OperationLogs.OperationException: exception,
+            attributes.OperationLogs.OperationTimeStamp: operation_ts,
         }
         if self.source_coords is not None:
             val_dict[attributes.OperationLogs.SourceCoordinate] = self.source_coords
@@ -657,7 +803,7 @@ class MulticutOperation(GraphEditOperation):
         super().__init__(
             cg, user_id=user_id, source_coords=source_coords, sink_coords=sink_coords
         )
-        self.removed_edges = None  # Calculated from coordinates and IDs
+        self.removed_edges = types.empty_2d
         self.source_ids = np.atleast_1d(source_ids).astype(basetypes.NODE_ID)
         self.sink_ids = np.atleast_1d(sink_ids).astype(basetypes.NODE_ID)
         self.bbox_offset = np.atleast_1d(bbox_offset).astype(basetypes.COORDINATES)
@@ -670,7 +816,11 @@ class MulticutOperation(GraphEditOperation):
 
     def _update_root_ids(self) -> np.ndarray:
         sink_and_source_ids = np.concatenate((self.source_ids, self.sink_ids))
-        root_ids = np.unique(self.cg.get_roots(sink_and_source_ids))
+        root_ids = np.unique(
+            self.cg.get_roots(
+                sink_and_source_ids, assert_roots=True, time_stamp=self.parent_ts,
+            )
+        )
         if len(root_ids) > 1:
             raise PreconditionError("Supervoxels must belong to the same object.")
         return root_ids
@@ -680,7 +830,11 @@ class MulticutOperation(GraphEditOperation):
     ) -> Tuple[np.ndarray, np.ndarray, List["bigtable.row.Row"]]:
         # Verify that sink and source are from the same root object
         root_ids = set(
-            self.cg.get_roots(np.concatenate([self.source_ids, self.sink_ids]))
+            self.cg.get_roots(
+                np.concatenate([self.source_ids, self.sink_ids]),
+                assert_roots=True,
+                time_stamp=self.parent_ts,
+            )
         )
         if len(root_ids) > 1:
             raise PreconditionError("Supervoxels must belong to the same object.")
@@ -705,20 +859,25 @@ class MulticutOperation(GraphEditOperation):
             self.removed_edges = run_multicut(edges, self.source_ids, self.sink_ids)
         if not self.removed_edges.size:
             raise PostconditionError("Mincut could not find any edges to remove.")
-        return edits.remove_edges(
-            self.cg,
-            operation_id=operation_id,
-            atomic_edges=self.removed_edges,
-            l2id_agglomeration_d=l2id_agglomeration_d,
-            time_stamp=timestamp,
-        )
+        with TimeIt("edits.remove_edges"):
+            return edits.remove_edges(
+                self.cg,
+                operation_id=operation_id,
+                atomic_edges=self.removed_edges,
+                l2id_agglomeration_d=l2id_agglomeration_d,
+                time_stamp=timestamp,
+                parent_ts=self.parent_ts,
+            )
 
     def _create_log_record(
         self,
         *,
         operation_id: np.uint64,
         timestamp: datetime,
+        operation_ts: datetime,
         new_root_ids: Sequence[np.uint64],
+        status: int = 1,
+        exception: str = "",
     ) -> "bigtable.row.Row":
         val_dict = {
             attributes.OperationLogs.UserID: self.user_id,
@@ -728,6 +887,10 @@ class MulticutOperation(GraphEditOperation):
             attributes.OperationLogs.SourceID: self.source_ids,
             attributes.OperationLogs.SinkID: self.sink_ids,
             attributes.OperationLogs.BoundingBoxOffset: self.bbox_offset,
+            attributes.OperationLogs.RemovedEdge: self.removed_edges,
+            attributes.OperationLogs.Status: status,
+            attributes.OperationLogs.OperationException: exception,
+            attributes.OperationLogs.OperationTimeStamp: operation_ts,
         }
         return self.cg.client.mutate_row(
             serializers.serialize_uint64(operation_id), val_dict, timestamp
@@ -776,7 +939,7 @@ class RedoOperation(GraphEditOperation):
         multicut_as_split: bool,
     ) -> None:
         super().__init__(cg, user_id=user_id)
-        log_record = cg.read_log_row(superseded_operation_id)
+        log_record, _ = cg.client.read_log_entry(superseded_operation_id)
         log_record_type = GraphEditOperation.get_log_record_type(log_record)
         if log_record_type in (RedoOperation, UndoOperation):
             raise ValueError(
@@ -806,12 +969,16 @@ class RedoOperation(GraphEditOperation):
         *,
         operation_id: np.uint64,
         timestamp: datetime,
+        operation_ts: datetime,
         new_root_ids: Sequence[np.uint64],
+        status: int = 1,
+        exception: str = "",
     ) -> "bigtable.row.Row":
         val_dict = {
             attributes.OperationLogs.UserID: self.user_id,
             attributes.OperationLogs.RedoOperationID: self.superseded_operation_id,
             attributes.OperationLogs.RootID: new_root_ids,
+            attributes.OperationLogs.OperationTimeStamp: operation_ts,
         }
         return self.cg.client.mutate_row(
             serializers.serialize_uint64(operation_id), val_dict, timestamp
@@ -861,7 +1028,7 @@ class UndoOperation(GraphEditOperation):
         multicut_as_split: bool,
     ) -> None:
         super().__init__(cg, user_id=user_id)
-        log_record = cg.read_log_row(superseded_operation_id)
+        log_record, _ = cg.client.read_log_entry(superseded_operation_id)
         log_record_type = GraphEditOperation.get_log_record_type(log_record)
         if log_record_type in (RedoOperation, UndoOperation):
             raise ValueError(
@@ -891,12 +1058,16 @@ class UndoOperation(GraphEditOperation):
         *,
         operation_id: np.uint64,
         timestamp: datetime,
+        operation_ts: datetime,
         new_root_ids: Sequence[np.uint64],
+        status: int = 1,
+        exception: str = "",
     ) -> "bigtable.row.Row":
         val_dict = {
             attributes.OperationLogs.UserID: self.user_id,
             attributes.OperationLogs.UndoOperationID: self.superseded_operation_id,
             attributes.OperationLogs.RootID: new_root_ids,
+            attributes.OperationLogs.OperationTimeStamp: operation_ts,
         }
         return self.cg.client.mutate_row(
             serializers.serialize_uint64(operation_id), val_dict, timestamp

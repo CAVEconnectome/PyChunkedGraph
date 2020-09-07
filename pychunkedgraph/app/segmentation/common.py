@@ -264,7 +264,7 @@ def handle_roots(table_id, is_binary=False):
     # Call ChunkedGraph
     cg = app_utils.get_cg(table_id)
     root_ids = cg.get_roots(node_ids, stop_layer=stop_layer,
-                            time_stamp=timestamp)
+                            time_stamp=timestamp, assert_roots=True)
 
     return root_ids
 
@@ -388,9 +388,7 @@ def handle_merge(table_id):
         )
 
     except cg_exceptions.LockingError as e:
-        raise cg_exceptions.InternalServerError(
-            "Could not acquire root lock for merge operation."
-        )
+        raise cg_exceptions.InternalServerError(e)
     except cg_exceptions.PreconditionError as e:
         raise cg_exceptions.BadRequest(str(e))
 
@@ -461,9 +459,7 @@ def handle_split(table_id):
         )
 
     except cg_exceptions.LockingError as e:
-        raise cg_exceptions.InternalServerError(
-            "Could not acquire root lock for split operation."
-        )
+        raise cg_exceptions.InternalServerError(e)
     except cg_exceptions.PreconditionError as e:
         raise cg_exceptions.BadRequest(str(e))
 
@@ -502,9 +498,7 @@ def handle_undo(table_id):
     try:
         ret = cg.undo(user_id=user_id, operation_id=operation_id)
     except cg_exceptions.LockingError as e:
-        raise cg_exceptions.InternalServerError(
-            "Could not acquire root lock for undo operation."
-        )
+        raise cg_exceptions.InternalServerError(e)
     except (cg_exceptions.PreconditionError, cg_exceptions.PostconditionError) as e:
         raise cg_exceptions.BadRequest(str(e))
 
@@ -538,9 +532,7 @@ def handle_redo(table_id):
     try:
         ret = cg.redo(user_id=user_id, operation_id=operation_id)
     except cg_exceptions.LockingError as e:
-        raise cg_exceptions.InternalServerError(
-            "Could not acquire root lock for redo operation."
-        )
+        raise cg_exceptions.InternalServerError(e)
     except (cg_exceptions.PreconditionError, cg_exceptions.PostconditionError) as e:
         raise cg_exceptions.BadRequest(str(e))
 

@@ -12,8 +12,9 @@ from ..graph import chunkedgraph
 from ..graph.meta import ChunkedGraphMeta
 from ..graph.meta import DataSource
 from ..graph.meta import GraphConfig
-from ..graph.meta import BigTableConfig
-from ..graph.meta import BackendClientInfo
+
+from ..graph.client import BackendClientInfo
+from ..graph.client.bigtable import BigTableConfig
 
 chunk_id_str = lambda layer, coords: f"{layer}_{'_'.join(map(str, coords))}"
 
@@ -33,8 +34,8 @@ def bootstrap(
         USE_RAW_COMPONENTS=raw,
         TEST_RUN=test_run,
     )
-    bigtable_config = BigTableConfig(**config["backend_client"]["CONFIG"])
-    client_info = BackendClientInfo(config["backend_client"]["TYPE"], bigtable_config)
+    client_config = BigTableConfig(**config["backend_client"]["CONFIG"])
+    client_info = BackendClientInfo(config["backend_client"]["TYPE"], client_config)
 
     graph_config = GraphConfig(
         ID=f"{graph_id}", OVERWRITE=overwrite, **config["graph_config"],
