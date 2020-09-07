@@ -665,11 +665,11 @@ def change_log(table_id, root_id=None):
     # Call ChunkedGraph
     cg = app_utils.get_cg(table_id)
     if not root_id:
-        return segment_history.get_all_log_entries(cg)
+        return segmenthistory.get_all_log_entries(cg)
 
-    segment_history = segment_history.SegmentHistory(cg, int(root_id))
+    hist = segmenthistory.SegmentHistory(cg, int(root_id))
 
-    return segment_history.change_log()
+    return hist.change_log()
 
 
 # def tabular_change_log_recent(table_id):
@@ -719,9 +719,9 @@ def tabular_change_log(table_id, root_id):
 
     # Call ChunkedGraph
     cg = app_utils.get_cg(table_id)
-    segment_history = segment_history.SegmentHistory(cg, int(root_id))
+    hist = segmenthistory.SegmentHistory(cg, int(root_id))
 
-    return segment_history.tabular_changelog
+    return hist.tabular_changelog
 
 
 def merge_log(table_id, root_id):
@@ -742,8 +742,8 @@ def merge_log(table_id, root_id):
     # Call ChunkedGraph
     cg = app_utils.get_cg(table_id)
 
-    segment_history = segment_history.SegmentHistory(cg, int(root_id))
-    return segment_history.merge_log(correct_for_wrong_coord_type=False)
+    hist = segmenthistory.SegmentHistory(cg, int(root_id))
+    return hist.merge_log(correct_for_wrong_coord_type=False)
 
 
 def last_edit(table_id, root_id):
@@ -753,9 +753,9 @@ def last_edit(table_id, root_id):
 
     cg = app_utils.get_cg(table_id)
 
-    segment_history = segment_history.SegmentHistory(cg, int(root_id))
+    hist = segmenthistory.SegmentHistory(cg, int(root_id))
 
-    return segment_history.last_edit.timestamp
+    return hist.last_edit.timestamp
 
 
 def oldest_timestamp(table_id):
