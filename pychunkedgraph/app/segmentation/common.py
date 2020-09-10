@@ -19,7 +19,7 @@ from flask import current_app, g, jsonify, make_response, request
 from pychunkedgraph import __version__
 from pychunkedgraph.app import app_utils
 from pychunkedgraph.graph import attributes, cutting, exceptions as cg_exceptions
-# from pychunkedgraph.graph import history as cg_history
+from pychunkedgraph.graph import segmenthistory
 from pychunkedgraph.graph.analysis import pathing
 from pychunkedgraph.meshing import mesh_analysis
 
@@ -665,50 +665,50 @@ def change_log(table_id, root_id=None):
     # Call ChunkedGraph
     cg = app_utils.get_cg(table_id)
     if not root_id:
-        return cg_history.get_all_log_entries(cg)
+        return segmenthistory.get_all_log_entries(cg)
 
-    segment_history = cg_history.SegmentHistory(cg, int(root_id))
+    hist = segmenthistory.SegmentHistory(cg, int(root_id))
 
-    return segment_history.change_log()
+    return hist.change_log()
 
 
-def tabular_change_log_recent(table_id):
-    current_app.table_id = table_id
-    user_id = str(g.auth_user["id"])
-    current_app.user_id = user_id
+# def tabular_change_log_recent(table_id):
+#     current_app.table_id = table_id
+#     user_id = str(g.auth_user["id"])
+#     current_app.user_id = user_id
 
-    try:
-        start_time = float(request.args.get("start_time", 0))
-        start_time = datetime.fromtimestamp(start_time, UTC)
-    except (TypeError, ValueError):
-        raise (
-            cg_exceptions.BadRequest(
-                "start_time parameter is not a valid unix timestamp"
-            )
-        )
+#     try:
+#         start_time = float(request.args.get("start_time", 0))
+#         start_time = datetime.fromtimestamp(start_time, UTC)
+#     except (TypeError, ValueError):
+#         raise (
+#             cg_exceptions.BadRequest(
+#                 "start_time parameter is not a valid unix timestamp"
+#             )
+#         )
 
-    # Call ChunkedGraph
-    cg_instance = app_utils.get_cg(table_id)
+#     # Call ChunkedGraph
+#     cg = app_utils.get_cg(table_id)
 
-    log_rows = cg_instance.read_log_rows(start_time=start_time)
+#     log_rows = cg.read_log_rows(start_time=start_time)
 
-    timestamp_list = []
-    user_list = []
+#     timestamp_list = []
+#     user_list = []
 
-    entry_ids = np.sort(list(log_rows.keys()))
-    for entry_id in entry_ids:
-        entry = log_rows[entry_id]
+#     entry_ids = np.sort(list(log_rows.keys()))
+#     for entry_id in entry_ids:
+#         entry = log_rows[entry_id]
 
-        timestamp = entry["timestamp"]
-        timestamp_list.append(timestamp)
+#         timestamp = entry["timestamp"]
+#         timestamp_list.append(timestamp)
 
-        user_id = entry[attributes.OperationLogs.UserID]
-        user_list.append(user_id)
+#         user_id = entry[attributes.OperationLogs.UserID]
+#         user_list.append(user_id)
 
-    return pd.DataFrame.from_dict(
-        {"operation_id": entry_ids,
-            "timestamp": timestamp_list,
-            "user_id": user_list})
+#     return pd.DataFrame.from_dict(
+#         {"operation_id": entry_ids,
+#             "timestamp": timestamp_list,
+#             "user_id": user_list})
 
 
 def tabular_change_log(table_id, root_id):
@@ -719,9 +719,9 @@ def tabular_change_log(table_id, root_id):
 
     # Call ChunkedGraph
     cg = app_utils.get_cg(table_id)
-    segment_history = cg_history.SegmentHistory(cg, int(root_id))
+    hist = segmenthistory.SegmentHistory(cg, int(root_id))
 
-    return segment_history.tabular_changelog
+    return hist.tabular_changelog
 
 
 def merge_log(table_id, root_id):
@@ -742,8 +742,8 @@ def merge_log(table_id, root_id):
     # Call ChunkedGraph
     cg = app_utils.get_cg(table_id)
 
-    segment_history = cg_history.SegmentHistory(cg, int(root_id))
-    return segment_history.merge_log(correct_for_wrong_coord_type=True)
+    hist = segmenthistory.SegmentHistory(cg, int(root_id))
+    return hist.merge_log(correct_for_wrong_coord_type=False)
 
 
 def last_edit(table_id, root_id):
@@ -753,9 +753,9 @@ def last_edit(table_id, root_id):
 
     cg = app_utils.get_cg(table_id)
 
-    segment_history = cg_history.SegmentHistory(cg, int(root_id))
+    hist = segmenthistory.SegmentHistory(cg, int(root_id))
 
-    return segment_history.last_edit.timestamp
+    return hist.last_edit.timestamp
 
 
 def oldest_timestamp(table_id):
