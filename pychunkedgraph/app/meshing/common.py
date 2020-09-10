@@ -225,7 +225,11 @@ def manifest_response(cg, args):
     resp = {}
     seg_ids = []
     if not verify:
-        seg_ids, resp["fragments"] = speculative_manifest(cg, node_id)
+        seg_ids, resp["fragments"] = speculative_manifest(cg,
+                                                          node_id,
+                                                          start_layer=start_layer,
+                                                          bounding_box=bounding_box)
+                                                
     else:
         seg_ids, resp["fragments"] = get_highest_child_nodes_with_meshes(
             cg,

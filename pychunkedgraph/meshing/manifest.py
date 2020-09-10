@@ -333,15 +333,23 @@ def children_meshes_sharded(
     return node_ids, mesh_files
 
 
-def speculative_manifest(cg, node_id, stop_layer: int = 2):
+def speculative_manifest(cg, node_id, stop_layer: int = 2,
+                         start_layer = None,
+                         bounding_box = None):
     """
     This assumes children IDs have meshes.
     Not checking for their existence reduces latency.
     """
-    MAX_STITCH_LAYER = cg.meta.custom_data.get("mesh", {}).get("max_layer", 2)
+    if start_layer is None:
+        start_layer = cg.meta.custom_data.get("mesh", {}).get("max_layer", 2)
 
     start = time()
-    node_ids = _get_children_before_start_layer(cg, node_id, MAX_STITCH_LAYER)
+    bounding_box = chunk_utils.normalize_bounding_box(cg.meta,
+                                                      bounding_box,
+                                                      bb_is_coordinate=True)
+    node_ids = _get_children_before_start_layer(cg, node_id,
+                                                start_layer=start_layer,
+                                                bounding_box=bounding_box)
     print("children_before_start_layer", time() - start)
 
     start = time()
