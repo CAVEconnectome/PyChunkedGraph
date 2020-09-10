@@ -15,7 +15,7 @@ from .meshgen_utils import get_json_info
 from ..graph.types import empty_1d
 from ..graph.utils.basetypes import NODE_ID
 from ..graph.utils import generic as misc_utils
-
+from ..graph.chunks import utils as chunk_utils
 
 def get_highest_child_nodes_with_meshes(
     cg,
@@ -308,6 +308,9 @@ def children_meshes_sharded(
     else:
         MAX_STITCH_LAYER = start_layer
     start = time()
+    bounding_box = chunk_utils.normalize_bounding_box(cg.meta,
+                                                      bounding_box,
+                                                      bb_is_coordinate=True)
     node_ids = _get_children_before_start_layer(
         cg, node_id, MAX_STITCH_LAYER, bounding_box=bounding_box
     )
