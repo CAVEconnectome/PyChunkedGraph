@@ -303,10 +303,10 @@ def children_meshes_sharded(
     For each ID, first check for new meshes,
     If not found check initial meshes.
     """
-    if start_layer is None:
-        MAX_STITCH_LAYER = cg.meta.custom_data.get("mesh", {}).get("max_layer", 2)
-    else:
+    MAX_STITCH_LAYER = cg.meta.custom_data.get("mesh", {}).get("max_layer", 2)
+    if start_layer is not None:
         MAX_STITCH_LAYER = start_layer
+
     start = time()
     bounding_box = chunk_utils.normalize_bounding_box(cg.meta,
                                                       bounding_box,
