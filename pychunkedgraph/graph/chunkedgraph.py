@@ -122,7 +122,13 @@ class ChunkedGraph:
         if self.get_chunk_layer(parent_id) == 1:
             return parent_id
         return id_helpers.get_atomic_id_from_coord(
-            self.meta, self.get_root, x, y, z, parent_id, n_tries=n_tries,
+            self.meta,
+            self.get_root,
+            x,
+            y,
+            z,
+            parent_id,
+            n_tries=n_tries,
         )
 
     def get_parents(
@@ -225,7 +231,10 @@ class ChunkedGraph:
         return node_children_d
 
     def _get_children_multiple(
-        self, node_ids: typing.Iterable[np.uint64], *, raw_only=False,
+        self,
+        node_ids: typing.Iterable[np.uint64],
+        *,
+        raw_only=False,
     ) -> typing.Dict:
         if raw_only or not self.cache:
             node_children_d = self.client.read_nodes(
@@ -240,7 +249,10 @@ class ChunkedGraph:
         return self.cache.children_multiple(node_ids)
 
     def get_atomic_cross_edges(
-        self, l2_ids: typing.Iterable, *, raw_only=False,
+        self,
+        l2_ids: typing.Iterable,
+        *,
+        raw_only=False,
     ) -> typing.Dict[np.uint64, typing.Dict[int, typing.Iterable]]:
         """Returns cross edges for level 2 IDs."""
         if raw_only or not self.cache:
@@ -537,7 +549,10 @@ class ChunkedGraph:
         return result
 
     def get_l2_agglomerations(
-        self, level2_ids: np.ndarray, edges_only: bool = False, n_threads: int = 1,
+        self,
+        level2_ids: np.ndarray,
+        edges_only: bool = False,
+        n_threads: int = 1,
     ) -> typing.Tuple[typing.Dict[int, types.Agglomeration], np.ndarray]:
         """
         Children of Level 2 Node IDs and edges.
@@ -698,7 +713,7 @@ class ChunkedGraph:
     def undo_operation(
         self, user_id: str, operation_id: np.uint64
     ) -> operation.GraphEditOperation.Result:
-        """ Applies the inverse of a previous GraphEditOperation
+        """Applies the inverse of a previous GraphEditOperation
         :param user_id: str
         :param operation_id: operation_id to be inverted
         :return: GraphEditOperation.Result
@@ -710,7 +725,7 @@ class ChunkedGraph:
     def redo_operation(
         self, user_id: str, operation_id: np.uint64
     ) -> operation.GraphEditOperation.Result:
-        """ Re-applies a previous GraphEditOperation
+        """Re-applies a previous GraphEditOperation
         :param user_id: str
         :param operation_id: operation_id to be repeated
         :return: GraphEditOperation.Result
@@ -731,28 +746,9 @@ class ChunkedGraph:
         ) -> typing.List[np.uint64]:
             children = self.get_children(node_ids, flatten=True)
             if len(children) > 0 and bounding_box is not None:
-                chunk_coordinates = np.array(
-                    [self.get_chunk_coordinates(c) for c in children]
+                bound_check_mask = misc_utils.mask_nodes_by_bounding_box(
+                    self.meta, children, bounding_box
                 )
-                child_layers = self.get_chunk_layers(children)
-                adapt_child_layers = child_layers - 2
-                adapt_child_layers[adapt_child_layers < 0] = 0
-
-                fanout = self.meta.graph_config.FANOUT
-                bounding_box_layer = (
-                    bounding_box[None] / (fanout ** adapt_child_layers)[:, None, None]
-                )
-
-                bound_check = np.array(
-                    [
-                        np.all(chunk_coordinates < bounding_box_layer[:, 1], axis=1),
-                        np.all(
-                            chunk_coordinates + 1 > bounding_box_layer[:, 0], axis=1
-                        ),
-                    ]
-                ).T
-
-                bound_check_mask = np.all(bound_check, axis=1)
                 children = children[bound_check_mask]
 
             return children

@@ -14,7 +14,8 @@ from .meshgen_utils import get_mesh_name
 from .meshgen_utils import get_json_info
 from ..graph.types import empty_1d
 from ..graph.utils.basetypes import NODE_ID
-
+from ..graph.utils import generic as misc_utils
+from ..graph.chunks import utils as chunk_utils
 
 def get_highest_child_nodes_with_meshes(
     cg,
@@ -39,6 +40,7 @@ def get_highest_child_nodes_with_meshes(
         cg,
         node_id,
         stop_layer=stop_layer,
+        start_layer=start_layer,
         verify_existence=verify_existence,
         bounding_box=bounding_box,
     )
@@ -157,7 +159,10 @@ def _check_skips(cg, node_ids: Sequence[np.uint64], children_cache: dict = {}):
 
 
 def _get_sharded_meshes(
-    cg, shard_readers, node_ids: Sequence[np.uint64], stop_layer: int = 2,
+    cg,
+    shard_readers,
+    node_ids: Sequence[np.uint64],
+    stop_layer: int = 2,
 ) -> Dict:
     children_cache = {}
     result = {}
@@ -220,7 +225,9 @@ def _get_unsharded_meshes(cg, node_ids: Sequence[np.uint64]) -> Tuple[Dict, List
 
 
 def _get_sharded_unsharded_meshes(
-    cg, shard_readers: Dict, node_ids: Sequence[np.uint64],
+    cg,
+    shard_readers: Dict,
+    node_ids: Sequence[np.uint64],
 ) -> Tuple[Dict, Dict, List]:
     if len(node_ids):
         node_ids = np.unique(node_ids)
@@ -234,7 +241,11 @@ def _get_sharded_unsharded_meshes(
     return initial_meshes_d, new_meshes_d, missing_ids
 
 
-def _get_mesh_paths(cg, node_ids: Sequence[np.uint64], stop_layer: int = 2,) -> Dict:
+def _get_mesh_paths(
+    cg,
+    node_ids: Sequence[np.uint64],
+    stop_layer: int = 2,
+) -> Dict:
     shard_readers = CloudVolume(  # pylint: disable=no-member
         f"graphene://https://localhost/segmentation/table/dummy",
         mesh_dir=cg.meta.custom_data.get("mesh", {}).get("dir", "graphene_meshes"),
@@ -262,29 +273,47 @@ def _get_mesh_paths(cg, node_ids: Sequence[np.uint64], stop_layer: int = 2,) -> 
     return result
 
 
-def _get_children_before_start_layer(cg, node_id: np.uint64, start_layer: int = 6):
+def _get_children_before_start_layer(
+    cg, node_id: np.uint64, start_layer: int = 6, bounding_box=None
+):
     if cg.get_chunk_layer(node_id) == 2:
         return np.array([node_id], dtype=NODE_ID)
     result = [empty_1d]
     parents = np.array([node_id], dtype=np.uint64)
     while parents.size:
         children = cg.get_children(parents, flatten=True)
+        bound_mask = misc_utils.mask_nodes_by_bounding_box(
+            cg.meta, children, bounding_box=bounding_box
+        )
         layers = cg.get_chunk_layers(children)
-        result.append(children[layers <= start_layer])
-        parents = children[layers > start_layer]
+        result.append(children[(layers <= start_layer) & bound_mask])
+        parents = children[(layers > start_layer) & bound_mask]
     return np.concatenate(result)
 
 
 def children_meshes_sharded(
-    cg, node_id: np.uint64, stop_layer=2, verify_existence=False, bounding_box=None,
+    cg,
+    node_id: np.uint64,
+    stop_layer=2,
+    start_layer=None,
+    bounding_box=None,
+    verify_existence=False,
 ):
     """
     For each ID, first check for new meshes,
     If not found check initial meshes.
     """
     MAX_STITCH_LAYER = cg.meta.custom_data.get("mesh", {}).get("max_layer", 2)
+    if start_layer is not None:
+        MAX_STITCH_LAYER = start_layer
+
     start = time()
-    node_ids = _get_children_before_start_layer(cg, node_id, MAX_STITCH_LAYER)
+    bounding_box = chunk_utils.normalize_bounding_box(cg.meta,
+                                                      bounding_box,
+                                                      bb_is_coordinate=True)
+    node_ids = _get_children_before_start_layer(
+        cg, node_id, MAX_STITCH_LAYER, bounding_box=bounding_box
+    )
     print(f"children_before_start_layer {time() - start}, count {len(node_ids)}")
 
     start = time()
@@ -304,15 +333,23 @@ def children_meshes_sharded(
     return node_ids, mesh_files
 
 
-def speculative_manifest(cg, node_id, stop_layer: int = 2):
+def speculative_manifest(cg, node_id, stop_layer: int = 2,
+                         start_layer = None,
+                         bounding_box = None):
     """
     This assumes children IDs have meshes.
     Not checking for their existence reduces latency.
     """
-    MAX_STITCH_LAYER = cg.meta.custom_data.get("mesh", {}).get("max_layer", 2)
+    if start_layer is None:
+        start_layer = cg.meta.custom_data.get("mesh", {}).get("max_layer", 2)
 
     start = time()
-    node_ids = _get_children_before_start_layer(cg, node_id, MAX_STITCH_LAYER)
+    bounding_box = chunk_utils.normalize_bounding_box(cg.meta,
+                                                      bounding_box,
+                                                      bb_is_coordinate=True)
+    node_ids = _get_children_before_start_layer(cg, node_id,
+                                                start_layer=start_layer,
+                                                bounding_box=bounding_box)
     print("children_before_start_layer", time() - start)
 
     start = time()
