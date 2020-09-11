@@ -208,8 +208,7 @@ def handle_leaves(table_id, node_id):
 def handle_leaves_many(table_id):
     int64_as_str = request.args.get("int64_as_str", default=False, type=toboolean)
     resp = {"root_to_leaves_mapping": common.handle_leaves_many(table_id)}
-    jsonified = jsonify_with_kwargs(resp, int64_as_str=int64_as_str)
-    return jsonified
+    return jsonify_with_kwargs(resp, int64_as_str=int64_as_str)
 
 
 ### SUBGRAPH -------------------------------------------------------------------

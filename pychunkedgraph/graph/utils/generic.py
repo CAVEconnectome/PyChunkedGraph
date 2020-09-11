@@ -213,7 +213,7 @@ class SubgraphProgress:
         self.create_initial_node_to_subgraph()
 
     def done_processing(self):
-        return self.cur_nodes is None or len(self.cur_nodes) is 0
+        return self.cur_nodes is None or len(self.cur_nodes) == 0
 
     def create_initial_node_to_subgraph(self):
         """
