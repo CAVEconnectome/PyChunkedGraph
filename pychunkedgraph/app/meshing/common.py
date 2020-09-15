@@ -188,7 +188,10 @@ def handle_get_manifest(table_id, node_id):
     prepend_seg_ids = request.args.get("prepend_seg_ids", False)
     return_seg_ids = return_seg_ids in ["True", "true", "1", True]
     prepend_seg_ids = prepend_seg_ids in ["True", "true", "1", True]
-    start_layer = cg.get_chunk_layer(np.uint64(node_id))
+    if verify:
+        start_layer = cg.get_chunk_layer(np.uint64(node_id))
+    else:
+        start_layer = 6
     if "start_layer" in data:
         start_layer = int(data["start_layer"])
 
