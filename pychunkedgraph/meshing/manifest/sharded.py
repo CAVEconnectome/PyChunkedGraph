@@ -102,7 +102,7 @@ def speculative_manifest(
     mesh_shards = []
     for id_, layer, chunk_id in zip(initial_ids, layers, chunk_ids):
         fname, minishard = readers[layer].compute_shard_location(id_)
-        mesh_shards.append(f"~{layer}:{chunk_id}:{fname}:{minishard}")
+        mesh_shards.append(f"~{id_}:{layer}:{chunk_id}:{fname}:{minishard}")
 
     # get mesh files for new IDs
     mesh_files = [f"{get_mesh_name(cg, id_)}" for id_ in new_ids]
