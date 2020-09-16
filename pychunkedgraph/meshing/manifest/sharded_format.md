@@ -13,11 +13,11 @@ There can be two types of mesh fragments in a manifest: `initial` and `dynamic`.
 
    With verification, `~{layer}/{shard_file}:{offset}:{size}`, this is unique for a segment ID.
 
-   eg: `~2/425884686-0.shard:165832:217`
+   eg: for a semgent ID `173395595644372020`, `~2/425884686-0.shard:165832:217`
 
-   Without verification, `~{segment_id}:{layer}:{chunk_id}:{fname}:{minishard_number}`, segment ID included to ensure unique fragment ID.
+   Without verification, `~{segment_id}:{layer}:{chunk_id}:{fname}:{minishard_number}`, segment ID included to ensure fragment ID is unique.
 
-   eg: `~2:173395595644370944:425884686-0.shard:1`
+   eg: `~173395595644372020:2:173395595644370944:425884686-0.shard:1`
 
    If verification is needed, the manifest includes fragment ID for a semgent ID only if it's mesh fragment exists. Without verification, fragment ID is included in manifest and assumed to exist.
 
