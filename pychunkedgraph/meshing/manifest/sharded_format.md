@@ -11,13 +11,13 @@ There can be two types of mesh fragments in a manifest: `initial` and `dynamic`.
 
    Initials IDs are segment IDs generated at the time of chunkedgraph creation. Meshes for these are generated in the form of [shards](https://github.com/seung-lab/cloud-volume/wiki/Graphene#meshing). The following formats are used for mesh fragments of initial IDs, depending on whether existence of these shards is verified when generating the manifest. `~` is used to denote sharded format.
 
-   With verification, `~{layer}/{shard_file}:{offset}:{size}`
+   With verification, `~{layer}/{shard_file}:{offset}:{size}`, this is unique for a segment ID.
 
-   eg: `~2/425884686-0.shard:165832:217`
+   eg: for a semgent ID `173395595644372020`, `~2/425884686-0.shard:165832:217`
 
-   Without verification, `~{layer}:{chunk_id}:{fname}:{minishard_number}`
+   Without verification, `~{segment_id}:{layer}:{chunk_id}:{fname}:{minishard_number}`, segment ID included to ensure fragment ID is unique.
 
-   eg: `~2:173395595644370944:425884686-0.shard:1`
+   eg: `~173395595644372020:2:173395595644370944:425884686-0.shard:1`
 
    If verification is needed, the manifest includes fragment ID for a semgent ID only if it's mesh fragment exists. Without verification, fragment ID is included in manifest and assumed to exist.
 
