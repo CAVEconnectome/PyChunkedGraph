@@ -418,7 +418,7 @@ class CreateParentNodes:
             ]
             + [node_ids[~mask], new_ids]
         )
-        # node_ids = node_ids[self.cg.get_chunk_layers(node_ids) == layer]
+        node_ids = node_ids[self.cg.get_chunk_layers(node_ids) == layer]
         return np.unique(node_ids)
 
     def _create_new_parents(self, layer: int):
