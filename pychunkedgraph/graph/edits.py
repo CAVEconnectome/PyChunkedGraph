@@ -120,7 +120,9 @@ def _check_fake_edges(
     if inactive_edges.size:
         roots = np.unique(
             cg.get_roots(
-                np.unique(inactive_edges), assert_roots=True, time_stamp=parent_ts,
+                np.unique(inactive_edges),
+                assert_roots=True,
+                time_stamp=parent_ts,
             )
         )
         assert len(roots) == 2, "edges must be from 2 roots"
@@ -140,13 +142,25 @@ def _check_fake_edges(
             [[edge]], dtype=basetypes.NODE_ID
         )
         id1 = serialize_uint64(id1, fake_edges=True)
-        rows.append(cg.client.mutate_row(id1, val_dict, time_stamp=time_stamp,))
+        rows.append(
+            cg.client.mutate_row(
+                id1,
+                val_dict,
+                time_stamp=time_stamp,
+            )
+        )
         val_dict = {}
         val_dict[attributes.Connectivity.FakeEdges] = np.array(
             [edge[::-1]], dtype=basetypes.NODE_ID
         )
         id2 = serialize_uint64(id2, fake_edges=True)
-        rows.append(cg.client.mutate_row(id2, val_dict, time_stamp=time_stamp,))
+        rows.append(
+            cg.client.mutate_row(
+                id2,
+                val_dict,
+                time_stamp=time_stamp,
+            )
+        )
     print("no inactive", len(atomic_edges))
     return atomic_edges, rows
 
@@ -404,7 +418,7 @@ class CreateParentNodes:
             ]
             + [node_ids[~mask], new_ids]
         )
-        node_ids = node_ids[self.cg.get_chunk_layers(node_ids) == layer]
+        # node_ids = node_ids[self.cg.get_chunk_layers(node_ids) == layer]
         return np.unique(node_ids)
 
     def _create_new_parents(self, layer: int):
@@ -438,7 +452,9 @@ class CreateParentNodes:
             self._new_ids_d[parent_layer].append(parent_id)
             self.cg.cache.children_cache[parent_id] = cc_ids
             cache_utils.update(
-                self.cg.cache.parents_cache, cc_ids, parent_id,
+                self.cg.cache.parents_cache,
+                cc_ids,
+                parent_id,
             )
             self._update_id_lineage(parent_id, cc_ids, layer, parent_layer)
 
@@ -517,7 +533,9 @@ class CreateParentNodes:
                 val_dict[attributes.Hierarchy.Child] = children
                 rows.append(
                     self.cg.client.mutate_row(
-                        serialize_uint64(id_), val_dict, time_stamp=self._time_stamp,
+                        serialize_uint64(id_),
+                        val_dict,
+                        time_stamp=self._time_stamp,
                     )
                 )
                 for child_id in children:

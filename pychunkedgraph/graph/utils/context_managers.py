@@ -8,7 +8,11 @@ builtin_print = builtins.print
 
 
 def foo(*args, **kwargs):
-    builtin_print(indent * " ", *args, **kwargs)
+    indent_str = ""
+    for _ in range(2, indent+1, 2):
+        indent_str += 2 * " "
+        indent_str += "|"
+    builtin_print(indent_str, *args, **kwargs)
 
 
 class TimeIt:
