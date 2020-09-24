@@ -373,29 +373,46 @@ class CreateParentNodes:
                 self._new_old_id_d[parent].add(old_id)
                 self._old_new_id_d[old_id].add(parent)
 
-    def _get_connected_components(self, node_ids: np.ndarray, layer: int):
-        cached = np.fromiter(self._cross_edges_d.keys(), dtype=basetypes.NODE_ID)
-        not_cached = node_ids[~np.in1d(node_ids, cached)]
-        self._cross_edges_d.update(
-            self.cg.get_cross_chunk_edges(not_cached, all_layers=True)
-        )
+    def _map_sv_to_parent(self, node_ids, layer):
         sv_parent_d = {}
         sv_cross_edges = [types.empty_2d]
         for id_ in node_ids:
             edges_ = self._cross_edges_d[id_].get(layer, types.empty_2d)
             sv_parent_d.update(dict(zip(edges_[:, 0], [id_] * len(edges_))))
             sv_cross_edges.append(edges_)
+        return sv_parent_d, np.concatenate(sv_cross_edges)
 
+    def _get_connected_components(
+        self, node_ids: np.ndarray, layer: int, lower_layer_ids: np.ndarray
+    ):
+        _node_ids = np.concatenate([node_ids, lower_layer_ids])
+        cached = np.fromiter(self._cross_edges_d.keys(), dtype=basetypes.NODE_ID)
+        not_cached = _node_ids[~np.in1d(_node_ids, cached)]
+        self._cross_edges_d.update(
+            self.cg.get_cross_chunk_edges(not_cached, all_layers=True)
+        )
+
+        sv_parent_d, sv_cross_edges = self._map_sv_to_parent(node_ids, layer)
         get_sv_parents = np.vectorize(sv_parent_d.get, otypes=[np.uint64])
-        cross_edges = get_sv_parents(np.concatenate(sv_cross_edges))
-        del sv_parent_d
+        try:
+            cross_edges = get_sv_parents(sv_cross_edges)
+        except TypeError:  # NoneType error
+            # if there is a missing parent, try including lower layer ids
+            # this can happen due to skip connections
+            node_ids = np.concatenate([node_ids, lower_layer_ids])
+            sv_parent_d, sv_cross_edges = self._map_sv_to_parent(node_ids, layer)
+            get_sv_parents = np.vectorize(sv_parent_d.get, otypes=[np.uint64])
+            cross_edges = get_sv_parents(sv_cross_edges)
+
         cross_edges = np.concatenate([cross_edges, np.vstack([node_ids, node_ids]).T])
         graph, _, _, graph_ids = flatgraph.build_gt_graph(
             cross_edges, make_directed=True
         )
         return flatgraph.connected_components(graph), graph_ids
 
-    def _get_layer_node_ids(self, new_ids: np.ndarray, layer: int):
+    def _get_layer_node_ids(
+        self, new_ids: np.ndarray, layer: int
+    ) -> Tuple[np.ndarray, np.ndarray]:
         # get old identities of new IDs
         old_ids = [
             np.array(list(self._new_old_id_d[id_]), dtype=basetypes.NODE_ID)
@@ -418,8 +435,9 @@ class CreateParentNodes:
             ]
             + [node_ids[~mask], new_ids]
         )
-        node_ids = node_ids[self.cg.get_chunk_layers(node_ids) == layer]
-        return np.unique(node_ids)
+        node_ids = np.unique(node_ids)
+        layer_mask = self.cg.get_chunk_layers(node_ids) == layer
+        return node_ids[layer_mask], node_ids[~layer_mask]
 
     def _create_new_parents(self, layer: int):
         """
@@ -432,8 +450,10 @@ class CreateParentNodes:
         update parent old IDs
         """
         new_ids = self._new_ids_d[layer]
-        layer_node_ids = self._get_layer_node_ids(new_ids, layer)
-        components, graph_ids = self._get_connected_components(layer_node_ids, layer)
+        layer_node_ids, lower_layer_ids = self._get_layer_node_ids(new_ids, layer)
+        components, graph_ids = self._get_connected_components(
+            layer_node_ids, layer, lower_layer_ids
+        )
         for cc_indices in components:
             parent_layer = layer + 1
             cc_ids = graph_ids[cc_indices]
