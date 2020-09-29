@@ -1,7 +1,6 @@
 import time
 import typing
 import datetime
-from functools import reduce
 
 import numpy as np
 from multiwrapper import multiprocessing_utils as mu
@@ -19,6 +18,7 @@ from .meta import ChunkedGraphMeta
 from .utils import basetypes
 from .utils import id_helpers
 from .utils import generic as misc_utils
+from .utils.context_managers import TimeIt
 from .edges import Edges
 from .edges import utils as edge_utils
 from .chunks import utils as chunk_utils
@@ -122,7 +122,7 @@ class ChunkedGraph:
         if self.get_chunk_layer(parent_id) == 1:
             return parent_id
         return id_helpers.get_atomic_id_from_coord(
-            self.meta, self.get_root, x, y, z, parent_id, n_tries=n_tries,
+            self.meta, self.get_root, x, y, z, parent_id, n_tries=n_tries
         )
 
     def get_parents(
@@ -225,7 +225,7 @@ class ChunkedGraph:
         return node_children_d
 
     def _get_children_multiple(
-        self, node_ids: typing.Iterable[np.uint64], *, raw_only=False,
+        self, node_ids: typing.Iterable[np.uint64], *, raw_only=False
     ) -> typing.Dict:
         if raw_only or not self.cache:
             node_children_d = self.client.read_nodes(
@@ -240,7 +240,10 @@ class ChunkedGraph:
         return self.cache.children_multiple(node_ids)
 
     def get_atomic_cross_edges(
-        self, l2_ids: typing.Iterable, *, raw_only=False,
+        self,
+        l2_ids: typing.Iterable,
+        *,
+        raw_only=False,
     ) -> typing.Dict[np.uint64, typing.Dict[int, typing.Iterable]]:
         """Returns cross edges for level 2 IDs."""
         if raw_only or not self.cache:
@@ -280,8 +283,6 @@ class ChunkedGraph:
         result = {}
         if not node_ids.size:
             return result
-
-        from .utils.context_managers import TimeIt
 
         with TimeIt(f"_get_bounding_l2_children {len(node_ids)}"):
             node_l2ids_d = {}
@@ -573,31 +574,40 @@ class ChunkedGraph:
         return result
 
     def get_l2_agglomerations(
-        self, level2_ids: np.ndarray, edges_only: bool = False, n_threads: int = 1,
+        self, level2_ids: np.ndarray, edges_only: bool = False, n_threads: int = 1
     ) -> typing.Tuple[typing.Dict[int, types.Agglomeration], np.ndarray]:
         """
         Children of Level 2 Node IDs and edges.
         Edges are read from cloud storage.
         """
+        from itertools import chain
+        from functools import reduce
+
         chunk_ids = np.unique(self.get_chunk_ids_from_node_ids(level2_ids))
         # google does not provide a storage emulator at the moment
         # this is an ugly hack to avoid permission issues in tests
         # TODO find a better way to test
         chunk_edge_dicts = {}
         if self.mock_edges is None:
-            chunk_edge_dicts = mu.multithread_func(
-                self.read_chunk_edges,
-                np.array_split(chunk_ids, n_threads),  # TODO hardcoded
-                n_threads=n_threads,
-                debug=n_threads == 1,
+            with TimeIt(f"reading {len(chunk_ids)} chunks"):
+                chunk_edge_dicts = mu.multithread_func(
+                    self.read_chunk_edges,
+                    np.array_split(chunk_ids, n_threads),
+                    n_threads=n_threads,
+                    debug=n_threads == 1,
+                )
+
+        with TimeIt(f"all_chunk_edges"):
+            with TimeIt(f"concatenate_chunk_edges"):
+                edges_d = edge_utils.concatenate_chunk_edges(chunk_edge_dicts)
+            with TimeIt(f"get_fake_edges"):
+                fake_edges = self.get_fake_edges(chunk_ids)
+            all_chunk_edges = reduce(
+                lambda x, y: x + y,
+                chain(edges_d.values(), fake_edges.values()),
+                Edges([], []),
             )
-        edges_d = edge_utils.concatenate_chunk_edges(chunk_edge_dicts)
-        all_chunk_edges = reduce(lambda x, y: x + y, edges_d.values(), Edges([], []))
-        print("all_chunk_edges b", len(all_chunk_edges))
-        all_chunk_edges += reduce(
-            lambda x, y: x + y, self.get_fake_edges(chunk_ids).values(), Edges([], [])
-        )
-        print("all_chunk_edges a", len(all_chunk_edges))
+
         if edges_only:
             if self.mock_edges is not None:
                 all_chunk_edges = self.mock_edges.get_pairs()
@@ -609,23 +619,28 @@ class ChunkedGraph:
             mask2 = np.in1d(all_chunk_edges[:, 1], supervoxels)
             mask3 = np.in1d(all_chunk_edges[:, 0], supervoxels)
             return all_chunk_edges[mask0 & mask1 | mask2 & mask3]
-        in_edges = set()
-        out_edges = set()
-        cross_edges = set()
-        # TODO include fake edges
-        l2id_agglomeration_d = {}
-        l2id_children_d = self.get_children(level2_ids)
-        for l2id in l2id_children_d:
-            supervoxels = l2id_children_d[l2id]
-            in_, out_, cross_ = edge_utils.categorize_edges(
-                self.meta, supervoxels, all_chunk_edges
-            )
-            l2id_agglomeration_d[l2id] = types.Agglomeration(
-                l2id, supervoxels, in_, out_, cross_
-            )
-            in_edges.add(in_)
-            out_edges.add(out_)
-            cross_edges.add(cross_)
+
+        with TimeIt(f"edges_only=False"):
+            in_edges = set()
+            out_edges = set()
+            cross_edges = set()
+            l2id_agglomeration_d = {}
+            with TimeIt("get_children(level2_ids)"):
+                l2id_children_d = self.get_children(level2_ids)
+
+            with TimeIt(f"for l2id in {len(l2id_children_d)}:"):
+                for l2id in l2id_children_d:
+                    supervoxels = l2id_children_d[l2id]
+                    in_, out_, cross_ = edge_utils.categorize_edges(
+                        self.meta, supervoxels, all_chunk_edges
+                    )
+                    l2id_agglomeration_d[l2id] = types.Agglomeration(
+                        l2id, supervoxels, in_, out_, cross_
+                    )
+                    in_edges.add(in_)
+                    out_edges.add(out_)
+                    cross_edges.add(cross_)
+
         in_edges = reduce(lambda x, y: x + y, in_edges)
         out_edges = reduce(lambda x, y: x + y, out_edges)
         cross_edges = reduce(lambda x, y: x + y, cross_edges)
@@ -821,7 +836,6 @@ class ChunkedGraph:
         TODO what have i done (describe algo)
         """
         from collections import defaultdict
-        from .utils.context_managers import TimeIt
 
         with TimeIt("_get_bounding_l2_children init"):
             parents_layer = self.get_chunk_layer(parent_ids[0])

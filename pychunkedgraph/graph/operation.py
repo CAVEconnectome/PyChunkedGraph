@@ -267,7 +267,7 @@ class GraphEditOperation(ABC):
         :rtype: "GraphEditOperation"
         """
         log, _ = cg.client.read_log_entry(operation_id)
-        operation = cls.from_log_record(cg, log, multicut_as_split=multicut_as_split,)
+        operation = cls.from_log_record(cg, log, multicut_as_split=multicut_as_split)
         operation.privileged_mode = privileged_mode
         return operation
 
@@ -565,7 +565,7 @@ class MergeOperation(GraphEditOperation):
     def _update_root_ids(self) -> np.ndarray:
         root_ids = np.unique(
             self.cg.get_roots(
-                self.added_edges.ravel(), assert_roots=True, time_stamp=self.parent_ts,
+                self.added_edges.ravel(), assert_roots=True, time_stamp=self.parent_ts
             )
         )
         return root_ids
@@ -575,7 +575,7 @@ class MergeOperation(GraphEditOperation):
     ) -> Tuple[np.ndarray, np.ndarray, List["bigtable.row.Row"]]:
         root_ids = set(
             self.cg.get_roots(
-                self.added_edges.ravel(), assert_roots=True, time_stamp=self.parent_ts,
+                self.added_edges.ravel(), assert_roots=True, time_stamp=self.parent_ts
             )
         )
         if len(root_ids) < 2:
@@ -583,7 +583,11 @@ class MergeOperation(GraphEditOperation):
         bbox = get_bbox(self.source_coords, self.sink_coords, self.bbox_offset)
         with TimeIt("get_subgraph"):
             edges = self.cg.get_subgraph(
-                root_ids, bbox=bbox, bbox_is_coordinate=True, edges_only=True
+                root_ids,
+                bbox=bbox,
+                bbox_is_coordinate=True,
+                edges_only=True,
+                n_threads=8,
             )
 
         with TimeIt("edits.merge_preprocess"):
@@ -716,7 +720,7 @@ class SplitOperation(GraphEditOperation):
         with TimeIt("get_l2_agglomerations (subgraph)"):
             l2id_agglomeration_d, _ = self.cg.get_l2_agglomerations(
                 self.cg.get_parents(
-                    self.removed_edges.ravel(), time_stamp=self.parent_ts,
+                    self.removed_edges.ravel(), time_stamp=self.parent_ts
                 )
             )
         return edits.remove_edges(
@@ -818,7 +822,7 @@ class MulticutOperation(GraphEditOperation):
         sink_and_source_ids = np.concatenate((self.source_ids, self.sink_ids))
         root_ids = np.unique(
             self.cg.get_roots(
-                sink_and_source_ids, assert_roots=True, time_stamp=self.parent_ts,
+                sink_and_source_ids, assert_roots=True, time_stamp=self.parent_ts
             )
         )
         if len(root_ids) > 1:
