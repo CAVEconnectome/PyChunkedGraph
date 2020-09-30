@@ -87,7 +87,7 @@ def merge_cross_edge_dicts_multiple(x_edges_d1: Dict, x_edges_d2: Dict) -> Dict:
 
 def categorize_edges(
     meta: ChunkedGraphMeta, node_ids: np.ndarray, edges: Edges
-) -> Tuple[Edges, Edges]:
+) -> Tuple[Edges, Edges, Edges]:
     """
     Find edges and categorize them into:
     `in_edges`

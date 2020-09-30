@@ -421,6 +421,17 @@ class GraphEditOperation(ABC):
                 np.array([root_lock.operation_id] * len(root_lock.locked_root_ids)),
             )
 
+            new_root_ids, new_lvl2_ids, affected_records = self._apply(
+                operation_id=root_lock.operation_id,
+                timestamp=override_ts if override_ts else timestamp,
+            )
+            self.cg.cache = None
+            return GraphEditOperation.Result(
+                operation_id=lock.operation_id,
+                new_root_ids=new_root_ids,
+                new_lvl2_ids=new_lvl2_ids,
+            )
+
             log_record_before_edit = self._create_log_record(
                 operation_id=root_lock.operation_id,
                 new_root_ids=types.empty_1d,
