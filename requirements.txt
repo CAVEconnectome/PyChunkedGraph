@@ -18,4 +18,4 @@ fastremap
 pyyaml
 cachetools
 task-queue
-gcloud-aio-storage
+cloud-files

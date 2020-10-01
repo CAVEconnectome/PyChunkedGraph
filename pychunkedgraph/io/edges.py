@@ -54,7 +54,7 @@ def get_chunk_edges(
     edges_dir: str, chunks_coordinates: List[np.ndarray], cv_threads: int = 1
 ) -> Dict:
     """ Read edges from GCS. """
-    from .async_gcs import get_files
+    from cloudfiles import CloudFiles
 
     fnames = []
     for chunk_coords in chunks_coordinates:
@@ -62,12 +62,10 @@ def get_chunk_edges(
         # filename format - edges_x_y_z.serialization.compression
         fnames.append(f"edges_{chunk_str}.proto.zst")
 
-    edges_dir = edges_dir[5:]
-    bucket_name, files_path = edges_dir.split("/", 1)
-    with TimeIt("get_files_from_gcs"):
-        fnames = [f"{files_path}/{f}" for f in fnames]
-        files = get_files(bucket_name, fnames)
-    return concatenate_chunk_edges([_decompress_edges(c) for c in files])
+    with TimeIt("cloud files get"):
+        cf = CloudFiles(edges_dir)
+        cf.get(fnames, raw=True)
+    return concatenate_chunk_edges([_decompress_edges(cf[name]) for name in fnames])
 
 
 def put_chunk_edges(
