@@ -62,17 +62,12 @@ def get_chunk_edges(
         # filename format - edges_x_y_z.serialization.compression
         fnames.append(f"edges_{chunk_str}.proto.zst")
 
-    storage = (
-        Storage(edges_dir, n_threads=cv_threads)
-        if cv_threads > 1
-        else SimpleStorage(edges_dir)
-    )
-
-    with storage:
-        with TimeIt("get_files_from_gcs"):
-            fnames = [f"minnie_p3/edges/{f}" for f in fnames]
-            files = get_files("chunked-graph", fnames)
-        return concatenate_chunk_edges([_decompress_edges(c) for c in files])
+    edges_dir = edges_dir[5:]
+    bucket_name, files_path = edges_dir.split("/", 1)
+    with TimeIt("get_files_from_gcs"):
+        fnames = [f"{files_path}/{f}" for f in fnames]
+        files = get_files(bucket_name, fnames)
+    return concatenate_chunk_edges([_decompress_edges(c) for c in files])
 
 
 def put_chunk_edges(
