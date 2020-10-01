@@ -489,7 +489,6 @@ class CreateParentNodes:
                 continue
             with TimeIt(f"self._create_new_parents(layer) {layer}"):
                 self._create_new_parents(layer)
-        print(self._new_ids_d[self.cg.meta.layer_count])
         return self._new_ids_d[self.cg.meta.layer_count]
 
     def _update_root_id_lineage(self):

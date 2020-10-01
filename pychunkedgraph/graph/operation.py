@@ -421,17 +421,6 @@ class GraphEditOperation(ABC):
                 np.array([root_lock.operation_id] * len(root_lock.locked_root_ids)),
             )
 
-            new_root_ids, new_lvl2_ids, affected_records = self._apply(
-                operation_id=root_lock.operation_id,
-                timestamp=override_ts if override_ts else timestamp,
-            )
-            self.cg.cache = None
-            return GraphEditOperation.Result(
-                operation_id=root_lock.operation_id,
-                new_root_ids=new_root_ids,
-                new_lvl2_ids=new_lvl2_ids,
-            )
-
             log_record_before_edit = self._create_log_record(
                 operation_id=root_lock.operation_id,
                 new_root_ids=types.empty_1d,
@@ -453,9 +442,6 @@ class GraphEditOperation(ABC):
                 self.cg.cache = None
                 raise PostconditionError(err)
             except Exception as err:
-                from traceback import format_exception
-                from sys import exc_info
-
                 # unknown exception, update log record with error
                 self.cg.cache = None
                 log_record_error = self._create_log_record(
@@ -464,17 +450,21 @@ class GraphEditOperation(ABC):
                     timestamp=None,
                     operation_ts=override_ts if override_ts else timestamp,
                     status=attributes.OperationLogs.StatusCodes.EXCEPTION.value,
-                    exception=repr(format_exception(*exc_info())),
+                    exception=repr(err),
                 )
                 self.cg.client.write([log_record_error])
                 raise Exception(err)
-            return self._write(
-                root_lock,
-                override_ts if override_ts else timestamp,
-                new_root_ids,
-                new_lvl2_ids,
-                affected_records,
-            )
+
+            with TimeIt("persisting changes"):
+                result = self._write(
+                    root_lock,
+                    override_ts if override_ts else timestamp,
+                    new_root_ids,
+                    new_lvl2_ids,
+                    affected_records,
+                )
+                print("new root ids", result.new_root_ids)
+                return result
 
     def _write(self, lock, timestamp, new_root_ids, new_lvl2_ids, affected_records):
         """Helper to persist changes after an edit."""
@@ -498,7 +488,6 @@ class GraphEditOperation(ABC):
         ):
             # indefinite lock for writing, if a node instance or pod dies during this
             # the roots must stay locked indefinitely to prevent further corruption.
-            print("persisting changes")
             self.cg.client.write(
                 [log_record_after_edit] + affected_records,
                 lock.locked_root_ids,
@@ -513,7 +502,6 @@ class GraphEditOperation(ABC):
                 status=attributes.OperationLogs.StatusCodes.SUCCESS.value,
             )
             self.cg.client.write([log_record_success])
-            print("persisting changes complete")
         self.cg.cache = None
         return GraphEditOperation.Result(
             operation_id=lock.operation_id,

@@ -7,6 +7,7 @@ from typing import Dict
 from typing import List
 from typing import Tuple
 from typing import Iterable
+from typing import Callable
 
 import numpy as np
 
@@ -115,6 +116,28 @@ def categorize_edges(
     cross_edges_mask = edge_layers > 1
     out_edges = all_out_edges[~cross_edges_mask]
     cross_edges = all_out_edges[cross_edges_mask]
+    return (in_edges, out_edges, cross_edges)
+
+
+def categorize_edges_v2(
+    meta: ChunkedGraphMeta,
+    supervoxels: np.ndarray,
+    edges: Edges,
+    l2id_children_d: Dict,
+    get_sv_parents: Callable,
+) -> Tuple[Edges, Edges, Edges]:
+    """ Faster version of categorize_edges(), avoids looping over L2 IDs. """
+    node_ids1 = get_sv_parents(edges.node_ids1)
+    node_ids2 = get_sv_parents(edges.node_ids2)
+
+    layer_mask1 = chunk_utils.get_chunk_layers(meta, node_ids1) > 1
+    in_edges = edges[node_ids1 == node_ids2]
+    all_out_ = edges[layer_mask1 & (node_ids1 != node_ids2)]
+
+    cx_layers = get_cross_chunk_edges_layer(meta, all_out_.get_pairs())
+    cx_mask = cx_layers > 1
+    out_edges = all_out_[~cx_mask]
+    cross_edges = all_out_[cx_mask]
     return (in_edges, out_edges, cross_edges)
 
 
