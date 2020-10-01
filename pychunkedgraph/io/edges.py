@@ -36,11 +36,9 @@ def deserialize(edges_message: EdgesMsg) -> Tuple[np.ndarray, np.ndarray, np.nda
     return Edges(sv_ids1, sv_ids2, affinities=affinities, areas=areas)
 
 
-def _decompress_edges(content: bytes) -> Dict:
+def _decompress_edges(content: bytes, zdc: zstd.ZstdDecompressor) -> Dict:
     chunk_edges = ChunkEdgesMsg()
-    zstd_decompressor_obj = zstd.ZstdDecompressor().decompressobj()
-    file_content = zstd_decompressor_obj.decompress(content)
-    chunk_edges.ParseFromString(file_content)
+    chunk_edges.ParseFromString(zdc.decompressobj().decompress(content))
 
     # in, between and cross
     edges_dict = {}
@@ -50,9 +48,7 @@ def _decompress_edges(content: bytes) -> Dict:
     return edges_dict
 
 
-def get_chunk_edges(
-    edges_dir: str, chunks_coordinates: List[np.ndarray], cv_threads: int = 1
-) -> Dict:
+def get_chunk_edges(edges_dir: str, chunks_coordinates: List[np.ndarray]) -> Dict:
     """ Read edges from GCS. """
     from cloudfiles import CloudFiles
 
@@ -62,10 +58,15 @@ def get_chunk_edges(
         # filename format - edges_x_y_z.serialization.compression
         fnames.append(f"edges_{chunk_str}.proto.zst")
 
+    zdc = zstd.ZstdDecompressor()
     with TimeIt("cloud files get"):
         cf = CloudFiles(edges_dir)
         cf.get(fnames, raw=True)
-    return concatenate_chunk_edges([_decompress_edges(cf[name]) for name in fnames])
+
+    with TimeIt("_decompress_edges"):
+        edges = [_decompress_edges(cf[name], zdc) for name in fnames]
+    with TimeIt("concatenate_chunk_edges"):
+        return concatenate_chunk_edges(edges)
 
 
 def put_chunk_edges(

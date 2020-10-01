@@ -962,15 +962,12 @@ class ChunkedGraph:
     def get_cross_chunk_edges_layer(self, cross_edges: typing.Iterable):
         return edge_utils.get_cross_chunk_edges_layer(self.meta, cross_edges)
 
-    def read_chunk_edges(
-        self, chunk_ids: typing.Iterable, cv_threads: int = 1
-    ) -> typing.Dict:
+    def read_chunk_edges(self, chunk_ids: typing.Iterable) -> typing.Dict:
         from ..io.edges import get_chunk_edges
 
         return get_chunk_edges(
             self.meta.data_source.EDGES,
             [self.get_chunk_coordinates(chunk_id) for chunk_id in chunk_ids],
-            cv_threads=cv_threads,
         )
 
     def get_proofread_root_ids(
