@@ -302,7 +302,7 @@ def change_log_full(table_id):
 
 
 @bp.route("/table/<table_id>/tabular_change_log_recent", methods=["GET"])
-@auth_requires_permission("view") #TODO: admin_view
+@auth_requires_permission("admin_view")
 def tabular_change_log_weekly(table_id):
     disp = request.args.get("disp", default=False, type=toboolean)
     weekly_tab_change_log = common.tabular_change_log_recent(table_id)
