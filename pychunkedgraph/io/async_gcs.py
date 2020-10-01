@@ -1,8 +1,3 @@
-from asyncio import new_event_loop
-
-LOOP = new_event_loop()
-
-
 async def get_files_task(bucket, files):
     from asyncio import gather
     from asyncio import create_task
@@ -18,4 +13,9 @@ async def get_files_task(bucket, files):
 
 
 def get_files(bucket, files):
-    return LOOP.run_until_complete(get_files_task(bucket, files))
+    from asyncio import new_event_loop
+
+    loop = new_event_loop()
+    resp = loop.run_until_complete(get_files_task(bucket, files))
+    loop.close()
+    return resp
