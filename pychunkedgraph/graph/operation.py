@@ -427,7 +427,7 @@ class GraphEditOperation(ABC):
             )
             self.cg.cache = None
             return GraphEditOperation.Result(
-                operation_id=lock.operation_id,
+                operation_id=root_lock.operation_id,
                 new_root_ids=new_root_ids,
                 new_lvl2_ids=new_lvl2_ids,
             )

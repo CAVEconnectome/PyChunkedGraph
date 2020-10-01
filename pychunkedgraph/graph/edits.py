@@ -45,7 +45,7 @@ def _analyze_affected_edges(
     """
     supervoxels = np.unique(atomic_edges)
     parents = cg.get_parents(supervoxels, time_stamp=parent_ts)
-    sv_parent_d = dict(zip(supervoxels, parents))
+    sv_parent_d = dict(zip(supervoxels.tolist(), parents))
     edge_layers = cg.get_cross_chunk_edges_layer(atomic_edges)
     parent_edges = [
         [sv_parent_d[edge_[0]], sv_parent_d[edge_[1]]]
@@ -134,7 +134,7 @@ def _check_fake_edges(
     chunk_ids = cg.get_chunk_ids_from_node_ids(
         cg.get_parents(supervoxels, time_stamp=parent_ts)
     )
-    sv_l2chunk_id_d = dict(zip(supervoxels, chunk_ids))
+    sv_l2chunk_id_d = dict(zip(supervoxels.tolist(), chunk_ids))
     for edge in atomic_edges:
         id1, id2 = sv_l2chunk_id_d[edge[0]], sv_l2chunk_id_d[edge[1]]
         val_dict = {}
@@ -291,7 +291,7 @@ def remove_edges(
     new_old_id_d, old_new_id_d, old_hierarchy_d = _init_old_hierarchy(
         cg, l2ids, parent_ts=parent_ts
     )
-    l2id_chunk_id_d = dict(zip(l2ids, cg.get_chunk_ids_from_node_ids(l2ids)))
+    l2id_chunk_id_d = dict(zip(l2ids.tolist(), cg.get_chunk_ids_from_node_ids(l2ids)))
     atomic_cross_edges_d = cg.get_atomic_cross_edges(l2ids)
 
     removed_edges = np.concatenate([atomic_edges, atomic_edges[:, ::-1]], axis=0)
@@ -378,7 +378,7 @@ class CreateParentNodes:
         sv_cross_edges = [types.empty_2d]
         for id_ in node_ids:
             edges_ = self._cross_edges_d[id_].get(layer, types.empty_2d)
-            sv_parent_d.update(dict(zip(edges_[:, 0], [id_] * len(edges_))))
+            sv_parent_d.update(dict(zip(edges_[:, 0].tolist(), [id_] * len(edges_))))
             sv_cross_edges.append(edges_)
         return sv_parent_d, np.concatenate(sv_cross_edges)
 

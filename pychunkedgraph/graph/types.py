@@ -38,5 +38,5 @@ _agglomeration_defaults = (
     {},
 )
 Agglomeration = namedtuple(
-    "Agglomeration", _agglomeration_fields, defaults=_agglomeration_defaults,
+    "Agglomeration", _agglomeration_fields, defaults=_agglomeration_defaults
 )

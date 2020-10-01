@@ -523,10 +523,7 @@ class ChunkedGraph:
             return self.get_l2_agglomerations(
                 level2_ids, edges_only=True, n_threads=n_threads
             )
-        l2id_agglomeration_d, edges = self.get_l2_agglomerations(
-            level2_ids, n_threads=n_threads
-        )
-        return l2id_agglomeration_d, edges
+        return self.get_l2_agglomerations(level2_ids, n_threads=n_threads)
 
     def get_subgraph_nodes(
         self,
@@ -598,10 +595,8 @@ class ChunkedGraph:
                 )
 
         with TimeIt(f"all_chunk_edges"):
-            with TimeIt(f"concatenate_chunk_edges"):
-                edges_d = edge_utils.concatenate_chunk_edges(chunk_edge_dicts)
-            with TimeIt(f"get_fake_edges"):
-                fake_edges = self.get_fake_edges(chunk_ids)
+            edges_d = edge_utils.concatenate_chunk_edges(chunk_edge_dicts)
+            fake_edges = self.get_fake_edges(chunk_ids)
             all_chunk_edges = reduce(
                 lambda x, y: x + y,
                 chain(edges_d.values(), fake_edges.values()),
@@ -620,58 +615,46 @@ class ChunkedGraph:
             mask3 = np.in1d(all_chunk_edges[:, 0], supervoxels)
             return all_chunk_edges[mask0 & mask1 | mask2 & mask3]
 
-        l2id_agglomeration_d = {}
         with TimeIt("get_children(level2_ids)"):
             l2id_children_d = self.get_children(level2_ids)
 
-        with TimeIt(f"edges_only=False"):
-            in_edges = set()
-            out_edges = set()
-            cross_edges = set()
-            with TimeIt(f"for l2id in {len(l2id_children_d)}:"):
-                for l2id in l2id_children_d:
-                    supervoxels = l2id_children_d[l2id]
-                    in_, out_, cross_ = edge_utils.categorize_edges(
-                        self.meta, supervoxels, all_chunk_edges
-                    )
-                    l2id_agglomeration_d[l2id] = types.Agglomeration(
-                        l2id, supervoxels, in_, out_, cross_
-                    )
-                    in_edges.add(in_)
-                    out_edges.add(out_)
-                    cross_edges.add(cross_)
-            in_edges = reduce(lambda x, y: x + y, in_edges)
-            out_edges = reduce(lambda x, y: x + y, out_edges)
-            cross_edges = reduce(lambda x, y: x + y, cross_edges)
-
-        l2id_agglomeration_d_2 = {}
+        l2id_agglomeration_d = {}
         with TimeIt(f"edges_only=False vectorized"):
             sv_parent_d = {}
             supervoxels = []
             for l2id in l2id_children_d:
                 svs = l2id_children_d[l2id]
-                sv_parent_d.update(dict(zip(svs, [l2id] * len(svs))))
+                sv_parent_d.update(dict(zip(svs.tolist(), [l2id] * len(svs))))
                 supervoxels.append(svs)
+
             supervoxels = np.concatenate(supervoxels)
-            get_sv_parents = np.vectorize(sv_parent_d.get, otypes=[np.uint64])
+            f = lambda x: sv_parent_d.get(x, x)
+            get_sv_parents = np.vectorize(f)
+            with TimeIt(f"categorize_edges"):
+                node_ids1 = get_sv_parents(all_chunk_edges.node_ids1)
+                node_ids2 = get_sv_parents(all_chunk_edges.node_ids2)
 
-            in_, out_, cross_ = edge_utils.categorize_edges(
-                self.meta, supervoxels, all_chunk_edges
-            )
-
-            _in = get_sv_parents(in_.get_pairs()[:, 0])
-            _out = get_sv_parents(out_.get_pairs()[:, 0])
-            _cross = get_sv_parents(cross_.get_pairs()[:, 0])
-
-            for l2id in level2_ids:
-                l2id_agglomeration_d_2[l2id] = types.Agglomeration(
-                    l2id,
-                    supervoxels,
-                    in_[_in == l2id],
-                    out_[_out == l2id],
-                    cross_[_cross == l2id],
+                layer_mask1 = self.get_chunk_layers(node_ids1) > 1
+                in_edges = all_chunk_edges[node_ids1 == node_ids2]
+                all_out_ = all_chunk_edges[layer_mask1 & (node_ids1 != node_ids2)]
+                cx_layers = edge_utils.get_cross_chunk_edges_layer(
+                    self.meta, all_out_.get_pairs()
                 )
+                cx_mask = cx_layers > 1
+                out_edges = all_out_[~cx_mask]
+                cross_edges = all_out_[cx_mask]
 
+            _in = get_sv_parents(in_edges.node_ids1)
+            _out = get_sv_parents(out_edges.node_ids1)
+            _cross = get_sv_parents(cross_edges.node_ids1)
+            for l2id in level2_ids:
+                l2id_agglomeration_d[l2id] = types.Agglomeration(
+                    l2id,
+                    l2id_children_d[l2id],
+                    in_edges[_in == l2id],
+                    out_edges[_out == l2id],
+                    cross_edges[_cross == l2id],
+                )
         return (
             l2id_agglomeration_d,
             (self.mock_edges,)
