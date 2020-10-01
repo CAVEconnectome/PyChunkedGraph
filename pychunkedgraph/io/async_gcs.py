@@ -14,8 +14,15 @@ async def get_files_task(bucket, files):
 
 def get_files(bucket, files):
     from asyncio import new_event_loop
+    from asyncio import get_running_loop
 
-    loop = new_event_loop()
-    resp = loop.run_until_complete(get_files_task(bucket, files))
-    loop.close()
-    return resp
+    try:
+        # try using an exising event loop
+        loop = get_running_loop()
+        return loop.run_until_complete(get_files_task(bucket, files))
+    except RuntimeError:
+        # no event loop running, create and close
+        loop = new_event_loop()
+        resp = loop.run_until_complete(get_files_task(bucket, files))
+        loop.close()
+        return resp
