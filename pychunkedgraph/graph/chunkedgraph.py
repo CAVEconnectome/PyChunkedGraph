@@ -240,10 +240,7 @@ class ChunkedGraph:
         return self.cache.children_multiple(node_ids)
 
     def get_atomic_cross_edges(
-        self,
-        l2_ids: typing.Iterable,
-        *,
-        raw_only=False,
+        self, l2_ids: typing.Iterable, *, raw_only=False
     ) -> typing.Dict[np.uint64, typing.Dict[int, typing.Iterable]]:
         """Returns cross edges for level 2 IDs."""
         if raw_only or not self.cache:
