@@ -36,7 +36,8 @@ def deserialize(edges_message: EdgesMsg) -> Tuple[np.ndarray, np.ndarray, np.nda
     return Edges(sv_ids1, sv_ids2, affinities=affinities, areas=areas)
 
 
-def _decompress_edges(content: bytes, zdc: zstd.ZstdDecompressor) -> Dict:
+def _decompress_edges(content: bytes) -> Dict:
+    zdc = zstd.ZstdDecompressor()
     chunk_edges = ChunkEdgesMsg()
     chunk_edges.ParseFromString(zdc.decompressobj().decompress(content))
 
@@ -58,13 +59,12 @@ def get_chunk_edges(edges_dir: str, chunks_coordinates: List[np.ndarray]) -> Dic
         # filename format - edges_x_y_z.serialization.compression
         fnames.append(f"edges_{chunk_str}.proto.zst")
 
-    zdc = zstd.ZstdDecompressor()
     with TimeIt("cloud files get"):
         cf = CloudFiles(edges_dir)
         cf.get(fnames, raw=True)
 
     with TimeIt("_decompress_edges"):
-        edges = [_decompress_edges(cf[name], zdc) for name in fnames]
+        edges = [_decompress_edges(cf[name]) for name in fnames]
     with TimeIt("concatenate_chunk_edges"):
         return concatenate_chunk_edges(edges)
 
