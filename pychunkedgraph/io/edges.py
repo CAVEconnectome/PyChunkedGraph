@@ -1,6 +1,5 @@
 """
-Functions for reading and writing edges 
-to (slow) storage with CloudVolume
+Functions for reading and writing edges from cloud storage.
 """
 
 from typing import List, Dict, Tuple, Union
@@ -16,6 +15,7 @@ from .protobuf.chunkEdges_pb2 import ChunkEdgesMsg
 from ..graph.edges import Edges
 from ..graph.edges import EDGE_TYPES
 from ..graph.utils import basetypes
+from ..graph.utils.context_managers import TimeIt
 from ..graph.edges.utils import concatenate_chunk_edges
 
 
@@ -37,17 +37,9 @@ def deserialize(edges_message: EdgesMsg) -> Tuple[np.ndarray, np.ndarray, np.nda
 
 
 def _decompress_edges(content: bytes) -> Dict:
-    """
-    :param content: zstd compressed bytes
-    :type bytes:
-    :return: edges_dict with keys "in", "cross", "between"
-    :rtype: dict
-    """
-
+    zdc = zstd.ZstdDecompressor()
     chunk_edges = ChunkEdgesMsg()
-    zstd_decompressor_obj = zstd.ZstdDecompressor().decompressobj()
-    file_content = zstd_decompressor_obj.decompress(content)
-    chunk_edges.ParseFromString(file_content)
+    chunk_edges.ParseFromString(zdc.decompressobj().decompress(content))
 
     # in, between and cross
     edges_dict = {}
@@ -57,60 +49,30 @@ def _decompress_edges(content: bytes) -> Dict:
     return edges_dict
 
 
-def get_chunk_edges(
-    edges_dir: str, chunks_coordinates: List[np.ndarray], cv_threads: int = 1
-) -> Dict:
-    """
-    :param edges_dir: cloudvolume storage path
-    :type str:    
-    :param chunks_coordinates: list of chunk coords for which to load edges
-    :type List[np.ndarray]:
-    :param cv_threads: cloudvolume storage client thread count
-    :type int:     
-    :return: dictionary {"edge_type": Edges}
-    """
+def get_chunk_edges(edges_dir: str, chunks_coordinates: List[np.ndarray]) -> Dict:
+    """ Read edges from GCS. """
+    from cloudfiles import CloudFiles
+
     fnames = []
     for chunk_coords in chunks_coordinates:
         chunk_str = "_".join(str(coord) for coord in chunk_coords)
         # filename format - edges_x_y_z.serialization.compression
         fnames.append(f"edges_{chunk_str}.proto.zst")
 
-    storage = (
-        Storage(edges_dir, n_threads=cv_threads)
-        if cv_threads > 1
-        else SimpleStorage(edges_dir)
-    )
+    with TimeIt("cloud files get"):
+        cf = CloudFiles(edges_dir)
+        cf.get(fnames, raw=True)
 
-    chunk_edge_dicts = []
-    with storage:
-        files = storage.get_files(fnames)
-        for _file in files:
-            # cv error
-            if _file["error"]:
-                raise ValueError(_file["error"])
-            # empty chunk
-            if not _file["content"]:
-                continue
-            edges_dict = _decompress_edges(_file["content"])
-            chunk_edge_dicts.append(edges_dict)
-    return concatenate_chunk_edges(chunk_edge_dicts)
+    with TimeIt("_decompress_edges"):
+        edges = [_decompress_edges(cf[name]) for name in fnames]
+    with TimeIt("concatenate_chunk_edges"):
+        return concatenate_chunk_edges(edges)
 
 
 def put_chunk_edges(
     edges_dir: str, chunk_coordinates: np.ndarray, edges_d, compression_level: int
 ) -> None:
-    """
-    :param edges_dir: cloudvolume storage path
-    :type str:
-    :param chunk_coordinates: chunk coords x,y,z
-    :type np.ndarray:
-    :param edges_d: edges_d with keys "in", "cross", "between"
-    :type dict:
-    :param compression_level: zstandard compression level (1-22, higher - better ratio)
-    :type int:
-    :return None:
-    """
-
+    """ Write edges to GCS. """
     chunk_edges = ChunkEdgesMsg()
     chunk_edges.in_chunk.CopyFrom(serialize(edges_d[EDGE_TYPES.in_chunk]))
     chunk_edges.between_chunk.CopyFrom(serialize(edges_d[EDGE_TYPES.between_chunk]))
@@ -121,7 +83,7 @@ def put_chunk_edges(
 
     # filename format - edges_x_y_z.serialization.compression
     file = f"edges_{chunk_str}.proto.zst"
-    with Storage(edges_dir) as storage:
+    with Storage(edges_dir) as storage:  # pylint: disable=not-context-manager
         storage.put_file(
             file_path=file,
             content=cctx.compress(chunk_edges.SerializeToString()),

@@ -267,7 +267,7 @@ class GraphEditOperation(ABC):
         :rtype: "GraphEditOperation"
         """
         log, _ = cg.client.read_log_entry(operation_id)
-        operation = cls.from_log_record(cg, log, multicut_as_split=multicut_as_split,)
+        operation = cls.from_log_record(cg, log, multicut_as_split=multicut_as_split)
         operation.privileged_mode = privileged_mode
         return operation
 
@@ -442,9 +442,6 @@ class GraphEditOperation(ABC):
                 self.cg.cache = None
                 raise PostconditionError(err)
             except Exception as err:
-                from traceback import format_exception
-                from sys import exc_info
-
                 # unknown exception, update log record with error
                 self.cg.cache = None
                 log_record_error = self._create_log_record(
@@ -453,17 +450,21 @@ class GraphEditOperation(ABC):
                     timestamp=None,
                     operation_ts=override_ts if override_ts else timestamp,
                     status=attributes.OperationLogs.StatusCodes.EXCEPTION.value,
-                    exception=repr(format_exception(*exc_info())),
+                    exception=repr(err),
                 )
                 self.cg.client.write([log_record_error])
                 raise Exception(err)
-            return self._write(
-                root_lock,
-                override_ts if override_ts else timestamp,
-                new_root_ids,
-                new_lvl2_ids,
-                affected_records,
-            )
+
+            with TimeIt("persisting changes"):
+                result = self._write(
+                    root_lock,
+                    override_ts if override_ts else timestamp,
+                    new_root_ids,
+                    new_lvl2_ids,
+                    affected_records,
+                )
+                print("new root ids", result.new_root_ids)
+                return result
 
     def _write(self, lock, timestamp, new_root_ids, new_lvl2_ids, affected_records):
         """Helper to persist changes after an edit."""
@@ -487,7 +488,6 @@ class GraphEditOperation(ABC):
         ):
             # indefinite lock for writing, if a node instance or pod dies during this
             # the roots must stay locked indefinitely to prevent further corruption.
-            print("persisting changes")
             self.cg.client.write(
                 [log_record_after_edit] + affected_records,
                 lock.locked_root_ids,
@@ -502,7 +502,6 @@ class GraphEditOperation(ABC):
                 status=attributes.OperationLogs.StatusCodes.SUCCESS.value,
             )
             self.cg.client.write([log_record_success])
-            print("persisting changes complete")
         self.cg.cache = None
         return GraphEditOperation.Result(
             operation_id=lock.operation_id,
@@ -565,7 +564,7 @@ class MergeOperation(GraphEditOperation):
     def _update_root_ids(self) -> np.ndarray:
         root_ids = np.unique(
             self.cg.get_roots(
-                self.added_edges.ravel(), assert_roots=True, time_stamp=self.parent_ts,
+                self.added_edges.ravel(), assert_roots=True, time_stamp=self.parent_ts
             )
         )
         return root_ids
@@ -575,7 +574,7 @@ class MergeOperation(GraphEditOperation):
     ) -> Tuple[np.ndarray, np.ndarray, List["bigtable.row.Row"]]:
         root_ids = set(
             self.cg.get_roots(
-                self.added_edges.ravel(), assert_roots=True, time_stamp=self.parent_ts,
+                self.added_edges.ravel(), assert_roots=True, time_stamp=self.parent_ts
             )
         )
         if len(root_ids) < 2:
@@ -583,7 +582,11 @@ class MergeOperation(GraphEditOperation):
         bbox = get_bbox(self.source_coords, self.sink_coords, self.bbox_offset)
         with TimeIt("get_subgraph"):
             edges = self.cg.get_subgraph(
-                root_ids, bbox=bbox, bbox_is_coordinate=True, edges_only=True
+                root_ids,
+                bbox=bbox,
+                bbox_is_coordinate=True,
+                edges_only=True,
+                n_threads=8,
             )
 
         with TimeIt("edits.merge_preprocess"):
@@ -716,7 +719,7 @@ class SplitOperation(GraphEditOperation):
         with TimeIt("get_l2_agglomerations (subgraph)"):
             l2id_agglomeration_d, _ = self.cg.get_l2_agglomerations(
                 self.cg.get_parents(
-                    self.removed_edges.ravel(), time_stamp=self.parent_ts,
+                    self.removed_edges.ravel(), time_stamp=self.parent_ts
                 )
             )
         return edits.remove_edges(
@@ -818,7 +821,7 @@ class MulticutOperation(GraphEditOperation):
         sink_and_source_ids = np.concatenate((self.source_ids, self.sink_ids))
         root_ids = np.unique(
             self.cg.get_roots(
-                sink_and_source_ids, assert_roots=True, time_stamp=self.parent_ts,
+                sink_and_source_ids, assert_roots=True, time_stamp=self.parent_ts
             )
         )
         if len(root_ids) > 1:

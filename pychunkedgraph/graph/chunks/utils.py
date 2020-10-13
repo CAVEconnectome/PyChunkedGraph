@@ -15,7 +15,9 @@ def get_chunks_boundary(voxel_boundary, chunk_size) -> np.ndarray:
 
 
 def normalize_bounding_box(
-    meta, bounding_box: Optional[Sequence[Sequence[int]]], bb_is_coordinate: bool,
+    meta,
+    bounding_box: Optional[Sequence[Sequence[int]]],
+    bb_is_coordinate: bool,
 ) -> Union[Sequence[Sequence[int]], None]:
     if bounding_box is None:
         return None
@@ -41,14 +43,13 @@ def normalize_bounding_box(
     return np.array(bbox, dtype=np.int)
 
 
-
 def get_chunk_layer(meta, node_or_chunk_id: np.uint64) -> int:
     """ Extract Layer from Node ID or Chunk ID """
     return int(int(node_or_chunk_id) >> 64 - meta.graph_config.LAYER_ID_BITS)
 
 
 def get_chunk_layers(meta, node_or_chunk_ids: Sequence[np.uint64]) -> np.ndarray:
-    """ Extract Layers from Node IDs or Chunk IDs
+    """Extract Layers from Node IDs or Chunk IDs
     :param node_or_chunk_ids: np.ndarray
     :return: np.ndarray
     """
@@ -66,7 +67,7 @@ def get_chunk_layers(meta, node_or_chunk_ids: Sequence[np.uint64]) -> np.ndarray
 
 
 def get_chunk_coordinates(meta, node_or_chunk_id: np.uint64) -> np.ndarray:
-    """ Extract X, Y and Z coordinate from Node ID or Chunk ID
+    """Extract X, Y and Z coordinate from Node ID or Chunk ID
     :param node_or_chunk_id: np.uint64
     :return: Tuple(int, int, int)
     """
@@ -83,6 +84,27 @@ def get_chunk_coordinates(meta, node_or_chunk_id: np.uint64) -> np.ndarray:
     return np.array([x, y, z])
 
 
+def get_chunk_coordinates_multiple(meta, ids: np.ndarray) -> np.ndarray:
+    """
+    Array version of get_chunk_coordinates.
+    Assumes all given IDs are in same layer.
+    """
+    if not len(ids):
+        return np.array([])
+    layer = get_chunk_layer(meta, ids[0])
+    bits_per_dim = meta.bitmasks[layer]
+
+    x_offset = 64 - meta.graph_config.LAYER_ID_BITS - bits_per_dim
+    y_offset = x_offset - bits_per_dim
+    z_offset = y_offset - bits_per_dim
+
+    ids = np.array(ids, dtype=int)
+    X = ids >> x_offset & 2 ** bits_per_dim - 1
+    Y = ids >> y_offset & 2 ** bits_per_dim - 1
+    Z = ids >> z_offset & 2 ** bits_per_dim - 1
+    return np.column_stack((X, Y, Z))
+
+
 def get_chunk_id(
     meta,
     node_id: Optional[np.uint64] = None,
@@ -91,8 +113,8 @@ def get_chunk_id(
     y: Optional[int] = None,
     z: Optional[int] = None,
 ) -> np.uint64:
-    """ (1) Extract Chunk ID from Node ID
-        (2) Build Chunk ID from Layer, X, Y and Z components
+    """(1) Extract Chunk ID from Node ID
+    (2) Build Chunk ID from Layer, X, Y and Z components
     """
     assert node_id is not None or all(v is not None for v in [layer, x, y, z])
     if node_id is not None:
@@ -138,7 +160,13 @@ def get_chunk_ids_from_node_ids(meta, ids: Iterable[np.uint64]) -> np.ndarray:
     return cids1
 
 
-def _compute_chunk_id(meta, layer: int, x: int, y: int, z: int,) -> np.uint64:
+def _compute_chunk_id(
+    meta,
+    layer: int,
+    x: int,
+    y: int,
+    z: int,
+) -> np.uint64:
     s_bits_per_dim = meta.bitmasks[layer]
     if not (
         x < 2 ** s_bits_per_dim and y < 2 ** s_bits_per_dim and z < 2 ** s_bits_per_dim
@@ -214,4 +242,3 @@ def get_bounding_children_chunks(
     if return_unique:
         return np.unique(result, axis=0) if result.size else result
     return result
-

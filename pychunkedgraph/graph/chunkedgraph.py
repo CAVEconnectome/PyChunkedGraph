@@ -1,7 +1,6 @@
 import time
 import typing
 import datetime
-from functools import reduce
 
 import numpy as np
 from multiwrapper import multiprocessing_utils as mu
@@ -19,6 +18,7 @@ from .meta import ChunkedGraphMeta
 from .utils import basetypes
 from .utils import id_helpers
 from .utils import generic as misc_utils
+from .utils.context_managers import TimeIt
 from .edges import Edges
 from .edges import utils as edge_utils
 from .chunks import utils as chunk_utils
@@ -122,7 +122,7 @@ class ChunkedGraph:
         if self.get_chunk_layer(parent_id) == 1:
             return parent_id
         return id_helpers.get_atomic_id_from_coord(
-            self.meta, self.get_root, x, y, z, parent_id, n_tries=n_tries,
+            self.meta, self.get_root, x, y, z, parent_id, n_tries=n_tries
         )
 
     def get_parents(
@@ -225,7 +225,7 @@ class ChunkedGraph:
         return node_children_d
 
     def _get_children_multiple(
-        self, node_ids: typing.Iterable[np.uint64], *, raw_only=False,
+        self, node_ids: typing.Iterable[np.uint64], *, raw_only=False
     ) -> typing.Dict:
         if raw_only or not self.cache:
             node_children_d = self.client.read_nodes(
@@ -240,7 +240,7 @@ class ChunkedGraph:
         return self.cache.children_multiple(node_ids)
 
     def get_atomic_cross_edges(
-        self, l2_ids: typing.Iterable, *, raw_only=False,
+        self, l2_ids: typing.Iterable, *, raw_only=False
     ) -> typing.Dict[np.uint64, typing.Dict[int, typing.Iterable]]:
         """Returns cross edges for level 2 IDs."""
         if raw_only or not self.cache:
@@ -281,15 +281,12 @@ class ChunkedGraph:
         if not node_ids.size:
             return result
 
-        from .utils.context_managers import TimeIt
-
-        with TimeIt(f"_get_bounding_l2_children {len(node_ids)}"):
-            node_l2ids_d = {}
-            layers_ = self.get_chunk_layers(node_ids)
-            for layer_ in set(layers_):
-                node_l2ids_d.update(
-                    self._get_bounding_l2_children(node_ids[layers_ == layer_])
-                )
+        node_l2ids_d = {}
+        layers_ = self.get_chunk_layers(node_ids)
+        for layer_ in set(layers_):
+            node_l2ids_d.update(
+                self._get_bounding_l2_children(node_ids[layers_ == layer_])
+            )
         l2_edges_d_d = self.get_atomic_cross_edges(
             np.concatenate(list(node_l2ids_d.values()))
         )
@@ -522,10 +519,7 @@ class ChunkedGraph:
             return self.get_l2_agglomerations(
                 level2_ids, edges_only=True, n_threads=n_threads
             )
-        l2id_agglomeration_d, edges = self.get_l2_agglomerations(
-            level2_ids, n_threads=n_threads
-        )
-        return l2id_agglomeration_d, edges
+        return self.get_l2_agglomerations(level2_ids, n_threads=n_threads)
 
     def get_subgraph_nodes(
         self,
@@ -573,31 +567,32 @@ class ChunkedGraph:
         return result
 
     def get_l2_agglomerations(
-        self, level2_ids: np.ndarray, edges_only: bool = False, n_threads: int = 1,
+        self, level2_ids: np.ndarray, edges_only: bool = False, n_threads: int = 1
     ) -> typing.Tuple[typing.Dict[int, types.Agglomeration], np.ndarray]:
         """
         Children of Level 2 Node IDs and edges.
         Edges are read from cloud storage.
         """
+        from itertools import chain
+        from functools import reduce
+        from .misc import get_agglomerations
+
         chunk_ids = np.unique(self.get_chunk_ids_from_node_ids(level2_ids))
         # google does not provide a storage emulator at the moment
         # this is an ugly hack to avoid permission issues in tests
         # TODO find a better way to test
-        chunk_edge_dicts = {}
+        edges_d = {}
         if self.mock_edges is None:
-            chunk_edge_dicts = mu.multithread_func(
-                self.read_chunk_edges,
-                np.array_split(chunk_ids, n_threads),  # TODO hardcoded
-                n_threads=n_threads,
-                debug=n_threads == 1,
-            )
-        edges_d = edge_utils.concatenate_chunk_edges(chunk_edge_dicts)
-        all_chunk_edges = reduce(lambda x, y: x + y, edges_d.values(), Edges([], []))
-        print("all_chunk_edges b", len(all_chunk_edges))
-        all_chunk_edges += reduce(
-            lambda x, y: x + y, self.get_fake_edges(chunk_ids).values(), Edges([], [])
+            with TimeIt(f"reading {len(chunk_ids)} chunks"):
+                edges_d = self.read_chunk_edges(chunk_ids)
+
+        fake_edges = self.get_fake_edges(chunk_ids)
+        all_chunk_edges = reduce(
+            lambda x, y: x + y,
+            chain(edges_d.values(), fake_edges.values()),
+            Edges([], []),
         )
-        print("all_chunk_edges a", len(all_chunk_edges))
+
         if edges_only:
             if self.mock_edges is not None:
                 all_chunk_edges = self.mock_edges.get_pairs()
@@ -609,28 +604,32 @@ class ChunkedGraph:
             mask2 = np.in1d(all_chunk_edges[:, 1], supervoxels)
             mask3 = np.in1d(all_chunk_edges[:, 0], supervoxels)
             return all_chunk_edges[mask0 & mask1 | mask2 & mask3]
-        in_edges = set()
-        out_edges = set()
-        cross_edges = set()
-        # TODO include fake edges
-        l2id_agglomeration_d = {}
-        l2id_children_d = self.get_children(level2_ids)
-        for l2id in l2id_children_d:
-            supervoxels = l2id_children_d[l2id]
-            in_, out_, cross_ = edge_utils.categorize_edges(
-                self.meta, supervoxels, all_chunk_edges
+
+        with TimeIt(f"categorize_edges"):
+            l2id_children_d = self.get_children(level2_ids)
+            sv_parent_d = {}
+            supervoxels = []
+            for l2id in l2id_children_d:
+                svs = l2id_children_d[l2id]
+                sv_parent_d.update(dict(zip(svs.tolist(), [l2id] * len(svs))))
+                supervoxels.append(svs)
+
+            supervoxels = np.concatenate(supervoxels)
+            f = lambda x: sv_parent_d.get(x, x)
+            get_sv_parents = np.vectorize(f, otypes=[np.uint64])
+            in_edges, out_edges, cross_edges = edge_utils.categorize_edges_v2(
+                self.meta,
+                supervoxels,
+                all_chunk_edges,
+                l2id_children_d,
+                get_sv_parents,
             )
-            l2id_agglomeration_d[l2id] = types.Agglomeration(
-                l2id, supervoxels, in_, out_, cross_
-            )
-            in_edges.add(in_)
-            out_edges.add(out_)
-            cross_edges.add(cross_)
-        in_edges = reduce(lambda x, y: x + y, in_edges)
-        out_edges = reduce(lambda x, y: x + y, out_edges)
-        cross_edges = reduce(lambda x, y: x + y, cross_edges)
+
+        agglomeration_d = get_agglomerations(
+            l2id_children_d, in_edges, out_edges, cross_edges, get_sv_parents
+        )
         return (
-            l2id_agglomeration_d,
+            agglomeration_d,
             (self.mock_edges,)
             if self.mock_edges is not None
             else (in_edges, out_edges, cross_edges),
@@ -670,14 +669,15 @@ class ChunkedGraph:
         lock before executing the write.
         :return: GraphEditOperation.Result
         """
-        return operation.MergeOperation(
-            self,
-            user_id=user_id,
-            added_edges=atomic_edges,
-            affinities=affinities,
-            source_coords=source_coords,
-            sink_coords=sink_coords,
-        ).execute()
+        with TimeIt("MergeOperation.execute()"):
+            return operation.MergeOperation(
+                self,
+                user_id=user_id,
+                added_edges=atomic_edges,
+                affinities=affinities,
+                source_coords=source_coords,
+                sink_coords=sink_coords,
+            ).execute()
 
     def remove_edges(
         self,
@@ -704,15 +704,16 @@ class ChunkedGraph:
         source_ids = [source_ids] if np.isscalar(source_ids) else source_ids
         sink_ids = [sink_ids] if np.isscalar(sink_ids) else sink_ids
         if mincut:
-            return operation.MulticutOperation(
-                self,
-                user_id=user_id,
-                source_ids=source_ids,
-                sink_ids=sink_ids,
-                source_coords=source_coords,
-                sink_coords=sink_coords,
-                bbox_offset=bb_offset,
-            ).execute()
+            with TimeIt("MulticutOperation.execute()"):
+                return operation.MulticutOperation(
+                    self,
+                    user_id=user_id,
+                    source_ids=source_ids,
+                    sink_ids=sink_ids,
+                    source_coords=source_coords,
+                    sink_coords=sink_coords,
+                    bbox_offset=bb_offset,
+                ).execute()
 
         if not atomic_edges:
             # Shim - can remove this check once all functions call the split properly/directly
@@ -723,13 +724,14 @@ class ChunkedGraph:
             atomic_edges = np.array(
                 [source_ids, sink_ids], dtype=basetypes.NODE_ID
             ).transpose()
-        return operation.SplitOperation(
-            self,
-            user_id=user_id,
-            removed_edges=atomic_edges,
-            source_coords=source_coords,
-            sink_coords=sink_coords,
-        ).execute()
+        with TimeIt("SplitOperation.execute()"):
+            return operation.SplitOperation(
+                self,
+                user_id=user_id,
+                removed_edges=atomic_edges,
+                source_coords=source_coords,
+                sink_coords=sink_coords,
+            ).execute()
 
     def undo_operation(
         self, user_id: str, operation_id: np.uint64
@@ -740,7 +742,10 @@ class ChunkedGraph:
         :return: GraphEditOperation.Result
         """
         return operation.UndoOperation(
-            self, user_id=user_id, operation_id=operation_id
+            self,
+            user_id=user_id,
+            superseded_operation_id=operation_id,
+            multicut_as_split=True,
         ).execute()
 
     def redo_operation(
@@ -752,7 +757,10 @@ class ChunkedGraph:
         :return: GraphEditOperation.Result
         """
         return operation.RedoOperation(
-            self, user_id=user_id, operation_id=operation_id
+            self,
+            user_id=user_id,
+            superseded_operation_id=operation_id,
+            multicut_as_split=True,
         ).execute()
 
     # PRIVATE
@@ -763,6 +771,8 @@ class ChunkedGraph:
         return_layers: typing.Sequence[int],
         serializable: bool,
     ):
+        from collections import ChainMap
+
         assert len(return_layers) > 0
 
         def _get_dict_key(raw_key):
@@ -807,8 +817,6 @@ class ChunkedGraph:
                 n_threads=this_n_threads,
                 debug=this_n_threads == 1,
             )
-            from collections import ChainMap
-
             cur_nodes_children = dict(ChainMap(*cur_nodes_child_maps))
             subgraph_progress.process_batch_of_children(cur_nodes_children)
 
@@ -821,28 +829,23 @@ class ChunkedGraph:
         TODO what have i done (describe algo)
         """
         from collections import defaultdict
-        from .utils.context_managers import TimeIt
 
-        with TimeIt("_get_bounding_l2_children init"):
-            parents_layer = self.get_chunk_layer(parent_ids[0])
-            parent_coords_d = {
-                node_id: self.get_chunk_coordinates(node_id) for node_id in parent_ids
-            }
+        parents_layer = self.get_chunk_layer(parent_ids[0])
+        parent_coords_d = {
+            node_id: self.get_chunk_coordinates(node_id) for node_id in parent_ids
+        }
 
-            parent_bounding_chunk_ids = defaultdict(lambda: types.empty_1d)
-            parent_layer_mask = {}
-
-            parent_children_d = {
-                parent_id: np.array([parent_id], dtype=basetypes.NODE_ID)
-                for parent_id in parent_ids
-            }
+        parent_bounding_chunk_ids = defaultdict(lambda: types.empty_1d)
+        parent_layer_mask = {}
+        parent_children_d = {
+            parent_id: np.array([parent_id], dtype=basetypes.NODE_ID)
+            for parent_id in parent_ids
+        }
 
         children_layer = parents_layer - 1
         while children_layer >= 2:
-            # with TimeIt("before get children"):
             parent_masked_children_d = {}
             for parent_id, (X, Y, Z) in parent_coords_d.items():
-                # with TimeIt("bounding chunk coords"):
                 coords = chunk_utils.get_bounding_children_chunks(
                     self.meta,
                     parents_layer,
@@ -850,7 +853,6 @@ class ChunkedGraph:
                     children_layer,
                     return_unique=False,
                 )
-                # with TimeIt("rest"):
                 chunks_ids = chunk_utils.get_chunk_ids_from_coords(
                     self.meta, children_layer, coords
                 )
@@ -860,10 +862,8 @@ class ChunkedGraph:
                 parent_layer_mask[parent_id] = layer_mask
                 parent_masked_children_d[parent_id] = children[layer_mask]
 
-            # with TimeIt("get children"):
             children_ids = np.concatenate(list(parent_masked_children_d.values()))
             child_grand_children_d = self.get_children(children_ids)
-            # with TimeIt("after get children"):
             for parent_id, masked_children in parent_masked_children_d.items():
                 bounding_chunk_ids = parent_bounding_chunk_ids[parent_id]
                 grand_children = [types.empty_1d]
@@ -959,15 +959,12 @@ class ChunkedGraph:
     def get_cross_chunk_edges_layer(self, cross_edges: typing.Iterable):
         return edge_utils.get_cross_chunk_edges_layer(self.meta, cross_edges)
 
-    def read_chunk_edges(
-        self, chunk_ids: typing.Iterable, cv_threads: int = 1
-    ) -> typing.Dict:
+    def read_chunk_edges(self, chunk_ids: typing.Iterable) -> typing.Dict:
         from ..io.edges import get_chunk_edges
 
         return get_chunk_edges(
             self.meta.data_source.EDGES,
             [self.get_chunk_coordinates(chunk_id) for chunk_id in chunk_ids],
-            cv_threads=cv_threads,
         )
 
     def get_proofread_root_ids(

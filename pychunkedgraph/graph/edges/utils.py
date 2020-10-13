@@ -7,6 +7,7 @@ from typing import Dict
 from typing import List
 from typing import Tuple
 from typing import Iterable
+from typing import Callable
 
 import numpy as np
 
@@ -86,26 +87,31 @@ def merge_cross_edge_dicts_multiple(x_edges_d1: Dict, x_edges_d2: Dict) -> Dict:
 
 
 def categorize_edges(
-    meta: ChunkedGraphMeta, node_ids: np.ndarray, edges: Edges
-) -> Tuple[Edges, Edges]:
+    meta: ChunkedGraphMeta, supervoxels: np.ndarray, edges: Edges
+) -> Tuple[Edges, Edges, Edges]:
     """
     Find edges and categorize them into:
     `in_edges`
-        between given node_ids
-        (sv1, sv2) - sv1 in node_ids and sv2 in node_ids
+        between given supervoxels
+        (sv1, sv2) - sv1 in supervoxels and sv2 in supervoxels
     `out_edges`
-        originating from given node_ids but within chunk
-        (sv1, sv2) - sv1 in node_ids and sv2 not in node_ids
+        originating from given supervoxels but within chunk
+        (sv1, sv2) - sv1 in supervoxels and sv2 not in supervoxels
     `cross_edges`
-        originating from given node_ids but crossing chunk boundary
+        originating from given supervoxels but crossing chunk boundary
     """
-    mask1 = np.in1d(edges.node_ids1, node_ids)
-    mask2 = np.in1d(edges.node_ids2, node_ids)
+    from ..utils.context_managers import TimeIt
+
+    mask1 = np.isin(edges.node_ids1, supervoxels)
+    mask2 = np.isin(edges.node_ids2, supervoxels)
     in_mask = mask1 & mask2
     out_mask = mask1 & ~mask2
 
+    print("np.sum(in_mask)", np.sum(in_mask))
+
     in_edges = edges[in_mask]
     all_out_edges = edges[out_mask]  # out_edges + cross_edges
+
     edge_layers = get_cross_chunk_edges_layer(meta, all_out_edges.get_pairs())
     cross_edges_mask = edge_layers > 1
     out_edges = all_out_edges[~cross_edges_mask]
@@ -113,8 +119,30 @@ def categorize_edges(
     return (in_edges, out_edges, cross_edges)
 
 
+def categorize_edges_v2(
+    meta: ChunkedGraphMeta,
+    supervoxels: np.ndarray,
+    edges: Edges,
+    l2id_children_d: Dict,
+    get_sv_parents: Callable,
+) -> Tuple[Edges, Edges, Edges]:
+    """ Faster version of categorize_edges(), avoids looping over L2 IDs. """
+    node_ids1 = get_sv_parents(edges.node_ids1)
+    node_ids2 = get_sv_parents(edges.node_ids2)
+
+    layer_mask1 = chunk_utils.get_chunk_layers(meta, node_ids1) > 1
+    in_edges = edges[node_ids1 == node_ids2]
+    all_out_ = edges[layer_mask1 & (node_ids1 != node_ids2)]
+
+    cx_layers = get_cross_chunk_edges_layer(meta, all_out_.get_pairs())
+    cx_mask = cx_layers > 1
+    out_edges = all_out_[~cx_mask]
+    cross_edges = all_out_[cx_mask]
+    return (in_edges, out_edges, cross_edges)
+
+
 def get_cross_chunk_edges_layer(meta: ChunkedGraphMeta, cross_edges: Iterable):
-    """ Computes the layer in which a cross chunk edge becomes relevant.
+    """Computes the layer in which a cross chunk edge becomes relevant.
     I.e. if a cross chunk edge links two nodes in layer 4 this function
     returns 3.
     :param cross_edges: n x 2 array
@@ -123,24 +151,15 @@ def get_cross_chunk_edges_layer(meta: ChunkedGraphMeta, cross_edges: Iterable):
     """
     if len(cross_edges) == 0:
         return np.array([], dtype=np.int)
-
     cross_chunk_edge_layers = np.ones(len(cross_edges), dtype=np.int)
-    cross_edge_coordinates = []
-    for cross_edge in cross_edges:
-        cross_edge_coordinates.append(
-            [
-                chunk_utils.get_chunk_coordinates(meta, cross_edge[0]),
-                chunk_utils.get_chunk_coordinates(meta, cross_edge[1]),
-            ]
-        )
+    coords0 = chunk_utils.get_chunk_coordinates_multiple(meta, cross_edges[:, 0])
+    coords1 = chunk_utils.get_chunk_coordinates_multiple(meta, cross_edges[:, 1])
 
-    cross_edge_coordinates = np.array(cross_edge_coordinates, dtype=np.int)
     for _ in range(2, meta.layer_count):
-        edge_diff = np.sum(
-            np.abs(cross_edge_coordinates[:, 0] - cross_edge_coordinates[:, 1]), axis=1,
-        )
+        edge_diff = np.sum(np.abs(coords0 - coords1), axis=1)
         cross_chunk_edge_layers[edge_diff > 0] += 1
-        cross_edge_coordinates = cross_edge_coordinates // meta.graph_config.FANOUT
+        coords0 = coords0 // meta.graph_config.FANOUT
+        coords1 = coords1 // meta.graph_config.FANOUT
     return cross_chunk_edge_layers
 
 
