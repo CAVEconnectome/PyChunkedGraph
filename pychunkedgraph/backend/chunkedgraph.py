@@ -241,7 +241,11 @@ class ChunkedGraph(object):
 
     @property
     def cv_mesh_path(self) -> str:
-        return "%s/%s" % (self._cv_path, self._mesh_dir)
+        # EAFP
+        try:
+            return self.dataset_info['mesh_metadata']['override_mesh_path']
+        except KeyError:
+            return "%s/%s" % (self._cv_path, self._mesh_dir)
 
     @property
     def dataset_info(self) -> object:

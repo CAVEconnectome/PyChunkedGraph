@@ -914,8 +914,7 @@ def remeshing(
     cg,
     l2_node_ids: Sequence[np.uint64],
     stop_layer: int = None,
-    cv_path: str = None,
-    cv_mesh_dir: str = None,
+    mesh_path: str = None,
     mip: int = 2,
     max_err: int = 320,
 ):
@@ -924,8 +923,7 @@ def remeshing(
     :param cg: chunkedgraph instance
     :param l2_node_ids: list of uint64
     :param stop_layer: int
-    :param cv_path: str
-    :param cv_mesh_dir: str
+    :param mesh_path: str
     :param mip: int
     :param max_err: int
     :return:
@@ -946,8 +944,7 @@ def remeshing(
         chunk_mesh_task_new_remapping(
             cg.get_serialized_info(),
             chunk_id,
-            cg._cv_path,
-            cv_mesh_dir=cv_mesh_dir,
+            mesh_path=mesh_path,
             mip=mip,
             fragment_batch_size=20,
             node_id_subset=node_ids,
@@ -977,8 +974,7 @@ def remeshing(
             chunk_mesh_task_new_remapping(
                 cg.get_serialized_info(),
                 chunk_id,
-                cg._cv_path,
-                cv_mesh_dir=cv_mesh_dir,
+                mesh_path=mesh_path,
                 mip=mip,
                 fragment_batch_size=20,
                 node_id_subset=node_ids,
@@ -996,8 +992,7 @@ REDIS_URL = f"redis://:{REDIS_PASSWORD}@{REDIS_HOST}:{REDIS_PORT}/0"
 def chunk_mesh_task_new_remapping(
     cg_info,
     chunk_id,
-    cv_path,
-    cv_mesh_dir=None,
+    mesh_path,
     mip=2,
     max_err=320,
     base_layer=2,
@@ -1012,7 +1007,7 @@ def chunk_mesh_task_new_remapping(
 ):
     if cg is None:
         cg = chunkedgraph.ChunkedGraph(**cg_info)
-    mesh_dir = cv_mesh_dir or cg._mesh_dir
+    mesh_path = mesh_path or cg.cv_mesh_path
     result = []
 
     layer, _, chunk_offset = get_meshing_necessities_from_graph(cg, chunk_id, mip)
@@ -1049,10 +1044,9 @@ def chunk_mesh_task_new_remapping(
             return np.unique(seg).shape[0]
         mesher.mesh(seg.T)
         del seg
-        with Storage(cv_path) as storage:
+        with Storage(mesh_path) as storage:
             if PRINT_FOR_DEBUGGING:
-                print("cv path", cv_path)
-                print("mesh_dir", mesh_dir)
+                print("mesh path", mesh_path)
                 print("num ids", len(mesher.ids()))
             result.append(len(mesher.ids()))
             for obj_id in mesher.ids():
@@ -1081,7 +1075,7 @@ def chunk_mesh_task_new_remapping(
                     compress = True
                 if WRITING_TO_CLOUD:
                     storage.put_file(
-                        file_path=f"{mesh_dir}/{meshgen_utils.get_mesh_name(cg, obj_id)}",
+                        file_path=f"{meshgen_utils.get_mesh_name(cg, obj_id)}",
                         content=file_contents,
                         compress=compress,
                         cache_control="no-cache",
@@ -1153,7 +1147,7 @@ def chunk_mesh_task_new_remapping(
             print("Nothing to do", cx, cy, cz)
             return ", ".join(str(x) for x in result)
 
-        with Storage(os.path.join(cv_path, mesh_dir)) as storage:
+        with Storage(mesh_path) as storage:
             vals = multi_child_nodes.values()
             fragment_to_fetch = [
                 fragment for child_fragments in vals for fragment in child_fragments
