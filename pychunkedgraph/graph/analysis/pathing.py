@@ -58,22 +58,14 @@ def get_children_at_layer(
             break
     return np.concatenate(children_at_layer)
 
+def get_lvl2_edge_list(cg, node_id: np.uint64):
+    """get an edge list of lvl2 ids for a particular node
 
-def find_l2_shortest_path(cg, source_l2_id: np.uint64, target_l2_id: np.uint64):
-    """
-    Find a path of level 2 ids that connect two level 2 node ids through cross chunk edges.
-    Return a list of level 2 ids representing this path.
-    Return None if the two level 2 ids do not belong to the same object.
     :param cg: ChunkedGraph object
-    :param source_l2_id: np.uint64
-    :param target_l2_id: np.uint64
-    :return: [np.uint64] or None
+    :param node_id: np.uint64 that you want the edge list for
     """
-    # Get the cross-chunk edges that we need to build the graph
-    shared_parent_id = get_first_shared_parent(cg, source_l2_id, target_l2_id)
-    if shared_parent_id is None:
-        return None
-    lvl2_ids = get_children_at_layer(cg, shared_parent_id, 2)
+        
+    lvl2_ids = get_children_at_layer(cg, node_id, 2)
     cce_dict = cg.get_atomic_cross_edges(lvl2_ids)
 
     # Gather all of the supervoxel ids into two lists, we will map them to
@@ -116,12 +108,29 @@ def find_l2_shortest_path(cg, source_l2_id: np.uint64, target_l2_id: np.uint64):
     edge_view = edge_array.view()
     edge_view.shape = -1
     fastremap.remap_from_array_kv(edge_view, known_supervoxel_array, known_l2_array)
+    return edge_array
 
+def find_l2_shortest_path(cg, source_l2_id: np.uint64, target_l2_id: np.uint64):
+    """
+    Find a path of level 2 ids that connect two level 2 node ids through cross chunk edges.
+    Return a list of level 2 ids representing this path.
+    Return None if the two level 2 ids do not belong to the same object.
+    :param cg: ChunkedGraph object
+    :param source_l2_id: np.uint64
+    :param target_l2_id: np.uint64
+    :return: [np.uint64] or None
+    """
+    # Get the cross-chunk edges that we need to build the graph
+    shared_parent_id = get_first_shared_parent(cg, source_l2_id, target_l2_id)
+    if shared_parent_id is None:
+        return None
+
+    edge_array = get_lvl2_edge_list(cg, shared_parent_id)
     # Create a graph-tool graph of the mapped cross-chunk-edges
     weighted_graph, _, _, graph_indexed_l2_ids = flatgraph.build_gt_graph(
         edge_array, is_directed=False
     )
-
+    
     # Find the shortest path from the source_l2_id to the target_l2_id
     source_graph_id = np.where(graph_indexed_l2_ids == source_l2_id)[0][0]
     target_graph_id = np.where(graph_indexed_l2_ids == target_l2_id)[0][0]

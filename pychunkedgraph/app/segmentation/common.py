@@ -993,7 +993,20 @@ def handle_find_path(table_id, precision_mode):
             "l2_path": l2_path
         }
 
+### GET_LAYER2_SUBGRAPH
+def handle_get_layer2_graph(table_id, node_id):
+    current_app.table_id = table_id
+    user_id = str(g.auth_user["id"])
+    current_app.user_id = user_id
 
+    cg = app_utils.get_cg(table_id)
+    print("Finding edge graph...")
+    edge_graph = pathing.get_lvl2_edge_list(cg, node_id)
+    print("Edge graph found len: {}".format(len(edge_graph)))
+    return {
+        'edge_graph': edge_graph
+    }
+    
 ### IS LATEST ROOTS --------------------------------------------------------------
 
 def handle_is_latest_roots(table_id, is_binary):
