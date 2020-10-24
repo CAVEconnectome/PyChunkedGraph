@@ -1067,6 +1067,18 @@ def handle_find_path(table_id):
         "l2_path": l2_path
     }
 
+### GET_LAYER2_SUBGRAPH
+def handle_get_layer2_graph(table_id, node_id):
+    current_app.request_type = "get_lvl2_graph"
+    current_app.table_id = table_id
+    user_id = str(g.auth_user["id"])
+    current_app.user_id = user_id
+
+    cg = app_utils.get_cg(table_id)
+    edge_graph = pathing.get_lvl2_edge_list(cg, int(node_id))
+    return {
+        'edge_graph': edge_graph
+    }
 
 ### IS LATEST ROOTS --------------------------------------------------------------
 
