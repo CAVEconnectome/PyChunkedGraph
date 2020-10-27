@@ -257,9 +257,7 @@ def handle_roots(table_id, is_binary=False):
             )
         )
 
-    stop_layer = request.args.get("stop_layer", None)
-    if stop_layer is not None:
-        stop_layer = int(stop_layer)
+    stop_layer = int(request.args.get("stop_layer", cg.meta.layer_count))
 
     # Call ChunkedGraph
     cg = app_utils.get_cg(table_id)
