@@ -250,17 +250,15 @@ def handle_roots(table_id, is_binary=False):
     try:
         timestamp = float(request.args.get("timestamp", time.time()))
         timestamp = datetime.fromtimestamp(timestamp, UTC)
-    except (TypeError, ValueError) as e:
+    except (TypeError, ValueError):
         raise (
             cg_exceptions.BadRequest(
                 "Timestamp parameter is not a valid" " unix timestamp"
             )
         )
 
-    stop_layer = int(request.args.get("stop_layer", cg.meta.layer_count))
-
-    # Call ChunkedGraph
     cg = app_utils.get_cg(table_id)
+    stop_layer = int(request.args.get("stop_layer", cg.meta.layer_count))
     root_ids = cg.get_roots(
         node_ids,
         stop_layer=stop_layer,
