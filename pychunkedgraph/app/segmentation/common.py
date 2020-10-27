@@ -5,7 +5,7 @@ import time
 import traceback
 import gzip
 import os
-import requests  
+import requests
 from io import BytesIO as IO
 from datetime import datetime
 
@@ -263,8 +263,12 @@ def handle_roots(table_id, is_binary=False):
 
     # Call ChunkedGraph
     cg = app_utils.get_cg(table_id)
-    root_ids = cg.get_roots(node_ids, stop_layer=stop_layer,
-                            time_stamp=timestamp, assert_roots=True)
+    root_ids = cg.get_roots(
+        node_ids,
+        stop_layer=stop_layer,
+        time_stamp=timestamp,
+        assert_roots=stop_layer == cg.meta.layer_count,
+    )
 
     return root_ids
 
@@ -326,7 +330,7 @@ def trigger_remesh(table_id, new_lvl2_ids, is_priority=True):
     auth_header = {"Authorization": f"Bearer {current_app.config['AUTH_TOKEN']}"}
     resp = requests.post(f"{current_app.config['MESHING_ENDPOINT']}/api/v1/table/{table_id}/remeshing",
                             data=json.dumps({"new_lvl2_ids": new_lvl2_ids},
-                                            cls=current_app.json_encoder), 
+                                            cls=current_app.json_encoder),
                             params={'priority': is_priority},
                             headers=auth_header)
     resp.raise_for_status()
@@ -361,7 +365,7 @@ def handle_merge(table_id):
 
         if atomic_id is None:
             raise cg_exceptions.BadRequest(
-                f"Could not determine supervoxel ID for coordinates " 
+                f"Could not determine supervoxel ID for coordinates "
                 f"{coordinate}."
             )
 
@@ -1006,7 +1010,7 @@ def handle_get_layer2_graph(table_id, node_id):
     return {
         'edge_graph': edge_graph
     }
-    
+
 ### IS LATEST ROOTS --------------------------------------------------------------
 
 def handle_is_latest_roots(table_id, is_binary):
