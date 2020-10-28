@@ -101,6 +101,29 @@ def _get_last_timestamp(
     return start_ts, end_ts, export_ts
 
 
+def _write_removed_edges(path: str, removed_edges: Iterable) -> None:
+    """
+    Store removed edges of an operation in a bucket.
+    For some split operations there can be a large number of removed edges
+    that can't be written to datastore due to size limitations.
+    """
+    if not len(removed_edges):
+        return
+    from json import dumps
+    from cloudfiles import CloudFiles
+
+    cf = CloudFiles(path)
+    files_to_write = []
+    for info in removed_edges:
+        op_id, edges = info
+        if not len(edges):
+            continue
+        files_to_write.append(
+            {"content": dumps(edges), "path": f"{op_id}.gz", "compress": "gzip"}
+        )
+    cf.puts(files_to_write)
+
+
 def export_operation_logs(
     cg: ChunkedGraph,
     start_ts: datetime = None,
@@ -152,20 +175,23 @@ def export_operation_logs(
     # datastore limits 500 entities per request
     for chunk in chunked(logs, 500):
         entities = []
+        removed_edges = []
         for log in chunk:
-            print(log["id"])
             kind = cg.graph_id
             if log["status"] == 4:
                 kind = f"{cg.graph_id}_failed"
                 failed_count += 1
+            op_id = log.pop("id")
             op_log = datastore.Entity(
-                key=client.key(kind, log.pop("id"), namespace=config.NAMESPACE),
+                key=client.key(kind, op_id, namespace=config.NAMESPACE),
                 exclude_from_indexes=config.EXCLUDE_FROM_INDICES,
             )
+            removed_edges.append((op_id, log.pop("removed_edges", [])))
             op_log.update(log)
             entities.append(op_log)
         client.put_multi(entities)
         count += len(entities)
+        _write_removed_edges(f"{cg.meta.data_source.EDGES}/removed", removed_edges)
     _update_stats(cg.graph_id, client, config, last_export_key, count, export_ts)
     return failed_count
 
@@ -197,4 +223,3 @@ def _update_stats(
 
     client.put_multi([export_log, this_export_log])
     print(f"export time {export_ts}, count {logs_count}")
-
