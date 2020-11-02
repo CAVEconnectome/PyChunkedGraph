@@ -4,7 +4,19 @@
 [![Build Status](https://travis-ci.org/seung-lab/PyChunkedGraph.svg?branch=master)](https://travis-ci.org/seung-lab/PyChunkedGraph)
 [![codecov](https://codecov.io/gh/seung-lab/PyChunkedGraph/branch/master/graph/badge.svg)](https://codecov.io/gh/seung-lab/PyChunkedGraph)
 
-The PyChunkedGraph is a proofreading and segmentation data management backend powering FlyWire and other proofreading platforms. 
+The PyChunkedGraph is a proofreading and segmentation data management backend powering FlyWire and other proofreading platforms. It builds on an initial agglomeration of supervoxels and facilitates fast and parallel editing of connected components in the agglomeration graph by many users.
+
+## Using the PyChunkedGraph
+
+The ChunkedGraph is built on Google Cloud BigTable. A BigTable instance is required to use this ChunkedGraph implementation. 
+
+### Ingest 
+
+`/ingest` provides examples for ingest scripts. The ingestion pipeline designed to use the output of the seunglab's agglomeration pipeline but can be adjusted to use alternative data sources. 
+
+### Deployment / Import
+
+The PyChunkedGraph can be locally deployed (`run_dev.py`), imported in a python script (`from pychunkedgraph.backend import chunkedgraph`) or deployed on a kubernetes server. Deployment code for a kubernetes server on Google Cloud is not included in this repository. Please feel free to reach out if you are interested in that. 
 
 ## Publication 
 
