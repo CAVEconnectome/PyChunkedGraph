@@ -818,8 +818,8 @@ def _get_timestamp_from_node_ids(cg, node_ids):
     parents = cg.client.read_nodes(node_ids=node_ids, properties=attributes.Hierarchy.Parent)
     newest_timestamp = None
     for node in node_ids:
-        if newest_timestamp is None or newest_timestamp < parents[node][-1].timestamp:
-            newest_timestamp = parents[node][-1].timestamp
+        if newest_timestamp is None or newest_timestamp < parents[node][0].timestamp:
+            newest_timestamp = parents[node][0].timestamp
     return newest_timestamp + datetime.timedelta(milliseconds=1)
 
 def remeshing(
