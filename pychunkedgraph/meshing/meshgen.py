@@ -814,6 +814,10 @@ def black_out_dust_from_segmentation(seg, dust_threshold):
     seg = fastremap.mask(seg, dust_segids, in_place=True)
 
 
+def _get_timestamp_from_node_ids(cg, node_ids):
+    timestamps = cg.get_node_timestamps(node_ids, return_numpy=False)
+    return max(timestamps) + datetime.timedelta(milliseconds=1)
+
 def remeshing(
     cg,
     l2_node_ids: Sequence[np.uint64],
@@ -846,6 +850,7 @@ def remeshing(
     for chunk_id, node_ids in l2_chunk_dict.items():
         if PRINT_FOR_DEBUGGING:
             print("remeshing", chunk_id, node_ids)
+        time_stamp = _get_timestamp_from_node_ids(cg, node_ids)
         # Remesh the l2_node_ids
         chunk_initial_mesh_task(
             None,
@@ -856,6 +861,7 @@ def remeshing(
             cv_unsharded_mesh_path=cv_unsharded_mesh_path,
             max_err=max_err,
             sharded=False,
+            time_stamp=time_stamp
         )
     chunk_dicts = []
     max_layer = stop_layer or cg._n_layers
