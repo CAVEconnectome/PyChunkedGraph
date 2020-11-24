@@ -16,6 +16,9 @@ import pandas as pd
 from cloudvolume import compression
 
 from flask import current_app, g, jsonify, make_response, request
+
+from middle_auth_client import get_usernames
+
 from pychunkedgraph import __version__
 from pychunkedgraph.app import app_utils
 from pychunkedgraph.graph import attributes, cutting, exceptions as cg_exceptions
