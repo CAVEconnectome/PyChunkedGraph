@@ -373,6 +373,14 @@ def find_path(table_id):
     find_path_result = common.handle_find_path(table_id)
     return jsonify_with_kwargs(find_path_result, int64_as_str=int64_as_str)
 
+## GET LEVEL2 GRAPH -------------------------------------------------------------
+@bp.route("/table/<table_id>/node/<node_id>/lvl2_graph", methods=["GET"])
+@auth_requires_permission("view")
+def handle_get_lvl2_graph(table_id, node_id):
+    int64_as_str = request.args.get("int64_as_str", default=False, type=toboolean)
+    resp = common.handle_get_layer2_graph(table_id, node_id)
+    return jsonify_with_kwargs(resp, int64_as_str=int64_as_str)
+
 
 ### IS LATEST ROOTS --------------------------------------------------------------
 
