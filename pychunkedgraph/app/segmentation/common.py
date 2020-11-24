@@ -751,7 +751,7 @@ def tabular_change_log(table_id, root_id, get_root_ids, filtered):
 
     # Call ChunkedGraph
     cg = app_utils.get_cg(table_id)
-    segment_history = cg_history.SegmentHistory(cg, int(root_id))
+    segment_history = segmenthistory.SegmentHistory(cg, int(root_id))
 
     tab = segment_history.get_tabular_changelog(with_ids=get_root_ids, 
                                                 filtered=filtered)
