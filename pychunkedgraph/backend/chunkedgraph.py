@@ -3717,7 +3717,7 @@ class ChunkedGraph(object):
         :param operation_id: operation_id to be inverted
         :return: GraphEditOperation.Result
         """
-        return UndoOperation(self, user_id=user_id, superseded_operation_id=operation_id, multicut_as_split=True).execute()
+        return GraphEditOperation.undo_operation(self, user_id=user_id, operation_id=operation_id, multicut_as_split=True).execute()
 
     def redo_operation(self, user_id: str, operation_id: np.uint64) -> GraphEditOperation.Result:
         """ Re-applies a previous GraphEditOperation
@@ -3726,7 +3726,7 @@ class ChunkedGraph(object):
         :param operation_id: operation_id to be repeated
         :return: GraphEditOperation.Result
         """
-        return RedoOperation(self, user_id=user_id, superseded_operation_id=operation_id, multicut_as_split=True).execute()
+        return GraphEditOperation.redo_operation(self, user_id=user_id, operation_id=operation_id, multicut_as_split=True).execute()
 
     def _run_multicut(self, source_ids: Sequence[np.uint64],
                       sink_ids: Sequence[np.uint64],
