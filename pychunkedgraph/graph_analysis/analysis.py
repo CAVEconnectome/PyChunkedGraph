@@ -52,7 +52,7 @@ def get_lvl2_edge_list(cg, node_id: np.uint64):
     edge_view = edge_array.view()
     edge_view.shape = -1
     fastremap.remap_from_array_kv(edge_view, known_supervoxel_array, known_l2_array)
-    return edge_array
+    return np.unique(np.sort(edge_array,axis=1),axis=0)
 
 def find_l2_shortest_path(cg, source_l2_id: np.uint64, target_l2_id: np.uint64):
     """
