@@ -149,7 +149,7 @@ def get_json_info(cg):
 
 
 def get_ws_seg_for_chunk(cg, chunk_id, mip, overlap_vx=1):
-    cv = CloudVolume(cg.meta.cv.cloudpath, mip=mip)
+    cv = CloudVolume(cg.meta.cv.cloudpath, mip=mip, fill_missing=True)
     mip_diff = mip - cg.meta.cv.mip
 
     mip_chunk_size = np.array(cg.meta.graph_config.CHUNK_SIZE, dtype=np.int) / np.array(

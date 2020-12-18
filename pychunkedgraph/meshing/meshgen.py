@@ -296,13 +296,15 @@ def calculate_stop_layer(cg, chunk_id):
         for y in range(chunk_coords[1], chunk_coords[1] + 2):
             for z in range(chunk_coords[2], chunk_coords[2] + 2):
 
-                # Chunk id
-                neigh_chunk_id = cg.get_chunk_id(x=x, y=y, z=z, layer=chunk_layer)
-                neigh_chunk_ids.append(neigh_chunk_id)
-
-                # Get parent chunk ids
-                parent_chunk_ids = cg.get_parent_chunk_ids(neigh_chunk_id)
-                neigh_parent_chunk_ids.append(parent_chunk_ids)
+                try:
+                    # Chunk id
+                    neigh_chunk_id = cg.get_chunk_id(x=x, y=y, z=z, layer=chunk_layer)
+                    # Get parent chunk ids
+                    parent_chunk_ids = cg.get_parent_chunk_ids(neigh_chunk_id)
+                    neigh_chunk_ids.append(neigh_chunk_id)
+                    neigh_parent_chunk_ids.append(parent_chunk_ids)
+                except:
+                    pass
 
     # Find lowest common chunk
     neigh_parent_chunk_ids = np.array(neigh_parent_chunk_ids)
@@ -911,8 +913,8 @@ def chunk_initial_mesh_task(
     node_id_subset=None,
     cg=None,
     sharded=False,
-    cv_graphene_path=None,
-    cv_mesh_dir=None,
+    # cv_graphene_path=None,
+    # cv_mesh_dir=None,
 ):
     if cg is None:
         cg = ChunkedGraph(graph_id=cg_name)
@@ -925,9 +927,12 @@ def chunk_initial_mesh_task(
     assert mip >= cg.meta.cv.mip
 
     if sharded:
-        assert cv_graphene_path is not None
-        assert cv_mesh_dir is not None
-        cv = CloudVolume(cv_graphene_path, mesh_dir=cv_mesh_dir)
+        # assert cv_graphene_path is not None
+        # cv = CloudVolume(cv_graphene_path)
+        cv = CloudVolume(
+            f"graphene://https://localhost/segmentation/table/dummy",
+            info=meshgen_utils.get_json_info(cg),
+        )
         sharding_info = cv.mesh.meta.info["sharding"]["2"]
         sharding_spec = ShardingSpecification.from_dict(sharding_info)
         merged_meshes = {}
@@ -1273,7 +1278,7 @@ def chunk_stitch_remeshing_task(
 
 
 def chunk_initial_sharded_stitching_task(
-    cg_name, chunk_id, mip, cv_graphene_path, cv_mesh_dir, cg=None, high_padding=1
+    cg_name, chunk_id, mip, cv_graphene_path=None, cv_mesh_dir=None, cg=None, high_padding=1
 ):
     start_existence_check_time = time.time()
     if cg is None:
@@ -1287,7 +1292,11 @@ def chunk_initial_sharded_stitching_task(
         cur_chunk_id = int(cg.get_chunk_id(child_node))
         chunk_to_id_dict[cur_chunk_id].append(child_node)
 
-    cv = CloudVolume(cv_graphene_path, mesh_dir=cv_mesh_dir)
+    # cv = CloudVolume(cv_graphene_path, mesh_dir=cv_mesh_dir)
+    cv = CloudVolume(
+        f"graphene://https://localhost/segmentation/table/dummy",
+        info=meshgen_utils.get_json_info(cg),
+    )
     shard_filenames = []
     shard_to_chunk_id = {}
     for cur_chunk_id in chunk_to_id_dict:
