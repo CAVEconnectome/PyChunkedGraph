@@ -898,7 +898,6 @@ def remeshing(
             )
 
 
-# @redis_job(REDIS_URL, 'mesh_frag_test_channel')
 def chunk_initial_mesh_task(
     cg_name,
     chunk_id,
@@ -913,12 +912,12 @@ def chunk_initial_mesh_task(
     node_id_subset=None,
     cg=None,
     sharded=False,
-    # cv_graphene_path=None,
-    # cv_mesh_dir=None,
+    cache=True
 ):
     if cg is None:
         cg = ChunkedGraph(graph_id=cg_name)
     result = []
+    cache_string = 'public' if cache else 'no-cache'
 
     layer, _, chunk_offset = get_meshing_necessities_from_graph(cg, chunk_id, mip)
     cx, cy, cz = cg.get_chunk_coordinates(chunk_id)
@@ -927,8 +926,6 @@ def chunk_initial_mesh_task(
     assert mip >= cg.meta.cv.mip
 
     if sharded:
-        # assert cv_graphene_path is not None
-        # cv = CloudVolume(cv_graphene_path)
         cv = CloudVolume(
             f"graphene://https://localhost/segmentation/table/dummy",
             info=meshgen_utils.get_json_info(cg),
@@ -1003,7 +1000,7 @@ def chunk_initial_mesh_task(
                         file_path=f"{meshgen_utils.get_mesh_name(cg, obj_id)}",
                         content=file_contents,
                         compress=compress,
-                        cache_control="public",
+                        cache_control=cache_string,
                     )
         if sharded and WRITING_TO_CLOUD:
             shard_binary = sharding_spec.synthesize_shard(merged_meshes)
@@ -1013,7 +1010,7 @@ def chunk_initial_mesh_task(
                 shard_binary,
                 content_type="application/octet-stream",
                 compress=False,
-                cache_control="public",
+                cache_control=cache_string,
             )
     if PRINT_FOR_DEBUGGING:
         print(", ".join(str(x) for x in result))
@@ -1278,11 +1275,13 @@ def chunk_stitch_remeshing_task(
 
 
 def chunk_initial_sharded_stitching_task(
-    cg_name, chunk_id, mip, cv_graphene_path=None, cv_mesh_dir=None, cg=None, high_padding=1
+    cg_name, chunk_id, mip, cv_mesh_dir=None, cg=None, high_padding=1, cache=True
 ):
     start_existence_check_time = time.time()
     if cg is None:
         cg = ChunkedGraph(graph_id=cg_name)
+
+    cache_string = 'public' if cache else 'no-cache'
 
     layer = cg.get_chunk_layer(chunk_id)
     multi_child_nodes, multi_child_descendants = get_multi_child_nodes(cg, chunk_id)
@@ -1391,7 +1390,7 @@ def chunk_initial_sharded_stitching_task(
             shard_binary,
             content_type="application/octet-stream",
             compress=False,
-            cache_control="public",
+            cache_control=cache_string,
         )
     total_time = time.time() - start_existence_check_time
 
