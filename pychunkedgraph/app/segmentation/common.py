@@ -259,11 +259,13 @@ def handle_roots(table_id, is_binary=False):
 
     cg = app_utils.get_cg(table_id)
     stop_layer = int(request.args.get("stop_layer", cg.meta.layer_count))
+    is_root_layer = stop_layer == cg.meta.layer_count
+    assert_roots = request.args.get("assert_roots", True)
     root_ids = cg.get_roots(
         node_ids,
         stop_layer=stop_layer,
         time_stamp=timestamp,
-        assert_roots=stop_layer == cg.meta.layer_count,
+        assert_roots=assert_roots and is_root_layer,
     )
 
     return root_ids
