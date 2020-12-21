@@ -1291,7 +1291,6 @@ def chunk_initial_sharded_stitching_task(
         cur_chunk_id = int(cg.get_chunk_id(child_node))
         chunk_to_id_dict[cur_chunk_id].append(child_node)
 
-    # cv = CloudVolume(cv_graphene_path, mesh_dir=cv_mesh_dir)
     cv = CloudVolume(
         f"graphene://https://localhost/segmentation/table/dummy",
         info=meshgen_utils.get_json_info(cg),
