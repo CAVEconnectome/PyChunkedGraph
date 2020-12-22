@@ -185,3 +185,23 @@ def compute_mesh_centroids_of_l2_ids(cg, l2_ids, flatten=False):
                 failed_l2_ids.append(l2_id)
             last_l2_id = l2_id
     return centroids_with_chunk_boundary_points, failed_l2_ids
+
+
+def compute_rough_coordinate_path(cg, l2_ids):
+    """
+    Given a list of l2_ids, return a list of rough coordinates representing
+    the path the l2_ids form.
+    :param cg: ChunkedGraph object
+    :param l2_ids: Sequence[np.uint64]
+    :return: [np.ndarray]
+    """
+    coordinate_path = []
+    for l2_id in l2_ids:
+        chunk_center = cg.get_chunk_coordinates(l2_id) + np.array([0.5, 0.5, 0.5])
+        coordinate = chunk_center * np.array(
+            cg.meta.graph_config.CHUNK_SIZE
+        ) + np.array(cg.meta.cv.mip_voxel_offset(0))
+        coordinate = coordinate * np.array(cg.meta.cv.mip_resolution(0))
+        coordinate = coordinate.astype(np.float32)
+        coordinate_path.append(coordinate)
+    return coordinate_path
