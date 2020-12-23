@@ -2433,9 +2433,11 @@ class ChunkedGraph(object):
                 return parent_ids
             else:
                 time.sleep(0.5)
+        # if we have failed to return by now, then we we have some roots
+        # that have failed to get to the stop layer as if we want to assert_roots
+        # then we should fail that assertion
         if assert_roots:
-            if not np.all(self.get_chunk_layers(parent_ids)== stop_layer):
-                raise 
+            assert False
         return parent_ids
 
     def get_root(self, node_id: np.uint64,
