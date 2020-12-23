@@ -2394,7 +2394,8 @@ class ChunkedGraph(object):
 
     def get_roots(self, node_ids: Sequence[np.uint64],
                   time_stamp: Optional[datetime.datetime] = None,
-                  stop_layer: int = None, n_tries: int = 1):
+                  stop_layer: int = None, n_tries: int = 1,
+                  assert_roots: bool = False):
         """ Takes node ids and returns the associated agglomeration ids
 
         :param node_ids: list of uint64
@@ -2432,6 +2433,9 @@ class ChunkedGraph(object):
                 return parent_ids
             else:
                 time.sleep(0.5)
+        if assert_roots:
+            if not np.all(self.get_chunk_layers(parent_ids)== stop_layer):
+                raise 
         return parent_ids
 
     def get_root(self, node_id: np.uint64,
