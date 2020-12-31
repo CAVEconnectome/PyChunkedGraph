@@ -10,7 +10,6 @@ class MeshTask(RegisteredTask):
     def execute(self):
         cg_name = self.cg_name
         chunk_id = np.uint64(self.chunk_id)
-        cv_mesh_dir = self.cv_mesh_dir
         mip = self.mip
         layer = self.layer
         if layer == 2:
