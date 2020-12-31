@@ -1275,7 +1275,7 @@ def chunk_stitch_remeshing_task(
 
 
 def chunk_initial_sharded_stitching_task(
-    cg_name, chunk_id, mip, cv_mesh_dir=None, cg=None, high_padding=1, cache=True
+    cg_name, chunk_id, mip, cg=None, high_padding=1, cache=True
 ):
     start_existence_check_time = time.time()
     if cg is None:
