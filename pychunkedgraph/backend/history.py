@@ -296,7 +296,7 @@ class SegmentHistory(object):
         added_edges = []
         added_edge_coords = []
         for _, log_entry in merge_entries.items():
-            added_edges.append(log_entry.added_edge)
+            added_edges.append(log_entry.added_edges)
 
             coords = log_entry.coordinates
 
