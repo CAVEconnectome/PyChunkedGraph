@@ -667,9 +667,12 @@ def handle_subgraph(table_id, root_id):
 
     # Call ChunkedGraph
     cg = app_utils.get_cg(table_id)
-    atomic_edges = cg.get_subgraph_edges(
-        int(root_id), bbox=bounding_box, bbox_is_coordinate=True
-    )[0]
+    edges = cg.get_subgraph(
+        int(root_id), bbox=bounding_box, bbox_is_coordinate=True,
+        edges_only=True
+    )
+    from .edges import Edges
+    edges = reduce(lambda x, y: x + y, edges, Edges([], []))
 
     return atomic_edges
 
