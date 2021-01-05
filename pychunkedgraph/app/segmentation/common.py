@@ -671,9 +671,9 @@ def handle_subgraph(table_id, root_id):
         int(root_id), bbox=bounding_box, bbox_is_coordinate=True,
         edges_only=True
     )
-    edges = reduce(lambda x, y: x + y, edges, cg_edges.Edges([], []))
+    # edges = reduce(lambda x, y: x + y, edges, cg_edges.Edges([], []))
 
-    return atomic_edges
+    return edges
 
 
 ### CHANGE LOG -----------------------------------------------------------------
