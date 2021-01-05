@@ -296,14 +296,18 @@ def calculate_stop_layer(cg, chunk_id):
         for y in range(chunk_coords[1], chunk_coords[1] + 2):
             for z in range(chunk_coords[2], chunk_coords[2] + 2):
 
+                # Chunk id
+                neigh_chunk_id = cg.get_chunk_id(x=x, y=y, z=z, layer=chunk_layer)
                 try:
-                    # Chunk id
-                    neigh_chunk_id = cg.get_chunk_id(x=x, y=y, z=z, layer=chunk_layer)
                     # Get parent chunk ids
                     parent_chunk_ids = cg.get_parent_chunk_ids(neigh_chunk_id)
                     neigh_chunk_ids.append(neigh_chunk_id)
                     neigh_parent_chunk_ids.append(parent_chunk_ids)
                 except:
+                    # cg.get_parent_chunk_id can fail if neigh_chunk_id is outside the dataset
+                    # (only happens when cg.meta.bitmasks[chunk_layer+1] == log(max(x,y,z)),
+                    # so only for specific datasets in which the # of chunks in the widest dimension
+                    # just happens to be a power of two)
                     pass
 
     # Find lowest common chunk
