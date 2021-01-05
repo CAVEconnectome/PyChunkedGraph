@@ -18,7 +18,7 @@ from cloudvolume import compression
 from flask import current_app, g, jsonify, make_response, request
 from pychunkedgraph import __version__
 from pychunkedgraph.app import app_utils
-from pychunkedgraph.graph import attributes, cutting, exceptions as cg_exceptions
+from pychunkedgraph.graph import attributes, cutting, exceptions as cg_exceptions, edges as cg_edges
 from pychunkedgraph.graph import segmenthistory
 from pychunkedgraph.graph.analysis import pathing
 from pychunkedgraph.meshing import mesh_analysis
@@ -671,8 +671,7 @@ def handle_subgraph(table_id, root_id):
         int(root_id), bbox=bounding_box, bbox_is_coordinate=True,
         edges_only=True
     )
-    from .edges import Edges
-    edges = reduce(lambda x, y: x + y, edges, Edges([], []))
+    edges = reduce(lambda x, y: x + y, edges, cg_edges.Edges([], []))
 
     return atomic_edges
 
