@@ -674,7 +674,6 @@ def handle_subgraph(table_id, root_id):
         bbox_is_coordinate=True,
     )
     edges = reduce(lambda x, y: x + y, edges, cg_edges.Edges([], []))
-
     return edges
 
 
