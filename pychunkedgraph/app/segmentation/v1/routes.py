@@ -218,8 +218,12 @@ def handle_leaves_many(table_id):
 @auth_requires_permission("view")
 def handle_subgraph(table_id, node_id):
     int64_as_str = request.args.get("int64_as_str", default=False, type=toboolean)
-    subgraph_result = common.handle_subgraph(table_id, node_id)
-    resp = {"atomic_edges": subgraph_result}
+    edges = common.handle_subgraph(table_id, node_id)
+    resp = {
+        "nodes": edges.get_pairs(),
+        "affinities": edges.affinities,
+        "areas": edges.areas,
+    }
     return jsonify_with_kwargs(resp, int64_as_str=int64_as_str)
 
 
