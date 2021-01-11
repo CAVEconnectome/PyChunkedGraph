@@ -205,9 +205,9 @@ def handle_children(table_id, node_id):
 def handle_children_2(table_id):
     int64_as_str = request.args.get("int64_as_str", default=False, type=toboolean)
     node_ids = [np.uint64(x) for x in list(filter(None, request.args.get("ids", "").split(',')))]
-    if not len(node_ids) and request.json is not None and request.json.ids is not None:
+    if not len(node_ids) and request.json is not None:
         print("we have ids from json")
-        node_ids = request.json.ids
+        node_ids = request.json.get('ids', [])
     if len(node_ids):
         children_ids = common.handle_children_2(table_id, node_ids)
     else:
