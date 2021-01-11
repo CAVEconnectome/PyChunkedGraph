@@ -169,6 +169,7 @@ def get_highest_child_nodes_with_meshes(
 
                 time_start = time.time()
                 if missing_meshes:
+                    print(f"missing_meshes: {missing_meshes}")
                     candidates = cg.get_children(missing_meshes, flatten=True)
                 else:
                     break
