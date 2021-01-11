@@ -17,6 +17,7 @@ bp = Blueprint("pcg_segmentation_v1", __name__, url_prefix=f"/{common.__segmenta
 
 import os
 import json
+import numpy as np
 
 if os.environ.get("DAF_CREDENTIALS", None) is not None:
     with open(os.environ.get("DAF_CREDENTIALS"), "r") as f:
@@ -199,11 +200,14 @@ def handle_children(table_id, node_id):
     resp = {"children_ids": children_ids}
     return jsonify_with_kwargs(resp, int64_as_str=int64_as_str)
 
-@bp.route("/table/<table_id>/children", methods=["GET"])
+@bp.route("/table/<table_id>/children", methods=["GET", "POST"])
 @auth_requires_permission("view")
 def handle_children_2(table_id):
     int64_as_str = request.args.get("int64_as_str", default=False, type=toboolean)
-    node_ids = request.args.get("ids", "")
+    node_ids = [np.uint64(x) for x in request.args.get("ids", "").split(',')]
+    if not len(node_ids) and request.json is not None and request.json.ids is not None:
+        print("we have ids from json")
+        node_ids = request.json.ids
     if len(node_ids):
         children_ids = common.handle_children_2(table_id, node_ids)
     else:

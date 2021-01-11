@@ -678,8 +678,6 @@ def handle_children_2(table_id, node_ids):
 
     cg = app_utils.get_cg(table_id)
 
-    node_ids = [np.uint64(x) for x in node_ids.split(',')]
-
     children = cg.get_children(node_ids, flatten=True)
 
     return children
