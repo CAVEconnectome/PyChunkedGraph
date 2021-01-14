@@ -160,6 +160,7 @@ def handle_valid_frags(table_id, node_id):
 
 
 def handle_get_manifest(table_id, node_id):
+    print("handle_get_manifest")
     current_app.request_type = "manifest"
     current_app.table_id = table_id
 
