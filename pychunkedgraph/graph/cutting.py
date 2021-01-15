@@ -211,8 +211,14 @@ class LocalMincutGraph:
             paths_v_s, paths_e_s, paths_v_y, paths_e_y)
 
         if do_check:
-            assert flatgraph.check_connectedness(paths_v_s, paths_e_s_no)
-            assert flatgraph.check_connectedness(paths_v_y, paths_e_y_no)
+            try:
+                assert flatgraph.check_connectedness(paths_v_s, paths_e_s_no)
+                assert flatgraph.check_connectedness(paths_v_y, paths_e_y_no)
+            except AssertionError:
+                raise PreconditionError(
+                    "Paths between source point pairs and sink point pairs overlapped irreparably."
+                    "Please add one or more intermediate points on both sides of the cut."
+                )
 
         adj_capacity = flatgraph.adjust_affinities(
             self.weighted_graph_raw, self.capacities_raw, paths_e_s_no+paths_e_y_no)
