@@ -76,6 +76,12 @@ def team_paths_all_to_all(graph, capacity, team_vertex_ids):
     paths_e = []
     cache_pred_map = {}
     for i1, i2 in combinations(team_vertex_ids, 2):
+
+        if i1 in list(graph.vertex(i2).out_neighbors()):
+            paths_v.append([])
+            paths_e.append([graph.edge(i1, i2)])
+            continue
+
         pred_map = cache_pred_map.get(i1, None)
         if pred_map is None:
             _, pred_map = search.dijkstra_search(
@@ -152,9 +158,15 @@ def adjust_affinities(graph, capacity, paths_e, value=np.finfo(np.float32).max):
     """Set affinity of a subset of paths to a particular value (typically the largest double).
     """
     capacity = capacity.copy()
-    for pair_path in paths_e:
-        for edge in pair_path:
-            capacity[edge] = value
-            # Capacity is a symmetric directed network
-            capacity[reverse_edge(graph, edge)] = value
+
+    e_array = np.array([(int(e.source()), int(e.target()))
+                        for e in chain.from_iterable(paths_e)])
+    e_array = np.sort(e_array, axis=1)
+    e_array = np.unique(e_array, axis=0)
+    e_list = [graph.edge(e[0], e[1]) for e in e_array]
+
+    for edge in e_list:
+        capacity[edge] = value
+        # Capacity is a symmetric directed network
+        capacity[reverse_edge(graph, edge)] = value
     return capacity

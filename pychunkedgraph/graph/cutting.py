@@ -80,11 +80,12 @@ class LocalMincutGraph:
     """
 
     def __init__(
-        self, cg_edges, cg_affs, cg_sources, cg_sinks, split_preview=False, logger=None
+        self, cg_edges, cg_affs, cg_sources, cg_sinks, split_preview=False, path_augment=True, logger=None
     ):
         self.cg_edges = cg_edges
         self.split_preview = split_preview
         self.logger = logger
+        self.path_augment = path_augment
         time_start = time.time()
 
         # Stitch supervoxels across chunk boundaries and represent those that are
@@ -233,7 +234,7 @@ class LocalMincutGraph:
         src, tgt = gr.vertex(self.source_graph_ids[0]), gr.vertex(
             self.sink_graph_ids[0])
 
-        residuals = graph_tool.flow.push_relabel_max_flow(
+        residuals = graph_tool.flow.boykov_kolmogorov_max_flow(
             gr, src, tgt, adj_capacity
         )
 
@@ -249,7 +250,7 @@ class LocalMincutGraph:
 
         time_start = time.time()
 
-        if len(self.source_graph_ids) > 1 and len(self.sink_graph_ids) > 1:
+        if len(self.source_graph_ids) > 1 and len(self.sink_graph_ids) > 1 and self.path_augment:
             partition = self._compute_mincut_path_augmented()
         else:
             partition = self._compute_mincut_direct()
@@ -488,9 +489,10 @@ def run_multicut(
     sink_ids: Sequence[np.uint64],
     *,
     split_preview: bool = False,
+    path_augment: bool = True,
 ):
     local_mincut_graph = LocalMincutGraph(
-        edges.get_pairs(), edges.affinities, source_ids, sink_ids, split_preview
+        edges.get_pairs(), edges.affinities, source_ids, sink_ids, split_preview, path_augment,
     )
     atomic_edges = local_mincut_graph.compute_mincut()
     if len(atomic_edges) == 0:
