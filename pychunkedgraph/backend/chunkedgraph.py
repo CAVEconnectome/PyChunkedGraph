@@ -1453,8 +1453,8 @@ class ChunkedGraph(object):
             z=z // (int(self.chunk_size[2]) * base_chunk_span))
 
     def get_atomic_id_from_coord(self, x: int, y: int, z: int,
-                                 parent_id: np.uint64, n_tries: int=5
-                                 ) -> np.uint64:
+                                 parent_id: Optional[np.uint64] = None,
+                                 n_tries: int=5) -> np.uint64:
         """ Determines atomic id given a coordinate
 
         :param x: int
@@ -1464,7 +1464,7 @@ class ChunkedGraph(object):
         :param n_tries: int
         :return: np.uint64 or None
         """
-        if self.get_chunk_layer(parent_id) == 1:
+        if parent_id is not None and self.get_chunk_layer(parent_id) == 1:
             return parent_id
 
 
@@ -1474,6 +1474,11 @@ class ChunkedGraph(object):
         x = int(x)
         y = int(y)
         z = int(z)
+
+        if parent_id is None:
+            # assume we have a single unique id at the exact coordinate
+            atomic_id_block = self.cv[x: x + 1, y: y + 1, z: z + 1]
+            return atomic_id_block[0][0][0][0]
 
         checked = []
         atomic_id = None
