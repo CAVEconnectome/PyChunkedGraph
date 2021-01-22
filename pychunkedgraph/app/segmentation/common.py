@@ -423,6 +423,7 @@ def handle_split(table_id):
 
     data = json.loads(request.data)
     is_priority = request.args.get('priority', True, type=str2bool)
+    mincut = request.args.get('mincut', True, type=str2bool)
     user_id = str(g.auth_user["id"])
     current_app.user_id = user_id
 
@@ -465,7 +466,7 @@ def handle_split(table_id):
             sink_ids=data_dict["sinks"]["id"],
             source_coords=data_dict["sources"]["coord"],
             sink_coords=data_dict["sinks"]["coord"],
-            mincut=True,
+            mincut=mincut,
         )
 
     except cg_exceptions.LockingError as e:
