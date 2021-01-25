@@ -775,16 +775,6 @@ def merge_log(table_id, root_id):
     user_id = str(g.auth_user["id"])
     current_app.user_id = user_id
 
-    try:
-        time_stamp_past = float(request.args.get("timestamp", 0))
-        time_stamp_past = datetime.fromtimestamp(time_stamp_past, UTC)
-    except (TypeError, ValueError) as e:
-        raise (
-            cg_exceptions.BadRequest(
-                "Timestamp parameter is not a valid" " unix timestamp"
-            )
-        )
-
     # Call ChunkedGraph
     cg = app_utils.get_cg(table_id)
 
@@ -795,16 +785,6 @@ def lineage_graph(table_id, root_id):
     current_app.table_id = table_id
     user_id = str(g.auth_user["id"])
     current_app.user_id = user_id
-
-    try:
-        time_stamp_past = float(request.args.get("timestamp", 0))
-        time_stamp_past = datetime.fromtimestamp(time_stamp_past, UTC)
-    except (TypeError, ValueError) as e:
-        raise (
-            cg_exceptions.BadRequest(
-                "Timestamp parameter is not a valid" " unix timestamp"
-            )
-        )
 
     # Call ChunkedGraph
     cg = app_utils.get_cg(table_id)
