@@ -668,7 +668,7 @@ def handle_subgraph(table_id, root_id):
 
     # Call ChunkedGraph
     cg = app_utils.get_cg(table_id)
-    _, edges = cg.get_subgraph(
+    l2id_agglomeration_d, edges = cg.get_subgraph(
         int(root_id),
         bbox=bounding_box,
         bbox_is_coordinate=True,
