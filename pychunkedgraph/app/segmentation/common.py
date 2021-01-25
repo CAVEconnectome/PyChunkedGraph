@@ -669,8 +669,8 @@ def handle_subgraph(table_id, root_id):
     # Call ChunkedGraph
     cg = app_utils.get_cg(table_id)
     _, edges = cg.get_subgraph(
-        int(root_id), 
-        bbox=bounding_box, 
+        int(root_id),
+        bbox=bounding_box,
         bbox_is_coordinate=True,
     )
     edges = reduce(lambda x, y: x + y, edges, cg_edges.Edges([], []))
@@ -758,15 +758,15 @@ def tabular_change_log(table_id, root_id, get_root_ids, filtered):
     cg = app_utils.get_cg(table_id)
     segment_history = cg_history.SegmentHistory(cg, int(root_id))
 
-    tab = segment_history.get_tabular_changelog(with_ids=get_root_ids, 
+    tab = segment_history.get_tabular_changelog(with_ids=get_root_ids,
                                                 filtered=filtered)
-    
+
     try:
         tab["user_name"] = get_usernames(np.array(tab["user_id"], dtype=np.int).squeeze(),
                                          current_app.config['AUTH_TOKEN'])
     except:
-        current_app.logger.error(f"Could not retrieve user names for {root_id}")    
-        
+        current_app.logger.error(f"Could not retrieve user names for {root_id}")
+
     return tab
 
 
@@ -790,6 +790,26 @@ def merge_log(table_id, root_id):
 
     hist = segmenthistory.SegmentHistory(cg, int(root_id))
     return hist.merge_log(correct_for_wrong_coord_type=False)
+
+def lineage_graph(table_id, root_id):
+    current_app.table_id = table_id
+    user_id = str(g.auth_user["id"])
+    current_app.user_id = user_id
+
+    try:
+        time_stamp_past = float(request.args.get("timestamp", 0))
+        time_stamp_past = datetime.fromtimestamp(time_stamp_past, UTC)
+    except (TypeError, ValueError) as e:
+        raise (
+            cg_exceptions.BadRequest(
+                "Timestamp parameter is not a valid" " unix timestamp"
+            )
+        )
+
+    # Call ChunkedGraph
+    cg = app_utils.get_cg(table_id)
+    hist = segmenthistory.SegmentHistory(cg, int(root_id))
+    return hist.get_change_log_graph()
 
 
 def last_edit(table_id, root_id):

@@ -2,12 +2,14 @@ import collections
 import numpy as np
 import datetime
 import pandas as pd
+from networkx import DiGraph
 
 from . import attributes
 from . import exceptions as cg_exceptions
 
 former_parent_col = attributes.Hierarchy.FormerParent
 operation_id_col = attributes.OperationLogs.OperationID
+
 
 class SegmentHistory(object):
     def __init__(self, cg, root_id):
@@ -78,10 +80,16 @@ class SegmentHistory(object):
     @property
     def root_id_lookup_vec(self):
         if self._root_id_lookup_vec is None:
-            root_id_lookup_dict = dict(zip(self.edited_sv_ids,
-                                           self.cg.get_roots(self.edited_sv_ids,
-                                                             time_stamp=np.max(self.edit_timestamps) +
-                                                                        datetime.timedelta(seconds=.01))))
+            root_id_lookup_dict = dict(
+                zip(
+                    self.edited_sv_ids,
+                    self.cg.get_roots(
+                        self.edited_sv_ids,
+                        time_stamp=np.max(self.edit_timestamps)
+                        + datetime.timedelta(seconds=0.01),
+                    ),
+                )
+            )
             self._root_id_lookup_vec = np.vectorize(root_id_lookup_dict.get)
 
         return self._root_id_lookup_vec
@@ -89,10 +97,16 @@ class SegmentHistory(object):
     @property
     def original_root_id_lookup_vec(self):
         if self._original_root_id_lookup_vec is None:
-            root_id_lookup_dict = dict(zip(self.edited_sv_ids,
-                                           self.cg.get_roots(self.edited_sv_ids,
-                                                             time_stamp=np.min(self.edit_timestamps) -
-                                                                        datetime.timedelta(seconds=.01))))
+            root_id_lookup_dict = dict(
+                zip(
+                    self.edited_sv_ids,
+                    self.cg.get_roots(
+                        self.edited_sv_ids,
+                        time_stamp=np.min(self.edit_timestamps)
+                        - datetime.timedelta(seconds=0.01),
+                    ),
+                )
+            )
             self._original_root_id_lookup_vec = np.vectorize(root_id_lookup_dict.get)
 
         return self._original_root_id_lookup_vec
@@ -113,8 +127,10 @@ class SegmentHistory(object):
 
     @property
     def filtered_log_mask(self):
-        return np.logical_and(np.array(self.tabular_changelog[["in_neuron"]]),
-                              np.array(self.tabular_changelog[["is_relevant"]])).reshape(-1)
+        return np.logical_and(
+            np.array(self.tabular_changelog[["in_neuron"]]),
+            np.array(self.tabular_changelog[["is_relevant"]]),
+        ).reshape(-1)
 
     def get_tabular_changelog(self, with_ids=False, filtered=False):
         if not with_ids and not filtered:
@@ -141,6 +157,9 @@ class SegmentHistory(object):
 
                 return self._add_ids_to_tabular_changelog(tab)
 
+    def get_change_log_graph(self) -> DiGraph:
+        return _change_log_graph(self.cg, self.root_id)
+
     def _collect_edit_timestamps(self):
         self._edit_timestamps = []
         for entry_id, entry in self.past_log_entries.items():
@@ -154,7 +173,6 @@ class SegmentHistory(object):
             self._edited_sv_ids.extend(entry.edges_failsafe)
 
         self._edited_sv_ids = np.array(self._edited_sv_ids)
-
 
     def _collect_past_edits(self):
         self._past_log_rows = {}
@@ -187,8 +205,7 @@ class SegmentHistory(object):
 
                 log_row, log_timestamp = self.cg.client.read_log_entry(operation_id)
 
-                self._past_log_rows[operation_id] = LogEntry(log_row,
-                                                             log_timestamp)
+                self._past_log_rows[operation_id] = LogEntry(log_row, log_timestamp)
 
     def _build_tabular_changelog(self):
         is_merge_list = []
@@ -208,7 +225,9 @@ class SegmentHistory(object):
             timestamp_list.append(entry.timestamp)
             user_list.append(entry.user_id)
 
-            sv_ids_original_root = self.original_root_id_lookup_vec(entry.edges_failsafe)
+            sv_ids_original_root = self.original_root_id_lookup_vec(
+                entry.edges_failsafe
+            )
             sv_ids_current_root = self.root_id_lookup_vec(entry.edges_failsafe)
 
             if entry.is_merge:
@@ -233,38 +252,41 @@ class SegmentHistory(object):
                     is_in_neuron_list.append(False)
 
         self._tabular_changelog = pd.DataFrame.from_dict(
-            {"operation_id": sorted_entry_ids,
-             "timestamp": timestamp_list,
-             "user_id": user_list,
-            #  "before_root_ids": before_root_ids_list,
-            #  "after_root_ids": after_root_ids_list,
-             "is_merge": is_merge_list,
-             "in_neuron": is_in_neuron_list,
-             "is_relevant": is_relevant_list})
+            {
+                "operation_id": sorted_entry_ids,
+                "timestamp": timestamp_list,
+                "user_id": user_list,
+                #  "before_root_ids": before_root_ids_list,
+                #  "after_root_ids": after_root_ids_list,
+                "is_merge": is_merge_list,
+                "in_neuron": is_in_neuron_list,
+                "is_relevant": is_relevant_list,
+            }
+        )
 
     def _add_ids_to_tabular_changelog(self, tabular_changelog=None):
         if tabular_changelog is None:
-            tab_dict = self.tabular_changelog.to_dict(orient='list')
+            tab_dict = self.tabular_changelog.to_dict(orient="list")
         else:
-            tab_dict = tabular_changelog.to_dict(orient='list')
+            tab_dict = tabular_changelog.to_dict(orient="list")
         before_root_ids_list = []
         after_root_ids_list = []
 
         for entry_id in tab_dict["operation_id"]:
             entry = self.past_log_entries[entry_id]
 
-            sv_ids_original_root = self.original_root_id_lookup_vec(entry.edges_failsafe)
+            sv_ids_original_root = self.original_root_id_lookup_vec(
+                entry.edges_failsafe
+            )
             sv_ids_current_root = self.root_id_lookup_vec(entry.edges_failsafe)
 
             if entry.is_merge:
-                before_root_ids, after_root_ids = \
-                    self._before_after_root_ids(entry)
+                before_root_ids, after_root_ids = self._before_after_root_ids(entry)
 
                 before_root_ids_list.append(before_root_ids)
                 after_root_ids_list.append(after_root_ids)
             else:
-                before_root_ids, after_root_ids = \
-                    self._before_after_root_ids(entry)
+                before_root_ids, after_root_ids = self._before_after_root_ids(entry)
 
                 before_root_ids_list.append(before_root_ids)
                 after_root_ids_list.append(after_root_ids)
@@ -276,19 +298,22 @@ class SegmentHistory(object):
 
     def _before_after_root_ids(self, entry):
         before_root_ids = np.unique(
-            self.cg.get_roots(entry.edges_failsafe,
-                              time_stamp=entry.timestamp -
-                                         datetime.timedelta(seconds=.01)))
+            self.cg.get_roots(
+                entry.edges_failsafe,
+                time_stamp=entry.timestamp - datetime.timedelta(seconds=0.01),
+            )
+        )
 
         after_root_ids = np.unique(
-            self.cg.get_roots(entry.edges_failsafe,
-                              time_stamp=entry.timestamp +
-                                         datetime.timedelta(seconds=.01)))
+            self.cg.get_roots(
+                entry.edges_failsafe,
+                time_stamp=entry.timestamp + datetime.timedelta(seconds=0.01),
+            )
+        )
 
         assert np.sum(np.in1d(before_root_ids, after_root_ids)) == 0
 
         return before_root_ids, after_root_ids
-
 
     def merge_log(self, correct_for_wrong_coord_type=True):
         merge_entries = self.past_merge_entries
@@ -302,13 +327,11 @@ class SegmentHistory(object):
 
             if correct_for_wrong_coord_type:
                 # A little hack because we got the datatype wrong...
-                coords = [np.frombuffer(coords[0]),
-                          np.frombuffer(coords[1])]
+                coords = [np.frombuffer(coords[0]), np.frombuffer(coords[1])]
                 coords *= self.cg.meta.cv.resolution
             added_edge_coords.append(coords)
 
-        return {"merge_edges": added_edges,
-                "merge_edge_coords": added_edge_coords}
+        return {"merge_edges": added_edges, "merge_edge_coords": added_edge_coords}
 
     def change_log(self):
         user_dict = collections.defaultdict(collections.Counter)
@@ -322,11 +345,13 @@ class SegmentHistory(object):
             past_ids.extend(log_entry.root_ids)
             user_dict[log_entry.user_id]["n_mergers"] += 1
 
-        return {"n_splits": len(self.past_split_entries),
-                "n_mergers": len(self.past_merge_entries),
-                "user_info": user_dict,
-                "operations_ids": np.array(list(self.past_log_entries.keys())),
-                "past_ids": past_ids}
+        return {
+            "n_splits": len(self.past_split_entries),
+            "n_mergers": len(self.past_merge_entries),
+            "user_info": user_dict,
+            "operations_ids": np.array(list(self.past_log_entries.keys())),
+            "past_ids": past_ids,
+        }
 
 
 class LogEntry(object):
@@ -362,8 +387,12 @@ class LogEntry(object):
 
     @property
     def sink_source_ids(self):
-        return np.concatenate([self.row[attributes.OperationLogs.SinkID],
-                               self.row[attributes.OperationLogs.SourceID]])
+        return np.concatenate(
+            [
+                self.row[attributes.OperationLogs.SinkID],
+                self.row[attributes.OperationLogs.SourceID],
+            ]
+        )
 
     @property
     def added_edges(self):
@@ -381,12 +410,16 @@ class LogEntry(object):
 
     @property
     def coordinates(self):
-        return np.array([self.row[attributes.OperationLogs.SourceCoordinate],
-                         self.row[attributes.OperationLogs.SinkCoordinate]])
+        return np.array(
+            [
+                self.row[attributes.OperationLogs.SourceCoordinate],
+                self.row[attributes.OperationLogs.SinkCoordinate],
+            ]
+        )
 
     def __str__(self):
         return f"{self.user_id},{self.log_type},{self.root_ids},{self.timestamp}"
-        
+
     def __iter__(self):
         attrs = [self.user_id, self.log_type, self.root_ids, self.timestamp]
         for attr in attrs:
@@ -399,11 +432,53 @@ def get_all_log_entries(cg):
     for operation_id in range(cg.client.get_max_operation_id()):
         try:
             log_entries.append(
-                LogEntry(
-                    log_rows[operation_id],
-                    log_rows[operation_id]["timestamp"]
-                )
+                LogEntry(log_rows[operation_id], log_rows[operation_id]["timestamp"])
             )
         except KeyError:
             continue
     return log_entries
+
+
+def _change_log_graph(cg, node_id: np.uint64):
+    G = DiGraph()
+    children_col = attributes.Hierarchy.Child
+    new_parents_col = attributes.Hierarchy.NewParent
+
+    node_ids = np.array([node_id], dtype=np.uint64)
+    while node_ids.size:
+        next_ids = [np.empty(0, dtype=np.uint64)]
+        nodes_raw = cg.client.read_nodes(node_ids=node_ids)
+        for k, val in nodes_raw.items():
+            G.add_node(
+                k,
+                operation_id=val[operation_id_col][0].value,
+                timestamp=val[children_col][0].timestamp,
+            )
+            if not former_parent_col in val:
+                continue
+
+            former_ids = val[former_parent_col][0].value
+            for former in former_ids:
+                G.add_edge(former, k)
+            next_ids.append(former_ids)
+        node_ids = np.concatenate(next_ids)
+
+    node_ids = np.array([node_id], dtype=np.uint64)
+    while node_ids.size:
+        next_ids = [np.empty(0, dtype=np.uint64)]
+        nodes_raw = cg.client.read_nodes(node_ids=node_ids)
+        for k, val in nodes_raw.items():
+            G.add_node(
+                k,
+                operation_id=val[operation_id_col][0].value,
+                timestamp=val[children_col][0].timestamp,
+            )
+            if not new_parents_col in val:
+                continue
+
+            new_ids = val[new_parents_col][0].value
+            for new_parent in new_ids:
+                G.add_edge(k, new_parent)
+            next_ids.append(new_ids)
+        node_ids = np.concatenate(next_ids)
+    return G
