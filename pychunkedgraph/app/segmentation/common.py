@@ -616,14 +616,14 @@ def handle_leaves_many(table_id):
         ).T
     else:
         bounding_box = None
-
+    stop_layer = int(request.args.get("stop_layer", 1))
     root_ids = np.array(json.loads(request.data)["root_ids"], dtype=np.uint64)
 
     # Call ChunkedGraph
     cg = app_utils.get_cg(table_id)
 
     root_to_leaves_mapping = cg.get_subgraph_nodes(
-        root_ids, bbox=bounding_box, bbox_is_coordinate=True, return_layers=[1], serializable=True
+        root_ids, bbox=bounding_box, bbox_is_coordinate=True, return_layers=[stop_layer], serializable=True
     )
 
     return root_to_leaves_mapping
