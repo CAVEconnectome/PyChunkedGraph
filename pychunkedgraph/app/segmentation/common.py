@@ -686,11 +686,12 @@ def handle_leaves(table_id, root_id):
         ).T
     else:
         bounding_box = None
-
+    stop_layer = request.args.get('stop_layer', None)
     # Call ChunkedGraph
     cg = app_utils.get_cg(table_id)
     atomic_ids = cg.get_subgraph_nodes(
-        int(root_id), bounding_box=bounding_box, bb_is_coordinate=True
+        int(root_id), bounding_box=bounding_box, bb_is_coordinate=True,
+        return_layers=[stop_layer]
     )
 
     return atomic_ids
