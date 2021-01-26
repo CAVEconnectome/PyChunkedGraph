@@ -759,7 +759,7 @@ class UndoOperation(GraphEditOperation):
             raise ValueError(
                 (
                     f"UndoOperation received {log_record_type.__name__} as target operation, "
-                    "which is not allowed. Use GraphEditOperation.create_undo() instead."
+                    "which is not allowed. Use GraphEditOperation.undo_operation() instead."
                 )
             )
 
