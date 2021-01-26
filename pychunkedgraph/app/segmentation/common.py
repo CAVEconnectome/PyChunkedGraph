@@ -585,11 +585,17 @@ def handle_leaves(table_id, root_id):
         ).T
     else:
         bounding_box = None
-
+    stop_layer = int(request.args.get("stop_layer", 1))
     # Call ChunkedGraph
     cg = app_utils.get_cg(table_id)
+    if stop_layer>1:
+        nodes_only=True
+    else:
+        nodes_only=False
     atomic_ids = cg.get_subgraph(
-        int(root_id), bbox=bounding_box, bbox_is_coordinate=True, leaves_only=True
+        int(root_id), bbox=bounding_box, bbox_is_coordinate=True,
+        leaves_only=True, nodes_only=nodes_only,
+        return_layers=[stop_layer]
     )
 
     return atomic_ids
