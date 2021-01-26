@@ -52,7 +52,7 @@ def get_lvl2_edge_list(cg, node_id: np.uint64):
     edge_view = edge_array.view()
     edge_view.shape = -1
     fastremap.remap_from_array_kv(edge_view, known_supervoxel_array, known_l2_array)
-    return edge_array
+    return np.unique(np.sort(edge_array,axis=1),axis=0)
 
 def find_l2_shortest_path(cg, source_l2_id: np.uint64, target_l2_id: np.uint64):
     """
@@ -185,3 +185,23 @@ def compute_mesh_centroids_of_l2_ids(cg, l2_ids, flatten=False):
                 failed_l2_ids.append(l2_id)
             last_l2_id = l2_id
     return centroids_with_chunk_boundary_points, failed_l2_ids
+
+
+def compute_rough_coordinate_path(cg, l2_ids):
+    """
+    Given a list of l2_ids, return a list of rough coordinates representing
+    the path the l2_ids form.
+    :param cg: ChunkedGraph object
+    :param l2_ids: Sequence[np.uint64]
+    :return: [np.ndarray]
+    """
+    coordinate_path = []
+    for l2_id in l2_ids:
+        chunk_center = cg.get_chunk_coordinates(l2_id) + np.array([0.5, 0.5, 0.5])
+        coordinate = chunk_center * np.array(
+            cg.meta.graph_config.CHUNK_SIZE
+        ) + np.array(cg.meta.cv.mip_voxel_offset(0))
+        coordinate = coordinate * np.array(cg.meta.cv.mip_resolution(0))
+        coordinate = coordinate.astype(np.float32)
+        coordinate_path.append(coordinate)
+    return coordinate_path

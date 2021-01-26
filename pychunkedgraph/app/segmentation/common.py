@@ -423,6 +423,7 @@ def handle_split(table_id):
 
     data = json.loads(request.data)
     is_priority = request.args.get('priority', True, type=str2bool)
+    mincut = request.args.get('mincut', True, type=str2bool)
     user_id = str(g.auth_user["id"])
     current_app.user_id = user_id
 
@@ -465,7 +466,7 @@ def handle_split(table_id):
             sink_ids=data_dict["sinks"]["id"],
             source_coords=data_dict["sources"]["coord"],
             sink_coords=data_dict["sinks"]["coord"],
-            mincut=True,
+            mincut=mincut,
         )
 
     except cg_exceptions.LockingError as e:
@@ -1024,7 +1025,7 @@ def handle_split_preview(table_id):
 ### FIND PATH --------------------------------------------------------------
 
 
-def handle_find_path(table_id):
+def handle_find_path(table_id, precision_mode):
     current_app.table_id = table_id
     user_id = str(g.auth_user["id"])
     current_app.user_id = user_id
@@ -1059,13 +1060,20 @@ def handle_find_path(table_id):
     target_l2_id = cg.get_parent(target_supervoxel_id)
 
     l2_path = analysis.find_l2_shortest_path(cg, source_l2_id, target_l2_id)
-    centroids, failed_l2_ids = analysis.compute_mesh_centroids_of_l2_ids(cg, l2_path, flatten=True)
-
-    return {
-        "centroids_list": centroids,
-        "failed_l2_ids": failed_l2_ids,
-        "l2_path": l2_path
-    }
+    if precision_mode:
+        centroids, failed_l2_ids = analysis.compute_mesh_centroids_of_l2_ids(cg, l2_path, flatten=True)
+        return {
+            "centroids_list": centroids,
+            "failed_l2_ids": failed_l2_ids,
+            "l2_path": l2_path
+        }
+    else:
+        centroids = analysis.compute_rough_coordinate_path(cg, l2_path)
+        return {
+            "centroids_list": centroids,
+            "failed_l2_ids": [],
+            "l2_path": l2_path
+        }
 
 ### GET_LAYER2_SUBGRAPH
 def handle_get_layer2_graph(table_id, node_id):
