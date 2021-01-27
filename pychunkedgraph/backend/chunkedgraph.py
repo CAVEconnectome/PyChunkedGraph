@@ -2437,7 +2437,7 @@ class ChunkedGraph(object):
         # that have failed to get to the stop layer as if we want to assert_roots
         # then we should fail that assertion
         if assert_roots:
-            assert False
+            raise(Exception(f'get_roots failed to get to stop_layer {stop_layer} for all node_ids: {parent_ids}'))
         return parent_ids
 
     def get_root(self, node_id: np.uint64,
