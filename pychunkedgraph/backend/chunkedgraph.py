@@ -2399,7 +2399,8 @@ class ChunkedGraph(object):
 
     def get_roots(self, node_ids: Sequence[np.uint64],
                   time_stamp: Optional[datetime.datetime] = None,
-                  stop_layer: int = None, n_tries: int = 1):
+                  stop_layer: int = None, n_tries: int = 1,
+                  assert_roots: bool = False):
         """ Takes node ids and returns the associated agglomeration ids
 
         :param node_ids: list of uint64
@@ -2437,6 +2438,11 @@ class ChunkedGraph(object):
                 return parent_ids
             else:
                 time.sleep(0.5)
+        # if we have failed to return by now, then we we have some roots
+        # that have failed to get to the stop layer as if we want to assert_roots
+        # then we should fail that assertion
+        if assert_roots:
+            raise(cg_exceptions.ChunkedGraphError(f'get_roots failed to get to stop_layer {stop_layer} for all node_ids: {parent_ids}'))
         return parent_ids
 
     def get_root(self, node_id: np.uint64,
