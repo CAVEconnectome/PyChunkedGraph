@@ -1,3 +1,4 @@
+urllib3==1.25.11
 -e git+https://github.com/ZettaAI/cloud-volume.git@nkem-float-res-fix#egg=cloud-volume
 numpy
 pandas
@@ -17,5 +18,5 @@ middle-auth-client==2.4.3
 fastremap
 pyyaml
 cachetools
-task-queue
+task-queue==1.0.0
 cloud-files
