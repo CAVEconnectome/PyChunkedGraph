@@ -788,15 +788,39 @@ def merge_log(table_id, root_id):
     hist = segmenthistory.SegmentHistory(cg, int(root_id))
     return hist.merge_log(correct_for_wrong_coord_type=False)
 
+
 def lineage_graph(table_id, root_id):
     current_app.table_id = table_id
     user_id = str(g.auth_user["id"])
     current_app.user_id = user_id
 
+    # Convert seconds since epoch to UTC datetime
+    try:
+        ts_past = float(request.args.get("timestamp_past", time.time()))
+    except ValueError:
+        ts_past = None
+    except TypeError as e:
+        raise (
+            cg_exceptions.BadRequest(
+                "Timestamp parameter is not a valid unix timestamp"
+            )
+        )
+
+    try:
+        ts_future = float(request.args.get("timestamp_future", time.time()))
+    except ValueError:
+        ts_future = None
+    except TypeError as e:
+        raise (
+            cg_exceptions.BadRequest(
+                "Timestamp parameter is not a valid unix timestamp"
+            )
+        )
+
     # Call ChunkedGraph
     cg = app_utils.get_cg(table_id)
     hist = segmenthistory.SegmentHistory(cg, int(root_id))
-    return hist.get_change_log_graph()
+    return hist.get_change_log_graph(ts_past, ts_future)
 
 
 def last_edit(table_id, root_id):
