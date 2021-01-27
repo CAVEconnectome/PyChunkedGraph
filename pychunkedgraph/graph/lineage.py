@@ -6,6 +6,7 @@ from typing import Iterable
 from datetime import datetime
 
 import numpy as np
+from networkx import DiGraph
 
 from . import attributes
 from .exceptions import ChunkedGraphError
@@ -31,7 +32,9 @@ def get_latest_root_id(cg, root_id: np.uint64) -> np.ndarray:
 
 
 def get_future_root_ids(
-    cg, root_id: np.uint64, time_stamp: Optional[datetime] = get_max_time(),
+    cg,
+    root_id: np.uint64,
+    time_stamp: Optional[datetime] = get_max_time(),
 ) -> np.ndarray:
     """
     Returns all future root ids emerging from this root
@@ -65,7 +68,9 @@ def get_future_root_ids(
 
 
 def get_past_root_ids(
-    cg, root_id: np.uint64, time_stamp: Optional[datetime] = get_min_time(),
+    cg,
+    root_id: np.uint64,
+    time_stamp: Optional[datetime] = get_min_time(),
 ) -> np.ndarray:
     """
     Returns all past root ids emerging from this root.
@@ -101,10 +106,14 @@ def get_past_root_ids(
     return np.unique(np.array(id_history, dtype=np.uint64))
 
 
-def get_previous_root_ids(cg, root_ids: Iterable[np.uint64],) -> dict:
+def get_previous_root_ids(
+    cg,
+    root_ids: Iterable[np.uint64],
+) -> dict:
     """Returns immediate former root IDs (1 step history)"""
     nodes_d = cg.client.read_nodes(
-        node_ids=root_ids, properties=attributes.Hierarchy.FormerParent,
+        node_ids=root_ids,
+        properties=attributes.Hierarchy.FormerParent,
     )
     result = {}
     for root, val in nodes_d.items():
@@ -129,8 +138,56 @@ def get_root_id_history(
     return np.concatenate([past_ids, np.array([root_id], dtype=np.uint64), future_ids])
 
 
-# TODO
-# def read_first_log_row
-# def get_change_log
-# def read_logs
+def lineage_graph(
+    cg,
+    node_id: np.uint64,
+    timestamp_past: datetime = None,
+    timestamp_future: datetime = None,
+) -> DiGraph:
+    """
+    Build lineage graph of a given root ID
+    going backwards in time until `timestamp_past`
+    and in future until `timestamp_future`
+    """
+    from .attributes import Hierarchy
+    from .attributes import OperationLogs
 
+    G = DiGraph()
+    node_ids = np.array([node_id], dtype=np.uint64)
+    while node_ids.size:
+        next_ids = [np.empty(0, dtype=np.uint64)]
+        nodes_raw = cg.client.read_nodes(node_ids=node_ids)
+        for k, val in nodes_raw.items():
+            G.add_node(
+                k,
+                operation_id=val[OperationLogs.OperationID][0].value,
+                timestamp=val[Hierarchy.Child][0].timestamp,
+            )
+            if not Hierarchy.FormerParent in val:
+                continue
+
+            former_ids = val[Hierarchy.FormerParent][0].value
+            for former in former_ids:
+                G.add_edge(former, k)
+            next_ids.append(former_ids)
+        node_ids = np.concatenate(next_ids)
+
+    node_ids = np.array([node_id], dtype=np.uint64)
+    while node_ids.size:
+        next_ids = [np.empty(0, dtype=np.uint64)]
+        nodes_raw = cg.client.read_nodes(node_ids=node_ids)
+        for k, val in nodes_raw.items():
+            G.add_node(
+                k,
+                operation_id=val[OperationLogs.OperationID][0].value,
+                timestamp=val[Hierarchy.Child][0].timestamp,
+            )
+            if not Hierarchy.NewParent in val:
+                continue
+
+            new_ids = val[Hierarchy.NewParent][0].value
+            for new_parent in new_ids:
+                G.add_edge(k, new_parent)
+            next_ids.append(new_ids)
+        node_ids = np.concatenate(next_ids)
+    return G
