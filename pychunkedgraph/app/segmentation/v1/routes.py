@@ -389,7 +389,8 @@ def handle_get_lvl2_graph(table_id, node_id):
 @auth_requires_permission("view")
 def handle_is_latest_roots(table_id):
     int64_as_str = request.args.get("int64_as_str", default=False, type=toboolean)
-    is_latest_roots = common.handle_is_latest_roots(table_id, is_binary=False)
+    is_binary = request.args.get("is_binary", default=False, type=toboolean)
+    is_latest_roots = common.handle_is_latest_roots(table_id, is_binary=is_binary)
     resp = {"is_latest": is_latest_roots}
 
     return jsonify_with_kwargs(resp, int64_as_str=int64_as_str)
