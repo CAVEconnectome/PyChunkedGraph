@@ -260,12 +260,13 @@ def handle_roots(table_id, is_binary=False):
     stop_layer = request.args.get("stop_layer", None)
     if stop_layer is not None:
         stop_layer = int(stop_layer)
-
+    assert_roots = bool(request.args.get("assert_roots", False))
     # Call ChunkedGraph
     cg = app_utils.get_cg(table_id)
     root_ids = cg.get_roots(node_ids, stop_layer=stop_layer,
-                            time_stamp=timestamp)
-
+                            time_stamp=timestamp,
+                            assert_roots=assert_roots)
+    
     return root_ids
 
 
@@ -1113,6 +1114,7 @@ def handle_is_latest_roots(table_id, is_binary):
     cg = app_utils.get_cg(table_id)
 
     row_dict = cg.read_node_id_rows(node_ids=node_ids, columns=column_keys.Hierarchy.NewParent)
+    assert_roots = bool(request.args.get("assert_roots", False))
     is_latest = ~np.isin(node_ids, list(row_dict.keys()))
 
     return is_latest
