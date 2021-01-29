@@ -1125,15 +1125,15 @@ def operation_details(table_id):
     current_app.table_id = table_id
     user_id = str(g.auth_user["id"])
     current_app.user_id = user_id
-    operation_id = request.args["operation_id"]
+    operation_id = int(request.args["operation_id"])
 
     cg = app_utils.get_cg(table_id)
 
+    details = {}
     log_row = cg.read_log_row(operation_id)[0]
-    added_edges = log_row[column_keys.OperationLogs.AddedEdge]
-    removed_edges = log_row[column_keys.OperationLogs.RemovedEdge]
+    if column_keys.OperationLogs.AddedEdge in log_row:
+        details["added_edges"] = log_row[column_keys.OperationLogs.AddedEdge]
+    if column_keys.OperationLogs.RemovedEdge in log_row:
+        details["removed_edges"] = log_row[column_keys.OperationLogs.RemovedEdge]
 
-    return {
-        "added_edges": added_edges,
-        "removed_edges": removed_edges,
-    }
+    return details
