@@ -1084,7 +1084,7 @@ def handle_get_layer2_graph(table_id, node_id):
     current_app.user_id = user_id
 
     cg = app_utils.get_cg(table_id)
-    edge_graph = pathing.get_lvl2_edge_list(cg, int(node_id))
+    edge_graph = analysis.get_lvl2_edge_list(cg, int(node_id))
     return {
         'edge_graph': edge_graph
     }
