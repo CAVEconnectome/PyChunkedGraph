@@ -789,7 +789,7 @@ def merge_log(table_id, root_id):
     return hist.merge_log(correct_for_wrong_coord_type=False)
 
 
-def lineage_graph(table_id, root_id):
+def handle_lineage_graph(table_id, root_id):
     current_app.table_id = table_id
     user_id = str(g.auth_user["id"])
     current_app.user_id = user_id

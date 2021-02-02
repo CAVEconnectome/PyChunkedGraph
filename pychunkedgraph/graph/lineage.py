@@ -153,41 +153,44 @@ def lineage_graph(
     from .attributes import OperationLogs
 
     G = DiGraph()
-    node_ids = np.array([node_id], dtype=np.uint64)
-    while node_ids.size:
-        next_ids = [np.empty(0, dtype=np.uint64)]
-        nodes_raw = cg.client.read_nodes(node_ids=node_ids)
-        for k, val in nodes_raw.items():
-            G.add_node(
-                k,
-                operation_id=val[OperationLogs.OperationID][0].value,
-                timestamp=val[Hierarchy.Child][0].timestamp,
-            )
-            if not Hierarchy.FormerParent in val:
+    past_ids = np.array([node_id], dtype=np.uint64)
+    future_ids = np.array([node_id], dtype=np.uint64)
+
+    while past_ids.size or future_ids.size:
+        nodes_raw = cg.client.read_nodes(
+            node_ids=np.concatenate([past_ids, future_ids])
+        )
+
+        next_past_ids = [np.empty(0, dtype=np.uint64)]
+        for k in past_ids:
+            val = nodes_raw[k]
+            operation_id = val[OperationLogs.OperationID][0].value
+            timestamp = val[Hierarchy.Child][0].timestamp
+            G.add_node(k, operation_id=operation_id, timestamp=timestamp)
+
+            if timestamp < timestamp_past or not Hierarchy.FormerParent in val:
                 continue
 
             former_ids = val[Hierarchy.FormerParent][0].value
             for former in former_ids:
                 G.add_edge(former, k)
-            next_ids.append(former_ids)
-        node_ids = np.concatenate(next_ids)
+            next_past_ids.append(former_ids)
 
-    node_ids = np.array([node_id], dtype=np.uint64)
-    while node_ids.size:
-        next_ids = [np.empty(0, dtype=np.uint64)]
-        nodes_raw = cg.client.read_nodes(node_ids=node_ids)
-        for k, val in nodes_raw.items():
-            G.add_node(
-                k,
-                operation_id=val[OperationLogs.OperationID][0].value,
-                timestamp=val[Hierarchy.Child][0].timestamp,
-            )
-            if not Hierarchy.NewParent in val:
+        next_future_ids = [np.empty(0, dtype=np.uint64)]
+        for k in future_ids:
+            val = nodes_raw[k]
+            operation_id = val[OperationLogs.OperationID][0].value
+            timestamp = val[Hierarchy.Child][0].timestamp
+            G.add_node(k, operation_id=operation_id, timestamp=timestamp)
+
+            if timestamp > timestamp_future or not Hierarchy.NewParent in val:
                 continue
 
             new_ids = val[Hierarchy.NewParent][0].value
-            for new_parent in new_ids:
-                G.add_edge(k, new_parent)
-            next_ids.append(new_ids)
-        node_ids = np.concatenate(next_ids)
+            for new_id in new_ids:
+                G.add_edge(k, new_id)
+            next_future_ids.append(new_ids)
+
+        past_ids = np.concatenate(next_past_ids)
+        future_ids = np.concatenate(next_future_ids)
     return G
