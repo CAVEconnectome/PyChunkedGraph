@@ -1,4 +1,5 @@
--e git+https://github.com/ZettaAI/cloud-volume.git@nkem-float-res-fix#egg=cloud-volume
+urllib3==1.25.11
+cloud-volume
 numpy
 pandas
 networkx==2.1
@@ -13,9 +14,9 @@ zstandard
 redis
 rq
 middle-auth-client==2.4.3
--e git+https://github.com/ZettaAI/zmesh.git@nkem-float-res#egg=zmesh
+zmesh
 fastremap
 pyyaml
 cachetools
-task-queue
+task-queue==1.0.0
 cloud-files
