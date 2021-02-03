@@ -1080,3 +1080,29 @@ def handle_is_latest_roots(table_id, is_binary):
     is_latest = ~np.isin(node_ids, list(row_dict.keys()))
 
     return is_latest
+
+
+### OPERATION DETAILS ------------------------------------------------------------
+
+def operation_details(table_id):
+    from pychunkedgraph.graph import attributes
+    from pychunkedgraph.export.operation_logs import parse_attr
+    current_app.table_id = table_id
+    user_id = str(g.auth_user["id"])
+    current_app.user_id = user_id
+    operation_ids = map(int, request.args["operation_ids"].split(","))
+
+    cg = app_utils.get_cg(table_id)
+    log_rows = cg.client.read_log_entries(operation_ids)
+
+    result = {}
+    for k,v in log_rows.items():
+        details = {}
+        for _k, _v in v.items():
+            _k, _v = parse_attr(_k, _v)
+            try:
+                details[_k.decode("utf-8")] = _v
+            except AttributeError:
+                details[_k] = _v
+        result[int(k)] = details
+    return result
