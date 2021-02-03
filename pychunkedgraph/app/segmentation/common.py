@@ -796,10 +796,8 @@ def handle_lineage_graph(table_id, root_id):
 
     # Convert seconds since epoch to UTC datetime
     try:
-        ts_past = float(request.args.get("timestamp_past", time.time()))
-    except ValueError:
-        ts_past = None
-    except TypeError as e:
+        ts_past = float(request.args.get("timestamp_past", 0))
+    except (TypeError, ValueError) as e:
         raise (
             cg_exceptions.BadRequest(
                 "Timestamp parameter is not a valid unix timestamp"
@@ -808,9 +806,7 @@ def handle_lineage_graph(table_id, root_id):
 
     try:
         ts_future = float(request.args.get("timestamp_future", time.time()))
-    except ValueError:
-        ts_future = None
-    except TypeError as e:
+    except (TypeError, ValueError) as e:
         raise (
             cg_exceptions.BadRequest(
                 "Timestamp parameter is not a valid unix timestamp"
