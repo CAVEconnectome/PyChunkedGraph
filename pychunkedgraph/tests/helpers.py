@@ -136,7 +136,8 @@ def gen_graph(request):
         }
 
         meta, _, client_info = bootstrap("test", config=config)
-        graph = ChunkedGraph(graph_id="test", meta=meta, client_info=client_info)
+        graph = ChunkedGraph(graph_id="test", meta=meta,
+                             client_info=client_info)
         graph.mock_edges = Edges([], [])
         graph.meta._ws_cv = CloudVolumeMock()
         graph.meta.layer_count = n_layers
@@ -174,7 +175,8 @@ def gen_graph_simplequerytest(request, gen_graph):
     # Chunk B
     create_chunk(
         graph,
-        vertices=[to_label(graph, 1, 1, 0, 0, 0), to_label(graph, 1, 1, 0, 0, 1)],
+        vertices=[to_label(graph, 1, 1, 0, 0, 0),
+                  to_label(graph, 1, 1, 0, 0, 1)],
         edges=[
             (to_label(graph, 1, 1, 0, 0, 0), to_label(graph, 1, 1, 0, 0, 1), 0.5),
             (to_label(graph, 1, 1, 0, 0, 0), to_label(graph, 1, 2, 0, 0, 0), inf),
@@ -185,7 +187,8 @@ def gen_graph_simplequerytest(request, gen_graph):
     create_chunk(
         graph,
         vertices=[to_label(graph, 1, 2, 0, 0, 0)],
-        edges=[(to_label(graph, 1, 2, 0, 0, 0), to_label(graph, 1, 1, 0, 0, 0), inf)],
+        edges=[(to_label(graph, 1, 2, 0, 0, 0),
+                to_label(graph, 1, 1, 0, 0, 0), inf)],
     )
 
     add_layer(graph, 3, [0, 0, 0], n_threads=1)
@@ -202,7 +205,8 @@ def create_chunk(cg, vertices=None, edges=None, timestamp=None):
     edges = edges if edges else []
     vertices = vertices if vertices else []
     vertices = np.unique(np.array(vertices, dtype=np.uint64))
-    edges = [(np.uint64(v1), np.uint64(v2), np.float32(aff)) for v1, v2, aff in edges]
+    edges = [(np.uint64(v1), np.uint64(v2), np.float32(aff))
+             for v1, v2, aff in edges]
     isolated_ids = [
         x
         for x in vertices
@@ -225,7 +229,8 @@ def create_chunk(cg, vertices=None, edges=None, timestamp=None):
 
     chunk_id = None
     if len(chunk_edges_active[EDGE_TYPES.in_chunk]):
-        chunk_id = cg.get_chunk_id(chunk_edges_active[EDGE_TYPES.in_chunk].node_ids1[0])
+        chunk_id = cg.get_chunk_id(
+            chunk_edges_active[EDGE_TYPES.in_chunk].node_ids1[0])
     elif len(vertices):
         chunk_id = cg.get_chunk_id(vertices[0])
 
@@ -275,3 +280,22 @@ def get_layer_chunk_bounds(
         layer_bounds_d[layer] = np.ceil(layer_bounds).astype(np.int)
     return layer_bounds_d
 
+
+@pytest.fixture(scope='session')
+def sv_data():
+    test_data_dir = 'pychunkedgraph/tests/data'
+    edges_file = f'{test_data_dir}/sv_edges.npy'
+    sv_edges = np.load(edges_file)
+
+    source_file = f'{test_data_dir}/sv_sources.npy'
+    sv_sources = np.load(source_file)
+
+    sinks_file = f'{test_data_dir}/sv_sinks.npy'
+    sv_sinks = np.load(sinks_file)
+
+    affinity_file = f'{test_data_dir}/sv_affinity.npy'
+    sv_affinity = np.load(affinity_file)
+
+    area_file = f'{test_data_dir}/sv_area.npy'
+    sv_area = np.load(area_file)
+    yield (sv_edges, sv_sources, sv_sinks, sv_affinity, sv_area)
