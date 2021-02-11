@@ -203,27 +203,51 @@ class LocalMincutGraph:
         """Increase affinities along all pairs shortest paths between sources/sinks
         in the supervoxel graph.
         """
-        paths_v_s, paths_e_s = flatgraph.team_paths_all_to_all(
+        paths_v_s, paths_e_s, invaff_s = flatgraph.team_paths_all_to_all(
             self.weighted_graph_raw, self.capacities_raw, self.source_graph_ids)
-        paths_v_y, paths_e_y = flatgraph.team_paths_all_to_all(
+        paths_v_y, paths_e_y, invaff_y = flatgraph.team_paths_all_to_all(
             self.weighted_graph_raw, self.capacities_raw, self.sink_graph_ids)
 
         paths_e_s_no, paths_e_y_no, do_check = flatgraph.remove_overlapping_edges(
             paths_v_s, paths_e_s, paths_v_y, paths_e_y)
-
         if do_check:
-            try:
-                assert flatgraph.check_connectedness(paths_v_s, paths_e_s_no)
-                assert flatgraph.check_connectedness(paths_v_y, paths_e_y_no)
-            except AssertionError:
-                raise PreconditionError(
-                    "Paths between source point pairs and sink point pairs overlapped irreparably."
-                    "Please add one or more intermediate points on both sides of the cut."
-                )
+            e_connected = flatgraph.check_connectedness(
+                paths_v_s, paths_e_s_no)
+            y_connected = flatgraph.check_connectedness(
+                paths_v_y, paths_e_y_no)
+            if e_connected is False or y_connected is False:
+                try:
+                    paths_v_s, paths_e_s_no, paths_v_y, paths_e_y_no = self.rerun_paths_without_overlap(paths_v_s, paths_e_s, invaff_s,
+                                                                                                        paths_v_y, paths_e_y, invaff_y)
+                except AssertionError:
+                    raise PreconditionError(
+                        "Paths between source point pairs and sink point pairs overlapped irreparably. "
+                        "Consider doing cut in multiple parts."
+                    )
 
         adj_capacity = flatgraph.adjust_affinities(
             self.weighted_graph_raw, self.capacities_raw, paths_e_s_no+paths_e_y_no)
         return adj_capacity
+
+    def rerun_paths_without_overlap(self, paths_v_s, paths_e_s, invaff_s,
+                                    paths_v_y, paths_e_y, invaff_y):
+
+        # smaller distance means larger affinity
+        if flatgraph.harmonic_mean_paths(invaff_s) < flatgraph.harmonic_mean_paths(invaff_y):
+            paths_e_s_no = paths_e_s
+            omit_verts = [int(v)
+                          for v in itertools.chain.from_iterable(paths_v_s)]
+            paths_v_y, paths_e_y_no = flatgraph.recompute_filtered_paths(
+                self.weighted_graph_raw, self.capacities_raw, self.sink_graph_ids, omit_verts)
+
+        else:
+            omit_verts = [int(v)
+                          for v in itertools.chain.from_iterable(paths_v_y)]
+            paths_v_s, paths_e_s_no = flatgraph.recompute_filtered_paths(
+                self.weighted_graph_raw, self.capacities_raw, self.source_graph_ids, omit_verts)
+            paths_e_y_no = paths_e_y
+
+        return paths_v_s, paths_e_s_no, paths_v_y, paths_e_y_no
 
     def _compute_mincut_path_augmented(self):
         """Compute mincut using edges found from a shortest-path search.
