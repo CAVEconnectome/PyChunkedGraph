@@ -217,8 +217,8 @@ class LocalMincutGraph:
                 paths_v_y, paths_e_y_no)
             if e_connected is False or y_connected is False:
                 try:
-                    paths_v_s, paths_e_s_no, paths_v_y, paths_e_y_no = self.rerun_paths_without_overlap(paths_v_s, paths_e_s, invaff_s,
-                                                                                                        paths_v_y, paths_e_y, invaff_y)
+                    paths_e_s_no, paths_e_y_no = self.rerun_paths_without_overlap(paths_v_s, paths_e_s, invaff_s,
+                                                                                  paths_v_y, paths_e_y, invaff_y)
                 except AssertionError:
                     raise PreconditionError(
                         "Paths between source point pairs and sink point pairs overlapped irreparably. "
@@ -237,17 +237,17 @@ class LocalMincutGraph:
             paths_e_s_no = paths_e_s
             omit_verts = [int(v)
                           for v in itertools.chain.from_iterable(paths_v_s)]
-            paths_v_y, paths_e_y_no = flatgraph.recompute_filtered_paths(
+            paths_e_y_no = flatgraph.recompute_filtered_paths(
                 self.weighted_graph_raw, self.capacities_raw, self.sink_graph_ids, omit_verts)
 
         else:
             omit_verts = [int(v)
                           for v in itertools.chain.from_iterable(paths_v_y)]
-            paths_v_s, paths_e_s_no = flatgraph.recompute_filtered_paths(
+            paths_e_s_no = flatgraph.recompute_filtered_paths(
                 self.weighted_graph_raw, self.capacities_raw, self.source_graph_ids, omit_verts)
             paths_e_y_no = paths_e_y
 
-        return paths_v_s, paths_e_s_no, paths_v_y, paths_e_y_no
+        return paths_e_s_no, paths_e_y_no
 
     def _compute_mincut_path_augmented(self):
         """Compute mincut using edges found from a shortest-path search.
