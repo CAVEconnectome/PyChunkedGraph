@@ -532,6 +532,7 @@ def run_split_preview(
     source_coords: Sequence[Sequence[int]],
     sink_coords: Sequence[Sequence[int]],
     bb_offset: Tuple[int, int, int] = (120, 120, 12),
+    path_augment: bool = True,
 ):
     root_ids = set(cg.get_roots(np.concatenate(
         [source_ids, sink_ids]), assert_roots=True))
@@ -551,7 +552,7 @@ def run_split_preview(
     mask1 = np.in1d(edges.node_ids2, supervoxels)
     edges = edges[mask0 & mask1]
     edges_to_remove, illegal_split = run_multicut(
-        edges, source_ids, sink_ids, split_preview=True
+        edges, source_ids, sink_ids, split_preview=True, path_augment=path_augment,
     )
 
     if len(edges_to_remove) == 0:
