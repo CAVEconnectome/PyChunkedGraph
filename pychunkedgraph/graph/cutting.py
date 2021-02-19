@@ -23,7 +23,7 @@ from .exceptions import PostconditionError
 DEBUG_MODE = False
 
 
-class ComponentMatchedException(Exception):
+class IsolatingCutException(Exception):
     pass
 
 
@@ -84,13 +84,13 @@ class LocalMincutGraph:
     """
 
     def __init__(
-        self, cg_edges, cg_affs, cg_sources, cg_sinks, split_preview=False, path_augment=True, disallow_exact_cut=False, logger=None,
+        self, cg_edges, cg_affs, cg_sources, cg_sinks, split_preview=False, path_augment=True, disallow_isolating_cut=False, logger=None,
     ):
         self.cg_edges = cg_edges
         self.split_preview = split_preview
         self.logger = logger
         self.path_augment = path_augment
-        self.disallow_exact_cut = disallow_exact_cut
+        self.disallow_isolating_cut = disallow_isolating_cut
         time_start = time.time()
 
         # Stitch supervoxels across chunk boundaries and represent those that are
@@ -495,14 +495,14 @@ class LocalMincutGraph:
                 if np.any(np.in1d(self.source_graph_ids, cc)):
                     assert np.all(np.in1d(self.source_graph_ids, cc))
                     assert ~np.any(np.in1d(self.sink_graph_ids, cc))
-                    if len(self.source_path_vertices) == len(cc) and self.disallow_exact_cut:
-                        raise ComponentMatchedException('Source')
+                    if len(self.source_path_vertices) == len(cc) and self.disallow_isolating_cut:
+                        raise IsolatingCutException('Source')
 
                 if np.any(np.in1d(self.sink_graph_ids, cc)):
                     assert np.all(np.in1d(self.sink_graph_ids, cc))
                     assert ~np.any(np.in1d(self.source_graph_ids, cc))
-                    if len(self.sink_path_vertices) == len(cc) and self.disallow_exact_cut:
-                        raise ComponentMatchedException('Sink')
+                    if len(self.sink_path_vertices) == len(cc) and self.disallow_isolating_cut:
+                        raise IsolatingCutException('Sink')
 
         except AssertionError:
             if self.split_preview:
@@ -516,7 +516,7 @@ class LocalMincutGraph:
                     "If there is a clear path between all the supervoxels in each set, "
                     "that helps the mincut algorithm."
                 )
-        except ComponentMatchedException as e:
+        except IsolatingCutException as e:
             if self.split_preview:
                 illegal_split = True
             else:
