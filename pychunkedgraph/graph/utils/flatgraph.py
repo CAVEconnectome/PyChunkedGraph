@@ -204,3 +204,7 @@ def adjust_affinities(graph, capacity, paths_e, value=np.finfo(np.float32).max):
         # Capacity is a symmetric directed network
         capacity[reverse_edge(graph, edge)] = value
     return capacity
+
+
+def flatten_edge_list(paths_e):
+    return np.unique([(int(e.source()), int(e.target())) for e in chain.from_iterable(x for x in paths_e)])
