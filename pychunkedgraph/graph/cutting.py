@@ -84,7 +84,7 @@ class LocalMincutGraph:
     """
 
     def __init__(
-        self, cg_edges, cg_affs, cg_sources, cg_sinks, split_preview=False, path_augment=True, disallow_isolating_cut=False, logger=None,
+        self, cg_edges, cg_affs, cg_sources, cg_sinks, split_preview=False, path_augment=True, disallow_isolating_cut=True, logger=None,
     ):
         self.cg_edges = cg_edges
         self.split_preview = split_preview
