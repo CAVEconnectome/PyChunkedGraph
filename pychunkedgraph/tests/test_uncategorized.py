@@ -2525,6 +2525,7 @@ class TestGraphMinCut:
                 cg.meta.graph_config.CHUNK_SIZE[2],
             ],
             mincut=True,
+            disallow_isolating_cut=False,
         ).new_root_ids
 
         # Check New State

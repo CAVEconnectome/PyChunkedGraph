@@ -536,9 +536,10 @@ def run_multicut(
     *,
     split_preview: bool = False,
     path_augment: bool = True,
+    disallow_isolating_cut: bool = True,
 ):
     local_mincut_graph = LocalMincutGraph(
-        edges.get_pairs(), edges.affinities, source_ids, sink_ids, split_preview, path_augment,
+        edges.get_pairs(), edges.affinities, source_ids, sink_ids, split_preview, path_augment, disallow_isolating_cut=disallow_isolating_cut,
     )
     atomic_edges = local_mincut_graph.compute_mincut()
     if len(atomic_edges) == 0:
@@ -555,6 +556,7 @@ def run_split_preview(
     sink_coords: Sequence[Sequence[int]],
     bb_offset: Tuple[int, int, int] = (120, 120, 12),
     path_augment: bool = True,
+    disallow_isolating_cut: bool = True,
 ):
     root_ids = set(cg.get_roots(np.concatenate(
         [source_ids, sink_ids]), assert_roots=True))
@@ -574,7 +576,7 @@ def run_split_preview(
     mask1 = np.in1d(edges.node_ids2, supervoxels)
     edges = edges[mask0 & mask1]
     edges_to_remove, illegal_split = run_multicut(
-        edges, source_ids, sink_ids, split_preview=True, path_augment=path_augment,
+        edges, source_ids, sink_ids, split_preview=True, path_augment=path_augment, disallow_isolating_cut=disallow_isolating_cut,
     )
 
     if len(edges_to_remove) == 0:
