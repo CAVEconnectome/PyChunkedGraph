@@ -586,7 +586,6 @@ class MergeOperation(GraphEditOperation):
                 bbox=bbox,
                 bbox_is_coordinate=True,
                 edges_only=True,
-                n_threads=8,
             )
 
         with TimeIt("edits.merge_preprocess"):

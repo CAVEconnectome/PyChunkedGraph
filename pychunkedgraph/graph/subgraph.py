@@ -117,26 +117,6 @@ class SubgraphProgress:
                     self.node_to_subgraph[node_key][return_layer] = empty_1d
 
 
-def get_subgraph(
-    cg,
-    node_id_or_ids: Union[uint64, Iterable],
-    bbox: Optional[Sequence[Sequence[int]]] = None,
-    bbox_is_coordinate: bool = False,
-    return_layers: List = [2],
-    nodes_only: bool = False,
-    edges_only: bool = False,
-    leaves_only: bool = False,
-    n_threads: int = 1,
-) -> Tuple[Dict, Dict, Edges]:
-    if nodes_only:
-        return cg.get_subgraph_nodes(
-            node_id_or_ids, bbox, bbox_is_coordinate, return_layers
-        )
-    return cg.get_subgraph_edges_and_leaves(
-        node_id_or_ids, bbox, bbox_is_coordinate, edges_only, leaves_only, n_threads
-    )
-
-
 def get_subgraph_nodes(
     cg,
     node_id_or_ids: Union[uint64, Iterable],
@@ -170,7 +150,6 @@ def get_subgraph_edges_and_leaves(
     bbox_is_coordinate: bool = False,
     edges_only: bool = False,
     leaves_only: bool = False,
-    n_threads: int = 1,
 ) -> Tuple[Dict, Dict, Edges]:
     """Get the edges and/or leaves of the specified node_ids within the specified bounding box."""
     from .types import empty_1d
@@ -187,10 +166,8 @@ def get_subgraph_edges_and_leaves(
     if leaves_only:
         return cg.get_children(level2_ids, flatten=True)
     if edges_only:
-        return cg.get_l2_agglomerations(
-            level2_ids, edges_only=True, n_threads=n_threads
-        )
-    return cg.get_l2_agglomerations(level2_ids, n_threads=n_threads)
+        return cg.get_l2_agglomerations(level2_ids, edges_only=True)
+    return cg.get_l2_agglomerations(level2_ids)
 
 
 def _get_subgraph_multiple_nodes(
