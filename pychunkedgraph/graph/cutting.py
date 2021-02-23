@@ -19,9 +19,15 @@ from .utils.generic import get_bounding_box
 from .edges import Edges
 from .exceptions import PreconditionError
 from .exceptions import PostconditionError
-from .exceptions import IsolatingCutException
 
 DEBUG_MODE = False
+
+
+class IsolatingCutException(Exception):
+    """Raised when mincut would split off one of the labeled supervoxel exactly.
+    This is used to trigger a PostconditionError with a custom message.
+    """
+    pass
 
 
 def merge_cross_chunk_edges_graph_tool(

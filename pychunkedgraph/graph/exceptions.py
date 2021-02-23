@@ -21,13 +21,6 @@ class PostconditionError(ChunkedGraphError):
     pass
 
 
-class IsolatingCutException(Exception):
-    """Raised when mincut would split off one of the labeled supervoxel exactly.
-    This triggers a PostconditionError with a custom message.
-    """
-    pass
-
-
 class ChunkedGraphAPIError(ChunkedGraphError):
     """Base class for exceptions raised by calling API methods.
 
