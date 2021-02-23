@@ -195,9 +195,12 @@ def adjust_affinities(graph, capacity, paths_e, value=np.finfo(np.float32).max):
 
     e_array = np.array([(int(e.source()), int(e.target()))
                         for e in chain.from_iterable(paths_e)])
-    e_array = np.sort(e_array, axis=1)
-    e_array = np.unique(e_array, axis=0)
-    e_list = [graph.edge(e[0], e[1]) for e in e_array]
+    if len(e_array) > 0:
+        e_array = np.sort(e_array, axis=1)
+        e_array = np.unique(e_array, axis=0)
+        e_list = [graph.edge(e[0], e[1]) for e in e_array]
+    else:
+        e_list = []
 
     for edge in e_list:
         capacity[edge] = value

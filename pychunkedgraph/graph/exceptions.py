@@ -15,8 +15,16 @@ class PreconditionError(ChunkedGraphError):
     """Raised when preconditions for Chunked Graph operations are not met"""
     pass
 
+
 class PostconditionError(ChunkedGraphError):
     """Raised when postconditions for Chunked Graph operations are not met"""
+    pass
+
+
+class IsolatingCutException(Exception):
+    """Raised when mincut would split off one of the labeled supervoxel exactly.
+    This triggers a PostconditionError with a custom message.
+    """
     pass
 
 

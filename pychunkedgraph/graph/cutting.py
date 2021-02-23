@@ -19,12 +19,9 @@ from .utils.generic import get_bounding_box
 from .edges import Edges
 from .exceptions import PreconditionError
 from .exceptions import PostconditionError
+from .exceptions import IsolatingCutException
 
 DEBUG_MODE = False
-
-
-class IsolatingCutException(Exception):
-    pass
 
 
 def merge_cross_chunk_edges_graph_tool(
@@ -285,7 +282,7 @@ class LocalMincutGraph:
 
         time_start = time.time()
 
-        if len(self.source_graph_ids) > 1 and len(self.sink_graph_ids) > 1 and self.path_augment:
+        if self.path_augment:
             partition = self._compute_mincut_path_augmented()
         else:
             partition = self._compute_mincut_direct()
