@@ -592,7 +592,7 @@ def handle_rollback(table_id):
     operation_ids = user_operations["operation_id"]
     timestamps = user_operations["timestamp"]
     operations = list(zip(operation_ids, timestamps))
-    operations.sort(key=lambda op: op[1])
+    operations.sort(key=lambda op: op[1], reverse=True)
 
     for operation in operations:
         operation_id = operation[0]
