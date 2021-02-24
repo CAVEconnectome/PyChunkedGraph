@@ -803,7 +803,7 @@ def handle_lineage_graph(table_id, root_id):
 
     # Convert seconds since epoch to UTC datetime
     try:
-        ts_past = float(request.args.get("timestamp_past", 0))
+        timestamp_past = float(request.args.get("timestamp_past", 0))
     except (TypeError, ValueError) as e:
         raise (
             cg_exceptions.BadRequest(
@@ -812,7 +812,7 @@ def handle_lineage_graph(table_id, root_id):
         )
 
     try:
-        ts_future = float(request.args.get("timestamp_future", time.time()))
+        timestamp_future = float(request.args.get("timestamp_future", time.time()))
     except (TypeError, ValueError) as e:
         raise (
             cg_exceptions.BadRequest(
@@ -823,7 +823,7 @@ def handle_lineage_graph(table_id, root_id):
     # Call ChunkedGraph
     cg = app_utils.get_cg(table_id)
     hist = segmenthistory.SegmentHistory(cg, int(root_id))
-    return hist.get_change_log_graph(ts_past, ts_future)
+    return hist.get_change_log_graph(timestamp_past, timestamp_future)
 
 
 def last_edit(table_id, root_id):

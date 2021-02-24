@@ -6,9 +6,7 @@ from typing import Iterable
 from typing import Sequence
 from typing import Optional
 
-from numpy import uint64
-from numpy import array
-from numpy import concatenate
+import numpy as np
 
 from .edges import Edges
 from .chunks.utils import normalize_bounding_box
@@ -28,7 +26,7 @@ class SubgraphProgress:
 
         self.node_to_subgraph = {}
         # "Frontier" of nodes that cg.get_children will be called on
-        self.cur_nodes = array(list(node_ids), dtype=uint64)
+        self.cur_nodes = np.array(list(node_ids), dtype=np.uint64)
         # Mapping of current frontier to self.node_ids
         self.cur_nodes_to_original_nodes = dict(zip(self.cur_nodes, self.cur_nodes))
         self.stop_layer = max(1, min(return_layers))
@@ -72,7 +70,7 @@ class SubgraphProgress:
             children_layers = get_chunk_layers(self.meta, children)
             continue_mask = children_layers > self.stop_layer
             continue_children = children[continue_mask]
-            original_id = self.cur_nodes_to_original_nodes[uint64(cur_node)]
+            original_id = self.cur_nodes_to_original_nodes[np.uint64(cur_node)]
             if len(continue_children) > 0:
                 # These nodes will be in next frontier
                 next_nodes_to_process.append(continue_children)
@@ -90,14 +88,14 @@ class SubgraphProgress:
 
         if len(next_nodes_to_process) == 0:
             self.cur_nodes = None
-            # We are done, so we can concatenate/flatten each entry in node_to_subgraph
+            # We are done, so we can np.concatenate/flatten each entry in node_to_subgraph
             self.flatten_subgraph()
         else:
-            self.cur_nodes = concatenate(next_nodes_to_process)
+            self.cur_nodes = np.concatenate(next_nodes_to_process)
             self.cur_nodes_to_original_nodes = dict(
                 zip(
-                    concatenate(next_nodes_to_original_nodes_keys),
-                    concatenate(next_nodes_to_original_nodes_values),
+                    np.concatenate(next_nodes_to_original_nodes_keys),
+                    np.concatenate(next_nodes_to_original_nodes_values),
                 )
             )
 
@@ -110,7 +108,7 @@ class SubgraphProgress:
                 node_key = self.get_dict_key(node_id)
                 children_at_layer = self.node_to_subgraph[node_key][return_layer]
                 if len(children_at_layer) > 0:
-                    self.node_to_subgraph[node_key][return_layer] = concatenate(
+                    self.node_to_subgraph[node_key][return_layer] = np.concatenate(
                         children_at_layer
                     )
                 else:
@@ -119,7 +117,7 @@ class SubgraphProgress:
 
 def get_subgraph_nodes(
     cg,
-    node_id_or_ids: Union[uint64, Iterable],
+    node_id_or_ids: Union[np.uint64, Iterable],
     bbox: Optional[Sequence[Sequence[int]]] = None,
     bbox_is_coordinate: bool = False,
     return_layers: List = [2],
@@ -128,7 +126,7 @@ def get_subgraph_nodes(
     single = False
     node_ids = node_id_or_ids
     bbox = normalize_bounding_box(cg.meta, bbox, bbox_is_coordinate)
-    if isinstance(node_id_or_ids, uint64) or isinstance(node_id_or_ids, int):
+    if isinstance(node_id_or_ids, np.uint64) or isinstance(node_id_or_ids, int):
         single = True
         node_ids = [node_id_or_ids]
     layer_nodes_d = _get_subgraph_multiple_nodes(
@@ -145,7 +143,7 @@ def get_subgraph_nodes(
 
 def get_subgraph_edges_and_leaves(
     cg,
-    node_id_or_ids: Union[uint64, Iterable],
+    node_id_or_ids: Union[np.uint64, Iterable],
     bbox: Optional[Sequence[Sequence[int]]] = None,
     bbox_is_coordinate: bool = False,
     edges_only: bool = False,
@@ -156,13 +154,13 @@ def get_subgraph_edges_and_leaves(
 
     node_ids = node_id_or_ids
     bbox = normalize_bounding_box(cg.meta, bbox, bbox_is_coordinate)
-    if isinstance(node_id_or_ids, uint64) or isinstance(node_id_or_ids, int):
+    if isinstance(node_id_or_ids, np.uint64) or isinstance(node_id_or_ids, int):
         node_ids = [node_id_or_ids]
     layer_nodes_d = _get_subgraph_multiple_nodes(cg, node_ids, bbox, return_layers=[2])
     level2_ids = [empty_1d]
     for node_id in node_ids:
         level2_ids.append(layer_nodes_d[node_id][2])
-    level2_ids = concatenate(level2_ids)
+    level2_ids = np.concatenate(level2_ids)
     if leaves_only:
         return cg.get_children(level2_ids, flatten=True)
     if edges_only:
@@ -172,14 +170,12 @@ def get_subgraph_edges_and_leaves(
 
 def _get_subgraph_multiple_nodes(
     cg,
-    node_ids: Iterable[uint64],
+    node_ids: Iterable[np.uint64],
     bounding_box: Optional[Sequence[Sequence[int]]],
     return_layers: Sequence[int],
     serializable: bool = False,
 ):
     from collections import ChainMap
-    from numpy import sort
-    from numpy import array_split
     from multiwrapper.multiprocessing_utils import n_cpus
     from multiwrapper.multiprocessing_utils import multithread_func
 
@@ -193,9 +189,9 @@ def _get_subgraph_multiple_nodes(
         return raw_key
 
     def _get_subgraph_multiple_nodes_threaded(
-        node_ids_batch: Iterable[uint64],
-    ) -> List[uint64]:
-        children = cg.get_children(sort(node_ids_batch))
+        node_ids_batch: Iterable[np.uint64],
+    ) -> List[np.uint64]:
+        children = cg.get_children(np.sort(node_ids_batch))
         if bounding_box is not None:
             filtered_children = {}
             for node_id, nodes_children in children.items():
@@ -213,20 +209,17 @@ def _get_subgraph_multiple_nodes(
         return children
 
     if bounding_box is not None:
-        from numpy import array
-
-        bounding_box = array(bounding_box)
+        bounding_box = np.array(bounding_box)
 
     subgraph = SubgraphProgress(cg.meta, node_ids, return_layers, serializable)
     while not subgraph.done_processing():
         this_n_threads = min([int(len(subgraph.cur_nodes) // 50000) + 1, n_cpus])
         cur_nodes_child_maps = multithread_func(
             _get_subgraph_multiple_nodes_threaded,
-            array_split(subgraph.cur_nodes, this_n_threads),
+            np.array_split(subgraph.cur_nodes, this_n_threads),
             n_threads=this_n_threads,
             debug=this_n_threads == 1,
         )
         cur_nodes_children = dict(ChainMap(*cur_nodes_child_maps))
         subgraph.process_batch_of_children(cur_nodes_children)
-
     return subgraph.node_to_subgraph
