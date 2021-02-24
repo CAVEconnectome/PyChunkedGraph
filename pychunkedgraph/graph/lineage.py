@@ -153,7 +153,7 @@ def lineage_graph(
     from .attributes import Hierarchy
     from .attributes import OperationLogs
 
-    G = DiGraph()
+    graph = DiGraph()
     past_ids = np.array([node_id], dtype=np.uint64)
     future_ids = np.array([node_id], dtype=np.uint64)
     if timestamp_past is None:
@@ -171,13 +171,13 @@ def lineage_graph(
             val = nodes_raw[k]
             operation_id = val[OperationLogs.OperationID][0].value
             timestamp = val[Hierarchy.Child][0].timestamp.timestamp()
-            G.add_node(k, operation_id=operation_id, timestamp=timestamp)
+            graph.add_node(k, operation_id=operation_id, timestamp=timestamp)
             if timestamp < timestamp_past or not Hierarchy.FormerParent in val:
                 continue
 
             former_ids = val[Hierarchy.FormerParent][0].value
             for former in former_ids:
-                G.add_edge(former, k)
+                graph.add_edge(former, k)
             next_past_ids.append(former_ids)
 
         next_future_ids = [np.empty(0, dtype=np.uint64)]
@@ -185,13 +185,13 @@ def lineage_graph(
             val = nodes_raw[k]
             operation_id = val[OperationLogs.OperationID][0].value
             timestamp = val[Hierarchy.Child][0].timestamp.timestamp()
-            G.add_node(k, operation_id=operation_id, timestamp=timestamp)
+            graph.add_node(k, operation_id=operation_id, timestamp=timestamp)
             if timestamp > timestamp_future or not Hierarchy.NewParent in val:
                 continue
 
             new_ids = val[Hierarchy.NewParent][0].value
             for new_id in new_ids:
-                G.add_edge(k, new_id)
+                graph.add_edge(k, new_id)
             next_future_ids.append(new_ids)
 
         past_ids = np.concatenate(next_past_ids)
