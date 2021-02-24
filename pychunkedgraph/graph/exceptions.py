@@ -15,6 +15,7 @@ class PreconditionError(ChunkedGraphError):
     """Raised when preconditions for Chunked Graph operations are not met"""
     pass
 
+
 class PostconditionError(ChunkedGraphError):
     """Raised when postconditions for Chunked Graph operations are not met"""
     pass

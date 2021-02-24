@@ -42,7 +42,8 @@ class GraphEditOperation(ABC):
         "parent_ts",
         "privileged_mode",
     ]
-    Result = namedtuple("Result", ["operation_id", "new_root_ids", "new_lvl2_ids"])
+    Result = namedtuple(
+        "Result", ["operation_id", "new_root_ids", "new_lvl2_ids"])
 
     def __init__(
         self,
@@ -74,7 +75,8 @@ class GraphEditOperation(ABC):
             if self.source_coords.size == 0:
                 self.source_coords = None
         if sink_coords is not None:
-            self.sink_coords = np.atleast_2d(sink_coords).astype(basetypes.COORDINATES)
+            self.sink_coords = np.atleast_2d(
+                sink_coords).astype(basetypes.COORDINATES)
             if self.sink_coords.size == 0:
                 self.sink_coords = None
 
@@ -267,7 +269,8 @@ class GraphEditOperation(ABC):
         :rtype: "GraphEditOperation"
         """
         log, _ = cg.client.read_log_entry(operation_id)
-        operation = cls.from_log_record(cg, log, multicut_as_split=multicut_as_split)
+        operation = cls.from_log_record(
+            cg, log, multicut_as_split=multicut_as_split)
         operation.privileged_mode = privileged_mode
         return operation
 
@@ -418,7 +421,8 @@ class GraphEditOperation(ABC):
             self.cg.cache = CacheService(self.cg)
             timestamp = self.cg.client.get_consolidated_lock_timestamp(
                 root_lock.locked_root_ids,
-                np.array([root_lock.operation_id] * len(root_lock.locked_root_ids)),
+                np.array([root_lock.operation_id] *
+                         len(root_lock.locked_root_ids)),
             )
 
             log_record_before_edit = self._create_log_record(
@@ -530,7 +534,8 @@ class MergeOperation(GraphEditOperation):
     :type affinities: Optional[Sequence[np.float32]], optional
     """
 
-    __slots__ = ["source_ids", "sink_ids", "added_edges", "affinities", "bbox_offset"]
+    __slots__ = ["source_ids", "sink_ids",
+                 "added_edges", "affinities", "bbox_offset"]
 
     def __init__(
         self,
@@ -547,16 +552,19 @@ class MergeOperation(GraphEditOperation):
             cg, user_id=user_id, source_coords=source_coords, sink_coords=sink_coords
         )
         self.added_edges = np.atleast_2d(added_edges).astype(basetypes.NODE_ID)
-        self.bbox_offset = np.atleast_1d(bbox_offset).astype(basetypes.COORDINATES)
+        self.bbox_offset = np.atleast_1d(
+            bbox_offset).astype(basetypes.COORDINATES)
 
         self.affinities = None
         if affinities is not None:
-            self.affinities = np.atleast_1d(affinities).astype(basetypes.EDGE_AFFINITY)
+            self.affinities = np.atleast_1d(
+                affinities).astype(basetypes.EDGE_AFFINITY)
             if self.affinities.size == 0:
                 self.affinities = None
 
         if np.any(np.equal(self.added_edges[:, 0], self.added_edges[:, 1])):
-            raise PreconditionError("Requested merge contains at least 1 self-loop.")
+            raise PreconditionError(
+                "Requested merge contains at least 1 self-loop.")
 
         layers = self.cg.get_chunk_layers(self.added_edges.ravel())
         assert np.sum(layers) == layers.size, "Supervoxels expected."
@@ -578,7 +586,8 @@ class MergeOperation(GraphEditOperation):
             )
         )
         if len(root_ids) < 2:
-            raise PreconditionError("Supervoxels must belong to different objects.")
+            raise PreconditionError(
+                "Supervoxels must belong to different objects.")
         bbox = get_bbox(self.source_coords, self.sink_coords, self.bbox_offset)
         with TimeIt("get_subgraph"):
             edges = self.cg.get_subgraph(
@@ -677,10 +686,13 @@ class SplitOperation(GraphEditOperation):
         super().__init__(
             cg, user_id=user_id, source_coords=source_coords, sink_coords=sink_coords
         )
-        self.removed_edges = np.atleast_2d(removed_edges).astype(basetypes.NODE_ID)
-        self.bbox_offset = np.atleast_1d(bbox_offset).astype(basetypes.COORDINATES)
+        self.removed_edges = np.atleast_2d(
+            removed_edges).astype(basetypes.NODE_ID)
+        self.bbox_offset = np.atleast_1d(
+            bbox_offset).astype(basetypes.COORDINATES)
         if np.any(np.equal(self.removed_edges[:, 0], self.removed_edges[:, 1])):
-            raise PreconditionError("Requested split contains at least 1 self-loop.")
+            raise PreconditionError(
+                "Requested split contains at least 1 self-loop.")
 
         layers = self.cg.get_chunk_layers(self.removed_edges.ravel())
         assert np.sum(layers) == layers.size, "IDs must be supervoxels."
@@ -714,7 +726,8 @@ class SplitOperation(GraphEditOperation):
             )
             > 1
         ):
-            raise PreconditionError("Supervoxels must belong to the same object.")
+            raise PreconditionError(
+                "Supervoxels must belong to the same object.")
 
         with TimeIt("get_l2_agglomerations (subgraph)"):
             l2id_agglomeration_d, _ = self.cg.get_l2_agglomerations(
@@ -790,7 +803,8 @@ class MulticutOperation(GraphEditOperation):
     :type bbox_offset: Sequence[np.int]
     """
 
-    __slots__ = ["source_ids", "sink_ids", "removed_edges", "bbox_offset"]
+    __slots__ = ["source_ids", "sink_ids", "removed_edges",
+                 "bbox_offset", "path_augment", "disallow_isolating_cut"]
 
     def __init__(
         self,
@@ -802,6 +816,8 @@ class MulticutOperation(GraphEditOperation):
         source_coords: Sequence[Sequence[np.int]],
         sink_coords: Sequence[Sequence[np.int]],
         bbox_offset: Sequence[np.int],
+        path_augment: bool = True,
+        disallow_isolating_cut: bool = True,
     ) -> None:
         super().__init__(
             cg, user_id=user_id, source_coords=source_coords, sink_coords=sink_coords
@@ -809,9 +825,13 @@ class MulticutOperation(GraphEditOperation):
         self.removed_edges = types.empty_2d
         self.source_ids = np.atleast_1d(source_ids).astype(basetypes.NODE_ID)
         self.sink_ids = np.atleast_1d(sink_ids).astype(basetypes.NODE_ID)
-        self.bbox_offset = np.atleast_1d(bbox_offset).astype(basetypes.COORDINATES)
+        self.bbox_offset = np.atleast_1d(
+            bbox_offset).astype(basetypes.COORDINATES)
+        self.path_augment = path_augment
+        self.disallow_isolating_cut = disallow_isolating_cut
         if np.any(np.in1d(self.sink_ids, self.source_ids)):
-            raise PreconditionError("Supervoxels exist in both sink and source.")
+            raise PreconditionError(
+                "Supervoxels exist in both sink and source.")
 
         ids = np.concatenate([self.source_ids, self.sink_ids])
         layers = self.cg.get_chunk_layers(ids)
@@ -825,7 +845,8 @@ class MulticutOperation(GraphEditOperation):
             )
         )
         if len(root_ids) > 1:
-            raise PreconditionError("Supervoxels must belong to the same object.")
+            raise PreconditionError(
+                "Supervoxels must belong to the same object.")
         return root_ids
 
     def _apply(
@@ -840,7 +861,8 @@ class MulticutOperation(GraphEditOperation):
             )
         )
         if len(root_ids) > 1:
-            raise PreconditionError("Supervoxels must belong to the same object.")
+            raise PreconditionError(
+                "Supervoxels must belong to the same object.")
 
         bbox = get_bbox(self.source_coords, self.sink_coords, self.bbox_offset)
         with TimeIt("get_subgraph"):
@@ -859,9 +881,12 @@ class MulticutOperation(GraphEditOperation):
         if not len(edges):
             raise PreconditionError("No local edges found.")
         with TimeIt("run_multicut"):
-            self.removed_edges = run_multicut(edges, self.source_ids, self.sink_ids)
+            self.removed_edges = run_multicut(
+                edges, self.source_ids, self.sink_ids,
+                path_augment=self.path_augment, disallow_isolating_cut=self.disallow_isolating_cut)
         if not self.removed_edges.size:
-            raise PostconditionError("Mincut could not find any edges to remove.")
+            raise PostconditionError(
+                "Mincut could not find any edges to remove.")
         with TimeIt("edits.remove_edges"):
             return edits.remove_edges(
                 self.cg,
