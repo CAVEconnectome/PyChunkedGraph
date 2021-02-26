@@ -138,16 +138,6 @@ class LocalMincutGraph:
         self.source_path_vertices = self.source_graph_ids
         self.sink_path_vertices = self.sink_graph_ids
 
-        if flatgraph.labels_connected(self.weighted_graph_raw, self.source_graph_ids):
-            self.allow_source_isolated = True
-        else:
-            self.allow_source_isolated = False
-
-        if flatgraph.labels_connected(self.weighted_graph_raw, self.sink_graph_ids):
-            self.allow_sink_isolated = True
-        else:
-            self.allow_sink_isolated = False
-
         dt = time.time() - time_start
         if logger is not None:
             logger.debug("Graph creation: %.2fms" % (dt * 1000))
@@ -530,14 +520,14 @@ class LocalMincutGraph:
                     assert np.all(np.in1d(self.source_graph_ids, cc))
                     assert ~np.any(np.in1d(self.sink_graph_ids, cc))
                     if len(self.source_path_vertices) == len(cc) and self.disallow_isolating_cut:
-                        if not self.allow_source_isolated:
+                        if not self.partition_edges_within_label(cc):
                             raise IsolatingCutException('Source')
 
                 if np.any(np.in1d(self.sink_graph_ids, cc)):
                     assert np.all(np.in1d(self.sink_graph_ids, cc))
                     assert ~np.any(np.in1d(self.source_graph_ids, cc))
                     if len(self.sink_path_vertices) == len(cc) and self.disallow_isolating_cut:
-                        if not self.allow_sink_isolated:
+                        if not self.partition_edges_within_label(cc):
                             raise IsolatingCutException('Sink')
 
         except AssertionError:
@@ -563,6 +553,21 @@ class LocalMincutGraph:
         if self.logger is not None:
             self.logger.debug("Verifying local graph: %.2fms" % (dt * 1000))
         return ccs_test_post_cut, illegal_split
+
+    def partition_edges_within_label(self, cc):
+        """ Test is an isolated component has out-edges only within the original
+        labeled points of the cut 
+        """
+        label_graph_ids = np.concatenate(
+            (self.source_graph_ids, self.sink_graph_ids))
+
+        for vind in cc:
+            v = self.weighted_graph_raw.vertex(vind)
+            out_vinds = [int(x) for x in v.out_neighbors()]
+            if not np.all(np.isin(out_vinds, label_graph_ids)):
+                return False
+        else:
+            return True
 
 
 def run_multicut(
