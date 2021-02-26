@@ -221,7 +221,7 @@ class LocalMincutGraph:
                 self.weighted_graph_raw, self.capacities_raw, self.sink_graph_ids, self.source_graph_ids)
         except AssertionError:
             raise PreconditionError(
-                "Paths between source or sink points irrepairably overlap other labels from other side. "
+                "Paths between source or sink points irreparably overlap other labels from other side. "
                 "Check that labels are correct and consider spreading points out farther."
             )
 
