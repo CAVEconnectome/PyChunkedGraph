@@ -22,13 +22,16 @@ from .helpers import (
     gen_graph,
     gen_graph_simplequerytest,
     to_label,
+    sv_data,
 )
 from ..graph import types
 from ..graph import attributes
 from ..graph import exceptions
 from ..graph import chunkedgraph
+from ..graph.edges import Edges
 from ..graph.utils import basetypes
 from ..graph.misc import get_delta_roots
+from ..graph.cutting import run_multicut
 from ..graph.lineage import get_root_id_history
 from ..graph.lineage import get_future_root_ids
 from ..graph.utils.serializers import serialize_uint64
@@ -51,7 +54,8 @@ class TestGraphNodeConversion:
 
         chunk_id = cg.get_chunk_id(layer=2, x=3, y=1, z=0)
         assert cg.get_chunk_layer(chunk_id) == 2
-        assert np.all(cg.get_chunk_coordinates(chunk_id) == np.array([3, 1, 0]))
+        assert np.all(cg.get_chunk_coordinates(
+            chunk_id) == np.array([3, 1, 0]))
 
         assert cg.get_chunk_id(node_id=node_id) == chunk_id
         assert cg.get_node_id(np.uint64(4), chunk_id=chunk_id) == node_id
@@ -127,13 +131,15 @@ class TestGraphBuild:
             np.array([to_label(cg, 2, 0, 0, 0, 1)], dtype=basetypes.NODE_ID)
         )
         attr = attributes.Hierarchy.Child
-        row = res.rows[serialize_uint64(to_label(cg, 2, 0, 0, 0, 1))].cells["0"]
+        row = res.rows[serialize_uint64(
+            to_label(cg, 2, 0, 0, 0, 1))].cells["0"]
         children = attr.deserialize(row[attr.key][0].value)
 
         for aces in atomic_cross_edge_d.values():
             assert len(aces) == 0
 
-        assert len(children) == 1 and children[0] == to_label(cg, 1, 0, 0, 0, 0)
+        assert len(children) == 1 and children[0] == to_label(
+            cg, 1, 0, 0, 0, 0)
         # Make sure there are not any more entries in the table
         assert len(res.rows) == 1 + 1 + 1 + 1
 
@@ -153,8 +159,10 @@ class TestGraphBuild:
         # Add Chunk A
         create_chunk(
             cg,
-            vertices=[to_label(cg, 1, 0, 0, 0, 0), to_label(cg, 1, 0, 0, 0, 1)],
-            edges=[(to_label(cg, 1, 0, 0, 0, 0), to_label(cg, 1, 0, 0, 0, 1), 0.5)],
+            vertices=[to_label(cg, 1, 0, 0, 0, 0),
+                      to_label(cg, 1, 0, 0, 0, 1)],
+            edges=[(to_label(cg, 1, 0, 0, 0, 0),
+                    to_label(cg, 1, 0, 0, 0, 1), 0.5)],
         )
 
         res = cg.client._table.read_rows()
@@ -175,7 +183,8 @@ class TestGraphBuild:
             np.array([to_label(cg, 2, 0, 0, 0, 1)], dtype=basetypes.NODE_ID)
         )
         attr = attributes.Hierarchy.Child
-        row = res.rows[serialize_uint64(to_label(cg, 2, 0, 0, 0, 1))].cells["0"]
+        row = res.rows[serialize_uint64(
+            to_label(cg, 2, 0, 0, 0, 1))].cells["0"]
         children = attr.deserialize(row[attr.key][0].value)
 
         for aces in atomic_cross_edge_d.values():
@@ -207,14 +216,16 @@ class TestGraphBuild:
         create_chunk(
             cg,
             vertices=[to_label(cg, 1, 0, 0, 0, 0)],
-            edges=[(to_label(cg, 1, 0, 0, 0, 0), to_label(cg, 1, 1, 0, 0, 0), inf)],
+            edges=[(to_label(cg, 1, 0, 0, 0, 0),
+                    to_label(cg, 1, 1, 0, 0, 0), inf)],
         )
 
         # Chunk B
         create_chunk(
             cg,
             vertices=[to_label(cg, 1, 1, 0, 0, 0)],
-            edges=[(to_label(cg, 1, 1, 0, 0, 0), to_label(cg, 1, 0, 0, 0, 0), inf)],
+            edges=[(to_label(cg, 1, 1, 0, 0, 0),
+                    to_label(cg, 1, 0, 0, 0, 0), inf)],
         )
 
         add_layer(cg, 3, [0, 0, 0], n_threads=1)
@@ -241,7 +252,8 @@ class TestGraphBuild:
         ]
 
         attr = attributes.Hierarchy.Child
-        row = res.rows[serialize_uint64(to_label(cg, 2, 0, 0, 0, 1))].cells["0"]
+        row = res.rows[serialize_uint64(
+            to_label(cg, 2, 0, 0, 0, 1))].cells["0"]
         children = attr.deserialize(row[attr.key][0].value)
 
         test_ace = np.array(
@@ -261,7 +273,8 @@ class TestGraphBuild:
         ]
 
         attr = attributes.Hierarchy.Child
-        row = res.rows[serialize_uint64(to_label(cg, 2, 1, 0, 0, 1))].cells["0"]
+        row = res.rows[serialize_uint64(
+            to_label(cg, 2, 1, 0, 0, 1))].cells["0"]
         children = attr.deserialize(row[attr.key][0].value)
 
         test_ace = np.array(
@@ -277,7 +290,8 @@ class TestGraphBuild:
         assert serialize_uint64(to_label(cg, 3, 0, 0, 0, 1)) in res.rows
 
         attr = attributes.Hierarchy.Child
-        row = res.rows[serialize_uint64(to_label(cg, 3, 0, 0, 0, 1))].cells["0"]
+        row = res.rows[serialize_uint64(
+            to_label(cg, 3, 0, 0, 0, 1))].cells["0"]
         children = attr.deserialize(row[attr.key][0].value)
         assert (
             len(children) == 2
@@ -305,7 +319,8 @@ class TestGraphBuild:
         # Chunk A
         create_chunk(
             cg,
-            vertices=[to_label(cg, 1, 0, 0, 0, 0), to_label(cg, 1, 0, 0, 0, 1)],
+            vertices=[to_label(cg, 1, 0, 0, 0, 0),
+                      to_label(cg, 1, 0, 0, 0, 1)],
             edges=[
                 (to_label(cg, 1, 0, 0, 0, 0), to_label(cg, 1, 0, 0, 0, 1), 0.5),
                 (to_label(cg, 1, 0, 0, 0, 0), to_label(cg, 1, 1, 0, 0, 0), inf),
@@ -316,7 +331,8 @@ class TestGraphBuild:
         create_chunk(
             cg,
             vertices=[to_label(cg, 1, 1, 0, 0, 0)],
-            edges=[(to_label(cg, 1, 1, 0, 0, 0), to_label(cg, 1, 0, 0, 0, 0), inf)],
+            edges=[(to_label(cg, 1, 1, 0, 0, 0),
+                    to_label(cg, 1, 0, 0, 0, 0), inf)],
         )
 
         add_layer(cg, 3, np.array([0, 0, 0]), n_threads=1)
@@ -341,8 +357,10 @@ class TestGraphBuild:
         # dimensions as Level 1, we also expect them to be in different chunks
         # to_label(cg, 2, 0, 0, 0, 1)
         assert serialize_uint64(to_label(cg, 2, 0, 0, 0, 1)) in res.rows
-        row = res.rows[serialize_uint64(to_label(cg, 2, 0, 0, 0, 1))].cells["0"]
-        atomic_cross_edge_d = cg.get_atomic_cross_edges([to_label(cg, 2, 0, 0, 0, 1)])
+        row = res.rows[serialize_uint64(
+            to_label(cg, 2, 0, 0, 0, 1))].cells["0"]
+        atomic_cross_edge_d = cg.get_atomic_cross_edges(
+            [to_label(cg, 2, 0, 0, 0, 1)])
         atomic_cross_edge_d = atomic_cross_edge_d[
             np.uint64(to_label(cg, 2, 0, 0, 0, 1))
         ]
@@ -362,8 +380,10 @@ class TestGraphBuild:
 
         # to_label(cg, 2, 1, 0, 0, 1)
         assert serialize_uint64(to_label(cg, 2, 1, 0, 0, 1)) in res.rows
-        row = res.rows[serialize_uint64(to_label(cg, 2, 1, 0, 0, 1))].cells["0"]
-        atomic_cross_edge_d = cg.get_atomic_cross_edges([to_label(cg, 2, 1, 0, 0, 1)])
+        row = res.rows[serialize_uint64(
+            to_label(cg, 2, 1, 0, 0, 1))].cells["0"]
+        atomic_cross_edge_d = cg.get_atomic_cross_edges(
+            [to_label(cg, 2, 1, 0, 0, 1)])
         atomic_cross_edge_d = atomic_cross_edge_d[
             np.uint64(to_label(cg, 2, 1, 0, 0, 1))
         ]
@@ -380,7 +400,8 @@ class TestGraphBuild:
         # connected components of Level 2
         # to_label(cg, 3, 0, 0, 0, 1)
         assert serialize_uint64(to_label(cg, 3, 0, 0, 0, 1)) in res.rows
-        row = res.rows[serialize_uint64(to_label(cg, 3, 0, 0, 0, 1))].cells["0"]
+        row = res.rows[serialize_uint64(
+            to_label(cg, 3, 0, 0, 0, 1))].cells["0"]
         column = attributes.Hierarchy.Child
         children = column.deserialize(row[column.key][0].value)
 
@@ -444,7 +465,8 @@ class TestGraphBuild:
         fake_timestamp = datetime.utcnow() - timedelta(days=10)
         create_chunk(
             cg,
-            vertices=[to_label(cg, 1, 0, 0, 0, 1), to_label(cg, 1, 0, 0, 0, 2)],
+            vertices=[to_label(cg, 1, 0, 0, 0, 1),
+                      to_label(cg, 1, 0, 0, 0, 2)],
             edges=[],
             timestamp=fake_timestamp,
         )
@@ -467,14 +489,21 @@ class TestGraphBuild:
             cg, 4, [0, 0, 0], time_stamp=fake_timestamp, n_threads=1,
         )
 
-        assert len(cg.range_read_chunk(cg.get_chunk_id(layer=2, x=0, y=0, z=0))) == 2
-        assert len(cg.range_read_chunk(cg.get_chunk_id(layer=2, x=1, y=0, z=0))) == 1
-        assert len(cg.range_read_chunk(cg.get_chunk_id(layer=3, x=0, y=0, z=0))) == 0
-        assert len(cg.range_read_chunk(cg.get_chunk_id(layer=4, x=0, y=0, z=0))) == 6
+        assert len(cg.range_read_chunk(
+            cg.get_chunk_id(layer=2, x=0, y=0, z=0))) == 2
+        assert len(cg.range_read_chunk(
+            cg.get_chunk_id(layer=2, x=1, y=0, z=0))) == 1
+        assert len(cg.range_read_chunk(
+            cg.get_chunk_id(layer=3, x=0, y=0, z=0))) == 0
+        assert len(cg.range_read_chunk(
+            cg.get_chunk_id(layer=4, x=0, y=0, z=0))) == 6
 
-        assert cg.get_chunk_layer(cg.get_root(to_label(cg, 1, 0, 0, 0, 1))) == 4
-        assert cg.get_chunk_layer(cg.get_root(to_label(cg, 1, 0, 0, 0, 2))) == 4
-        assert cg.get_chunk_layer(cg.get_root(to_label(cg, 1, 1, 0, 0, 1))) == 4
+        assert cg.get_chunk_layer(cg.get_root(
+            to_label(cg, 1, 0, 0, 0, 1))) == 4
+        assert cg.get_chunk_layer(cg.get_root(
+            to_label(cg, 1, 0, 0, 0, 2))) == 4
+        assert cg.get_chunk_layer(cg.get_root(
+            to_label(cg, 1, 1, 0, 0, 1))) == 4
 
         root_seg_ids = [
             cg.get_segment_id(cg.get_root(to_label(cg, 1, 0, 0, 0, 1))),
@@ -545,13 +574,15 @@ class TestGraphSimpleQueries:
         assert parent12000 == to_label(cg, 2, 2, 0, 0, 1)
 
         # Children of L2
-        assert len(children20001) == 1 and to_label(cg, 1, 0, 0, 0, 0) in children20001
+        assert len(children20001) == 1 and to_label(
+            cg, 1, 0, 0, 0, 0) in children20001
         assert (
             len(children21001) == 2
             and to_label(cg, 1, 1, 0, 0, 0) in children21001
             and to_label(cg, 1, 1, 0, 0, 1) in children21001
         )
-        assert len(children22001) == 1 and to_label(cg, 1, 2, 0, 0, 0) in children22001
+        assert len(children22001) == 1 and to_label(
+            cg, 1, 2, 0, 0, 0) in children22001
 
         # Parent of L2
         assert parent20001 == to_label(cg, 4, 0, 0, 0, 1)
@@ -590,13 +621,16 @@ class TestGraphSimpleQueries:
         )
         assert len(children2_separate) == 3
         assert to_label(cg, 2, 0, 0, 0, 1) in children2_separate and np.all(
-            np.isin(children2_separate[to_label(cg, 2, 0, 0, 0, 1)], children20001)
+            np.isin(children2_separate[to_label(
+                cg, 2, 0, 0, 0, 1)], children20001)
         )
         assert to_label(cg, 2, 1, 0, 0, 1) in children2_separate and np.all(
-            np.isin(children2_separate[to_label(cg, 2, 1, 0, 0, 1)], children21001)
+            np.isin(children2_separate[to_label(
+                cg, 2, 1, 0, 0, 1)], children21001)
         )
         assert to_label(cg, 2, 2, 0, 0, 1) in children2_separate and np.all(
-            np.isin(children2_separate[to_label(cg, 2, 2, 0, 0, 1)], children22001)
+            np.isin(children2_separate[to_label(
+                cg, 2, 2, 0, 0, 1)], children22001)
         )
 
         children2_combined = cg.get_children(
@@ -725,7 +759,8 @@ class TestGraphMerge:
         fake_timestamp = datetime.utcnow() - timedelta(days=10)
         create_chunk(
             cg,
-            vertices=[to_label(cg, 1, 0, 0, 0, 0), to_label(cg, 1, 0, 0, 0, 1)],
+            vertices=[to_label(cg, 1, 0, 0, 0, 0),
+                      to_label(cg, 1, 0, 0, 0, 1)],
             edges=[],
             timestamp=fake_timestamp,
         )
@@ -885,8 +920,10 @@ class TestGraphMerge:
         fake_timestamp = datetime.utcnow() - timedelta(days=10)
         create_chunk(
             cg,
-            vertices=[to_label(cg, 1, 0, 0, 0, 0), to_label(cg, 1, 0, 0, 0, 1)],
-            edges=[(to_label(cg, 1, 0, 0, 0, 0), to_label(cg, 1, 0, 0, 0, 1), 0.5)],
+            vertices=[to_label(cg, 1, 0, 0, 0, 0),
+                      to_label(cg, 1, 0, 0, 0, 1)],
+            edges=[(to_label(cg, 1, 0, 0, 0, 0),
+                    to_label(cg, 1, 0, 0, 0, 1), 0.5)],
             timestamp=fake_timestamp,
         )
 
@@ -896,7 +933,8 @@ class TestGraphMerge:
         # Merge
         with pytest.raises(Exception):
             cg.add_edges(
-                "Jane Doe", [to_label(cg, 1, 0, 0, 0, 1), to_label(cg, 1, 0, 0, 0, 0)],
+                "Jane Doe", [to_label(cg, 1, 0, 0, 0, 1),
+                             to_label(cg, 1, 0, 0, 0, 0)],
             )
         res_new = cg.client._table.read_rows()
         res_new.consume_all()
@@ -962,7 +1000,8 @@ class TestGraphMerge:
         fake_timestamp = datetime.utcnow() - timedelta(days=10)
         create_chunk(
             cg,
-            vertices=[to_label(cg, 1, 0, 0, 0, 0), to_label(cg, 1, 0, 0, 0, 1)],
+            vertices=[to_label(cg, 1, 0, 0, 0, 0),
+                      to_label(cg, 1, 0, 0, 0, 1)],
             edges=[
                 (to_label(cg, 1, 0, 0, 0, 0), to_label(cg, 1, 0, 0, 0, 1), 0.5),
                 (to_label(cg, 1, 0, 0, 0, 1), to_label(cg, 1, 1, 0, 0, 0), inf),
@@ -974,7 +1013,8 @@ class TestGraphMerge:
         create_chunk(
             cg,
             vertices=[to_label(cg, 1, 1, 0, 0, 0)],
-            edges=[(to_label(cg, 1, 1, 0, 0, 0), to_label(cg, 1, 0, 0, 0, 1), inf)],
+            edges=[(to_label(cg, 1, 1, 0, 0, 0),
+                    to_label(cg, 1, 0, 0, 0, 1), inf)],
             timestamp=fake_timestamp,
         )
 
@@ -1007,7 +1047,8 @@ class TestGraphMerge:
         fake_timestamp = datetime.utcnow() - timedelta(days=10)
         create_chunk(
             cg,
-            vertices=[to_label(cg, 1, 0, 0, 0, 0), to_label(cg, 1, 0, 0, 0, 1)],
+            vertices=[to_label(cg, 1, 0, 0, 0, 0),
+                      to_label(cg, 1, 0, 0, 0, 1)],
             edges=[
                 (to_label(cg, 1, 0, 0, 0, 0), to_label(cg, 1, 0, 0, 0, 1), 0.5),
                 (to_label(cg, 1, 0, 0, 0, 1), to_label(cg, 1, 7, 7, 7, 0), inf,),
@@ -1019,7 +1060,8 @@ class TestGraphMerge:
         create_chunk(
             cg,
             vertices=[to_label(cg, 1, 7, 7, 7, 0)],
-            edges=[(to_label(cg, 1, 7, 7, 7, 0), to_label(cg, 1, 0, 0, 0, 1), inf,)],
+            edges=[(to_label(cg, 1, 7, 7, 7, 0),
+                    to_label(cg, 1, 0, 0, 0, 1), inf,)],
             timestamp=fake_timestamp,
         )
 
@@ -1087,7 +1129,8 @@ class TestGraphMerge:
         # Merge
         with pytest.raises(Exception):
             cg.add_edges(
-                "Jane Doe", [to_label(cg, 1, 0, 0, 0, 0), to_label(cg, 1, 0, 0, 0, 0)],
+                "Jane Doe", [to_label(cg, 1, 0, 0, 0, 0),
+                             to_label(cg, 1, 0, 0, 0, 0)],
             )
 
         res_new = cg.client._table.read_rows()
@@ -1140,7 +1183,8 @@ class TestGraphMerge:
         # Merge
         with pytest.raises(Exception):
             cg.add_edges(
-                "Jane Doe", [to_label(cg, 1, 0, 0, 0, 0), to_label(cg, 2, 1, 0, 0, 1)],
+                "Jane Doe", [to_label(cg, 1, 0, 0, 0, 0),
+                             to_label(cg, 2, 1, 0, 0, 1)],
             )
 
         res_new = cg.client._table.read_rows()
@@ -1169,7 +1213,8 @@ class TestGraphMerge:
         # Chunk A
         create_chunk(
             cg,
-            vertices=[to_label(cg, 1, 0, 0, 0, 0), to_label(cg, 1, 0, 0, 0, 1)],
+            vertices=[to_label(cg, 1, 0, 0, 0, 0),
+                      to_label(cg, 1, 0, 0, 0, 1)],
             edges=[
                 (to_label(cg, 1, 0, 0, 0, 0), to_label(cg, 1, 1, 0, 0, 0), inf),
                 (to_label(cg, 1, 0, 0, 0, 0), to_label(cg, 1, 0, 1, 0, 0), inf),
@@ -1180,7 +1225,8 @@ class TestGraphMerge:
         create_chunk(
             cg,
             vertices=[to_label(cg, 1, 1, 0, 0, 0)],
-            edges=[(to_label(cg, 1, 1, 0, 0, 0), to_label(cg, 1, 0, 0, 0, 0), inf)],
+            edges=[(to_label(cg, 1, 1, 0, 0, 0),
+                    to_label(cg, 1, 0, 0, 0, 0), inf)],
         )
 
         # Chunk C
@@ -1197,14 +1243,16 @@ class TestGraphMerge:
         create_chunk(
             cg,
             vertices=[to_label(cg, 1, 1, 1, 0, 0)],
-            edges=[(to_label(cg, 1, 1, 1, 0, 0), to_label(cg, 1, 0, 1, 0, 0), inf)],
+            edges=[(to_label(cg, 1, 1, 1, 0, 0),
+                    to_label(cg, 1, 0, 1, 0, 0), inf)],
         )
 
         add_layer(
             cg, 3, [0, 0, 0], n_threads=1,
         )
 
-        rr = cg.range_read_chunk(chunk_id=cg.get_chunk_id(layer=3, x=0, y=0, z=0))
+        rr = cg.range_read_chunk(
+            chunk_id=cg.get_chunk_id(layer=3, x=0, y=0, z=0))
         root_ids_t0 = list(rr.keys())
 
         assert len(root_ids_t0) == 2
@@ -1238,7 +1286,8 @@ class TestGraphMerge:
         fake_timestamp = datetime.utcnow() - timedelta(days=10)
         create_chunk(
             cg,
-            vertices=[to_label(cg, 1, 0, 0, 0, 0), to_label(cg, 1, 0, 0, 0, 1),],
+            vertices=[to_label(cg, 1, 0, 0, 0, 0),
+                      to_label(cg, 1, 0, 0, 0, 1), ],
             edges=[
                 (to_label(cg, 1, 0, 0, 0, 1), to_label(cg, 1, 1, 0, 0, 0), inf,),
                 (to_label(cg, 1, 0, 0, 0, 0), to_label(cg, 1, 0, 0, 0, 1), inf,),
@@ -1249,7 +1298,8 @@ class TestGraphMerge:
         # Preparation: Build Chunk B
         create_chunk(
             cg,
-            vertices=[to_label(cg, 1, 1, 0, 0, 0), to_label(cg, 1, 1, 0, 0, 1),],
+            vertices=[to_label(cg, 1, 1, 0, 0, 0),
+                      to_label(cg, 1, 1, 0, 0, 1), ],
             edges=[
                 (to_label(cg, 1, 1, 0, 0, 0), to_label(cg, 1, 0, 0, 0, 1), inf,),
                 (to_label(cg, 1, 1, 0, 0, 0), to_label(cg, 1, 1, 0, 0, 1), inf,),
@@ -1259,7 +1309,7 @@ class TestGraphMerge:
 
         # Preparation: Build Chunk C
         create_chunk(
-            cg, vertices=[to_label(cg, 1, 2, 0, 0, 0),], timestamp=fake_timestamp,
+            cg, vertices=[to_label(cg, 1, 2, 0, 0, 0), ], timestamp=fake_timestamp,
         )
 
         add_layer(
@@ -1277,12 +1327,11 @@ class TestGraphMerge:
 
         new_roots = cg.add_edges(
             "Jane Doe",
-            [to_label(cg, 1, 1, 0, 0, 0), to_label(cg, 1, 2, 0, 0, 0),],
+            [to_label(cg, 1, 1, 0, 0, 0), to_label(cg, 1, 2, 0, 0, 0), ],
             affinities=0.9,
         ).new_root_ids
 
         assert len(new_roots) == 1
-
 
 # class TestGraphSplit:
 #     @pytest.mark.timeout(30)
@@ -2323,7 +2372,8 @@ class TestGraphMergeSplit:
         """
         cg = gen_graph_simplequerytest
 
-        rr = cg.range_read_chunk(chunk_id=cg.get_chunk_id(layer=4, x=0, y=0, z=0))
+        rr = cg.range_read_chunk(
+            chunk_id=cg.get_chunk_id(layer=4, x=0, y=0, z=0))
         root_ids_t0 = list(rr.keys())
         child_ids = [types.empty_1d]
         for root_id in root_ids_t0:
@@ -2366,7 +2416,8 @@ class TestGraphMergeSplit:
             u_root_ids = np.unique(root_ids)
             these_child_ids = []
             for root_id in u_root_ids:
-                these_child_ids.extend(cg.get_subgraph([root_id], leaves_only=True))
+                these_child_ids.extend(
+                    cg.get_subgraph([root_id], leaves_only=True))
 
             assert len(these_child_ids) == 4
             assert len(u_root_ids) == 2
@@ -2444,7 +2495,8 @@ class TestGraphMinCut:
         create_chunk(
             cg,
             vertices=[to_label(cg, 1, 0, 0, 0, 0)],
-            edges=[(to_label(cg, 1, 0, 0, 0, 0), to_label(cg, 1, 1, 0, 0, 0), 0.5)],
+            edges=[(to_label(cg, 1, 0, 0, 0, 0),
+                    to_label(cg, 1, 1, 0, 0, 0), 0.5)],
             timestamp=fake_timestamp,
         )
 
@@ -2452,7 +2504,8 @@ class TestGraphMinCut:
         create_chunk(
             cg,
             vertices=[to_label(cg, 1, 1, 0, 0, 0)],
-            edges=[(to_label(cg, 1, 1, 0, 0, 0), to_label(cg, 1, 0, 0, 0, 0), 0.5)],
+            edges=[(to_label(cg, 1, 1, 0, 0, 0),
+                    to_label(cg, 1, 0, 0, 0, 0), 0.5)],
             timestamp=fake_timestamp,
         )
 
@@ -2472,6 +2525,7 @@ class TestGraphMinCut:
                 cg.meta.graph_config.CHUNK_SIZE[2],
             ],
             mincut=True,
+            disallow_isolating_cut=False,
         ).new_root_ids
 
         # Check New State
@@ -2567,7 +2621,8 @@ class TestGraphMinCut:
         create_chunk(
             cg,
             vertices=[to_label(cg, 1, 0, 0, 0, 0)],
-            edges=[(to_label(cg, 1, 0, 0, 0, 0), to_label(cg, 1, 1, 0, 0, 0), 0.5)],
+            edges=[(to_label(cg, 1, 0, 0, 0, 0),
+                    to_label(cg, 1, 1, 0, 0, 0), 0.5)],
             timestamp=fake_timestamp,
         )
 
@@ -2575,7 +2630,8 @@ class TestGraphMinCut:
         create_chunk(
             cg,
             vertices=[to_label(cg, 1, 1, 0, 0, 0)],
-            edges=[(to_label(cg, 1, 1, 0, 0, 0), to_label(cg, 1, 0, 0, 0, 0), 0.5)],
+            edges=[(to_label(cg, 1, 1, 0, 0, 0),
+                    to_label(cg, 1, 0, 0, 0, 0), 0.5)],
             timestamp=fake_timestamp,
         )
 
@@ -2631,7 +2687,8 @@ class TestGraphMinCut:
         create_chunk(
             cg,
             vertices=[to_label(cg, 1, 0, 0, 0, 0)],
-            edges=[(to_label(cg, 1, 0, 0, 0, 0), to_label(cg, 1, 1, 0, 0, 0), inf)],
+            edges=[(to_label(cg, 1, 0, 0, 0, 0),
+                    to_label(cg, 1, 1, 0, 0, 0), inf)],
             timestamp=fake_timestamp,
         )
 
@@ -2639,7 +2696,8 @@ class TestGraphMinCut:
         create_chunk(
             cg,
             vertices=[to_label(cg, 1, 1, 0, 0, 0)],
-            edges=[(to_label(cg, 1, 1, 0, 0, 0), to_label(cg, 1, 0, 0, 0, 0), inf)],
+            edges=[(to_label(cg, 1, 1, 0, 0, 0),
+                    to_label(cg, 1, 0, 0, 0, 0), inf)],
             timestamp=fake_timestamp,
         )
 
@@ -2669,8 +2727,10 @@ class TestGraphMinCut:
                 mincut=True,
             )
 
-        new_parents_1 = cg.get_root(to_label(cg, 1, 0, 0, 0, 0), get_all_parents=True)
-        new_parents_2 = cg.get_root(to_label(cg, 1, 1, 0, 0, 0), get_all_parents=True)
+        new_parents_1 = cg.get_root(
+            to_label(cg, 1, 0, 0, 0, 0), get_all_parents=True)
+        new_parents_2 = cg.get_root(
+            to_label(cg, 1, 1, 0, 0, 0), get_all_parents=True)
 
         assert np.all(np.array(original_parents_1) == np.array(new_parents_1))
         assert np.all(np.array(original_parents_2) == np.array(new_parents_2))
@@ -2706,7 +2766,8 @@ class TestGraphMinCut:
         with pytest.raises(exceptions.PreconditionError):
             cg.remove_edges(
                 "Jane Doe",
-                source_ids=[to_label(cg, 1, 0, 0, 0, 0), to_label(cg, 1, 0, 0, 0, 1)],
+                source_ids=[to_label(cg, 1, 0, 0, 0, 0),
+                            to_label(cg, 1, 0, 0, 0, 1)],
                 sink_ids=[to_label(cg, 1, 0, 0, 0, 3)],
                 source_coords=[[0, 0, 0], [10, 0, 0]],
                 sink_coords=[[5, 5, 0]],
@@ -2717,6 +2778,20 @@ class TestGraphMinCut:
 class TestGraphMultiCut:
     @pytest.mark.timeout(30)
     def test_cut_multi_tree(self, gen_graph):
+        pass
+
+    @pytest.mark.timeout(30)
+    def test_path_augmented_multicut(self, sv_data):
+        sv_edges, sv_sources, sv_sinks, sv_affinity, sv_area = sv_data
+        edges = Edges(sv_edges[:, 0], sv_edges[:, 1],
+                      affinities=sv_affinity, areas=sv_area)
+
+        cut_edges_aug = run_multicut(
+            edges, sv_sources, sv_sinks, path_augment=True)
+        assert cut_edges_aug.shape[0] == 350
+
+        with pytest.raises(exceptions.PreconditionError):
+            run_multicut(edges, sv_sources, sv_sinks, path_augment=False)
         pass
 
 
@@ -2743,7 +2818,8 @@ class TestGraphHistory:
         create_chunk(
             cg,
             vertices=[to_label(cg, 1, 0, 0, 0, 0)],
-            edges=[(to_label(cg, 1, 0, 0, 0, 0), to_label(cg, 1, 1, 0, 0, 0), 0.5)],
+            edges=[(to_label(cg, 1, 0, 0, 0, 0),
+                    to_label(cg, 1, 1, 0, 0, 0), 0.5)],
             timestamp=fake_timestamp,
         )
 
@@ -2751,7 +2827,8 @@ class TestGraphHistory:
         create_chunk(
             cg,
             vertices=[to_label(cg, 1, 1, 0, 0, 0)],
-            edges=[(to_label(cg, 1, 1, 0, 0, 0), to_label(cg, 1, 0, 0, 0, 0), 0.5)],
+            edges=[(to_label(cg, 1, 1, 0, 0, 0),
+                    to_label(cg, 1, 0, 0, 0, 0), 0.5)],
             timestamp=fake_timestamp,
         )
 
@@ -2873,7 +2950,8 @@ class TestGraphLocks:
         fake_timestamp = datetime.utcnow() - timedelta(days=10)
         create_chunk(
             cg,
-            vertices=[to_label(cg, 1, 0, 0, 0, 1), to_label(cg, 1, 0, 0, 0, 2)],
+            vertices=[to_label(cg, 1, 0, 0, 0, 1),
+                      to_label(cg, 1, 0, 0, 0, 2)],
             edges=[],
             timestamp=fake_timestamp,
         )
@@ -2907,7 +2985,8 @@ class TestGraphLocks:
             future_root_ids_d=future_root_ids_d,
         )[0]
 
-        assert cg.client.unlock_root(root_id=root_id, operation_id=operation_id_1)
+        assert cg.client.unlock_root(
+            root_id=root_id, operation_id=operation_id_1)
 
         assert cg.client.lock_roots(
             root_ids=[root_id],
@@ -2935,7 +3014,8 @@ class TestGraphLocks:
         fake_timestamp = datetime.utcnow() - timedelta(days=10)
         create_chunk(
             cg,
-            vertices=[to_label(cg, 1, 0, 0, 0, 1), to_label(cg, 1, 0, 0, 0, 2)],
+            vertices=[to_label(cg, 1, 0, 0, 0, 1),
+                      to_label(cg, 1, 0, 0, 0, 2)],
             edges=[],
             timestamp=fake_timestamp,
         )
@@ -2999,7 +3079,8 @@ class TestGraphLocks:
         fake_timestamp = datetime.utcnow() - timedelta(days=10)
         create_chunk(
             cg,
-            vertices=[to_label(cg, 1, 0, 0, 0, 1), to_label(cg, 1, 0, 0, 0, 2)],
+            vertices=[to_label(cg, 1, 0, 0, 0, 1),
+                      to_label(cg, 1, 0, 0, 0, 2)],
             edges=[],
             timestamp=fake_timestamp,
         )
@@ -3025,7 +3106,8 @@ class TestGraphLocks:
             future_root_ids_d=future_root_ids_d,
         )[0]
 
-        assert cg.client.renew_locks(root_ids=[root_id], operation_id=operation_id_1)
+        assert cg.client.renew_locks(
+            root_ids=[root_id], operation_id=operation_id_1)
 
     @pytest.mark.timeout(30)
     def test_lock_merge_lock_old_id(self, gen_graph):
@@ -3047,7 +3129,8 @@ class TestGraphLocks:
         fake_timestamp = datetime.utcnow() - timedelta(days=10)
         create_chunk(
             cg,
-            vertices=[to_label(cg, 1, 0, 0, 0, 1), to_label(cg, 1, 0, 0, 0, 2)],
+            vertices=[to_label(cg, 1, 0, 0, 0, 1),
+                      to_label(cg, 1, 0, 0, 0, 2)],
             edges=[],
             timestamp=fake_timestamp,
         )
@@ -3109,7 +3192,8 @@ class TestGraphLocks:
         fake_timestamp = datetime.utcnow() - timedelta(days=10)
         create_chunk(
             cg,
-            vertices=[to_label(cg, 1, 0, 0, 0, 1), to_label(cg, 1, 0, 0, 0, 2)],
+            vertices=[to_label(cg, 1, 0, 0, 0, 1),
+                      to_label(cg, 1, 0, 0, 0, 2)],
             edges=[],
             timestamp=fake_timestamp,
         )
@@ -3178,7 +3262,8 @@ class TestGraphLocks:
         fake_timestamp = datetime.utcnow() - timedelta(days=10)
         create_chunk(
             cg,
-            vertices=[to_label(cg, 1, 0, 0, 0, 1), to_label(cg, 1, 0, 0, 0, 2)],
+            vertices=[to_label(cg, 1, 0, 0, 0, 1),
+                      to_label(cg, 1, 0, 0, 0, 2)],
             edges=[],
             timestamp=fake_timestamp,
         )
@@ -3243,7 +3328,7 @@ class TestGraphLocks:
     #     └─────┴─────┘
 
     #     (1) Try normal lock (opid = 1), get normal lock
-    #     (2) Wait until normal lock expires 
+    #     (2) Wait until normal lock expires
     #     (3) Try indefinite lock (opid = 1), doesn't get the indefinite lock
     #     """
 
