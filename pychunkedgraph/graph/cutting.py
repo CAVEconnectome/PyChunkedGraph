@@ -138,6 +138,16 @@ class LocalMincutGraph:
         self.source_path_vertices = self.source_graph_ids
         self.sink_path_vertices = self.sink_graph_ids
 
+        if flatgraph.labels_connected(self.weighted_graph_raw, self.source_graph_ids):
+            self.allow_source_isolated = True
+        else:
+            self.allow_source_isolated = False
+
+        if flatgraph.labels_connected(self.weighted_graph_raw, self.sink_graph_ids):
+            self.allow_sink_isolated = True
+        else:
+            self.allow_sink_isolated = False
+
         dt = time.time() - time_start
         if logger is not None:
             logger.debug("Graph creation: %.2fms" % (dt * 1000))
@@ -520,13 +530,15 @@ class LocalMincutGraph:
                     assert np.all(np.in1d(self.source_graph_ids, cc))
                     assert ~np.any(np.in1d(self.sink_graph_ids, cc))
                     if len(self.source_path_vertices) == len(cc) and self.disallow_isolating_cut:
-                        raise IsolatingCutException('Source')
+                        if not self.allow_source_isolated:
+                            raise IsolatingCutException('Source')
 
                 if np.any(np.in1d(self.sink_graph_ids, cc)):
                     assert np.all(np.in1d(self.sink_graph_ids, cc))
                     assert ~np.any(np.in1d(self.source_graph_ids, cc))
                     if len(self.sink_path_vertices) == len(cc) and self.disallow_isolating_cut:
-                        raise IsolatingCutException('Sink')
+                        if not self.allow_sink_isolated:
+                            raise IsolatingCutException('Sink')
 
         except AssertionError:
             if self.split_preview:

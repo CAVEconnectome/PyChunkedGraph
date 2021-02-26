@@ -171,6 +171,17 @@ def remove_overlapping_edges(paths_v_s, paths_e_s,
         return path_e_s_out, path_e_y_out, True
 
 
+def labels_connected(graph, label_vertices):
+    """Based on the initial graph and a set of vertices, decides if all connected
+    """
+    label_filter = np.full(graph.num_vertices(), False)
+    label_filter[label_vertices] = True
+    vfilt = graph.new_vertex_property('bool', vals=label_filter)
+    gfilt = GraphView(graph, vfilt=vfilt)
+    _, count = topology.label_components(gfilt)
+    return len(count) == 1
+
+
 def check_connectedness(vertices, edges, expected_number=1):
     """Returns True if the augmenting edges still form a single connected component
     """
