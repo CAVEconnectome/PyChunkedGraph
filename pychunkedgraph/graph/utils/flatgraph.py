@@ -126,17 +126,18 @@ def harmonic_mean_paths(x):
     return np.power(np.product(x), 1/len(x))
 
 
-def recompute_filtered_paths(graph, capacity, team_vertex_ids, intersect_vertices):
+def compute_filtered_paths(graph, capacity, team_vertex_ids, intersect_vertices):
     """Make a filtered GraphView that excludes intersect vertices and recompute shortest paths
     """
     intersection_filter = np.full(graph.num_vertices(), True)
     intersection_filter[intersect_vertices] = False
     vfilt = graph.new_vertex_property('bool', vals=intersection_filter)
     gfilt = GraphView(graph, vfilt=vfilt)
-    _, paths_e, _ = team_paths_all_to_all(
+    paths_v, paths_e, path_affinities = team_paths_all_to_all(
         gfilt, capacity, team_vertex_ids)
 
-    # graph-tool will invalidate the vertex and edge properties if I don't rebase them on the main graph.
+    # graph-tool will invalidate the vertex and edge properties if I don't rebase them on the main graph
+    # before tearing down the GraphView
     new_paths_e = []
     for pth in paths_e:
         # An empty path means vertices are not connected, which is disallowed
@@ -146,7 +147,13 @@ def recompute_filtered_paths(graph, capacity, team_vertex_ids, intersect_vertice
             new_path.append(graph.edge(int(e.source()), int(e.target())))
         new_paths_e.append(new_path)
 
-    return new_paths_e
+    new_paths_v = []
+    for pth in paths_v:
+        new_path = []
+        for v in pth:
+            new_path.append(graph.vertex(int(v)))
+        new_paths_v.append(new_path)
+    return new_paths_v, new_paths_e, path_affinities
 
 
 def remove_overlapping_edges(paths_v_s, paths_e_s,

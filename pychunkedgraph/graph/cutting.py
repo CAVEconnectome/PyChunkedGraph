@@ -214,10 +214,16 @@ class LocalMincutGraph:
         """Increase affinities along all pairs shortest paths between sources/sinks
         in the supervoxel graph.
         """
-        paths_v_s, paths_e_s, invaff_s = flatgraph.team_paths_all_to_all(
-            self.weighted_graph_raw, self.capacities_raw, self.source_graph_ids)
-        paths_v_y, paths_e_y, invaff_y = flatgraph.team_paths_all_to_all(
-            self.weighted_graph_raw, self.capacities_raw, self.sink_graph_ids)
+        try:
+            paths_v_s, paths_e_s, invaff_s = flatgraph.compute_filtered_paths(
+                self.weighted_graph_raw, self.capacities_raw, self.source_graph_ids, self.sink_graph_ids)
+            paths_v_y, paths_e_y, invaff_y = flatgraph.compute_filtered_paths(
+                self.weighted_graph_raw, self.capacities_raw, self.sink_graph_ids, self.source_graph_ids)
+        except AssertionError:
+            raise PreconditionError(
+                "Paths between source or sink points irrepairably overlap other labels from other side. "
+                "Check that labels are correct and consider spreading points out farther."
+            )
 
         paths_e_s_no, paths_e_y_no, do_check = flatgraph.remove_overlapping_edges(
             paths_v_s, paths_e_s, paths_v_y, paths_e_y)
@@ -251,13 +257,13 @@ class LocalMincutGraph:
             paths_e_s_no = paths_e_s
             omit_verts = [int(v)
                           for v in itertools.chain.from_iterable(paths_v_s)]
-            paths_e_y_no = flatgraph.recompute_filtered_paths(
+            _, paths_e_y_no, _ = flatgraph.compute_filtered_paths(
                 self.weighted_graph_raw, self.capacities_raw, self.sink_graph_ids, omit_verts)
 
         else:
             omit_verts = [int(v)
                           for v in itertools.chain.from_iterable(paths_v_y)]
-            paths_e_s_no = flatgraph.recompute_filtered_paths(
+            _, paths_e_s_no, _ = flatgraph.compute_filtered_paths(
                 self.weighted_graph_raw, self.capacities_raw, self.source_graph_ids, omit_verts)
             paths_e_y_no = paths_e_y
 
