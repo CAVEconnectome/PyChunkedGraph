@@ -1127,7 +1127,7 @@ def operation_details(table_id):
     current_app.table_id = table_id
     user_id = str(g.auth_user["id"])
     current_app.user_id = user_id
-    operation_ids = request.args["operation_ids"].split(",")
+    operation_ids = json.loads(request.args["operation_ids"])
 
     cg = app_utils.get_cg(table_id)
 
@@ -1135,6 +1135,8 @@ def operation_details(table_id):
     for operation_id in operation_ids:
         details = {}
         log_row = cg.read_log_row(int(operation_id))[0]
+        details["source_coords"] = log_row[column_keys.OperationLogs.SourceCoordinate]
+        details["sink_coords"] = log_row[column_keys.OperationLogs.SinkCoordinate]
         if column_keys.OperationLogs.AddedEdge in log_row:
             details["added_edges"] = log_row[column_keys.OperationLogs.AddedEdge]
         if column_keys.OperationLogs.RemovedEdge in log_row:
