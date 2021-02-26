@@ -221,7 +221,7 @@ class LocalMincutGraph:
                 self.weighted_graph_raw, self.capacities_raw, self.sink_graph_ids, self.source_graph_ids)
         except AssertionError:
             raise PreconditionError(
-                "Paths between source or sink points irrepairably overlap other labels from other side. "
+                "Paths between source or sink points irreparably overlap other labels from other side. "
                 "Check that labels are correct and consider spreading points out farther."
             )
 
@@ -250,23 +250,34 @@ class LocalMincutGraph:
         return adj_capacity
 
     def rerun_paths_without_overlap(self, paths_v_s, paths_e_s, invaff_s,
-                                    paths_v_y, paths_e_y, invaff_y):
+                                    paths_v_y, paths_e_y, invaff_y, invert_winner=False):
 
         # smaller distance means larger affinity
-        if flatgraph.harmonic_mean_paths(invaff_s) < flatgraph.harmonic_mean_paths(invaff_y):
-            paths_e_s_no = paths_e_s
-            omit_verts = [int(v)
-                          for v in itertools.chain.from_iterable(paths_v_s)]
-            _, paths_e_y_no, _ = flatgraph.compute_filtered_paths(
-                self.weighted_graph_raw, self.capacities_raw, self.sink_graph_ids, omit_verts)
+        s_wins = flatgraph.harmonic_mean_paths(
+            invaff_s) < flatgraph.harmonic_mean_paths(invaff_y)
+        if invert_winner:
+            s_wins = not s_wins
 
-        else:
-            omit_verts = [int(v)
-                          for v in itertools.chain.from_iterable(paths_v_y)]
-            _, paths_e_s_no, _ = flatgraph.compute_filtered_paths(
-                self.weighted_graph_raw, self.capacities_raw, self.source_graph_ids, omit_verts)
-            paths_e_y_no = paths_e_y
+        # Omit winning team vertices from graph
+        try:
+            if s_wins:
+                paths_e_s_no = paths_e_s
+                omit_verts = [int(v)
+                              for v in itertools.chain.from_iterable(paths_v_s)]
+                _, paths_e_y_no, _ = flatgraph.compute_filtered_paths(
+                    self.weighted_graph_raw, self.capacities_raw, self.sink_graph_ids, omit_verts)
 
+            else:
+                omit_verts = [int(v)
+                              for v in itertools.chain.from_iterable(paths_v_y)]
+                _, paths_e_s_no, _ = flatgraph.compute_filtered_paths(
+                    self.weighted_graph_raw, self.capacities_raw, self.source_graph_ids, omit_verts)
+                paths_e_y_no = paths_e_y
+        except AssertionError:
+            # If no path is found, try giving the overlap to the other team and finding paths again.
+            paths_e_s_no, paths_e_y_no = self.rerun_paths_without_overlap(paths_v_s, paths_e_s, invaff_s,
+                                                                          paths_v_y, paths_e_y, invaff_y,
+                                                                          invert_winner=True)
         return paths_e_s_no, paths_e_y_no
 
     def _compute_mincut_path_augmented(self):
@@ -306,10 +317,14 @@ class LocalMincutGraph:
         if DEBUG_MODE:
             self._gt_mincut_sanity_check(partition)
 
-        labeled_edges = partition.a[self.gt_edges]
-        cut_edge_set = self.gt_edges[labeled_edges[:, 0]
-                                     != labeled_edges[:, 1]]
-
+        if self.path_augment:
+            labeled_edges = partition.a[self.gt_edges_raw]
+            cut_edge_set = self.gt_edges_raw[labeled_edges[:, 0]
+                                             != labeled_edges[:, 1]]
+        else:
+            labeled_edges = partition.a[self.gt_edges]
+            cut_edge_set = self.gt_edges[labeled_edges[:, 0]
+                                         != labeled_edges[:, 1]]
         if self.split_preview:
             return self._get_split_preview_connected_components(cut_edge_set)
 
@@ -505,13 +520,15 @@ class LocalMincutGraph:
                     assert np.all(np.in1d(self.source_graph_ids, cc))
                     assert ~np.any(np.in1d(self.sink_graph_ids, cc))
                     if len(self.source_path_vertices) == len(cc) and self.disallow_isolating_cut:
-                        raise IsolatingCutException('Source')
+                        if not self.partition_edges_within_label(cc):
+                            raise IsolatingCutException('Source')
 
                 if np.any(np.in1d(self.sink_graph_ids, cc)):
                     assert np.all(np.in1d(self.sink_graph_ids, cc))
                     assert ~np.any(np.in1d(self.source_graph_ids, cc))
                     if len(self.sink_path_vertices) == len(cc) and self.disallow_isolating_cut:
-                        raise IsolatingCutException('Sink')
+                        if not self.partition_edges_within_label(cc):
+                            raise IsolatingCutException('Sink')
 
         except AssertionError:
             if self.split_preview:
@@ -536,6 +553,21 @@ class LocalMincutGraph:
         if self.logger is not None:
             self.logger.debug("Verifying local graph: %.2fms" % (dt * 1000))
         return ccs_test_post_cut, illegal_split
+
+    def partition_edges_within_label(self, cc):
+        """ Test is an isolated component has out-edges only within the original
+        labeled points of the cut 
+        """
+        label_graph_ids = np.concatenate(
+            (self.source_graph_ids, self.sink_graph_ids))
+
+        for vind in cc:
+            v = self.weighted_graph_raw.vertex(vind)
+            out_vinds = [int(x) for x in v.out_neighbors()]
+            if not np.all(np.isin(out_vinds, label_graph_ids)):
+                return False
+        else:
+            return True
 
 
 def run_multicut(

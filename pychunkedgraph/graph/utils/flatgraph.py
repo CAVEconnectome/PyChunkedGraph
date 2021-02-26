@@ -183,7 +183,8 @@ def check_connectedness(vertices, edges, expected_number=1):
 
     g2 = Graph(directed=False)
     g2.add_vertex(n=len(paths_inds))
-    g2.add_edge_list(edge_list_remap)
+    if len(edge_list_remap) > 0:
+        g2.add_edge_list(np.atleast_2d(edge_list_remap))
 
     _, count = topology.label_components(g2)
     return len(count) == expected_number
