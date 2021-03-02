@@ -8,7 +8,7 @@ from graph_tool import topology, search
 def build_gt_graph(
     edges, weights=None, is_directed=True, make_directed=False, hashed=False
 ):
-    """ Builds a graph_tool graph
+    """Builds a graph_tool graph
     :param edges: n x 2 numpy array
     :param weights: numpy array of length n
     :param is_directed: bool
@@ -48,7 +48,7 @@ def remap_ids_from_graph(graph_ids, unique_ids):
 
 
 def connected_components(graph):
-    """ Computes connected components of graph_tool graph
+    """Computes connected components of graph_tool graph
     :param graph: graph_tool.Graph
     :return: np.array of len == number of nodes
     """
@@ -66,11 +66,10 @@ def connected_components(graph):
 
 
 def team_paths_all_to_all(graph, capacity, team_vertex_ids):
-    """ Finds all paths between pairs of points on a source/sink team.
-    """
+    """Finds all paths between pairs of points on a source/sink team."""
     dprop = capacity.copy()
     # Use inverse affinity as the distance between vertices.
-    dprop.a = 1/(dprop.a + np.finfo(np.float64).eps)
+    dprop.a = 1 / (dprop.a + np.finfo(np.float64).eps)
 
     paths_v = []
     paths_e = []
@@ -86,7 +85,8 @@ def team_paths_all_to_all(graph, capacity, team_vertex_ids):
         pred_map, path_affinity = cache_pred_map.get(i1, (None, None))
         if pred_map is None:
             path_affinity, pred_map = search.dijkstra_search(
-                graph, dprop, source=graph.vertex(i1))
+                graph, dprop, source=graph.vertex(i1)
+            )
             cache_pred_map[i1] = (pred_map, path_affinity)
             pop_keys = []
             for k in cache_pred_map.keys():
@@ -96,7 +96,8 @@ def team_paths_all_to_all(graph, capacity, team_vertex_ids):
                 cache_pred_map.pop(k)
 
         path_v, path_e = topology.shortest_path(
-            graph, graph.vertex(i1), graph.vertex(i2), pred_map=pred_map)
+            graph, graph.vertex(i1), graph.vertex(i2), pred_map=pred_map
+        )
         paths_v.append(path_v)
         paths_e.append(path_e)
         path_affinities.append(path_affinity[graph.vertex(i2)])
@@ -104,8 +105,7 @@ def team_paths_all_to_all(graph, capacity, team_vertex_ids):
 
 
 def neighboring_edges(graph, vertex_id):
-    """ Returns vertex and edge lists of a seed vertex, in the same format as team_paths_all_to_all.
-    """
+    """Returns vertex and edge lists of a seed vertex, in the same format as team_paths_all_to_all."""
     add_v = []
     add_e = []
     v0 = graph.vertex(vertex_id)
@@ -123,18 +123,18 @@ def intersect_nodes(paths_v_s, paths_v_y):
 
 
 def harmonic_mean_paths(x):
-    return np.power(np.product(x), 1/len(x))
+    return np.power(np.product(x), 1 / len(x))
 
 
 def compute_filtered_paths(graph, capacity, team_vertex_ids, intersect_vertices):
-    """Make a filtered GraphView that excludes intersect vertices and recompute shortest paths
-    """
+    """Make a filtered GraphView that excludes intersect vertices and recompute shortest paths"""
     intersection_filter = np.full(graph.num_vertices(), True)
     intersection_filter[intersect_vertices] = False
-    vfilt = graph.new_vertex_property('bool', vals=intersection_filter)
+    vfilt = graph.new_vertex_property("bool", vals=intersection_filter)
     gfilt = GraphView(graph, vfilt=vfilt)
     paths_v, paths_e, path_affinities = team_paths_all_to_all(
-        gfilt, capacity, team_vertex_ids)
+        gfilt, capacity, team_vertex_ids
+    )
 
     # graph-tool will invalidate the vertex and edge properties if I don't rebase them on the main graph
     # before tearing down the GraphView
@@ -156,27 +156,35 @@ def compute_filtered_paths(graph, capacity, team_vertex_ids, intersect_vertices)
     return new_paths_v, new_paths_e, path_affinities
 
 
-def remove_overlapping_edges(paths_v_s, paths_e_s,
-                             paths_v_y, paths_e_y):
-    """Remove vertices that are in the paths from both teams
-    """
+def remove_overlapping_edges(paths_v_s, paths_e_s, paths_v_y, paths_e_y):
+    """Remove vertices that are in the paths from both teams"""
     iverts = intersect_nodes(paths_v_s, paths_v_y)
     if len(iverts) == 0:
         return paths_e_s, paths_e_y, False
     else:
-        path_e_s_out = [[e for e in chain.from_iterable(paths_e_s) if not np.any(
-            np.isin([int(e.source()), int(e.target())], iverts))]]
-        path_e_y_out = [[e for e in chain.from_iterable(paths_e_y) if not np.any(
-            np.isin([int(e.source()), int(e.target())], iverts))]]
+        path_e_s_out = [
+            [
+                e
+                for e in chain.from_iterable(paths_e_s)
+                if not np.any(np.isin([int(e.source()), int(e.target())], iverts))
+            ]
+        ]
+        path_e_y_out = [
+            [
+                e
+                for e in chain.from_iterable(paths_e_y)
+                if not np.any(np.isin([int(e.source()), int(e.target())], iverts))
+            ]
+        ]
         return path_e_s_out, path_e_y_out, True
 
 
 def check_connectedness(vertices, edges, expected_number=1):
-    """Returns True if the augmenting edges still form a single connected component
-    """
+    """Returns True if the augmenting edges still form a single connected component"""
     paths_inds = np.unique([int(v) for v in chain.from_iterable(vertices)])
-    edge_list_inds = np.array([[int(e.source()), int(e.target())]
-                               for e in chain.from_iterable(edges)])
+    edge_list_inds = np.array(
+        [[int(e.source()), int(e.target())] for e in chain.from_iterable(edges)]
+    )
 
     rmap = {v: ii for ii, v in enumerate(paths_inds)}
     edge_list_remap = fastremap.remap(edge_list_inds, rmap)
@@ -191,18 +199,17 @@ def check_connectedness(vertices, edges, expected_number=1):
 
 
 def reverse_edge(graph, edge):
-    """Returns the complementary edge
-    """
+    """Returns the complementary edge"""
     return graph.edge(edge.target(), edge.source())
 
 
 def adjust_affinities(graph, capacity, paths_e, value=np.finfo(np.float32).max):
-    """Set affinity of a subset of paths to a particular value (typically the largest double).
-    """
+    """Set affinity of a subset of paths to a particular value (typically the largest double)."""
     capacity = capacity.copy()
 
-    e_array = np.array([(int(e.source()), int(e.target()))
-                        for e in chain.from_iterable(paths_e)])
+    e_array = np.array(
+        [(int(e.source()), int(e.target())) for e in chain.from_iterable(paths_e)]
+    )
     if len(e_array) > 0:
         e_array = np.sort(e_array, axis=1)
         e_array = np.unique(e_array, axis=0)
@@ -218,4 +225,9 @@ def adjust_affinities(graph, capacity, paths_e, value=np.finfo(np.float32).max):
 
 
 def flatten_edge_list(paths_e):
-    return np.unique([(int(e.source()), int(e.target())) for e in chain.from_iterable(x for x in paths_e)])
+    return np.unique(
+        [
+            (int(e.source()), int(e.target()))
+            for e in chain.from_iterable(x for x in paths_e)
+        ]
+    )
