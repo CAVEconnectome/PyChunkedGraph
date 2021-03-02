@@ -274,10 +274,14 @@ class LocalMincutGraph:
                     self.weighted_graph_raw, self.capacities_raw, self.source_graph_ids, omit_verts)
                 paths_e_y_no = paths_e_y
         except AssertionError:
-            # If no path is found, try giving the overlap to the other team and finding paths again.
-            paths_e_s_no, paths_e_y_no = self.rerun_paths_without_overlap(paths_v_s, paths_e_s, invaff_s,
-                                                                          paths_v_y, paths_e_y, invaff_y,
-                                                                          invert_winner=True)
+            # If no path is found and this hasn't been tried before, try giving the overlap to the other team and finding paths
+            if not invert_winner:
+                paths_e_s_no, paths_e_y_no = self.rerun_paths_without_overlap(paths_v_s, paths_e_s, invaff_s,
+                                                                              paths_v_y, paths_e_y, invaff_y,
+                                                                              invert_winner=True)
+            else:
+                # Otherwise propagate the AssertionError back up
+                raise AssertionError
         return paths_e_s_no, paths_e_y_no
 
     def _compute_mincut_path_augmented(self):
