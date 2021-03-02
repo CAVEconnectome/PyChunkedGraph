@@ -19,12 +19,14 @@ class SubgraphProgress:
     """
 
     def __init__(self, meta, node_ids, return_layers, serializable):
+        from collections import defaultdict
+
         self.meta = meta
         self.node_ids = node_ids
         self.return_layers = return_layers
         self.serializable = serializable
 
-        self.node_to_subgraph = {}
+        self.node_to_subgraph = defaultdict(lambda: defaultdict(list))
         # "Frontier" of nodes that cg.get_children will be called on
         self.cur_nodes = np.array(list(node_ids), dtype=np.uint64)
         # Mapping of current frontier to self.node_ids
@@ -44,9 +46,6 @@ class SubgraphProgress:
 
         for node_id in self.cur_nodes:
             node_key = self.get_dict_key(node_id)
-            self.node_to_subgraph[node_key] = {}
-            for return_layer in self.return_layers:
-                self.node_to_subgraph[node_key][return_layer] = []
             node_layer = get_chunk_layer(self.meta, node_id)
             if node_layer in self.return_layers:
                 self.node_to_subgraph[node_key][node_layer].append([node_id])
