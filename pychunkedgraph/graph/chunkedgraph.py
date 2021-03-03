@@ -792,6 +792,9 @@ class ChunkedGraph:
         """
         from collections import defaultdict
 
+        layers = self.get_chunk_layers(parent_ids)
+        assert np.all(layers == layers[0])
+
         parents_layer = self.get_chunk_layer(parent_ids[0])
         parent_coords_d = {
             node_id: self.get_chunk_coordinates(node_id) for node_id in parent_ids
