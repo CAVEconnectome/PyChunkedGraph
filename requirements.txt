@@ -17,7 +17,7 @@ python-json-logger
 zstandard
 redis
 rq
-middle-auth-client==3.2.6
+git+https://github.com/seung-lab/middle-auth-client.git@tablemapping#egg=middle_auth_client
 git+https://github.com/ZettaAI/zmesh.git@nkem-float-res#egg=zmesh
 fastremap
 pyyaml
