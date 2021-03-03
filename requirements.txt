@@ -3,7 +3,7 @@ cloud-files>=1.25.2
 requests>=2.25.0
 grpcio>=1.36.1
 certifi>=2020.12.5
-cloud-volume
+git+https://github.com/ZettaAI/cloud-volume.git@nkem-float-res-fix#egg=cloud-volume
 numpy
 pandas
 networkx==2.1
@@ -18,7 +18,7 @@ zstandard
 redis
 rq
 middle-auth-client==3.2.6
-zmesh
+git+https://github.com/ZettaAI/zmesh.git@nkem-float-res#egg=zmesh
 fastremap
 pyyaml
 cachetools
