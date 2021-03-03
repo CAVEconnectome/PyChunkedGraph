@@ -579,22 +579,28 @@ def handle_leaves(table_id, root_id):
     current_app.user_id = user_id
 
     stop_layer = int(request.args.get("stop_layer", 1))
+    bounding_box = None
     if "bounds" in request.args:
         bounds = request.args["bounds"]
         bounding_box = np.array(
             [b.split("-") for b in bounds.split("_")], dtype=np.int
         ).T
-    else:
-        bounding_box = None
 
     cg = app_utils.get_cg(table_id)
     if stop_layer > 1:
-        return cg.get_subgraph_nodes(
+        from pychunkedgraph.graph.types import empty_1d
+
+        subgraph = cg.get_subgraph_nodes(
             int(root_id),
             bbox=bounding_box,
             bbox_is_coordinate=True,
             return_layers=[stop_layer]
         )
+        result = [empty_1d]
+        for node_subgraph in subgraph.values():
+            for children_at_layer in node_subgraph.values():
+                result.append(children_at_layer)
+        return np.concatenate(result)
     return cg.get_subgraph_leaves(
         int(root_id),
         bbox=bounding_box,
