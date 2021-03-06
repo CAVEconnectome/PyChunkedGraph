@@ -1,4 +1,5 @@
 cloud-files==1.24.1
+rsa<4.7
 pyopenssl
 cloud-volume
 numpy
