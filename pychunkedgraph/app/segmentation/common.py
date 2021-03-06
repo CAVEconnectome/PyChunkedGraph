@@ -1103,7 +1103,7 @@ def operation_details(table_id):
     current_app.table_id = table_id
     user_id = str(g.auth_user["id"])
     current_app.user_id = user_id
-    operation_ids = map(int, request.args["operation_ids"].split(","))
+    operation_ids = json.loads(request.args.get("operation_ids", "[]"))
 
     cg = app_utils.get_cg(table_id)
     log_rows = cg.client.read_log_entries(operation_ids)
