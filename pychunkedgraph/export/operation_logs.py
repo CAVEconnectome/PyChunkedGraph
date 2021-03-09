@@ -7,7 +7,7 @@ from ..graph import ChunkedGraph
 from ..graph.attributes import OperationLogs
 
 
-def _parse_attr(attr, val) -> str:
+def parse_attr(attr, val) -> str:
     from numpy import ndarray
 
     try:
@@ -32,7 +32,7 @@ def get_parsed_logs(
         log = {"id": int(_id)}
         log["status"] = int(_log.get("operation_status", 0))
         for attr, val in _log.items():
-            attr, val = _parse_attr(attr, val)
+            attr, val = parse_attr(attr, val)
             try:
                 log[attr.decode("utf-8")] = val
             except AttributeError:

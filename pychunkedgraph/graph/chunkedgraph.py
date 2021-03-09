@@ -3,7 +3,6 @@ import typing
 import datetime
 
 import numpy as np
-from multiwrapper import multiprocessing_utils as mu
 
 from . import types
 from . import operation
@@ -286,10 +285,8 @@ class ChunkedGraph:
 
         node_l2ids_d = {}
         layers_ = self.get_chunk_layers(node_ids)
-        for layer_ in set(layers_):
-            node_l2ids_d.update(
-                self._get_bounding_l2_children(node_ids[layers_ == layer_])
-            )
+        for l in set(layers_):
+            node_l2ids_d.update(self._bounding_l2_children(node_ids[layers_ == l]))
         l2_edges_d_d = self.get_atomic_cross_edges(
             np.concatenate(list(node_l2ids_d.values()))
         )
@@ -494,45 +491,20 @@ class ChunkedGraph:
         nodes_only: bool = False,
         edges_only: bool = False,
         leaves_only: bool = False,
-        n_threads: int = 1,
     ) -> typing.Tuple[typing.Dict, typing.Dict, Edges]:
-        if nodes_only:
-            return self.get_subgraph_nodes(
-                node_id_or_ids, bbox, bbox_is_coordinate, return_layers
-            )
-        return self.get_subgraph_edges_and_leaves(
-            node_id_or_ids, bbox, bbox_is_coordinate, edges_only, leaves_only, n_threads
-        )
+        """
+        Generic subgraph method.
+        """
+        from .subgraph import get_subgraph_nodes
+        from .subgraph import get_subgraph_edges_and_leaves
 
-    def get_subgraph_edges_and_leaves(
-        self,
-        node_id_or_ids: typing.Union[np.uint64, typing.Iterable],
-        bbox: typing.Optional[typing.Sequence[typing.Sequence[int]]] = None,
-        bbox_is_coordinate: bool = False,
-        edges_only: bool = False,
-        leaves_only: bool = False,
-        n_threads: int = 1,
-    ) -> typing.Tuple[typing.Dict, typing.Dict, Edges]:
-        """Get the edges and/or leaves of the specified node_ids within the specified bounding box."""
-        node_ids = node_id_or_ids
-        bbox = chunk_utils.normalize_bounding_box(
-            self.meta, bbox, bbox_is_coordinate)
-        if isinstance(node_id_or_ids, np.uint64) or isinstance(node_id_or_ids, int):
-            node_ids = [node_id_or_ids]
-        layer_nodes_d = self._get_subgraph_multiple_nodes(
-            node_ids=node_ids, bounding_box=bbox, return_layers=[2], serializable=False
-        )
-        level2_ids = [types.empty_1d]
-        for node_id in node_ids:
-            level2_ids.append(layer_nodes_d[node_id][2])
-        level2_ids = np.concatenate(level2_ids)
-        if leaves_only:
-            return self.get_children(level2_ids, flatten=True)
-        if edges_only:
-            return self.get_l2_agglomerations(
-                level2_ids, edges_only=True, n_threads=n_threads
+        if nodes_only:
+            return get_subgraph_nodes(
+                self, node_id_or_ids, bbox, bbox_is_coordinate, return_layers
             )
-        return self.get_l2_agglomerations(level2_ids, n_threads=n_threads)
+        return get_subgraph_edges_and_leaves(
+            self, node_id_or_ids, bbox, bbox_is_coordinate, edges_only, leaves_only
+        )
 
     def get_subgraph_nodes(
         self,
@@ -541,26 +513,51 @@ class ChunkedGraph:
         bbox_is_coordinate: bool = False,
         return_layers: typing.List = [2],
         serializable: bool = False,
-        n_threads: int = 1,
     ) -> typing.Tuple[typing.Dict, typing.Dict, Edges]:
-        """Get the children of the specified node_ids that are at each of the specified
-        return_layers within the specified bounding box."""
-        single = False
-        node_ids = node_id_or_ids
-        bbox = chunk_utils.normalize_bounding_box(
-            self.meta, bbox, bbox_is_coordinate)
-        if isinstance(node_id_or_ids, np.uint64) or isinstance(node_id_or_ids, int):
-            single = True
-            node_ids = [node_id_or_ids]
-        layer_nodes_d = self._get_subgraph_multiple_nodes(
-            node_ids=node_ids,
-            bounding_box=bbox,
-            return_layers=return_layers,
+        """
+        Get the children of `node_ids` that are at each of
+        return_layers within the specified bounding box.
+        """
+        from .subgraph import get_subgraph_nodes
+
+        return get_subgraph_nodes(
+            self,
+            node_id_or_ids,
+            bbox,
+            bbox_is_coordinate,
+            return_layers,
             serializable=serializable,
         )
-        if single:
-            return layer_nodes_d[node_id_or_ids]
-        return layer_nodes_d
+
+    def get_subgraph_edges(
+        self,
+        node_id_or_ids: typing.Union[np.uint64, typing.Iterable],
+        bbox: typing.Optional[typing.Sequence[typing.Sequence[int]]] = None,
+        bbox_is_coordinate: bool = False,
+    ):
+        """
+        Get the atomic edges of the `node_ids` within the specified bounding box.
+        """
+        from .subgraph import get_subgraph_edges_and_leaves
+
+        return get_subgraph_edges_and_leaves(
+            self, node_id_or_ids, bbox, bbox_is_coordinate, True, False
+        )
+
+    def get_subgraph_leaves(
+        self,
+        node_id_or_ids: typing.Union[np.uint64, typing.Iterable],
+        bbox: typing.Optional[typing.Sequence[typing.Sequence[int]]] = None,
+        bbox_is_coordinate: bool = False,
+    ):
+        """
+        Get the supervoxels of the `node_ids` within the specified bounding box.
+        """
+        from .subgraph import get_subgraph_edges_and_leaves
+
+        return get_subgraph_edges_and_leaves(
+            self, node_id_or_ids, bbox, bbox_is_coordinate, False, True
+        )
 
     def get_fake_edges(
         self, chunk_ids: np.ndarray, time_stamp: datetime.datetime = None
@@ -581,7 +578,7 @@ class ChunkedGraph:
         return result
 
     def get_l2_agglomerations(
-        self, level2_ids: np.ndarray, edges_only: bool = False, n_threads: int = 1
+        self, level2_ids: np.ndarray, edges_only: bool = False
     ) -> typing.Tuple[typing.Dict[int, types.Agglomeration], np.ndarray]:
         """
         Children of Level 2 Node IDs and edges.
@@ -787,72 +784,16 @@ class ChunkedGraph:
         ).execute()
 
     # PRIVATE
-    def _get_subgraph_multiple_nodes(
-        self,
-        node_ids: typing.Iterable[np.uint64],
-        bounding_box: typing.Optional[typing.Sequence[typing.Sequence[int]]],
-        return_layers: typing.Sequence[int],
-        serializable: bool,
-    ):
-        from collections import ChainMap
-
-        assert len(return_layers) > 0
-
-        def _get_dict_key(raw_key):
-            if serializable:
-                return str(raw_key)
-            return raw_key
-
-        def _get_subgraph_multiple_nodes_threaded(
-            node_ids_batch: typing.Iterable[np.uint64],
-        ) -> typing.List[np.uint64]:
-            children = self.get_children(np.sort(node_ids_batch))
-            if bounding_box is not None:
-                filtered_children = {}
-                for node_id, nodes_children in children.items():
-                    if self.get_chunk_layer(node_id) == 2:
-                        # All children will be in same chunk so no need to check
-                        filtered_children[_get_dict_key(
-                            node_id)] = nodes_children
-                        continue
-                    bound_check_mask = misc_utils.mask_nodes_by_bounding_box(
-                        self.meta, nodes_children, bounding_box
-                    )
-                    filtered_children[_get_dict_key(node_id)] = nodes_children[
-                        bound_check_mask
-                    ]
-                return filtered_children
-            return children
-
-        if bounding_box is not None:
-            bounding_box = np.array(bounding_box)
-
-        subgraph_progress = misc_utils.SubgraphProgress(
-            self.meta, node_ids, return_layers, serializable
-        )
-
-        while not subgraph_progress.done_processing():
-            this_n_threads = np.min(
-                [int(len(subgraph_progress.cur_nodes) // 50000) + 1, mu.n_cpus]
-            )
-            cur_nodes_child_maps = mu.multithread_func(
-                _get_subgraph_multiple_nodes_threaded,
-                np.array_split(subgraph_progress.cur_nodes, this_n_threads),
-                n_threads=this_n_threads,
-                debug=this_n_threads == 1,
-            )
-            cur_nodes_children = dict(ChainMap(*cur_nodes_child_maps))
-            subgraph_progress.process_batch_of_children(cur_nodes_children)
-
-        return subgraph_progress.node_to_subgraph
-
-    def _get_bounding_l2_children(self, parent_ids: typing.Iterable) -> typing.Dict:
+    def _bounding_l2_children(self, parent_ids: typing.Iterable) -> typing.Dict:
         """
         Helper function to get level 2 children IDs for each parent.
         `parent_ids` must be node IDs at same layer.
         TODO what have i done (describe algo)
         """
         from collections import defaultdict
+
+        layers = self.get_chunk_layers(parent_ids)
+        assert np.all(layers == layers[0])
 
         parents_layer = self.get_chunk_layer(parent_ids[0])
         parent_coords_d = {

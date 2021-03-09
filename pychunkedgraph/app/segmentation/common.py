@@ -578,21 +578,34 @@ def handle_leaves(table_id, root_id):
     user_id = str(g.auth_user["id"])
     current_app.user_id = user_id
 
+    stop_layer = int(request.args.get("stop_layer", 1))
+    bounding_box = None
     if "bounds" in request.args:
         bounds = request.args["bounds"]
         bounding_box = np.array(
             [b.split("-") for b in bounds.split("_")], dtype=np.int
         ).T
-    else:
-        bounding_box = None
 
-    # Call ChunkedGraph
     cg = app_utils.get_cg(table_id)
-    atomic_ids = cg.get_subgraph(
-        int(root_id), bbox=bounding_box, bbox_is_coordinate=True, leaves_only=True
-    )
+    if stop_layer > 1:
+        from pychunkedgraph.graph.types import empty_1d
 
-    return atomic_ids
+        subgraph = cg.get_subgraph_nodes(
+            int(root_id),
+            bbox=bounding_box,
+            bbox_is_coordinate=True,
+            return_layers=[stop_layer]
+        )
+        result = [empty_1d]
+        for node_subgraph in subgraph.values():
+            for children_at_layer in node_subgraph.values():
+                result.append(children_at_layer)
+        return np.concatenate(result)
+    return cg.get_subgraph_leaves(
+        int(root_id),
+        bbox=bounding_box,
+        bbox_is_coordinate=True,
+    )
 
 
 ### LEAVES OF MANY ROOTS ---------------------------------------------------------------------
@@ -669,8 +682,8 @@ def handle_subgraph(table_id, root_id):
     # Call ChunkedGraph
     cg = app_utils.get_cg(table_id)
     l2id_agglomeration_d, edges = cg.get_subgraph(
-        int(root_id), 
-        bbox=bounding_box, 
+        int(root_id),
+        bbox=bounding_box,
         bbox_is_coordinate=True,
     )
     edges = reduce(lambda x, y: x + y, edges, cg_edges.Edges([], []))
@@ -765,15 +778,15 @@ def tabular_change_log(table_id, root_id, get_root_ids, filtered):
     cg = app_utils.get_cg(table_id)
     segment_history = cg_history.SegmentHistory(cg, int(root_id))
 
-    tab = segment_history.get_tabular_changelog(with_ids=get_root_ids, 
+    tab = segment_history.get_tabular_changelog(with_ids=get_root_ids,
                                                 filtered=filtered)
-    
+
     try:
         tab["user_name"] = get_usernames(np.array(tab["user_id"], dtype=np.int).squeeze(),
                                          current_app.config['AUTH_TOKEN'])
     except:
-        current_app.logger.error(f"Could not retrieve user names for {root_id}")    
-        
+        current_app.logger.error(f"Could not retrieve user names for {root_id}")
+
     return tab
 
 
@@ -782,21 +795,41 @@ def merge_log(table_id, root_id):
     user_id = str(g.auth_user["id"])
     current_app.user_id = user_id
 
-    try:
-        time_stamp_past = float(request.args.get("timestamp", 0))
-        time_stamp_past = datetime.fromtimestamp(time_stamp_past, UTC)
-    except (TypeError, ValueError) as e:
-        raise (
-            cg_exceptions.BadRequest(
-                "Timestamp parameter is not a valid" " unix timestamp"
-            )
-        )
-
     # Call ChunkedGraph
     cg = app_utils.get_cg(table_id)
 
     hist = segmenthistory.SegmentHistory(cg, int(root_id))
     return hist.merge_log(correct_for_wrong_coord_type=False)
+
+
+def handle_lineage_graph(table_id, root_id):
+    current_app.table_id = table_id
+    user_id = str(g.auth_user["id"])
+    current_app.user_id = user_id
+
+    # Convert seconds since epoch to UTC datetime
+    try:
+        timestamp_past = float(request.args.get("timestamp_past", 0))
+    except (TypeError, ValueError) as e:
+        raise (
+            cg_exceptions.BadRequest(
+                "Timestamp parameter is not a valid unix timestamp"
+            )
+        )
+
+    try:
+        timestamp_future = float(request.args.get("timestamp_future", time.time()))
+    except (TypeError, ValueError) as e:
+        raise (
+            cg_exceptions.BadRequest(
+                "Timestamp parameter is not a valid unix timestamp"
+            )
+        )
+
+    # Call ChunkedGraph
+    cg = app_utils.get_cg(table_id)
+    hist = segmenthistory.SegmentHistory(cg, int(root_id))
+    return hist.get_change_log_graph(timestamp_past, timestamp_future)
 
 
 def last_edit(table_id, root_id):
@@ -1060,3 +1093,29 @@ def handle_is_latest_roots(table_id, is_binary):
     is_latest = ~np.isin(node_ids, list(row_dict.keys()))
 
     return is_latest
+
+
+### OPERATION DETAILS ------------------------------------------------------------
+
+def operation_details(table_id):
+    from pychunkedgraph.graph import attributes
+    from pychunkedgraph.export.operation_logs import parse_attr
+    current_app.table_id = table_id
+    user_id = str(g.auth_user["id"])
+    current_app.user_id = user_id
+    operation_ids = json.loads(request.args.get("operation_ids", "[]"))
+
+    cg = app_utils.get_cg(table_id)
+    log_rows = cg.client.read_log_entries(operation_ids)
+
+    result = {}
+    for k,v in log_rows.items():
+        details = {}
+        for _k, _v in v.items():
+            _k, _v = parse_attr(_k, _v)
+            try:
+                details[_k.decode("utf-8")] = _v
+            except AttributeError:
+                details[_k] = _v
+        result[int(k)] = details
+    return result
