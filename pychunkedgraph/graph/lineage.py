@@ -196,4 +196,4 @@ def lineage_graph(
 
         past_ids = np.concatenate(next_past_ids)
         future_ids = np.concatenate(next_future_ids)
-    return G
+    return graph
