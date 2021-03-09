@@ -2,6 +2,7 @@ import collections
 import numpy as np
 import datetime
 import pandas as pd
+from networkx import DiGraph
 
 from pychunkedgraph.backend.utils import column_keys
 from pychunkedgraph.backend import chunkedgraph_exceptions as cg_exceptions
@@ -140,6 +141,16 @@ class SegmentHistory(object):
                 tab = tab.drop("is_relevant", axis=1)
 
                 return self._add_ids_to_tabular_changelog(tab)
+
+    def get_change_log_graph(self, timestamp_past, timestamp_future) -> DiGraph:
+        from .lineage import lineage_graph
+
+        return lineage_graph(
+            self.cg,
+            self.root_id,
+            timestamp_past=timestamp_past,
+            timestamp_future=timestamp_future,
+        )
 
     def _collect_edit_timestamps(self):
         self._edit_timestamps = []
@@ -386,7 +397,7 @@ class LogEntry(object):
 
     def __str__(self):
         return f"{self.user_id},{self.log_type},{self.root_ids},{self.timestamp}"
-        
+
     def __iter__(self):
         attrs = [self.user_id, self.log_type, self.root_ids, self.timestamp]
         for attr in attrs:
