@@ -19,6 +19,7 @@ def lineage_graph(
     and in future until `timestamp_future`
     """
     from time import time
+    from .utils.basetypes import NODE_ID
     from .utils.column_keys import Hierarchy
     from .utils.column_keys import OperationLogs
 
@@ -34,15 +35,18 @@ def lineage_graph(
         nodes_raw = cg.read_node_id_rows(
             node_ids=np.concatenate([past_ids, future_ids])
         )
-
-        print("\nnodes_raw\n")
-        print(nodes_raw)
-
-        next_past_ids = [np.empty(0, dtype=np.uint64)]
+        next_past_ids = []
         for k in past_ids:
             val = nodes_raw[k]
-            operation_id = val[OperationLogs.OperationID][0].value
             timestamp = val[Hierarchy.Child][0].timestamp.timestamp()
+            try:
+                operation_id = val[OperationLogs.OperationID][0].value
+            except KeyError:
+                # if no operation ID, the segment has no edits
+                # return single node graph with given ID
+                graph.add_node(k, timestamp=timestamp)
+                return graph
+
             graph.add_node(k, operation_id=operation_id, timestamp=timestamp)
             if timestamp < timestamp_past or not Hierarchy.FormerParent in val:
                 continue
@@ -50,9 +54,9 @@ def lineage_graph(
             former_ids = val[Hierarchy.FormerParent][0].value
             for former in former_ids:
                 graph.add_edge(former, k)
-            next_past_ids.append(former_ids)
+            next_past_ids.extend(former_ids)
 
-        next_future_ids = [np.empty(0, dtype=np.uint64)]
+        next_future_ids = []
         for k in future_ids:
             val = nodes_raw[k]
             operation_id = val[OperationLogs.OperationID][0].value
@@ -64,9 +68,8 @@ def lineage_graph(
             new_ids = val[Hierarchy.NewParent][0].value
             for new_id in new_ids:
                 graph.add_edge(k, new_id)
-            next_future_ids.append(new_ids)
+            next_future_ids.extend(new_ids)
 
-        past_ids = np.concatenate(next_past_ids)
-        future_ids = np.concatenate(next_future_ids)
-        print("hi")
+        past_ids = np.array(next_past_ids, dtype=NODE_ID)
+        future_ids = np.array(next_future_ids, dtype=NODE_ID)
     return graph
