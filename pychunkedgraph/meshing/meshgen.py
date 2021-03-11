@@ -26,7 +26,7 @@ from pychunkedgraph.graph import attributes  # noqa
 from pychunkedgraph.meshing import meshgen_utils  # noqa
 
 # Change below to true if debugging and want to see results in stdout
-PRINT_FOR_DEBUGGING = False
+PRINT_FOR_DEBUGGING = True
 # Change below to false if debugging and do not need to write to cloud (warning: do not deploy w/ below set to false)
 WRITING_TO_CLOUD = True
 
@@ -381,10 +381,10 @@ def get_lx_overlapping_remappings(cg, chunk_id, time_stamp=None, n_threads=1):
     sv_ids = []
     lx_ids_flat = []
 
-    # Do safe ones first
     for i_root_id in range(len(neigh_root_ids)):
         root_lx_dict[neigh_root_ids[i_root_id]].append(neigh_lx_ids[i_root_id])
 
+    # Do safe ones first
     for lx_id in safe_lx_ids:
         root_id = lx_root_dict[lx_id]
         for neigh_lx_id in root_lx_dict[root_id]:
@@ -418,7 +418,7 @@ def get_lx_overlapping_remappings(cg, chunk_id, time_stamp=None, n_threads=1):
 
     return sv_remapping, unsafe_dict
 
-
+@profile
 def get_root_remapping_for_nodes_and_svs(
     cg, chunk_id, node_ids, sv_ids, stop_layer, time_stamp, n_threads=1
 ):
@@ -442,8 +442,9 @@ def get_root_remapping_for_nodes_and_svs(
     rr = cg.range_read_chunk(
         chunk_id=chunk_id, properties=attributes.Hierarchy.Child, time_stamp=time_stamp
     )
-    upper_lvl_ids = [id[0].value for id in rr.values()]
-    combined_ids = np.concatenate((node_ids, sv_ids, np.concatenate(upper_lvl_ids)))
+    chunk_sv_ids = np.unique(np.concatenate([id[0].value for id in rr.values()]))
+    chunk_l2_ids = np.unique(cg.get_parents(chunk_sv_ids, time_stamp=time_stamp))
+    combined_ids = np.concatenate((node_ids, sv_ids, chunk_l2_ids))
 
     root_ids = np.zeros(len(combined_ids), dtype=np.uint64)
     n_jobs = np.min([n_threads, len(combined_ids)])
@@ -499,16 +500,17 @@ def get_lx_overlapping_remappings_for_nodes_and_svs(
         cg, chunk_id, node_ids, sv_ids, stop_layer, time_stamp, n_threads
     )
 
-    u_root_ids, c_root_ids = np.unique(chunks_root_ids, return_counts=True)
+    u_root_ids, u_idx, c_root_ids = np.unique(chunks_root_ids, return_counts=True, return_index=True)
 
     # All l2 ids that share no root id with any other l2 id in the chunk are "safe", meaning
     # that we can easily obtain the complete remapping (including
     # overlap) for these. All other ones have to be resolved using the
     # segmentation.
 
-    temp_node_roots = u_root_ids[np.where(u_root_ids == node_root_ids)]
-    node_root_counts = c_root_ids[np.where(u_root_ids == node_root_ids)]
-    unsafe_root_ids = temp_node_roots[np.where(node_root_counts > 1)]
+    root_sorted_idx = np.argsort(u_root_ids)
+    node_sorted_index = np.searchsorted(u_root_ids[root_sorted_idx], node_root_ids)
+    node_root_counts = c_root_ids[root_sorted_idx][node_sorted_index]
+    unsafe_root_ids = node_root_ids[np.where(node_root_counts > 1)]
     safe_node_ids = node_ids[~np.isin(node_root_ids, unsafe_root_ids)]
 
     node_to_root_dict = dict(zip(node_ids, node_root_ids))
@@ -533,7 +535,7 @@ def get_lx_overlapping_remappings_for_nodes_and_svs(
         if len(sv_ids_to_add) > 0:
             relevant_node_ids = node_ids[np.where(node_root_ids == root_id)]
             if len(relevant_node_ids) > 0:
-                unsafe_dict[root_id].append(relevant_node_ids)
+                unsafe_dict[root_id].extend(relevant_node_ids)
                 sv_ids_to_remap.extend(sv_ids_to_add)
                 node_ids_flat.extend([root_id] * len(sv_ids_to_add))
 
@@ -921,7 +923,8 @@ def chunk_initial_mesh_task(
     if cg is None:
         cg = ChunkedGraph(graph_id=cg_name)
     result = []
-    cache_string = 'public' if cache else 'no-cache'
+    # cache_string = 'public' if cache else 'no-cache'
+    cache_string = 'no-cache'
 
     layer, _, chunk_offset = get_meshing_necessities_from_graph(cg, chunk_id, mip)
     cx, cy, cz = cg.get_chunk_coordinates(chunk_id)
@@ -1270,7 +1273,8 @@ def chunk_stitch_remeshing_task(
                     new_fragment_b,
                     content_type="application/octet-stream",
                     compress=False,
-                    cache_control="public",
+                    # cache_control="public",
+                    cache_control="no-cache",
                 )
 
     if PRINT_FOR_DEBUGGING:
