@@ -26,7 +26,7 @@ from pychunkedgraph.graph import attributes  # noqa
 from pychunkedgraph.meshing import meshgen_utils  # noqa
 
 # Change below to true if debugging and want to see results in stdout
-PRINT_FOR_DEBUGGING = True
+PRINT_FOR_DEBUGGING = False
 # Change below to false if debugging and do not need to write to cloud (warning: do not deploy w/ below set to false)
 WRITING_TO_CLOUD = True
 
@@ -418,7 +418,6 @@ def get_lx_overlapping_remappings(cg, chunk_id, time_stamp=None, n_threads=1):
 
     return sv_remapping, unsafe_dict
 
-@profile
 def get_root_remapping_for_nodes_and_svs(
     cg, chunk_id, node_ids, sv_ids, stop_layer, time_stamp, n_threads=1
 ):
@@ -672,7 +671,6 @@ def transform_draco_vertices(mesh, encoding_settings):
         vertices[coord::3] += encoding_settings["quantization_origin"][coord]
 
 
-# @profile
 def transform_draco_fragment_and_return_encoding_options(
     cg, fragment, layer, mip, chunk_id
 ):
@@ -702,7 +700,6 @@ def transform_draco_fragment_and_return_encoding_options(
     return cur_encoding_settings
 
 
-# @profile
 def merge_draco_meshes_across_boundaries(
     cg, fragments, chunk_id, mip, high_padding, return_zmesh_object=False
 ):
@@ -834,6 +831,7 @@ def remeshing(
     stop_layer: int = None,
     mip: int = 2,
     max_err: int = 40,
+    time_stamp: datetime.datetime or None = None
 ):
     """ Given a chunkedgraph, a list of level 2 nodes, perform remeshing and stitching up the node hierarchy (or up to the stop_layer)
 
@@ -858,7 +856,7 @@ def remeshing(
     for chunk_id, node_ids in l2_chunk_dict.items():
         if PRINT_FOR_DEBUGGING:
             print("remeshing", chunk_id, node_ids)
-        time_stamp = _get_timestamp_from_node_ids(cg, node_ids)
+        l2_time_stamp = _get_timestamp_from_node_ids(cg, node_ids)
         # Remesh the l2_node_ids
         chunk_initial_mesh_task(
             None,
@@ -869,7 +867,7 @@ def remeshing(
             cv_unsharded_mesh_path=cv_unsharded_mesh_path,
             max_err=max_err,
             sharded=False,
-            time_stamp=time_stamp
+            time_stamp=l2_time_stamp
         )
     chunk_dicts = []
     max_layer = stop_layer or cg._n_layers
@@ -879,7 +877,7 @@ def remeshing(
     # Find the parents of each l2_node_id up to the stop_layer, as well as their associated chunk_ids
     for layer in range(3, max_layer + 1):
         for _, node_ids in cur_chunk_dict.items():
-            parent_nodes = cg.get_parents(node_ids)
+            parent_nodes = cg.get_parents(node_ids, time_stamp=time_stamp)
             for parent_node in parent_nodes:
                 chunk_layer = cg.get_chunk_layer(parent_node)
                 index_in_dict_array = chunk_layer - 3
@@ -923,8 +921,7 @@ def chunk_initial_mesh_task(
     if cg is None:
         cg = ChunkedGraph(graph_id=cg_name)
     result = []
-    # cache_string = 'public' if cache else 'no-cache'
-    cache_string = 'no-cache'
+    cache_string = 'public' if cache else 'no-cache'
 
     layer, _, chunk_offset = get_meshing_necessities_from_graph(cg, chunk_id, mip)
     cx, cy, cz = cg.get_chunk_coordinates(chunk_id)
@@ -1273,8 +1270,7 @@ def chunk_stitch_remeshing_task(
                     new_fragment_b,
                     content_type="application/octet-stream",
                     compress=False,
-                    # cache_control="public",
-                    cache_control="no-cache",
+                    cache_control="public",
                 )
 
     if PRINT_FOR_DEBUGGING:
