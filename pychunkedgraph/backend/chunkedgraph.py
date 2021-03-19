@@ -3918,3 +3918,9 @@ class ChunkedGraph(object):
                                     for e in root_rows.values()])
 
         return old_roots, new_roots
+
+    def get_node_timestamps(self, node_ids: Sequence[np.uint64]):
+        children = self.read_node_id_rows(node_ids=node_ids, columns=column_keys.Hierarchy.Child)
+        if not children:
+            return []
+        return [children[x][0].timestamp for x in node_ids]

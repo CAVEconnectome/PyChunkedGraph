@@ -366,7 +366,6 @@ def get_root_lx_remapping(cg, chunk_id, stop_layer, time_stamp, n_threads=1):
     return lx_ids, np.array(root_ids), lx_id_remap
 
 
-# @lru_cache(maxsize=None)
 def get_lx_overlapping_remappings(cg, chunk_id, time_stamp=None, n_threads=1):
     """ Retrieves sv id to layer mapping for chunk with overlap in positive
         direction (one chunk)
@@ -518,8 +517,8 @@ def get_root_remapping_for_nodes_and_svs(
     rr = cg.range_read_chunk(
         chunk_id=chunk_id, columns=column_keys.Hierarchy.Parent, time_stamp=time_stamp
     )
-    upper_lvl_ids = [id[0].value for id in rr.values()]
-    combined_ids = np.concatenate((node_ids, sv_ids, upper_lvl_ids))
+    chunk_l2_ids = np.array(list(rr.keys()), dtype=np.uint64)
+    combined_ids = np.concatenate((node_ids, sv_ids, chunk_l2_ids))
 
     root_ids = np.zeros(len(combined_ids), dtype=np.uint64)
     n_jobs = np.min([n_threads, len(combined_ids)])
@@ -612,9 +611,10 @@ def get_lx_overlapping_remappings_for_nodes_and_svs(
     # overlap) for these. All other ones have to be resolved using the
     # segmentation.
 
-    temp_node_roots = u_root_ids[np.where(u_root_ids == node_root_ids)]
-    node_root_counts = c_root_ids[np.where(u_root_ids == node_root_ids)]
-    unsafe_root_ids = temp_node_roots[np.where(node_root_counts > 1)]
+    root_sorted_idx = np.argsort(u_root_ids)
+    node_sorted_index = np.searchsorted(u_root_ids[root_sorted_idx], node_root_ids)
+    node_root_counts = c_root_ids[root_sorted_idx][node_sorted_index]
+    unsafe_root_ids = node_root_ids[np.where(node_root_counts > 1)]
     safe_node_ids = node_ids[~np.isin(node_root_ids, unsafe_root_ids)]
 
     node_to_root_dict = dict(zip(node_ids, node_root_ids))
@@ -639,7 +639,7 @@ def get_lx_overlapping_remappings_for_nodes_and_svs(
         if len(sv_ids_to_add) > 0:
             relevant_node_ids = node_ids[np.where(node_root_ids == root_id)]
             if len(relevant_node_ids) > 0:
-                unsafe_dict[root_id].append(relevant_node_ids)
+                unsafe_dict[root_id].extend(relevant_node_ids)
                 sv_ids_to_remap.extend(sv_ids_to_add)
                 node_ids_flat.extend([root_id] * len(sv_ids_to_add))
 
@@ -910,6 +910,11 @@ def black_out_dust_from_segmentation(seg, dust_threshold):
     seg = fastremap.mask(seg, dust_segids, in_place=True)
 
 
+def _get_timestamp_from_node_ids(cg, node_ids):
+    timestamps = cg.get_node_timestamps(node_ids)
+    return max(timestamps) + datetime.timedelta(milliseconds=1)
+
+
 def remeshing(
     cg,
     l2_node_ids: Sequence[np.uint64],
@@ -940,6 +945,7 @@ def remeshing(
     for chunk_id, node_ids in l2_chunk_dict.items():
         if PRINT_FOR_DEBUGGING:
             print("remeshing", chunk_id, node_ids)
+        l2_time_stamp = _get_timestamp_from_node_ids(cg, node_ids)
         # Remesh the l2_node_ids
         chunk_mesh_task_new_remapping(
             cg.get_serialized_info(),
@@ -949,6 +955,7 @@ def remeshing(
             fragment_batch_size=20,
             node_id_subset=node_ids,
             cg=cg,
+            time_stamp=l2_time_stamp
         )
     chunk_dicts = []
     max_layer = stop_layer or cg._n_layers
@@ -982,12 +989,6 @@ def remeshing(
             )
 
 
-REDIS_HOST = os.environ.get("REDIS_SERVICE_HOST", "localhost")
-REDIS_PORT = os.environ.get("REDIS_SERVICE_PORT", "6379")
-REDIS_PASSWORD = os.environ.get("REDIS_PASSWORD", "dev")
-REDIS_URL = f"redis://:{REDIS_PASSWORD}@{REDIS_HOST}:{REDIS_PORT}/0"
-
-# @redis_job(REDIS_URL, 'mesh_frag_test_channel')
 # TODO: refactor this bloated function
 def chunk_mesh_task_new_remapping(
     cg_info,
