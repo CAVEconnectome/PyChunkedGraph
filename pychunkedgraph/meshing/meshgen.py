@@ -381,10 +381,10 @@ def get_lx_overlapping_remappings(cg, chunk_id, time_stamp=None, n_threads=1):
     sv_ids = []
     lx_ids_flat = []
 
-    # Do safe ones first
     for i_root_id in range(len(neigh_root_ids)):
         root_lx_dict[neigh_root_ids[i_root_id]].append(neigh_lx_ids[i_root_id])
 
+    # Do safe ones first
     for lx_id in safe_lx_ids:
         root_id = lx_root_dict[lx_id]
         for neigh_lx_id in root_lx_dict[root_id]:
@@ -418,7 +418,6 @@ def get_lx_overlapping_remappings(cg, chunk_id, time_stamp=None, n_threads=1):
 
     return sv_remapping, unsafe_dict
 
-
 def get_root_remapping_for_nodes_and_svs(
     cg, chunk_id, node_ids, sv_ids, stop_layer, time_stamp, n_threads=1
 ):
@@ -442,8 +441,9 @@ def get_root_remapping_for_nodes_and_svs(
     rr = cg.range_read_chunk(
         chunk_id=chunk_id, properties=attributes.Hierarchy.Child, time_stamp=time_stamp
     )
-    upper_lvl_ids = [id[0].value for id in rr.values()]
-    combined_ids = np.concatenate((node_ids, sv_ids, np.concatenate(upper_lvl_ids)))
+    chunk_sv_ids = np.unique(np.concatenate([id[0].value for id in rr.values()]))
+    chunk_l2_ids = np.unique(cg.get_parents(chunk_sv_ids, time_stamp=time_stamp))
+    combined_ids = np.concatenate((node_ids, sv_ids, chunk_l2_ids))
 
     root_ids = np.zeros(len(combined_ids), dtype=np.uint64)
     n_jobs = np.min([n_threads, len(combined_ids)])
@@ -499,16 +499,17 @@ def get_lx_overlapping_remappings_for_nodes_and_svs(
         cg, chunk_id, node_ids, sv_ids, stop_layer, time_stamp, n_threads
     )
 
-    u_root_ids, c_root_ids = np.unique(chunks_root_ids, return_counts=True)
+    u_root_ids, u_idx, c_root_ids = np.unique(chunks_root_ids, return_counts=True, return_index=True)
 
     # All l2 ids that share no root id with any other l2 id in the chunk are "safe", meaning
     # that we can easily obtain the complete remapping (including
     # overlap) for these. All other ones have to be resolved using the
     # segmentation.
 
-    temp_node_roots = u_root_ids[np.where(u_root_ids == node_root_ids)]
-    node_root_counts = c_root_ids[np.where(u_root_ids == node_root_ids)]
-    unsafe_root_ids = temp_node_roots[np.where(node_root_counts > 1)]
+    root_sorted_idx = np.argsort(u_root_ids)
+    node_sorted_index = np.searchsorted(u_root_ids[root_sorted_idx], node_root_ids)
+    node_root_counts = c_root_ids[root_sorted_idx][node_sorted_index]
+    unsafe_root_ids = node_root_ids[np.where(node_root_counts > 1)]
     safe_node_ids = node_ids[~np.isin(node_root_ids, unsafe_root_ids)]
 
     node_to_root_dict = dict(zip(node_ids, node_root_ids))
@@ -533,7 +534,7 @@ def get_lx_overlapping_remappings_for_nodes_and_svs(
         if len(sv_ids_to_add) > 0:
             relevant_node_ids = node_ids[np.where(node_root_ids == root_id)]
             if len(relevant_node_ids) > 0:
-                unsafe_dict[root_id].append(relevant_node_ids)
+                unsafe_dict[root_id].extend(relevant_node_ids)
                 sv_ids_to_remap.extend(sv_ids_to_add)
                 node_ids_flat.extend([root_id] * len(sv_ids_to_add))
 
@@ -670,7 +671,6 @@ def transform_draco_vertices(mesh, encoding_settings):
         vertices[coord::3] += encoding_settings["quantization_origin"][coord]
 
 
-# @profile
 def transform_draco_fragment_and_return_encoding_options(
     cg, fragment, layer, mip, chunk_id
 ):
@@ -700,7 +700,6 @@ def transform_draco_fragment_and_return_encoding_options(
     return cur_encoding_settings
 
 
-# @profile
 def merge_draco_meshes_across_boundaries(
     cg, fragments, chunk_id, mip, high_padding, return_zmesh_object=False
 ):
@@ -832,6 +831,7 @@ def remeshing(
     stop_layer: int = None,
     mip: int = 2,
     max_err: int = 40,
+    time_stamp: datetime.datetime or None = None
 ):
     """ Given a chunkedgraph, a list of level 2 nodes, perform remeshing and stitching up the node hierarchy (or up to the stop_layer)
 
@@ -856,7 +856,7 @@ def remeshing(
     for chunk_id, node_ids in l2_chunk_dict.items():
         if PRINT_FOR_DEBUGGING:
             print("remeshing", chunk_id, node_ids)
-        time_stamp = _get_timestamp_from_node_ids(cg, node_ids)
+        l2_time_stamp = _get_timestamp_from_node_ids(cg, node_ids)
         # Remesh the l2_node_ids
         chunk_initial_mesh_task(
             None,
@@ -867,7 +867,7 @@ def remeshing(
             cv_unsharded_mesh_path=cv_unsharded_mesh_path,
             max_err=max_err,
             sharded=False,
-            time_stamp=time_stamp
+            time_stamp=l2_time_stamp
         )
     chunk_dicts = []
     max_layer = stop_layer or cg._n_layers
@@ -877,7 +877,7 @@ def remeshing(
     # Find the parents of each l2_node_id up to the stop_layer, as well as their associated chunk_ids
     for layer in range(3, max_layer + 1):
         for _, node_ids in cur_chunk_dict.items():
-            parent_nodes = cg.get_parents(node_ids)
+            parent_nodes = cg.get_parents(node_ids, time_stamp=time_stamp)
             for parent_node in parent_nodes:
                 chunk_layer = cg.get_chunk_layer(parent_node)
                 index_in_dict_array = chunk_layer - 3
