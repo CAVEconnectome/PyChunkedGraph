@@ -64,7 +64,12 @@ def get_chunk_edges(edges_dir: str, chunks_coordinates: List[np.ndarray]) -> Dic
         cf.get(fnames, raw=True)
 
     with TimeIt("_decompress_edges"):
-        edges = [_decompress_edges(cf[name]) for name in fnames]
+        edges = []
+        for name in fnames:
+            if not cf[name]:
+                continue
+            edges.append(_decompress_edges(cf[name]))
+
     with TimeIt("concatenate_chunk_edges"):
         return concatenate_chunk_edges(edges)
 
