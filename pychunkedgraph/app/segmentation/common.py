@@ -337,14 +337,11 @@ def trigger_remesh(table_id, new_lvl2_ids, is_priority=True):
 ### MERGE ----------------------------------------------------------------------
 
 
-def handle_merge(table_id):
+def handle_merge(table_id, allow_same_segment_merge=False):
     current_app.table_id = table_id
 
     nodes = json.loads(request.data)
     is_priority = request.args.get('priority', True, type=str2bool)
-    allow_same_segment_merge = request.args.get(
-        'allow_same_segment_merge', False, type=str2bool
-    )
     user_id = str(g.auth_user["id"])
     current_app.user_id = user_id
 
