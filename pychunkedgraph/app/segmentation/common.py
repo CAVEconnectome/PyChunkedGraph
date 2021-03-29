@@ -342,6 +342,9 @@ def handle_merge(table_id):
 
     nodes = json.loads(request.data)
     is_priority = request.args.get('priority', True, type=str2bool)
+    allow_same_segment_merge = request.args.get(
+        'allow_same_segment_merge', False, type=str2bool
+    )
     user_id = str(g.auth_user["id"])
     current_app.user_id = user_id
 
@@ -388,6 +391,7 @@ def handle_merge(table_id):
             atomic_edges=np.array(atomic_edge, dtype=np.uint64),
             source_coords=coords[:1],
             sink_coords=coords[1:],
+            allow_same_segment_merge=allow_same_segment_merge,
         )
 
     except cg_exceptions.LockingError as e:

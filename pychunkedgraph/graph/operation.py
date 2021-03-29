@@ -534,8 +534,11 @@ class MergeOperation(GraphEditOperation):
     :type affinities: Optional[Sequence[np.float32]], optional
     """
 
-    __slots__ = ["source_ids", "sink_ids",
-                 "added_edges", "affinities", "bbox_offset"]
+    __slots__ = [
+        "source_ids", "sink_ids",
+        "added_edges", "affinities",
+        "bbox_offset", "allow_same_segment_merge"
+    ]
 
     def __init__(
         self,
@@ -547,6 +550,7 @@ class MergeOperation(GraphEditOperation):
         sink_coords: Sequence[Sequence[np.int]],
         bbox_offset: Tuple[int, int, int] = (240, 240, 24),
         affinities: Optional[Sequence[np.float32]] = None,
+        allow_same_segment_merge: Optional[bool] = False,
     ) -> None:
         super().__init__(
             cg, user_id=user_id, source_coords=source_coords, sink_coords=sink_coords
@@ -554,6 +558,7 @@ class MergeOperation(GraphEditOperation):
         self.added_edges = np.atleast_2d(added_edges).astype(basetypes.NODE_ID)
         self.bbox_offset = np.atleast_1d(
             bbox_offset).astype(basetypes.COORDINATES)
+        self.allow_same_segment_merge = allow_same_segment_merge
 
         self.affinities = None
         if affinities is not None:
@@ -585,7 +590,7 @@ class MergeOperation(GraphEditOperation):
                 self.added_edges.ravel(), assert_roots=True, time_stamp=self.parent_ts
             )
         )
-        if len(root_ids) < 2:
+        if len(root_ids) < 2 and not self.allow_same_segment_merge:
             raise PreconditionError(
                 "Supervoxels must belong to different objects.")
         bbox = get_bbox(self.source_coords, self.sink_coords, self.bbox_offset)
