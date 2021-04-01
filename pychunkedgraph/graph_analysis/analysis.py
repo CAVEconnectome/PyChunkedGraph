@@ -198,10 +198,8 @@ def compute_rough_coordinate_path(cg, l2_ids):
     coordinate_path = []
     for l2_id in l2_ids:
         chunk_center = cg.get_chunk_coordinates(l2_id) + np.array([0.5, 0.5, 0.5])
-        coordinate = chunk_center * np.array(
-            cg.meta.graph_config.CHUNK_SIZE
-        ) + np.array(cg.meta.cv.mip_voxel_offset(0))
-        coordinate = coordinate * np.array(cg.meta.cv.mip_resolution(0))
+        coordinate = chunk_center * cg.chunk_size + cg.cv.mip_voxel_offset(0)
+        coordinate = coordinate * cg.cv.mip_resolution(0)
         coordinate = coordinate.astype(np.float32)
         coordinate_path.append(coordinate)
     return coordinate_path
