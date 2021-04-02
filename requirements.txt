@@ -19,4 +19,4 @@ fastremap
 pyyaml
 cachetools
 task-queue==1.0.0
-cloud-files
+cloud-files>=1.25.2
