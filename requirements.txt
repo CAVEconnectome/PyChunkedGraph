@@ -1,4 +1,5 @@
 cloud-files>=1.25.2
+requests>=2.25.0
 pyopenssl
 cloud-volume
 numpy
