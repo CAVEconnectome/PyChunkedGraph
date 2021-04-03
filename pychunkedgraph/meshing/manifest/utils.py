@@ -5,6 +5,7 @@ from typing import Tuple
 from typing import Sequence
 
 import numpy as np
+from cloudfiles import CloudFiles
 from cloudvolume import Storage
 from cloudvolume import CloudVolume
 
@@ -96,16 +97,17 @@ def _get_dynamic_meshes(cg, node_ids: Sequence[np.uint64]) -> Tuple[Dict, List]:
         return result, missing_ids
     mesh_dir = cg.meta.custom_data.get("mesh", {}).get("dir", "graphene_meshes")
     mesh_path = f"{cg.meta.data_source.WATERSHED}/{mesh_dir}/dynamic"
-    with Storage(mesh_path) as stor:  # pylint: disable=not-context-manager
-        filenames = [get_mesh_name(cg, id_) for id_ in node_ids]
-        existence_dict = stor.files_exist(filenames)
 
-        for mesh_key in existence_dict:
-            node_id = np.uint64(mesh_key.split(":")[0])
-            if existence_dict[mesh_key]:
-                result[node_id] = mesh_key
-                continue
-            missing_ids.append(node_id)
+    cf = CloudFiles(mesh_path)
+    filenames = [get_mesh_name(cg, id_) for id_ in node_ids]
+    existence_dict = cf.exists(filenames)
+
+    for mesh_key in existence_dict:
+        node_id = np.uint64(mesh_key.split(":")[0])
+        if existence_dict[mesh_key]:
+            result[node_id] = mesh_key
+            continue
+        missing_ids.append(node_id)
     missing_ids = np.array(missing_ids, dtype=NODE_ID)
     return result, missing_ids
 
