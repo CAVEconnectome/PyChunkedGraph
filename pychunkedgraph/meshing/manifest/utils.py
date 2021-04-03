@@ -6,7 +6,6 @@ from typing import Sequence
 
 import numpy as np
 from cloudfiles import CloudFiles
-from cloudvolume import Storage
 from cloudvolume import CloudVolume
 
 from ..meshgen_utils import get_mesh_name
