@@ -75,7 +75,7 @@ def handle_merge(table_id):
 def handle_merge_admin(table_id):
     int64_as_str = request.args.get("int64_as_str", default=False, type=toboolean)
     allow_same_segment_merge = request.args.get(
-        'allow_same_segment_merge', True, type=common.str2bool
+        'allow_same_segment_merge', False, type=common.str2bool
     )
     merge_result = common.handle_merge(
         table_id, allow_same_segment_merge=allow_same_segment_merge
