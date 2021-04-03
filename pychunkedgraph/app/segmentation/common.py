@@ -7,7 +7,7 @@ import gzip
 import os
 from io import BytesIO as IO
 from datetime import datetime
-import requests  
+import requests
 
 import numpy as np
 from pytz import UTC
@@ -266,7 +266,7 @@ def handle_roots(table_id, is_binary=False):
     root_ids = cg.get_roots(node_ids, stop_layer=stop_layer,
                             time_stamp=timestamp,
                             assert_roots=assert_roots)
-    
+
     return root_ids
 
 
@@ -324,7 +324,7 @@ def trigger_remesh(new_lvl2_ids, is_priority=True):
     auth_header = {"Authorization": f"Bearer {current_app.config['AUTH_TOKEN']}"}
     resp = requests.post(f"{current_app.config['MESHING_ENDPOINT']}/api/v1/table/{table_id}/remeshing",
                             data=json.dumps({"new_lvl2_ids": new_lvl2_ids},
-                                            cls=current_app.json_encoder), 
+                                            cls=current_app.json_encoder),
                             params={'priority': is_priority},
                             headers=auth_header)
     resp.raise_for_status()
@@ -336,7 +336,7 @@ def trigger_remesh(table_id, new_lvl2_ids, is_priority=True):
     auth_header = {"Authorization": f"Bearer {current_app.config['AUTH_TOKEN']}"}
     resp = requests.post(f"{current_app.config['MESHING_ENDPOINT']}/api/v1/table/{table_id}/remeshing",
                             data=json.dumps({"new_lvl2_ids": new_lvl2_ids},
-                                            cls=current_app.json_encoder), 
+                                            cls=current_app.json_encoder),
                             params={'priority': is_priority},
                             headers=auth_header)
     resp.raise_for_status()
@@ -371,7 +371,7 @@ def handle_merge(table_id):
 
         if atomic_id is None:
             raise cg_exceptions.BadRequest(
-                f"Could not determine supervoxel ID for coordinates " 
+                f"Could not determine supervoxel ID for coordinates "
                 f"{coordinate}."
             )
 
@@ -499,7 +499,7 @@ def handle_undo(table_id):
         raise cg_exceptions.InternalServerError(
             "Undo not supported for this chunkedgraph table."
         )
-        
+
     current_app.table_id = table_id
 
     data = json.loads(request.data)
@@ -539,7 +539,7 @@ def handle_redo(table_id):
         raise cg_exceptions.InternalServerError(
             "Redo not supported for this chunkedgraph table."
         )
-        
+
     current_app.table_id = table_id
 
     data = json.loads(request.data)
@@ -579,7 +579,7 @@ def handle_rollback(table_id):
         raise cg_exceptions.InternalServerError(
             "Rollback not supported for this chunkedgraph table."
         )
-        
+
     current_app.table_id = table_id
 
     user_id = str(g.auth_user["id"])
@@ -647,7 +647,7 @@ def all_user_operations(table_id):
             valid_entry_ids.append(entry_id)
             timestamp = entry["timestamp"]
             timestamp_list.append(timestamp)
-    
+
     return {"operation_id": valid_entry_ids,
          "timestamp": timestamp_list}
 
@@ -831,15 +831,15 @@ def tabular_change_log(table_id, root_id, get_root_ids, filtered):
     cg = app_utils.get_cg(table_id)
     segment_history = cg_history.SegmentHistory(cg, int(root_id))
 
-    tab = segment_history.get_tabular_changelog(with_ids=get_root_ids, 
+    tab = segment_history.get_tabular_changelog(with_ids=get_root_ids,
                                                 filtered=filtered)
-    
+
     try:
         tab["user_name"] = get_usernames(np.array(tab["user_id"], dtype=np.int).squeeze(),
                                          current_app.config['AUTH_TOKEN'])
     except:
-        current_app.logger.error(f"Could not retrieve user names for {root_id}")    
-        
+        current_app.logger.error(f"Could not retrieve user names for {root_id}")
+
     return tab
 
 
@@ -863,6 +863,36 @@ def merge_log(table_id, root_id):
 
     segment_history = cg_history.SegmentHistory(cg, int(root_id))
     return segment_history.merge_log(correct_for_wrong_coord_type=True)
+
+
+def handle_lineage_graph(table_id, root_id):
+    current_app.table_id = table_id
+    user_id = str(g.auth_user["id"])
+    current_app.user_id = user_id
+
+    # Convert seconds since epoch to UTC datetime
+    try:
+        timestamp_past = float(request.args.get("timestamp_past", 0))
+    except (TypeError, ValueError) as e:
+        raise (
+            cg_exceptions.BadRequest(
+                "Timestamp parameter is not a valid unix timestamp"
+            )
+        )
+
+    try:
+        timestamp_future = float(request.args.get("timestamp_future", time.time()))
+    except (TypeError, ValueError) as e:
+        raise (
+            cg_exceptions.BadRequest(
+                "Timestamp parameter is not a valid unix timestamp"
+            )
+        )
+
+    # Call ChunkedGraph
+    cg = app_utils.get_cg(table_id)
+    hist = cg_history.SegmentHistory(cg, int(root_id))
+    return hist.get_change_log_graph(timestamp_past, timestamp_future)
 
 
 def last_edit(table_id, root_id):
@@ -1113,7 +1143,7 @@ def handle_is_latest_roots(table_id, is_binary):
     # Call ChunkedGraph
     cg = app_utils.get_cg(table_id)
 
-    row_dict = cg.read_node_id_rows(node_ids=node_ids, 
+    row_dict = cg.read_node_id_rows(node_ids=node_ids,
                                     columns=column_keys.Hierarchy.NewParent,
                                     end_time=timestamp)
     assert_roots = bool(request.args.get("assert_roots", False))

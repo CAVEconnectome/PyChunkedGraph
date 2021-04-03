@@ -233,7 +233,7 @@ def handle_l2_chunk_children_binary(table_id, chunk_id):
 
 @bp.route("/table/<table_id>/node/<node_id>/leaves", methods=["GET"])
 # @auth_requires_permission("view")
-@auth_requires_permission("view", public_table_key='table_id', public_node_key='node_id', 
+@auth_requires_permission("view", public_table_key='table_id', public_node_key='node_id',
                           service_token=AUTH_TOKEN)
 def handle_leaves(table_id, node_id):
     int64_as_str = request.args.get("int64_as_str", default=False, type=toboolean)
@@ -342,8 +342,17 @@ def merge_log(table_id, root_id):
     return jsonify_with_kwargs(log, int64_as_str=int64_as_str)
 
 
+@bp.route("/table/<table_id>/root/<root_id>/lineage_graph", methods=["GET"])
+@auth_requires_permission("view")
+def handle_lineage_graph(table_id, root_id):
+    from networkx import node_link_data
+    int64_as_str = request.args.get("int64_as_str", default=False, type=toboolean)
+    graph = common.handle_lineage_graph(table_id, root_id)
+    return jsonify_with_kwargs(node_link_data(graph), int64_as_str=int64_as_str)
+
+
 @bp.route("/table/<table_id>/oldest_timestamp", methods=["GET"])
-@auth_requires_permission("view", public_table_key='table_id', 
+@auth_requires_permission("view", public_table_key='table_id',
                           service_token=AUTH_TOKEN)
 def oldest_timestamp(table_id):
     int64_as_str = request.args.get("int64_as_str", default=False, type=toboolean)
