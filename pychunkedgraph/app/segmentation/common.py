@@ -337,7 +337,7 @@ def trigger_remesh(table_id, new_lvl2_ids, is_priority=True):
 ### MERGE ----------------------------------------------------------------------
 
 
-def handle_merge(table_id):
+def handle_merge(table_id, allow_same_segment_merge=False):
     current_app.table_id = table_id
 
     nodes = json.loads(request.data)
@@ -388,6 +388,7 @@ def handle_merge(table_id):
             atomic_edges=np.array(atomic_edge, dtype=np.uint64),
             source_coords=coords[:1],
             sink_coords=coords[1:],
+            allow_same_segment_merge=allow_same_segment_merge,
         )
 
     except cg_exceptions.LockingError as e:
