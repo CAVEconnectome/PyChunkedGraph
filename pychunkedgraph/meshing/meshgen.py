@@ -412,7 +412,7 @@ def get_lx_overlapping_remappings(cg, chunk_id, time_stamp=None, n_threads=1):
     stop_layer = np.where(layer_agreement)[0][0] + 1 + chunk_layer
     # stop_layer = cg.n_layers
 
-    print(f"Stop layer: {stop_layer}")
+    # cg.logger.info(f"Stop layer: {stop_layer}")
 
     # Find the parent in the lowest common chunk for each l2 id. These parent
     # ids are referred to as root ids even though they are not necessarily the
@@ -427,7 +427,7 @@ def get_lx_overlapping_remappings(cg, chunk_id, time_stamp=None, n_threads=1):
 
     # This loop is the main bottleneck
     for neigh_chunk_id in neigh_chunk_ids:
-        print(f"Neigh: {neigh_chunk_id} --------------")
+        # cg.logger.info(f"Neigh: {neigh_chunk_id} --------------")
 
         lx_ids, root_ids, lx_id_remap = get_root_lx_remapping(
             cg, neigh_chunk_id, stop_layer, time_stamp=time_stamp, n_threads=n_threads
