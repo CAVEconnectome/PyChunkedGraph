@@ -343,7 +343,7 @@ def merge_log(table_id, root_id):
 
 
 @bp.route("/table/<table_id>/root/<root_id>/lineage_graph", methods=["GET"])
-@auth_requires_permission("view")
+@auth_requires_permission("admin")
 def handle_lineage_graph(table_id, root_id):
     from networkx import node_link_data
     int64_as_str = request.args.get("int64_as_str", default=False, type=toboolean)
