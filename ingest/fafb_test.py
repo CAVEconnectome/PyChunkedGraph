@@ -6,7 +6,8 @@ import numpy as np
 from pychunkedgraph.ingest import IngestConfig
 from pychunkedgraph.ingest.manager import IngestionManager
 from pychunkedgraph.ingest.main import start_ingest
-from pychunkedgraph.ingest.utils import initialize_chunkedgraph
+from pychunkedgraph.ingest.main import start_test_ingest
+from pychunkedgraph.ingest.ingestion_utils import initialize_chunkedgraph
 from pychunkedgraph.backend import DataSource
 from pychunkedgraph.backend import GraphConfig
 from pychunkedgraph.backend import BigTableConfig
@@ -36,4 +37,20 @@ if __name__ == "__main__":
     )
 
     meta = ChunkedGraphMeta(data_source, graph_config, bigtable_config)
-    initialize_chunkedgraph(meta)
+    if ingest_config.build_graph:
+        initialize_chunkedgraph(meta)
+
+    test = [
+        [104, 54, 6],
+        [104, 54, 7],
+        [104, 55, 6],
+        [104, 55, 7],
+        [105, 54, 6],
+        [105, 54, 7],
+        [105, 55, 6],
+        [105, 55, 7],
+    ]
+
+    imanager = IngestionManager(ingest_config, cg_meta=meta)
+    # start_ingest(imanager, n_workers=count)
+    start_test_ingest(imanager, test_chunks=test)

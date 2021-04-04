@@ -15,8 +15,6 @@ from ..io.components import get_chunk_components
 def create_atomic_chunk_helper(task: ChunkTask, imanager: IngestionManager):
     """Helper to queue atomic chunk task."""
     chunk_edges_all, mapping = _get_atomic_chunk_data(imanager, task.coords)
-    if not imanager.config.build_graph:
-        return task
     ids, affs, areas, isolated = get_chunk_data_old_format(chunk_edges_all, mapping)
     imanager.cg.add_atomic_edges_in_chunks(
         ids, affs, areas, isolated, time_stamp=imanager.cg_meta.graph_config.time_stamp
@@ -52,4 +50,3 @@ def _get_atomic_chunk_data(
         else get_chunk_components(imanager.cg_meta.data_source.components, coord)
     )
     return chunk_edges, mapping
-

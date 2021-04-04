@@ -203,3 +203,21 @@ def start_ingest(
     print("Complete.")
     manager.shutdown()
     task_q.close()
+
+
+
+def start_test_ingest(
+    imanager: IngestionManager,
+    *,
+    test_chunks=None,
+):
+    atomic_chunk_bounds = imanager.cg_meta.layer_chunk_bounds[2]
+    atomic_chunks = list(product(*[range(r) for r in atomic_chunk_bounds]))
+    if test_chunks:
+        atomic_chunks = test_chunks
+
+    np.random.shuffle(atomic_chunks)
+    for coords in atomic_chunks:
+        print(coords)
+        task = ChunkTask(imanager.cg_meta, np.array(coords, dtype=np.int))
+        create_atomic_chunk_helper(task, imanager)
