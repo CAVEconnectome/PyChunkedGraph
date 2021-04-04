@@ -13,7 +13,6 @@ import numpy as np
 
 from .utils import chunk_id_str
 from .manager import IngestionManager
-from .common import get_atomic_chunk_data
 from .types import ChunkTask
 from ..backend import ChunkedGraphMeta
 from ..backend.chunks.hierarchy import get_children_coords
