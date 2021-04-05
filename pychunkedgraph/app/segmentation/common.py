@@ -832,6 +832,7 @@ def handle_lineage_graph(table_id, root_id):
     hist = segmenthistory.SegmentHistory(cg, int(root_id))
     return hist.get_change_log_graph(timestamp_past, timestamp_future)
 
+
 def handle_past_id_mapping(table_id):
     root_ids = np.array(json.loads(request.data)["root_ids"], dtype=np.uint64)
     # Convert seconds since epoch to UTC datetime
@@ -866,10 +867,11 @@ def handle_past_id_mapping(table_id):
         nodes = np.array(list(in_degree_dict.keys()))
         in_degrees = np.array(list(in_degree_dict.values()))
 
-        past_id_mapping[root_id] = nodes[in_degrees == 0]
+        past_id_mapping[int(root_id)] = nodes[in_degrees == 0]
 
     return {"past_id_map": past_id_mapping,
             "future_id_map": future_id_mapping}
+
 
 def last_edit(table_id, root_id):
     current_app.table_id = table_id
