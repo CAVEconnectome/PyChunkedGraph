@@ -832,6 +832,44 @@ def handle_lineage_graph(table_id, root_id):
     hist = segmenthistory.SegmentHistory(cg, int(root_id))
     return hist.get_change_log_graph(timestamp_past, timestamp_future)
 
+def handle_past_id_mapping(table_id):
+    root_ids = np.array(json.loads(request.data)["root_ids"], dtype=np.uint64)
+    # Convert seconds since epoch to UTC datetime
+    try:
+        timestamp_past = float(request.args.get("timestamp_past", 0))
+    except (TypeError, ValueError) as e:
+        raise (
+            cg_exceptions.BadRequest(
+                "Timestamp parameter is not a valid unix timestamp"
+            )
+        )
+
+    try:
+        timestamp_future = float(request.args.get("timestamp_future", time.time()))
+    except (TypeError, ValueError) as e:
+        raise (
+            cg_exceptions.BadRequest(
+                "Timestamp parameter is not a valid unix timestamp"
+            )
+        )
+
+    # Call ChunkedGraph
+    cg = app_utils.get_cg(table_id)
+
+    past_id_mapping = {}
+    future_id_mapping = {}
+    for root_id in root_ids:
+        hist = segmenthistory.SegmentHistory(cg, int(root_id))
+        graph = hist.get_change_log_graph(timestamp_past, None)
+
+        in_degree_dict = dict(graph.in_degree)
+        nodes = np.array(list(in_degree_dict.keys()))
+        in_degrees = np.array(list(in_degree_dict.values()))
+
+        past_id_mapping[root_id] = nodes[in_degrees == 0]
+
+    return {"past_id_map": past_id_mapping,
+            "future_id_map": future_id_mapping}
 
 def last_edit(table_id, root_id):
     current_app.table_id = table_id
