@@ -57,12 +57,22 @@ def ingest_graph(
     )
 
     graph_config = GraphConfig(
-        ID=f"{graph_id}",
-        OVERWRITE=overwrite,
-        **config["graph_config"],
+        graph_id=graph_id,
+        chunk_size=np.array([256, 256, 512], dtype=int),
+        overwrite=True,
     )
-    data_source = DataSource(**config["data_source"])
-    meta = ChunkedGraphMeta(graph_config, data_source, BigTableConfig())
+
+    data_source = DataSource(
+        agglomeration=config["ingest_config"]["AGGLOMERATION"],
+        watershed=config["data_source"]["WATERSHED"],
+        edges=config["data_source"]["EDGES"],
+        components=config["data_source"]["COMPONENTS"],
+        data_version=config["data_source"]["DATA_VERSION"],
+        use_raw_edges=raw,
+        use_raw_components=raw,
+    )
+
+    meta = ChunkedGraphMeta(data_source, graph_config, BigTableConfig())
     enqueue_atomic_tasks(IngestionManager(ingest_config, meta))
 
 

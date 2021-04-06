@@ -58,7 +58,7 @@ def enqueue_atomic_tasks(imanager: IngestionManager):
         atomic_queue.enqueue(
             _create_atomic_chunk,
             job_id=chunk_id_str(2, chunk_coord),
-            job_timeout="4m",
+            job_timeout="6m",
             result_ttl=0,
             args=(imanager.get_serialized_info(pickled=True), chunk_coord),
         )
