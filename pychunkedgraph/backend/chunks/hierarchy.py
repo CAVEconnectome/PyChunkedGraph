@@ -14,6 +14,8 @@ def get_children_coords(
 
     for dcoord in product(*[range(cg_meta.graph_config.fanout)] * 3):
         dcoord = np.array(dcoord, dtype=int)
+        print(dcoord)
+        print(chunk_coords)
         child_coords = chunk_coords * cg_meta.graph_config.fanout + dcoord
         check_bounds = np.less(child_coords, layer_boundaries)
         if np.all(check_bounds):
