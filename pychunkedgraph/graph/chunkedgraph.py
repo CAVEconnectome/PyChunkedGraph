@@ -120,7 +120,7 @@ class ChunkedGraph:
         x: int,
         y: int,
         z: int,
-        parent_id: Optional[np.uint64] = None,
+        parent_id: typing.Optional[np.uint64] = None,
         n_tries: int = 5
     ) -> np.uint64:
         """Determines atomic id given a coordinate."""

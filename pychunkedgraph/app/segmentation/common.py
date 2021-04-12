@@ -22,6 +22,7 @@ from pychunkedgraph.app import app_utils
 from pychunkedgraph.graph import attributes, cutting, exceptions as cg_exceptions, edges as cg_edges
 from pychunkedgraph.graph import segmenthistory
 from pychunkedgraph.graph.analysis import pathing
+from pychunkedgraph.graph.attributes import OperationLogs
 from pychunkedgraph.meshing import mesh_analysis
 
 __api_versions__ = [0, 1]
@@ -615,7 +616,7 @@ def all_user_operations(table_id):
     entry_ids = np.sort(list(log_rows.keys()))
     for entry_id in entry_ids:
         entry = log_rows[entry_id]
-        user_id = entry[column_keys.OperationLogs.UserID]
+        user_id = entry[OperationLogs.UserID]
 
         if user_id == target_user_id:
             valid_entry_ids.append(entry_id)
@@ -623,7 +624,7 @@ def all_user_operations(table_id):
             timestamp_list.append(timestamp)
 
     return {"operation_id": valid_entry_ids,
-         "timestamp": timestamp_list}
+            "timestamp": timestamp_list}
 
 
 ### CHILDREN -------------------------------------------------------------------
