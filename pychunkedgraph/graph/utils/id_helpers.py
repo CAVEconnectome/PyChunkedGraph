@@ -52,13 +52,18 @@ def get_atomic_id_from_coord(
     x: int,
     y: int,
     z: int,
-    parent_id: np.uint64,
+    parent_id: Optional[np.uint64] = None,
     n_tries: int = 5,
 ) -> np.uint64:
     """Determines atomic id given a coordinate."""
     x = int(x / 2 ** meta.data_source.CV_MIP)
     y = int(y / 2 ** meta.data_source.CV_MIP)
     z = int(z)
+
+    if parent_id is None:
+        # assume we have a single unique id at the exact coordinate
+        atomic_id_block = self.cv[x: x + 1, y: y + 1, z: z + 1]
+        return atomic_id_block[0][0][0][0]
 
     checked = []
     atomic_id = None
