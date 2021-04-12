@@ -802,43 +802,43 @@ def change_log(table_id, root_id=None):
     return hist.change_log()
 
 
-# def tabular_change_log_recent(table_id):
-#     current_app.table_id = table_id
-#     user_id = str(g.auth_user["id"])
-#     current_app.user_id = user_id
+def tabular_change_log_recent(table_id):
+    current_app.table_id = table_id
+    user_id = str(g.auth_user["id"])
+    current_app.user_id = user_id
 
-#     try:
-#         start_time = float(request.args.get("start_time", 0))
-#         start_time = datetime.fromtimestamp(start_time, UTC)
-#     except (TypeError, ValueError):
-#         raise (
-#             cg_exceptions.BadRequest(
-#                 "start_time parameter is not a valid unix timestamp"
-#             )
-#         )
+    try:
+        start_time = float(request.args.get("start_time", 0))
+        start_time = datetime.fromtimestamp(start_time, UTC)
+    except (TypeError, ValueError):
+        raise (
+            cg_exceptions.BadRequest(
+                "start_time parameter is not a valid unix timestamp"
+            )
+        )
 
-#     # Call ChunkedGraph
-#     cg = app_utils.get_cg(table_id)
+    # Call ChunkedGraph
+    cg = app_utils.get_cg(table_id)
 
-#     log_rows = cg.read_log_rows(start_time=start_time)
+    log_rows = cg.client.read_log_entries(start_time=start_time)
 
-#     timestamp_list = []
-#     user_list = []
+    timestamp_list = []
+    user_list = []
 
-#     entry_ids = np.sort(list(log_rows.keys()))
-#     for entry_id in entry_ids:
-#         entry = log_rows[entry_id]
+    operation_ids = np.sort(list(log_rows.keys()))
+    for operation_id in operation_ids:
+        operation = log_rows[operation_id]
 
-#         timestamp = entry["timestamp"]
-#         timestamp_list.append(timestamp)
+        timestamp = operation["timestamp"]
+        timestamp_list.append(timestamp)
 
-#         user_id = entry[attributes.OperationLogs.UserID]
-#         user_list.append(user_id)
+        user_id = operation[attributes.OperationLogs.UserID]
+        user_list.append(user_id)
 
-#     return pd.DataFrame.from_dict(
-#         {"operation_id": entry_ids,
-#             "timestamp": timestamp_list,
-#             "user_id": user_list})
+    return pd.DataFrame.from_dict({
+        "operation_id": operation_ids,
+        "timestamp": timestamp_list,
+        "user_id": user_list})
 
 
 def tabular_change_log(table_id, root_id, get_root_ids, filtered):
