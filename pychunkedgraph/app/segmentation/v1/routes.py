@@ -1,6 +1,7 @@
 import io
 import csv
 import pickle
+import pandas as pd
 
 from flask import make_response, current_app
 from flask import Blueprint, request
@@ -126,6 +127,33 @@ def handle_redo(table_id):
     redo_result = common.handle_redo(table_id)
     resp = {"operation_id": redo_result.operation_id, "new_root_ids": redo_result.new_root_ids}
     return jsonify_with_kwargs(resp, int64_as_str=int64_as_str)
+
+
+### ROLLBACK USER --------------------------------------------------------------
+
+
+@bp.route("/table/<table_id>/rollback_user", methods=["POST"])
+@auth_requires_admin
+def handle_rollback(table_id):
+    int64_as_str = request.args.get("int64_as_str", default=False, type=toboolean)
+    rollback_result = common.handle_rollback(table_id)
+    resp = rollback_result
+    return jsonify_with_kwargs(resp, int64_as_str=int64_as_str)
+
+
+### USER OPERATIONS -------------------------------------------------------------
+
+
+@bp.route("/table/<table_id>/user_operations", methods=["GET"])
+@auth_requires_permission("admin_view")
+def handle_user_operations(table_id):
+    disp = request.args.get("disp", default=False, type=toboolean)
+    user_operations = pd.DataFrame.from_dict(common.all_user_operations(table_id))
+
+    if disp:
+        return user_operations.to_html()
+    else:
+        return user_operations.to_json()
 
 
 ### GET ROOT -------------------------------------------------------------------

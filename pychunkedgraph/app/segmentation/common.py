@@ -550,6 +550,81 @@ def handle_redo(table_id):
     return ret
 
 
+### ROLLBACK USER --------------------------------------------------------------
+
+
+def handle_rollback(table_id):
+    current_app.table_id = table_id
+
+    user_id = str(g.auth_user["id"])
+    current_app.user_id = user_id
+    target_user_id = request.args["user_id"]
+
+    # Call ChunkedGraph
+    cg = app_utils.get_cg(table_id)
+    user_operations = all_user_operations(table_id)
+    operation_ids = user_operations["operation_id"]
+    timestamps = user_operations["timestamp"]
+    operations = list(zip(operation_ids, timestamps))
+    operations.sort(key=lambda op: op[1], reverse=True)
+
+    for operation in operations:
+        operation_id = operation[0]
+        try:
+            ret = cg.undo_operation(user_id=target_user_id, operation_id=operation_id)
+        except cg_exceptions.LockingError as e:
+            raise cg_exceptions.InternalServerError(
+                "Could not acquire root lock for undo operation."
+            )
+        except (cg_exceptions.PreconditionError, cg_exceptions.PostconditionError) as e:
+            raise cg_exceptions.BadRequest(str(e))
+
+        if ret.new_lvl2_ids.size > 0:
+            trigger_remesh(table_id, ret.new_lvl2_ids, is_priority=False)
+
+    return user_operations
+
+
+### USER OPERATIONS -------------------------------------------------------------
+
+
+def all_user_operations(table_id):
+    current_app.table_id = table_id
+    user_id = str(g.auth_user["id"])
+    current_app.user_id = user_id
+    target_user_id = request.args["user_id"]
+
+    try:
+        start_time = float(request.args.get("start_time", 0))
+        start_time = datetime.fromtimestamp(start_time, UTC)
+    except (TypeError, ValueError):
+        raise (
+            cg_exceptions.BadRequest(
+                "start_time parameter is not a valid unix timestamp"
+            )
+        )
+
+    # Call ChunkedGraph
+    cg_instance = app_utils.get_cg(table_id)
+
+    log_rows = cg_instance.read_log_rows(start_time=start_time)
+
+    valid_entry_ids = []
+    timestamp_list = []
+
+    entry_ids = np.sort(list(log_rows.keys()))
+    for entry_id in entry_ids:
+        entry = log_rows[entry_id]
+        user_id = entry[column_keys.OperationLogs.UserID]
+
+        if user_id == target_user_id:
+            valid_entry_ids.append(entry_id)
+            timestamp = entry["timestamp"]
+            timestamp_list.append(timestamp)
+
+    return {"operation_id": valid_entry_ids,
+         "timestamp": timestamp_list}
+
 
 ### CHILDREN -------------------------------------------------------------------
 
