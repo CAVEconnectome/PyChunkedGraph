@@ -1130,7 +1130,10 @@ def handle_is_latest_roots(table_id, is_binary):
     # Call ChunkedGraph
     cg = app_utils.get_cg(table_id)
 
-    row_dict = cg.read_node_id_rows(node_ids=node_ids, columns=attributes.Hierarchy.NewParent)
+    row_dict = cg.client.read_nodes(
+        node_ids=node_ids,
+        properties=attributes.Hierarchy.NewParent
+    )
     is_latest = ~np.isin(node_ids, list(row_dict.keys()))
 
     return is_latest
