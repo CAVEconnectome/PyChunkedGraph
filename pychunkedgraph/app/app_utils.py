@@ -66,7 +66,7 @@ def get_datastore_client(config):
 def get_cg(table_id, skip_cache: bool = False):
     from pychunkedgraph.graph.client import get_default_client_info
 
-    assert table_id.startswith("minnie") or table_id.startswith("pinky_")
+    assert table_id in current_app.config["PCG_GRAPH_IDS"]
 
     current_app.table_id = table_id
     if skip_cache is False:
