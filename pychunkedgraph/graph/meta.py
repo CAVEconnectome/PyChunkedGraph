@@ -13,7 +13,9 @@ from .utils.generic import compute_bitmasks
 _datasource_fields = ("EDGES", "COMPONENTS", "WATERSHED", "DATA_VERSION", "CV_MIP")
 _datasource_defaults = (None, None, None, None, 0)
 DataSource = namedtuple(
-    "DataSource", _datasource_fields, defaults=_datasource_defaults,
+    "DataSource",
+    _datasource_fields,
+    defaults=_datasource_defaults,
 )
 
 
@@ -103,7 +105,8 @@ class ChunkedGraphMeta:
     def layer_count(self, count):
         self._layer_count = count
         self._bitmasks = compute_bitmasks(
-            self._layer_count, s_bits_atomic_layer=self._graph_config.SPATIAL_BITS,
+            self._layer_count,
+            s_bits_atomic_layer=self._graph_config.SPATIAL_BITS,
         )
 
     @property
@@ -116,7 +119,8 @@ class ChunkedGraphMeta:
         if self._bitmasks:
             return self._bitmasks
         self._bitmasks = compute_bitmasks(
-            self.layer_count, s_bits_atomic_layer=self._graph_config.SPATIAL_BITS,
+            self.layer_count,
+            s_bits_atomic_layer=self._graph_config.SPATIAL_BITS,
         )
         return self._bitmasks
 
@@ -199,6 +203,10 @@ class ChunkedGraphMeta:
         else:
             raise Exception()
         return dtype
+
+    @property
+    def READ_ONLY(self):
+        return self.custom_data.get("READ_ONLY", False)
 
     @property
     def dataset_info(self) -> Dict:
