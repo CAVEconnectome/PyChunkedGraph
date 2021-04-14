@@ -169,7 +169,11 @@ def lineage_graph(
         next_past_ids = [np.empty(0, dtype=np.uint64)]
         for k in past_ids:
             val = nodes_raw[k]
-            operation_id = val[OperationLogs.OperationID][0].value
+            if OperationLogs.OperationID in val:
+                operation_id = val[OperationLogs.OperationID][0].value
+            else:
+                operation_id = 0
+
             timestamp = val[Hierarchy.Child][0].timestamp.timestamp()
             graph.add_node(k, operation_id=operation_id, timestamp=timestamp)
             if timestamp < timestamp_past or not Hierarchy.FormerParent in val:
