@@ -502,7 +502,7 @@ def handle_undo(table_id):
     operation_id = np.uint64(data["operation_id"])
 
     try:
-        ret = cg.undo(user_id=user_id, operation_id=operation_id)
+        ret = cg.undo_operation(user_id=user_id, operation_id=operation_id)
     except cg_exceptions.LockingError as e:
         raise cg_exceptions.InternalServerError(e)
     except (cg_exceptions.PreconditionError, cg_exceptions.PostconditionError) as e:
@@ -536,7 +536,7 @@ def handle_redo(table_id):
     operation_id = np.uint64(data["operation_id"])
 
     try:
-        ret = cg.redo(user_id=user_id, operation_id=operation_id)
+        ret = cg.redo_operation(user_id=user_id, operation_id=operation_id)
     except cg_exceptions.LockingError as e:
         raise cg_exceptions.InternalServerError(e)
     except (cg_exceptions.PreconditionError, cg_exceptions.PostconditionError) as e:
