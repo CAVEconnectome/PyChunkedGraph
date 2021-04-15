@@ -606,9 +606,9 @@ def all_user_operations(table_id):
         )
 
     # Call ChunkedGraph
-    cg_instance = app_utils.get_cg(table_id)
+    cg = app_utils.get_cg(table_id)
 
-    log_rows = cg_instance.read_log_rows(start_time=start_time)
+    log_rows = cg.client.read_log_entries(start_time=start_time)
 
     valid_entry_ids = []
     timestamp_list = []
