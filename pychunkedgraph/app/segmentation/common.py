@@ -23,6 +23,7 @@ from pychunkedgraph.graph import attributes, cutting, exceptions as cg_exception
 from pychunkedgraph.graph import segmenthistory
 from pychunkedgraph.graph.analysis import pathing
 from pychunkedgraph.meshing import mesh_analysis
+from pychunkedgraph.graph.misc import get_contact_sites
 
 __api_versions__ = [0, 1]
 __segmentation_url_prefix__ = os.environ.get('SEGMENTATION_URL_PREFIX', 'segmentation')
@@ -905,8 +906,6 @@ def oldest_timestamp(table_id):
 
 def handle_contact_sites(table_id, root_id):
     partners = request.args.get("partners", True, type=app_utils.toboolean)
-    as_list = request.args.get("as_list", True, type=app_utils.toboolean)
-    areas_only = request.args.get("areas_only", True, type=app_utils.toboolean)
 
     current_app.table_id = table_id
     user_id = str(g.auth_user["id"])
@@ -933,14 +932,12 @@ def handle_contact_sites(table_id, root_id):
     # Call ChunkedGraph
     cg = app_utils.get_cg(table_id)
 
-    cs_list, cs_metadata = contact_sites.get_contact_sites(
+    cs_list, cs_metadata = get_contact_sites(
         cg,
         np.uint64(root_id),
         bounding_box=bounding_box,
         compute_partner=partners,
-        end_time=timestamp,
-        as_list=as_list,
-        areas_only=areas_only
+        time_stamp=timestamp
     )
 
     return cs_list, cs_metadata

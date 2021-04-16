@@ -169,6 +169,7 @@ def get_contact_sites(
     bounding_box=None,
     bb_is_coordinate=True,
     compute_partner=True,
+    time_stamp = None
 ):
     # Get information about the root id
     # All supervoxels
@@ -214,7 +215,7 @@ def get_contact_sites(
         cc_sv_ids = cc_sv_ids[np.in1d(cc_sv_ids, u_cs_svs)]
         cs_areas = area_dict_vec(cc_sv_ids)
         partner_root_id = (
-            int(cg.get_root(cc_sv_ids[0])) if compute_partner else len(cs_dict)
+            int(cg.get_root(cc_sv_ids[0], time_stamp=time_stamp)) if compute_partner else len(cs_dict)
         )
         cs_dict[partner_root_id].append(np.sum(cs_areas))
     return cs_dict
