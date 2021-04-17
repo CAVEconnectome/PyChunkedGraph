@@ -231,6 +231,7 @@ class GraphEditOperation(ABC):
             bbox_offset = log_record[attributes.OperationLogs.BoundingBoxOffset]
             source_ids = log_record[attributes.OperationLogs.SourceID]
             sink_ids = log_record[attributes.OperationLogs.SinkID]
+            removed_edges = log_record[attributes.OperationLogs.RemovedEdge]
             return MulticutOperation(
                 cg,
                 user_id=user_id,
@@ -239,6 +240,7 @@ class GraphEditOperation(ABC):
                 bbox_offset=bbox_offset,
                 source_ids=source_ids,
                 sink_ids=sink_ids,
+                removed_edges=removed_edges,
             )
 
         raise TypeError(f"Could not determine graph operation type.")
@@ -820,13 +822,14 @@ class MulticutOperation(GraphEditOperation):
         source_coords: Sequence[Sequence[np.int]],
         sink_coords: Sequence[Sequence[np.int]],
         bbox_offset: Sequence[np.int],
+        removed_edges: Sequence[Sequence[np.uint64]] = types.empty_2d,
         path_augment: bool = True,
         disallow_isolating_cut: bool = True,
     ) -> None:
         super().__init__(
             cg, user_id=user_id, source_coords=source_coords, sink_coords=sink_coords
         )
-        self.removed_edges = types.empty_2d
+        self.removed_edges = removed_edges
         self.source_ids = np.atleast_1d(source_ids).astype(basetypes.NODE_ID)
         self.sink_ids = np.atleast_1d(sink_ids).astype(basetypes.NODE_ID)
         self.bbox_offset = np.atleast_1d(
@@ -960,7 +963,7 @@ class RedoOperation(GraphEditOperation):
     :type multicut_as_split: bool
     """
 
-    __slots__ = ["superseded_operation_id", "superseded_operation"]
+    __slots__ = ["superseded_operation_id", "superseded_operation", "added_edges", "removed_edges"]
 
     def __init__(
         self,
@@ -985,6 +988,10 @@ class RedoOperation(GraphEditOperation):
         self.superseded_operation = GraphEditOperation.from_log_record(
             cg, log_record=log_record, multicut_as_split=multicut_as_split
         )
+        if hasattr(self.superseded_operation, "added_edges"):
+            self.added_edges = self.superseded_operation.added_edges
+        if hasattr(self.superseded_operation, "removed_edges"):
+            self.removed_edges = self.superseded_operation.removed_edges
 
     def _update_root_ids(self):
         return self.superseded_operation._update_root_ids()
@@ -1012,6 +1019,10 @@ class RedoOperation(GraphEditOperation):
             attributes.OperationLogs.RootID: new_root_ids,
             attributes.OperationLogs.OperationTimeStamp: operation_ts,
         }
+        if hasattr(self, "added_edges"):
+            val_dict[attributes.OperationLogs.AddedEdge] = self.added_edges
+        if hasattr(self, "removed_edges"):
+            val_dict[attributes.OperationLogs.RemovedEdge] = self.removed_edges
         return self.cg.client.mutate_row(
             serializers.serialize_uint64(operation_id), val_dict, timestamp
         )
@@ -1024,7 +1035,7 @@ class RedoOperation(GraphEditOperation):
             self.cg,
             user_id=self.user_id,
             superseded_operation_id=self.superseded_operation_id,
-            multicut_as_split=False,
+            multicut_as_split=True,
         )
 
 
@@ -1049,7 +1060,7 @@ class UndoOperation(GraphEditOperation):
     :type multicut_as_split: bool
     """
 
-    __slots__ = ["superseded_operation_id", "inverse_superseded_operation"]
+    __slots__ = ["superseded_operation_id", "inverse_superseded_operation", "added_edges", "removed_edges"]
 
     def __init__(
         self,
@@ -1074,6 +1085,10 @@ class UndoOperation(GraphEditOperation):
         self.inverse_superseded_operation = GraphEditOperation.from_log_record(
             cg, log_record=log_record, multicut_as_split=multicut_as_split
         ).invert()
+        if hasattr(self.inverse_superseded_operation, "added_edges"):
+            self.added_edges = self.inverse_superseded_operation.added_edges
+        if hasattr(self.inverse_superseded_operation, "removed_edges"):
+            self.removed_edges = self.inverse_superseded_operation.removed_edges
 
     def _update_root_ids(self):
         return self.inverse_superseded_operation._update_root_ids()
@@ -1101,6 +1116,10 @@ class UndoOperation(GraphEditOperation):
             attributes.OperationLogs.RootID: new_root_ids,
             attributes.OperationLogs.OperationTimeStamp: operation_ts,
         }
+        if hasattr(self, "added_edges"):
+            val_dict[attributes.OperationLogs.AddedEdge] = self.added_edges
+        if hasattr(self, "removed_edges"):
+            val_dict[attributes.OperationLogs.RemovedEdge] = self.removed_edges
         return self.cg.client.mutate_row(
             serializers.serialize_uint64(operation_id), val_dict, timestamp
         )
@@ -1113,5 +1132,5 @@ class UndoOperation(GraphEditOperation):
             self.cg,
             user_id=self.user_id,
             superseded_operation_id=self.superseded_operation_id,
-            multicut_as_split=False,
+            multicut_as_split=True,
         )
