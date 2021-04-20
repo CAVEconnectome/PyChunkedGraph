@@ -120,11 +120,11 @@ class ChunkedGraph:
         x: int,
         y: int,
         z: int,
-        parent_id: typing.Optional[np.uint64] = None,
+        parent_id: np.uint64,
         n_tries: int = 5
     ) -> np.uint64:
         """Determines atomic id given a coordinate."""
-        if parent_id is not None and self.get_chunk_layer(parent_id) == 1:
+        if self.get_chunk_layer(parent_id) == 1:
             return parent_id
         return id_helpers.get_atomic_id_from_coord(
             self.meta, self.get_root, x, y, z, parent_id, n_tries=n_tries
