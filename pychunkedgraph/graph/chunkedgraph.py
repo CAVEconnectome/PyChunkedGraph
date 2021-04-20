@@ -116,7 +116,12 @@ class ChunkedGraph:
         )
 
     def get_atomic_id_from_coord(
-        self, x: int, y: int, z: int, parent_id: np.uint64, n_tries: int = 5
+        self,
+        x: int,
+        y: int,
+        z: int,
+        parent_id: np.uint64,
+        n_tries: int = 5
     ) -> np.uint64:
         """Determines atomic id given a coordinate."""
         if self.get_chunk_layer(parent_id) == 1:
@@ -763,10 +768,10 @@ class ChunkedGraph:
         :param operation_id: operation_id to be inverted
         :return: GraphEditOperation.Result
         """
-        return operation.UndoOperation(
+        return operation.GraphEditOperation.undo_operation(
             self,
             user_id=user_id,
-            superseded_operation_id=operation_id,
+            operation_id=operation_id,
             multicut_as_split=True,
         ).execute()
 
@@ -778,10 +783,10 @@ class ChunkedGraph:
         :param operation_id: operation_id to be repeated
         :return: GraphEditOperation.Result
         """
-        return operation.RedoOperation(
+        return operation.GraphEditOperation.redo_operation(
             self,
             user_id=user_id,
-            superseded_operation_id=operation_id,
+            operation_id=operation_id,
             multicut_as_split=True,
         ).execute()
 
