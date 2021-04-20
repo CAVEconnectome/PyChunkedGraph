@@ -4,6 +4,7 @@ Utils functions for node and segment IDs.
 
 from typing import Optional
 
+import datetime
 import numpy as np
 
 from . import basetypes
@@ -54,6 +55,7 @@ def get_atomic_id_from_coord(
     z: int,
     parent_id: np.uint64,
     n_tries: int = 5,
+    time_stamp: Optional[datetime.datetime] = None,
 ) -> np.uint64:
     """Determines atomic id given a coordinate."""
     x = int(x / 2 ** meta.data_source.CV_MIP)
@@ -62,7 +64,7 @@ def get_atomic_id_from_coord(
 
     checked = []
     atomic_id = None
-    root_id = get_root(parent_id)
+    root_id = get_root(parent_id, time_stamp=time_stamp)
 
     for i_try in range(n_tries):
         # Define block size -- increase by one each try
@@ -91,7 +93,7 @@ def get_atomic_id_from_coord(
         # given root id
         for candidate_atomic_id in sorted_atomic_ids:
             if candidate_atomic_id != 0:
-                ass_root_id = get_root(candidate_atomic_id)
+                ass_root_id = get_root(candidate_atomic_id, time_stamp=time_stamp)
                 if ass_root_id == root_id:
                     # atomic_id is not None will be our indicator that the
                     # search was successful
