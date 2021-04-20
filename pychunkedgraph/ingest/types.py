@@ -1,13 +1,12 @@
 import numpy as np
 
 from ..backend import ChunkedGraphMeta
-from ..backend.chunks.hierarchy import get_children_coords
 
 
 class ChunkTask:
     def __init__(self, cg_meta: ChunkedGraphMeta, coords: np.ndarray, layer: int = 2):
         self.cg_meta = cg_meta
-        self.coords = coords
+        self.coords = np.array(coords, dtype=int)
         self.layer = layer
 
     @staticmethod
@@ -25,5 +24,6 @@ class ChunkTask:
 
     @property
     def children_coords(self):
-        return get_children_coords(self.cg_meta, self.layer, self.coords)
+        from ..backend.chunks.hierarchy import get_children_coords
 
+        return get_children_coords(self.cg_meta, self.layer, self.coords)

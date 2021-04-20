@@ -9,6 +9,8 @@ from pychunkedgraph.backend import BigTableConfig
 from pychunkedgraph.backend import chunkedgraph
 from pychunkedgraph.backend import chunkedgraph_utils
 
+chunk_id_str = lambda layer, coords: f"{layer}_{'_'.join(map(str, coords))}"
+
 
 def _check_table_existence(bigtable_config: BigTableConfig, graph_config: str):
     client = bigtable.Client(project=bigtable_config.project_id, admin=True)

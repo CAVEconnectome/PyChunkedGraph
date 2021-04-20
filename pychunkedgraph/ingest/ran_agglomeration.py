@@ -20,7 +20,7 @@ import numpy.lib.recfunctions as rfn
 import zstandard as zstd
 
 from .manager import IngestionManager
-from .ingestion_utils import postprocess_edge_data
+from .utils import postprocess_edge_data
 from ..io.edges import get_chunk_edges
 from ..io.edges import put_chunk_edges
 from ..io.components import get_chunk_components
