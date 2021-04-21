@@ -210,19 +210,21 @@ class ChunkedGraphMeta:
 
     @property
     def dataset_info(self) -> Dict:
-        info = {
-            "data_dir": self.data_source.WATERSHED,
-            "graph": {
-                "chunk_size": self.graph_config.CHUNK_SIZE,
-                "bounding_box": [2048, 2048, 512],
-                "n_bits_for_layer_id": self.graph_config.LAYER_ID_BITS,
-                "cv_mip": self.data_source.CV_MIP,
-                "n_layers": self.layer_count,
-                "spatial_bit_masks": self.bitmasks,
-            },
-        }
-        info.update(self.ws_cv.info)  # pylint: disable=no-member
-        info["chunks_start_at_voxel_offset"] = True
+        info = self.ws_cv.info  # pylint: disable=no-member
+        info.update(
+            {
+                "chunks_start_at_voxel_offset": True,
+                "data_dir": self.data_source.WATERSHED,
+                "graph": {
+                    "chunk_size": self.graph_config.CHUNK_SIZE,
+                    "bounding_box": [2048, 2048, 512],
+                    "n_bits_for_layer_id": self.graph_config.LAYER_ID_BITS,
+                    "cv_mip": self.data_source.CV_MIP,
+                    "n_layers": self.layer_count,
+                    "spatial_bit_masks": self.bitmasks,
+                },
+            }
+        )
         return info
 
     def __getnewargs__(self):
