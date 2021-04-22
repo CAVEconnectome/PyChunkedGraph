@@ -682,11 +682,26 @@ def handle_leaves(table_id, root_id):
 
     # Call ChunkedGraph
     cg = app_utils.get_cg(table_id)
-    atomic_ids = cg.get_subgraph_nodes(
-        int(root_id), bounding_box=bounding_box, bb_is_coordinate=True
-    )
+    if stop_layer > 1:
+        from pychunkedgraph.graph.types import empty_1d
 
-    return atomic_ids
+        subgraph = cg.get_subgraph_nodes(
+            int(root_id),
+            bbox=bounding_box,
+            bbox_is_coordinate=True,
+            return_layers=[stop_layer]
+        )
+        result = [empty_1d]
+        for node_subgraph in subgraph.values():
+            for children_at_layer in node_subgraph.values():
+                result.append(children_at_layer)
+        return np.concatenate(result)
+    else: 
+        atomic_ids = cg.get_subgraph_nodes(
+            int(root_id), bounding_box=bounding_box, bb_is_coordinate=True
+        )
+
+        return atomic_ids
 
 
 ### LEAVES FROM LEAVES ---------------------------------------------------------
