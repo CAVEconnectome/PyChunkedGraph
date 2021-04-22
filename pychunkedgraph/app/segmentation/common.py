@@ -671,7 +671,7 @@ def handle_leaves(table_id, root_id):
     current_app.table_id = table_id
     user_id = str(g.auth_user["id"])
     current_app.user_id = user_id
-
+    stop_layer = int(request.args.get("stop_layer", 1))
     if "bounds" in request.args:
         bounds = request.args["bounds"]
         bounding_box = np.array(
