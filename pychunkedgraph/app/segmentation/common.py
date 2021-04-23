@@ -671,7 +671,7 @@ def handle_leaves(table_id, root_id):
     current_app.table_id = table_id
     user_id = str(g.auth_user["id"])
     current_app.user_id = user_id
-
+    stop_layer = int(request.args.get("stop_layer", 1))
     if "bounds" in request.args:
         bounds = request.args["bounds"]
         bounding_box = np.array(
@@ -682,11 +682,25 @@ def handle_leaves(table_id, root_id):
 
     # Call ChunkedGraph
     cg = app_utils.get_cg(table_id)
-    atomic_ids = cg.get_subgraph_nodes(
-        int(root_id), bounding_box=bounding_box, bb_is_coordinate=True
-    )
+    if stop_layer > 1:
+        subgraph = cg.get_subgraph_nodes(
+            int(root_id),
+            bbox=bounding_box,
+            bbox_is_coordinate=True,
+            return_layers=[stop_layer]
+        )
+        empty_1d = np.empty(0, dtype=np.uint64)
+        result = [empty_1d]
+        for node_subgraph in subgraph.values():
+            for children_at_layer in node_subgraph.values():
+                result.append(children_at_layer)
+        return np.concatenate(result)
+    else: 
+        atomic_ids = cg.get_subgraph_nodes(
+            int(root_id), bounding_box=bounding_box, bb_is_coordinate=True
+        )
 
-    return atomic_ids
+        return atomic_ids
 
 
 ### LEAVES FROM LEAVES ---------------------------------------------------------
