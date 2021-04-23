@@ -61,17 +61,15 @@ def get_chunk_edges(edges_dir: str, chunks_coordinates: List[np.ndarray]) -> Dic
 
     with TimeIt("cloud files get"):
         cf = CloudFiles(edges_dir)
-        cf.get(fnames, raw=True)
+        files = cf.get(fnames, raw=True)
 
+    edges = []
     with TimeIt("_decompress_edges"):
-        edges = []
-        for name in fnames:
-            if not cf[name]:
+        for f in files:
+            if not f["content"]:
                 continue
-            edges.append(_decompress_edges(cf[name]))
-
-    with TimeIt("concatenate_chunk_edges"):
-        return concatenate_chunk_edges(edges)
+            edges.append(_decompress_edges(f["content"]))
+    return concatenate_chunk_edges(edges)
 
 
 def put_chunk_edges(
