@@ -1123,6 +1123,7 @@ def handle_find_path(table_id, precision_mode):
 
     # Call ChunkedGraph
     cg = app_utils.get_cg(table_id)
+    root_time_stamp = cg.get_node_timestamps([np.uint64(nodes[0][0])], return_numpy=False)[0]
     def _get_supervoxel_id_from_node(node):
         node_id = node[0]
         x, y, z = node[1:]
@@ -1131,7 +1132,8 @@ def handle_find_path(table_id, precision_mode):
         supervoxel_id = cg.get_atomic_id_from_coord(coordinate[0],
                                                 coordinate[1],
                                                 coordinate[2],
-                                                parent_id=np.uint64(node_id))
+                                                parent_id=np.uint64(node_id),
+                                                time_stamp=root_time_stamp)
         if supervoxel_id is None:
             raise cg_exceptions.BadRequest(
                 f"Could not determine supervoxel ID for coordinates "
@@ -1149,7 +1151,7 @@ def handle_find_path(table_id, precision_mode):
     print(f'Source: {source_supervoxel_id}')
     print(f'Target: {target_supervoxel_id}')
 
-    l2_path = pathing.find_l2_shortest_path(cg, source_l2_id, target_l2_id)
+    l2_path = pathing.find_l2_shortest_path(cg, source_l2_id, target_l2_id, time_stamp=root_time_stamp)
     print(f'Path: {l2_path}')
     if precision_mode:
         centroids, failed_l2_ids = mesh_analysis.compute_mesh_centroids_of_l2_ids(cg, l2_path, flatten=True)
