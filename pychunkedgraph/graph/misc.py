@@ -176,14 +176,14 @@ def get_contact_sites(
     sv_ids = cg.get_subgraph(
         root_id,
         bbox=bounding_box,
-        bb_is_coordinate=bb_is_coordinate,
+        bbox_is_coordinate=bb_is_coordinate,
         nodes_only=True,
     )
     # All edges that are _not_ connected / on
     edges, _, areas = cg.get_subgraph_edges(
         root_id,
         bbox=bounding_box,
-        bb_is_coordinate=bb_is_coordinate,
+        bbox_is_coordinate=bb_is_coordinate,
         connected_edges=False,
     )
 
