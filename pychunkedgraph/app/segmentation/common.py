@@ -686,7 +686,7 @@ def handle_leaves(table_id, root_id):
         subgraph = cg.get_subgraph_nodes(
             int(root_id),
             bounding_box=bounding_box,
-            bbox_is_coordinate=True,
+            bb_is_coordinate=True,
             return_layers=[stop_layer]
         )
         empty_1d = np.empty(0, dtype=np.uint64)
