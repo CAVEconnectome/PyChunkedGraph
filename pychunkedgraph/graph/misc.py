@@ -167,7 +167,7 @@ def get_contact_sites(
     cg: ChunkedGraph,
     root_id,
     bounding_box=None,
-    bb_is_coordinate=True,
+    bbox_is_coordinate=True,
     compute_partner=True,
     time_stamp = None
 ):
@@ -176,14 +176,14 @@ def get_contact_sites(
     sv_ids = cg.get_subgraph(
         root_id,
         bbox=bounding_box,
-        bbox_is_coordinate=bb_is_coordinate,
+        bbox_is_coordinate=bbox_is_coordinate,
         nodes_only=True,
     )
     # All edges that are _not_ connected / on
     edges, _, areas = cg.get_subgraph_edges(
         root_id,
         bbox=bounding_box,
-        bbox_is_coordinate=bb_is_coordinate,
+        bbox_is_coordinate=bbox_is_coordinate,
         connected_edges=False,
     )
 

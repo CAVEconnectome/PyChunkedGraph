@@ -21,7 +21,7 @@ def verified_manifest(
 
     start = time()
     bounding_box = chunk_utils.normalize_bounding_box(
-        cg.meta, bounding_box, bb_is_coordinate=True
+        cg.meta, bounding_box, bbox_is_coordinate=True
     )
     node_ids = get_children_before_start_layer(
         cg, node_id, start_layer, bounding_box=bounding_box
@@ -65,7 +65,7 @@ def speculative_manifest(
 
     start = time()
     bounding_box = chunk_utils.normalize_bounding_box(
-        cg.meta, bounding_box, bb_is_coordinate=True
+        cg.meta, bounding_box, bbox_is_coordinate=True
     )
     node_ids = get_children_before_start_layer(
         cg, node_id, start_layer=start_layer, bounding_box=bounding_box

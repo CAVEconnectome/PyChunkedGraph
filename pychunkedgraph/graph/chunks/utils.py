@@ -17,13 +17,13 @@ def get_chunks_boundary(voxel_boundary, chunk_size) -> np.ndarray:
 def normalize_bounding_box(
     meta,
     bounding_box: Optional[Sequence[Sequence[int]]],
-    bb_is_coordinate: bool,
+    bbox_is_coordinate: bool,
 ) -> Union[Sequence[Sequence[int]], None]:
     if bounding_box is None:
         return None
 
     bbox = bounding_box.copy()
-    if bb_is_coordinate:
+    if bbox_is_coordinate:
         bbox[0] = _get_chunk_coordinates_from_vol_coordinates(
             meta,
             bbox[0][0],
