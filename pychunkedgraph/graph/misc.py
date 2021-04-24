@@ -175,14 +175,14 @@ def get_contact_sites(
     # All supervoxels
     sv_ids = cg.get_subgraph(
         root_id,
-        bounding_box=bounding_box,
+        bbox=bounding_box,
         bb_is_coordinate=bb_is_coordinate,
         nodes_only=True,
     )
     # All edges that are _not_ connected / on
     edges, _, areas = cg.get_subgraph_edges(
         root_id,
-        bounding_box=bounding_box,
+        bbox=bounding_box,
         bb_is_coordinate=bb_is_coordinate,
         connected_edges=False,
     )
