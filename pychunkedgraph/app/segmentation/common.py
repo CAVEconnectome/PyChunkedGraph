@@ -685,7 +685,7 @@ def handle_leaves(table_id, root_id):
     if stop_layer > 1:
         subgraph = cg.get_subgraph_nodes(
             int(root_id),
-            bbox=bounding_box,
+            bounding_box=bounding_box,
             bbox_is_coordinate=True,
             return_layers=[stop_layer]
         )
