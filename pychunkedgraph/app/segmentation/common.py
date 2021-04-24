@@ -689,12 +689,15 @@ def handle_leaves(table_id, root_id):
             bb_is_coordinate=True,
             return_layers=[stop_layer]
         )
-        empty_1d = np.empty(0, dtype=np.uint64)
-        result = [empty_1d]
-        for node_subgraph in subgraph.values():
-            for children_at_layer in node_subgraph.values():
-                result.append(children_at_layer)
-        return np.concatenate(result)
+        if isinstance(subgraph, np.ndarray):
+            return subgraph
+        else:
+            empty_1d = np.empty(0, dtype=np.uint64)
+            result = [empty_1d]
+            for node_subgraph in subgraph.values():
+                for children_at_layer in node_subgraph.values():
+                    result.append(children_at_layer)
+            return np.concatenate(result)
     else: 
         atomic_ids = cg.get_subgraph_nodes(
             int(root_id), bounding_box=bounding_box, bb_is_coordinate=True
