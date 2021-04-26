@@ -706,6 +706,36 @@ def handle_leaves(table_id, root_id):
         return atomic_ids
 
 
+### LEAVES OF MANY ROOTS ---------------------------------------------------------------------
+
+
+def handle_leaves_many(table_id):
+    current_app.table_id = table_id
+    user_id = str(g.auth_user["id"])
+    current_app.user_id = user_id
+
+    stop_layer = int(request.args.get("stop_layer", 1))
+    if "bounds" in request.args:
+        bounds = request.args["bounds"]
+        bounding_box = np.array(
+            [b.split("-") for b in bounds.split("_")], dtype=np.int
+        ).T
+    else:
+        bounding_box = None
+
+    node_ids = np.array(json.loads(request.data)["node_ids"], dtype=np.uint64)
+
+    # Call ChunkedGraph
+    cg = app_utils.get_cg(table_id)
+
+    node_to_leaves_mapping = cg.get_subgraph_nodes(
+        node_ids, bounding_box=bounding_box, bb_is_coordinate=True,
+        return_layers=[stop_layer], serializable=True
+    )
+
+    return node_to_leaves_mapping
+
+
 ### LEAVES FROM LEAVES ---------------------------------------------------------
 
 

@@ -232,7 +232,6 @@ def handle_l2_chunk_children_binary(table_id, chunk_id):
 
 
 @bp.route("/table/<table_id>/node/<node_id>/leaves", methods=["GET"])
-# @auth_requires_permission("view")
 @auth_requires_permission("view", public_table_key='table_id', public_node_key='node_id',
                           service_token=AUTH_TOKEN)
 def handle_leaves(table_id, node_id):
@@ -240,6 +239,18 @@ def handle_leaves(table_id, node_id):
     leaf_ids = common.handle_leaves(table_id, node_id)
     resp = {"leaf_ids": leaf_ids}
     return jsonify_with_kwargs(resp, int64_as_str=int64_as_str)
+
+
+### MANY LEAVES ---------------------------------------------------------------------
+
+
+@bp.route("/table/<table_id>/leaves_many", methods=["POST"])
+@auth_requires_permission("view", public_table_key='table_id', public_node_key='node_id',
+                          service_token=AUTH_TOKEN)
+def handle_leaves_many(table_id):
+    int64_as_str = request.args.get("int64_as_str", default=False, type=toboolean)
+    root_to_leaf_dict = common.handle_leaves_many(table_id)
+    return jsonify_with_kwargs(root_to_leaf_dict, int64_as_str=int64_as_str)
 
 
 ### SUBGRAPH -------------------------------------------------------------------

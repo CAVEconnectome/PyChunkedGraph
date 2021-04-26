@@ -18,7 +18,7 @@ from pychunkedgraph.backend.chunkedgraph_utils import compute_indices_pandas, \
     compute_bitmasks, get_google_compatible_time_stamp, \
     get_time_range_filter, get_time_range_and_column_filter, get_max_time, \
     combine_cross_chunk_edge_dicts, get_min_time, partial_row_data_to_column_dict
-from pychunkedgraph.backend.utils import serializers, column_keys, row_keys, basetypes
+from pychunkedgraph.backend.utils import serializers, column_keys, row_keys, basetypes, misc_utils
 from pychunkedgraph.backend import chunkedgraph_exceptions as cg_exceptions, \
     chunkedgraph_edits as cg_edits, ChunkedGraphMeta
 from pychunkedgraph.backend.graphoperation import (
@@ -3100,88 +3100,80 @@ class ChunkedGraph(object):
         if bounding_box is None:
             return None
 
+        bbox = bounding_box.copy()
         if bb_is_coordinate:
-            bounding_box[0] = self.get_chunk_coordinates_from_vol_coordinates(
-                bounding_box[0][0], bounding_box[0][1], bounding_box[0][2],
+            bbox[0] = self.get_chunk_coordinates_from_vol_coordinates(
+                bbox[0][0], bbox[0][1], bbox[0][2],
                 resolution=self.cv.resolution, ceil=False)
-            bounding_box[1] = self.get_chunk_coordinates_from_vol_coordinates(
-                bounding_box[1][0], bounding_box[1][1], bounding_box[1][2],
+            bbox[1] = self.get_chunk_coordinates_from_vol_coordinates(
+                bbox[1][0], bbox[1][1], bbox[1][2],
                 resolution=self.cv.resolution, ceil=True)
-            return bounding_box
+            return bbox
         else:
-            return np.array(bounding_box, dtype=np.int)
+            return np.array(bbox, dtype=np.int)
 
-    def _get_subgraph_higher_layer_nodes(
-            self, node_id: np.uint64,
+    def _get_subgraph_multiple_nodes(
+            self, node_ids: Iterable[np.uint64],
             bounding_box: Optional[Sequence[Sequence[int]]],
             return_layers: Sequence[int],
-            verbose: bool):
+            serializable: bool):
 
-        def _get_subgraph_higher_layer_nodes_threaded(
-                node_ids: Iterable[np.uint64]) -> List[np.uint64]:
-            children = self.get_children(node_ids, flatten=True)
+        assert len(return_layers) > 0
+        from collections import ChainMap
 
-            if len(children) > 0 and bounding_box is not None:
-                chunk_coordinates = np.array([self.get_chunk_coordinates(c) for c in children])
-                child_layers = self.get_chunk_layers(children)
-                adapt_child_layers = child_layers - 2
-                adapt_child_layers[adapt_child_layers < 0] = 0
+        def _get_dict_key(raw_key):
+            if serializable:
+                return str(raw_key)
+            return raw_key
 
-                bounding_box_layer = bounding_box[None] / \
-                                     (self.fan_out ** adapt_child_layers)[:, None, None]
-
-                bound_check = np.array([
-                    np.all(chunk_coordinates < bounding_box_layer[:, 1], axis=1),
-                    np.all(chunk_coordinates + 1 > bounding_box_layer[:, 0], axis=1)]).T
-
-                bound_check_mask = np.all(bound_check, axis=1)
-                children = children[bound_check_mask]
-
+        def _get_subgraph_multiple_nodes_threaded(
+            node_ids_batch: Iterable[np.uint64],
+        ) -> List[np.uint64]:
+            children = self.get_children(np.sort(node_ids_batch))
+            if bounding_box is not None:
+                filtered_children = {}
+                for node_id, nodes_children in children.items():
+                    if self.get_chunk_layer(node_id) == 2:
+                        # All children will be in same chunk so no need to check
+                        filtered_children[_get_dict_key(node_id)] = nodes_children
+                    else:
+                        bound_check_mask = self.mask_nodes_by_bounding_box(
+                            nodes_children, bounding_box
+                        )
+                        filtered_children[_get_dict_key(node_id)] = nodes_children[
+                            bound_check_mask
+                        ]
+                return filtered_children
             return children
 
-        if bounding_box is not None:
-            bounding_box = np.array(bounding_box)
+        subgraph_progress = misc_utils.SubgraphProgress(
+            self, node_ids, return_layers, serializable
+        )
 
-        layer = self.get_chunk_layer(node_id)
-        assert layer > 1
+        while not subgraph_progress.done_processing():
+            this_n_threads = np.min(
+                [int(len(subgraph_progress.cur_nodes) // 50000) + 1, mu.n_cpus]
+            )
+            cur_nodes_child_maps = mu.multithread_func(
+                _get_subgraph_multiple_nodes_threaded,
+                np.array_split(subgraph_progress.cur_nodes, this_n_threads),
+                n_threads=this_n_threads,
+                debug=this_n_threads == 1,
+            )
+            cur_nodes_children = dict(ChainMap(*cur_nodes_child_maps))
+            subgraph_progress.process_batch_of_children(cur_nodes_children)
 
-        nodes_per_layer = {}
-        child_ids = np.array([node_id], dtype=np.uint64)
-        stop_layer = max(2, np.min(return_layers))
+        if len(return_layers) == 1:
+            for node_id in node_ids:
+                subgraph_progress.node_to_subgraph[
+                    _get_dict_key(node_id)
+                ] = subgraph_progress.node_to_subgraph[
+                    _get_dict_key(node_id)
+                ][
+                    return_layers[0]
+                ]
 
-        if layer in return_layers:
-            nodes_per_layer[layer] = child_ids
-
-        if verbose:
-            time_start = time.time()
-
-        while layer > stop_layer:
-            # Use heuristic to guess the optimal number of threads
-            child_id_layers = self.get_chunk_layers(child_ids)
-            this_layer_m = child_id_layers == layer
-            this_layer_child_ids = child_ids[this_layer_m]
-            next_layer_child_ids = child_ids[~this_layer_m]
-
-            n_child_ids = len(child_ids)
-            this_n_threads = np.min([int(n_child_ids // 50000) + 1, mu.n_cpus])
-
-            child_ids = np.fromiter(chain.from_iterable(mu.multithread_func(
-                _get_subgraph_higher_layer_nodes_threaded,
-                np.array_split(this_layer_child_ids, this_n_threads),
-                n_threads=this_n_threads, debug=this_n_threads == 1)), np.uint64)
-            child_ids = np.concatenate([child_ids, next_layer_child_ids])
-
-            if verbose:
-                self.logger.debug("Layer %d: %.3fms for %d children with %d threads" %
-                                  (layer, (time.time() - time_start) * 1000, n_child_ids,
-                                   this_n_threads))
-                time_start = time.time()
-
-            layer -= 1
-            if layer in return_layers:
-                nodes_per_layer[layer] = child_ids
-
-        return nodes_per_layer
+        return subgraph_progress.node_to_subgraph
 
     def get_subgraph_edges(self, agglomeration_id: np.uint64,
                            bounding_box: Optional[Sequence[Sequence[int]]] = None,
@@ -3211,9 +3203,12 @@ class ChunkedGraph(object):
         bounding_box = self.normalize_bounding_box(bounding_box, bb_is_coordinate)
 
         # Layer 3+
-        child_ids = self._get_subgraph_higher_layer_nodes(
-            node_id=agglomeration_id, bounding_box=bounding_box,
-            return_layers=[2], verbose=verbose)[2]
+        child_ids = self._get_subgraph_multiple_nodes(
+            node_ids=[agglomeration_id],
+            bounding_box=bounding_box,
+            return_layers=[2],
+            serializable=False
+        )[agglomeration_id]
 
         # Layer 2
         if verbose:
@@ -3253,16 +3248,16 @@ class ChunkedGraph(object):
 
         return edges, affinities, areas
 
-    def get_subgraph_nodes(self, agglomeration_id: np.uint64,
+    def get_subgraph_nodes(self, agglomeration_id_or_ids: Union[np.uint64, Iterable[np.uint64]],
                            bounding_box: Optional[Sequence[Sequence[int]]] = None,
                            bb_is_coordinate: bool = False,
                            return_layers: List[int] = [1],
-                           verbose: bool = True) -> \
+                           serializable: bool = False) -> \
             Union[Dict[int, np.ndarray], np.ndarray]:
-        """ Return all nodes belonging to the specified agglomeration ID within
+        """ Return all nodes belonging to the specified agglomeration IDs within
             the defined bounding box and requested layers.
 
-        :param agglomeration_id: np.uint64
+        :param agglomeration_id_or_ids: Union[np.uint64, Iterable[np.uint64]] 
         :param bounding_box: [[x_l, y_l, z_l], [x_h, y_h, z_h]]
         :param bb_is_coordinate: bool
         :param return_layers: List[int]
@@ -3271,52 +3266,25 @@ class ChunkedGraph(object):
                  Dict[int, np.array] if multiple layers are requested
         """
 
-        def _get_subgraph_layer2_nodes(node_ids: Iterable[np.uint64]) -> np.ndarray:
-            return self.get_children(node_ids, flatten=True)
-
-        stop_layer = np.min(return_layers)
-        bounding_box = self.normalize_bounding_box(bounding_box,
-                                                   bb_is_coordinate)
-
-        # Layer 3+
-        if stop_layer >= 2:
-            nodes_per_layer = self._get_subgraph_higher_layer_nodes(
-                node_id=agglomeration_id, bounding_box=bounding_box,
-                return_layers=return_layers, verbose=verbose)
-        else:
-            # Need to retrieve layer 2 even if the user doesn't require it
-            nodes_per_layer = self._get_subgraph_higher_layer_nodes(
-                node_id=agglomeration_id, bounding_box=bounding_box,
-                return_layers=return_layers+[2], verbose=verbose)
-
-            # Layer 2
-            if verbose:
-                time_start = time.time()
-
-            child_ids = nodes_per_layer[2]
-            if 2 not in return_layers:
-                del nodes_per_layer[2]
-
-            # Use heuristic to guess the optimal number of threads
-            n_child_ids = len(child_ids)
-            this_n_threads = np.min([int(n_child_ids // 50000) + 1, mu.n_cpus])
-
-            child_ids = np.fromiter(chain.from_iterable(mu.multithread_func(
-                _get_subgraph_layer2_nodes,
-                np.array_split(child_ids, this_n_threads),
-                n_threads=this_n_threads, debug=this_n_threads == 1)), dtype=np.uint64)
-
-            if verbose:
-                self.logger.debug("Layer 2: %.3fms for %d children with %d threads" %
-                                  ((time.time() - time_start) * 1000, n_child_ids,
-                                   this_n_threads))
-
-            nodes_per_layer[1] = child_ids
-
-        if len(nodes_per_layer) == 1:
-            return list(nodes_per_layer.values())[0]
-        else:
-            return nodes_per_layer
+        """Get the children of the specified node_ids that are at each of the specified
+        return_layers within the specified bounding box."""
+        single = False
+        node_ids = agglomeration_id_or_ids
+        bbox = self.normalize_bounding_box(bounding_box, bb_is_coordinate)
+        if isinstance(agglomeration_id_or_ids, np.uint64) or isinstance(agglomeration_id_or_ids, int):
+            single = True
+            node_ids = [agglomeration_id_or_ids]
+        layer_nodes_d = self._get_subgraph_multiple_nodes(
+            node_ids=node_ids,
+            bounding_box=bbox,
+            return_layers=return_layers,
+            serializable=serializable,
+        )
+        if single:
+            if serializable:
+                return layer_nodes_d[str(agglomeration_id_or_ids)]
+            return layer_nodes_d[agglomeration_id_or_ids]
+        return layer_nodes_d
 
     def flatten_row_dict(self, row_dict: Dict[column_keys._Column,
                                               List[bigtable.row_data.Cell]]) -> Dict:
@@ -3924,3 +3892,29 @@ class ChunkedGraph(object):
         if not children:
             return []
         return [children[x][0].timestamp for x in node_ids]
+
+    def mask_nodes_by_bounding_box(
+        self,
+        nodes: Union[Iterable[np.uint64], np.uint64],
+        bounding_box: Optional[Sequence[Sequence[int]]] = None,
+    ) -> Iterable[np.bool]:
+        if bounding_box is None:
+            return np.ones(len(nodes), np.bool)
+        else:
+            chunk_coordinates = np.array(
+                [self.get_chunk_coordinates(c) for c in nodes]
+            )
+            layers = self.get_chunk_layers(nodes)
+            adapt_layers = layers - 2
+            adapt_layers[adapt_layers < 0] = 0
+            bounding_box_layer = (
+                bounding_box[None] / (self.fan_out ** adapt_layers)[:, None, None]
+            )
+            bound_check = np.array(
+                [
+                    np.all(chunk_coordinates < bounding_box_layer[:, 1], axis=1),
+                    np.all(chunk_coordinates + 1 > bounding_box_layer[:, 0], axis=1),
+                ]
+            ).T
+
+            return np.all(bound_check, axis=1)

@@ -2223,8 +2223,8 @@ class TestGraphMergeSplit:
             u_root_ids = np.unique(root_ids)
             these_child_ids = []
             for root_id in u_root_ids:
-                these_child_ids.extend(cgraph.get_subgraph_nodes(root_id, verbose=False))
-                cgraph.logger.debug((root_id, cgraph.get_subgraph_nodes(root_id, verbose=False)))
+                these_child_ids.extend(cgraph.get_subgraph_nodes(root_id))
+                cgraph.logger.debug((root_id, cgraph.get_subgraph_nodes(root_id)))
 
             assert len(these_child_ids) == 4
             assert len(u_root_ids) == 2
