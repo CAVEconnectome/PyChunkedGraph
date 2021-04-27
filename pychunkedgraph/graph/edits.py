@@ -329,7 +329,8 @@ def remove_edges(
     )
     with TimeIt("create_parents.run()"):
         new_roots = create_parents.run()
-    new_entries = create_parents.create_new_entries()
+    with TimeIt("create_parents.create_new_entries()"):
+        new_entries = create_parents.create_new_entries()
     return new_roots, new_l2_ids, new_entries
 
 
@@ -487,8 +488,8 @@ class CreateParentNodes:
         for layer in range(2, self.cg.meta.layer_count):
             if len(self._new_ids_d[layer]) == 0:
                 continue
-            with TimeIt(f"self._create_new_parents(layer) {layer}"):
-                self._create_new_parents(layer)
+            # with TimeIt(f"self._create_new_parents(layer) {layer}"):
+            self._create_new_parents(layer)
         return self._new_ids_d[self.cg.meta.layer_count]
 
     def _update_root_id_lineage(self):
