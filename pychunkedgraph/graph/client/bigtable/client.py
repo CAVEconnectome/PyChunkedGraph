@@ -193,7 +193,7 @@ class Client(bigtable.Client, ClientWithIDGen, OperationLogger):
         )
         if len(log_record) == 0:
             return {}, None
-        timestamp = log_record[attributes.OperationLogs.RootID][0].timestamp
+        timestamp = log_record[attributes.OperationLogs.OperationTimeStamp][0].value
         log_record.update((column, v[0].value) for column, v in log_record.items())
         return log_record, timestamp
 

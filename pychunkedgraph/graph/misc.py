@@ -245,7 +245,9 @@ def get_agglomerations(
     return l2id_agglomeration_d
 
 
-def get_activated_edges(cg: ChunkedGraph, operation_id: int) -> np.ndarray:
+def get_activated_edges(
+    cg: ChunkedGraph, operation_id: int, delta: Optional[int] = 100
+) -> np.ndarray:
     """
     Returns edges that were made active by a merge operation.
     """
@@ -260,7 +262,7 @@ def get_activated_edges(cg: ChunkedGraph, operation_id: int) -> np.ndarray:
         GraphEditOperation.get_log_record_type(log) == MergeOperation
     ), "Must be a merge operation."
 
-    time_stamp -= timedelta(milliseconds=100)
+    time_stamp -= timedelta(milliseconds=delta)
     operation = GraphEditOperation.from_log_record(cg, log)
     bbox = get_bbox(
         operation.source_coords, operation.sink_coords, operation.bbox_offset
@@ -271,6 +273,7 @@ def get_activated_edges(cg: ChunkedGraph, operation_id: int) -> np.ndarray:
             operation.added_edges.ravel(), assert_roots=True, time_stamp=time_stamp
         )
     )
+    assert len(root_ids) > 1, "More than one segment is required for merge."
     edges = operation.cg.get_subgraph(
         root_ids,
         bbox=bbox,
