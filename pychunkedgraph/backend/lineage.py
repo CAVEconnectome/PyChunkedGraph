@@ -1,6 +1,7 @@
 """
 Functions for tracking root ID changes over time.
 """
+from typing import Iterable
 from typing import Optional
 
 import numpy as np
@@ -9,7 +10,7 @@ from networkx import DiGraph
 
 def lineage_graph(
     cg,
-    node_id: np.uint64,
+    node_ids: Iterable[int],
     timestamp_past: Optional[float] = None,
     timestamp_future: Optional[float] = None,
 ) -> DiGraph:
@@ -24,8 +25,8 @@ def lineage_graph(
     from .utils.column_keys import OperationLogs
 
     graph = DiGraph()
-    past_ids = np.array([node_id], dtype=np.uint64)
-    future_ids = np.array([node_id], dtype=np.uint64)
+    past_ids = np.array(node_ids, dtype=np.uint64)
+    future_ids = np.array(node_ids, dtype=np.uint64)
     if timestamp_past is None:
         timestamp_past = float(0)
     if timestamp_future is None:

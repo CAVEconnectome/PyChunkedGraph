@@ -207,7 +207,7 @@ def handle_root(table_id, atomic_id):
     try:
         timestamp = float(request.args.get("timestamp", time.time()))
         timestamp = datetime.fromtimestamp(timestamp, UTC)
-    except (TypeError, ValueError) as e:
+    except (TypeError, ValueError):
         raise (
             cg_exceptions.BadRequest(
                 "Timestamp parameter is not a valid unix timestamp"
@@ -218,7 +218,7 @@ def handle_root(table_id, atomic_id):
     if stop_layer is not None:
         try:
             stop_layer = int(stop_layer)
-        except (TypeError, ValueError) as e:
+        except (TypeError, ValueError):
             raise (
                 cg_exceptions.BadRequest(
                     "stop_layer is not an integer"
@@ -250,7 +250,7 @@ def handle_roots(table_id, is_binary=False):
     try:
         timestamp = float(request.args.get("timestamp", time.time()))
         timestamp = datetime.fromtimestamp(timestamp, UTC)
-    except (TypeError, ValueError) as e:
+    except (TypeError, ValueError):
         raise (
             cg_exceptions.BadRequest(
                 "Timestamp parameter is not a valid" " unix timestamp"
@@ -281,7 +281,7 @@ def handle_l2_chunk_children(table_id, chunk_id, as_array):
     try:
         timestamp = float(request.args.get("timestamp", time.time()))
         timestamp = datetime.fromtimestamp(timestamp, UTC)
-    except (TypeError, ValueError) as e:
+    except (TypeError, ValueError):
         raise (
             cg_exceptions.BadRequest(
                 "Timestamp parameter is not a valid" " unix timestamp"
@@ -752,7 +752,7 @@ def change_log(table_id, root_id=None):
     try:
         time_stamp_past = float(request.args.get("timestamp", 0))
         time_stamp_past = datetime.fromtimestamp(time_stamp_past, UTC)
-    except (TypeError, ValueError) as e:
+    except (TypeError, ValueError):
         raise (
             cg_exceptions.BadRequest(
                 "Timestamp parameter is not a valid" " unix timestamp"
@@ -842,7 +842,7 @@ def merge_log(table_id, root_id):
     try:
         time_stamp_past = float(request.args.get("timestamp", 0))
         time_stamp_past = datetime.fromtimestamp(time_stamp_past, UTC)
-    except (TypeError, ValueError) as e:
+    except (TypeError, ValueError):
         raise (
             cg_exceptions.BadRequest(
                 "Timestamp parameter is not a valid" " unix timestamp"
@@ -856,51 +856,43 @@ def merge_log(table_id, root_id):
     return segment_history.merge_log(correct_for_wrong_coord_type=True)
 
 
-def handle_lineage_graph(table_id, root_id):
+def handle_lineage_graph(table_id, root_id=None):
+    from networkx import node_link_data
     current_app.table_id = table_id
     user_id = str(g.auth_user["id"])
     current_app.user_id = user_id
 
-    # Convert seconds since epoch to UTC datetime
-    try:
-        timestamp_past = float(request.args.get("timestamp_past", 0))
-    except (TypeError, ValueError) as e:
-        raise (
-            cg_exceptions.BadRequest(
-                "Timestamp parameter is not a valid unix timestamp"
+    def _parse_timestamp(arg_name, default_timestamp = 0):
+        """Convert seconds since epoch to UTC datetime."""
+        try:
+            return float(request.args.get(arg_name, default_timestamp))
+        except (TypeError, ValueError):
+            raise (
+                cg_exceptions.BadRequest(
+                    "Timestamp parameter is not a valid unix timestamp"
+                )
             )
-        )
 
-    try:
-        timestamp_future = float(request.args.get("timestamp_future", time.time()))
-    except (TypeError, ValueError) as e:
-        raise (
-            cg_exceptions.BadRequest(
-                "Timestamp parameter is not a valid unix timestamp"
-            )
-        )
+    timestamp_past = _parse_timestamp("timestamp_past")
+    timestamp_future = _parse_timestamp("timestamp_future", time.time())
 
     # Call ChunkedGraph
     cg = app_utils.get_cg(table_id)
-    hist = cg_history.SegmentHistory(cg, int(root_id))
-    return hist.get_change_log_graph(timestamp_past, timestamp_future)
+    if root_id is None:
+        from ...backend.lineage import lineage_graph
+        root_ids = np.array(json.loads(request.data)["root_ids"], dtype=np.uint64)
+        graph = lineage_graph(cg, root_ids, timestamp_past, timestamp_future)
+        return node_link_data(graph)
+    graph = cg_history.SegmentHistory(cg, int(root_id)).get_change_log_graph(
+        timestamp_past, timestamp_future)
+    return node_link_data(graph)
 
 
 def handle_past_id_mapping(table_id):
     root_ids = np.array(json.loads(request.data)["root_ids"], dtype=np.uint64)
-    # Convert seconds since epoch to UTC datetime
     try:
         timestamp_past = float(request.args.get("timestamp_past", 0))
-    except (TypeError, ValueError) as e:
-        raise (
-            cg_exceptions.BadRequest(
-                "Timestamp parameter is not a valid unix timestamp"
-            )
-        )
-
-    try:
-        timestamp_future = float(request.args.get("timestamp_future", time.time()))
-    except (TypeError, ValueError) as e:
+    except (TypeError, ValueError):
         raise (
             cg_exceptions.BadRequest(
                 "Timestamp parameter is not a valid unix timestamp"
@@ -968,7 +960,7 @@ def handle_contact_sites(table_id, root_id):
     try:
         timestamp = float(request.args.get("timestamp", time.time()))
         timestamp = datetime.fromtimestamp(timestamp, UTC)
-    except (TypeError, ValueError) as e:
+    except (TypeError, ValueError):
         raise (
             cg_exceptions.BadRequest(
                 "Timestamp parameter is not a valid" " unix timestamp"
@@ -1007,7 +999,7 @@ def handle_pairwise_contact_sites(table_id, first_node_id, second_node_id):
     try:
         timestamp = float(request.args.get("timestamp", time.time()))
         timestamp = datetime.fromtimestamp(timestamp, UTC)
-    except (TypeError, ValueError) as e:
+    except (TypeError, ValueError):
         raise (
             cg_exceptions.BadRequest(
                 "Timestamp parameter is not a valid" " unix timestamp"
@@ -1165,7 +1157,7 @@ def handle_is_latest_roots(table_id, is_binary):
     try:
         timestamp = float(request.args.get("timestamp", time.time()))
         timestamp = datetime.fromtimestamp(timestamp, UTC)
-    except (TypeError, ValueError) as e:
+    except (TypeError, ValueError):
         raise (
             cg_exceptions.BadRequest(
                 "Timestamp parameter is not a valid" " unix timestamp"
