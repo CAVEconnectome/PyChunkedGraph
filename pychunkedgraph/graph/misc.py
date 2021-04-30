@@ -169,7 +169,7 @@ def get_contact_sites(
     bounding_box=None,
     bbox_is_coordinate=True,
     compute_partner=True,
-    time_stamp = None
+    time_stamp=None,
 ):
     # Get information about the root id
     # All supervoxels
@@ -215,7 +215,9 @@ def get_contact_sites(
         cc_sv_ids = cc_sv_ids[np.in1d(cc_sv_ids, u_cs_svs)]
         cs_areas = area_dict_vec(cc_sv_ids)
         partner_root_id = (
-            int(cg.get_root(cc_sv_ids[0], time_stamp=time_stamp)) if compute_partner else len(cs_dict)
+            int(cg.get_root(cc_sv_ids[0], time_stamp=time_stamp))
+            if compute_partner
+            else len(cs_dict)
         )
         cs_dict[partner_root_id].append(np.sum(cs_areas))
     return cs_dict
@@ -241,3 +243,46 @@ def get_agglomerations(
             cross_edges[_cross == l2id],
         )
     return l2id_agglomeration_d
+
+
+def get_activated_edges(
+    cg: ChunkedGraph, operation_id: int, delta: Optional[int] = 100
+) -> np.ndarray:
+    """
+    Returns edges that were made active by a merge operation.
+    """
+    from datetime import timedelta
+    from .edits import merge_preprocess
+    from .operation import GraphEditOperation
+    from .operation import MergeOperation
+    from .utils.generic import get_bounding_box as get_bbox
+
+    log, time_stamp = cg.client.read_log_entry(operation_id)
+    assert (
+        GraphEditOperation.get_log_record_type(log) == MergeOperation
+    ), "Must be a merge operation."
+
+    time_stamp -= timedelta(milliseconds=delta)
+    operation = GraphEditOperation.from_log_record(cg, log)
+    bbox = get_bbox(
+        operation.source_coords, operation.sink_coords, operation.bbox_offset
+    )
+
+    root_ids = set(
+        cg.get_roots(
+            operation.added_edges.ravel(), assert_roots=True, time_stamp=time_stamp
+        )
+    )
+    assert len(root_ids) > 1, "More than one segment is required for merge."
+    edges = operation.cg.get_subgraph(
+        root_ids,
+        bbox=bbox,
+        bbox_is_coordinate=True,
+        edges_only=True,
+    )
+    return merge_preprocess(
+        cg,
+        subgraph_edges=edges,
+        supervoxels=operation.added_edges.ravel(),
+        parent_ts=time_stamp,
+    )
