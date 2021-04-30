@@ -3100,7 +3100,7 @@ class ChunkedGraph(object):
         if bounding_box is None:
             return None
 
-        bbox = bounding_box.copy()
+        bbox = np.array(bounding_box, dtype=np.int)
         if bb_is_coordinate:
             bbox[0] = self.get_chunk_coordinates_from_vol_coordinates(
                 bbox[0][0], bbox[0][1], bbox[0][2],
@@ -3109,8 +3109,7 @@ class ChunkedGraph(object):
                 bbox[1][0], bbox[1][1], bbox[1][2],
                 resolution=self.cv.resolution, ceil=True)
             return bbox
-        else:
-            return np.array(bbox, dtype=np.int)
+        return bbox
 
     def _get_subgraph_multiple_nodes(
             self, node_ids: Iterable[np.uint64],
@@ -3256,7 +3255,6 @@ class ChunkedGraph(object):
             Union[Dict[int, np.ndarray], np.ndarray]:
         """ Return all nodes belonging to the specified agglomeration IDs within
             the defined bounding box and requested layers.
-
         :param agglomeration_id_or_ids: Union[np.uint64, Iterable[np.uint64]] 
         :param bounding_box: [[x_l, y_l, z_l], [x_h, y_h, z_h]]
         :param bb_is_coordinate: bool
