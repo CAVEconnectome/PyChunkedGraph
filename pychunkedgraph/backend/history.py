@@ -147,7 +147,7 @@ class SegmentHistory(object):
 
         return lineage_graph(
             self.cg,
-            self.root_id,
+            [self.root_id],
             timestamp_past=timestamp_past,
             timestamp_future=timestamp_future,
         )
