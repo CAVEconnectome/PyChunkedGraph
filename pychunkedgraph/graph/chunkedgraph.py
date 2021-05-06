@@ -497,6 +497,7 @@ class ChunkedGraph:
         nodes_only: bool = False,
         edges_only: bool = False,
         leaves_only: bool = False,
+        return_flattened: bool = False
     ) -> typing.Tuple[typing.Dict, typing.Dict, Edges]:
         """
         Generic subgraph method.
@@ -506,7 +507,8 @@ class ChunkedGraph:
 
         if nodes_only:
             return get_subgraph_nodes(
-                self, node_id_or_ids, bbox, bbox_is_coordinate, return_layers
+                self, node_id_or_ids, bbox, bbox_is_coordinate, return_layers,
+                return_flattened=return_flattened
             )
         return get_subgraph_edges_and_leaves(
             self, node_id_or_ids, bbox, bbox_is_coordinate, edges_only, leaves_only
@@ -519,6 +521,7 @@ class ChunkedGraph:
         bbox_is_coordinate: bool = False,
         return_layers: typing.List = [2],
         serializable: bool = False,
+        return_flattened: bool = False
     ) -> typing.Tuple[typing.Dict, typing.Dict, Edges]:
         """
         Get the children of `node_ids` that are at each of
@@ -533,6 +536,7 @@ class ChunkedGraph:
             bbox_is_coordinate,
             return_layers,
             serializable=serializable,
+            return_flattened=return_flattened
         )
 
     def get_subgraph_edges(

@@ -125,6 +125,7 @@ def get_subgraph_nodes(
     bbox_is_coordinate: bool = False,
     return_layers: List = [2],
     serializable: bool = False,
+    return_flattened: bool = False
 ) -> Tuple[Dict, Dict, Edges]:
     single = False
     node_ids = node_id_or_ids
@@ -138,6 +139,7 @@ def get_subgraph_nodes(
         bounding_box=bbox,
         return_layers=return_layers,
         serializable=serializable,
+        return_flattened=return_flattened
     )
     if single:
         if serializable:
@@ -162,7 +164,7 @@ def get_subgraph_edges_and_leaves(
     if isinstance(node_id_or_ids, np.uint64) or isinstance(node_id_or_ids, int):
         node_ids = [node_id_or_ids]
     layer_nodes_d = _get_subgraph_multiple_nodes(
-        cg, node_ids, bbox, return_layers=[2]
+        cg, node_ids, bbox, return_layers=[2], return_flattened=True
     )
     level2_ids = [empty_1d]
     for node_id in node_ids:
@@ -181,6 +183,7 @@ def _get_subgraph_multiple_nodes(
     bounding_box: Optional[Sequence[Sequence[int]]],
     return_layers: Sequence[int],
     serializable: bool = False,
+    return_flattened: bool = False
 ):
     from collections import ChainMap
     from multiwrapper.multiprocessing_utils import n_cpus
@@ -232,7 +235,7 @@ def _get_subgraph_multiple_nodes(
         cur_nodes_children = dict(ChainMap(*cur_nodes_child_maps))
         subgraph.process_batch_of_children(cur_nodes_children)
 
-    if len(return_layers) == 1:
+    if return_flattened and len(return_layers) == 1:
         for node_id in node_ids:
             subgraph.node_to_subgraph[
                 _get_dict_key(node_id)
