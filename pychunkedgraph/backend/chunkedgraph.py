@@ -2286,15 +2286,22 @@ class ChunkedGraph(object):
         if not parent_rows:
             return None
 
-        if get_only_relevant_parents:
-            return np.array([parent_rows[node_id][0].value
-                             for node_id in node_ids])
-
         parents = []
         for node_id in node_ids:
-            parents.append([(p.value, p.timestamp)
-                            for p in parent_rows[node_id]])
-
+            if get_only_relevant_parents:
+                if node_id in parent_rows:
+                    parents.append(parent_rows[node_id][0].value)
+                else:
+                    parents.append(0)
+            else:
+                if node_id in parent_rows:
+                    parents.append([(p.value, p.timestamp)
+                                    for p in parent_rows[node_id]])
+                else:
+                    parents.append([0, 0])
+        if get_only_relevant_parents:
+            parents = np.array(parents)
+            
         return parents
 
     def get_parent(self, node_id: np.uint64,
@@ -2432,7 +2439,8 @@ class ChunkedGraph(object):
                 else:
                     parent_ids[layer_mask] = temp_ids[inverse]
                     layer_mask[self.get_chunk_layers(parent_ids) >= stop_layer] = False
-                    if not np.any(self.get_chunk_layers(parent_ids) < stop_layer):
+                    layer_mask[parent_ids == 0] = False
+                    if np.all(~layer_mask):
                         return parent_ids
             if not np.any(self.get_chunk_layers(parent_ids) < stop_layer):
                 return parent_ids
