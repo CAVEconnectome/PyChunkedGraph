@@ -1085,9 +1085,18 @@ class UndoOperation(GraphEditOperation):
             )
 
         self.superseded_operation_id = superseded_operation_id
-        self.inverse_superseded_operation = GraphEditOperation.from_log_record(
+        superseded_operation = GraphEditOperation.from_log_record(
             cg, log_record=log_record, multicut_as_split=multicut_as_split
-        ).invert()
+        )
+        if log_record_type is MergeOperation:
+            #account for additional activated edges so merge can be properly undone
+            from .misc import get_activated_edges
+            activated_edges = get_activated_edges(cg, superseded_operation_id)
+            superseded_operation.added_edges = np.concatenate(
+                (superseded_operation.added_edges, activated_edges))
+            #if len(activated_edges) > 0:
+            #    superseded_operation.added_edges = activated_edges
+        self.inverse_superseded_operation = superseded_operation.invert()
         if hasattr(self.inverse_superseded_operation, "added_edges"):
             self.added_edges = self.inverse_superseded_operation.added_edges
         if hasattr(self.inverse_superseded_operation, "removed_edges"):
