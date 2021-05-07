@@ -1092,10 +1092,10 @@ class UndoOperation(GraphEditOperation):
             #account for additional activated edges so merge can be properly undone
             from .misc import get_activated_edges
             activated_edges = get_activated_edges(cg, superseded_operation_id)
-            superseded_operation.added_edges = np.concatenate(
-                (superseded_operation.added_edges, activated_edges))
-            #if len(activated_edges) > 0:
-            #    superseded_operation.added_edges = activated_edges
+            #superseded_operation.added_edges = np.concatenate(
+            #    (superseded_operation.added_edges, activated_edges))
+            if len(activated_edges) > 0:
+                superseded_operation.added_edges = activated_edges
         self.inverse_superseded_operation = superseded_operation.invert()
         if hasattr(self.inverse_superseded_operation, "added_edges"):
             self.added_edges = self.inverse_superseded_operation.added_edges
