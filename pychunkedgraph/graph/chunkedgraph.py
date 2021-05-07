@@ -618,9 +618,7 @@ class ChunkedGraph:
             supervoxels = self.get_children(level2_ids, flatten=True)
             mask0 = np.in1d(all_chunk_edges[:, 0], supervoxels)
             mask1 = np.in1d(all_chunk_edges[:, 1], supervoxels)
-            mask2 = np.in1d(all_chunk_edges[:, 1], supervoxels)
-            mask3 = np.in1d(all_chunk_edges[:, 0], supervoxels)
-            return all_chunk_edges[mask0 & mask1 | mask2 & mask3]
+            return all_chunk_edges[mask0 | mask1]
 
         with TimeIt(f"categorize_edges"):
             l2id_children_d = self.get_children(level2_ids)
