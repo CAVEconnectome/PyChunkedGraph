@@ -1197,6 +1197,15 @@ def handle_is_latest_roots(table_id, is_binary):
 ### OPERATION DETAILS ------------------------------------------------------------
 
 def operation_details(table_id):
+    def parse_attr(attr, val) -> str:
+        from numpy import ndarray
+        try:
+            if isinstance(val, ndarray):
+                return (attr.key, val.tolist())
+            return (attr.key, val)
+        except AttributeError:
+            return (attr, val)
+
     current_app.table_id = table_id
     user_id = str(g.auth_user["id"])
     current_app.user_id = user_id
@@ -1204,16 +1213,16 @@ def operation_details(table_id):
 
     cg = app_utils.get_cg(table_id)
 
-    details_list = {}
-    for operation_id in operation_ids:
-        details = {}
-        log_row = cg.read_log_row(int(operation_id))[0]
-        details["source_coords"] = log_row[column_keys.OperationLogs.SourceCoordinate]
-        details["sink_coords"] = log_row[column_keys.OperationLogs.SinkCoordinate]
-        if column_keys.OperationLogs.AddedEdge in log_row:
-            details["added_edges"] = log_row[column_keys.OperationLogs.AddedEdge]
-        if column_keys.OperationLogs.RemovedEdge in log_row:
-            details["removed_edges"] = log_row[column_keys.OperationLogs.RemovedEdge]
-        details_list[operation_id] = details
+    log_rows = cg.read_log_rows(operation_ids)
 
-    return details_list
+    result = {}
+    for k,v in log_rows.items():
+        details = {}
+        for _k, _v in v.items():
+            _k, _v = parse_attr(_k, _v)
+            try:
+                details[_k.decode("utf-8")] = _v
+            except AttributeError:
+                details[_k] = _v
+        result[int(k)] = details
+    return result
