@@ -246,6 +246,7 @@ def handle_leaves(table_id, node_id):
 
 ## LEAVES OF MANY ROOTS
 
+@bp.route("/table/<table_id>/node/leaves_many", methods=["POST"])
 @bp.route("/table/<table_id>/leaves_many", methods=["POST"])
 @auth_requires_permission("view")
 def handle_leaves_many(table_id):
