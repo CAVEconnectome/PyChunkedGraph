@@ -3251,6 +3251,7 @@ class ChunkedGraph(object):
                            bounding_box: Optional[Sequence[Sequence[int]]] = None,
                            bb_is_coordinate: bool = False,
                            return_layers: List[int] = [1],
+                           verbose: bool = False,
                            serializable: bool = False) -> \
             Union[Dict[int, np.ndarray], np.ndarray]:
         """ Return all nodes belonging to the specified agglomeration IDs within
@@ -3272,12 +3273,17 @@ class ChunkedGraph(object):
         if isinstance(agglomeration_id_or_ids, np.uint64) or isinstance(agglomeration_id_or_ids, int):
             single = True
             node_ids = [agglomeration_id_or_ids]
+        if verbose:
+            time_start = time.time()
         layer_nodes_d = self._get_subgraph_multiple_nodes(
             node_ids=node_ids,
             bounding_box=bbox,
             return_layers=return_layers,
             serializable=serializable,
         )
+        if verbose:
+            self.logger.debug("Took %.3fms to retrieve subgraph(s) of %d node(s)" %
+                              ((time.time() - time_start) * 1000, len(node_ids)))
         if single:
             if serializable:
                 return layer_nodes_d[str(agglomeration_id_or_ids)]

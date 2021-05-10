@@ -243,7 +243,7 @@ def handle_leaves(table_id, node_id):
 
 ### MANY LEAVES ---------------------------------------------------------------------
 
-
+@bp.route("/table/<table_id>/node/leaves_many", methods=["POST"])
 @bp.route("/table/<table_id>/leaves_many", methods=["POST"])
 @auth_requires_permission("view", public_table_key='table_id', public_node_key='node_id',
                           service_token=AUTH_TOKEN)
