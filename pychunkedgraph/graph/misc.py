@@ -178,6 +178,7 @@ def get_contact_sites(
         bbox=bounding_box,
         bbox_is_coordinate=bbox_is_coordinate,
         nodes_only=True,
+        return_flattened=True
     )
     # All edges that are _not_ connected / on
     edges, _, areas = cg.get_subgraph_edges(
