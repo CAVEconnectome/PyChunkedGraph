@@ -94,12 +94,21 @@ def merge_preprocess(
     Get subgraph within the bounding box
     Add fake edge if there are no inactive edges between two components.
     """
-    edges_roots = cg.get_roots(
-        subgraph_edges.ravel(), assert_roots=True, time_stamp=parent_ts
-    ).reshape(-1, 2)
-    # active : edges belong to same root
-    active_mask = edges_roots[:, 0] == edges_roots[:, 1]
-    active, inactive = subgraph_edges[active_mask], subgraph_edges[~active_mask]
+    edge_layers = cg.get_cross_chunk_edges_layer(subgraph_edges)
+    active_edges = [types.empty_2d]
+    inactive_edges = [types.empty_2d]
+    for layer in np.unique(edge_layers):
+        layer_edges = subgraph_edges[edge_layers == layer]
+        edges_parents = cg.get_roots(
+            layer_edges.ravel(), time_stamp=parent_ts, stop_layer=layer+1
+        ).reshape(-1, 2)
+        active_mask = edges_parents[:, 0] == edges_parents[:, 1]
+        active, inactive = layer_edges[active_mask], layer_edges[~active_mask]
+        active_edges.append(active)
+        inactive_edges.append(inactive)
+
+    active = np.concatenate(active_edges)
+    inactive = np.concatenate(inactive_edges)
     relevant_ccs = _get_relevant_components(active, supervoxels)
     # edges are bidirectional, source to sink is enough
     source_mask = np.in1d(inactive[:, 0], relevant_ccs[0])
