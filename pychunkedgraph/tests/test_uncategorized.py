@@ -1412,7 +1412,8 @@ class TestGraphMerge:
 
         for layer in n_cross_edges_layer.keys():
             cgraph.logger.debug("LAYER %d" % layer)
-            if layer == 5:
+            # Second to last layer has an additional unique number of cross chunk edges
+            if layer == cgraph.n_layers - 1:
                 assert len(np.unique(n_cross_edges_layer[layer])) == 2
             else:
                 assert len(np.unique(n_cross_edges_layer[layer])) == 1
