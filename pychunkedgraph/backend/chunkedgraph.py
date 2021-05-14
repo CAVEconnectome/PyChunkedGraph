@@ -10,6 +10,7 @@ import cloudvolume
 import re
 import itertools
 import logging
+import fastremap
 
 from itertools import chain
 from multiwrapper import multiprocessing_utils as mu
@@ -1452,88 +1453,47 @@ class ChunkedGraph(object):
             y=y // (int(self.chunk_size[1]) * base_chunk_span),
             z=z // (int(self.chunk_size[2]) * base_chunk_span))
 
-    def get_atomic_id_from_coord(self, x: int, y: int, z: int,
-                                 parent_id: Optional[np.uint64] = None,
-                                 n_tries: int=5) -> np.uint64:
-        """ Determines atomic id given a coordinate
+    def get_atomic_ids_from_coords(self, coordinates, parent_id=None, max_dist_nm=250):
+        """ Retrieves supervoxel ids for multiple coords."""
 
-        :param x: int
-        :param y: int
-        :param z: int
-        :param parent_id: np.uint64
-        :param n_tries: int
-        :return: np.uint64 or None
-        """
-        if parent_id is not None and self.get_chunk_layer(parent_id) == 1:
-            return parent_id
+        if self.get_chunk_layer(parent_id) == 1:
+            return [parent_id] * len(coordinates)
 
+        parent_ts = self.read_node_id_row(parent_id)[column_keys.Hierarchy.Child][0].timestamp
+        
+        max_dist_vx = np.ceil(max_dist_nm / self.cv.resolution).astype(dtype=np.int32)
 
-        x /= 2**self.cv_mip
-        y /= 2**self.cv_mip
+        bbox = np.array([np.min(coordinates, axis=0) - max_dist_vx, 
+                         np.max(coordinates, axis=0) + max_dist_vx + 1])
+        
+        local_sv_seg = self.cv[bbox[0, 0]: bbox[1, 0], bbox[0, 1]: bbox[1, 1], bbox[0, 2]: bbox[1, 2]].squeeze()
+        local_sv_ids = fastremap.unique(local_sv_seg).squeeze()
+        local_parent_ids = self.get_roots(local_sv_ids, time_stamp=parent_ts,
+                                          stop_layer=self.get_chunk_layer(parent_id))
 
-        x = int(x)
-        y = int(y)
-        z = int(z)
+        local_parent_seg = fastremap.remap(local_sv_seg, dict(zip(local_sv_ids, local_parent_ids)))
 
-        if parent_id is None:
-            # assume we have a single unique id at the exact coordinate
-            atomic_id_block = self.cv[x: x + 1, y: y + 1, z: z + 1]
-            return atomic_id_block[0][0][0][0]
+        parent_id_locs_vx = np.array(np.where(local_parent_seg == parent_id)).T
 
-        checked = []
-        atomic_id = None
-        root_id = self.get_root(parent_id)
+        if len(parent_id_locs_vx) == 0:
+            self.logger.debug("Parent not found.")
+            return None
 
-        for i_try in range(n_tries):
+        parent_id_locs_nm = (parent_id_locs_vx + bbox[0])* np.array(self.cv.resolution)
+        coordinates_nm = coordinates * np.array(self.cv.resolution)
 
-            # Define block size -- increase by one each try
-            x_l = x - (i_try - 1)**2
-            y_l = y - (i_try - 1)**2
-            z_l = z - (i_try - 1)**2
+        dist_mat = np.sqrt(np.sum((parent_id_locs_nm[:, None] - coordinates_nm)**2, axis=-1))
+        match_ids = np.argmin(dist_mat, axis=0)
+        matched_dists = np.array([dist_mat[idx, i] for i, idx in enumerate(match_ids)])
 
-            x_h = x + 1 + (i_try - 1)**2
-            y_h = y + 1 + (i_try - 1)**2
-            z_h = z + 1 + (i_try - 1)**2
+        if np.any(matched_dists > max_dist_nm):
+            self.logger.debug("Distance too short.")
+            return None
 
-            if x_l < 0:
-                x_l = 0
-
-            if y_l < 0:
-                y_l = 0
-
-            if z_l < 0:
-                z_l = 0
-
-            # Get atomic ids from cloudvolume
-            atomic_id_block = self.cv[x_l: x_h, y_l: y_h, z_l: z_h]
-            atomic_ids, atomic_id_count = np.unique(atomic_id_block,
-                                                    return_counts=True)
-
-            # sort by frequency and discard those ids that have been checked
-            # previously
-            sorted_atomic_ids = atomic_ids[np.argsort(atomic_id_count)]
-            sorted_atomic_ids = sorted_atomic_ids[~np.in1d(sorted_atomic_ids,
-                                                           checked)]
-
-            # For each candidate id check whether its root id corresponds to the
-            # given root id
-            for candidate_atomic_id in sorted_atomic_ids:
-                ass_root_id = self.get_root(candidate_atomic_id)
-
-                if ass_root_id == root_id:
-                    # atomic_id is not None will be our indicator that the
-                    # search was successful
-
-                    atomic_id = candidate_atomic_id
-                    break
-                else:
-                    checked.append(candidate_atomic_id)
-
-            if atomic_id is not None:
-                break
-
-        # Returns None if unsuccessful
-        return atomic_id
+        local_coords = parent_id_locs_vx[match_ids]
+        matched_sv_ids = [local_sv_seg[tuple(c)] for c in local_coords]
+        
+        return matched_sv_ids
 
     def read_log_row(
         self, operation_id: np.uint64
