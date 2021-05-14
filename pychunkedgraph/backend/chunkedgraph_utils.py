@@ -8,7 +8,7 @@ from google.cloud import bigtable
 from google.cloud.bigtable.row_filters import TimestampRange, \
     TimestampRangeFilter, ColumnRangeFilter, RowFilterChain, \
     RowFilterUnion, RowFilter
-from pychunkedgraph.backend.utils import column_keys, serializers
+from pychunkedgraph.backend.utils import basetypes, column_keys, serializers
 
 
 def compute_indices_pandas(data) -> pd.Series:
