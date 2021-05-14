@@ -195,7 +195,7 @@ def handle_api_versions():
 
 ### HELPERS -------------------------------------------------------------------
 def handle_supervoxel_id_lookup(cg, coordinates, node_ids):
-    coordinates = np.array(coordinates)
+    coordinates = np.array(coordinates, dtype=np.int)
     node_ids = np.array(node_ids, dtype=np.uint64)
     
     if len(coordinates.shape) != 2:

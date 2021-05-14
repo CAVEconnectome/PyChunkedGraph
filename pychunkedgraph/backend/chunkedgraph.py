@@ -1465,6 +1465,7 @@ class ChunkedGraph(object):
 
         bbox = np.array([np.min(coordinates, axis=0) - max_dist_vx, 
                          np.max(coordinates, axis=0) + max_dist_vx + 1])
+        bbox = bbox.astype(np.int)
         
         local_sv_seg = self.cv[bbox[0, 0]: bbox[1, 0], bbox[0, 1]: bbox[1, 1], bbox[0, 2]: bbox[1, 2]].squeeze()
         local_sv_ids = fastremap.unique(local_sv_seg).squeeze()
