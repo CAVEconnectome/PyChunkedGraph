@@ -22,6 +22,7 @@ from pychunkedgraph import __version__
 from pychunkedgraph.app import app_utils
 from pychunkedgraph.backend import chunkedgraph_exceptions as cg_exceptions
 from pychunkedgraph.backend import history as cg_history
+from pychunkedgraph.backend import lineage
 from pychunkedgraph.backend.utils import column_keys
 from pychunkedgraph.graph_analysis import analysis, contact_sites
 from pychunkedgraph.backend.graphoperation import GraphEditOperation
@@ -896,10 +897,10 @@ def handle_lineage_graph(table_id, root_id=None):
     # Call ChunkedGraph
     cg = app_utils.get_cg(table_id)
     if root_id is None:
-        from ...backend.lineage import lineage_graph
         root_ids = np.array(json.loads(request.data)["root_ids"], dtype=np.uint64)
-        graph = lineage_graph(cg, root_ids, timestamp_past, timestamp_future)
+        graph = lineage.lineage_graph(cg, root_ids, timestamp_past, timestamp_future)
         return node_link_data(graph)
+        
     graph = cg_history.SegmentHistory(cg, int(root_id)).get_change_log_graph(
         timestamp_past, timestamp_future)
     return node_link_data(graph)
