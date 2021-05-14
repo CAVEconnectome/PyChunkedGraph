@@ -100,21 +100,27 @@ def merge_preprocess(
     for layer in np.unique(edge_layers):
         layer_edges = subgraph_edges[edge_layers == layer]
         edges_parents = cg.get_roots(
-            layer_edges.ravel(), time_stamp=parent_ts, stop_layer=layer+1
+            layer_edges.ravel(), time_stamp=parent_ts, stop_layer=layer + 1
         ).reshape(-1, 2)
         active_mask = edges_parents[:, 0] == edges_parents[:, 1]
         active, inactive = layer_edges[active_mask], layer_edges[~active_mask]
         active_edges.append(active)
         inactive_edges.append(inactive)
 
-    active = np.concatenate(active_edges)
+    relevant_ccs = _get_relevant_components(np.concatenate(active_edges), supervoxels)
     inactive = np.concatenate(inactive_edges)
-    relevant_ccs = _get_relevant_components(active, supervoxels)
-    # edges are bidirectional, source to sink is enough
+    _inactive = [types.empty_2d]
+    # source to sink edges
     source_mask = np.in1d(inactive[:, 0], relevant_ccs[0])
     sink_mask = np.in1d(inactive[:, 1], relevant_ccs[1])
-    inactive = inactive[source_mask & sink_mask]
-    return np.unique(inactive, axis=0) if inactive.size else types.empty_2d
+    _inactive.append(inactive[source_mask & sink_mask])
+
+    # sink to source edges
+    sink_mask = np.in1d(inactive[:, 1], relevant_ccs[0])
+    source_mask = np.in1d(inactive[:, 0], relevant_ccs[1])
+    _inactive.append(inactive[source_mask & sink_mask])
+    _inactive = np.concatenate(_inactive)
+    return np.unique(_inactive, axis=0) if _inactive.size else types.empty_2d
 
 
 def _check_fake_edges(
