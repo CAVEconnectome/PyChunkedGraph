@@ -195,6 +195,16 @@ def handle_api_versions():
 
 ### HELPERS -------------------------------------------------------------------
 def handle_supervoxel_id_lookup(cg, coordinates, node_ids):
+    def ccs(coordinates_nm_):
+        graph = nx.Graph()
+
+        dist_mat = spatial.distance.cdist(coordinates_nm_, coordinates_nm_)
+        for edge in np.array(np.where(dist_mat < 2000)).T:
+            graph.add_edge(*edge)
+
+        ccs = [np.array(list(cc)) for cc in nx.connected_components(graph)]
+        return ccs
+
     coordinates = np.array(coordinates, dtype=np.int)
     node_ids = np.array(node_ids, dtype=np.uint64)
     
@@ -206,18 +216,22 @@ def handle_supervoxel_id_lookup(cg, coordinates, node_ids):
     atomic_ids = np.zeros(len(coordinates), dtype=np.uint64)    
     for node_id in np.unique(node_ids):
         node_id_m = node_ids == node_id
-        for max_dist_nm in [150, 250, 500]:
-            atomic_ids_sub = cg.get_atomic_ids_from_coords(coordinates[node_id_m], 
-                                                           parent_id=node_id,
-                                                           max_dist_nm=max_dist_nm)
-            if atomic_ids_sub is not None:
-                break
-        if atomic_ids_sub is None:
-            raise cg_exceptions.BadRequest(
-                f"Could not determine supervoxel ID for coordinates "
-                f"{coordinates} - Validation stage.")
+        
+        for cc in ccs(coordinates[node_id_m]):
+            m_ids = np.where(node_id_m)[0][cc]            
             
-        atomic_ids[node_id_m] = atomic_ids_sub
+            for max_dist_nm in [150, 250, 500]:
+                atomic_ids_sub = cg.get_atomic_ids_from_coords(coordinates[m_ids], 
+                                                               parent_id=node_id,
+                                                               max_dist_nm=max_dist_nm)
+                if atomic_ids_sub is not None:
+                    break
+            if atomic_ids_sub is None:
+                raise cg_exceptions.BadRequest(
+                    f"Could not determine supervoxel ID for coordinates "
+                    f"{coordinates} - Validation stage.")
+
+            atomic_ids[m_ids] = atomic_ids_sub
     return atomic_ids
 
 
