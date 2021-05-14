@@ -3652,13 +3652,14 @@ class ChunkedGraph(object):
 
     def get_subgraph_nodes(
         self,
-        agglomeration_id: np.uint64,
+        agglomeration_id_or_ids: Union[np.uint64, Iterable[np.uint64]],
         bounding_box: Optional[Sequence[Sequence[int]]] = None,
         bb_is_coordinate: bool = False,
         return_layers: List[int] = [1],
-        verbose: bool = True,
+        verbose: bool = False,
+        serializable: bool = False,
     ) -> Union[Dict[int, np.ndarray], np.ndarray]:
-        """Return all nodes belonging to the specified agglomeration ID within
+        """Return all nodes belonging to the specified agglomeration IDs within
             the defined bounding box and requested layers.
         :param agglomeration_id_or_ids: Union[np.uint64, Iterable[np.uint64]]
         :param bounding_box: [[x_l, y_l, z_l], [x_h, y_h, z_h]]
@@ -3669,8 +3670,6 @@ class ChunkedGraph(object):
                  Dict[int, np.array] if multiple layers are requested
         """
 
-        """Get the children of the specified node_ids that are at each of the specified
-        return_layers within the specified bounding box."""
         single = False
         node_ids = agglomeration_id_or_ids
         bbox = self.normalize_bounding_box(bounding_box, bb_is_coordinate)
