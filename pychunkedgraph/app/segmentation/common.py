@@ -8,6 +8,8 @@ import os
 from io import BytesIO as IO
 from datetime import datetime
 import requests
+import networkx as nx
+from scipy import spatial
 
 import numpy as np
 from pytz import UTC
