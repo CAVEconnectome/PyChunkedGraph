@@ -9,7 +9,24 @@ from google.auth import default as default_creds
 from google.cloud import bigtable, datastore
 
 from pychunkedgraph.backend import chunkedgraph
+from pychunkedgraph.backend import chunkedgraph_exceptions as cg_exceptions
 from pychunkedgraph.logging import flask_log_db, jsonformatter
+
+import networkx as nx
+from scipy import spatial
+
+
+from typing import (
+    Any,
+    Dict,
+    Iterable,
+    List,
+    Optional,
+    Sequence,
+    Tuple,
+    Union,
+    NamedTuple,
+)
 
 CACHE = {}
 
@@ -28,7 +45,9 @@ def jsonify_with_kwargs(data, as_response=True, **kwargs):
 
     resp = json.dumps(data, **kwargs)
     if as_response:
-        return current_app.response_class(resp + "\n", mimetype=current_app.config["JSONIFY_MIMETYPE"])
+        return current_app.response_class(
+            resp + "\n", mimetype=current_app.config["JSONIFY_MIMETYPE"]
+        )
     else:
         return resp
 
@@ -103,17 +122,18 @@ def get_cg(table_id):
 def get_log_db(table_id):
     if "log_db" not in CACHE:
         client = get_datastore_client(current_app.config)
-        CACHE["log_db"] = flask_log_db.FlaskLogDatabase(table_id, client=client,
-                                                        credentials=credentials)
+        CACHE["log_db"] = flask_log_db.FlaskLogDatabase(
+            table_id, client=client, credentials=credentials
+        )
 
     return CACHE["log_db"]
 
 
 def toboolean(value):
-    """ Transform value to boolean type.
-        :param value: bool/int/str
-        :return: bool
-        :raises: ValueError, if value is not boolean.
+    """Transform value to boolean type.
+    :param value: bool/int/str
+    :return: bool
+    :raises: ValueError, if value is not boolean.
     """
     if not value:
         raise ValueError("Can't convert null to boolean")
@@ -134,7 +154,7 @@ def toboolean(value):
 
 
 def tobinary(ids):
-    """ Transform id(s) to binary format
+    """Transform id(s) to binary format
 
     :param ids: uint64 or list of uint64s
     :return: binary
@@ -143,9 +163,60 @@ def tobinary(ids):
 
 
 def tobinary_multiples(arr):
-    """ Transform id(s) to binary format
+    """Transform id(s) to binary format
 
     :param arr: list of uint64 or list of uint64s
     :return: binary
     """
     return [np.array(arr_i).tobytes() for arr_i in arr]
+
+
+def handle_supervoxel_id_lookup(
+    cg, coordinates: Sequence[Sequence[int]], node_ids: Sequence[np.uint64]
+) -> Sequence[np.uint64]:
+    """Helper to lookup supervoxel ids.
+
+    This takes care of grouping coordinates."""
+
+    def ccs(coordinates_nm_):
+        graph = nx.Graph()
+
+        dist_mat = spatial.distance.cdist(coordinates_nm_, coordinates_nm_)
+        for edge in np.array(np.where(dist_mat < 1000)).T:
+            graph.add_edge(*edge)
+
+        ccs = [np.array(list(cc)) for cc in nx.connected_components(graph)]
+        return ccs
+
+    coordinates = np.array(coordinates, dtype=np.int)
+    coordinates_nm = coordinates * cg.cv.resolution
+
+    node_ids = np.array(node_ids, dtype=np.uint64)
+
+    if len(coordinates.shape) != 2:
+        raise cg_exceptions.BadRequest(
+            f"Could not determine supervoxel ID for coordinates "
+            f"{coordinates} - Validation stage."
+        )
+
+    atomic_ids = np.zeros(len(coordinates), dtype=np.uint64)
+    for node_id in np.unique(node_ids):
+        node_id_m = node_ids == node_id
+
+        for cc in ccs(coordinates_nm[node_id_m]):
+            m_ids = np.where(node_id_m)[0][cc]
+
+            for max_dist_nm in [75, 150, 250, 500]:
+                atomic_ids_sub = cg.get_atomic_ids_from_coords(
+                    coordinates[m_ids], parent_id=node_id, max_dist_nm=max_dist_nm
+                )
+                if atomic_ids_sub is not None:
+                    break
+            if atomic_ids_sub is None:
+                raise cg_exceptions.BadRequest(
+                    f"Could not determine supervoxel ID for coordinates "
+                    f"{coordinates} - Validation stage."
+                )
+
+            atomic_ids[m_ids] = atomic_ids_sub
+    return atomic_ids
