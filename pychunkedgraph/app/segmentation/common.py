@@ -673,13 +673,11 @@ def handle_leaves(table_id, root_id):
             int(root_id),
             bbox=bounding_box,
             bbox_is_coordinate=True,
-            return_layers=[stop_layer]
+            return_layers=[stop_layer],
+            return_flattened=True
         )
-        result = [empty_1d]
-        for node_subgraph in subgraph.values():
-            for children_at_layer in node_subgraph.values():
-                result.append(children_at_layer)
-        return np.concatenate(result)
+
+        return subgraph
     return cg.get_subgraph_leaves(
         int(root_id),
         bbox=bounding_box,
