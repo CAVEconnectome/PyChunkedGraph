@@ -201,7 +201,13 @@ def handle_api_versions():
 
 
 ### HELPERS -------------------------------------------------------------------
-def handle_supervoxel_id_lookup(cg, coordinates, node_ids):
+def handle_supervoxel_id_lookup(
+    cg, coordinates: Sequence[Sequence[int]], node_ids: Sequence[np.uint64]
+) -> Sequence[np.uint64]:
+    """Helper to lookup supervoxel ids.
+
+    This takes care of grouping coordinates."""
+
     def ccs(coordinates_nm_):
         graph = nx.Graph()
 
@@ -764,8 +770,11 @@ def handle_leaves_many(table_id):
     cg = app_utils.get_cg(table_id)
 
     node_to_leaves_mapping = cg.get_subgraph_nodes(
-        node_ids, bounding_box=bounding_box, bb_is_coordinate=True,
-        return_layers=[stop_layer], serializable=True
+        node_ids,
+        bounding_box=bounding_box,
+        bb_is_coordinate=True,
+        return_layers=[stop_layer],
+        serializable=True,
     )
 
     return node_to_leaves_mapping

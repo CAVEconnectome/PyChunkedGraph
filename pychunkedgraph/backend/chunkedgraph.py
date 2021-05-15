@@ -1624,18 +1624,32 @@ class ChunkedGraph(object):
             z=z // (int(self.chunk_size[2]) * base_chunk_span),
         )
 
-    def get_atomic_ids_from_coords(self, coordinates, parent_id=None, max_dist_nm=250):
-        """Retrieves supervoxel ids for multiple coords."""
+    def get_atomic_ids_from_coords(
+        self,
+        coordinates: Sequence[Sequence[int]],
+        parent_id: np.uint64,
+        max_dist_nm: int = 150,
+    ) -> Sequence[np.uint64]:
+        """Retrieves supervoxel ids for multiple coords.
 
-        assert self.get_chunk_layer(parent_id) > 1
+        :param coordinates: n x 3 np.ndarray of locations in voxel space
+        :param parent_id: parent id common to all coordinates at any layer
+        :param max_dist_nm: max distance explored
+        :return: supervoxel ids; returns None if no solution was found
+        """
+
+        if self.get_chunk_layer(parent_id) == 1:
+            return np.array([parent_id] * len(coordinates), dtype=np.uint64)
 
         coordinates_nm = coordinates * np.array(self.cv.resolution)
+
+        # Enable search with old parent by using its timestamp
         parent_ts = self.read_node_id_row(parent_id)[column_keys.Hierarchy.Child][
             0
         ].timestamp
 
+        # Define bounding box to be explored
         max_dist_vx = np.ceil(max_dist_nm / self.cv.resolution).astype(dtype=np.int32)
-
         bbox = np.array(
             [
                 np.min(coordinates, axis=0) - max_dist_vx,
@@ -1647,6 +1661,7 @@ class ChunkedGraph(object):
             bbox[0, 0] : bbox[1, 0], bbox[0, 1] : bbox[1, 1], bbox[0, 2] : bbox[1, 2]
         ].squeeze()
 
+        # limit get_roots calls to the relevant areas of the data
         lower_bs = np.floor(
             (np.array(coordinates_nm) - max_dist_nm) / np.array(self.cv.resolution)
             - bbox[0]
@@ -1664,6 +1679,7 @@ class ChunkedGraph(object):
             )
         local_sv_ids = fastremap.unique(np.array(local_sv_ids, dtype=np.uint64))
 
+        # map to parents
         local_parent_ids = self.get_roots(
             local_sv_ids,
             time_stamp=parent_ts,
@@ -1684,6 +1700,7 @@ class ChunkedGraph(object):
 
         parent_id_locs_nm = (parent_id_locs_vx + bbox[0]) * np.array(self.cv.resolution)
 
+        # find closest supervoxel ids and check that they are closer than the limit
         dist_mat = np.sqrt(
             np.sum((parent_id_locs_nm[:, None] - coordinates_nm) ** 2, axis=-1)
         )
