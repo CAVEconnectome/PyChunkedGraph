@@ -1139,6 +1139,9 @@ def handle_find_path(table_id, precision_mode):
         node_ids.append(node[0])
         coords.append(np.array(node[1:]) / cg.segmentation_resolution)
 
+    if len(coords) != 2:
+        cg_exceptions.BadRequest("Merge needs two nodes.")
+
     source_supervoxel_id, target_supervoxel_id = app_utils.handle_supervoxel_id_lookup(
         cg, coords, node_ids
     )

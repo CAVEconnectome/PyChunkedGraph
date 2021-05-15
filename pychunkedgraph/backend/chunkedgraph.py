@@ -1474,7 +1474,7 @@ class ChunkedGraph(object):
         # FIXME: Bigtable limits the length of the serialized request to 512 KiB. We should
         # calculate this properly (range_read.request.SerializeToString()), but this estimate is
         # good enough for now
-        max_row_key_count = 20000
+        max_row_key_count = 1000
         n_subrequests = max(1, int(np.ceil(len(row_set.row_keys) / max_row_key_count)))
         n_threads = min(n_subrequests, 2 * mu.n_cpus)
 
