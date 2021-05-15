@@ -67,6 +67,7 @@ class Client(bigtable.Client, ClientWithIDGen, OperationLogger):
             sh.setLevel(logging.WARNING)
             self.logger.addHandler(sh)
         self._graph_meta = graph_meta
+        self._max_row_key_count = config.MAX_ROW_KEY_COUNT
 
     @property
     def graph_meta(self):
@@ -781,15 +782,15 @@ class Client(bigtable.Client, ClientWithIDGen, OperationLogger):
         # calculate this properly (range_read.request.SerializeToString()), but this estimate is
         # good enough for now
         # TODO try async/await
-        max_row_key_count = 20000
-        n_subrequests = max(1, int(np.ceil(len(row_set.row_keys) / max_row_key_count)))
+        
+        n_subrequests = max(1, int(np.ceil(len(row_set.row_keys) / self._max_row_key_count)))
         n_threads = min(n_subrequests, 2 * mu.n_cpus)
 
         row_sets = []
         for i in range(n_subrequests):
             r = RowSet()
             r.row_keys = row_set.row_keys[
-                i * max_row_key_count : (i + 1) * max_row_key_count
+                i * self._max_row_key_count : (i + 1) * self._max_row_key_count
             ]
             row_sets.append(r)
 

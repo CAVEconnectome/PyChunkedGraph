@@ -9,6 +9,7 @@ _bigtableconfig_fields = (
     "ADMIN",
     "READ_ONLY",
     "CREDENTIALS",
+    "MAX_ROW_KEY_COUNT"
 )
 _bigtableconfig_defaults = (
     DEFAULT_PROJECT,
@@ -16,6 +17,7 @@ _bigtableconfig_defaults = (
     False,
     True,
     None,
+    1000
 )
 BigTableConfig = namedtuple(
     "BigTableConfig", _bigtableconfig_fields, defaults=_bigtableconfig_defaults
