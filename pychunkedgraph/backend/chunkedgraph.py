@@ -1437,7 +1437,7 @@ class ChunkedGraph(object):
                 root_ids = [root_ids]
 
             if not self.check_and_renew_root_locks(root_ids, operation_id):
-                raise cg_exceptions.LockError(
+                raise cg_exceptions.LockingError(
                     f"Root lock renewal failed for operation ID {operation_id}"
                 )
 
