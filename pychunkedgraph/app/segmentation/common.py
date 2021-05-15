@@ -8,8 +8,6 @@ import os
 from io import BytesIO as IO
 from datetime import datetime
 import requests
-import networkx as nx
-from scipy import spatial
 
 import numpy as np
 from pytz import UTC
@@ -27,18 +25,6 @@ from pychunkedgraph.backend import history as cg_history
 from pychunkedgraph.backend.utils import column_keys
 from pychunkedgraph.graph_analysis import analysis, contact_sites
 from pychunkedgraph.backend.graphoperation import GraphEditOperation
-
-from typing import (
-    Any,
-    Dict,
-    Iterable,
-    List,
-    Optional,
-    Sequence,
-    Tuple,
-    Union,
-    NamedTuple,
-)
 
 __api_versions__ = [0, 1]
 __segmentation_url_prefix__ = os.environ.get("SEGMENTATION_URL_PREFIX", "segmentation")
