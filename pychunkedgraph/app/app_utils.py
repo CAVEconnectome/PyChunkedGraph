@@ -9,6 +9,7 @@ from google.auth import default as default_creds
 from google.cloud import bigtable, datastore
 
 from pychunkedgraph.backend import chunkedgraph
+from pychunkedgraph.backend import chunkedgraph_exceptions as cg_exceptions
 from pychunkedgraph.logging import flask_log_db, jsonformatter
 
 import networkx as nx
