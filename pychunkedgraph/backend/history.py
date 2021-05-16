@@ -472,3 +472,16 @@ class LogEntry(object):
         attrs = [self.user_id, self.log_type, self.root_ids, self.timestamp]
         for attr in attrs:
             yield attr
+
+
+def get_all_log_entries(cg_instance):
+    log_entries = []
+    log_rows = cg_instance.read_log_rows()
+    for operation_id in range(cg_instance.get_max_operation_id()):
+        try:
+            log_entries.append(
+                LogEntry(log_rows[operation_id], log_rows[operation_id]["timestamp"])
+            )
+        except KeyError:
+            continue
+    return log_entries

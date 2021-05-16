@@ -805,9 +805,9 @@ def change_log(table_id, root_id=None):
     if not root_id:
         return cg_history.get_all_log_entries(cg)
 
-    segment_history = cg_history.History(cg, [root_id])
+    history = cg_history.History(cg, [root_id])
 
-    return segment_history.change_log()
+    return history.change_log()
 
 
 def tabular_change_log_recent(table_id):
@@ -922,10 +922,8 @@ def handle_lineage_graph(table_id, root_id=None):
         graph = lineage.lineage_graph(cg, root_ids, timestamp_past, timestamp_future)
         return node_link_data(graph)
 
-    graph = cg_history.SegmentHistory(cg, int(root_id)).get_change_log_graph(
-        timestamp_past, timestamp_future
-    )
-    return node_link_data(graph)
+    history_ids = cg_history.History(cg, int(root_id), timestamp_past, timestamp_future)
+    return node_link_data(history.lineage_graph)
 
 
 def handle_past_id_mapping(table_id):
@@ -964,9 +962,9 @@ def last_edit(table_id, root_id):
 
     cg = app_utils.get_cg(table_id)
 
-    segment_history = cg_history.SegmentHistory(cg, int(root_id))
+    history = cg_history.History(cg, [int(root_id)])
 
-    return segment_history.last_edit.timestamp
+    return history.last_edit_timestamp(int(root_id))
 
 
 def oldest_timestamp(table_id):
