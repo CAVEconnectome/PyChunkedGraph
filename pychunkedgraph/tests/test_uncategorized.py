@@ -704,9 +704,9 @@ class TestGraphSimpleQueries:
 
         lvl3_nodes_1 = cgraph.get_subgraph_nodes(root1, return_layers=[3])
         lvl3_nodes_2 = cgraph.get_subgraph_nodes(root2, return_layers=[3])
-        assert len(lvl3_nodes_1) == 1
+        assert len(lvl3_nodes_1) == 0
         assert len(lvl3_nodes_2) == 2
-        assert to_label(cgraph, 2, 0, 0, 0, 1) in lvl3_nodes_1
+        assert not to_label(cgraph, 2, 0, 0, 0, 1) in lvl3_nodes_1
         assert to_label(cgraph, 3, 0, 0, 0, 1) in lvl3_nodes_2
         assert to_label(cgraph, 3, 1, 0, 0, 1) in lvl3_nodes_2
 
@@ -1412,7 +1412,11 @@ class TestGraphMerge:
 
         for layer in n_cross_edges_layer.keys():
             cgraph.logger.debug("LAYER %d" % layer)
-            assert len(np.unique(n_cross_edges_layer[layer])) == 1
+            # Second to last layer has an additional unique number of cross chunk edges
+            if layer == cgraph.n_layers - 1:
+                assert len(np.unique(n_cross_edges_layer[layer])) == 2
+            else:
+                assert len(np.unique(n_cross_edges_layer[layer])) == 1
 
 
 class TestGraphSplit:
@@ -2223,8 +2227,8 @@ class TestGraphMergeSplit:
             u_root_ids = np.unique(root_ids)
             these_child_ids = []
             for root_id in u_root_ids:
-                these_child_ids.extend(cgraph.get_subgraph_nodes(root_id, verbose=False))
-                cgraph.logger.debug((root_id, cgraph.get_subgraph_nodes(root_id, verbose=False)))
+                these_child_ids.extend(cgraph.get_subgraph_nodes(root_id))
+                cgraph.logger.debug((root_id, cgraph.get_subgraph_nodes(root_id)))
 
             assert len(these_child_ids) == 4
             assert len(u_root_ids) == 2

@@ -356,24 +356,13 @@ def handle_merge(table_id):
     # Call ChunkedGraph
     cg = app_utils.get_cg(table_id)
 
-    atomic_edge = []
+    node_ids = []
     coords = []
     for node in nodes:
-        node_id = node[0]
-        x, y, z = node[1:]
-        coordinate = np.array([x, y, z]) / cg.segmentation_resolution
+        node_ids.append(node[0])
+        coords.append(np.array(node[1:]) / cg.segmentation_resolution)
 
-        atomic_id = cg.get_atomic_id_from_coord(
-            coordinate[0], coordinate[1], coordinate[2], parent_id=np.uint64(node_id)
-        )
-
-        if atomic_id is None:
-            raise cg_exceptions.BadRequest(
-                f"Could not determine supervoxel ID for coordinates " f"{coordinate}."
-            )
-
-        coords.append(coordinate)
-        atomic_edge.append(atomic_id)
+    atomic_edge = app_utils.handle_supervoxel_id_lookup(cg, coords, node_ids)
 
     # Protection from long range mergers
     chunk_coord_delta = cg.get_chunk_coordinates(
@@ -431,40 +420,36 @@ def handle_split(table_id):
     # Call ChunkedGraph
     cg = app_utils.get_cg(table_id)
 
-    data_dict = {}
+    node_idents = []
+    node_ident_map = {
+        "sources": 0,
+        "sinks": 1,
+    }
+    coords = []
+    node_ids = []
+
     for k in ["sources", "sinks"]:
-        data_dict[k] = collections.defaultdict(list)
-
         for node in data[k]:
-            node_id = node[0]
-            x, y, z = node[1:]
-            coordinate = np.array([x, y, z]) / cg.segmentation_resolution
+            node_ids.append(node[0])
+            coords.append(np.array(node[1:]) / cg.segmentation_resolution)
+            node_idents.append(node_ident_map[k])
 
-            atomic_id = cg.get_atomic_id_from_coord(
-                coordinate[0],
-                coordinate[1],
-                coordinate[2],
-                parent_id=np.uint64(node_id),
-            )
+    node_ids = np.array(node_ids, dtype=np.uint64)
+    coords = np.array(coords)
+    node_idents = np.array(node_idents)
+    sv_ids = app_utils.handle_supervoxel_id_lookup(cg, coords, node_ids)
 
-            if atomic_id is None:
-                raise cg_exceptions.BadRequest(
-                    f"Could not determine supervoxel ID for coordinates "
-                    f"{coordinate}."
-                )
-
-            data_dict[k]["id"].append(atomic_id)
-            data_dict[k]["coord"].append(coordinate)
-
-    current_app.logger.debug(data_dict)
+    current_app.logger.debug(
+        {"node_id": node_ids, "sv_id": sv_ids, "node_ident": node_idents}
+    )
 
     try:
         ret = cg.remove_edges(
             user_id=user_id,
-            source_ids=data_dict["sources"]["id"],
-            sink_ids=data_dict["sinks"]["id"],
-            source_coords=data_dict["sources"]["coord"],
-            sink_coords=data_dict["sinks"]["coord"],
+            source_ids=sv_ids[node_idents == 0],
+            sink_ids=sv_ids[node_idents == 1],
+            source_coords=coords[node_idents == 0],
+            sink_coords=coords[node_idents == 1],
             mincut=mincut,
         )
 
@@ -710,6 +695,39 @@ def handle_leaves(table_id, root_id):
         )
 
         return atomic_ids
+
+
+### LEAVES OF MANY ROOTS ---------------------------------------------------------------------
+
+
+def handle_leaves_many(table_id):
+    current_app.table_id = table_id
+    user_id = str(g.auth_user["id"])
+    current_app.user_id = user_id
+
+    stop_layer = int(request.args.get("stop_layer", 1))
+    if "bounds" in request.args:
+        bounds = request.args["bounds"]
+        bounding_box = np.array(
+            [b.split("-") for b in bounds.split("_")], dtype=np.int
+        ).T
+    else:
+        bounding_box = None
+
+    node_ids = np.array(json.loads(request.data)["node_ids"], dtype=np.uint64)
+
+    # Call ChunkedGraph
+    cg = app_utils.get_cg(table_id)
+
+    node_to_leaves_mapping = cg.get_subgraph_nodes(
+        node_ids,
+        bounding_box=bounding_box,
+        bb_is_coordinate=True,
+        return_layers=[stop_layer],
+        serializable=True,
+    )
+
+    return node_to_leaves_mapping
 
 
 ### LEAVES FROM LEAVES ---------------------------------------------------------
@@ -1052,39 +1070,35 @@ def handle_split_preview(table_id):
 
     cg = app_utils.get_cg(table_id)
 
-    data_dict = {}
+    node_idents = []
+    node_ident_map = {
+        "sources": 0,
+        "sinks": 1,
+    }
+    coords = []
+    node_ids = []
+
     for k in ["sources", "sinks"]:
-        data_dict[k] = collections.defaultdict(list)
-
         for node in data[k]:
-            node_id = node[0]
-            x, y, z = node[1:]
-            coordinate = np.array([x, y, z]) / cg.segmentation_resolution
+            node_ids.append(node[0])
+            coords.append(np.array(node[1:]) / cg.segmentation_resolution)
+            node_idents.append(node_ident_map[k])
 
-            atomic_id = cg.get_atomic_id_from_coord(
-                coordinate[0],
-                coordinate[1],
-                coordinate[2],
-                parent_id=np.uint64(node_id),
-            )
+    node_ids = np.array(node_ids, dtype=np.uint64)
+    coords = np.array(coords)
+    node_idents = np.array(node_idents)
+    sv_ids = app_utils.handle_supervoxel_id_lookup(cg, coords, node_ids)
 
-            if atomic_id is None:
-                raise cg_exceptions.BadRequest(
-                    f"Could not determine supervoxel ID for coordinates "
-                    f"{coordinate}."
-                )
-
-            data_dict[k]["id"].append(atomic_id)
-            data_dict[k]["coord"].append(coordinate)
-
-    current_app.logger.debug(data_dict)
+    current_app.logger.debug(
+        {"node_id": node_ids, "sv_id": sv_ids, "node_ident": node_idents}
+    )
 
     try:
         supervoxel_ccs, illegal_split = cg._run_multicut(
-            source_ids=data_dict["sources"]["id"],
-            sink_ids=data_dict["sinks"]["id"],
-            source_coords=data_dict["sources"]["coord"],
-            sink_coords=data_dict["sinks"]["coord"],
+            source_ids=sv_ids[node_idents == 0],
+            sink_ids=sv_ids[node_idents == 1],
+            source_coords=coords[node_idents == 0],
+            sink_coords=coords[node_idents == 1],
             bb_offset=(240, 240, 24),
             split_preview=True,
         )
@@ -1114,24 +1128,19 @@ def handle_find_path(table_id, precision_mode):
 
     # Call ChunkedGraph
     cg = app_utils.get_cg(table_id)
+    node_ids = []
+    coords = []
+    for node in nodes:
+        node_ids.append(node[0])
+        coords.append(np.array(node[1:]) / cg.segmentation_resolution)
 
-    def _get_supervoxel_id_from_node(node):
-        node_id = node[0]
-        x, y, z = node[1:]
-        coordinate = np.array([x, y, z]) / cg.segmentation_resolution
+    if len(coords) != 2:
+        cg_exceptions.BadRequest("Merge needs two nodes.")
 
-        supervoxel_id = cg.get_atomic_id_from_coord(
-            coordinate[0], coordinate[1], coordinate[2], parent_id=np.uint64(node_id)
-        )
-        if supervoxel_id is None:
-            raise cg_exceptions.BadRequest(
-                f"Could not determine supervoxel ID for coordinates " f"{coordinate}."
-            )
+    source_supervoxel_id, target_supervoxel_id = app_utils.handle_supervoxel_id_lookup(
+        cg, coords, node_ids
+    )
 
-        return supervoxel_id
-
-    source_supervoxel_id = _get_supervoxel_id_from_node(nodes[0])
-    target_supervoxel_id = _get_supervoxel_id_from_node(nodes[1])
     source_l2_id = cg.get_parent(source_supervoxel_id)
     target_l2_id = cg.get_parent(target_supervoxel_id)
 

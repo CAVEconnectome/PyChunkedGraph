@@ -10,6 +10,7 @@ import cloudvolume
 import re
 import itertools
 import logging
+import fastremap
 
 from itertools import chain
 from multiwrapper import multiprocessing_utils as mu
@@ -25,7 +26,13 @@ from pychunkedgraph.backend.chunkedgraph_utils import (
     get_min_time,
     partial_row_data_to_column_dict,
 )
-from pychunkedgraph.backend.utils import serializers, column_keys, row_keys, basetypes
+from pychunkedgraph.backend.utils import (
+    serializers,
+    column_keys,
+    row_keys,
+    basetypes,
+    misc_utils,
+)
 from pychunkedgraph.backend import (
     chunkedgraph_exceptions as cg_exceptions,
     chunkedgraph_edits as cg_edits,
@@ -1430,7 +1437,7 @@ class ChunkedGraph(object):
                 root_ids = [root_ids]
 
             if not self.check_and_renew_root_locks(root_ids, operation_id):
-                raise cg_exceptions.LockError(
+                raise cg_exceptions.LockingError(
                     f"Root lock renewal failed for operation ID {operation_id}"
                 )
 
@@ -1617,90 +1624,97 @@ class ChunkedGraph(object):
             z=z // (int(self.chunk_size[2]) * base_chunk_span),
         )
 
-    def get_atomic_id_from_coord(
+    def get_atomic_ids_from_coords(
         self,
-        x: int,
-        y: int,
-        z: int,
-        parent_id: Optional[np.uint64] = None,
-        n_tries: int = 5,
-    ) -> np.uint64:
-        """Determines atomic id given a coordinate
+        coordinates: Sequence[Sequence[int]],
+        parent_id: np.uint64,
+        max_dist_nm: int = 150,
+    ) -> Sequence[np.uint64]:
+        """Retrieves supervoxel ids for multiple coords.
 
-        :param x: int
-        :param y: int
-        :param z: int
-        :param parent_id: np.uint64
-        :param n_tries: int
-        :return: np.uint64 or None
+        :param coordinates: n x 3 np.ndarray of locations in voxel space
+        :param parent_id: parent id common to all coordinates at any layer
+        :param max_dist_nm: max distance explored
+        :return: supervoxel ids; returns None if no solution was found
         """
-        if parent_id is not None and self.get_chunk_layer(parent_id) == 1:
-            return parent_id
 
-        x /= 2 ** self.cv_mip
-        y /= 2 ** self.cv_mip
+        if self.get_chunk_layer(parent_id) == 1:
+            return np.array([parent_id] * len(coordinates), dtype=np.uint64)
 
-        x = int(x)
-        y = int(y)
-        z = int(z)
+        coordinates_nm = coordinates * np.array(self.cv.resolution)
 
-        if parent_id is None:
-            # assume we have a single unique id at the exact coordinate
-            atomic_id_block = self.cv[x : x + 1, y : y + 1, z : z + 1]
-            return atomic_id_block[0][0][0][0]
+        # Enable search with old parent by using its timestamp
+        parent_ts = self.read_node_id_row(parent_id)[column_keys.Hierarchy.Child][
+            0
+        ].timestamp
 
-        checked = []
-        atomic_id = None
-        root_id = self.get_root(parent_id)
+        # Define bounding box to be explored
+        max_dist_vx = np.ceil(max_dist_nm / self.cv.resolution).astype(dtype=np.int32)
+        bbox = np.array(
+            [
+                np.min(coordinates, axis=0) - max_dist_vx,
+                np.max(coordinates, axis=0) + max_dist_vx + 1,
+            ]
+        )
 
-        for i_try in range(n_tries):
+        local_sv_seg = self.cv[
+            bbox[0, 0] : bbox[1, 0], bbox[0, 1] : bbox[1, 1], bbox[0, 2] : bbox[1, 2]
+        ].squeeze()
 
-            # Define block size -- increase by one each try
-            x_l = x - (i_try - 1) ** 2
-            y_l = y - (i_try - 1) ** 2
-            z_l = z - (i_try - 1) ** 2
+        # limit get_roots calls to the relevant areas of the data
+        lower_bs = np.floor(
+            (np.array(coordinates_nm) - max_dist_nm) / np.array(self.cv.resolution)
+            - bbox[0]
+        ).astype(np.int32)
+        upper_bs = np.ceil(
+            (np.array(coordinates_nm) + max_dist_nm) / np.array(self.cv.resolution)
+            - bbox[0]
+        ).astype(np.int32)
+        local_sv_ids = []
+        for lb, ub in zip(lower_bs, upper_bs):
+            local_sv_ids.extend(
+                fastremap.unique(
+                    local_sv_seg[lb[0] : ub[0], lb[1] : ub[1], lb[2] : ub[2]]
+                )
+            )
+        local_sv_ids = fastremap.unique(np.array(local_sv_ids, dtype=np.uint64))
 
-            x_h = x + 1 + (i_try - 1) ** 2
-            y_h = y + 1 + (i_try - 1) ** 2
-            z_h = z + 1 + (i_try - 1) ** 2
+        # map to parents
+        local_parent_ids = self.get_roots(
+            local_sv_ids,
+            time_stamp=parent_ts,
+            stop_layer=self.get_chunk_layer(parent_id),
+        )
 
-            if x_l < 0:
-                x_l = 0
+        local_parent_seg = fastremap.remap(
+            local_sv_seg,
+            dict(zip(local_sv_ids, local_parent_ids)),
+            preserve_missing_labels=True,
+        )
 
-            if y_l < 0:
-                y_l = 0
+        parent_id_locs_vx = np.array(np.where(local_parent_seg == parent_id)).T
 
-            if z_l < 0:
-                z_l = 0
+        if len(parent_id_locs_vx) == 0:
+            self.logger.debug("Parent not found.")
+            return None
 
-            # Get atomic ids from cloudvolume
-            atomic_id_block = self.cv[x_l:x_h, y_l:y_h, z_l:z_h]
-            atomic_ids, atomic_id_count = np.unique(atomic_id_block, return_counts=True)
+        parent_id_locs_nm = (parent_id_locs_vx + bbox[0]) * np.array(self.cv.resolution)
 
-            # sort by frequency and discard those ids that have been checked
-            # previously
-            sorted_atomic_ids = atomic_ids[np.argsort(atomic_id_count)]
-            sorted_atomic_ids = sorted_atomic_ids[~np.in1d(sorted_atomic_ids, checked)]
+        # find closest supervoxel ids and check that they are closer than the limit
+        dist_mat = np.sqrt(
+            np.sum((parent_id_locs_nm[:, None] - coordinates_nm) ** 2, axis=-1)
+        )
+        match_ids = np.argmin(dist_mat, axis=0)
+        matched_dists = np.array([dist_mat[idx, i] for i, idx in enumerate(match_ids)])
 
-            # For each candidate id check whether its root id corresponds to the
-            # given root id
-            for candidate_atomic_id in sorted_atomic_ids:
-                ass_root_id = self.get_root(candidate_atomic_id)
+        if np.any(matched_dists > max_dist_nm):
+            self.logger.debug("Distance too short.")
+            return None
 
-                if ass_root_id == root_id:
-                    # atomic_id is not None will be our indicator that the
-                    # search was successful
+        local_coords = parent_id_locs_vx[match_ids]
+        matched_sv_ids = [local_sv_seg[tuple(c)] for c in local_coords]
 
-                    atomic_id = candidate_atomic_id
-                    break
-                else:
-                    checked.append(candidate_atomic_id)
-
-            if atomic_id is not None:
-                break
-
-        # Returns None if unsuccessful
-        return atomic_id
+        return matched_sv_ids
 
     def read_log_row(
         self, operation_id: np.uint64
@@ -2594,12 +2608,22 @@ class ChunkedGraph(object):
         if not parent_rows:
             return None
 
-        if get_only_relevant_parents:
-            return np.array([parent_rows[node_id][0].value for node_id in node_ids])
-
         parents = []
         for node_id in node_ids:
-            parents.append([(p.value, p.timestamp) for p in parent_rows[node_id]])
+            if get_only_relevant_parents:
+                if node_id in parent_rows:
+                    parents.append(parent_rows[node_id][0].value)
+                else:
+                    parents.append(0)
+            else:
+                if node_id in parent_rows:
+                    parents.append(
+                        [(p.value, p.timestamp) for p in parent_rows[node_id]]
+                    )
+                else:
+                    parents.append([0, 0])
+        if get_only_relevant_parents:
+            parents = np.array(parents)
 
         return parents
 
@@ -2762,7 +2786,8 @@ class ChunkedGraph(object):
                 else:
                     parent_ids[layer_mask] = temp_ids[inverse]
                     layer_mask[self.get_chunk_layers(parent_ids) >= stop_layer] = False
-                    if not np.any(self.get_chunk_layers(parent_ids) < stop_layer):
+                    layer_mask[parent_ids == 0] = False
+                    if np.all(~layer_mask):
                         return parent_ids
             if not np.any(self.get_chunk_layers(parent_ids) < stop_layer):
                 return parent_ids
@@ -3481,120 +3506,87 @@ class ChunkedGraph(object):
         if bounding_box is None:
             return None
 
+        bbox = np.array(bounding_box, dtype=np.int)
         if bb_is_coordinate:
-            bounding_box[0] = self.get_chunk_coordinates_from_vol_coordinates(
-                bounding_box[0][0],
-                bounding_box[0][1],
-                bounding_box[0][2],
+            bbox[0] = self.get_chunk_coordinates_from_vol_coordinates(
+                bbox[0][0],
+                bbox[0][1],
+                bbox[0][2],
                 resolution=self.cv.resolution,
                 ceil=False,
             )
-            bounding_box[1] = self.get_chunk_coordinates_from_vol_coordinates(
-                bounding_box[1][0],
-                bounding_box[1][1],
-                bounding_box[1][2],
+            bbox[1] = self.get_chunk_coordinates_from_vol_coordinates(
+                bbox[1][0],
+                bbox[1][1],
+                bbox[1][2],
                 resolution=self.cv.resolution,
                 ceil=True,
             )
-            return bounding_box
-        else:
-            return np.array(bounding_box, dtype=np.int)
+            return bbox
+        return bbox
 
-    def _get_subgraph_higher_layer_nodes(
+    def _get_subgraph_multiple_nodes(
         self,
-        node_id: np.uint64,
+        node_ids: Iterable[np.uint64],
         bounding_box: Optional[Sequence[Sequence[int]]],
         return_layers: Sequence[int],
-        verbose: bool,
+        serializable: bool,
     ):
-        def _get_subgraph_higher_layer_nodes_threaded(
-            node_ids: Iterable[np.uint64],
+
+        assert len(return_layers) > 0
+        from collections import ChainMap
+
+        def _get_dict_key(raw_key):
+            if serializable:
+                return str(raw_key)
+            return raw_key
+
+        def _get_subgraph_multiple_nodes_threaded(
+            node_ids_batch: Iterable[np.uint64],
         ) -> List[np.uint64]:
-            children = self.get_children(node_ids, flatten=True)
-
-            if len(children) > 0 and bounding_box is not None:
-                chunk_coordinates = np.array(
-                    [self.get_chunk_coordinates(c) for c in children]
-                )
-                child_layers = self.get_chunk_layers(children)
-                adapt_child_layers = child_layers - 2
-                adapt_child_layers[adapt_child_layers < 0] = 0
-
-                bounding_box_layer = (
-                    bounding_box[None]
-                    / (self.fan_out ** adapt_child_layers)[:, None, None]
-                )
-
-                bound_check = np.array(
-                    [
-                        np.all(chunk_coordinates < bounding_box_layer[:, 1], axis=1),
-                        np.all(
-                            chunk_coordinates + 1 > bounding_box_layer[:, 0], axis=1
-                        ),
-                    ]
-                ).T
-
-                bound_check_mask = np.all(bound_check, axis=1)
-                children = children[bound_check_mask]
-
+            children = self.get_children(np.sort(node_ids_batch))
+            if bounding_box is not None:
+                filtered_children = {}
+                for node_id, nodes_children in children.items():
+                    if self.get_chunk_layer(node_id) == 2:
+                        # All children will be in same chunk so no need to check
+                        filtered_children[_get_dict_key(node_id)] = nodes_children
+                    else:
+                        bound_check_mask = self.mask_nodes_by_bounding_box(
+                            nodes_children, bounding_box
+                        )
+                        filtered_children[_get_dict_key(node_id)] = nodes_children[
+                            bound_check_mask
+                        ]
+                return filtered_children
             return children
 
-        if bounding_box is not None:
-            bounding_box = np.array(bounding_box)
+        subgraph_progress = misc_utils.SubgraphProgress(
+            self, node_ids, return_layers, serializable
+        )
 
-        layer = self.get_chunk_layer(node_id)
-        assert layer > 1
-
-        nodes_per_layer = {}
-        child_ids = np.array([node_id], dtype=np.uint64)
-        stop_layer = max(2, np.min(return_layers))
-
-        if layer in return_layers:
-            nodes_per_layer[layer] = child_ids
-
-        if verbose:
-            time_start = time.time()
-
-        while layer > stop_layer:
-            # Use heuristic to guess the optimal number of threads
-            child_id_layers = self.get_chunk_layers(child_ids)
-            this_layer_m = child_id_layers == layer
-            this_layer_child_ids = child_ids[this_layer_m]
-            next_layer_child_ids = child_ids[~this_layer_m]
-
-            n_child_ids = len(child_ids)
-            this_n_threads = np.min([int(n_child_ids // 50000) + 1, mu.n_cpus])
-
-            child_ids = np.fromiter(
-                chain.from_iterable(
-                    mu.multithread_func(
-                        _get_subgraph_higher_layer_nodes_threaded,
-                        np.array_split(this_layer_child_ids, this_n_threads),
-                        n_threads=this_n_threads,
-                        debug=this_n_threads == 1,
-                    )
-                ),
-                np.uint64,
+        while not subgraph_progress.done_processing():
+            this_n_threads = np.min(
+                [int(len(subgraph_progress.cur_nodes) // 50000) + 1, mu.n_cpus]
             )
-            child_ids = np.concatenate([child_ids, next_layer_child_ids])
+            cur_nodes_child_maps = mu.multithread_func(
+                _get_subgraph_multiple_nodes_threaded,
+                np.array_split(subgraph_progress.cur_nodes, this_n_threads),
+                n_threads=this_n_threads,
+                debug=this_n_threads == 1,
+            )
+            cur_nodes_children = dict(ChainMap(*cur_nodes_child_maps))
+            subgraph_progress.process_batch_of_children(cur_nodes_children)
 
-            if verbose:
-                self.logger.debug(
-                    "Layer %d: %.3fms for %d children with %d threads"
-                    % (
-                        layer,
-                        (time.time() - time_start) * 1000,
-                        n_child_ids,
-                        this_n_threads,
-                    )
-                )
-                time_start = time.time()
+        if len(return_layers) == 1:
+            for node_id in node_ids:
+                subgraph_progress.node_to_subgraph[
+                    _get_dict_key(node_id)
+                ] = subgraph_progress.node_to_subgraph[_get_dict_key(node_id)][
+                    return_layers[0]
+                ]
 
-            layer -= 1
-            if layer in return_layers:
-                nodes_per_layer[layer] = child_ids
-
-        return nodes_per_layer
+        return subgraph_progress.node_to_subgraph
 
     def get_subgraph_edges(
         self,
@@ -3628,12 +3620,12 @@ class ChunkedGraph(object):
         bounding_box = self.normalize_bounding_box(bounding_box, bb_is_coordinate)
 
         # Layer 3+
-        child_ids = self._get_subgraph_higher_layer_nodes(
-            node_id=agglomeration_id,
+        child_ids = self._get_subgraph_multiple_nodes(
+            node_ids=[agglomeration_id],
             bounding_box=bounding_box,
             return_layers=[2],
-            verbose=verbose,
-        )[2]
+            serializable=False,
+        )[agglomeration_id]
 
         # Layer 2
         if verbose:
@@ -3677,16 +3669,16 @@ class ChunkedGraph(object):
 
     def get_subgraph_nodes(
         self,
-        agglomeration_id: np.uint64,
+        agglomeration_id_or_ids: Union[np.uint64, Iterable[np.uint64]],
         bounding_box: Optional[Sequence[Sequence[int]]] = None,
         bb_is_coordinate: bool = False,
         return_layers: List[int] = [1],
-        verbose: bool = True,
+        verbose: bool = False,
+        serializable: bool = False,
     ) -> Union[Dict[int, np.ndarray], np.ndarray]:
-        """Return all nodes belonging to the specified agglomeration ID within
+        """Return all nodes belonging to the specified agglomeration IDs within
             the defined bounding box and requested layers.
-
-        :param agglomeration_id: np.uint64
+        :param agglomeration_id_or_ids: Union[np.uint64, Iterable[np.uint64]]
         :param bounding_box: [[x_l, y_l, z_l], [x_h, y_h, z_h]]
         :param bb_is_coordinate: bool
         :param return_layers: List[int]
@@ -3695,65 +3687,32 @@ class ChunkedGraph(object):
                  Dict[int, np.array] if multiple layers are requested
         """
 
-        def _get_subgraph_layer2_nodes(node_ids: Iterable[np.uint64]) -> np.ndarray:
-            return self.get_children(node_ids, flatten=True)
-
-        stop_layer = np.min(return_layers)
-        bounding_box = self.normalize_bounding_box(bounding_box, bb_is_coordinate)
-
-        # Layer 3+
-        if stop_layer >= 2:
-            nodes_per_layer = self._get_subgraph_higher_layer_nodes(
-                node_id=agglomeration_id,
-                bounding_box=bounding_box,
-                return_layers=return_layers,
-                verbose=verbose,
+        single = False
+        node_ids = agglomeration_id_or_ids
+        bbox = self.normalize_bounding_box(bounding_box, bb_is_coordinate)
+        if isinstance(agglomeration_id_or_ids, np.uint64) or isinstance(
+            agglomeration_id_or_ids, int
+        ):
+            single = True
+            node_ids = [agglomeration_id_or_ids]
+        if verbose:
+            time_start = time.time()
+        layer_nodes_d = self._get_subgraph_multiple_nodes(
+            node_ids=node_ids,
+            bounding_box=bbox,
+            return_layers=return_layers,
+            serializable=serializable,
+        )
+        if verbose:
+            self.logger.debug(
+                "Took %.3fms to retrieve subgraph(s) of %d node(s)"
+                % ((time.time() - time_start) * 1000, len(node_ids))
             )
-        else:
-            # Need to retrieve layer 2 even if the user doesn't require it
-            nodes_per_layer = self._get_subgraph_higher_layer_nodes(
-                node_id=agglomeration_id,
-                bounding_box=bounding_box,
-                return_layers=return_layers + [2],
-                verbose=verbose,
-            )
-
-            # Layer 2
-            if verbose:
-                time_start = time.time()
-
-            child_ids = nodes_per_layer[2]
-            if 2 not in return_layers:
-                del nodes_per_layer[2]
-
-            # Use heuristic to guess the optimal number of threads
-            n_child_ids = len(child_ids)
-            this_n_threads = np.min([int(n_child_ids // 50000) + 1, mu.n_cpus])
-
-            child_ids = np.fromiter(
-                chain.from_iterable(
-                    mu.multithread_func(
-                        _get_subgraph_layer2_nodes,
-                        np.array_split(child_ids, this_n_threads),
-                        n_threads=this_n_threads,
-                        debug=this_n_threads == 1,
-                    )
-                ),
-                dtype=np.uint64,
-            )
-
-            if verbose:
-                self.logger.debug(
-                    "Layer 2: %.3fms for %d children with %d threads"
-                    % ((time.time() - time_start) * 1000, n_child_ids, this_n_threads)
-                )
-
-            nodes_per_layer[1] = child_ids
-
-        if len(nodes_per_layer) == 1:
-            return list(nodes_per_layer.values())[0]
-        else:
-            return nodes_per_layer
+        if single:
+            if serializable:
+                return layer_nodes_d[str(agglomeration_id_or_ids)]
+            return layer_nodes_d[agglomeration_id_or_ids]
+        return layer_nodes_d
 
     def flatten_row_dict(
         self, row_dict: Dict[column_keys._Column, List[bigtable.row_data.Cell]]
@@ -4446,3 +4405,27 @@ class ChunkedGraph(object):
         if not children:
             return []
         return [children[x][0].timestamp for x in node_ids]
+
+    def mask_nodes_by_bounding_box(
+        self,
+        nodes: Union[Iterable[np.uint64], np.uint64],
+        bounding_box: Optional[Sequence[Sequence[int]]] = None,
+    ) -> Iterable[np.bool]:
+        if bounding_box is None:
+            return np.ones(len(nodes), np.bool)
+        else:
+            chunk_coordinates = np.array([self.get_chunk_coordinates(c) for c in nodes])
+            layers = self.get_chunk_layers(nodes)
+            adapt_layers = layers - 2
+            adapt_layers[adapt_layers < 0] = 0
+            bounding_box_layer = (
+                bounding_box[None] / (self.fan_out ** adapt_layers)[:, None, None]
+            )
+            bound_check = np.array(
+                [
+                    np.all(chunk_coordinates < bounding_box_layer[:, 1], axis=1),
+                    np.all(chunk_coordinates + 1 > bounding_box_layer[:, 0], axis=1),
+                ]
+            ).T
+
+            return np.all(bound_check, axis=1)
