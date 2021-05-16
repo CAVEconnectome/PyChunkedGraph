@@ -130,6 +130,7 @@ def gen_graph(request):
                     "PROJECT": "IGNORE_ENVIRONMENT_PROJECT",
                     "INSTANCE": "emulated_instance",
                     "CREDENTIALS": credentials.AnonymousCredentials(),
+                    "MAX_ROW_KEY_COUNT": 1000
                 },
             },
             "ingest_config": {},
