@@ -940,18 +940,8 @@ def handle_past_id_mapping(table_id):
     # Call ChunkedGraph
     cg = app_utils.get_cg(table_id)
 
-    past_id_mapping = {}
-    future_id_mapping = {}
-    for root_id in root_ids:
-        hist = cg_history.SegmentHistory(cg, int(root_id))
-        graph = hist.get_change_log_graph(timestamp_past, None)
-
-        in_degree_dict = dict(graph.in_degree)
-        nodes = np.array(list(in_degree_dict.keys()))
-        in_degrees = np.array(list(in_degree_dict.values()))
-
-        past_id_mapping[int(root_id)] = nodes[in_degrees == 0]
-
+    hist = cg_history.history(cg, root_ids)
+    past_id_mapping, future_id_mapping = hist.past_future_id_mapping()
     return {"past_id_map": past_id_mapping, "future_id_map": future_id_mapping}
 
 
