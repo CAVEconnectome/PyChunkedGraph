@@ -940,7 +940,7 @@ def handle_past_id_mapping(table_id):
     # Call ChunkedGraph
     cg = app_utils.get_cg(table_id)
 
-    hist = cg_history.history(cg, root_ids)
+    hist = cg_history.History(cg, root_ids)
     past_id_mapping, future_id_mapping = hist.past_future_id_mapping()
     return {"past_id_map": past_id_mapping, "future_id_map": future_id_mapping}
 
