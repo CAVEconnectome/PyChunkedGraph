@@ -848,7 +848,7 @@ def tabular_change_log_recent(table_id):
     )
 
 
-def tabular_change_log(table_id, root_id, filtered):
+def tabular_change_logs(table_id, root_ids, filtered):
     current_app.request_type = "tabular_changelog"
 
     current_app.table_id = table_id
@@ -857,19 +857,17 @@ def tabular_change_log(table_id, root_id, filtered):
 
     # Call ChunkedGraph
     cg = app_utils.get_cg(table_id)
-    history = cg_history.History(cg, [int(root_id)])
+    history = cg_history.History(
+        cg,
+        root_ids,
+        lookup_usernames=True,
+        auth_token=current_app.config["AUTH_TOKEN"],
+    )
 
-    tab = history.tabular_changelog(int(root_id), filtered=filtered)
-
-    try:
-        tab["user_name"] = get_usernames(
-            np.array(tab["user_id"], dtype=np.int).squeeze(),
-            current_app.config["AUTH_TOKEN"],
-        )
-    except:
-        current_app.logger.error(f"Could not retrieve user names for {root_id}")
-
-    return tab
+    if filtered:
+        return history.tabular_changelogs_filtered
+    else:
+        return history.tabular_changelogs
 
 
 def merge_log(table_id, root_id):

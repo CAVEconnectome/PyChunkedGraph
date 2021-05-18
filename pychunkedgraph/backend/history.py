@@ -4,14 +4,38 @@ import datetime
 import pandas as pd
 import networkx as nx
 import fastremap
+import requests
+import os
 
 from pychunkedgraph.backend import lineage
 from pychunkedgraph.backend.utils import column_keys
 from pychunkedgraph.backend import chunkedgraph_exceptions as cg_exceptions
 
 
+def get_username_dict(user_ids, auth_token):
+    AUTH_URL = os.environ.get("AUTH_URL", None)
+
+    if AUTH_URL is None:
+        raise cg_exceptions.ChunkedGraphError("No AUTH_URL defined")
+
+    users_request = requests.get(
+        f"https://{AUTH_URL}/api/v1/username?id={','.join(map(str, np.unique(user_ids)))}",
+        headers={"authorization": "Bearer " + auth_token},
+        timeout=5,
+    )
+    return {x["id"]: x["name"] for x in users_request.json()}
+
+
 class History:
-    def __init__(self, cg, root_ids, timestamp_past=None, timestamp_future=None):
+    def __init__(
+        self,
+        cg,
+        root_ids,
+        timestamp_past=None,
+        timestamp_future=None,
+        lookup_usernames=False,
+        auth_token=None,
+    ):
         self.cg = cg
 
         if isinstance(root_ids, list) or isinstance(root_ids, np.ndarray):
@@ -21,7 +45,7 @@ class History:
 
         for root_id in self.root_ids:
             if not cg.is_root(root_id):
-                raise cg_exceptions.Forbidden
+                raise cg_exceptions.ChunkedGraphError(f"{root_id} is no root")
 
         if timestamp_past is None:
             self.timestamp_past = cg.get_earliest_timestamp()
@@ -32,6 +56,14 @@ class History:
             self.timestamp_future = datetime.datetime.utcnow()
         else:
             self.timestamp_future = timestamp_future
+
+        if lookup_usernames and auth_token is None:
+            raise cg_exceptions.ChunkedGraphError("No auth token defined")
+        if lookup_usernames and os.environ.get("AUTH_URL", None) is None:
+            raise cg_exceptions.ChunkedGraphError("No AUTH_URL defined")
+
+        self._lookup_usernames = lookup_usernames
+        self._auth_token = auth_token
 
         self._lineage_graph = None
         self._operation_id_root_id_dict = None
@@ -150,6 +182,7 @@ class History:
 
     def _build_tabular_changelogs(self):
         tabular_changelogs = {}
+        all_user_ids = []
         for root_id in self.root_ids:
 
             is_merge_list = []
@@ -201,6 +234,7 @@ class History:
                     else:
                         is_in_neuron_list.append(False)
 
+            all_user_ids.extend(user_list)
             tabular_changelogs[root_id] = pd.DataFrame.from_dict(
                 {
                     "operation_id": sorted_operation_ids,
@@ -213,6 +247,17 @@ class History:
                     "is_relevant": is_relevant_list,
                 }
             )
+
+        if self._lookup_usernames:
+            all_user_ids = np.unique(all_user_ids)
+            user_dict = get_username_dict(all_user_ids, self._auth_token)
+            for root_id in self.root_ids:
+                user_names = [
+                    user_dict.get(int(id_), "unknown")
+                    for id_ in np.array(tabular_changelogs[root_id]["user_id"])
+                ]
+                tabular_changelogs[root_id]["user_name"] = user_names
+
         return tabular_changelogs
 
     def log_entry(self, operation_id):
@@ -413,7 +458,11 @@ class LogEntry(object):
 
     @property
     def user_id(self):
-        return self.row[column_keys.OperationLogs.UserID]
+        user_id = self.row[column_keys.OperationLogs.UserID]
+        if user_id.isdigit():
+            return user_id
+        else:
+            return "0"
 
     @property
     def log_type(self):
