@@ -966,7 +966,13 @@ class RedoOperation(GraphEditOperation):
     :type multicut_as_split: bool
     """
 
-    __slots__ = ["superseded_operation_id", "superseded_operation", "added_edges", "removed_edges"]
+    __slots__ = [
+        "superseded_operation_id",
+        "superseded_operation",
+        "added_edges",
+        "removed_edges",
+        "operation_status"
+    ]
 
     def __init__(
         self,
@@ -988,6 +994,9 @@ class RedoOperation(GraphEditOperation):
             )
 
         self.superseded_operation_id = superseded_operation_id
+        self.operation_status = log_record[attributes.OperationLogs.Status]
+        if self.operation_status != attributes.OperationLogs.StatusCodes.SUCCESS.value:
+            return
         self.superseded_operation = GraphEditOperation.from_log_record(
             cg, log_record=log_record, multicut_as_split=multicut_as_split
         )
@@ -997,6 +1006,8 @@ class RedoOperation(GraphEditOperation):
             self.removed_edges = self.superseded_operation.removed_edges
 
     def _update_root_ids(self):
+        if self.operation_status != attributes.OperationLogs.StatusCodes.SUCCESS.value:
+            return types.empty_1d
         return self.superseded_operation._update_root_ids()
 
     def _apply(
@@ -1021,6 +1032,7 @@ class RedoOperation(GraphEditOperation):
             attributes.OperationLogs.RedoOperationID: self.superseded_operation_id,
             attributes.OperationLogs.RootID: new_root_ids,
             attributes.OperationLogs.OperationTimeStamp: operation_ts,
+            attributes.OperationLogs.Status: self.operation_status,
         }
         if hasattr(self, "added_edges"):
             val_dict[attributes.OperationLogs.AddedEdge] = self.added_edges
@@ -1041,6 +1053,18 @@ class RedoOperation(GraphEditOperation):
             multicut_as_split=True,
         )
 
+    def execute(
+        self, *, operation_id=None, parent_ts=None, override_ts=None
+    ) -> "GraphEditOperation.Result":
+        if self.operation_status != attributes.OperationLogs.StatusCodes.SUCCESS.value:
+            # Don't redo failed operations
+            return GraphEditOperation.Result(
+                operation_id=operation_id,
+                new_root_ids=types.empty_1d,
+                new_lvl2_ids=types.empty_1d,
+            )
+        return super().execute(operation_id=operation_id,
+            parent_ts=parent_ts, override_ts=override_ts)
 
 class UndoOperation(GraphEditOperation):
     """
@@ -1063,7 +1087,13 @@ class UndoOperation(GraphEditOperation):
     :type multicut_as_split: bool
     """
 
-    __slots__ = ["superseded_operation_id", "inverse_superseded_operation", "added_edges", "removed_edges"]
+    __slots__ = [
+        "superseded_operation_id",
+        "inverse_superseded_operation",
+        "added_edges",
+        "removed_edges",
+        "operation_status"
+    ]
 
     def __init__(
         self,
@@ -1085,6 +1115,9 @@ class UndoOperation(GraphEditOperation):
             )
 
         self.superseded_operation_id = superseded_operation_id
+        self.operation_status = log_record[attributes.OperationLogs.Status]
+        if self.operation_status != attributes.OperationLogs.StatusCodes.SUCCESS.value:
+            return
         superseded_operation = GraphEditOperation.from_log_record(
             cg, log_record=log_record, multicut_as_split=multicut_as_split
         )
@@ -1092,8 +1125,6 @@ class UndoOperation(GraphEditOperation):
             #account for additional activated edges so merge can be properly undone
             from .misc import get_activated_edges
             activated_edges = get_activated_edges(cg, superseded_operation_id)
-            #superseded_operation.added_edges = np.concatenate(
-            #    (superseded_operation.added_edges, activated_edges))
             if len(activated_edges) > 0:
                 superseded_operation.added_edges = activated_edges
         self.inverse_superseded_operation = superseded_operation.invert()
@@ -1103,6 +1134,8 @@ class UndoOperation(GraphEditOperation):
             self.removed_edges = self.inverse_superseded_operation.removed_edges
 
     def _update_root_ids(self):
+        if self.operation_status != attributes.OperationLogs.StatusCodes.SUCCESS.value:
+            return types.empty_1d
         return self.inverse_superseded_operation._update_root_ids()
 
     def _apply(
@@ -1127,6 +1160,7 @@ class UndoOperation(GraphEditOperation):
             attributes.OperationLogs.UndoOperationID: self.superseded_operation_id,
             attributes.OperationLogs.RootID: new_root_ids,
             attributes.OperationLogs.OperationTimeStamp: operation_ts,
+            attributes.OperationLogs.Status: self.operation_status,
         }
         if hasattr(self, "added_edges"):
             val_dict[attributes.OperationLogs.AddedEdge] = self.added_edges
@@ -1146,3 +1180,16 @@ class UndoOperation(GraphEditOperation):
             superseded_operation_id=self.superseded_operation_id,
             multicut_as_split=True,
         )
+
+    def execute(
+        self, *, operation_id=None, parent_ts=None, override_ts=None
+    ) -> "GraphEditOperation.Result":
+        if self.operation_status != attributes.OperationLogs.StatusCodes.SUCCESS.value:
+            # Don't undo failed operations
+            return GraphEditOperation.Result(
+                operation_id=operation_id,
+                new_root_ids=types.empty_1d,
+                new_lvl2_ids=types.empty_1d,
+            )
+        return super().execute(operation_id=operation_id,
+            parent_ts=parent_ts, override_ts=override_ts)
