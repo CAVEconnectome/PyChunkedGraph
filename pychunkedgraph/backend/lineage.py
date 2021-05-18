@@ -31,6 +31,7 @@ def lineage_graph(
     graph = DiGraph()
     past_ids = np.array(node_ids, dtype=np.uint64)
     future_ids = np.array(node_ids, dtype=np.uint64)
+
     if timestamp_past is None:
         timestamp_past = float(0)
     else:
@@ -47,21 +48,25 @@ def lineage_graph(
         next_past_ids = []
         for k in past_ids:
             val = nodes_raw[k]
-            timestamp = val[Hierarchy.Child][0].timestamp.timestamp()
-            try:
-                operation_id = val[OperationLogs.OperationID][0].value
-            except KeyError:
-                # if no operation ID, the segment has no edits
-                # return single node graph with given ID
-                graph.add_node(k, timestamp=timestamp)
-                continue
 
-            if Hierarchy.NewParent in val:
-                graph.add_node(k, operation_id=operation_id, timestamp=timestamp)
-            else:
-                graph.add_node(k, timestamp=timestamp)
+            node_data = {}
+            node_data["timestamp"] = val[Hierarchy.Child][0].timestamp.timestamp()
 
-            if timestamp < timestamp_past or not Hierarchy.FormerParent in val:
+            if OperationLogs.OperationID in val:
+                if len(val[OperationLogs.OperationID]) == 2:
+                    node_data["operation_id"] = val[OperationLogs.OperationID][0].value
+                elif len(val[OperationLogs.OperationID]) == 1:
+                    if Hierarchy.NewParent in val:
+                        node_data["operation_id"] = val[OperationLogs.OperationID][
+                            0
+                        ].value
+
+            graph.add_node(k, **node_data)
+
+            if (
+                node_data["timestamp"] < timestamp_past
+                or not Hierarchy.FormerParent in val
+            ):
                 continue
 
             former_ids = val[Hierarchy.FormerParent][0].value
@@ -75,18 +80,29 @@ def lineage_graph(
         future_operation_id_dict = {}
         for k in future_ids:
             val = nodes_raw[k]
-            operation_id = val[OperationLogs.OperationID][0].value
-            timestamp = val[Hierarchy.Child][0].timestamp.timestamp()
 
-            if Hierarchy.NewParent in val:
-                graph.add_node(k, operation_id=operation_id, timestamp=timestamp)
-            else:
-                graph.add_node(k, timestamp=timestamp)
+            node_data = {}
+            node_data["timestamp"] = val[Hierarchy.Child][0].timestamp.timestamp()
 
-            if timestamp > timestamp_future or not Hierarchy.NewParent in val:
+            if OperationLogs.OperationID in val:
+                if len(val[OperationLogs.OperationID]) == 2:
+                    node_data["operation_id"] = val[OperationLogs.OperationID][0].value
+                elif len(val[OperationLogs.OperationID]) == 1:
+                    if Hierarchy.NewParent in val:
+                        node_data["operation_id"] = val[OperationLogs.OperationID][
+                            0
+                        ].value
+
+            graph.add_node(k, **node_data)
+
+            if (
+                node_data["timestamp"] > timestamp_future
+                or not Hierarchy.NewParent in val
+            ):
                 continue
 
-            future_operation_id_dict[operation_id] = k
+            if "operation_id" in node_data:
+                future_operation_id_dict[node_data["operation_id"]] = k
 
         logs_raw = cg.read_log_rows(list(future_operation_id_dict.keys()))
         for operation_id in future_operation_id_dict:
