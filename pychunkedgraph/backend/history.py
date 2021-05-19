@@ -70,9 +70,6 @@ class History:
         self._root_id_operation_id_dict = None
         self._root_id_timestamp_dict = None
         self._log_rows_cache = None
-        self._edited_sv_ids = None
-        self._original_root_id_lookup_vec = None
-        self._root_id_lookup_vec = None
         self._tabular_changelogs = None
 
     @property
@@ -118,47 +115,6 @@ class History:
         return self._log_rows_cache
 
     @property
-    def edited_sv_ids(self):
-        if self._edited_sv_ids is None:
-            self._collect_edited_sv_ids()
-
-        return self._edited_sv_ids
-
-    @property
-    def root_id_lookup_vec(self):
-        if self._root_id_lookup_vec is None:
-            root_id_lookup_dict = dict(
-                zip(
-                    self.edited_sv_ids,
-                    self.cg.get_roots(
-                        self.edited_sv_ids,
-                        time_stamp=self.timestamp_future
-                        + datetime.timedelta(seconds=0.01),
-                    ),
-                )
-            )
-            self._root_id_lookup_vec = np.vectorize(root_id_lookup_dict.get)
-
-        return self._root_id_lookup_vec
-
-    @property
-    def original_root_id_lookup_vec(self):
-        if self._original_root_id_lookup_vec is None:
-            root_id_lookup_dict = dict(
-                zip(
-                    self.edited_sv_ids,
-                    self.cg.get_roots(
-                        self.edited_sv_ids,
-                        time_stamp=self.timestamp_past
-                        - datetime.timedelta(seconds=0.01),
-                    ),
-                )
-            )
-            self._original_root_id_lookup_vec = np.vectorize(root_id_lookup_dict.get)
-
-        return self._original_root_id_lookup_vec
-
-    @property
     def tabular_changelogs(self):
         if self._tabular_changelogs is None:
             self._tabular_changelogs = self._build_tabular_changelogs()
@@ -173,17 +129,45 @@ class History:
             )
         return filtered_tabular_changelogs
 
-    def _collect_edited_sv_ids(self):
-        self._edited_sv_ids = []
-        for operation_id in self.past_operation_ids():
-            self._edited_sv_ids.extend(self.log_entry(operation_id).edges_failsafe)
+    def collect_edited_sv_ids(self, root_id=None):
+        if root_id is None:
+            operation_ids = self.past_operation_ids()
+        else:
+            assert root_id in self.root_ids
+            operation_ids = self.past_operation_ids(root_id=root_id)
 
-        self._edited_sv_ids = np.array(self._edited_sv_ids)
+        edited_sv_ids = []
+        for operation_id in operation_ids:
+            edited_sv_ids.extend(self.log_entry(operation_id).edges_failsafe)
+
+        return fastremap.unique(np.array(edited_sv_ids))
 
     def _build_tabular_changelogs(self):
         tabular_changelogs = {}
         all_user_ids = []
         for root_id in self.root_ids:
+            root_ts = self.cg.read_node_id_row(root_id)[column_keys.Hierarchy.Child][
+                0
+            ].timestamp
+            edited_sv_ids = self.collect_edited_sv_ids(root_id=root_id)
+            current_root_id_lookup_vec = np.vectorize(
+                dict(
+                    zip(
+                        edited_sv_ids,
+                        self.cg.get_roots(edited_sv_ids, time_stamp=root_ts),
+                    )
+                ).get
+            )
+            original_root_id_lookup_vec = np.vectorize(
+                dict(
+                    zip(
+                        edited_sv_ids,
+                        self.cg.get_roots(
+                            edited_sv_ids, time_stamp=self.cg.get_earliest_timestamp()
+                        ),
+                    )
+                ).get
+            )
 
             is_merge_list = []
             is_in_neuron_list = []
@@ -202,10 +186,8 @@ class History:
                 timestamp_list.append(entry.timestamp)
                 user_list.append(entry.user_id)
 
-                sv_ids_original_root = self.original_root_id_lookup_vec(
-                    entry.edges_failsafe
-                )
-                sv_ids_current_root = self.root_id_lookup_vec(entry.edges_failsafe)
+                sv_ids_original_root = original_root_id_lookup_vec(entry.edges_failsafe)
+                sv_ids_current_root = current_root_id_lookup_vec(entry.edges_failsafe)
 
                 before_ids = list(self.operation_id_root_id_dict[operation_id])
                 after_root_ids_list.append(
