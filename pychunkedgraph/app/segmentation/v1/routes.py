@@ -382,7 +382,7 @@ def tabular_change_log(table_id, root_id):
 
 @bp.route("/table/<table_id>/tabular_change_log_many", methods=["GET"])
 @auth_requires_permission("view")
-def tabular_change_log_many(table_id, root_id):
+def tabular_change_log_many(table_id):
     filtered = request.args.get("filtered", default=True, type=toboolean)
     root_ids = np.array(json.loads(request.data)["root_ids"], dtype=np.uint64)
     tab_change_log_dict = common.tabular_change_logs(table_id, root_ids, filtered)
