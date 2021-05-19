@@ -1,6 +1,8 @@
 import logging
 import sys
 import time
+import requests
+import os
 
 import numpy as np
 from flask import current_app, json
@@ -220,3 +222,17 @@ def handle_supervoxel_id_lookup(
 
             atomic_ids[m_ids] = atomic_ids_sub
     return atomic_ids
+
+
+def get_username_dict(user_ids, auth_token):
+    AUTH_URL = os.environ.get("AUTH_URL", None)
+
+    if AUTH_URL is None:
+        raise cg_exceptions.ChunkedGraphError("No AUTH_URL defined")
+
+    users_request = requests.get(
+        f"https://{AUTH_URL}/api/v1/username?id={','.join(map(str, np.unique(user_ids)))}",
+        headers={"authorization": "Bearer " + auth_token},
+        timeout=5,
+    )
+    return {x["id"]: x["name"] for x in users_request.json()}
