@@ -388,7 +388,9 @@ def tabular_change_log_many(table_id):
     root_ids = np.array(json.loads(request.data)["root_ids"], dtype=np.uint64)
     tab_change_log_dict = common.tabular_change_logs(table_id, root_ids, filtered)
 
-    return jsonify_with_kwargs(tab_change_log_dict)
+    return jsonify_with_kwargs(
+        {str(k): tab_change_log_dict[k] for k in tab_change_log_dict.keys()}
+    )
 
 
 @bp.route("/table/<table_id>/root/<root_id>/merge_log", methods=["GET"])
