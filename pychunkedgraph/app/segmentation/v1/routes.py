@@ -422,15 +422,7 @@ def handle_lineage_graph_multiple(table_id):
 def handle_past_id_mapping(table_id):
     int64_as_str = request.args.get("int64_as_str", default=False, type=toboolean)
     resp = common.handle_past_id_mapping(table_id)
-    return jsonify_with_kwargs(
-        jsonify_with_kwargs(
-            [
-                {str(k): resp[0][k] for k in resp[0].keys()},
-                {str(k): resp[1][k] for k in resp[1].keys()},
-            ],
-        ),
-        int64_as_str=int64_as_str,
-    )
+    return jsonify_with_kwargs(resp, int64_as_str=int64_as_str)
 
 
 @bp.route("/table/<table_id>/oldest_timestamp", methods=["GET"])

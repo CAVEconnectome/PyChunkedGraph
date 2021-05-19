@@ -955,7 +955,12 @@ def handle_past_id_mapping(table_id):
 
     hist = cg_history.History(cg, root_ids)
     past_id_mapping, future_id_mapping = hist.past_future_id_mapping()
-    return {"past_id_map": past_id_mapping, "future_id_map": future_id_mapping}
+    return {
+        "past_id_map": {str(k): past_id_mapping[k] for k in past_id_mapping.keys()},
+        "future_id_map": {
+            str(k): future_id_mapping[k] for k in future_id_mapping.keys()
+        },
+    }
 
 
 def last_edit(table_id, root_id):
