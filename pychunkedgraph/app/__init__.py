@@ -39,7 +39,7 @@ class CustomJsonEncoder(json.JSONEncoder):
         elif isinstance(obj, datetime.datetime):
             return obj.__str__()
         elif isinstance(obj, pd.DataFrame):
-            return obj..to_json()
+            return obj.to_json()
         return json.JSONEncoder.default(self, obj)
 
 
