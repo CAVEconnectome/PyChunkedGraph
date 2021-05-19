@@ -12,20 +12,6 @@ from pychunkedgraph.backend.utils import column_keys
 from pychunkedgraph.backend import chunkedgraph_exceptions as cg_exceptions
 
 
-def get_username_dict(user_ids, auth_token):
-    AUTH_URL = os.environ.get("AUTH_URL", None)
-
-    if AUTH_URL is None:
-        raise cg_exceptions.ChunkedGraphError("No AUTH_URL defined")
-
-    users_request = requests.get(
-        f"https://{AUTH_URL}/api/v1/username?id={','.join(map(str, np.unique(user_ids)))}",
-        headers={"authorization": "Bearer " + auth_token},
-        timeout=5,
-    )
-    return {x["id"]: x["name"] for x in users_request.json()}
-
-
 class History:
     def __init__(
         self,
@@ -33,8 +19,6 @@ class History:
         root_ids,
         timestamp_past=None,
         timestamp_future=None,
-        lookup_usernames=False,
-        auth_token=None,
     ):
         self.cg = cg
 
@@ -56,14 +40,6 @@ class History:
             self.timestamp_future = datetime.datetime.utcnow()
         else:
             self.timestamp_future = timestamp_future
-
-        if lookup_usernames and auth_token is None:
-            raise cg_exceptions.ChunkedGraphError("No auth token defined")
-        if lookup_usernames and os.environ.get("AUTH_URL", None) is None:
-            raise cg_exceptions.ChunkedGraphError("No AUTH_URL defined")
-
-        self._lookup_usernames = lookup_usernames
-        self._auth_token = auth_token
 
         self._lineage_graph = None
         self._operation_id_root_id_dict = None
@@ -129,45 +105,32 @@ class History:
             )
         return filtered_tabular_changelogs
 
-    def collect_edited_sv_ids(self, root_id=None):
+    def collect_edited_sv_ids(self, root_id=None): 
         if root_id is None:
             operation_ids = self.past_operation_ids()
         else:
             assert root_id in self.root_ids
             operation_ids = self.past_operation_ids(root_id=root_id)
-
+            
         edited_sv_ids = []
         for operation_id in operation_ids:
             edited_sv_ids.extend(self.log_entry(operation_id).edges_failsafe)
 
         return fastremap.unique(np.array(edited_sv_ids))
-
+                
     def _build_tabular_changelogs(self):
         tabular_changelogs = {}
         all_user_ids = []
         for root_id in self.root_ids:
-            root_ts = self.cg.read_node_id_row(root_id)[column_keys.Hierarchy.Child][
-                0
-            ].timestamp
+            root_ts = self.cg.read_node_id_row(root_id)[column_keys.Hierarchy.Child][0].timestamp
             edited_sv_ids = self.collect_edited_sv_ids(root_id=root_id)
-            current_root_id_lookup_vec = np.vectorize(
-                dict(
-                    zip(
-                        edited_sv_ids,
-                        self.cg.get_roots(edited_sv_ids, time_stamp=root_ts),
-                    )
-                ).get
-            )
-            original_root_id_lookup_vec = np.vectorize(
-                dict(
-                    zip(
-                        edited_sv_ids,
-                        self.cg.get_roots(
-                            edited_sv_ids, time_stamp=self.cg.get_earliest_timestamp()
-                        ),
-                    )
-                ).get
-            )
+            current_root_id_lookup_vec = np.vectorize(dict(zip(edited_sv_ids,
+                                                                self.cg.get_roots(edited_sv_ids,
+                                                                                  time_stamp=root_ts))).get)
+            original_root_id_lookup_vec = np.vectorize(dict(zip(edited_sv_ids,
+                                                                self.cg.get_roots(edited_sv_ids,
+                                                                                  time_stamp=self.cg.get_earliest_timestamp()))).get)
+            
 
             is_merge_list = []
             is_in_neuron_list = []
@@ -187,8 +150,7 @@ class History:
                 user_list.append(entry.user_id)
 
                 sv_ids_original_root = original_root_id_lookup_vec(entry.edges_failsafe)
-                sv_ids_current_root = current_root_id_lookup_vec(entry.edges_failsafe)
-
+                sv_ids_current_root = current_root_id_lookup_vec(entry.edges_failsafe)Z
                 before_ids = list(self.operation_id_root_id_dict[operation_id])
                 after_root_ids_list.append(
                     list(self.lineage_graph.neighbors(before_ids[0]))
@@ -229,16 +191,6 @@ class History:
                     "is_relevant": is_relevant_list,
                 }
             )
-
-        if self._lookup_usernames:
-            all_user_ids = np.unique(all_user_ids)
-            user_dict = get_username_dict(all_user_ids, self._auth_token)
-            for root_id in self.root_ids:
-                user_names = [
-                    user_dict.get(int(id_), "unknown")
-                    for id_ in np.array(tabular_changelogs[root_id]["user_id"])
-                ]
-                tabular_changelogs[root_id]["user_name"] = user_names
 
         return tabular_changelogs
 

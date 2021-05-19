@@ -2,6 +2,7 @@ import io
 import csv
 import pickle
 import pandas as pd
+import numpy as np
 
 from flask import make_response, current_app
 from flask import Blueprint, request

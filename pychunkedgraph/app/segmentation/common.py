@@ -860,14 +860,29 @@ def tabular_change_logs(table_id, root_ids, filtered):
     history = cg_history.History(
         cg,
         root_ids,
-        lookup_usernames=True,
-        auth_token=current_app.config["AUTH_TOKEN"],
+    )
+    if filtered:
+        tab = history.tabular_changelogs_filtered
+    else:
+        tab = history.tabular_changelogs
+
+    all_user_ids = []
+    for tab_k in tab.keys():
+        all_user_ids.extend(np.array(tab[tab_k]["user_id"]).squeeze())
+
+    all_user_ids = np.unique(all_user_ids)
+    user_dict = app_utils.get_username_dict(
+        all_user_ids, current_app.config["AUTH_TOKEN"]
     )
 
-    if filtered:
-        return history.tabular_changelogs_filtered
-    else:
-        return history.tabular_changelogs
+    for tab_k in tab.keys():
+        user_names = [
+            user_dict.get(int(id_), "unknown")
+            for id_ in np.array(tab[tab_k]["user_id"])
+        ]
+        tab[tab_k]["user_name"] = user_names
+
+    return tab
 
 
 def merge_log(table_id, root_id):
