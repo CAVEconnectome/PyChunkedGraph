@@ -949,11 +949,21 @@ def handle_past_id_mapping(table_id):
                 "Timestamp parameter is not a valid unix timestamp"
             )
         )
+    try:
+        timestamp_future = float(request.args.get("timestamp_future", 1e10))
+    except (TypeError, ValueError):
+        raise (
+            cg_exceptions.BadRequest(
+                "Timestamp parameter is not a valid unix timestamp"
+            )
+        )
 
     # Call ChunkedGraph
     cg = app_utils.get_cg(table_id)
 
-    hist = cg_history.History(cg, root_ids)
+    hist = cg_history.History(
+        cg, root_ids, timestamp_past=timestamp_past, timestamp_future=timestamp_future
+    )
     past_id_mapping, future_id_mapping = hist.past_future_id_mapping()
     return {
         "past_id_map": {str(k): past_id_mapping[k] for k in past_id_mapping.keys()},
