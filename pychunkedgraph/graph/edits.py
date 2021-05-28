@@ -123,7 +123,7 @@ def merge_preprocess(
     return np.unique(_inactive, axis=0) if _inactive.size else types.empty_2d
 
 
-def _check_fake_edges(
+def check_fake_edges(
     cg,
     *,
     atomic_edges: Iterable[np.ndarray],
@@ -184,27 +184,24 @@ def add_edges(
     cg,
     *,
     atomic_edges: Iterable[np.ndarray],
-    inactive_edges: Iterable[np.ndarray],
     operation_id: np.uint64 = None,
     time_stamp: datetime.datetime = None,
     parent_ts: datetime.datetime = None,
+    rows: Iterable = None,
+    allow_same_segment_merge = False,
 ):
     # TODO add docs
-    atomic_edges, rows = _check_fake_edges(
-        cg,
-        atomic_edges=atomic_edges,
-        inactive_edges=inactive_edges,
-        time_stamp=time_stamp,
-        parent_ts=parent_ts,
-    )
+    if rows == None:
+        rows = []
     edges, l2_atomic_cross_edges_d = _analyze_affected_edges(
         cg, atomic_edges, parent_ts=parent_ts
     )
     l2ids = np.unique(edges)
-    assert (
-        np.unique(cg.get_roots(l2ids, assert_roots=True, time_stamp=parent_ts)).size
-        == 2
-    ), "L2 IDs must belong to different roots."
+    if not allow_same_segment_merge:
+        assert (
+            np.unique(cg.get_roots(l2ids, assert_roots=True, time_stamp=parent_ts)).size
+            == 2
+        ), "L2 IDs must belong to different roots."
     new_old_id_d, old_new_id_d, old_hierarchy_d = _init_old_hierarchy(
         cg, l2ids, parent_ts=parent_ts
     )

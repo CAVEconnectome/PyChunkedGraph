@@ -615,13 +615,20 @@ class MergeOperation(GraphEditOperation):
             )
 
         with TimeIt("edits.add_edges"):
-            return edits.add_edges(
+            atomic_edges, rows = edits.check_fake_edges(
                 self.cg,
                 atomic_edges=self.added_edges,
                 inactive_edges=inactive_edges,
+                time_stamp=timestamp,
+                parent_ts=self.parent_ts,
+            )
+            return edits.add_edges(
+                self.cg,
+                atomic_edges=atomic_edges,
                 operation_id=operation_id,
                 time_stamp=timestamp,
                 parent_ts=self.parent_ts,
+                rows=rows,
             )
 
     def _create_log_record(
@@ -1122,7 +1129,7 @@ class UndoOperation(GraphEditOperation):
             cg, log_record=log_record, multicut_as_split=multicut_as_split
         )
         if log_record_type is MergeOperation:
-            #account for additional activated edges so merge can be properly undone
+            # account for additional activated edges so merge can be properly undone
             from .misc import get_activated_edges
             activated_edges = get_activated_edges(cg, superseded_operation_id)
             if len(activated_edges) > 0:
@@ -1141,6 +1148,20 @@ class UndoOperation(GraphEditOperation):
     def _apply(
         self, *, operation_id, timestamp
     ) -> Tuple[np.ndarray, np.ndarray, List["bigtable.row.Row"]]:
+        if isinstance(self.inverse_superseded_operation, MergeOperation):
+            # in case we are undoing a partial split (with only one resulting root id)
+            #TODO make sure edges are inactive and of touching supervoxels (aka exist as edges)
+            # cases: edge does not exist, edge exists but active, exists and inactive
+            # raise error if not the case (for any? or all?)
+            with TimeIt("edits.add_edges"):
+                return edits.add_edges(
+                    self.inverse_superseded_operation.cg,
+                    atomic_edges=self.inverse_superseded_operation.added_edges,
+                    operation_id=operation_id,
+                    time_stamp=timestamp,
+                    parent_ts=self.inverse_superseded_operation.parent_ts,
+                    allow_same_segment_merge=True,
+                )
         return self.inverse_superseded_operation._apply(
             operation_id=operation_id, timestamp=timestamp
         )
