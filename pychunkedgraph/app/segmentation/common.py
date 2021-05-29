@@ -891,7 +891,7 @@ def handle_lineage_graph(table_id, root_id=None):
 def handle_past_id_mapping(table_id):
     root_ids = np.array(json.loads(request.data)["root_ids"], dtype=np.uint64)
     timestamp_past = _parse_timestamp('timstamp_past', default_timestamp=0, return_datetime=True)
-    timestamp_future = _parse_timestamp('timestamp_future', default_timestamp=0, return_datetime=True)
+    timestamp_future = _parse_timestamp('timestamp_future', default_timestamp=time.time(), return_datetime=True)
   
     # Call ChunkedGraph
     cg = app_utils.get_cg(table_id)
