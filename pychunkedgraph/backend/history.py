@@ -17,8 +17,8 @@ class History:
         self,
         cg,
         root_ids,
-        timestamp_past=None,
-        timestamp_future=None,
+        timestamp_past: datetime.datetime=None,
+        timestamp_future: datetime.datetime=None,
     ):
         self.cg = cg
 
