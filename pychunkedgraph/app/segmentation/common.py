@@ -209,15 +209,7 @@ def handle_root(table_id, atomic_id):
     current_app.user_id = user_id
 
     # Convert seconds since epoch to UTC datetime
-    try:
-        timestamp = float(request.args.get("timestamp", time.time()))
-        timestamp = datetime.fromtimestamp(timestamp, UTC)
-    except (TypeError, ValueError):
-        raise (
-            cg_exceptions.BadRequest(
-                "Timestamp parameter is not a valid unix timestamp"
-            )
-        )
+    timestamp = _parse_timestamp("timestamp", time.time(), return_datetime=True)
 
     stop_layer = request.args.get("stop_layer", None)
     if stop_layer is not None:
@@ -248,15 +240,8 @@ def handle_roots(table_id, is_binary=False):
     else:
         node_ids = np.array(json.loads(request.data)["node_ids"], dtype=np.uint64)
     # Convert seconds since epoch to UTC datetime
-    try:
-        timestamp = float(request.args.get("timestamp", time.time()))
-        timestamp = datetime.fromtimestamp(timestamp, UTC)
-    except (TypeError, ValueError):
-        raise (
-            cg_exceptions.BadRequest(
-                "Timestamp parameter is not a valid" " unix timestamp"
-            )
-        )
+    timestamp = _parse_timestamp("timestamp", time.time(), return_datetime=True)
+
 
     stop_layer = request.args.get("stop_layer", None)
     if stop_layer is not None:
@@ -279,15 +264,8 @@ def handle_l2_chunk_children(table_id, chunk_id, as_array):
     current_app.table_id = table_id
 
     # Convert seconds since epoch to UTC datetime
-    try:
-        timestamp = float(request.args.get("timestamp", time.time()))
-        timestamp = datetime.fromtimestamp(timestamp, UTC)
-    except (TypeError, ValueError):
-        raise (
-            cg_exceptions.BadRequest(
-                "Timestamp parameter is not a valid" " unix timestamp"
-            )
-        )
+    timestamp = _parse_timestamp("timestamp", time.time(), return_datetime=True)
+
 
     # Call ChunkedGraph
     cg = app_utils.get_cg(table_id)
@@ -603,15 +581,7 @@ def all_user_operations(table_id):
     current_app.user_id = user_id
     target_user_id = request.args["user_id"]
 
-    try:
-        start_time = float(request.args.get("start_time", 0))
-        start_time = datetime.fromtimestamp(start_time, UTC)
-    except (TypeError, ValueError):
-        raise (
-            cg_exceptions.BadRequest(
-                "start_time parameter is not a valid unix timestamp"
-            )
-        )
+    start_time = _parse_timestamp("start_time", time.time(), return_datetime=True)
 
     # Call ChunkedGraph
     cg_instance = app_utils.get_cg(table_id)
@@ -790,15 +760,7 @@ def change_log(table_id, root_id=None):
     user_id = str(g.auth_user["id"])
     current_app.user_id = user_id
 
-    try:
-        time_stamp_past = float(request.args.get("timestamp", 0))
-        time_stamp_past = datetime.fromtimestamp(time_stamp_past, UTC)
-    except (TypeError, ValueError):
-        raise (
-            cg_exceptions.BadRequest(
-                "Timestamp parameter is not a valid" " unix timestamp"
-            )
-        )
+    time_stamp_past = _parse_timestamp("timestamp", 0, return_datetime=True)
 
     # Call ChunkedGraph
     cg = app_utils.get_cg(table_id)
@@ -815,15 +777,7 @@ def tabular_change_log_recent(table_id):
     user_id = str(g.auth_user["id"])
     current_app.user_id = user_id
 
-    try:
-        start_time = float(request.args.get("start_time", 0))
-        start_time = datetime.fromtimestamp(start_time, UTC)
-    except (TypeError, ValueError):
-        raise (
-            cg_exceptions.BadRequest(
-                "start_time parameter is not a valid unix timestamp"
-            )
-        )
+    start_time = _parse_timestamp("start_time", 0, return_datetime=True)
 
     # Call ChunkedGraph
     cg_instance = app_utils.get_cg(table_id)
@@ -889,16 +843,8 @@ def merge_log(table_id, root_id):
     current_app.table_id = table_id
     user_id = str(g.auth_user["id"])
     current_app.user_id = user_id
-
-    try:
-        time_stamp_past = float(request.args.get("timestamp", 0))
-        time_stamp_past = datetime.fromtimestamp(time_stamp_past, UTC)
-    except (TypeError, ValueError):
-        raise (
-            cg_exceptions.BadRequest(
-                "Timestamp parameter is not a valid" " unix timestamp"
-            )
-        )
+    
+    time_stamp_past = _parse_timestamp("timestamp", 0, return_datetime=True)
 
     # Call ChunkedGraph
     cg = app_utils.get_cg(table_id)
@@ -906,7 +852,20 @@ def merge_log(table_id, root_id):
     history = cg_history.History(cg, [int(root_id)])
     return history.merge_log()
 
-
+def _parse_timestamp(arg_name, default_timestamp=0, return_datetime=False):
+    """Convert seconds since epoch to UTC datetime."""
+    try:
+        timestamp = float(request.args.get(arg_name, default_timestamp))
+        if return_datetime:
+            return datetime.fromtimestamp(timestamp, UTC)
+        else:
+            return timestamp
+    except (TypeError, ValueError):
+        raise (
+            cg_exceptions.BadRequest(
+                f"Timestamp parameter {arg_name} is not a valid unix timestamp"
+        )
+        )
 def handle_lineage_graph(table_id, root_id=None):
     from networkx import node_link_data
 
@@ -914,19 +873,9 @@ def handle_lineage_graph(table_id, root_id=None):
     user_id = str(g.auth_user["id"])
     current_app.user_id = user_id
 
-    def _parse_timestamp(arg_name, default_timestamp=0):
-        """Convert seconds since epoch to UTC datetime."""
-        try:
-            return float(request.args.get(arg_name, default_timestamp))
-        except (TypeError, ValueError):
-            raise (
-                cg_exceptions.BadRequest(
-                    "Timestamp parameter is not a valid unix timestamp"
-                )
-            )
-
-    timestamp_past = _parse_timestamp("timestamp_past")
-    timestamp_future = _parse_timestamp("timestamp_future", time.time())
+    
+    timestamp_past = _parse_timestamp("timestamp_past", 0, return_datetime=True)
+    timestamp_future = _parse_timestamp("timestamp_future", time.time(), return_datetime=True)
 
     # Call ChunkedGraph
     cg = app_utils.get_cg(table_id)
@@ -936,28 +885,14 @@ def handle_lineage_graph(table_id, root_id=None):
         return node_link_data(graph)
 
     history_ids = cg_history.History(cg, int(root_id), timestamp_past, timestamp_future)
-    return node_link_data(history.lineage_graph)
+    return node_link_data(history_ids.lineage_graph)
 
 
 def handle_past_id_mapping(table_id):
     root_ids = np.array(json.loads(request.data)["root_ids"], dtype=np.uint64)
-    try:
-        timestamp_past = float(request.args.get("timestamp_past", 0))
-    except (TypeError, ValueError):
-        raise (
-            cg_exceptions.BadRequest(
-                "Timestamp parameter is not a valid unix timestamp"
-            )
-        )
-    try:
-        timestamp_future = float(request.args.get("timestamp_future", 1e10))
-    except (TypeError, ValueError):
-        raise (
-            cg_exceptions.BadRequest(
-                "Timestamp parameter is not a valid unix timestamp"
-            )
-        )
-
+    timestamp_past = _parse_timestamp('timstamp_past', default_timestamp=0, return_datetime=True)
+    timestamp_future = _parse_timestamp('timestamp_future', default_timestamp=0, return_datetime=True)
+  
     # Call ChunkedGraph
     cg = app_utils.get_cg(table_id)
 
@@ -1012,15 +947,7 @@ def handle_contact_sites(table_id, root_id):
     user_id = str(g.auth_user["id"])
     current_app.user_id = user_id
 
-    try:
-        timestamp = float(request.args.get("timestamp", time.time()))
-        timestamp = datetime.fromtimestamp(timestamp, UTC)
-    except (TypeError, ValueError):
-        raise (
-            cg_exceptions.BadRequest(
-                "Timestamp parameter is not a valid" " unix timestamp"
-            )
-        )
+    timestamp = _parse_timestamp("timestamp", default_timestamp=time.time(), return_datetime=True)
 
     if "bounds" in request.args:
         bounds = request.args["bounds"]
@@ -1052,15 +979,8 @@ def handle_pairwise_contact_sites(table_id, first_node_id, second_node_id):
     user_id = str(g.auth_user["id"])
     current_app.user_id = user_id
 
-    try:
-        timestamp = float(request.args.get("timestamp", time.time()))
-        timestamp = datetime.fromtimestamp(timestamp, UTC)
-    except (TypeError, ValueError):
-        raise (
-            cg_exceptions.BadRequest(
-                "Timestamp parameter is not a valid" " unix timestamp"
-            )
-        )
+    timestamp = _parse_timestamp("timestamp", time.time(), return_datetime=True)
+    
     exact_location = request.args.get("exact_location", True, type=app_utils.toboolean)
     cg = app_utils.get_cg(table_id)
     contact_sites_list, cs_metadata = contact_sites.get_contact_sites_pairwise(
@@ -1199,15 +1119,8 @@ def handle_is_latest_roots(table_id, is_binary):
     else:
         node_ids = np.array(json.loads(request.data)["node_ids"], dtype=np.uint64)
     # Convert seconds since epoch to UTC datetime
-    try:
-        timestamp = float(request.args.get("timestamp", time.time()))
-        timestamp = datetime.fromtimestamp(timestamp, UTC)
-    except (TypeError, ValueError):
-        raise (
-            cg_exceptions.BadRequest(
-                "Timestamp parameter is not a valid" " unix timestamp"
-            )
-        )
+    timestamp = _parse_timestamp("timestamp", time.time(), return_datetime=True)
+    
     # Call ChunkedGraph
     cg = app_utils.get_cg(table_id)
 
