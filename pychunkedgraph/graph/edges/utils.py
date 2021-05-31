@@ -8,6 +8,7 @@ from typing import List
 from typing import Tuple
 from typing import Iterable
 from typing import Callable
+from typing import Optional
 
 import numpy as np
 
@@ -126,7 +127,7 @@ def categorize_edges_v2(
     l2id_children_d: Dict,
     get_sv_parents: Callable,
 ) -> Tuple[Edges, Edges, Edges]:
-    """ Faster version of categorize_edges(), avoids looping over L2 IDs. """
+    """Faster version of categorize_edges(), avoids looping over L2 IDs."""
     node_ids1 = get_sv_parents(edges.node_ids1)
     node_ids2 = get_sv_parents(edges.node_ids2)
 
@@ -192,3 +193,40 @@ def filter_min_layer_cross_edges_multiple(
     for edges_d in l2id_atomic_cross_edges_ds:
         edges.append(edges_d.get(min_layer, empty_2d))
     return min_layer, np.concatenate(edges)
+
+
+def get_edges_status(cg, edges: Iterable, time_stamp: Optional[float] = None):
+    from ...utils.general import in2d
+
+    coords0 = chunk_utils.get_chunk_coordinates_multiple(cg.meta, edges[:, 0])
+    coords1 = chunk_utils.get_chunk_coordinates_multiple(cg.meta, edges[:, 1])
+
+    coords = np.concatenate([np.array(coords0), np.array(coords1)])
+    bbox = [np.min(coords, axis=0), np.max(coords, axis=0)]
+    if np.all(bbox[0]) == np.all(bbox[1]):
+        # only one chunk, increment bounds by 1
+        # because of 0 indexing only this chunk is downloaded
+        bbox[1] += 1
+
+    root_ids = set(
+        cg.get_roots(edges.ravel(), assert_roots=True, time_stamp=time_stamp)
+    )
+    sg_edges = cg.get_subgraph(
+        root_ids,
+        bbox=bbox,
+        bbox_is_coordinate=False,
+        edges_only=True,
+    )
+    existence_status = in2d(sg_edges, edges)
+
+    edge_layers = cg.get_cross_chunk_edges_layer(edges)
+    active_status = []
+    for layer in np.unique(edge_layers):
+        layer_edges = edges[edge_layers == layer]
+        edges_parents = cg.get_roots(
+            layer_edges.ravel(), time_stamp=time_stamp, stop_layer=layer + 1
+        ).reshape(-1, 2)
+        mask = edges_parents[:, 0] == edges_parents[:, 1]
+        active_status.extend(mask)
+    active_status = np.array(active_status, dtype=bool)
+    return existence_status, active_status
