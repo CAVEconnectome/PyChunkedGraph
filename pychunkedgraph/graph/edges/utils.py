@@ -217,8 +217,7 @@ def get_edges_status(cg, edges: Iterable, time_stamp: Optional[float] = None):
         bbox_is_coordinate=False,
         edges_only=True,
     )
-    existence_status = in2d(sg_edges, edges)
-
+    existence_status = in2d(edges, sg_edges)
     edge_layers = cg.get_cross_chunk_edges_layer(edges)
     active_status = []
     for layer in np.unique(edge_layers):
