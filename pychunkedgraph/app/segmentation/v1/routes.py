@@ -2,6 +2,7 @@ import io
 import csv
 import pickle
 import pandas as pd
+import numpy as np
 
 from flask import make_response, current_app
 from flask import Blueprint, request
@@ -13,7 +14,11 @@ from pychunkedgraph.app.app_utils import jsonify_with_kwargs, toboolean, tobinar
 from pychunkedgraph.app.segmentation import common
 from pychunkedgraph.backend import chunkedgraph_exceptions as cg_exceptions
 
-bp = Blueprint("pcg_segmentation_v1", __name__, url_prefix=f"/{common.__segmentation_url_prefix__}/api/v1")
+bp = Blueprint(
+    "pcg_segmentation_v1",
+    __name__,
+    url_prefix=f"/{common.__segmentation_url_prefix__}/api/v1",
+)
 
 import os
 import json
@@ -77,7 +82,10 @@ def api_exception(e):
 def handle_merge(table_id):
     int64_as_str = request.args.get("int64_as_str", default=False, type=toboolean)
     merge_result = common.handle_merge(table_id)
-    resp = {"operation_id": merge_result.operation_id, "new_root_ids": merge_result.new_root_ids}
+    resp = {
+        "operation_id": merge_result.operation_id,
+        "new_root_ids": merge_result.new_root_ids,
+    }
     return jsonify_with_kwargs(resp, int64_as_str=int64_as_str)
 
 
@@ -89,11 +97,14 @@ def handle_merge(table_id):
 def handle_split(table_id):
     int64_as_str = request.args.get("int64_as_str", default=False, type=toboolean)
     split_result = common.handle_split(table_id)
-    resp = {"operation_id": split_result.operation_id, "new_root_ids": split_result.new_root_ids}
+    resp = {
+        "operation_id": split_result.operation_id,
+        "new_root_ids": split_result.new_root_ids,
+    }
     return jsonify_with_kwargs(resp, int64_as_str=int64_as_str)
 
 
-@bp.route('/table/<table_id>/graph/split_preview', methods=["POST"])
+@bp.route("/table/<table_id>/graph/split_preview", methods=["POST"])
 @auth_requires_permission("view")
 def handle_split_preview(table_id):
     int64_as_str = request.args.get("int64_as_str", default=False, type=toboolean)
@@ -109,7 +120,10 @@ def handle_split_preview(table_id):
 def handle_undo(table_id):
     int64_as_str = request.args.get("int64_as_str", default=False, type=toboolean)
     undo_result = common.handle_undo(table_id)
-    resp = {"operation_id": undo_result.operation_id, "new_root_ids": undo_result.new_root_ids}
+    resp = {
+        "operation_id": undo_result.operation_id,
+        "new_root_ids": undo_result.new_root_ids,
+    }
     return jsonify_with_kwargs(resp, int64_as_str=int64_as_str)
 
 
@@ -121,7 +135,10 @@ def handle_undo(table_id):
 def handle_redo(table_id):
     int64_as_str = request.args.get("int64_as_str", default=False, type=toboolean)
     redo_result = common.handle_redo(table_id)
-    resp = {"operation_id": redo_result.operation_id, "new_root_ids": redo_result.new_root_ids}
+    resp = {
+        "operation_id": redo_result.operation_id,
+        "new_root_ids": redo_result.new_root_ids,
+    }
     return jsonify_with_kwargs(resp, int64_as_str=int64_as_str)
 
 
@@ -180,7 +197,9 @@ def handle_roots(table_id):
     else:
         return jsonify_with_kwargs(resp, int64_as_str=int64_as_str)
 
+
 ### GET ROOTS BINARY -----------------------------------------------------------
+
 
 @bp.route("/table/<table_id>/roots_binary", methods=["POST"])
 @auth_requires_permission("view")
@@ -190,6 +209,7 @@ def handle_roots_binary(table_id):
 
 
 ### CHILDREN -------------------------------------------------------------------
+
 
 @bp.route("/table/<table_id>/node/<node_id>/children", methods=["GET"])
 @auth_requires_permission("view")
@@ -201,6 +221,7 @@ def handle_children(table_id, node_id):
 
 
 ### GET L2:SV MAPPINGS OF A L2 CHUNK ------------------------------------------------------------------
+
 
 @bp.route("/table/<table_id>/l2_chunk_children/<chunk_id>", methods=["GET"])
 @auth_requires_permission("view")
@@ -217,6 +238,7 @@ def handle_l2_chunk_children(table_id, chunk_id):
 
 ### GET L2:SV MAPPINGS OF A L2 CHUNK BINARY ------------------------------------------------------------------
 
+
 @bp.route("/table/<table_id>/l2_chunk_children_binary/<chunk_id>", methods=["GET"])
 @auth_requires_permission("view")
 def handle_l2_chunk_children_binary(table_id, chunk_id):
@@ -232,8 +254,12 @@ def handle_l2_chunk_children_binary(table_id, chunk_id):
 
 
 @bp.route("/table/<table_id>/node/<node_id>/leaves", methods=["GET"])
-@auth_requires_permission("view", public_table_key='table_id', public_node_key='node_id',
-                          service_token=AUTH_TOKEN)
+@auth_requires_permission(
+    "view",
+    public_table_key="table_id",
+    public_node_key="node_id",
+    service_token=AUTH_TOKEN,
+)
 def handle_leaves(table_id, node_id):
     int64_as_str = request.args.get("int64_as_str", default=False, type=toboolean)
     leaf_ids = common.handle_leaves(table_id, node_id)
@@ -243,10 +269,15 @@ def handle_leaves(table_id, node_id):
 
 ### MANY LEAVES ---------------------------------------------------------------------
 
+
 @bp.route("/table/<table_id>/node/leaves_many", methods=["POST"])
 @bp.route("/table/<table_id>/leaves_many", methods=["POST"])
-@auth_requires_permission("view", public_table_key='table_id', public_node_key='node_id',
-                          service_token=AUTH_TOKEN)
+@auth_requires_permission(
+    "view",
+    public_table_key="table_id",
+    public_node_key="node_id",
+    service_token=AUTH_TOKEN,
+)
 def handle_leaves_many(table_id):
     int64_as_str = request.args.get("int64_as_str", default=False, type=toboolean)
     root_to_leaf_dict = common.handle_leaves_many(table_id)
@@ -282,7 +313,10 @@ def handle_contact_sites(table_id, node_id):
     return jsonify_with_kwargs(resp, int64_as_str=int64_as_str)
 
 
-@bp.route("/table/<table_id>/node/contact_sites_pair/<first_node_id>/<second_node_id>", methods=["GET"])
+@bp.route(
+    "/table/<table_id>/node/contact_sites_pair/<first_node_id>/<second_node_id>",
+    methods=["GET"],
+)
 @auth_requires_permission("view")
 def handle_pairwise_contact_sites(table_id, first_node_id, second_node_id):
     int64_as_str = request.args.get("int64_as_str", default=False, type=toboolean)
@@ -295,6 +329,7 @@ def handle_pairwise_contact_sites(table_id, first_node_id, second_node_id):
     }
     return jsonify_with_kwargs(resp, int64_as_str=int64_as_str)
 
+
 ### CHANGE LOG -----------------------------------------------------------------
 
 
@@ -304,7 +339,7 @@ def change_log_full(table_id):
     si = io.StringIO()
     cw = csv.writer(si)
     log_entries = common.change_log(table_id)
-    cw.writerow(["user_id","action","root_ids","timestamp"])
+    cw.writerow(["user_id", "action", "root_ids", "timestamp"])
     cw.writerows(log_entries)
     output = make_response(si.getvalue())
     output.headers["Content-Disposition"] = f"attachment; filename={table_id}.csv"
@@ -336,14 +371,27 @@ def change_log(table_id, root_id):
 @auth_requires_permission("view")
 def tabular_change_log(table_id, root_id):
     disp = request.args.get("disp", default=False, type=toboolean)
-    get_root_ids = request.args.get("root_ids", default=False, type=toboolean)
     filtered = request.args.get("filtered", default=True, type=toboolean)
-    tab_change_log = common.tabular_change_log(table_id, root_id, get_root_ids, filtered)
+    tab_change_log_dict = common.tabular_change_logs(table_id, [int(root_id)], filtered)
+    tab_change_log = tab_change_log_dict[int(root_id)]
 
     if disp:
         return tab_change_log.to_html()
     else:
         return tab_change_log.to_json()
+
+
+@bp.route("/table/<table_id>/tabular_change_log_many", methods=["GET"])
+@auth_requires_permission("view")
+def tabular_change_log_many(table_id):
+    filtered = request.args.get("filtered", default=True, type=toboolean)
+    root_ids = np.array(json.loads(request.data)["root_ids"], dtype=np.uint64)
+    tab_change_log_dict = common.tabular_change_logs(table_id, root_ids, filtered)
+
+    return jsonify_with_kwargs(
+        {str(k): tab_change_log_dict[k] for k in tab_change_log_dict.keys()}
+    )
+
 
 @bp.route("/table/<table_id>/root/<root_id>/merge_log", methods=["GET"])
 @auth_requires_permission("view")
@@ -360,12 +408,14 @@ def handle_lineage_graph(table_id, root_id):
     resp = common.handle_lineage_graph(table_id, root_id)
     return jsonify_with_kwargs(resp, int64_as_str=int64_as_str)
 
+
 @bp.route("/table/<table_id>/lineage_graph_multiple", methods=["POST"])
 @auth_requires_permission("view")
 def handle_lineage_graph_multiple(table_id):
     int64_as_str = request.args.get("int64_as_str", default=False, type=toboolean)
     resp = common.handle_lineage_graph(table_id)
     return jsonify_with_kwargs(resp, int64_as_str=int64_as_str)
+
 
 @bp.route("/table/<table_id>/past_id_mapping", methods=["GET"])
 @auth_requires_permission("view")
@@ -376,8 +426,7 @@ def handle_past_id_mapping(table_id):
 
 
 @bp.route("/table/<table_id>/oldest_timestamp", methods=["GET"])
-@auth_requires_permission("view", public_table_key='table_id',
-                          service_token=AUTH_TOKEN)
+@auth_requires_permission("view", public_table_key="table_id", service_token=AUTH_TOKEN)
 def oldest_timestamp(table_id):
     int64_as_str = request.args.get("int64_as_str", default=False, type=toboolean)
     delimiter = request.args.get("delimiter", default=" ", type=str)
@@ -407,6 +456,7 @@ def find_path(table_id):
     find_path_result = common.handle_find_path(table_id, precision_mode)
     return jsonify_with_kwargs(find_path_result, int64_as_str=int64_as_str)
 
+
 ## GET LEVEL2 GRAPH -------------------------------------------------------------
 @bp.route("/table/<table_id>/node/<node_id>/lvl2_graph", methods=["GET"])
 @auth_requires_permission("view")
@@ -417,6 +467,7 @@ def handle_get_lvl2_graph(table_id, node_id):
 
 
 ### IS LATEST ROOTS --------------------------------------------------------------
+
 
 @bp.route("/table/<table_id>/is_latest_roots", methods=["POST"])
 @auth_requires_permission("view")
@@ -430,6 +481,7 @@ def handle_is_latest_roots(table_id):
 
 
 ### GET OPERATION DETAILS --------------------------------------------------------
+
 
 @bp.route("/table/<table_id>/operation_details", methods=["GET"])
 @auth_requires_permission("view")

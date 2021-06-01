@@ -4,6 +4,7 @@ import logging
 import os
 import sys
 import time
+import pandas as pd
 
 import numpy as np
 import redis
@@ -38,6 +39,8 @@ class CustomJsonEncoder(json.JSONEncoder):
             return obj.item()
         elif isinstance(obj, datetime.datetime):
             return obj.__str__()
+        elif isinstance(obj, pd.DataFrame):
+            return obj.to_json()
         return json.JSONEncoder.default(self, obj)
 
 
