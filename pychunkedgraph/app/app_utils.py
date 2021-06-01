@@ -83,12 +83,7 @@ def get_datastore_client(config):
 
 
 def get_cg(table_id):
-    assert (
-        table_id.startswith("fly")
-        or table_id.startswith("golden")
-        or table_id.startswith("pinky100_rv")
-        or table_id.startswith("pinky100_arv")
-    )
+    assert table_id in current_app.config["PCG_GRAPH_IDS"]
 
     if table_id not in CACHE:
         instance_id = current_app.config["CHUNKGRAPH_INSTANCE_ID"]
