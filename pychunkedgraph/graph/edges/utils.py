@@ -203,10 +203,7 @@ def get_edges_status(cg, edges: Iterable, time_stamp: Optional[float] = None):
 
     coords = np.concatenate([np.array(coords0), np.array(coords1)])
     bbox = [np.min(coords, axis=0), np.max(coords, axis=0)]
-    if np.all(bbox[0]) == np.all(bbox[1]):
-        # only one chunk, increment bounds by 1
-        # because of 0 indexing only this chunk is downloaded
-        bbox[1] += 1
+    bbox[1] += 1
 
     root_ids = set(
         cg.get_roots(edges.ravel(), assert_roots=True, time_stamp=time_stamp)
