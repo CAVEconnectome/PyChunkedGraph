@@ -1150,9 +1150,12 @@ class UndoOperation(GraphEditOperation):
     ) -> Tuple[np.ndarray, np.ndarray, List["bigtable.row.Row"]]:
         if isinstance(self.inverse_superseded_operation, MergeOperation):
             # in case we are undoing a partial split (with only one resulting root id)
-            #TODO make sure edges are inactive and of touching supervoxels (aka exist as edges)
-            # cases: edge does not exist, edge exists but active, exists and inactive
-            # raise error if not the case (for any? or all?)
+            from .edges.utils import get_edges_status
+            e, a = get_edges_status(self.inverse_superseded_operation.cg, self.inverse_superseded_operation.added_edges)
+            if sum(e) != len(self.inverse_superseded_operation.added_edges) or sum(a) != 0: #TODO must they all be inactive?
+                raise PreconditionError(
+                    f"All edges must exist and be inactive."
+                )
             with TimeIt("edits.add_edges"):
                 return edits.add_edges(
                     self.inverse_superseded_operation.cg,
