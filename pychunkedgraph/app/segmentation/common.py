@@ -19,7 +19,12 @@ from cloudvolume import compression
 from flask import current_app, g, jsonify, make_response, request
 from pychunkedgraph import __version__
 from pychunkedgraph.app import app_utils
-from pychunkedgraph.graph import attributes, cutting, exceptions as cg_exceptions, edges as cg_edges
+from pychunkedgraph.graph import (
+    attributes,
+    cutting,
+    exceptions as cg_exceptions,
+    edges as cg_edges,
+)
 from pychunkedgraph.graph import segmenthistory
 from pychunkedgraph.graph.analysis import pathing
 from pychunkedgraph.graph.attributes import OperationLogs
@@ -27,7 +32,8 @@ from pychunkedgraph.meshing import mesh_analysis
 from pychunkedgraph.graph.misc import get_contact_sites
 
 __api_versions__ = [0, 1]
-__segmentation_url_prefix__ = os.environ.get('SEGMENTATION_URL_PREFIX', 'segmentation')
+__segmentation_url_prefix__ = os.environ.get("SEGMENTATION_URL_PREFIX", "segmentation")
+
 
 def index():
     return f"PyChunkedGraph Segmentation v{__version__}"
@@ -55,7 +61,7 @@ def before_request():
     current_app.table_id = None
     current_app.request_type = None
 
-    content_encoding = request.headers.get('Content-Encoding', '')
+    content_encoding = request.headers.get("Content-Encoding", "")
 
     if "gzip" in content_encoding.lower():
         request.data = compression.decompress(request.data, "gzip")
@@ -84,26 +90,29 @@ def after_request(response):
                 request_type=current_app.request_type,
             )
     except Exception as e:
-        current_app.logger.debug(f"{current_app.user_id}: LogDB entry not"
-                                 f" successful: {e}")
+        current_app.logger.debug(
+            f"{current_app.user_id}: LogDB entry not" f" successful: {e}"
+        )
 
-    accept_encoding = request.headers.get('Accept-Encoding', '')
+    accept_encoding = request.headers.get("Accept-Encoding", "")
 
-    if 'gzip' not in accept_encoding.lower():
+    if "gzip" not in accept_encoding.lower():
         return response
 
     response.direct_passthrough = False
 
-    if (response.status_code < 200 or
-            response.status_code >= 300 or
-            'Content-Encoding' in response.headers):
+    if (
+        response.status_code < 200
+        or response.status_code >= 300
+        or "Content-Encoding" in response.headers
+    ):
         return response
 
     response.data = compression.gzip_compress(response.data)
 
-    response.headers['Content-Encoding'] = 'gzip'
-    response.headers['Vary'] = 'Accept-Encoding'
-    response.headers['Content-Length'] = len(response.data)
+    response.headers["Content-Encoding"] = "gzip"
+    response.headers["Vary"] = "Accept-Encoding"
+    response.headers["Content-Length"] = len(response.data)
 
     return response
 
@@ -167,6 +176,7 @@ def api_exception(e):
 
     return jsonify(resp), e.status_code.value
 
+
 def _parse_timestamp(arg_name, default_timestamp=0, return_datetime=False):
     """Convert seconds since epoch to UTC datetime."""
     try:
@@ -179,8 +189,10 @@ def _parse_timestamp(arg_name, default_timestamp=0, return_datetime=False):
         raise (
             cg_exceptions.BadRequest(
                 f"Timestamp parameter {arg_name} is not a valid unix timestamp"
+            )
         )
-        )
+
+
 # -------------------
 # ------ Applications
 # -------------------
@@ -199,7 +211,9 @@ def handle_info(table_id):
     app_info = {"app": {"supported_api_versions": list(__api_versions__)}}
     combined_info = {**dataset_info, **app_info}
     combined_info["sharded_mesh"] = True
-    combined_info["verify_mesh"] = cg.meta.custom_data.get("mesh", {}).get("verify", False)
+    combined_info["verify_mesh"] = cg.meta.custom_data.get("mesh", {}).get(
+        "verify", False
+    )
     combined_info["mesh"] = cg.meta.custom_data.get("mesh", {}).get(
         "dir", "graphene_meshes"
     )
@@ -221,23 +235,19 @@ def handle_root(table_id, atomic_id):
 
     # Convert seconds since epoch to UTC datetime
     timestamp = _parse_timestamp("timestamp", time.time(), return_datetime=True)
-    
 
     stop_layer = request.args.get("stop_layer", None)
     if stop_layer is not None:
         try:
             stop_layer = int(stop_layer)
         except (TypeError, ValueError) as e:
-            raise (
-                cg_exceptions.BadRequest(
-                    "stop_layer is not an integer"
-                )
-            )
+            raise (cg_exceptions.BadRequest("stop_layer is not an integer"))
 
     # Call ChunkedGraph
     cg = app_utils.get_cg(table_id)
-    root_id = cg.get_root(np.uint64(atomic_id), stop_layer=stop_layer,
-                          time_stamp=timestamp)
+    root_id = cg.get_root(
+        np.uint64(atomic_id), stop_layer=stop_layer, time_stamp=timestamp
+    )
 
     # Return root ID
     return root_id
@@ -253,8 +263,7 @@ def handle_roots(table_id, is_binary=False):
     if is_binary:
         node_ids = np.frombuffer(request.data, np.uint64)
     else:
-        node_ids = np.array(json.loads(request.data)["node_ids"],
-                            dtype=np.uint64)
+        node_ids = np.array(json.loads(request.data)["node_ids"], dtype=np.uint64)
     # Convert seconds since epoch to UTC datetime
     timestamp = _parse_timestamp("timestamp", time.time(), return_datetime=True)
 
@@ -289,12 +298,14 @@ def handle_l2_chunk_children(table_id, chunk_id, as_array):
     if chunk_layer != 2:
         raise (
             cg_exceptions.PreconditionError(
-                f'This function only accepts level 2 chunks, the chunk requested is a level {chunk_layer} chunk'
+                f"This function only accepts level 2 chunks, the chunk requested is a level {chunk_layer} chunk"
             )
         )
 
     rr_chunk = cg.range_read_chunk(
-        chunk_id=np.uint64(chunk_id), properties=attributes.Hierarchy.Child, time_stamp=timestamp
+        chunk_id=np.uint64(chunk_id),
+        properties=attributes.Hierarchy.Child,
+        time_stamp=timestamp,
     )
 
     if as_array:
@@ -314,17 +325,21 @@ def handle_l2_chunk_children(table_id, chunk_id, as_array):
 
         return l2_chunk_dict
 
+
 def str2bool(v):
     return v.lower() in ("yes", "true", "t", "1")
 
+
 def trigger_remesh(table_id, new_lvl2_ids, is_priority=True):
     auth_header = {"Authorization": f"Bearer {current_app.config['AUTH_TOKEN']}"}
-    resp = requests.post(f"{current_app.config['MESHING_ENDPOINT']}/api/v1/table/{table_id}/remeshing",
-                            data=json.dumps({"new_lvl2_ids": new_lvl2_ids},
-                                            cls=current_app.json_encoder),
-                            params={'priority': is_priority},
-                            headers=auth_header)
+    resp = requests.post(
+        f"{current_app.config['MESHING_ENDPOINT']}/api/v1/table/{table_id}/remeshing",
+        data=json.dumps({"new_lvl2_ids": new_lvl2_ids}, cls=current_app.json_encoder),
+        params={"priority": is_priority},
+        headers=auth_header,
+    )
     resp.raise_for_status()
+
 
 ### MERGE ----------------------------------------------------------------------
 
@@ -333,7 +348,7 @@ def handle_merge(table_id, allow_same_segment_merge=False):
     current_app.table_id = table_id
 
     nodes = json.loads(request.data)
-    is_priority = request.args.get('priority', True, type=str2bool)
+    is_priority = request.args.get("priority", True, type=str2bool)
     user_id = str(g.auth_user["id"])
     current_app.user_id = user_id
 
@@ -356,8 +371,7 @@ def handle_merge(table_id, allow_same_segment_merge=False):
 
         if atomic_id is None:
             raise cg_exceptions.BadRequest(
-                f"Could not determine supervoxel ID for coordinates "
-                f"{coordinate}."
+                f"Could not determine supervoxel ID for coordinates " f"{coordinate}."
             )
 
         coords.append(coordinate)
@@ -389,14 +403,14 @@ def handle_merge(table_id, allow_same_segment_merge=False):
         raise cg_exceptions.BadRequest(str(e))
 
     if ret.new_root_ids is None:
-        raise cg_exceptions.InternalServerError("Could not merge selected "
-                                                "supervoxel.")
+        raise cg_exceptions.InternalServerError(
+            "Could not merge selected " "supervoxel."
+        )
 
     current_app.logger.debug(("lvl2_nodes:", ret.new_lvl2_ids))
 
     if len(ret.new_lvl2_ids) > 0:
         trigger_remesh(table_id, ret.new_lvl2_ids, is_priority=is_priority)
-
 
     return ret
 
@@ -408,8 +422,8 @@ def handle_split(table_id):
     current_app.table_id = table_id
 
     data = json.loads(request.data)
-    is_priority = request.args.get('priority', True, type=str2bool)
-    mincut = request.args.get('mincut', True, type=str2bool)
+    is_priority = request.args.get("priority", True, type=str2bool)
+    mincut = request.args.get("mincut", True, type=str2bool)
     user_id = str(g.auth_user["id"])
     current_app.user_id = user_id
 
@@ -471,7 +485,6 @@ def handle_split(table_id):
     if len(ret.new_lvl2_ids) > 0:
         trigger_remesh(table_id, ret.new_lvl2_ids, is_priority=is_priority)
 
-
     return ret
 
 
@@ -482,7 +495,7 @@ def handle_undo(table_id):
     current_app.table_id = table_id
 
     data = json.loads(request.data)
-    is_priority = request.args.get('priority', True, type=str2bool)
+    is_priority = request.args.get("priority", True, type=str2bool)
     user_id = str(g.auth_user["id"])
     current_app.user_id = user_id
 
@@ -505,7 +518,6 @@ def handle_undo(table_id):
     if ret.new_lvl2_ids.size > 0:
         trigger_remesh(table_id, ret.new_lvl2_ids, is_priority=is_priority)
 
-
     return ret
 
 
@@ -516,7 +528,7 @@ def handle_redo(table_id):
     current_app.table_id = table_id
 
     data = json.loads(request.data)
-    is_priority = request.args.get('priority', True, type=str2bool)
+    is_priority = request.args.get("priority", True, type=str2bool)
     user_id = str(g.auth_user["id"])
     current_app.user_id = user_id
 
@@ -585,7 +597,7 @@ def all_user_operations(table_id):
     user_id = str(g.auth_user["id"])
     current_app.user_id = user_id
     target_user_id = request.args["user_id"]
-    
+
     start_time = _parse_timestamp("start_time", 0, return_datetime=True)
 
     # Call ChunkedGraph
@@ -606,8 +618,7 @@ def all_user_operations(table_id):
             timestamp = entry["timestamp"]
             timestamp_list.append(timestamp)
 
-    return {"operation_id": valid_entry_ids,
-            "timestamp": timestamp_list}
+    return {"operation_id": valid_entry_ids, "timestamp": timestamp_list}
 
 
 ### CHILDREN -------------------------------------------------------------------
@@ -656,7 +667,7 @@ def handle_leaves(table_id, root_id):
             bbox=bounding_box,
             bbox_is_coordinate=True,
             return_layers=[stop_layer],
-            return_flattened=True
+            return_flattened=True,
         )
 
         return subgraph
@@ -690,8 +701,12 @@ def handle_leaves_many(table_id):
     cg = app_utils.get_cg(table_id)
 
     node_to_leaves_mapping = cg.get_subgraph_nodes(
-        node_ids, bbox=bounding_box, bbox_is_coordinate=True, return_layers=[stop_layer],
-        serializable=True, return_flattened=True
+        node_ids,
+        bbox=bounding_box,
+        bbox_is_coordinate=True,
+        return_layers=[stop_layer],
+        serializable=True,
+        return_flattened=True,
     )
 
     return node_to_leaves_mapping
@@ -803,10 +818,13 @@ def tabular_change_log_recent(table_id):
         user_id = operation[attributes.OperationLogs.UserID]
         user_list.append(user_id)
 
-    return pd.DataFrame.from_dict({
-        "operation_id": operation_ids,
-        "timestamp": timestamp_list,
-        "user_id": user_list})
+    return pd.DataFrame.from_dict(
+        {
+            "operation_id": operation_ids,
+            "timestamp": timestamp_list,
+            "user_id": user_list,
+        }
+    )
 
 
 def tabular_change_log(table_id, root_id, get_root_ids, filtered):
@@ -823,12 +841,15 @@ def tabular_change_log(table_id, root_id, get_root_ids, filtered):
     cg = app_utils.get_cg(table_id)
     segment_history = cg_history.SegmentHistory(cg, int(root_id))
 
-    tab = segment_history.get_tabular_changelog(with_ids=get_root_ids,
-                                                filtered=filtered)
+    tab = segment_history.get_tabular_changelog(
+        with_ids=get_root_ids, filtered=filtered
+    )
 
     try:
-        tab["user_name"] = get_usernames(np.array(tab["user_id"], dtype=np.int).squeeze(),
-                                         current_app.config['AUTH_TOKEN'])
+        tab["user_name"] = get_usernames(
+            np.array(tab["user_id"], dtype=np.int).squeeze(),
+            current_app.config["AUTH_TOKEN"],
+        )
     except:
         current_app.logger.error(f"Could not retrieve user names for {root_id}")
 
@@ -854,7 +875,9 @@ def handle_lineage_graph(table_id, root_id):
 
     # Convert seconds since epoch to UTC datetime
     timestamp_past = _parse_timestamp("timestamp_past", 0, return_datetime=False)
-    timestamp_future = _parse_timestamp("timestamp_future", time.time(), return_datetime=False)
+    timestamp_future = _parse_timestamp(
+        "timestamp_future", time.time(), return_datetime=False
+    )
 
     # Call ChunkedGraph
     cg = app_utils.get_cg(table_id)
@@ -866,8 +889,9 @@ def handle_past_id_mapping(table_id):
     root_ids = np.array(json.loads(request.data)["root_ids"], dtype=np.uint64)
     # Convert seconds since epoch to UTC datetime
     timestamp_past = _parse_timestamp("timestamp_past", 0, return_datetime=False)
-    timestamp_future = _parse_timestamp("timestamp_future", time.time(), return_datetime=False)
-
+    timestamp_future = _parse_timestamp(
+        "timestamp_future", time.time(), return_datetime=False
+    )
 
     # Call ChunkedGraph
     cg = app_utils.get_cg(table_id)
@@ -884,8 +908,7 @@ def handle_past_id_mapping(table_id):
 
         past_id_mapping[int(root_id)] = nodes[in_degrees == 0]
 
-    return {"past_id_map": past_id_mapping,
-            "future_id_map": future_id_mapping}
+    return {"past_id_map": past_id_mapping, "future_id_map": future_id_mapping}
 
 
 def last_edit(table_id, root_id):
@@ -943,10 +966,11 @@ def handle_contact_sites(table_id, root_id):
         np.uint64(root_id),
         bounding_box=bounding_box,
         compute_partner=partners,
-        time_stamp=timestamp
+        time_stamp=timestamp,
     )
 
     return cs_list, cs_metadata
+
 
 def handle_pairwise_contact_sites(table_id, first_node_id, second_node_id):
     current_app.request_type = "pairwise_contact_sites"
@@ -956,8 +980,7 @@ def handle_pairwise_contact_sites(table_id, first_node_id, second_node_id):
 
     timestamp = _parse_timestamp("timestamp", time.time(), return_datetime=True)
 
-    exact_location = request.args.get("exact_location", True,
-                                      type=app_utils.toboolean)
+    exact_location = request.args.get("exact_location", True, type=app_utils.toboolean)
     cg = app_utils.get_cg(table_id)
     contact_sites_list, cs_metadata = contact_sites.get_contact_sites_pairwise(
         cg,
@@ -991,16 +1014,18 @@ def handle_split_preview(table_id):
             x, y, z = node[1:]
             coordinate = np.array([x, y, z]) / cg.meta.resolution
 
-            atomic_id = cg.get_atomic_id_from_coord(coordinate[0],
-                                                    coordinate[1],
-                                                    coordinate[2],
-                                                    parent_id=np.uint64(
-                                                        node_id))
+            atomic_id = cg.get_atomic_id_from_coord(
+                coordinate[0],
+                coordinate[1],
+                coordinate[2],
+                parent_id=np.uint64(node_id),
+            )
 
             if atomic_id is None:
                 raise cg_exceptions.BadRequest(
                     f"Could not determine supervoxel ID for coordinates "
-                    f"{coordinate}.")
+                    f"{coordinate}."
+                )
 
             data_dict[k]["id"].append(atomic_id)
             data_dict[k]["coord"].append(coordinate)
@@ -1014,7 +1039,7 @@ def handle_split_preview(table_id):
             sink_ids=data_dict["sinks"]["id"],
             source_coords=data_dict["sources"]["coord"],
             sink_coords=data_dict["sinks"]["coord"],
-            bb_offset=(240,240,24)
+            bb_offset=(240, 240, 24),
         )
 
     except cg_exceptions.PreconditionError as e:
@@ -1022,8 +1047,8 @@ def handle_split_preview(table_id):
 
     resp = {
         "supervoxel_connected_components": supervoxel_ccs,
-        "illegal_split": illegal_split
-        }
+        "illegal_split": illegal_split,
+    }
     return resp
 
 
@@ -1042,21 +1067,25 @@ def handle_find_path(table_id, precision_mode):
 
     # Call ChunkedGraph
     cg = app_utils.get_cg(table_id)
-    root_time_stamp = cg.get_node_timestamps([np.uint64(nodes[0][0])], return_numpy=False)[0]
+    root_time_stamp = cg.get_node_timestamps(
+        [np.uint64(nodes[0][0])], return_numpy=False
+    )[0]
+
     def _get_supervoxel_id_from_node(node):
         node_id = node[0]
         x, y, z = node[1:]
         coordinate = np.array([x, y, z]) / cg.meta.resolution
 
-        supervoxel_id = cg.get_atomic_id_from_coord(coordinate[0],
-                                                coordinate[1],
-                                                coordinate[2],
-                                                parent_id=np.uint64(node_id),
-                                                time_stamp=root_time_stamp)
+        supervoxel_id = cg.get_atomic_id_from_coord(
+            coordinate[0],
+            coordinate[1],
+            coordinate[2],
+            parent_id=np.uint64(node_id),
+            time_stamp=root_time_stamp,
+        )
         if supervoxel_id is None:
             raise cg_exceptions.BadRequest(
-                f"Could not determine supervoxel ID for coordinates "
-                f"{coordinate}."
+                f"Could not determine supervoxel ID for coordinates " f"{coordinate}."
             )
 
         return supervoxel_id
@@ -1067,28 +1096,29 @@ def handle_find_path(table_id, precision_mode):
     target_l2_id = cg.get_parent(target_supervoxel_id)
 
     print("Finding path...")
-    print(f'Source: {source_supervoxel_id}')
-    print(f'Target: {target_supervoxel_id}')
+    print(f"Source: {source_supervoxel_id}")
+    print(f"Target: {target_supervoxel_id}")
 
-    l2_path = pathing.find_l2_shortest_path(cg, source_l2_id, target_l2_id, time_stamp=root_time_stamp)
-    print(f'Path: {l2_path}')
+    l2_path = pathing.find_l2_shortest_path(
+        cg, source_l2_id, target_l2_id, time_stamp=root_time_stamp
+    )
+    print(f"Path: {l2_path}")
     if precision_mode:
-        centroids, failed_l2_ids = mesh_analysis.compute_mesh_centroids_of_l2_ids(cg, l2_path, flatten=True)
-        print(f'Centroids: {centroids}')
-        print(f'Failed L2 ids: {failed_l2_ids}')
+        centroids, failed_l2_ids = mesh_analysis.compute_mesh_centroids_of_l2_ids(
+            cg, l2_path, flatten=True
+        )
+        print(f"Centroids: {centroids}")
+        print(f"Failed L2 ids: {failed_l2_ids}")
         return {
             "centroids_list": centroids,
             "failed_l2_ids": failed_l2_ids,
-            "l2_path": l2_path
+            "l2_path": l2_path,
         }
     else:
         centroids = pathing.compute_rough_coordinate_path(cg, l2_path)
-        print(f'Centroids: {centroids}')
-        return {
-            "centroids_list": centroids,
-            "failed_l2_ids": [],
-            "l2_path": l2_path
-        }
+        print(f"Centroids: {centroids}")
+        return {"centroids_list": centroids, "failed_l2_ids": [], "l2_path": l2_path}
+
 
 ### GET_LAYER2_SUBGRAPH
 def handle_get_layer2_graph(table_id, node_id):
@@ -1100,11 +1130,11 @@ def handle_get_layer2_graph(table_id, node_id):
     print("Finding edge graph...")
     edge_graph = pathing.get_lvl2_edge_list(cg, int(node_id))
     print("Edge graph found len: {}".format(len(edge_graph)))
-    return {
-        'edge_graph': edge_graph
-    }
+    return {"edge_graph": edge_graph}
+
 
 ### IS LATEST ROOTS --------------------------------------------------------------
+
 
 def handle_is_latest_roots(table_id, is_binary):
     current_app.request_type = "is_latest_roots"
@@ -1113,29 +1143,25 @@ def handle_is_latest_roots(table_id, is_binary):
     if is_binary:
         node_ids = np.frombuffer(request.data, np.uint64)
     else:
-        node_ids = np.array(json.loads(request.data)["node_ids"],
-                            dtype=np.uint64)
+        node_ids = np.array(json.loads(request.data)["node_ids"], dtype=np.uint64)
     # Convert seconds since epoch to UTC datetime
     timestamp = _parse_timestamp("timestamp", time.time(), return_datetime=True)
 
     # Call ChunkedGraph
     cg = app_utils.get_cg(table_id)
 
-    row_dict = cg.client.read_nodes(
-        node_ids=node_ids,
-        properties=attributes.Hierarchy.NewParent,
-        end_time=timestamp
-    )
-    is_latest = ~np.isin(node_ids, list(row_dict.keys()))
+    is_latest = cg.is_latest_roots(node_ids, time_stamp=timestamp)
 
     return is_latest
 
 
 ### OPERATION DETAILS ------------------------------------------------------------
 
+
 def operation_details(table_id):
     from pychunkedgraph.graph import attributes
     from pychunkedgraph.export.operation_logs import parse_attr
+
     current_app.table_id = table_id
     user_id = str(g.auth_user["id"])
     current_app.user_id = user_id
@@ -1145,7 +1171,7 @@ def operation_details(table_id):
     log_rows = cg.client.read_log_entries(operation_ids)
 
     result = {}
-    for k,v in log_rows.items():
+    for k, v in log_rows.items():
         details = {}
         for _k, _v in v.items():
             _k, _v = parse_attr(_k, _v)
