@@ -765,7 +765,7 @@ def change_log(table_id, root_id=None, filtered=False):
     if not root_id:
         return cg_history.get_all_log_entries(cg)
 
-    history = cg_history.History(cg, [root_id], time_stamp_past=time_stamp_past)
+    history = cg_history.History(cg, [root_id], timestamp_past=time_stamp_past)
 
     return history.change_log_summary(filtered=filtered)
 
