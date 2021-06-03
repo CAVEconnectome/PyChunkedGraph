@@ -484,7 +484,7 @@ class ChunkedGraph:
             properties=attributes.Hierarchy.NewParent,
             end_time=time_stamp,
         )
-        return ~np.isin(node_ids, list(row_dict.keys()))
+        return ~np.isin(root_ids, list(row_dict.keys()))
 
     def get_all_parents_dict(
         self,
