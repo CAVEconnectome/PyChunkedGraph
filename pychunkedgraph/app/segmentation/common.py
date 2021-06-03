@@ -242,7 +242,6 @@ def handle_roots(table_id, is_binary=False):
     # Convert seconds since epoch to UTC datetime
     timestamp = _parse_timestamp("timestamp", time.time(), return_datetime=True)
 
-
     stop_layer = request.args.get("stop_layer", None)
     if stop_layer is not None:
         stop_layer = int(stop_layer)
@@ -265,7 +264,6 @@ def handle_l2_chunk_children(table_id, chunk_id, as_array):
 
     # Convert seconds since epoch to UTC datetime
     timestamp = _parse_timestamp("timestamp", time.time(), return_datetime=True)
-
 
     # Call ChunkedGraph
     cg = app_utils.get_cg(table_id)
@@ -755,7 +753,7 @@ def handle_subgraph(table_id, root_id):
 ### CHANGE LOG -----------------------------------------------------------------
 
 
-def change_log(table_id, root_id=None):
+def change_log(table_id, root_id=None, filtered=False):
     current_app.table_id = table_id
     user_id = str(g.auth_user["id"])
     current_app.user_id = user_id
@@ -767,9 +765,9 @@ def change_log(table_id, root_id=None):
     if not root_id:
         return cg_history.get_all_log_entries(cg)
 
-    history = cg_history.History(cg, [root_id])
+    history = cg_history.History(cg, [root_id], time_stamp_past=time_stamp_past)
 
-    return history.change_log()
+    return history.change_log_summary(filtered=filtered)
 
 
 def tabular_change_log_recent(table_id):
@@ -822,7 +820,7 @@ def tabular_change_logs(table_id, root_ids, filtered):
 
     all_user_ids = []
     for tab_k in tab.keys():
-        all_user_ids.extend(np.array(tab[tab_k]["user_id"]).squeeze())
+        all_user_ids.extend(np.array(tab[tab_k]["user_id"]).reshape(-1))
 
     all_user_ids = np.unique(all_user_ids)
     user_dict = app_utils.get_username_dict(
@@ -843,7 +841,7 @@ def merge_log(table_id, root_id):
     current_app.table_id = table_id
     user_id = str(g.auth_user["id"])
     current_app.user_id = user_id
-    
+
     time_stamp_past = _parse_timestamp("timestamp", 0, return_datetime=True)
 
     # Call ChunkedGraph
@@ -851,6 +849,7 @@ def merge_log(table_id, root_id):
 
     history = cg_history.History(cg, [int(root_id)])
     return history.merge_log()
+
 
 def _parse_timestamp(arg_name, default_timestamp=0, return_datetime=False):
     """Convert seconds since epoch to UTC datetime."""
@@ -864,8 +863,10 @@ def _parse_timestamp(arg_name, default_timestamp=0, return_datetime=False):
         raise (
             cg_exceptions.BadRequest(
                 f"Timestamp parameter {arg_name} is not a valid unix timestamp"
+            )
         )
-        )
+
+
 def handle_lineage_graph(table_id, root_id=None):
     from networkx import node_link_data
 
@@ -873,9 +874,10 @@ def handle_lineage_graph(table_id, root_id=None):
     user_id = str(g.auth_user["id"])
     current_app.user_id = user_id
 
-    
     timestamp_past = _parse_timestamp("timestamp_past", 0, return_datetime=True)
-    timestamp_future = _parse_timestamp("timestamp_future", time.time(), return_datetime=True)
+    timestamp_future = _parse_timestamp(
+        "timestamp_future", time.time(), return_datetime=True
+    )
 
     # Call ChunkedGraph
     cg = app_utils.get_cg(table_id)
@@ -890,9 +892,13 @@ def handle_lineage_graph(table_id, root_id=None):
 
 def handle_past_id_mapping(table_id):
     root_ids = np.array(json.loads(request.data)["root_ids"], dtype=np.uint64)
-    timestamp_past = _parse_timestamp('timestamp_past', default_timestamp=0, return_datetime=True)
-    timestamp_future = _parse_timestamp('timestamp_future', default_timestamp=time.time(), return_datetime=True)
-  
+    timestamp_past = _parse_timestamp(
+        "timestamp_past", default_timestamp=0, return_datetime=True
+    )
+    timestamp_future = _parse_timestamp(
+        "timestamp_future", default_timestamp=time.time(), return_datetime=True
+    )
+
     # Call ChunkedGraph
     cg = app_utils.get_cg(table_id)
 
@@ -947,7 +953,9 @@ def handle_contact_sites(table_id, root_id):
     user_id = str(g.auth_user["id"])
     current_app.user_id = user_id
 
-    timestamp = _parse_timestamp("timestamp", default_timestamp=time.time(), return_datetime=True)
+    timestamp = _parse_timestamp(
+        "timestamp", default_timestamp=time.time(), return_datetime=True
+    )
 
     if "bounds" in request.args:
         bounds = request.args["bounds"]
@@ -980,7 +988,7 @@ def handle_pairwise_contact_sites(table_id, first_node_id, second_node_id):
     current_app.user_id = user_id
 
     timestamp = _parse_timestamp("timestamp", time.time(), return_datetime=True)
-    
+
     exact_location = request.args.get("exact_location", True, type=app_utils.toboolean)
     cg = app_utils.get_cg(table_id)
     contact_sites_list, cs_metadata = contact_sites.get_contact_sites_pairwise(
@@ -1120,7 +1128,7 @@ def handle_is_latest_roots(table_id, is_binary):
         node_ids = np.array(json.loads(request.data)["node_ids"], dtype=np.uint64)
     # Convert seconds since epoch to UTC datetime
     timestamp = _parse_timestamp("timestamp", time.time(), return_datetime=True)
-    
+
     # Call ChunkedGraph
     cg = app_utils.get_cg(table_id)
 

@@ -17,8 +17,8 @@ class History:
         self,
         cg,
         root_ids,
-        timestamp_past: datetime.datetime=None,
-        timestamp_future: datetime.datetime=None,
+        timestamp_past: datetime.datetime = None,
+        timestamp_future: datetime.datetime = None,
     ):
         self.cg = cg
 
@@ -344,7 +344,7 @@ class History:
         past_id_mapping = {}
         future_id_mapping = {}
 
-        for root_id in self.root_ids:
+        for root_id in root_ids:
             ancestors = np.array(
                 list(nx.algorithms.dag.ancestors(self.lineage_graph, root_id))
             )
