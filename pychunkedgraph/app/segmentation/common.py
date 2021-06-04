@@ -30,6 +30,7 @@ from pychunkedgraph.graph.analysis import pathing
 from pychunkedgraph.graph.attributes import OperationLogs
 from pychunkedgraph.meshing import mesh_analysis
 from pychunkedgraph.graph.misc import get_contact_sites
+from middle_auth_client import get_usernames
 
 __api_versions__ = [0, 1]
 __segmentation_url_prefix__ = os.environ.get("SEGMENTATION_URL_PREFIX", "segmentation")
@@ -839,7 +840,7 @@ def tabular_change_log(table_id, root_id, get_root_ids, filtered):
 
     # Call ChunkedGraph
     cg = app_utils.get_cg(table_id)
-    segment_history = cg_history.SegmentHistory(cg, int(root_id))
+    segment_history = segmenthistory.SegmentHistory(cg, int(root_id))
 
     tab = segment_history.get_tabular_changelog(
         with_ids=get_root_ids, filtered=filtered
