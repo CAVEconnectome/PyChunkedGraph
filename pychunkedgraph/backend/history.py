@@ -119,7 +119,7 @@ class History:
         if len(edited_sv_ids) > 0:
             return fastremap.unique(np.array(edited_sv_ids))
         else:
-            np.array([], dtype=np.uint64)
+            return np.empty((0), dtype=np.uint64)
 
     def _build_tabular_changelogs(self):
         tabular_changelogs = {}
