@@ -116,7 +116,10 @@ class History:
         for operation_id in operation_ids:
             edited_sv_ids.extend(self.log_entry(operation_id).edges_failsafe)
 
-        return fastremap.unique(np.array(edited_sv_ids))
+        if len(edited_sv_ids) > 0:
+            return fastremap.unique(np.array(edited_sv_ids))
+        else:
+            return np.empty((0), dtype=np.uint64)
 
     def _build_tabular_changelogs(self):
         tabular_changelogs = {}
@@ -125,6 +128,7 @@ class History:
             root_ts = self.cg.read_node_id_row(root_id)[column_keys.Hierarchy.Child][
                 0
             ].timestamp
+
             edited_sv_ids = self.collect_edited_sv_ids(root_id=root_id)
             current_root_id_lookup_vec = np.vectorize(
                 dict(
