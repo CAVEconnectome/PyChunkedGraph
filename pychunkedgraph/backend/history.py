@@ -116,7 +116,10 @@ class History:
         for operation_id in operation_ids:
             edited_sv_ids.extend(self.log_entry(operation_id).edges_failsafe)
 
-        return fastremap.unique(np.array(edited_sv_ids))
+        if len(edited_sv_ids) > 0:
+            return fastremap.unique(np.array(edited_sv_ids))
+        else:
+            np.array([], dtype=np.uint64)
 
     def _build_tabular_changelogs(self):
         tabular_changelogs = {}
