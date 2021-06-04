@@ -2762,6 +2762,9 @@ class ChunkedGraph(object):
         :param time_stamp: None or datetime
         :return: np.uint64
         """
+        if len(node_ids):
+            return np.empty((0), basetypes.NODE_ID)
+            
         if time_stamp is None:
             time_stamp = datetime.datetime.utcnow()
 

@@ -128,6 +128,7 @@ class History:
             root_ts = self.cg.read_node_id_row(root_id)[column_keys.Hierarchy.Child][
                 0
             ].timestamp
+
             edited_sv_ids = self.collect_edited_sv_ids(root_id=root_id)
             current_root_id_lookup_vec = np.vectorize(
                 dict(
