@@ -800,8 +800,8 @@ def tabular_change_log_recent(table_id):
     )
 
 
-def tabular_change_logs(table_id, root_ids, filtered):
-    current_app.request_type = "tabular_changelog"
+def tabular_change_logs(table_id, root_ids, filtered=False):
+    current_app.request_type = "tabular_changelog_many"
 
     current_app.table_id = table_id
     user_id = str(g.auth_user["id"])
@@ -1115,7 +1115,7 @@ def handle_get_layer2_graph(table_id, node_id):
     return {"edge_graph": edge_graph}
 
 
-### IS LATEST ROOTS --------------------------------------------------------------
+### ROOT INF  -----------------------------------------------------------------
 
 
 def handle_is_latest_roots(table_id, is_binary):
@@ -1132,16 +1132,28 @@ def handle_is_latest_roots(table_id, is_binary):
     # Call ChunkedGraph
     cg = app_utils.get_cg(table_id)
 
-    row_dict = cg.read_node_id_rows(
-        node_ids=node_ids, columns=column_keys.Hierarchy.NewParent, end_time=timestamp
-    )
+    if not np.all(cg.get_chunk_layers(node_ids) == cg.n_layers):
+        raise cg_exceptions.BadRequest("Some ids are not root ids.")
+
+    return cg.is_latest_roots(node_ids, time_stamp=timestamp)
+
+
+def handle_root_timestamps(table_id, is_binary):
+    current_app.request_type = "root_timestamps"
+    current_app.table_id = table_id
+
+    if is_binary:
+        node_ids = np.frombuffer(request.data, np.uint64)
+    else:
+        node_ids = np.array(json.loads(request.data)["node_ids"], dtype=np.uint64)
+
+    # Call ChunkedGraph
+    cg = app_utils.get_cg(table_id)
 
     if not np.all(cg.get_chunk_layers(node_ids) == cg.n_layers):
         raise cg_exceptions.BadRequest("Some ids are not root ids.")
 
-    is_latest = ~np.isin(node_ids, list(row_dict.keys()))
-
-    return is_latest
+    return cg.get_root_timestamps(root_ids)
 
 
 ### OPERATION DETAILS ------------------------------------------------------------

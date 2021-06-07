@@ -2867,6 +2867,42 @@ class ChunkedGraph(object):
         else:
             return parent_id
 
+    def is_latest_roots(
+        self,
+        root_ids: Sequence[np.uint64],
+        time_stamp: Optional[datetime.datetime] = None,
+    ) -> Sequence[bool]:
+        """Determines whether root ids are superseeded."""
+        if time_stamp is None:
+            time_stamp = datetime.datetime.utcnow()
+
+        if time_stamp.tzinfo is None:
+            time_stamp = UTC.localize(time_stamp)
+
+        # Comply to resolution of BigTables TimeRange
+        time_stamp = get_google_compatible_time_stamp(time_stamp, round_up=False)
+
+        row_dict = self.read_node_id_rows(
+            node_ids=root_ids,
+            columns=column_keys.Hierarchy.NewParent,
+            end_time=time_stamp,
+        )
+        return ~np.isin(root_ids, list(row_dict.keys()))
+
+    def get_root_timestamps(
+        self, root_ids: Sequence[np.uint64]
+    ) -> Sequence[datetime.datetime]:
+        """Looks up timestamps for root ids."""
+        r = self.read_node_id_rows(
+            node_ids=root_ids, columns=column_keys.Hierarchy.Child
+        )
+
+        time_stamps = []
+        for root_id in root_ids:
+            time_stamps.append(r[root_id][0].timestamp.timestamp())
+
+        return time_stamps
+
     def get_all_parents_dict(
         self, node_id: np.uint64, time_stamp: Optional[datetime.datetime] = None
     ) -> dict:
@@ -3223,30 +3259,6 @@ class ChunkedGraph(object):
             return None
 
         return row[0].timestamp
-
-    def get_latest_root_id(self, root_id: np.uint64) -> np.ndarray:
-        """Returns the latest root id associated with the provided root id
-
-        :param root_id: uint64
-        :return: list of uint64s
-        """
-
-        id_working_set = [root_id]
-        column = column_keys.Hierarchy.NewParent
-        latest_root_ids = []
-
-        while len(id_working_set) > 0:
-            next_id = id_working_set[0]
-            del id_working_set[0]
-            row = self.read_node_id_row(next_id, columns=column)
-
-            # Check if a new root id was attached to this root id
-            if row:
-                id_working_set.extend(row[0].value)
-            else:
-                latest_root_ids.append(next_id)
-
-        return np.unique(latest_root_ids)
 
     def get_future_root_ids(
         self,
