@@ -2899,7 +2899,7 @@ class ChunkedGraph(object):
 
         time_stamps = []
         for root_id in root_ids:
-            time_stamps.append(r[root_id][0].timestamp.timestamp())
+            time_stamps.append(r[root_id][0].timestamp)
 
         return time_stamps
 
