@@ -1153,7 +1153,7 @@ def handle_root_timestamps(table_id, is_binary):
     if not np.all(cg.get_chunk_layers(node_ids) == cg.n_layers):
         raise cg_exceptions.BadRequest("Some ids are not root ids.")
 
-    return cg.get_root_timestamps(root_ids)
+    return cg.get_root_timestamps(node_ids)
 
 
 ### OPERATION DETAILS ------------------------------------------------------------
