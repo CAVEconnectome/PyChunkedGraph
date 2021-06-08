@@ -1115,7 +1115,7 @@ def handle_get_layer2_graph(table_id, node_id):
     return {"edge_graph": edge_graph}
 
 
-### ROOT INF  -----------------------------------------------------------------
+### ROOT INFO -----------------------------------------------------------------
 
 
 def handle_is_latest_roots(table_id, is_binary):
