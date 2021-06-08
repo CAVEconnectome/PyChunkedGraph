@@ -8,7 +8,6 @@ import numpy as np
 from networkx import DiGraph
 
 import datetime
-from time import time
 from pychunkedgraph.backend.utils.basetypes import NODE_ID
 from pychunkedgraph.backend.utils.column_keys import Hierarchy
 from pychunkedgraph.backend.utils.column_keys import OperationLogs
@@ -34,10 +33,13 @@ def lineage_graph(
     future_ids = np.array(node_ids, dtype=np.uint64)
 
     if timestamp_past is None:
-        timestamp_past = cg.get_earliest_timestamp()
-
+        timestamp_past = float(0)
+    else:
+        timestamp_past = timestamp_past.timestamp()
     if timestamp_future is None:
-        timestamp_future = datetime.datetime.utcnow()
+        timestamp_future = datetime.datetime.utcnow().timestamp()
+    else:
+        timestamp_future = timestamp_future.timestamp()
 
     while past_ids.size or future_ids.size:
         nodes_raw = cg.read_node_id_rows(
@@ -48,7 +50,7 @@ def lineage_graph(
             val = nodes_raw[k]
 
             node_data = {}
-            node_data["timestamp"] = val[Hierarchy.Child][0].timestamp
+            node_data["timestamp"] = val[Hierarchy.Child][0].timestamp.timestamp()
 
             if OperationLogs.OperationID in val:
                 if len(val[OperationLogs.OperationID]) == 2:
@@ -80,7 +82,7 @@ def lineage_graph(
             val = nodes_raw[k]
 
             node_data = {}
-            node_data["timestamp"] = val[Hierarchy.Child][0].timestamp
+            node_data["timestamp"] = val[Hierarchy.Child][0].timestamp.timestamp()
 
             if OperationLogs.OperationID in val:
                 if len(val[OperationLogs.OperationID]) == 2:
