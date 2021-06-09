@@ -467,7 +467,7 @@ def handle_get_lvl2_graph(table_id, node_id):
     return jsonify_with_kwargs(resp, int64_as_str=int64_as_str)
 
 
-### IS LATEST ROOTS --------------------------------------------------------------
+### ROOT INFO --------------------------------------------------------------------
 
 
 @bp.route("/table/<table_id>/is_latest_roots", methods=["POST"])
@@ -477,6 +477,17 @@ def handle_is_latest_roots(table_id):
     is_binary = request.args.get("is_binary", default=False, type=toboolean)
     is_latest_roots = common.handle_is_latest_roots(table_id, is_binary=is_binary)
     resp = {"is_latest": is_latest_roots}
+
+    return jsonify_with_kwargs(resp, int64_as_str=int64_as_str)
+
+
+@bp.route("/table/<table_id>/root_timestamps", methods=["POST"])
+@auth_requires_permission("view")
+def handle_root_timestamps(table_id):
+    int64_as_str = request.args.get("int64_as_str", default=False, type=toboolean)
+    is_binary = request.args.get("is_binary", default=False, type=toboolean)
+    root_timestamps = common.handle_root_timestamps(table_id, is_binary=is_binary)
+    resp = {"timestamp": root_timestamps}
 
     return jsonify_with_kwargs(resp, int64_as_str=int64_as_str)
 

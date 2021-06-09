@@ -7,7 +7,7 @@ from typing import Optional
 import numpy as np
 from networkx import DiGraph
 
-from time import time
+import datetime
 from pychunkedgraph.backend.utils.basetypes import NODE_ID
 from pychunkedgraph.backend.utils.column_keys import Hierarchy
 from pychunkedgraph.backend.utils.column_keys import OperationLogs
@@ -37,7 +37,7 @@ def lineage_graph(
     else:
         timestamp_past = timestamp_past.timestamp()
     if timestamp_future is None:
-        timestamp_future = float(time())
+        timestamp_future = datetime.datetime.utcnow().timestamp()
     else:
         timestamp_future = timestamp_future.timestamp()
 
