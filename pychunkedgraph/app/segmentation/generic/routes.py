@@ -43,7 +43,7 @@ def sleep_me(sleep):
 
 @bp.route("/table/<table_id>/info", methods=["GET"])
 @auth_requires_permission("view")
-@remap_public
+@common.remap_public
 def handle_info(table_id):
     return common.handle_info(table_id)
 
