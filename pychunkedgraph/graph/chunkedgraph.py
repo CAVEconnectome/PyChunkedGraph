@@ -486,20 +486,6 @@ class ChunkedGraph:
         )
         return ~np.isin(root_ids, list(row_dict.keys()))
 
-    def get_root_timestamps(
-        self, root_ids: typing.Sequence[np.uint64]
-    ) -> typing.Sequence[datetime.datetime]:
-        """Looks up timestamps for root ids."""
-        r = self.client.read_nodes(
-            node_ids=root_ids, columns=attributes.Hierarchy.Child
-        )
-
-        time_stamps = []
-        for root_id in root_ids:
-            time_stamps.append(r[root_id][0].timestamp)
-
-        return time_stamps
-
     def get_all_parents_dict(
         self,
         node_id: basetypes.NODE_ID,
