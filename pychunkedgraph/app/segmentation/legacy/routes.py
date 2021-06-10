@@ -3,13 +3,20 @@ import json
 import numpy as np
 
 from flask import Blueprint, jsonify, request
-from middle_auth_client import auth_requires_admin, auth_requires_permission, \
-    auth_required
+from middle_auth_client import (
+    auth_requires_admin,
+    auth_requires_permission,
+    auth_required,
+)
 from pychunkedgraph.app import app_utils
 from pychunkedgraph.app.segmentation import common
 from pychunkedgraph.graph import exceptions as cg_exceptions
 
-bp = Blueprint("pcg_segmentation_v0", __name__, url_prefix=f"/{common.__segmentation_url_prefix__}/1.0")
+bp = Blueprint(
+    "pcg_segmentation_v0",
+    __name__,
+    url_prefix=f"/{common.__segmentation_url_prefix__}/1.0",
+)
 
 
 # -------------------------------
@@ -70,7 +77,9 @@ def sleep_me(sleep):
 
 @bp.route("/<table_id>/info", methods=["GET"])
 @auth_requires_permission("view")
+@common.remap_public
 def handle_info(table_id):
+    print("table_id", table_id)
     return common.handle_info(table_id)
 
 
