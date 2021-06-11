@@ -50,7 +50,7 @@ def remap_public(func=None, *, edit=False, check_node_ids=False):
                     raise cg_exceptions.Unauthorized(
                         "No edits allowed on virtual tables"
                     )
-                # and we want to remap the table name
+                # then we want to remap the table name
                 new_table = virtual_tables[table_id]["table_id"]
                 kwargs["table_id"] = new_table
                 v_timestamp = virtual_tables[table_id]["timestamp"]
