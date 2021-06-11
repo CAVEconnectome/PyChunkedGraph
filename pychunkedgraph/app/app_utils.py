@@ -3,13 +3,16 @@ import sys
 from time import gmtime
 
 import numpy as np
-from flask import current_app, json
+from flask import current_app, json, request
 from google.auth import credentials
 from google.auth import default as default_creds
 from google.cloud import bigtable, datastore
 
 from pychunkedgraph.graph import ChunkedGraph
 from pychunkedgraph.logging import flask_log_db, jsonformatter
+from functools import wraps
+from werkzeug.datastructures import ImmutableMultiDict
+import time
 
 CACHE = {}
 
@@ -17,6 +20,68 @@ CACHE = {}
 class DoNothingCreds(credentials.Credentials):
     def refresh(self, request):
         pass
+
+
+def remap_public(func=None, *, edit=False, check_node_ids=False):
+    def mydecorator(f):
+        @wraps(f)
+        def decorated_function(*args, **kwargs):
+            virtual_tables = current_app.config.get("VIRTUAL_TABLES", {})
+            table_id = kwargs.get("table_id")
+            http_args = request.args.to_dict()
+
+            if table_id is None:
+                # then no table remapping necessary
+                return f(*args, **kwargs)
+            if not table_id in virtual_tables:
+                # if table table_id isn't in virtual
+                # tables then just return
+                return f(*args, **kwargs)
+            else:
+                # then we have a virtual table
+                if edit:
+                    raise Exception("No edits allowed on virtual tables")
+                # then we want to remap the table name
+                new_table = virtual_tables[table_id]["table_id"]
+                kwargs["table_id"] = new_table
+                v_timestamp = virtual_tables[table_id]["timestamp"]
+                v_timetamp_float = time.mktime(v_timestamp.timetuple())
+
+                # we want to fix timestamp parameters too
+                http_args["timestamp"] = v_timetamp_float
+                http_args["timestamp_future"] = v_timetamp_float
+                request.args = ImmutableMultiDict(http_args)
+
+                cg = get_cg(new_table)
+
+                def assert_node_prop(prop):
+                    node_id = kwargs.get(prop, None)
+                    if node_id is not None:
+                        node_id = int(node_id)
+                        # check if this root_id is valid at this timestamp
+                        timestamp = cg.get_node_timestamps([node_id])
+                        if not np.all(timestamp < np.datetime64(v_timestamp)):
+                            raise Exception("root_id not valid at timestamp")
+
+                assert_node_prop("root_id")
+                assert_node_prop("node_id")
+
+                if check_node_ids:
+                    node_ids = np.array(
+                        json.loads(request.data)["node_ids"], dtype=np.uint64
+                    )
+                    timestamps = cg.get_node_timestamps(node_ids)
+                    if not np.all(timestamps < np.datetime64(v_timestamp)):
+                        raise Exception("node_ids are all not valid at timestamp")
+
+                return f(*args, **kwargs)
+
+        return decorated_function
+
+    if func:
+        return mydecorator(func)
+    else:
+        return mydecorator
 
 
 def jsonify_with_kwargs(data, as_response=True, **kwargs):
@@ -113,10 +178,10 @@ def get_log_db(table_id):
 
 
 def toboolean(value):
-    """ Transform value to boolean type.
-        :param value: bool/int/str
-        :return: bool
-        :raises: ValueError, if value is not boolean.
+    """Transform value to boolean type.
+    :param value: bool/int/str
+    :return: bool
+    :raises: ValueError, if value is not boolean.
     """
     if not value:
         raise ValueError("Can't convert null to boolean")
@@ -137,7 +202,7 @@ def toboolean(value):
 
 
 def tobinary(ids):
-    """ Transform id(s) to binary format
+    """Transform id(s) to binary format
 
     :param ids: uint64 or list of uint64s
     :return: binary
@@ -146,7 +211,7 @@ def tobinary(ids):
 
 
 def tobinary_multiples(arr):
-    """ Transform id(s) to binary format
+    """Transform id(s) to binary format
 
     :param arr: list of uint64 or list of uint64s
     :return: binary
