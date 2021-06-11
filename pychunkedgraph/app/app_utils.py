@@ -10,6 +10,9 @@ from google.cloud import bigtable, datastore
 
 from pychunkedgraph.graph import ChunkedGraph
 from pychunkedgraph.logging import flask_log_db, jsonformatter
+from pychunkedgraph.graph import (
+    exceptions as cg_exceptions,
+)
 from functools import wraps
 from werkzeug.datastructures import ImmutableMultiDict
 import time
@@ -40,7 +43,9 @@ def remap_public(func=None, *, edit=False, check_node_ids=False):
             else:
                 # then we have a virtual table
                 if edit:
-                    raise Exception("No edits allowed on virtual tables")
+                    raise cg_exceptions.Unauthorized(
+                        "No edits allowed on virtual tables"
+                    )
                 # then we want to remap the table name
                 new_table = virtual_tables[table_id]["table_id"]
                 kwargs["table_id"] = new_table
@@ -61,7 +66,9 @@ def remap_public(func=None, *, edit=False, check_node_ids=False):
                         # check if this root_id is valid at this timestamp
                         timestamp = cg.get_node_timestamps([node_id])
                         if not np.all(timestamp < np.datetime64(v_timestamp)):
-                            raise Exception("root_id not valid at timestamp")
+                            raise cg_exceptions.Unauthorized(
+                                "root_id not valid at timestamp"
+                            )
 
                 assert_node_prop("root_id")
                 assert_node_prop("node_id")
@@ -72,7 +79,9 @@ def remap_public(func=None, *, edit=False, check_node_ids=False):
                     )
                     timestamps = cg.get_node_timestamps(node_ids)
                     if not np.all(timestamps < np.datetime64(v_timestamp)):
-                        raise Exception("node_ids are all not valid at timestamp")
+                        raise cg_exceptions.Unauthorized(
+                            "node_ids are all not valid at timestamp"
+                        )
 
                 return f(*args, **kwargs)
 
