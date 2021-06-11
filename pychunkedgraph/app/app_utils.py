@@ -29,8 +29,12 @@ def remap_public(func=None, *, edit=False, check_node_ids=False):
     def mydecorator(f):
         @wraps(f)
         def decorated_function(*args, **kwargs):
-            virtual_tables = current_app.config.get("VIRTUAL_TABLES", {})
-            table_id = kwargs.get("table_id")
+            virtual_tables = current_app.config.get("VIRTUAL_TABLES", None)
+
+            # if not virtual configuration just return
+            if virtual_tables is None:
+                return f(*args, **kwargs)
+            table_id = kwargs.get("table_id", None)
             http_args = request.args.to_dict()
 
             if table_id is None:
@@ -46,7 +50,7 @@ def remap_public(func=None, *, edit=False, check_node_ids=False):
                     raise cg_exceptions.Unauthorized(
                         "No edits allowed on virtual tables"
                     )
-                # then we want to remap the table name
+                # and we want to remap the table name
                 new_table = virtual_tables[table_id]["table_id"]
                 kwargs["table_id"] = new_table
                 v_timestamp = virtual_tables[table_id]["timestamp"]
