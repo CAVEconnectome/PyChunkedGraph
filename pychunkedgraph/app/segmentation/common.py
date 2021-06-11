@@ -62,6 +62,7 @@ def remap_public(func=None, *, edit=False, check_node_ids=False):
                 kwargs["table_id"] = new_table
                 v_timestamp = virtual_tables[table_id]["timestamp"]
                 v_timetamp_float = time.mktime(v_timestamp.timetuple())
+
                 # we want to fix timestamp parameters too
                 http_args["timestamp"] = v_timetamp_float
                 http_args["timestamp_future"] = v_timetamp_float
@@ -70,12 +71,12 @@ def remap_public(func=None, *, edit=False, check_node_ids=False):
                 cg = app_utils.get_cg(new_table)
 
                 def assert_node_prop(prop):
-                    node_id = kwargs.pop(prop, None)
+                    node_id = kwargs.get(prop, None)
                     if node_id is not None:
                         node_id = int(node_id)
                         # check if this root_id is valid at this timestamp
-                        timestamp = cg.get_node_timestamps([node_id])[0]
-                        if timestamp < v_timestamp:
+                        timestamp = cg.get_node_timestamps([node_id])
+                        if not np.all(timestamp < np.datetime64(v_timestamp)):
                             raise Exception("root_id not valid at timestamp")
 
                 assert_node_prop("root_id")
@@ -86,7 +87,7 @@ def remap_public(func=None, *, edit=False, check_node_ids=False):
                         json.loads(request.data)["node_ids"], dtype=np.uint64
                     )
                     timestamps = cg.get_node_timestamps(node_ids)
-                    if not np.all(timestamps < v_timestamp):
+                    if not np.all(timestamps < np.datetime64(v_timestamp)):
                         raise Exception("node_ids are all not valid at timestamp")
 
                 return f(*args, **kwargs)
