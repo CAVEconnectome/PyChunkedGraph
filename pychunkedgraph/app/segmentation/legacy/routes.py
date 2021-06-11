@@ -11,6 +11,7 @@ from middle_auth_client import (
 from pychunkedgraph.app import app_utils
 from pychunkedgraph.app.segmentation import common
 from pychunkedgraph.graph import exceptions as cg_exceptions
+from pychunkedgraph.app.app_utils import remap_public
 
 bp = Blueprint(
     "pcg_segmentation_v0",
@@ -77,7 +78,7 @@ def sleep_me(sleep):
 
 @bp.route("/<table_id>/info", methods=["GET"])
 @auth_requires_permission("view")
-@common.remap_public
+@remap_public
 def handle_info(table_id):
     print("table_id", table_id)
     return common.handle_info(table_id)
