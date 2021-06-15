@@ -3,14 +3,10 @@ from datetime import datetime
 from typing import Iterable
 
 import numpy as np
-import pandas as pd
 import fastremap
-from networkx import DiGraph
 from networkx.algorithms.dag import ancestors as nx_ancestors
 
-from .attributes import Hierarchy
 from .attributes import OperationLogs
-from . import exceptions as cg_exceptions
 
 
 class SegmentHistory:
@@ -28,8 +24,7 @@ class SegmentHistory:
             self.root_ids = np.array([root_ids])
 
         for root_id in self.root_ids:
-            if not cg.is_root(root_id):
-                raise cg_exceptions.ChunkedGraphError(f"{root_id} is no root")
+            assert cg.is_root(root_id), f"{root_id} is no root"
 
         self.timestamp_past = cg.get_earliest_timestamp()
         if timestamp_past is not None:
@@ -122,7 +117,7 @@ class SegmentHistory:
             return np.empty((0), dtype=np.uint64)
 
     def _build_tabular_changelogs(self):
-        from .attributes import Hierarchy
+        from pandas import DataFrame
 
         f = lambda sv_ids, ts: dict(
             zip(
@@ -188,7 +183,7 @@ class SegmentHistory:
                         is_in_neuron_list.append(False)
 
             all_user_ids.extend(user_list)
-            tabular_changelogs[root_id] = pd.DataFrame.from_dict(
+            tabular_changelogs[root_id] = DataFrame.from_dict(
                 {
                     "operation_id": sorted_operation_ids,
                     "timestamp": timestamp_list,
@@ -432,16 +427,12 @@ class LogEntry:
 
     @property
     def added_edges(self):
-        if not self.is_merge:
-            raise cg_exceptions.InternalServerError
-
+        assert self.is_merge, "Not a merge operation."
         return self.row[OperationLogs.AddedEdge]
 
     @property
     def removed_edges(self):
-        if self.is_merge:
-            raise cg_exceptions.InternalServerError
-
+        assert not self.is_merge, "Not a split operation."
         return self.row[OperationLogs.RemovedEdge]
 
     @property
