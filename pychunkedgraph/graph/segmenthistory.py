@@ -1,18 +1,16 @@
 import collections
+from datetime import datetime
+from typing import Iterable
+
 import numpy as np
-import datetime
 import pandas as pd
 import fastremap
 from networkx import DiGraph
 from networkx.algorithms.dag import ancestors as nx_ancestors
-from networkx.algorithms.dag import descendants as nx_descendants
 
 from .attributes import Hierarchy
 from .attributes import OperationLogs
 from . import exceptions as cg_exceptions
-
-former_parent_col = Hierarchy.FormerParent
-operation_id_col = OperationLogs.OperationID
 
 
 class SegmentHistory:
@@ -20,11 +18,11 @@ class SegmentHistory:
         self,
         cg,
         root_ids,
-        timestamp_past: datetime.datetime = None,
-        timestamp_future: datetime.datetime = None,
+        timestamp_past: datetime = None,
+        timestamp_future: datetime = None,
     ):
         self.cg = cg
-        if isinstance(root_ids, list) or isinstance(root_ids, np.ndarray):
+        if isinstance(root_ids, Iterable):
             self.root_ids = np.array(root_ids)
         else:
             self.root_ids = np.array([root_ids])
@@ -33,14 +31,12 @@ class SegmentHistory:
             if not cg.is_root(root_id):
                 raise cg_exceptions.ChunkedGraphError(f"{root_id} is no root")
 
-        if timestamp_past is None:
-            self.timestamp_past = cg.get_earliest_timestamp()
-        else:
+        self.timestamp_past = cg.get_earliest_timestamp()
+        if timestamp_past is not None:
             self.timestamp_past = timestamp_past
 
+        self.timestamp_future = datetime.utcnow()
         if timestamp_future is None:
-            self.timestamp_future = datetime.datetime.utcnow()
-        else:
             self.timestamp_future = timestamp_future
 
         self._lineage_graph = None
@@ -331,6 +327,8 @@ class SegmentHistory:
         return self.root_id_timestamp_dict[root_id]
 
     def past_future_id_mapping(self, root_id=None):
+        from networkx.algorithms.dag import descendants as nx_descendants
+
         if root_id is None:
             root_ids = self.root_ids
         else:
