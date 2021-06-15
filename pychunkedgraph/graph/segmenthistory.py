@@ -52,8 +52,10 @@ class SegmentHistory:
 
     @property
     def lineage_graph(self):
+        from .lineage import lineage_graph
+
         if self._lineage_graph is None:
-            self._lineage_graph = lineage.lineage_graph(
+            self._lineage_graph = lineage_graph(
                 self.cg, self.root_ids, self.timestamp_past, self.timestamp_future
             )
         return self._lineage_graph
@@ -89,7 +91,7 @@ class SegmentHistory:
     @property
     def _log_rows(self):
         if self._log_rows_cache is None:
-            self._log_rows_cache = self.cg.read_log_rows(self.operation_ids)
+            self._log_rows_cache = self.cg.client.read_log_entries(self.operation_ids)
         return self._log_rows_cache
 
     @property
@@ -206,7 +208,8 @@ class SegmentHistory:
         return tabular_changelogs
 
     def log_entry(self, operation_id):
-        return LogEntry(self._log_rows[operation_id])
+        ts = self._log_rows[operation_id]["timestamp"]
+        return LogEntry(self._log_rows[operation_id], timestamp=ts)
 
     def change_log_summary(self, root_id=None, filtered=False):
         if root_id is None:
@@ -389,7 +392,7 @@ class SegmentHistory:
         return past_id_mapping, future_id_mapping
 
 
-class LogEntry(object):
+class LogEntry:
     def __init__(self, row, timestamp):
         self.row = row
         self.timestamp = timestamp
