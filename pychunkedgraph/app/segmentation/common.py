@@ -927,18 +927,16 @@ def last_edit(table_id, root_id):
 
 
 def oldest_timestamp(table_id):
+    from datetime import timedelta
+
     current_app.table_id = table_id
     user_id = str(g.auth_user["id"])
     current_app.user_id = user_id
-
     cg = app_utils.get_cg(table_id)
-
-    try:
-        earliest_timestamp = cg.get_earliest_timestamp()
-    except (cg_exceptions.PreconditionError, AttributeError):
-        raise cg_exceptions.InternalServerError("No timestamp available")
-
-    return earliest_timestamp
+    for op_id in range(1000):
+        _, timestamp = cg.client.read_log_entry(op_id)
+        if timestamp is not None:
+            return timestamp - timedelta(milliseconds=500)
 
 
 ### CONTACT SITES --------------------------------------------------------------
