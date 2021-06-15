@@ -966,3 +966,11 @@ class ChunkedGraph:
         from .misc import get_proofread_root_ids
 
         return get_proofread_root_ids(self, start_time, end_time)
+
+    def get_earliest_timestamp(self):
+        from datetime import timedelta
+
+        for op_id in range(100):
+            _, timestamp = self.client.read_log_entry(op_id)
+            if timestamp is not None:
+                return timestamp - timedelta(milliseconds=500)

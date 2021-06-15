@@ -931,10 +931,7 @@ def oldest_timestamp(table_id):
     user_id = str(g.auth_user["id"])
     current_app.user_id = user_id
     cg = app_utils.get_cg(table_id)
-    for op_id in range(1000):
-        _, timestamp = cg.client.read_log_entry(op_id)
-        if timestamp is not None:
-            return timestamp - timedelta(milliseconds=500)
+    return cg.get_earliest_timestamp()
 
 
 ### CONTACT SITES --------------------------------------------------------------
