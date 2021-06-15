@@ -444,13 +444,13 @@ class LogEntry:
             ]
         )
 
-    def __str__(self):
-        return f"{self.user_id},{self.log_type},{self.root_ids},{self.timestamp}"
-
     def __iter__(self):
         attrs = [self.user_id, self.log_type, self.root_ids, self.timestamp]
         for attr in attrs:
             yield attr
+
+    def __str__(self):
+        return ",".join([str(x) for x in self])
 
 
 def get_all_log_entries(cg):

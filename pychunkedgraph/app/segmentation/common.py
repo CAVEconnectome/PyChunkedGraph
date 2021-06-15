@@ -927,8 +927,6 @@ def last_edit(table_id, root_id):
 
 
 def oldest_timestamp(table_id):
-    from datetime import timedelta
-
     current_app.table_id = table_id
     user_id = str(g.auth_user["id"])
     current_app.user_id = user_id
