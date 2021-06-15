@@ -1,5 +1,6 @@
 import collections
 import json
+from pychunkedgraph.app.config import DockerDevelopmentConfig
 import threading
 import time
 import traceback
@@ -182,6 +183,10 @@ def _parse_timestamp(arg_name, default_timestamp=0, return_datetime=False):
     """Convert seconds since epoch to UTC datetime."""
     try:
         timestamp = float(request.args.get(arg_name, default_timestamp))
+        if default_timestamp is None:
+            raise (
+                cg_exceptions.BadRequest(f"Timestamp parameter {arg_name} is mandatory")
+            )
         if return_datetime:
             return datetime.fromtimestamp(timestamp, UTC)
         else:
@@ -1196,3 +1201,18 @@ def operation_details(table_id):
                 details[_k] = _v
         result[int(k)] = details
     return result
+
+
+### DELTA ROOTS ------------------------------------------------------------
+
+
+def delta_roots(table_id):
+    current_app.table_id = table_id
+
+    timestamp_past = _parse_timestamp("timestamp_past", None, return_datetime=True)
+    timestamp_future = _parse_timestamp(
+        "timestamp_future", time.time(), return_datetime=True
+    )
+    cg = app_utils.get_cg(table_id)
+    old_roots, new_roots = cg.get_proofread_root_ids(timestamp_past, timestamp_future)
+    return {"old_roots": old_roots, "new_roots": new_roots}
