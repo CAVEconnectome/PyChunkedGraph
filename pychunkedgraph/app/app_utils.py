@@ -57,10 +57,27 @@ def remap_public(func=None, *, edit=False, check_node_ids=False):
                 v_timetamp_float = time.mktime(v_timestamp.timetuple())
 
                 # we want to fix timestamp parameters too
-                http_args["timestamp"] = v_timetamp_float
-                http_args["timestamp_future"] = v_timetamp_float
+                def ceiling_timestamp(argname):
+                    old_arg = http_args.get(argname, None)
+                    if old_arg is not None:
+                        # if they specified a timestamp
+                        # enforce its less than the cap
+                        if old_arg > v_timetamp_float:
+                            http_args[argname] = v_timetamp_float
+                    else:
+                        # if they omit the timestamp, it defaults to "now"
+                        # so we should cap it at the virtual timestamp
+                        http_args[argname] = v_timetamp_float
+
+                ceiling_timestamp("timestamp")
+                ceiling_timestamp("timestamp_future")
+
                 request.args = ImmutableMultiDict(http_args)
 
+                # we also want to check for endpoints
+                # which ask for info about IDs and
+                # restrict such calls to IDs that are valid
+                # before the timestamp cap for this virtual table
                 cg = get_cg(new_table)
 
                 def assert_node_prop(prop):
@@ -77,6 +94,8 @@ def remap_public(func=None, *, edit=False, check_node_ids=False):
                 assert_node_prop("root_id")
                 assert_node_prop("node_id")
 
+                # some endpoints post node_ids as json, so we have to check there
+                # as well if the endpoint configured us to.
                 if check_node_ids:
                     node_ids = np.array(
                         json.loads(request.data)["node_ids"], dtype=np.uint64
