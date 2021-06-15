@@ -27,8 +27,8 @@ from .chunks import hierarchy as chunk_hierarchy
 class ChunkedGraph:
     def __init__(
         self,
-        *,
         graph_id: str = None,
+        *,
         meta: ChunkedGraphMeta = None,
         client_info: BackendClientInfo = get_default_client_info(),
     ):
