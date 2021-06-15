@@ -234,7 +234,10 @@ class Client(bigtable.Client, ClientWithIDGen, OperationLogger):
             return {}
         for operation_id in logs_d:
             log_record = logs_d[operation_id]
-            timestamp = log_record[attributes.OperationLogs.RootID][0].timestamp
+            try:
+                timestamp = log_record[attributes.OperationLogs.OperationTimeStamp][0].value
+            except KeyError:
+                timestamp = log_record[attributes.OperationLogs.RootID][0].timestamp
             log_record.update((column, v[0].value) for column, v in log_record.items())
             log_record["timestamp"] = timestamp
         return logs_d
