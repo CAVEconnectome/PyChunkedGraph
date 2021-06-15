@@ -881,6 +881,9 @@ class ChunkedGraph:
 
     # HELPERS / WRAPPERS
 
+    def is_root(self, node_id: basetypes.NODE_ID) -> bool:
+        return self.get_chunk_layer(node_id) == self.meta.layer_count
+
     def get_serialized_info(self):
         return {
             "graph_id": self.meta.graph_config.ID_PREFIX + self.meta.graph_config.ID
