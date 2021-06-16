@@ -124,29 +124,23 @@ class History:
     def _build_tabular_changelogs(self):
         tabular_changelogs = {}
         all_user_ids = []
-        for root_id in self.root_ids:
-            root_ts = self.cg.read_node_id_row(root_id)[column_keys.Hierarchy.Child][
-                0
-            ].timestamp
+        root_lookup = lambda sv_ids, ts: dict(
+            zip(
+                sv_ids,
+                self.cg.get_roots(sv_ids, time_stamp=ts),
+            )
+        ).get
 
+        earliest_ts = self.cg.get_earliest_timestamp()
+        root_ts_d = dict(zip(self.root_ids, self.cg.get_node_timestamps(self.root_ids)))
+        for root_id in self.root_ids:
+            root_ts = root_ts_d[root_id]
             edited_sv_ids = self.collect_edited_sv_ids(root_id=root_id)
             current_root_id_lookup_vec = np.vectorize(
-                dict(
-                    zip(
-                        edited_sv_ids,
-                        self.cg.get_roots(edited_sv_ids, time_stamp=root_ts),
-                    )
-                ).get
+                root_lookup(edited_sv_ids, root_ts)
             )
             original_root_id_lookup_vec = np.vectorize(
-                dict(
-                    zip(
-                        edited_sv_ids,
-                        self.cg.get_roots(
-                            edited_sv_ids, time_stamp=self.cg.get_earliest_timestamp()
-                        ),
-                    )
-                ).get
+                root_lookup(edited_sv_ids, earliest_ts)
             )
 
             is_merge_list = []
@@ -479,9 +473,7 @@ def get_all_log_entries(cg_instance):
     log_rows = cg_instance.read_log_rows()
     for operation_id in range(cg_instance.get_max_operation_id()):
         try:
-            log_entries.append(
-                LogEntry(log_rows[operation_id], log_rows[operation_id]["timestamp"])
-            )
+            log_entries.append(LogEntry(log_rows[operation_id]))
         except KeyError:
             continue
     return log_entries
