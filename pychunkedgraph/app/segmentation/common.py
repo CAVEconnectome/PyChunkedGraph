@@ -830,11 +830,8 @@ def tabular_change_log_recent(table_id):
     )
 
 
-def tabular_change_log(table_id, root_id, get_root_ids, filtered):
-    if get_root_ids:
-        current_app.request_type = "tabular_changelog_wo_ids"
-    else:
-        current_app.request_type = "tabular_changelog"
+def tabular_change_logs(table_id, root_ids, filtered=False):
+    current_app.request_type = "tabular_changelog_many"
 
     current_app.table_id = table_id
     user_id = str(g.auth_user["id"])
@@ -842,22 +839,29 @@ def tabular_change_log(table_id, root_id, get_root_ids, filtered):
 
     # Call ChunkedGraph
     cg = app_utils.get_cg(table_id)
-    segment_history = segmenthistory.SegmentHistory(cg, int(root_id))
-
-    tab = segment_history.get_tabular_changelog(
-        with_ids=get_root_ids, filtered=filtered
+    history = segmenthistory.SegmentHistory(
+        cg,
+        root_ids,
     )
+    if filtered:
+        tab = history.tabular_changelogs_filtered
+    else:
+        tab = history.tabular_changelogs
+    all_user_ids = []
+    for tab_k in tab.keys():
+        all_user_ids.extend(np.array(tab[tab_k]["user_id"]).reshape(-1))
 
-    try:
-        tab["user_name"] = get_usernames(
-            np.array(tab["user_id"], dtype=np.int).squeeze(),
-            current_app.config["AUTH_TOKEN"],
-        )
-    except:
-        current_app.logger.error(f"Could not retrieve user names for {root_id}")
-
+    all_user_ids = np.unique(all_user_ids)
+    user_dict = app_utils.get_username_dict(
+        all_user_ids, current_app.config["AUTH_TOKEN"]
+    )
+    for tab_k in tab.keys():
+        user_names = [
+            user_dict.get(int(id_), "unknown")
+            for id_ in np.array(tab[tab_k]["user_id"])
+        ]
+        tab[tab_k]["user_name"] = user_names
     return tab
-
 
 def merge_log(table_id, root_id):
     current_app.table_id = table_id

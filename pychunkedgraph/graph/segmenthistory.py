@@ -129,7 +129,12 @@ class SegmentHistory:
         ).get
 
         earliest_ts = self.cg.get_earliest_timestamp()
-        root_ts_d = dict(zip(self.root_ids, self.cg.get_node_timestamps(self.root_ids)))
+        root_ts_d = dict(
+            zip(
+                self.root_ids,
+                self.cg.get_node_timestamps(self.root_ids, return_numpy=False),
+            )
+        )
         for root_id in self.root_ids:
             root_ts = root_ts_d[root_id]
             edited_sv_ids = self.collect_edited_sv_ids(root_id=root_id)

@@ -397,14 +397,11 @@ def tabular_change_log(table_id, root_id):
     disp = request.args.get("disp", default=False, type=toboolean)
     get_root_ids = request.args.get("root_ids", default=False, type=toboolean)
     filtered = request.args.get("filtered", default=True, type=toboolean)
-    tab_change_log = common.tabular_change_log(
-        table_id, root_id, get_root_ids, filtered
-    )
-
+    tab_change_log_dict = common.tabular_change_logs(table_id, [int(root_id)], filtered)
+    tab_change_log = tab_change_log_dict[int(root_id)]
     if disp:
         return tab_change_log.to_html()
-    else:
-        return tab_change_log.to_json()
+    return tab_change_log.to_json()
 
 
 @bp.route("/table/<table_id>/root/<root_id>/merge_log", methods=["GET"])
