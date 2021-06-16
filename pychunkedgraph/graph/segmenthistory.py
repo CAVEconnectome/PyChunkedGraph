@@ -119,23 +119,26 @@ class SegmentHistory:
     def _build_tabular_changelogs(self):
         from pandas import DataFrame
 
-        f = lambda sv_ids, ts: dict(
+        tabular_changelogs = {}
+        all_user_ids = []
+        root_lookup = lambda sv_ids, ts: dict(
             zip(
                 sv_ids,
-                self.cg.get_roots(edited_sv_ids, time_stamp=ts),
+                self.cg.get_roots(sv_ids, time_stamp=ts),
             )
         ).get
 
-        tabular_changelogs = {}
-        all_user_ids = []
         earliest_ts = self.cg.get_earliest_timestamp()
         root_ts_d = dict(zip(self.root_ids, self.cg.get_node_timestamps(self.root_ids)))
-
         for root_id in self.root_ids:
             root_ts = root_ts_d[root_id]
             edited_sv_ids = self.collect_edited_sv_ids(root_id=root_id)
-            current_root_id_lookup_vec = np.vectorize(f(edited_sv_ids, root_ts))
-            original_root_id_lookup_vec = np.vectorize(f(edited_sv_ids, earliest_ts))
+            current_root_id_lookup_vec = np.vectorize(
+                root_lookup(edited_sv_ids, root_ts)
+            )
+            original_root_id_lookup_vec = np.vectorize(
+                root_lookup(edited_sv_ids, earliest_ts)
+            )
 
             is_merge_list = []
             is_in_neuron_list = []
@@ -160,27 +163,12 @@ class SegmentHistory:
                     list(self.lineage_graph.neighbors(before_ids[0]))
                 )
                 before_root_ids_list.append(before_ids)
-
                 if entry.is_merge:
-                    if len(np.unique(sv_ids_original_root)) != 1:
-                        is_relevant_list.append(True)
-                    else:
-                        is_relevant_list.append(False)
-
-                    if np.all(sv_ids_current_root == root_id):
-                        is_in_neuron_list.append(True)
-                    else:
-                        is_in_neuron_list.append(False)
+                    is_relevant_list.append(len(np.unique(sv_ids_original_root)) != 1)
+                    is_in_neuron_list.append(np.all(sv_ids_current_root == root_id))
                 else:
-                    if len(np.unique(sv_ids_current_root)) != 1:
-                        is_relevant_list.append(True)
-                    else:
-                        is_relevant_list.append(False)
-
-                    if np.any(sv_ids_current_root == root_id):
-                        is_in_neuron_list.append(True)
-                    else:
-                        is_in_neuron_list.append(False)
+                    is_relevant_list.append(len(np.unique(sv_ids_current_root)) != 1)
+                    is_in_neuron_list.append(np.any(sv_ids_current_root == root_id))
 
             all_user_ids.extend(user_list)
             tabular_changelogs[root_id] = DataFrame.from_dict(
@@ -195,7 +183,6 @@ class SegmentHistory:
                     "is_relevant": is_relevant_list,
                 }
             )
-
         return tabular_changelogs
 
     def log_entry(self, operation_id):
@@ -258,7 +245,6 @@ class SegmentHistory:
         for root_id in root_ids:
             for operation_id in self.past_operation_ids(root_id=root_id):
                 log_entry = self.log_entry(operation_id)
-
                 if not log_entry.is_merge:
                     continue
 
@@ -267,9 +253,8 @@ class SegmentHistory:
                 if correct_for_wrong_coord_type:
                     # A little hack because we got the datatype wrong...
                     coords = [np.frombuffer(coords[0]), np.frombuffer(coords[1])]
-                    coords *= self.cg.segmentation_resolution
+                    coords *= self.cg.meta.resolution
                 added_edge_coords.append(coords)
-
         return {"merge_edges": added_edges, "merge_edge_coords": added_edge_coords}
 
     def past_operation_ids(self, root_id=None):
@@ -287,7 +272,6 @@ class SegmentHistory:
             return np.array([], dtype=np.int)
 
         ancs = fastremap.unique(np.array(ancs, dtype=np.uint64))
-
         operation_ids = []
         for anc in ancs:
             operation_ids.append(self.root_id_operation_id_dict.get(anc, 0))
@@ -295,7 +279,6 @@ class SegmentHistory:
         operation_ids = np.array(operation_ids)
         operation_ids = fastremap.unique(operation_ids)
         operation_ids = operation_ids[operation_ids != 0]
-
         return operation_ids
 
     def tabular_changelog(self, root_id=None, filtered=False):
@@ -313,12 +296,10 @@ class SegmentHistory:
             tabular_changelog = tabular_changelog[inclusion_mask]
             tabular_changelog = tabular_changelog.drop("in_neuron", axis=1)
             tabular_changelog = tabular_changelog.drop("is_relevant", axis=1)
-
         return tabular_changelog
 
     def last_edit_timestamp(self, root_id=None):
         assert root_id in self.root_ids
-
         return self.root_id_timestamp_dict[root_id]
 
     def past_future_id_mapping(self, root_id=None):
@@ -334,13 +315,10 @@ class SegmentHistory:
         out_degree_dict = dict(self.lineage_graph.out_degree)
         in_degree_dict_vec = np.vectorize(in_degree_dict.get)
         out_degree_dict_vec = np.vectorize(out_degree_dict.get)
-
         past_id_mapping = {}
         future_id_mapping = {}
-
         for root_id in root_ids:
             ancestors = np.array(list(nx_ancestors(self.lineage_graph, root_id)))
-
             if len(ancestors) == 0:
                 past_id_mapping[int(root_id)] = [root_id]
             else:
@@ -358,10 +336,7 @@ class SegmentHistory:
                 continue
 
             out_degrees = out_degree_dict_vec(descendants)
-
-            if 2 in out_degrees:
-                continue
-            if np.sum(out_degrees == 0) > 1:
+            if 2 in out_degrees or np.sum(out_degrees == 0) > 1:
                 continue
 
             single_degree_descendants = descendants[
@@ -379,9 +354,7 @@ class SegmentHistory:
             )
             if 1 in partner_in_degrees:
                 continue
-
             future_id_mapping[past_id] = descendants[out_degrees == 0][0]
-
         return past_id_mapping, future_id_mapping
 
 
