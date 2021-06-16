@@ -38,12 +38,12 @@ class BaseConfig(object):
     else:
         AUTH_TOKEN = ""
     VIRTUAL_TABLES = {
-        "minnie65_pr_v116": {
+        "minnie65_public_v117": {
             "table_id": "minnie3_v1",
             "timestamp": datetime.datetime(
                 year=2021,
                 month=6,
-                day=10,
+                day=11,
                 hour=8,
                 minute=10,
                 second=0,
