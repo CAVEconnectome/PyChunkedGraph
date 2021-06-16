@@ -1,6 +1,5 @@
 import collections
 import json
-from pychunkedgraph.app.config import DockerDevelopmentConfig
 import threading
 import time
 import traceback
