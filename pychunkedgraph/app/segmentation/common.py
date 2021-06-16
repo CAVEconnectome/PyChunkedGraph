@@ -180,12 +180,11 @@ def api_exception(e):
 
 def _parse_timestamp(arg_name, default_timestamp=0, return_datetime=False):
     """Convert seconds since epoch to UTC datetime."""
+    timestamp = request.args.get(arg_name, default_timestamp)
+    if timestamp is None:
+        raise (cg_exceptions.BadRequest(f"Timestamp parameter {arg_name} is mandatory"))
     try:
-        timestamp = float(request.args.get(arg_name, default_timestamp))
-        if default_timestamp is None:
-            raise (
-                cg_exceptions.BadRequest(f"Timestamp parameter {arg_name} is mandatory")
-            )
+        timestamp = float(timestamp)
         if return_datetime:
             return datetime.fromtimestamp(timestamp, UTC)
         else:
