@@ -113,10 +113,10 @@ def get_log_db(table_id):
 
 
 def toboolean(value):
-    """ Transform value to boolean type.
-        :param value: bool/int/str
-        :return: bool
-        :raises: ValueError, if value is not boolean.
+    """Transform value to boolean type.
+    :param value: bool/int/str
+    :return: bool
+    :raises: ValueError, if value is not boolean.
     """
     if not value:
         raise ValueError("Can't convert null to boolean")
@@ -137,7 +137,7 @@ def toboolean(value):
 
 
 def tobinary(ids):
-    """ Transform id(s) to binary format
+    """Transform id(s) to binary format
 
     :param ids: uint64 or list of uint64s
     :return: binary
@@ -146,9 +146,28 @@ def tobinary(ids):
 
 
 def tobinary_multiples(arr):
-    """ Transform id(s) to binary format
+    """Transform id(s) to binary format
 
     :param arr: list of uint64 or list of uint64s
     :return: binary
     """
     return [np.array(arr_i).tobytes() for arr_i in arr]
+
+
+def get_username_dict(user_ids, auth_token) -> dict:
+    from os import environ
+    from requests import get
+    from pychunkedgraph.graph import exceptions as cg_exceptions
+
+    AUTH_URL = environ.get("AUTH_URL", None)
+
+    if AUTH_URL is None:
+        return {}
+        raise cg_exceptions.ChunkedGraphError("No AUTH_URL defined")
+
+    users_request = requests.get(
+        f"https://{AUTH_URL}/api/v1/username?id={','.join(map(str, np.unique(user_ids)))}",
+        headers={"authorization": "Bearer " + auth_token},
+        timeout=5,
+    )
+    return {x["id"]: x["name"] for x in users_request.json()}

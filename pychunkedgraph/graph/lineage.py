@@ -18,7 +18,7 @@ from .utils.generic import get_max_time
 from .utils.generic import get_valid_timestamp
 
 
-def get_latest_root_id(cg, root_id: NODE_ID) -> np.ndarray:
+def get_latest_root_id(cg, root_id: NODE_ID.type) -> np.ndarray:
     """Returns the latest root id associated with the provided root id"""
     id_working_set = [root_id]
     latest_root_ids = []
@@ -111,7 +111,7 @@ def get_past_root_ids(
 
 def get_previous_root_ids(
     cg,
-    root_ids: Iterable[NODE_ID],
+    root_ids: Iterable[NODE_ID.type],
 ) -> dict:
     """Returns immediate former root IDs (1 step history)"""
     nodes_d = cg.client.read_nodes(
