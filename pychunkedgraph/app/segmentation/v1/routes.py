@@ -404,6 +404,21 @@ def tabular_change_log(table_id, root_id):
     return tab_change_log.to_json()
 
 
+@bp.route("/table/<table_id>/tabular_change_log_many", methods=["GET"])
+@auth_requires_permission("view")
+def tabular_change_log_many(table_id):
+    import json
+    import numpy as np
+
+    filtered = request.args.get("filtered", default=True, type=toboolean)
+    root_ids = np.array(json.loads(request.data)["root_ids"], dtype=np.uint64)
+    tab_change_log_dict = common.tabular_change_logs(table_id, root_ids, filtered)
+
+    return jsonify_with_kwargs(
+        {str(k): tab_change_log_dict[k] for k in tab_change_log_dict.keys()}
+    )
+
+
 @bp.route("/table/<table_id>/root/<root_id>/merge_log", methods=["GET"])
 @auth_requires_permission("view")
 @remap_public(edit=False)
