@@ -29,6 +29,7 @@ from typing import (
     Union,
     NamedTuple,
 )
+import os
 
 CACHE = {}
 
@@ -36,6 +37,14 @@ CACHE = {}
 class DoNothingCreds(credentials.Credentials):
     def refresh(self, request):
         pass
+
+
+def get_app_base_path():
+    return os.path.dirname(os.path.realpath(__file__))
+
+
+def get_instance_folder_path():
+    return os.path.join(get_app_base_path(), "instance")
 
 
 def jsonify_with_kwargs(data, as_response=True, **kwargs):
