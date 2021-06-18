@@ -45,7 +45,7 @@ def create_app(test_config=None):
     app = Flask(__name__)
     app.json_encoder = CustomJsonEncoder
 
-    CORS(app, expose_headers='WWW-Authenticate')
+    CORS(app, expose_headers="WWW-Authenticate")
 
     configure_app(app)
 
@@ -65,33 +65,32 @@ def create_app(test_config=None):
 
 def configure_app(app):
     # Load logging scheme from config.py
-    app_settings = os.getenv('APP_SETTINGS')
+    app_settings = os.getenv("APP_SETTINGS")
     if not app_settings:
         app.config.from_object(config.BaseConfig)
     else:
-        app.config.from_object(app_settings)
-
+        app.config.from_envvar(app_settings)
 
     # Configure logging
     # handler = logging.FileHandler(app.config['LOGGING_LOCATION'])
     handler = logging.StreamHandler(sys.stdout)
-    handler.setLevel(app.config['LOGGING_LEVEL'])
+    handler.setLevel(app.config["LOGGING_LEVEL"])
     formatter = jsonformatter.JsonFormatter(
-        fmt=app.config['LOGGING_FORMAT'],
-        datefmt=app.config['LOGGING_DATEFORMAT'])
+        fmt=app.config["LOGGING_FORMAT"], datefmt=app.config["LOGGING_DATEFORMAT"]
+    )
     formatter.converter = time.gmtime
     handler.setFormatter(formatter)
     app.logger.removeHandler(default_handler)
     app.logger.addHandler(handler)
-    app.logger.setLevel(app.config['LOGGING_LEVEL'])
+    app.logger.setLevel(app.config["LOGGING_LEVEL"])
     app.logger.propagate = False
 
-    if app.config['USE_REDIS_JOBS']:
-        app.redis = redis.Redis.from_url(app.config['REDIS_URL'])
-        app.test_q = Queue('test', connection=app.redis)
+    if app.config["USE_REDIS_JOBS"]:
+        app.redis = redis.Redis.from_url(app.config["REDIS_URL"])
+        app.test_q = Queue("test", connection=app.redis)
         with app.app_context():
             from ..ingest.rq_cli import init_rq_cmds
             from ..ingest.cli import init_ingest_cmds
 
             init_rq_cmds(app)
-            init_ingest_cmds(app)     
+            init_ingest_cmds(app)
