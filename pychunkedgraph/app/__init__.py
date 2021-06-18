@@ -21,6 +21,7 @@ from .meshing.v1.routes import bp as meshing_api_v1
 from .segmentation.legacy.routes import bp as segmentation_api_legacy
 from .segmentation.v1.routes import bp as segmentation_api_v1
 from .segmentation.generic.routes import bp as generic_api
+from app_utils import get_instance_folder_path
 
 
 class CustomJsonEncoder(json.JSONEncoder):
