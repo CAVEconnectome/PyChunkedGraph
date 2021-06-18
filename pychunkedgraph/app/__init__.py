@@ -69,7 +69,10 @@ def configure_app(app):
     if not app_settings:
         app.config.from_object(config.BaseConfig)
     else:
-        app.config.from_envvar(app_settings)
+        if os.path.isfile(app_settings):
+            app.config.from_envvar(app_settings)
+        else:
+            app.config.from_object(app_settings)
 
     # Configure logging
     # handler = logging.FileHandler(app.config['LOGGING_LOCATION'])
