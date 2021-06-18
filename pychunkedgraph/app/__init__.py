@@ -45,7 +45,11 @@ class CustomJsonEncoder(json.JSONEncoder):
 
 
 def create_app(test_config=None):
-    app = Flask(__name__)
+    app = Flask(
+        __name__,
+        instance_path=get_instance_folder_path(),
+        instance_relative_config=True,
+    )
     app.json_encoder = CustomJsonEncoder
 
     CORS(app, expose_headers="WWW-Authenticate")
