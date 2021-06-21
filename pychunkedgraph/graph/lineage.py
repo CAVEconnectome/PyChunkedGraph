@@ -1,6 +1,7 @@
 """
 Functions for tracking root ID changes over time.
 """
+from typing import Union
 from typing import Optional
 from typing import Iterable
 from datetime import datetime
@@ -155,7 +156,7 @@ def _get_node_properties(node_entry: dict) -> dict:
 
 def lineage_graph(
     cg,
-    node_ids: Iterable[int],
+    node_ids: Union[int, Iterable[int]],
     timestamp_past: Optional[datetime] = None,
     timestamp_future: Optional[datetime] = None,
 ) -> DiGraph:

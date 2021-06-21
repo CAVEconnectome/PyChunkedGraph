@@ -1935,8 +1935,12 @@ class TestGraphHistory:
             sink_ids=to_label(cg, 1, 1, 0, 0, 0),
             mincut=False,
         ).new_root_ids
-
         assert len(split_roots) == 2
+        g = lineage_graph(cg, split_roots[0])
+        assert g.size() == 1
+        g = lineage_graph(cg, split_roots)
+        assert g.size() == 2
+
         timestamp_after_split = datetime.utcnow()
         merge_roots = cg.add_edges(
             "Jane Doe",
@@ -1947,6 +1951,8 @@ class TestGraphHistory:
         merge_root = merge_roots[0]
         timestamp_after_merge = datetime.utcnow()
 
+        g = lineage_graph(cg, merge_roots)
+        assert g.size() == 4
         assert (
             len(
                 get_root_id_history(
