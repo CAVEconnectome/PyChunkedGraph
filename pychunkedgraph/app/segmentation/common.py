@@ -595,7 +595,13 @@ def handle_rollback(table_id):
 ### USER OPERATIONS -------------------------------------------------------------
 
 
-def all_user_operations(table_id):
+def all_user_operations(table_id, include_undone = False):
+    # Gets all operations by the user.
+    # If include_undone is false, it filters to operations that are not undone.
+    # If the operation has been undone by anyone, it won't be returned here,
+    # unless it has been redone by anyone (and hasn't been undone again, etc.).
+    # The original user is considered to have "ownership" of the original edit,
+    # and that does not change even if someone else undoes/redoes that edit later.
     current_app.table_id = table_id
     user_id = str(g.auth_user["id"])
     current_app.user_id = user_id
@@ -610,6 +616,7 @@ def all_user_operations(table_id):
 
     valid_entry_ids = []
     timestamp_list = []
+    undone_ids = np.array([])
 
     entry_ids = np.sort(list(log_rows.keys()))
     for entry_id in entry_ids:
@@ -620,8 +627,44 @@ def all_user_operations(table_id):
             valid_entry_ids.append(entry_id)
             timestamp = entry["timestamp"]
             timestamp_list.append(timestamp)
+        
+        should_check = not OperationLogs.Status in entry \
+            or entry[OperationLogs.Status] == OperationLogs.StatusCodes.SUCCESS.value
 
-    return {"operation_id": valid_entry_ids, "timestamp": timestamp_list}
+        if should_check:
+            # if it is an undo of another operation, mark it as undone
+            if OperationLogs.UndoOperationID in entry:
+                undone_id = entry[OperationLogs.UndoOperationID]
+                undone_ids = np.append(undone_ids, undone_id)
+
+            # if it is a redo of another operation, unmark it as undone
+            if OperationLogs.RedoOperationID in entry:
+                redone_id = entry[OperationLogs.RedoOperationID]
+                undone_ids = np.delete(undone_ids, np.argwhere(undone_ids == redone_id))
+
+    if include_undone:
+        return {"operation_id": valid_entry_ids, "timestamp": timestamp_list}
+
+    filtered_entry_ids = []
+    filtered_timestamp_list = []
+    for i in range(len(valid_entry_ids)):
+        entry_id = valid_entry_ids[i]
+        entry = log_rows[entry_id]
+
+        if OperationLogs.UndoOperationID in entry \
+            or OperationLogs.RedoOperationID in entry:
+            continue
+
+        undone = entry_id in undone_ids
+        if not undone:
+            filtered_entry_ids.append(entry_id)
+            timestamp = entry["timestamp"]
+            filtered_timestamp_list.append(timestamp)
+
+    return {
+        "operation_id": filtered_entry_ids,
+        "timestamp": filtered_timestamp_list
+    }
 
 
 ### CHILDREN -------------------------------------------------------------------

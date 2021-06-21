@@ -176,7 +176,8 @@ def handle_rollback(table_id):
 @remap_public(edit=True)
 def handle_user_operations(table_id):
     disp = request.args.get("disp", default=False, type=toboolean)
-    user_operations = pd.DataFrame.from_dict(common.all_user_operations(table_id))
+    include_undone = request.args.get("include_undone", default=False, type=toboolean)
+    user_operations = pd.DataFrame.from_dict(common.all_user_operations(table_id, include_undone))
 
     if disp:
         return user_operations.to_html()
