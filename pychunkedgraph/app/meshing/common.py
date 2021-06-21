@@ -178,7 +178,7 @@ def handle_get_manifest(table_id, node_id):
     if "bounds" in request.args:
         bounds = request.args["bounds"]
         bounding_box = np.array(
-            [b.split("-") for b in bounds.split("_")], dtype=np.int
+            [b.split("-") for b in bounds.split("_")], dtype=int
         ).T
 
     cg = app_utils.get_cg(table_id)

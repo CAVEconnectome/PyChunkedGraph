@@ -39,7 +39,7 @@ class CloudVolumeBounds(object):
 
 class CloudVolumeMock(object):
     def __init__(self):
-        self.resolution = np.array([1, 1, 1], dtype=np.int)
+        self.resolution = np.array([1, 1, 1], dtype=int)
         self.bounds = CloudVolumeBounds()
 
 
@@ -278,7 +278,7 @@ def get_layer_chunk_bounds(
     layer_bounds_d = {}
     for layer in range(2, n_layers):
         layer_bounds = atomic_chunk_bounds / (2 ** (layer - 2))
-        layer_bounds_d[layer] = np.ceil(layer_bounds).astype(np.int)
+        layer_bounds_d[layer] = np.ceil(layer_bounds).astype(int)
     return layer_bounds_d
 
 

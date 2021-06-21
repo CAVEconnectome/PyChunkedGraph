@@ -658,7 +658,7 @@ def handle_leaves(table_id, root_id):
     if "bounds" in request.args:
         bounds = request.args["bounds"]
         bounding_box = np.array(
-            [b.split("-") for b in bounds.split("_")], dtype=np.int
+            [b.split("-") for b in bounds.split("_")], dtype=int
         ).T
 
     cg = app_utils.get_cg(table_id)
@@ -692,7 +692,7 @@ def handle_leaves_many(table_id):
     if "bounds" in request.args:
         bounds = request.args["bounds"]
         bounding_box = np.array(
-            [b.split("-") for b in bounds.split("_")], dtype=np.int
+            [b.split("-") for b in bounds.split("_")], dtype=int
         ).T
     else:
         bounding_box = None
@@ -726,7 +726,7 @@ def handle_leaves_from_leave(table_id, atomic_id):
     if "bounds" in request.args:
         bounds = request.args["bounds"]
         bounding_box = np.array(
-            [b.split("-") for b in bounds.split("_")], dtype=np.int
+            [b.split("-") for b in bounds.split("_")], dtype=int
         ).T
     else:
         bounding_box = None
@@ -753,7 +753,7 @@ def handle_subgraph(table_id, root_id):
     if "bounds" in request.args:
         bounds = request.args["bounds"]
         bounding_box = np.array(
-            [b.split("-") for b in bounds.split("_")], dtype=np.int
+            [b.split("-") for b in bounds.split("_")], dtype=int
         ).T
     else:
         bounding_box = None
@@ -950,7 +950,7 @@ def handle_contact_sites(table_id, root_id):
     if "bounds" in request.args:
         bounds = request.args["bounds"]
         bounding_box = np.array(
-            [b.split("-") for b in bounds.split("_")], dtype=np.int
+            [b.split("-") for b in bounds.split("_")], dtype=int
         ).T
     else:
         bounding_box = None

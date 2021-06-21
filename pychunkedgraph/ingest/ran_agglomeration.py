@@ -111,7 +111,7 @@ def _collect_edge_data(imanager: IngestionManager, chunk_coord):
 
     for d in [-1, 1]:
         for dim in range(3):
-            diff = np.zeros([3], dtype=np.int)
+            diff = np.zeros([3], dtype=int)
             diff[dim] = d
             adjacent_chunk_coord = chunk_coord + diff
             x, y, z = adjacent_chunk_coord
@@ -215,7 +215,7 @@ def define_active_edges(edge_dict, mapping) -> Union[Dict, np.ndarray]:
             agg_id_1 = mapping_vec(edge_dict[k].node_ids1)
         else:
             assert len(edge_dict[k].node_ids2) == 0
-            active[k] = np.array([], dtype=np.bool)
+            active[k] = np.array([], dtype=bool)
             continue
 
         agg_id_2 = mapping_vec(edge_dict[k].node_ids2)
@@ -243,12 +243,12 @@ def read_raw_agglomeration_data(imanager: IngestionManager, chunk_coord: np.ndar
 
     filenames = []
     for mip_level in range(0, int(imanager.chunkedgraph_meta.layer_count - 1)):
-        x, y, z = np.array(chunk_coord / 2 ** mip_level, dtype=np.int)
+        x, y, z = np.array(chunk_coord / 2 ** mip_level, dtype=int)
         filenames.append(f"done_{mip_level}_{x}_{y}_{z}_{chunk_id}.data.zst")
 
     for d in [-1, 1]:
         for dim in range(3):
-            diff = np.zeros([3], dtype=np.int)
+            diff = np.zeros([3], dtype=int)
             diff[dim] = d
             adjacent_chunk_coord = chunk_coord + diff
             x, y, z = adjacent_chunk_coord
@@ -257,7 +257,7 @@ def read_raw_agglomeration_data(imanager: IngestionManager, chunk_coord: np.ndar
             )
 
             for mip_level in range(0, int(imanager.chunkedgraph_meta.layer_count - 1)):
-                x, y, z = np.array(adjacent_chunk_coord / 2 ** mip_level, dtype=np.int)
+                x, y, z = np.array(adjacent_chunk_coord / 2 ** mip_level, dtype=int)
                 filenames.append(
                     f"done_{mip_level}_{x}_{y}_{z}_{adjacent_chunk_id}.data.zst"
                 )

@@ -136,7 +136,7 @@ def filter_failed_node_ids(row_ids, segment_ids, max_children_ids):
     max_child_ids = np.array(max_children_ids)[sorting]
 
     counter = defaultdict(int)
-    max_child_ids_occ_so_far = np.zeros(len(max_child_ids), dtype=np.int)
+    max_child_ids_occ_so_far = np.zeros(len(max_child_ids), dtype=int)
     for i_row in range(len(max_child_ids)):
         max_child_ids_occ_so_far[i_row] = counter[max_child_ids[i_row]]
         counter[max_child_ids[i_row]] += 1
@@ -168,9 +168,9 @@ def mask_nodes_by_bounding_box(
     meta,
     nodes: Union[Iterable[np.uint64], np.uint64],
     bounding_box: Optional[Sequence[Sequence[int]]] = None,
-) -> Iterable[np.bool]:
+) -> Iterable[bool]:
     if bounding_box is None:
-        return np.ones(len(nodes), np.bool)
+        return np.ones(len(nodes), bool)
     else:
         chunk_coordinates = np.array(
             [chunk_utils.get_chunk_coordinates(meta, c) for c in nodes]

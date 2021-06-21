@@ -740,7 +740,7 @@ class TestGraphSimpleQueries:
     @pytest.mark.timeout(30)
     def test_get_subgraph_nodes_bb(self, gen_graph_simplequerytest):
         cg = gen_graph_simplequerytest
-        bb = np.array([[1, 0, 0], [2, 1, 1]], dtype=np.int)
+        bb = np.array([[1, 0, 0], [2, 1, 1]], dtype=int)
         bb_coord = bb * cg.meta.graph_config.CHUNK_SIZE
         childs_1 = cg.get_subgraph(
             [cg.get_root(to_label(cg, 1, 1, 0, 0, 1))], bbox=bb, leaves_only=True
@@ -1897,6 +1897,7 @@ class TestGraphHistory:
         (1) Split 1 and 2
         (2) Merge 1 and 2
         """
+        from ..graph.lineage import lineage_graph
 
         cg = gen_graph(n_layers=3)
 

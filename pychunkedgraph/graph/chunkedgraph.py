@@ -354,7 +354,7 @@ class ChunkedGraph:
         time_stamp = misc_utils.get_valid_timestamp(time_stamp)
         stop_layer = self.meta.layer_count if not stop_layer else stop_layer
         assert stop_layer <= self.meta.layer_count
-        layer_mask = np.ones(len(node_ids), dtype=np.bool)
+        layer_mask = np.ones(len(node_ids), dtype=bool)
 
         for _ in range(n_tries):
             chunk_layers = self.get_chunk_layers(node_ids)

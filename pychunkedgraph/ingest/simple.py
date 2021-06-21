@@ -44,7 +44,7 @@ def _create_atomic_chunks_helper(args):
     parent_children_count_d_shared, im_info, chunk_coords = args
     imanager = IngestionManager(**im_info)
     for chunk_coord in chunk_coords:
-        chunk_coord = np.array(list(chunk_coord), dtype=np.int)
+        chunk_coord = np.array(list(chunk_coord), dtype=int)
         chunk_edges_all, mapping = _get_atomic_chunk_data(imanager, chunk_coord)
 
         ids, affs, areas, isolated = get_chunk_data_old_format(chunk_edges_all, mapping)

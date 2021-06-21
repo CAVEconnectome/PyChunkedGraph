@@ -95,7 +95,7 @@ class ChunkedGraphMeta:
         bbox = bbox.reshape(2, 3)
         n_chunks = (
             (bbox[1] - bbox[0]) / np.array(self._graph_config.CHUNK_SIZE, dtype=int)
-        ).astype(np.int)
+        ).astype(int)
         self._layer_count = (
             int(np.ceil(log_n(np.max(n_chunks), self._graph_config.FANOUT))) + 2
         )
@@ -153,7 +153,7 @@ class ChunkedGraphMeta:
         layer_bounds_d = {}
         for layer in range(2, self.layer_count):
             layer_bounds = chunks_boundary / (2 ** (layer - 2))
-            layer_bounds_d[layer] = np.ceil(layer_bounds).astype(np.int)
+            layer_bounds_d[layer] = np.ceil(layer_bounds).astype(int)
         self._layer_bounds_d = layer_bounds_d
         return self._layer_bounds_d
 
