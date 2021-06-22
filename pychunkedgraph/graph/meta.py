@@ -8,6 +8,7 @@ import numpy as np
 from cloudvolume import CloudVolume
 
 from .utils.generic import compute_bitmasks
+from .chunks.utils import get_chunks_boundary
 
 
 _datasource_fields = ("EDGES", "COMPONENTS", "WATERSHED", "DATA_VERSION", "CV_MIP")
@@ -93,9 +94,9 @@ class ChunkedGraphMeta:
             return self._layer_count
         bbox = np.array(self.ws_cv.bounds.to_list())  # pylint: disable=no-member
         bbox = bbox.reshape(2, 3)
-        n_chunks = (
-            (bbox[1] - bbox[0]) / np.array(self._graph_config.CHUNK_SIZE, dtype=int)
-        ).astype(int)
+        n_chunks = get_chunks_boundary(
+            self.voxel_counts, np.array(self._graph_config.CHUNK_SIZE, dtype=int)
+        )
         self._layer_count = (
             int(np.ceil(log_n(np.max(n_chunks), self._graph_config.FANOUT))) + 2
         )
@@ -141,8 +142,6 @@ class ChunkedGraphMeta:
 
     @property
     def layer_chunk_bounds(self) -> Dict:
-        from .chunks.utils import get_chunks_boundary
-
         """number of chunks in each dimension in each layer {layer: [x,y,z]}"""
         if self._layer_bounds_d:
             return self._layer_bounds_d
