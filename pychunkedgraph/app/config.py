@@ -1,6 +1,8 @@
 import logging
 import os
 import json
+import datetime
+from pychunkedgraph.meshing.meshgen import UTC
 
 
 class BaseConfig(object):
@@ -36,6 +38,21 @@ class BaseConfig(object):
     else:
         AUTH_TOKEN = ""
     AUTH_SERVICE_NAMESPACE = "pychunkedgraph"
+    VIRTUAL_TABLES = {
+        "minnie65_public_v117": {
+            "table_id": "minnie3_v1",
+            "timestamp": datetime.datetime(
+                year=2021,
+                month=6,
+                day=11,
+                hour=8,
+                minute=10,
+                second=0,
+                microsecond=253,
+                tzinfo=datetime.timezone.utc,
+            ),
+        }
+    }
 
 
 class DevelopmentConfig(BaseConfig):
