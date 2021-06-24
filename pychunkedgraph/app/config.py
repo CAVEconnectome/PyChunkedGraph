@@ -33,6 +33,7 @@ class BaseConfig(object):
             AUTH_TOKEN = json.load(f)["token"]
     else:
         AUTH_TOKEN = ""
+    AUTH_SERVICE_NAMESPACE = "pychunkedgraph"
 
 
 class DevelopmentConfig(BaseConfig):
