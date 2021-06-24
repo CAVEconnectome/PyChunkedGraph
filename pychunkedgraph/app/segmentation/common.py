@@ -701,7 +701,7 @@ def handle_leaves(table_id, root_id):
     if "bounds" in request.args:
         bounds = request.args["bounds"]
         bounding_box = np.array(
-            [b.split("-") for b in bounds.split("_")], dtype=np.int
+            [b.split("-") for b in bounds.split("_")], dtype=int
         ).T
 
     cg = app_utils.get_cg(table_id)
@@ -735,7 +735,7 @@ def handle_leaves_many(table_id):
     if "bounds" in request.args:
         bounds = request.args["bounds"]
         bounding_box = np.array(
-            [b.split("-") for b in bounds.split("_")], dtype=np.int
+            [b.split("-") for b in bounds.split("_")], dtype=int
         ).T
     else:
         bounding_box = None
@@ -769,7 +769,7 @@ def handle_leaves_from_leave(table_id, atomic_id):
     if "bounds" in request.args:
         bounds = request.args["bounds"]
         bounding_box = np.array(
-            [b.split("-") for b in bounds.split("_")], dtype=np.int
+            [b.split("-") for b in bounds.split("_")], dtype=int
         ).T
     else:
         bounding_box = None
@@ -796,7 +796,7 @@ def handle_subgraph(table_id, root_id):
     if "bounds" in request.args:
         bounds = request.args["bounds"]
         bounding_box = np.array(
-            [b.split("-") for b in bounds.split("_")], dtype=np.int
+            [b.split("-") for b in bounds.split("_")], dtype=int
         ).T
     else:
         bounding_box = None
@@ -873,11 +873,8 @@ def tabular_change_log_recent(table_id):
     )
 
 
-def tabular_change_log(table_id, root_id, get_root_ids, filtered):
-    if get_root_ids:
-        current_app.request_type = "tabular_changelog_wo_ids"
-    else:
-        current_app.request_type = "tabular_changelog"
+def tabular_change_logs(table_id, root_ids, filtered=False):
+    current_app.request_type = "tabular_changelog_many"
 
     current_app.table_id = table_id
     user_id = str(g.auth_user["id"])
@@ -885,20 +882,28 @@ def tabular_change_log(table_id, root_id, get_root_ids, filtered):
 
     # Call ChunkedGraph
     cg = app_utils.get_cg(table_id)
-    segment_history = segmenthistory.SegmentHistory(cg, int(root_id))
-
-    tab = segment_history.get_tabular_changelog(
-        with_ids=get_root_ids, filtered=filtered
+    history = segmenthistory.SegmentHistory(
+        cg,
+        root_ids,
     )
+    if filtered:
+        tab = history.tabular_changelogs_filtered
+    else:
+        tab = history.tabular_changelogs
+    all_user_ids = []
+    for tab_k in tab.keys():
+        all_user_ids.extend(np.array(tab[tab_k]["user_id"]).reshape(-1))
 
-    try:
-        tab["user_name"] = get_usernames(
-            np.array(tab["user_id"], dtype=np.int).squeeze(),
-            current_app.config["AUTH_TOKEN"],
-        )
-    except:
-        current_app.logger.error(f"Could not retrieve user names for {root_id}")
-
+    all_user_ids = np.unique(all_user_ids)
+    user_dict = app_utils.get_username_dict(
+        all_user_ids, current_app.config["AUTH_TOKEN"]
+    )
+    for tab_k in tab.keys():
+        user_names = [
+            user_dict.get(int(id_), "unknown")
+            for id_ in np.array(tab[tab_k]["user_id"])
+        ]
+        tab[tab_k]["user_name"] = user_names
     return tab
 
 
@@ -933,28 +938,24 @@ def handle_lineage_graph(table_id, root_id):
 
 def handle_past_id_mapping(table_id):
     root_ids = np.array(json.loads(request.data)["root_ids"], dtype=np.uint64)
-    # Convert seconds since epoch to UTC datetime
-    timestamp_past = _parse_timestamp("timestamp_past", 0, return_datetime=False)
+    timestamp_past = _parse_timestamp(
+        "timestamp_past", default_timestamp=0, return_datetime=True
+    )
     timestamp_future = _parse_timestamp(
-        "timestamp_future", time.time(), return_datetime=False
+        "timestamp_future", default_timestamp=time.time(), return_datetime=True
     )
 
-    # Call ChunkedGraph
     cg = app_utils.get_cg(table_id)
-
-    past_id_mapping = {}
-    future_id_mapping = {}
-    for root_id in root_ids:
-        hist = segmenthistory.SegmentHistory(cg, int(root_id))
-        graph = hist.get_change_log_graph(timestamp_past, None)
-
-        in_degree_dict = dict(graph.in_degree)
-        nodes = np.array(list(in_degree_dict.keys()))
-        in_degrees = np.array(list(in_degree_dict.values()))
-
-        past_id_mapping[int(root_id)] = nodes[in_degrees == 0]
-
-    return {"past_id_map": past_id_mapping, "future_id_map": future_id_mapping}
+    hist = segmenthistory.SegmentHistory(
+        cg, root_ids, timestamp_past=timestamp_past, timestamp_future=timestamp_future
+    )
+    past_id_mapping, future_id_mapping = hist.past_future_id_mapping()
+    return {
+        "past_id_map": {str(k): past_id_mapping[k] for k in past_id_mapping.keys()},
+        "future_id_map": {
+            str(k): future_id_mapping[k] for k in future_id_mapping.keys()
+        },
+    }
 
 
 def last_edit(table_id, root_id):
@@ -973,15 +974,8 @@ def oldest_timestamp(table_id):
     current_app.table_id = table_id
     user_id = str(g.auth_user["id"])
     current_app.user_id = user_id
-
     cg = app_utils.get_cg(table_id)
-
-    try:
-        earliest_timestamp = cg.get_earliest_timestamp()
-    except (cg_exceptions.PreconditionError, AttributeError):
-        raise cg_exceptions.InternalServerError("No timestamp available")
-
-    return earliest_timestamp
+    return cg.get_earliest_timestamp()
 
 
 ### CONTACT SITES --------------------------------------------------------------
@@ -999,7 +993,7 @@ def handle_contact_sites(table_id, root_id):
     if "bounds" in request.args:
         bounds = request.args["bounds"]
         bounding_box = np.array(
-            [b.split("-") for b in bounds.split("_")], dtype=np.int
+            [b.split("-") for b in bounds.split("_")], dtype=int
         ).T
     else:
         bounding_box = None

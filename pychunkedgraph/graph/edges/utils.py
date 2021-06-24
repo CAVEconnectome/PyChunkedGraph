@@ -151,8 +151,8 @@ def get_cross_chunk_edges_layer(meta: ChunkedGraphMeta, cross_edges: Iterable):
     :return: array of length n
     """
     if len(cross_edges) == 0:
-        return np.array([], dtype=np.int)
-    cross_chunk_edge_layers = np.ones(len(cross_edges), dtype=np.int)
+        return np.array([], dtype=int)
+    cross_chunk_edge_layers = np.ones(len(cross_edges), dtype=int)
     coords0 = chunk_utils.get_chunk_coordinates_multiple(meta, cross_edges[:, 0])
     coords1 = chunk_utils.get_chunk_coordinates_multiple(meta, cross_edges[:, 1])
 

@@ -253,7 +253,7 @@ def get_root_lx_remapping(cg, chunk_id, stop_layer, time_stamp, n_threads=1):
     root_ids = np.zeros(len(lx_ids), dtype=np.uint64)
     n_jobs = np.min([n_threads, len(lx_ids)])
     multi_args = []
-    start_ids = np.linspace(0, len(lx_ids), n_jobs + 1).astype(np.int)
+    start_ids = np.linspace(0, len(lx_ids), n_jobs + 1).astype(int)
     for i_block in range(n_jobs):
         multi_args.append([start_ids[i_block], start_ids[i_block + 1]])
 
@@ -431,7 +431,7 @@ def get_root_remapping_for_nodes_and_svs(
     root_ids = np.zeros(len(combined_ids), dtype=np.uint64)
     n_jobs = np.min([n_threads, len(combined_ids)])
     multi_args = []
-    start_ids = np.linspace(0, len(combined_ids), n_jobs + 1).astype(np.int)
+    start_ids = np.linspace(0, len(combined_ids), n_jobs + 1).astype(int)
     for i_block in range(n_jobs):
         multi_args.append([start_ids[i_block], start_ids[i_block + 1]])
 
@@ -1034,9 +1034,9 @@ def get_multi_child_nodes(cg, chunk_id, node_id_subset=None, chunk_bbox_string=F
     root_ids = cg.get_roots(node_ids)
     # Only keep nodes with more than one child
     multi_child_mask = np.array(
-        [len(fragments) > 1 for fragments in child_fragments], dtype=np.bool
+        [len(fragments) > 1 for fragments in child_fragments], dtype=bool
     )
-    root_id_mask = np.array([root_id != 0 for root_id in root_ids], dtype=np.bool)
+    root_id_mask = np.array([root_id != 0 for root_id in root_ids], dtype=bool)
     multi_child_node_ids = node_ids[multi_child_mask & root_id_mask]
     multi_child_children_ids = child_fragments[multi_child_mask & root_id_mask]
     # Store how many children each node has, because we will retrieve all children at once

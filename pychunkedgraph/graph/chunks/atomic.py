@@ -50,7 +50,7 @@ def get_touching_atomic_chunks(
             chunk_2 = chunk_offset + np.array((mid + 1, axis_1, axis_2))
             touching_atomic_chunks.append(chunk_2)
 
-    chunks = np.array(touching_atomic_chunks, dtype=np.int)
+    chunks = np.array(touching_atomic_chunks, dtype=int)
     mask = np.all(chunks < layer2_chunk_bounds, axis=1)
     result = chunks[mask]
     if result.size:

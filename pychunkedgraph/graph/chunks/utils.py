@@ -11,7 +11,7 @@ from ..utils.context_managers import TimeIt
 
 def get_chunks_boundary(voxel_boundary, chunk_size) -> np.ndarray:
     """returns number of chunks in each dimension"""
-    return np.ceil((voxel_boundary / chunk_size)).astype(np.int)
+    return np.ceil((voxel_boundary / chunk_size)).astype(int)
 
 
 def normalize_bounding_box(
@@ -40,7 +40,7 @@ def normalize_bounding_box(
             resolution=meta.resolution,
             ceil=True,
         )
-    return np.array(bbox, dtype=np.int)
+    return np.array(bbox, dtype=int)
 
 
 def get_chunk_layer(meta, node_or_chunk_id: np.uint64) -> int:
@@ -54,7 +54,7 @@ def get_chunk_layers(meta, node_or_chunk_ids: Sequence[np.uint64]) -> np.ndarray
     :return: np.ndarray
     """
     if len(node_or_chunk_ids) == 0:
-        return np.array([], dtype=np.int)
+        return np.array([], dtype=int)
 
     layers = np.array(node_or_chunk_ids, dtype=int)
 
@@ -187,16 +187,16 @@ def _compute_chunk_id(
 
 def _get_chunk_coordinates_from_vol_coordinates(
     meta,
-    x: np.int,
-    y: np.int,
-    z: np.int,
-    resolution: Sequence[np.int],
+    x: int,
+    y: int,
+    z: int,
+    resolution: Sequence[int],
     ceil: bool = False,
     layer: int = 1,
 ) -> np.ndarray:
     """Translates volume coordinates to chunk_coordinates."""
     resolution = np.array(resolution)
-    scaling = np.array(meta.resolution / resolution, dtype=np.int)
+    scaling = np.array(meta.resolution / resolution, dtype=int)
 
     chunk_size = meta.graph_config.CHUNK_SIZE
     x = (x / scaling[0] - meta.voxel_bounds[0, 0]) / chunk_size[0]
@@ -210,7 +210,7 @@ def _get_chunk_coordinates_from_vol_coordinates(
     coords = np.array([x, y, z])
     if ceil:
         coords = np.ceil(coords)
-    return coords.astype(np.int)
+    return coords.astype(int)
 
 
 def get_bounding_children_chunks(

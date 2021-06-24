@@ -152,7 +152,7 @@ class ChunkedGraphMeta:
         layer_bounds_d = {}
         for layer in range(2, self.layer_count):
             layer_bounds = chunks_boundary / (2 ** (layer - 2))
-            layer_bounds_d[layer] = np.ceil(layer_bounds).astype(np.int)
+            layer_bounds_d[layer] = np.ceil(layer_bounds).astype(int)
         self._layer_bounds_d = layer_bounds_d
         return self._layer_bounds_d
 

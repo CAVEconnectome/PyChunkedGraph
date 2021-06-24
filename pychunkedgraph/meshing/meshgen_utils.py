@@ -81,7 +81,7 @@ def get_mesh_block_shape_for_mip(cg, graphlayer: int, source_mip: int) -> np.nda
     ) * cg.meta.graph_config.FANOUT ** np.max([0, graphlayer - 2])
 
     return np.floor_divide(
-        graphlayer_chunksize, distortion, dtype=np.int, casting="unsafe"
+        graphlayer_chunksize, distortion, dtype=int, casting="unsafe"
     )
 
 
@@ -152,10 +152,10 @@ def get_ws_seg_for_chunk(cg, chunk_id, mip, overlap_vx=1):
     cv = CloudVolume(cg.meta.cv.cloudpath, mip=mip)
     mip_diff = mip - cg.meta.cv.mip
 
-    mip_chunk_size = np.array(cg.meta.graph_config.CHUNK_SIZE, dtype=np.int) / np.array(
+    mip_chunk_size = np.array(cg.meta.graph_config.CHUNK_SIZE, dtype=int) / np.array(
         [2 ** mip_diff, 2 ** mip_diff, 1]
     )
-    mip_chunk_size = mip_chunk_size.astype(np.int)
+    mip_chunk_size = mip_chunk_size.astype(int)
 
     chunk_start = (
         cg.meta.cv.mip_voxel_offset(mip)

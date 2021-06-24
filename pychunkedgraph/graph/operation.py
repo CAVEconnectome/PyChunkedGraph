@@ -49,8 +49,8 @@ class GraphEditOperation(ABC):
         cg: "ChunkedGraph",
         *,
         user_id: str,
-        source_coords: Optional[Sequence[Sequence[np.int]]] = None,
-        sink_coords: Optional[Sequence[Sequence[np.int]]] = None,
+        source_coords: Optional[Sequence[Sequence[int]]] = None,
+        sink_coords: Optional[Sequence[Sequence[int]]] = None,
     ) -> None:
         super().__init__()
         self.cg = cg
@@ -530,10 +530,10 @@ class MergeOperation(GraphEditOperation):
     :type added_edges: Sequence[Sequence[np.uint64]]
     :param source_coords: world space coordinates in nm,
         corresponding to IDs in added_edges[:,0], defaults to None
-    :type source_coords: Optional[Sequence[Sequence[np.int]]], optional
+    :type source_coords: Optional[Sequence[Sequence[int]]], optional
     :param sink_coords: world space coordinates in nm,
         corresponding to IDs in added_edges[:,1], defaults to None
-    :type sink_coords: Optional[Sequence[Sequence[np.int]]], optional
+    :type sink_coords: Optional[Sequence[Sequence[int]]], optional
     :param affinities: edge weights for newly added edges,
         entries corresponding to added_edges, defaults to None
     :type affinities: Optional[Sequence[np.float32]], optional
@@ -554,8 +554,8 @@ class MergeOperation(GraphEditOperation):
         *,
         user_id: str,
         added_edges: Sequence[Sequence[np.uint64]],
-        source_coords: Sequence[Sequence[np.int]],
-        sink_coords: Sequence[Sequence[np.int]],
+        source_coords: Sequence[Sequence[int]],
+        sink_coords: Sequence[Sequence[int]],
         bbox_offset: Tuple[int, int, int] = (240, 240, 24),
         affinities: Optional[Sequence[np.float32]] = None,
         allow_same_segment_merge: Optional[bool] = False,
@@ -680,10 +680,10 @@ class SplitOperation(GraphEditOperation):
     :type removed_edges: Sequence[Sequence[np.uint64]]
     :param source_coords: world space coordinates in nm, corresponding to IDs in
         removed_edges[:,0], defaults to None
-    :type source_coords: Optional[Sequence[Sequence[np.int]]], optional
+    :type source_coords: Optional[Sequence[Sequence[int]]], optional
     :param sink_coords: world space coordinates in nm, corresponding to IDs in
         removed_edges[:,1], defaults to None
-    :type sink_coords: Optional[Sequence[Sequence[np.int]]], optional
+    :type sink_coords: Optional[Sequence[Sequence[int]]], optional
     """
 
     __slots__ = ["removed_edges", "bbox_offset"]
@@ -694,8 +694,8 @@ class SplitOperation(GraphEditOperation):
         *,
         user_id: str,
         removed_edges: Sequence[Sequence[np.uint64]],
-        source_coords: Optional[Sequence[Sequence[np.int]]] = None,
-        sink_coords: Optional[Sequence[Sequence[np.int]]] = None,
+        source_coords: Optional[Sequence[Sequence[int]]] = None,
+        sink_coords: Optional[Sequence[Sequence[int]]] = None,
         bbox_offset: Tuple[int] = (240, 240, 24),
     ) -> None:
         super().__init__(
@@ -806,12 +806,12 @@ class MulticutOperation(GraphEditOperation):
     :param sink_ids: Supervoxel IDs that should be separated from supervoxel IDs in source_ids
     :type sink_ids: Sequence[np.uint64]
     :param source_coords: world space coordinates in nm, corresponding to IDs in source_ids
-    :type source_coords: Sequence[Sequence[np.int]]
+    :type source_coords: Sequence[Sequence[int]]
     :param sink_coords: world space coordinates in nm, corresponding to IDs in sink_ids
-    :type sink_coords: Sequence[Sequence[np.int]]
+    :type sink_coords: Sequence[Sequence[int]]
     :param bbox_offset: Padding for min-cut bounding box, applied to min/max coordinates
         retrieved from source_coords and sink_coords, defaults to None
-    :type bbox_offset: Sequence[np.int]
+    :type bbox_offset: Sequence[int]
     """
 
     __slots__ = [
@@ -830,9 +830,9 @@ class MulticutOperation(GraphEditOperation):
         user_id: str,
         source_ids: Sequence[np.uint64],
         sink_ids: Sequence[np.uint64],
-        source_coords: Sequence[Sequence[np.int]],
-        sink_coords: Sequence[Sequence[np.int]],
-        bbox_offset: Sequence[np.int],
+        source_coords: Sequence[Sequence[int]],
+        sink_coords: Sequence[Sequence[int]],
+        bbox_offset: Sequence[int],
         removed_edges: Sequence[Sequence[np.uint64]] = types.empty_2d,
         path_augment: bool = True,
         disallow_isolating_cut: bool = True,
