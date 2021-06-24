@@ -37,6 +37,7 @@ class BaseConfig(object):
             AUTH_TOKEN = json.load(f)["token"]
     else:
         AUTH_TOKEN = ""
+    AUTH_SERVICE_NAMESPACE = "pychunkedgraph"
     VIRTUAL_TABLES = {
         "minnie65_public_v117": {
             "table_id": "minnie3_v1",
