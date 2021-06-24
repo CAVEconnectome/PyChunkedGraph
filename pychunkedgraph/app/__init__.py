@@ -21,6 +21,7 @@ from .meshing.v1.routes import bp as meshing_api_v1
 from .segmentation.legacy.routes import bp as segmentation_api_legacy
 from .segmentation.v1.routes import bp as segmentation_api_v1
 from .segmentation.generic.routes import bp as generic_api
+from .app_utils import get_instance_folder_path
 
 
 class CustomJsonEncoder(json.JSONEncoder):
@@ -45,7 +46,11 @@ class CustomJsonEncoder(json.JSONEncoder):
 
 
 def create_app(test_config=None):
-    app = Flask(__name__)
+    app = Flask(
+        __name__,
+        instance_path=get_instance_folder_path(),
+        instance_relative_config=True,
+    )
     app.json_encoder = CustomJsonEncoder
 
     CORS(app, expose_headers="WWW-Authenticate")
@@ -73,7 +78,7 @@ def configure_app(app):
         app.config.from_object(config.BaseConfig)
     else:
         app.config.from_object(app_settings)
-
+    app.config.from_pyfile("config.cfg", silent=True)
     # Configure logging
     # handler = logging.FileHandler(app.config['LOGGING_LOCATION'])
     handler = logging.StreamHandler(sys.stdout)
