@@ -1205,7 +1205,7 @@ def handle_root_timestamps(table_id, is_binary):
     # Call ChunkedGraph
     cg = app_utils.get_cg(table_id)
 
-    timestamps = cg.get_node_timestamps(node_ids)
+    timestamps = cg.get_node_timestamps(node_ids, return_numpy=False)
     return [ts.timestamp() for ts in timestamps]
 
 
