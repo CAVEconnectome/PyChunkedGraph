@@ -31,6 +31,7 @@ class ChunkedGraph:
         graph_id: str = None,
         meta: ChunkedGraphMeta = None,
         client_info: BackendClientInfo = get_default_client_info(),
+        timestamp_virtual: typing.Optional[datetime.datetime] = None,
     ):
         """
         1. New graph
@@ -47,11 +48,16 @@ class ChunkedGraph:
         if meta:
             graph_id = meta.graph_config.ID_PREFIX + meta.graph_config.ID
             bt_client = BigTableClient(
-                graph_id, config=client_info.CONFIG, graph_meta=meta
+                graph_id,
+                config=client_info.CONFIG,
+                graph_meta=meta,
+                timestamp=timestamp_virtual,
             )
             self._meta = meta
         else:
-            bt_client = BigTableClient(graph_id, config=client_info.CONFIG)
+            bt_client = BigTableClient(
+                graph_id, config=client_info.CONFIG, timestamp=timestamp_virtual
+            )
             self._meta = bt_client.read_graph_meta()
 
         self._client = bt_client
@@ -354,7 +360,7 @@ class ChunkedGraph:
         time_stamp = misc_utils.get_valid_timestamp(time_stamp)
         stop_layer = self.meta.layer_count if not stop_layer else stop_layer
         assert stop_layer <= self.meta.layer_count
-        layer_mask = np.ones(len(node_ids), dtype=np.bool)
+        layer_mask = np.ones(len(node_ids), dtype=bool)
 
         for _ in range(n_tries):
             chunk_layers = self.get_chunk_layers(node_ids)
@@ -881,6 +887,9 @@ class ChunkedGraph:
 
     # HELPERS / WRAPPERS
 
+    def is_root(self, node_id: basetypes.NODE_ID) -> bool:
+        return self.get_chunk_layer(node_id) == self.meta.layer_count
+
     def get_serialized_info(self):
         return {
             "graph_id": self.meta.graph_config.ID_PREFIX + self.meta.graph_config.ID
@@ -966,3 +975,11 @@ class ChunkedGraph:
         from .misc import get_proofread_root_ids
 
         return get_proofread_root_ids(self, start_time, end_time)
+
+    def get_earliest_timestamp(self):
+        from datetime import timedelta
+
+        for op_id in range(100):
+            _, timestamp = self.client.read_log_entry(op_id)
+            if timestamp is not None:
+                return timestamp - timedelta(milliseconds=500)

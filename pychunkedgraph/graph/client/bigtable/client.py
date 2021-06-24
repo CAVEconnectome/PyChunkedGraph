@@ -43,7 +43,12 @@ class Client(bigtable.Client, ClientWithIDGen, OperationLogger):
         table_id: str,
         config: BigTableConfig = BigTableConfig(),
         graph_meta: ChunkedGraphMeta = None,
+        timestamp: typing.Optional[datetime.datetime] = None,
     ):
+        """
+        `timestamp`:
+          snapshot of the graph from the time of its creation up to the given timestamp.
+        """
         if config.CREDENTIALS:
             super(Client, self).__init__(
                 project=config.PROJECT,
@@ -53,7 +58,9 @@ class Client(bigtable.Client, ClientWithIDGen, OperationLogger):
             )
         else:
             super(Client, self).__init__(
-                project=config.PROJECT, read_only=config.READ_ONLY, admin=config.ADMIN,
+                project=config.PROJECT,
+                read_only=config.READ_ONLY,
+                admin=config.ADMIN,
             )
         self._instance = self.instance(config.INSTANCE)
         self._table = self._instance.table(table_id)
@@ -68,6 +75,7 @@ class Client(bigtable.Client, ClientWithIDGen, OperationLogger):
             self.logger.addHandler(sh)
         self._graph_meta = graph_meta
         self._max_row_key_count = config.MAX_ROW_KEY_COUNT
+        self._snapshot_timestamp = timestamp
 
     @property
     def graph_meta(self):
@@ -85,7 +93,7 @@ class Client(bigtable.Client, ClientWithIDGen, OperationLogger):
     def update_graph_meta(self, meta: ChunkedGraphMeta):
         self._graph_meta = meta
         row = self.mutate_row(
-            attributes.GraphMeta.key, {attributes.GraphMeta.Meta: meta},
+            attributes.GraphMeta.key, {attributes.GraphMeta.Meta: meta}
         )
         self.write([row])
 
@@ -194,7 +202,10 @@ class Client(bigtable.Client, ClientWithIDGen, OperationLogger):
         )
         if len(log_record) == 0:
             return {}, None
-        timestamp = log_record[attributes.OperationLogs.OperationTimeStamp][0].value
+        try:
+            timestamp = log_record[attributes.OperationLogs.OperationTimeStamp][0].value
+        except KeyError:
+            timestamp = log_record[attributes.OperationLogs.RootID][0].timestamp
         log_record.update((column, v[0].value) for column, v in log_record.items())
         return log_record, timestamp
 
@@ -231,7 +242,12 @@ class Client(bigtable.Client, ClientWithIDGen, OperationLogger):
             return {}
         for operation_id in logs_d:
             log_record = logs_d[operation_id]
-            timestamp = log_record[attributes.OperationLogs.RootID][0].timestamp
+            try:
+                timestamp = log_record[attributes.OperationLogs.OperationTimeStamp][
+                    0
+                ].value
+            except KeyError:
+                timestamp = log_record[attributes.OperationLogs.RootID][0].timestamp
             log_record.update((column, v[0].value) for column, v in log_record.items())
             log_record["timestamp"] = timestamp
         return logs_d
@@ -247,7 +263,7 @@ class Client(bigtable.Client, ClientWithIDGen, OperationLogger):
         slow_retry: bool = True,
         block_size: int = 2000,
     ):
-        """ Writes a list of mutated rows in bulk
+        """Writes a list of mutated rows in bulk
         WARNING: If <rows> contains the same row (same row_key) and column
         key two times only the last one is effectively written to the BigTable
         (even when the mutations were applied to different columns)
@@ -262,6 +278,9 @@ class Client(bigtable.Client, ClientWithIDGen, OperationLogger):
         :param slow_retry: bool
         :param block_size: int
         """
+        assert (
+            self._snapshot_timestamp is None
+        ), "Writes not allowed if timestamp is set."
         if slow_retry:
             initial = 5
         else:
@@ -309,7 +328,7 @@ class Client(bigtable.Client, ClientWithIDGen, OperationLogger):
         return row
 
     # Locking
-    def lock_root(self, root_id: np.uint64, operation_id: np.uint64,) -> bool:
+    def lock_root(self, root_id: np.uint64, operation_id: np.uint64) -> bool:
         """Attempts to lock the latest version of a root node."""
         lock_expiry = self.graph_meta.graph_config.ROOT_LOCK_EXPIRY
         lock_column = attributes.Concurrency.Lock
@@ -339,7 +358,7 @@ class Client(bigtable.Client, ClientWithIDGen, OperationLogger):
         return lock_acquired
 
     def lock_root_indefinitely(
-        self, root_id: np.uint64, operation_id: np.uint64,
+        self, root_id: np.uint64, operation_id: np.uint64
     ) -> bool:
         """Attempts to indefinitely lock the latest version of a root node."""
         lock_column = attributes.Concurrency.IndefiniteLock
@@ -669,6 +688,11 @@ class Client(bigtable.Client, ClientWithIDGen, OperationLogger):
                 If only a single `attributes._Attribute` was requested, the typing.List of cells will be
                 attached to the row dictionary directly (skipping the column dictionary).
         """
+        if not self._snapshot_timestamp is None:
+            end_time = self._snapshot_timestamp
+            end_time_inclusive = True
+        start_time = get_valid_timestamp(start_time)
+        end_time = get_valid_timestamp(end_time)
 
         # Create filters: Rows
         row_set = RowSet()
@@ -773,7 +797,8 @@ class Client(bigtable.Client, ClientWithIDGen, OperationLogger):
     ) -> typing.Dict[
         bytes, typing.Dict[attributes._Attribute, bigtable.row_data.PartialRowData]
     ]:
-        """ Core function to read rows from Bigtable. Uses standard Bigtable retry logic
+        """
+        Core function to read rows from Bigtable. Uses standard Bigtable retry logic
         :param row_set: BigTable RowSet
         :param row_filter: BigTable RowFilter
         :return: typing.Dict[bytes, typing.Dict[attributes._Attribute, bigtable.row_data.PartialRowData]]
@@ -782,8 +807,10 @@ class Client(bigtable.Client, ClientWithIDGen, OperationLogger):
         # calculate this properly (range_read.request.SerializeToString()), but this estimate is
         # good enough for now
         # TODO try async/await
-        
-        n_subrequests = max(1, int(np.ceil(len(row_set.row_keys) / self._max_row_key_count)))
+
+        n_subrequests = max(
+            1, int(np.ceil(len(row_set.row_keys) / self._max_row_key_count))
+        )
         n_threads = min(n_subrequests, 2 * mu.n_cpus)
 
         row_sets = []
