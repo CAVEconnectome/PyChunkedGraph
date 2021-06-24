@@ -2,6 +2,7 @@ from collections import namedtuple
 
 DEFAULT_PROJECT = "neuromancer-seung-import"
 DEFAULT_INSTANCE = "pychunkedgraph"
+DEFAULT_ROW_COUNT = 1000
 
 _bigtableconfig_fields = (
     "PROJECT",
@@ -9,7 +10,7 @@ _bigtableconfig_fields = (
     "ADMIN",
     "READ_ONLY",
     "CREDENTIALS",
-    "MAX_ROW_KEY_COUNT"
+    "MAX_ROW_KEY_COUNT",
 )
 _bigtableconfig_defaults = (
     DEFAULT_PROJECT,
@@ -17,7 +18,7 @@ _bigtableconfig_defaults = (
     False,
     True,
     None,
-    1000
+    DEFAULT_ROW_COUNT,
 )
 BigTableConfig = namedtuple(
     "BigTableConfig", _bigtableconfig_fields, defaults=_bigtableconfig_defaults
@@ -46,5 +47,6 @@ def get_client_info(
         "INSTANCE": _instance,
         "ADMIN": admin,
         "READ_ONLY": read_only,
+        "MAX_ROW_KEY_COUNT": environ.get("MAX_ROW_KEY_COUNT", DEFAULT_INSTANCE),
     }
     return BigTableConfig(**kwargs)

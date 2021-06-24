@@ -31,6 +31,7 @@ class ChunkedGraph:
         graph_id: str = None,
         meta: ChunkedGraphMeta = None,
         client_info: BackendClientInfo = get_default_client_info(),
+        timestamp_virtual: typing.Optional[datetime.datetime] = None,
     ):
         """
         1. New graph
@@ -47,11 +48,16 @@ class ChunkedGraph:
         if meta:
             graph_id = meta.graph_config.ID_PREFIX + meta.graph_config.ID
             bt_client = BigTableClient(
-                graph_id, config=client_info.CONFIG, graph_meta=meta
+                graph_id,
+                config=client_info.CONFIG,
+                graph_meta=meta,
+                timestamp=timestamp_virtual,
             )
             self._meta = meta
         else:
-            bt_client = BigTableClient(graph_id, config=client_info.CONFIG)
+            bt_client = BigTableClient(
+                graph_id, config=client_info.CONFIG, timestamp=timestamp_virtual
+            )
             self._meta = bt_client.read_graph_meta()
 
         self._client = bt_client
