@@ -1191,3 +1191,18 @@ def operation_details(table_id):
                 details[_k] = _v
         result[int(k)] = details
     return result
+
+
+### DELTA ROOTS ------------------------------------------------------------
+
+
+def delta_roots(table_id):
+    current_app.table_id = table_id
+
+    timestamp_past = _parse_timestamp("timestamp_past", None, return_datetime=True)
+    timestamp_future = _parse_timestamp(
+        "timestamp_future", time.time(), return_datetime=True
+    )
+    cg = app_utils.get_cg(table_id)
+    old_roots, new_roots = cg.get_proofread_root_ids(timestamp_past, timestamp_future)
+    return {"old_roots": old_roots, "new_roots": new_roots}
