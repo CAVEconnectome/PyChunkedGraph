@@ -47,6 +47,6 @@ def get_client_info(
         "INSTANCE": _instance,
         "ADMIN": admin,
         "READ_ONLY": read_only,
-        "MAX_ROW_KEY_COUNT": environ.get("MAX_ROW_KEY_COUNT", DEFAULT_INSTANCE),
+        "MAX_ROW_KEY_COUNT": environ.get("MAX_ROW_KEY_COUNT", DEFAULT_ROW_COUNT),
     }
     return BigTableConfig(**kwargs)
