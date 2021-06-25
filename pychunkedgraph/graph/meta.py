@@ -1,3 +1,4 @@
+from datetime import datetime
 from datetime import timedelta
 from typing import Dict
 from typing import List
@@ -252,10 +253,47 @@ class ChunkedGraphMeta:
         meta_str += f"\nVOXEL_COUNTS\n{self.voxel_counts}\n"
         meta_str += f"\nLAYER_CHUNK_BOUNDS\n{self.layer_chunk_bounds}\n"
         meta_str += f"\nLAYER_CHUNK_COUNTS\n{self.layer_chunk_counts}\n"
-        meta_str += f"\nDATASET_INFO\n{dumps(self.dataset_info, indent=4)}\n"
+        meta_str += f"\nDATASET_INFO\n{dumps(self.dataset_info, indent=2)}\n"
         return meta_str
 
     def is_out_of_bounds(self, chunk_coordinate):
         return np.any(chunk_coordinate < 0) or np.any(
             chunk_coordinate > 2 ** self.bitmasks[1]
         )
+
+
+class VirtualChunkedGraphMeta:
+    def __init__(self, graph_id: str, timestamp: datetime, custom_data: dict = {}):
+        self._graph_id = graph_id
+        self._timestamp = timestamp
+        self._custom_data = custom_data
+
+    @property
+    def graph_id(self) -> str:
+        return self._graph_id
+
+    @property
+    def timestamp(self) -> datetime:
+        return self._timestamp
+
+    @property
+    def custom_data(self) -> dict:
+        return self._custom_data
+
+    def __getnewargs__(self):
+        return (self.graph_id, self.timestamp, self.custom_data)
+
+    def __getstate__(self):
+        return {
+            "graph_id": self.graph_id,
+            "timestamp": self.timestamp,
+            "custom_data": self.custom_data,
+        }
+
+    def __setstate__(self, state):
+        self.__init__(
+            state["graph_id"], state["timestamp"], state.get("custom_data", {})
+        )
+
+    def __str__(self):
+        return str(self.__getstate__())

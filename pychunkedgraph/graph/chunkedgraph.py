@@ -983,3 +983,19 @@ class ChunkedGraph:
             _, timestamp = self.client.read_log_entry(op_id)
             if timestamp is not None:
                 return timestamp - timedelta(milliseconds=500)
+
+
+class VirtualChunkedGraph(ChunkedGraph):
+    """
+    Virtual chunkedgraph points to a chunkedgraph and is read-only.
+    """
+
+    def __init__(
+        self,
+        virtual_graph_id: str,
+        *,
+        graph_id: str,
+        timestamp_virtual: typing.Optional[datetime.datetime] = None,
+        client_info: BackendClientInfo = get_default_client_info(),
+    ):
+        pass
