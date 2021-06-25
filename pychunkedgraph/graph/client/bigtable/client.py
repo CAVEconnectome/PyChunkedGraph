@@ -285,13 +285,18 @@ class Client(bigtable.Client, ClientWithIDGen, OperationLogger):
         else:
             initial = 1
 
+        try:
+            deadline = self.graph_meta.graph_config.ROOT_LOCK_EXPIRY.seconds
+        except AttributeError:
+            deadline = 180
+
         exception_types = (Aborted, DeadlineExceeded, ServiceUnavailable)
         retry = Retry(
             predicate=if_exception_type(exception_types),
             initial=initial,
             maximum=15.0,
             multiplier=2.0,
-            deadline=self.graph_meta.graph_config.ROOT_LOCK_EXPIRY.seconds,
+            deadline=deadline,
         )
 
         if root_ids is not None and operation_id is not None:
@@ -690,8 +695,6 @@ class Client(bigtable.Client, ClientWithIDGen, OperationLogger):
         if not self._snapshot_timestamp is None:
             end_time = self._snapshot_timestamp
             end_time_inclusive = True
-        start_time = get_valid_timestamp(start_time)
-        end_time = get_valid_timestamp(end_time)
 
         # Create filters: Rows
         row_set = RowSet()
