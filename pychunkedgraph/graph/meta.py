@@ -263,14 +263,16 @@ class ChunkedGraphMeta:
 
 
 class VirtualChunkedGraphMeta:
-    def __init__(self, graph_id: str, timestamp: datetime, custom_data: dict = {}):
-        self._graph_id = graph_id
+    def __init__(
+        self, target_graph_id: str, timestamp: datetime, custom_data: dict = {}
+    ):
+        self._target_graph_id = target_graph_id
         self._timestamp = timestamp
         self._custom_data = custom_data
 
     @property
-    def graph_id(self) -> str:
-        return self._graph_id
+    def target_graph_id(self) -> str:
+        return self._target_graph_id
 
     @property
     def timestamp(self) -> datetime:
@@ -281,18 +283,18 @@ class VirtualChunkedGraphMeta:
         return self._custom_data
 
     def __getnewargs__(self):
-        return (self.graph_id, self.timestamp, self.custom_data)
+        return (self.target_graph_id, self.timestamp, self.custom_data)
 
     def __getstate__(self):
         return {
-            "graph_id": self.graph_id,
+            "target_graph_id": self.target_graph_id,
             "timestamp": self.timestamp,
             "custom_data": self.custom_data,
         }
 
     def __setstate__(self, state):
         self.__init__(
-            state["graph_id"], state["timestamp"], state.get("custom_data", {})
+            state["target_graph_id"], state["timestamp"], state.get("custom_data", {})
         )
 
     def __str__(self):

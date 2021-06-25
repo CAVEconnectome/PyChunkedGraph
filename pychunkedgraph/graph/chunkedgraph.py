@@ -14,6 +14,7 @@ from .client import BackendClientInfo
 from .client import get_default_client_info
 from .cache import CacheService
 from .meta import ChunkedGraphMeta
+from .meta import VirtualChunkedGraphMeta
 from .utils import basetypes
 from .utils import id_helpers
 from .utils import generic as misc_utils
@@ -31,7 +32,6 @@ class ChunkedGraph:
         graph_id: str = None,
         meta: ChunkedGraphMeta = None,
         client_info: BackendClientInfo = get_default_client_info(),
-        timestamp_virtual: typing.Optional[datetime.datetime] = None,
     ):
         """
         1. New graph
@@ -51,13 +51,10 @@ class ChunkedGraph:
                 graph_id,
                 config=client_info.CONFIG,
                 graph_meta=meta,
-                timestamp=timestamp_virtual,
             )
             self._meta = meta
         else:
-            bt_client = BigTableClient(
-                graph_id, config=client_info.CONFIG, timestamp=timestamp_virtual
-            )
+            bt_client = BigTableClient(graph_id, config=client_info.CONFIG)
             self._meta = bt_client.read_graph_meta()
 
         self._client = bt_client
@@ -67,6 +64,8 @@ class ChunkedGraph:
 
     @property
     def meta(self) -> ChunkedGraphMeta:
+        if self._meta is None:
+            self._meta = self._client.read_graph_meta()
         return self._meta
 
     @property
@@ -91,7 +90,7 @@ class ChunkedGraph:
 
     def create(self):
         """Creates the graph in storage client and stores meta."""
-        self._client.create_graph(self._meta)
+        self._client.create_graph(self.meta)
 
     def update_meta(self, meta: ChunkedGraphMeta):
         """Update meta of an already existing graph."""
@@ -994,8 +993,29 @@ class VirtualChunkedGraph(ChunkedGraph):
         self,
         virtual_graph_id: str,
         *,
-        graph_id: str,
+        target_graph_id: str = None,
         timestamp_virtual: typing.Optional[datetime.datetime] = None,
         client_info: BackendClientInfo = get_default_client_info(),
     ):
-        pass
+        if target_graph_id is not None:
+            # virtual graph has not been created
+            self._client = BigTableClient(
+                virtual_graph_id, config=client_info.CONFIG, timestamp=timestamp_virtual
+            )
+            self._meta = VirtualChunkedGraphMeta(target_graph_id, timestamp_virtual)
+        else:
+            # create temp client instance to read meta
+            self._client = BigTableClient(virtual_graph_id, config=client_info.CONFIG)
+            # create new client instance with virtual timestamp from meta
+            timestamp_virtual = self.meta.timestamp
+            self._client = BigTableClient(
+                virtual_graph_id,
+                config=client_info.CONFIG,
+                timestamp=timestamp_virtual,
+            )
+
+    @property
+    def meta(self) -> VirtualChunkedGraphMeta:
+        if self._meta is None:
+            self._meta = self._client.read_graph_meta()
+        return self._meta

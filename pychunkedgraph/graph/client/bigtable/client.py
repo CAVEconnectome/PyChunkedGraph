@@ -2,7 +2,6 @@ import sys
 import time
 import typing
 import logging
-import datetime
 from datetime import datetime
 from datetime import timedelta
 
@@ -43,7 +42,7 @@ class Client(bigtable.Client, ClientWithIDGen, OperationLogger):
         table_id: str,
         config: BigTableConfig = BigTableConfig(),
         graph_meta: ChunkedGraphMeta = None,
-        timestamp: typing.Optional[datetime.datetime] = None,
+        timestamp: typing.Optional[datetime] = None,
     ):
         """
         `timestamp`:
@@ -84,7 +83,7 @@ class Client(bigtable.Client, ClientWithIDGen, OperationLogger):
     # BASE
     def create_graph(self, meta: ChunkedGraphMeta) -> None:
         """Initialize the graph and store associated meta."""
-        if not meta.graph_config.OVERWRITE and self._table.exists():
+        if self._table.exists():
             ValueError(f"{self._table.table_id} already exists.")
         self._table.create()
         self._create_column_families()
