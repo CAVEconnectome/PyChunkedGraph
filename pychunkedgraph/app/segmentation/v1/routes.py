@@ -387,7 +387,8 @@ def tabular_change_log_weekly(table_id):
 @remap_public(edit=True)
 def change_log(table_id, root_id):
     int64_as_str = request.args.get("int64_as_str", default=False, type=toboolean)
-    log = common.change_log(table_id, root_id)
+    filtered = request.args.get("filtered", default=False, type=toboolean)
+    log = common.change_log(table_id, root_id, filtered)
     return jsonify_with_kwargs(log, int64_as_str=int64_as_str)
 
 

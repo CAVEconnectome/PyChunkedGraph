@@ -247,7 +247,7 @@ def handle_root(table_id, atomic_id):
         try:
             stop_layer = int(stop_layer)
         except (TypeError, ValueError) as e:
-            raise (cg_exceptions.BadRequest("stop_layer is not an integer"))
+            raise (cg_exceptions.BadRequest(f"stop_layer is not an integer {e}"))
 
     # Call ChunkedGraph
     cg = app_utils.get_cg(table_id)
@@ -630,7 +630,7 @@ def all_user_operations(table_id, include_undone = False):
             valid_entry_ids.append(entry_id)
             timestamp = entry["timestamp"]
             timestamp_list.append(timestamp)
-        
+
         should_check = not OperationLogs.Status in entry \
             or entry[OperationLogs.Status] == OperationLogs.StatusCodes.SUCCESS.value
 
@@ -825,21 +825,19 @@ def handle_subgraph(table_id, root_id):
 ### CHANGE LOG -----------------------------------------------------------------
 
 
-def change_log(table_id, root_id=None):
+def change_log(table_id, root_id=None, filtered=False):
     current_app.table_id = table_id
     user_id = str(g.auth_user["id"])
     current_app.user_id = user_id
-
     time_stamp_past = _parse_timestamp("timestamp", 0, return_datetime=True)
 
-    # Call ChunkedGraph
     cg = app_utils.get_cg(table_id)
     if not root_id:
         return segmenthistory.get_all_log_entries(cg)
-
-    hist = segmenthistory.SegmentHistory(cg, int(root_id))
-
-    return hist.change_log()
+    history = segmenthistory.SegmentHistory(
+        cg, [int(root_id)], timestamp_past=time_stamp_past
+    )
+    return history.change_log_summary(filtered=filtered)
 
 
 def tabular_change_log_recent(table_id):
@@ -917,26 +915,32 @@ def merge_log(table_id, root_id):
 
     # Call ChunkedGraph
     cg = app_utils.get_cg(table_id)
-
     hist = segmenthistory.SegmentHistory(cg, int(root_id))
     return hist.merge_log(correct_for_wrong_coord_type=False)
 
 
 def handle_lineage_graph(table_id, root_id):
+    from networkx import node_link_data
+    from pychunkedgraph.graph.lineage import lineage_graph
+
     current_app.table_id = table_id
     user_id = str(g.auth_user["id"])
     current_app.user_id = user_id
 
-    # Convert seconds since epoch to UTC datetime
-    timestamp_past = _parse_timestamp("timestamp_past", 0, return_datetime=False)
+    timestamp_past = _parse_timestamp("timestamp_past", 0, return_datetime=True)
     timestamp_future = _parse_timestamp(
-        "timestamp_future", time.time(), return_datetime=False
+        "timestamp_future", time.time(), return_datetime=True
     )
 
-    # Call ChunkedGraph
     cg = app_utils.get_cg(table_id)
-    hist = segmenthistory.SegmentHistory(cg, int(root_id))
-    return hist.get_change_log_graph(timestamp_past, timestamp_future)
+    if root_id is None:
+        root_ids = np.array(json.loads(request.data)["root_ids"], dtype=np.uint64)
+        graph = lineage_graph(cg, root_ids, timestamp_past, timestamp_future)
+        return node_link_data(graph)
+    history_ids = segmenthistory.SegmentHistory(
+        cg, int(root_id), timestamp_past, timestamp_future
+    )
+    return node_link_data(history_ids.lineage_graph)
 
 
 def handle_past_id_mapping(table_id):
@@ -967,10 +971,8 @@ def last_edit(table_id, root_id):
     current_app.user_id = user_id
 
     cg = app_utils.get_cg(table_id)
-
     hist = segmenthistory.SegmentHistory(cg, int(root_id))
-
-    return hist.last_edit.timestamp
+    return hist.last_edit_timestamp(int(root_id))
 
 
 def oldest_timestamp(table_id):
