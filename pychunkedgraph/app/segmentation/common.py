@@ -579,7 +579,7 @@ def all_user_operations(table_id):
     current_app.user_id = user_id
     target_user_id = request.args["user_id"]
 
-    start_time = _parse_timestamp("start_time", time.time(), return_datetime=True)
+    start_time = _parse_timestamp("start_time", 0, return_datetime=True)
 
     # Call ChunkedGraph
     cg_instance = app_utils.get_cg(table_id)
