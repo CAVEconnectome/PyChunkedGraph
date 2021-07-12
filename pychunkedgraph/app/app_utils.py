@@ -69,6 +69,7 @@ def remap_public(func=None, *, edit=False, check_node_ids=False):
                 def ceiling_timestamp(argname):
                     old_arg = http_args.get(argname, None)
                     if old_arg is not None:
+                        old_arg = float(old_arg)
                         # if they specified a timestamp
                         # enforce its less than the cap
                         if old_arg > v_timetamp_float:

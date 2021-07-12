@@ -9,7 +9,12 @@ from middle_auth_client import auth_requires_permission
 from middle_auth_client import auth_requires_admin
 from middle_auth_client import auth_required
 
-from pychunkedgraph.app.app_utils import jsonify_with_kwargs, toboolean, tobinary, remap_public
+from pychunkedgraph.app.app_utils import (
+    jsonify_with_kwargs,
+    toboolean,
+    tobinary,
+    remap_public,
+)
 from pychunkedgraph.app.segmentation import common
 from pychunkedgraph.graph import exceptions as cg_exceptions
 
@@ -177,7 +182,9 @@ def handle_rollback(table_id):
 def handle_user_operations(table_id):
     disp = request.args.get("disp", default=False, type=toboolean)
     include_undone = request.args.get("include_undone", default=False, type=toboolean)
-    user_operations = pd.DataFrame.from_dict(common.all_user_operations(table_id, include_undone))
+    user_operations = pd.DataFrame.from_dict(
+        common.all_user_operations(table_id, include_undone)
+    )
 
     if disp:
         return user_operations.to_html()
@@ -488,7 +495,6 @@ def find_path(table_id):
 ### ROOT INFO -----------------------------------------------------------------
 
 
-
 @bp.route("/table/<table_id>/is_latest_roots", methods=["POST"])
 @auth_requires_permission("view")
 @remap_public(edit=False)
@@ -502,6 +508,7 @@ def handle_is_latest_roots(table_id):
 
 @bp.route("/table/<table_id>/root_timestamps", methods=["POST"])
 @auth_requires_permission("view")
+@remap_public(edit=False)
 def handle_root_timestamps(table_id):
     int64_as_str = request.args.get("int64_as_str", default=False, type=toboolean)
     is_binary = request.args.get("is_binary", default=False, type=toboolean)
@@ -550,6 +557,7 @@ def operation_details(table_id):
 
 @bp.route("/table/<table_id>/delta_roots", methods=["GET"])
 @auth_requires_permission("view")
+@remap_public(edit=False)
 def delta_roots(table_id):
     int64_as_str = request.args.get("int64_as_str", default=False, type=toboolean)
     resp = common.delta_roots(table_id)
