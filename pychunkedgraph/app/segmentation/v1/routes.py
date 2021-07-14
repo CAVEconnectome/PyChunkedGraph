@@ -441,11 +441,9 @@ def merge_log(table_id, root_id):
 @auth_requires_permission("view")
 @remap_public(edit=False)
 def handle_lineage_graph(table_id, root_id):
-    from networkx import node_link_data
-
     int64_as_str = request.args.get("int64_as_str", default=False, type=toboolean)
-    graph = common.handle_lineage_graph(table_id, root_id)
-    return jsonify_with_kwargs(node_link_data(graph), int64_as_str=int64_as_str)
+    resp = common.handle_lineage_graph(table_id, root_id)
+    return jsonify_with_kwargs(resp, int64_as_str=int64_as_str)
 
 
 @bp.route("/table/<table_id>/past_id_mapping", methods=["GET"])
