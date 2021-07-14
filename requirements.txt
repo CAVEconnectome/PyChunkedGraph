@@ -17,7 +17,7 @@ python-json-logger
 zstandard
 redis
 rq
-middle-auth-client>=3.6.2
+middle-auth-client>=3.6.3
 zmesh
 fastremap
 pyyaml
