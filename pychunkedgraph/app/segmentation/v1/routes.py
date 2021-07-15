@@ -446,6 +446,14 @@ def handle_lineage_graph(table_id, root_id):
     return jsonify_with_kwargs(resp, int64_as_str=int64_as_str)
 
 
+@bp.route("/table/<table_id>/lineage_graph_multiple", methods=["POST"])
+@auth_requires_permission("view")
+def handle_lineage_graph_multiple(table_id):
+    int64_as_str = request.args.get("int64_as_str", default=False, type=toboolean)
+    resp = common.handle_lineage_graph(table_id)
+    return jsonify_with_kwargs(resp, int64_as_str=int64_as_str)
+
+
 @bp.route("/table/<table_id>/past_id_mapping", methods=["GET"])
 @auth_requires_permission("view")
 @remap_public(edit=False)
