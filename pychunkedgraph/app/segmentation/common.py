@@ -919,7 +919,7 @@ def merge_log(table_id, root_id):
     return hist.merge_log(correct_for_wrong_coord_type=False)
 
 
-def handle_lineage_graph(table_id, root_id):
+def handle_lineage_graph(table_id, root_id=None):
     from networkx import node_link_data
     from pychunkedgraph.graph.lineage import lineage_graph
 
