@@ -18,6 +18,7 @@ zstandard
 redis
 rq
 middle-auth-client>=3.6.4
+dracopy
 zmesh
 fastremap
 contact-points
