@@ -3566,7 +3566,7 @@ class ChunkedGraph(object):
                     if self.get_chunk_layer(node_id) == 2:
                         # All children will be in same chunk so no need to check
                         filtered_children[_get_dict_key(node_id)] = nodes_children
-                    else:
+                    elif len(nodes_children) > 0:
                         bound_check_mask = self.mask_nodes_by_bounding_box(
                             nodes_children, bounding_box
                         )
