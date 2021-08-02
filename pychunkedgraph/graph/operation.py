@@ -1039,7 +1039,8 @@ class RedoOperation(GraphEditOperation):
             attributes.OperationLogs.RedoOperationID: self.superseded_operation_id,
             attributes.OperationLogs.RootID: new_root_ids,
             attributes.OperationLogs.OperationTimeStamp: operation_ts,
-            attributes.OperationLogs.Status: self.operation_status,
+            attributes.OperationLogs.Status: status,
+            attributes.OperationLogs.OperationException: exception,
         }
         if hasattr(self, "added_edges"):
             val_dict[attributes.OperationLogs.AddedEdge] = self.added_edges
@@ -1184,7 +1185,8 @@ class UndoOperation(GraphEditOperation):
             attributes.OperationLogs.UndoOperationID: self.superseded_operation_id,
             attributes.OperationLogs.RootID: new_root_ids,
             attributes.OperationLogs.OperationTimeStamp: operation_ts,
-            attributes.OperationLogs.Status: self.operation_status,
+            attributes.OperationLogs.Status: status,
+            attributes.OperationLogs.OperationException: exception,
         }
         if hasattr(self, "added_edges"):
             val_dict[attributes.OperationLogs.AddedEdge] = self.added_edges
