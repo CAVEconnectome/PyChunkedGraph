@@ -930,7 +930,9 @@ def handle_lineage_graph(table_id, root_id=None):
     else:
         root_ids = [int(root_id)]
 
-    history = cg_history.History(cg, root_ids, timestamp_past, timestamp_future)
+    history = segmenthistory.SegmentHistory(
+        cg, root_ids, timestamp_past=timestamp_past, timestamp_future=timestamp_future
+    )
     return node_link_data(history.lineage_graph)
 
 
