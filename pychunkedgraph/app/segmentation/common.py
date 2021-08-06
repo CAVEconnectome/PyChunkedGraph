@@ -5,10 +5,9 @@ import time
 import traceback
 import gzip
 import os
-import requests
 from io import BytesIO as IO
 from datetime import datetime
-from functools import reduce
+import requests
 
 import numpy as np
 from pytz import UTC
@@ -16,23 +15,17 @@ import pandas as pd
 
 from cloudvolume import compression
 
+from middle_auth_client import get_usernames
+
 from flask import current_app, g, jsonify, make_response, request
 from pychunkedgraph import __version__
 from pychunkedgraph.app import app_utils
-from pychunkedgraph.graph import (
-    attributes,
-    cutting,
-    exceptions as cg_exceptions,
-    edges as cg_edges,
-)
-from pychunkedgraph.graph import segmenthistory
-from pychunkedgraph.graph.analysis import pathing
-from pychunkedgraph.graph.attributes import OperationLogs
-from pychunkedgraph.meshing import mesh_analysis
-from pychunkedgraph.graph.misc import get_contact_sites
-from middle_auth_client import get_usernames
-
-
+from pychunkedgraph.backend import chunkedgraph_exceptions as cg_exceptions
+from pychunkedgraph.backend import history as cg_history
+from pychunkedgraph.backend import lineage
+from pychunkedgraph.backend.utils import column_keys
+from pychunkedgraph.graph_analysis import analysis, contact_sites
+from pychunkedgraph.backend.graphoperation import GraphEditOperation
 
 __api_versions__ = [0, 1]
 __segmentation_url_prefix__ = os.environ.get("SEGMENTATION_URL_PREFIX", "segmentation")
@@ -180,25 +173,6 @@ def api_exception(e):
     return jsonify(resp), e.status_code.value
 
 
-def _parse_timestamp(arg_name, default_timestamp=0, return_datetime=False):
-    """Convert seconds since epoch to UTC datetime."""
-    timestamp = request.args.get(arg_name, default_timestamp)
-    if timestamp is None:
-        raise (cg_exceptions.BadRequest(f"Timestamp parameter {arg_name} is mandatory"))
-    try:
-        timestamp = float(timestamp)
-        if return_datetime:
-            return datetime.fromtimestamp(timestamp, UTC)
-        else:
-            return timestamp
-    except (TypeError, ValueError):
-        raise (
-            cg_exceptions.BadRequest(
-                f"Timestamp parameter {arg_name} is not a valid unix timestamp"
-            )
-        )
-
-
 # -------------------
 # ------ Applications
 # -------------------
@@ -213,16 +187,11 @@ def sleep_me(sleep):
 
 def handle_info(table_id):
     cg = app_utils.get_cg(table_id)
-    dataset_info = cg.meta.dataset_info
+
+    dataset_info = cg.dataset_info
     app_info = {"app": {"supported_api_versions": list(__api_versions__)}}
     combined_info = {**dataset_info, **app_info}
-    combined_info["sharded_mesh"] = True
-    combined_info["verify_mesh"] = cg.meta.custom_data.get("mesh", {}).get(
-        "verify", False
-    )
-    combined_info["mesh"] = cg.meta.custom_data.get("mesh", {}).get(
-        "dir", "graphene_meshes"
-    )
+
     return jsonify(combined_info)
 
 
@@ -246,8 +215,8 @@ def handle_root(table_id, atomic_id):
     if stop_layer is not None:
         try:
             stop_layer = int(stop_layer)
-        except (TypeError, ValueError) as e:
-            raise (cg_exceptions.BadRequest(f"stop_layer is not an integer {e}"))
+        except (TypeError, ValueError):
+            raise (cg_exceptions.BadRequest("stop_layer is not an integer"))
 
     # Call ChunkedGraph
     cg = app_utils.get_cg(table_id)
@@ -273,15 +242,14 @@ def handle_roots(table_id, is_binary=False):
     # Convert seconds since epoch to UTC datetime
     timestamp = _parse_timestamp("timestamp", time.time(), return_datetime=True)
 
-    cg = app_utils.get_cg(table_id)
-    stop_layer = int(request.args.get("stop_layer", cg.meta.layer_count))
-    is_root_layer = stop_layer == cg.meta.layer_count
+    stop_layer = request.args.get("stop_layer", None)
+    if stop_layer is not None:
+        stop_layer = int(stop_layer)
     assert_roots = bool(request.args.get("assert_roots", False))
+    # Call ChunkedGraph
+    cg = app_utils.get_cg(table_id)
     root_ids = cg.get_roots(
-        node_ids,
-        stop_layer=stop_layer,
-        time_stamp=timestamp,
-        assert_roots=assert_roots and is_root_layer,
+        node_ids, stop_layer=stop_layer, time_stamp=timestamp, assert_roots=assert_roots
     )
 
     return root_ids
@@ -310,7 +278,7 @@ def handle_l2_chunk_children(table_id, chunk_id, as_array):
 
     rr_chunk = cg.range_read_chunk(
         chunk_id=np.uint64(chunk_id),
-        properties=attributes.Hierarchy.Child,
+        columns=column_keys.Hierarchy.Child,
         time_stamp=timestamp,
     )
 
@@ -350,7 +318,7 @@ def trigger_remesh(table_id, new_lvl2_ids, is_priority=True):
 ### MERGE ----------------------------------------------------------------------
 
 
-def handle_merge(table_id, allow_same_segment_merge=False):
+def handle_merge(table_id):
     current_app.table_id = table_id
 
     nodes = json.loads(request.data)
@@ -362,26 +330,15 @@ def handle_merge(table_id, allow_same_segment_merge=False):
     assert len(nodes) == 2
 
     # Call ChunkedGraph
-    cg = app_utils.get_cg(table_id, skip_cache=True)
+    cg = app_utils.get_cg(table_id)
 
-    atomic_edge = []
+    node_ids = []
     coords = []
     for node in nodes:
-        node_id = node[0]
-        x, y, z = node[1:]
-        coordinate = np.array([x, y, z]) / cg.meta.resolution
+        node_ids.append(node[0])
+        coords.append(np.array(node[1:]) / cg.segmentation_resolution)
 
-        atomic_id = cg.get_atomic_id_from_coord(
-            coordinate[0], coordinate[1], coordinate[2], parent_id=np.uint64(node_id)
-        )
-
-        if atomic_id is None:
-            raise cg_exceptions.BadRequest(
-                f"Could not determine supervoxel ID for coordinates " f"{coordinate}."
-            )
-
-        coords.append(coordinate)
-        atomic_edge.append(atomic_id)
+    atomic_edge = app_utils.handle_supervoxel_id_lookup(cg, coords, node_ids)
 
     # Protection from long range mergers
     chunk_coord_delta = cg.get_chunk_coordinates(
@@ -398,13 +355,14 @@ def handle_merge(table_id, allow_same_segment_merge=False):
         ret = cg.add_edges(
             user_id=user_id,
             atomic_edges=np.array(atomic_edge, dtype=np.uint64),
-            source_coords=coords[:1],
-            sink_coords=coords[1:],
-            allow_same_segment_merge=allow_same_segment_merge,
+            source_coord=coords[:1],
+            sink_coord=coords[1:],
         )
 
     except cg_exceptions.LockingError as e:
-        raise cg_exceptions.InternalServerError(e)
+        raise cg_exceptions.InternalServerError(
+            "Could not acquire root lock for merge operation."
+        )
     except cg_exceptions.PreconditionError as e:
         raise cg_exceptions.BadRequest(str(e))
 
@@ -436,47 +394,45 @@ def handle_split(table_id):
     current_app.logger.debug(data)
 
     # Call ChunkedGraph
-    cg = app_utils.get_cg(table_id, skip_cache=True)
+    cg = app_utils.get_cg(table_id)
 
-    data_dict = {}
+    node_idents = []
+    node_ident_map = {
+        "sources": 0,
+        "sinks": 1,
+    }
+    coords = []
+    node_ids = []
+
     for k in ["sources", "sinks"]:
-        data_dict[k] = collections.defaultdict(list)
-
         for node in data[k]:
-            node_id = node[0]
-            x, y, z = node[1:]
-            coordinate = np.array([x, y, z]) / cg.meta.resolution
+            node_ids.append(node[0])
+            coords.append(np.array(node[1:]) / cg.segmentation_resolution)
+            node_idents.append(node_ident_map[k])
 
-            atomic_id = cg.get_atomic_id_from_coord(
-                coordinate[0],
-                coordinate[1],
-                coordinate[2],
-                parent_id=np.uint64(node_id),
-            )
+    node_ids = np.array(node_ids, dtype=np.uint64)
+    coords = np.array(coords)
+    node_idents = np.array(node_idents)
+    sv_ids = app_utils.handle_supervoxel_id_lookup(cg, coords, node_ids)
 
-            if atomic_id is None:
-                raise cg_exceptions.BadRequest(
-                    f"Could not determine supervoxel ID for coordinates "
-                    f"{coordinate}."
-                )
-
-            data_dict[k]["id"].append(atomic_id)
-            data_dict[k]["coord"].append(coordinate)
-
-    current_app.logger.debug(data_dict)
+    current_app.logger.debug(
+        {"node_id": node_ids, "sv_id": sv_ids, "node_ident": node_idents}
+    )
 
     try:
         ret = cg.remove_edges(
             user_id=user_id,
-            source_ids=data_dict["sources"]["id"],
-            sink_ids=data_dict["sinks"]["id"],
-            source_coords=data_dict["sources"]["coord"],
-            sink_coords=data_dict["sinks"]["coord"],
+            source_ids=sv_ids[node_idents == 0],
+            sink_ids=sv_ids[node_idents == 1],
+            source_coords=coords[node_idents == 0],
+            sink_coords=coords[node_idents == 1],
             mincut=mincut,
         )
 
     except cg_exceptions.LockingError as e:
-        raise cg_exceptions.InternalServerError(e)
+        raise cg_exceptions.InternalServerError(
+            "Could not acquire root lock for split operation."
+        )
     except cg_exceptions.PreconditionError as e:
         raise cg_exceptions.BadRequest(str(e))
 
@@ -498,6 +454,11 @@ def handle_split(table_id):
 
 
 def handle_undo(table_id):
+    if table_id in ["fly_v26", "fly_v31"]:
+        raise cg_exceptions.InternalServerError(
+            "Undo not supported for this chunkedgraph table."
+        )
+
     current_app.table_id = table_id
 
     data = json.loads(request.data)
@@ -512,9 +473,11 @@ def handle_undo(table_id):
     operation_id = np.uint64(data["operation_id"])
 
     try:
-        ret = cg.undo_operation(user_id=user_id, operation_id=operation_id)
+        ret = cg.undo(user_id=user_id, operation_id=operation_id)
     except cg_exceptions.LockingError as e:
-        raise cg_exceptions.InternalServerError(e)
+        raise cg_exceptions.InternalServerError(
+            "Could not acquire root lock for undo operation."
+        )
     except (cg_exceptions.PreconditionError, cg_exceptions.PostconditionError) as e:
         raise cg_exceptions.BadRequest(str(e))
 
@@ -531,6 +494,11 @@ def handle_undo(table_id):
 
 
 def handle_redo(table_id):
+    if table_id in ["fly_v26", "fly_v31"]:
+        raise cg_exceptions.InternalServerError(
+            "Redo not supported for this chunkedgraph table."
+        )
+
     current_app.table_id = table_id
 
     data = json.loads(request.data)
@@ -545,9 +513,11 @@ def handle_redo(table_id):
     operation_id = np.uint64(data["operation_id"])
 
     try:
-        ret = cg.redo_operation(user_id=user_id, operation_id=operation_id)
+        ret = cg.redo(user_id=user_id, operation_id=operation_id)
     except cg_exceptions.LockingError as e:
-        raise cg_exceptions.InternalServerError(e)
+        raise cg_exceptions.InternalServerError(
+            "Could not acquire root lock for redo operation."
+        )
     except (cg_exceptions.PreconditionError, cg_exceptions.PostconditionError) as e:
         raise cg_exceptions.BadRequest(str(e))
 
@@ -564,6 +534,11 @@ def handle_redo(table_id):
 
 
 def handle_rollback(table_id):
+    if table_id in ["fly_v26", "fly_v31"]:
+        raise cg_exceptions.InternalServerError(
+            "Rollback not supported for this chunkedgraph table."
+        )
+
     current_app.table_id = table_id
 
     user_id = str(g.auth_user["id"])
@@ -598,13 +573,7 @@ def handle_rollback(table_id):
 ### USER OPERATIONS -------------------------------------------------------------
 
 
-def all_user_operations(table_id, include_undone = False):
-    # Gets all operations by the user.
-    # If include_undone is false, it filters to operations that are not undone.
-    # If the operation has been undone by anyone, it won't be returned here,
-    # unless it has been redone by anyone (and hasn't been undone again, etc.).
-    # The original user is considered to have "ownership" of the original edit,
-    # and that does not change even if someone else undoes/redoes that edit later.
+def all_user_operations(table_id):
     current_app.table_id = table_id
     user_id = str(g.auth_user["id"])
     current_app.user_id = user_id
@@ -613,61 +582,24 @@ def all_user_operations(table_id, include_undone = False):
     start_time = _parse_timestamp("start_time", 0, return_datetime=True)
 
     # Call ChunkedGraph
-    cg = app_utils.get_cg(table_id)
+    cg_instance = app_utils.get_cg(table_id)
 
-    log_rows = cg.client.read_log_entries(start_time=start_time)
+    log_rows = cg_instance.read_log_rows(start_time=start_time)
 
     valid_entry_ids = []
     timestamp_list = []
-    undone_ids = np.array([])
 
     entry_ids = np.sort(list(log_rows.keys()))
     for entry_id in entry_ids:
         entry = log_rows[entry_id]
-        user_id = entry[OperationLogs.UserID]
+        user_id = entry[column_keys.OperationLogs.UserID]
 
         if user_id == target_user_id:
             valid_entry_ids.append(entry_id)
             timestamp = entry["timestamp"]
             timestamp_list.append(timestamp)
 
-        should_check = not OperationLogs.Status in entry \
-            or entry[OperationLogs.Status] == OperationLogs.StatusCodes.SUCCESS.value
-
-        if should_check:
-            # if it is an undo of another operation, mark it as undone
-            if OperationLogs.UndoOperationID in entry:
-                undone_id = entry[OperationLogs.UndoOperationID]
-                undone_ids = np.append(undone_ids, undone_id)
-
-            # if it is a redo of another operation, unmark it as undone
-            if OperationLogs.RedoOperationID in entry:
-                redone_id = entry[OperationLogs.RedoOperationID]
-                undone_ids = np.delete(undone_ids, np.argwhere(undone_ids == redone_id))
-
-    if include_undone:
-        return {"operation_id": valid_entry_ids, "timestamp": timestamp_list}
-
-    filtered_entry_ids = []
-    filtered_timestamp_list = []
-    for i in range(len(valid_entry_ids)):
-        entry_id = valid_entry_ids[i]
-        entry = log_rows[entry_id]
-
-        if OperationLogs.UndoOperationID in entry \
-            or OperationLogs.RedoOperationID in entry:
-            continue
-
-        undone = entry_id in undone_ids
-        if not undone:
-            filtered_entry_ids.append(entry_id)
-            timestamp = entry["timestamp"]
-            filtered_timestamp_list.append(timestamp)
-
-    return {
-        "operation_id": filtered_entry_ids,
-        "timestamp": filtered_timestamp_list
-    }
+    return {"operation_id": valid_entry_ids, "timestamp": timestamp_list}
 
 
 ### CHILDREN -------------------------------------------------------------------
@@ -698,33 +630,39 @@ def handle_leaves(table_id, root_id):
     current_app.table_id = table_id
     user_id = str(g.auth_user["id"])
     current_app.user_id = user_id
-
     stop_layer = int(request.args.get("stop_layer", 1))
-    bounding_box = None
     if "bounds" in request.args:
         bounds = request.args["bounds"]
         bounding_box = np.array(
-            [b.split("-") for b in bounds.split("_")], dtype=int
+            [b.split("-") for b in bounds.split("_")], dtype=np.int
         ).T
+    else:
+        bounding_box = None
 
+    # Call ChunkedGraph
     cg = app_utils.get_cg(table_id)
     if stop_layer > 1:
-        from pychunkedgraph.graph.types import empty_1d
-
         subgraph = cg.get_subgraph_nodes(
             int(root_id),
-            bbox=bounding_box,
-            bbox_is_coordinate=True,
+            bounding_box=bounding_box,
+            bb_is_coordinate=True,
             return_layers=[stop_layer],
-            return_flattened=True,
+        )
+        if isinstance(subgraph, np.ndarray):
+            return subgraph
+        else:
+            empty_1d = np.empty(0, dtype=np.uint64)
+            result = [empty_1d]
+            for node_subgraph in subgraph.values():
+                for children_at_layer in node_subgraph.values():
+                    result.append(children_at_layer)
+            return np.concatenate(result)
+    else:
+        atomic_ids = cg.get_subgraph_nodes(
+            int(root_id), bounding_box=bounding_box, bb_is_coordinate=True
         )
 
-        return subgraph
-    return cg.get_subgraph_leaves(
-        int(root_id),
-        bbox=bounding_box,
-        bbox_is_coordinate=True,
-    )
+        return atomic_ids
 
 
 ### LEAVES OF MANY ROOTS ---------------------------------------------------------------------
@@ -735,27 +673,26 @@ def handle_leaves_many(table_id):
     user_id = str(g.auth_user["id"])
     current_app.user_id = user_id
 
+    stop_layer = int(request.args.get("stop_layer", 1))
     if "bounds" in request.args:
         bounds = request.args["bounds"]
         bounding_box = np.array(
-            [b.split("-") for b in bounds.split("_")], dtype=int
+            [b.split("-") for b in bounds.split("_")], dtype=np.int
         ).T
     else:
         bounding_box = None
 
     node_ids = np.array(json.loads(request.data)["node_ids"], dtype=np.uint64)
-    stop_layer = int(request.args.get("stop_layer", 1))
 
     # Call ChunkedGraph
     cg = app_utils.get_cg(table_id)
 
     node_to_leaves_mapping = cg.get_subgraph_nodes(
         node_ids,
-        bbox=bounding_box,
-        bbox_is_coordinate=True,
+        bounding_box=bounding_box,
+        bb_is_coordinate=True,
         return_layers=[stop_layer],
         serializable=True,
-        return_flattened=True,
     )
 
     return node_to_leaves_mapping
@@ -772,7 +709,7 @@ def handle_leaves_from_leave(table_id, atomic_id):
     if "bounds" in request.args:
         bounds = request.args["bounds"]
         bounding_box = np.array(
-            [b.split("-") for b in bounds.split("_")], dtype=int
+            [b.split("-") for b in bounds.split("_")], dtype=np.int
         ).T
     else:
         bounding_box = None
@@ -781,8 +718,8 @@ def handle_leaves_from_leave(table_id, atomic_id):
     cg = app_utils.get_cg(table_id)
     root_id = cg.get_root(int(atomic_id))
 
-    atomic_ids = cg.get_subgraph(
-        root_id, bbox=bounding_box, bbox_is_coordinate=True, nodes_only=True
+    atomic_ids = cg.get_subgraph_nodes(
+        root_id, bounding_box=bounding_box, bb_is_coordinate=True
     )
 
     return np.concatenate([np.array([root_id]), atomic_ids])
@@ -799,27 +736,18 @@ def handle_subgraph(table_id, root_id):
     if "bounds" in request.args:
         bounds = request.args["bounds"]
         bounding_box = np.array(
-            [b.split("-") for b in bounds.split("_")], dtype=int
+            [b.split("-") for b in bounds.split("_")], dtype=np.int
         ).T
     else:
         bounding_box = None
 
     # Call ChunkedGraph
     cg = app_utils.get_cg(table_id)
-    l2id_agglomeration_d, edges = cg.get_subgraph(
-        int(root_id),
-        bbox=bounding_box,
-        bbox_is_coordinate=True,
-    )
-    edges = reduce(lambda x, y: x + y, edges, cg_edges.Edges([], []))
-    supervoxels = np.concatenate(
-        [agg.supervoxels for agg in l2id_agglomeration_d.values()]
-    )
-    mask0 = np.in1d(edges.node_ids1, supervoxels)
-    mask1 = np.in1d(edges.node_ids2, supervoxels)
-    edges = edges[mask0 & mask1]
+    atomic_edges = cg.get_subgraph_edges(
+        int(root_id), bounding_box=bounding_box, bb_is_coordinate=True
+    )[0]
 
-    return edges
+    return atomic_edges
 
 
 ### CHANGE LOG -----------------------------------------------------------------
@@ -829,14 +757,16 @@ def change_log(table_id, root_id=None, filtered=False):
     current_app.table_id = table_id
     user_id = str(g.auth_user["id"])
     current_app.user_id = user_id
+
     time_stamp_past = _parse_timestamp("timestamp", 0, return_datetime=True)
 
+    # Call ChunkedGraph
     cg = app_utils.get_cg(table_id)
     if not root_id:
-        return segmenthistory.get_all_log_entries(cg)
-    history = segmenthistory.SegmentHistory(
-        cg, [int(root_id)], timestamp_past=time_stamp_past
-    )
+        return cg_history.get_all_log_entries(cg)
+
+    history = cg_history.History(cg, [int(root_id)], timestamp_past=time_stamp_past)
+
     return history.change_log_summary(filtered=filtered)
 
 
@@ -845,32 +775,28 @@ def tabular_change_log_recent(table_id):
     user_id = str(g.auth_user["id"])
     current_app.user_id = user_id
 
-    start_time = _parse_timestamp("timestamp", 0, return_datetime=True)
+    start_time = _parse_timestamp("start_time", 0, return_datetime=True)
 
     # Call ChunkedGraph
-    cg = app_utils.get_cg(table_id)
+    cg_instance = app_utils.get_cg(table_id)
 
-    log_rows = cg.client.read_log_entries(start_time=start_time)
+    log_rows = cg_instance.read_log_rows(start_time=start_time)
 
     timestamp_list = []
     user_list = []
 
-    operation_ids = np.sort(list(log_rows.keys()))
-    for operation_id in operation_ids:
-        operation = log_rows[operation_id]
+    entry_ids = np.sort(list(log_rows.keys()))
+    for entry_id in entry_ids:
+        entry = log_rows[entry_id]
 
-        timestamp = operation["timestamp"]
+        timestamp = entry["timestamp"]
         timestamp_list.append(timestamp)
 
-        user_id = operation[attributes.OperationLogs.UserID]
+        user_id = entry[column_keys.OperationLogs.UserID]
         user_list.append(user_id)
 
     return pd.DataFrame.from_dict(
-        {
-            "operation_id": operation_ids,
-            "timestamp": timestamp_list,
-            "user_id": user_list,
-        }
+        {"operation_id": entry_ids, "timestamp": timestamp_list, "user_id": user_list}
     )
 
 
@@ -883,7 +809,7 @@ def tabular_change_logs(table_id, root_ids, filtered=False):
 
     # Call ChunkedGraph
     cg = app_utils.get_cg(table_id)
-    history = segmenthistory.SegmentHistory(
+    history = cg_history.History(
         cg,
         root_ids,
     )
@@ -891,6 +817,7 @@ def tabular_change_logs(table_id, root_ids, filtered=False):
         tab = history.tabular_changelogs_filtered
     else:
         tab = history.tabular_changelogs
+
     all_user_ids = []
     for tab_k in tab.keys():
         all_user_ids.extend(np.array(tab[tab_k]["user_id"]).reshape(-1))
@@ -899,12 +826,14 @@ def tabular_change_logs(table_id, root_ids, filtered=False):
     user_dict = app_utils.get_username_dict(
         all_user_ids, current_app.config["AUTH_TOKEN"]
     )
+
     for tab_k in tab.keys():
         user_names = [
             user_dict.get(int(id_), "unknown")
             for id_ in np.array(tab[tab_k]["user_id"])
         ]
         tab[tab_k]["user_name"] = user_names
+
     return tab
 
 
@@ -913,15 +842,36 @@ def merge_log(table_id, root_id):
     user_id = str(g.auth_user["id"])
     current_app.user_id = user_id
 
+    time_stamp_past = _parse_timestamp("timestamp", 0, return_datetime=True)
+
     # Call ChunkedGraph
     cg = app_utils.get_cg(table_id)
-    hist = segmenthistory.SegmentHistory(cg, int(root_id))
-    return hist.merge_log(correct_for_wrong_coord_type=False)
+
+    history = cg_history.History(cg, [int(root_id)])
+    return history.merge_log()
+
+
+def _parse_timestamp(arg_name, default_timestamp=0, return_datetime=False):
+    """Convert seconds since epoch to UTC datetime."""
+    timestamp = request.args.get(arg_name, default_timestamp)
+    if timestamp is None:
+        raise (cg_exceptions.BadRequest(f"Timestamp parameter {arg_name} is mandatory"))
+    try:
+        timestamp = float(timestamp)
+        if return_datetime:
+            return datetime.fromtimestamp(timestamp, UTC)
+        else:
+            return timestamp
+    except (TypeError, ValueError):
+        raise (
+            cg_exceptions.BadRequest(
+                f"Timestamp parameter {arg_name} is not a valid unix timestamp"
+            )
+        )
 
 
 def handle_lineage_graph(table_id, root_id=None):
     from networkx import node_link_data
-    from pychunkedgraph.graph.lineage import lineage_graph
 
     current_app.table_id = table_id
     user_id = str(g.auth_user["id"])
@@ -932,15 +882,15 @@ def handle_lineage_graph(table_id, root_id=None):
         "timestamp_future", time.time(), return_datetime=True
     )
 
+    # Call ChunkedGraph
     cg = app_utils.get_cg(table_id)
     if root_id is None:
         root_ids = np.array(json.loads(request.data)["root_ids"], dtype=np.uint64)
-        graph = lineage_graph(cg, root_ids, timestamp_past, timestamp_future)
-        return node_link_data(graph)
-    history_ids = segmenthistory.SegmentHistory(
-        cg, int(root_id), timestamp_past, timestamp_future
-    )
-    return node_link_data(history_ids.lineage_graph)
+    else:
+        root_ids = [int(root_id)]
+
+    history = cg_history.History(cg, root_ids, timestamp_past, timestamp_future)
+    return node_link_data(history.lineage_graph)
 
 
 def handle_past_id_mapping(table_id):
@@ -952,8 +902,10 @@ def handle_past_id_mapping(table_id):
         "timestamp_future", default_timestamp=time.time(), return_datetime=True
     )
 
+    # Call ChunkedGraph
     cg = app_utils.get_cg(table_id)
-    hist = segmenthistory.SegmentHistory(
+
+    hist = cg_history.History(
         cg, root_ids, timestamp_past=timestamp_past, timestamp_future=timestamp_future
     )
     past_id_mapping, future_id_mapping = hist.past_future_id_mapping()
@@ -971,16 +923,25 @@ def last_edit(table_id, root_id):
     current_app.user_id = user_id
 
     cg = app_utils.get_cg(table_id)
-    hist = segmenthistory.SegmentHistory(cg, int(root_id))
-    return hist.last_edit_timestamp(int(root_id))
+
+    history = cg_history.History(cg, [int(root_id)])
+
+    return history.last_edit_timestamp(int(root_id))
 
 
 def oldest_timestamp(table_id):
     current_app.table_id = table_id
     user_id = str(g.auth_user["id"])
     current_app.user_id = user_id
+
     cg = app_utils.get_cg(table_id)
-    return cg.get_earliest_timestamp()
+
+    try:
+        earliest_timestamp = cg.get_earliest_timestamp()
+    except cg_exceptions.PreconditionError:
+        raise cg_exceptions.InternalServerError("No timestamp available")
+
+    return earliest_timestamp
 
 
 ### CONTACT SITES --------------------------------------------------------------
@@ -988,17 +949,21 @@ def oldest_timestamp(table_id):
 
 def handle_contact_sites(table_id, root_id):
     partners = request.args.get("partners", True, type=app_utils.toboolean)
+    as_list = request.args.get("as_list", True, type=app_utils.toboolean)
+    areas_only = request.args.get("areas_only", True, type=app_utils.toboolean)
 
     current_app.table_id = table_id
     user_id = str(g.auth_user["id"])
     current_app.user_id = user_id
 
-    timestamp = _parse_timestamp("timestamp", time.time(), return_datetime=True)
+    timestamp = _parse_timestamp(
+        "timestamp", default_timestamp=time.time(), return_datetime=True
+    )
 
     if "bounds" in request.args:
         bounds = request.args["bounds"]
         bounding_box = np.array(
-            [b.split("-") for b in bounds.split("_")], dtype=int
+            [b.split("-") for b in bounds.split("_")], dtype=np.int
         ).T
     else:
         bounding_box = None
@@ -1006,12 +971,14 @@ def handle_contact_sites(table_id, root_id):
     # Call ChunkedGraph
     cg = app_utils.get_cg(table_id)
 
-    cs_list, cs_metadata = get_contact_sites(
+    cs_list, cs_metadata = contact_sites.get_contact_sites(
         cg,
         np.uint64(root_id),
         bounding_box=bounding_box,
         compute_partner=partners,
-        time_stamp=timestamp,
+        end_time=timestamp,
+        as_list=as_list,
+        areas_only=areas_only,
     )
 
     return cs_list, cs_metadata
@@ -1050,41 +1017,37 @@ def handle_split_preview(table_id):
 
     cg = app_utils.get_cg(table_id)
 
-    data_dict = {}
+    node_idents = []
+    node_ident_map = {
+        "sources": 0,
+        "sinks": 1,
+    }
+    coords = []
+    node_ids = []
+
     for k in ["sources", "sinks"]:
-        data_dict[k] = collections.defaultdict(list)
-
         for node in data[k]:
-            node_id = node[0]
-            x, y, z = node[1:]
-            coordinate = np.array([x, y, z]) / cg.meta.resolution
+            node_ids.append(node[0])
+            coords.append(np.array(node[1:]) / cg.segmentation_resolution)
+            node_idents.append(node_ident_map[k])
 
-            atomic_id = cg.get_atomic_id_from_coord(
-                coordinate[0],
-                coordinate[1],
-                coordinate[2],
-                parent_id=np.uint64(node_id),
-            )
+    node_ids = np.array(node_ids, dtype=np.uint64)
+    coords = np.array(coords)
+    node_idents = np.array(node_idents)
+    sv_ids = app_utils.handle_supervoxel_id_lookup(cg, coords, node_ids)
 
-            if atomic_id is None:
-                raise cg_exceptions.BadRequest(
-                    f"Could not determine supervoxel ID for coordinates "
-                    f"{coordinate}."
-                )
-
-            data_dict[k]["id"].append(atomic_id)
-            data_dict[k]["coord"].append(coordinate)
-
-    current_app.logger.debug(data_dict)
+    current_app.logger.debug(
+        {"node_id": node_ids, "sv_id": sv_ids, "node_ident": node_idents}
+    )
 
     try:
-        supervoxel_ccs, illegal_split = cutting.run_split_preview(
-            cg=cg,
-            source_ids=data_dict["sources"]["id"],
-            sink_ids=data_dict["sinks"]["id"],
-            source_coords=data_dict["sources"]["coord"],
-            sink_coords=data_dict["sinks"]["coord"],
+        supervoxel_ccs, illegal_split = cg._run_multicut(
+            source_ids=sv_ids[node_idents == 0],
+            sink_ids=sv_ids[node_idents == 1],
+            source_coords=coords[node_idents == 0],
+            sink_coords=coords[node_idents == 1],
             bb_offset=(240, 240, 24),
+            split_preview=True,
         )
 
     except cg_exceptions.PreconditionError as e:
@@ -1112,73 +1075,50 @@ def handle_find_path(table_id, precision_mode):
 
     # Call ChunkedGraph
     cg = app_utils.get_cg(table_id)
-    root_time_stamp = cg.get_node_timestamps(
-        [np.uint64(nodes[0][0])], return_numpy=False
-    )[0]
+    node_ids = []
+    coords = []
+    for node in nodes:
+        node_ids.append(node[0])
+        coords.append(np.array(node[1:]) / cg.segmentation_resolution)
 
-    def _get_supervoxel_id_from_node(node):
-        node_id = node[0]
-        x, y, z = node[1:]
-        coordinate = np.array([x, y, z]) / cg.meta.resolution
+    if len(coords) != 2:
+        cg_exceptions.BadRequest("Merge needs two nodes.")
 
-        supervoxel_id = cg.get_atomic_id_from_coord(
-            coordinate[0],
-            coordinate[1],
-            coordinate[2],
-            parent_id=np.uint64(node_id),
-            time_stamp=root_time_stamp,
-        )
-        if supervoxel_id is None:
-            raise cg_exceptions.BadRequest(
-                f"Could not determine supervoxel ID for coordinates " f"{coordinate}."
-            )
+    source_supervoxel_id, target_supervoxel_id = app_utils.handle_supervoxel_id_lookup(
+        cg, coords, node_ids
+    )
 
-        return supervoxel_id
-
-    source_supervoxel_id = _get_supervoxel_id_from_node(nodes[0])
-    target_supervoxel_id = _get_supervoxel_id_from_node(nodes[1])
     source_l2_id = cg.get_parent(source_supervoxel_id)
     target_l2_id = cg.get_parent(target_supervoxel_id)
 
-    print("Finding path...")
-    print(f"Source: {source_supervoxel_id}")
-    print(f"Target: {target_supervoxel_id}")
-
-    l2_path = pathing.find_l2_shortest_path(
-        cg, source_l2_id, target_l2_id, time_stamp=root_time_stamp
-    )
-    print(f"Path: {l2_path}")
+    l2_path = analysis.find_l2_shortest_path(cg, source_l2_id, target_l2_id)
     if precision_mode:
-        centroids, failed_l2_ids = mesh_analysis.compute_mesh_centroids_of_l2_ids(
+        centroids, failed_l2_ids = analysis.compute_mesh_centroids_of_l2_ids(
             cg, l2_path, flatten=True
         )
-        print(f"Centroids: {centroids}")
-        print(f"Failed L2 ids: {failed_l2_ids}")
         return {
             "centroids_list": centroids,
             "failed_l2_ids": failed_l2_ids,
             "l2_path": l2_path,
         }
     else:
-        centroids = pathing.compute_rough_coordinate_path(cg, l2_path)
-        print(f"Centroids: {centroids}")
+        centroids = analysis.compute_rough_coordinate_path(cg, l2_path)
         return {"centroids_list": centroids, "failed_l2_ids": [], "l2_path": l2_path}
 
 
 ### GET_LAYER2_SUBGRAPH
 def handle_get_layer2_graph(table_id, node_id):
+    current_app.request_type = "get_lvl2_graph"
     current_app.table_id = table_id
     user_id = str(g.auth_user["id"])
     current_app.user_id = user_id
 
     cg = app_utils.get_cg(table_id)
-    print("Finding edge graph...")
-    edge_graph = pathing.get_lvl2_edge_list(cg, int(node_id))
-    print("Edge graph found len: {}".format(len(edge_graph)))
+    edge_graph = analysis.get_lvl2_edge_list(cg, int(node_id))
     return {"edge_graph": edge_graph}
 
 
-### ROOT INFO ----------------------------------------------------------------
+### ROOT INFO -----------------------------------------------------------------
 
 
 def handle_is_latest_roots(table_id, is_binary):
@@ -1195,6 +1135,9 @@ def handle_is_latest_roots(table_id, is_binary):
     # Call ChunkedGraph
     cg = app_utils.get_cg(table_id)
 
+    if not np.all(cg.get_chunk_layers(node_ids) == cg.n_layers):
+        raise cg_exceptions.BadRequest("Some ids are not root ids.")
+
     return cg.is_latest_roots(node_ids, time_stamp=timestamp)
 
 
@@ -1210,7 +1153,10 @@ def handle_root_timestamps(table_id, is_binary):
     # Call ChunkedGraph
     cg = app_utils.get_cg(table_id)
 
-    timestamps = cg.get_node_timestamps(node_ids, return_numpy=False)
+    if not np.all(cg.get_chunk_layers(node_ids) == cg.n_layers):
+        raise cg_exceptions.BadRequest("Some ids are not root ids.")
+
+    timestamps = cg.get_root_timestamps(node_ids)
     return [ts.timestamp() for ts in timestamps]
 
 
@@ -1218,16 +1164,24 @@ def handle_root_timestamps(table_id, is_binary):
 
 
 def operation_details(table_id):
-    from pychunkedgraph.graph import attributes
-    from pychunkedgraph.export.operation_logs import parse_attr
+    def parse_attr(attr, val) -> str:
+        from numpy import ndarray
+
+        try:
+            if isinstance(val, ndarray):
+                return (attr.key, val.tolist())
+            return (attr.key, val)
+        except AttributeError:
+            return (attr, val)
 
     current_app.table_id = table_id
     user_id = str(g.auth_user["id"])
     current_app.user_id = user_id
-    operation_ids = json.loads(request.args.get("operation_ids", "[]"))
+    operation_ids = json.loads(request.args["operation_ids"])
 
     cg = app_utils.get_cg(table_id)
-    log_rows = cg.client.read_log_entries(operation_ids)
+
+    log_rows = cg.read_log_rows(operation_ids)
 
     result = {}
     for k, v in log_rows.items():
