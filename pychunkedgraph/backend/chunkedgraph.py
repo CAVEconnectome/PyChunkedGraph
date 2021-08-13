@@ -2623,7 +2623,7 @@ class ChunkedGraph(object):
                 else:
                     parents.append([0, 0])
         if get_only_relevant_parents:
-            parents = np.array(parents)
+            parents = np.array(parents, dtype=basetypes.NODE_ID)
 
         return parents
 
