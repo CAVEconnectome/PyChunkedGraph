@@ -194,7 +194,10 @@ class Client(bigtable.Client, ClientWithIDGen, OperationLogger):
         )
         if len(log_record) == 0:
             return {}, None
-        timestamp = log_record[attributes.OperationLogs.OperationTimeStamp][0].value
+        try:
+            timestamp = log_record[attributes.OperationLogs.OperationTimeStamp][0].value
+        except KeyError:
+            timestamp = log_record[attributes.OperationLogs.RootID][0].timestamp
         log_record.update((column, v[0].value) for column, v in log_record.items())
         return log_record, timestamp
 
@@ -231,7 +234,10 @@ class Client(bigtable.Client, ClientWithIDGen, OperationLogger):
             return {}
         for operation_id in logs_d:
             log_record = logs_d[operation_id]
-            timestamp = log_record[attributes.OperationLogs.RootID][0].timestamp
+            try:
+                timestamp = log_record[attributes.OperationLogs.OperationTimeStamp][0].value
+            except KeyError:
+                timestamp = log_record[attributes.OperationLogs.RootID][0].timestamp
             log_record.update((column, v[0].value) for column, v in log_record.items())
             log_record["timestamp"] = timestamp
         return logs_d
@@ -782,7 +788,7 @@ class Client(bigtable.Client, ClientWithIDGen, OperationLogger):
         # calculate this properly (range_read.request.SerializeToString()), but this estimate is
         # good enough for now
         # TODO try async/await
-        
+
         n_subrequests = max(1, int(np.ceil(len(row_set.row_keys) / self._max_row_key_count)))
         n_threads = min(n_subrequests, 2 * mu.n_cpus)
 

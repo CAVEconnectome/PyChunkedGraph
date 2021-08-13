@@ -171,7 +171,7 @@ def _get_chunk_nodes_cross_edge_layer(cg, atomic_chunks, layer):
 
     l2ids = np.fromiter(atomic_node_layer_d.keys(), dtype=basetypes.NODE_ID)
     parents = cg.get_roots(l2ids, stop_layer=layer - 1, ceil=False)
-    layers = np.fromiter(atomic_node_layer_d.values(), dtype=np.int)
+    layers = np.fromiter(atomic_node_layer_d.values(), dtype=int)
 
     node_layer_d = defaultdict(lambda: cg.meta.layer_count)
     for i, parent in enumerate(parents):

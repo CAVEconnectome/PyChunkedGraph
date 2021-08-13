@@ -208,13 +208,13 @@ def _get_subgraph_multiple_nodes(
                 if cg.get_chunk_layer(node_id) == 2:
                     # All children will be in same chunk so no need to check
                     filtered_children[_get_dict_key(node_id)] = nodes_children
-                    continue
-                bound_check_mask = mask_nodes_by_bounding_box(
-                    cg.meta, nodes_children, bounding_box
-                )
-                filtered_children[_get_dict_key(node_id)] = nodes_children[
-                    bound_check_mask
-                ]
+                elif len(nodes_children) > 0:
+                    bound_check_mask = mask_nodes_by_bounding_box(
+                        cg.meta, nodes_children, bounding_box
+                    )
+                    filtered_children[_get_dict_key(node_id)] = nodes_children[
+                        bound_check_mask
+                    ]
             return filtered_children
         return children
 

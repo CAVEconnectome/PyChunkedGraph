@@ -85,7 +85,7 @@ class MeshEngine(object):
         if layers is None:
             layers = range(1, int(self.cg.n_layers + 1))
 
-        layers = np.array(layers, dtype=np.int)
+        layers = np.array(layers, dtype=int)
 
         layers = layers[layers > 0]
         layers = layers[layers < self.highest_mesh_layer + 1]
@@ -106,16 +106,16 @@ class MeshEngine(object):
 
         block_bounding_box_cg = \
             [np.floor(dataset_bounding_box[:3] /
-                      self.cg.chunk_size).astype(np.int),
+                      self.cg.chunk_size).astype(int),
              np.ceil(dataset_bounding_box[3:] /
-                     self.cg.chunk_size).astype(np.int)]
+                     self.cg.chunk_size).astype(int)]
 
         if bounding_box is not None:
             bounding_box_cg = \
                 [np.floor(bounding_box[0] /
-                          self.cg.chunk_size).astype(np.int),
+                          self.cg.chunk_size).astype(int),
                  np.ceil(bounding_box[1] /
-                         self.cg.chunk_size).astype(np.int)]
+                         self.cg.chunk_size).astype(int)]
 
             m = block_bounding_box_cg[0] < bounding_box_cg[0]
             block_bounding_box_cg[0][m] = bounding_box_cg[0][m]
@@ -147,7 +147,7 @@ class MeshEngine(object):
                                                  block_bounding_box_cg[1][2],
                                                  block_factor))
 
-        blocks = np.array(list(block_iter), dtype=np.int)
+        blocks = np.array(list(block_iter), dtype=int)
 
         cg_info = self.cg.get_serialized_info()
         del (cg_info['credentials'])
@@ -176,11 +176,11 @@ class MeshEngine(object):
 
     def create_manifests_for_higher_layers(self, n_threads=1):
         root_id_max = self.cg.get_max_node_id(
-            self.cg.get_chunk_id(layer=np.int(self.cg.n_layers),
-                                 x=np.int(0), y=np.int(0),
-                                 z=np.int(0)))
+            self.cg.get_chunk_id(layer=int(self.cg.n_layers),
+                                 x=int(0), y=int(0),
+                                 z=int(0)))
 
-        root_id_blocks = np.linspace(1, root_id_max, n_threads*3).astype(np.int)
+        root_id_blocks = np.linspace(1, root_id_max, n_threads*3).astype(int)
         cg_info = self.cg.get_serialized_info()
         del (cg_info['credentials'])
 

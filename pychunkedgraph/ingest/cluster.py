@@ -102,7 +102,7 @@ def enqueue_atomic_tasks(imanager: IngestionManager):
 def _create_atomic_chunk(im_info: str, coord: Sequence[int]):
     """ Creates single atomic chunk """
     imanager = IngestionManager.from_pickle(im_info)
-    coord = np.array(list(coord), dtype=np.int)
+    coord = np.array(list(coord), dtype=int)
     chunk_edges_all, mapping = get_atomic_chunk_data(imanager, coord)
     chunk_edges_active, isolated_ids = get_active_edges(
         imanager, coord, chunk_edges_all, mapping
