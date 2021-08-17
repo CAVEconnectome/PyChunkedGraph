@@ -391,7 +391,7 @@ def tabular_change_log_weekly(table_id):
 
 @bp.route("/table/<table_id>/root/<root_id>/change_log", methods=["GET"])
 @auth_requires_permission("view")
-@remap_public(edit=True)
+@remap_public(edit=False)
 def change_log(table_id, root_id):
     int64_as_str = request.args.get("int64_as_str", default=False, type=toboolean)
     filtered = request.args.get("filtered", default=False, type=toboolean)
