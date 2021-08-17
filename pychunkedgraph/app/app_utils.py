@@ -1,6 +1,7 @@
 import logging
 import sys
-from time import gmtime
+import os
+from typing import Sequence
 
 import numpy as np
 from flask import current_app, json, request
@@ -15,8 +16,11 @@ from pychunkedgraph.graph import (
 )
 from functools import wraps
 from werkzeug.datastructures import ImmutableMultiDict
-import time
-import os
+
+
+import networkx as nx
+from scipy import spatial
+
 
 CACHE = {}
 
@@ -35,6 +39,8 @@ class DoNothingCreds(credentials.Credentials):
 
 
 def remap_public(func=None, *, edit=False, check_node_ids=False):
+    from time import mktime
+
     def mydecorator(f):
         @wraps(f)
         def decorated_function(*args, **kwargs):
@@ -63,7 +69,7 @@ def remap_public(func=None, *, edit=False, check_node_ids=False):
                 new_table = virtual_tables[table_id]["table_id"]
                 kwargs["table_id"] = new_table
                 v_timestamp = virtual_tables[table_id]["timestamp"]
-                v_timetamp_float = time.mktime(v_timestamp.timetuple())
+                v_timetamp_float = mktime(v_timestamp.timetuple())
 
                 # we want to fix timestamp parameters too
                 def ceiling_timestamp(argname):
@@ -171,6 +177,7 @@ def get_datastore_client(config):
 
 
 def get_cg(table_id, skip_cache: bool = False):
+    from time import gmtime
     from pychunkedgraph.graph.client import get_default_client_info
 
     assert table_id in current_app.config["PCG_GRAPH_IDS"]
@@ -215,7 +222,6 @@ def get_log_db(table_id):
         CACHE["log_db"] = flask_log_db.FlaskLogDatabase(
             table_id, client=client, credentials=credentials
         )
-
     return CACHE["log_db"]
 
 
@@ -259,6 +265,51 @@ def tobinary_multiples(arr):
     :return: binary
     """
     return [np.array(arr_i).tobytes() for arr_i in arr]
+
+
+def handle_supervoxel_id_lookup(
+    cg, coordinates: Sequence[Sequence[int]], node_ids: Sequence[np.uint64]
+) -> Sequence[np.uint64]:
+    """
+    Helper to lookup supervoxel ids.
+    This takes care of grouping coordinates.
+    """
+
+    def ccs(coordinates_nm_):
+        graph = nx.Graph()
+        dist_mat = spatial.distance.cdist(coordinates_nm_, coordinates_nm_)
+        for edge in np.array(np.where(dist_mat < 1000)).T:
+            graph.add_edge(*edge)
+        ccs = [np.array(list(cc)) for cc in nx.connected_components(graph)]
+        return ccs
+
+    coordinates = np.array(coordinates, dtype=np.int)
+    coordinates_nm = coordinates * cg.meta.resolution
+    node_ids = np.array(node_ids, dtype=np.uint64)
+    if len(coordinates.shape) != 2:
+        raise cg_exceptions.BadRequest(
+            f"Could not determine supervoxel ID for coordinates "
+            f"{coordinates} - Validation stage."
+        )
+
+    atomic_ids = np.zeros(len(coordinates), dtype=np.uint64)
+    for node_id in np.unique(node_ids):
+        node_id_m = node_ids == node_id
+        for cc in ccs(coordinates_nm[node_id_m]):
+            m_ids = np.where(node_id_m)[0][cc]
+            for max_dist_nm in [75, 150, 250, 500]:
+                atomic_ids_sub = cg.get_atomic_ids_from_coords(
+                    coordinates[m_ids], parent_id=node_id, max_dist_nm=max_dist_nm
+                )
+                if atomic_ids_sub is not None:
+                    break
+            if atomic_ids_sub is None:
+                raise cg_exceptions.BadRequest(
+                    f"Could not determine supervoxel ID for coordinates "
+                    f"{coordinates} - Validation stage."
+                )
+            atomic_ids[m_ids] = atomic_ids_sub
+    return atomic_ids
 
 
 def get_username_dict(user_ids, auth_token) -> dict:

@@ -137,6 +137,31 @@ class ChunkedGraph:
             time_stamp=time_stamp,
         )
 
+    def get_atomic_ids_from_coords(
+        self,
+        coordinates: typing.Sequence[typing.Sequence[int]],
+        parent_id: np.uint64,
+        max_dist_nm: int = 150,
+    ) -> typing.Sequence[np.uint64]:
+        """Retrieves supervoxel ids for multiple coords.
+
+        :param coordinates: n x 3 np.ndarray of locations in voxel space
+        :param parent_id: parent id common to all coordinates at any layer
+        :param max_dist_nm: max distance explored
+        :return: supervoxel ids; returns None if no solution was found
+        """
+        # Enable search with old parent by using its timestamp and map to parents
+        parent_ts = self.get_node_timestamps([parent_id], return_numpy=False)[0]
+        return id_helpers.get_atomic_ids_from_coords(
+            self.meta,
+            coordinates,
+            parent_id,
+            self.get_chunk_layer(parent_id),
+            parent_ts,
+            self.get_roots,
+            max_dist_nm,
+        )
+
     def get_parents(
         self,
         node_ids: typing.Sequence[np.uint64],

@@ -33,7 +33,6 @@ from pychunkedgraph.graph.misc import get_contact_sites
 from middle_auth_client import get_usernames
 
 
-
 __api_versions__ = [0, 1]
 __segmentation_url_prefix__ = os.environ.get("SEGMENTATION_URL_PREFIX", "segmentation")
 
@@ -363,26 +362,13 @@ def handle_merge(table_id, allow_same_segment_merge=False):
 
     # Call ChunkedGraph
     cg = app_utils.get_cg(table_id, skip_cache=True)
-
-    atomic_edge = []
+    node_ids = []
     coords = []
     for node in nodes:
-        node_id = node[0]
-        x, y, z = node[1:]
-        coordinate = np.array([x, y, z]) / cg.meta.resolution
+        node_ids.append(node[0])
+        coords.append(np.array(node[1:]) / cg.segmentation_resolution)
 
-        atomic_id = cg.get_atomic_id_from_coord(
-            coordinate[0], coordinate[1], coordinate[2], parent_id=np.uint64(node_id)
-        )
-
-        if atomic_id is None:
-            raise cg_exceptions.BadRequest(
-                f"Could not determine supervoxel ID for coordinates " f"{coordinate}."
-            )
-
-        coords.append(coordinate)
-        atomic_edge.append(atomic_id)
-
+    atomic_edge = app_utils.handle_supervoxel_id_lookup(cg, coords, node_ids)
     # Protection from long range mergers
     chunk_coord_delta = cg.get_chunk_coordinates(
         atomic_edge[0]
@@ -437,44 +423,37 @@ def handle_split(table_id):
 
     # Call ChunkedGraph
     cg = app_utils.get_cg(table_id, skip_cache=True)
+    node_idents = []
+    node_ident_map = {
+        "sources": 0,
+        "sinks": 1,
+    }
+    coords = []
+    node_ids = []
 
-    data_dict = {}
     for k in ["sources", "sinks"]:
-        data_dict[k] = collections.defaultdict(list)
-
         for node in data[k]:
-            node_id = node[0]
-            x, y, z = node[1:]
-            coordinate = np.array([x, y, z]) / cg.meta.resolution
+            node_ids.append(node[0])
+            coords.append(np.array(node[1:]) / cg.segmentation_resolution)
+            node_idents.append(node_ident_map[k])
 
-            atomic_id = cg.get_atomic_id_from_coord(
-                coordinate[0],
-                coordinate[1],
-                coordinate[2],
-                parent_id=np.uint64(node_id),
-            )
-
-            if atomic_id is None:
-                raise cg_exceptions.BadRequest(
-                    f"Could not determine supervoxel ID for coordinates "
-                    f"{coordinate}."
-                )
-
-            data_dict[k]["id"].append(atomic_id)
-            data_dict[k]["coord"].append(coordinate)
-
-    current_app.logger.debug(data_dict)
+    node_ids = np.array(node_ids, dtype=np.uint64)
+    coords = np.array(coords)
+    node_idents = np.array(node_idents)
+    sv_ids = app_utils.handle_supervoxel_id_lookup(cg, coords, node_ids)
+    current_app.logger.debug(
+        {"node_id": node_ids, "sv_id": sv_ids, "node_ident": node_idents}
+    )
 
     try:
         ret = cg.remove_edges(
             user_id=user_id,
-            source_ids=data_dict["sources"]["id"],
-            sink_ids=data_dict["sinks"]["id"],
-            source_coords=data_dict["sources"]["coord"],
-            sink_coords=data_dict["sinks"]["coord"],
+            source_ids=sv_ids[node_idents == 0],
+            sink_ids=sv_ids[node_idents == 1],
+            source_coords=coords[node_idents == 0],
+            sink_coords=coords[node_idents == 1],
             mincut=mincut,
         )
-
     except cg_exceptions.LockingError as e:
         raise cg_exceptions.InternalServerError(e)
     except cg_exceptions.PreconditionError as e:
@@ -598,7 +577,7 @@ def handle_rollback(table_id):
 ### USER OPERATIONS -------------------------------------------------------------
 
 
-def all_user_operations(table_id, include_undone = False):
+def all_user_operations(table_id, include_undone=False):
     # Gets all operations by the user.
     # If include_undone is false, it filters to operations that are not undone.
     # If the operation has been undone by anyone, it won't be returned here,
@@ -631,8 +610,10 @@ def all_user_operations(table_id, include_undone = False):
             timestamp = entry["timestamp"]
             timestamp_list.append(timestamp)
 
-        should_check = not OperationLogs.Status in entry \
+        should_check = (
+            not OperationLogs.Status in entry
             or entry[OperationLogs.Status] == OperationLogs.StatusCodes.SUCCESS.value
+        )
 
         if should_check:
             # if it is an undo of another operation, mark it as undone
@@ -654,8 +635,10 @@ def all_user_operations(table_id, include_undone = False):
         entry_id = valid_entry_ids[i]
         entry = log_rows[entry_id]
 
-        if OperationLogs.UndoOperationID in entry \
-            or OperationLogs.RedoOperationID in entry:
+        if (
+            OperationLogs.UndoOperationID in entry
+            or OperationLogs.RedoOperationID in entry
+        ):
             continue
 
         undone = entry_id in undone_ids
@@ -664,10 +647,7 @@ def all_user_operations(table_id, include_undone = False):
             timestamp = entry["timestamp"]
             filtered_timestamp_list.append(timestamp)
 
-    return {
-        "operation_id": filtered_entry_ids,
-        "timestamp": filtered_timestamp_list
-    }
+    return {"operation_id": filtered_entry_ids, "timestamp": filtered_timestamp_list}
 
 
 ### CHILDREN -------------------------------------------------------------------
@@ -703,9 +683,7 @@ def handle_leaves(table_id, root_id):
     bounding_box = None
     if "bounds" in request.args:
         bounds = request.args["bounds"]
-        bounding_box = np.array(
-            [b.split("-") for b in bounds.split("_")], dtype=int
-        ).T
+        bounding_box = np.array([b.split("-") for b in bounds.split("_")], dtype=int).T
 
     cg = app_utils.get_cg(table_id)
     if stop_layer > 1:
@@ -737,9 +715,7 @@ def handle_leaves_many(table_id):
 
     if "bounds" in request.args:
         bounds = request.args["bounds"]
-        bounding_box = np.array(
-            [b.split("-") for b in bounds.split("_")], dtype=int
-        ).T
+        bounding_box = np.array([b.split("-") for b in bounds.split("_")], dtype=int).T
     else:
         bounding_box = None
 
@@ -771,9 +747,7 @@ def handle_leaves_from_leave(table_id, atomic_id):
 
     if "bounds" in request.args:
         bounds = request.args["bounds"]
-        bounding_box = np.array(
-            [b.split("-") for b in bounds.split("_")], dtype=int
-        ).T
+        bounding_box = np.array([b.split("-") for b in bounds.split("_")], dtype=int).T
     else:
         bounding_box = None
 
@@ -798,9 +772,7 @@ def handle_subgraph(table_id, root_id):
 
     if "bounds" in request.args:
         bounds = request.args["bounds"]
-        bounding_box = np.array(
-            [b.split("-") for b in bounds.split("_")], dtype=int
-        ).T
+        bounding_box = np.array([b.split("-") for b in bounds.split("_")], dtype=int).T
     else:
         bounding_box = None
 
@@ -997,9 +969,7 @@ def handle_contact_sites(table_id, root_id):
 
     if "bounds" in request.args:
         bounds = request.args["bounds"]
-        bounding_box = np.array(
-            [b.split("-") for b in bounds.split("_")], dtype=int
-        ).T
+        bounding_box = np.array([b.split("-") for b in bounds.split("_")], dtype=int).T
     else:
         bounding_box = None
 
@@ -1049,44 +1019,37 @@ def handle_split_preview(table_id):
     current_app.logger.debug(data)
 
     cg = app_utils.get_cg(table_id)
+    node_idents = []
+    node_ident_map = {
+        "sources": 0,
+        "sinks": 1,
+    }
+    coords = []
+    node_ids = []
 
-    data_dict = {}
     for k in ["sources", "sinks"]:
-        data_dict[k] = collections.defaultdict(list)
-
         for node in data[k]:
-            node_id = node[0]
-            x, y, z = node[1:]
-            coordinate = np.array([x, y, z]) / cg.meta.resolution
+            node_ids.append(node[0])
+            coords.append(np.array(node[1:]) / cg.segmentation_resolution)
+            node_idents.append(node_ident_map[k])
 
-            atomic_id = cg.get_atomic_id_from_coord(
-                coordinate[0],
-                coordinate[1],
-                coordinate[2],
-                parent_id=np.uint64(node_id),
-            )
-
-            if atomic_id is None:
-                raise cg_exceptions.BadRequest(
-                    f"Could not determine supervoxel ID for coordinates "
-                    f"{coordinate}."
-                )
-
-            data_dict[k]["id"].append(atomic_id)
-            data_dict[k]["coord"].append(coordinate)
-
-    current_app.logger.debug(data_dict)
+    node_ids = np.array(node_ids, dtype=np.uint64)
+    coords = np.array(coords)
+    node_idents = np.array(node_idents)
+    sv_ids = app_utils.handle_supervoxel_id_lookup(cg, coords, node_ids)
+    current_app.logger.debug(
+        {"node_id": node_ids, "sv_id": sv_ids, "node_ident": node_idents}
+    )
 
     try:
         supervoxel_ccs, illegal_split = cutting.run_split_preview(
             cg=cg,
-            source_ids=data_dict["sources"]["id"],
-            sink_ids=data_dict["sinks"]["id"],
-            source_coords=data_dict["sources"]["coord"],
-            sink_coords=data_dict["sinks"]["coord"],
+            source_ids=sv_ids[node_idents == 0],
+            sink_ids=sv_ids[node_idents == 1],
+            source_coords=coords[node_idents == 0],
+            sink_coords=coords[node_idents == 1],
             bb_offset=(240, 240, 24),
         )
-
     except cg_exceptions.PreconditionError as e:
         raise cg_exceptions.BadRequest(str(e))
 
@@ -1106,37 +1069,23 @@ def handle_find_path(table_id, precision_mode):
     current_app.user_id = user_id
 
     nodes = json.loads(request.data)
-
     current_app.logger.debug(nodes)
     assert len(nodes) == 2
 
     # Call ChunkedGraph
     cg = app_utils.get_cg(table_id)
-    root_time_stamp = cg.get_node_timestamps(
-        [np.uint64(nodes[0][0])], return_numpy=False
-    )[0]
+    node_ids = []
+    coords = []
+    for node in nodes:
+        node_ids.append(node[0])
+        coords.append(np.array(node[1:]) / cg.segmentation_resolution)
 
-    def _get_supervoxel_id_from_node(node):
-        node_id = node[0]
-        x, y, z = node[1:]
-        coordinate = np.array([x, y, z]) / cg.meta.resolution
+    if len(coords) != 2:
+        cg_exceptions.BadRequest("Merge needs two nodes.")
+    source_supervoxel_id, target_supervoxel_id = app_utils.handle_supervoxel_id_lookup(
+        cg, coords, node_ids
+    )
 
-        supervoxel_id = cg.get_atomic_id_from_coord(
-            coordinate[0],
-            coordinate[1],
-            coordinate[2],
-            parent_id=np.uint64(node_id),
-            time_stamp=root_time_stamp,
-        )
-        if supervoxel_id is None:
-            raise cg_exceptions.BadRequest(
-                f"Could not determine supervoxel ID for coordinates " f"{coordinate}."
-            )
-
-        return supervoxel_id
-
-    source_supervoxel_id = _get_supervoxel_id_from_node(nodes[0])
-    target_supervoxel_id = _get_supervoxel_id_from_node(nodes[1])
     source_l2_id = cg.get_parent(source_supervoxel_id)
     target_l2_id = cg.get_parent(target_supervoxel_id)
 
@@ -1144,6 +1093,9 @@ def handle_find_path(table_id, precision_mode):
     print(f"Source: {source_supervoxel_id}")
     print(f"Target: {target_supervoxel_id}")
 
+    root_time_stamp = cg.get_node_timestamps(
+        [np.uint64(nodes[0][0])], return_numpy=False
+    )[0]
     l2_path = pathing.find_l2_shortest_path(
         cg, source_l2_id, target_l2_id, time_stamp=root_time_stamp
     )
