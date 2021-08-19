@@ -313,7 +313,7 @@ def publish_edit(table_id, new_lvl2_ids, is_priority=True):
         "table_id": table_id,
     }
 
-    exchange = getenv("PYCHUNKEGRAPH_EDITS_EXCHANGE", "pychunkedgraph")
+    exchange = getenv("PYCHUNKEDGRAPH_EDITS_EXCHANGE", "pychunkedgraph")
     c = MessagingClient()
     c.publish(exchange, payload, attributes)
 
