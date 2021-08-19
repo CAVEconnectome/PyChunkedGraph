@@ -18,5 +18,5 @@ def callback(payload):
 
 
 c = MessagingClient()
-remesh_topic = getenv("PYCHUNKEDGRAPH_REMESH_TOPIC", "test")
-c.consume(remesh_topic, callback)
+remesh_queue = getenv("PYCHUNKEDGRAPH_REMESH_QUEUE", "test")
+c.consume(remesh_queue, callback)
