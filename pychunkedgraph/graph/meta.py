@@ -224,6 +224,13 @@ class ChunkedGraphMeta:
                 },
             }
         )
+        mesh_dir = self.custom_data.get("mesh", {}).get("dir", None)
+        if mesh_dir is not None:
+            info.update(
+                {
+                    "mesh": mesh_dir
+                }
+            )
         return info
 
     def __getnewargs__(self):
