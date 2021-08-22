@@ -79,6 +79,10 @@ class ChunkedGraph:
     def cache(self):
         return self._cache_service
 
+    @property
+    def segmentation_resolution(self) -> np.ndarray:
+        return np.array(self.meta.ws_cv.scale["resolution"])
+
     @cache.setter
     def cache(self, cache_service: CacheService):
         self._cache_service = cache_service

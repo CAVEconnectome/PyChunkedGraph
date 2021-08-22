@@ -210,6 +210,7 @@ class ChunkedGraphMeta:
     @property
     def dataset_info(self) -> Dict:
         info = self.ws_cv.info  # pylint: disable=no-member
+
         info.update(
             {
                 "chunks_start_at_voxel_offset": True,
@@ -224,6 +225,13 @@ class ChunkedGraphMeta:
                 },
             }
         )
+        mesh_dir = self.custom_data.get("mesh", {}).get("dir", None)
+        if mesh_dir is not None:
+            info.update(
+                {
+                    "mesh": mesh_dir
+                }
+            )
         return info
 
     def __getnewargs__(self):
