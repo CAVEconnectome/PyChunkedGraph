@@ -154,6 +154,9 @@ class ChunkedGraph:
         :param max_dist_nm: max distance explored
         :return: supervoxel ids; returns None if no solution was found
         """
+        if self.get_chunk_layer(parent_id) == 1:
+            return np.array([parent_id] * len(coordinates), dtype=np.uint64)
+
         # Enable search with old parent by using its timestamp and map to parents
         parent_ts = self.get_node_timestamps([parent_id], return_numpy=False)[0]
         return id_helpers.get_atomic_ids_from_coords(
