@@ -1153,10 +1153,10 @@ class UndoOperation(GraphEditOperation):
             # in case we are undoing a partial split (with only one resulting root id)
             from .edges.utils import get_edges_status
             e, a = get_edges_status(self.inverse_superseded_operation.cg, self.inverse_superseded_operation.added_edges)
-            if sum(e) != len(self.inverse_superseded_operation.added_edges) or sum(a) != 0:
-                raise PreconditionError(
-                    f"All edges must exist and be inactive."
-                )
+            if np.any(~e): 
+                raise PreconditionError(f"All edges must exist.")
+            if np.all(a):
+                raise PreconditionError(f"At least one edge must be inactive.")
             with TimeIt("edits.add_edges"):
                 return edits.add_edges(
                     self.inverse_superseded_operation.cg,
