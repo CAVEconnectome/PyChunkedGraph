@@ -1150,13 +1150,6 @@ class UndoOperation(GraphEditOperation):
         self, *, operation_id, timestamp
     ) -> Tuple[np.ndarray, np.ndarray, List["bigtable.row.Row"]]:
         if isinstance(self.inverse_superseded_operation, MergeOperation):
-            # in case we are undoing a partial split (with only one resulting root id)
-            from .edges.utils import get_edges_status
-            e, a = get_edges_status(self.inverse_superseded_operation.cg, self.inverse_superseded_operation.added_edges)
-            if sum(e) != len(self.inverse_superseded_operation.added_edges) or sum(a) != 0:
-                raise PreconditionError(
-                    f"All edges must exist and be inactive."
-                )
             with TimeIt("edits.add_edges"):
                 return edits.add_edges(
                     self.inverse_superseded_operation.cg,
@@ -1217,5 +1210,28 @@ class UndoOperation(GraphEditOperation):
                 new_root_ids=types.empty_1d,
                 new_lvl2_ids=types.empty_1d,
             )
+        if isinstance(self.inverse_superseded_operation, MergeOperation):
+            # in case we are undoing a partial split (with only one resulting root id)
+            from .edges.utils import get_edges_status
+            e, a = get_edges_status(self.inverse_superseded_operation.cg, self.inverse_superseded_operation.added_edges)
+            if np.any(~e):
+                raise PreconditionError(f"All edges must exist.")
+            if np.all(a):
+                return GraphEditOperation.Result(
+                    operation_id=operation_id,
+                    new_root_ids=types.empty_1d,
+                    new_lvl2_ids=types.empty_1d,
+                )
+        if isinstance(self.inverse_superseded_operation, SplitOperation):
+            from .edges.utils import get_edges_status
+            e, a = get_edges_status(self.inverse_superseded_operation.cg, self.inverse_superseded_operation.removed_edges)
+            if np.any(~e):
+                raise PreconditionError(f"All edges must exist.")
+            if np.all(~a):
+                return GraphEditOperation.Result(
+                    operation_id=operation_id,
+                    new_root_ids=types.empty_1d,
+                    new_lvl2_ids=types.empty_1d,
+                )
         return super().execute(operation_id=operation_id,
             parent_ts=parent_ts, override_ts=override_ts)
