@@ -1222,5 +1222,16 @@ class UndoOperation(GraphEditOperation):
                     new_root_ids=types.empty_1d,
                     new_lvl2_ids=types.empty_1d,
                 )
+        if isinstance(self.inverse_superseded_operation, SplitOperation):
+            from .edges.utils import get_edges_status
+            e, a = get_edges_status(self.inverse_superseded_operation.cg, self.inverse_superseded_operation.removed_edges)
+            if np.any(~e):
+                raise PreconditionError(f"All edges must exist.")
+            if np.all(~a):
+                return GraphEditOperation.Result(
+                    operation_id=operation_id,
+                    new_root_ids=types.empty_1d,
+                    new_lvl2_ids=types.empty_1d,
+                )
         return super().execute(operation_id=operation_id,
             parent_ts=parent_ts, override_ts=override_ts)
