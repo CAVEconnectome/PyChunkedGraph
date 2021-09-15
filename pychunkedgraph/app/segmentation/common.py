@@ -846,7 +846,7 @@ def tabular_change_log_recent(table_id):
     )
 
 
-def tabular_change_logs(table_id, root_ids, filtered=False):
+def tabular_change_logs(table_id, root_ids, filtered=False, undo_info=False):
     current_app.request_type = "tabular_changelog_many"
 
     current_app.table_id = table_id
@@ -863,6 +863,52 @@ def tabular_change_logs(table_id, root_ids, filtered=False):
         tab = history.tabular_changelogs_filtered
     else:
         tab = history.tabular_changelogs
+    
+    if undo_info:
+        undone_ids = np.empty((0, 2), dtype=np.uint64)
+        undo_ids = np.empty((0, 1), dtype=np.uint64)
+        redo_ids = np.empty((0, 1), dtype=np.uint64)
+        log_rows = cg.client.read_log_entries()
+
+        entry_ids = np.sort(list(log_rows.keys()))
+        for entry_id in entry_ids:
+            entry = log_rows[entry_id]
+
+            should_check = (
+                not OperationLogs.Status in entry
+                or entry[OperationLogs.Status] == OperationLogs.StatusCodes.SUCCESS.value
+            )
+            if should_check:
+                # if it is an undo of another operation, mark it as undone
+                if OperationLogs.UndoOperationID in entry:
+                    undone_id = entry[OperationLogs.UndoOperationID]
+                    undone_ids = np.append(undone_ids, np.array([[undone_id, entry_id]]), axis=0)
+                    undo_ids = np.append(undo_ids, entry_id)
+
+                # if it is a redo of another operation, unmark it as undone
+                if OperationLogs.RedoOperationID in entry:
+                    redone_id = entry[OperationLogs.RedoOperationID]
+                    undone_ids = undone_ids[undone_ids[:, 0] != redone_id]
+                    redo_ids = np.append(redo_ids, entry_id)
+        
+        for tab_k in tab.keys():
+            operation_ids = tab[tab_k]["operation_id"]
+            def get_is_undo(id):
+                if id in undo_ids:
+                    return "undo"
+                if id in redo_ids:
+                    return "redo"
+                return ""
+            is_undo = np.array(list(map(get_is_undo, operation_ids)))
+            tab[tab_k]["is_undo"] = is_undo
+            def get_undone_by(id):
+                row = undone_ids[np.where(undone_ids[:, 0] == id)]
+                if len(row) > 0:
+                    return row[0][1]
+                return None
+            undone_by = np.array(list(map(get_undone_by, operation_ids)))
+            tab[tab_k]["undone_by"] = undone_by
+
     all_user_ids = []
     for tab_k in tab.keys():
         all_user_ids.extend(np.array(tab[tab_k]["user_id"]).reshape(-1))

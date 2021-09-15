@@ -406,7 +406,8 @@ def tabular_change_log(table_id, root_id):
     disp = request.args.get("disp", default=False, type=toboolean)
     get_root_ids = request.args.get("root_ids", default=False, type=toboolean)
     filtered = request.args.get("filtered", default=True, type=toboolean)
-    tab_change_log_dict = common.tabular_change_logs(table_id, [int(root_id)], filtered)
+    undo_info = request.args.get("undo_info", default=False, type=toboolean)
+    tab_change_log_dict = common.tabular_change_logs(table_id, [int(root_id)], filtered, undo_info)
     tab_change_log = tab_change_log_dict[int(root_id)]
     if disp:
         return tab_change_log.to_html()
@@ -420,8 +421,9 @@ def tabular_change_log_many(table_id):
     import numpy as np
 
     filtered = request.args.get("filtered", default=True, type=toboolean)
+    undo_info = request.args.get("undo_info", default=False, type=toboolean)
     root_ids = np.array(json.loads(request.data)["root_ids"], dtype=np.uint64)
-    tab_change_log_dict = common.tabular_change_logs(table_id, root_ids, filtered)
+    tab_change_log_dict = common.tabular_change_logs(table_id, root_ids, filtered, undo_info)
 
     return jsonify_with_kwargs(
         {str(k): tab_change_log_dict[k] for k in tab_change_log_dict.keys()}
