@@ -905,7 +905,7 @@ def tabular_change_logs(table_id, root_ids, filtered=False, undo_info=False):
                 row = undone_ids[np.where(undone_ids[:, 0] == id)]
                 if len(row) > 0:
                     return row[0][1]
-                return None
+                return ""
             undone_by = np.array(list(map(get_undone_by, operation_ids)))
             tab[tab_k]["undone_by"] = undone_by
 
