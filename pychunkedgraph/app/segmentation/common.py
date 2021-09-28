@@ -335,15 +335,17 @@ def str2bool(v):
     return v.lower() in ("yes", "true", "t", "1")
 
 
-def trigger_remesh(table_id, new_lvl2_ids, is_priority=True):
-    auth_header = {"Authorization": f"Bearer {current_app.config['AUTH_TOKEN']}"}
-    resp = requests.post(
-        f"{current_app.config['MESHING_ENDPOINT']}/api/v1/table/{table_id}/remeshing",
-        data=json.dumps({"new_lvl2_ids": new_lvl2_ids}, cls=current_app.json_encoder),
-        params={"priority": is_priority},
-        headers=auth_header,
-    )
-    resp.raise_for_status()
+def publish_edit(table_id, new_lvl2_ids, is_priority=True):
+    from messagingclient import MessagingClient
+
+    payload = np.array(new_lvl2_ids, dtype=np.uint64).tobytes()
+    attributes = {
+        "table_id": table_id,
+    }
+
+    exchange = os.getenv("PYCHUNKEDGRAPH_EDITS_EXCHANGE", "pychunkedgraph")
+    c = MessagingClient()
+    c.publish(exchange, payload, attributes)
 
 
 ### MERGE ----------------------------------------------------------------------
@@ -402,7 +404,7 @@ def handle_merge(table_id, allow_same_segment_merge=False):
     current_app.logger.debug(("lvl2_nodes:", ret.new_lvl2_ids))
 
     if len(ret.new_lvl2_ids) > 0:
-        trigger_remesh(table_id, ret.new_lvl2_ids, is_priority=is_priority)
+        publish_edit(table_id, ret.new_lvl2_ids, is_priority=is_priority)
 
     return ret
 
@@ -468,7 +470,7 @@ def handle_split(table_id):
     current_app.logger.debug(("lvl2_nodes:", ret.new_lvl2_ids))
 
     if len(ret.new_lvl2_ids) > 0:
-        trigger_remesh(table_id, ret.new_lvl2_ids, is_priority=is_priority)
+        publish_edit(table_id, ret.new_lvl2_ids, is_priority=is_priority)
 
     return ret
 
@@ -501,7 +503,7 @@ def handle_undo(table_id):
     current_app.logger.debug(("lvl2_nodes:", ret.new_lvl2_ids))
 
     if ret.new_lvl2_ids.size > 0:
-        trigger_remesh(table_id, ret.new_lvl2_ids, is_priority=is_priority)
+        publish_edit(table_id, ret.new_lvl2_ids, is_priority=is_priority)
 
     return ret
 
@@ -534,7 +536,7 @@ def handle_redo(table_id):
     current_app.logger.debug(("lvl2_nodes:", ret.new_lvl2_ids))
 
     if ret.new_lvl2_ids.size > 0:
-        trigger_remesh(table_id, ret.new_lvl2_ids, is_priority=is_priority)
+        publish_edit(table_id, ret.new_lvl2_ids, is_priority=is_priority)
 
     return ret
 
@@ -569,7 +571,7 @@ def handle_rollback(table_id):
             raise cg_exceptions.BadRequest(str(e))
 
         if ret.new_lvl2_ids.size > 0:
-            trigger_remesh(table_id, ret.new_lvl2_ids, is_priority=False)
+            publish_edit(table_id, ret.new_lvl2_ids, is_priority=is_priority)
 
     return user_operations
 
