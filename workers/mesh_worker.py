@@ -26,7 +26,7 @@ def callback(payload):
     err = (mesh_data["max_error"],)
 
     logging.basicConfig(level=logging.INFO)
-    logging.info(f"Remeshing {new_lvl2_ids.size} L2 IDs in graph: {table_id}")
+    logging.info(f"Remeshing {new_lvl2_ids.size} L2 IDs in graph {table_id}")
     logging.info(f"stop_layer={layer}, mip={mip}, max_err={err}")
     logging.info(f"mesh_dir={mesh_dir}, unsharded_mesh_path={unsharded_mesh_path}")
     meshgen.remeshing(
@@ -38,6 +38,7 @@ def callback(payload):
         cv_sharded_mesh_dir=mesh_dir,
         cv_unsharded_mesh_path=unsharded_mesh_path,
     )
+    logging.info("Remeshing complete.")
 
 
 c = MessagingClient()
