@@ -5,6 +5,7 @@ from messagingclient import MessagingClient
 
 
 def callback(payload):
+    import gc
     import logging
     import numpy as np
     from pychunkedgraph.graph import ChunkedGraph
@@ -39,6 +40,7 @@ def callback(payload):
         cv_unsharded_mesh_path=unsharded_mesh_path,
     )
     logging.info("Remeshing complete.")
+    gc.collect()
 
 
 c = MessagingClient()
