@@ -21,9 +21,9 @@ def callback(payload):
     )
 
     mesh_data = cg.meta.custom_data["mesh"]
-    layer = (mesh_data["max_layer"],)
-    mip = (mesh_data["mip"],)
-    err = (mesh_data["max_error"],)
+    layer = mesh_data["max_layer"]
+    mip = mesh_data["mip"]
+    err = mesh_data["max_error"]
 
     logging.basicConfig(level=logging.INFO)
     logging.info(f"Remeshing {new_lvl2_ids.size} L2 IDs in graph {table_id}")
