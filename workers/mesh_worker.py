@@ -11,35 +11,43 @@ def callback(payload):
     from pychunkedgraph.graph import ChunkedGraph
     from pychunkedgraph.meshing import meshgen
 
-    new_lvl2_ids = np.frombuffer(payload.data, dtype=np.uint64)
+    lvl2_ids = np.frombuffer(payload.data, dtype=np.uint64)
     table_id = payload.attributes["table_id"]
 
     cg = ChunkedGraph(graph_id=table_id)
     mesh_dir = cg.meta.dataset_info["mesh"]
     cv_unsharded_mesh_dir = cg.meta.dataset_info["mesh_metadata"]["unsharded_mesh_dir"]
-    unsharded_mesh_path = path.join(
+    mesh_path = path.join(
         cg.meta.data_source.WATERSHED, mesh_dir, cv_unsharded_mesh_dir
     )
 
-    mesh_data = cg.meta.custom_data["mesh"]
-    layer = mesh_data["max_layer"]
-    mip = mesh_data["mip"]
-    err = mesh_data["max_error"]
+    try:
+        mesh_data = cg.meta.custom_data["mesh"]
+        layer = mesh_data["max_layer"]
+        mip = mesh_data["mip"]
+        err = mesh_data["max_error"]
+    except KeyError:
+        return
 
-    logging.basicConfig(level=logging.INFO)
-    logging.info(f"Remeshing {new_lvl2_ids.size} L2 IDs in graph {table_id}")
-    logging.info(f"stop_layer={layer}, mip={mip}, max_err={err}")
-    logging.info(f"mesh_dir={mesh_dir}, unsharded_mesh_path={unsharded_mesh_path}")
+    INFO_PRIORITY = 25
+    logging.basicConfig(
+        level=INFO_PRIORITY,
+        format="%(asctime)s %(message)s",
+        datefmt="%m/%d/%Y %I:%M:%S %p",
+    )
+    logging.log(INFO_PRIORITY, f"Remeshing {lvl2_ids.size} L2 IDs in graph {table_id}")
+    logging.log(INFO_PRIORITY, f"stop_layer={layer}, mip={mip}, max_err={err}")
+    logging.log(INFO_PRIORITY, f"mesh_dir={mesh_dir}, unsharded_mesh_path={mesh_path}")
     meshgen.remeshing(
         cg,
-        new_lvl2_ids,
+        lvl2_ids,
         stop_layer=layer,
         mip=mip,
         max_err=err,
         cv_sharded_mesh_dir=mesh_dir,
-        cv_unsharded_mesh_path=unsharded_mesh_path,
+        cv_unsharded_mesh_path=mesh_path,
     )
-    logging.info("Remeshing complete.")
+    logging.log(INFO_PRIORITY, "Remeshing complete.")
     gc.collect()
 
 
