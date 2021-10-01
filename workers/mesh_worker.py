@@ -21,10 +21,13 @@ def callback(payload):
         cg.meta.data_source.WATERSHED, mesh_dir, cv_unsharded_mesh_dir
     )
 
-    mesh_data = cg.meta.custom_data["mesh"]
-    layer = mesh_data["max_layer"]
-    mip = mesh_data["mip"]
-    err = mesh_data["max_error"]
+    try:
+        mesh_data = cg.meta.custom_data["mesh"]
+        layer = mesh_data["max_layer"]
+        mip = mesh_data["mip"]
+        err = mesh_data["max_error"]
+    except KeyError:
+        return
 
     logging.basicConfig(level=logging.INFO)
     logging.info(f"Remeshing {new_lvl2_ids.size} L2 IDs in graph {table_id}")
