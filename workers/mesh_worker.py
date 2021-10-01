@@ -4,6 +4,7 @@ from messagingclient import MessagingClient
 
 
 def callback(payload):
+    import gc
     import logging
     import numpy as np
     from pychunkedgraph.backend.chunkedgraph import ChunkedGraph
@@ -22,6 +23,7 @@ def callback(payload):
     cg = ChunkedGraph(table_id)
     meshgen.remeshing(cg, new_lvl2_ids, stop_layer=layer, mip=mip, max_err=err)
     logging.info("Remeshing complete.")
+    gc.collect()
 
 
 c = MessagingClient()

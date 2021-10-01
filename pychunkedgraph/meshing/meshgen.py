@@ -239,7 +239,7 @@ def get_remapped_seg_for_lvl2_nodes(
     return seg
 
 
-@lru_cache(maxsize=None)
+@lru_cache(maxsize=32)
 def get_higher_to_lower_remapping(cg, chunk_id, time_stamp):
     """ Retrieves lx node id to sv id mappping
 
@@ -294,7 +294,7 @@ def get_higher_to_lower_remapping(cg, chunk_id, time_stamp):
     return lx_remapping
 
 
-@lru_cache(maxsize=None)
+@lru_cache(maxsize=32)
 def get_root_lx_remapping(cg, chunk_id, stop_layer, time_stamp, n_threads=1):
     """ Retrieves root to l2 node id mapping
 
