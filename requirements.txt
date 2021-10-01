@@ -3,7 +3,7 @@ requests>=2.25.0
 grpcio>=1.36.1
 certifi>=2020.12.5
 pyopenssl
-cloud-volume
+cloud-volume>=5.3.1
 numpy
 pandas
 networkx==2.1
@@ -23,4 +23,3 @@ zmesh
 fastremap
 contact-points
 git+https://github.com/seung-lab/messaging-client.git@main
-jsonschema<4.0
