@@ -551,6 +551,9 @@ def handle_rollback(table_id):
     current_app.user_id = user_id
     target_user_id = request.args["user_id"]
 
+    is_priority = request.args.get("priority", True, type=str2bool)
+    skip_operation_ids = np.array(json.loads(request.args.get("skip_operation_ids", "[]")), dtype=np.uint64)
+
     # Call ChunkedGraph
     cg = app_utils.get_cg(table_id)
     user_operations = all_user_operations(table_id)
@@ -561,6 +564,8 @@ def handle_rollback(table_id):
 
     for operation in operations:
         operation_id = operation[0]
+        if operation_id in skip_operation_ids:
+            continue
         try:
             ret = cg.undo_operation(user_id=target_user_id, operation_id=operation_id)
         except cg_exceptions.LockingError as e:
