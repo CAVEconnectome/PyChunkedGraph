@@ -23,5 +23,5 @@ fastremap
 pyyaml
 cachetools
 task-queue==1.0.0
-git+https://github.com/seung-lab/messaging-client.git@main
+messagingclient
 jsonschema<4.0
