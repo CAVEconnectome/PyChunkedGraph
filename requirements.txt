@@ -22,5 +22,5 @@ dracopy
 zmesh
 fastremap
 contact-points
-git+https://github.com/seung-lab/messaging-client.git@main
+messagingclient
 jsonschema<4.0
