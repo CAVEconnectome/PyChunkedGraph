@@ -584,13 +584,17 @@ def handle_rollback(table_id):
 ### USER OPERATIONS -------------------------------------------------------------
 
 
-def all_user_operations(table_id, include_undone=False):
+def all_user_operations(table_id, include_undone=False, include_partial_splits=True, include_errored=True):
     # Gets all operations by the user.
     # If include_undone is false, it filters to operations that are not undone.
     # If the operation has been undone by anyone, it won't be returned here,
     # unless it has been redone by anyone (and hasn't been undone again, etc.).
     # The original user is considered to have "ownership" of the original edit,
     # and that does not change even if someone else undoes/redoes that edit later.
+    # If include_partial_splits is false, it will not include splits that result
+    # in a single root ID (and so had no effect).
+    # If include_errored is false, it will not include operations that failed with
+    # an error.
     current_app.table_id = table_id
     user_id = str(g.auth_user["id"])
     current_app.user_id = user_id
@@ -612,15 +616,22 @@ def all_user_operations(table_id, include_undone=False):
         entry = log_rows[entry_id]
         user_id = entry[OperationLogs.UserID]
 
-        if user_id == target_user_id:
-            valid_entry_ids.append(entry_id)
-            timestamp = entry["timestamp"]
-            timestamp_list.append(timestamp)
-
         should_check = (
             not OperationLogs.Status in entry
             or entry[OperationLogs.Status] == OperationLogs.StatusCodes.SUCCESS.value
         )
+
+        split_valid = include_partial_splits or (OperationLogs.AddedEdge in entry) or \
+            (not OperationLogs.RootID in entry) or (len(entry[OperationLogs.RootID]) > 1)
+        if not split_valid:
+            print("excluding partial split", entry_id)
+        error_valid = include_errored or should_check
+        if not error_valid:
+            print("excluding errored", entry_id)
+        if user_id == target_user_id and split_valid and error_valid:
+            valid_entry_ids.append(entry_id)
+            timestamp = entry["timestamp"]
+            timestamp_list.append(timestamp)
 
         if should_check:
             # if it is an undo of another operation, mark it as undone
