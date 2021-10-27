@@ -345,8 +345,10 @@ def publish_edit(table_id, new_lvl2_ids, is_priority=True):
     if is_priority:
         exchange = os.getenv("PYCHUNKEDGRAPH_EDITS_EXCHANGE", "pychunkedgraph")
     else:
-        exchange = os.genenv("PYCHUNKEDGRAPH_EDITS_LOW_PRIORITY_EXCHANGE", "pychunkedgraph")
-        
+        exchange = os.getenv(
+            "PYCHUNKEDGRAPH_EDITS_LOW_PRIORITY_EXCHANGE", "pychunkedgraph"
+        )
+
     c = MessagingClient()
     c.publish(exchange, payload, attributes)
 
@@ -555,7 +557,9 @@ def handle_rollback(table_id):
     target_user_id = request.args["user_id"]
 
     is_priority = request.args.get("priority", True, type=str2bool)
-    skip_operation_ids = np.array(json.loads(request.args.get("skip_operation_ids", "[]")), dtype=np.uint64)
+    skip_operation_ids = np.array(
+        json.loads(request.args.get("skip_operation_ids", "[]")), dtype=np.uint64
+    )
 
     # Call ChunkedGraph
     cg = app_utils.get_cg(table_id)
@@ -587,7 +591,9 @@ def handle_rollback(table_id):
 ### USER OPERATIONS -------------------------------------------------------------
 
 
-def all_user_operations(table_id, include_undone=False, include_partial_splits=True, include_errored=True):
+def all_user_operations(
+    table_id, include_undone=False, include_partial_splits=True, include_errored=True
+):
     # Gets all operations by the user.
     # If include_undone is false, it filters to operations that are not undone.
     # If the operation has been undone by anyone, it won't be returned here,
@@ -624,8 +630,12 @@ def all_user_operations(table_id, include_undone=False, include_partial_splits=T
             or entry[OperationLogs.Status] == OperationLogs.StatusCodes.SUCCESS.value
         )
 
-        split_valid = include_partial_splits or (OperationLogs.AddedEdge in entry) or \
-            (not OperationLogs.RootID in entry) or (len(entry[OperationLogs.RootID]) > 1)
+        split_valid = (
+            include_partial_splits
+            or (OperationLogs.AddedEdge in entry)
+            or (not OperationLogs.RootID in entry)
+            or (len(entry[OperationLogs.RootID]) > 1)
+        )
         if not split_valid:
             print("excluding partial split", entry_id)
         error_valid = include_errored or should_check
