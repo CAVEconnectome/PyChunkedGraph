@@ -5,13 +5,16 @@ from pychunkedgraph.backend import flatgraph_utils
 from pychunkedgraph.meshing import meshgen, meshgen_utils
 from cloudvolume import Storage
 
+
 def get_lvl2_edge_list(cg, node_id: np.uint64):
     """get an edge list of lvl2 ids for a particular node
 
     :param cg: ChunkedGraph object
     :param node_id: np.uint64 that you want the edge list for
     """
-        
+
+    from ..backend.utils import basetypes
+
     lvl2_ids = cg.get_children_at_layer(node_id, 2)
     cce_dict = cg.read_cross_chunk_edges_for_nodes(
         lvl2_ids, start_layer=2, end_layer=cg.get_chunk_layer(node_id)
@@ -19,10 +22,12 @@ def get_lvl2_edge_list(cg, node_id: np.uint64):
 
     # Gather all of the supervoxel ids into two lists, we will map them to
     # their parent lvl2 ids
-    edge_array = np.concatenate(list(cce_dict.values()))
-    known_supervoxels_list = []
-    known_l2_list = []
-    unknown_supervoxel_list = []
+    empty_1d = np.empty(0, dtype=basetypes.NODE_ID)
+    empty_2d = np.empty((0, 2), dtype=basetypes.NODE_ID)
+    edge_array = np.concatenate([empty_2d] + list(cce_dict.values()))
+    known_supervoxels_list = [empty_1d]
+    known_l2_list = [empty_1d]
+    unknown_supervoxel_list = [empty_1d]
     for lvl2_id in cce_dict:
         known_supervoxels_for_lv2_id = cce_dict[lvl2_id][:, 0]
         unknown_supervoxels_for_lv2_id = cce_dict[lvl2_id][:, 1]
@@ -52,7 +57,8 @@ def get_lvl2_edge_list(cg, node_id: np.uint64):
     edge_view = edge_array.view()
     edge_view.shape = -1
     fastremap.remap_from_array_kv(edge_view, known_supervoxel_array, known_l2_array)
-    return np.unique(np.sort(edge_array,axis=1),axis=0)
+    return np.unique(np.sort(edge_array, axis=1), axis=0)
+
 
 def find_l2_shortest_path(cg, source_l2_id: np.uint64, target_l2_id: np.uint64):
     """
@@ -69,7 +75,7 @@ def find_l2_shortest_path(cg, source_l2_id: np.uint64, target_l2_id: np.uint64):
     shared_parent_id = cg.get_first_shared_parent(source_l2_id, target_l2_id)
     if shared_parent_id is None:
         return None
-    
+
     edge_array = get_lvl2_edge_list(cg, shared_parent_id)
     # Create a graph-tool graph of the mapped cross-chunk-edges
     weighted_graph, _, _, graph_indexed_l2_ids = flatgraph_utils.build_gt_graph(
