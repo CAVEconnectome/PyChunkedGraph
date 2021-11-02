@@ -576,7 +576,7 @@ def handle_rollback(table_id):
             raise cg_exceptions.BadRequest(str(e))
 
         if ret.new_lvl2_ids.size > 0:
-            publish_edit(table_id, user_id, ret, is_priority=is_priority)
+            publish_edit(table_id, user_id, ret, is_priority=False)
 
     return user_operations
 
