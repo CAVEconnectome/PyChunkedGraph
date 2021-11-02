@@ -19,7 +19,6 @@ jobs:
 
       - name: Build image and run tests
         run: |
-          GIT_HASH=$(git rev-parse --short "$GITHUB_SHA")
-          docker build --tag seunglab/pychunkedgraph:$GIT_HASH . || travis_terminate 1
-          docker run $ci_env --rm seunglab/pychunkedgraph:$GIT_HASH /bin/sh -c "tox -v -- --cov-config .coveragerc --cov=pychunkedgraph && codecov"
+          docker build --tag seunglab/pychunkedgraph:$GITHUB_SHA . || travis_terminate 1
+          docker run $ci_env --rm seunglab/pychunkedgraph:$GITHUB_SHA /bin/sh -c "tox -v -- --cov-config .coveragerc --cov=pychunkedgraph && codecov"
     
