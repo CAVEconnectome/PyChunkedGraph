@@ -27,7 +27,6 @@ ingest_cli = AppGroup("ingest")
 @click.argument("graph_id", type=str)
 @click.argument("dataset", type=click.Path(exists=True))
 @click.option("--raw", is_flag=True)
-@click.option("--overwrite", is_flag=True, help="Overwrite existing graph")
 @click.option("--test", is_flag=True)
 def ingest_graph(
     graph_id: str, dataset: click.Path, overwrite: bool, raw: bool, test: bool
@@ -43,9 +42,11 @@ def ingest_graph(
             print(exc)
 
     meta, ingest_config, client_info = bootstrap(
-        graph_id, config=config, overwrite=overwrite, raw=raw, test_run=test,
+        graph_id,
+        config=config,
+        raw=raw,
+        test_run=test,
     )
-    # TODO overwrite -  deleting and creating new table immediately causes problems
     cg = ChunkedGraph(meta=meta, client_info=client_info)
     cg.create()
     enqueue_atomic_tasks(IngestionManager(ingest_config, meta))
@@ -92,7 +93,7 @@ def ingest_chunk(graph_id: str, chunk_info, single: bool):
     # )
     # imanager.redis.hdel(parent_layer, parent_chunk_str)
     # imanager.redis.hset(f"{parent_layer}q", parent_chunk_str, "")
-    from .initialization.abstract_layers import add_layer
+    from .initial.abstract_layers import add_layer
 
     cg = ChunkedGraph(graph_id=graph_id)
 
@@ -123,7 +124,11 @@ def queue_parent(chunk_info):
         job_id=chunk_id_str(parent_layer, parent_coords),
         job_timeout=f"{int(parent_layer * parent_layer)}m",
         result_ttl=0,
-        args=(imanager.serialized(pickled=True), parent_layer, parent_coords,),
+        args=(
+            imanager.serialized(pickled=True),
+            parent_layer,
+            parent_coords,
+        ),
     )
     imanager.redis.hdel(parent_layer, parent_chunk_str)
     imanager.redis.hset(f"{parent_layer}q", parent_chunk_str, "")
@@ -153,7 +158,11 @@ def queue_children(chunk_info):
             job_id=chunk_id_str(children_layer, coords),
             job_timeout=f"{int(children_layer * children_layer)}m",
             result_ttl=0,
-            args=(imanager.serialized(pickled=True), children_layer, coords,),
+            args=(
+                imanager.serialized(pickled=True),
+                children_layer,
+                coords,
+            ),
         )
 
 
@@ -182,7 +191,11 @@ def queue_layer(parent_layer):
             job_id=chunk_id_str(parent_layer, coords),
             job_timeout=f"{int(parent_layer * parent_layer)}m",
             result_ttl=0,
-            args=(imanager.serialized(pickled=True), parent_layer, coords,),
+            args=(
+                imanager.serialized(pickled=True),
+                parent_layer,
+                coords,
+            ),
         )
 
 
