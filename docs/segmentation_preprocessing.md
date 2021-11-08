@@ -25,9 +25,17 @@ After determining the bounding box one can extract the necessary number of bits 
 
 Lastly, each supervoxel within a chunk is assigned an ID that is unique among all supervoxels _within_ the same chunk. This ID can be assigned at random but we recommend assigning IDs from a sequential ID space starting at 0. 
 
-## Storing supervoxel edges
+## Storing supervoxel edges and components
 
 There are three types of edges:
-1. edges between supervoxels within a chunk
-2. edges between supervoxels across chunks
-3. edges between parts of "the same" supervoxel in the unchunked segmentation that has been split across chunk boundary 
+1. `in_chunk`: edges between supervoxels within a chunk
+2. `cross_chunk`: edges between parts of "the same" supervoxel in the unchunked segmentation that has been split across chunk boundary 
+3. `between_chunk`: edges between supervoxels across chunks
+
+Every pair of touching supervoxels has an edge between them. All edges are stored using [protobuf](https://github.com/seung-lab/PyChunkedGraph/blob/pcgv2/pychunkedgraph/io/protobuf/chunkEdges.proto). During ingest only edges of type 2.and 3. are copied into BigTable, whereas edges of type 1. are always read from storage to reduce cost. Similar to the supervoxel segmentation, we recommed storing these on GCloud in the same zone the ChunkedGraph server will be deployed in to reduce latency. 
+
+To denote which edges form a connected component within a chunk, a component mapping needs to be created. This mapping is only used during ingest. 
+
+More details on how to create these protobuf files can be found [here](https://github.com/seung-lab/PyChunkedGraph/blob/pcgv2/docs/storage.md).
+
+
