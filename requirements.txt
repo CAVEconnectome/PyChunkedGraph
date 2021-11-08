@@ -23,5 +23,5 @@ fastremap
 pyyaml
 cachetools
 task-queue==1.0.0
-messagingclient
+messagingclient>=0.1.2
 jsonschema<4.0
