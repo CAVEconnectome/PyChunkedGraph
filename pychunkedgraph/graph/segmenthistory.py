@@ -7,6 +7,7 @@ import fastremap
 from networkx.algorithms.dag import ancestors as nx_ancestors
 
 from .attributes import OperationLogs
+from .utils import basetypes
 
 
 class SegmentHistory:
@@ -210,8 +211,6 @@ class SegmentHistory:
             n_splits = 0
             n_mergers = 0
             n_edits = 0
-            past_ids = []
-            operation_ids = []
             user_dict = collections.defaultdict(collections.Counter)
             for user_id in u_user_ids:
                 m = user_ids == user_id
@@ -224,10 +223,13 @@ class SegmentHistory:
                 n_splits += n_user_splits
                 n_mergers += n_user_mergers
                 n_edits += n_user_edits
-                past_ids.extend(
-                    np.concatenate(np.array(tabular_changelog["before_root_ids"]))
-                )
-                operation_ids.extend(np.array(tabular_changelog["operation_id"]))
+
+            past_ids = np.array(
+                tabular_changelog["before_root_ids"], dtype=basetypes.NODE_ID
+            )
+            operation_ids = np.array(
+                tabular_changelog["operation_id"], dtype=basetypes.NODE_ID
+            )
 
         return {
             "n_splits": n_splits,
