@@ -6,13 +6,13 @@ from messagingclient import MessagingClient
 def callback(payload):
     import gc
     import logging
+    import pickle
     import numpy as np
-    from json import loads
     from pychunkedgraph.backend.chunkedgraph import ChunkedGraph
     from pychunkedgraph.backend.chunkedgraph_utils import basetypes
     from pychunkedgraph.meshing import meshgen
 
-    data = loads(payload.data)
+    data = pickle.loads(payload.data)
     new_lvl2_ids = np.array(data["new_lvl2_ids"], dtype=basetypes.NODE_ID)
 
     table_id = payload.attributes["table_id"]

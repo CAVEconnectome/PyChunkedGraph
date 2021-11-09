@@ -307,6 +307,7 @@ def str2bool(v):
 def publish_edit(
     table_id: str, user_id: str, result: GraphEditOperation.Result, is_priority=True
 ):
+    import pickle
     from os import getenv
     from messagingclient import MessagingClient
 
@@ -323,7 +324,7 @@ def publish_edit(
 
     exchange = os.getenv("PYCHUNKEDGRAPH_EDITS_EXCHANGE", "pychunkedgraph")
     c = MessagingClient()
-    c.publish(exchange, json.dumps(payload), attributes)
+    c.publish(exchange, pickle.dumps(payload), attributes)
 
 
 ### MERGE ----------------------------------------------------------------------
