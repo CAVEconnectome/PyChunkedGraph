@@ -8,7 +8,7 @@ import requests
 import os
 
 from pychunkedgraph.backend import lineage
-from pychunkedgraph.backend.utils import column_keys
+from pychunkedgraph.backend.utils import column_keys, basetypes
 from pychunkedgraph.backend import chunkedgraph_exceptions as cg_exceptions
 
 
@@ -238,10 +238,13 @@ class History:
                 n_splits += n_user_splits
                 n_mergers += n_user_mergers
                 n_edits += n_user_edits
-                past_ids.extend(
-                    np.concatenate(np.array(tabular_changelog["before_root_ids"]))
-                )
-                operation_ids.extend(np.array(tabular_changelog["operation_id"]))
+
+            past_ids = np.array(
+                tabular_changelog["before_root_ids"], dtype=basetypes.NODE_ID
+            )
+            operation_ids = np.array(
+                tabular_changelog["operation_id"], dtype=basetypes.NODE_ID
+            )
 
         return {
             "n_splits": n_splits,
