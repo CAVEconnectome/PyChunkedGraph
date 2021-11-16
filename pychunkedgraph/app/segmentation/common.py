@@ -314,7 +314,7 @@ def publish_edit(
     attributes = {
         "table_id": table_id,
         "user_id": user_id,
-        "remesh_priority": is_priority,
+        "remesh_priority": "true" if is_priority else "false",
     }
     payload = {
         "operation_id": int(result.operation_id),
