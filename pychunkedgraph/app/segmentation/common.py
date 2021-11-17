@@ -31,6 +31,7 @@ from pychunkedgraph.graph.attributes import OperationLogs
 from pychunkedgraph.meshing import mesh_analysis
 from pychunkedgraph.graph.misc import get_contact_sites
 from middle_auth_client import get_usernames
+from pychunkedgraph.backend.graphoperation import GraphEditOperation
 
 
 __api_versions__ = [0, 1]
@@ -335,24 +336,27 @@ def str2bool(v):
     return v.lower() in ("yes", "true", "t", "1")
 
 
-def publish_edit(table_id, new_lvl2_ids, is_priority=True):
+def publish_edit(
+    table_id: str, user_id: str, result: GraphEditOperation.Result, is_priority=True
+):
+    import pickle
+    from os import getenv
     from messagingclient import MessagingClient
 
-    payload = np.array(new_lvl2_ids, dtype=np.uint64).tobytes()
     attributes = {
         "table_id": table_id,
+        "user_id": user_id,
+        "remesh_priority": "true" if is_priority else "false",
     }
-    if is_priority:
-        exchange = os.getenv("PYCHUNKEDGRAPH_EDITS_EXCHANGE", "pychunkedgraph")
-    else:
-        exchange = os.getenv(
-            "PYCHUNKEDGRAPH_EDITS_LOW_PRIORITY_EXCHANGE",
-            os.getenv("PYCHUNKEDGRAPH_EDITS_EXCHANGE", "pychunkedgraph"),
-        )
+    payload = {
+        "operation_id": int(result.operation_id),
+        "new_lvl2_ids": result.new_lvl2_ids.tolist(),
+        "new_root_ids": result.new_root_ids.tolist(),
+    }
 
+    exchange = os.getenv("PYCHUNKEDGRAPH_EDITS_EXCHANGE", "pychunkedgraph")
     c = MessagingClient()
-    c.publish(exchange, payload, attributes)
-
+    c.publish(exchange, pickle.dumps(payload), attributes)
 
 ### MERGE ----------------------------------------------------------------------
 
@@ -410,7 +414,7 @@ def handle_merge(table_id, allow_same_segment_merge=False):
     current_app.logger.debug(("lvl2_nodes:", ret.new_lvl2_ids))
 
     if len(ret.new_lvl2_ids) > 0:
-        publish_edit(table_id, ret.new_lvl2_ids, is_priority=is_priority)
+        publish_edit(table_id, user_id, ret, is_priority=is_priority)
 
     return ret
 
@@ -476,7 +480,7 @@ def handle_split(table_id):
     current_app.logger.debug(("lvl2_nodes:", ret.new_lvl2_ids))
 
     if len(ret.new_lvl2_ids) > 0:
-        publish_edit(table_id, ret.new_lvl2_ids, is_priority=is_priority)
+        publish_edit(table_id, user_id, ret, is_priority=is_priority)
 
     return ret
 
@@ -509,7 +513,7 @@ def handle_undo(table_id):
     current_app.logger.debug(("lvl2_nodes:", ret.new_lvl2_ids))
 
     if ret.new_lvl2_ids.size > 0:
-        publish_edit(table_id, ret.new_lvl2_ids, is_priority=is_priority)
+        publish_edit(table_id, user_id, ret, is_priority=is_priority)
 
     return ret
 
@@ -542,7 +546,7 @@ def handle_redo(table_id):
     current_app.logger.debug(("lvl2_nodes:", ret.new_lvl2_ids))
 
     if ret.new_lvl2_ids.size > 0:
-        publish_edit(table_id, ret.new_lvl2_ids, is_priority=is_priority)
+        publish_edit(table_id, user_id, ret, is_priority=is_priority)
 
     return ret
 
@@ -584,7 +588,7 @@ def handle_rollback(table_id):
             raise cg_exceptions.BadRequest(str(e))
 
         if ret.new_lvl2_ids.size > 0:
-            publish_edit(table_id, ret.new_lvl2_ids, is_priority=is_priority)
+            publish_edit(table_id, user_id, ret, is_priority=is_priority)
 
     return user_operations
 
