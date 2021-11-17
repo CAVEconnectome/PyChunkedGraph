@@ -25,3 +25,4 @@ cachetools
 task-queue==1.0.0
 messagingclient
 jsonschema<4.0
+importlib-metadata>=4.5.0
