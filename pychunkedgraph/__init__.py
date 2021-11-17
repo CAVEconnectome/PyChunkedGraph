@@ -1,1 +1,1 @@
-__version__ = '2.1 - sleeping giant'
+__version__ = "2.0.0"
