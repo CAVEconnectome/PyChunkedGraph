@@ -10,6 +10,7 @@ def callback(payload):
     import logging
     import numpy as np
     from pychunkedgraph.graph import ChunkedGraph
+    from pychunkedgraph.graph.utils import basetypes
     from pychunkedgraph.meshing import meshgen
 
     data = pickle.loads(payload.data)
