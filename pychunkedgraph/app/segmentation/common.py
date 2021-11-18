@@ -31,7 +31,7 @@ from pychunkedgraph.graph.attributes import OperationLogs
 from pychunkedgraph.meshing import mesh_analysis
 from pychunkedgraph.graph.misc import get_contact_sites
 from middle_auth_client import get_usernames
-from pychunkedgraph.backend.graphoperation import GraphEditOperation
+from pychunkedgraph.graph.operation import GraphEditOperation
 
 
 __api_versions__ = [0, 1]
