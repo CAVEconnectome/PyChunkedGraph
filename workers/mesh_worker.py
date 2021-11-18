@@ -6,6 +6,7 @@ from messagingclient import MessagingClient
 
 def callback(payload):
     import gc
+    import pickle
     import logging
     import numpy as np
     from pychunkedgraph.graph import ChunkedGraph
