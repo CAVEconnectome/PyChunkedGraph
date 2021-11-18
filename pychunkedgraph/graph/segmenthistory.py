@@ -224,8 +224,8 @@ class SegmentHistory:
                 n_mergers += n_user_mergers
                 n_edits += n_user_edits
 
-            past_ids = np.array(
-                tabular_changelog["before_root_ids"], dtype=basetypes.NODE_ID
+            past_ids = np.concatenate(
+                list(tabular_changelog["before_root_ids"]), dtype=basetypes.NODE_ID
             )
             operation_ids = np.array(
                 tabular_changelog["operation_id"], dtype=basetypes.NODE_ID
