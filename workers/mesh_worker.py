@@ -11,7 +11,8 @@ def callback(payload):
     from pychunkedgraph.graph import ChunkedGraph
     from pychunkedgraph.meshing import meshgen
 
-    lvl2_ids = np.frombuffer(payload.data, dtype=np.uint64)
+    data = pickle.loads(payload.data)
+    lvl2_ids = np.array(data["new_lvl2_ids"], dtype=basetypes.NODE_ID)
     table_id = payload.attributes["table_id"]
 
     cg = ChunkedGraph(graph_id=table_id)
