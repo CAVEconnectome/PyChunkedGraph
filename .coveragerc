@@ -1,7 +1,6 @@
 # .coveragerc to control coverage.py
 [run]
 branch = True
-concurrency = "thread"
 source = pychunkedgraph
 omit =
     *test*
