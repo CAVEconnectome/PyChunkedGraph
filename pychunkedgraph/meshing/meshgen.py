@@ -37,20 +37,15 @@ WRITING_TO_CLOUD = True
 
 def decode_draco_mesh_buffer(fragment):
     try:
-        mesh_object = DracoPy.decode_buffer_to_mesh(fragment)
-        vertices = np.array(mesh_object.points)
-        faces = np.array(mesh_object.faces)
+        mesh_object = DracoPy.decode(fragment)
     except ValueError:
         raise ValueError("Not a valid draco mesh")
-
-    assert len(vertices) % 3 == 0, "Draco mesh vertices not 3-D"
-    num_vertices = len(vertices) // 3
 
     # For now, just return this dict until we figure out
     # how exactly to deal with Draco's lossiness/duplicate vertices
     return {
         "num_vertices": num_vertices,
-        "vertices": vertices.reshape(num_vertices, 3),
+        "vertices": vertices,
         "faces": faces,
         "encoding_options": mesh_object.encoding_options,
         "encoding_type": "draco",
