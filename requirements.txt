@@ -26,4 +26,4 @@ task-queue==1.0.0
 messagingclient
 jsonschema<4.0
 importlib-metadata>=4.5.0
-dracopy<=0.0.19
+dracopy==0.0.15
