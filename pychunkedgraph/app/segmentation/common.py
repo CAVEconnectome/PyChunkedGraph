@@ -788,7 +788,7 @@ def tabular_change_log_recent(table_id):
     current_app.user_id = user_id
 
     start_time = _parse_timestamp("start_time", 0, return_datetime=True)
-    end_time = None if request.args.get("end_time", None) is None else _parse_timestamp("timestamp_end", return_datetime=True)
+    end_time = None if request.args.get("end_time", None) is None else _parse_timestamp("end_time", return_datetime=True)
 
     # Call ChunkedGraph
     cg_instance = app_utils.get_cg(table_id)
