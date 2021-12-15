@@ -854,11 +854,12 @@ def tabular_change_log_recent(table_id):
     current_app.user_id = user_id
 
     start_time = _parse_timestamp("timestamp", 0, return_datetime=True)
+    end_time = None if request.args.get("timestamp_end", None) is None else _parse_timestamp("timestamp_end", return_datetime=True)
 
     # Call ChunkedGraph
     cg = app_utils.get_cg(table_id)
 
-    log_rows = cg.client.read_log_entries(start_time=start_time)
+    log_rows = cg.client.read_log_entries(start_time=start_time, end_time=end_time)
 
     timestamp_list = []
     user_list = []
