@@ -10,6 +10,21 @@ The PyChunkedGraph is a proofreading and segmentation data management backend po
 
 The ChunkedGraph is built on Google Cloud BigTable. A BigTable instance is required to use this ChunkedGraph implementation. 
 
+### Environmental Variables
+There are three environmental variables that need to be set
+to connect to a chunkgraph:
+
+> GOOGLE_APPLICATION_CREDENTIALS
+
+Location of the google-secret.json file.
+
+> BIGTABLE_PROJECT
+
+Name of the Google Cloud project name.
+
+> BIGTABLE_INSTANCE
+
+Name of the Bigtable Instance ID. (Default is 'pychunkedgraph')
 ### Ingest 
 
 `/ingest` provides examples for ingest scripts. The ingestion pipeline designed to use the output of the seunglab's agglomeration pipeline but can be adjusted to use alternative data sources. 
