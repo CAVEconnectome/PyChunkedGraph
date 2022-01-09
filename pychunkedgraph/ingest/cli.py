@@ -29,7 +29,7 @@ ingest_cli = AppGroup("ingest")
 @click.option("--raw", is_flag=True)
 @click.option("--test", is_flag=True)
 def ingest_graph(
-    graph_id: str, dataset: click.Path, overwrite: bool, raw: bool, test: bool
+    graph_id: str, dataset: click.Path, raw: bool, test: bool
 ):
     """
     Main ingest command
@@ -40,6 +40,7 @@ def ingest_graph(
             config = yaml.safe_load(stream)
         except yaml.YAMLError as exc:
             print(exc)
+            return
 
     meta, ingest_config, client_info = bootstrap(
         graph_id,

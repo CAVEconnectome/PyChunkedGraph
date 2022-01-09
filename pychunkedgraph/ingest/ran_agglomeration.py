@@ -3,17 +3,17 @@
 """
 
 from collections import defaultdict
-from collections import Counter
 from itertools import product
 from typing import Dict
+from typing import Iterable
+from typing import Tuple
 from typing import Union
 
 import pandas as pd
-import cloudvolume
 import networkx as nx
 import numpy as np
 import numpy.lib.recfunctions as rfn
-import zstandard as zstd
+from cloudfiles import CloudFiles
 
 from .manager import IngestionManager
 from .utils import postprocess_edge_data
@@ -23,6 +23,9 @@ from ..graph.utils import basetypes
 from ..graph.edges import Edges
 from ..graph.edges import EDGE_TYPES
 from ..graph.chunks.utils import get_chunk_id
+
+CRC_LENGTH = 4
+HEADER_LENGTH = 20
 
 
 def read_raw_edge_data(imanager, coord) -> Dict:
@@ -55,14 +58,7 @@ def read_raw_edge_data(imanager, coord) -> Dict:
 
 
 def _get_cont_chunk_coords(imanager, chunk_coord_a, chunk_coord_b):
-    """ Computes chunk coordinates that compute data between the named chunks
-    :param imanager: IngestionManagaer
-    :param chunk_coord_a: np.ndarray
-        array of three ints
-    :param chunk_coord_b: np.ndarray
-        array of three ints
-    :return: np.ndarray
-    """
+    """Computes chunk coordinates that compute data between the named chunks."""
     diff = chunk_coord_a - chunk_coord_b
     dir_dim = np.where(diff != 0)[0]
     assert len(dir_dim) == 1
@@ -83,87 +79,129 @@ def _get_cont_chunk_coords(imanager, chunk_coord_a, chunk_coord_b):
     return c_chunk_coords
 
 
+def _get_index(raw_data, in_chunk_or_agg_file=True):
+    header = raw_data[:HEADER_LENGTH]
+    idx_offset, idx_length = np.frombuffer(header[4:], dtype=np.uint64)
+    idx_length -= CRC_LENGTH  # offset for crc info
+    idx_content = raw_data[int(idx_offset) : int(idx_offset + idx_length)]
+
+    dt = np.dtype([("chunkid", "u8"), ("offset", "u8"), ("size", "u8")])
+    if in_chunk_or_agg_file is False:
+        dt = np.dtype([("chunkid", "2u8"), ("offset", "u8"), ("size", "u8")])
+    index_data = np.frombuffer(idx_content, dtype=dt)
+    return index_data
+
+
+def _read_in_chunk_files(
+    chunk_id: basetypes.NODE_ID,
+    path: str,
+    filenames: Iterable[str],
+    edge_dtype: Iterable[Tuple],
+):
+    cf = CloudFiles(path)
+    contents = cf.get(filenames, raw=True)
+
+    data = []
+    for f in contents:
+        if f["error"] or f["content"] is None:
+            continue
+        raw = f["content"]
+        index = _get_index(raw, in_chunk_or_agg_file=True)
+        for chunk in index:
+            if chunk["chunkid"] == chunk_id:
+                payload = raw[chunk["offset"] : chunk["offset"] + chunk["size"]]
+                data.append(np.frombuffer(payload[:-CRC_LENGTH], dtype=edge_dtype))
+    return data
+
+
+def _read_between_or_fake_chunk_files(
+    chunk_id: basetypes.NODE_ID,
+    adjacent_id: basetypes.NODE_ID,
+    path: str,
+    filenames: Iterable[str],
+    edge_dtype: Iterable[Tuple],
+):
+    cf = CloudFiles(path)
+    contents = cf.get(filenames, raw=True)
+    data = []
+    for f in contents:
+        if f["error"] or f["content"] is None:
+            continue
+        raw = f["content"]
+        index = _get_index(raw, in_chunk_or_agg_file=False)
+        for chunk in index:
+            if chunk["chunkid"][0] == chunk_id and chunk["chunkid"][1] == adjacent_id:
+                payload = raw[chunk["offset"] : chunk["offset"] + chunk["size"]]
+                data.append(np.frombuffer(payload[:-CRC_LENGTH], dtype=edge_dtype))
+            elif chunk["chunkid"][0] == adjacent_id and chunk["chunkid"][1] == chunk_id:
+                this_dtype = [edge_dtype[1], edge_dtype[0]] + edge_dtype[2:]
+                payload = raw[chunk["offset"] : chunk["offset"] + chunk["size"]]
+                data.append(np.frombuffer(payload[:-CRC_LENGTH], dtype=this_dtype))
+    return data
+
+
 def _collect_edge_data(imanager: IngestionManager, chunk_coord):
-    """ Loads edge for single chunk
-    :param imanager: IngestionManager
-    :param chunk_coord: np.ndarray
-        array of three ints
-    :param aff_dtype: np.dtype
-    :param v3_data: bool
-    :return: dict of np.ndarrays
-    """
+    """Loads edge for single chunk."""
+    cg_meta = imanager.chunkedgraph_meta
+    edge_dtype = cg_meta.edge_dtype
     subfolder = "chunked_rg"
-    base_path = f"{imanager.config.AGGLOMERATION}/{subfolder}/"
+    path = f"{imanager.config.AGGLOMERATION}/{subfolder}/"
     chunk_coord = np.array(chunk_coord)
     x, y, z = chunk_coord
-    chunk_id = get_chunk_id(imanager.chunkedgraph_meta, layer=1, x=x, y=y, z=z)
+    chunk_id = get_chunk_id(cg_meta, layer=1, x=x, y=y, z=z)
 
-    # print(imanager.chunkedgraph_meta)
-
-    filenames = defaultdict(list)
-    swap = defaultdict(list)
+    edge_data = defaultdict(list)
+    in_fnames = []
     x, y, z = chunk_coord
     for _x, _y, _z in product([x - 1, x], [y - 1, y], [z - 1, z]):
-        if imanager.chunkedgraph_meta.is_out_of_bounds(np.array([_x, _y, _z])):
+        if cg_meta.is_out_of_bounds(np.array([_x, _y, _z])):
             continue
-        filename = f"in_chunk_0_{_x}_{_y}_{_z}_{chunk_id}.data"
-        filenames[EDGE_TYPES.in_chunk].append(filename)
+        filename = f"in_chunk_0_{_x}_{_y}_{_z}.data"
+        in_fnames.append(filename)
 
+    edge_data[EDGE_TYPES.in_chunk] = _read_in_chunk_files(
+        chunk_id,
+        path,
+        in_fnames,
+        edge_dtype,
+    )
     for d in [-1, 1]:
         for dim in range(3):
             diff = np.zeros([3], dtype=int)
             diff[dim] = d
-            adjacent_chunk_coord = chunk_coord + diff
-            x, y, z = adjacent_chunk_coord
-            adjacent_chunk_id = get_chunk_id(
-                imanager.chunkedgraph_meta, layer=1, x=x, y=y, z=z
-            )
-
-            if imanager.chunkedgraph_meta.is_out_of_bounds(adjacent_chunk_coord):
+            adjacent_coord = chunk_coord + diff
+            x, y, z = adjacent_coord
+            adjacent_id = get_chunk_id(cg_meta, layer=1, x=x, y=y, z=z)
+            if cg_meta.is_out_of_bounds(adjacent_coord):
                 continue
-            c_chunk_coords = _get_cont_chunk_coords(
-                imanager, chunk_coord, adjacent_chunk_coord
-            )
 
-            larger_id = np.max([chunk_id, adjacent_chunk_id])
-            smaller_id = np.min([chunk_id, adjacent_chunk_id])
-            chunk_id_string = f"{smaller_id}_{larger_id}"
-
-            for c_chunk_coord in c_chunk_coords:
+            cont_coords = _get_cont_chunk_coords(imanager, chunk_coord, adjacent_coord)
+            bt_fnames = []
+            cx_fnames = []
+            for c_chunk_coord in cont_coords:
                 x, y, z = c_chunk_coord
-                filename = f"between_chunks_0_{x}_{y}_{z}_{chunk_id_string}.data"
-                filenames[EDGE_TYPES.between_chunk].append(filename)
-                swap[filename] = larger_id == chunk_id
+                filename = f"between_chunks_0_{x}_{y}_{z}.data"
+                bt_fnames.append(filename)
 
                 # EDGES FROM CUTS OF SVS
-                filename = f"fake_0_{x}_{y}_{z}_{chunk_id_string}.data"
-                filenames[EDGE_TYPES.cross_chunk].append(filename)
-                swap[filename] = larger_id == chunk_id
+                filename = f"fake_0_{x}_{y}_{z}.data"
+                cx_fnames.append(filename)
 
-    edge_data = {}
-    read_counter = Counter()
-    for k in filenames:
-        with cloudvolume.Storage(base_path, n_threads=10) as stor:
-            files = stor.get_files(filenames[k])
-        data = []
-        for file in files:
-            if file["error"] or file["content"] is None:
-                continue
+            for edge_type, fnames in [
+                (EDGE_TYPES.between_chunk, bt_fnames),
+                (EDGE_TYPES.cross_chunk, cx_fnames),
+            ]:
+                _data = _read_between_or_fake_chunk_files(
+                    chunk_id,
+                    adjacent_id,
+                    path,
+                    fnames,
+                    edge_dtype,
+                )
+                edge_data[edge_type].extend(_data)
 
-            edge_dtype = imanager.chunkedgraph_meta.edge_dtype
-            if swap[file["filename"]]:
-                this_dtype = [edge_dtype[1], edge_dtype[0]] + edge_dtype[2:]
-                content = np.frombuffer(file["content"], dtype=this_dtype)
-            else:
-                content = np.frombuffer(file["content"], dtype=edge_dtype)
-
-            data.append(content)
-            read_counter[k] += 1
-        try:
-            edge_data[k] = rfn.stack_arrays(data, usemask=False)
-        except:
-            raise ValueError()
-
+    for k in EDGE_TYPES:
+        edge_data[k] = rfn.stack_arrays(edge_data[k], usemask=False)
         edge_data_df = pd.DataFrame(edge_data[k])
         edge_data_dfg = (
             edge_data_df.groupby(["sv1", "sv2"]).aggregate(np.sum).reset_index()
@@ -202,7 +240,7 @@ def get_active_edges(imanager: IngestionManager, coord, edges_d, mapping):
 
 
 def define_active_edges(edge_dict, mapping) -> Union[Dict, np.ndarray]:
-    """ Labels edges as within or across segments and extracts isolated ids
+    """Labels edges as within or across segments and extracts isolated ids
     :return: dict of np.ndarrays, np.ndarray
         bool arrays; True: connected (within same segment)
         isolated node ids
@@ -235,34 +273,34 @@ def read_raw_agglomeration_data(imanager: IngestionManager, chunk_coord: np.ndar
     """
     Collects agglomeration information & builds connected component mapping
     """
+    cg_meta = imanager.chunkedgraph_meta
     subfolder = "remap"
-    base_path = f"{imanager.config.AGGLOMERATION}/{subfolder}/"
+    path = f"{imanager.config.AGGLOMERATION}/{subfolder}/"
     chunk_coord = np.array(chunk_coord)
     x, y, z = chunk_coord
-    chunk_id = get_chunk_id(imanager.chunkedgraph_meta, layer=1, x=x, y=y, z=z)
+    chunk_id = get_chunk_id(cg_meta, layer=1, x=x, y=y, z=z)
 
     filenames = []
-    for mip_level in range(0, int(imanager.chunkedgraph_meta.layer_count - 1)):
+    chunk_ids = []
+    for mip_level in range(0, int(cg_meta.layer_count - 1)):
         x, y, z = np.array(chunk_coord / 2 ** mip_level, dtype=int)
-        filenames.append(f"done_{mip_level}_{x}_{y}_{z}_{chunk_id}.data.zst")
+        filenames.append(f"done_{mip_level}_{x}_{y}_{z}.data")
+        chunk_ids.append(chunk_id)
 
     for d in [-1, 1]:
         for dim in range(3):
             diff = np.zeros([3], dtype=int)
             diff[dim] = d
-            adjacent_chunk_coord = chunk_coord + diff
-            x, y, z = adjacent_chunk_coord
-            adjacent_chunk_id = get_chunk_id(
-                imanager.chunkedgraph_meta, layer=1, x=x, y=y, z=z
-            )
+            adjacent_coord = chunk_coord + diff
+            x, y, z = adjacent_coord
+            adjacent_id = get_chunk_id(cg_meta, layer=1, x=x, y=y, z=z)
 
-            for mip_level in range(0, int(imanager.chunkedgraph_meta.layer_count - 1)):
-                x, y, z = np.array(adjacent_chunk_coord / 2 ** mip_level, dtype=int)
-                filenames.append(
-                    f"done_{mip_level}_{x}_{y}_{z}_{adjacent_chunk_id}.data.zst"
-                )
+            for mip_level in range(0, int(cg_meta.layer_count - 1)):
+                x, y, z = np.array(adjacent_coord / 2 ** mip_level, dtype=int)
+                filenames.append(f"done_{mip_level}_{x}_{y}_{z}.data")
+                chunk_ids.append(adjacent_id)
 
-    edges_list = _read_agg_files(filenames, base_path)
+    edges_list = _read_agg_files(filenames, chunk_ids, path)
     G = nx.Graph()
     G.add_edges_from(np.concatenate(edges_list))
     mapping = {}
@@ -271,21 +309,30 @@ def read_raw_agglomeration_data(imanager: IngestionManager, chunk_coord: np.ndar
         cc = list(cc)
         mapping.update(dict(zip(cc, [i_cc] * len(cc))))
 
-    if mapping and imanager.chunkedgraph_meta.data_source.COMPONENTS:
-        put_chunk_components(
-            imanager.chunkedgraph_meta.data_source.COMPONENTS, components, chunk_coord
-        )
+    if mapping and cg_meta.data_source.COMPONENTS:
+        put_chunk_components(cg_meta.data_source.COMPONENTS, components, chunk_coord)
     return mapping
 
 
-def _read_agg_files(filenames, base_path):
-    with cloudvolume.Storage(base_path, n_threads=10) as stor:
-        files = stor.get_files(filenames)
+def _read_agg_files(filenames, chunk_ids, path):
+    from ..graph.types import empty_2d
 
-    edge_list = []
-    for file in files:
-        if file["error"] or file["content"] is None:
+    cf = CloudFiles(path)
+    contents = cf.get(filenames, raw=True)
+
+    edge_list = [empty_2d]
+    for f, chunk_id in zip(contents, chunk_ids):
+        if f["error"] or f["content"] is None:
             continue
-        content = zstd.ZstdDecompressor().decompressobj().decompress(file["content"])
-        edge_list.append(np.frombuffer(content, dtype=basetypes.NODE_ID).reshape(-1, 2))
+
+        edges = None
+        raw = f["content"]
+        index = _get_index(raw, in_chunk_or_agg_file=True)
+        for chunk in index:
+            if chunk["chunkid"] == chunk_id:
+                data = raw[chunk["offset"] : chunk["offset"] + chunk["size"]]
+                data = data[:-CRC_LENGTH]
+                edges = np.frombuffer(data, dtype=basetypes.NODE_ID).reshape(-1, 2)
+        if edges is not None:
+            edge_list.append(edges)
     return edge_list
