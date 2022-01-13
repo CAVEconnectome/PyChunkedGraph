@@ -3,7 +3,7 @@ cloud-files>=1.25.2
 requests>=2.25.0
 grpcio>=1.36.1
 certifi>=2020.12.5
-cloud-volume
+cloud-volume==6.1.1
 numpy
 pandas
 networkx==2.1
@@ -26,4 +26,4 @@ task-queue==1.0.0
 messagingclient
 jsonschema<4.0
 importlib-metadata>=4.5.0
-dracopy==0.0.15
+dracopy<=0.0.19
