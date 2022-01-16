@@ -133,10 +133,19 @@ def _read_between_or_fake_chunk_files(
             if chunk["chunkid"][0] == chunk_id and chunk["chunkid"][1] == adjacent_id:
                 payload = raw[chunk["offset"] : chunk["offset"] + chunk["size"]]
                 data.append(np.frombuffer(payload[:-CRC_LENGTH], dtype=edge_dtype))
-            elif chunk["chunkid"][0] == adjacent_id and chunk["chunkid"][1] == chunk_id:
+            if chunk["chunkid"][0] == adjacent_id and chunk["chunkid"][1] == chunk_id:
                 this_dtype = [edge_dtype[1], edge_dtype[0]] + edge_dtype[2:]
                 payload = raw[chunk["offset"] : chunk["offset"] + chunk["size"]]
                 data.append(np.frombuffer(payload[:-CRC_LENGTH], dtype=this_dtype))
+
+            # if chunk["chunkid"][0] == chunk_id:
+            #     payload = raw[chunk["offset"] : chunk["offset"] + chunk["size"]]
+            #     data.append(np.frombuffer(payload[:-CRC_LENGTH], dtype=edge_dtype))
+            # if chunk["chunkid"][1] == chunk_id:
+            #     this_dtype = [edge_dtype[1], edge_dtype[0]] + edge_dtype[2:]
+            #     payload = raw[chunk["offset"] : chunk["offset"] + chunk["size"]]
+            #     data.append(np.frombuffer(payload[:-CRC_LENGTH], dtype=this_dtype))
+
     return data
 
 
@@ -298,7 +307,7 @@ def read_raw_agglomeration_data(imanager: IngestionManager, chunk_coord: np.ndar
             for mip_level in range(0, int(cg_meta.layer_count - 1)):
                 x, y, z = np.array(adjacent_coord / 2 ** mip_level, dtype=int)
                 filenames.append(f"done_{mip_level}_{x}_{y}_{z}.data")
-                chunk_ids.append(adjacent_id)
+                chunk_ids.append(chunk_id)
 
     edges_list = _read_agg_files(filenames, chunk_ids, path)
     G = nx.Graph()

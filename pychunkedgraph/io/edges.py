@@ -2,13 +2,13 @@
 Functions for reading and writing edges from cloud storage.
 """
 
-from typing import List, Dict, Tuple, Union
+from typing import Dict
+from typing import List
+from typing import Tuple
 
 import numpy as np
 import zstandard as zstd
-
 from cloudvolume import Storage
-from cloudvolume.storage import SimpleStorage
 
 from .protobuf.chunkEdges_pb2 import EdgesMsg
 from .protobuf.chunkEdges_pb2 import ChunkEdgesMsg
@@ -50,7 +50,7 @@ def _decompress_edges(content: bytes) -> Dict:
 
 
 def get_chunk_edges(edges_dir: str, chunks_coordinates: List[np.ndarray]) -> Dict:
-    """ Read edges from GCS. """
+    """Read edges from GCS."""
     from cloudfiles import CloudFiles
 
     fnames = []
@@ -75,7 +75,7 @@ def get_chunk_edges(edges_dir: str, chunks_coordinates: List[np.ndarray]) -> Dic
 def put_chunk_edges(
     edges_dir: str, chunk_coordinates: np.ndarray, edges_d, compression_level: int
 ) -> None:
-    """ Write edges to GCS. """
+    """Write edges to GCS."""
     chunk_edges = ChunkEdgesMsg()
     chunk_edges.in_chunk.CopyFrom(serialize(edges_d[EDGE_TYPES.in_chunk]))
     chunk_edges.between_chunk.CopyFrom(serialize(edges_d[EDGE_TYPES.between_chunk]))
