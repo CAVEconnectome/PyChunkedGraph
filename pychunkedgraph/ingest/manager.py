@@ -1,7 +1,5 @@
 import pickle
 
-from cloudvolume import CloudVolume
-
 from . import IngestConfig
 from ..graph.meta import ChunkedGraphMeta
 from ..graph.chunkedgraph import ChunkedGraph

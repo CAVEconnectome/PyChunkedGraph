@@ -1,14 +1,8 @@
-import numpy as np
-import collections
 from typing import Tuple
 
-import cloudvolume
-from google.cloud import bigtable
 
 from . import ClusterIngestConfig
 from . import IngestConfig
-from .manager import IngestionManager
-from ..graph import chunkedgraph
 from ..graph.meta import ChunkedGraphMeta
 from ..graph.meta import DataSource
 from ..graph.meta import GraphConfig

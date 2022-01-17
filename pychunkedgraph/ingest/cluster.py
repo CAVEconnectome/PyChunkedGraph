@@ -114,7 +114,6 @@ def _create_atomic_chunk(im_info: str, coord: Sequence[int]):
     add_atomic_edges(imanager.cg, coord, chunk_edges_active, isolated=isolated_ids)
     for k, v in chunk_edges_active.items():
         print(k, len(v))
-    raise RuntimeError("me die")
     _post_task_completion(imanager, 2, coord)
 
 

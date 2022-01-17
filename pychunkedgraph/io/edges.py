@@ -8,7 +8,7 @@ from typing import Tuple
 
 import numpy as np
 import zstandard as zstd
-from cloudvolume import Storage
+from cloudfiles import CloudFiles
 
 from .protobuf.chunkEdges_pb2 import EdgesMsg
 from .protobuf.chunkEdges_pb2 import ChunkEdgesMsg
@@ -85,11 +85,11 @@ def put_chunk_edges(
     chunk_str = "_".join(str(coord) for coord in chunk_coordinates)
 
     # filename format - edges_x_y_z.serialization.compression
-    file = f"edges_{chunk_str}.proto.zst"
-    with Storage(edges_dir) as storage:  # pylint: disable=not-context-manager
-        storage.put_file(
-            file_path=file,
-            content=cctx.compress(chunk_edges.SerializeToString()),
-            compress=None,
-            cache_control="no-cache",
-        )
+    filename = f"edges_{chunk_str}.proto.zst"
+    cf = CloudFiles(edges_dir)
+    cf.put(
+        filename,
+        content=cctx.compress(chunk_edges.SerializeToString()),
+        compress=None,
+        cache_control="no-cache",
+    )

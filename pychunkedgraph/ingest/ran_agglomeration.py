@@ -8,6 +8,8 @@ from typing import Dict
 from typing import Iterable
 from typing import Tuple
 from typing import Union
+from binascii import crc32
+
 
 import pandas as pd
 import networkx as nx
@@ -40,6 +42,7 @@ def read_raw_edge_data(imanager, coord) -> Dict:
     for edge_type in EDGE_TYPES:
         sv_ids1 = edge_dict[edge_type]["sv1"]
         sv_ids2 = edge_dict[edge_type]["sv2"]
+        print(edge_type, len(sv_ids1))
         areas = np.ones(len(sv_ids1))
         affinities = float("inf") * areas
         if not edge_type == EDGE_TYPES.cross_chunk:
@@ -82,14 +85,24 @@ def _get_cont_chunk_coords(imanager, chunk_coord_a, chunk_coord_b):
 def _get_index(raw_data, in_chunk_or_agg_file=True):
     header = raw_data[:HEADER_LENGTH]
     idx_offset, idx_length = np.frombuffer(header[4:], dtype=np.uint64)
-    idx_length -= CRC_LENGTH  # offset for crc info
     idx_content = raw_data[int(idx_offset) : int(idx_offset + idx_length)]
+    assert np.frombuffer(idx_content[-CRC_LENGTH:], dtype=np.uint32)[0] == crc32(
+        idx_content[:-CRC_LENGTH]
+    )
+    idx_content = idx_content[:-CRC_LENGTH]
 
     dt = np.dtype([("chunkid", "u8"), ("offset", "u8"), ("size", "u8")])
     if in_chunk_or_agg_file is False:
         dt = np.dtype([("chunkid", "2u8"), ("offset", "u8"), ("size", "u8")])
     index_data = np.frombuffer(idx_content, dtype=dt)
     return index_data
+
+
+def _crc_check(payload: bytes) -> None:
+    payload_crc32 = np.frombuffer(payload[-CRC_LENGTH:], dtype=np.uint32)
+    assert np.frombuffer(payload_crc32, dtype=np.uint32)[0] == crc32(
+        payload[:-CRC_LENGTH]
+    )
 
 
 def _read_in_chunk_files(
@@ -110,6 +123,7 @@ def _read_in_chunk_files(
         for chunk in index:
             if chunk["chunkid"] == chunk_id:
                 payload = raw[chunk["offset"] : chunk["offset"] + chunk["size"]]
+                _crc_check(payload)
                 data.append(np.frombuffer(payload[:-CRC_LENGTH], dtype=edge_dtype))
     return data
 
@@ -132,20 +146,13 @@ def _read_between_or_fake_chunk_files(
         for chunk in index:
             if chunk["chunkid"][0] == chunk_id and chunk["chunkid"][1] == adjacent_id:
                 payload = raw[chunk["offset"] : chunk["offset"] + chunk["size"]]
+                _crc_check(payload)
                 data.append(np.frombuffer(payload[:-CRC_LENGTH], dtype=edge_dtype))
             if chunk["chunkid"][0] == adjacent_id and chunk["chunkid"][1] == chunk_id:
-                this_dtype = [edge_dtype[1], edge_dtype[0]] + edge_dtype[2:]
                 payload = raw[chunk["offset"] : chunk["offset"] + chunk["size"]]
+                _crc_check(payload)
+                this_dtype = [edge_dtype[1], edge_dtype[0]] + edge_dtype[2:]
                 data.append(np.frombuffer(payload[:-CRC_LENGTH], dtype=this_dtype))
-
-            # if chunk["chunkid"][0] == chunk_id:
-            #     payload = raw[chunk["offset"] : chunk["offset"] + chunk["size"]]
-            #     data.append(np.frombuffer(payload[:-CRC_LENGTH], dtype=edge_dtype))
-            # if chunk["chunkid"][1] == chunk_id:
-            #     this_dtype = [edge_dtype[1], edge_dtype[0]] + edge_dtype[2:]
-            #     payload = raw[chunk["offset"] : chunk["offset"] + chunk["size"]]
-            #     data.append(np.frombuffer(payload[:-CRC_LENGTH], dtype=this_dtype))
-
     return data
 
 
@@ -307,9 +314,12 @@ def read_raw_agglomeration_data(imanager: IngestionManager, chunk_coord: np.ndar
             for mip_level in range(0, int(cg_meta.layer_count - 1)):
                 x, y, z = np.array(adjacent_coord / 2 ** mip_level, dtype=int)
                 filenames.append(f"done_{mip_level}_{x}_{y}_{z}.data")
-                chunk_ids.append(chunk_id)
+                # chunk_ids.append(chunk_id)
+                chunk_ids.append(adjacent_id)
 
     edges_list = _read_agg_files(filenames, chunk_ids, path)
+    edges = np.concatenate(edges_list)
+    print("edges_list", len(edges), "unique", len(np.unique(edges)))
     G = nx.Graph()
     G.add_edges_from(np.concatenate(edges_list))
     mapping = {}
@@ -331,7 +341,9 @@ def _read_agg_files(filenames, chunk_ids, path):
 
     edge_list = [empty_2d]
     for f, chunk_id in zip(contents, chunk_ids):
-        if f["error"] or f["content"] is None:
+        if f["error"]:
+            raise ValueError(f"unable to read file {f['path']}")
+        if f["content"] is None:
             continue
 
         edges = None
@@ -340,8 +352,9 @@ def _read_agg_files(filenames, chunk_ids, path):
         for chunk in index:
             if chunk["chunkid"] == chunk_id:
                 data = raw[chunk["offset"] : chunk["offset"] + chunk["size"]]
-                data = data[:-CRC_LENGTH]
-                edges = np.frombuffer(data, dtype=basetypes.NODE_ID).reshape(-1, 2)
-        if edges is not None:
-            edge_list.append(edges)
+                data_ = data[:-CRC_LENGTH]
+                edges = np.frombuffer(data_, dtype=basetypes.NODE_ID).reshape(-1, 2)
+                if edges is not None:
+                    edge_list.append(edges)
+                break
     return edge_list
