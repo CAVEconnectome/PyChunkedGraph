@@ -42,7 +42,6 @@ def read_raw_edge_data(imanager, coord) -> Dict:
     for edge_type in EDGE_TYPES:
         sv_ids1 = edge_dict[edge_type]["sv1"]
         sv_ids2 = edge_dict[edge_type]["sv2"]
-        print(edge_type, len(sv_ids1))
         areas = np.ones(len(sv_ids1))
         affinities = float("inf") * areas
         if not edge_type == EDGE_TYPES.cross_chunk:
@@ -314,7 +313,6 @@ def read_raw_agglomeration_data(imanager: IngestionManager, chunk_coord: np.ndar
             for mip_level in range(0, int(cg_meta.layer_count - 1)):
                 x, y, z = np.array(adjacent_coord / 2 ** mip_level, dtype=int)
                 filenames.append(f"done_{mip_level}_{x}_{y}_{z}.data")
-                # chunk_ids.append(chunk_id)
                 chunk_ids.append(adjacent_id)
 
     edges_list = _read_agg_files(filenames, chunk_ids, path)
@@ -337,30 +335,19 @@ def _read_agg_files(filenames, chunk_ids, path):
     from ..graph.types import empty_2d
 
     cf = CloudFiles(path)
-    contents = cf.get(filenames, raw=True)
-    print(len(contents), len(filenames))
-    assert len(contents) == len(filenames)
+    contents_d = cf.get(set(filenames), raw=True, return_dict=True)
 
     edge_list = [empty_2d]
-    for f, chunk_id in zip(contents, chunk_ids):
-        if f["error"]:
-            raise ValueError(f"unable to read file {f['path']}")
-        if f["content"] is None:
-            continue
-
+    for fname, chunk_id in zip(filenames, chunk_ids):
+        raw = contents_d[fname]
         edges = None
-        raw = f["content"]
         index = _get_index(raw, in_chunk_or_agg_file=True)
-        flag = True
         for chunk in index:
             if chunk["chunkid"] == chunk_id:
-                flag = False
                 data = raw[chunk["offset"] : chunk["offset"] + chunk["size"]]
                 data_ = data[:-CRC_LENGTH]
                 edges = np.frombuffer(data_, dtype=basetypes.NODE_ID).reshape(-1, 2)
                 if edges is not None:
                     edge_list.append(edges)
                 break
-        if flag:
-            print("not found", chunk_id, f["path"])
     return edge_list
