@@ -1,3 +1,3 @@
 """
-Modules for debugging (in progress)
+Modules for debugging.
 """

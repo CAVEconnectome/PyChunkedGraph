@@ -338,6 +338,8 @@ def _read_agg_files(filenames, chunk_ids, path):
 
     cf = CloudFiles(path)
     contents = cf.get(filenames, raw=True)
+    print(len(contents), len(filenames))
+    assert len(contents) == len(filenames)
 
     edge_list = [empty_2d]
     for f, chunk_id in zip(contents, chunk_ids):
@@ -349,12 +351,16 @@ def _read_agg_files(filenames, chunk_ids, path):
         edges = None
         raw = f["content"]
         index = _get_index(raw, in_chunk_or_agg_file=True)
+        flag = True
         for chunk in index:
             if chunk["chunkid"] == chunk_id:
+                flag = False
                 data = raw[chunk["offset"] : chunk["offset"] + chunk["size"]]
                 data_ = data[:-CRC_LENGTH]
                 edges = np.frombuffer(data_, dtype=basetypes.NODE_ID).reshape(-1, 2)
                 if edges is not None:
                     edge_list.append(edges)
                 break
+        if flag:
+            print("not found", chunk_id, f["path"])
     return edge_list
