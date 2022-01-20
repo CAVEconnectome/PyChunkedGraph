@@ -166,7 +166,7 @@ class ChunkedGraphMeta:
         counts = []
         for layer in range(2, self.layer_count):
             counts.append(np.prod(self.layer_chunk_bounds[layer]))
-        return counts
+        return counts + [1]
 
     @property
     def edge_dtype(self):
@@ -227,11 +227,7 @@ class ChunkedGraphMeta:
         )
         mesh_dir = self.custom_data.get("mesh", {}).get("dir", None)
         if mesh_dir is not None:
-            info.update(
-                {
-                    "mesh": mesh_dir
-                }
-            )
+            info.update({"mesh": mesh_dir})
         return info
 
     def __getnewargs__(self):

@@ -41,22 +41,22 @@ def bootstrap(
 
 
 def postprocess_edge_data(im, edge_dict):
-    data_version = im.chunkedgraph_meta.data_source.DATA_VERSION
+    data_version = im.cg_meta.data_source.DATA_VERSION
     if data_version == 2:
         return edge_dict
     elif data_version in [3, 4]:
         new_edge_dict = {}
         for k in edge_dict:
             areas = (
-                edge_dict[k]["area_x"] * im.chunkedgraph_meta.resolution[0]
-                + edge_dict[k]["area_y"] * im.chunkedgraph_meta.resolution[1]
-                + edge_dict[k]["area_z"] * im.chunkedgraph_meta.resolution[2]
+                edge_dict[k]["area_x"] * im.cg_meta.resolution[0]
+                + edge_dict[k]["area_y"] * im.cg_meta.resolution[1]
+                + edge_dict[k]["area_z"] * im.cg_meta.resolution[2]
             )
 
             affs = (
-                edge_dict[k]["aff_x"] * im.chunkedgraph_meta.resolution[0]
-                + edge_dict[k]["aff_y"] * im.chunkedgraph_meta.resolution[1]
-                + edge_dict[k]["aff_z"] * im.chunkedgraph_meta.resolution[2]
+                edge_dict[k]["aff_x"] * im.cg_meta.resolution[0]
+                + edge_dict[k]["aff_y"] * im.cg_meta.resolution[1]
+                + edge_dict[k]["aff_z"] * im.cg_meta.resolution[2]
             )
 
             new_edge_dict[k] = {}

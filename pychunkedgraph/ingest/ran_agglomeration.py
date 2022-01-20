@@ -52,9 +52,9 @@ def read_raw_edge_data(imanager, coord) -> Dict:
             sv_ids1, sv_ids2, affinities=affinities, areas=areas
         )
         no_edges = no_edges and not sv_ids1.size
-    if not no_edges and imanager.chunkedgraph_meta.data_source.EDGES:
+    if not no_edges and imanager.cg_meta.data_source.EDGES:
         put_chunk_edges(
-            imanager.chunkedgraph_meta.data_source.EDGES, coord, chunk_edges, 17
+            imanager.cg_meta.data_source.EDGES, coord, chunk_edges, 17
         )
     return chunk_edges
 
@@ -75,7 +75,7 @@ def _get_cont_chunk_coords(imanager, chunk_coord_a, chunk_coord_b):
             continue
 
         c_chunk_coord = chunk_coord_l + np.array([dx, dy, dz])
-        if imanager.chunkedgraph_meta.is_out_of_bounds(c_chunk_coord):
+        if imanager.cg_meta.is_out_of_bounds(c_chunk_coord):
             continue
         c_chunk_coords.append(c_chunk_coord)
     return c_chunk_coords
@@ -157,7 +157,7 @@ def _read_between_or_fake_chunk_files(
 
 def _collect_edge_data(imanager: IngestionManager, chunk_coord):
     """Loads edge for single chunk."""
-    cg_meta = imanager.chunkedgraph_meta
+    cg_meta = imanager.cg_meta
     edge_dtype = cg_meta.edge_dtype
     subfolder = "chunked_rg"
     path = f"{imanager.config.AGGLOMERATION}/{subfolder}/"
@@ -288,7 +288,7 @@ def read_raw_agglomeration_data(imanager: IngestionManager, chunk_coord: np.ndar
     """
     Collects agglomeration information & builds connected component mapping
     """
-    cg_meta = imanager.chunkedgraph_meta
+    cg_meta = imanager.cg_meta
     subfolder = "remap"
     path = f"{imanager.config.AGGLOMERATION}/{subfolder}/"
     chunk_coord = np.array(chunk_coord)

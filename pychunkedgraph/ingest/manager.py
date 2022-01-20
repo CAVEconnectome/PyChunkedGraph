@@ -21,13 +21,13 @@ class IngestionManager:
         return self._config
 
     @property
-    def chunkedgraph_meta(self):
+    def cg_meta(self):
         return self._chunkedgraph_meta
 
     @property
     def cg(self):
         if self._cg is None:
-            self._cg = ChunkedGraph(meta=self._chunkedgraph_meta,)
+            self._cg = ChunkedGraph(meta=self.cg_meta)
         return self._cg
 
     @property

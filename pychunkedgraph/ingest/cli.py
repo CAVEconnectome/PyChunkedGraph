@@ -2,9 +2,6 @@
 cli for running ingest
 """
 
-import time
-from itertools import product
-
 import yaml
 import numpy as np
 import click
@@ -18,7 +15,6 @@ from .cluster import create_parent_chunk
 from ..graph.chunkedgraph import ChunkedGraph
 from ..utils.redis import get_redis_connection
 from ..utils.redis import keys as r_keys
-from ..graph.chunks.hierarchy import get_children_chunk_coords
 
 ingest_cli = AppGroup("ingest")
 
@@ -67,50 +63,47 @@ def ingest_status():
     """Print ingest status to console by layer."""
     redis = get_redis_connection()
     imanager = IngestionManager.from_pickle(redis.get(r_keys.INGESTION_MANAGER))
-    for layer in range(2, imanager.chunkedgraph_meta.layer_count + 1):
-        layer_count = redis.hlen(f"{layer}c")
-        print(f"{layer}\t: {layer_count}")
-    print(imanager.chunkedgraph_meta.layer_chunk_counts)
+    layers = range(2, imanager.cg_meta.layer_count + 1)
+    for layer, layer_count in zip(layers, imanager.cg_meta.layer_chunk_counts):
+        completed = redis.hlen(f"{layer}c")
+        print(f"{layer}\t: {completed} / {layer_count}")
 
 
-@ingest_cli.command("parent")
+@ingest_cli.command("chunk")
 @click.argument("queue", type=str)
 @click.argument("chunk_info", nargs=4, type=int)
-def queue_parent(queue: str, chunk_info):
-    """Manually queue parent of a child chunk."""
+def ingest_chunk(queue: str, chunk_info):
+    """Manually queue chunk when a job is stuck for whatever reason."""
     redis = get_redis_connection()
     imanager = IngestionManager.from_pickle(redis.get(r_keys.INGESTION_MANAGER))
 
-    parent_layer = chunk_info[0] + 1
-    parent_coords = (
-        np.array(chunk_info[1:], int) // imanager.chunkedgraph_meta.graph_config.FANOUT
-    )
-    parent_chunk_str = "_".join(map(str, parent_coords))
+    layer = chunk_info[0]
+    coords = np.array(chunk_info[1:], int)
+    chunk_str = "_".join(map(str, coords))
 
-    parents_queue = imanager.get_task_queue(queue)
-    parents_queue.enqueue(
+    queue = imanager.get_task_queue(queue)
+    queue.enqueue(
         create_parent_chunk,
-        job_id=chunk_id_str(parent_layer, parent_coords),
-        job_timeout=f"{int(parent_layer * parent_layer)}m",
+        job_id=chunk_id_str(layer, coords),
+        job_timeout=f"{int(layer * layer)}m",
         result_ttl=0,
         args=(
             imanager.serialized(pickled=True),
-            parent_layer,
-            parent_coords,
+            layer,
+            coords,
         ),
     )
-    imanager.redis.hdel(parent_layer, parent_chunk_str)
-    imanager.redis.hset(f"{parent_layer}q", parent_chunk_str, "")
+    imanager.redis.hdel(layer, chunk_str)
+    imanager.redis.hset(f"{layer}q", chunk_str, "")
 
 
 @ingest_cli.command("chunk_local")
 @click.argument("graph_id", type=str)
 @click.argument("chunk_info", nargs=4, type=int)
 @click.option("--n_threads", type=int, default=1)
-def ingest_chunk(graph_id: str, chunk_info, n_threads: int):
+def ingest_chunk_local(graph_id: str, chunk_info, n_threads: int):
     """Manually ingest a chunk on a local machine."""
     from .initial.abstract_layers import add_layer
 
     cg = ChunkedGraph(graph_id=graph_id)
-
     add_layer(cg, chunk_info[0], chunk_info[1:], n_threads=n_threads)
