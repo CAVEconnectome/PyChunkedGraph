@@ -23,7 +23,7 @@ def bootstrap(
     """Parse config loaded from a yaml file."""
     ingest_config = IngestConfig(
         **config["ingest_config"],
-        CLUSTER=ClusterIngestConfig(FLUSH_REDIS=True),
+        CLUSTER=ClusterIngestConfig(),
         USE_RAW_EDGES=raw,
         USE_RAW_COMPONENTS=raw,
         TEST_RUN=test_run,

@@ -56,14 +56,20 @@ def _post_task_completion(imanager: IngestionManager, layer: int, coords: np.nda
             job_id=chunk_id_str(parent_layer, parent_coords),
             job_timeout=f"{parent_layer*parent_layer}m",
             result_ttl=0,
-            args=(imanager.serialized(pickled=True), parent_layer, parent_coords,),
+            args=(
+                imanager.serialized(pickled=True),
+                parent_layer,
+                parent_coords,
+            ),
         )
         imanager.redis.hdel(parent_layer, parent_chunk_str)
         imanager.redis.hset(f"{parent_layer}q", parent_chunk_str, "")
 
 
 def create_parent_chunk(
-    im_info: str, layer: int, parent_coords: Sequence[int],
+    im_info: str,
+    layer: int,
+    parent_coords: Sequence[int],
 ) -> None:
     imanager = IngestionManager.from_pickle(im_info)
     add_layer(
@@ -76,7 +82,6 @@ def create_parent_chunk(
 
 
 def enqueue_atomic_tasks(imanager: IngestionManager):
-    imanager.redis.flushdb()
     chunk_coords = _get_test_chunks(imanager.cg.meta)
 
     if not imanager.config.TEST_RUN:
@@ -93,34 +98,32 @@ def enqueue_atomic_tasks(imanager: IngestionManager):
         atomic_queue.enqueue(
             _create_atomic_chunk,
             job_id=chunk_id_str(2, chunk_coord),
-            job_timeout="4m",
+            job_timeout="3m",
             result_ttl=0,
             args=(imanager.serialized(pickled=True), chunk_coord),
         )
 
 
 def _create_atomic_chunk(im_info: str, coord: Sequence[int]):
-    """ Creates single atomic chunk """
+    """Creates single atomic chunk"""
     imanager = IngestionManager.from_pickle(im_info)
     coord = np.array(list(coord), dtype=int)
     chunk_edges_all, mapping = get_atomic_chunk_data(imanager, coord)
     chunk_edges_active, isolated_ids = get_active_edges(
         imanager, coord, chunk_edges_all, mapping
     )
-    # if not imanager.config.build_graph:
-    #     # to keep track of jobs when only creating edges and components per chunk
-    #     imanager.redis.hset(r_keys.ATOMIC_HASH_FINISHED, chunk_id_str(2, coord), "")
-    #     return
     add_atomic_edges(imanager.cg, coord, chunk_edges_active, isolated=isolated_ids)
-    for k, v in chunk_edges_active.items():
-        print(k, len(v))
+    if imanager.config.TEST_RUN:
+        # print for debugging
+        for k, v in chunk_edges_all.items():
+            print(k, len(v))
+        for k, v in chunk_edges_active.items():
+            print(k, len(v))
     _post_task_completion(imanager, 2, coord)
 
 
 def _get_test_chunks(meta: ChunkedGraphMeta):
-    """
-    Returns chunks that lie at the center of the dataset
-    """
+    """Chunks at center of the dataset most likely not to be empty, for testing."""
     f = lambda r1, r2, r3: np.array(np.meshgrid(r1, r2, r3), dtype=int).T.reshape(-1, 3)
     x, y, z = np.array(meta.layer_chunk_bounds[2]) // 2
     return f((x, x + 1), (y, y + 1), (z, z + 1))
