@@ -32,6 +32,9 @@ def _post_task_completion(imanager: IngestionManager, layer: int, coords: np.nda
         return
 
     parent_coords = np.array(coords, int) // imanager.cg_meta.graph_config.FANOUT
+    parent_id_str = chunk_id_str(parent_layer, parent_coords)
+    imanager.redis.sadd(parent_id_str, chunk_str)
+
     parent_chunk_str = "_".join(map(str, parent_coords))
     if not imanager.redis.hget(parent_layer, parent_chunk_str):
         # cache children chunk count
@@ -41,13 +44,10 @@ def _post_task_completion(imanager: IngestionManager, layer: int, coords: np.nda
         )
         imanager.redis.hset(parent_layer, parent_chunk_str, children_count)
 
-    parent_id_str = chunk_id_str(parent_layer, parent_coords)
-    imanager.redis.sadd(parent_id_str, chunk_str)
-
     queue = imanager.get_task_queue(TRACKER_Q)
     queue.enqueue(
         enqueue_parent_task,
-        job_id=f"{TRACKER_Q}_{parent_id_str}",
+        job_id=f"{TRACKER_Q}_{chunk_id_str(layer, coords)}",
         job_timeout=f"10s",
         result_ttl=0,
         args=(
@@ -69,6 +69,7 @@ def enqueue_parent_task(
     children_count = int(redis.hget(parent_layer, parent_chunk_str).decode("utf-8"))
     children_done = redis.scard(parent_id_str)
     if children_done != children_count:
+        print("children chunks not done")
         return
 
     queue = imanager.get_task_queue(f"layer_{parent_layer}")
@@ -149,6 +150,7 @@ def _create_atomic_chunk(coords: Sequence[int]):
 
 def _get_test_chunks(meta: ChunkedGraphMeta):
     """Chunks at center of the dataset most likely not to be empty, for testing."""
-    f = lambda r1, r2, r3: np.array(np.meshgrid(r1, r2, r3), dtype=int).T.reshape(-1, 3)
-    x, y, z = np.array(meta.layer_chunk_bounds[2]) // 2
-    return f((x, x + 1), (y, y + 1), (z, z + 1))
+    parent_coords = np.array(meta.layer_chunk_bounds[3]) // 2
+    return get_children_chunk_coords(meta, 3, parent_coords)
+    # f = lambda r1, r2, r3: np.array(np.meshgrid(r1, r2, r3), dtype=int).T.reshape(-1, 3)
+    # return f((x, x + 1), (y, y + 1), (z, z + 1))
