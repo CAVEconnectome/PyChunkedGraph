@@ -14,12 +14,12 @@ from google.auth import credentials
 from google.cloud import bigtable
 
 from ..ingest.utils import bootstrap
-from ..ingest.initial.atomic_layer import add_atomic_edges
+from ..ingest.create.atomic_layer import add_atomic_edges
 from ..graph.edges import Edges
 from ..graph.edges import EDGE_TYPES
 from ..graph.utils import basetypes
 from ..graph.chunkedgraph import ChunkedGraph
-from ..ingest.initial.abstract_layers import add_layer
+from ..ingest.create.abstract_layers import add_layer
 
 
 class CloudVolumeBounds(object):

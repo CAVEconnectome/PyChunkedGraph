@@ -99,7 +99,7 @@ def ingest_chunk(queue: str, chunk_info):
 @click.option("--n_threads", type=int, default=1)
 def ingest_chunk_local(graph_id: str, chunk_info, n_threads: int):
     """Manually ingest a chunk on a local machine."""
-    from .initial.abstract_layers import add_layer
+    from .create.abstract_layers import add_layer
 
     cg = ChunkedGraph(graph_id=graph_id)
     add_layer(cg, chunk_info[0], chunk_info[1:], n_threads=n_threads)

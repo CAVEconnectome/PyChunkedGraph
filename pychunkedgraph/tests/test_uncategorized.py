@@ -36,7 +36,7 @@ from ..graph.lineage import get_root_id_history
 from ..graph.lineage import get_future_root_ids
 from ..graph.utils.serializers import serialize_uint64
 from ..graph.utils.serializers import deserialize_uint64
-from ..ingest.initial.abstract_layers import add_layer
+from ..ingest.create.abstract_layers import add_layer
 
 
 class TestGraphNodeConversion:
