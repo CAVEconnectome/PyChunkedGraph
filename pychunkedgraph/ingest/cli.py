@@ -63,7 +63,7 @@ def ingest_status():
     imanager = IngestionManager.from_pickle(redis.get(r_keys.INGESTION_MANAGER))
     layers = range(2, imanager.cg_meta.layer_count + 1)
     for layer, layer_count in zip(layers, imanager.cg_meta.layer_chunk_counts):
-        completed = redis.hlen(f"{layer}c")
+        completed = redis.scard(f"{layer}c")
         print(f"{layer}\t: {completed} / {layer_count}")
 
 

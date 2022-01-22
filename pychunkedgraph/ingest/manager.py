@@ -15,6 +15,7 @@ class IngestionManager:
         self._cg = None
         self._redis = None
         self._task_queues = {}
+        self.redis  # initiate and cache info
 
     @property
     def config(self):
