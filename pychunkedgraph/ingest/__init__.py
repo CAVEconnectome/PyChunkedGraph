@@ -7,9 +7,9 @@ _cluster_ingest_config_fields = (
     "ATOMIC_Q_INTERVAL",
 )
 _cluster_ingest_defaults = (
-    "atomic",
+    "layer_2",
     100000,
-    60,
+    120,
 )
 ClusterIngestConfig = namedtuple(
     "ClusterIngestConfig",

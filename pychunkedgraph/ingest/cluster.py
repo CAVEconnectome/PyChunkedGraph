@@ -66,10 +66,16 @@ def enqueue_parent_task(
 
     parent_id_str = chunk_id_str(parent_layer, parent_coords)
     parent_chunk_str = "_".join(map(str, parent_coords))
-    children_count = int(redis.hget(parent_layer, parent_chunk_str).decode("utf-8"))
+
     children_done = redis.scard(parent_id_str)
+    # if zero then this key was deleted and parent already queued.
+    if children_done == 0:
+        print("parent already queued.")
+        return
+
+    children_count = int(redis.hget(parent_layer, parent_chunk_str).decode("utf-8"))
     if children_done != children_count:
-        print("children chunks not done")
+        print("children not done.")
         return
 
     queue = imanager.get_task_queue(f"layer_{parent_layer}")
