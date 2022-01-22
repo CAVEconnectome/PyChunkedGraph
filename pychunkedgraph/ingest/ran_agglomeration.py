@@ -336,6 +336,8 @@ def _read_agg_files(filenames, chunk_ids, path):
     edge_list = [empty_2d]
     for fname, chunk_id in zip(filenames, chunk_ids):
         raw = contents_d[fname]
+        if raw is None:
+            continue
         edges = None
         index = _get_index(raw, in_chunk_or_agg_file=True)
         for chunk in index:
