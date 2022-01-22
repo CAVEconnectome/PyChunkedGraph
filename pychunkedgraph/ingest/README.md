@@ -7,6 +7,21 @@ To run ingest a service account key with appropriate permissions is required.
 * GCS or S3 - read and write objects if data is on public cloud.
 * (Optional) MemoryStore Redis - read and write to managed redisdb instance.
 
+### Environment Variables
+```
+BIGTABLE_PROJECT=<>
+BIGTABLE_INSTANCE=<>
+FLASK_APP=run_dev.py
+AUTH_DISABLED=true
+PCG_GRAPH_IDS=minnie3_v1
+APP_SETTINGS=pychunkedgraph.app.config.DockerDevelopmentConfig
+GOOGLE_APPLICATION_CREDENTIALS=/path/to/.cloudvolume/secrets/google-secret.json
+REDIS_HOST=localhost
+REDIS_PORT=6379
+REDIS_DB=0
+REDIS_PASSWORD=dev
+```
+
 ### Example Ingest Configuration
 
 ```
