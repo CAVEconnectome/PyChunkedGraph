@@ -1,22 +1,15 @@
 from collections import namedtuple
 
-from ..utils.redis import REDIS_URL
-
 
 _cluster_ingest_config_fields = (
-    "REDIS_URL",
     "ATOMIC_Q_NAME",
     "ATOMIC_Q_LIMIT",
     "ATOMIC_Q_INTERVAL",
 )
 _cluster_ingest_defaults = (
-    REDIS_URL,
     "atomic",
     100000,
     60,
-    "parents",
-    100000,
-    120,
 )
 ClusterIngestConfig = namedtuple(
     "ClusterIngestConfig",

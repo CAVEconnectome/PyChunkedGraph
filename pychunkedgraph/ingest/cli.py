@@ -2,16 +2,10 @@
 cli for running ingest
 """
 
-import yaml
-import numpy as np
 import click
 from flask.cli import AppGroup
 
-from .utils import chunk_id_str
-from .utils import bootstrap
 from .manager import IngestionManager
-from .cluster import enqueue_atomic_tasks
-from .cluster import create_parent_chunk
 from ..graph.chunkedgraph import ChunkedGraph
 from ..utils.redis import get_redis_connection
 from ..utils.redis import keys as r_keys
@@ -23,8 +17,8 @@ def init_ingest_cmds(app):
     app.cli.add_command(ingest_cli)
 
 
-@ingest_cli.command("flushdb")
-def flushdb():
+@ingest_cli.command("flush_redis")
+def flush_redis():
     """FLush redis db."""
     redis = get_redis_connection()
     redis.flushdb()
@@ -40,6 +34,10 @@ def ingest_graph(graph_id: str, dataset: click.Path, raw: bool, test: bool):
     Main ingest command.
     Takes ingest config from a yaml file and queues atomic tasks.
     """
+    import yaml
+    from .utils import bootstrap
+    from .cluster import enqueue_atomic_tasks
+
     with open(dataset, "r") as stream:
         try:
             config = yaml.safe_load(stream)
@@ -74,13 +72,13 @@ def ingest_status():
 @click.argument("chunk_info", nargs=4, type=int)
 def ingest_chunk(queue: str, chunk_info):
     """Manually queue chunk when a job is stuck for whatever reason."""
+    from .cluster import create_parent_chunk
+    from .utils import chunk_id_str
+
     redis = get_redis_connection()
     imanager = IngestionManager.from_pickle(redis.get(r_keys.INGESTION_MANAGER))
-
     layer = chunk_info[0]
-    coords = np.array(chunk_info[1:], int)
-    chunk_str = "_".join(map(str, coords))
-
+    coords = chunk_info[1:]
     queue = imanager.get_task_queue(queue)
     queue.enqueue(
         create_parent_chunk,
@@ -93,8 +91,6 @@ def ingest_chunk(queue: str, chunk_info):
             coords,
         ),
     )
-    imanager.redis.hdel(layer, chunk_str)
-    imanager.redis.hset(f"{layer}q", chunk_str, "")
 
 
 @ingest_cli.command("chunk_local")

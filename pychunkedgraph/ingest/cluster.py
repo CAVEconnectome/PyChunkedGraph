@@ -4,9 +4,6 @@ Ingest / create chunkedgraph with workers.
 
 import time
 from itertools import product
-from typing import List
-from typing import Dict
-from typing import Tuple
 from typing import Sequence
 
 import numpy as np
@@ -17,61 +14,58 @@ from .common import get_atomic_chunk_data
 from .ran_agglomeration import get_active_edges
 from .initial.atomic_layer import add_atomic_edges
 from .initial.abstract_layers import add_layer
-from ..utils.redis import keys as r_keys
 from ..graph.meta import ChunkedGraphMeta
 from ..graph.chunks.hierarchy import get_children_chunk_coords
+from ..utils.redis import keys as r_keys
+from ..utils.redis import get_redis_connection
 
 
 def _post_task_completion(imanager: IngestionManager, layer: int, coords: np.ndarray):
     chunk_str = "_".join(map(str, coords))
-    # remove from queued hash and put in completed hash
-    imanager.redis.hdel(f"{layer}q", chunk_str)
+    # mark chunk as completed - "c"
     imanager.redis.hset(f"{layer}c", chunk_str, "")
-    return  # TODO remove this once ingest process is robust
 
     parent_layer = layer + 1
     if parent_layer > imanager.cg_meta.layer_count:
         return
 
-    parent_coords = (
-        np.array(coords, int) // imanager.cg_meta.graph_config.FANOUT
-    )
+    parent_coords = np.array(coords, int) // imanager.cg_meta.graph_config.FANOUT
     parent_chunk_str = "_".join(map(str, parent_coords))
     if not imanager.redis.hget(parent_layer, parent_chunk_str):
+        # add children chunk count to redis cache
+        # tracked by another worker to enqueue parent chunk
         children_count = len(
-            get_children_chunk_coords(
-                imanager.cg_meta, parent_layer, parent_coords
-            )
+            get_children_chunk_coords(imanager.cg_meta, parent_layer, parent_coords)
         )
         imanager.redis.hset(parent_layer, parent_chunk_str, children_count)
-    imanager.redis.hincrby(parent_layer, parent_chunk_str, -1)
-    children_left = int(
-        imanager.redis.hget(parent_layer, parent_chunk_str).decode("utf-8")
-    )
 
-    if children_left == 0:
-        parents_queue = imanager.get_task_queue(imanager.config.CLUSTER.PARENTS_Q_NAME)
-        parents_queue.enqueue(
-            create_parent_chunk,
-            job_id=chunk_id_str(parent_layer, parent_coords),
-            job_timeout=f"{parent_layer*parent_layer}m",
-            result_ttl=0,
-            args=(
-                imanager.serialized(pickled=True),
-                parent_layer,
-                parent_coords,
-            ),
-        )
-        imanager.redis.hdel(parent_layer, parent_chunk_str)
-        imanager.redis.hset(f"{parent_layer}q", parent_chunk_str, "")
+
+def enqueue_parent_task():
+    PARENT_TASK_TRACKER = "parent_task_tracker"
+    redis = get_redis_connection()
+    imanager = IngestionManager.from_pickle(redis.get(r_keys.INGESTION_MANAGER))
+    layer = chunk_info[0]
+    coords = chunk_info[1:]
+    queue = imanager.get_task_queue(PARENT_TASK_TRACKER)
+    queue.enqueue(
+        create_parent_chunk,
+        job_id=chunk_id_str(layer, coords),
+        job_timeout=f"{int(layer * layer)}m",
+        result_ttl=0,
+        args=(
+            imanager.serialized(pickled=True),
+            layer,
+            coords,
+        ),
+    )
 
 
 def create_parent_chunk(
-    im_info: str,
     parent_layer: int,
     parent_coords: Sequence[int],
 ) -> None:
-    imanager = IngestionManager.from_pickle(im_info)
+    redis = get_redis_connection()
+    imanager = IngestionManager.from_pickle(redis.get(r_keys.INGESTION_MANAGER))
     add_layer(
         imanager.cg,
         parent_layer,
@@ -108,9 +102,10 @@ def enqueue_atomic_tasks(imanager: IngestionManager):
         )
 
 
-def _create_atomic_chunk(im_info: str, coord: Sequence[int]):
+def _create_atomic_chunk(coord: Sequence[int]):
     """Creates single atomic chunk"""
-    imanager = IngestionManager.from_pickle(im_info)
+    redis = get_redis_connection()
+    imanager = IngestionManager.from_pickle(redis.get(r_keys.INGESTION_MANAGER))
     coord = np.array(list(coord), dtype=int)
     chunk_edges_all, mapping = get_atomic_chunk_data(imanager, coord)
     chunk_edges_active, isolated_ids = get_active_edges(

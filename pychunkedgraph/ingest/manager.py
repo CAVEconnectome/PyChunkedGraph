@@ -34,7 +34,7 @@ class IngestionManager:
     def redis(self):
         if self._redis is not None:
             return self._redis
-        self._redis = get_redis_connection(self._config.CLUSTER.REDIS_URL)
+        self._redis = get_redis_connection()
         self._redis.set(r_keys.INGESTION_MANAGER, self.serialized(pickled=True))
         return self._redis
 
