@@ -124,7 +124,7 @@ def enqueue_atomic_tasks(imanager: IngestionManager):
             job_id=chunk_id_str(2, chunk_coord),
             job_timeout="3m",
             result_ttl=0,
-            args=chunk_coord,
+            args=(chunk_coord,),
         )
 
 
@@ -143,7 +143,7 @@ def _create_atomic_chunk(coords: Sequence[int]):
         for k, v in chunk_edges_all.items():
             print(k, len(v))
         for k, v in chunk_edges_active.items():
-            print(k, len(v))
+            print(f"active_{k}", len(v))
     _post_task_completion(imanager, 2, coords)
 
 

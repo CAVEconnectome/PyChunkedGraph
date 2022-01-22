@@ -53,9 +53,7 @@ def read_raw_edge_data(imanager, coord) -> Dict:
         )
         no_edges = no_edges and not sv_ids1.size
     if not no_edges and imanager.cg_meta.data_source.EDGES:
-        put_chunk_edges(
-            imanager.cg_meta.data_source.EDGES, coord, chunk_edges, 17
-        )
+        put_chunk_edges(imanager.cg_meta.data_source.EDGES, coord, chunk_edges, 17)
     return chunk_edges
 
 
@@ -316,8 +314,6 @@ def read_raw_agglomeration_data(imanager: IngestionManager, chunk_coord: np.ndar
                 chunk_ids.append(adjacent_id)
 
     edges_list = _read_agg_files(filenames, chunk_ids, path)
-    edges = np.concatenate(edges_list)
-    print("edges_list", len(edges), "unique", len(np.unique(edges)))
     G = nx.Graph()
     G.add_edges_from(np.concatenate(edges_list))
     mapping = {}
