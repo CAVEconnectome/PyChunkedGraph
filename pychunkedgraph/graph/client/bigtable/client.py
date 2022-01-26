@@ -53,7 +53,9 @@ class Client(bigtable.Client, ClientWithIDGen, OperationLogger):
             )
         else:
             super(Client, self).__init__(
-                project=config.PROJECT, read_only=config.READ_ONLY, admin=config.ADMIN,
+                project=config.PROJECT,
+                read_only=config.READ_ONLY,
+                admin=config.ADMIN,
             )
         self._instance = self.instance(config.INSTANCE)
         self._table = self._instance.table(table_id)
@@ -85,7 +87,8 @@ class Client(bigtable.Client, ClientWithIDGen, OperationLogger):
     def update_graph_meta(self, meta: ChunkedGraphMeta):
         self._graph_meta = meta
         row = self.mutate_row(
-            attributes.GraphMeta.key, {attributes.GraphMeta.Meta: meta},
+            attributes.GraphMeta.key,
+            {attributes.GraphMeta.Meta: meta},
         )
         self.write([row])
 
@@ -99,6 +102,7 @@ class Client(bigtable.Client, ClientWithIDGen, OperationLogger):
         start_id=None,
         end_id=None,
         end_id_inclusive=False,
+        user_id=None,
         node_ids=None,
         properties=None,
         start_time=None,
@@ -127,6 +131,7 @@ class Client(bigtable.Client, ClientWithIDGen, OperationLogger):
             start_time=start_time,
             end_time=end_time,
             end_time_inclusive=end_time_inclusive,
+            user_id=user_id,
         )
         return {
             deserialize_uint64(row_key, fake_edges=fake_edges): data
@@ -204,6 +209,7 @@ class Client(bigtable.Client, ClientWithIDGen, OperationLogger):
     def read_log_entries(
         self,
         operation_ids: typing.Optional[typing.Iterable] = None,
+        user_id: typing.Optional[str] = None,
         properties: typing.Optional[typing.Iterable[attributes._Attribute]] = None,
         start_time: typing.Optional[datetime] = None,
         end_time: typing.Optional[datetime] = None,
@@ -217,6 +223,7 @@ class Client(bigtable.Client, ClientWithIDGen, OperationLogger):
                 start_id=np.uint64(0),
                 end_id=self.get_max_operation_id(),
                 end_id_inclusive=True,
+                user_id=user_id,
                 properties=properties,
                 start_time=start_time,
                 end_time=end_time,
@@ -229,13 +236,16 @@ class Client(bigtable.Client, ClientWithIDGen, OperationLogger):
                 start_time=start_time,
                 end_time=end_time,
                 end_time_inclusive=end_time_inclusive,
+                user_id=user_id,
             )
         if not logs_d:
             return {}
         for operation_id in logs_d:
             log_record = logs_d[operation_id]
             try:
-                timestamp = log_record[attributes.OperationLogs.OperationTimeStamp][0].value
+                timestamp = log_record[attributes.OperationLogs.OperationTimeStamp][
+                    0
+                ].value
             except KeyError:
                 timestamp = log_record[attributes.OperationLogs.RootID][0].timestamp
             log_record.update((column, v[0].value) for column, v in log_record.items())
@@ -253,7 +263,7 @@ class Client(bigtable.Client, ClientWithIDGen, OperationLogger):
         slow_retry: bool = True,
         block_size: int = 2000,
     ):
-        """ Writes a list of mutated rows in bulk
+        """Writes a list of mutated rows in bulk
         WARNING: If <rows> contains the same row (same row_key) and column
         key two times only the last one is effectively written to the BigTable
         (even when the mutations were applied to different columns)
@@ -315,7 +325,11 @@ class Client(bigtable.Client, ClientWithIDGen, OperationLogger):
         return row
 
     # Locking
-    def lock_root(self, root_id: np.uint64, operation_id: np.uint64,) -> bool:
+    def lock_root(
+        self,
+        root_id: np.uint64,
+        operation_id: np.uint64,
+    ) -> bool:
         """Attempts to lock the latest version of a root node."""
         lock_expiry = self.graph_meta.graph_config.ROOT_LOCK_EXPIRY
         lock_column = attributes.Concurrency.Lock
@@ -345,7 +359,9 @@ class Client(bigtable.Client, ClientWithIDGen, OperationLogger):
         return lock_acquired
 
     def lock_root_indefinitely(
-        self, root_id: np.uint64, operation_id: np.uint64,
+        self,
+        root_id: np.uint64,
+        operation_id: np.uint64,
     ) -> bool:
         """Attempts to indefinitely lock the latest version of a root node."""
         lock_column = attributes.Concurrency.IndefiniteLock
@@ -634,6 +650,7 @@ class Client(bigtable.Client, ClientWithIDGen, OperationLogger):
         start_time: typing.Optional[datetime] = None,
         end_time: typing.Optional[datetime] = None,
         end_time_inclusive: bool = False,
+        user_id: typing.Optional[str] = None,
     ) -> typing.Dict[
         bytes,
         typing.Union[
@@ -664,6 +681,7 @@ class Client(bigtable.Client, ClientWithIDGen, OperationLogger):
                 If None, no upper bound. (default: {None})
             end_time_inclusive {bool} -- Whether or not `end_time` itself should be included in the
                 request, ignored if `end_time` is None. (default: {False})
+            user_id {typing.Optional[str]} -- Only return cells with userID equal to this
 
         Returns:
             typing.Dict[bytes, typing.Union[typing.Dict[attributes._Attribute, typing.List[bigtable.row_data.Cell]],
@@ -698,6 +716,7 @@ class Client(bigtable.Client, ClientWithIDGen, OperationLogger):
             start_time=start_time,
             end_time=end_time,
             end_inclusive=end_time_inclusive,
+            user_id=user_id,
         )
         # Bigtable read with retries
         rows = self._read(row_set=row_set, row_filter=filter_)
@@ -779,7 +798,7 @@ class Client(bigtable.Client, ClientWithIDGen, OperationLogger):
     ) -> typing.Dict[
         bytes, typing.Dict[attributes._Attribute, bigtable.row_data.PartialRowData]
     ]:
-        """ Core function to read rows from Bigtable. Uses standard Bigtable retry logic
+        """Core function to read rows from Bigtable. Uses standard Bigtable retry logic
         :param row_set: BigTable RowSet
         :param row_filter: BigTable RowFilter
         :return: typing.Dict[bytes, typing.Dict[attributes._Attribute, bigtable.row_data.PartialRowData]]
@@ -789,7 +808,9 @@ class Client(bigtable.Client, ClientWithIDGen, OperationLogger):
         # good enough for now
         # TODO try async/await
 
-        n_subrequests = max(1, int(np.ceil(len(row_set.row_keys) / self._max_row_key_count)))
+        n_subrequests = max(
+            1, int(np.ceil(len(row_set.row_keys) / self._max_row_key_count))
+        )
         n_threads = min(n_subrequests, 2 * mu.n_cpus)
 
         row_sets = []
