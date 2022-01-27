@@ -1019,7 +1019,9 @@ def chunk_mesh_task_new_remapping(
                     max_simplification_error=max_err,
                 )
                 mesher.erase(obj_id)
-                mesh.vertices[:] += chunk_offset
+                mesh.vertices[:] += chunk_offset 
+                # backwards compatibility with zmesh 1.0.0
+                mesh.vertices[:] -= 0.5 * cg.cv.mip_resolution(mip) 
                 if encoding == "draco":
                     try:
                         file_contents = DracoPy.encode_mesh_to_buffer(
