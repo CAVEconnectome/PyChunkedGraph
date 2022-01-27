@@ -14,7 +14,7 @@ from google.cloud.bigtable.row_filters import TimestampRange
 from google.cloud.bigtable.row_filters import RowFilterChain
 from google.cloud.bigtable.row_filters import RowFilterUnion
 from google.cloud.bigtable.row_filters import ValueRangeFilter
-from google.cloud.bigtable.row_filters import ValueRegexFilter
+from google.cloud.bigtable.row_filters import CellsRowLimitFilter
 from google.cloud.bigtable.row_filters import ColumnRangeFilter
 from google.cloud.bigtable.row_filters import TimestampRangeFilter
 from google.cloud.bigtable.row_filters import ConditionalRowFilter
@@ -80,10 +80,13 @@ def _get_user_filter(user_id: str):
         user_id (str): userID to select for
     """
 
-    condition = [
-        ColumnQualifierRegexFilter(attributes.OperationLogs.UserID.key),
-        ValueRangeFilter(str.encode(user_id)),
-    ]
+    condition = RowFilterChain(
+        [
+            ColumnQualifierRegexFilter(attributes.OperationLogs.UserID.key),
+            ValueRangeFilter(str.encode(user_id), str.encode(user_id)),
+            CellsRowLimitFilter(1),
+        ]
+    )
 
     conditional_filter = ConditionalRowFilter(
         base_filter=condition,
@@ -133,8 +136,7 @@ def get_time_range_and_column_filter(
         filters.append(user_filter)
     if len(filters) > 1:
         return RowFilterChain(filters)
-    else:
-        return filters[0]
+    return filters[0]
 
 
 def get_root_lock_filter(
