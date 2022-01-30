@@ -37,20 +37,20 @@ WRITING_TO_CLOUD = True
 
 def decode_draco_mesh_buffer(fragment):
     try:
-        mesh_object = DracoPy.decode_buffer_to_mesh(fragment)
+        mesh_object = DracoPy.decode(fragment)
         vertices = np.array(mesh_object.points)
         faces = np.array(mesh_object.faces)
     except ValueError:
         raise ValueError("Not a valid draco mesh")
 
-    assert len(vertices) % 3 == 0, "Draco mesh vertices not 3-D"
-    num_vertices = len(vertices) // 3
+    assert vertices.size % 3 == 0, "Draco mesh vertices not 3-D"
+    num_vertices = len(vertices)
 
     # For now, just return this dict until we figure out
     # how exactly to deal with Draco's lossiness/duplicate vertices
     return {
         "num_vertices": num_vertices,
-        "vertices": vertices.reshape(num_vertices, 3),
+        "vertices": vertices,
         "faces": faces,
         "encoding_options": mesh_object.encoding_options,
         "encoding_type": "draco",
@@ -1022,7 +1022,7 @@ def chunk_mesh_task_new_remapping(
                 mesh.vertices[:] += chunk_offset
                 if encoding == "draco":
                     try:
-                        file_contents = DracoPy.encode_mesh_to_buffer(
+                        file_contents = DracoPy.encode(
                             mesh.vertices.flatten("C"),
                             mesh.faces.flatten("C"),
                             **draco_encoding_settings,
@@ -1217,7 +1217,7 @@ def chunk_mesh_task_new_remapping(
                 )
 
                 try:
-                    new_fragment_b = DracoPy.encode_mesh_to_buffer(
+                    new_fragment_b = DracoPy.encode(
                         new_fragment["vertices"],
                         new_fragment["faces"],
                         **draco_encoding_options,
