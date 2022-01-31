@@ -23,7 +23,7 @@ from pychunkedgraph.app import app_utils
 from pychunkedgraph.backend import chunkedgraph_exceptions as cg_exceptions
 from pychunkedgraph.backend import history as cg_history
 from pychunkedgraph.backend import lineage
-from pychunkedgraph.backend.utils import column_keys
+from pychunkedgraph.backend.utils import column_keys, basetypes
 from pychunkedgraph.graph_analysis import analysis, contact_sites
 from pychunkedgraph.backend.graphoperation import GraphEditOperation
 
@@ -788,7 +788,11 @@ def tabular_change_log_recent(table_id):
     current_app.user_id = user_id
 
     start_time = _parse_timestamp("start_time", 0, return_datetime=True)
-    end_time = None if request.args.get("end_time", None) is None else _parse_timestamp("end_time", return_datetime=True)
+    end_time = (
+        None
+        if request.args.get("end_time", None) is None
+        else _parse_timestamp("end_time", return_datetime=True)
+    )
 
     # Call ChunkedGraph
     cg_instance = app_utils.get_cg(table_id)
@@ -836,16 +840,21 @@ def tabular_change_logs(table_id, root_ids, filtered=False):
         all_user_ids.extend(np.array(tab[tab_k]["user_id"]).reshape(-1))
 
     all_user_ids = np.unique(all_user_ids)
-    user_dict = app_utils.get_username_dict(
+    user_name_dict, user_aff_dict = app_utils.get_userinfo_dict(
         all_user_ids, current_app.config["AUTH_TOKEN"]
     )
 
     for tab_k in tab.keys():
         user_names = [
-            user_dict.get(int(id_), "unknown")
+            user_name_dict.get(int(id_), "unknown")
+            for id_ in np.array(tab[tab_k]["user_id"])
+        ]
+        user_affs = [
+            user_aff_dict.get(int(id_), "unknown")
             for id_ in np.array(tab[tab_k]["user_id"])
         ]
         tab[tab_k]["user_name"] = user_names
+        tab[tab_k]["user_affiliation"] = user_affs
 
     return tab
 
@@ -1222,3 +1231,28 @@ def delta_roots(table_id):
     cg = app_utils.get_cg(table_id)
     old_roots, new_roots = cg.get_proofread_root_ids(timestamp_past, timestamp_future)
     return {"old_roots": old_roots, "new_roots": new_roots}
+
+
+### VALID NODES --------------------------------------------------------------
+def valid_nodes(table_id, is_binary):
+    current_app.request_type = "valid_nodes"
+    current_app.table_id = table_id
+
+    if is_binary:
+        node_ids = np.frombuffer(request.data, np.uint64)
+    else:
+        node_ids = np.array(json.loads(request.data)["node_ids"], dtype=np.uint64)
+
+    # Convert seconds since epoch to UTC datetime
+    end_timestamp = _parse_timestamp("end_timestamp", time.time(), return_datetime=True)
+    start_timestamp = _parse_timestamp(
+        "start_timestamp", time.time(), return_datetime=True
+    )
+
+    # Call ChunkedGraph
+    cg = app_utils.get_cg(table_id)
+    rows = cg.read_node_id_rows(
+        node_ids=node_ids, start_time=start_timestamp, end_time=end_timestamp
+    )
+    resp = {"valid_roots": np.array(list(rows.keys()), dtype=basetypes.NODE_ID)}
+    return resp
