@@ -840,16 +840,21 @@ def tabular_change_logs(table_id, root_ids, filtered=False):
         all_user_ids.extend(np.array(tab[tab_k]["user_id"]).reshape(-1))
 
     all_user_ids = np.unique(all_user_ids)
-    user_dict = app_utils.get_username_dict(
+    user_name_dict, user_aff_dict = app_utils.get_userinfo_dict(
         all_user_ids, current_app.config["AUTH_TOKEN"]
     )
 
     for tab_k in tab.keys():
         user_names = [
-            user_dict.get(int(id_), "unknown")
+            user_name_dict.get(int(id_), "unknown")
+            for id_ in np.array(tab[tab_k]["user_id"])
+        ]
+        user_affs = [
+            user_aff_dict.get(int(id_), "unknown")
             for id_ in np.array(tab[tab_k]["user_id"])
         ]
         tab[tab_k]["user_name"] = user_names
+        tab[tab_k]["user_affiliation"] = user_affs
 
     return tab
 
