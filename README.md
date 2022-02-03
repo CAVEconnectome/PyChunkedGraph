@@ -20,8 +20,8 @@ to connect to a chunkgraph:
 
 - `GOOGLE_APPLICATION_CREDENTIALS`: Location of the google-secret.json file.
 - `BIGTABLE_PROJECT`: Name of the Google Cloud project name.
-- BIGTABLE_INSTANCE`: Name of the Bigtable Instance ID. (Default is 'pychunkedgraph')
-- 
+- `BIGTABLE_INSTANCE`: Name of the Bigtable Instance ID. (Default is 'pychunkedgraph')
+
 ### Ingest 
 
 `/ingest` provides examples for ingest scripts. The ingestion pipeline designed to use the output of the seunglab's agglomeration pipeline but can be adjusted to use alternative data sources. 
