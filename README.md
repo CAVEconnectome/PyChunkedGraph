@@ -37,6 +37,8 @@ As a backend the PyChunkedGraph can be combined with any frontend that adheres t
 
 ## Publication 
 
+When using or referencing the PyChunkedGraph, please use the citation below. The FlyWire paper described and published the PyChunkedGraph v1.
+
 [FlyWire: Online community for whole-brain connectomics](https://www.nature.com/articles/s41592-021-01330-0)
 ```
 @article{FlyWire2021,
