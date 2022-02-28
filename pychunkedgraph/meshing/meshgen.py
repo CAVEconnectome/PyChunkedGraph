@@ -3,18 +3,14 @@ from typing import Sequence
 import sys
 import os
 import numpy as np
-import json
-import time
 import collections
 from functools import lru_cache
 import datetime
 import pytz
 import cloudvolume
-from scipy import ndimage, sparse
-import networkx as nx
+from scipy import ndimage
 
 from multiwrapper import multiprocessing_utils as mu
-from cloudvolume import Storage, EmptyVolumeException
 from cloudvolume.lib import Vec
 import DracoPy
 import zmesh
@@ -37,20 +33,20 @@ WRITING_TO_CLOUD = True
 
 def decode_draco_mesh_buffer(fragment):
     try:
-        mesh_object = DracoPy.decode_buffer_to_mesh(fragment)
+        mesh_object = DracoPy.decode(fragment)
         vertices = np.array(mesh_object.points)
         faces = np.array(mesh_object.faces)
     except ValueError:
         raise ValueError("Not a valid draco mesh")
 
-    assert len(vertices) % 3 == 0, "Draco mesh vertices not 3-D"
-    num_vertices = len(vertices) // 3
+    assert vertices.size % 3 == 0, "Draco mesh vertices not 3-D"
+    num_vertices = len(vertices)
 
     # For now, just return this dict until we figure out
     # how exactly to deal with Draco's lossiness/duplicate vertices
     return {
         "num_vertices": num_vertices,
-        "vertices": vertices.reshape(num_vertices, 3),
+        "vertices": vertices,
         "faces": faces,
         "encoding_options": mesh_object.encoding_options,
         "encoding_type": "draco",
@@ -968,9 +964,11 @@ def chunk_mesh_task_new_remapping(
     node_id_subset=None,
     cg=None,
 ):
+    from cloudfiles import CloudFiles
     if cg is None:
         cg = chunkedgraph.ChunkedGraph(**cg_info)
     mesh_path = mesh_path or cg.cv_mesh_path
+    cf = CloudFiles(mesh_path)
     result = []
 
     layer, _, chunk_offset = get_meshing_necessities_from_graph(cg, chunk_id, mip)
@@ -1007,42 +1005,42 @@ def chunk_mesh_task_new_remapping(
             return np.unique(seg).shape[0]
         mesher.mesh(seg.T)
         del seg
-        with Storage(mesh_path) as storage:
-            if PRINT_FOR_DEBUGGING:
-                print("mesh path", mesh_path)
-                print("num ids", len(mesher.ids()))
-            result.append(len(mesher.ids()))
-            for obj_id in mesher.ids():
-                mesh = mesher.get_mesh(
-                    obj_id,
-                    simplification_factor=999999,
-                    max_simplification_error=max_err,
-                )
-                mesher.erase(obj_id)
-                mesh.vertices[:] += chunk_offset
-                if encoding == "draco":
-                    try:
-                        file_contents = DracoPy.encode_mesh_to_buffer(
-                            mesh.vertices.flatten("C"),
-                            mesh.faces.flatten("C"),
-                            **draco_encoding_settings,
-                        )
-                    except:
-                        result.append(
-                            f"{obj_id} failed: {len(mesh.vertices)} vertices, {len(mesh.faces)} faces"
-                        )
-                        continue
-                    compress = False
-                else:
-                    file_contents = mesh.to_precomputed()
-                    compress = True
-                if WRITING_TO_CLOUD:
-                    storage.put_file(
-                        file_path=f"{meshgen_utils.get_mesh_name(cg, obj_id)}",
-                        content=file_contents,
-                        compress=compress,
-                        cache_control="no-cache",
+
+        if PRINT_FOR_DEBUGGING:
+            print("mesh path", mesh_path)
+            print("num ids", len(mesher.ids()))
+        result.append(len(mesher.ids()))
+        for obj_id in mesher.ids():
+            mesh = mesher.get_mesh(
+                obj_id,
+                simplification_factor=999999,
+                max_simplification_error=max_err,
+            )
+            mesher.erase(obj_id)
+            mesh.vertices[:] += chunk_offset
+            if encoding == "draco":
+                try:
+                    file_contents = DracoPy.encode(
+                        mesh.vertices,
+                        mesh.faces,
+                        **draco_encoding_settings,
                     )
+                except:
+                    result.append(
+                        f"{obj_id} failed: {len(mesh.vertices)} vertices, {len(mesh.faces)} faces"
+                    )
+                    continue
+                compress = False
+            else:
+                file_contents = mesh.to_precomputed()
+                compress = True
+            if WRITING_TO_CLOUD:
+                cf.put(
+                    path=f"{meshgen_utils.get_mesh_name(cg, obj_id)}",
+                    content=file_contents,
+                    compress=compress,
+                    cache_control="no-cache",
+                )
     else:
         # For each node with more than one child, create a new fragment by
         # merging the mesh fragments of the children.
@@ -1110,133 +1108,132 @@ def chunk_mesh_task_new_remapping(
             print("Nothing to do", cx, cy, cz)
             return ", ".join(str(x) for x in result)
 
-        with Storage(mesh_path) as storage:
-            vals = multi_child_nodes.values()
-            fragment_to_fetch = [
-                fragment for child_fragments in vals for fragment in child_fragments
-            ]
-            if fragment_batch_size is None:
-                files_contents = storage.get_files(fragment_to_fetch)
-            else:
-                files_contents = storage.get_files(
-                    fragment_to_fetch[0:fragment_batch_size]
-                )
-                fragments_in_batch_processed = 0
-                batches_processed = 0
-                num_fragments_processed = 0
-            fragment_map = {}
-            for i in range(len(files_contents)):
-                fragment_map[files_contents[i]["filename"]] = files_contents[i]
-            i = 0
-            for new_fragment_id, fragment_ids_to_fetch in multi_child_nodes.items():
-                i += 1
-                if i % max(1, len(multi_child_nodes) // 10) == 0:
-                    print(f"{i}/{len(multi_child_nodes)}")
+        vals = multi_child_nodes.values()
+        fragment_to_fetch = [
+            fragment for child_fragments in vals for fragment in child_fragments
+        ]
+        if fragment_batch_size is None:
+            files_contents = cf.get(fragment_to_fetch)
+        else:
+            files_contents = cf.get(
+                fragment_to_fetch[0:fragment_batch_size]
+            )
+            fragments_in_batch_processed = 0
+            batches_processed = 0
+            num_fragments_processed = 0
+        fragment_map = {}
+        for i in range(len(files_contents)):
+            fragment_map[files_contents[i]["path"]] = files_contents[i]
+        i = 0
+        for new_fragment_id, fragment_ids_to_fetch in multi_child_nodes.items():
+            i += 1
+            if i % max(1, len(multi_child_nodes) // 10) == 0:
+                print(f"{i}/{len(multi_child_nodes)}")
 
-                old_fragments = []
-                missing_fragments = False
-                for fragment_id in fragment_ids_to_fetch:
-                    if fragment_batch_size is not None:
-                        fragments_in_batch_processed += 1
-                        if fragments_in_batch_processed > fragment_batch_size:
-                            fragments_in_batch_processed = 1
-                            batches_processed += 1
-                            num_fragments_processed = (
-                                batches_processed * fragment_batch_size
-                            )
-                            files_contents = storage.get_files(
-                                fragment_to_fetch[
-                                    num_fragments_processed : num_fragments_processed
-                                    + fragment_batch_size
-                                ]
-                            )
-                            fragment_map = {}
-                            for j in range(len(files_contents)):
-                                fragment_map[
-                                    files_contents[j]["filename"]
-                                ] = files_contents[j]
-                    fragment = fragment_map[fragment_id]
-                    filename = fragment["filename"]
-                    end_of_node_id_index = filename.find(":")
-                    if end_of_node_id_index == -1:
-                        print(
-                            f"Unexpected filename {filename}. Filenames expected in format '\{node_id}:\{lod}:\{meshgen_utils.get_chunk_bbox_str(cg, node_id)}'"
+            old_fragments = []
+            missing_fragments = False
+            for fragment_id in fragment_ids_to_fetch:
+                if fragment_batch_size is not None:
+                    fragments_in_batch_processed += 1
+                    if fragments_in_batch_processed > fragment_batch_size:
+                        fragments_in_batch_processed = 1
+                        batches_processed += 1
+                        num_fragments_processed = (
+                            batches_processed * fragment_batch_size
                         )
-                        missing_fragments = True
-                    node_id_str = filename[:end_of_node_id_index]
-                    if fragment["content"] is not None and fragment["error"] is None:
-                        try:
-                            old_fragments.append(
-                                {
-                                    "mesh": decode_draco_mesh_buffer(
-                                        fragment["content"]
-                                    ),
-                                    "node_id": np.uint64(node_id_str),
-                                }
-                            )
-                        except:
-                            missing_fragments = True
-                            new_fragment_str = new_fragment_id[
-                                0 : new_fragment_id.find(":")
+                        files_contents = cf.get(
+                            fragment_to_fetch[
+                                num_fragments_processed : num_fragments_processed
+                                + fragment_batch_size
                             ]
-                            result.append(
-                                f"Decoding failed for {node_id_str} in {new_fragment_str}"
-                            )
-                    elif cg.get_chunk_layer(np.uint64(node_id_str)) > 2:
-                        result.append(f"{fragment_id} missing for {new_fragment_id}")
+                        )
+                        fragment_map = {}
+                        for j in range(len(files_contents)):
+                            fragment_map[
+                                files_contents[j]["path"]
+                            ] = files_contents[j]
+                fragment = fragment_map[fragment_id]
+                filename = fragment["path"]
+                end_of_node_id_index = filename.find(":")
+                if end_of_node_id_index == -1:
+                    print(
+                        f"Unexpected filename {filename}. Filenames expected in format '\{node_id}:\{lod}:\{meshgen_utils.get_chunk_bbox_str(cg, node_id)}'"
+                    )
+                    missing_fragments = True
+                node_id_str = filename[:end_of_node_id_index]
+                if fragment["content"] is not None and fragment["error"] is None:
+                    try:
+                        old_fragments.append(
+                            {
+                                "mesh": decode_draco_mesh_buffer(
+                                    fragment["content"]
+                                ),
+                                "node_id": np.uint64(node_id_str),
+                            }
+                        )
+                    except:
+                        missing_fragments = True
+                        new_fragment_str = new_fragment_id[
+                            0 : new_fragment_id.find(":")
+                        ]
+                        result.append(
+                            f"Decoding failed for {node_id_str} in {new_fragment_str}"
+                        )
+                elif cg.get_chunk_layer(np.uint64(node_id_str)) > 2:
+                    result.append(f"{fragment_id} missing for {new_fragment_id}")
 
-                if len(old_fragments) == 0 or missing_fragments:
-                    result.append(f"No meshes for {new_fragment_id}")
-                    continue
+            if len(old_fragments) == 0 or missing_fragments:
+                result.append(f"No meshes for {new_fragment_id}")
+                continue
 
-                draco_encoding_options = None
-                for old_fragment in old_fragments:
-                    if draco_encoding_options is None:
-                        draco_encoding_options = transform_draco_fragment_and_return_encoding_options(
-                            cg, old_fragment, layer, mip, chunk_id
-                        )
-                    else:
-                        encoding_options_for_fragment = transform_draco_fragment_and_return_encoding_options(
-                            cg, old_fragment, layer, mip, chunk_id
-                        )
-                        np.testing.assert_equal(
-                            draco_encoding_options["quantization_bits"],
-                            encoding_options_for_fragment["quantization_bits"],
-                        )
-                        np.testing.assert_equal(
-                            draco_encoding_options["quantization_range"],
-                            encoding_options_for_fragment["quantization_range"],
-                        )
-                        np.testing.assert_array_equal(
-                            draco_encoding_options["quantization_origin"],
-                            encoding_options_for_fragment["quantization_origin"],
-                        )
+            draco_encoding_options = None
+            for old_fragment in old_fragments:
+                if draco_encoding_options is None:
+                    draco_encoding_options = transform_draco_fragment_and_return_encoding_options(
+                        cg, old_fragment, layer, mip, chunk_id
+                    )
+                else:
+                    encoding_options_for_fragment = transform_draco_fragment_and_return_encoding_options(
+                        cg, old_fragment, layer, mip, chunk_id
+                    )
+                    np.testing.assert_equal(
+                        draco_encoding_options["quantization_bits"],
+                        encoding_options_for_fragment["quantization_bits"],
+                    )
+                    np.testing.assert_equal(
+                        draco_encoding_options["quantization_range"],
+                        encoding_options_for_fragment["quantization_range"],
+                    )
+                    np.testing.assert_array_equal(
+                        draco_encoding_options["quantization_origin"],
+                        encoding_options_for_fragment["quantization_origin"],
+                    )
 
-                new_fragment = merge_draco_meshes_across_boundaries(
-                    cg, old_fragments, chunk_id, mip, high_padding
+            new_fragment = merge_draco_meshes_across_boundaries(
+                cg, old_fragments, chunk_id, mip, high_padding
+            )
+
+            try:
+                new_fragment_b = DracoPy.encode(
+                    new_fragment["vertices"],
+                    new_fragment["faces"],
+                    **draco_encoding_options,
                 )
+            except:
+                new_fragment_str = new_fragment_id[0 : new_fragment_id.find(":")]
+                result.append(
+                    f'Bad mesh created for {new_fragment_str}: {len(new_fragment["vertices"])} vertices, {len(new_fragment["faces"])} faces'
+                )
+                continue
 
-                try:
-                    new_fragment_b = DracoPy.encode_mesh_to_buffer(
-                        new_fragment["vertices"],
-                        new_fragment["faces"],
-                        **draco_encoding_options,
-                    )
-                except:
-                    new_fragment_str = new_fragment_id[0 : new_fragment_id.find(":")]
-                    result.append(
-                        f'Bad mesh created for {new_fragment_str}: {len(new_fragment["vertices"])} vertices, {len(new_fragment["faces"])} faces'
-                    )
-                    continue
-
-                if WRITING_TO_CLOUD:
-                    storage.put_file(
-                        new_fragment_id,
-                        new_fragment_b,
-                        content_type="application/octet-stream",
-                        compress=False,
-                        cache_control="no-cache",
-                    )
+            if WRITING_TO_CLOUD:
+                cf.put(
+                    path=new_fragment_id,
+                    content=new_fragment_b,
+                    content_type="application/octet-stream",
+                    compress=False,
+                    cache_control="no-cache",
+                )
 
     if PRINT_FOR_DEBUGGING:
         print(", ".join(str(x) for x in result))
