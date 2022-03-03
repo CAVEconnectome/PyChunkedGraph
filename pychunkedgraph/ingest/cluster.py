@@ -120,6 +120,7 @@ def enqueue_atomic_tasks(imanager: IngestionManager):
         chunk_coords = list(product(*[range(r) for r in atomic_chunk_bounds]))
         np.random.shuffle(chunk_coords)
 
+    print(f"count: {len(chunk_coords)}")
     for chunk_coord in chunk_coords:
         atomic_queue = imanager.get_task_queue(imanager.config.CLUSTER.ATOMIC_Q_NAME)
         # buffer for optimal use of redis memory

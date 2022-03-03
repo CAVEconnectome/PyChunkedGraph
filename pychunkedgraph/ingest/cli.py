@@ -39,11 +39,7 @@ def ingest_graph(graph_id: str, dataset: click.Path, raw: bool, test: bool):
     from .cluster import enqueue_atomic_tasks
 
     with open(dataset, "r") as stream:
-        try:
-            config = yaml.safe_load(stream)
-        except yaml.YAMLError as exc:
-            print(exc)
-            return
+        config = yaml.safe_load(stream)
 
     meta, ingest_config, client_info = bootstrap(
         graph_id,
