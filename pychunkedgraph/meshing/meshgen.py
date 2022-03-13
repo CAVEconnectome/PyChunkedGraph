@@ -20,7 +20,7 @@ sys.path.insert(0, os.path.join(sys.path[0], "../.."))
 os.environ["TRAVIS_BRANCH"] = "IDONTKNOWWHYINEEDTHIS"
 UTC = pytz.UTC
 
-from pychunkedgraph import LOGGER_NAME
+from pychunkedgraph import pcg_logger
 from pychunkedgraph.backend import chunkedgraph  # noqa
 from pychunkedgraph.backend.utils import column_keys  # noqa
 from pychunkedgraph.meshing import meshgen_utils  # noqa
@@ -29,7 +29,6 @@ from pychunkedgraph.meshing import meshgen_utils  # noqa
 PRINT_FOR_DEBUGGING = False
 # Change below to false if debugging and do not need to write to cloud (warning: do not deploy w/ below set to false)
 WRITING_TO_CLOUD = True
-LOGGER = getLogger(LOGGER_NAME)
 
 
 def decode_draco_mesh_buffer(fragment):
@@ -252,7 +251,7 @@ def get_higher_to_lower_remapping(cg, chunk_id, time_stamp):
     assert cg.get_chunk_layer(chunk_id) >= 2
     assert cg.get_chunk_layer(chunk_id) <= cg.n_layers
 
-    LOGGER.log(LOGGER.level, f"\n{chunk_id} ----------------\n")
+    pcg_logger.log(pcg_logger.level, f"\n{chunk_id} ----------------\n")
 
     lower_remaps = {}
     if cg.get_chunk_layer(chunk_id) > 2:
@@ -554,7 +553,7 @@ def get_lx_overlapping_remappings_for_nodes_and_svs(
     stop_layer = np.where(layer_agreement)[0][0] + 1 + chunk_layer
     # stop_layer = cg.n_layers
 
-    LOGGER.log(LOGGER.level, f"Stop layer: {stop_layer}")
+    pcg_logger.log(pcg_logger.level, f"Stop layer: {stop_layer}")
 
     # Find the parent in the lowest common chunk for each node id and sv id. These parent
     # ids are referred to as root ids even though they are not necessarily the
@@ -903,7 +902,7 @@ def remeshing(
     add_nodes_to_l2_chunk_dict(l2_node_ids)
     for chunk_id, node_ids in l2_chunk_dict.items():
         if PRINT_FOR_DEBUGGING:
-            LOGGER.log(LOGGER.level, f"remeshing {chunk_id} {node_ids}")
+            pcg_logger.log(pcg_logger.level, f"remeshing {chunk_id} {node_ids}")
         l2_time_stamp = _get_timestamp_from_node_ids(cg, node_ids)
         # Remesh the l2_node_ids
         chunk_mesh_task_new_remapping(
@@ -935,7 +934,7 @@ def remeshing(
     for chunk_dict in chunk_dicts:
         for chunk_id, node_ids in chunk_dict.items():
             if PRINT_FOR_DEBUGGING:
-                LOGGER.log(LOGGER.level, f"remeshing {chunk_id} {node_ids}")
+                pcg_logger.log(pcg_logger.level, f"remeshing {chunk_id} {node_ids}")
             # Stitch the meshes of the parents we found in the previous loop
             chunk_mesh_task_new_remapping(
                 cg.get_serialized_info(),
@@ -979,7 +978,7 @@ def chunk_mesh_task_new_remapping(
         assert mip >= cg.cv.mip
 
         result.append((chunk_id, layer, cx, cy, cz))
-        LOGGER.log(LOGGER.level, f"Retrieving remap table for {chunk_id} - {layer}, {cx}, {cy}, {cz}")
+        pcg_logger.log(pcg_logger.level, f"Retrieving remap table for {chunk_id} - {layer}, {cx}, {cy}, {cz}")
         mesher = zmesh.Mesher(cg.cv.mip_resolution(mip))
         draco_encoding_settings = get_draco_encoding_settings_for_chunk(
             cg, chunk_id, mip, high_padding
@@ -1005,8 +1004,8 @@ def chunk_mesh_task_new_remapping(
         del seg
 
         if PRINT_FOR_DEBUGGING:
-            LOGGER.log(LOGGER.level, f"mesh_path {mesh_path}")
-            LOGGER.log(LOGGER.level, f"num ids {len(mesher.ids())}")
+            pcg_logger.log(pcg_logger.level, f"mesh_path {mesh_path}")
+            pcg_logger.log(pcg_logger.level, f"num ids {len(mesher.ids())}")
         result.append(len(mesher.ids()))
         for obj_id in mesher.ids():
             mesh = mesher.get_mesh(
@@ -1043,7 +1042,7 @@ def chunk_mesh_task_new_remapping(
         # For each node with more than one child, create a new fragment by
         # merging the mesh fragments of the children.
 
-        LOGGER.log(LOGGER.level, f"Retrieving children for {chunk_id} - {layer}, {cx}, {cy}, {cz}")
+        pcg_logger.log(pcg_logger.level, f"Retrieving children for {chunk_id} - {layer}, {cx}, {cy}, {cz}")
         if node_id_subset is None:
             range_read = cg.range_read_chunk(
                 layer, cx, cy, cz, columns=column_keys.Hierarchy.Child
@@ -1053,7 +1052,7 @@ def chunk_mesh_task_new_remapping(
                 node_ids=node_id_subset, columns=column_keys.Hierarchy.Child
             )
 
-        LOGGER.log(LOGGER.level, f"Collecting only nodes with more than one child:")
+        pcg_logger.log(pcg_logger.level, f"Collecting only nodes with more than one child:")
         node_ids = np.array(list(range_read.keys()))
         node_rows = np.array(list(range_read.values()))
         child_fragments = np.array(
@@ -1096,10 +1095,10 @@ def chunk_mesh_task_new_remapping(
                 for c in descendents_for_current_node
             ]
             start_index = end_index
-        LOGGER.log(LOGGER.level, f"{len(multi_child_nodes)} out of {len(node_ids)}")
+        pcg_logger.log(pcg_logger.level, f"{len(multi_child_nodes)} out of {len(node_ids)}")
         result.append((chunk_id, len(multi_child_nodes), len(node_ids)))
         if not multi_child_nodes:
-            LOGGER.log(LOGGER.level, f"Nothing to do, {cx}, {cy}, {cz}")
+            pcg_logger.log(pcg_logger.level, f"Nothing to do, {cx}, {cy}, {cz}")
             return ", ".join(str(x) for x in result)
 
         vals = multi_child_nodes.values()
@@ -1122,7 +1121,7 @@ def chunk_mesh_task_new_remapping(
         for new_fragment_id, fragment_ids_to_fetch in multi_child_nodes.items():
             i += 1
             if i % max(1, len(multi_child_nodes) // 10) == 0:
-                LOGGER.log(LOGGER.level, f"{i}/{len(multi_child_nodes)}")
+                pcg_logger.log(pcg_logger.level, f"{i}/{len(multi_child_nodes)}")
 
             old_fragments = []
             missing_fragments = False
@@ -1151,7 +1150,7 @@ def chunk_mesh_task_new_remapping(
                 end_of_node_id_index = filename.find(":")
                 if end_of_node_id_index == -1:
                     msg = f"Unexpected filename {filename}. Expected format '\{node_id}:\{lod}:\{meshgen_utils.get_chunk_bbox_str(cg, node_id)}'"
-                    LOGGER.log(LOGGER.level, msg)
+                    pcg_logger.log(pcg_logger.level, msg)
                     missing_fragments = True
                 node_id_str = filename[:end_of_node_id_index]
                 if fragment["content"] is not None and fragment["error"] is None:
@@ -1229,6 +1228,6 @@ def chunk_mesh_task_new_remapping(
                 )
 
     if PRINT_FOR_DEBUGGING:
-        LOGGER.log(LOGGER.level, ", ".join(str(x) for x in result))
+        pcg_logger.log(pcg_logger.level, ", ".join(str(x) for x in result))
     return ", ".join(str(x) for x in result)
 

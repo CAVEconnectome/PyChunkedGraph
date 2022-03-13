@@ -3,7 +3,7 @@ import sys
 from logging import getLogger
 
 from werkzeug.serving import WSGIRequestHandler
-from pychunkedgraph import LOGGER_NAME
+from pychunkedgraph import pcg_logger
 from pychunkedgraph.app import create_app
 
 app = create_app()
@@ -18,8 +18,7 @@ if __name__ == '__main__':
     WSGIRequestHandler.protocol_version = "HTTP/1.1"
     # WSGIRequestHandler.protocol_version = "HTTP/2.0"
 
-    logger = getLogger(LOGGER_NAME)
-    logger.debug(app.config["PCG_GRAPH_IDS"])
+    pcg_logger.debug(app.config["PCG_GRAPH_IDS"])
 
     app.run(host='0.0.0.0',
             port=port,
