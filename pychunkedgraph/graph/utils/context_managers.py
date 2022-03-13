@@ -1,15 +1,16 @@
 import builtins
-import traceback
+import logging
 from time import time
 
-indent = 0
+from ... import pcg_logger
 
+indent = 0
 builtin_print = builtins.print
 
 
 def foo(*args, **kwargs):
     indent_str = ""
-    for _ in range(2, indent+1, 2):
+    for _ in range(2, indent + 1, 2):
         indent_str += 2 * " "
         indent_str += "|"
     builtin_print(indent_str, *args, **kwargs)
@@ -23,6 +24,8 @@ class TimeIt:
         self._start = None
 
     def __enter__(self):
+        if not pcg_logger.isEnabledFor(logging.DEBUG):
+            return
         builtins.print = foo
         print(f"start {self._message}")
         global indent
@@ -36,6 +39,8 @@ class TimeIt:
         self._start = time()
 
     def __exit__(self, *args):
+        if not pcg_logger.isEnabledFor(logging.DEBUG):
+            return
         builtins.print = foo
         global indent
         indent -= 2

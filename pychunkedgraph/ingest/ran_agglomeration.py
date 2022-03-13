@@ -98,8 +98,6 @@ def _collect_edge_data(imanager: IngestionManager, chunk_coord):
     x, y, z = chunk_coord
     chunk_id = get_chunk_id(imanager.chunkedgraph_meta, layer=1, x=x, y=y, z=z)
 
-    # print(imanager.chunkedgraph_meta)
-
     filenames = defaultdict(list)
     swap = defaultdict(list)
     x, y, z = chunk_coord

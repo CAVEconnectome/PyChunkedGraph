@@ -2,6 +2,7 @@ import sys
 from werkzeug.serving import WSGIRequestHandler
 import os
 
+from pychunkedgraph import pcg_logger
 from pychunkedgraph.app import create_app
 
 app = create_app()
@@ -17,7 +18,7 @@ if __name__ == "__main__":
     WSGIRequestHandler.protocol_version = "HTTP/1.1"
     # WSGIRequestHandler.protocol_version = "HTTP/2.0"
 
-    print("Table: %s; Port: %d" % (app.config["CHUNKGRAPH_TABLE_ID"], port))
+    pcg_logger.debug(app.config["PCG_GRAPH_IDS"])
 
     if len(sys.argv) == 2:
         app.run(

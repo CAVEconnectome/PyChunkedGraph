@@ -25,16 +25,12 @@ UTC = pytz.UTC
 from pychunkedgraph.graph.chunkedgraph import ChunkedGraph  # noqa
 from pychunkedgraph.graph import attributes  # noqa
 from pychunkedgraph.meshing import meshgen_utils  # noqa
+from pychunkedgraph import pcg_logger
 
 # Change below to true if debugging and want to see results in stdout
 PRINT_FOR_DEBUGGING = False
 # Change below to false if debugging and do not need to write to cloud (warning: do not deploy w/ below set to false)
 WRITING_TO_CLOUD = True
-
-REDIS_HOST = os.environ.get("REDIS_SERVICE_HOST", "10.250.2.186")
-REDIS_PORT = os.environ.get("REDIS_SERVICE_PORT", "6379")
-REDIS_PASSWORD = os.environ.get("REDIS_PASSWORD", "dev")
-REDIS_URL = f"redis://:{REDIS_PASSWORD}@{REDIS_HOST}:{REDIS_PORT}/0"
 
 
 def decode_draco_mesh_buffer(fragment):
@@ -189,8 +185,7 @@ def get_higher_to_lower_remapping(cg, chunk_id, time_stamp):
 
     assert cg.get_chunk_layer(chunk_id) >= 2
     assert cg.get_chunk_layer(chunk_id) <= cg.meta.layer_count
-
-    print(f"\n{chunk_id} ----------------\n")
+    pcg_logger.log(pcg_logger.level, f"\n{chunk_id} ----------------\n")
 
     lower_remaps = {}
     if cg.get_chunk_layer(chunk_id) > 2:
@@ -318,7 +313,7 @@ def get_lx_overlapping_remappings(cg, chunk_id, time_stamp=None, n_threads=1):
         time_stamp = UTC.localize(time_stamp)
 
     stop_layer, neigh_chunk_ids = calculate_stop_layer(cg, chunk_id)
-    print(f"Stop layer: {stop_layer}")
+    pcg_logger.log(pcg_logger.level, f"Stop layer: {stop_layer}")
 
     # Find the parent in the lowest common chunk for each l2 id. These parent
     # ids are referred to as root ids even though they are not necessarily the
@@ -333,7 +328,7 @@ def get_lx_overlapping_remappings(cg, chunk_id, time_stamp=None, n_threads=1):
 
     # This loop is the main bottleneck
     for neigh_chunk_id in neigh_chunk_ids:
-        print(f"Neigh: {neigh_chunk_id} --------------")
+        pcg_logger.log(pcg_logger.level, f"Neigh: {neigh_chunk_id} --------------")
 
         lx_ids, root_ids, lx_id_remap = get_root_lx_remapping(
             cg, neigh_chunk_id, stop_layer, time_stamp=time_stamp, n_threads=n_threads
@@ -473,7 +468,7 @@ def get_lx_overlapping_remappings_for_nodes_and_svs(
         time_stamp = UTC.localize(time_stamp)
 
     stop_layer, _ = calculate_stop_layer(cg, chunk_id)
-    print(f"Stop layer: {stop_layer}")
+    pcg_logger.log(pcg_logger.level, f"Stop layer: {stop_layer}")
 
     # Find the parent in the lowest common chunk for each node id and sv id. These parent
     # ids are referred to as root ids even though they are not necessarily the
@@ -554,7 +549,7 @@ def calculate_quantization_bits_and_range(
         draco_quantization_bits = np.ceil(
             np.log2(min_quantization_range / max_draco_bin_size + 1)
         )
-    num_draco_bins = 2 ** draco_quantization_bits - 1
+    num_draco_bins = 2**draco_quantization_bits - 1
     draco_bin_size = np.ceil(min_quantization_range / num_draco_bins)
     draco_quantization_range = draco_bin_size * num_draco_bins
     if draco_quantization_range < min_quantization_range + draco_bin_size:
@@ -841,7 +836,7 @@ def remeshing(
     add_nodes_to_l2_chunk_dict(l2_node_ids)
     for chunk_id, node_ids in l2_chunk_dict.items():
         if PRINT_FOR_DEBUGGING:
-            print("remeshing", chunk_id, node_ids)
+            pcg_logger.log(pcg_logger.level, f"remeshing {chunk_id} {node_ids}")
         l2_time_stamp = _get_timestamp_from_node_ids(cg, node_ids)
         # Remesh the l2_node_ids
         chunk_initial_mesh_task(
@@ -874,7 +869,7 @@ def remeshing(
     for chunk_dict in chunk_dicts:
         for chunk_id, node_ids in chunk_dict.items():
             if PRINT_FOR_DEBUGGING:
-                print("remeshing", chunk_id, node_ids)
+                pcg_logger.log(pcg_logger.level, f"remeshing {chunk_id} {node_ids}")
             # Stitch the meshes of the parents we found in the previous loop
             chunk_stitch_remeshing_task(
                 None,
@@ -928,11 +923,11 @@ def chunk_initial_mesh_task(
         )
     else:
         mesh_dst = cv_unsharded_mesh_path
-
     result.append((chunk_id, layer, cx, cy, cz))
-    print(
-        "Retrieving remap table for chunk %s -- (%s, %s, %s, %s)"
-        % (chunk_id, layer, cx, cy, cz)
+
+    pcg_logger.log(
+        pcg_logger.level,
+        f"Retrieving remap table for {chunk_id} - {layer}, {cx}, {cy}, {cz}",
     )
     mesher = zmesh.Mesher(cg.meta.cv.mip_resolution(mip))
     draco_encoding_settings = get_draco_encoding_settings_for_chunk(
@@ -959,8 +954,8 @@ def chunk_initial_mesh_task(
     del seg
     cf = CloudFiles(mesh_dst)
     if PRINT_FOR_DEBUGGING:
-        print("cv path", mesh_dst)
-        print("num ids", len(mesher.ids()))
+        pcg_logger.log(pcg_logger.level, f"mesh_path {mesh_dst}")
+        pcg_logger.log(pcg_logger.level, f"num ids {len(mesher.ids())}")
     result.append(len(mesher.ids()))
     for obj_id in mesher.ids():
         mesh = mesher.get_mesh(
@@ -1007,7 +1002,7 @@ def chunk_initial_mesh_task(
             cache_control=cache_string,
         )
     if PRINT_FOR_DEBUGGING:
-        print(", ".join(str(x) for x in result))
+        pcg_logger.log(pcg_logger.level, ", ".join(str(x) for x in result))
     return result
 
 
@@ -1095,16 +1090,18 @@ def chunk_stitch_remeshing_task(
 
     assert layer > 2
 
-    print(
-        "Retrieving children for chunk %s -- (%s, %s, %s, %s)"
-        % (chunk_id, layer, cx, cy, cz)
+    pcg_logger.log(
+        pcg_logger.level,
+        f"Retrieving children for {chunk_id} - {layer}, {cx}, {cy}, {cz}",
     )
 
     multi_child_nodes, _ = get_multi_child_nodes(cg, chunk_id, node_id_subset, False)
-    print(f"{len(multi_child_nodes)} nodes with more than one child")
+    pcg_logger.log(
+        pcg_logger.level, f"{len(multi_child_nodes)} nodes with more than one child"
+    )
     result.append((chunk_id, len(multi_child_nodes)))
     if not multi_child_nodes:
-        print("Nothing to do", cx, cy, cz)
+        pcg_logger.log(pcg_logger.level, f"Nothing to do, {cx}, {cy}, {cz}")
         return ", ".join(str(x) for x in result)
 
     cv = CloudVolume(
@@ -1134,7 +1131,7 @@ def chunk_stitch_remeshing_task(
     for new_fragment_id, fragment_ids_to_fetch in multi_child_nodes.items():
         i += 1
         if i % max(1, len(multi_child_nodes) // 10) == 0:
-            print(f"{i}/{len(multi_child_nodes)}")
+            pcg_logger.log(pcg_logger.level, f"{i}/{len(multi_child_nodes)}")
 
         old_fragments = []
         missing_fragments = False
@@ -1192,7 +1189,7 @@ def chunk_stitch_remeshing_task(
         )
 
         try:
-            print(f'num_vertices = {len(new_fragment["vertices"])}')
+            pcg_logger.log(pcg_logger.level, f"num_vertices = {len(new_fragment['vertices'])}")
             new_fragment_b = DracoPy.encode_mesh_to_buffer(
                 new_fragment["vertices"],
                 new_fragment["faces"],
@@ -1214,7 +1211,7 @@ def chunk_stitch_remeshing_task(
             )
 
     if PRINT_FOR_DEBUGGING:
-        print(", ".join(str(x) for x in result))
+        pcg_logger.log(pcg_logger.level, ", ".join(str(x) for x in result))
     return ", ".join(str(x) for x in result)
 
 
@@ -1316,12 +1313,12 @@ def chunk_initial_sharded_stitching_task(
                 )
                 merged_meshes[int(new_fragment_id)] = new_fragment_b
             except:
-                print(f"failed to merge {new_fragment_id}")
+                pcg_logger.log(pcg_logger.level, f"failed to merge {new_fragment_id}")
                 bad_meshes.append(new_fragment_id)
                 pass
             number_frags_proc = number_frags_proc + 1
             if number_frags_proc % 1000 == 0:
-                print(f"number frag proc = {number_frags_proc}")
+                pcg_logger.log(pcg_logger.level, f"number frag proc = {number_frags_proc}")
     del mesh_dict
     shard_binary = sharding_spec.synthesize_shard(merged_meshes)
     shard_filename = cv.mesh.readers[layer].get_filename(chunk_id)

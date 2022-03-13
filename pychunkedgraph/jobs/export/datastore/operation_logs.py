@@ -11,6 +11,7 @@ from typing import List
 from typing import Optional
 from os import environ
 
+from .... import pcg_logger
 from ....graph import ChunkedGraph
 
 
@@ -46,10 +47,10 @@ def run_export(chunkedgraphs: List[ChunkedGraph], datastore_ns: str = None) -> N
         datastore_ns = environ.get("DATASTORE_NS")
 
     for cg in chunkedgraphs:
-        print(f"Start log export job for {cg.graph_id}")
+        pcg_logger.log(pcg_logger.level, f"Start log export job for {cg.graph_id}")
         failed = export_operation_logs(cg, namespace=datastore_ns)
         if failed:
-            print(f"Failed writes {failed}")
+            pcg_logger.log(pcg_logger.level, f"Failed writes {failed}")
             alert_emails = environ["EMAIL_LIST_FAILED_WRITES"]
             send_email(
                 [e.strip() for e in alert_emails.split(",")],
@@ -68,17 +69,23 @@ if __name__ == "__main__":
     try:
         graph_ids = argv[1]
     except IndexError:
-        print("`graph_ids` not provided, using env variable `GRAPH_IDS`")
+        pcg_logger.log(
+            pcg_logger.level, "`graph_ids` not provided, using env variable `GRAPH_IDS`"
+        )
 
     datastore_ns = None
     try:
         datastore_ns = argv[2]
     except IndexError:
-        print("`datastore_namespace` not provided, using env variable `DATASTORE_NS`.")
-        print(
+        pcg_logger.log(
+            pcg_logger.level,
+            "`datastore_namespace` not provided, using env variable `DATASTORE_NS`.",
+        )
+        pcg_logger.log(
+            pcg_logger.level,
             f"Default `pychunkedgraph.export.to.datastore.config.DEFAULT_NS`\n"
             f"{DEFAULT_NS} will be used\n"
-            f"if env variable `DATASTORE_NS` is not provided."
+            f"if env variable `DATASTORE_NS` is not provided.",
         )
 
     run_export(_get_chunkedgraphs(graph_ids=graph_ids), datastore_ns=datastore_ns)

@@ -10,6 +10,7 @@ from cloudvolume import CloudVolume
 
 from ..meshgen_utils import get_mesh_name
 from ..meshgen_utils import get_json_info
+from ... import pcg_logger
 from ...graph import ChunkedGraph
 from ...graph.types import empty_1d
 from ...graph.utils.basetypes import NODE_ID
@@ -66,7 +67,10 @@ def _get_initial_meshes(
         result_ = shard_readers.initial_exists(ids_, return_byte_range=True)
         result_, missing_ids = _del_none_keys(result_)
         result.update(result_)
-        print("ids, missing", ids_.size, len(missing_ids), time() - start)
+        pcg_logger.log(
+            pcg_logger.level,
+            f"ids, missing {ids_.size} {len(missing_ids)}, {time() - start}",
+        )
 
         node_ids = _get_children(cg, missing_ids, children_cache=children_cache)
         node_ids = np.concatenate([node_ids, skips])
@@ -81,10 +85,12 @@ def _get_initial_meshes(
     #     labels=stop_layer_ids, path=f"{mesh_dir}/initial/{stop_layer}/", return_byte_range=True,
     # )
     result_ = shard_readers.initial_exists(stop_layer_ids, return_byte_range=True)
-    print(f"{stop_layer}:{stop_layer_ids.size} {time()-start}")
     result_, temp = _del_none_keys(result_)
-    print("missing_ids", len(temp))
-    print(temp)
+    pcg_logger.log(
+        pcg_logger.level, f"{stop_layer}:{stop_layer_ids.size} {time()-start}"
+    )
+    pcg_logger.log(pcg_logger.level, f"missing_ids {len(temp)}")
+    pcg_logger.log(pcg_logger.level, str(temp))
     result.update(result_)
     return result
 
@@ -121,7 +127,9 @@ def _get_initial_and_dynamic_meshes(
 
     node_ids = np.array(node_ids, dtype=NODE_ID)
     initial_ids, new_ids = segregate_node_ids(cg, node_ids)
-    print("new_ids, initial_ids", new_ids.size, initial_ids.size)
+    pcg_logger.log(
+        pcg_logger.level, f"new_ids, initial_ids {new_ids.size} {initial_ids.size}"
+    )
     initial_meshes_d = _get_initial_meshes(cg, shard_readers, initial_ids)
     new_meshes_d, missing_ids = _get_dynamic_meshes(cg, new_ids)
     return initial_meshes_d, new_meshes_d, missing_ids
@@ -144,7 +152,10 @@ def check_skips(cg, node_ids: Sequence[np.uint64], children_cache: dict = {}):
             continue
         assert c.size == 1, f"{p} does not seem to have children."
         skips.append(c[0])
-    print(f"skips {len(skips)}, total {len(node_ids)}, time {time()-start}")
+    pcg_logger.log(
+        pcg_logger.level,
+        f"skips {len(skips)}, total {len(node_ids)}, time {time()-start}",
+    )
     return np.concatenate(result), np.array(skips, dtype=np.uint64)
 
 
@@ -189,7 +200,7 @@ def get_mesh_paths(
 
     # check for left over level 2 IDs
     node_ids = node_ids[node_layers > 1]
-    print("node_ids left over", node_ids.size)
+    pcg_logger.log(pcg_logger.level, f"node_ids left over {node_ids.size}")
     resp = _get_initial_and_dynamic_meshes(cg, shard_readers, node_ids)
     initial_meshes_d, new_meshes_d, _ = resp
     result.update(initial_meshes_d)

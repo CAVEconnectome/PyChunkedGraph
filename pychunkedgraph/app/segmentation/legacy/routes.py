@@ -80,7 +80,6 @@ def sleep_me(sleep):
 @auth_requires_permission("view")
 @remap_public
 def handle_info(table_id):
-    print("table_id", table_id)
     return common.handle_info(table_id)
 
 

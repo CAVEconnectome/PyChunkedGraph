@@ -4,10 +4,10 @@ import numpy as np
 from cloudvolume import CloudVolume
 
 from .utils import get_children_before_start_layer
+from ... import pcg_logger
 from ...graph import ChunkedGraph
 from ...graph.types import empty_1d
 from ...graph.utils.basetypes import NODE_ID
-from ...graph.utils import generic as misc_utils
 from ...graph.chunks import utils as chunk_utils
 
 
@@ -26,7 +26,10 @@ def verified_manifest(
     node_ids = get_children_before_start_layer(
         cg, node_id, start_layer, bounding_box=bounding_box
     )
-    print(f"children before start_layer count {len(node_ids)}, time {time() - start}")
+    pcg_logger.log(
+        pcg_logger.level,
+        f"children before start_layer count {len(node_ids)}, time {time() - start}",
+    )
 
     start = time()
     result = get_mesh_paths(cg, node_ids)
@@ -40,7 +43,7 @@ def verified_manifest(
             mesh_files.append(f"~{path}:{offset}:{size}")
         except:
             mesh_files.append(val)
-    print(f"shard lookups took {time() - start}")
+    pcg_logger.log(pcg_logger.level, f"shard lookups took {time() - start}")
     return node_ids, mesh_files
 
 
@@ -70,7 +73,7 @@ def speculative_manifest(
     node_ids = get_children_before_start_layer(
         cg, node_id, start_layer=start_layer, bounding_box=bounding_box
     )
-    print("children_before_start_layer", time() - start)
+    pcg_logger.log(pcg_logger.level, f"children_before_start_layer {time() - start}")
 
     start = time()
     result = [empty_1d]
@@ -85,7 +88,7 @@ def speculative_manifest(
         node_layers = cg.get_chunk_layers(node_ids)
 
     result.append(node_ids[node_layers == stop_layer])
-    print("chilren IDs", len(result), time() - start)
+    pcg_logger.log(pcg_logger.level, f"chilren IDs {len(result)} {time() - start}")
 
     readers = CloudVolume(  # pylint: disable=no-member
         f"graphene://https://localhost/segmentation/table/dummy",

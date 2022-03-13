@@ -5,6 +5,7 @@ from datetime import datetime
 from .models import OperationLog
 from ..graph import ChunkedGraph
 from ..graph.attributes import OperationLogs
+from .. import pcg_logger
 
 
 def parse_attr(attr, val) -> str:
@@ -38,7 +39,7 @@ def get_parsed_logs(
             except AttributeError:
                 log[attr] = val
         result.append(OperationLog(**log))
-    print(f"total raw logs {len(result)}")
+    pcg_logger.log(pcg_logger.level, f"total raw logs {len(result)}")
     return result
 
 
@@ -55,9 +56,8 @@ def get_logs_with_previous_roots(
     from ..graph.types import empty_1d
     from ..graph.lineage import get_previous_root_ids
     from ..graph.utils.basetypes import NODE_ID
-    from ..graph.utils.context_managers import TimeIt
 
-    print(f"getting olg roots for {len(parsed_logs)} logs.")
+    pcg_logger.log(pcg_logger.level, f"getting olg roots for {len(parsed_logs)} logs.")
     roots = [empty_1d]
     for log in parsed_logs:
         if len(log.roots):

@@ -1,12 +1,7 @@
-import collections
 import json
-import threading
 import time
 import traceback
-import gzip
 import os
-import requests
-from io import BytesIO as IO
 from datetime import datetime
 from functools import reduce
 
@@ -18,6 +13,7 @@ from cloudvolume import compression
 
 from flask import current_app, g, jsonify, make_response, request
 from pychunkedgraph import __version__
+from pychunkedgraph import pcg_logger
 from pychunkedgraph.app import app_utils
 from pychunkedgraph.graph import (
     attributes,
@@ -642,10 +638,10 @@ def all_user_operations(
             or (len(entry[OperationLogs.RootID]) > 1)
         )
         if not split_valid:
-            print("excluding partial split", entry_id)
+            pcg_logger.log(pcg_logger.level, f"excluding partial split {entry_id}")
         error_valid = include_errored or should_check
         if not error_valid:
-            print("excluding errored", entry_id)
+            pcg_logger.log(pcg_logger.level, f"excluding errored {entry_id}")
         if user_id == target_user_id and split_valid and error_valid:
             valid_entry_ids.append(entry_id)
             timestamp = entry["timestamp"]
@@ -1126,9 +1122,9 @@ def handle_find_path(table_id, precision_mode):
     source_l2_id = cg.get_parent(source_supervoxel_id)
     target_l2_id = cg.get_parent(target_supervoxel_id)
 
-    print("Finding path...")
-    print(f"Source: {source_supervoxel_id}")
-    print(f"Target: {target_supervoxel_id}")
+    pcg_logger.log(pcg_logger.level, "Finding path...")
+    pcg_logger.log(pcg_logger.level, f"Source: {source_supervoxel_id}")
+    pcg_logger.log(pcg_logger.level, f"Target: {target_supervoxel_id}")
 
     root_time_stamp = cg.get_node_timestamps(
         [np.uint64(nodes[0][0])], return_numpy=False
@@ -1136,13 +1132,13 @@ def handle_find_path(table_id, precision_mode):
     l2_path = pathing.find_l2_shortest_path(
         cg, source_l2_id, target_l2_id, time_stamp=root_time_stamp
     )
-    print(f"Path: {l2_path}")
+    pcg_logger.log(pcg_logger.level, f"Path: {l2_path}")
     if precision_mode:
         centroids, failed_l2_ids = mesh_analysis.compute_mesh_centroids_of_l2_ids(
             cg, l2_path, flatten=True
         )
-        print(f"Centroids: {centroids}")
-        print(f"Failed L2 ids: {failed_l2_ids}")
+        pcg_logger.log(pcg_logger.level, f"Centroids: {centroids}")
+        pcg_logger.log(pcg_logger.level, f"Failed L2 ids: {failed_l2_ids}")
         return {
             "centroids_list": centroids,
             "failed_l2_ids": failed_l2_ids,
@@ -1150,7 +1146,7 @@ def handle_find_path(table_id, precision_mode):
         }
     else:
         centroids = pathing.compute_rough_coordinate_path(cg, l2_path)
-        print(f"Centroids: {centroids}")
+        pcg_logger.log(pcg_logger.level, f"Centroids: {centroids}")
         return {"centroids_list": centroids, "failed_l2_ids": [], "l2_path": l2_path}
 
 
@@ -1161,9 +1157,9 @@ def handle_get_layer2_graph(table_id, node_id):
     current_app.user_id = user_id
 
     cg = app_utils.get_cg(table_id)
-    print("Finding edge graph...")
+    pcg_logger.log(pcg_logger.level, "Finding edge graph...")
     edge_graph = pathing.get_lvl2_edge_list(cg, int(node_id))
-    print("Edge graph found len: {}".format(len(edge_graph)))
+    pcg_logger.log(pcg_logger.level, f"Edge graph found len: {len(edge_graph)}")
     return {"edge_graph": edge_graph}
 
 

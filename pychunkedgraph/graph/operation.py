@@ -409,6 +409,7 @@ class GraphEditOperation(ABC):
         parents/roots before the operation must be used to fix it.
         `override_ts` can be used to preserve proper timestamp in such cases.
         """
+        from .. import pcg_logger
         self.parent_ts = parent_ts
         root_ids = self._update_root_ids()
         with locks.RootLock(
@@ -472,7 +473,10 @@ class GraphEditOperation(ABC):
                     new_lvl2_ids,
                     affected_records,
                 )
-                print("new root ids", result.new_root_ids)
+                msg = f"operation id {root_lock.operation_id}\n"
+                msg += f"new root ids {result.new_root_ids}\n"
+                msg += f"new l2 ids {result.new_root_ids}\n"
+                pcg_logger.log(pcg_logger.level, msg)
                 return result
 
     def _write(self, lock, timestamp, new_root_ids, new_lvl2_ids, affected_records):

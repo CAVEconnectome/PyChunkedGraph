@@ -51,7 +51,6 @@ def concatenate_chunk_edges(chunk_edge_dicts: List) -> Dict:
 
 def concatenate_cross_edge_dicts(cross_edge_dicts: Iterable) -> Dict:
     """Combines multiple cross edge dicts."""
-    # print(cross_edge_dicts)
     result_d = {}
     for cross_edge_d in cross_edge_dicts:
         result_d = merge_cross_edge_dicts_single(result_d, cross_edge_d)
@@ -107,8 +106,6 @@ def categorize_edges(
     mask2 = np.isin(edges.node_ids2, supervoxels)
     in_mask = mask1 & mask2
     out_mask = mask1 & ~mask2
-
-    print("np.sum(in_mask)", np.sum(in_mask))
 
     in_edges = edges[in_mask]
     all_out_edges = edges[out_mask]  # out_edges + cross_edges

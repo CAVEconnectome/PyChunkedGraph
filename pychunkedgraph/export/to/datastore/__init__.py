@@ -7,6 +7,7 @@ from google.cloud import datastore
 
 from .config import OperationLogsConfig
 from ...models import OperationLog
+from .... import pcg_logger
 from ....graph import ChunkedGraph
 from ....utils.general import chunked
 
@@ -42,7 +43,7 @@ def _create_col_for_each_root(parsed_logs: Iterable[OperationLog]) -> Iterable[D
             log_d[f"old_root_{i+1}"] = str(root_info[0])
             log_d[f"old_root_{i+1}_ts"] = root_info[1]
         result.append(log_d)
-    print(f"failed {count}")
+    pcg_logger.log(pcg_logger.level, f"failed {count}")
     # if count > int(len(result) * 0.2):
     #     raise ValueError(
     #         f"Something's wrong I can feel it, failed count {count}/{len(result)}"
@@ -74,7 +75,7 @@ def delete_entities(namespace: str, kind: str) -> None:
 
     for chunk in chunked(keys, 500):
         client.delete_multi(chunk)
-    print(f"deleted {len(keys)} entities")
+    pcg_logger.log(pcg_logger.level, f"deleted {len(keys)} entities")
 
 
 def _get_last_timestamp(
@@ -162,13 +163,13 @@ def export_operation_logs(
     if not end_ts:
         end_ts = end_ts_
 
-    print(f"getting logs from chunkedgraph {cg.graph_id}")
-    print(f"start: {start_ts} end: {end_ts}")
+    pcg_logger.log(pcg_logger.level, f"getting logs from chunkedgraph {cg.graph_id}")
+    pcg_logger.log(pcg_logger.level, f"start: {start_ts} end: {end_ts}")
     logs = operation_logs.get_parsed_logs(cg, start_time=start_ts, end_time=end_ts)
     logs = operation_logs.get_logs_with_previous_roots(cg, logs)
     logs = _create_col_for_each_root(logs)
     logs = _nested_lists_to_string(logs)
-    print(f"total logs {len(logs)}")
+    pcg_logger.log(pcg_logger.level, f"total logs {len(logs)}")
 
     count = 0
     failed_count = 0
@@ -222,4 +223,4 @@ def _update_stats(
     this_export_log[config.EXPORT.LOGS_COUNT] = logs_count
 
     client.put_multi([export_log, this_export_log])
-    print(f"export time {export_ts}, count {logs_count}")
+    pcg_logger.log(pcg_logger.level, f"export time {export_ts}, count {logs_count}")

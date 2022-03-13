@@ -2,18 +2,16 @@
 Functions for creating parents in level 3 and above
 """
 
-import time
 import math
 import datetime
 import multiprocessing as mp
-from collections import defaultdict
 from typing import Optional
 from typing import Sequence
-from typing import List
 
 import numpy as np
 from multiwrapper import multiprocessing_utils as mu
 
+from ... import pcg_logger
 from ...graph import types
 from ...graph import attributes
 from ...utils.general import chunked
@@ -44,10 +42,9 @@ def add_layer(
         cg, layer_id, parent_coords, use_threads=n_threads > 1
     )
 
-    print("children_coords", children_coords.size, layer_id, parent_coords)
-    print(
-        "n e", len(children_ids), len(edge_ids), layer_id, parent_coords,
-    )
+    pcg_logger.log(pcg_logger.level, f"layer {layer_id}, parent_coords {parent_coords}")
+    pcg_logger.log(pcg_logger.level, f"nodes {len(children_ids)}")
+    pcg_logger.log(pcg_logger.level, f"edges {len(edge_ids)}")
 
     node_layers = cg.get_chunk_layers(children_ids)
     edge_layers = cg.get_chunk_layers(np.unique(edge_ids))
@@ -62,7 +59,6 @@ def add_layer(
     edge_ids.extend(add_edge_ids)
     graph, _, _, graph_ids = flatgraph.build_gt_graph(edge_ids, make_directed=True)
     ccs = flatgraph.connected_components(graph)
-    print("ccs", len(ccs))
     _write_connected_components(
         cg,
         layer_id,
@@ -84,7 +80,6 @@ def _read_children_chunks(
             children_ids.append(_read_chunk([], cg, layer_id - 1, child_coord))
         return np.concatenate(children_ids)
 
-    print("_read_children_chunks")
     with mp.Manager() as manager:
         children_ids_shared = manager.list()
         multi_args = []
@@ -102,7 +97,6 @@ def _read_children_chunks(
             multi_args,
             n_threads=min(len(multi_args), mp.cpu_count()),
         )
-        print("_read_children_chunks done")
         return np.concatenate(children_ids_shared)
 
 
@@ -113,7 +107,7 @@ def _read_chunk_helper(args):
 
 
 def _read_chunk(children_ids_shared, cg: ChunkedGraph, layer_id: int, chunk_coord):
-    print(f"_read_chunk {layer_id}, {chunk_coord}")
+    pcg_logger.log(pcg_logger.level, f"_read_chunk {layer_id}, {chunk_coord}")
     x, y, z = chunk_coord
     range_read = cg.range_read_chunk(
         cg.get_chunk_id(layer=layer_id, x=x, y=y, z=z),
@@ -129,7 +123,10 @@ def _read_chunk(children_ids_shared, cg: ChunkedGraph, layer_id: int, chunk_coor
 
     row_ids = filter_failed_node_ids(row_ids, segment_ids, max_children_ids)
     children_ids_shared.append(row_ids)
-    print(f"_read_chunk {layer_id}, {chunk_coord} done {len(row_ids)}")
+    pcg_logger.log(
+        pcg_logger.level,
+        f"_read_chunk {layer_id}, {chunk_coord} done {len(row_ids)}",
+    )
     return row_ids
 
 
@@ -147,13 +144,11 @@ def _write_connected_components(
 
     node_layer_d_shared = {}
     if layer_id < cg.meta.layer_count:
-        print("getting node_layer_d_shared")
         node_layer_d_shared = get_chunk_nodes_cross_edge_layer(
             cg, layer_id, parent_coords, use_threads=use_threads
         )
 
-    print("node_layer_d_shared", len(node_layer_d_shared))
-
+    pcg_logger.log(pcg_logger.level, f"node_layer_d_shared {len(node_layer_d_shared)}")
     ccs_with_node_ids = []
     for cc in ccs:
         ccs_with_node_ids.append(graph_ids[cc])
@@ -186,7 +181,6 @@ def _write_connected_components(
 
 
 def _write_components_helper(args):
-    print("running _write_components_helper")
     cg_info, layer_id, parent_coords, ccs, node_layer_d_shared, time_stamp = args
     cg = ChunkedGraph(**cg_info)
     _write(cg, layer_id, parent_coords, ccs, node_layer_d_shared, time_stamp)
@@ -241,7 +235,13 @@ def _write(
 
             if len(rows) > 100000:
                 cg.client.write(rows)
-                print("wrote rows", len(rows), layer_id, parent_coords)
+                pcg_logger.log(
+                    pcg_logger.level,
+                    f"wrote rows {len(rows)}, {layer_id}, {parent_coords}",
+                )
                 rows = []
     cg.client.write(rows)
-    print("wrote rows", len(rows), layer_id, parent_coords)
+    pcg_logger.log(
+        pcg_logger.level,
+        f"wrote rows {len(rows)}, {layer_id}, {parent_coords}",
+    )

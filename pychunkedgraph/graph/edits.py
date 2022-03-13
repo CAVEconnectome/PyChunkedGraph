@@ -1,10 +1,8 @@
 import datetime
 import numpy as np
 from typing import Dict
-from typing import List
 from typing import Tuple
 from typing import Iterable
-from typing import Sequence
 from collections import defaultdict
 
 from . import types
@@ -14,14 +12,10 @@ from .utils import basetypes
 from .utils import flatgraph
 from .utils.context_managers import TimeIt
 from .utils.serializers import serialize_uint64
-from .connectivity.nodes import edge_exists
-from .connectivity.search import check_reachability
-from .edges.utils import filter_min_layer_cross_edges
 from .edges.utils import concatenate_cross_edge_dicts
 from .edges.utils import merge_cross_edge_dicts_multiple
 from ..utils.general import in2d
-from ..utils.general import reverse_dictionary
-
+from .. import pcg_logger
 
 def _init_old_hierarchy(cg, l2ids: np.ndarray, parent_ts: datetime.datetime = None):
     new_old_id_d = defaultdict(set)
@@ -141,7 +135,7 @@ def check_fake_edges(
             )
         )
         assert len(roots) == 2, "edges must be from 2 roots"
-        print("found inactive", len(inactive_edges))
+        pcg_logger.log(pcg_logger.level, f"found inactive {len(inactive_edges)}")
         return inactive_edges, []
 
     rows = []
@@ -176,7 +170,7 @@ def check_fake_edges(
                 time_stamp=time_stamp,
             )
         )
-    print("no inactive", len(atomic_edges))
+    pcg_logger.log(pcg_logger.level, f"zero inactive, total {len(atomic_edges)}")
     return atomic_edges, rows
 
 
