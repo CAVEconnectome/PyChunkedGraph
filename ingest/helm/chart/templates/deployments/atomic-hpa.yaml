@@ -1,0 +1,28 @@
+{{- if .Values.atomicWorkers.hpa.enabled }}
+apiVersion: autoscaling/v2beta1
+kind: HorizontalPodAutoscaler
+metadata:
+  name: {{ .Values.atomicWorkers.name | quote }}
+  labels:
+    app: {{ .Values.atomicWorkers.name | quote }}
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: {{ .Values.atomicWorkers.name | quote }}
+  minReplicas: {{ .Values.atomicWorkers.hpa.minReplicas }}
+  maxReplicas: {{ .Values.atomicWorkers.hpa.minReplicas }}
+  metrics:
+  {{- if .Values.atomicWorkers.hpa.targetCPU }}
+    - type: Resource
+      resource:
+        name: cpu
+        targetAverageUtilization: {{ .Values.atomicWorkers.hpa.targetCPU }}
+  {{- end }}
+  {{- if .Values.atomicWorkers.hpa.targetMem }}
+    - type: Resource
+      resource:
+        name: memory
+        targetAverageUtilization: {{ .Values.atomicWorkers.hpa.targetMem }}
+  {{- end }}
+{{- end }}

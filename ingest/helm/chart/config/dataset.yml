@@ -1,0 +1,21 @@
+data_source:
+  EDGES: "gs://chunked-graph/pinky100/edges"
+  COMPONENTS: "gs://chunked-graph/pinky100/components"
+  WATERSHED: "gs://neuroglancer/pinky100_v0/ws/pinky100_ca_com"
+  DATA_VERSION: 4
+
+graph_config:
+  CHUNK_SIZE: [512, 512, 128]
+  FANOUT: 2
+  SPATIAL_BITS: 10
+  ID_PREFIX: ""
+
+backend_client:
+  TYPE: "bigtable"
+  CONFIG:
+    ADMIN: true
+    READ_ONLY: false
+
+ingest_config:
+  AGGLOMERATION: "gs://ranl/scratch/pinky100_ca_com/agg"
+  WATERSHED: "gs://neuroglancer/pinky100_v0/ws/pinky100_ca_com"

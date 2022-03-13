@@ -1,0 +1,36 @@
+{{- if .Values.meshWorkers.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Values.meshWorkers.name | quote }}
+  labels:
+    app: {{ .Values.meshWorkers.name | quote }}
+spec:
+  selector:
+    matchLabels:
+      app: {{ .Values.meshWorkers.name | quote }}
+  replicas: {{ .Values.meshWorkers.hpa.minReplicas }}
+  template:
+    metadata:
+      labels:
+        app: {{ .Values.meshWorkers.name | quote }}
+    spec:
+      {{- template "chunkedgraph-ingest.volumes" . }}
+      dnsPolicy: Default
+      containers:
+        - name: {{ .Values.meshWorkers.name | quote }}
+          image: "{{ .Values.meshWorkers.image.repository }}:{{ .Values.meshWorkers.image.tag }}"
+          imagePullPolicy: {{ .Values.meshWorkers.image.pullPolicy | quote }}
+          resources:
+            {{- toYaml .Values.meshWorkers.resources | nindent 12 }}
+          envFrom:
+          {{- range .Values.env }}
+          - configMapRef:
+              name: {{ .name }}
+          {{- end }}
+          {{- template "chunkedgraph-ingest.volume-mounts" . }}
+          command: ["python"]
+          args: ["pychunkedgraph/meshing/mesh_worker.py", "--qurl", "https://sqs.us-east-1.amazonaws.com/098703261575/akhilesh-mesh-test", "--lease_seconds", "3600"]
+      nodeSelector:
+        cloud.google.com/gke-nodepool: {{ .Values.meshWorkers.pool }}
+{{- end }}

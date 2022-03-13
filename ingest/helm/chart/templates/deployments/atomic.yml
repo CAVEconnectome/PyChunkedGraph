@@ -1,0 +1,37 @@
+{{- if .Values.atomicWorkers.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Values.atomicWorkers.name | quote }}
+  labels:
+    app: {{ .Values.atomicWorkers.name | quote }}
+spec:
+  selector:
+    matchLabels:
+      app: {{ .Values.atomicWorkers.name | quote }}
+  replicas: {{ .Values.atomicWorkers.hpa.minReplicas }}
+  template:
+    metadata:
+      labels:
+        app: {{ .Values.atomicWorkers.name | quote }}
+    spec:
+      {{- template "chunkedgraph-ingest.volumes" . }}
+      dnsPolicy: Default
+      containers:
+        - name: {{ .Values.atomicWorkers.name | quote }}
+          image: "{{ .Values.atomicWorkers.image.repository }}:{{ .Values.atomicWorkers.image.tag }}"
+          imagePullPolicy: {{ .Values.atomicWorkers.image.pullPolicy | quote }}
+          resources:
+            {{- toYaml .Values.atomicWorkers.resources | nindent 12 }}
+          envFrom:
+          {{- range .Values.env }}
+          - configMapRef:
+              name: {{ .name }}
+          {{- end }}
+          {{- template "chunkedgraph-ingest.volume-mounts" . }}
+          # command: [bash, -c, "trap : TERM INT; sleep infinity & wait"]
+          command:
+            {{- toYaml .Values.atomicWorkers.command | nindent 12 }}
+      nodeSelector:
+        cloud.google.com/gke-nodepool: {{ .Values.atomicWorkers.pool }}
+{{- end }}
