@@ -16,7 +16,7 @@ log_level = int(environ.get("PCG_LOG_LEVEL", INFO_PRIORITY))
 basicConfig(
     level=log_level,
     format="%(asctime)s %(message)s",
-    datefmt="%m/%d/%Y %I:%M:%S %p",
+    datefmt="%Y-%m-%d %I:%M:%S %p",
 )
 logger.setLevel(log_level)
 pcg_logger = logger
