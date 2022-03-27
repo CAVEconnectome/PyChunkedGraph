@@ -21,7 +21,8 @@ from ..utils.redis import REDIS_PORT
 from ..utils.redis import REDIS_PASSWORD
 
 
-rq_cli = AppGroup("rq")
+# rq extended
+rq_cli = AppGroup("rqx")
 connection = Redis(host=REDIS_HOST, port=REDIS_PORT, db=0, password=REDIS_PASSWORD)
 
 

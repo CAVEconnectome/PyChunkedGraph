@@ -2,7 +2,6 @@
 Ingest / create chunkedgraph with workers.
 """
 
-import time
 from itertools import product
 from typing import Sequence
 
@@ -78,7 +77,7 @@ def enqueue_parent_task(
         print("children not done.")
         return
 
-    queue = imanager.get_task_queue(f"layer_{parent_layer}")
+    queue = imanager.get_task_queue(f"l{parent_layer}q")
     queue.enqueue(
         create_parent_chunk,
         job_id=parent_id_str,
@@ -113,27 +112,43 @@ def create_parent_chunk(
 
 
 def enqueue_atomic_tasks(imanager: IngestionManager):
-    chunk_coords = _get_test_chunks(imanager.cg.meta)
+    from os import environ
+    from time import sleep
+    from rq import Queue as RQueue
+    from ..utils.general import chunked
 
+    chunk_coords = _get_test_chunks(imanager.cg.meta)
     if not imanager.config.TEST_RUN:
         atomic_chunk_bounds = imanager.cg_meta.layer_chunk_bounds[2]
         chunk_coords = list(product(*[range(r) for r in atomic_chunk_bounds]))
         np.random.shuffle(chunk_coords)
 
-    print(f"count: {len(chunk_coords)}")
-    for chunk_coord in chunk_coords:
-        atomic_queue = imanager.get_task_queue(imanager.config.CLUSTER.ATOMIC_Q_NAME)
+    print(f"chunk count: {len(chunk_coords)}")
+    batch_size = int(environ.get("L2JOB_BATCH_SIZE", 1000))
+    for batch in chunked(chunk_coords, batch_size):
+        q = imanager.get_task_queue(imanager.config.CLUSTER.ATOMIC_Q_NAME)
         # buffer for optimal use of redis memory
-        if len(atomic_queue) > imanager.config.CLUSTER.ATOMIC_Q_LIMIT:
+        if len(q) > imanager.config.CLUSTER.ATOMIC_Q_LIMIT:
             print(f"Sleeping {imanager.config.CLUSTER.ATOMIC_Q_INTERVAL}s...")
-            time.sleep(imanager.config.CLUSTER.ATOMIC_Q_INTERVAL)
-        atomic_queue.enqueue(
-            _create_atomic_chunk,
-            job_id=chunk_id_str(2, chunk_coord),
-            job_timeout="3m",
-            result_ttl=0,
-            args=(chunk_coord,),
-        )
+            sleep(imanager.config.CLUSTER.ATOMIC_Q_INTERVAL)
+
+        job_datas = []
+        for chunk_coord in batch:
+            x, y, z = chunk_coord
+            chunk_str = f"{x}_{y}_{z}"
+            if imanager.redis.sismember("2c", chunk_str):
+                # already done, skip
+                continue
+            job_datas.append(
+                RQueue.prepare_data(
+                    _create_atomic_chunk,
+                    args=(chunk_coord,),
+                    timeout=environ.get("L2JOB_TIMEOUT", "3m"),
+                    result_ttl=0,
+                    job_id=chunk_id_str(2, chunk_coord),
+                )
+            )
+        q.enqueue_many(job_datas)
 
 
 def _create_atomic_chunk(coords: Sequence[int]):
@@ -156,7 +171,7 @@ def _create_atomic_chunk(coords: Sequence[int]):
 
 
 def _get_test_chunks(meta: ChunkedGraphMeta):
-    """Chunks at center of the dataset most likely not to be empty, for testing."""
+    """Chunks at center of the dataset most likely not to be empty"""
     parent_coords = np.array(meta.layer_chunk_bounds[3]) // 2
     return get_children_chunk_coords(meta, 3, parent_coords)
     # f = lambda r1, r2, r3: np.array(np.meshgrid(r1, r2, r3), dtype=int).T.reshape(-1, 3)
