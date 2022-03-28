@@ -1,81 +1,46 @@
-variable "worker_nodes_low" {
-  default     = 10
-  description = "number of worker_low nodes"
+variable "preemptible_workers" {
+  description = "should workers be preemptible?"
 }
 
-variable "worker_nodes_mid" {
-  default     = 0
-  description = "number of worker_mid nodes"
-}
-
-variable "worker_nodes_high" {
-  default     = 0
-  description = "number of worker_high nodes"
-}
-
-
-locals {
-  workers_low  = "workers-low"
-  workers_mid  = "workers-mid"
-  workers_high = "workers-high"
-}
-
-
-resource "google_container_node_pool" "workers_low" {
-  name       = local.workers_low
-  location   = var.zone
-  cluster    = google_container_cluster.cluster.name
-  node_count = var.worker_nodes_low
-
-  node_config {
-    labels = {
-      project = var.common_name
-    }
-
-    preemptible  = true
-    machine_type = "e2-standard-2"
-    tags         = ["${var.common_name}-${local.workers_low}"]
-    metadata = {
-      disable-legacy-endpoints = "true"
-    }
+variable "worker_types" {
+  type = map(object({
+    count   = number
+    machine = string
+  }))
+  default = {
+    low = {
+      count   = 16
+      machine = "e2-standard-2"
+    },
+    mid = {
+      count   = 8
+      machine = "e2-standard-4"
+    },
+    high = {
+      count   = 4
+      machine = "e2-standard-8"
+    },
   }
 }
 
-resource "google_container_node_pool" "workers_mid" {
-  name       = local.workers_mid
+
+
+resource "google_container_node_pool" "pool" {
+  for_each = var.worker_types
+
+  name       = "worker-${each.key}"
   location   = var.zone
   cluster    = google_container_cluster.cluster.name
-  node_count = var.worker_nodes_mid
+  node_count = each.value.count
 
   node_config {
     labels = {
       project = var.common_name
     }
-
-    preemptible  = true
-    machine_type = "e2-standard-4"
-    tags         = ["${var.common_name}-${local.workers_mid}"]
-    metadata = {
-      disable-legacy-endpoints = "true"
-    }
-  }
-}
-
-resource "google_container_node_pool" "workers_high" {
-  name       = local.workers_high
-  location   = var.zone
-  cluster    = google_container_cluster.cluster.name
-  node_count = var.worker_nodes_high
-
-  node_config {
-    labels = {
-      project = var.common_name
-    }
-
-    preemptible  = true
-    machine_type = "e2-standard-8"
-    tags         = ["${var.common_name}-${local.workers_high}"]
-    metadata = {
+    preemptible  = var.preemptible_workers
+    machine_type = each.value.machine
+    tags         = ["${var.common_name}-${each.key}"]
+    metadata     = {
       disable-legacy-endpoints = "true"
     }
   }

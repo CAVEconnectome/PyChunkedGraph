@@ -7,6 +7,10 @@ resource "google_container_cluster" "cluster" {
   subnetwork               = google_compute_subnetwork.subnet.name
 }
 
+variable "preemptible_master" {
+  description = "should master be preemptible?"
+}
+
 resource "google_container_node_pool" "master" {
   name       = "master"
   location   = var.zone
@@ -18,7 +22,7 @@ resource "google_container_node_pool" "master" {
       project = var.common_name
     }
 
-    preemptible  = true
+    preemptible  = var.preemptible_master
     machine_type = "e2-small"
     tags         = ["${var.common_name}-master"]
     metadata = {

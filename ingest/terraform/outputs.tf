@@ -3,6 +3,11 @@ output "region" {
   description = "GCloud Region"
 }
 
+output "zone" {
+  value       = var.zone
+  description = "GCloud Zone"
+}
+
 output "project_id" {
   value       = var.project_id
   description = "GCloud Project ID"
@@ -14,7 +19,7 @@ output "kubernetes_cluster_name" {
 }
 
 output "kubernetes_cluster_context" {
-  value       = "gcloud container clusters get-credentials ${google_container_cluster.cluster.name} --region ${var.region} --project ${var.project_id}"
+  value       = "gcloud container clusters get-credentials ${google_container_cluster.cluster.name} --zone ${var.zone} --project ${var.project_id}"
   description = "GKE Cluster Context"
 }
 
