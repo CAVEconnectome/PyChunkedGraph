@@ -1,0 +1,4 @@
+# secrets
+*.json
+
+*.lock.hcl
