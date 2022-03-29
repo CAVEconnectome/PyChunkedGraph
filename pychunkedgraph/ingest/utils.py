@@ -22,7 +22,7 @@ def bootstrap(
 ) -> Tuple[ChunkedGraphMeta, IngestConfig, BackendClientInfo]:
     """Parse config loaded from a yaml file."""
     ingest_config = IngestConfig(
-        **config["ingest_config"],
+        **config.get("ingest_config", {}),
         CLUSTER=ClusterIngestConfig(),
         USE_RAW_EDGES=raw,
         USE_RAW_COMPONENTS=raw,
@@ -32,7 +32,9 @@ def bootstrap(
     client_info = BackendClientInfo(config["backend_client"]["TYPE"], client_config)
 
     graph_config = GraphConfig(
-        ID=f"{graph_id}", OVERWRITE=overwrite, **config["graph_config"],
+        ID=f"{graph_id}",
+        OVERWRITE=overwrite,
+        **config["graph_config"],
     )
     data_source = DataSource(**config["data_source"])
 

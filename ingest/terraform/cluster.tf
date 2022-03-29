@@ -5,6 +5,15 @@ resource "google_container_cluster" "cluster" {
   initial_node_count       = 1
   network                  = google_compute_network.vpc.name
   subnetwork               = google_compute_subnetwork.subnet.name
+  networking_mode          = "VPC_NATIVE"
+  enable_shielded_nodes    = false
+
+  ip_allocation_policy {}
+  addons_config {
+    http_load_balancing {
+      disabled = true
+    }
+  }
 }
 
 variable "preemptible_master" {
@@ -28,5 +37,8 @@ resource "google_container_node_pool" "master" {
     metadata = {
       disable-legacy-endpoints = "true"
     }
+    oauth_scopes    = [
+      "https://www.googleapis.com/auth/cloud-platform"
+    ]
   }
 }

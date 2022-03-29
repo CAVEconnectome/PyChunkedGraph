@@ -43,5 +43,8 @@ resource "google_container_node_pool" "pool" {
     metadata     = {
       disable-legacy-endpoints = "true"
     }
+    oauth_scopes    = [
+      "https://www.googleapis.com/auth/cloud-platform"
+    ]
   }
 }

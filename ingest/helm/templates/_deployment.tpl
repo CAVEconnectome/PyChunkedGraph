@@ -8,7 +8,7 @@ metadata:
   name: {{ .name | quote }}
   namespace: {{ .namespace | default "default" | quote }}
 spec:
-{{- if not .hpa.enabled }}
+{{- if not .hpa.enabled | default false }}
   replicas: {{ .replicaCount }}
 {{- end }}
   selector:
@@ -37,7 +37,7 @@ spec:
         - name: {{ .name | quote }}
           image: >-
             {{ required "repo" .image.repository }}:{{ required "tag" .image.tag }}
-          imagePullPolicy: {{ .image.pullPolicy | quote }}
+          imagePullPolicy: {{ .image.pullPolicy | default "Always" }}
           ports:
             {{- toYaml .ports | nindent 12 }}
           resources:

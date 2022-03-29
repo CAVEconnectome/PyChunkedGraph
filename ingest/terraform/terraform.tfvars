@@ -10,12 +10,12 @@ worker_types        = {
     count   = 10
     machine = "e2-standard-2"
   },
-  mid = {
-    count   = 0
-    machine = "e2-standard-4"
-  },
-  high = {
-    count   = 0
-    machine = "e2-standard-8"
-  },
+  # mid = {
+  #   count   = 0
+  #   machine = "e2-standard-4"
+  # },
+  # high = {
+  #   count   = 0
+  #   machine = "e2-standard-8"
+  # },
 }

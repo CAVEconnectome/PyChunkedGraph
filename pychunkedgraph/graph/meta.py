@@ -33,7 +33,7 @@ _graphconfig_fields = (
 )
 _graphconfig_defaults = (
     None,
-    None,
+    "",
     None,
     2,
     8,
