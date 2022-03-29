@@ -2,7 +2,7 @@
  `terraform` is used to create the infrastructure needed to run ingest. Currently scripts are provided to run the ingest on Google Cloud, but it can be run locally or on another cloud provider with appropriate setup.
 
 ### Requirements
-* GCloud SDK (378.0.0)
+* GCloud SDK (tested with 378.0.0)
 * Terraform (v1.1.7)
 * Helm (v3.7.0)
 
@@ -59,7 +59,7 @@ $ kubectl exec -ti deploy/master -- bash
 
 The `--test` flag will queue 8 children chunks that share the same parent. When the children chunk jobs finish, worker listening on the `t2` (tracker for layer 2) queue should enqueue the parent chunk.
 
-> NOTE: to avoid race conditions there should only be one worker listening on tracker queues for each layer. The provided helm chart makes sure of this but importnant not to forget.
+> NOTE: to avoid race conditions there should only be one worker listening on tracker queues for each layer. The provided helm chart makes sure of this but important not to forget.
 
 > NOTE: For large datasets, the `ingest graph` command can take a long time because queue is buffered so as not to exceed redis memory. You will need to figure out how big the redis instance must be accordingly. A 2 to 3GB instance seemed sufficient for a dataset with 10M chunks at level 2, with a buffer length of 250000.
 
@@ -71,7 +71,7 @@ $ kubectl exec -ti deploy/master -- bash
 3       : 1 / 8
 4       : 0 / 1
 ```
-Output should look like this if succesful. Now you can rerun the ingest without the `--test` flag (make sure to use a different bigtable name).
+Output should look like this if successful. Now you can rerun the ingest without the `--test` flag (make sure to use a different bigtable name).
 
 Sometimes jobs fail for any number of reasons. Assuming the causes were external, you can requeue them using `rqx requeue <queue_name> --all`. Refer to `pychunkedgraph/ingest/cli.py` and `pychunkedgraph/ingest/rq_cli.py` for more commands.
 
