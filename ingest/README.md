@@ -1,5 +1,5 @@
 ## Infrastructure
- `terraform` is used to create the infrastructure needed to run ingest. Currently scripts are provided to run the ingest easily on Google Cloud, but it can be run locally or on another cloud provider with appropriate setup.
+ `terraform` is used to create the infrastructure needed to run ingest. Currently scripts are provided to run the ingest on Google Cloud, but it can be run locally or on another cloud provider with appropriate setup.
 
 ### Requirements
 * GCloud SDK (378.0.0)
