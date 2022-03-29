@@ -53,9 +53,12 @@ $ kubectl exec -ti deploy/master -- bash
 // now you're in the container
 > ingest graph <unique_test_bigtable_name> datasets/test.yml --test
 ```
+
+[RQ](https://python-rq.org/docs/) is used to create jobs. The package uses `redis` as a task queue.
+
 The `--test` flag will queue 8 children chunks that share the same parent. When the children chunk jobs finish, worker listening on the `t2` (tracker for layer 2) queue should enqueue the parent chunk.
 
-> NOTE: to avoid race conditions there should only be one worker listening on tracker queues for each layer. The provided helm chart makes sure of this.
+> NOTE: to avoid race conditions there should only be one worker listening on tracker queues for each layer. The provided helm chart makes sure of this but importnant not to forget.
 
 You can check the progress of ingest with:
 ```
@@ -68,4 +71,4 @@ Output should look like this if succesful. Now you can rerun the ingest without 
 
 Sometimes jobs fail for any number of reasons. Assuming the causes were external, you can requeue them using `rqx requeue <queue_name> --all`. Refer to `pychunkedgraph/ingest/cli.py` and `pychunkedgraph/ingest/rq_cli.py` for more commands.
 
-> NOTE: make sure to flush redis after running another ingest and before `helm install`. Residuals from previous ingest runs can provide inaccurate information.
+> NOTE: make sure to flush redis (`ingest flush_redis`) after running ingest and before another `helm install`. Residuals from previous ingest runs can lead to inaccurate information.
