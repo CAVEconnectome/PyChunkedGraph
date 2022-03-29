@@ -1,5 +1,10 @@
 {{- template "common.configmap-from-env" .Values.env }}
 
-{{- range .Values.datasets }}
+{{- range .Values.configfiles }}
+{{- template "common.configmap-from-file-strings" . }}
+{{- end }}
+
+{{- range .Values.configyamls }}
 {{- template "common.configmap-from-yaml" . }}
 {{- end }}
+

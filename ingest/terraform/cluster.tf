@@ -3,10 +3,15 @@ resource "google_container_cluster" "cluster" {
   location                 = var.zone
   remove_default_node_pool = true
   initial_node_count       = 1
+
   network                  = google_compute_network.vpc.name
   subnetwork               = google_compute_subnetwork.subnet.name
   networking_mode          = "VPC_NATIVE"
   enable_shielded_nodes    = false
+
+  release_channel {
+    channel = "STABLE"
+  }
 
   ip_allocation_policy {}
   addons_config {
@@ -17,6 +22,8 @@ resource "google_container_cluster" "cluster" {
 }
 
 variable "preemptible_master" {
+  type        = bool
+  default     = false
   description = "should master be preemptible?"
 }
 

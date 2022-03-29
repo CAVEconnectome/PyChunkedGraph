@@ -55,10 +55,4 @@ setup(
         "License :: OSI Approved :: MIT License",
         "Operating System :: POSIX :: Linux",
     ],
-    entry_points={
-        "console_scripts": [
-            "ingest = pychunkedgraph.ingest.cli:ingest_cli",
-            "rqx = pychunkedgraph.ingest.rq_cli:rq_cli",
-        ],
-    },
 )

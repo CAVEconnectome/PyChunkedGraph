@@ -1,4 +1,6 @@
 variable "preemptible_workers" {
+  type        = bool
+  default     = true
   description = "should workers be preemptible?"
 }
 
