@@ -1,0 +1,170 @@
+env:
+- name: &commonEnvVars "pychunkedgraph"
+  vars:
+    REDIS_HOST: "<redis_host>" # refer to output of terraform apply
+    REDIS_PORT: 6379
+    REDIS_PASSWORD: ""
+    BIGTABLE_PROJECT: "<google_project>"
+    BIGTABLE_INSTANCE: "<bigtable_instance>"
+    GOOGLE_APPLICATION_CREDENTIALS: /root/.cloudvolume/secrets/google-secret.json
+    SHELL: /bin/bash
+    FLASK_APP: run_dev.py
+    APP_SETTINGS: pychunkedgraph.app.config.DeploymentWithRedisConfig
+
+
+configfiles:
+- name: &bashrc "bashrc"
+  files:
+    ".bashrc": |-
+      alias watch='watch '
+      alias ingest='flask ingest'
+      alias rqx='flask rq'
+
+configyamls:
+- name: &dataset test
+  files:
+  - name: test.yml
+    content:
+      data_source:
+        EDGES: "<path_to_edges>"
+        COMPONENTS: "<path_to_components>"
+        WATERSHED: "<path_to_segmentation>"
+        DATA_VERSION: 4 # ignore this
+
+      graph_config:
+        CHUNK_SIZE: [] # [X, Y, Z]
+        FANOUT: 2
+        SPATIAL_BITS: 2
+        LAYER_ID_BITS: 8
+
+      backend_client:
+        TYPE: "bigtable"
+        CONFIG:
+          ADMIN: true
+          READ_ONLY: false
+
+secrets:
+- name: &cloudVolumeSecrets cloud-volume-secrets
+  files:
+    google-secret.json: |-
+      {
+        <contents_of_service_accout_secret>
+      }
+
+deployments:
+  - enabled: true
+    name: master
+    nodeSelector:
+      cloud.google.com/gke-nodepool: master
+    image: &image
+      repository: &imageRep "<gcr_repo>"
+      tag: &tag "<image_tag>"
+    volumes: &commonVolumes
+    - name: *cloudVolumeSecrets
+      secret:
+        secretName: *cloudVolumeSecrets
+    - name: &datasetsVolume datasets-volume
+      configMap:
+        name: *dataset
+    - name: &bashrcVolume bashrc-volume
+      configMap:
+        name: *bashrc
+    volumeMounts: &commonVolumeMounts
+    - name: *cloudVolumeSecrets
+      mountPath: /root/.cloudvolume/secrets
+      readOnly: true
+    - name: *datasetsVolume
+      mountPath: /app/datasets
+    - name: *bashrcVolume
+      mountPath: /root/
+    env:
+    - name: *commonEnvVars
+    resources:
+      requests:
+        memory: 500M
+    hpa:
+      enabled: false
+
+workerDeployments:
+  - enabled: true
+    name: &name l2
+    nodeSelector:
+      cloud.google.com/gke-nodepool: low
+    command: [rq, worker, *name]
+    image: *image
+    volumes: *commonVolumes
+    volumeMounts: *commonVolumeMounts
+    env:
+    - name: *commonEnvVars
+    resources:
+      requests:
+        memory: 1G
+    hpa:
+      enabled: true
+      minReplicas: 4
+
+  - enabled: true
+    name: &name l3
+    nodeSelector:
+      cloud.google.com/gke-nodepool: low
+    command: [rq, worker, *name]
+    image: *image
+    volumes: *commonVolumes
+    volumeMounts: *commonVolumeMounts
+    env:
+    - name: *commonEnvVars
+    resources:
+      requests:
+        memory: 1.5G
+    hpa:
+      enabled: true
+      minReplicas: 2
+
+  - enabled: true
+    name: &name l4
+    nodeSelector:
+      cloud.google.com/gke-nodepool: low
+    command: [rq, worker, *name]
+    image: *image
+    volumes: *commonVolumes
+    volumeMounts: *commonVolumeMounts
+    env:
+    - name: *commonEnvVars
+    resources:
+      requests:
+        memory: 2G
+    hpa:
+      enabled: false
+
+trackerDeployments:
+  - enabled: true
+    name: &name t2
+    command: [rq, worker, *name]
+    image:
+      repository: *imageRep
+      tag: *tag
+    volumes: *commonVolumes
+    volumeMounts: *commonVolumeMounts
+    env:
+    - name: *commonEnvVars
+    resources:
+      requests:
+        memory: 250M
+    hpa:
+      enabled: false
+
+  - enabled: true
+    name: &name t3
+    command: [rq, worker, *name]
+    image:
+      repository: *imageRep
+      tag: *tag
+    volumes: *commonVolumes
+    volumeMounts: *commonVolumeMounts
+    env:
+    - name: *commonEnvVars
+    resources:
+      requests:
+        memory: 250M
+    hpa:
+      enabled: false
