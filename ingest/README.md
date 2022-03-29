@@ -61,7 +61,7 @@ The `--test` flag will queue 8 children chunks that share the same parent. When 
 
 > NOTE: to avoid race conditions there should only be one worker listening on tracker queues for each layer. The provided helm chart makes sure of this but importnant not to forget.
 
-> NOTE: For large datasets, the `ingest graph` command can take a long time because queue is buffered so as not to exceed redis memory. You will need to figure out how big the redis instance must be accordingly. A 2 to 3GB instance seemed sufficient for a dataset with 10M chunks at level 2.
+> NOTE: For large datasets, the `ingest graph` command can take a long time because queue is buffered so as not to exceed redis memory. You will need to figure out how big the redis instance must be accordingly. A 2 to 3GB instance seemed sufficient for a dataset with 10M chunks at level 2, with a buffer length of 250000.
 
 You can check the progress with `ingest status`. In another shell, run:
 ```
