@@ -18,8 +18,6 @@ from ..graph.chunks.hierarchy import get_children_chunk_coords
 from ..utils.redis import keys as r_keys
 from ..utils.redis import get_redis_connection
 
-TRACKER_Q = "tracker"
-
 
 def _post_task_completion(imanager: IngestionManager, layer: int, coords: np.ndarray):
     chunk_str = "_".join(map(str, coords))
@@ -43,11 +41,11 @@ def _post_task_completion(imanager: IngestionManager, layer: int, coords: np.nda
         )
         imanager.redis.hset(parent_layer, parent_chunk_str, children_count)
 
-    queue = imanager.get_task_queue(TRACKER_Q)
+    queue = imanager.get_task_queue(f"t{layer}")
     queue.enqueue(
         enqueue_parent_task,
-        job_id=f"{TRACKER_Q}_{chunk_id_str(layer, coords)}",
-        job_timeout=f"10s",
+        job_id=f"t{layer}_{chunk_str}",
+        job_timeout=f"30s",
         result_ttl=0,
         args=(
             parent_layer,
@@ -77,7 +75,7 @@ def enqueue_parent_task(
         print("children not done.")
         return
 
-    queue = imanager.get_task_queue(f"l{parent_layer}q")
+    queue = imanager.get_task_queue(f"l{parent_layer}")
     queue.enqueue(
         create_parent_chunk,
         job_id=parent_id_str,

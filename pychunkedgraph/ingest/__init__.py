@@ -7,7 +7,7 @@ _cluster_ingest_config_fields = (
     "ATOMIC_Q_INTERVAL",
 )
 _cluster_ingest_defaults = (
-    "l2q",
+    "l2",
     100000,
     120,
 )
