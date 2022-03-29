@@ -28,7 +28,7 @@ variable "worker_types" {
 resource "google_container_node_pool" "pool" {
   for_each = var.worker_types
 
-  name       = "worker-${each.key}"
+  name       = each.key
   location   = var.zone
   cluster    = google_container_cluster.cluster.name
   node_count = each.value.count

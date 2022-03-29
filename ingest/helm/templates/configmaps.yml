@@ -1,0 +1,7 @@
+{{- range .Values.env }}
+{{- template "common.configmap-from-env" . }}
+{{- end }}
+
+{{- range .Values.datasets }}
+{{- template "common.configmap-from-yaml" . }}
+{{- end }}

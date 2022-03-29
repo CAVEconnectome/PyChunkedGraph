@@ -19,7 +19,7 @@ class BaseConfig(object):
     CHUNKGRAPH_INSTANCE_ID = "pychunkedgraph"
     PROJECT_ID = os.environ.get("PROJECT_ID", None)
     CG_READ_ONLY = os.environ.get("CG_READ_ONLY", None) is not None
-    PCG_GRAPH_IDS = os.environ.get("PCG_GRAPH_IDS").split(",")
+    PCG_GRAPH_IDS = os.environ.get("PCG_GRAPH_IDS", "").split(",")
 
     # TODO what is this suppose to be by default?
     CHUNKGRAPH_TABLE_ID = "pinky100_sv16"

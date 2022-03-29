@@ -1,0 +1,3 @@
+{{- range .Values.hpas }}
+{{- template "common.hpa" . }}
+{{- end }}

@@ -1,0 +1,3 @@
+{{- range .Values.deployments }}
+{{- template "common.deployment" . }}
+{{- end }}
