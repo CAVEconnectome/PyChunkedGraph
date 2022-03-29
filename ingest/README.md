@@ -10,9 +10,10 @@
 
 > IMPORTANT: This setup assumes that a bigtable instance is already created. To reduce latency, it is recommended that all resources are co-located in the same region as bigtable instance.
 
-Provided scripts create a VPC network, subnet, redis instance, cluster with separately managed pools to run master and workers.
+Provided scripts create a VPC network, subnet, redis instance, cluster with separately managed pools to run master and workers. Customize variables in the file `terraform/terraform.tfvars` to create infrastructure in your Google Cloud project.
 
-Customize variables in the file `terraform/terraform.tfvars` to create infrastructure in your Google Cloud project.
+Put your service account json secret in this folder, name the file `google-secret.json`. This is used by `terraform` to access Google Cloud APIs.
+Make sure the service account has the necessary permissions to create aforementioned resources. Refer `terraform/main.tf`.
 
 Run the `terraform apply` command to create resources.
 
@@ -36,7 +37,7 @@ Use value of `redis_host` in `helm/values.yaml` (more info in Helm section).
 ### Helm ([docs](https://helm.sh/docs/))
 `helm` is used to run the ingest. The provided chart installs kubernetes resources such as configmaps, secrets, deployments needed to run the ingest. Refer to example `helm/example_values.yaml` file for more information.
 
-#### Helm Resources
+#### Chart Installation
 When all variables are ready, rename your values file to `values.yaml` (ignored by git because it can contain sensitive information).
 Then run:
 
@@ -54,14 +55,17 @@ $ kubectl exec -ti deploy/master -- bash
 > ingest graph <unique_test_bigtable_name> datasets/test.yml --test
 ```
 
-[RQ](https://python-rq.org/docs/) is used to create jobs. The package uses `redis` as a task queue.
+[RQ](https://python-rq.org/docs/) is used to create jobs. This library uses `redis` as a task queue.
 
 The `--test` flag will queue 8 children chunks that share the same parent. When the children chunk jobs finish, worker listening on the `t2` (tracker for layer 2) queue should enqueue the parent chunk.
 
 > NOTE: to avoid race conditions there should only be one worker listening on tracker queues for each layer. The provided helm chart makes sure of this but importnant not to forget.
 
-You can check the progress of ingest with:
+> NOTE: For large datasets, the `ingest graph` command can take a long time because queue is buffered so as not to exceed redis memory. You will need to figure out how big the redis instance must be accordingly. A 2 to 3GB instance seemed sufficient for a dataset with 10M chunks at level 2.
+
+You can check the progress with `ingest status`. In another shell, run:
 ```
+$ kubectl exec -ti deploy/master -- bash
 > ingest status
 2       : 8 / 64 # progress at each layer
 3       : 1 / 8
