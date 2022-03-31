@@ -7,6 +7,7 @@
 * Helm (v3.7.0)
 * kubectl (v1.23.5)
 
+---
 ### Terraform ([docs](https://www.terraform.io/docs))
 
 > IMPORTANT: This setup assumes that a bigtable instance is already created. To reduce latency, it is recommended that all resources are co-located in the same region as bigtable instance.
@@ -35,6 +36,7 @@ zone = "us-east1-b"
 Use value of `kubernetes_cluster_context` to connect to your cluster.
 Use value of `redis_host` in `helm/values.yaml` (more info in Helm section).
 
+---
 ### Helm ([docs](https://helm.sh/docs/))
 `helm` is used to run the ingest. The provided chart installs kubernetes resources such as configmaps, secrets, deployments needed to run the ingest. Refer to example `helm/example_values.yaml` file for more information.
 
@@ -48,7 +50,9 @@ $ helm install <release_name> . --debug --dry-run
 ```
 If successful run the same command without `--dry-run`. This will create master and worker kubernetes deployments.
 
-Pods will have dataset configuration mounted in `/app/datasets` and `/app` is the `WORKDIR`. Refer to `dataset_config.md` for more information about the config.
+Pods will have dataset configuration mounted in `/app/datasets` and `/app` is the `WORKDIR`.
+
+> NOTE: Refer to `dataset_config.md` for more information about the config structure.
 
 Pods should now be in `Running` status, provided there were no issues. Run the following to create a bigtable and enqueue jobs.
 ```
