@@ -2,15 +2,15 @@ Configuration for ingest must be specified in a YaML file such as this:
 
 ```
 data_source:
-  EDGES: "gs://akhilesh-pcg/heinze-lab/megalopta_NO_test/edges"
-  COMPONENTS: "gs://akhilesh-pcg/heinze-lab/megalopta_NO_test/components"
-  WATERSHED: "gs://akhilesh-pcg/heinze-lab/megalopta_NO_test/fragments"
+  EDGES: ""
+  COMPONENTS: ""
+  WATERSHED: ""
 
 graph_config:
-  CHUNK_SIZE: [500, 500, 100]
-  FANOUT: 2
-  SPATIAL_BITS: 2
-  LAYER_ID_BITS: 8
+  CHUNK_SIZE: [X, Y, Z]
+  FANOUT: <int>
+  SPATIAL_BITS: <int>
+  LAYER_ID_BITS: <int>
 
 backend_client:
   TYPE: "bigtable"

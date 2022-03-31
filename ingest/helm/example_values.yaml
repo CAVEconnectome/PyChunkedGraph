@@ -29,7 +29,6 @@ configyamls:
         EDGES: "<path_to_edges>"
         COMPONENTS: "<path_to_components>"
         WATERSHED: "<path_to_segmentation>"
-        DATA_VERSION: 4 # ignore this
 
       graph_config:
         CHUNK_SIZE: [] # [X, Y, Z]
@@ -46,6 +45,11 @@ configyamls:
 secrets:
 - name: &cloudVolumeSecrets cloud-volume-secrets
   files:
+    # these are used by python bigtable client and cloud-files
+    # must have the following permissions:
+    # * read gcs objects if edges/component files are stored in google cloud buckets
+    #   if they're stored elsewhere use the secrets with appropriate permissions accordingly
+    # * bigtable - create and read tables
     google-secret.json: |-
       {
         <contents_of_service_accout_secret>

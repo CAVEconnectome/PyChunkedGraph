@@ -40,9 +40,10 @@ Use value of `redis_host` in `helm/values.yaml` (more info in Helm section).
 ### Helm ([docs](https://helm.sh/docs/))
 `helm` is used to run the ingest. The provided chart installs kubernetes resources such as configmaps, secrets, deployments needed to run the ingest. Refer to example `helm/example_values.yaml` file for more information.
 
+> NOTE: Depending on your dataset, you will need to figure out the optimal limits for cpu and memory in your worker deployments. It can vary with chunk size, size of supervoxels (atomic semgents in layer 1), number of edges per chunk and so on.
+
 #### Chart Installation
-When all variables are ready, rename your values file to `values.yaml` (ignored by git because it can contain sensitive information).
-Then run:
+When all variables are ready, rename your values file to `values.yaml` (ignored by git because it can contain sensitive information). Then run:
 
 ```
 $ cd helm/
