@@ -5,6 +5,7 @@
 * GCloud SDK (tested with 378.0.0)
 * Terraform (v1.1.7)
 * Helm (v3.7.0)
+* kubectl (v1.23.5)
 
 ### Terraform ([docs](https://www.terraform.io/docs))
 
@@ -46,7 +47,8 @@ $ cd helm/
 $ helm install <release_name> . --debug --dry-run
 ```
 If successful run the same command without `--dry-run`. This will create master and worker kubernetes deployments.
-Pods will have dataset mounted in `/app/datasets` and `/app` is the `WORKDIR`.
+
+Pods will have dataset configuration mounted in `/app/datasets` and `/app` is the `WORKDIR`. Refer to `dataset_config.md` for more information about the config.
 
 Pods should now be in `Running` status, provided there were no issues. Run the following to create a bigtable and enqueue jobs.
 ```

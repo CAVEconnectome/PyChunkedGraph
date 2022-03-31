@@ -2,14 +2,14 @@
 
 PyChunkedgraph uses protobuf for serialization and zstandard for compression.
 
-Edges and connected components per chunk are stored using the protobuf definitions in [`pychunkedgraph.io.protobuf`](https://github.com/seung-lab/PyChunkedGraph/blob/pcgv2/pychunkedgraph/io/protobuf/chunkEdges.proto).
+Edges and connected components per chunk are stored using the protobuf definitions in [`pychunkedgraph.io.protobuf`](https://github.com/seung-lab/PyChunkedGraph/pychunkedgraph/io/protobuf/chunkEdges.proto).
 This format is a result of performance tests.
 It provided the best tradeoff between deserialzation speed and storage size.
 
 To read and write edges in this format, the functions `get_chunk_edges` and `put_chunk_edges`
 in the module `pychunkedgraph.io.edges` may be used.
 
-[CloudVolume](https://github.com/seung-lab/cloud-volume) is used for uploading and downloading this data. 
+[CloudVolume](https://github.com/seung-lab/cloud-volume) is used for uploading and downloading this data.
 
 ### Edges
 
