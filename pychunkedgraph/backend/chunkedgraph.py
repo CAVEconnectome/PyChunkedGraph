@@ -4401,9 +4401,10 @@ class ChunkedGraph(object):
         end_time: Optional[datetime.datetime] = None,
     ):
         log_entries = self.read_log_rows(start_time=start_time, end_time=end_time)
-        new_roots = np.concatenate(
-            [e[column_keys.OperationLogs.RootID] for e in log_entries.values()]
-        )
+        root_chunks = [e[column_keys.OperationLogs.RootID] for e in log_entries.values()]
+        if len(root_chunks) == 0:
+            return np.array([], dtype=np.uint64), np.array([], dtype=np.int64)
+        new_roots = np.concatenate(root_chunks)
         root_rows = self.read_node_id_rows(
             node_ids=new_roots, columns=[column_keys.Hierarchy.FormerParent]
         )
