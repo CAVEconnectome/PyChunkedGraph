@@ -77,9 +77,11 @@ def get_proofread_root_ids(
         end_time=end_time,
         properties=[attributes.OperationLogs.RootID],
     )
-    new_roots = np.concatenate(
-        [e[attributes.OperationLogs.RootID] for e in log_entries.values()]
-    )
+    root_chunks = [e[attributes.OperationLogs.RootID] for e in log_entries.values()]
+    if len(root_chunks) == 0:
+        return np.array([], dtype=np.uint64), np.array([], dtype=np.int64)
+    new_roots = np.concatenate(root_chunks)
+
     root_rows = cg.client.read_nodes(
         node_ids=new_roots, properties=[attributes.Hierarchy.FormerParent]
     )
@@ -178,7 +180,7 @@ def get_contact_sites(
         bbox=bounding_box,
         bbox_is_coordinate=bbox_is_coordinate,
         nodes_only=True,
-        return_flattened=True
+        return_flattened=True,
     )
     # All edges that are _not_ connected / on
     edges, _, areas = cg.get_subgraph_edges(
