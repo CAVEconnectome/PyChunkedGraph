@@ -9,10 +9,12 @@ import numpy as np
 from google.cloud.bigtable.row_data import PartialRowData
 from google.cloud.bigtable.row_filters import RowFilter
 from google.cloud.bigtable.row_filters import PassAllFilter
+from google.cloud.bigtable.row_filters import BlockAllFilter
 from google.cloud.bigtable.row_filters import TimestampRange
 from google.cloud.bigtable.row_filters import RowFilterChain
 from google.cloud.bigtable.row_filters import RowFilterUnion
 from google.cloud.bigtable.row_filters import ValueRangeFilter
+from google.cloud.bigtable.row_filters import CellsRowLimitFilter
 from google.cloud.bigtable.row_filters import ColumnRangeFilter
 from google.cloud.bigtable.row_filters import TimestampRangeFilter
 from google.cloud.bigtable.row_filters import ConditionalRowFilter
@@ -54,7 +56,7 @@ def get_google_compatible_time_stamp(
 def _get_column_filter(
     columns: Union[Iterable[attributes._Attribute], attributes._Attribute] = None
 ) -> RowFilter:
-    """ Generates a RowFilter that accepts the specified columns """
+    """Generates a RowFilter that accepts the specified columns"""
     if isinstance(columns, attributes._Attribute):
         return ColumnRangeFilter(
             columns.family_id, start_column=columns.key, end_column=columns.key
@@ -71,12 +73,35 @@ def _get_column_filter(
     )
 
 
+def _get_user_filter(user_id: str):
+    """generates a ColumnRegEx Filter which filters user ids
+
+    Args:
+        user_id (str): userID to select for
+    """
+
+    condition = RowFilterChain(
+        [
+            ColumnQualifierRegexFilter(attributes.OperationLogs.UserID.key),
+            ValueRangeFilter(str.encode(user_id), str.encode(user_id)),
+            CellsRowLimitFilter(1),
+        ]
+    )
+
+    conditional_filter = ConditionalRowFilter(
+        base_filter=condition,
+        true_filter=PassAllFilter(True),
+        false_filter=BlockAllFilter(True),
+    )
+    return conditional_filter
+
+
 def _get_time_range_filter(
     start_time: Optional[datetime] = None,
     end_time: Optional[datetime] = None,
     end_inclusive: bool = True,
 ) -> RowFilter:
-    """ Generates a TimeStampRangeFilter which is inclusive for start and (optionally) end.
+    """Generates a TimeStampRangeFilter which is inclusive for start and (optionally) end.
 
     :param start:
     :param end:
@@ -97,16 +122,21 @@ def get_time_range_and_column_filter(
     start_time: Optional[datetime] = None,
     end_time: Optional[datetime] = None,
     end_inclusive: bool = False,
+    user_id: Optional[str] = None,
 ) -> RowFilter:
     time_filter = _get_time_range_filter(
         start_time=start_time, end_time=end_time, end_inclusive=end_inclusive
     )
-
+    filters = [time_filter]
     if columns is not None:
         column_filter = _get_column_filter(columns)
-        return RowFilterChain([column_filter, time_filter])
-    else:
-        return time_filter
+        filters = [column_filter, time_filter]
+    if user_id is not None:
+        user_filter = _get_user_filter(user_id=user_id)
+        filters.append(user_filter)
+    if len(filters) > 1:
+        return RowFilterChain(filters)
+    return filters[0]
 
 
 def get_root_lock_filter(
@@ -268,4 +298,3 @@ def get_indefinite_unlock_root_filter(lock_column, operation_id) -> RowFilterCha
 
     # Chain these filters together
     return RowFilterChain([column_key_filter, value_filter])
-

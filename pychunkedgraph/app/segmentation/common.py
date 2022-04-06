@@ -358,6 +358,7 @@ def publish_edit(
     c = MessagingClient()
     c.publish(exchange, pickle.dumps(payload), attributes)
 
+
 ### MERGE ----------------------------------------------------------------------
 
 
@@ -612,14 +613,16 @@ def all_user_operations(
     current_app.table_id = table_id
     user_id = str(g.auth_user["id"])
     current_app.user_id = user_id
-    target_user_id = request.args["user_id"]
+    target_user_id = request.args.get("user_id", None)
 
     start_time = _parse_timestamp("start_time", 0, return_datetime=True)
-
+    end_time = _parse_timestamp("end_time", datetime.utcnow(), return_datetime=True)
     # Call ChunkedGraph
     cg = app_utils.get_cg(table_id)
 
-    log_rows = cg.client.read_log_entries(start_time=start_time)
+    log_rows = cg.client.read_log_entries(
+        start_time=start_time, end_time=end_time, user_id=target_user_id
+    )
 
     valid_entry_ids = []
     timestamp_list = []
@@ -854,7 +857,11 @@ def tabular_change_log_recent(table_id):
     current_app.user_id = user_id
 
     start_time = _parse_timestamp("timestamp", 0, return_datetime=True)
-    end_time = None if request.args.get("timestamp_end", None) is None else _parse_timestamp("timestamp_end", return_datetime=True)
+    end_time = (
+        None
+        if request.args.get("timestamp_end", None) is None
+        else _parse_timestamp("timestamp_end", return_datetime=True)
+    )
 
     # Call ChunkedGraph
     cg = app_utils.get_cg(table_id)
