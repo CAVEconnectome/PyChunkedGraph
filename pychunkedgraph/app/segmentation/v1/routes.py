@@ -568,3 +568,16 @@ def delta_roots(table_id):
     int64_as_str = request.args.get("int64_as_str", default=False, type=toboolean)
     resp = common.delta_roots(table_id)
     return jsonify_with_kwargs(resp, int64_as_str=int64_as_str)
+
+
+### GET VALID NODES -------------------------------------------------------------
+
+
+@bp.route("/table/<table_id>/valid_nodes", methods=["GET"])
+@auth_requires_permission("view")
+def valid_nodes(table_id):
+    int64_as_str = request.args.get("int64_as_str", default=False, type=toboolean)
+    is_binary = request.args.get("is_binary", default=False, type=toboolean)
+    resp = common.valid_nodes(table_id, is_binary=is_binary)
+
+    return jsonify_with_kwargs(resp, int64_as_str=int64_as_str)

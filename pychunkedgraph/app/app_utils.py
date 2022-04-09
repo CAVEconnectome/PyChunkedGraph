@@ -328,3 +328,19 @@ def get_username_dict(user_ids, auth_token) -> dict:
         timeout=5,
     )
     return {x["id"]: x["name"] for x in users_request.json()}
+
+
+def get_userinfo_dict(user_ids, auth_token):
+    AUTH_URL = os.environ.get("AUTH_URL", None)
+
+    if AUTH_URL is None:
+        raise cg_exceptions.ChunkedGraphError("No AUTH_URL defined")
+
+    users_request = requests.get(
+        f"https://{AUTH_URL}/api/v1/user?id={','.join(map(str, np.unique(user_ids)))}",
+        headers={"authorization": "Bearer " + auth_token},
+        timeout=5,
+    )
+    return {x["id"]: x["name"] for x in users_request.json()}, {
+        x["id"]: x["pi"] for x in users_request.json()
+    }
