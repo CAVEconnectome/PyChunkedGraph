@@ -20,7 +20,7 @@ from werkzeug.datastructures import ImmutableMultiDict
 
 import networkx as nx
 from scipy import spatial
-
+import requests
 
 CACHE = {}
 
@@ -313,11 +313,9 @@ def handle_supervoxel_id_lookup(
 
 
 def get_username_dict(user_ids, auth_token) -> dict:
-    from os import environ
-    from requests import get
     from pychunkedgraph.graph.exceptions import ChunkedGraphError
 
-    AUTH_URL = environ.get("AUTH_URL", None)
+    AUTH_URL = os.environ.get("AUTH_URL", None)
 
     if AUTH_URL is None:
         raise ChunkedGraphError("No AUTH_URL defined")
