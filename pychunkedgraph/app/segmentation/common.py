@@ -181,11 +181,18 @@ def api_exception(e):
     return jsonify(resp), e.status_code.value
 
 
-def _parse_timestamp(arg_name, default_timestamp=0, return_datetime=False):
+def _parse_timestamp(
+    arg_name, default_timestamp=0, return_datetime=False, allow_none=False
+):
     """Convert seconds since epoch to UTC datetime."""
     timestamp = request.args.get(arg_name, default_timestamp)
     if timestamp is None:
-        raise (cg_exceptions.BadRequest(f"Timestamp parameter {arg_name} is mandatory"))
+        if allow_none:
+            return None
+        else:
+            raise (
+                cg_exceptions.BadRequest(f"Timestamp parameter {arg_name} is mandatory")
+            )
     try:
         timestamp = float(timestamp)
         if return_datetime:
@@ -1277,9 +1284,9 @@ def valid_nodes(table_id, is_binary):
         node_ids = np.array(json.loads(request.data)["node_ids"], dtype=np.uint64)
 
     # Convert seconds since epoch to UTC datetime
-    end_timestamp = _parse_timestamp("end_timestamp", time.time(), return_datetime=True)
+    end_timestamp = _parse_timestamp("end_timestamp", time.time(), return_datetime=True, allow_none=True)
     start_timestamp = _parse_timestamp(
-        "start_timestamp", time.time(), return_datetime=True
+        "start_timestamp", time.time(), return_datetime=True, allow_none=True
     )
 
     # Call ChunkedGraph
