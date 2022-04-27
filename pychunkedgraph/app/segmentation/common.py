@@ -1284,9 +1284,11 @@ def valid_nodes(table_id, is_binary):
         node_ids = np.array(json.loads(request.data)["node_ids"], dtype=np.uint64)
 
     # Convert seconds since epoch to UTC datetime
-    end_timestamp = _parse_timestamp("end_timestamp", time.time(), return_datetime=True, allow_none=True)
+    end_timestamp = _parse_timestamp(
+        "end_timestamp", None, return_datetime=True, allow_none=True
+    )
     start_timestamp = _parse_timestamp(
-        "start_timestamp", time.time(), return_datetime=True, allow_none=True
+        "start_timestamp", None, return_datetime=True, allow_none=True
     )
 
     # Call ChunkedGraph
