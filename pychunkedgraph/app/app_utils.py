@@ -248,6 +248,8 @@ def get_userinfo_dict(user_ids, auth_token):
     if AUTH_URL is None:
         raise cg_exceptions.ChunkedGraphError("No AUTH_URL defined")
 
+    if len(user_ids) == 0:
+        return {}, {}
     users_request = requests.get(
         f"https://{AUTH_URL}/api/v1/user?id={','.join(map(str, np.unique(user_ids)))}",
         headers={"authorization": "Bearer " + auth_token},
