@@ -1,4 +1,5 @@
 from collections import namedtuple
+from os import environ
 
 DEFAULT_PROJECT = "neuromancer-seung-import"
 DEFAULT_INSTANCE = "pychunkedgraph"
@@ -12,8 +13,8 @@ _bigtableconfig_fields = (
     "MAX_ROW_KEY_COUNT"
 )
 _bigtableconfig_defaults = (
-    DEFAULT_PROJECT,
-    DEFAULT_INSTANCE,
+    environ.get("BIGTABLE_PROJECT", DEFAULT_PROJECT),
+    environ.get("BIGTABLE_INSTANCE", DEFAULT_INSTANCE),
     False,
     True,
     None,
@@ -31,8 +32,6 @@ def get_client_info(
     read_only: bool = True,
 ):
     """Helper function to load config from env."""
-    from os import environ
-
     _project = environ.get("BIGTABLE_PROJECT", DEFAULT_PROJECT)
     if project:
         _project = project
