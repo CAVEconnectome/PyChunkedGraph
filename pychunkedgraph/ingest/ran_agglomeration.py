@@ -26,8 +26,31 @@ from ..graph.edges import Edges
 from ..graph.edges import EDGE_TYPES
 from ..graph.chunks.utils import get_chunk_id
 
+# see section below for description
 CRC_LENGTH = 4
 HEADER_LENGTH = 20
+
+"""
+Agglomeration data is now sharded.
+Remap files and the region graph files are merged together
+into bigger files with the following structure.
+
+For example, "in_chunk_xxx_yyy.data" files are merge into a single "in_chunk_xxx.data",
+and the reader needs to find out the range to extract the data for each chunk.
+
+The layout of the new files is like this:
+
+    byte 1-4: 'SO01' (version identifier)
+    byte 5-12: Offset of the index information
+    byte 13-20: Length of the index information (including crc32)
+    byte 21-n: Payload data of the first chunk
+    byte (n+1)-(n+4): Crc32 of the remap data of first chunk
+    ...
+    ...
+    ...
+    byte m-l: index data: (chunkid, offset, length)*k
+    byte (l+1)-(l+4): Crc32 of the index data
+"""
 
 
 def read_raw_edge_data(imanager, coord) -> Dict:
