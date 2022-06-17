@@ -3,12 +3,12 @@ name: PyChunkedGraph
 on:
   push:
     branches:
-      - "master"
-      - "pcgv2"
+      - "main"
+      - "pcgv1"
   pull_request:
     branches:
-      - "master"
-      - "pcgv2"
+      - "main"
+      - "pcgv1"
     
 jobs:
   login:
