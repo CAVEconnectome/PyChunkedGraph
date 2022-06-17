@@ -38,11 +38,11 @@ class Edges:
         self._as_pairs = None
         self._fake_edges = fake_edges
 
-        if affinities is not None:
+        if affinities is not None and len(affinities) > 0:
             self._affinities = np.array(affinities, dtype=basetypes.EDGE_AFFINITY)
             assert self.node_ids1.size == self._affinities.size
 
-        if areas is not None:
+        if areas is not None and len(areas) > 0:
             self._areas = np.array(areas, dtype=basetypes.EDGE_AREA)
             assert self.node_ids1.size == self._areas.size
 

@@ -2,13 +2,13 @@
 Functions for reading and writing edges from cloud storage.
 """
 
-from typing import List, Dict, Tuple, Union
+from typing import Dict
+from typing import List
+from typing import Tuple
 
 import numpy as np
 import zstandard as zstd
-
-from cloudvolume import Storage
-from cloudvolume.storage import SimpleStorage
+from cloudfiles import CloudFiles
 
 from .protobuf.chunkEdges_pb2 import EdgesMsg
 from .protobuf.chunkEdges_pb2 import ChunkEdgesMsg
@@ -50,7 +50,7 @@ def _decompress_edges(content: bytes) -> Dict:
 
 
 def get_chunk_edges(edges_dir: str, chunks_coordinates: List[np.ndarray]) -> Dict:
-    """ Read edges from GCS. """
+    """Read edges from GCS."""
     from cloudfiles import CloudFiles
 
     fnames = []
@@ -75,7 +75,7 @@ def get_chunk_edges(edges_dir: str, chunks_coordinates: List[np.ndarray]) -> Dic
 def put_chunk_edges(
     edges_dir: str, chunk_coordinates: np.ndarray, edges_d, compression_level: int
 ) -> None:
-    """ Write edges to GCS. """
+    """Write edges to GCS."""
     chunk_edges = ChunkEdgesMsg()
     chunk_edges.in_chunk.CopyFrom(serialize(edges_d[EDGE_TYPES.in_chunk]))
     chunk_edges.between_chunk.CopyFrom(serialize(edges_d[EDGE_TYPES.between_chunk]))
@@ -85,11 +85,11 @@ def put_chunk_edges(
     chunk_str = "_".join(str(coord) for coord in chunk_coordinates)
 
     # filename format - edges_x_y_z.serialization.compression
-    file = f"edges_{chunk_str}.proto.zst"
-    with Storage(edges_dir) as storage:  # pylint: disable=not-context-manager
-        storage.put_file(
-            file_path=file,
-            content=cctx.compress(chunk_edges.SerializeToString()),
-            compress=None,
-            cache_control="no-cache",
-        )
+    filename = f"edges_{chunk_str}.proto.zst"
+    cf = CloudFiles(edges_dir)
+    cf.put(
+        filename,
+        content=cctx.compress(chunk_edges.SerializeToString()),
+        compress=None,
+        cache_control="no-cache",
+    )

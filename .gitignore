@@ -107,7 +107,15 @@ venv.bak/
 # Visual Code
 .vscode/
 
+# terraform
+.terraform/
+*.lock.hcl
+*.tfstate
+*.tfstate.*
+
 
 # local dev stuff
 .devcontainer/
 *.ipynb
+*.rdb
+/protobuf*

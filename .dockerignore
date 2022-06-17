@@ -12,3 +12,12 @@ __pycache__
 .coverage
 .vscode
 .ipynb_checkpoints
+
+.devcontainer/
+*.rdb
+
+# terraform
+.terraform/
+*.lock.hcl
+*.tfstate
+*.tfstate.*

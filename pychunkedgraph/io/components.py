@@ -1,8 +1,7 @@
-import json
 from typing import Dict, Iterable
 
 import numpy as np
-from cloudvolume.storage import SimpleStorage
+from cloudfiles import CloudFiles
 
 from .protobuf.chunkComponents_pb2 import ChunkComponentsMsg
 from ..graph.utils import basetypes
@@ -37,24 +36,24 @@ def deserialize(components_message: ChunkComponentsMsg) -> Dict:
 def put_chunk_components(components_dir, components, chunk_coord) -> None:
     # filename format - components_x_y_z.serliazation
     components_message = serialize(components)
-    file_name = f"components_{'_'.join(str(coord) for coord in chunk_coord)}.proto"
-    with SimpleStorage(components_dir) as storage:
-        storage.put_file(
-            file_path=file_name,
-            content=components_message.SerializeToString(),
-            compress="gzip",
-            cache_control="no-cache",
-        )
+    filename = f"components_{'_'.join(str(coord) for coord in chunk_coord)}.proto"
+    cf = CloudFiles(components_dir)
+    cf.put(
+        filename,
+        content=components_message.SerializeToString(),
+        compress=None,
+        cache_control="no-cache",
+    )
 
 
 def get_chunk_components(components_dir, chunk_coord) -> Dict:
     # filename format - components_x_y_z.serliazation
-    file_name = f"components_{'_'.join(str(coord) for coord in chunk_coord)}.proto"
-    with SimpleStorage(components_dir) as storage:
-        content = storage.get_file(file_name)
-        if not content:
-            return {}
-        components_message = ChunkComponentsMsg()
-        components_message.ParseFromString(content)
-        return deserialize(components_message)
+    filename = f"components_{'_'.join(str(coord) for coord in chunk_coord)}.proto"
 
+    cf = CloudFiles(components_dir)
+    content = cf.get(filename)
+    if not content:
+        return {}
+    components_message = ChunkComponentsMsg()
+    components_message.ParseFromString(content)
+    return deserialize(components_message)
