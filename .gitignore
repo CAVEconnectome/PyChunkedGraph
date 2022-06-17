@@ -118,3 +118,4 @@ venv.bak/
 .devcontainer/
 *.ipynb
 *.rdb
+/protobuf*
