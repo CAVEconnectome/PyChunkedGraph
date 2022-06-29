@@ -1,0 +1,12 @@
+name: pychunkedgraph
+channels:
+  - conda-forge
+dependencies:
+  - python==3.11.4
+  - pip
+  - tox
+  - uwsgi
+  - graph-tool-base
+  - pip:
+    - -r requirements.in
+    - -r requirements-dev.txt
