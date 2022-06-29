@@ -1,0 +1,55 @@
+#!/app/venv/bin/python
+
+import argparse
+import os
+import subprocess
+import re
+
+CONFIG_ENV = os.path.expanduser("~/.config/gcloud/emulators/bigtable/env.yaml")
+
+def env_init(args):
+    try:
+        with open(CONFIG_ENV, "r") as f:
+            hostport = re.findall(r"BIGTABLE_EMULATOR_HOST:\s+([:\w]+:\d+)", f.read())[0]
+            print(f"export BIGTABLE_EMULATOR={hostport}")
+    except Exception:
+        print(f"export BIGTABLE_EMULATOR=localhost:9000")
+
+def start(args):
+    os.makedirs(os.path.dirname(CONFIG_ENV), exist_ok=True)
+    with open(CONFIG_ENV, "w") as f:
+        f.write(f"---\nBIGTABLE_EMULATOR_HOST: {args.host_port}")
+
+    host, port = args.host_port.rsplit(':', 1)
+    subprocess.Popen(["cbtemulator", "-host", host, "-port", port], start_new_session=True)
+
+def usage(args):
+    print("""This is not gcloud. Only supported commands are:
+    - gcloud beta emulators bigtable env-init
+    - gcloud beta emulators bigtable start [--host-port localhost:9000]""")
+
+if __name__ == '__main__':
+    parser_gcloud = argparse.ArgumentParser(prog='gcloud')
+    parser_gcloud.set_defaults(func=usage)
+    subparser_gcloud = parser_gcloud.add_subparsers()
+
+    parser_beta = subparser_gcloud.add_parser('beta')
+    subparser_beta = parser_beta.add_subparsers()
+
+    parser_emulators = subparser_beta.add_parser('emulators')
+    subparser_emulators = parser_emulators.add_subparsers()
+
+    parser_bigtable = subparser_emulators.add_parser('bigtable')
+    subparser_bigtable = parser_bigtable.add_subparsers()
+
+    parser_env_init = subparser_bigtable.add_parser('env-init')
+    parser_env_init.set_defaults(func=env_init)
+
+    parser_start = subparser_bigtable.add_parser('start')
+    parser_start.add_argument('--host-port', default='localhost:9000')
+    parser_start.set_defaults(func=start)
+
+    args = parser_gcloud.parse_args()
+    args.func(args)
+
+
