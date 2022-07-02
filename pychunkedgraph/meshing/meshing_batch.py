@@ -1,4 +1,4 @@
-from taskqueue import TaskQueue, LocalTaskQueue, MockTaskQueue
+from taskqueue import TaskQueue, LocalTaskQueue
 import argparse
 from pychunkedgraph.graph.chunkedgraph import ChunkedGraph # noqa
 import numpy as np
@@ -36,7 +36,7 @@ if __name__ == "__main__":
                 yield MeshTask(args.cg_name, args.layer, int(chunk_id), args.mip, cache)
 
     if args.queue_name is not None:
-        with TaskQueue(queue_name=args.queue_name) as tq:
+        with TaskQueue(args.queue_name) as tq:
             tq.insert_all(MeshTaskIterator(chunks_arr))
     else:
         tq = LocalTaskQueue(parallel=1)
