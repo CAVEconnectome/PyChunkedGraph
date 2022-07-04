@@ -29,7 +29,10 @@ def flush_redis():
 @click.argument("dataset", type=click.Path(exists=True))
 @click.option("--raw", is_flag=True)
 @click.option("--test", is_flag=True)
-def ingest_graph(graph_id: str, dataset: click.Path, raw: bool, test: bool):
+@click.option("--retry", is_flag=True)
+def ingest_graph(
+    graph_id: str, dataset: click.Path, raw: bool, test: bool, retry: bool
+):
     """
     Main ingest command.
     Takes ingest config from a yaml file and queues atomic tasks.
@@ -48,7 +51,8 @@ def ingest_graph(graph_id: str, dataset: click.Path, raw: bool, test: bool):
         test_run=test,
     )
     cg = ChunkedGraph(meta=meta, client_info=client_info)
-    cg.create()
+    if not retry:
+        cg.create()
     enqueue_atomic_tasks(IngestionManager(ingest_config, meta))
 
 
