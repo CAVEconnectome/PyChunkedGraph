@@ -72,6 +72,7 @@ def ingest_status():
 @click.argument("chunk_info", nargs=4, type=int)
 def ingest_chunk(queue: str, chunk_info):
     """Manually queue chunk when a job is stuck for whatever reason."""
+    from .cluster import _create_atomic_chunk
     from .cluster import create_parent_chunk
     from .utils import chunk_id_str
 
@@ -80,16 +81,18 @@ def ingest_chunk(queue: str, chunk_info):
     layer = chunk_info[0]
     coords = chunk_info[1:]
     queue = imanager.get_task_queue(queue)
+    if layer == 2:
+        func = _create_atomic_chunk
+        args = ((coords,),)
+    else:
+        func = create_parent_chunk
+        args = (layer, coords)
     queue.enqueue(
-        create_parent_chunk,
+        func,
         job_id=chunk_id_str(layer, coords),
         job_timeout=f"{int(layer * layer)}m",
         result_ttl=0,
-        args=(
-            imanager.serialized(pickled=True),
-            layer,
-            coords,
-        ),
+        args=args,
     )
 
 

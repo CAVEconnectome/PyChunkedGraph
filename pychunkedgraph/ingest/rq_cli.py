@@ -11,6 +11,7 @@ from rq import Worker
 from rq.worker import WorkerStatus
 from rq.job import Job
 from rq.exceptions import InvalidJobOperationError
+from rq.exceptions import NoSuchJobError
 from rq.registry import StartedJobRegistry
 from rq.registry import FailedJobRegistry
 from flask import current_app
@@ -101,7 +102,7 @@ def requeue(queue, all, job_ids):
     for job_id in job_ids:
         try:
             failed_job_registry.requeue(job_id)
-        except InvalidJobOperationError:
+        except (InvalidJobOperationError, NoSuchJobError):
             fail_count += 1
 
     if fail_count > 0:
