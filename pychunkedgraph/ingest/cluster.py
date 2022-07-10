@@ -26,7 +26,7 @@ def _post_task_completion(imanager: IngestionManager, layer: int, coords: np.nda
     # mark chunk as completed - "c"
     imanager.redis.sadd(f"{layer}c", chunk_str)
 
-    if environ.get("DO_NOT_AUTOQUEUE_PARENT_CHUNKS", None) is None:
+    if environ.get("DO_NOT_AUTOQUEUE_PARENT_CHUNKS", None) is not None:
         return
 
     parent_layer = layer + 1
