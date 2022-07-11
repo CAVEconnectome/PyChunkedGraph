@@ -100,7 +100,7 @@ def queue_layer(parent_layer):
         np.random.shuffle(chunk_coords)
 
     for coords in chunk_coords:
-        task_q = imanager.get_task_queue(imanager.config.CLUSTER.PARENTS_Q_NAME)
+        task_q = imanager.get_task_queue(f"l{parent_layer}")
         task_q.enqueue(
             create_parent_chunk,
             job_id=chunk_id_str(parent_layer, coords),
