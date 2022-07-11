@@ -20,9 +20,14 @@ from ..utils.redis import get_redis_connection
 
 
 def _post_task_completion(imanager: IngestionManager, layer: int, coords: np.ndarray):
+    from os import environ
+
     chunk_str = "_".join(map(str, coords))
     # mark chunk as completed - "c"
     imanager.redis.sadd(f"{layer}c", chunk_str)
+
+    if environ.get("DO_NOT_AUTOQUEUE_PARENT_CHUNKS", None) is not None:
+        return
 
     parent_layer = layer + 1
     if parent_layer > imanager.cg_meta.layer_count:
