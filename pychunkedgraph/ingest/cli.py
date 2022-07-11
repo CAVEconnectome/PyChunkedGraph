@@ -92,10 +92,10 @@ def queue_layer(parent_layer):
     redis = get_redis_connection()
     imanager = IngestionManager.from_pickle(redis.get(r_keys.INGESTION_MANAGER))
 
-    if parent_layer == imanager.chunkedgraph_meta.layer_count:
+    if parent_layer == imanager.cg_meta.layer_count:
         chunk_coords = [(0, 0, 0)]
     else:
-        bounds = imanager.chunkedgraph_meta.layer_chunk_bounds[parent_layer]
+        bounds = imanager.cg_meta.layer_chunk_bounds[parent_layer]
         chunk_coords = list(product(*[range(r) for r in bounds]))
         np.random.shuffle(chunk_coords)
 
