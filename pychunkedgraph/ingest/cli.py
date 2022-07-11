@@ -137,7 +137,7 @@ def ingest_chunk(queue: str, chunk_info):
     queue = imanager.get_task_queue(queue)
     if layer == 2:
         func = _create_atomic_chunk
-        args = ((coords,),)
+        args = (coords,)
     else:
         func = create_parent_chunk
         args = (layer, coords)
