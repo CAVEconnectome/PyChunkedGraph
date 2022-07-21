@@ -129,6 +129,10 @@ def get_time_range_and_column_filter(
     )
     filters = [time_filter]
     if columns is not None:
+        if len(columns) == 0:
+            raise ValueError(
+                f"Empty column filter {columns} is ambiguous. Pass `None` if no column filter should be applied."
+            )
         column_filter = _get_column_filter(columns)
         filters = [column_filter, time_filter]
     if user_id is not None:
