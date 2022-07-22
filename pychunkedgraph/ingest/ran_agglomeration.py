@@ -63,6 +63,9 @@ def read_raw_edge_data(imanager, coord) -> Dict:
     no_edges = True
     chunk_edges = {}
     for edge_type in EDGE_TYPES:
+        if not edge_dict[edge_type]:
+            chunk_edges[edge_type] = Edges(np.array([]), np.array([]))
+            continue
         sv_ids1 = edge_dict[edge_type]["sv1"]
         sv_ids2 = edge_dict[edge_type]["sv2"]
         areas = np.ones(len(sv_ids1))
@@ -237,6 +240,8 @@ def _collect_edge_data(imanager: IngestionManager, chunk_coord):
                 edge_data[edge_type].extend(_data)
 
     for k in EDGE_TYPES:
+        if not edge_data[k]:
+            continue
         edge_data[k] = rfn.stack_arrays(edge_data[k], usemask=False)
         edge_data_df = pd.DataFrame(edge_data[k])
         edge_data_dfg = (
