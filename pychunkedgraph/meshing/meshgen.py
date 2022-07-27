@@ -45,14 +45,13 @@ def decode_draco_mesh_buffer(fragment):
     except ValueError as exc:
         raise ValueError("Not a valid draco mesh") from exc
 
-    assert len(vertices) % 3 == 0, "Draco mesh vertices not 3-D"
-    num_vertices = len(vertices) // 3
+    num_vertices = len(vertices)
 
     # For now, just return this dict until we figure out
     # how exactly to deal with Draco's lossiness/duplicate vertices
     return {
         "num_vertices": num_vertices,
-        "vertices": vertices.reshape(num_vertices, 3),
+        "vertices": vertices,
         "faces": faces,
         "encoding_options": mesh_object.encoding_options,
         "encoding_type": "draco",
@@ -1304,7 +1303,7 @@ def chunk_initial_sharded_stitching_task(
                         "node_id": np.uint64(frag_to_fetch),
                     }
                 )
-            except:
+            except KeyError:
                 pass
         if len(old_fragments) > 0:
             draco_encoding_options = None
