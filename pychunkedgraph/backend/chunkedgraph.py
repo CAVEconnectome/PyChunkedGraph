@@ -2887,6 +2887,10 @@ class ChunkedGraph(object):
             columns=[column_keys.Hierarchy.NewParent, column_keys.Hierarchy.Child],
             end_time=time_stamp,
         )
+
+        if len(row_dict) == 0:
+            return np.zeros(len(root_ids), dtype=bool)
+
         latest_roots = [
             k for k, v in row_dict.items() if not column_keys.Hierarchy.NewParent in v
         ]
