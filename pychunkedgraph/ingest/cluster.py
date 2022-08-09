@@ -3,7 +3,7 @@ Ingest / create chunkedgraph with workers.
 """
 
 from itertools import product
-from typing import Sequence
+from typing import Sequence, Tuple
 
 import numpy as np
 
@@ -114,6 +114,13 @@ def create_parent_chunk(
     _post_task_completion(imanager, parent_layer, parent_coords)
 
 
+def randomize_grid_points(X: int, Y: int, Z: int) -> Tuple[int, int, int]:
+    indices = np.arange(X * Y * Z)
+    np.random.shuffle(indices)
+    for index in indices:
+        yield np.unravel_index(index, (X, Y, Z))
+
+
 def enqueue_atomic_tasks(imanager: IngestionManager):
     from os import environ
     from time import sleep
@@ -126,32 +133,34 @@ def enqueue_atomic_tasks(imanager: IngestionManager):
         chunk_coords = list(product(*[range(r) for r in atomic_chunk_bounds]))
         np.random.shuffle(chunk_coords)
 
-    print(f"chunk count: {len(chunk_coords)}")
+    print(f"total chunk count: {len(chunk_coords)}, queuing...")
     batch_size = int(environ.get("L2JOB_BATCH_SIZE", 1000))
-    for batch in chunked(chunk_coords, batch_size):
+
+    job_datas = []
+    for chunk_coord in randomize_grid_points(*atomic_chunk_bounds):
         q = imanager.get_task_queue(imanager.config.CLUSTER.ATOMIC_Q_NAME)
         # buffer for optimal use of redis memory
         if len(q) > imanager.config.CLUSTER.ATOMIC_Q_LIMIT:
             print(f"Sleeping {imanager.config.CLUSTER.ATOMIC_Q_INTERVAL}s...")
             sleep(imanager.config.CLUSTER.ATOMIC_Q_INTERVAL)
 
-        job_datas = []
-        for chunk_coord in batch:
-            x, y, z = chunk_coord
-            chunk_str = f"{x}_{y}_{z}"
-            if imanager.redis.sismember("2c", chunk_str):
-                # already done, skip
-                continue
-            job_datas.append(
-                RQueue.prepare_data(
-                    _create_atomic_chunk,
-                    args=(chunk_coord,),
-                    timeout=environ.get("L2JOB_TIMEOUT", "3m"),
-                    result_ttl=0,
-                    job_id=chunk_id_str(2, chunk_coord),
-                )
+        x, y, z = chunk_coord
+        chunk_str = f"{x}_{y}_{z}"
+        if imanager.redis.sismember("2c", chunk_str):
+            # already done, skip
+            continue
+        job_datas.append(
+            RQueue.prepare_data(
+                _create_atomic_chunk,
+                args=(chunk_coord,),
+                timeout=environ.get("L2JOB_TIMEOUT", "3m"),
+                result_ttl=0,
+                job_id=chunk_id_str(2, chunk_coord),
             )
-        q.enqueue_many(job_datas)
+        )
+        if len(job_datas) % batch_size == 0:
+            q.enqueue_many(job_datas)
+            job_datas = []
 
 
 def _create_atomic_chunk(coords: Sequence[int]):
