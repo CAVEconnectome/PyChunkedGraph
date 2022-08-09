@@ -513,10 +513,17 @@ class ChunkedGraph:
 
         row_dict = self.client.read_nodes(
             node_ids=root_ids,
-            properties=attributes.Hierarchy.NewParent,
+            properties=[attributes.Hierarchy.Child, attributes.Hierarchy.NewParent],
             end_time=time_stamp,
         )
-        return ~np.isin(root_ids, list(row_dict.keys()))
+
+        if len(row_dict) == 0:
+            return np.zeros(len(root_ids), dtype=bool)
+
+        latest_roots = [
+            k for k, v in row_dict.items() if not attributes.Hierarchy.NewParent in v
+        ]
+        return np.isin(root_ids, latest_roots)
 
     def get_all_parents_dict(
         self,
