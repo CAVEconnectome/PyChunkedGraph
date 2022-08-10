@@ -20,7 +20,7 @@ sys.path.insert(0, os.path.join(sys.path[0], "../.."))
 os.environ["TRAVIS_BRANCH"] = "IDONTKNOWWHYINEEDTHIS"
 UTC = pytz.UTC
 
-from pychunkedgraph import pcg_logger
+from pychunkedgraph.logging import pcg_logger
 from pychunkedgraph.backend import chunkedgraph  # noqa
 from pychunkedgraph.backend.utils import column_keys  # noqa
 from pychunkedgraph.meshing import meshgen_utils  # noqa

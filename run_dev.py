@@ -3,7 +3,7 @@ import sys
 from logging import getLogger
 
 from werkzeug.serving import WSGIRequestHandler
-from pychunkedgraph import pcg_logger
+from pychunkedgraph.logging import pcg_logger
 from pychunkedgraph.app import create_app
 
 app = create_app()
