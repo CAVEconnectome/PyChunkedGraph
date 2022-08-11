@@ -908,6 +908,7 @@ def tabular_change_logs(table_id, root_ids, filtered=False):
         tab = history.tabular_changelogs_filtered
     else:
         tab = history.tabular_changelogs
+
     all_user_ids = []
     for tab_k in tab.keys():
         all_user_ids.extend(np.array(tab[tab_k]["user_id"]).reshape(-1))
@@ -917,6 +918,10 @@ def tabular_change_logs(table_id, root_ids, filtered=False):
         all_user_ids.extend(np.array(tab[tab_k]["user_id"]).reshape(-1))
 
     all_user_ids = np.unique(all_user_ids)
+
+    if len(all_user_ids) == 0:
+        return tab
+
     user_name_dict, user_aff_dict = app_utils.get_userinfo_dict(
         all_user_ids, current_app.config["AUTH_TOKEN"]
     )
