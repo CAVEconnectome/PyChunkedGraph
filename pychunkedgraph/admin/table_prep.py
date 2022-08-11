@@ -18,10 +18,7 @@ def apply_log(cg, log):
 
         log_entry = log[operation_id]
 
-        print(log_entry)
-
         if _log_type(log_entry) == "merge":
-            print("MERGE")
             if len(log_entry["added_edges"]) == 0:
                 affinities = None
             else:
@@ -34,7 +31,6 @@ def apply_log(cg, log):
                          sink_coord=log_entry["sink_coords"],
                          n_tries=60)
         elif _log_type(log_entry) == "split":
-            print("SPLIT")
             cg.remove_edges(user_id=log_entry["user"],
                             source_ids=log_entry["source_ids"],
                             sink_ids=log_entry["sink_ids"],
@@ -46,5 +42,4 @@ def apply_log(cg, log):
                             n_tries=20)
         else:
             raise NotImplementedError
-
         last_operation_id = int(operation_id)
