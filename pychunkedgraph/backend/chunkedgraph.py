@@ -550,9 +550,9 @@ class ChunkedGraph(object):
         y_offset = x_offset - bits_per_dim
         z_offset = y_offset - bits_per_dim
 
-        x = int(node_or_chunk_id) >> x_offset & 2 ** bits_per_dim - 1
-        y = int(node_or_chunk_id) >> y_offset & 2 ** bits_per_dim - 1
-        z = int(node_or_chunk_id) >> z_offset & 2 ** bits_per_dim - 1
+        x = int(node_or_chunk_id) >> x_offset & 2**bits_per_dim - 1
+        y = int(node_or_chunk_id) >> y_offset & 2**bits_per_dim - 1
+        z = int(node_or_chunk_id) >> z_offset & 2**bits_per_dim - 1
         return np.array([x, y, z])
 
     def get_chunk_id(
@@ -585,15 +585,15 @@ class ChunkedGraph(object):
         else:
 
             if not (
-                x < 2 ** bits_per_dim
-                and y < 2 ** bits_per_dim
-                and z < 2 ** bits_per_dim
+                x < 2**bits_per_dim
+                and y < 2**bits_per_dim
+                and z < 2**bits_per_dim
             ):
                 raise Exception(
                     "Chunk coordinate is out of range for"
                     "this graph on layer %d with %d bits/dim."
                     "[%d, %d, %d]; max = %d."
-                    % (layer, bits_per_dim, x, y, z, 2 ** bits_per_dim)
+                    % (layer, bits_per_dim, x, y, z, 2**bits_per_dim)
                 )
 
             layer_offset = 64 - self._n_bits_for_layer_id
@@ -683,7 +683,7 @@ class ChunkedGraph(object):
         layer = self.get_chunk_layer(node_or_chunk_id)
         bits_per_dim = self.bitmasks[layer]
         chunk_offset = 64 - self._n_bits_for_layer_id - 3 * bits_per_dim
-        return np.uint64(2 ** chunk_offset - 1)
+        return np.uint64(2**chunk_offset - 1)
 
     def get_segment_id(self, node_id: np.uint64) -> np.uint64:
         """Extract Segment ID from Node ID
@@ -750,7 +750,7 @@ class ChunkedGraph(object):
         if self.n_bits_root_counter == 0:
             return self.get_unique_segment_id_range(self.root_chunk_id, step=step)
 
-        n_counters = np.uint64(2 ** self._n_bits_root_counter)
+        n_counters = np.uint64(2**self._n_bits_root_counter)
 
         if counter_id is None:
             counter_id = np.uint64(np.random.randint(0, n_counters))
@@ -855,7 +855,7 @@ class ChunkedGraph(object):
         if self.n_bits_root_counter == 0:
             return self.get_max_seg_id(self.root_chunk_id)
 
-        n_counters = np.uint64(2 ** self.n_bits_root_counter)
+        n_counters = np.uint64(2**self.n_bits_root_counter)
         max_value = 0
         for counter_id in range(n_counters):
             row_key = serializers.serialize_key(
@@ -2884,10 +2884,17 @@ class ChunkedGraph(object):
 
         row_dict = self.read_node_id_rows(
             node_ids=root_ids,
-            columns=column_keys.Hierarchy.NewParent,
+            columns=[column_keys.Hierarchy.NewParent, column_keys.Hierarchy.Child],
             end_time=time_stamp,
         )
-        return ~np.isin(root_ids, list(row_dict.keys()))
+
+        if len(row_dict) == 0:
+            return np.zeros(len(root_ids), dtype=bool)
+
+        latest_roots = [
+            k for k, v in row_dict.items() if not column_keys.Hierarchy.NewParent in v
+        ]
+        return np.isin(root_ids, latest_roots)
 
     def get_root_timestamps(
         self, root_ids: Sequence[np.uint64]
@@ -4401,7 +4408,9 @@ class ChunkedGraph(object):
         end_time: Optional[datetime.datetime] = None,
     ):
         log_entries = self.read_log_rows(start_time=start_time, end_time=end_time)
-        root_chunks = [e[column_keys.OperationLogs.RootID] for e in log_entries.values()]
+        root_chunks = [
+            e[column_keys.OperationLogs.RootID] for e in log_entries.values()
+        ]
         if len(root_chunks) == 0:
             return np.array([], dtype=np.uint64), np.array([], dtype=np.int64)
         new_roots = np.concatenate(root_chunks)
@@ -4435,7 +4444,7 @@ class ChunkedGraph(object):
             adapt_layers = layers - 2
             adapt_layers[adapt_layers < 0] = 0
             bounding_box_layer = (
-                bounding_box[None] / (self.fan_out ** adapt_layers)[:, None, None]
+                bounding_box[None] / (self.fan_out**adapt_layers)[:, None, None]
             )
             bound_check = np.array(
                 [
