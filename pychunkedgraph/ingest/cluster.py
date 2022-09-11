@@ -161,6 +161,7 @@ def enqueue_atomic_tasks(imanager: IngestionManager):
         if len(job_datas) % batch_size == 0:
             q.enqueue_many(job_datas)
             job_datas = []
+    q.enqueue_many(job_datas)
 
 
 def _create_atomic_chunk(coords: Sequence[int]):
