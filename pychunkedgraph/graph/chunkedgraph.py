@@ -398,7 +398,7 @@ class ChunkedGraph:
                 filtered_ids = parent_ids[layer_mask]
                 unique_ids, inverse = np.unique(filtered_ids, return_inverse=True)
                 temp_ids = self.get_parents(
-                    unique_ids, time_stamp=time_stamp, fail_to_zero=True
+                    unique_ids, time_stamp=time_stamp, fail_to_zero=False
                 )
                 if not temp_ids.size:
                     break
