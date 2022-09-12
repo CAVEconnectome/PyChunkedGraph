@@ -66,7 +66,6 @@ def connected_components(graph):
 
 
 def team_paths_all_to_all(graph, capacity, team_vertex_ids):
-    """Finds all paths between pairs of points on a source/sink team."""
     dprop = capacity.copy()
     # Use inverse affinity as the distance between vertices.
     dprop.a = 1 / (dprop.a + np.finfo(np.float64).eps)
@@ -74,33 +73,17 @@ def team_paths_all_to_all(graph, capacity, team_vertex_ids):
     paths_v = []
     paths_e = []
     path_affinities = []
-    cache_pred_map = {}
     for i1, i2 in combinations(team_vertex_ids, 2):
-
-        if i1 in list(graph.vertex(i2).out_neighbors()):
-            paths_v.append([])
-            paths_e.append([graph.edge(i1, i2)])
-            continue
-
-        pred_map, path_affinity = cache_pred_map.get(i1, (None, None))
-        if pred_map is None:
-            path_affinity, pred_map = search.dijkstra_search(
-                graph, dprop, source=graph.vertex(i1)
-            )
-            cache_pred_map[i1] = (pred_map, path_affinity)
-            pop_keys = []
-            for k in cache_pred_map.keys():
-                if k != i1:
-                    pop_keys.append(k)
-            for k in pop_keys:
-                cache_pred_map.pop(k)
-
-        path_v, path_e = topology.shortest_path(
-            graph, graph.vertex(i1), graph.vertex(i2), pred_map=pred_map
+        v_list, e_list = topology.shortest_path(
+            graph,
+            source=graph.vertex(i1),
+            target=graph.vertex(i2),
+            weights=dprop,
         )
-        paths_v.append(path_v)
-        paths_e.append(path_e)
-        path_affinities.append(path_affinity[graph.vertex(i2)])
+        paths_v.append(v_list)
+        paths_e.append(e_list)
+        path_affinities.append(np.sum([dprop[e] for e in e_list]))
+
     return paths_v, paths_e, path_affinities
 
 
@@ -126,7 +109,12 @@ def harmonic_mean_paths(x):
     return np.power(np.product(x), 1 / len(x))
 
 
-def compute_filtered_paths(graph, capacity, team_vertex_ids, intersect_vertices):
+def compute_filtered_paths(
+    graph,
+    capacity,
+    team_vertex_ids,
+    intersect_vertices,
+):
     """Make a filtered GraphView that excludes intersect vertices and recompute shortest paths"""
     intersection_filter = np.full(graph.num_vertices(), True)
     intersection_filter[intersect_vertices] = False
