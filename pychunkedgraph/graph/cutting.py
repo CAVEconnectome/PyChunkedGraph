@@ -102,6 +102,7 @@ class LocalMincutGraph:
         self.logger = logger
         self.path_augment = path_augment
         self.disallow_isolating_cut = disallow_isolating_cut
+
         time_start = time.time()
 
         # Stitch supervoxels across chunk boundaries and represent those that are
@@ -246,7 +247,12 @@ class LocalMincutGraph:
             if e_connected is False or y_connected is False:
                 try:
                     paths_e_s_no, paths_e_y_no = self.rerun_paths_without_overlap(
-                        paths_v_s, paths_e_s, invaff_s, paths_v_y, paths_e_y, invaff_y
+                        paths_v_s,
+                        paths_e_s,
+                        invaff_s,
+                        paths_v_y,
+                        paths_e_y,
+                        invaff_y,
                     )
                 except AssertionError:
                     raise PreconditionError(
