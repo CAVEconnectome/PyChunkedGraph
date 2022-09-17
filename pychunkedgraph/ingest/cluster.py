@@ -128,11 +128,13 @@ def enqueue_atomic_tasks(imanager: IngestionManager):
     from ..utils.general import chunked
 
     chunk_coords = _get_test_chunks(imanager.cg.meta)
+    chunk_count = len(chunk_coords)
     if not imanager.config.TEST_RUN:
         atomic_chunk_bounds = imanager.cg_meta.layer_chunk_bounds[2]
         chunk_coords = randomize_grid_points(*atomic_chunk_bounds)
+        chunk_count = imanager.cg_meta.layer_chunk_counts[0]
 
-    print(f"total chunk count: {len(chunk_coords)}, queuing...")
+    print(f"total chunk count: {chunk_count}, queuing...")
     batch_size = int(environ.get("L2JOB_BATCH_SIZE", 1000))
 
     job_datas = []
