@@ -279,8 +279,8 @@ def calculate_stop_layer(cg, chunk_id):
             for z in range(chunk_coords[2], chunk_coords[2] + 2):
 
                 # Chunk id
-                neigh_chunk_id = cg.get_chunk_id(x=x, y=y, z=z, layer=chunk_layer)
                 try:
+                    neigh_chunk_id = cg.get_chunk_id(x=x, y=y, z=z, layer=chunk_layer)
                     # Get parent chunk ids
                     parent_chunk_ids = cg.get_parent_chunk_ids(neigh_chunk_id)
                     neigh_chunk_ids.append(neigh_chunk_id)
