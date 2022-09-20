@@ -278,11 +278,13 @@ def handle_roots(table_id, is_binary=False):
     stop_layer = int(request.args.get("stop_layer", cg.meta.layer_count))
     is_root_layer = stop_layer == cg.meta.layer_count
     assert_roots = bool(request.args.get("assert_roots", False))
+    fail_to_zero = bool(request.args.get("fail_to_zero", False))
     root_ids = cg.get_roots(
         node_ids,
         stop_layer=stop_layer,
         time_stamp=timestamp,
         assert_roots=assert_roots and is_root_layer,
+        fail_to_zero=fail_to_zero,
     )
 
     return root_ids

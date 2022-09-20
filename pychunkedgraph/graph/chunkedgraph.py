@@ -375,6 +375,7 @@ class ChunkedGraph:
         time_stamp: typing.Optional[datetime.datetime] = None,
         stop_layer: int = None,
         ceil: bool = True,
+        fail_to_zero: bool = False,
         n_tries: int = 1,
     ) -> typing.Union[np.ndarray, typing.Dict[int, np.ndarray]]:
         """
@@ -398,7 +399,7 @@ class ChunkedGraph:
                 filtered_ids = parent_ids[layer_mask]
                 unique_ids, inverse = np.unique(filtered_ids, return_inverse=True)
                 temp_ids = self.get_parents(
-                    unique_ids, time_stamp=time_stamp, fail_to_zero=False
+                    unique_ids, time_stamp=time_stamp, fail_to_zero=fail_to_zero
                 )
                 if not temp_ids.size:
                     break
