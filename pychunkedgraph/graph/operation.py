@@ -847,7 +847,10 @@ class MulticutOperation(GraphEditOperation):
         self.path_augment = path_augment
         self.disallow_isolating_cut = disallow_isolating_cut
         if np.any(np.in1d(self.sink_ids, self.source_ids)):
-            raise PreconditionError("Supervoxels exist in both sink and source.")
+            raise PreconditionError(
+                "Supervoxels exist in both sink and source, "
+                "try placing the points further apart."
+            )
 
         ids = np.concatenate([self.source_ids, self.sink_ids])
         layers = self.cg.get_chunk_layers(ids)
@@ -861,7 +864,7 @@ class MulticutOperation(GraphEditOperation):
             )
         )
         if len(root_ids) > 1:
-            raise PreconditionError("Supervoxels must belong to the same object.")
+            raise PreconditionError("Supervoxels must belong to the same segment.")
         return root_ids
 
     def _apply(

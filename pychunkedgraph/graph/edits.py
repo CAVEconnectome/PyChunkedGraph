@@ -188,7 +188,7 @@ def add_edges(
     time_stamp: datetime.datetime = None,
     parent_ts: datetime.datetime = None,
     rows: Iterable = None,
-    allow_same_segment_merge = False,
+    allow_same_segment_merge=False,
 ):
     # TODO add docs
     if rows == None:
@@ -511,7 +511,9 @@ class CreateParentNodes:
             for id_ in new_root_ids
         ]
         former_root_ids = np.unique(np.concatenate(former_root_ids))
-        assert len(former_root_ids) < 2 or len(new_root_ids) < 2
+        assert (
+            len(former_root_ids) < 2 or len(new_root_ids) < 2
+        ), "Something went wrong."
         rows = []
         for new_root_id in new_root_ids:
             val_dict = {
