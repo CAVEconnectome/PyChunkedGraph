@@ -327,8 +327,14 @@ class ChunkedGraph:
 
         node_l2ids_d = {}
         layers_ = self.get_chunk_layers(node_ids)
+        chunk_coords = self.get_chunk_coordinates_multiple(node_ids)
+        node_coords_d = {
+            node_id: coord for node_id, coord in zip(node_ids, chunk_coords)
+        }
         for l in set(layers_):
-            node_l2ids_d.update(self._bounding_l2_children(node_ids[layers_ == l]))
+            node_l2ids_d.update(
+                self._bounding_l2_children(node_ids[layers_ == l], node_coords_d)
+            )
         l2_edges_d_d = self.get_atomic_cross_edges(
             np.concatenate(list(node_l2ids_d.values()))
         )
@@ -850,7 +856,11 @@ class ChunkedGraph:
         ).execute()
 
     # PRIVATE
-    def _bounding_l2_children(self, parent_ids: typing.Iterable) -> typing.Dict:
+    def _bounding_l2_children(
+        self,
+        parent_ids: typing.Iterable,
+        parent_coords_d: typing.Dict,
+    ) -> typing.Dict:
         """
         Helper function to get level 2 children IDs for each parent.
         `parent_ids` must be node IDs at same layer.
@@ -876,11 +886,11 @@ class ChunkedGraph:
         children_layer = parents_layer - 1
         while children_layer >= 2:
             parent_masked_children_d = {}
-            for parent_id, (X, Y, Z) in parent_coords_d.items():
+            for parent_id in parent_ids:
                 coords = chunk_utils.get_bounding_children_chunks(
                     self.meta,
                     parents_layer,
-                    (X, Y, Z),
+                    parent_coords_d[parent_id],
                     children_layer,
                     return_unique=False,
                 )
@@ -957,6 +967,10 @@ class ChunkedGraph:
     def get_chunk_coordinates(self, node_or_chunk_id: basetypes.NODE_ID):
         return chunk_utils.get_chunk_coordinates(self.meta, node_or_chunk_id)
 
+    def get_chunk_coordinates_multiple(self, node_or_chunk_ids: typing.Sequence):
+        node_or_chunk_ids = np.array(node_or_chunk_ids, dtype=basetypes.NODE_ID)
+        return chunk_utils.get_chunk_coordinates_multiple(self.meta, node_or_chunk_ids)
+
     def get_chunk_id(
         self,
         node_id: basetypes.NODE_ID = None,
@@ -998,7 +1012,7 @@ class ChunkedGraph:
 
         return get_chunk_edges(
             self.meta.data_source.EDGES,
-            [self.get_chunk_coordinates(chunk_id) for chunk_id in chunk_ids],
+            self.get_chunk_coordinates_multiple(chunk_ids),
         )
 
     def get_proofread_root_ids(
