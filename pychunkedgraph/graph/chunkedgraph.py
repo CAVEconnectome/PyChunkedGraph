@@ -327,14 +327,8 @@ class ChunkedGraph:
 
         node_l2ids_d = {}
         layers_ = self.get_chunk_layers(node_ids)
-        chunk_coords = self.get_chunk_coordinates_multiple(node_ids)
-        node_coords_d = {
-            node_id: coord for node_id, coord in zip(node_ids, chunk_coords)
-        }
         for l in set(layers_):
-            node_l2ids_d.update(
-                self._bounding_l2_children(node_ids[layers_ == l], node_coords_d)
-            )
+            node_l2ids_d.update(self._bounding_l2_children(node_ids[layers_ == l]))
         l2_edges_d_d = self.get_atomic_cross_edges(
             np.concatenate(list(node_l2ids_d.values()))
         )
@@ -856,11 +850,7 @@ class ChunkedGraph:
         ).execute()
 
     # PRIVATE
-    def _bounding_l2_children(
-        self,
-        parent_ids: typing.Iterable,
-        parent_coords_d: typing.Dict,
-    ) -> typing.Dict:
+    def _bounding_l2_children(self, parent_ids: typing.Iterable) -> typing.Dict:
         """
         Helper function to get level 2 children IDs for each parent.
         `parent_ids` must be node IDs at same layer.
@@ -872,8 +862,9 @@ class ChunkedGraph:
         assert np.all(layers == layers[0])
 
         parents_layer = self.get_chunk_layer(parent_ids[0])
+        chunk_coords = self.get_chunk_coordinates_multiple(parent_ids)
         parent_coords_d = {
-            node_id: self.get_chunk_coordinates(node_id) for node_id in parent_ids
+            node_id: coord for node_id, coord in zip(parent_ids, chunk_coords)
         }
 
         parent_bounding_chunk_ids = defaultdict(lambda: types.empty_1d)
@@ -886,11 +877,11 @@ class ChunkedGraph:
         children_layer = parents_layer - 1
         while children_layer >= 2:
             parent_masked_children_d = {}
-            for parent_id in parent_ids:
+            for parent_id, (X, Y, Z) in parent_coords_d.items():
                 coords = chunk_utils.get_bounding_children_chunks(
                     self.meta,
                     parents_layer,
-                    parent_coords_d[parent_id],
+                    (X, Y, Z),
                     children_layer,
                     return_unique=False,
                 )
