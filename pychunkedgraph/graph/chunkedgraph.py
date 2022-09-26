@@ -862,8 +862,9 @@ class ChunkedGraph:
         assert np.all(layers == layers[0])
 
         parents_layer = self.get_chunk_layer(parent_ids[0])
+        chunk_coords = self.get_chunk_coordinates_multiple(parent_ids)
         parent_coords_d = {
-            node_id: self.get_chunk_coordinates(node_id) for node_id in parent_ids
+            node_id: coord for node_id, coord in zip(parent_ids, chunk_coords)
         }
 
         parent_bounding_chunk_ids = defaultdict(lambda: types.empty_1d)
@@ -957,6 +958,10 @@ class ChunkedGraph:
     def get_chunk_coordinates(self, node_or_chunk_id: basetypes.NODE_ID):
         return chunk_utils.get_chunk_coordinates(self.meta, node_or_chunk_id)
 
+    def get_chunk_coordinates_multiple(self, node_or_chunk_ids: typing.Sequence):
+        node_or_chunk_ids = np.array(node_or_chunk_ids, dtype=basetypes.NODE_ID)
+        return chunk_utils.get_chunk_coordinates_multiple(self.meta, node_or_chunk_ids)
+
     def get_chunk_id(
         self,
         node_id: basetypes.NODE_ID = None,
@@ -998,7 +1003,7 @@ class ChunkedGraph:
 
         return get_chunk_edges(
             self.meta.data_source.EDGES,
-            [self.get_chunk_coordinates(chunk_id) for chunk_id in chunk_ids],
+            self.get_chunk_coordinates_multiple(chunk_ids),
         )
 
     def get_proofread_root_ids(
