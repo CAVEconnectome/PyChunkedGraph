@@ -884,7 +884,7 @@ class MulticutOperation(GraphEditOperation):
         bbox = get_bbox(
             self.source_coords,
             self.sink_coords,
-            self.self.cg.meta.split_bounding_offset,
+            self.cg.meta.split_bounding_offset,
         )
         with TimeIt("get_subgraph"):
             l2id_agglomeration_d, edges = self.cg.get_subgraph(
