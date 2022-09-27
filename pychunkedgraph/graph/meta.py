@@ -1,6 +1,7 @@
 from datetime import timedelta
 from typing import Dict
 from typing import List
+from typing import Tuple
 from typing import Sequence
 from collections import namedtuple
 
@@ -206,6 +207,13 @@ class ChunkedGraphMeta:
     @property
     def READ_ONLY(self):
         return self.custom_data.get("READ_ONLY", False)
+
+    @property
+    def split_bounding_offset(self):
+        return self.custom_data.get(
+            "split_bounding_offset",
+            (240, 240, 24),
+        )
 
     @property
     def dataset_info(self) -> Dict:
