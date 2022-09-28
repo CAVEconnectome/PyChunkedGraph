@@ -883,7 +883,7 @@ def tabular_change_log_recent(table_id):
         user_id = operation[attributes.OperationLogs.UserID]
         user_list.append(user_id)
 
-        is_merge = operation.is_merge()
+        is_merge = attributes.OperationLogs.AddedEdge in operation
         is_merge_list.append(is_merge)
 
     return pd.DataFrame.from_dict(
