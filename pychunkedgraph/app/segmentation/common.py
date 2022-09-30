@@ -873,6 +873,7 @@ def tabular_change_log_recent(table_id):
 
     timestamp_list = []
     user_list = []
+    is_merge_list = []
 
     operation_ids = np.sort(list(log_rows.keys()))
     for operation_id in operation_ids:
@@ -884,11 +885,15 @@ def tabular_change_log_recent(table_id):
         user_id = operation[attributes.OperationLogs.UserID]
         user_list.append(user_id)
 
+        is_merge = attributes.OperationLogs.AddedEdge in operation
+        is_merge_list.append(is_merge)
+
     return pd.DataFrame.from_dict(
         {
             "operation_id": operation_ids,
             "timestamp": timestamp_list,
             "user_id": user_list,
+            "is_merge": is_merge_list,
         }
     )
 
