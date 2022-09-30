@@ -881,7 +881,11 @@ class MulticutOperation(GraphEditOperation):
         if len(root_ids) > 1:
             raise PreconditionError("Supervoxels must belong to the same object.")
 
-        bbox = get_bbox(self.source_coords, self.sink_coords, self.bbox_offset)
+        bbox = get_bbox(
+            self.source_coords,
+            self.sink_coords,
+            self.cg.meta.split_bounding_offset,
+        )
         with TimeIt("get_subgraph"):
             l2id_agglomeration_d, edges = self.cg.get_subgraph(
                 root_ids.pop(), bbox=bbox, bbox_is_coordinate=True
@@ -981,7 +985,7 @@ class RedoOperation(GraphEditOperation):
         "superseded_operation",
         "added_edges",
         "removed_edges",
-        "operation_status"
+        "operation_status",
     ]
 
     def __init__(
@@ -1074,8 +1078,10 @@ class RedoOperation(GraphEditOperation):
                 new_root_ids=types.empty_1d,
                 new_lvl2_ids=types.empty_1d,
             )
-        return super().execute(operation_id=operation_id,
-            parent_ts=parent_ts, override_ts=override_ts)
+        return super().execute(
+            operation_id=operation_id, parent_ts=parent_ts, override_ts=override_ts
+        )
+
 
 class UndoOperation(GraphEditOperation):
     """
@@ -1103,7 +1109,7 @@ class UndoOperation(GraphEditOperation):
         "inverse_superseded_operation",
         "added_edges",
         "removed_edges",
-        "operation_status"
+        "operation_status",
     ]
 
     def __init__(
@@ -1135,6 +1141,7 @@ class UndoOperation(GraphEditOperation):
         if log_record_type is MergeOperation:
             # account for additional activated edges so merge can be properly undone
             from .misc import get_activated_edges
+
             activated_edges = get_activated_edges(cg, superseded_operation_id)
             if len(activated_edges) > 0:
                 superseded_operation.added_edges = activated_edges
@@ -1216,7 +1223,11 @@ class UndoOperation(GraphEditOperation):
         if isinstance(self.inverse_superseded_operation, MergeOperation):
             # in case we are undoing a partial split (with only one resulting root id)
             from .edges.utils import get_edges_status
-            e, a = get_edges_status(self.inverse_superseded_operation.cg, self.inverse_superseded_operation.added_edges)
+
+            e, a = get_edges_status(
+                self.inverse_superseded_operation.cg,
+                self.inverse_superseded_operation.added_edges,
+            )
             if np.any(~e):
                 raise PreconditionError(f"All edges must exist.")
             if np.all(a):
@@ -1227,7 +1238,11 @@ class UndoOperation(GraphEditOperation):
                 )
         if isinstance(self.inverse_superseded_operation, SplitOperation):
             from .edges.utils import get_edges_status
-            e, a = get_edges_status(self.inverse_superseded_operation.cg, self.inverse_superseded_operation.removed_edges)
+
+            e, a = get_edges_status(
+                self.inverse_superseded_operation.cg,
+                self.inverse_superseded_operation.removed_edges,
+            )
             if np.any(~e):
                 raise PreconditionError(f"All edges must exist.")
             if np.all(~a):
@@ -1236,5 +1251,6 @@ class UndoOperation(GraphEditOperation):
                     new_root_ids=types.empty_1d,
                     new_lvl2_ids=types.empty_1d,
                 )
-        return super().execute(operation_id=operation_id,
-            parent_ts=parent_ts, override_ts=override_ts)
+        return super().execute(
+            operation_id=operation_id, parent_ts=parent_ts, override_ts=override_ts
+        )
