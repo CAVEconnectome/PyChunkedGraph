@@ -1031,7 +1031,7 @@ def get_multi_child_nodes(cg, chunk_id, node_id_subset=None, chunk_bbox_string=F
         ]
     )
     # Filter out node ids that do not have roots (caused by failed ingest tasks)
-    root_ids = cg.get_roots(node_ids)
+    root_ids = cg.get_roots(node_ids, fail_to_zero=True)
     # Only keep nodes with more than one child
     multi_child_mask = np.array(
         [len(fragments) > 1 for fragments in child_fragments], dtype=bool
