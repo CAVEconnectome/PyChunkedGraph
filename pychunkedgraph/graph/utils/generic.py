@@ -11,19 +11,13 @@ from typing import Optional
 from typing import Union
 from typing import Sequence
 from typing import Tuple
-from itertools import product
 from collections import defaultdict
 
 import numpy as np
 import pandas as pd
 import pytz
-from google.cloud import bigtable
-from google.cloud.bigtable.row_filters import RowFilter
-from cloudvolume import CloudVolume
 
-from .. import types
 from ..chunks import utils as chunk_utils
-from . import serializers
 
 
 def compute_indices_pandas(data) -> pd.Series:

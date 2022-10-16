@@ -4,7 +4,6 @@ from typing import Dict
 from typing import List
 from typing import Tuple
 from typing import Iterable
-from typing import Sequence
 from collections import defaultdict
 
 from . import types
@@ -14,13 +13,7 @@ from .utils import basetypes
 from .utils import flatgraph
 from .utils.context_managers import TimeIt
 from .utils.serializers import serialize_uint64
-from .connectivity.nodes import edge_exists
-from .connectivity.search import check_reachability
-from .edges.utils import filter_min_layer_cross_edges
-from .edges.utils import concatenate_cross_edge_dicts
-from .edges.utils import merge_cross_edge_dicts_multiple
 from ..utils.general import in2d
-from ..utils.general import reverse_dictionary
 
 
 def _init_old_hierarchy(cg, l2ids: np.ndarray, parent_ts: datetime.datetime = None):
@@ -190,6 +183,9 @@ def add_edges(
     rows: Iterable = None,
     allow_same_segment_merge=False,
 ):
+    from .edges.utils import concatenate_cross_edge_dicts
+    from .edges.utils import merge_cross_edge_dicts
+
     # TODO add docs
     if rows == None:
         rows = []
@@ -206,7 +202,7 @@ def add_edges(
         cg, l2ids, parent_ts=parent_ts
     )
     atomic_children_d = cg.get_children(l2ids)
-    atomic_cross_edges_d = merge_cross_edge_dicts_multiple(
+    atomic_cross_edges_d = merge_cross_edge_dicts(
         cg.get_atomic_cross_edges(l2ids), l2_atomic_cross_edges_d
     )
 
@@ -240,7 +236,10 @@ def add_edges(
         time_stamp=time_stamp,
         parent_ts=parent_ts,
     )
-    return create_parents.run(), new_l2_ids, rows + create_parents.create_new_entries()
+    with TimeIt("create_parents.run()"):
+        new_roots = create_parents.run()
+    new_entries = create_parents.create_new_entries()
+    return new_roots, new_l2_ids, new_entries
 
 
 def _process_l2_agglomeration(
@@ -341,8 +340,7 @@ def remove_edges(
     )
     with TimeIt("create_parents.run()"):
         new_roots = create_parents.run()
-    with TimeIt("create_parents.create_new_entries()"):
-        new_entries = create_parents.create_new_entries()
+    new_entries = create_parents.create_new_entries()
     return new_roots, new_l2_ids, new_entries
 
 
@@ -386,12 +384,19 @@ class CreateParentNodes:
                 self._new_old_id_d[parent].add(old_id)
                 self._old_new_id_d[old_id].add(parent)
 
+    def _get_old_ids(self, new_ids):
+        old_ids = [
+            np.array(list(self._new_old_id_d[id_]), dtype=basetypes.NODE_ID)
+            for id_ in new_ids
+        ]
+        return np.concatenate(old_ids)
+
     def _map_sv_to_parent(self, node_ids, layer):
         sv_parent_d = {}
         sv_cross_edges = [types.empty_2d]
         for id_ in node_ids:
             edges_ = self._cross_edges_d[id_].get(layer, types.empty_2d)
-            sv_parent_d.update(dict(zip(edges_[:, 0].tolist(), [id_] * len(edges_))))
+            sv_parent_d.update(dict(zip(edges_[:, 0], [id_] * len(edges_))))
             sv_cross_edges.append(edges_)
         return sv_parent_d, np.concatenate(sv_cross_edges)
 
@@ -427,11 +432,7 @@ class CreateParentNodes:
         self, new_ids: np.ndarray, layer: int
     ) -> Tuple[np.ndarray, np.ndarray]:
         # get old identities of new IDs
-        old_ids = [
-            np.array(list(self._new_old_id_d[id_]), dtype=basetypes.NODE_ID)
-            for id_ in new_ids
-        ]
-        old_ids = np.concatenate(old_ids)
+        old_ids = self._get_old_ids(new_ids)
         # get their parents, then children of those parents
         node_ids = self.cg.get_children(
             np.unique(
@@ -500,17 +501,14 @@ class CreateParentNodes:
         for layer in range(2, self.cg.meta.layer_count):
             if len(self._new_ids_d[layer]) == 0:
                 continue
-            # with TimeIt(f"self._create_new_parents(layer) {layer}"):
+            # with TimeIt(f"_create_new_parents {layer}"):
             self._create_new_parents(layer)
         return self._new_ids_d[self.cg.meta.layer_count]
 
     def _update_root_id_lineage(self):
         new_root_ids = self._new_ids_d[self.cg.meta.layer_count]
-        former_root_ids = [
-            np.array(list(self._new_old_id_d[id_]), dtype=basetypes.NODE_ID)
-            for id_ in new_root_ids
-        ]
-        former_root_ids = np.unique(np.concatenate(former_root_ids))
+        former_root_ids = self._get_old_ids(new_root_ids)
+        former_root_ids = np.unique(former_root_ids)
         assert (
             len(former_root_ids) < 2 or len(new_root_ids) < 2
         ), "Something went wrong."
@@ -553,7 +551,7 @@ class CreateParentNodes:
             val_dicts[id_] = val_dict
         return val_dicts
 
-    def create_new_entries(self):
+    def create_new_entries(self) -> List:
         rows = []
         val_dicts = self._get_atomic_cross_edges_val_dict()
         for layer in range(2, self.cg.meta.layer_count + 1):
