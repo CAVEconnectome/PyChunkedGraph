@@ -2,9 +2,7 @@
 helper functions for edge stuff
 """
 
-from collections import defaultdict
 from typing import Dict
-from typing import List
 from typing import Tuple
 from typing import Iterable
 from typing import Callable
@@ -12,19 +10,15 @@ from typing import Optional
 
 import numpy as np
 
-
 from . import Edges
 from . import EDGE_TYPES
 from ..types import empty_2d
 from ..utils import basetypes
 from ..chunks import utils as chunk_utils
 from ..meta import ChunkedGraphMeta
-from ..connectivity.search import check_reachability
-from ..utils.flatgraph import build_gt_graph
-from ...utils.general import reverse_dictionary
 
 
-def concatenate_chunk_edges(chunk_edge_dicts: List) -> Dict:
+def concatenate_chunk_edges(chunk_edge_dicts: Iterable) -> Dict:
     """combine edge_dicts of multiple chunks into one edge_dict"""
     edges_dict = {}
     for edge_type in EDGE_TYPES:
@@ -49,31 +43,22 @@ def concatenate_chunk_edges(chunk_edge_dicts: List) -> Dict:
     return edges_dict
 
 
-def concatenate_cross_edge_dicts(cross_edge_dicts: Iterable) -> Dict:
-    """Combines multiple cross edge dicts."""
-    # print(cross_edge_dicts)
-    result_d = {}
-    for cross_edge_d in cross_edge_dicts:
-        result_d = merge_cross_edge_dicts_single(result_d, cross_edge_d)
+def concatenate_cross_edge_dicts(edges_ds: Iterable[Dict]) -> Dict:
+    """Combines cross chunk edge dicts of form {layer id : edge list}."""
+    from collections import defaultdict
+
+    result_d = defaultdict(list)
+
+    for edges_d in edges_ds:
+        for layer, edges in edges_d.items():
+            result_d[layer].append(edges)
+
+    for layer, edge_lists in result_d.items():
+        result_d[layer] = np.concatenate(edge_lists)
     return result_d
 
 
-def merge_cross_edge_dicts_single(x_edges_d1: Dict, x_edges_d2: Dict) -> Dict:
-    """Combines two cross chunk edge dicts of form {layer id : edge list}."""
-    result_d = {}
-    if not x_edges_d1 and not x_edges_d2:
-        return result_d
-    layers = np.unique(list(x_edges_d1.keys()) + list(x_edges_d2.keys()))
-    for layer in range(2, max(layers) + 1):
-        edges1 = x_edges_d1.get(layer, empty_2d)
-        edges2 = x_edges_d2.get(layer, empty_2d)
-        edges1 = np.array(edges1, dtype=basetypes.NODE_ID)
-        edges2 = np.array(edges2, dtype=basetypes.NODE_ID)
-        result_d[layer] = np.concatenate([edges1, edges2])
-    return result_d
-
-
-def merge_cross_edge_dicts_multiple(x_edges_d1: Dict, x_edges_d2: Dict) -> Dict:
+def merge_cross_edge_dicts(x_edges_d1: Dict, x_edges_d2: Dict) -> Dict:
     """
     Combines two cross chunk dictionaries of form
     {node_id: {layer id : edge list}}.
@@ -81,9 +66,8 @@ def merge_cross_edge_dicts_multiple(x_edges_d1: Dict, x_edges_d2: Dict) -> Dict:
     node_ids = np.unique(list(x_edges_d1.keys()) + list(x_edges_d2.keys()))
     result_d = {}
     for node_id in node_ids:
-        result_d[node_id] = merge_cross_edge_dicts_single(
-            x_edges_d1.get(node_id, {}), x_edges_d2.get(node_id, {})
-        )
+        cross_edge_ds = [x_edges_d1.get(node_id, {}), x_edges_d2.get(node_id, {})]
+        result_d[node_id] = concatenate_cross_edge_dicts(cross_edge_ds)
     return result_d
 
 
@@ -179,7 +163,7 @@ def filter_min_layer_cross_edges(
 
 
 def filter_min_layer_cross_edges_multiple(
-    meta: ChunkedGraphMeta, l2id_atomic_cross_edges_ds: List, node_layer: int = 2
+    meta: ChunkedGraphMeta, l2id_atomic_cross_edges_ds: Iterable, node_layer: int = 2
 ) -> Tuple[int, Iterable]:
     """
     Given a list of dicts of cross chunk edges [{layer: edges}]

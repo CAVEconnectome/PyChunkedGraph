@@ -697,8 +697,7 @@ class Client(bigtable.Client, ClientWithIDGen, OperationLogger):
         # Create filters: Rows
         row_set = RowSet()
         if row_keys is not None:
-            for row_key in row_keys:
-                row_set.add_row_key(row_key)
+            row_set.row_keys = list(row_keys)
         elif start_key is not None and end_key is not None:
             row_set.add_row_range_from_keys(
                 start_key=start_key,
