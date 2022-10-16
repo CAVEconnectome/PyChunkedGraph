@@ -328,8 +328,11 @@ class ChunkedGraph:
 
         node_l2ids_d = {}
         layers_ = self.get_chunk_layers(node_ids)
+        # with TimeIt(f"_get_bounding_l2_children {node_ids.size}"):
         for l in set(layers_):
-            node_l2ids_d.update(self._get_bounding_l2_children(node_ids[layers_ == l]))
+            node_l2ids_d.update(
+                self._get_bounding_l2_children(node_ids[layers_ == l])
+            )
         l2_edges_d_d = self.get_atomic_cross_edges(
             np.concatenate(list(node_l2ids_d.values()))
         )
@@ -852,7 +855,11 @@ class ChunkedGraph:
 
     # PRIVATE
 
-    def _get_bounding_chunk_ids(self, parent_chunk_ids: typing.Iterable) -> typing.Dict:
+    def _get_bounding_chunk_ids(
+        self,
+        parent_chunk_ids: typing.Iterable,
+        unique: bool = False,
+    ) -> typing.Dict:
         """
         Returns bounding chunk IDs at layers < parent_layer for all chunk IDs.
         Dict[parent_chunk_id] = np.array(bounding_chunk_ids)
@@ -879,12 +886,17 @@ class ChunkedGraph:
                     self.meta, child_layer, bcoords
                 )
                 chunk_ids.append(bchunks_ids)
-            chunk_id_bchunk_ids_d[chunk_id] = np.unique(np.concatenate(chunk_ids))
+            chunk_ids = np.concatenate(chunk_ids)
+            if unique:
+                chunk_ids = np.unique(chunk_ids)
+            chunk_id_bchunk_ids_d[chunk_id] = chunk_ids
         return chunk_id_bchunk_ids_d
 
     def _get_bounding_l2_children(self, parents: typing.Iterable) -> typing.Dict:
         parent_chunk_ids = self.get_chunk_ids_from_node_ids(parents)
-        chunk_id_bchunk_ids_d = self._get_bounding_chunk_ids(parent_chunk_ids)
+        chunk_id_bchunk_ids_d = self._get_bounding_chunk_ids(
+            parent_chunk_ids, unique=len(parents) >= 200
+        )
 
         parent_descendants_d = {
             _id: np.array([_id], dtype=basetypes.NODE_ID) for _id in parents
@@ -895,7 +907,7 @@ class ChunkedGraph:
         descendants_all = descendants_all[layer_mask]
 
         while descendants_all.size:
-            descendant_children_d = self.get_children(np.sort(descendants_all))
+            descendant_children_d = self.get_children(descendants_all)
             for i, parent_id in enumerate(parents):
                 _descendants = parent_descendants_d[parent_id]
                 _layers = self.get_chunk_layers(_descendants)
