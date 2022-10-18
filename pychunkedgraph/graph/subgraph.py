@@ -201,7 +201,7 @@ def _get_subgraph_multiple_nodes(
     def _get_subgraph_multiple_nodes_threaded(
         node_ids_batch: Iterable[np.uint64],
     ) -> List[np.uint64]:
-        children = cg.get_children(np.sort(node_ids_batch))
+        children = cg.get_children(node_ids_batch)
         if bounding_box is not None:
             filtered_children = {}
             for node_id, nodes_children in children.items():
