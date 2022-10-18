@@ -114,6 +114,10 @@ class Client(bigtable.Client, ClientWithIDGen, OperationLogger):
         Read nodes and their properties.
         Accepts a range of node IDs or specific node IDs.
         """
+        if node_ids is not None and len(node_ids) > self._max_row_key_count:
+            # bigtable reading is faster
+            # when all IDs in a block are within a range
+            node_ids = np.sort(node_ids)
         rows = self._read_byte_rows(
             start_key=serialize_uint64(start_id, fake_edges=fake_edges)
             if start_id is not None
@@ -564,7 +568,7 @@ class Client(bigtable.Client, ClientWithIDGen, OperationLogger):
     ) -> basetypes.NODE_ID:
         """Gets the current maximum segment ID in the chunk."""
         if root_chunk:
-            n_counters = np.uint64(2 ** 8)
+            n_counters = np.uint64(2**8)
             max_value = 0
             for counter in range(n_counters):
                 row = self._read_byte_row(
@@ -623,7 +627,7 @@ class Client(bigtable.Client, ClientWithIDGen, OperationLogger):
         self, chunk_id: basetypes.CHUNK_ID, size: int = 1, counter: int = None
     ) -> np.ndarray:
         """Return unique segment ID for the root chunk."""
-        n_counters = np.uint64(2 ** 8)
+        n_counters = np.uint64(2**8)
         counter = (
             np.uint64(counter % n_counters)
             if counter

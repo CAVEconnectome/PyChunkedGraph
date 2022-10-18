@@ -36,7 +36,7 @@ def get_l2children(cg: ChunkedGraph, node: NODE_ID) -> np.ndarray:
     assert np.all(layers > 2), "nodes must be at layers > 2"
     l2children = []
     while nodes.size:
-        children = cg.get_children(np.sort(nodes), flatten=True)
+        children = cg.get_children(nodes, flatten=True)
         layers = cg.get_chunk_layers(children)
         l2children.append(children[layers == 2])
         nodes = children[layers > 2]
