@@ -418,7 +418,7 @@ def get_root_remapping_for_nodes_and_svs(
         start_id, end_id = args
 
         root_ids[start_id:end_id] = cg.get_roots(
-            combined_ids[start_id:end_id], stop_layer=stop_layer, time_stamp=time_stamp
+            combined_ids[start_id:end_id], stop_layer=stop_layer, time_stamp=time_stamp, fail_to_zero=True
         )
 
     rr = cg.range_read_chunk(
@@ -1190,6 +1190,22 @@ def chunk_stitch_remeshing_task(
         new_fragment = merge_draco_meshes_across_boundaries(
             cg, old_fragments, chunk_id, mip, high_padding
         )
+
+        import pyfqmr
+        simplifier = pyfqmr.Simplify()
+        simplifier.setMesh(
+            new_fragment["vertices"].reshape(new_fragment["num_vertices"], 3),
+            new_fragment["faces"].reshape(-1, 3)
+        )
+        simplifier.simplify_mesh(
+            target_count=4,
+            aggressiveness=5.0,
+            preserve_border=True,
+            verbose=False,
+        )
+        v,f,_ = simplifier.getMesh()
+        new_fragment["vertices"] = v.flatten()
+        new_fragment["faces"] = f.flatten()
 
         try:
             print(f'num_vertices = {len(new_fragment["vertices"])}')
