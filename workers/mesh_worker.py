@@ -38,7 +38,7 @@ def callback(payload):
         format="%(asctime)s %(message)s",
         datefmt="%m/%d/%Y %I:%M:%S %p",
     )
-    logging.log(INFO_PRIORITY, f"Remeshing {lvl2_ids.size} L2 IDs in graph {table_id}")
+    logging.log(INFO_PRIORITY, f"Remeshing {lvl2_ids} L2 IDs in graph {table_id}")
     logging.log(INFO_PRIORITY, f"stop_layer={layer}, mip={mip}, max_err={err}")
     logging.log(INFO_PRIORITY, f"mesh_dir={mesh_dir}, unsharded_mesh_path={mesh_path}")
     meshgen.remeshing(
