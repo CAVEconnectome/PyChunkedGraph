@@ -1,4 +1,4 @@
-from flask import Blueprint
+from flask import Blueprint, current_app
 from middle_auth_client import auth_requires_permission, auth_required
 
 from pychunkedgraph.app.meshing import common
@@ -8,6 +8,7 @@ from pychunkedgraph.app.app_utils import remap_public
 bp = Blueprint(
     "pcg_meshing_v1", __name__, url_prefix=f"/{common.__meshing_url_prefix__}/api/v1"
 )
+
 
 # -------------------------------
 # ------ Access control and index
@@ -72,7 +73,7 @@ def handle_valid_frags(table_id, node_id):
     "view",
     public_table_key="table_id",
     public_node_key="node_id",
-    service_token=AUTH_TOKEN,
+    service_token=current_app.config["AUTH_TOKEN"],
 )
 @remap_public
 def handle_get_manifest(table_id, node_id):
