@@ -3,8 +3,9 @@ import csv
 import pickle
 import pandas as pd
 
-from flask import make_response, current_app
+from flask import make_response, current_app, g
 from flask import Blueprint, request
+from functools import wraps
 from middle_auth_client import auth_requires_permission
 from middle_auth_client import auth_requires_admin
 from middle_auth_client import auth_required
@@ -55,14 +56,27 @@ def home():
 # -------------------------------
 
 
+
+def reset_auth(f):
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        if "auth_token" in g:
+            del g.auth_token
+        if "auth_user" in g:
+            del g.auth_user
+        return f(*args, **kwargs)
+
+    return decorated_function
+
+
 @bp.before_request
-@auth_required
+@reset_auth
 def before_request():
     return common.before_request()
 
 
 @bp.after_request
-@auth_required
+# @auth_required
 def after_request(response):
     return common.after_request(response)
 
