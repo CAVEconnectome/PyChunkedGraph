@@ -482,7 +482,12 @@ def handle_past_id_mapping(table_id):
 
 
 @bp.route("/table/<table_id>/oldest_timestamp", methods=["GET"])
-@auth_requires_permission("view")
+@auth_requires_permission(
+    "view",
+    public_table_key="table_id",
+    public_node_key="node_id",
+    service_token=AUTH_TOKEN,
+)
 @remap_public(edit=False)
 def oldest_timestamp(table_id):
     int64_as_str = request.args.get("int64_as_str", default=False, type=toboolean)
