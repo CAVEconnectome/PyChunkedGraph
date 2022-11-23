@@ -485,7 +485,6 @@ def handle_past_id_mapping(table_id):
 @auth_requires_permission(
     "view",
     public_table_key="table_id",
-    public_node_key="node_id",
     service_token=AUTH_TOKEN,
 )
 @remap_public(edit=False)
