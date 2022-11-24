@@ -20,7 +20,7 @@ zstandard
 redis
 rq
 middle-auth-client>=3.11.0
-zmesh
+zmesh<1.5.0
 fastremap
 pyyaml
 cachetools
