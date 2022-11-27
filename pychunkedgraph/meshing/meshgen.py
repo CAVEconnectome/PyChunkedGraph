@@ -148,7 +148,7 @@ def get_remapped_seg_for_lvl2_nodes(
                 node_on_the_border = True
                 node_ids_on_the_border.append(node)
 
-    node_ids_on_the_border = np.array(node_ids_on_the_border)
+    node_ids_on_the_border = np.array(node_ids_on_the_border, dtype=np.uint64)
     if len(node_ids_on_the_border) > 0:
         overlap_region = np.concatenate(
             (seg[:, :, -1], seg[:, -1, :], seg[-1, :, :]), axis=None
@@ -189,8 +189,6 @@ def get_higher_to_lower_remapping(cg, chunk_id, time_stamp):
 
     assert cg.get_chunk_layer(chunk_id) >= 2
     assert cg.get_chunk_layer(chunk_id) <= cg.meta.layer_count
-
-    print(f"\n{chunk_id} ----------------\n")
 
     lower_remaps = {}
     if cg.get_chunk_layer(chunk_id) > 2:
@@ -318,7 +316,6 @@ def get_lx_overlapping_remappings(cg, chunk_id, time_stamp=None, n_threads=1):
         time_stamp = UTC.localize(time_stamp)
 
     stop_layer, neigh_chunk_ids = calculate_stop_layer(cg, chunk_id)
-    print(f"Stop layer: {stop_layer}")
 
     # Find the parent in the lowest common chunk for each l2 id. These parent
     # ids are referred to as root ids even though they are not necessarily the
@@ -333,8 +330,6 @@ def get_lx_overlapping_remappings(cg, chunk_id, time_stamp=None, n_threads=1):
 
     # This loop is the main bottleneck
     for neigh_chunk_id in neigh_chunk_ids:
-        print(f"Neigh: {neigh_chunk_id} --------------")
-
         lx_ids, root_ids, lx_id_remap = get_root_lx_remapping(
             cg, neigh_chunk_id, stop_layer, time_stamp=time_stamp, n_threads=n_threads
         )
@@ -416,9 +411,11 @@ def get_root_remapping_for_nodes_and_svs(
 
     def _get_root_ids(args):
         start_id, end_id = args
-
         root_ids[start_id:end_id] = cg.get_roots(
-            combined_ids[start_id:end_id], stop_layer=stop_layer, time_stamp=time_stamp
+            combined_ids[start_id:end_id],
+            stop_layer=stop_layer,
+            time_stamp=time_stamp,
+            fail_to_zero=False
         )
 
     rr = cg.range_read_chunk(
@@ -426,8 +423,7 @@ def get_root_remapping_for_nodes_and_svs(
     )
     chunk_sv_ids = np.unique(np.concatenate([id[0].value for id in rr.values()]))
     chunk_l2_ids = np.unique(cg.get_parents(chunk_sv_ids, time_stamp=time_stamp))
-    combined_ids = np.concatenate((node_ids, sv_ids, chunk_l2_ids))
-
+    combined_ids = np.concatenate([node_ids, sv_ids, chunk_l2_ids])
     root_ids = np.zeros(len(combined_ids), dtype=np.uint64)
     n_jobs = np.min([n_threads, len(combined_ids)])
     multi_args = []
@@ -440,7 +436,6 @@ def get_root_remapping_for_nodes_and_svs(
 
     sv_ids_index = len(node_ids)
     chunk_ids_index = len(node_ids) + len(sv_ids)
-
     return (
         root_ids[0:sv_ids_index],
         root_ids[sv_ids_index:chunk_ids_index],
@@ -473,7 +468,6 @@ def get_lx_overlapping_remappings_for_nodes_and_svs(
         time_stamp = UTC.localize(time_stamp)
 
     stop_layer, _ = calculate_stop_layer(cg, chunk_id)
-    print(f"Stop layer: {stop_layer}")
 
     # Find the parent in the lowest common chunk for each node id and sv id. These parent
     # ids are referred to as root ids even though they are not necessarily the
@@ -875,6 +869,9 @@ def remeshing(
         for chunk_id, node_ids in chunk_dict.items():
             if PRINT_FOR_DEBUGGING:
                 print("remeshing", chunk_id, node_ids)
+            parents = cg.get_parents(node_ids, time_stamp=time_stamp)
+            for x,y in zip(node_ids, parents):
+                print(x, y)
             # Stitch the meshes of the parents we found in the previous loop
             chunk_stitch_remeshing_task(
                 None,
@@ -907,7 +904,7 @@ def chunk_initial_mesh_task(
     if cg is None:
         cg = ChunkedGraph(graph_id=cg_name)
     result = []
-    cache_string = "public" if cache else "no-cache"
+    cache_string = "public, max-age=1" if cache else "no-cache"
 
     layer, _, chunk_offset = get_meshing_necessities_from_graph(cg, chunk_id, mip)
     cx, cy, cz = cg.get_chunk_coordinates(chunk_id)
@@ -919,6 +916,7 @@ def chunk_initial_mesh_task(
         cv = CloudVolume(
             f"graphene://https://localhost/segmentation/table/dummy",
             info=meshgen_utils.get_json_info(cg),
+            progress=False,
         )
         sharding_info = cv.mesh.meta.info["sharding"]["2"]
         sharding_spec = ShardingSpecification.from_dict(sharding_info)
@@ -930,10 +928,6 @@ def chunk_initial_mesh_task(
         mesh_dst = cv_unsharded_mesh_path
 
     result.append((chunk_id, layer, cx, cy, cz))
-    print(
-        "Retrieving remap table for chunk %s -- (%s, %s, %s, %s)"
-        % (chunk_id, layer, cx, cy, cz)
-    )
     mesher = zmesh.Mesher(cg.meta.cv.mip_resolution(mip))
     draco_encoding_settings = get_draco_encoding_settings_for_chunk(
         cg, chunk_id, mip, high_padding
@@ -1071,6 +1065,36 @@ def get_multi_child_nodes(cg, chunk_id, node_id_subset=None, chunk_bbox_string=F
     return multi_child_nodes, multi_child_descendants
 
 
+def simplify(cv, cf, new_fragment, new_fragment_id, aggressiveness=6.0,  to_obj=False):
+    import pyfqmr
+    from cloudvolume.mesh import Mesh
+
+    v = new_fragment["vertices"].reshape(-1, 3)
+    f = new_fragment["faces"].reshape(-1, 3)
+
+    simplifier = pyfqmr.Simplify()
+    simplifier.setMesh(v,f)
+    simplifier.simplify_mesh(
+        target_count=4,
+        aggressiveness=aggressiveness,
+        preserve_border=True,
+        verbose=False,
+    )
+    v,f,_ = simplifier.getMesh()
+    new_fragment["vertices"] = v.flatten()
+    new_fragment["faces"] = f.flatten()
+
+    if to_obj:
+        cvmesh = Mesh(v,f,segid=new_fragment_id)
+        cf.put(
+            f"{new_fragment_id}.obj",
+            cvmesh.to_obj(),
+            content_type="application/octet-stream",
+            compress=False,
+            cache_control="public,max-age=1",
+        )
+    return new_fragment
+
 def chunk_stitch_remeshing_task(
     cg_name,
     chunk_id,
@@ -1095,22 +1119,16 @@ def chunk_stitch_remeshing_task(
 
     assert layer > 2
 
-    print(
-        "Retrieving children for chunk %s -- (%s, %s, %s, %s)"
-        % (chunk_id, layer, cx, cy, cz)
-    )
-
     multi_child_nodes, _ = get_multi_child_nodes(cg, chunk_id, node_id_subset, False)
-    print(f"{len(multi_child_nodes)} nodes with more than one child")
     result.append((chunk_id, len(multi_child_nodes)))
     if not multi_child_nodes:
-        print("Nothing to do", cx, cy, cz)
         return ", ".join(str(x) for x in result)
 
     cv = CloudVolume(
         f"graphene://https://localhost/segmentation/table/dummy",
         mesh_dir=cv_sharded_mesh_dir,
         info=meshgen_utils.get_json_info(cg),
+        progress=False,
     )
 
     fragments_in_batch_processed = 0
@@ -1133,9 +1151,6 @@ def chunk_stitch_remeshing_task(
     i = 0
     for new_fragment_id, fragment_ids_to_fetch in multi_child_nodes.items():
         i += 1
-        if i % max(1, len(multi_child_nodes) // 10) == 0:
-            print(f"{i}/{len(multi_child_nodes)}")
-
         old_fragments = []
         missing_fragments = False
         for fragment_id in fragment_ids_to_fetch:
@@ -1191,13 +1206,21 @@ def chunk_stitch_remeshing_task(
             cg, old_fragments, chunk_id, mip, high_padding
         )
 
+        new_fragment = simplify(
+            cv, cf,
+            new_fragment,
+            new_fragment_id,
+            aggressiveness=7.0,
+        )
+
         try:
-            print(f'num_vertices = {len(new_fragment["vertices"])}')
             new_fragment_b = DracoPy.encode_mesh_to_buffer(
                 new_fragment["vertices"],
                 new_fragment["faces"],
                 **draco_encoding_options,
             )
+            print("new_fragment_id", new_fragment_id, len(new_fragment_b))
+            print(len(new_fragment["vertices"]), len(new_fragment["faces"]))
         except:
             result.append(
                 f'Bad mesh created for {new_fragment_id}: {len(new_fragment["vertices"])} vertices, {len(new_fragment["faces"])} faces'
@@ -1210,7 +1233,7 @@ def chunk_stitch_remeshing_task(
                 new_fragment_b,
                 content_type="application/octet-stream",
                 compress=False,
-                cache_control="public",
+                cache_control="public, max-age=1",
             )
 
     if PRINT_FOR_DEBUGGING:
@@ -1225,7 +1248,7 @@ def chunk_initial_sharded_stitching_task(
     if cg is None:
         cg = ChunkedGraph(graph_id=cg_name)
 
-    cache_string = "public" if cache else "no-cache"
+    cache_string = "public, max-age=1" if cache else "no-cache"
 
     layer = cg.get_chunk_layer(chunk_id)
     multi_child_nodes, multi_child_descendants = get_multi_child_nodes(cg, chunk_id)
@@ -1238,6 +1261,7 @@ def chunk_initial_sharded_stitching_task(
     cv = CloudVolume(
         f"graphene://https://localhost/segmentation/table/dummy",
         info=meshgen_utils.get_json_info(cg),
+        progress=False,
     )
     shard_filenames = []
     shard_to_chunk_id = {}
@@ -1320,7 +1344,7 @@ def chunk_initial_sharded_stitching_task(
                 bad_meshes.append(new_fragment_id)
                 pass
             number_frags_proc = number_frags_proc + 1
-            if number_frags_proc % 1000 == 0:
+            if number_frags_proc % 1000 == 0 and PRINT_FOR_DEBUGGING:
                 print(f"number frag proc = {number_frags_proc}")
     del mesh_dict
     shard_binary = sharding_spec.synthesize_shard(merged_meshes)
