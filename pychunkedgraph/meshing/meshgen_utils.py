@@ -115,6 +115,7 @@ def get_downstream_multi_child_nodes(
     """
     # FIXME: Make stop_layer configurable
     stop_layer = 2
+    np.warnings.filterwarnings('ignore', category=np.VisibleDeprecationWarning)
 
     def recursive_helper(cur_node_ids):
         cur_node_ids, unique_to_original = np.unique(cur_node_ids, return_inverse=True)
