@@ -46,8 +46,8 @@ def _post_task_completion(imanager: IngestionManager, layer: int, coords: np.nda
         )
         imanager.redis.hset(parent_layer, parent_chunk_str, children_count)
 
-    queue = imanager.get_task_queue(f"t{layer}")
-    queue.enqueue(
+    tracker_queue = imanager.get_task_queue(f"t{layer}")
+    tracker_queue.enqueue(
         enqueue_parent_task,
         job_id=f"t{layer}_{chunk_str}",
         job_timeout=f"30s",
@@ -65,7 +65,6 @@ def enqueue_parent_task(
 ):
     redis = get_redis_connection()
     imanager = IngestionManager.from_pickle(redis.get(r_keys.INGESTION_MANAGER))
-
     parent_id_str = chunk_id_str(parent_layer, parent_coords)
     parent_chunk_str = "_".join(map(str, parent_coords))
 
@@ -75,10 +74,18 @@ def enqueue_parent_task(
         print("parent already queued.")
         return
 
-    children_count = int(redis.hget(parent_layer, parent_chunk_str).decode("utf-8"))
-    if children_done != children_count:
-        print("children not done.")
-        return
+    # if the previous layer is complete
+    # no need to check children progress for each parent chunk
+    child_layer = parent_layer - 1
+    child_layer_done = redis.scard(f"{child_layer}c")
+    child_layer_count = imanager.cg_meta.layer_chunk_counts[child_layer - 2]
+    child_layer_finished = child_layer_done == child_layer_count
+
+    if not child_layer_finished:
+        children_count = int(redis.hget(parent_layer, parent_chunk_str).decode("utf-8"))
+        if children_done != children_count:
+            print("children not done.")
+            return
 
     queue = imanager.get_task_queue(f"l{parent_layer}")
     queue.enqueue(
@@ -125,7 +132,6 @@ def enqueue_atomic_tasks(imanager: IngestionManager):
     from os import environ
     from time import sleep
     from rq import Queue as RQueue
-    from ..utils.general import chunked
 
     chunk_coords = _get_test_chunks(imanager.cg.meta)
     chunk_count = len(chunk_coords)
