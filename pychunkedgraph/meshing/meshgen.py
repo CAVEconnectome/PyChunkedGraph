@@ -870,8 +870,10 @@ def remeshing(
             if PRINT_FOR_DEBUGGING:
                 print("remeshing", chunk_id, node_ids)
             parents = cg.get_parents(node_ids, time_stamp=time_stamp)
-            for x,y in zip(node_ids, parents):
-                print(x, y)
+            # print()
+            # for x,y in zip(node_ids, parents):
+            #     print(x, y)
+            # print()
             # Stitch the meshes of the parents we found in the previous loop
             chunk_stitch_remeshing_task(
                 None,
@@ -959,9 +961,18 @@ def chunk_initial_mesh_task(
     for obj_id in mesher.ids():
         mesh = mesher.get_mesh(
             obj_id,
-            simplification_factor=100,
             max_simplification_error=max_err,
         )
+        new_fragment = {
+            "vertices": mesh.vertices.flatten("C"),
+            "faces": mesh.faces.flatten("C"),
+        }
+        new_fragment = simplify(
+            cf, new_fragment,
+            new_fragment_id=obj_id,
+        )
+        mesh.vertices = new_fragment["vertices"].reshape(-1, 3)
+        mesh.faces = new_fragment["faces"].reshape(-1, 3)
         mesher.erase(obj_id)
         mesh.vertices[:] += chunk_offset
         if encoding == "draco":
@@ -1065,7 +1076,7 @@ def get_multi_child_nodes(cg, chunk_id, node_id_subset=None, chunk_bbox_string=F
     return multi_child_nodes, multi_child_descendants
 
 
-def simplify(cv, cf, new_fragment, new_fragment_id, aggressiveness=6.0,  to_obj=False):
+def simplify(cf, new_fragment, new_fragment_id=None, aggressiveness=6.0,  to_obj=False):
     import pyfqmr
     from cloudvolume.mesh import Mesh
 
@@ -1075,8 +1086,8 @@ def simplify(cv, cf, new_fragment, new_fragment_id, aggressiveness=6.0,  to_obj=
     simplifier = pyfqmr.Simplify()
     simplifier.setMesh(v,f)
     simplifier.simplify_mesh(
-        target_count=4,
-        aggressiveness=aggressiveness,
+        target_count=max(int(len(f) / 8), 4),
+        aggressiveness=6.5,
         preserve_border=True,
         verbose=False,
     )
@@ -1085,6 +1096,7 @@ def simplify(cv, cf, new_fragment, new_fragment_id, aggressiveness=6.0,  to_obj=
     new_fragment["faces"] = f.flatten()
 
     if to_obj:
+        assert new_fragment_id is not None
         cvmesh = Mesh(v,f,segid=new_fragment_id)
         cf.put(
             f"{new_fragment_id}.obj",
@@ -1207,10 +1219,8 @@ def chunk_stitch_remeshing_task(
         )
 
         new_fragment = simplify(
-            cv, cf,
-            new_fragment,
+            cf, new_fragment,
             new_fragment_id,
-            aggressiveness=7.0,
         )
 
         try:
@@ -1219,8 +1229,7 @@ def chunk_stitch_remeshing_task(
                 new_fragment["faces"],
                 **draco_encoding_options,
             )
-            print("new_fragment_id", new_fragment_id, len(new_fragment_b))
-            print(len(new_fragment["vertices"]), len(new_fragment["faces"]))
+            print(new_fragment_id, len(new_fragment_b), len(new_fragment["vertices"]), len(new_fragment["faces"]))
         except:
             result.append(
                 f'Bad mesh created for {new_fragment_id}: {len(new_fragment["vertices"])} vertices, {len(new_fragment["faces"])} faces'
