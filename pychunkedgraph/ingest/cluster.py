@@ -2,7 +2,6 @@
 Ingest / create chunkedgraph with workers.
 """
 
-from itertools import product
 from typing import Sequence, Tuple
 
 import numpy as np
