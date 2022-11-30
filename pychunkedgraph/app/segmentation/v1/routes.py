@@ -3,7 +3,7 @@ import csv
 import pickle
 import pandas as pd
 
-from flask import make_response, current_app
+from flask import make_response
 from flask import Blueprint, request
 from middle_auth_client import auth_requires_permission
 from middle_auth_client import auth_requires_admin
@@ -17,6 +17,14 @@ from pychunkedgraph.app.app_utils import (
 )
 from pychunkedgraph.app.segmentation import common
 from pychunkedgraph.graph import exceptions as cg_exceptions
+import os
+import json
+
+if os.environ.get("DAF_CREDENTIALS", None) is not None:
+    with open(os.environ.get("DAF_CREDENTIALS"), "r") as f:
+        AUTH_TOKEN = json.load(f)["token"]
+else:
+    AUTH_TOKEN = ""
 
 bp = Blueprint(
     "pcg_segmentation_v1",
@@ -48,13 +56,11 @@ def home():
 
 
 @bp.before_request
-@auth_required
 def before_request():
     return common.before_request()
 
 
 @bp.after_request
-@auth_required
 def after_request(response):
     return common.after_request(response)
 
@@ -283,7 +289,12 @@ def handle_l2_chunk_children_binary(table_id, chunk_id):
 
 
 @bp.route("/table/<table_id>/node/<node_id>/leaves", methods=["GET"])
-@auth_requires_permission("view")
+@auth_requires_permission(
+    "view",
+    public_table_key="table_id",
+    public_node_key="node_id",
+    service_token=AUTH_TOKEN,
+)
 @remap_public(edit=False)
 def handle_leaves(table_id, node_id):
     int64_as_str = request.args.get("int64_as_str", default=False, type=toboolean)
@@ -297,7 +308,12 @@ def handle_leaves(table_id, node_id):
 
 @bp.route("/table/<table_id>/node/leaves_many", methods=["POST"])
 @bp.route("/table/<table_id>/leaves_many", methods=["POST"])
-@auth_requires_permission("view")
+@auth_requires_permission(
+    "view",
+    public_table_key="table_id",
+    public_node_key="node_id",
+    service_token=AUTH_TOKEN,
+)
 @remap_public(check_node_ids=True)
 def handle_leaves_many(table_id):
     int64_as_str = request.args.get("int64_as_str", default=False, type=toboolean)
@@ -464,7 +480,11 @@ def handle_past_id_mapping(table_id):
 
 
 @bp.route("/table/<table_id>/oldest_timestamp", methods=["GET"])
-@auth_requires_permission("view")
+@auth_requires_permission(
+    "view",
+    public_table_key="table_id",
+    service_token=AUTH_TOKEN,
+)
 @remap_public(edit=False)
 def oldest_timestamp(table_id):
     int64_as_str = request.args.get("int64_as_str", default=False, type=toboolean)
@@ -538,7 +558,12 @@ def handle_roots_from_coords(table_id):
 
 ## Get level2 graph -------------------------------------------------------------
 @bp.route("/table/<table_id>/node/<node_id>/lvl2_graph", methods=["GET"])
-@auth_requires_permission("view")
+@auth_requires_permission(
+    "view",
+    public_table_key="table_id",
+    public_node_key="node_id",
+    service_token=AUTH_TOKEN,
+)
 @remap_public(edit=False)
 def handle_get_lvl2_graph(table_id, node_id):
     int64_as_str = request.args.get("int64_as_str", default=False, type=toboolean)
