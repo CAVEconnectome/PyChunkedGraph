@@ -138,7 +138,8 @@ class TestGraphBuild:
 
         assert len(children) == 1 and children[0] == to_label(cg, 1, 0, 0, 0, 0)
         # Make sure there are not any more entries in the table
-        assert len(res.rows) == 1 + 1 + 1 + 1
+        # include counters, meta and version rows
+        assert len(res.rows) == 1 + 1 + 1 + 1 + 1
 
     @pytest.mark.timeout(30)
     def test_build_single_edge(self, gen_graph):
@@ -190,7 +191,8 @@ class TestGraphBuild:
         )
 
         # Make sure there are not any more entries in the table
-        assert len(res.rows) == 2 + 1 + 1 + 1
+        # include counters, meta and version rows
+        assert len(res.rows) == 2 + 1 + 1 + 1 + 1
 
     @pytest.mark.timeout(30)
     def test_build_single_across_edge(self, gen_graph):
@@ -291,7 +293,8 @@ class TestGraphBuild:
         )
 
         # Make sure there are not any more entries in the table
-        assert len(res.rows) == 2 + 2 + 1 + 3 + 1
+        # include counters, meta and version rows
+        assert len(res.rows) == 2 + 2 + 1 + 3 + 1 + 1
 
     @pytest.mark.timeout(30)
     def test_build_single_edge_and_single_across_edge(self, gen_graph):
@@ -398,7 +401,8 @@ class TestGraphBuild:
         )
 
         # Make sure there are not any more entries in the table
-        assert len(res.rows) == 3 + 2 + 1 + 3 + 1
+        # include counters, meta and version rows
+        assert len(res.rows) == 3 + 2 + 1 + 3 + 1 + 1
 
     @pytest.mark.timeout(120)
     def test_build_big_graph(self, gen_graph):
