@@ -3,6 +3,7 @@ import typing
 import datetime
 
 import numpy as np
+from pychunkedgraph import __version__
 
 from . import types
 from . import operation
@@ -89,7 +90,7 @@ class ChunkedGraph:
 
     def create(self):
         """Creates the graph in storage client and stores meta."""
-        self._client.create_graph(self._meta)
+        self._client.create_graph(self._meta, version=__version__)
 
     def update_meta(self, meta: ChunkedGraphMeta):
         """Update meta of an already existing graph."""

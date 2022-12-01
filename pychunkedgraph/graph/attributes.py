@@ -146,7 +146,12 @@ class Hierarchy:
 
 class GraphMeta:
     key = b"meta"
-    Meta = _Attribute(key=b"meta", family_id="0", serializer=serializers.Pickle())
+    Meta = _Attribute(key=key, family_id="0", serializer=serializers.Pickle())
+
+
+class GraphVersion:
+    key = b"version"
+    Version = _Attribute(key=key, family_id="0", serializer=serializers.String("utf-8"))
 
 
 class OperationLogs:
