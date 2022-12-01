@@ -69,6 +69,10 @@ class ChunkedGraph:
         return self.meta.graph_config.ID_PREFIX + self.meta.graph_config.ID
 
     @property
+    def version(self) -> str:
+        return self.client.read_graph_version()
+
+    @property
     def client(self) -> base.SimpleClient:
         return self._client
 

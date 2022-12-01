@@ -23,6 +23,7 @@ from scipy import spatial
 import requests
 
 CACHE = {}
+logger: logging.Logger = None
 
 
 def get_app_base_path():
@@ -196,12 +197,14 @@ def setup_logger(table_id: str):
 
 
 def ensure_correct_version(cg: ChunkedGraph) -> bool:
-    version = cg.client.read_graph_version()
     current_major_version = int(__version__.split(".")[0])
     try:
-        graph_major_version = int(version.split(".")[0])
-        return graph_major_version == current_major_version
+        graph_major_version = int(cg.version.split(".")[0])
+        valid = graph_major_version == current_major_version
+        assert valid, f"v{cg.version} not supported, server version {__version__}."
+        return True
     except (AttributeError, TypeError):
+        # graph not versioned, later checked if whitelisted
         return False
 
 
@@ -218,10 +221,14 @@ def get_cg(table_id, skip_cache: bool = False):
     if skip_cache is False:
         CACHE[table_id] = cg
 
-    version_validity = ensure_correct_version(cg)
-    whitelisted = table_id in current_app.config["PCG_GRAPH_IDS"]
-    assert version_validity or whitelisted, f"Invalid graph name {table_id}."
-    return cg
+    version_valid = ensure_correct_version(cg)
+    if version_valid:
+        return cg
+
+    if cg.graph_id in current_app.config["PCG_GRAPH_IDS"]:
+        logger.warning(f"Serving whitelisted graph {cg.graph_id}.")
+        return cg
+    raise ValueError(f"Graph {cg.graph_id} not supported.")
 
 
 def get_log_db(table_id):
