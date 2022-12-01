@@ -2,6 +2,7 @@ import logging
 import sys
 import os
 from typing import Sequence
+from time import gmtime
 
 import numpy as np
 from flask import current_app, json, request
@@ -9,14 +10,13 @@ from google.auth import credentials
 from google.auth import default as default_creds
 from google.cloud import bigtable, datastore
 
+from pychunkedgraph import __version__
 from pychunkedgraph.graph import ChunkedGraph
 from pychunkedgraph.logging import flask_log_db, jsonformatter
-from pychunkedgraph.graph import (
-    exceptions as cg_exceptions,
-)
+from pychunkedgraph.graph.client import get_default_client_info
+from pychunkedgraph.graph import exceptions as cg_exceptions
 from functools import wraps
 from werkzeug.datastructures import ImmutableMultiDict
-
 
 import networkx as nx
 from scipy import spatial
@@ -176,28 +176,14 @@ def get_datastore_client(config):
     return client
 
 
-def get_cg(table_id, skip_cache: bool = False):
-    from time import gmtime
-    from pychunkedgraph.graph.client import get_default_client_info
-
-    assert table_id in current_app.config["PCG_GRAPH_IDS"]
-
-    current_app.table_id = table_id
-    if skip_cache is False:
-        try:
-            return CACHE[table_id]
-        except KeyError:
-            pass
-
+def setup_logger(table_id: str):
     instance_id = current_app.config["CHUNKGRAPH_INSTANCE_ID"]
 
-    # Create ChunkedGraph logging
     logger = logging.getLogger(f"{instance_id}/{table_id}")
     logger.setLevel(current_app.config["LOGGING_LEVEL"])
 
     # prevent duplicate logs from Flasks(?) parent logger
     logger.propagate = False
-
     handler = logging.StreamHandler(sys.stdout)
     handler.setLevel(current_app.config["LOGGING_LEVEL"])
     formatter = jsonformatter.JsonFormatter(
@@ -206,13 +192,35 @@ def get_cg(table_id, skip_cache: bool = False):
     )
     formatter.converter = gmtime
     handler.setFormatter(formatter)
-
     logger.addHandler(handler)
 
-    # Create ChunkedGraph
+
+def ensure_correct_version(cg: ChunkedGraph) -> bool:
+    version = cg.client.read_graph_version()
+    current_major_version = int(__version__.split(".")[0])
+    try:
+        graph_major_version = int(version.split(".")[0])
+        return graph_major_version == current_major_version
+    except (AttributeError, TypeError):
+        return False
+
+
+def get_cg(table_id, skip_cache: bool = False):
+    current_app.table_id = table_id
+    if skip_cache is False:
+        try:
+            return CACHE[table_id]
+        except KeyError:
+            pass
+
+    setup_logger(table_id)
     cg = ChunkedGraph(graph_id=table_id, client_info=get_default_client_info())
     if skip_cache is False:
         CACHE[table_id] = cg
+
+    version_validity = ensure_correct_version(cg)
+    whitelisted = table_id in current_app.config["PCG_GRAPH_IDS"]
+    assert version_validity or whitelisted, f"Invalid graph name {table_id}."
     return cg
 
 
