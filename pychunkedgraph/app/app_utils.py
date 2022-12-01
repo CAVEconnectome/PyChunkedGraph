@@ -218,15 +218,14 @@ def get_cg(table_id, skip_cache: bool = False):
 
     setup_logger(table_id)
     cg = ChunkedGraph(graph_id=table_id, client_info=get_default_client_info())
-    if skip_cache is False:
-        CACHE[table_id] = cg
-
     version_valid = ensure_correct_version(cg)
     if version_valid:
+        CACHE[table_id] = cg
         return cg
 
     if cg.graph_id in current_app.config["PCG_GRAPH_IDS"]:
         logger.warning(f"Serving whitelisted graph {cg.graph_id}.")
+        CACHE[table_id] = cg
         return cg
     raise ValueError(f"Graph {cg.graph_id} not supported.")
 
