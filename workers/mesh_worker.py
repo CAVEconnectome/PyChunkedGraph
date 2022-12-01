@@ -14,7 +14,8 @@ def callback(payload):
     from pychunkedgraph.meshing import meshgen
 
     data = pickle.loads(payload.data)
-    lvl2_ids = np.array(data["new_lvl2_ids"], dtype=basetypes.NODE_ID)
+    op_id = int(data["operation_id"])
+    l2ids = np.array(data["new_lvl2_ids"], dtype=basetypes.NODE_ID)
     table_id = payload.attributes["table_id"]
 
     cg = ChunkedGraph(graph_id=table_id)
@@ -32,25 +33,23 @@ def callback(payload):
     except KeyError:
         return
 
-    INFO_PRIORITY = 25
+    INFO_HIGH = 25
     logging.basicConfig(
-        level=INFO_PRIORITY,
+        level=INFO_HIGH,
         format="%(asctime)s %(message)s",
         datefmt="%m/%d/%Y %I:%M:%S %p",
     )
-    logging.log(INFO_PRIORITY, f"Remeshing {lvl2_ids} L2 IDs in graph {table_id}")
-    logging.log(INFO_PRIORITY, f"stop_layer={layer}, mip={mip}, max_err={err}")
-    logging.log(INFO_PRIORITY, f"mesh_dir={mesh_dir}, unsharded_mesh_path={mesh_path}")
+    logging.log(INFO_HIGH, f"remeshing {l2ids}; graph {table_id} operation {op_id}.")
     meshgen.remeshing(
         cg,
-        lvl2_ids,
+        l2ids,
         stop_layer=layer,
         mip=mip,
         max_err=err,
         cv_sharded_mesh_dir=mesh_dir,
         cv_unsharded_mesh_path=mesh_path,
     )
-    logging.log(INFO_PRIORITY, "Remeshing complete.")
+    logging.log(INFO_HIGH, f"remeshing complete; graph {table_id} operation {op_id}.")
     gc.collect()
 
 
