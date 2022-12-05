@@ -203,11 +203,11 @@ class ChunkedGraph:
                 for id_ in node_ids:
                     try:
                         parents.append(parent_rows[id_][0].value)
-                    except KeyError:
+                    except KeyError as exc:
                         if fail_to_zero:
                             parents.append(0)
                         else:
-                            raise KeyError
+                            raise KeyError from exc
                 parents = np.array(parents, dtype=basetypes.NODE_ID)
             else:
                 for id_ in node_ids:
@@ -215,11 +215,11 @@ class ChunkedGraph:
                         parents.append(
                             [(p.value, p.timestamp) for p in parent_rows[id_]]
                         )
-                    except KeyError:
+                    except KeyError as exc:
                         if fail_to_zero:
                             parents.append([(0, datetime.datetime.fromtimestamp(0))])
                         else:
-                            raise KeyError
+                            raise KeyError from exc
             return parents
         return self.cache.parents_multiple(node_ids, time_stamp=time_stamp)
 
