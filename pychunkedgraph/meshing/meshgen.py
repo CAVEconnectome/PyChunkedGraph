@@ -243,7 +243,9 @@ def get_root_lx_remapping(cg, chunk_id, stop_layer, time_stamp, n_threads=1):
     def _get_root_ids(args):
         start_id, end_id = args
         root_ids[start_id:end_id] = cg.get_roots(
-            lx_ids[start_id:end_id], stop_layer=stop_layer
+            lx_ids[start_id:end_id],
+            stop_layer=stop_layer,
+            fail_to_zero=True,
         )
 
     lx_id_remap = get_higher_to_lower_remapping(cg, chunk_id, time_stamp=time_stamp)
@@ -418,7 +420,10 @@ def get_root_remapping_for_nodes_and_svs(
         start_id, end_id = args
 
         root_ids[start_id:end_id] = cg.get_roots(
-            combined_ids[start_id:end_id], stop_layer=stop_layer, time_stamp=time_stamp
+            combined_ids[start_id:end_id],
+            stop_layer=stop_layer,
+            time_stamp=time_stamp,
+            fail_to_zero=True,
         )
 
     rr = cg.range_read_chunk(
@@ -554,7 +559,7 @@ def calculate_quantization_bits_and_range(
         draco_quantization_bits = np.ceil(
             np.log2(min_quantization_range / max_draco_bin_size + 1)
         )
-    num_draco_bins = 2 ** draco_quantization_bits - 1
+    num_draco_bins = 2**draco_quantization_bits - 1
     draco_bin_size = np.ceil(min_quantization_range / num_draco_bins)
     draco_quantization_range = draco_bin_size * num_draco_bins
     if draco_quantization_range < min_quantization_range + draco_bin_size:
