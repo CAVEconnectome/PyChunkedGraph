@@ -415,7 +415,7 @@ def get_root_remapping_for_nodes_and_svs(
             combined_ids[start_id:end_id],
             stop_layer=stop_layer,
             time_stamp=time_stamp,
-            fail_to_zero=False
+            fail_to_zero=True,
         )
 
     rr = cg.range_read_chunk(
