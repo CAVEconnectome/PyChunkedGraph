@@ -17,6 +17,7 @@ from cloudvolume.datasource.precomputed.sharding import ShardingSpecification
 import DracoPy
 import zmesh
 import fastremap
+import pyfqmr
 
 sys.path.insert(0, os.path.join(sys.path[0], "../.."))
 os.environ["TRAVIS_BRANCH"] = "IDONTKNOWWHYINEEDTHIS"
@@ -241,7 +242,9 @@ def get_root_lx_remapping(cg, chunk_id, stop_layer, time_stamp, n_threads=1):
     def _get_root_ids(args):
         start_id, end_id = args
         root_ids[start_id:end_id] = cg.get_roots(
-            lx_ids[start_id:end_id], stop_layer=stop_layer
+            lx_ids[start_id:end_id],
+            stop_layer=stop_layer,
+            fail_to_zero=True,
         )
 
     lx_id_remap = get_higher_to_lower_remapping(cg, chunk_id, time_stamp=time_stamp)
@@ -548,7 +551,7 @@ def calculate_quantization_bits_and_range(
         draco_quantization_bits = np.ceil(
             np.log2(min_quantization_range / max_draco_bin_size + 1)
         )
-    num_draco_bins = 2 ** draco_quantization_bits - 1
+    num_draco_bins = 2**draco_quantization_bits - 1
     draco_bin_size = np.ceil(min_quantization_range / num_draco_bins)
     draco_quantization_range = draco_bin_size * num_draco_bins
     if draco_quantization_range < min_quantization_range + draco_bin_size:
@@ -967,10 +970,7 @@ def chunk_initial_mesh_task(
             "vertices": mesh.vertices.flatten("C"),
             "faces": mesh.faces.flatten("C"),
         }
-        new_fragment = simplify(
-            cf, new_fragment,
-            new_fragment_id=obj_id,
-        )
+        new_fragment = simplify(cg, new_fragment, new_fragment_id=obj_id)
         mesh.vertices = new_fragment["vertices"].reshape(-1, 3)
         mesh.faces = new_fragment["faces"].reshape(-1, 3)
         mesher.erase(obj_id)
@@ -1076,36 +1076,44 @@ def get_multi_child_nodes(cg, chunk_id, node_id_subset=None, chunk_bbox_string=F
     return multi_child_nodes, multi_child_descendants
 
 
-def simplify(cf, new_fragment, new_fragment_id=None, aggressiveness=6.0,  to_obj=False):
-    import pyfqmr
-    from cloudvolume.mesh import Mesh
+def simplify(cg, new_fragment, new_fragment_id: np.uint64 = None):
+    """
+    Simplify with pyfqmr; input and output flat vertices and faces.
+    """
 
     v = new_fragment["vertices"].reshape(-1, 3)
     f = new_fragment["faces"].reshape(-1, 3)
 
+    l2factor = int(os.environ.get("l2factor", "2"))
+    factor = int(os.environ.get("factor", "4"))
+    aggressiveness = float(os.environ.get("aggr", "7.0"))
+
+    cg.meta.custom_data["mesh_v3"] = {
+        "l2factor": l2factor,
+        "factor": factor,
+        "aggressiveness": aggressiveness,
+    }
+    cg.update_meta(cg.meta)
+
+    layer = cg.get_chunk_layer(new_fragment_id)
+    if layer == 2:
+        target_count = max(int(len(f) / l2factor), 4)
+    else:
+        target_count = max(int(len(f) / factor), 4)
+
     simplifier = pyfqmr.Simplify()
-    simplifier.setMesh(v,f)
+    simplifier.setMesh(v, f)
     simplifier.simplify_mesh(
-        target_count=max(int(len(f) / 8), 4),
-        aggressiveness=6.5,
+        target_count=target_count,
+        aggressiveness=aggressiveness,
         preserve_border=True,
         verbose=False,
     )
-    v,f,_ = simplifier.getMesh()
+    v, f, _ = simplifier.getMesh()
     new_fragment["vertices"] = v.flatten()
     new_fragment["faces"] = f.flatten()
-
-    if to_obj:
-        assert new_fragment_id is not None
-        cvmesh = Mesh(v,f,segid=new_fragment_id)
-        cf.put(
-            f"{new_fragment_id}.obj",
-            cvmesh.to_obj(),
-            content_type="application/octet-stream",
-            compress=False,
-            cache_control="public,max-age=1",
-        )
     return new_fragment
+
 
 def chunk_stitch_remeshing_task(
     cg_name,
@@ -1217,11 +1225,7 @@ def chunk_stitch_remeshing_task(
         new_fragment = merge_draco_meshes_across_boundaries(
             cg, old_fragments, chunk_id, mip, high_padding
         )
-
-        new_fragment = simplify(
-            cf, new_fragment,
-            new_fragment_id,
-        )
+        new_fragment = simplify(cg, new_fragment, new_fragment_id)
 
         try:
             new_fragment_b = DracoPy.encode_mesh_to_buffer(
@@ -1229,7 +1233,6 @@ def chunk_stitch_remeshing_task(
                 new_fragment["faces"],
                 **draco_encoding_options,
             )
-            print(new_fragment_id, len(new_fragment_b), len(new_fragment["vertices"]), len(new_fragment["faces"]))
         except:
             result.append(
                 f'Bad mesh created for {new_fragment_id}: {len(new_fragment["vertices"])} vertices, {len(new_fragment["faces"])} faces'
@@ -1251,7 +1254,12 @@ def chunk_stitch_remeshing_task(
 
 
 def chunk_initial_sharded_stitching_task(
-    cg_name, chunk_id, mip, cg=None, high_padding=1, cache=True
+    cg_name: str,
+    chunk_id: np.uint64,
+    mip: int,
+    cg=None,
+    high_padding=1,
+    cache=True,
 ):
     start_existence_check_time = time.time()
     if cg is None:
@@ -1336,6 +1344,8 @@ def chunk_initial_sharded_stitching_task(
             new_fragment = merge_draco_meshes_across_boundaries(
                 cg, old_fragments, chunk_id, mip, high_padding
             )
+
+            new_fragment = simplify(cg, new_fragment, new_fragment_id=new_fragment_id)
 
             if len(new_fragment["vertices"]) > biggest_frag_vx_ct:
                 biggest_frag = new_fragment_id
