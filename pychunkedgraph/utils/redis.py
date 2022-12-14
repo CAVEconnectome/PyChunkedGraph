@@ -42,7 +42,8 @@ def get_sum(r, key):
     return len(fc), sum(fc)
 
 
-def get_sums():
+def get_sums(start=0, end=20):
     r = get_redis_connection()
-    for k in r.keys():
-        print(k, get_sum(r, k))
+    for i in range(start, end + 1):
+        for k in r.keys(pattern=f"mesh_cutout_v{i}/*"):
+            print(k, get_sum(r, k))
