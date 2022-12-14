@@ -915,6 +915,8 @@ def chunk_initial_mesh_task(
     mesh_vertices = []
     smesh_faces = []
     smesh_vertices = []
+    og_smesh_faces = []
+    og_smesh_vertices = []
 
     if cg is None:
         cg = ChunkedGraph(graph_id=cg_name)
@@ -972,27 +974,23 @@ def chunk_initial_mesh_task(
         print("num ids", len(mesher.ids()))
     result.append(len(mesher.ids()))
     for obj_id in mesher.ids():
-        smesh = mesher.get_mesh(
-            obj_id,
-            max_simplification_error=max_err,
-            simplification_factor=100,
-        )
-        smesh_faces.append(len(smesh.faces.flatten))
-        smesh_vertices.append(len(smesh.vertices.flatten))
-
         mesh = mesher.get_mesh(
             obj_id,
             max_simplification_error=max_err,
         )
-        mesh_faces.append(len(mesh.faces.flatten))
-        mesh_vertices.append(len(mesh.vertices.flatten))
-        # new_fragment = {
-        #     "vertices": mesh.vertices.flatten("C"),
-        #     "faces": mesh.faces.flatten("C"),
-        # }
-        # new_fragment = simplify(cg, new_fragment, new_fragment_id=obj_id)
-        # mesh.vertices = new_fragment["vertices"].reshape(-1, 3)
-        # mesh.faces = new_fragment["faces"].reshape(-1, 3)
+        mesh_faces.append(len(mesh.faces.flatten()))
+        mesh_vertices.append(len(mesh.vertices.flatten()))
+
+        new_fragment = {
+            "vertices": mesh.vertices.flatten("C"),
+            "faces": mesh.faces.flatten("C"),
+        }
+        new_fragment = simplify(cg, new_fragment, new_fragment_id=obj_id)
+        mesh.vertices = new_fragment["vertices"].reshape(-1, 3)
+        mesh.faces = new_fragment["faces"].reshape(-1, 3)
+        smesh_faces.append(len(mesh.faces.flatten()))
+        smesh_vertices.append(len(mesh.vertices.flatten()))
+
         mesher.erase(obj_id)
         mesh.vertices[:] += chunk_offset
         if encoding == "draco":
@@ -1022,10 +1020,10 @@ def chunk_initial_mesh_task(
                     cache_control=cache_string,
                 )
 
-    total_faces = np.sum(mesh_faces)
-    total_vertices = np.sum(mesh_vertices)
-    stotal_faces = np.sum(smesh_faces)
-    stotal_vertices = np.sum(smesh_vertices)
+    total_faces = int(np.sum(mesh_faces))
+    total_vertices = int(np.sum(mesh_vertices))
+    stotal_faces = int(np.sum(smesh_faces))
+    stotal_vertices = int(np.sum(smesh_vertices))
 
     redis = get_redis_connection()
     redis.sadd(f"{cg.graph_id}/faces/2", total_faces)
@@ -1404,8 +1402,8 @@ def chunk_initial_sharded_stitching_task(
             if number_frags_proc % 1000 == 0 and PRINT_FOR_DEBUGGING:
                 print(f"number frag proc = {number_frags_proc}")
 
-    total_faces = np.sum(mesh_faces)
-    total_vertices = np.sum(mesh_vertices)
+    total_faces = int(np.sum(mesh_faces))
+    total_vertices = int(np.sum(mesh_vertices))
 
     redis = get_redis_connection()
     redis.sadd(f"{cg.graph_id}/faces/{layer}", total_faces)

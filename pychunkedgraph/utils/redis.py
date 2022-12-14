@@ -33,3 +33,16 @@ def get_redis_connection(redis_url=REDIS_URL):
 def get_rq_queue(queue):
     connection = redis.Redis.from_url(REDIS_URL)
     return Queue(queue, connection=connection)
+
+
+def get_sum(r, key):
+    fc = r.smembers(key)
+    fc = [x.decode() for x in fc]
+    fc = [int(x if x != "0.0" else 0) for x in fc]
+    return len(fc), sum(fc)
+
+
+def get_sums():
+    r = get_redis_connection()
+    for k in r.keys():
+        print(k, get_sum(r, k))
