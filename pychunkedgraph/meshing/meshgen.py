@@ -913,10 +913,8 @@ def chunk_initial_mesh_task(
 ):
     mesh_faces = []
     mesh_vertices = []
-    smesh_faces = []
-    smesh_vertices = []
-    og_smesh_faces = []
-    og_smesh_vertices = []
+    og_mesh_faces = []
+    og_mesh_vertices = []
 
     if cg is None:
         cg = ChunkedGraph(graph_id=cg_name)
@@ -978,8 +976,8 @@ def chunk_initial_mesh_task(
             obj_id,
             max_simplification_error=max_err,
         )
-        mesh_faces.append(len(mesh.faces.flatten()))
-        mesh_vertices.append(len(mesh.vertices.flatten()))
+        og_mesh_faces.append(len(mesh.faces.flatten()))
+        og_mesh_vertices.append(len(mesh.vertices.flatten()))
 
         new_fragment = {
             "vertices": mesh.vertices.flatten("C"),
@@ -988,8 +986,8 @@ def chunk_initial_mesh_task(
         new_fragment = simplify(cg, new_fragment, new_fragment_id=obj_id)
         mesh.vertices = new_fragment["vertices"].reshape(-1, 3)
         mesh.faces = new_fragment["faces"].reshape(-1, 3)
-        smesh_faces.append(len(mesh.faces.flatten()))
-        smesh_vertices.append(len(mesh.vertices.flatten()))
+        mesh_faces.append(len(mesh.faces.flatten()))
+        mesh_vertices.append(len(mesh.vertices.flatten()))
 
         mesher.erase(obj_id)
         mesh.vertices[:] += chunk_offset
@@ -1022,14 +1020,14 @@ def chunk_initial_mesh_task(
 
     total_faces = int(np.sum(mesh_faces))
     total_vertices = int(np.sum(mesh_vertices))
-    stotal_faces = int(np.sum(smesh_faces))
-    stotal_vertices = int(np.sum(smesh_vertices))
+    stotal_faces = int(np.sum(og_mesh_faces))
+    stotal_vertices = int(np.sum(og_mesh_vertices))
 
     redis = get_redis_connection()
     redis.sadd(f"{cg.graph_id}/faces/2", total_faces)
     redis.sadd(f"{cg.graph_id}/vertices/2", total_vertices)
-    redis.sadd(f"{cg.graph_id}/sfaces/2", stotal_faces)
-    redis.sadd(f"{cg.graph_id}/svertices/2", stotal_vertices)
+    redis.sadd(f"{cg.graph_id}/og_faces/2", stotal_faces)
+    redis.sadd(f"{cg.graph_id}/og_vertices/2", stotal_vertices)
 
     if sharded and WRITING_TO_CLOUD:
         shard_binary = sharding_spec.synthesize_shard(merged_meshes)
