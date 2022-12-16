@@ -895,6 +895,12 @@ def remeshing(
             )
 
 
+def redis_sadd(redis, key, value):
+    while not redis.sismember(key, str(value)):
+        value += 1
+    redis.sadd(key, str(value))
+
+
 def chunk_initial_mesh_task(
     cg_name,
     chunk_id,
@@ -1024,10 +1030,10 @@ def chunk_initial_mesh_task(
     stotal_vertices = int(np.sum(og_mesh_vertices))
 
     redis = get_redis_connection()
-    redis.sadd(f"{cg.graph_id}/faces/2", total_faces)
-    redis.sadd(f"{cg.graph_id}/vertices/2", total_vertices)
-    redis.sadd(f"{cg.graph_id}/og_faces/2", stotal_faces)
-    redis.sadd(f"{cg.graph_id}/og_vertices/2", stotal_vertices)
+    redis_sadd(redis, f"{cg.graph_id}/faces/2", total_faces)
+    redis_sadd(redis, f"{cg.graph_id}/vertices/2", total_vertices)
+    redis_sadd(redis, f"{cg.graph_id}/og_faces/2", stotal_faces)
+    redis_sadd(redis, f"{cg.graph_id}/og_vertices/2", stotal_vertices)
 
     if sharded and WRITING_TO_CLOUD:
         shard_binary = sharding_spec.synthesize_shard(merged_meshes)
@@ -1115,13 +1121,6 @@ def simplify(cg, new_fragment, new_fragment_id: np.uint64 = None):
     l2factor = int(os.environ.get("l2factor", "2"))
     factor = int(os.environ.get("factor", "4"))
     aggressiveness = float(os.environ.get("aggr", "7.0"))
-
-    cg.meta.custom_data["mesh_v3"] = {
-        "l2factor": l2factor,
-        "factor": factor,
-        "aggressiveness": aggressiveness,
-    }
-    cg.update_meta(cg.meta)
 
     layer = cg.get_chunk_layer(new_fragment_id)
     if layer == 2:
@@ -1404,8 +1403,8 @@ def chunk_initial_sharded_stitching_task(
     total_vertices = int(np.sum(mesh_vertices))
 
     redis = get_redis_connection()
-    redis.sadd(f"{cg.graph_id}/faces/{layer}", total_faces)
-    redis.sadd(f"{cg.graph_id}/vertices/{layer}", total_vertices)
+    redis_sadd(redis, f"{cg.graph_id}/faces/{layer}", total_faces)
+    redis_sadd(redis, f"{cg.graph_id}/vertices/{layer}", total_vertices)
 
     del mesh_dict
     shard_binary = sharding_spec.synthesize_shard(merged_meshes)
