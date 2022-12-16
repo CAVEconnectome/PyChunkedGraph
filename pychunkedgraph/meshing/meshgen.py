@@ -896,7 +896,7 @@ def remeshing(
 
 
 def redis_sadd(redis, key, value):
-    while not redis.sismember(key, str(value)):
+    while redis.sismember(key, str(value)):
         value += 1
     redis.sadd(key, str(value))
 
