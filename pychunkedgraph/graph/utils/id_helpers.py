@@ -161,6 +161,7 @@ def get_atomic_ids_from_coords(
         local_sv_ids,
         time_stamp=parent_ts,
         stop_layer=parent_id_layer,
+        fail_to_zero=True
     )
 
     local_parent_seg = fastremap.remap(
