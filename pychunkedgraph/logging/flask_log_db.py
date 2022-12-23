@@ -5,8 +5,8 @@ from google.cloud import datastore
 HOME = os.path.expanduser('~')
 
 # Setting environment wide credential path
-os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = \
-           HOME + "/.cloudvolume/secrets/google-secret.json"
+#os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = \
+#           HOME + "/.cloudvolume/secrets/google-secret.json"
 
 
 class FlaskLogDatabase(object):
