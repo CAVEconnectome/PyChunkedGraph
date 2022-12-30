@@ -567,7 +567,7 @@ class CreateParentNodes:
                 children = self.cg.get_children(id_)
                 assert np.max(
                     self.cg.get_chunk_layers(children)
-                ) <= self.cg.get_chunk_layer(id_), "Parent layer less than children."
+                ) < self.cg.get_chunk_layer(id_), "Parent layer less than children."
                 val_dict[attributes.Hierarchy.Child] = children
                 rows.append(
                     self.cg.client.mutate_row(
