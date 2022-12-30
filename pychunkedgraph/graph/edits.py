@@ -391,12 +391,15 @@ class CreateParentNodes:
         ]
         return np.concatenate(old_ids)
 
-    def _map_sv_to_parent(self, node_ids, layer):
+    def _map_sv_to_parent(self, node_ids, layer, node_map=None):
         sv_parent_d = {}
         sv_cross_edges = [types.empty_2d]
+        if node_map is None:
+            node_map = {}
         for id_ in node_ids:
+            id_eff = node_map.get(id_,id_)
             edges_ = self._cross_edges_d[id_].get(layer, types.empty_2d)
-            sv_parent_d.update(dict(zip(edges_[:, 0], [id_] * len(edges_))))
+            sv_parent_d.update(dict(zip(edges_[:, 0], [id_eff] * len(edges_))))
             sv_cross_edges.append(edges_)
         return sv_parent_d, np.concatenate(sv_cross_edges)
 
@@ -417,10 +420,13 @@ class CreateParentNodes:
         except TypeError:  # NoneType error
             # if there is a missing parent, try including lower layer ids
             # this can happen due to skip connections
-            node_ids = np.concatenate([node_ids, lower_layer_ids])
-            sv_parent_d, sv_cross_edges = self._map_sv_to_parent(node_ids, layer)
+            
+            lower_layer_to_layer = self.cg.get_roots(lower_layer_ids, stop_layer=layer)
+            node_map = {k:v for k,v in zip(lower_layer_ids,lower_layer_to_layer)}
+            sv_parent_d, sv_cross_edges = self._map_sv_to_parent(_node_ids, layer, node_map=node_map)
             get_sv_parents = np.vectorize(sv_parent_d.get, otypes=[np.uint64])
             cross_edges = get_sv_parents(sv_cross_edges)
+
 
         cross_edges = np.concatenate([cross_edges, np.vstack([node_ids, node_ids]).T])
         graph, _, _, graph_ids = flatgraph.build_gt_graph(
@@ -561,7 +567,7 @@ class CreateParentNodes:
                 children = self.cg.get_children(id_)
                 assert np.max(
                     self.cg.get_chunk_layers(children)
-                ) < self.cg.get_chunk_layer(id_), "Parent layer less than children."
+                ) <= self.cg.get_chunk_layer(id_), "Parent layer less than children."
                 val_dict[attributes.Hierarchy.Child] = children
                 rows.append(
                     self.cg.client.mutate_row(
