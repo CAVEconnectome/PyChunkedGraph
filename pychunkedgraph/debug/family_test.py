@@ -5,7 +5,7 @@ import numpy as np
 from pychunkedgraph.graph import chunkedgraph
 from pychunkedgraph.graph import attributes
 
-os.environ["GOOGLE_APPLICATION_CREDENTIALS"] =  "/home/svenmd/.cloudvolume/secrets/google-secret.json"
+# os.environ["GOOGLE_APPLICATION_CREDENTIALS"] =  "/home/svenmd/.cloudvolume/secrets/google-secret.json"
 
 layers = [2, 3, 4, 5, 6, 7]
 n_chunks = 10
