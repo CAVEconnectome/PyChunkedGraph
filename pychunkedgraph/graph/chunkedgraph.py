@@ -3,6 +3,7 @@ import typing
 import datetime
 
 import numpy as np
+from pychunkedgraph import __version__
 
 from . import types
 from . import operation
@@ -68,6 +69,10 @@ class ChunkedGraph:
         return self.meta.graph_config.ID_PREFIX + self.meta.graph_config.ID
 
     @property
+    def version(self) -> str:
+        return self.client.read_graph_version()
+
+    @property
     def client(self) -> base.SimpleClient:
         return self._client
 
@@ -89,7 +94,7 @@ class ChunkedGraph:
 
     def create(self):
         """Creates the graph in storage client and stores meta."""
-        self._client.create_graph(self._meta)
+        self._client.create_graph(self._meta, version=__version__)
 
     def update_meta(self, meta: ChunkedGraphMeta):
         """Update meta of an already existing graph."""
@@ -198,11 +203,11 @@ class ChunkedGraph:
                 for id_ in node_ids:
                     try:
                         parents.append(parent_rows[id_][0].value)
-                    except KeyError:
+                    except KeyError as exc:
                         if fail_to_zero:
                             parents.append(0)
                         else:
-                            raise KeyError
+                            raise KeyError from exc
                 parents = np.array(parents, dtype=basetypes.NODE_ID)
             else:
                 for id_ in node_ids:
@@ -210,11 +215,11 @@ class ChunkedGraph:
                         parents.append(
                             [(p.value, p.timestamp) for p in parent_rows[id_]]
                         )
-                    except KeyError:
+                    except KeyError as exc:
                         if fail_to_zero:
                             parents.append([(0, datetime.datetime.fromtimestamp(0))])
                         else:
-                            raise KeyError
+                            raise KeyError from exc
             return parents
         return self.cache.parents_multiple(node_ids, time_stamp=time_stamp)
 
@@ -265,7 +270,7 @@ class ChunkedGraph:
         if flatten:
             if not node_children_d:
                 return types.empty_1d.copy()
-            return np.concatenate([*node_children_d.values()])
+            return np.concatenate(list(node_children_d.values()))
         return node_children_d
 
     def _get_children_multiple(
@@ -308,7 +313,7 @@ class ChunkedGraph:
         return self.cache.atomic_cross_edges_multiple(l2_ids)
 
     def get_cross_chunk_edges(
-        self, node_ids: np.ndarray, uplift=True, all_layers=False
+        self, node_ids: typing.Iterable, uplift=True, all_layers=False
     ) -> typing.Dict[np.uint64, typing.Dict[int, typing.Iterable]]:
         """
         Cross chunk edges for `node_id` at `node_layer`.
@@ -322,13 +327,17 @@ class ChunkedGraph:
         This is because cross edges are stored only in level 2 IDs.
         """
         result = {}
+        node_ids = np.array(node_ids, dtype=basetypes.NODE_ID)
         if not node_ids.size:
             return result
 
         node_l2ids_d = {}
         layers_ = self.get_chunk_layers(node_ids)
+        # with TimeIt(f"_get_bounding_l2_children {node_ids.size}"):
         for l in set(layers_):
-            node_l2ids_d.update(self._bounding_l2_children(node_ids[layers_ == l]))
+            node_l2ids_d.update(
+                self._get_bounding_l2_children(node_ids[layers_ == l])
+            )
         l2_edges_d_d = self.get_atomic_cross_edges(
             np.concatenate(list(node_l2ids_d.values()))
         )
@@ -850,75 +859,78 @@ class ChunkedGraph:
         ).execute()
 
     # PRIVATE
-    def _bounding_l2_children(self, parent_ids: typing.Iterable) -> typing.Dict:
+
+    def _get_bounding_chunk_ids(
+        self,
+        parent_chunk_ids: typing.Iterable,
+        unique: bool = False,
+    ) -> typing.Dict:
         """
-        Helper function to get level 2 children IDs for each parent.
-        `parent_ids` must be node IDs at same layer.
-        TODO what have i done (describe algo)
+        Returns bounding chunk IDs at layers < parent_layer for all chunk IDs.
+        Dict[parent_chunk_id] = np.array(bounding_chunk_ids)
         """
-        from collections import defaultdict
-
-        layers = self.get_chunk_layers(parent_ids)
-        assert np.all(layers == layers[0])
-
-        parents_layer = self.get_chunk_layer(parent_ids[0])
-        chunk_coords = self.get_chunk_coordinates_multiple(parent_ids)
-        parent_coords_d = {
-            node_id: coord for node_id, coord in zip(parent_ids, chunk_coords)
-        }
-
-        parent_bounding_chunk_ids = defaultdict(lambda: types.empty_1d)
-        parent_layer_mask = {}
-        parent_children_d = {
-            parent_id: np.array([parent_id], dtype=basetypes.NODE_ID)
-            for parent_id in parent_ids
-        }
-
-        children_layer = parents_layer - 1
-        while children_layer >= 2:
-            parent_masked_children_d = {}
-            for parent_id, (X, Y, Z) in parent_coords_d.items():
-                coords = chunk_utils.get_bounding_children_chunks(
+        parent_chunk_coords = self.get_chunk_coordinates_multiple(parent_chunk_ids)
+        parents_layer = self.get_chunk_layer(parent_chunk_ids[0])
+        chunk_id_bchunk_ids_d = {}
+        for i, chunk_id in enumerate(parent_chunk_ids):
+            if chunk_id in chunk_id_bchunk_ids_d:
+                # `parent_chunk_ids` can have duplicates
+                # avoid redundant calculations
+                continue
+            parent_coord = parent_chunk_coords[i]
+            chunk_ids = [types.empty_1d]
+            for child_layer in range(2, parents_layer):
+                bcoords = chunk_utils.get_bounding_children_chunks(
                     self.meta,
                     parents_layer,
-                    (X, Y, Z),
-                    children_layer,
+                    parent_coord,
+                    child_layer,
                     return_unique=False,
                 )
-                chunks_ids = chunk_utils.get_chunk_ids_from_coords(
-                    self.meta, children_layer, coords
+                bchunks_ids = chunk_utils.get_chunk_ids_from_coords(
+                    self.meta, child_layer, bcoords
                 )
-                parent_bounding_chunk_ids[parent_id] = chunks_ids
-                children = parent_children_d[parent_id]
-                layer_mask = self.get_chunk_layers(children) > children_layer
-                parent_layer_mask[parent_id] = layer_mask
-                parent_masked_children_d[parent_id] = children[layer_mask]
+                chunk_ids.append(bchunks_ids)
+            chunk_ids = np.concatenate(chunk_ids)
+            if unique:
+                chunk_ids = np.unique(chunk_ids)
+            chunk_id_bchunk_ids_d[chunk_id] = chunk_ids
+        return chunk_id_bchunk_ids_d
 
-            children_ids = np.concatenate(list(parent_masked_children_d.values()))
-            child_grand_children_d = self.get_children(children_ids)
-            for parent_id, masked_children in parent_masked_children_d.items():
-                bounding_chunk_ids = parent_bounding_chunk_ids[parent_id]
-                grand_children = [types.empty_1d]
-                for child in masked_children:
-                    grand_children_ = child_grand_children_d[child]
-                    mask = self.get_chunk_layers(grand_children_) == children_layer
-                    masked_grand_children_ = grand_children_[mask]
-                    chunk_ids = self.get_chunk_ids_from_node_ids(masked_grand_children_)
-                    masked_grand_children_ = masked_grand_children_[
-                        np.in1d(chunk_ids, bounding_chunk_ids)
-                    ]
-                    grand_children_ = np.concatenate(
-                        [masked_grand_children_, grand_children_[~mask]]
-                    )
-                    grand_children.append(grand_children_)
-                grand_children = np.concatenate(grand_children)
-                unmasked_children = parent_children_d[parent_id]
-                layer_mask = parent_layer_mask[parent_id]
-                parent_children_d[parent_id] = np.concatenate(
-                    [unmasked_children[~layer_mask], grand_children]
-                )
-            children_layer -= 1
-        return parent_children_d
+    def _get_bounding_l2_children(self, parents: typing.Iterable) -> typing.Dict:
+        parent_chunk_ids = self.get_chunk_ids_from_node_ids(parents)
+        chunk_id_bchunk_ids_d = self._get_bounding_chunk_ids(
+            parent_chunk_ids, unique=len(parents) >= 200
+        )
+
+        parent_descendants_d = {
+            _id: np.array([_id], dtype=basetypes.NODE_ID) for _id in parents
+        }
+        descendants_all = np.concatenate(list(parent_descendants_d.values()))
+        descendants_layers = self.get_chunk_layers(descendants_all)
+        layer_mask = descendants_layers > 2
+        descendants_all = descendants_all[layer_mask]
+
+        while descendants_all.size:
+            descendant_children_d = self.get_children(descendants_all)
+            for i, parent_id in enumerate(parents):
+                _descendants = parent_descendants_d[parent_id]
+                _layers = self.get_chunk_layers(_descendants)
+                _l2mask = _layers == 2
+                descendants = [_descendants[_l2mask]]
+                for child in _descendants[~_l2mask]:
+                    descendants.append(descendant_children_d[child])
+                descendants = np.concatenate(descendants)
+                chunk_ids = self.get_chunk_ids_from_node_ids(descendants)
+                bchunk_ids = chunk_id_bchunk_ids_d[parent_chunk_ids[i]]
+                bounding_descendants = descendants[np.in1d(chunk_ids, bchunk_ids)]
+                parent_descendants_d[parent_id] = bounding_descendants
+
+            descendants_all = np.concatenate(list(parent_descendants_d.values()))
+            descendants_layers = self.get_chunk_layers(descendants_all)
+            layer_mask = descendants_layers > 2
+            descendants_all = descendants_all[layer_mask]
+        return parent_descendants_d
 
     # HELPERS / WRAPPERS
 
@@ -960,6 +972,8 @@ class ChunkedGraph:
 
     def get_chunk_coordinates_multiple(self, node_or_chunk_ids: typing.Sequence):
         node_or_chunk_ids = np.array(node_or_chunk_ids, dtype=basetypes.NODE_ID)
+        layers = self.get_chunk_layers(node_or_chunk_ids)
+        assert np.all(layers == layers[0]), "All IDs must have the same layer."
         return chunk_utils.get_chunk_coordinates_multiple(self.meta, node_or_chunk_ids)
 
     def get_chunk_id(

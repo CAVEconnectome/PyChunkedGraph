@@ -1,4 +1,5 @@
 from typing import Union
+from typing import Tuple
 
 import numpy as np
 
@@ -13,9 +14,33 @@ USER_ID = "debug"
 
 
 def _parse_merge_payload(
-    cg: ChunkedGraph, user_id: str, payload: dict
+    cg: ChunkedGraph, user_id: str, payload: list
 ) -> MergeOperation:
-    pass
+
+    node_ids = []
+    coords = []
+    for node in payload:
+        node_ids.append(node[0])
+        coords.append(np.array(node[1:]) / cg.segmentation_resolution)
+
+    atomic_edge = handle_supervoxel_id_lookup(cg, coords, node_ids)
+    chunk_coord_delta = cg.get_chunk_coordinates(
+        atomic_edge[0]
+    ) - cg.get_chunk_coordinates(atomic_edge[1])
+    if np.any(np.abs(chunk_coord_delta) > 3):
+        raise ValueError("Chebyshev distance exceeded allowed maximum.")
+
+    return (
+        node_ids,
+        atomic_edge,
+        MergeOperation(
+            cg,
+            user_id=user_id,
+            added_edges=np.array(atomic_edge, dtype=np.uint64),
+            source_coords=coords[:1],
+            sink_coords=coords[1:],
+        ),
+    )
 
 
 def _parse_split_payload(
@@ -46,28 +71,33 @@ def _parse_split_payload(
     sink_coords = coords[node_idents == 1]
 
     bb_offset = (240, 240, 24)
-    return MulticutOperation(
-        cg,
-        user_id=user_id,
-        source_ids=source_ids,
-        sink_ids=sink_ids,
-        source_coords=source_coords,
-        sink_coords=sink_coords,
-        bbox_offset=bb_offset,
-        path_augment=True,
-        disallow_isolating_cut=True,
+    return (
+        source_ids,
+        sink_ids,
+        MulticutOperation(
+            cg,
+            user_id=user_id,
+            source_ids=source_ids,
+            sink_ids=sink_ids,
+            source_coords=source_coords,
+            sink_coords=sink_coords,
+            bbox_offset=bb_offset,
+            path_augment=True,
+            disallow_isolating_cut=True,
+        ),
     )
 
 
 def get_operation_from_request_payload(
     cg: ChunkedGraph,
-    payload: dict,
+    payload: Union[list, dict],
     split: bool,
     *,
     mincut: bool = True,
     user_id: str = None,
-) -> GraphEditOperation:
+) -> Tuple[np.ndarray, np.ndarray, GraphEditOperation]:
     if user_id is None:
         user_id = USER_ID
     if split:
         return _parse_split_payload(cg, user_id, payload, mincut=mincut)
+    return _parse_merge_payload(cg, user_id, payload)

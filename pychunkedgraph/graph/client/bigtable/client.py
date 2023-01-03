@@ -4,11 +4,9 @@ import typing
 import logging
 import datetime
 from datetime import datetime
-from datetime import timedelta
 
 import numpy as np
 from multiwrapper import multiprocessing_utils as mu
-from google.auth import credentials
 from google.cloud import bigtable
 from google.api_core.retry import Retry
 from google.api_core.retry import if_exception_type
@@ -34,7 +32,6 @@ from ...utils.serializers import serialize_uint64
 from ...utils.serializers import deserialize_uint64
 from ...meta import ChunkedGraphMeta
 from ...utils.generic import get_valid_timestamp
-from ....ingest import IngestConfig
 
 
 class Client(bigtable.Client, ClientWithIDGen, OperationLogger):
@@ -69,20 +66,38 @@ class Client(bigtable.Client, ClientWithIDGen, OperationLogger):
             sh.setLevel(logging.WARNING)
             self.logger.addHandler(sh)
         self._graph_meta = graph_meta
+        self._version = None
         self._max_row_key_count = config.MAX_ROW_KEY_COUNT
 
     @property
     def graph_meta(self):
         return self._graph_meta
 
-    # BASE
-    def create_graph(self, meta: ChunkedGraphMeta) -> None:
+    def create_graph(self, meta: ChunkedGraphMeta, version: str) -> None:
         """Initialize the graph and store associated meta."""
-        if not meta.graph_config.OVERWRITE and self._table.exists():
+        if self._table.exists():
             ValueError(f"{self._table.table_id} already exists.")
         self._table.create()
         self._create_column_families()
+        self.add_graph_version(version)
         self.update_graph_meta(meta)
+
+    def add_graph_version(self, version: str):
+        assert self.read_graph_version() is None, "Graph has already been versioned."
+        self._version = version
+        row = self.mutate_row(
+            attributes.GraphVersion.key,
+            {attributes.GraphVersion.Version: version},
+        )
+        self.write([row])
+
+    def read_graph_version(self) -> str:
+        try:
+            row = self._read_byte_row(attributes.GraphVersion.key)
+            self._version = row[attributes.GraphVersion.Version][0].value
+            return self._version
+        except KeyError:
+            return None
 
     def update_graph_meta(self, meta: ChunkedGraphMeta):
         self._graph_meta = meta
@@ -114,6 +129,10 @@ class Client(bigtable.Client, ClientWithIDGen, OperationLogger):
         Read nodes and their properties.
         Accepts a range of node IDs or specific node IDs.
         """
+        if node_ids is not None and len(node_ids) > self._max_row_key_count:
+            # bigtable reading is faster
+            # when all IDs in a block are within a range
+            node_ids = np.sort(node_ids)
         rows = self._read_byte_rows(
             start_key=serialize_uint64(start_id, fake_edges=fake_edges)
             if start_id is not None
@@ -564,7 +583,7 @@ class Client(bigtable.Client, ClientWithIDGen, OperationLogger):
     ) -> basetypes.NODE_ID:
         """Gets the current maximum segment ID in the chunk."""
         if root_chunk:
-            n_counters = np.uint64(2 ** 8)
+            n_counters = np.uint64(2**8)
             max_value = 0
             for counter in range(n_counters):
                 row = self._read_byte_row(
@@ -623,7 +642,7 @@ class Client(bigtable.Client, ClientWithIDGen, OperationLogger):
         self, chunk_id: basetypes.CHUNK_ID, size: int = 1, counter: int = None
     ) -> np.ndarray:
         """Return unique segment ID for the root chunk."""
-        n_counters = np.uint64(2 ** 8)
+        n_counters = np.uint64(2**8)
         counter = (
             np.uint64(counter % n_counters)
             if counter
@@ -697,8 +716,7 @@ class Client(bigtable.Client, ClientWithIDGen, OperationLogger):
         # Create filters: Rows
         row_set = RowSet()
         if row_keys is not None:
-            for row_key in row_keys:
-                row_set.add_row_key(row_key)
+            row_set.row_keys = list(row_keys)
         elif start_key is not None and end_key is not None:
             row_set.add_row_range_from_keys(
                 start_key=start_key,
@@ -796,7 +814,7 @@ class Client(bigtable.Client, ClientWithIDGen, OperationLogger):
     def _read(
         self, row_set: RowSet, row_filter: RowFilter = None
     ) -> typing.Dict[
-        bytes, typing.Dict[attributes._Attribute, bigtable.row_data.PartialRowData]
+        bytes, typing.Dict[attributes._Attribute, PartialRowData]
     ]:
         """Core function to read rows from Bigtable. Uses standard Bigtable retry logic
         :param row_set: BigTable RowSet
