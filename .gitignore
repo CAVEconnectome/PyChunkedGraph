@@ -119,3 +119,4 @@ venv.bak/
 *.ipynb
 *.rdb
 /protobuf*
+.DS_Store
