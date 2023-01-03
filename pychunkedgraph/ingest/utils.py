@@ -49,6 +49,10 @@ def postprocess_edge_data(im, edge_dict):
     elif data_version in [3, 4]:
         new_edge_dict = {}
         for k in edge_dict:
+            new_edge_dict[k] = {}
+            if edge_dict[k] is None or len(edge_dict[k]) == 0:
+                continue
+
             areas = (
                 edge_dict[k]["area_x"] * im.cg_meta.resolution[0]
                 + edge_dict[k]["area_y"] * im.cg_meta.resolution[1]
@@ -61,7 +65,6 @@ def postprocess_edge_data(im, edge_dict):
                 + edge_dict[k]["aff_z"] * im.cg_meta.resolution[2]
             )
 
-            new_edge_dict[k] = {}
             new_edge_dict[k]["sv1"] = edge_dict[k]["sv1"]
             new_edge_dict[k]["sv2"] = edge_dict[k]["sv2"]
             new_edge_dict[k]["area"] = areas
