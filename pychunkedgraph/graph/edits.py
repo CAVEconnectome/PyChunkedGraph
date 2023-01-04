@@ -421,7 +421,25 @@ class CreateParentNodes:
             # if there is a missing parent, try including lower layer ids
             # this can happen due to skip connections
             
+            # we want to map all these lower IDs to the current layer
             lower_layer_to_layer = self.cg.get_roots(lower_layer_ids, stop_layer=layer)
+            # however due to skip connections, this mapping might end up above this layer
+            chunk_layers = self.cg.get_chunk_layers(lower_layer_to_layer)
+            temp_layer = layer
+            
+            # we need to keep trying to do get roots to lower layers
+            # until we have mapped them all to lower layers
+            # hopefully this while loop will only go once
+            while not np.all(chunk_layers<=layer):
+                temp_layer-=1
+                if temp_layer<2:
+                    raise ValueError('should not skip from 1')
+                over_layers = chunk_layers>layer
+                lower_layer_to_layer[over_layers]=self.cg.get_roots(lower_layer_ids[over_layers], 
+                                                                    stop_layer=temp_layer)
+                chunk_layers[over_layers] = self.cg.get_chunk_layers(lower_layer_to_layer[over_layers])
+
+
             node_map = {k:v for k,v in zip(lower_layer_ids,lower_layer_to_layer)}
             sv_parent_d, sv_cross_edges = self._map_sv_to_parent(_node_ids, layer, node_map=node_map)
             get_sv_parents = np.vectorize(sv_parent_d.get, otypes=[np.uint64])
