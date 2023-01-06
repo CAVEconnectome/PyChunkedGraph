@@ -615,7 +615,7 @@ class MergeOperation(GraphEditOperation):
             )
 
         with TimeIt("edits.add_edges"):
-            atomic_edges, rows = edits.check_fake_edges(
+            atomic_edges, fake_edge_rows = edits.check_fake_edges(
                 self.cg,
                 atomic_edges=self.added_edges,
                 inactive_edges=inactive_edges,
@@ -629,7 +629,7 @@ class MergeOperation(GraphEditOperation):
                 time_stamp=timestamp,
                 parent_ts=self.parent_ts,
             )
-            return new_roots, new_l2_ids, rows + new_entries
+            return new_roots, new_l2_ids, fake_edge_rows + new_entries
 
     def _create_log_record(
         self,
