@@ -622,14 +622,14 @@ class MergeOperation(GraphEditOperation):
                 time_stamp=timestamp,
                 parent_ts=self.parent_ts,
             )
-            return edits.add_edges(
+            new_roots, new_l2_ids, new_entries = edits.add_edges(
                 self.cg,
                 atomic_edges=atomic_edges,
                 operation_id=operation_id,
                 time_stamp=timestamp,
                 parent_ts=self.parent_ts,
-                rows=rows,
             )
+            return new_roots, new_l2_ids, rows + new_entries
 
     def _create_log_record(
         self,

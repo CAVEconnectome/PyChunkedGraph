@@ -180,15 +180,11 @@ def add_edges(
     operation_id: np.uint64 = None,
     time_stamp: datetime.datetime = None,
     parent_ts: datetime.datetime = None,
-    rows: Iterable = None,
     allow_same_segment_merge=False,
 ):
     from .edges.utils import concatenate_cross_edge_dicts
     from .edges.utils import merge_cross_edge_dicts
 
-    # TODO add docs
-    if rows == None:
-        rows = []
     edges, l2_atomic_cross_edges_d = _analyze_affected_edges(
         cg, atomic_edges, parent_ts=parent_ts
     )
@@ -420,7 +416,7 @@ class CreateParentNodes:
         except TypeError:  # NoneType error
             # if there is a missing parent, try including lower layer ids
             # this can happen due to skip connections
-            
+
             # we want to map all these lower IDs to the current layer
             lower_layer_to_layer = self.cg.get_roots(lower_layer_ids, stop_layer=layer, ceil=False)
             node_map = {k:v for k,v in zip(lower_layer_ids,lower_layer_to_layer)}
