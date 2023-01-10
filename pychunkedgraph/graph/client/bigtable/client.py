@@ -99,7 +99,15 @@ class Client(bigtable.Client, ClientWithIDGen, OperationLogger):
         except KeyError:
             return None
 
+    def _delete_meta(self):
+        # temprorary fix, use new column with GCRule for permanent fix
+        # delete existing meta before update, but compatibilty issues
+        meta_row = self._table.direct_row(attributes.GraphMeta.key)
+        meta_row.delete()
+        meta_row.commit()
+
     def update_graph_meta(self, meta: ChunkedGraphMeta):
+        self._delete_meta()
         self._graph_meta = meta
         row = self.mutate_row(
             attributes.GraphMeta.key,
