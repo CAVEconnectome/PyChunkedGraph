@@ -37,6 +37,38 @@ REDIS_PASSWORD = os.environ.get("REDIS_PASSWORD", "dev")
 REDIS_URL = f"redis://:{REDIS_PASSWORD}@{REDIS_HOST}:{REDIS_PORT}/0"
 
 
+def simplify(cg, new_fragment, new_fragment_id: np.uint64 = None):
+    """
+    Simplify with pyfqmr; input and output flat vertices and faces.
+    """
+
+    v = new_fragment["vertices"].reshape(-1, 3)
+    f = new_fragment["faces"].reshape(-1, 3)
+
+    l2factor = int(os.environ.get("l2factor", "2"))
+    factor = int(os.environ.get("factor", "4"))
+    aggressiveness = float(os.environ.get("aggr", "7.0"))
+
+    layer = cg.get_chunk_layer(new_fragment_id)
+    if layer == 2:
+        target_count = max(int(len(f) / l2factor), 4)
+    else:
+        target_count = max(int(len(f) / factor), 4)
+
+    simplifier = pyfqmr.Simplify()
+    simplifier.setMesh(v, f)
+    simplifier.simplify_mesh(
+        target_count=target_count,
+        aggressiveness=aggressiveness,
+        preserve_border=True,
+        verbose=False,
+    )
+    v, f, _ = simplifier.getMesh()
+    new_fragment["vertices"] = v.flatten()
+    new_fragment["faces"] = f.flatten()
+    return new_fragment
+
+
 def decode_draco_mesh_buffer(fragment):
     try:
         mesh_object = DracoPy.decode_buffer_to_mesh(fragment)
