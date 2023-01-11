@@ -74,4 +74,7 @@ def add_fake_edges(
     cg = ChunkedGraph(graph_id=graph_id)
     logs = cg.client.read_log_entries(start_time=start_time, end_time=end_time)
     for _id, _log in logs.items():
-        _add_fake_edges(cg, _id, _log)
+        try:
+            _add_fake_edges(cg, _id, _log)
+        except AssertionError:
+            ...
