@@ -106,8 +106,9 @@ class Client(bigtable.Client, ClientWithIDGen, OperationLogger):
         meta_row.delete()
         meta_row.commit()
 
-    def update_graph_meta(self, meta: ChunkedGraphMeta):
-        self._delete_meta()
+    def update_graph_meta(self, meta: ChunkedGraphMeta, overwrite:typing.Optional[bool] = False):
+        if overwrite:
+            self._delete_meta()
         self._graph_meta = meta
         row = self.mutate_row(
             attributes.GraphMeta.key,
