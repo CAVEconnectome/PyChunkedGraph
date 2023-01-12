@@ -20,12 +20,13 @@ from pychunkedgraph.graph.operation import MergeOperation
 from pychunkedgraph.graph.utils.generic import get_bounding_box as get_bbox
 
 
-def _add_fake_edges(cg: ChunkedGraph, operation_id: int, operation_log: dict):
+def _add_fake_edges(cg: ChunkedGraph, operation_id: int, operation_log: dict) -> bool:
     operation = GraphEditOperation.from_operation_id(
         cg, operation_id, multicut_as_split=False
     )
 
-    assert isinstance(operation, MergeOperation), f"{operation_id} is not a merge."
+    if not isinstance(operation, MergeOperation):
+        return False
 
     ts = operation_log["timestamp"]
     parent_ts = ts - timedelta(seconds=0.1)
@@ -74,7 +75,4 @@ def add_fake_edges(
     cg = ChunkedGraph(graph_id=graph_id)
     logs = cg.client.read_log_entries(start_time=start_time, end_time=end_time)
     for _id, _log in logs.items():
-        try:
-            _add_fake_edges(cg, _id, _log)
-        except AssertionError:
-            ...
+        _add_fake_edges(cg, _id, _log)

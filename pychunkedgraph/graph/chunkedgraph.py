@@ -96,9 +96,9 @@ class ChunkedGraph:
         """Creates the graph in storage client and stores meta."""
         self._client.create_graph(self._meta, version=__version__)
 
-    def update_meta(self, meta: ChunkedGraphMeta):
+    def update_meta(self, meta: ChunkedGraphMeta, overwrite: bool):
         """Update meta of an already existing graph."""
-        self.client.update_graph_meta(meta)
+        self.client.update_graph_meta(meta, overwrite=overwrite)
 
     def range_read_chunk(
         self,
@@ -335,9 +335,7 @@ class ChunkedGraph:
         layers_ = self.get_chunk_layers(node_ids)
         # with TimeIt(f"_get_bounding_l2_children {node_ids.size}"):
         for l in set(layers_):
-            node_l2ids_d.update(
-                self._get_bounding_l2_children(node_ids[layers_ == l])
-            )
+            node_l2ids_d.update(self._get_bounding_l2_children(node_ids[layers_ == l]))
         l2_edges_d_d = self.get_atomic_cross_edges(
             np.concatenate(list(node_l2ids_d.values()))
         )
