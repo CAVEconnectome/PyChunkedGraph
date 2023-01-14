@@ -665,8 +665,7 @@ class ChunkedGraph:
         # TODO find a better way to test
         edges_d = {}
         if self.mock_edges is None:
-            with TimeIt(f"reading {len(chunk_ids)} chunks"):
-                edges_d = self.read_chunk_edges(chunk_ids)
+            edges_d = self.read_chunk_edges(chunk_ids)
 
         fake_edges = self.get_fake_edges(chunk_ids)
         all_chunk_edges = reduce(

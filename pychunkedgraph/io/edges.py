@@ -15,7 +15,6 @@ from .protobuf.chunkEdges_pb2 import ChunkEdgesMsg
 from ..graph.edges import Edges
 from ..graph.edges import EDGE_TYPES
 from ..graph.utils import basetypes
-from ..graph.utils.context_managers import TimeIt
 from ..graph.edges.utils import concatenate_chunk_edges
 
 
@@ -59,16 +58,14 @@ def get_chunk_edges(edges_dir: str, chunks_coordinates: List[np.ndarray]) -> Dic
         # filename format - edges_x_y_z.serialization.compression
         fnames.append(f"edges_{chunk_str}.proto.zst")
 
-    with TimeIt("cloud files get"):
-        cf = CloudFiles(edges_dir)
-        files = cf.get(fnames, raw=True)
+    cf = CloudFiles(edges_dir)
+    files = cf.get(fnames, raw=True)
 
     edges = []
-    with TimeIt("_decompress_edges"):
-        for f in files:
-            if not f["content"]:
-                continue
-            edges.append(_decompress_edges(f["content"]))
+    for f in files:
+        if not f["content"]:
+            continue
+        edges.append(_decompress_edges(f["content"]))
     return concatenate_chunk_edges(edges)
 
 

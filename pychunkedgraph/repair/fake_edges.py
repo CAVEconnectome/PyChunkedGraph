@@ -4,14 +4,18 @@
 Replay merge operations to check if fake edges need to be added.
 """
 
+import asyncio
 from datetime import datetime
 from datetime import timedelta
 from os import environ
 from typing import Optional
 
-environ["BIGTABLE_PROJECT"] = "<>"
-environ["BIGTABLE_INSTANCE"] = "<>"
-environ["GOOGLE_APPLICATION_CREDENTIALS"] = "<path>"
+# environ["BIGTABLE_PROJECT"] = "<>"
+# environ["BIGTABLE_INSTANCE"] = "<>"
+# environ["GOOGLE_APPLICATION_CREDENTIALS"] = "<path>"
+
+import pandas as pd
+from google.api_core.exceptions import ServiceUnavailable
 
 from pychunkedgraph.graph import edits
 from pychunkedgraph.graph import ChunkedGraph
@@ -25,12 +29,13 @@ def _add_fake_edges(cg: ChunkedGraph, operation_id: int, operation_log: dict) ->
         cg, operation_id, multicut_as_split=False
     )
 
+    result = {}
     if not isinstance(operation, MergeOperation):
-        return False
+        return result
 
     ts = operation_log["timestamp"]
     parent_ts = ts - timedelta(seconds=0.1)
-    override_ts = (ts + timedelta(microseconds=(ts.microsecond % 1000) + 10),)
+    override_ts = ts + timedelta(microseconds=(ts.microsecond % 1000) + 10)
 
     root_ids = set(
         cg.get_roots(
@@ -55,7 +60,7 @@ def _add_fake_edges(cg: ChunkedGraph, operation_id: int, operation_log: dict) ->
         parent_ts=parent_ts,
     )
 
-    _, fake_edge_rows = edits.check_fake_edges(
+    edges, fake_edge_rows = edits.check_fake_edges(
         cg,
         atomic_edges=operation.added_edges,
         inactive_edges=inactive_edges,
@@ -63,16 +68,41 @@ def _add_fake_edges(cg: ChunkedGraph, operation_id: int, operation_log: dict) ->
         parent_ts=parent_ts,
     )
 
-    cg.client.write(fake_edge_rows)
-    return len(fake_edge_rows) > 0
+    if len(fake_edge_rows) == 0:
+        return {}
+
+    # cg.client.write(fake_edge_rows)
+    result["operation_id"] = operation_id
+    result["operation_ts"] = ts
+    result["fake_edges"] = edges
+    return result
 
 
-def add_fake_edges(
+async def wrapper(cg, operation_id, operation_log):
+    result = {}
+    try:
+        result = _add_fake_edges(cg, operation_id, operation_log)
+    except (AssertionError, ServiceUnavailable) as exc:
+        print(f"{operation_id}: {exc}")
+    return result
+
+
+async def add_fake_edges(
     graph_id: str,
     start_time: Optional[datetime] = None,
     end_time: Optional[datetime] = None,
 ):
     cg = ChunkedGraph(graph_id=graph_id)
     logs = cg.client.read_log_entries(start_time=start_time, end_time=end_time)
+    print(f"total logs: {len(logs)}")
+    retries = []
     for _id, _log in logs.items():
-        _add_fake_edges(cg, _id, _log)
+        retries.append(wrapper(cg, _id, _log))
+
+    results = await asyncio.gather(*retries)
+    result = []
+    for item in results:
+        if not item:
+            continue
+        result.append(item)
+    return result
