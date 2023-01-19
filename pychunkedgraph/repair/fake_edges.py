@@ -8,7 +8,9 @@ import asyncio
 from datetime import datetime
 from datetime import timedelta
 from os import environ
+import multiprocessing as mp
 from typing import Optional
+
 
 # environ["BIGTABLE_PROJECT"] = "<>"
 # environ["BIGTABLE_INSTANCE"] = "<>"
@@ -16,6 +18,7 @@ from typing import Optional
 
 import pandas as pd
 from google.api_core.exceptions import ServiceUnavailable
+from multiwrapper import multiprocessing_utils as mu
 
 from pychunkedgraph.graph import edits
 from pychunkedgraph.graph import ChunkedGraph
@@ -24,7 +27,7 @@ from pychunkedgraph.graph.operation import MergeOperation
 from pychunkedgraph.graph.utils.generic import get_bounding_box as get_bbox
 
 
-def _add_fake_edges(cg: ChunkedGraph, operation_id: int, operation_log: dict) -> bool:
+def _add_fake_edges(cg: ChunkedGraph, operation_id: int, timestamp) -> bool:
     operation = GraphEditOperation.from_operation_id(
         cg, operation_id, multicut_as_split=False
     )
@@ -33,9 +36,10 @@ def _add_fake_edges(cg: ChunkedGraph, operation_id: int, operation_log: dict) ->
     if not isinstance(operation, MergeOperation):
         return result
 
-    ts = operation_log["timestamp"]
-    parent_ts = ts - timedelta(seconds=0.1)
-    override_ts = ts + timedelta(microseconds=(ts.microsecond % 1000) + 10)
+    parent_ts = timestamp - timedelta(seconds=0.1)
+    override_ts = timestamp + timedelta(
+        microseconds=(timestamp.microsecond % 1000) + 10
+    )
 
     root_ids = set(
         cg.get_roots(
@@ -71,23 +75,39 @@ def _add_fake_edges(cg: ChunkedGraph, operation_id: int, operation_log: dict) ->
     if len(fake_edge_rows) == 0:
         return {}
 
-    # cg.client.write(fake_edge_rows)
+    cg.client.write(fake_edge_rows)
     result["operation_id"] = operation_id
-    result["operation_ts"] = ts
+    result["operation_ts"] = timestamp
     result["fake_edges"] = edges
     return result
 
 
-async def wrapper(cg, operation_id, operation_log):
+def wrapper(args):
+    graph_id, logs, timestamps = args
+    results = []
+    cg = ChunkedGraph(graph_id=graph_id)
+
+    for log, timestamp in zip(logs, timestamps):
+        result = {}
+        try:
+            result = _add_fake_edges(cg, log, timestamp)
+        except (AssertionError, ServiceUnavailable) as exc:
+            print(f"{log}: {exc}")
+        if result:
+            results.append(result)
+    return results
+
+
+async def wrapper_async(cg, operation_id, timestamp):
     result = {}
     try:
-        result = _add_fake_edges(cg, operation_id, operation_log)
+        result = _add_fake_edges(cg, operation_id, timestamp)
     except (AssertionError, ServiceUnavailable) as exc:
         print(f"{operation_id}: {exc}")
     return result
 
 
-async def add_fake_edges(
+async def add_fake_edges_async(
     graph_id: str,
     start_time: Optional[datetime] = None,
     end_time: Optional[datetime] = None,
@@ -97,7 +117,7 @@ async def add_fake_edges(
     print(f"total logs: {len(logs)}")
     retries = []
     for _id, _log in logs.items():
-        retries.append(wrapper(cg, _id, _log))
+        retries.append(wrapper_async(cg, _id, _log["timestamp"]))
 
     results = await asyncio.gather(*retries)
     result = []
@@ -106,3 +126,34 @@ async def add_fake_edges(
             continue
         result.append(item)
     return result
+
+
+def add_fake_edges(
+    graph_id: str,
+    start_time: Optional[datetime] = None,
+    end_time: Optional[datetime] = None,
+):
+    cg = ChunkedGraph(graph_id=graph_id)
+    logs = cg.client.read_log_entries(start_time=start_time, end_time=end_time)
+
+    operations_ids = list(logs.keys())
+    batch_size = len(operations_ids) // mp.cpu_count()
+
+    start = 0
+    multi_args = []
+    for _ in range(mp.cpu_count()):
+        batch = operations_ids[start : start + batch_size]
+        start += batch_size
+        timestamps = [logs[i]["timestamp"] for i in batch]
+        multi_args.append((graph_id, batch, timestamps))
+
+    print(f"total: {len(operations_ids)}")
+    print(f"cpu count: {mp.cpu_count()}")
+    print(f"batch_size: {batch_size}")
+
+    results = mu.multiprocess_func(wrapper, multi_args)
+
+    results_flat = []
+    for result in results:
+        results_flat.extend(result)
+    return results_flat
