@@ -137,7 +137,7 @@ def add_fake_edges(
     logs = cg.client.read_log_entries(start_time=start_time, end_time=end_time)
 
     operations_ids = list(logs.keys())
-    batch_size = len(operations_ids) // mp.cpu_count()
+    batch_size = len(operations_ids) // mp.cpu_count() + 1
 
     start = 0
     multi_args = []
