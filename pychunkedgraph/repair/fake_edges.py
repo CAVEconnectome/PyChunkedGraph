@@ -27,7 +27,7 @@ from pychunkedgraph.graph.operation import MergeOperation
 from pychunkedgraph.graph.utils.generic import get_bounding_box as get_bbox
 
 
-def _add_fake_edges(cg: ChunkedGraph, operation_id: int, timestamp) -> bool:
+def add_fake_edges_single(cg: ChunkedGraph, operation_id: int, timestamp) -> bool:
     operation = GraphEditOperation.from_operation_id(
         cg, operation_id, multicut_as_split=False
     )
@@ -90,42 +90,12 @@ def wrapper(args):
     for log, timestamp in zip(logs, timestamps):
         result = {}
         try:
-            result = _add_fake_edges(cg, log, timestamp)
+            result = add_fake_edges_single(cg, log, timestamp)
         except (AssertionError, ServiceUnavailable) as exc:
             print(f"{log}: {exc}")
         if result:
             results.append(result)
     return results
-
-
-async def wrapper_async(cg, operation_id, timestamp):
-    result = {}
-    try:
-        result = _add_fake_edges(cg, operation_id, timestamp)
-    except (AssertionError, ServiceUnavailable) as exc:
-        print(f"{operation_id}: {exc}")
-    return result
-
-
-async def add_fake_edges_async(
-    graph_id: str,
-    start_time: Optional[datetime] = None,
-    end_time: Optional[datetime] = None,
-):
-    cg = ChunkedGraph(graph_id=graph_id)
-    logs = cg.client.read_log_entries(start_time=start_time, end_time=end_time)
-    print(f"total logs: {len(logs)}")
-    retries = []
-    for _id, _log in logs.items():
-        retries.append(wrapper_async(cg, _id, _log["timestamp"]))
-
-    results = await asyncio.gather(*retries)
-    result = []
-    for item in results:
-        if not item:
-            continue
-        result.append(item)
-    return result
 
 
 def add_fake_edges(
