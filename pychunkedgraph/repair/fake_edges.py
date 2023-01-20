@@ -4,19 +4,12 @@
 Replay merge operations to check if fake edges need to be added.
 """
 
-import asyncio
 from datetime import datetime
 from datetime import timedelta
-from os import environ
 import multiprocessing as mp
 from typing import Optional
 
 
-# environ["BIGTABLE_PROJECT"] = "<>"
-# environ["BIGTABLE_INSTANCE"] = "<>"
-# environ["GOOGLE_APPLICATION_CREDENTIALS"] = "<path>"
-
-import pandas as pd
 from google.api_core.exceptions import ServiceUnavailable
 from multiwrapper import multiprocessing_utils as mu
 
