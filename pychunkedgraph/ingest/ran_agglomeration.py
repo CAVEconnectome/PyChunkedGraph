@@ -223,7 +223,6 @@ def _collect_edge_data(imanager: IngestionManager, chunk_coord):
     edge_dtype = cg_meta.edge_dtype
     subfolder = "chunked_rg"
     path = f"{imanager.config.AGGLOMERATION}/{subfolder}/"
-    path = imanager.config.AGGLOMERATION
     chunk_coord = np.array(chunk_coord)
     x, y, z = chunk_coord
     chunk_id = get_chunk_id(cg_meta, layer=1, x=x, y=y, z=z)
