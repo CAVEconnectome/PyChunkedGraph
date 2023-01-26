@@ -119,7 +119,10 @@ def _get_index(cf: CloudFiles, filenames: Iterable[str], inchunk_or_agg: bool) -
     headers = cf.get(finfos, raw=True)
     index_infos = []
     for header in headers:
-        content = header["content"][VERSION_LEN:]
+        content = header["content"]
+        if content is None:
+            continue
+        content = content[VERSION_LEN:]
         idx_offset, idx_length = np.frombuffer(content, dtype=np.uint64)
         index_info = {
             "path": header["path"],
@@ -394,13 +397,15 @@ def read_raw_agglomeration_data(imanager: IngestionManager, chunk_coord: np.ndar
 
 
 def _read_agg_files(filenames, chunk_ids, path):
-
     cf = CloudFiles(path)
     finfos = []
     files_index = _get_index(cf, set(filenames), inchunk_or_agg=True)
 
     for fname, chunk_id in zip(filenames, chunk_ids):
-        index = files_index[fname]
+        try:
+            index = files_index[fname]
+        except KeyError:
+            continue
         for chunk in index:
             if chunk["chunkid"] == chunk_id:
                 finfo = {"path": fname}
