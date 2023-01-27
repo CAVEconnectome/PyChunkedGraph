@@ -1161,9 +1161,6 @@ def handle_is_latest_roots(table_id, is_binary):
     # Call ChunkedGraph
     cg = app_utils.get_cg(table_id)
 
-    if not np.all(cg.get_chunk_layers(node_ids) == cg.n_layers):
-        raise cg_exceptions.BadRequest("Some ids are not root ids.")
-
     return cg.is_latest_roots(node_ids, time_stamp=timestamp)
 
 
