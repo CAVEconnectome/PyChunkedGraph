@@ -1,5 +1,6 @@
+# pylint: disable=invalid-name, missing-function-docstring
 """
-"plugin" to read agglomeration data provided by Ran Lu
+plugin to read agglomeration data provided by Ran Lu
 """
 
 from collections import defaultdict
@@ -24,11 +25,13 @@ from ..io.components import put_chunk_components
 from ..graph.utils import basetypes
 from ..graph.edges import Edges
 from ..graph.edges import EDGE_TYPES
+from ..graph.types import empty_2d
 from ..graph.chunks.utils import get_chunk_id
 
 # see section below for description
-CRC_LENGTH = 4
-HEADER_LENGTH = 20
+CRC_LEN = 4
+VERSION_LEN = 4
+HEADER_LEN = 20
 
 """
 Agglomeration data is now sharded.
@@ -105,27 +108,58 @@ def _get_cont_chunk_coords(imanager, chunk_coord_a, chunk_coord_b):
     return c_chunk_coords
 
 
-def _get_index(raw_data, in_chunk_or_agg_file=True):
-    header = raw_data[:HEADER_LENGTH]
-    idx_offset, idx_length = np.frombuffer(header[4:], dtype=np.uint64)
-    idx_content = raw_data[int(idx_offset) : int(idx_offset + idx_length)]
-    assert np.frombuffer(idx_content[-CRC_LENGTH:], dtype=np.uint32)[0] == crc32(
-        idx_content[:-CRC_LENGTH]
-    )
-    idx_content = idx_content[:-CRC_LENGTH]
+def _get_index(cf: CloudFiles, filenames: Iterable[str], inchunk_or_agg: bool) -> dict:
+    header_range = {"start": 0, "end": HEADER_LEN}
+    finfos = []
+    for fname in filenames:
+        finfo = {"path": fname}
+        finfo.update(header_range)
+        finfos.append(finfo)
 
-    dt = np.dtype([("chunkid", "u8"), ("offset", "u8"), ("size", "u8")])
-    if in_chunk_or_agg_file is False:
-        dt = np.dtype([("chunkid", "2u8"), ("offset", "u8"), ("size", "u8")])
-    index_data = np.frombuffer(idx_content, dtype=dt)
-    return index_data
+    headers = cf.get(finfos, raw=True)
+    index_infos = []
+    for header in headers:
+        content = header["content"]
+        if content is None:
+            continue
+        content = content[VERSION_LEN:]
+        idx_offset, idx_length = np.frombuffer(content, dtype=np.uint64)
+        index_info = {
+            "path": header["path"],
+            "start": idx_offset,
+            "end": idx_offset + idx_length,
+        }
+        index_infos.append(index_info)
+
+    files_index = {}
+    index_datas = cf.get(index_infos, raw=True)
+    for index_data in index_datas:
+        content = index_data["content"]
+        index, crc = content[:-CRC_LEN], content[-CRC_LEN:]
+        crc = np.frombuffer(crc, dtype=np.uint32)[0]
+        assert crc32(index) == crc
+
+        dt = np.dtype([("chunkid", "u8"), ("offset", "u8"), ("size", "u8")])
+        if inchunk_or_agg is False:
+            dt = np.dtype([("chunkid", "2u8"), ("offset", "u8"), ("size", "u8")])
+        files_index[index_data["path"]] = np.frombuffer(index, dtype=dt)
+    return files_index
 
 
 def _crc_check(payload: bytes) -> None:
-    payload_crc32 = np.frombuffer(payload[-CRC_LENGTH:], dtype=np.uint32)
-    assert np.frombuffer(payload_crc32, dtype=np.uint32)[0] == crc32(
-        payload[:-CRC_LENGTH]
-    )
+    payload_crc32 = np.frombuffer(payload[-CRC_LEN:], dtype=np.uint32)
+    assert np.frombuffer(payload_crc32, dtype=np.uint32)[0] == crc32(payload[:-CRC_LEN])
+
+
+def _parse_edge_payloads(payloads, edge_dtype):
+    result = []
+    for payload in payloads:
+        content = payload["content"]
+        if content is None:
+            continue
+        _crc_check(content)
+        result.append(np.frombuffer(content[:-CRC_LEN], dtype=edge_dtype))
+    return result
 
 
 def _read_in_chunk_files(
@@ -135,20 +169,19 @@ def _read_in_chunk_files(
     edge_dtype: Iterable[Tuple],
 ):
     cf = CloudFiles(path)
-    contents = cf.get(filenames, raw=True)
+    files_index = _get_index(cf, filenames, inchunk_or_agg=True)
 
-    data = []
-    for f in contents:
-        if f["error"] or f["content"] is None:
-            continue
-        raw = f["content"]
-        index = _get_index(raw, in_chunk_or_agg_file=True)
+    finfos = []
+    for fname, index in files_index.items():
         for chunk in index:
             if chunk["chunkid"] == chunk_id:
-                payload = raw[chunk["offset"] : chunk["offset"] + chunk["size"]]
-                _crc_check(payload)
-                data.append(np.frombuffer(payload[:-CRC_LENGTH], dtype=edge_dtype))
-    return data
+                finfo = {"path": fname}
+                finfo["start"] = chunk["offset"]
+                finfo["end"] = chunk["offset"] + chunk["size"]
+                finfos.append(finfo)
+
+    payloads = cf.get(finfos, raw=True)
+    return _parse_edge_payloads(payloads, edge_dtype)
 
 
 def _read_between_or_fake_chunk_files(
@@ -159,24 +192,32 @@ def _read_between_or_fake_chunk_files(
     edge_dtype: Iterable[Tuple],
 ):
     cf = CloudFiles(path)
-    contents = cf.get(filenames, raw=True)
-    data = []
-    for f in contents:
-        if f["error"] or f["content"] is None:
-            continue
-        raw = f["content"]
-        index = _get_index(raw, in_chunk_or_agg_file=False)
+    files_index = _get_index(cf, filenames, inchunk_or_agg=False)
+
+    chunk_finfos = []
+    adj_chunk_finfos = []
+    for fname, index in files_index.items():
         for chunk in index:
-            if chunk["chunkid"][0] == chunk_id and chunk["chunkid"][1] == adjacent_id:
-                payload = raw[chunk["offset"] : chunk["offset"] + chunk["size"]]
-                _crc_check(payload)
-                data.append(np.frombuffer(payload[:-CRC_LENGTH], dtype=edge_dtype))
-            if chunk["chunkid"][0] == adjacent_id and chunk["chunkid"][1] == chunk_id:
-                payload = raw[chunk["offset"] : chunk["offset"] + chunk["size"]]
-                _crc_check(payload)
-                this_dtype = [edge_dtype[1], edge_dtype[0]] + edge_dtype[2:]
-                data.append(np.frombuffer(payload[:-CRC_LENGTH], dtype=this_dtype))
-    return data
+            chunk0, chunk1 = chunk["chunkid"][0], chunk["chunkid"][1]
+            if chunk0 == chunk_id and chunk1 == adjacent_id:
+                finfo = {"path": fname}
+                finfo["start"] = chunk["offset"]
+                finfo["end"] = chunk["offset"] + chunk["size"]
+                chunk_finfos.append(finfo)
+            if chunk0 == adjacent_id and chunk1 == chunk_id:
+                finfo = {"path": fname}
+                finfo["start"] = chunk["offset"]
+                finfo["end"] = chunk["offset"] + chunk["size"]
+                adj_chunk_finfos.append(finfo)
+
+    result = []
+    chunk_payloads = cf.get(chunk_finfos, raw=True)
+    adj_chunk_payloads = cf.get(adj_chunk_finfos, raw=True)
+    result = _parse_edge_payloads(chunk_payloads, edge_dtype=edge_dtype)
+
+    dtype = [edge_dtype[1], edge_dtype[0]] + edge_dtype[2:]
+    adj_result = _parse_edge_payloads(adj_chunk_payloads, edge_dtype=dtype)
+    return result + adj_result
 
 
 def _collect_edge_data(imanager: IngestionManager, chunk_coord):
@@ -251,7 +292,7 @@ def _collect_edge_data(imanager: IngestionManager, chunk_coord):
     return edge_data
 
 
-def get_active_edges(imanager: IngestionManager, coord, edges_d, mapping):
+def get_active_edges(edges_d, mapping):
     active_edges_flag_d, isolated_ids = define_active_edges(edges_d, mapping)
     chunk_edges_active = {}
     pseudo_isolated_ids = [isolated_ids]
@@ -324,7 +365,7 @@ def read_raw_agglomeration_data(imanager: IngestionManager, chunk_coord: np.ndar
     filenames = []
     chunk_ids = []
     for mip_level in range(0, int(cg_meta.layer_count - 1)):
-        x, y, z = np.array(chunk_coord / 2 ** mip_level, dtype=int)
+        x, y, z = np.array(chunk_coord / 2**mip_level, dtype=int)
         filenames.append(f"done_{mip_level}_{x}_{y}_{z}.data")
         chunk_ids.append(chunk_id)
 
@@ -337,7 +378,7 @@ def read_raw_agglomeration_data(imanager: IngestionManager, chunk_coord: np.ndar
             adjacent_id = get_chunk_id(cg_meta, layer=1, x=x, y=y, z=z)
 
             for mip_level in range(0, int(cg_meta.layer_count - 1)):
-                x, y, z = np.array(adjacent_coord / 2 ** mip_level, dtype=int)
+                x, y, z = np.array(adjacent_coord / 2**mip_level, dtype=int)
                 filenames.append(f"done_{mip_level}_{x}_{y}_{z}.data")
                 chunk_ids.append(adjacent_id)
 
@@ -356,24 +397,31 @@ def read_raw_agglomeration_data(imanager: IngestionManager, chunk_coord: np.ndar
 
 
 def _read_agg_files(filenames, chunk_ids, path):
-    from ..graph.types import empty_2d
-
     cf = CloudFiles(path)
-    contents_d = cf.get(set(filenames), raw=True, return_dict=True)
+    finfos = []
+    files_index = _get_index(cf, set(filenames), inchunk_or_agg=True)
 
-    edge_list = [empty_2d]
     for fname, chunk_id in zip(filenames, chunk_ids):
-        raw = contents_d[fname]
-        if raw is None:
+        try:
+            index = files_index[fname]
+        except KeyError:
             continue
-        edges = None
-        index = _get_index(raw, in_chunk_or_agg_file=True)
         for chunk in index:
             if chunk["chunkid"] == chunk_id:
-                data = raw[chunk["offset"] : chunk["offset"] + chunk["size"]]
-                data_ = data[:-CRC_LENGTH]
-                edges = np.frombuffer(data_, dtype=basetypes.NODE_ID).reshape(-1, 2)
-                if edges is not None:
-                    edge_list.append(edges)
+                finfo = {"path": fname}
+                finfo["start"] = chunk["offset"]
+                finfo["end"] = chunk["offset"] + chunk["size"]
+                finfos.append(finfo)
                 break
+
+    edge_list = [empty_2d]
+    payloads = cf.get(finfos, raw=True)
+    for payload in payloads:
+        cont = payload["content"]
+        if cont is None:
+            continue
+        _crc_check(cont)
+        edges = np.frombuffer(cont[:-CRC_LEN], dtype=basetypes.NODE_ID).reshape(-1, 2)
+        if edges is not None:
+            edge_list.append(edges)
     return edge_list

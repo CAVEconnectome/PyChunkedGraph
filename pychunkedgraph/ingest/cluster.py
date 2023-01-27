@@ -176,9 +176,7 @@ def _create_atomic_chunk(coords: Sequence[int]):
     imanager = IngestionManager.from_pickle(redis.get(r_keys.INGESTION_MANAGER))
     coords = np.array(list(coords), dtype=int)
     chunk_edges_all, mapping = get_atomic_chunk_data(imanager, coords)
-    chunk_edges_active, isolated_ids = get_active_edges(
-        imanager, coords, chunk_edges_all, mapping
-    )
+    chunk_edges_active, isolated_ids = get_active_edges(chunk_edges_all, mapping)
     add_atomic_edges(imanager.cg, coords, chunk_edges_active, isolated=isolated_ids)
     if imanager.config.TEST_RUN:
         # print for debugging
