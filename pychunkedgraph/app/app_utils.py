@@ -1,29 +1,30 @@
+# pylint: disable=invalid-name, missing-docstring
+
 import logging
 import sys
 import os
 from typing import Sequence
-from time import gmtime
+from time import gmtime, mktime
+from functools import wraps
 
 import numpy as np
+import networkx as nx
+import requests
+from datastoreflex import DatastoreFlex
 from flask import current_app, json, request
-from google.auth import credentials
-from google.auth import default as default_creds
-from google.cloud import bigtable, datastore
+from scipy import spatial
+from werkzeug.datastructures import ImmutableMultiDict
 
 from pychunkedgraph import __version__
 from pychunkedgraph.graph import ChunkedGraph
-from pychunkedgraph.logging import flask_log_db, jsonformatter
+from pychunkedgraph.logging import jsonformatter
+from pychunkedgraph.logging.log_db import LogDB
 from pychunkedgraph.graph.client import get_default_client_info
 from pychunkedgraph.graph import exceptions as cg_exceptions
-from functools import wraps
-from werkzeug.datastructures import ImmutableMultiDict
 
-import networkx as nx
-from scipy import spatial
-import requests
 
-CACHE = {}
-logger: logging.Logger = None
+PCG_CACHE = {}
+LOG_DB_CACHE = {}
 
 
 def get_app_base_path():
@@ -34,14 +35,7 @@ def get_instance_folder_path():
     return os.path.join(get_app_base_path(), "instance")
 
 
-class DoNothingCreds(credentials.Credentials):
-    def refresh(self, request):
-        pass
-
-
 def remap_public(func=None, *, edit=False, check_node_ids=False):
-    from time import mktime
-
     def mydecorator(f):
         @wraps(f)
         def decorated_function(*args, **kwargs):
@@ -149,34 +143,6 @@ def jsonify_with_kwargs(data, as_response=True, **kwargs):
         return resp
 
 
-def get_bigtable_client(config):
-    project_id = config.get("PROJECT_ID", None)
-
-    if config.get("emulate", False):
-        credentials = DoNothingCreds()
-    elif project_id is not None:
-        credentials, _ = default_creds()
-    else:
-        credentials, project_id = default_creds()
-
-    client = bigtable.Client(admin=True, project=project_id, credentials=credentials)
-    return client
-
-
-def get_datastore_client(config):
-    project_id = config.get("PROJECT_ID", None)
-
-    if config.get("emulate", False):
-        credentials = DoNothingCreds()
-    elif project_id is not None:
-        credentials, _ = default_creds()
-    else:
-        credentials, project_id = default_creds()
-
-    client = datastore.Client(project=project_id, credentials=credentials)
-    return client
-
-
 def setup_logger(table_id: str):
     instance_id = current_app.config["CHUNKGRAPH_INSTANCE_ID"]
 
@@ -208,11 +174,25 @@ def ensure_correct_version(cg: ChunkedGraph) -> bool:
         return False
 
 
+def get_log_db(graph_id: str) -> LogDB:
+    try:
+        return LOG_DB_CACHE[graph_id]
+    except KeyError:
+        ...
+
+    namespace = os.environ.get("PCG_SERVER_LOGS_NS", "pychunkedgraphserverdb")
+    client = DatastoreFlex(project=current_app.config.PROJECT_ID, namespace=namespace)
+
+    log_db = LogDB(graph_id, client=client)
+    LOG_DB_CACHE[graph_id] = log_db
+    return log_db
+
+
 def get_cg(table_id, skip_cache: bool = False):
     current_app.table_id = table_id
     if skip_cache is False:
         try:
-            return CACHE[table_id]
+            return PCG_CACHE[table_id]
         except KeyError:
             pass
 
@@ -220,25 +200,16 @@ def get_cg(table_id, skip_cache: bool = False):
     cg = ChunkedGraph(graph_id=table_id, client_info=get_default_client_info())
     version_valid = ensure_correct_version(cg)
     if version_valid:
-        CACHE[table_id] = cg
+        PCG_CACHE[table_id] = cg
         return cg
 
     if cg.graph_id in current_app.config["PCG_GRAPH_IDS"]:
         instance_id = current_app.config["CHUNKGRAPH_INSTANCE_ID"]
         logger = logging.getLogger(f"{instance_id}/{table_id}")
         logger.warning(f"Serving whitelisted graph {cg.graph_id}.")
-        CACHE[table_id] = cg
+        PCG_CACHE[table_id] = cg
         return cg
     raise ValueError(f"Graph {cg.graph_id} not supported.")
-
-
-def get_log_db(table_id):
-    if "log_db" not in CACHE:
-        client = get_datastore_client(current_app.config)
-        CACHE["log_db"] = flask_log_db.FlaskLogDatabase(
-            table_id, client=client, credentials=credentials
-        )
-    return CACHE["log_db"]
 
 
 def toboolean(value):
@@ -254,8 +225,8 @@ def toboolean(value):
         return value
     try:
         value = value.lower()
-    except:
-        raise ValueError(f"Can't convert {value} to boolean")
+    except Exception as exc:
+        raise ValueError(f"Can't convert {value} to boolean: {exc}") from exc
 
     if value in ("true", "1"):
         return True
@@ -329,12 +300,9 @@ def handle_supervoxel_id_lookup(
 
 
 def get_username_dict(user_ids, auth_token) -> dict:
-    from pychunkedgraph.graph.exceptions import ChunkedGraphError
-
     AUTH_URL = os.environ.get("AUTH_URL", None)
-
     if AUTH_URL is None:
-        raise ChunkedGraphError("No AUTH_URL defined")
+        raise cg_exceptions.ChunkedGraphError("No AUTH_URL defined")
 
     users_request = requests.get(
         f"https://{AUTH_URL}/api/v1/username?id={','.join(map(str, np.unique(user_ids)))}",

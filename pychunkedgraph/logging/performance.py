@@ -9,7 +9,7 @@ except:
 
 from matplotlib import pyplot as plt
 
-from pychunkedgraph.logging import flask_log_db
+from pychunkedgraph.logging import log_db
 from pychunkedgraph.graph import chunkedgraph
 from google.cloud import datastore
 from google.auth import credentials, default as default_creds
@@ -22,7 +22,7 @@ def readout_log_db(table_id, filters, cols,
 
     credentials, project_id = default_creds()
     client = datastore.Client(project=project_id, credentials=credentials)
-    log_db = flask_log_db.FlaskLogDatabase(table_id, client=client)
+    log_db = log_db.LogDatabase(table_id, client=client)
 
     query = log_db.client.query(kind=log_db.kind, namespace=log_db.namespace)
 

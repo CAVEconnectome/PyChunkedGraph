@@ -17,8 +17,6 @@ if __name__ == "__main__":
     WSGIRequestHandler.protocol_version = "HTTP/1.1"
     # WSGIRequestHandler.protocol_version = "HTTP/2.0"
 
-    print("Table: %s; Port: %d" % (app.config["CHUNKGRAPH_TABLE_ID"], port))
-
     if len(sys.argv) == 2:
         app.run(
             host="0.0.0.0", port=port, debug=True, threaded=True, ssl_context="adhoc"

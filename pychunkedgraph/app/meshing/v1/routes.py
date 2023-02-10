@@ -1,16 +1,11 @@
+# pylint: disable=invalid-name, missing-docstring
+
 from flask import Blueprint
 from middle_auth_client import auth_requires_permission, auth_required
+
 from pychunkedgraph.app.meshing import common
 from pychunkedgraph.graph import exceptions as cg_exceptions
 from pychunkedgraph.app.app_utils import remap_public
-import os
-import json
-
-if os.environ.get("DAF_CREDENTIALS", None) is not None:
-    with open(os.environ.get("DAF_CREDENTIALS"), "r") as f:
-        AUTH_TOKEN = json.load(f)["token"]
-else:
-    AUTH_TOKEN = ""
 
 bp = Blueprint(
     "pcg_meshing_v1", __name__, url_prefix=f"/{common.__meshing_url_prefix__}/api/v1"
@@ -79,7 +74,6 @@ def handle_valid_frags(table_id, node_id):
     "view",
     public_table_key="table_id",
     public_node_key="node_id",
-    service_token=AUTH_TOKEN,
 )
 @remap_public
 def handle_get_manifest(table_id, node_id):

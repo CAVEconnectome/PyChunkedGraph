@@ -1,14 +1,12 @@
+# pylint: disable=invalid-name, missing-docstring
 import json
 import os
+import threading
 
 import numpy as np
-import time
-from datetime import datetime
-import traceback
 import redis
 from rq import Queue, Connection, Retry
-from flask import Response, current_app, g, jsonify, make_response, request
-import threading
+from flask import Response, current_app, jsonify, make_response, request
 
 from pychunkedgraph import __version__
 from pychunkedgraph.app import app_utils
@@ -17,10 +15,6 @@ from pychunkedgraph.app.meshing import tasks as meshing_tasks
 from pychunkedgraph.meshing import meshgen
 from pychunkedgraph.meshing.manifest import get_highest_child_nodes_with_meshes
 
-
-# -------------------------------
-# ------ Access control and index
-# -------------------------------
 
 __meshing_url_prefix__ = os.environ.get("MESHING_URL_PREFIX", "meshing")
 
@@ -43,117 +37,11 @@ def home():
     return resp
 
 
-# -------------------------------
-# ------ Measurements and Logging
-# -------------------------------
-
-
-def before_request():
-    current_app.request_start_time = time.time()
-    current_app.request_start_date = datetime.utcnow()
-    current_app.user_id = None
-    current_app.table_id = None
-    current_app.request_type = None
-
-
-def after_request(response):
-    dt = (time.time() - current_app.request_start_time) * 1000
-
-    current_app.logger.debug("Response time: %.3fms" % dt)
-    try:
-        if current_app.user_id is None:
-            user_id = ""
-        else:
-            user_id = current_app.user_id
-
-        if current_app.table_id is not None:
-            log_db = app_utils.get_log_db(current_app.table_id)
-            log_db.add_success_log(
-                user_id=user_id,
-                user_ip="",
-                request_time=current_app.request_start_date,
-                response_time=dt,
-                url=request.url,
-                request_data=request.data,
-                request_type=current_app.request_type,
-            )
-    except Exception as e:
-        current_app.logger.debug(
-            f"{current_app.user_id}: LogDB entry not" f" successful: {e}"
-        )
-
-    return response
-
-
-def unhandled_exception(e):
-    status_code = 500
-    response_time = (time.time() - current_app.request_start_time) * 1000
-    user_ip = str(request.remote_addr)
-    tb = traceback.format_exception(etype=type(e), value=e, tb=e.__traceback__)
-
-    current_app.logger.error(
-        {
-            "message": str(e),
-            "user_id": user_ip,
-            "user_ip": user_ip,
-            "request_time": current_app.request_start_date,
-            "request_url": request.url,
-            "request_data": request.data,
-            "response_time": response_time,
-            "response_code": status_code,
-            "traceback": tb,
-        }
-    )
-
-    resp = {
-        "timestamp": current_app.request_start_date,
-        "duration": response_time,
-        "code": status_code,
-        "message": str(e),
-        "traceback": tb,
-    }
-
-    return jsonify(resp), status_code
-
-
-def api_exception(e):
-    response_time = (time.time() - current_app.request_start_time) * 1000
-    user_ip = str(request.remote_addr)
-    tb = traceback.format_exception(etype=type(e), value=e, tb=e.__traceback__)
-
-    current_app.logger.error(
-        {
-            "message": str(e),
-            "user_id": user_ip,
-            "user_ip": user_ip,
-            "request_time": current_app.request_start_date,
-            "request_url": request.url,
-            "request_data": request.data,
-            "response_time": response_time,
-            "response_code": e.status_code.value,
-            "traceback": tb,
-        }
-    )
-
-    resp = {
-        "timestamp": current_app.request_start_date,
-        "duration": response_time,
-        "code": e.status_code.value,
-        "message": str(e),
-    }
-
-    return jsonify(resp), e.status_code.value
-
-
 ## VALIDFRAGMENTS --------------------------------------------------------------
 
 
 def handle_valid_frags(table_id, node_id):
     current_app.table_id = table_id
-
-    user_id = str(g.auth_user["id"])
-    current_app.user_id = user_id
-
     cg = app_utils.get_cg(table_id)
     seg_ids = get_highest_child_nodes_with_meshes(
         cg, np.uint64(node_id), stop_layer=1, verify_existence=True
@@ -167,8 +55,6 @@ def handle_valid_frags(table_id, node_id):
 def handle_get_manifest(table_id, node_id):
     current_app.request_type = "manifest"
     current_app.table_id = table_id
-    user_id = str(g.auth_user["id"])
-    current_app.user_id = user_id
 
     data = {}
     if len(request.data) > 0:
@@ -262,8 +148,6 @@ def handle_remesh(table_id):
     current_app.table_id = table_id
     is_priority = request.args.get("priority", True, type=str2bool)
     is_redisjob = request.args.get("use_redis", False, type=str2bool)
-    user_id = str(g.auth_user["id"])
-    current_app.user_id = user_id
 
     new_lvl2_ids = json.loads(request.data)["new_lvl2_ids"]
 
