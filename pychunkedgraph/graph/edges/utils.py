@@ -85,8 +85,6 @@ def categorize_edges(
     `cross_edges`
         originating from given supervoxels but crossing chunk boundary
     """
-    from ..utils.context_managers import TimeIt
-
     mask1 = np.isin(edges.node_ids1, supervoxels)
     mask2 = np.isin(edges.node_ids2, supervoxels)
     in_mask = mask1 & mask2

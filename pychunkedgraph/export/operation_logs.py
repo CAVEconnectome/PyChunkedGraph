@@ -55,7 +55,6 @@ def get_logs_with_previous_roots(
     from ..graph.types import empty_1d
     from ..graph.lineage import get_previous_root_ids
     from ..graph.utils.basetypes import NODE_ID
-    from ..graph.utils.context_managers import TimeIt
 
     print(f"getting olg roots for {len(parsed_logs)} logs.")
     roots = [empty_1d]

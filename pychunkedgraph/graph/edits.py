@@ -404,9 +404,15 @@ class CreateParentNodes:
         _node_ids = np.concatenate([node_ids, lower_layer_ids])
         cached = np.fromiter(self._cross_edges_d.keys(), dtype=basetypes.NODE_ID)
         not_cached = _node_ids[~np.in1d(_node_ids, cached)]
-        self._cross_edges_d.update(
-            self.cg.get_cross_chunk_edges(not_cached, all_layers=True)
-        )
+
+        with TimeIt(
+            f"get_cross_chunk_edges{layer}",
+            self.cg.graph_id,
+            self._operation_id,
+        ):
+            self._cross_edges_d.update(
+                self.cg.get_cross_chunk_edges(not_cached, all_layers=True)
+            )
 
         sv_parent_d, sv_cross_edges = self._map_sv_to_parent(node_ids, layer)
         get_sv_parents = np.vectorize(sv_parent_d.get, otypes=[np.uint64])

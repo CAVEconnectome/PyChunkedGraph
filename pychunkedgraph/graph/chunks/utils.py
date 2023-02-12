@@ -1,3 +1,5 @@
+# pylint: disable=invalid-name, missing-docstring
+
 from typing import List
 from typing import Union
 from typing import Optional
@@ -5,9 +7,6 @@ from typing import Sequence
 from typing import Iterable
 
 import numpy as np
-
-from ..utils.context_managers import TimeIt
-
 
 def get_chunks_boundary(voxel_boundary, chunk_size) -> np.ndarray:
     """returns number of chunks in each dimension"""
@@ -58,10 +57,8 @@ def get_chunk_layers(meta, node_or_chunk_ids: Sequence[np.uint64]) -> np.ndarray
 
     layers = np.array(node_or_chunk_ids, dtype=int)
 
-    # with TimeIt("layers fast numpy"):
     layers1 = layers >> (64 - meta.graph_config.LAYER_ID_BITS)
-    # with TimeIt("layers np vec"):
-    #     layers2 = np.vectorize(get_chunk_layer)(meta, node_or_chunk_ids)
+    # layers2 = np.vectorize(get_chunk_layer)(meta, node_or_chunk_ids)
     # assert np.all(layers1 == layers2)
     return layers1
 
@@ -152,10 +149,8 @@ def get_chunk_ids_from_node_ids(meta, ids: Iterable[np.uint64]) -> np.ndarray:
     bits_per_dims = np.array([meta.bitmasks[l] for l in get_chunk_layers(meta, ids)])
     offsets = 64 - meta.graph_config.LAYER_ID_BITS - 3 * bits_per_dims
 
-    # with TimeIt("chunk ids fast numpy"):
     cids1 = np.array((np.array(ids, dtype=int) >> offsets) << offsets, dtype=np.uint64)
-    # with TimeIt("chunk ids np.vec"):
-    #     cids2 = np.vectorize(get_chunk_id)(meta, ids)
+    # cids2 = np.vectorize(get_chunk_id)(meta, ids)
     # assert np.all(cids1 == cids2)
     return cids1
 
@@ -228,17 +223,13 @@ def get_bounding_children_chunks(
 
     # https://stackoverflow.com/a/35608701/2683367
     f = lambda r1, r2, r3: np.array(np.meshgrid(r1, r2, r3), dtype=int).T.reshape(-1, 3)
-    # with TimeIt("get chunks"):
     chunks.append(f((x1, x2 - 1), range(y1, y2), range(z1, z2)))
     chunks.append(f(range(x1, x2), (y1, y2 - 1), range(z1, z2)))
     chunks.append(f(range(x1, x2), range(y1, y2), (z1, z2 - 1)))
 
-    # with TimeIt("concat chunks"):
     chunks = np.concatenate(chunks)
-    # with TimeIt("filter chunks"):
     mask = np.all(chunks < cg_meta.layer_chunk_bounds[children_layer], axis=1)
     result = chunks[mask]
-    # with TimeIt("no uniq/uniq"):
     if return_unique:
         return np.unique(result, axis=0) if result.size else result
     return result
