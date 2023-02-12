@@ -1,18 +1,23 @@
+# pylint: disable=invalid-name, missing-docstring, too-many-locals
+
 import datetime
-import numpy as np
 from typing import Dict
 from typing import List
 from typing import Tuple
 from typing import Iterable
 from collections import defaultdict
 
+import numpy as np
+
 from . import types
 from . import attributes
 from . import cache as cache_utils
+from .edges.utils import concatenate_cross_edge_dicts
+from .edges.utils import merge_cross_edge_dicts
 from .utils import basetypes
 from .utils import flatgraph
-from .utils.context_managers import TimeIt
 from .utils.serializers import serialize_uint64
+from ..logging.log_db import TimeIt
 from ..utils.general import in2d
 
 
@@ -182,9 +187,6 @@ def add_edges(
     parent_ts: datetime.datetime = None,
     allow_same_segment_merge=False,
 ):
-    from .edges.utils import concatenate_cross_edge_dicts
-    from .edges.utils import merge_cross_edge_dicts
-
     edges, l2_atomic_cross_edges_d = _analyze_affected_edges(
         cg, atomic_edges, parent_ts=parent_ts
     )
@@ -232,8 +234,8 @@ def add_edges(
         time_stamp=time_stamp,
         parent_ts=parent_ts,
     )
-    with TimeIt("create_parents.run()"):
-        new_roots = create_parents.run()
+
+    new_roots = create_parents.run()
     new_entries = create_parents.create_new_entries()
     return new_roots, new_l2_ids, new_entries
 
@@ -288,7 +290,6 @@ def remove_edges(
     time_stamp: datetime.datetime = None,
     parent_ts: datetime.datetime = None,
 ):
-    # TODO add docs
     edges, _ = _analyze_affected_edges(cg, atomic_edges, parent_ts=parent_ts)
     l2ids = np.unique(edges)
     assert (
@@ -334,8 +335,7 @@ def remove_edges(
         time_stamp=time_stamp,
         parent_ts=parent_ts,
     )
-    with TimeIt("create_parents.run()"):
-        new_roots = create_parents.run()
+    new_roots = create_parents.run()
     new_entries = create_parents.create_new_entries()
     return new_roots, new_l2_ids, new_entries
 
@@ -353,7 +353,6 @@ class CreateParentNodes:
         old_hierarchy_d: Dict[np.uint64, Dict[int, np.uint64]] = None,
         parent_ts: datetime.datetime = None,
     ):
-        # TODO add docs
         self.cg = cg
         self._new_l2_ids = new_l2_ids
         self._old_hierarchy_d = old_hierarchy_d
@@ -393,7 +392,7 @@ class CreateParentNodes:
         if node_map is None:
             node_map = {}
         for id_ in node_ids:
-            id_eff = node_map.get(id_,id_)
+            id_eff = node_map.get(id_, id_)
             edges_ = self._cross_edges_d[id_].get(layer, types.empty_2d)
             sv_parent_d.update(dict(zip(edges_[:, 0], [id_eff] * len(edges_))))
             sv_cross_edges.append(edges_)
@@ -418,12 +417,15 @@ class CreateParentNodes:
             # this can happen due to skip connections
 
             # we want to map all these lower IDs to the current layer
-            lower_layer_to_layer = self.cg.get_roots(lower_layer_ids, stop_layer=layer, ceil=False)
-            node_map = {k:v for k,v in zip(lower_layer_ids,lower_layer_to_layer)}
-            sv_parent_d, sv_cross_edges = self._map_sv_to_parent(_node_ids, layer, node_map=node_map)
+            lower_layer_to_layer = self.cg.get_roots(
+                lower_layer_ids, stop_layer=layer, ceil=False
+            )
+            node_map = {k: v for k, v in zip(lower_layer_ids, lower_layer_to_layer)}
+            sv_parent_d, sv_cross_edges = self._map_sv_to_parent(
+                _node_ids, layer, node_map=node_map
+            )
             get_sv_parents = np.vectorize(sv_parent_d.get, otypes=[np.uint64])
             cross_edges = get_sv_parents(sv_cross_edges)
-
 
         cross_edges = np.concatenate([cross_edges, np.vstack([node_ids, node_ids]).T])
         graph, _, _, graph_ids = flatgraph.build_gt_graph(
@@ -504,8 +506,12 @@ class CreateParentNodes:
         for layer in range(2, self.cg.meta.layer_count):
             if len(self._new_ids_d[layer]) == 0:
                 continue
-            # with TimeIt(f"_create_new_parents {layer}"):
-            self._create_new_parents(layer)
+            with TimeIt(
+                f"_create_new_parents_layer_{layer}",
+                self.cg.graph_id,
+                self._operation_id,
+            ):
+                self._create_new_parents(layer)
         return self._new_ids_d[self.cg.meta.layer_count]
 
     def _update_root_id_lineage(self):

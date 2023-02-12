@@ -4,7 +4,6 @@ import os
 import threading
 import time
 import queue
-from functools import wraps
 
 from datastoreflex import DatastoreFlex
 from flask import current_app
@@ -66,26 +65,26 @@ def get_log_db(graph_id: str) -> LogDB:
 
     log_db = LogDB(graph_id, client=client)
     LOG_DB_CACHE[graph_id] = log_db
+    # use threads to exclude time reguired to log
     threading.Thread(target=log_db.log_entity, daemon=True).start()
     return log_db
 
 
-def log_metrics(func, *, graph_id: str, operation_id: int = None):
-    """
-    Decorator to log metrics of a function to LogDB.
-    Currently only logs time elapsed(ms).
-    """
+class TimeIt:
+    def __init__(self, name: str, graph_id: str, operation_id):
+        self._name = name
+        self._start = None
+        self._graph_id = graph_id
+        self._operation_id = int(operation_id)
 
-    @wraps(func)
-    def log_time(*args, **kwargs):
-        start = time.time()
-        result = func(*args, **kwargs)
-        time_ms = (time.time() - start) * 1000
-        log_db = get_log_db(graph_id)
+    def __enter__(self):
+        self._start = time.time()
+
+    def __exit__(self, *args):
+        time_ms = time.time() - self._start
+        log_db = get_log_db(self._graph_id)
         log_db.log_function(
-            name=func.__name__,
-            operation_id=operation_id,
+            name=self._name,
+            operation_id=self._operation_id,
             time_ms=time_ms,
         )
-        return result
-    return log_time
