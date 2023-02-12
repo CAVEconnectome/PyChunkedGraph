@@ -1,30 +1,25 @@
 # pylint: disable=invalid-name, missing-docstring, logging-fstring-interpolation
 
 import logging
-import sys
 import os
 from typing import Sequence
-from time import gmtime, mktime
+from time import mktime
 from functools import wraps
 
 import numpy as np
 import networkx as nx
 import requests
-from datastoreflex import DatastoreFlex
 from flask import current_app, json, request
 from scipy import spatial
 from werkzeug.datastructures import ImmutableMultiDict
 
 from pychunkedgraph import __version__
 from pychunkedgraph.graph import ChunkedGraph
-from pychunkedgraph.logging import jsonformatter
-from pychunkedgraph.logging.log_db import LogDB
 from pychunkedgraph.graph.client import get_default_client_info
 from pychunkedgraph.graph import exceptions as cg_exceptions
 
 
 PCG_CACHE = {}
-LOG_DB_CACHE = {}
 
 
 def get_app_base_path():
@@ -153,20 +148,6 @@ def ensure_correct_version(cg: ChunkedGraph) -> bool:
     except (AttributeError, TypeError):
         # graph not versioned, later checked if whitelisted
         return False
-
-
-def get_log_db(graph_id: str) -> LogDB:
-    try:
-        return LOG_DB_CACHE[graph_id]
-    except KeyError:
-        ...
-
-    namespace = os.environ.get("PCG_SERVER_LOGS_NS", "pcg_server_logs_test")
-    client = DatastoreFlex(project=current_app.config["PROJECT_ID"], namespace=namespace)
-
-    log_db = LogDB(graph_id, client=client)
-    LOG_DB_CACHE[graph_id] = log_db
-    return log_db
 
 
 def get_cg(table_id, skip_cache: bool = False):

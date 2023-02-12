@@ -9,7 +9,7 @@ from google.api_core.exceptions import GoogleAPIError
 from flask import current_app, g, jsonify, request
 from middle_auth_client import auth_required
 
-from pychunkedgraph.app import app_utils
+from pychunkedgraph.logging.log_db import get_log_db
 
 
 @auth_required
@@ -32,8 +32,8 @@ def after_request(response):
 
     try:
         if current_app.table_id is not None:
-            log_db = app_utils.get_log_db(current_app.table_id)
-            log_db.log_info(
+            log_db = get_log_db(current_app.table_id)
+            log_db.log_endpoint(
                 user_id=current_app.user_id,
                 request_ts=current_app.request_start_date,
                 response_time=response_time,
