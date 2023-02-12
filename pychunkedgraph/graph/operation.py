@@ -28,7 +28,6 @@ from .cache import CacheService
 from .cutting import run_multicut
 from .exceptions import PreconditionError
 from .exceptions import PostconditionError
-from .exceptions import ChunkedGraphError
 from .utils.generic import get_bounding_box as get_bbox
 from ..logging.log_db import TimeIt
 
@@ -466,7 +465,7 @@ class GraphEditOperation(ABC):
                     exception=repr(err),
                 )
                 self.cg.client.write([log_record_error])
-                raise ChunkedGraphError(err) from err
+                raise Exception(err)
 
             result = self._write(
                 root_lock,
