@@ -1,4 +1,5 @@
-import itertools
+# pylint: disable=invalid-name, missing-docstring, too-many-lines, protected-access
+
 from abc import ABC, abstractmethod
 from collections import namedtuple
 from datetime import datetime
@@ -19,14 +20,18 @@ from . import locks
 from . import edits
 from . import types
 from . import attributes
+from .edges import Edges
+from .edges.utils import get_edges_status
+from .misc import get_activated_edges
 from .utils import basetypes
 from .utils import serializers
 from .cache import CacheService
 from .cutting import run_multicut
 from .exceptions import PreconditionError
 from .exceptions import PostconditionError
-from .utils.context_managers import TimeIt
+from .exceptions import ChunkedGraphError
 from .utils.generic import get_bounding_box as get_bbox
+from ..logging.log_db import TimeIt
 
 
 if TYPE_CHECKING:
@@ -144,7 +149,7 @@ class GraphEditOperation(ABC):
             return MulticutOperation
         if attributes.OperationLogs.BoundingBoxOffset in log_record:
             return MulticutOperation
-        raise TypeError(f"Could not determine graph operation type.")
+        raise TypeError("Could not determine graph operation type.")
 
     @classmethod
     def from_log_record(
@@ -241,7 +246,7 @@ class GraphEditOperation(ABC):
                 removed_edges=removed_edges,
             )
 
-        raise TypeError(f"Could not determine graph operation type.")
+        raise TypeError("Could not determine graph operation type.")
 
     @classmethod
     def from_operation_id(
@@ -446,10 +451,10 @@ class GraphEditOperation(ABC):
                     )
             except PreconditionError as err:
                 self.cg.cache = None
-                raise PreconditionError(err)
+                raise PreconditionError(err) from err
             except PostconditionError as err:
                 self.cg.cache = None
-                raise PostconditionError(err)
+                raise PostconditionError(err) from err
             except Exception as err:
                 # unknown exception, update log record with error
                 self.cg.cache = None
@@ -462,18 +467,16 @@ class GraphEditOperation(ABC):
                     exception=repr(err),
                 )
                 self.cg.client.write([log_record_error])
-                raise Exception(err)
+                raise ChunkedGraphError(err) from err
 
-            with TimeIt("persisting changes"):
-                result = self._write(
-                    root_lock,
-                    override_ts if override_ts else timestamp,
-                    new_root_ids,
-                    new_lvl2_ids,
-                    affected_records,
-                )
-                print("new root ids", result.new_root_ids)
-                return result
+            result = self._write(
+                root_lock,
+                override_ts if override_ts else timestamp,
+                new_root_ids,
+                new_lvl2_ids,
+                affected_records,
+            )
+            return result
 
     def _write(self, lock, timestamp, new_root_ids, new_lvl2_ids, affected_records):
         """Helper to persist changes after an edit."""
@@ -598,7 +601,7 @@ class MergeOperation(GraphEditOperation):
         if len(root_ids) < 2 and not self.allow_same_segment_merge:
             raise PreconditionError("Supervoxels must belong to different objects.")
         bbox = get_bbox(self.source_coords, self.sink_coords, self.bbox_offset)
-        with TimeIt("get_subgraph"):
+        with TimeIt("merge_get_subgraph", self.cg.graph_id, operation_id):
             edges = self.cg.get_subgraph(
                 root_ids,
                 bbox=bbox,
@@ -606,7 +609,7 @@ class MergeOperation(GraphEditOperation):
                 edges_only=True,
             )
 
-        with TimeIt("edits.merge_preprocess"):
+        with TimeIt("merge_preprocess", self.cg.graph_id, operation_id):
             inactive_edges = edits.merge_preprocess(
                 self.cg,
                 subgraph_edges=edges,
@@ -614,22 +617,21 @@ class MergeOperation(GraphEditOperation):
                 parent_ts=self.parent_ts,
             )
 
-        with TimeIt("edits.add_edges"):
-            atomic_edges, fake_edge_rows = edits.check_fake_edges(
-                self.cg,
-                atomic_edges=self.added_edges,
-                inactive_edges=inactive_edges,
-                time_stamp=timestamp,
-                parent_ts=self.parent_ts,
-            )
-            new_roots, new_l2_ids, new_entries = edits.add_edges(
-                self.cg,
-                atomic_edges=atomic_edges,
-                operation_id=operation_id,
-                time_stamp=timestamp,
-                parent_ts=self.parent_ts,
-            )
-            return new_roots, new_l2_ids, fake_edge_rows + new_entries
+        atomic_edges, fake_edge_rows = edits.check_fake_edges(
+            self.cg,
+            atomic_edges=self.added_edges,
+            inactive_edges=inactive_edges,
+            time_stamp=timestamp,
+            parent_ts=self.parent_ts,
+        )
+        new_roots, new_l2_ids, new_entries = edits.add_edges(
+            self.cg,
+            atomic_edges=atomic_edges,
+            operation_id=operation_id,
+            time_stamp=timestamp,
+            parent_ts=self.parent_ts,
+        )
+        return new_roots, new_l2_ids, fake_edge_rows + new_entries
 
     def _create_log_record(
         self,
@@ -718,9 +720,7 @@ class SplitOperation(GraphEditOperation):
             )
         )
         if len(root_ids) > 1:
-            raise PreconditionError(
-                f"All supervoxel must belong to the same object. Already split?"
-            )
+            raise PreconditionError("Supervoxels must belong to the same object.")
         return root_ids
 
     def _apply(
@@ -740,7 +740,7 @@ class SplitOperation(GraphEditOperation):
         ):
             raise PreconditionError("Supervoxels must belong to the same object.")
 
-        with TimeIt("get_l2_agglomerations (subgraph)"):
+        with TimeIt("split.subgraph", self.cg.graph_id, operation_id):
             l2id_agglomeration_d, _ = self.cg.get_l2_agglomerations(
                 self.cg.get_parents(
                     self.removed_edges.ravel(), time_stamp=self.parent_ts
@@ -886,11 +886,10 @@ class MulticutOperation(GraphEditOperation):
             self.sink_coords,
             self.cg.meta.split_bounding_offset,
         )
-        with TimeIt("get_subgraph"):
+        with TimeIt("split.get_subgraph", self.cg.graph_id, operation_id):
             l2id_agglomeration_d, edges = self.cg.get_subgraph(
                 root_ids.pop(), bbox=bbox, bbox_is_coordinate=True
             )
-            from .edges import Edges
 
             edges = reduce(lambda x, y: x + y, edges, Edges([], []))
             supervoxels = np.concatenate(
@@ -899,9 +898,10 @@ class MulticutOperation(GraphEditOperation):
             mask0 = np.in1d(edges.node_ids1, supervoxels)
             mask1 = np.in1d(edges.node_ids2, supervoxels)
             edges = edges[mask0 & mask1]
-        if not len(edges):
+        if len(edges) == 0:
             raise PreconditionError("No local edges found.")
-        with TimeIt("run_multicut"):
+
+        with TimeIt("split.multicut", self.cg.graph_id, operation_id):
             self.removed_edges = run_multicut(
                 edges,
                 self.source_ids,
@@ -911,7 +911,8 @@ class MulticutOperation(GraphEditOperation):
             )
         if not self.removed_edges.size:
             raise PostconditionError("Mincut could not find any edges to remove.")
-        with TimeIt("edits.remove_edges"):
+
+        with TimeIt("split.remove_edges", self.cg.graph_id, operation_id):
             return edits.remove_edges(
                 self.cg,
                 operation_id=operation_id,
@@ -1140,8 +1141,6 @@ class UndoOperation(GraphEditOperation):
         )
         if log_record_type is MergeOperation:
             # account for additional activated edges so merge can be properly undone
-            from .misc import get_activated_edges
-
             activated_edges = get_activated_edges(cg, superseded_operation_id)
             if len(activated_edges) > 0:
                 superseded_operation.added_edges = activated_edges
@@ -1160,15 +1159,14 @@ class UndoOperation(GraphEditOperation):
         self, *, operation_id, timestamp
     ) -> Tuple[np.ndarray, np.ndarray, List["bigtable.row.Row"]]:
         if isinstance(self.inverse_superseded_operation, MergeOperation):
-            with TimeIt("edits.add_edges"):
-                return edits.add_edges(
-                    self.inverse_superseded_operation.cg,
-                    atomic_edges=self.inverse_superseded_operation.added_edges,
-                    operation_id=operation_id,
-                    time_stamp=timestamp,
-                    parent_ts=self.inverse_superseded_operation.parent_ts,
-                    allow_same_segment_merge=True,
-                )
+            return edits.add_edges(
+                self.inverse_superseded_operation.cg,
+                atomic_edges=self.inverse_superseded_operation.added_edges,
+                operation_id=operation_id,
+                time_stamp=timestamp,
+                parent_ts=self.inverse_superseded_operation.parent_ts,
+                allow_same_segment_merge=True,
+            )
         return self.inverse_superseded_operation._apply(
             operation_id=operation_id, timestamp=timestamp
         )
@@ -1222,14 +1220,12 @@ class UndoOperation(GraphEditOperation):
             )
         if isinstance(self.inverse_superseded_operation, MergeOperation):
             # in case we are undoing a partial split (with only one resulting root id)
-            from .edges.utils import get_edges_status
-
             e, a = get_edges_status(
                 self.inverse_superseded_operation.cg,
                 self.inverse_superseded_operation.added_edges,
             )
             if np.any(~e):
-                raise PreconditionError(f"All edges must exist.")
+                raise PreconditionError("All edges must exist.")
             if np.all(a):
                 return GraphEditOperation.Result(
                     operation_id=operation_id,
@@ -1237,14 +1233,12 @@ class UndoOperation(GraphEditOperation):
                     new_lvl2_ids=types.empty_1d,
                 )
         if isinstance(self.inverse_superseded_operation, SplitOperation):
-            from .edges.utils import get_edges_status
-
             e, a = get_edges_status(
                 self.inverse_superseded_operation.cg,
                 self.inverse_superseded_operation.removed_edges,
             )
             if np.any(~e):
-                raise PreconditionError(f"All edges must exist.")
+                raise PreconditionError("All edges must exist.")
             if np.all(~a):
                 return GraphEditOperation.Result(
                     operation_id=operation_id,
