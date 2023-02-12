@@ -5,8 +5,8 @@ import threading
 import time
 import queue
 
+from google.api_core.exceptions import GoogleAPIError
 from datastoreflex import DatastoreFlex
-from flask import current_app
 
 
 LOG_DB_CACHE = {}
@@ -58,10 +58,13 @@ def get_log_db(graph_id: str) -> LogDB:
     except KeyError:
         ...
 
+    try:
+        project = os.environ["PCG_SERVER_LOGS_PROJECT"]
+    except KeyError as err:
+        raise GoogleAPIError(f"Datastore project env not set: {err}") from err
+
     namespace = os.environ.get("PCG_SERVER_LOGS_NS", "pcg_server_logs_test")
-    client = DatastoreFlex(
-        project=current_app.config["PROJECT_ID"], namespace=namespace
-    )
+    client = DatastoreFlex(project=project, namespace=namespace)
 
     log_db = LogDB(graph_id, client=client)
     LOG_DB_CACHE[graph_id] = log_db
@@ -82,9 +85,12 @@ class TimeIt:
 
     def __exit__(self, *args):
         time_ms = time.time() - self._start
-        log_db = get_log_db(self._graph_id)
-        log_db.log_function(
-            name=self._name,
-            operation_id=self._operation_id,
-            time_ms=time_ms,
-        )
+        try:
+            log_db = get_log_db(self._graph_id)
+            log_db.log_function(
+                name=self._name,
+                operation_id=self._operation_id,
+                time_ms=time_ms,
+            )
+        except GoogleAPIError:
+            ...
