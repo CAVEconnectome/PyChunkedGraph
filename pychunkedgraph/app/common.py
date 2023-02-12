@@ -5,15 +5,18 @@ import traceback
 from datetime import datetime
 
 from cloudvolume import compression
+from google.api_core.exceptions import GoogleAPIError
 from flask import current_app, g, jsonify, request
+from middle_auth_client import auth_required
 
 from pychunkedgraph.app import app_utils
 
 
+@auth_required
 def before_request():
     current_app.request_start_time = time.time()
     current_app.request_start_date = datetime.utcnow()
-    current_app.user_id = str(g.auth_user["id"])
+    current_app.user_id = g.auth_user["id"]
     current_app.table_id = None
     current_app.request_type = None
     content_encoding = request.headers.get("Content-Encoding", "")
@@ -23,7 +26,6 @@ def before_request():
 
 def after_request(response):
     response_time = (time.time() - current_app.request_start_time) * 1000
-    current_app.logger.debug(f"Response time: {response_time} ms")
     accept_encoding = request.headers.get("Accept-Encoding", "")
     if "gzip" not in accept_encoding.lower():
         return response
@@ -33,14 +35,12 @@ def after_request(response):
             log_db = app_utils.get_log_db(current_app.table_id)
             log_db.log_info(
                 user_id=current_app.user_id,
-                request_time=current_app.request_start_date,
+                request_ts=current_app.request_start_date,
                 response_time=response_time,
                 path=request.full_path,
-                request_data=request.data,
-                request_type=current_app.request_type,
             )
-    except Exception as e:
-        current_app.logger.debug(f"LogDB entry not successful: {e}")
+    except GoogleAPIError as e:
+        current_app.logger.error(f"LogDB entry not successful: GoogleAPIError {e}")
 
     response.direct_passthrough = False
     if (

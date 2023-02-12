@@ -1,4 +1,4 @@
-# pylint: disable=invalid-name, missing-docstring
+# pylint: disable=invalid-name, missing-docstring, logging-fstring-interpolation
 
 import logging
 import sys
@@ -143,27 +143,8 @@ def jsonify_with_kwargs(data, as_response=True, **kwargs):
         return resp
 
 
-def setup_logger(table_id: str):
-    instance_id = current_app.config["CHUNKGRAPH_INSTANCE_ID"]
-
-    logger = logging.getLogger(f"{instance_id}/{table_id}")
-    logger.setLevel(current_app.config["LOGGING_LEVEL"])
-
-    # prevent duplicate logs from Flasks(?) parent logger
-    logger.propagate = False
-    handler = logging.StreamHandler(sys.stdout)
-    handler.setLevel(current_app.config["LOGGING_LEVEL"])
-    formatter = jsonformatter.JsonFormatter(
-        fmt=current_app.config["LOGGING_FORMAT"],
-        datefmt=current_app.config["LOGGING_DATEFORMAT"],
-    )
-    formatter.converter = gmtime
-    handler.setFormatter(formatter)
-    logger.addHandler(handler)
-
-
 def ensure_correct_version(cg: ChunkedGraph) -> bool:
-    current_major_version = int(__version__.split(".")[0])
+    current_major_version = int(__version__.split(".", maxsplit=1)[0])
     try:
         graph_major_version = int(cg.version.split(".")[0])
         valid = graph_major_version == current_major_version
@@ -180,8 +161,8 @@ def get_log_db(graph_id: str) -> LogDB:
     except KeyError:
         ...
 
-    namespace = os.environ.get("PCG_SERVER_LOGS_NS", "pychunkedgraphserverdb")
-    client = DatastoreFlex(project=current_app.config.PROJECT_ID, namespace=namespace)
+    namespace = os.environ.get("PCG_SERVER_LOGS_NS", "pcg_server_logs_test")
+    client = DatastoreFlex(project=current_app.config["PROJECT_ID"], namespace=namespace)
 
     log_db = LogDB(graph_id, client=client)
     LOG_DB_CACHE[graph_id] = log_db
@@ -196,7 +177,6 @@ def get_cg(table_id, skip_cache: bool = False):
         except KeyError:
             pass
 
-    setup_logger(table_id)
     cg = ChunkedGraph(graph_id=table_id, client_info=get_default_client_info())
     version_valid = ensure_correct_version(cg)
     if version_valid:

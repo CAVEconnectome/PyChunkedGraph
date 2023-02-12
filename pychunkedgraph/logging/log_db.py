@@ -1,7 +1,6 @@
-# pylint: disable=invalid-name, missing-docstring
+# pylint: disable=invalid-name, missing-docstring, too-many-arguments
 
 from datastoreflex import DatastoreFlex
-
 
 class LogDB:
     def __init__(self, graph_id: str, client: DatastoreFlex):
