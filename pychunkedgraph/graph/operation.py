@@ -22,7 +22,6 @@ from . import types
 from . import attributes
 from .edges import Edges
 from .edges.utils import get_edges_status
-from .misc import get_activated_edges
 from .utils import basetypes
 from .utils import serializers
 from .cache import CacheService
@@ -1141,6 +1140,8 @@ class UndoOperation(GraphEditOperation):
         )
         if log_record_type is MergeOperation:
             # account for additional activated edges so merge can be properly undone
+            from .misc import get_activated_edges
+
             activated_edges = get_activated_edges(cg, superseded_operation_id)
             if len(activated_edges) > 0:
                 superseded_operation.added_edges = activated_edges
