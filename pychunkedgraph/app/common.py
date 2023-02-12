@@ -34,10 +34,10 @@ def after_request(response):
         if current_app.table_id is not None:
             log_db = get_log_db(current_app.table_id)
             log_db.log_endpoint(
+                path=request.full_path,
                 user_id=current_app.user_id,
                 request_ts=current_app.request_start_date,
                 response_time=response_time,
-                path=request.full_path,
             )
     except GoogleAPIError as e:
         current_app.logger.error(f"LogDB entry not successful: GoogleAPIError {e}")
