@@ -84,7 +84,7 @@ class TimeIt:
         self._start = time.time()
 
     def __exit__(self, *args):
-        time_ms = time.time() - self._start
+        time_ms = (time.time() - self._start) * 1000
         try:
             log_db = get_log_db(self._graph_id)
             log_db.log_function(
