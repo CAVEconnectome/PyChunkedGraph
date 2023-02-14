@@ -36,7 +36,7 @@ class LogDB:
         }
         self._q.put(item)
 
-    def log_function(self, name: str, operation_id, time_ms):
+    def log_code_block(self, name: str, operation_id, time_ms):
         item = {"name": name, "operation_id": int(operation_id), "time_ms": time_ms}
         self._q.put(item)
 
@@ -87,7 +87,7 @@ class TimeIt:
         time_ms = (time.time() - self._start) * 1000
         try:
             log_db = get_log_db(self._graph_id)
-            log_db.log_function(
+            log_db.log_code_block(
                 name=self._name,
                 operation_id=self._operation_id,
                 time_ms=time_ms,
