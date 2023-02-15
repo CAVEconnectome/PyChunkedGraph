@@ -7,7 +7,6 @@ from datetime import datetime
 from cloudvolume import compression
 from google.api_core.exceptions import GoogleAPIError
 from flask import current_app, g, jsonify, request
-from middle_auth_client import auth_required
 
 from pychunkedgraph.logging.log_db import get_log_db
 
@@ -15,7 +14,10 @@ from pychunkedgraph.logging.log_db import get_log_db
 def before_request():
     current_app.request_start_time = time.time()
     current_app.request_start_date = datetime.utcnow()
-    current_app.user_id = g.auth_user.get("id", "NA")
+    try:
+        current_app.user_id = g.auth_user["id"]
+    except (AttributeError, KeyError):
+        current_app.user_id = "NA"
     current_app.table_id = None
     current_app.request_type = None
     content_encoding = request.headers.get("Content-Encoding", "")

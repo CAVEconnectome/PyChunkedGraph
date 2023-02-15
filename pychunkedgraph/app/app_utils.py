@@ -1,6 +1,5 @@
 # pylint: disable=invalid-name, missing-docstring, logging-fstring-interpolation
 
-import logging
 import os
 from typing import Sequence
 from time import mktime
