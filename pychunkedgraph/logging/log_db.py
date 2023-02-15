@@ -30,7 +30,7 @@ class LogDB:
     def log_endpoint(self, path: str, user_id, request_ts, response_time):
         item = {
             "name": path,
-            "user_id": int(user_id),
+            "user_id": str(user_id),
             "request_ts": request_ts,
             "time_ms": response_time,
         }
