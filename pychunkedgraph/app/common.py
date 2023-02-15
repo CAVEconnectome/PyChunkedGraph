@@ -12,11 +12,10 @@ from middle_auth_client import auth_required
 from pychunkedgraph.logging.log_db import get_log_db
 
 
-@auth_required
 def before_request():
     current_app.request_start_time = time.time()
     current_app.request_start_date = datetime.utcnow()
-    current_app.user_id = g.auth_user["id"]
+    current_app.user_id = g.auth_user.get("id", "NA")
     current_app.table_id = None
     current_app.request_type = None
     content_encoding = request.headers.get("Content-Encoding", "")
