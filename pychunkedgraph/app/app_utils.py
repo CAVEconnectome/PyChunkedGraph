@@ -165,9 +165,7 @@ def get_cg(table_id, skip_cache: bool = False):
         return cg
 
     if cg.graph_id in current_app.config["PCG_GRAPH_IDS"]:
-        instance_id = current_app.config["CHUNKGRAPH_INSTANCE_ID"]
-        logger = logging.getLogger(f"{instance_id}/{table_id}")
-        logger.warning(f"Serving whitelisted graph {cg.graph_id}.")
+        current_app.logger.warning(f"Serving whitelisted graph {cg.graph_id}.")
         PCG_CACHE[table_id] = cg
         return cg
     raise ValueError(f"Graph {cg.graph_id} not supported.")
