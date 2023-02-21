@@ -10,6 +10,7 @@ from flask import current_app, g, jsonify, request
 
 from pychunkedgraph.logging.log_db import get_log_db
 
+USER_NOT_FOUND = "-1"
 
 def before_request():
     current_app.request_start_time = time.time()
@@ -17,7 +18,7 @@ def before_request():
     try:
         current_app.user_id = g.auth_user["id"]
     except (AttributeError, KeyError):
-        current_app.user_id = "NA"
+        current_app.user_id = None
     current_app.table_id = None
     current_app.request_type = None
     content_encoding = request.headers.get("Content-Encoding", "")
@@ -28,8 +29,11 @@ def before_request():
 def after_request(response):
     response_time = (time.time() - current_app.request_start_time) * 1000
     accept_encoding = request.headers.get("Accept-Encoding", "")
-    if "gzip" not in accept_encoding.lower():
-        return response
+
+    try:
+        current_app.user_id = g.auth_user["id"]
+    except (AttributeError, KeyError):
+        current_app.user_id = USER_NOT_FOUND
 
     try:
         if current_app.table_id is not None:
@@ -42,6 +46,9 @@ def after_request(response):
             )
     except GoogleAPIError as e:
         current_app.logger.error(f"LogDB entry not successful: GoogleAPIError {e}")
+
+    if "gzip" not in accept_encoding.lower():
+        return response
 
     response.direct_passthrough = False
     if (
