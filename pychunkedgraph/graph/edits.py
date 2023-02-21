@@ -233,6 +233,7 @@ def add_edges(
         operation_id=operation_id,
         time_stamp=time_stamp,
         parent_ts=parent_ts,
+        edit_type="merge",
     )
 
     new_roots = create_parents.run()
@@ -334,6 +335,7 @@ def remove_edges(
         operation_id=operation_id,
         time_stamp=time_stamp,
         parent_ts=parent_ts,
+        edit_type="split",
     )
     new_roots = create_parents.run()
     new_entries = create_parents.create_new_entries()
@@ -352,6 +354,7 @@ class CreateParentNodes:
         old_new_id_d: Dict[np.uint64, Iterable[np.uint64]] = None,
         old_hierarchy_d: Dict[np.uint64, Dict[int, np.uint64]] = None,
         parent_ts: datetime.datetime = None,
+        edit_type: str = None,
     ):
         self.cg = cg
         self._new_l2_ids = new_l2_ids
@@ -363,6 +366,7 @@ class CreateParentNodes:
         self._operation_id = operation_id
         self._time_stamp = time_stamp
         self._last_successful_ts = parent_ts
+        self._edit_type = edit_type
 
     def _update_id_lineage(
         self,
@@ -406,7 +410,7 @@ class CreateParentNodes:
         not_cached = _node_ids[~np.in1d(_node_ids, cached)]
 
         with TimeIt(
-            f"get_cross_chunk_edges{layer}",
+            f"{self._edit_type}.get_cross_chunk_edges.{layer}",
             self.cg.graph_id,
             self._operation_id,
         ):
@@ -513,7 +517,7 @@ class CreateParentNodes:
             if len(self._new_ids_d[layer]) == 0:
                 continue
             with TimeIt(
-                f"_create_new_parents_layer_{layer}",
+                f"{self._edit_type}.create_new_parents_layer.{layer}",
                 self.cg.graph_id,
                 self._operation_id,
             ):
