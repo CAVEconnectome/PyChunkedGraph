@@ -422,13 +422,13 @@ class GraphEditOperation(ABC):
             operation_id=operation_id,
             privileged_mode=self.privileged_mode,
         ) as root_lock:
-            operation_id = root_lock.operation_id
             self.cg.cache = CacheService(self.cg)
             timestamp = self.cg.client.get_consolidated_lock_timestamp(
                 root_lock.locked_root_ids,
                 np.array([operation_id] * len(root_lock.locked_root_ids)),
             )
 
+            operation_id = root_lock.operation_id
             log_record_before_edit = self._create_log_record(
                 operation_id=operation_id,
                 new_root_ids=types.empty_1d,
