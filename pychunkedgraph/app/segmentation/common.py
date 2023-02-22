@@ -278,6 +278,7 @@ def handle_merge(table_id, allow_same_segment_merge=False):
     except cg_exceptions.PreconditionError as e:
         raise cg_exceptions.BadRequest(str(e))
 
+    current_app.operation_id = ret.operation_id
     if ret.new_root_ids is None:
         raise cg_exceptions.InternalServerError(
             "Could not merge selected " "supervoxel."
@@ -342,6 +343,7 @@ def handle_split(table_id):
     except cg_exceptions.PreconditionError as e:
         raise cg_exceptions.BadRequest(str(e))
 
+    current_app.operation_id = ret.operation_id
     if ret.new_root_ids is None:
         raise cg_exceptions.InternalServerError(
             "Could not split selected segment groups."

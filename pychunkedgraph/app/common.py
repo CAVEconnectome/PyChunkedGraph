@@ -20,6 +20,7 @@ def before_request():
     except (AttributeError, KeyError):
         current_app.user_id = USER_NOT_FOUND
     current_app.table_id = None
+    current_app.operation_id = None
     current_app.request_type = None
     content_encoding = request.headers.get("Content-Encoding", "")
     if "gzip" in content_encoding.lower():
@@ -41,6 +42,7 @@ def after_request(response):
             log_db.log_endpoint(
                 path=request.full_path,
                 user_id=current_app.user_id,
+                operation_id=current_app.operation_id,
                 request_ts=current_app.request_start_date,
                 response_time=response_time,
             )
