@@ -18,7 +18,7 @@ def before_request():
     try:
         current_app.user_id = g.auth_user["id"]
     except (AttributeError, KeyError):
-        current_app.user_id = None
+        current_app.user_id = USER_NOT_FOUND
     current_app.table_id = None
     current_app.request_type = None
     content_encoding = request.headers.get("Content-Encoding", "")

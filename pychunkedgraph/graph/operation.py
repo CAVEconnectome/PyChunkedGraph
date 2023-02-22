@@ -413,7 +413,7 @@ class GraphEditOperation(ABC):
         `override_ts` can be used to preserve proper timestamp in such cases.
         """
         is_merge = isinstance(self, MergeOperation)
-        operation_type = "merge" if is_merge else "split"
+        op_type = "merge" if is_merge else "split"
         self.parent_ts = parent_ts
         root_ids = self._update_root_ids()
         with locks.RootLock(
@@ -421,16 +421,15 @@ class GraphEditOperation(ABC):
             root_ids,
             operation_id=operation_id,
             privileged_mode=self.privileged_mode,
-        ) as root_lock:
+        ) as lock:
             self.cg.cache = CacheService(self.cg)
             timestamp = self.cg.client.get_consolidated_lock_timestamp(
-                root_lock.locked_root_ids,
-                np.array([operation_id] * len(root_lock.locked_root_ids)),
+                lock.locked_root_ids,
+                np.array([lock.operation_id] * len(lock.locked_root_ids)),
             )
 
-            operation_id = root_lock.operation_id
             log_record_before_edit = self._create_log_record(
-                operation_id=operation_id,
+                operation_id=lock.operation_id,
                 new_root_ids=types.empty_1d,
                 timestamp=timestamp,
                 operation_ts=override_ts if override_ts else timestamp,
@@ -439,15 +438,15 @@ class GraphEditOperation(ABC):
             self.cg.client.write([log_record_before_edit])
 
             try:
-                with TimeIt(f"{operation_type}.apply", self.cg.graph_id, operation_id):
+                with TimeIt(f"{op_type}.apply", self.cg.graph_id, lock.operation_id):
                     new_root_ids, new_lvl2_ids, affected_records = self._apply(
-                        operation_id=operation_id,
+                        operation_id=lock.operation_id,
                         timestamp=override_ts if override_ts else timestamp,
                     )
                 if self.cg.meta.READ_ONLY:
                     # return without persisting changes
                     return GraphEditOperation.Result(
-                        operation_id=operation_id,
+                        operation_id=lock.operation_id,
                         new_root_ids=new_root_ids,
                         new_lvl2_ids=new_lvl2_ids,
                     )
@@ -461,7 +460,7 @@ class GraphEditOperation(ABC):
                 # unknown exception, update log record with error
                 self.cg.cache = None
                 log_record_error = self._create_log_record(
-                    operation_id=operation_id,
+                    operation_id=lock.operation_id,
                     new_root_ids=types.empty_1d,
                     timestamp=None,
                     operation_ts=override_ts if override_ts else timestamp,
@@ -471,9 +470,9 @@ class GraphEditOperation(ABC):
                 self.cg.client.write([log_record_error])
                 raise Exception(err)
 
-            with TimeIt(f"{operation_type}.write", self.cg.graph_id, operation_id):
+            with TimeIt(f"{op_type}.write", self.cg.graph_id, lock.operation_id):
                 result = self._write(
-                    root_lock,
+                    lock,
                     override_ts if override_ts else timestamp,
                     new_root_ids,
                     new_lvl2_ids,

@@ -236,7 +236,7 @@ def publish_edit(
 
 def handle_merge(table_id, allow_same_segment_merge=False):
     current_app.table_id = table_id
-    user_id = current_app.user_id
+    user_id = str(g.auth_user.get("id", current_app.user_id))
 
     nodes = json.loads(request.data)
     is_priority = request.args.get("priority", True, type=str2bool)
@@ -296,7 +296,7 @@ def handle_merge(table_id, allow_same_segment_merge=False):
 
 def handle_split(table_id):
     current_app.table_id = table_id
-    user_id = current_app.user_id
+    user_id = str(g.auth_user.get("id", current_app.user_id))
 
     data = json.loads(request.data)
     is_priority = request.args.get("priority", True, type=str2bool)
@@ -364,7 +364,7 @@ def handle_undo(table_id):
 
     data = json.loads(request.data)
     is_priority = request.args.get("priority", True, type=str2bool)
-    user_id = current_app.user_id
+    user_id = str(g.auth_user.get("id", current_app.user_id))
 
     current_app.logger.debug(data)
 
@@ -396,7 +396,7 @@ def handle_redo(table_id):
 
     data = json.loads(request.data)
     is_priority = request.args.get("priority", True, type=str2bool)
-    user_id = current_app.user_id
+    user_id = str(g.auth_user.get("id", current_app.user_id))
 
     current_app.logger.debug(data)
 
@@ -426,7 +426,7 @@ def handle_redo(table_id):
 def handle_rollback(table_id):
     current_app.table_id = table_id
 
-    user_id = current_app.user_id
+    user_id = str(g.auth_user.get("id", current_app.user_id))
     target_user_id = request.args["user_id"]
 
     is_priority = request.args.get("priority", True, type=str2bool)
@@ -478,7 +478,7 @@ def all_user_operations(
     # If include_errored is false, it will not include operations that failed with
     # an error.
     current_app.table_id = table_id
-    user_id = current_app.user_id
+    user_id = str(g.auth_user.get("id", current_app.user_id))
     target_user_id = request.args.get("user_id", None)
 
     start_time = _parse_timestamp("start_time", 0, return_datetime=True)
@@ -560,7 +560,7 @@ def all_user_operations(
 
 def handle_children(table_id, parent_id):
     current_app.table_id = table_id
-    user_id = current_app.user_id
+    user_id = str(g.auth_user.get("id", current_app.user_id))
 
     cg = app_utils.get_cg(table_id)
 
@@ -580,7 +580,7 @@ def handle_children(table_id, parent_id):
 
 def handle_leaves(table_id, root_id):
     current_app.table_id = table_id
-    user_id = current_app.user_id
+    user_id = str(g.auth_user.get("id", current_app.user_id))
 
     stop_layer = int(request.args.get("stop_layer", 1))
     bounding_box = None
@@ -613,7 +613,7 @@ def handle_leaves(table_id, root_id):
 
 def handle_leaves_many(table_id):
     current_app.table_id = table_id
-    user_id = current_app.user_id
+    user_id = str(g.auth_user.get("id", current_app.user_id))
 
     if "bounds" in request.args:
         bounds = request.args["bounds"]
@@ -644,7 +644,7 @@ def handle_leaves_many(table_id):
 
 def handle_leaves_from_leave(table_id, atomic_id):
     current_app.table_id = table_id
-    user_id = current_app.user_id
+    user_id = str(g.auth_user.get("id", current_app.user_id))
 
     if "bounds" in request.args:
         bounds = request.args["bounds"]
@@ -668,7 +668,7 @@ def handle_leaves_from_leave(table_id, atomic_id):
 
 def handle_subgraph(table_id, root_id):
     current_app.table_id = table_id
-    user_id = current_app.user_id
+    user_id = str(g.auth_user.get("id", current_app.user_id))
 
     if "bounds" in request.args:
         bounds = request.args["bounds"]
@@ -699,7 +699,7 @@ def handle_subgraph(table_id, root_id):
 
 def change_log(table_id, root_id=None, filtered=False):
     current_app.table_id = table_id
-    user_id = current_app.user_id
+    user_id = str(g.auth_user.get("id", current_app.user_id))
     time_stamp_past = _parse_timestamp("timestamp", 0, return_datetime=True)
 
     cg = app_utils.get_cg(table_id)
@@ -713,7 +713,7 @@ def change_log(table_id, root_id=None, filtered=False):
 
 def tabular_change_log_recent(table_id):
     current_app.table_id = table_id
-    user_id = current_app.user_id
+    user_id = str(g.auth_user.get("id", current_app.user_id))
 
     start_time = _parse_timestamp("timestamp", 0, return_datetime=True)
     end_time = (
@@ -758,7 +758,7 @@ def tabular_change_logs(table_id, root_ids, filtered=False):
     current_app.request_type = "tabular_changelog_many"
 
     current_app.table_id = table_id
-    user_id = current_app.user_id
+    user_id = str(g.auth_user.get("id", current_app.user_id))
 
     # Call ChunkedGraph
     cg = app_utils.get_cg(table_id)
@@ -804,7 +804,7 @@ def tabular_change_logs(table_id, root_ids, filtered=False):
 
 def merge_log(table_id, root_id):
     current_app.table_id = table_id
-    user_id = current_app.user_id
+    user_id = str(g.auth_user.get("id", current_app.user_id))
 
     # Call ChunkedGraph
     cg = app_utils.get_cg(table_id)
@@ -817,7 +817,7 @@ def handle_lineage_graph(table_id, root_id=None):
     from pychunkedgraph.graph.lineage import lineage_graph
 
     current_app.table_id = table_id
-    user_id = current_app.user_id
+    user_id = str(g.auth_user.get("id", current_app.user_id))
 
     timestamp_past = _parse_timestamp("timestamp_past", 0, return_datetime=True)
     timestamp_future = _parse_timestamp(
@@ -859,7 +859,7 @@ def handle_past_id_mapping(table_id):
 
 def last_edit(table_id, root_id):
     current_app.table_id = table_id
-    user_id = current_app.user_id
+    user_id = str(g.auth_user.get("id", current_app.user_id))
 
     cg = app_utils.get_cg(table_id)
     hist = segmenthistory.SegmentHistory(cg, int(root_id))
@@ -868,7 +868,7 @@ def last_edit(table_id, root_id):
 
 def oldest_timestamp(table_id):
     current_app.table_id = table_id
-    user_id = current_app.user_id
+    user_id = str(g.auth_user.get("id", current_app.user_id))
     cg = app_utils.get_cg(table_id)
     return cg.get_earliest_timestamp()
 
@@ -880,7 +880,7 @@ def handle_contact_sites(table_id, root_id):
     partners = request.args.get("partners", True, type=app_utils.toboolean)
 
     current_app.table_id = table_id
-    user_id = current_app.user_id
+    user_id = str(g.auth_user.get("id", current_app.user_id))
 
     timestamp = _parse_timestamp("timestamp", time.time(), return_datetime=True)
 
@@ -907,7 +907,7 @@ def handle_contact_sites(table_id, root_id):
 def handle_pairwise_contact_sites(table_id, first_node_id, second_node_id):
     current_app.request_type = "pairwise_contact_sites"
     current_app.table_id = table_id
-    user_id = current_app.user_id
+    user_id = str(g.auth_user.get("id", current_app.user_id))
 
     timestamp = _parse_timestamp("timestamp", time.time(), return_datetime=True)
 
@@ -928,7 +928,7 @@ def handle_pairwise_contact_sites(table_id, first_node_id, second_node_id):
 
 def handle_split_preview(table_id):
     current_app.table_id = table_id
-    user_id = current_app.user_id
+    user_id = str(g.auth_user.get("id", current_app.user_id))
 
     data = json.loads(request.data)
     current_app.logger.debug(data)
@@ -980,7 +980,7 @@ def handle_split_preview(table_id):
 
 def handle_find_path(table_id, precision_mode):
     current_app.table_id = table_id
-    user_id = current_app.user_id
+    user_id = str(g.auth_user.get("id", current_app.user_id))
 
     nodes = json.loads(request.data)
     current_app.logger.debug(nodes)
@@ -1034,7 +1034,7 @@ def handle_find_path(table_id, precision_mode):
 ### GET_LAYER2_SUBGRAPH
 def handle_get_layer2_graph(table_id, node_id):
     current_app.table_id = table_id
-    user_id = current_app.user_id
+    user_id = str(g.auth_user.get("id", current_app.user_id))
 
     cg = app_utils.get_cg(table_id)
     print("Finding edge graph...")
@@ -1087,7 +1087,7 @@ def operation_details(table_id):
     from pychunkedgraph.export.operation_logs import parse_attr
 
     current_app.table_id = table_id
-    user_id = current_app.user_id
+    user_id = str(g.auth_user.get("id", current_app.user_id))
     operation_ids = json.loads(request.args.get("operation_ids", "[]"))
 
     cg = app_utils.get_cg(table_id)
