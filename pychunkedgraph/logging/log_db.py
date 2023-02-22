@@ -4,6 +4,7 @@ import os
 import threading
 import time
 import queue
+from datetime import datetime
 
 from google.api_core.exceptions import GoogleAPIError
 from datastoreflex import DatastoreFlex
@@ -36,8 +37,13 @@ class LogDB:
         }
         self._q.put(item)
 
-    def log_code_block(self, name: str, operation_id, time_ms):
-        item = {"name": name, "operation_id": int(operation_id), "time_ms": time_ms}
+    def log_code_block(self, name: str, operation_id, timestamp, time_ms):
+        item = {
+            "name": name,
+            "operation_id": int(operation_id),
+            "request_ts": timestamp,
+            "time_ms": time_ms,
+        }
         self._q.put(item)
 
     def log_entity(self):
@@ -79,6 +85,7 @@ class TimeIt:
         self._start = None
         self._graph_id = graph_id
         self._operation_id = int(operation_id)
+        self._ts = datetime.utcnow()
 
     def __enter__(self):
         self._start = time.time()
@@ -90,6 +97,7 @@ class TimeIt:
             log_db.log_code_block(
                 name=self._name,
                 operation_id=self._operation_id,
+                timestamp=self._ts,
                 time_ms=time_ms,
             )
         except GoogleAPIError:
