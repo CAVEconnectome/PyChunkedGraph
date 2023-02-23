@@ -1,16 +1,14 @@
+# pylint: disable=invalid-name, missing-docstring, unspecified-encoding, line-too-long, too-few-public-methods
+
 import logging
 import os
 import json
 import datetime
-from pychunkedgraph.meshing.meshgen import UTC
 
 
 class BaseConfig(object):
     DEBUG = False
     TESTING = False
-    HOME = os.path.expanduser("~")
-    # TODO get this secret out of source control
-    SECRET_KEY = "1d94e52c-1c89-4515-b87a-f48cf3cb7f0b"
 
     LOGGING_FORMAT = '{"source":"%(name)s","time":"%(asctime)s","severity":"%(levelname)s","message":"%(message)s"}'
     LOGGING_DATEFORMAT = "%Y-%m-%dT%H:%M:%S.0Z"
@@ -21,22 +19,15 @@ class BaseConfig(object):
     CG_READ_ONLY = os.environ.get("CG_READ_ONLY", None) is not None
     PCG_GRAPH_IDS = os.environ.get("PCG_GRAPH_IDS", "").split(",")
 
-    # TODO what is this suppose to be by default?
-    CHUNKGRAPH_TABLE_ID = "pinky100_sv16"
-    # CHUNKGRAPH_TABLE_ID = "pinky100_benchmark_v92"
-
     USE_REDIS_JOBS = False
 
-    MESHING_ENDPOINT = os.environ.get(
-        "MESHING_ENDPOINT", "http://meshing-service/meshing"
-    )
     daf_credential_path = os.environ.get("DAF_CREDENTIALS", None)
 
+    AUTH_TOKEN = None
     if daf_credential_path is not None:
         with open(daf_credential_path, "r") as f:
             AUTH_TOKEN = json.load(f)["token"]
-    else:
-        AUTH_TOKEN = ""
+
     AUTH_SERVICE_NAMESPACE = "pychunkedgraph"
     VIRTUAL_TABLES = {
         "minnie65_public_v117": {

@@ -1,3 +1,5 @@
+# pylint: disable=invalid-name, missing-docstring, too-many-lines, import-outside-toplevel
+
 import time
 import typing
 import datetime
@@ -18,7 +20,6 @@ from .meta import ChunkedGraphMeta
 from .utils import basetypes
 from .utils import id_helpers
 from .utils import generic as misc_utils
-from .utils.context_managers import TimeIt
 from .edges import Edges
 from .edges import utils as edge_utils
 from .chunks import utils as chunk_utils
@@ -42,7 +43,7 @@ class ChunkedGraph:
         3. Existing graphs in other projects/clients,
            Requires `graph_id` and `client_info`.
         """
-        # TODO create client based on type
+        # create client based on type
         # for now, just use BigTableClient
 
         if meta:
@@ -112,7 +113,7 @@ class ChunkedGraph:
         layer = self.get_chunk_layer(chunk_id)
         max_node_id = self.id_client.get_max_node_id(chunk_id=chunk_id)
         if layer == 1:
-            max_node_id = chunk_id | self.get_segment_id_limit(chunk_id)
+            max_node_id = chunk_id | self.get_segment_id_limit(chunk_id) # pylint: disable=unsupported-binary-operation
 
         return self.client.read_nodes(
             start_id=self.get_node_id(np.uint64(0), chunk_id=chunk_id),
@@ -333,7 +334,6 @@ class ChunkedGraph:
 
         node_l2ids_d = {}
         layers_ = self.get_chunk_layers(node_ids)
-        # with TimeIt(f"_get_bounding_l2_children {node_ids.size}"):
         for l in set(layers_):
             node_l2ids_d.update(self._get_bounding_l2_children(node_ids[layers_ == l]))
         l2_edges_d_d = self.get_atomic_cross_edges(
@@ -662,11 +662,10 @@ class ChunkedGraph:
         chunk_ids = np.unique(self.get_chunk_ids_from_node_ids(level2_ids))
         # google does not provide a storage emulator at the moment
         # this is an ugly hack to avoid permission issues in tests
-        # TODO find a better way to test
+        # find a better way to test
         edges_d = {}
         if self.mock_edges is None:
-            with TimeIt(f"reading {len(chunk_ids)} chunks"):
-                edges_d = self.read_chunk_edges(chunk_ids)
+            edges_d = self.read_chunk_edges(chunk_ids)
 
         fake_edges = self.get_fake_edges(chunk_ids)
         all_chunk_edges = reduce(
@@ -685,28 +684,27 @@ class ChunkedGraph:
             mask1 = np.in1d(all_chunk_edges[:, 1], supervoxels)
             return all_chunk_edges[mask0 & mask1]
 
-        with TimeIt(f"categorize_edges"):
-            l2id_children_d = self.get_children(level2_ids)
-            sv_parent_d = {}
-            supervoxels = []
-            for l2id in l2id_children_d:
-                svs = l2id_children_d[l2id]
-                sv_parent_d.update(dict(zip(svs.tolist(), [l2id] * len(svs))))
-                supervoxels.append(svs)
+        l2id_children_d = self.get_children(level2_ids)
+        sv_parent_d = {}
+        supervoxels = []
+        for l2id in l2id_children_d:
+            svs = l2id_children_d[l2id]
+            sv_parent_d.update(dict(zip(svs.tolist(), [l2id] * len(svs))))
+            supervoxels.append(svs)
 
-            supervoxels = np.concatenate(supervoxels)
+        supervoxels = np.concatenate(supervoxels)
 
-            def f(x):
-                return sv_parent_d.get(x, x)
+        def f(x):
+            return sv_parent_d.get(x, x)
 
-            get_sv_parents = np.vectorize(f, otypes=[np.uint64])
-            in_edges, out_edges, cross_edges = edge_utils.categorize_edges_v2(
-                self.meta,
-                supervoxels,
-                all_chunk_edges,
-                l2id_children_d,
-                get_sv_parents,
-            )
+        get_sv_parents = np.vectorize(f, otypes=[np.uint64])
+        in_edges, out_edges, cross_edges = edge_utils.categorize_edges_v2(
+            self.meta,
+            supervoxels,
+            all_chunk_edges,
+            l2id_children_d,
+            get_sv_parents,
+        )
 
         agglomeration_d = get_agglomerations(
             l2id_children_d, in_edges, out_edges, cross_edges, get_sv_parents
@@ -757,16 +755,15 @@ class ChunkedGraph:
         lock before executing the write.
         :return: GraphEditOperation.Result
         """
-        with TimeIt("MergeOperation.execute()"):
-            return operation.MergeOperation(
-                self,
-                user_id=user_id,
-                added_edges=atomic_edges,
-                affinities=affinities,
-                source_coords=source_coords,
-                sink_coords=sink_coords,
-                allow_same_segment_merge=allow_same_segment_merge,
-            ).execute()
+        return operation.MergeOperation(
+            self,
+            user_id=user_id,
+            added_edges=atomic_edges,
+            affinities=affinities,
+            source_coords=source_coords,
+            sink_coords=sink_coords,
+            allow_same_segment_merge=allow_same_segment_merge,
+        ).execute()
 
     def remove_edges(
         self,
@@ -795,18 +792,17 @@ class ChunkedGraph:
         source_ids = [source_ids] if np.isscalar(source_ids) else source_ids
         sink_ids = [sink_ids] if np.isscalar(sink_ids) else sink_ids
         if mincut:
-            with TimeIt("MulticutOperation.execute()"):
-                return operation.MulticutOperation(
-                    self,
-                    user_id=user_id,
-                    source_ids=source_ids,
-                    sink_ids=sink_ids,
-                    source_coords=source_coords,
-                    sink_coords=sink_coords,
-                    bbox_offset=bb_offset,
-                    path_augment=path_augment,
-                    disallow_isolating_cut=disallow_isolating_cut,
-                ).execute()
+            return operation.MulticutOperation(
+                self,
+                user_id=user_id,
+                source_ids=source_ids,
+                sink_ids=sink_ids,
+                source_coords=source_coords,
+                sink_coords=sink_coords,
+                bbox_offset=bb_offset,
+                path_augment=path_augment,
+                disallow_isolating_cut=disallow_isolating_cut,
+            ).execute()
 
         if not atomic_edges:
             # Shim - can remove this check once all functions call the split properly/directly
@@ -817,14 +813,13 @@ class ChunkedGraph:
             atomic_edges = np.array(
                 [source_ids, sink_ids], dtype=basetypes.NODE_ID
             ).transpose()
-        with TimeIt("SplitOperation.execute()"):
-            return operation.SplitOperation(
-                self,
-                user_id=user_id,
-                removed_edges=atomic_edges,
-                source_coords=source_coords,
-                sink_coords=sink_coords,
-            ).execute()
+        return operation.SplitOperation(
+            self,
+            user_id=user_id,
+            removed_edges=atomic_edges,
+            source_coords=source_coords,
+            sink_coords=sink_coords,
+        ).execute()
 
     def undo_operation(
         self, user_id: str, operation_id: np.uint64
