@@ -28,14 +28,24 @@ class LogDB:
     def client(self):
         return self._client
 
-    def log_endpoint(self, path: str, user_id, operation_id, request_ts, response_time):
+    def log_endpoint(
+        self,
+        path,
+        args,
+        user_id,
+        operation_id,
+        request_ts,
+        response_time,
+    ):
         item = {
             "name": path,
+            "args": args,
             "user_id": str(user_id),
-            "operation_id": int(operation_id),
             "request_ts": request_ts,
             "time_ms": response_time,
         }
+        if operation_id is not None:
+            item["operation_id"] = int(operation_id)
         self._q.put(item)
 
     def log_code_block(self, name: str, operation_id, timestamp, time_ms):

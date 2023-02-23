@@ -1,5 +1,6 @@
 # pylint: disable=invalid-name, missing-docstring, unspecified-encoding
 
+import json
 import time
 import traceback
 from datetime import datetime
@@ -11,6 +12,7 @@ from flask import current_app, g, jsonify, request
 from pychunkedgraph.logging.log_db import get_log_db
 
 USER_NOT_FOUND = "-1"
+
 
 def before_request():
     current_app.request_start_time = time.time()
@@ -39,8 +41,11 @@ def after_request(response):
     try:
         if current_app.table_id is not None:
             log_db = get_log_db(current_app.table_id)
+            args = dict(request.args)  # request.args is ImmutableMultiDict
+            args.pop("middle_auth_token", None)
             log_db.log_endpoint(
-                path=request.full_path,
+                path=request.path,
+                args=json.dumps(args),
                 user_id=current_app.user_id,
                 operation_id=current_app.operation_id,
                 request_ts=current_app.request_start_date,
