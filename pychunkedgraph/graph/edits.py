@@ -233,7 +233,7 @@ def add_edges(
         operation_id=operation_id,
         time_stamp=time_stamp,
         parent_ts=parent_ts,
-        edit_type="merge",
+        edit_type="merge.apply.add_edges",
     )
 
     new_roots = create_parents.run()
@@ -335,7 +335,7 @@ def remove_edges(
         operation_id=operation_id,
         time_stamp=time_stamp,
         parent_ts=parent_ts,
-        edit_type="split",
+        edit_type="split.apply.remove_edges",
     )
     new_roots = create_parents.run()
     new_entries = create_parents.create_new_entries()
