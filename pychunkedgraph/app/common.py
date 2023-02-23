@@ -14,25 +14,7 @@ from pychunkedgraph.logging.log_db import get_log_db
 USER_NOT_FOUND = "-1"
 
 
-def before_request():
-    current_app.request_start_time = time.time()
-    current_app.request_start_date = datetime.utcnow()
-    try:
-        current_app.user_id = g.auth_user["id"]
-    except (AttributeError, KeyError):
-        current_app.user_id = USER_NOT_FOUND
-    current_app.table_id = None
-    current_app.operation_id = None
-    current_app.request_type = None
-    content_encoding = request.headers.get("Content-Encoding", "")
-    if "gzip" in content_encoding.lower():
-        request.data = compression.decompress(request.data, "gzip")
-
-
-def after_request(response):
-    response_time = (time.time() - current_app.request_start_time) * 1000
-    accept_encoding = request.headers.get("Accept-Encoding", "")
-
+def _log_request(response_time):
     try:
         current_app.user_id = g.auth_user["id"]
     except (AttributeError, KeyError):
@@ -53,6 +35,28 @@ def after_request(response):
             )
     except GoogleAPIError as e:
         current_app.logger.error(f"LogDB entry not successful: GoogleAPIError {e}")
+
+
+def before_request():
+    current_app.request_start_time = time.time()
+    current_app.request_start_date = datetime.utcnow()
+    try:
+        current_app.user_id = g.auth_user["id"]
+    except (AttributeError, KeyError):
+        current_app.user_id = USER_NOT_FOUND
+    current_app.table_id = None
+    current_app.operation_id = None
+    current_app.request_type = None
+    content_encoding = request.headers.get("Content-Encoding", "")
+    if "gzip" in content_encoding.lower():
+        request.data = compression.decompress(request.data, "gzip")
+
+
+def after_request(response):
+    response_time = (time.time() - current_app.request_start_time) * 1000
+    accept_encoding = request.headers.get("Accept-Encoding", "")
+
+    _log_request(response_time)
 
     if "gzip" not in accept_encoding.lower():
         return response
@@ -77,6 +81,8 @@ def unhandled_exception(e):
     response_time = (time.time() - current_app.request_start_time) * 1000
     user_ip = str(request.remote_addr)
     tb = traceback.format_exception(etype=type(e), value=e, tb=e.__traceback__)
+
+    _log_request(response_time)
 
     current_app.logger.error(
         {
@@ -107,6 +113,8 @@ def api_exception(e):
     response_time = (time.time() - current_app.request_start_time) * 1000
     user_ip = str(request.remote_addr)
     tb = traceback.format_exception(etype=type(e), value=e, tb=e.__traceback__)
+
+    _log_request(response_time)
 
     current_app.logger.error(
         {
