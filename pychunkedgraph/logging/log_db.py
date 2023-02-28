@@ -62,7 +62,14 @@ class LogDB:
             try:
                 item = self._q.get_nowait()
                 key = self.client.key(self._kind, namespace=self._client.namespace)
-                entity = self.client.entity(key, exclude_from_indexes=("user_id", "args",))
+                entity = self.client.entity(
+                    key,
+                    exclude_from_indexes=(
+                        "args",
+                        "time_ms",
+                        "user_id",
+                    ),
+                )
                 entity.update(item)
                 self.client.put(entity)
             except queue.Empty:
