@@ -27,3 +27,4 @@ jsonschema<4.0
 importlib-metadata>=4.5.0
 cloud-volume
 pyyaml
+datastoreflex
