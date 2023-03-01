@@ -1,4 +1,4 @@
-importlib-metadata>=4.5.0<5.0.0
+importlib-metadata==4.13.0
 flask
 click >= 8.0
 cloud-files>=1.25.2
