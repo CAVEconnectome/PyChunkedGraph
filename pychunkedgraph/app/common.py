@@ -1,5 +1,6 @@
 # pylint: disable=invalid-name, missing-docstring, unspecified-encoding
 
+import os
 import json
 import time
 import traceback
@@ -13,12 +14,22 @@ from pychunkedgraph.logging.log_db import get_log_db
 
 USER_NOT_FOUND = "-1"
 
+try:
+    # if key set assume True
+    _ = os.environ["PCG_SERVER_LOGS_LEAVES_MANY"]
+    LOG_LEAVES_MANY = True
+except KeyError:
+    LOG_LEAVES_MANY = False
+
 
 def _log_request(response_time):
     try:
         current_app.user_id = g.auth_user["id"]
     except (AttributeError, KeyError):
         current_app.user_id = USER_NOT_FOUND
+
+    if LOG_LEAVES_MANY is False and "leaves_many" in request.path:
+        return
 
     try:
         if current_app.table_id is not None:
