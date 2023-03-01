@@ -15,7 +15,7 @@ LOG_DB_CACHE = {}
 EXCLUDE_FROM_INDEX = os.environ.get(
     "PCG_SERVER_LOGS_INDEX_EXCLUDE", "args, time_ms, user_id"
 )
-EXCLUDE_FROM_INDEX = (attr.strip() for attr in EXCLUDE_FROM_INDEX.split(","))
+EXCLUDE_FROM_INDEX = tuple(attr.strip() for attr in EXCLUDE_FROM_INDEX.split(","))
 
 
 class LogDB:
@@ -87,7 +87,7 @@ def get_log_db(graph_id: str) -> LogDB:
     except KeyError as err:
         raise GoogleAPIError(f"Datastore project env not set: {err}") from err
 
-    namespace = os.environ.get("PCG_SERVER_LOGS_NS", "pcg_server_logs_test")
+    namespace = os.environ.get("PCG_SERVER_LOGS_NS", "pcg_server_logs_test_v1")
     client = DatastoreFlex(project=project, namespace=namespace)
 
     log_db = LogDB(graph_id, client=client)

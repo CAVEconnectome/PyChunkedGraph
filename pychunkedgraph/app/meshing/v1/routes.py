@@ -1,5 +1,8 @@
 # pylint: disable=invalid-name, missing-docstring, unspecified-encoding, assigning-non-slot
 
+import os
+import json
+
 from flask import Blueprint, current_app
 from middle_auth_client import auth_requires_permission, auth_required
 
@@ -8,8 +11,6 @@ from pychunkedgraph.app.meshing import common
 from pychunkedgraph.backend import chunkedgraph_exceptions as cg_exceptions
 from pychunkedgraph.app.app_utils import remap_public
 
-import os
-import json
 
 if os.environ.get("DAF_CREDENTIALS", None) is not None:
     with open(os.environ.get("DAF_CREDENTIALS"), "r") as f:
