@@ -21,3 +21,4 @@ jobs:
         run: |
           docker build --tag seunglab/pychunkedgraph:$GITHUB_SHA .
           docker run --rm seunglab/pychunkedgraph:$GITHUB_SHA /bin/sh -c "tox -v -- --cov-config .coveragerc --cov=pychunkedgraph && codecov"
+
