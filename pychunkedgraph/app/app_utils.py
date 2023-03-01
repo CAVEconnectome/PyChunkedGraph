@@ -1,40 +1,23 @@
-import logging
-import sys
-import time
-import requests
-import os
-from functools import wraps
+# pylint: disable=invalid-name, missing-docstring, unspecified-encoding, assigning-non-slot
 
-from time import mktime
+import logging
+import time
+import os
+import sys
+from typing import Sequence
+
+import requests
 import numpy as np
-from flask import current_app, json, request
+import networkx as nx
+from flask import current_app, json
+from scipy import spatial
 from google.auth import credentials
 from google.auth import default as default_creds
-from google.cloud import bigtable, datastore
+from google.cloud import bigtable
 
-from werkzeug.datastructures import ImmutableMultiDict
-
-
-from pychunkedgraph.backend import chunkedgraph
+from pychunkedgraph.backend.chunkedgraph import ChunkedGraph
 from pychunkedgraph.backend import chunkedgraph_exceptions as cg_exceptions
-from pychunkedgraph.logging import flask_log_db, jsonformatter
-
-import networkx as nx
-from scipy import spatial
-
-
-from typing import (
-    Any,
-    Dict,
-    Iterable,
-    List,
-    Optional,
-    Sequence,
-    Tuple,
-    Union,
-    NamedTuple,
-)
-import os
+from pychunkedgraph.logging import jsonformatter
 
 CACHE = {}
 
@@ -162,74 +145,47 @@ def jsonify_with_kwargs(data, as_response=True, **kwargs):
 
 def get_bigtable_client(config):
     project_id = config.get("PROJECT_ID", None)
-
     if config.get("emulate", False):
-        credentials = DoNothingCreds()
+        creds = DoNothingCreds()
     elif project_id is not None:
-        credentials, _ = default_creds()
+        creds, _ = default_creds()
     else:
-        credentials, project_id = default_creds()
-
-    client = bigtable.Client(admin=True, project=project_id, credentials=credentials)
-    return client
-
-
-def get_datastore_client(config):
-    project_id = config.get("PROJECT_ID", None)
-
-    if config.get("emulate", False):
-        credentials = DoNothingCreds()
-    elif project_id is not None:
-        credentials, _ = default_creds()
-    else:
-        credentials, project_id = default_creds()
-
-    client = datastore.Client(project=project_id, credentials=credentials)
+        creds, project_id = default_creds()
+    client = bigtable.Client(admin=True, project=project_id, credentials=creds)
     return client
 
 
 def get_cg(table_id):
     assert table_id in current_app.config["PCG_GRAPH_IDS"]
 
-    if table_id not in CACHE:
-        instance_id = current_app.config["CHUNKGRAPH_INSTANCE_ID"]
-        client = get_bigtable_client(current_app.config)
+    try:
+        return CACHE[table_id]
+    except KeyError:
+        ...
 
-        # Create ChunkedGraph logging
-        logger = logging.getLogger(f"{instance_id}/{table_id}")
-        logger.setLevel(current_app.config["LOGGING_LEVEL"])
+    instance_id = current_app.config["CHUNKGRAPH_INSTANCE_ID"]
+    client = get_bigtable_client(current_app.config)
 
-        # prevent duplicate logs from Flasks(?) parent logger
-        logger.propagate = False
+    logger = logging.getLogger(f"{instance_id}/{table_id}")
+    logger.setLevel(current_app.config["LOGGING_LEVEL"])
+    logger.propagate = False
 
-        handler = logging.StreamHandler(sys.stdout)
-        handler.setLevel(current_app.config["LOGGING_LEVEL"])
-        formatter = jsonformatter.JsonFormatter(
-            fmt=current_app.config["LOGGING_FORMAT"],
-            datefmt=current_app.config["LOGGING_DATEFORMAT"],
-        )
-        formatter.converter = time.gmtime
-        handler.setFormatter(formatter)
+    handler = logging.StreamHandler(sys.stdout)
+    handler.setLevel(current_app.config["LOGGING_LEVEL"])
+    formatter = jsonformatter.JsonFormatter(
+        fmt=current_app.config["LOGGING_FORMAT"],
+        datefmt=current_app.config["LOGGING_DATEFORMAT"],
+    )
+    formatter.converter = time.gmtime
+    handler.setFormatter(formatter)
+    logger.addHandler(handler)
 
-        logger.addHandler(handler)
-
-        # Create ChunkedGraph
-        CACHE[table_id] = chunkedgraph.ChunkedGraph(
-            table_id=table_id, instance_id=instance_id, client=client, logger=logger
-        )
+    CACHE[table_id] = ChunkedGraph(
+        table_id, instance_id=instance_id, client=client, logger=logger
+    )
 
     current_app.table_id = table_id
     return CACHE[table_id]
-
-
-def get_log_db(table_id):
-    if "log_db" not in CACHE:
-        client = get_datastore_client(current_app.config)
-        CACHE["log_db"] = flask_log_db.FlaskLogDatabase(
-            table_id, client=client, credentials=credentials
-        )
-
-    return CACHE["log_db"]
 
 
 def toboolean(value):
