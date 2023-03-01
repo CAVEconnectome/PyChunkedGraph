@@ -12,6 +12,11 @@ from datastoreflex import DatastoreFlex
 
 LOG_DB_CACHE = {}
 
+EXCLUDE_FROM_INDEX = os.environ.get(
+    "PCG_SERVER_LOGS_INDEX_EXCLUDE", "args, time_ms, user_id"
+)
+EXCLUDE_FROM_INDEX = (attr.strip() for attr in EXCLUDE_FROM_INDEX.split(","))
+
 
 class LogDB:
     def __init__(self, graph_id: str, client: DatastoreFlex):
@@ -62,7 +67,9 @@ class LogDB:
             try:
                 item = self._q.get_nowait()
                 key = self.client.key(self._kind, namespace=self._client.namespace)
-                entity = self.client.entity(key, exclude_from_indexes=("time_ms",))
+                entity = self.client.entity(
+                    key, exclude_from_indexes=EXCLUDE_FROM_INDEX
+                )
                 entity.update(item)
                 self.client.put(entity)
             except queue.Empty:
