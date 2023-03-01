@@ -14,12 +14,7 @@ from pychunkedgraph.logging.log_db import get_log_db
 
 USER_NOT_FOUND = "-1"
 
-try:
-    # if key set assume True
-    _ = os.environ["PCG_SERVER_LOGS_LEAVES_MANY"]
-    LOG_LEAVES_MANY = True
-except KeyError:
-    LOG_LEAVES_MANY = False
+LOG_LEAVES_MANY = os.environ.get("PCG_SERVER_LOGS_LEAVES_MANY", "") != ""
 
 
 def _log_request(response_time):
