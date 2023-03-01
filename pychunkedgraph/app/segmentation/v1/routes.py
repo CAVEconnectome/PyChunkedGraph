@@ -1,21 +1,18 @@
+# pylint: disable=invalid-name, missing-docstring, unspecified-encoding, assigning-non-slot
+
 import io
 import csv
 import pickle
 import pandas as pd
 import numpy as np
 
-from flask import make_response, current_app
 from flask import Blueprint, request
 from middle_auth_client import auth_requires_permission
 from middle_auth_client import auth_requires_admin
 from middle_auth_client import auth_required
 
-from pychunkedgraph.app.app_utils import (
-    jsonify_with_kwargs,
-    toboolean,
-    tobinary,
-    remap_public,
-)
+from pychunkedgraph.app.app_utils import jsonify_with_kwargs, toboolean, tobinary
+from pychunkedgraph.app import common as app_common
 from pychunkedgraph.app.segmentation import common
 from pychunkedgraph.backend import chunkedgraph_exceptions as cg_exceptions
 
@@ -58,26 +55,23 @@ def home():
 
 
 @bp.before_request
-# @auth_required
 def before_request():
-    return common.before_request()
+    return app_common.before_request()
 
 
 @bp.after_request
-# @auth_required
 def after_request(response):
-    return common.after_request(response)
+    return app_common.after_request(response)
 
 
 @bp.errorhandler(Exception)
 def unhandled_exception(e):
-    return common.unhandled_exception(e)
+    return app_common.unhandled_exception(e)
 
 
 @bp.errorhandler(cg_exceptions.ChunkedGraphAPIError)
 def api_exception(e):
-    return common.api_exception(e)
-
+    return app_common.api_exception(e)
 
 ### MERGE ----------------------------------------------------------------------
 
