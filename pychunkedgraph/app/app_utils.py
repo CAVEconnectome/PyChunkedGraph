@@ -157,6 +157,7 @@ def get_bigtable_client(config):
 
 def get_cg(table_id):
     assert table_id in current_app.config["PCG_GRAPH_IDS"]
+    current_app.table_id = table_id
 
     try:
         return CACHE[table_id]
@@ -184,7 +185,6 @@ def get_cg(table_id):
         table_id, instance_id=instance_id, client=client, logger=logger
     )
 
-    current_app.table_id = table_id
     return CACHE[table_id]
 
 
