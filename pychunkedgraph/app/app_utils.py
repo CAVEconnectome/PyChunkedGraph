@@ -201,8 +201,8 @@ def toboolean(value):
         return value
     try:
         value = value.lower()
-    except:
-        raise ValueError(f"Can't convert {value} to boolean")
+    except Exception as exc:
+        raise ValueError(f"Can't convert {value} to boolean: {exc}") from exc
 
     if value in ("true", "1"):
         return True
