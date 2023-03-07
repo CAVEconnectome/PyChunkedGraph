@@ -33,6 +33,7 @@ def _log_request(response_time):
             args.pop("middle_auth_token", None)
             log_db.log_endpoint(
                 path=request.path,
+                endpoint=request.endpoint,
                 args=json.dumps(args),
                 user_id=current_app.user_id,
                 operation_id=current_app.operation_id,
