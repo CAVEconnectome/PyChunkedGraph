@@ -1,3 +1,5 @@
+# pylint: disable=invalid-name, missing-docstring, too-many-lines, import-outside-toplevel
+
 from time import time
 from typing import List
 from typing import Dict
@@ -8,6 +10,7 @@ import numpy as np
 from cloudfiles import CloudFiles
 from cloudvolume import CloudVolume
 
+from .redis import REDIS
 from ..meshgen_utils import get_mesh_name
 from ..meshgen_utils import get_json_info
 from ...graph import ChunkedGraph
@@ -45,6 +48,40 @@ def _get_children(cg, node_ids: Sequence[np.uint64], children_cache: dict = {}):
     return np.concatenate(children)
 
 
+def _get_cached_initial_fragments(
+    namespace: str, node_ids: Sequence[np.uint64]
+) -> Tuple[Dict, Sequence[np.uint64]]:
+    if REDIS is None:
+        return {}, node_ids
+
+    pipeline = REDIS.pipeline()
+    for node_id in node_ids:
+        pipeline.get(f"{namespace}:{node_id}")
+
+    result = {}
+    not_cached = []
+    fragments = pipeline.execute()
+    for node_id, fragment in zip(node_ids, fragments):
+        if fragment is None:
+            not_cached.append(node_id)
+            continue
+        fragment = fragment.decode()
+        path, offset, size = fragment.split(":")
+        result[node_id] = [path, int(offset), int(size)]
+    return result, not_cached
+
+
+def _set_cached_initial_fragments(namespace: str, fragments_d: Dict) -> None:
+    if REDIS is None:
+        return
+
+    pipeline = REDIS.pipeline()
+    for node_id, fragment in fragments_d.items():
+        path, offset, size = fragment
+        pipeline.set(f"{namespace}:{node_id}", f"{path}:{offset}:{size}")
+    pipeline.execute()
+
+
 def _get_initial_meshes(
     cg,
     shard_readers,
@@ -53,7 +90,7 @@ def _get_initial_meshes(
 ) -> Dict:
     children_cache = {}
     result = {}
-    if not len(node_ids):
+    if len(node_ids) == 0:
         return result
     node_layers = cg.get_chunk_layers(node_ids)
     stop_layer_ids = [node_ids[node_layers == stop_layer]]
@@ -62,51 +99,94 @@ def _get_initial_meshes(
         ids_ = node_ids[node_layers > stop_layer]
         ids_, skips = check_skips(cg, ids_, children_cache=children_cache)
 
-        start = time()
-        result_ = shard_readers.initial_exists(ids_, return_byte_range=True)
+        _result, not_cached = _get_cached_initial_fragments(cg.graph_id, ids_)
+        result.update(_result)
+
+        result_ = shard_readers.initial_exists(not_cached, return_byte_range=True)
         result_, missing_ids = _del_none_keys(result_)
         result.update(result_)
-        print("ids, missing", ids_.size, len(missing_ids), time() - start)
+        _set_cached_initial_fragments(cg.graph_id, result_)
 
         node_ids = _get_children(cg, missing_ids, children_cache=children_cache)
         node_ids = np.concatenate([node_ids, skips])
         node_layers = cg.get_chunk_layers(node_ids)
 
-    # remainder IDs
+    # remainder ids
     start = time()
     stop_layer_ids = np.concatenate(
         [*stop_layer_ids, node_ids[node_layers == stop_layer]]
     )
-    # result_ = shard_readers.readers[stop_layer].exists(
-    #     labels=stop_layer_ids, path=f"{mesh_dir}/initial/{stop_layer}/", return_byte_range=True,
-    # )
-    result_ = shard_readers.initial_exists(stop_layer_ids, return_byte_range=True)
-    print(f"{stop_layer}:{stop_layer_ids.size} {time()-start}")
+
+    _result, not_cached = _get_cached_initial_fragments(cg.graph_id, stop_layer_ids)
+    result.update(_result)
+
+    result_ = shard_readers.initial_exists(not_cached, return_byte_range=True)
     result_, temp = _del_none_keys(result_)
-    print("missing_ids", len(temp))
-    print(temp)
+    _set_cached_initial_fragments(cg.graph_id, result_)
+
+    print(f"{stop_layer}:{stop_layer_ids.size}:{time()-start}; missing {len(temp)}")
     result.update(result_)
     return result
+
+
+def _get_cached_dynamic_fragments(
+    namespace: str, node_ids: Sequence[np.uint64]
+) -> Tuple[Dict, Sequence[np.uint64]]:
+    if REDIS is None:
+        return {}, node_ids
+
+    pipeline = REDIS.pipeline()
+    for node_id in node_ids:
+        pipeline.get(f"{namespace}:{node_id}")
+
+    result = {}
+    not_cached = []
+    fragments = pipeline.execute()
+    for node_id, fragment in zip(node_ids, fragments):
+        if fragment is None:
+            not_cached.append(node_id)
+            continue
+        result[node_id] = fragment.decode()
+    return result, not_cached
+
+
+def _set_cached_dynamic_fragments(namespace: str, fragments_d: Dict) -> None:
+    if REDIS is None:
+        return
+
+    pipeline = REDIS.pipeline()
+    for node_id, fragment in fragments_d.items():
+        pipeline.set(f"{namespace}:{node_id}", fragment)
+    pipeline.execute()
 
 
 def _get_dynamic_meshes(cg, node_ids: Sequence[np.uint64]) -> Tuple[Dict, List]:
     result = {}
     missing_ids = []
-    if not len(node_ids):
+    if len(node_ids) == 0:
         return result, missing_ids
+
     mesh_dir = cg.meta.custom_data.get("mesh", {}).get("dir", "graphene_meshes")
     mesh_path = f"{cg.meta.data_source.WATERSHED}/{mesh_dir}/dynamic"
-
     cf = CloudFiles(mesh_path)
-    filenames = [get_mesh_name(cg, id_) for id_ in node_ids]
+
+    _result, not_cached = _get_cached_dynamic_fragments(cg.graph_id, node_ids)
+    result.update(_result)
+
+    filenames = [get_mesh_name(cg, id_) for id_ in not_cached]
     existence_dict = cf.exists(filenames)
 
+    _result = {}
     for mesh_key in existence_dict:
         node_id = np.uint64(mesh_key.split(":")[0])
         if existence_dict[mesh_key]:
-            result[node_id] = mesh_key
+            _result[node_id] = mesh_key
             continue
         missing_ids.append(node_id)
+
+    _set_cached_dynamic_fragments(cg.graph_id, _result)
+
+    result.update(_result)
     missing_ids = np.array(missing_ids, dtype=NODE_ID)
     return result, missing_ids
 
