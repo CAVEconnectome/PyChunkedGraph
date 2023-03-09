@@ -43,14 +43,16 @@ class ManifestCache:
     @property
     def initial_path_prefix(self) -> str:
         if self._initial_path_prefix is None:
-            path_prefix = REDIS.get(INITIAL_PATH_PREFIX)
+            key = f"{self.namespace}:{INITIAL_PATH_PREFIX}"
+            path_prefix = REDIS.get(key)
             self._initial_path_prefix = path_prefix.decode() if path_prefix else ""
         return self._initial_path_prefix
 
     @initial_path_prefix.setter
     def initial_path_prefix(self, path_prefix: str):
         self._initial_path_prefix = path_prefix
-        REDIS.set(INITIAL_PATH_PREFIX, path_prefix)
+        key = f"{self.namespace}:{INITIAL_PATH_PREFIX}"
+        REDIS.set(key, path_prefix)
 
     def _get_cached_initial_fragments(self, node_ids: List[np.uint64]):
         if REDIS is None:
