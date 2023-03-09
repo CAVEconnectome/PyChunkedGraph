@@ -56,7 +56,7 @@ class ManifestCache:
 
     def _get_cached_initial_fragments(self, node_ids: List[np.uint64]):
         if REDIS is None:
-            return {}, node_ids
+            return {}, node_ids, []
 
         pipeline = REDIS.pipeline()
         for node_id in node_ids:
@@ -80,7 +80,7 @@ class ManifestCache:
 
     def _get_cached_dynamic_fragments(self, node_ids: List[np.uint64]):
         if REDIS is None:
-            return {}, node_ids
+            return {}, node_ids, []
 
         pipeline = REDIS.pipeline()
         for node_id in node_ids:
