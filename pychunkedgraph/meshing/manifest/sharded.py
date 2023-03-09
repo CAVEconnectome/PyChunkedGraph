@@ -36,6 +36,7 @@ def verified_manifest(
     for val in result.values():
         try:
             path, offset, size = val
+            path = path.split("initial/")[-1]
             mesh_files.append(f"~{path}:{offset}:{size}")
         except ValueError:
             mesh_files.append(val)
