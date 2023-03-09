@@ -190,8 +190,9 @@ def _get_dynamic_meshes(cg, node_ids: Sequence[np.uint64]) -> Tuple[Dict, List]:
     mesh_dir = cg.meta.custom_data.get("mesh", {}).get("dir", "graphene_meshes")
     mesh_path = f"{cg.meta.data_source.WATERSHED}/{mesh_dir}/dynamic"
     cf = CloudFiles(mesh_path)
+    manifest_cache = ManifestCache(cg.graph_id, initial=False)
 
-    _result, not_cached = _get_cached_dynamic_fragments(cg.graph_id, node_ids)
+    _result, not_cached = manifest_cache.get_fragments(node_ids)
     result.update(_result)
 
     filenames = [get_mesh_name(cg, id_) for id_ in not_cached]
@@ -205,10 +206,9 @@ def _get_dynamic_meshes(cg, node_ids: Sequence[np.uint64]) -> Tuple[Dict, List]:
             continue
         missing_ids.append(node_id)
 
-    _set_cached_dynamic_fragments(cg.graph_id, _result)
-
-    result.update(_result)
     missing_ids = np.array(missing_ids, dtype=NODE_ID)
+    manifest_cache.set_fragments(_result)
+    result.update(_result)
     return result, missing_ids
 
 
