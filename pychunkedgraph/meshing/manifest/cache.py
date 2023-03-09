@@ -71,9 +71,9 @@ class ManifestCache:
             fragment = fragment.decode()
             try:
                 path, offset, size = fragment.split(":")
+                result[node_id] = [path, int(offset), int(size)]
             except ValueError:
                 not_existing.append(node_id)
-            result[node_id] = [path, int(offset), int(size)]
         return result, not_cached, not_existing
 
     def _get_cached_dynamic_fragments(self, node_ids: List[np.uint64]):
