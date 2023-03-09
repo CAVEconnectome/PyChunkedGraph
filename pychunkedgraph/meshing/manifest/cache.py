@@ -4,10 +4,12 @@ import os
 from typing import Dict
 from typing import Optional
 from typing import Tuple
-from typing import Sequence
+from typing import List
 
 import redis
 import numpy as np
+
+DOES_NOT_EXIST = "X"
 
 REDIS_HOST = os.environ.get("MANIFEST_CACHE_REDIS_HOST", "localhost")
 REDIS_PORT = os.environ.get("MANIFEST_CACHE_REDIS_PORT", "6379")
@@ -36,7 +38,7 @@ class ManifestCache:
     def namespace(self) -> str:
         return self._namespace
 
-    def _get_cached_initial_fragments(self, node_ids: Sequence[np.uint64]):
+    def _get_cached_initial_fragments(self, node_ids: List[np.uint64]):
         if REDIS is None:
             return {}, node_ids
 
@@ -46,19 +48,21 @@ class ManifestCache:
 
         result = {}
         not_cached = []
+        not_existing = []
         fragments = pipeline.execute()
         for node_id, fragment in zip(node_ids, fragments):
             if fragment is None:
                 not_cached.append(node_id)
                 continue
             fragment = fragment.decode()
-            path, offset, size = fragment.split(":")
+            try:
+                path, offset, size = fragment.split(":")
+            except ValueError:
+                not_existing.append(node_id)
             result[node_id] = [path, int(offset), int(size)]
-        return result, not_cached
+        return result, not_cached, not_existing
 
-    def _get_cached_dynamic_fragments(
-        self, node_ids: Sequence[np.uint64]
-    ) -> Tuple[Dict, Sequence[np.uint64]]:
+    def _get_cached_dynamic_fragments(self, node_ids: List[np.uint64]):
         if REDIS is None:
             return {}, node_ids
 
@@ -68,20 +72,27 @@ class ManifestCache:
 
         result = {}
         not_cached = []
+        not_existing = []
         fragments = pipeline.execute()
         for node_id, fragment in zip(node_ids, fragments):
             if fragment is None:
                 not_cached.append(node_id)
                 continue
-            result[node_id] = fragment.decode()
-        return result, not_cached
+            fragment = fragment.decode()
+            if fragment == DOES_NOT_EXIST:
+                not_existing.append(node_id)
+            else:
+                result[node_id] = fragment
+        return result, not_cached, not_existing
 
-    def get_fragments(self, node_ids) -> Tuple[Dict, Sequence[np.uint64]]:
+    def get_fragments(self, node_ids) -> Tuple[Dict, List[np.uint64], List[np.uint64]]:
         if self.initial is True:
             return self._get_cached_initial_fragments(node_ids)
         return self._get_cached_dynamic_fragments(node_ids)
 
-    def _set_cached_initial_fragments(self, fragments_d: Dict) -> None:
+    def _set_cached_initial_fragments(
+        self, fragments_d: Dict, not_existing: List[np.uint64]
+    ) -> None:
         if REDIS is None:
             return
 
@@ -89,19 +100,29 @@ class ManifestCache:
         for node_id, fragment in fragments_d.items():
             path, offset, size = fragment
             pipeline.set(f"{self.namespace}:{node_id}", f"{path}:{offset}:{size}")
+
+        for node_id in not_existing:
+            pipeline.set(f"{self.namespace}:{node_id}", DOES_NOT_EXIST)
+
         pipeline.execute()
 
-    def _set_cached_dynamic_fragments(self, fragments_d: Dict) -> None:
+    def _set_cached_dynamic_fragments(
+        self, fragments_d: Dict, not_existing: List[np.uint64]
+    ) -> None:
         if REDIS is None:
             return
 
         pipeline = REDIS.pipeline()
         for node_id, fragment in fragments_d.items():
             pipeline.set(f"{self.namespace}:{node_id}", fragment)
+
+        for node_id in not_existing:
+            pipeline.set(f"{self.namespace}:{node_id}", DOES_NOT_EXIST)
+
         pipeline.execute()
 
-    def set_fragments(self, fragments_d: Dict):
+    def set_fragments(self, fragments_d: Dict, not_existing: List[np.uint64]):
         if self.initial is True:
-            self._set_cached_initial_fragments(fragments_d)
+            self._set_cached_initial_fragments(fragments_d, not_existing)
         else:
-            self._set_cached_dynamic_fragments(fragments_d)
+            self._set_cached_dynamic_fragments(fragments_d, not_existing)

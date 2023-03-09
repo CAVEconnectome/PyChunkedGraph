@@ -70,15 +70,16 @@ def _get_initial_meshes(
         ids_ = node_ids[node_layers > stop_layer]
         ids_, skips = check_skips(cg, ids_, children_cache=children_cache)
 
-        _result, not_cached = manifest_cache.get_fragments(ids_)
+        _result, _not_cached, _not_existing = manifest_cache.get_fragments(ids_)
         result.update(_result)
 
-        result_ = shard_readers.initial_exists(not_cached, return_byte_range=True)
-        result_, missing = _del_none_keys(result_)
-        result.update(result_)
-        manifest_cache.set_fragments(result_)
+        result_ = shard_readers.initial_exists(_not_cached, return_byte_range=True)
+        result_, not_existing_ = _del_none_keys(result_)
 
-        node_ids = _get_children(cg, missing, children_cache=children_cache)
+        manifest_cache.set_fragments(result_, not_existing_)
+        result.update(result_)
+
+        node_ids = _get_children(cg, _not_existing + not_existing_, children_cache)
         node_ids = np.concatenate([node_ids, skips])
         node_layers = cg.get_chunk_layers(node_ids)
 
@@ -87,12 +88,12 @@ def _get_initial_meshes(
         [*stop_layer_ids, node_ids[node_layers == stop_layer]]
     )
 
-    _result, not_cached = manifest_cache.get_fragments(stop_layer_ids)
+    _result, _not_cached, _ = manifest_cache.get_fragments(stop_layer_ids)
     result.update(_result)
 
-    result_ = shard_readers.initial_exists(not_cached, return_byte_range=True)
-    result_, missing = _del_none_keys(result_)
-    manifest_cache.set_fragments(result_)
+    result_ = shard_readers.initial_exists(_not_cached, return_byte_range=True)
+    result_, not_existing_ = _del_none_keys(result_)
+    manifest_cache.set_fragments(result_, not_existing_)
 
     result.update(result_)
     return result
@@ -100,33 +101,32 @@ def _get_initial_meshes(
 
 def _get_dynamic_meshes(cg, node_ids: Sequence[np.uint64]) -> Tuple[Dict, List]:
     result = {}
-    missing_ids = []
+    not_existing = []
     if len(node_ids) == 0:
-        return result, missing_ids
+        return result, not_existing
 
     mesh_dir = cg.meta.custom_data.get("mesh", {}).get("dir", "graphene_meshes")
     mesh_path = f"{cg.meta.data_source.WATERSHED}/{mesh_dir}/dynamic"
     cf = CloudFiles(mesh_path)
     manifest_cache = ManifestCache(cg.graph_id, initial=False)
 
-    _result, not_cached = manifest_cache.get_fragments(node_ids)
-    result.update(_result)
+    result_, not_cached, _ = manifest_cache.get_fragments(node_ids)
+    result.update(result_)
 
     filenames = [get_mesh_name(cg, id_) for id_ in not_cached]
     existence_dict = cf.exists(filenames)
 
-    _result = {}
+    result_ = {}
     for mesh_key in existence_dict:
         node_id = np.uint64(mesh_key.split(":")[0])
         if existence_dict[mesh_key]:
-            _result[node_id] = mesh_key
+            result_[node_id] = mesh_key
             continue
-        missing_ids.append(node_id)
+        not_existing.append(node_id)
 
-    missing_ids = np.array(missing_ids, dtype=NODE_ID)
-    manifest_cache.set_fragments(_result)
-    result.update(_result)
-    return result, missing_ids
+    manifest_cache.set_fragments(result_, not_existing)
+    result.update(result_)
+    return result, np.array(not_existing, dtype=NODE_ID)
 
 
 def _get_initial_and_dynamic_meshes(
