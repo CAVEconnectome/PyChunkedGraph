@@ -1,8 +1,8 @@
 # pylint: disable=invalid-name, missing-docstring, too-many-lines, import-outside-toplevel
 
-from time import time
 from typing import List
 from typing import Dict
+from typing import Optional
 from typing import Tuple
 from typing import Sequence
 
@@ -30,12 +30,13 @@ def _del_none_keys(d: dict):
     return d_new, none_keys
 
 
-def _get_children(cg, node_ids: Sequence[np.uint64], children_cache: dict = {}):
+def _get_children(cg, node_ids: Sequence[np.uint64], children_cache: Dict):
     """
     Helper function that makes use of cache.
     `_check_skips` also needs to know about children so cache is shared between them.
     """
-    if not len(node_ids):
+
+    if len(node_ids) == 0:
         return empty_1d.copy()
     node_ids = np.array(node_ids, dtype=NODE_ID)
     mask = np.in1d(node_ids, np.fromiter(children_cache.keys(), dtype=NODE_ID))
@@ -48,38 +49,88 @@ def _get_children(cg, node_ids: Sequence[np.uint64], children_cache: dict = {}):
     return np.concatenate(children)
 
 
-def _get_cached_initial_fragments(
-    namespace: str, node_ids: Sequence[np.uint64]
-) -> Tuple[Dict, Sequence[np.uint64]]:
-    if REDIS is None:
-        return {}, node_ids
+class ManifestCache:
+    def __init__(self, namespace: str, initial: Optional[bool] = True) -> None:
+        self._initial = initial
+        self._namespace = namespace
 
-    pipeline = REDIS.pipeline()
-    for node_id in node_ids:
-        pipeline.get(f"{namespace}:{node_id}")
+    @property
+    def initial(self) -> str:
+        return self._initial
 
-    result = {}
-    not_cached = []
-    fragments = pipeline.execute()
-    for node_id, fragment in zip(node_ids, fragments):
-        if fragment is None:
-            not_cached.append(node_id)
-            continue
-        fragment = fragment.decode()
-        path, offset, size = fragment.split(":")
-        result[node_id] = [path, int(offset), int(size)]
-    return result, not_cached
+    @property
+    def namespace(self) -> str:
+        return self._namespace
 
+    def _get_cached_initial_fragments(self, node_ids: Sequence[np.uint64]):
+        if REDIS is None:
+            return {}, node_ids
 
-def _set_cached_initial_fragments(namespace: str, fragments_d: Dict) -> None:
-    if REDIS is None:
-        return
+        pipeline = REDIS.pipeline()
+        for node_id in node_ids:
+            pipeline.get(f"{self.namespace}:{node_id}")
 
-    pipeline = REDIS.pipeline()
-    for node_id, fragment in fragments_d.items():
-        path, offset, size = fragment
-        pipeline.set(f"{namespace}:{node_id}", f"{path}:{offset}:{size}")
-    pipeline.execute()
+        result = {}
+        not_cached = []
+        fragments = pipeline.execute()
+        for node_id, fragment in zip(node_ids, fragments):
+            if fragment is None:
+                not_cached.append(node_id)
+                continue
+            fragment = fragment.decode()
+            path, offset, size = fragment.split(":")
+            result[node_id] = [path, int(offset), int(size)]
+        return result, not_cached
+
+    def _get_cached_dynamic_fragments(
+        self, node_ids: Sequence[np.uint64]
+    ) -> Tuple[Dict, Sequence[np.uint64]]:
+        if REDIS is None:
+            return {}, node_ids
+
+        pipeline = REDIS.pipeline()
+        for node_id in node_ids:
+            pipeline.get(f"{self.namespace}:{node_id}")
+
+        result = {}
+        not_cached = []
+        fragments = pipeline.execute()
+        for node_id, fragment in zip(node_ids, fragments):
+            if fragment is None:
+                not_cached.append(node_id)
+                continue
+            result[node_id] = fragment.decode()
+        return result, not_cached
+
+    def get_fragments(self, node_ids) -> Tuple[Dict, Sequence[np.uint64]]:
+        if self.initial is True:
+            return self._get_cached_initial_fragments(node_ids)
+        return self._get_cached_dynamic_fragments(node_ids)
+
+    def _set_cached_initial_fragments(self, fragments_d: Dict) -> None:
+        if REDIS is None:
+            return
+
+        pipeline = REDIS.pipeline()
+        for node_id, fragment in fragments_d.items():
+            path, offset, size = fragment
+            pipeline.set(f"{self.namespace}:{node_id}", f"{path}:{offset}:{size}")
+        pipeline.execute()
+
+    def _set_cached_dynamic_fragments(self, fragments_d: Dict) -> None:
+        if REDIS is None:
+            return
+
+        pipeline = REDIS.pipeline()
+        for node_id, fragment in fragments_d.items():
+            pipeline.set(f"{self.namespace}:{node_id}", fragment)
+        pipeline.execute()
+
+    def set_fragments(self, fragments_d: Dict):
+        if self.initial is True:
+            self._set_cached_initial_fragments(fragments_d)
+        else:
+            self._set_cached_dynamic_fragments(fragments_d)
 
 
 def _get_initial_meshes(
@@ -92,72 +143,42 @@ def _get_initial_meshes(
     result = {}
     if len(node_ids) == 0:
         return result
+
+    manifest_cache = ManifestCache(cg.graph_id, initial=True)
     node_layers = cg.get_chunk_layers(node_ids)
     stop_layer_ids = [node_ids[node_layers == stop_layer]]
+
     while np.any(node_layers > stop_layer):
         stop_layer_ids.append(node_ids[node_layers == stop_layer])
         ids_ = node_ids[node_layers > stop_layer]
         ids_, skips = check_skips(cg, ids_, children_cache=children_cache)
 
-        _result, not_cached = _get_cached_initial_fragments(cg.graph_id, ids_)
+        _result, not_cached = manifest_cache.get_fragments(ids_)
         result.update(_result)
 
         result_ = shard_readers.initial_exists(not_cached, return_byte_range=True)
-        result_, missing_ids = _del_none_keys(result_)
+        result_, missing = _del_none_keys(result_)
         result.update(result_)
-        _set_cached_initial_fragments(cg.graph_id, result_)
+        manifest_cache.set_fragments(result_)
 
-        node_ids = _get_children(cg, missing_ids, children_cache=children_cache)
+        node_ids = _get_children(cg, missing, children_cache=children_cache)
         node_ids = np.concatenate([node_ids, skips])
         node_layers = cg.get_chunk_layers(node_ids)
 
     # remainder ids
-    start = time()
     stop_layer_ids = np.concatenate(
         [*stop_layer_ids, node_ids[node_layers == stop_layer]]
     )
 
-    _result, not_cached = _get_cached_initial_fragments(cg.graph_id, stop_layer_ids)
+    _result, not_cached = manifest_cache.get_fragments(stop_layer_ids)
     result.update(_result)
 
     result_ = shard_readers.initial_exists(not_cached, return_byte_range=True)
-    result_, temp = _del_none_keys(result_)
-    _set_cached_initial_fragments(cg.graph_id, result_)
+    result_, missing = _del_none_keys(result_)
+    manifest_cache.set_fragments(result_)
 
-    print(f"{stop_layer}:{stop_layer_ids.size}:{time()-start}; missing {len(temp)}")
     result.update(result_)
     return result
-
-
-def _get_cached_dynamic_fragments(
-    namespace: str, node_ids: Sequence[np.uint64]
-) -> Tuple[Dict, Sequence[np.uint64]]:
-    if REDIS is None:
-        return {}, node_ids
-
-    pipeline = REDIS.pipeline()
-    for node_id in node_ids:
-        pipeline.get(f"{namespace}:{node_id}")
-
-    result = {}
-    not_cached = []
-    fragments = pipeline.execute()
-    for node_id, fragment in zip(node_ids, fragments):
-        if fragment is None:
-            not_cached.append(node_id)
-            continue
-        result[node_id] = fragment.decode()
-    return result, not_cached
-
-
-def _set_cached_dynamic_fragments(namespace: str, fragments_d: Dict) -> None:
-    if REDIS is None:
-        return
-
-    pipeline = REDIS.pipeline()
-    for node_id, fragment in fragments_d.items():
-        pipeline.set(f"{namespace}:{node_id}", fragment)
-    pipeline.execute()
 
 
 def _get_dynamic_meshes(cg, node_ids: Sequence[np.uint64]) -> Tuple[Dict, List]:
@@ -207,12 +228,17 @@ def _get_initial_and_dynamic_meshes(
     return initial_meshes_d, new_meshes_d, missing_ids
 
 
-def check_skips(cg, node_ids: Sequence[np.uint64], children_cache: dict = {}):
+def check_skips(
+    cg, node_ids: Sequence[np.uint64], children_cache: Optional[Dict] = None
+):
     """
     If a node ID has a single child, it is considered a skip.
     Such IDs won't have meshes because the child mesh will be identical.
     """
-    start = time()
+
+    if children_cache is None:
+        children_cache = {}
+
     layers = cg.get_chunk_layers(node_ids)
     skips = []
     result = [empty_1d, node_ids[layers == 2]]
@@ -224,7 +250,7 @@ def check_skips(cg, node_ids: Sequence[np.uint64], children_cache: dict = {}):
             continue
         assert c.size == 1, f"{p} does not seem to have children."
         skips.append(c[0])
-    print(f"skips {len(skips)}, total {len(node_ids)}, time {time()-start}")
+
     return np.concatenate(result), np.array(skips, dtype=np.uint64)
 
 
