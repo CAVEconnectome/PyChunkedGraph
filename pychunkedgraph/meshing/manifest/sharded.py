@@ -1,3 +1,5 @@
+# pylint: disable=invalid-name, missing-docstring, import-outside-toplevel
+
 from time import time
 
 import numpy as np
@@ -7,7 +9,6 @@ from .utils import get_children_before_start_layer
 from ...graph import ChunkedGraph
 from ...graph.types import empty_1d
 from ...graph.utils.basetypes import NODE_ID
-from ...graph.utils import generic as misc_utils
 from ...graph.chunks import utils as chunk_utils
 
 
@@ -88,7 +89,7 @@ def speculative_manifest(
     print("chilren IDs", len(result), time() - start)
 
     readers = CloudVolume(  # pylint: disable=no-member
-        f"graphene://https://localhost/segmentation/table/dummy",
+        "graphene://https://localhost/segmentation/table/dummy",
         mesh_dir=cg.meta.custom_data.get("mesh", {}).get("dir", "graphene_meshes"),
         info=get_json_info(cg),
     ).mesh.readers

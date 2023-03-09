@@ -1,5 +1,6 @@
-# pylint: disable=invalid-name, missing-docstring, too-many-lines, import-outside-toplevel
+# pylint: disable=invalid-name, missing-docstring, import-outside-toplevel
 
+from datetime import datetime
 from typing import List
 from typing import Dict
 from typing import Optional
@@ -217,12 +218,13 @@ def _get_initial_and_dynamic_meshes(
     shard_readers: Dict,
     node_ids: Sequence[np.uint64],
 ) -> Tuple[Dict, Dict, List]:
-    if not len(node_ids):
+    if len(node_ids) == 0:
         return {}, {}, []
 
     node_ids = np.array(node_ids, dtype=NODE_ID)
     initial_ids, new_ids = segregate_node_ids(cg, node_ids)
     print("new_ids, initial_ids", new_ids.size, initial_ids.size)
+
     initial_meshes_d = _get_initial_meshes(cg, shard_readers, initial_ids)
     new_meshes_d, missing_ids = _get_dynamic_meshes(cg, new_ids)
     return initial_meshes_d, new_meshes_d, missing_ids
@@ -260,7 +262,6 @@ def segregate_node_ids(cg, node_ids):
     initial = created at the time of ingest
     new = created by proofreading edit operations
     """
-    from datetime import datetime
 
     initial_ts = cg.meta.custom_data["mesh"]["initial_ts"]
     initial_mesh_dt = np.datetime64(datetime.fromtimestamp(initial_ts))
@@ -277,7 +278,7 @@ def get_mesh_paths(
     stop_layer: int = 2,
 ) -> Dict:
     shard_readers = CloudVolume(  # pylint: disable=no-member
-        f"graphene://https://localhost/segmentation/table/dummy",
+        "graphene://https://localhost/segmentation/table/dummy",
         mesh_dir=cg.meta.custom_data.get("mesh", {}).get("dir", "graphene_meshes"),
         info=get_json_info(cg),
     ).mesh
@@ -295,7 +296,6 @@ def get_mesh_paths(
 
     # check for left over level 2 IDs
     node_ids = node_ids[node_layers > 1]
-    print("node_ids left over", node_ids.size)
     resp = _get_initial_and_dynamic_meshes(cg, shard_readers, node_ids)
     initial_meshes_d, new_meshes_d, _ = resp
     result.update(initial_meshes_d)
