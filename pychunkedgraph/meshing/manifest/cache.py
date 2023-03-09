@@ -10,6 +10,7 @@ import redis
 import numpy as np
 
 DOES_NOT_EXIST = "X"
+INITIAL_PATH_PREFIX = "initial_path_prefix"
 
 REDIS_HOST = os.environ.get("MANIFEST_CACHE_REDIS_HOST", "localhost")
 REDIS_PORT = os.environ.get("MANIFEST_CACHE_REDIS_PORT", "6379")
@@ -29,6 +30,7 @@ class ManifestCache:
     def __init__(self, namespace: str, initial: Optional[bool] = True) -> None:
         self._initial = initial
         self._namespace = namespace
+        self._initial_path_prefix = None
 
     @property
     def initial(self) -> str:
@@ -37,6 +39,18 @@ class ManifestCache:
     @property
     def namespace(self) -> str:
         return self._namespace
+
+    @property
+    def initial_path_prefix(self) -> str:
+        if self._initial_path_prefix is None:
+            path_prefix = REDIS.get(INITIAL_PATH_PREFIX)
+            self._initial_path_prefix = path_prefix.decode() if path_prefix else ""
+        return self._initial_path_prefix
+
+    @initial_path_prefix.setter
+    def initial_path_prefix(self, path_prefix: str):
+        self._initial_path_prefix = path_prefix
+        REDIS.set(INITIAL_PATH_PREFIX, path_prefix)
 
     def _get_cached_initial_fragments(self, node_ids: List[np.uint64]):
         if REDIS is None:
@@ -96,10 +110,20 @@ class ManifestCache:
         if REDIS is None:
             return
 
+        prefix_idx = 0
+        if len(fragments_d) > 0:
+            fragment_info = next(iter(fragments_d.values()))
+            path, _, _ = fragment_info
+            idx = path.find("initial/")
+            prefix_idx = idx + 8
+            path_prefix = path[:prefix_idx]
+            self.initial_path_prefix = path_prefix
+
         pipeline = REDIS.pipeline()
-        for node_id, fragment in fragments_d.items():
-            path, offset, size = fragment
-            pipeline.set(f"{self.namespace}:{node_id}", f"{path}:{offset}:{size}")
+        for node_id, fragment_info in fragments_d.items():
+            path, offset, size = fragment_info
+            key = f"{self.namespace}:{node_id}"
+            pipeline.set(key, f"{path[prefix_idx:]}:{offset}:{size}")
 
         for node_id in not_existing:
             pipeline.set(f"{self.namespace}:{node_id}", DOES_NOT_EXIST)

@@ -20,14 +20,13 @@ def verified_manifest(
 ):
     from .utils import get_mesh_paths
 
-    start = time()
     bounding_box = chunk_utils.normalize_bounding_box(
         cg.meta, bounding_box, bbox_is_coordinate=True
     )
     node_ids = get_children_before_start_layer(
         cg, node_id, start_layer, bounding_box=bounding_box
     )
-    print(f"children before start_layer count {len(node_ids)}, time {time() - start}")
+    print(f"children before start_layer {len(node_ids)}")
 
     start = time()
     result = get_mesh_paths(cg, node_ids)
@@ -37,9 +36,8 @@ def verified_manifest(
     for val in result.values():
         try:
             path, offset, size = val
-            path = path.split("initial/")[-1]
             mesh_files.append(f"~{path}:{offset}:{size}")
-        except:
+        except ValueError:
             mesh_files.append(val)
     print(f"shard lookups took {time() - start}")
     return node_ids, mesh_files
