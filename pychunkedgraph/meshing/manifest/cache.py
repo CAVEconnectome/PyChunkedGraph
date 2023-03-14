@@ -147,7 +147,9 @@ class ManifestCache:
 
         pipeline.execute()
 
-    def set_fragments(self, fragments_d: Dict, not_existing: List[np.uint64]):
+    def set_fragments(self, fragments_d: Dict, not_existing: List[np.uint64] = None):
+        if not_existing is None:
+            not_existing = []
         if self.initial is True:
             self._set_cached_initial_fragments(fragments_d, not_existing)
         else:
