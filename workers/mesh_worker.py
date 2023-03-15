@@ -1,24 +1,34 @@
+# pylint: disable=invalid-name, missing-docstring, too-many-locals, logging-fstring-interpolation
+
+import gc
+import pickle
+import logging
 from os import path
 from os import getenv
 
+import numpy as np
 from messagingclient import MessagingClient
+
+from pychunkedgraph.graph import ChunkedGraph
+from pychunkedgraph.graph.utils import basetypes
+from pychunkedgraph.meshing import meshgen
+
+
+PCG_CACHE = {}
 
 
 def callback(payload):
-    import gc
-    import pickle
-    import logging
-    import numpy as np
-    from pychunkedgraph.graph import ChunkedGraph
-    from pychunkedgraph.graph.utils import basetypes
-    from pychunkedgraph.meshing import meshgen
-
     data = pickle.loads(payload.data)
     op_id = int(data["operation_id"])
     l2ids = np.array(data["new_lvl2_ids"], dtype=basetypes.NODE_ID)
     table_id = payload.attributes["table_id"]
 
-    cg = ChunkedGraph(graph_id=table_id)
+    try:
+        cg = PCG_CACHE[table_id]
+    except KeyError:
+        cg = ChunkedGraph(graph_id=table_id)
+        PCG_CACHE[table_id] = cg
+
     mesh_dir = cg.meta.dataset_info["mesh"]
     cv_unsharded_mesh_dir = cg.meta.dataset_info["mesh_metadata"]["unsharded_mesh_dir"]
     mesh_path = path.join(

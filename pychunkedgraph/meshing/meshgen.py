@@ -1,5 +1,6 @@
+# pylint: disable=invalid-name, missing-docstring, too-many-lines, wrong-import-order, import-outside-toplevel, no-member, c-extension-no-member
+
 from typing import Sequence
-import sys
 import os
 import numpy as np
 import time
@@ -8,7 +9,6 @@ from functools import lru_cache
 import datetime
 import pytz
 from scipy import ndimage
-import networkx as nx
 
 from multiwrapper import multiprocessing_utils as mu
 from cloudfiles import CloudFiles
@@ -18,20 +18,20 @@ import DracoPy
 import zmesh
 import fastremap
 
-sys.path.insert(0, os.path.join(sys.path[0], "../.."))
-os.environ["TRAVIS_BRANCH"] = "IDONTKNOWWHYINEEDTHIS"
-UTC = pytz.UTC
-
 from pychunkedgraph.graph.chunkedgraph import ChunkedGraph  # noqa
 from pychunkedgraph.graph import attributes  # noqa
 from pychunkedgraph.meshing import meshgen_utils  # noqa
+from pychunkedgraph.meshing.manifest.cache import ManifestCache
+
+
+UTC = pytz.UTC
 
 # Change below to true if debugging and want to see results in stdout
 PRINT_FOR_DEBUGGING = False
 # Change below to false if debugging and do not need to write to cloud (warning: do not deploy w/ below set to false)
 WRITING_TO_CLOUD = True
 
-REDIS_HOST = os.environ.get("REDIS_SERVICE_HOST", "10.250.2.186")
+REDIS_HOST = os.environ.get("REDIS_SERVICE_HOST", "localhost")
 REDIS_PORT = os.environ.get("REDIS_SERVICE_PORT", "6379")
 REDIS_PASSWORD = os.environ.get("REDIS_PASSWORD", "dev")
 REDIS_URL = f"redis://:{REDIS_PASSWORD}@{REDIS_HOST}:{REDIS_PORT}/0"
@@ -42,8 +42,8 @@ def decode_draco_mesh_buffer(fragment):
         mesh_object = DracoPy.decode_buffer_to_mesh(fragment)
         vertices = np.array(mesh_object.points)
         faces = np.array(mesh_object.faces)
-    except ValueError:
-        raise ValueError("Not a valid draco mesh")
+    except ValueError as exc:
+        raise ValueError("Not a valid draco mesh") from exc
 
     assert len(vertices) % 3 == 0, "Draco mesh vertices not 3-D"
     num_vertices = len(vertices) // 3
@@ -120,7 +120,8 @@ def get_remapped_seg_for_lvl2_nodes(
     time_stamp=None,
     n_threads: int = 1,
 ):
-    """Downloads + remaps ws segmentation + resolve unclear cases, filter out all but specified lvl2_nodes
+    """Downloads + remaps ws segmentation + resolve unclear cases,
+    filter out all but specified lvl2_nodes
 
     :param cg: chunkedgraph object
     :param chunk_id: np.uint64
@@ -139,7 +140,8 @@ def get_remapped_seg_for_lvl2_nodes(
         node_on_the_border = False
         for sv_id in sv_list:
             remapping[sv_id] = node
-            # If a node_id is on the chunk_boundary, we must check the overlap region to see if the meshes' end will be open or closed
+            # If a node_id is on the chunk_boundary, we must check
+            # the overlap region to see if the meshes' end will be open or closed
             if (not node_on_the_border) and (
                 np.isin(sv_id, seg[-2, :, :])
                 or np.isin(sv_id, seg[:, -2, :])
@@ -163,11 +165,13 @@ def get_remapped_seg_for_lvl2_nodes(
         sv_remapping.update(remapping)
         fastremap.mask_except(seg, list(sv_remapping.keys()), in_place=True)
         fastremap.remap(seg, sv_remapping, preserve_missing_labels=True, in_place=True)
-        # For some supervoxel, they could map to multiple l2 nodes in the chunk, so we must perform a connected component analysis
+        # For some supervoxel, they could map to multiple l2 nodes in the chunk,
+        # so we must perform a connected component analysis
         # to see which l2 node they are adjacent to
         return remap_seg_using_unsafe_dict(seg, unsafe_dict)
     else:
-        # If no nodes in our subset meet the chunk boundary we can simply retrieve the sv of the nodes in the subset
+        # If no nodes in our subset meet the chunk boundary
+        # we can simply retrieve the sv of the nodes in the subset
         fastremap.mask_except(seg, list(remapping.keys()), in_place=True)
         fastremap.remap(seg, remapping, preserve_missing_labels=True, in_place=True)
 
@@ -279,7 +283,6 @@ def calculate_stop_layer(cg, chunk_id):
     for x in range(chunk_coords[0], chunk_coords[0] + 2):
         for y in range(chunk_coords[1], chunk_coords[1] + 2):
             for z in range(chunk_coords[2], chunk_coords[2] + 2):
-
                 # Chunk id
                 try:
                     neigh_chunk_id = cg.get_chunk_id(x=x, y=y, z=z, layer=chunk_layer)
@@ -714,14 +717,16 @@ def merge_draco_meshes_across_boundaries(
         _, _, child_chunk_offset = get_meshing_necessities_from_graph(
             cg, child_chunk_id, mip
         )
-        # Get the draco encoding settings for the child chunk in the "bottom corner" of the chunk_id chunk
+        # Get the draco encoding settings for the
+        # child chunk in the "bottom corner" of the chunk_id chunk
         draco_encoding_settings_smaller_chunk = get_draco_encoding_settings_for_chunk(
             cg, child_chunk_id, mip=mip, high_padding=high_padding
         )
         draco_bin_size = draco_encoding_settings_smaller_chunk["quantization_range"] / (
             2 ** draco_encoding_settings_smaller_chunk["quantization_bits"] - 1
         )
-        # Calculate which draco bin the child chunk's boundaries were placed into (for each x,y,z of boundary)
+        # Calculate which draco bin the child chunk's boundaries
+        # were placed into (for each x,y,z of boundary)
         chunk_boundary_bin_index = np.floor(
             (
                 child_chunk_offset
@@ -782,7 +787,8 @@ def merge_draco_meshes_across_boundaries(
 
 
 def black_out_dust_from_segmentation(seg, dust_threshold):
-    """Black out (set to 0) IDs in segmentation not on the segmentation border that have less voxels than dust_threshold
+    """Black out (set to 0) IDs in segmentation not on the segmentation
+    border that have less voxels than dust_threshold
 
     :param seg: 3D segmentation (usually uint64)
     :param dust_threshold: int
@@ -824,7 +830,8 @@ def remeshing(
     max_err: int = 40,
     time_stamp: datetime.datetime or None = None,
 ):
-    """Given a chunkedgraph, a list of level 2 nodes, perform remeshing and stitching up the node hierarchy (or up to the stop_layer)
+    """Given a chunkedgraph, a list of level 2 nodes,
+    perform remeshing and stitching up the node hierarchy (or up to the stop_layer)
 
     :param cg: chunkedgraph instance
     :param l2_node_ids: list of uint64
@@ -865,7 +872,8 @@ def remeshing(
     for layer in range(3, max_layer + 1):
         chunk_dicts.append(collections.defaultdict(set))
     cur_chunk_dict = l2_chunk_dict
-    # Find the parents of each l2_node_id up to the stop_layer, as well as their associated chunk_ids
+    # Find the parents of each l2_node_id up to the stop_layer,
+    # as well as their associated chunk_ids
     for layer in range(3, max_layer + 1):
         for _, node_ids in cur_chunk_dict.items():
             parent_nodes = cg.get_parents(node_ids, time_stamp=time_stamp)
@@ -1136,6 +1144,7 @@ def chunk_stitch_remeshing_task(
             fragment_to_fetch[0:fragment_batch_size], allow_missing=True
         )
     i = 0
+    fragments_d = {}
     for new_fragment_id, fragment_ids_to_fetch in multi_child_nodes.items():
         i += 1
         if i % max(1, len(multi_child_nodes) // 10) == 0:
@@ -1197,7 +1206,6 @@ def chunk_stitch_remeshing_task(
         )
 
         try:
-            print(f'num_vertices = {len(new_fragment["vertices"])}')
             new_fragment_b = DracoPy.encode_mesh_to_buffer(
                 new_fragment["vertices"],
                 new_fragment["faces"],
@@ -1205,18 +1213,25 @@ def chunk_stitch_remeshing_task(
             )
         except:
             result.append(
-                f'Bad mesh created for {new_fragment_id}: {len(new_fragment["vertices"])} vertices, {len(new_fragment["faces"])} faces'
+                f'Bad mesh created for {new_fragment_id}: {len(new_fragment["vertices"])} '
+                f'vertices, {len(new_fragment["faces"])} faces'
             )
             continue
 
         if WRITING_TO_CLOUD:
+            fragment_name = meshgen_utils.get_chunk_bbox_str(cg, new_fragment_id)
+            fragment_name = f"{new_fragment_id}:0:{fragment_name}"
+            fragments_d[new_fragment_id] = fragment_name
             cf.put(
-                f"{new_fragment_id}:0:{meshgen_utils.get_chunk_bbox_str(cg, new_fragment_id)}",
+                fragment_name,
                 new_fragment_b,
                 content_type="application/octet-stream",
                 compress=False,
                 cache_control="public",
             )
+
+    manifest_cache = ManifestCache(cg.graph_id, initial=False)
+    manifest_cache.set_fragments(fragments_d)
 
     if PRINT_FOR_DEBUGGING:
         print(", ".join(str(x) for x in result))

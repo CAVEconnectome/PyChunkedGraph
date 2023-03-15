@@ -1,6 +1,9 @@
-from time import time
+# pylint: disable=invalid-name, missing-docstring, import-outside-toplevel
+
+from datetime import datetime
 from typing import List
 from typing import Dict
+from typing import Optional
 from typing import Tuple
 from typing import Sequence
 
@@ -8,6 +11,7 @@ import numpy as np
 from cloudfiles import CloudFiles
 from cloudvolume import CloudVolume
 
+from .cache import ManifestCache
 from ..meshgen_utils import get_mesh_name
 from ..meshgen_utils import get_json_info
 from ...graph import ChunkedGraph
@@ -27,12 +31,13 @@ def _del_none_keys(d: dict):
     return d_new, none_keys
 
 
-def _get_children(cg, node_ids: Sequence[np.uint64], children_cache: dict = {}):
+def _get_children(cg, node_ids: Sequence[np.uint64], children_cache: Dict):
     """
     Helper function that makes use of cache.
     `_check_skips` also needs to know about children so cache is shared between them.
     """
-    if not len(node_ids):
+
+    if len(node_ids) == 0:
         return empty_1d.copy()
     node_ids = np.array(node_ids, dtype=NODE_ID)
     mask = np.in1d(node_ids, np.fromiter(children_cache.keys(), dtype=NODE_ID))
@@ -53,62 +58,75 @@ def _get_initial_meshes(
 ) -> Dict:
     children_cache = {}
     result = {}
-    if not len(node_ids):
+    if len(node_ids) == 0:
         return result
+
+    manifest_cache = ManifestCache(cg.graph_id, initial=True)
     node_layers = cg.get_chunk_layers(node_ids)
     stop_layer_ids = [node_ids[node_layers == stop_layer]]
+
     while np.any(node_layers > stop_layer):
         stop_layer_ids.append(node_ids[node_layers == stop_layer])
         ids_ = node_ids[node_layers > stop_layer]
         ids_, skips = check_skips(cg, ids_, children_cache=children_cache)
 
-        start = time()
-        result_ = shard_readers.initial_exists(ids_, return_byte_range=True)
-        result_, missing_ids = _del_none_keys(result_)
-        result.update(result_)
-        print("ids, missing", ids_.size, len(missing_ids), time() - start)
+        _result, _not_cached, _not_existing = manifest_cache.get_fragments(ids_)
+        result.update(_result)
 
-        node_ids = _get_children(cg, missing_ids, children_cache=children_cache)
+        result_ = shard_readers.initial_exists(_not_cached, return_byte_range=True)
+        result_, not_existing_ = _del_none_keys(result_)
+
+        manifest_cache.set_fragments(result_, not_existing_)
+        result.update(result_)
+
+        node_ids = _get_children(cg, _not_existing + not_existing_, children_cache)
         node_ids = np.concatenate([node_ids, skips])
         node_layers = cg.get_chunk_layers(node_ids)
 
-    # remainder IDs
-    start = time()
+    # remainder ids
     stop_layer_ids = np.concatenate(
         [*stop_layer_ids, node_ids[node_layers == stop_layer]]
     )
-    # result_ = shard_readers.readers[stop_layer].exists(
-    #     labels=stop_layer_ids, path=f"{mesh_dir}/initial/{stop_layer}/", return_byte_range=True,
-    # )
-    result_ = shard_readers.initial_exists(stop_layer_ids, return_byte_range=True)
-    print(f"{stop_layer}:{stop_layer_ids.size} {time()-start}")
-    result_, temp = _del_none_keys(result_)
-    print("missing_ids", len(temp))
-    print(temp)
+
+    _result, _not_cached, _ = manifest_cache.get_fragments(stop_layer_ids)
+    result.update(_result)
+
+    result_ = shard_readers.initial_exists(_not_cached, return_byte_range=True)
+    result_, not_existing_ = _del_none_keys(result_)
+    manifest_cache.set_fragments(result_, not_existing_)
+
     result.update(result_)
     return result
 
 
 def _get_dynamic_meshes(cg, node_ids: Sequence[np.uint64]) -> Tuple[Dict, List]:
     result = {}
-    missing_ids = []
-    if not len(node_ids):
-        return result, missing_ids
+    not_existing = []
+    if len(node_ids) == 0:
+        return result, not_existing
+
     mesh_dir = cg.meta.custom_data.get("mesh", {}).get("dir", "graphene_meshes")
     mesh_path = f"{cg.meta.data_source.WATERSHED}/{mesh_dir}/dynamic"
-
     cf = CloudFiles(mesh_path)
-    filenames = [get_mesh_name(cg, id_) for id_ in node_ids]
+    manifest_cache = ManifestCache(cg.graph_id, initial=False)
+
+    result_, not_cached, _ = manifest_cache.get_fragments(node_ids)
+    result.update(result_)
+
+    filenames = [get_mesh_name(cg, id_) for id_ in not_cached]
     existence_dict = cf.exists(filenames)
 
+    result_ = {}
     for mesh_key in existence_dict:
         node_id = np.uint64(mesh_key.split(":")[0])
         if existence_dict[mesh_key]:
-            result[node_id] = mesh_key
+            result_[node_id] = mesh_key
             continue
-        missing_ids.append(node_id)
-    missing_ids = np.array(missing_ids, dtype=NODE_ID)
-    return result, missing_ids
+        not_existing.append(node_id)
+
+    manifest_cache.set_fragments(result_, not_existing)
+    result.update(result_)
+    return result, np.array(not_existing, dtype=NODE_ID)
 
 
 def _get_initial_and_dynamic_meshes(
@@ -116,23 +134,29 @@ def _get_initial_and_dynamic_meshes(
     shard_readers: Dict,
     node_ids: Sequence[np.uint64],
 ) -> Tuple[Dict, Dict, List]:
-    if not len(node_ids):
+    if len(node_ids) == 0:
         return {}, {}, []
 
     node_ids = np.array(node_ids, dtype=NODE_ID)
     initial_ids, new_ids = segregate_node_ids(cg, node_ids)
     print("new_ids, initial_ids", new_ids.size, initial_ids.size)
+
     initial_meshes_d = _get_initial_meshes(cg, shard_readers, initial_ids)
     new_meshes_d, missing_ids = _get_dynamic_meshes(cg, new_ids)
     return initial_meshes_d, new_meshes_d, missing_ids
 
 
-def check_skips(cg, node_ids: Sequence[np.uint64], children_cache: dict = {}):
+def check_skips(
+    cg, node_ids: Sequence[np.uint64], children_cache: Optional[Dict] = None
+):
     """
     If a node ID has a single child, it is considered a skip.
     Such IDs won't have meshes because the child mesh will be identical.
     """
-    start = time()
+
+    if children_cache is None:
+        children_cache = {}
+
     layers = cg.get_chunk_layers(node_ids)
     skips = []
     result = [empty_1d, node_ids[layers == 2]]
@@ -144,7 +168,7 @@ def check_skips(cg, node_ids: Sequence[np.uint64], children_cache: dict = {}):
             continue
         assert c.size == 1, f"{p} does not seem to have children."
         skips.append(c[0])
-    print(f"skips {len(skips)}, total {len(node_ids)}, time {time()-start}")
+
     return np.concatenate(result), np.array(skips, dtype=np.uint64)
 
 
@@ -154,7 +178,6 @@ def segregate_node_ids(cg, node_ids):
     initial = created at the time of ingest
     new = created by proofreading edit operations
     """
-    from datetime import datetime
 
     initial_ts = cg.meta.custom_data["mesh"]["initial_ts"]
     initial_mesh_dt = np.datetime64(datetime.fromtimestamp(initial_ts))
@@ -171,7 +194,7 @@ def get_mesh_paths(
     stop_layer: int = 2,
 ) -> Dict:
     shard_readers = CloudVolume(  # pylint: disable=no-member
-        f"graphene://https://localhost/segmentation/table/dummy",
+        "graphene://https://localhost/segmentation/table/dummy",
         mesh_dir=cg.meta.custom_data.get("mesh", {}).get("dir", "graphene_meshes"),
         info=get_json_info(cg),
     ).mesh
@@ -189,7 +212,6 @@ def get_mesh_paths(
 
     # check for left over level 2 IDs
     node_ids = node_ids[node_layers > 1]
-    print("node_ids left over", node_ids.size)
     resp = _get_initial_and_dynamic_meshes(cg, shard_readers, node_ids)
     initial_meshes_d, new_meshes_d, _ = resp
     result.update(initial_meshes_d)

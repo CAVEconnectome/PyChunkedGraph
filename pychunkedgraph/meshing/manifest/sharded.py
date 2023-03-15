@@ -1,3 +1,5 @@
+# pylint: disable=invalid-name, missing-docstring, import-outside-toplevel
+
 from time import time
 
 import numpy as np
@@ -7,7 +9,6 @@ from .utils import get_children_before_start_layer
 from ...graph import ChunkedGraph
 from ...graph.types import empty_1d
 from ...graph.utils.basetypes import NODE_ID
-from ...graph.utils import generic as misc_utils
 from ...graph.chunks import utils as chunk_utils
 
 
@@ -19,14 +20,13 @@ def verified_manifest(
 ):
     from .utils import get_mesh_paths
 
-    start = time()
     bounding_box = chunk_utils.normalize_bounding_box(
         cg.meta, bounding_box, bbox_is_coordinate=True
     )
     node_ids = get_children_before_start_layer(
         cg, node_id, start_layer, bounding_box=bounding_box
     )
-    print(f"children before start_layer count {len(node_ids)}, time {time() - start}")
+    print(f"children before start_layer {len(node_ids)}")
 
     start = time()
     result = get_mesh_paths(cg, node_ids)
@@ -38,7 +38,7 @@ def verified_manifest(
             path, offset, size = val
             path = path.split("initial/")[-1]
             mesh_files.append(f"~{path}:{offset}:{size}")
-        except:
+        except ValueError:
             mesh_files.append(val)
     print(f"shard lookups took {time() - start}")
     return node_ids, mesh_files
@@ -88,7 +88,7 @@ def speculative_manifest(
     print("chilren IDs", len(result), time() - start)
 
     readers = CloudVolume(  # pylint: disable=no-member
-        f"graphene://https://localhost/segmentation/table/dummy",
+        "graphene://https://localhost/segmentation/table/dummy",
         mesh_dir=cg.meta.custom_data.get("mesh", {}).get("dir", "graphene_meshes"),
         info=get_json_info(cg),
     ).mesh.readers
