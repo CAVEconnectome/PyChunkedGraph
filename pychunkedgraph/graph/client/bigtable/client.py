@@ -1,3 +1,5 @@
+# pylint: disable=invalid-name, missing-docstring, import-outside-toplevel, line-too-long, protected-access, arguments-differ, arguments-renamed, logging-fstring-interpolation
+
 import sys
 import time
 import typing
@@ -76,7 +78,7 @@ class Client(bigtable.Client, ClientWithIDGen, OperationLogger):
     def create_graph(self, meta: ChunkedGraphMeta, version: str) -> None:
         """Initialize the graph and store associated meta."""
         if self._table.exists():
-            ValueError(f"{self._table.table_id} already exists.")
+            raise ValueError(f"{self._table.table_id} already exists.")
         self._table.create()
         self._create_column_families()
         self.add_graph_version(version)
@@ -106,7 +108,9 @@ class Client(bigtable.Client, ClientWithIDGen, OperationLogger):
         meta_row.delete()
         meta_row.commit()
 
-    def update_graph_meta(self, meta: ChunkedGraphMeta, overwrite:typing.Optional[bool] = False):
+    def update_graph_meta(
+        self, meta: ChunkedGraphMeta, overwrite: typing.Optional[bool] = False
+    ):
         if overwrite:
             self._delete_meta()
         self._graph_meta = meta
@@ -216,8 +220,6 @@ class Client(bigtable.Client, ClientWithIDGen, OperationLogger):
         Writes/updates nodes (IDs along with properties)
         by locking root nodes until changes are written.
         """
-        # TODO convert nodes and properties to bigtable rows
-        pass
 
     def read_log_entry(
         self, operation_id: np.uint64
@@ -428,18 +430,17 @@ class Client(bigtable.Client, ClientWithIDGen, OperationLogger):
             lock_acquired = False
             # Collect latest root ids
             new_root_ids: typing.List[np.uint64] = []
-            for idx in range(len(root_ids)):
-                future_root_ids = future_root_ids_d[root_ids[idx]]
+            for root_id in root_ids:
+                future_root_ids = future_root_ids_d[root_id]
                 if not future_root_ids.size:
-                    new_root_ids.append(root_ids[idx])
+                    new_root_ids.append(root_id)
                 else:
                     new_root_ids.extend(future_root_ids)
 
             # Attempt to lock all latest root ids
             root_ids = np.unique(new_root_ids)
-            for idx in range(len(root_ids)):
-                self.logger.debug(f"operation {operation_id} root_id {root_ids[idx]}")
-                lock_acquired = self.lock_root(root_ids[idx], operation_id)
+            for root_id in root_ids:
+                lock_acquired = self.lock_root(root_id, operation_id)
                 # Roll back locks if one root cannot be locked
                 if not lock_acquired:
                     for id_ in root_ids:
@@ -624,11 +625,10 @@ class Client(bigtable.Client, ClientWithIDGen, OperationLogger):
     def get_compatible_timestamp(
         self, time_stamp: datetime, round_up: bool = False
     ) -> datetime:
-        return utils.get_google_compatible_time_stamp(time_stamp, round_up=False)
+        return utils.get_google_compatible_time_stamp(time_stamp, round_up=round_up)
 
     # PRIVATE METHODS
     def _create_column_families(self):
-        # TODO hardcoded, not good
         f = self._table.column_family("0")
         f.create()
         f = self._table.column_family("1", gc_rule=MaxVersionsGCRule(1))
@@ -822,9 +822,7 @@ class Client(bigtable.Client, ClientWithIDGen, OperationLogger):
 
     def _read(
         self, row_set: RowSet, row_filter: RowFilter = None
-    ) -> typing.Dict[
-        bytes, typing.Dict[attributes._Attribute, PartialRowData]
-    ]:
+    ) -> typing.Dict[bytes, typing.Dict[attributes._Attribute, PartialRowData]]:
         """Core function to read rows from Bigtable. Uses standard Bigtable retry logic
         :param row_set: BigTable RowSet
         :param row_filter: BigTable RowFilter
@@ -833,7 +831,8 @@ class Client(bigtable.Client, ClientWithIDGen, OperationLogger):
         # FIXME: Bigtable limits the length of the serialized request to 512 KiB. We should
         # calculate this properly (range_read.request.SerializeToString()), but this estimate is
         # good enough for now
-        # TODO try async/await
+
+        from pychunkedgraph.logging.log_db import TimeIt
 
         n_subrequests = max(
             1, int(np.ceil(len(row_set.row_keys) / self._max_row_key_count))
@@ -850,14 +849,23 @@ class Client(bigtable.Client, ClientWithIDGen, OperationLogger):
 
         # Don't forget the original RowSet's row_ranges
         row_sets[0].row_ranges = row_set.row_ranges
-        responses = mu.multithread_func(
-            self._execute_read_thread,
-            params=((self._table, r, row_filter) for r in row_sets),
-            debug=n_threads == 1,
-            n_threads=n_threads,
-        )
 
-        combined_response = {}
-        for resp in responses:
-            combined_response.update(resp)
-        return combined_response
+        with TimeIt(
+            "chunked_reads",
+            f"{self._table.table_id}_bt_profile",
+            operation_id=-1,
+            n_rows=len(row_set.row_keys),
+            n_requests=n_subrequests,
+            n_threads=n_threads,
+        ):
+            responses = mu.multithread_func(
+                self._execute_read_thread,
+                params=((self._table, r, row_filter) for r in row_sets),
+                debug=n_threads == 1,
+                n_threads=n_threads,
+            )
+
+            combined_response = {}
+            for resp in responses:
+                combined_response.update(resp)
+            return combined_response
