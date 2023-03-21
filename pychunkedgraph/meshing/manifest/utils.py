@@ -110,7 +110,8 @@ def _get_dynamic_meshes(cg, node_ids: Sequence[np.uint64]) -> Tuple[Dict, List]:
     cf = CloudFiles(mesh_path)
     manifest_cache = ManifestCache(cg.graph_id, initial=False)
 
-    result_, not_cached, _ = manifest_cache.get_fragments(node_ids)
+    result_, not_cached, not_existing_ = manifest_cache.get_fragments(node_ids)
+    not_existing.extend(not_existing_)
     result.update(result_)
 
     filenames = [get_mesh_name(cg, id_) for id_ in not_cached]
@@ -124,7 +125,7 @@ def _get_dynamic_meshes(cg, node_ids: Sequence[np.uint64]) -> Tuple[Dict, List]:
             continue
         not_existing.append(node_id)
 
-    manifest_cache.set_fragments(result_, not_existing)
+    manifest_cache.set_fragments(result_)
     result.update(result_)
     return result, np.array(not_existing, dtype=NODE_ID)
 
