@@ -124,7 +124,7 @@ def _get_dynamic_meshes(cg, node_ids: Sequence[np.uint64]) -> Tuple[Dict, List]:
             continue
         not_existing.append(node_id)
 
-    manifest_cache.set_fragments(result_, not_existing)
+    manifest_cache.set_fragments(result_)
     result.update(result_)
     return result, np.array(not_existing, dtype=NODE_ID)
 
