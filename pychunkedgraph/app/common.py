@@ -14,6 +14,7 @@ from pychunkedgraph.logging.log_db import get_log_db
 
 USER_NOT_FOUND = "-1"
 
+ENABLE_LOGS = os.environ.get("PCG_SERVER_ENABLE_LOGS", "") != ""
 LOG_LEAVES_MANY = os.environ.get("PCG_SERVER_LOGS_LEAVES_MANY", "") != ""
 
 
@@ -22,6 +23,9 @@ def _log_request(response_time):
         current_app.user_id = g.auth_user["id"]
     except (AttributeError, KeyError):
         current_app.user_id = USER_NOT_FOUND
+
+    if ENABLE_LOGS is False:
+        return
 
     if LOG_LEAVES_MANY is False and "leaves_many" in request.path:
         return
