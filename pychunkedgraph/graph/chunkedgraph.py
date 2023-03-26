@@ -111,7 +111,8 @@ class ChunkedGraph:
     ) -> typing.Dict:
         """Read all nodes in a chunk."""
         layer = self.get_chunk_layer(chunk_id)
-        max_node_id = self.id_client.get_max_node_id(chunk_id=chunk_id)
+        root_chunk = layer == self.meta.layer_count
+        max_node_id = self.id_client.get_max_node_id(chunk_id=chunk_id, root_chunk=root_chunk)
         if layer == 1:
             max_node_id = chunk_id | self.get_segment_id_limit(chunk_id) # pylint: disable=unsupported-binary-operation
 
