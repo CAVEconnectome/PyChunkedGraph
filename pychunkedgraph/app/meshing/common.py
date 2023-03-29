@@ -14,6 +14,8 @@ from pychunkedgraph.graph import chunkedgraph
 from pychunkedgraph.app.meshing import tasks as meshing_tasks
 from pychunkedgraph.meshing import meshgen
 from pychunkedgraph.meshing.manifest import get_highest_child_nodes_with_meshes
+from pychunkedgraph.meshing.manifest import speculative_manifest_sharded
+from pychunkedgraph.meshing.manifest.multiscale import get_manifest as get_multiscale_manifest
 
 
 __meshing_url_prefix__ = os.environ.get("MESHING_URL_PREFIX", "meshing")
@@ -52,7 +54,7 @@ def handle_valid_frags(table_id, node_id):
 ## MANIFEST --------------------------------------------------------------------
 
 
-def handle_get_manifest(table_id, node_id):
+def handle_get_manifest(table_id, node_id, multiscale=False):
     current_app.request_type = "manifest"
     current_app.table_id = table_id
 
@@ -84,6 +86,7 @@ def handle_get_manifest(table_id, node_id):
     args = (
         node_id,
         verify,
+        multiscale,
         return_seg_ids,
         prepend_seg_ids,
         start_layer,
@@ -95,11 +98,10 @@ def handle_get_manifest(table_id, node_id):
 
 
 def manifest_response(cg, args):
-    from pychunkedgraph.meshing.manifest import speculative_manifest_sharded
-
     (
         node_id,
         verify,
+        multiscale,
         return_seg_ids,
         prepend_seg_ids,
         start_layer,
@@ -109,11 +111,14 @@ def manifest_response(cg, args):
     ) = args
     resp = {}
     seg_ids = []
+    node_id = np.uint64(node_id)
     if not verify:
         seg_ids, resp["fragments"] = speculative_manifest_sharded(
             cg, node_id, start_layer=start_layer, bounding_box=bounding_box
         )
-
+    elif multiscale is True:
+        seg_ids, response = get_multiscale_manifest(cg, node_id)
+        resp.update(response)
     else:
         seg_ids, resp["fragments"] = get_highest_child_nodes_with_meshes(
             cg,

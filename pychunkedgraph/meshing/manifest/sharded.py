@@ -5,11 +5,35 @@ from time import time
 import numpy as np
 from cloudvolume import CloudVolume
 
+from .utils import get_mesh_paths
 from .utils import get_children_before_start_layer
 from ...graph import ChunkedGraph
 from ...graph.types import empty_1d
 from ...graph.utils.basetypes import NODE_ID
 from ...graph.chunks import utils as chunk_utils
+
+
+def _extract_fragment(val):
+    try:
+        path, offset, size = val
+        path = path.split("initial/")[-1]
+        return f"~{path}:{offset}:{size}"
+    except ValueError:
+        return val
+
+
+def normalize_fragments(fragments: list) -> list:
+    new_fragments = []
+    for val in fragments:
+        new_fragments.append(_extract_fragment(val))
+    return new_fragments
+
+
+def normalize_fragments_d(fragments_d: dict):
+    fragments = []
+    for val in fragments_d.values():
+        fragments.append(_extract_fragment(val))
+    return fragments
 
 
 def verified_manifest(
@@ -18,30 +42,17 @@ def verified_manifest(
     start_layer: int,
     bounding_box=None,
 ):
-    from .utils import get_mesh_paths
-
     bounding_box = chunk_utils.normalize_bounding_box(
         cg.meta, bounding_box, bbox_is_coordinate=True
     )
     node_ids = get_children_before_start_layer(
         cg, node_id, start_layer, bounding_box=bounding_box
     )
-    print(f"children before start_layer {len(node_ids)}")
-
-    start = time()
     result = get_mesh_paths(cg, node_ids)
-    node_ids = np.fromiter(result.keys(), dtype=NODE_ID)
 
-    mesh_files = []
-    for val in result.values():
-        try:
-            path, offset, size = val
-            path = path.split("initial/")[-1]
-            mesh_files.append(f"~{path}:{offset}:{size}")
-        except ValueError:
-            mesh_files.append(val)
-    print(f"shard lookups took {time() - start}")
-    return node_ids, mesh_files
+    node_ids = np.fromiter(result.keys(), dtype=NODE_ID)
+    result = normalize_fragments_d(result)
+    return node_ids, result
 
 
 def speculative_manifest(
