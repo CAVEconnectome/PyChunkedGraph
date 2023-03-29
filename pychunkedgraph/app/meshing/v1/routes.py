@@ -83,6 +83,17 @@ def handle_get_manifest(table_id, node_id):
     return common.handle_get_manifest(table_id, node_id)
 
 
+@bp.route("/table/<table_id>/manifest/multiscale/<node_id>", methods=["GET"])
+@auth_requires_permission(
+    "view",
+    public_table_key="table_id",
+    public_node_key="node_id",
+)
+@remap_public
+def handle_get_multilod_manifest(table_id, node_id):
+    return common.handle_get_manifest(table_id, node_id, multiscale=True)
+
+
 ## ENQUE MESHING JOBS ----------------------------------------------------------
 
 
