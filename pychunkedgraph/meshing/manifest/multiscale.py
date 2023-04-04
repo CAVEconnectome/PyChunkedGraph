@@ -82,8 +82,8 @@ def build_octree(
         octree[offset + 1] = y
         octree[offset + 2] = z
 
-        start = 0
-        end_empty = 0
+        start = ROW_TOTAL - rows_used
+        end_empty = start
         if children.size > 0:
             rows_used += children.size
             start = ROW_TOTAL - rows_used
