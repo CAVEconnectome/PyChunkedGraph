@@ -16,6 +16,13 @@ from ..meshgen_utils import get_json_info
 
 def _get_hierarchy(cg: ChunkedGraph, node_id: NODE_ID) -> Dict:
     node_children = {}
+    layer = cg.get_chunk_layer(node_id)
+    if layer < 2:
+        return node_children
+    if layer == 2:
+        node_children[node_id] = empty_1d.copy()
+        return node_children
+
     node_ids = np.array([node_id], dtype=NODE_ID)
     while node_ids.size > 0:
         children = cg.get_children(node_ids)
@@ -108,7 +115,6 @@ def get_manifest(cg: ChunkedGraph, node_id: NODE_ID) -> Dict:
         progress=False,
     )
 
-    chunk_shape = cg.meta.cv.mesh.meta.info["chunk_size"]
     chunk_shape = np.array(cg.meta.graph_config.CHUNK_SIZE, dtype=np.dtype("<f4"))
     grid_origin = np.array([0, 0, 0], dtype=np.dtype("<f4"))
 
