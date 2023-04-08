@@ -1,7 +1,7 @@
 # pylint: disable=invalid-name, missing-docstring, line-too-long, no-member
 
 from collections import deque
-from typing import Dict
+from typing import Dict, Set
 
 import numpy as np
 from cloudvolume import CloudVolume
@@ -37,6 +37,30 @@ def _get_hierarchy(cg: ChunkedGraph, node_id: NODE_ID) -> Dict:
     return node_children
 
 
+def _get_skip_connection_nodes(node_children: Dict) -> Set:
+    """
+    Returns nodes with only one child.
+    Such nodes do not have a mesh fragment, because it would be identical to child fragment.
+    """
+    result = set()
+    for node_id, children in node_children.items():
+        if children.size == 1:
+            result.add(node_id)
+    return result
+
+
+def _get_node_coords_map(cg: ChunkedGraph, node_children: Dict) -> Set:
+    node_ids = np.fromiter(node_children.keys(), dtype=NODE_ID)
+    node_coords = {}
+    node_layers = cg.get_chunk_layers(node_ids)
+    for layer in set(node_layers):
+        layer_mask = node_layers == layer
+        coords = cg.get_chunk_coordinates_multiple(node_ids[layer_mask])
+        _node_coords = dict(zip(node_ids[layer_mask], coords))
+        node_coords.update(_node_coords)
+    return node_coords
+
+
 def build_octree(
     cg: ChunkedGraph, node_id: NODE_ID, node_children: Dict, mesh_fragments: Dict
 ):
@@ -51,43 +75,47 @@ def build_octree(
       `end_and_empty` is set to `1` if the mesh for the octree node is empty and should not be
       requested/rendered.
     """
-    node_ids = np.array(list(mesh_fragments.keys()), dtype=NODE_ID)
-    node_coords = {}
-    node_layers = cg.get_chunk_layers(node_ids)
-    for layer in set(node_layers):
-        layer_mask = node_layers == layer
-        coords = cg.get_chunk_coordinates_multiple(node_ids[layer_mask])
-        _node_coords = dict(zip(node_ids[layer_mask], coords))
-        node_coords.update(_node_coords)
+    node_ids = np.fromiter(mesh_fragments.keys(), dtype=NODE_ID)
+    skip_connection_nodes = _get_skip_connection_nodes(node_children)
+    node_coords = _get_node_coords_map(cg, node_children)
 
-    ROW_TOTAL = len(node_ids)
-    row_counter = len(node_ids)
-    octree_size = 5 * ROW_TOTAL
+    OCTREE_NODE_SIZE = 5
+
+    ROW_TOTAL = len(node_ids) + len(skip_connection_nodes)
+    row_counter = len(node_ids) + len(skip_connection_nodes)
+    octree_size = OCTREE_NODE_SIZE * ROW_TOTAL
     octree = np.zeros(octree_size, dtype=np.uint32)
 
     octree_node_ids = ROW_TOTAL * [0]
     octree_fragments = ROW_TOTAL * [""]
 
     que = deque()
-    que.append(node_id)
-    rows_used = 1
+    if node_id in mesh_fragments:
+        rows_used = 1
+        que.append(node_id)
+    else:
+        children = node_children[node_id]
+        for child in children:
+            que.append(child)
+        rows_used = len(que)
+
     while len(que) > 0:
+        row_counter -= 1
         current_node = que.popleft()
         children = node_children[current_node]
-        if not current_node in mesh_fragments:
-            for child in children:
-                que.append(child)
-            continue
-
-        row_counter -= 1
-        octree_fragments[row_counter] = mesh_fragments[current_node]
-        octree_node_ids[row_counter] = current_node
-        offset = 5 * row_counter
-
         x, y, z = node_coords[current_node]
+
+        offset = OCTREE_NODE_SIZE * row_counter
         octree[offset + 0] = x
         octree[offset + 1] = y
         octree[offset + 2] = z
+        octree_node_ids[row_counter] = current_node
+
+        if children.size == 1:
+            # map to child fragment
+            octree_fragments[row_counter] = mesh_fragments[children[0]]
+        else:
+            octree_fragments[row_counter] = mesh_fragments[current_node]
 
         start = ROW_TOTAL - rows_used
         end_empty = start
@@ -99,6 +127,9 @@ def build_octree(
         octree[offset + 3] = start
         octree[offset + 4] = end_empty
 
+        if not current_node in mesh_fragments and children.size > 1:
+            octree[offset + 4] = end_empty | (1 << 31)
+
         for child in children:
             que.append(child)
     return octree, octree_node_ids, octree_fragments
@@ -106,7 +137,7 @@ def build_octree(
 
 def get_manifest(cg: ChunkedGraph, node_id: NODE_ID) -> Dict:
     node_children = _get_hierarchy(cg, node_id)
-    node_ids = np.array(list(node_children.keys()), dtype=NODE_ID)
+    node_ids = np.fromiter(node_children.keys(), dtype=NODE_ID)
 
     cv = CloudVolume(
         "graphene://https://localhost/segmentation/table/dummy",
