@@ -127,7 +127,7 @@ def build_octree(
         octree[offset + 3] = start
         octree[offset + 4] = end_empty
 
-        if not current_node in mesh_fragments and children.size > 1:
+        if not current_node in mesh_fragments:
             octree[offset + 4] = end_empty | (1 << 31)
 
         for child in children:
@@ -153,7 +153,9 @@ def get_manifest(cg: ChunkedGraph, node_id: NODE_ID) -> Dict:
     fragments_d, _ = del_none_keys(initial_meshes)
     octree, node_ids, fragments = build_octree(cg, node_id, node_children, fragments_d)
 
-    lod_scales = list(range(2, cg.meta.layer_count))
+    max_layer = min(cg.get_chunk_layer(node_id) + 1, cg.meta.layer_count)
+
+    lod_scales = list(range(2, max_layer))
     num_lods = len(lod_scales)
     vertex_offsets = np.array(3 * num_lods * [0], dtype=np.dtype("<f4"))
     fragments = normalize_fragments(fragments)
