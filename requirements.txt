@@ -57,8 +57,6 @@ cloud-volume==6.1.1
     # via
     #   -r requirements.in
     #   task-queue
-codecov==2.1.12
-    # via -r requirements.in
 compressed-segmentation==2.2.0
     # via cloud-volume
 compresso==3.0.0
