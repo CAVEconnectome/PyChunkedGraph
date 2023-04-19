@@ -104,15 +104,16 @@ def build_octree(
         octree[offset + 4] = end_empty
 
         octree_node_ids[row_counter] = current_node
-        if children.size == 1:
-            # map to child fragment
-            octree_fragments[row_counter] = mesh_fragments[children[0]]
-        else:
-            try:
+
+        try:
+            if children.size == 1:
+                # map to child fragment
+                octree_fragments[row_counter] = mesh_fragments[children[0]]
+            else:
                 octree_fragments[row_counter] = mesh_fragments[current_node]
-            except KeyError:
-                # mark node empty
-                octree[offset + 4] |= 1 << 31
+        except KeyError:
+            # no mesh, mark node empty
+            octree[offset + 4] |= 1 << 31
 
         for child in children:
             que.append((child, current_depth + 1))
