@@ -38,16 +38,22 @@ def _get_hierarchy(cg: ChunkedGraph, node_id: NODE_ID) -> Dict:
     return node_children
 
 
-def _get_skip_connection_nodes(node_children: Dict) -> Set:
+def _get_skipped_and_missing_leaf_nodes(
+    node_children: Dict, mesh_fragments: Dict
+) -> Set:
     """
-    Returns nodes with only one child.
-    Such nodes do not have a mesh fragment, because it would be identical to child fragment.
+    Returns nodes with only one child and leaves (l2ids).
+    Nodes with one child do not have a mesh fragment, because it would be identical to child fragment.
+    Leaves are used to determine correct size for the octree.
     """
-    result = set()
+    skipped = set()
+    leaves = set()
     for node_id, children in node_children.items():
         if children.size == 1:
-            result.add(node_id)
-    return result
+            skipped.add(node_id)
+        elif children.size == 0 and not node_id in mesh_fragments:
+            leaves.add(node_id)
+    return skipped, leaves
 
 
 def build_octree(
@@ -65,11 +71,11 @@ def build_octree(
       requested/rendered.
     """
     node_ids = np.fromiter(mesh_fragments.keys(), dtype=NODE_ID)
-    skip_connection_nodes = _get_skip_connection_nodes(node_children)
+    skipped, leaves = _get_skipped_and_missing_leaf_nodes(node_children, mesh_fragments)
 
     OCTREE_NODE_SIZE = 5
-    ROW_TOTAL = len(node_ids) + len(skip_connection_nodes) + 1
-    row_counter = len(node_ids) + len(skip_connection_nodes) + 1
+    ROW_TOTAL = len(node_ids) + len(skipped) + len(leaves) + 1
+    row_counter = len(node_ids) + len(skipped) + len(leaves) + 1
     octree_size = OCTREE_NODE_SIZE * ROW_TOTAL
     octree = np.zeros(octree_size, dtype=np.uint32)
 
