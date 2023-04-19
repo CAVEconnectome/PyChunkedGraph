@@ -9,6 +9,7 @@ from cloudvolume import CloudVolume
 from pychunkedgraph.graph import ChunkedGraph
 from pychunkedgraph.graph.types import empty_1d
 from pychunkedgraph.graph.utils.basetypes import NODE_ID
+from .cache import ManifestCache
 from .sharded import normalize_fragments
 from .utils import del_none_keys
 from ..meshgen_utils import get_json_info
@@ -49,18 +50,6 @@ def _get_skip_connection_nodes(node_children: Dict) -> Set:
     return result
 
 
-def _get_node_coords_map(cg: ChunkedGraph, node_children: Dict) -> Set:
-    node_ids = np.fromiter(node_children.keys(), dtype=NODE_ID)
-    node_coords = {}
-    node_layers = cg.get_chunk_layers(node_ids)
-    for layer in set(node_layers):
-        layer_mask = node_layers == layer
-        coords = cg.get_chunk_coordinates_multiple(node_ids[layer_mask])
-        _node_coords = dict(zip(node_ids[layer_mask], coords))
-        node_coords.update(_node_coords)
-    return node_coords
-
-
 def build_octree(
     cg: ChunkedGraph, node_id: NODE_ID, node_children: Dict, mesh_fragments: Dict
 ):
@@ -77,12 +66,10 @@ def build_octree(
     """
     node_ids = np.fromiter(mesh_fragments.keys(), dtype=NODE_ID)
     skip_connection_nodes = _get_skip_connection_nodes(node_children)
-    node_coords = _get_node_coords_map(cg, node_children)
 
     OCTREE_NODE_SIZE = 5
-
-    ROW_TOTAL = len(node_ids) + len(skip_connection_nodes)
-    row_counter = len(node_ids) + len(skip_connection_nodes)
+    ROW_TOTAL = len(node_ids) + len(skip_connection_nodes) + 1
+    row_counter = len(node_ids) + len(skip_connection_nodes) + 1
     octree_size = OCTREE_NODE_SIZE * ROW_TOTAL
     octree = np.zeros(octree_size, dtype=np.uint32)
 
@@ -90,54 +77,46 @@ def build_octree(
     octree_fragments = ROW_TOTAL * [""]
 
     que = deque()
-    if node_id in mesh_fragments:
-        rows_used = 1
-        que.append(node_id)
-    else:
-        children = node_children[node_id]
-        for child in children:
-            que.append(child)
-        rows_used = len(que)
+    rows_used = 1
+    que.append((node_id, 0))
 
     while len(que) > 0:
         row_counter -= 1
-        current_node = que.popleft()
+        current_node, current_depth = que.popleft()
         children = node_children[current_node]
-        x, y, z = node_coords[current_node]
 
         offset = OCTREE_NODE_SIZE * row_counter
-        octree[offset + 0] = x
-        octree[offset + 1] = y
-        octree[offset + 2] = z
-        octree_node_ids[row_counter] = current_node
+        octree[offset + 0] = 1.25**current_depth * cg.meta.graph_config.CHUNK_SIZE[0]
+        octree[offset + 1] = 1.25**current_depth * cg.meta.graph_config.CHUNK_SIZE[1]
+        octree[offset + 2] = 1.25**current_depth * cg.meta.graph_config.CHUNK_SIZE[2]
 
-        if children.size == 1:
-            # map to child fragment
-            octree_fragments[row_counter] = mesh_fragments[children[0]]
-        else:
-            octree_fragments[row_counter] = mesh_fragments[current_node]
-
+        rows_used += children.size
         start = ROW_TOTAL - rows_used
-        end_empty = start
-        if children.size > 0:
-            rows_used += children.size
-            start = ROW_TOTAL - rows_used
-            end_empty = start + children.size
+        end_empty = start + children.size
 
         octree[offset + 3] = start
         octree[offset + 4] = end_empty
 
-        if not current_node in mesh_fragments:
-            octree[offset + 4] = end_empty | (1 << 31)
+        octree_node_ids[row_counter] = current_node
+        if children.size == 1:
+            # map to child fragment
+            octree_fragments[row_counter] = mesh_fragments[children[0]]
+        else:
+            try:
+                octree_fragments[row_counter] = mesh_fragments[current_node]
+            except KeyError:
+                # mark node empty
+                octree[offset + 4] |= 1 << 31
 
         for child in children:
-            que.append(child)
+            que.append((child, current_depth + 1))
     return octree, octree_node_ids, octree_fragments
 
 
 def get_manifest(cg: ChunkedGraph, node_id: NODE_ID) -> Dict:
     node_children = _get_hierarchy(cg, node_id)
     node_ids = np.fromiter(node_children.keys(), dtype=NODE_ID)
+    manifest_cache = ManifestCache(cg.graph_id, initial=True)
 
     cv = CloudVolume(
         "graphene://https://localhost/segmentation/table/dummy",
@@ -146,26 +125,23 @@ def get_manifest(cg: ChunkedGraph, node_id: NODE_ID) -> Dict:
         progress=False,
     )
 
-    chunk_shape = np.array(cg.meta.graph_config.CHUNK_SIZE, dtype=np.dtype("<f4"))
-    grid_origin = np.array([0, 0, 0], dtype=np.dtype("<f4"))
+    fragments_d, _not_cached, _ = manifest_cache.get_fragments(node_ids)
+    initial_meshes = cv.mesh.initial_exists(_not_cached, return_byte_range=True)
+    _fragments_d, _ = del_none_keys(initial_meshes)
+    manifest_cache.set_fragments(_fragments_d)
+    fragments_d.update(_fragments_d)
 
-    initial_meshes = cv.mesh.initial_exists(node_ids, return_byte_range=True)
-    fragments_d, _ = del_none_keys(initial_meshes)
     octree, node_ids, fragments = build_octree(cg, node_id, node_children, fragments_d)
 
     max_layer = min(cg.get_chunk_layer(node_id) + 1, cg.meta.layer_count)
-
-    lod_scales = list(range(2, max_layer))
-    num_lods = len(lod_scales)
-    vertex_offsets = np.array(3 * num_lods * [0], dtype=np.dtype("<f4"))
+    lods = 4 ** np.arange(max_layer - 2, dtype=np.dtype("<f4"))
     fragments = normalize_fragments(fragments)
 
     response = {
-        "chunkShape": chunk_shape,
-        "chunkGridSpatialOrigin": grid_origin,
-        "lodScales": lod_scales,
+        "chunkShape": np.array(cg.meta.graph_config.CHUNK_SIZE, dtype=np.dtype("<f4")),
+        "chunkGridSpatialOrigin": np.array([0, 0, 0], dtype=np.dtype("<f4")),
+        "lodScales": lods,
         "fragments": fragments,
         "octree": octree,
-        "vertexOffsets": vertex_offsets,
     }
     return node_ids, response
