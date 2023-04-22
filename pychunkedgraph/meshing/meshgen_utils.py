@@ -8,7 +8,7 @@ from typing import Sequence
 from functools import lru_cache
 
 import numpy as np
-from cloudvolume import CloudVolume, Storage
+from cloudvolume import CloudVolume
 from cloudvolume.lib import Vec
 from multiwrapper import multiprocessing_utils as mu
 
