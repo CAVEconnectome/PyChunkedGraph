@@ -1,7 +1,7 @@
 # pylint: disable=invalid-name, missing-docstring, line-too-long, no-member
 
 from collections import deque
-from typing import Dict, Set
+from typing import Dict, Set, Tuple
 
 import numpy as np
 from cloudvolume import CloudVolume
@@ -40,7 +40,7 @@ def _get_hierarchy(cg: ChunkedGraph, node_id: NODE_ID) -> Dict:
 
 def _get_skipped_and_missing_leaf_nodes(
     node_children: Dict, mesh_fragments: Dict
-) -> Set:
+) -> Tuple[Set, Set]:
     """
     Returns nodes with only one child and leaves (l2ids).
     Nodes with one child do not have a mesh fragment, because it would be identical to child fragment.
@@ -54,6 +54,26 @@ def _get_skipped_and_missing_leaf_nodes(
         elif children.size == 0 and not node_id in mesh_fragments:
             leaves.add(node_id)
     return skipped, leaves
+
+
+def _get_node_coords_and_layers_map(
+    cg: ChunkedGraph, node_children: Dict
+) -> Tuple[Dict, Dict]:
+    node_ids = np.fromiter(node_children.keys(), dtype=NODE_ID)
+    node_coords = {}
+    node_layers = cg.get_chunk_layers(node_ids)
+    for layer in set(node_layers):
+        layer_mask = node_layers == layer
+        coords = cg.get_chunk_coordinates_multiple(node_ids[layer_mask])
+        _node_coords = dict(zip(node_ids[layer_mask], coords))
+        node_coords.update(_node_coords)
+    return node_coords, dict(zip(node_ids, node_layers))
+
+
+def _normalize_coordinates(coords, layer, bfs_depth, max_layer):
+    node_depth = max_layer - layer
+    depth_diff = node_depth - bfs_depth
+    return coords // 2**depth_diff
 
 
 def build_octree(
@@ -71,6 +91,7 @@ def build_octree(
       requested/rendered.
     """
     node_ids = np.fromiter(mesh_fragments.keys(), dtype=NODE_ID)
+    node_coords_d, node_layers_d = _get_node_coords_and_layers_map(cg, node_children)
     skipped, leaves = _get_skipped_and_missing_leaf_nodes(node_children, mesh_fragments)
 
     OCTREE_NODE_SIZE = 5
@@ -88,13 +109,24 @@ def build_octree(
 
     while len(que) > 0:
         row_counter -= 1
-        current_node, current_depth = que.popleft()
+        current_node, depth = que.popleft()
         children = node_children[current_node]
+        node_layer = node_layers_d[current_node]
+        node_coords = node_coords_d[current_node]
 
+        # node_coords = _normalize_coordinates(
+        #     coords=node_coords,
+        #     layer=node_layer,
+        #     bfs_depth=depth,
+        #     max_layer=cg.meta.layer_count,
+        # )
+
+        x, y, z = node_coords
+        # x, y, z = node_coords * np.array(cg.meta.graph_config.CHUNK_SIZE, dtype=int)
         offset = OCTREE_NODE_SIZE * row_counter
-        octree[offset + 0] = 1.25**current_depth * cg.meta.graph_config.CHUNK_SIZE[0]
-        octree[offset + 1] = 1.25**current_depth * cg.meta.graph_config.CHUNK_SIZE[1]
-        octree[offset + 2] = 1.25**current_depth * cg.meta.graph_config.CHUNK_SIZE[2]
+        octree[offset + 0] = x
+        octree[offset + 1] = y
+        octree[offset + 2] = z
 
         rows_used += children.size
         start = ROW_TOTAL - rows_used
@@ -104,7 +136,6 @@ def build_octree(
         octree[offset + 4] = end_empty
 
         octree_node_ids[row_counter] = current_node
-
         try:
             if children.size == 1:
                 # map to child fragment
@@ -116,7 +147,7 @@ def build_octree(
             octree[offset + 4] |= 1 << 31
 
         for child in children:
-            que.append((child, current_depth + 1))
+            que.append((child, depth + 1))
     return octree, octree_node_ids, octree_fragments
 
 
@@ -139,16 +170,13 @@ def get_manifest(cg: ChunkedGraph, node_id: NODE_ID) -> Dict:
     fragments_d.update(_fragments_d)
 
     octree, node_ids, fragments = build_octree(cg, node_id, node_children, fragments_d)
-
     max_layer = min(cg.get_chunk_layer(node_id) + 1, cg.meta.layer_count)
-    lods = 4 ** np.arange(max_layer - 2, dtype=np.dtype("<f4"))
-    fragments = normalize_fragments(fragments)
 
     response = {
         "chunkShape": np.array(cg.meta.graph_config.CHUNK_SIZE, dtype=np.dtype("<f4")),
         "chunkGridSpatialOrigin": np.array([0, 0, 0], dtype=np.dtype("<f4")),
-        "lodScales": lods,
-        "fragments": fragments,
+        "lodScales": 2 ** np.arange(max_layer, dtype=np.dtype("<f4")) * 1,
+        "fragments": normalize_fragments(fragments),
         "octree": octree,
     }
     return node_ids, response
