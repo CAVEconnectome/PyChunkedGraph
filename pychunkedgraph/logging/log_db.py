@@ -10,6 +10,7 @@ from google.api_core.exceptions import GoogleAPIError
 from datastoreflex import DatastoreFlex
 
 
+ENABLE_LOGS = os.environ.get("PCG_SERVER_ENABLE_LOGS", "") != ""
 LOG_DB_CACHE = {}
 
 EXCLUDE_FROM_INDEX = os.environ.get(
@@ -53,13 +54,14 @@ class LogDB:
             item["operation_id"] = int(operation_id)
         self._q.put(item)
 
-    def log_code_block(self, name: str, operation_id, timestamp, time_ms):
+    def log_code_block(self, name: str, operation_id, timestamp, time_ms, **kwargs):
         item = {
             "name": name,
             "operation_id": int(operation_id),
             "request_ts": timestamp,
             "time_ms": time_ms,
         }
+        item.update(kwargs)
         self._q.put(item)
 
     def log_entity(self):
@@ -98,17 +100,21 @@ def get_log_db(graph_id: str) -> LogDB:
 
 
 class TimeIt:
-    def __init__(self, name: str, graph_id: str, operation_id):
+    def __init__(self, name: str, graph_id: str, operation_id, **kwargs):
         self._name = name
         self._start = None
         self._graph_id = graph_id
         self._operation_id = int(operation_id)
         self._ts = datetime.utcnow()
+        self._kwargs = kwargs
 
     def __enter__(self):
         self._start = time.time()
 
     def __exit__(self, *args):
+        if ENABLE_LOGS is False:
+            return
+
         time_ms = (time.time() - self._start) * 1000
         try:
             log_db = get_log_db(self._graph_id)
@@ -117,6 +123,7 @@ class TimeIt:
                 operation_id=self._operation_id,
                 timestamp=self._ts,
                 time_ms=time_ms,
+                **self._kwargs,
             )
         except GoogleAPIError:
             ...
