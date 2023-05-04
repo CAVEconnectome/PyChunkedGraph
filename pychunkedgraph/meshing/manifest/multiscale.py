@@ -178,5 +178,7 @@ def get_manifest(cg: ChunkedGraph, node_id: NODE_ID) -> Dict:
         "lodScales": 2 ** np.arange(max_layer, dtype=np.dtype("<f4")) * 1,
         "fragments": normalize_fragments(fragments),
         "octree": octree,
+        "clipLowerBound": np.array(cg.meta.voxel_bounds[:, 0], dtype=np.dtype("<f4")),
+        "clipUpperBound": np.array(cg.meta.voxel_bounds[:, 1], dtype=np.dtype("<f4")),
     }
     return node_ids, response
