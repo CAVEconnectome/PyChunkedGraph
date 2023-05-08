@@ -37,6 +37,7 @@ class LogDB:
     def log_endpoint(
         self,
         path,
+        endpoint,
         args,
         user_id,
         operation_id,
@@ -45,6 +46,7 @@ class LogDB:
     ):
         item = {
             "name": path,
+            "endpoint": endpoint,
             "args": args,
             "user_id": str(user_id),
             "request_ts": request_ts,
