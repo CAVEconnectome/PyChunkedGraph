@@ -93,9 +93,13 @@ def handle_info(table_id):
     combined_info["verify_mesh"] = cg.meta.custom_data.get("mesh", {}).get(
         "verify", False
     )
-    combined_info["mesh"] = cg.meta.custom_data.get("mesh", {}).get(
-        "dir", "graphene_meshes"
+    mesh_dir = cg.meta.custom_data.get("mesh", {}).get(
+        "dir", None
     )
+    if mesh_dir is not None:
+        combined_info["mesh_dir"] = mesh_dir
+    elif combined_info.get("mesh_dir", None) is not None:
+        combined_info["mesh_dir"] = "graphene_meshes"
     return jsonify(combined_info)
 
 
