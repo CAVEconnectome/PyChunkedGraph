@@ -458,6 +458,7 @@ def handle_lineage_graph(table_id, root_id):
 
 @bp.route("/table/<table_id>/lineage_graph_multiple", methods=["POST"])
 @auth_requires_permission("view")
+@remap_public(edit=False)
 def handle_lineage_graph_multiple(table_id):
     int64_as_str = request.args.get("int64_as_str", default=False, type=toboolean)
     resp = common.handle_lineage_graph(table_id)
@@ -592,6 +593,7 @@ def delta_roots(table_id):
 
 @bp.route("/table/<table_id>/valid_nodes", methods=["GET"])
 @auth_requires_permission("view")
+@remap_public(edit=False)
 def valid_nodes(table_id):
     int64_as_str = request.args.get("int64_as_str", default=False, type=toboolean)
     is_binary = request.args.get("is_binary", default=False, type=toboolean)
