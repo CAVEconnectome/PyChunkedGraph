@@ -12,7 +12,6 @@ from . import operation
 from . import attributes
 from . import exceptions
 from .client import base
-from .client import BigTableClient
 from .client import BackendClientInfo
 from .client import get_default_client_info
 from .cache import CacheService
@@ -43,17 +42,15 @@ class ChunkedGraph:
         3. Existing graphs in other projects/clients,
            Requires `graph_id` and `client_info`.
         """
-        # create client based on type
-        # for now, just use BigTableClient
+        # create client based on backend type
 
+        client_class = client_info.TYPE
         if meta:
             graph_id = meta.graph_config.ID_PREFIX + meta.graph_config.ID
-            bt_client = BigTableClient(
-                graph_id, config=client_info.CONFIG, graph_meta=meta
-            )
+            bt_client = client_class(graph_id, config=client_info.CONFIG, graph_meta=meta)
             self._meta = meta
         else:
-            bt_client = BigTableClient(graph_id, config=client_info.CONFIG)
+            bt_client = client_class(graph_id, config=client_info.CONFIG)
             self._meta = bt_client.read_graph_meta()
 
         self._client = bt_client
