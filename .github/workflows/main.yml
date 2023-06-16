@@ -1,0 +1,22 @@
+name: PyChunkedGraph
+
+on:
+  push:
+    branches:
+      - "main"
+  pull_request:
+    branches:
+      - "main"
+
+jobs:
+  unit-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v2
+
+      - name: Build image and run tests
+        run: |
+          docker build --tag seunglab/pychunkedgraph:$GITHUB_SHA .
+          docker run --rm seunglab/pychunkedgraph:$GITHUB_SHA /bin/sh -c "tox -v -- --cov-config .coveragerc --cov=pychunkedgraph && codecov"
+

@@ -1,0 +1,3 @@
+"""
+Common client util functions
+"""
