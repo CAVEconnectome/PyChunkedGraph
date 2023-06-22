@@ -113,7 +113,7 @@ def remap_public(func=None, *, edit=False, check_node_ids=False):
                     if node_id is not None:
                         node_id = int(node_id)
                         # check if this root_id is valid at this timestamp
-                        timestamp = cg.get_node_timestamps([node_id])
+                        timestamp = cg.get_node_timestamps([node_id], return_numpy=True)
                         if not np.all(timestamp < np.datetime64(v_timestamp)):
                             raise cg_exceptions.Unauthorized(
                                 "root_id not valid at timestamp"
@@ -128,7 +128,7 @@ def remap_public(func=None, *, edit=False, check_node_ids=False):
                     node_ids = np.array(
                         json.loads(request.data)["node_ids"], dtype=np.uint64
                     )
-                    timestamps = cg.get_node_timestamps(node_ids)
+                    timestamps = cg.get_node_timestamps(node_ids, return_numpy=True)
                     if not np.all(timestamps < np.datetime64(v_timestamp)):
                         raise cg_exceptions.Unauthorized(
                             "node_ids are all not valid at timestamp"
