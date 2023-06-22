@@ -11,6 +11,7 @@ from middle_auth_client import (
 from pychunkedgraph.app import app_utils
 from pychunkedgraph.app.segmentation import common
 from pychunkedgraph.backend import chunkedgraph_exceptions as cg_exceptions
+from pychunkedgraph.app.app_utils import remap_public
 
 bp = Blueprint(
     "pcg_segmentation_v0",
