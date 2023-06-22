@@ -3,12 +3,17 @@ import sys
 import time
 import requests
 import os
+from functools import wraps
 
+from time import mktime
 import numpy as np
-from flask import current_app, json
+from flask import current_app, json, request
 from google.auth import credentials
 from google.auth import default as default_creds
 from google.cloud import bigtable, datastore
+
+from werkzeug.datastructures import ImmutableMultiDict
+
 
 from pychunkedgraph.backend import chunkedgraph
 from pychunkedgraph.backend import chunkedgraph_exceptions as cg_exceptions
@@ -45,6 +50,98 @@ def get_app_base_path():
 
 def get_instance_folder_path():
     return os.path.join(get_app_base_path(), "instance")
+
+
+def remap_public(func=None, *, edit=False, check_node_ids=False):
+    def mydecorator(f):
+        @wraps(f)
+        def decorated_function(*args, **kwargs):
+            virtual_tables = current_app.config.get("VIRTUAL_TABLES", None)
+
+            # if not virtual configuration just return
+            if virtual_tables is None:
+                return f(*args, **kwargs)
+            table_id = kwargs.get("table_id", None)
+            http_args = request.args.to_dict()
+
+            if table_id is None:
+                # then no table remapping necessary
+                return f(*args, **kwargs)
+            if not table_id in virtual_tables:
+                # if table table_id isn't in virtual
+                # tables then just return
+                return f(*args, **kwargs)
+            else:
+                # then we have a virtual table
+                if edit:
+                    raise cg_exceptions.Unauthorized(
+                        "No edits allowed on virtual tables"
+                    )
+                # and we want to remap the table name
+                new_table = virtual_tables[table_id]["table_id"]
+                kwargs["table_id"] = new_table
+                v_timestamp = virtual_tables[table_id]["timestamp"]
+                v_timetamp_float = mktime(v_timestamp.timetuple())
+
+                # we want to fix timestamp parameters too
+                def ceiling_timestamp(argname):
+                    old_arg = http_args.get(argname, None)
+                    if old_arg is not None:
+                        old_arg = float(old_arg)
+                        # if they specified a timestamp
+                        # enforce its less than the cap
+                        if old_arg > v_timetamp_float:
+                            http_args[argname] = v_timetamp_float
+                    else:
+                        # if they omit the timestamp, it defaults to "now"
+                        # so we should cap it at the virtual timestamp
+                        http_args[argname] = v_timetamp_float
+
+                ceiling_timestamp("timestamp")
+                ceiling_timestamp("timestamp_future")
+
+                request.args = ImmutableMultiDict(http_args)
+
+                # we also want to check for endpoints
+                # which ask for info about IDs and
+                # restrict such calls to IDs that are valid
+                # before the timestamp cap for this virtual table
+                cg = get_cg(new_table)
+
+                def assert_node_prop(prop):
+                    node_id = kwargs.get(prop, None)
+                    if node_id is not None:
+                        node_id = int(node_id)
+                        # check if this root_id is valid at this timestamp
+                        timestamp = cg.get_node_timestamps([node_id])
+                        if not np.all(timestamp < np.datetime64(v_timestamp)):
+                            raise cg_exceptions.Unauthorized(
+                                "root_id not valid at timestamp"
+                            )
+
+                assert_node_prop("root_id")
+                assert_node_prop("node_id")
+
+                # some endpoints post node_ids as json, so we have to check there
+                # as well if the endpoint configured us to.
+                if check_node_ids:
+                    node_ids = np.array(
+                        json.loads(request.data)["node_ids"], dtype=np.uint64
+                    )
+                    timestamps = cg.get_node_timestamps(node_ids)
+                    if not np.all(timestamps < np.datetime64(v_timestamp)):
+                        raise cg_exceptions.Unauthorized(
+                            "node_ids are all not valid at timestamp"
+                        )
+
+                return f(*args, **kwargs)
+
+        return decorated_function
+
+    if func:
+        return mydecorator(func)
+    else:
+        return mydecorator
 
 
 def jsonify_with_kwargs(data, as_response=True, **kwargs):
