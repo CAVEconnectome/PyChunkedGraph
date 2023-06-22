@@ -10,7 +10,12 @@ from middle_auth_client import auth_requires_permission
 from middle_auth_client import auth_requires_admin
 from middle_auth_client import auth_required
 
-from pychunkedgraph.app.app_utils import jsonify_with_kwargs, toboolean, tobinary
+from pychunkedgraph.app.app_utils import (
+    jsonify_with_kwargs,
+    toboolean,
+    tobinary,
+    remap_public,
+)
 from pychunkedgraph.app.segmentation import common
 from pychunkedgraph.backend import chunkedgraph_exceptions as cg_exceptions
 
@@ -79,6 +84,7 @@ def api_exception(e):
 
 @bp.route("/table/<table_id>/merge", methods=["POST"])
 @auth_requires_permission("edit")
+@remap_public(edit=True)
 def handle_merge(table_id):
     int64_as_str = request.args.get("int64_as_str", default=False, type=toboolean)
     merge_result = common.handle_merge(table_id)
@@ -94,6 +100,7 @@ def handle_merge(table_id):
 
 @bp.route("/table/<table_id>/split", methods=["POST"])
 @auth_requires_permission("edit")
+@remap_public(edit=True)
 def handle_split(table_id):
     int64_as_str = request.args.get("int64_as_str", default=False, type=toboolean)
     split_result = common.handle_split(table_id)
@@ -106,6 +113,7 @@ def handle_split(table_id):
 
 @bp.route("/table/<table_id>/graph/split_preview", methods=["POST"])
 @auth_requires_permission("view")
+@remap_public(edit=True)
 def handle_split_preview(table_id):
     int64_as_str = request.args.get("int64_as_str", default=False, type=toboolean)
     split_preview = common.handle_split_preview(table_id)
@@ -117,6 +125,7 @@ def handle_split_preview(table_id):
 
 @bp.route("/table/<table_id>/undo", methods=["POST"])
 @auth_requires_permission("edit")
+@remap_public(edit=True)
 def handle_undo(table_id):
     int64_as_str = request.args.get("int64_as_str", default=False, type=toboolean)
     undo_result = common.handle_undo(table_id)
@@ -132,6 +141,7 @@ def handle_undo(table_id):
 
 @bp.route("/table/<table_id>/redo", methods=["POST"])
 @auth_requires_permission("edit")
+@remap_public(edit=True)
 def handle_redo(table_id):
     int64_as_str = request.args.get("int64_as_str", default=False, type=toboolean)
     redo_result = common.handle_redo(table_id)
@@ -147,6 +157,7 @@ def handle_redo(table_id):
 
 @bp.route("/table/<table_id>/rollback_user", methods=["POST"])
 @auth_requires_admin
+@remap_public(edit=True)
 def handle_rollback(table_id):
     int64_as_str = request.args.get("int64_as_str", default=False, type=toboolean)
     rollback_result = common.handle_rollback(table_id)
@@ -159,6 +170,7 @@ def handle_rollback(table_id):
 
 @bp.route("/table/<table_id>/user_operations", methods=["GET"])
 @auth_requires_permission("admin_view")
+@remap_public(edit=True)
 def handle_user_operations(table_id):
     disp = request.args.get("disp", default=False, type=toboolean)
     user_operations = pd.DataFrame.from_dict(common.all_user_operations(table_id))
@@ -174,6 +186,7 @@ def handle_user_operations(table_id):
 
 @bp.route("/table/<table_id>/node/<node_id>/root", methods=["GET"])
 @auth_requires_permission("view")
+@remap_public
 def handle_root(table_id, node_id):
     int64_as_str = request.args.get("int64_as_str", default=False, type=toboolean)
     root_id = common.handle_root(table_id, node_id)
@@ -186,6 +199,7 @@ def handle_root(table_id, node_id):
 
 @bp.route("/table/<table_id>/roots", methods=["POST"])
 @auth_requires_permission("view")
+@remap_public(edit=False)
 def handle_roots(table_id):
     int64_as_str = request.args.get("int64_as_str", default=False, type=toboolean)
     root_ids = common.handle_roots(table_id, is_binary=False)
@@ -203,6 +217,7 @@ def handle_roots(table_id):
 
 @bp.route("/table/<table_id>/roots_binary", methods=["POST"])
 @auth_requires_permission("view")
+@remap_public(edit=False)
 def handle_roots_binary(table_id):
     root_ids = common.handle_roots(table_id, is_binary=True)
     return tobinary(root_ids)
@@ -213,6 +228,7 @@ def handle_roots_binary(table_id):
 
 @bp.route("/table/<table_id>/node/<node_id>/children", methods=["GET"])
 @auth_requires_permission("view")
+@remap_public(edit=False)
 def handle_children(table_id, node_id):
     int64_as_str = request.args.get("int64_as_str", default=False, type=toboolean)
     children_ids = common.handle_children(table_id, node_id)
@@ -225,6 +241,7 @@ def handle_children(table_id, node_id):
 
 @bp.route("/table/<table_id>/l2_chunk_children/<chunk_id>", methods=["GET"])
 @auth_requires_permission("view")
+@remap_public(edit=False)
 def handle_l2_chunk_children(table_id, chunk_id):
     int64_as_str = request.args.get("int64_as_str", default=False, type=toboolean)
     as_array = request.args.get("as_array", default=False, type=toboolean)
@@ -241,6 +258,7 @@ def handle_l2_chunk_children(table_id, chunk_id):
 
 @bp.route("/table/<table_id>/l2_chunk_children_binary/<chunk_id>", methods=["GET"])
 @auth_requires_permission("view")
+@remap_public(edit=False)
 def handle_l2_chunk_children_binary(table_id, chunk_id):
     as_array = request.args.get("as_array", default=False, type=toboolean)
     l2_chunk_children = common.handle_l2_chunk_children(table_id, chunk_id, as_array)
@@ -260,6 +278,7 @@ def handle_l2_chunk_children_binary(table_id, chunk_id):
     public_node_key="node_id",
     service_token=AUTH_TOKEN,
 )
+@remap_public(edit=False)
 def handle_leaves(table_id, node_id):
     int64_as_str = request.args.get("int64_as_str", default=False, type=toboolean)
     leaf_ids = common.handle_leaves(table_id, node_id)
@@ -278,6 +297,7 @@ def handle_leaves(table_id, node_id):
     public_node_key="node_id",
     service_token=AUTH_TOKEN,
 )
+@remap_public(edit=False)
 def handle_leaves_many(table_id):
     int64_as_str = request.args.get("int64_as_str", default=False, type=toboolean)
     root_to_leaf_dict = common.handle_leaves_many(table_id)
@@ -289,6 +309,7 @@ def handle_leaves_many(table_id):
 
 @bp.route("/table/<table_id>/node/<node_id>/subgraph", methods=["GET"])
 @auth_requires_permission("view")
+@remap_public(edit=False)
 def handle_subgraph(table_id, node_id):
     int64_as_str = request.args.get("int64_as_str", default=False, type=toboolean)
     subgraph_result = common.handle_subgraph(table_id, node_id)
@@ -301,6 +322,7 @@ def handle_subgraph(table_id, node_id):
 
 @bp.route("/table/<table_id>/node/<node_id>/contact_sites", methods=["GET"])
 @auth_requires_permission("view")
+@remap_public(edit=False)
 def handle_contact_sites(table_id, node_id):
     int64_as_str = request.args.get("int64_as_str", default=False, type=toboolean)
     contact_sites, contact_site_metadata = common.handle_contact_sites(
@@ -318,6 +340,7 @@ def handle_contact_sites(table_id, node_id):
     methods=["GET"],
 )
 @auth_requires_permission("view")
+@remap_public(edit=False)
 def handle_pairwise_contact_sites(table_id, first_node_id, second_node_id):
     int64_as_str = request.args.get("int64_as_str", default=False, type=toboolean)
     contact_sites, contact_site_metadata = common.handle_pairwise_contact_sites(
@@ -335,6 +358,7 @@ def handle_pairwise_contact_sites(table_id, first_node_id, second_node_id):
 
 @bp.route("/table/<table_id>/change_log", methods=["GET"])
 @auth_requires_admin
+@remap_public(edit=False)
 def change_log_full(table_id):
     si = io.StringIO()
     cw = csv.writer(si)
@@ -349,6 +373,7 @@ def change_log_full(table_id):
 
 @bp.route("/table/<table_id>/tabular_change_log_recent", methods=["GET"])
 @auth_requires_permission("admin_view")
+@remap_public(edit=True)
 def tabular_change_log_weekly(table_id):
     disp = request.args.get("disp", default=False, type=toboolean)
     weekly_tab_change_log = common.tabular_change_log_recent(table_id)
@@ -361,6 +386,7 @@ def tabular_change_log_weekly(table_id):
 
 @bp.route("/table/<table_id>/root/<root_id>/change_log", methods=["GET"])
 @auth_requires_permission("view")
+@remap_public(edit=False)
 def change_log(table_id, root_id):
     int64_as_str = request.args.get("int64_as_str", default=False, type=toboolean)
     filtered = request.args.get("filtered", default=False, type=toboolean)
@@ -370,6 +396,7 @@ def change_log(table_id, root_id):
 
 @bp.route("/table/<table_id>/root/<root_id>/tabular_change_log", methods=["GET"])
 @auth_requires_permission("view")
+@remap_public(edit=False)
 def tabular_change_log(table_id, root_id):
     disp = request.args.get("disp", default=False, type=toboolean)
     filtered = request.args.get("filtered", default=True, type=toboolean)
@@ -384,6 +411,7 @@ def tabular_change_log(table_id, root_id):
 
 @bp.route("/table/<table_id>/tabular_change_log_many", methods=["GET"])
 @auth_requires_permission("view")
+@remap_public(edit=False)
 def tabular_change_log_many(table_id):
     filtered = request.args.get("filtered", default=True, type=toboolean)
     root_ids = np.array(json.loads(request.data)["root_ids"], dtype=np.uint64)
@@ -396,6 +424,7 @@ def tabular_change_log_many(table_id):
 
 @bp.route("/table/<table_id>/root/<root_id>/merge_log", methods=["GET"])
 @auth_requires_permission("view")
+@remap_public(edit=False)
 def merge_log(table_id, root_id):
     int64_as_str = request.args.get("int64_as_str", default=False, type=toboolean)
     log = common.merge_log(table_id, root_id)
@@ -404,6 +433,7 @@ def merge_log(table_id, root_id):
 
 @bp.route("/table/<table_id>/root/<root_id>/lineage_graph", methods=["GET"])
 @auth_requires_permission("view")
+@remap_public(edit=False)
 def handle_lineage_graph(table_id, root_id):
     int64_as_str = request.args.get("int64_as_str", default=False, type=toboolean)
     resp = common.handle_lineage_graph(table_id, root_id)
@@ -412,6 +442,7 @@ def handle_lineage_graph(table_id, root_id):
 
 @bp.route("/table/<table_id>/lineage_graph_multiple", methods=["POST"])
 @auth_requires_permission("view")
+@remap_public(edit=False)
 def handle_lineage_graph_multiple(table_id):
     int64_as_str = request.args.get("int64_as_str", default=False, type=toboolean)
     resp = common.handle_lineage_graph(table_id)
@@ -420,6 +451,7 @@ def handle_lineage_graph_multiple(table_id):
 
 @bp.route("/table/<table_id>/past_id_mapping", methods=["GET"])
 @auth_requires_permission("view")
+@remap_public(edit=False)
 def handle_past_id_mapping(table_id):
     int64_as_str = request.args.get("int64_as_str", default=False, type=toboolean)
     resp = common.handle_past_id_mapping(table_id)
@@ -428,6 +460,7 @@ def handle_past_id_mapping(table_id):
 
 @bp.route("/table/<table_id>/oldest_timestamp", methods=["GET"])
 @auth_requires_permission("view", public_table_key="table_id", service_token=AUTH_TOKEN)
+@remap_public(edit=False)
 def oldest_timestamp(table_id):
     int64_as_str = request.args.get("int64_as_str", default=False, type=toboolean)
     delimiter = request.args.get("delimiter", default=" ", type=str)
@@ -438,6 +471,7 @@ def oldest_timestamp(table_id):
 
 @bp.route("/table/<table_id>/root/<root_id>/last_edit", methods=["GET"])
 @auth_requires_permission("view")
+@remap_public(edit=False)
 def last_edit(table_id, root_id):
     int64_as_str = request.args.get("int64_as_str", default=False, type=toboolean)
     delimiter = request.args.get("delimiter", default=" ", type=str)
@@ -451,6 +485,7 @@ def last_edit(table_id, root_id):
 
 @bp.route("/table/<table_id>/graph/find_path", methods=["POST"])
 @auth_requires_permission("view")
+@remap_public(edit=False)
 def find_path(table_id):
     int64_as_str = request.args.get("int64_as_str", default=False, type=toboolean)
     precision_mode = request.args.get("precision_mode", default=True, type=toboolean)
@@ -461,6 +496,7 @@ def find_path(table_id):
 ## GET LEVEL2 GRAPH -------------------------------------------------------------
 @bp.route("/table/<table_id>/node/<node_id>/lvl2_graph", methods=["GET"])
 @auth_requires_permission("view")
+@remap_public(edit=False)
 def handle_get_lvl2_graph(table_id, node_id):
     int64_as_str = request.args.get("int64_as_str", default=False, type=toboolean)
     resp = common.handle_get_layer2_graph(table_id, node_id)
@@ -472,6 +508,7 @@ def handle_get_lvl2_graph(table_id, node_id):
 
 @bp.route("/table/<table_id>/is_latest_roots", methods=["POST"])
 @auth_requires_permission("view")
+@remap_public(edit=False)
 def handle_is_latest_roots(table_id):
     int64_as_str = request.args.get("int64_as_str", default=False, type=toboolean)
     is_binary = request.args.get("is_binary", default=False, type=toboolean)
@@ -483,6 +520,7 @@ def handle_is_latest_roots(table_id):
 
 @bp.route("/table/<table_id>/root_timestamps", methods=["POST"])
 @auth_requires_permission("view")
+@remap_public(edit=False)
 def handle_root_timestamps(table_id):
     int64_as_str = request.args.get("int64_as_str", default=False, type=toboolean)
     is_binary = request.args.get("is_binary", default=False, type=toboolean)
@@ -497,6 +535,7 @@ def handle_root_timestamps(table_id):
 
 @bp.route("/table/<table_id>/operation_details", methods=["GET"])
 @auth_requires_permission("view")
+@remap_public(edit=False)
 def operation_details(table_id):
     int64_as_str = request.args.get("int64_as_str", default=False, type=toboolean)
     resp = common.operation_details(table_id)
@@ -508,6 +547,7 @@ def operation_details(table_id):
 
 @bp.route("/table/<table_id>/delta_roots", methods=["GET"])
 @auth_requires_permission("view")
+@remap_public(edit=False)
 def delta_roots(table_id):
     int64_as_str = request.args.get("int64_as_str", default=False, type=toboolean)
     resp = common.delta_roots(table_id)
@@ -519,6 +559,7 @@ def delta_roots(table_id):
 
 @bp.route("/table/<table_id>/valid_nodes", methods=["GET"])
 @auth_requires_permission("view")
+@remap_public(edit=False)
 def valid_nodes(table_id):
     int64_as_str = request.args.get("int64_as_str", default=False, type=toboolean)
     is_binary = request.args.get("is_binary", default=False, type=toboolean)

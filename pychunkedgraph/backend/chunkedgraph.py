@@ -4423,12 +4423,18 @@ class ChunkedGraph(object):
 
         return old_roots, new_roots
 
-    def get_node_timestamps(self, node_ids: Sequence[np.uint64]):
+    def get_node_timestamps(self, node_ids: Sequence[np.uint64], return_numpy=False):
         children = self.read_node_id_rows(
             node_ids=node_ids, columns=column_keys.Hierarchy.Child
         )
         if not children:
+            if return_numpy:
+                return np.array([], dtype=np.datetime64)
             return []
+        if return_numpy:
+            return np.array(
+                [children[x][0].timestamp for x in node_ids], dtype=np.datetime64
+            )
         return [children[x][0].timestamp for x in node_ids]
 
     def mask_nodes_by_bounding_box(

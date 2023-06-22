@@ -3,6 +3,7 @@ from middle_auth_client import auth_requires_permission, auth_required
 
 from pychunkedgraph.app.meshing import common
 from pychunkedgraph.backend import chunkedgraph_exceptions as cg_exceptions
+from pychunkedgraph.app.app_utils import remap_public
 
 import os
 import json
@@ -13,7 +14,9 @@ if os.environ.get("DAF_CREDENTIALS", None) is not None:
 else:
     AUTH_TOKEN = ""
 
-bp = Blueprint("pcg_meshing_v1", __name__, url_prefix=f"/{common.__meshing_url_prefix__}/api/v1")
+bp = Blueprint(
+    "pcg_meshing_v1", __name__, url_prefix=f"/{common.__meshing_url_prefix__}/api/v1"
+)
 
 # -------------------------------
 # ------ Access control and index
@@ -63,21 +66,29 @@ def api_exception(e):
 ## VALIDFRAGMENTS --------------------------------------------------------------
 @bp.route("/table/<table_id>/node/<node_id>/validfragments", methods=["GET"])
 @auth_requires_permission("view")
+@remap_public
 def handle_valid_frags(table_id, node_id):
     return common.handle_valid_frags(table_id, node_id)
 
 
 ## MANIFEST --------------------------------------------------------------------
 @bp.route("/table/<table_id>/manifest/<node_id>:0", methods=["GET"])
-@auth_requires_permission("view", public_table_key='table_id', public_node_key='node_id', 
-                          service_token=AUTH_TOKEN)
+@auth_requires_permission(
+    "view",
+    public_table_key="table_id",
+    public_node_key="node_id",
+    service_token=AUTH_TOKEN,
+)
+@remap_public
 def handle_get_manifest(table_id, node_id):
     return common.handle_get_manifest(table_id, node_id)
 
 
 ## ENQUE MESHING JOBS ----------------------------------------------------------
 
+
 @bp.route("/table/<table_id>/remeshing", methods=["POST"])
 @auth_requires_permission("edit")
+@remap_public(edit=True)
 def handle_remesh(table_id):
     return common.handle_remesh(table_id)
