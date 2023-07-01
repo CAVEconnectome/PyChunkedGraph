@@ -95,7 +95,7 @@ class Client(ClientWithIDGen, OperationLogger):
     ):
         logging.warn(f'read_nodes: {start_id}, {end_id}, {node_ids}, {properties}, {start_time}, {end_time}, {end_time_inclusive}')
 
-    """Read a single node and it's properties."""
+    """Read a single node and its properties."""
     def read_node(
         self,
         node_id,
@@ -198,7 +198,7 @@ class Client(ClientWithIDGen, OperationLogger):
         typing.Dict[attributes._Attribute, typing.List[TimeStampedCell]],
         typing.List[TimeStampedCell],
     ]:
-        """Convenience function for reading a single row from Bigtable using its `bytes` keys.
+        """Convenience function for reading a single row from Amazon DynamoDB using its `bytes` keys.
 
         Arguments:
             row_key {bytes} -- The row to be read.
@@ -257,7 +257,7 @@ class Client(ClientWithIDGen, OperationLogger):
             typing.List[TimeStampedCell],
         ],
     ]:
-        """Main function for reading a row range or non-contiguous row sets from Bigtable using
+        """Main function for reading a row range or non-contiguous row sets from Amazon DynamoDB using
         `bytes` keys.
 
         Keyword Arguments:
