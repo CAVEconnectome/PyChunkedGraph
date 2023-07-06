@@ -13,7 +13,7 @@ from . import attributes
 from . import exceptions
 from .client import base
 from .client import BackendClientInfo
-from .client import get_default_client_info
+from .client import get_default_client_info, get_client_class
 from .cache import CacheService
 from .meta import ChunkedGraphMeta
 from .utils import basetypes
@@ -42,12 +42,14 @@ class ChunkedGraph:
         3. Existing graphs in other projects/clients,
            Requires `graph_id` and `client_info`.
         """
-        # create client based on backend type
 
-        client_class = client_info.TYPE
+        # create client based on backend type specified in client_info.TYPE
+        client_class = get_client_class(client_info)
         if meta:
             graph_id = meta.graph_config.ID_PREFIX + meta.graph_config.ID
-            bt_client = client_class(graph_id, config=client_info.CONFIG, graph_meta=meta)
+            bt_client = client_class(
+                graph_id, config=client_info.CONFIG, graph_meta=meta
+            )
             self._meta = meta
         else:
             bt_client = client_class(graph_id, config=client_info.CONFIG)
@@ -109,9 +111,13 @@ class ChunkedGraph:
         """Read all nodes in a chunk."""
         layer = self.get_chunk_layer(chunk_id)
         root_chunk = layer == self.meta.layer_count
-        max_node_id = self.id_client.get_max_node_id(chunk_id=chunk_id, root_chunk=root_chunk)
+        max_node_id = self.id_client.get_max_node_id(
+            chunk_id=chunk_id, root_chunk=root_chunk
+        )
         if layer == 1:
-            max_node_id = chunk_id | self.get_segment_id_limit(chunk_id) # pylint: disable=unsupported-binary-operation
+            max_node_id = chunk_id | self.get_segment_id_limit(
+                chunk_id
+            )  # pylint: disable=unsupported-binary-operation
 
         return self.client.read_nodes(
             start_id=self.get_node_id(np.uint64(0), chunk_id=chunk_id),
