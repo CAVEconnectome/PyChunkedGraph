@@ -2,3 +2,5 @@ pylint
 black
 pyopenssl
 jupyter
+pytest
+pytest-timeout
