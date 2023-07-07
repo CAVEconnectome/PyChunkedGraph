@@ -95,10 +95,22 @@ class Client(ClientWithIDGen, OperationLogger):
         logging.debug(f"ROW: {row}")
         self._graph_meta = row[attributes.GraphMeta.Meta][0].value
 
-        self.pk_key_shift = (
-            self._graph_meta.graph_config.LAYER_ID_BITS
-            + self._graph_meta.graph_config.SPATIAL_BITS
-        )
+        # TODO: ATTENTION
+        # Fixed split between PK and SK may not be right approach
+        # There are multiple key families with different sub-structure
+        # Pending work:
+        #  * Key sub-structure should be investigated
+        #  * Key-range queries should be investigated
+        #  * Split between PK and SK should be revisited to make sure that
+        #    such key-range queries do _never_ run across different PKs or
+        #    there should be some mechanism to make it working with multiple PKs
+        # I'll put a hardcoded value of 18 to match ingestion default for now
+        self.pk_key_shift = 18
+        # TODO: ATTENTION
+        # If number of bits to shift (or in other words split width) is variadic
+        # which is implied by the key sub-structure and key-range queries,
+        # mask and format should be calculated on the fly
+        # and the same should be done in the ingestion script
         self.sk_key_mask = (1 << self.pk_key_shift) - 1
         pk_digits = math.ceil(math.log10(pow(2, 64 - self.pk_key_shift)))
         self.pk_int_format = f"0{pk_digits + 1}"
@@ -262,7 +274,17 @@ class Client(ClientWithIDGen, OperationLogger):
     """Read log entry for a given operation ID."""
 
     def read_log_entry(self, operation_id: int) -> None:
-        logging.warn(f"read_log_entry: {operation_id}")
+        log_record = self.read_node(
+            operation_id, properties=attributes.OperationLogs.all()
+        )
+        if len(log_record) == 0:
+            return {}, None
+        try:
+            timestamp = log_record[attributes.OperationLogs.OperationTimeStamp][0].value
+        except KeyError:
+            timestamp = log_record[attributes.OperationLogs.RootID][0].timestamp
+        log_record.update((column, v[0].value) for column, v in log_record.items())
+        return log_record, timestamp
 
     """Read log entries for given operation IDs."""
 
@@ -431,6 +453,7 @@ class Client(ClientWithIDGen, OperationLogger):
                 pk = f"{(ikey >> self.pk_key_shift):{self.pk_int_format}}"
                 sk = ikey & self.sk_key_mask
             elif skey[0] in ["f", "i"]:
+                # TODO: keys with "i" prefix may have weird suffix, like _05 and couldn't be converted to int like below
                 ikey = int(skey[1:])
                 pk = f"{(ikey >> self.pk_key_shift):{self.pk_int_format}}"
                 sk = ikey & self.sk_key_mask
@@ -492,9 +515,7 @@ class Client(ClientWithIDGen, OperationLogger):
                     else:
                         # ddb_clm here is column_family.column_qualifier
                         column_family, qualifier = ddb_clm.split(".")
-                        attr = attributes.from_key(
-                            column_family, qualifier.encode()
-                        )
+                        attr = attributes.from_key(column_family, qualifier.encode())
                         if attr not in row:
                             row[attr] = []
                         for timestamp, column_value in row_value:
