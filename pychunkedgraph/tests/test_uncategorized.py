@@ -18,6 +18,7 @@ from grpc._channel import _Rendezvous
 
 from .helpers import (
     bigtable_emulator,
+    amazon_dynamodb_emulator,
     create_chunk,
     gen_graph,
     gen_graph_simplequerytest,

@@ -9,12 +9,14 @@ _amazon_dynamodb_config_fields = (
     "TABLE_PREFIX",
     "ADMIN",
     "READ_ONLY",
+    "END_POINT",
 )
 _amazon_dynamodb_config_defaults = (
     environ.get("AWS_DEFAULT_REGION", DEFAULT_AWS_REGION),
     environ.get("AMAZON_DYNAMODB_TABLE_PREFIX", DEFAULT_TABLE_PREFIX),
     False,
     True,
+    None,
 )
 AmazonDynamoDbConfig = namedtuple(
     "AmazonDynamoDbConfig", _amazon_dynamodb_config_fields, defaults=_amazon_dynamodb_config_defaults

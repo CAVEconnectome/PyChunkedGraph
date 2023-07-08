@@ -1,4 +1,5 @@
 import os
+import json
 import subprocess
 from math import inf
 from time import sleep
@@ -13,6 +14,9 @@ import numpy as np
 from google.auth import credentials
 from google.cloud import bigtable
 
+import botocore
+import boto3
+
 from ..ingest.utils import bootstrap
 from ..ingest.create.atomic_layer import add_atomic_edges
 from ..graph.edges import Edges
@@ -21,6 +25,13 @@ from ..graph.utils import basetypes
 from ..graph.chunkedgraph import ChunkedGraph
 from ..ingest.create.abstract_layers import add_layer
 
+from ..graph.client import (
+    DEFAULT_BACKEND_TYPE,
+    GCP_BIGTABLE_BACKEND_TYPE,
+    AMAZON_DYNAMODB_BACKEND_TYPE,
+)
+
+AMAZON_LOCAL_DYNAMODB_URL = "http://localhost:8000/"
 
 class CloudVolumeBounds(object):
     def __init__(self, bounds=[[0, 0, 0], [0, 0, 0]]):
@@ -43,7 +54,7 @@ class CloudVolumeMock(object):
         self.bounds = CloudVolumeBounds()
 
 
-def setup_emulator_env():
+def setup_bigtable_emulator_env():
     bt_env_init = subprocess.run(
         ["gcloud", "beta", "emulators", "bigtable", "env-init"], stdout=subprocess.PIPE
     )
@@ -65,6 +76,28 @@ def setup_emulator_env():
         print("Bigtable Emulator not yet ready: %s" % err)
         return False
 
+def delete_amazon_dynamodb_tables(client):
+    ret = client.list_tables(Limit=100)
+    tables = ret.get("TableNames")
+    for table in tables:
+        client.delete_table(TableName=table)
+    for table in tables:
+        waiter = client.get_waiter('table_not_exists')
+        waiter.wait(TableName=table, WaiterConfig={'Delay': 1, 'MaxAttempts': 500})
+        print(f"Deleted {table}")
+
+def setup_amazon_dynamodb_env():
+    # check if local instance is running
+    boto3_conf_ = botocore.config.Config(
+        retries={"max_attempts": 10, "mode": "standard"}
+    )
+    client = boto3.client("dynamodb", config=boto3_conf_, endpoint_url=AMAZON_LOCAL_DYNAMODB_URL)
+    try:
+        delete_amazon_dynamodb_tables(client)
+    except Exception as e:
+        print(f"Failed to list tables: {repr(e)}")
+        return False
+    return True
 
 @pytest.fixture(scope="session", autouse=True)
 def bigtable_emulator(request):
@@ -86,7 +119,7 @@ def bigtable_emulator(request):
     print("Waiting for BigTables Emulator to start up...", end="")
     retries = 5
     while retries > 0:
-        if setup_emulator_env() is True:
+        if setup_bigtable_emulator_env() is True:
             break
         else:
             retries -= 1
@@ -105,8 +138,81 @@ def bigtable_emulator(request):
 
     request.addfinalizer(fin)
 
+@pytest.fixture(scope="session", autouse=True)
+def amazon_dynamodb_emulator(request):
+    # Start Local Instance
+    amazon_dynamodb_emulator = subprocess.Popen(
+        [
+            "docker-compose",
+            "--file",
+            os.path.join(os.path.dirname(__file__), "amazon-dynamodb-local.yaml"),
+            "up",
+            "-d",
+        ],
+        preexec_fn=os.setsid,
+        stdout=subprocess.PIPE,
+    )
+    amazon_dynamodb_emulator.wait()
 
-@pytest.fixture(scope="function")
+    # Wait for docker container to start up
+    print("Waiting for Amazon DynamoDB local instance to start up...", end="")
+    retries = 5
+    while retries > 0:
+        if setup_amazon_dynamodb_env() is True:
+            break
+        else:
+            retries -= 1
+            sleep(5)
+
+    if retries == 0:
+        print(
+            "\nCouldn't start Amazon DynamoDB local instance in docker. Make sure docker is installed and running correctly."
+        )
+        exit(1)
+
+    # Amazon DynamoDB local instance Finalizer
+    def fin():
+        res=subprocess.run(
+            ["docker", "ps", "--filter", "name=dynamodb-local", "--format", "{{json . }}"], stdout=subprocess.PIPE
+        )
+        output_s = res.stdout.decode().strip()
+        if output_s:
+            output_j = json.loads(output_s)
+            container_id = output_j.get("ID")
+            if container_id:
+                subprocess.run(["docker", "kill", container_id])
+                subprocess.run(["docker", "container", "rm", container_id])
+
+    request.addfinalizer(fin)
+
+PARAMS = [
+    {
+        "backend_client": {
+            "TYPE": "bigtable",
+            "CONFIG": {
+                "ADMIN": True,
+                "READ_ONLY": False,
+                "PROJECT": "IGNORE_ENVIRONMENT_PROJECT",
+                "INSTANCE": "emulated_instance",
+                "CREDENTIALS": credentials.AnonymousCredentials(),
+                "MAX_ROW_KEY_COUNT": 1000,
+            },
+        }
+    },
+    {
+        "backend_client": {
+            "TYPE": "amazon.dynamodb",
+            "CONFIG": {
+                "ADMIN": True,
+                "READ_ONLY": False,
+                "END_POINT": AMAZON_LOCAL_DYNAMODB_URL,
+                "TABLE_PREFIX": "",
+            },
+        }
+    }
+]
+
+@pytest.fixture(scope="function", params=PARAMS)
 def gen_graph(request):
     def _cgraph(request, n_layers=10, atomic_chunk_bounds: np.ndarray = np.array([])):
         config = {
@@ -122,19 +228,8 @@ def gen_graph(request):
                 "ID_PREFIX": "",
                 "ROOT_LOCK_EXPIRY": timedelta(seconds=5)
             },
-            "backend_client": {
-                "TYPE": "bigtable",
-                "CONFIG": {
-                    "ADMIN": True,
-                    "READ_ONLY": False,
-                    "PROJECT": "IGNORE_ENVIRONMENT_PROJECT",
-                    "INSTANCE": "emulated_instance",
-                    "CREDENTIALS": credentials.AnonymousCredentials(),
-                    "MAX_ROW_KEY_COUNT": 1000
-                },
-            },
             "ingest_config": {},
-        }
+        } | request.param
 
         meta, _, client_info = bootstrap("test", config=config)
         graph = ChunkedGraph(graph_id="test", meta=meta,
@@ -150,7 +245,15 @@ def gen_graph(request):
 
         # setup Chunked Graph - Finalizer
         def fin():
-            graph.client._table.delete()
+            backend_type = config["backend_client"].get("TYPE", DEFAULT_BACKEND_TYPE)
+            if backend_type == GCP_BIGTABLE_BACKEND_TYPE:
+                graph.client._table.delete()
+            elif backend_type == AMAZON_DYNAMODB_BACKEND_TYPE:
+                boto3_conf_ = botocore.config.Config(
+                    retries={"max_attempts": 10, "mode": "standard"}
+                )
+                client = boto3.client("dynamodb", config=boto3_conf_, endpoint_url=AMAZON_LOCAL_DYNAMODB_URL)
+                delete_amazon_dynamodb_tables(client)
 
         request.addfinalizer(fin)
         return graph

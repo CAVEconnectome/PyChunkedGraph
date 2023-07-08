@@ -63,29 +63,77 @@ class Client(ClientWithIDGen, OperationLogger):
         self._version = None
 
         boto3_conf_ = botocore.config.Config(
-            region_name=config.REGION, retries={"max_attempts": 10, "mode": "standard"}
+            retries={"max_attempts": 10, "mode": "standard"}
         )
-        self._main_db = boto3.client("dynamodb", config=boto3_conf_)
+        kwargs = {}
+        if config.REGION:
+            kwargs["region_name"] = config.REGION
+        if config.END_POINT:
+            kwargs["endpoint_url"] = config.END_POINT
+        self._main_db = boto3.client("dynamodb", config=boto3_conf_, **kwargs)
 
     """Initialize the graph and store associated meta."""
 
-    def create_graph(self) -> None:
-        logging.warn(f"create_graph")
+    def create_graph(self, meta: ChunkedGraphMeta, version: str) -> None:
+        """Initialize the graph and store associated meta."""
+        # TODO: revisit table creation here. Is it needed for anything but tests?
+        # even for tests, it's better to create in testsuite fixture/resource factory
+        try:
+            row = self._read_byte_row(attributes.GraphMeta.key)
+            if row:
+                raise ValueError(f"{self._table_name} table already exists.")
+        except botocore.exceptions.ClientError as e:
+            if e.response.get("Error", {}).get("Code") != "ResourceNotFoundException":
+                raise e
+        self._main_db.create_table(
+            TableName=self._table_name,
+            KeySchema=[
+                {"AttributeName": "key", "KeyType": "HASH"},
+                {"AttributeName": "sk", "KeyType": "RANGE"},
+            ],
+            AttributeDefinitions=[
+                {"AttributeName": "key", "AttributeType": "S"},
+                {"AttributeName": "sk", "AttributeType": "N"},
+            ],
+            BillingMode="PAY_PER_REQUEST",
+        )
+        self.add_graph_version(version)
+        self.update_graph_meta(meta)
 
     """Add a version to the graph."""
 
     def add_graph_version(self, version):
-        logging.warn(f"add_graph_version: {version}")
+        assert self.read_graph_version() is None, "Graph has already been versioned."
+        self._version = version
+        row = self.mutate_row(
+            attributes.GraphVersion.key,
+            {attributes.GraphVersion.Version: version},
+        )
+        self.write([row])
 
     """Read stored graph version."""
 
     def read_graph_version(self):
-        logging.warn(f"read_graph_version")
+        try:
+            row = self._read_byte_row(attributes.GraphVersion.key)
+            self._version = row[attributes.GraphVersion.Version][0].value
+            return self._version
+        except KeyError:
+            return None
 
     """Update stored graph meta."""
 
-    def update_graph_meta(self, meta):
-        logging.warn(f"update_graph_meta: {meta}")
+    def update_graph_meta(
+        self, meta: ChunkedGraphMeta, overwrite: typing.Optional[bool] = False
+    ):
+        if overwrite:
+            self._delete_meta()
+        self._graph_meta = meta
+        row = self.mutate_row(
+            attributes.GraphMeta.key,
+            {attributes.GraphMeta.Meta: meta},
+        )
+        self.write([row])
 
     """Read stored graph meta."""
 
@@ -187,6 +235,43 @@ class Client(ClientWithIDGen, OperationLogger):
 
     def write_nodes(self, nodes):
         logging.warn(f"write_nodes: {nodes}")
+
+    # Helpers
+    def write(
+        self,
+        rows: typing.Iterable[TimeStampedCell],
+        root_ids: typing.Optional[
+            typing.Union[np.uint64, typing.Iterable[np.uint64]]
+        ] = None,
+        operation_id: typing.Optional[np.uint64] = None,
+        slow_retry: bool = True,
+        block_size: int = 2000,
+    ):
+        """Writes a list of mutated rows in bulk
+        WARNING: If <rows> contains the same row (same row_key) and column
+        key two times only the last one is effectively written to the BigTable
+        (even when the mutations were applied to different columns)
+        --> no versioning!
+        :param rows: list
+            list of mutated rows
+        :param root_ids: list if uint64
+        :param operation_id: uint64 or None
+            operation_id (or other unique id) that *was* used to lock the root
+            the bulk write is only executed if the root is still locked with
+            the same id.
+        :param slow_retry: bool
+        :param block_size: int
+        """
+        logging.warn(f"write {rows} {root_ids} {operation_id} {slow_retry} {block_size}")
+
+    def mutate_row(
+        self,
+        row_key: bytes,
+        val_dict: typing.Dict[attributes._Attribute, typing.Any],
+        time_stamp: typing.Optional[datetime] = None,
+    ) -> typing.List[TimeStampedCell]:
+        """Mutates a single row (doesn't write to big table)."""
+        logging.warn(f"mutate_row {row_key} {val_dict} {time_stamp}")
 
     """Locks root node with operation_id to prevent race conditions."""
 
