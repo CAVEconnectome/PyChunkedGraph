@@ -183,12 +183,6 @@ def handle_get_manifest(table_id, node_id):
     verify = verify in ["True", "true", "1", True]
 
     cg = app_utils.get_cg(table_id)
-
-    if "start_layer" in data:
-        start_layer = int(data["start_layer"])
-    else:
-        start_layer = cg.get_chunk_layer(np.uint64(node_id))
-
     if "flexible_start_layer" in data:
         flexible_start_layer = int(data["flexible_start_layer"])
     else:
