@@ -116,7 +116,7 @@ def get_downstream_multi_child_nodes(cg, node_ids: Sequence[np.uint64], require_
                 temp_array[only_child_mask] = recursive_helper(only_children)
                 cur_node_ids[stop_layer_mask] = temp_array
         return cur_node_ids[unique_to_original]
-    
+
     return recursive_helper(node_ids)
 
 
@@ -124,7 +124,6 @@ def get_highest_child_nodes_with_meshes(
     cg,
     node_id: np.uint64,
     stop_layer=2,
-    start_layer=None,
     verify_existence=False,
     bounding_box=None,
     flexible_start_layer=None,
@@ -133,15 +132,8 @@ def get_highest_child_nodes_with_meshes(
         # Get highest children that are at flexible_start_layer or below
         # (do this because of skip connections)
         candidates = cg.get_children_at_layer(node_id, flexible_start_layer, True)
-    elif start_layer is None:
-        candidates = np.array([node_id], dtype=np.uint64)
     else:
-        candidates = cg.get_subgraph_nodes(
-            node_id,
-            bounding_box=bounding_box,
-            bb_is_coordinate=True,
-            return_layers=[start_layer],
-        )
+        candidates = np.array([node_id], dtype=np.uint64)
 
     time_start_overall = time.time()
     if verify_existence:
@@ -167,7 +159,7 @@ def get_highest_child_nodes_with_meshes(
 
     else:
         valid_node_ids = candidates
-    
+
     cg.logger.info("Verification took: %.3fs" % (time.time() - time_start_overall))
 
     return valid_node_ids
