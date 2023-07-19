@@ -183,12 +183,6 @@ def handle_get_manifest(table_id, node_id):
     verify = verify in ["True", "true", "1", True]
 
     cg = app_utils.get_cg(table_id)
-
-    if "start_layer" in data:
-        start_layer = int(data["start_layer"])
-    else:
-        start_layer = cg.get_chunk_layer(np.uint64(node_id))
-
     if "flexible_start_layer" in data:
         flexible_start_layer = int(data["flexible_start_layer"])
     else:
@@ -198,7 +192,6 @@ def handle_get_manifest(table_id, node_id):
         cg,
         np.uint64(node_id),
         stop_layer=2,
-        start_layer=start_layer,
         bounding_box=bounding_box,
         verify_existence=verify,
         flexible_start_layer=flexible_start_layer
@@ -234,9 +227,9 @@ def handle_remesh(table_id):
     current_app.user_id = user_id
     new_lvl2_ids = json.loads(request.data)["new_lvl2_ids"]
 
-    if is_redisjob:    
+    if is_redisjob:
         with Connection(redis.from_url(current_app.config["REDIS_URL"])):
-            
+
             if is_priority:
                 retry = Retry(max=3, interval=[1, 10, 60])
                 queue_name = "mesh-chunks"
@@ -244,7 +237,7 @@ def handle_remesh(table_id):
                 retry = Retry(max=3, interval=[60, 60, 60])
                 queue_name = "mesh-chunks-low-priority"
             q = Queue(queue_name, retry=retry, default_timeout=1200)
-            task = q.enqueue(meshing_tasks.remeshing, table_id, 
+            task = q.enqueue(meshing_tasks.remeshing, table_id,
                              new_lvl2_ids)
 
         response_object = {
@@ -253,19 +246,19 @@ def handle_remesh(table_id):
                 "task_id": task.get_id()
             }
         }
-        
+
         return jsonify(response_object), 202
     else:
         new_lvl2_ids = np.array(new_lvl2_ids, dtype=np.uint64)
         cg = app_utils.get_cg(table_id)
-        
+
         if len(new_lvl2_ids) > 0:
-            t = threading.Thread(target=_remeshing, 
+            t = threading.Thread(target=_remeshing,
                                  args=(cg.get_serialized_info(), new_lvl2_ids))
             t.start()
-    
+
         return Response(status=202)
-    
+
 
 def _remeshing(serialized_cg_info, lvl2_nodes):
     cg = chunkedgraph.ChunkedGraph(**serialized_cg_info)
@@ -275,5 +268,5 @@ def _remeshing(serialized_cg_info, lvl2_nodes):
         cg, lvl2_nodes, stop_layer=4, mesh_path=None, mip=1,
         max_err=320
     )
-    
+
     return Response(status=200)
