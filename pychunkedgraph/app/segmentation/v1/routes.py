@@ -11,7 +11,12 @@ from middle_auth_client import auth_requires_permission
 from middle_auth_client import auth_requires_admin
 from middle_auth_client import auth_required
 
-from pychunkedgraph.app.app_utils import jsonify_with_kwargs, toboolean, tobinary
+from pychunkedgraph.app.app_utils import (
+    jsonify_with_kwargs,
+    toboolean,
+    tobinary,
+    remap_public,
+)
 from pychunkedgraph.app import common as app_common
 from pychunkedgraph.app.segmentation import common
 from pychunkedgraph.backend import chunkedgraph_exceptions as cg_exceptions
