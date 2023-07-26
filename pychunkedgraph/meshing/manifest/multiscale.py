@@ -139,7 +139,8 @@ def build_octree(
         try:
             if children.size == 1:
                 # map to child fragment
-                octree_fragments[row_counter] = mesh_fragments[children[0]]
+                # octree_fragments[row_counter] = mesh_fragments[children[0]]
+                octree[offset + 3] |= 1 << 31
             else:
                 octree_fragments[row_counter] = mesh_fragments[current_node]
         except KeyError:
