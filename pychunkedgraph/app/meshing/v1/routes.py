@@ -1,12 +1,16 @@
+# pylint: disable=invalid-name, missing-docstring, unspecified-encoding, assigning-non-slot
+
+import os
+import json
+
 from flask import Blueprint, current_app
 from middle_auth_client import auth_requires_permission, auth_required
 
+from pychunkedgraph.app import common as app_common
 from pychunkedgraph.app.meshing import common
 from pychunkedgraph.backend import chunkedgraph_exceptions as cg_exceptions
 from pychunkedgraph.app.app_utils import remap_public
 
-import os
-import json
 
 if os.environ.get("DAF_CREDENTIALS", None) is not None:
     with open(os.environ.get("DAF_CREDENTIALS"), "r") as f:
@@ -42,26 +46,25 @@ def home():
 
 
 @bp.before_request
-# @auth_required
+@auth_required
 def before_request():
-    return common.before_request()
+    return app_common.before_request()
 
 
 @bp.after_request
-# @auth_required
+@auth_required
 def after_request(response):
-    return common.after_request(response)
+    return app_common.after_request(response)
 
 
 @bp.errorhandler(Exception)
 def unhandled_exception(e):
-    return common.unhandled_exception(e)
+    return app_common.unhandled_exception(e)
 
 
 @bp.errorhandler(cg_exceptions.ChunkedGraphAPIError)
 def api_exception(e):
-    return common.api_exception(e)
-
+    return app_common.api_exception(e)
 
 ## VALIDFRAGMENTS --------------------------------------------------------------
 @bp.route("/table/<table_id>/node/<node_id>/validfragments", methods=["GET"])

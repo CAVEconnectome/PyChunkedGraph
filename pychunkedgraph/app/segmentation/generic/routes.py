@@ -7,9 +7,22 @@ from middle_auth_client import (
 
 from pychunkedgraph.app.app_utils import remap_public
 from pychunkedgraph.app.segmentation import common
+# pylint: disable=invalid-name, missing-docstring, unspecified-encoding, assigning-non-slot
 
 import os
 import json
+
+from flask import Blueprint
+from middle_auth_client import (
+    auth_requires_admin,
+    auth_required,
+    auth_requires_permission,
+)
+
+from pychunkedgraph.app import common as app_common
+from pychunkedgraph.app.segmentation import common
+from pychunkedgraph.backend import chunkedgraph_exceptions as cg_exceptions
+
 
 if os.environ.get("DAF_CREDENTIALS", None) is not None:
     with open(os.environ.get("DAF_CREDENTIALS"), "r") as f:
@@ -17,6 +30,9 @@ if os.environ.get("DAF_CREDENTIALS", None) is not None:
 else:
     AUTH_TOKEN = ""
 
+bp = Blueprint(
+    "pcg_generic_v1", __name__, url_prefix=f"/{common.__segmentation_url_prefix__}"
+)
 bp = Blueprint(
     "pcg_generic_v1", __name__, url_prefix=f"/{common.__segmentation_url_prefix__}"
 )
@@ -38,6 +54,31 @@ def index():
 @auth_required
 def home():
     return common.home()
+
+
+# -------------------------------
+# ------ Measurements and Logging
+# -------------------------------
+
+
+@bp.before_request
+def before_request():
+    return app_common.before_request()
+
+
+@bp.after_request
+def after_request(response):
+    return app_common.after_request(response)
+
+
+@bp.errorhandler(Exception)
+def unhandled_exception(e):
+    return app_common.unhandled_exception(e)
+
+
+@bp.errorhandler(cg_exceptions.ChunkedGraphAPIError)
+def api_exception(e):
+    return app_common.api_exception(e)
 
 
 # -------------------
