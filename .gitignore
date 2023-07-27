@@ -24,6 +24,7 @@ wheels/
 .installed.cfg
 *.egg
 .idea/*
+*.iml
 
 # PyInstaller
 #  Usually these files are written by a python script from a template
@@ -120,3 +121,7 @@ venv.bak/
 *.rdb
 /protobuf*
 .DS_Store
+
+.history/
+pychunkedgraph/tests/docker/
+activate.sh

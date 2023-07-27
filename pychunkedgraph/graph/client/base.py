@@ -115,7 +115,7 @@ class ClientWithIDGen(SimpleClient):
     """
 
     @abstractmethod
-    def create_node_ids(self, chunk_id):
+    def create_node_ids(self, chunk_id, size):
         """Generate a range of unique IDs in the chunk."""
 
     @abstractmethod
