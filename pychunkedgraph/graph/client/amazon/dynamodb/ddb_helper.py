@@ -1,9 +1,17 @@
+import logging
 import math
-from boto3.dynamodb.types import TypeDeserializer, TypeSerializer, Binary
+from datetime import datetime
+from typing import Dict, Iterable, Union, Any, Optional
+
+from boto3.dynamodb.types import TypeDeserializer, TypeSerializer
 
 from .timestamped_cell import TimeStampedCell
 from .... import attributes
-from ....utils.serializers import pad_node_id, serialize_key, serialize_uint64, deserialize_uint64
+from ....utils.serializers import pad_node_id
+
+MAX_DDB_BATCH_WRITE = 25
+TIME_SLOT_INDEX = 0
+VALUE_SLOT_INDEX = 1
 
 
 class DdbHelper:
@@ -32,6 +40,25 @@ class DdbHelper:
         pk_digits = math.ceil(math.log10(pow(2, 64 - self._pk_key_shift)))
         self._pk_int_format = f"0{pk_digits + 1}"
     
+    @staticmethod
+    def attribs_to_cells(
+            attribs: Dict[attributes._Attribute, Any],
+            time_stamp: Optional[datetime] = None,
+    ) -> dict[str, Iterable[TimeStampedCell]]:
+        cells = {}
+        for attrib_column, value in attribs.items():
+            attr = attributes.from_key(attrib_column.family_id, attrib_column.key)
+            if attr not in cells:
+                cells[attr] = []
+            cells[attr].append(
+                TimeStampedCell(
+                    value,
+                    time_stamp.microsecond if time_stamp is not None else int(
+                        TimeStampedCell.get_current_time_microseconds()),
+                )
+            )
+        return cells
+    
     def ddb_item_to_row(self, item):
         row = {}
         pk = None
@@ -59,14 +86,15 @@ class DdbHelper:
                 # ddb_clm here is column_family.column_qualifier
                 column_family, qualifier = ddb_clm.split(".")
                 attr = attributes.from_key(column_family, qualifier.encode())
-                if attr not in row:
-                    row[attr] = []
+                if 'cells' not in row:
+                    row['cells'] = {}
                 
-                print(f"----------row_value === {row_value}")
+                if attr not in row['cells']:
+                    row['cells'][attr] = []
                 
                 for timestamp, column_value in row_value:
                     # find _Attribute for ddb_clm:qualifier and put cell & timestamp pair associated with it
-                    row[attr].append(
+                    row['cells'][attr].append(
                         # TimeStampedCell(
                         #     column_value.value
                         #     if isinstance(column_value, Binary)
@@ -90,6 +118,44 @@ class DdbHelper:
         
         b_real_key = real_key.encode()
         return b_real_key, row
+    
+    def row_to_ddb_item(
+            self,
+            row: dict[str, Union[bytes, dict[attributes._Attribute, Iterable[TimeStampedCell]]]]
+    ) -> dict[str, Any]:
+        pk, sk = self.to_pk_sk(row['key'])
+        item = {'key': pk, 'sk': sk}
+        cells_dict = {}
+        if 'cells' in row:
+            cells_dict.update(row['cells'])
+        
+        columns = {}
+        for attrib_column, cells_array in cells_dict.items():
+            family = attrib_column.family_id
+            qualifier = attrib_column.key.decode()
+            
+            # form column names for DDB like 0.parent, 0.children etc
+            ddb_column = f"{family}.{qualifier}"
+            if ddb_column not in columns:
+                columns[ddb_column] = []
+            
+            for cell in cells_array:
+                timestamp = cell.timestamp
+                value = cell.value
+                columns[ddb_column].append([
+                    timestamp,  # timestamp is at TIME_SLOT_INDEX position
+                    attrib_column.serializer.serialize(value),  # cell value is at VALUE_SLOT_INDEX position
+                    # value,  # cell value is at VALUE_SLOT_INDEX position
+                ])
+            
+            # sort so the latest timestamp would always be at 0 index
+            for value_list in columns.values():
+                value_list.sort(key=lambda it: it[TIME_SLOT_INDEX], reverse=True)
+        
+        for k, v in columns.items():
+            item[k] = v
+        
+        return item
     
     def to_pk_sk(self, key: bytes):
         skey = key.decode()

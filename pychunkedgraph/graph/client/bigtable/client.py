@@ -38,10 +38,10 @@ from ...utils.generic import get_valid_timestamp
 
 class Client(bigtable.Client, ClientWithIDGen, OperationLogger):
     def __init__(
-        self,
-        table_id: str,
-        config: BigTableConfig = BigTableConfig(),
-        graph_meta: ChunkedGraphMeta = None,
+            self,
+            table_id: str,
+            config: BigTableConfig = BigTableConfig(),
+            graph_meta: ChunkedGraphMeta = None,
     ):
         if config.CREDENTIALS:
             super(Client, self).__init__(
@@ -58,7 +58,7 @@ class Client(bigtable.Client, ClientWithIDGen, OperationLogger):
             )
         self._instance = self.instance(config.INSTANCE)
         self._table = self._instance.table(table_id)
-
+        
         self.logger = logging.getLogger(
             f"{config.PROJECT}/{config.INSTANCE}/{table_id}"
         )
@@ -70,11 +70,11 @@ class Client(bigtable.Client, ClientWithIDGen, OperationLogger):
         self._graph_meta = graph_meta
         self._version = None
         self._max_row_key_count = config.MAX_ROW_KEY_COUNT
-
+    
     @property
     def graph_meta(self):
         return self._graph_meta
-
+    
     def create_graph(self, meta: ChunkedGraphMeta, version: str) -> None:
         """Initialize the graph and store associated meta."""
         if self._table.exists():
@@ -83,7 +83,7 @@ class Client(bigtable.Client, ClientWithIDGen, OperationLogger):
         self._create_column_families()
         self.add_graph_version(version)
         self.update_graph_meta(meta)
-
+    
     def add_graph_version(self, version: str):
         assert self.read_graph_version() is None, "Graph has already been versioned."
         self._version = version
@@ -92,7 +92,7 @@ class Client(bigtable.Client, ClientWithIDGen, OperationLogger):
             {attributes.GraphVersion.Version: version},
         )
         self.write([row])
-
+    
     def read_graph_version(self) -> str:
         try:
             row = self._read_byte_row(attributes.GraphVersion.key)
@@ -100,16 +100,16 @@ class Client(bigtable.Client, ClientWithIDGen, OperationLogger):
             return self._version
         except KeyError:
             return None
-
+    
     def _delete_meta(self):
         # temprorary fix, use new column with GCRule for permanent fix
         # delete existing meta before update, but compatibilty issues
         meta_row = self._table.direct_row(attributes.GraphMeta.key)
         meta_row.delete()
         meta_row.commit()
-
+    
     def update_graph_meta(
-        self, meta: ChunkedGraphMeta, overwrite: typing.Optional[bool] = False
+            self, meta: ChunkedGraphMeta, overwrite: typing.Optional[bool] = False
     ):
         if overwrite:
             self._delete_meta()
@@ -119,24 +119,24 @@ class Client(bigtable.Client, ClientWithIDGen, OperationLogger):
             {attributes.GraphMeta.Meta: meta},
         )
         self.write([row])
-
+    
     def read_graph_meta(self) -> ChunkedGraphMeta:
         row = self._read_byte_row(attributes.GraphMeta.key)
         self._graph_meta = row[attributes.GraphMeta.Meta][0].value
         return self._graph_meta
-
+    
     def read_nodes(
-        self,
-        start_id=None,
-        end_id=None,
-        end_id_inclusive=False,
-        user_id=None,
-        node_ids=None,
-        properties=None,
-        start_time=None,
-        end_time=None,
-        end_time_inclusive: bool = False,
-        fake_edges: bool = False,
+            self,
+            start_id=None,
+            end_id=None,
+            end_id_inclusive=False,
+            user_id=None,
+            node_ids=None,
+            properties=None,
+            start_time=None,
+            end_time=None,
+            end_time_inclusive: bool = False,
+            fake_edges: bool = False,
     ):
         """
         Read nodes and their properties.
@@ -169,17 +169,17 @@ class Client(bigtable.Client, ClientWithIDGen, OperationLogger):
             deserialize_uint64(row_key, fake_edges=fake_edges): data
             for (row_key, data) in rows.items()
         }
-
+    
     def read_node(
-        self,
-        node_id: np.uint64,
-        properties: typing.Optional[
-            typing.Union[typing.Iterable[attributes._Attribute], attributes._Attribute]
-        ] = None,
-        start_time: typing.Optional[datetime] = None,
-        end_time: typing.Optional[datetime] = None,
-        end_time_inclusive: bool = False,
-        fake_edges: bool = False,
+            self,
+            node_id: np.uint64,
+            properties: typing.Optional[
+                typing.Union[typing.Iterable[attributes._Attribute], attributes._Attribute]
+            ] = None,
+            start_time: typing.Optional[datetime] = None,
+            end_time: typing.Optional[datetime] = None,
+            end_time_inclusive: bool = False,
+            fake_edges: bool = False,
     ) -> typing.Union[
         typing.Dict[attributes._Attribute, typing.List[bigtable.row_data.Cell]],
         typing.List[bigtable.row_data.Cell],
@@ -214,15 +214,15 @@ class Client(bigtable.Client, ClientWithIDGen, OperationLogger):
             end_time=end_time,
             end_time_inclusive=end_time_inclusive,
         )
-
+    
     def write_nodes(self, nodes, root_ids=None, operation_id=None):
         """
         Writes/updates nodes (IDs along with properties)
         by locking root nodes until changes are written.
         """
-
+    
     def read_log_entry(
-        self, operation_id: np.uint64
+            self, operation_id: np.uint64
     ) -> typing.Tuple[typing.Dict, datetime]:
         log_record = self.read_node(
             operation_id, properties=attributes.OperationLogs.all()
@@ -235,19 +235,19 @@ class Client(bigtable.Client, ClientWithIDGen, OperationLogger):
             timestamp = log_record[attributes.OperationLogs.RootID][0].timestamp
         log_record.update((column, v[0].value) for column, v in log_record.items())
         return log_record, timestamp
-
+    
     def read_log_entries(
-        self,
-        operation_ids: typing.Optional[typing.Iterable] = None,
-        user_id: typing.Optional[str] = None,
-        properties: typing.Optional[typing.Iterable[attributes._Attribute]] = None,
-        start_time: typing.Optional[datetime] = None,
-        end_time: typing.Optional[datetime] = None,
-        end_time_inclusive: bool = False,
+            self,
+            operation_ids: typing.Optional[typing.Iterable] = None,
+            user_id: typing.Optional[str] = None,
+            properties: typing.Optional[typing.Iterable[attributes._Attribute]] = None,
+            start_time: typing.Optional[datetime] = None,
+            end_time: typing.Optional[datetime] = None,
+            end_time_inclusive: bool = False,
     ):
         if properties is None:
             properties = attributes.OperationLogs.all()
-
+        
         if operation_ids is None:
             logs_d = self.read_nodes(
                 start_id=np.uint64(0),
@@ -281,17 +281,17 @@ class Client(bigtable.Client, ClientWithIDGen, OperationLogger):
             log_record.update((column, v[0].value) for column, v in log_record.items())
             log_record["timestamp"] = timestamp
         return logs_d
-
+    
     # Helpers
     def write(
-        self,
-        rows: typing.Iterable[bigtable.row.DirectRow],
-        root_ids: typing.Optional[
-            typing.Union[np.uint64, typing.Iterable[np.uint64]]
-        ] = None,
-        operation_id: typing.Optional[np.uint64] = None,
-        slow_retry: bool = True,
-        block_size: int = 2000,
+            self,
+            rows: typing.Iterable[bigtable.row.DirectRow],
+            root_ids: typing.Optional[
+                typing.Union[np.uint64, typing.Iterable[np.uint64]]
+            ] = None,
+            operation_id: typing.Optional[np.uint64] = None,
+            slow_retry: bool = True,
+            block_size: int = 2000,
     ):
         """Writes a list of mutated rows in bulk
         WARNING: If <rows> contains the same row (same row_key) and column
@@ -312,7 +312,7 @@ class Client(bigtable.Client, ClientWithIDGen, OperationLogger):
             initial = 5
         else:
             initial = 1
-
+        
         exception_types = (Aborted, DeadlineExceeded, ServiceUnavailable)
         retry = Retry(
             predicate=if_exception_type(exception_types),
@@ -321,7 +321,7 @@ class Client(bigtable.Client, ClientWithIDGen, OperationLogger):
             multiplier=2.0,
             deadline=self.graph_meta.graph_config.ROOT_LOCK_EXPIRY.seconds,
         )
-
+        
         if root_ids is not None and operation_id is not None:
             if isinstance(root_ids, int):
                 root_ids = [root_ids]
@@ -329,21 +329,24 @@ class Client(bigtable.Client, ClientWithIDGen, OperationLogger):
                 raise exceptions.LockingError(
                     f"Root lock renewal failed: operation {operation_id}"
                 )
-
+        
         for i in range(0, len(rows), block_size):
-            status = self._table.mutate_rows(rows[i : i + block_size], retry=retry)
+            status = self._table.mutate_rows(rows[i: i + block_size], retry=retry)
             if not all(status):
                 raise exceptions.ChunkedGraphError(
                     f"Bulk write failed: operation {operation_id}"
                 )
-
+    
     def mutate_row(
-        self,
-        row_key: bytes,
-        val_dict: typing.Dict[attributes._Attribute, typing.Any],
-        time_stamp: typing.Optional[datetime] = None,
+            self,
+            row_key: bytes,
+            val_dict: typing.Dict[attributes._Attribute, typing.Any],
+            time_stamp: typing.Optional[datetime] = None,
     ) -> bigtable.row.Row:
         """Mutates a single row (doesn't write to big table)."""
+        logging.warning(f"BIGTABLE mutate_row with row_key={row_key}")
+        logging.warning(f"BIGTABLE mutate_row with val_dict={val_dict}")
+        logging.warning(f"BIGTABLE mutate_row with time_stamp={time_stamp}")
         row = self._table.direct_row(row_key)
         for column, value in val_dict.items():
             row.set_cell(
@@ -352,13 +355,15 @@ class Client(bigtable.Client, ClientWithIDGen, OperationLogger):
                 value=column.serialize(value),
                 timestamp=time_stamp,
             )
+        
+        logging.warning(f"BIGTABLE mutate_row returning={row}")
         return row
-
+    
     # Locking
     def lock_root(
-        self,
-        root_id: np.uint64,
-        operation_id: np.uint64,
+            self,
+            root_id: np.uint64,
+            operation_id: np.uint64,
     ) -> bool:
         """Attempts to lock the latest version of a root node."""
         lock_expiry = self.graph_meta.graph_config.ROOT_LOCK_EXPIRY
@@ -367,7 +372,7 @@ class Client(bigtable.Client, ClientWithIDGen, OperationLogger):
         filter_ = utils.get_root_lock_filter(
             lock_column, lock_expiry, indefinite_lock_column
         )
-
+        
         root_row = self._table.conditional_row(
             serialize_uint64(root_id), filter_=filter_
         )
@@ -379,7 +384,7 @@ class Client(bigtable.Client, ClientWithIDGen, OperationLogger):
             state=False,
             timestamp=get_valid_timestamp(None),
         )
-
+        
         # The lock was acquired when set_cell returns False (state)
         lock_acquired = not root_row.commit()
         if not lock_acquired:
@@ -387,11 +392,11 @@ class Client(bigtable.Client, ClientWithIDGen, OperationLogger):
             l_operation_ids = [cell.value for cell in row]
             self.logger.debug(f"Locked operation ids: {l_operation_ids}")
         return lock_acquired
-
+    
     def lock_root_indefinitely(
-        self,
-        root_id: np.uint64,
-        operation_id: np.uint64,
+            self,
+            root_id: np.uint64,
+            operation_id: np.uint64,
     ) -> bool:
         """Attempts to indefinitely lock the latest version of a root node."""
         lock_column = attributes.Concurrency.IndefiniteLock
@@ -407,7 +412,7 @@ class Client(bigtable.Client, ClientWithIDGen, OperationLogger):
             state=False,
             timestamp=get_valid_timestamp(None),
         )
-
+        
         # The lock was acquired when set_cell returns False (state)
         lock_acquired = not root_row.commit()
         if not lock_acquired:
@@ -415,14 +420,14 @@ class Client(bigtable.Client, ClientWithIDGen, OperationLogger):
             l_operation_ids = [cell.value for cell in row]
             self.logger.debug(f"Indefinitely locked operation ids: {l_operation_ids}")
         return lock_acquired
-
+    
     def lock_roots(
-        self,
-        root_ids: typing.Sequence[np.uint64],
-        operation_id: np.uint64,
-        future_root_ids_d: typing.Dict,
-        max_tries: int = 1,
-        waittime_s: float = 0.5,
+            self,
+            root_ids: typing.Sequence[np.uint64],
+            operation_id: np.uint64,
+            future_root_ids_d: typing.Dict,
+            max_tries: int = 1,
+            waittime_s: float = 0.5,
     ) -> typing.Tuple[bool, typing.Iterable]:
         """Attempts to lock multiple nodes with same operation id"""
         i_try = 0
@@ -436,7 +441,7 @@ class Client(bigtable.Client, ClientWithIDGen, OperationLogger):
                     new_root_ids.append(root_id)
                 else:
                     new_root_ids.extend(future_root_ids)
-
+            
             # Attempt to lock all latest root ids
             root_ids = np.unique(new_root_ids)
             for root_id in root_ids:
@@ -446,19 +451,19 @@ class Client(bigtable.Client, ClientWithIDGen, OperationLogger):
                     for id_ in root_ids:
                         self.unlock_root(id_, operation_id)
                     break
-
+            
             if lock_acquired:
                 return True, root_ids
             time.sleep(waittime_s)
             i_try += 1
             self.logger.debug(f"Try {i_try}")
         return False, root_ids
-
+    
     def lock_roots_indefinitely(
-        self,
-        root_ids: typing.Sequence[np.uint64],
-        operation_id: np.uint64,
-        future_root_ids_d: typing.Dict,
+            self,
+            root_ids: typing.Sequence[np.uint64],
+            operation_id: np.uint64,
+            future_root_ids_d: typing.Dict,
     ) -> typing.Tuple[bool, typing.Iterable]:
         """Attempts to indefinitely lock multiple nodes with same operation id"""
         lock_acquired = False
@@ -470,7 +475,7 @@ class Client(bigtable.Client, ClientWithIDGen, OperationLogger):
                 new_root_ids.append(_id)
             else:
                 new_root_ids.extend(future_root_ids)
-
+        
         # Attempt to lock all latest root ids
         failed_to_lock_id = None
         root_ids = np.unique(new_root_ids)
@@ -486,7 +491,7 @@ class Client(bigtable.Client, ClientWithIDGen, OperationLogger):
         if lock_acquired:
             return True, root_ids, failed_to_lock_id
         return False, root_ids, failed_to_lock_id
-
+    
     def unlock_root(self, root_id: np.uint64, operation_id: np.uint64):
         """Unlocks root node that is locked with operation_id."""
         lock_column = attributes.Concurrency.Lock
@@ -498,9 +503,9 @@ class Client(bigtable.Client, ClientWithIDGen, OperationLogger):
         # Delete row if conditions are met (state == True)
         root_row.delete_cell(lock_column.family_id, lock_column.key, state=True)
         return root_row.commit()
-
+    
     def unlock_indefinitely_locked_root(
-        self, root_id: np.uint64, operation_id: np.uint64
+            self, root_id: np.uint64, operation_id: np.uint64
     ):
         """Unlocks root node that is indefinitely locked with operation_id."""
         lock_column = attributes.Concurrency.IndefiniteLock
@@ -512,7 +517,7 @@ class Client(bigtable.Client, ClientWithIDGen, OperationLogger):
         # Delete row if conditions are met (state == True)
         root_row.delete_cell(lock_column.family_id, lock_column.key, state=True)
         return root_row.commit()
-
+    
     def renew_lock(self, root_id: np.uint64, operation_id: np.uint64) -> bool:
         """Renews existing root node lock with operation_id to extend time."""
         lock_column = attributes.Concurrency.Lock
@@ -529,7 +534,7 @@ class Client(bigtable.Client, ClientWithIDGen, OperationLogger):
         )
         # The lock was acquired when set_cell returns True (state)
         return not root_row.commit()
-
+    
     def renew_locks(self, root_ids: np.uint64, operation_id: np.uint64) -> bool:
         """Renews existing root node locks with operation_id to extend time."""
         for root_id in root_ids:
@@ -537,9 +542,9 @@ class Client(bigtable.Client, ClientWithIDGen, OperationLogger):
                 self.logger.warning(f"renew_lock failed - {root_id}")
                 return False
         return True
-
+    
     def get_lock_timestamp(
-        self, root_id: np.uint64, operation_id: np.uint64
+            self, root_id: np.uint64, operation_id: np.uint64
     ) -> typing.Union[datetime, None]:
         """Lock timestamp for a Root ID operation."""
         row = self.read_node(root_id, properties=attributes.Concurrency.Lock)
@@ -550,11 +555,11 @@ class Client(bigtable.Client, ClientWithIDGen, OperationLogger):
             self.logger.warning(f"{root_id} not locked with {operation_id}")
             return None
         return row[0].timestamp
-
+    
     def get_consolidated_lock_timestamp(
-        self,
-        root_ids: typing.Sequence[np.uint64],
-        operation_ids: typing.Sequence[np.uint64],
+            self,
+            root_ids: typing.Sequence[np.uint64],
+            operation_ids: typing.Sequence[np.uint64],
     ) -> typing.Union[datetime, None]:
         """Minimum of multiple lock timestamps."""
         time_stamps = []
@@ -566,10 +571,10 @@ class Client(bigtable.Client, ClientWithIDGen, OperationLogger):
         if len(time_stamps) == 0:
             return None
         return np.min(time_stamps)
-
+    
     # IDs
     def create_node_ids(
-        self, chunk_id: np.uint64, size: int, root_chunk=False
+            self, chunk_id: np.uint64, size: int, root_chunk=False
     ) -> np.ndarray:
         """Generates a list of unique node IDs for the given chunk."""
         if root_chunk:
@@ -581,19 +586,19 @@ class Client(bigtable.Client, ClientWithIDGen, OperationLogger):
             low, high = basetypes.SEGMENT_ID.type(low), basetypes.SEGMENT_ID.type(high)
             new_ids = np.arange(low, high + np.uint64(1), dtype=basetypes.SEGMENT_ID)
         return new_ids | chunk_id
-
+    
     def create_node_id(
-        self, chunk_id: np.uint64, root_chunk=False
+            self, chunk_id: np.uint64, root_chunk=False
     ) -> basetypes.NODE_ID:
         """Generate a unique node ID in the chunk."""
         return self.create_node_ids(chunk_id, 1, root_chunk=root_chunk)[0]
-
+    
     def get_max_node_id(
-        self, chunk_id: basetypes.CHUNK_ID, root_chunk=False
+            self, chunk_id: basetypes.CHUNK_ID, root_chunk=False
     ) -> basetypes.NODE_ID:
         """Gets the current maximum segment ID in the chunk."""
         if root_chunk:
-            n_counters = np.uint64(2**8)
+            n_counters = np.uint64(2 ** 8)
             max_value = 0
             for counter in range(n_counters):
                 row = self._read_byte_row(
@@ -601,8 +606,8 @@ class Client(bigtable.Client, ClientWithIDGen, OperationLogger):
                     columns=attributes.Concurrency.Counter,
                 )
                 val = (
-                    basetypes.SEGMENT_ID.type(row[0].value if row else 0) * n_counters
-                    + counter
+                        basetypes.SEGMENT_ID.type(row[0].value if row else 0) * n_counters
+                        + counter
                 )
                 max_value = val if val > max_value else max_value
             return chunk_id | basetypes.SEGMENT_ID.type(max_value)
@@ -611,22 +616,22 @@ class Client(bigtable.Client, ClientWithIDGen, OperationLogger):
             serialize_uint64(chunk_id, counter=True), columns=column
         )
         return chunk_id | basetypes.SEGMENT_ID.type(row[0].value if row else 0)
-
+    
     def create_operation_id(self):
         """Generate a unique operation ID."""
         return self._get_ids_range(attributes.OperationLogs.key, 1)[1]
-
+    
     def get_max_operation_id(self):
         """Gets the current maximum operation ID."""
         column = attributes.Concurrency.Counter
         row = self._read_byte_row(attributes.OperationLogs.key, columns=column)
         return row[0].value if row else column.basetype(0)
-
+    
     def get_compatible_timestamp(
-        self, time_stamp: datetime, round_up: bool = False
+            self, time_stamp: datetime, round_up: bool = False
     ) -> datetime:
         return utils.get_google_compatible_time_stamp(time_stamp, round_up=round_up)
-
+    
     # PRIVATE METHODS
     def _create_column_families(self):
         f = self._table.column_family("0")
@@ -637,7 +642,7 @@ class Client(bigtable.Client, ClientWithIDGen, OperationLogger):
         f.create()
         f = self._table.column_family("3")
         f.create()
-
+    
     def _get_ids_range(self, key: bytes, size: int) -> typing.Tuple:
         """Returns a range (min, max) of IDs for a given `key`."""
         column = attributes.Concurrency.Counter
@@ -646,12 +651,12 @@ class Client(bigtable.Client, ClientWithIDGen, OperationLogger):
         row = row.commit()
         high = column.deserialize(row[column.family_id][column.key][0][0])
         return high + np.uint64(1) - size, high
-
+    
     def _get_root_segment_ids_range(
-        self, chunk_id: basetypes.CHUNK_ID, size: int = 1, counter: int = None
+            self, chunk_id: basetypes.CHUNK_ID, size: int = 1, counter: int = None
     ) -> np.ndarray:
         """Return unique segment ID for the root chunk."""
-        n_counters = np.uint64(2**8)
+        n_counters = np.uint64(2 ** 8)
         counter = (
             np.uint64(counter % n_counters)
             if counter
@@ -665,20 +670,20 @@ class Client(bigtable.Client, ClientWithIDGen, OperationLogger):
             n_counters,
             dtype=basetypes.SEGMENT_ID,
         )
-
+    
     def _read_byte_rows(
-        self,
-        start_key: typing.Optional[bytes] = None,
-        end_key: typing.Optional[bytes] = None,
-        end_key_inclusive: bool = False,
-        row_keys: typing.Optional[typing.Iterable[bytes]] = None,
-        columns: typing.Optional[
-            typing.Union[typing.Iterable[attributes._Attribute], attributes._Attribute]
-        ] = None,
-        start_time: typing.Optional[datetime] = None,
-        end_time: typing.Optional[datetime] = None,
-        end_time_inclusive: bool = False,
-        user_id: typing.Optional[str] = None,
+            self,
+            start_key: typing.Optional[bytes] = None,
+            end_key: typing.Optional[bytes] = None,
+            end_key_inclusive: bool = False,
+            row_keys: typing.Optional[typing.Iterable[bytes]] = None,
+            columns: typing.Optional[
+                typing.Union[typing.Iterable[attributes._Attribute], attributes._Attribute]
+            ] = None,
+            start_time: typing.Optional[datetime] = None,
+            end_time: typing.Optional[datetime] = None,
+            end_time_inclusive: bool = False,
+            user_id: typing.Optional[str] = None,
     ) -> typing.Dict[
         bytes,
         typing.Union[
@@ -721,7 +726,7 @@ class Client(bigtable.Client, ClientWithIDGen, OperationLogger):
                 If only a single `attributes._Attribute` was requested, the typing.List of cells will be
                 attached to the row dictionary directly (skipping the column dictionary).
         """
-
+        
         # Create filters: Rows
         row_set = RowSet()
         if row_keys is not None:
@@ -747,7 +752,7 @@ class Client(bigtable.Client, ClientWithIDGen, OperationLogger):
         )
         # Bigtable read with retries
         rows = self._read(row_set=row_set, row_filter=filter_)
-
+        
         # Deserialize cells
         for row_key, column_dict in rows.items():
             for column, cell_entries in column_dict.items():
@@ -757,16 +762,16 @@ class Client(bigtable.Client, ClientWithIDGen, OperationLogger):
             if isinstance(columns, attributes._Attribute):
                 rows[row_key] = cell_entries
         return rows
-
+    
     def _read_byte_row(
-        self,
-        row_key: bytes,
-        columns: typing.Optional[
-            typing.Union[typing.Iterable[attributes._Attribute], attributes._Attribute]
-        ] = None,
-        start_time: typing.Optional[datetime] = None,
-        end_time: typing.Optional[datetime] = None,
-        end_time_inclusive: bool = False,
+            self,
+            row_key: bytes,
+            columns: typing.Optional[
+                typing.Union[typing.Iterable[attributes._Attribute], attributes._Attribute]
+            ] = None,
+            start_time: typing.Optional[datetime] = None,
+            end_time: typing.Optional[datetime] = None,
+            end_time_inclusive: bool = False,
     ) -> typing.Union[
         typing.Dict[attributes._Attribute, typing.List[bigtable.row_data.Cell]],
         typing.List[bigtable.row_data.Cell],
@@ -809,7 +814,7 @@ class Client(bigtable.Client, ClientWithIDGen, OperationLogger):
             if isinstance(columns, attributes._Attribute)
             else row.get(row_key, {})
         )
-
+    
     def _execute_read_thread(self, args: typing.Tuple[Table, RowSet, RowFilter]):
         table, row_set, row_filter = args
         if not row_set.row_keys and not row_set.row_ranges:
@@ -819,9 +824,9 @@ class Client(bigtable.Client, ClientWithIDGen, OperationLogger):
         range_read = table.read_rows(row_set=row_set, filter_=row_filter)
         res = {v.row_key: utils.partial_row_data_to_column_dict(v) for v in range_read}
         return res
-
+    
     def _read(
-        self, row_set: RowSet, row_filter: RowFilter = None
+            self, row_set: RowSet, row_filter: RowFilter = None
     ) -> typing.Dict[bytes, typing.Dict[attributes._Attribute, PartialRowData]]:
         """Core function to read rows from Bigtable. Uses standard Bigtable retry logic
         :param row_set: BigTable RowSet
@@ -831,32 +836,32 @@ class Client(bigtable.Client, ClientWithIDGen, OperationLogger):
         # FIXME: Bigtable limits the length of the serialized request to 512 KiB. We should
         # calculate this properly (range_read.request.SerializeToString()), but this estimate is
         # good enough for now
-
+        
         from pychunkedgraph.logging.log_db import TimeIt
-
+        
         n_subrequests = max(
             1, int(np.ceil(len(row_set.row_keys) / self._max_row_key_count))
         )
         n_threads = min(n_subrequests, 2 * mu.n_cpus)
-
+        
         row_sets = []
         for i in range(n_subrequests):
             r = RowSet()
             r.row_keys = row_set.row_keys[
-                i * self._max_row_key_count : (i + 1) * self._max_row_key_count
-            ]
+                         i * self._max_row_key_count: (i + 1) * self._max_row_key_count
+                         ]
             row_sets.append(r)
-
+        
         # Don't forget the original RowSet's row_ranges
         row_sets[0].row_ranges = row_set.row_ranges
-
+        
         with TimeIt(
-            "chunked_reads",
-            f"{self._table.table_id}_bt_profile",
-            operation_id=-1,
-            n_rows=len(row_set.row_keys),
-            n_requests=n_subrequests,
-            n_threads=n_threads,
+                "chunked_reads",
+                f"{self._table.table_id}_bt_profile",
+                operation_id=-1,
+                n_rows=len(row_set.row_keys),
+                n_requests=n_subrequests,
+                n_threads=n_threads,
         ):
             responses = mu.multithread_func(
                 self._execute_read_thread,
@@ -864,7 +869,7 @@ class Client(bigtable.Client, ClientWithIDGen, OperationLogger):
                 debug=n_threads == 1,
                 n_threads=n_threads,
             )
-
+            
             combined_response = {}
             for resp in responses:
                 combined_response.update(resp)

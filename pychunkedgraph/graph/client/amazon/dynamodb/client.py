@@ -1,32 +1,27 @@
-import math
-import typing
 import logging
-from datetime import datetime, timezone
-import numpy as np
-import time
-import botocore
-import boto3
-from boto3.dynamodb.types import TypeDeserializer, TypeSerializer, Binary
+from datetime import datetime
+from typing import Dict, Iterable, Union, Optional, List, Any, Tuple
 
+import boto3
+import botocore
+import numpy as np
+from boto3.dynamodb.types import TypeDeserializer, TypeSerializer
+
+from . import AmazonDynamoDbConfig
+from . import utils
 from .ddb_helper import DdbHelper
 from .ddb_table import Table
 from .timestamped_cell import TimeStampedCell
-from ....utils import basetypes
-from . import AmazonDynamoDbConfig
-from ...base import ClientWithIDGen
-from ...base import OperationLogger
-from ....meta import ChunkedGraphMeta
-from .... import attributes
-from .... import exceptions
-from ....utils.serializers import pad_node_id, serialize_key, serialize_uint64, deserialize_uint64
-
-from . import utils
 from .utils import (
-    DynamoDbTimeRangeFilter,
-    DynamoDbColumnFilter,
-    DynamoDbUserIdFilter,
     DynamoDbFilter,
 )
+from ...base import ClientWithIDGen
+from ...base import OperationLogger
+from .... import attributes
+from .... import exceptions
+from ....meta import ChunkedGraphMeta
+from ....utils import basetypes
+from ....utils.serializers import pad_node_id, serialize_key, serialize_uint64
 
 DEFAULT_ROW_PAGE_SIZE = 1000
 
@@ -123,7 +118,7 @@ class Client(ClientWithIDGen, OperationLogger):
     """Update stored graph meta."""
     
     def update_graph_meta(
-            self, meta: ChunkedGraphMeta, overwrite: typing.Optional[bool] = False
+            self, meta: ChunkedGraphMeta, overwrite: Optional[bool] = False
     ):
         if overwrite:
             self._delete_meta()
@@ -168,38 +163,38 @@ class Client(ClientWithIDGen, OperationLogger):
     def read_node(
             self,
             node_id: np.uint64,
-            properties: typing.Optional[
-                typing.Union[typing.Iterable[attributes._Attribute], attributes._Attribute]
+            properties: Optional[
+                Union[Iterable[attributes._Attribute], attributes._Attribute]
             ] = None,
-            start_time: typing.Optional[datetime] = None,
-            end_time: typing.Optional[datetime] = None,
+            start_time: Optional[datetime] = None,
+            end_time: Optional[datetime] = None,
             end_time_inclusive: bool = False,
             fake_edges: bool = False,
-    ) -> typing.Union[
-        typing.Dict[attributes._Attribute, typing.List[TimeStampedCell]],
-        typing.List[TimeStampedCell],
+    ) -> Union[
+        Dict[attributes._Attribute, List[TimeStampedCell]],
+        List[TimeStampedCell],
     ]:
         """Convenience function for reading a single node from Amazon DynamoDB.
         Arguments:
             node_id {np.uint64} -- the NodeID of the row to be read.
         Keyword Arguments:
-            columns {typing.Optional[typing.Union[typing.Iterable[attributes._Attribute], attributes._Attribute]]} --
-                typing.Optional filtering by columns to speed up the query. If `columns` is a single
+            columns {Optional[Union[Iterable[attributes._Attribute], attributes._Attribute]]} --
+                Optional filtering by columns to speed up the query. If `columns` is a single
                 column (not iterable), the column key will be omitted from the result.
                 (default: {None})
-            start_time {typing.Optional[datetime]} -- Ignore cells with timestamp before
+            start_time {Optional[datetime]} -- Ignore cells with timestamp before
                 `start_time`. If None, no lower bound. (default: {None})
-            end_time {typing.Optional[datetime]} -- Ignore cells with timestamp after `end_time`.
+            end_time {Optional[datetime]} -- Ignore cells with timestamp after `end_time`.
                 If None, no upper bound. (default: {None})
             end_time_inclusive {bool} -- Whether or not `end_time` itself should be included in the
                 request, ignored if `end_time` is None. (default: {False})
         Returns:
-            typing.Union[typing.Dict[attributes._Attribute, typing.List[TimeStampedCell]],
-                  typing.List[TimeStampedCell]] --
-                Returns a mapping of columns to a typing.List of cells (one cell per timestamp). Each cell
+            Union[Dict[attributes._Attribute, List[TimeStampedCell]],
+                  List[TimeStampedCell]] --
+                Returns a mapping of columns to a List of cells (one cell per timestamp). Each cell
                 has a `value` property, which returns the deserialized field, and a `timestamp`
                 property, which returns the timestamp as `datetime` object.
-                If only a single `attributes._Attribute` was requested, the typing.List of cells is returned
+                If only a single `attributes._Attribute` was requested, the List of cells is returned
                 directly.
         """
         return self._read_byte_row(
@@ -218,11 +213,11 @@ class Client(ClientWithIDGen, OperationLogger):
     # Helpers
     def write(
             self,
-            rows: typing.Iterable[TimeStampedCell],
-            root_ids: typing.Optional[
-                typing.Union[np.uint64, typing.Iterable[np.uint64]]
+            rows: Iterable[dict[str, Union[bytes, dict[str, Iterable[TimeStampedCell]]]]],
+            root_ids: Optional[
+                Union[np.uint64, Iterable[np.uint64]]
             ] = None,
-            operation_id: typing.Optional[np.uint64] = None,
+            operation_id: Optional[np.uint64] = None,
             slow_retry: bool = True,
             block_size: int = 2000,
     ):
@@ -242,15 +237,47 @@ class Client(ClientWithIDGen, OperationLogger):
         :param block_size: int
         """
         logging.warning(f"write {rows} {root_ids} {operation_id} {slow_retry} {block_size}")
+        
+        # TODO: Implement locking and retries with backoff
+        
+        for i in range(0, len(rows), block_size):
+            with self._ddb_table.batch_writer() as batch:
+                rows_in_this_batch = rows[i: i + block_size]
+                for row in rows_in_this_batch:
+                    logging.warning(f"Attempting to write row={row}")
+                    ddb_item = self._ddb_helper.row_to_ddb_item(row)
+                    logging.warning(f"Attempting to write ddb_item={ddb_item}")
+                    batch.put_item(Item=ddb_item)
     
     def mutate_row(
             self,
             row_key: bytes,
-            val_dict: typing.Dict[attributes._Attribute, typing.Any],
-            time_stamp: typing.Optional[datetime] = None,
-    ) -> typing.List[TimeStampedCell]:
-        """Mutates a single row (doesn't write to big table)."""
-        logging.warning(f"mutate_row {row_key} {val_dict} {time_stamp}")
+            val_dict: Dict[attributes._Attribute, Any],
+            time_stamp: Optional[datetime] = None,
+    ) -> dict[str, Union[bytes, dict[str, Iterable[TimeStampedCell]]]]:
+        """Mutates a single row (doesn't write to DynamoDB)."""
+        pk, sk = self._ddb_helper.to_pk_sk(row_key)
+        ret = self._ddb_table.get_item(Key={"key": pk, "sk": sk})
+        logging.warning(f"\n\nmutate_row with row_key={row_key}")
+        logging.warning(f"mutate_row with pk={pk}, sk={sk}")
+        item = ret.get('Item')
+        
+        row = {"key": row_key}
+        if item is not None:
+            b_real_key, row_from_db = self._ddb_helper.ddb_item_to_row(item)
+            row.update(row_from_db)
+        
+        logging.warning(f"mutate_row with row={row}")
+        logging.warning(f"mutate_row with val_dict={val_dict}")
+        logging.warning(f"mutate_row with time_stamp={time_stamp}")
+        
+        cells = self._ddb_helper.attribs_to_cells(attribs=val_dict, time_stamp=time_stamp)
+        if 'cells' not in row:
+            row['cells'] = {}
+        row['cells'].update(cells)
+        
+        logging.warning(f"Returning row={row}")
+        return row
     
     """Locks root node with operation_id to prevent race conditions."""
     
@@ -369,15 +396,15 @@ class Client(ClientWithIDGen, OperationLogger):
     def _read_byte_row(
             self,
             row_key: bytes,
-            columns: typing.Optional[
-                typing.Union[typing.Iterable[attributes._Attribute], attributes._Attribute]
+            columns: Optional[
+                Union[Iterable[attributes._Attribute], attributes._Attribute]
             ] = None,
-            start_time: typing.Optional[datetime] = None,
-            end_time: typing.Optional[datetime] = None,
+            start_time: Optional[datetime] = None,
+            end_time: Optional[datetime] = None,
             end_time_inclusive: bool = False,
-    ) -> typing.Union[
-        typing.Dict[attributes._Attribute, typing.List[TimeStampedCell]],
-        typing.List[TimeStampedCell],
+    ) -> Union[
+        Dict[attributes._Attribute, List[TimeStampedCell]],
+        List[TimeStampedCell],
     ]:
         """Convenience function for reading a single row from Amazon DynamoDB using its `bytes` keys.
 
@@ -385,24 +412,24 @@ class Client(ClientWithIDGen, OperationLogger):
             row_key {bytes} -- The row to be read.
 
         Keyword Arguments:
-            columns {typing.Optional[typing.Union[typing.Iterable[attributes._Attribute], attributes._Attribute]]} --
-                typing.Optional filtering by columns to speed up the query. If `columns` is a single
+            columns {Optional[Union[Iterable[attributes._Attribute], attributes._Attribute]]} --
+                Optional filtering by columns to speed up the query. If `columns` is a single
                 column (not iterable), the column key will be omitted from the result.
                 (default: {None})
-            start_time {typing.Optional[datetime]} -- Ignore cells with timestamp before
+            start_time {Optional[datetime]} -- Ignore cells with timestamp before
                 `start_time`. If None, no lower bound. (default: {None})
-            end_time {typing.Optional[datetime]} -- Ignore cells with timestamp after `end_time`.
+            end_time {Optional[datetime]} -- Ignore cells with timestamp after `end_time`.
                 If None, no upper bound. (default: {None})
             end_time_inclusive {bool} -- Whether or not `end_time` itself should be included in the
                 request, ignored if `end_time` is None. (default: {False})
 
         Returns:
-            typing.Union[typing.Dict[attributes._Attribute, typing.List[TimeStampedCell]],
-                  typing.List[TimeStampedCell]] --
-                Returns a mapping of columns to a typing.List of cells (one cell per timestamp). Each cell
+            Union[Dict[attributes._Attribute, List[TimeStampedCell]],
+                  List[TimeStampedCell]] --
+                Returns a mapping of columns to a List of cells (one cell per timestamp). Each cell
                 has a `value` property, which returns the deserialized field, and a `timestamp`
                 property, which returns the timestamp as `datetime` object.
-                If only a single `attributes._Attribute` was requested, the typing.List of cells is returned
+                If only a single `attributes._Attribute` was requested, the List of cells is returned
                 directly.
         """
         row = self._read_byte_rows(
@@ -420,57 +447,57 @@ class Client(ClientWithIDGen, OperationLogger):
     
     def _read_byte_rows(
             self,
-            start_key: typing.Optional[bytes] = None,
-            end_key: typing.Optional[bytes] = None,
+            start_key: Optional[bytes] = None,
+            end_key: Optional[bytes] = None,
             end_key_inclusive: bool = False,
-            row_keys: typing.Optional[typing.Iterable[bytes]] = None,
-            columns: typing.Optional[
-                typing.Union[typing.Iterable[attributes._Attribute], attributes._Attribute]
+            row_keys: Optional[Iterable[bytes]] = None,
+            columns: Optional[
+                Union[Iterable[attributes._Attribute], attributes._Attribute]
             ] = None,
-            start_time: typing.Optional[datetime] = None,
-            end_time: typing.Optional[datetime] = None,
+            start_time: Optional[datetime] = None,
+            end_time: Optional[datetime] = None,
             end_time_inclusive: bool = False,
-            user_id: typing.Optional[str] = None,
-    ) -> typing.Dict[
+            user_id: Optional[str] = None,
+    ) -> Dict[
         bytes,
-        typing.Union[
-            typing.Dict[attributes._Attribute, typing.List[TimeStampedCell]],
-            typing.List[TimeStampedCell],
+        Union[
+            Dict[attributes._Attribute, List[TimeStampedCell]],
+            List[TimeStampedCell],
         ],
     ]:
         """Main function for reading a row range or non-contiguous row sets from Amazon DynamoDB using
         `bytes` keys.
 
         Keyword Arguments:
-            start_key {typing.Optional[bytes]} -- The first row to be read, ignored if `row_keys` is set.
+            start_key {Optional[bytes]} -- The first row to be read, ignored if `row_keys` is set.
                 If None, no lower boundary is used. (default: {None})
-            end_key {typing.Optional[bytes]} -- The end of the row range, ignored if `row_keys` is set.
+            end_key {Optional[bytes]} -- The end of the row range, ignored if `row_keys` is set.
                 If None, no upper boundary is used. (default: {None})
             end_key_inclusive {bool} -- Whether or not `end_key` itself should be included in the
                 request, ignored if `row_keys` is set or `end_key` is None. (default: {False})
-            row_keys {typing.Optional[typing.Iterable[bytes]]} -- An `typing.Iterable` containing possibly
+            row_keys {Optional[Iterable[bytes]]} -- An `Iterable` containing possibly
                 non-contiguous row keys. Takes precedence over `start_key` and `end_key`.
                 (default: {None})
-            columns {typing.Optional[typing.Union[typing.Iterable[attributes._Attribute], attributes._Attribute]]} --
-                typing.Optional filtering by columns to speed up the query. If `columns` is a single
+            columns {Optional[Union[Iterable[attributes._Attribute], attributes._Attribute]]} --
+                Optional filtering by columns to speed up the query. If `columns` is a single
                 column (not iterable), the column key will be omitted from the result.
                 (default: {None})
-            start_time {typing.Optional[datetime]} -- Ignore cells with timestamp before
+            start_time {Optional[datetime]} -- Ignore cells with timestamp before
                 `start_time`. If None, no lower bound. (default: {None})
-            end_time {typing.Optional[datetime]} -- Ignore cells with timestamp after `end_time`.
+            end_time {Optional[datetime]} -- Ignore cells with timestamp after `end_time`.
                 If None, no upper bound. (default: {None})
             end_time_inclusive {bool} -- Whether or not `end_time` itself should be included in the
                 request, ignored if `end_time` is None. (default: {False})
-            user_id {typing.Optional[str]} -- Only return cells with userID equal to this
+            user_id {Optional[str]} -- Only return cells with userID equal to this
 
         Returns:
-            typing.Dict[bytes, typing.Union[typing.Dict[attributes._Attribute, typing.List[TimeStampedCell]],
-                              typing.List[TimeStampedCell]]] --
+            Dict[bytes, Union[Dict[attributes._Attribute, List[TimeStampedCell]],
+                              List[TimeStampedCell]]] --
                 Returns a dictionary of `byte` rows as keys. Their value will be a mapping of
-                columns to a typing.List of cells (one cell per timestamp). Each cell has a `value`
+                columns to a List of cells (one cell per timestamp). Each cell has a `value`
                 property, which returns the deserialized field, and a `timestamp` property, which
                 returns the timestamp as `datetime` object.
-                If only a single `attributes._Attribute` was requested, the typing.List of cells will be
+                If only a single `attributes._Attribute` was requested, the List of cells will be
                 attached to the row dictionary directly (skipping the column dictionary).
         """
         
@@ -491,11 +518,14 @@ class Client(ClientWithIDGen, OperationLogger):
         
         rows = self._read(key_set=key_set, row_filter=filter_)
         
+        logging.warning(f"rows === {rows}")
+        
         # Deserialize cells
-        for row_key, column_dict in rows.items():
-            for column, cell_entries in column_dict.items():
-                for cell_entry in cell_entries:
-                    cell_entry.value = column.deserialize(cell_entry.value)
+        for row_key, row in rows.items():
+            column_dict = {}
+            if 'cells' in row:
+                column_dict.update(row['cells'])
+            cell_entries = column_dict.values()
             # If no column array was requested, reattach single column's values directly to the row
             if isinstance(columns, attributes._Attribute):
                 rows[row_key] = cell_entries
@@ -573,19 +603,13 @@ class Client(ClientWithIDGen, OperationLogger):
         
         return rows
     
-    def _get_ids_range(self, key: bytes, size: int) -> typing.Tuple:
+    def _get_ids_range(self, key: bytes, size: int) -> Tuple:
         """Returns a range (min, max) of IDs for a given `key`."""
         column = attributes.Concurrency.Counter
         
         pk, sk = self._ddb_helper.to_pk_sk(key)
-        print(f"_get_ids_range ---------------------- pk={pk},sk={sk},size={size}")
         
         column_name_in_ddb = f"{column.family_id}.{column.key.decode()}"
-        
-        # save_params = to_update_item_params({column_name_in_ddb: size}, {'key': pk, 'sk': sk})
-        # ret = self._table.update_item(
-        #     **save_params
-        # )
         
         # ret = self._main_db.put_item(
         #     TableName=self._table_name,
@@ -596,8 +620,7 @@ class Client(ClientWithIDGen, OperationLogger):
         #     }
         # )
         
-        time_seconds = time.time()
-        time_microseconds = time_seconds * 1000 * 1000
+        time_microseconds = TimeStampedCell.get_current_time_microseconds()
         ret = self._ddb_table.put_item(
             Item={
                 "key": pk,
@@ -612,12 +635,7 @@ class Client(ClientWithIDGen, OperationLogger):
                 ]]
             }
         )
-        
-        print(f"_get_ids_range ---------------------- ret={ret}")
-        
         high = size
-        
-        print(f"_get_ids_range ---------------------- high={high}")
         return high + np.uint64(1) - size, high
     
     def _get_root_segment_ids_range(
