@@ -344,9 +344,6 @@ class Client(bigtable.Client, ClientWithIDGen, OperationLogger):
             time_stamp: typing.Optional[datetime] = None,
     ) -> bigtable.row.Row:
         """Mutates a single row (doesn't write to big table)."""
-        logging.warning(f"BIGTABLE mutate_row with row_key={row_key}")
-        logging.warning(f"BIGTABLE mutate_row with val_dict={val_dict}")
-        logging.warning(f"BIGTABLE mutate_row with time_stamp={time_stamp}")
         row = self._table.direct_row(row_key)
         for column, value in val_dict.items():
             row.set_cell(
@@ -355,8 +352,6 @@ class Client(bigtable.Client, ClientWithIDGen, OperationLogger):
                 value=column.serialize(value),
                 timestamp=time_stamp,
             )
-        
-        logging.warning(f"BIGTABLE mutate_row returning={row}")
         return row
     
     # Locking
