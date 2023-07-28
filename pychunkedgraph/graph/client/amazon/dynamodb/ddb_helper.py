@@ -86,15 +86,13 @@ class DdbHelper:
                 # ddb_clm here is column_family.column_qualifier
                 column_family, qualifier = ddb_clm.split(".")
                 attr = attributes.from_key(column_family, qualifier.encode())
-                if 'cells' not in row:
-                    row['cells'] = {}
                 
-                if attr not in row['cells']:
-                    row['cells'][attr] = []
+                if attr not in row:
+                    row[attr] = []
                 
                 for timestamp, column_value in row_value:
                     # find _Attribute for ddb_clm:qualifier and put cell & timestamp pair associated with it
-                    row['cells'][attr].append(
+                    row[attr].append(
                         # TimeStampedCell(
                         #     column_value.value
                         #     if isinstance(column_value, Binary)
@@ -125,12 +123,11 @@ class DdbHelper:
     ) -> dict[str, Any]:
         pk, sk = self.to_pk_sk(row['key'])
         item = {'key': pk, 'sk': sk}
-        cells_dict = {}
-        if 'cells' in row:
-            cells_dict.update(row['cells'])
         
         columns = {}
-        for attrib_column, cells_array in cells_dict.items():
+        for attrib_column, cells_array in row.items():
+            if not isinstance(attrib_column, attributes._Attribute):
+                continue
             family = attrib_column.family_id
             qualifier = attrib_column.key.decode()
             

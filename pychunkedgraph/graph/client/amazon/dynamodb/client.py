@@ -272,9 +272,7 @@ class Client(ClientWithIDGen, OperationLogger):
         logging.warning(f"mutate_row with time_stamp={time_stamp}")
         
         cells = self._ddb_helper.attribs_to_cells(attribs=val_dict, time_stamp=time_stamp)
-        if 'cells' not in row:
-            row['cells'] = {}
-        row['cells'].update(cells)
+        row.update(cells)
         
         logging.warning(f"Returning row={row}")
         return row
@@ -518,14 +516,13 @@ class Client(ClientWithIDGen, OperationLogger):
         
         rows = self._read(key_set=key_set, row_filter=filter_)
         
-        logging.warning(f"rows === {rows}")
-        
         # Deserialize cells
-        for row_key, row in rows.items():
-            column_dict = {}
-            if 'cells' in row:
-                column_dict.update(row['cells'])
-            cell_entries = column_dict.values()
+        for row_key, column_dict in rows.items():
+            for column, cell_entries in column_dict.items():
+                for cell_entry in cell_entries:
+                    if isinstance(column, attributes._Attribute):
+                        cell_entry.value = column.deserialize(bytes(cell_entry.value))
+            
             # If no column array was requested, reattach single column's values directly to the row
             if isinstance(columns, attributes._Attribute):
                 rows[row_key] = cell_entries
