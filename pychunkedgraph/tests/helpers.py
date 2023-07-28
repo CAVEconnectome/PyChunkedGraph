@@ -191,19 +191,19 @@ def amazon_dynamodb_emulator(request):
 
 
 PARAMS = [
-    # {
-    #     "backend_client": {
-    #         "TYPE": "bigtable",
-    #         "CONFIG": {
-    #             "ADMIN": True,
-    #             "READ_ONLY": False,
-    #             "PROJECT": "IGNORE_ENVIRONMENT_PROJECT",
-    #             "INSTANCE": "emulated_instance",
-    #             "CREDENTIALS": credentials.AnonymousCredentials(),
-    #             "MAX_ROW_KEY_COUNT": 1000,
-    #         },
-    #     }
-    # },
+    {
+        "backend_client": {
+            "TYPE": "bigtable",
+            "CONFIG": {
+                "ADMIN": True,
+                "READ_ONLY": False,
+                "PROJECT": "IGNORE_ENVIRONMENT_PROJECT",
+                "INSTANCE": "emulated_instance",
+                "CREDENTIALS": credentials.AnonymousCredentials(),
+                "MAX_ROW_KEY_COUNT": 1000,
+            },
+        }
+    },
     {
         "backend_client": {
             "TYPE": "amazon.dynamodb",
