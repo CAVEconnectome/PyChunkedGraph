@@ -37,11 +37,14 @@ class SimpleClient(ABC):
             self,
             start_id=None,
             end_id=None,
+            end_id_inclusive=False,
+            user_id=None,
             node_ids=None,
             properties=None,
             start_time=None,
             end_time=None,
-            end_time_inclusive=False,
+            end_time_inclusive: bool = False,
+            fake_edges: bool = False,
     ):
         """
         Read nodes and their properties.
@@ -164,7 +167,7 @@ class ClientWithIDGen(SimpleClient):
         """Generate a unique ID in the chunk."""
     
     @abstractmethod
-    def get_max_node_id(self, chunk_id):
+    def get_max_node_id(self, chunk_id, root_chunk: bool = False):
         """Gets the current maximum node ID in the chunk."""
     
     @abstractmethod

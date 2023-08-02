@@ -42,9 +42,9 @@ def get_filter_time_stamp(time_stamp: datetime, round_up: bool = False) -> datet
 
 
 def _get_time_range_filter(
-    start_time: Optional[datetime] = None,
-    end_time: Optional[datetime] = None,
-    end_inclusive: bool = True,
+        start_time: Optional[datetime] = None,
+        end_time: Optional[datetime] = None,
+        end_inclusive: bool = True,
 ) -> DynamoDbTimeRangeFilter:
     """Generates a TimeStampRangeFilter which is inclusive for start and (optionally) end.
 
@@ -60,7 +60,7 @@ def _get_time_range_filter(
 
 
 def _get_column_filter(
-    columns: Union[Iterable[attributes._Attribute], attributes._Attribute] = None
+        columns: Union[Iterable[attributes._Attribute], attributes._Attribute] = None
 ) -> Union[DynamoDbColumnFilter, Iterable[DynamoDbColumnFilter]]:
     """Generates a RowFilter that accepts the specified columns"""
     if isinstance(columns, attributes._Attribute):
@@ -75,17 +75,17 @@ def _get_user_filter(user_id: str):
     Args:
         user_id (str): userID to select for
     """
-    raise RuntimeError("IMPLEMENTME")
+    return DynamoDbUserIdFilter(user_id)
 
 
 def get_time_range_and_column_filter(
-    columns: Optional[
-        Union[Iterable[attributes._Attribute], attributes._Attribute]
-    ] = None,
-    start_time: Optional[datetime] = None,
-    end_time: Optional[datetime] = None,
-    end_inclusive: bool = False,
-    user_id: Optional[str] = None,
+        columns: Optional[
+            Union[Iterable[attributes._Attribute], attributes._Attribute]
+        ] = None,
+        start_time: Optional[datetime] = None,
+        end_time: Optional[datetime] = None,
+        end_inclusive: bool = False,
+        user_id: Optional[str] = None,
 ) -> DynamoDbFilter:
     time_filter = (
         _get_time_range_filter(

@@ -5,12 +5,14 @@ from typing import Dict, Iterable, Union, Optional, List, Any, Tuple
 import boto3
 import botocore
 import numpy as np
-from boto3.dynamodb.types import TypeDeserializer, TypeSerializer
+from multiwrapper import multiprocessing_utils as mu
+from boto3.dynamodb.types import TypeDeserializer, TypeSerializer, Binary
 
 from . import AmazonDynamoDbConfig
 from . import utils
 from .ddb_helper import DdbHelper
 from .ddb_table import Table
+from .row_set import RowSet
 from .timestamped_cell import TimeStampedCell
 from .utils import (
     DynamoDbFilter,
@@ -23,7 +25,8 @@ from ....meta import ChunkedGraphMeta
 from ....utils import basetypes
 from ....utils.serializers import pad_node_id, serialize_key, serialize_uint64
 
-DEFAULT_ROW_PAGE_SIZE = 1000
+DEFAULT_ROW_PAGE_SIZE = 100  # Max items to fetch using GetBatchItem operation
+DEFAULT_MAX_ITEMS_LIMIT = 1000  # Maximum items to fetch in one query
 
 
 class Client(ClientWithIDGen, OperationLogger):
@@ -39,6 +42,7 @@ class Client(ClientWithIDGen, OperationLogger):
             else table_id
         )
         self._row_page_size = DEFAULT_ROW_PAGE_SIZE
+        self._max_items = DEFAULT_MAX_ITEMS_LIMIT
         self._ddb_serializer = TypeSerializer()
         self._ddb_deserializer = TypeDeserializer()
         # TODO: refactor column families to match graph-creation procedures
@@ -148,11 +152,14 @@ class Client(ClientWithIDGen, OperationLogger):
             self,
             start_id=None,
             end_id=None,
+            end_id_inclusive=False,
+            user_id=None,
             node_ids=None,
             properties=None,
             start_time=None,
             end_time=None,
-            end_time_inclusive=False,
+            end_time_inclusive: bool = False,
+            fake_edges: bool = False,
     ):
         logging.warning(
             f"read_nodes: {start_id}, {end_id}, {node_ids}, {properties}, {start_time}, {end_time}, {end_time_inclusive}"
@@ -358,8 +365,27 @@ class Client(ClientWithIDGen, OperationLogger):
     
     """Gets the current maximum node ID in the chunk."""
     
-    def get_max_node_id(self, chunk_id):
-        logging.warning(f"get_max_node_id: {chunk_id}")
+    def get_max_node_id(self, chunk_id, root_chunk=False):
+        """Gets the current maximum segment ID in the chunk."""
+        if root_chunk:
+            n_counters = np.uint64(2 ** 8)
+            max_value = 0
+            for counter in range(n_counters):
+                row = self._read_byte_row(
+                    serialize_key(f"i{pad_node_id(chunk_id)}_{counter}"),
+                    columns=attributes.Concurrency.Counter,
+                )
+                val = (
+                        basetypes.SEGMENT_ID.type(row[0].value if row else 0) * n_counters
+                        + counter
+                )
+                max_value = val if val > max_value else max_value
+            return chunk_id | basetypes.SEGMENT_ID.type(max_value)
+        column = attributes.Concurrency.Counter
+        row = self._read_byte_row(
+            serialize_uint64(chunk_id, counter=True), columns=column
+        )
+        return chunk_id | basetypes.SEGMENT_ID.type(row[0].value if row else 0)
     
     """Generate a unique operation ID."""
     
@@ -498,13 +524,31 @@ class Client(ClientWithIDGen, OperationLogger):
                 If only a single `attributes._Attribute` was requested, the List of cells will be
                 attached to the row dictionary directly (skipping the column dictionary).
         """
+        params = {
+            "start_key": start_key,
+            "end_key": end_key,
+            "end_key_inclusive": end_key_inclusive,
+            "row_keys": row_keys,
+            "columns": columns,
+            "start_time": start_time,
+            "end_time": end_time,
+            "end_time_inclusive": end_time_inclusive,
+            "user_id": user_id,
+        }
         
-        key_set = {}
+        print(f"_read_byte_rows params ===== {params}")
+        
+        row_set = RowSet()
         if row_keys is not None:
-            key_set["ROW_KEYS"] = list(row_keys)
-            logging.debug(f"KEYS: {row_keys}")
+            row_set.row_keys = list(row_keys)
+            logging.debug(f"KEYS: {row_set.row_keys}")
+        elif start_key is not None and end_key is not None:
+            raise exceptions.PreconditionError("IMPLEMENT row ranges")
         else:
-            raise exceptions.PreconditionError("IMPLEMENT")
+            raise exceptions.PreconditionError(
+                "Need to either provide a valid set of rows, or"
+                " both, a start row and an end row."
+            )
         
         filter_ = utils.get_time_range_and_column_filter(
             columns=columns,
@@ -514,27 +558,34 @@ class Client(ClientWithIDGen, OperationLogger):
             user_id=user_id,
         )
         
-        rows = self._read(key_set=key_set, row_filter=filter_)
+        rows = self._read(row_set=row_set, row_filter=filter_)
         
         # Deserialize cells
         for row_key, column_dict in rows.items():
             for column, cell_entries in column_dict.items():
                 for cell_entry in cell_entries:
                     if isinstance(column, attributes._Attribute):
-                        cell_entry.value = column.deserialize(bytes(cell_entry.value))
+                        if isinstance(cell_entry.value, Binary):
+                            cell_entry.value = column.deserialize(bytes(cell_entry.value))
             
             # If no column array was requested, reattach single column's values directly to the row
             if isinstance(columns, attributes._Attribute):
-                rows[row_key] = cell_entries
+                rows[row_key] = column_dict.values()
         return rows
     
     # TODO: run multi-key requests concurrently (do we need concurrency if batch read is used?)
     # TODO: use batch-read if possible
     # TODO: use pagination (some rows may have too many cells to be fetched at once, but haven't seen them)
-    def _read(self, key_set=dict[str, dict], row_filter: DynamoDbFilter = None) -> dict:
+    def _read(self, row_set: RowSet, row_filter: DynamoDbFilter = None) -> dict:
+        impl = 'new'
+        if impl == 'new':
+            return self._read_new(row_set=row_set, row_filter=row_filter)
+        
         rows = {}
         
         attr_names = {"#key": "key"}
+        
+        row_keys = row_set.row_keys
         
         # TODO: refactor key_set into named tuple
         # TODO: consider multithreading:
@@ -548,7 +599,7 @@ class Client(ClientWithIDGen, OperationLogger):
         #     ** if the request has more than one range, multi-threading should be used
         # TODO: "new" data for existing key is appended to the the map... that's not so good because
         #       may exceed the limit for the row size eventually. Currently it is as is in the BigTable
-        for key in key_set["ROW_KEYS"]:
+        for key in row_keys:
             pk, sk = self._ddb_helper.to_pk_sk(key)
             
             logging.debug(f"QUERYING FOR: {key}, pk: {pk}, sk: {sk}")
@@ -600,6 +651,173 @@ class Client(ClientWithIDGen, OperationLogger):
         
         return rows
     
+    # TODO: run multi-key requests concurrently (do we need concurrency if batch read is used?)
+    # TODO: use batch-read if possible
+    # TODO: use pagination (some rows may have too many cells to be fetched at once, but haven't seen them)
+    def _read_new(self, row_set=RowSet, row_filter: DynamoDbFilter = None) -> dict:
+        """Core function to read rows from DynamoDB.
+        :param key_set: Set of related to the rows to be read
+        :param row_filter: An instance of DynamoDbFilter to filter which rows/columns to read
+        :return: typing.Dict
+        """
+        n_subrequests = max(
+            1, int(np.ceil(len(row_set.row_keys) / self._row_page_size))
+        )
+        n_threads = min(n_subrequests, 2 * mu.n_cpus)
+        
+        row_sets = []
+        for i in range(n_subrequests):
+            r = RowSet()
+            r.row_keys = row_set.row_keys[i * self._row_page_size: (i + 1) * self._row_page_size]
+            row_sets.append(r)
+        
+        # Don't forget the original RowSet's row_ranges
+        row_sets[0].row_ranges = row_set.row_ranges
+        
+        responses = mu.multithread_func(
+            self._execute_read_thread,
+            params=((self._table, r, row_filter) for r in row_sets),
+            debug=n_threads == 1,
+            n_threads=n_threads,
+        )
+        
+        combined_response = {}
+        for resp in responses:
+            combined_response.update(resp)
+        return combined_response
+    
+    def _execute_read_thread(self, args: Tuple[Table, RowSet, DynamoDbFilter]):
+        """Function to be executed in parallel."""
+        table, row_set, row_filter = args
+        if not row_set.row_keys and not row_set.row_ranges:
+            return {}
+        
+        rows = {}
+        
+        row_keys = row_set.row_keys
+        # there are 2 key entry types:
+        #  * one or more "exact" keys
+        #     ** If the request is for just one exact key, DDB can be called with GetItem
+        #     ** If the request contains multiple exact keys, up to 100, DDB can be called with BatchGetItem
+        #     ** If the request contains more than 100 exact keys, BatchGetItem can be called in multi-threading
+        #  * one or more "range" keys (from..to)
+        #     ** if the request has just one range, DDB can be called with QueryItem
+        #     ** if the request has more than one range, multi-threading should be used
+        # TODO: "new" data for existing key is appended to the the map... that's not so good because
+        #       may exceed the limit for the row size eventually. Currently it is as is in the BigTable
+        for key in row_keys:
+            pk, sk = self._ddb_helper.to_pk_sk(key)
+            
+            logging.debug(f"QUERYING FOR: {key}, pk: {pk}, sk: {sk}")
+            kwargs = {}
+            attr_names = {}
+            
+            def __append_to_projection_expression(
+                    dict_obj: dict,
+                    attribs_to_get
+            ):
+                existing_expr = dict_obj.get("ProjectionExpression", "")
+                attribs_expr = ",".join(attribs_to_get)
+                if existing_expr and attribs_expr:
+                    dict_obj["ProjectionExpression"] = f"{existing_expr},{attribs_expr}"
+                elif attribs_expr:
+                    dict_obj["ProjectionExpression"] = attribs_expr
+            
+            if row_filter.user_id_filter and row_filter.user_id_filter.user_id:
+                user_id_attr = attributes.OperationLogs.UserID
+                attr_names["#uid"] = f"{user_id_attr.family_id}.{user_id_attr.key.decode()}"
+                __append_to_projection_expression(kwargs, ["#uid"])
+            
+            # TODO: implement filters:
+            #       user_id
+            #       time
+            #       columns
+            if row_filter.column_filter:
+                ddb_columns = [
+                    f"#C{index}" for index in range(len(row_filter.column_filter))
+                ]
+                ddb_columns.extend(["#ver"])
+                __append_to_projection_expression(kwargs, ddb_columns)
+                
+                for index, attr in enumerate(row_filter.column_filter):
+                    attr_names[f"#C{index}"] = f"{attr.family_id}.{attr.key.decode()}"
+                attr_names[f"#ver"] = "@"
+                
+                kwargs["ExpressionAttributeNames"] = attr_names
+            
+            # TODO: Handle potential pagination
+            params = {
+                self._table_name: {
+                    'Keys': [{
+                        'key': self._ddb_serializer.serialize(pk),
+                        'sk': self._ddb_serializer.serialize(sk),
+                    }],
+                    **kwargs,
+                },
+            }
+            print(f"batch_get_item params ======== {params}")
+            
+            ret = self._main_db.batch_get_item(RequestItems=params)
+            
+            items = ret.get("Responses", {}).get(self._table_name, [])
+            
+            # each item comes with 'key', 'sk', [column_family] and '@' columns
+            for item in items:
+                b_real_key, row = self._ddb_helper.raw_ddb_item_to_row(
+                    {
+                        'key': self._ddb_serializer.serialize(pk),
+                        'sk': self._ddb_serializer.serialize(sk),
+                        **item,
+                    }
+                )
+                rows[b_real_key] = row
+        
+        print(f"rows before filtering ======== {rows}")
+        
+        filtered_rows = self._apply_filters(rows, row_filter)
+        
+        print(f"rows after filtering ======== {filtered_rows}")
+        
+        return filtered_rows
+    
+    def _apply_filters(
+            self,
+            rows: dict[str, dict[attributes._Attribute, Iterable[TimeStampedCell]]],
+            row_filter: DynamoDbFilter
+    ):
+        # the start_datetime and the end_datetime below are "datetime" instances (and NOT int timestamp)
+        start_datetime = row_filter.time_filter.start if row_filter.time_filter else None
+        end_datetime = row_filter.time_filter.end if row_filter.time_filter else None
+        user_id = row_filter.user_id_filter.user_id if row_filter.user_id_filter else None
+        
+        def time_filter_fn(row_to_filter: dict[attributes._Attribute, Iterable[TimeStampedCell]]):
+            filtered_row = {}
+            for attr, cells in row_to_filter.items():
+                filtered_cells = []
+                for cell in cells:
+                    if start_datetime <= cell.to_datetime() <= end_datetime:
+                        filtered_cells.append(cell)
+                filtered_row[attr] = filtered_cells
+            return filtered_row
+        
+        def user_id_filter_fn(row_to_filter: dict[attributes._Attribute, Iterable[TimeStampedCell]]):
+            if user_id == row_to_filter.get(attributes.OperationLogs.UserID, None):
+                return row_to_filter
+            return None
+        
+        filtered_rows = {}
+        for b_real_key, row in rows.items():
+            filtered_row = row
+            if start_datetime and end_datetime:
+                filtered_row = time_filter_fn(filtered_row)
+            if user_id:
+                filtered_row = user_id_filter_fn(filtered_row)
+            
+            if filtered_row:
+                filtered_rows[b_real_key] = filtered_row
+        
+        return filtered_rows
+    
     def _get_ids_range(self, key: bytes, size: int) -> Tuple:
         """Returns a range (min, max) of IDs for a given `key`."""
         column = attributes.Concurrency.Counter
@@ -618,7 +836,8 @@ class Client(ClientWithIDGen, OperationLogger):
         # )
         
         time_microseconds = TimeStampedCell.get_current_time_microseconds()
-        ret = self._ddb_table.put_item(
+        size_bytes = basetypes.COUNTER.type(size).tobytes()
+        self._ddb_table.put_item(
             Item={
                 "key": pk,
                 "sk": sk,
@@ -628,11 +847,11 @@ class Client(ClientWithIDGen, OperationLogger):
                 # at the given timestamp
                 column_name_in_ddb: [[
                     int(time_microseconds),
-                    size,
+                    size_bytes,
                 ]]
             }
         )
-        high = size
+        high = column.deserialize(size_bytes)
         return high + np.uint64(1) - size, high
     
     def _get_root_segment_ids_range(
