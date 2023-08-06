@@ -1,14 +1,14 @@
+# pylint: disable=invalid-name, missing-function-docstring, import-outside-toplevel
+
 """
 Functions for creating atomic nodes and their level 2 abstract parents
 """
 
 import datetime
 from typing import Dict
-from typing import List
 from typing import Optional
 from typing import Sequence
 
-import pytz
 import numpy as np
 
 from ...graph import attributes
