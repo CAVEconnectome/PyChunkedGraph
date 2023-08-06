@@ -1,4 +1,4 @@
-# pylint: disable=invalid-name, missing-docstring, import-outside-toplevel, line-too-long, protected-access, arguments-differ, arguments-renamed, logging-fstring-interpolation
+# pylint: disable=invalid-name, missing-docstring, import-outside-toplevel, line-too-long, protected-access, arguments-differ, arguments-renamed, logging-fstring-interpolation, too-many-arguments
 
 import sys
 import time
@@ -15,11 +15,12 @@ from google.api_core.retry import if_exception_type
 from google.api_core.exceptions import Aborted
 from google.api_core.exceptions import DeadlineExceeded
 from google.api_core.exceptions import ServiceUnavailable
+from google.cloud.bigtable.column_family import MaxAgeGCRule
+from google.cloud.bigtable.column_family import MaxVersionsGCRule
 from google.cloud.bigtable.table import Table
 from google.cloud.bigtable.row_set import RowSet
 from google.cloud.bigtable.row_data import PartialRowData
 from google.cloud.bigtable.row_filters import RowFilter
-from google.cloud.bigtable.column_family import MaxVersionsGCRule
 
 from . import utils
 from . import BigTableConfig
@@ -636,6 +637,8 @@ class Client(bigtable.Client, ClientWithIDGen, OperationLogger):
         f = self._table.column_family("2")
         f.create()
         f = self._table.column_family("3")
+        f.create()
+        f = self._table.column_family("4", gc_rule=MaxAgeGCRule(datetime.timedelta(days=1)))
         f.create()
 
     def _get_ids_range(self, key: bytes, size: int) -> typing.Tuple:
