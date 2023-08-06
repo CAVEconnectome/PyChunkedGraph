@@ -1,10 +1,9 @@
-import time
+# pylint: disable=invalid-name, missing-docstring, import-outside-toplevel
+
 import math
 import multiprocessing as mp
 from collections import defaultdict
-from typing import Optional
 from typing import Sequence
-from typing import List
 from typing import Dict
 
 import numpy as np
@@ -13,9 +12,7 @@ from multiwrapper.multiprocessing_utils import multiprocess_func
 from .. import attributes
 from ..types import empty_2d
 from ..utils import basetypes
-from ..utils import serializers
 from ..chunkedgraph import ChunkedGraph
-from ..utils.generic import get_valid_timestamp
 from ..utils.generic import filter_failed_node_ids
 from ..chunks.atomic import get_touching_atomic_chunks
 from ..chunks.atomic import get_bounding_atomic_chunks
@@ -30,14 +27,12 @@ def get_children_chunk_cross_edges(
     The edges are between node IDs in the given layer (not atomic).
     """
     atomic_chunks = get_touching_atomic_chunks(cg.meta, layer, chunk_coord)
-    if not len(atomic_chunks):
+    if len(atomic_chunks) == 0:
         return []
 
-    print(f"touching atomic chunk count {len(atomic_chunks)}")
     if not use_threads:
         return _get_children_chunk_cross_edges(cg, atomic_chunks, layer - 1)
 
-    print("get_children_chunk_cross_edges, atomic chunks", len(atomic_chunks))
     with mp.Manager() as manager:
         edge_ids_shared = manager.list()
         edge_ids_shared.append(empty_2d)
@@ -69,9 +64,6 @@ def _get_children_chunk_cross_edges_helper(args) -> None:
 
 
 def _get_children_chunk_cross_edges(cg, atomic_chunks, layer) -> None:
-    print(
-        f"_get_children_chunk_cross_edges {layer} atomic_chunks count {len(atomic_chunks)}"
-    )
     cross_edges = [empty_2d]
     for layer2_chunk in atomic_chunks:
         edges = _read_atomic_chunk_cross_edges(cg, layer2_chunk, layer)
@@ -80,11 +72,10 @@ def _get_children_chunk_cross_edges(cg, atomic_chunks, layer) -> None:
     cross_edges = np.concatenate(cross_edges)
     if not cross_edges.size:
         return empty_2d
-    print(f"getting roots at stop_layer {layer} {cross_edges.shape}")
+
     cross_edges[:, 0] = cg.get_roots(cross_edges[:, 0], stop_layer=layer, ceil=False)
     cross_edges[:, 1] = cg.get_roots(cross_edges[:, 1], stop_layer=layer, ceil=False)
     result = np.unique(cross_edges, axis=0) if cross_edges.size else empty_2d
-    print(f"_get_children_chunk_cross_edges done {result.shape}")
     return result
 
 
@@ -118,16 +109,13 @@ def get_chunk_nodes_cross_edge_layer(
     return_type dict {node_id: layer}
     the lowest layer (>= current layer) at which a node_id is part of a cross edge
     """
-    print("get_bounding_atomic_chunks")
     atomic_chunks = get_bounding_atomic_chunks(cg.meta, layer, chunk_coord)
-    print("get_bounding_atomic_chunks complete")
-    if not len(atomic_chunks):
+    if len(atomic_chunks) == 0:
         return {}
 
     if not use_threads:
         return _get_chunk_nodes_cross_edge_layer(cg, atomic_chunks, layer)
 
-    print("divide tasks")
     cg_info = cg.get_serialized_info()
     manager = mp.Manager()
     ids_l_shared = manager.list()
@@ -139,7 +127,6 @@ def get_chunk_nodes_cross_edge_layer(
         multi_args.append(
             (ids_l_shared, layers_l_shared, cg_info, atomic_chunks, layer)
         )
-    print("divide tasks complete")
 
     multiprocess_func(
         _get_chunk_nodes_cross_edge_layer_helper,
@@ -149,7 +136,6 @@ def get_chunk_nodes_cross_edge_layer(
 
     node_layer_d_shared = manager.dict()
     _find_min_layer(node_layer_d_shared, ids_l_shared, layers_l_shared)
-    print("_find_min_layer complete")
     return node_layer_d_shared
 
 
