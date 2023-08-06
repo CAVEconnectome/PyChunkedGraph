@@ -201,7 +201,6 @@ def get_contact_sites(
     # Load edges of these cs_svs
     edges_cs_svs_rows = cg.client.read_nodes(
         node_ids=u_cs_svs,
-        # columns=[attributes.Connectivity.Partner, attributes.Connectivity.Connected],
     )
     pre_cs_edges = []
     for ri in edges_cs_svs_rows.items():
