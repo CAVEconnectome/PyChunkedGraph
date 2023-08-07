@@ -23,7 +23,7 @@ from .... import attributes
 from .... import exceptions
 from ....meta import ChunkedGraphMeta
 from ....utils import basetypes
-from ....utils.serializers import pad_node_id, serialize_key, serialize_uint64
+from ....utils.serializers import pad_node_id, serialize_key, serialize_uint64, deserialize_uint64
 
 DEFAULT_ROW_PAGE_SIZE = 100  # Max items to fetch using GetBatchItem operation
 DEFAULT_MAX_ITEMS_LIMIT = 1000  # Maximum items to fetch in one query
@@ -143,11 +143,6 @@ class Client(ClientWithIDGen, OperationLogger):
         
         return self._graph_meta
     
-    """
-    Read nodes and their properties.
-    Accepts a range of node IDs or specific node IDs.
-    """
-    
     def read_nodes(
             self,
             start_id=None,
@@ -161,9 +156,40 @@ class Client(ClientWithIDGen, OperationLogger):
             end_time_inclusive: bool = False,
             fake_edges: bool = False,
     ):
-        logging.warning(
+        """
+        Read nodes and their properties.
+        Accepts a range of node IDs or specific node IDs.
+        """
+        logging.debug(
             f"read_nodes: {start_id}, {end_id}, {node_ids}, {properties}, {start_time}, {end_time}, {end_time_inclusive}"
         )
+        if node_ids is not None and len(node_ids) > self._max_items:
+            # bigtable reading is faster
+            # when all IDs in a block are within a range
+            node_ids = np.sort(node_ids)
+        rows = self._read_byte_rows(
+            start_key=serialize_uint64(start_id, fake_edges=fake_edges)
+            if start_id is not None
+            else None,
+            end_key=serialize_uint64(end_id, fake_edges=fake_edges)
+            if end_id is not None
+            else None,
+            end_key_inclusive=end_id_inclusive,
+            row_keys=(
+                serialize_uint64(node_id, fake_edges=fake_edges) for node_id in node_ids
+            )
+            if node_ids is not None
+            else None,
+            columns=properties,
+            start_time=start_time,
+            end_time=end_time,
+            end_time_inclusive=end_time_inclusive,
+            user_id=user_id,
+        )
+        return {
+            deserialize_uint64(row_key, fake_edges=fake_edges): data
+            for (row_key, data) in rows.items()
+        }
     
     """Read a single node and its properties."""
     
@@ -215,7 +241,7 @@ class Client(ClientWithIDGen, OperationLogger):
     """Writes/updates nodes (IDs along with properties)."""
     
     def write_nodes(self, nodes):
-        logging.warning(f"write_nodes: {nodes}")
+        logging.debug(f"write_nodes: {nodes}")
     
     # Helpers
     def write(
@@ -243,7 +269,7 @@ class Client(ClientWithIDGen, OperationLogger):
         :param slow_retry: bool
         :param block_size: int
         """
-        logging.warning(f"write {rows} {root_ids} {operation_id} {slow_retry} {block_size}")
+        logging.debug(f"write {rows} {root_ids} {operation_id} {slow_retry} {block_size}")
         
         # TODO: Implement locking and retries with backoff
         
@@ -251,9 +277,7 @@ class Client(ClientWithIDGen, OperationLogger):
             with self._ddb_table.batch_writer() as batch:
                 rows_in_this_batch = rows[i: i + block_size]
                 for row in rows_in_this_batch:
-                    logging.warning(f"Attempting to write row={row}")
                     ddb_item = self._ddb_helper.row_to_ddb_item(row)
-                    logging.warning(f"Attempting to write ddb_item={ddb_item}")
                     batch.put_item(Item=ddb_item)
     
     def mutate_row(
@@ -265,8 +289,6 @@ class Client(ClientWithIDGen, OperationLogger):
         """Mutates a single row (doesn't write to DynamoDB)."""
         pk, sk = self._ddb_helper.to_pk_sk(row_key)
         ret = self._ddb_table.get_item(Key={"key": pk, "sk": sk})
-        logging.warning(f"\n\nmutate_row with row_key={row_key}")
-        logging.warning(f"mutate_row with pk={pk}, sk={sk}")
         item = ret.get('Item')
         
         row = {"key": row_key}
@@ -274,30 +296,25 @@ class Client(ClientWithIDGen, OperationLogger):
             b_real_key, row_from_db = self._ddb_helper.ddb_item_to_row(item)
             row.update(row_from_db)
         
-        logging.warning(f"mutate_row with row={row}")
-        logging.warning(f"mutate_row with val_dict={val_dict}")
-        logging.warning(f"mutate_row with time_stamp={time_stamp}")
-        
         cells = self._ddb_helper.attribs_to_cells(attribs=val_dict, time_stamp=time_stamp)
         row.update(cells)
         
-        logging.warning(f"Returning row={row}")
         return row
     
     """Locks root node with operation_id to prevent race conditions."""
     
     def lock_root(self, node_id, operation_id):
-        logging.warning(f"lock_root: {node_id}, {operation_id}")
+        logging.debug(f"lock_root: {node_id}, {operation_id}")
     
     """Locks root nodes to prevent race conditions."""
     
     def lock_roots(self, node_ids, operation_id):
-        logging.warning(f"lock_roots: {node_ids}, {operation_id}")
+        logging.debug(f"lock_roots: {node_ids}, {operation_id}")
     
     """Locks root node with operation_id to prevent race conditions."""
     
     def lock_root_indefinitely(self, node_id, operation_id):
-        logging.warning(f"lock_root_indefinitely: {node_id}, {operation_id}")
+        logging.debug(f"lock_root_indefinitely: {node_id}, {operation_id}")
     
     """
     Locks root nodes indefinitely to prevent structural damage to graph.
@@ -305,42 +322,42 @@ class Client(ClientWithIDGen, OperationLogger):
     """
     
     def lock_roots_indefinitely(self, node_ids, operation_id):
-        logging.warning(f"lock_roots_indefinitely: {node_ids}, {operation_id}")
+        logging.debug(f"lock_roots_indefinitely: {node_ids}, {operation_id}")
     
     """Unlocks root node that is locked with operation_id."""
     
     def unlock_root(self, node_id, operation_id):
-        logging.warning(f"unlock_root: {node_id}, {operation_id}")
+        logging.debug(f"unlock_root: {node_id}, {operation_id}")
     
     """Unlocks root node that is indefinitely locked with operation_id."""
     
     def unlock_indefinitely_locked_root(self, node_id, operation_id):
-        logging.warning(f"unlock_indefinitely_locked_root: {node_id}, {operation_id}")
+        logging.debug(f"unlock_indefinitely_locked_root: {node_id}, {operation_id}")
     
     """Renews existing node lock with operation_id for extended time."""
     
     def renew_lock(self, node_id, operation_id):
-        logging.warning(f"renew_lock: {node_id}, {operation_id}")
+        logging.debug(f"renew_lock: {node_id}, {operation_id}")
     
     """Renews existing node locks with operation_id for extended time."""
     
     def renew_locks(self, node_ids, operation_id):
-        logging.warning(f"renew_locks: {node_ids}, {operation_id}")
+        logging.debug(f"renew_locks: {node_ids}, {operation_id}")
     
     """Reads timestamp from lock row to get a consistent timestamp."""
     
     def get_lock_timestamp(self, node_ids, operation_id):
-        logging.warning(f"get_lock_timestamp: {node_ids}, {operation_id}")
+        logging.debug(f"get_lock_timestamp: {node_ids}, {operation_id}")
     
     """Minimum of multiple lock timestamps."""
     
     def get_consolidated_lock_timestamp(self, root_ids, operation_ids):
-        logging.warning(f"get_consolidated_lock_timestamp: {root_ids}, {operation_ids}")
+        logging.debug(f"get_consolidated_lock_timestamp: {root_ids}, {operation_ids}")
     
     """Datetime time stamp compatible with client's services."""
     
     def get_compatible_timestamp(self, time_stamp):
-        logging.warning(f"get_compatible_timestamp: {time_stamp}")
+        logging.debug(f"get_compatible_timestamp: {time_stamp}")
     
     """Generate a range of unique IDs in the chunk."""
     
@@ -361,7 +378,7 @@ class Client(ClientWithIDGen, OperationLogger):
     """Generate a unique ID in the chunk."""
     
     def create_node_id(self, chunk_id):
-        logging.warning(f"create_node_id: {chunk_id}")
+        logging.debug(f"create_node_id: {chunk_id}")
     
     """Gets the current maximum node ID in the chunk."""
     
@@ -390,12 +407,12 @@ class Client(ClientWithIDGen, OperationLogger):
     """Generate a unique operation ID."""
     
     def create_operation_id(self):
-        logging.warning(f"create_operation_id")
+        logging.debug(f"create_operation_id")
     
     """Gets the current maximum operation ID."""
     
     def get_max_operation_id(self):
-        logging.warning(f"get_max_operation_id")
+        logging.debug(f"get_max_operation_id")
     
     """Read log entry for a given operation ID."""
     
@@ -415,7 +432,7 @@ class Client(ClientWithIDGen, OperationLogger):
     """Read log entries for given operation IDs."""
     
     def read_log_entries(self, operation_ids) -> None:
-        logging.warning(f"read_log_entries: {operation_ids}")
+        logging.debug(f"read_log_entries: {operation_ids}")
     
     def _read_byte_row(
             self,
@@ -535,15 +552,19 @@ class Client(ClientWithIDGen, OperationLogger):
             "end_time_inclusive": end_time_inclusive,
             "user_id": user_id,
         }
-        
-        print(f"_read_byte_rows params ===== {params}")
+        print(f"_read_byte_rows {params}")
         
         row_set = RowSet()
         if row_keys is not None:
             row_set.row_keys = list(row_keys)
             logging.debug(f"KEYS: {row_set.row_keys}")
         elif start_key is not None and end_key is not None:
-            raise exceptions.PreconditionError("IMPLEMENT row ranges")
+            row_set.add_row_range_from_keys(
+                start_key=start_key,
+                start_inclusive=True,
+                end_key=end_key,
+                end_inclusive=end_key_inclusive,
+            )
         else:
             raise exceptions.PreconditionError(
                 "Need to either provide a valid set of rows, or"
@@ -570,7 +591,8 @@ class Client(ClientWithIDGen, OperationLogger):
             
             # If no column array was requested, reattach single column's values directly to the row
             if isinstance(columns, attributes._Attribute):
-                rows[row_key] = column_dict.values()
+                rows[row_key] = column_dict[columns]
+        
         return rows
     
     # TODO: run multi-key requests concurrently (do we need concurrency if batch read is used?)
@@ -692,9 +714,44 @@ class Client(ClientWithIDGen, OperationLogger):
         if not row_set.row_keys and not row_set.row_ranges:
             return {}
         
-        rows = {}
-        
         row_keys = row_set.row_keys
+        
+        rows = {}
+        item_keys_to_get = []
+        kwargs = {}
+        attr_names = {}
+        
+        def __append_to_projection_expression(
+                dict_obj: dict,
+                attribs_to_get
+        ):
+            existing_expr = dict_obj.get("ProjectionExpression", "")
+            attribs_expr = ",".join(attribs_to_get)
+            if existing_expr and attribs_expr:
+                dict_obj["ProjectionExpression"] = f"{existing_expr},{attribs_expr}"
+            elif attribs_expr:
+                dict_obj["ProjectionExpression"] = attribs_expr
+        
+        # User ID filter
+        if row_filter.user_id_filter and row_filter.user_id_filter.user_id:
+            user_id_attr = attributes.OperationLogs.UserID
+            attr_names["#uid"] = f"{user_id_attr.family_id}.{user_id_attr.key.decode()}"
+            __append_to_projection_expression(kwargs, ["#uid"])
+        
+        # Column filter
+        if row_filter.column_filter:
+            ddb_columns = [
+                f"#C{index}" for index in range(len(row_filter.column_filter))
+            ]
+            ddb_columns.extend(["#ver"])
+            __append_to_projection_expression(kwargs, ddb_columns)
+            
+            for index, attr in enumerate(row_filter.column_filter):
+                attr_names[f"#C{index}"] = f"{attr.family_id}.{attr.key.decode()}"
+            attr_names[f"#ver"] = "@"
+            
+            kwargs["ExpressionAttributeNames"] = attr_names
+        
         # there are 2 key entry types:
         #  * one or more "exact" keys
         #     ** If the request is for just one exact key, DDB can be called with GetItem
@@ -707,76 +764,37 @@ class Client(ClientWithIDGen, OperationLogger):
         #       may exceed the limit for the row size eventually. Currently it is as is in the BigTable
         for key in row_keys:
             pk, sk = self._ddb_helper.to_pk_sk(key)
-            
             logging.debug(f"QUERYING FOR: {key}, pk: {pk}, sk: {sk}")
-            kwargs = {}
-            attr_names = {}
-            
-            def __append_to_projection_expression(
-                    dict_obj: dict,
-                    attribs_to_get
-            ):
-                existing_expr = dict_obj.get("ProjectionExpression", "")
-                attribs_expr = ",".join(attribs_to_get)
-                if existing_expr and attribs_expr:
-                    dict_obj["ProjectionExpression"] = f"{existing_expr},{attribs_expr}"
-                elif attribs_expr:
-                    dict_obj["ProjectionExpression"] = attribs_expr
-            
-            if row_filter.user_id_filter and row_filter.user_id_filter.user_id:
-                user_id_attr = attributes.OperationLogs.UserID
-                attr_names["#uid"] = f"{user_id_attr.family_id}.{user_id_attr.key.decode()}"
-                __append_to_projection_expression(kwargs, ["#uid"])
-            
-            # TODO: implement filters:
-            #       user_id
-            #       time
-            #       columns
-            if row_filter.column_filter:
-                ddb_columns = [
-                    f"#C{index}" for index in range(len(row_filter.column_filter))
-                ]
-                ddb_columns.extend(["#ver"])
-                __append_to_projection_expression(kwargs, ddb_columns)
-                
-                for index, attr in enumerate(row_filter.column_filter):
-                    attr_names[f"#C{index}"] = f"{attr.family_id}.{attr.key.decode()}"
-                attr_names[f"#ver"] = "@"
-                
-                kwargs["ExpressionAttributeNames"] = attr_names
-            
+            item_keys_to_get.append({
+                'key': self._ddb_serializer.serialize(pk),
+                'sk': self._ddb_serializer.serialize(sk),
+            })
+        
+        filtered_rows = {}
+        if len(item_keys_to_get) > 0:
             # TODO: Handle potential pagination
             params = {
                 self._table_name: {
-                    'Keys': [{
-                        'key': self._ddb_serializer.serialize(pk),
-                        'sk': self._ddb_serializer.serialize(sk),
-                    }],
+                    'Keys': item_keys_to_get,
                     **kwargs,
                 },
             }
-            print(f"batch_get_item params ======== {params}")
-            
             ret = self._main_db.batch_get_item(RequestItems=params)
             
             items = ret.get("Responses", {}).get(self._table_name, [])
             
             # each item comes with 'key', 'sk', [column_family] and '@' columns
-            for item in items:
+            for index, item in enumerate(items):
                 b_real_key, row = self._ddb_helper.raw_ddb_item_to_row(
                     {
-                        'key': self._ddb_serializer.serialize(pk),
-                        'sk': self._ddb_serializer.serialize(sk),
+                        'key': item_keys_to_get[index]['key'],
+                        'sk': item_keys_to_get[index]['sk'],
                         **item,
                     }
                 )
                 rows[b_real_key] = row
-        
-        print(f"rows before filtering ======== {rows}")
-        
-        filtered_rows = self._apply_filters(rows, row_filter)
-        
-        print(f"rows after filtering ======== {filtered_rows}")
+            
+            filtered_rows = self._apply_filters(rows, row_filter)
         
         return filtered_rows
     
@@ -851,7 +869,7 @@ class Client(ClientWithIDGen, OperationLogger):
                 ]]
             }
         )
-        high = column.deserialize(size_bytes)
+        high = size
         return high + np.uint64(1) - size, high
     
     def _get_root_segment_ids_range(

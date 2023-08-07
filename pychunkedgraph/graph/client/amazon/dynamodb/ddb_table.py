@@ -1,6 +1,7 @@
 import boto3
 from boto3.dynamodb.types import TypeDeserializer, TypeSerializer
 
+from pychunkedgraph.graph import attributes
 from .ddb_helper import DdbHelper
 
 
@@ -31,9 +32,8 @@ class Table:
         
         rows = {}
         for item in items:
-            print(f"Translating item to row ===== {item}")
             b_real_key, row = self._ddb_helper.ddb_item_to_row(item)
-            rows[b_real_key] = row
+            rows[b_real_key] = Row(row)
         
         return TableRows(rows)
 
@@ -44,10 +44,25 @@ class TableRows:
     
     def consume_all(self):
         pass
-        
-        # function to get value of _age
     
-    def get_rows(self):
+    @property
+    def rows(self):
         return self._rows
     
-    rows = property(get_rows)
+    @property
+    def cells(self):
+        return self._rows
+
+
+class Row:
+    def __init__(self, columns):
+        __cells = {}
+        for attr, value in columns.items():
+            if isinstance(attr, attributes._Attribute):
+                __cells[attr.family_id] = __cells.get(attr.family_id, {})
+                __cells[attr.family_id][attr.key] = value
+        self._cells = __cells
+    
+    @property
+    def cells(self):
+        return self._cells

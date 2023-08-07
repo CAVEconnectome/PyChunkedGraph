@@ -172,6 +172,7 @@ class DdbHelper:
             real_key = pk
         
         b_real_key = real_key.encode()
+        
         return b_real_key, row
     
     def row_to_ddb_item(
@@ -185,6 +186,7 @@ class DdbHelper:
         for attrib_column, cells_array in row.items():
             if not isinstance(attrib_column, attributes._Attribute):
                 continue
+            
             family = attrib_column.family_id
             qualifier = attrib_column.key.decode()
             

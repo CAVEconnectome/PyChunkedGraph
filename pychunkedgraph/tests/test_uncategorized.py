@@ -102,6 +102,17 @@ class TestGraphNodeConversion:
         assert deserialize_uint64(serialize_uint64(label)) == label
 
 
+def try_deserialize(attr, value):
+    try:
+        deserialized_value = attr.deserialize(value)
+    except:
+        # In case of some clients (e.g., Amazon DynamoDB client) the attribute is
+        # already deserialize before being returned, we may error during deserialize in that case.
+        # In that case, we just use the value as it is.
+        deserialized_value = value
+    return deserialized_value
+
+
 class TestGraphBuild:
     @pytest.mark.timeout(30)
     def test_build_single_node(self, gen_graph):
@@ -121,9 +132,6 @@ class TestGraphBuild:
         res = cg.client._table.read_rows()
         res.consume_all()
         
-        print(f"--- Expected === {serialize_uint64(to_label(cg, 1, 0, 0, 0, 0))}")
-        print(f"--- Actual === {res.rows}")
-        
         assert serialize_uint64(to_label(cg, 1, 0, 0, 0, 0)) in res.rows
         parent = cg.get_parent(to_label(cg, 1, 0, 0, 0, 0))
         assert parent == to_label(cg, 2, 0, 0, 0, 1)
@@ -135,7 +143,7 @@ class TestGraphBuild:
         )
         attr = attributes.Hierarchy.Child
         row = res.rows[serialize_uint64(to_label(cg, 2, 0, 0, 0, 1))].cells["0"]
-        children = attr.deserialize(row[attr.key][0].value)
+        children = try_deserialize(attr, row[attr.key][0].value)
         
         for aces in atomic_cross_edge_d.values():
             assert len(aces) == 0
@@ -184,7 +192,7 @@ class TestGraphBuild:
         )
         attr = attributes.Hierarchy.Child
         row = res.rows[serialize_uint64(to_label(cg, 2, 0, 0, 0, 1))].cells["0"]
-        children = attr.deserialize(row[attr.key][0].value)
+        children = try_deserialize(attr, row[attr.key][0].value)
         
         for aces in atomic_cross_edge_d.values():
             assert len(aces) == 0
@@ -251,7 +259,7 @@ class TestGraphBuild:
         
         attr = attributes.Hierarchy.Child
         row = res.rows[serialize_uint64(to_label(cg, 2, 0, 0, 0, 1))].cells["0"]
-        children = attr.deserialize(row[attr.key][0].value)
+        children = try_deserialize(attr, row[attr.key][0].value)
         
         test_ace = np.array(
             [to_label(cg, 1, 0, 0, 0, 0), to_label(cg, 1, 1, 0, 0, 0)],
@@ -272,7 +280,7 @@ class TestGraphBuild:
         
         attr = attributes.Hierarchy.Child
         row = res.rows[serialize_uint64(to_label(cg, 2, 1, 0, 0, 1))].cells["0"]
-        children = attr.deserialize(row[attr.key][0].value)
+        children = try_deserialize(attr, row[attr.key][0].value)
         
         test_ace = np.array(
             [to_label(cg, 1, 1, 0, 0, 0), to_label(cg, 1, 0, 0, 0, 0)],
@@ -289,7 +297,7 @@ class TestGraphBuild:
         
         attr = attributes.Hierarchy.Child
         row = res.rows[serialize_uint64(to_label(cg, 3, 0, 0, 0, 1))].cells["0"]
-        children = attr.deserialize(row[attr.key][0].value)
+        children = try_deserialize(attr, row[attr.key][0].value)
         assert (
                 len(children) == 2
                 and to_label(cg, 2, 0, 0, 0, 1) in children

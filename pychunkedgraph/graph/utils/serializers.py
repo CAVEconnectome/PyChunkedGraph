@@ -1,3 +1,4 @@
+import sys
 from typing import Any, Iterable
 import json
 import pickle
@@ -12,18 +13,18 @@ class _Serializer:
         self._deserializer = deserializer
         self._basetype = basetype
         self._compression_level = compression_level
-
+    
     def serialize(self, obj):
         content = self._serializer(obj)
         if self._compression_level:
             return zstd.ZstdCompressor(level=self._compression_level).compress(content)
         return content
-
+    
     def deserialize(self, obj):
         if self._compression_level:
             obj = zstd.ZstdDecompressor().decompressobj().decompress(obj)
         return self._deserializer(obj)
-
+    
     @property
     def basetype(self):
         return self._basetype
@@ -38,7 +39,7 @@ class NumPyArray(_Serializer):
         if order is not None:
             return data.reshape(data.shape, order=order)
         return data
-
+    
     def __init__(self, dtype, shape=None, order=None, compression_level=None):
         super().__init__(
             serializer=lambda x: x.newbyteorder(dtype.byteorder).tobytes(),
