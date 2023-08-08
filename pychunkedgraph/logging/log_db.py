@@ -111,7 +111,8 @@ class TimeIt:
         self._graph_id = graph_id
         self._ts = datetime.utcnow()
         self._kwargs = kwargs
-        self.operation_id = operation_id
+        if self.operation_id == -1:
+            self.operation_id = operation_id
 
     def __enter__(self):
         self._start = time.time()
