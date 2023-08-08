@@ -656,9 +656,14 @@ class ChunkedGraph:
         Children of Level 2 Node IDs and edges.
         Edges are read from cloud storage.
         """
+        from contextvars import ContextVar
         from itertools import chain
         from functools import reduce
         from .misc import get_agglomerations
+        from ..logging.log_db import TimeIt
+
+        operation_id_ctx = ContextVar("operation_id", default=-1)
+        operation_id = operation_id_ctx.get()
 
         chunk_ids = np.unique(self.get_chunk_ids_from_node_ids(level2_ids))
         # google does not provide a storage emulator at the moment
@@ -666,7 +671,8 @@ class ChunkedGraph:
         # find a better way to test
         edges_d = {}
         if self.mock_edges is None:
-            edges_d = self.read_chunk_edges(chunk_ids)
+            with TimeIt("get_l2_agglomerations.read_chunk_edges", self.graph_id, operation_id):
+                edges_d = self.read_chunk_edges(chunk_ids)
 
         fake_edges = self.get_fake_edges(chunk_ids)
         all_chunk_edges = reduce(
@@ -676,40 +682,44 @@ class ChunkedGraph:
         )
 
         if edges_only:
-            if self.mock_edges is not None:
-                all_chunk_edges = self.mock_edges.get_pairs()
-            else:
-                all_chunk_edges = all_chunk_edges.get_pairs()
-            supervoxels = self.get_children(level2_ids, flatten=True)
-            mask0 = np.in1d(all_chunk_edges[:, 0], supervoxels)
-            mask1 = np.in1d(all_chunk_edges[:, 1], supervoxels)
-            return all_chunk_edges[mask0 & mask1]
+            with TimeIt("get_l2_agglomerations.edges_only", self.graph_id, operation_id):
+                if self.mock_edges is not None:
+                    all_chunk_edges = self.mock_edges.get_pairs()
+                else:
+                    all_chunk_edges = all_chunk_edges.get_pairs()
+                supervoxels = self.get_children(level2_ids, flatten=True)
+                mask0 = np.in1d(all_chunk_edges[:, 0], supervoxels)
+                mask1 = np.in1d(all_chunk_edges[:, 1], supervoxels)
+                return all_chunk_edges[mask0 & mask1]
 
-        l2id_children_d = self.get_children(level2_ids)
-        sv_parent_d = {}
-        supervoxels = []
-        for l2id in l2id_children_d:
-            svs = l2id_children_d[l2id]
-            sv_parent_d.update(dict(zip(svs.tolist(), [l2id] * len(svs))))
-            supervoxels.append(svs)
-
-        supervoxels = np.concatenate(supervoxels)
+        with TimeIt("get_l2_agglomerations.get_children_preprocess", self.graph_id, operation_id):
+            l2id_children_d = self.get_children(level2_ids)
+            sv_parent_d = {}
+            supervoxels = []
+            for l2id in l2id_children_d:
+                svs = l2id_children_d[l2id]
+                sv_parent_d.update(dict(zip(svs.tolist(), [l2id] * len(svs))))
+                supervoxels.append(svs)
+            supervoxels = np.concatenate(supervoxels)
 
         def f(x):
             return sv_parent_d.get(x, x)
 
         get_sv_parents = np.vectorize(f, otypes=[np.uint64])
-        in_edges, out_edges, cross_edges = edge_utils.categorize_edges_v2(
-            self.meta,
-            supervoxels,
-            all_chunk_edges,
-            l2id_children_d,
-            get_sv_parents,
-        )
 
-        agglomeration_d = get_agglomerations(
-            l2id_children_d, in_edges, out_edges, cross_edges, get_sv_parents
-        )
+        with TimeIt("get_l2_agglomerations.categorize_edges_v2", self.graph_id, operation_id):
+            in_edges, out_edges, cross_edges = edge_utils.categorize_edges_v2(
+                self.meta,
+                supervoxels,
+                all_chunk_edges,
+                l2id_children_d,
+                get_sv_parents,
+            )
+
+        with TimeIt("get_l2_agglomerations.get_agglomerations", self.graph_id, operation_id):
+            agglomeration_d = get_agglomerations(
+                l2id_children_d, in_edges, out_edges, cross_edges, get_sv_parents
+            )
         return (
             agglomeration_d,
             (self.mock_edges,)

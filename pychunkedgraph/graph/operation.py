@@ -2,6 +2,7 @@
 
 from abc import ABC, abstractmethod
 from collections import namedtuple
+from contextvars import ContextVar
 from datetime import datetime
 from typing import TYPE_CHECKING
 from typing import Dict
@@ -422,6 +423,9 @@ class GraphEditOperation(ABC):
             operation_id=operation_id,
             privileged_mode=self.privileged_mode,
         ) as lock:
+            operation_id_ctx = ContextVar("operation_id")
+            operation_id_ctx.set(operation_id)
+
             self.cg.cache = CacheService(self.cg)
             timestamp = self.cg.client.get_consolidated_lock_timestamp(
                 lock.locked_root_ids,
