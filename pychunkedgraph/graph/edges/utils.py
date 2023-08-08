@@ -104,9 +104,7 @@ def categorize_edges(
 
 def categorize_edges_v2(
     meta: ChunkedGraphMeta,
-    supervoxels: np.ndarray,
     edges: Edges,
-    l2id_children_d: Dict,
     get_sv_parents: Callable,
 ) -> Tuple[Edges, Edges, Edges]:
     """Faster version of categorize_edges(), avoids looping over L2 IDs."""
@@ -114,8 +112,9 @@ def categorize_edges_v2(
     node_ids2 = get_sv_parents(edges.node_ids2)
 
     layer_mask1 = chunk_utils.get_chunk_layers(meta, node_ids1) > 1
-    in_edges = edges[node_ids1 == node_ids2]
-    all_out_ = edges[layer_mask1 & (node_ids1 != node_ids2)]
+    nodes_mask = node_ids1 == node_ids2
+    in_edges = edges[nodes_mask]
+    all_out_ = edges[layer_mask1 & ~nodes_mask]
 
     cx_layers = get_cross_chunk_edges_layer(meta, all_out_.get_pairs())
     cx_mask = cx_layers > 1

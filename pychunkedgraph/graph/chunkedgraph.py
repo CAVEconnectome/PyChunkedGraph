@@ -705,9 +705,7 @@ class ChunkedGraph:
         with TimeIt("categorize_edges_v2", self.graph_id, n_edges=len(all_chunk_edges)):
             in_edges, out_edges, cross_edges = edge_utils.categorize_edges_v2(
                 self.meta,
-                supervoxels,
                 all_chunk_edges,
-                l2id_children_d,
                 get_sv_parents,
             )
 
