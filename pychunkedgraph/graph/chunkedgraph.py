@@ -704,6 +704,7 @@ class ChunkedGraph:
                 self.meta,
                 all_chunk_edges,
                 get_sv_parents,
+                self.graph_id
             )
 
         agglomeration_d = get_agglomerations(
