@@ -650,20 +650,16 @@ class ChunkedGraph:
         return result
 
     def get_l2_agglomerations(
-        self, level2_ids: np.ndarray, edges_only: bool = False
+        self, level2_ids: np.ndarray, edges_only: bool = False, operation_id:int = -1
     ) -> typing.Tuple[typing.Dict[int, types.Agglomeration], np.ndarray]:
         """
         Children of Level 2 Node IDs and edges.
         Edges are read from cloud storage.
         """
-        from contextvars import ContextVar
         from itertools import chain
         from functools import reduce
         from .misc import get_agglomerations
         from ..logging.log_db import TimeIt
-
-        operation_id_ctx = ContextVar("operation_id", default=-1)
-        operation_id = operation_id_ctx.get()
 
         chunk_ids = np.unique(self.get_chunk_ids_from_node_ids(level2_ids))
         # google does not provide a storage emulator at the moment
@@ -692,15 +688,14 @@ class ChunkedGraph:
                 mask1 = np.in1d(all_chunk_edges[:, 1], supervoxels)
                 return all_chunk_edges[mask0 & mask1]
 
-        with TimeIt("get_l2_agglomerations.get_children_preprocess", self.graph_id, operation_id):
-            l2id_children_d = self.get_children(level2_ids)
-            sv_parent_d = {}
-            supervoxels = []
-            for l2id in l2id_children_d:
-                svs = l2id_children_d[l2id]
-                sv_parent_d.update(dict(zip(svs.tolist(), [l2id] * len(svs))))
-                supervoxels.append(svs)
-            supervoxels = np.concatenate(supervoxels)
+        l2id_children_d = self.get_children(level2_ids)
+        sv_parent_d = {}
+        supervoxels = []
+        for l2id in l2id_children_d:
+            svs = l2id_children_d[l2id]
+            sv_parent_d.update(dict(zip(svs.tolist(), [l2id] * len(svs))))
+            supervoxels.append(svs)
+        supervoxels = np.concatenate(supervoxels)
 
         def f(x):
             return sv_parent_d.get(x, x)
@@ -716,10 +711,9 @@ class ChunkedGraph:
                 get_sv_parents,
             )
 
-        with TimeIt("get_l2_agglomerations.get_agglomerations", self.graph_id, operation_id):
-            agglomeration_d = get_agglomerations(
-                l2id_children_d, in_edges, out_edges, cross_edges, get_sv_parents
-            )
+        agglomeration_d = get_agglomerations(
+            l2id_children_d, in_edges, out_edges, cross_edges, get_sv_parents
+        )
         return (
             agglomeration_d,
             (self.mock_edges,)

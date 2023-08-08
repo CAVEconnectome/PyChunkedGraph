@@ -2,7 +2,6 @@
 
 from abc import ABC, abstractmethod
 from collections import namedtuple
-from contextvars import ContextVar
 from datetime import datetime
 from typing import TYPE_CHECKING
 from typing import Dict
@@ -423,9 +422,6 @@ class GraphEditOperation(ABC):
             operation_id=operation_id,
             privileged_mode=self.privileged_mode,
         ) as lock:
-            operation_id_ctx = ContextVar("operation_id")
-            operation_id_ctx.set(operation_id)
-
             self.cg.cache = CacheService(self.cg)
             timestamp = self.cg.client.get_consolidated_lock_timestamp(
                 lock.locked_root_ids,
@@ -751,7 +747,8 @@ class SplitOperation(GraphEditOperation):
             l2id_agglomeration_d, _ = self.cg.get_l2_agglomerations(
                 self.cg.get_parents(
                     self.removed_edges.ravel(), time_stamp=self.parent_ts
-                )
+                ),
+                operation_id=operation_id
             )
         with TimeIt("split.apply.remove_edges", self.cg.graph_id, operation_id):
             return edits.remove_edges(
