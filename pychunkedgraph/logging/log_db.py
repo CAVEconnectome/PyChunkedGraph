@@ -106,7 +106,10 @@ class TimeIt:
         self._name = name
         self._start = None
         self._graph_id = graph_id
-        self._operation_id = int(operation_id)
+        try:
+            self._operation_id = int(operation_id)
+        except TypeError:
+            self._operation_id = -1
         self._ts = datetime.utcnow()
         self._kwargs = kwargs
 
