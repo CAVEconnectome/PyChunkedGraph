@@ -423,6 +423,7 @@ class GraphEditOperation(ABC):
             privileged_mode=self.privileged_mode,
         ) as lock:
             self.cg.cache = CacheService(self.cg)
+            self.cg.meta.custom_data["operation_id"] = operation_id
             timestamp = self.cg.client.get_consolidated_lock_timestamp(
                 lock.locked_root_ids,
                 np.array([lock.operation_id] * len(lock.locked_root_ids)),
@@ -748,7 +749,6 @@ class SplitOperation(GraphEditOperation):
                 self.cg.get_parents(
                     self.removed_edges.ravel(), time_stamp=self.parent_ts
                 ),
-                operation_id=operation_id
             )
         with TimeIt("split.apply.remove_edges", self.cg.graph_id, operation_id):
             return edits.remove_edges(

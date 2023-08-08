@@ -650,7 +650,7 @@ class ChunkedGraph:
         return result
 
     def get_l2_agglomerations(
-        self, level2_ids: np.ndarray, edges_only: bool = False, operation_id:int = -1
+        self, level2_ids: np.ndarray, edges_only: bool = False
     ) -> typing.Tuple[typing.Dict[int, types.Agglomeration], np.ndarray]:
         """
         Children of Level 2 Node IDs and edges.
@@ -660,6 +660,8 @@ class ChunkedGraph:
         from functools import reduce
         from .misc import get_agglomerations
         from ..logging.log_db import TimeIt
+
+        operation_id = self.meta.custom_data.get("operation_id", -1)
 
         chunk_ids = np.unique(self.get_chunk_ids_from_node_ids(level2_ids))
         # google does not provide a storage emulator at the moment
