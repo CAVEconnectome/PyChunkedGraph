@@ -114,10 +114,22 @@ class ChunkedGraph:
         max_node_id = self.id_client.get_max_node_id(
             chunk_id=chunk_id, root_chunk=root_chunk
         )
+        print(f" === range_read_chunk max_node_id = {max_node_id}")
+        
         if layer == 1:
             max_node_id = chunk_id | self.get_segment_id_limit(
                 chunk_id
             )  # pylint: disable=unsupported-binary-operation
+        
+        params = {
+            'start_id': self.get_node_id(np.uint64(0), chunk_id=chunk_id),
+            'end_id': max_node_id,
+            'end_id_inclusive': True,
+            'properties': properties,
+            'end_time': time_stamp,
+            'end_time_inclusive': True,
+        }
+        print(f" === range_read_chunk calling read_nodes with = {params}")
         
         return self.client.read_nodes(
             start_id=self.get_node_id(np.uint64(0), chunk_id=chunk_id),

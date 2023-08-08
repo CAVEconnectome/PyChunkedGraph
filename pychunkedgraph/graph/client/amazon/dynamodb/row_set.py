@@ -1,5 +1,33 @@
+from typing import Dict, Iterable, Union, Optional, List, Any, Tuple
+
+
+class RowRange:
+    def __init__(self, start_key: bytes = None, end_key: bytes = None, start_inclusive: bool = True,
+                 end_inclusive: bool = False):
+        self._start_key = start_key
+        self._end_key = end_key
+        self._start_inclusive = start_inclusive
+        self._end_inclusive = end_inclusive
+    
+    @property
+    def start_key(self):
+        return self._start_key
+    
+    @property
+    def end_key(self):
+        return self._end_key
+    
+    @property
+    def start_inclusive(self):
+        return self._start_inclusive
+    
+    @property
+    def end_inclusive(self):
+        return self._end_inclusive
+
+
 class RowSet:
-    def __init__(self, row_keys=None, row_ranges=None):
+    def __init__(self, row_keys: Iterable[bytes] = None, row_ranges: Iterable[RowRange] = None):
         if row_ranges is None:
             row_ranges = []
         if row_keys is None:
@@ -38,27 +66,3 @@ class RowSet:
                 end_inclusive
             )
         )
-
-
-class RowRange:
-    def __init__(self, start_key=None, end_key=None, start_inclusive=True, end_inclusive=False):
-        self._start_key = start_key,
-        self._end_key = end_key,
-        self._start_inclusive = start_inclusive
-        self._end_inclusive = end_inclusive
-    
-    @property
-    def start_key(self):
-        return self._start_key
-    
-    @property
-    def end_key(self):
-        return self._end_key
-    
-    @property
-    def start_inclusive(self):
-        return self._start_inclusive
-    
-    @property
-    def end_inclusive(self):
-        return self._end_inclusive

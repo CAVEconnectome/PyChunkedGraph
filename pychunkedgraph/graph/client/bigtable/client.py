@@ -592,6 +592,7 @@ class Client(bigtable.Client, ClientWithIDGen, OperationLogger):
             self, chunk_id: basetypes.CHUNK_ID, root_chunk=False
     ) -> basetypes.NODE_ID:
         """Gets the current maximum segment ID in the chunk."""
+        print(f" --- get_max_node_id chunk_id, root_chunk = {chunk_id}, {root_chunk}")
         if root_chunk:
             n_counters = np.uint64(2 ** 8)
             max_value = 0
@@ -607,9 +608,11 @@ class Client(bigtable.Client, ClientWithIDGen, OperationLogger):
                 max_value = val if val > max_value else max_value
             return chunk_id | basetypes.SEGMENT_ID.type(max_value)
         column = attributes.Concurrency.Counter
+        print(f" --- get_max_node_id reading row with key = {serialize_uint64(chunk_id, counter=True)}")
         row = self._read_byte_row(
             serialize_uint64(chunk_id, counter=True), columns=column
         )
+        print(f" --- get_max_node_id read counter = {row}")
         return chunk_id | basetypes.SEGMENT_ID.type(row[0].value if row else 0)
     
     def create_operation_id(self):
@@ -640,11 +643,14 @@ class Client(bigtable.Client, ClientWithIDGen, OperationLogger):
     
     def _get_ids_range(self, key: bytes, size: int) -> typing.Tuple:
         """Returns a range (min, max) of IDs for a given `key`."""
+        print(f" --- _get_ids_range key, size = {key},  {size}")
+        
         column = attributes.Concurrency.Counter
         row = self._table.append_row(key)
         row.increment_cell_value(column.family_id, column.key, size)
         row = row.commit()
         high = column.deserialize(row[column.family_id][column.key][0][0])
+        print(f" --- _get_ids_range returning = {high + np.uint64(1) - size}, {high}")
         return high + np.uint64(1) - size, high
     
     def _get_root_segment_ids_range(

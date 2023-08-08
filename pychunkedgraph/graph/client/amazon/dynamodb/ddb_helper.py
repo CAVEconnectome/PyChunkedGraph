@@ -107,7 +107,7 @@ class DdbHelper:
             real_key = pad_node_id(ikey)
         elif pk[0] in ["i", "f"]:
             ikey = (int(pk[1:]) << self._pk_key_shift) | sk
-            real_key = pad_node_id(ikey)
+            real_key = f"{pk[0]}{pad_node_id(ikey)}"
         else:
             real_key = pk
         
@@ -167,7 +167,7 @@ class DdbHelper:
             real_key = pad_node_id(ikey)
         elif pk[0] in ["i", "f"]:
             ikey = (int(pk[1:]) << self._pk_key_shift) | sk
-            real_key = pad_node_id(ikey)
+            real_key = f"{pk[0]}{pad_node_id(ikey)}"
         else:
             real_key = pk
         
@@ -214,17 +214,59 @@ class DdbHelper:
         return item
     
     def to_pk_sk(self, key: bytes):
-        skey = key.decode()
-        if skey[0].isdigit():
-            ikey = int(skey)
-            pk = f"{(ikey >> self._pk_key_shift):{self._pk_int_format}}"
-            sk = ikey & self._sk_key_mask
-        elif skey[0] in ["f", "i"]:
-            # TODO: keys with "i" prefix may have weird suffix, like _05 and couldn't be converted to int like below
-            ikey = int(skey[1:])
-            pk = f"{(ikey >> self._pk_key_shift):{self._pk_int_format}}"
-            sk = ikey & self._sk_key_mask
+        prefix, ikey = self._to_int_key(key)
+        if ikey is not None:
+            pk, sk = self._int_key_to_pk_sk(ikey, prefix)
         else:
-            pk = skey
+            pk = f"{'' if prefix is None else prefix}{key.decode()}"
             sk = 0
+        return pk, sk
+    
+    def to_sk_range(
+            self,
+            start_key: bytes,
+            end_key: bytes,
+            start_inclusive: bool = True,
+            end_inclusive: bool = True
+    ):
+        
+        prefix_start, i_start = self._to_int_key(start_key)
+        prefix_end, i_end = self._to_int_key(end_key)
+        
+        if i_start is not None:
+            if not start_inclusive:
+                i_start = i_start + 1
+        
+        if i_end is not None:
+            if not end_inclusive:
+                i_end = i_end - 1
+        
+        sk_start = None
+        sk_end = None
+        pk_start = None
+        pk_end = None
+        if i_start is not None:
+            pk_start, sk_start = self._int_key_to_pk_sk(i_start, prefix_start)
+        
+        if i_end is not None:
+            pk_end, sk_end = self._int_key_to_pk_sk(i_end, prefix_end)
+        
+        if pk_start is not None and pk_end is not None and pk_start != pk_end:
+            raise ValueError("DynamoDB does not support range queries across different partition keys")
+        
+        return pk_start if pk_start is not None else pk_end, sk_start, sk_end
+    
+    def _to_int_key(self, key: bytes):
+        str_key = key.decode()
+        if str_key[0].isdigit():
+            return None, int(str_key)
+        elif str_key[0] in ["f", "i"]:
+            # TODO: keys with "i" prefix may have weird suffix, like _05 and couldn't be converted to int like below
+            return str_key[0], int(str_key[1:])
+        else:
+            return None, None
+    
+    def _int_key_to_pk_sk(self, ikey: int, prefix: str = None):
+        pk = f"{'' if prefix is None else prefix}{(ikey >> self._pk_key_shift):{self._pk_int_format}}"
+        sk = ikey & self._sk_key_mask
         return pk, sk
