@@ -667,7 +667,7 @@ class ChunkedGraph:
         # find a better way to test
         edges_d = {}
         if self.mock_edges is None:
-            with TimeIt("read_chunk_edges", self.graph_id):
+            with TimeIt("read_chunk_edges", self.graph_id, n_chunks=len(chunk_ids)):
                 edges_d = self.read_chunk_edges(chunk_ids)
 
         fake_edges = self.get_fake_edges(chunk_ids)
@@ -702,7 +702,7 @@ class ChunkedGraph:
 
         get_sv_parents = np.vectorize(f, otypes=[np.uint64])
 
-        with TimeIt("categorize_edges_v2", self.graph_id):
+        with TimeIt("categorize_edges_v2", self.graph_id, n_edges=len(all_chunk_edges)):
             in_edges, out_edges, cross_edges = edge_utils.categorize_edges_v2(
                 self.meta,
                 supervoxels,
