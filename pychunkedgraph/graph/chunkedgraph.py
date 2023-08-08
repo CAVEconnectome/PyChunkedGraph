@@ -661,15 +661,13 @@ class ChunkedGraph:
         from .misc import get_agglomerations
         from ..logging.log_db import TimeIt
 
-        operation_id = self.meta.custom_data.get("operation_id", -1)
-
         chunk_ids = np.unique(self.get_chunk_ids_from_node_ids(level2_ids))
         # google does not provide a storage emulator at the moment
         # this is an ugly hack to avoid permission issues in tests
         # find a better way to test
         edges_d = {}
         if self.mock_edges is None:
-            with TimeIt("get_l2_agglomerations.read_chunk_edges", self.graph_id, operation_id):
+            with TimeIt("read_chunk_edges", self.graph_id):
                 edges_d = self.read_chunk_edges(chunk_ids)
 
         fake_edges = self.get_fake_edges(chunk_ids)
@@ -680,7 +678,7 @@ class ChunkedGraph:
         )
 
         if edges_only:
-            with TimeIt("get_l2_agglomerations.edges_only", self.graph_id, operation_id):
+            with TimeIt("edges_only", self.graph_id):
                 if self.mock_edges is not None:
                     all_chunk_edges = self.mock_edges.get_pairs()
                 else:
@@ -704,7 +702,7 @@ class ChunkedGraph:
 
         get_sv_parents = np.vectorize(f, otypes=[np.uint64])
 
-        with TimeIt("get_l2_agglomerations.categorize_edges_v2", self.graph_id, operation_id):
+        with TimeIt("categorize_edges_v2", self.graph_id):
             in_edges, out_edges, cross_edges = edge_utils.categorize_edges_v2(
                 self.meta,
                 supervoxels,

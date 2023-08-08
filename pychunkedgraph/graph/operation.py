@@ -604,7 +604,7 @@ class MergeOperation(GraphEditOperation):
         if len(root_ids) < 2 and not self.allow_same_segment_merge:
             raise PreconditionError("Supervoxels must belong to different objects.")
         bbox = get_bbox(self.source_coords, self.sink_coords, self.bbox_offset)
-        with TimeIt("merge.apply.subgraph", self.cg.graph_id, operation_id):
+        with TimeIt("subgraph", self.cg.graph_id, operation_id):
             edges = self.cg.get_subgraph(
                 root_ids,
                 bbox=bbox,
@@ -612,7 +612,7 @@ class MergeOperation(GraphEditOperation):
                 edges_only=True,
             )
 
-        with TimeIt("merge.apply.preprocess", self.cg.graph_id, operation_id):
+        with TimeIt("preprocess", self.cg.graph_id, operation_id):
             inactive_edges = edits.merge_preprocess(
                 self.cg,
                 subgraph_edges=edges,
@@ -627,7 +627,7 @@ class MergeOperation(GraphEditOperation):
             time_stamp=timestamp,
             parent_ts=self.parent_ts,
         )
-        with TimeIt("merge.apply.add_edges", self.cg.graph_id, operation_id):
+        with TimeIt("add_edges", self.cg.graph_id, operation_id):
             new_roots, new_l2_ids, new_entries = edits.add_edges(
                 self.cg,
                 atomic_edges=atomic_edges,
@@ -744,13 +744,13 @@ class SplitOperation(GraphEditOperation):
         ):
             raise PreconditionError("Supervoxels must belong to the same object.")
 
-        with TimeIt("split.apply.subgraph", self.cg.graph_id, operation_id):
+        with TimeIt("subgraph", self.cg.graph_id, operation_id):
             l2id_agglomeration_d, _ = self.cg.get_l2_agglomerations(
                 self.cg.get_parents(
                     self.removed_edges.ravel(), time_stamp=self.parent_ts
                 ),
             )
-        with TimeIt("split.apply.remove_edges", self.cg.graph_id, operation_id):
+        with TimeIt("remove_edges", self.cg.graph_id, operation_id):
             return edits.remove_edges(
                 self.cg,
                 operation_id=operation_id,
@@ -891,7 +891,7 @@ class MulticutOperation(GraphEditOperation):
             self.sink_coords,
             self.cg.meta.split_bounding_offset,
         )
-        with TimeIt("split.apply.get_subgraph", self.cg.graph_id, operation_id):
+        with TimeIt("get_subgraph", self.cg.graph_id, operation_id):
             l2id_agglomeration_d, edges = self.cg.get_subgraph(
                 root_ids.pop(), bbox=bbox, bbox_is_coordinate=True
             )
@@ -906,7 +906,7 @@ class MulticutOperation(GraphEditOperation):
         if len(edges) == 0:
             raise PreconditionError("No local edges found.")
 
-        with TimeIt("split.apply.multicut", self.cg.graph_id, operation_id):
+        with TimeIt("multicut", self.cg.graph_id, operation_id):
             self.removed_edges = run_multicut(
                 edges,
                 self.source_ids,
@@ -917,7 +917,7 @@ class MulticutOperation(GraphEditOperation):
         if not self.removed_edges.size:
             raise PostconditionError("Mincut could not find any edges to remove.")
 
-        with TimeIt("split.apply.remove_edges", self.cg.graph_id, operation_id):
+        with TimeIt("remove_edges", self.cg.graph_id, operation_id):
             return edits.remove_edges(
                 self.cg,
                 operation_id=operation_id,
