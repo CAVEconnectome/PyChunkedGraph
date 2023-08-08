@@ -690,19 +690,16 @@ class ChunkedGraph:
 
         l2id_children_d = self.get_children(level2_ids)
         sv_parent_d = {}
-        supervoxels = []
         for l2id in l2id_children_d:
             svs = l2id_children_d[l2id]
             sv_parent_d.update(dict(zip(svs.tolist(), [l2id] * len(svs))))
-            supervoxels.append(svs)
-        supervoxels = np.concatenate(supervoxels)
 
         def f(x):
             return sv_parent_d.get(x, x)
 
         get_sv_parents = np.vectorize(f, otypes=[np.uint64])
 
-        with TimeIt("categorize_edges_v2", self.graph_id, n_edges=len(all_chunk_edges)):
+        with TimeIt("catv2", self.graph_id, n_edges=len(all_chunk_edges)):
             in_edges, out_edges, cross_edges = edge_utils.categorize_edges_v2(
                 self.meta,
                 all_chunk_edges,

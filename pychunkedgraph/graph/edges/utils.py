@@ -90,8 +90,6 @@ def categorize_edges(
     in_mask = mask1 & mask2
     out_mask = mask1 & ~mask2
 
-    print("np.sum(in_mask)", np.sum(in_mask))
-
     in_edges = edges[in_mask]
     all_out_edges = edges[out_mask]  # out_edges + cross_edges
 
@@ -106,17 +104,26 @@ def categorize_edges_v2(
     meta: ChunkedGraphMeta,
     edges: Edges,
     get_sv_parents: Callable,
+    graph_id:str
 ) -> Tuple[Edges, Edges, Edges]:
     """Faster version of categorize_edges(), avoids looping over L2 IDs."""
+    from ...logging.log_db import TimeIt
+
     node_ids1 = get_sv_parents(edges.node_ids1)
     node_ids2 = get_sv_parents(edges.node_ids2)
 
-    layer_mask1 = chunk_utils.get_chunk_layers(meta, node_ids1) > 1
-    nodes_mask = node_ids1 == node_ids2
+    with TimeIt("layer_mask1", graph_id):
+        layer_mask1 = chunk_utils.get_chunk_layers(meta, node_ids1) > 1
+
+    with TimeIt("nodes_mask", graph_id):
+        nodes_mask = node_ids1 == node_ids2
+
     in_edges = edges[nodes_mask]
     all_out_ = edges[layer_mask1 & ~nodes_mask]
 
-    cx_layers = get_cross_chunk_edges_layer(meta, all_out_.get_pairs())
+    with TimeIt("cx_edges_layers", graph_id):
+        cx_layers = get_cross_chunk_edges_layer(meta, all_out_.get_pairs())
+
     cx_mask = cx_layers > 1
     out_edges = all_out_[~cx_mask]
     cross_edges = all_out_[cx_mask]
