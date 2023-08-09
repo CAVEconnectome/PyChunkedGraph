@@ -120,10 +120,10 @@ def categorize_edges_v2(
         node_ids2 = get_sv_parents(edges.node_ids2)
 
     with TimeIt("1remap", graph_id=graph_id, n_ids=len(edges.node_ids1)):
-        node_ids3 = fastremap.remap(edges.node_ids1, sv_parent_d, preserve_missing_labels=True, in_place=True)
+        node_ids3 = fastremap.remap(edges.node_ids1, sv_parent_d, preserve_missing_labels=True, in_place=False)
 
     with TimeIt("2remap", graph_id=graph_id, n_ids=len(edges.node_ids1)):
-        node_ids4 = fastremap.remap(edges.node_ids2, sv_parent_d, preserve_missing_labels=True, in_place=True)
+        node_ids4 = fastremap.remap(edges.node_ids2, sv_parent_d, preserve_missing_labels=True, in_place=False)
 
     assert np.all(node_ids1 == node_ids3)
     assert np.all(node_ids2 == node_ids4)
