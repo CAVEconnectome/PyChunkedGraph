@@ -659,7 +659,6 @@ class ChunkedGraph:
         from itertools import chain
         from functools import reduce
         from .misc import get_agglomerations
-        from ..logging.log_db import TimeIt
 
         chunk_ids = np.unique(self.get_chunk_ids_from_node_ids(level2_ids))
         # google does not provide a storage emulator at the moment
@@ -667,8 +666,7 @@ class ChunkedGraph:
         # find a better way to test
         edges_d = {}
         if self.mock_edges is None:
-            with TimeIt("read_chunk_edges", self.graph_id, n_chunks=len(chunk_ids)):
-                edges_d = self.read_chunk_edges(chunk_ids)
+            edges_d = self.read_chunk_edges(chunk_ids)
 
         fake_edges = self.get_fake_edges(chunk_ids)
         all_chunk_edges = reduce(
@@ -678,15 +676,14 @@ class ChunkedGraph:
         )
 
         if edges_only:
-            with TimeIt("edges_only", self.graph_id):
-                if self.mock_edges is not None:
-                    all_chunk_edges = self.mock_edges.get_pairs()
-                else:
-                    all_chunk_edges = all_chunk_edges.get_pairs()
-                supervoxels = self.get_children(level2_ids, flatten=True)
-                mask0 = np.in1d(all_chunk_edges[:, 0], supervoxels)
-                mask1 = np.in1d(all_chunk_edges[:, 1], supervoxels)
-                return all_chunk_edges[mask0 & mask1]
+            if self.mock_edges is not None:
+                all_chunk_edges = self.mock_edges.get_pairs()
+            else:
+                all_chunk_edges = all_chunk_edges.get_pairs()
+            supervoxels = self.get_children(level2_ids, flatten=True)
+            mask0 = np.in1d(all_chunk_edges[:, 0], supervoxels)
+            mask1 = np.in1d(all_chunk_edges[:, 1], supervoxels)
+            return all_chunk_edges[mask0 & mask1]
 
         l2id_children_d = self.get_children(level2_ids)
         sv_parent_d = {}
@@ -696,16 +693,13 @@ class ChunkedGraph:
 
         def f(x):
             return sv_parent_d.get(x, x)
-
         get_sv_parents = np.vectorize(f, otypes=[np.uint64])
 
-        with TimeIt("catv2", self.graph_id, n_edges=len(all_chunk_edges)):
-            in_edges, out_edges, cross_edges = edge_utils.categorize_edges_v2(
-                self.meta,
-                all_chunk_edges,
-                get_sv_parents,
-                self.graph_id
-            )
+        in_edges, out_edges, cross_edges = edge_utils.categorize_edges_v2(
+            self.meta,
+            all_chunk_edges,
+            get_sv_parents,
+        )
 
         agglomeration_d = get_agglomerations(
             l2id_children_d, in_edges, out_edges, cross_edges, get_sv_parents
