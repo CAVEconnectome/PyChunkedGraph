@@ -832,8 +832,6 @@ class Client(bigtable.Client, ClientWithIDGen, OperationLogger):
         # calculate this properly (range_read.request.SerializeToString()), but this estimate is
         # good enough for now
 
-        from pychunkedgraph.logging.log_db import TimeIt
-
         n_subrequests = max(
             1, int(np.ceil(len(row_set.row_keys) / self._max_row_key_count))
         )
@@ -849,23 +847,14 @@ class Client(bigtable.Client, ClientWithIDGen, OperationLogger):
 
         # Don't forget the original RowSet's row_ranges
         row_sets[0].row_ranges = row_set.row_ranges
-
-        with TimeIt(
-            "chunked_reads",
-            f"{self._table.table_id}_bt_profile",
-            operation_id=-1,
-            n_rows=len(row_set.row_keys),
-            n_requests=n_subrequests,
+        responses = mu.multithread_func(
+            self._execute_read_thread,
+            params=((self._table, r, row_filter) for r in row_sets),
+            debug=n_threads == 1,
             n_threads=n_threads,
-        ):
-            responses = mu.multithread_func(
-                self._execute_read_thread,
-                params=((self._table, r, row_filter) for r in row_sets),
-                debug=n_threads == 1,
-                n_threads=n_threads,
-            )
+        )
 
-            combined_response = {}
-            for resp in responses:
-                combined_response.update(resp)
-            return combined_response
+        combined_response = {}
+        for resp in responses:
+            combined_response.update(resp)
+        return combined_response

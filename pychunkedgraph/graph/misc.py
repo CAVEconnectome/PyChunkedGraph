@@ -1,13 +1,13 @@
-# TODO categorize these
+# pylint: disable=invalid-name, missing-docstring, c-extension-no-member, import-outside-toplevel
 
-import numpy as np
 import datetime
 import collections
 from typing import Dict
-from typing import Callable
 from typing import Optional
 from typing import Sequence
 
+import fastremap
+import numpy as np
 from multiwrapper import multiprocessing_utils as mu
 
 from . import ChunkedGraph
@@ -136,8 +136,6 @@ def get_delta_roots(
     cg: ChunkedGraph,
     time_stamp_start: datetime.datetime,
     time_stamp_end: Optional[datetime.datetime] = None,
-    min_seg_id: int = 1,
-    n_threads: int = 1,
 ) -> Sequence[np.uint64]:
     # Create filters: time and id range
     start_id = np.uint64(cg.get_chunk_id(layer=cg.meta.layer_count) + 1)
@@ -229,21 +227,21 @@ def get_contact_sites(
 def get_agglomerations(
     l2id_children_d: Dict,
     in_edges: Edges,
-    out_edges: Edges,
-    cross_edges: Edges,
-    get_sv_parents: Callable,
+    ot_edges: Edges,
+    cx_edges: Edges,
+    sv_parent_d: Dict,
 ) -> Dict[np.uint64, Agglomeration]:
     l2id_agglomeration_d = {}
-    _in = get_sv_parents(in_edges.node_ids1)
-    _out = get_sv_parents(out_edges.node_ids1)
-    _cross = get_sv_parents(cross_edges.node_ids1)
+    _in = fastremap.remap(in_edges.node_ids1, sv_parent_d, preserve_missing_labels=True)
+    _ot = fastremap.remap(ot_edges.node_ids1, sv_parent_d, preserve_missing_labels=True)
+    _cx = fastremap.remap(cx_edges.node_ids1, sv_parent_d, preserve_missing_labels=True)
     for l2id in l2id_children_d:
         l2id_agglomeration_d[l2id] = Agglomeration(
             l2id,
             l2id_children_d[l2id],
             in_edges[_in == l2id],
-            out_edges[_out == l2id],
-            cross_edges[_cross == l2id],
+            ot_edges[_ot == l2id],
+            cx_edges[_cx == l2id],
         )
     return l2id_agglomeration_d
 

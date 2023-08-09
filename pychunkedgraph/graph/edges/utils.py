@@ -1,3 +1,5 @@
+# pylint: disable=invalid-name, missing-docstring, c-extension-no-member
+
 """
 helper functions for edge stuff
 """
@@ -5,9 +7,9 @@ helper functions for edge stuff
 from typing import Dict
 from typing import Tuple
 from typing import Iterable
-from typing import Callable
 from typing import Optional
 
+import fastremap
 import numpy as np
 
 from . import Edges
@@ -90,8 +92,6 @@ def categorize_edges(
     in_mask = mask1 & mask2
     out_mask = mask1 & ~mask2
 
-    print("np.sum(in_mask)", np.sum(in_mask))
-
     in_edges = edges[in_mask]
     all_out_edges = edges[out_mask]  # out_edges + cross_edges
 
@@ -104,20 +104,26 @@ def categorize_edges(
 
 def categorize_edges_v2(
     meta: ChunkedGraphMeta,
-    supervoxels: np.ndarray,
     edges: Edges,
-    l2id_children_d: Dict,
-    get_sv_parents: Callable,
+    sv_parent_d: Dict,
 ) -> Tuple[Edges, Edges, Edges]:
     """Faster version of categorize_edges(), avoids looping over L2 IDs."""
-    node_ids1 = get_sv_parents(edges.node_ids1)
-    node_ids2 = get_sv_parents(edges.node_ids2)
+
+    node_ids1 = fastremap.remap(
+        edges.node_ids1, sv_parent_d, preserve_missing_labels=True
+    )
+    node_ids2 = fastremap.remap(
+        edges.node_ids2, sv_parent_d, preserve_missing_labels=True
+    )
 
     layer_mask1 = chunk_utils.get_chunk_layers(meta, node_ids1) > 1
-    in_edges = edges[node_ids1 == node_ids2]
-    all_out_ = edges[layer_mask1 & (node_ids1 != node_ids2)]
+    nodes_mask = node_ids1 == node_ids2
+
+    in_edges = edges[nodes_mask]
+    all_out_ = edges[layer_mask1 & ~nodes_mask]
 
     cx_layers = get_cross_chunk_edges_layer(meta, all_out_.get_pairs())
+
     cx_mask = cx_layers > 1
     out_edges = all_out_[~cx_mask]
     cross_edges = all_out_[cx_mask]

@@ -687,28 +687,18 @@ class ChunkedGraph:
 
         l2id_children_d = self.get_children(level2_ids)
         sv_parent_d = {}
-        supervoxels = []
         for l2id in l2id_children_d:
             svs = l2id_children_d[l2id]
             sv_parent_d.update(dict(zip(svs.tolist(), [l2id] * len(svs))))
-            supervoxels.append(svs)
 
-        supervoxels = np.concatenate(supervoxels)
-
-        def f(x):
-            return sv_parent_d.get(x, x)
-
-        get_sv_parents = np.vectorize(f, otypes=[np.uint64])
         in_edges, out_edges, cross_edges = edge_utils.categorize_edges_v2(
             self.meta,
-            supervoxels,
             all_chunk_edges,
-            l2id_children_d,
-            get_sv_parents,
+            sv_parent_d
         )
 
         agglomeration_d = get_agglomerations(
-            l2id_children_d, in_edges, out_edges, cross_edges, get_sv_parents
+            l2id_children_d, in_edges, out_edges, cross_edges, sv_parent_d
         )
         return (
             agglomeration_d,

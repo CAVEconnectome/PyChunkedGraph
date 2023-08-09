@@ -102,13 +102,17 @@ def get_log_db(graph_id: str) -> LogDB:
 
 
 class TimeIt:
-    def __init__(self, name: str, graph_id: str, operation_id, **kwargs):
-        self._name = name
+    names = []
+    operation_id = -1
+
+    def __init__(self, name: str, graph_id: str, operation_id=-1, **kwargs):
+        self.names.append(name)
         self._start = None
         self._graph_id = graph_id
-        self._operation_id = int(operation_id)
         self._ts = datetime.utcnow()
         self._kwargs = kwargs
+        if operation_id != -1:
+            self.operation_id = operation_id
 
     def __enter__(self):
         self._start = time.time()
@@ -121,11 +125,12 @@ class TimeIt:
         try:
             log_db = get_log_db(self._graph_id)
             log_db.log_code_block(
-                name=self._name,
-                operation_id=self._operation_id,
+                name=".".join(self.names),
+                operation_id=self.operation_id,
                 timestamp=self._ts,
                 time_ms=time_ms,
                 **self._kwargs,
             )
         except GoogleAPIError:
             ...
+        self.names.pop()
