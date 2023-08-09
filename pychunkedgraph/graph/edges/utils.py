@@ -109,8 +109,10 @@ def categorize_edges_v2(
     """Faster version of categorize_edges(), avoids looping over L2 IDs."""
     from ...logging.log_db import TimeIt
 
-    with TimeIt("get_sv_parents", graph_id):
+    with TimeIt("get_sv_parents1", graph_id):
         node_ids1 = get_sv_parents(edges.node_ids1)
+
+    with TimeIt("get_sv_parents2", graph_id):
         node_ids2 = get_sv_parents(edges.node_ids2)
 
     layer_mask1 = chunk_utils.get_chunk_layers(meta, node_ids1) > 1
