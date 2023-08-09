@@ -104,12 +104,18 @@ def categorize_edges_v2(
     meta: ChunkedGraphMeta,
     edges: Edges,
     get_sv_parents: Callable,
+    graph_id:str
 ) -> Tuple[Edges, Edges, Edges]:
     """Faster version of categorize_edges(), avoids looping over L2 IDs."""
 
+    from ...logging.log_db import TimeIt
+
     # TODO (investigate) these 2 lines take 99% for the time
-    node_ids1 = get_sv_parents(edges.node_ids1)
-    node_ids2 = get_sv_parents(edges.node_ids2)
+    with TimeIt("1sv_parents", graph_id=graph_id, n_ids=len(edges.node_ids1)):
+        node_ids1 = get_sv_parents(edges.node_ids1)
+
+    with TimeIt("2sv_parents", graph_id=graph_id, n_ids=len(edges.node_ids2)):
+        node_ids2 = get_sv_parents(edges.node_ids2)
 
     layer_mask1 = chunk_utils.get_chunk_layers(meta, node_ids1) > 1
     nodes_mask = node_ids1 == node_ids2

@@ -699,11 +699,15 @@ class ChunkedGraph:
             self.meta,
             all_chunk_edges,
             get_sv_parents,
+            self.graph_id
         )
 
-        agglomeration_d = get_agglomerations(
-            l2id_children_d, in_edges, out_edges, cross_edges, get_sv_parents
-        )
+        from ..logging.log_db import TimeIt
+
+        with TimeIt("get_agg", graph_id=self.graph_id, n_ids = len(in_edges.node_ids1)):
+            agglomeration_d = get_agglomerations(
+                l2id_children_d, in_edges, out_edges, cross_edges, get_sv_parents, self.graph_id
+            )
         return (
             agglomeration_d,
             (self.mock_edges,)

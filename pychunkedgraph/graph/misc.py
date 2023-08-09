@@ -232,11 +232,21 @@ def get_agglomerations(
     out_edges: Edges,
     cross_edges: Edges,
     get_sv_parents: Callable,
+    graph_id:str
 ) -> Dict[np.uint64, Agglomeration]:
+    from ..logging.log_db import TimeIt
+
     l2id_agglomeration_d = {}
-    _in = get_sv_parents(in_edges.node_ids1)
-    _out = get_sv_parents(out_edges.node_ids1)
-    _cross = get_sv_parents(cross_edges.node_ids1)
+
+    with TimeIt("in_sv_parents", graph_id=graph_id, n_ids = len(in_edges.node_ids1)):
+        _in = get_sv_parents(in_edges.node_ids1)
+
+    with TimeIt("ot_sv_parents", graph_id=graph_id, n_ids = len(out_edges.node_ids1)):
+        _out = get_sv_parents(out_edges.node_ids1)
+
+    with TimeIt("cx_sv_parents", graph_id=graph_id, n_ids = len(cross_edges.node_ids1)):
+        _cross = get_sv_parents(cross_edges.node_ids1)
+
     for l2id in l2id_children_d:
         l2id_agglomeration_d[l2id] = Agglomeration(
             l2id,
