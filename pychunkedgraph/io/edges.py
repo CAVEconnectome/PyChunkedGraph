@@ -59,7 +59,7 @@ def get_chunk_edges(edges_dir: str, chunks_coordinates: List[np.ndarray]) -> Dic
         # filename format - edges_x_y_z.serialization.compression
         fnames.append(f"edges_{chunk_str}.proto.zst")
 
-    cf = CloudFiles(edges_dir)
+    cf = CloudFiles(edges_dir, parallel=0)
     files = cf.get(fnames, raw=True)
 
     edges = []
