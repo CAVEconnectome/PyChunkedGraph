@@ -125,8 +125,8 @@ def categorize_edges_v2(
     with TimeIt("2remap", graph_id=graph_id, n_ids=len(edges.node_ids1)):
         node_ids4 = fastremap.remap(edges.node_ids2, sv_parent_d, preserve_missing_labels=True, in_place=True)
 
-    assert node_ids1 == node_ids3
-    assert node_ids2 == node_ids4
+    assert np.all(node_ids1 == node_ids3)
+    assert np.all(node_ids2 == node_ids4)
 
     layer_mask1 = chunk_utils.get_chunk_layers(meta, node_ids1) > 1
     nodes_mask = node_ids1 == node_ids2
