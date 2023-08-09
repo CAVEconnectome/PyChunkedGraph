@@ -1,3 +1,5 @@
+# pylint: disable=invalid-name, missing-docstring, c-extension-no-member
+
 """
 helper functions for edge stuff
 """
@@ -5,9 +7,9 @@ helper functions for edge stuff
 from typing import Dict
 from typing import Tuple
 from typing import Iterable
-from typing import Callable
 from typing import Optional
 
+import fastremap
 import numpy as np
 
 from . import Edges
@@ -103,30 +105,16 @@ def categorize_edges(
 def categorize_edges_v2(
     meta: ChunkedGraphMeta,
     edges: Edges,
-    get_sv_parents: Callable,
-    graph_id:str,
-    sv_parent_d:Dict,
+    sv_parent_d: Dict,
 ) -> Tuple[Edges, Edges, Edges]:
     """Faster version of categorize_edges(), avoids looping over L2 IDs."""
 
-    import fastremap
-    from ...logging.log_db import TimeIt
-
-    # TODO (investigate) these 2 lines take 99% for the time
-    with TimeIt("1sv_parents", graph_id=graph_id, n_ids=len(edges.node_ids1)):
-        node_ids1 = get_sv_parents(edges.node_ids1)
-
-    with TimeIt("2sv_parents", graph_id=graph_id, n_ids=len(edges.node_ids2)):
-        node_ids2 = get_sv_parents(edges.node_ids2)
-
-    with TimeIt("1remap", graph_id=graph_id, n_ids=len(edges.node_ids1)):
-        node_ids3 = fastremap.remap(edges.node_ids1, sv_parent_d, preserve_missing_labels=True, in_place=False)
-
-    with TimeIt("2remap", graph_id=graph_id, n_ids=len(edges.node_ids1)):
-        node_ids4 = fastremap.remap(edges.node_ids2, sv_parent_d, preserve_missing_labels=True, in_place=False)
-
-    assert np.all(node_ids1 == node_ids3)
-    assert np.all(node_ids2 == node_ids4)
+    node_ids1 = fastremap.remap(
+        edges.node_ids1, sv_parent_d, preserve_missing_labels=True
+    )
+    node_ids2 = fastremap.remap(
+        edges.node_ids2, sv_parent_d, preserve_missing_labels=True
+    )
 
     layer_mask1 = chunk_utils.get_chunk_layers(meta, node_ids1) > 1
     nodes_mask = node_ids1 == node_ids2

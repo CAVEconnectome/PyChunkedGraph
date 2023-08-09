@@ -691,24 +691,15 @@ class ChunkedGraph:
             svs = l2id_children_d[l2id]
             sv_parent_d.update(dict(zip(svs.tolist(), [l2id] * len(svs))))
 
-        def f(x):
-            return sv_parent_d.get(x, x)
-        get_sv_parents = np.vectorize(f, otypes=[np.uint64])
-
         in_edges, out_edges, cross_edges = edge_utils.categorize_edges_v2(
             self.meta,
             all_chunk_edges,
-            get_sv_parents,
-            self.graph_id,
             sv_parent_d
         )
 
-        from ..logging.log_db import TimeIt
-
-        with TimeIt("get_agg", graph_id=self.graph_id, n_ids = len(in_edges.node_ids1)):
-            agglomeration_d = get_agglomerations(
-                l2id_children_d, in_edges, out_edges, cross_edges, get_sv_parents, self.graph_id
-            )
+        agglomeration_d = get_agglomerations(
+            l2id_children_d, in_edges, out_edges, cross_edges, sv_parent_d
+        )
         return (
             agglomeration_d,
             (self.mock_edges,)
