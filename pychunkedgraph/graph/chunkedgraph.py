@@ -699,7 +699,8 @@ class ChunkedGraph:
             self.meta,
             all_chunk_edges,
             get_sv_parents,
-            self.graph_id
+            self.graph_id,
+            sv_parent_d
         )
 
         from ..logging.log_db import TimeIt
