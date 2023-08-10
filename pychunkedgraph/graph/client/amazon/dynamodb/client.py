@@ -138,7 +138,6 @@ class Client(ClientWithIDGen, OperationLogger):
     def read_graph_meta(self):
         logging.debug("read_graph_meta")
         row = self._read_byte_row(attributes.GraphMeta.key)
-        logging.debug(f"ROW: {row}")
         self._graph_meta = row[attributes.GraphMeta.Meta][0].value
         
         return self._graph_meta
@@ -241,7 +240,7 @@ class Client(ClientWithIDGen, OperationLogger):
     
     def write_nodes(self, nodes):
         logging.debug(f"write_nodes: {nodes}")
-        raise NotImplementedError("Not yet implemented")
+        raise NotImplementedError("write_nodes - Not yet implemented")
     
     # Helpers
     def write(
@@ -305,16 +304,19 @@ class Client(ClientWithIDGen, OperationLogger):
     
     def lock_root(self, node_id, operation_id):
         logging.debug(f"lock_root: {node_id}, {operation_id}")
+        raise NotImplementedError("lock_root - Not yet implemented")
     
     """Locks root nodes to prevent race conditions."""
     
     def lock_roots(self, node_ids, operation_id):
         logging.debug(f"lock_roots: {node_ids}, {operation_id}")
+        raise NotImplementedError("lock_roots - Not yet implemented")
     
     """Locks root node with operation_id to prevent race conditions."""
     
     def lock_root_indefinitely(self, node_id, operation_id):
         logging.debug(f"lock_root_indefinitely: {node_id}, {operation_id}")
+        raise NotImplementedError("lock_root_indefinitely - Not yet implemented")
     
     """
     Locks root nodes indefinitely to prevent structural damage to graph.
@@ -323,41 +325,49 @@ class Client(ClientWithIDGen, OperationLogger):
     
     def lock_roots_indefinitely(self, node_ids, operation_id):
         logging.debug(f"lock_roots_indefinitely: {node_ids}, {operation_id}")
+        raise NotImplementedError("lock_roots_indefinitely - Not yet implemented")
     
     """Unlocks root node that is locked with operation_id."""
     
     def unlock_root(self, node_id, operation_id):
         logging.debug(f"unlock_root: {node_id}, {operation_id}")
+        raise NotImplementedError("unlock_root - Not yet implemented")
     
     """Unlocks root node that is indefinitely locked with operation_id."""
     
     def unlock_indefinitely_locked_root(self, node_id, operation_id):
         logging.debug(f"unlock_indefinitely_locked_root: {node_id}, {operation_id}")
+        raise NotImplementedError("unlock_indefinitely_locked_root - Not yet implemented")
     
     """Renews existing node lock with operation_id for extended time."""
     
     def renew_lock(self, node_id, operation_id):
         logging.debug(f"renew_lock: {node_id}, {operation_id}")
+        raise NotImplementedError("renew_lock - Not yet implemented")
     
     """Renews existing node locks with operation_id for extended time."""
     
     def renew_locks(self, node_ids, operation_id):
         logging.debug(f"renew_locks: {node_ids}, {operation_id}")
+        raise NotImplementedError("renew_locks - Not yet implemented")
     
     """Reads timestamp from lock row to get a consistent timestamp."""
     
     def get_lock_timestamp(self, node_ids, operation_id):
         logging.debug(f"get_lock_timestamp: {node_ids}, {operation_id}")
+        raise NotImplementedError("get_lock_timestamp - Not yet implemented")
     
     """Minimum of multiple lock timestamps."""
     
     def get_consolidated_lock_timestamp(self, root_ids, operation_ids):
         logging.debug(f"get_consolidated_lock_timestamp: {root_ids}, {operation_ids}")
+        raise NotImplementedError("get_consolidated_lock_timestamp - Not yet implemented")
     
     """Datetime time stamp compatible with client's services."""
     
     def get_compatible_timestamp(self, time_stamp):
         logging.debug(f"get_compatible_timestamp: {time_stamp}")
+        raise NotImplementedError("get_compatible_timestamp - Not yet implemented")
     
     """Generate a range of unique IDs in the chunk."""
     
@@ -379,6 +389,7 @@ class Client(ClientWithIDGen, OperationLogger):
     
     def create_node_id(self, chunk_id):
         logging.debug(f"create_node_id: {chunk_id}")
+        raise NotImplementedError("create_node_id - Not yet implemented")
     
     """Gets the current maximum node ID in the chunk."""
     
@@ -408,11 +419,13 @@ class Client(ClientWithIDGen, OperationLogger):
     
     def create_operation_id(self):
         logging.debug(f"create_operation_id")
+        raise NotImplementedError("create_operation_id - Not yet implemented")
     
     """Gets the current maximum operation ID."""
     
     def get_max_operation_id(self):
         logging.debug(f"get_max_operation_id")
+        raise NotImplementedError("get_max_operation_id - Not yet implemented")
     
     """Read log entry for a given operation ID."""
     
@@ -433,6 +446,7 @@ class Client(ClientWithIDGen, OperationLogger):
     
     def read_log_entries(self, operation_ids) -> None:
         logging.debug(f"read_log_entries: {operation_ids}")
+        raise NotImplementedError("read_log_entries - Not yet implemented")
     
     def _read_byte_row(
             self,
@@ -545,7 +559,6 @@ class Client(ClientWithIDGen, OperationLogger):
         row_set = RowSet()
         if row_keys is not None:
             row_set.row_keys = list(row_keys)
-            logging.debug(f"KEYS: {row_set.row_keys}")
         elif start_key is not None and end_key is not None:
             row_set.add_row_range_from_keys(
                 start_key=start_key,
@@ -678,7 +691,6 @@ class Client(ClientWithIDGen, OperationLogger):
         #       may exceed the limit for the row size eventually. Currently it is as is in the BigTable
         for key in row_keys:
             pk, sk = self._ddb_helper.to_pk_sk(key)
-            logging.debug(f"QUERYING FOR: {key}, pk: {pk}, sk: {sk}")
             item_keys_to_get.append({
                 # "batch_get_item" is not available on the boto3 DynamoDB resource abstraction (i.e., "self._ddb_table")
                 # so we are forced to use low-level boto3 client (i.e.,  "self._main_db")
