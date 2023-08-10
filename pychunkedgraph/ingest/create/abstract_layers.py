@@ -119,14 +119,12 @@ def _read_chunk(children_ids_shared, cg: ChunkedGraph, layer_id: int, chunk_coor
         cg.get_chunk_id(layer=layer_id, x=x, y=y, z=z),
         properties=attributes.Hierarchy.Child,
     )
-    print(f" === _read_chunk range_read = {range_read}")
     row_ids = []
     max_children_ids = []
     for row_id, row_data in range_read.items():
         row_ids.append(row_id)
         max_children_ids.append(np.max(row_data[0].value))
     row_ids = np.array(row_ids, dtype=basetypes.NODE_ID)
-    print(f" === _read_chunk row_ids = {row_ids}")
     segment_ids = np.array([cg.get_segment_id(r_id) for r_id in row_ids])
     
     row_ids = filter_failed_node_ids(row_ids, segment_ids, max_children_ids)

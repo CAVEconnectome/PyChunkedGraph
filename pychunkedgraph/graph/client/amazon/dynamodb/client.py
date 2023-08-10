@@ -384,7 +384,6 @@ class Client(ClientWithIDGen, OperationLogger):
     
     def get_max_node_id(self, chunk_id, root_chunk=False):
         """Gets the current maximum segment ID in the chunk."""
-        print(f" --- get_max_node_id chunk_id, root_chunk = {chunk_id}, {root_chunk}")
         if root_chunk:
             n_counters = np.uint64(2 ** 8)
             max_value = 0
@@ -400,11 +399,9 @@ class Client(ClientWithIDGen, OperationLogger):
                 max_value = val if val > max_value else max_value
             return chunk_id | basetypes.SEGMENT_ID.type(max_value)
         column = attributes.Concurrency.Counter
-        print(f" --- get_max_node_id reading row with key = {serialize_uint64(chunk_id, counter=True)}")
         row = self._read_byte_row(
             serialize_uint64(chunk_id, counter=True), columns=column
         )
-        print(f" --- get_max_node_id read counter = {row}")
         return chunk_id | basetypes.SEGMENT_ID.type(row[0].value if row else 0)
     
     """Generate a unique operation ID."""
@@ -623,7 +620,6 @@ class Client(ClientWithIDGen, OperationLogger):
     
     def _execute_read_thread(self, args: Tuple[Table, RowSet, DynamoDbFilter]):
         """Function to be executed in parallel."""
-        print(f"\n\n --- _execute_read_thread START")
         table, row_set, row_filter = args
         if not row_set.row_keys and not row_set.row_ranges:
             return {}
@@ -700,12 +696,9 @@ class Client(ClientWithIDGen, OperationLogger):
                     **kwargs,
                 },
             }
-            print(f" --- _execute_read_thread batch_get_item = {params}")
             ret = self._main_db.batch_get_item(RequestItems=params)
             
             items = ret.get("Responses", {}).get(self._table_name, [])
-            
-            print(f" --- _execute_read_thread batch_get_item returned = {items}")
             
             # each item comes with 'key', 'sk', [column_family] and '@' columns
             for index, item in enumerate(items):
@@ -740,21 +733,15 @@ class Client(ClientWithIDGen, OperationLogger):
                     **kwargs,
                 }
                 
-                print(f" --- _execute_read_thread _ddb_table.query = {query_kwargs}")
                 ret = self._ddb_table.query(**query_kwargs)
                 items = ret.get("Items", [])
-                
-                print(f" --- _execute_read_thread _ddb_table.query items = {items}")
                 
                 # each item comes with 'key', 'sk', [column_family] and '@' columns
                 for item in items:
                     b_real_key, row = self._ddb_helper.ddb_item_to_row(item)
                     rows[b_real_key] = row
         
-        print(f" --- _execute_read_thread retrieved rows = {rows}")
         filtered_rows = self._apply_filters(rows, row_filter)
-        print(f" --- _execute_read_thread filtered rows = {rows}")
-        print(f" --- _execute_read_thread END\n\n")
         return filtered_rows
     
     def _apply_filters(
@@ -797,7 +784,6 @@ class Client(ClientWithIDGen, OperationLogger):
     
     def _get_ids_range(self, key: bytes, size: int) -> Tuple:
         """Returns a range (min, max) of IDs for a given `key`."""
-        print(f" --- _get_ids_range key, size = {key},  {size}")
         
         column = attributes.Concurrency.Counter
         
@@ -805,32 +791,8 @@ class Client(ClientWithIDGen, OperationLogger):
         
         column_name_in_ddb = f"{column.family_id}.{column.key.decode()}"
         
-        # ret = self._main_db.put_item(
-        #     TableName=self._table_name,
-        #     Item={
-        #         "key": self._ddb_serializer.serialize(pk),
-        #         "sk": self._ddb_serializer.serialize(sk),
-        #         column_name_in_ddb: self._ddb_serializer.serialize(size),
-        #     }
-        # )
-        
         time_microseconds = TimeStampedCell.get_current_time_microseconds()
-        size_bytes = basetypes.COUNTER.type(size).tobytes()
-        # self._ddb_table.put_item(
-        #     Item={
-        #         "key": pk,
-        #         "sk": sk,
-        #
-        #         # Each attribute column in DDB is stored as an array of "cells"
-        #         # Each "cell" contains a timestamp and the value of the attribute
-        #         # at the given timestamp
-        #         column_name_in_ddb: [[
-        #             int(time_microseconds),
-        #             size_bytes,
-        #         ]]
-        #     }
-        # )
-        
+        size_bytes = np.array([size], dtype=np.dtype('int64').newbyteorder('B')).tobytes()
         self._ddb_table.update_item(
             Key={"key": pk, "sk": sk},
             UpdateExpression="SET #c = :c",
@@ -845,8 +807,6 @@ class Client(ClientWithIDGen, OperationLogger):
             }
         )
         high = size
-        print(f" --- _get_ids_range returning = {high + np.uint64(1) - size}, {high}")
-        
         return high + np.uint64(1) - size, high
     
     def _get_root_segment_ids_range(

@@ -35,7 +35,7 @@ def bootstrap(
     )
     
     backend_type = config["backend_client"].get("TYPE", DEFAULT_BACKEND_TYPE)
-    print(f"-----------backend_type: {backend_type}")
+    print(f"backend_type: {backend_type}")
     if backend_type == GCP_BIGTABLE_BACKEND_TYPE:
         client_config = BigTableConfig(**config["backend_client"]["CONFIG"])
     elif backend_type == AMAZON_DYNAMODB_BACKEND_TYPE:
