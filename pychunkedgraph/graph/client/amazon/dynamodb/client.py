@@ -136,7 +136,7 @@ class Client(ClientWithIDGen, OperationLogger):
     """Read stored graph meta."""
     
     def read_graph_meta(self):
-        logging.warning("read_graph_meta")
+        logging.debug("read_graph_meta")
         row = self._read_byte_row(attributes.GraphMeta.key)
         logging.debug(f"ROW: {row}")
         self._graph_meta = row[attributes.GraphMeta.Meta][0].value
@@ -160,7 +160,7 @@ class Client(ClientWithIDGen, OperationLogger):
         Read nodes and their properties.
         Accepts a range of node IDs or specific node IDs.
         """
-        logging.warning(
+        logging.debug(
             f"read_nodes: {start_id}, {end_id}, {node_ids}, {properties}, {start_time}, {end_time}, {end_time_inclusive}"
         )
         if node_ids is not None and len(node_ids) > self._max_items:
@@ -240,7 +240,7 @@ class Client(ClientWithIDGen, OperationLogger):
     """Writes/updates nodes (IDs along with properties)."""
     
     def write_nodes(self, nodes):
-        logging.warning(f"write_nodes: {nodes}")
+        logging.debug(f"write_nodes: {nodes}")
         raise NotImplementedError("Not yet implemented")
     
     # Helpers
@@ -269,7 +269,7 @@ class Client(ClientWithIDGen, OperationLogger):
         :param slow_retry: bool
         :param block_size: int
         """
-        logging.warning(f"write {rows} {root_ids} {operation_id} {slow_retry} {block_size}")
+        logging.debug(f"write {rows} {root_ids} {operation_id} {slow_retry} {block_size}")
         
         # TODO: Implement locking and retries with backoff
         
@@ -304,17 +304,17 @@ class Client(ClientWithIDGen, OperationLogger):
     """Locks root node with operation_id to prevent race conditions."""
     
     def lock_root(self, node_id, operation_id):
-        logging.warning(f"lock_root: {node_id}, {operation_id}")
+        logging.debug(f"lock_root: {node_id}, {operation_id}")
     
     """Locks root nodes to prevent race conditions."""
     
     def lock_roots(self, node_ids, operation_id):
-        logging.warning(f"lock_roots: {node_ids}, {operation_id}")
+        logging.debug(f"lock_roots: {node_ids}, {operation_id}")
     
     """Locks root node with operation_id to prevent race conditions."""
     
     def lock_root_indefinitely(self, node_id, operation_id):
-        logging.warning(f"lock_root_indefinitely: {node_id}, {operation_id}")
+        logging.debug(f"lock_root_indefinitely: {node_id}, {operation_id}")
     
     """
     Locks root nodes indefinitely to prevent structural damage to graph.
@@ -322,42 +322,42 @@ class Client(ClientWithIDGen, OperationLogger):
     """
     
     def lock_roots_indefinitely(self, node_ids, operation_id):
-        logging.warning(f"lock_roots_indefinitely: {node_ids}, {operation_id}")
+        logging.debug(f"lock_roots_indefinitely: {node_ids}, {operation_id}")
     
     """Unlocks root node that is locked with operation_id."""
     
     def unlock_root(self, node_id, operation_id):
-        logging.warning(f"unlock_root: {node_id}, {operation_id}")
+        logging.debug(f"unlock_root: {node_id}, {operation_id}")
     
     """Unlocks root node that is indefinitely locked with operation_id."""
     
     def unlock_indefinitely_locked_root(self, node_id, operation_id):
-        logging.warning(f"unlock_indefinitely_locked_root: {node_id}, {operation_id}")
+        logging.debug(f"unlock_indefinitely_locked_root: {node_id}, {operation_id}")
     
     """Renews existing node lock with operation_id for extended time."""
     
     def renew_lock(self, node_id, operation_id):
-        logging.warning(f"renew_lock: {node_id}, {operation_id}")
+        logging.debug(f"renew_lock: {node_id}, {operation_id}")
     
     """Renews existing node locks with operation_id for extended time."""
     
     def renew_locks(self, node_ids, operation_id):
-        logging.warning(f"renew_locks: {node_ids}, {operation_id}")
+        logging.debug(f"renew_locks: {node_ids}, {operation_id}")
     
     """Reads timestamp from lock row to get a consistent timestamp."""
     
     def get_lock_timestamp(self, node_ids, operation_id):
-        logging.warning(f"get_lock_timestamp: {node_ids}, {operation_id}")
+        logging.debug(f"get_lock_timestamp: {node_ids}, {operation_id}")
     
     """Minimum of multiple lock timestamps."""
     
     def get_consolidated_lock_timestamp(self, root_ids, operation_ids):
-        logging.warning(f"get_consolidated_lock_timestamp: {root_ids}, {operation_ids}")
+        logging.debug(f"get_consolidated_lock_timestamp: {root_ids}, {operation_ids}")
     
     """Datetime time stamp compatible with client's services."""
     
     def get_compatible_timestamp(self, time_stamp):
-        logging.warning(f"get_compatible_timestamp: {time_stamp}")
+        logging.debug(f"get_compatible_timestamp: {time_stamp}")
     
     """Generate a range of unique IDs in the chunk."""
     
@@ -378,7 +378,7 @@ class Client(ClientWithIDGen, OperationLogger):
     """Generate a unique ID in the chunk."""
     
     def create_node_id(self, chunk_id):
-        logging.warning(f"create_node_id: {chunk_id}")
+        logging.debug(f"create_node_id: {chunk_id}")
     
     """Gets the current maximum node ID in the chunk."""
     
@@ -407,12 +407,12 @@ class Client(ClientWithIDGen, OperationLogger):
     """Generate a unique operation ID."""
     
     def create_operation_id(self):
-        logging.warning(f"create_operation_id")
+        logging.debug(f"create_operation_id")
     
     """Gets the current maximum operation ID."""
     
     def get_max_operation_id(self):
-        logging.warning(f"get_max_operation_id")
+        logging.debug(f"get_max_operation_id")
     
     """Read log entry for a given operation ID."""
     
@@ -432,7 +432,7 @@ class Client(ClientWithIDGen, OperationLogger):
     """Read log entries for given operation IDs."""
     
     def read_log_entries(self, operation_ids) -> None:
-        logging.warning(f"read_log_entries: {operation_ids}")
+        logging.debug(f"read_log_entries: {operation_ids}")
     
     def _read_byte_row(
             self,
