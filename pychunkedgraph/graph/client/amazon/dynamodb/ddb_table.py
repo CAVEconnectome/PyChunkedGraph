@@ -23,11 +23,8 @@ class Table:
         self._ddb_helper = DdbHelper()
     
     def read_rows(self):
-        # ret = self._main_db.scan(
-        #     TableName=self._table_name,
-        #     Limit=self._row_page_size,
-        # )
         ret = self._ddb_table.scan(Limit=self._row_page_size)
+        # TODO: handle pagination
         items = ret.get("Items", [])
         
         rows = {}

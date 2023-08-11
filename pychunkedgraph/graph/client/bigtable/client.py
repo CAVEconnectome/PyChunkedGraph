@@ -345,6 +345,7 @@ class Client(bigtable.Client, ClientWithIDGen, OperationLogger):
     ) -> bigtable.row.Row:
         """Mutates a single row (doesn't write to big table)."""
         row = self._table.direct_row(row_key)
+        
         for column, value in val_dict.items():
             row.set_cell(
                 column_family_id=column.family_id,

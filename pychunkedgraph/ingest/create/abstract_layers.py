@@ -244,4 +244,5 @@ def _write(
                 print("wrote rows", len(rows), layer_id, parent_coords)
                 rows = []
     cg.client.write(rows)
+    
     print("wrote rows", len(rows), layer_id, parent_coords)

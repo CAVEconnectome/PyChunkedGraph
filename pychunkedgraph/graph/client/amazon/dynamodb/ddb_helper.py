@@ -102,16 +102,7 @@ class DdbHelper:
                         )
                     )
         
-        if pk[0].isdigit():
-            ikey = (int(pk) << self._pk_key_shift) | sk
-            real_key = pad_node_id(ikey)
-        elif pk[0] in ["i", "f"]:
-            ikey = (int(pk[1:]) << self._pk_key_shift) | sk
-            real_key = f"{pk[0]}{pad_node_id(ikey)}"
-        else:
-            real_key = pk
-        
-        b_real_key = real_key.encode()
+        b_real_key = self.to_real_key(pk, sk)
         return b_real_key, row
     
     def ddb_item_to_row(self, item):
@@ -162,16 +153,7 @@ class DdbHelper:
                         # )
                     )
         
-        if pk[0].isdigit():
-            ikey = (int(pk) << self._pk_key_shift) | sk
-            real_key = pad_node_id(ikey)
-        elif pk[0] in ["i", "f"]:
-            ikey = (int(pk[1:]) << self._pk_key_shift) | sk
-            real_key = f"{pk[0]}{pad_node_id(ikey)}"
-        else:
-            real_key = pk
-        
-        b_real_key = real_key.encode()
+        b_real_key = self.to_real_key(pk, sk)
         
         return b_real_key, row
     
@@ -212,6 +194,19 @@ class DdbHelper:
             item[k] = v
         
         return item
+    
+    def to_real_key(self, pk, sk):
+        if pk[0].isdigit():
+            ikey = (int(pk) << self._pk_key_shift) | sk
+            real_key = pad_node_id(ikey)
+        elif pk[0] in ["i", "f"]:
+            ikey = (int(pk[1:]) << self._pk_key_shift) | sk
+            real_key = f"{pk[0]}{pad_node_id(ikey)}"
+        else:
+            real_key = pk
+        
+        b_real_key = real_key.encode()
+        return b_real_key
     
     def to_pk_sk(self, key: bytes):
         prefix, ikey = self._to_int_key(key)

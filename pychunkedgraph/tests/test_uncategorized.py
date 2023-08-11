@@ -367,7 +367,7 @@ class TestGraphBuild:
             np.uint64(to_label(cg, 2, 0, 0, 0, 1))
         ]
         column = attributes.Hierarchy.Child
-        children = column.deserialize(row[column.key][0].value)
+        children = try_deserialize(column, row[column.key][0].value)
         
         test_ace = np.array(
             [to_label(cg, 1, 0, 0, 0, 0), to_label(cg, 1, 1, 0, 0, 0)],
@@ -388,7 +388,7 @@ class TestGraphBuild:
         atomic_cross_edge_d = atomic_cross_edge_d[
             np.uint64(to_label(cg, 2, 1, 0, 0, 1))
         ]
-        children = column.deserialize(row[column.key][0].value)
+        children = try_deserialize(column, row[column.key][0].value)
         
         test_ace = np.array(
             [to_label(cg, 1, 1, 0, 0, 0), to_label(cg, 1, 0, 0, 0, 0)],
@@ -404,7 +404,7 @@ class TestGraphBuild:
         assert serialize_uint64(to_label(cg, 3, 0, 0, 0, 1)) in res.rows
         row = res.rows[serialize_uint64(to_label(cg, 3, 0, 0, 0, 1))].cells["0"]
         column = attributes.Hierarchy.Child
-        children = column.deserialize(row[column.key][0].value)
+        children = try_deserialize(column, row[column.key][0].value)
         
         assert (
                 len(children) == 2

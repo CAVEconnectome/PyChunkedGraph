@@ -25,8 +25,9 @@ from ....meta import ChunkedGraphMeta
 from ....utils import basetypes
 from ....utils.serializers import pad_node_id, serialize_key, serialize_uint64, deserialize_uint64
 
-DEFAULT_ROW_PAGE_SIZE = 100  # Max items to fetch using GetBatchItem operation
-DEFAULT_MAX_ITEMS_LIMIT = 1000  # Maximum items to fetch in one query
+MAX_BATCH_READ_ITEMS = 100  # Max items to fetch using GetBatchItem operation
+MAX_BATCH_WRITE_ITEMS = 25  # Max items to write using BatchWriteItem operation
+MAX_QUERY_ITEMS = 1000  # Maximum items to fetch in one query
 
 
 class Client(ClientWithIDGen, OperationLogger):
@@ -41,8 +42,9 @@ class Client(ClientWithIDGen, OperationLogger):
             if config.TABLE_PREFIX
             else table_id
         )
-        self._row_page_size = DEFAULT_ROW_PAGE_SIZE
-        self._max_items = DEFAULT_MAX_ITEMS_LIMIT
+        self._max_batch_read_page_size = MAX_BATCH_READ_ITEMS
+        self._max_batch_write_page_size = MAX_BATCH_WRITE_ITEMS
+        self._max_query_page_size = MAX_QUERY_ITEMS
         self._ddb_serializer = TypeSerializer()
         self._ddb_deserializer = TypeDeserializer()
         # TODO: refactor column families to match graph-creation procedures
@@ -162,7 +164,7 @@ class Client(ClientWithIDGen, OperationLogger):
         logging.debug(
             f"read_nodes: {start_id}, {end_id}, {node_ids}, {properties}, {start_time}, {end_time}, {end_time_inclusive}"
         )
-        if node_ids is not None and len(node_ids) > self._max_items:
+        if node_ids is not None and len(node_ids) > self._max_query_page_size:
             node_ids = np.sort(node_ids)
         
         rows = self._read_byte_rows(
@@ -251,7 +253,7 @@ class Client(ClientWithIDGen, OperationLogger):
             ] = None,
             operation_id: Optional[np.uint64] = None,
             slow_retry: bool = True,
-            block_size: int = 2000,
+            block_size: int = 25,
     ):
         """Writes a list of mutated rows in bulk
         WARNING: If <rows> contains the same row (same row_key) and column
@@ -272,9 +274,11 @@ class Client(ClientWithIDGen, OperationLogger):
         
         # TODO: Implement locking and retries with backoff
         
-        for i in range(0, len(rows), block_size):
+        batch_size = min(self._max_batch_write_page_size, block_size)
+        
+        for i in range(0, len(rows), batch_size):
             with self._ddb_table.batch_writer() as batch:
-                rows_in_this_batch = rows[i: i + block_size]
+                rows_in_this_batch = rows[i: i + batch_size]
                 for row in rows_in_this_batch:
                     ddb_item = self._ddb_helper.row_to_ddb_item(row)
                     batch.put_item(Item=ddb_item)
@@ -383,6 +387,7 @@ class Client(ClientWithIDGen, OperationLogger):
             )
             low, high = basetypes.SEGMENT_ID.type(low), basetypes.SEGMENT_ID.type(high)
             new_ids = np.arange(low, high + np.uint64(1), dtype=basetypes.SEGMENT_ID)
+        
         return new_ids | chunk_id
     
     """Generate a unique ID in the chunk."""
@@ -606,14 +611,14 @@ class Client(ClientWithIDGen, OperationLogger):
         :return: typing.Dict
         """
         n_subrequests = max(
-            1, int(np.ceil(len(row_set.row_keys) / self._row_page_size))
+            1, int(np.ceil(len(row_set.row_keys) / self._max_batch_read_page_size))
         )
         n_threads = min(n_subrequests, 2 * mu.n_cpus)
         
         row_sets = []
         for i in range(n_subrequests):
             r = RowSet()
-            r.row_keys = row_set.row_keys[i * self._row_page_size: (i + 1) * self._row_page_size]
+            r.row_keys = row_set.row_keys[i * self._max_batch_read_page_size: (i + 1) * self._max_batch_read_page_size]
             row_sets.append(r)
         
         # Don't forget the original RowSet's row_ranges
@@ -739,7 +744,7 @@ class Client(ClientWithIDGen, OperationLogger):
                 }
                 
                 query_kwargs = {
-                    "Limit": self._max_items,
+                    "Limit": self._max_query_page_size,
                     "KeyConditionExpression": "#key = :key AND sk BETWEEN :st_sk AND :end_sk",
                     "ExpressionAttributeValues": attr_vals,
                     **kwargs,
@@ -804,7 +809,32 @@ class Client(ClientWithIDGen, OperationLogger):
         column_name_in_ddb = f"{column.family_id}.{column.key.decode()}"
         
         time_microseconds = TimeStampedCell.get_current_time_microseconds()
-        size_bytes = np.array([size], dtype=np.dtype('int64').newbyteorder('B')).tobytes()
+        
+        def serialize_counter(x):
+            return np.array([x], dtype=np.dtype('int64').newbyteorder('B')).tobytes()
+        
+        existing_counter = 0
+        
+        res = self._ddb_table.get_item(
+            Key={"key": pk, "sk": sk},
+            ProjectionExpression='#c',
+            
+            # Need strongly consistent read here since we are
+            # using the existing counter from the item and incrementing it
+            ConsistentRead=True,
+            
+            ExpressionAttributeNames={
+                "#c": column_name_in_ddb,
+            },
+        )
+        existing_item = res.get('Item')
+        if existing_item:
+            existing_counter_column = existing_item.get(column_name_in_ddb, None)
+            if existing_counter_column:
+                existing_counter = column.deserialize(bytes(existing_counter_column[0][1]))
+        
+        counter = existing_counter + size
+        
         self._ddb_table.update_item(
             Key={"key": pk, "sk": sk},
             UpdateExpression="SET #c = :c",
@@ -814,11 +844,11 @@ class Client(ClientWithIDGen, OperationLogger):
             ExpressionAttributeValues={
                 ':c': [[
                     int(time_microseconds),
-                    size_bytes,
+                    serialize_counter(counter),
                 ]],
             }
         )
-        high = size
+        high = counter
         return high + np.uint64(1) - size, high
     
     def _get_root_segment_ids_range(
@@ -833,6 +863,7 @@ class Client(ClientWithIDGen, OperationLogger):
         )
         key = serialize_key(f"i{pad_node_id(chunk_id)}_{counter}")
         min_, max_ = self._get_ids_range(key=key, size=size)
+        
         return np.arange(
             min_ * n_counters + counter,
             max_ * n_counters + np.uint64(1) + counter,
