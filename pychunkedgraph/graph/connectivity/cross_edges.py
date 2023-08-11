@@ -82,7 +82,7 @@ def _get_children_chunk_cross_edges(cg, atomic_chunks, layer) -> None:
 def _read_atomic_chunk_cross_edges(
     cg, chunk_coord: Sequence[int], cross_edge_layer: int
 ) -> np.ndarray:
-    cross_edge_col = attributes.Connectivity.CrossChunkEdge[cross_edge_layer]
+    cross_edge_col = attributes.Connectivity.L2CrossChunkEdge[cross_edge_layer]
     range_read, l2ids = _read_atomic_chunk(cg, chunk_coord, [cross_edge_layer])
 
     parent_neighboring_chunk_supervoxels_d = defaultdict(list)
@@ -170,7 +170,7 @@ def _read_atomic_chunk_cross_edge_nodes(cg, chunk_coord, cross_edge_layers):
     range_read, l2ids = _read_atomic_chunk(cg, chunk_coord, cross_edge_layers)
     for l2id in l2ids:
         for layer in cross_edge_layers:
-            if attributes.Connectivity.CrossChunkEdge[layer] in range_read[l2id]:
+            if attributes.Connectivity.L2CrossChunkEdge[layer] in range_read[l2id]:
                 node_layer_d[l2id] = layer
                 break
     return node_layer_d
@@ -190,7 +190,7 @@ def _read_atomic_chunk(cg, chunk_coord, layers):
     range_read = cg.range_read_chunk(
         cg.get_chunk_id(layer=2, x=x, y=y, z=z),
         properties=[child_col]
-        + [attributes.Connectivity.CrossChunkEdge[l] for l in layers],
+        + [attributes.Connectivity.L2CrossChunkEdge[l] for l in layers],
     )
 
     row_ids = []
