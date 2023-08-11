@@ -104,18 +104,18 @@ class Connectivity:
         serializer=serializers.NumPyArray(dtype=basetypes.EDGE_AREA),
     )
 
+    FakeEdges = _Attribute(
+        key=b"fake_edges",
+        family_id="4",
+        serializer=serializers.NumPyArray(dtype=basetypes.NODE_ID, shape=(-1, 2)),
+    )
+
     L2CrossChunkEdge = _AttributeArray(
         pattern=b"l2_cross_edge_%d",
         family_id="4",
         serializer=serializers.NumPyArray(
             dtype=basetypes.NODE_ID, shape=(-1, 2), compression_level=22
         ),
-    )
-
-    FakeEdges = _Attribute(
-        key=b"fake_edges",
-        family_id="4",
-        serializer=serializers.NumPyArray(dtype=basetypes.NODE_ID, shape=(-1, 2)),
     )
 
     CrossChunkEdge = _AttributeArray(
