@@ -29,7 +29,7 @@ def _post_task_completion(
 ):
     chunk_str = "_".join(map(str, coords))
     # mark chunk as completed - "c"
-    pprocess = "_pprocess" if postprocess else ""
+    pprocess = "-postprocess" if postprocess else ""
     imanager.redis.sadd(f"{layer}c{pprocess}", chunk_str)
 
 
@@ -117,7 +117,7 @@ def enqueue_atomic_tasks(imanager: IngestionManager, postprocess: bool = False):
 
     pprocess = ""
     if postprocess:
-        pprocess = "_pprocess"
+        pprocess = "-postprocess"
         print("postprocessing l2 chunks")
 
     queue_name = f"{imanager.config.CLUSTER.ATOMIC_Q_NAME}{pprocess}"
