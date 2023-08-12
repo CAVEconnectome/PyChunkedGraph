@@ -159,10 +159,10 @@ def ingest_status():
     completed = redis.scard(f"{layer}c")
     print(f"{layer}\t: {completed} / {imanager.cg_meta.layer_chunk_counts[0]}")
 
-    completed = redis.scard(f"pp{layer}c")
+    completed = redis.scard(f"{layer}c_pprocess")
     print(f"{layer}\t: {completed} / {imanager.cg_meta.layer_chunk_counts[0]} [postprocess]")
 
-    layers = range(3, imanager.cg_meta.layer_count)
+    layers = range(3, imanager.cg_meta.layer_count + 1)
     for layer, layer_count in zip(layers, imanager.cg_meta.layer_chunk_counts[1:]):
         completed = redis.scard(f"{layer}c")
         print(f"{layer}\t: {completed} / {layer_count}")
