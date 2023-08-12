@@ -4,8 +4,8 @@ import sys
 import time
 import typing
 import logging
-import datetime
 from datetime import datetime
+from datetime import timedelta
 
 import numpy as np
 from multiwrapper import multiprocessing_utils as mu
@@ -636,7 +636,7 @@ class Client(bigtable.Client, ClientWithIDGen, OperationLogger):
         f.create()
         f = self._table.column_family("2")
         f.create()
-        f = self._table.column_family("3", gc_rule=MaxAgeGCRule(datetime.timedelta(days=365)))
+        f = self._table.column_family("3", gc_rule=MaxAgeGCRule(timedelta(days=365)))
         f.create()
         f = self._table.column_family("4")
         f.create()
