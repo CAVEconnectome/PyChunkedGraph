@@ -1,3 +1,5 @@
+# pylint: disable=invalid-name, missing-function-docstring, import-outside-toplevel
+
 """
 cli for running ingest
 """
@@ -10,6 +12,7 @@ import yaml
 from flask.cli import AppGroup
 from rq import Queue
 
+from .cluster import enqueue_atomic_tasks
 from .manager import IngestionManager
 from .utils import bootstrap
 from .cluster import randomize_grid_points
@@ -45,8 +48,6 @@ def ingest_graph(
     Main ingest command.
     Takes ingest config from a yaml file and queues atomic tasks.
     """
-    from .cluster import enqueue_atomic_tasks
-
     with open(dataset, "r") as stream:
         config = yaml.safe_load(stream)
 
@@ -60,6 +61,16 @@ def ingest_graph(
     if not retry:
         cg.create()
     enqueue_atomic_tasks(IngestionManager(ingest_config, meta))
+
+
+@ingest_cli.command("postprocess")
+def postprocess():
+    """
+    Run postprocessing step on level 2 chunks.
+    """
+    redis = get_redis_connection()
+    imanager = IngestionManager.from_pickle(redis.get(r_keys.INGESTION_MANAGER))
+    enqueue_atomic_tasks(imanager, postprocess=True)
 
 
 @ingest_cli.command("imanager")
@@ -143,7 +154,15 @@ def ingest_status():
     """Print ingest status to console by layer."""
     redis = get_redis_connection()
     imanager = IngestionManager.from_pickle(redis.get(r_keys.INGESTION_MANAGER))
-    layers = range(2, imanager.cg_meta.layer_count + 1)
+
+    layer = 2
+    completed = redis.scard(f"{layer}c")
+    print(f"{layer}\t: {completed} / {imanager.cg_meta.layer_count}")
+
+    completed = redis.scard(f"pp{layer}c")
+    print(f"{layer}\t: {completed} / {imanager.cg_meta.layer_count} [postprocess]")
+
+    layers = range(3, imanager.cg_meta.layer_count + 1)
     for layer, layer_count in zip(layers, imanager.cg_meta.layer_chunk_counts):
         completed = redis.scard(f"{layer}c")
         print(f"{layer}\t: {completed} / {layer_count}")
