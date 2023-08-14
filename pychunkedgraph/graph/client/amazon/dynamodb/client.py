@@ -71,6 +71,8 @@ class Client(ClientWithIDGen, OperationLogger):
         self._table = Table(self._main_db, self._table_name, boto3_conf_, **kwargs)
         
         self._ddb_helper = DdbHelper()
+        
+        self._no_of_writes = 0
     
     """Initialize the graph and store associated meta."""
     
@@ -281,6 +283,7 @@ class Client(ClientWithIDGen, OperationLogger):
                 rows_in_this_batch = rows[i: i + batch_size]
                 for row in rows_in_this_batch:
                     ddb_item = self._ddb_helper.row_to_ddb_item(row)
+                    self._no_of_writes += 1
                     batch.put_item(Item=ddb_item)
     
     def mutate_row(
@@ -648,8 +651,6 @@ class Client(ClientWithIDGen, OperationLogger):
         item_keys_to_get = []
         attr_names = {'#key': 'key'}
         kwargs = {
-            'ProjectionExpression': '#key, sk',
-            'ExpressionAttributeNames': attr_names
         }
         
         def __append_to_projection_expression(
@@ -665,7 +666,7 @@ class Client(ClientWithIDGen, OperationLogger):
         
         # User ID filter
         if row_filter.user_id_filter and row_filter.user_id_filter.user_id:
-            __append_to_projection_expression(kwargs, ["#uid"])
+            __append_to_projection_expression(kwargs, ["#key", "sk", "#uid"])
             user_id_attr = attributes.OperationLogs.UserID
             attr_names["#uid"] = f"{user_id_attr.family_id}.{user_id_attr.key.decode()}"
             kwargs["ExpressionAttributeNames"] = attr_names
@@ -675,7 +676,7 @@ class Client(ClientWithIDGen, OperationLogger):
             ddb_columns = [
                 f"#C{index}" for index in range(len(row_filter.column_filter))
             ]
-            ddb_columns.extend(["#ver"])
+            ddb_columns.extend(["#key", "sk", "#ver"])
             __append_to_projection_expression(kwargs, ddb_columns)
             
             for index, attr in enumerate(row_filter.column_filter):
@@ -729,6 +730,10 @@ class Client(ClientWithIDGen, OperationLogger):
                 rows[b_real_key] = row
         
         if len(row_set.row_ranges) > 0:
+            expression_attrib_names = kwargs.get('ExpressionAttributeNames', {})
+            expression_attrib_names['#key'] = 'key'
+            kwargs['ExpressionAttributeNames'] = expression_attrib_names
+            
             for row_range in row_set.row_ranges:
                 pk, start_sk, end_sk = self._ddb_helper.to_sk_range(
                     row_range.start_key,
@@ -759,6 +764,7 @@ class Client(ClientWithIDGen, OperationLogger):
                     rows[b_real_key] = row
         
         filtered_rows = self._apply_filters(rows, row_filter)
+        
         return filtered_rows
     
     def _apply_filters(
@@ -848,6 +854,7 @@ class Client(ClientWithIDGen, OperationLogger):
                 ]],
             }
         )
+        self._no_of_writes += 1
         high = counter
         return high + np.uint64(1) - size, high
     
