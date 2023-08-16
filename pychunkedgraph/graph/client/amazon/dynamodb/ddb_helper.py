@@ -1,4 +1,3 @@
-import logging
 import math
 from datetime import datetime
 from typing import Dict, Iterable, Union, Any, Optional
@@ -7,11 +6,26 @@ from boto3.dynamodb.types import TypeDeserializer, TypeSerializer, Binary
 
 from .timestamped_cell import TimeStampedCell
 from .... import attributes
+from ....attributes import _Attribute
 from ....utils.serializers import pad_node_id
 
 MAX_DDB_BATCH_WRITE = 25
 TIME_SLOT_INDEX = 0
 VALUE_SLOT_INDEX = 1
+
+LOCK_TIMESTAMP_COL_SUFFIX = '.ts'
+
+
+# utility function to get DynamoDB attribute name (column name)
+# from the given column object
+def to_column_name(lock_column: _Attribute):
+    return f"{lock_column.family_id}.{lock_column.key.decode()}"
+
+
+# utility function to get DynamoDB attribute name (column name) holding
+# the timestamp when the lock was acquired from the given lock column object
+def to_lock_timestamp_column_name(lock_column: _Attribute):
+    return f"{to_column_name(lock_column)}{LOCK_TIMESTAMP_COL_SUFFIX}"
 
 
 class DdbHelper:
@@ -42,7 +56,7 @@ class DdbHelper:
     
     @staticmethod
     def attribs_to_cells(
-            attribs: Dict[attributes._Attribute, Any],
+            attribs: Dict[_Attribute, Any],
             time_stamp: Optional[datetime] = None,
     ) -> dict[str, Iterable[TimeStampedCell]]:
         cells = {}
@@ -110,13 +124,24 @@ class DdbHelper:
         pk = None
         sk = 0
         
-        # each item comes with 'key', 'sk', [column_family] and '@' columns
-        item_keys = list(item.keys())
+        # Item is a dict object retrieved from Amazon DynamoDB (DDB).
+        # The dictionary object is keyed by column name (i.e., attribute name) in the DDB table.
+        # The value for each column is an array and represents the column values history over time.
+        # Each element in the array is also an array containing two elements [timestamp, column_value]
+        # representing the value of the given column at a given time.
+        #
+        # Instead of the column value history, some columns may contain the value directly
+        # E.g., the columns for Locks (i.e., "attributes.Concurrency.Lock" and "attributes.Concurrency.IndefiniteLock")
+        # directly store the value in the column. For such columns, the column value history is not stored and the
+        # timestamp when the column was added (i.e., when the lock was acquired) is stored in a separate column
+        # with the ".ts" suffix.
+        #
+        item_keys = [k for k in item.keys() if not k.endswith(LOCK_TIMESTAMP_COL_SUFFIX)]
         item_keys.sort()
-        # ddb_clm is one of 'key', 'sk', [column_family.column_qualifier], '@'
+        
+        # ddb_clm is one of the followings: 'key' (primary key), 'sk' (sort key), '@' (row version),
+        # and other columns with the format [column_family.column_qualifier]
         for ddb_clm in item_keys:
-            # ddb_row_value = item[ddb_clm]
-            # row_value = self._ddb_deserializer.deserialize(ddb_row_value)
             row_value = item[ddb_clm]
             if ddb_clm == "@":
                 # for '@' row_value is int
@@ -136,22 +161,27 @@ class DdbHelper:
                 if attr not in row:
                     row[attr] = []
                 
-                for timestamp, column_value in row_value:
-                    # find _Attribute for ddb_clm:qualifier and put cell & timestamp pair associated with it
+                if attr in [attributes.Concurrency.Lock, attributes.Concurrency.IndefiniteLock]:
+                    column_value = row_value
+                    timestamp = item[f"{ddb_clm}{LOCK_TIMESTAMP_COL_SUFFIX}"]
                     row[attr].append(
                         TimeStampedCell(
-                            attr.deserialize(
-                                bytes(column_value)
-                                if isinstance(column_value, Binary)
-                                else column_value
-                            ),
-                            int(timestamp),
+                            column_value,
+                            int(timestamp)
                         )
-                        # TimeStampedCell(
-                        #     column_value,
-                        #     int(timestamp),
-                        # )
                     )
+                else:
+                    for timestamp, column_value in row_value:
+                        row[attr].append(
+                            TimeStampedCell(
+                                attr.deserialize(
+                                    bytes(column_value)
+                                    if isinstance(column_value, Binary)
+                                    else column_value
+                                ),
+                                int(timestamp),
+                            )
+                        )
         
         b_real_key = self.to_real_key(pk, sk)
         
@@ -159,14 +189,14 @@ class DdbHelper:
     
     def row_to_ddb_item(
             self,
-            row: dict[str, Union[bytes, dict[attributes._Attribute, Iterable[TimeStampedCell]]]]
+            row: dict[str, Union[bytes, dict[_Attribute, Iterable[TimeStampedCell]]]]
     ) -> dict[str, Any]:
         pk, sk = self.to_pk_sk(row['key'])
         item = {'key': pk, 'sk': sk}
         
         columns = {}
         for attrib_column, cells_array in row.items():
-            if not isinstance(attrib_column, attributes._Attribute):
+            if not isinstance(attrib_column, _Attribute):
                 continue
             
             family = attrib_column.family_id
@@ -178,12 +208,13 @@ class DdbHelper:
                 columns[ddb_column] = []
             
             for cell in cells_array:
-                timestamp = cell.timestamp
+                timestamp = cell.timestamp_int
                 value = cell.value
                 columns[ddb_column].append([
                     timestamp,  # timestamp is at TIME_SLOT_INDEX position
-                    attrib_column.serializer.serialize(value),  # cell value is at VALUE_SLOT_INDEX position
-                    # value,  # cell value is at VALUE_SLOT_INDEX position
+                    
+                    # cell value is at VALUE_SLOT_INDEX position
+                    bytes(value) if isinstance(value, Binary) else attrib_column.serializer.serialize(value),
                 ])
             
             # sort so the latest timestamp would always be at 0 index
@@ -212,7 +243,8 @@ class DdbHelper:
     def to_pk_sk(self, key: bytes):
         prefix, ikey = self._to_int_key(key)
         if ikey is not None:
-            pk, sk = self._int_key_to_pk_sk(ikey, prefix)
+            pk = self._int_key_to_pk(ikey, prefix)
+            sk = ikey
         else:
             # pk = f"{'' if prefix is None else prefix}{key.decode()}"
             # sk = 0
@@ -256,10 +288,10 @@ class DdbHelper:
         # pk_start = None
         # pk_end = None
         # if i_start is not None:
-        #     pk_start, sk_start = self._int_key_to_pk_sk(i_start, prefix_start)
+        #     pk_start, sk_start = self._int_key_to_pk(i_start, prefix_start)
         #
         # if i_end is not None:
-        #     pk_end, sk_end = self._int_key_to_pk_sk(i_end, prefix_end)
+        #     pk_end, sk_end = self._int_key_to_pk(i_end, prefix_end)
         #
         # if pk_start is not None and pk_end is not None and pk_start != pk_end:
         #     raise ValueError("DynamoDB does not support range queries across different partition keys")
@@ -268,16 +300,21 @@ class DdbHelper:
     
     def _to_int_key(self, key: bytes):
         str_key = key.decode()
+        prefix = None
+        ikey = None
         if str_key[0].isdigit():
-            return None, int(str_key)
+            return prefix, int(str_key)
         elif str_key[0] in ["f", "i"]:
-            # TODO: keys with "i" prefix may have weird suffix, like _05 and couldn't be converted to int like below
-            return str_key[0], int(str_key[1:])
+            prefix = str_key[0]
+            rest_of_the_key = str_key[1:]
+            if rest_of_the_key.isnumeric():
+                ikey = int(rest_of_the_key)
+            return prefix, ikey
         else:
-            return None, None
+            return prefix, ikey
     
-    def _int_key_to_pk_sk(self, ikey: int, prefix: str = None):
+    def _int_key_to_pk(self, ikey: int, prefix: str = None):
         pk = f"{'' if prefix is None else prefix}{(ikey >> self._pk_key_shift):{self._pk_int_format}}"
         # sk = ikey & self._sk_key_mask
-        sk = ikey
-        return pk, sk
+        # sk = ikey
+        return pk

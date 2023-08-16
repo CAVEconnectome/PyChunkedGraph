@@ -521,7 +521,7 @@ class Client(bigtable.Client, ClientWithIDGen, OperationLogger):
             serialize_uint64(root_id),
             filter_=utils.get_renew_lock_filter(lock_column, operation_id),
         )
-        # Set row lock if condition returns a result (state == True)
+        # Set row lock if condition returns no results (state == False)
         root_row.set_cell(
             lock_column.family_id,
             lock_column.key,
@@ -531,7 +531,7 @@ class Client(bigtable.Client, ClientWithIDGen, OperationLogger):
         # The lock was acquired when set_cell returns True (state)
         return not root_row.commit()
     
-    def renew_locks(self, root_ids: np.uint64, operation_id: np.uint64) -> bool:
+    def renew_locks(self, root_ids: typing.Iterable[np.uint64], operation_id: np.uint64) -> bool:
         """Renews existing root node locks with operation_id to extend time."""
         for root_id in root_ids:
             if not self.renew_lock(root_id, operation_id):

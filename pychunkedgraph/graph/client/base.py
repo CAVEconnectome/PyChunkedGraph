@@ -1,7 +1,7 @@
 from datetime import datetime
 from abc import ABC
 from abc import abstractmethod
-from typing import Iterable, Union, Optional, Any, Dict
+from typing import Iterable, Union, Optional, Any, Dict, Sequence, Tuple
 
 import numpy as np
 
@@ -104,11 +104,22 @@ class SimpleClient(ABC):
         data without writing to the backend storage)."""
     
     @abstractmethod
-    def lock_root(self, node_id, operation_id):
-        """Locks root node with operation_id to prevent race conditions."""
+    def lock_root(
+            self,
+            root_id: np.uint64,
+            operation_id: np.uint64,
+    ) -> bool:
+        """Attempts to lock the latest version of a root node with operation_id to prevent race conditions."""
     
     @abstractmethod
-    def lock_roots(self, node_ids, operation_id):
+    def lock_roots(
+            self,
+            root_ids: Sequence[np.uint64],
+            operation_id: np.uint64,
+            future_root_ids_d: Dict,
+            max_tries: int = 1,
+            waittime_s: float = 0.5,
+    ) -> Tuple[bool, Iterable]:
         """Locks root nodes to prevent race conditions."""
     
     @abstractmethod
@@ -116,7 +127,12 @@ class SimpleClient(ABC):
         """Locks root node with operation_id to prevent race conditions."""
     
     @abstractmethod
-    def lock_roots_indefinitely(self, node_ids, operation_id):
+    def lock_roots_indefinitely(
+            self,
+            root_ids: Sequence[np.uint64],
+            operation_id: np.uint64,
+            future_root_ids_d: Dict,
+    ) -> Tuple[bool, Iterable]:
         """
         Locks root nodes indefinitely to prevent structural damage to graph.
         This scenario is rare and needs asynchronous fix or inspection to unlock.
@@ -139,7 +155,9 @@ class SimpleClient(ABC):
         """Renews existing node locks with operation_id for extended time."""
     
     @abstractmethod
-    def get_lock_timestamp(self, node_ids, operation_id):
+    def get_lock_timestamp(
+            self, node_id: np.uint64, operation_id: np.uint64
+    ) -> Union[datetime, None]:
         """Reads timestamp from lock row to get a consistent timestamp."""
     
     @abstractmethod
@@ -163,7 +181,9 @@ class ClientWithIDGen(SimpleClient):
         """Generate a range of unique IDs in the chunk."""
     
     @abstractmethod
-    def create_node_id(self, chunk_id):
+    def create_node_id(
+            self, chunk_id: np.uint64, root_chunk=False
+    ):
         """Generate a unique ID in the chunk."""
     
     @abstractmethod

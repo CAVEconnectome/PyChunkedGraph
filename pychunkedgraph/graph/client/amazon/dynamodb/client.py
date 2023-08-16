@@ -1,16 +1,18 @@
 import logging
+import time
 from datetime import datetime
-from typing import Dict, Iterable, Union, Optional, List, Any, Tuple
+from typing import Dict, Iterable, Union, Optional, List, Any, Tuple, Sequence
 
 import boto3
 import botocore
 import numpy as np
-from multiwrapper import multiprocessing_utils as mu
 from boto3.dynamodb.types import TypeDeserializer, TypeSerializer, Binary
+from botocore.exceptions import ClientError
+from multiwrapper import multiprocessing_utils as mu
 
 from . import AmazonDynamoDbConfig
 from . import utils
-from .ddb_helper import DdbHelper
+from .ddb_helper import DdbHelper, to_column_name, to_lock_timestamp_column_name
 from .ddb_table import Table
 from .row_set import RowSet
 from .timestamped_cell import TimeStampedCell
@@ -274,13 +276,25 @@ class Client(ClientWithIDGen, OperationLogger):
         """
         logging.debug(f"write {rows} {root_ids} {operation_id} {slow_retry} {block_size}")
         
-        # TODO: Implement locking and retries with backoff
+        if root_ids is not None and operation_id is not None:
+            if isinstance(root_ids, int):
+                root_ids = [root_ids]
+            if not self.renew_locks(root_ids, operation_id):
+                raise exceptions.LockingError(
+                    f"Root lock renewal failed: operation {operation_id}"
+                )
+        
+        # TODO: Implement retries with backoff and handle partial batch failures
         
         batch_size = min(self._max_batch_write_page_size, block_size)
         
-        for i in range(0, len(rows), batch_size):
+        # There may be multiple rows with the same row key but with different columns
+        # Merge such rows to avoid duplicates and write multiple columns when writing the row to DDB
+        deduplicated_rows = self._remove_and_merge_duplicates(rows)
+        
+        for i in range(0, len(deduplicated_rows), batch_size):
             with self._ddb_table.batch_writer() as batch:
-                rows_in_this_batch = rows[i: i + batch_size]
+                rows_in_this_batch = deduplicated_rows[i: i + batch_size]
                 for row in rows_in_this_batch:
                     ddb_item = self._ddb_helper.row_to_ddb_item(row)
                     self._no_of_writes += 1
@@ -307,68 +321,355 @@ class Client(ClientWithIDGen, OperationLogger):
         
         return row
     
-    """Locks root node with operation_id to prevent race conditions."""
+    def lock_root(
+            self,
+            root_id: np.uint64,
+            operation_id: np.uint64,
+    ) -> bool:
+        """Locks root node with operation_id to prevent race conditions."""
+        logging.debug(f"lock_root: {root_id}, {operation_id}")
+        lock_expiry = self._graph_meta.graph_config.ROOT_LOCK_EXPIRY
+        time_cutoff = datetime.utcnow() - lock_expiry
+        
+        pk, sk = self._ddb_helper.to_pk_sk(serialize_uint64(root_id))
+        
+        lock_column = attributes.Concurrency.Lock
+        indefinite_lock_column = attributes.Concurrency.IndefiniteLock
+        new_parents_column = attributes.Hierarchy.NewParent
+        
+        lock_column_name_in_ddb = to_column_name(lock_column)
+        lock_timestamp_column_name_in_ddb = to_lock_timestamp_column_name(lock_column)
+        
+        indefinite_lock_column_name_in_ddb = to_column_name(indefinite_lock_column)
+        
+        new_parents_column_name_in_ddb = to_column_name(new_parents_column)
+        
+        # Add the given operation_id in the lock column ONLY IF the lock column is not already set or
+        # if the lock column is set but the lock is expired
+        # and if there is NO new parent (i.e., the new_parents column is not set).
+        try:
+            self._ddb_table.update_item(
+                Key={"key": pk, "sk": sk},
+                UpdateExpression="SET #c = :c, #lock_timestamp = :current_time",
+                ConditionExpression=f"(attribute_not_exists(#c) OR #lock_timestamp < :time_cutoff)"
+                                    f" AND attribute_not_exists(#c_indefinite_lock)"
+                                    f" AND attribute_not_exists(#new_parents)",
+                ExpressionAttributeNames={
+                    "#c": lock_column_name_in_ddb,
+                    "#lock_timestamp": lock_timestamp_column_name_in_ddb,
+                    "#c_indefinite_lock": indefinite_lock_column_name_in_ddb,
+                    "#new_parents": new_parents_column_name_in_ddb,
+                },
+                ExpressionAttributeValues={
+                    ':c': serialize_uint64(operation_id),
+                    ':time_cutoff': time_cutoff.microsecond,
+                    ':current_time': datetime.utcnow().microsecond,
+                }
+            )
+            self._no_of_writes += 1
+            return True
+        except ClientError as e:
+            if e.response['Error']['Code'] == 'ConditionalCheckFailedException':
+                logging.debug(f"lock_root: {root_id}, {operation_id} failed")
+                return False
+            else:
+                raise e
     
-    def lock_root(self, node_id, operation_id):
-        logging.debug(f"lock_root: {node_id}, {operation_id}")
-        raise NotImplementedError("lock_root - Not yet implemented")
+    def lock_roots(
+            self,
+            root_ids: Sequence[np.uint64],
+            operation_id: np.uint64,
+            future_root_ids_d: Dict,
+            max_tries: int = 1,
+            waittime_s: float = 0.5,
+    ) -> Tuple[bool, Iterable]:
+        """Attempts to lock multiple nodes with same operation id"""
+        i_try = 0
+        while i_try < max_tries:
+            lock_acquired = False
+            # Collect latest root ids
+            new_root_ids: List[np.uint64] = []
+            for root_id in root_ids:
+                future_root_ids = future_root_ids_d[root_id]
+                if not future_root_ids.size:
+                    new_root_ids.append(root_id)
+                else:
+                    new_root_ids.extend(future_root_ids)
+            
+            # Attempt to lock all latest root ids
+            root_ids = np.unique(new_root_ids)
+            for root_id in root_ids:
+                lock_acquired = self.lock_root(root_id, operation_id)
+                # Roll back locks if one root cannot be locked
+                if not lock_acquired:
+                    for id_ in root_ids:
+                        self.unlock_root(id_, operation_id)
+                    break
+            
+            if lock_acquired:
+                return True, root_ids
+            time.sleep(waittime_s)
+            i_try += 1
+            logging.debug(f"Try {i_try}")
+        return False, root_ids
     
-    """Locks root nodes to prevent race conditions."""
+    def lock_root_indefinitely(
+            self,
+            root_id: np.uint64,
+            operation_id: np.uint64,
+    ) -> bool:
+        """Attempts to indefinitely lock the latest version of a root node."""
+        logging.debug(f"lock_root_indefinitely: {root_id}, {operation_id}")
+        
+        pk, sk = self._ddb_helper.to_pk_sk(serialize_uint64(root_id))
+        
+        lock_column = attributes.Concurrency.IndefiniteLock
+        lock_column_name_in_ddb = to_column_name(lock_column)
+        lock_timestamp_column_name_in_ddb = to_lock_timestamp_column_name(lock_column)
+        
+        new_parents_column_name_in_ddb = to_column_name(attributes.Hierarchy.NewParent)
+        
+        # Add the given operation_id in the indefinite lock column ONLY IF the indefinite column is not already set
+        # and if there is NO new parent (i.e., the new_parents column is not set).
+        try:
+            self._ddb_table.update_item(
+                Key={"key": pk, "sk": sk},
+                UpdateExpression="SET #c = :c, #lock_timestamp = :current_time",
+                ConditionExpression=f"attribute_not_exists(#c)"
+                                    f" AND attribute_not_exists(#new_parents)",
+                ExpressionAttributeNames={
+                    "#c": lock_column_name_in_ddb,
+                    "#lock_timestamp": lock_timestamp_column_name_in_ddb,
+                    "#new_parents": new_parents_column_name_in_ddb,
+                },
+                ExpressionAttributeValues={
+                    ':c': serialize_uint64(operation_id),
+                    ':current_time': datetime.utcnow().microsecond,
+                }
+            )
+            self._no_of_writes += 1
+            return True
+        except ClientError as e:
+            if e.response['Error']['Code'] == 'ConditionalCheckFailedException':
+                logging.debug(f"lock_root: {root_id}, {operation_id} failed")
+                return False
+            else:
+                raise e
     
-    def lock_roots(self, node_ids, operation_id):
-        logging.debug(f"lock_roots: {node_ids}, {operation_id}")
-        raise NotImplementedError("lock_roots - Not yet implemented")
-    
-    """Locks root node with operation_id to prevent race conditions."""
-    
-    def lock_root_indefinitely(self, node_id, operation_id):
-        logging.debug(f"lock_root_indefinitely: {node_id}, {operation_id}")
-        raise NotImplementedError("lock_root_indefinitely - Not yet implemented")
-    
-    """
-    Locks root nodes indefinitely to prevent structural damage to graph.
-    This scenario is rare and needs asynchronous fix or inspection to unlock.
-    """
-    
-    def lock_roots_indefinitely(self, node_ids, operation_id):
-        logging.debug(f"lock_roots_indefinitely: {node_ids}, {operation_id}")
-        raise NotImplementedError("lock_roots_indefinitely - Not yet implemented")
-    
-    """Unlocks root node that is locked with operation_id."""
+    def lock_roots_indefinitely(
+            self,
+            root_ids: Sequence[np.uint64],
+            operation_id: np.uint64,
+            future_root_ids_d: Dict,
+    ) -> Tuple[bool, Iterable]:
+        """
+        Attempts to indefinitely lock multiple nodes with same operation id to prevent structural damage to graph.
+        This scenario is rare and needs asynchronous fix or inspection to unlock.
+        """
+        lock_acquired = False
+        # Collect latest root ids
+        new_root_ids: List[np.uint64] = []
+        for _id in root_ids:
+            future_root_ids = future_root_ids_d.get(_id)
+            if not future_root_ids.size:
+                new_root_ids.append(_id)
+            else:
+                new_root_ids.extend(future_root_ids)
+        
+        # Attempt to lock all latest root ids
+        failed_to_lock_id = None
+        root_ids = np.unique(new_root_ids)
+        for _id in root_ids:
+            logging.debug(f"operation {operation_id} root_id {_id}")
+            lock_acquired = self.lock_root_indefinitely(_id, operation_id)
+            # Roll back locks if one root cannot be locked
+            if not lock_acquired:
+                failed_to_lock_id = _id
+                for id_ in root_ids:
+                    self.unlock_indefinitely_locked_root(id_, operation_id)
+                break
+        if lock_acquired:
+            return True, root_ids, failed_to_lock_id
+        return False, root_ids, failed_to_lock_id
     
     def unlock_root(self, node_id, operation_id):
+        """Unlocks root node that is locked with operation_id."""
         logging.debug(f"unlock_root: {node_id}, {operation_id}")
-        raise NotImplementedError("unlock_root - Not yet implemented")
+        lock_expiry = self._graph_meta.graph_config.ROOT_LOCK_EXPIRY
+        time_cutoff = datetime.utcnow() - lock_expiry
+        
+        pk, sk = self._ddb_helper.to_pk_sk(serialize_uint64(node_id))
+        
+        lock_column = attributes.Concurrency.Lock
+        lock_column_name_in_ddb = to_column_name(lock_column)
+        lock_timestamp_column_name_in_ddb = to_lock_timestamp_column_name(lock_column)
+        
+        # Delete (remove) the lock column ONLY IF the given operation_id is still the active lock holder and
+        # the lock has not expired
+        try:
+            self._ddb_table.update_item(
+                Key={"key": pk, "sk": sk},
+                UpdateExpression="REMOVE #c",
+                ConditionExpression=f"(#lock_timestamp > :time_cutoff)"  # Ensure not expired
+                                    f" AND #c = :c",  # Ensure operation_id is the active lock holder
+                ExpressionAttributeNames={
+                    "#c": lock_column_name_in_ddb,
+                    "#lock_timestamp": lock_timestamp_column_name_in_ddb,
+                },
+                ExpressionAttributeValues={
+                    ':c': serialize_uint64(operation_id),
+                    ':time_cutoff': time_cutoff.microsecond,
+                }
+            )
+            self._no_of_writes += 1
+            return True
+        except ClientError as e:
+            if e.response['Error']['Code'] == 'ConditionalCheckFailedException':
+                logging.debug(f"unlock_root: {node_id}, {operation_id} failed")
+                return False
+            else:
+                raise e
     
-    """Unlocks root node that is indefinitely locked with operation_id."""
+    def unlock_indefinitely_locked_root(
+            self, root_id: np.uint64, operation_id: np.uint64
+    ):
+        """Unlocks root node that is indefinitely locked with operation_id."""
+        logging.debug(f"unlock_indefinitely_locked_root: {root_id}, {operation_id}")
+        
+        pk, sk = self._ddb_helper.to_pk_sk(serialize_uint64(root_id))
+        
+        lock_column = attributes.Concurrency.IndefiniteLock
+        
+        lock_column_name_in_ddb = to_column_name(lock_column)
+        
+        # Delete (remove) the lock column ONLY IF the given operation_id is still the active lock holder
+        try:
+            self._ddb_table.update_item(
+                Key={"key": pk, "sk": sk},
+                UpdateExpression="REMOVE #c",
+                ConditionExpression=f"#c = :c",  # Ensure operation_id is the active lock holder
+                ExpressionAttributeNames={
+                    "#c": lock_column_name_in_ddb,
+                },
+                ExpressionAttributeValues={
+                    ':c': serialize_uint64(operation_id),
+                }
+            )
+            self._no_of_writes += 1
+            return True
+        except ClientError as e:
+            if e.response['Error']['Code'] == 'ConditionalCheckFailedException':
+                logging.debug(f"unlock_indefinitely_locked_root: {root_id}, {operation_id} failed")
+                return False
+            else:
+                raise e
     
-    def unlock_indefinitely_locked_root(self, node_id, operation_id):
-        logging.debug(f"unlock_indefinitely_locked_root: {node_id}, {operation_id}")
-        raise NotImplementedError("unlock_indefinitely_locked_root - Not yet implemented")
-    
-    """Renews existing node lock with operation_id for extended time."""
-    
-    def renew_lock(self, node_id, operation_id):
-        logging.debug(f"renew_lock: {node_id}, {operation_id}")
-        raise NotImplementedError("renew_lock - Not yet implemented")
+    def renew_lock(self, root_id: np.uint64, operation_id: np.uint64) -> bool:
+        """Renews existing root node lock with operation_id to extend time."""
+        
+        logging.debug(f"renew_lock: {root_id}, {operation_id}")
+        
+        pk, sk = self._ddb_helper.to_pk_sk(serialize_uint64(root_id))
+        lock_column = attributes.Concurrency.Lock
+        new_parents_column = attributes.Hierarchy.NewParent
+        
+        lock_column_name_in_ddb = to_column_name(lock_column)
+        lock_timestamp_column_name_in_ddb = to_lock_timestamp_column_name(lock_column)
+        
+        new_parents_column_name_in_ddb = to_column_name(new_parents_column)
+        
+        # Update the given operation_id in the lock column and update the lock_timestamp
+        # ONLY IF the given operation_id is still the current lock holder and if
+        # there is NO new parent (i.e., the new_parents column is not set).
+        # TODO: Do we also need to check that the lock has not expired before renewing it?
+        #   Currently, the BigTable implementation does not check for expiry during renewals
+        #   (See "renew_lock" method in "pychunkedgraph/graph/client/bigtable/client.py" for reference)
+        #
+        try:
+            self._ddb_table.update_item(
+                Key={"key": pk, "sk": sk},
+                UpdateExpression="SET #c = :c, #lock_timestamp = :current_time",
+                ConditionExpression=f"#c = :c"  # Ensure operation_id is the active lock holder
+                                    f" AND attribute_not_exists(#new_parents)",  # Ensure no new parents
+                ExpressionAttributeNames={
+                    "#c": lock_column_name_in_ddb,
+                    "#lock_timestamp": lock_timestamp_column_name_in_ddb,
+                    "#new_parents": new_parents_column_name_in_ddb,
+                },
+                ExpressionAttributeValues={
+                    ':c': serialize_uint64(operation_id),
+                    ':current_time': datetime.utcnow().microsecond,
+                }
+            )
+            self._no_of_writes += 1
+            return True
+        except ClientError as e:
+            if e.response['Error']['Code'] == 'ConditionalCheckFailedException':
+                logging.debug(f"renew_lock: {root_id}, {operation_id} failed")
+                return False
+            else:
+                raise e
     
     """Renews existing node locks with operation_id for extended time."""
     
-    def renew_locks(self, node_ids, operation_id):
-        logging.debug(f"renew_locks: {node_ids}, {operation_id}")
-        raise NotImplementedError("renew_locks - Not yet implemented")
+    def renew_locks(self, root_ids: Iterable[np.uint64], operation_id: np.uint64) -> bool:
+        """Renews existing root node locks with operation_id to extend time."""
+        for root_id in root_ids:
+            if not self.renew_lock(root_id, operation_id):
+                logging.warning(f"renew_lock failed - {root_id}")
+                return False
+        return True
     
     """Reads timestamp from lock row to get a consistent timestamp."""
     
-    def get_lock_timestamp(self, node_ids, operation_id):
-        logging.debug(f"get_lock_timestamp: {node_ids}, {operation_id}")
-        raise NotImplementedError("get_lock_timestamp - Not yet implemented")
+    def get_lock_timestamp(
+            self, node_id: np.uint64, operation_id: np.uint64
+    ) -> Union[datetime, None]:
+        logging.debug(f"get_lock_timestamp: {node_id}, {operation_id}")
+        
+        pk, sk = self._ddb_helper.to_pk_sk(serialize_uint64(node_id))
+        
+        lock_column = attributes.Concurrency.Lock
+        
+        lock_column_name = to_column_name(lock_column)
+        lock_timestamp_column_name = to_lock_timestamp_column_name(lock_column)
+        res = self._ddb_table.get_item(
+            Key={"key": pk, "sk": sk},
+            ProjectionExpression='#c, #lock_timestamp',
+            ConsistentRead=True,
+            ExpressionAttributeNames={
+                "#c": lock_column_name,
+                "#lock_timestamp": lock_timestamp_column_name,
+            },
+        )
+        item = res.get('Item', None)
+        
+        if item is None:
+            logging.warning(f"No lock found for {node_id}")
+            return None
+        if operation_id != item.get(lock_column_name, None):
+            logging.warning(f"{node_id} not locked with {operation_id}")
+            return None
+        
+        return item.get(lock_timestamp_column_name, None)
     
     """Minimum of multiple lock timestamps."""
     
-    def get_consolidated_lock_timestamp(self, root_ids, operation_ids):
-        logging.debug(f"get_consolidated_lock_timestamp: {root_ids}, {operation_ids}")
-        raise NotImplementedError("get_consolidated_lock_timestamp - Not yet implemented")
+    def get_consolidated_lock_timestamp(
+            self,
+            root_ids: Sequence[np.uint64],
+            operation_ids: Sequence[np.uint64],
+    ) -> Union[datetime, None]:
+        """Minimum of multiple lock timestamps."""
+        time_stamps = []
+        for root_id, operation_id in zip(root_ids, operation_ids):
+            time_stamp = self.get_lock_timestamp(root_id, operation_id)
+            if time_stamp is None:
+                return None
+            time_stamps.append(time_stamp)
+        if len(time_stamps) == 0:
+            return None
+        return np.min(time_stamps)
     
     """Datetime time stamp compatible with client's services."""
     
@@ -395,9 +696,11 @@ class Client(ClientWithIDGen, OperationLogger):
     
     """Generate a unique ID in the chunk."""
     
-    def create_node_id(self, chunk_id):
-        logging.debug(f"create_node_id: {chunk_id}")
-        raise NotImplementedError("create_node_id - Not yet implemented")
+    def create_node_id(
+            self, chunk_id: np.uint64, root_chunk=False
+    ) -> basetypes.NODE_ID:
+        """Generate a unique node ID in the chunk."""
+        return self.create_node_ids(chunk_id, 1, root_chunk=root_chunk)[0]
     
     """Gets the current maximum node ID in the chunk."""
     
@@ -426,18 +729,19 @@ class Client(ClientWithIDGen, OperationLogger):
     """Generate a unique operation ID."""
     
     def create_operation_id(self):
-        logging.debug(f"create_operation_id")
-        raise NotImplementedError("create_operation_id - Not yet implemented")
+        """Generate a unique operation ID."""
+        return self._get_ids_range(attributes.OperationLogs.key, 1)[1]
     
     """Gets the current maximum operation ID."""
     
     def get_max_operation_id(self):
-        logging.debug(f"get_max_operation_id")
-        raise NotImplementedError("get_max_operation_id - Not yet implemented")
-    
-    """Read log entry for a given operation ID."""
+        """Gets the current maximum operation ID."""
+        column = attributes.Concurrency.Counter
+        row = self._read_byte_row(attributes.OperationLogs.key, columns=column)
+        return row[0].value if row else column.basetype(0)
     
     def read_log_entry(self, operation_id: int) -> None:
+        """Read log entry for a given operation ID."""
         log_record = self.read_node(
             operation_id, properties=attributes.OperationLogs.all()
         )
@@ -707,7 +1011,7 @@ class Client(ClientWithIDGen, OperationLogger):
             })
         
         if len(item_keys_to_get) > 0:
-            # TODO: Handle partial batch retrival failures
+            # TODO: Handle partial batch retrieval failures
             params = {
                 self._table_name: {
                     'Keys': item_keys_to_get,
@@ -877,3 +1181,46 @@ class Client(ClientWithIDGen, OperationLogger):
             n_counters,
             dtype=basetypes.SEGMENT_ID,
         )
+    
+    def _remove_and_merge_duplicates(self, list_of_dicts: list[dict], key_to_compare="key") -> list[dict]:
+        """
+        A private utility method to remove duplicates from a list containing dicts, based on the specified key.
+        If such duplicates are found then merge the duplicated dicts into a single dict and append it to the list.
+        
+        For example,
+          original_list = [
+              {"key": 123, "a": "a"},
+              {"key": 345, "b": "b"},
+              {"key": 567, "c": "c"},
+              {"key": 123, "d": "d", 10: 100},
+          ]
+        print(_remove_and_merge_duplicates(original_list)):
+          [
+              {"key": 123, "a": "a", "d": "d", 10: 100},
+              {"key": 345, "b": "b"},
+              {'key': 567, 'c': 'c'},
+          ]
+          
+        :param list_of_dicts:
+        :param key_to_compare:
+        
+        :return:
+        """
+        # Create a new list to store the unique elements
+        unique_dicts = {}
+        merged_list = []
+        
+        for d in list_of_dicts:
+            if key_to_compare in d:
+                value_to_compare = d[key_to_compare]
+                if value_to_compare in unique_dicts:
+                    # Merge the duplicate with the existing one
+                    unique_dicts[value_to_compare].update(d)
+                else:
+                    unique_dicts[value_to_compare] = d
+                    merged_list.append(d)
+            else:
+                # If the key is not present in the dict, then it is a new element.
+                # Simply append it to the list
+                merged_list.append(d)
+        return merged_list
