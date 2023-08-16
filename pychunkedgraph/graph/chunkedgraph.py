@@ -120,15 +120,6 @@ class ChunkedGraph:
                 chunk_id
             )  # pylint: disable=unsupported-binary-operation
         
-        params = {
-            'start_id': self.get_node_id(np.uint64(0), chunk_id=chunk_id),
-            'end_id': max_node_id,
-            'end_id_inclusive': True,
-            'properties': properties,
-            'end_time': time_stamp,
-            'end_time_inclusive': True,
-        }
-        
         return self.client.read_nodes(
             start_id=self.get_node_id(np.uint64(0), chunk_id=chunk_id),
             end_id=max_node_id,
