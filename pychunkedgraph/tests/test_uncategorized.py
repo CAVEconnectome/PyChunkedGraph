@@ -15,6 +15,7 @@ import pytest
 from google.auth import credentials
 from google.cloud import bigtable
 from grpc._channel import _Rendezvous
+import zstandard as zstd
 
 from .helpers import (
     bigtable_emulator,
@@ -105,10 +106,11 @@ class TestGraphNodeConversion:
 def try_deserialize(attr, value):
     try:
         deserialized_value = attr.deserialize(value)
-    except:
+    except zstd.ZstdError as e:
         # In case of some clients (e.g., Amazon DynamoDB client) the attribute is
         # already deserialize before being returned, we may error during deserialize in that case.
         # In that case, we just use the value as it is.
+        warn(f"Error during deserialize: {e}")
         deserialized_value = value
     return deserialized_value
 
