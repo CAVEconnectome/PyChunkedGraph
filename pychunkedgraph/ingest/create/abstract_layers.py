@@ -9,6 +9,7 @@ import datetime
 import multiprocessing as mp
 from typing import Optional
 from typing import Sequence
+from collections import defaultdict
 
 import numpy as np
 from multiwrapper import multiprocessing_utils as mu
@@ -153,7 +154,15 @@ def _write_components_helper(args):
     _write(cg, layer, pcoords, ccs, cx_edges, node_layer_d, time_stamp)
 
 
-def _write(cg, layer_id, parent_coords, components, cx_edges, node_layer_d, time_stamp):
+def _write(
+    cg: ChunkedGraph,
+    layer_id,
+    parent_coords,
+    components,
+    cx_edges,
+    node_layer_d,
+    time_stamp,
+):
     parent_layer_ids = range(layer_id, cg.meta.layer_count + 1)
     cc_connections = {l: [] for l in parent_layer_ids}
     for node_ids in components:
@@ -180,24 +189,28 @@ def _write(cg, layer_id, parent_coords, components, cx_edges, node_layer_d, time
         )
 
         for i_cc, node_ids in enumerate(cc_connections[parent_layer_id]):
+            node_cx_edges_d = defaultdict(lambda: types.empty_2d)
+            for node in node_ids:
+                mask0 = cx_edges[:, 0] == node
+                mask1 = cx_edges[:, 1] == node
+                node_cx_edges_d[node] = cx_edges[mask0 | mask1]
+
             parent_id = reserved_parent_ids[i_cc]
-            for node_id in node_ids:
-                rows.append(
-                    cg.client.mutate_row(
-                        serializers.serialize_uint64(node_id),
-                        {attributes.Hierarchy.Parent: parent_id},
-                        time_stamp=time_stamp,
-                    )
-                )
+            for node in node_ids:
+                row_id = serializers.serialize_uint64(node)
+                val_dict = {attributes.Hierarchy.Parent: parent_id}
 
-            rows.append(
-                cg.client.mutate_row(
-                    serializers.serialize_uint64(parent_id),
-                    {attributes.Hierarchy.Child: node_ids},
-                    time_stamp=time_stamp,
-                )
-            )
+                node_cx_edges = node_cx_edges_d[node]
+                cx_layers = cg.get_cross_chunk_edges_layer(node_cx_edges)
+                for layer in set(cx_layers):
+                    layer_mask = cx_layers == layer
+                    col = attributes.Connectivity.CrossChunkEdge[layer]
+                    val_dict[col] = node_cx_edges[layer_mask]
+                rows.append(cg.client.mutate_row(row_id, val_dict, time_stamp))
 
+            row_id = serializers.serialize_uint64(parent_id)
+            val_dict = {attributes.Hierarchy.Child: node_ids}
+            rows.append(cg.client.mutate_row(row_id, val_dict, time_stamp))
             if len(rows) > 100000:
                 cg.client.write(rows)
                 rows = []
