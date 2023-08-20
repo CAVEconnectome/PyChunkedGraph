@@ -1,4 +1,4 @@
-# pylint: disable=invalid-name, missing-docstring, import-outside-toplevel
+# pylint: disable=invalid-name, missing-docstring
 
 import math
 import multiprocessing as mp
@@ -9,13 +9,13 @@ from typing import Dict
 import numpy as np
 from multiwrapper.multiprocessing_utils import multiprocess_func
 
-from .. import attributes
-from ..types import empty_2d
-from ..utils import basetypes
-from ..chunkedgraph import ChunkedGraph
-from ..utils.generic import filter_failed_node_ids
-from ..chunks.atomic import get_touching_atomic_chunks
-from ..chunks.atomic import get_bounding_atomic_chunks
+from ...graph import attributes
+from ...graph.types import empty_2d
+from ...graph.utils import basetypes
+from ...graph.chunkedgraph import ChunkedGraph
+from ...graph.utils.generic import filter_failed_node_ids
+from ...graph.chunks.atomic import get_touching_atomic_chunks
+from ...graph.chunks.atomic import get_bounding_atomic_chunks
 from ...utils.general import chunked
 
 
