@@ -298,7 +298,7 @@ class ChunkedGraph:
             node_edges_d_d = self.client.read_nodes(
                 node_ids=l2_ids,
                 properties=[
-                    attributes.Connectivity.CrossChunkEdge[l]
+                    attributes.Connectivity.AtomicCrossChunkEdge[l]
                     for l in range(2, self.meta.layer_count)
                 ],
             )
