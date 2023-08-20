@@ -39,26 +39,20 @@ def add_layer(
     if not children_coords.size:
         children_coords = get_children_chunk_coords(cg.meta, layer_id, parent_coords)
     children_ids = _read_children_chunks(cg, layer_id, children_coords, n_threads > 1)
-    edge_ids = get_children_chunk_cross_edges(
+    cross_edges = get_children_chunk_cross_edges(
         cg, layer_id, parent_coords, use_threads=n_threads > 1
     )
 
     node_layers = cg.get_chunk_layers(children_ids)
-    edge_layers = cg.get_chunk_layers(np.unique(edge_ids))
+    edge_layers = cg.get_chunk_layers(np.unique(cross_edges))
     assert np.all(node_layers < layer_id), "invalid node layers"
     assert np.all(edge_layers < layer_id), "invalid edge layers"
-    # Extract connected components
-    # isolated_node_mask = ~np.in1d(children_ids, np.unique(edge_ids))
-    # add_node_ids = children_ids[isolated_node_mask].squeeze()
-    add_edge_ids = np.vstack([children_ids, children_ids]).T
 
-    edge_ids = list(edge_ids)
-    edge_ids.extend(add_edge_ids)
-    graph, _, _, graph_ids = flatgraph.build_gt_graph(edge_ids, make_directed=True)
-    ccs = flatgraph.connected_components(graph)
-    connected_components = []
-    for cc in ccs:
-        connected_components.append(graph_ids[cc])
+    cross_edges = list(cross_edges)
+    cross_edges.extend(np.vstack([children_ids, children_ids]).T) # add self-edges
+    graph, _, _, graph_ids = flatgraph.build_gt_graph(cross_edges, make_directed=True)
+    raw_ccs = flatgraph.connected_components(graph) # connected components with indices
+    connected_components = [graph_ids[cc] for cc in raw_ccs]
 
     _write_connected_components(
         cg,
@@ -68,7 +62,6 @@ def add_layer(
         get_valid_timestamp(time_stamp),
         n_threads > 1,
     )
-    return f"{layer_id}_{'_'.join(map(str, parent_coords))}"
 
 
 def _read_children_chunks(
