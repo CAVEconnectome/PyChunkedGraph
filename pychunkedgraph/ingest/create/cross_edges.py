@@ -24,7 +24,7 @@ def get_children_chunk_cross_edges(
 ) -> np.ndarray:
     """
     Cross edges that connect children chunks.
-    The edges are between node IDs in the given layer (not atomic).
+    The edges are between node IDs in the given layer.
     """
     atomic_chunks = get_touching_atomic_chunks(cg.meta, layer, chunk_coord)
     if len(atomic_chunks) == 0:
