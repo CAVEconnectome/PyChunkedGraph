@@ -1,5 +1,5 @@
+# pylint: disable=invalid-name, missing-docstring
 from typing import Tuple
-
 
 from . import ClusterIngestConfig
 from . import IngestConfig
@@ -72,4 +72,4 @@ def postprocess_edge_data(im, edge_dict):
 
         return new_edge_dict
     else:
-        raise Exception(f"Unknown data_version: {data_version}")
+        raise ValueError(f"Unknown data_version: {data_version}")
