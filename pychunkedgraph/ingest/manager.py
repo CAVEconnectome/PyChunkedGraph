@@ -1,3 +1,5 @@
+# pylint: disable=invalid-name, missing-docstring
+
 import pickle
 
 from . import IngestConfig
@@ -15,7 +17,9 @@ class IngestionManager:
         self._cg = None
         self._redis = None
         self._task_queues = {}
-        self.redis  # initiate and cache info
+
+        # initiate redis and cache info
+        self.redis  # pylint: disable=pointless-statement
 
     @property
     def config(self):
