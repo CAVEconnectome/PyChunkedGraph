@@ -110,15 +110,15 @@ class Connectivity:
         serializer=serializers.NumPyArray(dtype=basetypes.NODE_ID, shape=(-1, 2)),
     )
 
-    L2CrossChunkEdge = _AttributeArray(
-        pattern=b"l2_cross_edge_%d",
+    CrossChunkEdge = _AttributeArray(
+        pattern=b"cross_edge_%d",
         family_id="4",
         serializer=serializers.NumPyArray(
             dtype=basetypes.NODE_ID, shape=(-1, 2), compression_level=22
         ),
     )
 
-    CrossChunkEdge = _AttributeArray(
+    AtomicCrossChunkEdge = _AttributeArray(
         pattern=b"atomic_cross_edges_%d",
         family_id="3",
         serializer=serializers.NumPyArray(

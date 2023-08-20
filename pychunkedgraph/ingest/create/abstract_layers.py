@@ -56,12 +56,15 @@ def add_layer(
     edge_ids.extend(add_edge_ids)
     graph, _, _, graph_ids = flatgraph.build_gt_graph(edge_ids, make_directed=True)
     ccs = flatgraph.connected_components(graph)
+    connected_components = []
+    for cc in ccs:
+        connected_components.append(graph_ids[cc])
+
     _write_connected_components(
         cg,
         layer_id,
         parent_coords,
-        ccs,
-        graph_ids,
+        connected_components,
         get_valid_timestamp(time_stamp),
         n_threads > 1,
     )
@@ -126,12 +129,11 @@ def _write_connected_components(
     cg: ChunkedGraph,
     layer_id: int,
     parent_coords,
-    ccs,
-    graph_ids,
+    connected_components: list,
     time_stamp,
     use_threads=True,
 ) -> None:
-    if not ccs:
+    if len(connected_components) == 0:
         return
 
     node_layer_d_shared = {}
@@ -140,24 +142,20 @@ def _write_connected_components(
             cg, layer_id, parent_coords, use_threads=use_threads
         )
 
-    ccs_with_node_ids = []
-    for cc in ccs:
-        ccs_with_node_ids.append(graph_ids[cc])
-
     if not use_threads:
         _write(
             cg,
             layer_id,
             parent_coords,
-            ccs_with_node_ids,
+            connected_components,
             node_layer_d_shared,
             time_stamp,
             use_threads=use_threads,
         )
         return
 
-    task_size = int(math.ceil(len(ccs_with_node_ids) / mp.cpu_count() / 10))
-    chunked_ccs = chunked(ccs_with_node_ids, task_size)
+    task_size = int(math.ceil(len(connected_components) / mp.cpu_count() / 10))
+    chunked_ccs = chunked(connected_components, task_size)
     cg_info = cg.get_serialized_info()
     multi_args = []
     for ccs in chunked_ccs:
@@ -178,11 +176,17 @@ def _write_components_helper(args):
 
 
 def _write(
-    cg, layer_id, parent_coords, ccs, node_layer_d_shared, time_stamp, use_threads=True
+    cg,
+    layer_id,
+    parent_coords,
+    connected_components,
+    node_layer_d_shared,
+    time_stamp,
+    use_threads=True,
 ):
     parent_layer_ids = range(layer_id, cg.meta.layer_count + 1)
     cc_connections = {l: [] for l in parent_layer_ids}
-    for node_ids in ccs:
+    for node_ids in connected_components:
         layer = layer_id
         if len(node_ids) == 1:
             layer = node_layer_d_shared.get(node_ids[0], cg.meta.layer_count)
