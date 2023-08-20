@@ -23,8 +23,8 @@ from ...graph.chunkedgraph import ChunkedGraph
 from ...graph.utils.generic import get_valid_timestamp
 from ...graph.utils.generic import filter_failed_node_ids
 from ...graph.chunks.hierarchy import get_children_chunk_coords
-from ...graph.connectivity.cross_edges import get_children_chunk_cross_edges
-from ...graph.connectivity.cross_edges import get_chunk_nodes_cross_edge_layer
+from .cross_edges import get_children_chunk_cross_edges
+from .cross_edges import get_chunk_nodes_cross_edge_layer
 
 
 def add_layer(
