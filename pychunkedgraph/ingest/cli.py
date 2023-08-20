@@ -1,4 +1,4 @@
-# pylint: disable=invalid-name, missing-function-docstring, import-outside-toplevel
+# pylint: disable=invalid-name, missing-function-docstring, unspecified-encoding
 
 """
 cli for running ingest
@@ -8,9 +8,14 @@ import click
 import yaml
 from flask.cli import AppGroup
 
+from .cluster import create_atomic_chunk
+from .cluster import create_parent_chunk
 from .cluster import enqueue_atomic_tasks
+from .cluster import randomize_grid_points
 from .manager import IngestionManager
 from .utils import bootstrap
+from .utils import chunk_id_str
+from .create.abstract_layers import add_layer
 from ..graph.chunkedgraph import ChunkedGraph
 from ..utils.redis import get_redis_connection
 from ..utils.redis import keys as r_keys
@@ -84,7 +89,7 @@ def pickle_imanager(graph_id: str, dataset: click.Path, raw: bool):
 
     meta, ingest_config, _ = bootstrap(graph_id, config=config, raw=raw)
     imanager = IngestionManager(ingest_config, meta)
-    imanager.redis
+    imanager.redis  # pylint: disable=pointless-statement
 
 
 @ingest_cli.command("layer")
@@ -94,11 +99,6 @@ def queue_layer(parent_layer):
     Queue all chunk tasks at a given layer.
     Must be used when all the chunks at `parent_layer - 1` have completed.
     """
-    from itertools import product
-    import numpy as np
-    from .cluster import create_parent_chunk
-    from .utils import chunk_id_str
-
     assert parent_layer > 2, "This command is for layers 3 and above."
     redis = get_redis_connection()
     imanager = IngestionManager.from_pickle(redis.get(r_keys.INGESTION_MANAGER))
@@ -107,8 +107,7 @@ def queue_layer(parent_layer):
         chunk_coords = [(0, 0, 0)]
     else:
         bounds = imanager.cg_meta.layer_chunk_bounds[parent_layer]
-        chunk_coords = list(product(*[range(r) for r in bounds]))
-        np.random.shuffle(chunk_coords)
+        chunk_coords = randomize_grid_points(*bounds)
 
     for coords in chunk_coords:
         task_q = imanager.get_task_queue(f"l{parent_layer}")
@@ -128,16 +127,16 @@ def ingest_status():
     imanager = IngestionManager.from_pickle(redis.get(r_keys.INGESTION_MANAGER))
 
     layer = 2
-    completed = redis.scard(f"{layer}c")
-    print(f"{layer}\t: {completed} / {imanager.cg_meta.layer_chunk_counts[0]}")
+    done = redis.scard(f"{layer}c")
+    print(f"{layer}\t: {done} / {imanager.cg_meta.layer_chunk_counts[0]}")
 
-    completed = redis.scard(f"{layer}c-postprocess")
-    print(f"{layer}\t: {completed} / {imanager.cg_meta.layer_chunk_counts[0]} [postprocess]")
+    done = redis.scard(f"{layer}c-postprocess")
+    print(f"{layer}\t: {done} / {imanager.cg_meta.layer_chunk_counts[0]} [postprocess]")
 
     layers = range(3, imanager.cg_meta.layer_count + 1)
     for layer, layer_count in zip(layers, imanager.cg_meta.layer_chunk_counts[1:]):
-        completed = redis.scard(f"{layer}c")
-        print(f"{layer}\t: {completed} / {layer_count}")
+        done = redis.scard(f"{layer}c")
+        print(f"{layer}\t: {done} / {layer_count}")
 
 
 @ingest_cli.command("chunk")
@@ -145,17 +144,13 @@ def ingest_status():
 @click.argument("chunk_info", nargs=4, type=int)
 def ingest_chunk(queue: str, chunk_info):
     """Manually queue chunk when a job is stuck for whatever reason."""
-    from .cluster import _create_atomic_chunk
-    from .cluster import create_parent_chunk
-    from .utils import chunk_id_str
-
     redis = get_redis_connection()
     imanager = IngestionManager.from_pickle(redis.get(r_keys.INGESTION_MANAGER))
     layer = chunk_info[0]
     coords = chunk_info[1:]
     queue = imanager.get_task_queue(queue)
     if layer == 2:
-        func = _create_atomic_chunk
+        func = create_atomic_chunk
         args = (coords,)
     else:
         func = create_parent_chunk
