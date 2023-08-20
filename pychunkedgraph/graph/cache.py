@@ -1,3 +1,4 @@
+# pylint: disable=invalid-name, missing-docstring, import-outside-toplevel
 """
 Cache nodes, parents, children and cross edges.
 """
