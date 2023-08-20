@@ -33,49 +33,6 @@ def _post_task_completion(
     imanager.redis.sadd(f"{layer}c{pprocess}", chunk_str)
 
 
-def enqueue_parent_task(
-    parent_layer: int,
-    parent_coords: Sequence[int],
-):
-    redis = get_redis_connection()
-    imanager = IngestionManager.from_pickle(redis.get(r_keys.INGESTION_MANAGER))
-    parent_id_str = chunk_id_str(parent_layer, parent_coords)
-    parent_chunk_str = "_".join(map(str, parent_coords))
-
-    children_done = redis.scard(parent_id_str)
-    # if zero then this key was deleted and parent already queued.
-    if children_done == 0:
-        print("parent already queued.")
-        return
-
-    # if the previous layer is complete
-    # no need to check children progress for each parent chunk
-    child_layer = parent_layer - 1
-    child_layer_done = redis.scard(f"{child_layer}c")
-    child_layer_count = imanager.cg_meta.layer_chunk_counts[child_layer - 2]
-    child_layer_finished = child_layer_done == child_layer_count
-
-    if not child_layer_finished:
-        children_count = int(redis.hget(parent_layer, parent_chunk_str).decode("utf-8"))
-        if children_done != children_count:
-            print("children not done.")
-            return
-
-    queue = imanager.get_task_queue(f"l{parent_layer}")
-    queue.enqueue(
-        create_parent_chunk,
-        job_id=parent_id_str,
-        job_timeout=f"{int(parent_layer * parent_layer)}m",
-        result_ttl=0,
-        args=(
-            parent_layer,
-            parent_coords,
-        ),
-    )
-    redis.hdel(parent_layer, parent_chunk_str)
-    redis.delete(parent_id_str)
-
-
 def create_parent_chunk(
     parent_layer: int,
     parent_coords: Sequence[int],
@@ -137,7 +94,7 @@ def enqueue_atomic_tasks(imanager: IngestionManager, postprocess: bool = False):
             continue
         job_datas.append(
             RQueue.prepare_data(
-                _create_atomic_chunk,
+                create_atomic_chunk,
                 args=(chunk_coord, postprocess),
                 timeout=environ.get("L2JOB_TIMEOUT", "3m"),
                 result_ttl=0,
@@ -150,7 +107,7 @@ def enqueue_atomic_tasks(imanager: IngestionManager, postprocess: bool = False):
     q.enqueue_many(job_datas)
 
 
-def _create_atomic_chunk(coords: Sequence[int], postprocess: bool = False):
+def create_atomic_chunk(coords: Sequence[int], postprocess: bool = False):
     """Creates single atomic chunk"""
     redis = get_redis_connection()
     imanager = IngestionManager.from_pickle(redis.get(r_keys.INGESTION_MANAGER))
