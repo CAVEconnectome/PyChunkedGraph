@@ -64,6 +64,11 @@ def _get_children_chunk_cross_edges_helper(args) -> None:
 
 
 def _get_children_chunk_cross_edges(cg, atomic_chunks, layer) -> None:
+    """
+    Non parallelized version
+    Cross edges that connect children chunks.
+    The edges are between node IDs in the given layer (not atomic).
+    """
     cross_edges = [empty_2d]
     for layer2_chunk in atomic_chunks:
         edges = _read_atomic_chunk_cross_edges(cg, layer2_chunk, layer)
@@ -82,7 +87,11 @@ def _get_children_chunk_cross_edges(cg, atomic_chunks, layer) -> None:
 def _read_atomic_chunk_cross_edges(
     cg, chunk_coord: Sequence[int], cross_edge_layer: int
 ) -> np.ndarray:
-    cross_edge_col = attributes.Connectivity.L2CrossChunkEdge[cross_edge_layer]
+    """
+    Returns cross edges between l2 nodes in current chunk and
+    l1 supervoxels from neighbor chunks.
+    """
+    cross_edge_col = attributes.Connectivity.CrossChunkEdge[cross_edge_layer]
     range_read, l2ids = _read_atomic_chunk(cg, chunk_coord, [cross_edge_layer])
 
     parent_neighboring_chunk_supervoxels_d = defaultdict(list)
@@ -93,8 +102,7 @@ def _read_atomic_chunk_cross_edges(
         parent_neighboring_chunk_supervoxels_d[l2id] = edges[:, 1]
 
     cross_edges = [empty_2d]
-    for l2id in parent_neighboring_chunk_supervoxels_d:
-        nebor_svs = parent_neighboring_chunk_supervoxels_d[l2id]
+    for l2id, nebor_svs in parent_neighboring_chunk_supervoxels_d.items():
         chunk_parent_ids = np.array([l2id] * len(nebor_svs), dtype=basetypes.NODE_ID)
         cross_edges.append(np.vstack([chunk_parent_ids, nebor_svs]).T)
     cross_edges = np.concatenate(cross_edges)
@@ -118,14 +126,14 @@ def get_chunk_nodes_cross_edge_layer(
 
     cg_info = cg.get_serialized_info()
     manager = mp.Manager()
-    ids_l_shared = manager.list()
-    layers_l_shared = manager.list()
+    node_ids_shared = manager.list()
+    node_layers_shared = manager.list()
     task_size = int(math.ceil(len(atomic_chunks) / mp.cpu_count() / 10))
     chunked_l2chunk_list = chunked(atomic_chunks, task_size)
     multi_args = []
     for atomic_chunks in chunked_l2chunk_list:
         multi_args.append(
-            (ids_l_shared, layers_l_shared, cg_info, atomic_chunks, layer)
+            (node_ids_shared, node_layers_shared, cg_info, atomic_chunks, layer)
         )
 
     multiprocess_func(
@@ -135,24 +143,28 @@ def get_chunk_nodes_cross_edge_layer(
     )
 
     node_layer_d_shared = manager.dict()
-    _find_min_layer(node_layer_d_shared, ids_l_shared, layers_l_shared)
+    _find_min_layer(node_layer_d_shared, node_ids_shared, node_layers_shared)
     return node_layer_d_shared
 
 
 def _get_chunk_nodes_cross_edge_layer_helper(args):
-    ids_l_shared, layers_l_shared, cg_info, atomic_chunks, layer = args
+    node_ids_shared, node_layers_shared, cg_info, atomic_chunks, layer = args
     cg = ChunkedGraph(**cg_info)
     node_layer_d = _get_chunk_nodes_cross_edge_layer(cg, atomic_chunks, layer)
-    ids_l_shared.append(np.fromiter(node_layer_d.keys(), dtype=basetypes.NODE_ID))
-    layers_l_shared.append(np.fromiter(node_layer_d.values(), dtype=np.uint8))
+    node_ids_shared.append(np.fromiter(node_layer_d.keys(), dtype=basetypes.NODE_ID))
+    node_layers_shared.append(np.fromiter(node_layer_d.values(), dtype=np.uint8))
 
 
 def _get_chunk_nodes_cross_edge_layer(cg, atomic_chunks, layer):
+    """
+    Non parallelized version
+    gets nodes in a chunk that are part of cross chunk edges
+    return_type dict {node_id: layer}
+    the lowest layer (>= current layer) at which a node_id is part of a cross edge
+    """
     atomic_node_layer_d = {}
     for atomic_chunk in atomic_chunks:
-        chunk_node_layer_d = _read_atomic_chunk_cross_edge_nodes(
-            cg, atomic_chunk, range(layer, cg.meta.layer_count + 1)
-        )
+        chunk_node_layer_d = _read_atomic_chunk_cross_edge_nodes(cg, atomic_chunk, layer)
         atomic_node_layer_d.update(chunk_node_layer_d)
 
     l2ids = np.fromiter(atomic_node_layer_d.keys(), dtype=basetypes.NODE_ID)
@@ -165,32 +177,57 @@ def _get_chunk_nodes_cross_edge_layer(cg, atomic_chunks, layer):
     return node_layer_d
 
 
-def _read_atomic_chunk_cross_edge_nodes(cg, chunk_coord, cross_edge_layers):
+def _read_atomic_chunk_cross_edge_nodes(cg, chunk_coord, layer):
+    """
+    the lowest layer at which an l2 node is part of a cross edge
+    """
     node_layer_d = {}
-    range_read, l2ids = _read_atomic_chunk(cg, chunk_coord, cross_edge_layers)
+    relevant_layers = range(layer, cg.meta.layer_count + 1)
+    range_read, l2ids = _read_atomic_chunk(cg, chunk_coord, relevant_layers)
     for l2id in l2ids:
-        for layer in cross_edge_layers:
-            if attributes.Connectivity.L2CrossChunkEdge[layer] in range_read[l2id]:
+        for layer in relevant_layers:
+            if attributes.Connectivity.CrossChunkEdge[layer] in range_read[l2id]:
                 node_layer_d[l2id] = layer
                 break
     return node_layer_d
 
 
-def _find_min_layer(node_layer_d_shared, ids_l_shared, layers_l_shared):
-    node_ids = np.concatenate(ids_l_shared)
-    layers = np.concatenate(layers_l_shared)
+def _find_min_layer(node_layer_d_shared, node_ids_shared, node_layers_shared):
+    """
+    `node_layer_d_shared`: DictProxy
+
+    `node_ids_shared`: ListProxy
+
+    `node_layers_shared`: ListProxy
+
+    Due to parallelization, there will be multiple values for min_layer of a node.
+    We need to find the global min_layer after all multiprocesses return.
+    For eg:
+        At some indices p and q, there will be a node_id x
+          i.e. `node_ids_shared[p] == node_ids_shared[q]`
+
+        and node_layers_shared[p] != node_layers_shared[q]
+        so we need:
+          `node_layer_d_shared[x] =  min(node_layers_shared[p], node_layers_shared[q])`
+    """
+    node_ids = np.concatenate(node_ids_shared)
+    layers = np.concatenate(node_layers_shared)
     for i, node_id in enumerate(node_ids):
         layer = node_layer_d_shared.get(node_id, layers[i])
         node_layer_d_shared[node_id] = min(layer, layers[i])
 
 
 def _read_atomic_chunk(cg, chunk_coord, layers):
+    """
+    read entire atomic chunk; all nodes and their relevant cross edges
+    filter out invalid nodes generated by failed tasks
+    """
     x, y, z = chunk_coord
     child_col = attributes.Hierarchy.Child
     range_read = cg.range_read_chunk(
         cg.get_chunk_id(layer=2, x=x, y=y, z=z),
         properties=[child_col]
-        + [attributes.Connectivity.L2CrossChunkEdge[l] for l in layers],
+        + [attributes.Connectivity.CrossChunkEdge[l] for l in layers],
     )
 
     row_ids = []
