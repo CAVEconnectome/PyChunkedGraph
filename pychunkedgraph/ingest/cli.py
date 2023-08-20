@@ -67,16 +67,6 @@ def ingest_graph(
     enqueue_atomic_tasks(IngestionManager(ingest_config, meta))
 
 
-@ingest_cli.command("postprocess")
-def postprocess():
-    """
-    Run postprocessing step on level 2 chunks.
-    """
-    redis = get_redis_connection()
-    imanager = IngestionManager.from_pickle(redis.get(r_keys.INGESTION_MANAGER))
-    enqueue_atomic_tasks(imanager, postprocess=True)
-
-
 @ingest_cli.command("imanager")
 @click.argument("graph_id", type=str)
 @click.argument("dataset", type=click.Path(exists=True))
@@ -130,16 +120,8 @@ def ingest_status():
     """Print ingest status to console by layer."""
     redis = get_redis_connection()
     imanager = IngestionManager.from_pickle(redis.get(r_keys.INGESTION_MANAGER))
-
-    layer = 2
-    done = redis.scard(f"{layer}c")
-    print(f"{layer}\t: {done} / {imanager.cg_meta.layer_chunk_counts[0]}")
-
-    done = redis.scard(f"{layer}c-postprocess")
-    print(f"{layer}\t: {done} / {imanager.cg_meta.layer_chunk_counts[0]} [postprocess]")
-
-    layers = range(3, imanager.cg_meta.layer_count + 1)
-    for layer, layer_count in zip(layers, imanager.cg_meta.layer_chunk_counts[1:]):
+    layers = range(2, imanager.cg_meta.layer_count + 1)
+    for layer, layer_count in zip(layers, imanager.cg_meta.layer_chunk_counts):
         done = redis.scard(f"{layer}c")
         print(f"{layer}\t: {done} / {layer_count}")
 
