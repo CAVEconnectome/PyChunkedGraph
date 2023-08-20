@@ -565,7 +565,7 @@ class CreateParentNodes:
         for id_ in new_ids:
             val_dict = {}
             for layer, edges in atomic_cross_edges_d[id_].items():
-                val_dict[attributes.Connectivity.CrossChunkEdge[layer]] = edges
+                val_dict[attributes.Connectivity.AtomicCrossChunkEdge[layer]] = edges
             val_dicts[id_] = val_dict
         return val_dicts
 
