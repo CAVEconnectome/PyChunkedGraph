@@ -81,7 +81,7 @@ def enqueue_atomic_tasks(imanager: IngestionManager):
 
         x, y, z = chunk_coord
         chunk_str = f"{x}_{y}_{z}"
-        if imanager.redis.sismember(f"2c", chunk_str):
+        if imanager.redis.sismember("2c", chunk_str):
             # already done, skip
             continue
         job_datas.append(
