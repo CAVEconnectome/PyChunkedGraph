@@ -49,9 +49,9 @@ def add_layer(
     assert np.all(edge_layers < layer_id), "invalid edge layers"
 
     cross_edges = list(cross_edges)
-    cross_edges.extend(np.vstack([children_ids, children_ids]).T) # add self-edges
+    cross_edges.extend(np.vstack([children_ids, children_ids]).T)  # add self-edges
     graph, _, _, graph_ids = flatgraph.build_gt_graph(cross_edges, make_directed=True)
-    raw_ccs = flatgraph.connected_components(graph) # connected components with indices
+    raw_ccs = flatgraph.connected_components(graph)  # connected components with indices
     connected_components = [graph_ids[cc] for cc in raw_ccs]
 
     _write_connected_components(
@@ -119,42 +119,26 @@ def _read_chunk(children_ids_shared, cg: ChunkedGraph, layer_id: int, chunk_coor
 
 
 def _write_connected_components(
-    cg: ChunkedGraph,
-    layer_id: int,
-    parent_coords,
-    connected_components: list,
-    time_stamp,
-    use_threads=True,
-) -> None:
-    if len(connected_components) == 0:
+    cg, layer, pcoords, components, cross_edges, time_stamp, use_threads=True
+):
+    if len(components) == 0:
         return
 
-    node_layer_d_shared = {}
-    if layer_id < cg.meta.layer_count:
-        node_layer_d_shared = get_chunk_nodes_cross_edge_layer(
-            cg, layer_id, parent_coords, use_threads=use_threads
-        )
+    node_layer_d = {}
+    if layer < cg.meta.layer_count:
+        node_layer_d = get_chunk_nodes_cross_edge_layer(cg, layer, pcoords, use_threads)
 
     if not use_threads:
-        _write(
-            cg,
-            layer_id,
-            parent_coords,
-            connected_components,
-            node_layer_d_shared,
-            time_stamp,
-            use_threads=use_threads,
-        )
+        _write(cg, layer, pcoords, components, cross_edges, node_layer_d, time_stamp)
         return
 
-    task_size = int(math.ceil(len(connected_components) / mp.cpu_count() / 10))
-    chunked_ccs = chunked(connected_components, task_size)
+    task_size = int(math.ceil(len(components) / mp.cpu_count() / 10))
+    chunked_ccs = chunked(components, task_size)
     cg_info = cg.get_serialized_info()
     multi_args = []
     for ccs in chunked_ccs:
-        multi_args.append(
-            (cg_info, layer_id, parent_coords, ccs, node_layer_d_shared, time_stamp)
-        )
+        args = (cg_info, layer, pcoords, ccs, cross_edges, node_layer_d, time_stamp)
+        multi_args.append(args)
     mu.multiprocess_func(
         _write_components_helper,
         multi_args,
@@ -163,26 +147,20 @@ def _write_connected_components(
 
 
 def _write_components_helper(args):
-    cg_info, layer_id, parent_coords, ccs, node_layer_d_shared, time_stamp = args
+    cg_info, layer, pcoords, ccs, cross_edges, node_layer_d, time_stamp = args
     cg = ChunkedGraph(**cg_info)
-    _write(cg, layer_id, parent_coords, ccs, node_layer_d_shared, time_stamp)
+    _write(cg, layer, pcoords, ccs, cross_edges, node_layer_d, time_stamp)
 
 
 def _write(
-    cg,
-    layer_id,
-    parent_coords,
-    connected_components,
-    node_layer_d_shared,
-    time_stamp,
-    use_threads=True,
+    cg, layer_id, parent_coords, components, cross_edges, node_layer_d, time_stamp
 ):
     parent_layer_ids = range(layer_id, cg.meta.layer_count + 1)
     cc_connections = {l: [] for l in parent_layer_ids}
-    for node_ids in connected_components:
+    for node_ids in components:
         layer = layer_id
         if len(node_ids) == 1:
-            layer = node_layer_d_shared.get(node_ids[0], cg.meta.layer_count)
+            layer = node_layer_d.get(node_ids[0], cg.meta.layer_count)
         cc_connections[layer].append(node_ids)
 
     rows = []
@@ -199,7 +177,7 @@ def _write(
         reserved_parent_ids = cg.id_client.create_node_ids(
             parent_chunk_id,
             size=len(cc_connections[parent_layer_id]),
-            root_chunk=parent_layer_id == cg.meta.layer_count and use_threads,
+            root_chunk=parent_layer_id == cg.meta.layer_count,
         )
 
         for i_cc, node_ids in enumerate(cc_connections[parent_layer_id]):
