@@ -184,7 +184,7 @@ def _read_atomic_chunk_cross_edge_nodes(cg: ChunkedGraph, chunk_coord, layer):
     the lowest layer at which an l2 node is part of a cross edge
     """
     node_layer_d = {}
-    relevant_layers = range(layer, cg.meta.layer_count + 1)
+    relevant_layers = range(layer, cg.meta.layer_count)
     range_read, l2ids = _read_atomic_chunk(cg, chunk_coord, relevant_layers)
     for l2id in l2ids:
         for layer in relevant_layers:
