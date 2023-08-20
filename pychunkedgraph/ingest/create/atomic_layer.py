@@ -126,7 +126,7 @@ def _process_component(
     for cc_layer in u_cce_layers:
         layer_out_edges = chunk_out_edges[cce_layers == cc_layer]
         if layer_out_edges.size:
-            col = attributes.Connectivity.CrossChunkEdge[cc_layer]
+            col = attributes.Connectivity.AtomicCrossChunkEdge[cc_layer]
             val_dict[col] = layer_out_edges
 
     r_key = serializers.serialize_uint64(parent_id)
@@ -165,7 +165,7 @@ def postprocess_atomic_chunk(
     )
 
     properties = [
-        attributes.Connectivity.CrossChunkEdge[l] for l in range(2, cg.meta.layer_count)
+        attributes.Connectivity.AtomicCrossChunkEdge[l] for l in range(2, cg.meta.layer_count)
     ]
 
     chunk_rr = cg.range_read_chunk(
@@ -190,7 +190,7 @@ def postprocess_atomic_chunk(
             l2_edges = np.zeros_like(edges)
             l2_edges[:, 0] = l2id
             l2_edges[:, 1] = cg.get_parents(edges[:, 1])
-            col = attributes.Connectivity.L2CrossChunkEdge[layer]
+            col = attributes.Connectivity.CrossChunkEdge[layer]
             val_dict[col] = np.unique(l2_edges, axis=0)
             val_dicts.append(val_dict)
 
