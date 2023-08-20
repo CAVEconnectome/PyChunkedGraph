@@ -91,7 +91,7 @@ def _read_atomic_chunk_cross_edges(
     Returns cross edges between l2 nodes in current chunk and
     l1 supervoxels from neighbor chunks.
     """
-    cross_edge_col = attributes.Connectivity.CrossChunkEdge[cross_edge_layer]
+    cross_edge_col = attributes.Connectivity.AtomicCrossChunkEdge[cross_edge_layer]
     range_read, l2ids = _read_atomic_chunk(cg, chunk_coord, [cross_edge_layer])
 
     parent_neighboring_chunk_supervoxels_d = defaultdict(list)
@@ -188,7 +188,7 @@ def _read_atomic_chunk_cross_edge_nodes(cg: ChunkedGraph, chunk_coord, layer):
     range_read, l2ids = _read_atomic_chunk(cg, chunk_coord, relevant_layers)
     for l2id in l2ids:
         for layer in relevant_layers:
-            if attributes.Connectivity.CrossChunkEdge[layer] in range_read[l2id]:
+            if attributes.Connectivity.AtomicCrossChunkEdge[layer] in range_read[l2id]:
                 node_layer_d[l2id] = layer
                 break
     return node_layer_d
@@ -229,7 +229,7 @@ def _read_atomic_chunk(cg: ChunkedGraph, chunk_coord, layers):
     range_read = cg.range_read_chunk(
         cg.get_chunk_id(layer=2, x=x, y=y, z=z),
         properties=[child_col]
-        + [attributes.Connectivity.CrossChunkEdge[l] for l in layers],
+        + [attributes.Connectivity.AtomicCrossChunkEdge[l] for l in layers],
     )
 
     row_ids = []
