@@ -13,7 +13,6 @@ from .manager import IngestionManager
 from .common import get_atomic_chunk_data
 from .ran_agglomeration import get_active_edges
 from .create.atomic_layer import add_atomic_edges
-from .create.atomic_layer import postprocess_atomic_chunk
 from .create.abstract_layers import add_layer
 from ..graph.meta import ChunkedGraphMeta
 from ..graph.chunks.hierarchy import get_children_chunk_coords
@@ -25,12 +24,10 @@ def _post_task_completion(
     imanager: IngestionManager,
     layer: int,
     coords: np.ndarray,
-    postprocess: bool = False,
 ):
     chunk_str = "_".join(map(str, coords))
     # mark chunk as completed - "c"
-    pprocess = "-postprocess" if postprocess else ""
-    imanager.redis.sadd(f"{layer}c{pprocess}", chunk_str)
+    imanager.redis.sadd(f"{layer}c", chunk_str)
 
 
 def create_parent_chunk(
@@ -59,7 +56,7 @@ def randomize_grid_points(X: int, Y: int, Z: int) -> Tuple[int, int, int]:
         yield np.unravel_index(index, (X, Y, Z))
 
 
-def enqueue_atomic_tasks(imanager: IngestionManager, postprocess: bool = False):
+def enqueue_atomic_tasks(imanager: IngestionManager):
     from os import environ
     from time import sleep
     from rq import Queue as RQueue
@@ -72,12 +69,7 @@ def enqueue_atomic_tasks(imanager: IngestionManager, postprocess: bool = False):
         chunk_count = imanager.cg_meta.layer_chunk_counts[0]
     print(f"total chunk count: {chunk_count}, queuing...")
 
-    pprocess = ""
-    if postprocess:
-        pprocess = "-postprocess"
-        print("postprocessing l2 chunks")
-
-    queue_name = f"{imanager.config.CLUSTER.ATOMIC_Q_NAME}{pprocess}"
+    queue_name = f"{imanager.config.CLUSTER.ATOMIC_Q_NAME}"
     q = imanager.get_task_queue(queue_name)
     job_datas = []
     batch_size = int(environ.get("L2JOB_BATCH_SIZE", 1000))
@@ -89,13 +81,13 @@ def enqueue_atomic_tasks(imanager: IngestionManager, postprocess: bool = False):
 
         x, y, z = chunk_coord
         chunk_str = f"{x}_{y}_{z}"
-        if imanager.redis.sismember(f"2c{pprocess}", chunk_str):
+        if imanager.redis.sismember(f"2c", chunk_str):
             # already done, skip
             continue
         job_datas.append(
             RQueue.prepare_data(
                 create_atomic_chunk,
-                args=(chunk_coord, postprocess),
+                args=(chunk_coord,),
                 timeout=environ.get("L2JOB_TIMEOUT", "3m"),
                 result_ttl=0,
                 job_id=chunk_id_str(2, chunk_coord),
@@ -107,18 +99,15 @@ def enqueue_atomic_tasks(imanager: IngestionManager, postprocess: bool = False):
     q.enqueue_many(job_datas)
 
 
-def create_atomic_chunk(coords: Sequence[int], postprocess: bool = False):
+def create_atomic_chunk(coords: Sequence[int]):
     """Creates single atomic chunk"""
     redis = get_redis_connection()
     imanager = IngestionManager.from_pickle(redis.get(r_keys.INGESTION_MANAGER))
     coords = np.array(list(coords), dtype=int)
 
-    if postprocess:
-        postprocess_atomic_chunk(imanager.cg, coords)
-    else:
-        chunk_edges_all, mapping = get_atomic_chunk_data(imanager, coords)
-        chunk_edges_active, isolated_ids = get_active_edges(chunk_edges_all, mapping)
-        add_atomic_edges(imanager.cg, coords, chunk_edges_active, isolated=isolated_ids)
+    chunk_edges_all, mapping = get_atomic_chunk_data(imanager, coords)
+    chunk_edges_active, isolated_ids = get_active_edges(chunk_edges_all, mapping)
+    add_atomic_edges(imanager.cg, coords, chunk_edges_active, isolated=isolated_ids)
 
     if imanager.config.TEST_RUN:
         # print for debugging
@@ -126,7 +115,7 @@ def create_atomic_chunk(coords: Sequence[int], postprocess: bool = False):
             print(k, len(v))
         for k, v in chunk_edges_active.items():
             print(f"active_{k}", len(v))
-    _post_task_completion(imanager, 2, coords, postprocess=postprocess)
+    _post_task_completion(imanager, 2, coords)
 
 
 def _get_test_chunks(meta: ChunkedGraphMeta):
