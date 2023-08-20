@@ -39,18 +39,18 @@ def add_layer(
     if not children_coords.size:
         children_coords = get_children_chunk_coords(cg.meta, layer_id, parent_coords)
     children_ids = _read_children_chunks(cg, layer_id, children_coords, n_threads > 1)
-    cross_edges = get_children_chunk_cross_edges(
+    cx_edges = get_children_chunk_cross_edges(
         cg, layer_id, parent_coords, use_threads=n_threads > 1
     )
 
     node_layers = cg.get_chunk_layers(children_ids)
-    edge_layers = cg.get_chunk_layers(np.unique(cross_edges))
+    edge_layers = cg.get_chunk_layers(np.unique(cx_edges))
     assert np.all(node_layers < layer_id), "invalid node layers"
     assert np.all(edge_layers < layer_id), "invalid edge layers"
 
-    cross_edges = list(cross_edges)
-    cross_edges.extend(np.vstack([children_ids, children_ids]).T)  # add self-edges
-    graph, _, _, graph_ids = flatgraph.build_gt_graph(cross_edges, make_directed=True)
+    cx_edges = list(cx_edges)
+    cx_edges.extend(np.vstack([children_ids, children_ids]).T)  # add self-edges
+    graph, _, _, graph_ids = flatgraph.build_gt_graph(cx_edges, make_directed=True)
     raw_ccs = flatgraph.connected_components(graph)  # connected components with indices
     connected_components = [graph_ids[cc] for cc in raw_ccs]
 
@@ -59,6 +59,7 @@ def add_layer(
         layer_id,
         parent_coords,
         connected_components,
+        cx_edges,
         get_valid_timestamp(time_stamp),
         n_threads > 1,
     )
@@ -119,7 +120,7 @@ def _read_chunk(children_ids_shared, cg: ChunkedGraph, layer_id: int, chunk_coor
 
 
 def _write_connected_components(
-    cg, layer, pcoords, components, cross_edges, time_stamp, use_threads=True
+    cg, layer, pcoords, components, cx_edges, time_stamp, use_threads=True
 ):
     if len(components) == 0:
         return
@@ -129,7 +130,7 @@ def _write_connected_components(
         node_layer_d = get_chunk_nodes_cross_edge_layer(cg, layer, pcoords, use_threads)
 
     if not use_threads:
-        _write(cg, layer, pcoords, components, cross_edges, node_layer_d, time_stamp)
+        _write(cg, layer, pcoords, components, cx_edges, node_layer_d, time_stamp)
         return
 
     task_size = int(math.ceil(len(components) / mp.cpu_count() / 10))
@@ -137,7 +138,7 @@ def _write_connected_components(
     cg_info = cg.get_serialized_info()
     multi_args = []
     for ccs in chunked_ccs:
-        args = (cg_info, layer, pcoords, ccs, cross_edges, node_layer_d, time_stamp)
+        args = (cg_info, layer, pcoords, ccs, cx_edges, node_layer_d, time_stamp)
         multi_args.append(args)
     mu.multiprocess_func(
         _write_components_helper,
@@ -147,14 +148,12 @@ def _write_connected_components(
 
 
 def _write_components_helper(args):
-    cg_info, layer, pcoords, ccs, cross_edges, node_layer_d, time_stamp = args
+    cg_info, layer, pcoords, ccs, cx_edges, node_layer_d, time_stamp = args
     cg = ChunkedGraph(**cg_info)
-    _write(cg, layer, pcoords, ccs, cross_edges, node_layer_d, time_stamp)
+    _write(cg, layer, pcoords, ccs, cx_edges, node_layer_d, time_stamp)
 
 
-def _write(
-    cg, layer_id, parent_coords, components, cross_edges, node_layer_d, time_stamp
-):
+def _write(cg, layer_id, parent_coords, components, cx_edges, node_layer_d, time_stamp):
     parent_layer_ids = range(layer_id, cg.meta.layer_count + 1)
     cc_connections = {l: [] for l in parent_layer_ids}
     for node_ids in components:
