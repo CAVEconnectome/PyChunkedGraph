@@ -176,7 +176,7 @@ def _write(
     parent_chunk_id = cg.get_chunk_id(layer=layer_id, x=x, y=y, z=z)
     parent_chunk_id_dict = cg.get_parent_chunk_id_dict(parent_chunk_id)
 
-    # Iterate through layers
+    cx_edges = np.array(cx_edges, dtype=basetypes.NODE_ID)
     for parent_layer_id in parent_layer_ids:
         if len(cc_connections[parent_layer_id]) == 0:
             continue
