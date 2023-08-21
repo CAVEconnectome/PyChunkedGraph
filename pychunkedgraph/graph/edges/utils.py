@@ -8,16 +8,17 @@ from typing import Dict
 from typing import Tuple
 from typing import Iterable
 from typing import Optional
+from collections import defaultdict
 
 import fastremap
 import numpy as np
 
 from . import Edges
 from . import EDGE_TYPES
-from ..types import empty_2d
 from ..utils import basetypes
 from ..chunks import utils as chunk_utils
 from ..meta import ChunkedGraphMeta
+from ...utils.general import in2d
 
 
 def concatenate_chunk_edges(chunk_edge_dicts: Iterable) -> Dict:
@@ -47,10 +48,7 @@ def concatenate_chunk_edges(chunk_edge_dicts: Iterable) -> Dict:
 
 def concatenate_cross_edge_dicts(edges_ds: Iterable[Dict]) -> Dict:
     """Combines cross chunk edge dicts of form {layer id : edge list}."""
-    from collections import defaultdict
-
     result_d = defaultdict(list)
-
     for edges_d in edges_ds:
         for layer, edges in edges_d.items():
             result_d[layer].append(edges)
@@ -152,40 +150,7 @@ def get_cross_chunk_edges_layer(meta: ChunkedGraphMeta, cross_edges: Iterable):
     return cross_chunk_edge_layers
 
 
-def filter_min_layer_cross_edges(
-    meta: ChunkedGraphMeta, cross_edges_d: Dict, node_layer: int = 2
-) -> Tuple[int, Iterable]:
-    """
-    Given a dict of cross chunk edges {layer: edges}
-    Return the first layer with cross edges.
-    """
-    for layer in range(node_layer, meta.layer_count):
-        edges_ = cross_edges_d.get(layer, empty_2d)
-        if edges_.size:
-            return (layer, edges_)
-    return (meta.layer_count, edges_)
-
-
-def filter_min_layer_cross_edges_multiple(
-    meta: ChunkedGraphMeta, l2id_atomic_cross_edges_ds: Iterable, node_layer: int = 2
-) -> Tuple[int, Iterable]:
-    """
-    Given a list of dicts of cross chunk edges [{layer: edges}]
-    Return the first layer with cross edges.
-    """
-    min_layer = meta.layer_count
-    for edges_d in l2id_atomic_cross_edges_ds:
-        layer_, _ = filter_min_layer_cross_edges(meta, edges_d, node_layer=node_layer)
-        min_layer = min(min_layer, layer_)
-    edges = [empty_2d]
-    for edges_d in l2id_atomic_cross_edges_ds:
-        edges.append(edges_d.get(min_layer, empty_2d))
-    return min_layer, np.concatenate(edges)
-
-
 def get_edges_status(cg, edges: Iterable, time_stamp: Optional[float] = None):
-    from ...utils.general import in2d
-
     coords0 = chunk_utils.get_chunk_coordinates_multiple(cg.meta, edges[:, 0])
     coords1 = chunk_utils.get_chunk_coordinates_multiple(cg.meta, edges[:, 1])
 
