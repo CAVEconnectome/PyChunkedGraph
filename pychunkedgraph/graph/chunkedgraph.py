@@ -551,7 +551,7 @@ class ChunkedGraph:
         node_id_or_ids: typing.Union[np.uint64, typing.Iterable],
         bbox: typing.Optional[typing.Sequence[typing.Sequence[int]]] = None,
         bbox_is_coordinate: bool = False,
-        return_layers: typing.List = [2],
+        return_layers: typing.List = None,
         nodes_only: bool = False,
         edges_only: bool = False,
         leaves_only: bool = False,
@@ -562,6 +562,9 @@ class ChunkedGraph:
         """
         from .subgraph import get_subgraph_nodes
         from .subgraph import get_subgraph_edges_and_leaves
+
+        if return_layers is None:
+            return_layers = [2]
 
         if nodes_only:
             return get_subgraph_nodes(
@@ -581,7 +584,7 @@ class ChunkedGraph:
         node_id_or_ids: typing.Union[np.uint64, typing.Iterable],
         bbox: typing.Optional[typing.Sequence[typing.Sequence[int]]] = None,
         bbox_is_coordinate: bool = False,
-        return_layers: typing.List = [2],
+        return_layers: typing.List = None,
         serializable: bool = False,
         return_flattened: bool = False,
     ) -> typing.Tuple[typing.Dict, typing.Dict, Edges]:
@@ -590,6 +593,9 @@ class ChunkedGraph:
         return_layers within the specified bounding box.
         """
         from .subgraph import get_subgraph_nodes
+
+        if return_layers is None:
+            return_layers = [2]
 
         return get_subgraph_nodes(
             self,
