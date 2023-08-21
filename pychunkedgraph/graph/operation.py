@@ -1,4 +1,4 @@
-# pylint: disable=invalid-name, missing-docstring, too-many-lines, protected-access
+# pylint: disable=invalid-name, missing-docstring, too-many-lines, protected-access, broad_exception_raised
 
 from abc import ABC, abstractmethod
 from collections import namedtuple
@@ -469,7 +469,7 @@ class GraphEditOperation(ABC):
                     exception=repr(err),
                 )
                 self.cg.client.write([log_record_error])
-                raise Exception(err)
+                raise Exception(err) from err
 
             with TimeIt(f"{op_type}.write", self.cg.graph_id, lock.operation_id):
                 result = self._write(
