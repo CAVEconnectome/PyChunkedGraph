@@ -1,4 +1,4 @@
-# pylint: disable=invalid-name, missing-docstring, too-many-lines, import-outside-toplevel
+# pylint: disable=invalid-name, missing-docstring, too-many-lines, import-outside-toplevel, unsupported-binary-operation
 
 import time
 import typing
@@ -112,13 +112,15 @@ class ChunkedGraph:
         """Read all nodes in a chunk."""
         layer = self.get_chunk_layer(chunk_id)
         root_chunk = layer == self.meta.layer_count
-        max_node_id = self.id_client.get_max_node_id(chunk_id=chunk_id, root_chunk=root_chunk)
+        max_id = self.id_client.get_max_node_id(
+            chunk_id=chunk_id, root_chunk=root_chunk
+        )
         if layer == 1:
-            max_node_id = chunk_id | self.get_segment_id_limit(chunk_id) # pylint: disable=unsupported-binary-operation
+            max_id = chunk_id | self.get_segment_id_limit(chunk_id)
 
         return self.client.read_nodes(
             start_id=self.get_node_id(np.uint64(0), chunk_id=chunk_id),
-            end_id=max_node_id,
+            end_id=max_id,
             end_id_inclusive=True,
             properties=properties,
             end_time=time_stamp,
@@ -293,7 +295,7 @@ class ChunkedGraph:
     def get_atomic_cross_edges(
         self, l2_ids: typing.Iterable, *, raw_only=False
     ) -> typing.Dict[np.uint64, typing.Dict[int, typing.Iterable]]:
-        """Returns cross edges for level 2 IDs."""
+        """Returns atomic cross edges for level 2 IDs."""
         if raw_only or not self.cache:
             node_edges_d_d = self.client.read_nodes(
                 node_ids=l2_ids,
@@ -314,66 +316,29 @@ class ChunkedGraph:
             return result
         return self.cache.atomic_cross_edges_multiple(l2_ids)
 
-    def get_cross_chunk_edges(
-        self, node_ids: typing.Iterable, uplift=True, all_layers=False
-    ) -> typing.Dict[np.uint64, typing.Dict[int, typing.Iterable]]:
+    def get_cross_chunk_edges(self, node_ids: typing.Iterable) -> typing.Dict:
         """
-        Cross chunk edges for `node_id` at `node_layer`.
-        The edges are between node IDs at the `node_layer`, not atomic cross edges.
-        Returns dict {layer_id: cross_edges}
-            The first layer (>= `node_layer`) with atleast one cross chunk edge.
-            For current use-cases, other layers are not relevant.
-
-        For performance, only children that lie along chunk boundary are considered.
-        Cross edges that belong to inner level 2 IDs are subsumed within the chunk.
-        This is because cross edges are stored only in level 2 IDs.
+        Returns cross edges for `node_ids`.
+        A dict of the form `{node_id: {layer: cross_edges}}`
         """
         result = {}
         node_ids = np.array(node_ids, dtype=basetypes.NODE_ID)
-        if not node_ids.size:
+        if node_ids.size == 0:
             return result
-
-        node_l2ids_d = {}
-        layers_ = self.get_chunk_layers(node_ids)
-        for l in set(layers_):
-            node_l2ids_d.update(self._get_bounding_l2_children(node_ids[layers_ == l]))
-        l2_edges_d_d = self.get_atomic_cross_edges(
-            np.concatenate(list(node_l2ids_d.values()))
-        )
-        for node_id in node_ids:
-            l2_edges_ds = [l2_edges_d_d[l2_id] for l2_id in node_l2ids_d[node_id]]
-            if all_layers:
-                result[node_id] = edge_utils.concatenate_cross_edge_dicts(l2_edges_ds)
-            else:
-                result[node_id] = self._get_min_layer_cross_edges(
-                    node_id, l2_edges_ds, uplift=uplift
-                )
+        attrs = [
+            attributes.Connectivity.CrossChunkEdge[l]
+            for l in range(2, self.meta.layer_count)
+        ]
+        node_edges_d_d = self.client.read_nodes(node_ids=node_ids, properties=attrs)
+        for id_ in node_ids:
+            try:
+                result[id_] = {
+                    prop.index: val[0].value.copy()
+                    for prop, val in node_edges_d_d[id_].items()
+                }
+            except KeyError:
+                result[id_] = {}
         return result
-
-    def _get_min_layer_cross_edges(
-        self,
-        node_id: basetypes.NODE_ID,
-        l2id_atomic_cross_edges_ds: typing.Iterable,
-        uplift=True,
-    ) -> typing.Dict[int, typing.Iterable]:
-        """
-        Find edges at relevant min_layer >= node_layer.
-        `l2id_atomic_cross_edges_ds` is a list of atomic cross edges of
-        level 2 IDs that are descendants of `node_id`.
-        """
-        min_layer, edges = edge_utils.filter_min_layer_cross_edges_multiple(
-            self.meta, l2id_atomic_cross_edges_ds, self.get_chunk_layer(node_id)
-        )
-        if self.get_chunk_layer(node_id) < min_layer:
-            # cross edges irrelevant
-            return {self.get_chunk_layer(node_id): types.empty_2d}
-        if not uplift:
-            return {min_layer: edges}
-        node_root_id = node_id
-        node_root_id = self.get_root(node_id, stop_layer=min_layer, ceil=False)
-        edges[:, 0] = node_root_id
-        edges[:, 1] = self.get_roots(edges[:, 1], stop_layer=min_layer, ceil=False)
-        return {min_layer: np.unique(edges, axis=0) if edges.size else types.empty_2d}
 
     def get_roots(
         self,
@@ -698,9 +663,7 @@ class ChunkedGraph:
             sv_parent_d.update(dict(zip(svs.tolist(), [l2id] * len(svs))))
 
         in_edges, out_edges, cross_edges = edge_utils.categorize_edges_v2(
-            self.meta,
-            all_chunk_edges,
-            sv_parent_d
+            self.meta, all_chunk_edges, sv_parent_d
         )
 
         agglomeration_d = get_agglomerations(

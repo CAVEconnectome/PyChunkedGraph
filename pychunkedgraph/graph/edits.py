@@ -142,7 +142,6 @@ def check_fake_edges(
             )
         )
         assert len(roots) == 2, "edges must be from 2 roots"
-        print("found inactive", len(inactive_edges))
         return inactive_edges, []
 
     rows = []
@@ -177,7 +176,6 @@ def check_fake_edges(
                 time_stamp=time_stamp,
             )
         )
-    print("no inactive", len(atomic_edges))
     return atomic_edges, rows
 
 
@@ -249,8 +247,7 @@ def _process_l2_agglomeration(
     atomic_cross_edges_d: Dict[int, np.ndarray],
 ):
     """
-    For a given L2 id, remove given edges
-    and calculate new connected components.
+    For a given L2 id, remove given edges; calculate new connected components.
     """
     chunk_edges = agg.in_edges.get_pairs()
     cross_edges = np.concatenate([types.empty_2d, *atomic_cross_edges_d.values()])
@@ -312,7 +309,7 @@ def remove_edges(
         ccs, graph_ids, cross_edges = _process_l2_agglomeration(
             l2_agg, removed_edges, atomic_cross_edges_d[id_]
         )
-        # calculated here to avoid repeat computation in loop
+        # done here to avoid repeat computation in loop
         cross_edge_layers = cg.get_cross_chunk_edges_layer(cross_edges)
         new_parent_ids = cg.id_client.create_node_ids(
             l2id_chunk_id_d[l2_agg.node_id], len(ccs)
@@ -413,9 +410,7 @@ class CreateParentNodes:
             self.cg.graph_id,
             self._operation_id,
         ):
-            self._cross_edges_d.update(
-                self.cg.get_cross_chunk_edges(not_cached, all_layers=True)
-            )
+            self._cross_edges_d.update(self.cg.get_cross_chunk_edges(not_cached))
 
         sv_parent_d, sv_cross_edges = self._map_sv_to_parent(node_ids, layer)
         get_sv_parents = np.vectorize(sv_parent_d.get, otypes=[np.uint64])
