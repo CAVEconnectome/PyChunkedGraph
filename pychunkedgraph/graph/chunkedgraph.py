@@ -292,45 +292,20 @@ class ChunkedGraph:
             }
         return self.cache.children_multiple(node_ids)
 
-    def get_atomic_cross_edges(
-        self, l2_ids: typing.Iterable, *, raw_only=False
-    ) -> typing.Dict[np.uint64, typing.Dict[int, typing.Iterable]]:
-        """Returns atomic cross edges for level 2 IDs."""
-        if raw_only or not self.cache:
-            node_edges_d_d = self.client.read_nodes(
-                node_ids=l2_ids,
-                properties=[
-                    attributes.Connectivity.CrossChunkEdge[l]
-                    for l in range(2, max(3, self.meta.layer_count))
-                ],
-            )
-            result = {}
-            for id_ in l2_ids:
-                try:
-                    result[id_] = {
-                        prop.index: val[0].value.copy()
-                        for prop, val in node_edges_d_d[id_].items()
-                    }
-                except KeyError:
-                    result[id_] = {}
-            return result
-        return self.cache.atomic_cross_edges_multiple(l2_ids)
-
-    def get_cross_chunk_edges(self, node_ids: typing.Iterable) -> typing.Dict:
+    def get_atomic_cross_edges(self, l2_ids: typing.Iterable) -> typing.Dict:
         """
-        Returns cross edges for `node_ids`.
-        A dict of the form `{node_id: {layer: cross_edges}}`
+        Returns atomic cross edges for level 2 IDs.
+        A dict of the form `{l2id: {layer: atomic_cross_edges}}`.
         """
+        node_edges_d_d = self.client.read_nodes(
+            node_ids=l2_ids,
+            properties=[
+                attributes.Connectivity.AtomicCrossChunkEdge[l]
+                for l in range(2, self.meta.layer_count)
+            ],
+        )
         result = {}
-        node_ids = np.array(node_ids, dtype=basetypes.NODE_ID)
-        if node_ids.size == 0:
-            return result
-        attrs = [
-            attributes.Connectivity.CrossChunkEdge[l]
-            for l in range(2, self.meta.layer_count)
-        ]
-        node_edges_d_d = self.client.read_nodes(node_ids=node_ids, properties=attrs)
-        for id_ in node_ids:
+        for id_ in l2_ids:
             try:
                 result[id_] = {
                     prop.index: val[0].value.copy()
@@ -339,6 +314,34 @@ class ChunkedGraph:
             except KeyError:
                 result[id_] = {}
         return result
+
+    def get_cross_chunk_edges(
+        self, node_ids: typing.Iterable, *, raw_only=False
+    ) -> typing.Dict:
+        """
+        Returns cross edges for `node_ids`.
+        A dict of the form `{node_id: {layer: cross_edges}}`.
+        """
+        if raw_only or not self.cache:
+            result = {}
+            node_ids = np.array(node_ids, dtype=basetypes.NODE_ID)
+            if node_ids.size == 0:
+                return result
+            attrs = [
+                attributes.Connectivity.CrossChunkEdge[l]
+                for l in range(2, self.meta.layer_count)
+            ]
+            node_edges_d_d = self.client.read_nodes(node_ids=node_ids, properties=attrs)
+            for id_ in node_ids:
+                try:
+                    result[id_] = {
+                        prop.index: val[0].value.copy()
+                        for prop, val in node_edges_d_d[id_].items()
+                    }
+                except KeyError:
+                    result[id_] = {}
+            return result
+        return self.cache.cross_chunk_edges_multiple(node_ids)
 
     def get_roots(
         self,
