@@ -7,6 +7,7 @@ from typing import Tuple
 from typing import Iterable
 from collections import defaultdict
 
+import fastremap
 import numpy as np
 import fastremap
 
@@ -233,6 +234,8 @@ def add_edges(
     )
 
     new_roots = create_parents.run()
+    print("new_roots", new_roots, cg.meta.layer_count)
+    print(cg.get_children(np.array(new_roots, dtype=np.uint64)))
     new_entries = create_parents.create_new_entries()
     return new_roots, new_l2_ids, new_entries
 
@@ -397,21 +400,22 @@ class CreateParentNodes:
             cross_edges.append(edges_)
 
         cross_edges = np.concatenate([*cross_edges, np.vstack([node_ids, node_ids]).T])
+        temp_d = {k: next(iter(v)) for k, v in self._old_new_id_d.items()}
+        cross_edges = fastremap.remap(cross_edges, temp_d, preserve_missing_labels=True)
+
         graph, _, _, graph_ids = flatgraph.build_gt_graph(
             cross_edges, make_directed=True
         )
         return flatgraph.connected_components(graph), graph_ids
 
-    def _get_layer_node_ids(self, new_ids: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
+    def _get_layer_node_ids(
+        self, new_ids: np.ndarray, layer: int
+    ) -> Tuple[np.ndarray, np.ndarray]:
         # get old identities of new IDs
         old_ids = self._get_old_ids(new_ids)
         # get their parents, then children of those parents
-        node_ids = self.cg.get_children(
-            np.unique(
-                self.cg.get_parents(old_ids, time_stamp=self._last_successful_ts)
-            ),
-            flatten=True,
-        )
+        parents = self.cg.get_parents(old_ids, time_stamp=self._last_successful_ts)
+        node_ids = self.cg.get_children(np.unique(parents), flatten=True)
         # replace old identities with new IDs
         mask = np.in1d(node_ids, old_ids)
         node_ids = np.concatenate(
@@ -421,7 +425,9 @@ class CreateParentNodes:
             ]
             + [node_ids[~mask], new_ids]
         )
-        return np.unique(node_ids)
+        node_ids = np.unique(node_ids)
+        layer_mask = self.cg.get_chunk_layers(node_ids) == layer
+        return node_ids[layer_mask]
 
     def _create_new_parents(self, layer: int):
         """
@@ -434,7 +440,7 @@ class CreateParentNodes:
         update parent old IDs
         """
         new_ids = self._new_ids_d[layer]
-        layer_node_ids = self._get_layer_node_ids(new_ids)
+        layer_node_ids = self._get_layer_node_ids(new_ids, layer)
         components, graph_ids = self._get_connected_components(layer_node_ids, layer)
         for cc_indices in components:
             parent_layer = layer + 1
@@ -458,6 +464,11 @@ class CreateParentNodes:
                 cc_ids,
                 parent_id,
             )
+
+            children_cx_edges = [self._cross_edges_d[child] for child in cc_ids]
+            cx_edges = concatenate_cross_edge_dicts(children_cx_edges)
+            self.cg.cache.cross_chunk_edges_cache[parent_id] = cx_edges
+
             self._update_id_lineage(parent_id, cc_ids, layer, parent_layer)
 
     def run(self) -> Iterable:
@@ -513,14 +524,15 @@ class CreateParentNodes:
         return rows
 
     def _get_cross_edges_val_dict(self):
-        new_ids = np.array(self._new_ids_d[2], dtype=basetypes.NODE_ID)
         val_dicts = {}
-        cross_edges_d = self.cg.get_cross_chunk_edges(new_ids)
-        for id_ in new_ids:
-            val_dict = {}
-            for layer, edges in cross_edges_d[id_].items():
-                val_dict[attributes.Connectivity.CrossChunkEdge[layer]] = edges
-            val_dicts[id_] = val_dict
+        for layer in range(2, self.cg.meta.layer_count):
+            new_ids = np.array(self._new_ids_d[layer], dtype=basetypes.NODE_ID)
+            cross_edges_d = self.cg.get_cross_chunk_edges(new_ids)
+            for id_ in new_ids:
+                val_dict = {}
+                for layer, edges in cross_edges_d[id_].items():
+                    val_dict[attributes.Connectivity.CrossChunkEdge[layer]] = edges
+                val_dicts[id_] = val_dict
         return val_dicts
 
     def create_new_entries(self) -> List:
