@@ -1,4 +1,4 @@
-# pylint: disable=invalid-name, missing-docstring, too-many-lines, protected-access, broad_exception_raised
+# pylint: disable=invalid-name, missing-docstring, too-many-lines, protected-access, broad-exception-raised
 
 from abc import ABC, abstractmethod
 from collections import namedtuple
@@ -905,11 +905,11 @@ class MulticutOperation(GraphEditOperation):
             self.cg.meta.split_bounding_offset,
         )
         with TimeIt("get_subgraph", self.cg.graph_id, operation_id):
-            l2id_agglomeration_d, edges = self.cg.get_subgraph(
+            l2id_agglomeration_d, edges_tuple = self.cg.get_subgraph(
                 root_ids.pop(), bbox=bbox, bbox_is_coordinate=True
             )
 
-            edges = reduce(lambda x, y: x + y, edges, Edges([], []))
+            edges = reduce(lambda x, y: x + y, edges_tuple, Edges([], []))
             supervoxels = np.concatenate(
                 [agg.supervoxels for agg in l2id_agglomeration_d.values()]
             )
