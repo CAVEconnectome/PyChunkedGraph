@@ -63,7 +63,7 @@ def _get_children_chunk_cross_edges_helper(args) -> None:
     edge_ids_shared.append(_get_children_chunk_cross_edges(cg, atomic_chunks, layer))
 
 
-def _get_children_chunk_cross_edges(cg: ChunkedGraph, atomic_chunks, layer) -> None:
+def _get_children_chunk_cross_edges(cg: ChunkedGraph, atomic_chunks, layer) -> np.ndarray:
     """
     Non parallelized version
     Cross edges that connect children chunks.
