@@ -34,10 +34,10 @@ MAX_QUERY_ITEMS = 1000  # Maximum items to fetch in one query
 
 class Client(ClientWithIDGen, OperationLogger):
     def __init__(
-            self,
-            table_id: str = None,
-            config: AmazonDynamoDbConfig = AmazonDynamoDbConfig(),
-            graph_meta: ChunkedGraphMeta = None,
+        self,
+        table_id: str = None,
+        config: AmazonDynamoDbConfig = AmazonDynamoDbConfig(),
+        graph_meta: ChunkedGraphMeta = None,
     ):
         self._table_name = (
             ".".join([config.TABLE_PREFIX, table_id])
@@ -128,7 +128,7 @@ class Client(ClientWithIDGen, OperationLogger):
     """Update stored graph meta."""
     
     def update_graph_meta(
-            self, meta: ChunkedGraphMeta, overwrite: Optional[bool] = False
+        self, meta: ChunkedGraphMeta, overwrite: Optional[bool] = False
     ):
         if overwrite:
             self._delete_meta()
@@ -149,17 +149,17 @@ class Client(ClientWithIDGen, OperationLogger):
         return self._graph_meta
     
     def read_nodes(
-            self,
-            start_id=None,
-            end_id=None,
-            end_id_inclusive=False,
-            user_id=None,
-            node_ids=None,
-            properties=None,
-            start_time=None,
-            end_time=None,
-            end_time_inclusive: bool = False,
-            fake_edges: bool = False,
+        self,
+        start_id=None,
+        end_id=None,
+        end_id_inclusive=False,
+        user_id=None,
+        node_ids=None,
+        properties=None,
+        start_time=None,
+        end_time=None,
+        end_time_inclusive: bool = False,
+        fake_edges: bool = False,
     ):
         """
         Read nodes and their properties.
@@ -190,6 +190,9 @@ class Client(ClientWithIDGen, OperationLogger):
             end_time_inclusive=end_time_inclusive,
             user_id=user_id,
         )
+        if end_time:
+            print(f" --- end_time = {end_time} len(rows) = {len(rows)}")
+        
         return {
             deserialize_uint64(row_key, fake_edges=fake_edges): data
             for (row_key, data) in rows.items()
@@ -198,15 +201,15 @@ class Client(ClientWithIDGen, OperationLogger):
     """Read a single node and its properties."""
     
     def read_node(
-            self,
-            node_id: np.uint64,
-            properties: Optional[
-                Union[Iterable[attributes._Attribute], attributes._Attribute]
-            ] = None,
-            start_time: Optional[datetime] = None,
-            end_time: Optional[datetime] = None,
-            end_time_inclusive: bool = False,
-            fake_edges: bool = False,
+        self,
+        node_id: np.uint64,
+        properties: Optional[
+            Union[Iterable[attributes._Attribute], attributes._Attribute]
+        ] = None,
+        start_time: Optional[datetime] = None,
+        end_time: Optional[datetime] = None,
+        end_time_inclusive: bool = False,
+        fake_edges: bool = False,
     ) -> Union[
         Dict[attributes._Attribute, List[TimeStampedCell]],
         List[TimeStampedCell],
@@ -250,14 +253,14 @@ class Client(ClientWithIDGen, OperationLogger):
     
     # Helpers
     def write(
-            self,
-            rows: Iterable[dict[str, Union[bytes, dict[str, Iterable[TimeStampedCell]]]]],
-            root_ids: Optional[
-                Union[np.uint64, Iterable[np.uint64]]
-            ] = None,
-            operation_id: Optional[np.uint64] = None,
-            slow_retry: bool = True,
-            block_size: int = 25,
+        self,
+        rows: Iterable[dict[str, Union[bytes, dict[str, Iterable[TimeStampedCell]]]]],
+        root_ids: Optional[
+            Union[np.uint64, Iterable[np.uint64]]
+        ] = None,
+        operation_id: Optional[np.uint64] = None,
+        slow_retry: bool = True,
+        block_size: int = 25,
     ):
         """Writes a list of mutated rows in bulk
         WARNING: If <rows> contains the same row (same row_key) and column
@@ -275,6 +278,8 @@ class Client(ClientWithIDGen, OperationLogger):
         :param block_size: int
         """
         logging.debug(f"write {rows} {root_ids} {operation_id} {slow_retry} {block_size}")
+        
+        print(f" --- writing rows = {len([list(r.values())[0] for r in rows])}")
         
         if root_ids is not None and operation_id is not None:
             if isinstance(root_ids, int):
@@ -301,10 +306,10 @@ class Client(ClientWithIDGen, OperationLogger):
                     batch.put_item(Item=ddb_item)
     
     def mutate_row(
-            self,
-            row_key: bytes,
-            val_dict: Dict[attributes._Attribute, Any],
-            time_stamp: Optional[datetime] = None,
+        self,
+        row_key: bytes,
+        val_dict: Dict[attributes._Attribute, Any],
+        time_stamp: Optional[datetime] = None,
     ) -> dict[str, Union[bytes, dict[str, Iterable[TimeStampedCell]]]]:
         """Mutates a single row (doesn't write to DynamoDB)."""
         pk, sk = self._ddb_helper.to_pk_sk(row_key)
@@ -322,9 +327,9 @@ class Client(ClientWithIDGen, OperationLogger):
         return row
     
     def lock_root(
-            self,
-            root_id: np.uint64,
-            operation_id: np.uint64,
+        self,
+        root_id: np.uint64,
+        operation_id: np.uint64,
     ) -> bool:
         """Locks root node with operation_id to prevent race conditions."""
         logging.debug(f"lock_root: {root_id}, {operation_id}")
@@ -376,12 +381,12 @@ class Client(ClientWithIDGen, OperationLogger):
                 raise e
     
     def lock_roots(
-            self,
-            root_ids: Sequence[np.uint64],
-            operation_id: np.uint64,
-            future_root_ids_d: Dict,
-            max_tries: int = 1,
-            waittime_s: float = 0.5,
+        self,
+        root_ids: Sequence[np.uint64],
+        operation_id: np.uint64,
+        future_root_ids_d: Dict,
+        max_tries: int = 1,
+        waittime_s: float = 0.5,
     ) -> Tuple[bool, Iterable]:
         """Attempts to lock multiple nodes with same operation id"""
         i_try = 0
@@ -414,9 +419,9 @@ class Client(ClientWithIDGen, OperationLogger):
         return False, root_ids
     
     def lock_root_indefinitely(
-            self,
-            root_id: np.uint64,
-            operation_id: np.uint64,
+        self,
+        root_id: np.uint64,
+        operation_id: np.uint64,
     ) -> bool:
         """Attempts to indefinitely lock the latest version of a root node."""
         logging.debug(f"lock_root_indefinitely: {root_id}, {operation_id}")
@@ -457,10 +462,10 @@ class Client(ClientWithIDGen, OperationLogger):
                 raise e
     
     def lock_roots_indefinitely(
-            self,
-            root_ids: Sequence[np.uint64],
-            operation_id: np.uint64,
-            future_root_ids_d: Dict,
+        self,
+        root_ids: Sequence[np.uint64],
+        operation_id: np.uint64,
+        future_root_ids_d: Dict,
     ) -> Tuple[bool, Iterable]:
         """
         Attempts to indefinitely lock multiple nodes with same operation id to prevent structural damage to graph.
@@ -531,7 +536,7 @@ class Client(ClientWithIDGen, OperationLogger):
                 raise e
     
     def unlock_indefinitely_locked_root(
-            self, root_id: np.uint64, operation_id: np.uint64
+        self, root_id: np.uint64, operation_id: np.uint64
     ):
         """Unlocks root node that is indefinitely locked with operation_id."""
         logging.debug(f"unlock_indefinitely_locked_root: {root_id}, {operation_id}")
@@ -623,7 +628,7 @@ class Client(ClientWithIDGen, OperationLogger):
     """Reads timestamp from lock row to get a consistent timestamp."""
     
     def get_lock_timestamp(
-            self, node_id: np.uint64, operation_id: np.uint64
+        self, node_id: np.uint64, operation_id: np.uint64
     ) -> Union[datetime, None]:
         logging.debug(f"get_lock_timestamp: {node_id}, {operation_id}")
         
@@ -656,9 +661,9 @@ class Client(ClientWithIDGen, OperationLogger):
     """Minimum of multiple lock timestamps."""
     
     def get_consolidated_lock_timestamp(
-            self,
-            root_ids: Sequence[np.uint64],
-            operation_ids: Sequence[np.uint64],
+        self,
+        root_ids: Sequence[np.uint64],
+        operation_ids: Sequence[np.uint64],
     ) -> Union[datetime, None]:
         """Minimum of multiple lock timestamps."""
         time_stamps = []
@@ -680,7 +685,7 @@ class Client(ClientWithIDGen, OperationLogger):
     """Generate a range of unique IDs in the chunk."""
     
     def create_node_ids(
-            self, chunk_id: np.uint64, size: int, root_chunk=False
+        self, chunk_id: np.uint64, size: int, root_chunk=False
     ) -> np.ndarray:
         """Generates a list of unique node IDs for the given chunk."""
         if root_chunk:
@@ -697,7 +702,7 @@ class Client(ClientWithIDGen, OperationLogger):
     """Generate a unique ID in the chunk."""
     
     def create_node_id(
-            self, chunk_id: np.uint64, root_chunk=False
+        self, chunk_id: np.uint64, root_chunk=False
     ) -> basetypes.NODE_ID:
         """Generate a unique node ID in the chunk."""
         return self.create_node_ids(chunk_id, 1, root_chunk=root_chunk)[0]
@@ -714,9 +719,10 @@ class Client(ClientWithIDGen, OperationLogger):
                     serialize_key(f"i{pad_node_id(chunk_id)}_{counter}"),
                     columns=attributes.Concurrency.Counter,
                 )
+                print(f" --- get_max_node_id = ", row)
                 val = (
-                        basetypes.SEGMENT_ID.type(row[0].value if row else 0) * n_counters
-                        + counter
+                    basetypes.SEGMENT_ID.type(row[0].value if row else 0) * n_counters
+                    + counter
                 )
                 max_value = val if val > max_value else max_value
             return chunk_id | basetypes.SEGMENT_ID.type(max_value)
@@ -756,19 +762,61 @@ class Client(ClientWithIDGen, OperationLogger):
     
     """Read log entries for given operation IDs."""
     
-    def read_log_entries(self, operation_ids) -> None:
-        logging.debug(f"read_log_entries: {operation_ids}")
-        raise NotImplementedError("read_log_entries - Not yet implemented")
+    def read_log_entries(
+        self,
+        operation_ids: Optional[Iterable] = None,
+        user_id: Optional[str] = None,
+        properties: Optional[Iterable[attributes._Attribute]] = None,
+        start_time: Optional[datetime] = None,
+        end_time: Optional[datetime] = None,
+        end_time_inclusive: bool = False,
+    ):
+        if properties is None:
+            properties = attributes.OperationLogs.all()
+        
+        if operation_ids is None:
+            logs_d = self.read_nodes(
+                start_id=np.uint64(0),
+                end_id=self.get_max_operation_id(),
+                end_id_inclusive=True,
+                user_id=user_id,
+                properties=properties,
+                start_time=start_time,
+                end_time=end_time,
+                end_time_inclusive=end_time_inclusive,
+            )
+        else:
+            logs_d = self.read_nodes(
+                node_ids=operation_ids,
+                properties=properties,
+                start_time=start_time,
+                end_time=end_time,
+                end_time_inclusive=end_time_inclusive,
+                user_id=user_id,
+            )
+        if not logs_d:
+            return {}
+        for operation_id in logs_d:
+            log_record = logs_d[operation_id]
+            try:
+                timestamp = log_record[attributes.OperationLogs.OperationTimeStamp][
+                    0
+                ].value
+            except KeyError:
+                timestamp = log_record[attributes.OperationLogs.RootID][0].timestamp
+            log_record.update((column, v[0].value) for column, v in log_record.items())
+            log_record["timestamp"] = timestamp
+        return logs_d
     
     def _read_byte_row(
-            self,
-            row_key: bytes,
-            columns: Optional[
-                Union[Iterable[attributes._Attribute], attributes._Attribute]
-            ] = None,
-            start_time: Optional[datetime] = None,
-            end_time: Optional[datetime] = None,
-            end_time_inclusive: bool = False,
+        self,
+        row_key: bytes,
+        columns: Optional[
+            Union[Iterable[attributes._Attribute], attributes._Attribute]
+        ] = None,
+        start_time: Optional[datetime] = None,
+        end_time: Optional[datetime] = None,
+        end_time_inclusive: bool = False,
     ) -> Union[
         Dict[attributes._Attribute, List[TimeStampedCell]],
         List[TimeStampedCell],
@@ -813,18 +861,18 @@ class Client(ClientWithIDGen, OperationLogger):
         )
     
     def _read_byte_rows(
-            self,
-            start_key: Optional[bytes] = None,
-            end_key: Optional[bytes] = None,
-            end_key_inclusive: bool = False,
-            row_keys: Optional[Iterable[bytes]] = None,
-            columns: Optional[
-                Union[Iterable[attributes._Attribute], attributes._Attribute]
-            ] = None,
-            start_time: Optional[datetime] = None,
-            end_time: Optional[datetime] = None,
-            end_time_inclusive: bool = False,
-            user_id: Optional[str] = None,
+        self,
+        start_key: Optional[bytes] = None,
+        end_key: Optional[bytes] = None,
+        end_key_inclusive: bool = False,
+        row_keys: Optional[Iterable[bytes]] = None,
+        columns: Optional[
+            Union[Iterable[attributes._Attribute], attributes._Attribute]
+        ] = None,
+        start_time: Optional[datetime] = None,
+        end_time: Optional[datetime] = None,
+        end_time_inclusive: bool = False,
+        user_id: Optional[str] = None,
     ) -> Dict[
         bytes,
         Union[
@@ -915,7 +963,7 @@ class Client(ClientWithIDGen, OperationLogger):
         """Core function to read rows from DynamoDB.
         :param row_set: Set of related to the rows to be read
         :param row_filter: An instance of DynamoDbFilter to filter which rows/columns to read
-        :return: typing.Dict
+        :return: Dict
         """
         n_subrequests = max(
             1, int(np.ceil(len(row_set.row_keys) / self._max_batch_read_page_size))
@@ -949,7 +997,14 @@ class Client(ClientWithIDGen, OperationLogger):
         if not row_set.row_keys and not row_set.row_ranges:
             return {}
         
-        row_keys = row_set.row_keys
+        print(f" --- row_set.row_keys = {len(row_set.row_keys)}")
+        print(f" --- row_set.row_ranges = {len(row_set.row_ranges)}")
+        print(
+            f" --- row_set.row_ranges = {[{'start_key': rr.start_key, 'end_key': rr.end_key, 'start_inclusive': rr.start_inclusive, 'end_inclusive': rr.end_inclusive} for rr in row_set.row_ranges]}")
+        
+        self.debug_print_total_rows_count()
+        
+        row_keys = np.unique(row_set.row_keys)
         
         rows = {}
         item_keys_to_get = []
@@ -958,8 +1013,8 @@ class Client(ClientWithIDGen, OperationLogger):
         }
         
         def __append_to_projection_expression(
-                dict_obj: dict,
-                attribs_to_get
+            dict_obj: dict,
+            attribs_to_get
         ):
             existing_expr = dict_obj.get("ProjectionExpression", "")
             attribs_expr = ",".join(attribs_to_get)
@@ -970,7 +1025,7 @@ class Client(ClientWithIDGen, OperationLogger):
         
         # User ID filter
         if row_filter.user_id_filter and row_filter.user_id_filter.user_id:
-            __append_to_projection_expression(kwargs, ["#key", "sk", "#uid"])
+            __append_to_projection_expression(kwargs, ["#key", "sk", "#ver", "#uid"])
             user_id_attr = attributes.OperationLogs.UserID
             attr_names["#uid"] = f"{user_id_attr.family_id}.{user_id_attr.key.decode()}"
             kwargs["ExpressionAttributeNames"] = attr_names
@@ -1018,18 +1073,20 @@ class Client(ClientWithIDGen, OperationLogger):
                     **kwargs,
                 },
             }
+            
             ret = self._main_db.batch_get_item(RequestItems=params)
             
             items = ret.get("Responses", {}).get(self._table_name, [])
             
             # each item comes with 'key', 'sk', [column_family] and '@' columns
             for index, item in enumerate(items):
-                b_real_key, row = self._ddb_helper.raw_ddb_item_to_row(
-                    {
+                b_real_key, row = self._ddb_helper.ddb_item_to_row(
+                    item={
                         'key': item_keys_to_get[index]['key'],
                         'sk': item_keys_to_get[index]['sk'],
                         **item,
-                    }
+                    },
+                    needs_deserialization=True
                 )
                 rows[b_real_key] = row
         
@@ -1072,9 +1129,9 @@ class Client(ClientWithIDGen, OperationLogger):
         return filtered_rows
     
     def _apply_filters(
-            self,
-            rows: dict[str, dict[attributes._Attribute, Iterable[TimeStampedCell]]],
-            row_filter: DynamoDbFilter
+        self,
+        rows: dict[str, dict[attributes._Attribute, Iterable[TimeStampedCell]]],
+        row_filter: DynamoDbFilter
     ):
         # the start_datetime and the end_datetime below are "datetime" instances (and NOT int timestamp)
         start_datetime = row_filter.time_filter.start if row_filter.time_filter else None
@@ -1086,7 +1143,7 @@ class Client(ClientWithIDGen, OperationLogger):
             for attr, cells in row_to_filter.items():
                 filtered_cells = []
                 for cell in cells:
-                    if start_datetime <= cell.to_datetime() <= end_datetime:
+                    if start_datetime <= cell.timestamp <= end_datetime:
                         filtered_cells.append(cell)
                 filtered_row[attr] = filtered_cells
             return filtered_row
@@ -1111,10 +1168,13 @@ class Client(ClientWithIDGen, OperationLogger):
     
     def _get_ids_range(self, key: bytes, size: int) -> Tuple:
         """Returns a range (min, max) of IDs for a given `key`."""
+        print(f"\n --- BEFORE _get_ids_range - key = {key}")
+        self.debug_print_total_rows_count()
         
         column = attributes.Concurrency.Counter
         
         pk, sk = self._ddb_helper.to_pk_sk(key)
+        print(f"\n --- _get_ids_range - key = {key}, pk = {pk}, sk = {sk}")
         
         column_name_in_ddb = f"{column.family_id}.{column.key.decode()}"
         
@@ -1160,10 +1220,14 @@ class Client(ClientWithIDGen, OperationLogger):
         )
         self._no_of_writes += 1
         high = counter
+        
+        self.debug_print_total_rows_count()
+        print(f" --- AFTER _get_ids_range - size = {size}\n")
+        
         return high + np.uint64(1) - size, high
     
     def _get_root_segment_ids_range(
-            self, chunk_id: basetypes.CHUNK_ID, size: int = 1, counter: int = None
+        self, chunk_id: basetypes.CHUNK_ID, size: int = 1, counter: int = None
     ) -> np.ndarray:
         """Return unique segment ID for the root chunk."""
         n_counters = np.uint64(2 ** 8)
@@ -1224,3 +1288,35 @@ class Client(ClientWithIDGen, OperationLogger):
                 # Simply append it to the list
                 merged_list.append(d)
         return merged_list
+    
+    # Write a method that finds duplicates in a list of dicts based on the given key and return the duplicates.
+    # The method should return a list of dicts, where each dict represents a duplicate.
+    # The method should not modify the original list of dicts.
+    def find_duplicates_in_list(self, lst: Iterable[Dict], key_to_compare='key') -> Iterable[Dict]:
+        
+        """
+        A private utility method to find duplicates in a list of dicts, based on the given key.
+        The method returns a list of dicts, where each dict represents a duplicate.
+        The method does not modify the original list of dicts.
+        
+        :param lst:
+        :param key_to_compare:
+        :return:
+        """
+        # Create a new list to store the unique elements
+        unique_dicts = {}
+        duplicates = []
+        
+        for d in lst:
+            if d[key_to_compare] in unique_dicts:
+                duplicates.append(d)
+            else:
+                unique_dicts[d[key_to_compare]] = d
+        
+        return duplicates
+    
+    def debug_print_total_rows_count(self):
+        total = self._table.read_rows()
+        total.consume_all()
+        print(
+            f" --- total rows = {len(total.rows)}")

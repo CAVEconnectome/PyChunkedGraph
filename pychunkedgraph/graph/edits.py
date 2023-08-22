@@ -49,7 +49,7 @@ def _analyze_affected_edges(
         [sv_parent_d[edge_[0]], sv_parent_d[edge_[1]]]
         for edge_ in atomic_edges[edge_layers == 1]
     ]
-
+    
     # cross chunk edges
     atomic_cross_edges_d = defaultdict(lambda: defaultdict(list))
     for layer in range(2, cg.meta.layer_count):
@@ -104,7 +104,7 @@ def merge_preprocess(
         active, inactive = layer_edges[active_mask], layer_edges[~active_mask]
         active_edges.append(active)
         inactive_edges.append(inactive)
-
+    
     relevant_ccs = _get_relevant_components(np.concatenate(active_edges), supervoxels)
     inactive = np.concatenate(inactive_edges)
     _inactive = [types.empty_2d]
@@ -112,7 +112,7 @@ def merge_preprocess(
     source_mask = np.in1d(inactive[:, 0], relevant_ccs[0])
     sink_mask = np.in1d(inactive[:, 1], relevant_ccs[1])
     _inactive.append(inactive[source_mask & sink_mask])
-
+    
     # sink to source edges
     sink_mask = np.in1d(inactive[:, 1], relevant_ccs[0])
     source_mask = np.in1d(inactive[:, 0], relevant_ccs[1])
@@ -141,7 +141,7 @@ def check_fake_edges(
         assert len(roots) == 2, "edges must be from 2 roots"
         print("found inactive", len(inactive_edges))
         return inactive_edges, []
-
+    
     rows = []
     supervoxels = atomic_edges.ravel()
     chunk_ids = cg.get_chunk_ids_from_node_ids(
@@ -203,7 +203,7 @@ def add_edges(
     atomic_cross_edges_d = merge_cross_edge_dicts(
         cg.get_atomic_cross_edges(l2ids), l2_atomic_cross_edges_d
     )
-
+    
     graph, _, _, graph_ids = flatgraph.build_gt_graph(edges, make_directed=True)
     components = flatgraph.connected_components(graph)
     new_l2_ids = []
@@ -223,7 +223,7 @@ def add_edges(
         new_old_id_d[new_id].update(l2ids_)
         for id_ in l2ids_:
             old_new_id_d[id_].add(new_id)
-
+    
     create_parents = CreateParentNodes(
         cg,
         new_l2_ids=new_l2_ids,
@@ -235,7 +235,7 @@ def add_edges(
         parent_ts=parent_ts,
         edit_type="merge.apply.add_edges",
     )
-
+    
     new_roots = create_parents.run()
     new_entries = create_parents.create_new_entries()
     return new_roots, new_l2_ids, new_entries
@@ -254,7 +254,7 @@ def _process_l2_agglomeration(
     cross_edges = np.concatenate([types.empty_2d, *atomic_cross_edges_d.values()])
     chunk_edges = chunk_edges[~in2d(chunk_edges, removed_edges)]
     cross_edges = cross_edges[~in2d(cross_edges, removed_edges)]
-
+    
     isolated_ids = agg.supervoxels[~np.in1d(agg.supervoxels, chunk_edges)]
     isolated_edges = np.column_stack((isolated_ids, isolated_ids))
     graph, _, _, graph_ids = flatgraph.build_gt_graph(
@@ -302,7 +302,7 @@ def remove_edges(
     )
     l2id_chunk_id_d = dict(zip(l2ids.tolist(), cg.get_chunk_ids_from_node_ids(l2ids)))
     atomic_cross_edges_d = cg.get_atomic_cross_edges(l2ids)
-
+    
     removed_edges = np.concatenate([atomic_edges, atomic_edges[:, ::-1]], axis=0)
     new_l2_ids = []
     for id_ in l2ids:
@@ -325,7 +325,7 @@ def remove_edges(
             new_l2_ids.append(new_id)
             new_old_id_d[new_id].add(id_)
             old_new_id_d[id_].add(new_id)
-
+    
     create_parents = CreateParentNodes(
         cg,
         new_l2_ids=new_l2_ids,
@@ -337,8 +337,17 @@ def remove_edges(
         parent_ts=parent_ts,
         edit_type="split.apply.remove_edges",
     )
+    
+    print(f"\n --- START CreateParentNodes")
+    cg.client.debug_print_total_rows_count()
     new_roots = create_parents.run()
+    cg.client.debug_print_total_rows_count()
+    print(f" --- END CreateParentNodes\n")
+    
     new_entries = create_parents.create_new_entries()
+    
+    print(f" --- remove_edges: len(new_entries) = {len(new_entries)}")
+    
     return new_roots, new_l2_ids, new_entries
 
 
@@ -367,7 +376,7 @@ class CreateParentNodes:
         self._time_stamp = time_stamp
         self._last_successful_ts = parent_ts
         self._edit_type = edit_type
-
+    
     def _update_id_lineage(
         self,
         parent: basetypes.NODE_ID,
@@ -382,14 +391,14 @@ class CreateParentNodes:
                 old_id = self._old_hierarchy_d[id_].get(parent_layer, id_)
                 self._new_old_id_d[parent].add(old_id)
                 self._old_new_id_d[old_id].add(parent)
-
+    
     def _get_old_ids(self, new_ids):
         old_ids = [
             np.array(list(self._new_old_id_d[id_]), dtype=basetypes.NODE_ID)
             for id_ in new_ids
         ]
         return np.concatenate(old_ids)
-
+    
     def _map_sv_to_parent(self, node_ids, layer, node_map=None):
         sv_parent_d = {}
         sv_cross_edges = [types.empty_2d]
@@ -401,14 +410,14 @@ class CreateParentNodes:
             sv_parent_d.update(dict(zip(edges_[:, 0], [id_eff] * len(edges_))))
             sv_cross_edges.append(edges_)
         return sv_parent_d, np.concatenate(sv_cross_edges)
-
+    
     def _get_connected_components(
         self, node_ids: np.ndarray, layer: int, lower_layer_ids: np.ndarray
     ):
         _node_ids = np.concatenate([node_ids, lower_layer_ids])
         cached = np.fromiter(self._cross_edges_d.keys(), dtype=basetypes.NODE_ID)
         not_cached = _node_ids[~np.in1d(_node_ids, cached)]
-
+        
         with TimeIt(
             f"{self._edit_type}.get_cross_chunk_edges.{layer}",
             self.cg.graph_id,
@@ -417,7 +426,7 @@ class CreateParentNodes:
             self._cross_edges_d.update(
                 self.cg.get_cross_chunk_edges(not_cached, all_layers=True)
             )
-
+        
         sv_parent_d, sv_cross_edges = self._map_sv_to_parent(node_ids, layer)
         get_sv_parents = np.vectorize(sv_parent_d.get, otypes=[np.uint64])
         try:
@@ -425,7 +434,7 @@ class CreateParentNodes:
         except TypeError:  # NoneType error
             # if there is a missing parent, try including lower layer ids
             # this can happen due to skip connections
-
+            
             # we want to map all these lower IDs to the current layer
             lower_layer_to_layer = self.cg.get_roots(
                 lower_layer_ids, stop_layer=layer, ceil=False
@@ -436,13 +445,13 @@ class CreateParentNodes:
             )
             get_sv_parents = np.vectorize(sv_parent_d.get, otypes=[np.uint64])
             cross_edges = get_sv_parents(sv_cross_edges)
-
+        
         cross_edges = np.concatenate([cross_edges, np.vstack([node_ids, node_ids]).T])
         graph, _, _, graph_ids = flatgraph.build_gt_graph(
             cross_edges, make_directed=True
         )
         return flatgraph.connected_components(graph), graph_ids
-
+    
     def _get_layer_node_ids(
         self, new_ids: np.ndarray, layer: int
     ) -> Tuple[np.ndarray, np.ndarray]:
@@ -467,7 +476,7 @@ class CreateParentNodes:
         node_ids = np.unique(node_ids)
         layer_mask = self.cg.get_chunk_layers(node_ids) == layer
         return node_ids[layer_mask], node_ids[~layer_mask]
-
+    
     def _create_new_parents(self, layer: int):
         """
         keep track of old IDs
@@ -483,6 +492,7 @@ class CreateParentNodes:
         components, graph_ids = self._get_connected_components(
             layer_node_ids, layer, lower_layer_ids
         )
+        
         for cc_indices in components:
             parent_layer = layer + 1
             cc_ids = graph_ids[cc_indices]
@@ -493,11 +503,12 @@ class CreateParentNodes:
                     if len(self._cross_edges_d[cc_ids[0]].get(l, types.empty_2d)) > 0:
                         parent_layer = l
                         break
-
+            
             parent_id = self.cg.id_client.create_node_id(
                 self.cg.get_parent_chunk_id(cc_ids[0], parent_layer),
                 root_chunk=parent_layer == self.cg.meta.layer_count,
             )
+            
             self._new_ids_d[parent_layer].append(parent_id)
             self.cg.cache.children_cache[parent_id] = cc_ids
             cache_utils.update(
@@ -506,7 +517,7 @@ class CreateParentNodes:
                 parent_id,
             )
             self._update_id_lineage(parent_id, cc_ids, layer, parent_layer)
-
+    
     def run(self) -> Iterable:
         """
         After new level 2 IDs are created, create parents in higher layers.
@@ -523,7 +534,7 @@ class CreateParentNodes:
             ):
                 self._create_new_parents(layer)
         return self._new_ids_d[self.cg.meta.layer_count]
-
+    
     def _update_root_id_lineage(self):
         new_root_ids = self._new_ids_d[self.cg.meta.layer_count]
         former_root_ids = self._get_old_ids(new_root_ids)
@@ -544,7 +555,7 @@ class CreateParentNodes:
                     time_stamp=self._time_stamp,
                 )
             )
-
+        
         for former_root_id in former_root_ids:
             val_dict = {
                 attributes.Hierarchy.NewParent: np.array(new_root_ids),
@@ -557,8 +568,9 @@ class CreateParentNodes:
                     time_stamp=self._time_stamp,
                 )
             )
+        
         return rows
-
+    
     def _get_atomic_cross_edges_val_dict(self):
         new_ids = np.array(self._new_ids_d[2], dtype=basetypes.NODE_ID)
         val_dicts = {}
@@ -569,7 +581,7 @@ class CreateParentNodes:
                 val_dict[attributes.Connectivity.CrossChunkEdge[layer]] = edges
             val_dicts[id_] = val_dict
         return val_dicts
-
+    
     def create_new_entries(self) -> List:
         rows = []
         val_dicts = self._get_atomic_cross_edges_val_dict()

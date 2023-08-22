@@ -3,7 +3,7 @@ from typing import (
     Iterable,
     Optional,
 )
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from collections import namedtuple
 
 from .... import attributes
@@ -38,7 +38,7 @@ def get_filter_time_stamp(time_stamp: datetime, round_up: bool = False) -> datet
         time_stamp += timedelta(microseconds=1000) - micro_s_gap
     else:
         time_stamp -= micro_s_gap
-    return time_stamp
+    return time_stamp.replace(tzinfo=timezone.utc)
 
 
 def _get_time_range_filter(

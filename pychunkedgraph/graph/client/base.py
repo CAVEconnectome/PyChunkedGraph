@@ -13,6 +13,10 @@ class SimpleClient(ABC):
     """
     
     @abstractmethod
+    def debug_print_total_rows_count(self):
+        """Prints the total number of rows in the table."""
+    
+    @abstractmethod
     def create_graph(self) -> None:
         """Initialize the graph and store associated meta."""
     
@@ -34,17 +38,17 @@ class SimpleClient(ABC):
     
     @abstractmethod
     def read_nodes(
-            self,
-            start_id=None,
-            end_id=None,
-            end_id_inclusive=False,
-            user_id=None,
-            node_ids=None,
-            properties=None,
-            start_time=None,
-            end_time=None,
-            end_time_inclusive: bool = False,
-            fake_edges: bool = False,
+        self,
+        start_id=None,
+        end_id=None,
+        end_id_inclusive=False,
+        user_id=None,
+        node_ids=None,
+        properties=None,
+        start_time=None,
+        end_time=None,
+        end_time_inclusive: bool = False,
+        fake_edges: bool = False,
     ):
         """
         Read nodes and their properties.
@@ -53,12 +57,12 @@ class SimpleClient(ABC):
     
     @abstractmethod
     def read_node(
-            self,
-            node_id,
-            properties=None,
-            start_time=None,
-            end_time=None,
-            end_time_inclusive=False,
+        self,
+        node_id,
+        properties=None,
+        start_time=None,
+        end_time=None,
+        end_time_inclusive=False,
     ):
         """Read a single node and it's properties."""
     
@@ -68,14 +72,14 @@ class SimpleClient(ABC):
     
     @abstractmethod
     def write(
-            self,
-            rows: Iterable[dict[str, Union[bytes, dict[str, Iterable[Any]]]]],
-            root_ids: Optional[
-                Union[np.uint64, Iterable[np.uint64]]
-            ] = None,
-            operation_id: Optional[np.uint64] = None,
-            slow_retry: bool = True,
-            block_size: int = 2000,
+        self,
+        rows: Iterable[dict[str, Union[bytes, dict[str, Iterable[Any]]]]],
+        root_ids: Optional[
+            Union[np.uint64, Iterable[np.uint64]]
+        ] = None,
+        operation_id: Optional[np.uint64] = None,
+        slow_retry: bool = True,
+        block_size: int = 2000,
     ):
         """Writes a list of mutated rows in bulk
         WARNING: If <rows> contains the same row (same row_key) and column
@@ -95,30 +99,30 @@ class SimpleClient(ABC):
     
     @abstractmethod
     def mutate_row(
-            self,
-            row_key: bytes,
-            val_dict: Dict,
-            time_stamp: Optional[datetime] = None,
+        self,
+        row_key: bytes,
+        val_dict: Dict,
+        time_stamp: Optional[datetime] = None,
     ) -> dict[str, Union[bytes, dict[str, Iterable[Any]]]]:
         """Mutates a single row (doesn't write to the backend storage, just returns the row with mutated
         data without writing to the backend storage)."""
     
     @abstractmethod
     def lock_root(
-            self,
-            root_id: np.uint64,
-            operation_id: np.uint64,
+        self,
+        root_id: np.uint64,
+        operation_id: np.uint64,
     ) -> bool:
         """Attempts to lock the latest version of a root node with operation_id to prevent race conditions."""
     
     @abstractmethod
     def lock_roots(
-            self,
-            root_ids: Sequence[np.uint64],
-            operation_id: np.uint64,
-            future_root_ids_d: Dict,
-            max_tries: int = 1,
-            waittime_s: float = 0.5,
+        self,
+        root_ids: Sequence[np.uint64],
+        operation_id: np.uint64,
+        future_root_ids_d: Dict,
+        max_tries: int = 1,
+        waittime_s: float = 0.5,
     ) -> Tuple[bool, Iterable]:
         """Locks root nodes to prevent race conditions."""
     
@@ -128,10 +132,10 @@ class SimpleClient(ABC):
     
     @abstractmethod
     def lock_roots_indefinitely(
-            self,
-            root_ids: Sequence[np.uint64],
-            operation_id: np.uint64,
-            future_root_ids_d: Dict,
+        self,
+        root_ids: Sequence[np.uint64],
+        operation_id: np.uint64,
+        future_root_ids_d: Dict,
     ) -> Tuple[bool, Iterable]:
         """
         Locks root nodes indefinitely to prevent structural damage to graph.
@@ -156,7 +160,7 @@ class SimpleClient(ABC):
     
     @abstractmethod
     def get_lock_timestamp(
-            self, node_id: np.uint64, operation_id: np.uint64
+        self, node_id: np.uint64, operation_id: np.uint64
     ) -> Union[datetime, None]:
         """Reads timestamp from lock row to get a consistent timestamp."""
     
@@ -182,7 +186,7 @@ class ClientWithIDGen(SimpleClient):
     
     @abstractmethod
     def create_node_id(
-            self, chunk_id: np.uint64, root_chunk=False
+        self, chunk_id: np.uint64, root_chunk=False
     ):
         """Generate a unique ID in the chunk."""
     

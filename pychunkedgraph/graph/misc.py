@@ -34,12 +34,12 @@ def _read_delta_root_rows(
         end_time=time_stamp_end,
         end_time_inclusive=True,
     )
-
+    
     # new roots are those that have no NewParent in this time window
     new_root_ids = [
         k for (k, v) in rows.items() if attributes.Hierarchy.NewParent not in v
     ]
-
+    
     # expired roots are the IDs of FormerParent's
     # whose timestamp is before the start_time
     expired_root_ids = []
@@ -81,14 +81,14 @@ def get_proofread_root_ids(
     if len(root_chunks) == 0:
         return np.array([], dtype=np.uint64), np.array([], dtype=np.int64)
     new_roots = np.concatenate(root_chunks)
-
+    
     root_rows = cg.client.read_nodes(
         node_ids=new_roots, properties=[attributes.Hierarchy.FormerParent]
     )
     old_roots = np.concatenate(
         [e[attributes.Hierarchy.FormerParent][0].value for e in root_rows.values()]
     )
-
+    
     return old_roots, new_roots
 
 
@@ -102,7 +102,7 @@ def get_latest_roots(
     cg_serialized_info = cg.get_serialized_info()
     if n_threads > 1:
         del cg_serialized_info["credentials"]
-
+    
     multi_args = []
     for i_id_block in range(0, len(seg_id_blocks) - 1):
         multi_args.append(
@@ -113,7 +113,7 @@ def get_latest_roots(
                 time_stamp,
             ]
         )
-
+    
     if n_threads == 1:
         results = mu.multiprocess_func(
             _read_root_rows_thread,
@@ -144,16 +144,23 @@ def get_delta_roots(
     end_id = cg.id_client.get_max_node_id(
         cg.get_chunk_id(layer=cg.meta.layer_count), root_chunk=True
     ) + np.uint64(1)
+    
+    print(f" --- get_delta_roots - "
+          f"start_id = {start_id}, "
+          f"end_id = {end_id}, "
+          f"cg.meta.layer_count = {cg.meta.layer_count}, "
+          f"cg.get_chunk_id(layer=cg.meta.layer_count) = {cg.get_chunk_id(layer=cg.meta.layer_count)}")
+    
     new_root_ids, expired_root_id_candidates = _read_delta_root_rows(
         cg, start_id, end_id, time_stamp_start, time_stamp_end
     )
-
+    
     # aggregate all the results together
     new_root_ids = np.array(new_root_ids, dtype=np.uint64)
     expired_root_id_candidates = np.array(expired_root_id_candidates, dtype=np.uint64)
     # filter for uniqueness
     expired_root_id_candidates = np.unique(expired_root_id_candidates)
-
+    
     # filter out the expired root id's whose creation (measured by the timestamp
     # of their Child links) is after the time_stamp_start
     rows = cg.client.read_nodes(
@@ -162,6 +169,9 @@ def get_delta_roots(
         end_time=time_stamp_start,
     )
     expired_root_ids = np.array([k for (k, v) in rows.items()], dtype=np.uint64)
+    
+    print(f" --- expired_root_ids", expired_root_ids)
+    
     return np.array(new_root_ids, dtype=np.uint64), expired_root_ids
 
 
@@ -189,14 +199,14 @@ def get_contact_sites(
         bbox_is_coordinate=bbox_is_coordinate,
         connected_edges=False,
     )
-
+    
     # Build area lookup dictionary
     cs_svs = edges[~np.in1d(edges, sv_ids).reshape(-1, 2)]
     area_dict = collections.defaultdict(int)
-
+    
     for area, sv_id in zip(areas, cs_svs):
         area_dict[sv_id] += area
-
+    
     area_dict_vec = np.vectorize(area_dict.get)
     # Extract svs from contacting root ids
     u_cs_svs = np.unique(cs_svs)
@@ -259,18 +269,18 @@ def get_activated_edges(
     from .operation import GraphEditOperation
     from .operation import MergeOperation
     from .utils.generic import get_bounding_box as get_bbox
-
+    
     log, time_stamp = cg.client.read_log_entry(operation_id)
     assert (
         GraphEditOperation.get_log_record_type(log) == MergeOperation
     ), "Must be a merge operation."
-
+    
     time_stamp -= timedelta(milliseconds=delta)
     operation = GraphEditOperation.from_log_record(cg, log)
     bbox = get_bbox(
         operation.source_coords, operation.sink_coords, operation.bbox_offset
     )
-
+    
     root_ids = set(
         cg.get_roots(
             operation.added_edges.ravel(), assert_roots=True, time_stamp=time_stamp

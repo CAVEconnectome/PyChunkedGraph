@@ -38,10 +38,10 @@ from ...utils.generic import get_valid_timestamp
 
 class Client(bigtable.Client, ClientWithIDGen, OperationLogger):
     def __init__(
-            self,
-            table_id: str,
-            config: BigTableConfig = BigTableConfig(),
-            graph_meta: ChunkedGraphMeta = None,
+        self,
+        table_id: str,
+        config: BigTableConfig = BigTableConfig(),
+        graph_meta: ChunkedGraphMeta = None,
     ):
         if config.CREDENTIALS:
             super(Client, self).__init__(
@@ -109,7 +109,7 @@ class Client(bigtable.Client, ClientWithIDGen, OperationLogger):
         meta_row.commit()
     
     def update_graph_meta(
-            self, meta: ChunkedGraphMeta, overwrite: typing.Optional[bool] = False
+        self, meta: ChunkedGraphMeta, overwrite: typing.Optional[bool] = False
     ):
         if overwrite:
             self._delete_meta()
@@ -126,17 +126,17 @@ class Client(bigtable.Client, ClientWithIDGen, OperationLogger):
         return self._graph_meta
     
     def read_nodes(
-            self,
-            start_id=None,
-            end_id=None,
-            end_id_inclusive=False,
-            user_id=None,
-            node_ids=None,
-            properties=None,
-            start_time=None,
-            end_time=None,
-            end_time_inclusive: bool = False,
-            fake_edges: bool = False,
+        self,
+        start_id=None,
+        end_id=None,
+        end_id_inclusive=False,
+        user_id=None,
+        node_ids=None,
+        properties=None,
+        start_time=None,
+        end_time=None,
+        end_time_inclusive: bool = False,
+        fake_edges: bool = False,
     ):
         """
         Read nodes and their properties.
@@ -165,21 +165,23 @@ class Client(bigtable.Client, ClientWithIDGen, OperationLogger):
             end_time_inclusive=end_time_inclusive,
             user_id=user_id,
         )
+        if end_time:
+            print(f" --- end_time = {end_time} len(rows) = {len(rows)}")
         return {
             deserialize_uint64(row_key, fake_edges=fake_edges): data
             for (row_key, data) in rows.items()
         }
     
     def read_node(
-            self,
-            node_id: np.uint64,
-            properties: typing.Optional[
-                typing.Union[typing.Iterable[attributes._Attribute], attributes._Attribute]
-            ] = None,
-            start_time: typing.Optional[datetime] = None,
-            end_time: typing.Optional[datetime] = None,
-            end_time_inclusive: bool = False,
-            fake_edges: bool = False,
+        self,
+        node_id: np.uint64,
+        properties: typing.Optional[
+            typing.Union[typing.Iterable[attributes._Attribute], attributes._Attribute]
+        ] = None,
+        start_time: typing.Optional[datetime] = None,
+        end_time: typing.Optional[datetime] = None,
+        end_time_inclusive: bool = False,
+        fake_edges: bool = False,
     ) -> typing.Union[
         typing.Dict[attributes._Attribute, typing.List[bigtable.row_data.Cell]],
         typing.List[bigtable.row_data.Cell],
@@ -222,7 +224,7 @@ class Client(bigtable.Client, ClientWithIDGen, OperationLogger):
         """
     
     def read_log_entry(
-            self, operation_id: np.uint64
+        self, operation_id: np.uint64
     ) -> typing.Tuple[typing.Dict, datetime]:
         log_record = self.read_node(
             operation_id, properties=attributes.OperationLogs.all()
@@ -237,13 +239,13 @@ class Client(bigtable.Client, ClientWithIDGen, OperationLogger):
         return log_record, timestamp
     
     def read_log_entries(
-            self,
-            operation_ids: typing.Optional[typing.Iterable] = None,
-            user_id: typing.Optional[str] = None,
-            properties: typing.Optional[typing.Iterable[attributes._Attribute]] = None,
-            start_time: typing.Optional[datetime] = None,
-            end_time: typing.Optional[datetime] = None,
-            end_time_inclusive: bool = False,
+        self,
+        operation_ids: typing.Optional[typing.Iterable] = None,
+        user_id: typing.Optional[str] = None,
+        properties: typing.Optional[typing.Iterable[attributes._Attribute]] = None,
+        start_time: typing.Optional[datetime] = None,
+        end_time: typing.Optional[datetime] = None,
+        end_time_inclusive: bool = False,
     ):
         if properties is None:
             properties = attributes.OperationLogs.all()
@@ -284,14 +286,14 @@ class Client(bigtable.Client, ClientWithIDGen, OperationLogger):
     
     # Helpers
     def write(
-            self,
-            rows: typing.Iterable[bigtable.row.DirectRow],
-            root_ids: typing.Optional[
-                typing.Union[np.uint64, typing.Iterable[np.uint64]]
-            ] = None,
-            operation_id: typing.Optional[np.uint64] = None,
-            slow_retry: bool = True,
-            block_size: int = 2000,
+        self,
+        rows: typing.Iterable[bigtable.row.DirectRow],
+        root_ids: typing.Optional[
+            typing.Union[np.uint64, typing.Iterable[np.uint64]]
+        ] = None,
+        operation_id: typing.Optional[np.uint64] = None,
+        slow_retry: bool = True,
+        block_size: int = 2000,
     ):
         """Writes a list of mutated rows in bulk
         WARNING: If <rows> contains the same row (same row_key) and column
@@ -312,6 +314,8 @@ class Client(bigtable.Client, ClientWithIDGen, OperationLogger):
             initial = 5
         else:
             initial = 1
+        
+        print(f" --- writing rows = {len([r.row_key for r in rows])}")
         
         exception_types = (Aborted, DeadlineExceeded, ServiceUnavailable)
         retry = Retry(
@@ -338,10 +342,10 @@ class Client(bigtable.Client, ClientWithIDGen, OperationLogger):
                 )
     
     def mutate_row(
-            self,
-            row_key: bytes,
-            val_dict: typing.Dict[attributes._Attribute, typing.Any],
-            time_stamp: typing.Optional[datetime] = None,
+        self,
+        row_key: bytes,
+        val_dict: typing.Dict[attributes._Attribute, typing.Any],
+        time_stamp: typing.Optional[datetime] = None,
     ) -> bigtable.row.Row:
         """Mutates a single row (doesn't write to big table)."""
         row = self._table.direct_row(row_key)
@@ -357,9 +361,9 @@ class Client(bigtable.Client, ClientWithIDGen, OperationLogger):
     
     # Locking
     def lock_root(
-            self,
-            root_id: np.uint64,
-            operation_id: np.uint64,
+        self,
+        root_id: np.uint64,
+        operation_id: np.uint64,
     ) -> bool:
         """Attempts to lock the latest version of a root node."""
         lock_expiry = self.graph_meta.graph_config.ROOT_LOCK_EXPIRY
@@ -390,9 +394,9 @@ class Client(bigtable.Client, ClientWithIDGen, OperationLogger):
         return lock_acquired
     
     def lock_root_indefinitely(
-            self,
-            root_id: np.uint64,
-            operation_id: np.uint64,
+        self,
+        root_id: np.uint64,
+        operation_id: np.uint64,
     ) -> bool:
         """Attempts to indefinitely lock the latest version of a root node."""
         lock_column = attributes.Concurrency.IndefiniteLock
@@ -418,12 +422,12 @@ class Client(bigtable.Client, ClientWithIDGen, OperationLogger):
         return lock_acquired
     
     def lock_roots(
-            self,
-            root_ids: typing.Sequence[np.uint64],
-            operation_id: np.uint64,
-            future_root_ids_d: typing.Dict,
-            max_tries: int = 1,
-            waittime_s: float = 0.5,
+        self,
+        root_ids: typing.Sequence[np.uint64],
+        operation_id: np.uint64,
+        future_root_ids_d: typing.Dict,
+        max_tries: int = 1,
+        waittime_s: float = 0.5,
     ) -> typing.Tuple[bool, typing.Iterable]:
         """Attempts to lock multiple nodes with same operation id"""
         i_try = 0
@@ -456,10 +460,10 @@ class Client(bigtable.Client, ClientWithIDGen, OperationLogger):
         return False, root_ids
     
     def lock_roots_indefinitely(
-            self,
-            root_ids: typing.Sequence[np.uint64],
-            operation_id: np.uint64,
-            future_root_ids_d: typing.Dict,
+        self,
+        root_ids: typing.Sequence[np.uint64],
+        operation_id: np.uint64,
+        future_root_ids_d: typing.Dict,
     ) -> typing.Tuple[bool, typing.Iterable]:
         """Attempts to indefinitely lock multiple nodes with same operation id"""
         lock_acquired = False
@@ -501,7 +505,7 @@ class Client(bigtable.Client, ClientWithIDGen, OperationLogger):
         return root_row.commit()
     
     def unlock_indefinitely_locked_root(
-            self, root_id: np.uint64, operation_id: np.uint64
+        self, root_id: np.uint64, operation_id: np.uint64
     ):
         """Unlocks root node that is indefinitely locked with operation_id."""
         lock_column = attributes.Concurrency.IndefiniteLock
@@ -540,7 +544,7 @@ class Client(bigtable.Client, ClientWithIDGen, OperationLogger):
         return True
     
     def get_lock_timestamp(
-            self, root_id: np.uint64, operation_id: np.uint64
+        self, root_id: np.uint64, operation_id: np.uint64
     ) -> typing.Union[datetime, None]:
         """Lock timestamp for a Root ID operation."""
         row = self.read_node(root_id, properties=attributes.Concurrency.Lock)
@@ -553,9 +557,9 @@ class Client(bigtable.Client, ClientWithIDGen, OperationLogger):
         return row[0].timestamp
     
     def get_consolidated_lock_timestamp(
-            self,
-            root_ids: typing.Sequence[np.uint64],
-            operation_ids: typing.Sequence[np.uint64],
+        self,
+        root_ids: typing.Sequence[np.uint64],
+        operation_ids: typing.Sequence[np.uint64],
     ) -> typing.Union[datetime, None]:
         """Minimum of multiple lock timestamps."""
         time_stamps = []
@@ -570,7 +574,7 @@ class Client(bigtable.Client, ClientWithIDGen, OperationLogger):
     
     # IDs
     def create_node_ids(
-            self, chunk_id: np.uint64, size: int, root_chunk=False
+        self, chunk_id: np.uint64, size: int, root_chunk=False
     ) -> np.ndarray:
         """Generates a list of unique node IDs for the given chunk."""
         if root_chunk:
@@ -584,13 +588,13 @@ class Client(bigtable.Client, ClientWithIDGen, OperationLogger):
         return new_ids | chunk_id
     
     def create_node_id(
-            self, chunk_id: np.uint64, root_chunk=False
+        self, chunk_id: np.uint64, root_chunk=False
     ) -> basetypes.NODE_ID:
         """Generate a unique node ID in the chunk."""
         return self.create_node_ids(chunk_id, 1, root_chunk=root_chunk)[0]
     
     def get_max_node_id(
-            self, chunk_id: basetypes.CHUNK_ID, root_chunk=False
+        self, chunk_id: basetypes.CHUNK_ID, root_chunk=False
     ) -> basetypes.NODE_ID:
         """Gets the current maximum segment ID in the chunk."""
         if root_chunk:
@@ -601,9 +605,10 @@ class Client(bigtable.Client, ClientWithIDGen, OperationLogger):
                     serialize_key(f"i{pad_node_id(chunk_id)}_{counter}"),
                     columns=attributes.Concurrency.Counter,
                 )
+                print(f" --- get_max_node_id = ", row)
                 val = (
-                        basetypes.SEGMENT_ID.type(row[0].value if row else 0) * n_counters
-                        + counter
+                    basetypes.SEGMENT_ID.type(row[0].value if row else 0) * n_counters
+                    + counter
                 )
                 max_value = val if val > max_value else max_value
             return chunk_id | basetypes.SEGMENT_ID.type(max_value)
@@ -624,7 +629,7 @@ class Client(bigtable.Client, ClientWithIDGen, OperationLogger):
         return row[0].value if row else column.basetype(0)
     
     def get_compatible_timestamp(
-            self, time_stamp: datetime, round_up: bool = False
+        self, time_stamp: datetime, round_up: bool = False
     ) -> datetime:
         return utils.get_google_compatible_time_stamp(time_stamp, round_up=round_up)
     
@@ -641,15 +646,22 @@ class Client(bigtable.Client, ClientWithIDGen, OperationLogger):
     
     def _get_ids_range(self, key: bytes, size: int) -> typing.Tuple:
         """Returns a range (min, max) of IDs for a given `key`."""
+        print(f"\n --- BEFORE _get_ids_range - key = {key}")
+        self.debug_print_total_rows_count()
+        
         column = attributes.Concurrency.Counter
         row = self._table.append_row(key)
         row.increment_cell_value(column.family_id, column.key, size)
         row = row.commit()
         high = column.deserialize(row[column.family_id][column.key][0][0])
+        
+        self.debug_print_total_rows_count()
+        print(f" --- AFTER _get_ids_range - size = {size}\n")
+        
         return high + np.uint64(1) - size, high
     
     def _get_root_segment_ids_range(
-            self, chunk_id: basetypes.CHUNK_ID, size: int = 1, counter: int = None
+        self, chunk_id: basetypes.CHUNK_ID, size: int = 1, counter: int = None
     ) -> np.ndarray:
         """Return unique segment ID for the root chunk."""
         n_counters = np.uint64(2 ** 8)
@@ -668,18 +680,18 @@ class Client(bigtable.Client, ClientWithIDGen, OperationLogger):
         )
     
     def _read_byte_rows(
-            self,
-            start_key: typing.Optional[bytes] = None,
-            end_key: typing.Optional[bytes] = None,
-            end_key_inclusive: bool = False,
-            row_keys: typing.Optional[typing.Iterable[bytes]] = None,
-            columns: typing.Optional[
-                typing.Union[typing.Iterable[attributes._Attribute], attributes._Attribute]
-            ] = None,
-            start_time: typing.Optional[datetime] = None,
-            end_time: typing.Optional[datetime] = None,
-            end_time_inclusive: bool = False,
-            user_id: typing.Optional[str] = None,
+        self,
+        start_key: typing.Optional[bytes] = None,
+        end_key: typing.Optional[bytes] = None,
+        end_key_inclusive: bool = False,
+        row_keys: typing.Optional[typing.Iterable[bytes]] = None,
+        columns: typing.Optional[
+            typing.Union[typing.Iterable[attributes._Attribute], attributes._Attribute]
+        ] = None,
+        start_time: typing.Optional[datetime] = None,
+        end_time: typing.Optional[datetime] = None,
+        end_time_inclusive: bool = False,
+        user_id: typing.Optional[str] = None,
     ) -> typing.Dict[
         bytes,
         typing.Union[
@@ -746,6 +758,7 @@ class Client(bigtable.Client, ClientWithIDGen, OperationLogger):
             end_inclusive=end_time_inclusive,
             user_id=user_id,
         )
+        
         # Bigtable read with retries
         rows = self._read(row_set=row_set, row_filter=filter_)
         
@@ -760,14 +773,14 @@ class Client(bigtable.Client, ClientWithIDGen, OperationLogger):
         return rows
     
     def _read_byte_row(
-            self,
-            row_key: bytes,
-            columns: typing.Optional[
-                typing.Union[typing.Iterable[attributes._Attribute], attributes._Attribute]
-            ] = None,
-            start_time: typing.Optional[datetime] = None,
-            end_time: typing.Optional[datetime] = None,
-            end_time_inclusive: bool = False,
+        self,
+        row_key: bytes,
+        columns: typing.Optional[
+            typing.Union[typing.Iterable[attributes._Attribute], attributes._Attribute]
+        ] = None,
+        start_time: typing.Optional[datetime] = None,
+        end_time: typing.Optional[datetime] = None,
+        end_time_inclusive: bool = False,
     ) -> typing.Union[
         typing.Dict[attributes._Attribute, typing.List[bigtable.row_data.Cell]],
         typing.List[bigtable.row_data.Cell],
@@ -817,12 +830,20 @@ class Client(bigtable.Client, ClientWithIDGen, OperationLogger):
             # Check for everything falsy, because Bigtable considers even empty
             # lists of row_keys as no upper/lower bound!
             return {}
+        
+        print(f" --- row_set.row_keys = {len(row_set.row_keys)}")
+        print(f" --- row_set.row_ranges = {len(row_set.row_ranges)}")
+        print(
+            f" --- row_set.row_ranges = {[{'start_key': rr.start_key, 'end_key': rr.end_key, 'start_inclusive': rr.start_inclusive, 'end_inclusive': rr.end_inclusive} for rr in row_set.row_ranges]}")
+        self.debug_print_total_rows_count()
+        
         range_read = table.read_rows(row_set=row_set, filter_=row_filter)
         res = {v.row_key: utils.partial_row_data_to_column_dict(v) for v in range_read}
+        
         return res
     
     def _read(
-            self, row_set: RowSet, row_filter: RowFilter = None
+        self, row_set: RowSet, row_filter: RowFilter = None
     ) -> typing.Dict[bytes, typing.Dict[attributes._Attribute, PartialRowData]]:
         """Core function to read rows from Bigtable. Uses standard Bigtable retry logic
         :param row_set: BigTable RowSet
@@ -852,12 +873,12 @@ class Client(bigtable.Client, ClientWithIDGen, OperationLogger):
         row_sets[0].row_ranges = row_set.row_ranges
         
         with TimeIt(
-                "chunked_reads",
-                f"{self._table.table_id}_bt_profile",
-                operation_id=-1,
-                n_rows=len(row_set.row_keys),
-                n_requests=n_subrequests,
-                n_threads=n_threads,
+            "chunked_reads",
+            f"{self._table.table_id}_bt_profile",
+            operation_id=-1,
+            n_rows=len(row_set.row_keys),
+            n_requests=n_subrequests,
+            n_threads=n_threads,
         ):
             responses = mu.multithread_func(
                 self._execute_read_thread,
@@ -870,3 +891,9 @@ class Client(bigtable.Client, ClientWithIDGen, OperationLogger):
             for resp in responses:
                 combined_response.update(resp)
             return combined_response
+    
+    def debug_print_total_rows_count(self):
+        total = self._table.read_rows()
+        total.consume_all()
+        print(
+            f" --- total rows = {len(total.rows)}")
