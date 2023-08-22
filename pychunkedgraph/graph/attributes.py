@@ -104,10 +104,12 @@ class Connectivity:
         serializer=serializers.NumPyArray(dtype=basetypes.EDGE_AREA),
     )
 
-    FakeEdges = _Attribute(
-        key=b"fake_edges",
-        family_id="4",
-        serializer=serializers.NumPyArray(dtype=basetypes.NODE_ID, shape=(-1, 2)),
+    AtomicCrossChunkEdge = _AttributeArray(
+        pattern=b"atomic_cross_edges_%d",
+        family_id="3",
+        serializer=serializers.NumPyArray(
+            dtype=basetypes.NODE_ID, shape=(-1, 2), compression_level=22
+        ),
     )
 
     CrossChunkEdge = _AttributeArray(
@@ -118,12 +120,10 @@ class Connectivity:
         ),
     )
 
-    AtomicCrossChunkEdge = _AttributeArray(
-        pattern=b"atomic_cross_edges_%d",
-        family_id="3",
-        serializer=serializers.NumPyArray(
-            dtype=basetypes.NODE_ID, shape=(-1, 2), compression_level=22
-        ),
+    FakeEdges = _Attribute(
+        key=b"fake_edges",
+        family_id="5",
+        serializer=serializers.NumPyArray(dtype=basetypes.NODE_ID, shape=(-1, 2)),
     )
 
 
