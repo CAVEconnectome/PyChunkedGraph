@@ -638,7 +638,9 @@ class Client(bigtable.Client, ClientWithIDGen, OperationLogger):
         f.create()
         f = self._table.column_family("3", gc_rule=MaxAgeGCRule(timedelta(days=365)))
         f.create()
-        f = self._table.column_family("4")
+        f = self._table.column_family("4", gc_rule=MaxVersionsGCRule(1))
+        f.create()
+        f = self._table.column_family("5")
         f.create()
 
     def _get_ids_range(self, key: bytes, size: int) -> typing.Tuple:
