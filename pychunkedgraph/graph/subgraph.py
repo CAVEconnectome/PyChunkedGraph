@@ -1,4 +1,4 @@
-# pylint: disable=invalid-name, missing-docstring
+# pylint: disable=invalid-name, missing-docstring, import-outside-toplevel
 
 from typing import List
 from typing import Dict
@@ -155,7 +155,7 @@ def get_subgraph_edges_and_leaves(
     bbox_is_coordinate: bool = False,
     edges_only: bool = False,
     leaves_only: bool = False,
-) -> Tuple[Dict, Dict, Edges]:
+) -> Tuple[Dict, Tuple[Edges]]:
     """Get the edges and/or leaves of the specified node_ids within the specified bounding box."""
     from .types import empty_1d
 
