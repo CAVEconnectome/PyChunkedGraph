@@ -24,6 +24,8 @@ from .edges import Edges
 from .edges import utils as edge_utils
 from .chunks import utils as chunk_utils
 from .chunks import hierarchy as chunk_hierarchy
+from .subgraph import get_subgraph_nodes
+from .subgraph import get_subgraph_edges_and_leaves
 
 
 class ChunkedGraph:
@@ -524,12 +526,10 @@ class ChunkedGraph:
         edges_only: bool = False,
         leaves_only: bool = False,
         return_flattened: bool = False,
-    ) -> typing.Tuple[typing.Dict, typing.Dict, Edges]:
+    ) -> typing.Tuple[typing.Dict, typing.Tuple[Edges]]:
         """
         Generic subgraph method.
         """
-        from .subgraph import get_subgraph_nodes
-        from .subgraph import get_subgraph_edges_and_leaves
 
         if return_layers is None:
             return_layers = [2]
@@ -560,8 +560,6 @@ class ChunkedGraph:
         Get the children of `node_ids` that are at each of
         return_layers within the specified bounding box.
         """
-        from .subgraph import get_subgraph_nodes
-
         if return_layers is None:
             return_layers = [2]
 
@@ -584,8 +582,6 @@ class ChunkedGraph:
         """
         Get the atomic edges of the `node_ids` within the specified bounding box.
         """
-        from .subgraph import get_subgraph_edges_and_leaves
-
         return get_subgraph_edges_and_leaves(
             self, node_id_or_ids, bbox, bbox_is_coordinate, True, False
         )
@@ -599,8 +595,6 @@ class ChunkedGraph:
         """
         Get the supervoxels of the `node_ids` within the specified bounding box.
         """
-        from .subgraph import get_subgraph_edges_and_leaves
-
         return get_subgraph_edges_and_leaves(
             self, node_id_or_ids, bbox, bbox_is_coordinate, False, True
         )
@@ -625,7 +619,7 @@ class ChunkedGraph:
 
     def get_l2_agglomerations(
         self, level2_ids: np.ndarray, edges_only: bool = False
-    ) -> typing.Tuple[typing.Dict[int, types.Agglomeration], np.ndarray]:
+    ) -> typing.Tuple[typing.Dict[int, types.Agglomeration], typing.Tuple[Edges]]:
         """
         Children of Level 2 Node IDs and edges.
         Edges are read from cloud storage.
