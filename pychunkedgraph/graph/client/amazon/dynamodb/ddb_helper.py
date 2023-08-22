@@ -56,8 +56,8 @@ class DdbHelper:
     
     @staticmethod
     def attribs_to_cells(
-            attribs: Dict[_Attribute, Any],
-            time_stamp: Optional[datetime] = None,
+        attribs: Dict[_Attribute, Any],
+        time_stamp: Optional[datetime] = None,
     ) -> dict[str, Iterable[TimeStampedCell]]:
         cells = {}
         for attrib_column, value in attribs.items():
@@ -73,53 +73,7 @@ class DdbHelper:
             )
         return cells
     
-    def raw_ddb_item_to_row(self, item):
-        row = {}
-        pk = None
-        sk = 0
-        
-        # each item comes with 'key', 'sk', [column_family] and '@' columns
-        item_keys = list(item.keys())
-        item_keys.sort()
-        # ddb_clm is one of 'key', 'sk', [column_family.column_qualifier], '@'
-        for ddb_clm in item_keys:
-            ddb_row_value = item[ddb_clm]
-            row_value = self._ddb_deserializer.deserialize(ddb_row_value)
-            if ddb_clm == "@":
-                # for '@' row_value is int
-                # TODO: store row version for optimistic locking (subject TBD)
-                ver = row_value
-            elif ddb_clm == "key":
-                # for key row_value is string
-                pk = row_value
-            elif ddb_clm == "sk":
-                # for sk row_value is int
-                sk = int(row_value)
-            else:
-                # ddb_clm here is column_family.column_qualifier
-                column_family, qualifier = ddb_clm.split(".")
-                attr = attributes.from_key(column_family, qualifier.encode())
-                
-                if attr not in row:
-                    row[attr] = []
-                
-                for timestamp, column_value in row_value:
-                    # find _Attribute for ddb_clm:qualifier and put cell & timestamp pair associated with it
-                    row[attr].append(
-                        TimeStampedCell(
-                            attr.deserialize(
-                                bytes(column_value)
-                                if isinstance(column_value, Binary)
-                                else column_value
-                            ),
-                            int(timestamp),
-                        )
-                    )
-        
-        b_real_key = self.to_real_key(pk, sk)
-        return b_real_key, row
-    
-    def ddb_item_to_row(self, item):
+    def ddb_item_to_row(self, item, needs_deserialization: bool = False):
         row = {}
         pk = None
         sk = 0
@@ -142,7 +96,8 @@ class DdbHelper:
         # ddb_clm is one of the followings: 'key' (primary key), 'sk' (sort key), '@' (row version),
         # and other columns with the format [column_family.column_qualifier]
         for ddb_clm in item_keys:
-            row_value = item[ddb_clm]
+            ddb_row_value = item[ddb_clm]
+            row_value = self._ddb_deserializer.deserialize(ddb_row_value) if needs_deserialization else ddb_row_value
             if ddb_clm == "@":
                 # for '@' row_value is int
                 # TODO: store row version for optimistic locking (subject TBD)
@@ -163,7 +118,12 @@ class DdbHelper:
                 
                 if attr in [attributes.Concurrency.Lock, attributes.Concurrency.IndefiniteLock]:
                     column_value = row_value
-                    timestamp = item[f"{ddb_clm}{LOCK_TIMESTAMP_COL_SUFFIX}"]
+                    
+                    ddb_timestamp_value = item.get(f"{ddb_clm}{LOCK_TIMESTAMP_COL_SUFFIX}", None)
+                    
+                    timestamp = self._ddb_deserializer.deserialize(
+                        ddb_timestamp_value) if needs_deserialization else ddb_timestamp_value
+                    
                     row[attr].append(
                         TimeStampedCell(
                             column_value,
@@ -188,8 +148,8 @@ class DdbHelper:
         return b_real_key, row
     
     def row_to_ddb_item(
-            self,
-            row: dict[str, Union[bytes, dict[_Attribute, Iterable[TimeStampedCell]]]]
+        self,
+        row: dict[str, Union[bytes, dict[_Attribute, Iterable[TimeStampedCell]]]]
     ) -> dict[str, Any]:
         pk, sk = self.to_pk_sk(row['key'])
         item = {'key': pk, 'sk': sk}
@@ -201,9 +161,18 @@ class DdbHelper:
             
             family = attrib_column.family_id
             qualifier = attrib_column.key.decode()
-            
             # form column names for DDB like 0.parent, 0.children etc
             ddb_column = f"{family}.{qualifier}"
+            
+            if attrib_column in [attributes.Concurrency.Lock, attributes.Concurrency.IndefiniteLock]:
+                # for Lock and IndefiniteLock, the column value history is not stored in DDB
+                # instead, the timestamp when the lock was acquired is stored in a separate column
+                # with the ".ts" suffix
+                ddb_timestamp_column = f"{ddb_column}{LOCK_TIMESTAMP_COL_SUFFIX}"
+                item[ddb_timestamp_column] = cells_array[0].timestamp_int
+                item[ddb_column] = cells_array[0].value
+                continue
+            
             if ddb_column not in columns:
                 columns[ddb_column] = []
             
@@ -229,10 +198,8 @@ class DdbHelper:
     def to_real_key(self, pk, sk):
         ikey = sk
         if pk[0].isdigit():
-            #     ikey = (int(pk) << self._pk_key_shift) | sk
             real_key = pad_node_id(ikey)
         elif pk[0] in ["i", "f"]:
-            #     ikey = (int(pk[1:]) << self._pk_key_shift) | sk
             real_key = f"{pk[0]}{pad_node_id(ikey)}"
         else:
             real_key = pk
@@ -241,23 +208,25 @@ class DdbHelper:
         return b_real_key
     
     def to_pk_sk(self, key: bytes):
-        prefix, ikey = self._to_int_key(key)
+        prefix, ikey, suffix = self._to_key_parts(key)
         if ikey is not None:
             pk = self._int_key_to_pk(ikey, prefix)
             sk = ikey
         else:
-            # pk = f"{'' if prefix is None else prefix}{key.decode()}"
-            # sk = 0
             pk = key.decode()
             sk = 0
+        
+        if suffix is not None and suffix.isnumeric():
+            sk += int(suffix)
+        
         return pk, sk
     
     def to_sk_range(
-            self,
-            start_key: bytes,
-            end_key: bytes,
-            start_inclusive: bool = True,
-            end_inclusive: bool = True
+        self,
+        start_key: bytes,
+        end_key: bytes,
+        start_inclusive: bool = True,
+        end_inclusive: bool = True
     ):
         pk_start, sk_start = self.to_pk_sk(start_key)
         pk_end, sk_end = self.to_pk_sk(end_key)
@@ -272,49 +241,64 @@ class DdbHelper:
             if not end_inclusive:
                 sk_end = sk_end - 1
         
-        # prefix_start, i_start = self._to_int_key(start_key)
-        # prefix_end, i_end = self._to_int_key(end_key)
-        #
-        # if i_start is not None:
-        #     if not start_inclusive:
-        #         i_start = i_start + 1
-        #
-        # if i_end is not None:
-        #     if not end_inclusive:
-        #         i_end = i_end - 1
-        #
-        # sk_start = None
-        # sk_end = None
-        # pk_start = None
-        # pk_end = None
-        # if i_start is not None:
-        #     pk_start, sk_start = self._int_key_to_pk(i_start, prefix_start)
-        #
-        # if i_end is not None:
-        #     pk_end, sk_end = self._int_key_to_pk(i_end, prefix_end)
-        #
-        # if pk_start is not None and pk_end is not None and pk_start != pk_end:
-        #     raise ValueError("DynamoDB does not support range queries across different partition keys")
-        
         return pk_start if pk_start is not None else pk_end, sk_start, sk_end
     
-    def _to_int_key(self, key: bytes):
+    # def _to_key_parts(self, key: bytes):
+    #     str_key = key.decode()
+    #     prefix = None
+    #     ikey = None
+    #     if str_key[0].isdigit():
+    #         return prefix, int(str_key)
+    #     elif str_key[0] in ["f", "i"]:
+    #         prefix = str_key[0]
+    #         rest_of_the_key = str_key[1:]
+    #         if rest_of_the_key.isnumeric():
+    #             ikey = int(rest_of_the_key)
+    #         return prefix, ikey
+    #     else:
+    #         return prefix, ikey
+    
+    def _to_key_parts(self, key: bytes):
+        '''
+        # A utility method to split the given key into prefix, an integer key, and a suffix
+        #
+        # The given key may be in any one of the following formats
+        # 1. A padded 20-digit number
+        #       E.g., 00076845692567897775
+        # 2. A padded 19-digit number with "i" or "f" prefix (total 20 chars)
+        #       E.g., f00144821212986474496 or i00145242668664881152
+        # 3. A padded 19-digit number with "i" or "f" prefix and a suffix number separated by underscore
+        #       E.g., i00216172782113783808_237
+        # 4. Key for operations
+        #       E.g., ioperations
+        # 5. Key for meta
+        #       E.g., meta
+        #
+        :param key:
+        :return:
+        '''
         str_key = key.decode()
+        
+        suffix = None
+        key_without_suffix = str_key
+        if "_" in str_key:
+            parts = str_key.split("_")
+            suffix = parts[-1]
+            key_without_suffix = parts[0]
+        
         prefix = None
         ikey = None
-        if str_key[0].isdigit():
-            return prefix, int(str_key)
-        elif str_key[0] in ["f", "i"]:
-            prefix = str_key[0]
-            rest_of_the_key = str_key[1:]
+        
+        if key_without_suffix[0].isdigit():
+            return prefix, int(key_without_suffix), suffix
+        elif key_without_suffix[0] in ["f", "i"]:
+            prefix = key_without_suffix[0]
+            rest_of_the_key = key_without_suffix[1:]
             if rest_of_the_key.isnumeric():
                 ikey = int(rest_of_the_key)
-            return prefix, ikey
+            return prefix, ikey, suffix
         else:
-            return prefix, ikey
+            return prefix, ikey, suffix
     
     def _int_key_to_pk(self, ikey: int, prefix: str = None):
-        pk = f"{'' if prefix is None else prefix}{(ikey >> self._pk_key_shift):{self._pk_int_format}}"
-        # sk = ikey & self._sk_key_mask
-        # sk = ikey
-        return pk
+        return f"{'' if prefix is None else prefix}{(ikey >> self._pk_key_shift):{self._pk_int_format}}"
