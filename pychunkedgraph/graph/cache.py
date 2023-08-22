@@ -31,7 +31,9 @@ class CacheService:
 
         self._parent_vec = np.vectorize(self.parent, otypes=[np.uint64])
         self._children_vec = np.vectorize(self.children, otypes=[np.ndarray])
-        self._cross_chunk_edges_vec = np.vectorize(self.cross_chunk_edges, otypes=[dict])
+        self._cross_chunk_edges_vec = np.vectorize(
+            self.cross_chunk_edges, otypes=[dict]
+        )
 
         # no limit because we don't want to lose new IDs
         self.parents_cache = LRUCache(maxsize=maxsize)
@@ -77,6 +79,7 @@ class CacheService:
         return cross_edges_decorated(node_id)
 
     def parents_multiple(self, node_ids: np.ndarray, *, time_stamp: datetime = None):
+        node_ids = np.array(node_ids, dtype=NODE_ID)
         if not node_ids.size:
             return node_ids
         mask = np.in1d(node_ids, np.fromiter(self.parents_cache.keys(), dtype=NODE_ID))
@@ -90,6 +93,7 @@ class CacheService:
 
     def children_multiple(self, node_ids: np.ndarray, *, flatten=False):
         result = {}
+        node_ids = np.array(node_ids, dtype=NODE_ID)
         if not node_ids.size:
             return result
         mask = np.in1d(node_ids, np.fromiter(self.children_cache.keys(), dtype=NODE_ID))
@@ -105,6 +109,7 @@ class CacheService:
 
     def cross_chunk_edges_multiple(self, node_ids: np.ndarray):
         result = {}
+        node_ids = np.array(node_ids, dtype=NODE_ID)
         if not node_ids.size:
             return result
         mask = np.in1d(
