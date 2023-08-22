@@ -46,7 +46,7 @@ def concatenate_chunk_edges(chunk_edge_dicts: Iterable) -> Dict:
     return edges_dict
 
 
-def concatenate_cross_edge_dicts(edges_ds: Iterable[Dict]) -> Dict:
+def concatenate_cross_edge_dicts(edges_ds: Iterable[Dict], unique: bool = False) -> Dict:
     """Combines cross chunk edge dicts of form {layer id : edge list}."""
     result_d = defaultdict(list)
     for edges_d in edges_ds:
@@ -54,7 +54,10 @@ def concatenate_cross_edge_dicts(edges_ds: Iterable[Dict]) -> Dict:
             result_d[layer].append(edges)
 
     for layer, edge_lists in result_d.items():
-        result_d[layer] = np.concatenate(edge_lists)
+        edges = np.concatenate(edge_lists)
+        if unique:
+            edges = np.unique(edges, axis=0)
+        result_d[layer] = edges
     return result_d
 
 
