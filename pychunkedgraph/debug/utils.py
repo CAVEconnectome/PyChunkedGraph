@@ -1,3 +1,5 @@
+# pylint: disable=invalid-name, missing-docstring, bare-except, unidiomatic-typecheck
+
 import numpy as np
 
 from ..graph import ChunkedGraph
@@ -27,7 +29,7 @@ def print_node(
     if cg.get_chunk_layer(node) <= stop_layer:
         return
     for child in children:
-        print_node(cg, child, indent=indent + 1, stop_layer=stop_layer)
+        print_node(cg, child, indent=indent + 4, stop_layer=stop_layer)
 
 
 def get_l2children(cg: ChunkedGraph, node: NODE_ID) -> np.ndarray:
