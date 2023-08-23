@@ -5,9 +5,9 @@ from typing import Dict, Iterable, Union, Any, Optional
 from boto3.dynamodb.types import TypeDeserializer, TypeSerializer, Binary
 
 from .timestamped_cell import TimeStampedCell
+from .utils import append, get_current_time_microseconds
 from .... import attributes
 from ....attributes import _Attribute
-from ....utils.serializers import pad_node_id
 
 MAX_DDB_BATCH_WRITE = 25
 TIME_SLOT_INDEX = 0
@@ -62,21 +62,16 @@ class DdbHelper:
         cells = {}
         for attrib_column, value in attribs.items():
             attr = attributes.from_key(attrib_column.family_id, attrib_column.key)
-            if attr not in cells:
-                cells[attr] = []
-            cells[attr].append(
-                TimeStampedCell(
-                    value,
-                    time_stamp.microsecond if time_stamp is not None else int(
-                        TimeStampedCell.get_current_time_microseconds()),
-                )
-            )
+            append(cells, attr, TimeStampedCell(
+                value,
+                time_stamp.microsecond if time_stamp is not None else get_current_time_microseconds(),
+            ))
         return cells
     
     def ddb_item_to_row(self, item, needs_deserialization: bool = False):
         row = {}
         pk = None
-        sk = 0
+        sk = ''
         
         # Item is a dict object retrieved from Amazon DynamoDB (DDB).
         # The dictionary object is keyed by column name (i.e., attribute name) in the DDB table.
@@ -103,18 +98,13 @@ class DdbHelper:
                 # TODO: store row version for optimistic locking (subject TBD)
                 ver = row_value
             elif ddb_clm == "key":
-                # for key row_value is string
                 pk = row_value
             elif ddb_clm == "sk":
-                # for sk row_value is int
-                sk = int(row_value)
+                sk = row_value
             else:
                 # ddb_clm here is column_family.column_qualifier
                 column_family, qualifier = ddb_clm.split(".")
                 attr = attributes.from_key(column_family, qualifier.encode())
-                
-                if attr not in row:
-                    row[attr] = []
                 
                 if attr in [attributes.Concurrency.Lock, attributes.Concurrency.IndefiniteLock]:
                     column_value = row_value
@@ -124,24 +114,22 @@ class DdbHelper:
                     timestamp = self._ddb_deserializer.deserialize(
                         ddb_timestamp_value) if needs_deserialization else ddb_timestamp_value
                     
-                    row[attr].append(
-                        TimeStampedCell(
-                            column_value,
-                            int(timestamp)
-                        )
-                    )
+                    append(row, attr, TimeStampedCell(
+                        column_value,
+                        int(timestamp)
+                    ))
+                
                 else:
                     for timestamp, column_value in row_value:
-                        row[attr].append(
-                            TimeStampedCell(
+                        if column_value:
+                            append(row, attr, TimeStampedCell(
                                 attr.deserialize(
                                     bytes(column_value)
                                     if isinstance(column_value, Binary)
                                     else column_value
                                 ),
                                 int(timestamp),
-                            )
-                        )
+                            ))
         
         b_real_key = self.to_real_key(pk, sk)
         
@@ -173,13 +161,10 @@ class DdbHelper:
                 item[ddb_column] = cells_array[0].value
                 continue
             
-            if ddb_column not in columns:
-                columns[ddb_column] = []
-            
             for cell in cells_array:
                 timestamp = cell.timestamp_int
                 value = cell.value
-                columns[ddb_column].append([
+                append(columns, ddb_column, [
                     timestamp,  # timestamp is at TIME_SLOT_INDEX position
                     
                     # cell value is at VALUE_SLOT_INDEX position
@@ -196,30 +181,39 @@ class DdbHelper:
         return item
     
     def to_real_key(self, pk, sk):
-        ikey = sk
-        if pk[0].isdigit():
-            real_key = pad_node_id(ikey)
-        elif pk[0] in ["i", "f"]:
-            real_key = f"{pk[0]}{pad_node_id(ikey)}"
-        else:
-            real_key = pk
-        
-        b_real_key = real_key.encode()
-        return b_real_key
+        return sk.encode()
+        # ikey = sk
+        # if pk[0].isdigit():
+        #     real_key = pad_node_id(ikey)
+        # elif pk[0] in ["i", "f"]:
+        #     real_key = f"{pk[0]}{pad_node_id(ikey)}"
+        # else:
+        #     real_key = pk
+        #
+        # b_real_key = real_key.encode()
+        # return b_real_key
     
     def to_pk_sk(self, key: bytes):
         prefix, ikey, suffix = self._to_key_parts(key)
+        sk = key.decode()
         if ikey is not None:
             pk = self._int_key_to_pk(ikey, prefix)
-            sk = ikey
         else:
             pk = key.decode()
-            sk = 0
-        
-        if suffix is not None and suffix.isnumeric():
-            sk += int(suffix)
-        
         return pk, sk
+        
+        # prefix, ikey, suffix = self._to_key_parts(key)
+        # if ikey is not None:
+        #     pk = self._int_key_to_pk(ikey, prefix)
+        #     sk = ikey
+        # else:
+        #     pk = key.decode()
+        #     sk = 0
+        #
+        # if suffix is not None and suffix.isnumeric():
+        #     sk += int(suffix)
+        #
+        # return pk, sk
     
     def to_sk_range(
         self,
@@ -235,28 +229,17 @@ class DdbHelper:
         
         if sk_start is not None:
             if not start_inclusive:
-                sk_start = sk_start + 1
-        #
+                prefix_start, ikey_start, suffix_start = self._to_key_parts(start_key)
+                # sk_start = sk_start + 1
+                sk_start = self._from_key_parts(prefix_start, ikey_start + 1, suffix_start)
+        
         if sk_end is not None:
             if not end_inclusive:
-                sk_end = sk_end - 1
+                prefix_end, ikey_end, suffix_end = self._to_key_parts(end_key)
+                # sk_end = sk_end - 1
+                sk_end = self._from_key_parts(prefix_end, ikey_end - 1, suffix_end)
         
         return pk_start if pk_start is not None else pk_end, sk_start, sk_end
-    
-    # def _to_key_parts(self, key: bytes):
-    #     str_key = key.decode()
-    #     prefix = None
-    #     ikey = None
-    #     if str_key[0].isdigit():
-    #         return prefix, int(str_key)
-    #     elif str_key[0] in ["f", "i"]:
-    #         prefix = str_key[0]
-    #         rest_of_the_key = str_key[1:]
-    #         if rest_of_the_key.isnumeric():
-    #             ikey = int(rest_of_the_key)
-    #         return prefix, ikey
-    #     else:
-    #         return prefix, ikey
     
     def _to_key_parts(self, key: bytes):
         '''
@@ -300,5 +283,20 @@ class DdbHelper:
         else:
             return prefix, ikey, suffix
     
+    def _from_key_parts(self, prefix, ikey, suffix, delim="_"):
+        suffix_str = '' if suffix is None else f"{delim}{suffix}"
+        return f"{'' if prefix is None else prefix}{ikey}{suffix_str}"
+        # ikey = sk
+        # if pk[0].isdigit():
+        #     real_key = pad_node_id(ikey)
+        # elif pk[0] in ["i", "f"]:
+        #     real_key = f"{pk[0]}{pad_node_id(ikey)}"
+        # else:
+        #     real_key = pk
+        #
+        # b_real_key = real_key.encode()
+        # return b_real_key
+    
     def _int_key_to_pk(self, ikey: int, prefix: str = None):
-        return f"{'' if prefix is None else prefix}{(ikey >> self._pk_key_shift):{self._pk_int_format}}"
+        # return f"{'' if prefix is None else prefix}{(ikey >> self._pk_key_shift):{self._pk_int_format}}"
+        return f"{(ikey >> self._pk_key_shift):{self._pk_int_format}}"

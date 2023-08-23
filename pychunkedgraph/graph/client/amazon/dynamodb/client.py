@@ -17,7 +17,7 @@ from .ddb_table import Table
 from .row_set import RowSet
 from .timestamped_cell import TimeStampedCell
 from .utils import (
-    DynamoDbFilter,
+    DynamoDbFilter, append, get_current_time_microseconds, to_microseconds,
 )
 from ...base import ClientWithIDGen
 from ...base import OperationLogger
@@ -97,7 +97,7 @@ class Client(ClientWithIDGen, OperationLogger):
             ],
             AttributeDefinitions=[
                 {"AttributeName": "key", "AttributeType": "S"},
-                {"AttributeName": "sk", "AttributeType": "N"},
+                {"AttributeName": "sk", "AttributeType": "S"},
             ],
             BillingMode="PAY_PER_REQUEST",
         )
@@ -190,8 +190,6 @@ class Client(ClientWithIDGen, OperationLogger):
             end_time_inclusive=end_time_inclusive,
             user_id=user_id,
         )
-        if end_time:
-            print(f" --- end_time = {end_time} len(rows) = {len(rows)}")
         
         return {
             deserialize_uint64(row_key, fake_edges=fake_edges): data
@@ -279,8 +277,6 @@ class Client(ClientWithIDGen, OperationLogger):
         """
         logging.debug(f"write {rows} {root_ids} {operation_id} {slow_retry} {block_size}")
         
-        print(f" --- writing rows = {len([list(r.values())[0] for r in rows])}")
-        
         if root_ids is not None and operation_id is not None:
             if isinstance(root_ids, int):
                 root_ids = [root_ids]
@@ -333,6 +329,7 @@ class Client(ClientWithIDGen, OperationLogger):
     ) -> bool:
         """Locks root node with operation_id to prevent race conditions."""
         logging.debug(f"lock_root: {root_id}, {operation_id}")
+        print(f" --- lock_root: {root_id}, {operation_id}")
         lock_expiry = self._graph_meta.graph_config.ROOT_LOCK_EXPIRY
         time_cutoff = datetime.utcnow() - lock_expiry
         
@@ -353,6 +350,11 @@ class Client(ClientWithIDGen, OperationLogger):
         # if the lock column is set but the lock is expired
         # and if there is NO new parent (i.e., the new_parents column is not set).
         try:
+            existing = self._ddb_table.get_item(Key={"key": pk, "sk": sk})
+            print(f" --- lock_root existing: {existing},"
+                  f" time_cutoff = {to_microseconds(time_cutoff)},"
+                  f" current_time = {get_current_time_microseconds()}")
+            
             self._ddb_table.update_item(
                 Key={"key": pk, "sk": sk},
                 UpdateExpression="SET #c = :c, #lock_timestamp = :current_time",
@@ -367,13 +369,17 @@ class Client(ClientWithIDGen, OperationLogger):
                 },
                 ExpressionAttributeValues={
                     ':c': serialize_uint64(operation_id),
-                    ':time_cutoff': time_cutoff.microsecond,
-                    ':current_time': datetime.utcnow().microsecond,
+                    ':time_cutoff': to_microseconds(time_cutoff),
+                    ':current_time': get_current_time_microseconds(),
                 }
             )
             self._no_of_writes += 1
+            
+            print(f" --- lock_root successful: {root_id}, {operation_id}")
+            
             return True
         except ClientError as e:
+            print(f" --- lock_root failed: {root_id}, {operation_id}")
             if e.response['Error']['Code'] == 'ConditionalCheckFailedException':
                 logging.debug(f"lock_root: {root_id}, {operation_id} failed")
                 return False
@@ -449,7 +455,7 @@ class Client(ClientWithIDGen, OperationLogger):
                 },
                 ExpressionAttributeValues={
                     ':c': serialize_uint64(operation_id),
-                    ':current_time': datetime.utcnow().microsecond,
+                    ':current_time': get_current_time_microseconds(),
                 }
             )
             self._no_of_writes += 1
@@ -497,13 +503,13 @@ class Client(ClientWithIDGen, OperationLogger):
             return True, root_ids, failed_to_lock_id
         return False, root_ids, failed_to_lock_id
     
-    def unlock_root(self, node_id, operation_id):
+    def unlock_root(self, root_id, operation_id):
         """Unlocks root node that is locked with operation_id."""
-        logging.debug(f"unlock_root: {node_id}, {operation_id}")
+        logging.debug(f"unlock_root: {root_id}, {operation_id}")
         lock_expiry = self._graph_meta.graph_config.ROOT_LOCK_EXPIRY
         time_cutoff = datetime.utcnow() - lock_expiry
         
-        pk, sk = self._ddb_helper.to_pk_sk(serialize_uint64(node_id))
+        pk, sk = self._ddb_helper.to_pk_sk(serialize_uint64(root_id))
         
         lock_column = attributes.Concurrency.Lock
         lock_column_name_in_ddb = to_column_name(lock_column)
@@ -523,14 +529,14 @@ class Client(ClientWithIDGen, OperationLogger):
                 },
                 ExpressionAttributeValues={
                     ':c': serialize_uint64(operation_id),
-                    ':time_cutoff': time_cutoff.microsecond,
+                    ':time_cutoff': to_microseconds(time_cutoff),
                 }
             )
             self._no_of_writes += 1
             return True
         except ClientError as e:
             if e.response['Error']['Code'] == 'ConditionalCheckFailedException':
-                logging.debug(f"unlock_root: {node_id}, {operation_id} failed")
+                logging.debug(f"unlock_root: {root_id}, {operation_id} failed")
                 return False
             else:
                 raise e
@@ -603,7 +609,7 @@ class Client(ClientWithIDGen, OperationLogger):
                 },
                 ExpressionAttributeValues={
                     ':c': serialize_uint64(operation_id),
-                    ':current_time': datetime.utcnow().microsecond,
+                    ':current_time': get_current_time_microseconds(),
                 }
             )
             self._no_of_writes += 1
@@ -628,11 +634,11 @@ class Client(ClientWithIDGen, OperationLogger):
     """Reads timestamp from lock row to get a consistent timestamp."""
     
     def get_lock_timestamp(
-        self, node_id: np.uint64, operation_id: np.uint64
+        self, root_id: np.uint64, operation_id: np.uint64
     ) -> Union[datetime, None]:
-        logging.debug(f"get_lock_timestamp: {node_id}, {operation_id}")
+        logging.debug(f"get_lock_timestamp: {root_id}, {operation_id}")
         
-        pk, sk = self._ddb_helper.to_pk_sk(serialize_uint64(node_id))
+        pk, sk = self._ddb_helper.to_pk_sk(serialize_uint64(root_id))
         
         lock_column = attributes.Concurrency.Lock
         
@@ -650,10 +656,10 @@ class Client(ClientWithIDGen, OperationLogger):
         item = res.get('Item', None)
         
         if item is None:
-            logging.warning(f"No lock found for {node_id}")
+            logging.warning(f"No lock found for {root_id}")
             return None
         if operation_id != item.get(lock_column_name, None):
-            logging.warning(f"{node_id} not locked with {operation_id}")
+            logging.warning(f"{root_id} not locked with {operation_id}")
             return None
         
         return item.get(lock_timestamp_column_name, None)
@@ -715,11 +721,11 @@ class Client(ClientWithIDGen, OperationLogger):
             n_counters = np.uint64(2 ** 8)
             max_value = 0
             for counter in range(n_counters):
+                row_key = serialize_key(f"i{pad_node_id(chunk_id)}_{counter}")
                 row = self._read_byte_row(
-                    serialize_key(f"i{pad_node_id(chunk_id)}_{counter}"),
+                    row_key,
                     columns=attributes.Concurrency.Counter,
                 )
-                print(f" --- get_max_node_id = ", row)
                 val = (
                     basetypes.SEGMENT_ID.type(row[0].value if row else 0) * n_counters
                     + counter
@@ -997,13 +1003,6 @@ class Client(ClientWithIDGen, OperationLogger):
         if not row_set.row_keys and not row_set.row_ranges:
             return {}
         
-        print(f" --- row_set.row_keys = {len(row_set.row_keys)}")
-        print(f" --- row_set.row_ranges = {len(row_set.row_ranges)}")
-        print(
-            f" --- row_set.row_ranges = {[{'start_key': rr.start_key, 'end_key': rr.end_key, 'start_inclusive': rr.start_inclusive, 'end_inclusive': rr.end_inclusive} for rr in row_set.row_ranges]}")
-        
-        self.debug_print_total_rows_count()
-        
         row_keys = np.unique(row_set.row_keys)
         
         rows = {}
@@ -1141,11 +1140,11 @@ class Client(ClientWithIDGen, OperationLogger):
         def time_filter_fn(row_to_filter: dict[attributes._Attribute, Iterable[TimeStampedCell]]):
             filtered_row = {}
             for attr, cells in row_to_filter.items():
-                filtered_cells = []
                 for cell in cells:
-                    if start_datetime <= cell.timestamp <= end_datetime:
-                        filtered_cells.append(cell)
-                filtered_row[attr] = filtered_cells
+                    is_after_start_time = not start_datetime or start_datetime <= cell.timestamp
+                    is_before_end_time = not end_datetime or cell.timestamp <= end_datetime
+                    if is_after_start_time and is_before_end_time:
+                        append(filtered_row, attr, cell)
             return filtered_row
         
         def user_id_filter_fn(row_to_filter: dict[attributes._Attribute, Iterable[TimeStampedCell]]):
@@ -1156,6 +1155,7 @@ class Client(ClientWithIDGen, OperationLogger):
         filtered_rows = {}
         for b_real_key, row in rows.items():
             filtered_row = row
+            # if start_datetime or end_datetime:
             if start_datetime and end_datetime:
                 filtered_row = time_filter_fn(filtered_row)
             if user_id:
@@ -1168,17 +1168,13 @@ class Client(ClientWithIDGen, OperationLogger):
     
     def _get_ids_range(self, key: bytes, size: int) -> Tuple:
         """Returns a range (min, max) of IDs for a given `key`."""
-        print(f"\n --- BEFORE _get_ids_range - key = {key}")
-        self.debug_print_total_rows_count()
-        
         column = attributes.Concurrency.Counter
         
         pk, sk = self._ddb_helper.to_pk_sk(key)
-        print(f"\n --- _get_ids_range - key = {key}, pk = {pk}, sk = {sk}")
         
         column_name_in_ddb = f"{column.family_id}.{column.key.decode()}"
         
-        time_microseconds = TimeStampedCell.get_current_time_microseconds()
+        time_microseconds = get_current_time_microseconds()
         
         def serialize_counter(x):
             return np.array([x], dtype=np.dtype('int64').newbyteorder('B')).tobytes()
@@ -1213,16 +1209,13 @@ class Client(ClientWithIDGen, OperationLogger):
             },
             ExpressionAttributeValues={
                 ':c': [[
-                    int(time_microseconds),
+                    time_microseconds,
                     serialize_counter(counter),
                 ]],
             }
         )
         self._no_of_writes += 1
         high = counter
-        
-        self.debug_print_total_rows_count()
-        print(f" --- AFTER _get_ids_range - size = {size}\n")
         
         return high + np.uint64(1) - size, high
     

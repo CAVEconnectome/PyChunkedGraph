@@ -42,9 +42,9 @@ def get_filter_time_stamp(time_stamp: datetime, round_up: bool = False) -> datet
 
 
 def _get_time_range_filter(
-        start_time: Optional[datetime] = None,
-        end_time: Optional[datetime] = None,
-        end_inclusive: bool = True,
+    start_time: Optional[datetime] = None,
+    end_time: Optional[datetime] = None,
+    end_inclusive: bool = True,
 ) -> DynamoDbTimeRangeFilter:
     """Generates a TimeStampRangeFilter which is inclusive for start and (optionally) end.
 
@@ -60,7 +60,7 @@ def _get_time_range_filter(
 
 
 def _get_column_filter(
-        columns: Union[Iterable[attributes._Attribute], attributes._Attribute] = None
+    columns: Union[Iterable[attributes._Attribute], attributes._Attribute] = None
 ) -> Union[DynamoDbColumnFilter, Iterable[DynamoDbColumnFilter]]:
     """Generates a RowFilter that accepts the specified columns"""
     if isinstance(columns, attributes._Attribute):
@@ -79,13 +79,13 @@ def _get_user_filter(user_id: str):
 
 
 def get_time_range_and_column_filter(
-        columns: Optional[
-            Union[Iterable[attributes._Attribute], attributes._Attribute]
-        ] = None,
-        start_time: Optional[datetime] = None,
-        end_time: Optional[datetime] = None,
-        end_inclusive: bool = False,
-        user_id: Optional[str] = None,
+    columns: Optional[
+        Union[Iterable[attributes._Attribute], attributes._Attribute]
+    ] = None,
+    start_time: Optional[datetime] = None,
+    end_time: Optional[datetime] = None,
+    end_inclusive: bool = False,
+    user_id: Optional[str] = None,
 ) -> DynamoDbFilter:
     time_filter = (
         _get_time_range_filter(
@@ -97,3 +97,25 @@ def get_time_range_and_column_filter(
     column_filter = _get_column_filter(columns) if columns is not None else None
     user_filter = _get_user_filter(user_id=user_id) if user_id is not None else None
     return DynamoDbFilter(time_filter, column_filter, user_filter)
+
+
+def append(d, attr, val):
+    """
+    utility function to append a value to the given array attribute of the given dictionary
+    :param d:
+    :param attr:
+    :param val:
+    :return: None
+    """
+    
+    if attr not in d:
+        d[attr] = []
+    d[attr].append(val)
+
+
+def to_microseconds(t: datetime):
+    return int(t.timestamp() * 1000 * 1000)
+
+
+def get_current_time_microseconds():
+    return to_microseconds(datetime.utcnow())

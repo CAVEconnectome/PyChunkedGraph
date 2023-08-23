@@ -110,24 +110,24 @@ class SimpleClient(ABC):
     @abstractmethod
     def lock_root(
         self,
-        root_id: np.uint64,
-        operation_id: np.uint64,
+        root_id,
+        operation_id,
     ) -> bool:
         """Attempts to lock the latest version of a root node with operation_id to prevent race conditions."""
     
     @abstractmethod
     def lock_roots(
         self,
-        root_ids: Sequence[np.uint64],
-        operation_id: np.uint64,
-        future_root_ids_d: Dict,
+        root_ids,
+        operation_id,
+        future_root_ids_d,
         max_tries: int = 1,
         waittime_s: float = 0.5,
     ) -> Tuple[bool, Iterable]:
         """Locks root nodes to prevent race conditions."""
     
     @abstractmethod
-    def lock_root_indefinitely(self, node_id, operation_id):
+    def lock_root_indefinitely(self, root_id, operation_id):
         """Locks root node with operation_id to prevent race conditions."""
     
     @abstractmethod
@@ -143,24 +143,24 @@ class SimpleClient(ABC):
         """
     
     @abstractmethod
-    def unlock_root(self, node_id, operation_id):
+    def unlock_root(self, root_id, operation_id):
         """Unlocks root node that is locked with operation_id."""
     
     @abstractmethod
-    def unlock_indefinitely_locked_root(self, node_id, operation_id):
+    def unlock_indefinitely_locked_root(self, root_id, operation_id):
         """Unlocks root node that is indefinitely locked with operation_id."""
     
     @abstractmethod
-    def renew_lock(self, node_id, operation_id):
+    def renew_lock(self, root_id, operation_id):
         """Renews existing node lock with operation_id for extended time."""
     
     @abstractmethod
-    def renew_locks(self, node_ids, operation_id):
+    def renew_locks(self, root_ids, operation_id):
         """Renews existing node locks with operation_id for extended time."""
     
     @abstractmethod
     def get_lock_timestamp(
-        self, node_id: np.uint64, operation_id: np.uint64
+        self, root_id, operation_id
     ) -> Union[datetime, None]:
         """Reads timestamp from lock row to get a consistent timestamp."""
     

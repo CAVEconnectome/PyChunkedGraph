@@ -1,5 +1,4 @@
 import typing
-import time
 from datetime import datetime, timezone
 
 
@@ -11,9 +10,3 @@ class TimeStampedCell:
     
     def __repr__(self):
         return f"<Cell value={repr(self.value)} timestamp={self.timestamp.isoformat(sep=' ')}>"
-    
-    @staticmethod
-    def get_current_time_microseconds():
-        time_seconds = time.time()
-        time_microseconds = time_seconds * 1000 * 1000
-        return time_microseconds

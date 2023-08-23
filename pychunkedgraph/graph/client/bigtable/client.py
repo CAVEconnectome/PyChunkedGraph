@@ -165,8 +165,6 @@ class Client(bigtable.Client, ClientWithIDGen, OperationLogger):
             end_time_inclusive=end_time_inclusive,
             user_id=user_id,
         )
-        if end_time:
-            print(f" --- end_time = {end_time} len(rows) = {len(rows)}")
         return {
             deserialize_uint64(row_key, fake_edges=fake_edges): data
             for (row_key, data) in rows.items()
@@ -314,8 +312,6 @@ class Client(bigtable.Client, ClientWithIDGen, OperationLogger):
             initial = 5
         else:
             initial = 1
-        
-        print(f" --- writing rows = {len([r.row_key for r in rows])}")
         
         exception_types = (Aborted, DeadlineExceeded, ServiceUnavailable)
         retry = Retry(
@@ -601,11 +597,11 @@ class Client(bigtable.Client, ClientWithIDGen, OperationLogger):
             n_counters = np.uint64(2 ** 8)
             max_value = 0
             for counter in range(n_counters):
+                row_key = serialize_key(f"i{pad_node_id(chunk_id)}_{counter}")
                 row = self._read_byte_row(
-                    serialize_key(f"i{pad_node_id(chunk_id)}_{counter}"),
+                    row_key,
                     columns=attributes.Concurrency.Counter,
                 )
-                print(f" --- get_max_node_id = ", row)
                 val = (
                     basetypes.SEGMENT_ID.type(row[0].value if row else 0) * n_counters
                     + counter
@@ -646,17 +642,12 @@ class Client(bigtable.Client, ClientWithIDGen, OperationLogger):
     
     def _get_ids_range(self, key: bytes, size: int) -> typing.Tuple:
         """Returns a range (min, max) of IDs for a given `key`."""
-        print(f"\n --- BEFORE _get_ids_range - key = {key}")
-        self.debug_print_total_rows_count()
         
         column = attributes.Concurrency.Counter
         row = self._table.append_row(key)
         row.increment_cell_value(column.family_id, column.key, size)
         row = row.commit()
         high = column.deserialize(row[column.family_id][column.key][0][0])
-        
-        self.debug_print_total_rows_count()
-        print(f" --- AFTER _get_ids_range - size = {size}\n")
         
         return high + np.uint64(1) - size, high
     
@@ -830,12 +821,6 @@ class Client(bigtable.Client, ClientWithIDGen, OperationLogger):
             # Check for everything falsy, because Bigtable considers even empty
             # lists of row_keys as no upper/lower bound!
             return {}
-        
-        print(f" --- row_set.row_keys = {len(row_set.row_keys)}")
-        print(f" --- row_set.row_ranges = {len(row_set.row_ranges)}")
-        print(
-            f" --- row_set.row_ranges = {[{'start_key': rr.start_key, 'end_key': rr.end_key, 'start_inclusive': rr.start_inclusive, 'end_inclusive': rr.end_inclusive} for rr in row_set.row_ranges]}")
-        self.debug_print_total_rows_count()
         
         range_read = table.read_rows(row_set=row_set, filter_=row_filter)
         res = {v.row_key: utils.partial_row_data_to_column_dict(v) for v in range_read}
