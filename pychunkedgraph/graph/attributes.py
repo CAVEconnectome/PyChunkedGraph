@@ -122,7 +122,7 @@ class Connectivity:
 
     FakeEdges = _Attribute(
         key=b"fake_edges",
-        family_id="5",
+        family_id="4",
         serializer=serializers.NumPyArray(dtype=basetypes.NODE_ID, shape=(-1, 2)),
     )
 
