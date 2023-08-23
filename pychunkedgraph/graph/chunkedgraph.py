@@ -642,6 +642,8 @@ class ChunkedGraph:
             chain(edges_d.values(), fake_edges.values()),
             Edges([], []),
         )
+        if self.mock_edges is not None:
+            all_chunk_edges += self.mock_edges
 
         if edges_only:
             if self.mock_edges is not None:
