@@ -1,6 +1,6 @@
 import logging
 import time
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from typing import Dict, Iterable, Union, Optional, List, Any, Tuple, Sequence
 
 import boto3
@@ -329,9 +329,7 @@ class Client(ClientWithIDGen, OperationLogger):
     ) -> bool:
         """Locks root node with operation_id to prevent race conditions."""
         logging.debug(f"lock_root: {root_id}, {operation_id}")
-        print(f" --- lock_root: {root_id}, {operation_id}")
-        lock_expiry = self._graph_meta.graph_config.ROOT_LOCK_EXPIRY
-        time_cutoff = datetime.utcnow() - lock_expiry
+        time_cutoff = self._get_lock_expiry_time_cutoff()
         
         pk, sk = self._ddb_helper.to_pk_sk(serialize_uint64(root_id))
         
@@ -350,11 +348,6 @@ class Client(ClientWithIDGen, OperationLogger):
         # if the lock column is set but the lock is expired
         # and if there is NO new parent (i.e., the new_parents column is not set).
         try:
-            existing = self._ddb_table.get_item(Key={"key": pk, "sk": sk})
-            print(f" --- lock_root existing: {existing},"
-                  f" time_cutoff = {to_microseconds(time_cutoff)},"
-                  f" current_time = {get_current_time_microseconds()}")
-            
             self._ddb_table.update_item(
                 Key={"key": pk, "sk": sk},
                 UpdateExpression="SET #c = :c, #lock_timestamp = :current_time",
@@ -369,17 +362,14 @@ class Client(ClientWithIDGen, OperationLogger):
                 },
                 ExpressionAttributeValues={
                     ':c': serialize_uint64(operation_id),
-                    ':time_cutoff': to_microseconds(time_cutoff),
+                    ':time_cutoff': time_cutoff,
                     ':current_time': get_current_time_microseconds(),
                 }
             )
             self._no_of_writes += 1
             
-            print(f" --- lock_root successful: {root_id}, {operation_id}")
-            
             return True
         except ClientError as e:
-            print(f" --- lock_root failed: {root_id}, {operation_id}")
             if e.response['Error']['Code'] == 'ConditionalCheckFailedException':
                 logging.debug(f"lock_root: {root_id}, {operation_id} failed")
                 return False
@@ -506,8 +496,7 @@ class Client(ClientWithIDGen, OperationLogger):
     def unlock_root(self, root_id, operation_id):
         """Unlocks root node that is locked with operation_id."""
         logging.debug(f"unlock_root: {root_id}, {operation_id}")
-        lock_expiry = self._graph_meta.graph_config.ROOT_LOCK_EXPIRY
-        time_cutoff = datetime.utcnow() - lock_expiry
+        time_cutoff = self._get_lock_expiry_time_cutoff()
         
         pk, sk = self._ddb_helper.to_pk_sk(serialize_uint64(root_id))
         
@@ -529,7 +518,7 @@ class Client(ClientWithIDGen, OperationLogger):
                 },
                 ExpressionAttributeValues={
                     ':c': serialize_uint64(operation_id),
-                    ':time_cutoff': to_microseconds(time_cutoff),
+                    ':time_cutoff': time_cutoff,
                 }
             )
             self._no_of_writes += 1
@@ -1141,8 +1130,8 @@ class Client(ClientWithIDGen, OperationLogger):
             filtered_row = {}
             for attr, cells in row_to_filter.items():
                 for cell in cells:
-                    is_after_start_time = not start_datetime or start_datetime <= cell.timestamp
-                    is_before_end_time = not end_datetime or cell.timestamp <= end_datetime
+                    is_after_start_time = (not start_datetime) or (start_datetime <= cell.timestamp)
+                    is_before_end_time = (not end_datetime) or (cell.timestamp <= end_datetime)
                     if is_after_start_time and is_before_end_time:
                         append(filtered_row, attr, cell)
             return filtered_row
@@ -1155,8 +1144,7 @@ class Client(ClientWithIDGen, OperationLogger):
         filtered_rows = {}
         for b_real_key, row in rows.items():
             filtered_row = row
-            # if start_datetime or end_datetime:
-            if start_datetime and end_datetime:
+            if start_datetime or end_datetime:
                 filtered_row = time_filter_fn(filtered_row)
             if user_id:
                 filtered_row = user_id_filter_fn(filtered_row)
@@ -1313,3 +1301,19 @@ class Client(ClientWithIDGen, OperationLogger):
         total.consume_all()
         print(
             f" --- total rows = {len(total.rows)}")
+    
+    def _get_lock_expiry_time_cutoff(self):
+        """
+        Returns the cutoff time for the lock expiry since the epoch in microseconds.
+        The lock expiry time_cutoff is the current time minus the lock expiry time.
+        
+        For example,
+        If the lock expiry is set to 1 minute, then the time_cutoff is the current time minus 1 minute.
+        
+        :return:
+        """
+        lock_expiry = self._graph_meta.graph_config.ROOT_LOCK_EXPIRY
+        time_cutoff = datetime.now(timezone.utc) - lock_expiry
+        # Change the resolution of the time_cutoff to milliseconds
+        time_cutoff -= timedelta(microseconds=time_cutoff.microsecond % 1000)
+        return to_microseconds(time_cutoff)

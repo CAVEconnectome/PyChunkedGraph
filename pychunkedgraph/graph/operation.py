@@ -501,8 +501,6 @@ class GraphEditOperation(ABC):
         ):
             # indefinite lock for writing, if a node instance or pod dies during this
             # the roots must stay locked indefinitely to prevent further corruption.
-            print(
-                f" --- GraphEditOperation: lock.operation_id = {lock.operation_id},  len(affected_records) = {len(affected_records)} ---")
             self.cg.client.write(
                 [log_record_after_edit] + affected_records,
                 lock.locked_root_ids,

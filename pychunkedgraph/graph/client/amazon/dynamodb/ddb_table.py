@@ -7,11 +7,11 @@ from .ddb_helper import DdbHelper
 
 class Table:
     def __init__(
-            self,
-            main_db,
-            table_name,
-            boto3_conf,
-            **kwargs
+        self,
+        main_db,
+        table_name,
+        boto3_conf,
+        **kwargs
     ):
         dynamodb = boto3.resource('dynamodb', config=boto3_conf, **kwargs)
         self._ddb_table = dynamodb.Table(table_name)
@@ -24,7 +24,6 @@ class Table:
     
     def read_rows(self):
         ret = self._ddb_table.scan(Limit=self._row_page_size)
-        # TODO: handle pagination
         items = ret.get("Items", [])
         
         rows = {}

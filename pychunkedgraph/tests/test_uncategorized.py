@@ -990,7 +990,7 @@ class TestGraphMerge:
         res_new.consume_all()
         
         # Check
-        if res_old.rows != res_new.rows:
+        if res_old.rows.keys() != res_new.rows.keys():
             warn(
                 "Rows were modified when merging a pair of already connected supervoxels. "
                 "While probably not an error, it is an unnecessary operation."

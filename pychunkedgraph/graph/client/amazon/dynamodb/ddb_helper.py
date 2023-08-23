@@ -5,7 +5,7 @@ from typing import Dict, Iterable, Union, Any, Optional
 from boto3.dynamodb.types import TypeDeserializer, TypeSerializer, Binary
 
 from .timestamped_cell import TimeStampedCell
-from .utils import append, get_current_time_microseconds
+from .utils import append, get_current_time_microseconds, to_microseconds
 from .... import attributes
 from ....attributes import _Attribute
 
@@ -64,7 +64,7 @@ class DdbHelper:
             attr = attributes.from_key(attrib_column.family_id, attrib_column.key)
             append(cells, attr, TimeStampedCell(
                 value,
-                time_stamp.microsecond if time_stamp is not None else get_current_time_microseconds(),
+                to_microseconds(time_stamp) if time_stamp else get_current_time_microseconds(),
             ))
         return cells
     

@@ -114,8 +114,12 @@ def append(d, attr, val):
 
 
 def to_microseconds(t: datetime):
-    return int(t.timestamp() * 1000 * 1000)
+    return int(t.timestamp() * 1e6)
 
 
 def get_current_time_microseconds():
-    return to_microseconds(datetime.utcnow())
+    return to_microseconds(datetime.now(timezone.utc))
+
+
+def from_microseconds(microseconds):
+    return datetime.fromtimestamp(microseconds / 1e6, tz=timezone.utc)
