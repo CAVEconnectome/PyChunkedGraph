@@ -1051,6 +1051,8 @@ class Client(ClientWithIDGen, OperationLogger):
                         'sk': item_keys_to_get[index]['sk'],
                         **item,
                     },
+                    # The item is not deserialized automatically when using the low-level boto3 client
+                    # (i.e.,  "self._main_db"), so pass in the deserialization flag here
                     needs_deserialization=True
                 )
                 rows[b_real_key] = row

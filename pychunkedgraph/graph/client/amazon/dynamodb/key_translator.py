@@ -32,7 +32,7 @@ class KeyTranslator:
         return sk.encode()
     
     def to_pk_sk(self, key: bytes):
-        prefix, ikey, suffix = self._to_key_parts(key)
+        prefix, ikey, suffix = self._to_int_key_parts(key)
         sk = key.decode()
         if ikey is not None:
             pk = self._int_key_to_pk(ikey)
@@ -54,31 +54,26 @@ class KeyTranslator:
         
         if sk_start is not None:
             if not start_inclusive:
-                prefix_start, ikey_start, suffix_start = self._to_key_parts(start_key)
-                sk_start = self._from_key_parts(prefix_start, ikey_start + 1, suffix_start)
+                prefix_start, ikey_start, suffix_start = self._to_int_key_parts(start_key)
+                sk_start = self._from_int_key_parts(prefix_start, ikey_start + 1, suffix_start)
         
         if sk_end is not None:
             if not end_inclusive:
-                prefix_end, ikey_end, suffix_end = self._to_key_parts(end_key)
-                sk_end = self._from_key_parts(prefix_end, ikey_end - 1, suffix_end)
+                prefix_end, ikey_end, suffix_end = self._to_int_key_parts(end_key)
+                sk_end = self._from_int_key_parts(prefix_end, ikey_end - 1, suffix_end)
         
         return pk_start if pk_start is not None else pk_end, sk_start, sk_end
     
-    def _to_key_parts(self, key: bytes):
+    def _to_int_key_parts(self, key: bytes):
         """
         # A utility method to split the given key into prefix, an integer key, and a suffix
-        #
-        # The given key may be in any one of the following formats
-        # 1. A padded 20-digit number
-        #       E.g., 00076845692567897775
-        # 2. A padded 19-digit number with "i" or "f" prefix (total 20 chars)
-        #       E.g., f00144821212986474496 or i00145242668664881152
-        # 3. A padded 19-digit number with "i" or "f" prefix and a suffix number separated by underscore
-        #       E.g., i00216172782113783808_237
-        # 4. Key for operations
-        #       E.g., ioperations
-        # 5. Key for meta
-        #       E.g., meta
+        # E.g.,
+        # - 00076845692567897775 -> prefix = None, ikey = 76845692567897775, suffix = None
+        # - f00144821212986474496 -> prefix = "f", ikey = 144821212986474496, suffix = None
+        # - i00145242668664881152 -> prefix = "i", ikey = 145242668664881152, suffix = None
+        # - i00216172782113783808_237 -> prefix = "i", ikey = 216172782113783808, suffix = "237"
+        # - foperations -> prefix = "f", ikey = None, suffix = None
+        # - meta -> prefix = None, ikey = None, suffix = None
         #
         :param key:
         :return:
@@ -106,7 +101,7 @@ class KeyTranslator:
         else:
             return prefix, ikey, suffix
     
-    def _from_key_parts(self, prefix, ikey, suffix, delim="_"):
+    def _from_int_key_parts(self, prefix, ikey, suffix, delim="_"):
         suffix_str = '' if suffix is None else f"{delim}{suffix}"
         return f"{'' if prefix is None else prefix}{ikey}{suffix_str}"
     
