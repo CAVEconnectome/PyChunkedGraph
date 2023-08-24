@@ -338,15 +338,9 @@ def remove_edges(
         edit_type="split.apply.remove_edges",
     )
     
-    print(f"\n --- START CreateParentNodes")
-    cg.client.debug_print_total_rows_count()
     new_roots = create_parents.run()
-    cg.client.debug_print_total_rows_count()
-    print(f" --- END CreateParentNodes\n")
     
     new_entries = create_parents.create_new_entries()
-    
-    print(f" --- remove_edges: len(new_entries) = {len(new_entries)}")
     
     return new_roots, new_l2_ids, new_entries
 

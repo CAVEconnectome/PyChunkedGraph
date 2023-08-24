@@ -145,12 +145,6 @@ def get_delta_roots(
         cg.get_chunk_id(layer=cg.meta.layer_count), root_chunk=True
     ) + np.uint64(1)
     
-    print(f" --- get_delta_roots - "
-          f"start_id = {start_id}, "
-          f"end_id = {end_id}, "
-          f"cg.meta.layer_count = {cg.meta.layer_count}, "
-          f"cg.get_chunk_id(layer=cg.meta.layer_count) = {cg.get_chunk_id(layer=cg.meta.layer_count)}")
-    
     new_root_ids, expired_root_id_candidates = _read_delta_root_rows(
         cg, start_id, end_id, time_stamp_start, time_stamp_end
     )
@@ -169,8 +163,6 @@ def get_delta_roots(
         end_time=time_stamp_start,
     )
     expired_root_ids = np.array([k for (k, v) in rows.items()], dtype=np.uint64)
-    
-    print(f" --- expired_root_ids", expired_root_ids)
     
     return np.array(new_root_ids, dtype=np.uint64), expired_root_ids
 

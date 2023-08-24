@@ -13,10 +13,6 @@ class SimpleClient(ABC):
     """
     
     @abstractmethod
-    def debug_print_total_rows_count(self):
-        """Prints the total number of rows in the table."""
-    
-    @abstractmethod
     def create_graph(self) -> None:
         """Initialize the graph and store associated meta."""
     

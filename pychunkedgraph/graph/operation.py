@@ -749,15 +749,9 @@ class SplitOperation(GraphEditOperation):
                 )
             )
         with TimeIt("split.apply.remove_edges", self.cg.graph_id, operation_id):
-            print(f"\n")
-            print(f" --- BEFORE SPLIT")
-            self.cg.client.debug_print_total_rows_count()
             edges = edits.remove_edges(self.cg, operation_id=operation_id, atomic_edges=self.removed_edges,
                                        l2id_agglomeration_d=l2id_agglomeration_d, time_stamp=timestamp,
                                        parent_ts=self.parent_ts, )
-            self.cg.client.debug_print_total_rows_count()
-            print(f" --- AFTER SPLIT")
-            print(f"\n")
             return edges
     
     def _create_log_record(

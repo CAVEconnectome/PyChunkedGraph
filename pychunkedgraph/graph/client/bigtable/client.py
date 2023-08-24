@@ -876,9 +876,3 @@ class Client(bigtable.Client, ClientWithIDGen, OperationLogger):
             for resp in responses:
                 combined_response.update(resp)
             return combined_response
-    
-    def debug_print_total_rows_count(self):
-        total = self._table.read_rows()
-        total.consume_all()
-        print(
-            f" --- total rows = {len(total.rows)}")

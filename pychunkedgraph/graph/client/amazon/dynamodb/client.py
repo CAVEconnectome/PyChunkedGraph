@@ -1296,12 +1296,6 @@ class Client(ClientWithIDGen, OperationLogger):
         
         return duplicates
     
-    def debug_print_total_rows_count(self):
-        total = self._table.read_rows()
-        total.consume_all()
-        print(
-            f" --- total rows = {len(total.rows)}")
-    
     def _get_lock_expiry_time_cutoff(self):
         """
         Returns the cutoff time for the lock expiry since the epoch in microseconds.
