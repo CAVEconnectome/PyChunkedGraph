@@ -6,18 +6,18 @@ from typing import Dict, Iterable, Union, Optional, List, Any, Tuple, Sequence
 import boto3
 import botocore
 import numpy as np
-from boto3.dynamodb.types import TypeDeserializer, TypeSerializer, Binary
+from boto3.dynamodb.types import TypeSerializer, Binary
 from botocore.exceptions import ClientError
 from multiwrapper import multiprocessing_utils as mu
 
 from . import AmazonDynamoDbConfig
 from . import utils
-from .ddb_helper import DdbHelper, to_column_name, to_lock_timestamp_column_name
+from .ddb_translator import DdbTranslator, to_column_name, to_lock_timestamp_column_name
 from .ddb_table import Table
 from .row_set import RowSet
 from .timestamped_cell import TimeStampedCell
 from .utils import (
-    DynamoDbFilter, append, get_current_time_microseconds, to_microseconds,
+    DynamoDbFilter, append, get_current_time_microseconds, to_microseconds, remove_and_merge_duplicates,
 )
 from ...base import ClientWithIDGen
 from ...base import OperationLogger
@@ -47,12 +47,6 @@ class Client(ClientWithIDGen, OperationLogger):
         self._max_batch_read_page_size = MAX_BATCH_READ_ITEMS
         self._max_batch_write_page_size = MAX_BATCH_WRITE_ITEMS
         self._max_query_page_size = MAX_QUERY_ITEMS
-        self._ddb_serializer = TypeSerializer()
-        self._ddb_deserializer = TypeDeserializer()
-        # TODO: refactor column families to match graph-creation procedures
-        # TODO: generalize bigtable GC property for columnfamilies into something like
-        #       [KEEP_LAST_ITEM, KEEP_ALL_ITEMS]
-        self._column_families = {"0": {}, "1": {}, "2": {}, "3": {}}
         
         self._graph_meta = graph_meta
         self._version = None
@@ -67,14 +61,14 @@ class Client(ClientWithIDGen, OperationLogger):
             kwargs["endpoint_url"] = config.END_POINT
         self._main_db = boto3.client("dynamodb", config=boto3_conf_, **kwargs)
         
-        dynamodb = boto3.resource('dynamodb', config=boto3_conf_, **kwargs)
-        self._ddb_table = dynamodb.Table(self._table_name)
-        
+        # The "self._table" below is only used by the test code for inspecting the items written to the DB
+        # and is not used by the actual code. The actual code uses the underlying "_ddb_table" instead.
         self._table = Table(self._main_db, self._table_name, boto3_conf_, **kwargs)
         
-        self._ddb_helper = DdbHelper()
+        self._ddb_table = self._table.ddb_table
+        self._ddb_serializer = TypeSerializer()
         
-        self._no_of_writes = 0
+        self._ddb_translator = DdbTranslator()
     
     """Initialize the graph and store associated meta."""
     
@@ -262,12 +256,11 @@ class Client(ClientWithIDGen, OperationLogger):
     ):
         """Writes a list of mutated rows in bulk
         WARNING: If <rows> contains the same row (same row_key) and column
-        key two times only the last one is effectively written to the BigTable
-        (even when the mutations were applied to different columns)
-        --> no versioning!
+        key two times only the last one is effectively written (even when the mutations were applied to
+        different columns) --> no versioning!
         :param rows: list
             list of mutated rows
-        :param root_ids: list if uint64
+        :param root_ids: list of uint64
         :param operation_id: uint64 or None
             operation_id (or other unique id) that *was* used to lock the root
             the bulk write is only executed if the root is still locked with
@@ -291,14 +284,13 @@ class Client(ClientWithIDGen, OperationLogger):
         
         # There may be multiple rows with the same row key but with different columns
         # Merge such rows to avoid duplicates and write multiple columns when writing the row to DDB
-        deduplicated_rows = self._remove_and_merge_duplicates(rows)
+        deduplicated_rows = remove_and_merge_duplicates(rows)
         
         for i in range(0, len(deduplicated_rows), batch_size):
             with self._ddb_table.batch_writer() as batch:
                 rows_in_this_batch = deduplicated_rows[i: i + batch_size]
                 for row in rows_in_this_batch:
-                    ddb_item = self._ddb_helper.row_to_ddb_item(row)
-                    self._no_of_writes += 1
+                    ddb_item = self._ddb_translator.row_to_ddb_item(row)
                     batch.put_item(Item=ddb_item)
     
     def mutate_row(
@@ -308,16 +300,16 @@ class Client(ClientWithIDGen, OperationLogger):
         time_stamp: Optional[datetime] = None,
     ) -> dict[str, Union[bytes, dict[str, Iterable[TimeStampedCell]]]]:
         """Mutates a single row (doesn't write to DynamoDB)."""
-        pk, sk = self._ddb_helper.to_pk_sk(row_key)
+        pk, sk = self._ddb_translator.to_pk_sk(row_key)
         ret = self._ddb_table.get_item(Key={"key": pk, "sk": sk})
         item = ret.get('Item')
         
         row = {"key": row_key}
         if item is not None:
-            b_real_key, row_from_db = self._ddb_helper.ddb_item_to_row(item)
+            b_real_key, row_from_db = self._ddb_translator.ddb_item_to_row(item)
             row.update(row_from_db)
         
-        cells = self._ddb_helper.attribs_to_cells(attribs=val_dict, time_stamp=time_stamp)
+        cells = self._ddb_translator.attribs_to_cells(attribs=val_dict, time_stamp=time_stamp)
         row.update(cells)
         
         return row
@@ -331,7 +323,7 @@ class Client(ClientWithIDGen, OperationLogger):
         logging.debug(f"lock_root: {root_id}, {operation_id}")
         time_cutoff = self._get_lock_expiry_time_cutoff()
         
-        pk, sk = self._ddb_helper.to_pk_sk(serialize_uint64(root_id))
+        pk, sk = self._ddb_translator.to_pk_sk(serialize_uint64(root_id))
         
         lock_column = attributes.Concurrency.Lock
         indefinite_lock_column = attributes.Concurrency.IndefiniteLock
@@ -366,7 +358,6 @@ class Client(ClientWithIDGen, OperationLogger):
                     ':current_time': get_current_time_microseconds(),
                 }
             )
-            self._no_of_writes += 1
             
             return True
         except ClientError as e:
@@ -422,7 +413,7 @@ class Client(ClientWithIDGen, OperationLogger):
         """Attempts to indefinitely lock the latest version of a root node."""
         logging.debug(f"lock_root_indefinitely: {root_id}, {operation_id}")
         
-        pk, sk = self._ddb_helper.to_pk_sk(serialize_uint64(root_id))
+        pk, sk = self._ddb_translator.to_pk_sk(serialize_uint64(root_id))
         
         lock_column = attributes.Concurrency.IndefiniteLock
         lock_column_name_in_ddb = to_column_name(lock_column)
@@ -448,7 +439,6 @@ class Client(ClientWithIDGen, OperationLogger):
                     ':current_time': get_current_time_microseconds(),
                 }
             )
-            self._no_of_writes += 1
             return True
         except ClientError as e:
             if e.response['Error']['Code'] == 'ConditionalCheckFailedException':
@@ -498,7 +488,7 @@ class Client(ClientWithIDGen, OperationLogger):
         logging.debug(f"unlock_root: {root_id}, {operation_id}")
         time_cutoff = self._get_lock_expiry_time_cutoff()
         
-        pk, sk = self._ddb_helper.to_pk_sk(serialize_uint64(root_id))
+        pk, sk = self._ddb_translator.to_pk_sk(serialize_uint64(root_id))
         
         lock_column = attributes.Concurrency.Lock
         lock_column_name_in_ddb = to_column_name(lock_column)
@@ -521,7 +511,6 @@ class Client(ClientWithIDGen, OperationLogger):
                     ':time_cutoff': time_cutoff,
                 }
             )
-            self._no_of_writes += 1
             return True
         except ClientError as e:
             if e.response['Error']['Code'] == 'ConditionalCheckFailedException':
@@ -536,7 +525,7 @@ class Client(ClientWithIDGen, OperationLogger):
         """Unlocks root node that is indefinitely locked with operation_id."""
         logging.debug(f"unlock_indefinitely_locked_root: {root_id}, {operation_id}")
         
-        pk, sk = self._ddb_helper.to_pk_sk(serialize_uint64(root_id))
+        pk, sk = self._ddb_translator.to_pk_sk(serialize_uint64(root_id))
         
         lock_column = attributes.Concurrency.IndefiniteLock
         
@@ -555,7 +544,6 @@ class Client(ClientWithIDGen, OperationLogger):
                     ':c': serialize_uint64(operation_id),
                 }
             )
-            self._no_of_writes += 1
             return True
         except ClientError as e:
             if e.response['Error']['Code'] == 'ConditionalCheckFailedException':
@@ -569,7 +557,7 @@ class Client(ClientWithIDGen, OperationLogger):
         
         logging.debug(f"renew_lock: {root_id}, {operation_id}")
         
-        pk, sk = self._ddb_helper.to_pk_sk(serialize_uint64(root_id))
+        pk, sk = self._ddb_translator.to_pk_sk(serialize_uint64(root_id))
         lock_column = attributes.Concurrency.Lock
         new_parents_column = attributes.Hierarchy.NewParent
         
@@ -601,7 +589,6 @@ class Client(ClientWithIDGen, OperationLogger):
                     ':current_time': get_current_time_microseconds(),
                 }
             )
-            self._no_of_writes += 1
             return True
         except ClientError as e:
             if e.response['Error']['Code'] == 'ConditionalCheckFailedException':
@@ -627,7 +614,7 @@ class Client(ClientWithIDGen, OperationLogger):
     ) -> Union[datetime, None]:
         logging.debug(f"get_lock_timestamp: {root_id}, {operation_id}")
         
-        pk, sk = self._ddb_helper.to_pk_sk(serialize_uint64(root_id))
+        pk, sk = self._ddb_translator.to_pk_sk(serialize_uint64(root_id))
         
         lock_column = attributes.Concurrency.Lock
         
@@ -823,14 +810,14 @@ class Client(ClientWithIDGen, OperationLogger):
 
         Keyword Arguments:
             columns {Optional[Union[Iterable[attributes._Attribute], attributes._Attribute]]} --
-                Optional filtering by columns to speed up the query. If `columns` is a single
-                column (not iterable), the column key will be omitted from the result.
+                Optional filtering by columns to speed up the query. If `columns` is a single column (not iterable),
+                the column key will be omitted from the result.
                 (default: {None})
             start_time {Optional[datetime]} -- Ignore cells with timestamp before
                 `start_time`. If None, no lower bound. (default: {None})
             end_time {Optional[datetime]} -- Ignore cells with timestamp after `end_time`.
                 If None, no upper bound. (default: {None})
-            end_time_inclusive {bool} -- Whether or not `end_time` itself should be included in the
+            end_time_inclusive {bool} -- Whether `end_time` itself should be included in the
                 request, ignored if `end_time` is None. (default: {False})
 
         Returns:
@@ -883,20 +870,20 @@ class Client(ClientWithIDGen, OperationLogger):
                 If None, no lower boundary is used. (default: {None})
             end_key {Optional[bytes]} -- The end of the row range, ignored if `row_keys` is set.
                 If None, no upper boundary is used. (default: {None})
-            end_key_inclusive {bool} -- Whether or not `end_key` itself should be included in the
+            end_key_inclusive {bool} -- Whether `end_key` itself should be included in the
                 request, ignored if `row_keys` is set or `end_key` is None. (default: {False})
             row_keys {Optional[Iterable[bytes]]} -- An `Iterable` containing possibly
                 non-contiguous row keys. Takes precedence over `start_key` and `end_key`.
                 (default: {None})
             columns {Optional[Union[Iterable[attributes._Attribute], attributes._Attribute]]} --
-                Optional filtering by columns to speed up the query. If `columns` is a single
-                column (not iterable), the column key will be omitted from the result.
+                Optional filtering by columns to speed up the query. If `columns` is a single column (not iterable),
+                the column key will be omitted from the result.
                 (default: {None})
             start_time {Optional[datetime]} -- Ignore cells with timestamp before
                 `start_time`. If None, no lower bound. (default: {None})
             end_time {Optional[datetime]} -- Ignore cells with timestamp after `end_time`.
                 If None, no upper bound. (default: {None})
-            end_time_inclusive {bool} -- Whether or not `end_time` itself should be included in the
+            end_time_inclusive {bool} -- Whether `end_time` itself should be included in the
                 request, ignored if `end_time` is None. (default: {False})
             user_id {Optional[str]} -- Only return cells with userID equal to this
 
@@ -951,9 +938,6 @@ class Client(ClientWithIDGen, OperationLogger):
         
         return rows
     
-    # TODO: run multi-key requests concurrently (do we need concurrency if batch read is used?)
-    # TODO: use batch-read if possible
-    # TODO: use pagination (some rows may have too many cells to be fetched at once, but haven't seen them)
     def _read(self, row_set: RowSet, row_filter: DynamoDbFilter = None) -> dict:
         """Core function to read rows from DynamoDB.
         :param row_set: Set of related to the rows to be read
@@ -976,7 +960,7 @@ class Client(ClientWithIDGen, OperationLogger):
         
         responses = mu.multithread_func(
             self._execute_read_thread,
-            params=((self._table, r, row_filter) for r in row_sets),
+            params=((r, row_filter) for r in row_sets),
             debug=n_threads == 1,
             n_threads=n_threads,
         )
@@ -986,9 +970,9 @@ class Client(ClientWithIDGen, OperationLogger):
             combined_response.update(resp)
         return combined_response
     
-    def _execute_read_thread(self, args: Tuple[Table, RowSet, DynamoDbFilter]):
+    def _execute_read_thread(self, args: Tuple[RowSet, DynamoDbFilter]):
         """Function to be executed in parallel."""
-        table, row_set, row_filter = args
+        row_set, row_filter = args
         if not row_set.row_keys and not row_set.row_ranges:
             return {}
         
@@ -1032,18 +1016,11 @@ class Client(ClientWithIDGen, OperationLogger):
             
             kwargs["ExpressionAttributeNames"] = attr_names
         
-        # there are 2 key entry types:
-        #  * one or more "exact" keys
-        #     ** If the request is for just one exact key, DDB can be called with GetItem
-        #     ** If the request contains multiple exact keys, up to 100, DDB can be called with BatchGetItem
-        #     ** If the request contains more than 100 exact keys, BatchGetItem can be called in multi-threading
-        #  * one or more "range" keys (from..to)
-        #     ** if the request has just one range, DDB can be called with QueryItem
-        #     ** if the request has more than one range, multi-threading should be used
-        # TODO: "new" data for existing key is appended to the the map... that's not so good because
-        #       may exceed the limit for the row size eventually. Currently it is as is in the BigTable
+        # TODO: "new" data for existing key is appended to the the map, this needs to be revisited since it can
+        #  potentially exceed the limit for the item size (400KB) eventually.
+        #  Currently it is as is in the BigTable
         for key in row_keys:
-            pk, sk = self._ddb_helper.to_pk_sk(key)
+            pk, sk = self._ddb_translator.to_pk_sk(key)
             item_keys_to_get.append({
                 # "batch_get_item" is not available on the boto3 DynamoDB resource abstraction (i.e., "self._ddb_table")
                 # so we are forced to use low-level boto3 client (i.e.,  "self._main_db")
@@ -1068,7 +1045,7 @@ class Client(ClientWithIDGen, OperationLogger):
             
             # each item comes with 'key', 'sk', [column_family] and '@' columns
             for index, item in enumerate(items):
-                b_real_key, row = self._ddb_helper.ddb_item_to_row(
+                b_real_key, row = self._ddb_translator.ddb_item_to_row(
                     item={
                         'key': item_keys_to_get[index]['key'],
                         'sk': item_keys_to_get[index]['sk'],
@@ -1084,7 +1061,7 @@ class Client(ClientWithIDGen, OperationLogger):
             kwargs['ExpressionAttributeNames'] = expression_attrib_names
             
             for row_range in row_set.row_ranges:
-                pk, start_sk, end_sk = self._ddb_helper.to_sk_range(
+                pk, start_sk, end_sk = self._ddb_translator.to_sk_range(
                     row_range.start_key,
                     row_range.end_key,
                     row_range.start_inclusive,
@@ -1109,7 +1086,7 @@ class Client(ClientWithIDGen, OperationLogger):
                 
                 # each item comes with 'key', 'sk', [column_family] and '@' columns
                 for item in items:
-                    b_real_key, row = self._ddb_helper.ddb_item_to_row(item)
+                    b_real_key, row = self._ddb_translator.ddb_item_to_row(item)
                     rows[b_real_key] = row
         
         filtered_rows = self._apply_filters(rows, row_filter)
@@ -1158,7 +1135,7 @@ class Client(ClientWithIDGen, OperationLogger):
         """Returns a range (min, max) of IDs for a given `key`."""
         column = attributes.Concurrency.Counter
         
-        pk, sk = self._ddb_helper.to_pk_sk(key)
+        pk, sk = self._ddb_translator.to_pk_sk(key)
         
         column_name_in_ddb = f"{column.family_id}.{column.key.decode()}"
         
@@ -1202,7 +1179,6 @@ class Client(ClientWithIDGen, OperationLogger):
                 ]],
             }
         )
-        self._no_of_writes += 1
         high = counter
         
         return high + np.uint64(1) - size, high
@@ -1226,75 +1202,6 @@ class Client(ClientWithIDGen, OperationLogger):
             n_counters,
             dtype=basetypes.SEGMENT_ID,
         )
-    
-    def _remove_and_merge_duplicates(self, list_of_dicts: list[dict], key_to_compare="key") -> list[dict]:
-        """
-        A private utility method to remove duplicates from a list containing dicts, based on the specified key.
-        If such duplicates are found then merge the duplicated dicts into a single dict and append it to the list.
-        
-        For example,
-          original_list = [
-              {"key": 123, "a": "a"},
-              {"key": 345, "b": "b"},
-              {"key": 567, "c": "c"},
-              {"key": 123, "d": "d", 10: 100},
-          ]
-        print(_remove_and_merge_duplicates(original_list)):
-          [
-              {"key": 123, "a": "a", "d": "d", 10: 100},
-              {"key": 345, "b": "b"},
-              {'key': 567, 'c': 'c'},
-          ]
-          
-        :param list_of_dicts:
-        :param key_to_compare:
-        
-        :return:
-        """
-        # Create a new list to store the unique elements
-        unique_dicts = {}
-        merged_list = []
-        
-        for d in list_of_dicts:
-            if key_to_compare in d:
-                value_to_compare = d[key_to_compare]
-                if value_to_compare in unique_dicts:
-                    # Merge the duplicate with the existing one
-                    unique_dicts[value_to_compare].update(d)
-                else:
-                    unique_dicts[value_to_compare] = d
-                    merged_list.append(d)
-            else:
-                # If the key is not present in the dict, then it is a new element.
-                # Simply append it to the list
-                merged_list.append(d)
-        return merged_list
-    
-    # Write a method that finds duplicates in a list of dicts based on the given key and return the duplicates.
-    # The method should return a list of dicts, where each dict represents a duplicate.
-    # The method should not modify the original list of dicts.
-    def find_duplicates_in_list(self, lst: Iterable[Dict], key_to_compare='key') -> Iterable[Dict]:
-        
-        """
-        A private utility method to find duplicates in a list of dicts, based on the given key.
-        The method returns a list of dicts, where each dict represents a duplicate.
-        The method does not modify the original list of dicts.
-        
-        :param lst:
-        :param key_to_compare:
-        :return:
-        """
-        # Create a new list to store the unique elements
-        unique_dicts = {}
-        duplicates = []
-        
-        for d in lst:
-            if d[key_to_compare] in unique_dicts:
-                duplicates.append(d)
-            else:
-                unique_dicts[d[key_to_compare]] = d
-        
-        return duplicates
     
     def _get_lock_expiry_time_cutoff(self):
         """

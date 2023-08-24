@@ -1,11 +1,26 @@
+# NOTE: ALL THE CLASSES IN THIS FILE ARE ONLY USED BY THE TEST CODE FOR INSPECTING THE ITEMS WRITTEN TO THE DB
+# AND IS NOT MEANT TO BE USED BY THE ACTUAL CODE.
+
+# The test code uses the "_table" internal variable of the pychunkedgraph client to inspect the items in the table.
+# The test code assumes the "_table" to provide Google BitTable compatible APIs.
+# The classes in this file provide the adapter that interacts with the Amazon DynamoDB table so that the test code can
+# use the Google BitTable compatible APIs.
+
 import boto3
 from boto3.dynamodb.types import TypeDeserializer, TypeSerializer
 
 from pychunkedgraph.graph import attributes
-from .ddb_helper import DdbHelper
+from .ddb_translator import DdbTranslator
 
 
 class Table:
+    """
+    An adapter for an Amazon DynamoDB table.
+    
+    NOTE: THIS CLASS IS ONLY USED BY THE TEST CODE FOR INSPECTING THE ITEMS WRITTEN TO THE DB
+    AND IS NOT MEANT TO BE USED BY THE ACTUAL CODE.
+    """
+    
     def __init__(
         self,
         main_db,
@@ -20,7 +35,7 @@ class Table:
         self._row_page_size = 1000
         self._ddb_serializer = TypeSerializer()
         self._ddb_deserializer = TypeDeserializer()
-        self._ddb_helper = DdbHelper()
+        self._ddb_helper = DdbTranslator()
     
     def read_rows(self):
         ret = self._ddb_table.scan(Limit=self._row_page_size)
@@ -32,6 +47,10 @@ class Table:
             rows[b_real_key] = Row(row)
         
         return TableRows(rows)
+    
+    @property
+    def ddb_table(self):
+        return self._ddb_table
 
 
 class TableRows:

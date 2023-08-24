@@ -2,8 +2,9 @@ import math
 from datetime import datetime
 from typing import Dict, Iterable, Union, Any, Optional
 
-from boto3.dynamodb.types import TypeDeserializer, TypeSerializer, Binary
+from boto3.dynamodb.types import TypeDeserializer, Binary
 
+from .key_translator import KeyTranslator
 from .timestamped_cell import TimeStampedCell
 from .utils import append, get_current_time_microseconds, to_microseconds
 from .... import attributes
@@ -28,34 +29,18 @@ def to_lock_timestamp_column_name(lock_column: _Attribute):
     return f"{to_column_name(lock_column)}{LOCK_TIMESTAMP_COL_SUFFIX}"
 
 
-class DdbHelper:
+class DdbTranslator:
+    """
+    Translator class that provides a set of methods to translate between the internal DynamoDB "item" format and the
+    "row" and "cells" representation used by client code
+    """
     
     def __init__(self):
-        self._ddb_serializer = TypeSerializer()
         self._ddb_deserializer = TypeDeserializer()
-        
-        # TODO: ATTENTION
-        # Fixed split between PK and SK may not be right approach
-        # There are multiple key families with different sub-structure
-        # Pending work:
-        #  * Key sub-structure should be investigated
-        #  * Key-range queries should be investigated
-        #  * Split between PK and SK should be revisited to make sure that
-        #    such key-range queries do _never_ run across different PKs or
-        #    there should be some mechanism to make it working with multiple PKs
-        # I'll put a hardcoded value of 18 to match ingestion default for now
-        self._pk_key_shift = 18
-        # TODO: ATTENTION
-        # If number of bits to shift (or in other words split width) is variadic
-        # which is implied by the key sub-structure and key-range queries,
-        # mask and format should be calculated on the fly
-        # and the same should be done in the ingestion script
-        self._sk_key_mask = (1 << self._pk_key_shift) - 1
-        pk_digits = math.ceil(math.log10(pow(2, 64 - self._pk_key_shift)))
-        self._pk_int_format = f"0{pk_digits + 1}"
+        self._key_translator = KeyTranslator()
     
-    @staticmethod
     def attribs_to_cells(
+        self,
         attribs: Dict[_Attribute, Any],
         time_stamp: Optional[datetime] = None,
     ) -> dict[str, Iterable[TimeStampedCell]]:
@@ -131,7 +116,7 @@ class DdbHelper:
                                 int(timestamp),
                             ))
         
-        b_real_key = self.to_real_key(pk, sk)
+        b_real_key = self._key_translator.to_unified_key(pk, sk)
         
         return b_real_key, row
     
@@ -180,40 +165,8 @@ class DdbHelper:
         
         return item
     
-    def to_real_key(self, pk, sk):
-        return sk.encode()
-        # ikey = sk
-        # if pk[0].isdigit():
-        #     real_key = pad_node_id(ikey)
-        # elif pk[0] in ["i", "f"]:
-        #     real_key = f"{pk[0]}{pad_node_id(ikey)}"
-        # else:
-        #     real_key = pk
-        #
-        # b_real_key = real_key.encode()
-        # return b_real_key
-    
     def to_pk_sk(self, key: bytes):
-        prefix, ikey, suffix = self._to_key_parts(key)
-        sk = key.decode()
-        if ikey is not None:
-            pk = self._int_key_to_pk(ikey, prefix)
-        else:
-            pk = key.decode()
-        return pk, sk
-        
-        # prefix, ikey, suffix = self._to_key_parts(key)
-        # if ikey is not None:
-        #     pk = self._int_key_to_pk(ikey, prefix)
-        #     sk = ikey
-        # else:
-        #     pk = key.decode()
-        #     sk = 0
-        #
-        # if suffix is not None and suffix.isnumeric():
-        #     sk += int(suffix)
-        #
-        # return pk, sk
+        return self._key_translator.to_pk_sk(key)
     
     def to_sk_range(
         self,
@@ -222,81 +175,9 @@ class DdbHelper:
         start_inclusive: bool = True,
         end_inclusive: bool = True
     ):
-        pk_start, sk_start = self.to_pk_sk(start_key)
-        pk_end, sk_end = self.to_pk_sk(end_key)
-        if pk_start is not None and pk_end is not None and pk_start != pk_end:
-            raise ValueError("DynamoDB does not support range queries across different partition keys")
-        
-        if sk_start is not None:
-            if not start_inclusive:
-                prefix_start, ikey_start, suffix_start = self._to_key_parts(start_key)
-                # sk_start = sk_start + 1
-                sk_start = self._from_key_parts(prefix_start, ikey_start + 1, suffix_start)
-        
-        if sk_end is not None:
-            if not end_inclusive:
-                prefix_end, ikey_end, suffix_end = self._to_key_parts(end_key)
-                # sk_end = sk_end - 1
-                sk_end = self._from_key_parts(prefix_end, ikey_end - 1, suffix_end)
-        
-        return pk_start if pk_start is not None else pk_end, sk_start, sk_end
-    
-    def _to_key_parts(self, key: bytes):
-        '''
-        # A utility method to split the given key into prefix, an integer key, and a suffix
-        #
-        # The given key may be in any one of the following formats
-        # 1. A padded 20-digit number
-        #       E.g., 00076845692567897775
-        # 2. A padded 19-digit number with "i" or "f" prefix (total 20 chars)
-        #       E.g., f00144821212986474496 or i00145242668664881152
-        # 3. A padded 19-digit number with "i" or "f" prefix and a suffix number separated by underscore
-        #       E.g., i00216172782113783808_237
-        # 4. Key for operations
-        #       E.g., ioperations
-        # 5. Key for meta
-        #       E.g., meta
-        #
-        :param key:
-        :return:
-        '''
-        str_key = key.decode()
-        
-        suffix = None
-        key_without_suffix = str_key
-        if "_" in str_key:
-            parts = str_key.split("_")
-            suffix = parts[-1]
-            key_without_suffix = parts[0]
-        
-        prefix = None
-        ikey = None
-        
-        if key_without_suffix[0].isdigit():
-            return prefix, int(key_without_suffix), suffix
-        elif key_without_suffix[0] in ["f", "i"]:
-            prefix = key_without_suffix[0]
-            rest_of_the_key = key_without_suffix[1:]
-            if rest_of_the_key.isnumeric():
-                ikey = int(rest_of_the_key)
-            return prefix, ikey, suffix
-        else:
-            return prefix, ikey, suffix
-    
-    def _from_key_parts(self, prefix, ikey, suffix, delim="_"):
-        suffix_str = '' if suffix is None else f"{delim}{suffix}"
-        return f"{'' if prefix is None else prefix}{ikey}{suffix_str}"
-        # ikey = sk
-        # if pk[0].isdigit():
-        #     real_key = pad_node_id(ikey)
-        # elif pk[0] in ["i", "f"]:
-        #     real_key = f"{pk[0]}{pad_node_id(ikey)}"
-        # else:
-        #     real_key = pk
-        #
-        # b_real_key = real_key.encode()
-        # return b_real_key
-    
-    def _int_key_to_pk(self, ikey: int, prefix: str = None):
-        # return f"{'' if prefix is None else prefix}{(ikey >> self._pk_key_shift):{self._pk_int_format}}"
-        return f"{(ikey >> self._pk_key_shift):{self._pk_int_format}}"
+        return self._key_translator.to_sk_range(
+            start_key,
+            end_key,
+            start_inclusive,
+            end_inclusive,
+        )
