@@ -178,6 +178,40 @@ def check_fake_edges(
     return atomic_edges, rows
 
 
+def _update_neighbor_cross_edges(
+    cg, new_id: int, cx_edges_d: dict, new_old_id_d: dict, time_stamp
+) -> list:
+    updated_entries = []
+    node_layer = cg.get_chunk_layer(new_id)
+    for cx_layer in range(node_layer, cg.meta.layer_count):
+        layer_edges = cx_edges_d.get(cx_layer, types.empty_2d)
+        counterparts = layer_edges[:, 1]
+        counterpart_cx_edges_d = cg.get_cross_chunk_edges(counterparts)
+        temp_map = {
+            old_id: new_id for old_id in _get_flipped_ids(new_old_id_d, [new_id])
+        }
+        for counterpart, edges_d in counterpart_cx_edges_d.items():
+            val_dict = {}
+            for layer in range(2, cg.meta.layer_count):
+                edges = edges_d.get(layer, types.empty_2d)
+                if edges.size == 0:
+                    continue
+                assert np.all(edges[:, 0] == counterpart)
+                edges = fastremap.remap(edges, temp_map, preserve_missing_labels=True)
+                edges_d[layer] = edges
+                val_dict[attributes.Connectivity.CrossChunkEdge[layer]] = edges
+            if not val_dict:
+                continue
+            cg.cache.cross_chunk_edges_cache[counterpart] = edges_d
+            row = cg.client.mutate_row(
+                serialize_uint64(counterpart),
+                val_dict,
+                time_stamp=time_stamp,
+            )
+            updated_entries.append(row)
+    return updated_entries
+
+
 def add_edges(
     cg,
     *,
@@ -233,33 +267,10 @@ def add_edges(
             new_cx_edges_d[layer] = edges
             assert np.all(edges[:, 0] == new_id)
         cg.cache.cross_chunk_edges_cache[new_id] = new_cx_edges_d
-
-        # must also update cross chunk edges in reverse (counterparts)
-        layer_edges = new_cx_edges_d.get(2, types.empty_2d)
-        counterparts = layer_edges[:, 1]
-        counterpart_cx_edges_d = cg.get_cross_chunk_edges(counterparts)
-        temp_map = {
-            old_id: new_id for old_id in _get_flipped_ids(new_old_id_d, [new_id])
-        }
-        for counterpart, edges_d in counterpart_cx_edges_d.items():
-            val_dict = {}
-            for layer in range(2, cg.meta.layer_count):
-                edges = edges_d.get(layer, types.empty_2d)
-                if edges.size == 0:
-                    continue
-                assert np.all(edges[:, 0] == counterpart)
-                edges = fastremap.remap(edges, temp_map, preserve_missing_labels=True)
-                edges_d[layer] = edges
-                val_dict[attributes.Connectivity.CrossChunkEdge[layer]] = edges
-            if not val_dict:
-                continue
-            cg.cache.cross_chunk_edges_cache[counterpart] = edges_d
-            row = cg.client.mutate_row(
-                serialize_uint64(counterpart),
-                val_dict,
-                time_stamp=time_stamp,
-            )
-            updated_entries.append(row)
+        entries = _update_neighbor_cross_edges(
+            cg, new_id, new_cx_edges_d, new_old_id_d, time_stamp
+        )
+        updated_entries.extend(entries)
 
     create_parents = CreateParentNodes(
         cg,
@@ -355,45 +366,23 @@ def remove_edges(
             )
 
     updated_entries = []
-    new_cx_edges_d = cg.get_cross_chunk_edges(new_l2_ids)
+    cx_edges_d = cg.get_cross_chunk_edges(new_l2_ids)
     for new_id in new_l2_ids:
-        cx_edges_d = new_cx_edges_d.get(new_id, {})
-        for layer, edges in cx_edges_d.items():
+        new_cx_edges_d = cx_edges_d.get(new_id, {})
+        for layer, edges in new_cx_edges_d.items():
             svs = np.unique(edges)
             parents = cg.get_parents(svs)
             temp_map = dict(zip(svs, parents))
 
             edges = fastremap.remap(edges, temp_map, preserve_missing_labels=True)
             edges = np.unique(edges, axis=0)
-            cx_edges_d[layer] = edges
+            new_cx_edges_d[layer] = edges
             assert np.all(edges[:, 0] == new_id)
-        cg.cache.cross_chunk_edges_cache[new_id] = cx_edges_d
-
-        layer_edges = cx_edges_d.get(2, types.empty_2d)
-        counterparts = layer_edges[:, 1]
-        counterpart_cx_edges_d = cg.get_cross_chunk_edges(counterparts)
-        temp_map = {
-            old_id: new_id for old_id in _get_flipped_ids(new_old_id_d, [new_id])
-        }
-        for counterpart, edges_d in counterpart_cx_edges_d.items():
-            val_dict = {}
-            for layer in range(2, cg.meta.layer_count):
-                edges = edges_d.get(layer, types.empty_2d)
-                if edges.size == 0:
-                    continue
-                assert np.all(edges[:, 0] == counterpart)
-                edges = fastremap.remap(edges, temp_map, preserve_missing_labels=True)
-                edges_d[layer] = edges
-                val_dict[attributes.Connectivity.CrossChunkEdge[layer]] = edges
-            if not val_dict:
-                continue
-            cg.cache.cross_chunk_edges_cache[counterpart] = edges_d
-            row = cg.client.mutate_row(
-                serialize_uint64(counterpart),
-                val_dict,
-                time_stamp=time_stamp,
-            )
-            updated_entries.append(row)
+        cg.cache.cross_chunk_edges_cache[new_id] = new_cx_edges_d
+        entries = _update_neighbor_cross_edges(
+            cg, new_id, new_cx_edges_d, new_old_id_d, time_stamp
+        )
+        updated_entries.extend(entries)
 
     create_parents = CreateParentNodes(
         cg,
@@ -515,32 +504,10 @@ class CreateParentNodes:
             new_cx_edges_d[layer] = np.unique(edges, axis=0)
             assert np.all(edges[:, 0] == parent)
         self.cg.cache.cross_chunk_edges_cache[parent] = new_cx_edges_d
-
-        layer_edges = new_cx_edges_d.get(parent_layer, types.empty_2d)
-        counterparts = layer_edges[:, 1]
-        counterpart_cx_edges_d = self.cg.get_cross_chunk_edges(counterparts)
-        temp_map = {
-            old_id: parent for old_id in _get_flipped_ids(self._new_old_id_d, [parent])
-        }
-        for counterpart, edges_d in counterpart_cx_edges_d.items():
-            val_dict = {}
-            for layer in range(parent_layer, self.cg.meta.layer_count):
-                edges = edges_d.get(layer, types.empty_2d)
-                if edges.size == 0:
-                    continue
-                assert np.all(edges[:, 0] == counterpart)
-                edges = fastremap.remap(edges, temp_map, preserve_missing_labels=True)
-                edges_d[layer] = edges
-                val_dict[attributes.Connectivity.CrossChunkEdge[layer]] = edges
-            if not val_dict:
-                continue
-            self.cg.cache.cross_chunk_edges_cache[counterpart] = edges_d
-            row = self.cg.client.mutate_row(
-                serialize_uint64(counterpart),
-                val_dict,
-                time_stamp=self._time_stamp,
-            )
-            self.new_entries.append(row)
+        entries = _update_neighbor_cross_edges(
+            self.cg, parent, new_cx_edges_d, self._new_old_id_d, self._time_stamp
+        )
+        self.new_entries.extend(entries)
 
     def _create_new_parents(self, layer: int):
         """
