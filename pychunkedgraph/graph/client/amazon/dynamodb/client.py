@@ -1016,9 +1016,9 @@ class Client(ClientWithIDGen, OperationLogger):
             
             kwargs["ExpressionAttributeNames"] = attr_names
         
-        # TODO: "new" data for existing key is appended to the the map, this needs to be revisited since it can
-        #  potentially exceed the limit for the item size (400KB) eventually.
-        #  Currently it is as is in the BigTable
+        # TODO: "new" data for existing key is appended to the map, this needs to be revisited since it can
+        #  potentially exceed the limit for the item size (400KB).
+        #  Currently it is as is in the BigTable implementation
         for key in row_keys:
             pk, sk = self._ddb_translator.to_pk_sk(key)
             item_keys_to_get.append({
