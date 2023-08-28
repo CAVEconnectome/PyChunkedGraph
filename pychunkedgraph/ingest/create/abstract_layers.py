@@ -190,8 +190,9 @@ def _write(
         for i_cc, node_ids in enumerate(cc_connections[parent_layer]):
             parent_id = reserved_parent_ids[i_cc]
 
-            if parent_layer == 3:
-                # children are from atomic chunks
+            if layer_id == 3:
+                # when layer 3 is being processed, children chunks are at layer 2
+                # layer 2 chunks at this time will only have atomic cross edges
                 cx_edges_d = cg.get_atomic_cross_edges(node_ids)
             else:
                 # children are from abstract chunks
