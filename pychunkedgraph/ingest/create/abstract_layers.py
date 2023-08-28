@@ -214,8 +214,10 @@ def _write(
 
                     layer_edges = node_cx_edges_d[layer]
                     edges_nodes = np.unique(layer_edges)
-                    edges_nodes_parents = cg.get_parents(edges_nodes)
-                    temp_map = dict(zip(edges_nodes, edges_nodes_parents))
+                    edges_nodes_layers = cg.get_chunk_layers(edges_nodes)
+                    mask = edges_nodes_layers < layer_id - 1
+                    edges_nodes_parents = cg.get_parents(edges_nodes[mask])
+                    temp_map = dict(zip(edges_nodes[mask], edges_nodes_parents))
 
                     layer_edges = fastremap.remap(
                         layer_edges, temp_map, preserve_missing_labels=True
@@ -230,7 +232,9 @@ def _write(
 
             row_id = serializers.serialize_uint64(parent_id)
             val_dict = {attributes.Hierarchy.Child: node_ids}
-            parent_cx_edges_d = concatenate_cross_edge_dicts(children_cx_edges, unique=True)
+            parent_cx_edges_d = concatenate_cross_edge_dicts(
+                children_cx_edges, unique=True
+            )
             for layer in range(parent_layer, cg.meta.layer_count):
                 if not layer in parent_cx_edges_d:
                     continue
