@@ -142,7 +142,7 @@ def ingest_status():
 
     print("\n\nqueue status:")
     for layer, q, f in zip(layers, queued, failed):
-        print(f"l{layer}\t: queued\t {q}, failed\t {f}")
+        print(f"l{layer}\t: queued\t {q}\t, failed\t {f}")
 
 
 @ingest_cli.command("chunk")
