@@ -7,6 +7,7 @@ cli for running ingest
 import click
 import yaml
 from flask.cli import AppGroup
+from rq import Queue
 
 from .cluster import create_atomic_chunk
 from .cluster import create_parent_chunk
@@ -116,9 +117,32 @@ def ingest_status():
     redis = get_redis_connection()
     imanager = IngestionManager.from_pickle(redis.get(r_keys.INGESTION_MANAGER))
     layers = range(2, imanager.cg_meta.layer_count + 1)
-    for layer, layer_count in zip(layers, imanager.cg_meta.layer_chunk_counts):
-        done = redis.scard(f"{layer}c")
-        print(f"{layer}\t: {done} / {layer_count}")
+    layer_counts = imanager.cg_meta.layer_chunk_counts
+
+    pipeline = redis.pipeline()
+    for layer in layers:
+        pipeline.scard(f"{layer}c")
+        queue = Queue(f"l{layer}")
+        pipeline.llen(queue.key)
+        pipeline.zcard(queue.failed_job_registry.key)
+
+    results = pipeline.execute()
+    completed = []
+    queued = []
+    failed = []
+    for i in range(0, len(results), 3):
+        result = results[i : i + 3]
+        completed.append(result[0])
+        queued.append(result[1])
+        failed.append(result[2])
+
+    print("layer status:")
+    for layer, done, count in zip(layers, completed, layer_counts):
+        print(f"{layer}\t: {done} / {count}")
+
+    print("\n\nqueue status:")
+    for layer, q, f in zip(layers, queued, failed):
+        print(f"l{layer}\t: queued {q}, failed {f}")
 
 
 @ingest_cli.command("chunk")
