@@ -122,7 +122,7 @@ def ingest_status():
     pipeline = redis.pipeline()
     for layer in layers:
         pipeline.scard(f"{layer}c")
-        queue = Queue(f"l{layer}")
+        queue = Queue(f"l{layer}", connection=redis)
         pipeline.llen(queue.key)
         pipeline.zcard(queue.failed_job_registry.key)
 
@@ -142,7 +142,7 @@ def ingest_status():
 
     print("\n\nqueue status:")
     for layer, q, f in zip(layers, queued, failed):
-        print(f"l{layer}\t: queued {q}, failed {f}")
+        print(f"l{layer}\t: queued\t {q}, failed\t {f}")
 
 
 @ingest_cli.command("chunk")
