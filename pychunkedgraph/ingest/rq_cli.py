@@ -1,7 +1,8 @@
+# pylint: disable=invalid-name, missing-function-docstring
+
 """
 cli for redis jobs
 """
-import os
 import sys
 
 import click
@@ -14,7 +15,6 @@ from rq.exceptions import InvalidJobOperationError
 from rq.exceptions import NoSuchJobError
 from rq.registry import StartedJobRegistry
 from rq.registry import FailedJobRegistry
-from flask import current_app
 from flask.cli import AppGroup
 
 from ..utils.redis import REDIS_HOST
