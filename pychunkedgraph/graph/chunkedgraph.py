@@ -364,6 +364,7 @@ class ChunkedGraph:
         stop_layer: int = None,
         ceil: bool = True,
         fail_to_zero: bool = False,
+        raw_only=False,
         n_tries: int = 1,
     ) -> typing.Union[np.ndarray, typing.Dict[int, np.ndarray]]:
         """
@@ -387,7 +388,10 @@ class ChunkedGraph:
                 filtered_ids = parent_ids[layer_mask]
                 unique_ids, inverse = np.unique(filtered_ids, return_inverse=True)
                 temp_ids = self.get_parents(
-                    unique_ids, time_stamp=time_stamp, fail_to_zero=fail_to_zero
+                    unique_ids,
+                    time_stamp=time_stamp,
+                    fail_to_zero=fail_to_zero,
+                    raw_only=raw_only,
                 )
                 if not temp_ids.size:
                     break
@@ -442,6 +446,7 @@ class ChunkedGraph:
         get_all_parents: bool = False,
         stop_layer: int = None,
         ceil: bool = True,
+        raw_only: bool = False,
         n_tries: int = 1,
     ) -> typing.Union[typing.List[np.uint64], np.uint64]:
         """Takes a node id and returns the associated agglomeration ids."""
@@ -459,7 +464,9 @@ class ChunkedGraph:
         for _ in range(n_tries):
             parent_id = node_id
             for _ in range(self.get_chunk_layer(node_id), int(stop_layer + 1)):
-                temp_parent_id = self.get_parent(parent_id, time_stamp=time_stamp)
+                temp_parent_id = self.get_parent(
+                    parent_id, time_stamp=time_stamp, raw_only=raw_only
+                )
                 if temp_parent_id is None:
                     break
                 else:
