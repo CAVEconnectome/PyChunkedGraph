@@ -318,12 +318,17 @@ class ChunkedGraph:
         return result
 
     def get_cross_chunk_edges(
-        self, node_ids: typing.Iterable, *, raw_only=False
+        self,
+        node_ids: typing.Iterable,
+        *,
+        raw_only=False,
+        time_stamp: typing.Optional[datetime.datetime] = None,
     ) -> typing.Dict:
         """
         Returns cross edges for `node_ids`.
         A dict of the form `{node_id: {layer: cross_edges}}`.
         """
+        time_stamp = misc_utils.get_valid_timestamp(time_stamp)
         if raw_only or not self.cache:
             result = {}
             node_ids = np.array(node_ids, dtype=basetypes.NODE_ID)
@@ -333,7 +338,12 @@ class ChunkedGraph:
                 attributes.Connectivity.CrossChunkEdge[l]
                 for l in range(2, self.meta.layer_count)
             ]
-            node_edges_d_d = self.client.read_nodes(node_ids=node_ids, properties=attrs)
+            node_edges_d_d = self.client.read_nodes(
+                node_ids=node_ids,
+                properties=attrs,
+                end_time=time_stamp,
+                end_time_inclusive=True,
+            )
             for id_ in node_ids:
                 try:
                     result[id_] = {
