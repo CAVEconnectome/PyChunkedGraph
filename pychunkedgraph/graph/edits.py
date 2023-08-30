@@ -316,7 +316,10 @@ def _process_l2_agglomeration(
     root = cg.get_root(parents[0], time_stamp=parent_ts)
 
     # inactive edges must be filtered out
-    neighbor_roots = cg.get_roots(cross_edges[:, 1], time_stamp=parent_ts)
+    # we must avoid the cache to read roots to get segment state before edit began
+    neighbor_roots = cg.get_roots(
+        cross_edges[:, 1], raw_only=True, time_stamp=parent_ts
+    )
     active_mask = neighbor_roots == root
     cross_edges = cross_edges[active_mask]
     cross_edges = cross_edges[~in2d(cross_edges, removed_edges)]
