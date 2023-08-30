@@ -68,11 +68,11 @@ class CacheService:
 
         return children_decorated(node_id)
 
-    def cross_chunk_edges(self, node_id):
+    def cross_chunk_edges(self, node_id, *, time_stamp: datetime = None):
         @cached(cache=self.cross_chunk_edges_cache, key=lambda node_id: node_id)
         def cross_edges_decorated(node_id):
             edges = self._cg.get_cross_chunk_edges(
-                np.array([node_id], dtype=NODE_ID), raw_only=True
+                np.array([node_id], dtype=NODE_ID), raw_only=True, time_stamp=time_stamp
             )
             return edges[node_id]
 
@@ -107,7 +107,9 @@ class CacheService:
             return np.concatenate([*result.values()])
         return result
 
-    def cross_chunk_edges_multiple(self, node_ids: np.ndarray):
+    def cross_chunk_edges_multiple(
+        self, node_ids: np.ndarray, *, time_stamp: datetime = None
+    ):
         result = {}
         node_ids = np.array(node_ids, dtype=NODE_ID)
         if not node_ids.size:
@@ -119,7 +121,11 @@ class CacheService:
         result.update(
             {id_: edges_ for id_, edges_ in zip(node_ids[mask], cached_edges_)}
         )
-        result.update(self._cg.get_cross_chunk_edges(node_ids[~mask], raw_only=True))
+        result.update(
+            self._cg.get_cross_chunk_edges(
+                node_ids[~mask], raw_only=True, time_stamp=time_stamp
+            )
+        )
         update(
             self.cross_chunk_edges_cache,
             node_ids[~mask],
