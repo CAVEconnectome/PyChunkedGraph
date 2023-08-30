@@ -155,6 +155,7 @@ def get_subgraph_edges_and_leaves(
     bbox_is_coordinate: bool = False,
     edges_only: bool = False,
     leaves_only: bool = False,
+    operation_id=None,
 ) -> Tuple[Dict, Dict, Edges]:
     """Get the edges and/or leaves of the specified node_ids within the specified bounding box."""
     from .types import empty_1d
@@ -173,8 +174,8 @@ def get_subgraph_edges_and_leaves(
     if leaves_only:
         return cg.get_children(level2_ids, flatten=True)
     if edges_only:
-        return cg.get_l2_agglomerations(level2_ids, edges_only=True)
-    return cg.get_l2_agglomerations(level2_ids)
+        return cg.get_l2_agglomerations(level2_ids, edges_only=True, operation_id=operation_id)
+    return cg.get_l2_agglomerations(level2_ids, operation_id=operation_id)
 
 
 def _get_subgraph_multiple_nodes(

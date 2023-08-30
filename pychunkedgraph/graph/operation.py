@@ -893,7 +893,7 @@ class MulticutOperation(GraphEditOperation):
         )
         with TimeIt("get_subgraph", self.cg.graph_id, operation_id):
             l2id_agglomeration_d, edges = self.cg.get_subgraph(
-                root_ids.pop(), bbox=bbox, bbox_is_coordinate=True
+                root_ids.pop(), bbox=bbox, bbox_is_coordinate=True, operation_id=operation_id
             )
 
             edges = reduce(lambda x, y: x + y, edges, Edges([], []))

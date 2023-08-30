@@ -556,6 +556,7 @@ class ChunkedGraph:
         edges_only: bool = False,
         leaves_only: bool = False,
         return_flattened: bool = False,
+        operation_id=None
     ) -> typing.Tuple[typing.Dict, typing.Dict, Edges]:
         """
         Generic subgraph method.
@@ -573,7 +574,7 @@ class ChunkedGraph:
                 return_flattened=return_flattened,
             )
         return get_subgraph_edges_and_leaves(
-            self, node_id_or_ids, bbox, bbox_is_coordinate, edges_only, leaves_only
+            self, node_id_or_ids, bbox, bbox_is_coordinate, edges_only, leaves_only, operation_id
         )
 
     def get_subgraph_nodes(
@@ -650,7 +651,7 @@ class ChunkedGraph:
         return result
 
     def get_l2_agglomerations(
-        self, level2_ids: np.ndarray, edges_only: bool = False
+        self, level2_ids: np.ndarray, edges_only: bool = False, operation_id=None
     ) -> typing.Tuple[typing.Dict[int, types.Agglomeration], np.ndarray]:
         """
         Children of Level 2 Node IDs and edges.
@@ -659,6 +660,7 @@ class ChunkedGraph:
         from itertools import chain
         from functools import reduce
         from .misc import get_agglomerations
+        from ..logging.log_db import TimeIt
 
         chunk_ids = np.unique(self.get_chunk_ids_from_node_ids(level2_ids))
         # google does not provide a storage emulator at the moment
@@ -666,7 +668,8 @@ class ChunkedGraph:
         # find a better way to test
         edges_d = {}
         if self.mock_edges is None:
-            edges_d = self.read_chunk_edges(chunk_ids)
+            with TimeIt("read_chunks", self.graph_id, operation_id):
+                edges_d = self.read_chunk_edges(chunk_ids)
 
         fake_edges = self.get_fake_edges(chunk_ids)
         all_chunk_edges = reduce(
@@ -685,21 +688,24 @@ class ChunkedGraph:
             mask1 = np.in1d(all_chunk_edges[:, 1], supervoxels)
             return all_chunk_edges[mask0 & mask1]
 
-        l2id_children_d = self.get_children(level2_ids)
-        sv_parent_d = {}
-        for l2id in l2id_children_d:
-            svs = l2id_children_d[l2id]
-            sv_parent_d.update(dict(zip(svs.tolist(), [l2id] * len(svs))))
+        with TimeIt("get_children", self.graph_id, operation_id):
+            l2id_children_d = self.get_children(level2_ids)
+            sv_parent_d = {}
+            for l2id in l2id_children_d:
+                svs = l2id_children_d[l2id]
+                sv_parent_d.update(dict(zip(svs.tolist(), [l2id] * len(svs))))
 
-        in_edges, out_edges, cross_edges = edge_utils.categorize_edges_v2(
-            self.meta,
-            all_chunk_edges,
-            sv_parent_d
-        )
+        with TimeIt("categorize_edges", self.graph_id, operation_id):
+            in_edges, out_edges, cross_edges = edge_utils.categorize_edges_v2(
+                self.meta,
+                all_chunk_edges,
+                sv_parent_d
+            )
 
-        agglomeration_d = get_agglomerations(
-            l2id_children_d, in_edges, out_edges, cross_edges, sv_parent_d
-        )
+        with TimeIt("get_agglomerations", self.graph_id, operation_id):
+            agglomeration_d = get_agglomerations(
+                l2id_children_d, in_edges, out_edges, cross_edges, sv_parent_d
+            )
         return (
             agglomeration_d,
             (self.mock_edges,)
