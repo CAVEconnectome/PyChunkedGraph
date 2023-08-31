@@ -307,10 +307,7 @@ def _process_l2_agglomeration(
     chunk_edges = agg.in_edges.get_pairs()
     chunk_edges = chunk_edges[~in2d(chunk_edges, removed_edges)]
 
-    # cross during edits refers to all edges crossing chunk boundary
-    cross_edges = [agg.out_edges.get_pairs(), agg.cross_edges.get_pairs()]
-    cross_edges = np.concatenate(cross_edges)
-
+    cross_edges = agg.cross_edges.get_pairs()
     parents = cg.get_parents(cross_edges[:, 0], time_stamp=parent_ts, raw_only=True)
     assert np.unique(parents).size == 1, "got cross edges from more than one l2 node"
     root = cg.get_root(parents[0], time_stamp=parent_ts, raw_only=True)
