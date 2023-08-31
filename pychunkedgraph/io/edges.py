@@ -39,7 +39,7 @@ def deserialize(edges_message: EdgesMsg) -> Tuple[np.ndarray, np.ndarray, np.nda
 def _decompress_edges(content: bytes) -> Dict:
     zdc = zstd.ZstdDecompressor()
     chunk_edges = ChunkEdgesMsg()
-    chunk_edges.ParseFromString(zdc.decompressobj().decompress(content))
+    chunk_edges.ParseFromString(zdc.multi_decompress_to_buffer(content, threads=4))
 
     # in, between and cross
     edges_dict = {}
@@ -51,15 +51,13 @@ def _decompress_edges(content: bytes) -> Dict:
 
 def get_chunk_edges(edges_dir: str, chunks_coordinates: List[np.ndarray]) -> Dict:
     """Read edges from GCS."""
-    from cloudfiles import CloudFiles
-
     fnames = []
     for chunk_coords in chunks_coordinates:
         chunk_str = "_".join(str(coord) for coord in chunk_coords)
         # filename format - edges_x_y_z.serialization.compression
         fnames.append(f"edges_{chunk_str}.proto.zst")
 
-    cf = CloudFiles(edges_dir)
+    cf = CloudFiles(edges_dir, num_threads=4)
     files = cf.get(fnames, raw=True)
 
     edges = []
