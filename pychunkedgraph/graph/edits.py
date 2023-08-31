@@ -311,9 +311,9 @@ def _process_l2_agglomeration(
     cross_edges = [agg.out_edges.get_pairs(), agg.cross_edges.get_pairs()]
     cross_edges = np.concatenate(cross_edges)
 
-    parents = cg.get_parents(cross_edges[:, 0], time_stamp=parent_ts)
+    parents = cg.get_parents(cross_edges[:, 0], time_stamp=parent_ts, raw_only=True)
     assert np.unique(parents).size == 1, "got cross edges from more than one l2 node"
-    root = cg.get_root(parents[0], time_stamp=parent_ts)
+    root = cg.get_root(parents[0], time_stamp=parent_ts, raw_only=True)
 
     # inactive edges must be filtered out
     # we must avoid the cache to read roots to get segment state before edit began
