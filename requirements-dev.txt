@@ -4,3 +4,5 @@ pyopenssl
 jupyter
 pytest
 pytest-timeout
+pyyaml
+pytest-profiling

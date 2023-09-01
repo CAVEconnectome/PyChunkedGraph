@@ -1,5 +1,6 @@
 import os
 import json
+import yaml
 import subprocess
 from math import inf
 from time import sleep
@@ -30,7 +31,22 @@ from ..graph.client import (
     AMAZON_DYNAMODB_BACKEND_TYPE,
 )
 
-AMAZON_LOCAL_DYNAMODB_URL = "http://localhost:8000/"
+# To execute tests against a real Amazon DynamoDB table (instead of the locally emulated Amazon DynamoDB),
+# do the followings:
+# 1. Set the following environment variables
+#    - EMULATE_AMAZON_DYNAMODB=False
+#    - TEST_DDB_TABLE_NAME=<amazon-dynamodb-table-you-want-to-connect-to>
+#    - AWS_DEFAULT_REGION=<aws-region-of-the-amazon-dynamodb-table>
+#    - AWS_PROFILE=<aws-profile-to-use>
+# 3. Run the pytest as usual
+#    E.g., "pytest pychunkedgraph/tests/test_uncategorized.py::TestGraphBuild::test_build_big_graph"
+#    from the root dir of the repo to run the "test_build_big_graph" test or simply "pytest pychunkedgraph/tests"
+#    to run all tests
+emulate_amazon_dynamodb = os.environ.get("EMULATE_AMAZON_DYNAMODB", "True") == "True"
+AMAZON_LOCAL_DYNAMODB_URL = "http://localhost:8000/" if emulate_amazon_dynamodb else None
+AMAZON_DYNAMODB_TABLE_NAME = "test" if emulate_amazon_dynamodb else os.environ.get("TEST_DDB_TABLE_NAME", None)
+test_graph_id = AMAZON_DYNAMODB_TABLE_NAME  # Graph ID is the table name
+test_aws_ddb_region = os.environ.get("AWS_DEFAULT_REGION", None)
 
 
 class CloudVolumeBounds(object):
@@ -88,7 +104,69 @@ def delete_amazon_dynamodb_tables(client):
         print(f"Deleted {table}")
 
 
-def setup_amazon_dynamodb_env():
+def create_amazon_dynamodb_tables(client):
+    """
+    Create the Amazon DynamoDB table(s) to be used for testing.
+    Reads information about the tables to create from "amazon-dynamodb-test-tables-local.yaml" file.
+    The YAML file has the format as follows
+    
+    tables:
+      - TableName: name-of-the-test-table
+        Pk:
+          Name: name-of-the-partition-key
+          Type: type-of-the-partition-key
+        Sk:
+          Name: name-of-the-sort-key
+          Type: type-of-the-sort-key
+
+    :param client:
+    :return:
+    """
+    
+    test_tables_file_name = "amazon-dynamodb-test-tables-local.yaml"
+    test_tables_file = os.path.join(os.path.dirname(__file__), test_tables_file_name)
+    try:
+        with open(test_tables_file, "r") as f:
+            tables = yaml.safe_load(f)["tables"]
+    except FileNotFoundError as e:
+        print(f"{test_tables_file_name} not found")
+        raise e
+    
+    for table in tables:
+        table_name = table["TableName"]
+        pk = table["Pk"]
+        sk = table["Sk"]
+        pk_name = pk["Name"]
+        pk_type = pk["Type"]
+        sk_name = sk["Name"]
+        sk_type = sk["Type"]
+        
+        try:
+            # Create the table
+            client.create_table(
+                TableName=table_name,
+                KeySchema=[
+                    {"AttributeName": pk_name, "KeyType": "HASH"},
+                    {"AttributeName": sk_name, "KeyType": "RANGE"},
+                ],
+                AttributeDefinitions=[
+                    {"AttributeName": pk_name, "AttributeType": pk_type},
+                    {"AttributeName": sk_name, "AttributeType": sk_type},
+                ],
+                BillingMode="PAY_PER_REQUEST",
+            )
+        except botocore.exceptions.ClientError as e:
+            # Ignore error if the table already exists
+            if e.response.get("Error", {}).get("Code") != "ResourceInUseException":
+                raise e
+        
+        # Wait until the table exists.
+        waiter = client.get_waiter('table_exists')
+        waiter.wait(TableName=table_name, WaiterConfig={'Delay': 1, 'MaxAttempts': 500})
+        print(f"Created {table_name}")
+
+
+def setup_amazon_dynamodb_local_env():
     # check if local instance is running
     boto3_conf_ = botocore.config.Config(
         retries={"max_attempts": 10, "mode": "standard"}
@@ -96,6 +174,7 @@ def setup_amazon_dynamodb_env():
     client = boto3.client("dynamodb", config=boto3_conf_, endpoint_url=AMAZON_LOCAL_DYNAMODB_URL)
     try:
         delete_amazon_dynamodb_tables(client)
+        create_amazon_dynamodb_tables(client)
     except Exception as e:
         print(f"Failed to list tables: {repr(e)}")
         return False
@@ -144,6 +223,14 @@ def bigtable_emulator(request):
 
 @pytest.fixture(scope="session", autouse=True)
 def amazon_dynamodb_emulator(request):
+    if not emulate_amazon_dynamodb:
+        print(f"\n\n"
+              f"---------------------- WARNING ---------------------- \n"
+              f"Skipping Amazon DynamoDB Emulator. "
+              f"Connecting to the actual Amazon DynamoDB table named '{AMAZON_DYNAMODB_TABLE_NAME}'."
+              f"\n\n")
+        return
+    
     # Start Local Instance
     amazon_dynamodb_emulator = subprocess.Popen(
         [
@@ -162,7 +249,7 @@ def amazon_dynamodb_emulator(request):
     print("Waiting for Amazon DynamoDB local instance to start up...", end="")
     retries = 5
     while retries > 0:
-        if setup_amazon_dynamodb_env() is True:
+        if setup_amazon_dynamodb_local_env() is True:
             break
         else:
             retries -= 1
@@ -211,6 +298,7 @@ PARAMS = [
                 "ADMIN": True,
                 "READ_ONLY": False,
                 "END_POINT": AMAZON_LOCAL_DYNAMODB_URL,
+                "REGION": test_aws_ddb_region,
                 "TABLE_PREFIX": "",
             },
         }
@@ -237,8 +325,8 @@ def gen_graph(request):
                      "ingest_config": {},
                  } | request.param
         
-        meta, _, client_info = bootstrap("test", config=config)
-        graph = ChunkedGraph(graph_id="test", meta=meta,
+        meta, _, client_info = bootstrap(test_graph_id, config=config)
+        graph = ChunkedGraph(graph_id=test_graph_id, meta=meta,
                              client_info=client_info)
         graph.mock_edges = Edges([], [])
         graph.meta._ws_cv = CloudVolumeMock()
@@ -247,21 +335,27 @@ def gen_graph(request):
             n_layers, atomic_chunk_bounds=atomic_chunk_bounds
         )
         
-        graph.create()
+        backend_type = config["backend_client"].get("TYPE", DEFAULT_BACKEND_TYPE)
         
-        # setup Chunked Graph - Finalizer
-        def fin():
-            backend_type = config["backend_client"].get("TYPE", DEFAULT_BACKEND_TYPE)
-            if backend_type == GCP_BIGTABLE_BACKEND_TYPE:
-                graph.client._table.delete()
-            elif backend_type == AMAZON_DYNAMODB_BACKEND_TYPE:
+        if backend_type == AMAZON_DYNAMODB_BACKEND_TYPE:
+            if emulate_amazon_dynamodb:
                 boto3_conf_ = botocore.config.Config(
                     retries={"max_attempts": 10, "mode": "standard"}
                 )
                 client = boto3.client("dynamodb", config=boto3_conf_, endpoint_url=AMAZON_LOCAL_DYNAMODB_URL)
-                delete_amazon_dynamodb_tables(client)
+                create_amazon_dynamodb_tables(client)
+        
+        # setup Chunked Graph - Finalizer
+        def fin():
+            if backend_type == GCP_BIGTABLE_BACKEND_TYPE:
+                graph.client._table.delete()
+            elif backend_type == AMAZON_DYNAMODB_BACKEND_TYPE:
+                if emulate_amazon_dynamodb:
+                    delete_amazon_dynamodb_tables(client)
         
         request.addfinalizer(fin)
+        
+        graph.create()
         return graph
     
     return partial(_cgraph, request)
@@ -379,7 +473,7 @@ def to_label(cg, l, x, y, z, segment_id):
 
 
 def get_layer_chunk_bounds(
-        n_layers: int, atomic_chunk_bounds: np.ndarray = np.array([])
+    n_layers: int, atomic_chunk_bounds: np.ndarray = np.array([])
 ) -> dict:
     if atomic_chunk_bounds.size == 0:
         limit = 2 ** (n_layers - 2)
