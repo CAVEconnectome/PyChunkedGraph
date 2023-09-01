@@ -38,10 +38,11 @@ from ..graph.client import (
 #    - TEST_DDB_TABLE_NAME=<amazon-dynamodb-table-you-want-to-connect-to>
 #    - AWS_DEFAULT_REGION=<aws-region-of-the-amazon-dynamodb-table>
 #    - AWS_PROFILE=<aws-profile-to-use>
-# 3. Run the pytest as usual
+# 3. Run the pytest as usual from the root dir of the repo
+#    - Run a specific test
 #    E.g., "pytest pychunkedgraph/tests/test_uncategorized.py::TestGraphBuild::test_build_big_graph"
-#    from the root dir of the repo to run the "test_build_big_graph" test or simply "pytest pychunkedgraph/tests"
-#    to run all tests
+#    to run the "test_build_big_graph" test
+#    - OR run "pytest pychunkedgraph/tests" to run all tests
 emulate_amazon_dynamodb = os.environ.get("EMULATE_AMAZON_DYNAMODB", "True") == "True"
 AMAZON_LOCAL_DYNAMODB_URL = "http://localhost:8000/" if emulate_amazon_dynamodb else None
 AMAZON_DYNAMODB_TABLE_NAME = "test" if emulate_amazon_dynamodb else os.environ.get("TEST_DDB_TABLE_NAME", None)
