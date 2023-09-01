@@ -70,6 +70,10 @@ class Client(bigtable.Client, ClientWithIDGen, OperationLogger):
         self._graph_meta = graph_meta
         self._version = None
         self._max_row_key_count = config.MAX_ROW_KEY_COUNT
+        
+        # TODO: Remove _no_of_reads and _no_of_writes variables. These are added for debugging purposes only.
+        self._no_of_reads = 0
+        self._no_of_writes = 0
     
     @property
     def graph_meta(self):
@@ -106,6 +110,8 @@ class Client(bigtable.Client, ClientWithIDGen, OperationLogger):
         # delete existing meta before update, but compatibilty issues
         meta_row = self._table.direct_row(attributes.GraphMeta.key)
         meta_row.delete()
+        
+        self._no_of_writes += 1
         meta_row.commit()
     
     def update_graph_meta(
@@ -331,6 +337,7 @@ class Client(bigtable.Client, ClientWithIDGen, OperationLogger):
                 )
         
         for i in range(0, len(rows), block_size):
+            self._no_of_writes += 1
             status = self._table.mutate_rows(rows[i: i + block_size], retry=retry)
             if not all(status):
                 raise exceptions.ChunkedGraphError(
@@ -382,6 +389,7 @@ class Client(bigtable.Client, ClientWithIDGen, OperationLogger):
         )
         
         # The lock was acquired when set_cell returns False (state)
+        self._no_of_writes += 1
         lock_acquired = not root_row.commit()
         if not lock_acquired:
             row = self._read_byte_row(serialize_uint64(root_id), columns=lock_column)
@@ -397,6 +405,7 @@ class Client(bigtable.Client, ClientWithIDGen, OperationLogger):
         """Attempts to indefinitely lock the latest version of a root node."""
         lock_column = attributes.Concurrency.IndefiniteLock
         filter_ = utils.get_indefinite_root_lock_filter(lock_column)
+        
         root_row = self._table.conditional_row(
             serialize_uint64(root_id), filter_=filter_
         )
@@ -410,6 +419,7 @@ class Client(bigtable.Client, ClientWithIDGen, OperationLogger):
         )
         
         # The lock was acquired when set_cell returns False (state)
+        self._no_of_writes += 1
         lock_acquired = not root_row.commit()
         if not lock_acquired:
             row = self._read_byte_row(serialize_uint64(root_id), columns=lock_column)
@@ -498,6 +508,8 @@ class Client(bigtable.Client, ClientWithIDGen, OperationLogger):
         )
         # Delete row if conditions are met (state == True)
         root_row.delete_cell(lock_column.family_id, lock_column.key, state=True)
+        
+        self._no_of_writes += 1
         return root_row.commit()
     
     def unlock_indefinitely_locked_root(
@@ -512,6 +524,8 @@ class Client(bigtable.Client, ClientWithIDGen, OperationLogger):
         )
         # Delete row if conditions are met (state == True)
         root_row.delete_cell(lock_column.family_id, lock_column.key, state=True)
+        
+        self._no_of_writes += 1
         return root_row.commit()
     
     def renew_lock(self, root_id: np.uint64, operation_id: np.uint64) -> bool:
@@ -529,6 +543,7 @@ class Client(bigtable.Client, ClientWithIDGen, OperationLogger):
             state=False,
         )
         # The lock was acquired when set_cell returns True (state)
+        self._no_of_writes += 1
         return not root_row.commit()
     
     def renew_locks(self, root_ids: typing.Iterable[np.uint64], operation_id: np.uint64) -> bool:
@@ -644,8 +659,12 @@ class Client(bigtable.Client, ClientWithIDGen, OperationLogger):
         """Returns a range (min, max) of IDs for a given `key`."""
         
         column = attributes.Concurrency.Counter
+        
         row = self._table.append_row(key)
+        
         row.increment_cell_value(column.family_id, column.key, size)
+        
+        self._no_of_writes += 1
         row = row.commit()
         high = column.deserialize(row[column.family_id][column.key][0][0])
         
@@ -822,6 +841,7 @@ class Client(bigtable.Client, ClientWithIDGen, OperationLogger):
             # lists of row_keys as no upper/lower bound!
             return {}
         
+        self._no_of_reads += 1
         range_read = table.read_rows(row_set=row_set, filter_=row_filter)
         res = {v.row_key: utils.partial_row_data_to_column_dict(v) for v in range_read}
         

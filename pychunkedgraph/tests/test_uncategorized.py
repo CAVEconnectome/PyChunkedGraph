@@ -41,6 +41,12 @@ from ..graph.utils.serializers import deserialize_uint64
 from ..ingest.create.abstract_layers import add_layer
 
 
+def log_network_call_counts(cg):
+    print(f"Reads = {cg.client._no_of_reads}")
+    print(f"Writes = {cg.client._no_of_writes}")
+    print(f"Total = {cg.client._no_of_reads + cg.client._no_of_writes}")
+
+
 class TestGraphNodeConversion:
     @pytest.mark.timeout(30)
     def test_compute_bitmasks(self):
@@ -60,6 +66,8 @@ class TestGraphNodeConversion:
         
         assert cg.get_chunk_id(node_id=node_id) == chunk_id
         assert cg.get_node_id(np.uint64(4), chunk_id=chunk_id) == node_id
+        
+        log_network_call_counts(cg)
     
     @pytest.mark.timeout(30)
     def test_node_id_adjacency(self, gen_graph):
@@ -74,6 +82,8 @@ class TestGraphNodeConversion:
         ) + np.uint64(1) == cg.get_node_id(
             np.uint64(2 ** 53 - 1), layer=10, x=0, y=0, z=0
         )
+        
+        log_network_call_counts(cg)
     
     @pytest.mark.timeout(30)
     def test_serialize_node_id(self, gen_graph):
@@ -88,6 +98,8 @@ class TestGraphNodeConversion:
         ) < serialize_uint64(
             cg.get_node_id(np.uint64(2 ** 53 - 1), layer=10, x=0, y=0, z=0)
         )
+        
+        log_network_call_counts(cg)
     
     @pytest.mark.timeout(30)
     def test_deserialize_node_id(self):
@@ -154,6 +166,8 @@ class TestGraphBuild:
         # Make sure there are not any more entries in the table
         # include counters, meta and version rows
         assert len(res.rows) == 1 + 1 + 1 + 1 + 1
+        
+        log_network_call_counts(cg)
     
     @pytest.mark.timeout(30)
     def test_build_single_edge(self, gen_graph):
@@ -207,6 +221,8 @@ class TestGraphBuild:
         # Make sure there are not any more entries in the table
         # include counters, meta and version rows
         assert len(res.rows) == 2 + 1 + 1 + 1 + 1
+        
+        log_network_call_counts(cg)
     
     @pytest.mark.timeout(30)
     def test_build_single_across_edge(self, gen_graph):
@@ -309,6 +325,8 @@ class TestGraphBuild:
         # Make sure there are not any more entries in the table
         # include counters, meta and version rows
         assert len(res.rows) == 2 + 2 + 1 + 3 + 1 + 1
+        
+        log_network_call_counts(cg)
     
     @pytest.mark.timeout(30)
     def test_build_single_edge_and_single_across_edge(self, gen_graph):
@@ -417,6 +435,8 @@ class TestGraphBuild:
         # Make sure there are not any more entries in the table
         # include counters, meta and version rows
         assert len(res.rows) == 3 + 2 + 1 + 3 + 1 + 1
+        
+        log_network_call_counts(cg)
     
     @pytest.mark.timeout(120)
     def test_build_big_graph(self, gen_graph):
@@ -450,6 +470,8 @@ class TestGraphBuild:
         assert serialize_uint64(to_label(cg, 1, 7, 7, 7, 0)) in res.rows
         assert serialize_uint64(to_label(cg, 5, 0, 0, 0, 1)) in res.rows
         assert serialize_uint64(to_label(cg, 5, 0, 0, 0, 2)) in res.rows
+        
+        log_network_call_counts(cg)
     
     @pytest.mark.timeout(30)
     def test_double_chunk_creation(self, gen_graph):
@@ -522,6 +544,8 @@ class TestGraphBuild:
         assert 4 in root_seg_ids
         assert 5 in root_seg_ids
         assert 6 in root_seg_ids
+        
+        log_network_call_counts(cg)
 
 
 class TestGraphSimpleQueries:
@@ -672,6 +696,8 @@ class TestGraphSimpleQueries:
             and np.all(np.isin(children21001, children2_combined))
             and np.all(np.isin(children22001, children2_combined))
         )
+        
+        log_network_call_counts(cg)
     
     @pytest.mark.timeout(30)
     def test_get_root(self, gen_graph_simplequerytest):
@@ -699,6 +725,8 @@ class TestGraphSimpleQueries:
                    root10000 == to_label(cg, 4, 0, 0, 0, 2)
                    and root11000 == root11001 == root12000 == to_label(cg, 4, 0, 0, 0, 1)
                )
+        
+        log_network_call_counts(cg)
     
     @pytest.mark.timeout(30)
     def test_get_subgraph_nodes(self, gen_graph_simplequerytest):
@@ -720,6 +748,8 @@ class TestGraphSimpleQueries:
         assert len(lvl1_nodes) == 2
         assert to_label(cg, 1, 1, 0, 0, 0) in lvl1_nodes
         assert to_label(cg, 1, 1, 0, 0, 1) in lvl1_nodes
+        
+        log_network_call_counts(cg)
     
     @pytest.mark.timeout(30)
     def test_get_subgraph_edges(self, gen_graph_simplequerytest):
@@ -754,6 +784,8 @@ class TestGraphSimpleQueries:
         ] in edges
         
         assert len(edges) == 1
+        
+        log_network_call_counts(cg)
     
     @pytest.mark.timeout(30)
     def test_get_subgraph_nodes_bb(self, gen_graph_simplequerytest):
@@ -770,6 +802,8 @@ class TestGraphSimpleQueries:
             leaves_only=True,
         )
         assert np.all(~(np.sort(childs_1) - np.sort(childs_2)))
+        
+        log_network_call_counts(cg)
 
 
 class TestGraphMerge:
@@ -814,6 +848,8 @@ class TestGraphMerge:
         assert len(leaves) == 2
         assert to_label(cg, 1, 0, 0, 0, 0) in leaves
         assert to_label(cg, 1, 0, 0, 0, 1) in leaves
+        
+        log_network_call_counts(cg)
     
     @pytest.mark.timeout(30)
     def test_merge_pair_neighboring_chunks(self, gen_graph):
@@ -870,6 +906,8 @@ class TestGraphMerge:
         assert len(leaves) == 2
         assert to_label(cg, 1, 0, 0, 0, 0) in leaves
         assert to_label(cg, 1, 1, 0, 0, 0) in leaves
+        
+        log_network_call_counts(cg)
     
     @pytest.mark.timeout(120)
     def test_merge_pair_disconnected_chunks(self, gen_graph):
@@ -953,6 +991,8 @@ class TestGraphMerge:
         assert len(leaves) == 2
         assert to_label(cg, 1, 0, 0, 0, 0) in leaves
         assert to_label(cg, 1, 7, 7, 7, 0) in leaves
+        
+        log_network_call_counts(cg)
     
     @pytest.mark.timeout(30)
     def test_merge_pair_already_connected(self, gen_graph):
@@ -995,6 +1035,8 @@ class TestGraphMerge:
                 "Rows were modified when merging a pair of already connected supervoxels. "
                 "While probably not an error, it is an unnecessary operation."
             )
+        
+        log_network_call_counts(cg)
     
     @pytest.mark.timeout(30)
     def test_merge_triple_chain_to_full_circle_same_chunk(self, gen_graph):
@@ -1032,6 +1074,8 @@ class TestGraphMerge:
                 [to_label(cg, 1, 0, 0, 0, 1), to_label(cg, 1, 0, 0, 0, 0)],
                 affinities=0.3,
             ).new_root_ids
+        
+        log_network_call_counts(cg)
     
     @pytest.mark.timeout(30)
     def test_merge_triple_chain_to_full_circle_neighboring_chunks(self, gen_graph):
@@ -1081,6 +1125,8 @@ class TestGraphMerge:
                 [to_label(cg, 1, 1, 0, 0, 0), to_label(cg, 1, 0, 0, 0, 0)],
                 affinities=1.0,
             ).new_root_ids
+        
+        log_network_call_counts(cg)
     
     @pytest.mark.timeout(120)
     def test_merge_triple_chain_to_full_circle_disconnected_chunks(self, gen_graph):
@@ -1180,6 +1226,8 @@ class TestGraphMerge:
         assert to_label(cg, 1, 0, 0, 0, 0) in leaves
         assert to_label(cg, 1, 0, 0, 0, 1) in leaves
         assert to_label(cg, 1, 7, 7, 7, 0) in leaves
+        
+        log_network_call_counts(cg)
     
     @pytest.mark.timeout(30)
     def test_merge_same_node(self, gen_graph):
@@ -1217,6 +1265,8 @@ class TestGraphMerge:
         res_new.consume_all()
         
         assert res_new.rows.keys() == res_old.rows.keys()
+        
+        log_network_call_counts(cg)
     
     @pytest.mark.timeout(30)
     def test_merge_pair_abstract_nodes(self, gen_graph):
@@ -1275,6 +1325,8 @@ class TestGraphMerge:
         res_new.consume_all()
         
         assert res_new.rows.keys() == res_old.rows.keys()
+        
+        log_network_call_counts(cg)
     
     @pytest.mark.timeout(30)
     def test_diagonal_connections(self, gen_graph):
@@ -1358,6 +1410,8 @@ class TestGraphMerge:
         
         root_id = root_ids[0]
         assert root_id == new_roots[0]
+        
+        log_network_call_counts(cg)
     
     @pytest.mark.timeout(240)
     def test_cross_edges(self, gen_graph):
@@ -1458,6 +1512,8 @@ class TestGraphMerge:
         ).new_root_ids
         
         assert len(new_roots) == 1
+        
+        log_network_call_counts(cg)
 
 
 class TestGraphMergeSplit:
@@ -1570,6 +1626,8 @@ class TestGraphMergeSplit:
             
             #     for layer in n_cross_edges_layer.keys():
             #         assert len(np.unique(n_cross_edges_layer[layer])) == 1
+        
+        log_network_call_counts(cg)
 
 
 class TestGraphMinCut:
@@ -1645,6 +1703,8 @@ class TestGraphMinCut:
             )
         )
         assert len(leaves) == 1 and to_label(cg, 1, 1, 0, 0, 0) in leaves
+        
+        log_network_call_counts(cg)
     
     @pytest.mark.timeout(30)
     def test_cut_no_link(self, gen_graph):
@@ -1706,6 +1766,8 @@ class TestGraphMinCut:
         res_new.consume_all()
         
         assert res_new.rows.keys() == res_old.rows.keys()
+        
+        log_network_call_counts(cg)
     
     @pytest.mark.timeout(30)
     def test_cut_old_link(self, gen_graph):
@@ -1773,6 +1835,8 @@ class TestGraphMinCut:
         res_new.consume_all()
         
         assert res_new.rows.keys() == res_old.rows.keys()
+        
+        log_network_call_counts(cg)
     
     @pytest.mark.timeout(30)
     def test_cut_indivisible_link(self, gen_graph):
@@ -1840,6 +1904,8 @@ class TestGraphMinCut:
         
         assert np.all(np.array(original_parents_1) == np.array(new_parents_1))
         assert np.all(np.array(original_parents_2) == np.array(new_parents_2))
+        
+        log_network_call_counts(cg)
     
     @pytest.mark.timeout(30)
     def test_mincut_disrespects_sources_or_sinks(self, gen_graph):
@@ -1878,6 +1944,8 @@ class TestGraphMinCut:
                 sink_coords=[[5, 5, 0]],
                 mincut=True,
             )
+        
+        log_network_call_counts(cg)
 
 
 class TestGraphMultiCut:
@@ -1897,6 +1965,7 @@ class TestGraphMultiCut:
         
         with pytest.raises(exceptions.PreconditionError):
             run_multicut(edges, sv_sources, sv_sinks, path_augment=False)
+        
         pass
 
 
@@ -2039,6 +2108,8 @@ class TestGraphHistory:
         assert new_roots3[0] == merge_root
         assert len(old_roots3) == 1
         assert old_roots3[0] == first_root
+        
+        log_network_call_counts(cg)
 
 
 class TestGraphLocks:
@@ -2109,6 +2180,8 @@ class TestGraphLocks:
             operation_id=operation_id_2,
             future_root_ids_d=future_root_ids_d,
         )[0]
+        
+        log_network_call_counts(cg)
     
     @pytest.mark.timeout(30)
     def test_lock_expiration(self, gen_graph):
@@ -2176,6 +2249,8 @@ class TestGraphLocks:
             max_tries=10,
             waittime_s=0.5,
         )[0]
+        
+        log_network_call_counts(cg)
     
     @pytest.mark.timeout(30)
     def test_lock_renew(self, gen_graph):
@@ -2229,6 +2304,8 @@ class TestGraphLocks:
         )[0]
         
         assert cg.client.renew_locks(root_ids=[root_id], operation_id=operation_id_1)
+        
+        log_network_call_counts(cg)
     
     @pytest.mark.timeout(30)
     def test_lock_merge_lock_old_id(self, gen_graph):
@@ -2293,6 +2370,8 @@ class TestGraphLocks:
         
         assert success
         assert new_root_ids[0] == new_root_id
+        
+        log_network_call_counts(cg)
     
     @pytest.mark.timeout(30)
     def test_indefinite_lock(self, gen_graph):
@@ -2363,6 +2442,8 @@ class TestGraphLocks:
             operation_id=operation_id_2,
             future_root_ids_d=future_root_ids_d,
         )[0]
+        
+        log_network_call_counts(cg)
     
     @pytest.mark.timeout(30)
     def test_indefinite_lock_with_normal_lock_expiration(self, gen_graph):
@@ -2445,6 +2526,8 @@ class TestGraphLocks:
             operation_id=operation_id_2,
             future_root_ids_d=future_root_ids_d,
         )[0]
+        
+        log_network_call_counts(cg)
     
     # TODO fixme: this scenario can't be tested like this
     # @pytest.mark.timeout(30)

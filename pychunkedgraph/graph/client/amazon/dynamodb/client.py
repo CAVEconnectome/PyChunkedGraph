@@ -44,6 +44,7 @@ class Client(ClientWithIDGen, OperationLogger):
             if config.TABLE_PREFIX
             else table_id
         )
+        
         self._max_batch_read_page_size = MAX_BATCH_READ_ITEMS
         self._max_batch_write_page_size = MAX_BATCH_WRITE_ITEMS
         self._max_query_page_size = MAX_QUERY_ITEMS
@@ -69,33 +70,19 @@ class Client(ClientWithIDGen, OperationLogger):
         self._ddb_serializer = TypeSerializer()
         
         self._ddb_translator = DdbTranslator()
+        
+        # TODO: Remove _no_of_reads and _no_of_writes variables. These are added for debugging purposes only.
+        self._no_of_reads = 0
+        self._no_of_writes = 0
     
     """Initialize the graph and store associated meta."""
     
     def create_graph(self, meta: ChunkedGraphMeta, version: str) -> None:
         """Initialize the graph and store associated meta."""
-        # TODO: revisit table creation here. Is it needed for anything but tests?
-        # even for tests, it's better to create in testsuite fixture/resource factory
-        try:
-            row = self._read_byte_row(attributes.GraphMeta.key)
-            if row:
-                raise ValueError(f"{self._table_name} table already exists.")
-        except botocore.exceptions.ClientError as e:
-            if e.response.get("Error", {}).get("Code") != "ResourceNotFoundException":
-                raise e
-        self._main_db.create_table(
-            TableName=self._table_name,
-            KeySchema=[
-                {"AttributeName": "key", "KeyType": "HASH"},
-                {"AttributeName": "sk", "KeyType": "RANGE"},
-            ],
-            AttributeDefinitions=[
-                {"AttributeName": "key", "AttributeType": "S"},
-                {"AttributeName": "sk", "AttributeType": "S"},
-            ],
-            BillingMode="PAY_PER_REQUEST",
-        )
-        self.add_graph_version(version)
+        existing_version = self.read_graph_version()
+        if not existing_version:
+            self.add_graph_version(version)
+        
         self.update_graph_meta(meta)
     
     """Add a version to the graph."""
@@ -112,34 +99,41 @@ class Client(ClientWithIDGen, OperationLogger):
     """Read stored graph version."""
     
     def read_graph_version(self):
-        try:
-            row = self._read_byte_row(attributes.GraphVersion.key)
-            self._version = row[attributes.GraphVersion.Version][0].value
-            return self._version
-        except KeyError:
-            return None
+        row = self._read_byte_row(attributes.GraphVersion.key)
+        cells = row.get(attributes.GraphVersion.Version, [])
+        self._version = None
+        if len(cells) > 0:
+            self._version = cells[0].value
+        return self._version
     
     """Update stored graph meta."""
     
     def update_graph_meta(
         self, meta: ChunkedGraphMeta, overwrite: Optional[bool] = False
     ):
-        if overwrite:
-            self._delete_meta()
-        self._graph_meta = meta
-        row = self.mutate_row(
-            attributes.GraphMeta.key,
-            {attributes.GraphMeta.Meta: meta},
-        )
-        self.write([row])
+        do_write = True
+        
+        if not overwrite:
+            existing_meta = self.read_graph_meta()
+            do_write = not existing_meta
+        
+        if do_write:
+            self._graph_meta = meta
+            row = self.mutate_row(
+                attributes.GraphMeta.key,
+                {attributes.GraphMeta.Meta: meta},
+            )
+            self.write([row])
     
     """Read stored graph meta."""
     
     def read_graph_meta(self):
         logging.debug("read_graph_meta")
         row = self._read_byte_row(attributes.GraphMeta.key)
-        self._graph_meta = row[attributes.GraphMeta.Meta][0].value
-        
+        cells = row.get(attributes.GraphMeta.Meta, [])
+        self._graph_meta = None
+        if len(cells) > 0:
+            self._graph_meta = cells[0].value
         return self._graph_meta
     
     def read_nodes(
@@ -162,7 +156,7 @@ class Client(ClientWithIDGen, OperationLogger):
         logging.debug(
             f"read_nodes: {start_id}, {end_id}, {node_ids}, {properties}, {start_time}, {end_time}, {end_time_inclusive}"
         )
-        if node_ids is not None and len(node_ids) > self._max_query_page_size:
+        if node_ids is not None and len(node_ids) > 0:
             node_ids = np.sort(node_ids)
         
         rows = self._read_byte_rows(
@@ -288,6 +282,7 @@ class Client(ClientWithIDGen, OperationLogger):
         
         for i in range(0, len(deduplicated_rows), batch_size):
             with self._ddb_table.batch_writer() as batch:
+                self._no_of_writes += 1
                 rows_in_this_batch = deduplicated_rows[i: i + batch_size]
                 for row in rows_in_this_batch:
                     ddb_item = self._ddb_translator.row_to_ddb_item(row)
@@ -301,6 +296,7 @@ class Client(ClientWithIDGen, OperationLogger):
     ) -> dict[str, Union[bytes, dict[str, Iterable[TimeStampedCell]]]]:
         """Mutates a single row (doesn't write to DynamoDB)."""
         pk, sk = self._ddb_translator.to_pk_sk(row_key)
+        self._no_of_reads += 1
         ret = self._ddb_table.get_item(Key={"key": pk, "sk": sk})
         item = ret.get('Item')
         
@@ -340,6 +336,7 @@ class Client(ClientWithIDGen, OperationLogger):
         # if the lock column is set but the lock is expired
         # and if there is NO new parent (i.e., the new_parents column is not set).
         try:
+            self._no_of_writes += 1
             self._ddb_table.update_item(
                 Key={"key": pk, "sk": sk},
                 UpdateExpression="SET #c = :c, #lock_timestamp = :current_time",
@@ -390,6 +387,7 @@ class Client(ClientWithIDGen, OperationLogger):
             
             # Attempt to lock all latest root ids
             root_ids = np.unique(new_root_ids)
+            
             for root_id in root_ids:
                 lock_acquired = self.lock_root(root_id, operation_id)
                 # Roll back locks if one root cannot be locked
@@ -424,6 +422,7 @@ class Client(ClientWithIDGen, OperationLogger):
         # Add the given operation_id in the indefinite lock column ONLY IF the indefinite column is not already set
         # and if there is NO new parent (i.e., the new_parents column is not set).
         try:
+            self._no_of_writes += 1
             self._ddb_table.update_item(
                 Key={"key": pk, "sk": sk},
                 UpdateExpression="SET #c = :c, #lock_timestamp = :current_time",
@@ -497,6 +496,7 @@ class Client(ClientWithIDGen, OperationLogger):
         # Delete (remove) the lock column ONLY IF the given operation_id is still the active lock holder and
         # the lock has not expired
         try:
+            self._no_of_writes += 1
             self._ddb_table.update_item(
                 Key={"key": pk, "sk": sk},
                 UpdateExpression="REMOVE #c",
@@ -533,6 +533,7 @@ class Client(ClientWithIDGen, OperationLogger):
         
         # Delete (remove) the lock column ONLY IF the given operation_id is still the active lock holder
         try:
+            self._no_of_writes += 1
             self._ddb_table.update_item(
                 Key={"key": pk, "sk": sk},
                 UpdateExpression="REMOVE #c",
@@ -574,6 +575,7 @@ class Client(ClientWithIDGen, OperationLogger):
         #   (See "renew_lock" method in "pychunkedgraph/graph/client/bigtable/client.py" for reference)
         #
         try:
+            self._no_of_writes += 1
             self._ddb_table.update_item(
                 Key={"key": pk, "sk": sk},
                 UpdateExpression="SET #c = :c, #lock_timestamp = :current_time",
@@ -620,6 +622,7 @@ class Client(ClientWithIDGen, OperationLogger):
         
         lock_column_name = to_column_name(lock_column)
         lock_timestamp_column_name = to_lock_timestamp_column_name(lock_column)
+        self._no_of_reads += 1
         res = self._ddb_table.get_item(
             Key={"key": pk, "sk": sk},
             ProjectionExpression='#c, #lock_timestamp',
@@ -944,6 +947,8 @@ class Client(ClientWithIDGen, OperationLogger):
         :param row_filter: An instance of DynamoDbFilter to filter which rows/columns to read
         :return: Dict
         """
+        from pychunkedgraph.logging.log_db import TimeIt
+        
         n_subrequests = max(
             1, int(np.ceil(len(row_set.row_keys) / self._max_batch_read_page_size))
         )
@@ -958,17 +963,25 @@ class Client(ClientWithIDGen, OperationLogger):
         # Don't forget the original RowSet's row_ranges
         row_sets[0].row_ranges = row_set.row_ranges
         
-        responses = mu.multithread_func(
-            self._execute_read_thread,
-            params=((r, row_filter) for r in row_sets),
-            debug=n_threads == 1,
+        with TimeIt(
+            "chunked_reads",
+            f"{self._table_name}_ddb_profile",
+            operation_id=-1,
+            n_rows=len(row_set.row_keys),
+            n_requests=n_subrequests,
             n_threads=n_threads,
-        )
-        
-        combined_response = {}
-        for resp in responses:
-            combined_response.update(resp)
-        return combined_response
+        ):
+            responses = mu.multithread_func(
+                self._execute_read_thread,
+                params=((r, row_filter) for r in row_sets),
+                debug=n_threads == 1,
+                n_threads=n_threads,
+            )
+            
+            combined_response = {}
+            for resp in responses:
+                combined_response.update(resp)
+            return combined_response
     
     def _execute_read_thread(self, args: Tuple[RowSet, DynamoDbFilter]):
         """Function to be executed in parallel."""
@@ -1039,6 +1052,7 @@ class Client(ClientWithIDGen, OperationLogger):
                 },
             }
             
+            self._no_of_reads += 1
             ret = self._main_db.batch_get_item(RequestItems=params)
             
             items = ret.get("Responses", {}).get(self._table_name, [])
@@ -1082,7 +1096,7 @@ class Client(ClientWithIDGen, OperationLogger):
                     "ExpressionAttributeValues": attr_vals,
                     **kwargs,
                 }
-                
+                self._no_of_reads += 1
                 ret = self._ddb_table.query(**query_kwargs)
                 items = ret.get("Items", [])
                 
@@ -1148,6 +1162,7 @@ class Client(ClientWithIDGen, OperationLogger):
         
         existing_counter = 0
         
+        self._no_of_reads += 1
         res = self._ddb_table.get_item(
             Key={"key": pk, "sk": sk},
             ProjectionExpression='#c',
@@ -1168,6 +1183,7 @@ class Client(ClientWithIDGen, OperationLogger):
         
         counter = existing_counter + size
         
+        self._no_of_writes += 1
         self._ddb_table.update_item(
             Key={"key": pk, "sk": sk},
             UpdateExpression="SET #c = :c",
