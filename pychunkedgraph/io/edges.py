@@ -36,17 +36,20 @@ def deserialize(edges_message: EdgesMsg) -> Tuple[np.ndarray, np.ndarray, np.nda
     return Edges(sv_ids1, sv_ids2, affinities=affinities, areas=areas)
 
 
-def _decompress_edges(content: bytes) -> Dict:
+def _parse_edges(compressed: List[bytes]) -> List[Dict]:
     zdc = zstd.ZstdDecompressor()
-    chunk_edges = ChunkEdgesMsg()
-    chunk_edges.ParseFromString(zdc.multi_decompress_to_buffer(content, threads=4))
-
-    # in, between and cross
-    edges_dict = {}
-    edges_dict[EDGE_TYPES.in_chunk] = deserialize(chunk_edges.in_chunk)
-    edges_dict[EDGE_TYPES.between_chunk] = deserialize(chunk_edges.between_chunk)
-    edges_dict[EDGE_TYPES.cross_chunk] = deserialize(chunk_edges.cross_chunk)
-    return edges_dict
+    decompressed = zdc.multi_decompress_to_buffer(compressed, threads=4)
+    result = []
+    for content in decompressed:
+        content = content.tobytes()
+        chunk_edges = ChunkEdgesMsg()
+        chunk_edges.ParseFromString(content)
+        edges_dict = {}
+        edges_dict[EDGE_TYPES.in_chunk] = deserialize(chunk_edges.in_chunk)
+        edges_dict[EDGE_TYPES.between_chunk] = deserialize(chunk_edges.between_chunk)
+        edges_dict[EDGE_TYPES.cross_chunk] = deserialize(chunk_edges.cross_chunk)
+        result.append(edges_dict)
+    return result
 
 
 def get_chunk_edges(edges_dir: str, chunks_coordinates: List[np.ndarray]) -> Dict:
@@ -59,13 +62,12 @@ def get_chunk_edges(edges_dir: str, chunks_coordinates: List[np.ndarray]) -> Dic
 
     cf = CloudFiles(edges_dir, num_threads=4)
     files = cf.get(fnames, raw=True)
-
-    edges = []
+    compressed = []
     for f in files:
         if not f["content"]:
             continue
-        edges.append(_decompress_edges(f["content"]))
-    return concatenate_chunk_edges(edges)
+        compressed.append(f["content"])
+    return concatenate_chunk_edges(_parse_edges(compressed))
 
 
 def put_chunk_edges(
