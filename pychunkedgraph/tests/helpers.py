@@ -43,7 +43,8 @@ from ..graph.client import (
 #    E.g., "pytest pychunkedgraph/tests/test_uncategorized.py::TestGraphBuild::test_build_big_graph"
 #    to run the "test_build_big_graph" test
 #    - OR run "pytest pychunkedgraph/tests" to run all tests
-emulate_amazon_dynamodb = os.environ.get("EMULATE_AMAZON_DYNAMODB", "True") == "True"
+
+emulate_amazon_dynamodb = os.environ.get("EMULATE_AMAZON_DYNAMODB", "True").lower() == "True".lower()
 AMAZON_LOCAL_DYNAMODB_URL = "http://localhost:8000/" if emulate_amazon_dynamodb else None
 AMAZON_DYNAMODB_TABLE_NAME = "test" if emulate_amazon_dynamodb else os.environ.get("TEST_DDB_TABLE_NAME", None)
 test_graph_id = AMAZON_DYNAMODB_TABLE_NAME  # Graph ID is the table name
