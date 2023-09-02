@@ -38,12 +38,11 @@ def deserialize(edges_message: EdgesMsg) -> Tuple[np.ndarray, np.ndarray, np.nda
 
 def _parse_edges(compressed: List[bytes]) -> List[Dict]:
     zdc = zstd.ZstdDecompressor()
-    decompressed = zdc.multi_decompress_to_buffer(compressed, threads=4)
+    decompressed = zdc.multi_decompress_to_buffer(compressed, threads=-1)
     result = []
     for content in decompressed:
-        content = content.tobytes()
         chunk_edges = ChunkEdgesMsg()
-        chunk_edges.ParseFromString(content)
+        chunk_edges.ParseFromString(memoryview(content))
         edges_dict = {}
         edges_dict[EDGE_TYPES.in_chunk] = deserialize(chunk_edges.in_chunk)
         edges_dict[EDGE_TYPES.between_chunk] = deserialize(chunk_edges.between_chunk)
