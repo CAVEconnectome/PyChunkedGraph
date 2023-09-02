@@ -394,7 +394,7 @@ def remove_edges(
         new_cx_edges_d = cx_edges_d.get(new_id, {})
         for layer, edges in new_cx_edges_d.items():
             svs = np.unique(edges)
-            parents = cg.get_parents(svs)
+            parents = cg.get_parents(svs, time_stamp=parent_ts)
             temp_map = dict(zip(svs, parents))
 
             edges = fastremap.remap(edges, temp_map, preserve_missing_labels=True)
@@ -523,7 +523,10 @@ class CreateParentNodes:
         parent_layer = self.cg.get_chunk_layer(parent)
         edge_nodes = np.unique(np.concatenate([*cx_edges_d.values(), types.empty_2d]))
         edge_parents = self.cg.get_roots(
-            edge_nodes, stop_layer=parent_layer, ceil=False
+            edge_nodes,
+            stop_layer=parent_layer,
+            ceil=False,
+            time_stamp=self._last_successful_ts,
         )
         edge_parents_d = dict(zip(edge_nodes, edge_parents))
 
