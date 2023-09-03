@@ -279,7 +279,7 @@ proto-plus==1.22.1
     #   google-cloud-bigtable
     #   google-cloud-datastore
     #   google-cloud-pubsub
-protobuf==4.21.9
+protobuf==4.24.2
     # via
     #   -r requirements.in
     #   cloud-files
