@@ -1,5 +1,5 @@
 click >= 8.0
-protobuf>4
+protobuf>=4.22
 urllib3>=1.26.3
 cloud-files>=4.21.1
 requests>=2.25.0
