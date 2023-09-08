@@ -202,12 +202,9 @@ def _update_neighbor_cross_edges(
     for cx_layer in range(start_layer, cg.meta.layer_count):
         counterparts.update(_get_counterparts(cx_layer))
 
-    counterpart_cx_edges_d = cg.get_cross_chunk_edges(
-        counterparts, time_stamp=parent_ts
-    )
-
+    cx_edges_d = cg.get_cross_chunk_edges(list(counterparts), time_stamp=parent_ts)
     updated_entries = []
-    for counterpart, edges_d in counterpart_cx_edges_d.items():
+    for counterpart, edges_d in cx_edges_d.items():
         val_dict = {}
         for layer in range(2, cg.meta.layer_count):
             edges = edges_d.get(layer, types.empty_2d)
