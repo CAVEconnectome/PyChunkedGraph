@@ -8,6 +8,7 @@ from typing import Iterable
 
 import numpy as np
 
+
 def get_chunks_boundary(voxel_boundary, chunk_size) -> np.ndarray:
     """returns number of chunks in each dimension"""
     return np.ceil((voxel_boundary / chunk_size)).astype(int)
@@ -43,7 +44,7 @@ def normalize_bounding_box(
 
 
 def get_chunk_layer(meta, node_or_chunk_id: np.uint64) -> int:
-    """ Extract Layer from Node ID or Chunk ID """
+    """Extract Layer from Node ID or Chunk ID"""
     return int(int(node_or_chunk_id) >> 64 - meta.graph_config.LAYER_ID_BITS)
 
 
@@ -75,9 +76,9 @@ def get_chunk_coordinates(meta, node_or_chunk_id: np.uint64) -> np.ndarray:
     y_offset = x_offset - bits_per_dim
     z_offset = y_offset - bits_per_dim
 
-    x = int(node_or_chunk_id) >> x_offset & 2 ** bits_per_dim - 1
-    y = int(node_or_chunk_id) >> y_offset & 2 ** bits_per_dim - 1
-    z = int(node_or_chunk_id) >> z_offset & 2 ** bits_per_dim - 1
+    x = int(node_or_chunk_id) >> x_offset & 2**bits_per_dim - 1
+    y = int(node_or_chunk_id) >> y_offset & 2**bits_per_dim - 1
+    z = int(node_or_chunk_id) >> z_offset & 2**bits_per_dim - 1
     return np.array([x, y, z])
 
 
@@ -86,7 +87,7 @@ def get_chunk_coordinates_multiple(meta, ids: np.ndarray) -> np.ndarray:
     Array version of get_chunk_coordinates.
     Assumes all given IDs are in same layer.
     """
-    if not len(ids):
+    if len(ids) == 0:
         return np.array([])
     layer = get_chunk_layer(meta, ids[0])
     bits_per_dim = meta.bitmasks[layer]
@@ -95,10 +96,10 @@ def get_chunk_coordinates_multiple(meta, ids: np.ndarray) -> np.ndarray:
     y_offset = x_offset - bits_per_dim
     z_offset = y_offset - bits_per_dim
 
-    ids = np.array(ids, dtype=int)
-    X = ids >> x_offset & 2 ** bits_per_dim - 1
-    Y = ids >> y_offset & 2 ** bits_per_dim - 1
-    Z = ids >> z_offset & 2 ** bits_per_dim - 1
+    ids = np.array(ids, dtype=int, copy=False)
+    X = ids >> x_offset & 2**bits_per_dim - 1
+    Y = ids >> y_offset & 2**bits_per_dim - 1
+    Z = ids >> z_offset & 2**bits_per_dim - 1
     return np.column_stack((X, Y, Z))
 
 
@@ -142,14 +143,15 @@ def get_chunk_ids_from_coords(meta, layer: int, coords: np.ndarray):
 
 
 def get_chunk_ids_from_node_ids(meta, ids: Iterable[np.uint64]) -> np.ndarray:
-    """ Extract Chunk IDs from Node IDs"""
+    """Extract Chunk IDs from Node IDs"""
     if len(ids) == 0:
         return np.array([], dtype=np.uint64)
 
     bits_per_dims = np.array([meta.bitmasks[l] for l in get_chunk_layers(meta, ids)])
     offsets = 64 - meta.graph_config.LAYER_ID_BITS - 3 * bits_per_dims
 
-    cids1 = np.array((np.array(ids, dtype=int) >> offsets) << offsets, dtype=np.uint64)
+    ids = np.array(ids, dtype=int, copy=False)
+    cids1 = np.array((ids >> offsets) << offsets, dtype=np.uint64)
     # cids2 = np.vectorize(get_chunk_id)(meta, ids)
     # assert np.all(cids1 == cids2)
     return cids1
@@ -164,7 +166,7 @@ def _compute_chunk_id(
 ) -> np.uint64:
     s_bits_per_dim = meta.bitmasks[layer]
     if not (
-        x < 2 ** s_bits_per_dim and y < 2 ** s_bits_per_dim and z < 2 ** s_bits_per_dim
+        x < 2**s_bits_per_dim and y < 2**s_bits_per_dim and z < 2**s_bits_per_dim
     ):
         raise ValueError(
             f"Coordinate is out of range \
