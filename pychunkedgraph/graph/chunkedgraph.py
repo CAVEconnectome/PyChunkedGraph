@@ -629,7 +629,7 @@ class ChunkedGraph:
         )
         for id_, val in fake_edges_d.items():
             edges = np.concatenate(
-                [np.array(e.value, dtype=basetypes.NODE_ID) for e in val]
+                [np.array(e.value, dtype=basetypes.NODE_ID, copy=False) for e in val]
             )
             result[id_] = Edges(edges[:, 0], edges[:, 1], fake_edges=True)
         return result
@@ -827,82 +827,7 @@ class ChunkedGraph:
             multicut_as_split=True,
         ).execute()
 
-    # PRIVATE
-
-    def _get_bounding_chunk_ids(
-        self,
-        parent_chunk_ids: typing.Iterable,
-        unique: bool = False,
-    ) -> typing.Dict:
-        """
-        Returns bounding chunk IDs at layers < parent_layer for all chunk IDs.
-        Dict[parent_chunk_id] = np.array(bounding_chunk_ids)
-        """
-        parent_chunk_coords = self.get_chunk_coordinates_multiple(parent_chunk_ids)
-        parents_layer = self.get_chunk_layer(parent_chunk_ids[0])
-        chunk_id_bchunk_ids_d = {}
-        for i, chunk_id in enumerate(parent_chunk_ids):
-            if chunk_id in chunk_id_bchunk_ids_d:
-                # `parent_chunk_ids` can have duplicates
-                # avoid redundant calculations
-                continue
-            parent_coord = parent_chunk_coords[i]
-            chunk_ids = [types.empty_1d]
-            for child_layer in range(2, parents_layer):
-                bcoords = chunk_utils.get_bounding_children_chunks(
-                    self.meta,
-                    parents_layer,
-                    parent_coord,
-                    child_layer,
-                    return_unique=False,
-                )
-                bchunks_ids = chunk_utils.get_chunk_ids_from_coords(
-                    self.meta, child_layer, bcoords
-                )
-                chunk_ids.append(bchunks_ids)
-            chunk_ids = np.concatenate(chunk_ids)
-            if unique:
-                chunk_ids = np.unique(chunk_ids)
-            chunk_id_bchunk_ids_d[chunk_id] = chunk_ids
-        return chunk_id_bchunk_ids_d
-
-    def _get_bounding_l2_children(self, parents: typing.Iterable) -> typing.Dict:
-        parent_chunk_ids = self.get_chunk_ids_from_node_ids(parents)
-        chunk_id_bchunk_ids_d = self._get_bounding_chunk_ids(
-            parent_chunk_ids, unique=len(parents) >= 200
-        )
-
-        parent_descendants_d = {
-            _id: np.array([_id], dtype=basetypes.NODE_ID) for _id in parents
-        }
-        descendants_all = np.concatenate(list(parent_descendants_d.values()))
-        descendants_layers = self.get_chunk_layers(descendants_all)
-        layer_mask = descendants_layers > 2
-        descendants_all = descendants_all[layer_mask]
-
-        while descendants_all.size:
-            descendant_children_d = self.get_children(descendants_all)
-            for i, parent_id in enumerate(parents):
-                _descendants = parent_descendants_d[parent_id]
-                _layers = self.get_chunk_layers(_descendants)
-                _l2mask = _layers == 2
-                descendants = [_descendants[_l2mask]]
-                for child in _descendants[~_l2mask]:
-                    descendants.append(descendant_children_d[child])
-                descendants = np.concatenate(descendants)
-                chunk_ids = self.get_chunk_ids_from_node_ids(descendants)
-                bchunk_ids = chunk_id_bchunk_ids_d[parent_chunk_ids[i]]
-                bounding_descendants = descendants[np.in1d(chunk_ids, bchunk_ids)]
-                parent_descendants_d[parent_id] = bounding_descendants
-
-            descendants_all = np.concatenate(list(parent_descendants_d.values()))
-            descendants_layers = self.get_chunk_layers(descendants_all)
-            layer_mask = descendants_layers > 2
-            descendants_all = descendants_all[layer_mask]
-        return parent_descendants_d
-
     # HELPERS / WRAPPERS
-
     def is_root(self, node_id: basetypes.NODE_ID) -> bool:
         return self.get_chunk_layer(node_id) == self.meta.layer_count
 
@@ -940,7 +865,9 @@ class ChunkedGraph:
         return chunk_utils.get_chunk_coordinates(self.meta, node_or_chunk_id)
 
     def get_chunk_coordinates_multiple(self, node_or_chunk_ids: typing.Sequence):
-        node_or_chunk_ids = np.array(node_or_chunk_ids, dtype=basetypes.NODE_ID)
+        node_or_chunk_ids = np.array(
+            node_or_chunk_ids, dtype=basetypes.NODE_ID, copy=False
+        )
         layers = self.get_chunk_layers(node_or_chunk_ids)
         assert np.all(layers == layers[0]), "All IDs must have the same layer."
         return chunk_utils.get_chunk_coordinates_multiple(self.meta, node_or_chunk_ids)

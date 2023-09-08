@@ -441,7 +441,7 @@ def _get_flipped_ids(id_map, node_ids):
     """
     returns old or new ids according to the map
     """
-    ids = [np.array(list(id_map[id_]), dtype=basetypes.NODE_ID) for id_ in node_ids]
+    ids = [np.array(list(id_map[id_]), dtype=basetypes.NODE_ID, copy=False) for id_ in node_ids]
     return np.concatenate(ids)
 
 
@@ -629,7 +629,7 @@ class CreateParentNodes:
         assert len(former_roots) < 2 or len(new_roots) < 2, "new roots are inconsistent"
         for new_root_id in new_roots:
             val_dict = {
-                attributes.Hierarchy.FormerParent: np.array(former_roots),
+                attributes.Hierarchy.FormerParent: former_roots,
                 attributes.OperationLogs.OperationID: self._operation_id,
             }
             self.new_entries.append(
@@ -642,7 +642,7 @@ class CreateParentNodes:
 
         for former_root_id in former_roots:
             val_dict = {
-                attributes.Hierarchy.NewParent: np.array(new_roots),
+                attributes.Hierarchy.NewParent: new_roots,
                 attributes.OperationLogs.OperationID: self._operation_id,
             }
             self.new_entries.append(
