@@ -441,6 +441,8 @@ def _get_flipped_ids(id_map, node_ids):
     """
     returns old or new ids according to the map
     """
+    if len(node_ids) == 0:
+        return types.empty_1d
     ids = [
         np.array(list(id_map[id_]), dtype=basetypes.NODE_ID, copy=False)
         for id_ in node_ids
