@@ -353,7 +353,7 @@ class ChunkedGraph:
                 except KeyError:
                     result[id_] = {}
             return result
-        return self.cache.cross_chunk_edges_multiple(node_ids)
+        return self.cache.cross_chunk_edges_multiple(node_ids, time_stamp=time_stamp)
 
     def get_roots(
         self,
