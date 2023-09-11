@@ -214,7 +214,7 @@ def _write(
                         continue
                     layer_edges = node_cx_edges_d[layer]
                     nodes = np.unique(layer_edges)
-                    parents = cg.get_roots(nodes, stop_layer=parent_layer, ceil=False)
+                    parents = cg.get_roots(nodes, stop_layer=node_layer, ceil=False)
 
                     edge_parents_d = dict(zip(nodes, parents))
                     layer_edges = fastremap.remap(
