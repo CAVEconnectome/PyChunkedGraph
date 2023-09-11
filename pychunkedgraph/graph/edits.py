@@ -563,12 +563,12 @@ class CreateParentNodes:
         get cross edges of all, find connected components
         update parent old IDs
         """
-        parent_layer = layer + 1
         new_ids = self._new_ids_d[layer]
         layer_node_ids = self._get_layer_node_ids(new_ids, layer)
         components, graph_ids = self._get_connected_components(layer_node_ids, layer)
         new_parent_ids = []
         for cc_indices in components:
+            parent_layer = layer + 1  # must be reset for each connected component
             cc_ids = graph_ids[cc_indices]
             if len(cc_ids) == 1:
                 # skip connection
