@@ -212,16 +212,13 @@ def _write(
                 for layer in range(node_layer, cg.meta.layer_count):
                     if not layer in node_cx_edges_d:
                         continue
-
                     layer_edges = node_cx_edges_d[layer]
-                    edges_nodes = np.unique(layer_edges)
-                    edges_nodes_layers = cg.get_chunk_layers(edges_nodes)
-                    mask = edges_nodes_layers < layer_id - 1
-                    edges_nodes_parents = cg.get_parents(edges_nodes[mask])
-                    temp_map = dict(zip(edges_nodes[mask], edges_nodes_parents))
+                    nodes = np.unique(layer_edges)
+                    parents = cg.get_roots(nodes, stop_layer=parent_layer, ceil=False)
 
+                    edge_parents_d = dict(zip(nodes, parents))
                     layer_edges = fastremap.remap(
-                        layer_edges, temp_map, preserve_missing_labels=True
+                        layer_edges, edge_parents_d, preserve_missing_labels=True
                     )
                     layer_edges = np.unique(layer_edges, axis=0)
 
