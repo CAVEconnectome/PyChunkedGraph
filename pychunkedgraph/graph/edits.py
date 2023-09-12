@@ -434,7 +434,6 @@ def remove_edges(
         parent_ts=parent_ts,
     )
     new_roots = create_parents.run()
-    raise RuntimeError("haha")
     create_parents.create_new_entries()
     return new_roots, new_l2_ids, updated_entries + create_parents.new_entries
 
