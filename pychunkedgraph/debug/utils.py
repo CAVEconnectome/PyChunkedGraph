@@ -2,9 +2,6 @@
 
 import numpy as np
 
-from ..graph import ChunkedGraph
-from ..graph.utils.basetypes import NODE_ID
-
 
 def print_attrs(d):
     for k, v in d.items():
@@ -18,12 +15,7 @@ def print_attrs(d):
             print(v)
 
 
-def print_node(
-    cg: ChunkedGraph,
-    node: NODE_ID,
-    indent: int = 0,
-    stop_layer: int = 2,
-) -> None:
+def print_node(cg, node: np.uint64, indent: int = 0, stop_layer: int = 2) -> None:
     children = cg.get_children(node)
     print(f"{' ' * indent}{node}[{len(children)}]")
     if cg.get_chunk_layer(node) <= stop_layer:
@@ -32,8 +24,8 @@ def print_node(
         print_node(cg, child, indent=indent + 4, stop_layer=stop_layer)
 
 
-def get_l2children(cg: ChunkedGraph, node: NODE_ID) -> np.ndarray:
-    nodes = np.array([node], dtype=NODE_ID)
+def get_l2children(cg, node: np.uint64) -> np.ndarray:
+    nodes = np.array([node], dtype=np.uint64)
     layers = cg.get_chunk_layers(nodes)
     assert np.all(layers > 2), "nodes must be at layers > 2"
     l2children = []
