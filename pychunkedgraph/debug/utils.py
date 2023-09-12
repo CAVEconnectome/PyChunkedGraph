@@ -27,7 +27,7 @@ def print_node(cg, node: np.uint64, indent: int = 0, stop_layer: int = 2) -> Non
 def get_l2children(cg, node: np.uint64) -> np.ndarray:
     nodes = np.array([node], dtype=np.uint64)
     layers = cg.get_chunk_layers(nodes)
-    assert np.all(layers > 2), "nodes must be at layers > 2"
+    assert np.all(layers >= 2), "nodes must be at layers >= 2"
     l2children = []
     while nodes.size:
         children = cg.get_children(nodes, flatten=True)
