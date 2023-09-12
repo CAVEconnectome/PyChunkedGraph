@@ -676,6 +676,9 @@ class ChunkedGraph:
         sv_parent_d = {}
         for l2id in l2id_children_d:
             svs = l2id_children_d[l2id]
+            for sv in svs:
+                if sv in sv_parent_d:
+                    raise ValueError("Found conflicting parents.")
             sv_parent_d.update(dict(zip(svs.tolist(), [l2id] * len(svs))))
 
         in_edges, out_edges, cross_edges = edge_utils.categorize_edges_v2(
