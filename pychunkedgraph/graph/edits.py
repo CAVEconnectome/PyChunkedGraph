@@ -309,6 +309,7 @@ def add_edges(
 
 def _process_l2_agglomeration(
     cg,
+    operation_id: int,
     agg: types.Agglomeration,
     removed_edges: np.ndarray,
     parent_ts: datetime.datetime = None,
@@ -321,7 +322,8 @@ def _process_l2_agglomeration(
 
     cross_edges = agg.cross_edges.get_pairs()
     parents = cg.get_parents(cross_edges[:, 0], time_stamp=parent_ts, raw_only=True)
-    assert np.unique(parents).size == 1, "got cross edges from more than one l2 node"
+    err = f"got cross edges from more than one l2 node; op {operation_id}"
+    assert np.unique(parents).size == 1, err
     root = cg.get_root(parents[0], time_stamp=parent_ts, raw_only=True)
 
     # inactive edges must be filtered out
@@ -384,7 +386,7 @@ def remove_edges(
     for id_ in l2ids:
         agg = l2id_agglomeration_d[id_]
         ccs, graph_ids, cross_edges = _process_l2_agglomeration(
-            cg, agg, removed_edges, parent_ts
+            cg, operation_id, agg, removed_edges, parent_ts
         )
         new_parents = cg.id_client.create_node_ids(chunk_id_map[agg.node_id], len(ccs))
 
@@ -432,6 +434,7 @@ def remove_edges(
         parent_ts=parent_ts,
     )
     new_roots = create_parents.run()
+    raise RuntimeError("haha")
     create_parents.create_new_entries()
     return new_roots, new_l2_ids, updated_entries + create_parents.new_entries
 
@@ -578,7 +581,8 @@ class CreateParentNodes:
             mask = np.isin(cc_ids, all_old_ids)
             old_ids = cc_ids[mask]
             new_ids = _get_flipped_ids(self._old_new_id_d, cc_ids[mask])
-            assert np.all(~mask), f"got old ids {old_ids} -> {new_ids}"
+            err = f"got old ids {old_ids} -> {new_ids}; op {self._operation_id}"
+            assert np.all(~mask), err
             if len(cc_ids) == 1:
                 # skip connection
                 parent_layer = self.cg.meta.layer_count
@@ -637,7 +641,8 @@ class CreateParentNodes:
         former_roots = _get_flipped_ids(self._new_old_id_d, new_roots)
         former_roots = np.unique(former_roots)
 
-        assert len(former_roots) < 2 or len(new_roots) < 2, "new roots are inconsistent"
+        err = f"new roots are inconsistent; op {self._operation_id}"
+        assert len(former_roots) < 2 or len(new_roots) < 2, err
         for new_root_id in new_roots:
             val_dict = {
                 attributes.Hierarchy.FormerParent: former_roots,
@@ -687,9 +692,10 @@ class CreateParentNodes:
             for id_ in new_ids:
                 val_dict = val_dicts.get(id_, {})
                 children = self.cg.get_children(id_)
+                err = f"parent layer less than children; op {self._operation_id}"
                 assert np.max(
                     self.cg.get_chunk_layers(children)
-                ) < self.cg.get_chunk_layer(id_), "Parent layer less than children."
+                ) < self.cg.get_chunk_layer(id_), err
                 val_dict[attributes.Hierarchy.Child] = children
                 self.new_entries.append(
                     self.cg.client.mutate_row(
