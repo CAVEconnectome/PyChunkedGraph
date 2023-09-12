@@ -567,9 +567,18 @@ class CreateParentNodes:
         layer_node_ids = self._get_layer_node_ids(new_ids, layer)
         components, graph_ids = self._get_connected_components(layer_node_ids, layer)
         new_parent_ids = []
+        all_old_ids = []
+        for v in self._new_old_id_d.values():
+            all_old_ids.extend(v)
+        all_old_ids = np.array(all_old_ids, dtype=basetypes.NODE_ID)
+
         for cc_indices in components:
             parent_layer = layer + 1  # must be reset for each connected component
             cc_ids = graph_ids[cc_indices]
+            mask = np.isin(cc_ids, all_old_ids)
+            old_ids = cc_ids[mask]
+            new_ids = _get_flipped_ids(self._old_new_id_d, cc_ids[mask])
+            assert np.all(~mask), f"got old ids {old_ids} -> {new_ids}"
             if len(cc_ids) == 1:
                 # skip connection
                 parent_layer = self.cg.meta.layer_count
