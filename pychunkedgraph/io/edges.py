@@ -2,7 +2,7 @@
 """
 Functions for reading and writing edges from cloud storage.
 """
-
+import os
 from typing import Dict
 from typing import List
 from typing import Tuple
@@ -38,7 +38,8 @@ def deserialize(edges_message: EdgesMsg) -> Tuple[np.ndarray, np.ndarray, np.nda
 
 def _parse_edges(compressed: List[bytes]) -> List[Dict]:
     zdc = zstd.ZstdDecompressor()
-    decompressed = zdc.multi_decompress_to_buffer(compressed, threads=-1)
+    n_threads = int(os.environ.get("ZSTD_THREADS", 1))
+    decompressed = zdc.multi_decompress_to_buffer(compressed, threads=n_threads)
     result = []
     for content in decompressed:
         chunk_edges = ChunkEdgesMsg()
