@@ -18,6 +18,7 @@ from .cluster import randomize_grid_points
 from .manager import IngestionManager
 from .utils import bootstrap
 from .utils import chunk_id_str
+from .simple_tests import run_all
 from .create.abstract_layers import add_layer
 from ..graph.chunkedgraph import ChunkedGraph
 from ..utils.redis import get_redis_connection
@@ -186,3 +187,9 @@ def ingest_chunk_local(graph_id: str, chunk_info, n_threads: int):
     """Manually ingest a chunk on a local machine."""
     cg = ChunkedGraph(graph_id=graph_id)
     add_layer(cg, chunk_info[0], chunk_info[1:], n_threads=n_threads)
+
+
+@ingest_cli.command("run_tests")
+@click.argument("graph_id", type=str)
+def run_tests(graph_id):
+    run_all(ChunkedGraph(graph_id=graph_id))
