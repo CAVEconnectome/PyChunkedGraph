@@ -70,10 +70,34 @@ def _get_node_coords_and_layers_map(
     return node_coords, dict(zip(node_ids, node_layers))
 
 
-def _normalize_coordinates(coords, layer, bfs_depth, max_layer):
-    node_depth = max_layer - layer
-    depth_diff = node_depth - bfs_depth
-    return coords // 2**depth_diff
+def sort_octree_row(coords):
+    """
+    Sort children by their morton code.
+    """
+    coords = np.array(coords, dtype=int, copy=False)
+    if coords.size == 0:
+        return empty_1d
+
+    def z_order(x, y, z):
+        result = 0
+        for i in range(10):
+            result |= (
+                ((x & (1 << i)) << (2 * i))
+                | ((y & (1 << i)) << ((2 * i) + 1))
+                | ((z & (1 << i)) << ((2 * i) + 2))
+            )
+        return result
+
+    x_coords = coords[:, 0]
+    y_coords = coords[:, 1]
+    z_coords = coords[:, 2]
+    z_order_values = np.array(
+        [z_order(x, y, z) for x, y, z in zip(x_coords, y_coords, z_coords)],
+        dtype=np.uint32,
+    )
+
+    sorted_indices = np.argsort(z_order_values)
+    return sorted_indices
 
 
 def build_octree(
@@ -91,7 +115,7 @@ def build_octree(
       requested/rendered.
     """
     node_ids = np.fromiter(mesh_fragments.keys(), dtype=NODE_ID)
-    node_coords_d, node_layers_d = _get_node_coords_and_layers_map(cg, node_children)
+    node_coords_d, _ = _get_node_coords_and_layers_map(cg, node_children)
     skipped, leaves = _get_skipped_and_missing_leaf_nodes(node_children, mesh_fragments)
 
     OCTREE_NODE_SIZE = 5
@@ -105,24 +129,15 @@ def build_octree(
 
     que = deque()
     rows_used = 1
-    que.append((node_id, 0))
+    que.append(node_id)
 
     while len(que) > 0:
         row_counter -= 1
-        current_node, depth = que.popleft()
+        current_node = que.popleft()
         children = node_children[current_node]
-        node_layer = node_layers_d[current_node]
         node_coords = node_coords_d[current_node]
 
-        # node_coords = _normalize_coordinates(
-        #     coords=node_coords,
-        #     layer=node_layer,
-        #     bfs_depth=depth,
-        #     max_layer=cg.meta.layer_count,
-        # )
-
         x, y, z = node_coords
-        # x, y, z = node_coords * np.array(cg.meta.graph_config.CHUNK_SIZE, dtype=int)
         offset = OCTREE_NODE_SIZE * row_counter
         octree[offset + 0] = x
         octree[offset + 1] = y
@@ -138,8 +153,7 @@ def build_octree(
         octree_node_ids[row_counter] = current_node
         try:
             if children.size == 1:
-                # map to child fragment
-                # octree_fragments[row_counter] = mesh_fragments[children[0]]
+                # mark node virtual
                 octree[offset + 3] |= 1 << 31
             else:
                 octree_fragments[row_counter] = mesh_fragments[current_node]
@@ -147,8 +161,14 @@ def build_octree(
             # no mesh, mark node empty
             octree[offset + 4] |= 1 << 31
 
+        children_coords = []
         for child in children:
-            que.append((child, depth + 1))
+            children_coords.append(cg.get_chunk_coordinates(child))
+
+        indices = sort_octree_row(children_coords)
+        children = children[indices]
+        for child in children:
+            que.append(child)
     return octree, octree_node_ids, octree_fragments
 
 
