@@ -975,11 +975,7 @@ def chunk_initial_mesh_task(
         print("num ids", len(mesher.ids()))
     result.append(len(mesher.ids()))
     for obj_id in mesher.ids():
-        mesh = mesher.get_mesh(
-            obj_id,
-            simplification_factor=100,
-            max_simplification_error=max_err,
-        )
+        mesh = mesher.get(obj_id, reduction_factor=100, max_error=max_err)
         mesher.erase(obj_id)
         mesh.vertices[:] += chunk_offset
         if encoding == "draco":
