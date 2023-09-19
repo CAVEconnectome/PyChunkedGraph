@@ -5,8 +5,8 @@ dependencies:
   - python==3.11.4
   - pip
   - tox
-  - uwsgi
-  - graph-tool-base
+  - uwsgi==2.0.21
+  - graph-tool-base==2.58
   - pip:
-    - -r requirements.in
+    - -r requirements.txt
     - -r requirements-dev.txt
