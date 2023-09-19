@@ -44,12 +44,14 @@ steps:
     waitFor: ['build-final-image']
     id: 'tag-final-image'
     secretEnv: ["USERNAME"]
-
+    
   # Push the final image
-  - name: 'gcr.io/cloud-builders/docker'
-    args: ['push', '$$USERNAME/pychunkedgraph:$TAG_NAME']
-    waitFor: ['tag-final-image']
+  - name: "gcr.io/cloud-builders/docker"
+    entrypoint: "bash"
+    args: ["-c", "docker push $$USERNAME/pychunkedgraph:$TAG_NAME"]
     secretEnv: ["USERNAME"]
+    waitFor: ['tag-final-image']
+  
 
 images:
   # Already pushed the dependencies during build for caching purposes
