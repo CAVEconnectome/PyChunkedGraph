@@ -7,7 +7,7 @@ steps:
   # Login to Docker Hub
   - name: "gcr.io/cloud-builders/docker"
     entrypoint: "bash"
-    args: ["-c", "docker login --username=$$USERNAME --password=$$PASSWORD"]
+    args: ["-c", "echo '$$PASSWORD' | docker login --username $$USERNAME --password-stdin"]
     secretEnv: ["USERNAME", "PASSWORD"]
 
   # Build the pcg-build stage and push it to the registry for caching
