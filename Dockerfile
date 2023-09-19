@@ -20,7 +20,7 @@ RUN wget \
 
 # Install PCG dependencies - especially graph-tool
 # Note: uwsgi has trouble with pip and python3.11, so adding this with conda, too
-COPY requirements.in .
+COPY requirements.txt .
 COPY requirements.yml .
 COPY requirements-dev.txt .
 RUN conda env create -n ${CONDA_ENV} -f requirements.yml
