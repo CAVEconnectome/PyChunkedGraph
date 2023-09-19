@@ -81,7 +81,7 @@ steps:
   # Push the final image
   - name: "gcr.io/cloud-builders/docker"
     entrypoint: "bash"
-    args: ["-c", "docker push $$USERNAME/pychunkedgraph:$TAG_NAME"]
+    args: ["-c", "docker push docker.io/$$USERNAME/pychunkedgraph:$TAG_NAME"]
     secretEnv: ["USERNAME"]
     waitFor: ["tag-final-image"]
 
