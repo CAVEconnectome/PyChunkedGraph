@@ -1,94 +1,39 @@
-options:
-  env:
-    # buildkit required to precisely target/build individual stages
-    - DOCKER_BUILDKIT=1
-
 steps:
   # Login to Docker Hub
+  - name: "gcr.io/cloud-builders/docker"
+    entrypoint: "bash"
+    args: ["-c", "docker login --username=$$USERNAME --password=$$PASSWORD"]
+    secretEnv: ["USERNAME", "PASSWORD"]
+
+  # Build the final stage image - Kaniko takes care caching
+  - name: "gcr.io/kaniko-project/executor:latest"
+    args:
+      - "--cache=true"
+      - "--destination=gcr.io/$PROJECT_ID/pychunkedgraph:$TAG_NAME"
+    timeout: 1800s
+
+  # TODO: can't figure out how to just re-tag and push to Dockerhub
+  - name: "gcr.io/cloud-builders/docker"
+    entrypoint: "bash"
+    args: ["-c", "docker pull gcr.io/$PROJECT_ID/pychunkedgraph:$TAG_NAME"]
+
+  # Additional tag for Dockerhub
   - name: "gcr.io/cloud-builders/docker"
     entrypoint: "bash"
     args:
       [
         "-c",
-        "echo $$PASSWORD | docker login --username $$USERNAME --password-stdin",
+        "docker tag gcr.io/$PROJECT_ID/pychunkedgraph:$TAG_NAME $$USERNAME/pychunkedgraph:$TAG_NAME",
       ]
-    secretEnv: ["USERNAME", "PASSWORD"]
-
-  # Build the pcg-build stage and push it to the registry for caching
-  - name: "gcr.io/cloud-builders/docker"
-    args:
-      [
-        "build",
-        "--target=pcg-build",
-        "--cache-from=gcr.io/$PROJECT_ID/pychunkedgraph:pcg-build",
-        "-t",
-        "gcr.io/$PROJECT_ID/pychunkedgraph:pcg-build",
-        ".",
-      ]
-    id: "build-pcg-build"
-    waitFor: ["-"]
-
-  # Push the pcg-build image to the registry
-  - name: "gcr.io/cloud-builders/docker"
-    args: ["push", "gcr.io/$PROJECT_ID/pychunkedgraph:pcg-build"]
-    waitFor: ["build-pcg-build"]
-
-  # Build the bigtable-emulator-build stage and push it to the registry for caching
-  - name: "gcr.io/cloud-builders/docker"
-    args:
-      [
-        "build",
-        "--target=bigtable-emulator-build",
-        "--cache-from=gcr.io/$PROJECT_ID/pychunkedgraph:bigtable-emulator-build",
-        "-t",
-        "gcr.io/$PROJECT_ID/pychunkedgraph:bigtable-emulator-build",
-        ".",
-      ]
-    id: "build-bigtable-emulator-build"
-    waitFor: ["-"]
-
-  # Push the bigtable-emulator-build image to the registry
-  - name: "gcr.io/cloud-builders/docker"
-    args: ["push", "gcr.io/$PROJECT_ID/pychunkedgraph:bigtable-emulator-build"]
-    waitFor: ["build-bigtable-emulator-build"]
-
-  # Finally, build the final image, using cached versions for previous stages
-  - name: "gcr.io/cloud-builders/docker"
-    args:
-      [
-        "build",
-        "--cache-from=gcr.io/$PROJECT_ID/pychunkedgraph:pcg-build",
-        "--cache-from=gcr.io/$PROJECT_ID/pychunkedgraph:bigtable-emulator-build",
-        "-t",
-        "gcr.io/$PROJECT_ID/pychunkedgraph:$TAG_NAME",
-        ".",
-      ]
-    id: "build-final-image"
-    timeout: 600s
-
-  # Additional tag with username
-  - name: "gcr.io/cloud-builders/docker"
-    args:
-      [
-        "tag",
-        "gcr.io/$PROJECT_ID/pychunkedgraph:$TAG_NAME",
-        "$$USERNAME/pychunkedgraph:$TAG_NAME",
-      ]
-    waitFor: ["build-final-image"]
-    id: "tag-final-image"
     secretEnv: ["USERNAME"]
 
-  # Push the final image
+  # Push the final image to Dockerhub
   - name: "gcr.io/cloud-builders/docker"
     entrypoint: "bash"
-    args: ["-c", "docker push docker.io/$$USERNAME/pychunkedgraph:$TAG_NAME"]
+    args: ["-c", "docker push $$USERNAME/pychunkedgraph:$TAG_NAME"]
     secretEnv: ["USERNAME"]
-    waitFor: ["tag-final-image"]
 
 images:
-  # Already pushed the dependencies during build for caching purposes
-  # - "gcr.io/$PROJECT_ID/pychunkedgraph:pcg-build"
-  # - "gcr.io/$PROJECT_ID/pychunkedgraph:bigtable-emulator-build"
   - "gcr.io/$PROJECT_ID/pychunkedgraph:$TAG_NAME"
 
 availableSecrets:
