@@ -1,31 +1,62 @@
+options:
+  env:
+    # buildkit required to precisely target/build individual stages
+    - DOCKER_BUILDKIT=1
+  
 steps:
+  # Login to Docker Hub
   - name: "gcr.io/cloud-builders/docker"
     entrypoint: "bash"
     args: ["-c", "docker login --username=$$USERNAME --password=$$PASSWORD"]
     secretEnv: ["USERNAME", "PASSWORD"]
-  # - name: 'gcr.io/cloud-builders/docker'
-  #   args: [ 'build', '-t', 'gcr.io/$PROJECT_ID/pychunkedgraph', '.' ]
-  - name: "gcr.io/cloud-builders/docker"
-    entrypoint: "bash"
-    args:
-      - "-c"
-      - |
-        docker build -t gcr.io/$PROJECT_ID/pychunkedgraph:$TAG_NAME .
+
+  # Build the pcg-build stage and push it to the registry for caching
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['build', '--target=pcg-build', '--cache-from=gcr.io/$PROJECT_ID/pychunkedgraph:pcg-build', '-t', 'gcr.io/$PROJECT_ID/pychunkedgraph:pcg-build', '.']
+    id: 'build-pcg-build'
+    waitFor: ['-']
+
+  # Push the pcg-build image to the registry
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['push', 'gcr.io/$PROJECT_ID/pychunkedgraph:pcg-build']
+    waitFor: ['build-pcg-build']
+
+  # Build the bigtable-emulator-build stage and push it to the registry for caching
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['build', '--target=bigtable-emulator-build', '--cache-from=gcr.io/$PROJECT_ID/pychunkedgraph:bigtable-emulator-build', '-t', 'gcr.io/$PROJECT_ID/pychunkedgraph:bigtable-emulator-build', '.']
+    id: 'build-bigtable-emulator-build'
+    waitFor: ['-']
+
+  # Push the bigtable-emulator-build image to the registry
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['push', 'gcr.io/$PROJECT_ID/pychunkedgraph:bigtable-emulator-build']
+    waitFor: ['build-bigtable-emulator-build']
+
+  # Finally, build the final image, using cached versions for previous stages
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['build', '--cache-from=gcr.io/$PROJECT_ID/pychunkedgraph:pcg-build', '--cache-from=gcr.io/$PROJECT_ID/pychunkedgraph:bigtable-emulator-build', '-t', 'gcr.io/$PROJECT_ID/pychunkedgraph:$TAG_NAME', '.']
+    id: 'build-final-image'
     timeout: 600s
-  - name: "gcr.io/cloud-builders/docker"
-    entrypoint: "bash"
-    args:
-      [
-        "-c",
-        "docker tag gcr.io/$PROJECT_ID/pychunkedgraph:$TAG_NAME $$USERNAME/pychunkedgraph:$TAG_NAME",
-      ]
+
+  # Additional tag with username
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['tag', 'gcr.io/$PROJECT_ID/pychunkedgraph:$TAG_NAME', '$$USERNAME/pychunkedgraph:$TAG_NAME']
+    waitFor: ['build-final-image']
+    id: 'tag-final-image'
     secretEnv: ["USERNAME"]
-  - name: "gcr.io/cloud-builders/docker"
-    entrypoint: "bash"
-    args: ["-c", "docker push $$USERNAME/pychunkedgraph:$TAG_NAME"]
+
+  # Push the final image
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['push', '$$USERNAME/pychunkedgraph:$TAG_NAME']
+    waitFor: ['tag-final-image']
     secretEnv: ["USERNAME"]
+
 images:
+  # Already pushed the dependencies during build for caching purposes
+  # - "gcr.io/$PROJECT_ID/pychunkedgraph:pcg-build"
+  # - "gcr.io/$PROJECT_ID/pychunkedgraph:bigtable-emulator-build"
   - "gcr.io/$PROJECT_ID/pychunkedgraph:$TAG_NAME"
+
 availableSecrets:
   secretManager:
     - versionName: projects/$PROJECT_ID/secrets/docker-password/versions/1
