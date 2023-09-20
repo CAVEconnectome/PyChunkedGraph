@@ -1036,7 +1036,7 @@ def get_multi_child_nodes(cg, chunk_id, node_id_subset=None, chunk_bbox_string=F
             fragment.value
             for child_fragments_for_node in node_rows
             for fragment in child_fragments_for_node
-        ]
+        ], dtype=object
     )
     # Filter out node ids that do not have roots (caused by failed ingest tasks)
     root_ids = cg.get_roots(node_ids, fail_to_zero=True)
