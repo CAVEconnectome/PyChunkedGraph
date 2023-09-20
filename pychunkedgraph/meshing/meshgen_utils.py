@@ -123,7 +123,9 @@ def get_downstream_multi_child_nodes(
         )
         if np.any(stop_layer_mask):
             node_to_children_dict = cg.get_children(cur_node_ids[stop_layer_mask])
-            children_array = np.array(list(node_to_children_dict.values()))
+            children_array = np.array(
+                list(node_to_children_dict.values()), dtype=object
+            )
             only_child_mask = np.array(
                 [len(children_for_node) == 1 for children_for_node in children_array]
             )
