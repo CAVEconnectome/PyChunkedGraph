@@ -967,7 +967,7 @@ def chunk_initial_mesh_task(
         black_out_dust_from_segmentation(seg, dust_threshold)
     if return_frag_count:
         return np.unique(seg).shape[0]
-    mesher.mesh(seg.T)
+    mesher.mesh(seg)
     del seg
     cf = CloudFiles(mesh_dst)
     if PRINT_FOR_DEBUGGING:
