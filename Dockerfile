@@ -63,6 +63,7 @@ COPY override/timeout.conf /etc/nginx/conf.d/timeout.conf
 COPY override/supervisord.conf /etc/supervisor/conf.d/supervisord.conf
 # Hack to get zstandard from PyPI - remove if conda-forge linked lib issue is resolved
 RUN  pip install --no-cache-dir --no-deps --force-reinstall zstandard==0.21.0
+RUN  pip install --no-cache-dir --no-deps --force-reinstall https://storage.googleapis.com/neuroglancer/ranl/protobuf/protobuf-4.24.2-cp311-abi3-linux_x86_64.whl
 COPY . /app
 
 RUN mkdir -p /home/nginx/.cloudvolume/secrets \
