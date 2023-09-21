@@ -12,11 +12,11 @@ ENV CONDA_ENV="pychunkedgraph"
 # Setup Miniconda
 RUN apt-get update && apt-get install build-essential wget -y
 RUN wget \
-    https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh \
-    && mkdir /root/.conda \
-    && bash Miniconda3-latest-Linux-x86_64.sh -b \
-    && rm -f Miniconda3-latest-Linux-x86_64.sh \
-    && conda update conda
+  https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh \
+  && mkdir /root/.conda \
+  && bash Miniconda3-latest-Linux-x86_64.sh -b \
+  && rm -f Miniconda3-latest-Linux-x86_64.sh \
+  && conda update conda
 
 # Install PCG dependencies - especially graph-tool
 # Note: uwsgi has trouble with pip and python3.11, so adding this with conda, too
@@ -27,6 +27,7 @@ RUN conda env create -n ${CONDA_ENV} -f requirements.yml
 
 # Shrink conda environment into portable non-conda env
 RUN conda install conda-pack -c conda-forge
+RUN conda run -n ${CONDA_ENV} pip install zstandard --force-reinstall
 RUN conda-pack -n ${CONDA_ENV} --ignore-missing-files -o /tmp/env.tar \
   && mkdir -p /app/venv \
   && cd /app/venv \
