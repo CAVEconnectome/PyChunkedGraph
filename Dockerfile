@@ -27,7 +27,9 @@ RUN conda env create -n ${CONDA_ENV} -f requirements.yml
 
 # Shrink conda environment into portable non-conda env
 RUN conda install conda-pack -c conda-forge
-RUN conda run -n ${CONDA_ENV} pip install zstandard --force-reinstall
+# Hack to get zstandard from PyPI - remove if conda-forge linked lib issue is resolved
+RUN conda run -n ${CONDA_ENV} pip uninstall zstandard -y \
+  && conda run -n ${CONDA_ENV} pip install --no-cache-dir --no-deps zstandard==0.21.0
 RUN conda-pack -n ${CONDA_ENV} --ignore-missing-files -o /tmp/env.tar \
   && mkdir -p /app/venv \
   && cd /app/venv \
