@@ -41,6 +41,9 @@ class CustomJsonEncoder(json.JSONEncoder):
         elif isinstance(obj, datetime.datetime):
             return obj.__str__()
         elif isinstance(obj, pd.DataFrame):
+            for col, col_dtype in obj.dtypes.items():
+                if isinstance(col_dtype, pd.DatetimeTZDtype):
+                    obj[col] = obj[col].map(lambda x: x.timestamp())
             return obj.to_json()
         return json.JSONEncoder.default(self, obj)
 
