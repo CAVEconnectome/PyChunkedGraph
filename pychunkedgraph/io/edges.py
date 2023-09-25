@@ -46,7 +46,7 @@ def _parse_edges(compressed: List[bytes]) -> List[Dict]:
     result = []
     for content in decompressed:
         chunk_edges = ChunkEdgesMsg()
-        chunk_edges.ParseFromString(content)
+        chunk_edges.ParseFromString(memoryview(content))
         edges_dict = {}
         edges_dict[EDGE_TYPES.in_chunk] = deserialize(chunk_edges.in_chunk)
         edges_dict[EDGE_TYPES.between_chunk] = deserialize(chunk_edges.between_chunk)
