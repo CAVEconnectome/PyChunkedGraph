@@ -410,9 +410,7 @@ def _update_neighbor_cross_edges_single(
         layers_d = dict(zip(layer_edges[:, 1], [layer] * len(layer_edges[:, 1])))
         counterpart_layers.update(layers_d)
 
-    cp_cx_edges_d = cg.get_cross_chunk_edges(
-        counterparts, time_stamp=parent_ts, raw_only=True
-    )
+    cp_cx_edges_d = cg.get_cross_chunk_edges(counterparts, time_stamp=parent_ts)
     updated_counterparts = {}
     for counterpart, edges_d in cp_cx_edges_d.items():
         val_dict = {}
