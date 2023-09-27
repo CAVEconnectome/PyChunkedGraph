@@ -193,7 +193,7 @@ def handle_user_operations(table_id):
     if disp:
         return user_operations.to_html()
     else:
-        return user_operations.to_json()
+        return jsonify_with_kwargs(user_operations)
 
 
 ### GET ROOT -------------------------------------------------------------------
@@ -398,7 +398,7 @@ def tabular_change_log_weekly(table_id):
     if disp:
         return weekly_tab_change_log.to_html()
     else:
-        return weekly_tab_change_log.to_json()
+        return jsonify_with_kwargs(weekly_tab_change_log)
 
 
 @bp.route("/table/<table_id>/root/<root_id>/change_log", methods=["GET"])
@@ -422,7 +422,7 @@ def tabular_change_log(table_id, root_id):
     tab_change_log = tab_change_log_dict[int(root_id)]
     if disp:
         return tab_change_log.to_html()
-    return tab_change_log.to_json()
+    return jsonify_with_kwargs(tab_change_log)
 
 
 @bp.route("/table/<table_id>/tabular_change_log_many", methods=["GET"])
