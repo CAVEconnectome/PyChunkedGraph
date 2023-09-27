@@ -853,7 +853,11 @@ def remeshing(
     for chunk_id, node_ids in l2_chunk_dict.items():
         if PRINT_FOR_DEBUGGING:
             print("remeshing", chunk_id, node_ids)
-        l2_time_stamp = _get_timestamp_from_node_ids(cg, node_ids)
+        try:
+            l2_time_stamp = _get_timestamp_from_node_ids(cg, node_ids)
+        except ValueError:
+            # ignore bad/invalid messages
+            return
         # Remesh the l2_node_ids
         chunk_initial_mesh_task(
             None,
