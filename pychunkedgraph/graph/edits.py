@@ -269,8 +269,11 @@ def _process_l2_agglomeration(
     cross_edges = agg.cross_edges.get_pairs()
     # we must avoid the cache to read roots to get segment state before edit began
     parents = cg.get_parents(cross_edges[:, 0], time_stamp=parent_ts, raw_only=True)
+
+    # if there are cross edges, there must be a single parent.
+    # if there aren't any, there must be no parents. XOR these 2 conditions.
     err = f"got cross edges from more than one l2 node; op {operation_id}"
-    assert np.unique(parents).size == 1, err
+    assert (np.unique(parents).size == 1) != (cross_edges.size == 0), err
     root = cg.get_root(parents[0], time_stamp=parent_ts, raw_only=True)
 
     # inactive edges must be filtered out
