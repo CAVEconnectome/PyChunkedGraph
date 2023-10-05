@@ -1153,4 +1153,4 @@ def valid_nodes(table_id, is_binary):
         node_ids=node_ids, start_time=start_timestamp, end_time=end_timestamp
     )
     resp = {"valid_roots": np.array(list(rows.keys()), dtype=basetypes.NODE_ID)}
-    return
+    return resp
