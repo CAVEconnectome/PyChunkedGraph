@@ -603,6 +603,9 @@ class CreateParentNodes:
             layer_edges = cx_edges_d.get(l, types.empty_2d)
             neighbors = layer_edges[:, 1]
             for n in neighbors:
+                if n in self._new_old_id_d:
+                    # ignore new ids
+                    continue
                 res = self._update_neighbor_parents(n, parent_layer, updated_parents)
                 updated_parents.update(res)
 
