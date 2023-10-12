@@ -1,3 +1,5 @@
+# pylint: disable=invalid-name, missing-docstring
+
 import datetime
 import json
 import logging
@@ -8,6 +10,7 @@ import time
 import pandas as pd
 import numpy as np
 import redis
+from flask import Blueprint
 from flask import Flask
 from flask.logging import default_handler
 from flask_cors import CORS
@@ -67,6 +70,14 @@ def create_app(test_config=None):
 
     app.register_blueprint(segmentation_api_legacy)
     app.register_blueprint(segmentation_api_v1)
+
+    auth_bp = Blueprint("auth_info", __name__, url_prefix="/")
+
+    @auth_bp.route("/auth_info")
+    def index():
+        return {"login_url": "https://globalv1.flywire-daf.com/sticky_auth"}
+
+    app.register_blueprint(auth_bp)
 
     return app
 
