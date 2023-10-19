@@ -4,6 +4,7 @@ pyopenssl
 jupyter
 pytest
 pytest-timeout
+pytest-cov
 pyyaml
 pytest-profiling
 flameprof
