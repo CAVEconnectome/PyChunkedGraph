@@ -1,4 +1,3 @@
-import math
 from datetime import datetime
 from typing import Dict, Iterable, Union, Any, Optional
 
@@ -19,8 +18,8 @@ LOCK_TIMESTAMP_COL_SUFFIX = '.ts'
 
 # utility function to get DynamoDB attribute name (column name)
 # from the given column object
-def to_column_name(lock_column: _Attribute):
-    return f"{lock_column.family_id}.{lock_column.key.decode()}"
+def to_column_name(column: _Attribute):
+    return f"{column.family_id}.{column.key.decode()}"
 
 
 # utility function to get DynamoDB attribute name (column name) holding
@@ -53,7 +52,7 @@ class DdbTranslator:
             ))
         return cells
     
-    def ddb_item_to_row(self, item, needs_deserialization: bool = False):
+    def ddb_item_to_row(self, item):
         row = {}
         pk = None
         sk = ''
@@ -76,8 +75,7 @@ class DdbTranslator:
         # ddb_clm is one of the followings: 'key' (primary key), 'sk' (sort key), '@' (row version),
         # and other columns with the format [column_family.column_qualifier]
         for ddb_clm in item_keys:
-            ddb_row_value = item[ddb_clm]
-            row_value = self._ddb_deserializer.deserialize(ddb_row_value) if needs_deserialization else ddb_row_value
+            row_value = item[ddb_clm]
             if ddb_clm == "@":
                 # for '@' row_value is int
                 # TODO: store row version for optimistic locking (subject TBD)
@@ -94,10 +92,7 @@ class DdbTranslator:
                 if attr in [attributes.Concurrency.Lock, attributes.Concurrency.IndefiniteLock]:
                     column_value = row_value
                     
-                    ddb_timestamp_value = item.get(f"{ddb_clm}{LOCK_TIMESTAMP_COL_SUFFIX}", None)
-                    
-                    timestamp = self._ddb_deserializer.deserialize(
-                        ddb_timestamp_value) if needs_deserialization else ddb_timestamp_value
+                    timestamp = item.get(f"{ddb_clm}{LOCK_TIMESTAMP_COL_SUFFIX}", None)
                     
                     append(row, attr, TimeStampedCell(
                         column_value,

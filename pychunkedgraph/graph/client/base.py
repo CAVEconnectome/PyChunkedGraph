@@ -1,7 +1,7 @@
-from datetime import datetime
+import typing
 from abc import ABC
 from abc import abstractmethod
-from typing import Iterable, Union, Optional, Any, Dict, Sequence, Tuple
+from datetime import datetime
 
 import numpy as np
 
@@ -69,11 +69,11 @@ class SimpleClient(ABC):
     @abstractmethod
     def write(
         self,
-        rows: Iterable[dict[str, Union[bytes, dict[str, Iterable[Any]]]]],
-        root_ids: Optional[
-            Union[np.uint64, Iterable[np.uint64]]
+        rows: typing.Iterable[typing.Dict[str, typing.Union[bytes, typing.Dict[str, typing.Iterable[typing.Any]]]]],
+        root_ids: typing.Optional[
+            typing.Union[np.uint64, typing.Iterable[np.uint64]]
         ] = None,
-        operation_id: Optional[np.uint64] = None,
+        operation_id: typing.Optional[np.uint64] = None,
         slow_retry: bool = True,
         block_size: int = 2000,
     ):
@@ -97,9 +97,9 @@ class SimpleClient(ABC):
     def mutate_row(
         self,
         row_key: bytes,
-        val_dict: Dict,
-        time_stamp: Optional[datetime] = None,
-    ) -> dict[str, Union[bytes, dict[str, Iterable[Any]]]]:
+        val_dict: dict,
+        time_stamp: typing.Optional[datetime] = None,
+    ) -> typing.Dict[str, typing.Union[bytes, typing.Dict[str, typing.Iterable[typing.Any]]]]:
         """Mutates a single row (doesn't write to the backend storage, just returns the row with mutated
         data without writing to the backend storage)."""
     
@@ -119,7 +119,7 @@ class SimpleClient(ABC):
         future_root_ids_d,
         max_tries: int = 1,
         waittime_s: float = 0.5,
-    ) -> Tuple[bool, Iterable]:
+    ) -> typing.Tuple[bool, typing.Iterable]:
         """Locks root nodes to prevent race conditions."""
     
     @abstractmethod
@@ -129,10 +129,10 @@ class SimpleClient(ABC):
     @abstractmethod
     def lock_roots_indefinitely(
         self,
-        root_ids: Sequence[np.uint64],
+        root_ids: typing.Sequence[np.uint64],
         operation_id: np.uint64,
-        future_root_ids_d: Dict,
-    ) -> Tuple[bool, Iterable]:
+        future_root_ids_d: typing.Dict,
+    ) -> typing.Tuple[bool, typing.Iterable]:
         """
         Locks root nodes indefinitely to prevent structural damage to graph.
         This scenario is rare and needs asynchronous fix or inspection to unlock.
@@ -157,7 +157,7 @@ class SimpleClient(ABC):
     @abstractmethod
     def get_lock_timestamp(
         self, root_id, operation_id
-    ) -> Union[datetime, None]:
+    ) -> typing.Union[datetime, None]:
         """Reads timestamp from lock row to get a consistent timestamp."""
     
     @abstractmethod

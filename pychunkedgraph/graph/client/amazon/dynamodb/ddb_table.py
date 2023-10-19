@@ -10,7 +10,7 @@ import boto3
 from boto3.dynamodb.types import TypeDeserializer, TypeSerializer
 
 from pychunkedgraph.graph import attributes
-from .ddb_translator import DdbTranslator
+from .item_compressor import ItemCompressor
 
 
 class Table:
@@ -25,6 +25,8 @@ class Table:
         self,
         main_db,
         table_name,
+        translator,
+        compressor: ItemCompressor,
         boto3_conf,
         **kwargs
     ):
@@ -35,7 +37,8 @@ class Table:
         self._row_page_size = 1000
         self._ddb_serializer = TypeSerializer()
         self._ddb_deserializer = TypeDeserializer()
-        self._ddb_helper = DdbTranslator()
+        self._ddb_translator = translator
+        self._ddb_item_compressor = compressor
     
     def read_rows(self):
         ret = self._ddb_table.scan(Limit=self._row_page_size)
@@ -43,7 +46,8 @@ class Table:
         
         rows = {}
         for item in items:
-            b_real_key, row = self._ddb_helper.ddb_item_to_row(item)
+            item = self._ddb_item_compressor.decompress(item)
+            b_real_key, row = self._ddb_translator.ddb_item_to_row(item)
             rows[b_real_key] = Row(row)
         
         return TableRows(rows)

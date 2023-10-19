@@ -6,14 +6,15 @@ from typing import Dict, Iterable, Union, Optional, List, Any, Tuple, Sequence
 import boto3
 import botocore
 import numpy as np
-from boto3.dynamodb.types import TypeSerializer, Binary
+from boto3.dynamodb.types import TypeSerializer, Binary, TypeDeserializer
 from botocore.exceptions import ClientError
 from multiwrapper import multiprocessing_utils as mu
 
 from . import AmazonDynamoDbConfig
 from . import utils
-from .ddb_translator import DdbTranslator, to_column_name, to_lock_timestamp_column_name
 from .ddb_table import Table
+from .ddb_translator import DdbTranslator, to_column_name, to_lock_timestamp_column_name
+from .item_compressor import ItemCompressor
 from .row_set import RowSet
 from .timestamped_cell import TimeStampedCell
 from .utils import (
@@ -62,14 +63,43 @@ class Client(ClientWithIDGen, OperationLogger):
             kwargs["endpoint_url"] = config.END_POINT
         self._main_db = boto3.client("dynamodb", config=boto3_conf_, **kwargs)
         
-        # The "self._table" below is only used by the test code for inspecting the items written to the DB
-        # and is not used by the actual code. The actual code uses the underlying "_ddb_table" instead.
-        self._table = Table(self._main_db, self._table_name, boto3_conf_, **kwargs)
-        
-        self._ddb_table = self._table.ddb_table
         self._ddb_serializer = TypeSerializer()
         
         self._ddb_translator = DdbTranslator()
+        
+        # Storing items in DynamoDB table by compressing all columns into one column named "v"
+        # Certain columns which are either used in conditional checks (such as lock columns) or used for metadata
+        # are not compressed and stored as is at the top level
+        # The list below denotes such columns which should be excluded from compressing into "v"
+        self._uncompressed_columns = [
+            to_column_name(attributes.Concurrency.Lock),
+            to_lock_timestamp_column_name(attributes.Concurrency.Lock),
+            to_column_name(attributes.Hierarchy.NewParent),
+            to_column_name(attributes.Concurrency.Counter),
+            to_column_name(attributes.Concurrency.IndefiniteLock),
+            to_lock_timestamp_column_name(attributes.Concurrency.IndefiniteLock),
+            attributes.GraphVersion.Version.key,
+            attributes.GraphMeta.Meta.key,
+            attributes.OperationLogs.key,
+        ]
+        self._ddb_item_compressor = ItemCompressor(
+            pk_name='key',
+            sk_name='sk',
+            exclude_keys=self._uncompressed_columns
+        )
+        
+        # The "self._table" below is only used by the test code for inspecting the items written to the DB
+        # and is not used by the actual code. The actual code uses the underlying "_ddb_table" instead.
+        self._table = Table(
+            self._main_db,
+            self._table_name,
+            translator=self._ddb_translator,
+            compressor=self._ddb_item_compressor,
+            boto3_conf=boto3_conf_,
+            **kwargs
+        )
+        self._ddb_table = self._table.ddb_table
+        self._ddb_deserializer = TypeDeserializer()
         
         # TODO: Remove _no_of_reads and _no_of_writes variables. These are added for debugging purposes only.
         self._no_of_reads = 0
@@ -156,6 +186,7 @@ class Client(ClientWithIDGen, OperationLogger):
         logging.debug(
             f"read_nodes: {start_id}, {end_id}, {node_ids}, {properties}, {start_time}, {end_time}, {end_time_inclusive}"
         )
+        
         if node_ids is not None and len(node_ids) > 0:
             node_ids = np.sort(node_ids)
         
@@ -240,7 +271,7 @@ class Client(ClientWithIDGen, OperationLogger):
     # Helpers
     def write(
         self,
-        rows: Iterable[dict[str, Union[bytes, dict[str, Iterable[TimeStampedCell]]]]],
+        rows: Iterable[Dict[str, Union[bytes, Dict[str, Iterable[TimeStampedCell]]]]],
         root_ids: Optional[
             Union[np.uint64, Iterable[np.uint64]]
         ] = None,
@@ -286,6 +317,7 @@ class Client(ClientWithIDGen, OperationLogger):
                 rows_in_this_batch = deduplicated_rows[i: i + batch_size]
                 for row in rows_in_this_batch:
                     ddb_item = self._ddb_translator.row_to_ddb_item(row)
+                    ddb_item = self._ddb_item_compressor.compress(ddb_item)
                     batch.put_item(Item=ddb_item)
     
     def mutate_row(
@@ -293,15 +325,15 @@ class Client(ClientWithIDGen, OperationLogger):
         row_key: bytes,
         val_dict: Dict[attributes._Attribute, Any],
         time_stamp: Optional[datetime] = None,
-    ) -> dict[str, Union[bytes, dict[str, Iterable[TimeStampedCell]]]]:
+    ) -> Dict[str, Union[bytes, Dict[str, Iterable[TimeStampedCell]]]]:
         """Mutates a single row (doesn't write to DynamoDB)."""
         pk, sk = self._ddb_translator.to_pk_sk(row_key)
         self._no_of_reads += 1
         ret = self._ddb_table.get_item(Key={"key": pk, "sk": sk})
         item = ret.get('Item')
-        
         row = {"key": row_key}
         if item is not None:
+            item = self._ddb_item_compressor.decompress(item)
             b_real_key, row_from_db = self._ddb_translator.ddb_item_to_row(item)
             row.update(row_from_db)
         
@@ -1010,9 +1042,12 @@ class Client(ClientWithIDGen, OperationLogger):
         
         # User ID filter
         if row_filter.user_id_filter and row_filter.user_id_filter.user_id:
-            __append_to_projection_expression(kwargs, ["#key", "sk", "#ver", "#uid"])
+            # Project #uid and v both attribs - if the item is compressed then the uid will be part of the "v" column
+            # else it will be part of the #uid column (i.e., the attributes.OperationLogs.UserID column)
+            __append_to_projection_expression(kwargs, ["#key", "sk", "#ver", "#uid", "v"])
             user_id_attr = attributes.OperationLogs.UserID
-            attr_names["#uid"] = f"{user_id_attr.family_id}.{user_id_attr.key.decode()}"
+            attr_names["#uid"] = to_column_name(user_id_attr)
+            attr_names["#ver"] = "@"
             kwargs["ExpressionAttributeNames"] = attr_names
         
         # Column filter
@@ -1020,13 +1055,16 @@ class Client(ClientWithIDGen, OperationLogger):
             ddb_columns = [
                 f"#C{index}" for index in range(len(row_filter.column_filter))
             ]
-            ddb_columns.extend(["#key", "sk", "#ver"])
+            # Project the specified columns along with "v" column
+            # if the item is compressed then the specified columns will be part of the "v" column else
+            # they will be part of the specified columns
+            ddb_columns.extend(["#key", "sk", "#ver", "v"])
             __append_to_projection_expression(kwargs, ddb_columns)
             
             for index, attr in enumerate(row_filter.column_filter):
                 attr_names[f"#C{index}"] = f"{attr.family_id}.{attr.key.decode()}"
-            attr_names["#ver"] = "@"
             
+            attr_names["#ver"] = "@"
             kwargs["ExpressionAttributeNames"] = attr_names
         
         # TODO: "new" data for existing key is appended to the map, this needs to be revisited since it can
@@ -1059,15 +1097,16 @@ class Client(ClientWithIDGen, OperationLogger):
             
             # each item comes with 'key', 'sk', [column_family] and '@' columns
             for index, item in enumerate(items):
+                # The item is not deserialized automatically when using the low-level boto3 client
+                # (i.e.,  "self._main_db"), so deserialize first
+                item = self._deserialize(item)
+                item = self._ddb_item_compressor.decompress(item)
                 b_real_key, row = self._ddb_translator.ddb_item_to_row(
                     item={
                         'key': item_keys_to_get[index]['key'],
                         'sk': item_keys_to_get[index]['sk'],
                         **item,
                     },
-                    # The item is not deserialized automatically when using the low-level boto3 client
-                    # (i.e.,  "self._main_db"), so pass in the deserialization flag here
-                    needs_deserialization=True
                 )
                 rows[b_real_key] = row
         
@@ -1100,8 +1139,8 @@ class Client(ClientWithIDGen, OperationLogger):
                 ret = self._ddb_table.query(**query_kwargs)
                 items = ret.get("Items", [])
                 
-                # each item comes with 'key', 'sk', [column_family] and '@' columns
                 for item in items:
+                    item = self._ddb_item_compressor.decompress(item)
                     b_real_key, row = self._ddb_translator.ddb_item_to_row(item)
                     rows[b_real_key] = row
         
@@ -1111,7 +1150,7 @@ class Client(ClientWithIDGen, OperationLogger):
     
     def _apply_filters(
         self,
-        rows: dict[str, dict[attributes._Attribute, Iterable[TimeStampedCell]]],
+        rows: Dict[str, Dict[attributes._Attribute, Iterable[TimeStampedCell]]],
         row_filter: DynamoDbFilter
     ):
         # the start_datetime and the end_datetime below are "datetime" instances (and NOT int timestamp)
@@ -1119,7 +1158,11 @@ class Client(ClientWithIDGen, OperationLogger):
         end_datetime = row_filter.time_filter.end if row_filter.time_filter else None
         user_id = row_filter.user_id_filter.user_id if row_filter.user_id_filter else None
         
-        def time_filter_fn(row_to_filter: dict[attributes._Attribute, Iterable[TimeStampedCell]]):
+        columns_to_filter = None
+        if row_filter.column_filter:
+            columns_to_filter = [to_column_name(attr) for index, attr in enumerate(row_filter.column_filter)]
+        
+        def time_filter_fn(row_to_filter: Dict[attributes._Attribute, Iterable[TimeStampedCell]]):
             filtered_row = {}
             for attr, cells in row_to_filter.items():
                 for cell in cells:
@@ -1129,18 +1172,29 @@ class Client(ClientWithIDGen, OperationLogger):
                         append(filtered_row, attr, cell)
             return filtered_row
         
-        def user_id_filter_fn(row_to_filter: dict[attributes._Attribute, Iterable[TimeStampedCell]]):
+        def user_id_filter_fn(row_to_filter: Dict[attributes._Attribute, Iterable[TimeStampedCell]]):
             if user_id == row_to_filter.get(attributes.OperationLogs.UserID, None):
                 return row_to_filter
             return None
+        
+        def column_filter_fn(row_to_filter: Dict[attributes._Attribute, Iterable[TimeStampedCell]]):
+            filtered_row = {}
+            for attr, cells in row_to_filter.items():
+                if to_column_name(attr) in columns_to_filter:
+                    filtered_row[attr] = cells
+            return filtered_row
         
         filtered_rows = {}
         for b_real_key, row in rows.items():
             filtered_row = row
             if start_datetime or end_datetime:
                 filtered_row = time_filter_fn(filtered_row)
+            
             if user_id:
                 filtered_row = user_id_filter_fn(filtered_row)
+            
+            if columns_to_filter:
+                filtered_row = column_filter_fn(filtered_row)
             
             if filtered_row:
                 filtered_rows[b_real_key] = filtered_row
@@ -1153,7 +1207,7 @@ class Client(ClientWithIDGen, OperationLogger):
         
         pk, sk = self._ddb_translator.to_pk_sk(key)
         
-        column_name_in_ddb = f"{column.family_id}.{column.key.decode()}"
+        column_name_in_ddb = to_column_name(column)
         
         time_microseconds = get_current_time_microseconds()
         
@@ -1236,3 +1290,6 @@ class Client(ClientWithIDGen, OperationLogger):
         # Change the resolution of the time_cutoff to milliseconds
         time_cutoff -= timedelta(microseconds=time_cutoff.microsecond % 1000)
         return to_microseconds(time_cutoff)
+    
+    def _deserialize(self, item: Dict):
+        return {k: self._ddb_deserializer.deserialize(v) for k, v in item.items()}
