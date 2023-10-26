@@ -1,5 +1,6 @@
 # pylint: disable=invalid-name, missing-docstring, line-too-long, no-member
 
+import functools
 from collections import deque
 from typing import Dict, Set, Tuple
 
@@ -70,34 +71,36 @@ def _get_node_coords_and_layers_map(
     return node_coords, dict(zip(node_ids, node_layers))
 
 
-def sort_octree_row(coords):
+def sort_octree_row(cg: ChunkedGraph, children: np.ndarray):
     """
     Sort children by their morton code.
     """
-    coords = np.array(coords, dtype=int, copy=False)
-    if coords.size == 0:
-        return empty_1d
+    if children.size == 0:
+        return children
+    children_coords = []
 
-    def z_order(x, y, z):
-        result = 0
-        for i in range(10):
-            result |= (
-                ((x & (1 << i)) << (2 * i))
-                | ((y & (1 << i)) << ((2 * i) + 1))
-                | ((z & (1 << i)) << ((2 * i) + 2))
-            )
-        return result
+    for child in children:
+        children_coords.append(cg.get_chunk_coordinates(child))
 
-    x_coords = coords[:, 0]
-    y_coords = coords[:, 1]
-    z_coords = coords[:, 2]
-    z_order_values = np.array(
-        [z_order(x, y, z) for x, y, z in zip(x_coords, y_coords, z_coords)],
-        dtype=np.uint32,
+    def cmp_zorder(lhs, rhs) -> bool:
+        # https://en.wikipedia.org/wiki/Z-order_curve
+        # https://github.com/google/neuroglancer/issues/272
+        def less_msb(x: int, y: int) -> bool:
+            return x < y and x < (x ^ y)
+
+        msd = 2
+        for dim in [1, 0]:
+            if less_msb(lhs[msd] ^ rhs[msd], lhs[dim] ^ rhs[dim]):
+                msd = dim
+        return lhs[msd] - rhs[msd]
+
+    children, _ = zip(
+        *sorted(
+            zip(children, children_coords),
+            key=functools.cmp_to_key(lambda x, y: cmp_zorder(x[1], y[1])),
+        )
     )
-
-    sorted_indices = np.argsort(z_order_values)
-    return sorted_indices
+    return children
 
 
 def build_octree(
@@ -161,12 +164,7 @@ def build_octree(
             # no mesh, mark node empty
             octree[offset + 4] |= 1 << 31
 
-        children_coords = []
-        for child in children:
-            children_coords.append(cg.get_chunk_coordinates(child))
-
-        indices = sort_octree_row(children_coords)
-        children = children[indices]
+        children = sort_octree_row(cg, children)
         for child in children:
             que.append(child)
     return octree, octree_node_ids, octree_fragments
