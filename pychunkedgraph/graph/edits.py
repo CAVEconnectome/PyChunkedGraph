@@ -1,4 +1,4 @@
-# pylint: disable=invalid-name, missing-docstring, too-many-locals
+# pylint: disable=invalid-name, missing-docstring, too-many-locals, c-extension-no-member
 
 import datetime
 from typing import Dict
@@ -8,6 +8,7 @@ from typing import Iterable
 from collections import defaultdict
 
 import numpy as np
+import fastremap
 
 from . import types
 from . import attributes
@@ -96,12 +97,14 @@ def merge_preprocess(
     active_edges = [types.empty_2d]
     inactive_edges = [types.empty_2d]
     for layer in np.unique(edge_layers):
-        layer_edges = subgraph_edges[edge_layers == layer]
-        edges_parents = cg.get_roots(
-            layer_edges.ravel(), time_stamp=parent_ts, stop_layer=layer + 1
-        ).reshape(-1, 2)
-        active_mask = edges_parents[:, 0] == edges_parents[:, 1]
-        active, inactive = layer_edges[active_mask], layer_edges[~active_mask]
+        _edges = subgraph_edges[edge_layers == layer]
+        edge_nodes = fastremap.unique(_edges.ravel())
+        roots = cg.get_roots(edge_nodes, time_stamp=parent_ts, stop_layer=layer + 1)
+        parent_map = dict(zip(edge_nodes, roots))
+        parent_edges = fastremap.remap(_edges, parent_map, preserve_missing_labels=True)
+
+        active_mask = parent_edges[:, 0] == parent_edges[:, 1]
+        active, inactive = _edges[active_mask], _edges[~active_mask]
         active_edges.append(active)
         inactive_edges.append(inactive)
 
