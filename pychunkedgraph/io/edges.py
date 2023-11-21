@@ -37,13 +37,15 @@ def deserialize(edges_message: EdgesMsg) -> Tuple[np.ndarray, np.ndarray, np.nda
 
 
 def _parse_edges(compressed: List[bytes]) -> List[Dict]:
+    result = []
+    if(len(compressed) == 0):
+        return result
     zdc = zstd.ZstdDecompressor()
     try:
         n_threads = int(os.environ.get("ZSTD_THREADS", 1))
     except ValueError:
         n_threads = 1
     decompressed = zdc.multi_decompress_to_buffer(compressed, threads=n_threads)
-    result = []
     for content in decompressed:
         chunk_edges = ChunkEdgesMsg()
         chunk_edges.ParseFromString(memoryview(content))
