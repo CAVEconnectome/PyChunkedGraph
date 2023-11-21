@@ -157,6 +157,10 @@ def ingest_chunk(queue: str, chunk_info):
 def ingest_chunk_local(graph_id: str, chunk_info, n_threads: int):
     """Manually ingest a chunk on a local machine."""
     from .create.abstract_layers import add_layer
+    from .cluster import _create_atomic_chunk
 
-    cg = ChunkedGraph(graph_id=graph_id)
-    add_layer(cg, chunk_info[0], chunk_info[1:], n_threads=n_threads)
+    if chunk_info[0] == 2:
+        _create_atomic_chunk(chunk_info[1:])
+    else:
+        cg = ChunkedGraph(graph_id=graph_id)
+        add_layer(cg, chunk_info[0], chunk_info[1:], n_threads=n_threads)
