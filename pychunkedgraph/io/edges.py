@@ -45,7 +45,14 @@ def _parse_edges(compressed: List[bytes]) -> List[Dict]:
         n_threads = int(os.environ.get("ZSTD_THREADS", 1))
     except ValueError:
         n_threads = 1
-    decompressed = zdc.multi_decompress_to_buffer(compressed, threads=n_threads)
+
+    decompressed = []
+    try:
+        decompressed = zdc.multi_decompress_to_buffer(compressed, threads=n_threads)
+    except ValueError:
+        for content in compressed:
+            decompressed.append(zdc.decompressobj().decompress(content))
+
     for content in decompressed:
         chunk_edges = ChunkEdgesMsg()
         chunk_edges.ParseFromString(memoryview(content))
