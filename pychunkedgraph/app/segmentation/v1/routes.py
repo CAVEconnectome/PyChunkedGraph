@@ -293,7 +293,7 @@ def handle_leaves(table_id, node_id):
 @auth_requires_permission(
     "view",
     public_table_key="table_id",
-    public_node_key="node_id",
+    public_node_json_key="node_ids",
     service_token=AUTH_TOKEN,
 )
 @remap_public(edit=False)
