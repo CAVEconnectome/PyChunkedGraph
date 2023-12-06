@@ -46,13 +46,11 @@ def home():
 
 
 @bp.before_request
-@auth_required
 def before_request():
     return app_common.before_request()
 
 
 @bp.after_request
-@auth_required
 def after_request(response):
     return app_common.after_request(response)
 
@@ -66,10 +64,11 @@ def unhandled_exception(e):
 def api_exception(e):
     return app_common.api_exception(e)
 
+
 ## VALIDFRAGMENTS --------------------------------------------------------------
 @bp.route("/table/<table_id>/node/<node_id>/validfragments", methods=["GET"])
 @auth_requires_permission("view")
-@remap_public
+@remap_public(edit=False)
 def handle_valid_frags(table_id, node_id):
     return common.handle_valid_frags(table_id, node_id)
 
@@ -82,7 +81,7 @@ def handle_valid_frags(table_id, node_id):
     public_node_key="node_id",
     service_token=AUTH_TOKEN,
 )
-@remap_public
+@remap_public(edit=False)
 def handle_get_manifest(table_id, node_id):
     return common.handle_get_manifest(table_id, node_id)
 
