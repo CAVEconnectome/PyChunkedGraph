@@ -97,6 +97,7 @@ gevent==23.9.1
     #   task-queue
 google-api-core[grpc]==2.11.1
     # via
+    #   google-api-core
     #   google-cloud-bigtable
     #   google-cloud-core
     #   google-cloud-datastore
@@ -350,7 +351,7 @@ urllib3[brotli]==1.26.16
     #   cloud-volume
     #   google-auth
     #   requests
-werkzeug==2.3.7
+werkzeug==2.3.8
     # via
     #   -r requirements.in
     #   flask
