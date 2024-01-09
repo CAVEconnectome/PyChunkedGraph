@@ -2,3 +2,9 @@ pylint
 black
 pyopenssl
 jupyter
+codecov
+ipython
+pytest
+pytest-cov
+pytest-mock
+pytest-timeout

@@ -45,14 +45,13 @@ def decode_draco_mesh_buffer(fragment):
     except ValueError as exc:
         raise ValueError("Not a valid draco mesh") from exc
 
-    assert len(vertices) % 3 == 0, "Draco mesh vertices not 3-D"
-    num_vertices = len(vertices) // 3
+    num_vertices = len(vertices)
 
     # For now, just return this dict until we figure out
     # how exactly to deal with Draco's lossiness/duplicate vertices
     return {
         "num_vertices": num_vertices,
-        "vertices": vertices.reshape(num_vertices, 3),
+        "vertices": vertices,
         "faces": faces,
         "encoding_options": mesh_object.encoding_options,
         "encoding_type": "draco",
@@ -854,7 +853,11 @@ def remeshing(
     for chunk_id, node_ids in l2_chunk_dict.items():
         if PRINT_FOR_DEBUGGING:
             print("remeshing", chunk_id, node_ids)
-        l2_time_stamp = _get_timestamp_from_node_ids(cg, node_ids)
+        try:
+            l2_time_stamp = _get_timestamp_from_node_ids(cg, node_ids)
+        except ValueError:
+            # ignore bad/invalid messages
+            return
         # Remesh the l2_node_ids
         chunk_initial_mesh_task(
             None,
@@ -968,7 +971,7 @@ def chunk_initial_mesh_task(
         black_out_dust_from_segmentation(seg, dust_threshold)
     if return_frag_count:
         return np.unique(seg).shape[0]
-    mesher.mesh(seg.T)
+    mesher.mesh(seg)
     del seg
     cf = CloudFiles(mesh_dst)
     if PRINT_FOR_DEBUGGING:
@@ -976,11 +979,7 @@ def chunk_initial_mesh_task(
         print("num ids", len(mesher.ids()))
     result.append(len(mesher.ids()))
     for obj_id in mesher.ids():
-        mesh = mesher.get_mesh(
-            obj_id,
-            simplification_factor=100,
-            max_simplification_error=max_err,
-        )
+        mesh = mesher.get(obj_id, reduction_factor=100, max_error=max_err)
         mesher.erase(obj_id)
         mesh.vertices[:] += chunk_offset
         if encoding == "draco":
@@ -1041,7 +1040,7 @@ def get_multi_child_nodes(cg, chunk_id, node_id_subset=None, chunk_bbox_string=F
             fragment.value
             for child_fragments_for_node in node_rows
             for fragment in child_fragments_for_node
-        ]
+        ], dtype=object
     )
     # Filter out node ids that do not have roots (caused by failed ingest tasks)
     root_ids = cg.get_roots(node_ids, fail_to_zero=True)
@@ -1304,7 +1303,7 @@ def chunk_initial_sharded_stitching_task(
                         "node_id": np.uint64(frag_to_fetch),
                     }
                 )
-            except:
+            except KeyError:
                 pass
         if len(old_fragments) > 0:
             draco_encoding_options = None

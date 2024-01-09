@@ -124,14 +124,14 @@ def remap_public(func=None, *, edit=False, check_node_ids=False):
 def jsonify_with_kwargs(data, as_response=True, **kwargs):
     kwargs.setdefault("separators", (",", ":"))
 
-    if current_app.config["JSONIFY_PRETTYPRINT_REGULAR"] or current_app.debug:
+    if current_app.json.compact == False or current_app.debug:
         kwargs["indent"] = 2
         kwargs["separators"] = (", ", ": ")
 
     resp = json.dumps(data, **kwargs)
     if as_response:
         return current_app.response_class(
-            resp + "\n", mimetype=current_app.config["JSONIFY_MIMETYPE"]
+            resp + "\n", mimetype=current_app.json.mimetype
         )
     else:
         return resp
@@ -228,7 +228,7 @@ def handle_supervoxel_id_lookup(
         ccs = [np.array(list(cc)) for cc in nx.connected_components(graph)]
         return ccs
 
-    coordinates = np.array(coordinates, dtype=np.int)
+    coordinates = np.array(coordinates, dtype=int)
     coordinates_nm = coordinates * cg.meta.resolution
     node_ids = np.array(node_ids, dtype=np.uint64)
     if len(coordinates.shape) != 2:

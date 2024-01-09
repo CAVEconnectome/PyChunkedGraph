@@ -9,6 +9,7 @@ import pandas as pd
 import numpy as np
 import redis
 from flask import Flask
+from flask.json.provider import DefaultJSONProvider
 from flask.logging import default_handler
 from flask_cors import CORS
 from rq import Queue
@@ -45,13 +46,18 @@ class CustomJsonEncoder(json.JSONEncoder):
         return json.JSONEncoder.default(self, obj)
 
 
+class CustomJSONProvider(DefaultJSONProvider):
+    def dumps(self, obj, **kwargs):
+        return super().dumps(obj, default=None, cls=CustomJsonEncoder, **kwargs)
+
+
 def create_app(test_config=None):
     app = Flask(
         __name__,
         instance_path=get_instance_folder_path(),
         instance_relative_config=True,
     )
-    app.json_encoder = CustomJsonEncoder
+    app.json = CustomJSONProvider(app)
 
     CORS(app, expose_headers="WWW-Authenticate")
 
