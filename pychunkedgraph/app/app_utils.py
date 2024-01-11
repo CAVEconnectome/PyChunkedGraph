@@ -228,8 +228,10 @@ def handle_supervoxel_id_lookup(
         ccs = [np.array(list(cc)) for cc in nx.connected_components(graph)]
         return ccs
 
-    coordinates = np.array(coordinates, dtype=int)
+    coordinates = np.array(coordinates, dtype=np.int)
     coordinates_nm = coordinates * cg.meta.resolution
+    max_dist_steps = np.array([4, 8, 14, 28], dtype=float) * np.mean(cg.meta.resolution)
+
     node_ids = np.array(node_ids, dtype=np.uint64)
     if len(coordinates.shape) != 2:
         raise cg_exceptions.BadRequest(
@@ -242,7 +244,8 @@ def handle_supervoxel_id_lookup(
         node_id_m = node_ids == node_id
         for cc in ccs(coordinates_nm[node_id_m]):
             m_ids = np.where(node_id_m)[0][cc]
-            for max_dist_nm in [75, 150, 250, 500]:
+
+            for max_dist_nm in max_dist_steps:
                 atomic_ids_sub = cg.get_atomic_ids_from_coords(
                     coordinates[m_ids], parent_id=node_id, max_dist_nm=max_dist_nm
                 )
@@ -251,7 +254,7 @@ def handle_supervoxel_id_lookup(
             if atomic_ids_sub is None:
                 raise cg_exceptions.BadRequest(
                     f"Could not determine supervoxel ID for coordinates "
-                    f"{coordinates} - Validation stage."
+                    f"{coordinates} - Lookup stage."
                 )
             atomic_ids[m_ids] = atomic_ids_sub
     return atomic_ids
