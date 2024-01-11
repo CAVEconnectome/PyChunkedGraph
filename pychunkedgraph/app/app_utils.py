@@ -228,7 +228,7 @@ def handle_supervoxel_id_lookup(
         ccs = [np.array(list(cc)) for cc in nx.connected_components(graph)]
         return ccs
 
-    coordinates = np.array(coordinates, dtype=np.int)
+    coordinates = np.array(coordinates, dtype=int)
     coordinates_nm = coordinates * cg.meta.resolution
     max_dist_steps = np.array([4, 8, 14, 28], dtype=float) * np.mean(cg.meta.resolution)
 
