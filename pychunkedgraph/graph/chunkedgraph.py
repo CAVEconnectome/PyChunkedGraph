@@ -303,7 +303,7 @@ class ChunkedGraph:
             node_ids=l2_ids,
             properties=[
                 attributes.Connectivity.AtomicCrossChunkEdge[l]
-                for l in range(2, self.meta.layer_count)
+                for l in range(2, max(3, self.meta.layer_count))
             ],
         )
         result = {}
