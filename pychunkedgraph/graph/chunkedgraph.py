@@ -336,7 +336,7 @@ class ChunkedGraph:
                 return result
             attrs = [
                 attributes.Connectivity.CrossChunkEdge[l]
-                for l in range(2, self.meta.layer_count)
+                for l in range(2, max(3, self.meta.layer_count))
             ]
             node_edges_d_d = self.client.read_nodes(
                 node_ids=node_ids,
