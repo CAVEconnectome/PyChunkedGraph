@@ -6,15 +6,12 @@ from typing import Dict
 from typing import Optional
 from typing import Sequence
 
-import fastremap
 import numpy as np
 from multiwrapper import multiprocessing_utils as mu
 
 from . import ChunkedGraph
 from . import attributes
-from .edges import Edges
 from .utils import flatgraph
-from .types import Agglomeration
 
 
 def _read_delta_root_rows(
@@ -222,28 +219,6 @@ def get_contact_sites(
         )
         cs_dict[partner_root_id].append(np.sum(cs_areas))
     return cs_dict
-
-
-def get_agglomerations(
-    l2id_children_d: Dict,
-    in_edges: Edges,
-    ot_edges: Edges,
-    cx_edges: Edges,
-    sv_parent_d: Dict,
-) -> Dict[np.uint64, Agglomeration]:
-    l2id_agglomeration_d = {}
-    _in = fastremap.remap(in_edges.node_ids1, sv_parent_d, preserve_missing_labels=True)
-    _ot = fastremap.remap(ot_edges.node_ids1, sv_parent_d, preserve_missing_labels=True)
-    _cx = fastremap.remap(cx_edges.node_ids1, sv_parent_d, preserve_missing_labels=True)
-    for l2id in l2id_children_d:
-        l2id_agglomeration_d[l2id] = Agglomeration(
-            l2id,
-            l2id_children_d[l2id],
-            in_edges[_in == l2id],
-            ot_edges[_ot == l2id],
-            cx_edges[_cx == l2id],
-        )
-    return l2id_agglomeration_d
 
 
 def get_activated_edges(
