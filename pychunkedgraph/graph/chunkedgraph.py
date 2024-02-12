@@ -287,9 +287,11 @@ class ChunkedGraph:
                 node_ids=node_ids, properties=attributes.Hierarchy.Child
             )
             return {
-                x: node_children_d[x][0].value
-                if x in node_children_d
-                else types.empty_1d.copy()
+                x: (
+                    node_children_d[x][0].value
+                    if x in node_children_d
+                    else types.empty_1d.copy()
+                )
                 for x in node_ids
             }
         return self.cache.children_multiple(node_ids)
@@ -631,8 +633,22 @@ class ChunkedGraph:
             edges = np.concatenate(
                 [np.array(e.value, dtype=basetypes.NODE_ID, copy=False) for e in val]
             )
-            result[id_] = Edges(edges[:, 0], edges[:, 1], fake_edges=True)
+            result[id_] = Edges(edges[:, 0], edges[:, 1])
         return result
+
+    def copy_fake_edges(self, chunk_id: np.uint64) -> None:
+        _edges = self.client.read_node(
+            node_id=chunk_id,
+            properties=attributes.Connectivity.FakeEdgesCF3,
+            end_time_inclusive=True,
+            fake_edges=True,
+        )
+        mutations = []
+        for e in _edges:
+            val_dict = {attributes.Connectivity.FakeEdges: e.value}
+            row = self.client.mutate_row(chunk_id, val_dict, time_stamp=e.timestamp)
+            mutations.append(row)
+        self.client.write(mutations)
 
     def get_l2_agglomerations(
         self, level2_ids: np.ndarray, edges_only: bool = False
@@ -690,9 +706,11 @@ class ChunkedGraph:
         )
         return (
             agglomeration_d,
-            (self.mock_edges,)
-            if self.mock_edges is not None
-            else (in_edges, out_edges, cross_edges),
+            (
+                (self.mock_edges,)
+                if self.mock_edges is not None
+                else (in_edges, out_edges, cross_edges)
+            ),
         )
 
     def get_node_timestamps(
