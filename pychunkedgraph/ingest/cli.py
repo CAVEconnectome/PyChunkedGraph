@@ -7,6 +7,7 @@ cli for running ingest
 import logging
 from os import environ
 from time import sleep
+from typing import Any
 
 import click
 import tensorstore as ts
@@ -64,9 +65,7 @@ def ingest_graph(
     if test:
         logging.basicConfig(format="%(levelname)s:%(message)s", level=logging.DEBUG)
 
-    meta, ingest_config, client_info = bootstrap(
-        graph_id, config, raw=raw, test_run=test
-    )
+    meta, ingest_config, client_info = bootstrap(graph_id, config, raw, test)
     cg = ChunkedGraph(meta=meta, client_info=client_info)
     retry |= ocdbt
     if not retry:
@@ -75,13 +74,7 @@ def ingest_graph(
     server = ts.ocdbt.DistributedCoordinatorServer()
     imanager = IngestionManager(ingest_config, meta)
     if ocdbt:
-        spec = {"driver": "ocdbt", "base": f"{cg.meta.data_source.EDGES}/ocdbt"}
-        spec["coordinator"] = {"address": f"localhost:{server.port}"}
-        ts.KvStore.open(spec).result()
-        imanager.redis.set("OCDBT_COORDINATOR_PORT", str(server.port))
-        ocdbt_host = environ.get("MY_POD_IP", "localhost")
-        imanager.redis.set("OCDBT_COORDINATOR_HOST", ocdbt_host)
-        logging.info(f"OCDBT Coordinator address {ocdbt_host}:{server.port}")
+        _start_ocdbt_server(imanager, server)
 
     fn = convert_to_ocdbt if ocdbt else create_atomic_chunk
     enqueue_l2_tasks(imanager, fn)
@@ -224,3 +217,13 @@ def ingest_chunk_local(graph_id: str, chunk_info, n_threads: int):
 @click.argument("graph_id", type=str)
 def run_tests(graph_id):
     run_all(ChunkedGraph(graph_id=graph_id))
+
+
+def _start_ocdbt_server(imanager: IngestionManager, server: Any):
+    spec = {"driver": "ocdbt", "base": f"{imanager.cg.meta.data_source.EDGES}/ocdbt"}
+    spec["coordinator"] = {"address": f"localhost:{server.port}"}
+    ts.KvStore.open(spec).result()
+    imanager.redis.set("OCDBT_COORDINATOR_PORT", str(server.port))
+    ocdbt_host = environ.get("MY_POD_IP", "localhost")
+    imanager.redis.set("OCDBT_COORDINATOR_HOST", ocdbt_host)
+    logging.info(f"OCDBT Coordinator address {ocdbt_host}:{server.port}")
