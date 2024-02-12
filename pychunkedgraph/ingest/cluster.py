@@ -7,12 +7,14 @@ Ingest / create chunkedgraph with workers in a cluster.
 import logging
 from os import environ
 from time import sleep
-from typing import Callable, Iterable, Sequence, Generator
+from typing import Callable, Iterable, Sequence
 
 import numpy as np
 from rq import Queue as RQueue
 
+
 from .utils import chunk_id_str
+from .utils import randomize_grid_points
 from .manager import IngestionManager
 from .common import get_atomic_chunk_data
 from .ran_agglomeration import get_active_edges
@@ -53,13 +55,6 @@ def create_parent_chunk(
         ),
     )
     _post_task_completion(imanager, parent_layer, parent_coords)
-
-
-def randomize_grid_points(X: int, Y: int, Z: int) -> Generator[int, int, int]:
-    indices = np.arange(X * Y * Z)
-    np.random.shuffle(indices)
-    for index in indices:
-        yield np.unravel_index(index, (X, Y, Z))
 
 
 def create_atomic_chunk(coords: Sequence[int]):

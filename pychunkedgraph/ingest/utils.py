@@ -1,5 +1,7 @@
 # pylint: disable=invalid-name, missing-docstring
-from typing import Tuple
+from typing import Generator, Tuple
+
+import numpy as np
 
 from . import ClusterIngestConfig
 from . import IngestConfig
@@ -72,3 +74,10 @@ def postprocess_edge_data(im, edge_dict):
         return new_edge_dict
     else:
         raise ValueError(f"Unknown data_version: {data_version}")
+
+
+def randomize_grid_points(X: int, Y: int, Z: int) -> Generator[int, int, int]:
+    indices = np.arange(X * Y * Z)
+    np.random.shuffle(indices)
+    for index in indices:
+        yield np.unravel_index(index, (X, Y, Z))

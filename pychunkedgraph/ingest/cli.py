@@ -20,10 +20,10 @@ from .cluster import create_atomic_chunk
 from .cluster import convert_to_ocdbt
 from .cluster import create_parent_chunk
 from .cluster import enqueue_l2_tasks
-from .cluster import randomize_grid_points
 from .manager import IngestionManager
 from .utils import bootstrap
 from .utils import chunk_id_str
+from .utils import randomize_grid_points
 from .simple_tests import run_all
 from .create.abstract_layers import add_layer
 from ..graph.chunkedgraph import ChunkedGraph
