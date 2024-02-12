@@ -4,7 +4,12 @@
 cli for running ingest
 """
 
+import logging
+from os import environ
+from time import sleep
+
 import click
+import tensorstore as ts
 import yaml
 from flask.cli import AppGroup
 from rq import Queue
@@ -12,8 +17,9 @@ from rq import Worker
 from rq.worker import WorkerStatus
 
 from .cluster import create_atomic_chunk
+from .cluster import convert_to_ocdbt
 from .cluster import create_parent_chunk
-from .cluster import enqueue_atomic_tasks
+from .cluster import enqueue_l2_tasks
 from .cluster import randomize_grid_points
 from .manager import IngestionManager
 from .utils import bootstrap
@@ -40,12 +46,13 @@ def flush_redis():
 
 @ingest_cli.command("graph")
 @click.argument("graph_id", type=str)
-@click.argument("dataset", type=click.Path(exists=True))
-@click.option("--raw", is_flag=True)
-@click.option("--test", is_flag=True)
-@click.option("--retry", is_flag=True)
+@click.argument("dataset", type=click.Path(exists=True), help="Path to yaml config.")
+@click.option("--raw", is_flag=True, help="Read edges from agglomeration output.")
+@click.option("--test", is_flag=True, help="Test 8 chunks at the center of dataset.")
+@click.option("--retry", is_flag=True, help="Rerun without creating a new table.")
+@click.option("--ocdbt", is_flag=True, help="Store edges using ts ocdbt kv store.")
 def ingest_graph(
-    graph_id: str, dataset: click.Path, raw: bool, test: bool, retry: bool
+    graph_id: str, dataset: click.Path, raw: bool, test: bool, retry: bool, ocdbt: bool
 ):
     """
     Main ingest command.
@@ -54,16 +61,35 @@ def ingest_graph(
     with open(dataset, "r") as stream:
         config = yaml.safe_load(stream)
 
+    if test:
+        logging.basicConfig(format="%(levelname)s:%(message)s", level=logging.DEBUG)
+
     meta, ingest_config, client_info = bootstrap(
-        graph_id,
-        config=config,
-        raw=raw,
-        test_run=test,
+        graph_id, config, raw=raw, test_run=test
     )
     cg = ChunkedGraph(meta=meta, client_info=client_info)
+    retry |= ocdbt
     if not retry:
         cg.create()
-    enqueue_atomic_tasks(IngestionManager(ingest_config, meta))
+
+    server = ts.ocdbt.DistributedCoordinatorServer()
+    imanager = IngestionManager(ingest_config, meta)
+    if ocdbt:
+        spec = {"driver": "ocdbt", "base": f"{cg.meta.data_source.EDGES}/ocdbt"}
+        spec["coordinator"] = {"address": f"localhost:{server.port}"}
+        ts.KvStore.open(spec).result()
+        imanager.redis.set("OCDBT_COORDINATOR_PORT", str(server.port))
+        ocdbt_host = environ.get("MY_POD_IP", "localhost")
+        imanager.redis.set("OCDBT_COORDINATOR_HOST", ocdbt_host)
+        logging.info(f"OCDBT Coordinator address {ocdbt_host}:{server.port}")
+
+    fn = convert_to_ocdbt if ocdbt else create_atomic_chunk
+    enqueue_l2_tasks(imanager, fn)
+
+    if ocdbt:
+        logging.info("All tasks queued. Keep this alive for ocdbt coordinator server.")
+        while True:
+            sleep(60)
 
 
 @ingest_cli.command("imanager")
@@ -185,11 +211,8 @@ def ingest_chunk(queue: str, chunk_info):
 @click.option("--n_threads", type=int, default=1)
 def ingest_chunk_local(graph_id: str, chunk_info, n_threads: int):
     """Manually ingest a chunk on a local machine."""
-    from .create.abstract_layers import add_layer
-    from .cluster import _create_atomic_chunk
-
     if chunk_info[0] == 2:
-        _create_atomic_chunk(chunk_info[1:])
+        create_atomic_chunk(chunk_info[1:])
     else:
         cg = ChunkedGraph(graph_id=graph_id)
         add_layer(cg, chunk_info[0], chunk_info[1:], n_threads=n_threads)

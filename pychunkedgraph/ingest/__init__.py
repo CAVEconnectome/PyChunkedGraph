@@ -1,5 +1,7 @@
+import logging
 from collections import namedtuple
 
+logging.basicConfig(format='%(levelname)s:%(message)s', level=logging.INFO)
 
 _cluster_ingest_config_fields = (
     "ATOMIC_Q_NAME",
