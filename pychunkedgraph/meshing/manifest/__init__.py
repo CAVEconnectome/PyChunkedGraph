@@ -2,6 +2,8 @@
 
 import numpy as np
 
+from .cache import ManifestCache
+from .sharded import get_children_before_start_layer
 from .sharded import verified_manifest as verified_manifest_sharded
 from .sharded import speculative_manifest as speculative_manifest_sharded
 
