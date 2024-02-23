@@ -95,6 +95,6 @@ def handle_remesh(table_id):
 
 @bp.route("/table/<table_id>/clear_manifest_cache/<node_id>", methods=["POST"])
 @auth_requires_permission("admin")
-def handle_merge_admin(table_id, node_id):
+def handle_clear_manifest_cache(table_id, node_id):
     cg = get_cg(table_id)
     common.clear_manifest_cache(cg, node_id)
