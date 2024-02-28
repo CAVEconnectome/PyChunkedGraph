@@ -191,8 +191,11 @@ def get_manifest(cg: ChunkedGraph, node_id: NODE_ID) -> Dict:
     octree, node_ids, fragments = build_octree(cg, node_id, node_children, fragments_d)
     max_layer = min(cg.get_chunk_layer(node_id) + 1, cg.meta.layer_count)
 
+    chunk_shape = np.array(cg.meta.graph_config.CHUNK_SIZE, dtype=np.dtype("<f4"))
+    chunk_shape *= cg.meta.resolution
+
     response = {
-        "chunkShape": np.array(cg.meta.graph_config.CHUNK_SIZE, dtype=np.dtype("<f4")),
+        "chunkShape": chunk_shape,
         "chunkGridSpatialOrigin": np.array([0, 0, 0], dtype=np.dtype("<f4")),
         "lodScales": 2 ** np.arange(max_layer, dtype=np.dtype("<f4")) * 1,
         "fragments": normalize_fragments(fragments),
