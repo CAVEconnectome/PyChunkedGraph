@@ -86,6 +86,7 @@ def get_lvl2_edge_list(
     """
 
     if bbox is None:
+        # maybe temporary, this was the old implementation
         lvl2_ids = get_children_at_layer(cg, node_id, 2)
     else:
         lvl2_ids = get_subgraph_nodes(
@@ -96,6 +97,15 @@ def get_lvl2_edge_list(
             return_layers=[2],
             return_flattened=True,
         )
+
+    edges = _get_edges_for_lvl2_ids(cg, lvl2_ids)
+    return edges
+
+
+def _get_edges_for_lvl2_ids(cg, lvl2_ids):
+    # protect in case there are no lvl2 ids
+    if len(lvl2_ids) == 0:
+        return np.empty((0, 2), dtype=np.uint64)
 
     cce_dict = cg.get_atomic_cross_edges(lvl2_ids)
 
