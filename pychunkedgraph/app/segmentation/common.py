@@ -1042,9 +1042,15 @@ def handle_get_layer2_graph(table_id, node_id):
     current_app.table_id = table_id
     user_id = str(g.auth_user.get("id", current_app.user_id))
 
+    if "bounds" in request.args:
+        bounds = request.args["bounds"]
+        bounding_box = np.array([b.split("-") for b in bounds.split("_")], dtype=int).T
+    else:
+        bounding_box = None
+
     cg = app_utils.get_cg(table_id)
     print("Finding edge graph...")
-    edge_graph = pathing.get_lvl2_edge_list(cg, int(node_id))
+    edge_graph = pathing.get_lvl2_edge_list(cg, int(node_id), bbox=bounding_box)
     print("Edge graph found len: {}".format(len(edge_graph)))
     return {"edge_graph": edge_graph}
 
