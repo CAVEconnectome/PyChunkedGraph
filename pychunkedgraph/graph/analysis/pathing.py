@@ -1,7 +1,12 @@
+import typing
+
 import fastremap
 import graph_tool
 import numpy as np
+
 from pychunkedgraph.graph.utils import flatgraph
+
+from ..subgraph import get_subgraph_nodes
 
 
 def get_first_shared_parent(
@@ -18,9 +23,7 @@ def get_first_shared_parent(
     second_node_parent_ids = set()
     cur_first_node_parent = first_node_id
     cur_second_node_parent = second_node_id
-    while (
-        cur_first_node_parent is not None or cur_second_node_parent is not None
-    ):
+    while cur_first_node_parent is not None or cur_second_node_parent is not None:
         if cur_first_node_parent is not None:
             first_node_parent_ids.add(cur_first_node_parent)
         if cur_second_node_parent is not None:
@@ -70,14 +73,30 @@ def get_children_at_layer(
     return np.concatenate(children_at_layer)
 
 
-def get_lvl2_edge_list(cg, node_id: np.uint64):
+def get_lvl2_edge_list(
+    cg,
+    node_id: np.uint64,
+    bbox: typing.Optional[typing.Sequence[typing.Sequence[int]]] = None,
+):
     """get an edge list of lvl2 ids for a particular node
 
     :param cg: ChunkedGraph object
     :param node_id: np.uint64 that you want the edge list for
+    :param bbox: Optional[Sequence[Sequence[int]]] a bounding box to limit the search
     """
 
-    lvl2_ids = get_children_at_layer(cg, node_id, 2)
+    if bbox is None:
+        lvl2_ids = get_children_at_layer(cg, node_id, 2)
+    else:
+        lvl2_ids = get_subgraph_nodes(
+            cg,
+            node_id,
+            bbox=bbox,
+            bbox_is_coordinate=True,
+            return_layers=[2],
+            return_flattened=True,
+        )
+
     cce_dict = cg.get_atomic_cross_edges(lvl2_ids)
 
     # Gather all of the supervoxel ids into two lists, we will map them to
@@ -95,9 +114,7 @@ def get_lvl2_edge_list(cg, node_id: np.uint64):
             known_supervoxels_for_lv2_id = cce_dict[lvl2_id][level][:, 0]
             unknown_supervoxels_for_lv2_id = cce_dict[lvl2_id][level][:, 1]
             known_supervoxels_list.append(known_supervoxels_for_lv2_id)
-            known_l2_list.append(
-                np.full(known_supervoxels_for_lv2_id.shape, lvl2_id)
-            )
+            known_l2_list.append(np.full(known_supervoxels_for_lv2_id.shape, lvl2_id))
             unknown_supervoxel_list.append(unknown_supervoxels_for_lv2_id)
 
     # Create two arrays to map supervoxels for which we know their parents
@@ -105,9 +122,7 @@ def get_lvl2_edge_list(cg, node_id: np.uint64):
         np.concatenate(known_supervoxels_list), return_index=True
     )
     known_l2_array = (np.concatenate(known_l2_list))[unique_indices]
-    unknown_supervoxel_array = np.unique(
-        np.concatenate(unknown_supervoxel_list)
-    )
+    unknown_supervoxel_array = np.unique(np.concatenate(unknown_supervoxel_list))
 
     # Call get_parents on any supervoxels for which we don't know their parents
     supervoxels_to_query_parent = np.setdiff1d(
@@ -123,9 +138,7 @@ def get_lvl2_edge_list(cg, node_id: np.uint64):
     # Map the cross-chunk edges from supervoxels to lvl2 ids
     edge_view = edge_array.view()
     edge_view.shape = -1
-    fastremap.remap_from_array_kv(
-        edge_view, known_supervoxel_array, known_l2_array
-    )
+    fastremap.remap_from_array_kv(edge_view, known_supervoxel_array, known_l2_array)
     return np.unique(np.sort(edge_array, axis=1), axis=0)
 
 
@@ -164,9 +177,7 @@ def find_l2_shortest_path(
     )
 
     # Remap the graph-tool ids to lvl2 ids and return the path
-    vertex_indices = [
-        weighted_graph.vertex_index[vertex] for vertex in vertex_list
-    ]
+    vertex_indices = [weighted_graph.vertex_index[vertex] for vertex in vertex_list]
     l2_traversal_path = graph_indexed_l2_ids[vertex_indices]
     return l2_traversal_path
 
@@ -181,9 +192,7 @@ def compute_rough_coordinate_path(cg, l2_ids):
     """
     coordinate_path = []
     for l2_id in l2_ids:
-        chunk_center = cg.get_chunk_coordinates(l2_id) + np.array(
-            [0.5, 0.5, 0.5]
-        )
+        chunk_center = cg.get_chunk_coordinates(l2_id) + np.array([0.5, 0.5, 0.5])
         coordinate = chunk_center * np.array(
             cg.meta.graph_config.CHUNK_SIZE
         ) + np.array(cg.meta.cv.mip_voxel_offset(0))
