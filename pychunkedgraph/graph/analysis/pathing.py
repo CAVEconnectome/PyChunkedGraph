@@ -98,11 +98,11 @@ def get_lvl2_edge_list(
             return_flattened=True,
         )
 
-    edges = _get_edges_for_lvl2_ids(cg, lvl2_ids)
+    edges = _get_edges_for_lvl2_ids(cg, lvl2_ids, induced=True)
     return edges
 
 
-def _get_edges_for_lvl2_ids(cg, lvl2_ids):
+def _get_edges_for_lvl2_ids(cg, lvl2_ids, induced=False):
     # protect in case there are no lvl2 ids
     if len(lvl2_ids) == 0:
         return np.empty((0, 2), dtype=np.uint64)
@@ -149,7 +149,17 @@ def _get_edges_for_lvl2_ids(cg, lvl2_ids):
     edge_view = edge_array.view()
     edge_view.shape = -1
     fastremap.remap_from_array_kv(edge_view, known_supervoxel_array, known_l2_array)
-    return np.unique(np.sort(edge_array, axis=1), axis=0)
+
+    edge_array = np.unique(np.sort(edge_array, axis=1), axis=0)
+
+    if induced:
+        # make this an induced subgraph
+        # keep only the edges that are between the lvl2 ids asked for
+        edge_array = edge_array[
+            np.isin(edge_array[:, 0], lvl2_ids) & np.isin(edge_array[:, 1], lvl2_ids)
+        ]
+
+    return edge_array
 
 
 def find_l2_shortest_path(
