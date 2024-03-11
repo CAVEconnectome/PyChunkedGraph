@@ -115,6 +115,11 @@ def _get_edges_for_lvl2_ids(cg, lvl2_ids, induced=False):
     for l2_id in cce_dict:
         for level in cce_dict[l2_id]:
             edge_array.append(cce_dict[l2_id][level])
+
+    # protect in case there are no edges
+    if len(edge_array) == 0:
+        return np.empty((0, 2), dtype=np.uint64)
+    
     edge_array = np.concatenate(edge_array)
     known_supervoxels_list = []
     known_l2_list = []
