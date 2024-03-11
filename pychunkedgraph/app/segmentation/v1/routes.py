@@ -1,28 +1,28 @@
 # pylint: disable=invalid-name, missing-docstring
 
-import io
 import csv
-import pickle
+import io
 import json
+import pickle
 
-import pandas as pd
 import numpy as np
-from flask import make_response
-from flask import Blueprint, request
-from middle_auth_client import auth_requires_permission
-from middle_auth_client import auth_requires_admin
-from middle_auth_client import auth_required
+import pandas as pd
+from flask import Blueprint, make_response, request
+from middle_auth_client import (
+    auth_required,
+    auth_requires_admin,
+    auth_requires_permission,
+)
 
+from pychunkedgraph.app import common as app_common
 from pychunkedgraph.app.app_utils import (
     jsonify_with_kwargs,
-    toboolean,
-    tobinary,
     remap_public,
+    tobinary,
+    toboolean,
 )
-from pychunkedgraph.app import common as app_common
 from pychunkedgraph.app.segmentation import common
 from pychunkedgraph.graph import exceptions as cg_exceptions
-
 
 bp = Blueprint(
     "pcg_segmentation_v1",
@@ -561,7 +561,12 @@ def handle_roots_from_coords(table_id):
 def handle_get_lvl2_graph(table_id, node_id):
     int64_as_str = request.args.get("int64_as_str", default=False, type=toboolean)
     resp = common.handle_get_layer2_graph(table_id, node_id)
-    return jsonify_with_kwargs(resp, int64_as_str=int64_as_str)
+    out = jsonify_with_kwargs(resp, int64_as_str=int64_as_str)
+    if "bounds" in request.args:
+        out.headers["Used-Bounds"] = True
+    else:
+        out.headers["Used-Bounds"] = False
+    return out
 
 
 ### GET OPERATION DETAILS --------------------------------------------------------
