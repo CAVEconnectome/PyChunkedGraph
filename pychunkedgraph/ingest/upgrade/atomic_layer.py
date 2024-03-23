@@ -76,7 +76,9 @@ def update_chunk(cg: ChunkedGraph, chunk_coords: list[int], layer: int = 2):
     within the periods they were valid/active.
     """
     x, y, z = chunk_coords
-    rr = cg.range_read_chunk(cg.get_chunk_id(layer=layer, x=x, y=y, z=z))
+    chunk_id = cg.get_chunk_id(layer=layer, x=x, y=y, z=z)
+    cg.copy_fake_edges(chunk_id)
+    rr = cg.range_read_chunk(chunk_id)
     nodes = list(rr.keys())
 
     # get start_ts when node becomes valid
