@@ -26,7 +26,7 @@ from .utils import bootstrap
 from .utils import chunk_id_str
 from .utils import randomize_grid_points
 from .simple_tests import run_all
-from .create.abstract_layers import add_layer
+from .create.parent_layer import add_layer
 from ..graph.chunkedgraph import ChunkedGraph
 from ..utils.redis import get_redis_connection
 from ..utils.redis import keys as r_keys

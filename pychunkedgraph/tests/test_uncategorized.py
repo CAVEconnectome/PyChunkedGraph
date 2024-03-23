@@ -36,7 +36,7 @@ from ..graph.lineage import get_root_id_history
 from ..graph.lineage import get_future_root_ids
 from ..graph.utils.serializers import serialize_uint64
 from ..graph.utils.serializers import deserialize_uint64
-from ..ingest.create.abstract_layers import add_layer
+from ..ingest.create.parent_layer import add_layer
 
 
 class TestGraphNodeConversion:
@@ -68,9 +68,9 @@ class TestGraphNodeConversion:
         ) == cg.get_node_id(np.uint64(1), layer=2, x=3, y=1, z=0)
 
         assert cg.get_node_id(
-            np.uint64(2 ** 53 - 2), layer=10, x=0, y=0, z=0
+            np.uint64(2**53 - 2), layer=10, x=0, y=0, z=0
         ) + np.uint64(1) == cg.get_node_id(
-            np.uint64(2 ** 53 - 1), layer=10, x=0, y=0, z=0
+            np.uint64(2**53 - 1), layer=10, x=0, y=0, z=0
         )
 
     @pytest.mark.timeout(30)
@@ -82,9 +82,9 @@ class TestGraphNodeConversion:
         ) < serialize_uint64(cg.get_node_id(np.uint64(1), layer=2, x=3, y=1, z=0))
 
         assert serialize_uint64(
-            cg.get_node_id(np.uint64(2 ** 53 - 2), layer=10, x=0, y=0, z=0)
+            cg.get_node_id(np.uint64(2**53 - 2), layer=10, x=0, y=0, z=0)
         ) < serialize_uint64(
-            cg.get_node_id(np.uint64(2 ** 53 - 1), layer=10, x=0, y=0, z=0)
+            cg.get_node_id(np.uint64(2**53 - 1), layer=10, x=0, y=0, z=0)
         )
 
     @pytest.mark.timeout(30)
