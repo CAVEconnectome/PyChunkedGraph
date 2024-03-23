@@ -20,6 +20,8 @@ from .common import get_atomic_chunk_data
 from .ran_agglomeration import get_active_edges
 from .create.atomic_layer import add_atomic_edges
 from .create.parent_layer import add_layer
+from .upgrade.atomic_layer import update_chunk as update_atomic_chunk
+from .upgrade.parent_layer import update_chunk as update_parent_chunk
 from ..graph.edges import Edges, put_edges
 from ..graph.meta import ChunkedGraphMeta
 from ..graph.chunks.hierarchy import get_children_chunk_coords
@@ -57,6 +59,16 @@ def create_parent_chunk(
     _post_task_completion(imanager, parent_layer, parent_coords)
 
 
+def upgrade_parent_chunk(
+    parent_layer: int,
+    parent_coords: Sequence[int],
+) -> None:
+    redis = get_redis_connection()
+    imanager = IngestionManager.from_pickle(redis.get(r_keys.INGESTION_MANAGER))
+    update_parent_chunk(imanager.cg, parent_coords, layer=parent_layer)
+    _post_task_completion(imanager, parent_layer, parent_coords)
+
+
 def create_atomic_chunk(coords: Sequence[int]):
     """Creates single atomic chunk"""
     redis = get_redis_connection()
@@ -71,6 +83,15 @@ def create_atomic_chunk(coords: Sequence[int]):
         logging.debug(f"{k}: {len(v)}")
     for k, v in chunk_edges_active.items():
         logging.debug(f"active_{k}: {len(v)}")
+    _post_task_completion(imanager, 2, coords)
+
+
+def upgrade_atomic_chunk(coords: Sequence[int]):
+    """Upgrades single atomic chunk"""
+    redis = get_redis_connection()
+    imanager = IngestionManager.from_pickle(redis.get(r_keys.INGESTION_MANAGER))
+    coords = np.array(list(coords), dtype=int)
+    update_atomic_chunk(imanager.cg, coords, layer=2)
     _post_task_completion(imanager, 2, coords)
 
 
