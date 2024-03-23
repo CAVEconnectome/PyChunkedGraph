@@ -44,14 +44,18 @@ def get_edit_timestamps(cg: ChunkedGraph, node, edges_d, start_ts, end_ts) -> li
 
 
 def update_cross_edges(cg: ChunkedGraph, node, cx_edges_d, node_ts, timestamps) -> list:
+    """
+    Helper function to update a single L2 ID.
+    Returns a list of mutations with given timestamps.
+    """
     rows = []
-    for timestamp in timestamps:
+    for ts in timestamps:
         edges = np.concatenate(list(cx_edges_d.values()))
         assert node == np.unique(cg.get_parents(edges[:, 0], time_stamp=node_ts))
 
         val_dict = {}
         nodes = edges[:, 1]
-        parents = cg.get_parents(nodes, time_stamp=timestamp)
+        parents = cg.get_parents(nodes, time_stamp=ts)
         edge_parents_d = dict(zip(nodes, parents))
         for layer, layer_edges in cx_edges_d.items():
             layer_edges = fastremap.remap(
@@ -62,13 +66,17 @@ def update_cross_edges(cg: ChunkedGraph, node, cx_edges_d, node_ts, timestamps) 
             col = Connectivity.CrossChunkEdge[layer]
             val_dict[col] = layer_edges
         row_id = serializers.serialize_uint64(node)
-        rows.append(cg.client.mutate_row(row_id, val_dict, timestamp))
+        rows.append(cg.client.mutate_row(row_id, val_dict, time_stamp=ts))
     return rows
 
 
-def update_chunk(cg: ChunkedGraph, chunk_coords: list[int]):
+def update_chunk(cg: ChunkedGraph, chunk_coords: list[int], layer: int = 2):
+    """
+    Iterate over all L2 IDs in a chunk and update their cross chunk edges,
+    within the periods they were valid/active.
+    """
     x, y, z = chunk_coords
-    rr = cg.range_read_chunk(cg.get_chunk_id(layer=2, x=x, y=y, z=z))
+    rr = cg.range_read_chunk(cg.get_chunk_id(layer=layer, x=x, y=y, z=z))
     nodes = list(rr.keys())
 
     # get start_ts when node becomes valid
