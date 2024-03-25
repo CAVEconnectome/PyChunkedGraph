@@ -19,6 +19,7 @@ from .cache import CacheService
 from .meta import ChunkedGraphMeta
 from .utils import basetypes
 from .utils import id_helpers
+from .utils import serializers
 from .utils import generic as misc_utils
 from .edges import Edges
 from .edges import utils as edge_utils
@@ -644,9 +645,10 @@ class ChunkedGraph:
             fake_edges=True,
         )
         mutations = []
+        _id = serializers.serialize_uint64(chunk_id, fake_edges=True)
         for e in _edges:
             val_dict = {attributes.Connectivity.FakeEdges: e.value}
-            row = self.client.mutate_row(chunk_id, val_dict, time_stamp=e.timestamp)
+            row = self.client.mutate_row(_id, val_dict, time_stamp=e.timestamp)
             mutations.append(row)
         self.client.write(mutations)
 
