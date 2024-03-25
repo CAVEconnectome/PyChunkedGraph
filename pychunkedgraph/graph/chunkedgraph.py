@@ -714,7 +714,7 @@ class ChunkedGraph:
         )
 
     def get_node_timestamps(
-        self, node_ids: typing.Sequence[np.uint64], return_numpy=True
+        self, node_ids: typing.Sequence[np.uint64], return_numpy=True, normalize=False
     ) -> typing.Iterable:
         """
         The timestamp of the children column can be assumed
@@ -728,11 +728,16 @@ class ChunkedGraph:
             if return_numpy:
                 return np.array([], dtype=np.datetime64)
             return []
+        result = []
+        earliest_ts = self.get_earliest_timestamp()
+        for n in node_ids:
+            ts = children[n][0].timestamp
+            if normalize:
+                ts = earliest_ts if ts < earliest_ts else ts
+            result.append(ts)
         if return_numpy:
-            return np.array(
-                [children[x][0].timestamp for x in node_ids], dtype=np.datetime64
-            )
-        return [children[x][0].timestamp for x in node_ids]
+            return np.array(result, dtype=np.datetime64)
+        return result
 
     # OPERATIONS
     def add_edges(

@@ -82,7 +82,7 @@ def update_chunk(cg: ChunkedGraph, chunk_coords: list[int], layer: int = 2):
     nodes = list(rr.keys())
 
     # get start_ts when node becomes valid
-    nodes_ts = cg.get_node_timestamps(nodes, return_numpy=False)
+    nodes_ts = cg.get_node_timestamps(nodes, return_numpy=False, normalize=True)
     cx_edges_d = cg.get_atomic_cross_edges(nodes)
     children_d = cg.get_children(nodes)
 
@@ -93,7 +93,7 @@ def update_chunk(cg: ChunkedGraph, chunk_coords: list[int], layer: int = 2):
             continue
 
         # get end_ts when node becomes invalid (bigtable resolution is in ms)
-        start = start_ts + timedelta(microseconds=(start_ts.microsecond % 1000) + 1000)
+        start = start_ts + timedelta(milliseconds=1)
         _timestamps = get_parent_timestamps(cg, children_d[node], start_time=start)
         try:
             end_ts = sorted(_timestamps)[0]

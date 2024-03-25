@@ -67,7 +67,7 @@ def update_chunk(cg: ChunkedGraph, chunk_coords: list[int], layer: int):
     rr = cg.range_read_chunk(cg.get_chunk_id(layer=layer, x=x, y=y, z=z))
     nodes = list(rr.keys())
     children_d = cg.get_children(nodes)
-    nodes_ts = cg.get_node_timestamps(nodes, return_numpy=False)
+    nodes_ts = cg.get_node_timestamps(nodes, return_numpy=False, normalize=True)
 
     rows = []
     for node, node_ts in zip(nodes, nodes_ts):

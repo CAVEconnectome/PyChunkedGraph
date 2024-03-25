@@ -42,7 +42,7 @@ def flush_redis():
 
 @ingest_cli.command("graph")
 @click.argument("graph_id", type=str)
-@click.argument("dataset", type=click.Path(exists=True), help="Path to yaml config.")
+@click.argument("dataset", type=click.Path(exists=True))
 @click.option("--raw", is_flag=True, help="Read edges from agglomeration output.")
 @click.option("--test", is_flag=True, help="Test 8 chunks at the center of dataset.")
 @click.option("--retry", is_flag=True, help="Rerun without creating a new table.")

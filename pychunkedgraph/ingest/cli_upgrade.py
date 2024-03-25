@@ -11,6 +11,8 @@ import click
 import tensorstore as ts
 from flask.cli import AppGroup
 
+from . import ClusterIngestConfig
+from . import IngestConfig
 from .cluster import upgrade_atomic_chunk
 from .cluster import convert_to_ocdbt
 from .cluster import upgrade_parent_chunk
@@ -42,14 +44,16 @@ def flush_redis():
 
 @upgrade_cli.command("graph")
 @click.argument("graph_id", type=str)
+@click.option("--test", is_flag=True, help="Test 8 chunks at the center of dataset.")
 @click.option("--ocdbt", is_flag=True, help="Store edges using ts ocdbt kv store.")
-def upgrade_graph(graph_id: str, ocdbt: bool):
+def upgrade_graph(graph_id: str, test: bool, ocdbt: bool):
     """
     Main upgrade command.
     Takes upgrade config from a yaml file and queues atomic tasks.
     """
+    ingest_config = IngestConfig(CLUSTER=ClusterIngestConfig(), TEST_RUN=test)
     cg = ChunkedGraph(graph_id=graph_id)
-    imanager = IngestionManager(None, cg.meta)
+    imanager = IngestionManager(ingest_config, cg.meta)
     server = ts.ocdbt.DistributedCoordinatorServer()
     if ocdbt:
         start_ocdbt_server(imanager, server)
