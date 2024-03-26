@@ -35,7 +35,6 @@ def get_edit_timestamps(cg: ChunkedGraph, node, edges_d, start_ts, end_ts) -> li
     This is required because we need to update edges from both sides.
     """
     atomic_cx_edges = np.concatenate(list(edges_d.values()))
-    assert node == np.unique(cg.get_parents(atomic_cx_edges[:, 0], time_stamp=start_ts))
     timestamps = get_parent_timestamps(
         cg, atomic_cx_edges[:, 1], start_time=start_ts, end_time=end_ts
     )
@@ -54,19 +53,22 @@ def _exists_as_parent(cg: ChunkedGraph, node, supervoxels) -> bool:
     return node in parents
 
 
-def update_cross_edges(cg: ChunkedGraph, node, cx_edges_d, node_ts, timestamps) -> list:
+def update_cross_edges(cg: ChunkedGraph, node, cx_edges_d, node_ts, end_ts) -> list:
     """
     Helper function to update a single L2 ID.
     Returns a list of mutations with given timestamps.
     """
     rows = []
-    for ts in timestamps:
-        edges = np.concatenate(list(cx_edges_d.values()))
-        if node != np.unique(cg.get_parents(edges[:, 0], time_stamp=node_ts))[0]:
-            # if node is not the parent at this ts, it must be invalid
-            assert not _exists_as_parent(cg, node, edges[:, 0])
-            return []
+    edges = np.concatenate(list(cx_edges_d.values()))
+    if node != np.unique(cg.get_parents(edges[:, 0], time_stamp=node_ts))[0]:
+        # if node is not the parent at this ts, it must be invalid
+        assert not _exists_as_parent(cg, node, edges[:, 0])
+        return rows
 
+    timestamps = [node_ts]
+    if node_ts != end_ts:
+        timestamps = get_edit_timestamps(cg, node, cx_edges_d, node_ts, end_ts)
+    for ts in timestamps:
         val_dict = {}
         nodes = edges[:, 1]
         parents = cg.get_parents(nodes, time_stamp=ts)
@@ -117,12 +119,8 @@ def update_chunk(cg: ChunkedGraph, chunk_coords: list[int], layer: int = 2):
         except IndexError:
             # start_ts == end_ts means there has been no edit involving this node
             # meaning only one timestamp to update cross edges, start_ts
-            _rows = update_cross_edges(cg, node, node_cx_edges_d, start_ts, [start_ts])
-            rows.extend(_rows)
-            continue
-
+            end_ts = start_ts
         # for each timestamp until end_ts, update cross chunk edges of node
-        valid_times = get_edit_timestamps(cg, node, node_cx_edges_d, start_ts, end_ts)
-        _rows = update_cross_edges(cg, node, node_cx_edges_d, start_ts, valid_times)
+        _rows = update_cross_edges(cg, node, node_cx_edges_d, start_ts, end_ts)
         rows.extend(_rows)
     cg.client.write(rows)
