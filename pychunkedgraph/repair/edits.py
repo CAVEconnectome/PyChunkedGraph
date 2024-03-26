@@ -19,8 +19,8 @@ def repair_operation(cg, log_d, operation_id):
     ts = log_d["timestamp"]
     result = operation.execute(
         operation_id=operation_id,
-        parent_ts=ts - timedelta(seconds=0.1),
-        override_ts=ts + timedelta(microseconds=(ts.microsecond % 1000) + 10),
+        parent_ts=ts - timedelta(milliseconds=100),
+        override_ts=ts + timedelta(milliseconds=10),
     )
     old_roots = operation._update_root_ids()
     print("roots", old_roots, result.new_root_ids)

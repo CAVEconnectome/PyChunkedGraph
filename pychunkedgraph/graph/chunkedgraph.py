@@ -960,3 +960,14 @@ class ChunkedGraph:
             _, timestamp = self.client.read_log_entry(op_id)
             if timestamp is not None:
                 return timestamp - timedelta(milliseconds=500)
+
+    def get_operation_ids(self, node_ids: typing.Sequence):
+        response = self.client.read_nodes(node_ids=node_ids)
+        result = {}
+        for node in node_ids:
+            try:
+                operations = response[node][attributes.OperationLogs.OperationID]
+                result[node] = [(x.value, x.timestamp) for x in operations]
+            except KeyError:
+                ...
+        return result

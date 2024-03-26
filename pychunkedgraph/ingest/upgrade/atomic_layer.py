@@ -51,7 +51,7 @@ def update_cross_edges(cg: ChunkedGraph, node, cx_edges_d, node_ts, timestamps) 
     rows = []
     for ts in timestamps:
         edges = np.concatenate(list(cx_edges_d.values()))
-        assert node == np.unique(cg.get_parents(edges[:, 0], time_stamp=node_ts))
+        assert node == np.unique(cg.get_parents(edges[:, 0], time_stamp=node_ts)), node
 
         val_dict = {}
         nodes = edges[:, 1]
@@ -88,6 +88,9 @@ def update_chunk(cg: ChunkedGraph, chunk_coords: list[int], layer: int = 2):
 
     rows = []
     for node, start_ts in zip(nodes, nodes_ts):
+        if cg.get_parent(node) is None:
+            # invalid id caused by failed ingest task
+            continue
         node_cx_edges_d = cx_edges_d.get(node, {})
         if not node_cx_edges_d:
             continue
