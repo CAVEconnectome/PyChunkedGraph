@@ -1,6 +1,4 @@
 # pylint: disable=invalid-name, missing-docstring, c-extension-no-member
-from datetime import timedelta
-
 import fastremap
 import numpy as np
 from pychunkedgraph.graph import ChunkedGraph
@@ -27,19 +25,17 @@ def get_edit_timestamps(cg: ChunkedGraph, children: np.ndarray) -> set:
     return result
 
 
-def update_cross_edges(
-    cg: ChunkedGraph, layer, node, children, node_ts, timestamps
-) -> list:
+def update_cross_edges(cg: ChunkedGraph, layer, node, children, timestamps) -> list:
     """
     Helper function to update a single ID.
     Returns a list of mutations with given timestamps.
     """
     rows = []
-    for ts in timestamps:
+    for ts in sorted(timestamps):
         cx_edges_d = cg.get_cross_chunk_edges(children, time_stamp=ts, raw_only=True)
         cx_edges_d = concatenate_cross_edge_dicts(cx_edges_d.values())
         edges = np.concatenate(list(cx_edges_d.values()))
-        assert node == np.unique(cg.get_parents(edges[:, 0], time_stamp=node_ts))
+        assert node == np.unique(cg.get_parents(edges[:, 0], time_stamp=ts))
 
         val_dict = {}
         nodes = edges[:, 1]
@@ -67,11 +63,10 @@ def update_chunk(cg: ChunkedGraph, chunk_coords: list[int], layer: int):
     rr = cg.range_read_chunk(cg.get_chunk_id(layer=layer, x=x, y=y, z=z))
     nodes = list(rr.keys())
     children_d = cg.get_children(nodes)
-    nodes_ts = cg.get_node_timestamps(nodes, return_numpy=False, normalize=True)
 
     rows = []
-    for node, node_ts in zip(nodes, nodes_ts):
+    for node in nodes:
         timestamps = get_edit_timestamps(cg, children_d[node])
-        _rows = update_cross_edges(cg, node, children_d[node], node_ts, timestamps)
+        _rows = update_cross_edges(cg, layer, node, children_d[node], timestamps)
         rows.extend(_rows)
     cg.client.write(rows)

@@ -98,7 +98,7 @@ def queue_layer(parent_layer):
     assert parent_layer > 2, "This command is for layers 3 and above."
     redis = get_redis_connection()
     imanager = IngestionManager.from_pickle(redis.get(r_keys.INGESTION_MANAGER))
-    queue_layer_helper(parent_layer, imanager, redis, create_parent_chunk)
+    queue_layer_helper(parent_layer, imanager, create_parent_chunk)
 
 
 @ingest_cli.command("status")

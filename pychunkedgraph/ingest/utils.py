@@ -138,7 +138,7 @@ def print_ingest_status(imanager: IngestionManager, redis):
         print(f"l{layer}\t: queued: {q}\t\t failed: {f}\t\t busy: {wb}")
 
 
-def queue_layer_helper(parent_layer: int, imanager: IngestionManager, redis, fn):
+def queue_layer_helper(parent_layer: int, imanager: IngestionManager, fn):
     if parent_layer == imanager.cg_meta.layer_count:
         chunk_coords = [(0, 0, 0)]
     else:

@@ -28,7 +28,7 @@ def get_parent_timestamps(cg, supervoxels, start_time=None, end_time=None) -> se
     return result
 
 
-def get_edit_timestamps(cg: ChunkedGraph, node, edges_d, start_ts, end_ts) -> list:
+def get_edit_timestamps(cg: ChunkedGraph, edges_d, start_ts, end_ts) -> list:
     """
     Timestamps of when post-side supervoxels were involved in an edit.
     Post-side - supervoxels in the neighbor chunk.
@@ -67,7 +67,7 @@ def update_cross_edges(cg: ChunkedGraph, node, cx_edges_d, node_ts, end_ts) -> l
 
     timestamps = [node_ts]
     if node_ts != end_ts:
-        timestamps = get_edit_timestamps(cg, node, cx_edges_d, node_ts, end_ts)
+        timestamps = get_edit_timestamps(cg, cx_edges_d, node_ts, end_ts)
     for ts in timestamps:
         val_dict = {}
         nodes = edges[:, 1]
