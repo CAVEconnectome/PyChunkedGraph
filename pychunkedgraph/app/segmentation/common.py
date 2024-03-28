@@ -117,6 +117,10 @@ def handle_api_versions():
     return jsonify(__api_versions__)
 
 
+def handle_version():
+    return jsonify(__version__)
+
+
 ### GET ROOT -------------------------------------------------------------------
 
 
@@ -599,7 +603,7 @@ def handle_leaves(table_id, root_id):
     user_id = str(g.auth_user.get("id", current_app.user_id))
 
     stop_layer = int(request.args.get("stop_layer", 1))
-   
+
     bounding_box = _get_bounds_from_request(request)
 
     cg = app_utils.get_cg(table_id)

@@ -2,14 +2,14 @@
 
 from flask import Blueprint
 from middle_auth_client import (
-    auth_requires_admin,
     auth_required,
+    auth_requires_admin,
     auth_requires_permission,
 )
 
 from pychunkedgraph.app import common as app_common
-from pychunkedgraph.app.segmentation import common
 from pychunkedgraph.app.app_utils import remap_public
+from pychunkedgraph.app.segmentation import common
 from pychunkedgraph.graph import exceptions as cg_exceptions
 
 bp = Blueprint(
@@ -87,3 +87,9 @@ def handle_info(table_id):
 @auth_required
 def handle_api_versions():
     return common.handle_api_versions()
+
+
+@bp.route("/api/version", methods=["GET"])
+@auth_required
+def handle_version():
+    return common.handle_version()
