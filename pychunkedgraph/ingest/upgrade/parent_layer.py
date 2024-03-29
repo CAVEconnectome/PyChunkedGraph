@@ -25,17 +25,27 @@ def get_edit_timestamps(cg: ChunkedGraph, children: np.ndarray) -> set:
     return result
 
 
-def update_cross_edges(cg: ChunkedGraph, layer, node, children, timestamps) -> list:
+def update_cross_edges(
+    cg: ChunkedGraph, layer, node, node_ts, children, timestamps
+) -> list:
     """
     Helper function to update a single ID.
     Returns a list of mutations with given timestamps.
     """
+
+    cx_edges_d = cg.get_cross_chunk_edges(children, time_stamp=node_ts, raw_only=True)
+    cx_edges_d = concatenate_cross_edge_dicts(cx_edges_d.values())
+    edges = np.concatenate(list(cx_edges_d.values()))
+    if node_ts > cg.get_earliest_timestamp():
+        assert node == np.unique(
+            cg.get_parents(edges[:, 0], time_stamp=node_ts)
+        ), f"{node}, {node_ts}"
+
     rows = []
     for ts in sorted(timestamps):
         cx_edges_d = cg.get_cross_chunk_edges(children, time_stamp=ts, raw_only=True)
         cx_edges_d = concatenate_cross_edge_dicts(cx_edges_d.values())
         edges = np.concatenate(list(cx_edges_d.values()))
-        assert node == np.unique(cg.get_parents(edges[:, 0], time_stamp=ts))
 
         val_dict = {}
         nodes = edges[:, 1]
@@ -63,10 +73,16 @@ def update_chunk(cg: ChunkedGraph, chunk_coords: list[int], layer: int):
     rr = cg.range_read_chunk(cg.get_chunk_id(layer=layer, x=x, y=y, z=z))
     nodes = list(rr.keys())
     children_d = cg.get_children(nodes)
+    nodes_ts = cg.get_node_timestamps(nodes, return_numpy=False, normalize=True)
 
     rows = []
-    for node in nodes:
+    for node, node_ts in zip(nodes, nodes_ts):
+        if cg.get_parent(node) is None:
+            # invalid id caused by failed ingest task
+            continue
         timestamps = get_edit_timestamps(cg, children_d[node])
-        _rows = update_cross_edges(cg, layer, node, children_d[node], timestamps)
+        _rows = update_cross_edges(
+            cg, layer, node, node_ts, children_d[node], timestamps
+        )
         rows.extend(_rows)
     cg.client.write(rows)
