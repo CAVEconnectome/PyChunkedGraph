@@ -1,10 +1,17 @@
 # pylint: disable=invalid-name, missing-docstring, c-extension-no-member
+
+import math
+import multiprocessing as mp
+
 import fastremap
 import numpy as np
+from multiwrapper import multiprocessing_utils as mu
+
 from pychunkedgraph.graph import ChunkedGraph
 from pychunkedgraph.graph.attributes import Connectivity
 from pychunkedgraph.graph.utils import serializers
 from pychunkedgraph.graph.edges.utils import concatenate_cross_edge_dicts
+from pychunkedgraph.utils.general import chunked
 
 from .common import exists_as_parent
 
@@ -72,17 +79,10 @@ def update_cross_edges(
     return rows
 
 
-def update_chunk(cg: ChunkedGraph, chunk_coords: list[int], layer: int):
-    """
-    Iterate over all layer IDs in a chunk and update their cross chunk edges.
-    """
-    x, y, z = chunk_coords
-    rr = cg.range_read_chunk(cg.get_chunk_id(layer=layer, x=x, y=y, z=z))
-    nodes = list(rr.keys())
-    children_d = cg.get_children(nodes)
-    nodes_ts = cg.get_node_timestamps(nodes, return_numpy=False, normalize=True)
-
+def _update_cross_edges_helper(args):
+    cg_info, layer, nodes, nodes_ts, children_d = args
     rows = []
+    cg = ChunkedGraph(**cg_info)
     for node, node_ts in zip(nodes, nodes_ts):
         if cg.get_parent(node) is None:
             # invalid id caused by failed ingest task
@@ -93,3 +93,29 @@ def update_chunk(cg: ChunkedGraph, chunk_coords: list[int], layer: int):
         )
         rows.extend(_rows)
     cg.client.write(rows)
+
+
+def update_chunk(cg: ChunkedGraph, chunk_coords: list[int], layer: int):
+    """
+    Iterate over all layer IDs in a chunk and update their cross chunk edges.
+    """
+    x, y, z = chunk_coords
+    rr = cg.range_read_chunk(cg.get_chunk_id(layer=layer, x=x, y=y, z=z))
+    nodes = list(rr.keys())
+    children_d = cg.get_children(nodes)
+    nodes_ts = cg.get_node_timestamps(nodes, return_numpy=False, normalize=True)
+
+    task_size = int(math.ceil(len(nodes) / mp.cpu_count() / 10))
+    chunked_nodes = chunked(nodes, task_size)
+    chunked_nodes_ts = chunked(nodes_ts, task_size)
+    cg_info = cg.get_serialized_info()
+
+    multi_args = []
+    for nodes, nodes_ts in zip(chunked_nodes, chunked_nodes_ts):
+        args = (cg_info, layer, nodes, nodes_ts, children_d)
+        multi_args.append(args)
+    mu.multiprocess_func(
+        _update_cross_edges_helper,
+        multi_args,
+        n_threads=min(len(multi_args), mp.cpu_count()),
+    )
