@@ -8,6 +8,8 @@ from pychunkedgraph.graph.attributes import Connectivity
 from pychunkedgraph.graph.attributes import Hierarchy
 from pychunkedgraph.graph.utils import serializers
 
+from .common import exists_as_parent
+
 
 def get_parent_timestamps(cg, supervoxels, start_time=None, end_time=None) -> set:
     """
@@ -42,17 +44,6 @@ def get_edit_timestamps(cg: ChunkedGraph, edges_d, start_ts, end_ts) -> list:
     return sorted(timestamps)
 
 
-def _exists_as_parent(cg: ChunkedGraph, node, supervoxels) -> bool:
-    """
-    Check if a given l2 parent is in the history of given supervoxels.
-    """
-    response = cg.client.read_nodes(node_ids=supervoxels, properties=Hierarchy.Parent)
-    parents = set()
-    for cells in response.values():
-        parents.update([cell.value for cell in cells])
-    return node in parents
-
-
 def update_cross_edges(cg: ChunkedGraph, node, cx_edges_d, node_ts, end_ts) -> list:
     """
     Helper function to update a single L2 ID.
@@ -62,7 +53,7 @@ def update_cross_edges(cg: ChunkedGraph, node, cx_edges_d, node_ts, end_ts) -> l
     edges = np.concatenate(list(cx_edges_d.values()))
     if node != np.unique(cg.get_parents(edges[:, 0], time_stamp=node_ts))[0]:
         # if node is not the parent at this ts, it must be invalid
-        assert not _exists_as_parent(cg, node, edges[:, 0])
+        assert not exists_as_parent(cg, node, edges[:, 0])
         return rows
 
     timestamps = [node_ts]

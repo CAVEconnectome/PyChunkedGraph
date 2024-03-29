@@ -6,6 +6,8 @@ from pychunkedgraph.graph.attributes import Connectivity
 from pychunkedgraph.graph.utils import serializers
 from pychunkedgraph.graph.edges.utils import concatenate_cross_edge_dicts
 
+from .common import exists_as_parent
+
 
 def get_edit_timestamps(cg: ChunkedGraph, children: np.ndarray) -> set:
     """
@@ -33,15 +35,20 @@ def update_cross_edges(
     Returns a list of mutations with given timestamps.
     """
 
+    rows = []
     cx_edges_d = cg.get_cross_chunk_edges(children, time_stamp=node_ts, raw_only=True)
     cx_edges_d = concatenate_cross_edge_dicts(cx_edges_d.values())
-    edges = np.concatenate(list(cx_edges_d.values()))
+    edges = list(cx_edges_d.values())
+    if len(edges) == 0:
+        # nothing to do
+        return rows
+    edges = np.concatenate(edges)
     if node_ts > cg.get_earliest_timestamp():
-        assert node == np.unique(
-            cg.get_parents(edges[:, 0], time_stamp=node_ts)
-        ), f"{node}, {node_ts}"
+        if node != np.unique(cg.get_parents(edges[:, 0], time_stamp=node_ts))[0]:
+            # if node is not the parent at this ts, it must be invalid
+            assert not exists_as_parent(cg, node, edges[:, 0]), f"{node}, {node_ts}"
+            return rows
 
-    rows = []
     for ts in sorted(timestamps):
         cx_edges_d = cg.get_cross_chunk_edges(children, time_stamp=ts, raw_only=True)
         cx_edges_d = concatenate_cross_edge_dicts(cx_edges_d.values())
