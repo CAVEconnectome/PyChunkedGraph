@@ -97,8 +97,9 @@ class Client(bigtable.Client, ClientWithIDGen, OperationLogger):
         self.add_graph_version(version)
         self.update_graph_meta(meta)
 
-    def add_graph_version(self, version: str):
-        assert self.read_graph_version() is None, "Graph has already been versioned."
+    def add_graph_version(self, version: str, overwrite: bool = False):
+        if not overwrite:
+            assert self.read_graph_version() is None, self.read_graph_version()
         self._version = version
         row = self.mutate_row(
             attributes.GraphVersion.key,
@@ -160,18 +161,25 @@ class Client(bigtable.Client, ClientWithIDGen, OperationLogger):
             # when all IDs in a block are within a range
             node_ids = np.sort(node_ids)
         rows = self._read_byte_rows(
-            start_key=serialize_uint64(start_id, fake_edges=fake_edges)
-            if start_id is not None
-            else None,
-            end_key=serialize_uint64(end_id, fake_edges=fake_edges)
-            if end_id is not None
-            else None,
+            start_key=(
+                serialize_uint64(start_id, fake_edges=fake_edges)
+                if start_id is not None
+                else None
+            ),
+            end_key=(
+                serialize_uint64(end_id, fake_edges=fake_edges)
+                if end_id is not None
+                else None
+            ),
             end_key_inclusive=end_id_inclusive,
             row_keys=(
-                serialize_uint64(node_id, fake_edges=fake_edges) for node_id in node_ids
-            )
-            if node_ids is not None
-            else None,
+                (
+                    serialize_uint64(node_id, fake_edges=fake_edges)
+                    for node_id in node_ids
+                )
+                if node_ids is not None
+                else None
+            ),
             columns=properties,
             start_time=start_time,
             end_time=end_time,

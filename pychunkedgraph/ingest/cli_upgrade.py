@@ -10,6 +10,7 @@ from time import sleep
 import click
 import tensorstore as ts
 from flask.cli import AppGroup
+from pychunkedgraph import __version__
 
 from . import ClusterIngestConfig
 from . import IngestConfig
@@ -53,6 +54,15 @@ def upgrade_graph(graph_id: str, test: bool, ocdbt: bool):
     """
     ingest_config = IngestConfig(CLUSTER=ClusterIngestConfig(), TEST_RUN=test)
     cg = ChunkedGraph(graph_id=graph_id)
+    cg.client.add_graph_version(__version__, overwrite=True)
+
+    try:
+        # create new column family for cross chunk edges
+        f = cg.client._table.column_family("4")
+        f.create()
+    except Exception:
+        ...
+
     imanager = IngestionManager(ingest_config, cg.meta)
     server = ts.ocdbt.DistributedCoordinatorServer()
     if ocdbt:
@@ -82,10 +92,10 @@ def queue_layer(parent_layer):
 
 @upgrade_cli.command("status")
 def ingest_status():
-    """Print upgrade status to console by layer."""
+    """Print upgrade status to console."""
     redis = get_redis_connection()
     imanager = IngestionManager.from_pickle(redis.get(r_keys.INGESTION_MANAGER))
-    print_ingest_status(imanager, redis)
+    print_ingest_status(imanager, redis, upgrade=True)
 
 
 @upgrade_cli.command("chunk")

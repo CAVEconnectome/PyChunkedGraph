@@ -101,9 +101,15 @@ def start_ocdbt_server(imanager: IngestionManager, server: Any):
     logging.info(f"OCDBT Coordinator address {ocdbt_host}:{server.port}")
 
 
-def print_ingest_status(imanager: IngestionManager, redis):
-    """Print ingest status to console by layer."""
+def print_ingest_status(imanager: IngestionManager, redis, upgrade: bool = False):
+    """
+    Helper to print status to console.
+    If `upgrade=True`, status does not include the root layer,
+    since there is no need to update cross edges for root ids.
+    """
     layers = range(2, imanager.cg_meta.layer_count + 1)
+    if upgrade:
+        layers = range(2, imanager.cg_meta.layer_count)
     layer_counts = imanager.cg_meta.layer_chunk_counts
 
     pipeline = redis.pipeline()

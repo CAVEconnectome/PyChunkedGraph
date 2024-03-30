@@ -77,7 +77,7 @@ class ChunkedGraph:
         return self.client.read_graph_version()
 
     @property
-    def client(self) -> base.SimpleClient:
+    def client(self) -> BigTableClient:
         return self._client
 
     @property
