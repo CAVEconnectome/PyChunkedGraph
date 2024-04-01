@@ -137,11 +137,11 @@ def print_ingest_status(imanager: IngestionManager, redis, upgrade: bool = False
     print(f"chunk_size: \t{imanager.cg.meta.graph_config.CHUNK_SIZE}")
     print("\nlayer status:")
     for layer, done, count in zip(layers, completed, layer_counts):
-        print(f"{layer}\t: {done} / {count}")
+        print(f"{layer}\t: {done:<9} / {count}")
 
     print("\n\nqueue status:")
     for layer, q, f, wb in zip(layers, queued, failed, worker_busy):
-        print(f"l{layer}\t: queued: {q}\t\t failed: {f}\t\t busy: {wb}")
+        print(f"l{layer}\t: queued: {q:<10} failed: {f:<10} busy: {wb}")
 
 
 def queue_layer_helper(parent_layer: int, imanager: IngestionManager, fn):
