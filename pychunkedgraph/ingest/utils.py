@@ -100,7 +100,10 @@ def randomize_grid_points(X: int, Y: int, Z: int) -> Generator[int, int, int]:
 def get_chunks_not_done(imanager: IngestionManager, layer: int, coords: list) -> list:
     """check for set membership in redis in batches"""
     coords_strs = ["_".join(map(str, coord)) for coord in coords]
-    completed = imanager.redis.smismember(f"{layer}c", coords_strs)
+    try:
+        completed = imanager.redis.smismember(f"{layer}c", coords_strs)
+    except Exception:
+        return coords
     return [coord for coord, c in zip(coords, completed) if not c]
 
 

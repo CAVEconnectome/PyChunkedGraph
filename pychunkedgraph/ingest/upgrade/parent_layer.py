@@ -8,7 +8,7 @@ import numpy as np
 from multiwrapper import multiprocessing_utils as mu
 
 from pychunkedgraph.graph import ChunkedGraph
-from pychunkedgraph.graph.attributes import Connectivity
+from pychunkedgraph.graph.attributes import Connectivity, Hierarchy
 from pychunkedgraph.graph.utils import serializers
 from pychunkedgraph.graph.edges.utils import concatenate_cross_edge_dicts
 from pychunkedgraph.utils.general import chunked
@@ -23,17 +23,14 @@ def get_edit_timestamps(cg: ChunkedGraph, children_d: dict) -> dict[int, set]:
     when cross edges of children were updated.
     """
     result = {}
+    attrs = [Connectivity.CrossChunkEdge[l] for l in range(2, cg.meta.layer_count)]
     all_children = np.concatenate(list(children_d.values()))
-    response = cg.client.read_nodes(node_ids=all_children)
+    response = cg.client.read_nodes(node_ids=all_children, properties=attrs)
     for node, children in children_d.items():
         result[node] = set()
         for child in children:
-            v = response[child]
-            for layer in range(2, cg.meta.layer_count):
-                col = Connectivity.CrossChunkEdge[layer]
-                if col not in v:
-                    continue
-                for cell in v[col]:
+            for val in response[child].values():
+                for cell in val:
                     result[node].add(cell.timestamp)
     return result
 
@@ -48,7 +45,7 @@ def update_cross_edges(
 
     rows = []
     cx_edges_d = cg.get_cross_chunk_edges(children, time_stamp=node_ts, raw_only=True)
-    cx_edges_d = concatenate_cross_edge_dicts(cx_edges_d.values())
+    cx_edges_d = concatenate_cross_edge_dicts(cx_edges_d.values(), unique=True)
     edges = list(cx_edges_d.values())
     if len(edges) == 0:
         # nothing to do
@@ -62,11 +59,11 @@ def update_cross_edges(
 
     for ts in sorted(timestamps):
         cx_edges_d = cg.get_cross_chunk_edges(children, time_stamp=ts, raw_only=True)
-        cx_edges_d = concatenate_cross_edge_dicts(cx_edges_d.values())
+        cx_edges_d = concatenate_cross_edge_dicts(cx_edges_d.values(), unique=True)
         edges = np.concatenate(list(cx_edges_d.values()))
 
         val_dict = {}
-        nodes = edges[:, 1]
+        nodes = np.unique(edges[:, 1])
         # parents = cg.get_parents(nodes, time_stamp=ts)
         parents = cg.get_roots(nodes, time_stamp=ts, stop_layer=layer, ceil=False)
         edge_parents_d = dict(zip(nodes, parents))
@@ -84,11 +81,10 @@ def update_cross_edges(
 
 
 def _update_cross_edges_helper(args):
-    cg_info, layer, nodes, nodes_ts, children_d, earliest_ts = args
+    cg_info, layer, nodes, nodes_ts, children_d, timestamps_d, earliest_ts = args
     rows = []
     cg = ChunkedGraph(**cg_info)
     parents = cg.get_parents(nodes, fail_to_zero=True)
-    timestamps_d = get_edit_timestamps(cg, children_d)
     for node, parent, node_ts in zip(nodes, parents, nodes_ts):
         if parent == 0:
             # invalid id caused by failed ingest task
@@ -100,29 +96,38 @@ def _update_cross_edges_helper(args):
     cg.client.write(rows)
 
 
+def _get_nodes_and_children(cg: ChunkedGraph, chunk_id) -> dict:
+    response = cg.range_read_chunk(chunk_id, properties=Hierarchy.Child)
+    result = {}
+    for k, v in response.items():
+        result[k] = v[0].value
+    return result
+
+
 def update_chunk(cg: ChunkedGraph, chunk_coords: list[int], layer: int):
     """
     Iterate over all layer IDs in a chunk and update their cross chunk edges.
     """
     x, y, z = chunk_coords
-    rr = cg.range_read_chunk(cg.get_chunk_id(layer=layer, x=x, y=y, z=z))
-    nodes = list(rr.keys())
-    if len(nodes) == 0:
+    chunk_id = cg.get_chunk_id(layer=layer, x=x, y=y, z=z)
+    children_d = _get_nodes_and_children(cg, chunk_id)
+    if not children_d:
         return
-    children_d = cg.get_children(nodes)
+    nodes = list(children_d.keys())
     nodes_ts = cg.get_node_timestamps(nodes, return_numpy=False, normalize=True)
+    timestamps_d = get_edit_timestamps(cg, children_d)
 
-    task_size = int(math.ceil(len(nodes) / mp.cpu_count() / 10))
+    task_size = int(math.ceil(len(nodes) / mp.cpu_count() / 2))
     chunked_nodes = chunked(nodes, task_size)
     chunked_nodes_ts = chunked(nodes_ts, task_size)
     cg_info = cg.get_serialized_info()
     earliest_ts = cg.get_earliest_timestamp()
 
     multi_args = []
-    for nodes, nodes_ts in zip(chunked_nodes, chunked_nodes_ts):
-        args = (cg_info, layer, nodes, nodes_ts, children_d, earliest_ts)
+    for chunk, ts_chunk in zip(chunked_nodes, chunked_nodes_ts):
+        args = (cg_info, layer, chunk, ts_chunk, children_d, timestamps_d, earliest_ts)
         multi_args.append(args)
-    print(f"task_size: {task_size}, total: {len(multi_args)}")
+
     mu.multiprocess_func(
         _update_cross_edges_helper,
         multi_args,
