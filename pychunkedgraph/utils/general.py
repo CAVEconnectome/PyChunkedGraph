@@ -31,7 +31,7 @@ def chunked(l: Sequence, n: int):
     NOTE: Use itertools.batched from python 3.12
     """
     if n < 1:
-        n = 1
+        n = len(l)
     it = iter(l)
     while batch := tuple(islice(it, n)):
         yield batch

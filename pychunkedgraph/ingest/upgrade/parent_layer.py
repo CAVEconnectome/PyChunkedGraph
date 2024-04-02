@@ -83,8 +83,9 @@ def _update_cross_edges_helper(args):
     cg_info, layer, nodes, nodes_ts, children_d = args
     rows = []
     cg = ChunkedGraph(**cg_info)
-    for node, node_ts in zip(nodes, nodes_ts):
-        if cg.get_parent(node) is None:
+    parents = cg.get_parents(nodes, fail_to_zero=True)
+    for node, parent, node_ts in zip(nodes, parents, nodes_ts):
+        if parent == 0:
             # invalid id caused by failed ingest task
             continue
         timestamps = get_edit_timestamps(cg, children_d[node])
@@ -102,6 +103,8 @@ def update_chunk(cg: ChunkedGraph, chunk_coords: list[int], layer: int):
     x, y, z = chunk_coords
     rr = cg.range_read_chunk(cg.get_chunk_id(layer=layer, x=x, y=y, z=z))
     nodes = list(rr.keys())
+    if len(nodes) == 0:
+        return
     children_d = cg.get_children(nodes)
     nodes_ts = cg.get_node_timestamps(nodes, return_numpy=False, normalize=True)
 
@@ -114,6 +117,7 @@ def update_chunk(cg: ChunkedGraph, chunk_coords: list[int], layer: int):
     for nodes, nodes_ts in zip(chunked_nodes, chunked_nodes_ts):
         args = (cg_info, layer, nodes, nodes_ts, children_d)
         multi_args.append(args)
+    print(f"task_size: {task_size}, total: {len(multi_args)}")
     mu.multiprocess_func(
         _update_cross_edges_helper,
         multi_args,
