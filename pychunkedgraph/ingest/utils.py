@@ -6,17 +6,12 @@ from typing import Any, Generator, Tuple
 
 import numpy as np
 import tensorstore as ts
-from rq import Queue
-from rq import Worker
+from rq import Queue, Worker
 from rq.worker import WorkerStatus
 
-from . import ClusterIngestConfig
 from . import IngestConfig
 from .manager import IngestionManager
-from ..graph.meta import ChunkedGraphMeta
-from ..graph.meta import DataSource
-from ..graph.meta import GraphConfig
-
+from ..graph.meta import ChunkedGraphMeta, DataSource, GraphConfig
 from ..graph.client import BackendClientInfo
 from ..graph.client.bigtable import BigTableConfig
 
@@ -32,7 +27,6 @@ def bootstrap(
     """Parse config loaded from a yaml file."""
     ingest_config = IngestConfig(
         **config.get("ingest_config", {}),
-        CLUSTER=ClusterIngestConfig(),
         USE_RAW_EDGES=raw,
         USE_RAW_COMPONENTS=raw,
         TEST_RUN=test_run,

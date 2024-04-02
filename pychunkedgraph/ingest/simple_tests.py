@@ -7,8 +7,7 @@ Some sanity tests to ensure chunkedgraph was created properly.
 from datetime import datetime
 import numpy as np
 
-from pychunkedgraph.graph import ChunkedGraph
-from pychunkedgraph.graph import attributes
+from pychunkedgraph.graph import attributes, ChunkedGraph
 
 
 def family(cg: ChunkedGraph):

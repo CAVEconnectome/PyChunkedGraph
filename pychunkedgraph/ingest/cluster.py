@@ -7,27 +7,30 @@ Ingest / create chunkedgraph with workers in a cluster.
 import logging
 from os import environ
 from time import sleep
-from typing import Callable, Iterable, Sequence
+from typing import Callable, Dict, Iterable, Tuple, Sequence
 
 import numpy as np
 from rq import Queue as RQueue
 
 
-from .utils import chunk_id_str
-from .utils import randomize_grid_points
+from .utils import chunk_id_str, randomize_grid_points
 from .manager import IngestionManager
-from .common import get_atomic_chunk_data
-from .ran_agglomeration import get_active_edges
+from .ran_agglomeration import (
+    get_active_edges,
+    read_raw_edge_data,
+    read_raw_agglomeration_data,
+)
 from .create.atomic_layer import add_atomic_edges
 from .create.parent_layer import add_layer
 from .upgrade.atomic_layer import update_chunk as update_atomic_chunk
 from .upgrade.parent_layer import update_chunk as update_parent_chunk
-from ..graph.edges import Edges, put_edges
-from ..graph.meta import ChunkedGraphMeta
+from ..graph.edges import EDGE_TYPES, Edges, put_edges
+from ..graph import ChunkedGraph, ChunkedGraphMeta
 from ..graph.chunks.hierarchy import get_children_chunk_coords
 from ..graph.utils.basetypes import NODE_ID
-from ..utils.redis import keys as r_keys
-from ..utils.redis import get_redis_connection
+from ..io.edges import get_chunk_edges
+from ..io.components import get_chunk_components
+from ..utils.redis import keys as r_keys, get_redis_connection
 
 
 def _post_task_completion(
@@ -69,13 +72,60 @@ def upgrade_parent_chunk(
     _post_task_completion(imanager, parent_layer, parent_coords)
 
 
+def _get_atomic_chunk_data(
+    imanager: IngestionManager, coord: Sequence[int]
+) -> Tuple[Dict, Dict]:
+    """
+    Helper to read either raw data or processed data
+    If reading from raw data, save it as processed data
+    """
+    chunk_edges = (
+        read_raw_edge_data(imanager, coord)
+        if imanager.config.USE_RAW_EDGES
+        else get_chunk_edges(imanager.cg_meta.data_source.EDGES, [coord])
+    )
+
+    _check_edges_direction(chunk_edges, imanager.cg, coord)
+
+    mapping = (
+        read_raw_agglomeration_data(imanager, coord)
+        if imanager.config.USE_RAW_COMPONENTS
+        else get_chunk_components(imanager.cg_meta.data_source.COMPONENTS, coord)
+    )
+    return chunk_edges, mapping
+
+
+def _check_edges_direction(
+    chunk_edges: dict, cg: ChunkedGraph, coord: Sequence[int]
+) -> None:
+    """
+    For between and cross chunk edges:
+    Checks and flips edges such that nodes1 are always within a chunk and nodes2 outside the chunk.
+    Where nodes1 = edges[:,0] and nodes2 = edges[:,1].
+    """
+    x, y, z = coord
+    chunk_id = cg.get_chunk_id(layer=1, x=x, y=y, z=z)
+    for edge_type in [EDGE_TYPES.between_chunk, EDGE_TYPES.cross_chunk]:
+        edges = chunk_edges[edge_type]
+        e1 = edges.node_ids1
+        e2 = edges.node_ids2
+
+        e2_chunk_ids = cg.get_chunk_ids_from_node_ids(e2)
+        mask = e2_chunk_ids == chunk_id
+        e1[mask], e2[mask] = e2[mask], e1[mask]
+
+        e1_chunk_ids = cg.get_chunk_ids_from_node_ids(e1)
+        mask = e1_chunk_ids == chunk_id
+        assert np.all(mask), "all IDs must belong to same chunk"
+
+
 def create_atomic_chunk(coords: Sequence[int]):
     """Creates single atomic chunk"""
     redis = get_redis_connection()
     imanager = IngestionManager.from_pickle(redis.get(r_keys.INGESTION_MANAGER))
     coords = np.array(list(coords), dtype=int)
 
-    chunk_edges_all, mapping = get_atomic_chunk_data(imanager, coords)
+    chunk_edges_all, mapping = _get_atomic_chunk_data(imanager, coords)
     chunk_edges_active, isolated_ids = get_active_edges(chunk_edges_all, mapping)
     add_atomic_edges(imanager.cg, coords, chunk_edges_active, isolated=isolated_ids)
 
@@ -102,7 +152,7 @@ def convert_to_ocdbt(coords: Sequence[int]):
     redis = get_redis_connection()
     imanager = IngestionManager.from_pickle(redis.get(r_keys.INGESTION_MANAGER))
     coords = np.array(list(coords), dtype=int)
-    chunk_edges_all, mapping = get_atomic_chunk_data(imanager, coords)
+    chunk_edges_all, mapping = _get_atomic_chunk_data(imanager, coords)
 
     node_ids1 = []
     node_ids2 = []
@@ -144,7 +194,7 @@ def _get_test_chunks(meta: ChunkedGraphMeta):
 
 
 def _queue_tasks(imanager: IngestionManager, chunk_fn: Callable, coords: Iterable):
-    queue_name = f"{imanager.config.CLUSTER.ATOMIC_Q_NAME}"
+    queue_name = "l2"
     q = imanager.get_task_queue(queue_name)
     job_datas = []
     batch_size = int(environ.get("L2JOB_BATCH_SIZE", 1000))

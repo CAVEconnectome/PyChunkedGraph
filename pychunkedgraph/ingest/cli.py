@@ -10,9 +10,7 @@ import click
 import yaml
 from flask.cli import AppGroup
 
-from .cluster import create_atomic_chunk
-from .cluster import create_parent_chunk
-from .cluster import enqueue_l2_tasks
+from .cluster import create_atomic_chunk, create_parent_chunk, enqueue_l2_tasks
 from .manager import IngestionManager
 from .utils import (
     bootstrap,
@@ -23,8 +21,7 @@ from .utils import (
 from .simple_tests import run_all
 from .create.parent_layer import add_layer
 from ..graph.chunkedgraph import ChunkedGraph
-from ..utils.redis import get_redis_connection
-from ..utils.redis import keys as r_keys
+from ..utils.redis import get_redis_connection, keys as r_keys
 
 ingest_cli = AppGroup("ingest")
 

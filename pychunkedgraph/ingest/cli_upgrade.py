@@ -12,12 +12,13 @@ import tensorstore as ts
 from flask.cli import AppGroup
 from pychunkedgraph import __version__
 
-from . import ClusterIngestConfig
 from . import IngestConfig
-from .cluster import upgrade_atomic_chunk
-from .cluster import convert_to_ocdbt
-from .cluster import upgrade_parent_chunk
-from .cluster import enqueue_l2_tasks
+from .cluster import (
+    convert_to_ocdbt,
+    enqueue_l2_tasks,
+    upgrade_atomic_chunk,
+    upgrade_parent_chunk,
+)
 from .manager import IngestionManager
 from .utils import (
     chunk_id_str,
@@ -52,7 +53,7 @@ def upgrade_graph(graph_id: str, test: bool, ocdbt: bool):
     Main upgrade command.
     Takes upgrade config from a yaml file and queues atomic tasks.
     """
-    ingest_config = IngestConfig(CLUSTER=ClusterIngestConfig(), TEST_RUN=test)
+    ingest_config = IngestConfig(TEST_RUN=test)
     cg = ChunkedGraph(graph_id=graph_id)
     cg.client.add_graph_version(__version__, overwrite=True)
 
