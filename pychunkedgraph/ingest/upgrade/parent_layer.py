@@ -16,21 +16,25 @@ from pychunkedgraph.utils.general import chunked
 from .common import exists_as_parent
 
 
-def get_edit_timestamps(cg: ChunkedGraph, children: np.ndarray) -> set:
+def get_edit_timestamps(cg: ChunkedGraph, children_d: dict) -> dict[int, set]:
     """
     Collect timestamps of edits from children, since we use the same timestamp
     for all IDs involved in an edit, we can use the timestamps of
     when cross edges of children were updated.
     """
-    response = cg.client.read_nodes(node_ids=children)
-    result = set()
-    for v in response.values():
-        for layer in range(2, cg.meta.layer_count):
-            col = Connectivity.CrossChunkEdge[layer]
-            if col not in v:
-                continue
-            for cell in v[col]:
-                result.add(cell.timestamp)
+    result = {}
+    all_children = np.concatenate(list(children_d.values()))
+    response = cg.client.read_nodes(node_ids=all_children)
+    for node, children in children_d.items():
+        result[node] = set()
+        for child in children:
+            v = response[child]
+            for layer in range(2, cg.meta.layer_count):
+                col = Connectivity.CrossChunkEdge[layer]
+                if col not in v:
+                    continue
+                for cell in v[col]:
+                    result[node].add(cell.timestamp)
     return result
 
 
@@ -84,13 +88,13 @@ def _update_cross_edges_helper(args):
     rows = []
     cg = ChunkedGraph(**cg_info)
     parents = cg.get_parents(nodes, fail_to_zero=True)
+    timestamps_d = get_edit_timestamps(cg, children_d)
     for node, parent, node_ts in zip(nodes, parents, nodes_ts):
         if parent == 0:
             # invalid id caused by failed ingest task
             continue
-        timestamps = get_edit_timestamps(cg, children_d[node])
         _rows = update_cross_edges(
-            cg, layer, node, node_ts, children_d[node], timestamps
+            cg, layer, node, node_ts, children_d[node], timestamps_d[node]
         )
         rows.extend(_rows)
     cg.client.write(rows)

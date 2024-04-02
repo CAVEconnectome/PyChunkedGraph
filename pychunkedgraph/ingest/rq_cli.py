@@ -110,9 +110,14 @@ def clean_start_registry(queue):
 def clear_failed_registry(queue):
     failed_job_registry = FailedJobRegistry(queue, connection=connection)
     job_ids = failed_job_registry.get_job_ids()
+    count = 0
     for job_id in job_ids:
-        failed_job_registry.remove(job_id, delete_job=True)
-    print(f"Deleted {len(job_ids)} jobs from the failed job registry.")
+        try:
+            failed_job_registry.remove(job_id, delete_job=True)
+            count += 1
+        except Exception:
+            ...
+    print(f"Deleted {count} jobs from the failed job registry.")
 
 
 def init_rq_cmds(app):
