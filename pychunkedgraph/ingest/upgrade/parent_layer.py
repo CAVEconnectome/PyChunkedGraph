@@ -39,7 +39,7 @@ def get_edit_timestamps(cg: ChunkedGraph, children_d: dict) -> dict[int, set]:
 
 
 def update_cross_edges(
-    cg: ChunkedGraph, layer, node, node_ts, children, timestamps
+    cg: ChunkedGraph, layer, node, node_ts, children, timestamps, earliest_ts
 ) -> list:
     """
     Helper function to update a single ID.
@@ -54,7 +54,7 @@ def update_cross_edges(
         # nothing to do
         return rows
     edges = np.concatenate(edges)
-    if node_ts > cg.get_earliest_timestamp():
+    if node_ts > earliest_ts:
         if node != np.unique(cg.get_parents(edges[:, 0], time_stamp=node_ts))[0]:
             # if node is not the parent at this ts, it must be invalid
             assert not exists_as_parent(cg, node, edges[:, 0]), f"{node}, {node_ts}"
@@ -84,7 +84,7 @@ def update_cross_edges(
 
 
 def _update_cross_edges_helper(args):
-    cg_info, layer, nodes, nodes_ts, children_d = args
+    cg_info, layer, nodes, nodes_ts, children_d, earliest_ts = args
     rows = []
     cg = ChunkedGraph(**cg_info)
     parents = cg.get_parents(nodes, fail_to_zero=True)
@@ -94,7 +94,7 @@ def _update_cross_edges_helper(args):
             # invalid id caused by failed ingest task
             continue
         _rows = update_cross_edges(
-            cg, layer, node, node_ts, children_d[node], timestamps_d[node]
+            cg, layer, node, node_ts, children_d[node], timestamps_d[node], earliest_ts
         )
         rows.extend(_rows)
     cg.client.write(rows)
@@ -116,10 +116,11 @@ def update_chunk(cg: ChunkedGraph, chunk_coords: list[int], layer: int):
     chunked_nodes = chunked(nodes, task_size)
     chunked_nodes_ts = chunked(nodes_ts, task_size)
     cg_info = cg.get_serialized_info()
+    earliest_ts = cg.get_earliest_timestamp()
 
     multi_args = []
     for nodes, nodes_ts in zip(chunked_nodes, chunked_nodes_ts):
-        args = (cg_info, layer, nodes, nodes_ts, children_d)
+        args = (cg_info, layer, nodes, nodes_ts, children_d, earliest_ts)
         multi_args.append(args)
     print(f"task_size: {task_size}, total: {len(multi_args)}")
     mu.multiprocess_func(
