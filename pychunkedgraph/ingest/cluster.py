@@ -13,7 +13,7 @@ import numpy as np
 from rq import Queue as RQueue
 
 
-from .utils import chunk_id_str, randomize_grid_points
+from .utils import chunk_id_str, get_chunks_not_done, randomize_grid_points
 from .manager import IngestionManager
 from .ran_agglomeration import (
     get_active_edges,
@@ -31,6 +31,7 @@ from ..graph.utils.basetypes import NODE_ID
 from ..io.edges import get_chunk_edges
 from ..io.components import get_chunk_components
 from ..utils.redis import keys as r_keys, get_redis_connection
+from ..utils.general import chunked
 
 
 def _post_task_completion(
@@ -196,32 +197,28 @@ def _get_test_chunks(meta: ChunkedGraphMeta):
 def _queue_tasks(imanager: IngestionManager, chunk_fn: Callable, coords: Iterable):
     queue_name = "l2"
     q = imanager.get_task_queue(queue_name)
-    job_datas = []
-    batch_size = int(environ.get("L2JOB_BATCH_SIZE", 1000))
-    for chunk_coord in coords:
+    batch_size = int(environ.get("L2JOB_BATCH_SIZE", 100000))
+    batches = chunked(coords, batch_size)
+    for batch in batches:
+        _coords = get_chunks_not_done(imanager, 2, batch)
         # buffer for optimal use of redis memory
         if len(q) > int(environ.get("QUEUE_SIZE", 100000)):
             interval = int(environ.get("QUEUE_INTERVAL", 300))
             logging.info(f"Queue full; sleeping {interval}s...")
             sleep(interval)
 
-        x, y, z = chunk_coord
-        chunk_str = f"{x}_{y}_{z}"
-        if imanager.redis.sismember("2c", chunk_str):
-            continue
-        job_datas.append(
-            RQueue.prepare_data(
-                chunk_fn,
-                args=(chunk_coord,),
-                timeout=environ.get("L2JOB_TIMEOUT", "3m"),
-                result_ttl=0,
-                job_id=chunk_id_str(2, chunk_coord),
+        job_datas = []
+        for chunk_coord in _coords:
+            job_datas.append(
+                RQueue.prepare_data(
+                    chunk_fn,
+                    args=(chunk_coord,),
+                    timeout=environ.get("L2JOB_TIMEOUT", "3m"),
+                    result_ttl=0,
+                    job_id=chunk_id_str(2, chunk_coord),
+                )
             )
-        )
-        if len(job_datas) % batch_size == 0:
-            q.enqueue_many(job_datas)
-            job_datas = []
-    q.enqueue_many(job_datas)
+        q.enqueue_many(job_datas)
 
 
 def enqueue_l2_tasks(imanager: IngestionManager, chunk_fn: Callable):

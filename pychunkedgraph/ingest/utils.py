@@ -2,6 +2,7 @@
 
 import logging
 from os import environ
+from time import sleep
 from typing import Any, Generator, Tuple
 
 import numpy as np
@@ -14,6 +15,7 @@ from .manager import IngestionManager
 from ..graph.meta import ChunkedGraphMeta, DataSource, GraphConfig
 from ..graph.client import BackendClientInfo
 from ..graph.client.bigtable import BigTableConfig
+from ..utils.general import chunked
 
 chunk_id_str = lambda layer, coords: f"{layer}_{'_'.join(map(str, coords))}"
 
@@ -78,13 +80,6 @@ def postprocess_edge_data(im, edge_dict):
         raise ValueError(f"Unknown data_version: {data_version}")
 
 
-def randomize_grid_points(X: int, Y: int, Z: int) -> Generator[int, int, int]:
-    indices = np.arange(X * Y * Z)
-    np.random.shuffle(indices)
-    for index in indices:
-        yield np.unravel_index(index, (X, Y, Z))
-
-
 def start_ocdbt_server(imanager: IngestionManager, server: Any):
     spec = {"driver": "ocdbt", "base": f"{imanager.cg.meta.data_source.EDGES}/ocdbt"}
     spec["coordinator"] = {"address": f"localhost:{server.port}"}
@@ -93,6 +88,20 @@ def start_ocdbt_server(imanager: IngestionManager, server: Any):
     ocdbt_host = environ.get("MY_POD_IP", "localhost")
     imanager.redis.set("OCDBT_COORDINATOR_HOST", ocdbt_host)
     logging.info(f"OCDBT Coordinator address {ocdbt_host}:{server.port}")
+
+
+def randomize_grid_points(X: int, Y: int, Z: int) -> Generator[int, int, int]:
+    indices = np.arange(X * Y * Z)
+    np.random.shuffle(indices)
+    for index in indices:
+        yield np.unravel_index(index, (X, Y, Z))
+
+
+def get_chunks_not_done(imanager: IngestionManager, layer: int, coords: list) -> list:
+    """check for set membership in redis in batches"""
+    coords_strs = ["_".join(map(str, coord)) for coord in coords]
+    completed = imanager.redis.smismember(f"{layer}c", coords_strs)
+    return [coord for coord, c in zip(coords, completed) if not c]
 
 
 def print_ingest_status(imanager: IngestionManager, redis, upgrade: bool = False):
@@ -145,12 +154,26 @@ def queue_layer_helper(parent_layer: int, imanager: IngestionManager, fn):
         bounds = imanager.cg_meta.layer_chunk_bounds[parent_layer]
         chunk_coords = randomize_grid_points(*bounds)
 
-    for coords in chunk_coords:
-        task_q = imanager.get_task_queue(f"l{parent_layer}")
-        task_q.enqueue(
-            fn,
-            job_id=chunk_id_str(parent_layer, coords),
-            job_timeout=f"{int(parent_layer * parent_layer)}m",
-            result_ttl=0,
-            args=(parent_layer, coords),
-        )
+    q = imanager.get_task_queue(f"l{parent_layer}")
+    batch_size = int(environ.get("L2JOB_BATCH_SIZE", 10000))
+    batches = chunked(chunk_coords, batch_size)
+    for batch in batches:
+        _coords = get_chunks_not_done(imanager, parent_layer, batch)
+        # buffer for optimal use of redis memory
+        if len(q) > int(environ.get("QUEUE_SIZE", 100000)):
+            interval = int(environ.get("QUEUE_INTERVAL", 300))
+            logging.info(f"Queue full; sleeping {interval}s...")
+            sleep(interval)
+
+        job_datas = []
+        for chunk_coord in _coords:
+            job_datas.append(
+                Queue.prepare_data(
+                    fn,
+                    args=(parent_layer, chunk_coord),
+                    result_ttl=0,
+                    job_id=chunk_id_str(parent_layer, chunk_coord),
+                    timeout=f"{int(parent_layer * parent_layer)}m",
+                )
+            )
+        q.enqueue_many(job_datas)
