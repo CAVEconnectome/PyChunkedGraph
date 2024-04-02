@@ -54,6 +54,26 @@ class ManifestCache:
         key = f"{self.namespace}:{INITIAL_PATH_PREFIX}"
         REDIS.set(key, path_prefix)
 
+    def get_fragments(self, node_ids) -> Tuple[Dict, List[np.uint64], List[np.uint64]]:
+        if self.initial is True:
+            return self._get_cached_initial_fragments(node_ids)
+        return self._get_cached_dynamic_fragments(node_ids)
+
+    def set_fragments(self, fragments_d: Dict, not_existing: List[np.uint64] = None):
+        if not_existing is None:
+            not_existing = []
+        if self.initial is True:
+            self._set_cached_initial_fragments(fragments_d, not_existing)
+        else:
+            self._set_cached_dynamic_fragments(fragments_d, not_existing)
+
+    def clear_fragments(self, node_ids) -> None:
+        if REDIS is None:
+            return
+
+        keys = [f"{self.namespace}:{n}" for n in node_ids]
+        REDIS.delete(*keys)
+
     def _get_cached_initial_fragments(self, node_ids: List[np.uint64]):
         if REDIS is None:
             return {}, node_ids, []
@@ -101,11 +121,6 @@ class ManifestCache:
                 result[node_id] = fragment
         return result, not_cached, not_existing
 
-    def get_fragments(self, node_ids) -> Tuple[Dict, List[np.uint64], List[np.uint64]]:
-        if self.initial is True:
-            return self._get_cached_initial_fragments(node_ids)
-        return self._get_cached_dynamic_fragments(node_ids)
-
     def _set_cached_initial_fragments(
         self, fragments_d: Dict, not_existing: List[np.uint64]
     ) -> None:
@@ -146,11 +161,3 @@ class ManifestCache:
             pipeline.set(f"{self.namespace}:{node_id}", DOES_NOT_EXIST)
 
         pipeline.execute()
-
-    def set_fragments(self, fragments_d: Dict, not_existing: List[np.uint64] = None):
-        if not_existing is None:
-            not_existing = []
-        if self.initial is True:
-            self._set_cached_initial_fragments(fragments_d, not_existing)
-        else:
-            self._set_cached_dynamic_fragments(fragments_d, not_existing)

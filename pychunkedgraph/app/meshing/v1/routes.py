@@ -6,7 +6,9 @@ from middle_auth_client import auth_requires_permission, auth_required
 from pychunkedgraph.app import common as app_common
 from pychunkedgraph.app.meshing import common
 from pychunkedgraph.graph import exceptions as cg_exceptions
+from pychunkedgraph.app.app_utils import get_cg
 from pychunkedgraph.app.app_utils import remap_public
+
 
 bp = Blueprint(
     "pcg_meshing_v1", __name__, url_prefix=f"/{common.__meshing_url_prefix__}/api/v1"
@@ -89,3 +91,10 @@ def handle_get_manifest(table_id, node_id):
 @remap_public(edit=True)
 def handle_remesh(table_id):
     return common.handle_remesh(table_id)
+
+
+@bp.route("/table/<table_id>/clear_manifest_cache/<node_id>", methods=["POST"])
+@auth_requires_permission("admin")
+def handle_clear_manifest_cache(table_id, node_id):
+    cg = get_cg(table_id)
+    common.clear_manifest_cache(cg, node_id)

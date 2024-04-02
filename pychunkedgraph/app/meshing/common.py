@@ -14,6 +14,8 @@ from pychunkedgraph.graph import chunkedgraph
 from pychunkedgraph.app.meshing import tasks as meshing_tasks
 from pychunkedgraph.meshing import meshgen
 from pychunkedgraph.meshing.manifest import get_highest_child_nodes_with_meshes
+from pychunkedgraph.meshing.manifest import get_children_before_start_layer
+from pychunkedgraph.meshing.manifest import ManifestCache
 
 
 __meshing_url_prefix__ = os.environ.get("MESHING_URL_PREFIX", "meshing")
@@ -63,9 +65,7 @@ def handle_get_manifest(table_id, node_id):
     bounding_box = None
     if "bounds" in request.args:
         bounds = request.args["bounds"]
-        bounding_box = np.array(
-            [b.split("-") for b in bounds.split("_")], dtype=int
-        ).T
+        bounding_box = np.array([b.split("-") for b in bounds.split("_")], dtype=int).T
 
     cg = app_utils.get_cg(table_id)
     verify = request.args.get("verify", False)
@@ -198,3 +198,8 @@ def _remeshing(serialized_cg_info, lvl2_nodes):
     )
 
     return Response(status=200)
+
+
+def clear_manifest_cache(cg, node_id):
+    node_ids = get_children_before_start_layer(cg, node_id, start_layer=2)
+    ManifestCache(cg.graph_id).clear_fragments(node_ids)
