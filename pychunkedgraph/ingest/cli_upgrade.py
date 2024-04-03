@@ -22,6 +22,7 @@ from .cluster import (
 from .manager import IngestionManager
 from .utils import (
     chunk_id_str,
+    print_completion_rate,
     print_ingest_status,
     queue_layer_helper,
     start_ocdbt_server,
@@ -121,3 +122,11 @@ def ingest_chunk(queue: str, chunk_info):
         result_ttl=0,
         args=args,
     )
+
+
+@upgrade_cli.command("rate")
+@click.argument("layer", type=int)
+def rate(layer: int):
+    redis = get_redis_connection()
+    imanager = IngestionManager.from_pickle(redis.get(r_keys.INGESTION_MANAGER))
+    print_completion_rate(imanager, layer)

@@ -107,6 +107,15 @@ def get_chunks_not_done(imanager: IngestionManager, layer: int, coords: list) ->
     return [coord for coord, c in zip(coords, completed) if not c]
 
 
+def print_completion_rate(imanager: IngestionManager, layer):
+    counts = []
+    for _ in range(11):
+        counts.append(imanager.redis.scard(f"{layer}c"))
+        sleep(1)
+    rate = np.diff(counts).sum() / 10
+    print(f"{rate} chunks per second.")
+
+
 def print_ingest_status(imanager: IngestionManager, redis, upgrade: bool = False):
     """
     Helper to print status to console.
@@ -158,7 +167,8 @@ def queue_layer_helper(parent_layer: int, imanager: IngestionManager, fn):
         chunk_coords = randomize_grid_points(*bounds)
 
     q = imanager.get_task_queue(f"l{parent_layer}")
-    batch_size = int(environ.get("L2JOB_BATCH_SIZE", 10000))
+    batch_size = int(environ.get("JOB_BATCH_SIZE", 10000))
+    timeout_scale = int(environ.get("TIMEOUT_SCALE_FACTOR", 1))
     batches = chunked(chunk_coords, batch_size)
     for batch in batches:
         _coords = get_chunks_not_done(imanager, parent_layer, batch)
@@ -176,7 +186,7 @@ def queue_layer_helper(parent_layer: int, imanager: IngestionManager, fn):
                     args=(parent_layer, chunk_coord),
                     result_ttl=0,
                     job_id=chunk_id_str(parent_layer, chunk_coord),
-                    timeout=f"{int(parent_layer * parent_layer)}m",
+                    timeout=f"{timeout_scale * int(parent_layer * parent_layer)}m",
                 )
             )
         q.enqueue_many(job_datas)

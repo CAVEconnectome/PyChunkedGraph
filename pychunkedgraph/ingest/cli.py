@@ -15,6 +15,7 @@ from .manager import IngestionManager
 from .utils import (
     bootstrap,
     chunk_id_str,
+    print_completion_rate,
     print_ingest_status,
     queue_layer_helper,
 )
@@ -143,6 +144,14 @@ def ingest_chunk_local(graph_id: str, chunk_info, n_threads: int):
         add_layer(cg, chunk_info[0], chunk_info[1:], n_threads=n_threads)
     cg = ChunkedGraph(graph_id=graph_id)
     add_layer(cg, chunk_info[0], chunk_info[1:], n_threads=n_threads)
+
+
+@ingest_cli.command("rate")
+@click.argument("layer", type=int)
+def rate(layer: int):
+    redis = get_redis_connection()
+    imanager = IngestionManager.from_pickle(redis.get(r_keys.INGESTION_MANAGER))
+    print_completion_rate(imanager, layer)
 
 
 @ingest_cli.command("run_tests")

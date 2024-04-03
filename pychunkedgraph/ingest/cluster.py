@@ -197,7 +197,7 @@ def _get_test_chunks(meta: ChunkedGraphMeta):
 def _queue_tasks(imanager: IngestionManager, chunk_fn: Callable, coords: Iterable):
     queue_name = "l2"
     q = imanager.get_task_queue(queue_name)
-    batch_size = int(environ.get("L2JOB_BATCH_SIZE", 100000))
+    batch_size = int(environ.get("JOB_BATCH_SIZE", 100000))
     batches = chunked(coords, batch_size)
     for batch in batches:
         _coords = get_chunks_not_done(imanager, 2, batch)
