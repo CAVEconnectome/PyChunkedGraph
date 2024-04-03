@@ -107,12 +107,12 @@ def get_chunks_not_done(imanager: IngestionManager, layer: int, coords: list) ->
     return [coord for coord, c in zip(coords, completed) if not c]
 
 
-def print_completion_rate(imanager: IngestionManager, layer):
+def print_completion_rate(imanager: IngestionManager, layer: int, span: int = 10):
     counts = []
-    for _ in range(11):
+    for _ in range(span + 1):
         counts.append(imanager.redis.scard(f"{layer}c"))
         sleep(1)
-    rate = np.diff(counts).sum() / 10
+    rate = np.diff(counts).sum() / span
     print(f"{rate} chunks per second.")
 
 

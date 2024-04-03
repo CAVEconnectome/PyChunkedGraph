@@ -148,10 +148,11 @@ def ingest_chunk_local(graph_id: str, chunk_info, n_threads: int):
 
 @ingest_cli.command("rate")
 @click.argument("layer", type=int)
-def rate(layer: int):
+@click.option("--span", is_flag=True, help="Time span to calculate rate.")
+def rate(layer: int, span: int = 10):
     redis = get_redis_connection()
     imanager = IngestionManager.from_pickle(redis.get(r_keys.INGESTION_MANAGER))
-    print_completion_rate(imanager, layer)
+    print_completion_rate(imanager, layer, span=span)
 
 
 @ingest_cli.command("run_tests")
