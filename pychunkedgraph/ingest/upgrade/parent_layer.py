@@ -29,6 +29,8 @@ def get_edit_timestamps(cg: ChunkedGraph, children_d: dict) -> dict[int, set]:
     for node, children in children_d.items():
         result[node] = set()
         for child in children:
+            if child not in response:
+                continue
             for val in response[child].values():
                 for cell in val:
                     result[node].add(cell.timestamp)
