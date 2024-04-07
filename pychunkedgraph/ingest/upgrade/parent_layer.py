@@ -2,6 +2,7 @@
 
 import math
 import multiprocessing as mp
+from collections import defaultdict
 
 import fastremap
 import numpy as np
@@ -10,75 +11,90 @@ from multiwrapper import multiprocessing_utils as mu
 from pychunkedgraph.graph import ChunkedGraph
 from pychunkedgraph.graph.attributes import Connectivity, Hierarchy
 from pychunkedgraph.graph.utils import serializers
-from pychunkedgraph.graph.edges.utils import concatenate_cross_edge_dicts
+from pychunkedgraph.graph.types import empty_2d
 from pychunkedgraph.utils.general import chunked
 
-from .common import exists_as_parent
+from .utils import exists_as_parent
 
 
 CHILDREN = {}
-TIMESTAMPS = {}
+CX_EDGES = {}
 
 
-def _populate_nodes_and_children(cg: ChunkedGraph, chunk_id) -> dict:
+def _populate_nodes_and_children(
+    cg: ChunkedGraph, chunk_id: np.uint64, nodes: list = None
+) -> dict:
     global CHILDREN
+    if nodes:
+        CHILDREN = cg.get_children(nodes)
+        return
     response = cg.range_read_chunk(chunk_id, properties=Hierarchy.Child)
     for k, v in response.items():
         CHILDREN[k] = v[0].value
 
 
-def _populate_edit_timestamps(cg: ChunkedGraph):
+def _populate_cx_edges_with_timestamps(cg: ChunkedGraph, nodes: list, nodes_ts: list):
     """
     Collect timestamps of edits from children, since we use the same timestamp
     for all IDs involved in an edit, we can use the timestamps of
     when cross edges of children were updated.
     """
-    global TIMESTAMPS
+    global CX_EDGES
     attrs = [Connectivity.CrossChunkEdge[l] for l in range(2, cg.meta.layer_count)]
     all_children = np.concatenate(list(CHILDREN.values()))
+
+    nodes_layers = cg.get_chunk_layers(nodes)
     response = cg.client.read_nodes(node_ids=all_children, properties=attrs)
-    for node, children in CHILDREN.items():
-        TIMESTAMPS[node] = set()
-        for child in children:
+    for node, node_ts, layer in zip(nodes, nodes_ts, nodes_layers):
+        temp = defaultdict(lambda: defaultdict(list))
+        for child in CHILDREN[node]:
             if child not in response:
                 continue
-            for val in response[child].values():
+            for key, val in response[child].items():
                 for cell in val:
-                    TIMESTAMPS[node].add(cell.timestamp)
+                    if cell.timestamp < node_ts or key.index < layer:
+                        # edges from before the node existed, not relevant
+                        # edges from lower layers, not relevant
+                        continue
+                    temp[cell.timestamp][key.index].append(cell.value)
+        result = {}
+        for ts, edges_d in temp.items():
+            for layer, edge_lists in edges_d.items():
+                edges = np.concatenate(edge_lists)
+                edges = np.unique(edges, axis=0)
+                edges_d[layer] = edges
+            result[ts] = edges_d
+        CX_EDGES[node] = result
+
+    for node, ts_edges in CX_EDGES.items():
+        print(node)
+        for ts, edges_d in ts_edges.items():
+            print(ts)
+            for layer, edges in edges_d.items():
+                print(layer, edges.shape)
 
 
-def update_cross_edges(
-    cg: ChunkedGraph, layer, node, node_ts, children, earliest_ts
-) -> list:
+def update_cross_edges(cg: ChunkedGraph, layer, node, node_ts, earliest_ts) -> list:
     """
     Helper function to update a single ID.
     Returns a list of mutations with timestamps.
     """
 
     rows = []
-    cx_edges_d = cg.get_cross_chunk_edges(children, time_stamp=node_ts, raw_only=True)
-    cx_edges_d = concatenate_cross_edge_dicts(cx_edges_d.values(), unique=True)
-    edges = list(cx_edges_d.values())
-    if len(edges) == 0:
-        # nothing to do
-        return rows
-    edges = np.concatenate(edges)
+    cx_edges_d = CX_EDGES[node][node_ts]
+    edges = np.concatenate([empty_2d, *cx_edges_d.values()])
     if node_ts > earliest_ts:
         if node != np.unique(cg.get_parents(edges[:, 0], time_stamp=node_ts))[0]:
             # if node is not the parent at this ts, it must be invalid
             assert not exists_as_parent(cg, node, edges[:, 0]), f"{node}, {node_ts}"
             return rows
 
-    for ts in sorted(TIMESTAMPS[node]):
-        cx_edges_d = cg.get_cross_chunk_edges(children, time_stamp=ts, raw_only=True)
-        cx_edges_d = concatenate_cross_edge_dicts(cx_edges_d.values(), unique=True)
-        edges = np.concatenate(list(cx_edges_d.values()))
-
-        val_dict = {}
+    for ts, cx_edges_d in CX_EDGES[node].items():
+        edges = np.concatenate([empty_2d, *cx_edges_d.values()])
         nodes = np.unique(edges[:, 1])
-        # parents = cg.get_parents(nodes, time_stamp=ts)
         parents = cg.get_roots(nodes, time_stamp=ts, stop_layer=layer, ceil=False)
         edge_parents_d = dict(zip(nodes, parents))
+        val_dict = {}
         for layer, layer_edges in cx_edges_d.items():
             layer_edges = fastremap.remap(
                 layer_edges, edge_parents_d, preserve_missing_labels=True
@@ -93,7 +109,7 @@ def update_cross_edges(
 
 
 def _update_cross_edges_helper(args):
-    global CHILDREN, TIMESTAMPS
+    global CHILDREN, CX_EDGES
     cg_info, layer, nodes, nodes_ts, earliest_ts = args
     rows = []
     cg = ChunkedGraph(**cg_info)
@@ -102,26 +118,27 @@ def _update_cross_edges_helper(args):
         if parent == 0:
             # invalid id caused by failed ingest task
             continue
-        children = CHILDREN[node]
-        _rows = update_cross_edges(cg, layer, node, node_ts, children, earliest_ts)
+        _rows = update_cross_edges(cg, layer, node, node_ts, earliest_ts)
         rows.extend(_rows)
         CHILDREN.pop(node)
-        TIMESTAMPS.pop(node)
+        CX_EDGES.pop(node)
     cg.client.write(rows)
 
 
-def update_chunk(cg: ChunkedGraph, chunk_coords: list[int], layer: int):
+def update_chunk(
+    cg: ChunkedGraph, chunk_coords: list[int], layer: int, nodes: list = None
+):
     """
     Iterate over all layer IDs in a chunk and update their cross chunk edges.
     """
     x, y, z = chunk_coords
     chunk_id = cg.get_chunk_id(layer=layer, x=x, y=y, z=z)
-    _populate_nodes_and_children(cg, chunk_id)
+    _populate_nodes_and_children(cg, chunk_id, nodes=nodes)
     if not CHILDREN:
         return
     nodes = list(CHILDREN.keys())
     nodes_ts = cg.get_node_timestamps(nodes, return_numpy=False, normalize=True)
-    _populate_edit_timestamps(cg)
+    _populate_cx_edges_with_timestamps(cg, nodes, nodes_ts)
 
     task_size = int(math.ceil(len(nodes) / mp.cpu_count() / 2))
     chunked_nodes = chunked(nodes, task_size)

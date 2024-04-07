@@ -8,7 +8,7 @@ from pychunkedgraph.graph.attributes import Connectivity
 from pychunkedgraph.graph.attributes import Hierarchy
 from pychunkedgraph.graph.utils import serializers
 
-from .common import exists_as_parent
+from .utils import exists_as_parent
 
 
 def get_parent_timestamps(cg, supervoxels, start_time=None, end_time=None) -> set:
