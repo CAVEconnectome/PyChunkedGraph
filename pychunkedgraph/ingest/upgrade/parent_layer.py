@@ -42,7 +42,7 @@ def _populate_cx_edges_with_timestamps(
     when cross edges of children were updated.
     """
     global CX_EDGES
-    attrs = [Connectivity.CrossChunkEdge[l] for l in range(2, cg.meta.layer_count)]
+    attrs = [Connectivity.CrossChunkEdge[l] for l in range(layer, cg.meta.layer_count)]
     all_children = np.concatenate(list(CHILDREN.values()))
 
     response = cg.client.read_nodes(node_ids=all_children, properties=attrs)
@@ -53,9 +53,8 @@ def _populate_cx_edges_with_timestamps(
                 continue
             for key, val in response[child].items():
                 for cell in val:
-                    if cell.timestamp < node_ts or key.index < layer:
+                    if cell.timestamp < node_ts:
                         # edges from before the node existed, not relevant
-                        # edges from lower layers, not relevant
                         continue
                     temp[cell.timestamp][key.index].append(cell.value)
         result = {}
