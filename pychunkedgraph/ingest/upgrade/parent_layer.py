@@ -74,9 +74,9 @@ def update_cross_edges(cg: ChunkedGraph, layer, node, node_ts, earliest_ts) -> l
     """
 
     rows = []
-    cx_edges_d = CX_EDGES[node][node_ts]
-    edges = np.concatenate([empty_2d, *cx_edges_d.values()])
     if node_ts > earliest_ts:
+        cx_edges_d = CX_EDGES[node][node_ts]
+        edges = np.concatenate([empty_2d, *cx_edges_d.values()])
         if node != np.unique(cg.get_parents(edges[:, 0], time_stamp=node_ts))[0]:
             # if node is not the parent at this ts, it must be invalid
             assert not exists_as_parent(cg, node, edges[:, 0]), f"{node}, {node_ts}"
