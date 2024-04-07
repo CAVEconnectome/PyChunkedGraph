@@ -33,6 +33,22 @@ def _populate_nodes_and_children(
         CHILDREN[k] = v[0].value
 
 
+def _get_cx_edges_at_timestamp(node, response, ts):
+    result = defaultdict(list)
+    for child in CHILDREN[node]:
+        if child not in response:
+            continue
+        for key, cells in response[child].items():
+            for cell in cells:
+                # cells are sorted in descending order of timestamps
+                if ts >= cell.timestamp:
+                    result[key.index].append(cell.value)
+                    break
+    for layer, edges in result.items():
+        result[layer] = np.concatenate(edges)
+    return result
+
+
 def _populate_cx_edges_with_timestamps(
     cg: ChunkedGraph, layer: int, nodes: list, nodes_ts: list
 ):
@@ -44,27 +60,17 @@ def _populate_cx_edges_with_timestamps(
     global CX_EDGES
     attrs = [Connectivity.CrossChunkEdge[l] for l in range(layer, cg.meta.layer_count)]
     all_children = np.concatenate(list(CHILDREN.values()))
-
     response = cg.client.read_nodes(node_ids=all_children, properties=attrs)
     for node, node_ts in zip(nodes, nodes_ts):
-        temp = defaultdict(lambda: defaultdict(list))
+        timestamps = set([node_ts])
         for child in CHILDREN[node]:
             if child not in response:
                 continue
-            for key, val in response[child].items():
-                for cell in val:
-                    if cell.timestamp < node_ts:
-                        # edges from before the node existed, not relevant
-                        continue
-                    temp[cell.timestamp][key.index].append(cell.value)
-        result = {}
-        for ts, edges_d in temp.items():
-            for _layer, edge_lists in edges_d.items():
-                edges = np.concatenate(edge_lists)
-                edges = np.unique(edges, axis=0)
-                edges_d[_layer] = edges
-            result[ts] = edges_d
-        CX_EDGES[node] = result
+            for cells in response[child].values():
+                timestamps.update([c.timestamp for c in cells if c.timestamp > node_ts])
+        CX_EDGES[node] = {}
+        for ts in sorted(timestamps):
+            CX_EDGES[node][ts] = _get_cx_edges_at_timestamp(node, response, ts)
 
 
 def update_cross_edges(cg: ChunkedGraph, layer, node, node_ts, earliest_ts) -> list:
@@ -75,7 +81,11 @@ def update_cross_edges(cg: ChunkedGraph, layer, node, node_ts, earliest_ts) -> l
 
     rows = []
     if node_ts > earliest_ts:
-        cx_edges_d = CX_EDGES[node][node_ts]
+        try:
+            cx_edges_d = CX_EDGES[node][node_ts]
+        except KeyError:
+            err = str(node, node_ts, list(CX_EDGES[node].keys()))
+            raise KeyError(err)
         edges = np.concatenate([empty_2d, *cx_edges_d.values()])
         if node != np.unique(cg.get_parents(edges[:, 0], time_stamp=node_ts))[0]:
             # if node is not the parent at this ts, it must be invalid
