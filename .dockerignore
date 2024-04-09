@@ -119,6 +119,3 @@ venv.bak/
 *.ipynb
 *.rdb
 /protobuf*
-
-# Git
-.git/

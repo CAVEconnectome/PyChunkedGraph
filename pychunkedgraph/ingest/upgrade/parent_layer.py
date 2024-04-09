@@ -78,22 +78,20 @@ def update_cross_edges(cg: ChunkedGraph, layer, node, node_ts, earliest_ts) -> l
     Helper function to update a single ID.
     Returns a list of mutations with timestamps.
     """
-
     rows = []
     if node_ts > earliest_ts:
         try:
             cx_edges_d = CX_EDGES[node][node_ts]
         except KeyError:
-            err = str(node, node_ts, list(CX_EDGES[node].keys()))
-            raise KeyError(err)
-        edges = np.concatenate([empty_2d, *cx_edges_d.values()])
+            raise KeyError(f"{node}:{node_ts}")
+        edges = np.concatenate([empty_2d] + list(cx_edges_d.values()))
         if node != np.unique(cg.get_parents(edges[:, 0], time_stamp=node_ts))[0]:
             # if node is not the parent at this ts, it must be invalid
             assert not exists_as_parent(cg, node, edges[:, 0]), f"{node}, {node_ts}"
             return rows
 
     for ts, cx_edges_d in CX_EDGES[node].items():
-        edges = np.concatenate([empty_2d, *cx_edges_d.values()])
+        edges = np.concatenate([empty_2d] + list(cx_edges_d.values()))
         nodes = np.unique(edges[:, 1])
         parents = cg.get_roots(nodes, time_stamp=ts, stop_layer=layer, ceil=False)
         edge_parents_d = dict(zip(nodes, parents))
@@ -112,7 +110,6 @@ def update_cross_edges(cg: ChunkedGraph, layer, node, node_ts, earliest_ts) -> l
 
 
 def _update_cross_edges_helper(args):
-    global CHILDREN, CX_EDGES
     cg_info, layer, nodes, nodes_ts, earliest_ts = args
     rows = []
     cg = ChunkedGraph(**cg_info)
@@ -123,8 +120,7 @@ def _update_cross_edges_helper(args):
             continue
         _rows = update_cross_edges(cg, layer, node, node_ts, earliest_ts)
         rows.extend(_rows)
-        CHILDREN.pop(node)
-        CX_EDGES.pop(node)
+    print(len(nodes))
     cg.client.write(rows)
 
 
@@ -154,6 +150,7 @@ def update_chunk(
         args = (cg_info, layer, chunk, ts_chunk, earliest_ts)
         multi_args.append(args)
 
+    print(f"nodes: {len(nodes)}, tasks: {len(multi_args)}, size: {task_size}")
     mu.multiprocess_func(
         _update_cross_edges_helper,
         multi_args,
