@@ -2,7 +2,8 @@ from werkzeug.serving import WSGIRequestHandler
 from pychunkedgraph.app import create_app
 
 application = create_app()
-print("running default app")
+print("running run2.py")
+
 if __name__ == "__main__":
     WSGIRequestHandler.protocol_version = "HTTP/1.1"
 
