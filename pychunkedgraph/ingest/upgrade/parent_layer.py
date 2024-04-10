@@ -1,6 +1,6 @@
 # pylint: disable=invalid-name, missing-docstring, c-extension-no-member
 
-import math
+import math, random, time
 import multiprocessing as mp
 from collections import defaultdict
 
@@ -85,13 +85,18 @@ def update_cross_edges(cg: ChunkedGraph, layer, node, node_ts, earliest_ts) -> l
         except KeyError:
             raise KeyError(f"{node}:{node_ts}")
         edges = np.concatenate([empty_2d] + list(cx_edges_d.values()))
-        if node != np.unique(cg.get_parents(edges[:, 0], time_stamp=node_ts))[0]:
-            # if node is not the parent at this ts, it must be invalid
-            assert not exists_as_parent(cg, node, edges[:, 0]), f"{node}, {node_ts}"
-            return rows
+        if edges.size:
+            parents = np.unique(cg.get_parents(edges[:, 0], time_stamp=node_ts))
+            assert parents.size == 1, f"{node}, {node_ts}"
+            if node != np.unique(cg.get_parents(edges[:, 0], time_stamp=node_ts))[0]:
+                # if node is not the parent at this ts, it must be invalid
+                assert not exists_as_parent(cg, node, edges[:, 0]), f"{node}, {node_ts}"
+                return rows
 
     for ts, cx_edges_d in CX_EDGES[node].items():
         edges = np.concatenate([empty_2d] + list(cx_edges_d.values()))
+        if edges.size == 0:
+            continue
         nodes = np.unique(edges[:, 1])
         parents = cg.get_roots(nodes, time_stamp=ts, stop_layer=layer, ceil=False)
         edge_parents_d = dict(zip(nodes, parents))
@@ -111,6 +116,7 @@ def update_cross_edges(cg: ChunkedGraph, layer, node, node_ts, earliest_ts) -> l
 
 def _update_cross_edges_helper(args):
     cg_info, layer, nodes, nodes_ts, earliest_ts = args
+    start = time.time()
     rows = []
     cg = ChunkedGraph(**cg_info)
     parents = cg.get_parents(nodes, fail_to_zero=True)
@@ -120,8 +126,8 @@ def _update_cross_edges_helper(args):
             continue
         _rows = update_cross_edges(cg, layer, node, node_ts, earliest_ts)
         rows.extend(_rows)
-    print(len(nodes))
     cg.client.write(rows)
+    print(len(rows), time.time() - start)
 
 
 def update_chunk(
@@ -130,12 +136,14 @@ def update_chunk(
     """
     Iterate over all layer IDs in a chunk and update their cross chunk edges.
     """
+    start = time.time()
     x, y, z = chunk_coords
     chunk_id = cg.get_chunk_id(layer=layer, x=x, y=y, z=z)
     _populate_nodes_and_children(cg, chunk_id, nodes=nodes)
     if not CHILDREN:
         return
     nodes = list(CHILDREN.keys())
+    random.shuffle(nodes)
     nodes_ts = cg.get_node_timestamps(nodes, return_numpy=False, normalize=True)
     _populate_cx_edges_with_timestamps(cg, layer, nodes, nodes_ts)
 
@@ -156,3 +164,4 @@ def update_chunk(
         multi_args,
         n_threads=min(len(multi_args), mp.cpu_count()),
     )
+    print(f"total elaspsed time: {time.time() - start}")
