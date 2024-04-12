@@ -97,7 +97,6 @@ gevent==23.9.1
     #   task-queue
 google-api-core[grpc]==2.11.1
     # via
-    #   google-api-core
     #   google-cloud-bigtable
     #   google-cloud-core
     #   google-cloud-datastore
@@ -160,7 +159,7 @@ grpcio-status==1.58.0
     # via
     #   google-api-core
     #   google-cloud-pubsub
-idna==3.4
+idna==3.7
     # via requests
 inflection==0.5.1
     # via python-jsonschema-objects
