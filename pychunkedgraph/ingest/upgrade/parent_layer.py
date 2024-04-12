@@ -101,13 +101,13 @@ def update_cross_edges(cg: ChunkedGraph, layer, node, node_ts, earliest_ts) -> l
         parents = cg.get_roots(nodes, time_stamp=ts, stop_layer=layer, ceil=False)
         edge_parents_d = dict(zip(nodes, parents))
         val_dict = {}
-        for layer, layer_edges in cx_edges_d.items():
+        for _layer, layer_edges in cx_edges_d.items():
             layer_edges = fastremap.remap(
                 layer_edges, edge_parents_d, preserve_missing_labels=True
             )
             layer_edges[:, 0] = node
             layer_edges = np.unique(layer_edges, axis=0)
-            col = Connectivity.CrossChunkEdge[layer]
+            col = Connectivity.CrossChunkEdge[_layer]
             val_dict[col] = layer_edges
         row_id = serializers.serialize_uint64(node)
         rows.append(cg.client.mutate_row(row_id, val_dict, time_stamp=ts))
