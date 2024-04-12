@@ -579,7 +579,7 @@ class CreateParentNodes:
                 continue
             edges = fastremap.remap(edges, edge_parents_d, preserve_missing_labels=True)
             new_cx_edges_d[layer] = np.unique(edges, axis=0)
-            assert np.all(edges[:, 0] == parent)
+            assert np.all(edges[:, 0] == parent), f"{parent}, {np.unique(edges[:, 0])}"
         self.cg.cache.cross_chunk_edges_cache[parent] = new_cx_edges_d
 
     def _update_neighbor_parents(self, neighbor, ceil_layer: int, updated: set) -> list:
