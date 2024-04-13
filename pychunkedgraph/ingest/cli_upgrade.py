@@ -126,8 +126,8 @@ def ingest_chunk(queue: str, chunk_info):
 
 @upgrade_cli.command("rate")
 @click.argument("layer", type=int)
-@click.option("--span", is_flag=True, help="Time span to calculate rate.")
-def rate(layer: int, span: int = 10):
+@click.option("--span", default=10, help="Time span to calculate rate.")
+def rate(layer: int, span: int):
     redis = get_redis_connection()
     imanager = IngestionManager.from_pickle(redis.get(r_keys.INGESTION_MANAGER))
     print_completion_rate(imanager, layer, span=span)
