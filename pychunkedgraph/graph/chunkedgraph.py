@@ -347,11 +347,13 @@ class ChunkedGraph:
                 end_time=time_stamp,
                 end_time_inclusive=True,
             )
-            for id_ in node_ids:
+            layers = self.get_chunk_layers(node_ids)
+            for layer, id_ in zip(layers, node_ids):
                 try:
                     result[id_] = {
                         prop.index: val[0].value.copy()
                         for prop, val in node_edges_d_d[id_].items()
+                        if prop.index >= layer
                     }
                 except KeyError:
                     result[id_] = {}

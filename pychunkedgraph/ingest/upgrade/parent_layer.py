@@ -132,7 +132,6 @@ def _update_cross_edges_helper(args):
         _rows = update_cross_edges(cg, layer, node, node_ts, earliest_ts)
         rows.extend(_rows)
     cg.client.write(rows)
-    print(len(rows), time.time() - start)
 
 
 def update_chunk(
