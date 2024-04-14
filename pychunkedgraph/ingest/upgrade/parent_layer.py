@@ -87,13 +87,13 @@ def update_cross_edges(cg: ChunkedGraph, layer, node, node_ts, earliest_ts) -> l
         edges = np.concatenate([empty_2d] + list(cx_edges_d.values()))
         if edges.size:
             parents = cg.get_roots(
-                edges[:, 0], time_stamp=node_ts, stop_layer=layer, ceil=True
+                edges[:, 0], time_stamp=node_ts, stop_layer=layer, ceil=False
             )
             uparents = np.unique(parents)
             layers = cg.get_chunk_layers(uparents)
             uparents = uparents[layers == layer]
-            assert uparents.size == 1, f"{node}, {node_ts}, {uparents}"
-            if node != uparents[0]:
+            assert uparents.size <= 1, f"{node}, {node_ts}, {uparents}"
+            if uparents.size == 0 or node != uparents[0]:
                 # if node is not the parent at this ts, it must be invalid
                 assert not exists_as_parent(cg, node, edges[:, 0]), f"{node}, {node_ts}"
                 return rows
@@ -131,7 +131,7 @@ def _update_cross_edges_helper(args):
             continue
         _rows = update_cross_edges(cg, layer, node, node_ts, earliest_ts)
         rows.extend(_rows)
-    cg.client.write(rows)
+    # cg.client.write(rows)
 
 
 def update_chunk(
