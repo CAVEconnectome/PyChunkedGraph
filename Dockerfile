@@ -5,6 +5,6 @@ ENV PATH="$VIRTUAL_ENV/bin:$PATH"
 COPY override/gcloud /app/venv/bin/gcloud
 COPY override/timeout.conf /etc/nginx/conf.d/timeout.conf
 COPY override/supervisord.conf /etc/supervisor/conf.d/supervisord.conf
+
+COPY requirements.txt .
 RUN pip install --upgrade -r requirements.txt
-# Hack to get zstandard from PyPI - remove if conda-forge linked lib issue is resolved
-RUN  pip install --no-cache-dir --no-deps --force-reinstall zstandard==0.21.0
