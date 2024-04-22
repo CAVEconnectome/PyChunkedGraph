@@ -16,7 +16,7 @@ from .utils import del_none_keys
 from ..meshgen_utils import get_json_info
 
 
-def _get_hierarchy(cg: ChunkedGraph, node_id: NODE_ID) -> Dict:
+def _get_hierarchy(cg: ChunkedGraph, node_id: np.uint64) -> Dict:
     node_children = {}
     layer = cg.get_chunk_layer(node_id)
     if layer < 2:
@@ -104,7 +104,7 @@ def sort_octree_row(cg: ChunkedGraph, children: np.ndarray):
 
 
 def build_octree(
-    cg: ChunkedGraph, node_id: NODE_ID, node_children: Dict, mesh_fragments: Dict
+    cg: ChunkedGraph, node_id: np.uint64, node_children: Dict, mesh_fragments: Dict
 ):
     """
     From neuroglancer multiscale specification:
@@ -140,7 +140,7 @@ def build_octree(
         children = node_children[current_node]
         node_coords = node_coords_d[current_node]
 
-        x, y, z = node_coords
+        x, y, z = node_coords * cg.meta.resolution
         offset = OCTREE_NODE_SIZE * row_counter
         octree[offset + 0] = x
         octree[offset + 1] = y
@@ -170,7 +170,7 @@ def build_octree(
     return octree, octree_node_ids, octree_fragments
 
 
-def get_manifest(cg: ChunkedGraph, node_id: NODE_ID) -> Dict:
+def get_manifest(cg: ChunkedGraph, node_id: np.uint64) -> Dict:
     node_children = _get_hierarchy(cg, node_id)
     node_ids = np.fromiter(node_children.keys(), dtype=NODE_ID)
     manifest_cache = ManifestCache(cg.graph_id, initial=True)
