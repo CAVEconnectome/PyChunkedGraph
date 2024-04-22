@@ -8,3 +8,4 @@ COPY override/supervisord.conf /etc/supervisor/conf.d/supervisord.conf
 
 COPY requirements.txt .
 RUN pip install --upgrade -r requirements.txt
+COPY . /app
