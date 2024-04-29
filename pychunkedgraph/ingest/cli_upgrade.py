@@ -11,6 +11,7 @@ import click
 import tensorstore as ts
 from flask.cli import AppGroup
 from pychunkedgraph import __version__
+from pychunkedgraph.graph.meta import GraphConfig
 
 from . import IngestConfig
 from .cluster import (
@@ -27,7 +28,7 @@ from .utils import (
     queue_layer_helper,
     start_ocdbt_server,
 )
-from ..graph.chunkedgraph import ChunkedGraph
+from ..graph.chunkedgraph import ChunkedGraph, ChunkedGraphMeta
 from ..utils.redis import get_redis_connection
 from ..utils.redis import keys as r_keys
 
@@ -57,6 +58,15 @@ def upgrade_graph(graph_id: str, test: bool, ocdbt: bool):
     ingest_config = IngestConfig(TEST_RUN=test)
     cg = ChunkedGraph(graph_id=graph_id)
     cg.client.add_graph_version(__version__, overwrite=True)
+
+    if graph_id != cg.graph_id:
+        gc = cg.meta.graph_config._asdict()
+        gc["ID"] = graph_id
+        new_meta = ChunkedGraphMeta(
+            GraphConfig(**gc), cg.meta.data_source, cg.meta.custom_data
+        )
+        cg.update_meta(new_meta, overwrite=True)
+        cg = ChunkedGraph(graph_id=graph_id)
 
     try:
         # create new column family for cross chunk edges

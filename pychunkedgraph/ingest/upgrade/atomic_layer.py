@@ -63,9 +63,9 @@ def update_cross_edges(cg: ChunkedGraph, node, cx_edges_d, node_ts, end_ts) -> l
         timestamps = get_edit_timestamps(cg, cx_edges_d, node_ts, end_ts)
     for ts in timestamps:
         val_dict = {}
-        nodes = edges[:, 1]
-        parents = cg.get_parents(nodes, time_stamp=ts)
-        edge_parents_d = dict(zip(nodes, parents))
+        svs = edges[:, 1]
+        parents = cg.get_parents(svs, time_stamp=ts)
+        edge_parents_d = dict(zip(svs, parents))
         for layer, layer_edges in cx_edges_d.items():
             layer_edges = fastremap.remap(
                 layer_edges, edge_parents_d, preserve_missing_labels=True
