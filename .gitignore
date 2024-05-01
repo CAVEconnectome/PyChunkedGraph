@@ -24,6 +24,7 @@ wheels/
 .installed.cfg
 *.egg
 .idea/*
+*.iml
 
 # PyInstaller
 #  Usually these files are written by a python script from a template
@@ -40,6 +41,7 @@ htmlcov/
 .tox/
 .coverage
 .coverage.*
+coverage_*
 .cache
 nosetests.xml
 coverage.xml
@@ -120,3 +122,5 @@ venv.bak/
 *.rdb
 /protobuf*
 .DS_Store
+
+pychunkedgraph/tests/docker/
