@@ -121,7 +121,6 @@ def update_cross_edges(cg: ChunkedGraph, layer, node, node_ts, earliest_ts) -> l
 
 def _update_cross_edges_helper(args):
     cg_info, layer, nodes, nodes_ts, earliest_ts = args
-    start = time.time()
     rows = []
     cg = ChunkedGraph(**cg_info)
     parents = cg.get_parents(nodes, fail_to_zero=True)
@@ -131,7 +130,7 @@ def _update_cross_edges_helper(args):
             continue
         _rows = update_cross_edges(cg, layer, node, node_ts, earliest_ts)
         rows.extend(_rows)
-    # cg.client.write(rows)
+    cg.client.write(rows)
 
 
 def update_chunk(
