@@ -35,3 +35,18 @@ def get_l2children(cg, node: np.uint64) -> np.ndarray:
         l2children.append(children[layers == 2])
         nodes = children[layers > 2]
     return np.concatenate(l2children)
+
+
+def sanity_check(cg, new_roots, operation_id):
+    """
+    Check for duplicates in hierarchy, useful for debugging.
+    """
+    print(f"{len(new_roots)} new roots from {operation_id}")
+    l2c_d = {}
+    for new_root in new_roots:
+        l2c_d[new_root] = get_l2children(cg, new_root)
+    for k, v in l2c_d.items():
+        if len(v) == np.unique(v).size:
+            print(f"no duplicates in {k}")
+        else:
+            raise ValueError(f"duplicates in {k}: {len(v)} {np.unique(v).size}")
