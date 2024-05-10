@@ -325,6 +325,7 @@ class ChunkedGraph:
         node_ids: typing.Iterable,
         *,
         raw_only=False,
+        all_layers=True,
         time_stamp: typing.Optional[datetime.datetime] = None,
     ) -> typing.Dict:
         """
@@ -337,10 +338,8 @@ class ChunkedGraph:
             node_ids = np.array(node_ids, dtype=basetypes.NODE_ID)
             if node_ids.size == 0:
                 return result
-            attrs = [
-                attributes.Connectivity.CrossChunkEdge[l]
-                for l in range(2, max(3, self.meta.layer_count))
-            ]
+            layers = range(2, max(3, self.meta.layer_count))
+            attrs = [attributes.Connectivity.CrossChunkEdge[l] for l in layers]
             node_edges_d_d = self.client.read_nodes(
                 node_ids=node_ids,
                 properties=attrs,
@@ -348,12 +347,15 @@ class ChunkedGraph:
                 end_time_inclusive=True,
             )
             layers = self.get_chunk_layers(node_ids)
+            valid_layer = lambda x, y: x >= y
+            if not all_layers:
+                valid_layer = lambda x, y: x == y
             for layer, id_ in zip(layers, node_ids):
                 try:
                     result[id_] = {
                         prop.index: val[0].value.copy()
                         for prop, val in node_edges_d_d[id_].items()
-                        if prop.index >= layer
+                        if valid_layer(prop.index, layer)
                     }
                 except KeyError:
                     result[id_] = {}
