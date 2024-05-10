@@ -22,7 +22,7 @@ from .utils import flatgraph
 from .utils.serializers import serialize_uint64
 from ..logging.log_db import TimeIt
 from ..utils.general import in2d
-from ..debug.utils import sanity_check
+from ..debug.utils import sanity_check, sanity_check_single
 
 
 def _init_old_hierarchy(cg, l2ids: np.ndarray, parent_ts: datetime.datetime = None):
@@ -657,6 +657,7 @@ class CreateParentNodes:
             self._update_id_lineage(parent, cc_ids, layer, parent_layer)
             self.cg.cache.children_cache[parent] = cc_ids
             cache_utils.update(self.cg.cache.parents_cache, cc_ids, parent)
+            sanity_check_single(self.cg, parent, self._operation_id)
             if update_skipped_neighbors:
                 res = self._update_skipped_neighbors(cc_ids[0], layer, parent_layer)
                 self.new_entries.extend(res)

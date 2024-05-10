@@ -41,12 +41,20 @@ def sanity_check(cg, new_roots, operation_id):
     """
     Check for duplicates in hierarchy, useful for debugging.
     """
-    print(f"{len(new_roots)} new roots from {operation_id}")
+    print(f"{len(new_roots)} new ids from {operation_id}")
     l2c_d = {}
     for new_root in new_roots:
         l2c_d[new_root] = get_l2children(cg, new_root)
+    success = True
     for k, v in l2c_d.items():
-        if len(v) == np.unique(v).size:
-            print(f"no duplicates in {k}")
-        else:
-            raise ValueError(f"duplicates in {k}: {len(v)} {np.unique(v).size}")
+        success = success and (len(v) == np.unique(v).size)
+        print(f"{k}: {np.unique(v).size}, {len(v)}")
+    if not success:
+        raise RuntimeError("Some ids are not valid.")
+
+
+def sanity_check_single(cg, node, operation_id):
+    v = get_l2children(cg, node)
+    msg = f"invalid node {node}:"
+    msg += f" found {len(v)} l2 ids, must be {np.unique(v).size}"
+    assert np.unique(v).size == len(v), f"{msg}, from {operation_id}."
