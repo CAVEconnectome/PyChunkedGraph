@@ -5,10 +5,7 @@ plugin to read agglomeration data provided by Ran Lu
 
 from collections import defaultdict
 from itertools import product
-from typing import Dict
-from typing import Iterable
-from typing import Tuple
-from typing import Union
+from typing import Dict, Iterable, Tuple, Union
 from binascii import crc32
 
 
@@ -23,8 +20,7 @@ from .utils import postprocess_edge_data
 from ..io.edges import put_chunk_edges
 from ..io.components import put_chunk_components
 from ..graph.utils import basetypes
-from ..graph.edges import Edges
-from ..graph.edges import EDGE_TYPES
+from ..graph.edges import EDGE_TYPES, Edges
 from ..graph.types import empty_2d
 from ..graph.chunks.utils import get_chunk_id
 
