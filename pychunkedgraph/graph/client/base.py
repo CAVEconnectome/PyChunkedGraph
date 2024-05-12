@@ -13,7 +13,7 @@ class SimpleClient(ABC):
         """Initialize the graph and store associated meta."""
 
     @abstractmethod
-    def add_graph_version(self, version):
+    def add_graph_version(self, version: str, overwrite: bool = False):
         """Add a version to the graph."""
 
     @abstractmethod

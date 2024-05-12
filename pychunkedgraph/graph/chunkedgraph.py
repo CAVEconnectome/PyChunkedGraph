@@ -19,6 +19,7 @@ from .cache import CacheService
 from .meta import ChunkedGraphMeta
 from .utils import basetypes
 from .utils import id_helpers
+from .utils import serializers
 from .utils import generic as misc_utils
 from .edges import Edges
 from .edges import utils as edge_utils
@@ -76,7 +77,7 @@ class ChunkedGraph:
         return self.client.read_graph_version()
 
     @property
-    def client(self) -> base.SimpleClient:
+    def client(self) -> BigTableClient:
         return self._client
 
     @property
@@ -287,9 +288,11 @@ class ChunkedGraph:
                 node_ids=node_ids, properties=attributes.Hierarchy.Child
             )
             return {
-                x: node_children_d[x][0].value
-                if x in node_children_d
-                else types.empty_1d.copy()
+                x: (
+                    node_children_d[x][0].value
+                    if x in node_children_d
+                    else types.empty_1d.copy()
+                )
                 for x in node_ids
             }
         return self.cache.children_multiple(node_ids)
@@ -322,6 +325,7 @@ class ChunkedGraph:
         node_ids: typing.Iterable,
         *,
         raw_only=False,
+        all_layers=True,
         time_stamp: typing.Optional[datetime.datetime] = None,
     ) -> typing.Dict:
         """
@@ -334,21 +338,24 @@ class ChunkedGraph:
             node_ids = np.array(node_ids, dtype=basetypes.NODE_ID)
             if node_ids.size == 0:
                 return result
-            attrs = [
-                attributes.Connectivity.CrossChunkEdge[l]
-                for l in range(2, max(3, self.meta.layer_count))
-            ]
+            layers = range(2, max(3, self.meta.layer_count))
+            attrs = [attributes.Connectivity.CrossChunkEdge[l] for l in layers]
             node_edges_d_d = self.client.read_nodes(
                 node_ids=node_ids,
                 properties=attrs,
                 end_time=time_stamp,
                 end_time_inclusive=True,
             )
-            for id_ in node_ids:
+            layers = self.get_chunk_layers(node_ids)
+            valid_layer = lambda x, y: x >= y
+            if not all_layers:
+                valid_layer = lambda x, y: x == y
+            for layer, id_ in zip(layers, node_ids):
                 try:
                     result[id_] = {
                         prop.index: val[0].value.copy()
                         for prop, val in node_edges_d_d[id_].items()
+                        if valid_layer(prop.index, layer)
                     }
                 except KeyError:
                     result[id_] = {}
@@ -631,8 +638,23 @@ class ChunkedGraph:
             edges = np.concatenate(
                 [np.array(e.value, dtype=basetypes.NODE_ID, copy=False) for e in val]
             )
-            result[id_] = Edges(edges[:, 0], edges[:, 1], fake_edges=True)
+            result[id_] = Edges(edges[:, 0], edges[:, 1])
         return result
+
+    def copy_fake_edges(self, chunk_id: np.uint64) -> None:
+        _edges = self.client.read_node(
+            node_id=chunk_id,
+            properties=attributes.Connectivity.FakeEdgesCF3,
+            end_time_inclusive=True,
+            fake_edges=True,
+        )
+        mutations = []
+        _id = serializers.serialize_uint64(chunk_id, fake_edges=True)
+        for e in _edges:
+            val_dict = {attributes.Connectivity.FakeEdges: e.value}
+            row = self.client.mutate_row(_id, val_dict, time_stamp=e.timestamp)
+            mutations.append(row)
+        self.client.write(mutations)
 
     def get_l2_agglomerations(
         self, level2_ids: np.ndarray, edges_only: bool = False
@@ -690,13 +712,15 @@ class ChunkedGraph:
         )
         return (
             agglomeration_d,
-            (self.mock_edges,)
-            if self.mock_edges is not None
-            else (in_edges, out_edges, cross_edges),
+            (
+                (self.mock_edges,)
+                if self.mock_edges is not None
+                else (in_edges, out_edges, cross_edges)
+            ),
         )
 
     def get_node_timestamps(
-        self, node_ids: typing.Sequence[np.uint64], return_numpy=True
+        self, node_ids: typing.Sequence[np.uint64], return_numpy=True, normalize=False
     ) -> typing.Iterable:
         """
         The timestamp of the children column can be assumed
@@ -710,17 +734,22 @@ class ChunkedGraph:
             if return_numpy:
                 return np.array([], dtype=np.datetime64)
             return []
+        result = []
+        earliest_ts = self.get_earliest_timestamp()
+        for n in node_ids:
+            ts = children[n][0].timestamp
+            if normalize:
+                ts = earliest_ts if ts < earliest_ts else ts
+            result.append(ts)
         if return_numpy:
-            return np.array(
-                [children[x][0].timestamp for x in node_ids], dtype=np.datetime64
-            )
-        return [children[x][0].timestamp for x in node_ids]
+            return np.array(result, dtype=np.datetime64)
+        return result
 
     # OPERATIONS
     def add_edges(
         self,
         user_id: str,
-        atomic_edges: typing.Sequence[np.uint64],
+        atomic_edges: typing.Sequence[typing.Sequence[np.uint64]],
         *,
         affinities: typing.Sequence[np.float32] = None,
         source_coords: typing.Sequence[int] = None,
@@ -935,3 +964,14 @@ class ChunkedGraph:
             _, timestamp = self.client.read_log_entry(op_id)
             if timestamp is not None:
                 return timestamp - timedelta(milliseconds=500)
+
+    def get_operation_ids(self, node_ids: typing.Sequence):
+        response = self.client.read_nodes(node_ids=node_ids)
+        result = {}
+        for node in node_ids:
+            try:
+                operations = response[node][attributes.OperationLogs.OperationID]
+                result[node] = [(x.value, x.timestamp) for x in operations]
+            except KeyError:
+                ...
+        return result
