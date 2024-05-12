@@ -22,7 +22,7 @@ from .utils import flatgraph
 from .utils.serializers import serialize_uint64
 from ..logging.log_db import TimeIt
 from ..utils.general import in2d
-from ..debug.utils import get_l2children
+from ..debug.utils import sanity_check, sanity_check_single
 
 
 def _init_old_hierarchy(cg, l2ids: np.ndarray, parent_ts: datetime.datetime = None):
@@ -246,9 +246,7 @@ def add_edges(
     )
 
     new_roots = create_parents.run()
-    for new_root in new_roots:
-        l2c = get_l2children(cg, new_root)
-        assert len(l2c) == np.unique(l2c).size, f"inconsistent result op {operation_id}"
+    sanity_check(cg, new_roots, operation_id)
     create_parents.create_new_entries()
     return new_roots, new_l2_ids, create_parents.new_entries
 
@@ -376,9 +374,7 @@ def remove_edges(
         parent_ts=parent_ts,
     )
     new_roots = create_parents.run()
-    for new_root in new_roots:
-        l2c = get_l2children(cg, new_root)
-        assert len(l2c) == np.unique(l2c).size, f"inconsistent result op {operation_id}"
+    sanity_check(cg, new_roots, operation_id)
     create_parents.create_new_entries()
     return new_roots, new_l2_ids, create_parents.new_entries
 
@@ -579,7 +575,7 @@ class CreateParentNodes:
                 continue
             edges = fastremap.remap(edges, edge_parents_d, preserve_missing_labels=True)
             new_cx_edges_d[layer] = np.unique(edges, axis=0)
-            assert np.all(edges[:, 0] == parent)
+            assert np.all(edges[:, 0] == parent), f"{parent}, {np.unique(edges[:, 0])}"
         self.cg.cache.cross_chunk_edges_cache[parent] = new_cx_edges_d
 
     def _update_neighbor_parents(self, neighbor, ceil_layer: int, updated: set) -> list:
@@ -661,6 +657,7 @@ class CreateParentNodes:
             self._update_id_lineage(parent, cc_ids, layer, parent_layer)
             self.cg.cache.children_cache[parent] = cc_ids
             cache_utils.update(self.cg.cache.parents_cache, cc_ids, parent)
+            sanity_check_single(self.cg, parent, self._operation_id)
             if update_skipped_neighbors:
                 res = self._update_skipped_neighbors(cc_ids[0], layer, parent_layer)
                 self.new_entries.extend(res)

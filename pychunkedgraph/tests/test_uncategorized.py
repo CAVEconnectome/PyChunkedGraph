@@ -36,7 +36,7 @@ from ..graph.lineage import get_root_id_history
 from ..graph.lineage import get_future_root_ids
 from ..graph.utils.serializers import serialize_uint64
 from ..graph.utils.serializers import deserialize_uint64
-from ..ingest.create.abstract_layers import add_layer
+from ..ingest.create.parent_layer import add_parent_chunk
 
 
 class TestGraphNodeConversion:
@@ -68,9 +68,9 @@ class TestGraphNodeConversion:
         ) == cg.get_node_id(np.uint64(1), layer=2, x=3, y=1, z=0)
 
         assert cg.get_node_id(
-            np.uint64(2 ** 53 - 2), layer=10, x=0, y=0, z=0
+            np.uint64(2**53 - 2), layer=10, x=0, y=0, z=0
         ) + np.uint64(1) == cg.get_node_id(
-            np.uint64(2 ** 53 - 1), layer=10, x=0, y=0, z=0
+            np.uint64(2**53 - 1), layer=10, x=0, y=0, z=0
         )
 
     @pytest.mark.timeout(30)
@@ -82,9 +82,9 @@ class TestGraphNodeConversion:
         ) < serialize_uint64(cg.get_node_id(np.uint64(1), layer=2, x=3, y=1, z=0))
 
         assert serialize_uint64(
-            cg.get_node_id(np.uint64(2 ** 53 - 2), layer=10, x=0, y=0, z=0)
+            cg.get_node_id(np.uint64(2**53 - 2), layer=10, x=0, y=0, z=0)
         ) < serialize_uint64(
-            cg.get_node_id(np.uint64(2 ** 53 - 1), layer=10, x=0, y=0, z=0)
+            cg.get_node_id(np.uint64(2**53 - 1), layer=10, x=0, y=0, z=0)
         )
 
     @pytest.mark.timeout(30)
@@ -222,7 +222,7 @@ class TestGraphBuild:
             edges=[(to_label(cg, 1, 1, 0, 0, 0), to_label(cg, 1, 0, 0, 0, 0), inf)],
         )
 
-        add_layer(cg, 3, [0, 0, 0], n_threads=1)
+        add_parent_chunk(cg, 3, [0, 0, 0], n_threads=1)
         res = cg.client._table.read_rows()
         res.consume_all()
 
@@ -327,7 +327,7 @@ class TestGraphBuild:
             edges=[(to_label(cg, 1, 1, 0, 0, 0), to_label(cg, 1, 0, 0, 0, 0), inf)],
         )
 
-        add_layer(cg, 3, np.array([0, 0, 0]), n_threads=1)
+        add_parent_chunk(cg, 3, np.array([0, 0, 0]), n_threads=1)
         res = cg.client._table.read_rows()
         res.consume_all()
 
@@ -424,10 +424,10 @@ class TestGraphBuild:
         # Preparation: Build Chunk Z
         create_chunk(cg, vertices=[to_label(cg, 1, 7, 7, 7, 0)], edges=[])
 
-        add_layer(cg, 3, [0, 0, 0], n_threads=1)
-        add_layer(cg, 3, [3, 3, 3], n_threads=1)
-        add_layer(cg, 4, [0, 0, 0], n_threads=1)
-        add_layer(cg, 5, [0, 0, 0], n_threads=1)
+        add_parent_chunk(cg, 3, [0, 0, 0], n_threads=1)
+        add_parent_chunk(cg, 3, [3, 3, 3], n_threads=1)
+        add_parent_chunk(cg, 4, [0, 0, 0], n_threads=1)
+        add_parent_chunk(cg, 5, [0, 0, 0], n_threads=1)
 
         res = cg.client._table.read_rows()
         res.consume_all()
@@ -468,21 +468,21 @@ class TestGraphBuild:
             timestamp=fake_timestamp,
         )
 
-        add_layer(
+        add_parent_chunk(
             cg,
             3,
             [0, 0, 0],
             time_stamp=fake_timestamp,
             n_threads=1,
         )
-        add_layer(
+        add_parent_chunk(
             cg,
             3,
             [0, 0, 0],
             time_stamp=fake_timestamp,
             n_threads=1,
         )
-        add_layer(
+        add_parent_chunk(
             cg,
             4,
             [0, 0, 0],
@@ -831,7 +831,7 @@ class TestGraphMerge:
             timestamp=fake_timestamp,
         )
 
-        add_layer(
+        add_parent_chunk(
             cg,
             3,
             [0, 0, 0],
@@ -887,28 +887,28 @@ class TestGraphMerge:
             timestamp=fake_timestamp,
         )
 
-        add_layer(
+        add_parent_chunk(
             cg,
             3,
             [0, 0, 0],
             time_stamp=fake_timestamp,
             n_threads=1,
         )
-        add_layer(
+        add_parent_chunk(
             cg,
             3,
             [3, 3, 3],
             time_stamp=fake_timestamp,
             n_threads=1,
         )
-        add_layer(
+        add_parent_chunk(
             cg,
             4,
             [0, 0, 0],
             time_stamp=fake_timestamp,
             n_threads=1,
         )
-        add_layer(
+        add_parent_chunk(
             cg,
             5,
             [0, 0, 0],
@@ -1052,7 +1052,7 @@ class TestGraphMerge:
             timestamp=fake_timestamp,
         )
 
-        add_layer(
+        add_parent_chunk(
             cg,
             3,
             [0, 0, 0],
@@ -1111,35 +1111,35 @@ class TestGraphMerge:
             timestamp=fake_timestamp,
         )
 
-        add_layer(
+        add_parent_chunk(
             cg,
             3,
             [0, 0, 0],
             time_stamp=fake_timestamp,
             n_threads=1,
         )
-        add_layer(
+        add_parent_chunk(
             cg,
             3,
             [3, 3, 3],
             time_stamp=fake_timestamp,
             n_threads=1,
         )
-        add_layer(
+        add_parent_chunk(
             cg,
             4,
             [0, 0, 0],
             time_stamp=fake_timestamp,
             n_threads=1,
         )
-        add_layer(
+        add_parent_chunk(
             cg,
             4,
             [1, 1, 1],
             time_stamp=fake_timestamp,
             n_threads=1,
         )
-        add_layer(
+        add_parent_chunk(
             cg,
             5,
             [0, 0, 0],
@@ -1239,7 +1239,7 @@ class TestGraphMerge:
             timestamp=fake_timestamp,
         )
 
-        add_layer(
+        add_parent_chunk(
             cg,
             3,
             [0, 0, 0],
@@ -1314,7 +1314,7 @@ class TestGraphMerge:
             edges=[(to_label(cg, 1, 1, 1, 0, 0), to_label(cg, 1, 0, 1, 0, 0), inf)],
         )
 
-        add_layer(
+        add_parent_chunk(
             cg,
             3,
             [0, 0, 0],
@@ -1405,28 +1405,28 @@ class TestGraphMerge:
             timestamp=fake_timestamp,
         )
 
-        add_layer(
+        add_parent_chunk(
             cg,
             3,
             [0, 0, 0],
             time_stamp=fake_timestamp,
             n_threads=1,
         )
-        add_layer(
+        add_parent_chunk(
             cg,
             3,
             [1, 0, 0],
             time_stamp=fake_timestamp,
             n_threads=1,
         )
-        add_layer(
+        add_parent_chunk(
             cg,
             4,
             [0, 0, 0],
             time_stamp=fake_timestamp,
             n_threads=1,
         )
-        add_layer(
+        add_parent_chunk(
             cg,
             5,
             [0, 0, 0],
@@ -1591,7 +1591,7 @@ class TestGraphMinCut:
             timestamp=fake_timestamp,
         )
 
-        add_layer(
+        add_parent_chunk(
             cg,
             3,
             [0, 0, 0],
@@ -1662,7 +1662,7 @@ class TestGraphMinCut:
             timestamp=fake_timestamp,
         )
 
-        add_layer(
+        add_parent_chunk(
             cg,
             3,
             [0, 0, 0],
@@ -1723,7 +1723,7 @@ class TestGraphMinCut:
             timestamp=fake_timestamp,
         )
 
-        add_layer(
+        add_parent_chunk(
             cg,
             3,
             [0, 0, 0],
@@ -1791,7 +1791,7 @@ class TestGraphMinCut:
             timestamp=fake_timestamp,
         )
 
-        add_layer(
+        add_parent_chunk(
             cg,
             3,
             [0, 0, 0],
@@ -1922,7 +1922,7 @@ class TestGraphHistory:
             timestamp=fake_timestamp,
         )
 
-        add_layer(
+        add_parent_chunk(
             cg,
             3,
             [0, 0, 0],
@@ -2063,7 +2063,7 @@ class TestGraphLocks:
             timestamp=fake_timestamp,
         )
 
-        add_layer(
+        add_parent_chunk(
             cg,
             3,
             [0, 0, 0],
@@ -2129,7 +2129,7 @@ class TestGraphLocks:
             timestamp=fake_timestamp,
         )
 
-        add_layer(
+        add_parent_chunk(
             cg,
             3,
             [0, 0, 0],
@@ -2197,7 +2197,7 @@ class TestGraphLocks:
             timestamp=fake_timestamp,
         )
 
-        add_layer(
+        add_parent_chunk(
             cg,
             3,
             [0, 0, 0],
@@ -2249,7 +2249,7 @@ class TestGraphLocks:
             timestamp=fake_timestamp,
         )
 
-        add_layer(
+        add_parent_chunk(
             cg,
             3,
             [0, 0, 0],
@@ -2315,7 +2315,7 @@ class TestGraphLocks:
             timestamp=fake_timestamp,
         )
 
-        add_layer(
+        add_parent_chunk(
             cg,
             3,
             [0, 0, 0],
@@ -2388,7 +2388,7 @@ class TestGraphLocks:
             timestamp=fake_timestamp,
         )
 
-        add_layer(
+        add_parent_chunk(
             cg,
             3,
             [0, 0, 0],
