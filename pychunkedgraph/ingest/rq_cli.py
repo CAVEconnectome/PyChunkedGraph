@@ -8,8 +8,6 @@ import sys
 import click
 from redis import Redis
 from rq import Queue
-from rq import Worker
-from rq.worker import WorkerStatus
 from rq.job import Job
 from rq.exceptions import InvalidJobOperationError
 from rq.exceptions import NoSuchJobError
@@ -25,23 +23,6 @@ from ..utils.redis import REDIS_PASSWORD
 # rq extended
 rq_cli = AppGroup("rq")
 connection = Redis(host=REDIS_HOST, port=REDIS_PORT, db=0, password=REDIS_PASSWORD)
-
-
-@rq_cli.command("status")
-@click.argument("queues", nargs=-1, type=str)
-@click.option("--show-busy", is_flag=True)
-def get_status(queues, show_busy):
-    print("NOTE: Use --show-busy to display count of non idle workers\n")
-    for queue in queues:
-        q = Queue(queue, connection=connection)
-        print(f"Queue name \t: {queue}")
-        print(f"Jobs queued \t: {len(q)}")
-        print(f"Workers total \t: {Worker.count(queue=q)}")
-        if show_busy:
-            workers = Worker.all(queue=q)
-            count = sum([worker.get_state() == WorkerStatus.BUSY for worker in workers])
-            print(f"Workers busy \t: {count}")
-        print(f"Jobs failed \t: {q.failed_job_registry.count}\n")
 
 
 @rq_cli.command("failed")
@@ -129,9 +110,14 @@ def clean_start_registry(queue):
 def clear_failed_registry(queue):
     failed_job_registry = FailedJobRegistry(queue, connection=connection)
     job_ids = failed_job_registry.get_job_ids()
+    count = 0
     for job_id in job_ids:
-        failed_job_registry.remove(job_id, delete_job=True)
-    print(f"Deleted {len(job_ids)} jobs from the failed job registry.")
+        try:
+            failed_job_registry.remove(job_id, delete_job=True)
+            count += 1
+        except Exception:
+            ...
+    print(f"Deleted {count} jobs from the failed job registry.")
 
 
 def init_rq_cmds(app):
