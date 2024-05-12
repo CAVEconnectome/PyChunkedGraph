@@ -19,7 +19,7 @@ from google.cloud.bigtable.column_family import MaxAgeGCRule
 from google.cloud.bigtable.column_family import MaxVersionsGCRule
 from google.cloud.bigtable.table import Table
 from google.cloud.bigtable.row_set import RowSet
-from google.cloud.bigtable.row_data import PartialRowData
+from google.cloud.bigtable.row_data import DEFAULT_RETRY_READ_ROWS, PartialRowData
 from google.cloud.bigtable.row_filters import RowFilter
 
 from . import utils
@@ -97,8 +97,9 @@ class Client(bigtable.Client, ClientWithIDGen, OperationLogger):
         self.add_graph_version(version)
         self.update_graph_meta(meta)
 
-    def add_graph_version(self, version: str):
-        assert self.read_graph_version() is None, "Graph has already been versioned."
+    def add_graph_version(self, version: str, overwrite: bool = False):
+        if not overwrite:
+            assert self.read_graph_version() is None, self.read_graph_version()
         self._version = version
         row = self.mutate_row(
             attributes.GraphVersion.key,
@@ -160,18 +161,25 @@ class Client(bigtable.Client, ClientWithIDGen, OperationLogger):
             # when all IDs in a block are within a range
             node_ids = np.sort(node_ids)
         rows = self._read_byte_rows(
-            start_key=serialize_uint64(start_id, fake_edges=fake_edges)
-            if start_id is not None
-            else None,
-            end_key=serialize_uint64(end_id, fake_edges=fake_edges)
-            if end_id is not None
-            else None,
+            start_key=(
+                serialize_uint64(start_id, fake_edges=fake_edges)
+                if start_id is not None
+                else None
+            ),
+            end_key=(
+                serialize_uint64(end_id, fake_edges=fake_edges)
+                if end_id is not None
+                else None
+            ),
             end_key_inclusive=end_id_inclusive,
             row_keys=(
-                serialize_uint64(node_id, fake_edges=fake_edges) for node_id in node_ids
-            )
-            if node_ids is not None
-            else None,
+                (
+                    serialize_uint64(node_id, fake_edges=fake_edges)
+                    for node_id in node_ids
+                )
+                if node_ids is not None
+                else None
+            ),
             columns=properties,
             start_time=start_time,
             end_time=end_time,
@@ -819,7 +827,8 @@ class Client(bigtable.Client, ClientWithIDGen, OperationLogger):
             # Check for everything falsy, because Bigtable considers even empty
             # lists of row_keys as no upper/lower bound!
             return {}
-        range_read = table.read_rows(row_set=row_set, filter_=row_filter)
+        retry = DEFAULT_RETRY_READ_ROWS.with_timeout(180)
+        range_read = table.read_rows(row_set=row_set, filter_=row_filter, retry=retry)
         res = {v.row_key: utils.partial_row_data_to_column_dict(v) for v in range_read}
         return res
 
