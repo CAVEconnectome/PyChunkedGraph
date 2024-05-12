@@ -20,7 +20,7 @@ from .utils import (
     queue_layer_helper,
 )
 from .simple_tests import run_all
-from .create.parent_layer import add_layer
+from .create.parent_layer import add_parent_chunk
 from ..graph.chunkedgraph import ChunkedGraph
 from ..utils.redis import get_redis_connection, keys as r_keys
 
@@ -137,13 +137,14 @@ def ingest_chunk(queue: str, chunk_info):
 @click.option("--n_threads", type=int, default=1)
 def ingest_chunk_local(graph_id: str, chunk_info, n_threads: int):
     """Manually ingest a chunk on a local machine."""
-    if chunk_info[0] == 2:
-        create_atomic_chunk(chunk_info[1:])
+    layer, coords = chunk_info[0], chunk_info[1:]
+    if layer == 2:
+        create_atomic_chunk(coords)
     else:
         cg = ChunkedGraph(graph_id=graph_id)
-        add_layer(cg, chunk_info[0], chunk_info[1:], n_threads=n_threads)
+        add_parent_chunk(cg, layer, coords, n_threads=n_threads)
     cg = ChunkedGraph(graph_id=graph_id)
-    add_layer(cg, chunk_info[0], chunk_info[1:], n_threads=n_threads)
+    add_parent_chunk(cg, layer, coords, n_threads=n_threads)
 
 
 @ingest_cli.command("rate")

@@ -29,20 +29,20 @@ from .cross_edges import get_children_chunk_cross_edges
 from .cross_edges import get_chunk_nodes_cross_edge_layer
 
 
-def add_layer(
+def add_parent_chunk(
     cg: ChunkedGraph,
     layer_id: int,
-    parent_coords: Sequence[int],
+    coords: Sequence[int],
     children_coords: Sequence[Sequence[int]] = np.array([]),
     *,
     time_stamp: Optional[datetime.datetime] = None,
     n_threads: int = 4,
 ) -> None:
     if not children_coords.size:
-        children_coords = get_children_chunk_coords(cg.meta, layer_id, parent_coords)
+        children_coords = get_children_chunk_coords(cg.meta, layer_id, coords)
     children_ids = _read_children_chunks(cg, layer_id, children_coords, n_threads > 1)
     cx_edges = get_children_chunk_cross_edges(
-        cg, layer_id, parent_coords, use_threads=n_threads > 1
+        cg, layer_id, coords, use_threads=n_threads > 1
     )
 
     node_layers = cg.get_chunk_layers(children_ids)
@@ -59,7 +59,7 @@ def add_layer(
     _write_connected_components(
         cg,
         layer_id,
-        parent_coords,
+        coords,
         connected_components,
         get_valid_timestamp(time_stamp),
         n_threads > 1,

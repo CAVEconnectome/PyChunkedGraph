@@ -1,7 +1,7 @@
 # pylint: disable=invalid-name, missing-function-docstring, import-outside-toplevel
 
 """
-Ingest / create chunkedgraph with workers in a cluster.
+Ingest / create chunkedgraph with workers on a cluster.
 """
 
 import logging
@@ -20,8 +20,8 @@ from .ran_agglomeration import (
     read_raw_edge_data,
     read_raw_agglomeration_data,
 )
-from .create.atomic_layer import add_atomic_edges
-from .create.parent_layer import add_layer
+from .create.atomic_layer import add_atomic_chunk
+from .create.parent_layer import add_parent_chunk
 from .upgrade.atomic_layer import update_chunk as update_atomic_chunk
 from .upgrade.parent_layer import update_chunk as update_parent_chunk
 from ..graph.edges import EDGE_TYPES, Edges, put_edges
@@ -50,7 +50,7 @@ def create_parent_chunk(
 ) -> None:
     redis = get_redis_connection()
     imanager = IngestionManager.from_pickle(redis.get(r_keys.INGESTION_MANAGER))
-    add_layer(
+    add_parent_chunk(
         imanager.cg,
         parent_layer,
         parent_coords,
@@ -128,7 +128,7 @@ def create_atomic_chunk(coords: Sequence[int]):
 
     chunk_edges_all, mapping = _get_atomic_chunk_data(imanager, coords)
     chunk_edges_active, isolated_ids = get_active_edges(chunk_edges_all, mapping)
-    add_atomic_edges(imanager.cg, coords, chunk_edges_active, isolated=isolated_ids)
+    add_atomic_chunk(imanager.cg, coords, chunk_edges_active, isolated=isolated_ids)
 
     for k, v in chunk_edges_all.items():
         logging.debug(f"{k}: {len(v)}")

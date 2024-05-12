@@ -749,7 +749,7 @@ class ChunkedGraph:
     def add_edges(
         self,
         user_id: str,
-        atomic_edges: typing.Sequence[np.uint64],
+        atomic_edges: typing.Sequence[typing.Sequence[np.uint64]],
         *,
         affinities: typing.Sequence[np.float32] = None,
         source_coords: typing.Sequence[int] = None,

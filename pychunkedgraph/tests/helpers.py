@@ -14,12 +14,12 @@ from google.auth import credentials
 from google.cloud import bigtable
 
 from ..ingest.utils import bootstrap
-from ..ingest.create.atomic_layer import add_atomic_edges
+from ..ingest.create.atomic_layer import add_atomic_chunk
 from ..graph.edges import Edges
 from ..graph.edges import EDGE_TYPES
 from ..graph.utils import basetypes
 from ..graph.chunkedgraph import ChunkedGraph
-from ..ingest.create.parent_layer import add_layer
+from ..ingest.create.parent_layer import add_parent_chunk
 
 
 class CloudVolumeBounds(object):
@@ -189,9 +189,9 @@ def gen_graph_simplequerytest(request, gen_graph):
         edges=[(to_label(graph, 1, 2, 0, 0, 0), to_label(graph, 1, 1, 0, 0, 0), inf)],
     )
 
-    add_layer(graph, 3, [0, 0, 0], n_threads=1)
-    add_layer(graph, 3, [1, 0, 0], n_threads=1)
-    add_layer(graph, 4, [0, 0, 0], n_threads=1)
+    add_parent_chunk(graph, 3, [0, 0, 0], n_threads=1)
+    add_parent_chunk(graph, 3, [1, 0, 0], n_threads=1)
+    add_parent_chunk(graph, 4, [0, 0, 0], n_threads=1)
 
     return graph
 
@@ -252,7 +252,7 @@ def create_chunk(cg, vertices=None, edges=None, timestamp=None):
     cg.mock_edges += all_edges
 
     isolated_ids = np.array(isolated_ids, dtype=np.uint64)
-    add_atomic_edges(
+    add_atomic_chunk(
         cg,
         cg.get_chunk_coordinates(chunk_id),
         chunk_edges_active,
