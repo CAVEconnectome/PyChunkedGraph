@@ -325,12 +325,10 @@ class ChunkedGraph:
         node_ids: typing.Iterable,
         *,
         raw_only=False,
-        all_layers=True,
         time_stamp: typing.Optional[datetime.datetime] = None,
     ) -> typing.Dict:
         """
-        Returns cross edges for `node_ids`.
-        A dict of the form `{node_id: {layer: cross_edges}}`.
+        Returns dictionary `{node_id: cross_edges}`.
         """
         time_stamp = misc_utils.get_valid_timestamp(time_stamp)
         if raw_only or not self.cache:
@@ -338,29 +336,47 @@ class ChunkedGraph:
             node_ids = np.array(node_ids, dtype=basetypes.NODE_ID)
             if node_ids.size == 0:
                 return result
-            layers = range(2, max(3, self.meta.layer_count))
+            layers = np.unique(self.get_chunk_layers(node_ids))
             attrs = [attributes.Connectivity.CrossChunkEdge[l] for l in layers]
-            node_edges_d_d = self.client.read_nodes(
+            edges_d_d = self.client.read_nodes(
                 node_ids=node_ids,
                 properties=attrs,
                 end_time=time_stamp,
                 end_time_inclusive=True,
             )
-            layers = self.get_chunk_layers(node_ids)
-            valid_layer = lambda x, y: x >= y
-            if not all_layers:
-                valid_layer = lambda x, y: x == y
-            for layer, id_ in zip(layers, node_ids):
+            for id_ in node_ids:
                 try:
-                    result[id_] = {
-                        prop.index: val[0].value.copy()
-                        for prop, val in node_edges_d_d[id_].items()
-                        if valid_layer(prop.index, layer)
-                    }
+                    it = iter(val[0].value.copy() for val in edges_d_d[id_].values())
+                    result[id_] = next(it)
                 except KeyError:
                     result[id_] = {}
             return result
         return self.cache.cross_chunk_edges_multiple(node_ids, time_stamp=time_stamp)
+
+    def get_tmp_cross_chunk_edges(self, node_ids: typing.Iterable) -> typing.Dict:
+        """
+        Read temporarily cached cross chunk edges for ingest.
+        `{node_id: {layer: cross_edges}}`
+        """
+        result = {}
+        if len(node_ids) == 0:
+            return result
+        layers = range(2, max(3, self.meta.layer_count))
+        node_edges_d_d = self.client.read_nodes(
+            node_ids=node_ids,
+            properties=[attributes.Connectivity.TmpCrossChunkEdge[l] for l in layers],
+            end_time=None,
+            end_time_inclusive=True,
+        )
+        for id_ in node_ids:
+            try:
+                result[id_] = {
+                    prop.index: val[0].value.copy()
+                    for prop, val in node_edges_d_d[id_].items()
+                }
+            except KeyError:
+                result[id_] = {}
+        return result
 
     def get_roots(
         self,

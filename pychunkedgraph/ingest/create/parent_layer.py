@@ -228,7 +228,7 @@ def _write(
                 # layer 2 chunks at this time will only have atomic cross edges
                 cx_edges_d = cg.get_atomic_cross_edges(children)
             else:
-                cx_edges_d = cg.get_cross_chunk_edges(children, raw_only=True)
+                cx_edges_d = cg.get_tmp_cross_chunk_edges(children, raw_only=True)
             _rows, cx_edges = _children_rows(cg, parent, children, cx_edges_d, ts)
             rows.extend(_rows)
             row_id = serializers.serialize_uint64(parent)
@@ -237,8 +237,11 @@ def _write(
             for layer in range(parent_layer, cg.meta.layer_count):
                 if not layer in parent_cx_edges_d:
                     continue
-                col = attributes.Connectivity.CrossChunkEdge[layer]
+                col = attributes.Connectivity.TmpCrossChunkEdge[layer]
                 val_dict[col] = parent_cx_edges_d[layer]
+            if parent_layer in parent_cx_edges_d:
+                col = attributes.Connectivity.CrossChunkEdge[parent_layer]
+                val_dict[col] = parent_cx_edges_d[parent_layer]
             rows.append(cg.client.mutate_row(row_id, val_dict, ts))
             if len(rows) > 100000:
                 cg.client.write(rows)
