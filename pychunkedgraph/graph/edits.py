@@ -395,42 +395,42 @@ def _update_neighbor_cross_edges_single(
     cg, new_id: int, cx_edges_d: dict, node_map: dict, *, parent_ts
 ) -> dict:
     """
-    For each new_id, get counterparts and update its cross chunk edges.
+    For each new_id, get partners and update their cross chunk edges.
     Some of them maybe updated multiple times so we need to collect them first
     and then write to storage to consolidate the mutations.
-    Returns updated counterparts.
+    Returns updated partners.
     """
     node_layer = cg.get_chunk_layer(new_id)
-    counterparts = []
-    counterpart_layers = {}
+    partners = []
+    partner_layers = {}
     for layer in range(node_layer, cg.meta.layer_count):
         layer_edges = cx_edges_d.get(layer, types.empty_2d)
-        counterparts.extend(layer_edges[:, 1])
+        partners.extend(layer_edges[:, 1])
         layers_d = dict(zip(layer_edges[:, 1], [layer] * len(layer_edges[:, 1])))
-        counterpart_layers.update(layers_d)
+        partner_layers.update(layers_d)
 
-    cp_cx_edges_d = cg.get_cross_chunk_edges(counterparts, time_stamp=parent_ts)
-    updated_counterparts = {}
-    for counterpart, edges_d in cp_cx_edges_d.items():
+    cp_cx_edges_d = cg.get_cross_chunk_edges(partners, time_stamp=parent_ts)
+    updated_partners = {}
+    for partner, edges_d in cp_cx_edges_d.items():
         val_dict = {}
-        counterpart_layer = counterpart_layers[counterpart]
+        partner_layer = partner_layers[partner]
         for layer in range(2, cg.meta.layer_count):
             edges = edges_d.get(layer, types.empty_2d)
             if edges.size == 0:
                 continue
-            assert np.all(edges[:, 0] == counterpart)
+            assert np.all(edges[:, 0] == partner)
             edges = fastremap.remap(edges, node_map, preserve_missing_labels=True)
-            if layer == counterpart_layer:
-                reverse_edge = np.array([counterpart, new_id], dtype=basetypes.NODE_ID)
+            if layer == partner_layer:
+                reverse_edge = np.array([partner, new_id], dtype=basetypes.NODE_ID)
                 edges = np.concatenate([edges, [reverse_edge]])
                 edges = np.unique(edges, axis=0)
             edges_d[layer] = edges
             val_dict[attributes.Connectivity.CrossChunkEdge[layer]] = edges
         if not val_dict:
             continue
-        cg.cache.cross_chunk_edges_cache[counterpart] = edges_d
-        updated_counterparts[counterpart] = val_dict
-    return updated_counterparts
+        cg.cache.cross_chunk_edges_cache[partner] = edges_d
+        updated_partners[partner] = val_dict
+    return updated_partners
 
 
 def _update_neighbor_cross_edges(
@@ -443,12 +443,12 @@ def _update_neighbor_cross_edges(
     parent_ts,
 ) -> List:
     """
-    For each new_id, get counterparts and update its cross chunk edges.
+    For each new_id, get partners and update their cross chunk edges.
     Some of them maybe updated multiple times so we need to collect them first
     and then write to storage to consolidate the mutations.
-    Returns mutations to updated counterparts/partner nodes.
+    Returns mutations to updated partner nodes.
     """
-    updated_counterparts = {}
+    updated_partners = {}
     newid_cx_edges_d = cg.get_cross_chunk_edges(new_ids, time_stamp=parent_ts)
     node_map = {}
     for k, v in old_new_id.items():
@@ -462,9 +462,9 @@ def _update_neighbor_cross_edges(
         result = _update_neighbor_cross_edges_single(
             cg, new_id, cx_edges_d, node_map, parent_ts=parent_ts
         )
-        updated_counterparts.update(result)
+        updated_partners.update(result)
     updated_entries = []
-    for node, val_dict in updated_counterparts.items():
+    for node, val_dict in updated_partners.items():
         rowkey = serialize_uint64(node)
         row = cg.client.mutate_row(rowkey, val_dict, time_stamp=time_stamp)
         updated_entries.append(row)
@@ -512,15 +512,9 @@ class CreateParentNodes:
                 self._old_new_id_d[old_id].add(parent)
 
     def _get_connected_components(self, node_ids: np.ndarray, layer: int):
-        with TimeIt(
-            f"get_cross_chunk_edges.{layer}",
-            self.cg.graph_id,
-            self._operation_id,
-        ):
-            cross_edges_d = self.cg.get_cross_chunk_edges(
-                node_ids, time_stamp=self._last_successful_ts
-            )
-
+        cross_edges_d = self.cg.get_cross_chunk_edges(
+            node_ids, time_stamp=self._last_successful_ts
+        )
         cx_edges = [types.empty_2d]
         for id_ in node_ids:
             edges_ = cross_edges_d[id_].get(layer, types.empty_2d)
@@ -672,7 +666,7 @@ class CreateParentNodes:
             if len(self._new_ids_d[layer]) == 0:
                 continue
             # all new IDs in this layer have been created
-            # update their cross chunk edges and their neighbors'
+            # update their and neighbors' cross chunk edges
             m = f"create_new_parents_layer.{layer}"
             with TimeIt(m, self.cg.graph_id, self._operation_id):
                 for new_id in self._new_ids_d[layer]:
