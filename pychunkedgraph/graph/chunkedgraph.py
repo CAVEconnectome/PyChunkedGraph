@@ -347,7 +347,7 @@ class ChunkedGraph:
                     partners = node_partners_d[id_][0].value
                     result[id_] = edge_utils.get_partner_edges(id_, partners)
                 except KeyError:
-                    result[id_] = {}
+                    result[id_] = types.empty_2d.copy()
             return result
         return self.cache.cross_chunk_edges_multiple(node_ids, time_stamp=time_stamp)
 

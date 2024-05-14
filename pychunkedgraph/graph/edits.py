@@ -224,7 +224,7 @@ def add_edges(
         for l2id in l2ids_:
             layer_edges_d = new_cx_edges_d.get(l2id, {})
             new_cx_edges.append(layer_edges_d.get(2, types.empty_2d.copy()))
-        cx_edges = np.concatenate([cross_edges_d[x] for x in l2ids_], new_cx_edges)
+        cx_edges = np.concatenate([cross_edges_d[x] for x in l2ids_] + new_cx_edges)
         temp_map = {k: next(iter(v)) for k, v in old_new_id_d.items()}
         cx_edges = fastremap.remap(cx_edges, temp_map, preserve_missing_labels=True)
         cx_edges = np.unique(cx_edges, axis=0)
@@ -475,12 +475,12 @@ class CreateParentNodes:
         self._added_edges = {}
         self._removed_edges = {}
 
-        if added_edges:
+        if added_edges is not None:
             layers = cg.get_cross_chunk_edges_layer(added_edges)
             for layer in np.unique(layers):
                 self._added_edges[layer] = added_edges[layers == layer]
 
-        if removed_edges:
+        if removed_edges is not None:
             layers = cg.get_cross_chunk_edges_layer(removed_edges)
             for layer in np.unique(layers):
                 self._removed_edges[layer] = removed_edges[layers == layer]
@@ -501,13 +501,13 @@ class CreateParentNodes:
                 self._new_old_id_d[parent].add(old_id)
                 self._old_new_id_d[old_id].add(parent)
 
-    def _get_connected_components(self, node_ids: np.ndarray, layer: int):
+    def _get_connected_components(self, node_ids: np.ndarray):
         cross_edges_d = self.cg.get_cross_chunk_edges(
             node_ids, time_stamp=self._last_ts
         )
         cx_edges = [types.empty_2d]
         for id_ in node_ids:
-            edges_ = cross_edges_d[id_].get(layer, types.empty_2d)
+            edges_ = cross_edges_d[id_]
             cx_edges.append(edges_)
         cx_edges = np.concatenate([*cx_edges, np.vstack([node_ids, node_ids]).T])
         graph, _, _, graph_ids = flatgraph.build_gt_graph(cx_edges, make_directed=True)
@@ -612,7 +612,7 @@ class CreateParentNodes:
         """
         new_ids = self._new_ids_d[layer]
         layer_node_ids = self._get_layer_node_ids(new_ids, layer)
-        components, graph_ids = self._get_connected_components(layer_node_ids, layer)
+        components, graph_ids = self._get_connected_components(layer_node_ids)
         for cc_indices in components:
             update_skipped_neighbors = False
             parent_layer = layer + 1  # must be reset for each connected component

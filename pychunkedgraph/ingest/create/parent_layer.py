@@ -231,7 +231,7 @@ def _write(
                 # layer 2 chunks at this time will only have atomic cross edges
                 cx_edges_d = cg.get_atomic_cross_edges(children)
             else:
-                cx_edges_d = cg.get_tmp_cross_chunk_edges(children, raw_only=True)
+                cx_edges_d = cg.get_tmp_cross_chunk_edges(children)
             _rows, cx_edges = _children_rows(cg, parent, children, cx_edges_d, ts)
             rows.extend(_rows)
             row_id = serializers.serialize_uint64(parent)

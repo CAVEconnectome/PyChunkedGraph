@@ -104,8 +104,8 @@ class Connectivity:
         serializer=serializers.NumPyArray(dtype=basetypes.EDGE_AREA),
     )
 
-    Partners = _AttributeArray(
-        pattern=b"partners",
+    Partners = _Attribute(
+        key=b"partners",
         family_id="4",
         serializer=serializers.NumPyArray(
             dtype=basetypes.NODE_ID, compression_level=22
