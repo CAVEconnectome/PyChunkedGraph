@@ -172,6 +172,7 @@ def _children_rows(
         if not node_cx_edges_d:
             rows.append(cg.client.mutate_row(row_id, val_dict, time_stamp))
             continue
+        layers = []
         for layer in range(node_layer, cg.meta.layer_count):
             if not layer in node_cx_edges_d:
                 continue
@@ -186,6 +187,9 @@ def _children_rows(
             col = attributes.Connectivity.TmpCrossChunkEdge[layer]
             val_dict[col] = layer_edges
             node_cx_edges_d[layer] = layer_edges
+            if layer_edges.size:
+                layers.append(layer)
+        val_dict[attributes.Connectivity.ConnectionLayers] = np.unique(layers)
         if node_layer in node_cx_edges_d:
             col = attributes.Connectivity.Partners
             val_dict[col] = node_cx_edges_d[node_layer][:, 1]

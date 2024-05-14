@@ -351,6 +351,35 @@ class ChunkedGraph:
             return result
         return self.cache.cross_chunk_edges_multiple(node_ids, time_stamp=time_stamp)
 
+    def get_cross_chunk_layers(
+        self,
+        node_ids: typing.Iterable,
+        *,
+        time_stamp: typing.Optional[datetime.datetime] = None,
+    ) -> typing.Dict:
+        """
+        Get cross chunk edge layers for `node_ids` -
+        list of layers at which these nodes have cross chunk edges.
+        Returns dictionary `{node_id: cross_edge_layers}`.
+        """
+        time_stamp = misc_utils.get_valid_timestamp(time_stamp)
+        result = {}
+        node_ids = np.array(node_ids, dtype=basetypes.NODE_ID)
+        if node_ids.size == 0:
+            return result
+        node_layers_d = self.client.read_nodes(
+            node_ids=node_ids,
+            properties=attributes.Connectivity.ConnectionLayers,
+            end_time=time_stamp,
+            end_time_inclusive=True,
+        )
+        for id_ in node_ids:
+            try:
+                result[id_] = node_layers_d[id_][0].value
+            except KeyError:
+                result[id_] = np.array([], dtype=int)
+        return result
+
     def get_tmp_cross_chunk_edges(self, node_ids: typing.Iterable) -> typing.Dict:
         """
         Read temporarily cached cross chunk edges for ingest.

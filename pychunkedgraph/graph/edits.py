@@ -551,7 +551,7 @@ class CreateParentNodes:
             nodes,
             stop_layer=l,
             ceil=False,
-            time_stamp=self._last_successful_ts,
+            time_stamp=self._last_ts,
         )
         node_parent_d = dict(zip(nodes, parents))
         edges = fastremap.remap(edges, node_parent_d, preserve_missing_labels=True)
@@ -620,13 +620,16 @@ class CreateParentNodes:
             if len(cc_ids) == 1:
                 # skip connection
                 parent_layer = self.cg.meta.layer_count
-                for l in range(layer + 1, self.cg.meta.layer_count):
-                    cx_edges_d = self.cg.get_cross_chunk_edges(
+                cx_layers = set(
+                    self.cg.get_cross_chunk_layers(
                         [cc_ids[0]], time_stamp=self._last_ts
-                    )
-                    if len(cx_edges_d[cc_ids[0]].get(l, types.empty_2d)) > 0:
+                    )[cc_ids[0]]
+                )
+                for l in range(layer + 1, self.cg.meta.layer_count):
+                    if l in cx_layers:
                         parent_layer = l
                         break
+                # if cc_ids[0] is a new id, we need to update skipped neighbors
                 update_skipped_neighbors = cc_ids[0] in self._new_old_id_d
             parent = self.cg.id_client.create_node_id(
                 self.cg.get_parent_chunk_id(cc_ids[0], parent_layer),

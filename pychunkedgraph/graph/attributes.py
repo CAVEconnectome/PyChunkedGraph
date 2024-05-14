@@ -6,6 +6,7 @@
 from enum import Enum
 from typing import NamedTuple
 
+import numpy as np
 from .utils import serializers
 from .utils import basetypes
 
@@ -102,6 +103,12 @@ class Connectivity:
         key=b"areas",
         family_id="0",
         serializer=serializers.NumPyArray(dtype=basetypes.EDGE_AREA),
+    )
+
+    ConnectionLayers = _Attribute(
+        key=b"cx_layers",
+        family_id="4",
+        serializer=serializers.NumPyArray(dtype=basetypes.LAYER_ID),
     )
 
     Partners = _Attribute(
