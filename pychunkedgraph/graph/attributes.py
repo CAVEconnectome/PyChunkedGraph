@@ -108,7 +108,7 @@ class Connectivity:
     ConnectionLayers = _Attribute(
         key=b"cx_layers",
         family_id="4",
-        serializer=serializers.NumPyArray(dtype=basetypes.LAYER_ID),
+        serializer=serializers.NumPyArray(dtype=basetypes.NODE_ID),
     )
 
     Partners = _Attribute(

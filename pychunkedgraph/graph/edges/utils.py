@@ -186,7 +186,7 @@ def get_edges_status(cg, edges: Iterable, time_stamp: Optional[float] = None):
     return existence_status, active_status
 
 
-def get_partner_edges(node, partners):
+def partner_edges(node, partners):
     edges = np.zeros((partners.size, 2), dtype=basetypes.NODE_ID)
     edges[:, 0], edges[:, 1] = node, partners
     return edges

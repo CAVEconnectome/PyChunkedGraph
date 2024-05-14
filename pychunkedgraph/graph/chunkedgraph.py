@@ -345,7 +345,7 @@ class ChunkedGraph:
             for id_ in node_ids:
                 try:
                     partners = node_partners_d[id_][0].value
-                    result[id_] = edge_utils.get_partner_edges(id_, partners)
+                    result[id_] = edge_utils.partner_edges(id_, partners)
                 except KeyError:
                     result[id_] = types.empty_2d.copy()
             return result

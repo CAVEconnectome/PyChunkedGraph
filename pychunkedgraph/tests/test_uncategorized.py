@@ -1466,81 +1466,72 @@ class TestGraphMergeSplit:
         child_ids = np.concatenate(child_ids)
 
         for i in range(10):
-
-            print(f"\n\nITERATION {i}/10")
-            print("\n\nMERGE 1 & 3\n\n")
+            print(f"\n\nITERATION {i}/10 - MERGE 1 & 3")
             new_roots = cg.add_edges(
                 "Jane Doe",
                 [to_label(cg, 1, 0, 0, 0, 0), to_label(cg, 1, 1, 0, 0, 1)],
                 affinities=0.9,
             ).new_root_ids
-            assert len(new_roots) == 1
+            assert len(new_roots) == 1, new_roots
             assert len(cg.get_subgraph([new_roots[0]], leaves_only=True)) == 4
 
-            root_ids = []
-            for child_id in child_ids:
-                root_ids.append(cg.get_root(child_id))
-
+            root_ids = cg.get_roots(child_ids, assert_roots=True)
+            print(child_ids)
+            print(list(root_ids))
             u_root_ids = np.unique(root_ids)
-            assert len(u_root_ids) == 1
+            assert len(u_root_ids) == 1, u_root_ids
 
             # ------------------------------------------------------------------
+            print(f"\n\nITERATION {i}/10 - SPLIT 2 & 3")
             new_roots = cg.remove_edges(
                 "John Doe",
                 source_ids=to_label(cg, 1, 1, 0, 0, 0),
                 sink_ids=to_label(cg, 1, 1, 0, 0, 1),
                 mincut=False,
             ).new_root_ids
+            assert len(new_roots) == 2, new_roots
 
-            assert len(np.unique(new_roots)) == 2
-
-            root_ids = []
-            for child_id in child_ids:
-                root_ids.append(cg.get_root(child_id))
-
+            root_ids = cg.get_roots(child_ids, assert_roots=True)
+            print(child_ids)
+            print(list(root_ids))
             u_root_ids = np.unique(root_ids)
             these_child_ids = []
             for root_id in u_root_ids:
                 these_child_ids.extend(cg.get_subgraph([root_id], leaves_only=True))
 
             assert len(these_child_ids) == 4
-            assert len(u_root_ids) == 2
+            assert len(u_root_ids) == 2, u_root_ids
 
             # ------------------------------------------------------------------
-
+            print(f"\n\nITERATION {i}/10 - SPLIT 1 & 3")
             new_roots = cg.remove_edges(
                 "Jane Doe",
                 source_ids=to_label(cg, 1, 0, 0, 0, 0),
                 sink_ids=to_label(cg, 1, 1, 0, 0, 1),
                 mincut=False,
             ).new_root_ids
-            assert len(new_roots) == 2
+            assert len(new_roots) == 2, new_roots
 
-            root_ids = []
-            for child_id in child_ids:
-                root_ids.append(cg.get_root(child_id))
-
+            root_ids = cg.get_roots(child_ids, assert_roots=True)
+            print(child_ids)
+            print(list(root_ids))
             u_root_ids = np.unique(root_ids)
-            assert len(u_root_ids) == 3
+            assert len(u_root_ids) == 3, u_root_ids
 
             # ------------------------------------------------------------------
-
-            print(f"\n\nITERATION {i}/10")
-            print("\n\nMERGE 2 & 3\n\n")
-
+            print(f"\n\nITERATION {i}/10 - MERGE 2 & 3")
             new_roots = cg.add_edges(
                 "Jane Doe",
                 [to_label(cg, 1, 1, 0, 0, 0), to_label(cg, 1, 1, 0, 0, 1)],
                 affinities=0.9,
             ).new_root_ids
-            assert len(new_roots) == 1
+            assert len(new_roots) == 1, new_roots
 
-            root_ids = []
-            for child_id in child_ids:
-                root_ids.append(cg.get_root(child_id))
-
+            root_ids = cg.get_roots(child_ids, assert_roots=True)
+            print(child_ids)
+            print(list(root_ids))
             u_root_ids = np.unique(root_ids)
-            assert len(u_root_ids) == 2
+            assert len(u_root_ids) == 2, u_root_ids
 
             # for root_id in root_ids:
             #     cross_edge_dict_layers = graph_tests.root_cross_edge_test(
