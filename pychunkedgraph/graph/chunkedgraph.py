@@ -338,16 +338,14 @@ class ChunkedGraph:
                 return result
             node_partners_d = self.client.read_nodes(
                 node_ids=node_ids,
-                properties=attributes.Connectivity.CrossChunkPartners,
+                properties=attributes.Connectivity.Partners,
                 end_time=time_stamp,
                 end_time_inclusive=True,
             )
             for id_ in node_ids:
                 try:
                     partners = node_partners_d[id_][0].value
-                    edges = np.zeros((partners.size, 2))
-                    edges[:, 0], edges[:, 1] = id_, partners
-                    result[id_] = edges
+                    result[id_] = edge_utils.get_partner_edges(id_, partners)
                 except KeyError:
                     result[id_] = {}
             return result

@@ -104,7 +104,7 @@ class Connectivity:
         serializer=serializers.NumPyArray(dtype=basetypes.EDGE_AREA),
     )
 
-    CrossChunkPartners = _AttributeArray(
+    Partners = _AttributeArray(
         pattern=b"partners",
         family_id="4",
         serializer=serializers.NumPyArray(

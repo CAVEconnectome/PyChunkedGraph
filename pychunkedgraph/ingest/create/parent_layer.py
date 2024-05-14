@@ -187,7 +187,7 @@ def _children_rows(
             val_dict[col] = layer_edges
             node_cx_edges_d[layer] = layer_edges
         if node_layer in node_cx_edges_d:
-            col = attributes.Connectivity.CrossChunkPartners
+            col = attributes.Connectivity.Partners
             val_dict[col] = node_cx_edges_d[node_layer][:, 1]
         children_cx_edges.append(node_cx_edges_d)
         rows.append(cg.client.mutate_row(row_id, val_dict, time_stamp))
@@ -243,7 +243,7 @@ def _write(
                 col = attributes.Connectivity.TmpCrossChunkEdge[layer]
                 val_dict[col] = parent_cx_edges_d[layer]
             if parent_layer in parent_cx_edges_d:
-                col = attributes.Connectivity.CrossChunkPartners
+                col = attributes.Connectivity.Partners
                 val_dict[col] = parent_cx_edges_d[parent_layer][:, 1]
             rows.append(cg.client.mutate_row(row_id, val_dict, ts))
             if len(rows) > 100000:
