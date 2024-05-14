@@ -34,23 +34,29 @@ class CacheService:
         self._cross_chunk_edges_vec = np.vectorize(
             self.cross_chunk_edges, otypes=[dict]
         )
+        self._cross_chunk_layers_vec = np.vectorize(
+            self.cross_chunk_layers, otypes=[dict]
+        )
 
         # no limit because we don't want to lose new IDs
         self.parents_cache = LRUCache(maxsize=maxsize)
         self.children_cache = LRUCache(maxsize=maxsize)
         self.cross_chunk_edges_cache = LRUCache(maxsize=maxsize)
+        self.cross_chunk_layers_cache = LRUCache(maxsize=maxsize)
 
     def __len__(self):
         return (
             len(self.parents_cache)
             + len(self.children_cache)
             + len(self.cross_chunk_edges_cache)
+            + len(self.cross_chunk_layers_cache)
         )
 
     def clear(self):
         self.parents_cache.clear()
         self.children_cache.clear()
         self.cross_chunk_edges_cache.clear()
+        self.cross_chunk_layers_cache.clear()
 
     def parent(self, node_id: np.uint64, *, time_stamp: datetime = None):
         @cached(cache=self.parents_cache, key=lambda node_id: node_id)
@@ -77,6 +83,16 @@ class CacheService:
             return edges[node_id]
 
         return cross_edges_decorated(node_id)
+
+    def cross_chunk_layers(self, node_id, *, time_stamp: datetime = None):
+        @cached(cache=self.cross_chunk_layers_cache, key=lambda node_id: node_id)
+        def cross_layers_decorated(node_id):
+            layers = self._cg.get_cross_chunk_layers(
+                np.array([node_id], dtype=NODE_ID), raw_only=True, time_stamp=time_stamp
+            )
+            return layers[node_id]
+
+        return cross_layers_decorated(node_id)
 
     def parents_multiple(self, node_ids: np.ndarray, *, time_stamp: datetime = None):
         node_ids = np.array(node_ids, dtype=NODE_ID, copy=False)
@@ -128,6 +144,32 @@ class CacheService:
         )
         update(
             self.cross_chunk_edges_cache,
+            node_ids[~mask],
+            [result[k] for k in node_ids[~mask]],
+        )
+        return result
+
+    def cross_chunk_layers_multiple(
+        self, node_ids: np.ndarray, *, time_stamp: datetime = None
+    ):
+        result = {}
+        node_ids = np.array(node_ids, dtype=NODE_ID, copy=False)
+        if not node_ids.size:
+            return result
+        mask = np.in1d(
+            node_ids, np.fromiter(self.cross_chunk_layers_cache.keys(), dtype=NODE_ID)
+        )
+        cached_layers_ = self._cross_chunk_layers_vec(node_ids[mask])
+        result.update(
+            {id_: edges_ for id_, edges_ in zip(node_ids[mask], cached_layers_)}
+        )
+        result.update(
+            self._cg.get_cross_chunk_layers(
+                node_ids[~mask], raw_only=True, time_stamp=time_stamp
+            )
+        )
+        update(
+            self.cross_chunk_layers_cache,
             node_ids[~mask],
             [result[k] for k in node_ids[~mask]],
         )

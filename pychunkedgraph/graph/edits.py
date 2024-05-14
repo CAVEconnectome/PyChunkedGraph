@@ -218,18 +218,21 @@ def add_edges(
     # update cross chunk edges by replacing old ids with new
     # this can be done only after all new IDs have been created
     cross_edges_d = cg.get_cross_chunk_edges(l2ids, time_stamp=parent_ts)
-    for new_id, cc_indices in zip(new_l2_ids, components):
+    for _new, cc_indices in zip(new_l2_ids, components):
         l2ids_ = graph_ids[cc_indices]
         new_cx_edges = []
+        new_layers = []
         for l2id in l2ids_:
             layer_edges_d = new_cx_edges_d.get(l2id, {})
+            new_layers.append(list(layer_edges_d.keys()))
             new_cx_edges.append(layer_edges_d.get(2, types.empty_2d.copy()))
         cx_edges = np.concatenate([cross_edges_d[x] for x in l2ids_] + new_cx_edges)
         temp_map = {k: next(iter(v)) for k, v in old_new_id_d.items()}
         cx_edges = fastremap.remap(cx_edges, temp_map, preserve_missing_labels=True)
         cx_edges = np.unique(cx_edges, axis=0)
-        assert np.all(cx_edges[:, 0] == new_id)
-        cg.cache.cross_chunk_edges_cache[new_id] = cx_edges
+        assert np.all(cx_edges[:, 0] == _new)
+        cg.cache.cross_chunk_edges_cache[_new] = cx_edges
+        cg.cache.cross_chunk_layers_cache[_new] = np.unique(np.concatenate(new_layers))
 
     create_parents = CreateParentNodes(
         cg,
@@ -347,6 +350,7 @@ def remove_edges(
             )
             _cx_edges = edges_d.get(2, types.empty_2d.copy())
             cg.cache.cross_chunk_edges_cache[new_id] = _cx_edges
+            cg.cache.cross_chunk_layers_cache[new_id] = np.unique(list(edges_d.keys()))
 
     cx_edges_d = cg.get_cross_chunk_edges(new_l2_ids, time_stamp=parent_ts)
     for new_id in new_l2_ids:
@@ -545,7 +549,11 @@ class CreateParentNodes:
         for cx_edges in cx_edges_d.values():
             partners.append(cx_edges[:, 1])
 
-        edges = self._added_edges[l] if self._added_edges else self._removed_edges[l]
+        edges = (
+            self._added_edges.get(l, types.empty_2d)
+            if self._added_edges
+            else self._removed_edges.get(l, types.empty_2d)
+        )
         nodes = np.unique(edges)
         parents = self.cg.get_roots(
             nodes,
@@ -560,8 +568,15 @@ class CreateParentNodes:
             partners = np.concatenate(partners)
         else:
             partners = np.concatenate(partners)
-            partners = np.setdiff1d(edges[edges[:, 0] == node][:, 1])
+            partners = np.setdiff1d(partners, edges[edges[:, 0] == node][:, 1])
         self.cg.cache.cross_chunk_edges_cache[node] = get_partner_edges(node, partners)
+
+        children_layers_d = self.cg.get_cross_chunk_layers(
+            self.cg.get_children(node), time_stamp=self._last_ts
+        )
+        layers = np.unique(np.concatenate(list(children_layers_d.values())))
+        idx = np.searchsorted(layers, l)
+        self.cg.cache.cross_chunk_layers_cache[node] = layers[idx:]
 
     def _update_neighbor_parents(self, neighbor, ceil_layer: int, updated: set) -> list:
         """helper for `_update_skipped_neighbors`"""
@@ -576,7 +591,7 @@ class CreateParentNodes:
             neighbor = parent
         return parents
 
-    def _update_skipped_neighbors(self, node, layer, parent_layer):
+    def _update_skipped_neighbors(self, node, parent_layer):
         """
         Updates cross edges of neighbors of a skip connection node.
         Neighbors of such nodes can have parents at contiguous layers.
@@ -641,7 +656,7 @@ class CreateParentNodes:
             cache_utils.update(self.cg.cache.parents_cache, cc_ids, parent)
             sanity_check_single(self.cg, parent, self._operation_id)
             if update_skipped_neighbors:
-                res = self._update_skipped_neighbors(cc_ids[0], layer, parent_layer)
+                res = self._update_skipped_neighbors(cc_ids[0], parent_layer)
                 self.new_entries.extend(res)
 
     def run(self) -> Iterable:
@@ -712,6 +727,13 @@ class CreateParentNodes:
         cx_edges_d = self.cg.get_cross_chunk_edges(new_ids, time_stamp=self._last_ts)
         for _id, cx_edges in cx_edges_d.items():
             val_ds[_id] = {attributes.Connectivity.Partners: cx_edges[:, 1]}
+        cx_layers_d = self.cg.get_cross_chunk_layers(new_ids, time_stamp=self._last_ts)
+        for _id, cx_layers in cx_layers_d.items():
+            try:
+                new_d = {attributes.Connectivity.ConnectionLayers: cx_layers}
+                val_ds[_id].update(new_d)
+            except KeyError:
+                val_ds[_id] = new_d
         return val_ds
 
     def create_new_entries(self) -> List:
