@@ -1,20 +1,10 @@
-import collections
-import os
-import subprocess
-import sys
 from time import sleep
-from datetime import datetime, timedelta
-from functools import partial
+from datetime import datetime, timedelta, UTC
 from math import inf
-from signal import SIGTERM
-from unittest import mock
 from warnings import warn
 
 import numpy as np
 import pytest
-from google.auth import credentials
-from google.cloud import bigtable
-from grpc._channel import _Rendezvous
 
 from .helpers import (
     bigtable_emulator,
@@ -27,7 +17,6 @@ from .helpers import (
 from ..graph import types
 from ..graph import attributes
 from ..graph import exceptions
-from ..graph import chunkedgraph
 from ..graph.edges import Edges
 from ..graph.utils import basetypes
 from ..graph.misc import get_delta_roots
@@ -452,7 +441,7 @@ class TestGraphBuild:
         cg = gen_graph(n_layers=4, atomic_chunk_bounds=atomic_chunk_bounds)
 
         # Preparation: Build Chunk A
-        fake_timestamp = datetime.utcnow() - timedelta(days=10)
+        fake_timestamp = datetime.now(UTC) - timedelta(days=10)
         create_chunk(
             cg,
             vertices=[to_label(cg, 1, 0, 0, 0, 1), to_label(cg, 1, 0, 0, 0, 2)],
@@ -775,7 +764,7 @@ class TestGraphMerge:
         cg = gen_graph(n_layers=2, atomic_chunk_bounds=atomic_chunk_bounds)
 
         # Preparation: Build Chunk A
-        fake_timestamp = datetime.utcnow() - timedelta(days=10)
+        fake_timestamp = datetime.now(UTC) - timedelta(days=10)
         create_chunk(
             cg,
             vertices=[to_label(cg, 1, 0, 0, 0, 0), to_label(cg, 1, 0, 0, 0, 1)],
@@ -815,7 +804,7 @@ class TestGraphMerge:
         cg = gen_graph(n_layers=3)
 
         # Preparation: Build Chunk A
-        fake_timestamp = datetime.utcnow() - timedelta(days=10)
+        fake_timestamp = datetime.now(UTC) - timedelta(days=10)
         create_chunk(
             cg,
             vertices=[to_label(cg, 1, 0, 0, 0, 0)],
@@ -871,7 +860,7 @@ class TestGraphMerge:
         cg = gen_graph(n_layers=5)
 
         # Preparation: Build Chunk A
-        fake_timestamp = datetime.utcnow() - timedelta(days=10)
+        fake_timestamp = datetime.now(UTC) - timedelta(days=10)
         create_chunk(
             cg,
             vertices=[to_label(cg, 1, 0, 0, 0, 0)],
@@ -955,7 +944,7 @@ class TestGraphMerge:
         cg = gen_graph(n_layers=2)
 
         # Preparation: Build Chunk A
-        fake_timestamp = datetime.utcnow() - timedelta(days=10)
+        fake_timestamp = datetime.now(UTC) - timedelta(days=10)
         create_chunk(
             cg,
             vertices=[to_label(cg, 1, 0, 0, 0, 0), to_label(cg, 1, 0, 0, 0, 1)],
@@ -996,7 +985,7 @@ class TestGraphMerge:
         cg = gen_graph(n_layers=2)
 
         # Preparation: Build Chunk A
-        fake_timestamp = datetime.utcnow() - timedelta(days=10)
+        fake_timestamp = datetime.now(UTC) - timedelta(days=10)
         create_chunk(
             cg,
             vertices=[
@@ -1033,7 +1022,7 @@ class TestGraphMerge:
         cg = gen_graph(n_layers=3)
 
         # Preparation: Build Chunk A
-        fake_timestamp = datetime.utcnow() - timedelta(days=10)
+        fake_timestamp = datetime.now(UTC) - timedelta(days=10)
         create_chunk(
             cg,
             vertices=[to_label(cg, 1, 0, 0, 0, 0), to_label(cg, 1, 0, 0, 0, 1)],
@@ -1082,7 +1071,7 @@ class TestGraphMerge:
         cg = gen_graph(n_layers=5)
 
         # Preparation: Build Chunk A
-        fake_timestamp = datetime.utcnow() - timedelta(days=10)
+        fake_timestamp = datetime.now(UTC) - timedelta(days=10)
         create_chunk(
             cg,
             vertices=[to_label(cg, 1, 0, 0, 0, 0), to_label(cg, 1, 0, 0, 0, 1)],
@@ -1181,7 +1170,7 @@ class TestGraphMerge:
         cg = gen_graph(n_layers=2)
 
         # Preparation: Build Chunk A
-        fake_timestamp = datetime.utcnow() - timedelta(days=10)
+        fake_timestamp = datetime.now(UTC) - timedelta(days=10)
         create_chunk(
             cg,
             vertices=[to_label(cg, 1, 0, 0, 0, 0)],
@@ -1223,7 +1212,7 @@ class TestGraphMerge:
         cg = gen_graph(n_layers=3)
 
         # Preparation: Build Chunk A
-        fake_timestamp = datetime.utcnow() - timedelta(days=10)
+        fake_timestamp = datetime.now(UTC) - timedelta(days=10)
         create_chunk(
             cg,
             vertices=[to_label(cg, 1, 0, 0, 0, 0)],
@@ -1352,7 +1341,7 @@ class TestGraphMerge:
         cg = gen_graph(n_layers=5)
 
         # Preparation: Build Chunk A
-        fake_timestamp = datetime.utcnow() - timedelta(days=10)
+        fake_timestamp = datetime.now(UTC) - timedelta(days=10)
         create_chunk(
             cg,
             vertices=[
@@ -1566,7 +1555,7 @@ class TestGraphMinCut:
         cg = gen_graph(n_layers=3)
 
         # Preparation: Build Chunk A
-        fake_timestamp = datetime.utcnow() - timedelta(days=10)
+        fake_timestamp = datetime.now(UTC) - timedelta(days=10)
         create_chunk(
             cg,
             vertices=[to_label(cg, 1, 0, 0, 0, 0)],
@@ -1637,7 +1626,7 @@ class TestGraphMinCut:
         cg = gen_graph(n_layers=3)
 
         # Preparation: Build Chunk A
-        fake_timestamp = datetime.utcnow() - timedelta(days=10)
+        fake_timestamp = datetime.now(UTC) - timedelta(days=10)
         create_chunk(
             cg,
             vertices=[to_label(cg, 1, 0, 0, 0, 0)],
@@ -1698,7 +1687,7 @@ class TestGraphMinCut:
         cg = gen_graph(n_layers=3)
 
         # Preparation: Build Chunk A
-        fake_timestamp = datetime.utcnow() - timedelta(days=10)
+        fake_timestamp = datetime.now(UTC) - timedelta(days=10)
         create_chunk(
             cg,
             vertices=[to_label(cg, 1, 0, 0, 0, 0)],
@@ -1766,7 +1755,7 @@ class TestGraphMinCut:
         cg = gen_graph(n_layers=3)
 
         # Preparation: Build Chunk A
-        fake_timestamp = datetime.utcnow() - timedelta(days=10)
+        fake_timestamp = datetime.now(UTC) - timedelta(days=10)
         create_chunk(
             cg,
             vertices=[to_label(cg, 1, 0, 0, 0, 0)],
@@ -1828,7 +1817,7 @@ class TestGraphMinCut:
         """
         cg = gen_graph(n_layers=2)
 
-        fake_timestamp = datetime.utcnow() - timedelta(days=10)
+        fake_timestamp = datetime.now(UTC) - timedelta(days=10)
         create_chunk(
             cg,
             vertices=[
@@ -1897,7 +1886,7 @@ class TestGraphHistory:
         cg = gen_graph(n_layers=3)
 
         # Preparation: Build Chunk A
-        fake_timestamp = datetime.utcnow() - timedelta(days=10)
+        fake_timestamp = datetime.now(UTC) - timedelta(days=10)
         create_chunk(
             cg,
             vertices=[to_label(cg, 1, 0, 0, 0, 0)],
@@ -1923,7 +1912,7 @@ class TestGraphHistory:
 
         first_root = cg.get_root(to_label(cg, 1, 0, 0, 0, 0))
         assert first_root == cg.get_root(to_label(cg, 1, 1, 0, 0, 0))
-        timestamp_before_split = datetime.utcnow()
+        timestamp_before_split = datetime.now(UTC)
         split_roots = cg.remove_edges(
             "Jane Doe",
             source_ids=to_label(cg, 1, 0, 0, 0, 0),
@@ -1936,7 +1925,7 @@ class TestGraphHistory:
         g = lineage_graph(cg, split_roots)
         assert g.size() == 2
 
-        timestamp_after_split = datetime.utcnow()
+        timestamp_after_split = datetime.now(UTC)
         merge_roots = cg.add_edges(
             "Jane Doe",
             [to_label(cg, 1, 0, 0, 0, 0), to_label(cg, 1, 1, 0, 0, 0)],
@@ -1944,7 +1933,7 @@ class TestGraphHistory:
         ).new_root_ids
         assert len(merge_roots) == 1
         merge_root = merge_roots[0]
-        timestamp_after_merge = datetime.utcnow()
+        timestamp_after_merge = datetime.now(UTC)
 
         g = lineage_graph(cg, merge_roots)
         assert g.size() == 4
@@ -2038,7 +2027,7 @@ class TestGraphLocks:
         cg = gen_graph(n_layers=3)
 
         # Preparation: Build Chunk A
-        fake_timestamp = datetime.utcnow() - timedelta(days=10)
+        fake_timestamp = datetime.now(UTC) - timedelta(days=10)
         create_chunk(
             cg,
             vertices=[to_label(cg, 1, 0, 0, 0, 1), to_label(cg, 1, 0, 0, 0, 2)],
@@ -2104,7 +2093,7 @@ class TestGraphLocks:
         cg = gen_graph(n_layers=3)
 
         # Preparation: Build Chunk A
-        fake_timestamp = datetime.utcnow() - timedelta(days=10)
+        fake_timestamp = datetime.now(UTC) - timedelta(days=10)
         create_chunk(
             cg,
             vertices=[to_label(cg, 1, 0, 0, 0, 1), to_label(cg, 1, 0, 0, 0, 2)],
@@ -2172,7 +2161,7 @@ class TestGraphLocks:
         cg = gen_graph(n_layers=3)
 
         # Preparation: Build Chunk A
-        fake_timestamp = datetime.utcnow() - timedelta(days=10)
+        fake_timestamp = datetime.now(UTC) - timedelta(days=10)
         create_chunk(
             cg,
             vertices=[to_label(cg, 1, 0, 0, 0, 1), to_label(cg, 1, 0, 0, 0, 2)],
@@ -2224,7 +2213,7 @@ class TestGraphLocks:
         cg = gen_graph(n_layers=3)
 
         # Preparation: Build Chunk A
-        fake_timestamp = datetime.utcnow() - timedelta(days=10)
+        fake_timestamp = datetime.now(UTC) - timedelta(days=10)
         create_chunk(
             cg,
             vertices=[to_label(cg, 1, 0, 0, 0, 1), to_label(cg, 1, 0, 0, 0, 2)],
@@ -2290,7 +2279,7 @@ class TestGraphLocks:
         cg = gen_graph(n_layers=3)
 
         # Preparation: Build Chunk A
-        fake_timestamp = datetime.utcnow() - timedelta(days=10)
+        fake_timestamp = datetime.now(UTC) - timedelta(days=10)
         create_chunk(
             cg,
             vertices=[to_label(cg, 1, 0, 0, 0, 1), to_label(cg, 1, 0, 0, 0, 2)],
@@ -2363,7 +2352,7 @@ class TestGraphLocks:
         cg = gen_graph(n_layers=3)
 
         # Preparation: Build Chunk A
-        fake_timestamp = datetime.utcnow() - timedelta(days=10)
+        fake_timestamp = datetime.now(UTC) - timedelta(days=10)
         create_chunk(
             cg,
             vertices=[to_label(cg, 1, 0, 0, 0, 1), to_label(cg, 1, 0, 0, 0, 2)],
@@ -2442,7 +2431,7 @@ class TestGraphLocks:
     #     cg = gen_graph(n_layers=3)
 
     #     # Preparation: Build Chunk A
-    #     fake_timestamp = datetime.utcnow() - timedelta(days=10)
+    #     fake_timestamp = datetime.now(UTC) - timedelta(days=10)
     #     create_chunk(
     #         cg,
     #         vertices=[to_label(cg, 1, 0, 0, 0, 1), to_label(cg, 1, 0, 0, 0, 2)],
@@ -2482,32 +2471,6 @@ class TestGraphLocks:
     #     )[0]
 
 
-# class MockChunkedGraph:
-#     """
-#     Dummy class to mock partial functionality of the ChunkedGraph for use in unit tests.
-#     Feel free to add more functions as need be. Can pass in alternative member functions into constructor.
-#     """
-
-#     def __init__(
-#         self, get_chunk_coordinates=None, get_chunk_layer=None, get_chunk_id=None
-#     ):
-#         if get_chunk_coordinates is not None:
-#             self.get_chunk_coordinates = get_chunk_coordinates
-#         if get_chunk_layer is not None:
-#             self.get_chunk_layer = get_chunk_layer
-#         if get_chunk_id is not None:
-#             self.get_chunk_id = get_chunk_id
-
-#     def get_chunk_coordinates(self, chunk_id):  # pylint: disable=method-hidden
-#         return np.array([0, 0, 0])
-
-#     def get_chunk_layer(self, chunk_id):  # pylint: disable=method-hidden
-#         return 2
-
-#     def get_chunk_id(self, *args):  # pylint: disable=method-hidden
-#         return 0
-
-
 # class TestGraphSplit:
 #     @pytest.mark.timeout(30)
 #     def test_split_pair_same_chunk(self, gen_graph):
@@ -2524,7 +2487,7 @@ class TestGraphLocks:
 #         cg = gen_graph(n_layers=2)
 
 #         # Preparation: Build Chunk A
-#         fake_timestamp = datetime.utcnow() - timedelta(days=10)
+#         fake_timestamp = datetime.now(UTC) - timedelta(days=10)
 #         create_chunk(
 #             cg,
 #             vertices=[to_label(cg, 1, 0, 0, 0, 0), to_label(cg, 1, 0, 0, 0, 1)],
@@ -2546,11 +2509,15 @@ class TestGraphLocks:
 #             to_label(cg, 1, 0, 0, 0, 1)
 #         )
 #         leaves = np.unique(
-#             cg.get_subgraph([cg.get_root(to_label(cg, 1, 0, 0, 0, 0))], leaves_only=True)
+#             cg.get_subgraph(
+#                 [cg.get_root(to_label(cg, 1, 0, 0, 0, 0))], leaves_only=True
+#             )
 #         )
 #         assert len(leaves) == 1 and to_label(cg, 1, 0, 0, 0, 0) in leaves
 #         leaves = np.unique(
-#             cg.get_subgraph([cg.get_root(to_label(cg, 1, 0, 0, 0, 1))], leaves_only=True)
+#             cg.get_subgraph(
+#                 [cg.get_root(to_label(cg, 1, 0, 0, 0, 1))], leaves_only=True
+#             )
 #         )
 #         assert len(leaves) == 1 and to_label(cg, 1, 0, 0, 0, 1) in leaves
 
@@ -2586,7 +2553,7 @@ class TestGraphLocks:
 #         cg = gen_graph(n_layers=2)
 
 #         # Preparation: Build Chunk A
-#         fake_timestamp = datetime.utcnow() - timedelta(days=10)
+#         fake_timestamp = datetime.now(UTC) - timedelta(days=10)
 #         create_chunk(
 #             cg,
 #             vertices=[to_label(cg, 1, 0, 0, 0, 0), to_label(cg, 1, 0, 0, 0, 1)],
@@ -2621,7 +2588,7 @@ class TestGraphLocks:
 #         cg = gen_graph(n_layers=3)
 
 #         # Preparation: Build Chunk A
-#         fake_timestamp = datetime.utcnow() - timedelta(days=10)
+#         fake_timestamp = datetime.now(UTC) - timedelta(days=10)
 #         create_chunk(
 #             cg,
 #             vertices=[to_label(cg, 1, 0, 0, 0, 0)],
@@ -2641,7 +2608,6 @@ class TestGraphLocks:
 #             cg,
 #             3,
 #             [0, 0, 0],
-#
 #             time_stamp=fake_timestamp,
 #             n_threads=1,
 #         )
@@ -2660,11 +2626,15 @@ class TestGraphLocks:
 #             to_label(cg, 1, 1, 0, 0, 0)
 #         )
 #         leaves = np.unique(
-#             cg.get_subgraph([cg.get_root(to_label(cg, 1, 0, 0, 0, 0))], leaves_only=True)
+#             cg.get_subgraph(
+#                 [cg.get_root(to_label(cg, 1, 0, 0, 0, 0))], leaves_only=True
+#             )
 #         )
 #         assert len(leaves) == 1 and to_label(cg, 1, 0, 0, 0, 0) in leaves
 #         leaves = np.unique(
-#             cg.get_subgraph([cg.get_root(to_label(cg, 1, 1, 0, 0, 0))], leaves_only=True)
+#             cg.get_subgraph(
+#                 [cg.get_root(to_label(cg, 1, 1, 0, 0, 0))], leaves_only=True
+#             )
 #         )
 #         assert len(leaves) == 1 and to_label(cg, 1, 1, 0, 0, 0) in leaves
 
@@ -2700,7 +2670,7 @@ class TestGraphLocks:
 #         cg = gen_graph(n_layers=4)
 
 #         # Preparation: Build Chunk A
-#         fake_timestamp = datetime.utcnow() - timedelta(days=10)
+#         fake_timestamp = datetime.now(UTC) - timedelta(days=10)
 #         create_chunk(
 #             cg,
 #             vertices=[to_label(cg, 1, 1, 0, 0, 0), to_label(cg, 1, 1, 0, 0, 1)],
@@ -2723,7 +2693,6 @@ class TestGraphLocks:
 #             cg,
 #             3,
 #             [0, 0, 0],
-#
 #             time_stamp=fake_timestamp,
 #             n_threads=1,
 #         )
@@ -2731,7 +2700,6 @@ class TestGraphLocks:
 #             cg,
 #             3,
 #             [0, 0, 0],
-#
 #             time_stamp=fake_timestamp,
 #             n_threads=1,
 #         )
@@ -2739,7 +2707,6 @@ class TestGraphLocks:
 #             cg,
 #             4,
 #             [0, 0, 0],
-#
 #             time_stamp=fake_timestamp,
 #             n_threads=1,
 #         )
@@ -2777,9 +2744,7 @@ class TestGraphLocks:
 #             to_label(cg, 1, 2, 0, 0, 0)
 #         )
 
-#         cc_dict = cg.get_atomic_cross_edges(
-#             cg.get_parent(to_label(cg, 1, 1, 0, 0, 0))
-#         )
+#         cc_dict = cg.get_atomic_cross_edges(cg.get_parent(to_label(cg, 1, 1, 0, 0, 0)))
 #         assert len(cc_dict[3]) == 1
 #         assert cc_dict[3][0][0] == to_label(cg, 1, 1, 0, 0, 0)
 #         assert cc_dict[3][0][1] == to_label(cg, 1, 2, 0, 0, 0)
@@ -2802,7 +2767,7 @@ class TestGraphLocks:
 #         cg = gen_graph(n_layers=4)
 
 #         # Preparation: Build Chunk A
-#         fake_timestamp = datetime.utcnow() - timedelta(days=10)
+#         fake_timestamp = datetime.now(UTC) - timedelta(days=10)
 #         create_chunk(
 #             cg,
 #             vertices=[
@@ -2836,7 +2801,6 @@ class TestGraphLocks:
 #             cg,
 #             3,
 #             [0, 0, 0],
-#
 #             time_stamp=fake_timestamp,
 #             n_threads=1,
 #         )
@@ -2844,7 +2808,6 @@ class TestGraphLocks:
 #             cg,
 #             3,
 #             [0, 0, 0],
-#
 #             time_stamp=fake_timestamp,
 #             n_threads=1,
 #         )
@@ -2852,7 +2815,6 @@ class TestGraphLocks:
 #             cg,
 #             4,
 #             [0, 0, 0],
-#
 #             time_stamp=fake_timestamp,
 #             n_threads=1,
 #         )
@@ -2883,13 +2845,9 @@ class TestGraphLocks:
 
 #         assert len(new_root_ids) == 2
 
-#         cc_dict = cg.get_atomic_cross_edges(
-#             cg.get_parent(to_label(cg, 1, 1, 0, 0, 0))
-#         )
+#         cc_dict = cg.get_atomic_cross_edges(cg.get_parent(to_label(cg, 1, 1, 0, 0, 0)))
 #         assert len(cc_dict[3]) == 1
-#         cc_dict = cg.get_atomic_cross_edges(
-#             cg.get_parent(to_label(cg, 1, 1, 0, 0, 0))
-#         )
+#         cc_dict = cg.get_atomic_cross_edges(cg.get_parent(to_label(cg, 1, 1, 0, 0, 0)))
 #         assert len(cc_dict[3]) == 1
 
 #         assert len(cg.get_latest_roots()) == 3
@@ -2909,11 +2867,17 @@ class TestGraphLocks:
 #         cg = gen_graph(n_layers=9)
 
 #         # Preparation: Build Chunk A
-#         fake_timestamp = datetime.utcnow() - timedelta(days=10)
+#         fake_timestamp = datetime.now(UTC) - timedelta(days=10)
 #         create_chunk(
 #             cg,
 #             vertices=[to_label(cg, 1, 0, 0, 0, 0)],
-#             edges=[(to_label(cg, 1, 0, 0, 0, 0), to_label(cg, 1, 7, 7, 7, 0), 1.0,)],
+#             edges=[
+#                 (
+#                     to_label(cg, 1, 0, 0, 0, 0),
+#                     to_label(cg, 1, 7, 7, 7, 0),
+#                     1.0,
+#                 )
+#             ],
 #             timestamp=fake_timestamp,
 #         )
 
@@ -2921,7 +2885,13 @@ class TestGraphLocks:
 #         create_chunk(
 #             cg,
 #             vertices=[to_label(cg, 1, 7, 7, 7, 0)],
-#             edges=[(to_label(cg, 1, 7, 7, 7, 0), to_label(cg, 1, 0, 0, 0, 0), 1.0,)],
+#             edges=[
+#                 (
+#                     to_label(cg, 1, 7, 7, 7, 0),
+#                     to_label(cg, 1, 0, 0, 0, 0),
+#                     1.0,
+#                 )
+#             ],
 #             timestamp=fake_timestamp,
 #         )
 
@@ -2929,7 +2899,6 @@ class TestGraphLocks:
 #             cg,
 #             3,
 #             [0, 0, 0],
-#
 #             time_stamp=fake_timestamp,
 #             n_threads=1,
 #         )
@@ -2937,7 +2906,6 @@ class TestGraphLocks:
 #             cg,
 #             3,
 #             [0, 0, 0],
-#
 #             time_stamp=fake_timestamp,
 #             n_threads=1,
 #         )
@@ -2945,7 +2913,6 @@ class TestGraphLocks:
 #             cg,
 #             4,
 #             [0, 0, 0],
-#
 #             time_stamp=fake_timestamp,
 #             n_threads=1,
 #         )
@@ -2953,7 +2920,6 @@ class TestGraphLocks:
 #             cg,
 #             4,
 #             [0, 0, 0],
-#
 #             time_stamp=fake_timestamp,
 #             n_threads=1,
 #         )
@@ -2961,7 +2927,6 @@ class TestGraphLocks:
 #             cg,
 #             5,
 #             [0, 0, 0],
-#
 #             time_stamp=fake_timestamp,
 #             n_threads=1,
 #         )
@@ -2969,7 +2934,6 @@ class TestGraphLocks:
 #             cg,
 #             5,
 #             [0, 0, 0],
-#
 #             time_stamp=fake_timestamp,
 #             n_threads=1,
 #         )
@@ -2977,7 +2941,6 @@ class TestGraphLocks:
 #             cg,
 #             6,
 #             [0, 0, 0],
-#
 #             time_stamp=fake_timestamp,
 #             n_threads=1,
 #         )
@@ -2985,7 +2948,6 @@ class TestGraphLocks:
 #             cg,
 #             6,
 #             [0, 0, 0],
-#
 #             time_stamp=fake_timestamp,
 #             n_threads=1,
 #         )
@@ -2993,7 +2955,6 @@ class TestGraphLocks:
 #             cg,
 #             7,
 #             [0, 0, 0],
-#
 #             time_stamp=fake_timestamp,
 #             n_threads=1,
 #         )
@@ -3001,7 +2962,6 @@ class TestGraphLocks:
 #             cg,
 #             7,
 #             [0, 0, 0],
-#
 #             time_stamp=fake_timestamp,
 #             n_threads=1,
 #         )
@@ -3009,7 +2969,6 @@ class TestGraphLocks:
 #             cg,
 #             8,
 #             [0, 0, 0],
-#
 #             time_stamp=fake_timestamp,
 #             n_threads=1,
 #         )
@@ -3017,7 +2976,6 @@ class TestGraphLocks:
 #             cg,
 #             8,
 #             [0, 0, 0],
-#
 #             time_stamp=fake_timestamp,
 #             n_threads=1,
 #         )
@@ -3025,7 +2983,6 @@ class TestGraphLocks:
 #             cg,
 #             9,
 #             [0, 0, 0],
-#
 #             time_stamp=fake_timestamp,
 #             n_threads=1,
 #         )
@@ -3044,11 +3001,15 @@ class TestGraphLocks:
 #             to_label(cg, 1, 7, 7, 7, 0)
 #         )
 #         leaves = np.unique(
-#             cg.get_subgraph([cg.get_root(to_label(cg, 1, 0, 0, 0, 0))], leaves_only=True)
+#             cg.get_subgraph(
+#                 [cg.get_root(to_label(cg, 1, 0, 0, 0, 0))], leaves_only=True
+#             )
 #         )
 #         assert len(leaves) == 1 and to_label(cg, 1, 0, 0, 0, 0) in leaves
 #         leaves = np.unique(
-#             cg.get_subgraph([cg.get_root(to_label(cg, 1, 7, 7, 7, 0))], leaves_only=True)
+#             cg.get_subgraph(
+#                 [cg.get_root(to_label(cg, 1, 7, 7, 7, 0))], leaves_only=True
+#             )
 #         )
 #         assert len(leaves) == 1 and to_label(cg, 1, 7, 7, 7, 0) in leaves
 
@@ -3081,7 +3042,7 @@ class TestGraphLocks:
 #         cg = gen_graph(n_layers=2)
 
 #         # Preparation: Build Chunk A
-#         fake_timestamp = datetime.utcnow() - timedelta(days=10)
+#         fake_timestamp = datetime.now(UTC) - timedelta(days=10)
 #         create_chunk(
 #             cg,
 #             vertices=[to_label(cg, 1, 0, 0, 0, 0), to_label(cg, 1, 0, 0, 0, 1)],
@@ -3125,7 +3086,7 @@ class TestGraphLocks:
 #         cg = gen_graph(n_layers=2)
 
 #         # Preparation: Build Chunk A
-#         fake_timestamp = datetime.utcnow() - timedelta(days=10)
+#         fake_timestamp = datetime.now(UTC) - timedelta(days=10)
 #         create_chunk(
 #             cg,
 #             vertices=[
@@ -3183,7 +3144,7 @@ class TestGraphLocks:
 #         cg = gen_graph(n_layers=3)
 
 #         # Preparation: Build Chunk A
-#         fake_timestamp = datetime.utcnow() - timedelta(days=10)
+#         fake_timestamp = datetime.now(UTC) - timedelta(days=10)
 #         create_chunk(
 #             cg,
 #             vertices=[to_label(cg, 1, 0, 0, 0, 0), to_label(cg, 1, 0, 0, 0, 1)],
@@ -3210,7 +3171,6 @@ class TestGraphLocks:
 #             cg,
 #             3,
 #             [0, 0, 0],
-#
 #             time_stamp=fake_timestamp,
 #             n_threads=1,
 #         )
@@ -3259,14 +3219,22 @@ class TestGraphLocks:
 #         loc = 2
 
 #         # Preparation: Build Chunk A
-#         fake_timestamp = datetime.utcnow() - timedelta(days=10)
+#         fake_timestamp = datetime.now(UTC) - timedelta(days=10)
 #         create_chunk(
 #             cg,
 #             vertices=[to_label(cg, 1, 0, 0, 0, 0), to_label(cg, 1, 0, 0, 0, 1)],
 #             edges=[
 #                 (to_label(cg, 1, 0, 0, 0, 0), to_label(cg, 1, 0, 0, 0, 1), 0.5),
-#                 (to_label(cg, 1, 0, 0, 0, 1), to_label(cg, 1, loc, loc, loc, 0), 0.5,),
-#                 (to_label(cg, 1, 0, 0, 0, 0), to_label(cg, 1, loc, loc, loc, 0), 0.3,),
+#                 (
+#                     to_label(cg, 1, 0, 0, 0, 1),
+#                     to_label(cg, 1, loc, loc, loc, 0),
+#                     0.5,
+#                 ),
+#                 (
+#                     to_label(cg, 1, 0, 0, 0, 0),
+#                     to_label(cg, 1, loc, loc, loc, 0),
+#                     0.3,
+#                 ),
 #             ],
 #             timestamp=fake_timestamp,
 #         )
@@ -3276,8 +3244,16 @@ class TestGraphLocks:
 #             cg,
 #             vertices=[to_label(cg, 1, loc, loc, loc, 0)],
 #             edges=[
-#                 (to_label(cg, 1, loc, loc, loc, 0), to_label(cg, 1, 0, 0, 0, 1), 0.5,),
-#                 (to_label(cg, 1, loc, loc, loc, 0), to_label(cg, 1, 0, 0, 0, 0), 0.3,),
+#                 (
+#                     to_label(cg, 1, loc, loc, loc, 0),
+#                     to_label(cg, 1, 0, 0, 0, 1),
+#                     0.5,
+#                 ),
+#                 (
+#                     to_label(cg, 1, loc, loc, loc, 0),
+#                     to_label(cg, 1, 0, 0, 0, 0),
+#                     0.3,
+#                 ),
 #             ],
 #             timestamp=fake_timestamp,
 #         )
@@ -3288,7 +3264,6 @@ class TestGraphLocks:
 #                     cg,
 #                     i_layer,
 #                     [0, 0, 0],
-#
 #                     time_stamp=fake_timestamp,
 #                     n_threads=1,
 #                 )
@@ -3297,7 +3272,6 @@ class TestGraphLocks:
 #                     cg,
 #                     i_layer,
 #                     [0, 0, 0],
-#
 #                     time_stamp=fake_timestamp,
 #                     n_threads=1,
 #                 )
@@ -3306,7 +3280,6 @@ class TestGraphLocks:
 #                     cg,
 #                     i_layer,
 #                     [0, 0, 0],
-#
 #                     time_stamp=fake_timestamp,
 #                     n_threads=1,
 #                 )
@@ -3314,7 +3287,6 @@ class TestGraphLocks:
 #                     cg,
 #                     i_layer,
 #                     [0, 0, 0],
-#
 #                     time_stamp=fake_timestamp,
 #                     n_threads=1,
 #                 )
@@ -3367,7 +3339,7 @@ class TestGraphLocks:
 #         cg = gen_graph(n_layers=2)
 
 #         # Preparation: Build Chunk A
-#         fake_timestamp = datetime.utcnow() - timedelta(days=10)
+#         fake_timestamp = datetime.now(UTC) - timedelta(days=10)
 #         create_chunk(
 #             cg,
 #             vertices=[to_label(cg, 1, 0, 0, 0, 0)],
@@ -3411,7 +3383,7 @@ class TestGraphLocks:
 #         cg = gen_graph(n_layers=3)
 
 #         # Preparation: Build Chunk A
-#         fake_timestamp = datetime.utcnow() - timedelta(days=10)
+#         fake_timestamp = datetime.now(UTC) - timedelta(days=10)
 #         create_chunk(
 #             cg,
 #             vertices=[to_label(cg, 1, 0, 0, 0, 0)],
@@ -3431,7 +3403,6 @@ class TestGraphLocks:
 #             cg,
 #             3,
 #             [0, 0, 0],
-#
 #             time_stamp=fake_timestamp,
 #             n_threads=1,
 #         )
@@ -3507,7 +3478,10 @@ class TestGraphLocks:
 #         )
 
 #         add_layer(
-#             cg, 3, [0, 0, 0],  n_threads=1,
+#             cg,
+#             3,
+#             [0, 0, 0],
+#             n_threads=1,
 #         )
 
 #         rr = cg.range_read_chunk(chunk_id=cg.get_chunk_id(layer=3, x=0, y=0, z=0))
