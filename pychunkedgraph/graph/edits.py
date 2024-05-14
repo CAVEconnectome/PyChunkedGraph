@@ -392,7 +392,7 @@ def _get_flipped_ids(id_map, node_ids):
 
 
 def _update_neighbor_cross_edges_single(
-    cg, new_id: int, cx_edges_d: dict, node_map: dict, *, parent_ts
+    cg, new_id: int, cx_edges: np.ndarray, node_map: dict, *, parent_ts
 ) -> dict:
     """
     For each new_id, get partners and update their cross chunk edges.
@@ -400,36 +400,15 @@ def _update_neighbor_cross_edges_single(
     and then write to storage to consolidate the mutations.
     Returns updated partners.
     """
-    node_layer = cg.get_chunk_layer(new_id)
-    partners = []
-    partner_layers = {}
-    for layer in range(node_layer, cg.meta.layer_count):
-        layer_edges = cx_edges_d.get(layer, types.empty_2d)
-        partners.extend(layer_edges[:, 1])
-        layers_d = dict(zip(layer_edges[:, 1], [layer] * len(layer_edges[:, 1])))
-        partner_layers.update(layers_d)
-
-    cp_cx_edges_d = cg.get_cross_chunk_edges(partners, time_stamp=parent_ts)
+    partner_cx_edges_d = cg.get_cross_chunk_edges(cx_edges[:, 1], time_stamp=parent_ts)
     updated_partners = {}
-    for partner, edges_d in cp_cx_edges_d.items():
-        val_dict = {}
-        partner_layer = partner_layers[partner]
-        for layer in range(2, cg.meta.layer_count):
-            edges = edges_d.get(layer, types.empty_2d)
-            if edges.size == 0:
-                continue
-            assert np.all(edges[:, 0] == partner)
-            edges = fastremap.remap(edges, node_map, preserve_missing_labels=True)
-            if layer == partner_layer:
-                reverse_edge = np.array([partner, new_id], dtype=basetypes.NODE_ID)
-                edges = np.concatenate([edges, [reverse_edge]])
-                edges = np.unique(edges, axis=0)
-            edges_d[layer] = edges
-            val_dict[attributes.Connectivity.CrossChunkEdge[layer]] = edges
-        if not val_dict:
-            continue
-        cg.cache.cross_chunk_edges_cache[partner] = edges_d
-        updated_partners[partner] = val_dict
+    for partner, _cx_edges in partner_cx_edges_d.items():
+        _cx_edges = fastremap.remap(_cx_edges, node_map, preserve_missing_labels=True)
+        reverse_edge = np.array([partner, new_id], dtype=basetypes.NODE_ID)
+        _cx_edges = np.unique(np.concatenate([_cx_edges, [reverse_edge]]), axis=0)
+        cg.cache.cross_chunk_edges_cache[partner] = _cx_edges
+        val_d = {attributes.Connectivity.CrossChunkPartners: _cx_edges[:, 1]}
+        updated_partners[partner] = val_d
     return updated_partners
 
 
@@ -456,17 +435,17 @@ def _update_neighbor_cross_edges(
             node_map[k] = next(iter(v))
 
     for new_id in new_ids:
-        cx_edges_d = newid_cx_edges_d[new_id]
+        cx_edges = newid_cx_edges_d[new_id]
         m = {old_id: new_id for old_id in _get_flipped_ids(new_old_id, [new_id])}
         node_map.update(m)
         result = _update_neighbor_cross_edges_single(
-            cg, new_id, cx_edges_d, node_map, parent_ts=parent_ts
+            cg, new_id, cx_edges, node_map, parent_ts=parent_ts
         )
         updated_partners.update(result)
     updated_entries = []
-    for node, val_dict in updated_partners.items():
+    for node, val_d in updated_partners.items():
         rowkey = serialize_uint64(node)
-        row = cg.client.mutate_row(rowkey, val_dict, time_stamp=time_stamp)
+        row = cg.client.mutate_row(rowkey, val_d, time_stamp=time_stamp)
         updated_entries.append(row)
     return updated_entries
 
