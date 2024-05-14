@@ -336,18 +336,18 @@ class ChunkedGraph:
             node_ids = np.array(node_ids, dtype=basetypes.NODE_ID)
             if node_ids.size == 0:
                 return result
-            layers = np.unique(self.get_chunk_layers(node_ids))
-            attrs = [attributes.Connectivity.CrossChunkEdge[l] for l in layers]
-            edges_d_d = self.client.read_nodes(
+            node_partners_d = self.client.read_nodes(
                 node_ids=node_ids,
-                properties=attrs,
+                properties=attributes.Connectivity.CrossChunkPartners,
                 end_time=time_stamp,
                 end_time_inclusive=True,
             )
             for id_ in node_ids:
                 try:
-                    it = iter(val[0].value.copy() for val in edges_d_d[id_].values())
-                    result[id_] = next(it)
+                    partners = node_partners_d[id_][0].value
+                    edges = np.zeros((partners.size, 2))
+                    edges[:, 0], edges[:, 1] = id_, partners
+                    result[id_] = edges
                 except KeyError:
                     result[id_] = {}
             return result

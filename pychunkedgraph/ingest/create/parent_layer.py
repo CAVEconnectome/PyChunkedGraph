@@ -164,8 +164,8 @@ def _children_rows(
     """
     rows = []
     children_cx_edges = []
-    for child in children:
-        node_layer = cg.get_chunk_layer(child)
+    children_layers = cg.get_chunk_layers(children)
+    for child, node_layer in zip(children, children_layers):
         row_id = serializers.serialize_uint64(child)
         val_dict = {attributes.Hierarchy.Parent: parent_id}
         node_cx_edges_d = cx_edges_d.get(child, {})
@@ -183,9 +183,12 @@ def _children_rows(
                 layer_edges, edge_parents_d, preserve_missing_labels=True
             )
             layer_edges = np.unique(layer_edges, axis=0)
-            col = attributes.Connectivity.CrossChunkEdge[layer]
+            col = attributes.Connectivity.TmpCrossChunkEdge[layer]
             val_dict[col] = layer_edges
             node_cx_edges_d[layer] = layer_edges
+        if node_layer in node_cx_edges_d:
+            col = attributes.Connectivity.CrossChunkPartners
+            val_dict[col] = node_cx_edges_d[node_layer][:, 1]
         children_cx_edges.append(node_cx_edges_d)
         rows.append(cg.client.mutate_row(row_id, val_dict, time_stamp))
     return rows, children_cx_edges
@@ -240,8 +243,8 @@ def _write(
                 col = attributes.Connectivity.TmpCrossChunkEdge[layer]
                 val_dict[col] = parent_cx_edges_d[layer]
             if parent_layer in parent_cx_edges_d:
-                col = attributes.Connectivity.CrossChunkEdge[parent_layer]
-                val_dict[col] = parent_cx_edges_d[parent_layer]
+                col = attributes.Connectivity.CrossChunkPartners
+                val_dict[col] = parent_cx_edges_d[parent_layer][:, 1]
             rows.append(cg.client.mutate_row(row_id, val_dict, ts))
             if len(rows) > 100000:
                 cg.client.write(rows)
