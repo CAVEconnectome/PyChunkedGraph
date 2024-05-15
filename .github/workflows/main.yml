@@ -4,9 +4,11 @@ on:
   push:
     branches:
       - "main"
+      - "pcgv3"
   pull_request:
     branches:
       - "main"
+      - "pcgv3"
 
 jobs:
   unit-tests:
