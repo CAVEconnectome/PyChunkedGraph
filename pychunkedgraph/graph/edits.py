@@ -275,15 +275,16 @@ def _split_l2_agglomeration(
     # if there aren't any, there must be no parents. XOR these 2 conditions.
     err = f"got cross edges from more than one l2 node; op {operation_id}"
     assert (np.unique(parents).size == 1) != (cross_edges.size == 0), err
-    root = cg.get_root(parents[0], time_stamp=parent_ts, raw_only=True)
 
-    # inactive edges must be filtered out
-    neighbor_roots = cg.get_roots(
-        cross_edges[:, 1], raw_only=True, time_stamp=parent_ts
-    )
-    active_mask = neighbor_roots == root
-    cross_edges = cross_edges[active_mask]
-    cross_edges = cross_edges[~in2d(cross_edges, removed_edges)]
+    if cross_edges.size:
+        # inactive edges must be filtered out
+        root = cg.get_root(parents[0], time_stamp=parent_ts, raw_only=True)
+        neighbor_roots = cg.get_roots(
+            cross_edges[:, 1], raw_only=True, time_stamp=parent_ts
+        )
+        active_mask = neighbor_roots == root
+        cross_edges = cross_edges[active_mask]
+        cross_edges = cross_edges[~in2d(cross_edges, removed_edges)]
 
     isolated_ids = agg.supervoxels[~np.in1d(agg.supervoxels, chunk_edges)]
     isolated_edges = np.column_stack((isolated_ids, isolated_ids))

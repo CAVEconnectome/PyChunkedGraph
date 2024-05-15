@@ -8,7 +8,6 @@ from typing import Sequence
 
 import fastremap
 import numpy as np
-from multiwrapper import multiprocessing_utils as mu
 
 from . import ChunkedGraph
 from . import attributes
@@ -51,22 +50,6 @@ def _read_delta_root_rows(
     return new_root_ids, expired_root_ids
 
 
-def _read_root_rows_thread(args) -> list:
-    start_seg_id, end_seg_id, serialized_cg_info, time_stamp = args
-    cg = ChunkedGraph(**serialized_cg_info)
-    start_id = cg.get_node_id(segment_id=start_seg_id, chunk_id=cg.root_chunk_id)
-    end_id = cg.get_node_id(segment_id=end_seg_id, chunk_id=cg.root_chunk_id)
-    rows = cg.client.read_nodes(
-        start_id=start_id,
-        end_id=end_id,
-        end_id_inclusive=False,
-        end_time=time_stamp,
-        end_time_inclusive=True,
-    )
-    root_ids = [k for (k, v) in rows.items() if attributes.Hierarchy.NewParent not in v]
-    return root_ids
-
-
 def get_proofread_root_ids(
     cg: ChunkedGraph,
     start_time: Optional[datetime.datetime] = None,
@@ -93,43 +76,12 @@ def get_proofread_root_ids(
 
 
 def get_latest_roots(
-    cg, time_stamp: Optional[datetime.datetime] = None, n_threads: int = 1
+    cg: ChunkedGraph, time_stamp: Optional[datetime.datetime] = None, n_threads: int = 1
 ) -> Sequence[np.uint64]:
-    # Create filters: time and id range
-    max_seg_id = cg.get_max_seg_id(cg.root_chunk_id) + 1
-    n_blocks = 1 if n_threads == 1 else int(np.min([n_threads * 3 + 1, max_seg_id]))
-    seg_id_blocks = np.linspace(1, max_seg_id, n_blocks + 1, dtype=np.uint64)
-    cg_serialized_info = cg.get_serialized_info()
-    if n_threads > 1:
-        del cg_serialized_info["credentials"]
-
-    multi_args = []
-    for i_id_block in range(0, len(seg_id_blocks) - 1):
-        multi_args.append(
-            [
-                seg_id_blocks[i_id_block],
-                seg_id_blocks[i_id_block + 1],
-                cg_serialized_info,
-                time_stamp,
-            ]
-        )
-
-    if n_threads == 1:
-        results = mu.multiprocess_func(
-            _read_root_rows_thread,
-            multi_args,
-            n_threads=n_threads,
-            verbose=False,
-            debug=n_threads == 1,
-        )
-    else:
-        results = mu.multisubprocess_func(
-            _read_root_rows_thread, multi_args, n_threads=n_threads
-        )
-    root_ids = []
-    for result in results:
-        root_ids.extend(result)
-    return np.array(root_ids, dtype=np.uint64)
+    root_chunk = cg.get_chunk_id(layer=cg.meta.layer_count, x=0, y=0, z=0)
+    rr = cg.range_read_chunk(root_chunk, time_stamp=time_stamp)
+    roots = [k for k, v in rr.items() if attributes.Hierarchy.NewParent not in v]
+    return np.array(roots, dtype=np.uint64)
 
 
 def get_delta_roots(
