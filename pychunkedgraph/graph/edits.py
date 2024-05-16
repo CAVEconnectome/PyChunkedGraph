@@ -232,7 +232,7 @@ def add_edges(
         cx_edges = np.unique(cx_edges, axis=0)
         assert np.all(cx_edges[:, 0] == _new)
         cg.cache.cross_edges_cache[_new] = cx_edges
-        _layers_d = cg.get_cross_chunk_layers(l2ids_)
+        _layers_d = cg.get_cross_chunk_layers(l2ids_, time_stamp=parent_ts)
         layers = np.concatenate(list(_layers_d.values()) + new_layers)
         cg.cache.cross_layers_cache[_new] = np.unique(np.array(layers, dtype=int))
 
