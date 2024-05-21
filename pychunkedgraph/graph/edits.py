@@ -39,7 +39,8 @@ def _analyze_affected_edges(
 ) -> Tuple[Iterable, Dict]:
     """
     Returns l2 edges within chunk and self edges for nodes in cross chunk edges.
-    And new cross edges dicts for nodes crossing chunk boundary (new edges to merge).
+
+    Also returns new cross edges dicts for nodes crossing chunk boundary (new edges to merge).
     """
     supervoxels = np.unique(atomic_edges)
     parents = cg.get_parents(supervoxels, time_stamp=parent_ts)
@@ -263,6 +264,8 @@ def _split_l2_agglomeration(
 ):
     """
     For a given L2 id, remove given edges; calculate new connected components.
+
+    Returns components, graph_ids and filtered cross edges.
     """
     chunk_edges = agg.in_edges.get_pairs()
     chunk_edges = chunk_edges[~in2d(chunk_edges, removed_edges)]
@@ -298,7 +301,7 @@ def _filter_component_cross_edges(
     component_ids: np.ndarray, cross_edges: np.ndarray, cross_edge_layers: np.ndarray
 ) -> Dict[int, np.ndarray]:
     """
-    Filters cross edges for a connected component `cc_ids` from `cross_edges`.
+    Filters edges for a connected component `cc_ids` from `cross_edges`.
     Returns edges dictionary {layer: cross_edges}.
     """
     mask = np.in1d(cross_edges[:, 0], component_ids)
@@ -330,7 +333,7 @@ def remove_edges(
     new_old_id_d = defaultdict(set)
     old_new_id_d = defaultdict(set)
     old_hierarchy_d = _init_old_hierarchy(cg, l2ids, parent_ts=parent_ts)
-    chunk_id_map = dict(zip(l2ids.tolist(), cg.get_chunk_ids_from_node_ids(l2ids)))
+    chunk_id_map = dict(zip(l2ids, cg.get_chunk_ids_from_node_ids(l2ids)))
 
     removed_edges = np.concatenate([atomic_edges, atomic_edges[:, ::-1]], axis=0)
     new_l2_ids = []
@@ -399,10 +402,7 @@ def _update_neighbor_cross_edges_single(
     cg, new_id: int, cx_edges: np.ndarray, node_map: dict, *, parent_ts
 ) -> dict:
     """
-    For each new_id, get partners and update their cross chunk edges.
-    Some of them maybe updated multiple times so we need to collect them first
-    and then write to storage to consolidate the mutations.
-    Returns updated partners.
+    Helper for `_update_neighbor_cross_edges`.
     """
     partner_cx_edges_d = cg.get_cross_chunk_edges(cx_edges[:, 1], time_stamp=parent_ts)
     updated_partners = {}
@@ -420,24 +420,26 @@ def _update_neighbor_cross_edges(
     cg,
     new_ids: List[int],
     new_old_id: dict,
-    old_new_id,
+    old_new_id: dict,
     *,
     time_stamp,
     parent_ts,
 ) -> List:
     """
     For each new_id, get partners and update their cross chunk edges.
-    Some of them maybe updated multiple times so we need to collect them first
-    and then write to storage to consolidate the mutations.
+
+    Some of them maybe updated multiple times so we need to collect them
+    and write to storage to consolidate the mutations.
+
     Returns mutations to updated partner nodes.
     """
     updated_partners = {}
-    newid_cx_edges_d = cg.get_cross_chunk_edges(new_ids, time_stamp=parent_ts)
-    node_map = {}
+    node_map = {}  # old to new id map
     for k, v in old_new_id.items():
         if len(v) == 1:
             node_map[k] = next(iter(v))
 
+    newid_cx_edges_d = cg.get_cross_chunk_edges(new_ids, time_stamp=parent_ts)
     for new_id in new_ids:
         cx_edges = newid_cx_edges_d[new_id]
         m = {old_id: new_id for old_id in _get_flipped_ids(new_old_id, [new_id])}
@@ -540,8 +542,9 @@ class CreateParentNodes:
 
     def _update_cross_edge_cache(self, node) -> None:
         """
-        Updates cross chunk edges in cache;
-        this can only be done after all new components at a layer have IDs.
+        Updates cross chunk edges in cache for layers > 2.
+
+        This can only be done after all new components at a layer have IDs.
         """
         l = self.cg.get_chunk_layer(node)
         if l == 2:  # l2 cross edges have already been updated by this point
@@ -584,43 +587,6 @@ class CreateParentNodes:
             if l in set(layers[idx:]):
                 self.cg.cache.cross_edges_cache[node] = partner_edges(node, partners)
 
-    def _update_neighbor_parents(self, neighbor, ceil_layer: int, updated: set) -> list:
-        """helper for `_update_skipped_neighbors`"""
-        parents = []
-        while True:
-            parent = self.cg.get_parent(neighbor, time_stamp=self._last_ts)
-            parent_layer = self.cg.get_chunk_layer(parent)
-            if parent_layer >= ceil_layer or parent in updated:
-                break
-            self._update_cross_edge_cache(parent)
-            parents.append(parent)
-            neighbor = parent
-        return parents
-
-    def _update_skipped_neighbors(self, node, parent_layer):
-        """
-        Updates cross edges of neighbors of a skip connection node.
-        Neighbors of such nodes can have parents at contiguous layers.
-
-        This method updates cross edges of all such parents
-        from `layer` through `parent_layer`.
-        """
-        updated_parents = set()
-        cx_edges = self.cg.cache.cross_edges_cache.get(node, types.empty_2d)
-        for n in cx_edges[:, 1]:
-            if n in self._new_old_id_d:  # new_ids have already been updated.
-                continue
-            res = self._update_neighbor_parents(n, parent_layer, updated_parents)
-            updated_parents.update(res)
-        updated_entries = []
-        for parent in updated_parents:
-            edges = self.cg.cache.cross_edges_cache[parent]
-            val_d = {attributes.Connectivity.Partners: edges[:, 1]}
-            rkey = serialize_uint64(parent)
-            row = self.cg.client.mutate_row(rkey, val_d, time_stamp=self._time_stamp)
-            updated_entries.append(row)
-        return updated_entries
-
     def _create_new_parents(self, layer: int):
         """
         keep track of old IDs
@@ -635,7 +601,6 @@ class CreateParentNodes:
         layer_node_ids = self._get_layer_node_ids(new_ids, layer)
         components, graph_ids = self._get_connected_components(layer_node_ids)
         for cc_indices in components:
-            update_skipped_neighbors = False
             parent_layer = layer + 1  # must be reset for each connected component
             cc_ids = graph_ids[cc_indices]
             if len(cc_ids) == 1:
@@ -650,8 +615,6 @@ class CreateParentNodes:
                     if l in cx_layers:
                         parent_layer = l
                         break
-                # if cc_ids[0] is a new id, we need to update skipped neighbors
-                update_skipped_neighbors = cc_ids[0] in self._new_old_id_d
             parent = self.cg.id_client.create_node_id(
                 self.cg.get_parent_chunk_id(cc_ids[0], parent_layer),
                 root_chunk=parent_layer == self.cg.meta.layer_count,
@@ -661,21 +624,19 @@ class CreateParentNodes:
             self.cg.cache.children_cache[parent] = cc_ids
             cache_utils.update(self.cg.cache.parents_cache, cc_ids, parent)
             sanity_check_single(self.cg, parent, self._operation_id)
-            if update_skipped_neighbors:
-                res = self._update_skipped_neighbors(cc_ids[0], parent_layer)
-                self.new_entries.extend(res)
 
     def run(self) -> Iterable:
         """
-        After new level 2 IDs are created, create parents in higher layers.
-        Cross edges are used to determine existing siblings.
+        For each new node in a layer:
+            * Update its cross chunk edges.
+            * Update neighbor cross chunk edges to point to new ids.
+
+        Then, find connected components in the layer and create new parent ids.
         """
         self._new_ids_d[2] = self._new_l2_ids
         for layer in range(2, self.cg.meta.layer_count):
             if len(self._new_ids_d[layer]) == 0:
                 continue
-            # all new IDs in this layer have been created
-            # update their and neighbors' cross chunk edges
             m = f"create_new_parents_layer.{layer}"
             with TimeIt(m, self.cg.graph_id, self._operation_id):
                 for new_id in self._new_ids_d[layer]:
