@@ -29,8 +29,20 @@ def callback(payload):
         cg = ChunkedGraph(graph_id=table_id)
         PCG_CACHE[table_id] = cg
 
-    mesh_dir = cg.meta.dataset_info["mesh"]
-    cv_unsharded_mesh_dir = cg.meta.dataset_info["mesh_metadata"]["unsharded_mesh_dir"]
+    INFO_HIGH = 25
+    logging.basicConfig(
+        level=INFO_HIGH,
+        format="%(asctime)s %(message)s",
+        datefmt="%m/%d/%Y %I:%M:%S %p",
+    )
+
+    try:
+        mesh_dir = cg.meta.dataset_info["mesh"]
+        cv_unsharded_mesh_dir = cg.meta.dataset_info["mesh_metadata"]["unsharded_mesh_dir"]
+    except KeyError:
+        logging.warning(f"No metadata found for {cg.graph_id}; ignoring...")
+        return
+
     mesh_path = path.join(
         cg.meta.data_source.WATERSHED, mesh_dir, cv_unsharded_mesh_dir
     )
@@ -43,12 +55,7 @@ def callback(payload):
     except KeyError:
         return
 
-    INFO_HIGH = 25
-    logging.basicConfig(
-        level=INFO_HIGH,
-        format="%(asctime)s %(message)s",
-        datefmt="%m/%d/%Y %I:%M:%S %p",
-    )
+
     logging.log(INFO_HIGH, f"remeshing {l2ids}; graph {table_id} operation {op_id}.")
     meshgen.remeshing(
         cg,
