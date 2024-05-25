@@ -251,7 +251,7 @@ def add_edges(
     return new_roots, new_l2_ids, create_parents.new_entries
 
 
-def _process_l2_agglomeration(
+def _split_l2_agglomeration(
     cg,
     operation_id: int,
     agg: types.Agglomeration,
@@ -272,16 +272,16 @@ def _process_l2_agglomeration(
     # if there aren't any, there must be no parents. XOR these 2 conditions.
     err = f"got cross edges from more than one l2 node; op {operation_id}"
     assert (np.unique(parents).size == 1) != (cross_edges.size == 0), err
-    root = cg.get_root(parents[0], time_stamp=parent_ts, raw_only=True)
 
-    # inactive edges must be filtered out
-    neighbor_roots = cg.get_roots(
-        cross_edges[:, 1], raw_only=True, time_stamp=parent_ts
-    )
-    active_mask = neighbor_roots == root
-    cross_edges = cross_edges[active_mask]
-    cross_edges = cross_edges[~in2d(cross_edges, removed_edges)]
-
+    if cross_edges.size:
+        # inactive edges must be filtered out
+        root = cg.get_root(parents[0], time_stamp=parent_ts, raw_only=True)
+        neighbor_roots = cg.get_roots(
+            cross_edges[:, 1], raw_only=True, time_stamp=parent_ts
+        )
+        active_mask = neighbor_roots == root
+        cross_edges = cross_edges[active_mask]
+        cross_edges = cross_edges[~in2d(cross_edges, removed_edges)]
     isolated_ids = agg.supervoxels[~np.in1d(agg.supervoxels, chunk_edges)]
     isolated_edges = np.column_stack((isolated_ids, isolated_ids))
     graph, _, _, graph_ids = flatgraph.build_gt_graph(
@@ -332,7 +332,7 @@ def remove_edges(
     new_l2_ids = []
     for id_ in l2ids:
         agg = l2id_agglomeration_d[id_]
-        ccs, graph_ids, cross_edges = _process_l2_agglomeration(
+        ccs, graph_ids, cross_edges = _split_l2_agglomeration(
             cg, operation_id, agg, removed_edges, parent_ts
         )
         new_parents = cg.id_client.create_node_ids(chunk_id_map[agg.node_id], len(ccs))
