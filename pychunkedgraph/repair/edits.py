@@ -14,8 +14,8 @@ def repair_operation(cg: ChunkedGraph, operation_id: int, unlock: bool = False):
     _, ts = cg.client.read_log_entry(operation_id)
     result = operation.execute(
         operation_id=operation_id,
-        parent_ts=ts - timedelta(milliseconds=100),
-        override_ts=ts + timedelta(milliseconds=10),
+        parent_ts=ts - timedelta(milliseconds=500),
+        override_ts=ts + timedelta(milliseconds=100),
     )
     old_roots = operation._update_root_ids()
     print("roots", old_roots, result.new_root_ids)
