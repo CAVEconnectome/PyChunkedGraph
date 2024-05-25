@@ -164,7 +164,8 @@ def _children_rows(
     """
     rows = []
     children_cx_edges = []
-    for child in children:
+    children_layers = cg.get_chunk_layers(children)
+    for child, node_layer in zip(children, children_layers):
         node_layer = cg.get_chunk_layer(child)
         row_id = serializers.serialize_uint64(child)
         val_dict = {attributes.Hierarchy.Parent: parent_id}

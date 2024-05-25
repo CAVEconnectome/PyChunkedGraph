@@ -257,6 +257,7 @@ def create_chunk(cg, vertices=None, edges=None, timestamp=None):
         cg.get_chunk_coordinates(chunk_id),
         chunk_edges_active,
         isolated=isolated_ids,
+        time_stamp=timestamp,
     )
 
 

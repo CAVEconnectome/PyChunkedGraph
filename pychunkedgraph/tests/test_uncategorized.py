@@ -1,20 +1,10 @@
-import collections
-import os
-import subprocess
-import sys
 from time import sleep
-from datetime import datetime, timedelta
-from functools import partial
+from datetime import datetime, timedelta, UTC
 from math import inf
-from signal import SIGTERM
-from unittest import mock
 from warnings import warn
 
 import numpy as np
 import pytest
-from google.auth import credentials
-from google.cloud import bigtable
-from grpc._channel import _Rendezvous
 
 from .helpers import (
     bigtable_emulator,
@@ -24,13 +14,14 @@ from .helpers import (
     to_label,
     sv_data,
 )
+from ..graph import ChunkedGraph
 from ..graph import types
 from ..graph import attributes
 from ..graph import exceptions
-from ..graph import chunkedgraph
 from ..graph.edges import Edges
 from ..graph.utils import basetypes
-from ..graph.misc import get_delta_roots
+from ..graph.lineage import lineage_graph
+from ..graph.misc import get_delta_roots, get_latest_roots
 from ..graph.cutting import run_multicut
 from ..graph.lineage import get_root_id_history
 from ..graph.lineage import get_future_root_ids
@@ -452,7 +443,7 @@ class TestGraphBuild:
         cg = gen_graph(n_layers=4, atomic_chunk_bounds=atomic_chunk_bounds)
 
         # Preparation: Build Chunk A
-        fake_timestamp = datetime.utcnow() - timedelta(days=10)
+        fake_timestamp = datetime.now(UTC) - timedelta(days=10)
         create_chunk(
             cg,
             vertices=[to_label(cg, 1, 0, 0, 0, 1), to_label(cg, 1, 0, 0, 0, 2)],
@@ -775,7 +766,7 @@ class TestGraphMerge:
         cg = gen_graph(n_layers=2, atomic_chunk_bounds=atomic_chunk_bounds)
 
         # Preparation: Build Chunk A
-        fake_timestamp = datetime.utcnow() - timedelta(days=10)
+        fake_timestamp = datetime.now(UTC) - timedelta(days=10)
         create_chunk(
             cg,
             vertices=[to_label(cg, 1, 0, 0, 0, 0), to_label(cg, 1, 0, 0, 0, 1)],
@@ -815,7 +806,7 @@ class TestGraphMerge:
         cg = gen_graph(n_layers=3)
 
         # Preparation: Build Chunk A
-        fake_timestamp = datetime.utcnow() - timedelta(days=10)
+        fake_timestamp = datetime.now(UTC) - timedelta(days=10)
         create_chunk(
             cg,
             vertices=[to_label(cg, 1, 0, 0, 0, 0)],
@@ -871,7 +862,7 @@ class TestGraphMerge:
         cg = gen_graph(n_layers=5)
 
         # Preparation: Build Chunk A
-        fake_timestamp = datetime.utcnow() - timedelta(days=10)
+        fake_timestamp = datetime.now(UTC) - timedelta(days=10)
         create_chunk(
             cg,
             vertices=[to_label(cg, 1, 0, 0, 0, 0)],
@@ -955,7 +946,7 @@ class TestGraphMerge:
         cg = gen_graph(n_layers=2)
 
         # Preparation: Build Chunk A
-        fake_timestamp = datetime.utcnow() - timedelta(days=10)
+        fake_timestamp = datetime.now(UTC) - timedelta(days=10)
         create_chunk(
             cg,
             vertices=[to_label(cg, 1, 0, 0, 0, 0), to_label(cg, 1, 0, 0, 0, 1)],
@@ -996,7 +987,7 @@ class TestGraphMerge:
         cg = gen_graph(n_layers=2)
 
         # Preparation: Build Chunk A
-        fake_timestamp = datetime.utcnow() - timedelta(days=10)
+        fake_timestamp = datetime.now(UTC) - timedelta(days=10)
         create_chunk(
             cg,
             vertices=[
@@ -1033,7 +1024,7 @@ class TestGraphMerge:
         cg = gen_graph(n_layers=3)
 
         # Preparation: Build Chunk A
-        fake_timestamp = datetime.utcnow() - timedelta(days=10)
+        fake_timestamp = datetime.now(UTC) - timedelta(days=10)
         create_chunk(
             cg,
             vertices=[to_label(cg, 1, 0, 0, 0, 0), to_label(cg, 1, 0, 0, 0, 1)],
@@ -1082,7 +1073,7 @@ class TestGraphMerge:
         cg = gen_graph(n_layers=5)
 
         # Preparation: Build Chunk A
-        fake_timestamp = datetime.utcnow() - timedelta(days=10)
+        fake_timestamp = datetime.now(UTC) - timedelta(days=10)
         create_chunk(
             cg,
             vertices=[to_label(cg, 1, 0, 0, 0, 0), to_label(cg, 1, 0, 0, 0, 1)],
@@ -1181,7 +1172,7 @@ class TestGraphMerge:
         cg = gen_graph(n_layers=2)
 
         # Preparation: Build Chunk A
-        fake_timestamp = datetime.utcnow() - timedelta(days=10)
+        fake_timestamp = datetime.now(UTC) - timedelta(days=10)
         create_chunk(
             cg,
             vertices=[to_label(cg, 1, 0, 0, 0, 0)],
@@ -1223,7 +1214,7 @@ class TestGraphMerge:
         cg = gen_graph(n_layers=3)
 
         # Preparation: Build Chunk A
-        fake_timestamp = datetime.utcnow() - timedelta(days=10)
+        fake_timestamp = datetime.now(UTC) - timedelta(days=10)
         create_chunk(
             cg,
             vertices=[to_label(cg, 1, 0, 0, 0, 0)],
@@ -1352,7 +1343,7 @@ class TestGraphMerge:
         cg = gen_graph(n_layers=5)
 
         # Preparation: Build Chunk A
-        fake_timestamp = datetime.utcnow() - timedelta(days=10)
+        fake_timestamp = datetime.now(UTC) - timedelta(days=10)
         create_chunk(
             cg,
             vertices=[
@@ -1466,81 +1457,72 @@ class TestGraphMergeSplit:
         child_ids = np.concatenate(child_ids)
 
         for i in range(10):
-
-            print(f"\n\nITERATION {i}/10")
-            print("\n\nMERGE 1 & 3\n\n")
+            print(f"\n\nITERATION {i}/10 - MERGE 1 & 3")
             new_roots = cg.add_edges(
                 "Jane Doe",
                 [to_label(cg, 1, 0, 0, 0, 0), to_label(cg, 1, 1, 0, 0, 1)],
                 affinities=0.9,
             ).new_root_ids
-            assert len(new_roots) == 1
+            assert len(new_roots) == 1, new_roots
             assert len(cg.get_subgraph([new_roots[0]], leaves_only=True)) == 4
 
-            root_ids = []
-            for child_id in child_ids:
-                root_ids.append(cg.get_root(child_id))
-
+            root_ids = cg.get_roots(child_ids, assert_roots=True)
+            print(child_ids)
+            print(list(root_ids))
             u_root_ids = np.unique(root_ids)
-            assert len(u_root_ids) == 1
+            assert len(u_root_ids) == 1, u_root_ids
 
             # ------------------------------------------------------------------
+            print(f"\n\nITERATION {i}/10 - SPLIT 2 & 3")
             new_roots = cg.remove_edges(
                 "John Doe",
                 source_ids=to_label(cg, 1, 1, 0, 0, 0),
                 sink_ids=to_label(cg, 1, 1, 0, 0, 1),
                 mincut=False,
             ).new_root_ids
+            assert len(new_roots) == 2, new_roots
 
-            assert len(np.unique(new_roots)) == 2
-
-            root_ids = []
-            for child_id in child_ids:
-                root_ids.append(cg.get_root(child_id))
-
+            root_ids = cg.get_roots(child_ids, assert_roots=True)
+            print(child_ids)
+            print(list(root_ids))
             u_root_ids = np.unique(root_ids)
             these_child_ids = []
             for root_id in u_root_ids:
                 these_child_ids.extend(cg.get_subgraph([root_id], leaves_only=True))
 
             assert len(these_child_ids) == 4
-            assert len(u_root_ids) == 2
+            assert len(u_root_ids) == 2, u_root_ids
 
             # ------------------------------------------------------------------
-
+            print(f"\n\nITERATION {i}/10 - SPLIT 1 & 3")
             new_roots = cg.remove_edges(
                 "Jane Doe",
                 source_ids=to_label(cg, 1, 0, 0, 0, 0),
                 sink_ids=to_label(cg, 1, 1, 0, 0, 1),
                 mincut=False,
             ).new_root_ids
-            assert len(new_roots) == 2
+            assert len(new_roots) == 2, new_roots
 
-            root_ids = []
-            for child_id in child_ids:
-                root_ids.append(cg.get_root(child_id))
-
+            root_ids = cg.get_roots(child_ids, assert_roots=True)
+            print(child_ids)
+            print(list(root_ids))
             u_root_ids = np.unique(root_ids)
-            assert len(u_root_ids) == 3
+            assert len(u_root_ids) == 3, u_root_ids
 
             # ------------------------------------------------------------------
-
-            print(f"\n\nITERATION {i}/10")
-            print("\n\nMERGE 2 & 3\n\n")
-
+            print(f"\n\nITERATION {i}/10 - MERGE 2 & 3")
             new_roots = cg.add_edges(
                 "Jane Doe",
                 [to_label(cg, 1, 1, 0, 0, 0), to_label(cg, 1, 1, 0, 0, 1)],
                 affinities=0.9,
             ).new_root_ids
-            assert len(new_roots) == 1
+            assert len(new_roots) == 1, new_roots
 
-            root_ids = []
-            for child_id in child_ids:
-                root_ids.append(cg.get_root(child_id))
-
+            root_ids = cg.get_roots(child_ids, assert_roots=True)
+            print(child_ids)
+            print(list(root_ids))
             u_root_ids = np.unique(root_ids)
-            assert len(u_root_ids) == 2
+            assert len(u_root_ids) == 2, u_root_ids
 
             # for root_id in root_ids:
             #     cross_edge_dict_layers = graph_tests.root_cross_edge_test(
@@ -1575,7 +1557,7 @@ class TestGraphMinCut:
         cg = gen_graph(n_layers=3)
 
         # Preparation: Build Chunk A
-        fake_timestamp = datetime.utcnow() - timedelta(days=10)
+        fake_timestamp = datetime.now(UTC) - timedelta(days=10)
         create_chunk(
             cg,
             vertices=[to_label(cg, 1, 0, 0, 0, 0)],
@@ -1614,7 +1596,7 @@ class TestGraphMinCut:
             disallow_isolating_cut=True,
         ).new_root_ids
 
-        # Check New State
+        # verify new state
         assert len(new_root_ids) == 2
         assert cg.get_root(to_label(cg, 1, 0, 0, 0, 0)) != cg.get_root(
             to_label(cg, 1, 1, 0, 0, 0)
@@ -1646,7 +1628,7 @@ class TestGraphMinCut:
         cg = gen_graph(n_layers=3)
 
         # Preparation: Build Chunk A
-        fake_timestamp = datetime.utcnow() - timedelta(days=10)
+        fake_timestamp = datetime.now(UTC) - timedelta(days=10)
         create_chunk(
             cg,
             vertices=[to_label(cg, 1, 0, 0, 0, 0)],
@@ -1707,7 +1689,7 @@ class TestGraphMinCut:
         cg = gen_graph(n_layers=3)
 
         # Preparation: Build Chunk A
-        fake_timestamp = datetime.utcnow() - timedelta(days=10)
+        fake_timestamp = datetime.now(UTC) - timedelta(days=10)
         create_chunk(
             cg,
             vertices=[to_label(cg, 1, 0, 0, 0, 0)],
@@ -1775,7 +1757,7 @@ class TestGraphMinCut:
         cg = gen_graph(n_layers=3)
 
         # Preparation: Build Chunk A
-        fake_timestamp = datetime.utcnow() - timedelta(days=10)
+        fake_timestamp = datetime.now(UTC) - timedelta(days=10)
         create_chunk(
             cg,
             vertices=[to_label(cg, 1, 0, 0, 0, 0)],
@@ -1837,7 +1819,7 @@ class TestGraphMinCut:
         """
         cg = gen_graph(n_layers=2)
 
-        fake_timestamp = datetime.utcnow() - timedelta(days=10)
+        fake_timestamp = datetime.now(UTC) - timedelta(days=10)
         create_chunk(
             cg,
             vertices=[
@@ -1877,13 +1859,11 @@ class TestGraphMultiCut:
         edges = Edges(
             sv_edges[:, 0], sv_edges[:, 1], affinities=sv_affinity, areas=sv_area
         )
-
         cut_edges_aug = run_multicut(edges, sv_sources, sv_sinks, path_augment=True)
         assert cut_edges_aug.shape[0] == 350
 
         with pytest.raises(exceptions.PreconditionError):
             run_multicut(edges, sv_sources, sv_sinks, path_augment=False)
-        pass
 
 
 class TestGraphHistory:
@@ -1901,20 +1881,14 @@ class TestGraphHistory:
         (1) Split 1 and 2
         (2) Merge 1 and 2
         """
-        from ..graph.lineage import lineage_graph
-
-        cg = gen_graph(n_layers=3)
-
-        # Preparation: Build Chunk A
-        fake_timestamp = datetime.utcnow() - timedelta(days=10)
+        cg: ChunkedGraph = gen_graph(n_layers=3)
+        fake_timestamp = datetime.now(UTC) - timedelta(days=10)
         create_chunk(
             cg,
             vertices=[to_label(cg, 1, 0, 0, 0, 0)],
             edges=[(to_label(cg, 1, 0, 0, 0, 0), to_label(cg, 1, 1, 0, 0, 0), 0.5)],
             timestamp=fake_timestamp,
         )
-
-        # Preparation: Build Chunk B
         create_chunk(
             cg,
             vertices=[to_label(cg, 1, 1, 0, 0, 0)],
@@ -1932,7 +1906,7 @@ class TestGraphHistory:
 
         first_root = cg.get_root(to_label(cg, 1, 0, 0, 0, 0))
         assert first_root == cg.get_root(to_label(cg, 1, 1, 0, 0, 0))
-        timestamp_before_split = datetime.utcnow()
+        timestamp_before_split = datetime.now(UTC)
         split_roots = cg.remove_edges(
             "Jane Doe",
             source_ids=to_label(cg, 1, 0, 0, 0, 0),
@@ -1945,7 +1919,7 @@ class TestGraphHistory:
         g = lineage_graph(cg, split_roots)
         assert g.size() == 2
 
-        timestamp_after_split = datetime.utcnow()
+        timestamp_after_split = datetime.now(UTC)
         merge_roots = cg.add_edges(
             "Jane Doe",
             [to_label(cg, 1, 0, 0, 0, 0), to_label(cg, 1, 1, 0, 0, 0)],
@@ -1953,7 +1927,7 @@ class TestGraphHistory:
         ).new_root_ids
         assert len(merge_roots) == 1
         merge_root = merge_roots[0]
-        timestamp_after_merge = datetime.utcnow()
+        timestamp_after_merge = datetime.now(UTC)
 
         g = lineage_graph(cg, merge_roots)
         assert g.size() == 4
@@ -2047,7 +2021,7 @@ class TestGraphLocks:
         cg = gen_graph(n_layers=3)
 
         # Preparation: Build Chunk A
-        fake_timestamp = datetime.utcnow() - timedelta(days=10)
+        fake_timestamp = datetime.now(UTC) - timedelta(days=10)
         create_chunk(
             cg,
             vertices=[to_label(cg, 1, 0, 0, 0, 1), to_label(cg, 1, 0, 0, 0, 2)],
@@ -2113,7 +2087,7 @@ class TestGraphLocks:
         cg = gen_graph(n_layers=3)
 
         # Preparation: Build Chunk A
-        fake_timestamp = datetime.utcnow() - timedelta(days=10)
+        fake_timestamp = datetime.now(UTC) - timedelta(days=10)
         create_chunk(
             cg,
             vertices=[to_label(cg, 1, 0, 0, 0, 1), to_label(cg, 1, 0, 0, 0, 2)],
@@ -2181,7 +2155,7 @@ class TestGraphLocks:
         cg = gen_graph(n_layers=3)
 
         # Preparation: Build Chunk A
-        fake_timestamp = datetime.utcnow() - timedelta(days=10)
+        fake_timestamp = datetime.now(UTC) - timedelta(days=10)
         create_chunk(
             cg,
             vertices=[to_label(cg, 1, 0, 0, 0, 1), to_label(cg, 1, 0, 0, 0, 2)],
@@ -2233,7 +2207,7 @@ class TestGraphLocks:
         cg = gen_graph(n_layers=3)
 
         # Preparation: Build Chunk A
-        fake_timestamp = datetime.utcnow() - timedelta(days=10)
+        fake_timestamp = datetime.now(UTC) - timedelta(days=10)
         create_chunk(
             cg,
             vertices=[to_label(cg, 1, 0, 0, 0, 1), to_label(cg, 1, 0, 0, 0, 2)],
@@ -2299,7 +2273,7 @@ class TestGraphLocks:
         cg = gen_graph(n_layers=3)
 
         # Preparation: Build Chunk A
-        fake_timestamp = datetime.utcnow() - timedelta(days=10)
+        fake_timestamp = datetime.now(UTC) - timedelta(days=10)
         create_chunk(
             cg,
             vertices=[to_label(cg, 1, 0, 0, 0, 1), to_label(cg, 1, 0, 0, 0, 2)],
@@ -2372,7 +2346,7 @@ class TestGraphLocks:
         cg = gen_graph(n_layers=3)
 
         # Preparation: Build Chunk A
-        fake_timestamp = datetime.utcnow() - timedelta(days=10)
+        fake_timestamp = datetime.now(UTC) - timedelta(days=10)
         create_chunk(
             cg,
             vertices=[to_label(cg, 1, 0, 0, 0, 1), to_label(cg, 1, 0, 0, 0, 2)],
@@ -2451,7 +2425,7 @@ class TestGraphLocks:
     #     cg = gen_graph(n_layers=3)
 
     #     # Preparation: Build Chunk A
-    #     fake_timestamp = datetime.utcnow() - timedelta(days=10)
+    #     fake_timestamp = datetime.now(UTC) - timedelta(days=10)
     #     create_chunk(
     #         cg,
     #         vertices=[to_label(cg, 1, 0, 0, 0, 1), to_label(cg, 1, 0, 0, 0, 2)],
@@ -2467,7 +2441,7 @@ class TestGraphLocks:
     #         timestamp=fake_timestamp,
     #     )
 
-    #     add_layer(
+    #     add_parent_chunk(
     #         cg, 3, [0, 0, 0], time_stamp=fake_timestamp, n_threads=1,
     #     )
 
@@ -2491,1054 +2465,951 @@ class TestGraphLocks:
     #     )[0]
 
 
-# class MockChunkedGraph:
-#     """
-#     Dummy class to mock partial functionality of the ChunkedGraph for use in unit tests.
-#     Feel free to add more functions as need be. Can pass in alternative member functions into constructor.
-#     """
-
-#     def __init__(
-#         self, get_chunk_coordinates=None, get_chunk_layer=None, get_chunk_id=None
-#     ):
-#         if get_chunk_coordinates is not None:
-#             self.get_chunk_coordinates = get_chunk_coordinates
-#         if get_chunk_layer is not None:
-#             self.get_chunk_layer = get_chunk_layer
-#         if get_chunk_id is not None:
-#             self.get_chunk_id = get_chunk_id
-
-#     def get_chunk_coordinates(self, chunk_id):  # pylint: disable=method-hidden
-#         return np.array([0, 0, 0])
-
-#     def get_chunk_layer(self, chunk_id):  # pylint: disable=method-hidden
-#         return 2
-
-#     def get_chunk_id(self, *args):  # pylint: disable=method-hidden
-#         return 0
-
-
-# class TestGraphSplit:
-#     @pytest.mark.timeout(30)
-#     def test_split_pair_same_chunk(self, gen_graph):
-#         """
-#         Remove edge between existing RG supervoxels 1 and 2 (same chunk)
-#         Expected: Different (new) parents for RG 1 and 2 on Layer two
-#         ┌─────┐      ┌─────┐
-#         │  A¹ │      │  A¹ │
-#         │ 1━2 │  =>  │ 1 2 │
-#         │     │      │     │
-#         └─────┘      └─────┘
-#         """
-
-#         cg = gen_graph(n_layers=2)
-
-#         # Preparation: Build Chunk A
-#         fake_timestamp = datetime.utcnow() - timedelta(days=10)
-#         create_chunk(
-#             cg,
-#             vertices=[to_label(cg, 1, 0, 0, 0, 0), to_label(cg, 1, 0, 0, 0, 1)],
-#             edges=[(to_label(cg, 1, 0, 0, 0, 0), to_label(cg, 1, 0, 0, 0, 1), 0.5)],
-#             timestamp=fake_timestamp,
-#         )
-
-#         # Split
-#         new_root_ids = cg.remove_edges(
-#             "Jane Doe",
-#             source_ids=to_label(cg, 1, 0, 0, 0, 1),
-#             sink_ids=to_label(cg, 1, 0, 0, 0, 0),
-#             mincut=False,
-#         ).new_root_ids
-
-#         # Check New State
-#         assert len(new_root_ids) == 2
-#         assert cg.get_root(to_label(cg, 1, 0, 0, 0, 0)) != cg.get_root(
-#             to_label(cg, 1, 0, 0, 0, 1)
-#         )
-#         leaves = np.unique(
-#             cg.get_subgraph([cg.get_root(to_label(cg, 1, 0, 0, 0, 0))], leaves_only=True)
-#         )
-#         assert len(leaves) == 1 and to_label(cg, 1, 0, 0, 0, 0) in leaves
-#         leaves = np.unique(
-#             cg.get_subgraph([cg.get_root(to_label(cg, 1, 0, 0, 0, 1))], leaves_only=True)
-#         )
-#         assert len(leaves) == 1 and to_label(cg, 1, 0, 0, 0, 1) in leaves
-
-#         # Check Old State still accessible
-#         assert cg.get_root(
-#             to_label(cg, 1, 0, 0, 0, 0), time_stamp=fake_timestamp
-#         ) == cg.get_root(to_label(cg, 1, 0, 0, 0, 1), time_stamp=fake_timestamp)
-#         leaves = np.unique(
-#             cg.get_subgraph(
-#                 [cg.get_root(to_label(cg, 1, 0, 0, 0, 0), time_stamp=fake_timestamp)],
-#                 leaves_only=True,
-#             )
-#         )
-#         assert len(leaves) == 2
-#         assert to_label(cg, 1, 0, 0, 0, 0) in leaves
-#         assert to_label(cg, 1, 0, 0, 0, 1) in leaves
-
-#         # assert len(cg.get_latest_roots()) == 2
-#         # assert len(cg.get_latest_roots(fake_timestamp)) == 1
-
-#     def test_split_nonexisting_edge(self, gen_graph):
-#         """
-#         Remove edge between existing RG supervoxels 1 and 2 (same chunk)
-#         Expected: Different (new) parents for RG 1 and 2 on Layer two
-#         ┌─────┐      ┌─────┐
-#         │  A¹ │      │  A¹ │
-#         │ 1━2 │  =>  │ 1━2 │
-#         │   | │      │   | │
-#         │   3 │      │   3 │
-#         └─────┘      └─────┘
-#         """
-
-#         cg = gen_graph(n_layers=2)
-
-#         # Preparation: Build Chunk A
-#         fake_timestamp = datetime.utcnow() - timedelta(days=10)
-#         create_chunk(
-#             cg,
-#             vertices=[to_label(cg, 1, 0, 0, 0, 0), to_label(cg, 1, 0, 0, 0, 1)],
-#             edges=[
-#                 (to_label(cg, 1, 0, 0, 0, 0), to_label(cg, 1, 0, 0, 0, 1), 0.5),
-#                 (to_label(cg, 1, 0, 0, 0, 2), to_label(cg, 1, 0, 0, 0, 1), 0.5),
-#             ],
-#             timestamp=fake_timestamp,
-#         )
-
-#         # Split
-#         new_root_ids = cg.remove_edges(
-#             "Jane Doe",
-#             source_ids=to_label(cg, 1, 0, 0, 0, 0),
-#             sink_ids=to_label(cg, 1, 0, 0, 0, 2),
-#             mincut=False,
-#         ).new_root_ids
-
-#         assert len(new_root_ids) == 1
-
-#     @pytest.mark.timeout(30)
-#     def test_split_pair_neighboring_chunks(self, gen_graph):
-#         """
-#         Remove edge between existing RG supervoxels 1 and 2 (neighboring chunks)
-#         ┌─────┬─────┐      ┌─────┬─────┐
-#         │  A¹ │  B¹ │      │  A¹ │  B¹ │
-#         │  1━━┿━━2  │  =>  │  1  │  2  │
-#         │     │     │      │     │     │
-#         └─────┴─────┘      └─────┴─────┘
-#         """
-
-#         cg = gen_graph(n_layers=3)
-
-#         # Preparation: Build Chunk A
-#         fake_timestamp = datetime.utcnow() - timedelta(days=10)
-#         create_chunk(
-#             cg,
-#             vertices=[to_label(cg, 1, 0, 0, 0, 0)],
-#             edges=[(to_label(cg, 1, 0, 0, 0, 0), to_label(cg, 1, 1, 0, 0, 0), 1.0)],
-#             timestamp=fake_timestamp,
-#         )
-
-#         # Preparation: Build Chunk B
-#         create_chunk(
-#             cg,
-#             vertices=[to_label(cg, 1, 1, 0, 0, 0)],
-#             edges=[(to_label(cg, 1, 1, 0, 0, 0), to_label(cg, 1, 0, 0, 0, 0), 1.0)],
-#             timestamp=fake_timestamp,
-#         )
-
-#         add_layer(
-#             cg,
-#             3,
-#             [0, 0, 0],
-#
-#             time_stamp=fake_timestamp,
-#             n_threads=1,
-#         )
-
-#         # Split
-#         new_root_ids = cg.remove_edges(
-#             "Jane Doe",
-#             source_ids=to_label(cg, 1, 1, 0, 0, 0),
-#             sink_ids=to_label(cg, 1, 0, 0, 0, 0),
-#             mincut=False,
-#         ).new_root_ids
-
-#         # Check New State
-#         assert len(new_root_ids) == 2
-#         assert cg.get_root(to_label(cg, 1, 0, 0, 0, 0)) != cg.get_root(
-#             to_label(cg, 1, 1, 0, 0, 0)
-#         )
-#         leaves = np.unique(
-#             cg.get_subgraph([cg.get_root(to_label(cg, 1, 0, 0, 0, 0))], leaves_only=True)
-#         )
-#         assert len(leaves) == 1 and to_label(cg, 1, 0, 0, 0, 0) in leaves
-#         leaves = np.unique(
-#             cg.get_subgraph([cg.get_root(to_label(cg, 1, 1, 0, 0, 0))], leaves_only=True)
-#         )
-#         assert len(leaves) == 1 and to_label(cg, 1, 1, 0, 0, 0) in leaves
-
-#         # Check Old State still accessible
-#         assert cg.get_root(
-#             to_label(cg, 1, 0, 0, 0, 0), time_stamp=fake_timestamp
-#         ) == cg.get_root(to_label(cg, 1, 1, 0, 0, 0), time_stamp=fake_timestamp)
-#         leaves = np.unique(
-#             cg.get_subgraph(
-#                 [cg.get_root(to_label(cg, 1, 0, 0, 0, 0), time_stamp=fake_timestamp)],
-#                 leaves_only=True,
-#             )
-#         )
-#         assert len(leaves) == 2
-#         assert to_label(cg, 1, 0, 0, 0, 0) in leaves
-#         assert to_label(cg, 1, 1, 0, 0, 0) in leaves
-
-#         assert len(cg.get_latest_roots()) == 2
-#         assert len(cg.get_latest_roots(fake_timestamp)) == 1
-
-#     @pytest.mark.timeout(30)
-#     def test_split_verify_cross_chunk_edges(self, gen_graph):
-#         """
-#         Remove edge between existing RG supervoxels 1 and 2 (neighboring chunks)
-#         ┌─────┬─────┬─────┐      ┌─────┬─────┬─────┐
-#         |     │  A¹ │  B¹ │      |     │  A¹ │  B¹ │
-#         |     │  1━━┿━━3  │  =>  |     │  1━━┿━━3  │
-#         |     │  |  │     │      |     │     │     │
-#         |     │  2  │     │      |     │  2  │     │
-#         └─────┴─────┴─────┘      └─────┴─────┴─────┘
-#         """
-
-#         cg = gen_graph(n_layers=4)
-
-#         # Preparation: Build Chunk A
-#         fake_timestamp = datetime.utcnow() - timedelta(days=10)
-#         create_chunk(
-#             cg,
-#             vertices=[to_label(cg, 1, 1, 0, 0, 0), to_label(cg, 1, 1, 0, 0, 1)],
-#             edges=[
-#                 (to_label(cg, 1, 1, 0, 0, 0), to_label(cg, 1, 2, 0, 0, 0), inf),
-#                 (to_label(cg, 1, 1, 0, 0, 0), to_label(cg, 1, 1, 0, 0, 1), 0.5),
-#             ],
-#             timestamp=fake_timestamp,
-#         )
-
-#         # Preparation: Build Chunk B
-#         create_chunk(
-#             cg,
-#             vertices=[to_label(cg, 1, 2, 0, 0, 0)],
-#             edges=[(to_label(cg, 1, 2, 0, 0, 0), to_label(cg, 1, 1, 0, 0, 0), inf)],
-#             timestamp=fake_timestamp,
-#         )
-
-#         add_layer(
-#             cg,
-#             3,
-#             [0, 0, 0],
-#
-#             time_stamp=fake_timestamp,
-#             n_threads=1,
-#         )
-#         add_layer(
-#             cg,
-#             3,
-#             [0, 0, 0],
-#
-#             time_stamp=fake_timestamp,
-#             n_threads=1,
-#         )
-#         add_layer(
-#             cg,
-#             4,
-#             [0, 0, 0],
-#
-#             time_stamp=fake_timestamp,
-#             n_threads=1,
-#         )
-
-#         assert cg.get_root(to_label(cg, 1, 1, 0, 0, 0)) == cg.get_root(
-#             to_label(cg, 1, 1, 0, 0, 1)
-#         )
-#         assert cg.get_root(to_label(cg, 1, 1, 0, 0, 0)) == cg.get_root(
-#             to_label(cg, 1, 2, 0, 0, 0)
-#         )
-
-#         # Split
-#         new_root_ids = cg.remove_edges(
-#             "Jane Doe",
-#             source_ids=to_label(cg, 1, 1, 0, 0, 0),
-#             sink_ids=to_label(cg, 1, 1, 0, 0, 1),
-#             mincut=False,
-#         ).new_root_ids
-
-#         assert len(new_root_ids) == 2
-
-#         svs2 = cg.get_subgraph([new_root_ids[0]], leaves_only=True)
-#         svs1 = cg.get_subgraph([new_root_ids[1]], leaves_only=True)
-#         len_set = {1, 2}
-#         assert len(svs1) in len_set
-#         len_set.remove(len(svs1))
-#         assert len(svs2) in len_set
-
-#         # Check New State
-#         assert len(new_root_ids) == 2
-#         assert cg.get_root(to_label(cg, 1, 1, 0, 0, 0)) != cg.get_root(
-#             to_label(cg, 1, 1, 0, 0, 1)
-#         )
-#         assert cg.get_root(to_label(cg, 1, 1, 0, 0, 0)) == cg.get_root(
-#             to_label(cg, 1, 2, 0, 0, 0)
-#         )
-
-#         cc_dict = cg.get_atomic_cross_edges(
-#             cg.get_parent(to_label(cg, 1, 1, 0, 0, 0))
-#         )
-#         assert len(cc_dict[3]) == 1
-#         assert cc_dict[3][0][0] == to_label(cg, 1, 1, 0, 0, 0)
-#         assert cc_dict[3][0][1] == to_label(cg, 1, 2, 0, 0, 0)
-
-#         assert len(cg.get_latest_roots()) == 2
-#         assert len(cg.get_latest_roots(fake_timestamp)) == 1
-
-#     @pytest.mark.timeout(30)
-#     def test_split_verify_loop(self, gen_graph):
-#         """
-#         Remove edge between existing RG supervoxels 1 and 2 (neighboring chunks)
-#         ┌─────┬────────┬─────┐      ┌─────┬────────┬─────┐
-#         |     │     A¹ │  B¹ │      |     │     A¹ │  B¹ │
-#         |     │  4━━1━━┿━━5  │  =>  |     │  4  1━━┿━━5  │
-#         |     │   /    │  |  │      |     │        │  |  │
-#         |     │  3  2━━┿━━6  │      |     │  3  2━━┿━━6  │
-#         └─────┴────────┴─────┘      └─────┴────────┴─────┘
-#         """
-
-#         cg = gen_graph(n_layers=4)
-
-#         # Preparation: Build Chunk A
-#         fake_timestamp = datetime.utcnow() - timedelta(days=10)
-#         create_chunk(
-#             cg,
-#             vertices=[
-#                 to_label(cg, 1, 1, 0, 0, 0),
-#                 to_label(cg, 1, 1, 0, 0, 1),
-#                 to_label(cg, 1, 1, 0, 0, 2),
-#                 to_label(cg, 1, 1, 0, 0, 3),
-#             ],
-#             edges=[
-#                 (to_label(cg, 1, 1, 0, 0, 0), to_label(cg, 1, 2, 0, 0, 0), inf),
-#                 (to_label(cg, 1, 1, 0, 0, 1), to_label(cg, 1, 2, 0, 0, 1), inf),
-#                 (to_label(cg, 1, 1, 0, 0, 0), to_label(cg, 1, 1, 0, 0, 2), 0.5),
-#                 (to_label(cg, 1, 1, 0, 0, 0), to_label(cg, 1, 1, 0, 0, 3), 0.5),
-#             ],
-#             timestamp=fake_timestamp,
-#         )
-
-#         # Preparation: Build Chunk B
-#         create_chunk(
-#             cg,
-#             vertices=[to_label(cg, 1, 2, 0, 0, 0), to_label(cg, 1, 2, 0, 0, 1)],
-#             edges=[
-#                 (to_label(cg, 1, 2, 0, 0, 0), to_label(cg, 1, 1, 0, 0, 0), inf),
-#                 (to_label(cg, 1, 2, 0, 0, 1), to_label(cg, 1, 1, 0, 0, 1), inf),
-#                 (to_label(cg, 1, 2, 0, 0, 1), to_label(cg, 1, 2, 0, 0, 0), 0.5),
-#             ],
-#             timestamp=fake_timestamp,
-#         )
-
-#         add_layer(
-#             cg,
-#             3,
-#             [0, 0, 0],
-#
-#             time_stamp=fake_timestamp,
-#             n_threads=1,
-#         )
-#         add_layer(
-#             cg,
-#             3,
-#             [0, 0, 0],
-#
-#             time_stamp=fake_timestamp,
-#             n_threads=1,
-#         )
-#         add_layer(
-#             cg,
-#             4,
-#             [0, 0, 0],
-#
-#             time_stamp=fake_timestamp,
-#             n_threads=1,
-#         )
-
-#         assert cg.get_root(to_label(cg, 1, 1, 0, 0, 0)) == cg.get_root(
-#             to_label(cg, 1, 1, 0, 0, 1)
-#         )
-#         assert cg.get_root(to_label(cg, 1, 1, 0, 0, 0)) == cg.get_root(
-#             to_label(cg, 1, 2, 0, 0, 0)
-#         )
-
-#         # Split
-#         new_root_ids = cg.remove_edges(
-#             "Jane Doe",
-#             source_ids=to_label(cg, 1, 1, 0, 0, 0),
-#             sink_ids=to_label(cg, 1, 1, 0, 0, 2),
-#             mincut=False,
-#         ).new_root_ids
-
-#         assert len(new_root_ids) == 2
-
-#         new_root_ids = cg.remove_edges(
-#             "Jane Doe",
-#             source_ids=to_label(cg, 1, 1, 0, 0, 0),
-#             sink_ids=to_label(cg, 1, 1, 0, 0, 3),
-#             mincut=False,
-#         ).new_root_ids
-
-#         assert len(new_root_ids) == 2
-
-#         cc_dict = cg.get_atomic_cross_edges(
-#             cg.get_parent(to_label(cg, 1, 1, 0, 0, 0))
-#         )
-#         assert len(cc_dict[3]) == 1
-#         cc_dict = cg.get_atomic_cross_edges(
-#             cg.get_parent(to_label(cg, 1, 1, 0, 0, 0))
-#         )
-#         assert len(cc_dict[3]) == 1
-
-#         assert len(cg.get_latest_roots()) == 3
-#         assert len(cg.get_latest_roots(fake_timestamp)) == 1
-
-#     @pytest.mark.timeout(30)
-#     def test_split_pair_disconnected_chunks(self, gen_graph):
-#         """
-#         Remove edge between existing RG supervoxels 1 and 2 (disconnected chunks)
-#         ┌─────┐     ┌─────┐      ┌─────┐     ┌─────┐
-#         │  A¹ │ ... │  Z¹ │      │  A¹ │ ... │  Z¹ │
-#         │  1━━┿━━━━━┿━━2  │  =>  │  1  │     │  2  │
-#         │     │     │     │      │     │     │     │
-#         └─────┘     └─────┘      └─────┘     └─────┘
-#         """
-
-#         cg = gen_graph(n_layers=9)
-
-#         # Preparation: Build Chunk A
-#         fake_timestamp = datetime.utcnow() - timedelta(days=10)
-#         create_chunk(
-#             cg,
-#             vertices=[to_label(cg, 1, 0, 0, 0, 0)],
-#             edges=[(to_label(cg, 1, 0, 0, 0, 0), to_label(cg, 1, 7, 7, 7, 0), 1.0,)],
-#             timestamp=fake_timestamp,
-#         )
-
-#         # Preparation: Build Chunk Z
-#         create_chunk(
-#             cg,
-#             vertices=[to_label(cg, 1, 7, 7, 7, 0)],
-#             edges=[(to_label(cg, 1, 7, 7, 7, 0), to_label(cg, 1, 0, 0, 0, 0), 1.0,)],
-#             timestamp=fake_timestamp,
-#         )
-
-#         add_layer(
-#             cg,
-#             3,
-#             [0, 0, 0],
-#
-#             time_stamp=fake_timestamp,
-#             n_threads=1,
-#         )
-#         add_layer(
-#             cg,
-#             3,
-#             [0, 0, 0],
-#
-#             time_stamp=fake_timestamp,
-#             n_threads=1,
-#         )
-#         add_layer(
-#             cg,
-#             4,
-#             [0, 0, 0],
-#
-#             time_stamp=fake_timestamp,
-#             n_threads=1,
-#         )
-#         add_layer(
-#             cg,
-#             4,
-#             [0, 0, 0],
-#
-#             time_stamp=fake_timestamp,
-#             n_threads=1,
-#         )
-#         add_layer(
-#             cg,
-#             5,
-#             [0, 0, 0],
-#
-#             time_stamp=fake_timestamp,
-#             n_threads=1,
-#         )
-#         add_layer(
-#             cg,
-#             5,
-#             [0, 0, 0],
-#
-#             time_stamp=fake_timestamp,
-#             n_threads=1,
-#         )
-#         add_layer(
-#             cg,
-#             6,
-#             [0, 0, 0],
-#
-#             time_stamp=fake_timestamp,
-#             n_threads=1,
-#         )
-#         add_layer(
-#             cg,
-#             6,
-#             [0, 0, 0],
-#
-#             time_stamp=fake_timestamp,
-#             n_threads=1,
-#         )
-#         add_layer(
-#             cg,
-#             7,
-#             [0, 0, 0],
-#
-#             time_stamp=fake_timestamp,
-#             n_threads=1,
-#         )
-#         add_layer(
-#             cg,
-#             7,
-#             [0, 0, 0],
-#
-#             time_stamp=fake_timestamp,
-#             n_threads=1,
-#         )
-#         add_layer(
-#             cg,
-#             8,
-#             [0, 0, 0],
-#
-#             time_stamp=fake_timestamp,
-#             n_threads=1,
-#         )
-#         add_layer(
-#             cg,
-#             8,
-#             [0, 0, 0],
-#
-#             time_stamp=fake_timestamp,
-#             n_threads=1,
-#         )
-#         add_layer(
-#             cg,
-#             9,
-#             [0, 0, 0],
-#
-#             time_stamp=fake_timestamp,
-#             n_threads=1,
-#         )
-
-#         # Split
-#         new_roots = cg.remove_edges(
-#             "Jane Doe",
-#             source_ids=to_label(cg, 1, 7, 7, 7, 0),
-#             sink_ids=to_label(cg, 1, 0, 0, 0, 0),
-#             mincut=False,
-#         ).new_root_ids
-
-#         # Check New State
-#         assert len(new_roots) == 2
-#         assert cg.get_root(to_label(cg, 1, 0, 0, 0, 0)) != cg.get_root(
-#             to_label(cg, 1, 7, 7, 7, 0)
-#         )
-#         leaves = np.unique(
-#             cg.get_subgraph([cg.get_root(to_label(cg, 1, 0, 0, 0, 0))], leaves_only=True)
-#         )
-#         assert len(leaves) == 1 and to_label(cg, 1, 0, 0, 0, 0) in leaves
-#         leaves = np.unique(
-#             cg.get_subgraph([cg.get_root(to_label(cg, 1, 7, 7, 7, 0))], leaves_only=True)
-#         )
-#         assert len(leaves) == 1 and to_label(cg, 1, 7, 7, 7, 0) in leaves
-
-#         # Check Old State still accessible
-#         assert cg.get_root(
-#             to_label(cg, 1, 0, 0, 0, 0), time_stamp=fake_timestamp
-#         ) == cg.get_root(to_label(cg, 1, 7, 7, 7, 0), time_stamp=fake_timestamp)
-#         leaves = np.unique(
-#             cg.get_subgraph(
-#                 [cg.get_root(to_label(cg, 1, 0, 0, 0, 0), time_stamp=fake_timestamp)],
-#                 leaves_only=True,
-#             )
-#         )
-#         assert len(leaves) == 2
-#         assert to_label(cg, 1, 0, 0, 0, 0) in leaves
-#         assert to_label(cg, 1, 7, 7, 7, 0) in leaves
-
-#     @pytest.mark.timeout(30)
-#     def test_split_pair_already_disconnected(self, gen_graph):
-#         """
-#         Try to remove edge between already disconnected RG supervoxels 1 and 2 (same chunk).
-#         Expected: No change, no error
-#         ┌─────┐      ┌─────┐
-#         │  A¹ │      │  A¹ │
-#         │ 1 2 │  =>  │ 1 2 │
-#         │     │      │     │
-#         └─────┘      └─────┘
-#         """
-
-#         cg = gen_graph(n_layers=2)
-
-#         # Preparation: Build Chunk A
-#         fake_timestamp = datetime.utcnow() - timedelta(days=10)
-#         create_chunk(
-#             cg,
-#             vertices=[to_label(cg, 1, 0, 0, 0, 0), to_label(cg, 1, 0, 0, 0, 1)],
-#             edges=[],
-#             timestamp=fake_timestamp,
-#         )
-
-#         res_old = cg.client._table.read_rows()
-#         res_old.consume_all()
-
-#         # Split
-#         with pytest.raises(exceptions.PreconditionError):
-#             cg.remove_edges(
-#                 "Jane Doe",
-#                 source_ids=to_label(cg, 1, 0, 0, 0, 1),
-#                 sink_ids=to_label(cg, 1, 0, 0, 0, 0),
-#                 mincut=False,
-#             )
-
-#         res_new = cg.client._table.read_rows()
-#         res_new.consume_all()
-
-#         # Check
-#         if res_old.rows != res_new.rows:
-#             warn(
-#                 "Rows were modified when splitting a pair of already disconnected supervoxels. "
-#                 "While probably not an error, it is an unnecessary operation."
-#             )
-
-#     @pytest.mark.timeout(30)
-#     def test_split_full_circle_to_triple_chain_same_chunk(self, gen_graph):
-#         """
-#         Remove direct edge between RG supervoxels 1 and 2, but leave indirect connection (same chunk)
-#         ┌─────┐      ┌─────┐
-#         │  A¹ │      │  A¹ │
-#         │ 1━2 │  =>  │ 1 2 │
-#         │ ┗3┛ │      │ ┗3┛ │
-#         └─────┘      └─────┘
-#         """
-
-#         cg = gen_graph(n_layers=2)
-
-#         # Preparation: Build Chunk A
-#         fake_timestamp = datetime.utcnow() - timedelta(days=10)
-#         create_chunk(
-#             cg,
-#             vertices=[
-#                 to_label(cg, 1, 0, 0, 0, 0),
-#                 to_label(cg, 1, 0, 0, 0, 1),
-#                 to_label(cg, 1, 0, 0, 0, 2),
-#             ],
-#             edges=[
-#                 (to_label(cg, 1, 0, 0, 0, 0), to_label(cg, 1, 0, 0, 0, 2), 0.5),
-#                 (to_label(cg, 1, 0, 0, 0, 1), to_label(cg, 1, 0, 0, 0, 2), 0.5),
-#                 (to_label(cg, 1, 0, 0, 0, 0), to_label(cg, 1, 0, 0, 0, 1), 0.3),
-#             ],
-#             timestamp=fake_timestamp,
-#         )
-
-#         # Split
-#         new_root_ids = cg.remove_edges(
-#             "Jane Doe",
-#             source_ids=to_label(cg, 1, 0, 0, 0, 1),
-#             sink_ids=to_label(cg, 1, 0, 0, 0, 0),
-#             mincut=False,
-#         ).new_root_ids
-
-#         # Check New State
-#         assert len(new_root_ids) == 1
-#         assert cg.get_root(to_label(cg, 1, 0, 0, 0, 0)) == new_root_ids[0]
-#         assert cg.get_root(to_label(cg, 1, 0, 0, 0, 1)) == new_root_ids[0]
-#         assert cg.get_root(to_label(cg, 1, 0, 0, 0, 2)) == new_root_ids[0]
-#         leaves = np.unique(cg.get_subgraph([new_root_ids[0]], leaves_only=True))
-#         assert len(leaves) == 3
-#         assert to_label(cg, 1, 0, 0, 0, 0) in leaves
-#         assert to_label(cg, 1, 0, 0, 0, 1) in leaves
-#         assert to_label(cg, 1, 0, 0, 0, 2) in leaves
-
-#         # Check Old State still accessible
-#         old_root_id = cg.get_root(
-#             to_label(cg, 1, 0, 0, 0, 0), time_stamp=fake_timestamp
-#         )
-#         assert new_root_ids[0] != old_root_id
-
-#         # assert len(cg.get_latest_roots()) == 1
-#         # assert len(cg.get_latest_roots(fake_timestamp)) == 1
-
-#     @pytest.mark.timeout(30)
-#     def test_split_full_circle_to_triple_chain_neighboring_chunks(self, gen_graph):
-#         """
-#         Remove direct edge between RG supervoxels 1 and 2, but leave indirect connection (neighboring chunks)
-#         ┌─────┬─────┐      ┌─────┬─────┐
-#         │  A¹ │  B¹ │      │  A¹ │  B¹ │
-#         │  1━━┿━━2  │  =>  │  1  │  2  │
-#         │  ┗3━┿━━┛  │      │  ┗3━┿━━┛  │
-#         └─────┴─────┘      └─────┴─────┘
-#         """
-
-#         cg = gen_graph(n_layers=3)
-
-#         # Preparation: Build Chunk A
-#         fake_timestamp = datetime.utcnow() - timedelta(days=10)
-#         create_chunk(
-#             cg,
-#             vertices=[to_label(cg, 1, 0, 0, 0, 0), to_label(cg, 1, 0, 0, 0, 1)],
-#             edges=[
-#                 (to_label(cg, 1, 0, 0, 0, 0), to_label(cg, 1, 0, 0, 0, 1), 0.5),
-#                 (to_label(cg, 1, 0, 0, 0, 1), to_label(cg, 1, 1, 0, 0, 0), 0.5),
-#                 (to_label(cg, 1, 0, 0, 0, 0), to_label(cg, 1, 1, 0, 0, 0), 0.3),
-#             ],
-#             timestamp=fake_timestamp,
-#         )
-
-#         # Preparation: Build Chunk B
-#         create_chunk(
-#             cg,
-#             vertices=[to_label(cg, 1, 1, 0, 0, 0)],
-#             edges=[
-#                 (to_label(cg, 1, 1, 0, 0, 0), to_label(cg, 1, 0, 0, 0, 1), 0.5),
-#                 (to_label(cg, 1, 1, 0, 0, 0), to_label(cg, 1, 0, 0, 0, 0), 0.3),
-#             ],
-#             timestamp=fake_timestamp,
-#         )
-
-#         add_layer(
-#             cg,
-#             3,
-#             [0, 0, 0],
-#
-#             time_stamp=fake_timestamp,
-#             n_threads=1,
-#         )
-
-#         # Split
-#         new_root_ids = cg.remove_edges(
-#             "Jane Doe",
-#             source_ids=to_label(cg, 1, 1, 0, 0, 0),
-#             sink_ids=to_label(cg, 1, 0, 0, 0, 0),
-#             mincut=False,
-#         ).new_root_ids
-
-#         # Check New State
-#         assert len(new_root_ids) == 1
-#         assert cg.get_root(to_label(cg, 1, 0, 0, 0, 0)) == new_root_ids[0]
-#         assert cg.get_root(to_label(cg, 1, 0, 0, 0, 1)) == new_root_ids[0]
-#         assert cg.get_root(to_label(cg, 1, 1, 0, 0, 0)) == new_root_ids[0]
-#         leaves = np.unique(cg.get_subgraph([new_root_ids[0]], leaves_only=True))
-#         assert len(leaves) == 3
-#         assert to_label(cg, 1, 0, 0, 0, 0) in leaves
-#         assert to_label(cg, 1, 0, 0, 0, 1) in leaves
-#         assert to_label(cg, 1, 1, 0, 0, 0) in leaves
-
-#         # Check Old State still accessible
-#         old_root_id = cg.get_root(
-#             to_label(cg, 1, 0, 0, 0, 0), time_stamp=fake_timestamp
-#         )
-#         assert new_root_ids[0] != old_root_id
-
-#         assert len(cg.get_latest_roots()) == 1
-#         assert len(cg.get_latest_roots(fake_timestamp)) == 1
-
-#     @pytest.mark.timeout(30)
-#     def test_split_full_circle_to_triple_chain_disconnected_chunks(self, gen_graph):
-#         """
-#         Remove direct edge between RG supervoxels 1 and 2, but leave indirect connection (disconnected chunks)
-#         ┌─────┐     ┌─────┐      ┌─────┐     ┌─────┐
-#         │  A¹ │ ... │  Z¹ │      │  A¹ │ ... │  Z¹ │
-#         │  1━━┿━━━━━┿━━2  │  =>  │  1  │     │  2  │
-#         │  ┗3━┿━━━━━┿━━┛  │      │  ┗3━┿━━━━━┿━━┛  │
-#         └─────┘     └─────┘      └─────┘     └─────┘
-#         """
-
-#         cg = gen_graph(n_layers=9)
-
-#         loc = 2
-
-#         # Preparation: Build Chunk A
-#         fake_timestamp = datetime.utcnow() - timedelta(days=10)
-#         create_chunk(
-#             cg,
-#             vertices=[to_label(cg, 1, 0, 0, 0, 0), to_label(cg, 1, 0, 0, 0, 1)],
-#             edges=[
-#                 (to_label(cg, 1, 0, 0, 0, 0), to_label(cg, 1, 0, 0, 0, 1), 0.5),
-#                 (to_label(cg, 1, 0, 0, 0, 1), to_label(cg, 1, loc, loc, loc, 0), 0.5,),
-#                 (to_label(cg, 1, 0, 0, 0, 0), to_label(cg, 1, loc, loc, loc, 0), 0.3,),
-#             ],
-#             timestamp=fake_timestamp,
-#         )
-
-#         # Preparation: Build Chunk Z
-#         create_chunk(
-#             cg,
-#             vertices=[to_label(cg, 1, loc, loc, loc, 0)],
-#             edges=[
-#                 (to_label(cg, 1, loc, loc, loc, 0), to_label(cg, 1, 0, 0, 0, 1), 0.5,),
-#                 (to_label(cg, 1, loc, loc, loc, 0), to_label(cg, 1, 0, 0, 0, 0), 0.3,),
-#             ],
-#             timestamp=fake_timestamp,
-#         )
-
-#         for i_layer in range(3, 10):
-#             if loc // 2 ** (i_layer - 3) == 1:
-#                 add_layer(
-#                     cg,
-#                     i_layer,
-#                     [0, 0, 0],
-#
-#                     time_stamp=fake_timestamp,
-#                     n_threads=1,
-#                 )
-#             elif loc // 2 ** (i_layer - 3) == 0:
-#                 add_layer(
-#                     cg,
-#                     i_layer,
-#                     [0, 0, 0],
-#
-#                     time_stamp=fake_timestamp,
-#                     n_threads=1,
-#                 )
-#             else:
-#                 add_layer(
-#                     cg,
-#                     i_layer,
-#                     [0, 0, 0],
-#
-#                     time_stamp=fake_timestamp,
-#                     n_threads=1,
-#                 )
-#                 add_layer(
-#                     cg,
-#                     i_layer,
-#                     [0, 0, 0],
-#
-#                     time_stamp=fake_timestamp,
-#                     n_threads=1,
-#                 )
-
-#         assert (
-#             cg.get_root(to_label(cg, 1, loc, loc, loc, 0))
-#             == cg.get_root(to_label(cg, 1, 0, 0, 0, 0))
-#             == cg.get_root(to_label(cg, 1, 0, 0, 0, 1))
-#         )
-
-#         # Split
-#         new_root_ids = cg.remove_edges(
-#             "Jane Doe",
-#             source_ids=to_label(cg, 1, loc, loc, loc, 0),
-#             sink_ids=to_label(cg, 1, 0, 0, 0, 0),
-#             mincut=False,
-#         ).new_root_ids
-
-#         # Check New State
-#         assert len(new_root_ids) == 1
-#         assert cg.get_root(to_label(cg, 1, 0, 0, 0, 0)) == new_root_ids[0]
-#         assert cg.get_root(to_label(cg, 1, 0, 0, 0, 1)) == new_root_ids[0]
-#         assert cg.get_root(to_label(cg, 1, loc, loc, loc, 0)) == new_root_ids[0]
-#         leaves = np.unique(cg.get_subgraph([new_root_ids[0]], leaves_only=True))
-#         assert len(leaves) == 3
-#         assert to_label(cg, 1, 0, 0, 0, 0) in leaves
-#         assert to_label(cg, 1, 0, 0, 0, 1) in leaves
-#         assert to_label(cg, 1, loc, loc, loc, 0) in leaves
-
-#         # Check Old State still accessible
-#         old_root_id = cg.get_root(
-#             to_label(cg, 1, 0, 0, 0, 0), time_stamp=fake_timestamp
-#         )
-#         assert new_root_ids[0] != old_root_id
-
-#         assert len(cg.get_latest_roots()) == 1
-#         assert len(cg.get_latest_roots(fake_timestamp)) == 1
-
-#     @pytest.mark.timeout(30)
-#     def test_split_same_node(self, gen_graph):
-#         """
-#         Try to remove (non-existing) edge between RG supervoxel 1 and itself
-#         ┌─────┐
-#         │  A¹ │
-#         │  1  │  =>  Reject
-#         │     │
-#         └─────┘
-#         """
-
-#         cg = gen_graph(n_layers=2)
-
-#         # Preparation: Build Chunk A
-#         fake_timestamp = datetime.utcnow() - timedelta(days=10)
-#         create_chunk(
-#             cg,
-#             vertices=[to_label(cg, 1, 0, 0, 0, 0)],
-#             edges=[],
-#             timestamp=fake_timestamp,
-#         )
-
-#         res_old = cg.client._table.read_rows()
-#         res_old.consume_all()
-
-#         # Split
-#         with pytest.raises(exceptions.PreconditionError):
-#             cg.remove_edges(
-#                 "Jane Doe",
-#                 source_ids=to_label(cg, 1, 0, 0, 0, 0),
-#                 sink_ids=to_label(cg, 1, 0, 0, 0, 0),
-#                 mincut=False,
-#             )
-
-#         res_new = cg.client._table.read_rows()
-#         res_new.consume_all()
-
-#         assert res_new.rows == res_old.rows
-
-#     @pytest.mark.timeout(30)
-#     def test_split_pair_abstract_nodes(self, gen_graph):
-#         """
-#         Try to remove (non-existing) edge between RG supervoxel 1 and abstract node "2"
-#                     ┌─────┐
-#                     │  B² │
-#                     │ "2" │
-#                     │     │
-#                     └─────┘
-#         ┌─────┐              =>  Reject
-#         │  A¹ │
-#         │  1  │
-#         │     │
-#         └─────┘
-#         """
-
-#         cg = gen_graph(n_layers=3)
-
-#         # Preparation: Build Chunk A
-#         fake_timestamp = datetime.utcnow() - timedelta(days=10)
-#         create_chunk(
-#             cg,
-#             vertices=[to_label(cg, 1, 0, 0, 0, 0)],
-#             edges=[],
-#             timestamp=fake_timestamp,
-#         )
-
-#         # Preparation: Build Chunk B
-#         create_chunk(
-#             cg,
-#             vertices=[to_label(cg, 1, 1, 0, 0, 0)],
-#             edges=[],
-#             timestamp=fake_timestamp,
-#         )
-
-#         add_layer(
-#             cg,
-#             3,
-#             [0, 0, 0],
-#
-#             time_stamp=fake_timestamp,
-#             n_threads=1,
-#         )
-
-#         res_old = cg.client._table.read_rows()
-#         res_old.consume_all()
-
-#         # Split
-#         with pytest.raises(exceptions.PreconditionError):
-#             cg.remove_edges(
-#                 "Jane Doe",
-#                 source_ids=to_label(cg, 1, 0, 0, 0, 0),
-#                 sink_ids=to_label(cg, 2, 1, 0, 0, 1),
-#                 mincut=False,
-#             )
-
-#         res_new = cg.client._table.read_rows()
-#         res_new.consume_all()
-
-#         assert res_new.rows == res_old.rows
-
-#     @pytest.mark.timeout(30)
-#     def test_diagonal_connections(self, gen_graph):
-#         """
-#         Create graph with edge between RG supervoxels 1 and 2 (same chunk)
-#         and edge between RG supervoxels 1 and 3 (neighboring chunks)
-#         ┌─────┬─────┐
-#         │  A¹ │  B¹ │
-#         │ 2━1━┿━━3  │
-#         │  /  │     │
-#         ┌─────┬─────┐
-#         │  |  │     │
-#         │  4━━┿━━5  │
-#         │  C¹ │  D¹ │
-#         └─────┴─────┘
-#         """
-
-#         cg = gen_graph(n_layers=3)
-
-#         # Chunk A
-#         create_chunk(
-#             cg,
-#             vertices=[to_label(cg, 1, 0, 0, 0, 0), to_label(cg, 1, 0, 0, 0, 1)],
-#             edges=[
-#                 (to_label(cg, 1, 0, 0, 0, 0), to_label(cg, 1, 0, 0, 0, 1), 0.5),
-#                 (to_label(cg, 1, 0, 0, 0, 0), to_label(cg, 1, 1, 0, 0, 0), inf),
-#                 (to_label(cg, 1, 0, 0, 0, 0), to_label(cg, 1, 0, 1, 0, 0), inf),
-#             ],
-#         )
-
-#         # Chunk B
-#         create_chunk(
-#             cg,
-#             vertices=[to_label(cg, 1, 1, 0, 0, 0)],
-#             edges=[(to_label(cg, 1, 1, 0, 0, 0), to_label(cg, 1, 0, 0, 0, 0), inf)],
-#         )
-
-#         # Chunk C
-#         create_chunk(
-#             cg,
-#             vertices=[to_label(cg, 1, 0, 1, 0, 0)],
-#             edges=[
-#                 (to_label(cg, 1, 0, 1, 0, 0), to_label(cg, 1, 1, 1, 0, 0), inf),
-#                 (to_label(cg, 1, 0, 1, 0, 0), to_label(cg, 1, 0, 0, 0, 0), inf),
-#             ],
-#         )
-
-#         # Chunk D
-#         create_chunk(
-#             cg,
-#             vertices=[to_label(cg, 1, 1, 1, 0, 0)],
-#             edges=[(to_label(cg, 1, 1, 1, 0, 0), to_label(cg, 1, 0, 1, 0, 0), inf)],
-#         )
-
-#         add_layer(
-#             cg, 3, [0, 0, 0],  n_threads=1,
-#         )
-
-#         rr = cg.range_read_chunk(chunk_id=cg.get_chunk_id(layer=3, x=0, y=0, z=0))
-#         root_ids_t0 = list(rr.keys())
-
-#         assert len(root_ids_t0) == 1
-
-#         child_ids = []
-#         for root_id in root_ids_t0:
-#             child_ids.extend([cg.get_subgraph([root_id])], leaves_only=True)
-
-#         new_roots = cg.remove_edges(
-#             "Jane Doe",
-#             source_ids=to_label(cg, 1, 0, 0, 0, 0),
-#             sink_ids=to_label(cg, 1, 0, 0, 0, 1),
-#             mincut=False,
-#         ).new_root_ids
-
-#         assert len(new_roots) == 2
-#         assert cg.get_root(to_label(cg, 1, 1, 1, 0, 0)) == cg.get_root(
-#             to_label(cg, 1, 0, 1, 0, 0)
-#         )
-#         assert cg.get_root(to_label(cg, 1, 0, 0, 0, 0)) == cg.get_root(
-#             to_label(cg, 1, 0, 0, 0, 0)
-#         )
+class TestGraphSplit:
+    @pytest.mark.timeout(30)
+    def test_split_pair_same_chunk(self, gen_graph):
+        """
+        Remove edge between existing RG supervoxels 1 and 2 (same chunk)
+        Expected: Different (new) parents for RG 1 and 2 on Layer two
+        ┌─────┐      ┌─────┐
+        │  A¹ │      │  A¹ │
+        │ 1━2 │  =>  │ 1 2 │
+        │     │      │     │
+        └─────┘      └─────┘
+        """
+
+        cg: ChunkedGraph = gen_graph(n_layers=2)
+
+        # Preparation: Build Chunk A
+        fake_timestamp = datetime.now(UTC) - timedelta(days=10)
+        create_chunk(
+            cg,
+            vertices=[to_label(cg, 1, 0, 0, 0, 0), to_label(cg, 1, 0, 0, 0, 1)],
+            edges=[(to_label(cg, 1, 0, 0, 0, 0), to_label(cg, 1, 0, 0, 0, 1), 0.5)],
+            timestamp=fake_timestamp,
+        )
+
+        # Split
+        new_root_ids = cg.remove_edges(
+            "Jane Doe",
+            source_ids=to_label(cg, 1, 0, 0, 0, 1),
+            sink_ids=to_label(cg, 1, 0, 0, 0, 0),
+            mincut=False,
+        ).new_root_ids
+
+        # verify new state
+        assert len(new_root_ids) == 2
+        assert cg.get_root(to_label(cg, 1, 0, 0, 0, 0)) != cg.get_root(
+            to_label(cg, 1, 0, 0, 0, 1)
+        )
+        leaves = np.unique(
+            cg.get_subgraph(
+                [cg.get_root(to_label(cg, 1, 0, 0, 0, 0))], leaves_only=True
+            )
+        )
+        assert len(leaves) == 1 and to_label(cg, 1, 0, 0, 0, 0) in leaves
+        leaves = np.unique(
+            cg.get_subgraph(
+                [cg.get_root(to_label(cg, 1, 0, 0, 0, 1))], leaves_only=True
+            )
+        )
+        assert len(leaves) == 1 and to_label(cg, 1, 0, 0, 0, 1) in leaves
+
+        # verify old state
+        cg.cache = None
+        assert cg.get_root(
+            to_label(cg, 1, 0, 0, 0, 0), time_stamp=fake_timestamp
+        ) == cg.get_root(to_label(cg, 1, 0, 0, 0, 1), time_stamp=fake_timestamp)
+        leaves = np.unique(
+            cg.get_subgraph(
+                [cg.get_root(to_label(cg, 1, 0, 0, 0, 0), time_stamp=fake_timestamp)],
+                leaves_only=True,
+            )
+        )
+        assert len(leaves) == 2
+        assert to_label(cg, 1, 0, 0, 0, 0) in leaves
+        assert to_label(cg, 1, 0, 0, 0, 1) in leaves
+
+        assert len(get_latest_roots(cg)) == 2
+        assert len(get_latest_roots(cg, fake_timestamp)) == 1
+
+    def test_split_nonexisting_edge(self, gen_graph):
+        """
+        Remove edge between existing RG supervoxels 1 and 2 (same chunk)
+        Expected: Different (new) parents for RG 1 and 2 on Layer two
+        ┌─────┐      ┌─────┐
+        │  A¹ │      │  A¹ │
+        │ 1━2 │  =>  │ 1━2 │
+        │   | │      │   | │
+        │   3 │      │   3 │
+        └─────┘      └─────┘
+        """
+        cg = gen_graph(n_layers=2)
+        fake_timestamp = datetime.now(UTC) - timedelta(days=10)
+        create_chunk(
+            cg,
+            vertices=[to_label(cg, 1, 0, 0, 0, 0), to_label(cg, 1, 0, 0, 0, 1)],
+            edges=[
+                (to_label(cg, 1, 0, 0, 0, 0), to_label(cg, 1, 0, 0, 0, 1), 0.5),
+                (to_label(cg, 1, 0, 0, 0, 2), to_label(cg, 1, 0, 0, 0, 1), 0.5),
+            ],
+            timestamp=fake_timestamp,
+        )
+        new_root_ids = cg.remove_edges(
+            "Jane Doe",
+            source_ids=to_label(cg, 1, 0, 0, 0, 0),
+            sink_ids=to_label(cg, 1, 0, 0, 0, 2),
+            mincut=False,
+        ).new_root_ids
+        assert len(new_root_ids) == 1
+
+    @pytest.mark.timeout(30)
+    def test_split_pair_neighboring_chunks(self, gen_graph):
+        """
+        Remove edge between existing RG supervoxels 1 and 2 (neighboring chunks)
+        ┌─────┬─────┐      ┌─────┬─────┐
+        │  A¹ │  B¹ │      │  A¹ │  B¹ │
+        │  1━━┿━━2  │  =>  │  1  │  2  │
+        │     │     │      │     │     │
+        └─────┴─────┘      └─────┴─────┘
+        """
+        cg: ChunkedGraph = gen_graph(n_layers=3)
+        fake_timestamp = datetime.now(UTC) - timedelta(days=10)
+        create_chunk(
+            cg,
+            vertices=[to_label(cg, 1, 0, 0, 0, 0)],
+            edges=[(to_label(cg, 1, 0, 0, 0, 0), to_label(cg, 1, 1, 0, 0, 0), 1.0)],
+            timestamp=fake_timestamp,
+        )
+        create_chunk(
+            cg,
+            vertices=[to_label(cg, 1, 1, 0, 0, 0)],
+            edges=[(to_label(cg, 1, 1, 0, 0, 0), to_label(cg, 1, 0, 0, 0, 0), 1.0)],
+            timestamp=fake_timestamp,
+        )
+        add_parent_chunk(
+            cg,
+            3,
+            [0, 0, 0],
+            time_stamp=fake_timestamp,
+            n_threads=1,
+        )
+        new_root_ids = cg.remove_edges(
+            "Jane Doe",
+            source_ids=to_label(cg, 1, 1, 0, 0, 0),
+            sink_ids=to_label(cg, 1, 0, 0, 0, 0),
+            mincut=False,
+        ).new_root_ids
+
+        # verify new state
+        assert len(new_root_ids) == 2
+        assert cg.get_root(to_label(cg, 1, 0, 0, 0, 0)) != cg.get_root(
+            to_label(cg, 1, 1, 0, 0, 0)
+        )
+        leaves = np.unique(
+            cg.get_subgraph(
+                [cg.get_root(to_label(cg, 1, 0, 0, 0, 0))], leaves_only=True
+            )
+        )
+        assert len(leaves) == 1 and to_label(cg, 1, 0, 0, 0, 0) in leaves
+        leaves = np.unique(
+            cg.get_subgraph(
+                [cg.get_root(to_label(cg, 1, 1, 0, 0, 0))], leaves_only=True
+            )
+        )
+        assert len(leaves) == 1 and to_label(cg, 1, 1, 0, 0, 0) in leaves
+
+        # verify old state
+        assert cg.get_root(
+            to_label(cg, 1, 0, 0, 0, 0), time_stamp=fake_timestamp
+        ) == cg.get_root(to_label(cg, 1, 1, 0, 0, 0), time_stamp=fake_timestamp)
+        leaves = np.unique(
+            cg.get_subgraph(
+                [cg.get_root(to_label(cg, 1, 0, 0, 0, 0), time_stamp=fake_timestamp)],
+                leaves_only=True,
+            )
+        )
+        assert len(leaves) == 2
+        assert to_label(cg, 1, 0, 0, 0, 0) in leaves
+        assert to_label(cg, 1, 1, 0, 0, 0) in leaves
+        assert len(get_latest_roots(cg)) == 2
+        assert len(get_latest_roots(cg, fake_timestamp)) == 1
+
+    @pytest.mark.timeout(30)
+    def test_split_verify_cross_chunk_edges(self, gen_graph):
+        """
+        Remove edge between existing RG supervoxels 1 and 2 (neighboring chunks)
+        ┌─────┬─────┬─────┐      ┌─────┬─────┬─────┐
+        |     │  A¹ │  B¹ │      |     │  A¹ │  B¹ │
+        |     │  1━━┿━━3  │  =>  |     │  1━━┿━━3  │
+        |     │  |  │     │      |     │     │     │
+        |     │  2  │     │      |     │  2  │     │
+        └─────┴─────┴─────┘      └─────┴─────┴─────┘
+        """
+        cg: ChunkedGraph = gen_graph(n_layers=4)
+        fake_timestamp = datetime.now(UTC) - timedelta(days=10)
+        create_chunk(
+            cg,
+            vertices=[to_label(cg, 1, 1, 0, 0, 0), to_label(cg, 1, 1, 0, 0, 1)],
+            edges=[
+                (to_label(cg, 1, 1, 0, 0, 0), to_label(cg, 1, 2, 0, 0, 0), inf),
+                (to_label(cg, 1, 1, 0, 0, 0), to_label(cg, 1, 1, 0, 0, 1), 0.5),
+            ],
+            timestamp=fake_timestamp,
+        )
+        create_chunk(
+            cg,
+            vertices=[to_label(cg, 1, 2, 0, 0, 0)],
+            edges=[(to_label(cg, 1, 2, 0, 0, 0), to_label(cg, 1, 1, 0, 0, 0), inf)],
+            timestamp=fake_timestamp,
+        )
+
+        add_parent_chunk(
+            cg,
+            3,
+            [0, 0, 0],
+            time_stamp=fake_timestamp,
+            n_threads=1,
+        )
+        add_parent_chunk(
+            cg,
+            3,
+            [1, 0, 0],
+            time_stamp=fake_timestamp,
+            n_threads=1,
+        )
+        add_parent_chunk(
+            cg,
+            4,
+            [0, 0, 0],
+            time_stamp=fake_timestamp,
+            n_threads=1,
+        )
+
+        assert cg.get_root(to_label(cg, 1, 1, 0, 0, 0)) == cg.get_root(
+            to_label(cg, 1, 1, 0, 0, 1)
+        )
+        assert cg.get_root(to_label(cg, 1, 1, 0, 0, 0)) == cg.get_root(
+            to_label(cg, 1, 2, 0, 0, 0)
+        )
+
+        new_root_ids = cg.remove_edges(
+            "Jane Doe",
+            source_ids=to_label(cg, 1, 1, 0, 0, 0),
+            sink_ids=to_label(cg, 1, 1, 0, 0, 1),
+            mincut=False,
+        ).new_root_ids
+
+        assert len(new_root_ids) == 2
+
+        svs2 = cg.get_subgraph([new_root_ids[0]], leaves_only=True)
+        svs1 = cg.get_subgraph([new_root_ids[1]], leaves_only=True)
+        len_set = {1, 2}
+        assert len(svs1) in len_set
+        len_set.remove(len(svs1))
+        assert len(svs2) in len_set
+
+        # verify new state
+        assert len(new_root_ids) == 2
+        assert cg.get_root(to_label(cg, 1, 1, 0, 0, 0)) != cg.get_root(
+            to_label(cg, 1, 1, 0, 0, 1)
+        )
+        assert cg.get_root(to_label(cg, 1, 1, 0, 0, 0)) == cg.get_root(
+            to_label(cg, 1, 2, 0, 0, 0)
+        )
+
+        # l2id = cg.get_parent(to_label(cg, 1, 1, 0, 0, 0))
+        # cce = cg.get_atomic_cross_edges([l2id])[l2id]
+        # assert len(cce[3]) == 1
+        # assert cce[3][0][0] == to_label(cg, 1, 1, 0, 0, 0)
+        # assert cce[3][0][1] == to_label(cg, 1, 2, 0, 0, 0)
+
+        assert len(get_latest_roots(cg)) == 2
+        assert len(get_latest_roots(cg, fake_timestamp)) == 1
+
+    @pytest.mark.timeout(30)
+    def test_split_verify_loop(self, gen_graph):
+        """
+        Remove edge between existing RG supervoxels 1 and 2 (neighboring chunks)
+        ┌─────┬────────┬─────┐      ┌─────┬────────┬─────┐
+        |     │     A¹ │  B¹ │      |     │     A¹ │  B¹ │
+        |     │  4━━1━━┿━━5  │  =>  |     │  4  1━━┿━━5  │
+        |     │   /    │  |  │      |     │        │  |  │
+        |     │  3  2━━┿━━6  │      |     │  3  2━━┿━━6  │
+        └─────┴────────┴─────┘      └─────┴────────┴─────┘
+        """
+        cg: ChunkedGraph = gen_graph(n_layers=4)
+        fake_timestamp = datetime.now(UTC) - timedelta(days=10)
+        create_chunk(
+            cg,
+            vertices=[
+                to_label(cg, 1, 1, 0, 0, 0),
+                to_label(cg, 1, 1, 0, 0, 1),
+                to_label(cg, 1, 1, 0, 0, 2),
+                to_label(cg, 1, 1, 0, 0, 3),
+            ],
+            edges=[
+                (to_label(cg, 1, 1, 0, 0, 0), to_label(cg, 1, 2, 0, 0, 0), inf),
+                (to_label(cg, 1, 1, 0, 0, 1), to_label(cg, 1, 2, 0, 0, 1), inf),
+                (to_label(cg, 1, 1, 0, 0, 0), to_label(cg, 1, 1, 0, 0, 2), 0.5),
+                (to_label(cg, 1, 1, 0, 0, 0), to_label(cg, 1, 1, 0, 0, 3), 0.5),
+            ],
+            timestamp=fake_timestamp,
+        )
+        create_chunk(
+            cg,
+            vertices=[to_label(cg, 1, 2, 0, 0, 0), to_label(cg, 1, 2, 0, 0, 1)],
+            edges=[
+                (to_label(cg, 1, 2, 0, 0, 0), to_label(cg, 1, 1, 0, 0, 0), inf),
+                (to_label(cg, 1, 2, 0, 0, 1), to_label(cg, 1, 1, 0, 0, 1), inf),
+                (to_label(cg, 1, 2, 0, 0, 1), to_label(cg, 1, 2, 0, 0, 0), 0.5),
+            ],
+            timestamp=fake_timestamp,
+        )
+
+        add_parent_chunk(
+            cg,
+            3,
+            [0, 0, 0],
+            time_stamp=fake_timestamp,
+            n_threads=1,
+        )
+        add_parent_chunk(
+            cg,
+            3,
+            [1, 0, 0],
+            time_stamp=fake_timestamp,
+            n_threads=1,
+        )
+        add_parent_chunk(
+            cg,
+            4,
+            [0, 0, 0],
+            time_stamp=fake_timestamp,
+            n_threads=1,
+        )
+
+        assert cg.get_root(to_label(cg, 1, 1, 0, 0, 0)) == cg.get_root(
+            to_label(cg, 1, 1, 0, 0, 1)
+        )
+        assert cg.get_root(to_label(cg, 1, 1, 0, 0, 0)) == cg.get_root(
+            to_label(cg, 1, 2, 0, 0, 0)
+        )
+
+        new_root_ids = cg.remove_edges(
+            "Jane Doe",
+            source_ids=to_label(cg, 1, 1, 0, 0, 0),
+            sink_ids=to_label(cg, 1, 1, 0, 0, 2),
+            mincut=False,
+        ).new_root_ids
+        assert len(new_root_ids) == 2
+
+        new_root_ids = cg.remove_edges(
+            "Jane Doe",
+            source_ids=to_label(cg, 1, 1, 0, 0, 0),
+            sink_ids=to_label(cg, 1, 1, 0, 0, 3),
+            mincut=False,
+        ).new_root_ids
+        assert len(new_root_ids) == 2
+
+        # l2id = cg.get_parent(to_label(cg, 1, 1, 0, 0, 0))
+        # cce = cg.get_atomic_cross_edges([l2id])
+        # assert len(cce[3]) == 1
+
+        assert len(get_latest_roots(cg)) == 3
+        assert len(get_latest_roots(cg, fake_timestamp)) == 1
+
+    # @pytest.mark.timeout(30)
+    # def test_split_pair_disconnected_chunks(self, gen_graph):
+    #     """
+    #     Remove edge between existing RG supervoxels 1 and 2 (disconnected chunks)
+    #     ┌─────┐     ┌─────┐      ┌─────┐     ┌─────┐
+    #     │  A¹ │ ... │  Z¹ │      │  A¹ │ ... │  Z¹ │
+    #     │  1━━┿━━━━━┿━━2  │  =>  │  1  │     │  2  │
+    #     │     │     │     │      │     │     │     │
+    #     └─────┘     └─────┘      └─────┘     └─────┘
+    #     """
+    #     cg: ChunkedGraph = gen_graph(n_layers=9)
+    #     fake_timestamp = datetime.now(UTC) - timedelta(days=10)
+    #     create_chunk(
+    #         cg,
+    #         vertices=[to_label(cg, 1, 0, 0, 0, 0)],
+    #         edges=[
+    #             (
+    #                 to_label(cg, 1, 0, 0, 0, 0),
+    #                 to_label(cg, 1, 7, 7, 7, 0),
+    #                 1.0,
+    #             )
+    #         ],
+    #         timestamp=fake_timestamp,
+    #     )
+    #     create_chunk(
+    #         cg,
+    #         vertices=[to_label(cg, 1, 7, 7, 7, 0)],
+    #         edges=[
+    #             (
+    #                 to_label(cg, 1, 7, 7, 7, 0),
+    #                 to_label(cg, 1, 0, 0, 0, 0),
+    #                 1.0,
+    #             )
+    #         ],
+    #         timestamp=fake_timestamp,
+    #     )
+
+    #     add_parent_chunk(
+    #         cg,
+    #         3,
+    #         [0, 0, 0],
+    #         time_stamp=fake_timestamp,
+    #         n_threads=1,
+    #     )
+    #     add_parent_chunk(
+    #         cg,
+    #         3,
+    #         [1, 0, 0],
+    #         time_stamp=fake_timestamp,
+    #         n_threads=1,
+    #     )
+    #     add_parent_chunk(
+    #         cg,
+    #         4,
+    #         [0, 0, 0],
+    #         time_stamp=fake_timestamp,
+    #         n_threads=1,
+    #     )
+    #     add_parent_chunk(
+    #         cg,
+    #         4,
+    #         [1, 0, 0],
+    #         time_stamp=fake_timestamp,
+    #         n_threads=1,
+    #     )
+    #     add_parent_chunk(
+    #         cg,
+    #         5,
+    #         [0, 0, 0],
+    #         time_stamp=fake_timestamp,
+    #         n_threads=1,
+    #     )
+    #     add_parent_chunk(
+    #         cg,
+    #         5,
+    #         [0, 0, 0],
+    #         time_stamp=fake_timestamp,
+    #         n_threads=1,
+    #     )
+    #     add_parent_chunk(
+    #         cg,
+    #         6,
+    #         [0, 0, 0],
+    #         time_stamp=fake_timestamp,
+    #         n_threads=1,
+    #     )
+    #     add_parent_chunk(
+    #         cg,
+    #         6,
+    #         [0, 0, 0],
+    #         time_stamp=fake_timestamp,
+    #         n_threads=1,
+    #     )
+    #     add_parent_chunk(
+    #         cg,
+    #         7,
+    #         [0, 0, 0],
+    #         time_stamp=fake_timestamp,
+    #         n_threads=1,
+    #     )
+    #     add_parent_chunk(
+    #         cg,
+    #         7,
+    #         [0, 0, 0],
+    #         time_stamp=fake_timestamp,
+    #         n_threads=1,
+    #     )
+    #     add_parent_chunk(
+    #         cg,
+    #         8,
+    #         [0, 0, 0],
+    #         time_stamp=fake_timestamp,
+    #         n_threads=1,
+    #     )
+    #     add_parent_chunk(
+    #         cg,
+    #         8,
+    #         [0, 0, 0],
+    #         time_stamp=fake_timestamp,
+    #         n_threads=1,
+    #     )
+    #     add_parent_chunk(
+    #         cg,
+    #         9,
+    #         [0, 0, 0],
+    #         time_stamp=fake_timestamp,
+    #         n_threads=1,
+    #     )
+
+    #     new_roots = cg.remove_edges(
+    #         "Jane Doe",
+    #         source_ids=to_label(cg, 1, 7, 7, 7, 0),
+    #         sink_ids=to_label(cg, 1, 0, 0, 0, 0),
+    #         mincut=False,
+    #     ).new_root_ids
+
+    #     # verify new state
+    #     assert len(new_roots) == 2
+    #     assert cg.get_root(to_label(cg, 1, 0, 0, 0, 0)) != cg.get_root(
+    #         to_label(cg, 1, 7, 7, 7, 0)
+    #     )
+    #     leaves = np.unique(
+    #         cg.get_subgraph(
+    #             [cg.get_root(to_label(cg, 1, 0, 0, 0, 0))], leaves_only=True
+    #         )
+    #     )
+    #     assert len(leaves) == 1 and to_label(cg, 1, 0, 0, 0, 0) in leaves
+    #     leaves = np.unique(
+    #         cg.get_subgraph(
+    #             [cg.get_root(to_label(cg, 1, 7, 7, 7, 0))], leaves_only=True
+    #         )
+    #     )
+    #     assert len(leaves) == 1 and to_label(cg, 1, 7, 7, 7, 0) in leaves
+
+    #     # verify old state
+    #     assert cg.get_root(
+    #         to_label(cg, 1, 0, 0, 0, 0), time_stamp=fake_timestamp
+    #     ) == cg.get_root(to_label(cg, 1, 7, 7, 7, 0), time_stamp=fake_timestamp)
+    #     leaves = np.unique(
+    #         cg.get_subgraph(
+    #             [cg.get_root(to_label(cg, 1, 0, 0, 0, 0), time_stamp=fake_timestamp)],
+    #             leaves_only=True,
+    #         )
+    #     )
+    #     assert len(leaves) == 2
+    #     assert to_label(cg, 1, 0, 0, 0, 0) in leaves
+    #     assert to_label(cg, 1, 7, 7, 7, 0) in leaves
+
+    @pytest.mark.timeout(30)
+    def test_split_pair_already_disconnected(self, gen_graph):
+        """
+        Try to remove edge between already disconnected RG supervoxels 1 and 2 (same chunk).
+        Expected: No change, no error
+        ┌─────┐      ┌─────┐
+        │  A¹ │      │  A¹ │
+        │ 1 2 │  =>  │ 1 2 │
+        │     │      │     │
+        └─────┘      └─────┘
+        """
+        cg: ChunkedGraph = gen_graph(n_layers=2)
+        fake_timestamp = datetime.now(UTC) - timedelta(days=10)
+        create_chunk(
+            cg,
+            vertices=[to_label(cg, 1, 0, 0, 0, 0), to_label(cg, 1, 0, 0, 0, 1)],
+            edges=[],
+            timestamp=fake_timestamp,
+        )
+        res_old = cg.client._table.read_rows()
+        res_old.consume_all()
+
+        with pytest.raises(exceptions.PreconditionError):
+            cg.remove_edges(
+                "Jane Doe",
+                source_ids=to_label(cg, 1, 0, 0, 0, 1),
+                sink_ids=to_label(cg, 1, 0, 0, 0, 0),
+                mincut=False,
+            )
+
+        res_new = cg.client._table.read_rows()
+        res_new.consume_all()
+
+        if res_old.rows != res_new.rows:
+            warn(
+                "Rows were modified when splitting a pair of already disconnected supervoxels."
+                "While probably not an error, it is an unnecessary operation."
+            )
+
+    @pytest.mark.timeout(30)
+    def test_split_full_circle_to_triple_chain_same_chunk(self, gen_graph):
+        """
+        Remove direct edge between RG supervoxels 1 and 2, but leave indirect connection (same chunk)
+        ┌─────┐      ┌─────┐
+        │  A¹ │      │  A¹ │
+        │ 1━2 │  =>  │ 1 2 │
+        │ ┗3┛ │      │ ┗3┛ │
+        └─────┘      └─────┘
+        """
+        cg: ChunkedGraph = gen_graph(n_layers=2)
+        fake_timestamp = datetime.now(UTC) - timedelta(days=10)
+        create_chunk(
+            cg,
+            vertices=[
+                to_label(cg, 1, 0, 0, 0, 0),
+                to_label(cg, 1, 0, 0, 0, 1),
+                to_label(cg, 1, 0, 0, 0, 2),
+            ],
+            edges=[
+                (to_label(cg, 1, 0, 0, 0, 0), to_label(cg, 1, 0, 0, 0, 2), 0.5),
+                (to_label(cg, 1, 0, 0, 0, 1), to_label(cg, 1, 0, 0, 0, 2), 0.5),
+                (to_label(cg, 1, 0, 0, 0, 0), to_label(cg, 1, 0, 0, 0, 1), 0.3),
+            ],
+            timestamp=fake_timestamp,
+        )
+        new_root_ids = cg.remove_edges(
+            "Jane Doe",
+            source_ids=to_label(cg, 1, 0, 0, 0, 1),
+            sink_ids=to_label(cg, 1, 0, 0, 0, 0),
+            mincut=False,
+        ).new_root_ids
+
+        # verify new state
+        assert len(new_root_ids) == 1
+        assert cg.get_root(to_label(cg, 1, 0, 0, 0, 0)) == new_root_ids[0]
+        assert cg.get_root(to_label(cg, 1, 0, 0, 0, 1)) == new_root_ids[0]
+        assert cg.get_root(to_label(cg, 1, 0, 0, 0, 2)) == new_root_ids[0]
+        leaves = np.unique(cg.get_subgraph([new_root_ids[0]], leaves_only=True))
+        assert len(leaves) == 3
+        assert to_label(cg, 1, 0, 0, 0, 0) in leaves
+        assert to_label(cg, 1, 0, 0, 0, 1) in leaves
+        assert to_label(cg, 1, 0, 0, 0, 2) in leaves
+
+        # verify old state
+        old_root_id = cg.get_root(
+            to_label(cg, 1, 0, 0, 0, 0), time_stamp=fake_timestamp
+        )
+        assert new_root_ids[0] != old_root_id
+        assert len(get_latest_roots(cg)) == 1
+        assert len(get_latest_roots(cg, fake_timestamp)) == 1
+
+    @pytest.mark.timeout(30)
+    def test_split_full_circle_to_triple_chain_neighboring_chunks(self, gen_graph):
+        """
+        Remove direct edge between RG supervoxels 1 and 2, but leave indirect connection (neighboring chunks)
+        ┌─────┬─────┐      ┌─────┬─────┐
+        │  A¹ │  B¹ │      │  A¹ │  B¹ │
+        │  1━━┿━━2  │  =>  │  1  │  2  │
+        │  ┗3━┿━━┛  │      │  ┗3━┿━━┛  │
+        └─────┴─────┘      └─────┴─────┘
+        """
+        cg: ChunkedGraph = gen_graph(n_layers=3)
+        fake_timestamp = datetime.now(UTC) - timedelta(days=10)
+        create_chunk(
+            cg,
+            vertices=[to_label(cg, 1, 0, 0, 0, 0), to_label(cg, 1, 0, 0, 0, 1)],
+            edges=[
+                (to_label(cg, 1, 0, 0, 0, 0), to_label(cg, 1, 0, 0, 0, 1), 0.5),
+                (to_label(cg, 1, 0, 0, 0, 1), to_label(cg, 1, 1, 0, 0, 0), 0.5),
+                (to_label(cg, 1, 0, 0, 0, 0), to_label(cg, 1, 1, 0, 0, 0), 0.3),
+            ],
+            timestamp=fake_timestamp,
+        )
+        create_chunk(
+            cg,
+            vertices=[to_label(cg, 1, 1, 0, 0, 0)],
+            edges=[
+                (to_label(cg, 1, 1, 0, 0, 0), to_label(cg, 1, 0, 0, 0, 1), 0.5),
+                (to_label(cg, 1, 1, 0, 0, 0), to_label(cg, 1, 0, 0, 0, 0), 0.3),
+            ],
+            timestamp=fake_timestamp,
+        )
+        add_parent_chunk(
+            cg,
+            3,
+            [0, 0, 0],
+            time_stamp=fake_timestamp,
+            n_threads=1,
+        )
+
+        new_root_ids = cg.remove_edges(
+            "Jane Doe",
+            source_ids=to_label(cg, 1, 1, 0, 0, 0),
+            sink_ids=to_label(cg, 1, 0, 0, 0, 0),
+            mincut=False,
+        ).new_root_ids
+
+        # verify new state
+        assert len(new_root_ids) == 1
+        assert cg.get_root(to_label(cg, 1, 0, 0, 0, 0)) == new_root_ids[0]
+        assert cg.get_root(to_label(cg, 1, 0, 0, 0, 1)) == new_root_ids[0]
+        assert cg.get_root(to_label(cg, 1, 1, 0, 0, 0)) == new_root_ids[0]
+        leaves = np.unique(cg.get_subgraph([new_root_ids[0]], leaves_only=True))
+        assert len(leaves) == 3
+        assert to_label(cg, 1, 0, 0, 0, 0) in leaves
+        assert to_label(cg, 1, 0, 0, 0, 1) in leaves
+        assert to_label(cg, 1, 1, 0, 0, 0) in leaves
+
+        # verify old state
+        old_root_id = cg.get_root(
+            to_label(cg, 1, 0, 0, 0, 0), time_stamp=fake_timestamp
+        )
+        assert new_root_ids[0] != old_root_id
+        assert len(get_latest_roots(cg)) == 1
+        assert len(get_latest_roots(cg, fake_timestamp)) == 1
+
+    # @pytest.mark.timeout(30)
+    # def test_split_full_circle_to_triple_chain_disconnected_chunks(self, gen_graph):
+    #     """
+    #     Remove direct edge between RG supervoxels 1 and 2, but leave indirect connection (disconnected chunks)
+    #     ┌─────┐     ┌─────┐      ┌─────┐     ┌─────┐
+    #     │  A¹ │ ... │  Z¹ │      │  A¹ │ ... │  Z¹ │
+    #     │  1━━┿━━━━━┿━━2  │  =>  │  1  │     │  2  │
+    #     │  ┗3━┿━━━━━┿━━┛  │      │  ┗3━┿━━━━━┿━━┛  │
+    #     └─────┘     └─────┘      └─────┘     └─────┘
+    #     """
+    #     cg: ChunkedGraph = gen_graph(n_layers=9)
+    #     loc = 2
+    #     fake_timestamp = datetime.now(UTC) - timedelta(days=10)
+    #     create_chunk(
+    #         cg,
+    #         vertices=[to_label(cg, 1, 0, 0, 0, 0), to_label(cg, 1, 0, 0, 0, 1)],
+    #         edges=[
+    #             (to_label(cg, 1, 0, 0, 0, 0), to_label(cg, 1, 0, 0, 0, 1), 0.5),
+    #             (
+    #                 to_label(cg, 1, 0, 0, 0, 1),
+    #                 to_label(cg, 1, loc, loc, loc, 0),
+    #                 0.5,
+    #             ),
+    #             (
+    #                 to_label(cg, 1, 0, 0, 0, 0),
+    #                 to_label(cg, 1, loc, loc, loc, 0),
+    #                 0.3,
+    #             ),
+    #         ],
+    #         timestamp=fake_timestamp,
+    #     )
+    #     create_chunk(
+    #         cg,
+    #         vertices=[to_label(cg, 1, loc, loc, loc, 0)],
+    #         edges=[
+    #             (
+    #                 to_label(cg, 1, loc, loc, loc, 0),
+    #                 to_label(cg, 1, 0, 0, 0, 1),
+    #                 0.5,
+    #             ),
+    #             (
+    #                 to_label(cg, 1, loc, loc, loc, 0),
+    #                 to_label(cg, 1, 0, 0, 0, 0),
+    #                 0.3,
+    #             ),
+    #         ],
+    #         timestamp=fake_timestamp,
+    #     )
+    #     for i_layer in range(3, 10):
+    #         if loc // 2 ** (i_layer - 3) == 1:
+    #             add_parent_chunk(
+    #                 cg,
+    #                 i_layer,
+    #                 [0, 0, 0],
+    #                 time_stamp=fake_timestamp,
+    #                 n_threads=1,
+    #             )
+    #         elif loc // 2 ** (i_layer - 3) == 0:
+    #             add_parent_chunk(
+    #                 cg,
+    #                 i_layer,
+    #                 [0, 0, 0],
+    #                 time_stamp=fake_timestamp,
+    #                 n_threads=1,
+    #             )
+    #         else:
+    #             add_parent_chunk(
+    #                 cg,
+    #                 i_layer,
+    #                 [0, 0, 0],
+    #                 time_stamp=fake_timestamp,
+    #                 n_threads=1,
+    #             )
+    #             add_parent_chunk(
+    #                 cg,
+    #                 i_layer,
+    #                 [0, 0, 0],
+    #                 time_stamp=fake_timestamp,
+    #                 n_threads=1,
+    #             )
+
+    #     assert (
+    #         cg.get_root(to_label(cg, 1, loc, loc, loc, 0))
+    #         == cg.get_root(to_label(cg, 1, 0, 0, 0, 0))
+    #         == cg.get_root(to_label(cg, 1, 0, 0, 0, 1))
+    #     )
+    #     new_root_ids = cg.remove_edges(
+    #         "Jane Doe",
+    #         source_ids=to_label(cg, 1, loc, loc, loc, 0),
+    #         sink_ids=to_label(cg, 1, 0, 0, 0, 0),
+    #         mincut=False,
+    #     ).new_root_ids
+
+    #     # verify new state
+    #     assert len(new_root_ids) == 1
+    #     assert cg.get_root(to_label(cg, 1, 0, 0, 0, 0)) == new_root_ids[0]
+    #     assert cg.get_root(to_label(cg, 1, 0, 0, 0, 1)) == new_root_ids[0]
+    #     assert cg.get_root(to_label(cg, 1, loc, loc, loc, 0)) == new_root_ids[0]
+    #     leaves = np.unique(cg.get_subgraph([new_root_ids[0]], leaves_only=True))
+    #     assert len(leaves) == 3
+    #     assert to_label(cg, 1, 0, 0, 0, 0) in leaves
+    #     assert to_label(cg, 1, 0, 0, 0, 1) in leaves
+    #     assert to_label(cg, 1, loc, loc, loc, 0) in leaves
+
+    #     # verify old state
+    #     old_root_id = cg.get_root(
+    #         to_label(cg, 1, 0, 0, 0, 0), time_stamp=fake_timestamp
+    #     )
+    #     assert new_root_ids[0] != old_root_id
+
+    #     assert len(get_latest_roots(cg)) == 1
+    #     assert len(get_latest_roots(cg, fake_timestamp)) == 1
+
+    @pytest.mark.timeout(30)
+    def test_split_same_node(self, gen_graph):
+        """
+        Try to remove (non-existing) edge between RG supervoxel 1 and itself
+        ┌─────┐
+        │  A¹ │
+        │  1  │  =>  Reject
+        │     │
+        └─────┘
+        """
+        cg: ChunkedGraph = gen_graph(n_layers=2)
+        fake_timestamp = datetime.now(UTC) - timedelta(days=10)
+        create_chunk(
+            cg,
+            vertices=[to_label(cg, 1, 0, 0, 0, 0)],
+            edges=[],
+            timestamp=fake_timestamp,
+        )
+
+        res_old = cg.client._table.read_rows()
+        res_old.consume_all()
+        with pytest.raises(exceptions.PreconditionError):
+            cg.remove_edges(
+                "Jane Doe",
+                source_ids=to_label(cg, 1, 0, 0, 0, 0),
+                sink_ids=to_label(cg, 1, 0, 0, 0, 0),
+                mincut=False,
+            )
+
+        res_new = cg.client._table.read_rows()
+        res_new.consume_all()
+        assert res_new.rows == res_old.rows
+
+    @pytest.mark.timeout(30)
+    def test_split_pair_abstract_nodes(self, gen_graph):
+        """
+        Try to remove (non-existing) edge between RG supervoxel 1 and abstract node "2"
+                    ┌─────┐
+                    │  B² │
+                    │ "2" │
+                    │     │
+                    └─────┘
+        ┌─────┐              =>  Reject
+        │  A¹ │
+        │  1  │
+        │     │
+        └─────┘
+        """
+
+        cg: ChunkedGraph = gen_graph(n_layers=3)
+        fake_timestamp = datetime.now(UTC) - timedelta(days=10)
+        create_chunk(
+            cg,
+            vertices=[to_label(cg, 1, 0, 0, 0, 0)],
+            edges=[],
+            timestamp=fake_timestamp,
+        )
+        create_chunk(
+            cg,
+            vertices=[to_label(cg, 1, 1, 0, 0, 0)],
+            edges=[],
+            timestamp=fake_timestamp,
+        )
+
+        add_parent_chunk(
+            cg,
+            3,
+            [0, 0, 0],
+            time_stamp=fake_timestamp,
+            n_threads=1,
+        )
+        res_old = cg.client._table.read_rows()
+        res_old.consume_all()
+        with pytest.raises((exceptions.PreconditionError, AssertionError)):
+            cg.remove_edges(
+                "Jane Doe",
+                source_ids=to_label(cg, 1, 0, 0, 0, 0),
+                sink_ids=to_label(cg, 2, 1, 0, 0, 1),
+                mincut=False,
+            )
+
+        res_new = cg.client._table.read_rows()
+        res_new.consume_all()
+        assert res_new.rows == res_old.rows
+
+    @pytest.mark.timeout(30)
+    def test_diagonal_connections(self, gen_graph):
+        """
+        Create graph with edge between RG supervoxels 1 and 2 (same chunk)
+        and edge between RG supervoxels 1 and 3 (neighboring chunks)
+        ┌─────┬─────┐
+        │  A¹ │  B¹ │
+        │ 2━1━┿━━3  │
+        │  /  │     │
+        ┌─────┬─────┐
+        │  |  │     │
+        │  4━━┿━━5  │
+        │  C¹ │  D¹ │
+        └─────┴─────┘
+        """
+        cg: ChunkedGraph = gen_graph(n_layers=3)
+        create_chunk(
+            cg,
+            vertices=[to_label(cg, 1, 0, 0, 0, 0), to_label(cg, 1, 0, 0, 0, 1)],
+            edges=[
+                (to_label(cg, 1, 0, 0, 0, 0), to_label(cg, 1, 0, 0, 0, 1), 0.5),
+                (to_label(cg, 1, 0, 0, 0, 0), to_label(cg, 1, 1, 0, 0, 0), inf),
+                (to_label(cg, 1, 0, 0, 0, 0), to_label(cg, 1, 0, 1, 0, 0), inf),
+            ],
+        )
+        create_chunk(
+            cg,
+            vertices=[to_label(cg, 1, 1, 0, 0, 0)],
+            edges=[(to_label(cg, 1, 1, 0, 0, 0), to_label(cg, 1, 0, 0, 0, 0), inf)],
+        )
+        create_chunk(
+            cg,
+            vertices=[to_label(cg, 1, 0, 1, 0, 0)],
+            edges=[
+                (to_label(cg, 1, 0, 1, 0, 0), to_label(cg, 1, 1, 1, 0, 0), inf),
+                (to_label(cg, 1, 0, 1, 0, 0), to_label(cg, 1, 0, 0, 0, 0), inf),
+            ],
+        )
+        create_chunk(
+            cg,
+            vertices=[to_label(cg, 1, 1, 1, 0, 0)],
+            edges=[(to_label(cg, 1, 1, 1, 0, 0), to_label(cg, 1, 0, 1, 0, 0), inf)],
+        )
+        add_parent_chunk(
+            cg,
+            3,
+            [0, 0, 0],
+            n_threads=1,
+        )
+
+        rr = cg.range_read_chunk(chunk_id=cg.get_chunk_id(layer=3, x=0, y=0, z=0))
+        root_ids_t0 = list(rr.keys())
+        assert len(root_ids_t0) == 1
+
+        child_ids = []
+        for root_id in root_ids_t0:
+            child_ids.extend([cg.get_subgraph([root_id], leaves_only=True)])
+
+        new_roots = cg.remove_edges(
+            "Jane Doe",
+            source_ids=to_label(cg, 1, 0, 0, 0, 0),
+            sink_ids=to_label(cg, 1, 0, 0, 0, 1),
+            mincut=False,
+        ).new_root_ids
+
+        assert len(new_roots) == 2
+        assert cg.get_root(to_label(cg, 1, 1, 1, 0, 0)) == cg.get_root(
+            to_label(cg, 1, 0, 1, 0, 0)
+        )
+        assert cg.get_root(to_label(cg, 1, 0, 0, 0, 0)) == cg.get_root(
+            to_label(cg, 1, 0, 0, 0, 0)
+        )
