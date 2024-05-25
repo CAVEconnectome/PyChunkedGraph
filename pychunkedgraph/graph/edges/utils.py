@@ -46,9 +46,7 @@ def concatenate_chunk_edges(chunk_edge_dicts: Iterable) -> Dict:
     return edges_dict
 
 
-def concatenate_cross_edge_dicts(
-    edges_ds: Iterable[Dict], unique: bool = False
-) -> Dict:
+def concatenate_cross_edge_dicts(edges_ds: Iterable[Dict], unique: bool = False) -> Dict:
     """Combines cross chunk edge dicts of form {layer id : edge list}."""
     result_d = defaultdict(list)
     for edges_d in edges_ds:
@@ -184,9 +182,3 @@ def get_edges_status(cg, edges: Iterable, time_stamp: Optional[float] = None):
         active_status.extend(mask)
     active_status = np.array(active_status, dtype=bool)
     return existence_status, active_status
-
-
-def partner_edges(node, partners):
-    edges = np.zeros((partners.size, 2), dtype=basetypes.NODE_ID)
-    edges[:, 0], edges[:, 1] = node, partners
-    return edges

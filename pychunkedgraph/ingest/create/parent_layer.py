@@ -166,13 +166,13 @@ def _children_rows(
     children_cx_edges = []
     children_layers = cg.get_chunk_layers(children)
     for child, node_layer in zip(children, children_layers):
+        node_layer = cg.get_chunk_layer(child)
         row_id = serializers.serialize_uint64(child)
         val_dict = {attributes.Hierarchy.Parent: parent_id}
         node_cx_edges_d = cx_edges_d.get(child, {})
         if not node_cx_edges_d:
             rows.append(cg.client.mutate_row(row_id, val_dict, time_stamp))
             continue
-        layers = []
         for layer in range(node_layer, cg.meta.layer_count):
             if not layer in node_cx_edges_d:
                 continue
@@ -184,15 +184,9 @@ def _children_rows(
                 layer_edges, edge_parents_d, preserve_missing_labels=True
             )
             layer_edges = np.unique(layer_edges, axis=0)
-            col = attributes.Connectivity.TmpCrossChunkEdge[layer]
+            col = attributes.Connectivity.CrossChunkEdge[layer]
             val_dict[col] = layer_edges
             node_cx_edges_d[layer] = layer_edges
-            if layer_edges.size:
-                layers.append(layer)
-        val_dict[attributes.Connectivity.ConnectionLayers] = np.unique(layers)
-        if node_layer in node_cx_edges_d:
-            col = attributes.Connectivity.Partners
-            val_dict[col] = node_cx_edges_d[node_layer][:, 1]
         children_cx_edges.append(node_cx_edges_d)
         rows.append(cg.client.mutate_row(row_id, val_dict, time_stamp))
     return rows, children_cx_edges
@@ -235,7 +229,7 @@ def _write(
                 # layer 2 chunks at this time will only have atomic cross edges
                 cx_edges_d = cg.get_atomic_cross_edges(children)
             else:
-                cx_edges_d = cg.get_tmp_cross_chunk_edges(children)
+                cx_edges_d = cg.get_cross_chunk_edges(children, raw_only=True)
             _rows, cx_edges = _children_rows(cg, parent, children, cx_edges_d, ts)
             rows.extend(_rows)
             row_id = serializers.serialize_uint64(parent)
@@ -244,11 +238,8 @@ def _write(
             for layer in range(parent_layer, cg.meta.layer_count):
                 if not layer in parent_cx_edges_d:
                     continue
-                col = attributes.Connectivity.TmpCrossChunkEdge[layer]
+                col = attributes.Connectivity.CrossChunkEdge[layer]
                 val_dict[col] = parent_cx_edges_d[layer]
-            if parent_layer in parent_cx_edges_d:
-                col = attributes.Connectivity.Partners
-                val_dict[col] = parent_cx_edges_d[parent_layer][:, 1]
             rows.append(cg.client.mutate_row(row_id, val_dict, ts))
             if len(rows) > 100000:
                 cg.client.write(rows)

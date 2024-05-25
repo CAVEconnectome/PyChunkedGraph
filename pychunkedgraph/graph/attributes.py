@@ -6,7 +6,6 @@
 from enum import Enum
 from typing import NamedTuple
 
-import numpy as np
 from .utils import serializers
 from .utils import basetypes
 
@@ -105,27 +104,6 @@ class Connectivity:
         serializer=serializers.NumPyArray(dtype=basetypes.EDGE_AREA),
     )
 
-    ConnectionLayers = _Attribute(
-        key=b"cx_layers",
-        family_id="4",
-        serializer=serializers.NumPyArray(dtype=basetypes.NODE_ID),
-    )
-
-    Partners = _Attribute(
-        key=b"partners",
-        family_id="4",
-        serializer=serializers.NumPyArray(
-            dtype=basetypes.NODE_ID, compression_level=22
-        ),
-    )
-
-    FakeEdges = _Attribute(
-        key=b"fake_edges",
-        family_id="4",
-        serializer=serializers.NumPyArray(dtype=basetypes.NODE_ID, shape=(-1, 2)),
-    )
-
-    # all data with family_id="3" is temporary
     AtomicCrossChunkEdge = _AttributeArray(
         pattern=b"atomic_cross_edges_%d",
         family_id="3",
@@ -134,9 +112,9 @@ class Connectivity:
         ),
     )
 
-    TmpCrossChunkEdge = _AttributeArray(
-        pattern=b"tmp_cross_edges_%d",
-        family_id="3",
+    CrossChunkEdge = _AttributeArray(
+        pattern=b"cross_edges_%d",
+        family_id="4",
         serializer=serializers.NumPyArray(
             dtype=basetypes.NODE_ID, shape=(-1, 2), compression_level=22
         ),
@@ -145,6 +123,12 @@ class Connectivity:
     FakeEdgesCF3 = _Attribute(
         key=b"fake_edges",
         family_id="3",
+        serializer=serializers.NumPyArray(dtype=basetypes.NODE_ID, shape=(-1, 2)),
+    )
+
+    FakeEdges = _Attribute(
+        key=b"fake_edges",
+        family_id="4",
         serializer=serializers.NumPyArray(dtype=basetypes.NODE_ID, shape=(-1, 2)),
     )
 
