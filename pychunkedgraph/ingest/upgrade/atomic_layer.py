@@ -79,17 +79,7 @@ def update_cross_edges(cg: ChunkedGraph, node, cx_edges_d, node_ts, end_ts) -> l
     return rows
 
 
-def update_chunk(cg: ChunkedGraph, chunk_coords: list[int], layer: int = 2):
-    """
-    Iterate over all L2 IDs in a chunk and update their cross chunk edges,
-    within the periods they were valid/active.
-    """
-    x, y, z = chunk_coords
-    chunk_id = cg.get_chunk_id(layer=layer, x=x, y=y, z=z)
-    cg.copy_fake_edges(chunk_id)
-    rr = cg.range_read_chunk(chunk_id)
-    nodes = list(rr.keys())
-
+def update_nodes(cg: ChunkedGraph, nodes) -> list:
     # get start_ts when node becomes valid
     nodes_ts = cg.get_node_timestamps(nodes, return_numpy=False, normalize=True)
     cx_edges_d = cg.get_atomic_cross_edges(nodes)
@@ -116,4 +106,18 @@ def update_chunk(cg: ChunkedGraph, chunk_coords: list[int], layer: int = 2):
         # for each timestamp until end_ts, update cross chunk edges of node
         _rows = update_cross_edges(cg, node, node_cx_edges_d, start_ts, end_ts)
         rows.extend(_rows)
+    return rows
+
+
+def update_chunk(cg: ChunkedGraph, chunk_coords: list[int], layer: int = 2):
+    """
+    Iterate over all L2 IDs in a chunk and update their cross chunk edges,
+    within the periods they were valid/active.
+    """
+    x, y, z = chunk_coords
+    chunk_id = cg.get_chunk_id(layer=layer, x=x, y=y, z=z)
+    cg.copy_fake_edges(chunk_id)
+    rr = cg.range_read_chunk(chunk_id)
+    nodes = list(rr.keys())
+    rows = update_nodes(cg, nodes)
     cg.client.write(rows)
