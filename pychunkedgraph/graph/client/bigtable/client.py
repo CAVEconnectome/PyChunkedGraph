@@ -151,6 +151,7 @@ class Client(bigtable.Client, ClientWithIDGen, OperationLogger):
         end_time=None,
         end_time_inclusive: bool = False,
         fake_edges: bool = False,
+        attr_keys: bool = True,
     ):
         """
         Read nodes and their properties.
@@ -186,8 +187,13 @@ class Client(bigtable.Client, ClientWithIDGen, OperationLogger):
             end_time_inclusive=end_time_inclusive,
             user_id=user_id,
         )
+        if attr_keys:
+            return {
+                deserialize_uint64(row_key, fake_edges=fake_edges): data
+                for (row_key, data) in rows.items()
+            }
         return {
-            deserialize_uint64(row_key, fake_edges=fake_edges): data
+            deserialize_uint64(row_key, fake_edges=fake_edges): {k.key:v for k,v in data.items()}
             for (row_key, data) in rows.items()
         }
 
