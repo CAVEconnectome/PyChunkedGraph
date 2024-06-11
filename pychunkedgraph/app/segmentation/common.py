@@ -5,6 +5,7 @@ import os
 import time
 from datetime import datetime
 from functools import reduce
+from collections import deque
 
 import numpy as np
 import pandas as pd
@@ -1066,7 +1067,7 @@ def handle_is_latest_roots(table_id, is_binary):
     return cg.is_latest_roots(node_ids, time_stamp=timestamp)
 
 
-def handle_root_timestamps(table_id, is_binary):
+def handle_root_timestamps(table_id, is_binary, latest: bool = False):
     current_app.request_type = "root_timestamps"
     current_app.table_id = table_id
 
@@ -1075,11 +1076,33 @@ def handle_root_timestamps(table_id, is_binary):
     else:
         node_ids = np.array(json.loads(request.data)["node_ids"], dtype=np.uint64)
 
-    # Call ChunkedGraph
     cg = app_utils.get_cg(table_id)
+    timestamp = None
+    if latest:
+        result = []
+        timestamp = _parse_timestamp("timestamp", time.time(), return_datetime=True)
+        latest_at_ts = cg.is_latest_roots(node_ids, time_stamp=timestamp)
+        mask = np.array(latest_at_ts, dtype=bool)
+        non_latest_ids = node_ids[mask]
+        row_dict = cg.client.read_nodes(
+            node_ids=non_latest_ids,
+            properties=attributes.Hierarchy.NewParent,
+            end_time=timestamp,
+        )
 
-    timestamps = cg.get_node_timestamps(node_ids, return_numpy=False)
-    return [ts.timestamp() for ts in timestamps]
+        new_roots = []
+        for v in row_dict.values():
+            new_roots.append(v[-1].value)  # sorted in descending order
+        new_roots_ts = deque(cg.get_node_timestamps(new_roots, return_numpy=False))
+        for x in latest_at_ts:
+            if x is True:
+                result.append(timestamp)
+            else:
+                result.append(new_roots_ts.popleft())
+        return result
+    else:
+        timestamps = cg.get_node_timestamps(node_ids, return_numpy=False)
+        return [ts.timestamp() for ts in timestamps]
 
 
 ### OPERATION DETAILS ------------------------------------------------------------

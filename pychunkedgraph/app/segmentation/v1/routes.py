@@ -532,7 +532,11 @@ def handle_is_latest_roots(table_id):
 def handle_root_timestamps(table_id):
     int64_as_str = request.args.get("int64_as_str", default=False, type=toboolean)
     is_binary = request.args.get("is_binary", default=False, type=toboolean)
-    root_timestamps = common.handle_root_timestamps(table_id, is_binary=is_binary)
+    latest = request.args.get("latest", default=False, type=toboolean)
+    is_binary = request.args.get("is_binary", default=False, type=toboolean)
+    root_timestamps = common.handle_root_timestamps(
+        table_id, is_binary=is_binary, latest=latest
+    )
     resp = {"timestamp": root_timestamps}
 
     return jsonify_with_kwargs(resp, int64_as_str=int64_as_str)
