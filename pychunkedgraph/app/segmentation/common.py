@@ -1090,10 +1090,10 @@ def handle_root_timestamps(table_id, is_binary, latest: bool = False):
             end_time=timestamp,
         )
 
-        new_roots = []
+        new_roots_ts = []
         for v in row_dict.values():
-            new_roots.append(v[-1].value)  # sorted in descending order
-        new_roots_ts = deque(cg.get_node_timestamps(new_roots, return_numpy=False))
+            new_roots_ts.append(v[-1].timestamp.timestamp())  # sorted in descending order
+        new_roots_ts = deque(new_roots_ts)
         for x in latest_at_ts:
             if x is True:
                 result.append(timestamp)
