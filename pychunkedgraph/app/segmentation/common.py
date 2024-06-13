@@ -1067,6 +1067,29 @@ def handle_is_latest_roots(table_id, is_binary):
     return cg.is_latest_roots(node_ids, time_stamp=timestamp)
 
 
+def _handle_latest(cg, node_ids, timestamp):
+    latest_mask = cg.is_latest_roots(node_ids, time_stamp=timestamp)
+    non_latest_ids = node_ids[~latest_mask]
+    row_dict = cg.client.read_nodes(
+        node_ids=non_latest_ids,
+        properties=attributes.Hierarchy.NewParent,
+        end_time=timestamp,
+    )
+
+    new_roots_ts = []
+    for v in row_dict.values():
+        new_roots_ts.append(v[-1].timestamp.timestamp())  # sorted in descending order
+    new_roots_ts = deque(new_roots_ts)
+
+    result = []
+    for x in latest_mask:
+        if x:
+            result.append(timestamp.timestamp())
+        else:
+            result.append(new_roots_ts.popleft())
+    return result
+
+
 def handle_root_timestamps(table_id, is_binary, latest: bool = False):
     current_app.request_type = "root_timestamps"
     current_app.table_id = table_id
@@ -1077,29 +1100,9 @@ def handle_root_timestamps(table_id, is_binary, latest: bool = False):
         node_ids = np.array(json.loads(request.data)["node_ids"], dtype=np.uint64)
 
     cg = app_utils.get_cg(table_id)
-    timestamp = None
+    timestamp = _parse_timestamp("timestamp", time.time(), return_datetime=True)
     if latest:
-        result = []
-        timestamp = _parse_timestamp("timestamp", time.time(), return_datetime=True)
-        latest_at_ts = cg.is_latest_roots(node_ids, time_stamp=timestamp)
-        mask = np.array(latest_at_ts, dtype=bool)
-        non_latest_ids = node_ids[mask]
-        row_dict = cg.client.read_nodes(
-            node_ids=non_latest_ids,
-            properties=attributes.Hierarchy.NewParent,
-            end_time=timestamp,
-        )
-
-        new_roots_ts = []
-        for v in row_dict.values():
-            new_roots_ts.append(v[-1].timestamp.timestamp())  # sorted in descending order
-        new_roots_ts = deque(new_roots_ts)
-        for x in latest_at_ts:
-            if x is True:
-                result.append(timestamp)
-            else:
-                result.append(new_roots_ts.popleft())
-        return result
+        return _handle_latest(cg, node_ids, timestamp)
     else:
         timestamps = cg.get_node_timestamps(node_ids, return_numpy=False)
         return [ts.timestamp() for ts in timestamps]
