@@ -1077,8 +1077,12 @@ def _handle_latest(cg, node_ids, timestamp):
     )
 
     new_roots_ts = []
-    for v in row_dict.values():
-        new_roots_ts.append(v[-1].timestamp.timestamp())  # sorted in descending order
+    for n in node_ids:
+        try:
+            v = row_dict[n]
+            new_roots_ts.append(v[-1].timestamp.timestamp()) # sorted descending
+        except KeyError:
+            new_roots_ts.append(0)
     new_roots_ts = deque(new_roots_ts)
 
     result = []
