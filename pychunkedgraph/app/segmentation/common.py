@@ -4,6 +4,7 @@ import json
 import time
 import os
 from datetime import datetime
+from collections import deque
 
 import numpy as np
 from pytz import UTC
@@ -1036,7 +1037,34 @@ def handle_is_latest_roots(table_id, is_binary):
     return cg.is_latest_roots(node_ids, time_stamp=timestamp)
 
 
-def handle_root_timestamps(table_id, is_binary):
+def _handle_latest(cg, node_ids, timestamp):
+    latest_mask = cg.is_latest_roots(node_ids, time_stamp=timestamp)
+    non_latest_ids = node_ids[~latest_mask]
+    row_dict = cg.read_node_id_rows(
+        node_ids=non_latest_ids,
+        columns=column_keys.Hierarchy.NewParent,
+        end_time=timestamp,
+    )
+
+    new_roots_ts = []
+    for n in node_ids:
+        try:
+            v = row_dict[n]
+            new_roots_ts.append(v[-1].timestamp.timestamp()) # sorted descending
+        except KeyError:
+            new_roots_ts.append(0)
+    new_roots_ts = deque(new_roots_ts)
+
+    result = []
+    for x in latest_mask:
+        if x:
+            result.append(timestamp.timestamp())
+        else:
+            result.append(new_roots_ts.popleft())
+    return result
+
+
+def handle_root_timestamps(table_id, is_binary, latest:bool = False):
     current_app.request_type = "root_timestamps"
     current_app.table_id = table_id
 
@@ -1045,14 +1073,17 @@ def handle_root_timestamps(table_id, is_binary):
     else:
         node_ids = np.array(json.loads(request.data)["node_ids"], dtype=np.uint64)
 
-    # Call ChunkedGraph
     cg = app_utils.get_cg(table_id)
-
     if not np.all(cg.get_chunk_layers(node_ids) == cg.n_layers):
         raise cg_exceptions.BadRequest("Some ids are not root ids.")
 
-    timestamps = cg.get_root_timestamps(node_ids)
-    return [ts.timestamp() for ts in timestamps]
+
+    timestamp = _parse_timestamp("timestamp", time.time(), return_datetime=True)
+    if latest:
+        return _handle_latest(cg, node_ids, timestamp)
+    else:
+        timestamps = cg.get_root_timestamps(node_ids)
+        return [ts.timestamp() for ts in timestamps]
 
 
 ### OPERATION DETAILS ------------------------------------------------------------
