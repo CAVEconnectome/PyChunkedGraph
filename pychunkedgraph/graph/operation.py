@@ -457,6 +457,9 @@ class GraphEditOperation(ABC):
             except PostconditionError as err:
                 self.cg.cache = None
                 raise PostconditionError(err) from err
+            except (AssertionError, RuntimeError) as err:
+                self.cg.cache = None
+                raise RuntimeError(err) from err
             except Exception as err:
                 # unknown exception, update log record with error
                 self.cg.cache = None
