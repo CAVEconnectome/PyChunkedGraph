@@ -420,9 +420,15 @@ def _update_neighbor_cross_edges_single(
                 continue
             assert np.all(edges[:, 0] == counterpart)
             edges = fastremap.remap(edges, node_map, preserve_missing_labels=True)
-            if layer == counterpart_layer:
+            if layer == counterpart_layer and layer >= node_layer:
                 reverse_edge = np.array([counterpart, new_id], dtype=basetypes.NODE_ID)
                 edges = np.concatenate([edges, [reverse_edge]])
+                children = cg.get_children(new_id)
+                mask = np.isin(edges[:, 1], children)
+                if np.any(mask):
+                    masked_edges = edges[mask]
+                    masked_edges[:, 1] = new_id
+                    edges[mask] = masked_edges
                 edges = np.unique(edges, axis=0)
             edges_d[layer] = edges
             val_dict[attributes.Connectivity.CrossChunkEdge[layer]] = edges
@@ -578,49 +584,6 @@ class CreateParentNodes:
             assert np.all(edges[:, 0] == parent), f"{parent}, {np.unique(edges[:, 0])}"
         self.cg.cache.cross_chunk_edges_cache[parent] = new_cx_edges_d
 
-    def _update_neighbor_parents(self, neighbor, ceil_layer: int, updated: set) -> list:
-        """helper for `_update_skipped_neighbors`"""
-        parents = []
-        while True:
-            parent = self.cg.get_parent(neighbor, time_stamp=self._last_successful_ts)
-            parent_layer = self.cg.get_chunk_layer(parent)
-            if parent_layer >= ceil_layer or parent in updated:
-                break
-            children = self.cg.get_children(parent)
-            self._update_cross_edge_cache(parent, children)
-            parents.append(parent)
-            neighbor = parent
-        return parents
-
-    def _update_skipped_neighbors(self, node, layer, parent_layer):
-        """
-        Updates cross edges of neighbors of a skip connection node.
-        Neighbors of such nodes can have parents at contiguous layers.
-
-        This method updates cross edges of all such parents
-        from `layer` through `parent_layer`.
-        """
-        updated_parents = set()
-        cx_edges_d = self.cg.cache.cross_chunk_edges_cache[node]
-        for _layer in range(layer, parent_layer + 1):
-            layer_edges = cx_edges_d.get(_layer, types.empty_2d)
-            neighbors = layer_edges[:, 1]
-            for n in neighbors:
-                if n in self._new_old_id_d:
-                    # ignore new ids
-                    continue
-                res = self._update_neighbor_parents(n, parent_layer, updated_parents)
-                updated_parents.update(res)
-        updated_entries = []
-        for parent in updated_parents:
-            val_dict = {}
-            for _layer, edges in self.cg.cache.cross_chunk_edges_cache[parent].items():
-                val_dict[attributes.Connectivity.CrossChunkEdge[_layer]] = edges
-            rkey = serialize_uint64(parent)
-            row = self.cg.client.mutate_row(rkey, val_dict, time_stamp=self._time_stamp)
-            updated_entries.append(row)
-        return updated_entries
-
     def _create_new_parents(self, layer: int):
         """
         keep track of old IDs
@@ -635,7 +598,6 @@ class CreateParentNodes:
         layer_node_ids = self._get_layer_node_ids(new_ids, layer)
         components, graph_ids = self._get_connected_components(layer_node_ids, layer)
         for cc_indices in components:
-            update_skipped_neighbors = False
             parent_layer = layer + 1  # must be reset for each connected component
             cc_ids = graph_ids[cc_indices]
             if len(cc_ids) == 1:
@@ -648,7 +610,6 @@ class CreateParentNodes:
                     if len(cx_edges_d[cc_ids[0]].get(l, types.empty_2d)) > 0:
                         parent_layer = l
                         break
-                update_skipped_neighbors = cc_ids[0] in self._new_old_id_d
             parent = self.cg.id_client.create_node_id(
                 self.cg.get_parent_chunk_id(cc_ids[0], parent_layer),
                 root_chunk=parent_layer == self.cg.meta.layer_count,
@@ -658,9 +619,6 @@ class CreateParentNodes:
             self.cg.cache.children_cache[parent] = cc_ids
             cache_utils.update(self.cg.cache.parents_cache, cc_ids, parent)
             sanity_check_single(self.cg, parent, self._operation_id)
-            if update_skipped_neighbors:
-                res = self._update_skipped_neighbors(cc_ids[0], layer, parent_layer)
-                self.new_entries.extend(res)
 
     def run(self) -> Iterable:
         """
