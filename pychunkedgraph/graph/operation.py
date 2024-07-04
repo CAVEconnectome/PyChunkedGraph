@@ -615,13 +615,16 @@ class MergeOperation(GraphEditOperation):
                 edges_only=True,
             )
 
-        with TimeIt("preprocess", self.cg.graph_id, operation_id):
-            inactive_edges = edits.merge_preprocess(
-                self.cg,
-                subgraph_edges=edges,
-                supervoxels=self.added_edges.ravel(),
-                parent_ts=self.parent_ts,
-            )
+        if self.allow_same_segment_merge:
+            inactive_edges = types.empty_2d
+        else:
+            with TimeIt("preprocess", self.cg.graph_id, operation_id):
+                inactive_edges = edits.merge_preprocess(
+                    self.cg,
+                    subgraph_edges=edges,
+                    supervoxels=self.added_edges.ravel(),
+                    parent_ts=self.parent_ts,
+                )
 
         atomic_edges, fake_edge_rows = edits.check_fake_edges(
             self.cg,
@@ -637,6 +640,7 @@ class MergeOperation(GraphEditOperation):
                 operation_id=operation_id,
                 time_stamp=timestamp,
                 parent_ts=self.parent_ts,
+                allow_same_segment_merge=self.allow_same_segment_merge
             )
         return new_roots, new_l2_ids, fake_edge_rows + new_entries
 
