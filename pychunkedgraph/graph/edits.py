@@ -414,13 +414,13 @@ def _update_neighbor_cross_edges_single(
     for counterpart, edges_d in cp_cx_edges_d.items():
         val_dict = {}
         counterpart_layer = counterpart_layers[counterpart]
-        for layer in range(2, cg.meta.layer_count):
+        for layer in range(node_layer, cg.meta.layer_count):
             edges = edges_d.get(layer, types.empty_2d)
             if edges.size == 0:
                 continue
             assert np.all(edges[:, 0] == counterpart)
             edges = fastremap.remap(edges, node_map, preserve_missing_labels=True)
-            if layer == counterpart_layer and layer >= node_layer:
+            if layer == counterpart_layer:
                 reverse_edge = np.array([counterpart, new_id], dtype=basetypes.NODE_ID)
                 edges = np.concatenate([edges, [reverse_edge]])
                 children = cg.get_children(new_id)
@@ -429,7 +429,7 @@ def _update_neighbor_cross_edges_single(
                     masked_edges = edges[mask]
                     masked_edges[:, 1] = new_id
                     edges[mask] = masked_edges
-                edges = np.unique(edges, axis=0)
+            edges = np.unique(edges, axis=0)
             edges_d[layer] = edges
             val_dict[attributes.Connectivity.CrossChunkEdge[layer]] = edges
         if not val_dict:
