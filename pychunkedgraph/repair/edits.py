@@ -7,20 +7,28 @@ from pychunkedgraph.graph.attributes import Concurrency
 from pychunkedgraph.graph.operation import GraphEditOperation
 
 
-def repair_operation(cg: ChunkedGraph, operation_id: int, unlock: bool = False):
+def repair_operation(
+    cg: ChunkedGraph,
+    operation_id: int,
+    unlock: bool = False,
+    use_preceding_edit_ts=True,
+):
     operation = GraphEditOperation.from_operation_id(
         cg, operation_id, multicut_as_split=False, privileged_mode=True
     )
-    _, ts = cg.client.read_log_entry(operation_id)
+
+    _, current_ts = cg.client.read_log_entry(operation_id)
+    parent_ts = current_ts - timedelta(milliseconds=10)
+    if operation_id > 1 and use_preceding_edit_ts:
+        _, previous_ts = cg.client.read_log_entry(operation_id - 1)
+        parent_ts = previous_ts + timedelta(milliseconds=200)
+
     result = operation.execute(
         operation_id=operation_id,
-        parent_ts=ts - timedelta(milliseconds=500),
-        override_ts=ts + timedelta(milliseconds=100),
+        parent_ts=parent_ts,
+        override_ts=current_ts + timedelta(milliseconds=1),
     )
     old_roots = operation._update_root_ids()
-    print("roots", old_roots, result.new_root_ids)
-    print("result op ID", result.operation_id)
-    print("result L2 IDs", result.new_lvl2_ids)
 
     if unlock:
         for root_ in old_roots:
