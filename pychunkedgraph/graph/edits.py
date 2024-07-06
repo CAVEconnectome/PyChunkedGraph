@@ -391,6 +391,25 @@ def _get_flipped_ids(id_map, node_ids):
     return np.concatenate(ids)
 
 
+def _get_descendants(cg, new_id):
+    """get all descendants at layers >= 2"""
+    result = []
+    children = cg.get_children(new_id)
+    while True:
+        mask = cg.get_chunk_layers(children) >= 2
+        children = children[mask]
+        result.extend(children)
+
+        mask = cg.get_chunk_layers(children) > 2
+        children = children[mask]
+        if children.size == 0:
+            break
+
+        children = cg.get_children(children, flatten=True)
+    return result
+
+
+
 def _update_neighbor_cross_edges_single(
     cg, new_id: int, cx_edges_d: dict, node_map: dict, *, parent_ts
 ) -> dict:
@@ -423,8 +442,8 @@ def _update_neighbor_cross_edges_single(
             if layer == counterpart_layer:
                 reverse_edge = np.array([counterpart, new_id], dtype=basetypes.NODE_ID)
                 edges = np.concatenate([edges, [reverse_edge]])
-                children = cg.get_children(new_id)
-                mask = np.isin(edges[:, 1], children)
+                descendants = _get_descendants(cg, new_id)
+                mask = np.isin(edges[:, 1], descendants)
                 if np.any(mask):
                     masked_edges = edges[mask]
                     masked_edges[:, 1] = new_id
