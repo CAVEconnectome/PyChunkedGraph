@@ -496,6 +496,25 @@ def _update_neighbor_cross_edges(
     return updated_entries
 
 
+def _get_supervoxels(cg, node_ids):
+    """Returns the first supervoxel found for each node_id."""
+    result  = {}
+    node_ids_copy = np.copy(node_ids)
+    children = np.copy(node_ids)
+    children_d = cg.get_children(node_ids)
+    while True:
+        children = [children_d[k][0] for k in children]
+        children = np.array(children, dtype=basetypes.NODE_ID)
+        mask = cg.get_chunk_layers(children) == 1
+        result.update([(node, sv) for node, sv in zip(node_ids[mask], children[mask])])
+        node_ids = node_ids[~mask]
+        children = children[~mask]
+        if children.size == 0:
+            break
+        children_d = cg.get_children(children)
+    return np.array([result[k] for k in node_ids_copy], dtype=basetypes.NODE_ID)
+
+
 class CreateParentNodes:
     def __init__(
         self,
@@ -586,8 +605,9 @@ class CreateParentNodes:
         )
         cx_edges_d = concatenate_cross_edge_dicts(cx_edges_d.values())
         edge_nodes = np.unique(np.concatenate([*cx_edges_d.values(), types.empty_2d]))
+        edge_supervoxels = _get_supervoxels(self.cg, edge_nodes)
         edge_parents = self.cg.get_roots(
-            edge_nodes,
+            edge_supervoxels,
             stop_layer=parent_layer,
             ceil=False,
             time_stamp=self._last_successful_ts,
