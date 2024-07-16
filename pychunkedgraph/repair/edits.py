@@ -7,6 +7,13 @@ from pychunkedgraph.graph.attributes import Concurrency
 from pychunkedgraph.graph.operation import GraphEditOperation
 
 
+def _get_previous_log_ts(cg, operation):
+    log, previous_ts = cg.client.read_log_entry(operation - 1)
+    if log:
+        return previous_ts
+    return _get_previous_log_ts(cg, operation-1)
+
+
 def repair_operation(
     cg: ChunkedGraph,
     operation_id: int,
@@ -20,8 +27,8 @@ def repair_operation(
     _, current_ts = cg.client.read_log_entry(operation_id)
     parent_ts = current_ts - timedelta(milliseconds=10)
     if operation_id > 1 and use_preceding_edit_ts:
-        _, previous_ts = cg.client.read_log_entry(operation_id - 1)
-        parent_ts = previous_ts + timedelta(milliseconds=200)
+        previous_ts = _get_previous_log_ts(cg, operation_id)
+        parent_ts = previous_ts + timedelta(milliseconds=100)
 
     result = operation.execute(
         operation_id=operation_id,
