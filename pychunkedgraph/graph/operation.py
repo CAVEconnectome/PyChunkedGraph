@@ -640,7 +640,7 @@ class MergeOperation(GraphEditOperation):
                 operation_id=operation_id,
                 time_stamp=timestamp,
                 parent_ts=self.parent_ts,
-                allow_same_segment_merge=self.allow_same_segment_merge
+                allow_same_segment_merge=self.allow_same_segment_merge,
             )
         return new_roots, new_l2_ids, fake_edge_rows + new_entries
 
@@ -751,18 +751,11 @@ class SplitOperation(GraphEditOperation):
         ):
             raise PreconditionError("Supervoxels must belong to the same object.")
 
-        with TimeIt("subgraph", self.cg.graph_id, operation_id):
-            l2id_agglomeration_d, _ = self.cg.get_l2_agglomerations(
-                self.cg.get_parents(
-                    self.removed_edges.ravel(), time_stamp=self.parent_ts
-                ),
-            )
         with TimeIt("remove_edges", self.cg.graph_id, operation_id):
             return edits.remove_edges(
                 self.cg,
                 operation_id=operation_id,
                 atomic_edges=self.removed_edges,
-                l2id_agglomeration_d=l2id_agglomeration_d,
                 time_stamp=timestamp,
                 parent_ts=self.parent_ts,
             )
@@ -929,7 +922,6 @@ class MulticutOperation(GraphEditOperation):
                 self.cg,
                 operation_id=operation_id,
                 atomic_edges=self.removed_edges,
-                l2id_agglomeration_d=l2id_agglomeration_d,
                 time_stamp=timestamp,
                 parent_ts=self.parent_ts,
             )

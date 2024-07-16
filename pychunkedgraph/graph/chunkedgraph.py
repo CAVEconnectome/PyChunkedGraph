@@ -657,7 +657,11 @@ class ChunkedGraph:
         self.client.write(mutations)
 
     def get_l2_agglomerations(
-        self, level2_ids: np.ndarray, edges_only: bool = False
+        self,
+        level2_ids: np.ndarray,
+        edges_only: bool = False,
+        active: bool = False,
+        time_stamp: typing.Optional[datetime.datetime] = None,
     ) -> typing.Tuple[typing.Dict[int, types.Agglomeration], typing.Tuple[Edges]]:
         """
         Children of Level 2 Node IDs and edges.
@@ -702,6 +706,15 @@ class ChunkedGraph:
                 if sv in sv_parent_d:
                     raise ValueError("Found conflicting parents.")
             sv_parent_d.update(dict(zip(svs.tolist(), [l2id] * len(svs))))
+
+        if active:
+            n1, n2 = all_chunk_edges.node_ids1, all_chunk_edges.node_ids2
+            layers = self.get_cross_chunk_edges_layer(all_chunk_edges.get_pairs())
+            max_layer = np.max(layers) + 1
+            parents1 = self.get_roots(n1, stop_layer=max_layer, time_stamp=time_stamp)
+            parents2 = self.get_roots(n2, stop_layer=max_layer, time_stamp=time_stamp)
+            mask = parents1 == parents2
+            all_chunk_edges = all_chunk_edges[mask]
 
         in_edges, out_edges, cross_edges = edge_utils.categorize_edges_v2(
             self.meta, all_chunk_edges, sv_parent_d

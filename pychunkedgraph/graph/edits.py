@@ -313,7 +313,6 @@ def remove_edges(
     cg,
     *,
     atomic_edges: Iterable[np.ndarray],
-    l2id_agglomeration_d: Dict,
     operation_id: basetypes.OPERATION_ID = None,
     time_stamp: datetime.datetime = None,
     parent_ts: datetime.datetime = None,
@@ -323,6 +322,9 @@ def remove_edges(
     roots = cg.get_roots(l2ids, assert_roots=True, time_stamp=parent_ts)
     assert np.unique(roots).size == 1, "L2 IDs must belong to same root."
 
+    l2id_agglomeration_d, _ = cg.get_l2_agglomerations(
+        l2ids, active=True, time_stamp=parent_ts
+    )
     new_old_id_d = defaultdict(set)
     old_new_id_d = defaultdict(set)
     old_hierarchy_d = _init_old_hierarchy(cg, l2ids, parent_ts=parent_ts)
@@ -407,7 +409,6 @@ def _get_descendants(cg, new_id):
 
         children = cg.get_children(children, flatten=True)
     return result
-
 
 
 def _update_neighbor_cross_edges_single(
@@ -498,7 +499,7 @@ def _update_neighbor_cross_edges(
 
 def _get_supervoxels(cg, node_ids):
     """Returns the first supervoxel found for each node_id."""
-    result  = {}
+    result = {}
     node_ids_copy = np.copy(node_ids)
     children = np.copy(node_ids)
     children_d = cg.get_children(node_ids)
