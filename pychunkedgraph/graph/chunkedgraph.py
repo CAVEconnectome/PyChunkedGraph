@@ -3,6 +3,8 @@
 import time
 import typing
 import datetime
+from itertools import chain
+from functools import reduce
 
 import numpy as np
 from pychunkedgraph import __version__
@@ -667,8 +669,6 @@ class ChunkedGraph:
         Children of Level 2 Node IDs and edges.
         Edges are read from cloud storage.
         """
-        from itertools import chain
-        from functools import reduce
         from .misc import get_agglomerations
 
         chunk_ids = np.unique(self.get_chunk_ids_from_node_ids(level2_ids))
@@ -708,13 +708,9 @@ class ChunkedGraph:
             sv_parent_d.update(dict(zip(svs.tolist(), [l2id] * len(svs))))
 
         if active:
-            n1, n2 = all_chunk_edges.node_ids1, all_chunk_edges.node_ids2
-            layers = self.get_cross_chunk_edges_layer(all_chunk_edges.get_pairs())
-            max_layer = np.max(layers) + 1
-            parents1 = self.get_roots(n1, stop_layer=max_layer, time_stamp=time_stamp)
-            parents2 = self.get_roots(n2, stop_layer=max_layer, time_stamp=time_stamp)
-            mask = parents1 == parents2
-            all_chunk_edges = all_chunk_edges[mask]
+            all_chunk_edges = edge_utils.filter_inactive_cross_edges(
+                self, all_chunk_edges, time_stamp=time_stamp
+            )
 
         in_edges, out_edges, cross_edges = edge_utils.categorize_edges_v2(
             self.meta, all_chunk_edges, sv_parent_d
