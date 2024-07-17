@@ -9,6 +9,7 @@ from typing import Tuple
 from typing import Iterable
 from typing import Optional
 from collections import defaultdict
+from functools import reduce
 
 import fastremap
 import numpy as np
@@ -46,7 +47,9 @@ def concatenate_chunk_edges(chunk_edge_dicts: Iterable) -> Dict:
     return edges_dict
 
 
-def concatenate_cross_edge_dicts(edges_ds: Iterable[Dict], unique: bool = False) -> Dict:
+def concatenate_cross_edge_dicts(
+    edges_ds: Iterable[Dict], unique: bool = False
+) -> Dict:
     """Combines cross chunk edge dicts of form {layer id : edge list}."""
     result_d = defaultdict(list)
     for edges_d in edges_ds:
@@ -182,3 +185,20 @@ def get_edges_status(cg, edges: Iterable, time_stamp: Optional[float] = None):
         active_status.extend(mask)
     active_status = np.array(active_status, dtype=bool)
     return existence_status, active_status
+
+
+def filter_inactive_cross_edges(
+    cg, all_chunk_edges: Edges, time_stamp: Optional[float] = None
+):
+    result = []
+    layers = cg.get_cross_chunk_edges_layer(all_chunk_edges.get_pairs())
+    for layer in np.unique(layers):
+        layer_mask = layers == layer
+        parent_layer = layer + 1
+        layer_edges = all_chunk_edges[layer_mask]
+        n1, n2 = layer_edges.node_ids1, layer_edges.node_ids2
+        parents1 = cg.get_roots(n1, stop_layer=parent_layer, time_stamp=time_stamp)
+        parents2 = cg.get_roots(n2, stop_layer=parent_layer, time_stamp=time_stamp)
+        mask = parents1 == parents2
+        result.append(layer_edges[mask])
+    return reduce(lambda x, y: x + y, result, Edges([], []))
