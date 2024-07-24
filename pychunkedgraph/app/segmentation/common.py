@@ -65,6 +65,10 @@ def handle_api_versions():
     return jsonify(__api_versions__)
 
 
+def handle_version():
+    return jsonify(__version__)
+
+
 ### GET ROOT -------------------------------------------------------------------
 
 
@@ -1050,7 +1054,7 @@ def _handle_latest(cg, node_ids, timestamp):
     for n in node_ids:
         try:
             v = row_dict[n]
-            new_roots_ts.append(v[-1].timestamp.timestamp()) # sorted descending
+            new_roots_ts.append(v[-1].timestamp.timestamp())  # sorted descending
         except KeyError:
             new_roots_ts.append(0)
     new_roots_ts = deque(new_roots_ts)
@@ -1064,7 +1068,7 @@ def _handle_latest(cg, node_ids, timestamp):
     return result
 
 
-def handle_root_timestamps(table_id, is_binary, latest:bool = False):
+def handle_root_timestamps(table_id, is_binary, latest: bool = False):
     current_app.request_type = "root_timestamps"
     current_app.table_id = table_id
 
@@ -1076,7 +1080,6 @@ def handle_root_timestamps(table_id, is_binary, latest:bool = False):
     cg = app_utils.get_cg(table_id)
     if not np.all(cg.get_chunk_layers(node_ids) == cg.n_layers):
         raise cg_exceptions.BadRequest("Some ids are not root ids.")
-
 
     timestamp = _parse_timestamp("timestamp", time.time(), return_datetime=True)
     if latest:
