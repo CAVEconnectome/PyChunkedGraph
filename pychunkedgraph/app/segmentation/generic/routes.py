@@ -108,3 +108,9 @@ def handle_info(table_id):
 @auth_required
 def handle_api_versions():
     return common.handle_api_versions()
+
+
+@bp.route("/api/version", methods=["GET"])
+@auth_required
+def handle_version():
+    return common.handle_version()
