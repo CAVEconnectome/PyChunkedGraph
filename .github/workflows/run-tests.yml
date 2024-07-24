@@ -20,5 +20,5 @@ jobs:
       - name: Build image and run tests
         run: |
           docker build --tag seunglab/pychunkedgraph:$GITHUB_SHA .
-          docker run --rm seunglab/pychunkedgraph:$GITHUB_SHA /bin/sh -c "tox -v -- --cov-config .coveragerc --cov=pychunkedgraph && codecov"
+          docker run --rm seunglab/pychunkedgraph:$GITHUB_SHA /bin/sh -c "pip install pytest>=7.0 && tox -v -- --cov-config .coveragerc --cov=pychunkedgraph && codecov"
 
