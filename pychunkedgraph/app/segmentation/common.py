@@ -258,6 +258,7 @@ def handle_merge(table_id, allow_same_segment_merge=False):
 
     nodes = json.loads(request.data)
     is_priority = request.args.get("priority", True, type=str2bool)
+    chebyshev_distance = request.args.get("chebyshev_distance", 3, type=int)
 
     current_app.logger.debug(nodes)
     assert len(nodes) == 2
@@ -276,7 +277,7 @@ def handle_merge(table_id, allow_same_segment_merge=False):
         atomic_edge[0]
     ) - cg.get_chunk_coordinates(atomic_edge[1])
 
-    if np.any(np.abs(chunk_coord_delta) > 3):
+    if np.any(np.abs(chunk_coord_delta) > chebyshev_distance):
         raise cg_exceptions.BadRequest(
             "Chebyshev distance between merge points exceeded allowed maximum "
             "(3 chunks)."

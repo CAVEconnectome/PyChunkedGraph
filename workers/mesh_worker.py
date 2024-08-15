@@ -38,7 +38,8 @@ def callback(payload):
 
     try:
         mesh_dir = cg.meta.dataset_info["mesh"]
-        cv_unsharded_mesh_dir = cg.meta.dataset_info["mesh_metadata"]["unsharded_mesh_dir"]
+        mesh_meta = cg.meta.dataset_info["mesh_metadata"]
+        cv_unsharded_mesh_dir = mesh_meta.get("unsharded_mesh_dir", "dynamic")
     except KeyError:
         logging.warning(f"No metadata found for {cg.graph_id}; ignoring...")
         return
