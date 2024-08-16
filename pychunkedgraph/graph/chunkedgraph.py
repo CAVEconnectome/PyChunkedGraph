@@ -517,7 +517,7 @@ class ChunkedGraph:
         root_ids: typing.Iterable,
         time_stamp: typing.Optional[datetime.datetime] = None,
     ) -> typing.Iterable:
-        """Determines whether root ids are superseeded."""
+        """Determines whether root ids are superseded."""
         time_stamp = misc_utils.get_valid_timestamp(time_stamp)
 
         row_dict = self.client.read_nodes(
