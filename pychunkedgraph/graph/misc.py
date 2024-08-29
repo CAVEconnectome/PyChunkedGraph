@@ -76,6 +76,7 @@ def get_proofread_root_ids(
         start_time=start_time,
         end_time=end_time,
         properties=[attributes.OperationLogs.RootID],
+        end_time_inclusive=True,
     )
     root_chunks = [e[attributes.OperationLogs.RootID] for e in log_entries.values()]
     if len(root_chunks) == 0:
@@ -85,10 +86,10 @@ def get_proofread_root_ids(
     root_rows = cg.client.read_nodes(
         node_ids=new_roots, properties=[attributes.Hierarchy.FormerParent]
     )
-    old_roots = np.concatenate(
-        [e[attributes.Hierarchy.FormerParent][0].value for e in root_rows.values()]
-    )
-
+    old_root_chunks = [np.empty(0, dtype=np.uint64)]
+    for e in root_rows.values():
+        old_root_chunks.append(e[attributes.Hierarchy.FormerParent][0].value)
+    old_roots = np.concatenate(old_root_chunks)
     return old_roots, new_roots
 
 
