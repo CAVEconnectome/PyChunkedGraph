@@ -313,7 +313,7 @@ def remove_edges(
     cg,
     *,
     atomic_edges: Iterable[np.ndarray],
-    operation_id: basetypes.OPERATION_ID = None,
+    operation_id: basetypes.OPERATION_ID = None,  # type: ignore
     time_stamp: datetime.datetime = None,
     parent_ts: datetime.datetime = None,
 ):
@@ -522,7 +522,7 @@ class CreateParentNodes:
         cg,
         *,
         new_l2_ids: Iterable,
-        operation_id: basetypes.OPERATION_ID,
+        operation_id: basetypes.OPERATION_ID,  # type: ignore
         time_stamp: datetime.datetime,
         new_old_id_d: Dict[np.uint64, Set[np.uint64]] = None,
         old_new_id_d: Dict[np.uint64, Set[np.uint64]] = None,
@@ -542,7 +542,7 @@ class CreateParentNodes:
 
     def _update_id_lineage(
         self,
-        parent: basetypes.NODE_ID,
+        parent: basetypes.NODE_ID,  # type: ignore
         children: np.ndarray,
         layer: int,
         parent_layer: int,
@@ -658,7 +658,21 @@ class CreateParentNodes:
             self._update_id_lineage(parent, cc_ids, layer, parent_layer)
             self.cg.cache.children_cache[parent] = cc_ids
             cache_utils.update(self.cg.cache.parents_cache, cc_ids, parent)
-            sanity_check_single(self.cg, parent, self._operation_id)
+
+            try:
+                sanity_check_single(self.cg, parent, self._operation_id)
+            except AssertionError:
+                from pychunkedgraph.debug.utils import get_l2children
+
+                pairs = [
+                    (a, b) for idx, a in enumerate(cc_ids) for b in cc_ids[idx + 1 :]
+                ]
+                for c1, c2 in pairs:
+                    l2c1 = get_l2children(self.cg, c1)
+                    l2c2 = get_l2children(self.cg, c2)
+                    if np.intersect1d(l2c1, l2c2).size:
+                        msg = f"{self._operation_id}:{c1} {c2} have common children."
+                        raise ValueError(msg)
 
     def run(self) -> Iterable:
         """
