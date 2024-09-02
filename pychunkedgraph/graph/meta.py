@@ -88,7 +88,7 @@ class ChunkedGraphMeta:
         try:
             # try reading a cached info file for distributed workers
             # useful to avoid md5 errors on high gcs load
-            cache_key = f"{self.graph_config.ID}:cv_info_cached"
+            cache_key = f"{self.graph_config.ID}:ws_cv_info_cached"
             redis = get_redis_connection()
             cached_info = json.loads(redis.get(cache_key))
             self._ws_cv = CloudVolume(self._data_source.WATERSHED, info=cached_info)
