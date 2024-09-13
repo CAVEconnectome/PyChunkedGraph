@@ -1,35 +1,47 @@
 # pylint: disable=protected-access,missing-function-docstring,invalid-name,wrong-import-position
 
-from os import environ
 from datetime import timedelta
-
-environ["BIGTABLE_PROJECT"] = "<>"
-environ["BIGTABLE_INSTANCE"] = "<>"
-environ["GOOGLE_APPLICATION_CREDENTIALS"] = "<path>"
 
 from pychunkedgraph.graph import ChunkedGraph
 from pychunkedgraph.graph.attributes import Concurrency
 from pychunkedgraph.graph.operation import GraphEditOperation
 
 
-def repair_operation(cg, log_d, operation_id):
+def _get_previous_log_ts(cg, operation):
+    log, previous_ts = cg.client.read_log_entry(operation - 1)
+    if log:
+        return previous_ts
+    return _get_previous_log_ts(cg, operation - 1)
+
+
+def repair_operation(
+    cg: ChunkedGraph,
+    operation_id: int,
+    unlock: bool = False,
+    use_preceding_edit_ts=True,
+) -> GraphEditOperation.Result:
     operation = GraphEditOperation.from_operation_id(
         cg, operation_id, multicut_as_split=False, privileged_mode=True
     )
-    ts = log_d["timestamp"]
+
+    _, current_ts = cg.client.read_log_entry(operation_id)
+    parent_ts = current_ts - timedelta(milliseconds=10)
+    if operation_id > 1 and use_preceding_edit_ts:
+        previous_ts = _get_previous_log_ts(cg, operation_id)
+        parent_ts = previous_ts + timedelta(milliseconds=100)
+
     result = operation.execute(
         operation_id=operation_id,
-        parent_ts=ts - timedelta(seconds=0.1),
-        override_ts=ts + timedelta(microseconds=(ts.microsecond % 1000) + 10),
+        parent_ts=parent_ts,
+        override_ts=current_ts + timedelta(milliseconds=1),
     )
     old_roots = operation._update_root_ids()
-    print("roots", old_roots, result.new_root_ids)
-    print("result op ID", result.operation_id)
-    print("result L2 IDs", result.new_lvl2_ids)
 
-    for root_ in old_roots:
-        cg.client.unlock_root(root_, result.operation_id)
-        cg.client.unlock_indefinitely_locked_root(root_, result.operation_id)
+    if unlock:
+        for root_ in old_roots:
+            cg.client.unlock_root(root_, result.operation_id)
+            cg.client.unlock_indefinitely_locked_root(root_, result.operation_id)
+    return result
 
 
 if __name__ == "__main__":
