@@ -14,7 +14,7 @@ from pychunkedgraph.graph.utils import serializers
 from pychunkedgraph.graph.types import empty_2d
 from pychunkedgraph.utils.general import chunked
 
-from .utils import exists_as_parent
+from .utils import exists_as_parent, get_parent_timestamps
 
 
 CHILDREN = {}
@@ -50,7 +50,7 @@ def _get_cx_edges_at_timestamp(node, response, ts):
 
 
 def _populate_cx_edges_with_timestamps(
-    cg: ChunkedGraph, layer: int, nodes: list, nodes_ts: list
+    cg: ChunkedGraph, layer: int, nodes: list, earliest_ts
 ):
     """
     Collect timestamps of edits from children, since we use the same timestamp
@@ -61,15 +61,13 @@ def _populate_cx_edges_with_timestamps(
     attrs = [Connectivity.CrossChunkEdge[l] for l in range(layer, cg.meta.layer_count)]
     all_children = np.concatenate(list(CHILDREN.values()))
     response = cg.client.read_nodes(node_ids=all_children, properties=attrs)
-    for node, node_ts in zip(nodes, nodes_ts):
-        timestamps = set([node_ts])
-        for child in CHILDREN[node]:
-            if child not in response:
-                continue
-            for cells in response[child].values():
-                timestamps.update([c.timestamp for c in cells if c.timestamp > node_ts])
+    timestamps_d = get_parent_timestamps(cg, nodes)
+    for node in nodes:
         CX_EDGES[node] = {}
+        timestamps = timestamps_d[node]
         for ts in sorted(timestamps):
+            if ts < earliest_ts:
+                ts = earliest_ts
             CX_EDGES[node][ts] = _get_cx_edges_at_timestamp(node, response, ts)
 
 
@@ -142,19 +140,19 @@ def update_chunk(
     start = time.time()
     x, y, z = chunk_coords
     chunk_id = cg.get_chunk_id(layer=layer, x=x, y=y, z=z)
+    earliest_ts = cg.get_earliest_timestamp()
     _populate_nodes_and_children(cg, chunk_id, nodes=nodes)
     if not CHILDREN:
         return
     nodes = list(CHILDREN.keys())
     random.shuffle(nodes)
     nodes_ts = cg.get_node_timestamps(nodes, return_numpy=False, normalize=True)
-    _populate_cx_edges_with_timestamps(cg, layer, nodes, nodes_ts)
+    _populate_cx_edges_with_timestamps(cg, layer, nodes, earliest_ts)
 
     task_size = int(math.ceil(len(nodes) / mp.cpu_count() / 2))
     chunked_nodes = chunked(nodes, task_size)
     chunked_nodes_ts = chunked(nodes_ts, task_size)
     cg_info = cg.get_serialized_info()
-    earliest_ts = cg.get_earliest_timestamp()
 
     multi_args = []
     for chunk, ts_chunk in zip(chunked_nodes, chunked_nodes_ts):
