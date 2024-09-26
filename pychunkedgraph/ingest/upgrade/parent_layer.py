@@ -10,6 +10,7 @@ from multiwrapper import multiprocessing_utils as mu
 
 from pychunkedgraph.graph import ChunkedGraph
 from pychunkedgraph.graph.attributes import Connectivity, Hierarchy
+from pychunkedgraph.graph.edits import get_supervoxels
 from pychunkedgraph.graph.utils import serializers
 from pychunkedgraph.graph.types import empty_2d
 from pychunkedgraph.utils.general import chunked
@@ -101,7 +102,8 @@ def update_cross_edges(cg: ChunkedGraph, layer, node, node_ts, earliest_ts) -> l
         if edges.size == 0:
             continue
         nodes = np.unique(edges[:, 1])
-        parents = cg.get_roots(nodes, time_stamp=ts, stop_layer=layer, ceil=False)
+        svs = get_supervoxels(cg, nodes)
+        parents = cg.get_roots(svs, time_stamp=ts, stop_layer=layer, ceil=False)
         edge_parents_d = dict(zip(nodes, parents))
         val_dict = {}
         for _layer, layer_edges in cx_edges_d.items():

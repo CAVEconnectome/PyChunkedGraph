@@ -497,7 +497,7 @@ def _update_neighbor_cross_edges(
     return updated_entries
 
 
-def _get_supervoxels(cg, node_ids):
+def get_supervoxels(cg, node_ids):
     """Returns the first supervoxel found for each node_id."""
     result = {}
     node_ids_copy = np.copy(node_ids)
@@ -606,7 +606,7 @@ class CreateParentNodes:
         )
         cx_edges_d = concatenate_cross_edge_dicts(cx_edges_d.values())
         edge_nodes = np.unique(np.concatenate([*cx_edges_d.values(), types.empty_2d]))
-        edge_supervoxels = _get_supervoxels(self.cg, edge_nodes)
+        edge_supervoxels = get_supervoxels(self.cg, edge_nodes)
         edge_parents = self.cg.get_roots(
             edge_supervoxels,
             stop_layer=parent_layer,
@@ -671,7 +671,8 @@ class CreateParentNodes:
                     l2c1 = get_l2children(self.cg, c1)
                     l2c2 = get_l2children(self.cg, c2)
                     if np.intersect1d(l2c1, l2c2).size:
-                        msg = f"{self._operation_id}:{c1} {c2} have common children."
+                        c = np.intersect1d(l2c1, l2c2)
+                        msg = f"{self._operation_id}: {layer} {c1} {c2} have common children {c}"
                         raise ValueError(msg)
 
     def run(self) -> Iterable:
