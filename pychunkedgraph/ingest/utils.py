@@ -1,6 +1,7 @@
 # pylint: disable=invalid-name, missing-docstring
 
 import logging
+import functools
 from os import environ
 from time import sleep
 from typing import Any, Generator, Tuple
@@ -16,6 +17,8 @@ from ..graph.meta import ChunkedGraphMeta, DataSource, GraphConfig
 from ..graph.client import BackendClientInfo
 from ..graph.client.bigtable import BigTableConfig
 from ..utils.general import chunked
+from ..utils.redis import get_redis_connection
+from ..utils.redis import keys as r_keys
 
 chunk_id_str = lambda layer, coords: f"{layer}_{'_'.join(map(str, coords))}"
 
@@ -116,7 +119,7 @@ def print_completion_rate(imanager: IngestionManager, layer: int, span: int = 10
     print(f"{rate} chunks per second.")
 
 
-def print_ingest_status(imanager: IngestionManager, redis, upgrade: bool = False):
+def print_status(imanager: IngestionManager, redis, upgrade: bool = False):
     """
     Helper to print status to console.
     If `upgrade=True`, status does not include the root layer,
@@ -128,6 +131,7 @@ def print_ingest_status(imanager: IngestionManager, redis, upgrade: bool = False
     layer_counts = imanager.cg_meta.layer_chunk_counts
 
     pipeline = redis.pipeline()
+    pipeline.get(r_keys.JOB_TYPE)
     worker_busy = []
     for layer in layers:
         pipeline.scard(f"{layer}c")
@@ -138,25 +142,32 @@ def print_ingest_status(imanager: IngestionManager, redis, upgrade: bool = False
         worker_busy.append(sum([w.get_state() == WorkerStatus.BUSY for w in workers]))
 
     results = pipeline.execute()
+    job_type = "not_available"
+    if results[0] is not None:
+        job_type = results[0].decode()
     completed = []
     queued = []
     failed = []
-    for i in range(0, len(results), 3):
+    for i in range(1, len(results), 3):
         result = results[i : i + 3]
         completed.append(result[0])
         queued.append(result[1])
         failed.append(result[2])
 
-    print(f"version: \t{imanager.cg.version}")
-    print(f"graph_id: \t{imanager.cg.graph_id}")
-    print(f"chunk_size: \t{imanager.cg.meta.graph_config.CHUNK_SIZE}")
-    print("\nlayer status:")
+    header = (
+        f"\njob_type: \t{job_type}"
+        f"\nversion: \t{imanager.cg.version}"
+        f"\ngraph_id: \t{imanager.cg.graph_id}"
+        f"\nchunk_size: \t{imanager.cg.meta.graph_config.CHUNK_SIZE}"
+        "\n\nlayer status:"
+    )
+    print(header)
     for layer, done, count in zip(layers, completed, layer_counts):
-        print(f"{layer}\t: {done:<9} / {count}")
+        print(f"{layer}\t| {done:9} / {count} \t| {done/count:6.1%}")
 
     print("\n\nqueue status:")
     for layer, q, f, wb in zip(layers, queued, failed, worker_busy):
-        print(f"l{layer}\t: queued: {q:<10} failed: {f:<10} busy: {wb}")
+        print(f"l{layer}\t| queued: {q:<10} failed: {f:<10} busy: {wb}")
 
 
 def queue_layer_helper(parent_layer: int, imanager: IngestionManager, fn):
@@ -190,3 +201,25 @@ def queue_layer_helper(parent_layer: int, imanager: IngestionManager, fn):
                 )
             )
         q.enqueue_many(job_datas)
+
+
+def job_type_guard(job_type: str):
+    def decorator_job_type_guard(func):
+        @functools.wraps(func)
+        def wrapper_job_type_guard(*args, **kwargs):
+            redis = get_redis_connection()
+            current_type = redis.get(r_keys.JOB_TYPE)
+            if current_type is not None:
+                current_type = current_type.decode()
+                msg = (
+                    f"Currently running `{current_type}`. You're attempting to run `{job_type}`."
+                    f"\nRun `[flask] {current_type} flush_redis` to clear the current job and restart."
+                )
+                if current_type != job_type:
+                    print(f"\n*WARNING*\n{msg}")
+                    exit(1)
+            return func(*args, **kwargs)
+
+        return wrapper_job_type_guard
+
+    return decorator_job_type_guard
