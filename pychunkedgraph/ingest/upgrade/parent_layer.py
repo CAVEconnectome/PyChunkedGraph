@@ -6,7 +6,7 @@ from collections import defaultdict
 
 import fastremap
 import numpy as np
-from multiwrapper import multiprocessing_utils as mu
+from tqdm import tqdm
 
 from pychunkedgraph.graph import ChunkedGraph
 from pychunkedgraph.graph.attributes import Connectivity, Hierarchy
@@ -51,7 +51,7 @@ def _get_cx_edges_at_timestamp(node, response, ts):
 
 
 def _populate_cx_edges_with_timestamps(
-    cg: ChunkedGraph, layer: int, nodes: list, nodes_ts:list, earliest_ts
+    cg: ChunkedGraph, layer: int, nodes: list, nodes_ts: list, earliest_ts
 ):
     """
     Collect timestamps of edits from children, since we use the same timestamp
@@ -83,7 +83,6 @@ def update_cross_edges(cg: ChunkedGraph, layer, node, node_ts, earliest_ts) -> l
         try:
             cx_edges_d = CX_EDGES[node][node_ts]
         except KeyError:
-            print(CX_EDGES)
             raise KeyError(f"{node}:{node_ts}")
         edges = np.concatenate([empty_2d] + list(cx_edges_d.values()))
         if edges.size:
@@ -158,15 +157,14 @@ def update_chunk(
     chunked_nodes_ts = chunked(nodes_ts, task_size)
     cg_info = cg.get_serialized_info()
 
-    multi_args = []
+    tasks = []
     for chunk, ts_chunk in zip(chunked_nodes, chunked_nodes_ts):
         args = (cg_info, layer, chunk, ts_chunk, earliest_ts)
-        multi_args.append(args)
+        tasks.append(args)
 
-    print(f"nodes: {len(nodes)}, tasks: {len(multi_args)}, size: {task_size}")
-    mu.multiprocess_func(
-        _update_cross_edges_helper,
-        multi_args,
-        n_threads=min(len(multi_args), mp.cpu_count()),
-    )
+    with mp.Pool(min(mp.cpu_count(), len(tasks))) as pool:
+        tqdm(
+            pool.imap_unordered(_update_cross_edges_helper, tasks),
+            total=len(tasks),
+        )
     print(f"total elaspsed time: {time.time() - start}")

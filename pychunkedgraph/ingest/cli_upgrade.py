@@ -24,15 +24,17 @@ from .manager import IngestionManager
 from .utils import (
     chunk_id_str,
     print_completion_rate,
-    print_ingest_status,
+    print_status,
     queue_layer_helper,
     start_ocdbt_server,
+    job_type_guard,
 )
 from ..graph.chunkedgraph import ChunkedGraph, ChunkedGraphMeta
 from ..utils.redis import get_redis_connection
 from ..utils.redis import keys as r_keys
 
-upgrade_cli = AppGroup("upgrade")
+group_name = "upgrade"
+upgrade_cli = AppGroup(group_name)
 
 
 def init_upgrade_cmds(app):
@@ -40,6 +42,8 @@ def init_upgrade_cmds(app):
 
 
 @upgrade_cli.command("flush_redis")
+@click.confirmation_option(prompt="Are you sure you want to flush redis?")
+@job_type_guard(group_name)
 def flush_redis():
     """FLush redis db."""
     redis = get_redis_connection()
@@ -50,11 +54,13 @@ def flush_redis():
 @click.argument("graph_id", type=str)
 @click.option("--test", is_flag=True, help="Test 8 chunks at the center of dataset.")
 @click.option("--ocdbt", is_flag=True, help="Store edges using ts ocdbt kv store.")
+@job_type_guard(group_name)
 def upgrade_graph(graph_id: str, test: bool, ocdbt: bool):
     """
-    Main upgrade command.
-    Takes upgrade config from a yaml file and queues atomic tasks.
+    Main upgrade command. Queues atomic tasks.
     """
+    redis = get_redis_connection()
+    redis.set(r_keys.JOB_TYPE, group_name)
     ingest_config = IngestConfig(TEST_RUN=test)
     cg = ChunkedGraph(graph_id=graph_id)
     cg.client.add_graph_version(__version__, overwrite=True)
@@ -91,6 +97,7 @@ def upgrade_graph(graph_id: str, test: bool, ocdbt: bool):
 
 @upgrade_cli.command("layer")
 @click.argument("parent_layer", type=int)
+@job_type_guard(group_name)
 def queue_layer(parent_layer):
     """
     Queue all chunk tasks at a given layer.
@@ -103,17 +110,22 @@ def queue_layer(parent_layer):
 
 
 @upgrade_cli.command("status")
-def ingest_status():
+@job_type_guard(group_name)
+def upgrade_status():
     """Print upgrade status to console."""
     redis = get_redis_connection()
-    imanager = IngestionManager.from_pickle(redis.get(r_keys.INGESTION_MANAGER))
-    print_ingest_status(imanager, redis, upgrade=True)
+    try:
+        imanager = IngestionManager.from_pickle(redis.get(r_keys.INGESTION_MANAGER))
+        print_status(imanager, redis, upgrade=True)
+    except TypeError as err:
+        print(f"\nNo current `{group_name}` job found in redis: {err}")
 
 
 @upgrade_cli.command("chunk")
 @click.argument("queue", type=str)
 @click.argument("chunk_info", nargs=4, type=int)
-def ingest_chunk(queue: str, chunk_info):
+@job_type_guard(group_name)
+def upgrade_chunk(queue: str, chunk_info):
     """Manually queue chunk when a job is stuck for whatever reason."""
     redis = get_redis_connection()
     imanager = IngestionManager.from_pickle(redis.get(r_keys.INGESTION_MANAGER))
@@ -137,6 +149,7 @@ def ingest_chunk(queue: str, chunk_info):
 @upgrade_cli.command("rate")
 @click.argument("layer", type=int)
 @click.option("--span", default=10, help="Time span to calculate rate.")
+@job_type_guard(group_name)
 def rate(layer: int, span: int):
     redis = get_redis_connection()
     imanager = IngestionManager.from_pickle(redis.get(r_keys.INGESTION_MANAGER))
