@@ -16,15 +16,17 @@ from .utils import (
     bootstrap,
     chunk_id_str,
     print_completion_rate,
-    print_ingest_status,
+    print_status,
     queue_layer_helper,
+    job_type_guard,
 )
 from .simple_tests import run_all
 from .create.parent_layer import add_parent_chunk
 from ..graph.chunkedgraph import ChunkedGraph
 from ..utils.redis import get_redis_connection, keys as r_keys
 
-ingest_cli = AppGroup("ingest")
+group_name = "ingest"
+ingest_cli = AppGroup(group_name)
 
 
 def init_ingest_cmds(app):
@@ -32,6 +34,8 @@ def init_ingest_cmds(app):
 
 
 @ingest_cli.command("flush_redis")
+@click.confirmation_option(prompt="Are you sure you want to flush redis?")
+@job_type_guard(group_name)
 def flush_redis():
     """FLush redis db."""
     redis = get_redis_connection()
@@ -44,6 +48,7 @@ def flush_redis():
 @click.option("--raw", is_flag=True, help="Read edges from agglomeration output.")
 @click.option("--test", is_flag=True, help="Test 8 chunks at the center of dataset.")
 @click.option("--retry", is_flag=True, help="Rerun without creating a new table.")
+@job_type_guard(group_name)
 def ingest_graph(
     graph_id: str, dataset: click.Path, raw: bool, test: bool, retry: bool
 ):
@@ -51,6 +56,8 @@ def ingest_graph(
     Main ingest command.
     Takes ingest config from a yaml file and queues atomic tasks.
     """
+    redis = get_redis_connection()
+    redis.set(r_keys.JOB_TYPE, group_name)
     with open(dataset, "r") as stream:
         config = yaml.safe_load(stream)
 
@@ -70,6 +77,7 @@ def ingest_graph(
 @click.argument("graph_id", type=str)
 @click.argument("dataset", type=click.Path(exists=True))
 @click.option("--raw", is_flag=True)
+@job_type_guard(group_name)
 def pickle_imanager(graph_id: str, dataset: click.Path, raw: bool):
     """
     Load ingest config into redis server.
@@ -83,11 +91,12 @@ def pickle_imanager(graph_id: str, dataset: click.Path, raw: bool):
 
     meta, ingest_config, _ = bootstrap(graph_id, config=config, raw=raw)
     imanager = IngestionManager(ingest_config, meta)
-    imanager.redis  # pylint: disable=pointless-statement
+    imanager.redis.set(r_keys.JOB_TYPE, group_name)
 
 
 @ingest_cli.command("layer")
 @click.argument("parent_layer", type=int)
+@job_type_guard(group_name)
 def queue_layer(parent_layer):
     """
     Queue all chunk tasks at a given layer.
@@ -100,16 +109,21 @@ def queue_layer(parent_layer):
 
 
 @ingest_cli.command("status")
+@job_type_guard(group_name)
 def ingest_status():
     """Print ingest status to console by layer."""
     redis = get_redis_connection()
-    imanager = IngestionManager.from_pickle(redis.get(r_keys.INGESTION_MANAGER))
-    print_ingest_status(imanager, redis)
+    try:
+        imanager = IngestionManager.from_pickle(redis.get(r_keys.INGESTION_MANAGER))
+        print_status(imanager, redis)
+    except TypeError as err:
+        print(f"\nNo current `{group_name}` job found in redis: {err}")
 
 
 @ingest_cli.command("chunk")
 @click.argument("queue", type=str)
 @click.argument("chunk_info", nargs=4, type=int)
+@job_type_guard(group_name)
 def ingest_chunk(queue: str, chunk_info):
     """Manually queue chunk when a job is stuck for whatever reason."""
     redis = get_redis_connection()
@@ -135,6 +149,7 @@ def ingest_chunk(queue: str, chunk_info):
 @click.argument("graph_id", type=str)
 @click.argument("chunk_info", nargs=4, type=int)
 @click.option("--n_threads", type=int, default=1)
+@job_type_guard(group_name)
 def ingest_chunk_local(graph_id: str, chunk_info, n_threads: int):
     """Manually ingest a chunk on a local machine."""
     layer, coords = chunk_info[0], chunk_info[1:]
@@ -150,6 +165,7 @@ def ingest_chunk_local(graph_id: str, chunk_info, n_threads: int):
 @ingest_cli.command("rate")
 @click.argument("layer", type=int)
 @click.option("--span", default=10, help="Time span to calculate rate.")
+@job_type_guard(group_name)
 def rate(layer: int, span: int):
     redis = get_redis_connection()
     imanager = IngestionManager.from_pickle(redis.get(r_keys.INGESTION_MANAGER))
@@ -158,5 +174,6 @@ def rate(layer: int, span: int):
 
 @ingest_cli.command("run_tests")
 @click.argument("graph_id", type=str)
+@job_type_guard(group_name)
 def run_tests(graph_id):
     run_all(ChunkedGraph(graph_id=graph_id))
