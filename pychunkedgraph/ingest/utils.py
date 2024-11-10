@@ -2,6 +2,7 @@
 
 import logging
 import functools
+import math
 from os import environ
 from time import sleep
 from typing import Any, Generator, Tuple
@@ -163,7 +164,7 @@ def print_status(imanager: IngestionManager, redis, upgrade: bool = False):
     )
     print(header)
     for layer, done, count in zip(layers, completed, layer_counts):
-        print(f"{layer}\t| {done:9} / {count} \t| {done/count:6.1%}")
+        print(f"{layer}\t| {done:9} / {count} \t| {math.floor((done/count)*100):6}%")
 
     print("\n\nqueue status:")
     for layer, q, f, wb in zip(layers, queued, failed, worker_busy):
