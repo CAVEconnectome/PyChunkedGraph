@@ -12,7 +12,7 @@ from .utils import exists_as_parent, get_parent_timestamps
 
 
 def update_cross_edges(
-    cg: ChunkedGraph, node, cx_edges_d, node_ts, timestamps, earliest_ts
+    cg: ChunkedGraph, node, cx_edges_d: dict, node_ts, timestamps: set, earliest_ts
 ) -> list:
     """
     Helper function to update a single L2 ID.
@@ -27,7 +27,11 @@ def update_cross_edges(
         assert not exists_as_parent(cg, node, edges[:, 0])
         return rows
 
-    for ts in timestamps:
+    partner_parent_ts_d = get_parent_timestamps(cg, edges[:, 1])
+    for v in partner_parent_ts_d.values():
+        timestamps.update(v)
+
+    for ts in sorted(timestamps):
         if ts < earliest_ts:
             ts = earliest_ts
         val_dict = {}

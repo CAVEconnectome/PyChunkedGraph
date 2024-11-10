@@ -163,8 +163,10 @@ def update_chunk(
         tasks.append(args)
 
     with mp.Pool(min(mp.cpu_count(), len(tasks))) as pool:
-        tqdm(
-            pool.imap_unordered(_update_cross_edges_helper, tasks),
-            total=len(tasks),
+        _ = list(
+            tqdm(
+                pool.imap_unordered(_update_cross_edges_helper, tasks),
+                total=len(tasks),
+            )
         )
     print(f"total elaspsed time: {time.time() - start}")
