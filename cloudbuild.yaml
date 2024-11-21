@@ -5,21 +5,6 @@ steps:
     args: ["-c", "docker login --username=$$USERNAME --password=$$PASSWORD"]
     secretEnv: ["USERNAME", "PASSWORD"]
 
-  # Build the final stage image - Kaniko takes care caching
-  - name: "gcr.io/kaniko-project/executor:latest"
-    args:
-      - "--cache=true"
-      - "--cache-ttl=48h"
-      - "--compressed-caching=false"
-      - "--cache-copy-layers=true"
-      - "--destination=gcr.io/$PROJECT_ID/pychunkedgraph:$TAG_NAME"
-    timeout: 1800s
-
-  # TODO: can't figure out how to just re-tag and push to Dockerhub
-  - name: "gcr.io/cloud-builders/docker"
-    entrypoint: "bash"
-    args: ["-c", "docker pull gcr.io/$PROJECT_ID/pychunkedgraph:$TAG_NAME"]
-
   # Additional tag for Dockerhub
   - name: "gcr.io/cloud-builders/docker"
     entrypoint: "bash"
