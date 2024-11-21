@@ -1,11 +1,11 @@
-# pylint: disable=invalid-name, missing-docstring, import-outside-toplevel, line-too-long, protected-access, arguments-differ, arguments-renamed, logging-fstring-interpolation
+# pylint: disable=invalid-name, missing-docstring, import-outside-toplevel, line-too-long, protected-access, arguments-differ, arguments-renamed, logging-fstring-interpolation, too-many-arguments
 
 import sys
 import time
 import typing
 import logging
-import datetime
 from datetime import datetime
+from datetime import timedelta
 
 import numpy as np
 from multiwrapper import multiprocessing_utils as mu
@@ -15,11 +15,12 @@ from google.api_core.retry import if_exception_type
 from google.api_core.exceptions import Aborted
 from google.api_core.exceptions import DeadlineExceeded
 from google.api_core.exceptions import ServiceUnavailable
+from google.cloud.bigtable.column_family import MaxAgeGCRule
+from google.cloud.bigtable.column_family import MaxVersionsGCRule
 from google.cloud.bigtable.table import Table
 from google.cloud.bigtable.row_set import RowSet
-from google.cloud.bigtable.row_data import PartialRowData
+from google.cloud.bigtable.row_data import DEFAULT_RETRY_READ_ROWS, PartialRowData
 from google.cloud.bigtable.row_filters import RowFilter
-from google.cloud.bigtable.column_family import MaxVersionsGCRule
 
 from . import utils
 from . import BigTableConfig
@@ -71,6 +72,18 @@ class Client(bigtable.Client, ClientWithIDGen, OperationLogger):
         self._version = None
         self._max_row_key_count = config.MAX_ROW_KEY_COUNT
 
+    def _create_column_families(self):
+        f = self._table.column_family("0")
+        f.create()
+        f = self._table.column_family("1", gc_rule=MaxVersionsGCRule(1))
+        f.create()
+        f = self._table.column_family("2")
+        f.create()
+        f = self._table.column_family("3", gc_rule=MaxAgeGCRule(timedelta(days=365)))
+        f.create()
+        f = self._table.column_family("4")
+        f.create()
+
     @property
     def graph_meta(self):
         return self._graph_meta
@@ -84,8 +97,9 @@ class Client(bigtable.Client, ClientWithIDGen, OperationLogger):
         self.add_graph_version(version)
         self.update_graph_meta(meta)
 
-    def add_graph_version(self, version: str):
-        assert self.read_graph_version() is None, "Graph has already been versioned."
+    def add_graph_version(self, version: str, overwrite: bool = False):
+        if not overwrite:
+            assert self.read_graph_version() is None, self.read_graph_version()
         self._version = version
         row = self.mutate_row(
             attributes.GraphVersion.key,
@@ -137,6 +151,7 @@ class Client(bigtable.Client, ClientWithIDGen, OperationLogger):
         end_time=None,
         end_time_inclusive: bool = False,
         fake_edges: bool = False,
+        attr_keys: bool = True,
     ):
         """
         Read nodes and their properties.
@@ -147,26 +162,38 @@ class Client(bigtable.Client, ClientWithIDGen, OperationLogger):
             # when all IDs in a block are within a range
             node_ids = np.sort(node_ids)
         rows = self._read_byte_rows(
-            start_key=serialize_uint64(start_id, fake_edges=fake_edges)
-            if start_id is not None
-            else None,
-            end_key=serialize_uint64(end_id, fake_edges=fake_edges)
-            if end_id is not None
-            else None,
+            start_key=(
+                serialize_uint64(start_id, fake_edges=fake_edges)
+                if start_id is not None
+                else None
+            ),
+            end_key=(
+                serialize_uint64(end_id, fake_edges=fake_edges)
+                if end_id is not None
+                else None
+            ),
             end_key_inclusive=end_id_inclusive,
             row_keys=(
-                serialize_uint64(node_id, fake_edges=fake_edges) for node_id in node_ids
-            )
-            if node_ids is not None
-            else None,
+                (
+                    serialize_uint64(node_id, fake_edges=fake_edges)
+                    for node_id in node_ids
+                )
+                if node_ids is not None
+                else None
+            ),
             columns=properties,
             start_time=start_time,
             end_time=end_time,
             end_time_inclusive=end_time_inclusive,
             user_id=user_id,
         )
+        if attr_keys:
+            return {
+                deserialize_uint64(row_key, fake_edges=fake_edges): data
+                for (row_key, data) in rows.items()
+            }
         return {
-            deserialize_uint64(row_key, fake_edges=fake_edges): data
+            deserialize_uint64(row_key, fake_edges=fake_edges): {k.key:v for k,v in data.items()}
             for (row_key, data) in rows.items()
         }
 
@@ -628,16 +655,6 @@ class Client(bigtable.Client, ClientWithIDGen, OperationLogger):
         return utils.get_google_compatible_time_stamp(time_stamp, round_up=round_up)
 
     # PRIVATE METHODS
-    def _create_column_families(self):
-        f = self._table.column_family("0")
-        f.create()
-        f = self._table.column_family("1", gc_rule=MaxVersionsGCRule(1))
-        f.create()
-        f = self._table.column_family("2")
-        f.create()
-        f = self._table.column_family("3")
-        f.create()
-
     def _get_ids_range(self, key: bytes, size: int) -> typing.Tuple:
         """Returns a range (min, max) of IDs for a given `key`."""
         column = attributes.Concurrency.Counter
@@ -816,7 +833,8 @@ class Client(bigtable.Client, ClientWithIDGen, OperationLogger):
             # Check for everything falsy, because Bigtable considers even empty
             # lists of row_keys as no upper/lower bound!
             return {}
-        range_read = table.read_rows(row_set=row_set, filter_=row_filter)
+        retry = DEFAULT_RETRY_READ_ROWS.with_timeout(180)
+        range_read = table.read_rows(row_set=row_set, filter_=row_filter, retry=retry)
         res = {v.row_key: utils.partial_row_data_to_column_dict(v) for v in range_read}
         return res
 

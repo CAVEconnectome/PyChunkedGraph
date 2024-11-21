@@ -1,7 +1,9 @@
 """
 generic helper funtions
 """
+
 from typing import Sequence
+from itertools import islice
 
 
 import numpy as np
@@ -24,11 +26,15 @@ def reverse_dictionary(dictionary):
 
 
 def chunked(l: Sequence, n: int):
-    """Yield successive n-sized chunks from l."""
+    """
+    Yield successive n-sized chunks from l.
+    NOTE: Use itertools.batched from python 3.12
+    """
     if n < 1:
         n = len(l)
-    for i in range(0, len(l), n):
-        yield l[i : i + n]
+    it = iter(l)
+    while batch := tuple(islice(it, n)):
+        yield batch
 
 
 def in2d(arr1: np.ndarray, arr2: np.ndarray) -> np.ndarray:
