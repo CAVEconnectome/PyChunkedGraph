@@ -66,7 +66,14 @@ def _populate_cx_edges_with_timestamps(
     for node, node_ts in zip(nodes, nodes_ts):
         CX_EDGES[node] = {}
         timestamps = timestamps_d[node]
-        timestamps.add(node_ts)
+        cx_edges_d_node_ts = _get_cx_edges_at_timestamp(node, response, node_ts)
+
+        edges = np.concatenate([empty_2d] + list(cx_edges_d_node_ts.values()))
+        partner_parent_ts_d = get_parent_timestamps(cg, edges[:, 1])
+        for v in partner_parent_ts_d.values():
+            timestamps.update(v)
+        CX_EDGES[node][node_ts] = cx_edges_d_node_ts
+
         for ts in sorted(timestamps):
             if ts < earliest_ts:
                 ts = earliest_ts
