@@ -317,6 +317,20 @@ def handle_leaves_many(table_id):
     return jsonify_with_kwargs(root_to_leaf_dict, int64_as_str=int64_as_str)
 
 
+### GET MINIMAL COVERING NODES
+
+
+@bp.route("/table/<table_id>/minimal_covering_nodes", methods=["POST"])
+@auth_requires_permission("view", public_table_key="table_id")
+@remap_public(check_node_ids=False)
+def handle_minimal_covering_nodes(table_id):
+    int64_as_str = request.args.get("int64_as_str", default=False, type=toboolean)
+    is_binary = request.args.get("is_binary", default=False, type=toboolean)
+
+    resp = common.handle_find_minimal_covering_nodes(table_id, is_binary=is_binary)
+    return jsonify_with_kwargs(resp, int64_as_str=int64_as_str)
+
+
 ### SUBGRAPH -------------------------------------------------------------------
 
 
