@@ -11,7 +11,7 @@ flask
 flask_cors
 python-json-logger
 redis
-rq
+rq<2
 pyyaml
 cachetools
 werkzeug
