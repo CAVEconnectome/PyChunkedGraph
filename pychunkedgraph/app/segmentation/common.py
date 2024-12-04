@@ -189,12 +189,12 @@ def handle_find_minimal_covering_nodes(table_id, is_binary=True):
     ):  # Process from higher layers to lower layers
         if len(node_queue[layer]) == 0:
             continue
-
+        
         current_nodes = list(node_queue[layer])
 
         # Call handle_roots to find parents
-        parents = cg.get_roots(node_ids, stop_layer=layer + 1, time_stamp=timestamp)
-
+        parents = cg.get_roots(current_nodes, stop_layer=layer + 1, time_stamp=timestamp)
+        print(parents)
         unique_parents = np.unique(parents)
         parent_layers = np.array(
             [cg.get_chunk_layer(parent) for parent in unique_parents]
@@ -202,7 +202,7 @@ def handle_find_minimal_covering_nodes(table_id, is_binary=True):
 
         # Call handle_leaves_many to get leaves
         leaves = cg.get_subgraph_nodes(
-            current_nodes,
+            unique_parents,
             return_layers=[min_layer],
             serializable=False,
             return_flattened=True,
@@ -212,6 +212,7 @@ def handle_find_minimal_covering_nodes(table_id, is_binary=True):
         for parent, parent_layer in zip(unique_parents, parent_layers):
             child_mask = np.isin(leaves[parent], min_children)
             if not np.all(child_mask):
+                print('non covering parent', parent)
                 # Call handle_children to fetch children
                 children = cg.get_children(parent)
 
@@ -222,12 +223,15 @@ def handle_find_minimal_covering_nodes(table_id, is_binary=True):
                     if child in node_queue[child_layer]:
                         download_list[child_layer].add(child)
             else:
+                print('covering parent', parent)
                 node_queue[parent_layer].add(parent)
 
         # Clear the current layer's queue after processing
         node_queue[layer].clear()
 
     # Return the download list
+    download_list = np.concatenate([np.array(list(v)) for v in download_list.values()])
+
     return download_list
 
 

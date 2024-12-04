@@ -327,8 +327,11 @@ def handle_minimal_covering_nodes(table_id):
     int64_as_str = request.args.get("int64_as_str", default=False, type=toboolean)
     is_binary = request.args.get("is_binary", default=False, type=toboolean)
 
-    resp = common.handle_find_minimal_covering_nodes(table_id, is_binary=is_binary)
-    return jsonify_with_kwargs(resp, int64_as_str=int64_as_str)
+    covering_nodes = common.handle_find_minimal_covering_nodes(table_id, is_binary=is_binary)
+    as_array = request.args.get("as_array", default=False, type=toboolean)
+    if as_array:
+        return tobinary(covering_nodes)
+    return jsonify_with_kwargs(covering_nodes, int64_as_str=int64_as_str)
 
 
 ### SUBGRAPH -------------------------------------------------------------------
