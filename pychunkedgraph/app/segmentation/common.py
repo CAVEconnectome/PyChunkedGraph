@@ -194,7 +194,6 @@ def handle_find_minimal_covering_nodes(table_id, is_binary=True):
 
         # Call handle_roots to find parents
         parents = cg.get_roots(current_nodes, stop_layer=layer + 1, time_stamp=timestamp)
-        print(parents)
         unique_parents = np.unique(parents)
         parent_layers = np.array(
             [cg.get_chunk_layer(parent) for parent in unique_parents]
