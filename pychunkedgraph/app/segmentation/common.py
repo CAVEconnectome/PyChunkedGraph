@@ -212,7 +212,6 @@ def handle_find_minimal_covering_nodes(table_id, is_binary=True):
         for parent, parent_layer in zip(unique_parents, parent_layers):
             child_mask = np.isin(leaves[parent], min_children)
             if not np.all(child_mask):
-                print('non covering parent', parent)
                 # Call handle_children to fetch children
                 children = cg.get_children(parent)
 
@@ -223,7 +222,6 @@ def handle_find_minimal_covering_nodes(table_id, is_binary=True):
                     if child in node_queue[child_layer]:
                         download_list[child_layer].add(child)
             else:
-                print('covering parent', parent)
                 node_queue[parent_layer].add(parent)
 
         # Clear the current layer's queue after processing
