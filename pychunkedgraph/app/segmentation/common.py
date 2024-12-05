@@ -5,7 +5,7 @@ import os
 import time
 from datetime import datetime
 from functools import reduce
-from collections import deque
+from collections import deque, defaultdict
 
 import numpy as np
 import pandas as pd
@@ -146,6 +146,90 @@ def handle_root(table_id, atomic_id):
 
     # Return root ID
     return root_id
+
+
+### GET MINIMAL COVERING NODES --------------------------------------------------
+
+
+def handle_find_minimal_covering_nodes(table_id, is_binary=True):
+    if is_binary:
+        node_ids = np.frombuffer(request.data, np.uint64)
+    else:
+        node_ids = np.array(json.loads(request.data)["node_ids"], dtype=np.uint64)
+
+    # Input parameters
+    timestamp = _parse_timestamp("timestamp", time.time(), return_datetime=True)
+
+    # Initialize data structures
+    node_queue = defaultdict(set)
+    download_list = defaultdict(set)
+
+    # Get initial layers for the provided node_ids
+    cg = app_utils.get_cg(table_id)
+    initial_layers = np.array([cg.get_chunk_layer(node_id) for node_id in node_ids])
+
+    # Populate node_queue with nodes grouped by their layers
+    for node_id, layer in zip(node_ids, initial_layers):
+        node_queue[layer].add(node_id)
+
+    # find the minimum layer for the node_ids
+    min_layer = np.min(initial_layers)
+    min_children = cg.get_subgraph_nodes(
+        node_ids, return_layers=[min_layer], serializable=False, return_flattened=True
+    )
+    # concatenate all the min_children together to one list from the dictionary
+    min_children = np.concatenate(
+        [min_children[node_id] for node_id in min_children.keys()]
+    )
+
+    # Process nodes from their layers
+
+    for layer in range(
+        min_layer, cg.meta.layer_count
+    ):  # Process from higher layers to lower layers
+        if len(node_queue[layer]) == 0:
+            continue
+        
+        current_nodes = list(node_queue[layer])
+
+        # Call handle_roots to find parents
+        parents = cg.get_roots(current_nodes, stop_layer=layer + 1, time_stamp=timestamp)
+        unique_parents = np.unique(parents)
+        parent_layers = np.array(
+            [cg.get_chunk_layer(parent) for parent in unique_parents]
+        )
+
+        # Call handle_leaves_many to get leaves
+        leaves = cg.get_subgraph_nodes(
+            unique_parents,
+            return_layers=[min_layer],
+            serializable=False,
+            return_flattened=True,
+        )
+
+        # Process parents
+        for parent, parent_layer in zip(unique_parents, parent_layers):
+            child_mask = np.isin(leaves[parent], min_children)
+            if not np.all(child_mask):
+                # Call handle_children to fetch children
+                children = cg.get_children(parent)
+
+                child_layers = np.array(
+                    [cg.get_chunk_layer(child) for child in children]
+                )
+                for child, child_layer in zip(children, child_layers):
+                    if child in node_queue[child_layer]:
+                        download_list[child_layer].add(child)
+            else:
+                node_queue[parent_layer].add(parent)
+
+        # Clear the current layer's queue after processing
+        node_queue[layer].clear()
+
+    # Return the download list
+    download_list = np.concatenate([np.array(list(v)) for v in download_list.values()])
+
+    return download_list
 
 
 ### GET ROOTS -------------------------------------------------------------------
@@ -1081,7 +1165,7 @@ def _handle_latest(cg, node_ids, timestamp):
     for n in node_ids:
         try:
             v = row_dict[n]
-            new_roots_ts.append(v[-1].timestamp.timestamp()) # sorted descending
+            new_roots_ts.append(v[-1].timestamp.timestamp())  # sorted descending
         except KeyError:
             new_roots_ts.append(0)
     new_roots_ts = deque(new_roots_ts)
