@@ -1,4 +1,4 @@
-FROM caveconnectome/pychunkedgraph:base_120424
+FROM caveconnectome/pychunkedgraph:base_042124
 ENV VIRTUAL_ENV=/app/venv
 ENV PATH="$VIRTUAL_ENV/bin:$PATH"
 
