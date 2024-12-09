@@ -56,8 +56,6 @@ if __name__ == "__main__":
             op_ids_to_retry.append(locked_op)
             print(f"{node_id} indefinitely locked by op {locked_op}")
     print(f"total to retry: {len(op_ids_to_retry)}")
-
-    logs = cg.client.read_log_entries(op_ids_to_retry)
-    for op_id, log in logs.items():
+    for op_id in op_ids_to_retry:
         print(f"repairing {op_id}")
-        repair_operation(cg, log, op_id)
+        repair_operation(cg, op_id)
