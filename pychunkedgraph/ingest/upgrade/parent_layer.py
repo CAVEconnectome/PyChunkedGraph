@@ -110,8 +110,9 @@ def update_cross_edges(cg: ChunkedGraph, layer, node, node_ts, earliest_ts) -> l
         if edges.size == 0:
             continue
         nodes = np.unique(edges[:, 1])
-        svs = get_supervoxels(cg, nodes)
-        parents = cg.get_roots(svs, time_stamp=ts, stop_layer=layer, ceil=False)
+        # svs = get_supervoxels(cg, nodes)
+        # parents = cg.get_roots(svs, time_stamp=ts, stop_layer=layer, ceil=False)
+        parents = cg.get_roots(nodes, time_stamp=ts, stop_layer=layer, ceil=False)
         edge_parents_d = dict(zip(nodes, parents))
         val_dict = {}
         for _layer, layer_edges in cx_edges_d.items():
