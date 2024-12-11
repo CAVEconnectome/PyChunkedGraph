@@ -1053,10 +1053,12 @@ def chunk_initial_mesh_task(
     return result
 
 
-def get_multi_child_nodes(cg, chunk_id, node_id_subset=None, chunk_bbox_string=False):
+def get_multi_child_nodes(
+    cg, chunk_id, node_id_subset=None, chunk_bbox_string=False, time_stamp=None
+):
     if node_id_subset is None:
         range_read = cg.range_read_chunk(
-            chunk_id, properties=attributes.Hierarchy.Child
+            chunk_id, properties=attributes.Hierarchy.Child, time_stamp=time_stamp
         )
     else:
         range_read = cg.client.read_nodes(
@@ -1277,8 +1279,16 @@ def chunk_initial_sharded_stitching_task(
 
     cache_string = "public" if cache else "no-cache"
 
+    try:
+        ts = cg.meta.custom_data["mesh"]["initial_ts"]
+        mesh_ts = datetime.datetime.fromtimestamp(ts)
+    except KeyError:
+        mesh_ts = None
+
     layer = cg.get_chunk_layer(chunk_id)
-    multi_child_nodes, multi_child_descendants = get_multi_child_nodes(cg, chunk_id)
+    multi_child_nodes, multi_child_descendants = get_multi_child_nodes(
+        cg, chunk_id, time_stamp=mesh_ts
+    )
 
     chunk_to_id_dict = collections.defaultdict(list)
     for child_node in multi_child_descendants:
