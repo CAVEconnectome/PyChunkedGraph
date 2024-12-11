@@ -919,6 +919,7 @@ def chunk_initial_mesh_task(
     cg=None,
     sharded=False,
     cache=True,
+    return_meshes=False,
 ):
     if cg is None:
         cg = ChunkedGraph(graph_id=cg_name)
@@ -931,6 +932,7 @@ def chunk_initial_mesh_task(
     assert layer == 2
     assert mip >= cg.meta.cv.mip
 
+    merged_meshes = {}
     if sharded:
         cv = CloudVolume(
             f"graphene://https://localhost/segmentation/table/dummy",
@@ -938,7 +940,6 @@ def chunk_initial_mesh_task(
         )
         sharding_info = cv.mesh.meta.info["sharding"]["2"]
         sharding_spec = ShardingSpecification.from_dict(sharding_info)
-        merged_meshes = {}
         mesh_dst = os.path.join(
             cv.cloudpath, cv.mesh.meta.mesh_path, "initial", str(layer)
         )
@@ -977,6 +978,17 @@ def chunk_initial_mesh_task(
     if PRINT_FOR_DEBUGGING:
         print("cv path", mesh_dst)
         print("num ids", len(mesher.ids()))
+
+    try:
+        ts = cg.meta.custom_data["mesh"]["initial_ts"]
+        mesh_ts = datetime.datetime.fromtimestamp(ts)
+    except KeyError:
+        mesh_ts = None
+    range_read = cg.range_read_chunk(
+        chunk_id, properties=attributes.Hierarchy.Child, time_stamp=mesh_ts
+    )
+    ids_to_mesh = set([int(x) for x in range_read.keys()])
+
     result.append(len(mesher.ids()))
     for obj_id in mesher.ids():
         mesh = mesher.get(obj_id, reduction_factor=100, max_error=max_err)
@@ -997,6 +1009,7 @@ def chunk_initial_mesh_task(
             compress = False
         else:
             file_contents = mesh.to_precomputed()
+            ids_to_mesh.remove(int(obj_id))
             compress = True
         if WRITING_TO_CLOUD:
             if sharded:
@@ -1008,6 +1021,23 @@ def chunk_initial_mesh_task(
                     compress=compress,
                     cache_control=cache_string,
                 )
+    if sharded and return_meshes:
+        return merged_meshes
+
+    if len(ids_to_mesh) > 0:
+        meshes_from_edits = chunk_initial_mesh_task(
+            None,
+            chunk_id,
+            mip=mip,
+            node_id_subset=list(ids_to_mesh),
+            cg=cg,
+            cv_unsharded_mesh_path=cv_unsharded_mesh_path,
+            max_err=max_err,
+            sharded=True,
+            return_meshes=True,
+        )
+        merged_meshes.update(meshes_from_edits)
+
     if sharded and WRITING_TO_CLOUD:
         shard_binary = sharding_spec.synthesize_shard(merged_meshes)
         shard_filename = cv.mesh.readers[layer].get_filename(chunk_id)
@@ -1040,7 +1070,8 @@ def get_multi_child_nodes(cg, chunk_id, node_id_subset=None, chunk_bbox_string=F
             fragment.value
             for child_fragments_for_node in node_rows
             for fragment in child_fragments_for_node
-        ], dtype=object
+        ],
+        dtype=object,
     )
     # Filter out node ids that do not have roots (caused by failed ingest tasks)
     root_ids = cg.get_roots(node_ids, fail_to_zero=True)
