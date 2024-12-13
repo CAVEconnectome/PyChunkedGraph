@@ -1025,18 +1025,20 @@ def chunk_initial_mesh_task(
         return merged_meshes
 
     if len(ids_to_mesh) > 0:
-        meshes_from_edits = chunk_initial_mesh_task(
-            None,
-            chunk_id,
-            mip=mip,
-            node_id_subset=list(ids_to_mesh),
-            cg=cg,
-            cv_unsharded_mesh_path=cv_unsharded_mesh_path,
-            max_err=max_err,
-            sharded=True,
-            return_meshes=True,
-        )
-        merged_meshes.update(meshes_from_edits)
+        for id_to_mesh in ids_to_mesh:
+            # mesh these separately due to possible overlap
+            meshes_from_edits = chunk_initial_mesh_task(
+                None,
+                chunk_id,
+                mip=mip,
+                node_id_subset=[id_to_mesh],
+                cg=cg,
+                cv_unsharded_mesh_path=cv_unsharded_mesh_path,
+                max_err=max_err,
+                sharded=True,
+                return_meshes=True,
+            )
+            merged_meshes.update(meshes_from_edits)
 
     if sharded and WRITING_TO_CLOUD:
         shard_binary = sharding_spec.synthesize_shard(merged_meshes)
