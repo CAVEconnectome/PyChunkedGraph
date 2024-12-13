@@ -150,6 +150,7 @@ def get_json_info(cg):
     return loads(info_str)
 
 
+@lru_cache(maxsize=1)
 def get_ws_seg_for_chunk(cg, chunk_id, mip, overlap_vx=1):
     cv = CloudVolume(cg.meta.cv.cloudpath, mip=mip, fill_missing=True)
     mip_diff = mip - cg.meta.cv.mip
