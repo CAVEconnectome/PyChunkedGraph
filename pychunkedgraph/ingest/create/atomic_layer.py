@@ -1,14 +1,14 @@
+# pylint: disable=invalid-name, missing-function-docstring, import-outside-toplevel
+
 """
 Functions for creating atomic nodes and their level 2 abstract parents
 """
 
 import datetime
 from typing import Dict
-from typing import List
 from typing import Optional
 from typing import Sequence
 
-import pytz
 import numpy as np
 
 from ...graph import attributes
@@ -23,9 +23,9 @@ from ...graph.utils.flatgraph import build_gt_graph
 from ...graph.utils.flatgraph import connected_components
 
 
-def add_atomic_edges(
+def add_atomic_chunk(
     cg: ChunkedGraph,
-    chunk_coord: np.ndarray,
+    coords: Sequence[int],
     chunk_edges_d: Dict[str, Edges],
     isolated: Sequence[int],
     time_stamp: Optional[datetime.datetime] = None,
@@ -40,9 +40,7 @@ def add_atomic_edges(
     graph, _, _, unique_ids = build_gt_graph(chunk_edge_ids, make_directed=True)
     ccs = connected_components(graph)
 
-    parent_chunk_id = cg.get_chunk_id(
-        layer=2, x=chunk_coord[0], y=chunk_coord[1], z=chunk_coord[2]
-    )
+    parent_chunk_id = cg.get_chunk_id(layer=2, x=coords[0], y=coords[1], z=coords[2])
     parent_ids = cg.id_client.create_node_ids(parent_chunk_id, size=len(ccs))
 
     sparse_indices, remapping = _get_remapping(chunk_edges_d)
@@ -101,7 +99,13 @@ def _get_remapping(chunk_edges_d: dict):
 
 
 def _process_component(
-    cg, chunk_edges_d, parent_id, node_ids, sparse_indices, remapping, time_stamp,
+    cg,
+    chunk_edges_d,
+    parent_id,
+    node_ids,
+    sparse_indices,
+    remapping,
+    time_stamp,
 ):
     nodes = []
     chunk_out_edges = []  # out = between + cross
@@ -120,7 +124,7 @@ def _process_component(
     for cc_layer in u_cce_layers:
         layer_out_edges = chunk_out_edges[cce_layers == cc_layer]
         if layer_out_edges.size:
-            col = attributes.Connectivity.CrossChunkEdge[cc_layer]
+            col = attributes.Connectivity.AtomicCrossChunkEdge[cc_layer]
             val_dict[col] = layer_out_edges
 
     r_key = serializers.serialize_uint64(parent_id)
