@@ -22,6 +22,10 @@ def callback(payload):
     op_id = int(data["operation_id"])
     l2ids = np.array(data["new_lvl2_ids"], dtype=basetypes.NODE_ID)
     table_id = payload.attributes["table_id"]
+    remesh = payload.attributes["remesh"]
+
+    if remesh == "false":
+        return
 
     try:
         cg = PCG_CACHE[table_id]
@@ -55,7 +59,6 @@ def callback(payload):
         err = mesh_data["max_error"]
     except KeyError:
         return
-
 
     logging.log(INFO_HIGH, f"remeshing {l2ids}; graph {table_id} operation {op_id}.")
     meshgen.remeshing(
