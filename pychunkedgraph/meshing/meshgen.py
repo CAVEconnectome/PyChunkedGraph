@@ -955,10 +955,20 @@ def chunk_initial_mesh_task(
     draco_encoding_settings = get_draco_encoding_settings_for_chunk(
         cg, chunk_id, mip, high_padding
     )
+    ids_to_mesh = set()
     if node_id_subset is None:
         seg = get_remapped_segmentation(
             cg, chunk_id, mip, overlap_vx=high_padding, time_stamp=time_stamp
         )
+        try:
+            ts = cg.meta.custom_data["mesh"]["initial_ts"]
+            mesh_ts = datetime.datetime.fromtimestamp(ts)
+        except KeyError:
+            mesh_ts = None
+        range_read = cg.range_read_chunk(
+            chunk_id, properties=attributes.Hierarchy.Child, time_stamp=mesh_ts
+        )
+        ids_to_mesh = set([int(x) for x in range_read.keys()])
     else:
         seg = get_remapped_seg_for_lvl2_nodes(
             cg,
@@ -978,16 +988,6 @@ def chunk_initial_mesh_task(
     if PRINT_FOR_DEBUGGING:
         print("cv path", mesh_dst)
         print("num ids", len(mesher.ids()))
-
-    try:
-        ts = cg.meta.custom_data["mesh"]["initial_ts"]
-        mesh_ts = datetime.datetime.fromtimestamp(ts)
-    except KeyError:
-        mesh_ts = None
-    range_read = cg.range_read_chunk(
-        chunk_id, properties=attributes.Hierarchy.Child, time_stamp=mesh_ts
-    )
-    ids_to_mesh = set([int(x) for x in range_read.keys()])
 
     result.append(len(mesher.ids()))
     for obj_id in mesher.ids():
@@ -1009,8 +1009,8 @@ def chunk_initial_mesh_task(
             compress = False
         else:
             file_contents = mesh.to_precomputed()
-            ids_to_mesh.remove(int(obj_id))
             compress = True
+        ids_to_mesh.discard(int(obj_id))
         if WRITING_TO_CLOUD:
             if sharded:
                 merged_meshes[int(obj_id)] = file_contents
