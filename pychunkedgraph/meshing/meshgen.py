@@ -5,9 +5,11 @@ import os
 import numpy as np
 import time
 import collections
+from itertools import combinations
 from functools import lru_cache
 import datetime
 import pytz
+import networkx as nx
 from scipy import ndimage
 
 from multiwrapper import multiprocessing_utils as mu
@@ -193,8 +195,6 @@ def get_higher_to_lower_remapping(cg, chunk_id, time_stamp):
     assert cg.get_chunk_layer(chunk_id) >= 2
     assert cg.get_chunk_layer(chunk_id) <= cg.meta.layer_count
 
-    print(f"\n{chunk_id} ----------------\n")
-
     lower_remaps = {}
     if cg.get_chunk_layer(chunk_id) > 2:
         for lower_chunk_id in cg.get_chunk_child_ids(chunk_id):
@@ -322,7 +322,6 @@ def get_lx_overlapping_remappings(cg, chunk_id, time_stamp=None, n_threads=1):
         time_stamp = UTC.localize(time_stamp)
 
     stop_layer, neigh_chunk_ids = calculate_stop_layer(cg, chunk_id)
-    print(f"Stop layer: {stop_layer}")
 
     # Find the parent in the lowest common chunk for each l2 id. These parent
     # ids are referred to as root ids even though they are not necessarily the
@@ -337,8 +336,6 @@ def get_lx_overlapping_remappings(cg, chunk_id, time_stamp=None, n_threads=1):
 
     # This loop is the main bottleneck
     for neigh_chunk_id in neigh_chunk_ids:
-        print(f"Neigh: {neigh_chunk_id} --------------")
-
         lx_ids, root_ids, lx_id_remap = get_root_lx_remapping(
             cg, neigh_chunk_id, stop_layer, time_stamp=time_stamp, n_threads=n_threads
         )
@@ -480,7 +477,6 @@ def get_lx_overlapping_remappings_for_nodes_and_svs(
         time_stamp = UTC.localize(time_stamp)
 
     stop_layer, _ = calculate_stop_layer(cg, chunk_id)
-    print(f"Stop layer: {stop_layer}")
 
     # Find the parent in the lowest common chunk for each node id and sv id. These parent
     # ids are referred to as root ids even though they are not necessarily the
@@ -904,6 +900,43 @@ def remeshing(
             )
 
 
+def _get_independent_node_groups(cg, ids_to_mesh: set):
+    """
+    Iterates over ids to create connected components (ccs) of overlapping ids.
+    Then creates list of groups with non overlapping ids by iterating over ccs.
+    """
+    nodes = list(ids_to_mesh)
+    edges = []
+    children_d = cg.get_children(node_id_or_ids=nodes)
+    for n1, n2 in combinations(nodes, 2):
+        if np.intersect1d(children_d[n1], children_d[n2]).size:
+            edges.append([n1, n2])
+            ids_to_mesh.discard(int(n1))
+            ids_to_mesh.discard(int(n2))
+
+    graph = nx.Graph()
+    graph.add_edges_from(edges)
+    ccs = {
+        next(iter(cc)): collections.deque(cc) for cc in nx.connected_components(graph)
+    }
+    independent_groups = [list(ids_to_mesh)]
+    while True:
+        if len(ccs) == 0:
+            break
+
+        group = []
+        empty = []
+        for k, v in ccs.items():
+            group.append(v.pop())
+            if len(v) == 0:
+                empty.append(k)
+
+        for k in empty:
+            del ccs[k]
+        independent_groups.append(group)
+    return independent_groups
+
+
 def chunk_initial_mesh_task(
     cg_name,
     chunk_id,
@@ -947,10 +980,6 @@ def chunk_initial_mesh_task(
         mesh_dst = cv_unsharded_mesh_path
 
     result.append((chunk_id, layer, cx, cy, cz))
-    print(
-        "Retrieving remap table for chunk %s -- (%s, %s, %s, %s)"
-        % (chunk_id, layer, cx, cy, cz)
-    )
     mesher = zmesh.Mesher(cg.meta.cv.mip_resolution(mip))
     draco_encoding_settings = get_draco_encoding_settings_for_chunk(
         cg, chunk_id, mip, high_padding
@@ -1012,7 +1041,7 @@ def chunk_initial_mesh_task(
             compress = True
         ids_to_mesh.discard(int(obj_id))
         if WRITING_TO_CLOUD:
-            if sharded:
+            if sharded or return_meshes:
                 merged_meshes[int(obj_id)] = file_contents
             else:
                 cf.put(
@@ -1021,21 +1050,23 @@ def chunk_initial_mesh_task(
                     compress=compress,
                     cache_control=cache_string,
                 )
-    if sharded and return_meshes:
+
+    if return_meshes:
         return merged_meshes
 
     if len(ids_to_mesh) > 0:
-        for id_to_mesh in ids_to_mesh:
-            # mesh these separately due to possible overlap
+        # can't mesh overlapping ids (shared supervoxels)
+        independent_groups = _get_independent_node_groups(cg, ids_to_mesh)
+        for group in independent_groups:
             meshes_from_edits = chunk_initial_mesh_task(
                 None,
                 chunk_id,
                 mip=mip,
-                node_id_subset=[id_to_mesh],
+                node_id_subset=group,
                 cg=cg,
-                cv_unsharded_mesh_path=cv_unsharded_mesh_path,
+                cv_unsharded_mesh_path="file://",
                 max_err=max_err,
-                sharded=True,
+                sharded=False,
                 return_meshes=True,
             )
             merged_meshes.update(meshes_from_edits)
