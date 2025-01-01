@@ -7,6 +7,7 @@ import time
 import collections
 from itertools import combinations
 from functools import lru_cache
+from copy import copy
 import datetime
 import pytz
 import networkx as nx
@@ -28,8 +29,6 @@ from pychunkedgraph.meshing.manifest.cache import ManifestCache
 
 UTC = pytz.UTC
 
-# Change below to true if debugging and want to see results in stdout
-PRINT_FOR_DEBUGGING = False
 # Change below to false if debugging and do not need to write to cloud (warning: do not deploy w/ below set to false)
 WRITING_TO_CLOUD = True
 
@@ -847,8 +846,6 @@ def remeshing(
 
     add_nodes_to_l2_chunk_dict(l2_node_ids)
     for chunk_id, node_ids in l2_chunk_dict.items():
-        if PRINT_FOR_DEBUGGING:
-            print("remeshing", chunk_id, node_ids)
         try:
             l2_time_stamp = _get_timestamp_from_node_ids(cg, node_ids)
         except ValueError:
@@ -885,8 +882,6 @@ def remeshing(
         cur_chunk_dict = chunk_dicts[layer - 3]
     for chunk_dict in chunk_dicts:
         for chunk_id, node_ids in chunk_dict.items():
-            if PRINT_FOR_DEBUGGING:
-                print("remeshing", chunk_id, node_ids)
             # Stitch the meshes of the parents we found in the previous loop
             chunk_stitch_remeshing_task(
                 None,
@@ -1014,9 +1009,6 @@ def chunk_initial_mesh_task(
     mesher.mesh(seg)
     del seg
     cf = CloudFiles(mesh_dst)
-    if PRINT_FOR_DEBUGGING:
-        print("cv path", mesh_dst)
-        print("num ids", len(mesher.ids()))
 
     result.append(len(mesher.ids()))
     for obj_id in mesher.ids():
@@ -1052,7 +1044,9 @@ def chunk_initial_mesh_task(
                 )
 
     if return_meshes:
-        return merged_meshes
+        # children = cg.get_children(node_id_subset, flatten=True)
+        # print(len(node_id_subset), len(children), len(merged_meshes))
+        return copy(merged_meshes)
 
     if len(ids_to_mesh) > 0:
         # can't mesh overlapping ids (shared supervoxels)
@@ -1081,8 +1075,6 @@ def chunk_initial_mesh_task(
             compress=False,
             cache_control=cache_string,
         )
-    if PRINT_FOR_DEBUGGING:
-        print(", ".join(str(x) for x in result))
     return result
 
 
@@ -1297,9 +1289,6 @@ def chunk_stitch_remeshing_task(
 
     manifest_cache = ManifestCache(cg.graph_id, initial=False)
     manifest_cache.set_fragments(fragments_d)
-
-    if PRINT_FOR_DEBUGGING:
-        print(", ".join(str(x) for x in result))
     return ", ".join(str(x) for x in result)
 
 
