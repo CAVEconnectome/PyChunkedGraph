@@ -15,6 +15,7 @@ from middle_auth_client import (
 )
 
 from pychunkedgraph.app import common as app_common
+from pychunkedgraph.app import app_utils
 from pychunkedgraph.app.app_utils import (
     jsonify_with_kwargs,
     remap_public,
@@ -626,3 +627,21 @@ def valid_nodes(table_id):
     resp = common.valid_nodes(table_id, is_binary=is_binary)
 
     return jsonify_with_kwargs(resp, int64_as_str=int64_as_str)
+
+
+@bp.route("/table/<table_id>/supervoxel_lookup", methods=["POST"])
+@auth_requires_permission("view")
+@remap_public(edit=False)
+def handle_supervoxel_lookup(table_id):
+    int64_as_str = request.args.get("int64_as_str", default=False, type=toboolean)
+
+    nodes = json.loads(request.data)
+    cg = app_utils.get_cg(table_id)
+    node_ids = []
+    coords = []
+    for node in nodes:
+        node_ids.append(node[0])
+        coords.append(np.array(node[1:]) / cg.segmentation_resolution)
+
+    atomic_ids = app_utils.handle_supervoxel_id_lookup(cg, coords, node_ids)
+    return jsonify_with_kwargs(atomic_ids, int64_as_str=int64_as_str)
