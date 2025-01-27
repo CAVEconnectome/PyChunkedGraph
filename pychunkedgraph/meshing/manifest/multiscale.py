@@ -2,7 +2,6 @@
 
 import functools
 from collections import deque
-from typing import Dict, Set, Tuple
 
 import numpy as np
 from cloudvolume import CloudVolume
@@ -15,63 +14,91 @@ from .sharded import normalize_fragments
 from .utils import del_none_keys
 from ..meshgen_utils import get_json_info
 
+OCTREE_NODE_SIZE = 5
 
-def _get_hierarchy(cg: ChunkedGraph, node_id: np.uint64) -> Dict:
-    node_children = {}
+
+def _get_hierarchy(cg: ChunkedGraph, node_id: np.uint64) -> dict:
+    children_map = {}
     layer = cg.get_chunk_layer(node_id)
     if layer < 2:
-        return node_children
+        return children_map
     if layer == 2:
-        node_children[node_id] = empty_1d.copy()
-        return node_children
+        children_map[node_id] = empty_1d.copy()
+        return children_map
 
     node_ids = np.array([node_id], dtype=NODE_ID)
     while node_ids.size > 0:
         children = cg.get_children(node_ids)
-        node_children.update(children)
+        children_map.update(children)
 
         _ids = np.concatenate(list(children.values())) if children else empty_1d.copy()
         node_layers = cg.get_chunk_layers(_ids)
         node_ids = _ids[node_layers > 2]
 
         for l2id in _ids[node_layers == 2]:
-            node_children[l2id] = empty_1d.copy()
-    return node_children
-
-
-def _get_skipped_and_missing_leaf_nodes(
-    node_children: Dict, mesh_fragments: Dict
-) -> Tuple[Set, Set]:
-    """
-    Returns nodes with only one child and leaves (l2ids).
-    Nodes with one child do not have a mesh fragment, because it would be identical to child fragment.
-    Leaves are used to determine correct size for the octree.
-    """
-    skipped = set()
-    leaves = set()
-    for node_id, children in node_children.items():
-        if children.size == 1:
-            skipped.add(node_id)
-        elif children.size == 0 and not node_id in mesh_fragments:
-            leaves.add(node_id)
-    return skipped, leaves
+            children_map[l2id] = empty_1d.copy()
+    return children_map
 
 
 def _get_node_coords_and_layers_map(
-    cg: ChunkedGraph, node_children: Dict
-) -> Tuple[Dict, Dict]:
-    node_ids = np.fromiter(node_children.keys(), dtype=NODE_ID)
-    node_coords = {}
+    cg: ChunkedGraph, children_map: dict
+) -> tuple[dict, dict]:
+    node_ids = np.fromiter(children_map.keys(), dtype=NODE_ID)
+    coords_map = {}
     node_layers = cg.get_chunk_layers(node_ids)
     for layer in set(node_layers):
         layer_mask = node_layers == layer
         coords = cg.get_chunk_coordinates_multiple(node_ids[layer_mask])
         _node_coords = dict(zip(node_ids[layer_mask], coords))
-        node_coords.update(_node_coords)
-    return node_coords, dict(zip(node_ids, node_layers))
+        coords_map.update(_node_coords)
+    return coords_map, dict(zip(node_ids, node_layers))
 
 
-def sort_octree_row(cg: ChunkedGraph, children: np.ndarray):
+def _insert_skipped_nodes(
+    cg: ChunkedGraph, children_map: dict, coords_map: dict, layers_map: dict
+):
+    new_children_map = {}
+    for node, children in children_map.items():
+        nl = layers_map[node]
+        if len(children) > 1 or nl == 2:
+            new_children_map[node] = children
+        else:
+            assert (
+                len(children) == 1
+            ), f"Skipped hierarchy must have exactly 1 child: {node} - {children}."
+            cl = layers_map[children[0]]
+            layer_diff = nl - cl
+            if layer_diff == 1:
+                new_children_map[node] = children
+                continue
+
+            cx, cy, cz = coords_map[children[0]]
+            skipped_hierarchy = [node]
+            count = 1
+            while layer_diff:
+                height = layer_diff - 1
+                x, y, z = cx >> height, cy >> height, cz >> height
+                skipped_layer = nl - count
+                skipped_child = cg.get_chunk_id(layer=skipped_layer, x=x, y=y, z=z)
+                skipped_hierarchy.append(skipped_child)
+                coords_map[skipped_child] = np.array((x, y, z), dtype=int)
+                layers_map[skipped_child] = skipped_layer
+                count += 1
+                layer_diff -= 1
+            skipped_hierarchy.append(children[0])
+
+            for i in range(len(skipped_hierarchy) - 1):
+                node = skipped_hierarchy[i]
+                if node in new_children_map:
+                    node += 1
+                child = skipped_hierarchy[i + 1]
+                if child in new_children_map:
+                    child += 1
+                new_children_map[node] = np.array([child], dtype=NODE_ID)
+    return new_children_map, coords_map, layers_map
+
+
+def _sort_octree_row(cg: ChunkedGraph, children: np.ndarray):
     """
     Sort children by their morton code.
     """
@@ -103,8 +130,51 @@ def sort_octree_row(cg: ChunkedGraph, children: np.ndarray):
     return children
 
 
+def _validate_octree(octree: np.ndarray, octree_node_ids: np.ndarray):
+    assert octree.size % 5 == 0, "Invalid octree size."
+    num_nodes = octree.size // 5
+    seen_nodes = set()
+
+    def _explore_node(node: int):
+        if node in seen_nodes:
+            raise ValueError(f"Previsouly seen node {node}.")
+        seen_nodes.add(node)
+
+        if node < 0 or node >= num_nodes:
+            raise ValueError(f"Invalid node reference {node}.")
+
+        x, y, z = octree[node * 5 : node * 5 + 3]
+        child_begin = octree[node * 5 + 3] & ~(1 << 31)
+        child_end = octree[node * 5 + 4] & ~(1 << 31)
+        p = octree_node_ids[node]
+
+        if (
+            child_begin < 0
+            or child_end < 0
+            or child_end < child_begin
+            or child_end > num_nodes
+        ):
+            print(octree[node * 5 : node * 5 + 5])
+            raise ValueError(
+                f"Invalid child references: {(node, p)} specifies child_begin={child_begin} and child_end={child_end}."
+            )
+
+        for child in range(child_begin, child_end):
+            cx, cy, cz = octree[child * 5 : child * 5 + 3]
+            c = octree_node_ids[child]
+            msg = f"Invalid child position: parent {(node, p)} at {(x, y, z)}, child {(child, c)} at {(cx, cy ,cz)}."
+            assert cx >> 1 == x and cy >> 1 == y and cz >> 1 == z, msg
+            _explore_node(child)
+
+    if num_nodes == 0:
+        return
+    _explore_node(num_nodes - 1)
+    if len(seen_nodes) != num_nodes:
+        raise ValueError(f"Orphan nodes in tree {num_nodes - len(seen_nodes)}")
+
+
 def build_octree(
-    cg: ChunkedGraph, node_id: np.uint64, node_children: Dict, mesh_fragments: Dict
+    cg: ChunkedGraph, node_id: np.uint64, children_map: dict, mesh_fragments: dict
 ):
     """
     From neuroglancer multiscale specification:
@@ -117,30 +187,28 @@ def build_octree(
       `end_and_empty` is set to `1` if the mesh for the octree node is empty and should not be
       requested/rendered.
     """
-    node_ids = np.fromiter(mesh_fragments.keys(), dtype=NODE_ID)
-    node_coords_d, _ = _get_node_coords_and_layers_map(cg, node_children)
-    skipped, leaves = _get_skipped_and_missing_leaf_nodes(node_children, mesh_fragments)
+    node_q = deque()
+    node_q.append(node_id)
+    coords_map, layers_map = _get_node_coords_and_layers_map(cg, children_map)
+    children_map, coords_map, layers_map = _insert_skipped_nodes(
+        cg, children_map, coords_map, layers_map
+    )
 
-    OCTREE_NODE_SIZE = 5
-    ROW_TOTAL = len(node_ids) + len(skipped) + len(leaves) + 1
-    row_counter = len(node_ids) + len(skipped) + len(leaves) + 1
+    ROW_TOTAL = len(children_map)
+    row_counter = len(children_map)
     octree_size = OCTREE_NODE_SIZE * ROW_TOTAL
     octree = np.zeros(octree_size, dtype=np.uint32)
 
     octree_node_ids = ROW_TOTAL * [0]
     octree_fragments = ROW_TOTAL * [""]
-
-    que = deque()
     rows_used = 1
-    que.append(node_id)
 
-    while len(que) > 0:
+    while len(node_q) > 0:
         row_counter -= 1
-        current_node = que.popleft()
-        children = node_children[current_node]
-        node_coords = node_coords_d[current_node]
+        current_node = node_q.popleft()
+        children = children_map[current_node]
+        x, y, z = coords_map[current_node]
 
-        x, y, z = node_coords * cg.meta.resolution
         offset = OCTREE_NODE_SIZE * row_counter
         octree[offset + 0] = x
         octree[offset + 1] = y
@@ -164,15 +232,18 @@ def build_octree(
             # no mesh, mark node empty
             octree[offset + 4] |= 1 << 31
 
-        children = sort_octree_row(cg, children)
+        children = _sort_octree_row(cg, children)
         for child in children:
-            que.append(child)
+            if layers_map[child] > 2:
+                node_q.append(child)
+
+    _validate_octree(octree, octree_node_ids)
     return octree, octree_node_ids, octree_fragments
 
 
-def get_manifest(cg: ChunkedGraph, node_id: np.uint64) -> Dict:
-    node_children = _get_hierarchy(cg, node_id)
-    node_ids = np.fromiter(node_children.keys(), dtype=NODE_ID)
+def get_manifest(cg: ChunkedGraph, node_id: np.uint64) -> dict:
+    children_map = _get_hierarchy(cg, node_id)
+    node_ids = np.fromiter(children_map.keys(), dtype=NODE_ID)
     manifest_cache = ManifestCache(cg.graph_id, initial=True)
 
     cv = CloudVolume(
@@ -188,19 +259,19 @@ def get_manifest(cg: ChunkedGraph, node_id: np.uint64) -> Dict:
     manifest_cache.set_fragments(_fragments_d)
     fragments_d.update(_fragments_d)
 
-    octree, node_ids, fragments = build_octree(cg, node_id, node_children, fragments_d)
+    octree, node_ids, fragments = build_octree(cg, node_id, children_map, fragments_d)
     max_layer = min(cg.get_chunk_layer(node_id) + 1, cg.meta.layer_count)
 
     chunk_shape = np.array(cg.meta.graph_config.CHUNK_SIZE, dtype=np.dtype("<f4"))
     chunk_shape *= cg.meta.resolution
-
+    clip_bounds = cg.meta.voxel_bounds.T * cg.meta.resolution
     response = {
         "chunkShape": chunk_shape,
         "chunkGridSpatialOrigin": np.array([0, 0, 0], dtype=np.dtype("<f4")),
-        "lodScales": 2 ** np.arange(max_layer, dtype=np.dtype("<f4")) * 1,
+        "lodScales": np.arange(max_layer - 2, dtype=np.dtype("<f4")) * 1,
         "fragments": normalize_fragments(fragments),
         "octree": octree,
-        "clipLowerBound": np.array(cg.meta.voxel_bounds[:, 0], dtype=np.dtype("<f4")),
-        "clipUpperBound": np.array(cg.meta.voxel_bounds[:, 1], dtype=np.dtype("<f4")),
+        "clipLowerBound": np.array(clip_bounds[0], dtype=np.dtype("<f4")),
+        "clipUpperBound": np.array(clip_bounds[1], dtype=np.dtype("<f4")),
     }
     return node_ids, response
