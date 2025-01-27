@@ -67,33 +67,34 @@ def _insert_skipped_nodes(
                 len(children) == 1
             ), f"Skipped hierarchy must have exactly 1 child: {node} - {children}."
             cl = layers_map[children[0]]
-            layer_diff = nl - cl
-            if layer_diff == 1:
+            height = nl - cl
+            if height == 1:
                 new_children_map[node] = children
                 continue
 
             cx, cy, cz = coords_map[children[0]]
             skipped_hierarchy = [node]
             count = 1
-            while layer_diff:
-                height = layer_diff - 1
+            height -= 1
+            while height:
                 x, y, z = cx >> height, cy >> height, cz >> height
                 skipped_layer = nl - count
                 skipped_child = cg.get_chunk_id(layer=skipped_layer, x=x, y=y, z=z)
+                limit = cg.get_segment_id_limit(skipped_child)
+                skipped_child += np.uint64(limit - 1)
+                while skipped_child in new_children_map:
+                    skipped_child = np.uint64(skipped_child - 1)
+
                 skipped_hierarchy.append(skipped_child)
                 coords_map[skipped_child] = np.array((x, y, z), dtype=int)
                 layers_map[skipped_child] = skipped_layer
                 count += 1
-                layer_diff -= 1
+                height -= 1
             skipped_hierarchy.append(children[0])
 
             for i in range(len(skipped_hierarchy) - 1):
                 node = skipped_hierarchy[i]
-                if node in new_children_map:
-                    node += 1
                 child = skipped_hierarchy[i + 1]
-                if child in new_children_map:
-                    child += 1
                 new_children_map[node] = np.array([child], dtype=NODE_ID)
     return new_children_map, coords_map, layers_map
 
@@ -154,7 +155,6 @@ def _validate_octree(octree: np.ndarray, octree_node_ids: np.ndarray):
             or child_end < child_begin
             or child_end > num_nodes
         ):
-            print(octree[node * 5 : node * 5 + 5])
             raise ValueError(
                 f"Invalid child references: {(node, p)} specifies child_begin={child_begin} and child_end={child_end}."
             )
@@ -207,9 +207,10 @@ def build_octree(
         row_counter -= 1
         current_node = node_q.popleft()
         children = children_map[current_node]
-        x, y, z = coords_map[current_node]
+        octree_node_ids[row_counter] = current_node
 
         offset = OCTREE_NODE_SIZE * row_counter
+        x, y, z = coords_map[current_node]
         octree[offset + 0] = x
         octree[offset + 1] = y
         octree[offset + 2] = z
@@ -220,8 +221,6 @@ def build_octree(
 
         octree[offset + 3] = start
         octree[offset + 4] = end_empty
-
-        octree_node_ids[row_counter] = current_node
         try:
             if children.size == 1:
                 # mark node virtual
@@ -234,8 +233,7 @@ def build_octree(
 
         children = _sort_octree_row(cg, children)
         for child in children:
-            if layers_map[child] > 2:
-                node_q.append(child)
+            node_q.append(child)
 
     _validate_octree(octree, octree_node_ids)
     return octree, octree_node_ids, octree_fragments
@@ -268,7 +266,7 @@ def get_manifest(cg: ChunkedGraph, node_id: np.uint64) -> dict:
     response = {
         "chunkShape": chunk_shape,
         "chunkGridSpatialOrigin": np.array([0, 0, 0], dtype=np.dtype("<f4")),
-        "lodScales": np.arange(max_layer - 2, dtype=np.dtype("<f4")) * 1,
+        "lodScales": np.arange(2, max_layer, dtype=np.dtype("<f4")) * 1,
         "fragments": normalize_fragments(fragments),
         "octree": octree,
         "clipLowerBound": np.array(clip_bounds[0], dtype=np.dtype("<f4")),
