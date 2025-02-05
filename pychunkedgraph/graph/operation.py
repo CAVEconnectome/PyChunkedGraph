@@ -552,6 +552,7 @@ class MergeOperation(GraphEditOperation):
         "affinities",
         "bbox_offset",
         "allow_same_segment_merge",
+        "stitch_mode",
     ]
 
     def __init__(
@@ -565,6 +566,7 @@ class MergeOperation(GraphEditOperation):
         bbox_offset: Tuple[int, int, int] = (240, 240, 24),
         affinities: Optional[Sequence[np.float32]] = None,
         allow_same_segment_merge: Optional[bool] = False,
+        stitch_mode: Optional[bool] = False,
     ) -> None:
         super().__init__(
             cg, user_id=user_id, source_coords=source_coords, sink_coords=sink_coords
@@ -572,6 +574,7 @@ class MergeOperation(GraphEditOperation):
         self.added_edges = np.atleast_2d(added_edges).astype(basetypes.NODE_ID)
         self.bbox_offset = np.atleast_1d(bbox_offset).astype(basetypes.COORDINATES)
         self.allow_same_segment_merge = allow_same_segment_merge
+        self.stitch_mode = stitch_mode
 
         self.affinities = None
         if affinities is not None:
@@ -603,30 +606,33 @@ class MergeOperation(GraphEditOperation):
         )
         if len(root_ids) < 2 and not self.allow_same_segment_merge:
             raise PreconditionError("Supervoxels must belong to different objects.")
-        bbox = get_bbox(self.source_coords, self.sink_coords, self.bbox_offset)
-        with TimeIt("subgraph", self.cg.graph_id, operation_id):
-            edges = self.cg.get_subgraph(
-                root_ids,
-                bbox=bbox,
-                bbox_is_coordinate=True,
-                edges_only=True,
-            )
 
-        with TimeIt("preprocess", self.cg.graph_id, operation_id):
-            inactive_edges = edits.merge_preprocess(
+        atomic_edges = self.added_edges
+        if not self.stitch_mode:
+            bbox = get_bbox(self.source_coords, self.sink_coords, self.bbox_offset)
+            with TimeIt("subgraph", self.cg.graph_id, operation_id):
+                edges = self.cg.get_subgraph(
+                    root_ids,
+                    bbox=bbox,
+                    bbox_is_coordinate=True,
+                    edges_only=True,
+                )
+
+            with TimeIt("preprocess", self.cg.graph_id, operation_id):
+                inactive_edges = edits.merge_preprocess(
+                    self.cg,
+                    subgraph_edges=edges,
+                    supervoxels=self.added_edges.ravel(),
+                    parent_ts=self.parent_ts,
+                )
+
+            atomic_edges, fake_edge_rows = edits.check_fake_edges(
                 self.cg,
-                subgraph_edges=edges,
-                supervoxels=self.added_edges.ravel(),
+                atomic_edges=self.added_edges,
+                inactive_edges=inactive_edges,
+                time_stamp=timestamp,
                 parent_ts=self.parent_ts,
             )
-
-        atomic_edges, fake_edge_rows = edits.check_fake_edges(
-            self.cg,
-            atomic_edges=self.added_edges,
-            inactive_edges=inactive_edges,
-            time_stamp=timestamp,
-            parent_ts=self.parent_ts,
-        )
         with TimeIt("add_edges", self.cg.graph_id, operation_id):
             new_roots, new_l2_ids, new_entries = edits.add_edges(
                 self.cg,

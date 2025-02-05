@@ -188,7 +188,8 @@ def add_edges(
     operation_id: np.uint64 = None,
     time_stamp: datetime.datetime = None,
     parent_ts: datetime.datetime = None,
-    allow_same_segment_merge=False,
+    allow_same_segment_merge: bool = False,
+    stitch_mode: bool = False,
 ):
     edges, l2_atomic_cross_edges_d = _analyze_affected_edges(
         cg, atomic_edges, parent_ts=parent_ts
@@ -197,7 +198,7 @@ def add_edges(
     if not allow_same_segment_merge:
         assert (
             np.unique(cg.get_roots(l2ids, assert_roots=True, time_stamp=parent_ts)).size
-            == 2
+            >= 2
         ), "L2 IDs must belong to different roots."
     new_old_id_d, old_new_id_d, old_hierarchy_d = _init_old_hierarchy(
         cg, l2ids, parent_ts=parent_ts
@@ -236,6 +237,7 @@ def add_edges(
         operation_id=operation_id,
         time_stamp=time_stamp,
         parent_ts=parent_ts,
+        stitch_mode=stitch_mode,
     )
 
     new_roots = create_parents.run()
@@ -289,7 +291,7 @@ def remove_edges(
     *,
     atomic_edges: Iterable[np.ndarray],
     l2id_agglomeration_d: Dict,
-    operation_id: basetypes.OPERATION_ID = None,
+    operation_id: basetypes.OPERATION_ID = None,  # type: ignore
     time_stamp: datetime.datetime = None,
     parent_ts: datetime.datetime = None,
 ):
@@ -349,12 +351,13 @@ class CreateParentNodes:
         cg,
         *,
         new_l2_ids: Iterable,
-        operation_id: basetypes.OPERATION_ID,
+        operation_id: basetypes.OPERATION_ID,  # type: ignore
         time_stamp: datetime.datetime,
         new_old_id_d: Dict[np.uint64, Iterable[np.uint64]] = None,
         old_new_id_d: Dict[np.uint64, Iterable[np.uint64]] = None,
         old_hierarchy_d: Dict[np.uint64, Dict[int, np.uint64]] = None,
         parent_ts: datetime.datetime = None,
+        stitch_mode: bool = False,
     ):
         self.cg = cg
         self._new_l2_ids = new_l2_ids
@@ -366,10 +369,11 @@ class CreateParentNodes:
         self._operation_id = operation_id
         self._time_stamp = time_stamp
         self._last_successful_ts = parent_ts
+        self.stitch_mode = stitch_mode
 
     def _update_id_lineage(
         self,
-        parent: basetypes.NODE_ID,
+        parent: basetypes.NODE_ID,  # type: ignore
         children: np.ndarray,
         layer: int,
         parent_layer: int,
@@ -527,9 +531,10 @@ class CreateParentNodes:
         new_root_ids = self._new_ids_d[self.cg.meta.layer_count]
         former_root_ids = self._get_old_ids(new_root_ids)
         former_root_ids = np.unique(former_root_ids)
-        assert (
-            len(former_root_ids) < 2 or len(new_root_ids) < 2
-        ), "Something went wrong."
+        if not self.stitch_mode:
+            assert (
+                len(former_root_ids) < 2 or len(new_root_ids) < 2
+            ), "Something went wrong."
         rows = []
         for new_root_id in new_root_ids:
             val_dict = {

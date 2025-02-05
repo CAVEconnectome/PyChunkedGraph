@@ -732,12 +732,13 @@ class ChunkedGraph:
     def add_edges(
         self,
         user_id: str,
-        atomic_edges: typing.Sequence[np.uint64],
+        atomic_edges: typing.Sequence[typing.Sequence[np.uint64]],
         *,
         affinities: typing.Sequence[np.float32] = None,
         source_coords: typing.Sequence[int] = None,
         sink_coords: typing.Sequence[int] = None,
         allow_same_segment_merge: typing.Optional[bool] = False,
+        stitch_mode: typing.Optional[bool] = False,
     ) -> operation.GraphEditOperation.Result:
         """
         Adds an edge to the chunkedgraph
@@ -754,6 +755,7 @@ class ChunkedGraph:
             source_coords=source_coords,
             sink_coords=sink_coords,
             allow_same_segment_merge=allow_same_segment_merge,
+            stitch_mode=stitch_mode,
         ).execute()
 
     def remove_edges(
