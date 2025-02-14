@@ -70,8 +70,10 @@ def _get_chunk_nodes_and_edges(chunk_edges_d: dict, isolated_ids: Sequence[int])
     in-chunk edges and nodes_ids
     """
     isolated_nodes_self_edges = np.vstack([isolated_ids, isolated_ids]).T
-    node_ids = [isolated_ids]
-    edge_ids = [isolated_nodes_self_edges]
+    node_ids = [isolated_ids] if len(isolated_ids) != 0 else []
+    edge_ids = (
+        [isolated_nodes_self_edges] if len(isolated_nodes_self_edges) != 0 else []
+    )
     for edge_type in EDGE_TYPES:
         edges = chunk_edges_d[edge_type]
         node_ids.append(edges.node_ids1)
@@ -101,7 +103,13 @@ def _get_remapping(chunk_edges_d: dict):
 
 
 def _process_component(
-    cg, chunk_edges_d, parent_id, node_ids, sparse_indices, remapping, time_stamp,
+    cg,
+    chunk_edges_d,
+    parent_id,
+    node_ids,
+    sparse_indices,
+    remapping,
+    time_stamp,
 ):
     nodes = []
     chunk_out_edges = []  # out = between + cross
