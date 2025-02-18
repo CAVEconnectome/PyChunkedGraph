@@ -1,7 +1,10 @@
 # pylint: disable=invalid-name, missing-docstring, line-too-long, no-member
 
+import json
+import pickle
+import time
 import functools
-from collections import deque
+from collections import defaultdict, deque
 
 import numpy as np
 from cloudvolume import CloudVolume
@@ -17,14 +20,52 @@ from ..meshgen_utils import get_json_info
 OCTREE_NODE_SIZE = 5
 
 
+def _morton_sort(cg: ChunkedGraph, children: np.ndarray):
+    """
+    Sort children by their morton code.
+    """
+    if children.size == 0:
+        return children
+    children_coords = []
+
+    for child in children:
+        children_coords.append(cg.get_chunk_coordinates(child))
+
+    def cmp_zorder(lhs, rhs) -> bool:
+        # https://en.wikipedia.org/wiki/Z-order_curve
+        # https://github.com/google/neuroglancer/issues/272
+        def less_msb(x: int, y: int) -> bool:
+            return x < y and x < (x ^ y)
+
+        msd = 2
+        for dim in [1, 0]:
+            if less_msb(lhs[msd] ^ rhs[msd], lhs[dim] ^ rhs[dim]):
+                msd = dim
+        return lhs[msd] - rhs[msd]
+
+    children, _ = zip(
+        *sorted(
+            zip(children, children_coords),
+            key=functools.cmp_to_key(lambda x, y: cmp_zorder(x[1], y[1])),
+        )
+    )
+    return np.array(children, dtype=NODE_ID)
+
+
 def _get_hierarchy(cg: ChunkedGraph, node_id: np.uint64) -> dict:
+    node_chunk_id_map = {node_id: cg.get_chunk_id(node_id)}
     children_map = {}
+    children_chunks_map = {}
+    chunk_nodes_map = {}
     layer = cg.get_chunk_layer(node_id)
     if layer < 2:
-        return children_map
+        return children_map, children_chunks_map, chunk_nodes_map
+
+    chunk_nodes_map[cg.get_chunk_id(node_id)] = np.array([node_id], dtype=NODE_ID)
     if layer == 2:
         children_map[node_id] = empty_1d.copy()
-        return children_map
+        children_chunks_map[node_id] = empty_1d.copy()
+        return children_map, children_chunks_map, chunk_nodes_map
 
     node_ids = np.array([node_id], dtype=NODE_ID)
     while node_ids.size > 0:
@@ -34,10 +75,19 @@ def _get_hierarchy(cg: ChunkedGraph, node_id: np.uint64) -> dict:
         _ids = np.concatenate(list(children.values())) if children else empty_1d.copy()
         node_layers = cg.get_chunk_layers(_ids)
         node_ids = _ids[node_layers > 2]
+        chunk_ids = cg.get_chunk_ids_from_node_ids(_ids)
+        node_chunk_id_map.update(zip(_ids, chunk_ids))
 
         for l2id in _ids[node_layers == 2]:
             children_map[l2id] = empty_1d.copy()
-    return children_map
+
+    for k, v in children_map.items():
+        chunk_ids = np.array([node_chunk_id_map[i] for i in v], dtype=NODE_ID)
+        uchunk_ids = np.unique(chunk_ids)
+        children_chunks_map[k] = uchunk_ids
+        for c in uchunk_ids:
+            chunk_nodes_map[c] = v[chunk_ids == c]
+    return children_map, children_chunks_map, chunk_nodes_map, node_chunk_id_map
 
 
 def _get_node_coords_and_layers_map(
@@ -51,6 +101,13 @@ def _get_node_coords_and_layers_map(
         coords = cg.get_chunk_coordinates_multiple(node_ids[layer_mask])
         _node_coords = dict(zip(node_ids[layer_mask], coords))
         coords_map.update(_node_coords)
+
+    chunk_id_coords_map = {}
+    chunk_ids = cg.get_chunk_ids_from_node_ids(node_ids)
+    node_chunk_id_map = dict(zip(node_ids, chunk_ids))
+    for k, v in coords_map.items():
+        chunk_id_coords_map[node_chunk_id_map[k]] = v
+    coords_map.update(chunk_id_coords_map)
     return coords_map, dict(zip(node_ids, node_layers))
 
 
@@ -81,9 +138,9 @@ def _insert_skipped_nodes(
                 skipped_layer = nl - count
                 skipped_child = cg.get_chunk_id(layer=skipped_layer, x=x, y=y, z=z)
                 limit = cg.get_segment_id_limit(skipped_child)
-                skipped_child += np.uint64(limit - 1)
+                skipped_child += limit - np.uint64(1)
                 while skipped_child in new_children_map:
-                    skipped_child = np.uint64(skipped_child - 1)
+                    skipped_child = skipped_child - np.uint64(1)
 
                 skipped_hierarchy.append(skipped_child)
                 coords_map[skipped_child] = np.array((x, y, z), dtype=int)
@@ -97,38 +154,6 @@ def _insert_skipped_nodes(
                 child = skipped_hierarchy[i + 1]
                 new_children_map[node] = np.array([child], dtype=NODE_ID)
     return new_children_map, coords_map, layers_map
-
-
-def _sort_octree_row(cg: ChunkedGraph, children: np.ndarray):
-    """
-    Sort children by their morton code.
-    """
-    if children.size == 0:
-        return children
-    children_coords = []
-
-    for child in children:
-        children_coords.append(cg.get_chunk_coordinates(child))
-
-    def cmp_zorder(lhs, rhs) -> bool:
-        # https://en.wikipedia.org/wiki/Z-order_curve
-        # https://github.com/google/neuroglancer/issues/272
-        def less_msb(x: int, y: int) -> bool:
-            return x < y and x < (x ^ y)
-
-        msd = 2
-        for dim in [1, 0]:
-            if less_msb(lhs[msd] ^ rhs[msd], lhs[dim] ^ rhs[dim]):
-                msd = dim
-        return lhs[msd] - rhs[msd]
-
-    children, _ = zip(
-        *sorted(
-            zip(children, children_coords),
-            key=functools.cmp_to_key(lambda x, y: cmp_zorder(x[1], y[1])),
-        )
-    )
-    return children
 
 
 def _validate_octree(octree: np.ndarray, octree_node_ids: np.ndarray):
@@ -174,7 +199,13 @@ def _validate_octree(octree: np.ndarray, octree_node_ids: np.ndarray):
 
 
 def build_octree(
-    cg: ChunkedGraph, node_id: np.uint64, children_map: dict, mesh_fragments: dict
+    cg: ChunkedGraph,
+    node_id: np.uint64,
+    children_map: dict,
+    children_chunks_map: dict,
+    chunk_nodes_map: dict,
+    node_chunk_id_map: dict,
+    mesh_fragments: dict,
 ):
     """
     From neuroglancer multiscale specification:
@@ -188,59 +219,82 @@ def build_octree(
       requested/rendered.
     """
     node_q = deque()
-    node_q.append(node_id)
-    coords_map, layers_map = _get_node_coords_and_layers_map(cg, children_map)
-    children_map, coords_map, layers_map = _insert_skipped_nodes(
-        cg, children_map, coords_map, layers_map
-    )
+    node_q.append(node_chunk_id_map[node_id])
+    coords_map, _ = _get_node_coords_and_layers_map(cg, children_map)
 
-    ROW_TOTAL = len(children_map)
-    row_counter = len(children_map)
+    ROW_TOTAL = len(chunk_nodes_map)
+    row_counter = len(chunk_nodes_map)
     octree_size = OCTREE_NODE_SIZE * ROW_TOTAL
     octree = np.zeros(octree_size, dtype=np.uint32)
 
     octree_node_ids = ROW_TOTAL * [0]
-    octree_fragments = ROW_TOTAL * [""]
+    octree_fragments = defaultdict(list)
     rows_used = 1
 
     while len(node_q) > 0:
+        frags = []
         row_counter -= 1
-        current_node = node_q.popleft()
-        children = children_map[current_node]
-        octree_node_ids[row_counter] = current_node
+        current_chunk = node_q.popleft()
+        chunk_nodes = chunk_nodes_map[current_chunk]
+
+        for k in chunk_nodes:
+            if k in mesh_fragments:
+                frags.append(mesh_fragments[k])
+        octree_fragments[int(current_chunk)].extend(normalize_fragments(frags))
+
+        children_chunks = set()
+        for k in chunk_nodes:
+            children_chunks.update(children_chunks_map[k])
+
+        children_chunks = np.array(list(children_chunks), dtype=NODE_ID)
+        children_chunks = _morton_sort(cg, children_chunks)
+        for child_chunk in children_chunks:
+            node_q.append(child_chunk)
+
+        octree_node_ids[row_counter] = current_chunk
 
         offset = OCTREE_NODE_SIZE * row_counter
-        x, y, z = coords_map[current_node]
+        x, y, z = coords_map[current_chunk]
         octree[offset + 0] = x
         octree[offset + 1] = y
         octree[offset + 2] = z
 
-        rows_used += children.size
+        rows_used += children_chunks.size
         start = ROW_TOTAL - rows_used
-        end_empty = start + children.size
+        end_empty = start + children_chunks.size
 
         octree[offset + 3] = start
         octree[offset + 4] = end_empty
-        try:
-            if children.size == 1:
-                # mark node virtual
-                octree[offset + 3] |= 1 << 31
-            else:
-                octree_fragments[row_counter] = mesh_fragments[current_node]
-        except KeyError:
-            # no mesh, mark node empty
+        if len(octree_fragments[int(current_chunk)]) == 0:
             octree[offset + 4] |= 1 << 31
 
-        children = _sort_octree_row(cg, children)
-        for child in children:
-            node_q.append(child)
+        # print()
+        # print(current_chunk, list(chunk_nodes), list(children_chunks))
 
-    _validate_octree(octree, octree_node_ids)
-    return octree, octree_node_ids, octree_fragments
+    # _validate_octree(octree, octree_node_ids)
+    fragments = []
+    for node in octree_node_ids:
+        fragments.append(octree_fragments[int(node)])
+    return octree, octree_node_ids, fragments
 
 
 def get_manifest(cg: ChunkedGraph, node_id: np.uint64) -> dict:
-    children_map = _get_hierarchy(cg, node_id)
+    start = time.time()
+    fname = f"dist/multiscale/{node_id}_children_map.bin"
+    try:
+        with open(fname, "rb") as f:
+            children_map, children_chunks_map, chunk_nodes_map, node_chunk_id_map = (
+                pickle.load(f)
+            )
+            print("got children_map from pickle")
+    except:
+        children_map, children_chunks_map, chunk_nodes_map, node_chunk_id_map = (
+            _get_hierarchy(cg, node_id)
+        )
+        with open(fname, "wb") as f:
+            pickle.dump((children_map, children_chunks_map, chunk_nodes_map), f)
+            print("wrote children_map to pickle")
+
     node_ids = np.fromiter(children_map.keys(), dtype=NODE_ID)
     manifest_cache = ManifestCache(cg.graph_id, initial=True)
 
@@ -251,15 +305,34 @@ def get_manifest(cg: ChunkedGraph, node_id: np.uint64) -> dict:
         progress=False,
     )
 
-    fragments_d, _not_cached, _ = manifest_cache.get_fragments(node_ids)
-    initial_meshes = cv.mesh.initial_exists(_not_cached, return_byte_range=True)
-    _fragments_d, _ = del_none_keys(initial_meshes)
-    manifest_cache.set_fragments(_fragments_d)
-    fragments_d.update(_fragments_d)
+    fname = f"dist/multiscale/{node_id}_fragments.json"
+    try:
+        with open(fname, "r") as f:
+            _fragments_d = json.load(f)
+            fragments_d = {np.uint64(k): v for k, v in _fragments_d.items()}
+            print("got fragments_d from json")
+    except:
+        fragments_d, _not_cached, _ = manifest_cache.get_fragments(node_ids)
+        initial_meshes = cv.mesh.initial_exists(_not_cached, return_byte_range=True)
+        _fragments_d, _ = del_none_keys(initial_meshes)
+        manifest_cache.set_fragments(_fragments_d)
+        fragments_d.update(_fragments_d)
+        with open(fname, "w") as f:
+            json.dump({int(k): v for k, v in fragments_d.items()}, f)
+            print("wrote fragments_d to json")
 
-    octree, node_ids, fragments = build_octree(cg, node_id, children_map, fragments_d)
+    print(cg.graph_id, node_id, len(children_map), len(fragments_d))
+    octree, node_ids, fragments = build_octree(
+        cg,
+        node_id,
+        children_map,
+        children_chunks_map,
+        chunk_nodes_map,
+        node_chunk_id_map,
+        fragments_d,
+    )
+
     max_layer = min(cg.get_chunk_layer(node_id) + 1, cg.meta.layer_count)
-
     chunk_shape = np.array(cg.meta.graph_config.CHUNK_SIZE, dtype=np.dtype("<f4"))
     chunk_shape *= cg.meta.resolution
     clip_bounds = cg.meta.voxel_bounds.T * cg.meta.resolution
@@ -267,9 +340,10 @@ def get_manifest(cg: ChunkedGraph, node_id: np.uint64) -> dict:
         "chunkShape": chunk_shape,
         "chunkGridSpatialOrigin": np.array([0, 0, 0], dtype=np.dtype("<f4")),
         "lodScales": np.arange(2, max_layer, dtype=np.dtype("<f4")) * 1,
-        "fragments": normalize_fragments(fragments),
+        "fragments": fragments,
         "octree": octree,
         "clipLowerBound": np.array(clip_bounds[0], dtype=np.dtype("<f4")),
         "clipUpperBound": np.array(clip_bounds[1], dtype=np.dtype("<f4")),
     }
+    print("time", time.time() - start)
     return node_ids, response
