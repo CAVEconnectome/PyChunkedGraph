@@ -222,8 +222,11 @@ def build_octree(
     node_q.append(node_chunk_id_map[node_id])
     coords_map, _ = _get_node_coords_and_layers_map(cg, children_map)
 
-    ROW_TOTAL = len(chunk_nodes_map)
-    row_counter = len(chunk_nodes_map)
+    all_chunks = np.concatenate(list(children_chunks_map.values()))
+    all_chunks = np.unique(all_chunks)
+
+    ROW_TOTAL = all_chunks.size + 1
+    row_counter = all_chunks.size + 1
     octree_size = OCTREE_NODE_SIZE * ROW_TOTAL
     octree = np.zeros(octree_size, dtype=np.uint32)
 
@@ -265,12 +268,13 @@ def build_octree(
 
         octree[offset + 3] = start
         octree[offset + 4] = end_empty
-        if len(octree_fragments[int(current_chunk)]) == 0:
+
+        if children_chunks.size == 1:
+            octree[offset + 3] |= 1 << 31
+        if children_chunks.size == 0:
             octree[offset + 4] |= 1 << 31
 
-        # print()
-        # print(current_chunk, list(chunk_nodes), list(children_chunks))
-
+    octree[5 * (ROW_TOTAL - 1) + 3] |= 1 << 31
     # _validate_octree(octree, octree_node_ids)
     fragments = []
     for node in octree_node_ids:
