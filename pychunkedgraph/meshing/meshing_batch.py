@@ -46,8 +46,15 @@ if __name__ == "__main__":
         def __init__(self, chunks):
             self.chunks = chunks
         def __iter__(self):
+            if args.overwrite:
+                meshed = set()
+            else:
+                meshed = set(cf.list())
             for chunk in self.chunks:
                 chunk_id = cg.get_chunk_id(layer=args.layer, x=chunk[0], y=chunk[1], z=chunk[2])
+                shard_filename = cv.mesh.readers[args.layer].get_filename(chunk_id)
+                if shard_filename in meshed:
+                    continue
                 yield MeshTask(args.cg_name, args.layer, int(chunk_id), args.mip, cache)
 
     if args.queue_name is not None:
