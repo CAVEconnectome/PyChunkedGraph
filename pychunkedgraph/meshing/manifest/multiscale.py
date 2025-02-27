@@ -1,10 +1,8 @@
 # pylint: disable=invalid-name, missing-docstring, line-too-long, no-member
 
-import json
-import pickle
 import time
 import functools
-from collections import defaultdict, deque
+from collections import defaultdict, deque, namedtuple
 
 import numpy as np
 from cloudvolume import CloudVolume
@@ -18,6 +16,19 @@ from .utils import del_none_keys
 from ..meshgen_utils import get_json_info
 
 OCTREE_NODE_SIZE = 5
+
+
+HierarchyInfo = namedtuple(
+    "HierarchyInfo",
+    [
+        "children_map",
+        "children_chunks_map",
+        "chunk_nodes_map",
+        "node_chunk_id_map",
+        "coords_map",
+        "layers_map",
+    ],
+)
 
 
 def _morton_sort(cg: ChunkedGraph, children: np.ndarray):
@@ -52,7 +63,71 @@ def _morton_sort(cg: ChunkedGraph, children: np.ndarray):
     return np.array(children, dtype=NODE_ID)
 
 
-def _get_hierarchy(cg: ChunkedGraph, node_id: np.uint64) -> dict:
+def _get_node_coords_and_layers_map(
+    cg: ChunkedGraph, children_map: dict
+) -> tuple[dict, dict]:
+    node_ids = np.fromiter(children_map.keys(), dtype=NODE_ID)
+    coords_map = {}
+    node_layers = cg.get_chunk_layers(node_ids)
+    for layer in set(node_layers):
+        layer_mask = node_layers == layer
+        coords = cg.get_chunk_coordinates_multiple(node_ids[layer_mask])
+        _node_coords = dict(zip(node_ids[layer_mask], coords))
+        coords_map.update(_node_coords)
+
+    chunk_id_coords_map = {}
+    chunk_ids = cg.get_chunk_ids_from_node_ids(node_ids)
+    node_chunk_id_map = dict(zip(node_ids, chunk_ids))
+    for k, v in coords_map.items():
+        chunk_id_coords_map[node_chunk_id_map[k]] = v
+    coords_map.update(chunk_id_coords_map)
+    return coords_map, dict(zip(node_ids, node_layers))
+
+
+def _get_hierarchy(cg: ChunkedGraph, node_id: np.uint64) -> HierarchyInfo:
+    def _insert_skipped_nodes(cg: ChunkedGraph):
+        new_children_map = {}
+        for node, children in children_map.items():
+            nl = layers_map[node]
+            if len(children) > 1 or nl == 2:
+                new_children_map[node] = children
+            else:
+                assert (
+                    len(children) == 1
+                ), f"Skipped hierarchy must have exactly 1 child: {node} - {children}."
+                cl = layers_map[children[0]]
+                height = nl - cl
+                if height == 1:
+                    new_children_map[node] = children
+                    continue
+
+                cx, cy, cz = coords_map[children[0]]
+                skipped_hierarchy = [node]
+                count = 1
+                height -= 1
+                while height:
+                    x, y, z = cx >> height, cy >> height, cz >> height
+                    skipped_layer = nl - count
+                    skipped_chunk = cg.get_chunk_id(layer=skipped_layer, x=x, y=y, z=z)
+                    limit = cg.get_segment_id_limit(skipped_chunk)
+                    skipped_child = skipped_chunk + (limit - np.uint64(1))
+                    while skipped_child in new_children_map:
+                        skipped_child = skipped_child - np.uint64(1)
+
+                    skipped_hierarchy.append(skipped_child)
+                    coords_map[skipped_child] = np.array((x, y, z), dtype=int)
+                    layers_map[skipped_child] = skipped_layer
+                    node_chunk_id_map[skipped_child] = skipped_chunk
+                    count += 1
+                    height -= 1
+                skipped_hierarchy.append(children[0])
+
+                for i in range(len(skipped_hierarchy) - 1):
+                    node = skipped_hierarchy[i]
+                    child = skipped_hierarchy[i + 1]
+                    new_children_map[node] = np.array([child], dtype=NODE_ID)
+        return new_children_map
+
     node_chunk_id_map = {node_id: cg.get_chunk_id(node_id)}
     children_map = {}
     children_chunks_map = {}
@@ -81,79 +156,24 @@ def _get_hierarchy(cg: ChunkedGraph, node_id: np.uint64) -> dict:
         for l2id in _ids[node_layers == 2]:
             children_map[l2id] = empty_1d.copy()
 
-    for k, v in children_map.items():
-        chunk_ids = np.array([node_chunk_id_map[i] for i in v], dtype=NODE_ID)
+    coords_map, layers_map = _get_node_coords_and_layers_map(cg, children_map)
+    new_children_map = _insert_skipped_nodes(cg)
+    coords_map, layers_map = _get_node_coords_and_layers_map(cg, new_children_map)
+
+    for node, children in new_children_map.items():
+        chunk_ids = np.array([node_chunk_id_map[i] for i in children], dtype=NODE_ID)
         uchunk_ids = np.unique(chunk_ids)
-        children_chunks_map[k] = uchunk_ids
+        children_chunks_map[node] = uchunk_ids
         for c in uchunk_ids:
-            chunk_nodes_map[c] = v[chunk_ids == c]
-    return children_map, children_chunks_map, chunk_nodes_map, node_chunk_id_map
-
-
-def _get_node_coords_and_layers_map(
-    cg: ChunkedGraph, children_map: dict
-) -> tuple[dict, dict]:
-    node_ids = np.fromiter(children_map.keys(), dtype=NODE_ID)
-    coords_map = {}
-    node_layers = cg.get_chunk_layers(node_ids)
-    for layer in set(node_layers):
-        layer_mask = node_layers == layer
-        coords = cg.get_chunk_coordinates_multiple(node_ids[layer_mask])
-        _node_coords = dict(zip(node_ids[layer_mask], coords))
-        coords_map.update(_node_coords)
-
-    chunk_id_coords_map = {}
-    chunk_ids = cg.get_chunk_ids_from_node_ids(node_ids)
-    node_chunk_id_map = dict(zip(node_ids, chunk_ids))
-    for k, v in coords_map.items():
-        chunk_id_coords_map[node_chunk_id_map[k]] = v
-    coords_map.update(chunk_id_coords_map)
-    return coords_map, dict(zip(node_ids, node_layers))
-
-
-def _insert_skipped_nodes(
-    cg: ChunkedGraph, children_map: dict, coords_map: dict, layers_map: dict
-):
-    new_children_map = {}
-    for node, children in children_map.items():
-        nl = layers_map[node]
-        if len(children) > 1 or nl == 2:
-            new_children_map[node] = children
-        else:
-            assert (
-                len(children) == 1
-            ), f"Skipped hierarchy must have exactly 1 child: {node} - {children}."
-            cl = layers_map[children[0]]
-            height = nl - cl
-            if height == 1:
-                new_children_map[node] = children
-                continue
-
-            cx, cy, cz = coords_map[children[0]]
-            skipped_hierarchy = [node]
-            count = 1
-            height -= 1
-            while height:
-                x, y, z = cx >> height, cy >> height, cz >> height
-                skipped_layer = nl - count
-                skipped_child = cg.get_chunk_id(layer=skipped_layer, x=x, y=y, z=z)
-                limit = cg.get_segment_id_limit(skipped_child)
-                skipped_child += limit - np.uint64(1)
-                while skipped_child in new_children_map:
-                    skipped_child = skipped_child - np.uint64(1)
-
-                skipped_hierarchy.append(skipped_child)
-                coords_map[skipped_child] = np.array((x, y, z), dtype=int)
-                layers_map[skipped_child] = skipped_layer
-                count += 1
-                height -= 1
-            skipped_hierarchy.append(children[0])
-
-            for i in range(len(skipped_hierarchy) - 1):
-                node = skipped_hierarchy[i]
-                child = skipped_hierarchy[i + 1]
-                new_children_map[node] = np.array([child], dtype=NODE_ID)
-    return new_children_map, coords_map, layers_map
+            chunk_nodes_map[c] = children[chunk_ids == c]
+    return HierarchyInfo(
+        new_children_map,
+        children_chunks_map,
+        chunk_nodes_map,
+        node_chunk_id_map,
+        coords_map,
+        layers_map,
+    )
 
 
 def _validate_octree(octree: np.ndarray, octree_node_ids: np.ndarray):
@@ -199,13 +219,7 @@ def _validate_octree(octree: np.ndarray, octree_node_ids: np.ndarray):
 
 
 def build_octree(
-    cg: ChunkedGraph,
-    node_id: np.uint64,
-    children_map: dict,
-    children_chunks_map: dict,
-    chunk_nodes_map: dict,
-    node_chunk_id_map: dict,
-    mesh_fragments: dict,
+    cg: ChunkedGraph, node_id: np.uint64, hinfo: HierarchyInfo, mesh_fragments: dict
 ):
     """
     From neuroglancer multiscale specification:
@@ -219,10 +233,9 @@ def build_octree(
       requested/rendered.
     """
     node_q = deque()
-    node_q.append(node_chunk_id_map[node_id])
-    coords_map, _ = _get_node_coords_and_layers_map(cg, children_map)
+    node_q.append(hinfo.node_chunk_id_map[node_id])
 
-    all_chunks = np.concatenate(list(children_chunks_map.values()))
+    all_chunks = np.concatenate(list(hinfo.children_chunks_map.values()))
     all_chunks = np.unique(all_chunks)
 
     ROW_TOTAL = all_chunks.size + 1
@@ -230,15 +243,17 @@ def build_octree(
     octree_size = OCTREE_NODE_SIZE * ROW_TOTAL
     octree = np.zeros(octree_size, dtype=np.uint32)
 
-    octree_node_ids = ROW_TOTAL * [0]
+    octree_chunks = ROW_TOTAL * [0]
     octree_fragments = defaultdict(list)
     rows_used = 1
+    virtual_chunk_hierarchy = {}
 
     while len(node_q) > 0:
         frags = []
         row_counter -= 1
         current_chunk = node_q.popleft()
-        chunk_nodes = chunk_nodes_map[current_chunk]
+        chunk_nodes = hinfo.chunk_nodes_map[current_chunk]
+        octree_chunks[row_counter] = current_chunk
 
         for k in chunk_nodes:
             if k in mesh_fragments:
@@ -247,17 +262,15 @@ def build_octree(
 
         children_chunks = set()
         for k in chunk_nodes:
-            children_chunks.update(children_chunks_map[k])
+            children_chunks.update(hinfo.children_chunks_map[k])
 
         children_chunks = np.array(list(children_chunks), dtype=NODE_ID)
         children_chunks = _morton_sort(cg, children_chunks)
         for child_chunk in children_chunks:
             node_q.append(child_chunk)
 
-        octree_node_ids[row_counter] = current_chunk
-
         offset = OCTREE_NODE_SIZE * row_counter
-        x, y, z = coords_map[current_chunk]
+        x, y, z = hinfo.coords_map[current_chunk]
         octree[offset + 0] = x
         octree[offset + 1] = y
         octree[offset + 2] = z
@@ -269,26 +282,36 @@ def build_octree(
         octree[offset + 3] = start
         octree[offset + 4] = end_empty
 
-        if children_chunks.size == 1:
-            octree[offset + 3] |= 1 << 31
+        if len(octree_fragments[int(current_chunk)]) == 0:
+            virtual_chunk_hierarchy[current_chunk] = children_chunks[0]
         if children_chunks.size == 0:
             octree[offset + 4] |= 1 << 31
 
-    octree[5 * (ROW_TOTAL - 1) + 3] |= 1 << 31
     # _validate_octree(octree, octree_node_ids)
     fragments = []
-    for node in octree_node_ids:
-        fragments.append(octree_fragments[int(node)])
-    return octree, octree_node_ids, fragments
+    for chunk in octree_chunks:
+        if chunk in virtual_chunk_hierarchy:
+            frags = []
+            while True:
+                child = virtual_chunk_hierarchy[chunk]
+                if child not in virtual_chunk_hierarchy:
+                    break
+                chunk = child
+            fragments.append(octree_fragments[int(child)])
+        else:
+            fragments.append(octree_fragments[int(chunk)])
+
+    for k in hinfo.children_chunks_map[node_id]:
+        fragments[-1].extend(octree_fragments[int(k)])
+    octree[5 * (ROW_TOTAL - 1) + 3] &= ~(1 << 31)
+    return octree, octree_chunks, fragments
 
 
 def get_manifest(cg: ChunkedGraph, node_id: np.uint64) -> dict:
     start = time.time()
-    children_map, children_chunks_map, chunk_nodes_map, node_chunk_id_map = (
-        _get_hierarchy(cg, node_id)
-    )
+    hierarchy_info = _get_hierarchy(cg, node_id)
 
-    node_ids = np.fromiter(children_map.keys(), dtype=NODE_ID)
+    node_ids = np.fromiter(hierarchy_info.children_map.keys(), dtype=NODE_ID)
     manifest_cache = ManifestCache(cg.graph_id, initial=True)
 
     cv = CloudVolume(
@@ -304,16 +327,7 @@ def get_manifest(cg: ChunkedGraph, node_id: np.uint64) -> dict:
     manifest_cache.set_fragments(_fragments_d)
     fragments_d.update(_fragments_d)
 
-    octree, node_ids, fragments = build_octree(
-        cg,
-        node_id,
-        children_map,
-        children_chunks_map,
-        chunk_nodes_map,
-        node_chunk_id_map,
-        fragments_d,
-    )
-
+    octree, node_ids, fragments = build_octree(cg, node_id, hierarchy_info, fragments_d)
     max_layer = min(cg.get_chunk_layer(node_id) + 1, cg.meta.layer_count)
     chunk_shape = np.array(cg.meta.graph_config.CHUNK_SIZE, dtype=np.dtype("<f4"))
     chunk_shape *= cg.meta.resolution
@@ -321,7 +335,7 @@ def get_manifest(cg: ChunkedGraph, node_id: np.uint64) -> dict:
     response = {
         "chunkShape": chunk_shape,
         "chunkGridSpatialOrigin": np.array([0, 0, 0], dtype=np.dtype("<f4")),
-        "lodScales": np.arange(2, max_layer, dtype=np.dtype("<f4")) * 1,
+        "lodScales": np.arange(2, max_layer + 1, dtype=np.dtype("<f4")) * 1,
         "fragments": fragments,
         "octree": octree,
         "clipLowerBound": np.array(clip_bounds[0], dtype=np.dtype("<f4")),
