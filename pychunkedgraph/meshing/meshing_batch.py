@@ -1,8 +1,12 @@
-from taskqueue import TaskQueue, LocalTaskQueue
-import argparse
-from pychunkedgraph.graph.chunkedgraph import ChunkedGraph # noqa
+import argparse, os
 import numpy as np
+from cloudvolume import CloudVolume
+from cloudfiles import CloudFiles
+from taskqueue import TaskQueue, LocalTaskQueue
+
+from pychunkedgraph.graph.chunkedgraph import ChunkedGraph # noqa
 from pychunkedgraph.meshing.meshing_sqs import MeshTask
+from pychunkedgraph.meshing import meshgen_utils  # noqa
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
@@ -13,11 +17,22 @@ if __name__ == "__main__":
     parser.add_argument('--layer', type=int)
     parser.add_argument('--mip', type=int)
     parser.add_argument('--skip_cache', action='store_true')
+    parser.add_argument('--overwrite', type=bool, default=False)
 
     args = parser.parse_args()
     cache = not args.skip_cache
 
     cg = ChunkedGraph(graph_id=args.cg_name)
+    cv = CloudVolume(
+        f"graphene://https://localhost/segmentation/table/dummy",
+        info=meshgen_utils.get_json_info(cg),
+    )
+    dst = os.path.join(
+        cv.cloudpath, cv.mesh.meta.mesh_path, "initial", str(args.layer)
+    )
+    cf = CloudFiles(dst)
+    if len(list(cf.list())) > 0 and not args.overwrite:
+        raise ValueError(f"Destination {dst} is not empty. Use `--overwrite true` to proceed anyway.")
 
     chunks_arr = []
     for x in range(args.chunk_start[0],args.chunk_end[0]):
@@ -31,8 +46,15 @@ if __name__ == "__main__":
         def __init__(self, chunks):
             self.chunks = chunks
         def __iter__(self):
+            if args.overwrite:
+                meshed = set()
+            else:
+                meshed = set(cf.list())
             for chunk in self.chunks:
                 chunk_id = cg.get_chunk_id(layer=args.layer, x=chunk[0], y=chunk[1], z=chunk[2])
+                shard_filename = cv.mesh.readers[args.layer].get_filename(chunk_id)
+                if shard_filename in meshed:
+                    continue
                 yield MeshTask(args.cg_name, args.layer, int(chunk_id), args.mip, cache)
 
     if args.queue_name is not None:

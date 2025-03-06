@@ -189,11 +189,13 @@ def handle_find_minimal_covering_nodes(table_id, is_binary=True):
     ):  # Process from higher layers to lower layers
         if len(node_queue[layer]) == 0:
             continue
-        
+
         current_nodes = list(node_queue[layer])
 
         # Call handle_roots to find parents
-        parents = cg.get_roots(current_nodes, stop_layer=layer + 1, time_stamp=timestamp)
+        parents = cg.get_roots(
+            current_nodes, stop_layer=layer + 1, time_stamp=timestamp
+        )
         unique_parents = np.unique(parents)
         parent_layers = np.array(
             [cg.get_chunk_layer(parent) for parent in unique_parents]
@@ -312,7 +314,11 @@ def str2bool(v):
 
 
 def publish_edit(
-    table_id: str, user_id: str, result: GraphEditOperation.Result, is_priority=True
+    table_id: str,
+    user_id: str,
+    result: GraphEditOperation.Result,
+    is_priority=True,
+    remesh: bool = True,
 ):
     import pickle
 
@@ -322,6 +328,7 @@ def publish_edit(
         "table_id": table_id,
         "user_id": user_id,
         "remesh_priority": "true" if is_priority else "false",
+        "remesh": "true" if remesh else "false",
     }
     payload = {
         "operation_id": int(result.operation_id),
@@ -343,6 +350,7 @@ def handle_merge(table_id, allow_same_segment_merge=False):
 
     nodes = json.loads(request.data)
     is_priority = request.args.get("priority", True, type=str2bool)
+    remesh = request.args.get("remesh", True, type=str2bool)
     chebyshev_distance = request.args.get("chebyshev_distance", 3, type=int)
 
     current_app.logger.debug(nodes)
@@ -391,7 +399,7 @@ def handle_merge(table_id, allow_same_segment_merge=False):
     current_app.logger.debug(("lvl2_nodes:", ret.new_lvl2_ids))
 
     if len(ret.new_lvl2_ids) > 0:
-        publish_edit(table_id, user_id, ret, is_priority=is_priority)
+        publish_edit(table_id, user_id, ret, is_priority=is_priority, remesh=remesh)
 
     return ret
 
@@ -405,6 +413,7 @@ def handle_split(table_id):
 
     data = json.loads(request.data)
     is_priority = request.args.get("priority", True, type=str2bool)
+    remesh = request.args.get("remesh", True, type=str2bool)
     mincut = request.args.get("mincut", True, type=str2bool)
 
     current_app.logger.debug(data)
@@ -457,7 +466,7 @@ def handle_split(table_id):
     current_app.logger.debug(("lvl2_nodes:", ret.new_lvl2_ids))
 
     if len(ret.new_lvl2_ids) > 0:
-        publish_edit(table_id, user_id, ret, is_priority=is_priority)
+        publish_edit(table_id, user_id, ret, is_priority=is_priority, remesh=remesh)
 
     return ret
 
@@ -470,6 +479,7 @@ def handle_undo(table_id):
 
     data = json.loads(request.data)
     is_priority = request.args.get("priority", True, type=str2bool)
+    remesh = request.args.get("remesh", True, type=str2bool)
     user_id = str(g.auth_user.get("id", current_app.user_id))
 
     current_app.logger.debug(data)
@@ -489,7 +499,7 @@ def handle_undo(table_id):
     current_app.logger.debug(("lvl2_nodes:", ret.new_lvl2_ids))
 
     if ret.new_lvl2_ids.size > 0:
-        publish_edit(table_id, user_id, ret, is_priority=is_priority)
+        publish_edit(table_id, user_id, ret, is_priority=is_priority, remesh=remesh)
 
     return ret
 
@@ -502,6 +512,7 @@ def handle_redo(table_id):
 
     data = json.loads(request.data)
     is_priority = request.args.get("priority", True, type=str2bool)
+    remesh = request.args.get("remesh", True, type=str2bool)
     user_id = str(g.auth_user.get("id", current_app.user_id))
 
     current_app.logger.debug(data)
@@ -521,7 +532,7 @@ def handle_redo(table_id):
     current_app.logger.debug(("lvl2_nodes:", ret.new_lvl2_ids))
 
     if ret.new_lvl2_ids.size > 0:
-        publish_edit(table_id, user_id, ret, is_priority=is_priority)
+        publish_edit(table_id, user_id, ret, is_priority=is_priority, remesh=remesh)
 
     return ret
 
@@ -536,6 +547,7 @@ def handle_rollback(table_id):
     target_user_id = request.args["user_id"]
 
     is_priority = request.args.get("priority", True, type=str2bool)
+    remesh = request.args.get("remesh", True, type=str2bool)
     skip_operation_ids = np.array(
         json.loads(request.args.get("skip_operation_ids", "[]")), dtype=np.uint64
     )
@@ -562,7 +574,7 @@ def handle_rollback(table_id):
             raise cg_exceptions.BadRequest(str(e))
 
         if ret.new_lvl2_ids.size > 0:
-            publish_edit(table_id, user_id, ret, is_priority=is_priority)
+            publish_edit(table_id, user_id, ret, is_priority=is_priority, remesh=remesh)
 
     return user_operations
 

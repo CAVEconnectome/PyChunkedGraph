@@ -22,6 +22,10 @@ def callback(payload):
     op_id = int(data["operation_id"])
     l2ids = np.array(data["new_lvl2_ids"], dtype=basetypes.NODE_ID)
     table_id = payload.attributes["table_id"]
+    remesh = payload.attributes["remesh"]
+
+    if remesh == "false":
+        return
 
     try:
         cg = PCG_CACHE[table_id]
@@ -37,9 +41,12 @@ def callback(payload):
     )
 
     try:
-        mesh_dir = cg.meta.dataset_info["mesh"]
-        mesh_meta = cg.meta.dataset_info["mesh_metadata"]
-        cv_unsharded_mesh_dir = mesh_meta.get("unsharded_mesh_dir", "dynamic")
+        mesh_meta = cg.meta.custom_data["mesh"]
+        mesh_dir = mesh_meta["dir"]
+        layer = mesh_meta["max_layer"]
+        mip = mesh_meta["mip"]
+        err = mesh_meta["max_error"]
+        cv_unsharded_mesh_dir = mesh_meta.get("dynamic_mesh_dir", "dynamic")
     except KeyError:
         logging.warning(f"No metadata found for {cg.graph_id}; ignoring...")
         return
@@ -47,14 +54,6 @@ def callback(payload):
     mesh_path = path.join(
         cg.meta.data_source.WATERSHED, mesh_dir, cv_unsharded_mesh_dir
     )
-
-    try:
-        mesh_data = cg.meta.custom_data["mesh"]
-        layer = mesh_data["max_layer"]
-        mip = mesh_data["mip"]
-        err = mesh_data["max_error"]
-    except KeyError:
-        return
 
 
     logging.log(INFO_HIGH, f"remeshing {l2ids}; graph {table_id} operation {op_id}.")
