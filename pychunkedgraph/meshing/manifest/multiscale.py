@@ -165,7 +165,12 @@ def _get_hierarchy(cg: ChunkedGraph, node_id: np.uint64) -> HierarchyInfo:
         uchunk_ids = np.unique(chunk_ids)
         children_chunks_map[node] = uchunk_ids
         for c in uchunk_ids:
-            chunk_nodes_map[c] = children[chunk_ids == c]
+            if c in chunk_nodes_map:
+                chunk_nodes_map[c] = np.concatenate(
+                    [chunk_nodes_map[c], children[chunk_ids == c]]
+                )
+            else:
+                chunk_nodes_map[c] = children[chunk_ids == c]
     return HierarchyInfo(
         new_children_map,
         children_chunks_map,
@@ -176,7 +181,7 @@ def _get_hierarchy(cg: ChunkedGraph, node_id: np.uint64) -> HierarchyInfo:
     )
 
 
-def _validate_octree(octree: np.ndarray, octree_node_ids: np.ndarray):
+def _validate_octree(octree: np.ndarray, octree_chunks: np.ndarray):
     assert octree.size % 5 == 0, "Invalid octree size."
     num_nodes = octree.size // 5
     seen_nodes = set()
@@ -192,7 +197,7 @@ def _validate_octree(octree: np.ndarray, octree_node_ids: np.ndarray):
         x, y, z = octree[node * 5 : node * 5 + 3]
         child_begin = octree[node * 5 + 3] & ~(1 << 31)
         child_end = octree[node * 5 + 4] & ~(1 << 31)
-        p = octree_node_ids[node]
+        p = octree_chunks[node]
 
         if (
             child_begin < 0
@@ -206,7 +211,7 @@ def _validate_octree(octree: np.ndarray, octree_node_ids: np.ndarray):
 
         for child in range(child_begin, child_end):
             cx, cy, cz = octree[child * 5 : child * 5 + 3]
-            c = octree_node_ids[child]
+            c = octree_chunks[child]
             msg = f"Invalid child position: parent {(node, p)} at {(x, y, z)}, child {(child, c)} at {(cx, cy ,cz)}."
             assert cx >> 1 == x and cy >> 1 == y and cz >> 1 == z, msg
             _explore_node(child)
@@ -287,7 +292,7 @@ def build_octree(
         if children_chunks.size == 0:
             octree[offset + 4] |= 1 << 31
 
-    # _validate_octree(octree, octree_node_ids)
+    _validate_octree(octree, octree_chunks)
     fragments = []
     for chunk in octree_chunks:
         if chunk in virtual_chunk_hierarchy:
