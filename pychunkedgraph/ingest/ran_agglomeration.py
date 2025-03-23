@@ -318,7 +318,9 @@ def get_active_edges(edges_d, mapping):
         if edge_type == EDGE_TYPES.in_chunk:
             pseudo_isolated_ids.append(edges.node_ids2)
 
-    return chunk_edges_active, np.unique(np.concatenate(pseudo_isolated_ids))
+    return chunk_edges_active, np.unique(
+        np.concatenate(pseudo_isolated_ids).astype(basetypes.NODE_ID)
+    )
 
 
 def define_active_edges(edge_dict, mapping) -> Union[Dict, np.ndarray]:
@@ -384,7 +386,7 @@ def read_raw_agglomeration_data(imanager: IngestionManager, chunk_coord: np.ndar
 
     edges_list = _read_agg_files(filenames, chunk_ids, path)
     G = nx.Graph()
-    G.add_edges_from(np.concatenate(edges_list))
+    G.add_edges_from(np.concatenate(edges_list).astype(basetypes.NODE_ID))
     mapping = {}
     components = list(nx.connected_components(G))
     for i_cc, cc in enumerate(components):
