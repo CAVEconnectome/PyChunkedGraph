@@ -866,12 +866,14 @@ class MulticutOperation(GraphEditOperation):
                 "try placing the points further apart."
             )
 
-        ids = np.concatenate([self.source_ids, self.sink_ids])
+        ids = np.concatenate([self.source_ids, self.sink_ids]).astype(basetypes.NODE_ID)
         layers = self.cg.get_chunk_layers(ids)
         assert np.sum(layers) == layers.size, "IDs must be supervoxels."
 
     def _update_root_ids(self) -> np.ndarray:
-        sink_and_source_ids = np.concatenate((self.source_ids, self.sink_ids))
+        sink_and_source_ids = np.concatenate((self.source_ids, self.sink_ids)).astype(
+            basetypes.NODE_ID
+        )
         root_ids = np.unique(
             self.cg.get_roots(
                 sink_and_source_ids, assert_roots=True, time_stamp=self.parent_ts
@@ -887,7 +889,9 @@ class MulticutOperation(GraphEditOperation):
         # Verify that sink and source are from the same root object
         root_ids = set(
             self.cg.get_roots(
-                np.concatenate([self.source_ids, self.sink_ids]),
+                np.concatenate([self.source_ids, self.sink_ids]).astype(
+                    basetypes.NODE_ID
+                ),
                 assert_roots=True,
                 time_stamp=self.parent_ts,
             )
@@ -908,7 +912,7 @@ class MulticutOperation(GraphEditOperation):
             edges = reduce(lambda x, y: x + y, edges, Edges([], []))
             supervoxels = np.concatenate(
                 [agg.supervoxels for agg in l2id_agglomeration_d.values()]
-            )
+            ).astype(basetypes.NODE_ID)
             mask0 = np.in1d(edges.node_ids1, supervoxels)
             mask1 = np.in1d(edges.node_ids2, supervoxels)
             edges = edges[mask0 & mask1]

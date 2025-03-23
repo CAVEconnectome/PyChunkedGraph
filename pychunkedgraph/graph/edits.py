@@ -67,7 +67,9 @@ def _analyze_affected_edges(
 
 
 def _get_relevant_components(edges: np.ndarray, supervoxels: np.ndarray) -> Tuple:
-    edges = np.concatenate([edges, np.vstack([supervoxels, supervoxels]).T])
+    edges = np.concatenate([edges, np.vstack([supervoxels, supervoxels]).T]).astype(
+        basetypes.NODE_ID
+    )
     graph, _, _, graph_ids = flatgraph.build_gt_graph(edges, make_directed=True)
     ccs = flatgraph.connected_components(graph)
     relevant_ccs = []
@@ -108,8 +110,10 @@ def merge_preprocess(
         active_edges.append(active)
         inactive_edges.append(inactive)
 
-    relevant_ccs = _get_relevant_components(np.concatenate(active_edges), supervoxels)
-    inactive = np.concatenate(inactive_edges)
+    relevant_ccs = _get_relevant_components(
+        np.concatenate(active_edges).astype(basetypes.NODE_ID), supervoxels
+    )
+    inactive = np.concatenate(inactive_edges).astype(basetypes.NODE_ID)
     _inactive = [types.empty_2d]
     # source to sink edges
     source_mask = np.in1d(inactive[:, 0], relevant_ccs[0])
@@ -120,7 +124,7 @@ def merge_preprocess(
     sink_mask = np.in1d(inactive[:, 1], relevant_ccs[0])
     source_mask = np.in1d(inactive[:, 0], relevant_ccs[1])
     _inactive.append(inactive[source_mask & sink_mask])
-    _inactive = np.concatenate(_inactive)
+    _inactive = np.concatenate(_inactive).astype(basetypes.NODE_ID)
     return np.unique(_inactive, axis=0) if _inactive.size else types.empty_2d
 
 
@@ -216,7 +220,7 @@ def add_edges(
         new_id = cg.id_client.create_node_id(cg.get_chunk_id(l2ids_[0]))
         cg.cache.children_cache[new_id] = np.concatenate(
             [atomic_children_d[l2id] for l2id in l2ids_]
-        )
+        ).astype(basetypes.NODE_ID)
         cg.cache.atomic_cx_edges_cache[new_id] = concatenate_cross_edge_dicts(
             [atomic_cross_edges_d[l2id] for l2id in l2ids_]
         )
@@ -255,15 +259,16 @@ def _process_l2_agglomeration(
     and calculate new connected components.
     """
     chunk_edges = agg.in_edges.get_pairs()
-    cross_edges = np.concatenate([types.empty_2d, *atomic_cross_edges_d.values()])
+    cross_edges = np.concatenate(
+        [types.empty_2d, *atomic_cross_edges_d.values()]
+    ).astype(basetypes.NODE_ID)
     chunk_edges = chunk_edges[~in2d(chunk_edges, removed_edges)]
     cross_edges = cross_edges[~in2d(cross_edges, removed_edges)]
 
     isolated_ids = agg.supervoxels[~np.in1d(agg.supervoxels, chunk_edges)]
     isolated_edges = np.column_stack((isolated_ids, isolated_ids))
-    graph, _, _, graph_ids = flatgraph.build_gt_graph(
-        np.concatenate([chunk_edges, isolated_edges]), make_directed=True
-    )
+    _edges = np.concatenate([chunk_edges, isolated_edges]).astype(basetypes.NODE_ID)
+    graph, _, _, graph_ids = flatgraph.build_gt_graph(_edges, make_directed=True)
     return flatgraph.connected_components(graph), graph_ids, cross_edges
 
 
@@ -307,7 +312,9 @@ def remove_edges(
     l2id_chunk_id_d = dict(zip(l2ids.tolist(), cg.get_chunk_ids_from_node_ids(l2ids)))
     atomic_cross_edges_d = cg.get_atomic_cross_edges(l2ids)
 
-    removed_edges = np.concatenate([atomic_edges, atomic_edges[:, ::-1]], axis=0)
+    removed_edges = np.concatenate(
+        [atomic_edges, atomic_edges[:, ::-1]], axis=0
+    ).astype(basetypes.NODE_ID)
     new_l2_ids = []
     for id_ in l2ids:
         l2_agg = l2id_agglomeration_d[id_]
@@ -391,7 +398,7 @@ class CreateParentNodes:
             np.array(list(self._new_old_id_d[id_]), dtype=basetypes.NODE_ID)
             for id_ in new_ids
         ]
-        return np.concatenate(old_ids)
+        return np.concatenate(old_ids).astype(basetypes.NODE_ID)
 
     def _map_sv_to_parent(self, node_ids, layer, node_map=None):
         sv_parent_d = {}
@@ -403,12 +410,14 @@ class CreateParentNodes:
             edges_ = self._cross_edges_d[id_].get(layer, types.empty_2d)
             sv_parent_d.update(dict(zip(edges_[:, 0], [id_eff] * len(edges_))))
             sv_cross_edges.append(edges_)
-        return sv_parent_d, np.concatenate(sv_cross_edges)
+        return sv_parent_d, np.concatenate(sv_cross_edges).astype(basetypes.NODE_ID)
 
     def _get_connected_components(
         self, node_ids: np.ndarray, layer: int, lower_layer_ids: np.ndarray
     ):
-        _node_ids = np.concatenate([node_ids, lower_layer_ids])
+        _node_ids = np.concatenate([node_ids, lower_layer_ids]).astype(
+            basetypes.NODE_ID
+        )
         cached = np.fromiter(self._cross_edges_d.keys(), dtype=basetypes.NODE_ID)
         not_cached = _node_ids[~np.in1d(_node_ids, cached)]
 
@@ -440,7 +449,9 @@ class CreateParentNodes:
             get_sv_parents = np.vectorize(sv_parent_d.get, otypes=[np.uint64])
             cross_edges = get_sv_parents(sv_cross_edges)
 
-        cross_edges = np.concatenate([cross_edges, np.vstack([node_ids, node_ids]).T])
+        cross_edges = np.concatenate(
+            [cross_edges, np.vstack([node_ids, node_ids]).T]
+        ).astype(basetypes.NODE_ID)
         graph, _, _, graph_ids = flatgraph.build_gt_graph(
             cross_edges, make_directed=True
         )
@@ -466,7 +477,7 @@ class CreateParentNodes:
                 for id_ in node_ids[mask]
             ]
             + [node_ids[~mask], new_ids]
-        )
+        ).astype(basetypes.NODE_ID)
         node_ids = np.unique(node_ids)
         layer_mask = self.cg.get_chunk_layers(node_ids) == layer
         return node_ids[layer_mask], node_ids[~layer_mask]
