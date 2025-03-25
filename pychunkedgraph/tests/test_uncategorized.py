@@ -16,7 +16,7 @@ from google.auth import credentials
 from google.cloud import bigtable
 from grpc._channel import _Rendezvous
 
-from helpers import (bigtable_emulator, create_chunk, gen_graph,
+from .helpers import (bigtable_emulator, create_chunk, gen_graph,
                      gen_graph_simplequerytest,
                      lock_expired_timedelta_override, to_label)
 from pychunkedgraph.backend import chunkedgraph
