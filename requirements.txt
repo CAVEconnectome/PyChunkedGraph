@@ -11,6 +11,7 @@ dracopy==1.3.0
 zmesh>=1.7.0
 fastremap>=1.14.0
 jsonschema<4.0
+cloud-volume==8.26.0
 pyopenssl
 flask
 numpy
@@ -23,6 +24,5 @@ zstandard
 redis
 rq
 messagingclient
-cloud-volume
 pyyaml
 datastoreflex
