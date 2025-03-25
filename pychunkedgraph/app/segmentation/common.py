@@ -18,7 +18,7 @@ from pychunkedgraph.backend import chunkedgraph_exceptions as cg_exceptions
 from pychunkedgraph.backend import history as cg_history
 from pychunkedgraph.backend import lineage
 from pychunkedgraph.backend.utils import column_keys, basetypes
-from pychunkedgraph.graph_analysis import analysis, contact_sites
+from pychunkedgraph.graph_analysis import analysis
 from pychunkedgraph.backend.graphoperation import GraphEditOperation
 
 __api_versions__ = [0, 1]
@@ -845,66 +845,6 @@ def oldest_timestamp(table_id):
         raise cg_exceptions.InternalServerError("No timestamp available")
 
     return earliest_timestamp
-
-
-### CONTACT SITES --------------------------------------------------------------
-
-
-def handle_contact_sites(table_id, root_id):
-    partners = request.args.get("partners", True, type=app_utils.toboolean)
-    as_list = request.args.get("as_list", True, type=app_utils.toboolean)
-    areas_only = request.args.get("areas_only", True, type=app_utils.toboolean)
-
-    current_app.table_id = table_id
-    user_id = str(g.auth_user["id"])
-    current_app.user_id = user_id
-
-    timestamp = _parse_timestamp(
-        "timestamp", default_timestamp=time.time(), return_datetime=True
-    )
-
-    if "bounds" in request.args:
-        bounds = request.args["bounds"]
-        bounding_box = np.array(
-            [b.split("-") for b in bounds.split("_")], dtype=np.int
-        ).T
-    else:
-        bounding_box = None
-
-    # Call ChunkedGraph
-    cg = app_utils.get_cg(table_id)
-
-    cs_list, cs_metadata = contact_sites.get_contact_sites(
-        cg,
-        np.uint64(root_id),
-        bounding_box=bounding_box,
-        compute_partner=partners,
-        end_time=timestamp,
-        as_list=as_list,
-        areas_only=areas_only,
-    )
-
-    return cs_list, cs_metadata
-
-
-def handle_pairwise_contact_sites(table_id, first_node_id, second_node_id):
-    current_app.request_type = "pairwise_contact_sites"
-    current_app.table_id = table_id
-    user_id = str(g.auth_user["id"])
-    current_app.user_id = user_id
-
-    timestamp = _parse_timestamp("timestamp", time.time(), return_datetime=True)
-
-    exact_location = request.args.get("exact_location", True, type=app_utils.toboolean)
-    cg = app_utils.get_cg(table_id)
-    contact_sites_list, cs_metadata = contact_sites.get_contact_sites_pairwise(
-        cg,
-        np.uint64(first_node_id),
-        np.uint64(second_node_id),
-        end_time=timestamp,
-        exact_location=exact_location,
-    )
-    return contact_sites_list, cs_metadata
 
 
 ### SPLIT PREVIEW --------------------------------------------------------------
