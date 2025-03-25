@@ -775,7 +775,7 @@ class TestGraphSimpleQueries:
     def test_get_subgraph_nodes_bb(self, gen_graph_simplequerytest):
         cgraph = gen_graph_simplequerytest
 
-        bb = np.array([[1, 0, 0], [2, 1, 1]], dtype=np.int)
+        bb = np.array([[1, 0, 0], [2, 1, 1]], dtype=int)
         bb_coord = bb * cgraph.chunk_size
 
         childs_1 = cgraph.get_subgraph_nodes(cgraph.get_root(to_label(cgraph, 1, 1, 0, 0, 1)), bounding_box=bb)
@@ -2554,7 +2554,7 @@ class TestGraphHistory:
                                           mincut=False).new_root_ids
 
         assert len(split_roots) == 2
-        timestamp_after_split = datetime.utcnow() 
+        timestamp_after_split = datetime.utcnow()
         merge_roots = cgraph.add_edges("Jane Doe",
                                       [to_label(cgraph, 1, 0, 0, 0, 0),
                                        to_label(cgraph, 1, 1, 0, 0, 0)],
@@ -2589,7 +2589,7 @@ class TestGraphHistory:
         assert(new_roots2[0]==merge_root)
         assert(len(old_roots2)==2)
         assert(np.all(np.isin(old_roots2, split_roots)))
-        
+
         new_roots3, old_roots3 = cgraph.get_delta_roots(timestamp_before_split,
                                                         timestamp_after_merge)
         assert(len(new_roots3)==1)

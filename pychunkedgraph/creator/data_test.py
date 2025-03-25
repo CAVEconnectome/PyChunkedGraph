@@ -17,7 +17,7 @@ def _test_unique_edge_assignment_thread(args):
             ids = creator_utils.read_edge_file_h5(path)["node_ids"]
         u_ids = np.unique(ids)
 
-        u_id_d = dict(zip(u_ids, np.ones(len(u_ids), dtype=np.int)))
+        u_id_d = dict(zip(u_ids, np.ones(len(u_ids), dtype=int)))
         add_counter = collections.Counter(u_id_d)
 
         id_dict += add_counter

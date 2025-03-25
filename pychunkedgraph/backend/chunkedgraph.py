@@ -471,10 +471,10 @@ class ChunkedGraph(object):
         return info
 
     def adjust_vol_coordinates_to_cv(
-        self, x: np.int, y: np.int, z: np.int, resolution: Sequence[np.int]
+        self, x: int, y: int, z: int, resolution: Sequence[int]
     ):
         resolution = np.array(resolution)
-        scaling = np.array(self.cv.resolution / resolution, dtype=np.int)
+        scaling = np.array(self.cv.resolution / resolution, dtype=int)
 
         x = x / scaling[0] - self.vx_vol_bounds[0, 0]
         y = y / scaling[1] - self.vx_vol_bounds[1, 0]
@@ -484,25 +484,25 @@ class ChunkedGraph(object):
 
     def get_chunk_coordinates_from_vol_coordinates(
         self,
-        x: np.int,
-        y: np.int,
-        z: np.int,
-        resolution: Sequence[np.int],
+        x: int,
+        y: int,
+        z: int,
+        resolution: Sequence[int],
         ceil: bool = False,
         layer: int = 1,
     ) -> np.ndarray:
         """Translates volume coordinates to chunk_coordinates
 
-        :param x: np.int
-        :param y: np.int
-        :param z: np.int
+        :param x: int
+        :param y: int
+        :param z: int
         :param resolution: np.ndarray
         :param ceil bool
         :param layer: int
         :return:
         """
         resolution = np.array(resolution)
-        scaling = np.array(self.cv.resolution / resolution, dtype=np.int)
+        scaling = np.array(self.cv.resolution / resolution, dtype=int)
 
         x = (x / scaling[0] - self.vx_vol_bounds[0, 0]) / self.chunk_size[0]
         y = (y / scaling[1] - self.vx_vol_bounds[1, 0]) / self.chunk_size[1]
@@ -516,7 +516,7 @@ class ChunkedGraph(object):
         if ceil:
             coords = np.ceil(coords)
 
-        return coords.astype(np.int)
+        return coords.astype(int)
 
     def get_chunk_layer(self, node_or_chunk_id: np.uint64) -> int:
         """Extract Layer from Node ID or Chunk ID
@@ -533,7 +533,7 @@ class ChunkedGraph(object):
         :return: np.ndarray
         """
         if len(node_or_chunk_ids) == 0:
-            return np.array([], dtype=np.int)
+            return np.array([], dtype=int)
 
         return self._get_chunk_layer_vec(node_or_chunk_ids)
 
@@ -611,7 +611,7 @@ class ChunkedGraph(object):
         :return: np.ndarray(dtype=np.uint64)
         """
         if len(node_ids) == 0:
-            return np.array([], dtype=np.int)
+            return np.array([], dtype=int)
 
         return self._get_chunk_id_vec(node_ids)
 
@@ -957,9 +957,9 @@ class ChunkedGraph(object):
         :return: array of length n
         """
         if len(cross_edges) == 0:
-            return np.array([], dtype=np.int)
+            return np.array([], dtype=int)
 
-        cross_chunk_edge_layers = np.ones(len(cross_edges), dtype=np.int)
+        cross_chunk_edge_layers = np.ones(len(cross_edges), dtype=int)
 
         cross_edge_coordinates = []
         for cross_edge in cross_edges:
@@ -970,7 +970,7 @@ class ChunkedGraph(object):
                 ]
             )
 
-        cross_edge_coordinates = np.array(cross_edge_coordinates, dtype=np.int)
+        cross_edge_coordinates = np.array(cross_edge_coordinates, dtype=int)
 
         for layer in range(2, self.n_layers):
             edge_diff = np.sum(
@@ -2123,7 +2123,7 @@ class ChunkedGraph(object):
                 partners = np.concatenate([connected_ids, disconnected_ids])
                 affinities = np.concatenate([connected_affs, disconnected_affs])
                 areas = np.concatenate([connected_areas, disconnected_areas])
-                connected = np.arange(len(connected_ids), dtype=np.int)
+                connected = np.arange(len(connected_ids), dtype=int)
 
                 val_dict = {
                     column_keys.Connectivity.Partner: partners,
@@ -2276,7 +2276,7 @@ class ChunkedGraph(object):
             max_child_ids = max_child_ids[sorting]
 
             counter = collections.defaultdict(int)
-            max_child_ids_occ_so_far = np.zeros(len(max_child_ids), dtype=np.int)
+            max_child_ids_occ_so_far = np.zeros(len(max_child_ids), dtype=int)
             for i_row in range(len(max_child_ids)):
                 max_child_ids_occ_so_far[i_row] = counter[max_child_ids[i_row]]
                 counter[max_child_ids[i_row]] += 1
@@ -2470,7 +2470,7 @@ class ChunkedGraph(object):
         if n_jobs > 0:
             spacing = np.linspace(
                 0, len(atomic_partner_id_dict_keys), n_jobs + 1
-            ).astype(np.int)
+            ).astype(int)
             starts = spacing[:-1]
             ends = spacing[1:]
 
@@ -2523,7 +2523,7 @@ class ChunkedGraph(object):
 
         n_jobs = np.min([n_jobs, len(ccs)])
 
-        spacing = np.linspace(0, len(ccs), n_jobs + 1).astype(np.int)
+        spacing = np.linspace(0, len(ccs), n_jobs + 1).astype(int)
         starts = spacing[:-1]
         ends = spacing[1:]
 
@@ -2775,7 +2775,7 @@ class ChunkedGraph(object):
         time_stamp = get_google_compatible_time_stamp(time_stamp, round_up=False)
 
         stop_layer = self.n_layers if not stop_layer else min(self.n_layers, stop_layer)
-        layer_mask = np.ones(len(node_ids), dtype=np.bool)
+        layer_mask = np.ones(len(node_ids), dtype=bool)
 
         for _ in range(n_tries):
             layer_mask[self.get_chunk_layers(node_ids) >= stop_layer] = False
@@ -3528,7 +3528,7 @@ class ChunkedGraph(object):
         if bounding_box is None:
             return None
 
-        bbox = np.array(bounding_box, dtype=np.int)
+        bbox = np.array(bounding_box, dtype=int)
         if bb_is_coordinate:
             bbox[0] = self.get_chunk_coordinates_from_vol_coordinates(
                 bbox[0][0],
@@ -4018,7 +4018,7 @@ class ChunkedGraph(object):
         indices or their complement. Used to select edge descriptors for
         those that are either connected or not connected.
         """
-        mask = np.zeros((array.shape[0],), dtype=np.bool)
+        mask = np.zeros((array.shape[0],), dtype=bool)
         mask[connected_indices] = True
 
         if connected:
@@ -4271,8 +4271,8 @@ class ChunkedGraph(object):
 
         # Get edges between local supervoxels
         n_chunks_affected = np.product(
-            (np.ceil(bounding_box[1] / self.chunk_size)).astype(np.int)
-            - (np.floor(bounding_box[0] / self.chunk_size)).astype(np.int)
+            (np.ceil(bounding_box[1] / self.chunk_size)).astype(int)
+            - (np.floor(bounding_box[0] / self.chunk_size)).astype(int)
         )
 
         self.logger.debug("Number of affected chunks: %d" % n_chunks_affected)
@@ -4387,7 +4387,7 @@ class ChunkedGraph(object):
             offset = 0
         else:
             offset = self.vx_vol_bounds[:, 0]
-        return np.array((offset + self.chunk_size * chunk_coordinate), dtype=np.int)
+        return np.array((offset + self.chunk_size * chunk_coordinate), dtype=int)
 
     def download_chunk_segmentation(self, chunk_coordinate):
         """
@@ -4441,9 +4441,9 @@ class ChunkedGraph(object):
         self,
         nodes: Union[Iterable[np.uint64], np.uint64],
         bounding_box: Optional[Sequence[Sequence[int]]] = None,
-    ) -> Iterable[np.bool]:
+    ) -> Iterable[bool]:
         if bounding_box is None:
-            return np.ones(len(nodes), np.bool)
+            return np.ones(len(nodes), bool)
         else:
             chunk_coordinates = np.array([self.get_chunk_coordinates(c) for c in nodes])
             layers = self.get_chunk_layers(nodes)

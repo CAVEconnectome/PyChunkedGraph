@@ -73,10 +73,10 @@ def get_remapped_segmentation(
     cv = cloudvolume.CloudVolume(cg.cv.cloudpath, mip=mip)
     mip_diff = mip - cg.cv.mip
 
-    mip_chunk_size = cg.chunk_size.astype(np.int) / np.array(
+    mip_chunk_size = cg.chunk_size.astype(int) / np.array(
         [2 ** mip_diff, 2 ** mip_diff, 1]
     )
-    mip_chunk_size = mip_chunk_size.astype(np.int)
+    mip_chunk_size = mip_chunk_size.astype(int)
 
     chunk_start = (
         cg.cv.mip_voxel_offset(mip)
@@ -147,10 +147,10 @@ def get_remapped_seg_for_lvl2_nodes(
     cv = cloudvolume.CloudVolume(cg.cv.cloudpath, mip=mip)
     mip_diff = mip - cg.cv.mip
 
-    mip_chunk_size = cg.chunk_size.astype(np.int) / np.array(
+    mip_chunk_size = cg.chunk_size.astype(int) / np.array(
         [2 ** mip_diff, 2 ** mip_diff, 1]
     )
-    mip_chunk_size = mip_chunk_size.astype(np.int)
+    mip_chunk_size = mip_chunk_size.astype(int)
 
     chunk_start = (
         cg.cv.mip_voxel_offset(mip)
@@ -313,7 +313,7 @@ def get_root_lx_remapping(cg, chunk_id, stop_layer, time_stamp, n_threads=1):
     root_ids = np.zeros(len(lx_ids), dtype=np.uint64)
     n_jobs = np.min([n_threads, len(lx_ids)])
     multi_args = []
-    start_ids = np.linspace(0, len(lx_ids), n_jobs + 1).astype(np.int)
+    start_ids = np.linspace(0, len(lx_ids), n_jobs + 1).astype(int)
     for i_block in range(n_jobs):
         multi_args.append([start_ids[i_block], start_ids[i_block + 1]])
 
@@ -480,7 +480,7 @@ def get_root_remapping_for_nodes_and_svs(
     root_ids = np.zeros(len(combined_ids), dtype=np.uint64)
     n_jobs = np.min([n_threads, len(combined_ids)])
     multi_args = []
-    start_ids = np.linspace(0, len(combined_ids), n_jobs + 1).astype(np.int)
+    start_ids = np.linspace(0, len(combined_ids), n_jobs + 1).astype(int)
     for i_block in range(n_jobs):
         multi_args.append([start_ids[i_block], start_ids[i_block + 1]])
 

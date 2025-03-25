@@ -167,7 +167,7 @@ class Mesh(object):
                         norms.append(0)
                 faces.append(face)
 
-        self._faces = np.array(faces, dtype=np.int) - 1
+        self._faces = np.array(faces, dtype=int) - 1
         self._vertices = np.array(vertices, dtype=np.float)
         self._normals = np.array(normals, dtype=np.float)
 

@@ -280,7 +280,7 @@ def create_chunked_graph(table_id=None, cv_url=None, ws_url=None, fan_out=2,
         print("\n\n\n --- LAYER %d --- \n\n\n" % layer_id)
 
         parent_chunk_ids = child_chunk_ids // cg.fan_out
-        parent_chunk_ids = parent_chunk_ids.astype(np.int)
+        parent_chunk_ids = parent_chunk_ids.astype(int)
 
         u_pcids, inds = np.unique(parent_chunk_ids,
                                   axis=0, return_inverse=True)
@@ -293,7 +293,7 @@ def create_chunked_graph(table_id=None, cv_url=None, ws_url=None, fan_out=2,
         multi_args = []
         for ind in range(len(u_pcids)):
             multi_args.append([table_id, layer_id,
-                               child_chunk_ids[inds == ind].astype(np.int),
+                               child_chunk_ids[inds == ind].astype(int),
                                n_threads_per_process])
 
         child_chunk_ids = u_pcids
@@ -341,7 +341,7 @@ def _preprocess_chunkedgraph_data_thread(args):
         file_name = os.path.basename(fp).split(".")[0]
 
         # Read coordinates from file path
-        x1, x2, y1, y2, z1, z2 = np.array(re.findall("[\d]+", file_name), dtype=np.int)[:6]
+        x1, x2, y1, y2, z1, z2 = np.array(re.findall("[\d]+", file_name), dtype=int)[:6]
 
         if np.any((bbox[0] - np.array([x2, y2, z2])) >= 0) or \
                 np.any((bbox[1] - np.array([x1, y1, z1])) <= 0):
@@ -361,15 +361,15 @@ def _preprocess_chunkedgraph_data_thread(args):
             s_c = np.where(d == gap)[0]
             chunk_coord = c.copy()
 
-            chunk1_id = np.array(chunk_coord / chunk_size, dtype=np.int)
+            chunk1_id = np.array(chunk_coord / chunk_size, dtype=int)
             chunk_coord[s_c] += chunk_size[s_c]
-            chunk2_id = np.array(chunk_coord / chunk_size, dtype=np.int)
+            chunk2_id = np.array(chunk_coord / chunk_size, dtype=int)
 
             between_chunk_ids = np.concatenate([between_chunk_ids,
                                                 np.array([chunk1_id, chunk2_id])[None]])
             between_chunk_paths = np.concatenate([between_chunk_paths, [fp]])
         else:
-            chunk_coord = np.array(c / chunk_size, dtype=np.int)
+            chunk_coord = np.array(c / chunk_size, dtype=int)
 
             if "disconnected" in file_name:
                 in_chunk_disconnected_ids = np.concatenate([in_chunk_disconnected_ids, chunk_coord[None]])

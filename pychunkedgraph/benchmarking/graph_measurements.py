@@ -20,10 +20,10 @@ def count_nodes_and_edges(table_id, n_threads=1):
     bounds = np.array(cg.cv.bounds.to_list()).reshape(2, -1).T
     bounds -= bounds[:, 0:1]
 
-    chunk_id_bounds = np.ceil((bounds / cg.chunk_size[:, None])).astype(np.int)
+    chunk_id_bounds = np.ceil((bounds / cg.chunk_size[:, None])).astype(int)
 
     chunk_coord_gen = itertools.product(*[range(*r) for r in chunk_id_bounds])
-    chunk_coords = np.array(list(chunk_coord_gen), dtype=np.int)
+    chunk_coords = np.array(list(chunk_coord_gen), dtype=int)
 
     order = np.arange(len(chunk_coords))
     np.random.shuffle(order)
@@ -88,10 +88,10 @@ def count_and_download_nodes(table_id, save_dir=f"{HOME}/benchmarks/",
     bounds = np.array(cg.cv.bounds.to_list()).reshape(2, -1).T
     bounds -= bounds[:, 0:1]
 
-    chunk_id_bounds = np.ceil((bounds / cg.chunk_size[:, None])).astype(np.int)
+    chunk_id_bounds = np.ceil((bounds / cg.chunk_size[:, None])).astype(int)
 
     chunk_coord_gen = itertools.product(*[range(*r) for r in chunk_id_bounds])
-    chunk_coords = np.array(list(chunk_coord_gen), dtype=np.int)
+    chunk_coords = np.array(list(chunk_coord_gen), dtype=int)
 
     order = np.arange(len(chunk_coords))
     np.random.shuffle(order)
@@ -272,10 +272,10 @@ def get_merge_candidates(table_id, save_dir=f"{HOME}/benchmarks/",
     bounds = np.array(cg.cv.bounds.to_list()).reshape(2, -1).T
     bounds -= bounds[:, 0:1]
 
-    chunk_id_bounds = np.ceil((bounds / cg.chunk_size[:, None])).astype(np.int)
+    chunk_id_bounds = np.ceil((bounds / cg.chunk_size[:, None])).astype(int)
 
     chunk_coord_gen = itertools.product(*[range(*r) for r in chunk_id_bounds])
-    chunk_coords = np.array(list(chunk_coord_gen), dtype=np.int)
+    chunk_coords = np.array(list(chunk_coord_gen), dtype=int)
 
     order = np.arange(len(chunk_coords))
     np.random.shuffle(order)
@@ -343,7 +343,7 @@ def _get_merge_candidates(args):
 
         if len(edges) == 0:
             continue
-            
+
         edges = np.sort(np.array(edges), axis=1)
         cols = {"sv1": edges[:, 0], "sv2": edges[:, 1], "parent": ps}
 

@@ -69,7 +69,7 @@ def _create_atomic_chunk(im_info: str, coord: Sequence[int]):
     from .ingestion import create_atomic_chunk_helper
 
     imanager = IngestionManager.from_pickle(im_info)
-    coord = np.array(list(coord), dtype=np.int)
+    coord = np.array(list(coord), dtype=int)
     create_atomic_chunk_helper(ChunkTask(imanager.cg_meta, coord), imanager)
     _post_task_completion(imanager, 2, coord)
 

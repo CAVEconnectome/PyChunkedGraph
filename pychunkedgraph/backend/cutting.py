@@ -344,7 +344,7 @@ class LocalMincutGraph:
         for i_cc in np.unique(partition.a):
             # Make sure to read real ids and not graph ids
             cc_list = self.unique_supervoxel_ids[
-                np.array(np.where(partition.a == i_cc)[0], dtype=np.int)
+                np.array(np.where(partition.a == i_cc)[0], dtype=int)
             ]
 
             if np.any(np.in1d(self.sources, cc_list)):

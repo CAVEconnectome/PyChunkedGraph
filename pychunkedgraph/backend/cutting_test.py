@@ -42,7 +42,7 @@ def ex_graph():
 
     edgelist = np.array(edgelist)
 
-    edges = edgelist[:, :2].astype(np.int) - 1
+    edges = edgelist[:, :2].astype(int) - 1
     weights = edgelist[:, 2].astype(np.float)
 
     n_nodes = 100000

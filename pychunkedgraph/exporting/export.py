@@ -17,14 +17,14 @@ def get_sv_to_root_id_mapping_chunk(cg, chunk_coords, vol=None):
     """
     sv_to_root_mapping = {}
 
-    chunk_coords = np.array(chunk_coords, dtype=np.int)
+    chunk_coords = np.array(chunk_coords, dtype=int)
 
     if np.any((chunk_coords % cg.chunk_size) != 0):
         raise Exception("Chunk coords have to match a chunk corner exactly")
 
     chunk_coords = chunk_coords / cg.chunk_size
-    chunk_coords = chunk_coords.astype(np.int)
-    bb = np.array([chunk_coords, chunk_coords + 1], dtype=np.int)
+    chunk_coords = chunk_coords.astype(int)
+    bb = np.array([chunk_coords, chunk_coords + 1], dtype=int)
 
     remapped_vol = None
     vol_shape = None
@@ -122,13 +122,13 @@ def write_flat_segmentation(cg, dataset_name, bounding_box=None, block_factor=2,
     dataset_bounding_box = np.array(from_cv.bounds.to_list())
 
     block_bounding_box_cg = \
-        [np.floor(dataset_bounding_box[:3] / cg.chunk_size).astype(np.int),
-         np.ceil(dataset_bounding_box[3:] / cg.chunk_size).astype(np.int)]
+        [np.floor(dataset_bounding_box[:3] / cg.chunk_size).astype(int),
+         np.ceil(dataset_bounding_box[3:] / cg.chunk_size).astype(int)]
 
     if bounding_box is not None:
         bounding_box_cg = \
-            [np.floor(bounding_box[0] / cg.chunk_size).astype(np.int),
-             np.ceil(bounding_box[1] / cg.chunk_size).astype(np.int)]
+            [np.floor(bounding_box[0] / cg.chunk_size).astype(int),
+             np.ceil(bounding_box[1] / cg.chunk_size).astype(int)]
 
         m = block_bounding_box_cg[0] < bounding_box_cg[0]
         block_bounding_box_cg[0][m] = bounding_box_cg[0][m]

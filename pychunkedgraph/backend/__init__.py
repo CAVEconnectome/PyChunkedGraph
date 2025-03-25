@@ -75,14 +75,14 @@ class ChunkedGraphMeta:
 
     @property
     def resolution(self) -> np.ndarray:
-        return np.array(self._ws_cv.resolution)        
+        return np.array(self._ws_cv.resolution)
 
     @property
     def layer_count(self) -> int:
         if self._layer_count:
             return self._layer_count
         bbox = np.array(self._ws_cv.bounds.to_list()).reshape(2, 3)
-        n_chunks = ((bbox[1] - bbox[0]) / self._graph_config.chunk_size).astype(np.int)
+        n_chunks = ((bbox[1] - bbox[0]) / self._graph_config.chunk_size).astype(int)
         self._layer_count = (
             int(np.ceil(log_n(np.max(n_chunks), self._graph_config.fanout))) + 2
         )
@@ -102,7 +102,7 @@ class ChunkedGraphMeta:
         layer_bounds_d = {}
         for layer in range(2, self.layer_count):
             layer_bounds = chunks_boundary / (2 ** (layer - 2))
-            layer_bounds_d[layer] = np.ceil(layer_bounds).astype(np.int)
+            layer_bounds_d[layer] = np.ceil(layer_bounds).astype(int)
         self._layer_bounds_d = layer_bounds_d
         return self._layer_bounds_d
 
