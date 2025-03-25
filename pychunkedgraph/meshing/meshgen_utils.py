@@ -69,7 +69,7 @@ def get_mesh_block_shape_for_mip(cg, graphlayer: int,
 
     graphlayer_chunksize = cg.chunk_size * cg.fan_out ** np.max([0, graphlayer - 2])
 
-    return np.floor_divide(graphlayer_chunksize, distortion, dtype=np.int,
+    return np.floor_divide(graphlayer_chunksize, distortion, dtype=int,
                            casting='unsafe')
 
 

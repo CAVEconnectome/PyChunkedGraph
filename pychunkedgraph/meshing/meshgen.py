@@ -33,13 +33,12 @@ WRITING_TO_CLOUD = True
 
 def decode_draco_mesh_buffer(fragment):
     try:
-        mesh_object = DracoPy.decode(fragment)
+        mesh_object = DracoPy.decode_buffer_to_mesh(fragment)
         vertices = np.array(mesh_object.points)
         faces = np.array(mesh_object.faces)
     except ValueError:
         raise ValueError("Not a valid draco mesh")
 
-    assert vertices.size % 3 == 0, "Draco mesh vertices not 3-D"
     num_vertices = len(vertices)
 
     # For now, just return this dict until we figure out
@@ -74,10 +73,10 @@ def get_remapped_segmentation(
     cv = cloudvolume.CloudVolume(cg.cv.cloudpath, mip=mip)
     mip_diff = mip - cg.cv.mip
 
-    mip_chunk_size = cg.chunk_size.astype(np.int) / np.array(
+    mip_chunk_size = cg.chunk_size.astype(int) / np.array(
         [2 ** mip_diff, 2 ** mip_diff, 1]
     )
-    mip_chunk_size = mip_chunk_size.astype(np.int)
+    mip_chunk_size = mip_chunk_size.astype(int)
 
     chunk_start = (
         cg.cv.mip_voxel_offset(mip)
@@ -148,10 +147,10 @@ def get_remapped_seg_for_lvl2_nodes(
     cv = cloudvolume.CloudVolume(cg.cv.cloudpath, mip=mip)
     mip_diff = mip - cg.cv.mip
 
-    mip_chunk_size = cg.chunk_size.astype(np.int) / np.array(
+    mip_chunk_size = cg.chunk_size.astype(int) / np.array(
         [2 ** mip_diff, 2 ** mip_diff, 1]
     )
-    mip_chunk_size = mip_chunk_size.astype(np.int)
+    mip_chunk_size = mip_chunk_size.astype(int)
 
     chunk_start = (
         cg.cv.mip_voxel_offset(mip)
@@ -314,7 +313,7 @@ def get_root_lx_remapping(cg, chunk_id, stop_layer, time_stamp, n_threads=1):
     root_ids = np.zeros(len(lx_ids), dtype=np.uint64)
     n_jobs = np.min([n_threads, len(lx_ids)])
     multi_args = []
-    start_ids = np.linspace(0, len(lx_ids), n_jobs + 1).astype(np.int)
+    start_ids = np.linspace(0, len(lx_ids), n_jobs + 1).astype(int)
     for i_block in range(n_jobs):
         multi_args.append([start_ids[i_block], start_ids[i_block + 1]])
 
@@ -481,7 +480,7 @@ def get_root_remapping_for_nodes_and_svs(
     root_ids = np.zeros(len(combined_ids), dtype=np.uint64)
     n_jobs = np.min([n_threads, len(combined_ids)])
     multi_args = []
-    start_ids = np.linspace(0, len(combined_ids), n_jobs + 1).astype(np.int)
+    start_ids = np.linspace(0, len(combined_ids), n_jobs + 1).astype(int)
     for i_block in range(n_jobs):
         multi_args.append([start_ids[i_block], start_ids[i_block + 1]])
 
@@ -1017,9 +1016,9 @@ def chunk_mesh_task_new_remapping(
             mesh.vertices[:] += chunk_offset
             if encoding == "draco":
                 try:
-                    file_contents = DracoPy.encode(
-                        mesh.vertices,
-                        mesh.faces,
+                    file_contents = DracoPy.encode_mesh_to_buffer(
+                        mesh.vertices.flatten("C"),
+                        mesh.faces.flatten("C"),
                         **draco_encoding_settings,
                     )
                 except:
@@ -1206,7 +1205,7 @@ def chunk_mesh_task_new_remapping(
             )
 
             try:
-                new_fragment_b = DracoPy.encode(
+                new_fragment_b = DracoPy.encode_mesh_to_buffer(
                     new_fragment["vertices"],
                     new_fragment["faces"],
                     **draco_encoding_options,

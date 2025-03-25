@@ -164,16 +164,6 @@ def handle_subgraph(table_id, root_id):
     return app_utils.tobinary(subgraph_result)
 
 
-### CONTACT SITES --------------------------------------------------------------
-
-
-@bp.route("/<table_id>/segment/<root_id>/contact_sites", methods=["POST", "GET"])
-@auth_requires_permission("view")
-def handle_contact_sites(table_id, root_id):
-    contact_sites = common.handle_contact_sites(table_id, root_id)
-    return jsonify(contact_sites)
-
-
 ### CHANGE LOG -----------------------------------------------------------------
 
 

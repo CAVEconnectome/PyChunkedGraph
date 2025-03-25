@@ -541,9 +541,9 @@ def run_task_bundle(settings: Mapping, roi: Tuple[slice, slice, slice]):
         settings["regiongraph"]["regiongraph_path_output"])
     regiongraph_chunksize = tuple(settings["regiongraph"]["chunksize"])
 
-    chunkgraph_chunksize = np.array(cgraph.chunk_size, dtype=np.int)
-    output_watershed_chunksize = np.array(watershed_output.underlying, dtype=np.int)
-    outer_chunksize = np.maximum(chunkgraph_chunksize, output_watershed_chunksize, dtype=np.int)
+    chunkgraph_chunksize = np.array(cgraph.chunk_size, dtype=int)
+    output_watershed_chunksize = np.array(watershed_output.underlying, dtype=int)
+    outer_chunksize = np.maximum(chunkgraph_chunksize, output_watershed_chunksize, dtype=int)
 
     # Iterate through TaskBundle using a minimal chunk size that is a multiple
     # of the output watershed chunk size and the Chunked Graph chunk size.

@@ -296,7 +296,7 @@ class History:
             ancs.extend(nx.algorithms.dag.ancestors(self.lineage_graph, root_id))
 
         if len(ancs) == 0:
-            return np.array([], dtype=np.int)
+            return np.array([], dtype=int)
 
         ancs = fastremap.unique(np.array(ancs, dtype=np.uint64))
 

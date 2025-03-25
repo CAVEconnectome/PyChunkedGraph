@@ -31,7 +31,7 @@ class CloudVolumeBounds(object):
 
 class CloudVolumeMock(object):
     def __init__(self):
-        self.resolution = np.array([1, 1, 1], dtype=np.int)
+        self.resolution = np.array([1, 1, 1], dtype=int)
         self.bounds = CloudVolumeBounds()
 
 

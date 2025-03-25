@@ -384,7 +384,7 @@ def old_parent_childrens(eh, node_ids, layer):
 
     :param eh: EditHelper instance
     :param node_ids: list of np.uint64s
-    :param layer: np.int
+    :param layer: int
     :return:
     """
     assert len(node_ids) > 0
@@ -429,7 +429,7 @@ def compute_cross_chunk_connected_components(eh, node_ids, layer):
 
     :param eh: EditHelper
     :param node_ids: list of np.uint64s
-    :param layer: np.int
+    :param layer: int
     :return:
     """
     assert len(node_ids) > 0
@@ -720,7 +720,7 @@ class EditHelper(object):
             return parents[-1]
 
     def get_layer_children(self, node_id, layer, layer_only=False):
-        """ Get 
+        """ Get
 
         :param node_id:
         :param layer:
@@ -757,7 +757,7 @@ class EditHelper(object):
         """ Gets parent in particular layer
 
         :param node_id: np.uint64
-        :param layer: np.int
+        :param layer: int
         :param layer_only: bool
         :param choose_lower_layer: bool
         :return:
@@ -810,7 +810,7 @@ class EditHelper(object):
         """ Acquires old node ids for new node id
 
         :param node_id: np.uint64
-        :param layer: np.int
+        :param layer: int
         :return:
         """
         lower_old_node_ids = self._get_lower_old_node_ids(node_id)

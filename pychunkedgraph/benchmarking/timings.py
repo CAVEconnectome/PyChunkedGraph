@@ -188,7 +188,7 @@ def get_root_timings(table_id, save_dir=f"{HOME}/benchmarks/", job_size=500,
         del cg_serialized_info["credentials"]
 
     time_start = time.time()
-    np.random.seed(np.int(time.time()))
+    np.random.seed(int(time.time()))
 
     if len(rep_l1_nodes) < job_size * 64 * 3 * 10:
         replace = True
@@ -295,7 +295,7 @@ def get_subgraph_timings(table_id, save_dir=f"{HOME}/benchmarks/", job_size=500,
     time_start = time.time()
     order = np.arange(len(n_l1_nodes_per_root))
 
-    np.random.seed(np.int(time.time()))
+    np.random.seed(int(time.time()))
 
     if len(order) < job_size * 64 * 3 * 10:
         replace = True
@@ -354,7 +354,7 @@ def _get_subgraph_timings(args):
 
     timings = []
     for root_id, rep_l1_chunk_id in zip(root_ids, rep_l1_chunk_ids):
-        bb = np.array([rep_l1_chunk_id, rep_l1_chunk_id + 1], dtype=np.int)
+        bb = np.array([rep_l1_chunk_id, rep_l1_chunk_id + 1], dtype=int)
 
         time_start = time.time()
         sv_ids = cg.get_subgraph_nodes(root_id, bb, bb_is_coordinate=False)
@@ -411,7 +411,7 @@ def get_merge_split_timings(table_id, save_dir=f"{HOME}/benchmarks/", job_size=5
     time_start = time.time()
     order = np.arange(len(merge_edges))
 
-    np.random.seed(np.int(time.time()))
+    np.random.seed(int(time.time()))
 
     replace = False
 

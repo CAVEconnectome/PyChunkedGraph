@@ -3,7 +3,7 @@ import numpy as np
 
 def get_chunks_boundary(voxel_boundary, chunk_size) -> np.ndarray:
     """returns number of chunks in each dimension"""
-    return np.ceil((voxel_boundary / chunk_size)).astype(np.int)
+    return np.ceil((voxel_boundary / chunk_size)).astype(int)
 
 
 def compute_chunk_id(

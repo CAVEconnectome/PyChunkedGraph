@@ -44,9 +44,9 @@ def rewrite_single_segmentation_block(file_path, from_cv=None, to_cv=None,
 
     dx, dy, dz, _ = os.path.basename(file_path).split("_")
 
-    x_start, x_end = np.array(dx.split("-"), dtype=np.int)
-    y_start, y_end = np.array(dy.split("-"), dtype=np.int)
-    z_start, z_end = np.array(dz.split("-"), dtype=np.int)
+    x_start, x_end = np.array(dx.split("-"), dtype=int)
+    y_start, y_end = np.array(dy.split("-"), dtype=int)
+    z_start, z_end = np.array(dz.split("-"), dtype=int)
 
     bbox = to_cv.bounds.to_list()[3:]
     if x_end > bbox[0]:
