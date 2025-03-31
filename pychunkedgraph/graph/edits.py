@@ -508,10 +508,14 @@ class CreateParentNodes:
                         parent_layer = l
                         break
 
-            parent_id = self.cg.id_client.create_node_id(
-                self.cg.get_parent_chunk_id(cc_ids[0], parent_layer),
-                root_chunk=parent_layer == self.cg.meta.layer_count,
-            )
+            while True:
+                parent_id = self.cg.id_client.create_node_id(
+                    self.cg.get_parent_chunk_id(cc_ids[0], parent_layer),
+                    root_chunk=parent_layer == self.cg.meta.layer_count,
+                )
+                _entry = self.cg.client.read_node(parent_id)
+                if _entry == {}:
+                    break
             self._new_ids_d[parent_layer].append(parent_id)
             self.cg.cache.children_cache[parent_id] = cc_ids
             cache_utils.update(
