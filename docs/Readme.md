@@ -138,7 +138,7 @@ id_history = cg.read_agglomeration_id_history(root_id)
 
 ### Read the local ChunkedGraph
 
-To read the edge list and edge affinities of all atmic super voxels belonging to a root node do
+To read the edge list and edge affinities of all atomic super voxels belonging to a root node do
 ```
 cg.get_subgraph(root_id, bounding_box, bbox_is_coordinate=True)
 ```
