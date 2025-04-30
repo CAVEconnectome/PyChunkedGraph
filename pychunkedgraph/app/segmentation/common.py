@@ -1179,7 +1179,7 @@ def _handle_latest(cg, node_ids, timestamp):
             v = row_dict[n]
             new_roots_ts.append(v[-1].timestamp.timestamp())  # sorted descending
         except KeyError:
-            new_roots_ts.append(0)
+            ...
     new_roots_ts = deque(new_roots_ts)
 
     result = []
