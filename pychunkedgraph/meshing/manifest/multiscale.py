@@ -289,7 +289,7 @@ def build_octree(
 
         if len(octree_fragments[int(current_chunk)]) == 0:
             virtual_chunk_hierarchy[current_chunk] = children_chunks[0]
-        if children_chunks.size == 0:
+        if children_chunks.size == 0 and len(octree_fragments[int(current_chunk)]) == 0:
             octree[offset + 4] |= 1 << 31
 
     _validate_octree(octree, octree_chunks)
