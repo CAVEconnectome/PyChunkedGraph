@@ -36,8 +36,10 @@ def add_atomic_edges(
 
     chunk_ids = cg.get_chunk_ids_from_node_ids(chunk_node_ids)
     assert len(np.unique(chunk_ids)) == 1
-
-    graph, _, _, unique_ids = build_gt_graph(chunk_edge_ids, make_directed=True)
+    try:
+        graph, _, _, unique_ids = build_gt_graph(chunk_edge_ids, make_directed=True)
+    except RuntimeError as e:
+        raise RuntimeError(f"{type(chunk_edge_ids)}, {chunk_edge_ids.dtype}, {chunk_edge_ids.shape}") from e
     ccs = connected_components(graph)
 
     parent_chunk_id = cg.get_chunk_id(
