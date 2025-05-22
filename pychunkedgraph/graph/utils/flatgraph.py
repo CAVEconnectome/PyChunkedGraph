@@ -26,6 +26,7 @@ def build_gt_graph(
 
     edges = np.array(edges)
 
+    str1 = f"type: {type(edges)}, dtype:{edges.dtype}, shape:{edges.shape}"
     if make_directed:
         is_directed = True
         edges = np.concatenate([edges, edges[:, [1, 0]]])
@@ -33,8 +34,14 @@ def build_gt_graph(
         if weights is not None:
             weights = np.concatenate([weights, weights])
 
+
+    str2 = f"type: {type(edges)}, dtype:{edges.dtype}, shape:{edges.shape}"
+
     weighted_graph = Graph(directed=is_directed)
-    weighted_graph.add_edge_list(edge_list=edges, hashed=hashed)
+    try:
+        weighted_graph.add_edge_list(edge_list=edges, hashed=hashed)
+    except:
+        raise ValueError(str1+'\n'+str2)
 
     if weights is not None:
         cap = weighted_graph.new_edge_property("float", vals=weights)
