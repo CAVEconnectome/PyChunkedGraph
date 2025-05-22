@@ -41,7 +41,7 @@ class NumPyArray(_Serializer):
 
     def __init__(self, dtype, shape=None, order=None, compression_level=None):
         super().__init__(
-            serializer=lambda x: x.newbyteorder(dtype.byteorder).tobytes(),
+            serializer=lambda x: x.view(x.dtype.newbyteorder(dtype.byteorder)).tobytes(),
             deserializer=lambda x: NumPyArray._deserialize(
                 x, dtype, shape=shape, order=order
             ),
@@ -53,7 +53,7 @@ class NumPyArray(_Serializer):
 class NumPyValue(_Serializer):
     def __init__(self, dtype):
         super().__init__(
-            serializer=lambda x: x.newbyteorder(dtype.byteorder).tobytes(),
+            serializer=lambda x: x.view(x.dtype.newbyteorder(dtype.byteorder)).tobytes(),
             deserializer=lambda x: np.frombuffer(x, dtype=dtype)[0],
             basetype=dtype.type,
         )
