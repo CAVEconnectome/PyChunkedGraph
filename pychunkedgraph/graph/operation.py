@@ -605,7 +605,9 @@ class MergeOperation(GraphEditOperation):
             )
         )
         if len(root_ids) < 2 and not self.allow_same_segment_merge:
-            raise PreconditionError("Supervoxels must belong to different objects.")
+            raise PreconditionError("Supervoxels must belong to different objects."
+                                    f" Tried to merge {self.added_edges.ravel()},"
+                                    f" which all belong to {root_ids[0]}.")
 
         atomic_edges = self.added_edges
         fake_edge_rows = []
