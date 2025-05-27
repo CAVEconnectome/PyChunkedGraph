@@ -5,6 +5,7 @@ from typing import Union
 from typing import Optional
 from typing import Iterable
 from datetime import datetime
+from collections import defaultdict
 
 import numpy as np
 from networkx import DiGraph
@@ -200,7 +201,7 @@ def lineage_graph(
                 graph.add_edge(former, k)
 
         next_future_ids = []
-        future_operation_id_dict = {}
+        future_operation_id_dict = defaultdict(list)
         for k in future_ids:
             val = nodes_raw[k]
             node_d = _get_node_properties(val)
@@ -208,7 +209,7 @@ def lineage_graph(
             if node_d["timestamp"] > timestamp_future or not Hierarchy.NewParent in val:
                 continue
             try:
-                future_operation_id_dict[node_d["operation_id"]] = k
+                future_operation_id_dict[node_d["operation_id"]].append(k)
             except KeyError:
                 pass
 
@@ -219,7 +220,8 @@ def lineage_graph(
                 [new_id for new_id in new_ids if not new_id in graph.nodes]
             )
             for new_id in new_ids:
-                graph.add_edge(future_operation_id_dict[operation_id], new_id)
+                for k in future_operation_id_dict[operation_id]:
+                    graph.add_edge(k, new_id)
         past_ids = np.array(np.unique(next_past_ids), dtype=NODE_ID)
         future_ids = np.array(np.unique(next_future_ids), dtype=NODE_ID)
     return graph
