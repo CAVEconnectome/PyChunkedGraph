@@ -959,7 +959,7 @@ class ChunkedGraph:
     def get_chunk_coordinates_multiple(self, node_or_chunk_ids: typing.Sequence):
         node_or_chunk_ids = np.array(node_or_chunk_ids, dtype=basetypes.NODE_ID)
         layers = self.get_chunk_layers(node_or_chunk_ids)
-        assert np.all(layers == layers[0]), "All IDs must have the same layer."
+        assert len(layers) == 0 or np.all(layers == layers[0]), "All IDs must have the same layer."
         return chunk_utils.get_chunk_coordinates_multiple(self.meta, node_or_chunk_ids)
 
     def get_chunk_id(
