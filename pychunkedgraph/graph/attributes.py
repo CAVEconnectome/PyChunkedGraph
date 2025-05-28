@@ -1,6 +1,9 @@
+# pylint: disable=invalid-name, missing-docstring, protected-access, raise-missing-from
+
 # TODO design to use these attributes across different clients
 # `family_id` is specific to bigtable
 
+from enum import Enum
 from typing import NamedTuple
 
 from .utils import serializers
@@ -101,7 +104,7 @@ class Connectivity:
         serializer=serializers.NumPyArray(dtype=basetypes.EDGE_AREA),
     )
 
-    CrossChunkEdge = _AttributeArray(
+    AtomicCrossChunkEdge = _AttributeArray(
         pattern=b"atomic_cross_edges_%d",
         family_id="3",
         serializer=serializers.NumPyArray(
@@ -109,9 +112,23 @@ class Connectivity:
         ),
     )
 
-    FakeEdges = _Attribute(
+    CrossChunkEdge = _AttributeArray(
+        pattern=b"cross_edges_%d",
+        family_id="4",
+        serializer=serializers.NumPyArray(
+            dtype=basetypes.NODE_ID, shape=(-1, 2), compression_level=22
+        ),
+    )
+
+    FakeEdgesCF3 = _Attribute(
         key=b"fake_edges",
         family_id="3",
+        serializer=serializers.NumPyArray(dtype=basetypes.NODE_ID, shape=(-1, 2)),
+    )
+
+    FakeEdges = _Attribute(
+        key=b"fake_edges",
+        family_id="4",
         serializer=serializers.NumPyArray(dtype=basetypes.NODE_ID, shape=(-1, 2)),
     )
 
@@ -156,8 +173,6 @@ class GraphVersion:
 
 class OperationLogs:
     key = b"ioperations"
-
-    from enum import Enum
 
     class StatusCodes(Enum):
         SUCCESS = 0  # all is well, new changes persisted
