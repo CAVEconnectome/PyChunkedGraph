@@ -935,6 +935,7 @@ def chunk_initial_mesh_task(
         cv = CloudVolume(
             f"graphene://https://localhost/segmentation/table/dummy",
             info=meshgen_utils.get_json_info(cg),
+            secrets={"token": "dummy"},
         )
         sharding_info = cv.mesh.meta.info["sharding"]["2"]
         sharding_spec = ShardingSpecification.from_dict(sharding_info)
@@ -1123,6 +1124,7 @@ def chunk_stitch_remeshing_task(
         f"graphene://https://localhost/segmentation/table/dummy",
         mesh_dir=cv_sharded_mesh_dir,
         info=meshgen_utils.get_json_info(cg),
+        secrets={"token": "dummy"},
     )
 
     fragments_in_batch_processed = 0
@@ -1257,6 +1259,7 @@ def chunk_initial_sharded_stitching_task(
     cv = CloudVolume(
         f"graphene://https://localhost/segmentation/table/dummy",
         info=meshgen_utils.get_json_info(cg),
+        secrets={"token": "dummy"},
     )
     shard_filenames = []
     shard_to_chunk_id = {}
