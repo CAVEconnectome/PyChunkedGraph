@@ -187,6 +187,8 @@ microviewer==1.13.1
     # via cloud-volume
 middle-auth-client==3.16.1
     # via -r requirements.in
+ml-dtypes==0.5.1
+    # via tensorstore
 multiprocess==0.70.15
     # via pathos
 multiwrapper==0.1.1
@@ -204,11 +206,13 @@ numpy==1.26.0
     #   fastremap
     #   messagingclient
     #   microviewer
+    #   ml-dtypes
     #   multiwrapper
     #   osteoid
     #   pandas
     #   simplejpeg
     #   task-queue
+    #   tensorstore
     #   zmesh
 orderedmultidict==1.0.1
     # via furl
@@ -326,6 +330,8 @@ tenacity==8.2.3
     #   cloud-files
     #   cloud-volume
     #   task-queue
+tensorstore==0.1.75
+    # via -r requirements.in
 tqdm==4.66.1
     # via
     #   cloud-files
