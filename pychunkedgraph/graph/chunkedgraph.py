@@ -1,5 +1,4 @@
 # pylint: disable=invalid-name, missing-docstring, too-many-lines, import-outside-toplevel, unsupported-binary-operation
-
 import time
 import typing
 import datetime
@@ -765,6 +764,7 @@ class ChunkedGraph:
         source_coords: typing.Sequence[int] = None,
         sink_coords: typing.Sequence[int] = None,
         allow_same_segment_merge: typing.Optional[bool] = False,
+        stitch_mode: typing.Optional[bool] = False,
     ) -> operation.GraphEditOperation.Result:
         """
         Adds an edge to the chunkedgraph
@@ -781,6 +781,7 @@ class ChunkedGraph:
             source_coords=source_coords,
             sink_coords=sink_coords,
             allow_same_segment_merge=allow_same_segment_merge,
+            stitch_mode=stitch_mode,
         ).execute()
 
     def remove_edges(
@@ -911,7 +912,7 @@ class ChunkedGraph:
             node_or_chunk_ids, dtype=basetypes.NODE_ID, copy=False
         )
         layers = self.get_chunk_layers(node_or_chunk_ids)
-        assert np.all(layers == layers[0]), "All IDs must have the same layer."
+        assert len(layers) == 0 or np.all(layers == layers[0]), "All IDs must have the same layer."
         return chunk_utils.get_chunk_coordinates_multiple(self.meta, node_or_chunk_ids)
 
     def get_chunk_id(
