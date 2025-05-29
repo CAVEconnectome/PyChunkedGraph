@@ -73,7 +73,7 @@ def _read_children_chunks(
         children_ids = [types.empty_1d]
         for child_coord in children_coords:
             children_ids.append(_read_chunk([], cg, layer_id - 1, child_coord))
-        return np.concatenate(children_ids)
+        return np.concatenate(children_ids).astype(basetypes.NODE_ID)
 
     with mp.Manager() as manager:
         children_ids_shared = manager.list()
@@ -92,7 +92,7 @@ def _read_children_chunks(
             multi_args,
             n_threads=min(len(multi_args), mp.cpu_count()),
         )
-        return np.concatenate(children_ids_shared)
+        return np.concatenate(children_ids_shared).astype(basetypes.NODE_ID)
 
 
 def _read_chunk_helper(args):

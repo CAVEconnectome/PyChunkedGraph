@@ -67,7 +67,9 @@ def _analyze_affected_edges(
 
 
 def _get_relevant_components(edges: np.ndarray, supervoxels: np.ndarray) -> Tuple:
-    edges = np.concatenate([edges, np.vstack([supervoxels, supervoxels]).T])
+    edges = np.concatenate([edges, np.vstack([supervoxels, supervoxels]).T]).astype(
+        basetypes.NODE_ID
+    )
     graph, _, _, graph_ids = flatgraph.build_gt_graph(edges, make_directed=True)
     ccs = flatgraph.connected_components(graph)
     relevant_ccs = []
@@ -106,8 +108,10 @@ def merge_preprocess(
         active_edges.append(active)
         inactive_edges.append(inactive)
 
-    relevant_ccs = _get_relevant_components(np.concatenate(active_edges), supervoxels)
-    inactive = np.concatenate(inactive_edges)
+    relevant_ccs = _get_relevant_components(
+        np.concatenate(active_edges).astype(basetypes.NODE_ID), supervoxels
+    )
+    inactive = np.concatenate(inactive_edges).astype(basetypes.NODE_ID)
     _inactive = [types.empty_2d]
     # source to sink edges
     source_mask = np.in1d(inactive[:, 0], relevant_ccs[0])
@@ -118,7 +122,7 @@ def merge_preprocess(
     sink_mask = np.in1d(inactive[:, 1], relevant_ccs[0])
     source_mask = np.in1d(inactive[:, 0], relevant_ccs[1])
     _inactive.append(inactive[source_mask & sink_mask])
-    _inactive = np.concatenate(_inactive)
+    _inactive = np.concatenate(_inactive).astype(basetypes.NODE_ID)
     return np.unique(_inactive, axis=0) if _inactive.size else types.empty_2d
 
 
@@ -186,14 +190,15 @@ def add_edges(
     time_stamp: datetime.datetime = None,
     parent_ts: datetime.datetime = None,
     allow_same_segment_merge=False,
+    stitch_mode: bool = False,
 ):
     edges, l2_cross_edges_d = _analyze_affected_edges(
         cg, atomic_edges, parent_ts=parent_ts
     )
     l2ids = np.unique(edges)
-    if not allow_same_segment_merge:
+    if not allow_same_segment_merge and not stitch_mode:
         roots = cg.get_roots(l2ids, assert_roots=True, time_stamp=parent_ts)
-        assert np.unique(roots).size == 2, "L2 IDs must belong to different roots."
+        assert np.unique(roots).size >= 2, "L2 IDs must belong to different roots."
 
     new_old_id_d = defaultdict(set)
     old_new_id_d = defaultdict(set)
@@ -216,7 +221,9 @@ def add_edges(
 
         # update cache
         # map parent to new merged children and vice versa
-        merged_children = np.concatenate([atomic_children_d[l2id] for l2id in l2ids_])
+        merged_children = np.concatenate(
+            [atomic_children_d[l2id] for l2id in l2ids_]
+        ).astype(basetypes.NODE_ID)
         cg.cache.children_cache[new_id] = merged_children
         cache_utils.update(cg.cache.parents_cache, merged_children, new_id)
 
@@ -243,6 +250,7 @@ def add_edges(
         operation_id=operation_id,
         time_stamp=time_stamp,
         parent_ts=parent_ts,
+        stitch_mode=stitch_mode,
     )
 
     new_roots = create_parents.run()
@@ -284,9 +292,8 @@ def _split_l2_agglomeration(
         cross_edges = cross_edges[~in2d(cross_edges, removed_edges)]
     isolated_ids = agg.supervoxels[~np.in1d(agg.supervoxels, chunk_edges)]
     isolated_edges = np.column_stack((isolated_ids, isolated_ids))
-    graph, _, _, graph_ids = flatgraph.build_gt_graph(
-        np.concatenate([chunk_edges, isolated_edges]), make_directed=True
-    )
+    _edges = np.concatenate([chunk_edges, isolated_edges]).astype(basetypes.NODE_ID)
+    graph, _, _, graph_ids = flatgraph.build_gt_graph(_edges, make_directed=True)
     return flatgraph.connected_components(graph), graph_ids, cross_edges
 
 
@@ -330,7 +337,7 @@ def remove_edges(
     old_hierarchy_d = _init_old_hierarchy(cg, l2ids, parent_ts=parent_ts)
     chunk_id_map = dict(zip(l2ids.tolist(), cg.get_chunk_ids_from_node_ids(l2ids)))
 
-    removed_edges = np.concatenate([atomic_edges, atomic_edges[:, ::-1]], axis=0)
+    removed_edges = np.concatenate([atomic_edges, atomic_edges[:, ::-1]], axis=0).astype(basetypes.NODE_ID)
     new_l2_ids = []
     for id_ in l2ids:
         agg = l2id_agglomeration_d[id_]
@@ -390,7 +397,7 @@ def _get_flipped_ids(id_map, node_ids):
         for id_ in node_ids
     ]
     ids.append(types.empty_1d)  # concatenate needs at least one array
-    return np.concatenate(ids)
+    return np.concatenate(ids).astype(basetypes.NODE_ID)
 
 
 def _get_descendants(cg, new_id):
@@ -442,7 +449,7 @@ def _update_neighbor_cross_edges_single(
             edges = fastremap.remap(edges, node_map, preserve_missing_labels=True)
             if layer == counterpart_layer:
                 reverse_edge = np.array([counterpart, new_id], dtype=basetypes.NODE_ID)
-                edges = np.concatenate([edges, [reverse_edge]])
+                edges = np.concatenate([edges, [reverse_edge]]).astype(basetypes.NODE_ID)
                 descendants = _get_descendants(cg, new_id)
                 mask = np.isin(edges[:, 1], descendants)
                 if np.any(mask):
@@ -528,6 +535,7 @@ class CreateParentNodes:
         old_new_id_d: Dict[np.uint64, Set[np.uint64]] = None,
         old_hierarchy_d: Dict[np.uint64, Dict[int, np.uint64]] = None,
         parent_ts: datetime.datetime = None,
+        stitch_mode: bool = False,
     ):
         self.cg = cg
         self.new_entries = []
@@ -539,6 +547,7 @@ class CreateParentNodes:
         self._operation_id = operation_id
         self._time_stamp = time_stamp
         self._last_successful_ts = parent_ts
+        self.stitch_mode = stitch_mode
 
     def _update_id_lineage(
         self,
@@ -570,7 +579,7 @@ class CreateParentNodes:
         for id_ in node_ids:
             edges_ = cross_edges_d[id_].get(layer, types.empty_2d)
             cx_edges.append(edges_)
-        cx_edges = np.concatenate([*cx_edges, np.vstack([node_ids, node_ids]).T])
+        cx_edges = np.concatenate([*cx_edges, np.vstack([node_ids, node_ids]).T]).astype(basetypes.NODE_ID)
         graph, _, _, graph_ids = flatgraph.build_gt_graph(cx_edges, make_directed=True)
         return flatgraph.connected_components(graph), graph_ids
 
@@ -586,7 +595,7 @@ class CreateParentNodes:
         mask = np.in1d(siblings, old_ids)
         node_ids = np.concatenate(
             [_get_flipped_ids(self._old_new_id_d, old_ids), siblings[~mask], new_ids]
-        )
+        ).astype(basetypes.NODE_ID)
         node_ids = np.unique(node_ids)
         layer_mask = self.cg.get_chunk_layers(node_ids) == layer
         return node_ids[layer_mask]
@@ -605,7 +614,7 @@ class CreateParentNodes:
             children, time_stamp=self._last_successful_ts
         )
         cx_edges_d = concatenate_cross_edge_dicts(cx_edges_d.values())
-        edge_nodes = np.unique(np.concatenate([*cx_edges_d.values(), types.empty_2d]))
+        edge_nodes = np.unique(np.concatenate([*cx_edges_d.values(), types.empty_2d]).astype(basetypes.NODE_ID))
         edge_supervoxels = get_supervoxels(self.cg, edge_nodes)
         edge_parents = self.cg.get_roots(
             edge_supervoxels,
@@ -650,10 +659,16 @@ class CreateParentNodes:
                     if len(cx_edges_d[cc_ids[0]].get(l, types.empty_2d)) > 0:
                         parent_layer = l
                         break
-            parent = self.cg.id_client.create_node_id(
-                self.cg.get_parent_chunk_id(cc_ids[0], parent_layer),
-                root_chunk=parent_layer == self.cg.meta.layer_count,
-            )
+
+            while True:
+                parent = self.cg.id_client.create_node_id(
+                    self.cg.get_parent_chunk_id(cc_ids[0], parent_layer),
+                    root_chunk=parent_layer == self.cg.meta.layer_count,
+                )
+                _entry = self.cg.client.read_node(parent)
+                if _entry == {}:
+                    break
+
             self._new_ids_d[parent_layer].append(parent)
             self._update_id_lineage(parent, cc_ids, layer, parent_layer)
             self.cg.cache.children_cache[parent] = cc_ids
@@ -704,6 +719,8 @@ class CreateParentNodes:
         return self._new_ids_d[self.cg.meta.layer_count]
 
     def _update_root_id_lineage(self):
+        if self.stitch_mode:
+            return
         new_roots = self._new_ids_d[self.cg.meta.layer_count]
         former_roots = _get_flipped_ids(self._new_old_id_d, new_roots)
         former_roots = np.unique(former_roots)
