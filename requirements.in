@@ -15,18 +15,17 @@ rq<2
 pyyaml
 cachetools
 werkzeug
-tensorstore
 
 # PyPI only:
-cloud-files>=4.21.1
-cloud-volume>=8.26.0
+cloud-files>=5.3.0
+cloud-volume>=12.2.0
 multiwrapper
 middle-auth-client>=3.11.0
 zmesh>=1.7.0
 fastremap>=1.14.0
 task-queue>=2.13.0
 messagingclient
-dracopy>=1.3.0
+dracopy>=1.5.0
 datastoreflex>=0.5.0
 zstandard==0.21.0
 
