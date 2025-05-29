@@ -54,22 +54,20 @@ class Edges:
         affinities: Optional[np.ndarray] = None,
         areas: Optional[np.ndarray] = None,
     ):
-        self.node_ids1 = np.array(node_ids1, dtype=basetypes.NODE_ID, copy=False)
-        self.node_ids2 = np.array(node_ids2, dtype=basetypes.NODE_ID, copy=False)
+        self.node_ids1 = np.array(node_ids1, dtype=basetypes.NODE_ID)
+        self.node_ids2 = np.array(node_ids2, dtype=basetypes.NODE_ID)
         assert self.node_ids1.size == self.node_ids2.size
 
         self._as_pairs = None
 
         if affinities is not None and len(affinities) > 0:
-            self._affinities = np.array(
-                affinities, dtype=basetypes.EDGE_AFFINITY, copy=False
-            )
+            self._affinities = np.array(affinities, dtype=basetypes.EDGE_AFFINITY)
             assert self.node_ids1.size == self._affinities.size
         else:
             self._affinities = np.full(len(self.node_ids1), DEFAULT_AFFINITY)
 
         if areas is not None and len(areas) > 0:
-            self._areas = np.array(areas, dtype=basetypes.EDGE_AREA, copy=False)
+            self._areas = np.array(areas, dtype=basetypes.EDGE_AREA)
             assert self.node_ids1.size == self._areas.size
         else:
             self._areas = np.full(len(self.node_ids1), DEFAULT_AREA)
