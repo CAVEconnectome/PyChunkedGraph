@@ -1,5 +1,4 @@
 # pylint: disable=invalid-name, missing-docstring, too-many-lines, import-outside-toplevel, unsupported-binary-operation
-
 import time
 import typing
 import datetime
@@ -810,6 +809,7 @@ class ChunkedGraph:
         sink_coords: typing.Sequence[int] = None,
         allow_same_segment_merge: typing.Optional[bool] = False,
         do_sanity_check: typing.Optional[bool] = True,
+        stitch_mode: typing.Optional[bool] = False,
     ) -> operation.GraphEditOperation.Result:
         """
         Adds an edge to the chunkedgraph
@@ -827,6 +827,7 @@ class ChunkedGraph:
             sink_coords=sink_coords,
             allow_same_segment_merge=allow_same_segment_merge,
             do_sanity_check=do_sanity_check,
+            stitch_mode=stitch_mode,
         ).execute()
 
     def remove_edges(
