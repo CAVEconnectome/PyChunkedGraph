@@ -15,6 +15,7 @@ rq>2
 pyyaml
 cachetools
 werkzeug
+tensorstore
 
 # PyPI only:
 cloud-files>=5.3.0
