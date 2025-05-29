@@ -68,8 +68,10 @@ def _get_chunk_nodes_and_edges(chunk_edges_d: dict, isolated_ids: Sequence[int])
     in-chunk edges and nodes_ids
     """
     isolated_nodes_self_edges = np.vstack([isolated_ids, isolated_ids]).T
-    node_ids = [isolated_ids]
-    edge_ids = [isolated_nodes_self_edges]
+    node_ids = [isolated_ids] if len(isolated_ids) != 0 else []
+    edge_ids = (
+        [isolated_nodes_self_edges] if len(isolated_nodes_self_edges) != 0 else []
+    )
     for edge_type in EDGE_TYPES:
         edges = chunk_edges_d[edge_type]
         node_ids.append(edges.node_ids1)
@@ -77,9 +79,9 @@ def _get_chunk_nodes_and_edges(chunk_edges_d: dict, isolated_ids: Sequence[int])
             node_ids.append(edges.node_ids2)
             edge_ids.append(edges.get_pairs())
 
-    chunk_node_ids = np.unique(np.concatenate(node_ids))
+    chunk_node_ids = np.unique(np.concatenate(node_ids).astype(basetypes.NODE_ID))
     edge_ids.append(np.vstack([chunk_node_ids, chunk_node_ids]).T)
-    return (chunk_node_ids, np.concatenate(edge_ids))
+    return (chunk_node_ids, np.concatenate(edge_ids).astype(basetypes.NODE_ID))
 
 
 def _get_remapping(chunk_edges_d: dict):
@@ -116,7 +118,7 @@ def _process_component(
         r_key = serializers.serialize_uint64(node_id)
         nodes.append(cg.client.mutate_row(r_key, val_dict, time_stamp=time_stamp))
 
-    chunk_out_edges = np.concatenate(chunk_out_edges)
+    chunk_out_edges = np.concatenate(chunk_out_edges).astype(basetypes.NODE_ID)
     cce_layers = cg.get_cross_chunk_edges_layer(chunk_out_edges)
     u_cce_layers = np.unique(cce_layers)
 
@@ -147,5 +149,7 @@ def _get_outgoing_edges(node_id, chunk_edges_d, sparse_indices, remapping):
             ]
             row_ids = row_ids[column_ids == 0]
             # edges that this node is part of
-            chunk_out_edges = np.concatenate([chunk_out_edges, edges[row_ids]])
+            chunk_out_edges = np.concatenate([chunk_out_edges, edges[row_ids]]).astype(
+                basetypes.NODE_ID
+            )
     return chunk_out_edges
