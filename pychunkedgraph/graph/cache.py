@@ -153,7 +153,7 @@ class CacheService:
         return cross_edges_decorated(node_id)
 
     def parents_multiple(self, node_ids: np.ndarray, *, time_stamp: datetime = None):
-        node_ids = np.array(node_ids, dtype=NODE_ID, copy=False)
+        node_ids = np.asarray(node_ids, dtype=NODE_ID)
         if not node_ids.size:
             return node_ids
         self.stats["parents"]["calls"] += 1
@@ -173,7 +173,7 @@ class CacheService:
 
     def children_multiple(self, node_ids: np.ndarray, *, flatten=False):
         result = {}
-        node_ids = np.array(node_ids, dtype=NODE_ID, copy=False)
+        node_ids = np.asarray(node_ids, dtype=NODE_ID)
         if not node_ids.size:
             return result
         self.stats["children"]["calls"] += 1
@@ -197,7 +197,7 @@ class CacheService:
         self, node_ids: np.ndarray, *, time_stamp: datetime = None
     ):
         result = {}
-        node_ids = np.array(node_ids, dtype=NODE_ID, copy=False)
+        node_ids = np.asarray(node_ids, dtype=NODE_ID)
         if not node_ids.size:
             return result
         self.stats["cross_chunk_edges"]["calls"] += 1
