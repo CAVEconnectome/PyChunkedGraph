@@ -271,7 +271,7 @@ def build_octree(
 
         children_chunks = np.array(list(children_chunks), dtype=NODE_ID)
         children_chunks = _morton_sort(cg, children_chunks)
-        for child_chunk in children_chunks:
+        for child_chunk in reversed(children_chunks):
             node_q.append(child_chunk)
 
         offset = OCTREE_NODE_SIZE * row_counter
