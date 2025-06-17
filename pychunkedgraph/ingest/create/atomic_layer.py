@@ -36,6 +36,8 @@ def add_atomic_chunk(
 
     chunk_ids = cg.get_chunk_ids_from_node_ids(chunk_node_ids)
     assert len(np.unique(chunk_ids)) == 1
+    for chunk_id in chunk_ids:
+        assert not cg.range_read_chunk(chunk_id)
 
     graph, _, _, unique_ids = build_gt_graph(chunk_edge_ids, make_directed=True)
     ccs = connected_components(graph)
