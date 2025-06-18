@@ -75,6 +75,7 @@ def handle_get_manifest(table_id, node_id):
     return_seg_ids = return_seg_ids in ["True", "true", "1", True]
     prepend_seg_ids = prepend_seg_ids in ["True", "true", "1", True]
     start_layer = cg.meta.custom_data.get("mesh", {}).get("max_layer", 2)
+    start_layer = int(request.args.get("start_layer"), start_layer)
     if "start_layer" in data:
         start_layer = int(data["start_layer"])
 
