@@ -105,6 +105,8 @@ def configure_app(app):
         with app.app_context():
             from ..ingest.rq_cli import init_rq_cmds
             from ..ingest.cli import init_ingest_cmds
+            from ..ingest.cli_upgrade import init_upgrade_cmds
 
             init_rq_cmds(app)
             init_ingest_cmds(app)
+            init_upgrade_cmds(app)
