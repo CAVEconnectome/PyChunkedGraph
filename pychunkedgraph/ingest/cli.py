@@ -46,6 +46,7 @@ def ingest_graph(
     Takes ingest config from a yaml file and queues atomic tasks.
     """
     from .cluster import enqueue_atomic_tasks
+    from .create.ocdbt import get_seg_source_and_destination_ocdbt
 
     with open(dataset, "r") as stream:
         config = yaml.safe_load(stream)
@@ -60,6 +61,7 @@ def ingest_graph(
     if not retry:
         cg.create()
     enqueue_atomic_tasks(IngestionManager(ingest_config, meta))
+    get_seg_source_and_destination_ocdbt(cg, create=True)
 
 
 @ingest_cli.command("imanager")
