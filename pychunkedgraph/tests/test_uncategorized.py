@@ -116,6 +116,8 @@ class TestGraphBuild:
         cg = gen_graph(n_layers=2)
         # Add Chunk A
         create_chunk(cg, vertices=[to_label(cg, 1, 0, 0, 0, 0)])
+        chunk_id = to_label(cg, 1, 0, 0, 0, 0)
+        assert cg.id_client.get_max_node_id(chunk_id) == chunk_id
 
         res = cg.client._table.read_rows()
         res.consume_all()
@@ -160,6 +162,8 @@ class TestGraphBuild:
             vertices=[to_label(cg, 1, 0, 0, 0, 0), to_label(cg, 1, 0, 0, 0, 1)],
             edges=[(to_label(cg, 1, 0, 0, 0, 0), to_label(cg, 1, 0, 0, 0, 1), 0.5)],
         )
+        chunk_id = to_label(cg, 1, 0, 0, 0, 0)
+        assert cg.id_client.get_max_node_id(chunk_id) == to_label(cg, 1, 0, 0, 0, 1)
 
         res = cg.client._table.read_rows()
         res.consume_all()
@@ -320,12 +324,18 @@ class TestGraphBuild:
             ],
         )
 
+        chunk_id = to_label(cg, 1, 0, 0, 0, 0)
+        assert cg.id_client.get_max_node_id(chunk_id) == to_label(cg, 1, 0, 0, 0, 1)
+
         # Chunk B
         create_chunk(
             cg,
             vertices=[to_label(cg, 1, 1, 0, 0, 0)],
             edges=[(to_label(cg, 1, 1, 0, 0, 0), to_label(cg, 1, 0, 0, 0, 0), inf)],
         )
+
+        chunk_id = to_label(cg, 1, 1, 0, 0, 0)
+        assert cg.id_client.get_max_node_id(chunk_id) == to_label(cg, 1, 1, 0, 0, 0)
 
         add_layer(cg, 3, np.array([0, 0, 0]), n_threads=1)
         res = cg.client._table.read_rows()
