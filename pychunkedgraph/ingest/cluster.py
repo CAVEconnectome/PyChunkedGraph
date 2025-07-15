@@ -197,12 +197,12 @@ def _get_test_chunks(meta: ChunkedGraphMeta):
 def _queue_tasks(imanager: IngestionManager, chunk_fn: Callable, coords: Iterable):
     queue_name = "l2"
     q = imanager.get_task_queue(queue_name)
-    batch_size = int(environ.get("JOB_BATCH_SIZE", 100000))
+    batch_size = int(environ.get("JOB_BATCH_SIZE", 10000))
     batches = chunked(coords, batch_size)
     for batch in batches:
         _coords = get_chunks_not_done(imanager, 2, batch)
         # buffer for optimal use of redis memory
-        if len(q) > int(environ.get("QUEUE_SIZE", 100000)):
+        if len(q) > int(environ.get("QUEUE_SIZE", 1000000)):
             interval = int(environ.get("QUEUE_INTERVAL", 300))
             logging.info(f"Queue full; sleeping {interval}s...")
             sleep(interval)
@@ -219,6 +219,7 @@ def _queue_tasks(imanager: IngestionManager, chunk_fn: Callable, coords: Iterabl
                 )
             )
         q.enqueue_many(job_datas)
+        logging.info(f"Queued {len(job_datas)} chunks.")
 
 
 def enqueue_l2_tasks(imanager: IngestionManager, chunk_fn: Callable):
