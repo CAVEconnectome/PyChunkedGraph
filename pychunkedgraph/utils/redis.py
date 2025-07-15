@@ -27,9 +27,9 @@ keys = Keys()
 
 
 def get_redis_connection(redis_url=REDIS_URL):
-    return redis.Redis.from_url(redis_url)
+    return redis.Redis.from_url(redis_url, socket_timeout=60)
 
 
 def get_rq_queue(queue):
-    connection = redis.Redis.from_url(REDIS_URL)
+    connection = redis.Redis.from_url(REDIS_URL, socket_timeout=60)
     return Queue(queue, connection=connection)
