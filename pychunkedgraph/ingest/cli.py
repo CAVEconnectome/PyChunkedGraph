@@ -14,6 +14,7 @@ from .manager import IngestionManager
 from .utils import bootstrap
 from .cluster import randomize_grid_points
 from ..graph.chunkedgraph import ChunkedGraph
+from ..graph.ocdbt import get_seg_source_and_destination_ocdbt
 from ..utils.redis import get_redis_connection
 from ..utils.redis import keys as r_keys
 from ..utils.general import chunked
@@ -46,7 +47,6 @@ def ingest_graph(
     Takes ingest config from a yaml file and queues atomic tasks.
     """
     from .cluster import enqueue_atomic_tasks
-    from .create.ocdbt import get_seg_source_and_destination_ocdbt
 
     with open(dataset, "r") as stream:
         config = yaml.safe_load(stream)

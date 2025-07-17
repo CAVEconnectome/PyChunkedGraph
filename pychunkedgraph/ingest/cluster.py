@@ -12,7 +12,7 @@ from .common import get_atomic_chunk_data
 from .ran_agglomeration import get_active_edges
 from .create.atomic_layer import add_atomic_edges
 from .create.abstract_layers import add_layer
-from .create.ocdbt import copy_ws_chunk, get_seg_source_and_destination_ocdbt
+from ..graph.ocdbt import copy_ws_chunk, get_seg_source_and_destination_ocdbt
 from ..graph.meta import ChunkedGraphMeta
 from ..graph.chunks.hierarchy import get_children_chunk_coords
 from ..utils.redis import keys as r_keys
