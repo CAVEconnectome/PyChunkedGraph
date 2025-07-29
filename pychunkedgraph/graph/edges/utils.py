@@ -135,7 +135,7 @@ def categorize_edges_v2(
 
 
 def get_cross_chunk_edges_layer(meta: ChunkedGraphMeta, cross_edges: Iterable):
-    """Computes the layer in which a cross chunk edge becomes relevant.
+    """Computes the layer in which an atomic cross chunk edge becomes relevant.
     I.e. if a cross chunk edge links two nodes in layer 4 this function
     returns 3.
     :param cross_edges: n x 2 array

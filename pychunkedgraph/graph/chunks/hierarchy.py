@@ -43,7 +43,7 @@ def get_children_chunk_ids(
     else:
         children_coords = get_children_chunk_coords(meta, layer, (x, y, z))
         children_chunk_ids = []
-        for (x, y, z) in children_coords:
+        for x, y, z in children_coords:
             children_chunk_ids.append(
                 utils.get_chunk_id(meta, layer=layer - 1, x=x, y=y, z=z)
             )
@@ -60,6 +60,19 @@ def get_parent_chunk_id(
         coord = coord // meta.graph_config.FANOUT
     x, y, z = coord
     return utils.get_chunk_id(meta, layer=parent_layer, x=x, y=y, z=z)
+
+
+def get_parent_chunk_id_multiple(
+    meta: ChunkedGraphMeta, node_or_chunk_ids: np.ndarray
+) -> np.ndarray:
+    """Parent chunk IDs for multiple nodes. Assumes nodes at same layer."""
+
+    node_layers = utils.get_chunk_layers(meta, node_or_chunk_ids)
+    assert np.unique(node_layers).size == 1, np.unique(node_layers)
+    parent_layer = node_layers[0] + 1
+    coords = utils.get_chunk_coordinates_multiple(meta, node_or_chunk_ids)
+    coords = coords // meta.graph_config.FANOUT
+    return utils.get_chunk_ids_from_coords(meta, layer=parent_layer, coords=coords)
 
 
 def get_parent_chunk_ids(
