@@ -15,6 +15,7 @@ import fastremap
 from . import types
 from . import attributes
 from . import cache as cache_utils
+from .edges import get_latest_edges, get_stale_nodes
 from .edges.utils import concatenate_cross_edge_dicts
 from .edges.utils import merge_cross_edge_dicts
 from .utils import basetypes
@@ -497,25 +498,6 @@ def _update_neighbor_cross_edges(
     return updated_entries
 
 
-def get_supervoxels(cg, node_ids):
-    """Returns the first supervoxel found for each node_id."""
-    result = {}
-    node_ids_copy = np.copy(node_ids)
-    children = np.copy(node_ids)
-    children_d = cg.get_children(node_ids)
-    while True:
-        children = [children_d[k][0] for k in children]
-        children = np.array(children, dtype=basetypes.NODE_ID)
-        mask = cg.get_chunk_layers(children) == 1
-        result.update([(node, sv) for node, sv in zip(node_ids[mask], children[mask])])
-        node_ids = node_ids[~mask]
-        children = children[~mask]
-        if children.size == 0:
-            break
-        children_d = cg.get_children(children)
-    return np.array([result[k] for k in node_ids_copy], dtype=basetypes.NODE_ID)
-
-
 class CreateParentNodes:
     def __init__(
         self,
@@ -605,10 +587,38 @@ class CreateParentNodes:
             children, time_stamp=self._last_successful_ts
         )
         cx_edges_d = concatenate_cross_edge_dicts(cx_edges_d.values())
-        edge_nodes = np.unique(np.concatenate([*cx_edges_d.values(), types.empty_2d]))
-        edge_supervoxels = get_supervoxels(self.cg, edge_nodes)
+
+        _cx_edges = [types.empty_2d]
+        _edge_layers = [types.empty_1d]
+        for k, v in cx_edges_d.items():
+            _cx_edges.append(v)
+            _edge_layers.append([k] * len(v))
+        _cx_edges = np.concatenate(_cx_edges)
+        _edge_layers = np.concatenate(_edge_layers, dtype=int)
+
+        edge_nodes = np.unique(_cx_edges)
+        stale_nodes, edge_supervoxels = get_stale_nodes(
+            self.cg, edge_nodes, parent_ts=self._last_successful_ts
+        )
+        stale_nodes_mask = np.isin(edge_nodes, stale_nodes)
+
+        latest_edges = types.empty_2d.copy()
+        if np.any(stale_nodes_mask):
+            stalte_edges_mask = _cx_edges[:, 1] == stale_nodes
+            stale_edges = _cx_edges[stalte_edges_mask]
+            stale_edge_layers = _edge_layers[stalte_edges_mask]
+            latest_edges = get_latest_edges(
+                self.cg,
+                stale_edges,
+                stale_edge_layers,
+                parent_ts=self._last_successful_ts,
+            )
+
+        _cx_edges = np.concatenate([_cx_edges, latest_edges])
+        edge_nodes  = np.unique(_cx_edges)
+
         edge_parents = self.cg.get_roots(
-            edge_supervoxels,
+            edge_nodes,
             stop_layer=parent_layer,
             ceil=False,
             time_stamp=self._last_successful_ts,
