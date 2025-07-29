@@ -940,6 +940,11 @@ class ChunkedGraph:
             self.meta, node_or_chunk_id, parent_layer
         )
 
+    def get_parent_chunk_id_multiple(self, node_or_chunk_ids: typing.Sequence):
+        return chunk_hierarchy.get_parent_chunk_id_multiple(
+            self.meta, node_or_chunk_ids
+        )
+
     def get_parent_chunk_ids(self, node_or_chunk_id: basetypes.NODE_ID):
         return chunk_hierarchy.get_parent_chunk_ids(self.meta, node_or_chunk_id)
 
@@ -984,3 +989,38 @@ class ChunkedGraph:
             except KeyError:
                 ...
         return result
+
+    def get_single_leaf_multiple(self, node_ids):
+        """Returns the first supervoxel found for each node_id."""
+        result = {}
+        node_ids_copy = np.copy(node_ids)
+        children = np.copy(node_ids)
+        children_d = self.get_children(node_ids)
+        while True:
+            children = [children_d[k][0] for k in children]
+            children = np.array(children, dtype=basetypes.NODE_ID)
+            mask = self.get_chunk_layers(children) == 1
+            result.update(
+                [(node, sv) for node, sv in zip(node_ids[mask], children[mask])]
+            )
+            node_ids = node_ids[~mask]
+            children = children[~mask]
+            if children.size == 0:
+                break
+            children_d = self.get_children(children)
+        return np.array([result[k] for k in node_ids_copy], dtype=basetypes.NODE_ID)
+
+    def get_chunk_layers_and_coordinates(self, node_or_chunk_ids: typing.Sequence):
+        """
+        Helper function that wraps get chunk layer and coordinates for nodes at any layer.
+        """
+        node_or_chunk_ids = np.array(node_or_chunk_ids, dtype=basetypes.NODE_ID)
+        layers = self.get_chunk_layers(node_or_chunk_ids)
+        chunk_coords = np.zeros(shape=(len(node_or_chunk_ids), 3))
+        for _layer in np.unique(layers):
+            mask = layers == _layer
+            _nodes = node_or_chunk_ids[mask]
+            chunk_coords[mask] = chunk_utils.get_chunk_coordinates_multiple(
+                self.meta, _nodes
+            )
+        return layers, chunk_coords
