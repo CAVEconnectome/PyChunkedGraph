@@ -108,15 +108,8 @@ def _check_edges_direction(
     chunk_id = cg.get_chunk_id(layer=1, x=x, y=y, z=z)
     for edge_type in [EDGE_TYPES.between_chunk, EDGE_TYPES.cross_chunk]:
         edges = chunk_edges[edge_type]
-        e1 = edges.node_ids1
-        e2 = edges.node_ids2
-
-        e2_chunk_ids = cg.get_chunk_ids_from_node_ids(e2)
-        mask = e2_chunk_ids == chunk_id
-        e1[mask], e2[mask] = e2[mask], e1[mask]
-
-        e1_chunk_ids = cg.get_chunk_ids_from_node_ids(e1)
-        mask = e1_chunk_ids == chunk_id
+        chunk_ids = cg.get_chunk_ids_from_node_ids(edges.node_ids1)
+        mask = chunk_ids == chunk_id
         assert np.all(mask), "all IDs must belong to same chunk"
 
 
