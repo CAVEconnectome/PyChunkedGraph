@@ -19,17 +19,17 @@ REDIS_PORT = os.environ.get(
 REDIS_PASSWORD = os.environ.get("REDIS_PASSWORD", "")
 REDIS_URL = f"redis://:{REDIS_PASSWORD}@{REDIS_HOST}:{REDIS_PORT}/0"
 
-keys_fields = ("INGESTION_MANAGER",)
-keys_defaults = ("pcg:imanager",)
+keys_fields = ("INGESTION_MANAGER", "JOB_TYPE")
+keys_defaults = ("pcg:imanager", "pcg:job_type")
 Keys = namedtuple("keys", keys_fields, defaults=keys_defaults)
 
 keys = Keys()
 
 
 def get_redis_connection(redis_url=REDIS_URL):
-    return redis.Redis.from_url(redis_url)
+    return redis.Redis.from_url(redis_url, socket_timeout=60)
 
 
 def get_rq_queue(queue):
-    connection = redis.Redis.from_url(REDIS_URL)
+    connection = redis.Redis.from_url(REDIS_URL, socket_timeout=60)
     return Queue(queue, connection=connection)
