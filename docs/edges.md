@@ -38,17 +38,28 @@ Components within a single chunk are stored as a numpy array.
 ]
 ```
 
+Components include supervoxels from negihboring chunks, this is required to figure out active/inactive edges.
+For instance, in the following image (courtsey of Eric Perlman), components from `Chunk A` would look like so:
+
+```
+components_A = [3, SV_a2, Sv_a3, SV_b2, 3, SV_a1, SV_b1, SV_b3]
+```
+
+![Chunks](images/chunks.png)
+
 ### Example usage
 
 ```
+import numpy as np
+
 from pychunkedgraph.io.edges import get_chunk_edges
 from pychunkedgraph.io.edges import put_chunk_edges
 from pychunkedgraph.graph.edges import Edges
 from pychunkedgraph.graph.edges import EDGE_TYPES
 
-in_chunk = [[1,2],[2,3],[0,2],[2,4]]
-between_chunk = [[1,5]]
-cross_chunk = [[3,6]]
+in_chunk = np.array([[1,2],[2,3],[0,2],[2,4]], dtype=np.uint64)
+between_chunk = np.array([[1,5]], dtype=np.uint64)
+cross_chunk = np.array([[3,6]], dtype=np.uint64)
 
 in_chunk_edges = Edges(in_chunk[:,0], in_chunk[:,1])
 between_chunk_edges = Edges(between_chunk[:,0], between_chunk[:,1])
