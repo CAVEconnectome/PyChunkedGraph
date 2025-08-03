@@ -202,6 +202,7 @@ def queue_layer_helper(parent_layer: int, imanager: IngestionManager, fn):
                 )
             )
         q.enqueue_many(job_datas)
+        logging.info(f"Queued {len(job_datas)} chunks.")
 
 
 def job_type_guard(job_type: str):
