@@ -10,6 +10,7 @@ from tqdm import tqdm
 
 from pychunkedgraph.graph import ChunkedGraph
 from pychunkedgraph.graph.attributes import Connectivity, Hierarchy
+from pychunkedgraph.graph.edges import get_latest_edges_wrapper
 from pychunkedgraph.graph.utils import serializers
 from pychunkedgraph.graph.types import empty_2d
 from pychunkedgraph.utils.general import chunked
@@ -104,14 +105,17 @@ def update_cross_edges(cg: ChunkedGraph, layer, node, node_ts, earliest_ts) -> l
                 assert not exists_as_parent(cg, node, edges[:, 0]), f"{node}, {node_ts}"
                 return rows
 
+    row_id = serializers.serialize_uint64(node)
     for ts, cx_edges_d in CX_EDGES[node].items():
-        edges = np.concatenate([empty_2d] + list(cx_edges_d.values()))
+        if node_ts > ts:
+            continue
+        edges = get_latest_edges_wrapper(cg, cx_edges_d, parent_ts=ts)
         if edges.size == 0:
             continue
-        nodes = np.unique(edges[:, 1])
-        svs = cg.get_single_leaf_multiple(nodes)
-        parents = cg.get_roots(svs, time_stamp=ts, stop_layer=layer, ceil=False)
-        edge_parents_d = dict(zip(nodes, parents))
+
+        edge_nodes = np.unique(edges)
+        parents = cg.get_roots(edge_nodes, time_stamp=ts, stop_layer=layer, ceil=False)
+        edge_parents_d = dict(zip(edge_nodes, parents))
         val_dict = {}
         for _layer, layer_edges in cx_edges_d.items():
             layer_edges = fastremap.remap(
@@ -121,7 +125,6 @@ def update_cross_edges(cg: ChunkedGraph, layer, node, node_ts, earliest_ts) -> l
             layer_edges = np.unique(layer_edges, axis=0)
             col = Connectivity.CrossChunkEdge[_layer]
             val_dict[col] = layer_edges
-        row_id = serializers.serialize_uint64(node)
         rows.append(cg.client.mutate_row(row_id, val_dict, time_stamp=ts))
     return rows
 
