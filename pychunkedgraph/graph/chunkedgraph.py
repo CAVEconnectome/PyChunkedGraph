@@ -216,6 +216,7 @@ class ChunkedGraph:
                         if fail_to_zero:
                             parents.append(0)
                         else:
+                            exc.add_note(f"timestamp: {time_stamp}")
                             raise KeyError from exc
                 parents = np.array(parents, dtype=basetypes.NODE_ID)
             else:
@@ -1016,7 +1017,7 @@ class ChunkedGraph:
         """
         node_or_chunk_ids = np.array(node_or_chunk_ids, dtype=basetypes.NODE_ID)
         layers = self.get_chunk_layers(node_or_chunk_ids)
-        chunk_coords = np.zeros(shape=(len(node_or_chunk_ids), 3))
+        chunk_coords = np.zeros(shape=(len(node_or_chunk_ids), 3), dtype=int)
         for _layer in np.unique(layers):
             mask = layers == _layer
             _nodes = node_or_chunk_ids[mask]

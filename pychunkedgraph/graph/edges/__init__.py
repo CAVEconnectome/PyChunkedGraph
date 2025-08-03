@@ -220,7 +220,7 @@ def get_stale_nodes(
         )
         stale_mask = layer_nodes != _nodes
         stale_nodes.append(layer_nodes[stale_mask])
-    return np.concatenate(stale_nodes), edge_supervoxels
+    return np.concatenate(stale_nodes)
 
 
 def get_latest_edges(
@@ -279,7 +279,7 @@ def get_latest_edges(
     def _get_filtered_l2ids(node_a, node_b, chunks_map):
         def _filter(node):
             result = []
-            children = cg.get_children(node)
+            children = np.array([node], dtype=basetypes.NODE_ID)
             while True:
                 chunk_ids = cg.get_chunk_ids_from_node_ids(children)
                 mask = np.isin(chunk_ids, chunks_map[node])
@@ -296,15 +296,15 @@ def get_latest_edges(
 
         return _filter(node_a), _filter(node_b)
 
-    result = []
+    result = [types.empty_2d]
     chunks_map = {}
     for edge_layer, _edge in zip(edge_layers, stale_edges):
         node_a, node_b = _edge
         mlayer, coord_a, coord_b = _get_normalized_coords(node_a, node_b)
         chunks_a, chunks_b = _get_l2chunkids_along_boundary(mlayer, coord_a, coord_b)
 
-        chunks_map[node_a] = []
-        chunks_map[node_b] = []
+        chunks_map[node_a] = [np.array([cg.get_chunk_id(node_a)])]
+        chunks_map[node_b] = [np.array([cg.get_chunk_id(node_b)])]
         _layer = 2
         while _layer < mlayer:
             chunks_map[node_a].append(chunks_a)
@@ -312,8 +312,8 @@ def get_latest_edges(
             chunks_a = np.unique(cg.get_parent_chunk_id_multiple(chunks_a))
             chunks_b = np.unique(cg.get_parent_chunk_id_multiple(chunks_b))
             _layer += 1
-        chunks_map[node_a] = np.concatenate(chunks_map[node_a])
-        chunks_map[node_b] = np.concatenate(chunks_map[node_b])
+        chunks_map[node_a] = np.concatenate(chunks_map[node_a]).astype(basetypes.NODE_ID)
+        chunks_map[node_b] = np.concatenate(chunks_map[node_b]).astype(basetypes.NODE_ID)
 
         l2ids_a, l2ids_b = _get_filtered_l2ids(node_a, node_b, chunks_map)
         edges_d = cg.get_cross_chunk_edges(
@@ -326,32 +326,57 @@ def get_latest_edges(
         _edges = np.concatenate(_edges)
         mask = np.isin(_edges[:, 1], l2ids_b)
 
-        children_a = cg.get_children(_edges[mask][:, 0], flatten=True)
         children_b = cg.get_children(_edges[mask][:, 1], flatten=True)
-        if 85431849467249595 in children_a and 85502218144317440 in children_b:
-            print("woohoo0")
-            continue
 
-        if 85502218144317440 in children_a and 85431849467249595 in children_b:
-            print("woohoo1")
-            continue
-        parents_a = np.unique(
-            cg.get_roots(
-                children_a, stop_layer=mlayer, ceil=False, time_stamp=parent_ts
-            )
-        )
-        assert parents_a.size == 1 and parents_a[0] == node_a, (
-            node_a,
-            parents_a,
-            children_a,
-        )
+        parents_a = _edges[mask][:, 0]
+        parents_b = np.unique(cg.get_parents(children_b, time_stamp=parent_ts))
+        _cx_edges_d = cg.get_cross_chunk_edges(parents_b)
+        parents_b = []
+        for _node, _edges_d in _cx_edges_d.items():
+            for _edges in _edges_d.values():
+                _mask = np.isin(_edges[:,1], parents_a)
+                if np.any(_mask):
+                    parents_b.append(_node)
 
+        parents_b = np.array(parents_b, dtype=basetypes.NODE_ID)
         parents_b = np.unique(
             cg.get_roots(
-                children_b, stop_layer=mlayer, ceil=False, time_stamp=parent_ts
+                parents_b, stop_layer=mlayer, ceil=False, time_stamp=parent_ts
             )
         )
 
         parents_a = np.array([node_a] * parents_b.size, dtype=basetypes.NODE_ID)
         result.append(np.column_stack((parents_a, parents_b)))
     return np.concatenate(result)
+
+
+def get_latest_edges_wrapper(
+    cg,
+    cx_edges_d: dict,
+    parent_ts: datetime.datetime = None,
+) -> np.ndarray:
+    """Helper function to filter stale edges and replace with latest edges."""
+    _cx_edges = [types.empty_2d]
+    _edge_layers = [types.empty_1d]
+    for k, v in cx_edges_d.items():
+        _cx_edges.append(v)
+        _edge_layers.append([k] * len(v))
+    _cx_edges = np.concatenate(_cx_edges)
+    _edge_layers = np.concatenate(_edge_layers, dtype=int)
+
+    edge_nodes = np.unique(_cx_edges)
+    stale_nodes = get_stale_nodes(cg, edge_nodes, parent_ts=parent_ts)
+    stale_nodes_mask = np.isin(edge_nodes, stale_nodes)
+
+    latest_edges = types.empty_2d.copy()
+    if np.any(stale_nodes_mask):
+        stalte_edges_mask = np.isin(_cx_edges[:, 1], stale_nodes)
+        stale_edges = _cx_edges[stalte_edges_mask]
+        stale_edge_layers = _edge_layers[stalte_edges_mask]
+        latest_edges = get_latest_edges(
+            cg,
+            stale_edges,
+            stale_edge_layers,
+            parent_ts=parent_ts,
+        )
+    return np.concatenate([_cx_edges, latest_edges])
