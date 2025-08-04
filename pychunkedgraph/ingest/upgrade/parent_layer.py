@@ -1,6 +1,6 @@
 # pylint: disable=invalid-name, missing-docstring, c-extension-no-member
 
-import math, random, time
+import logging, math, random, time
 import multiprocessing as mp
 from collections import defaultdict
 
@@ -105,6 +105,8 @@ def update_cross_edges(cg: ChunkedGraph, layer, node, node_ts, earliest_ts) -> l
                 assert not exists_as_parent(cg, node, edges[:, 0]), f"{node}, {node_ts}"
                 return rows
 
+    print(len(CX_EDGES[node]))
+
     row_id = serializers.serialize_uint64(node)
     for ts, cx_edges_d in CX_EDGES[node].items():
         if node_ts > ts:
@@ -171,6 +173,7 @@ def update_chunk(
         args = (cg_info, layer, chunk, ts_chunk, earliest_ts)
         tasks.append(args)
 
+    logging.info(f"Processing {len(nodes)} nodes.")
     with mp.Pool(min(mp.cpu_count(), len(tasks))) as pool:
         _ = list(
             tqdm(
