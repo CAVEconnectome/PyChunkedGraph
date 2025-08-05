@@ -1,6 +1,6 @@
 # pylint: disable=invalid-name, missing-docstring, c-extension-no-member
 
-import math, random, time
+import logging, math, random, time
 import multiprocessing as mp
 from collections import defaultdict
 
@@ -171,6 +171,7 @@ def update_chunk(
         args = (cg_info, layer, chunk, ts_chunk, earliest_ts)
         tasks.append(args)
 
+    logging.info(f"Processing {len(nodes)} nodes.")
     with mp.Pool(min(mp.cpu_count(), len(tasks))) as pool:
         _ = list(
             tqdm(

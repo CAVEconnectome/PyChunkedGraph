@@ -1,10 +1,12 @@
 # pylint: disable=invalid-name, missing-docstring
 
-from typing import List
 from typing import Union
 from typing import Optional
 from typing import Sequence
+from typing import Tuple
 from typing import Iterable
+
+from functools import lru_cache
 
 import numpy as np
 
@@ -210,8 +212,9 @@ def _get_chunk_coordinates_from_vol_coordinates(
     return coords.astype(int)
 
 
+@lru_cache()
 def get_bounding_children_chunks(
-    cg_meta, layer: int, chunk_coords: Sequence[int], children_layer, return_unique=True
+    cg_meta, layer: int, chunk_coords: Tuple[int], children_layer, return_unique=True
 ) -> np.ndarray:
     """Children chunk coordinates at given layer, along the boundary of a chunk"""
     chunk_coords = np.array(chunk_coords, dtype=int)

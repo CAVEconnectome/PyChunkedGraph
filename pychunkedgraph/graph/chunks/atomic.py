@@ -62,4 +62,6 @@ def get_bounding_atomic_chunks(
     chunkedgraph_meta: ChunkedGraphMeta, layer: int, chunk_coords: Sequence[int]
 ) -> List:
     """Atomic chunk coordinates along the boundary of a chunk"""
-    return get_bounding_children_chunks(chunkedgraph_meta, layer, chunk_coords, 2)
+    return get_bounding_children_chunks(
+        chunkedgraph_meta, layer, tuple(chunk_coords), 2
+    )
