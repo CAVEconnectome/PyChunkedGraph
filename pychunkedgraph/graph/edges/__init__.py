@@ -382,7 +382,8 @@ def get_latest_edges(
 
         parents_a = np.array([node_a] * parents_b.size, dtype=basetypes.NODE_ID)
         _new_edges = np.column_stack((parents_a, parents_b))
-        assert _new_edges.size, f"No edge found for {node_a}, {node_b} at {parent_ts}"
+        err = f"No edge found for {node_a}, {node_b} at {edge_layer}; {parent_ts}"
+        assert _new_edges.size, err
         result.append(_new_edges)
     return np.concatenate(result)
 
