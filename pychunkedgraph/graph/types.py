@@ -1,5 +1,4 @@
-from typing import Dict
-from typing import Iterable
+# pylint: disable=invalid-name, missing-docstring
 from collections import namedtuple
 
 import numpy as np
