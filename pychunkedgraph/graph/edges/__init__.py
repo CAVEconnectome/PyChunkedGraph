@@ -237,11 +237,10 @@ def get_latest_edges(
     Then get supervoxels of those L2 IDs and get parent(s) at `node` level.
     These parents would be the new identities for the stale `partner`.
     """
-    _nodes = np.unique(stale_edges[:, 1])
+    _nodes = np.unique(stale_edges)
     nodes_ts_map = dict(
         zip(_nodes, cg.get_node_timestamps(_nodes, return_numpy=False, normalize=True))
     )
-    _nodes = np.unique(stale_edges)
     layers, coords = cg.get_chunk_layers_and_coordinates(_nodes)
     layers_d = dict(zip(_nodes, layers))
     coords_d = dict(zip(_nodes, coords))
@@ -352,7 +351,9 @@ def get_latest_edges(
 
         _edges = []
         edges_d = cg.get_cross_chunk_edges(
-            node_ids=l2ids_a, time_stamp=nodes_ts_map[node_b], raw_only=True
+            node_ids=l2ids_a,
+            time_stamp=max(nodes_ts_map[node_a], nodes_ts_map[node_b]),
+            raw_only=True,
         )
         for v in edges_d.values():
             _edges.append(v.get(edge_layer, types.empty_2d))
@@ -382,7 +383,8 @@ def get_latest_edges(
 
         parents_a = np.array([node_a] * parents_b.size, dtype=basetypes.NODE_ID)
         _new_edges = np.column_stack((parents_a, parents_b))
-        assert _new_edges.size, f"No edge found for {node_a}, {node_b} at {parent_ts}"
+        err = f"No edge found for {node_a}, {node_b} at {edge_layer}; {parent_ts}"
+        assert _new_edges.size, err
         result.append(_new_edges)
     return np.concatenate(result)
 

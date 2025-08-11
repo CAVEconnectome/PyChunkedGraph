@@ -33,31 +33,51 @@ def get_edit_timestamps(cg: ChunkedGraph, edges_d, start_ts, end_ts) -> list:
     return sorted(timestamps)
 
 
-def get_end_ts(cg: ChunkedGraph, children, start_ts):
-    # get end_ts when node becomes invalid (bigtable resolution is in ms)
-    start = start_ts + timedelta(milliseconds=1)
-    _timestamps = get_parent_timestamps(cg, children, start_time=start)
-    try:
-        end_ts = sorted(_timestamps)[0]
-    except IndexError:
-        # start_ts == end_ts means there has been no edit involving this node
-        # meaning only one timestamp to update cross edges, start_ts
-        end_ts = start_ts
-    return end_ts
+def get_end_timestamps(cg: ChunkedGraph, nodes, nodes_ts, children_map):
+    """
+    Gets the last timestamp for each node at which to update its cross edges.
+    For this, we get parent timestamps for all children of a node.
+    The first timestamp > node_timestamp among these is the last timestamp.
+        This is the timestamp at which one of node's children
+        got a new parent that superseded the current node.
+    """
+    result = []
+    children = np.concatenate([*children_map.values()])
+    timestamps_d = get_parent_timestamps(cg, children)
+    for node, node_ts in zip(nodes, nodes_ts):
+        node_children = children_map[node]
+        _timestamps = set().union(*[timestamps_d[k] for k in node_children])
+        try:
+            _timestamps = sorted(_timestamps)
+            _index = np.searchsorted(_timestamps, node_ts)
+            assert _timestamps[_index] == node_ts, (_index, node_ts, _timestamps)
+            end_ts = _timestamps[_index + 1] - timedelta(milliseconds=1)
+        except IndexError:
+            # start_ts == end_ts means there has been no edit involving this node
+            # meaning only one timestamp to update cross edges, start_ts
+            end_ts = node_ts
+        result.append(end_ts)
+    return result
 
 
-def get_parent_timestamps(cg: ChunkedGraph, nodes) -> dict[int, set]:
+def get_parent_timestamps(
+    cg: ChunkedGraph, nodes, start_time=None, end_time=None
+) -> dict[int, set]:
     """
     Timestamps of when the given nodes were edited.
     """
+    earliest_ts = cg.get_earliest_timestamp()
     response = cg.client.read_nodes(
         node_ids=nodes,
         properties=[Hierarchy.Parent],
+        start_time=start_time,
+        end_time=end_time,
         end_time_inclusive=False,
     )
 
     result = defaultdict(set)
     for k, v in response.items():
         for cell in v[Hierarchy.Parent]:
-            result[k].add(cell.timestamp)
+            ts = cell.timestamp
+            result[k].add(earliest_ts if ts < earliest_ts else ts)
     return result
