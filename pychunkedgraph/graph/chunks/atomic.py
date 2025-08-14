@@ -1,3 +1,5 @@
+# pylint: disable=invalid-name, missing-docstring
+
 from typing import List
 from typing import Sequence
 from itertools import product
@@ -6,8 +8,6 @@ import numpy as np
 
 from .utils import get_bounding_children_chunks
 from ..meta import ChunkedGraphMeta
-from ..utils.generic import get_valid_timestamp
-from ..utils import basetypes
 
 
 def get_touching_atomic_chunks(
@@ -27,7 +27,7 @@ def get_touching_atomic_chunks(
     chunk_offset = chunk_coords * atomic_chunk_count
     mid = (atomic_chunk_count // 2) - 1
 
-    # TODO (akhileshh) convert this for loop to numpy
+    # TODO (akhileshh) convert this for loop to numpy;
     # relevant chunks along touching planes at center
     for axis_1, axis_2 in product(*[range(atomic_chunk_count)] * 2):
         # x-y plane
@@ -62,4 +62,6 @@ def get_bounding_atomic_chunks(
     chunkedgraph_meta: ChunkedGraphMeta, layer: int, chunk_coords: Sequence[int]
 ) -> List:
     """Atomic chunk coordinates along the boundary of a chunk"""
-    return get_bounding_children_chunks(chunkedgraph_meta, layer, chunk_coords, 2)
+    return get_bounding_children_chunks(
+        chunkedgraph_meta, layer, tuple(chunk_coords), 2
+    )
