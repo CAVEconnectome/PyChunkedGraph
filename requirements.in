@@ -10,8 +10,8 @@ google-cloud-datastore>=1.8
 flask
 flask_cors
 python-json-logger
-redis
-rq<2
+redis>5
+rq>2
 pyyaml
 cachetools
 werkzeug
