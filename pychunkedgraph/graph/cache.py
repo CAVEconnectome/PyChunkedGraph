@@ -1,3 +1,4 @@
+# pylint: disable=invalid-name, missing-docstring, import-outside-toplevel
 """
 Cache nodes, parents, children and cross edges.
 """
@@ -30,26 +31,26 @@ class CacheService:
 
         self._parent_vec = np.vectorize(self.parent, otypes=[np.uint64])
         self._children_vec = np.vectorize(self.children, otypes=[np.ndarray])
-        self._atomic_cross_edges_vec = np.vectorize(
-            self.atomic_cross_edges, otypes=[dict]
+        self._cross_chunk_edges_vec = np.vectorize(
+            self.cross_chunk_edges, otypes=[dict]
         )
 
         # no limit because we don't want to lose new IDs
         self.parents_cache = LRUCache(maxsize=maxsize)
         self.children_cache = LRUCache(maxsize=maxsize)
-        self.atomic_cx_edges_cache = LRUCache(maxsize=maxsize)
+        self.cross_chunk_edges_cache = LRUCache(maxsize=maxsize)
 
     def __len__(self):
         return (
             len(self.parents_cache)
             + len(self.children_cache)
-            + len(self.atomic_cx_edges_cache)
+            + len(self.cross_chunk_edges_cache)
         )
 
     def clear(self):
         self.parents_cache.clear()
         self.children_cache.clear()
-        self.atomic_cx_edges_cache.clear()
+        self.cross_chunk_edges_cache.clear()
 
     def parent(self, node_id: np.uint64, *, time_stamp: datetime = None):
         @cached(cache=self.parents_cache, key=lambda node_id: node_id)
@@ -67,17 +68,18 @@ class CacheService:
 
         return children_decorated(node_id)
 
-    def atomic_cross_edges(self, node_id):
-        @cached(cache=self.atomic_cx_edges_cache, key=lambda node_id: node_id)
-        def atomic_cross_edges_decorated(node_id):
-            edges = self._cg.get_atomic_cross_edges(
-                np.array([node_id], dtype=NODE_ID), raw_only=True
+    def cross_chunk_edges(self, node_id, *, time_stamp: datetime = None):
+        @cached(cache=self.cross_chunk_edges_cache, key=lambda node_id: node_id)
+        def cross_edges_decorated(node_id):
+            edges = self._cg.get_cross_chunk_edges(
+                np.array([node_id], dtype=NODE_ID), raw_only=True, time_stamp=time_stamp
             )
             return edges[node_id]
 
-        return atomic_cross_edges_decorated(node_id)
+        return cross_edges_decorated(node_id)
 
     def parents_multiple(self, node_ids: np.ndarray, *, time_stamp: datetime = None):
+        node_ids = np.array(node_ids, dtype=NODE_ID, copy=False)
         if not node_ids.size:
             return node_ids
         mask = np.in1d(node_ids, np.fromiter(self.parents_cache.keys(), dtype=NODE_ID))
@@ -91,6 +93,7 @@ class CacheService:
 
     def children_multiple(self, node_ids: np.ndarray, *, flatten=False):
         result = {}
+        node_ids = np.array(node_ids, dtype=NODE_ID, copy=False)
         if not node_ids.size:
             return result
         mask = np.in1d(node_ids, np.fromiter(self.children_cache.keys(), dtype=NODE_ID))
@@ -104,20 +107,27 @@ class CacheService:
             return np.concatenate([*result.values()])
         return result
 
-    def atomic_cross_edges_multiple(self, node_ids: np.ndarray):
+    def cross_chunk_edges_multiple(
+        self, node_ids: np.ndarray, *, time_stamp: datetime = None
+    ):
         result = {}
+        node_ids = np.array(node_ids, dtype=NODE_ID, copy=False)
         if not node_ids.size:
             return result
         mask = np.in1d(
-            node_ids, np.fromiter(self.atomic_cx_edges_cache.keys(), dtype=NODE_ID)
+            node_ids, np.fromiter(self.cross_chunk_edges_cache.keys(), dtype=NODE_ID)
         )
-        cached_edges_ = self._atomic_cross_edges_vec(node_ids[mask])
+        cached_edges_ = self._cross_chunk_edges_vec(node_ids[mask])
         result.update(
             {id_: edges_ for id_, edges_ in zip(node_ids[mask], cached_edges_)}
         )
-        result.update(self._cg.get_atomic_cross_edges(node_ids[~mask], raw_only=True))
+        result.update(
+            self._cg.get_cross_chunk_edges(
+                node_ids[~mask], raw_only=True, time_stamp=time_stamp
+            )
+        )
         update(
-            self.atomic_cx_edges_cache,
+            self.cross_chunk_edges_cache,
             node_ids[~mask],
             [result[k] for k in node_ids[~mask]],
         )
