@@ -772,7 +772,7 @@ def handle_leaves_from_leave(table_id, atomic_id):
 ### SUBGRAPH -------------------------------------------------------------------
 
 
-def handle_subgraph(table_id, root_id):
+def handle_subgraph(table_id, root_id, only_internal_edges=True):
     current_app.table_id = table_id
     user_id = str(g.auth_user.get("id", current_app.user_id))
 
@@ -786,12 +786,14 @@ def handle_subgraph(table_id, root_id):
         bbox_is_coordinate=True,
     )
     edges = reduce(lambda x, y: x + y, edges, cg_edges.Edges([], []))
-    supervoxels = np.concatenate(
-        [agg.supervoxels for agg in l2id_agglomeration_d.values()]
-    )
-    mask0 = np.in1d(edges.node_ids1, supervoxels)
-    mask1 = np.in1d(edges.node_ids2, supervoxels)
-    edges = edges[mask0 & mask1]
+
+    if only_internal_edges:
+        supervoxels = np.concatenate(
+            [agg.supervoxels for agg in l2id_agglomeration_d.values()]
+        )
+        mask0 = np.in1d(edges.node_ids1, supervoxels)
+        mask1 = np.in1d(edges.node_ids2, supervoxels)
+        edges = edges[mask0 & mask1]
 
     return edges
 
