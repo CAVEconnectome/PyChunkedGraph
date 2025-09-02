@@ -328,7 +328,9 @@ def handle_minimal_covering_nodes(table_id):
     int64_as_str = request.args.get("int64_as_str", default=False, type=toboolean)
     is_binary = request.args.get("is_binary", default=False, type=toboolean)
 
-    covering_nodes = common.handle_find_minimal_covering_nodes(table_id, is_binary=is_binary)
+    covering_nodes = common.handle_find_minimal_covering_nodes(
+        table_id, is_binary=is_binary
+    )
     as_array = request.args.get("as_array", default=False, type=toboolean)
     if as_array:
         return tobinary(covering_nodes)
@@ -343,7 +345,12 @@ def handle_minimal_covering_nodes(table_id):
 @remap_public(edit=False)
 def handle_subgraph(table_id, node_id):
     int64_as_str = request.args.get("int64_as_str", default=False, type=toboolean)
-    edges = common.handle_subgraph(table_id, node_id)
+    only_internal_edges = request.args.get(
+        "only_internal_edges", default=True, type=toboolean
+    )
+    edges = common.handle_subgraph(
+        table_id, node_id, only_internal_edges=only_internal_edges
+    )
     resp = {
         "nodes": edges.get_pairs(),
         "affinities": edges.affinities,
