@@ -2,17 +2,16 @@ import json
 from datetime import timedelta
 from typing import Dict
 from typing import List
-from typing import Tuple
 from typing import Sequence
 from collections import namedtuple
 
 import numpy as np
 from cloudvolume import CloudVolume
 
+from pychunkedgraph.graph.ocdbt import get_seg_source_and_destination_ocdbt
+
 from .utils.generic import compute_bitmasks
 from .chunks.utils import get_chunks_boundary
-from ..utils.redis import keys as r_keys
-from ..utils.redis import get_rq_queue
 from ..utils.redis import get_redis_connection
 
 
@@ -64,9 +63,11 @@ class ChunkedGraphMeta:
         self._custom_data = custom_data
 
         self._ws_cv = None
+        self._ws_ocdbt = None
         self._layer_bounds_d = None
         self._layer_count = None
         self._bitmasks = None
+        self._ocdbt_seg = None
 
     @property
     def graph_config(self):
@@ -91,14 +92,32 @@ class ChunkedGraphMeta:
             # useful to avoid md5 errors on high gcs load
             redis = get_redis_connection()
             cached_info = json.loads(redis.get(cache_key))
-            self._ws_cv = CloudVolume(self._data_source.WATERSHED, info=cached_info)
+            self._ws_cv = CloudVolume(
+                self._data_source.WATERSHED, info=cached_info, progress=False
+            )
         except Exception:
-            self._ws_cv = CloudVolume(self._data_source.WATERSHED)
+            self._ws_cv = CloudVolume(self._data_source.WATERSHED, progress=False)
             try:
                 redis.set(cache_key, json.dumps(self._ws_cv.info))
             except Exception:
                 ...
         return self._ws_cv
+
+    @property
+    def ocdbt_seg(self) -> bool:
+        if self._ocdbt_seg is None:
+            self._ocdbt_seg = self._custom_data.get("seg", {}).get("ocdbt", False)
+        return self._ocdbt_seg
+
+    @property
+    def ws_ocdbt(self):
+        assert self.ocdbt_seg, "make sure this pcg has segmentation in ocdbt format"
+        if self._ws_ocdbt:
+            return self._ws_ocdbt
+
+        _, _ocdbt_seg = get_seg_source_and_destination_ocdbt(self.data_source.WATERSHED)
+        self._ws_ocdbt = _ocdbt_seg
+        return self._ws_ocdbt
 
     @property
     def resolution(self):
@@ -235,11 +254,14 @@ class ChunkedGraphMeta:
     @property
     def dataset_info(self) -> Dict:
         info = self.ws_cv.info  # pylint: disable=no-member
-
         info.update(
             {
                 "chunks_start_at_voxel_offset": True,
-                "data_dir": self.data_source.WATERSHED,
+                "data_dir": (
+                    self.ws_ocdbt.kvstore.base.url
+                    if self.ocdbt_seg
+                    else self.data_source.WATERSHED
+                ),
                 "graph": {
                     "chunk_size": self.graph_config.CHUNK_SIZE,
                     "bounding_box": [2048, 2048, 512],
