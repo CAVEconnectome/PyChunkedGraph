@@ -3,7 +3,6 @@ generic helper functions
 TODO categorize properly
 """
 
-
 import datetime
 from typing import Dict
 from typing import Iterable
@@ -173,9 +172,7 @@ def mask_nodes_by_bounding_box(
         adapt_layers = layers - 2
         adapt_layers[adapt_layers < 0] = 0
         fanout = meta.graph_config.FANOUT
-        bounding_box_layer = (
-            bounding_box[None] / (fanout ** adapt_layers)[:, None, None]
-        )
+        bounding_box_layer = bounding_box[None] / (fanout**adapt_layers)[:, None, None]
         bound_check = np.array(
             [
                 np.all(chunk_coordinates < bounding_box_layer[:, 1], axis=1),
@@ -184,3 +181,14 @@ def mask_nodes_by_bounding_box(
         ).T
 
         return np.all(bound_check, axis=1)
+
+
+def get_local_segmentation(meta, bbox_start, bbox_end) -> np.ndarray:
+    result = None
+    xL, yL, zL = bbox_start
+    xH, yH, zH = bbox_end
+    if meta.ocdbt_seg:
+        result = meta.ws_ocdbt[xL:xH, yL:yH, zL:zH].read().result()
+    else:
+        result = meta.cv[xL:xH, yL:yH, zL:zH]
+    return result

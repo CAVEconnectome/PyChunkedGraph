@@ -115,12 +115,16 @@ class ClientWithIDGen(SimpleClient):
     """
 
     @abstractmethod
-    def create_node_ids(self, chunk_id):
+    def create_node_ids(self, chunk_id, size: int):
         """Generate a range of unique IDs in the chunk."""
 
     @abstractmethod
     def create_node_id(self, chunk_id):
         """Generate a unique ID in the chunk."""
+
+    @abstractmethod
+    def set_max_node_id(self, chunk_id, node_id):
+        """Gets the current maximum node ID in the chunk."""
 
     @abstractmethod
     def get_max_node_id(self, chunk_id):
