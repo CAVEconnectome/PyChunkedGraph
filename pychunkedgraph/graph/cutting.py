@@ -1,23 +1,18 @@
-import collections
 import fastremap
 import numpy as np
 import itertools
-import logging
 import time
 import graph_tool
 import graph_tool.flow
 
-from typing import Dict
 from typing import Tuple
-from typing import Optional
 from typing import Sequence
 from typing import Iterable
 
 from .utils import flatgraph
-from .utils import basetypes
 from .utils.generic import get_bounding_box
 from .edges import Edges
-from .exceptions import PreconditionError
+from .exceptions import PreconditionError, SupervoxelSplitRequiredError
 from .exceptions import PostconditionError
 
 DEBUG_MODE = False
@@ -115,6 +110,10 @@ class LocalMincutGraph:
             complete_mapping,
             self.cross_chunk_edge_remapping,
         ) = merge_cross_chunk_edges_graph_tool(cg_edges, cg_affs)
+
+        # save this representative mapping for supervoxel splitting
+        # passed along with SupervoxelSplitRequiredError
+        self.sv_remapping = dict(complete_mapping)
 
         dt = time.time() - time_start
         if logger is not None:
@@ -233,9 +232,10 @@ class LocalMincutGraph:
                 self.source_graph_ids,
             )
         except AssertionError:
-            raise PreconditionError(
+            raise SupervoxelSplitRequiredError(
                 "Paths between source or sink points irreparably overlap other labels from other side. "
-                "Check that labels are correct and consider spreading points out farther."
+                "Check that labels are correct and consider spreading points out farther.",
+                self.sv_remapping
             )
 
         paths_e_s_no, paths_e_y_no, do_check = flatgraph.remove_overlapping_edges(
@@ -584,11 +584,12 @@ class LocalMincutGraph:
                 # but return a flag to return a message to the user
                 illegal_split = True
             else:
-                raise PreconditionError(
+                raise SupervoxelSplitRequiredError(
                     "Failed to find a cut that separated the sources from the sinks. "
                     "Please try another cut that partitions the sets cleanly if possible. "
                     "If there is a clear path between all the supervoxels in each set, "
-                    "that helps the mincut algorithm."
+                    "that helps the mincut algorithm.",
+                    self.sv_remapping
                 )
         except IsolatingCutException as e:
             if self.split_preview:
