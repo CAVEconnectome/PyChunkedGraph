@@ -626,22 +626,44 @@ class ChunkedGraph:
             self, node_id_or_ids, bbox, bbox_is_coordinate, False, True
         )
 
-    def get_fake_edges(
+    def get_edited_edges(
         self, chunk_ids: np.ndarray, time_stamp: datetime.datetime = None
     ) -> typing.Dict:
+        """
+        Edges stored within a pcg that were created as a result of edits.
+        Either 'fake' edges that were adding for a merge edit;
+        Or 'split' edges resulting from a supervoxel split.
+        """
         result = {}
-        fake_edges_d = self.client.read_nodes(
+        properties = [
+            attributes.Connectivity.FakeEdges,
+            attributes.Connectivity.SplitEdges,
+            attributes.Connectivity.Affinity,
+            attributes.Connectivity.Area,
+        ]
+        _edges_d = self.client.read_nodes(
             node_ids=chunk_ids,
-            properties=attributes.Connectivity.FakeEdges,
+            properties=properties,
             end_time=time_stamp,
             end_time_inclusive=True,
             fake_edges=True,
         )
-        for id_, val in fake_edges_d.items():
-            edges = np.concatenate(
-                [np.array(e.value, dtype=basetypes.NODE_ID, copy=False) for e in val]
-            )
-            result[id_] = Edges(edges[:, 0], edges[:, 1])
+        for id_, val in _edges_d.items():
+            edges = val.get(attributes.Connectivity.FakeEdges, [])
+            edges = np.concatenate([types.empty_2d, *[e.value for e in edges]])
+            fake_edges_ = Edges(edges[:, 0], edges[:, 1])
+
+            edges = val.get(attributes.Connectivity.SplitEdges, [])
+            edges = np.concatenate([types.empty_2d, *[e.value for e in edges]])
+
+            aff = val.get(attributes.Connectivity.Affinity, [])
+            aff = np.concatenate([types.empty_affinities, *[e.value for e in aff]])
+
+            areas = val.get(attributes.Connectivity.Area, [])
+            areas = np.concatenate([types.empty_areas, *[e.value for e in areas]])
+            split_edges_ = Edges(edges[:, 0], edges[:, 1], affinities=aff, areas=areas)
+
+            result[id_] = fake_edges_ + split_edges_
         return result
 
     def copy_fake_edges(self, chunk_id: np.uint64) -> None:
@@ -680,10 +702,10 @@ class ChunkedGraph:
         if self.mock_edges is None:
             edges_d = self.read_chunk_edges(chunk_ids)
 
-        fake_edges = self.get_fake_edges(chunk_ids)
+        edited_edges = self.get_edited_edges(chunk_ids)
         all_chunk_edges = reduce(
             lambda x, y: x + y,
-            chain(edges_d.values(), fake_edges.values()),
+            chain(edges_d.values(), edited_edges.values()),
             Edges([], []),
         )
         if self.mock_edges is not None:
