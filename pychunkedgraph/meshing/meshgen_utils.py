@@ -1,19 +1,11 @@
 import re
-import multiprocessing as mp
-from time import time
-from typing import List
-from typing import Dict
-from typing import Tuple
 from typing import Sequence
 from functools import lru_cache
 
 import numpy as np
-from cloudvolume import CloudVolume
 from cloudvolume.lib import Vec
-from multiwrapper import multiprocessing_utils as mu
 
-from pychunkedgraph.graph.utils.basetypes import NODE_ID  # noqa
-from ..graph.types import empty_1d
+from pychunkedgraph.graph.utils import get_local_segmentation
 
 
 def str_to_slice(slice_str: str):
@@ -157,9 +149,7 @@ def get_json_info(cg):
 
 
 def get_ws_seg_for_chunk(cg, chunk_id, mip, overlap_vx=1):
-    cv = CloudVolume(cg.meta.cv.cloudpath, mip=mip, fill_missing=True)
     mip_diff = mip - cg.meta.cv.mip
-
     mip_chunk_size = np.array(cg.meta.graph_config.CHUNK_SIZE, dtype=int) / np.array(
         [2**mip_diff, 2**mip_diff, 1]
     )
@@ -175,11 +165,5 @@ def get_ws_seg_for_chunk(cg, chunk_id, mip, overlap_vx=1):
         cg.meta.cv.mip_voxel_offset(mip),
         cg.meta.cv.mip_voxel_offset(mip) + cg.meta.cv.mip_volume_size(mip),
     )
-
-    ws_seg = cv[
-        chunk_start[0] : chunk_end[0],
-        chunk_start[1] : chunk_end[1],
-        chunk_start[2] : chunk_end[2],
-    ].squeeze()
-
+    ws_seg = get_local_segmentation(cg.meta, chunk_start, chunk_end).squeeze()
     return ws_seg

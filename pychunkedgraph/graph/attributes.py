@@ -132,6 +132,13 @@ class Connectivity:
         serializer=serializers.NumPyArray(dtype=basetypes.NODE_ID, shape=(-1, 2)),
     )
 
+    # new edges as a result of supervoxel split
+    SplitEdges = _Attribute(
+        key=b"split_edges",
+        family_id="4",
+        serializer=serializers.NumPyArray(dtype=basetypes.NODE_ID, shape=(-1, 2)),
+    )
+
 
 class Hierarchy:
     Child = _Attribute(
@@ -164,6 +171,18 @@ class Hierarchy:
     # will be eventually deleted by GC rule for column family_id 3.
     StaleTimeStamp = _Attribute(
         key=b"stale_ts", family_id="3", serializer=serializers.Pickle()
+    )
+
+    FormerIdentity = _Attribute(
+        key=b"former_ids",
+        family_id="0",
+        serializer=serializers.NumPyArray(dtype=basetypes.NODE_ID),
+    )
+
+    NewIdentity = _Attribute(
+        key=b"new_ids",
+        family_id="0",
+        serializer=serializers.NumPyArray(dtype=basetypes.NODE_ID),
     )
 
 
