@@ -23,6 +23,7 @@ from .utils import (
 from .simple_tests import run_all
 from .create.parent_layer import add_parent_chunk
 from ..graph.chunkedgraph import ChunkedGraph
+from ..graph.ocdbt import get_seg_source_and_destination_ocdbt
 from ..utils.redis import get_redis_connection, keys as r_keys
 
 group_name = "ingest"
@@ -71,6 +72,7 @@ def ingest_graph(
 
     imanager = IngestionManager(ingest_config, meta)
     enqueue_l2_tasks(imanager, create_atomic_chunk)
+    get_seg_source_and_destination_ocdbt(cg.meta, create=True)
 
 
 @ingest_cli.command("imanager")

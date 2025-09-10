@@ -685,6 +685,17 @@ class Client(bigtable.Client, ClientWithIDGen, OperationLogger):
         """Generate a unique node ID in the chunk."""
         return self.create_node_ids(chunk_id, 1, root_chunk=root_chunk)[0]
 
+    def set_max_node_id(
+        self, chunk_id: np.uint64, node_id: np.uint64
+    ) -> basetypes.NODE_ID:
+        """Set max segment ID for a given chunk."""
+        size = int(np.uint64(chunk_id) ^ np.uint64(node_id))
+        key = serialize_uint64(chunk_id, counter=True)
+        column = attributes.Concurrency.Counter
+        row = self._table.append_row(key)
+        row.increment_cell_value(column.family_id, column.key, size)
+        row = row.commit()
+
     def get_max_node_id(
         self, chunk_id: basetypes.CHUNK_ID, root_chunk=False
     ) -> basetypes.NODE_ID:
