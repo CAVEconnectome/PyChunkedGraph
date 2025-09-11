@@ -116,6 +116,8 @@ class TestGraphBuild:
         cg = gen_graph(n_layers=2)
         # Add Chunk A
         create_chunk(cg, vertices=[to_label(cg, 1, 0, 0, 0, 0)])
+        chunk_id = to_label(cg, 1, 0, 0, 0, 0)
+        assert cg.id_client.get_max_node_id(chunk_id) == chunk_id
 
         res = cg.client._table.read_rows()
         res.consume_all()
@@ -139,7 +141,7 @@ class TestGraphBuild:
         assert len(children) == 1 and children[0] == to_label(cg, 1, 0, 0, 0, 0)
         # Make sure there are not any more entries in the table
         # include counters, meta and version rows
-        assert len(res.rows) == 1 + 1 + 1 + 1 + 1
+        assert len(res.rows) == 1 + 1 + 1 + 1 + 1 + 1
 
     @pytest.mark.timeout(30)
     def test_build_single_edge(self, gen_graph):
@@ -160,6 +162,8 @@ class TestGraphBuild:
             vertices=[to_label(cg, 1, 0, 0, 0, 0), to_label(cg, 1, 0, 0, 0, 1)],
             edges=[(to_label(cg, 1, 0, 0, 0, 0), to_label(cg, 1, 0, 0, 0, 1), 0.5)],
         )
+        chunk_id = to_label(cg, 1, 0, 0, 0, 0)
+        assert cg.id_client.get_max_node_id(chunk_id) == to_label(cg, 1, 0, 0, 0, 1)
 
         res = cg.client._table.read_rows()
         res.consume_all()
@@ -192,7 +196,7 @@ class TestGraphBuild:
 
         # Make sure there are not any more entries in the table
         # include counters, meta and version rows
-        assert len(res.rows) == 2 + 1 + 1 + 1 + 1
+        assert len(res.rows) == 2 + 1 + 1 + 1 + 1 + 1
 
     @pytest.mark.timeout(30)
     def test_build_single_across_edge(self, gen_graph):
@@ -294,7 +298,7 @@ class TestGraphBuild:
 
         # Make sure there are not any more entries in the table
         # include counters, meta and version rows
-        assert len(res.rows) == 2 + 2 + 1 + 3 + 1 + 1
+        assert len(res.rows) == 2 + 2 + 1 + 3 + 1 + 1 + 2
 
     @pytest.mark.timeout(30)
     def test_build_single_edge_and_single_across_edge(self, gen_graph):
@@ -320,12 +324,18 @@ class TestGraphBuild:
             ],
         )
 
+        chunk_id = to_label(cg, 1, 0, 0, 0, 0)
+        assert cg.id_client.get_max_node_id(chunk_id) == to_label(cg, 1, 0, 0, 0, 1)
+
         # Chunk B
         create_chunk(
             cg,
             vertices=[to_label(cg, 1, 1, 0, 0, 0)],
             edges=[(to_label(cg, 1, 1, 0, 0, 0), to_label(cg, 1, 0, 0, 0, 0), inf)],
         )
+
+        chunk_id = to_label(cg, 1, 1, 0, 0, 0)
+        assert cg.id_client.get_max_node_id(chunk_id) == to_label(cg, 1, 1, 0, 0, 0)
 
         add_layer(cg, 3, np.array([0, 0, 0]), n_threads=1)
         res = cg.client._table.read_rows()
@@ -402,7 +412,7 @@ class TestGraphBuild:
 
         # Make sure there are not any more entries in the table
         # include counters, meta and version rows
-        assert len(res.rows) == 3 + 2 + 1 + 3 + 1 + 1
+        assert len(res.rows) == 3 + 2 + 1 + 3 + 1 + 1 + 2
 
     @pytest.mark.timeout(120)
     def test_build_big_graph(self, gen_graph):

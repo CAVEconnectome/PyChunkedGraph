@@ -35,7 +35,10 @@ def add_atomic_edges(
         return
 
     chunk_ids = cg.get_chunk_ids_from_node_ids(chunk_node_ids)
-    assert len(np.unique(chunk_ids)) == 1
+    assert len(np.unique(chunk_ids)) == 1, np.unique(chunk_ids)
+
+    max_node_id = np.max(chunk_node_ids)
+    cg.id_client.set_max_node_id(chunk_ids[0], max_node_id)
 
     graph, _, _, unique_ids = build_gt_graph(chunk_edge_ids, make_directed=True)
     ccs = connected_components(graph)
