@@ -1872,7 +1872,7 @@ class TestGraphMultiCut:
         cut_edges_aug = run_multicut(edges, sv_sources, sv_sinks, path_augment=True)
         assert cut_edges_aug.shape[0] == 350
 
-        with pytest.raises(exceptions.PreconditionError):
+        with pytest.raises(exceptions.SupervoxelSplitRequiredError):
             run_multicut(edges, sv_sources, sv_sinks, path_augment=False)
 
 

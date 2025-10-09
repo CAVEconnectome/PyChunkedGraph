@@ -472,8 +472,8 @@ def handle_split(table_id):
         )
         overlap_mask = np.isin(sources_remapped, sinks_remapped)
         for sv_to_split in np.unique(sources_remapped[overlap_mask]):
-            _mask0 = sources_remapped[sources_remapped == sv_to_split]
-            _mask1 = sinks_remapped[sinks_remapped == sv_to_split]
+            _mask0 = sources_remapped == sv_to_split
+            _mask1 = sinks_remapped == sv_to_split
             split_supervoxel(
                 cg,
                 sv_to_split,
