@@ -334,6 +334,7 @@ def publish_edit(
         "operation_id": int(result.operation_id),
         "new_lvl2_ids": result.new_lvl2_ids.tolist(),
         "new_root_ids": result.new_root_ids.tolist(),
+        "old_root_ids": result.old_root_ids.tolist(),
     }
 
     exchange = os.getenv("PYCHUNKEDGRAPH_EDITS_EXCHANGE", "pychunkedgraph")

@@ -45,7 +45,9 @@ class GraphEditOperation(ABC):
         "parent_ts",
         "privileged_mode",
     ]
-    Result = namedtuple("Result", ["operation_id", "new_root_ids", "new_lvl2_ids"])
+    Result = namedtuple(
+        "Result", ["operation_id", "new_root_ids", "new_lvl2_ids", "old_root_ids"]
+    )
 
     def __init__(
         self,
@@ -478,10 +480,19 @@ class GraphEditOperation(ABC):
                     new_root_ids,
                     new_lvl2_ids,
                     affected_records,
+                    root_ids,
                 )
                 return result
 
-    def _write(self, lock, timestamp, new_root_ids, new_lvl2_ids, affected_records):
+    def _write(
+        self,
+        lock: locks.RootLock,
+        timestamp: datetime,
+        new_root_ids: np.ndarray,
+        new_lvl2_ids: np.ndarray,
+        affected_records: list,
+        old_root_ids: np.ndarray,
+    ):
         """Helper to persist changes after an edit."""
         new_root_ids = np.array(new_root_ids, dtype=basetypes.NODE_ID)
         new_lvl2_ids = np.array(new_lvl2_ids, dtype=basetypes.NODE_ID)
@@ -522,6 +533,7 @@ class GraphEditOperation(ABC):
             operation_id=lock.operation_id,
             new_root_ids=new_root_ids,
             new_lvl2_ids=new_lvl2_ids,
+            old_root_ids=old_root_ids,
         )
 
 
