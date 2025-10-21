@@ -97,7 +97,6 @@ gevent==23.9.1
     #   task-queue
 google-api-core[grpc]==2.11.1
     # via
-    #   google-api-core
     #   google-cloud-bigtable
     #   google-cloud-core
     #   google-cloud-datastore
@@ -295,7 +294,7 @@ pytz==2023.3.post1
     # via pandas
 pyyaml==6.0.1
     # via -r requirements.in
-redis==5.0.0
+redis==6.4.0
     # via
     #   -r requirements.in
     #   rq
@@ -316,7 +315,7 @@ rpds-py==0.10.3
     # via
     #   jsonschema
     #   referencing
-rq==1.15.1
+rq==2.4.1
     # via -r requirements.in
 rsa==4.9
     # via
