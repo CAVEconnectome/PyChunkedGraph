@@ -3,6 +3,7 @@
 import logging, math, random, time
 import multiprocessing as mp
 from collections import defaultdict
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import fastremap
 import numpy as np
@@ -15,7 +16,7 @@ from pychunkedgraph.graph.utils import serializers
 from pychunkedgraph.graph.types import empty_2d
 from pychunkedgraph.utils.general import chunked
 
-from .utils import exists_as_parent, get_parent_timestamps
+from .utils import exists_as_parent, get_end_timestamps, get_parent_timestamps
 
 
 CHILDREN = {}
@@ -51,7 +52,7 @@ def _get_cx_edges_at_timestamp(node, response, ts):
 
 
 def _populate_cx_edges_with_timestamps(
-    cg: ChunkedGraph, layer: int, nodes: list, nodes_ts: list, earliest_ts
+    cg: ChunkedGraph, layer: int, nodes: list, nodes_ts: list
 ):
     """
     Collect timestamps of edits from children, since we use the same timestamp
@@ -63,7 +64,8 @@ def _populate_cx_edges_with_timestamps(
     all_children = np.concatenate(list(CHILDREN.values()))
     response = cg.client.read_nodes(node_ids=all_children, properties=attrs)
     timestamps_d = get_parent_timestamps(cg, nodes)
-    for node, node_ts in zip(nodes, nodes_ts):
+    end_timestamps = get_end_timestamps(cg, nodes, nodes_ts, CHILDREN)
+    for node, node_ts, node_end_ts in zip(nodes, nodes_ts, end_timestamps):
         CX_EDGES[node] = {}
         timestamps = timestamps_d[node]
         cx_edges_d_node_ts = _get_cx_edges_at_timestamp(node, response, node_ts)
@@ -75,8 +77,8 @@ def _populate_cx_edges_with_timestamps(
         CX_EDGES[node][node_ts] = cx_edges_d_node_ts
 
         for ts in sorted(timestamps):
-            if ts < earliest_ts:
-                ts = earliest_ts
+            if ts > node_end_ts:
+                break
             CX_EDGES[node][ts] = _get_cx_edges_at_timestamp(node, response, ts)
 
 
@@ -107,7 +109,7 @@ def update_cross_edges(cg: ChunkedGraph, layer, node, node_ts, earliest_ts) -> l
 
     row_id = serializers.serialize_uint64(node)
     for ts, cx_edges_d in CX_EDGES[node].items():
-        if node_ts > ts:
+        if ts < node_ts:
             continue
         edges = get_latest_edges_wrapper(cg, cx_edges_d, parent_ts=ts)
         if edges.size == 0:
@@ -129,17 +131,29 @@ def update_cross_edges(cg: ChunkedGraph, layer, node, node_ts, earliest_ts) -> l
     return rows
 
 
+def _update_cross_edges_helper_thread(args):
+    cg, layer, node, node_ts, earliest_ts = args
+    return update_cross_edges(cg, layer, node, node_ts, earliest_ts)
+
+
 def _update_cross_edges_helper(args):
     cg_info, layer, nodes, nodes_ts, earliest_ts = args
     rows = []
     cg = ChunkedGraph(**cg_info)
     parents = cg.get_parents(nodes, fail_to_zero=True)
+
+    tasks = []
     for node, parent, node_ts in zip(nodes, parents, nodes_ts):
         if parent == 0:
-            # invalid id caused by failed ingest task
+            # invalid id caused by failed ingest task / edits
             continue
-        _rows = update_cross_edges(cg, layer, node, node_ts, earliest_ts)
-        rows.extend(_rows)
+        tasks.append((cg, layer, node, node_ts, earliest_ts))
+
+    with ThreadPoolExecutor(max_workers=4) as executor:
+        futures = [executor.submit(_update_cross_edges_helper_thread, task) for task in tasks]
+        for future in tqdm(as_completed(futures), total=len(futures)):
+            rows.extend(future.result())
+
     cg.client.write(rows)
 
 
@@ -159,7 +173,7 @@ def update_chunk(
     nodes = list(CHILDREN.keys())
     random.shuffle(nodes)
     nodes_ts = cg.get_node_timestamps(nodes, return_numpy=False, normalize=True)
-    _populate_cx_edges_with_timestamps(cg, layer, nodes, nodes_ts, earliest_ts)
+    _populate_cx_edges_with_timestamps(cg, layer, nodes, nodes_ts)
 
     task_size = int(math.ceil(len(nodes) / mp.cpu_count() / 2))
     chunked_nodes = chunked(nodes, task_size)
@@ -171,8 +185,9 @@ def update_chunk(
         args = (cg_info, layer, chunk, ts_chunk, earliest_ts)
         tasks.append(args)
 
-    logging.info(f"Processing {len(nodes)} nodes.")
-    with mp.Pool(min(mp.cpu_count(), len(tasks))) as pool:
+    processes = min(mp.cpu_count() * 2, len(tasks))
+    logging.info(f"Processing {len(nodes)} nodes with {processes} workers.")
+    with mp.Pool(processes) as pool:
         _ = list(
             tqdm(
                 pool.imap_unordered(_update_cross_edges_helper, tasks),
