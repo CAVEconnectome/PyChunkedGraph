@@ -61,7 +61,7 @@ def get_end_timestamps(cg: ChunkedGraph, nodes, nodes_ts, children_map):
 
 def get_parent_timestamps(
     cg: ChunkedGraph, nodes, start_time=None, end_time=None
-) -> dict[int, set]:
+) -> defaultdict[int, set]:
     """
     Timestamps of when the given nodes were edited.
     """

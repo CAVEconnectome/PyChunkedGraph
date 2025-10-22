@@ -1,23 +1,30 @@
 # pylint: disable=invalid-name, missing-docstring, c-extension-no-member
 
+from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import logging, math, time
+from copy import copy
 
 import fastremap
 import numpy as np
 from tqdm import tqdm
-from pychunkedgraph.graph import ChunkedGraph
+from pychunkedgraph.graph import ChunkedGraph, types
 from pychunkedgraph.graph.attributes import Connectivity, Hierarchy
 from pychunkedgraph.graph.utils import serializers
 from pychunkedgraph.utils.general import chunked
 
-from .utils import exists_as_parent, get_end_timestamps, get_parent_timestamps
+from .utils import get_end_timestamps, get_parent_timestamps
 
 CHILDREN = {}
 
 
 def update_cross_edges(
-    cg: ChunkedGraph, node, cx_edges_d: dict, node_ts, node_end_ts, timestamps: set
+    cg: ChunkedGraph,
+    node,
+    cx_edges_d: dict,
+    node_ts,
+    node_end_ts,
+    timestamps_d: defaultdict[int, set],
 ) -> list:
     """
     Helper function to update a single L2 ID.
@@ -25,16 +32,11 @@ def update_cross_edges(
     """
     rows = []
     edges = np.concatenate(list(cx_edges_d.values()))
-    uparents = np.unique(cg.get_parents(edges[:, 0], time_stamp=node_ts))
-    assert uparents.size <= 1, f"{node}, {node_ts}, {uparents}"
-    if uparents.size == 0 or node != uparents[0]:
-        # if node is not the parent at this ts, it must be invalid
-        assert not exists_as_parent(cg, node, edges[:, 0])
-        return rows
+    partners = np.unique(edges[:, 1])
 
-    partner_parent_ts_d = get_parent_timestamps(cg, np.unique(edges[:, 1]))
-    for v in partner_parent_ts_d.values():
-        timestamps.update(v)
+    timestamps = copy(timestamps_d[node])
+    for partner in partners:
+        timestamps.update(timestamps_d[partner])
 
     for ts in sorted(timestamps):
         if ts < node_ts:
@@ -42,9 +44,9 @@ def update_cross_edges(
         if ts > node_end_ts:
             break
         val_dict = {}
-        svs = edges[:, 1]
-        parents = cg.get_parents(svs, time_stamp=ts)
-        edge_parents_d = dict(zip(svs, parents))
+
+        parents = cg.get_parents(partners, time_stamp=ts)
+        edge_parents_d = dict(zip(partners, parents))
         for layer, layer_edges in cx_edges_d.items():
             layer_edges = fastremap.remap(
                 layer_edges, edge_parents_d, preserve_missing_labels=True
@@ -62,19 +64,21 @@ def update_nodes(cg: ChunkedGraph, nodes, nodes_ts, children_map=None) -> list:
     if children_map is None:
         children_map = CHILDREN
     end_timestamps = get_end_timestamps(cg, nodes, nodes_ts, children_map)
-    timestamps_d = get_parent_timestamps(cg, nodes)
+
     cx_edges_d = cg.get_atomic_cross_edges(nodes)
+    all_cx_edges = [types.empty_2d]
+    for _cx_edges_d in cx_edges_d.values():
+        if _cx_edges_d:
+            all_cx_edges.append(np.concatenate(list(_cx_edges_d.values())))
+    all_partners = np.unique(np.concatenate(all_cx_edges)[:, 1])
+    timestamps_d = get_parent_timestamps(cg, np.concatenate([nodes, all_partners]))
+
     rows = []
     for node, node_ts, end_ts in zip(nodes, nodes_ts, end_timestamps):
-        if cg.get_parent(node) is None:
-            # invalid id caused by failed ingest task / edits
-            continue
         _cx_edges_d = cx_edges_d.get(node, {})
         if not _cx_edges_d:
             continue
-        _rows = update_cross_edges(
-            cg, node, _cx_edges_d, node_ts, end_ts, timestamps_d[node]
-        )
+        _rows = update_cross_edges(cg, node, _cx_edges_d, node_ts, end_ts, timestamps_d)
         rows.extend(_rows)
     return rows
 
@@ -84,9 +88,7 @@ def _update_nodes_helper(args):
     return update_nodes(cg, nodes, nodes_ts)
 
 
-def update_chunk(
-    cg: ChunkedGraph, chunk_coords: list[int], layer: int = 2, debug: bool = False
-):
+def update_chunk(cg: ChunkedGraph, chunk_coords: list[int], debug: bool = False):
     """
     Iterate over all L2 IDs in a chunk and update their cross chunk edges,
     within the periods they were valid/active.
@@ -95,7 +97,7 @@ def update_chunk(
 
     start = time.time()
     x, y, z = chunk_coords
-    chunk_id = cg.get_chunk_id(layer=layer, x=x, y=y, z=z)
+    chunk_id = cg.get_chunk_id(layer=2, x=x, y=y, z=z)
     cg.copy_fake_edges(chunk_id)
     rr = cg.range_read_chunk(chunk_id)
 
@@ -103,13 +105,17 @@ def update_chunk(
     nodes_ts = []
     earliest_ts = cg.get_earliest_timestamp()
     for k, v in rr.items():
-        nodes.append(k)
-        CHILDREN[k] = v[Hierarchy.Child][0].value
-        ts = v[Hierarchy.Child][0].timestamp
-        nodes_ts.append(earliest_ts if ts < earliest_ts else ts)
+        try:
+            _ = v[Hierarchy.Parent]
+            nodes.append(k)
+            CHILDREN[k] = v[Hierarchy.Child][0].value
+            ts = v[Hierarchy.Child][0].timestamp
+            nodes_ts.append(earliest_ts if ts < earliest_ts else ts)
+        except KeyError:
+            continue
 
     if len(nodes) > 0:
-        logging.info(f"Processing {len(nodes)} nodes.")
+        logging.info(f"processing {len(nodes)} nodes.")
         assert len(CHILDREN) > 0, (nodes, CHILDREN)
     else:
         return
@@ -117,13 +123,14 @@ def update_chunk(
     if debug:
         rows = update_nodes(cg, nodes, nodes_ts)
     else:
-        task_size = int(math.ceil(len(nodes) / 64))
+        task_size = int(math.ceil(len(nodes) / 16))
         chunked_nodes = chunked(nodes, task_size)
         chunked_nodes_ts = chunked(nodes_ts, task_size)
         tasks = []
         for chunk, ts_chunk in zip(chunked_nodes, chunked_nodes_ts):
             args = (cg, chunk, ts_chunk)
             tasks.append(args)
+        logging.info(f"task size {task_size}, count {len(tasks)}.")
 
         rows = []
         with ThreadPoolExecutor(max_workers=8) as executor:
@@ -132,4 +139,4 @@ def update_chunk(
                 rows.extend(future.result())
 
     cg.client.write(rows)
-    print(f"total elaspsed time: {time.time() - start}")
+    logging.info(f"total elaspsed time: {time.time() - start}")
