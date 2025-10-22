@@ -135,7 +135,7 @@ def upgrade_atomic_chunk(coords: Sequence[int]):
     redis = get_redis_connection()
     imanager = IngestionManager.from_pickle(redis.get(r_keys.INGESTION_MANAGER))
     coords = np.array(list(coords), dtype=int)
-    update_atomic_chunk(imanager.cg, coords, layer=2)
+    update_atomic_chunk(imanager.cg, coords)
     _post_task_completion(imanager, 2, coords)
 
 

@@ -30,15 +30,8 @@ def chunked(l: Sequence, n: int):
     Yield successive n-sized chunks from l.
     NOTE: Use itertools.batched from python 3.12
     """
-    """
-    Yield successive n-sized chunks from l.
-    NOTE: Use itertools.batched from python 3.12
-    """
     if n < 1:
         n = len(l)
-    it = iter(l)
-    while batch := tuple(islice(it, n)):
-        yield batch
     it = iter(l)
     while batch := tuple(islice(it, n)):
         yield batch

@@ -88,25 +88,6 @@ def update_cross_edges(cg: ChunkedGraph, layer, node, node_ts, earliest_ts) -> l
     Returns a list of mutations with timestamps.
     """
     rows = []
-    if node_ts > earliest_ts:
-        try:
-            cx_edges_d = CX_EDGES[node][node_ts]
-        except KeyError:
-            raise KeyError(f"{node}:{node_ts}")
-        edges = np.concatenate([empty_2d] + list(cx_edges_d.values()))
-        if edges.size:
-            parents = cg.get_roots(
-                edges[:, 0], time_stamp=node_ts, stop_layer=layer, ceil=False
-            )
-            uparents = np.unique(parents)
-            layers = cg.get_chunk_layers(uparents)
-            uparents = uparents[layers == layer]
-            assert uparents.size <= 1, f"{node}, {node_ts}, {uparents}"
-            if uparents.size == 0 or node != uparents[0]:
-                # if node is not the parent at this ts, it must be invalid
-                assert not exists_as_parent(cg, node, edges[:, 0]), f"{node}, {node_ts}"
-                return rows
-
     row_id = serializers.serialize_uint64(node)
     for ts, cx_edges_d in CX_EDGES[node].items():
         if ts < node_ts:
@@ -186,7 +167,7 @@ def update_chunk(
         tasks.append(args)
 
     processes = min(mp.cpu_count() * 2, len(tasks))
-    logging.info(f"Processing {len(nodes)} nodes with {processes} workers.")
+    logging.info(f"processing {len(nodes)} nodes with {processes} workers.")
     with mp.Pool(processes) as pool:
         _ = list(
             tqdm(
