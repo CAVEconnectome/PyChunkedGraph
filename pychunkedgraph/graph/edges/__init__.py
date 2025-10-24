@@ -201,22 +201,23 @@ def get_edges(source: str, nodes: np.ndarray) -> Edges:
 
 
 def get_stale_nodes(
-    cg, edge_nodes: Iterable[basetypes.NODE_ID], parent_ts: datetime.datetime = None
+    cg, nodes: Iterable[basetypes.NODE_ID], parent_ts: datetime.datetime = None
 ):
     """
-    Checks to see if partner nodes in edges (edges[:,1]) are stale.
-    This is done by getting a supervoxel of the node and check
+    Checks to see if given nodes are stale.
+    This is done by getting a supervoxel of a node and checking
     if it has a new parent at the same layer as the node.
     """
-    edge_supervoxels = cg.get_single_leaf_multiple(edge_nodes)
+    nodes = np.array(nodes, dtype=basetypes.NODE_ID)
+    supervoxels = cg.get_single_leaf_multiple(nodes)
     # nodes can be at different layers due to skip connections
-    edge_nodes_layers = cg.get_chunk_layers(edge_nodes)
+    node_layers = cg.get_chunk_layers(nodes)
     stale_nodes = [types.empty_1d]
-    for layer in np.unique(edge_nodes_layers):
-        _mask = edge_nodes_layers == layer
-        layer_nodes = edge_nodes[_mask]
+    for layer in np.unique(node_layers):
+        _mask = node_layers == layer
+        layer_nodes = nodes[_mask]
         _nodes = cg.get_roots(
-            edge_supervoxels[_mask],
+            supervoxels[_mask],
             stop_layer=layer,
             ceil=False,
             time_stamp=parent_ts,

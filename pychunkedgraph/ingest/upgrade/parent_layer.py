@@ -16,7 +16,7 @@ from pychunkedgraph.graph.utils import serializers
 from pychunkedgraph.graph.types import empty_2d
 from pychunkedgraph.utils.general import chunked
 
-from .utils import exists_as_parent, get_end_timestamps, get_parent_timestamps
+from .utils import get_end_timestamps, get_parent_timestamps
 
 
 CHILDREN = {}
@@ -64,7 +64,9 @@ def _populate_cx_edges_with_timestamps(
     all_children = np.concatenate(list(CHILDREN.values()))
     response = cg.client.read_nodes(node_ids=all_children, properties=attrs)
     timestamps_d = get_parent_timestamps(cg, nodes)
-    end_timestamps = get_end_timestamps(cg, nodes, nodes_ts, CHILDREN)
+    end_timestamps = get_end_timestamps(cg, nodes, nodes_ts, CHILDREN, layer=layer)
+
+    rows = []
     for node, node_ts, node_end_ts in zip(nodes, nodes_ts, end_timestamps):
         CX_EDGES[node] = {}
         timestamps = timestamps_d[node]
@@ -81,32 +83,18 @@ def _populate_cx_edges_with_timestamps(
                 break
             CX_EDGES[node][ts] = _get_cx_edges_at_timestamp(node, response, ts)
 
+        row_id = serializers.serialize_uint64(node)
+        val_dict = {Hierarchy.StaleTimeStamp: 0}
+        rows.append(cg.client.mutate_row(row_id, val_dict, time_stamp=node_end_ts))
+    cg.client.write(rows)
 
-def update_cross_edges(cg: ChunkedGraph, layer, node, node_ts, earliest_ts) -> list:
+
+def update_cross_edges(cg: ChunkedGraph, layer, node, node_ts) -> list:
     """
     Helper function to update a single ID.
     Returns a list of mutations with timestamps.
     """
     rows = []
-    if node_ts > earliest_ts:
-        try:
-            cx_edges_d = CX_EDGES[node][node_ts]
-        except KeyError:
-            raise KeyError(f"{node}:{node_ts}")
-        edges = np.concatenate([empty_2d] + list(cx_edges_d.values()))
-        if edges.size:
-            parents = cg.get_roots(
-                edges[:, 0], time_stamp=node_ts, stop_layer=layer, ceil=False
-            )
-            uparents = np.unique(parents)
-            layers = cg.get_chunk_layers(uparents)
-            uparents = uparents[layers == layer]
-            assert uparents.size <= 1, f"{node}, {node_ts}, {uparents}"
-            if uparents.size == 0 or node != uparents[0]:
-                # if node is not the parent at this ts, it must be invalid
-                assert not exists_as_parent(cg, node, edges[:, 0]), f"{node}, {node_ts}"
-                return rows
-
     row_id = serializers.serialize_uint64(node)
     for ts, cx_edges_d in CX_EDGES[node].items():
         if ts < node_ts:
@@ -132,12 +120,12 @@ def update_cross_edges(cg: ChunkedGraph, layer, node, node_ts, earliest_ts) -> l
 
 
 def _update_cross_edges_helper_thread(args):
-    cg, layer, node, node_ts, earliest_ts = args
-    return update_cross_edges(cg, layer, node, node_ts, earliest_ts)
+    cg, layer, node, node_ts = args
+    return update_cross_edges(cg, layer, node, node_ts)
 
 
 def _update_cross_edges_helper(args):
-    cg_info, layer, nodes, nodes_ts, earliest_ts = args
+    cg_info, layer, nodes, nodes_ts = args
     rows = []
     cg = ChunkedGraph(**cg_info)
     parents = cg.get_parents(nodes, fail_to_zero=True)
@@ -147,7 +135,7 @@ def _update_cross_edges_helper(args):
         if parent == 0:
             # invalid id caused by failed ingest task / edits
             continue
-        tasks.append((cg, layer, node, node_ts, earliest_ts))
+        tasks.append((cg, layer, node, node_ts))
 
     with ThreadPoolExecutor(max_workers=4) as executor:
         futures = [executor.submit(_update_cross_edges_helper_thread, task) for task in tasks]
@@ -163,10 +151,10 @@ def update_chunk(
     """
     Iterate over all layer IDs in a chunk and update their cross chunk edges.
     """
+    debug =  nodes is not None
     start = time.time()
     x, y, z = chunk_coords
     chunk_id = cg.get_chunk_id(layer=layer, x=x, y=y, z=z)
-    earliest_ts = cg.get_earliest_timestamp()
     _populate_nodes_and_children(cg, chunk_id, nodes=nodes)
     if not CHILDREN:
         return
@@ -175,6 +163,14 @@ def update_chunk(
     nodes_ts = cg.get_node_timestamps(nodes, return_numpy=False, normalize=True)
     _populate_cx_edges_with_timestamps(cg, layer, nodes, nodes_ts)
 
+    if debug:
+        rows = []
+        for node, node_ts in zip(nodes, nodes_ts):
+            rows.extend(update_cross_edges(cg, layer, node, node_ts))
+        cg.client.write(rows)
+        logging.info(f"total elaspsed time: {time.time() - start}")
+        return
+
     task_size = int(math.ceil(len(nodes) / mp.cpu_count() / 2))
     chunked_nodes = chunked(nodes, task_size)
     chunked_nodes_ts = chunked(nodes_ts, task_size)
@@ -182,11 +178,11 @@ def update_chunk(
 
     tasks = []
     for chunk, ts_chunk in zip(chunked_nodes, chunked_nodes_ts):
-        args = (cg_info, layer, chunk, ts_chunk, earliest_ts)
+        args = (cg_info, layer, chunk, ts_chunk)
         tasks.append(args)
 
     processes = min(mp.cpu_count() * 2, len(tasks))
-    logging.info(f"Processing {len(nodes)} nodes with {processes} workers.")
+    logging.info(f"processing {len(nodes)} nodes with {processes} workers.")
     with mp.Pool(processes) as pool:
         _ = list(
             tqdm(
@@ -194,4 +190,4 @@ def update_chunk(
                 total=len(tasks),
             )
         )
-    print(f"total elaspsed time: {time.time() - start}")
+    logging.info(f"total elaspsed time: {time.time() - start}")

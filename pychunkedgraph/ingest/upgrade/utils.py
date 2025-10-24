@@ -1,7 +1,7 @@
 # pylint: disable=invalid-name, missing-docstring
 
 from collections import defaultdict
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 
 import numpy as np
 from pychunkedgraph.graph import ChunkedGraph
@@ -33,25 +33,44 @@ def get_edit_timestamps(cg: ChunkedGraph, edges_d, start_ts, end_ts) -> list:
     return sorted(timestamps)
 
 
-def get_end_timestamps(cg: ChunkedGraph, nodes, nodes_ts, children_map):
+def _get_end_timestamps_helper(cg: ChunkedGraph, nodes: list) -> defaultdict[int, set]:
+    result = defaultdict(set)
+    response = cg.client.read_nodes(node_ids=nodes, properties=Hierarchy.StaleTimeStamp)
+    for k, v in response.items():
+        result[k].add(v[0].timestamp)
+    return result
+
+
+def get_end_timestamps(
+    cg: ChunkedGraph, nodes: list, nodes_ts: datetime, children_map: dict, layer: int
+):
     """
     Gets the last timestamp for each node at which to update its cross edges.
-    For this, we get parent timestamps for all children of a node.
-    The first timestamp > node_timestamp among these is the last timestamp.
-        This is the timestamp at which one of node's children
-        got a new parent that superseded the current node.
+    For layer 2:
+        Get parent timestamps for all children of a node.
+        The first timestamp > node_timestamp among these is the last timestamp.
+            This is the timestamp at which one of node's children
+            got a new parent that superseded the current node.
+        These are cached in database.
+    For all nodes in each layer > 2:
+        Pick the earliest child node_end_ts > node_ts and cache in database.
     """
     result = []
     children = np.concatenate([*children_map.values()])
-    timestamps_d = get_parent_timestamps(cg, children)
+    if layer == 2:
+        timestamps_d = get_parent_timestamps(cg, children)
+    else:
+        timestamps_d = _get_end_timestamps_helper(cg, children)
+
     for node, node_ts in zip(nodes, nodes_ts):
         node_children = children_map[node]
         _timestamps = set().union(*[timestamps_d[k] for k in node_children])
+        _timestamps.add(node_ts)
         try:
             _timestamps = sorted(_timestamps)
             _index = np.searchsorted(_timestamps, node_ts)
             assert _timestamps[_index] == node_ts, (_index, node_ts, _timestamps)
-            end_ts = _timestamps[_index + 1] - timedelta(milliseconds=1)
+            end_ts = _timestamps[_index + 1]
         except IndexError:
             # this node has not been edited, but might have it edges updated
             end_ts = datetime.now(timezone.utc)
@@ -61,7 +80,7 @@ def get_end_timestamps(cg: ChunkedGraph, nodes, nodes_ts, children_map):
 
 def get_parent_timestamps(
     cg: ChunkedGraph, nodes, start_time=None, end_time=None
-) -> dict[int, set]:
+) -> defaultdict[int, set]:
     """
     Timestamps of when the given nodes were edited.
     """
