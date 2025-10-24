@@ -160,6 +160,12 @@ class Hierarchy:
         serializer=serializers.NumPyValue(dtype=basetypes.NODE_ID),
     )
 
+    # track when nodes became stale, required for migration
+    # will be eventually deleted by GC rule for column family_id 3.
+    StaleTimeStamp = _Attribute(
+        key=b"stale_ts", family_id="3", serializer=serializers.Pickle()
+    )
+
 
 class GraphMeta:
     key = b"meta"
