@@ -341,29 +341,32 @@ def get_latest_edges(
         chunks_map[node_b] = np.concatenate(chunks_map[node_b])
         return int(mlayer), _filter(node_a), _filter(node_b)
 
-    result = [types.empty_2d]
-    for edge_layer, _edge in zip(edge_layers, stale_edges):
-        node_a, node_b = _edge
-        mlayer, l2ids_a, l2ids_b = _get_filtered_l2ids(node_a, node_b, padding=0)
+    def _get_new_edge(edge, parent_ts, padding):
+        """
+        Attempts to find new edge(s) for the stale `edge`.
+            * Find L2 IDs on opposite sides of the face in L2 chunks along the face.
+            * Find new edges between them (before the given timestamp).
+            * If none found, expand search by adding another layer of L2 chunks.
+        """
+        node_a, node_b = edge
+        mlayer, l2ids_a, l2ids_b = _get_filtered_l2ids(node_a, node_b, padding=padding)
         if l2ids_a.size == 0 or l2ids_b.size == 0:
-            logging.info(f"{node_a}, {node_b}, expanding search with padding.")
-            mlayer, l2ids_a, l2ids_b = _get_filtered_l2ids(node_a, node_b, padding=2)
-            logging.info(f"Found {l2ids_a} and {l2ids_b}")
+            return types.empty_2d.copy()
 
         _edges = []
-        edges_d = cg.get_cross_chunk_edges(
+        _edges_d = cg.get_cross_chunk_edges(
             node_ids=l2ids_a,
             time_stamp=max(nodes_ts_map[node_a], nodes_ts_map[node_b]),
             raw_only=True,
         )
-        for v in edges_d.values():
-            _edges.append(v.get(edge_layer, types.empty_2d))
+        for v in _edges_d.values():
+            if edge_layer in v:
+                _edges.append(v[edge_layer])
 
         try:
             _edges = np.concatenate(_edges)
-        except ValueError as exc:
-            logging.warning(f"No edges found for {node_a}, {node_b}")
-            raise ValueError from exc
+        except ValueError:
+            return types.empty_2d.copy()
 
         mask = np.isin(_edges[:, 1], l2ids_b)
         parents_a = _edges[mask][:, 0]
@@ -383,9 +386,17 @@ def get_latest_edges(
         )
 
         parents_a = np.array([node_a] * parents_b.size, dtype=basetypes.NODE_ID)
-        _new_edges = np.column_stack((parents_a, parents_b))
-        err = f"No edge found for {node_a}, {node_b} at {edge_layer}; {parent_ts}"
-        assert _new_edges.size, err
+        return np.column_stack((parents_a, parents_b))
+
+    result = [types.empty_2d]
+    for edge_layer, _edge in zip(edge_layers, stale_edges):
+        max_chebyshev_distance = int(environ.get("MAX_CHEBYSHEV_DISTANCE", 3))
+        for pad in range(0, max_chebyshev_distance):
+            _new_edges = _get_new_edge(_edge, parent_ts, padding=pad)
+            if _new_edges.size:
+                break
+            logging.info(f"{_edge}, expanding search with padding {pad+1}.")
+        assert _new_edges.size, f"No new edge found {_edge}; {edge_layer}, {parent_ts}"
         result.append(_new_edges)
     return np.concatenate(result)
 
@@ -419,4 +430,5 @@ def get_latest_edges_wrapper(
             stale_edge_layers,
             parent_ts=parent_ts,
         )
+        logging.info(f"{stale_edges} -> {latest_edges}; {parent_ts}")
     return np.concatenate([_cx_edges, latest_edges])
