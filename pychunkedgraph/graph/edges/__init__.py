@@ -406,7 +406,10 @@ def get_latest_edges_wrapper(
     cx_edges_d: dict,
     parent_ts: datetime.datetime = None,
 ) -> np.ndarray:
-    """Helper function to filter stale edges and replace with latest edges."""
+    """
+    Helper function to filter stale edges and replace with latest edges.
+    Filters out edges with nodes stale in source, edges[:,0], at given timestamp.
+    """
     _cx_edges = [types.empty_2d]
     _edge_layers = [types.empty_1d]
     for k, v in cx_edges_d.items():
@@ -417,13 +420,16 @@ def get_latest_edges_wrapper(
 
     edge_nodes = np.unique(_cx_edges)
     stale_nodes = get_stale_nodes(cg, edge_nodes, parent_ts=parent_ts)
-    stale_nodes_mask = np.isin(edge_nodes, stale_nodes)
+
+    stale_source_mask = np.isin(_cx_edges[:, 0], stale_nodes)
+    _cx_edges = _cx_edges[~stale_source_mask]
+    _edge_layers = _edge_layers[~stale_source_mask]
+    stale_destination_mask = np.isin(_cx_edges[:, 1], stale_nodes)
 
     latest_edges = types.empty_2d.copy()
-    if np.any(stale_nodes_mask):
-        stalte_edges_mask = np.isin(_cx_edges[:, 1], stale_nodes)
-        stale_edges = _cx_edges[stalte_edges_mask]
-        stale_edge_layers = _edge_layers[stalte_edges_mask]
+    if np.any(stale_destination_mask):
+        stale_edges = _cx_edges[stale_destination_mask]
+        stale_edge_layers = _edge_layers[stale_destination_mask]
         latest_edges = get_latest_edges(
             cg,
             stale_edges,
