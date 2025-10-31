@@ -99,11 +99,10 @@ def update_cross_edges(cg: ChunkedGraph, layer, node, node_ts) -> list:
     for ts, cx_edges_d in CX_EDGES[node].items():
         if ts < node_ts:
             continue
-        edges = get_latest_edges_wrapper(cg, cx_edges_d, parent_ts=ts)
-        if edges.size == 0:
+        cx_edges_d, edge_nodes = get_latest_edges_wrapper(cg, cx_edges_d, parent_ts=ts)
+        if edge_nodes.size == 0:
             continue
 
-        edge_nodes = np.unique(edges)
         parents = cg.get_roots(edge_nodes, time_stamp=ts, stop_layer=layer, ceil=False)
         edge_parents_d = dict(zip(edge_nodes, parents))
         val_dict = {}
@@ -167,7 +166,6 @@ def update_chunk(
         rows = []
         for node, node_ts in zip(nodes, nodes_ts):
             rows.extend(update_cross_edges(cg, layer, node, node_ts))
-        cg.client.write(rows)
         logging.info(f"total elaspsed time: {time.time() - start}")
         return
 
