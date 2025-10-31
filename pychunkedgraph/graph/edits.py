@@ -587,10 +587,9 @@ class CreateParentNodes:
             children, time_stamp=self._last_successful_ts
         )
         cx_edges_d = concatenate_cross_edge_dicts(cx_edges_d.values())
-        _cx_edges = get_latest_edges_wrapper(
+        cx_edges_d, edge_nodes = get_latest_edges_wrapper(
             self.cg, cx_edges_d, parent_ts=self._last_successful_ts
         )
-        edge_nodes = np.unique(_cx_edges)
         edge_parents = self.cg.get_roots(
             edge_nodes,
             stop_layer=parent_layer,

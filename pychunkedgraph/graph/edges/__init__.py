@@ -412,39 +412,42 @@ def get_latest_edges(
 
 
 def get_latest_edges_wrapper(
-    cg,
-    cx_edges_d: dict,
-    parent_ts: datetime.datetime = None,
-) -> np.ndarray:
+    cg, cx_edges_d: dict, parent_ts: datetime.datetime = None
+) -> tuple[dict, np.ndarray]:
     """
     Helper function to filter stale edges and replace with latest edges.
     Filters out edges with nodes stale in source, edges[:,0], at given timestamp.
     """
-    _cx_edges = [types.empty_2d]
-    _edge_layers = [types.empty_1d]
-    for k, v in cx_edges_d.items():
-        _cx_edges.append(v)
-        _edge_layers.append([k] * len(v))
-    _cx_edges = np.concatenate(_cx_edges)
-    _edge_layers = np.concatenate(_edge_layers, dtype=int)
+    nodes = [types.empty_1d]
+    new_cx_edges_d = {0: types.empty_2d}
+    for layer, _cx_edges in cx_edges_d.items():
+        if _cx_edges.size == 0:
+            continue
 
-    edge_nodes = np.unique(_cx_edges)
-    stale_nodes = get_stale_nodes(cg, edge_nodes, parent_ts=parent_ts)
+        _new_cx_edges = [types.empty_2d]
+        _edge_layers = np.array([layer] * len(_cx_edges), dtype=int)
+        edge_nodes = np.unique(_cx_edges)
+        stale_nodes = get_stale_nodes(cg, edge_nodes, parent_ts=parent_ts)
 
-    stale_source_mask = np.isin(_cx_edges[:, 0], stale_nodes)
-    _cx_edges = _cx_edges[~stale_source_mask]
-    _edge_layers = _edge_layers[~stale_source_mask]
-    stale_destination_mask = np.isin(_cx_edges[:, 1], stale_nodes)
+        stale_source_mask = np.isin(_cx_edges[:, 0], stale_nodes)
+        _new_cx_edges.append(_cx_edges[stale_source_mask])
 
-    latest_edges = types.empty_2d.copy()
-    if np.any(stale_destination_mask):
-        stale_edges = _cx_edges[stale_destination_mask]
-        stale_edge_layers = _edge_layers[stale_destination_mask]
-        latest_edges = get_latest_edges(
-            cg,
-            stale_edges,
-            stale_edge_layers,
-            parent_ts=parent_ts,
-        )
-        logging.debug(f"{stale_edges} -> {latest_edges}; {parent_ts}")
-    return np.concatenate([_cx_edges, latest_edges])
+        _cx_edges = _cx_edges[~stale_source_mask]
+        _edge_layers = _edge_layers[~stale_source_mask]
+        stale_destination_mask = np.isin(_cx_edges[:, 1], stale_nodes)
+        _new_cx_edges.append(_cx_edges[~stale_destination_mask])
+
+        if np.any(stale_destination_mask):
+            stale_edges = _cx_edges[stale_destination_mask]
+            stale_edge_layers = _edge_layers[stale_destination_mask]
+            latest_edges = get_latest_edges(
+                cg,
+                stale_edges,
+                stale_edge_layers,
+                parent_ts=parent_ts,
+            )
+            logging.debug(f"{stale_edges} -> {latest_edges}; {parent_ts}")
+            _new_cx_edges.append(latest_edges)
+        new_cx_edges_d[layer] = np.concatenate(_new_cx_edges)
+        nodes.append(np.unique(new_cx_edges_d[layer]))
+    return new_cx_edges_d, np.concatenate(nodes)
