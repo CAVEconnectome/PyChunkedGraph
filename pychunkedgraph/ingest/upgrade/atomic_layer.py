@@ -2,7 +2,7 @@
 
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 import logging, math, time
 from copy import copy
 
@@ -39,6 +39,7 @@ def update_cross_edges(
     for partner in partners:
         timestamps.update(timestamps_d[partner])
 
+    node_end_ts = node_end_ts or datetime.now(timezone.utc)
     for ts in sorted(timestamps):
         if ts < node_ts:
             continue
@@ -76,15 +77,20 @@ def update_nodes(cg: ChunkedGraph, nodes, nodes_ts, children_map=None) -> list:
 
     rows = []
     for node, node_ts, end_ts in zip(nodes, nodes_ts, end_timestamps):
-        end_ts -= timedelta(milliseconds=1)
+        is_stale = end_ts is not None
         _cx_edges_d = cx_edges_d.get(node, {})
         if not _cx_edges_d:
             continue
+        if is_stale:
+            end_ts -= timedelta(milliseconds=1)
+
         _rows = update_cross_edges(cg, node, _cx_edges_d, node_ts, end_ts, timestamps_d)
-        row_id = serializers.serialize_uint64(node)
-        val_dict = {Hierarchy.StaleTimeStamp: 0}
-        _rows.append(cg.client.mutate_row(row_id, val_dict, time_stamp=end_ts))
+        if is_stale:
+            row_id = serializers.serialize_uint64(node)
+            val_dict = {Hierarchy.StaleTimeStamp: 0}
+            _rows.append(cg.client.mutate_row(row_id, val_dict, time_stamp=end_ts))
         rows.extend(_rows)
+
     return rows
 
 

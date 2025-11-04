@@ -4,6 +4,7 @@ import logging, math, random, time
 import multiprocessing as mp
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from datetime import datetime, timezone
 
 import fastremap
 import numpy as np
@@ -59,33 +60,47 @@ def _populate_cx_edges_with_timestamps(
     for all IDs involved in an edit, we can use the timestamps of
     when cross edges of children were updated.
     """
+
+    start = time.time()
     global CX_EDGES
     attrs = [Connectivity.CrossChunkEdge[l] for l in range(layer, cg.meta.layer_count)]
     all_children = np.concatenate(list(CHILDREN.values()))
     response = cg.client.read_nodes(node_ids=all_children, properties=attrs)
     timestamps_d = get_parent_timestamps(cg, nodes)
     end_timestamps = get_end_timestamps(cg, nodes, nodes_ts, CHILDREN, layer=layer)
+    logging.info(f"_populate_nodes_and_children init: {time.time() - start}")
+
+    start = time.time()
+    partners_map = {}
+    for node, node_ts in zip(nodes, nodes_ts):
+        CX_EDGES[node] = {}
+        cx_edges_d_node_ts = _get_cx_edges_at_timestamp(node, response, node_ts)
+        edges = np.concatenate([empty_2d] + list(cx_edges_d_node_ts.values()))
+        partners_map[node] = edges[:, 1]
+        CX_EDGES[node][node_ts] = cx_edges_d_node_ts
+
+    partners = np.unique(np.concatenate([*partners_map.values()]))
+    partner_parent_ts_d = get_parent_timestamps(cg, partners)
+    logging.info(f"get partners timestamps init: {time.time() - start}")
 
     rows = []
     for node, node_ts, node_end_ts in zip(nodes, nodes_ts, end_timestamps):
-        CX_EDGES[node] = {}
         timestamps = timestamps_d[node]
-        cx_edges_d_node_ts = _get_cx_edges_at_timestamp(node, response, node_ts)
+        for partner in partners_map[node]:
+            timestamps.update(partner_parent_ts_d[partner])
 
-        edges = np.concatenate([empty_2d] + list(cx_edges_d_node_ts.values()))
-        partner_parent_ts_d = get_parent_timestamps(cg, edges[:, 1])
-        for v in partner_parent_ts_d.values():
-            timestamps.update(v)
-        CX_EDGES[node][node_ts] = cx_edges_d_node_ts
-
+        is_stale = node_end_ts is not None
+        node_end_ts = node_end_ts or datetime.now(timezone.utc)
         for ts in sorted(timestamps):
             if ts > node_end_ts:
                 break
             CX_EDGES[node][ts] = _get_cx_edges_at_timestamp(node, response, ts)
 
-        row_id = serializers.serialize_uint64(node)
-        val_dict = {Hierarchy.StaleTimeStamp: 0}
-        rows.append(cg.client.mutate_row(row_id, val_dict, time_stamp=node_end_ts))
+        if is_stale:
+            row_id = serializers.serialize_uint64(node)
+            val_dict = {Hierarchy.StaleTimeStamp: 0}
+            rows.append(cg.client.mutate_row(row_id, val_dict, time_stamp=node_end_ts))
+
     cg.client.write(rows)
 
 
@@ -140,7 +155,6 @@ def _update_cross_edges_helper(args):
         futures = [executor.submit(_update_cross_edges_helper_thread, task) for task in tasks]
         for future in tqdm(as_completed(futures), total=len(futures)):
             rows.extend(future.result())
-
     cg.client.write(rows)
 
 
@@ -154,13 +168,21 @@ def update_chunk(
     start = time.time()
     x, y, z = chunk_coords
     chunk_id = cg.get_chunk_id(layer=layer, x=x, y=y, z=z)
+
     _populate_nodes_and_children(cg, chunk_id, nodes=nodes)
+    logging.info(f"_populate_nodes_and_children: {time.time() - start}")
     if not CHILDREN:
         return
     nodes = list(CHILDREN.keys())
     random.shuffle(nodes)
+
+    start = time.time()
     nodes_ts = cg.get_node_timestamps(nodes, return_numpy=False, normalize=True)
+    logging.info(f"get_node_timestamps: {time.time() - start}")
+
+    start = time.time()
     _populate_cx_edges_with_timestamps(cg, layer, nodes, nodes_ts)
+    logging.info(f"_populate_cx_edges_with_timestamps: {time.time() - start}")
 
     if debug:
         rows = []
