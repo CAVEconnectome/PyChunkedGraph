@@ -833,7 +833,7 @@ class Client(bigtable.Client, ClientWithIDGen, OperationLogger):
             # Check for everything falsy, because Bigtable considers even empty
             # lists of row_keys as no upper/lower bound!
             return {}
-        retry = DEFAULT_RETRY_READ_ROWS.with_timeout(180)
+        retry = DEFAULT_RETRY_READ_ROWS.with_timeout(600)
         range_read = table.read_rows(row_set=row_set, filter_=row_filter, retry=retry)
         res = {v.row_key: utils.partial_row_data_to_column_dict(v) for v in range_read}
         return res
