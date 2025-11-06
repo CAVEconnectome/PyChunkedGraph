@@ -64,16 +64,19 @@ def get_end_timestamps(
 
     for node, node_ts in zip(nodes, nodes_ts):
         node_children = children_map[node]
-        _timestamps = set().union(*[timestamps_d[k] for k in node_children])
+        _children_timestamps = []
+        for k in node_children:
+            if k in timestamps_d:
+                _children_timestamps.append(timestamps_d[k])
+        _timestamps = set().union(*_children_timestamps)
         _timestamps.add(node_ts)
         try:
             _timestamps = sorted(_timestamps)
             _index = np.searchsorted(_timestamps, node_ts)
-            assert _timestamps[_index] == node_ts, (_index, node_ts, _timestamps)
             end_ts = _timestamps[_index + 1]
         except IndexError:
             # this node has not been edited, but might have it edges updated
-            end_ts = datetime.now(timezone.utc)
+            end_ts = None
         result.append(end_ts)
     return result
 
