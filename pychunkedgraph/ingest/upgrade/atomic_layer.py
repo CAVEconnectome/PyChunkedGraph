@@ -1,8 +1,8 @@
 # pylint: disable=invalid-name, missing-docstring, c-extension-no-member
 
 from collections import defaultdict
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta, timezone
+import multiprocessing as mp
 import logging, math, time
 from copy import copy
 
@@ -19,13 +19,28 @@ from .utils import get_end_timestamps, get_parent_timestamps
 CHILDREN = {}
 
 
+def _get_parents_at_timestamp(nodes, parents_ts_map, time_stamp):
+    """
+    Search for the first parent with ts <= `time_stamp`.
+    `parents_ts_map[node]` is a map of ts:parent with sorted timestamps (desc).
+    """
+    parents = []
+    for node in nodes:
+        for ts, parent in parents_ts_map[node].items():
+            if time_stamp >= ts:
+                parents.append(parent)
+                break
+    return parents
+
+
 def update_cross_edges(
     cg: ChunkedGraph,
     node,
     cx_edges_d: dict,
     node_ts,
     node_end_ts,
-    timestamps_d: defaultdict[int, set],
+    timestamps_map: defaultdict[int, set],
+    parents_ts_map: defaultdict[int, dict],
 ) -> list:
     """
     Helper function to update a single L2 ID.
@@ -35,9 +50,9 @@ def update_cross_edges(
     edges = np.concatenate(list(cx_edges_d.values()))
     partners = np.unique(edges[:, 1])
 
-    timestamps = copy(timestamps_d[node])
+    timestamps = copy(timestamps_map[node])
     for partner in partners:
-        timestamps.update(timestamps_d[partner])
+        timestamps.update(timestamps_map[partner])
 
     node_end_ts = node_end_ts or datetime.now(timezone.utc)
     for ts in sorted(timestamps):
@@ -47,7 +62,7 @@ def update_cross_edges(
             break
 
         val_dict = {}
-        parents = cg.get_parents(partners, time_stamp=ts)
+        parents = _get_parents_at_timestamp(partners, parents_ts_map, ts)
         edge_parents_d = dict(zip(partners, parents))
         for layer, layer_edges in cx_edges_d.items():
             layer_edges = fastremap.remap(
@@ -75,28 +90,42 @@ def update_nodes(cg: ChunkedGraph, nodes, nodes_ts, children_map=None) -> list:
     all_partners = np.unique(np.concatenate(all_cx_edges)[:, 1])
     timestamps_d = get_parent_timestamps(cg, np.concatenate([nodes, all_partners]))
 
+    parents_ts_map = defaultdict(dict)
+    all_parents = cg.get_parents(all_partners, current=False)
+    for partner, parents in zip(all_partners, all_parents):
+        for parent, ts in parents:
+            parents_ts_map[partner][ts] = parent
+
     rows = []
+    skipped = []
     for node, node_ts, end_ts in zip(nodes, nodes_ts, end_timestamps):
         is_stale = end_ts is not None
         _cx_edges_d = cx_edges_d.get(node, {})
         if not _cx_edges_d:
+            skipped.append(node)
             continue
         if is_stale:
             end_ts -= timedelta(milliseconds=1)
 
-        _rows = update_cross_edges(cg, node, _cx_edges_d, node_ts, end_ts, timestamps_d)
+        _rows = update_cross_edges(
+            cg, node, _cx_edges_d, node_ts, end_ts, timestamps_d, parents_ts_map
+        )
         if is_stale:
             row_id = serializers.serialize_uint64(node)
             val_dict = {Hierarchy.StaleTimeStamp: 0}
             _rows.append(cg.client.mutate_row(row_id, val_dict, time_stamp=end_ts))
         rows.extend(_rows)
-
+    parents = cg.get_roots(skipped)
+    layers = cg.get_chunk_layers(parents)
+    assert np.all(layers == cg.meta.layer_count)
     return rows
 
 
 def _update_nodes_helper(args):
-    cg, nodes, nodes_ts = args
-    return update_nodes(cg, nodes, nodes_ts)
+    cg_info, nodes, nodes_ts = args
+    cg = ChunkedGraph(**cg_info)
+    rows = update_nodes(cg, nodes, nodes_ts)
+    cg.client.write(rows)
 
 
 def update_chunk(cg: ChunkedGraph, chunk_coords: list[int], debug: bool = False):
@@ -134,21 +163,26 @@ def update_chunk(cg: ChunkedGraph, chunk_coords: list[int], debug: bool = False)
 
     if debug:
         rows = update_nodes(cg, nodes, nodes_ts)
-    else:
-        task_size = int(math.ceil(len(nodes) / 16))
-        chunked_nodes = chunked(nodes, task_size)
-        chunked_nodes_ts = chunked(nodes_ts, task_size)
-        tasks = []
-        for chunk, ts_chunk in zip(chunked_nodes, chunked_nodes_ts):
-            args = (cg, chunk, ts_chunk)
-            tasks.append(args)
-        logging.info(f"task size {task_size}, count {len(tasks)}.")
+        cg.client.write(rows)
+        return
 
-        rows = []
-        with ThreadPoolExecutor(max_workers=8) as executor:
-            futures = [executor.submit(_update_nodes_helper, task) for task in tasks]
-            for future in tqdm(as_completed(futures), total=len(futures)):
-                rows.extend(future.result())
+    task_size = int(math.ceil(len(nodes) / mp.cpu_count() / 2))
+    chunked_nodes = chunked(nodes, task_size)
+    chunked_nodes_ts = chunked(nodes_ts, task_size)
+    cg_info = cg.get_serialized_info()
 
-    cg.client.write(rows)
+    tasks = []
+    for chunk, ts_chunk in zip(chunked_nodes, chunked_nodes_ts):
+        args = (cg_info, chunk, ts_chunk)
+        tasks.append(args)
+
+    processes = min(mp.cpu_count() * 2, len(tasks))
+    logging.info(f"processing {len(nodes)} nodes with {processes} workers.")
+    with mp.Pool(processes) as pool:
+        _ = list(
+            tqdm(
+                pool.imap_unordered(_update_nodes_helper, tasks),
+                total=len(tasks),
+            )
+        )
     logging.info(f"total elaspsed time: {time.time() - start}")
