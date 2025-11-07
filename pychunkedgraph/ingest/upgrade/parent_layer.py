@@ -17,7 +17,7 @@ from pychunkedgraph.graph.utils import serializers
 from pychunkedgraph.graph.types import empty_2d
 from pychunkedgraph.utils.general import chunked
 
-from .utils import get_end_timestamps, get_parent_timestamps
+from .utils import fix_corrupt_nodes, get_end_timestamps, get_parent_timestamps
 
 
 CHILDREN = {}
@@ -145,17 +145,30 @@ def _update_cross_edges_helper(args):
     parents = cg.get_parents(nodes, fail_to_zero=True)
 
     tasks = []
+    corrupt_nodes = []
+    corrupt_nodes_ts = []
+    earliest_ts = cg.get_earliest_timestamp()
     for node, parent, node_ts in zip(nodes, parents, nodes_ts):
         if parent == 0:
-            # invalid id caused by failed ingest task / edits
-            continue
-        tasks.append((cg, layer, node, node_ts))
+            # ignore invalid nodes from failed ingest tasks, w/o parent column entry
+            # retain invalid nodes from edits to fix the hierarchy
+            if node_ts > earliest_ts:
+                corrupt_nodes.append(node)
+                corrupt_nodes_ts.append(node_ts)
+        else:
+            tasks.append((cg, layer, node, node_ts))
 
     with ThreadPoolExecutor(max_workers=4) as executor:
-        futures = [executor.submit(_update_cross_edges_helper_thread, task) for task in tasks]
+        futures = [
+            executor.submit(_update_cross_edges_helper_thread, task) for task in tasks
+        ]
         for future in tqdm(as_completed(futures), total=len(futures)):
             rows.extend(future.result())
+
     cg.client.write(rows)
+    if len(corrupt_nodes) > 0:
+        logging.info(f"found {len(corrupt_nodes)} corrupt nodes {corrupt_nodes[:3]}...")
+        fix_corrupt_nodes(cg, corrupt_nodes, corrupt_nodes_ts, CHILDREN)
 
 
 def update_chunk(
@@ -164,7 +177,7 @@ def update_chunk(
     """
     Iterate over all layer IDs in a chunk and update their cross chunk edges.
     """
-    debug =  nodes is not None
+    debug = nodes is not None
     start = time.time()
     x, y, z = chunk_coords
     chunk_id = cg.get_chunk_id(layer=layer, x=x, y=y, z=z)

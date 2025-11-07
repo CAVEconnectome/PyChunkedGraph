@@ -11,7 +11,7 @@ from pychunkedgraph.graph import ChunkedGraph, types
 from pychunkedgraph.graph.attributes import Connectivity, Hierarchy
 from pychunkedgraph.graph.utils import serializers
 
-from .utils import get_end_timestamps, get_parent_timestamps
+from .utils import fix_corrupt_nodes, get_end_timestamps, get_parent_timestamps
 
 CHILDREN = {}
 
@@ -136,16 +136,21 @@ def update_chunk(cg: ChunkedGraph, chunk_coords: list[int]):
     nodes = []
     nodes_ts = []
     earliest_ts = cg.get_earliest_timestamp()
+    corrupt_nodes = []
+    corrupt_nodes_ts = []
     for k, v in rr.items():
         try:
-            _ = v[Hierarchy.Parent]
-            nodes.append(k)
             CHILDREN[k] = v[Hierarchy.Child][0].value
             ts = v[Hierarchy.Child][0].timestamp
+            _ = v[Hierarchy.Parent]
+            nodes.append(k)
             nodes_ts.append(earliest_ts if ts < earliest_ts else ts)
         except KeyError:
-            # invalid nodes from failed tasks w/o parent column entry
-            continue
+            # ignore invalid nodes from failed ingest tasks, w/o parent column entry
+            # retain invalid nodes from edits to fix the hierarchy
+            if ts > earliest_ts:
+                corrupt_nodes.append(k)
+                corrupt_nodes_ts.append(ts)
 
     if len(nodes) > 0:
         logging.info(f"processing {len(nodes)} nodes.")
@@ -156,3 +161,7 @@ def update_chunk(cg: ChunkedGraph, chunk_coords: list[int]):
     rows = update_nodes(cg, nodes, nodes_ts)
     cg.client.write(rows)
     logging.info(f"mutations: {len(rows)}, time: {time.time() - start}")
+
+    if len(corrupt_nodes) > 0:
+        logging.info(f"found {len(corrupt_nodes)} corrupt nodes {corrupt_nodes[:3]}...")
+        fix_corrupt_nodes(cg, corrupt_nodes, corrupt_nodes_ts, CHILDREN)
