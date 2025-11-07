@@ -1,11 +1,13 @@
 # pylint: disable=invalid-name, missing-docstring
 
 from collections import defaultdict
-from datetime import datetime, timezone
+from datetime import datetime, timedelta
 
 import numpy as np
 from pychunkedgraph.graph import ChunkedGraph
 from pychunkedgraph.graph.attributes import Hierarchy
+from pychunkedgraph.graph.utils import serializers
+from google.cloud.bigtable.row_filters import TimestampRange
 
 
 def exists_as_parent(cg: ChunkedGraph, parent, nodes) -> bool:
@@ -102,3 +104,34 @@ def get_parent_timestamps(
             ts = cell.timestamp
             result[k].add(earliest_ts if ts < earliest_ts else ts)
     return result
+
+
+def fix_corrupt_nodes(cg: ChunkedGraph, nodes: list, children_d: dict):
+    """
+    Iteratively removes a node from parent column of its children.
+    Then removes the node iteself, effectively erasing it.
+    """
+    table = cg.client._table
+    batcher = table.mutations_batcher(flush_count=500)
+    for node in nodes:
+        children = children_d[node]
+        _map = cg.client.read_nodes(node_ids=children, properties=Hierarchy.Parent)
+
+        for child, parent_cells in _map.items():
+            row = table.direct_row(serializers.serialize_uint64(child))
+            for cell in parent_cells:
+                if cell.value == node:
+                    start = cell.timestamp
+                    end = start + timedelta(microseconds=1)
+                    row.delete_cell(
+                        column_family_id=Hierarchy.Parent.family_id,
+                        column=Hierarchy.Parent.key,
+                        time_range=TimestampRange(start=start, end=end),
+                    )
+                    batcher.mutate(row)
+
+        row = table.direct_row(serializers.serialize_uint64(node))
+        row.delete()
+        batcher.mutate(row)
+
+    batcher.flush()
