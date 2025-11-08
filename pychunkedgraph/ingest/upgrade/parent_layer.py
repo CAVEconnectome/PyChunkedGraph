@@ -1,6 +1,6 @@
 # pylint: disable=invalid-name, missing-docstring, c-extension-no-member
 
-import logging, math, random, time
+import logging, math, random, time, os
 import multiprocessing as mp
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -17,7 +17,7 @@ from pychunkedgraph.graph.utils import serializers
 from pychunkedgraph.graph.types import empty_2d
 from pychunkedgraph.utils.general import chunked
 
-from .utils import get_end_timestamps, get_parent_timestamps
+from .utils import fix_corrupt_nodes, get_end_timestamps, get_parent_timestamps
 
 
 CHILDREN = {}
@@ -60,6 +60,11 @@ def _populate_cx_edges_with_timestamps(
     for all IDs involved in an edit, we can use the timestamps of
     when cross edges of children were updated.
     """
+
+    clean_task = os.environ.get("CLEAN_CHUNKS", "false") == "clean"
+    # this data is not needed for clean tasks
+    if clean_task:
+        return
 
     start = time.time()
     global CX_EDGES
@@ -139,20 +144,33 @@ def _update_cross_edges_helper_thread(args):
 
 
 def _update_cross_edges_helper(args):
-    cg_info, layer, nodes, nodes_ts = args
     rows = []
+    clean_task = os.environ.get("CLEAN_CHUNKS", "false") == "clean"
+    cg_info, layer, nodes, nodes_ts = args
     cg = ChunkedGraph(**cg_info)
     parents = cg.get_parents(nodes, fail_to_zero=True)
 
     tasks = []
+    corrupt_nodes = []
+    earliest_ts = cg.get_earliest_timestamp()
     for node, parent, node_ts in zip(nodes, parents, nodes_ts):
         if parent == 0:
-            # invalid id caused by failed ingest task / edits
-            continue
-        tasks.append((cg, layer, node, node_ts))
+            # ignore invalid nodes from failed ingest tasks, w/o parent column entry
+            # retain invalid nodes from edits to fix the hierarchy
+            if node_ts > earliest_ts:
+                corrupt_nodes.append(node)
+        else:
+            tasks.append((cg, layer, node, node_ts))
+
+    if clean_task:
+        logging.info(f"found {len(corrupt_nodes)} corrupt nodes {corrupt_nodes[:3]}...")
+        fix_corrupt_nodes(cg, corrupt_nodes, CHILDREN)
+        return
 
     with ThreadPoolExecutor(max_workers=4) as executor:
-        futures = [executor.submit(_update_cross_edges_helper_thread, task) for task in tasks]
+        futures = [
+            executor.submit(_update_cross_edges_helper_thread, task) for task in tasks
+        ]
         for future in tqdm(as_completed(futures), total=len(futures)):
             rows.extend(future.result())
     cg.client.write(rows)
@@ -164,7 +182,7 @@ def update_chunk(
     """
     Iterate over all layer IDs in a chunk and update their cross chunk edges.
     """
-    debug =  nodes is not None
+    debug = nodes is not None
     start = time.time()
     x, y, z = chunk_coords
     chunk_id = cg.get_chunk_id(layer=layer, x=x, y=y, z=z)
