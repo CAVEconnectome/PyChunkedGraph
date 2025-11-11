@@ -10,9 +10,8 @@ import fastremap
 import numpy as np
 from tqdm import tqdm
 
-from pychunkedgraph.graph import ChunkedGraph
+from pychunkedgraph.graph import ChunkedGraph, edges
 from pychunkedgraph.graph.attributes import Connectivity, Hierarchy
-from pychunkedgraph.graph.edges import get_latest_edges_wrapper
 from pychunkedgraph.graph.utils import serializers
 from pychunkedgraph.graph.types import empty_2d
 from pychunkedgraph.utils.general import chunked
@@ -105,7 +104,6 @@ def _populate_cx_edges_with_timestamps(
             row_id = serializers.serialize_uint64(node)
             val_dict = {Hierarchy.StaleTimeStamp: 0}
             rows.append(cg.client.mutate_row(row_id, val_dict, time_stamp=node_end_ts))
-
     cg.client.write(rows)
 
 
@@ -119,7 +117,7 @@ def update_cross_edges(cg: ChunkedGraph, layer, node, node_ts) -> list:
     for ts, cx_edges_d in CX_EDGES[node].items():
         if ts < node_ts:
             continue
-        cx_edges_d, edge_nodes = get_latest_edges_wrapper(cg, cx_edges_d, parent_ts=ts)
+        cx_edges_d, edge_nodes = edges.get_latest_edges_wrapper(cg, cx_edges_d, parent_ts=ts)
         if edge_nodes.size == 0:
             continue
 
@@ -204,6 +202,7 @@ def update_chunk(
 
     if debug:
         rows = []
+        logging.info(f"processing {len(nodes)} nodes with 1 worker.")
         for node, node_ts in zip(nodes, nodes_ts):
             rows.extend(update_cross_edges(cg, layer, node, node_ts))
         logging.info(f"total elaspsed time: {time.time() - start}")
