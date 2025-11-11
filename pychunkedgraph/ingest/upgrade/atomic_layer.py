@@ -10,24 +10,11 @@ import numpy as np
 from pychunkedgraph.graph import ChunkedGraph, types
 from pychunkedgraph.graph.attributes import Connectivity, Hierarchy
 from pychunkedgraph.graph.utils import serializers
+from pychunkedgraph.graph.utils.generic import get_parents_at_timestamp
 
 from .utils import fix_corrupt_nodes, get_end_timestamps, get_parent_timestamps
 
 CHILDREN = {}
-
-
-def _get_parents_at_timestamp(nodes, parents_ts_map, time_stamp):
-    """
-    Search for the first parent with ts <= `time_stamp`.
-    `parents_ts_map[node]` is a map of ts:parent with sorted timestamps (desc).
-    """
-    parents = []
-    for node in nodes:
-        for ts, parent in parents_ts_map[node].items():
-            if time_stamp >= ts:
-                parents.append(parent)
-                break
-    return parents
 
 
 def update_cross_edges(
@@ -59,7 +46,7 @@ def update_cross_edges(
             break
 
         val_dict = {}
-        parents = _get_parents_at_timestamp(partners, parents_ts_map, ts)
+        parents = get_parents_at_timestamp(partners, parents_ts_map, ts)
         edge_parents_d = dict(zip(partners, parents))
         for layer, layer_edges in cx_edges_d.items():
             layer_edges = fastremap.remap(
