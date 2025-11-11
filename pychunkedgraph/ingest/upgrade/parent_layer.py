@@ -10,9 +10,8 @@ import fastremap
 import numpy as np
 from tqdm import tqdm
 
-from pychunkedgraph.graph import ChunkedGraph
+from pychunkedgraph.graph import ChunkedGraph, edges
 from pychunkedgraph.graph.attributes import Connectivity, Hierarchy
-from pychunkedgraph.graph.edges import get_latest_edges_wrapper
 from pychunkedgraph.graph.utils import serializers
 from pychunkedgraph.graph.types import empty_2d
 from pychunkedgraph.utils.general import chunked
@@ -105,7 +104,6 @@ def _populate_cx_edges_with_timestamps(
             row_id = serializers.serialize_uint64(node)
             val_dict = {Hierarchy.StaleTimeStamp: 0}
             rows.append(cg.client.mutate_row(row_id, val_dict, time_stamp=node_end_ts))
-
     cg.client.write(rows)
 
 
@@ -119,7 +117,7 @@ def update_cross_edges(cg: ChunkedGraph, layer, node, node_ts) -> list:
     for ts, cx_edges_d in CX_EDGES[node].items():
         if ts < node_ts:
             continue
-        cx_edges_d, edge_nodes = get_latest_edges_wrapper(cg, cx_edges_d, parent_ts=ts)
+        cx_edges_d, edge_nodes = edges.get_latest_edges_wrapper(cg, cx_edges_d, parent_ts=ts)
         if edge_nodes.size == 0:
             continue
 
@@ -204,12 +202,13 @@ def update_chunk(
 
     if debug:
         rows = []
+        logging.info(f"processing {len(nodes)} nodes with 1 worker.")
         for node, node_ts in zip(nodes, nodes_ts):
             rows.extend(update_cross_edges(cg, layer, node, node_ts))
         logging.info(f"total elaspsed time: {time.time() - start}")
         return
 
-    task_size = int(math.ceil(len(nodes) / mp.cpu_count() / 2))
+    task_size = int(math.ceil(len(nodes) / mp.cpu_count()))
     chunked_nodes = chunked(nodes, task_size)
     chunked_nodes_ts = chunked(nodes_ts, task_size)
     cg_info = cg.get_serialized_info()
@@ -219,7 +218,7 @@ def update_chunk(
         args = (cg_info, layer, chunk, ts_chunk)
         tasks.append(args)
 
-    processes = min(mp.cpu_count() * 2, len(tasks))
+    processes = min(mp.cpu_count(), len(tasks))
     logging.info(f"processing {len(nodes)} nodes with {processes} workers.")
     with mp.Pool(processes) as pool:
         _ = list(
