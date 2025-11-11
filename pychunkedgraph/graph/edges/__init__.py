@@ -21,6 +21,7 @@ from pychunkedgraph.graph.chunks.utils import (
 from pychunkedgraph.graph.utils import basetypes
 
 from ..utils import basetypes
+from ..utils.generic import get_parents_at_timestamp
 
 
 _edge_type_fileds = ("in_chunk", "between_chunk", "cross_chunk")
@@ -39,6 +40,7 @@ ADJACENCY_DTYPE = np.dtype(
     ]
 )
 ZSTD_EDGE_COMPRESSION = 17
+PARENTS_CACHE = {}
 
 
 class Edges:
@@ -341,6 +343,21 @@ def get_latest_edges(
         chunks_map[node_b] = np.concatenate(chunks_map[node_b])
         return int(mlayer), _filter(node_a), _filter(node_b)
 
+    def _populate_parents_cache(children: np.ndarray):
+        global PARENTS_CACHE
+
+        cached_children = np.array(list(PARENTS_CACHE.keys()))
+        mask = np.isin(children, cached_children)
+        children = children[~mask]
+        if children.size == 0:
+            return
+
+        all_parents = cg.get_parents(children, current=False)
+        for child, parents in zip(children, all_parents):
+            PARENTS_CACHE[child] = {}
+            for parent, ts in parents:
+                PARENTS_CACHE[child][ts] = parent
+
     def _get_new_edge(edge, parent_ts, padding):
         """
         Attempts to find new edge(s) for the stale `edge`.
@@ -371,7 +388,11 @@ def get_latest_edges(
         if np.any(mask):
             parents_a = _edges[mask][:, 0]
             children_b = cg.get_children(_edges[mask][:, 1], flatten=True)
-            parents_b = np.unique(cg.get_parents(children_b, time_stamp=parent_ts))
+            # parents_b = np.unique(cg.get_parents(children_b, time_stamp=parent_ts))
+            _populate_parents_cache(children_b)
+            parents_b = get_parents_at_timestamp(
+                children_b, PARENTS_CACHE, time_stamp=parent_ts, unique=True
+            )
             _cx_edges_d = cg.get_cross_chunk_edges(parents_b, time_stamp=parent_ts)
             parents_b = []
             for _node, _edges_d in _cx_edges_d.items():
