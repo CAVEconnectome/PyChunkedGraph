@@ -10,7 +10,7 @@ from time import sleep
 from typing import Callable, Dict, Iterable, Tuple, Sequence
 
 import numpy as np
-from rq import Queue as RQueue
+from rq import Queue as RQueue, Retry
 
 
 from .utils import chunk_id_str, get_chunks_not_done, randomize_grid_points
@@ -209,6 +209,7 @@ def _queue_tasks(imanager: IngestionManager, chunk_fn: Callable, coords: Iterabl
                     timeout=environ.get("L2JOB_TIMEOUT", "3m"),
                     result_ttl=0,
                     job_id=chunk_id_str(2, chunk_coord),
+                    retry=Retry(int(environ.get("RETRY_COUNT", 1))),
                 )
             )
         q.enqueue_many(job_datas)

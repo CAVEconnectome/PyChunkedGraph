@@ -12,6 +12,7 @@ import numpy as np
 import tensorstore as ts
 import zstandard as zstd
 from graph_tool import Graph
+from cachetools import LRUCache
 
 from pychunkedgraph.graph import types
 from pychunkedgraph.graph.chunks.utils import (
@@ -21,6 +22,7 @@ from pychunkedgraph.graph.chunks.utils import (
 from pychunkedgraph.graph.utils import basetypes
 
 from ..utils import basetypes
+from ..utils.generic import get_parents_at_timestamp
 
 
 _edge_type_fileds = ("in_chunk", "between_chunk", "cross_chunk")
@@ -39,6 +41,7 @@ ADJACENCY_DTYPE = np.dtype(
     ]
 )
 ZSTD_EDGE_COMPRESSION = 17
+PARENTS_CACHE = LRUCache(256 * 1024)
 
 
 class Edges:
@@ -341,7 +344,72 @@ def get_latest_edges(
         chunks_map[node_b] = np.concatenate(chunks_map[node_b])
         return int(mlayer), _filter(node_a), _filter(node_b)
 
-    def _get_new_edge(edge, parent_ts, padding):
+    def _populate_parents_cache(children: np.ndarray):
+        global PARENTS_CACHE
+
+        not_cached = []
+        for child in children:
+            try:
+                # reset lru index, these will be needed soon
+                _ = PARENTS_CACHE[child]
+            except KeyError:
+                not_cached.append(child)
+
+        all_parents = cg.get_parents(not_cached, current=False)
+        for child, parents in zip(not_cached, all_parents):
+            PARENTS_CACHE[child] = {}
+            for parent, ts in parents:
+                PARENTS_CACHE[child][ts] = parent
+
+    def _get_parents_b(edges, parent_ts, layer):
+        """
+        Attempts to find new partner side nodes.
+        Gets new partners at parent_ts using supervoxels, at `parent_ts`.
+        Searches for new partners that may have any edges to `edges[:,0]`.
+        """
+        children_b = cg.get_children(edges[:, 1], flatten=True)
+        _populate_parents_cache(children_b)
+        _parents_b, missing = get_parents_at_timestamp(
+            children_b, PARENTS_CACHE, time_stamp=parent_ts, unique=True
+        )
+        # handle cache miss cases
+        _parents_b_missing = np.unique(cg.get_parents(missing, time_stamp=parent_ts))
+        parents_b = np.concatenate([_parents_b, _parents_b_missing])
+
+        parents_a = edges[:, 0]
+        stale_a = get_stale_nodes(cg, parents_a, parent_ts=parent_ts)
+        if stale_a.size == parents_a.size:
+            # this is applicable only for v2 to v3 migration
+            # handle cases when source nodes in `edges[:,0]` are stale
+            atomic_edges_d = cg.get_atomic_cross_edges(stale_a)
+            partners = [types.empty_1d]
+            for _edges_d in atomic_edges_d.values():
+                _edges = _edges_d.get(layer, types.empty_2d)
+                partners.append(_edges[:, 1])
+            partners = np.concatenate(partners)
+            return np.unique(cg.get_parents(partners, time_stamp=parent_ts))
+
+        _cx_edges_d = cg.get_cross_chunk_edges(parents_b, time_stamp=parent_ts)
+        _parents_b = []
+        for _node, _edges_d in _cx_edges_d.items():
+            for _edges in _edges_d.values():
+                _mask = np.isin(_edges[:, 1], parents_a)
+                if np.any(_mask):
+                    _parents_b.append(_node)
+        return np.array(_parents_b, dtype=basetypes.NODE_ID)
+
+    def _get_parents_b_with_chunk_mask(
+        l2ids_b: np.ndarray, parents_b: np.ndarray, max_ts: datetime.datetime, edge
+    ):
+        chunks_old = cg.get_chunk_ids_from_node_ids(l2ids_b)
+        chunks_new = cg.get_chunk_ids_from_node_ids(parents_b)
+        chunk_mask = np.isin(chunks_new, chunks_old)
+        parents_b = parents_b[chunk_mask]
+        _stale_nodes = get_stale_nodes(cg, parents_b, parent_ts=max_ts)
+        assert _stale_nodes.size == 0, f"{edge}, {_stale_nodes}, {parent_ts}"
+        return parents_b
+
+    def _get_new_edge(edge, edge_layer, parent_ts, padding):
         """
         Attempts to find new edge(s) for the stale `edge`.
             * Find L2 IDs on opposite sides of the face in L2 chunks along the face.
@@ -353,11 +421,11 @@ def get_latest_edges(
         if l2ids_a.size == 0 or l2ids_b.size == 0:
             return types.empty_2d.copy()
 
-        _edges = []
         max_node_ts = max(nodes_ts_map[node_a], nodes_ts_map[node_b])
         _edges_d = cg.get_cross_chunk_edges(
             node_ids=l2ids_a, time_stamp=max_node_ts, raw_only=True
         )
+        _edges = []
         for v in _edges_d.values():
             if edge_layer in v:
                 _edges.append(v[edge_layer])
@@ -369,27 +437,13 @@ def get_latest_edges(
 
         mask = np.isin(_edges[:, 1], l2ids_b)
         if np.any(mask):
-            parents_a = _edges[mask][:, 0]
-            children_b = cg.get_children(_edges[mask][:, 1], flatten=True)
-            parents_b = np.unique(cg.get_parents(children_b, time_stamp=parent_ts))
-            _cx_edges_d = cg.get_cross_chunk_edges(parents_b, time_stamp=parent_ts)
-            parents_b = []
-            for _node, _edges_d in _cx_edges_d.items():
-                for _edges in _edges_d.values():
-                    _mask = np.isin(_edges[:, 1], parents_a)
-                    if np.any(_mask):
-                        parents_b.append(_node)
-            parents_b = np.array(parents_b, dtype=basetypes.NODE_ID)
+            parents_b = _get_parents_b(_edges[mask], parent_ts, edge_layer)
         else:
             # if none of `l2ids_b` were found in edges, `l2ids_a` already have new edges
             # so get the new identities of `l2ids_b` by using chunk mask
-            parents_b = _edges[:, 1]
-            chunks_old = cg.get_chunk_ids_from_node_ids(l2ids_b)
-            chunks_new = cg.get_chunk_ids_from_node_ids(parents_b)
-            chunk_mask = np.isin(chunks_new, chunks_old)
-            parents_b = parents_b[chunk_mask]
-            _stale_nodes = get_stale_nodes(cg, parents_b, parent_ts=max_node_ts)
-            assert _stale_nodes.size == 0, f"{edge}, {_stale_nodes}, {parent_ts}"
+            parents_b = _get_parents_b_with_chunk_mask(
+                l2ids_b, _edges[:, 1], max_node_ts, edge
+            )
 
         parents_b = np.unique(
             cg.get_roots(parents_b, stop_layer=mlayer, ceil=False, time_stamp=parent_ts)
@@ -402,7 +456,7 @@ def get_latest_edges(
     for edge_layer, _edge in zip(edge_layers, stale_edges):
         max_chebyshev_distance = int(environ.get("MAX_CHEBYSHEV_DISTANCE", 3))
         for pad in range(0, max_chebyshev_distance):
-            _new_edges = _get_new_edge(_edge, parent_ts, padding=pad)
+            _new_edges = _get_new_edge(_edge, edge_layer, parent_ts, padding=pad)
             if _new_edges.size:
                 break
             logging.info(f"{_edge}, expanding search with padding {pad+1}.")
@@ -446,7 +500,7 @@ def get_latest_edges_wrapper(
                 stale_edge_layers,
                 parent_ts=parent_ts,
             )
-            logging.debug(f"{stale_edges} -> {latest_edges}; {parent_ts}")
+            logging.debug(f"{stale_edges} -> {latest_edges[:,1].tolist()}; {parent_ts}")
             _new_cx_edges.append(latest_edges)
         new_cx_edges_d[layer] = np.concatenate(_new_cx_edges)
         nodes.append(np.unique(new_cx_edges_d[layer]))

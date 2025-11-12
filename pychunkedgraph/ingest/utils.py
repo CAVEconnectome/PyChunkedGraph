@@ -9,7 +9,7 @@ from typing import Any, Generator, Tuple
 
 import numpy as np
 import tensorstore as ts
-from rq import Queue, Worker
+from rq import Queue, Retry, Worker
 from rq.worker import WorkerStatus
 
 from . import IngestConfig
@@ -199,6 +199,7 @@ def queue_layer_helper(parent_layer: int, imanager: IngestionManager, fn):
                     result_ttl=0,
                     job_id=chunk_id_str(parent_layer, chunk_coord),
                     timeout=f"{timeout_scale * int(parent_layer * parent_layer)}m",
+                    retry=Retry(int(environ.get("RETRY_COUNT", 1))),
                 )
             )
         q.enqueue_many(job_datas)
