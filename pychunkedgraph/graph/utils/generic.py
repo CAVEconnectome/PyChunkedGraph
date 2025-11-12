@@ -3,7 +3,6 @@ generic helper functions
 TODO categorize properly
 """
 
-
 import datetime
 from typing import Dict
 from typing import Iterable
@@ -173,9 +172,7 @@ def mask_nodes_by_bounding_box(
         adapt_layers = layers - 2
         adapt_layers[adapt_layers < 0] = 0
         fanout = meta.graph_config.FANOUT
-        bounding_box_layer = (
-            bounding_box[None] / (fanout ** adapt_layers)[:, None, None]
-        )
+        bounding_box_layer = bounding_box[None] / (fanout**adapt_layers)[:, None, None]
         bound_check = np.array(
             [
                 np.all(chunk_coordinates < bounding_box_layer[:, 1], axis=1),
@@ -184,3 +181,21 @@ def mask_nodes_by_bounding_box(
         ).T
 
         return np.all(bound_check, axis=1)
+
+
+def get_parents_at_timestamp(nodes, parents_ts_map, time_stamp, unique: bool = False):
+    """
+    Search for the first parent with ts <= `time_stamp`.
+    `parents_ts_map[node]` is a map of ts:parent with sorted timestamps (desc).
+    """
+    skipped_nodes = []
+    parents = set() if unique else []
+    for node in nodes:
+        try:
+            for ts, parent in parents_ts_map[node].items():
+                if time_stamp >= ts:
+                    parents.add(parent) if unique else parents.append(parent)
+                    break
+        except KeyError:
+            skipped_nodes.append(node)
+    return list(parents), skipped_nodes

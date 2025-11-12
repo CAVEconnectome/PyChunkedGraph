@@ -108,8 +108,8 @@ def get_parent_timestamps(
 
 def fix_corrupt_nodes(cg: ChunkedGraph, nodes: list, children_d: dict):
     """
-    Iteratively removes a node from parent column of its children.
-    Then removes the node iteself, effectively erasing it.
+    For each node: delete it from parent column of its children.
+    Then deletes the node itself, effectively erasing it from hierarchy.
     """
     table = cg.client._table
     batcher = table.mutations_batcher(flush_count=500)
