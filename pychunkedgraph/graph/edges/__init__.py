@@ -41,7 +41,7 @@ ADJACENCY_DTYPE = np.dtype(
     ]
 )
 ZSTD_EDGE_COMPRESSION = 17
-PARENTS_CACHE = LRUCache(256 * 1024)
+PARENTS_CACHE: LRUCache = None
 
 
 class Edges:
@@ -368,13 +368,16 @@ def get_latest_edges(
         Searches for new partners that may have any edges to `edges[:,0]`.
         """
         children_b = cg.get_children(edges[:, 1], flatten=True)
-        _populate_parents_cache(children_b)
-        _parents_b, missing = get_parents_at_timestamp(
-            children_b, PARENTS_CACHE, time_stamp=parent_ts, unique=True
-        )
-        # handle cache miss cases
-        _parents_b_missing = np.unique(cg.get_parents(missing, time_stamp=parent_ts))
-        parents_b = np.concatenate([_parents_b, _parents_b_missing])
+        if PARENTS_CACHE is None:
+            parents_b = np.unique(cg.get_parents(children_b, time_stamp=parent_ts))
+        else:
+            _populate_parents_cache(children_b)
+            _parents_b, missing = get_parents_at_timestamp(
+                children_b, PARENTS_CACHE, time_stamp=parent_ts, unique=True
+            )
+            # handle cache miss cases
+            _parents_b_missing = np.unique(cg.get_parents(missing, time_stamp=parent_ts))
+            parents_b = np.concatenate([_parents_b, _parents_b_missing])
 
         parents_a = edges[:, 0]
         stale_a = get_stale_nodes(cg, parents_a, parent_ts=parent_ts)

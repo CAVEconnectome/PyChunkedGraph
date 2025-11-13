@@ -1,14 +1,14 @@
 # pylint: disable=invalid-name, missing-docstring, c-extension-no-member
 
-import logging, math, random, time, os
+import logging, random, time, os
 import multiprocessing as mp
 from collections import defaultdict
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 
 import fastremap
 import numpy as np
 from tqdm import tqdm
+from cachetools import LRUCache
 
 from pychunkedgraph.graph import ChunkedGraph, edges
 from pychunkedgraph.graph.attributes import Connectivity, Hierarchy
@@ -21,6 +21,7 @@ from .utils import fix_corrupt_nodes, get_end_timestamps, get_parent_timestamps
 
 CHILDREN = {}
 CX_EDGES = {}
+CG: ChunkedGraph = None
 
 
 def _populate_nodes_and_children(
@@ -104,7 +105,7 @@ def _populate_cx_edges_with_timestamps(
             row_id = serializers.serialize_uint64(node)
             val_dict = {Hierarchy.StaleTimeStamp: 0}
             rows.append(cg.client.mutate_row(row_id, val_dict, time_stamp=node_end_ts))
-    cg.client.write(rows)
+    # cg.client.write(rows)
 
 
 def update_cross_edges(cg: ChunkedGraph, layer, node, node_ts) -> list:
@@ -117,7 +118,9 @@ def update_cross_edges(cg: ChunkedGraph, layer, node, node_ts) -> list:
     for ts, cx_edges_d in CX_EDGES[node].items():
         if ts < node_ts:
             continue
-        cx_edges_d, edge_nodes = edges.get_latest_edges_wrapper(cg, cx_edges_d, parent_ts=ts)
+        cx_edges_d, edge_nodes = edges.get_latest_edges_wrapper(
+            cg, cx_edges_d, parent_ts=ts
+        )
         if edge_nodes.size == 0:
             continue
 
@@ -137,19 +140,26 @@ def update_cross_edges(cg: ChunkedGraph, layer, node, node_ts) -> list:
 
 
 def _update_cross_edges_helper(args):
+    global CG
+    edges.PARENTS_CACHE = LRUCache(64 * 1024)
     clean_task = os.environ.get("CLEAN_CHUNKS", "false") == "clean"
     cg_info, layer, nodes, nodes_ts = args
-    cg = ChunkedGraph(**cg_info)
+
+    if CG is None:
+        CG = ChunkedGraph(**cg_info)
+    cg = CG
     parents = cg.get_parents(nodes, fail_to_zero=True)
 
     tasks = []
     corrupt_nodes = []
-    earliest_ts = cg.get_earliest_timestamp()
+    earliest_ts = None
+    if clean_task:
+        earliest_ts = cg.get_earliest_timestamp()
     for node, parent, node_ts in zip(nodes, parents, nodes_ts):
         if parent == 0:
             # ignore invalid nodes from failed ingest tasks, w/o parent column entry
             # retain invalid nodes from edits to fix the hierarchy
-            if node_ts > earliest_ts:
+            if clean_task and node_ts > earliest_ts:
                 corrupt_nodes.append(node)
         else:
             tasks.append((cg, layer, node, node_ts))
@@ -162,7 +172,8 @@ def _update_cross_edges_helper(args):
     rows = []
     for task in tasks:
         rows.extend(update_cross_edges(*task))
-    cg.client.write(rows)
+    edges.PARENTS_CACHE.clear()
+    # cg.client.write(rows)
 
 
 def update_chunk(
@@ -199,7 +210,7 @@ def update_chunk(
         logging.info(f"total elaspsed time: {time.time() - start}")
         return
 
-    task_size = int(math.ceil(len(nodes) / mp.cpu_count()))
+    task_size = int(os.environ.get("TASK_SIZE", 10))
     chunked_nodes = chunked(nodes, task_size)
     chunked_nodes_ts = chunked(nodes_ts, task_size)
     cg_info = cg.get_serialized_info()
@@ -209,7 +220,7 @@ def update_chunk(
         args = (cg_info, layer, chunk, ts_chunk)
         tasks.append(args)
 
-    processes = min(mp.cpu_count() * 2, len(tasks))
+    processes = min(mp.cpu_count() * 5, len(tasks))
     logging.info(f"processing {len(nodes)} nodes with {processes} workers.")
     with mp.Pool(processes) as pool:
         _ = list(
