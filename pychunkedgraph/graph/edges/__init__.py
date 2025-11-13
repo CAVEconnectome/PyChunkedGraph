@@ -340,9 +340,10 @@ def get_latest_edges(
                 mask = cg.get_chunk_layers(children) > 2
                 if children[mask].size == 0:
                     break
-                # children0 = cg.get_children(children[mask], flatten=True)
-                children = _get_children_from_cache(children[mask])
-                # assert np.array_equal(children, children0)
+                if PARENTS_CACHE is None:
+                    children = cg.get_children(children[mask], flatten=True)
+                else:
+                    children = _get_children_from_cache(children[mask])
             return np.concatenate(result)
 
         mlayer, coord_a, coord_b = _get_normalized_coords(node_a, node_b)
@@ -386,12 +387,11 @@ def get_latest_edges(
         Gets new partners at parent_ts using supervoxels, at `parent_ts`.
         Searches for new partners that may have any edges to `edges[:,0]`.
         """
-        # children1 = cg.get_children(edges[:, 1], flatten=True)
-        children_b = _get_children_from_cache(edges[:, 1])
-        # assert np.array_equal(children_b, children1)
         if PARENTS_CACHE is None:
+            children_b = cg.get_children(edges[:, 1], flatten=True)
             parents_b = np.unique(cg.get_parents(children_b, time_stamp=parent_ts))
         else:
+            children_b = _get_children_from_cache(edges[:, 1])
             _populate_parents_cache(children_b)
             _parents_b, missing = get_parents_at_timestamp(
                 children_b, PARENTS_CACHE, time_stamp=parent_ts, unique=True
