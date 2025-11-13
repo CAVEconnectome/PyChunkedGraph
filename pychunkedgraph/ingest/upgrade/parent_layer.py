@@ -105,7 +105,7 @@ def _populate_cx_edges_with_timestamps(
             row_id = serializers.serialize_uint64(node)
             val_dict = {Hierarchy.StaleTimeStamp: 0}
             rows.append(cg.client.mutate_row(row_id, val_dict, time_stamp=node_end_ts))
-    # cg.client.write(rows)
+    cg.client.write(rows)
 
 
 def update_cross_edges(cg: ChunkedGraph, layer, node, node_ts) -> list:
@@ -115,19 +115,17 @@ def update_cross_edges(cg: ChunkedGraph, layer, node, node_ts) -> list:
     """
     rows = []
     row_id = serializers.serialize_uint64(node)
-    for ts, cx_edges_d in CX_EDGES[node].items():
+    for ts, edges_d in CX_EDGES[node].items():
         if ts < node_ts:
             continue
-        cx_edges_d, edge_nodes = edges.get_latest_edges_wrapper(
-            cg, cx_edges_d, parent_ts=ts
-        )
-        if edge_nodes.size == 0:
+        edges_d, _nodes = edges.get_latest_edges_wrapper(cg, edges_d, parent_ts=ts)
+        if _nodes.size == 0:
             continue
 
-        parents = cg.get_roots(edge_nodes, time_stamp=ts, stop_layer=layer, ceil=False)
-        edge_parents_d = dict(zip(edge_nodes, parents))
+        parents = cg.get_roots(_nodes, time_stamp=ts, stop_layer=layer, ceil=False)
+        edge_parents_d = dict(zip(_nodes, parents))
         val_dict = {}
-        for _layer, layer_edges in cx_edges_d.items():
+        for _layer, layer_edges in edges_d.items():
             layer_edges = fastremap.remap(
                 layer_edges, edge_parents_d, preserve_missing_labels=True
             )
@@ -141,7 +139,8 @@ def update_cross_edges(cg: ChunkedGraph, layer, node, node_ts) -> list:
 
 def _update_cross_edges_helper(args):
     global CG
-    edges.PARENTS_CACHE = LRUCache(64 * 1024)
+    edges.PARENTS_CACHE = LRUCache(256 * 1024)
+    edges.CHILDREN_CACHE = LRUCache(1 * 1024)
     clean_task = os.environ.get("CLEAN_CHUNKS", "false") == "clean"
     cg_info, layer, nodes, nodes_ts = args
 
@@ -173,7 +172,8 @@ def _update_cross_edges_helper(args):
     for task in tasks:
         rows.extend(update_cross_edges(*task))
     edges.PARENTS_CACHE.clear()
-    # cg.client.write(rows)
+    edges.CHILDREN_CACHE.clear()
+    cg.client.write(rows)
 
 
 def update_chunk(
@@ -204,9 +204,13 @@ def update_chunk(
 
     if debug:
         rows = []
+        edges.PARENTS_CACHE = LRUCache(256 * 1024)
+        edges.CHILDREN_CACHE = LRUCache(1 * 1024)
         logging.info(f"processing {len(nodes)} nodes with 1 worker.")
         for node, node_ts in zip(nodes, nodes_ts):
             rows.extend(update_cross_edges(cg, layer, node, node_ts))
+        edges.PARENTS_CACHE.clear()
+        edges.CHILDREN_CACHE.clear()
         logging.info(f"total elaspsed time: {time.time() - start}")
         return
 

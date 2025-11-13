@@ -42,6 +42,7 @@ ADJACENCY_DTYPE = np.dtype(
 )
 ZSTD_EDGE_COMPRESSION = 17
 PARENTS_CACHE: LRUCache = None
+CHILDREN_CACHE: LRUCache = None
 
 
 class Edges:
@@ -249,6 +250,22 @@ def get_latest_edges(
     layers_d = dict(zip(_nodes, layers))
     coords_d = dict(zip(_nodes, coords))
 
+    def _get_children_from_cache(nodes):
+        children = []
+        non_cached = []
+        for node in nodes:
+            try:
+                v = CHILDREN_CACHE[node]
+                children.append(v)
+            except KeyError:
+                non_cached.append(node)
+
+        children_map = cg.get_children(non_cached)
+        for k, v in children_map.items():
+            CHILDREN_CACHE[k] = v
+            children.append(v)
+        return np.concatenate(children)
+
     def _get_normalized_coords(node_a, node_b) -> tuple:
         max_layer = layers_d[node_a]
         coord_a, coord_b = coords_d[node_a], coords_d[node_b]
@@ -323,7 +340,9 @@ def get_latest_edges(
                 mask = cg.get_chunk_layers(children) > 2
                 if children[mask].size == 0:
                     break
-                children = cg.get_children(children[mask], flatten=True)
+                # children0 = cg.get_children(children[mask], flatten=True)
+                children = _get_children_from_cache(children[mask])
+                # assert np.array_equal(children, children0)
             return np.concatenate(result)
 
         mlayer, coord_a, coord_b = _get_normalized_coords(node_a, node_b)
@@ -367,7 +386,9 @@ def get_latest_edges(
         Gets new partners at parent_ts using supervoxels, at `parent_ts`.
         Searches for new partners that may have any edges to `edges[:,0]`.
         """
-        children_b = cg.get_children(edges[:, 1], flatten=True)
+        # children1 = cg.get_children(edges[:, 1], flatten=True)
+        children_b = _get_children_from_cache(edges[:, 1])
+        # assert np.array_equal(children_b, children1)
         if PARENTS_CACHE is None:
             parents_b = np.unique(cg.get_parents(children_b, time_stamp=parent_ts))
         else:
@@ -503,7 +524,7 @@ def get_latest_edges_wrapper(
                 stale_edge_layers,
                 parent_ts=parent_ts,
             )
-            logging.debug(f"{stale_edges} -> {latest_edges[:,1].tolist()}; {parent_ts}")
+            logging.debug(f"{stale_edges} -> {latest_edges}; {parent_ts}")
             _new_cx_edges.append(latest_edges)
         new_cx_edges_d[layer] = np.concatenate(_new_cx_edges)
         nodes.append(np.unique(new_cx_edges_d[layer]))

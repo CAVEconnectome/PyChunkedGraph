@@ -3,6 +3,7 @@ generic helper functions
 TODO categorize properly
 """
 
+import bisect
 import datetime
 from typing import Dict
 from typing import Iterable
@@ -192,10 +193,13 @@ def get_parents_at_timestamp(nodes, parents_ts_map, time_stamp, unique: bool = F
     parents = set() if unique else []
     for node in nodes:
         try:
-            for ts, parent in parents_ts_map[node].items():
-                if time_stamp >= ts:
-                    parents.add(parent) if unique else parents.append(parent)
-                    break
+            ts_parent_map = parents_ts_map[node]
+            ts_list = list(ts_parent_map.keys())
+            asc_ts_list = ts_list[::-1]
+            idx = bisect.bisect_right(asc_ts_list, time_stamp)
+            ts = asc_ts_list[idx - 1]
+            parent = ts_parent_map[ts]
+            parents.add(parent) if unique else parents.append(parent)
         except KeyError:
             skipped_nodes.append(node)
     return list(parents), skipped_nodes
