@@ -22,6 +22,7 @@ from .utils import fix_corrupt_nodes, get_end_timestamps, get_parent_timestamps
 CHILDREN = {}
 CX_EDGES = {}
 CG: ChunkedGraph = None
+PARENT_CACHE_LIMIT = int(os.environ.get("PARENT_CACHE_LIMIT", 256)) * 1024
 
 
 def _populate_nodes_and_children(
@@ -139,7 +140,7 @@ def update_cross_edges(cg: ChunkedGraph, layer, node, node_ts) -> list:
 
 def _update_cross_edges_helper(args):
     global CG
-    edges.PARENTS_CACHE = LRUCache(256 * 1024)
+    edges.PARENTS_CACHE = LRUCache(PARENT_CACHE_LIMIT)
     edges.CHILDREN_CACHE = LRUCache(1 * 1024)
     clean_task = os.environ.get("CLEAN_CHUNKS", "false") == "clean"
     cg_info, layer, nodes, nodes_ts = args
@@ -204,7 +205,7 @@ def update_chunk(
 
     if debug:
         rows = []
-        edges.PARENTS_CACHE = LRUCache(256 * 1024)
+        edges.PARENTS_CACHE = LRUCache(PARENT_CACHE_LIMIT)
         edges.CHILDREN_CACHE = LRUCache(1 * 1024)
         logging.info(f"processing {len(nodes)} nodes with 1 worker.")
         for node, node_ts in zip(nodes, nodes_ts):
