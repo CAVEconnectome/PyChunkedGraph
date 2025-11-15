@@ -38,8 +38,11 @@ def _post_task_completion(
     imanager: IngestionManager,
     layer: int,
     coords: np.ndarray,
+    split:int=None
 ):
     chunk_str = "_".join(map(str, coords))
+    if split is not None:
+        chunk_str += f"_{split}"
     # mark chunk as completed - "c"
     imanager.redis.sadd(f"{layer}c", chunk_str)
 
@@ -66,11 +69,13 @@ def create_parent_chunk(
 def upgrade_parent_chunk(
     parent_layer: int,
     parent_coords: Sequence[int],
+    split:int=None,
+    splits:int=None
 ) -> None:
     redis = get_redis_connection()
     imanager = IngestionManager.from_pickle(redis.get(r_keys.INGESTION_MANAGER))
-    update_parent_chunk(imanager.cg, parent_coords, layer=parent_layer)
-    _post_task_completion(imanager, parent_layer, parent_coords)
+    update_parent_chunk(imanager.cg, parent_coords, layer=parent_layer, split=split, splits=splits)
+    _post_task_completion(imanager, parent_layer, parent_coords, split=split)
 
 
 def _get_atomic_chunk_data(

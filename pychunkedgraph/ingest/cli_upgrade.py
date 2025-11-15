@@ -97,8 +97,9 @@ def upgrade_graph(graph_id: str, test: bool, ocdbt: bool):
 
 @upgrade_cli.command("layer")
 @click.argument("parent_layer", type=int)
+@click.option("--splits", default=0, help="Split chunks into multiple tasks.")
 @job_type_guard(group_name)
-def queue_layer(parent_layer):
+def queue_layer(parent_layer:int, splits:int=0):
     """
     Queue all chunk tasks at a given layer.
     Must be used when all the chunks at `parent_layer - 1` have completed.
@@ -106,7 +107,7 @@ def queue_layer(parent_layer):
     assert parent_layer > 2, "This command is for layers 3 and above."
     redis = get_redis_connection()
     imanager = IngestionManager.from_pickle(redis.get(r_keys.INGESTION_MANAGER))
-    queue_layer_helper(parent_layer, imanager, upgrade_parent_chunk)
+    queue_layer_helper(parent_layer, imanager, upgrade_parent_chunk, splits=splits)
 
 
 @upgrade_cli.command("status")

@@ -1,6 +1,7 @@
 # pylint: disable=invalid-name, missing-docstring, c-extension-no-member
 
-import logging, random, time, os
+from math import ceil
+import logging, random, time, os, gc
 import multiprocessing as mp
 from collections import defaultdict
 from datetime import datetime, timezone
@@ -175,10 +176,16 @@ def _update_cross_edges_helper(args):
     edges.PARENTS_CACHE.clear()
     edges.CHILDREN_CACHE.clear()
     cg.client.write(rows)
+    gc.collect()
 
 
 def update_chunk(
-    cg: ChunkedGraph, chunk_coords: list[int], layer: int, nodes: list = None
+    cg: ChunkedGraph,
+    chunk_coords: list[int],
+    layer: int,
+    nodes: list = None,
+    split: int = None,
+    splits: int = None,
 ):
     """
     Iterate over all layer IDs in a chunk and update their cross chunk edges.
@@ -192,9 +199,20 @@ def update_chunk(
     logging.info(f"_populate_nodes_and_children: {time.time() - start}")
     if not CHILDREN:
         return
-    nodes = list(CHILDREN.keys())
-    random.shuffle(nodes)
 
+    allnodes = list(CHILDREN.keys())
+    if splits is not None:
+        nodes = []
+        split_size = int(ceil(len(allnodes) / splits))
+        split_nodes = chunked(allnodes, split_size)
+        for i, _nodes in enumerate(split_nodes):
+            if i == split:
+                nodes = list(_nodes)
+                break
+    else:
+        nodes = allnodes
+
+    random.shuffle(nodes)
     start = time.time()
     nodes_ts = cg.get_node_timestamps(nodes, return_numpy=False, normalize=True)
     logging.info(f"get_node_timestamps: {time.time() - start}")
@@ -215,7 +233,7 @@ def update_chunk(
         logging.info(f"total elaspsed time: {time.time() - start}")
         return
 
-    task_size = int(os.environ.get("TASK_SIZE", 10))
+    task_size = int(os.environ.get("TASK_SIZE", 1))
     chunked_nodes = chunked(nodes, task_size)
     chunked_nodes_ts = chunked(nodes_ts, task_size)
     cg_info = cg.get_serialized_info()
@@ -225,7 +243,8 @@ def update_chunk(
         args = (cg_info, layer, chunk, ts_chunk)
         tasks.append(args)
 
-    processes = min(mp.cpu_count() * 5, len(tasks))
+    process_multiplier = int(os.environ.get("PROCESS_MULTIPLIER", 5))
+    processes = min(mp.cpu_count() * process_multiplier, len(tasks))
     logging.info(f"processing {len(nodes)} nodes with {processes} workers.")
     with mp.Pool(processes) as pool:
         _ = list(
@@ -235,3 +254,4 @@ def update_chunk(
             )
         )
     logging.info(f"total elaspsed time: {time.time() - start}")
+    gc.collect()
