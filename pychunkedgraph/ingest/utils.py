@@ -171,7 +171,9 @@ def print_status(imanager: IngestionManager, redis, upgrade: bool = False):
         print(f"l{layer}\t| queued: {q:<10} failed: {f:<10} busy: {wb}")
 
 
-def queue_layer_helper(parent_layer: int, imanager: IngestionManager, fn):
+def queue_layer_helper(
+    parent_layer: int, imanager: IngestionManager, fn, splits: int = 0
+):
     if parent_layer == imanager.cg_meta.layer_count:
         chunk_coords = [(0, 0, 0)]
     else:
@@ -192,16 +194,30 @@ def queue_layer_helper(parent_layer: int, imanager: IngestionManager, fn):
 
         job_datas = []
         for chunk_coord in _coords:
-            job_datas.append(
-                Queue.prepare_data(
-                    fn,
-                    args=(parent_layer, chunk_coord),
-                    result_ttl=0,
-                    job_id=chunk_id_str(parent_layer, chunk_coord),
-                    timeout=f"{timeout_scale * int(parent_layer * parent_layer)}m",
-                    retry=Retry(int(environ.get("RETRY_COUNT", 1))),
+            if splits > 0:
+                for split in range(splits):
+                    jid = chunk_id_str(parent_layer, chunk_coord) + f"_{split}"
+                    job_datas.append(
+                        Queue.prepare_data(
+                            fn,
+                            args=(parent_layer, chunk_coord, split, splits),
+                            result_ttl=0,
+                            job_id=jid,
+                            timeout=f"{timeout_scale * int(parent_layer * parent_layer)}m",
+                            retry=Retry(int(environ.get("RETRY_COUNT", 1))),
+                        )
+                    )
+            else:
+                job_datas.append(
+                    Queue.prepare_data(
+                        fn,
+                        args=(parent_layer, chunk_coord),
+                        result_ttl=0,
+                        job_id=chunk_id_str(parent_layer, chunk_coord),
+                        timeout=f"{timeout_scale * int(parent_layer * parent_layer)}m",
+                        retry=Retry(int(environ.get("RETRY_COUNT", 1))),
+                    )
                 )
-            )
         q.enqueue_many(job_datas)
         logging.info(f"Queued {len(job_datas)} chunks.")
 
