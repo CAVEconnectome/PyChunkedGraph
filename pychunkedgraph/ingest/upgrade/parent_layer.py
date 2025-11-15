@@ -1,6 +1,6 @@
 # pylint: disable=invalid-name, missing-docstring, c-extension-no-member
 
-import logging, random, time, os
+import logging, random, time, os, gc
 import multiprocessing as mp
 from collections import defaultdict
 from datetime import datetime, timezone
@@ -175,6 +175,7 @@ def _update_cross_edges_helper(args):
     edges.PARENTS_CACHE.clear()
     edges.CHILDREN_CACHE.clear()
     cg.client.write(rows)
+    gc.collect()
 
 
 def update_chunk(
@@ -215,7 +216,7 @@ def update_chunk(
         logging.info(f"total elaspsed time: {time.time() - start}")
         return
 
-    task_size = int(os.environ.get("TASK_SIZE", 10))
+    task_size = int(os.environ.get("TASK_SIZE", 1))
     chunked_nodes = chunked(nodes, task_size)
     chunked_nodes_ts = chunked(nodes_ts, task_size)
     cg_info = cg.get_serialized_info()
@@ -225,7 +226,8 @@ def update_chunk(
         args = (cg_info, layer, chunk, ts_chunk)
         tasks.append(args)
 
-    processes = min(mp.cpu_count() * 5, len(tasks))
+    process_multiplier = int(os.environ.get("PROCESS_MULTIPLIER", 5))
+    processes = min(mp.cpu_count() * process_multiplier, len(tasks))
     logging.info(f"processing {len(nodes)} nodes with {processes} workers.")
     with mp.Pool(processes) as pool:
         _ = list(
@@ -235,3 +237,4 @@ def update_chunk(
             )
         )
     logging.info(f"total elaspsed time: {time.time() - start}")
+    gc.collect()
