@@ -1,7 +1,7 @@
 # pylint: disable=invalid-name, missing-docstring, c-extension-no-member
 
 from math import ceil
-import logging, random, time, os, gc
+import bisect, logging, random, time, os, gc
 import multiprocessing as mp
 from collections import defaultdict
 from datetime import datetime, timezone
@@ -44,11 +44,16 @@ def _get_cx_edges_at_timestamp(node, response, ts):
         if child not in response:
             continue
         for key, cells in response[child].items():
-            for cell in cells:
-                # cells are sorted in descending order of timestamps
-                if ts >= cell.timestamp:
-                    result[key.index].append(cell.value)
-                    break
+            # cells are sorted in descending order of timestamps
+            asc_ts = [c.timestamp for c in reversed(cells)]
+            k = bisect.bisect_right(asc_ts, ts) - 1
+            if k >= 0:
+                idx = len(cells) - 1 - k
+                try:
+                    result[key.index].append(cells[idx].value)
+                except IndexError as e:
+                    logging.error(f"{k}, {idx}, {len(cells)}, {asc_ts}")
+                    raise IndexError from e
     for layer, edges in result.items():
         result[layer] = np.concatenate(edges)
     return result
@@ -62,7 +67,6 @@ def _populate_cx_edges_with_timestamps(
     for all IDs involved in an edit, we can use the timestamps of
     when cross edges of children were updated.
     """
-
     clean_task = os.environ.get("CLEAN_CHUNKS", "false") == "clean"
     # this data is not needed for clean tasks
     if clean_task:
@@ -75,7 +79,7 @@ def _populate_cx_edges_with_timestamps(
     response = cg.client.read_nodes(node_ids=all_children, properties=attrs)
     timestamps_d = get_parent_timestamps(cg, nodes)
     end_timestamps = get_end_timestamps(cg, nodes, nodes_ts, CHILDREN, layer=layer)
-    logging.info(f"_populate_nodes_and_children init: {time.time() - start}")
+    logging.info(f"_populate_cx_edges_with_timestamps init: {time.time() - start}")
 
     start = time.time()
     partners_map = {}
@@ -212,6 +216,10 @@ def update_chunk(
     else:
         nodes = allnodes
 
+    if len(nodes) == 0:
+        return
+
+    logging.info(f"processing {len(nodes)} nodes.")
     random.shuffle(nodes)
     start = time.time()
     nodes_ts = cg.get_node_timestamps(nodes, return_numpy=False, normalize=True)
