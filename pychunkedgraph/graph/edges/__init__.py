@@ -381,7 +381,7 @@ def get_latest_edges(
             for parent, ts in parents:
                 PARENTS_CACHE[child][ts] = parent
 
-    def _get_parents_b(edges, parent_ts, layer):
+    def _get_parents_b(edges, parent_ts, layer, fallback:bool=False):
         """
         Attempts to find new partner side nodes.
         Gets new partners at parent_ts using supervoxels, at `parent_ts`.
@@ -402,7 +402,7 @@ def get_latest_edges(
 
         parents_a = edges[:, 0]
         stale_a = get_stale_nodes(cg, parents_a, parent_ts=parent_ts)
-        if stale_a.size == parents_a.size:
+        if stale_a.size == parents_a.size or fallback:
             # this is applicable only for v2 to v3 migration
             # handle cases when source nodes in `edges[:,0]` are stale
             atomic_edges_d = cg.get_atomic_cross_edges(stale_a)
@@ -465,9 +465,12 @@ def get_latest_edges(
         else:
             # if none of `l2ids_b` were found in edges, `l2ids_a` already have new edges
             # so get the new identities of `l2ids_b` by using chunk mask
-            parents_b = _get_parents_b_with_chunk_mask(
-                l2ids_b, _edges[:, 1], max_node_ts, edge
-            )
+            try:
+                parents_b = _get_parents_b_with_chunk_mask(
+                    l2ids_b, _edges[:, 1], max_node_ts, edge
+                )
+            except AssertionError:
+                parents_b = _get_parents_b(_edges, parent_ts, edge_layer, True)
 
         parents_b = np.unique(
             cg.get_roots(parents_b, stop_layer=mlayer, ceil=False, time_stamp=parent_ts)
