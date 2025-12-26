@@ -12,9 +12,8 @@ from . import operation
 from . import attributes
 from . import exceptions
 from .client import base
-from .client import BigTableClient
 from .client import BackendClientInfo
-from .client import get_default_client_info
+from .client import get_default_client_info, get_client_class
 from .cache import CacheService
 from .meta import ChunkedGraphMeta
 from .utils import basetypes
@@ -43,64 +42,64 @@ class ChunkedGraph:
         3. Existing graphs in other projects/clients,
            Requires `graph_id` and `client_info`.
         """
-        # create client based on type
-        # for now, just use BigTableClient
-
+        
+        # create client based on backend type specified in client_info.TYPE
+        client_class = get_client_class(client_info)
         if meta:
             graph_id = meta.graph_config.ID_PREFIX + meta.graph_config.ID
-            bt_client = BigTableClient(
+            bt_client = client_class(
                 graph_id, config=client_info.CONFIG, graph_meta=meta
             )
             self._meta = meta
         else:
-            bt_client = BigTableClient(graph_id, config=client_info.CONFIG)
+            bt_client = client_class(graph_id, config=client_info.CONFIG)
             self._meta = bt_client.read_graph_meta()
-
+        
         self._client = bt_client
         self._id_client = bt_client
         self._cache_service = None
         self.mock_edges = None  # hack for unit tests
-
+    
     @property
     def meta(self) -> ChunkedGraphMeta:
         return self._meta
-
+    
     @property
     def graph_id(self) -> str:
         return self.meta.graph_config.ID_PREFIX + self.meta.graph_config.ID
-
+    
     @property
     def version(self) -> str:
         return self.client.read_graph_version()
-
+    
     @property
     def client(self) -> base.SimpleClient:
         return self._client
-
+    
     @property
     def id_client(self) -> base.ClientWithIDGen:
         return self._id_client
-
+    
     @property
     def cache(self):
         return self._cache_service
-
+    
     @property
     def segmentation_resolution(self) -> np.ndarray:
         return np.array(self.meta.ws_cv.scale["resolution"])
-
+    
     @cache.setter
     def cache(self, cache_service: CacheService):
         self._cache_service = cache_service
-
+    
     def create(self):
         """Creates the graph in storage client and stores meta."""
         self._client.create_graph(self._meta, version=__version__)
-
+    
     def update_meta(self, meta: ChunkedGraphMeta, overwrite: bool):
         """Update meta of an already existing graph."""
         self.client.update_graph_meta(meta, overwrite=overwrite)
-
+    
     def range_read_chunk(
         self,
         chunk_id: basetypes.CHUNK_ID,
@@ -163,7 +162,7 @@ class ChunkedGraph:
         """
         if self.get_chunk_layer(parent_id) == 1:
             return np.array([parent_id] * len(coordinates), dtype=np.uint64)
-
+        
         # Enable search with old parent by using its timestamp and map to parents
         parent_ts = self.get_node_timestamps([parent_id], return_numpy=False)[0]
         return id_helpers.get_atomic_ids_from_coords(
@@ -175,7 +174,7 @@ class ChunkedGraph:
             self.get_roots,
             max_dist_nm,
         )
-
+    
     def get_parents(
         self,
         node_ids: typing.Sequence[np.uint64],
@@ -199,7 +198,7 @@ class ChunkedGraph:
             )
             if not parent_rows:
                 return types.empty_1d
-
+            
             parents = []
             if current:
                 for id_ in node_ids:
@@ -224,7 +223,7 @@ class ChunkedGraph:
                             raise KeyError from exc
             return parents
         return self.cache.parents_multiple(node_ids, time_stamp=time_stamp)
-
+    
     def get_parent(
         self,
         node_id: np.uint64,
@@ -241,13 +240,14 @@ class ChunkedGraph:
                 end_time=time_stamp,
                 end_time_inclusive=True,
             )
+            
             if not parents:
                 return None
             if latest:
                 return parents[0].value
             return [(p.value, p.timestamp) for p in parents]
         return self.cache.parent(node_id, time_stamp=time_stamp)
-
+    
     def get_children(
         self,
         node_id_or_ids: typing.Union[typing.Iterable[np.uint64], np.uint64],
@@ -274,7 +274,7 @@ class ChunkedGraph:
                 return types.empty_1d.copy()
             return np.concatenate(list(node_children_d.values()))
         return node_children_d
-
+    
     def _get_children_multiple(
         self, node_ids: typing.Iterable[np.uint64], *, raw_only=False
     ) -> typing.Dict:

@@ -1,0 +1,8 @@
+tables:
+  - TableName: test
+    Pk:
+      Name: key
+      Type: S
+    Sk:
+      Name: sk
+      Type: S
