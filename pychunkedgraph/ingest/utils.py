@@ -101,13 +101,27 @@ def randomize_grid_points(X: int, Y: int, Z: int) -> Generator[int, int, int]:
         yield np.unravel_index(index, (X, Y, Z))
 
 
-def get_chunks_not_done(imanager: IngestionManager, layer: int, coords: list) -> list:
+def get_chunks_not_done(
+    imanager: IngestionManager, layer: int, coords: list, splits: int = 0
+) -> list:
     """check for set membership in redis in batches"""
-    coords_strs = ["_".join(map(str, coord)) for coord in coords]
+    coords_strs = []
+    if splits > 0:
+        split_coords = []
+        for coord in coords:
+            for split in range(splits):
+                jid = "_".join(map(str, coord)) + f"_{split}"
+                coords_strs.append(jid)
+                split_coords.append((coord, split))
+    else:
+        coords_strs = ["_".join(map(str, coord)) for coord in coords]
     try:
         completed = imanager.redis.smismember(f"{layer}c", coords_strs)
     except Exception:
-        return coords
+        return split_coords if splits > 0 else coords
+
+    if splits > 0:
+        return [coord for coord, c in zip(split_coords, completed) if not c]
     return [coord for coord, c in zip(coords, completed) if not c]
 
 
@@ -185,7 +199,7 @@ def queue_layer_helper(
     timeout_scale = int(environ.get("TIMEOUT_SCALE_FACTOR", 1))
     batches = chunked(chunk_coords, batch_size)
     for batch in batches:
-        _coords = get_chunks_not_done(imanager, parent_layer, batch)
+        _coords = get_chunks_not_done(imanager, parent_layer, batch, splits=splits)
         # buffer for optimal use of redis memory
         if len(q) > int(environ.get("QUEUE_SIZE", 100000)):
             interval = int(environ.get("QUEUE_INTERVAL", 300))
@@ -195,18 +209,18 @@ def queue_layer_helper(
         job_datas = []
         for chunk_coord in _coords:
             if splits > 0:
-                for split in range(splits):
-                    jid = chunk_id_str(parent_layer, chunk_coord) + f"_{split}"
-                    job_datas.append(
-                        Queue.prepare_data(
-                            fn,
-                            args=(parent_layer, chunk_coord, split, splits),
-                            result_ttl=0,
-                            job_id=jid,
-                            timeout=f"{timeout_scale * int(parent_layer * parent_layer)}m",
-                            retry=Retry(int(environ.get("RETRY_COUNT", 1))),
-                        )
+                coord, split = chunk_coord
+                jid = chunk_id_str(parent_layer, coord) + f"_{split}"
+                job_datas.append(
+                    Queue.prepare_data(
+                        fn,
+                        args=(parent_layer, coord, split, splits),
+                        result_ttl=0,
+                        job_id=jid,
+                        timeout=f"{timeout_scale * int(parent_layer * parent_layer)}m",
+                        retry=Retry(int(environ.get("RETRY_COUNT", 1))),
                     )
+                )
             else:
                 job_datas.append(
                     Queue.prepare_data(
