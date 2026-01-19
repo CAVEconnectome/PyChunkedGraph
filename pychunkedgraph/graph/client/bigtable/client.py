@@ -6,6 +6,7 @@ import typing
 import logging
 from datetime import datetime
 from datetime import timedelta
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import numpy as np
 from multiwrapper import multiprocessing_utils as mu
@@ -193,7 +194,9 @@ class Client(bigtable.Client, ClientWithIDGen, OperationLogger):
                 for (row_key, data) in rows.items()
             }
         return {
-            deserialize_uint64(row_key, fake_edges=fake_edges): {k.key:v for k,v in data.items()}
+            deserialize_uint64(row_key, fake_edges=fake_edges): {
+                k.key: v for k, v in data.items()
+            }
             for (row_key, data) in rows.items()
         }
 
@@ -451,11 +454,9 @@ class Client(bigtable.Client, ClientWithIDGen, OperationLogger):
         max_tries: int = 1,
         waittime_s: float = 0.5,
     ) -> typing.Tuple[bool, typing.Iterable]:
-        """Attempts to lock multiple nodes with same operation id"""
+        """Attempts to lock multiple nodes with same operation id in parallel"""
         i_try = 0
         while i_try < max_tries:
-            lock_acquired = False
-            # Collect latest root ids
             new_root_ids: typing.List[np.uint64] = []
             for root_id in root_ids:
                 future_root_ids = future_root_ids_d[root_id]
@@ -464,18 +465,36 @@ class Client(bigtable.Client, ClientWithIDGen, OperationLogger):
                 else:
                     new_root_ids.extend(future_root_ids)
 
-            # Attempt to lock all latest root ids
+            lock_results = {}
             root_ids = np.unique(new_root_ids)
-            for root_id in root_ids:
-                lock_acquired = self.lock_root(root_id, operation_id)
-                # Roll back locks if one root cannot be locked
-                if not lock_acquired:
-                    for id_ in root_ids:
-                        self.unlock_root(id_, operation_id)
-                    break
+            max_workers = max(1, len(root_ids) // 2)
+            with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                future_to_root = {
+                    executor.submit(self.lock_root, root_id, operation_id): root_id
+                    for root_id in root_ids
+                }
+                for future in as_completed(future_to_root):
+                    root_id = future_to_root[future]
+                    try:
+                        lock_results[root_id] = future.result()
+                    except Exception as e:
+                        self.logger.error(f"Failed to lock root {root_id}: {e}")
+                        lock_results[root_id] = False
 
-            if lock_acquired:
+            all_locked = all(lock_results.values())
+            if all_locked:
                 return True, root_ids
+
+            with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                unlock_futures = [
+                    executor.submit(self.unlock_root, root_id, operation_id)
+                    for root_id in root_ids
+                ]
+                for future in as_completed(unlock_futures):
+                    try:
+                        future.result()
+                    except Exception as e:
+                        self.logger.error(f"Failed to unlock root: {e}")
             time.sleep(waittime_s)
             i_try += 1
             self.logger.debug(f"Try {i_try}")
@@ -486,9 +505,8 @@ class Client(bigtable.Client, ClientWithIDGen, OperationLogger):
         root_ids: typing.Sequence[np.uint64],
         operation_id: np.uint64,
         future_root_ids_d: typing.Dict,
-    ) -> typing.Tuple[bool, typing.Iterable]:
+    ) -> typing.Tuple[bool, typing.Iterable, typing.Iterable]:
         """Attempts to indefinitely lock multiple nodes with same operation id"""
-        lock_acquired = False
         # Collect latest root ids
         new_root_ids: typing.List[np.uint64] = []
         for _id in root_ids:
@@ -498,21 +516,45 @@ class Client(bigtable.Client, ClientWithIDGen, OperationLogger):
             else:
                 new_root_ids.extend(future_root_ids)
 
-        # Attempt to lock all latest root ids
-        failed_to_lock_id = None
         root_ids = np.unique(new_root_ids)
-        for _id in root_ids:
-            self.logger.debug(f"operation {operation_id} root_id {_id}")
-            lock_acquired = self.lock_root_indefinitely(_id, operation_id)
-            # Roll back locks if one root cannot be locked
-            if not lock_acquired:
-                failed_to_lock_id = _id
-                for id_ in root_ids:
-                    self.unlock_indefinitely_locked_root(id_, operation_id)
-                break
-        if lock_acquired:
-            return True, root_ids, failed_to_lock_id
-        return False, root_ids, failed_to_lock_id
+        lock_results = {}
+        max_workers = max(1, len(root_ids) // 2)
+        failed_to_lock = []
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            future_to_root = {
+                executor.submit(
+                    self.lock_root_indefinitely, root_id, operation_id
+                ): root_id
+                for root_id in root_ids
+            }
+            for future in as_completed(future_to_root):
+                root_id = future_to_root[future]
+                try:
+                    lock_results[root_id] = future.result()
+                    if lock_results[root_id] is False:
+                        failed_to_lock.append(root_id)
+                except Exception as e:
+                    self.logger.error(f"Failed to lock root {root_id}: {e}")
+                    lock_results[root_id] = False
+                    failed_to_lock.append(root_id)
+
+        all_locked = all(lock_results.values())
+        if all_locked:
+            return True, root_ids, failed_to_lock
+
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            unlock_futures = [
+                executor.submit(
+                    self.unlock_indefinitely_locked_root, root_id, operation_id
+                )
+                for root_id in root_ids
+            ]
+            for future in as_completed(unlock_futures):
+                try:
+                    future.result()
+                except Exception as e:
+                    self.logger.error(f"Failed to unlock root: {e}")
+        return False, root_ids, failed_to_lock
 
     def unlock_root(self, root_id: np.uint64, operation_id: np.uint64):
         """Unlocks root node that is locked with operation_id."""
@@ -559,10 +601,22 @@ class Client(bigtable.Client, ClientWithIDGen, OperationLogger):
 
     def renew_locks(self, root_ids: np.uint64, operation_id: np.uint64) -> bool:
         """Renews existing root node locks with operation_id to extend time."""
-        for root_id in root_ids:
-            if not self.renew_lock(root_id, operation_id):
-                self.logger.warning(f"renew_lock failed - {root_id}")
-                return False
+        max_workers = max(1, len(root_ids) // 2)
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            futures = {
+                executor.submit(self.renew_lock, root_id, operation_id): root_id
+                for root_id in root_ids
+            }
+            for future in as_completed(futures):
+                root_id = futures[future]
+                try:
+                    result = future.result()
+                    if not result:
+                        self.logger.warning(f"renew_lock failed - {root_id}")
+                        return False
+                except Exception as e:
+                    self.logger.error(f"Exception during renew_lock({root_id}): {e}")
+                    return False
         return True
 
     def get_lock_timestamp(
@@ -584,15 +638,31 @@ class Client(bigtable.Client, ClientWithIDGen, OperationLogger):
         operation_ids: typing.Sequence[np.uint64],
     ) -> typing.Union[datetime, None]:
         """Minimum of multiple lock timestamps."""
-        time_stamps = []
-        for root_id, operation_id in zip(root_ids, operation_ids):
-            time_stamp = self.get_lock_timestamp(root_id, operation_id)
-            if time_stamp is None:
-                return None
-            time_stamps.append(time_stamp)
-        if len(time_stamps) == 0:
+        if len(root_ids) == 0:
             return None
-        return np.min(time_stamps)
+        max_workers = max(1, len(root_ids) // 2)
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            futures = {
+                executor.submit(self.get_lock_timestamp, root_id, op_id): (
+                    root_id,
+                    op_id,
+                )
+                for root_id, op_id in zip(root_ids, operation_ids)
+            }
+            timestamps = []
+            for future in as_completed(futures):
+                root_id, op_id = futures[future]
+                try:
+                    ts = future.result()
+                    if ts is None:
+                        return None
+                    timestamps.append(ts)
+                except Exception as exc:
+                    self.logger.warning(f"({root_id}, {op_id}): {exc}")
+                    return None
+        if not timestamps:
+            return None
+        return np.min(timestamps)
 
     # IDs
     def create_node_ids(

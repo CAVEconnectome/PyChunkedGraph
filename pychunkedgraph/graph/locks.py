@@ -1,12 +1,15 @@
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Union
 from typing import Sequence
 from collections import defaultdict
+from warnings import warn
 
+import networkx as nx
 import numpy as np
 
 from . import exceptions
 from .types import empty_1d
-from .lineage import get_future_root_ids
+from .lineage import lineage_graph
 
 
 class RootLock:
@@ -48,16 +51,21 @@ class RootLock:
     def __enter__(self):
         if self.privileged_mode:
             assert self.operation_id is not None, "Please provide operation ID."
-            from warnings import warn
-
             warn("Warning: Privileged mode without acquiring lock.")
             return self
         if not self.operation_id:
             self.operation_id = self.cg.id_client.create_operation_id()
 
+        nodes_ts = self.cg.get_node_timestamps(self.root_ids, return_numpy=0)
+        min_ts = min(nodes_ts)
+        lgraph = lineage_graph(self.cg, self.root_ids, timestamp_past=min_ts)
         future_root_ids_d = defaultdict(lambda: empty_1d)
         for id_ in self.root_ids:
-            future_root_ids_d[id_] = get_future_root_ids(self.cg, id_)
+            node_descendants = nx.descendants(lgraph, id_)
+            node_descendants = np.unique(
+                np.array(list(node_descendants), dtype=np.uint64)
+            )
+            future_root_ids_d[id_] = node_descendants
 
         self.lock_acquired, self.locked_root_ids = self.cg.client.lock_roots(
             root_ids=self.root_ids,
@@ -71,8 +79,19 @@ class RootLock:
 
     def __exit__(self, exception_type, exception_value, traceback):
         if self.lock_acquired:
-            for locked_root_id in self.locked_root_ids:
-                self.cg.client.unlock_root(locked_root_id, self.operation_id)
+            max_workers = max(1, len(self.locked_root_ids) // 2)
+            with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                unlock_futures = [
+                    executor.submit(
+                        self.cg.client.unlock_root, root_id, self.operation_id
+                    )
+                    for root_id in self.locked_root_ids
+                ]
+                for future in as_completed(unlock_futures):
+                    try:
+                        future.result()
+                    except Exception as e:
+                        self.logger.warning(f"Failed to unlock root: {e}")
 
 
 class IndefiniteRootLock:
@@ -114,21 +133,40 @@ class IndefiniteRootLock:
         if not self.cg.client.renew_locks(self.root_ids, self.operation_id):
             raise exceptions.LockingError("Could not renew locks before writing.")
 
+        nodes_ts = self.cg.get_node_timestamps(self.root_ids, return_numpy=0)
+        min_ts = min(nodes_ts)
+        lgraph = lineage_graph(self.cg, self.root_ids, timestamp_past=min_ts)
         future_root_ids_d = defaultdict(lambda: empty_1d)
         for id_ in self.root_ids:
-            future_root_ids_d[id_] = get_future_root_ids(self.cg, id_)
+            node_descendants = nx.descendants(lgraph, id_)
+            node_descendants = np.unique(
+                np.array(list(node_descendants), dtype=np.uint64)
+            )
+            future_root_ids_d[id_] = node_descendants
+
         self.acquired, self.root_ids, failed = self.cg.client.lock_roots_indefinitely(
             root_ids=self.root_ids,
             operation_id=self.operation_id,
             future_root_ids_d=future_root_ids_d,
         )
         if not self.acquired:
-            raise exceptions.LockingError(f"{failed} has been locked indefinitely.")
+            raise exceptions.LockingError(f"{failed} have been locked indefinitely.")
         return self
 
     def __exit__(self, exception_type, exception_value, traceback):
         if self.acquired:
-            for locked_root_id in self.root_ids:
-                self.cg.client.unlock_indefinitely_locked_root(
-                    locked_root_id, self.operation_id
-                )
+            max_workers = max(1, len(self.root_ids) // 2)
+            with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                unlock_futures = [
+                    executor.submit(
+                        self.cg.client.unlock_indefinitely_locked_root,
+                        root_id,
+                        self.operation_id,
+                    )
+                    for root_id in self.root_ids
+                ]
+                for future in as_completed(unlock_futures):
+                    try:
+                        future.result()
+                    except Exception as e:
+                        self.logger.warning(f"Failed to unlock root: {e}")
