@@ -9,9 +9,9 @@ from datetime import timedelta
 from os import environ
 from typing import Optional
 
-environ["BIGTABLE_PROJECT"] = "<>"
-environ["BIGTABLE_INSTANCE"] = "<>"
-environ["GOOGLE_APPLICATION_CREDENTIALS"] = "<path>"
+# environ["BIGTABLE_PROJECT"] = "<>"
+# environ["BIGTABLE_INSTANCE"] = "<>"
+# environ["GOOGLE_APPLICATION_CREDENTIALS"] = "<path>"
 
 from pychunkedgraph.graph import edits
 from pychunkedgraph.graph import ChunkedGraph

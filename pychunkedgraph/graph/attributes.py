@@ -143,6 +143,18 @@ class Hierarchy:
         serializer=serializers.NumPyValue(dtype=basetypes.NODE_ID),
     )
 
+    FormerIdentity = _Attribute(
+        key=b"former_ids",
+        family_id="0",
+        serializer=serializers.NumPyArray(dtype=basetypes.NODE_ID),
+    )
+
+    NewIdentity = _Attribute(
+        key=b"new_ids",
+        family_id="0",
+        serializer=serializers.NumPyArray(dtype=basetypes.NODE_ID),
+    )
+
 
 class GraphMeta:
     key = b"meta"

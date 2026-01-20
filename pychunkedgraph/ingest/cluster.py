@@ -12,6 +12,7 @@ from .common import get_atomic_chunk_data
 from .ran_agglomeration import get_active_edges
 from .create.atomic_layer import add_atomic_edges
 from .create.abstract_layers import add_layer
+from ..graph.ocdbt import copy_ws_chunk, get_seg_source_and_destination_ocdbt
 from ..graph.meta import ChunkedGraphMeta
 from ..graph.chunks.hierarchy import get_children_chunk_coords
 from ..utils.redis import keys as r_keys
@@ -159,7 +160,7 @@ def enqueue_atomic_tasks(imanager: IngestionManager):
             RQueue.prepare_data(
                 _create_atomic_chunk,
                 args=(chunk_coord,),
-                timeout=environ.get("L2JOB_TIMEOUT", "3m"),
+                timeout=environ.get("L2JOB_TIMEOUT", "5m"),
                 result_ttl=0,
                 job_id=chunk_id_str(2, chunk_coord),
             )
@@ -184,6 +185,9 @@ def _create_atomic_chunk(coords: Sequence[int]):
             print(k, len(v))
         for k, v in chunk_edges_active.items():
             print(f"active_{k}", len(v))
+
+    src, dst = get_seg_source_and_destination_ocdbt(imanager.cg)
+    copy_ws_chunk(imanager.cg, coords, src, dst)
     _post_task_completion(imanager, 2, coords)
 
 

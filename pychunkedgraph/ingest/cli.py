@@ -14,6 +14,7 @@ from .manager import IngestionManager
 from .utils import bootstrap
 from .cluster import randomize_grid_points
 from ..graph.chunkedgraph import ChunkedGraph
+from ..graph.ocdbt import get_seg_source_and_destination_ocdbt
 from ..utils.redis import get_redis_connection
 from ..utils.redis import keys as r_keys
 from ..utils.general import chunked
@@ -60,6 +61,7 @@ def ingest_graph(
     if not retry:
         cg.create()
     enqueue_atomic_tasks(IngestionManager(ingest_config, meta))
+    get_seg_source_and_destination_ocdbt(cg, create=True)
 
 
 @ingest_cli.command("imanager")
