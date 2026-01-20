@@ -159,7 +159,12 @@ def _update_cross_edges_helper(args):
     corrupt_nodes = []
     earliest_ts = None
     if clean_task:
-        earliest_ts = cg.get_earliest_timestamp()
+        try:
+            earliest_ts = os.environ["EARLIEST_TS"]
+            earliest_ts = datetime.fromisoformat(earliest_ts)
+        except KeyError:
+            earliest_ts = cg.get_earliest_timestamp()
+
     for node, parent, node_ts in zip(nodes, parents, nodes_ts):
         if parent == 0:
             # ignore invalid nodes from failed ingest tasks, w/o parent column entry

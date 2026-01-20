@@ -121,7 +121,12 @@ def update_chunk(cg: ChunkedGraph, chunk_coords: list[int]):
 
     nodes = []
     nodes_ts = []
-    earliest_ts = cg.get_earliest_timestamp()
+    try:
+        earliest_ts = os.environ["EARLIEST_TS"]
+        earliest_ts = datetime.fromisoformat(earliest_ts)
+    except KeyError:
+        earliest_ts = cg.get_earliest_timestamp()
+
     corrupt_nodes = []
     for k, v in rr.items():
         try:
