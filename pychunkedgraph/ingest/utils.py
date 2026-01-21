@@ -2,7 +2,7 @@
 
 import logging
 import functools
-import math
+import math, sys
 from os import environ
 from time import sleep
 from typing import Any, Generator, Tuple
@@ -49,6 +49,10 @@ def bootstrap(
 
     meta = ChunkedGraphMeta(graph_config, data_source)
     return (meta, ingest_config, client_info)
+
+
+def move_up(lines: int = 1):
+    sys.stdout.write(f"\033[{lines}A")
 
 
 def postprocess_edge_data(im, edge_dict):
@@ -125,13 +129,16 @@ def get_chunks_not_done(
     return [coord for coord, c in zip(coords, completed) if not c]
 
 
-def print_completion_rate(imanager: IngestionManager, layer: int, span: int = 10):
-    counts = []
-    for _ in range(span + 1):
-        counts.append(imanager.redis.scard(f"{layer}c"))
-        sleep(1)
-    rate = np.diff(counts).sum() / span
-    print(f"{rate} chunks per second.")
+def print_completion_rate(imanager: IngestionManager, layer: int, span: int = 30):
+    rate = 0.0
+    while True:
+        counts = []
+        print(f"{rate} chunks per second.")
+        for _ in range(span + 1):
+            counts.append(imanager.redis.scard(f"{layer}c"))
+            sleep(1)
+        rate = np.diff(counts).sum() / span
+        move_up()
 
 
 def print_status(imanager: IngestionManager, redis, upgrade: bool = False):
@@ -143,32 +150,38 @@ def print_status(imanager: IngestionManager, redis, upgrade: bool = False):
     layers = range(2, imanager.cg_meta.layer_count + 1)
     if upgrade:
         layers = range(2, imanager.cg_meta.layer_count)
+
+    def _refresh_status():
+        pipeline = redis.pipeline()
+        pipeline.get(r_keys.JOB_TYPE)
+        worker_busy = []
+        for layer in layers:
+            pipeline.scard(f"{layer}c")
+            queue = Queue(f"l{layer}", connection=redis)
+            pipeline.llen(queue.key)
+            pipeline.zcard(queue.failed_job_registry.key)
+            workers = Worker.all(queue=queue)
+            worker_busy.append(
+                sum([w.get_state() == WorkerStatus.BUSY for w in workers])
+            )
+
+        results = pipeline.execute()
+        job_type = "not_available"
+        if results[0] is not None:
+            job_type = results[0].decode()
+        completed = []
+        queued = []
+        failed = []
+        for i in range(1, len(results), 3):
+            result = results[i : i + 3]
+            completed.append(result[0])
+            queued.append(result[1])
+            failed.append(result[2])
+        return job_type, completed, queued, failed, worker_busy
+
+    job_type, completed, queued, failed, worker_busy = _refresh_status()
+
     layer_counts = imanager.cg_meta.layer_chunk_counts
-
-    pipeline = redis.pipeline()
-    pipeline.get(r_keys.JOB_TYPE)
-    worker_busy = []
-    for layer in layers:
-        pipeline.scard(f"{layer}c")
-        queue = Queue(f"l{layer}", connection=redis)
-        pipeline.llen(queue.key)
-        pipeline.zcard(queue.failed_job_registry.key)
-        workers = Worker.all(queue=queue)
-        worker_busy.append(sum([w.get_state() == WorkerStatus.BUSY for w in workers]))
-
-    results = pipeline.execute()
-    job_type = "not_available"
-    if results[0] is not None:
-        job_type = results[0].decode()
-    completed = []
-    queued = []
-    failed = []
-    for i in range(1, len(results), 3):
-        result = results[i : i + 3]
-        completed.append(result[0])
-        queued.append(result[1])
-        failed.append(result[2])
-
     header = (
         f"\njob_type: \t{job_type}"
         f"\nversion: \t{imanager.cg.version}"
@@ -177,12 +190,19 @@ def print_status(imanager: IngestionManager, redis, upgrade: bool = False):
         "\n\nlayer status:"
     )
     print(header)
-    for layer, done, count in zip(layers, completed, layer_counts):
-        print(f"{layer}\t| {done:9} / {count} \t| {math.floor((done/count)*100):6}%")
+    while True:
+        for layer, done, count in zip(layers, completed, layer_counts):
+            print(
+                f"{layer}\t| {done:9} / {count} \t| {math.floor((done/count)*100):6}%"
+            )
 
-    print("\n\nqueue status:")
-    for layer, q, f, wb in zip(layers, queued, failed, worker_busy):
-        print(f"l{layer}\t| queued: {q:<10} failed: {f:<10} busy: {wb}")
+        print("\n\nqueue status:")
+        for layer, q, f, wb in zip(layers, queued, failed, worker_busy):
+            print(f"l{layer}\t| queued: {q:<10} failed: {f:<10} busy: {wb}")
+
+        sleep(1)
+        _, completed, queued, failed, worker_busy = _refresh_status()
+        move_up(lines=2 * len(layers) + 3)
 
 
 def queue_layer_helper(
