@@ -2,7 +2,7 @@
 
 import logging
 import functools
-import math, sys
+import math, random, sys
 from os import environ
 from time import sleep
 from typing import Any, Generator, Tuple
@@ -154,16 +154,12 @@ def print_status(imanager: IngestionManager, redis, upgrade: bool = False):
     def _refresh_status():
         pipeline = redis.pipeline()
         pipeline.get(r_keys.JOB_TYPE)
-        worker_busy = []
+        worker_busy = ["-"] * len(layers)
         for layer in layers:
             pipeline.scard(f"{layer}c")
             queue = Queue(f"l{layer}", connection=redis)
             pipeline.llen(queue.key)
             pipeline.zcard(queue.failed_job_registry.key)
-            workers = Worker.all(queue=queue)
-            worker_busy.append(
-                sum([w.get_state() == WorkerStatus.BUSY for w in workers])
-            )
 
         results = pipeline.execute()
         job_type = "not_available"
@@ -218,6 +214,7 @@ def queue_layer_helper(
     batch_size = int(environ.get("JOB_BATCH_SIZE", 10000))
     timeout_scale = int(environ.get("TIMEOUT_SCALE_FACTOR", 1))
     batches = chunked(chunk_coords, batch_size)
+    failure_ttl = int(environ.get("FAILURE_TTL", 300))
     for batch in batches:
         _coords = get_chunks_not_done(imanager, parent_layer, batch, splits=splits)
         # buffer for optimal use of redis memory
@@ -227,6 +224,7 @@ def queue_layer_helper(
             sleep(interval)
 
         job_datas = []
+        retry = int(environ.get("RETRY_COUNT", 0))
         for chunk_coord in _coords:
             if splits > 0:
                 coord, split = chunk_coord
@@ -238,7 +236,9 @@ def queue_layer_helper(
                         result_ttl=0,
                         job_id=jid,
                         timeout=f"{timeout_scale * int(parent_layer * parent_layer)}m",
-                        retry=Retry(int(environ.get("RETRY_COUNT", 1))),
+                        retry=Retry(retry) if retry > 1 else None,
+                        description="",
+                        failure_ttl=failure_ttl,
                     )
                 )
             else:
@@ -249,7 +249,9 @@ def queue_layer_helper(
                         result_ttl=0,
                         job_id=chunk_id_str(parent_layer, chunk_coord),
                         timeout=f"{timeout_scale * int(parent_layer * parent_layer)}m",
-                        retry=Retry(int(environ.get("RETRY_COUNT", 1))),
+                        retry=Retry(retry) if retry > 1 else None,
+                        description="",
+                        failure_ttl=failure_ttl,
                     )
                 )
         q.enqueue_many(job_datas)

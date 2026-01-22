@@ -13,7 +13,7 @@ from cachetools import LRUCache
 
 from pychunkedgraph.graph import ChunkedGraph, edges
 from pychunkedgraph.graph.attributes import Connectivity, Hierarchy
-from pychunkedgraph.graph.utils import serializers
+from pychunkedgraph.graph.utils import serializers, basetypes
 from pychunkedgraph.graph.types import empty_2d
 from pychunkedgraph.utils.general import chunked
 
@@ -31,7 +31,10 @@ def _populate_nodes_and_children(
 ) -> dict:
     global CHILDREN
     if nodes:
-        CHILDREN = cg.get_children(nodes)
+        children_map = cg.get_children(nodes)
+        for k, v in children_map.items():
+            if len(v):
+                CHILDREN[k] = v
         return
     response = cg.range_read_chunk(chunk_id, properties=Hierarchy.Child)
     for k, v in response.items():
@@ -188,6 +191,17 @@ def _update_cross_edges_helper(args):
     gc.collect()
 
 
+def _get_split_nodes(
+    cg: ChunkedGraph, chunk_id: basetypes.CHUNK_ID, split: int, splits: int
+):
+    max_id = cg.client.get_max_node_id(chunk_id)
+    total = max_id - chunk_id
+    split_size = int(ceil(total / splits))
+    start = int(chunk_id + np.uint64(split * split_size))
+    end = int(start + split_size)
+    return range(int(start), int(end))
+
+
 def update_chunk(
     cg: ChunkedGraph,
     chunk_coords: list[int],
@@ -204,23 +218,12 @@ def update_chunk(
     x, y, z = chunk_coords
     chunk_id = cg.get_chunk_id(layer=layer, x=x, y=y, z=z)
 
+    if splits is not None:
+        nodes = _get_split_nodes(cg, chunk_id, split, splits)
+
     _populate_nodes_and_children(cg, chunk_id, nodes=nodes)
     logging.info(f"_populate_nodes_and_children: {time.time() - start}")
-    if not CHILDREN:
-        return
-
-    allnodes = list(CHILDREN.keys())
-    if splits is not None:
-        nodes = []
-        split_size = int(ceil(len(allnodes) / splits))
-        split_nodes = chunked(allnodes, split_size)
-        for i, _nodes in enumerate(split_nodes):
-            if i == split:
-                nodes = list(_nodes)
-                break
-    else:
-        nodes = allnodes
-
+    nodes = list(CHILDREN.keys())
     if len(nodes) == 0:
         return
 
@@ -267,4 +270,3 @@ def update_chunk(
             )
         )
     logging.info(f"total elaspsed time: {time.time() - start}")
-    gc.collect()
