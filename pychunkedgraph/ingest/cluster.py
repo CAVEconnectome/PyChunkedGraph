@@ -45,6 +45,7 @@ def _post_task_completion(
         chunk_str += f"_{split}"
     # mark chunk as completed - "c"
     imanager.redis.sadd(f"{layer}c", chunk_str)
+    logging.info(f"{chunk_str} marked as complete")
 
 
 def create_parent_chunk(
@@ -197,6 +198,8 @@ def _queue_tasks(imanager: IngestionManager, chunk_fn: Callable, coords: Iterabl
     q = imanager.get_task_queue(queue_name)
     batch_size = int(environ.get("JOB_BATCH_SIZE", 10000))
     batches = chunked(coords, batch_size)
+    retry = int(environ.get("RETRY_COUNT", 0))
+    failure_ttl = int(environ.get("FAILURE_TTL", 300))
     for batch in batches:
         _coords = get_chunks_not_done(imanager, 2, batch)
         # buffer for optimal use of redis memory
@@ -214,7 +217,9 @@ def _queue_tasks(imanager: IngestionManager, chunk_fn: Callable, coords: Iterabl
                     timeout=environ.get("L2JOB_TIMEOUT", "3m"),
                     result_ttl=0,
                     job_id=chunk_id_str(2, chunk_coord),
-                    retry=Retry(int(environ.get("RETRY_COUNT", 1))),
+                    retry=Retry(retry) if retry > 1 else None,
+                    description="",
+                    failure_ttl=failure_ttl
                 )
             )
         q.enqueue_many(job_datas)
