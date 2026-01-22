@@ -2,7 +2,7 @@
 
 import logging
 import functools
-import math, sys
+import math, random, sys
 from os import environ
 from time import sleep
 from typing import Any, Generator, Tuple
@@ -117,6 +117,7 @@ def get_chunks_not_done(
                 jid = "_".join(map(str, coord)) + f"_{split}"
                 coords_strs.append(jid)
                 split_coords.append((coord, split))
+        random.shuffle(coords_strs)
     else:
         coords_strs = ["_".join(map(str, coord)) for coord in coords]
     try:
