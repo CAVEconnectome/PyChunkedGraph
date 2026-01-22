@@ -2,7 +2,7 @@
 
 import logging
 import functools
-import math, sys
+import math, random, sys
 from os import environ
 from time import sleep
 from typing import Any, Generator, Tuple
@@ -227,6 +227,7 @@ def queue_layer_helper(
             sleep(interval)
 
         job_datas = []
+        retry = int(environ.get("RETRY_COUNT", 0))
         for chunk_coord in _coords:
             if splits > 0:
                 coord, split = chunk_coord
@@ -238,7 +239,7 @@ def queue_layer_helper(
                         result_ttl=0,
                         job_id=jid,
                         timeout=f"{timeout_scale * int(parent_layer * parent_layer)}m",
-                        retry=Retry(int(environ.get("RETRY_COUNT", 1))),
+                        retry=Retry(retry) if retry > 1 else None,
                     )
                 )
             else:
@@ -249,7 +250,7 @@ def queue_layer_helper(
                         result_ttl=0,
                         job_id=chunk_id_str(parent_layer, chunk_coord),
                         timeout=f"{timeout_scale * int(parent_layer * parent_layer)}m",
-                        retry=Retry(int(environ.get("RETRY_COUNT", 1))),
+                        retry=Retry(retry) if retry > 1 else None,
                     )
                 )
         q.enqueue_many(job_datas)
