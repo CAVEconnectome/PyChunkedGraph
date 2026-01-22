@@ -45,6 +45,7 @@ def _post_task_completion(
         chunk_str += f"_{split}"
     # mark chunk as completed - "c"
     imanager.redis.sadd(f"{layer}c", chunk_str)
+    logging.info(f"{chunk_str} marked as complete")
 
 
 def create_parent_chunk(
