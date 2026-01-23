@@ -78,7 +78,7 @@ def _get_relevant_components(edges: np.ndarray, supervoxels: np.ndarray) -> Tupl
     # when merging, there must be only two components
     for cc_idx in ccs:
         cc = graph_ids[cc_idx]
-        if np.any(np.in1d(supervoxels, cc)):
+        if np.any(np.isin(supervoxels, cc)):
             relevant_ccs.append(cc)
     assert len(relevant_ccs) == 2, "must be 2 components"
     return relevant_ccs
@@ -115,13 +115,13 @@ def merge_preprocess(
     inactive = np.concatenate(inactive_edges).astype(basetypes.NODE_ID)
     _inactive = [types.empty_2d]
     # source to sink edges
-    source_mask = np.in1d(inactive[:, 0], relevant_ccs[0])
-    sink_mask = np.in1d(inactive[:, 1], relevant_ccs[1])
+    source_mask = np.isin(inactive[:, 0], relevant_ccs[0])
+    sink_mask = np.isin(inactive[:, 1], relevant_ccs[1])
     _inactive.append(inactive[source_mask & sink_mask])
 
     # sink to source edges
-    sink_mask = np.in1d(inactive[:, 1], relevant_ccs[0])
-    source_mask = np.in1d(inactive[:, 0], relevant_ccs[1])
+    sink_mask = np.isin(inactive[:, 1], relevant_ccs[0])
+    source_mask = np.isin(inactive[:, 0], relevant_ccs[1])
     _inactive.append(inactive[source_mask & sink_mask])
     _inactive = np.concatenate(_inactive).astype(basetypes.NODE_ID)
     return np.unique(_inactive, axis=0) if _inactive.size else types.empty_2d
@@ -291,7 +291,7 @@ def _split_l2_agglomeration(
         active_mask = neighbor_roots == root
         cross_edges = cross_edges[active_mask]
         cross_edges = cross_edges[~in2d(cross_edges, removed_edges)]
-    isolated_ids = agg.supervoxels[~np.in1d(agg.supervoxels, chunk_edges)]
+    isolated_ids = agg.supervoxels[~np.isin(agg.supervoxels, chunk_edges)]
     isolated_edges = np.column_stack((isolated_ids, isolated_ids))
     _edges = np.concatenate([chunk_edges, isolated_edges]).astype(basetypes.NODE_ID)
     graph, _, _, graph_ids = flatgraph.build_gt_graph(_edges, make_directed=True)
@@ -305,7 +305,7 @@ def _filter_component_cross_edges(
     Filters cross edges for a connected component `cc_ids`
     from `cross_edges` of the complete chunk.
     """
-    mask = np.in1d(cross_edges[:, 0], component_ids)
+    mask = np.isin(cross_edges[:, 0], component_ids)
     cross_edges_ = cross_edges[mask]
     cross_edge_layers_ = cross_edge_layers[mask]
     edges_d = {}
@@ -539,7 +539,7 @@ class CreateParentNodes:
         parent_layer: int,
     ):
         # update newly created children; mask others
-        mask = np.in1d(children, self._new_ids_d[layer])
+        mask = np.isin(children, self._new_ids_d[layer])
         for child_id in children[mask]:
             child_old_ids = self._new_old_id_d[child_id]
             for id_ in child_old_ids:
@@ -574,7 +574,7 @@ class CreateParentNodes:
         old_parents = self.cg.get_parents(old_ids, time_stamp=self._last_successful_ts)
         siblings = self.cg.get_children(np.unique(old_parents), flatten=True)
         # replace old identities with new IDs
-        mask = np.in1d(siblings, old_ids)
+        mask = np.isin(siblings, old_ids)
         node_ids = np.concatenate(
             [_get_flipped_ids(self._old_new_id_d, old_ids), siblings[~mask], new_ids]
         ).astype(basetypes.NODE_ID)
