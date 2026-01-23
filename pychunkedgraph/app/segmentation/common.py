@@ -793,8 +793,8 @@ def handle_subgraph(table_id, root_id, only_internal_edges=True):
         supervoxels = np.concatenate(
             [agg.supervoxels for agg in l2id_agglomeration_d.values()]
         )
-        mask0 = np.in1d(edges.node_ids1, supervoxels)
-        mask1 = np.in1d(edges.node_ids2, supervoxels)
+        mask0 = np.isin(edges.node_ids1, supervoxels)
+        mask1 = np.isin(edges.node_ids2, supervoxels)
         edges = edges[mask0 & mask1]
 
     return edges
