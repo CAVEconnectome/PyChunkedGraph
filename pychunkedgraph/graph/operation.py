@@ -880,7 +880,7 @@ class MulticutOperation(GraphEditOperation):
         self.bbox_offset = np.atleast_1d(bbox_offset).astype(basetypes.COORDINATES)
         self.path_augment = path_augment
         self.disallow_isolating_cut = disallow_isolating_cut
-        if np.any(np.in1d(self.sink_ids, self.source_ids)):
+        if np.any(np.isin(self.sink_ids, self.source_ids)):
             raise PreconditionError(
                 "Supervoxels exist in both sink and source, "
                 "try placing the points further apart."
@@ -933,8 +933,8 @@ class MulticutOperation(GraphEditOperation):
             supervoxels = np.concatenate(
                 [agg.supervoxels for agg in l2id_agglomeration_d.values()]
             ).astype(basetypes.NODE_ID)
-            mask0 = np.in1d(edges.node_ids1, supervoxels)
-            mask1 = np.in1d(edges.node_ids2, supervoxels)
+            mask0 = np.isin(edges.node_ids1, supervoxels)
+            mask1 = np.isin(edges.node_ids2, supervoxels)
             edges = edges[mask0 & mask1]
         if len(edges) == 0:
             raise PreconditionError("No local edges found.")
