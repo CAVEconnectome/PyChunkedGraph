@@ -82,7 +82,7 @@ class CacheService:
         node_ids = np.asarray(node_ids, dtype=NODE_ID)
         if not node_ids.size:
             return node_ids
-        mask = np.in1d(node_ids, np.fromiter(self.parents_cache.keys(), dtype=NODE_ID))
+        mask = np.isin(node_ids, np.fromiter(self.parents_cache.keys(), dtype=NODE_ID))
         parents = node_ids.copy()
         parents[mask] = self._parent_vec(node_ids[mask])
         parents[~mask] = self._cg.get_parents(
@@ -96,7 +96,7 @@ class CacheService:
         node_ids = np.asarray(node_ids, dtype=NODE_ID)
         if not node_ids.size:
             return result
-        mask = np.in1d(node_ids, np.fromiter(self.children_cache.keys(), dtype=NODE_ID))
+        mask = np.isin(node_ids, np.fromiter(self.children_cache.keys(), dtype=NODE_ID))
         cached_children_ = self._children_vec(node_ids[mask])
         result.update({id_: c_ for id_, c_ in zip(node_ids[mask], cached_children_)})
         result.update(self._cg.get_children(node_ids[~mask], raw_only=True))
@@ -114,7 +114,7 @@ class CacheService:
         node_ids = np.asarray(node_ids, dtype=NODE_ID)
         if not node_ids.size:
             return result
-        mask = np.in1d(
+        mask = np.isin(
             node_ids, np.fromiter(self.cross_chunk_edges_cache.keys(), dtype=NODE_ID)
         )
         cached_edges_ = self._cross_chunk_edges_vec(node_ids[mask])
