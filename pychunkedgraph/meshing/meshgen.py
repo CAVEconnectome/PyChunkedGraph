@@ -75,7 +75,7 @@ def remap_seg_using_unsafe_dict(seg, unsafe_dict):
             overlaps.extend(np.unique(seg[:, :, -2][bin_cc_seg[:, :, -1]]))
             overlaps = np.unique(overlaps)
 
-            linked_l2_ids = overlaps[np.in1d(overlaps, unsafe_dict[unsafe_root_id])]
+            linked_l2_ids = overlaps[np.isin(overlaps, unsafe_dict[unsafe_root_id])]
 
             if len(linked_l2_ids) == 0:
                 seg[bin_cc_seg] = 0
@@ -357,7 +357,7 @@ def get_lx_overlapping_remappings(cg, chunk_id, time_stamp=None, n_threads=1):
             )
 
             safe_lx_ids = lx_ids[u_idx[c_root_ids == 1]]
-            unsafe_lx_ids = lx_ids[~np.in1d(lx_ids, safe_lx_ids)]
+            unsafe_lx_ids = lx_ids[~np.isin(lx_ids, safe_lx_ids)]
             unsafe_root_ids = np.unique(root_ids[u_idx[c_root_ids != 1]])
 
     lx_root_dict = dict(zip(neigh_lx_ids, neigh_root_ids))
@@ -387,7 +387,7 @@ def get_lx_overlapping_remappings(cg, chunk_id, time_stamp=None, n_threads=1):
 
     unsafe_dict = collections.defaultdict(list)
     for root_id in unsafe_root_ids:
-        if np.sum(~np.in1d(root_lx_dict[root_id], unsafe_lx_ids)) == 0:
+        if np.sum(~np.isin(root_lx_dict[root_id], unsafe_lx_ids)) == 0:
             continue
 
         for neigh_lx_id in root_lx_dict[root_id]:

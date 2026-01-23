@@ -89,7 +89,7 @@ def get_atomic_id_from_coord(
         # sort by frequency and discard those ids that have been checked
         # previously
         sorted_atomic_ids = atomic_ids[np.argsort(atomic_id_count)]
-        sorted_atomic_ids = sorted_atomic_ids[~np.in1d(sorted_atomic_ids, checked)]
+        sorted_atomic_ids = sorted_atomic_ids[~np.isin(sorted_atomic_ids, checked)]
 
         # For each candidate id check whether its root id corresponds to the
         # given root id

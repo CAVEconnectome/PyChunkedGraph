@@ -40,7 +40,7 @@ def _get_children(cg, node_ids: Sequence[np.uint64], children_cache: Dict):
     if len(node_ids) == 0:
         return empty_1d.copy()
     node_ids = np.array(node_ids, dtype=NODE_ID)
-    mask = np.in1d(node_ids, np.fromiter(children_cache.keys(), dtype=NODE_ID))
+    mask = np.isin(node_ids, np.fromiter(children_cache.keys(), dtype=NODE_ID))
     children_d = cg.get_children(node_ids[~mask])
     children_cache.update(children_d)
 
