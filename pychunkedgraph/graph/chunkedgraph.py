@@ -735,8 +735,8 @@ class ChunkedGraph:
             else:
                 all_chunk_edges = all_chunk_edges.get_pairs()
             supervoxels = self.get_children(level2_ids, flatten=True)
-            mask0 = np.in1d(all_chunk_edges[:, 0], supervoxels)
-            mask1 = np.in1d(all_chunk_edges[:, 1], supervoxels)
+            mask0 = np.isin(all_chunk_edges[:, 0], supervoxels)
+            mask1 = np.isin(all_chunk_edges[:, 1], supervoxels)
             return all_chunk_edges[mask0 & mask1]
 
         l2id_children_d = self.get_children(level2_ids)
