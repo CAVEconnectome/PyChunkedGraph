@@ -40,4 +40,4 @@ def chunked(l: Sequence, n: int):
 def in2d(arr1: np.ndarray, arr2: np.ndarray) -> np.ndarray:
     arr1_view = arr1.view(dtype="u8,u8").reshape(arr1.shape[0])
     arr2_view = arr2.view(dtype="u8,u8").reshape(arr2.shape[0])
-    return np.in1d(arr1_view, arr2_view)
+    return np.isin(arr1_view, arr2_view)
