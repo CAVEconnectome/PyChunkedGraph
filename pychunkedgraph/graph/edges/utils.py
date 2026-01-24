@@ -70,7 +70,9 @@ def merge_cross_edge_dicts(x_edges_d1: Dict, x_edges_d2: Dict) -> Dict:
     Combines two cross chunk dictionaries of form
     {node_id: {layer id : edge list}}.
     """
-    node_ids = np.unique(list(x_edges_d1.keys()) + list(x_edges_d2.keys()))
+    node_ids = np.unique(
+        np.array(list(x_edges_d1.keys()) + list(x_edges_d2.keys()), dtype=basetypes.NODE_ID)
+    )
     result_d = {}
     for node_id in node_ids:
         cross_edge_ds = [x_edges_d1.get(node_id, {}), x_edges_d2.get(node_id, {})]
