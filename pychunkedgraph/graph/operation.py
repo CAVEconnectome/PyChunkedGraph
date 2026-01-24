@@ -416,6 +416,7 @@ class GraphEditOperation(ABC):
         op_type = "merge" if is_merge else "split"
         self.parent_ts = parent_ts
         root_ids = self._update_root_ids()
+        self.privileged_mode = self.privileged_mode or (is_merge and self.stitch_mode)
         with locks.RootLock(
             self.cg,
             root_ids,
