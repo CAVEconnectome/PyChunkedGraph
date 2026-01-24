@@ -50,7 +50,6 @@ class RootLock:
 
     def __enter__(self):
         if self.privileged_mode:
-            assert self.operation_id is not None, "Please provide operation ID."
             warn("Warning: Privileged mode without acquiring lock.")
             return self
         if not self.operation_id:
