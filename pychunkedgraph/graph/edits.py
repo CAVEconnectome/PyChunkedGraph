@@ -818,7 +818,7 @@ class CreateParentNodes:
 
             chunk_id = self.cg.get_parent_chunk_id(cc_ids[0], parent_layer)
             is_root = parent_layer == self.cg.meta.layer_count
-            batch_size = 4096
+            batch_size = 1
             parent = None
             with self._profiler.profile("create_and_verify_node_id"):
                 while parent is None:
@@ -831,7 +831,7 @@ class CreateParentNodes:
                             parent = cid
                             break
                     if parent is None:
-                        batch_size *= 2
+                        batch_size = min(batch_size * 2, 2**16)
 
             self._new_ids_d[parent_layer].append(parent)
             self._update_id_lineage(parent, cc_ids, layer, parent_layer)
