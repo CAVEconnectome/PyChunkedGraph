@@ -205,6 +205,7 @@ def add_edges(
     edges, l2_cross_edges_d = _analyze_affected_edges(
         cg, atomic_edges, parent_ts=parent_ts
     )
+
     l2ids = np.unique(edges)
     if not allow_same_segment_merge and not stitch_mode:
         roots = cg.get_roots(l2ids, assert_roots=True, time_stamp=parent_ts)
@@ -212,6 +213,7 @@ def add_edges(
 
     new_old_id_d = defaultdict(set)
     old_new_id_d = defaultdict(set)
+
     old_hierarchy_d = _init_old_hierarchy(cg, l2ids, parent_ts=parent_ts)
     atomic_children_d = cg.get_children(l2ids)
     cross_edges_d = merge_cross_edge_dicts(
@@ -532,6 +534,7 @@ def _update_neighbor_cx_edges(
     """
     updated_counterparts = {}
     newid_cx_edges_d = cg.get_cross_chunk_edges(new_ids, time_stamp=parent_ts)
+
     node_map = {}
     for k, v in old_new_id.items():
         if len(v) == 1:
@@ -554,11 +557,13 @@ def _update_neighbor_cx_edges(
             cg, new_id, node_map, cp_layers, all_cx_edges_d, descendants_d
         )
         updated_counterparts.update(result)
+
     updated_entries = []
     for node, val_dict in updated_counterparts.items():
         rowkey = serialize_uint64(node)
         row = cg.client.mutate_row(rowkey, val_dict, time_stamp=time_stamp)
         updated_entries.append(row)
+
     return updated_entries
 
 
@@ -631,6 +636,7 @@ class CreateParentNodes:
         # get their parents, then children of those parents
         old_parents = self.cg.get_parents(old_ids, time_stamp=self._last_ts)
         siblings = self.cg.get_children(np.unique(old_parents), flatten=True)
+
         # replace old identities with new IDs
         mask = np.isin(siblings, old_ids)
         node_ids = [flip_ids(self._old_new_id_d, old_ids), siblings[~mask], new_ids]
@@ -881,6 +887,7 @@ class CreateParentNodes:
 
     def create_new_entries(self) -> List:
         val_dicts = self._get_cross_edges_val_dicts()
+
         for layer in range(2, self.cg.meta.layer_count + 1):
             new_ids = self._new_ids_d[layer]
             for id_ in new_ids:
@@ -906,4 +913,5 @@ class CreateParentNodes:
                             time_stamp=self._time_stamp,
                         )
                     )
+
         self._update_root_id_lineage()
