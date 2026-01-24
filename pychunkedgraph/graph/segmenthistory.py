@@ -78,7 +78,7 @@ class SegmentHistory:
 
     @property
     def operation_ids(self):
-        return np.array(list(self.operation_id_root_id_dict.keys()))
+        return np.array(list(self.operation_id_root_id_dict.keys()), dtype=basetypes.OPERATION_ID)
 
     @property
     def _log_rows(self):
