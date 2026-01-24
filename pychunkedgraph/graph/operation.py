@@ -25,6 +25,7 @@ from . import types
 from . import attributes
 from .edges import Edges
 from .edges.utils import get_edges_status
+from .edits import get_profiler
 from .utils import basetypes
 from .utils import serializers
 from .cache import CacheService
@@ -612,11 +613,14 @@ class MergeOperation(GraphEditOperation):
     def _apply(
         self, *, operation_id, timestamp
     ) -> Tuple[np.ndarray, np.ndarray, List["bigtable.row.Row"]]:
-        root_ids = set(
-            self.cg.get_roots(
-                self.added_edges.ravel(), assert_roots=True, time_stamp=self.parent_ts
+        profiler = get_profiler()
+
+        with profiler.profile("merge_apply_get_roots"):
+            root_ids = set(
+                self.cg.get_roots(
+                    self.added_edges.ravel(), assert_roots=True, time_stamp=self.parent_ts
+                )
             )
-        )
         if len(root_ids) < 2 and not self.allow_same_segment_merge:
             raise PreconditionError(
                 "Supervoxels must belong to different objects."
@@ -628,32 +632,35 @@ class MergeOperation(GraphEditOperation):
         fake_edge_rows = []
         if not self.stitch_mode:
             bbox = get_bbox(self.source_coords, self.sink_coords, self.bbox_offset)
-            with TimeIt("subgraph", self.cg.graph_id, operation_id):
-                edges = self.cg.get_subgraph(
-                    root_ids,
-                    bbox=bbox,
-                    bbox_is_coordinate=True,
-                    edges_only=True,
-                )
+            with profiler.profile("get_subgraph"):
+                with TimeIt("subgraph", self.cg.graph_id, operation_id):
+                    edges = self.cg.get_subgraph(
+                        root_ids,
+                        bbox=bbox,
+                        bbox_is_coordinate=True,
+                        edges_only=True,
+                    )
 
             if self.allow_same_segment_merge:
                 inactive_edges = types.empty_2d
             else:
-                with TimeIt("preprocess", self.cg.graph_id, operation_id):
-                    inactive_edges = edits.merge_preprocess(
-                        self.cg,
-                        subgraph_edges=edges,
-                        supervoxels=self.added_edges.ravel(),
-                        parent_ts=self.parent_ts,
-                    )
+                with profiler.profile("merge_preprocess"):
+                    with TimeIt("preprocess", self.cg.graph_id, operation_id):
+                        inactive_edges = edits.merge_preprocess(
+                            self.cg,
+                            subgraph_edges=edges,
+                            supervoxels=self.added_edges.ravel(),
+                            parent_ts=self.parent_ts,
+                        )
 
-            atomic_edges, fake_edge_rows = edits.check_fake_edges(
-                self.cg,
-                atomic_edges=self.added_edges,
-                inactive_edges=inactive_edges,
-                time_stamp=timestamp,
-                parent_ts=self.parent_ts,
-            )
+            with profiler.profile("check_fake_edges"):
+                atomic_edges, fake_edge_rows = edits.check_fake_edges(
+                    self.cg,
+                    atomic_edges=self.added_edges,
+                    inactive_edges=inactive_edges,
+                    time_stamp=timestamp,
+                    parent_ts=self.parent_ts,
+                )
 
         with TimeIt("add_edges", self.cg.graph_id, operation_id):
             new_roots, new_l2_ids, new_entries = edits.add_edges(
