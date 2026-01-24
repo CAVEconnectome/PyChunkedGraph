@@ -253,7 +253,7 @@ def get_root_lx_remapping(cg, chunk_id, stop_layer, time_stamp, n_threads=1):
 
     lx_id_remap = get_higher_to_lower_remapping(cg, chunk_id, time_stamp=time_stamp)
 
-    lx_ids = np.array(list(lx_id_remap.keys()))
+    lx_ids = np.array(list(lx_id_remap.keys()), dtype=np.uint64)
 
     root_ids = np.zeros(len(lx_ids), dtype=np.uint64)
     n_jobs = np.min([n_threads, len(lx_ids)])
@@ -1034,8 +1034,8 @@ def get_multi_child_nodes(cg, chunk_id, node_id_subset=None, chunk_bbox_string=F
             node_ids=node_id_subset, properties=attributes.Hierarchy.Child
         )
 
-    node_ids = np.array(list(range_read.keys()))
-    node_rows = np.array(list(range_read.values()))
+    node_ids = np.array(list(range_read.keys()), dtype=np.uint64)
+    node_rows = np.array(list(range_read.values()), dtype=object)
     child_fragments = np.array(
         [
             fragment.value
