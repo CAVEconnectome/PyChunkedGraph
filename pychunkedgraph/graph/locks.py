@@ -49,12 +49,12 @@ class RootLock:
         self.privileged_mode = privileged_mode
 
     def __enter__(self):
-        if self.privileged_mode:
-            assert self.operation_id is not None, "Please provide operation ID."
-            warn("Warning: Privileged mode without acquiring lock.")
-            return self
         if not self.operation_id:
             self.operation_id = self.cg.id_client.create_operation_id()
+
+        if self.privileged_mode:
+            warn("Warning: Privileged mode without acquiring lock.")
+            return self
 
         nodes_ts = self.cg.get_node_timestamps(self.root_ids, return_numpy=0)
         min_ts = min(nodes_ts)
