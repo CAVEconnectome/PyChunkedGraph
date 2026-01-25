@@ -129,7 +129,13 @@ def get_downstream_multi_child_nodes(
             only_child_mask = np.array(
                 [len(children_for_node) == 1 for children_for_node in children_array]
             )
-            only_children = children_array[only_child_mask].astype(np.uint64).ravel()
+            # Extract children from object array - each filtered element is a 1-element array
+            filtered_children = children_array[only_child_mask]
+            only_children = (
+                np.concatenate(filtered_children).astype(np.uint64)
+                if filtered_children.size
+                else np.array([], dtype=np.uint64)
+            )
             if np.any(only_child_mask):
                 temp_array = cur_node_ids[stop_layer_mask]
                 temp_array[only_child_mask] = recursive_helper(only_children)
