@@ -18,7 +18,7 @@ from .client import BigTableClient
 from .client import BackendClientInfo
 from .client import get_default_client_info
 from .cache import CacheService
-from .meta import ChunkedGraphMeta
+from .meta import ChunkedGraphMeta, GraphConfig
 from .utils import basetypes
 from .utils import id_helpers
 from .utils import serializers
@@ -65,6 +65,16 @@ class ChunkedGraph:
         self._id_client = bt_client
         self._cache_service = None
         self.mock_edges = None  # hack for unit tests
+
+        # shim to update graph_id in meta for copied graphs
+        if graph_id != self.graph_id:
+            gc = self.meta.graph_config._asdict()
+            gc["ID"] = graph_id
+            new_meta = ChunkedGraphMeta(
+                GraphConfig(**gc), self.meta.data_source, self.meta.custom_data
+            )
+            self.update_meta(new_meta, overwrite=True)
+            self._meta = new_meta
 
     @property
     def meta(self) -> ChunkedGraphMeta:
