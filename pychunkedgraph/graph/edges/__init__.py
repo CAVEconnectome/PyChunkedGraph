@@ -414,12 +414,46 @@ def get_latest_edges(
             return np.unique(cg.get_parents(partners, time_stamp=parent_ts))
 
         _cx_edges_d = cg.get_cross_chunk_edges(parents_b, time_stamp=parent_ts)
+        _hierarchy_a = [parents_a]
+        for _a in parents_a:
+            _hierarchy_a.append(
+                cg.get_root(
+                    _a,
+                    time_stamp=parent_ts,
+                    stop_layer=layer,
+                    get_all_parents=True,
+                    ceil=False,
+                )
+            )
+        _hierarchy_a = np.concatenate(_hierarchy_a)
+
         _parents_b = []
         for _node, _edges_d in _cx_edges_d.items():
-            for _edges in _edges_d.values():
-                _mask = np.isin(_edges[:, 1], parents_a)
-                if np.any(_mask):
-                    _parents_b.append(_node)
+            _edges = _edges_d.get(layer, types.empty_2d)
+            _hierarchy_a_from_b = [_edges[:, 1]]
+            for _a in _edges[:, 1]:
+                _hierarchy_a_from_b.append(
+                    cg.get_root(
+                        _a,
+                        time_stamp=parent_ts,
+                        stop_layer=layer,
+                        get_all_parents=True,
+                        ceil=False,
+                    )
+                )
+                _children = cg.get_children(_a)
+                _children_layers = cg.get_chunk_layers(_children)
+                _children = _children[_children_layers > 2]
+                while _children.size:
+                    _hierarchy_a_from_b.append(_children)
+                    _children = cg.get_children(_children, flatten=True)
+                    _children_layers = cg.get_chunk_layers(_children)
+                    _children = _children[_children_layers > 2]
+
+            _hierarchy_a_from_b = np.concatenate(_hierarchy_a_from_b)
+            _mask = np.isin(_hierarchy_a_from_b, _hierarchy_a)
+            if np.any(_mask):
+                _parents_b.append(_node)
         return np.array(_parents_b, dtype=basetypes.NODE_ID)
 
     def _get_parents_b_with_chunk_mask(

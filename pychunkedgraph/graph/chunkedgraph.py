@@ -496,7 +496,7 @@ class ChunkedGraph:
             else:
                 time.sleep(0.5)
 
-        if self.get_chunk_layer(parent_id) < stop_layer:
+        if ceil and self.get_chunk_layer(parent_id) < stop_layer:
             raise exceptions.ChunkedGraphError(
                 f"Cannot find root id {node_id}, {stop_layer}, {time_stamp}"
             )

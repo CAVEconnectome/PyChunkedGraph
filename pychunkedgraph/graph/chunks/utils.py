@@ -128,6 +128,7 @@ def get_chunk_id(
 
 
 def get_chunk_ids_from_coords(meta, layer: int, coords: np.ndarray):
+    layer = int(layer)
     result = np.zeros(len(coords), dtype=np.uint64)
     s_bits_per_dim = meta.bitmasks[layer]
 
