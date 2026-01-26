@@ -649,7 +649,7 @@ class ChunkedGraph:
         )
         for id_, val in fake_edges_d.items():
             edges = np.concatenate(
-                [np.array(e.value, dtype=basetypes.NODE_ID, copy=False) for e in val]
+                [np.asarray(e.value, dtype=basetypes.NODE_ID) for e in val]
             )
             result[id_] = Edges(edges[:, 0], edges[:, 1])
         return result
@@ -757,7 +757,10 @@ class ChunkedGraph:
         result = []
         earliest_ts = self.get_earliest_timestamp()
         for n in node_ids:
-            ts = children[n][0].timestamp
+            try:
+                ts = children[n][0].timestamp
+            except KeyError:
+                ts = datetime.datetime.now(datetime.timezone.utc)
             if normalize:
                 ts = earliest_ts if ts < earliest_ts else ts
             result.append(ts)
@@ -917,11 +920,9 @@ class ChunkedGraph:
         return chunk_utils.get_chunk_coordinates(self.meta, node_or_chunk_id)
 
     def get_chunk_coordinates_multiple(self, node_or_chunk_ids: typing.Sequence):
-        node_or_chunk_ids = np.array(
-            node_or_chunk_ids, dtype=basetypes.NODE_ID, copy=False
-        )
+        node_or_chunk_ids = np.asarray(node_or_chunk_ids, dtype=basetypes.NODE_ID)
         layers = self.get_chunk_layers(node_or_chunk_ids)
-        assert np.all(layers == layers[0]), "All IDs must have the same layer."
+        assert len(layers) == 0 or np.all(layers == layers[0]), "All IDs must have the same layer."
         return chunk_utils.get_chunk_coordinates_multiple(self.meta, node_or_chunk_ids)
 
     def get_chunk_id(

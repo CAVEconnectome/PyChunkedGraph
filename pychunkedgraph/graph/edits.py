@@ -15,7 +15,7 @@ import fastremap
 from . import types
 from . import attributes
 from . import cache as cache_utils
-from .edges import get_latest_edges, get_latest_edges_wrapper, get_stale_nodes
+from .edges import get_latest_edges_wrapper
 from .edges.utils import concatenate_cross_edge_dicts
 from .edges.utils import merge_cross_edge_dicts
 from .utils import basetypes
