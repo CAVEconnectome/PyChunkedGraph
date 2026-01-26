@@ -381,6 +381,57 @@ def get_latest_edges(
             for parent, ts in parents:
                 PARENTS_CACHE[child][ts] = parent
 
+    def _check_cross_edges_from_a(node_b, nodes_a, layer, parent_ts):
+        """
+        Checks to match cross edges from partners_a
+        to hierarchy of potential node from partner b.
+        """
+        _node_hierarchy = cg.get_root(
+            node_b,
+            time_stamp=parent_ts,
+            stop_layer=layer,
+            get_all_parents=True,
+            ceil=False,
+        )
+        _node_hierarchy = np.append(_node_hierarchy, node_b)
+        _cx_edges_d_from_a = cg.get_cross_chunk_edges(nodes_a, time_stamp=parent_ts)
+        for _edges_d_from_a in _cx_edges_d_from_a.values():
+            _edges_from_a = _edges_d_from_a.get(layer, types.empty_2d)
+            _mask = np.isin(_edges_from_a[:, 1], _node_hierarchy)
+            if np.any(_mask):
+                return True
+        return False
+
+    def _check_hierarchy_a_from_b(nodes_a, hierarchy_a, layer, parent_ts):
+        """
+        Checks for overlap between hierarchy of a,
+        and hierarchy of a identified from partners of b.
+        """
+        _hierarchy_a_from_b = [nodes_a]
+        for _a in nodes_a:
+            _hierarchy_a_from_b.append(
+                cg.get_root(
+                    _a,
+                    time_stamp=parent_ts,
+                    stop_layer=layer,
+                    get_all_parents=True,
+                    ceil=False,
+                )
+            )
+            _children = cg.get_children(_a)
+            _children_layers = cg.get_chunk_layers(_children)
+            _hierarchy_a_from_b.append(_children[_children_layers == 2])
+            _children = _children[_children_layers > 2]
+            while _children.size:
+                _hierarchy_a_from_b.append(_children)
+                _children = cg.get_children(_children, flatten=True)
+                _children_layers = cg.get_chunk_layers(_children)
+                _hierarchy_a_from_b.append(_children[_children_layers == 2])
+                _children = _children[_children_layers > 2]
+
+        _hierarchy_a_from_b = np.concatenate(_hierarchy_a_from_b)
+        return np.isin(_hierarchy_a_from_b, hierarchy_a)
+
     def _get_parents_b(edges, parent_ts, layer, fallback: bool = False):
         """
         Attempts to find new partner side nodes.
@@ -430,29 +481,11 @@ def get_latest_edges(
         _parents_b = []
         for _node, _edges_d in _cx_edges_d.items():
             _edges = _edges_d.get(layer, types.empty_2d)
-            _hierarchy_a_from_b = [_edges[:, 1]]
-            for _a in _edges[:, 1]:
-                _hierarchy_a_from_b.append(
-                    cg.get_root(
-                        _a,
-                        time_stamp=parent_ts,
-                        stop_layer=layer,
-                        get_all_parents=True,
-                        ceil=False,
-                    )
-                )
-                _children = cg.get_children(_a)
-                _children_layers = cg.get_chunk_layers(_children)
-                _children = _children[_children_layers > 2]
-                while _children.size:
-                    _hierarchy_a_from_b.append(_children)
-                    _children = cg.get_children(_children, flatten=True)
-                    _children_layers = cg.get_chunk_layers(_children)
-                    _children = _children[_children_layers > 2]
-
-            _hierarchy_a_from_b = np.concatenate(_hierarchy_a_from_b)
-            _mask = np.isin(_hierarchy_a_from_b, _hierarchy_a)
-            if np.any(_mask):
+            if _check_cross_edges_from_a(_node, _edges[:, 1], layer, parent_ts):
+                _parents_b.append(_node)
+            elif _check_hierarchy_a_from_b(
+                _edges[:, 1], _hierarchy_a, layer, parent_ts
+            ):
                 _parents_b.append(_node)
         return np.array(_parents_b, dtype=basetypes.NODE_ID)
 
@@ -467,6 +500,16 @@ def get_latest_edges(
         assert _stale_nodes.size == 0, f"{edge}, {_stale_nodes}, {parent_ts}"
         return parents_b
 
+    def _get_cx_edges(l2ids_a, max_node_ts, raw_only: bool = True):
+        _edges_d = cg.get_cross_chunk_edges(
+            node_ids=l2ids_a, time_stamp=max_node_ts, raw_only=raw_only
+        )
+        _edges = []
+        for v in _edges_d.values():
+            if edge_layer in v:
+                _edges.append(v[edge_layer])
+        return np.concatenate(_edges)
+
     def _get_new_edge(edge, edge_layer, parent_ts, padding, fallback: bool = False):
         """
         Attempts to find new edge(s) for the stale `edge`.
@@ -480,16 +523,10 @@ def get_latest_edges(
             return types.empty_2d.copy()
 
         max_node_ts = max(nodes_ts_map[node_a], nodes_ts_map[node_b])
-        _edges_d = cg.get_cross_chunk_edges(
-            node_ids=l2ids_a, time_stamp=max_node_ts, raw_only=True
-        )
-        _edges = []
-        for v in _edges_d.values():
-            if edge_layer in v:
-                _edges.append(v[edge_layer])
-
         try:
-            _edges = np.concatenate(_edges)
+            _edges = _get_cx_edges(l2ids_a, max_node_ts)
+        except ValueError:
+            _edges = _get_cx_edges(l2ids_a, max_node_ts, raw_only=False)
         except ValueError:
             return types.empty_2d.copy()
 
