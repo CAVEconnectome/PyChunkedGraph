@@ -54,22 +54,20 @@ class Edges:
         affinities: Optional[np.ndarray] = None,
         areas: Optional[np.ndarray] = None,
     ):
-        self.node_ids1 = np.array(node_ids1, dtype=basetypes.NODE_ID, copy=False)
-        self.node_ids2 = np.array(node_ids2, dtype=basetypes.NODE_ID, copy=False)
+        self.node_ids1 = np.array(node_ids1, dtype=basetypes.NODE_ID)
+        self.node_ids2 = np.array(node_ids2, dtype=basetypes.NODE_ID)
         assert self.node_ids1.size == self.node_ids2.size
 
         self._as_pairs = None
 
         if affinities is not None and len(affinities) > 0:
-            self._affinities = np.array(
-                affinities, dtype=basetypes.EDGE_AFFINITY, copy=False
-            )
+            self._affinities = np.array(affinities, dtype=basetypes.EDGE_AFFINITY)
             assert self.node_ids1.size == self._affinities.size
         else:
             self._affinities = np.full(len(self.node_ids1), DEFAULT_AFFINITY)
 
         if areas is not None and len(areas) > 0:
-            self._areas = np.array(areas, dtype=basetypes.EDGE_AREA, copy=False)
+            self._areas = np.array(areas, dtype=basetypes.EDGE_AREA)
             assert self.node_ids1.size == self._areas.size
         else:
             self._areas = np.full(len(self.node_ids1), DEFAULT_AREA)
@@ -430,7 +428,7 @@ def get_latest_edges(
                 _children = _children[_children_layers > 2]
 
         _hierarchy_a_from_b = np.concatenate(_hierarchy_a_from_b)
-        return np.isin(_hierarchy_a_from_b, hierarchy_a)
+        return np.any(np.isin(_hierarchy_a_from_b, hierarchy_a))
 
     def _get_parents_b(edges, parent_ts, layer, fallback: bool = False):
         """
@@ -451,7 +449,7 @@ def get_latest_edges(
             _parents_b_missed = np.unique(cg.get_parents(missing, time_stamp=parent_ts))
             parents_b = np.concatenate([_parents_b, _parents_b_missed])
 
-        parents_a = edges[:, 0]
+        parents_a = np.unique(edges[:, 0])
         stale_a = get_stale_nodes(cg, parents_a, parent_ts=parent_ts)
         if stale_a.size == parents_a.size or fallback:
             # this is applicable only for v2 to v3 migration
@@ -510,6 +508,18 @@ def get_latest_edges(
                 _edges.append(v[edge_layer])
         return np.concatenate(_edges)
 
+    def _get_dilated_edges(edges):
+        layers_b = cg.get_chunk_layers(edges[:, 1])
+        _mask = layers_b == 2
+        _l2_edges = [edges[_mask]]
+        for _edge in edges[~_mask]:
+            _node_a, _node_b = _edge
+            _nodes_b = cg.get_l2children([_node_b])
+            _l2_edges.append(
+                np.array([[_node_a, _b] for _b in _nodes_b], dtype=basetypes.NODE_ID)
+            )
+        return np.unique(np.concatenate(_l2_edges), axis=0)
+
     def _get_new_edge(edge, edge_layer, parent_ts, padding, fallback: bool = False):
         """
         Attempts to find new edge(s) for the stale `edge`.
@@ -534,16 +544,22 @@ def get_latest_edges(
         if np.any(mask):
             parents_b = _get_parents_b(_edges[mask], parent_ts, edge_layer)
         else:
-            # if none of `l2ids_b` were found in edges, `l2ids_a` already have new edges
-            # so get the new identities of `l2ids_b` by using chunk mask
-            try:
-                parents_b = _get_parents_b_with_chunk_mask(
-                    l2ids_b, _edges[:, 1], max_node_ts, edge
-                )
-            except AssertionError:
-                parents_b = []
-                if fallback:
-                    parents_b = _get_parents_b(_edges, parent_ts, edge_layer, True)
+            # partner edges likely lifted, dilate and retry
+            _edges = _get_dilated_edges(_edges)
+            mask = np.isin(_edges[:, 1], l2ids_b)
+            if np.any(mask):
+                parents_b = _get_parents_b(_edges[mask], parent_ts, edge_layer)
+            else:
+                # if none of `l2ids_b` were found in edges, `l2ids_a` already have new edges
+                # so get the new identities of `l2ids_b` by using chunk mask
+                try:
+                    parents_b = _get_parents_b_with_chunk_mask(
+                        l2ids_b, _edges[:, 1], max_node_ts, edge
+                    )
+                except AssertionError:
+                    parents_b = []
+                    if fallback:
+                        parents_b = _get_parents_b(_edges, parent_ts, edge_layer, True)
 
         parents_b = np.unique(
             cg.get_roots(parents_b, stop_layer=mlayer, ceil=False, time_stamp=parent_ts)
