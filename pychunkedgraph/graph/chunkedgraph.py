@@ -1036,3 +1036,18 @@ class ChunkedGraph:
                 self.meta, _nodes
             )
         return layers, chunk_coords
+
+    def get_l2children(self, node_ids) -> np.ndarray:
+        """
+        Get L2 children of all node_ids, returns a flat array.
+        """
+        node_ids = np.asarray(node_ids, dtype=basetypes.NODE_ID)
+        layers = self.get_chunk_layers(node_ids)
+        assert np.all(layers >= 2), "nodes must be at layers >= 2"
+        l2children = [types.empty_1d]
+        while node_ids.size:
+            children = self.get_children(node_ids, flatten=True)
+            layers = self.get_chunk_layers(children)
+            l2children.append(children[layers == 2])
+            node_ids = children[layers > 2]
+        return np.concatenate(l2children)
