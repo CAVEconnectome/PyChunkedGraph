@@ -27,12 +27,23 @@ from ..debug.utils import sanity_check, sanity_check_single
 
 
 def _init_old_hierarchy(cg, l2ids: np.ndarray, parent_ts: datetime.datetime = None):
+    """
+    Populates old hierarcy from child to root and also gets children of intermediate nodes.
+    These will be needed later and cached in cg.cache used during an edit.
+    """
+    all_parents = []
     old_hierarchy_d = {id_: {2: id_} for id_ in l2ids}
+    node_layer_parent_map = cg.get_all_parents_dict_multiple(
+        l2ids, time_stamp=parent_ts
+    )
     for id_ in l2ids:
-        layer_parent_d = cg.get_all_parents_dict(id_, time_stamp=parent_ts)
+        layer_parent_d = node_layer_parent_map[id_]
         old_hierarchy_d[id_].update(layer_parent_d)
         for parent in layer_parent_d.values():
+            all_parents.append(parent)
             old_hierarchy_d[parent] = old_hierarchy_d[id_]
+    children = cg.get_children(all_parents, flatten=True)
+    _ = cg.get_parents(children, time_stamp=parent_ts)
     return old_hierarchy_d
 
 
@@ -412,25 +423,42 @@ def _get_descendants(cg, new_id):
     return result
 
 
+def _extract_counterparts_from_cx_edges(
+    cg, node_id: int, cx_edges_d: dict
+) -> Tuple[List[int], Dict[int, int]]:
+    """
+    Extract counterparts and their corresponding layers from cross chunk edges.
+    Returns (counterparts list, counterpart_layers dict).
+    """
+    node_layer = cg.get_chunk_layer(node_id)
+    counterparts = []
+    counterpart_layers = {}
+    for layer in range(node_layer, cg.meta.layer_count):
+        layer_edges = cx_edges_d.get(layer, types.empty_2d)
+        if layer_edges.size == 0:
+            continue
+        counterparts.extend(layer_edges[:, 1])
+        layers_d = dict(zip(layer_edges[:, 1], [layer] * len(layer_edges[:, 1])))
+        counterpart_layers.update(layers_d)
+    return counterparts, counterpart_layers
+
+
 def _update_neighbor_cross_edges_single(
-    cg, new_id: int, cx_edges_d: dict, node_map: dict, *, parent_ts
+    cg,
+    new_id: int,
+    node_map: dict,
+    counterpart_layers: dict,
+    all_counterparts_cx_edges_d: dict,
 ) -> dict:
     """
-    For each new_id, get counterparts and update its cross chunk edges.
+    For each new_id, update cross chunk edges of its counterparts.
     Some of them maybe updated multiple times so we need to collect them first
     and then write to storage to consolidate the mutations.
     Returns updated counterparts.
     """
     node_layer = cg.get_chunk_layer(new_id)
-    counterparts = []
-    counterpart_layers = {}
-    for layer in range(node_layer, cg.meta.layer_count):
-        layer_edges = cx_edges_d.get(layer, types.empty_2d)
-        counterparts.extend(layer_edges[:, 1])
-        layers_d = dict(zip(layer_edges[:, 1], [layer] * len(layer_edges[:, 1])))
-        counterpart_layers.update(layers_d)
-
-    cp_cx_edges_d = cg.get_cross_chunk_edges(counterparts, time_stamp=parent_ts)
+    counterparts = list(counterpart_layers.keys())
+    cp_cx_edges_d = {cp: all_counterparts_cx_edges_d.get(cp, {}) for cp in counterparts}
     updated_counterparts = {}
     for counterpart, edges_d in cp_cx_edges_d.items():
         val_dict = {}
@@ -482,12 +510,32 @@ def _update_neighbor_cross_edges(
         if len(v) == 1:
             node_map[k] = next(iter(v))
 
+    all_counterparts = set()
+    newid_counterpart_info = {}
     for new_id in new_ids:
         cx_edges_d = newid_cx_edges_d[new_id]
+        counterparts, counterpart_layers = _extract_counterparts_from_cx_edges(
+            cg, new_id, cx_edges_d
+        )
+        all_counterparts.update(counterparts)
+        newid_counterpart_info[new_id] = counterpart_layers
+
+    all_counterparts_cx_edges_d = (
+        cg.get_cross_chunk_edges(list(all_counterparts), time_stamp=parent_ts)
+        if all_counterparts
+        else {}
+    )
+
+    for new_id in new_ids:
         m = {old_id: new_id for old_id in _get_flipped_ids(new_old_id, [new_id])}
         node_map.update(m)
+        counterpart_layers = newid_counterpart_info[new_id]
         result = _update_neighbor_cross_edges_single(
-            cg, new_id, cx_edges_d, node_map, parent_ts=parent_ts
+            cg,
+            new_id,
+            node_map,
+            counterpart_layers,
+            all_counterparts_cx_edges_d,
         )
         updated_counterparts.update(result)
     updated_entries = []
@@ -647,14 +695,12 @@ class CreateParentNodes:
             try:
                 sanity_check_single(self.cg, parent, self._operation_id)
             except AssertionError:
-                from pychunkedgraph.debug.utils import get_l2children
-
                 pairs = [
                     (a, b) for idx, a in enumerate(cc_ids) for b in cc_ids[idx + 1 :]
                 ]
                 for c1, c2 in pairs:
-                    l2c1 = get_l2children(self.cg, c1)
-                    l2c2 = get_l2children(self.cg, c2)
+                    l2c1 = self.cg.get_l2children([c1])
+                    l2c2 = self.cg.get_l2children([c2])
                     if np.intersect1d(l2c1, l2c2).size:
                         c = np.intersect1d(l2c1, l2c2)
                         msg = f"{self._operation_id}: {layer} {c1} {c2} have common children {c}"

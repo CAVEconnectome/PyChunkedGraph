@@ -553,6 +553,35 @@ class ChunkedGraph:
         )
         return dict(zip(self.get_chunk_layers(parent_ids), parent_ids))
 
+    def get_all_parents_dict_multiple(self, node_ids, *, time_stamp=None):
+        """Batch fetch all parent hierarchies layer by layer."""
+        result = {node: {} for node in node_ids}
+        nodes = np.array(node_ids, dtype=basetypes.NODE_ID)
+        layers_map = {}
+        child_parent_map = {}
+
+        while nodes.size > 0:
+            parents = self.get_parents(nodes, time_stamp=time_stamp)
+            parent_layers = self.get_chunk_layers(parents)
+            for node, parent, layer in zip(nodes, parents, parent_layers):
+                layers_map[parent] = layer
+                child_parent_map[node] = parent
+            nodes = parents[parent_layers < self.meta.layer_count]
+
+        for node in node_ids:
+            current = node
+            node_result = {}
+            while True:
+                try:
+                    parent = child_parent_map[current]
+                except KeyError:
+                    break
+                parent_layer = layers_map[parent]
+                node_result[parent_layer] = parent
+                current = parent
+            result[node] = node_result
+        return result
+
     def get_subgraph(
         self,
         node_id_or_ids: typing.Union[np.uint64, typing.Iterable],
@@ -922,7 +951,9 @@ class ChunkedGraph:
     def get_chunk_coordinates_multiple(self, node_or_chunk_ids: typing.Sequence):
         node_or_chunk_ids = np.asarray(node_or_chunk_ids, dtype=basetypes.NODE_ID)
         layers = self.get_chunk_layers(node_or_chunk_ids)
-        assert len(layers) == 0 or np.all(layers == layers[0]), "All IDs must have the same layer."
+        assert len(layers) == 0 or np.all(
+            layers == layers[0]
+        ), "All IDs must have the same layer."
         return chunk_utils.get_chunk_coordinates_multiple(self.meta, node_or_chunk_ids)
 
     def get_chunk_id(
