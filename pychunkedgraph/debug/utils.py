@@ -56,3 +56,20 @@ def update_graph_id(cg, new_graph_id:str):
     new_gc = GraphConfig(**old_gc)
     new_meta = ChunkedGraphMeta(new_gc, cg.meta.data_source, cg.meta.custom_data)
     cg.update_meta(new_meta, overwrite=True)
+
+
+def get_random_l1_ids(cg, n_chunks=100, n_per_chunk=10, seed=None):
+    """Generate random layer 1 IDs from different chunks."""
+    if seed:
+        np.random.seed(seed)
+    bounds = cg.meta.layer_chunk_bounds[2]
+    ids = []
+    for _ in range(n_chunks):
+        cx, cy, cz = [np.random.randint(0, b) for b in bounds]
+        chunk_id = cg.get_chunk_id(layer=2, x=cx, y=cy, z=cz)
+        max_seg = cg.get_segment_id(cg.id_client.get_max_node_id(chunk_id))
+        if max_seg < 2:
+            continue
+        for seg in np.random.randint(1, max_seg + 1, n_per_chunk):
+            ids.append(cg.get_node_id(np.uint64(seg), np.uint64(chunk_id)))
+    return np.array(ids, dtype=np.uint64)
