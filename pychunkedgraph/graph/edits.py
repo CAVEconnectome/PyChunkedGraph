@@ -1,15 +1,12 @@
 # pylint: disable=invalid-name, missing-docstring, too-many-locals, c-extension-no-member
 
 import datetime
-import time
-import os
 from typing import Dict
 from typing import List
 from typing import Tuple
 from typing import Iterable
 from typing import Set
 from collections import defaultdict
-from contextlib import contextmanager
 
 import fastremap
 import numpy as np
@@ -27,117 +24,6 @@ from .utils import flatgraph
 from .utils.serializers import serialize_uint64
 from ..utils.general import in2d
 from ..debug.utils import sanity_check, sanity_check_single
-
-
-class HierarchicalProfiler:
-    """
-    Hierarchical profiler for detailed timing breakdowns.
-    Tracks timing at multiple levels and prints a breakdown at the end.
-    """
-
-    def __init__(self, enabled: bool = True):
-        self.enabled = enabled
-        self.timings: Dict[str, List[float]] = defaultdict(list)
-        self.call_counts: Dict[str, int] = defaultdict(int)
-        self.stack: List[Tuple[str, float]] = []
-        self.current_path: List[str] = []
-
-    @contextmanager
-    def profile(self, name: str):
-        """Context manager for profiling a code block."""
-        if not self.enabled:
-            yield
-            return
-
-        full_path = ".".join(self.current_path + [name])
-        self.current_path.append(name)
-        start_time = time.perf_counter()
-
-        try:
-            yield
-        finally:
-            elapsed = time.perf_counter() - start_time
-            self.timings[full_path].append(elapsed)
-            self.call_counts[full_path] += 1
-            self.current_path.pop()
-
-    def print_report(self, operation_id=None):
-        """Print a detailed timing breakdown."""
-        if not self.enabled or not self.timings:
-            return
-
-        print("\n" + "=" * 80)
-        print(f"PROFILER REPORT{f' (operation_id={operation_id})' if operation_id else ''}")
-        print("=" * 80)
-
-        # Group by depth level
-        by_depth: Dict[int, List[Tuple[str, float, int]]] = defaultdict(list)
-        for path, times in self.timings.items():
-            depth = path.count(".")
-            total_time = sum(times)
-            count = self.call_counts[path]
-            by_depth[depth].append((path, total_time, count))
-
-        # Sort each level by total time
-        for depth in sorted(by_depth.keys()):
-            items = sorted(by_depth[depth], key=lambda x: -x[1])
-            for path, total_time, count in items:
-                indent = "  " * depth
-                avg_time = total_time / count if count > 0 else 0
-                if count > 1:
-                    print(
-                        f"{indent}{path}: {total_time*1000:.2f}ms total "
-                        f"({count} calls, {avg_time*1000:.2f}ms avg)"
-                    )
-                else:
-                    print(f"{indent}{path}: {total_time*1000:.2f}ms")
-
-        # Print summary
-        print("-" * 80)
-        top_level_total = sum(
-            sum(times) for path, times in self.timings.items() if "." not in path
-        )
-        print(f"Total top-level time: {top_level_total*1000:.2f}ms")
-
-        # Print top 10 slowest operations
-        print("\nTop 10 slowest operations:")
-        all_ops = [
-            (path, sum(times), self.call_counts[path])
-            for path, times in self.timings.items()
-        ]
-        all_ops.sort(key=lambda x: -x[1])
-        for i, (path, total_time, count) in enumerate(all_ops[:10]):
-            pct = (total_time / top_level_total * 100) if top_level_total > 0 else 0
-            print(f"  {i+1}. {path}: {total_time*1000:.2f}ms ({pct:.1f}%)")
-
-        print("=" * 80 + "\n")
-
-    def reset(self):
-        """Reset all timing data."""
-        self.timings.clear()
-        self.call_counts.clear()
-        self.stack.clear()
-        self.current_path.clear()
-
-
-# Global profiler instance - enable via environment variable
-PROFILER_ENABLED = os.environ.get("PCG_PROFILER_ENABLED", "1") == "1"
-_profiler: HierarchicalProfiler = None
-
-
-def get_profiler() -> HierarchicalProfiler:
-    """Get or create the global profiler instance."""
-    global _profiler
-    if _profiler is None:
-        _profiler = HierarchicalProfiler(enabled=PROFILER_ENABLED)
-    return _profiler
-
-
-def reset_profiler():
-    """Reset the global profiler."""
-    global _profiler
-    if _profiler is not None:
-        _profiler.reset()
 
 
 def _init_old_hierarchy(cg, l2ids: np.ndarray, parent_ts: datetime.datetime = None):
@@ -169,11 +55,8 @@ def _analyze_affected_edges(
 
     Also returns new cross edges dicts for nodes crossing chunk boundary.
     """
-    profiler = get_profiler()
-
     supervoxels = np.unique(atomic_edges)
-    with profiler.profile("analyze_get_parents"):
-        parents = cg.get_parents(supervoxels, time_stamp=parent_ts)
+    parents = cg.get_parents(supervoxels, time_stamp=parent_ts)
     sv_parent_d = dict(zip(supervoxels.tolist(), parents))
     edge_layers = cg.get_cross_chunk_edges_layer(atomic_edges)
     parent_edges = [
@@ -318,48 +201,32 @@ def add_edges(
     allow_same_segment_merge=False,
     stitch_mode: bool = False,
 ):
-    profiler = get_profiler()
-    profiler.reset()  # Reset for fresh profiling
+    edges, l2_cross_edges_d = _analyze_affected_edges(
+        cg, atomic_edges, parent_ts=parent_ts
+    )
+    l2ids = np.unique(edges)
+    if not allow_same_segment_merge and not stitch_mode:
+        roots = cg.get_roots(l2ids, assert_roots=True, time_stamp=parent_ts)
+        assert np.unique(roots).size >= 2, "L2 IDs must belong to different roots."
 
-    with profiler.profile("add_edges"):
-        with profiler.profile("analyze_affected_edges"):
-            edges, l2_cross_edges_d = _analyze_affected_edges(
-                cg, atomic_edges, parent_ts=parent_ts
-            )
+    new_old_id_d = defaultdict(set)
+    old_new_id_d = defaultdict(set)
+    old_hierarchy_d = _init_old_hierarchy(cg, l2ids, parent_ts=parent_ts)
+    atomic_children_d = cg.get_children(l2ids)
+    cross_edges_d = merge_cross_edge_dicts(
+        cg.get_cross_chunk_edges(l2ids, time_stamp=parent_ts), l2_cross_edges_d
+    )
 
-        l2ids = np.unique(edges)
-        if not allow_same_segment_merge and not stitch_mode:
-            with profiler.profile("validate_roots"):
-                roots = cg.get_roots(l2ids, assert_roots=True, time_stamp=parent_ts)
-                assert np.unique(roots).size >= 2, "L2 IDs must belong to different roots."
-
-        new_old_id_d = defaultdict(set)
-        old_new_id_d = defaultdict(set)
-
-        with profiler.profile("init_old_hierarchy"):
-            old_hierarchy_d = _init_old_hierarchy(cg, l2ids, parent_ts=parent_ts)
-
-        with profiler.profile("get_children"):
-            atomic_children_d = cg.get_children(l2ids)
-
-        with profiler.profile("get_cross_chunk_edges"):
-            cross_edges_d = merge_cross_edge_dicts(
-                cg.get_cross_chunk_edges(l2ids, time_stamp=parent_ts), l2_cross_edges_d
-            )
-
-        with profiler.profile("build_graph"):
-            graph, _, _, graph_ids = flatgraph.build_gt_graph(edges, make_directed=True)
-            components = flatgraph.connected_components(graph)
-
-        with profiler.profile("create_l2_ids"):
-            new_l2_ids = []
-            for cc_indices in components:
-                l2ids_ = graph_ids[cc_indices]
-                new_id = cg.id_client.create_node_id(cg.get_chunk_id(l2ids_[0]))
-                new_l2_ids.append(new_id)
-                new_old_id_d[new_id].update(l2ids_)
-                for id_ in l2ids_:
-                    old_new_id_d[id_].add(new_id)
+    graph, _, _, graph_ids = flatgraph.build_gt_graph(edges, make_directed=True)
+    components = flatgraph.connected_components(graph)
+    new_l2_ids = []
+    for cc_indices in components:
+        l2ids_ = graph_ids[cc_indices]
+        new_id = cg.id_client.create_node_id(cg.get_chunk_id(l2ids_[0]))
+        new_l2_ids.append(new_id)
+        new_old_id_d[new_id].update(l2ids_)
+        for id_ in l2ids_:
+            old_new_id_d[id_].add(new_id)
 
         # update cache
         # map parent to new merged children and vice versa
@@ -368,20 +235,19 @@ def add_edges(
         cg.cache.children_cache[new_id] = merged_children
         cache_utils.update(cg.cache.parents_cache, merged_children, new_id)
 
-        # update cross chunk edges by replacing old_ids with new
-        # this can be done only after all new IDs have been created
-        with profiler.profile("update_cross_edges"):
-            for new_id, cc_indices in zip(new_l2_ids, components):
-                l2ids_ = graph_ids[cc_indices]
-                new_cx_edges_d = {}
-                cx_edges = [cross_edges_d[l2id] for l2id in l2ids_]
-                cx_edges_d = concatenate_cross_edge_dicts(cx_edges, unique=True)
-                temp_map = {k: next(iter(v)) for k, v in old_new_id_d.items()}
-                for layer, edges in cx_edges_d.items():
-                    edges = fastremap.remap(edges, temp_map, preserve_missing_labels=True)
-                    new_cx_edges_d[layer] = edges
-                    assert np.all(edges[:, 0] == new_id)
-                cg.cache.cross_chunk_edges_cache[new_id] = new_cx_edges_d
+    # update cross chunk edges by replacing old_ids with new
+    # this can be done only after all new IDs have been created
+    for new_id, cc_indices in zip(new_l2_ids, components):
+        l2ids_ = graph_ids[cc_indices]
+        new_cx_edges_d = {}
+        cx_edges = [cross_edges_d[l2id] for l2id in l2ids_]
+        cx_edges_d = concatenate_cross_edge_dicts(cx_edges, unique=True)
+        temp_map = {k: next(iter(v)) for k, v in old_new_id_d.items()}
+        for layer, edges in cx_edges_d.items():
+            edges = fastremap.remap(edges, temp_map, preserve_missing_labels=True)
+            new_cx_edges_d[layer] = edges
+            assert np.all(edges[:, 0] == new_id)
+        cg.cache.cross_chunk_edges_cache[new_id] = new_cx_edges_d
 
     profiler = get_profiler()
     profiler.reset()
@@ -643,12 +509,8 @@ def _update_neighbor_cx_edges(
     and then write to storage to consolidate the mutations.
     Returns mutations to updated counterparts/partner nodes.
     """
-    profiler = get_profiler()
     updated_counterparts = {}
-
-    with profiler.profile("neighbor_get_cross_chunk_edges"):
-        newid_cx_edges_d = cg.get_cross_chunk_edges(new_ids, time_stamp=parent_ts)
-
+    newid_cx_edges_d = cg.get_cross_chunk_edges(new_ids, time_stamp=parent_ts)
     node_map = {}
     for k, v in old_new_id.items():
         if len(v) == 1:
@@ -670,14 +532,11 @@ def _update_neighbor_cx_edges(
             cg, new_id, node_map, cp_layers, all_cx_edges_d
         )
         updated_counterparts.update(result)
-
-    with profiler.profile("neighbor_create_mutations"):
-        updated_entries = []
-        for node, val_dict in updated_counterparts.items():
-            rowkey = serialize_uint64(node)
-            row = cg.client.mutate_row(rowkey, val_dict, time_stamp=time_stamp)
-            updated_entries.append(row)
-
+    updated_entries = []
+    for node, val_dict in updated_counterparts.items():
+        rowkey = serialize_uint64(node)
+        row = cg.client.mutate_row(rowkey, val_dict, time_stamp=time_stamp)
+        updated_entries.append(row)
     return updated_entries
 
 
@@ -748,7 +607,6 @@ class CreateParentNodes:
         # get their parents, then children of those parents
         old_parents = self.cg.get_parents(old_ids, time_stamp=self._last_ts)
         siblings = self.cg.get_children(np.unique(old_parents), flatten=True)
-
         # replace old identities with new IDs
         mask = np.isin(siblings, old_ids)
         node_ids = [_flip_ids(self._old_new_id_d, old_ids), siblings[~mask], new_ids]
@@ -781,7 +639,6 @@ class CreateParentNodes:
             ceil=False,
             time_stamp=self._last_ts,
         )
-
         edge_parents_d = dict(zip(edge_nodes, edge_parents))
         new_cx_edges_d = {}
         for layer in range(parent_layer, self.cg.meta.layer_count):
@@ -862,14 +719,9 @@ class CreateParentNodes:
         update parent old IDs
         """
         new_ids = self._new_ids_d[layer]
-
-        with self._profiler.profile("get_layer_node_ids"):
-            layer_node_ids = self._get_layer_node_ids(new_ids, layer)
-
-        with self._profiler.profile("get_connected_components"):
-            components, graph_ids = self._get_connected_components(layer_node_ids, layer)
-
-        for cc_idx, cc_indices in enumerate(components):
+        layer_node_ids = self._get_layer_node_ids(new_ids, layer)
+        components, graph_ids = self._get_connected_components(layer_node_ids, layer)
+        for cc_indices in components:
             parent_layer = layer + 1  # must be reset for each connected component
             cc_ids = graph_ids[cc_indices]
             if len(cc_ids) == 1:
@@ -998,35 +850,30 @@ class CreateParentNodes:
         return val_dicts
 
     def create_new_entries(self) -> List:
-        with self._profiler.profile("get_cross_edges_val_dicts"):
-            val_dicts = self._get_cross_edges_val_dicts()
-
-        with self._profiler.profile("build_hierarchy_entries"):
-            for layer in range(2, self.cg.meta.layer_count + 1):
-                new_ids = self._new_ids_d[layer]
-                for id_ in new_ids:
-                    val_dict = val_dicts.get(id_, {})
-                    children = self.cg.get_children(id_)
-                    err = f"parent layer less than children; op {self._operation_id}"
-                    assert np.max(
-                        self.cg.get_chunk_layers(children)
-                    ) < self.cg.get_chunk_layer(id_), err
-                    val_dict[attributes.Hierarchy.Child] = children
+        val_dicts = self._get_cross_edges_val_dicts()
+        for layer in range(2, self.cg.meta.layer_count + 1):
+            new_ids = self._new_ids_d[layer]
+            for id_ in new_ids:
+                val_dict = val_dicts.get(id_, {})
+                children = self.cg.get_children(id_)
+                err = f"parent layer less than children; op {self._operation_id}"
+                assert np.max(
+                    self.cg.get_chunk_layers(children)
+                ) < self.cg.get_chunk_layer(id_), err
+                val_dict[attributes.Hierarchy.Child] = children
+                self.new_entries.append(
+                    self.cg.client.mutate_row(
+                        serialize_uint64(id_),
+                        val_dict,
+                        time_stamp=self._time_stamp,
+                    )
+                )
+                for child_id in children:
                     self.new_entries.append(
                         self.cg.client.mutate_row(
-                            serialize_uint64(id_),
-                            val_dict,
+                            serialize_uint64(child_id),
+                            {attributes.Hierarchy.Parent: id_},
                             time_stamp=self._time_stamp,
                         )
                     )
-                    for child_id in children:
-                        self.new_entries.append(
-                            self.cg.client.mutate_row(
-                                serialize_uint64(child_id),
-                                {attributes.Hierarchy.Parent: id_},
-                                time_stamp=self._time_stamp,
-                            )
-                        )
-
-        with self._profiler.profile("update_root_id_lineage"):
-            self._update_root_id_lineage()
+        self._update_root_id_lineage()
