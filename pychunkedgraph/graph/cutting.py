@@ -395,8 +395,8 @@ class LocalMincutGraph:
 
         remapped_cutset = np.array(remapped_cutset, dtype=np.uint64)
 
-        remapped_cutset_flattened_view = remapped_cutset.view(dtype="u8,u8")
-        edges_flattened_view = self.cg_edges.view(dtype="u8,u8")
+        remapped_cutset_flattened_view = remapped_cutset.view(dtype="u8,u8").ravel()
+        edges_flattened_view = self.cg_edges.view(dtype="u8,u8").ravel()
 
         cutset_mask = np.isin(remapped_cutset_flattened_view, edges_flattened_view)
 
