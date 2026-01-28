@@ -9,6 +9,7 @@ from ..graph.meta import GraphConfig
 
 from ..graph.client import BackendClientInfo
 from ..graph.client.bigtable import BigTableConfig
+from ..graph.client.hbase import HBaseConfig
 
 chunk_id_str = lambda layer, coords: f"{layer}_{'_'.join(map(str, coords))}"
 
@@ -28,8 +29,12 @@ def bootstrap(
         USE_RAW_COMPONENTS=raw,
         TEST_RUN=test_run,
     )
-    client_config = BigTableConfig(**config["backend_client"]["CONFIG"])
-    client_info = BackendClientInfo(config["backend_client"]["TYPE"], client_config)
+    backend_type = config["backend_client"].get("TYPE", "bigtable")
+    if backend_type.lower() == "hbase":
+        client_config = HBaseConfig(**config["backend_client"]["CONFIG"])
+    else:
+        client_config = BigTableConfig(**config["backend_client"]["CONFIG"])
+    client_info = BackendClientInfo(backend_type, client_config)
 
     graph_config = GraphConfig(
         ID=f"{graph_id}",

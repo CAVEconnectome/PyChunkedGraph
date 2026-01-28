@@ -7,6 +7,7 @@ pandas
 networkx>=2.1
 google-cloud-bigtable>=0.33.0
 google-cloud-datastore>=1.8
+happybase>=1.2.0
 flask
 flask_cors
 python-json-logger

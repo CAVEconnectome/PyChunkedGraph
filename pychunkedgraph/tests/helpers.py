@@ -13,6 +13,12 @@ import numpy as np
 from google.auth import credentials
 from google.cloud import bigtable
 
+try:
+    import happybase
+    HBASE_AVAILABLE = True
+except ImportError:
+    HBASE_AVAILABLE = False
+
 from ..ingest.utils import bootstrap
 from ..ingest.create.atomic_layer import add_atomic_edges
 from ..graph.edges import Edges
@@ -106,9 +112,166 @@ def bigtable_emulator(request):
     request.addfinalizer(fin)
 
 
+def setup_hbase_env():
+    """Setup HBase connection for testing."""
+    if not HBASE_AVAILABLE:
+        return False
+    try:
+        conn = happybase.Connection(host='localhost', port=9090, timeout=2000)
+        # Test connection with actual operation
+        tables = conn.tables()
+        # Try to open a table to ensure connection is fully working
+        conn.close()
+        return True
+    except Exception as err:
+        print(f"HBase not yet ready: {err}")
+        return False
+
+
+@pytest.fixture(scope="session")
+def hbase_server(request):
+    """Start HBase server using Docker for testing."""
+    if not HBASE_AVAILABLE:
+        pytest.skip("happybase not available")
+    
+    # Check if Docker is available
+    try:
+        subprocess.run(["docker", "--version"], check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        pytest.skip("Docker not available for HBase testing")
+    
+    # Start HBase in Docker
+    container_name = "pychunkedgraph-hbase-test"
+    
+    # Stop and remove existing container if it exists
+    subprocess.run(
+        ["docker", "stop", container_name],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE
+    )
+    subprocess.run(
+        ["docker", "rm", container_name],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE
+    )
+    
+    # Start new container in detached mode
+    result = subprocess.run(
+        [
+            "docker", "run", "-d", "--name", container_name,
+            "-p", "9090:9090",  # Thrift port
+            "-p", "16000:16000",  # HBase Master web UI
+            "-p", "16010:16010",  # HBase RegionServer web UI
+            "harisekhon/hbase:latest"
+        ],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True
+    )
+    
+    if result.returncode != 0:
+        pytest.skip(f"Failed to start HBase container: {result.stderr}")
+    
+    container_id = result.stdout.strip()
+    
+    # Wait for HBase to start up - HBase can take 30-60 seconds
+    print("Waiting for HBase to start up (this may take 30-60 seconds)...", end="", flush=True)
+    retries = 90  # HBase takes longer to start - increased retries (3 minutes max)
+    ready = False
+    consecutive_successes = 0
+    while retries > 0:
+        if setup_hbase_env() is True:
+            consecutive_successes += 1
+            # Require 3 consecutive successful connections to ensure stability
+            if consecutive_successes >= 3:
+                print(" ready!")
+                ready = True
+                break
+        else:
+            consecutive_successes = 0
+        retries -= 1
+        if retries % 10 == 0:
+            print(".", end="", flush=True)
+        sleep(2)
+    
+    if not ready:
+        print(f"\nCouldn't start HBase after {90 - retries} attempts. Make sure Docker is running.")
+        # Try to get container logs for debugging
+        try:
+            logs = subprocess.run(
+                ["docker", "logs", container_name],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                timeout=5,
+                text=True
+            )
+            if logs.stdout:
+                print("Container logs (last 500 chars):", logs.stdout[-500:])
+        except Exception:
+            pass
+        subprocess.run(
+            ["docker", "stop", container_name],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE
+        )
+        subprocess.run(
+            ["docker", "rm", container_name],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE
+        )
+        pytest.skip("HBase server failed to start")
+    
+    # Setup Finalizer
+    def fin():
+        subprocess.run(
+            ["docker", "stop", container_name],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE
+        )
+        subprocess.run(
+            ["docker", "rm", container_name],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE
+        )
+    
+    request.addfinalizer(fin)
+
+
 @pytest.fixture(scope="function")
-def gen_graph(request):
-    def _cgraph(request, n_layers=10, atomic_chunk_bounds: np.ndarray = np.array([])):
+def gen_graph(request, backend_type=None):
+    """Generate a graph with specified backend type.
+    
+    Backend type can be set via:
+    1. backend_type parameter (explicit)
+    2. BACKEND_TYPE environment variable
+    3. Defaults to "bigtable"
+    """
+    import os
+    if backend_type is None:
+        backend_type = os.environ.get("BACKEND_TYPE", "bigtable")
+    
+    def _cgraph(request, n_layers=10, atomic_chunk_bounds: np.ndarray = np.array([]), backend=None):
+        if backend is None:
+            backend = backend_type
+        if backend == "hbase":
+            backend_config = {
+                "HOST": "localhost",
+                "PORT": 9090,
+                "ADMIN": True,
+                "READ_ONLY": False,
+                "MAX_ROW_KEY_COUNT": 1000,
+                "THRIFT_TRANSPORT": "buffered",
+            }
+        else:  # bigtable
+            backend_config = {
+                "ADMIN": True,
+                "READ_ONLY": False,
+                "PROJECT": "IGNORE_ENVIRONMENT_PROJECT",
+                "INSTANCE": "emulated_instance",
+                "CREDENTIALS": credentials.AnonymousCredentials(),
+                "MAX_ROW_KEY_COUNT": 1000
+            }
+        
         config = {
             "data_source": {
                 "EDGES": "gs://chunked-graph/minnie65_0/edges",
@@ -123,15 +286,8 @@ def gen_graph(request):
                 "ROOT_LOCK_EXPIRY": timedelta(seconds=5)
             },
             "backend_client": {
-                "TYPE": "bigtable",
-                "CONFIG": {
-                    "ADMIN": True,
-                    "READ_ONLY": False,
-                    "PROJECT": "IGNORE_ENVIRONMENT_PROJECT",
-                    "INSTANCE": "emulated_instance",
-                    "CREDENTIALS": credentials.AnonymousCredentials(),
-                    "MAX_ROW_KEY_COUNT": 1000
-                },
+                "TYPE": backend,
+                "CONFIG": backend_config,
             },
             "ingest_config": {},
         }
@@ -150,7 +306,18 @@ def gen_graph(request):
 
         # setup Chunked Graph - Finalizer
         def fin():
-            graph.client._table.delete()
+            if backend == "hbase":
+                # For HBase, delete the table
+                try:
+                    conn = happybase.Connection(host='localhost', port=9090)
+                    if b'test' in conn.tables():
+                        conn.delete_table(b'test', disable=True)
+                    conn.close()
+                except Exception:
+                    pass
+            else:
+                # For BigTable
+                graph.client._table.delete()
 
         request.addfinalizer(fin)
         return graph

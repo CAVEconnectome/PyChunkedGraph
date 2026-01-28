@@ -40,8 +40,14 @@ class NumPyArray(_Serializer):
         return data
 
     def __init__(self, dtype, shape=None, order=None, compression_level=None):
+        def _serialize_array(x):
+            # NumPy 2.x: use view() instead of newbyteorder()
+            arr = np.asarray(x, dtype=dtype)
+            target_dtype = arr.dtype.newbyteorder(dtype.byteorder)
+            return arr.view(target_dtype).tobytes()
+        
         super().__init__(
-            serializer=lambda x: x.newbyteorder(dtype.byteorder).tobytes(),
+            serializer=_serialize_array,
             deserializer=lambda x: NumPyArray._deserialize(
                 x, dtype, shape=shape, order=order
             ),
@@ -52,8 +58,14 @@ class NumPyArray(_Serializer):
 
 class NumPyValue(_Serializer):
     def __init__(self, dtype):
+        def _serialize_scalar(x):
+            # NumPy 2.x: use view() instead of newbyteorder()
+            arr = np.asarray(x, dtype=dtype)
+            target_dtype = arr.dtype.newbyteorder(dtype.byteorder)
+            return arr.view(target_dtype).tobytes()
+        
         super().__init__(
-            serializer=lambda x: x.newbyteorder(dtype.byteorder).tobytes(),
+            serializer=_serialize_scalar,
             deserializer=lambda x: np.frombuffer(x, dtype=dtype)[0],
             basetype=dtype.type,
         )

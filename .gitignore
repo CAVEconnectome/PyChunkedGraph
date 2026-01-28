@@ -119,4 +119,6 @@ venv.bak/
 *.ipynb
 *.rdb
 /protobuf*
-.DS_Store
+.DS_Store# pixi environments
+.pixi/*
+!.pixi/config.toml
