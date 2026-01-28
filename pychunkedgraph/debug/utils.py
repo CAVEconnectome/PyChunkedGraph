@@ -26,19 +26,6 @@ def print_node(cg, node: np.uint64, indent: int = 0, stop_layer: int = 2) -> Non
         print_node(cg, child, indent=indent + 4, stop_layer=stop_layer)
 
 
-def get_l2children(cg, node: np.uint64) -> np.ndarray:
-    nodes = np.array([node], dtype=np.uint64)
-    layers = cg.get_chunk_layers(nodes)
-    assert np.all(layers >= 2), "nodes must be at layers >= 2"
-    l2children = []
-    while nodes.size:
-        children = cg.get_children(nodes, flatten=True)
-        layers = cg.get_chunk_layers(children)
-        l2children.append(children[layers == 2])
-        nodes = children[layers > 2]
-    return np.concatenate(l2children)
-
-
 def sanity_check(cg, new_roots, operation_id):
     """
     Check for duplicates in hierarchy, useful for debugging.
@@ -46,17 +33,17 @@ def sanity_check(cg, new_roots, operation_id):
     # print(f"{len(new_roots)} new ids from {operation_id}")
     l2c_d = {}
     for new_root in new_roots:
-        l2c_d[new_root] = get_l2children(cg, new_root)
+        l2c_d[new_root] = cg.get_l2children([new_root])
     success = True
     for k, v in l2c_d.items():
         success = success and (len(v) == np.unique(v).size)
         # print(f"{k}: {np.unique(v).size}, {len(v)}")
     if not success:
-        raise RuntimeError("Some ids are not valid.")
+        raise RuntimeError(f"{operation_id}: some ids are not valid.")
 
 
 def sanity_check_single(cg, node, operation_id):
-    v = get_l2children(cg, node)
+    v = cg.get_l2children([node])
     msg = f"invalid node {node}:"
     msg += f" found {len(v)} l2 ids, must be {np.unique(v).size}"
     assert np.unique(v).size == len(v), f"{msg}, from {operation_id}."
