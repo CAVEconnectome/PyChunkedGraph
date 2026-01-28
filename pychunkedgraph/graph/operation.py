@@ -1,5 +1,6 @@
 # pylint: disable=invalid-name, missing-docstring, too-many-lines, protected-access, broad-exception-raised
 
+import logging
 from abc import ABC, abstractmethod
 from collections import namedtuple
 from datetime import datetime
@@ -15,6 +16,8 @@ from functools import reduce
 
 import numpy as np
 from google.cloud import bigtable
+
+logger = logging.getLogger(__name__)
 
 from . import locks
 from . import edits
@@ -444,6 +447,19 @@ class GraphEditOperation(ABC):
                         operation_id=lock.operation_id,
                         timestamp=override_ts if override_ts else timestamp,
                     )
+                # Log cache stats
+                if self.cg.cache:
+                    stats = self.cg.cache.get_stats()
+                    lines = [f"[Op {lock.operation_id}] Cache:"]
+                    for name, s in stats.items():
+                        lines.append(f"  {name}: {s['hit_rate']} hit ({s['hits']}/{s['total']}) calls={s['calls']}")
+                        # Show top miss sources if any
+                        if s.get("sources"):
+                            top_sources = sorted(s["sources"].items(), key=lambda x: -x[1]["misses"])[:3]
+                            if top_sources and any(src[1]["misses"] > 0 for src in top_sources):
+                                src_str = ", ".join(f"{k}({v['misses']})" for k, v in top_sources if v["misses"] > 0)
+                                lines.append(f"    miss sources: {src_str}")
+                    logger.info("\n".join(lines))
                 if self.cg.meta.READ_ONLY:
                     # return without persisting changes
                     return GraphEditOperation.Result(
