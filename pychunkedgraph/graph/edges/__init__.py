@@ -651,15 +651,21 @@ def _filter_node_to_l2(
         if children[mask_higher].size == 0:
             break
 
-        # Batch get children - use pre-fetched or fetch new
+        # Get children - use pre-fetched when available, otherwise fetch
         to_expand = children[mask_higher]
         new_children = []
+        needs_fetch = []
         for c in to_expand:
             if c in all_children_d:
                 new_children.append(all_children_d[c])
             else:
-                fetched = ctx.cg.get_children(c)
-                new_children.append(fetched.get(c, types.empty_1d))
+                needs_fetch.append(c)
+
+        # Fetch missing children in batch with flatten=True (matches original)
+        if needs_fetch:
+            fetched = ctx.cg.get_children(needs_fetch, flatten=True)
+            new_children.append(fetched)
+
         children = np.concatenate(new_children) if new_children else types.empty_1d
 
     return np.concatenate(result) if result else types.empty_1d
@@ -690,59 +696,143 @@ def _compute_edge_l2_data(
     return edge_l2_data
 
 
-def _batch_fetch_cross_edges(
+def _get_cross_edges_for_edge(
     ctx: _BatchEdgeContext,
-    remaining_indices: set,
-    edge_l2_data: dict,
-    parent_ts: datetime.datetime,
-) -> tuple[dict, dict]:
-    """Batch fetch cross-chunk edges for all L2 source nodes."""
-    all_l2ids_a = []
-    max_ts_map = {}
+    l2ids_a: np.ndarray,
+    edge_layer: int,
+    max_node_ts: datetime.datetime,
+) -> np.ndarray:
+    """Get cross-chunk edges for a single edge's L2 source nodes at its specific timestamp.
 
-    for idx in remaining_indices:
-        _, l2ids_a, _ = edge_l2_data[idx]
-        if l2ids_a.size > 0:
-            all_l2ids_a.append(l2ids_a)
-            edge = ctx.stale_edges[idx]
-            max_ts_map[idx] = max(ctx.nodes_ts_map[edge[0]], ctx.nodes_ts_map[edge[1]])
-
-    if all_l2ids_a:
-        all_l2ids_a_unique = np.unique(np.concatenate(all_l2ids_a))
-        min_max_ts = min(max_ts_map.values()) if max_ts_map else parent_ts
-        all_cx_edges_d = ctx.cg.get_cross_chunk_edges(
-            all_l2ids_a_unique, time_stamp=min_max_ts, raw_only=True
+    Matches original _get_cx_edges behavior: raises ValueError (via np.concatenate([]))
+    if no edges found, which triggers retry with raw_only=False.
+    """
+    def _fetch_and_filter(raw_only: bool) -> np.ndarray:
+        _edges_d = ctx.cg.get_cross_chunk_edges(
+            node_ids=l2ids_a, time_stamp=max_node_ts, raw_only=raw_only
         )
-    else:
-        all_cx_edges_d = {}
+        _edges = []
+        for v in _edges_d.values():
+            if edge_layer in v:
+                _edges.append(v[edge_layer])
+        # Original does np.concatenate(_edges) which raises ValueError if _edges is empty
+        return np.concatenate(_edges)
 
-    return all_cx_edges_d, max_ts_map
+    try:
+        return _fetch_and_filter(raw_only=True)
+    except ValueError:
+        try:
+            return _fetch_and_filter(raw_only=False)
+        except ValueError:
+            return types.empty_2d
+
+
+def _get_dilated_edges_batched(ctx: _BatchEdgeContext, edges: np.ndarray) -> np.ndarray:
+    """Exact copy of original _get_dilated_edges, using ctx.cg."""
+    layers_b = ctx.cg.get_chunk_layers(edges[:, 1])
+    _mask = layers_b == 2
+    _l2_edges = [edges[_mask]]
+    for _edge in edges[~_mask]:
+        _node_a, _node_b = _edge
+        _nodes_b = ctx.cg.get_l2children([_node_b])
+        _l2_edges.append(
+            np.array([[_node_a, _b] for _b in _nodes_b], dtype=basetypes.NODE_ID)
+        )
+    return np.unique(np.concatenate(_l2_edges), axis=0)
+
+
+def _get_parents_b_with_chunk_mask_batched(
+    ctx: _BatchEdgeContext,
+    l2ids_b: np.ndarray,
+    parents_b: np.ndarray,
+    max_ts: datetime.datetime,
+    edge,
+) -> np.ndarray:
+    """Exact copy of original _get_parents_b_with_chunk_mask, using ctx.cg."""
+    chunks_old = ctx.cg.get_chunk_ids_from_node_ids(l2ids_b)
+    chunks_new = ctx.cg.get_chunk_ids_from_node_ids(parents_b)
+    chunk_mask = np.isin(chunks_new, chunks_old)
+    parents_b = parents_b[chunk_mask]
+    _stale_nodes = get_stale_nodes(ctx.cg, parents_b, parent_ts=max_ts)
+    assert _stale_nodes.size == 0, f"{edge}, {_stale_nodes}, {max_ts}"
+    return parents_b
+
+
+def _get_parents_b_batched(
+    ctx: _BatchEdgeContext,
+    edges: np.ndarray,
+    parent_ts: datetime.datetime,
+    layer: int,
+    fallback: bool = False,
+) -> np.ndarray:
+    """Exact copy of original _get_parents_b, using ctx.cg.
+
+    Note: Does not use PARENTS_CACHE (always uses the PARENTS_CACHE is None path).
+    """
+    # PARENTS_CACHE is None path
+    children_b = ctx.cg.get_children(edges[:, 1], flatten=True)
+    parents_b = np.unique(ctx.cg.get_parents(children_b, time_stamp=parent_ts))
+
+    parents_a = np.unique(edges[:, 0])
+    stale_a = get_stale_nodes(ctx.cg, parents_a, parent_ts=parent_ts)
+    if stale_a.size == parents_a.size or fallback:
+        # this is applicable only for v2 to v3 migration
+        # handle cases when source nodes in `edges[:,0]` are stale
+        atomic_edges_d = ctx.cg.get_atomic_cross_edges(stale_a)
+        partners = [types.empty_1d]
+        for _edges_d in atomic_edges_d.values():
+            _edges = _edges_d.get(layer, types.empty_2d)
+            partners.append(_edges[:, 1])
+        partners = np.concatenate(partners)
+        return np.unique(ctx.cg.get_parents(partners, time_stamp=parent_ts))
+
+    _cx_edges_d = ctx.cg.get_cross_chunk_edges(parents_b, time_stamp=parent_ts)
+    _hierarchy_a = [parents_a]
+    for _a in parents_a:
+        _hierarchy_a.append(
+            ctx.cg.get_root(
+                _a,
+                time_stamp=parent_ts,
+                stop_layer=layer,
+                get_all_parents=True,
+                ceil=False,
+            )
+        )
+    _hierarchy_a = np.concatenate(_hierarchy_a)
+
+    _parents_b = []
+    for _node, _edges_d in _cx_edges_d.items():
+        _edges = _edges_d.get(layer, types.empty_2d)
+        if _check_cross_edges_from_a_batched(ctx, _node, _edges[:, 1], layer, parent_ts):
+            _parents_b.append(_node)
+        elif _check_hierarchy_a_from_b_batched(
+            ctx, _edges[:, 1], _hierarchy_a, layer, parent_ts
+        ):
+            _parents_b.append(_node)
+    return np.array(_parents_b, dtype=basetypes.NODE_ID)
 
 
 def _match_and_dilate_edges(
     ctx: _BatchEdgeContext,
-    l2ids_a: np.ndarray,
     l2ids_b: np.ndarray,
-    edge_layer: int,
-    all_cx_edges_d: dict,
-) -> tuple[np.ndarray, bool]:
-    """Match edges to partners and dilate if needed. Returns (matched_edges, success)."""
-    # Get cross edges for this edge's L2 source nodes
-    _edges = []
-    for l2id in l2ids_a:
-        if l2id in all_cx_edges_d:
-            edges_d = all_cx_edges_d[l2id]
-            if edge_layer in edges_d:
-                _edges.append(edges_d[edge_layer])
+    cx_edges: np.ndarray,
+    max_node_ts: datetime.datetime,
+) -> tuple[np.ndarray, bool, np.ndarray]:
+    """Match edges to partners and dilate if needed.
 
-    if not _edges:
-        return types.empty_2d, False
+    Returns (matched_edges_or_node_ids, success, chunk_mask_node_ids).
+    - When success=True and chunk_mask_node_ids is empty: matched_edges are edges to process via _verify_and_get_parents_b
+    - When success=True and chunk_mask_node_ids is not empty: chunk_mask_node_ids are L2 node IDs to use directly
+    - When success=False: matched_edges contains all dilated edges for potential fallback
+    """
+    if cx_edges.size == 0:
+        return types.empty_2d, False, types.empty_1d
 
-    _edges = np.concatenate(_edges)
+    _edges = cx_edges
     mask = np.isin(_edges[:, 1], l2ids_b)
 
     if np.any(mask):
-        return _edges[mask], True
+        return _edges[mask], True, types.empty_1d
 
     # Try dilating edges (partner edges may be lifted)
     layers_b = ctx.cg.get_chunk_layers(_edges[:, 1])
@@ -756,23 +846,96 @@ def _match_and_dilate_edges(
         )
 
     if not dilated:
-        return types.empty_2d, False
+        return types.empty_2d, False, types.empty_1d
 
     _edges = np.unique(np.concatenate(dilated), axis=0)
     mask = np.isin(_edges[:, 1], l2ids_b)
 
     if np.any(mask):
-        return _edges[mask], True
+        return _edges[mask], True, types.empty_1d
 
-    # Fallback: use chunk mask
+    # Fallback: use chunk mask (matches original _get_parents_b_with_chunk_mask)
     chunks_old = ctx.cg.get_chunk_ids_from_node_ids(l2ids_b)
     chunks_new = ctx.cg.get_chunk_ids_from_node_ids(_edges[:, 1])
     chunk_mask = np.isin(chunks_new, chunks_old)
 
     if np.any(chunk_mask):
-        return _edges[chunk_mask], True
+        chunk_mask_node_ids = _edges[chunk_mask, 1]
+        # Verify stale nodes like original _get_parents_b_with_chunk_mask
+        _stale_nodes = get_stale_nodes(ctx.cg, chunk_mask_node_ids, parent_ts=max_node_ts)
+        if _stale_nodes.size == 0:
+            # Success: return the L2 node IDs directly (original bypasses _get_parents_b here)
+            return types.empty_2d, True, chunk_mask_node_ids
+        # Stale nodes found - return all dilated edges for fallback handling
+        return _edges, False, types.empty_1d
 
-    return types.empty_2d, False
+    # No match found, return all dilated edges for potential fallback
+    return _edges, False, types.empty_1d
+
+
+def _check_cross_edges_from_a_batched(
+    ctx: _BatchEdgeContext,
+    node_b,
+    nodes_a: np.ndarray,
+    layer: int,
+    parent_ts: datetime.datetime,
+) -> bool:
+    """
+    Checks to match cross edges from partners_a
+    to hierarchy of potential node from partner b.
+    """
+    _node_hierarchy = ctx.cg.get_root(
+        node_b,
+        time_stamp=parent_ts,
+        stop_layer=layer,
+        get_all_parents=True,
+        ceil=False,
+    )
+    _node_hierarchy = np.append(_node_hierarchy, node_b)
+    _cx_edges_d_from_a = ctx.cg.get_cross_chunk_edges(nodes_a, time_stamp=parent_ts)
+    for _edges_d_from_a in _cx_edges_d_from_a.values():
+        _edges_from_a = _edges_d_from_a.get(layer, types.empty_2d)
+        _mask = np.isin(_edges_from_a[:, 1], _node_hierarchy)
+        if np.any(_mask):
+            return True
+    return False
+
+
+def _check_hierarchy_a_from_b_batched(
+    ctx: _BatchEdgeContext,
+    nodes_a: np.ndarray,
+    hierarchy_a: np.ndarray,
+    layer: int,
+    parent_ts: datetime.datetime,
+) -> bool:
+    """
+    Checks for overlap between hierarchy of a,
+    and hierarchy of a identified from partners of b.
+    """
+    _hierarchy_a_from_b = [nodes_a]
+    for _a in nodes_a:
+        _hierarchy_a_from_b.append(
+            ctx.cg.get_root(
+                _a,
+                time_stamp=parent_ts,
+                stop_layer=layer,
+                get_all_parents=True,
+                ceil=False,
+            )
+        )
+        _children = ctx.cg.get_children(_a)
+        _children_layers = ctx.cg.get_chunk_layers(_children)
+        _hierarchy_a_from_b.append(_children[_children_layers == 2])
+        _children = _children[_children_layers > 2]
+        while _children.size:
+            _hierarchy_a_from_b.append(_children)
+            _children = ctx.cg.get_children(_children, flatten=True)
+            _children_layers = ctx.cg.get_chunk_layers(_children)
+            _hierarchy_a_from_b.append(_children[_children_layers == 2])
+            _children = _children[_children_layers > 2]
+
+    _hierarchy_a_from_b = np.concatenate(_hierarchy_a_from_b)
+    return np.any(np.isin(_hierarchy_a_from_b, hierarchy_a))
 
 
 def _verify_and_get_parents_b(
@@ -793,15 +956,14 @@ def _verify_and_get_parents_b(
 
     if stale_a.size == parents_a.size or fallback:
         # Fallback for v2->v3 migration or max padding
-        atomic_edges_d = ctx.cg.get_atomic_cross_edges(stale_a if stale_a.size else parents_a)
+        # Original uses stale_a directly
+        atomic_edges_d = ctx.cg.get_atomic_cross_edges(stale_a)
         partners = [types.empty_1d]
         for _edges_d in atomic_edges_d.values():
             _e = _edges_d.get(edge_layer, types.empty_2d)
             partners.append(_e[:, 1])
         partners = np.concatenate(partners)
-        if partners.size:
-            parents_b = np.unique(ctx.cg.get_parents(partners, time_stamp=parent_ts))
-        return parents_b
+        return np.unique(ctx.cg.get_parents(partners, time_stamp=parent_ts))
 
     # Verify via cross-edge check
     _cx_edges_d = ctx.cg.get_cross_chunk_edges(parents_b, time_stamp=parent_ts)
@@ -817,82 +979,72 @@ def _verify_and_get_parents_b(
 
     verified_parents_b = []
     for _node, _edges_d in _cx_edges_d.items():
-        _e = _edges_d.get(edge_layer, types.empty_2d)
-        if _e.size == 0:
-            continue
-
-        # Check if any edges from _node point back to hierarchy_a
-        _node_hierarchy = ctx.cg.get_root(
-            _node, time_stamp=parent_ts, stop_layer=edge_layer,
-            get_all_parents=True, ceil=False,
-        )
-        _node_hierarchy = np.append(_node_hierarchy, _node)
-        _cx_from_partners = ctx.cg.get_cross_chunk_edges(_e[:, 1], time_stamp=parent_ts)
-
-        found = False
-        for _partner_edges_d in _cx_from_partners.values():
-            _partner_edges = _partner_edges_d.get(edge_layer, types.empty_2d)
-            if np.any(np.isin(_partner_edges[:, 1], _node_hierarchy)):
-                found = True
-                break
-
-        if found:
+        _edges = _edges_d.get(edge_layer, types.empty_2d)
+        if _check_cross_edges_from_a_batched(
+            ctx, _node, _edges[:, 1], edge_layer, parent_ts
+        ):
             verified_parents_b.append(_node)
-        else:
-            # Check hierarchy overlap
-            _hierarchy_a_from_b = [_e[:, 1]]
-            for _a in _e[:, 1]:
-                _hierarchy_a_from_b.append(
-                    ctx.cg.get_root(
-                        _a, time_stamp=parent_ts, stop_layer=edge_layer,
-                        get_all_parents=True, ceil=False,
-                    )
-                )
-            _hierarchy_a_from_b = np.concatenate(_hierarchy_a_from_b)
-            if np.any(np.isin(_hierarchy_a_from_b, _hierarchy_a)):
-                verified_parents_b.append(_node)
+        elif _check_hierarchy_a_from_b_batched(
+            ctx, _edges[:, 1], _hierarchy_a, edge_layer, parent_ts
+        ):
+            verified_parents_b.append(_node)
 
-    if verified_parents_b:
-        return np.array(verified_parents_b, dtype=basetypes.NODE_ID)
-    return parents_b
+    return np.array(verified_parents_b, dtype=basetypes.NODE_ID)
 
 
 def _process_single_edge_batched(
     ctx: _BatchEdgeContext,
     idx: int,
     edge_l2_data: dict,
-    all_cx_edges_d: dict,
     parent_ts: datetime.datetime,
     fallback: bool,
 ) -> np.ndarray:
-    """Process a single edge using pre-fetched data. Returns new edges or None."""
+    """Process a single edge. Follows exact same logic as original _get_new_edge."""
     edge = ctx.stale_edges[idx]
     edge_layer = ctx.edge_layers[idx]
     node_a = edge[0]
+    node_b = edge[1]
     mlayer, l2ids_a, l2ids_b = edge_l2_data[idx]
 
+    # Line 488-489 equivalent
     if l2ids_a.size == 0 or l2ids_b.size == 0:
-        return None
+        return types.empty_2d.copy()
 
-    matched_edges, success = _match_and_dilate_edges(
-        ctx, l2ids_a, l2ids_b, edge_layer, all_cx_edges_d
-    )
-    if not success:
-        return None
+    # Line 491-497 equivalent
+    max_node_ts = max(ctx.nodes_ts_map[node_a], ctx.nodes_ts_map[node_b])
+    _edges = _get_cross_edges_for_edge(ctx, l2ids_a, edge_layer, max_node_ts)
+    if _edges.size == 0:
+        return types.empty_2d.copy()
 
-    parents_b = _verify_and_get_parents_b(
-        ctx, matched_edges, edge_layer, parent_ts, fallback
-    )
+    # Line 499-518 equivalent
+    mask = np.isin(_edges[:, 1], l2ids_b)
+    if np.any(mask):
+        parents_b = _get_parents_b_batched(ctx, _edges[mask], parent_ts, edge_layer)
+    else:
+        # partner edges likely lifted, dilate and retry
+        _edges = _get_dilated_edges_batched(ctx, _edges)
+        mask = np.isin(_edges[:, 1], l2ids_b)
+        if np.any(mask):
+            parents_b = _get_parents_b_batched(ctx, _edges[mask], parent_ts, edge_layer)
+        else:
+            # if none of `l2ids_b` were found in edges, `l2ids_a` already have new edges
+            # so get the new identities of `l2ids_b` by using chunk mask
+            try:
+                parents_b = _get_parents_b_with_chunk_mask_batched(
+                    ctx, l2ids_b, _edges[:, 1], max_node_ts, edge
+                )
+            except AssertionError:
+                parents_b = []
+                if fallback:
+                    parents_b = _get_parents_b_batched(ctx, _edges, parent_ts, edge_layer, fallback=True)
 
-    # Get final parents at target layer
+    # Line 520-525 equivalent
     parents_b = np.unique(
         ctx.cg.get_roots(parents_b, stop_layer=mlayer, ceil=False, time_stamp=parent_ts)
     )
 
-    if parents_b.size > 0:
-        parents_a_final = np.array([node_a] * parents_b.size, dtype=basetypes.NODE_ID)
-        return np.column_stack((parents_a_final, parents_b))
-    return None
+    parents_a = np.array([node_a] * parents_b.size, dtype=basetypes.NODE_ID)
+    return np.column_stack((parents_a, parents_b))
 
 
 def get_latest_edges_batched(
@@ -956,35 +1108,31 @@ def get_latest_edges_batched(
             ctx, remaining_indices, edge_to_boundary, boundary_l2chunks, all_children_d
         )
 
-        # Batch: Get cross-chunk edges for all L2 source nodes
-        all_cx_edges_d, _ = _batch_fetch_cross_edges(
-            ctx, remaining_indices, edge_l2_data, parent_ts
-        )
-
-        # Process each remaining edge using pre-fetched data
+        # Process each remaining edge (cross edges fetched per-edge with correct timestamp)
         still_remaining = set()
         for idx in remaining_indices:
             result = _process_single_edge_batched(
-                ctx, idx, edge_l2_data, all_cx_edges_d, parent_ts, fallback
+                ctx, idx, edge_l2_data, parent_ts, fallback
             )
-            if result is not None:
+            # Match original: only succeed if result.size > 0
+            if result.size > 0:
                 results[idx] = result
             else:
                 still_remaining.add(idx)
 
         remaining_indices = still_remaining
-
         if remaining_indices:
             logging.info(
                 f"Batch: {len(remaining_indices)} edges expanding search with padding {pad+1}."
             )
 
-    # Handle any edges that couldn't be resolved
-    for idx in remaining_indices:
-        edge = stale_edges[idx]
-        edge_layer = edge_layers[idx]
-        logging.warning(f"No new edge found for {edge}; layer={edge_layer}, ts={parent_ts}")
-        results[idx] = types.empty_2d.copy()
+    # Handle any edges that couldn't be resolved - log all failures then assert
+    if remaining_indices:
+        for idx in remaining_indices:
+            edge = stale_edges[idx]
+            edge_layer = edge_layers[idx]
+            logging.error(f"No new edge found {edge}; {edge_layer}, {parent_ts}")
+        assert False, f"Failed to resolve {len(remaining_indices)} stale edge(s), see logs above"
 
     # Concatenate all results
     valid_results = [r for r in results if r is not None and r.size > 0]
