@@ -335,56 +335,81 @@ def get_latest_edges(
             for parent, ts in parents:
                 PARENTS_CACHE[child][ts] = parent
 
-    def _check_cross_edges_from_a(node_b, nodes_a, layer, parent_ts):
-        """
-        Checks to match cross edges from partners_a
-        to hierarchy of potential node from partner b.
-        """
-        _node_hierarchy = cg.get_root(
-            node_b,
-            time_stamp=parent_ts,
-            stop_layer=layer,
-            get_all_parents=True,
-            ceil=False,
-        )
-        _node_hierarchy = np.append(_node_hierarchy, node_b)
-        _cx_edges_d_from_a = cg.get_cross_chunk_edges(nodes_a, time_stamp=parent_ts)
-        for _edges_d_from_a in _cx_edges_d_from_a.values():
-            _edges_from_a = _edges_d_from_a.get(layer, types.empty_2d)
-            _mask = np.isin(_edges_from_a[:, 1], _node_hierarchy)
-            if np.any(_mask):
-                return True
-        return False
-
-    def _check_hierarchy_a_from_b(nodes_a, hierarchy_a, layer, parent_ts):
-        """
-        Checks for overlap between hierarchy of a,
-        and hierarchy of a identified from partners of b.
-        """
-        _hierarchy_a_from_b = [nodes_a]
-        for _a in nodes_a:
-            _hierarchy_a_from_b.append(
+    def _get_hierarchy(nodes, layer):
+        _hierarchy = [nodes]
+        for _a in nodes:
+            _hierarchy.append(
                 cg.get_root(
                     _a,
                     time_stamp=parent_ts,
                     stop_layer=layer,
                     get_all_parents=True,
                     ceil=False,
+                    raw_only=True,
                 )
             )
             _children = cg.get_children(_a)
             _children_layers = cg.get_chunk_layers(_children)
-            _hierarchy_a_from_b.append(_children[_children_layers == 2])
+            _hierarchy.append(_children[_children_layers == 2])
             _children = _children[_children_layers > 2]
             while _children.size:
-                _hierarchy_a_from_b.append(_children)
+                _hierarchy.append(_children)
                 _children = cg.get_children(_children, flatten=True)
                 _children_layers = cg.get_chunk_layers(_children)
-                _hierarchy_a_from_b.append(_children[_children_layers == 2])
+                _hierarchy.append(_children[_children_layers == 2])
                 _children = _children[_children_layers > 2]
+        return np.concatenate(_hierarchy)
 
-        _hierarchy_a_from_b = np.concatenate(_hierarchy_a_from_b)
-        return np.any(np.isin(_hierarchy_a_from_b, hierarchy_a))
+    def _check_cross_edges_from_a(node_b, nodes_a, layer, parent_ts):
+        """
+        Checks to match cross edges from partners_a
+        to hierarchy of potential node from partner b.
+        """
+        if len(nodes_a) == 0:
+            return False
+
+        _hierarchy_b = cg.get_root(
+            node_b,
+            time_stamp=parent_ts,
+            stop_layer=layer,
+            get_all_parents=True,
+            ceil=False,
+            raw_only=True,
+        )
+        _hierarchy_b = np.append(_hierarchy_b, node_b)
+        _cx_edges_d_from_a = cg.get_cross_chunk_edges(nodes_a, time_stamp=parent_ts)
+        for _edges_d_from_a in _cx_edges_d_from_a.values():
+            _edges_from_a = _edges_d_from_a.get(layer, types.empty_2d)
+            nodes_b_from_a = _edges_from_a[:, 1]
+            hierarchy_b_from_a = _get_hierarchy(nodes_b_from_a, layer)
+            _mask = np.isin(hierarchy_b_from_a, _hierarchy_b)
+            if np.any(_mask):
+                return True
+        return False
+
+    def _check_hierarchy_a_from_b(parents_a, nodes_a_from_b, layer, parent_ts):
+        """
+        Checks for overlap between hierarchy of a,
+        and hierarchy of a identified from partners of b.
+        """
+        if len(nodes_a_from_b) == 0:
+            return False
+
+        _hierarchy_a = [parents_a]
+        for _a in parents_a:
+            _hierarchy_a.append(
+                cg.get_root(
+                    _a,
+                    time_stamp=parent_ts,
+                    stop_layer=layer,
+                    get_all_parents=True,
+                    ceil=False,
+                    raw_only=True,
+                )
+            )
+        hierarchy_a = np.concatenate(_hierarchy_a)
+        hierarchy_a_from_b = _get_hierarchy(nodes_a_from_b, layer)
+        return np.any(np.isin(hierarchy_a_from_b, hierarchy_a))
 
     def _get_parents_b(edges, parent_ts, layer, fallback: bool = False):
         """
@@ -419,27 +444,12 @@ def get_latest_edges(
             return np.unique(cg.get_parents(partners, time_stamp=parent_ts))
 
         _cx_edges_d = cg.get_cross_chunk_edges(parents_b, time_stamp=parent_ts)
-        _hierarchy_a = [parents_a]
-        for _a in parents_a:
-            _hierarchy_a.append(
-                cg.get_root(
-                    _a,
-                    time_stamp=parent_ts,
-                    stop_layer=layer,
-                    get_all_parents=True,
-                    ceil=False,
-                )
-            )
-        _hierarchy_a = np.concatenate(_hierarchy_a)
-
         _parents_b = []
         for _node, _edges_d in _cx_edges_d.items():
             _edges = _edges_d.get(layer, types.empty_2d)
             if _check_cross_edges_from_a(_node, _edges[:, 1], layer, parent_ts):
                 _parents_b.append(_node)
-            elif _check_hierarchy_a_from_b(
-                _edges[:, 1], _hierarchy_a, layer, parent_ts
-            ):
+            elif _check_hierarchy_a_from_b(parents_a, _edges[:, 1], layer, parent_ts):
                 _parents_b.append(_node)
         return np.array(_parents_b, dtype=basetypes.NODE_ID)
 
@@ -500,7 +510,7 @@ def get_latest_edges(
         if np.any(mask):
             parents_b = _get_parents_b(_edges[mask], parent_ts, edge_layer)
         else:
-            # partner edges likely lifted, dilate and retry
+            # partner nodes likely lifted, dilate and retry
             _edges = _get_dilated_edges(_edges)
             mask = np.isin(_edges[:, 1], l2ids_b)
             if np.any(mask):
