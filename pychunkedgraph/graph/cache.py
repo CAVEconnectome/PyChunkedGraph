@@ -42,6 +42,8 @@ class CacheService:
         self.children_cache = LRUCache(maxsize=maxsize)
         self.cross_chunk_edges_cache = LRUCache(maxsize=maxsize)
 
+        self.new_ids = set()
+
         # Stats tracking for cache hits/misses
         self.stats = {
             "parents": {"hits": 0, "misses": 0, "calls": 0},
@@ -153,11 +155,11 @@ class CacheService:
         return cross_edges_decorated(node_id)
 
     def parents_multiple(self, node_ids: np.ndarray, *, time_stamp: datetime = None):
-        node_ids = np.array(node_ids, dtype=NODE_ID, copy=False)
+        node_ids = np.asarray(node_ids, dtype=NODE_ID)
         if not node_ids.size:
             return node_ids
         self.stats["parents"]["calls"] += 1
-        mask = np.in1d(node_ids, np.fromiter(self.parents_cache.keys(), dtype=NODE_ID))
+        mask = np.isin(node_ids, np.fromiter(self.parents_cache.keys(), dtype=NODE_ID))
         hits = int(np.sum(mask))
         misses = len(node_ids) - hits
         self.stats["parents"]["hits"] += hits
@@ -173,11 +175,11 @@ class CacheService:
 
     def children_multiple(self, node_ids: np.ndarray, *, flatten=False):
         result = {}
-        node_ids = np.array(node_ids, dtype=NODE_ID, copy=False)
+        node_ids = np.asarray(node_ids, dtype=NODE_ID)
         if not node_ids.size:
             return result
         self.stats["children"]["calls"] += 1
-        mask = np.in1d(node_ids, np.fromiter(self.children_cache.keys(), dtype=NODE_ID))
+        mask = np.isin(node_ids, np.fromiter(self.children_cache.keys(), dtype=NODE_ID))
         hits = int(np.sum(mask))
         misses = len(node_ids) - hits
         self.stats["children"]["hits"] += hits
@@ -197,11 +199,11 @@ class CacheService:
         self, node_ids: np.ndarray, *, time_stamp: datetime = None
     ):
         result = {}
-        node_ids = np.array(node_ids, dtype=NODE_ID, copy=False)
+        node_ids = np.asarray(node_ids, dtype=NODE_ID)
         if not node_ids.size:
             return result
         self.stats["cross_chunk_edges"]["calls"] += 1
-        mask = np.in1d(
+        mask = np.isin(
             node_ids, np.fromiter(self.cross_chunk_edges_cache.keys(), dtype=NODE_ID)
         )
         hits = int(np.sum(mask))

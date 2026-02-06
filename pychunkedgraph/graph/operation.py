@@ -459,7 +459,7 @@ class GraphEditOperation(ABC):
                             if top_sources and any(src[1]["misses"] > 0 for src in top_sources):
                                 src_str = ", ".join(f"{k}({v['misses']})" for k, v in top_sources if v["misses"] > 0)
                                 lines.append(f"    miss sources: {src_str}")
-                    logger.info("\n".join(lines))
+                    logger.debug("\n".join(lines))
                 if self.cg.meta.READ_ONLY:
                     # return without persisting changes
                     return GraphEditOperation.Result(

@@ -16,7 +16,7 @@ from pychunkedgraph.debug.profiler import HierarchicalProfiler, get_profiler
 from . import types
 from . import attributes
 from . import cache as cache_utils
-from .edges import get_latest_edges_wrapper
+from .edges import get_latest_edges_wrapper, flip_ids
 from .edges.utils import concatenate_cross_edge_dicts
 from .edges.utils import merge_cross_edge_dicts
 from .utils import basetypes
@@ -402,15 +402,6 @@ def remove_edges(
     return new_roots, new_l2_ids, create_parents.new_entries
 
 
-def _flip_ids(id_map, node_ids):
-    """
-    returns old or new ids according to the map
-    """
-    ids = [np.asarray(list(id_map[id_]), dtype=basetypes.NODE_ID) for id_ in node_ids]
-    ids.append(types.empty_1d)  # concatenate needs at least one array
-    return np.concatenate(ids).astype(basetypes.NODE_ID)
-
-
 def _get_descendants(cg, new_id):
     """get all descendants at layers >= 2"""
     result = []
@@ -525,7 +516,7 @@ def _update_neighbor_cx_edges(
 
     all_cx_edges_d = cg.get_cross_chunk_edges(list(all_cps), time_stamp=parent_ts)
     for new_id in new_ids:
-        m = {old_id: new_id for old_id in _flip_ids(new_old_id, [new_id])}
+        m = {old_id: new_id for old_id in flip_ids(new_old_id, [new_id])}
         node_map.update(m)
         cp_layers = newid_counterpart_info[new_id]
         result = _update_neighbor_cx_edges_single(
@@ -603,67 +594,30 @@ class CreateParentNodes:
         self, new_ids: np.ndarray, layer: int
     ) -> Tuple[np.ndarray, np.ndarray]:
         # get old identities of new IDs
-        old_ids = _flip_ids(self._new_old_id_d, new_ids)
+        old_ids = flip_ids(self._new_old_id_d, new_ids)
         # get their parents, then children of those parents
         old_parents = self.cg.get_parents(old_ids, time_stamp=self._last_ts)
         siblings = self.cg.get_children(np.unique(old_parents), flatten=True)
         # replace old identities with new IDs
         mask = np.isin(siblings, old_ids)
-        node_ids = [_flip_ids(self._old_new_id_d, old_ids), siblings[~mask], new_ids]
+        node_ids = [flip_ids(self._old_new_id_d, old_ids), siblings[~mask], new_ids]
         node_ids = np.concatenate(node_ids).astype(basetypes.NODE_ID)
         node_ids = np.unique(node_ids)
         layer_mask = self.cg.get_chunk_layers(node_ids) == layer
         return node_ids[layer_mask]
-        # return node_ids
-
-    def _update_cross_edge_cache(self, parent, children):
-        """
-        updates cross chunk edges in cache;
-        this can only be done after all new components at a layer have IDs
-        """
-        parent_layer = self.cg.get_chunk_layer(parent)
-        if parent_layer == 2:
-            # l2 cross edges have already been updated by this point
-            return
-
-        cx_edges_d = self.cg.get_cross_chunk_edges(children, time_stamp=self._last_ts)
-        cx_edges_d = concatenate_cross_edge_dicts(cx_edges_d.values())
-        with self._profiler.profile("latest"):
-            cx_edges_d, edge_nodes = get_latest_edges_wrapper(
-                self.cg, cx_edges_d, parent_ts=self._last_ts
-            )
-
-        edge_parents = self.cg.get_roots(
-            edge_nodes,
-            stop_layer=parent_layer,
-            ceil=False,
-            time_stamp=self._last_ts,
-        )
-        edge_parents_d = dict(zip(edge_nodes, edge_parents))
-        new_cx_edges_d = {}
-        for layer in range(parent_layer, self.cg.meta.layer_count):
-            edges = cx_edges_d.get(layer, types.empty_2d)
-            if len(edges) == 0:
-                continue
-            edges = fastremap.remap(edges, edge_parents_d, preserve_missing_labels=True)
-            new_cx_edges_d[layer] = np.unique(edges, axis=0)
-            assert np.all(
-                edges[:, 0] == parent
-            ), f"OP {self._operation_id}: parent mismatch {parent} != {np.unique(edges[:, 0])}"
-        self.cg.cache.cross_chunk_edges_cache[parent] = new_cx_edges_d
 
     def _update_cross_edge_cache_batched(self, new_ids: list):
         """
         Batch update cross chunk edges in cache for all new IDs at a layer.
-        More efficient than calling _update_cross_edge_cache per new_id.
         """
+        updated_entries = []
         if not new_ids:
-            return
+            return updated_entries
 
         parent_layer = self.cg.get_chunk_layer(new_ids[0])
         if parent_layer == 2:
             # L2 cross edges have already been updated
-            return
+            return updated_entries
 
         all_children_d = self.cg.get_children(new_ids)
         all_children = np.concatenate(list(all_children_d.values()))
@@ -676,6 +630,27 @@ class CreateParentNodes:
                 self.cg, combined_cx_edges, parent_ts=self._last_ts
             )
 
+        # update cache with resolved stale edges
+        val_ds = defaultdict(dict)
+        children_cx_edges = defaultdict(dict)
+        for lyr in range(2, self.cg.meta.layer_count):
+            edges = updated_cx_edges.get(lyr, types.empty_2d)
+            if len(edges) == 0:
+                continue
+            children, inverse = np.unique(edges[:,0], return_inverse=True)
+            masks = inverse == np.arange(len(children))[:, None]
+            for child, mask in zip(children, masks):
+                children_cx_edges[child][lyr] = edges[mask]
+                val_ds[child][attributes.Connectivity.CrossChunkEdge[lyr]] = edges[mask]
+
+        for c, cx_edges_map in children_cx_edges.items():
+            self.cg.cache.cross_chunk_edges_cache[c] = cx_edges_map
+            rowkey = serialize_uint64(c)
+            row = self.cg.client.mutate_row(rowkey, val_ds[c], time_stamp=self._last_ts)
+            updated_entries.append(row)
+
+        # Distribute results back to each parent's cache
+        # Key insight: edges[:, 0] are children, map them to their parent
         edge_parents = self.cg.get_roots(
             edge_nodes,
             stop_layer=parent_layer,
@@ -683,9 +658,6 @@ class CreateParentNodes:
             time_stamp=self._last_ts,
         )
         edge_parents_d = dict(zip(edge_nodes, edge_parents))
-
-        # Distribute results back to each parent's cache
-        # Key insight: edges[:, 0] are children, map them to their parent
         for new_id in new_ids:
             children_set = set(all_children_d[new_id])
             parent_cx_edges_d = {}
@@ -707,6 +679,7 @@ class CreateParentNodes:
                     parent_edges[:, 0] == new_id
                 ), f"OP {self._operation_id}: parent mismatch {new_id} != {np.unique(parent_edges[:, 0])}"
             self.cg.cache.cross_chunk_edges_cache[new_id] = parent_cx_edges_d
+        return updated_entries
 
     def _create_new_parents(self, layer: int):
         """
@@ -779,10 +752,12 @@ class CreateParentNodes:
         for layer in range(2, self.cg.meta.layer_count):
             if len(self._new_ids_d[layer]) == 0:
                 continue
+            self.cg.cache.new_ids.update(self._new_ids_d[layer])
             # all new IDs in this layer have been created
             # update their cross chunk edges and their neighbors'
             with self._profiler.profile(f"l{layer}_update_cx_cache"):
-                self._update_cross_edge_cache_batched(self._new_ids_d[layer])
+                entries = self._update_cross_edge_cache_batched(self._new_ids_d[layer])
+                self.new_entries.extend(entries)
 
             with self._profiler.profile(f"l{layer}_update_neighbor_cx"):
                 entries = _update_neighbor_cx_edges(
@@ -802,7 +777,7 @@ class CreateParentNodes:
         if self.stitch_mode:
             return
         new_roots = self._new_ids_d[self.cg.meta.layer_count]
-        former_roots = _flip_ids(self._new_old_id_d, new_roots)
+        former_roots = flip_ids(self._new_old_id_d, new_roots)
         former_roots = np.unique(former_roots)
 
         err = f"new roots are inconsistent; op {self._operation_id}"
