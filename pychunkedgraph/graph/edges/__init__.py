@@ -198,6 +198,15 @@ def get_edges(source: str, nodes: np.ndarray) -> Edges:
     )
 
 
+def flip_ids(id_map, node_ids):
+    """
+    returns old or new ids according to the map
+    """
+    ids = [np.asarray(list(id_map[id_]), dtype=basetypes.NODE_ID) for id_ in node_ids]
+    ids.append(types.empty_1d)  # concatenate needs at least one array
+    return np.concatenate(ids).astype(basetypes.NODE_ID)
+
+
 def get_stale_nodes(
     cg, nodes: Iterable[basetypes.NODE_ID], parent_ts: datetime.datetime = None
 ):
@@ -348,13 +357,13 @@ def get_latest_edges(
                     raw_only=True,
                 )
             )
-            _children = cg.get_children(_a)
+            _children = cg.get_children(_a, raw_only=True)
             _children_layers = cg.get_chunk_layers(_children)
             _hierarchy.append(_children[_children_layers == 2])
             _children = _children[_children_layers > 2]
             while _children.size:
                 _hierarchy.append(_children)
-                _children = cg.get_children(_children, flatten=True)
+                _children = cg.get_children(_children, flatten=True, raw_only=True)
                 _children_layers = cg.get_chunk_layers(_children)
                 _hierarchy.append(_children[_children_layers == 2])
                 _children = _children[_children_layers > 2]
@@ -451,18 +460,22 @@ def get_latest_edges(
                 _parents_b.append(_node)
             elif _check_hierarchy_a_from_b(parents_a, _edges[:, 1], layer, parent_ts):
                 _parents_b.append(_node)
+            else:
+                _new_ids = list(cg.cache.new_ids)
+                if np.any(np.isin(_new_ids, parents_a)):
+                    _parents_b.append(_node)
         return np.array(_parents_b, dtype=basetypes.NODE_ID)
 
     def _get_parents_b_with_chunk_mask(
-        l2ids_b: np.ndarray, parents_b: np.ndarray, max_ts: datetime.datetime, edge
+        l2ids_b: np.ndarray, nodes_b_from_a: np.ndarray, max_ts: datetime.datetime, edge
     ):
         chunks_old = cg.get_chunk_ids_from_node_ids(l2ids_b)
-        chunks_new = cg.get_chunk_ids_from_node_ids(parents_b)
+        chunks_new = cg.get_chunk_ids_from_node_ids(nodes_b_from_a)
         chunk_mask = np.isin(chunks_new, chunks_old)
-        parents_b = parents_b[chunk_mask]
-        _stale_nodes = get_stale_nodes(cg, parents_b, parent_ts=max_ts)
-        assert _stale_nodes.size == 0, f"{edge}, {_stale_nodes}, {parent_ts}"
-        return parents_b
+        nodes_b_from_a = nodes_b_from_a[chunk_mask]
+        _stale_nodes = get_stale_nodes(cg, nodes_b_from_a, parent_ts=max_ts)
+        assert _stale_nodes.size == 0, f"{edge}, {_stale_nodes}, {max_ts}"
+        return nodes_b_from_a
 
     def _get_cx_edges(l2ids_a, max_node_ts, raw_only: bool = True):
         _edges_d = cg.get_cross_chunk_edges(
@@ -498,13 +511,17 @@ def get_latest_edges(
         if l2ids_a.size == 0 or l2ids_b.size == 0:
             return types.empty_2d.copy()
 
-        max_node_ts = max(nodes_ts_map[node_a], nodes_ts_map[node_b])
-        try:
-            _edges = _get_cx_edges(l2ids_a, max_node_ts)
-        except ValueError:
-            _edges = _get_cx_edges(l2ids_a, max_node_ts, raw_only=False)
-        except ValueError:
-            return types.empty_2d.copy()
+        max_ts = max(nodes_ts_map[node_a], nodes_ts_map[node_b])
+        is_l2_edge = node_a in l2ids_a and node_b in l2ids_b
+        if is_l2_edge and (l2ids_a.size == 1 and l2ids_b.size == 1):
+            _edges = np.array([edge], dtype=basetypes.NODE_ID)
+        else:
+            try:
+                _edges = _get_cx_edges(l2ids_a, max_ts)
+            except ValueError:
+                _edges = _get_cx_edges(l2ids_a, max_ts, raw_only=False)
+            except ValueError:
+                return types.empty_2d.copy()
 
         mask = np.isin(_edges[:, 1], l2ids_b)
         if np.any(mask):
@@ -520,7 +537,7 @@ def get_latest_edges(
                 # so get the new identities of `l2ids_b` by using chunk mask
                 try:
                     parents_b = _get_parents_b_with_chunk_mask(
-                        l2ids_b, _edges[:, 1], max_node_ts, edge
+                        l2ids_b, _edges[:, 1], max_ts, edge
                     )
                 except AssertionError:
                     parents_b = []
@@ -590,6 +607,8 @@ def get_latest_edges_wrapper(
                 stale_edge_layers,
                 parent_ts=parent_ts,
             )
+            stale_nodes = get_stale_nodes(cg, latest_edges.ravel(), parent_ts=parent_ts)
+            assert stale_nodes.size == 0, f"latest_edges failed, stale: {stale_nodes}"
             logging.debug(f"{stale_edges} -> {latest_edges}; {parent_ts}")
             _new_cx_edges.append(latest_edges)
         new_cx_edges_d[layer] = np.concatenate(_new_cx_edges)
