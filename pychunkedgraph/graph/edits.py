@@ -200,6 +200,7 @@ def add_edges(
     parent_ts: datetime.datetime = None,
     allow_same_segment_merge=False,
     stitch_mode: bool = False,
+    do_sanity_check: bool = True,
 ):
     edges, l2_cross_edges_d = _analyze_affected_edges(
         cg, atomic_edges, parent_ts=parent_ts
@@ -262,11 +263,13 @@ def add_edges(
             time_stamp=time_stamp,
             parent_ts=parent_ts,
             stitch_mode=stitch_mode,
+            do_sanity_check=do_sanity_check,
             profiler=profiler,
         )
         new_roots = create_parents.run()
 
-    sanity_check(cg, new_roots, operation_id)
+    if do_sanity_check:
+        sanity_check(cg, new_roots, operation_id)
     create_parents.create_new_entries()
     profiler.print_report(operation_id)
     return new_roots, new_l2_ids, create_parents.new_entries
@@ -336,6 +339,7 @@ def remove_edges(
     operation_id: basetypes.OPERATION_ID = None,  # type: ignore
     time_stamp: datetime.datetime = None,
     parent_ts: datetime.datetime = None,
+    do_sanity_check: bool = True,
 ):
     edges, _ = _analyze_affected_edges(cg, atomic_edges, parent_ts=parent_ts)
     l2ids = np.unique(edges)
@@ -395,29 +399,41 @@ def remove_edges(
         operation_id=operation_id,
         time_stamp=time_stamp,
         parent_ts=parent_ts,
+        do_sanity_check=do_sanity_check,
     )
     new_roots = create_parents.run()
-    sanity_check(cg, new_roots, operation_id)
+
+    if do_sanity_check:
+        sanity_check(cg, new_roots, operation_id)
     create_parents.create_new_entries()
     return new_roots, new_l2_ids, create_parents.new_entries
 
 
-def _get_descendants(cg, new_id):
-    """get all descendants at layers >= 2"""
-    result = []
-    children = cg.get_children(new_id)
-    while True:
-        mask = cg.get_chunk_layers(children) >= 2
-        children = children[mask]
-        result.extend(children)
+def _get_descendants_batch(cg, node_ids):
+    """Get all descendants at layers >= 2 for multiple node_ids.
+    Batches get_children calls by level to reduce IO.
+    Returns dict {node_id: np.ndarray of descendants}.
+    """
+    if not node_ids:
+        return {}
+    results = {nid: [] for nid in node_ids}
+    # expand_map: {node_to_expand: root_node_id}
+    expand_map = {nid: nid for nid in node_ids}
 
-        mask = cg.get_chunk_layers(children) > 2
-        children = children[mask]
-        if children.size == 0:
-            break
-
-        children = cg.get_children(children, flatten=True)
-    return result
+    while expand_map:
+        next_expand = {}
+        children_d = cg.get_children(list(expand_map.keys()))
+        for parent, root in expand_map.items():
+            children = children_d[parent]
+            layers = cg.get_chunk_layers(children)
+            mask = layers >= 2
+            results[root].extend(children[mask])
+            for c in children[layers > 2]:
+                next_expand[c] = root
+        expand_map = next_expand
+    return {
+        nid: np.array(desc, dtype=basetypes.NODE_ID) for nid, desc in results.items()
+    }
 
 
 def _get_counterparts(
@@ -446,6 +462,7 @@ def _update_neighbor_cx_edges_single(
     node_map: dict,
     counterpart_layers: dict,
     all_counterparts_cx_edges_d: dict,
+    descendants_d: dict,
 ) -> dict:
     """
     For each new_id, update cross chunk edges of its counterparts.
@@ -469,7 +486,7 @@ def _update_neighbor_cx_edges_single(
             if layer == counterpart_layer:
                 flip_edge = np.array([counterpart, new_id], dtype=basetypes.NODE_ID)
                 edges = np.concatenate([edges, [flip_edge]]).astype(basetypes.NODE_ID)
-                descendants = _get_descendants(cg, new_id)
+                descendants = descendants_d[new_id]
                 mask = np.isin(edges[:, 1], descendants)
                 if np.any(mask):
                     masked_edges = edges[mask]
@@ -515,12 +532,13 @@ def _update_neighbor_cx_edges(
         newid_counterpart_info[_id] = cp_layers
 
     all_cx_edges_d = cg.get_cross_chunk_edges(list(all_cps), time_stamp=parent_ts)
+    descendants_d = _get_descendants_batch(cg, new_ids)
     for new_id in new_ids:
         m = {old_id: new_id for old_id in flip_ids(new_old_id, [new_id])}
         node_map.update(m)
         cp_layers = newid_counterpart_info[new_id]
         result = _update_neighbor_cx_edges_single(
-            cg, new_id, node_map, cp_layers, all_cx_edges_d
+            cg, new_id, node_map, cp_layers, all_cx_edges_d, descendants_d
         )
         updated_counterparts.update(result)
     updated_entries = []
@@ -544,6 +562,7 @@ class CreateParentNodes:
         old_hierarchy_d: Dict[np.uint64, Dict[int, np.uint64]] = None,
         parent_ts: datetime.datetime = None,
         stitch_mode: bool = False,
+        do_sanity_check: bool = True,
         profiler: HierarchicalProfiler = None,
     ):
         self.cg = cg
@@ -553,10 +572,11 @@ class CreateParentNodes:
         self._new_old_id_d = new_old_id_d
         self._old_new_id_d = old_new_id_d
         self._new_ids_d = defaultdict(list)
-        self._operation_id = operation_id
+        self._opid = operation_id
         self._time_stamp = time_stamp
         self._last_ts = parent_ts
         self.stitch_mode = stitch_mode
+        self.do_sanity_check = do_sanity_check
         self._profiler = profiler if profiler else get_profiler()
 
     def _update_id_lineage(
@@ -637,7 +657,7 @@ class CreateParentNodes:
             edges = updated_cx_edges.get(lyr, types.empty_2d)
             if len(edges) == 0:
                 continue
-            children, inverse = np.unique(edges[:,0], return_inverse=True)
+            children, inverse = np.unique(edges[:, 0], return_inverse=True)
             masks = inverse == np.arange(len(children))[:, None]
             for child, mask in zip(children, masks):
                 children_cx_edges[child][lyr] = edges[mask]
@@ -670,14 +690,14 @@ class CreateParentNodes:
                 if not np.any(mask):
                     continue
 
-                parent_edges = edges[mask].copy()
-                parent_edges = fastremap.remap(
-                    parent_edges, edge_parents_d, preserve_missing_labels=True
+                pedges = edges[mask].copy()
+                pedges = fastremap.remap(
+                    pedges, edge_parents_d, preserve_missing_labels=True
                 )
-                parent_cx_edges_d[layer] = np.unique(parent_edges, axis=0)
+                parent_cx_edges_d[layer] = np.unique(pedges, axis=0)
                 assert np.all(
-                    parent_edges[:, 0] == new_id
-                ), f"OP {self._operation_id}: parent mismatch {new_id} != {np.unique(parent_edges[:, 0])}"
+                    pedges[:, 0] == new_id
+                ), f"OP {self._opid}: mismatch {new_id} != {np.unique(pedges[:, 0])}"
             self.cg.cache.cross_chunk_edges_cache[new_id] = parent_cx_edges_d
         return updated_entries
 
@@ -700,10 +720,10 @@ class CreateParentNodes:
             if len(cc_ids) == 1:
                 # skip connection
                 parent_layer = self.cg.meta.layer_count
+                cx_edges_d = self.cg.get_cross_chunk_edges(
+                    [cc_ids[0]], time_stamp=self._last_ts
+                )
                 for l in range(layer + 1, self.cg.meta.layer_count):
-                    cx_edges_d = self.cg.get_cross_chunk_edges(
-                        [cc_ids[0]], time_stamp=self._last_ts
-                    )
                     if len(cx_edges_d[cc_ids[0]].get(l, types.empty_2d)) > 0:
                         parent_layer = l
                         break
@@ -728,9 +748,11 @@ class CreateParentNodes:
             self._update_id_lineage(parent, cc_ids, layer, parent_layer)
             self.cg.cache.children_cache[parent] = cc_ids
             cache_utils.update(self.cg.cache.parents_cache, cc_ids, parent)
+            if not self.do_sanity_check:
+                continue
 
             try:
-                sanity_check_single(self.cg, parent, self._operation_id)
+                sanity_check_single(self.cg, parent, self._opid)
             except AssertionError:
                 pairs = [
                     (a, b) for idx, a in enumerate(cc_ids) for b in cc_ids[idx + 1 :]
@@ -740,7 +762,7 @@ class CreateParentNodes:
                     l2c2 = self.cg.get_l2children([c2])
                     if np.intersect1d(l2c1, l2c2).size:
                         c = np.intersect1d(l2c1, l2c2)
-                        msg = f"{self._operation_id}: {layer} {c1} {c2} have common children {c}"
+                        msg = f"{self._opid}: {layer} {c1} {c2} common children {c}"
                         raise ValueError(msg)
 
     def run(self) -> Iterable:
@@ -780,12 +802,12 @@ class CreateParentNodes:
         former_roots = flip_ids(self._new_old_id_d, new_roots)
         former_roots = np.unique(former_roots)
 
-        err = f"new roots are inconsistent; op {self._operation_id}"
+        err = f"new roots are inconsistent; op {self._opid}"
         assert len(former_roots) < 2 or len(new_roots) < 2, err
         for new_root_id in new_roots:
             val_dict = {
                 attributes.Hierarchy.FormerParent: former_roots,
-                attributes.OperationLogs.OperationID: self._operation_id,
+                attributes.OperationLogs.OperationID: self._opid,
             }
             self.new_entries.append(
                 self.cg.client.mutate_row(
@@ -800,7 +822,7 @@ class CreateParentNodes:
                 attributes.Hierarchy.NewParent: np.array(
                     new_roots, dtype=basetypes.NODE_ID
                 ),
-                attributes.OperationLogs.OperationID: self._operation_id,
+                attributes.OperationLogs.OperationID: self._opid,
             }
             self.new_entries.append(
                 self.cg.client.mutate_row(
@@ -831,7 +853,7 @@ class CreateParentNodes:
             for id_ in new_ids:
                 val_dict = val_dicts.get(id_, {})
                 children = self.cg.get_children(id_)
-                err = f"parent layer less than children; op {self._operation_id}"
+                err = f"parent layer less than children; op {self._opid}"
                 assert np.max(
                     self.cg.get_chunk_layers(children)
                 ) < self.cg.get_chunk_layer(id_), err

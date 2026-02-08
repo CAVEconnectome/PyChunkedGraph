@@ -241,7 +241,9 @@ class ChunkedGraph:
                         else:
                             raise KeyError from exc
             return parents
-        return self.cache.parents_multiple(node_ids, time_stamp=time_stamp)
+        return self.cache.parents_multiple(
+            node_ids, time_stamp=time_stamp, fail_to_zero=fail_to_zero
+        )
 
     def get_parent(
         self,
@@ -807,6 +809,7 @@ class ChunkedGraph:
         source_coords: typing.Sequence[int] = None,
         sink_coords: typing.Sequence[int] = None,
         allow_same_segment_merge: typing.Optional[bool] = False,
+        do_sanity_check: typing.Optional[bool] = False,
     ) -> operation.GraphEditOperation.Result:
         """
         Adds an edge to the chunkedgraph
@@ -823,6 +826,7 @@ class ChunkedGraph:
             source_coords=source_coords,
             sink_coords=sink_coords,
             allow_same_segment_merge=allow_same_segment_merge,
+            do_sanity_check=do_sanity_check,
         ).execute()
 
     def remove_edges(
@@ -838,6 +842,7 @@ class ChunkedGraph:
         path_augment: bool = True,
         disallow_isolating_cut: bool = True,
         bb_offset: typing.Tuple[int, int, int] = (240, 240, 24),
+        do_sanity_check: typing.Optional[bool] = False,
     ) -> operation.GraphEditOperation.Result:
         """
         Removes edges - either directly or after applying a mincut
@@ -862,6 +867,7 @@ class ChunkedGraph:
                 bbox_offset=bb_offset,
                 path_augment=path_augment,
                 disallow_isolating_cut=disallow_isolating_cut,
+                do_sanity_check=do_sanity_check,
             ).execute()
 
         if not atomic_edges:
