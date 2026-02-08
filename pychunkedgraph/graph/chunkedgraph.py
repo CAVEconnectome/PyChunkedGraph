@@ -241,7 +241,9 @@ class ChunkedGraph:
                         else:
                             raise KeyError from exc
             return parents
-        return self.cache.parents_multiple(node_ids, time_stamp=time_stamp)
+        return self.cache.parents_multiple(
+            node_ids, time_stamp=time_stamp, fail_to_zero=fail_to_zero
+        )
 
     def get_parent(
         self,
