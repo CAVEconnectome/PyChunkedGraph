@@ -383,6 +383,7 @@ def handle_merge(table_id, allow_same_segment_merge=False):
             source_coords=coords[:1],
             sink_coords=coords[1:],
             allow_same_segment_merge=allow_same_segment_merge,
+            do_sanity_check=True,
         )
 
     except cg_exceptions.LockingError as e:
@@ -450,6 +451,7 @@ def handle_split(table_id):
             source_coords=coords[node_idents == 0],
             sink_coords=coords[node_idents == 1],
             mincut=mincut,
+            do_sanity_check=True,
         )
     except cg_exceptions.LockingError as e:
         raise cg_exceptions.InternalServerError(e)
