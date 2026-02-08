@@ -47,6 +47,7 @@ class GraphEditOperation(ABC):
         "sink_coords",
         "parent_ts",
         "privileged_mode",
+        "do_sanity_check",
     ]
     Result = namedtuple("Result", ["operation_id", "new_root_ids", "new_lvl2_ids"])
 
@@ -447,19 +448,6 @@ class GraphEditOperation(ABC):
                         operation_id=lock.operation_id,
                         timestamp=override_ts if override_ts else timestamp,
                     )
-                # Log cache stats
-                if self.cg.cache:
-                    stats = self.cg.cache.get_stats()
-                    lines = [f"[Op {lock.operation_id}] Cache:"]
-                    for name, s in stats.items():
-                        lines.append(f"  {name}: {s['hit_rate']} hit ({s['hits']}/{s['total']}) calls={s['calls']}")
-                        # Show top miss sources if any
-                        if s.get("sources"):
-                            top_sources = sorted(s["sources"].items(), key=lambda x: -x[1]["misses"])[:3]
-                            if top_sources and any(src[1]["misses"] > 0 for src in top_sources):
-                                src_str = ", ".join(f"{k}({v['misses']})" for k, v in top_sources if v["misses"] > 0)
-                                lines.append(f"    miss sources: {src_str}")
-                    logger.debug("\n".join(lines))
                 if self.cg.meta.READ_ONLY:
                     # return without persisting changes
                     return GraphEditOperation.Result(
@@ -571,6 +559,7 @@ class MergeOperation(GraphEditOperation):
         "affinities",
         "bbox_offset",
         "allow_same_segment_merge",
+        "do_sanity_check",
     ]
 
     def __init__(
@@ -584,6 +573,7 @@ class MergeOperation(GraphEditOperation):
         bbox_offset: Tuple[int, int, int] = (240, 240, 24),
         affinities: Optional[Sequence[np.float32]] = None,
         allow_same_segment_merge: Optional[bool] = False,
+        do_sanity_check: Optional[bool] = True,
     ) -> None:
         super().__init__(
             cg, user_id=user_id, source_coords=source_coords, sink_coords=sink_coords
@@ -591,6 +581,7 @@ class MergeOperation(GraphEditOperation):
         self.added_edges = np.atleast_2d(added_edges).astype(basetypes.NODE_ID)
         self.bbox_offset = np.atleast_1d(bbox_offset).astype(basetypes.COORDINATES)
         self.allow_same_segment_merge = allow_same_segment_merge
+        self.do_sanity_check = do_sanity_check
 
         self.affinities = None
         if affinities is not None:
@@ -657,6 +648,7 @@ class MergeOperation(GraphEditOperation):
                 time_stamp=timestamp,
                 parent_ts=self.parent_ts,
                 allow_same_segment_merge=self.allow_same_segment_merge,
+                do_sanity_check=self.do_sanity_check,
             )
         return new_roots, new_l2_ids, fake_edge_rows + new_entries
 
@@ -715,7 +707,7 @@ class SplitOperation(GraphEditOperation):
     :type sink_coords: Optional[Sequence[Sequence[int]]], optional
     """
 
-    __slots__ = ["removed_edges", "bbox_offset"]
+    __slots__ = ["removed_edges", "bbox_offset", "do_sanity_check"]
 
     def __init__(
         self,
@@ -726,12 +718,14 @@ class SplitOperation(GraphEditOperation):
         source_coords: Optional[Sequence[Sequence[int]]] = None,
         sink_coords: Optional[Sequence[Sequence[int]]] = None,
         bbox_offset: Tuple[int] = (240, 240, 24),
+        do_sanity_check: Optional[bool] = True,
     ) -> None:
         super().__init__(
             cg, user_id=user_id, source_coords=source_coords, sink_coords=sink_coords
         )
         self.removed_edges = np.atleast_2d(removed_edges).astype(basetypes.NODE_ID)
         self.bbox_offset = np.atleast_1d(bbox_offset).astype(basetypes.COORDINATES)
+        self.do_sanity_check = do_sanity_check
         if np.any(np.equal(self.removed_edges[:, 0], self.removed_edges[:, 1])):
             raise PreconditionError("Requested split contains at least 1 self-loop.")
 
@@ -774,6 +768,7 @@ class SplitOperation(GraphEditOperation):
                 atomic_edges=self.removed_edges,
                 time_stamp=timestamp,
                 parent_ts=self.parent_ts,
+                do_sanity_check=self.do_sanity_check,
             )
 
     def _create_log_record(
@@ -842,6 +837,7 @@ class MulticutOperation(GraphEditOperation):
         "bbox_offset",
         "path_augment",
         "disallow_isolating_cut",
+        "do_sanity_check",
     ]
 
     def __init__(
@@ -857,6 +853,7 @@ class MulticutOperation(GraphEditOperation):
         removed_edges: Sequence[Sequence[np.uint64]] = types.empty_2d,
         path_augment: bool = True,
         disallow_isolating_cut: bool = True,
+        do_sanity_check: Optional[bool] = True,
     ) -> None:
         super().__init__(
             cg, user_id=user_id, source_coords=source_coords, sink_coords=sink_coords
@@ -867,6 +864,7 @@ class MulticutOperation(GraphEditOperation):
         self.bbox_offset = np.atleast_1d(bbox_offset).astype(basetypes.COORDINATES)
         self.path_augment = path_augment
         self.disallow_isolating_cut = disallow_isolating_cut
+        self.do_sanity_check = do_sanity_check
         if np.any(np.in1d(self.sink_ids, self.source_ids)):
             raise PreconditionError(
                 "Supervoxels exist in both sink and source, "
@@ -940,6 +938,7 @@ class MulticutOperation(GraphEditOperation):
                 atomic_edges=self.removed_edges,
                 time_stamp=timestamp,
                 parent_ts=self.parent_ts,
+                do_sanity_check=self.do_sanity_check,
             )
 
     def _create_log_record(

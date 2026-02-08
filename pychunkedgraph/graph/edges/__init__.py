@@ -207,6 +207,29 @@ def flip_ids(id_map, node_ids):
     return np.concatenate(ids).astype(basetypes.NODE_ID)
 
 
+def _get_new_nodes(
+    cg, nodes: np.ndarray, layer: int, parent_ts: datetime.datetime = None
+):
+    unique_nodes, inverse = np.unique(nodes, return_inverse=True)
+    node_root_map = {n: n for n in unique_nodes}
+    lookup = np.ones(len(unique_nodes), dtype=unique_nodes.dtype)
+    while np.any(lookup):
+        roots = np.fromiter(node_root_map.values(), dtype=basetypes.NODE_ID)
+        roots = cg.get_parents(roots, time_stamp=parent_ts, fail_to_zero=True)
+        layers = cg.get_chunk_layers(roots)
+        lookup[layers > layer] = 0
+        lookup[roots == 0] = 0
+
+        layer_mask = layers <= layer
+        non_zero_mask = roots != 0
+        mask = layer_mask & non_zero_mask
+        for node, root in zip(unique_nodes[mask], roots[mask]):
+            node_root_map[node] = root
+
+    unique_results = np.fromiter(node_root_map.values(), dtype=basetypes.NODE_ID)
+    return unique_results[inverse]
+
+
 def get_stale_nodes(
     cg, nodes: Iterable[basetypes.NODE_ID], parent_ts: datetime.datetime = None
 ):
@@ -215,7 +238,9 @@ def get_stale_nodes(
     This is done by getting a supervoxel of a node and checking
     if it has a new parent at the same layer as the node.
     """
-    nodes = np.array(nodes, dtype=basetypes.NODE_ID)
+    nodes = np.unique(np.array(nodes, dtype=basetypes.NODE_ID))
+    new_ids = set() if cg.cache is None else cg.cache.new_ids
+    nodes = nodes[~np.isin(nodes, new_ids)]
     supervoxels = cg.get_single_leaf_multiple(nodes)
     # nodes can be at different layers due to skip connections
     node_layers = cg.get_chunk_layers(nodes)
@@ -223,12 +248,7 @@ def get_stale_nodes(
     for layer in np.unique(node_layers):
         _mask = node_layers == layer
         layer_nodes = nodes[_mask]
-        _nodes = cg.get_roots(
-            supervoxels[_mask],
-            stop_layer=layer,
-            ceil=False,
-            time_stamp=parent_ts,
-        )
+        _nodes = _get_new_nodes(cg, supervoxels[_mask], layer, parent_ts)
         stale_mask = layer_nodes != _nodes
         stale_nodes.append(layer_nodes[stale_mask])
     return np.concatenate(stale_nodes)
@@ -544,10 +564,7 @@ def get_latest_edges(
                     if fallback:
                         parents_b = _get_parents_b(_edges, parent_ts, edge_layer, True)
 
-        parents_b = np.unique(
-            cg.get_roots(parents_b, stop_layer=mlayer, ceil=False, time_stamp=parent_ts)
-        )
-
+        parents_b = np.unique(_get_new_nodes(cg, parents_b, mlayer, parent_ts))
         parents_a = np.array([node_a] * parents_b.size, dtype=basetypes.NODE_ID)
         return np.column_stack((parents_a, parents_b))
 
@@ -607,8 +624,6 @@ def get_latest_edges_wrapper(
                 stale_edge_layers,
                 parent_ts=parent_ts,
             )
-            stale_nodes = get_stale_nodes(cg, latest_edges.ravel(), parent_ts=parent_ts)
-            assert stale_nodes.size == 0, f"latest_edges failed, stale: {stale_nodes}"
             logging.debug(f"{stale_edges} -> {latest_edges}; {parent_ts}")
             _new_cx_edges.append(latest_edges)
         new_cx_edges_d[layer] = np.concatenate(_new_cx_edges)

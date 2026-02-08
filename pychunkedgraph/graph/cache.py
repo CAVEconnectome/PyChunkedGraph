@@ -3,7 +3,7 @@
 Cache nodes, parents, children and cross edges.
 """
 import traceback
-from collections import defaultdict
+from collections import defaultdict as defaultd
 from sys import maxsize
 from datetime import datetime
 
@@ -51,7 +51,7 @@ class CacheService:
             "cross_chunk_edges": {"hits": 0, "misses": 0, "calls": 0},
         }
         # Track where calls/misses come from
-        self.call_sources = defaultdict(lambda: defaultdict(lambda: {"calls": 0, "misses": 0}))
+        self.sources = defaultd(lambda: defaultd(lambda: {"calls": 0, "misses": 0}))
 
     def _get_caller(self, skip_frames=2):
         """Get caller info (filename:line:function)."""
@@ -65,8 +65,8 @@ class CacheService:
     def _record_call(self, cache_type, misses=0):
         """Record a call and its source."""
         caller = self._get_caller(skip_frames=3)
-        self.call_sources[cache_type][caller]["calls"] += 1
-        self.call_sources[cache_type][caller]["misses"] += misses
+        self.sources[cache_type][caller]["calls"] += 1
+        self.sources[cache_type][caller]["misses"] += misses
 
     def __len__(self):
         return (
@@ -90,7 +90,7 @@ class CacheService:
                 **s,
                 "total": total,
                 "hit_rate": f"{hit_rate:.1%}",
-                "sources": dict(self.call_sources[name]),
+                "sources": dict(self.sources[name]),
             }
         return result
 
@@ -99,7 +99,7 @@ class CacheService:
             s["hits"] = 0
             s["misses"] = 0
             s["calls"] = 0
-        self.call_sources.clear()
+        self.sources.clear()
 
     def parent(self, node_id: np.uint64, *, time_stamp: datetime = None):
         self.stats["parents"]["calls"] += 1
@@ -154,7 +154,13 @@ class CacheService:
 
         return cross_edges_decorated(node_id)
 
-    def parents_multiple(self, node_ids: np.ndarray, *, time_stamp: datetime = None):
+    def parents_multiple(
+        self,
+        node_ids: np.ndarray,
+        *,
+        time_stamp: datetime = None,
+        fail_to_zero: bool = False,
+    ):
         node_ids = np.asarray(node_ids, dtype=NODE_ID)
         if not node_ids.size:
             return node_ids
@@ -168,7 +174,10 @@ class CacheService:
         parents = node_ids.copy()
         parents[mask] = self._parent_vec(node_ids[mask])
         parents[~mask] = self._cg.get_parents(
-            node_ids[~mask], raw_only=True, time_stamp=time_stamp
+            node_ids[~mask],
+            raw_only=True,
+            time_stamp=time_stamp,
+            fail_to_zero=fail_to_zero,
         )
         update(self.parents_cache, node_ids[~mask], parents[~mask])
         return parents
