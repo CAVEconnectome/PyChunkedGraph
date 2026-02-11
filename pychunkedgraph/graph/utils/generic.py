@@ -98,7 +98,7 @@ def time_min():
 
 def get_valid_timestamp(timestamp):
     if timestamp is None:
-        timestamp = datetime.datetime.utcnow()
+        timestamp = datetime.datetime.now(datetime.timezone.utc)
     if timestamp.tzinfo is None:
         timestamp = pytz.UTC.localize(timestamp)
     # Comply to resolution of BigTables TimeRange
