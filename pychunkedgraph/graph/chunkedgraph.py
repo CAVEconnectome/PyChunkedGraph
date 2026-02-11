@@ -1022,9 +1022,13 @@ class ChunkedGraph:
         from datetime import timedelta
 
         for op_id in range(100):
-            _, timestamp = self.client.read_log_entry(op_id)
+            _log, timestamp = self.client.read_log_entry(op_id)
             if timestamp is not None:
                 return timestamp - timedelta(milliseconds=500)
+            if _log:
+                return self.client._read_byte_row(serializers.serialize_uint64(op_id))[
+                    attributes.OperationLogs.Status
+                ][-1].timestamp
 
     def get_operation_ids(self, node_ids: typing.Sequence):
         response = self.client.read_nodes(node_ids=node_ids)
