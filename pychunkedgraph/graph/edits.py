@@ -1,6 +1,6 @@
 # pylint: disable=invalid-name, missing-docstring, too-many-locals, c-extension-no-member
 
-import datetime
+import datetime, random
 from typing import Dict
 from typing import List
 from typing import Tuple
@@ -217,13 +217,26 @@ def add_edges(
     cross_edges_d = merge_cross_edge_dicts(
         cg.get_cross_chunk_edges(l2ids, time_stamp=parent_ts), l2_cross_edges_d
     )
-
     graph, _, _, graph_ids = flatgraph.build_gt_graph(edges, make_directed=True)
     components = flatgraph.connected_components(graph)
+
+    chunk_count_map = defaultdict(int)
+    for cc_indices in components:
+        l2ids_ = graph_ids[cc_indices]
+        chunk = cg.get_chunk_id(l2ids_[0])
+        chunk_count_map[chunk] += 1
+
+    chunk_ids = list(chunk_count_map.keys())
+    random.shuffle(chunk_ids)
+    chunk_new_ids_map = {}
+    for chunk_id in chunk_ids:
+        new_ids = cg.id_client.create_node_ids(chunk_id, size=chunk_count_map[chunk_id])
+        chunk_new_ids_map[chunk_id] = list(new_ids)
+
     new_l2_ids = []
     for cc_indices in components:
         l2ids_ = graph_ids[cc_indices]
-        new_id = cg.id_client.create_node_id(cg.get_chunk_id(l2ids_[0]))
+        new_id = chunk_new_ids_map[cg.get_chunk_id(l2ids_[0])].pop()
         new_l2_ids.append(new_id)
         new_old_id_d[new_id].update(l2ids_)
         for id_ in l2ids_:
@@ -728,6 +741,7 @@ class CreateParentNodes:
                         parent_layer = l
                         break
 
+            # TODO: handle skip connected root id creation separately
             chunk_id = self.cg.get_parent_chunk_id(cc_ids[0], parent_layer)
             is_root = parent_layer == self.cg.meta.layer_count
             batch_size = 1
