@@ -522,28 +522,6 @@ def get_latest_edges(
             )
         return np.unique(np.concatenate(_l2_edges), axis=0)
 
-    def _get_relevant_edges(edge, l2ids_a, l2ids_b, time_stamp):
-        node_a, node_b = edge
-        is_l2_edge = node_a in l2ids_a and node_b in l2ids_b
-        if is_l2_edge and (l2ids_a.size == 1 and l2ids_b.size == 1):
-            return np.array([edge], dtype=basetypes.NODE_ID)
-
-        try:
-            _edges = _get_cx_edges(l2ids_a, time_stamp)
-        except ValueError:
-            _edges = _get_cx_edges(l2ids_a, time_stamp, raw_only=False)
-
-        mask = np.isin(_edges[:, 1], l2ids_b)
-        if np.any(mask):
-            return _edges[mask]
-
-        # partner nodes likely lifted, dilate and retry
-        _edges = _get_dilated_edges(_edges)
-        mask = np.isin(_edges[:, 1], l2ids_b)
-        if np.any(mask):
-            return _edges[mask]
-        return types.empty_2d.copy()
-
     def _get_new_edge(edge, edge_layer, parent_ts, padding, fallback: bool = False):
         """
         Attempts to find new edge(s) for the stale `edge`.
@@ -557,24 +535,37 @@ def get_latest_edges(
             return types.empty_2d.copy()
 
         max_ts = max(nodes_ts_map[node_a], nodes_ts_map[node_b])
-        try:
-            _edges = _get_relevant_edges(edge, l2ids_a, l2ids_b, max_ts)
-            if len(_edges) == 0:
-                _edges = _get_relevant_edges(edge, l2ids_a, l2ids_b, parent_ts)
-        except ValueError:
-            return types.empty_2d.copy()
-
-        parents_b = []
-        if len(_edges) > 0:
-            parents_b = _get_parents_b(_edges, parent_ts, edge_layer)
+        is_l2_edge = node_a in l2ids_a and node_b in l2ids_b
+        if is_l2_edge and (l2ids_a.size == 1 and l2ids_b.size == 1):
+            _edges = np.array([edge], dtype=basetypes.NODE_ID)
         else:
             try:
-                parents_b = _get_parents_b_with_chunk_mask(
-                    l2ids_b, _edges[:, 1], max_ts, edge
-                )
-            except AssertionError:
-                if fallback:
-                    parents_b = _get_parents_b(_edges, parent_ts, edge_layer, True)
+                _edges = _get_cx_edges(l2ids_a, max_ts)
+            except ValueError:
+                _edges = _get_cx_edges(l2ids_a, max_ts, raw_only=False)
+            except ValueError:
+                return types.empty_2d.copy()
+
+        mask = np.isin(_edges[:, 1], l2ids_b)
+        if np.any(mask):
+            parents_b = _get_parents_b(_edges[mask], parent_ts, edge_layer)
+        else:
+            # partner nodes likely lifted, dilate and retry
+            _edges = _get_dilated_edges(_edges)
+            mask = np.isin(_edges[:, 1], l2ids_b)
+            if np.any(mask):
+                parents_b = _get_parents_b(_edges[mask], parent_ts, edge_layer)
+            else:
+                # if none of `l2ids_b` were found in edges, `l2ids_a` already have new edges
+                # so get the new identities of `l2ids_b` by using chunk mask
+                try:
+                    parents_b = _get_parents_b_with_chunk_mask(
+                        l2ids_b, _edges[:, 1], max_ts, edge
+                    )
+                except AssertionError:
+                    parents_b = []
+                    if fallback:
+                        parents_b = _get_parents_b(_edges, parent_ts, edge_layer, True)
 
         parents_b = np.unique(get_new_nodes(cg, parents_b, mlayer, parent_ts))
         parents_a = np.array([node_a] * parents_b.size, dtype=basetypes.NODE_ID)
