@@ -7,7 +7,6 @@ from typing import Tuple
 from typing import Iterable
 from typing import Set
 from collections import defaultdict
-from contextlib import contextmanager
 
 import fastremap
 import numpy as np
@@ -58,11 +57,8 @@ def _analyze_affected_edges(
 
     Also returns new cross edges dicts for nodes crossing chunk boundary.
     """
-    profiler = get_profiler()
-
     supervoxels = np.unique(atomic_edges)
-    with profiler.profile("analyze_get_parents"):
-        parents = cg.get_parents(supervoxels, time_stamp=parent_ts)
+    parents = cg.get_parents(supervoxels, time_stamp=parent_ts)
     sv_parent_d = dict(zip(supervoxels.tolist(), parents))
     edge_layers = cg.get_cross_chunk_edges_layer(atomic_edges)
     parent_edges = [
@@ -208,24 +204,16 @@ def add_edges(
     stitch_mode: bool = False,
     do_sanity_check: bool = True,
 ):
-    profiler = get_profiler()
-    profiler.reset()  # Reset for fresh profiling
+    edges, l2_cross_edges_d = _analyze_affected_edges(
+        cg, atomic_edges, parent_ts=parent_ts
+    )
+    l2ids = np.unique(edges)
+    if not allow_same_segment_merge and not stitch_mode:
+        roots = cg.get_roots(l2ids, assert_roots=True, time_stamp=parent_ts)
+        assert np.unique(roots).size >= 2, "L2 IDs must belong to different roots."
 
-    with profiler.profile("add_edges"):
-        with profiler.profile("analyze_affected_edges"):
-            edges, l2_cross_edges_d = _analyze_affected_edges(
-                cg, atomic_edges, parent_ts=parent_ts
-            )
-
-        l2ids = np.unique(edges)
-        if not allow_same_segment_merge and not stitch_mode:
-            with profiler.profile("validate_roots"):
-                roots = cg.get_roots(l2ids, assert_roots=True, time_stamp=parent_ts)
-                assert np.unique(roots).size >= 2, "L2 IDs must belong to different roots."
-
-        new_old_id_d = defaultdict(set)
-        old_new_id_d = defaultdict(set)
-
+    new_old_id_d = defaultdict(set)
+    old_new_id_d = defaultdict(set)
     old_hierarchy_d = _init_old_hierarchy(cg, l2ids, parent_ts=parent_ts)
     atomic_children_d = cg.get_children(l2ids)
     cross_edges_d = merge_cross_edge_dicts(
@@ -263,20 +251,19 @@ def add_edges(
         cg.cache.children_cache[new_id] = merged_children
         cache_utils.update(cg.cache.parents_cache, merged_children, new_id)
 
-        # update cross chunk edges by replacing old_ids with new
-        # this can be done only after all new IDs have been created
-        with profiler.profile("update_cross_edges"):
-            for new_id, cc_indices in zip(new_l2_ids, components):
-                l2ids_ = graph_ids[cc_indices]
-                new_cx_edges_d = {}
-                cx_edges = [cross_edges_d[l2id] for l2id in l2ids_]
-                cx_edges_d = concatenate_cross_edge_dicts(cx_edges, unique=True)
-                temp_map = {k: next(iter(v)) for k, v in old_new_id_d.items()}
-                for layer, edges in cx_edges_d.items():
-                    edges = fastremap.remap(edges, temp_map, preserve_missing_labels=True)
-                    new_cx_edges_d[layer] = edges
-                    assert np.all(edges[:, 0] == new_id)
-                cg.cache.cross_chunk_edges_cache[new_id] = new_cx_edges_d
+    # update cross chunk edges by replacing old_ids with new
+    # this can be done only after all new IDs have been created
+    for new_id, cc_indices in zip(new_l2_ids, components):
+        l2ids_ = graph_ids[cc_indices]
+        new_cx_edges_d = {}
+        cx_edges = [cross_edges_d[l2id] for l2id in l2ids_]
+        cx_edges_d = concatenate_cross_edge_dicts(cx_edges, unique=True)
+        temp_map = {k: next(iter(v)) for k, v in old_new_id_d.items()}
+        for layer, edges in cx_edges_d.items():
+            edges = fastremap.remap(edges, temp_map, preserve_missing_labels=True)
+            new_cx_edges_d[layer] = edges
+            assert np.all(edges[:, 0] == new_id)
+        cg.cache.cross_chunk_edges_cache[new_id] = new_cx_edges_d
 
     profiler = get_profiler()
     profiler.reset()
@@ -545,12 +532,8 @@ def _update_neighbor_cx_edges(
     and then write to storage to consolidate the mutations.
     Returns mutations to updated counterparts/partner nodes.
     """
-    profiler = get_profiler()
     updated_counterparts = {}
-
-    with profiler.profile("neighbor_get_cross_chunk_edges"):
-        newid_cx_edges_d = cg.get_cross_chunk_edges(new_ids, time_stamp=parent_ts)
-
+    newid_cx_edges_d = cg.get_cross_chunk_edges(new_ids, time_stamp=parent_ts)
     node_map = {}
     for k, v in old_new_id.items():
         if len(v) == 1:
@@ -573,14 +556,11 @@ def _update_neighbor_cx_edges(
             cg, new_id, node_map, cp_layers, all_cx_edges_d, descendants_d
         )
         updated_counterparts.update(result)
-
-    with profiler.profile("neighbor_create_mutations"):
-        updated_entries = []
-        for node, val_dict in updated_counterparts.items():
-            rowkey = serialize_uint64(node)
-            row = cg.client.mutate_row(rowkey, val_dict, time_stamp=time_stamp)
-            updated_entries.append(row)
-
+    updated_entries = []
+    for node, val_dict in updated_counterparts.items():
+        rowkey = serialize_uint64(node)
+        row = cg.client.mutate_row(rowkey, val_dict, time_stamp=time_stamp)
+        updated_entries.append(row)
     return updated_entries
 
 
@@ -653,7 +633,6 @@ class CreateParentNodes:
         # get their parents, then children of those parents
         old_parents = self.cg.get_parents(old_ids, time_stamp=self._last_ts)
         siblings = self.cg.get_children(np.unique(old_parents), flatten=True)
-
         # replace old identities with new IDs
         mask = np.isin(siblings, old_ids)
         node_ids = [flip_ids(self._old_new_id_d, old_ids), siblings[~mask], new_ids]
@@ -940,6 +919,4 @@ class CreateParentNodes:
                             time_stamp=self._time_stamp,
                         )
                     )
-
-        with self._profiler.profile("update_root_id_lineage"):
-            self._update_root_id_lineage()
+        self._update_root_id_lineage()
