@@ -809,7 +809,7 @@ class ChunkedGraph:
         source_coords: typing.Sequence[int] = None,
         sink_coords: typing.Sequence[int] = None,
         allow_same_segment_merge: typing.Optional[bool] = False,
-        do_sanity_check: typing.Optional[bool] = False,
+        do_sanity_check: typing.Optional[bool] = True,
     ) -> operation.GraphEditOperation.Result:
         """
         Adds an edge to the chunkedgraph
@@ -842,7 +842,7 @@ class ChunkedGraph:
         path_augment: bool = True,
         disallow_isolating_cut: bool = True,
         bb_offset: typing.Tuple[int, int, int] = (240, 240, 24),
-        do_sanity_check: typing.Optional[bool] = False,
+        do_sanity_check: typing.Optional[bool] = True,
     ) -> operation.GraphEditOperation.Result:
         """
         Removes edges - either directly or after applying a mincut

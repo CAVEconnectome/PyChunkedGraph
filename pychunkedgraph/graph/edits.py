@@ -714,6 +714,49 @@ class CreateParentNodes:
             self.cg.cache.cross_chunk_edges_cache[new_id] = parent_cx_edges_d
         return updated_entries
 
+    def _get_new_ids(self, chunk_id, count, is_root):
+        batch_size = count
+        new_ids = []
+        while len(new_ids) < count:
+            candidate_ids = self.cg.id_client.create_node_ids(
+                chunk_id, batch_size, root_chunk=is_root
+            )
+            existing = self.cg.client.read_nodes(node_ids=candidate_ids)
+            non_existing = set(candidate_ids) - existing.keys()
+            new_ids.extend(non_existing)
+            batch_size = min(batch_size * 2, 2**16)
+        return new_ids[:count]
+
+    def _get_new_parents(self, layer, ccs, graph_ids) -> tuple[dict, dict]:
+        # will need to enumerate ccs and keep track of parent layers
+        cc_layer_chunk_map = {}
+        size_map = defaultdict(int)
+        for i, cc_idx in enumerate(ccs):
+            parent_layer = layer + 1  # must be reset for each connected component
+            cc_ids = graph_ids[cc_idx]
+            if len(cc_ids) == 1:
+                # skip connection
+                parent_layer = self.cg.meta.layer_count
+                cx_edges_d = self.cg.get_cross_chunk_edges(
+                    [cc_ids[0]], time_stamp=self._last_ts
+                )
+                for l in range(layer + 1, self.cg.meta.layer_count):
+                    if len(cx_edges_d[cc_ids[0]].get(l, types.empty_2d)) > 0:
+                        parent_layer = l
+                        break
+            chunk_id = self.cg.get_parent_chunk_id(cc_ids[0], parent_layer)
+            cc_layer_chunk_map[i] = (parent_layer, chunk_id)
+            size_map[chunk_id] += 1
+
+        chunk_ids = list(size_map.keys())
+        random.shuffle(chunk_ids)
+        chunk_new_ids_map = {}
+        layers = self.cg.get_chunk_layers(chunk_ids)
+        for c, l in zip(chunk_ids, layers):
+            is_root = parent_layer == self.cg.meta.layer_count
+            chunk_new_ids_map[c] = self._get_new_ids(c, size_map[c], is_root)
+        return chunk_new_ids_map, cc_layer_chunk_map
+
     def _create_new_parents(self, layer: int):
         """
         keep track of old IDs
@@ -726,37 +769,13 @@ class CreateParentNodes:
         """
         new_ids = self._new_ids_d[layer]
         layer_node_ids = self._get_layer_node_ids(new_ids, layer)
-        components, graph_ids = self._get_connected_components(layer_node_ids, layer)
-        for cc_indices in components:
-            parent_layer = layer + 1  # must be reset for each connected component
-            cc_ids = graph_ids[cc_indices]
-            if len(cc_ids) == 1:
-                # skip connection
-                parent_layer = self.cg.meta.layer_count
-                cx_edges_d = self.cg.get_cross_chunk_edges(
-                    [cc_ids[0]], time_stamp=self._last_ts
-                )
-                for l in range(layer + 1, self.cg.meta.layer_count):
-                    if len(cx_edges_d[cc_ids[0]].get(l, types.empty_2d)) > 0:
-                        parent_layer = l
-                        break
+        ccs, _ids = self._get_connected_components(layer_node_ids, layer)
+        new_parents_map, cc_layer_chunk_map = self._get_new_parents(layer, ccs, _ids)
 
-            # TODO: handle skip connected root id creation separately
-            chunk_id = self.cg.get_parent_chunk_id(cc_ids[0], parent_layer)
-            is_root = parent_layer == self.cg.meta.layer_count
-            batch_size = 1
-            parent = None
-            while parent is None:
-                candidate_ids = self.cg.id_client.create_node_ids(
-                    chunk_id, batch_size, root_chunk=is_root
-                )
-                existing = self.cg.client.read_nodes(node_ids=candidate_ids)
-                for cid in candidate_ids:
-                    if cid not in existing:
-                        parent = cid
-                        break
-                if parent is None:
-                    batch_size = min(batch_size * 2, 2**16)
+        for i, cc_indices in enumerate(ccs):
+            cc_ids = _ids[cc_indices]
+            parent_layer, chunk_id = cc_layer_chunk_map[i]
+            parent = new_parents_map[chunk_id].pop()
 
             self._new_ids_d[parent_layer].append(parent)
             self._update_id_lineage(parent, cc_ids, layer, parent_layer)
