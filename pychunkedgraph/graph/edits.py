@@ -1,6 +1,6 @@
 # pylint: disable=invalid-name, missing-docstring, too-many-locals, c-extension-no-member
 
-import datetime, random
+import datetime, logging, random
 from typing import Dict
 from typing import List
 from typing import Tuple
@@ -16,7 +16,7 @@ from pychunkedgraph.debug.profiler import HierarchicalProfiler, get_profiler
 from . import types
 from . import attributes
 from . import cache as cache_utils
-from .edges import get_latest_edges_wrapper, flip_ids
+from .edges import get_latest_edges_wrapper, flip_ids, get_new_nodes
 from .edges.utils import concatenate_cross_edge_dicts
 from .edges.utils import merge_cross_edge_dicts
 from .utils import basetypes
@@ -24,6 +24,8 @@ from .utils import flatgraph
 from .utils.serializers import serialize_uint64
 from ..utils.general import in2d
 from ..debug.utils import sanity_check, sanity_check_single
+
+logger = logging.getLogger(__name__)
 
 
 def _init_old_hierarchy(cg, l2ids: np.ndarray, parent_ts: datetime.datetime = None):
@@ -684,11 +686,8 @@ class CreateParentNodes:
 
         # Distribute results back to each parent's cache
         # Key insight: edges[:, 0] are children, map them to their parent
-        edge_parents = self.cg.get_roots(
-            edge_nodes,
-            stop_layer=parent_layer,
-            ceil=False,
-            time_stamp=self._last_ts,
+        edge_parents = get_new_nodes(
+            self.cg, edge_nodes, parent_layer, self._last_ts
         )
         edge_parents_d = dict(zip(edge_nodes, edge_parents))
         for new_id in new_ids:
@@ -714,6 +713,48 @@ class CreateParentNodes:
             self.cg.cache.cross_chunk_edges_cache[new_id] = parent_cx_edges_d
         return updated_entries
 
+    def _get_new_ids(self, chunk_id, count, is_root):
+        batch_size = count
+        new_ids = []
+        while len(new_ids) < count:
+            candidate_ids = self.cg.id_client.create_node_ids(
+                chunk_id, batch_size, root_chunk=is_root
+            )
+            existing = self.cg.client.read_nodes(node_ids=candidate_ids)
+            non_existing = set(candidate_ids) - existing.keys()
+            new_ids.extend(non_existing)
+            batch_size = min(batch_size * 2, 2**16)
+        return new_ids[:count]
+
+    def _get_new_parents(self, layer, ccs, graph_ids) -> tuple[dict, dict]:
+        cc_layer_chunk_map = {}
+        size_map = defaultdict(int)
+        for i, cc_idx in enumerate(ccs):
+            parent_layer = layer + 1  # must be reset for each connected component
+            cc_ids = graph_ids[cc_idx]
+            if len(cc_ids) == 1:
+                # skip connection
+                parent_layer = self.cg.meta.layer_count
+                cx_edges_d = self.cg.get_cross_chunk_edges(
+                    [cc_ids[0]], time_stamp=self._last_ts
+                )
+                for l in range(layer + 1, self.cg.meta.layer_count):
+                    if len(cx_edges_d[cc_ids[0]].get(l, types.empty_2d)) > 0:
+                        parent_layer = l
+                        break
+            chunk_id = self.cg.get_parent_chunk_id(cc_ids[0], parent_layer)
+            cc_layer_chunk_map[i] = (parent_layer, chunk_id)
+            size_map[chunk_id] += 1
+
+        chunk_ids = list(size_map.keys())
+        random.shuffle(chunk_ids)
+        chunk_new_ids_map = {}
+        layers = self.cg.get_chunk_layers(chunk_ids)
+        for c, l in zip(chunk_ids, layers):
+            is_root = l == self.cg.meta.layer_count
+            chunk_new_ids_map[c] = self._get_new_ids(c, size_map[c], is_root)
+        return chunk_new_ids_map, cc_layer_chunk_map
+
     def _create_new_parents(self, layer: int):
         """
         keep track of old IDs
@@ -726,37 +767,13 @@ class CreateParentNodes:
         """
         new_ids = self._new_ids_d[layer]
         layer_node_ids = self._get_layer_node_ids(new_ids, layer)
-        components, graph_ids = self._get_connected_components(layer_node_ids, layer)
-        for cc_indices in components:
-            parent_layer = layer + 1  # must be reset for each connected component
-            cc_ids = graph_ids[cc_indices]
-            if len(cc_ids) == 1:
-                # skip connection
-                parent_layer = self.cg.meta.layer_count
-                cx_edges_d = self.cg.get_cross_chunk_edges(
-                    [cc_ids[0]], time_stamp=self._last_ts
-                )
-                for l in range(layer + 1, self.cg.meta.layer_count):
-                    if len(cx_edges_d[cc_ids[0]].get(l, types.empty_2d)) > 0:
-                        parent_layer = l
-                        break
+        ccs, _ids = self._get_connected_components(layer_node_ids, layer)
+        new_parents_map, cc_layer_chunk_map = self._get_new_parents(layer, ccs, _ids)
 
-            # TODO: handle skip connected root id creation separately
-            chunk_id = self.cg.get_parent_chunk_id(cc_ids[0], parent_layer)
-            is_root = parent_layer == self.cg.meta.layer_count
-            batch_size = 1
-            parent = None
-            while parent is None:
-                candidate_ids = self.cg.id_client.create_node_ids(
-                    chunk_id, batch_size, root_chunk=is_root
-                )
-                existing = self.cg.client.read_nodes(node_ids=candidate_ids)
-                for cid in candidate_ids:
-                    if cid not in existing:
-                        parent = cid
-                        break
-                if parent is None:
-                    batch_size = min(batch_size * 2, 2**16)
+        for i, cc_indices in enumerate(ccs):
+            cc_ids = _ids[cc_indices]
+            parent_layer, chunk_id = cc_layer_chunk_map[i]
+            parent = new_parents_map[chunk_id].pop()
 
             self._new_ids_d[parent_layer].append(parent)
             self._update_id_lineage(parent, cc_ids, layer, parent_layer)
@@ -786,19 +803,20 @@ class CreateParentNodes:
         """
         self._new_ids_d[2] = self._new_l2_ids
         for layer in range(2, self.cg.meta.layer_count):
-            if len(self._new_ids_d[layer]) == 0:
+            new_nodes = self._new_ids_d[layer]
+            if len(new_nodes) == 0:
                 continue
-            self.cg.cache.new_ids.update(self._new_ids_d[layer])
+            self.cg.cache.new_ids.update(new_nodes)
             # all new IDs in this layer have been created
             # update their cross chunk edges and their neighbors'
             with self._profiler.profile(f"l{layer}_update_cx_cache"):
-                entries = self._update_cross_edge_cache_batched(self._new_ids_d[layer])
+                entries = self._update_cross_edge_cache_batched(new_nodes)
                 self.new_entries.extend(entries)
 
             with self._profiler.profile(f"l{layer}_update_neighbor_cx"):
                 entries = _update_neighbor_cx_edges(
                     self.cg,
-                    self._new_ids_d[layer],
+                    new_nodes,
                     self._new_old_id_d,
                     self._old_new_id_d,
                     time_stamp=self._time_stamp,
@@ -861,10 +879,24 @@ class CreateParentNodes:
         return val_dicts
 
     def create_new_entries(self) -> List:
+        max_layer = self.cg.meta.layer_count
         val_dicts = self._get_cross_edges_val_dicts()
-        for layer in range(2, self.cg.meta.layer_count + 1):
+        for layer in range(2, max_layer + 1):
             new_ids = self._new_ids_d[layer]
             for id_ in new_ids:
+                if self.do_sanity_check:
+                    root_layer = self.cg.get_chunk_layer(self.cg.get_root(id_))
+                    assert root_layer == max_layer, (id_, self.cg.get_root(id_))
+
+                    if layer < max_layer:
+                        try:
+                            _parent = self.cg.get_parent(id_)
+                            _children = self.cg.get_children(_parent)
+                            assert id_ in _children, (layer, id_, _parent, _children)
+                        except TypeError as e:
+                            logger.error(id_, _parent, self.cg.get_root(id_))
+                            raise TypeError from e
+
                 val_dict = val_dicts.get(id_, {})
                 children = self.cg.get_children(id_)
                 err = f"parent layer less than children; op {self._opid}"

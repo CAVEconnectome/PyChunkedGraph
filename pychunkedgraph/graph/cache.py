@@ -179,6 +179,7 @@ class CacheService:
             time_stamp=time_stamp,
             fail_to_zero=fail_to_zero,
         )
+        mask = mask | (parents == 0)
         update(self.parents_cache, node_ids[~mask], parents[~mask])
         return parents
 

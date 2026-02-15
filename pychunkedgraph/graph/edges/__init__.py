@@ -207,7 +207,7 @@ def flip_ids(id_map, node_ids):
     return np.concatenate(ids).astype(basetypes.NODE_ID)
 
 
-def _get_new_nodes(
+def get_new_nodes(
     cg, nodes: np.ndarray, layer: int, parent_ts: datetime.datetime = None
 ):
     unique_nodes, inverse = np.unique(nodes, return_inverse=True)
@@ -248,7 +248,7 @@ def get_stale_nodes(
     for layer in np.unique(node_layers):
         _mask = node_layers == layer
         layer_nodes = nodes[_mask]
-        _nodes = _get_new_nodes(cg, supervoxels[_mask], layer, parent_ts)
+        _nodes = get_new_nodes(cg, supervoxels[_mask], layer, parent_ts)
         stale_mask = layer_nodes != _nodes
         stale_nodes.append(layer_nodes[stale_mask])
     return np.concatenate(stale_nodes)
@@ -447,8 +447,11 @@ def get_latest_edges(
         Searches for new partners that may have any edges to `edges[:,0]`.
         """
         if PARENTS_CACHE is None:
+            # this cache is set only during migration
+            # also, fallback is not applicable if no migration
             children_b = cg.get_children(edges[:, 1], flatten=True)
             parents_b = np.unique(cg.get_parents(children_b, time_stamp=parent_ts))
+            fallback = False
         else:
             children_b = _get_children_from_cache(edges[:, 1])
             _populate_parents_cache(children_b)
@@ -564,7 +567,7 @@ def get_latest_edges(
                     if fallback:
                         parents_b = _get_parents_b(_edges, parent_ts, edge_layer, True)
 
-        parents_b = np.unique(_get_new_nodes(cg, parents_b, mlayer, parent_ts))
+        parents_b = np.unique(get_new_nodes(cg, parents_b, mlayer, parent_ts))
         parents_a = np.array([node_a] * parents_b.size, dtype=basetypes.NODE_ID)
         return np.column_stack((parents_a, parents_b))
 
