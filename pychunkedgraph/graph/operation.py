@@ -521,6 +521,7 @@ class GraphEditOperation(ABC):
             lock.operation_id,
             lock.locked_root_ids,
             privileged_mode=lock.privileged_mode,
+            future_root_ids_d=lock.future_root_ids_d,
         ):
             # indefinite lock for writing, if a node instance or pod dies during this
             # the roots must stay locked indefinitely to prevent further corruption.
