@@ -1,261 +1,248 @@
-# from collections import namedtuple
+"""Integration tests for GraphEditOperation and its subclasses.
 
-# import numpy as np
-# import pytest
+Tests operation type identification from log records, operation inversion,
+and undo/redo chain resolution — all using real graph operations through
+the BigTable emulator.
+"""
 
-# from ..graph.operation import (
-#     GraphEditOperation,
-#     MergeOperation,
-#     MulticutOperation,
-#     RedoOperation,
-#     SplitOperation,
-#     UndoOperation,
-# )
-# from ..graph import attributes
+from datetime import datetime, timedelta, UTC
 
+import numpy as np
+import pytest
 
-# class FakeLogRecords:
-#     Record = namedtuple("graph_op", ("id", "record"))
-
-#     _records = [
-#         {  # 0: Merge with coordinates
-#             attributes.OperationLogs.AddedEdge: np.array([[1, 2]], dtype=np.uint64),
-#             attributes.OperationLogs.SinkCoordinate: np.array([[1, 2, 3]]),
-#             attributes.OperationLogs.SourceCoordinate: np.array([[4, 5, 6]]),
-#             attributes.OperationLogs.UserID: "42",
-#         },
-#         {  # 1: Multicut with coordinates
-#             attributes.OperationLogs.BoundingBoxOffset: np.array([240, 240, 24]),
-#             attributes.OperationLogs.RemovedEdge: np.array(
-#                 [[1, 3], [4, 1], [1, 5]], dtype=np.uint64
-#             ),
-#             attributes.OperationLogs.SinkCoordinate: np.array([[1, 2, 3]]),
-#             attributes.OperationLogs.SinkID: np.array([1], dtype=np.uint64),
-#             attributes.OperationLogs.SourceCoordinate: np.array([[4, 5, 6]]),
-#             attributes.OperationLogs.SourceID: np.array([2], dtype=np.uint64),
-#             attributes.OperationLogs.UserID: "42",
-#         },
-#         {  # 2: Split with coordinates
-#             attributes.OperationLogs.RemovedEdge: np.array(
-#                 [[1, 3], [4, 1], [1, 5]], dtype=np.uint64
-#             ),
-#             attributes.OperationLogs.SinkCoordinate: np.array([[1, 2, 3]]),
-#             attributes.OperationLogs.SinkID: np.array([1], dtype=np.uint64),
-#             attributes.OperationLogs.SourceCoordinate: np.array([[4, 5, 6]]),
-#             attributes.OperationLogs.SourceID: np.array([2], dtype=np.uint64),
-#             attributes.OperationLogs.UserID: "42",
-#         },
-#         {  # 3: Undo of records[0]
-#             attributes.OperationLogs.UndoOperationID: np.uint64(0),
-#             attributes.OperationLogs.UserID: "42",
-#         },
-#         {  # 4: Redo of records[0]
-#             attributes.OperationLogs.RedoOperationID: np.uint64(0),
-#             attributes.OperationLogs.UserID: "42",
-#         },
-#         {attributes.OperationLogs.UserID: "42",},  # 5: Unknown record
-#     ]
-
-#     MERGE = Record(id=np.uint64(0), record=_records[0])
-#     MULTICUT = Record(id=np.uint64(1), record=_records[1])
-#     SPLIT = Record(id=np.uint64(2), record=_records[2])
-#     UNDO = Record(id=np.uint64(3), record=_records[3])
-#     REDO = Record(id=np.uint64(4), record=_records[4])
-#     UNKNOWN = Record(id=np.uint64(5), record=_records[5])
-
-#     @classmethod
-#     def get(cls, idx: int):
-#         try:
-#             return cls._records[idx]
-#         except IndexError as err:
-#             raise KeyError(err)  # Bigtable would throw KeyError instead
+from .helpers import create_chunk, to_label
+from ..graph import attributes
+from ..graph.operation import (
+    GraphEditOperation,
+    MergeOperation,
+    SplitOperation,
+    RedoOperation,
+    UndoOperation,
+)
+from ..ingest.create.parent_layer import add_parent_chunk
 
 
-# @pytest.fixture(scope="function")
-# def cg(mocker):
-#     graph = mocker.MagicMock()
-#     graph.get_chunk_layer = mocker.MagicMock(return_value=1)
-#     graph.read_log_row = mocker.MagicMock(side_effect=FakeLogRecords.get)
-#     return graph
+class TestOperationFromLogRecord:
+    """Test that GraphEditOperation.from_log_record correctly identifies operation types."""
+
+    @pytest.fixture()
+    def merged_graph(self, gen_graph):
+        """Build a simple 2-chunk graph and perform a merge, returning (cg, operation_id)."""
+        cg = gen_graph(n_layers=3)
+        fake_timestamp = datetime.now(UTC) - timedelta(days=10)
+
+        create_chunk(
+            cg,
+            vertices=[to_label(cg, 1, 0, 0, 0, 0)],
+            edges=[(to_label(cg, 1, 0, 0, 0, 0), to_label(cg, 1, 1, 0, 0, 0), 0.5)],
+            timestamp=fake_timestamp,
+        )
+        create_chunk(
+            cg,
+            vertices=[to_label(cg, 1, 1, 0, 0, 0)],
+            edges=[(to_label(cg, 1, 1, 0, 0, 0), to_label(cg, 1, 0, 0, 0, 0), 0.5)],
+            timestamp=fake_timestamp,
+        )
+        add_parent_chunk(cg, 3, [0, 0, 0], time_stamp=fake_timestamp, n_threads=1)
+
+        # Split first to get two separate roots
+        split_result = cg.remove_edges(
+            "test_user",
+            source_ids=to_label(cg, 1, 0, 0, 0, 0),
+            sink_ids=to_label(cg, 1, 1, 0, 0, 0),
+            mincut=False,
+        )
+
+        # Now merge them back
+        merge_result = cg.add_edges(
+            "test_user",
+            atomic_edges=[[to_label(cg, 1, 0, 0, 0, 0), to_label(cg, 1, 1, 0, 0, 0)]],
+            source_coords=[0, 0, 0],
+            sink_coords=[0, 0, 0],
+        )
+        return cg, merge_result.operation_id, split_result.operation_id
+
+    @pytest.mark.timeout(30)
+    def test_merge_log_record_type(self, merged_graph):
+        """MergeOperation should be correctly identified from a real merge log record."""
+        cg, merge_op_id, _ = merged_graph
+        log_record, _ = cg.client.read_log_entry(merge_op_id)
+        op_type = GraphEditOperation.get_log_record_type(log_record)
+        assert op_type is MergeOperation
+
+    @pytest.mark.timeout(30)
+    def test_split_log_record_type(self, merged_graph):
+        """SplitOperation should be correctly identified from a real split log record."""
+        cg, _, split_op_id = merged_graph
+        log_record, _ = cg.client.read_log_entry(split_op_id)
+        op_type = GraphEditOperation.get_log_record_type(log_record)
+        assert op_type is SplitOperation
+
+    @pytest.mark.timeout(30)
+    def test_merge_from_log_record(self, merged_graph):
+        """from_log_record should return a MergeOperation for a real merge log."""
+        cg, merge_op_id, _ = merged_graph
+        log_record, _ = cg.client.read_log_entry(merge_op_id)
+        graph_op = GraphEditOperation.from_log_record(cg, log_record)
+        assert isinstance(graph_op, MergeOperation)
+
+    @pytest.mark.timeout(30)
+    def test_split_from_log_record(self, merged_graph):
+        """from_log_record should return a SplitOperation for a real split log."""
+        cg, _, split_op_id = merged_graph
+        log_record, _ = cg.client.read_log_entry(split_op_id)
+        graph_op = GraphEditOperation.from_log_record(cg, log_record)
+        assert isinstance(graph_op, SplitOperation)
+
+    @pytest.mark.timeout(30)
+    def test_unknown_log_record_fails(self, gen_graph):
+        """TypeError when encountering a log record with no recognizable operation columns."""
+        cg = gen_graph(n_layers=3)
+        fake_record = {attributes.OperationLogs.UserID: "test_user"}
+        with pytest.raises(TypeError):
+            GraphEditOperation.from_log_record(cg, fake_record)
 
 
-# def test_read_from_log_merge(mocker, cg):
-#     """MergeOperation should be correctly identified by an existing AddedEdge column.
-#         Coordinates are optional."""
-#     graph_operation = GraphEditOperation.from_log_record(
-#         cg, FakeLogRecords.MERGE.record
-#     )
-#     assert isinstance(graph_operation, MergeOperation)
+class TestOperationInversion:
+    """Test that operation inversion produces the correct inverse type and edges."""
+
+    @pytest.fixture()
+    def split_and_merge_ops(self, gen_graph):
+        """Build graph, split, merge — return (cg, merge_op_id, split_op_id)."""
+        cg = gen_graph(n_layers=3)
+        fake_timestamp = datetime.now(UTC) - timedelta(days=10)
+
+        create_chunk(
+            cg,
+            vertices=[to_label(cg, 1, 0, 0, 0, 0)],
+            edges=[(to_label(cg, 1, 0, 0, 0, 0), to_label(cg, 1, 1, 0, 0, 0), 0.5)],
+            timestamp=fake_timestamp,
+        )
+        create_chunk(
+            cg,
+            vertices=[to_label(cg, 1, 1, 0, 0, 0)],
+            edges=[(to_label(cg, 1, 1, 0, 0, 0), to_label(cg, 1, 0, 0, 0, 0), 0.5)],
+            timestamp=fake_timestamp,
+        )
+        add_parent_chunk(cg, 3, [0, 0, 0], time_stamp=fake_timestamp, n_threads=1)
+
+        split_result = cg.remove_edges(
+            "test_user",
+            source_ids=to_label(cg, 1, 0, 0, 0, 0),
+            sink_ids=to_label(cg, 1, 1, 0, 0, 0),
+            mincut=False,
+        )
+        merge_result = cg.add_edges(
+            "test_user",
+            atomic_edges=[[to_label(cg, 1, 0, 0, 0, 0), to_label(cg, 1, 1, 0, 0, 0)]],
+            source_coords=[0, 0, 0],
+            sink_coords=[0, 0, 0],
+        )
+        return cg, merge_result.operation_id, split_result.operation_id
+
+    @pytest.mark.timeout(30)
+    def test_invert_merge_produces_split(self, split_and_merge_ops):
+        """Inverse of a MergeOperation should be a SplitOperation with matching edges."""
+        cg, merge_op_id, _ = split_and_merge_ops
+        log_record, _ = cg.client.read_log_entry(merge_op_id)
+        merge_op = GraphEditOperation.from_log_record(cg, log_record)
+        inverted = merge_op.invert()
+        assert isinstance(inverted, SplitOperation)
+        assert np.all(np.equal(merge_op.added_edges, inverted.removed_edges))
+
+    @pytest.mark.timeout(30)
+    def test_invert_split_produces_merge(self, split_and_merge_ops):
+        """Inverse of a SplitOperation should be a MergeOperation with matching edges."""
+        cg, _, split_op_id = split_and_merge_ops
+        log_record, _ = cg.client.read_log_entry(split_op_id)
+        split_op = GraphEditOperation.from_log_record(cg, log_record)
+        inverted = split_op.invert()
+        assert isinstance(inverted, MergeOperation)
+        assert np.all(np.equal(split_op.removed_edges, inverted.added_edges))
 
 
-# def test_read_from_log_multicut(mocker, cg):
-#     """MulticutOperation should be correctly identified by a Sink/Source ID and
-#         BoundingBoxOffset column. Unless requested as SplitOperation..."""
-#     graph_operation = GraphEditOperation.from_log_record(
-#         cg, FakeLogRecords.MULTICUT.record, multicut_as_split=False
-#     )
-#     assert isinstance(graph_operation, MulticutOperation)
+class TestUndoRedoChainResolution:
+    """Test undo/redo chain resolution through real graph operations."""
 
-#     graph_operation = GraphEditOperation.from_log_record(
-#         cg, FakeLogRecords.MULTICUT.record, multicut_as_split=True
-#     )
-#     assert isinstance(graph_operation, SplitOperation)
+    @pytest.fixture()
+    def graph_with_undo(self, gen_graph):
+        """Build graph, perform split, then undo — return (cg, split_op_id, undo_result)."""
+        cg = gen_graph(n_layers=3)
+        fake_timestamp = datetime.now(UTC) - timedelta(days=10)
 
+        create_chunk(
+            cg,
+            vertices=[to_label(cg, 1, 0, 0, 0, 0)],
+            edges=[(to_label(cg, 1, 0, 0, 0, 0), to_label(cg, 1, 1, 0, 0, 0), 0.5)],
+            timestamp=fake_timestamp,
+        )
+        create_chunk(
+            cg,
+            vertices=[to_label(cg, 1, 1, 0, 0, 0)],
+            edges=[(to_label(cg, 1, 1, 0, 0, 0), to_label(cg, 1, 0, 0, 0, 0), 0.5)],
+            timestamp=fake_timestamp,
+        )
+        add_parent_chunk(cg, 3, [0, 0, 0], time_stamp=fake_timestamp, n_threads=1)
 
-# def test_read_from_log_split(mocker, cg):
-#     """SplitOperation should be correctly identified by the lack of a
-#         BoundingBoxOffset column."""
-#     graph_operation = GraphEditOperation.from_log_record(
-#         cg, FakeLogRecords.SPLIT.record
-#     )
-#     assert isinstance(graph_operation, SplitOperation)
+        # Split
+        split_result = cg.remove_edges(
+            "test_user",
+            source_ids=to_label(cg, 1, 0, 0, 0, 0),
+            sink_ids=to_label(cg, 1, 1, 0, 0, 0),
+            mincut=False,
+        )
+        # Undo the split (= merge)
+        undo_result = cg.undo_operation("test_user", split_result.operation_id)
+        return cg, split_result.operation_id, undo_result
 
+    @pytest.mark.timeout(30)
+    def test_undo_log_record_type(self, graph_with_undo):
+        """Undo operation log record should be identified as UndoOperation."""
+        cg, _, undo_result = graph_with_undo
+        log_record, _ = cg.client.read_log_entry(undo_result.operation_id)
+        op_type = GraphEditOperation.get_log_record_type(log_record)
+        assert op_type is UndoOperation
 
-# def test_read_from_log_undo(mocker, cg):
-#     """UndoOperation should be correctly identified by the UndoOperationID."""
-#     graph_operation = GraphEditOperation.from_log_record(cg, FakeLogRecords.UNDO.record)
-#     assert isinstance(graph_operation, UndoOperation)
+    @pytest.mark.timeout(30)
+    def test_undo_from_log_resolves_correctly(self, graph_with_undo):
+        """from_log_record on an undo record should resolve the chain to an UndoOperation."""
+        cg, split_op_id, undo_result = graph_with_undo
+        log_record, _ = cg.client.read_log_entry(undo_result.operation_id)
+        resolved_op = GraphEditOperation.from_log_record(cg, log_record)
+        # Undo of a split -> UndoOperation whose inverse is a MergeOperation
+        assert isinstance(resolved_op, UndoOperation)
 
+    @pytest.mark.timeout(30)
+    def test_redo_after_undo(self, graph_with_undo):
+        """Redo of the original split (after undo) should produce a RedoOperation log."""
+        cg, split_op_id, undo_result = graph_with_undo
 
-# def test_read_from_log_redo(mocker, cg):
-#     """RedoOperation should be correctly identified by the RedoOperationID."""
-#     graph_operation = GraphEditOperation.from_log_record(cg, FakeLogRecords.REDO.record)
-#     assert isinstance(graph_operation, RedoOperation)
+        # Redo the original split (which was undone)
+        redo_result = cg.redo_operation("test_user", split_op_id)
+        assert redo_result.operation_id is not None
+        redo_log, _ = cg.client.read_log_entry(redo_result.operation_id)
+        resolved_op = GraphEditOperation.from_log_record(cg, redo_log)
+        assert isinstance(resolved_op, RedoOperation)
 
+    @pytest.mark.timeout(30)
+    def test_undo_redo_chain_prevention(self, graph_with_undo):
+        """Direct UndoOperation/RedoOperation on undo/redo targets should raise ValueError."""
+        cg, _, undo_result = graph_with_undo
 
-# def test_read_from_log_undo_undo(mocker, cg):
-#     """Undo[Undo[Merge]] -> Redo[Merge]"""
-#     fake_log_record = {
-#         attributes.OperationLogs.UndoOperationID: np.uint64(FakeLogRecords.UNDO.id),
-#         attributes.OperationLogs.UserID: "42",
-#     }
+        # Direct UndoOperation on an undo record should fail
+        with pytest.raises(ValueError):
+            UndoOperation(
+                cg,
+                user_id="test_user",
+                superseded_operation_id=undo_result.operation_id,
+                multicut_as_split=True,
+            )
 
-#     graph_operation = GraphEditOperation.from_log_record(cg, fake_log_record)
-#     assert isinstance(graph_operation, RedoOperation)
-#     assert isinstance(graph_operation.superseded_operation, MergeOperation)
-
-
-# def test_read_from_log_undo_redo(mocker, cg):
-#     """Undo[Redo[Merge]] -> Undo[Merge]"""
-#     fake_log_record = {
-#         attributes.OperationLogs.UndoOperationID: np.uint64(FakeLogRecords.REDO.id),
-#         attributes.OperationLogs.UserID: "42",
-#     }
-
-#     graph_operation = GraphEditOperation.from_log_record(cg, fake_log_record)
-#     assert isinstance(graph_operation, UndoOperation)
-#     assert isinstance(graph_operation.inverse_superseded_operation, SplitOperation)
-
-
-# def test_read_from_log_redo_undo(mocker, cg):
-#     """Redo[Undo[Merge]] -> Undo[Merge]"""
-#     fake_log_record = {
-#         attributes.OperationLogs.RedoOperationID: np.uint64(FakeLogRecords.UNDO.id),
-#         attributes.OperationLogs.UserID: "42",
-#     }
-
-#     graph_operation = GraphEditOperation.from_log_record(cg, fake_log_record)
-#     assert isinstance(graph_operation, UndoOperation)
-#     assert isinstance(graph_operation.inverse_superseded_operation, SplitOperation)
-
-
-# def test_read_from_log_redo_redo(mocker, cg):
-#     """Redo[Redo[Merge]] -> Redo[Merge]"""
-#     fake_log_record = {
-#         attributes.OperationLogs.RedoOperationID: np.uint64(FakeLogRecords.REDO.id),
-#         attributes.OperationLogs.UserID: "42",
-#     }
-
-#     graph_operation = GraphEditOperation.from_log_record(cg, fake_log_record)
-#     assert isinstance(graph_operation, RedoOperation)
-#     assert isinstance(graph_operation.superseded_operation, MergeOperation)
-
-
-# def test_invert_merge(mocker, cg):
-#     """Inverse of Merge is a Split"""
-#     graph_operation = GraphEditOperation.from_log_record(
-#         cg, FakeLogRecords.MERGE.record
-#     )
-#     inverted_graph_operation = graph_operation.invert()
-#     assert isinstance(inverted_graph_operation, SplitOperation)
-#     assert np.all(
-#         np.equal(graph_operation.added_edges, inverted_graph_operation.removed_edges)
-#     )
-
-
-# @pytest.mark.skip(
-#     reason="Can't test right now - would require recalculting the Multicut"
-# )
-# def test_invert_multicut(mocker, cg):
-#     """Inverse of a Multicut is a Merge"""
-
-
-# def test_invert_split(mocker, cg):
-#     """Inverse of Split is a Merge"""
-#     graph_operation = GraphEditOperation.from_log_record(
-#         cg, FakeLogRecords.SPLIT.record
-#     )
-#     inverted_graph_operation = graph_operation.invert()
-#     assert isinstance(inverted_graph_operation, MergeOperation)
-#     assert np.all(
-#         np.equal(graph_operation.removed_edges, inverted_graph_operation.added_edges)
-#     )
-
-
-# def test_invert_undo(mocker, cg):
-#     """Inverse of Undo[x] is Redo[x]"""
-#     graph_operation = GraphEditOperation.from_log_record(cg, FakeLogRecords.UNDO.record)
-#     inverted_graph_operation = graph_operation.invert()
-#     assert isinstance(inverted_graph_operation, RedoOperation)
-#     assert (
-#         graph_operation.superseded_operation_id
-#         == inverted_graph_operation.superseded_operation_id
-#     )
-
-
-# def test_invert_redo(mocker, cg):
-#     """Inverse of Redo[x] is Undo[x]"""
-#     graph_operation = GraphEditOperation.from_log_record(cg, FakeLogRecords.REDO.record)
-#     inverted_graph_operation = graph_operation.invert()
-#     assert (
-#         graph_operation.superseded_operation_id
-#         == inverted_graph_operation.superseded_operation_id
-#     )
-
-
-# def test_undo_redo_chain_fails(mocker, cg):
-#     """Prevent creation of Undo/Redo chains"""
-#     with pytest.raises(ValueError):
-#         UndoOperation(
-#             cg,
-#             user_id="DAU",
-#             superseded_operation_id=FakeLogRecords.UNDO.id,
-#             multicut_as_split=False,
-#         )
-#     with pytest.raises(ValueError):
-#         UndoOperation(
-#             cg,
-#             user_id="DAU",
-#             superseded_operation_id=FakeLogRecords.REDO.id,
-#             multicut_as_split=False,
-#         )
-#     with pytest.raises(ValueError):
-#         RedoOperation(
-#             cg,
-#             user_id="DAU",
-#             superseded_operation_id=FakeLogRecords.UNDO.id,
-#             multicut_as_split=False,
-#         )
-#     with pytest.raises(ValueError):
-#         UndoOperation(
-#             cg,
-#             user_id="DAU",
-#             superseded_operation_id=FakeLogRecords.REDO.id,
-#             multicut_as_split=False,
-#         )
-
-
-# def test_unknown_log_record_fails(cg, mocker):
-#     """TypeError when encountering unknown log row"""
-#     with pytest.raises(TypeError):
-#         GraphEditOperation.from_log_record(cg, FakeLogRecords.UNKNOWN.record)
+        # Direct RedoOperation on an undo record should also fail
+        with pytest.raises(ValueError):
+            RedoOperation(
+                cg,
+                user_id="test_user",
+                superseded_operation_id=undo_result.operation_id,
+                multicut_as_split=True,
+            )
