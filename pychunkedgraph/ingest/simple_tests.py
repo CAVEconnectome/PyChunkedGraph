@@ -4,7 +4,7 @@
 Some sanity tests to ensure chunkedgraph was created properly.
 """
 
-from datetime import datetime
+from datetime import datetime, timezone
 import numpy as np
 
 from pychunkedgraph.graph import attributes, ChunkedGraph
@@ -14,7 +14,7 @@ def family(cg: ChunkedGraph):
     np.random.seed(42)
     n_chunks = 100
     n_segments_per_chunk = 200
-    timestamp = datetime.utcnow()
+    timestamp = datetime.now(timezone.utc)
 
     node_ids = []
     for layer in range(2, cg.meta.layer_count - 1):
@@ -56,7 +56,7 @@ def existence(cg: ChunkedGraph):
     layer = 2
     n_chunks = 100
     n_segments_per_chunk = 200
-    timestamp = datetime.utcnow()
+    timestamp = datetime.now(timezone.utc)
     node_ids = []
     for _ in range(n_chunks):
         c_x = np.random.randint(0, cg.meta.layer_chunk_bounds[layer][0])
@@ -117,7 +117,7 @@ def cross_edges(cg: ChunkedGraph):
     layer = 2
     n_chunks = 10
     n_segments_per_chunk = 200
-    timestamp = datetime.utcnow()
+    timestamp = datetime.now(timezone.utc)
     node_ids = []
     for _ in range(n_chunks):
         c_x = np.random.randint(0, cg.meta.layer_chunk_bounds[layer][0])

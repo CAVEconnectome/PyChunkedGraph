@@ -1,5 +1,5 @@
 import collections
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Iterable
 
 import numpy as np
@@ -31,7 +31,7 @@ class SegmentHistory:
         if timestamp_past is not None:
             self.timestamp_past = timestamp_past
 
-        self.timestamp_future = datetime.utcnow()
+        self.timestamp_future = datetime.now(timezone.utc)
         if timestamp_future is None:
             self.timestamp_future = timestamp_future
 
@@ -328,7 +328,7 @@ class SegmentHistory:
         past_id_mapping = {}
         future_id_mapping = {}
         for root_id in root_ids:
-            ancestors = np.array(list(nx_ancestors(self.lineage_graph, root_id)))
+            ancestors = np.array(list(nx_ancestors(self.lineage_graph, root_id)), dtype=np.uint64)
             if len(ancestors) == 0:
                 past_id_mapping[int(root_id)] = [root_id]
             else:

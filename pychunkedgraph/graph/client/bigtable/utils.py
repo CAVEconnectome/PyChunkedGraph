@@ -4,6 +4,7 @@ from typing import Iterable
 from typing import Optional
 from datetime import datetime
 from datetime import timedelta
+from datetime import timezone
 
 import numpy as np
 from google.cloud.bigtable.row_data import PartialRowData
@@ -146,7 +147,7 @@ def get_time_range_and_column_filter(
 def get_root_lock_filter(
     lock_column, lock_expiry, indefinite_lock_column
 ) -> ConditionalRowFilter:
-    time_cutoff = datetime.utcnow() - lock_expiry
+    time_cutoff = datetime.now(timezone.utc) - lock_expiry
     # Comply to resolution of BigTables TimeRange
     time_cutoff -= timedelta(microseconds=time_cutoff.microsecond % 1000)
     time_filter = TimestampRangeFilter(TimestampRange(start=time_cutoff))
@@ -256,7 +257,7 @@ def get_renew_lock_filter(
 
 
 def get_unlock_root_filter(lock_column, lock_expiry, operation_id) -> RowFilterChain:
-    time_cutoff = datetime.utcnow() - lock_expiry
+    time_cutoff = datetime.now(timezone.utc) - lock_expiry
     # Comply to resolution of BigTables TimeRange
     time_cutoff -= timedelta(microseconds=time_cutoff.microsecond % 1000)
     time_filter = TimestampRangeFilter(TimestampRange(start=time_cutoff))

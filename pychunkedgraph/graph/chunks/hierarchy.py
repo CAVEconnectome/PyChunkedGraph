@@ -37,7 +37,7 @@ def get_children_chunk_ids(
     layer = utils.get_chunk_layer(meta, node_or_chunk_id)
 
     if layer == 1:
-        return np.array([])
+        return np.array([], dtype=np.uint64)
     elif layer == 2:
         return np.array([utils.get_chunk_id(meta, layer=layer, x=x, y=y, z=z)])
     else:
@@ -47,7 +47,7 @@ def get_children_chunk_ids(
             children_chunk_ids.append(
                 utils.get_chunk_id(meta, layer=layer - 1, x=x, y=y, z=z)
             )
-        return np.array(children_chunk_ids)
+        return np.array(children_chunk_ids, dtype=np.uint64)
 
 
 def get_parent_chunk_id(

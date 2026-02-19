@@ -4,7 +4,7 @@ Functions for tracking root ID changes over time.
 from typing import Union
 from typing import Optional
 from typing import Iterable
-from datetime import datetime
+from datetime import datetime, timezone
 from collections import defaultdict
 
 import numpy as np
@@ -174,7 +174,7 @@ def lineage_graph(
     future_ids = np.array(node_ids, dtype=NODE_ID)
     timestamp_past = float(0) if timestamp_past is None else timestamp_past.timestamp()
     timestamp_future = (
-        datetime.utcnow().timestamp()
+        datetime.now(timezone.utc).timestamp()
         if timestamp_future is None
         else timestamp_future.timestamp()
     )

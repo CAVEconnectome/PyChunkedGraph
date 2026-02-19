@@ -17,12 +17,21 @@ jobs:
       - name: Check out code
         uses: actions/checkout@v4
 
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
       - name: Build image
-        run: docker build --tag seunglab/pychunkedgraph:$GITHUB_SHA .
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          load: true
+          tags: seunglab/pychunkedgraph:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
 
       - name: Run tests with coverage
         run: |
-          docker run --name pcg-tests seunglab/pychunkedgraph:$GITHUB_SHA \
+          docker run --name pcg-tests seunglab/pychunkedgraph:${{ github.sha }} \
             /bin/sh -c "pytest --cov-config .coveragerc --cov=pychunkedgraph --cov-report=xml:/app/coverage.xml ./pychunkedgraph/tests"
 
       - name: Copy coverage report from container

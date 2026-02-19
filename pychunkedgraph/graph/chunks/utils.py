@@ -91,7 +91,7 @@ def get_chunk_coordinates_multiple(meta, ids: np.ndarray) -> np.ndarray:
     Assumes all given IDs are in same layer.
     """
     if len(ids) == 0:
-        return np.array([])
+        return np.array([], dtype=int).reshape(0, 3)
     layer = get_chunk_layer(meta, ids[0])
     bits_per_dim = meta.bitmasks[layer]
 
@@ -99,7 +99,7 @@ def get_chunk_coordinates_multiple(meta, ids: np.ndarray) -> np.ndarray:
     y_offset = x_offset - bits_per_dim
     z_offset = y_offset - bits_per_dim
 
-    ids = np.array(ids, dtype=int, copy=False)
+    ids = np.array(ids, dtype=int)
     X = ids >> x_offset & 2**bits_per_dim - 1
     Y = ids >> y_offset & 2**bits_per_dim - 1
     Z = ids >> z_offset & 2**bits_per_dim - 1
@@ -154,7 +154,7 @@ def get_chunk_ids_from_node_ids(meta, ids: Iterable[np.uint64]) -> np.ndarray:
     bits_per_dims = np.array([meta.bitmasks[l] for l in get_chunk_layers(meta, ids)])
     offsets = 64 - meta.graph_config.LAYER_ID_BITS - 3 * bits_per_dims
 
-    ids = np.array(ids, dtype=int, copy=False)
+    ids = np.array(ids, dtype=int)
     cids1 = np.array((ids >> offsets) << offsets, dtype=np.uint64)
     # cids2 = np.vectorize(get_chunk_id)(meta, ids)
     # assert np.all(cids1 == cids2)
