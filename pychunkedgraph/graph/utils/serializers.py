@@ -41,7 +41,9 @@ class NumPyArray(_Serializer):
 
     def __init__(self, dtype, shape=None, order=None, compression_level=None):
         super().__init__(
-            serializer=lambda x: x.newbyteorder(dtype.byteorder).tobytes(),
+            serializer=lambda x: np.asarray(x)
+            .view(x.dtype.newbyteorder(dtype.byteorder))
+            .tobytes(),
             deserializer=lambda x: NumPyArray._deserialize(
                 x, dtype, shape=shape, order=order
             ),
@@ -53,7 +55,9 @@ class NumPyArray(_Serializer):
 class NumPyValue(_Serializer):
     def __init__(self, dtype):
         super().__init__(
-            serializer=lambda x: x.newbyteorder(dtype.byteorder).tobytes(),
+            serializer=lambda x: np.asarray(x)
+            .view(np.dtype(type(x)).newbyteorder(dtype.byteorder))
+            .tobytes(),
             deserializer=lambda x: np.frombuffer(x, dtype=dtype)[0],
             basetype=dtype.type,
         )
@@ -96,7 +100,7 @@ class UInt64String(_Serializer):
 
 
 def pad_node_id(node_id: np.uint64) -> str:
-    """ Pad node id to 20 digits
+    """Pad node id to 20 digits
 
     :param node_id: int
     :return: str
@@ -105,7 +109,7 @@ def pad_node_id(node_id: np.uint64) -> str:
 
 
 def serialize_uint64(node_id: np.uint64, counter=False, fake_edges=False) -> bytes:
-    """ Serializes an id to be ingested by a bigtable table row
+    """Serializes an id to be ingested by a bigtable table row
 
     :param node_id: int
     :return: str
@@ -118,7 +122,7 @@ def serialize_uint64(node_id: np.uint64, counter=False, fake_edges=False) -> byt
 
 
 def serialize_uint64s_to_regex(node_ids: Iterable[np.uint64]) -> bytes:
-    """ Serializes an id to be ingested by a bigtable table row
+    """Serializes an id to be ingested by a bigtable table row
 
     :param node_id: int
     :return: str
@@ -128,7 +132,7 @@ def serialize_uint64s_to_regex(node_ids: Iterable[np.uint64]) -> bytes:
 
 
 def deserialize_uint64(node_id: bytes, fake_edges=False) -> np.uint64:
-    """ De-serializes a node id from a BigTable row
+    """De-serializes a node id from a BigTable row
 
     :param node_id: bytes
     :return: np.uint64
@@ -139,7 +143,7 @@ def deserialize_uint64(node_id: bytes, fake_edges=False) -> np.uint64:
 
 
 def serialize_key(key: str) -> bytes:
-    """ Serializes a key to be ingested by a bigtable table row
+    """Serializes a key to be ingested by a bigtable table row
 
     :param key: str
     :return: bytes
@@ -148,7 +152,7 @@ def serialize_key(key: str) -> bytes:
 
 
 def deserialize_key(key: bytes) -> str:
-    """ Deserializes a row key
+    """Deserializes a row key
 
     :param key: bytes
     :return: str

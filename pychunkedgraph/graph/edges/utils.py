@@ -57,6 +57,7 @@ def concatenate_cross_edge_dicts(
             result_d[layer].append(edges)
 
     for layer, edge_lists in result_d.items():
+        edge_lists = [np.asarray(e, dtype=basetypes.NODE_ID) for e in edge_lists]
         edges = np.concatenate(edge_lists)
         if unique:
             edges = np.unique(edges, axis=0)

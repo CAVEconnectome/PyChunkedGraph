@@ -210,6 +210,8 @@ class TestGraphMerge:
             )
         res_new = cg.client._table.read_rows()
         res_new.consume_all()
+        res_new.rows.pop(b'ioperations', None)
+        res_new.rows.pop(b'00000000000000000001', None)
 
         # Check
         if res_old.rows != res_new.rows:

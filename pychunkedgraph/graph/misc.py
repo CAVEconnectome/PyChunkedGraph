@@ -142,7 +142,7 @@ def get_contact_sites(
     )
 
     # Build area lookup dictionary
-    cs_svs = edges[~np.in1d(edges, sv_ids).reshape(-1, 2)]
+    cs_svs = edges[~np.isin(edges, sv_ids)]
     area_dict = collections.defaultdict(int)
 
     for area, sv_id in zip(areas, cs_svs):
@@ -165,7 +165,7 @@ def get_contact_sites(
     cs_dict = collections.defaultdict(list)
     for cc in ccs:
         cc_sv_ids = unique_ids[cc]
-        cc_sv_ids = cc_sv_ids[np.in1d(cc_sv_ids, u_cs_svs)]
+        cc_sv_ids = cc_sv_ids[np.isin(cc_sv_ids, u_cs_svs)]
         cs_areas = area_dict_vec(cc_sv_ids)
         partner_root_id = (
             int(cg.get_root(cc_sv_ids[0], time_stamp=time_stamp))

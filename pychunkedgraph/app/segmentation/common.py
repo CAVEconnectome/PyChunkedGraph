@@ -3,7 +3,7 @@
 import json
 import os
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 from functools import reduce
 from collections import deque, defaultdict
 
@@ -229,7 +229,7 @@ def handle_find_minimal_covering_nodes(table_id, is_binary=True):
         node_queue[layer].clear()
 
     # Return the download list
-    download_list = np.concatenate([np.array(list(v)) for v in download_list.values()])
+    download_list = np.concatenate([np.array(list(v), dtype=np.uint64) for v in download_list.values()])
 
     return download_list
 
@@ -602,7 +602,7 @@ def all_user_operations(
     target_user_id = request.args.get("user_id", None)
 
     start_time = _parse_timestamp("start_time", 0, return_datetime=True)
-    end_time = _parse_timestamp("end_time", datetime.utcnow(), return_datetime=True)
+    end_time = _parse_timestamp("end_time", datetime.now(timezone.utc), return_datetime=True)
     # Call ChunkedGraph
     cg = app_utils.get_cg(table_id)
 
@@ -612,7 +612,7 @@ def all_user_operations(
 
     valid_entry_ids = []
     timestamp_list = []
-    undone_ids = np.array([])
+    undone_ids = np.array([], dtype=np.uint64)
 
     entry_ids = np.sort(list(log_rows.keys()))
     for entry_id in entry_ids:
@@ -690,7 +690,7 @@ def handle_children(table_id, parent_id):
     if layer > 1:
         children = cg.get_children(parent_id)
     else:
-        children = np.array([])
+        children = np.array([], dtype=np.uint64)
 
     return children
 
@@ -793,8 +793,8 @@ def handle_subgraph(table_id, root_id, only_internal_edges=True):
         supervoxels = np.concatenate(
             [agg.supervoxels for agg in l2id_agglomeration_d.values()]
         )
-        mask0 = np.in1d(edges.node_ids1, supervoxels)
-        mask1 = np.in1d(edges.node_ids2, supervoxels)
+        mask0 = np.isin(edges.node_ids1, supervoxels)
+        mask1 = np.isin(edges.node_ids2, supervoxels)
         edges = edges[mask0 & mask1]
 
     return edges

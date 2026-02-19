@@ -126,14 +126,14 @@ class MeshEngine(object):
         block_bounding_box_cg /= 2 ** np.max([0, layer - 2])
         block_bounding_box_cg = np.ceil(block_bounding_box_cg)
 
-        n_jobs = np.product(block_bounding_box_cg[1] -
+        n_jobs = np.prod(block_bounding_box_cg[1] -
                             block_bounding_box_cg[0]) / \
                  block_factor ** 2 < n_threads
 
         while n_jobs < n_threads and block_factor > 1:
             block_factor -= 1
 
-            n_jobs = np.product(block_bounding_box_cg[1] -
+            n_jobs = np.prod(block_bounding_box_cg[1] -
                                 block_bounding_box_cg[0]) / \
                      block_factor ** 2 < n_threads
 

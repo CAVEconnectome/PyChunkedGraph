@@ -168,8 +168,8 @@ class Mesh(object):
                 faces.append(face)
 
         self._faces = np.array(faces, dtype=int) - 1
-        self._vertices = np.array(vertices, dtype=np.float)
-        self._normals = np.array(normals, dtype=np.float)
+        self._vertices = np.array(vertices, dtype=np.float64)
+        self._normals = np.array(normals, dtype=np.float64)
 
     def load_h5(self):
         with h5py.File(self.filename, "r") as f:

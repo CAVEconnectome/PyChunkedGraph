@@ -86,6 +86,13 @@ def _analyze_affected_edges(
             cross_edges_d[parent0][layer].append([parent0, parent1])
             cross_edges_d[parent1][layer].append([parent1, parent0])
             parent_edges.extend([[parent0, parent0], [parent1, parent1]])
+    # Convert inner Python lists to typed numpy arrays to avoid
+    # dtype promotion issues when concatenated with uint64 arrays.
+    for node_id in cross_edges_d:
+        for layer in cross_edges_d[node_id]:
+            cross_edges_d[node_id][layer] = np.array(
+                cross_edges_d[node_id][layer], dtype=basetypes.NODE_ID
+            ).reshape(-1, 2)
     return parent_edges, cross_edges_d
 
 

@@ -112,7 +112,7 @@ def intersect_nodes(paths_v_s, paths_v_y):
 
 
 def harmonic_mean_paths(x):
-    return np.power(np.product(x), 1 / len(x))
+    return np.power(np.prod(x), 1 / len(x))
 
 
 def compute_filtered_paths(
