@@ -15,10 +15,28 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Check out code
-        uses: actions/checkout@v2
+        uses: actions/checkout@v4
 
-      - name: Build image and run tests
+      - name: Build image
+        run: docker build --tag seunglab/pychunkedgraph:$GITHUB_SHA .
+
+      - name: Run tests with coverage
         run: |
-          docker build --tag seunglab/pychunkedgraph:$GITHUB_SHA .
-          docker run --rm seunglab/pychunkedgraph:$GITHUB_SHA /bin/sh -c "pytest --cov-config .coveragerc --cov=pychunkedgraph ./pychunkedgraph/tests && codecov"
+          docker run --name pcg-tests seunglab/pychunkedgraph:$GITHUB_SHA \
+            /bin/sh -c "pytest --cov-config .coveragerc --cov=pychunkedgraph --cov-report=xml:/app/coverage.xml ./pychunkedgraph/tests"
 
+      - name: Copy coverage report from container
+        if: always()
+        run: docker cp pcg-tests:/app/coverage.xml ./coverage.xml || true
+
+      - name: Upload coverage to Codecov
+        if: always()
+        uses: codecov/codecov-action@v5
+        with:
+          files: ./coverage.xml
+          token: ${{ secrets.CODECOV_TOKEN }}
+          fail_ci_if_error: false
+
+      - name: Cleanup
+        if: always()
+        run: docker rm pcg-tests || true

@@ -1,104 +1,85 @@
-# from unittest.mock import DEFAULT
+"""Integration tests for RootLock using real graph operations through the BigTable emulator.
 
-# import numpy as np
-# import pytest
+Tests lock acquisition, release, and behavior on operation failure.
+"""
 
-# from ..graph import exceptions
-# from ..graph.locks import RootLock
+from datetime import datetime, timedelta, UTC
 
-# G_UINT64 = np.uint64(2 ** 63)
+import numpy as np
+import pytest
 
-
-# def big_uint64():
-#     """Return incremental uint64 values larger than a signed int64"""
-#     global G_UINT64
-#     if G_UINT64 == np.uint64(2 ** 64 - 1):
-#         G_UINT64 = np.uint64(2 ** 63)
-#     G_UINT64 = G_UINT64 + np.uint64(1)
-#     return G_UINT64
+from .helpers import create_chunk, to_label
+from ..graph import exceptions
+from ..graph.locks import RootLock
+from ..ingest.create.parent_layer import add_parent_chunk
 
 
-# class RootLockTracker:
-#     def __init__(self):
-#         self.active_locks = dict()
+class TestRootLock:
+    @pytest.fixture()
+    def simple_graph(self, gen_graph):
+        """Build a 2-chunk graph with a single edge, return (cg, root_id)."""
+        cg = gen_graph(n_layers=3)
+        fake_timestamp = datetime.now(UTC) - timedelta(days=10)
 
-#     def add_locks(self, root_ids, operation_id, **kwargs):
-#         if operation_id not in self.active_locks:
-#             self.active_locks[operation_id] = set(root_ids)
-#         else:
-#             self.active_locks[operation_id].update(root_ids)
-#         return DEFAULT
+        create_chunk(
+            cg,
+            vertices=[to_label(cg, 1, 0, 0, 0, 0)],
+            edges=[(to_label(cg, 1, 0, 0, 0, 0), to_label(cg, 1, 1, 0, 0, 0), 0.5)],
+            timestamp=fake_timestamp,
+        )
+        create_chunk(
+            cg,
+            vertices=[to_label(cg, 1, 1, 0, 0, 0)],
+            edges=[(to_label(cg, 1, 1, 0, 0, 0), to_label(cg, 1, 0, 0, 0, 0), 0.5)],
+            timestamp=fake_timestamp,
+        )
+        add_parent_chunk(cg, 3, [0, 0, 0], time_stamp=fake_timestamp, n_threads=1)
+        root_id = cg.get_root(to_label(cg, 1, 0, 0, 0, 0))
+        return cg, root_id
 
-#     def remove_lock(self, root_id, operation_id, **kwargs):
-#         if operation_id in self.active_locks:
-#             self.active_locks[operation_id].discard(root_id)
-#         return DEFAULT
+    @pytest.mark.timeout(30)
+    def test_successful_lock_and_release(self, simple_graph):
+        """Lock acquired successfully inside context, released after exit."""
+        cg, root_id = simple_graph
 
+        with RootLock(cg, np.array([root_id])) as lock:
+            assert lock.lock_acquired
+            assert len(lock.locked_root_ids) > 0
 
-# @pytest.fixture()
-# def root_lock_tracker():
-#     return RootLockTracker()
+        # After exiting the context, the lock should be released.
+        # Verify by acquiring the same lock again — if it wasn't released, this would fail.
+        with RootLock(cg, np.array([root_id])) as lock2:
+            assert lock2.lock_acquired
 
+    @pytest.mark.timeout(30)
+    def test_lock_released_on_exception(self, simple_graph):
+        """Lock should be released even when an exception occurs inside the context."""
+        cg, root_id = simple_graph
 
-# def test_successful_lock_acquisition(mocker, root_lock_tracker):
-#     """Ensure that root locks got released after successful
-#         root lock acquisition + *successful* graph operation"""
-#     fake_operation_id = big_uint64()
-#     fake_locked_root_ids = np.array((big_uint64(), big_uint64()))
+        with pytest.raises(exceptions.PreconditionError):
+            with RootLock(cg, np.array([root_id])) as lock:
+                assert lock.lock_acquired
+                raise exceptions.PreconditionError("Simulated failure")
 
-#     cg = mocker.MagicMock()
-#     cg.id_client.create_operation_id = mocker.MagicMock(return_value=fake_operation_id)
-#     cg.client.lock_roots = mocker.MagicMock(
-#         return_value=(True, fake_locked_root_ids),
-#         side_effect=root_lock_tracker.add_locks,
-#     )
-#     cg.client.unlock_root = mocker.MagicMock(
-#         return_value=True, side_effect=root_lock_tracker.remove_lock
-#     )
+        # Lock should still be released — acquiring again should succeed
+        with RootLock(cg, np.array([root_id])) as lock2:
+            assert lock2.lock_acquired
 
-#     with RootLock(cg, fake_locked_root_ids):
-#         assert fake_operation_id in root_lock_tracker.active_locks
-#         assert not root_lock_tracker.active_locks[fake_operation_id].difference(
-#             fake_locked_root_ids
-#         )
+    @pytest.mark.timeout(30)
+    def test_operation_with_lock_succeeds(self, simple_graph):
+        """A real graph operation (split) should succeed while holding the lock."""
+        cg, root_id = simple_graph
 
-#     assert not root_lock_tracker.active_locks[fake_operation_id]
+        # Use the high-level API which acquires locks internally
+        result = cg.remove_edges(
+            "test_user",
+            source_ids=to_label(cg, 1, 0, 0, 0, 0),
+            sink_ids=to_label(cg, 1, 1, 0, 0, 0),
+            mincut=False,
+        )
+        assert len(result.new_root_ids) == 2
 
-
-# def test_failed_lock_acquisition(mocker):
-#     """Ensure that LockingError is raised when lock acquisition failed"""
-#     fake_operation_id = big_uint64()
-#     fake_locked_root_ids = np.array((big_uint64(), big_uint64()))
-
-#     cg = mocker.MagicMock()
-#     cg.id_client.create_operation_id = mocker.MagicMock(return_value=fake_operation_id)
-#     cg.client.lock_roots = mocker.MagicMock(
-#         return_value=(False, fake_locked_root_ids), side_effect=None
-#     )
-
-#     with pytest.raises(exceptions.LockingError):
-#         with RootLock(cg, fake_locked_root_ids):
-#             pass
-
-
-# def test_failed_graph_operation(mocker, root_lock_tracker):
-#     """Ensure that root locks got released after successful
-#         root lock acquisition + *unsuccessful* graph operation"""
-#     fake_operation_id = big_uint64()
-#     fake_locked_root_ids = np.array((big_uint64(), big_uint64()))
-
-#     cg = mocker.MagicMock()
-#     cg.id_client.create_operation_id = mocker.MagicMock(return_value=fake_operation_id)
-#     cg.client.lock_roots = mocker.MagicMock(
-#         return_value=(True, fake_locked_root_ids),
-#         side_effect=root_lock_tracker.add_locks,
-#     )
-#     cg.client.unlock_root = mocker.MagicMock(
-#         return_value=True, side_effect=root_lock_tracker.remove_lock
-#     )
-
-#     with pytest.raises(exceptions.PreconditionError):
-#         with RootLock(cg, fake_locked_root_ids):
-#             raise exceptions.PreconditionError("Something went wrong")
-
-#     assert not root_lock_tracker.active_locks[fake_operation_id]
+        # After operation, locks should be released — verify we can re-acquire
+        new_root = cg.get_root(to_label(cg, 1, 0, 0, 0, 0))
+        with RootLock(cg, np.array([new_root])) as lock:
+            assert lock.lock_acquired

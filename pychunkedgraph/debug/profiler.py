@@ -102,7 +102,7 @@ class HierarchicalProfiler:
 
 
 # Global profiler instance - enable via environment variable
-PROFILER_ENABLED = os.environ.get("PCG_PROFILER_ENABLED", "1") == "1"
+PROFILER_ENABLED = os.environ.get("PCG_PROFILER_ENABLED", "0") == "1"
 _profiler: HierarchicalProfiler = None
 
 
