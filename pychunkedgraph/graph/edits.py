@@ -16,7 +16,7 @@ from pychunkedgraph.debug.profiler import HierarchicalProfiler, get_profiler
 from . import types
 from . import attributes
 from . import cache as cache_utils
-from .edges import get_latest_edges_wrapper, flip_ids, get_new_nodes
+from .edges import get_latest_edges_wrapper, get_new_nodes
 from .edges.utils import concatenate_cross_edge_dicts
 from .edges.utils import merge_cross_edge_dicts
 from .utils import basetypes
@@ -47,6 +47,15 @@ def _init_old_hierarchy(cg, l2ids: np.ndarray, parent_ts: datetime.datetime = No
     children = cg.get_children(all_parents, flatten=True)
     _ = cg.get_parents(children, time_stamp=parent_ts)
     return old_hierarchy_d
+
+
+def flip_ids(id_map, node_ids):
+    """
+    returns old or new ids according to the map
+    """
+    ids = [np.asarray(list(id_map[id_]), dtype=basetypes.NODE_ID) for id_ in node_ids]
+    ids.append(types.empty_1d)  # concatenate needs at least one array
+    return np.concatenate(ids).astype(basetypes.NODE_ID)
 
 
 def _analyze_affected_edges(
@@ -686,9 +695,7 @@ class CreateParentNodes:
 
         # Distribute results back to each parent's cache
         # Key insight: edges[:, 0] are children, map them to their parent
-        edge_parents = get_new_nodes(
-            self.cg, edge_nodes, parent_layer, self._last_ts
-        )
+        edge_parents = get_new_nodes(self.cg, edge_nodes, parent_layer, self._last_ts)
         edge_parents_d = dict(zip(edge_nodes, edge_parents))
         for new_id in new_ids:
             children_set = set(all_children_d[new_id])

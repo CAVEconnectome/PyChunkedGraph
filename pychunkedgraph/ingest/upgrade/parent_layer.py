@@ -11,7 +11,8 @@ import numpy as np
 from tqdm import tqdm
 from cachetools import LRUCache
 
-from pychunkedgraph.graph import ChunkedGraph, edges
+from pychunkedgraph.graph import ChunkedGraph
+from pychunkedgraph.graph.edges import stale, get_latest_edges_wrapper
 from pychunkedgraph.graph.attributes import Connectivity, Hierarchy
 from pychunkedgraph.graph.utils import serializers, basetypes
 from pychunkedgraph.graph.types import empty_2d
@@ -127,7 +128,7 @@ def update_cross_edges(cg: ChunkedGraph, layer, node, node_ts) -> list:
     for ts, edges_d in CX_EDGES[node].items():
         if ts < node_ts:
             continue
-        edges_d, _nodes = edges.get_latest_edges_wrapper(cg, edges_d, parent_ts=ts)
+        edges_d, _nodes = get_latest_edges_wrapper(cg, edges_d, parent_ts=ts)
         if _nodes.size == 0:
             continue
 
@@ -148,8 +149,8 @@ def update_cross_edges(cg: ChunkedGraph, layer, node, node_ts) -> list:
 
 def _update_cross_edges_helper(args):
     global CG
-    edges.PARENTS_CACHE = LRUCache(PARENT_CACHE_LIMIT)
-    edges.CHILDREN_CACHE = LRUCache(1 * 1024)
+    stale.PARENTS_CACHE = LRUCache(PARENT_CACHE_LIMIT)
+    stale.CHILDREN_CACHE = LRUCache(1 * 1024)
     clean_task = os.environ.get("CLEAN_CHUNKS", "false") == "clean"
     cg_info, layer, nodes, nodes_ts = args
 
@@ -185,8 +186,8 @@ def _update_cross_edges_helper(args):
     rows = []
     for task in tasks:
         rows.extend(update_cross_edges(*task))
-    edges.PARENTS_CACHE.clear()
-    edges.CHILDREN_CACHE.clear()
+    stale.PARENTS_CACHE.clear()
+    stale.CHILDREN_CACHE.clear()
     cg.client.write(rows)
     gc.collect()
 
@@ -239,13 +240,13 @@ def update_chunk(
 
     if debug:
         rows = []
-        edges.PARENTS_CACHE = LRUCache(PARENT_CACHE_LIMIT)
-        edges.CHILDREN_CACHE = LRUCache(1 * 1024)
+        stale.PARENTS_CACHE = LRUCache(PARENT_CACHE_LIMIT)
+        stale.CHILDREN_CACHE = LRUCache(1 * 1024)
         logging.info(f"processing {len(nodes)} nodes with 1 worker.")
         for node, node_ts in zip(nodes, nodes_ts):
             rows.extend(update_cross_edges(cg, layer, node, node_ts))
-        edges.PARENTS_CACHE.clear()
-        edges.CHILDREN_CACHE.clear()
+        stale.PARENTS_CACHE.clear()
+        stale.CHILDREN_CACHE.clear()
         logging.info(f"total elaspsed time: {time.time() - start}")
         return
 
