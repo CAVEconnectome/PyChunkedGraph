@@ -81,7 +81,7 @@ class RootLock:
 
     def __exit__(self, exception_type, exception_value, traceback):
         if self.lock_acquired:
-            max_workers = max(1, len(self.locked_root_ids))
+            max_workers = min(8, max(1, len(self.locked_root_ids)))
             with ThreadPoolExecutor(max_workers=max_workers) as executor:
                 unlock_futures = [
                     executor.submit(
@@ -164,7 +164,7 @@ class IndefiniteRootLock:
 
     def __exit__(self, exception_type, exception_value, traceback):
         if self.acquired:
-            max_workers = max(1, len(self.root_ids))
+            max_workers = min(8, max(1, len(self.root_ids)))
             with ThreadPoolExecutor(max_workers=max_workers) as executor:
                 unlock_futures = [
                     executor.submit(

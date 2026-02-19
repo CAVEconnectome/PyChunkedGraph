@@ -467,7 +467,7 @@ class Client(bigtable.Client, ClientWithIDGen, OperationLogger):
 
             lock_results = {}
             root_ids = np.unique(new_root_ids)
-            max_workers = max(1, len(root_ids))
+            max_workers = min(8, max(1, len(root_ids)))
             with ThreadPoolExecutor(max_workers=max_workers) as executor:
                 future_to_root = {
                     executor.submit(self.lock_root, root_id, operation_id): root_id
@@ -518,7 +518,7 @@ class Client(bigtable.Client, ClientWithIDGen, OperationLogger):
 
         root_ids = np.unique(new_root_ids)
         lock_results = {}
-        max_workers = max(1, len(root_ids))
+        max_workers = min(8, max(1, len(root_ids)))
         failed_to_lock = []
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
             future_to_root = {
@@ -601,7 +601,7 @@ class Client(bigtable.Client, ClientWithIDGen, OperationLogger):
 
     def renew_locks(self, root_ids: np.uint64, operation_id: np.uint64) -> bool:
         """Renews existing root node locks with operation_id to extend time."""
-        max_workers = max(1, len(root_ids))
+        max_workers = min(8, max(1, len(root_ids)))
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
             futures = {
                 executor.submit(self.renew_lock, root_id, operation_id): root_id
@@ -640,7 +640,7 @@ class Client(bigtable.Client, ClientWithIDGen, OperationLogger):
         """Minimum of multiple lock timestamps."""
         if len(root_ids) == 0:
             return None
-        max_workers = max(1, len(root_ids))
+        max_workers = min(8, max(1, len(root_ids)))
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
             futures = {
                 executor.submit(self.get_lock_timestamp, root_id, op_id): (
