@@ -5,6 +5,13 @@ source = pychunkedgraph
 omit =
     *test*
     *benchmarking/*
+    pychunkedgraph/debug/*
+    pychunkedgraph/export/*
+    pychunkedgraph/jobs/*
+    pychunkedgraph/logging/*
+    pychunkedgraph/repair/*
+    pychunkedgraph/meshing/*
+    pychunkedgraph/app/*
 
 [report]
 # Regexes for lines to exclude from consideration
