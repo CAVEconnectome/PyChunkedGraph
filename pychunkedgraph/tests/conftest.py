@@ -170,6 +170,60 @@ def gen_graph(request):
 
 
 @pytest.fixture(scope="function")
+def gen_graph_with_edges(request, tmp_path):
+    """Like gen_graph but with real edge/component I/O via local filesystem (file:// protocol)."""
+
+    def _cgraph(request, n_layers=10, atomic_chunk_bounds: np.ndarray = np.array([])):
+        edges_dir = f"file://{tmp_path}/edges"
+        components_dir = f"file://{tmp_path}/components"
+        config = {
+            "data_source": {
+                "EDGES": edges_dir,
+                "COMPONENTS": components_dir,
+                "WATERSHED": "gs://microns-seunglab/minnie65/ws_minnie65_0",
+            },
+            "graph_config": {
+                "CHUNK_SIZE": [512, 512, 64],
+                "FANOUT": 2,
+                "SPATIAL_BITS": 10,
+                "ID_PREFIX": "",
+                "ROOT_LOCK_EXPIRY": timedelta(seconds=5),
+            },
+            "backend_client": {
+                "TYPE": "bigtable",
+                "CONFIG": {
+                    "ADMIN": True,
+                    "READ_ONLY": False,
+                    "PROJECT": "IGNORE_ENVIRONMENT_PROJECT",
+                    "INSTANCE": "emulated_instance",
+                    "CREDENTIALS": credentials.AnonymousCredentials(),
+                    "MAX_ROW_KEY_COUNT": 1000,
+                },
+            },
+            "ingest_config": {},
+        }
+
+        meta, _, client_info = bootstrap("test", config=config)
+        graph = ChunkedGraph(graph_id="test", meta=meta, client_info=client_info)
+        # No mock_edges - use real I/O via file:// protocol
+        graph.meta._ws_cv = CloudVolumeMock()
+        graph.meta.layer_count = n_layers
+        graph.meta.layer_chunk_bounds = get_layer_chunk_bounds(
+            n_layers, atomic_chunk_bounds=atomic_chunk_bounds
+        )
+
+        graph.create()
+
+        def fin():
+            graph.client._table.delete()
+
+        request.addfinalizer(fin)
+        return graph
+
+    return partial(_cgraph, request)
+
+
+@pytest.fixture(scope="function")
 def gen_graph_simplequerytest(request, gen_graph):
     """
     ┌─────┬─────┬─────┐
