@@ -36,7 +36,7 @@ jobs:
 
       - name: Copy coverage report from container
         if: always()
-        run: docker cp pcg-tests:/app/coverage.xml ./coverage.xml || true
+        run: docker cp pcg-tests:/app/coverage.xml ./coverage.xml
 
       - name: Upload coverage to Codecov
         if: always()
@@ -44,7 +44,8 @@ jobs:
         with:
           files: ./coverage.xml
           token: ${{ secrets.CODECOV_TOKEN }}
-          fail_ci_if_error: false
+          slug: CAVEconnectome/PyChunkedGraph
+          fail_ci_if_error: true
 
       - name: Cleanup
         if: always()
