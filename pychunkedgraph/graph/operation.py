@@ -34,7 +34,6 @@ from .exceptions import PostconditionError
 from .utils.generic import get_bounding_box as get_bbox, get_valid_timestamp
 from ..logging.log_db import TimeIt
 
-
 if TYPE_CHECKING:
     from .chunkedgraph import ChunkedGraph
 
@@ -576,6 +575,7 @@ class MergeOperation(GraphEditOperation):
         "bbox_offset",
         "allow_same_segment_merge",
         "do_sanity_check",
+        "stitch_mode",
     ]
 
     def __init__(
@@ -590,6 +590,7 @@ class MergeOperation(GraphEditOperation):
         affinities: Optional[Sequence[np.float32]] = None,
         allow_same_segment_merge: Optional[bool] = False,
         do_sanity_check: Optional[bool] = True,
+        stitch_mode: bool = False,
     ) -> None:
         super().__init__(
             cg, user_id=user_id, source_coords=source_coords, sink_coords=sink_coords
@@ -629,8 +630,11 @@ class MergeOperation(GraphEditOperation):
         )
         if len(root_ids) < 2 and not self.allow_same_segment_merge:
             raise PreconditionError("Supervoxels must belong to different objects.")
-        bbox = get_bbox(self.source_coords, self.sink_coords, self.bbox_offset)
-        with TimeIt("subgraph", self.cg.graph_id, operation_id):
+
+        atomic_edges = self.added_edges
+        fake_edge_rows = []
+        if not self.stitch_mode:
+            bbox = get_bbox(self.source_coords, self.sink_coords, self.bbox_offset)
             edges = self.cg.get_subgraph(
                 root_ids,
                 bbox=bbox,
@@ -638,10 +642,9 @@ class MergeOperation(GraphEditOperation):
                 edges_only=True,
             )
 
-        if self.allow_same_segment_merge:
-            inactive_edges = types.empty_2d
-        else:
-            with TimeIt("preprocess", self.cg.graph_id, operation_id):
+            if self.allow_same_segment_merge:
+                inactive_edges = types.empty_2d
+            else:
                 inactive_edges = edits.merge_preprocess(
                     self.cg,
                     subgraph_edges=edges,
@@ -649,13 +652,14 @@ class MergeOperation(GraphEditOperation):
                     parent_ts=self.parent_ts,
                 )
 
-        atomic_edges, fake_edge_rows = edits.check_fake_edges(
-            self.cg,
-            atomic_edges=self.added_edges,
-            inactive_edges=inactive_edges,
-            time_stamp=timestamp,
-            parent_ts=self.parent_ts,
-        )
+            atomic_edges, fake_edge_rows = edits.check_fake_edges(
+                self.cg,
+                atomic_edges=self.added_edges,
+                inactive_edges=inactive_edges,
+                time_stamp=timestamp,
+                parent_ts=self.parent_ts,
+            )
+
         with TimeIt("add_edges", self.cg.graph_id, operation_id):
             new_roots, new_l2_ids, new_entries = edits.add_edges(
                 self.cg,
@@ -665,6 +669,7 @@ class MergeOperation(GraphEditOperation):
                 parent_ts=self.parent_ts,
                 allow_same_segment_merge=self.allow_same_segment_merge,
                 do_sanity_check=self.do_sanity_check,
+                stitch_mode=self.stitch_mode,
             )
         return new_roots, new_l2_ids, fake_edge_rows + new_entries
 
@@ -887,12 +892,14 @@ class MulticutOperation(GraphEditOperation):
                 "try placing the points further apart."
             )
 
-        ids = np.concatenate([self.source_ids, self.sink_ids])
+        ids = np.concatenate([self.source_ids, self.sink_ids]).astype(basetypes.NODE_ID)
         layers = self.cg.get_chunk_layers(ids)
         assert np.sum(layers) == layers.size, "IDs must be supervoxels."
 
     def _update_root_ids(self) -> np.ndarray:
-        sink_and_source_ids = np.concatenate((self.source_ids, self.sink_ids))
+        sink_and_source_ids = np.concatenate((self.source_ids, self.sink_ids)).astype(
+            basetypes.NODE_ID
+        )
         root_ids = np.unique(
             self.cg.get_roots(
                 sink_and_source_ids, assert_roots=True, time_stamp=self.parent_ts
@@ -908,7 +915,9 @@ class MulticutOperation(GraphEditOperation):
         # Verify that sink and source are from the same root object
         root_ids = set(
             self.cg.get_roots(
-                np.concatenate([self.source_ids, self.sink_ids]),
+                np.concatenate([self.source_ids, self.sink_ids]).astype(
+                    basetypes.NODE_ID
+                ),
                 assert_roots=True,
                 time_stamp=self.parent_ts,
             )
@@ -929,7 +938,7 @@ class MulticutOperation(GraphEditOperation):
             edges = reduce(lambda x, y: x + y, edges_tuple, Edges([], []))
             supervoxels = np.concatenate(
                 [agg.supervoxels for agg in l2id_agglomeration_d.values()]
-            )
+            ).astype(basetypes.NODE_ID)
             mask0 = np.isin(edges.node_ids1, supervoxels)
             mask1 = np.isin(edges.node_ids2, supervoxels)
             edges = edges[mask0 & mask1]

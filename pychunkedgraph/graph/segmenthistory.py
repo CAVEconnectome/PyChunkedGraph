@@ -78,7 +78,9 @@ class SegmentHistory:
 
     @property
     def operation_ids(self):
-        return np.array(list(self.operation_id_root_id_dict.keys()))
+        return np.array(
+            list(self.operation_id_root_id_dict.keys()), dtype=basetypes.OPERATION_ID
+        )
 
     @property
     def _log_rows(self):
@@ -328,7 +330,9 @@ class SegmentHistory:
         past_id_mapping = {}
         future_id_mapping = {}
         for root_id in root_ids:
-            ancestors = np.array(list(nx_ancestors(self.lineage_graph, root_id)), dtype=np.uint64)
+            ancestors = np.array(
+                list(nx_ancestors(self.lineage_graph, root_id)), dtype=np.uint64
+            )
             if len(ancestors) == 0:
                 past_id_mapping[int(root_id)] = [root_id]
             else:
