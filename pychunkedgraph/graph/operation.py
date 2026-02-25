@@ -599,6 +599,7 @@ class MergeOperation(GraphEditOperation):
         self.bbox_offset = np.atleast_1d(bbox_offset).astype(basetypes.COORDINATES)
         self.allow_same_segment_merge = allow_same_segment_merge
         self.do_sanity_check = do_sanity_check
+        self.stitch_mode = stitch_mode
 
         self.affinities = None
         if affinities is not None:
