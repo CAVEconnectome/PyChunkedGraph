@@ -452,6 +452,7 @@ class GraphEditOperation(ABC):
                         operation_id=lock.operation_id,
                         new_root_ids=new_root_ids,
                         new_lvl2_ids=new_lvl2_ids,
+                        old_root_ids=root_ids,
                     )
             except PreconditionError as err:
                 self.cg.cache = None
@@ -1095,6 +1096,7 @@ class RedoOperation(GraphEditOperation):
                 operation_id=operation_id,
                 new_root_ids=types.empty_1d,
                 new_lvl2_ids=types.empty_1d,
+                old_root_ids=types.empty_1d,
             )
         return super().execute(
             operation_id=operation_id, parent_ts=parent_ts, override_ts=override_ts
@@ -1236,6 +1238,7 @@ class UndoOperation(GraphEditOperation):
                 operation_id=operation_id,
                 new_root_ids=types.empty_1d,
                 new_lvl2_ids=types.empty_1d,
+                old_root_ids=types.empty_1d,
             )
         if isinstance(self.inverse_superseded_operation, MergeOperation):
             # in case we are undoing a partial split (with only one resulting root id)
@@ -1250,6 +1253,7 @@ class UndoOperation(GraphEditOperation):
                     operation_id=operation_id,
                     new_root_ids=types.empty_1d,
                     new_lvl2_ids=types.empty_1d,
+                    old_root_ids=types.empty_1d,
                 )
         if isinstance(self.inverse_superseded_operation, SplitOperation):
             e, a = get_edges_status(
@@ -1263,6 +1267,7 @@ class UndoOperation(GraphEditOperation):
                     operation_id=operation_id,
                     new_root_ids=types.empty_1d,
                     new_lvl2_ids=types.empty_1d,
+                    old_root_ids=types.empty_1d,
                 )
         return super().execute(
             operation_id=operation_id, parent_ts=parent_ts, override_ts=override_ts
