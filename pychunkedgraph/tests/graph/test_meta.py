@@ -442,7 +442,9 @@ class TestWsCvRedisCached:
         result = meta.ws_cv
 
         assert result is mock_cv_instance
-        mock_cv_cls.assert_called_once_with("gs://bucket/ws", info=cached_info)
+        mock_cv_cls.assert_called_once_with(
+            "gs://bucket/ws", info=cached_info, progress=False
+        )
 
     @patch("pychunkedgraph.graph.meta.CloudVolume")
     @patch("pychunkedgraph.graph.meta.get_redis_connection")
@@ -462,7 +464,7 @@ class TestWsCvRedisCached:
 
         assert result is mock_cv_instance
         # Should have been called without info kwarg (fallback)
-        mock_cv_cls.assert_called_with("gs://bucket/ws")
+        mock_cv_cls.assert_called_with("gs://bucket/ws", progress=False)
 
     @patch("pychunkedgraph.graph.meta.CloudVolume")
     @patch("pychunkedgraph.graph.meta.get_redis_connection")
@@ -485,7 +487,7 @@ class TestWsCvRedisCached:
 
         assert result is mock_cv_instance
         # The fallback CloudVolume call (no info= kwarg)
-        mock_cv_cls.assert_called_with("gs://bucket/ws")
+        mock_cv_cls.assert_called_with("gs://bucket/ws", progress=False)
         # Should try to cache in redis
         mock_redis.set.assert_called_once()
 
@@ -566,6 +568,71 @@ class TestBitmasksLazy:
         bm1 = meta.bitmasks
         bm2 = meta.bitmasks
         assert bm1 is bm2
+
+
+class TestOcdbtSeg:
+    """Test ocdbt_seg property."""
+
+    def test_ocdbt_seg_false_by_default(self):
+        gc = GraphConfig(CHUNK_SIZE=[64, 64, 64])
+        ds = DataSource(DATA_VERSION=4)
+        meta = ChunkedGraphMeta(gc, ds)
+        assert meta.ocdbt_seg is False
+
+    def test_ocdbt_seg_true_from_custom_data(self):
+        gc = GraphConfig(CHUNK_SIZE=[64, 64, 64])
+        ds = DataSource(DATA_VERSION=4)
+        meta = ChunkedGraphMeta(gc, ds, custom_data={"seg": {"ocdbt": True}})
+        assert meta.ocdbt_seg is True
+
+    def test_ocdbt_seg_false_explicit(self):
+        gc = GraphConfig(CHUNK_SIZE=[64, 64, 64])
+        ds = DataSource(DATA_VERSION=4)
+        meta = ChunkedGraphMeta(gc, ds, custom_data={"seg": {"ocdbt": False}})
+        assert meta.ocdbt_seg is False
+
+    def test_ocdbt_seg_cached(self):
+        gc = GraphConfig(CHUNK_SIZE=[64, 64, 64])
+        ds = DataSource(DATA_VERSION=4)
+        meta = ChunkedGraphMeta(gc, ds, custom_data={"seg": {"ocdbt": True}})
+        val1 = meta.ocdbt_seg
+        val2 = meta.ocdbt_seg
+        assert val1 is val2
+
+    def test_ws_ocdbt_asserts_when_not_ocdbt(self):
+        gc = GraphConfig(CHUNK_SIZE=[64, 64, 64])
+        ds = DataSource(DATA_VERSION=4)
+        meta = ChunkedGraphMeta(gc, ds)
+        with pytest.raises(AssertionError, match="ocdbt"):
+            _ = meta.ws_ocdbt
+
+    @patch("pychunkedgraph.graph.meta.get_seg_source_and_destination_ocdbt")
+    def test_ws_ocdbt_returns_destination(self, mock_get_ocdbt):
+        gc = GraphConfig(CHUNK_SIZE=[64, 64, 64])
+        ds = DataSource(WATERSHED="gs://bucket/ws", DATA_VERSION=4)
+        meta = ChunkedGraphMeta(gc, ds, custom_data={"seg": {"ocdbt": True}})
+
+        mock_src = MagicMock()
+        mock_dst = MagicMock()
+        mock_get_ocdbt.return_value = (mock_src, mock_dst)
+
+        result = meta.ws_ocdbt
+        assert result is mock_dst
+        mock_get_ocdbt.assert_called_once_with("gs://bucket/ws")
+
+    @patch("pychunkedgraph.graph.meta.get_seg_source_and_destination_ocdbt")
+    def test_ws_ocdbt_cached(self, mock_get_ocdbt):
+        gc = GraphConfig(CHUNK_SIZE=[64, 64, 64])
+        ds = DataSource(WATERSHED="gs://bucket/ws", DATA_VERSION=4)
+        meta = ChunkedGraphMeta(gc, ds, custom_data={"seg": {"ocdbt": True}})
+
+        mock_dst = MagicMock()
+        mock_get_ocdbt.return_value = (MagicMock(), mock_dst)
+
+        result1 = meta.ws_ocdbt
+        result2 = meta.ws_ocdbt
+        assert result1 is result2
+        mock_get_ocdbt.assert_called_once()
 
 
 class TestLayerChunkBoundsComputed:
