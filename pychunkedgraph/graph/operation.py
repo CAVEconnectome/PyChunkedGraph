@@ -29,7 +29,7 @@ from .utils import basetypes
 from .utils import serializers
 from .cache import CacheService
 from .cutting import run_multicut
-from .exceptions import PreconditionError
+from .exceptions import PreconditionError, SupervoxelSplitRequiredError
 from .exceptions import PostconditionError
 from .utils.generic import get_bounding_box as get_bbox, get_valid_timestamp
 from ..logging.log_db import TimeIt
@@ -459,6 +459,10 @@ class GraphEditOperation(ABC):
                         new_lvl2_ids=new_lvl2_ids,
                         old_root_ids=root_ids,
                     )
+            except SupervoxelSplitRequiredError as err:
+                raise SupervoxelSplitRequiredError(
+                    str(err), err.sv_remapping, operation_id=lock.operation_id
+                ) from err
             except PreconditionError as err:
                 self.cg.cache = None
                 raise PreconditionError(err) from err
@@ -888,9 +892,10 @@ class MulticutOperation(GraphEditOperation):
         self.disallow_isolating_cut = disallow_isolating_cut
         self.do_sanity_check = do_sanity_check
         if np.any(np.isin(self.sink_ids, self.source_ids)):
-            raise PreconditionError(
+            raise SupervoxelSplitRequiredError(
                 "Supervoxels exist in both sink and source, "
-                "try placing the points further apart."
+                "try placing the points further apart.",
+                None,
             )
 
         ids = np.concatenate([self.source_ids, self.sink_ids]).astype(basetypes.NODE_ID)

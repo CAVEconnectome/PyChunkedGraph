@@ -26,7 +26,11 @@ class TestGraphMultiCut:
         sink_ids = np.array([5, 6], dtype=np.uint64)
 
         cut_edges = run_multicut(
-            edges, source_ids, sink_ids, path_augment=False, disallow_isolating_cut=False
+            edges,
+            source_ids,
+            sink_ids,
+            path_augment=False,
+            disallow_isolating_cut=False,
         )
         assert cut_edges.shape[0] > 0
 
@@ -63,5 +67,5 @@ class TestGraphMultiCut:
         cut_edges_aug = run_multicut(edges, sv_sources, sv_sinks, path_augment=True)
         assert cut_edges_aug.shape[0] == 350
 
-        with pytest.raises(exceptions.PreconditionError):
+        with pytest.raises(exceptions.SupervoxelSplitRequiredError):
             run_multicut(edges, sv_sources, sv_sinks, path_augment=False)

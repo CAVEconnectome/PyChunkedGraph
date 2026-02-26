@@ -166,6 +166,34 @@ class TestGetParentsAtTimestamp:
         assert len(parents) == 1
 
 
+class TestGetLocalSegmentation:
+    def test_ocdbt_path(self):
+        from unittest.mock import MagicMock
+        from pychunkedgraph.graph.utils.generic import get_local_segmentation
+
+        meta = MagicMock()
+        meta.ocdbt_seg = True
+        expected = np.ones((10, 10, 10), dtype=np.uint64)
+        mock_slice = MagicMock()
+        mock_slice.read.return_value.result.return_value = expected
+        meta.ws_ocdbt.__getitem__ = MagicMock(return_value=mock_slice)
+
+        result = get_local_segmentation(meta, [0, 0, 0], [10, 10, 10])
+        np.testing.assert_array_equal(result, expected)
+
+    def test_cv_path(self):
+        from unittest.mock import MagicMock
+        from pychunkedgraph.graph.utils.generic import get_local_segmentation
+
+        meta = MagicMock()
+        meta.ocdbt_seg = False
+        expected = np.ones((10, 10, 10), dtype=np.uint64)
+        meta.cv.__getitem__ = MagicMock(return_value=expected)
+
+        result = get_local_segmentation(meta, [0, 0, 0], [10, 10, 10])
+        np.testing.assert_array_equal(result, expected)
+
+
 class TestComputeIndicesPandas:
     def test_basic(self):
         data = np.array([1, 2, 1, 2, 3])

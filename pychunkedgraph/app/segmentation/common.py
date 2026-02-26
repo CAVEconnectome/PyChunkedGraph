@@ -9,16 +9,13 @@ from collections import deque, defaultdict
 
 import numpy as np
 import pandas as pd
+import fastremap
 from flask import current_app, g, jsonify, make_response, request
 from pytz import UTC
 
 from pychunkedgraph import __version__
 from pychunkedgraph.app import app_utils
-from pychunkedgraph.graph import (
-    attributes,
-    cutting,
-    segmenthistory,
-)
+from pychunkedgraph.graph import attributes, cutting, segmenthistory, ChunkedGraph
 from pychunkedgraph.graph import (
     edges as cg_edges,
 )
@@ -27,6 +24,7 @@ from pychunkedgraph.graph import (
 )
 from pychunkedgraph.graph.analysis import pathing
 from pychunkedgraph.graph.attributes import OperationLogs
+from pychunkedgraph.graph.edits_sv import split_supervoxel
 from pychunkedgraph.graph.misc import get_contact_sites
 from pychunkedgraph.graph.operation import GraphEditOperation
 from pychunkedgraph.graph.utils import basetypes
@@ -229,7 +227,9 @@ def handle_find_minimal_covering_nodes(table_id, is_binary=True):
         node_queue[layer].clear()
 
     # Return the download list
-    download_list = np.concatenate([np.array(list(v), dtype=np.uint64) for v in download_list.values()])
+    download_list = np.concatenate(
+        [np.array(list(v), dtype=np.uint64) for v in download_list.values()]
+    )
 
     return download_list
 
@@ -395,7 +395,7 @@ def handle_merge(table_id, allow_same_segment_merge=False):
     current_app.operation_id = ret.operation_id
     if ret.new_root_ids is None:
         raise cg_exceptions.InternalServerError(
-            "Could not merge selected " "supervoxel."
+            f"{ret.operation_id}: Could not merge selected supervoxels."
         )
 
     current_app.logger.debug(("lvl2_nodes:", ret.new_lvl2_ids))
@@ -409,24 +409,10 @@ def handle_merge(table_id, allow_same_segment_merge=False):
 ### SPLIT ----------------------------------------------------------------------
 
 
-def handle_split(table_id):
-    current_app.table_id = table_id
-    user_id = str(g.auth_user.get("id", current_app.user_id))
-
-    data = json.loads(request.data)
-    is_priority = request.args.get("priority", True, type=str2bool)
-    remesh = request.args.get("remesh", True, type=str2bool)
-    mincut = request.args.get("mincut", True, type=str2bool)
-
+def _get_sources_and_sinks(cg: ChunkedGraph, data):
     current_app.logger.debug(data)
-
-    # Call ChunkedGraph
-    cg = app_utils.get_cg(table_id, skip_cache=True)
     node_idents = []
-    node_ident_map = {
-        "sources": 0,
-        "sinks": 1,
-    }
+    node_ident_map = {"sources": 0, "sinks": 1}
     coords = []
     node_ids = []
 
@@ -439,18 +425,74 @@ def handle_split(table_id):
     node_ids = np.array(node_ids, dtype=np.uint64)
     coords = np.array(coords)
     node_idents = np.array(node_idents)
+
+    start = time.time()
     sv_ids = app_utils.handle_supervoxel_id_lookup(cg, coords, node_ids)
+    current_app.logger.info(f"SV lookup took {time.time() - start}s.")
     current_app.logger.debug(
         {"node_id": node_ids, "sv_id": sv_ids, "node_ident": node_idents}
     )
 
+    source_ids = sv_ids[node_idents == 0]
+    sink_ids = sv_ids[node_idents == 1]
+    source_coords = coords[node_idents == 0]
+    sink_coords = coords[node_idents == 1]
+    return (source_ids, sink_ids, source_coords, sink_coords)
+
+
+def handle_split(table_id):
+    current_app.table_id = table_id
+    user_id = str(g.auth_user.get("id", current_app.user_id))
+
+    data = json.loads(request.data)
+    is_priority = request.args.get("priority", True, type=str2bool)
+    remesh = request.args.get("remesh", True, type=str2bool)
+    mincut = request.args.get("mincut", True, type=str2bool)
+
+    cg = app_utils.get_cg(table_id, skip_cache=True)
+    sources, sinks, source_coords, sink_coords = _get_sources_and_sinks(cg, data)
     try:
         ret = cg.remove_edges(
             user_id=user_id,
-            source_ids=sv_ids[node_idents == 0],
-            sink_ids=sv_ids[node_idents == 1],
-            source_coords=coords[node_idents == 0],
-            sink_coords=coords[node_idents == 1],
+            source_ids=sources,
+            sink_ids=sinks,
+            source_coords=source_coords,
+            sink_coords=sink_coords,
+            mincut=mincut,
+        )
+    except cg_exceptions.SupervoxelSplitRequiredError as e:
+        current_app.logger.info(e)
+        sources_remapped = fastremap.remap(
+            sources,
+            e.sv_remapping,
+            preserve_missing_labels=True,
+            in_place=False,
+        )
+        sinks_remapped = fastremap.remap(
+            sinks,
+            e.sv_remapping,
+            preserve_missing_labels=True,
+            in_place=False,
+        )
+        overlap_mask = np.isin(sources_remapped, sinks_remapped)
+        for sv_to_split in np.unique(sources_remapped[overlap_mask]):
+            _mask0 = sources_remapped == sv_to_split
+            _mask1 = sinks_remapped == sv_to_split
+            split_supervoxel(
+                cg,
+                sv_to_split,
+                source_coords[_mask0],
+                sink_coords[_mask1],
+                e.operation_id,
+            )
+
+        sources, sinks, source_coords, sink_coords = _get_sources_and_sinks(cg, data)
+        ret = cg.remove_edges(
+            user_id=user_id,
+            source_ids=sources,
+            sink_ids=sinks,
+            source_coords=source_coords,
+            sink_coords=sink_coords,
             mincut=mincut,
             do_sanity_check=True,
         )
@@ -462,7 +504,7 @@ def handle_split(table_id):
     current_app.operation_id = ret.operation_id
     if ret.new_root_ids is None:
         raise cg_exceptions.InternalServerError(
-            "Could not split selected segment groups."
+            f"{ret.operation_id}: Could not split selected segment groups."
         )
 
     current_app.logger.debug(("after split:", ret.new_root_ids))
@@ -603,7 +645,9 @@ def all_user_operations(
     target_user_id = request.args.get("user_id", None)
 
     start_time = _parse_timestamp("start_time", 0, return_datetime=True)
-    end_time = _parse_timestamp("end_time", datetime.now(timezone.utc), return_datetime=True)
+    end_time = _parse_timestamp(
+        "end_time", datetime.now(timezone.utc), return_datetime=True
+    )
     # Call ChunkedGraph
     cg = app_utils.get_cg(table_id)
 

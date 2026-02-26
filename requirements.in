@@ -16,6 +16,9 @@ pyyaml
 cachetools
 werkzeug
 tensorstore
+edt
+connected-components-3d
+scikit-image
 
 # PyPI only:
 cloud-files>=6.0.0

@@ -10,6 +10,7 @@ from datetime import datetime
 import numpy as np
 
 from . import basetypes
+from .generic import get_local_segmentation
 from ..meta import ChunkedGraphMeta
 from ..chunks import utils as chunk_utils
 
@@ -140,10 +141,7 @@ def get_atomic_ids_from_coords(
         ]
     )
 
-    local_sv_seg = meta.cv[
-        bbox[0, 0] : bbox[1, 0], bbox[0, 1] : bbox[1, 1], bbox[0, 2] : bbox[1, 2]
-    ].squeeze()
-
+    local_sv_seg = get_local_segmentation(meta, bbox[0], bbox[1]).squeeze()
     # limit get_roots calls to the relevant areas of the data
     lower_bs = np.floor(
         (np.array(coordinates_nm) - max_dist_nm) / np.array(meta.resolution) - bbox[0]

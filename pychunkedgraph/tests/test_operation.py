@@ -21,7 +21,11 @@ from ..graph.operation import (
     RedoOperation,
     UndoOperation,
 )
-from ..graph.exceptions import PreconditionError, PostconditionError
+from ..graph.exceptions import (
+    PreconditionError,
+    PostconditionError,
+    SupervoxelSplitRequiredError,
+)
 from ..ingest.create.parent_layer import add_parent_chunk
 
 
@@ -498,7 +502,7 @@ class TestIDValidation:
     def test_multicut_overlapping_ids_raises(self, gen_graph):
         """source_ids overlapping sink_ids should raise PreconditionError (line 872)."""
         cg, _, sv0, sv1 = _build_cross_chunk(gen_graph)
-        with pytest.raises(PreconditionError, match="both sink and source"):
+        with pytest.raises(SupervoxelSplitRequiredError, match="both sink and source"):
             MulticutOperation(
                 cg,
                 user_id="test_user",

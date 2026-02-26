@@ -7,7 +7,8 @@ from .utils import basetypes
 
 empty_1d = np.empty(0, dtype=basetypes.NODE_ID)
 empty_2d = np.empty((0, 2), dtype=basetypes.NODE_ID)
-
+empty_affinities = np.empty(0, dtype=basetypes.EDGE_AFFINITY)
+empty_areas = np.empty(0, dtype=basetypes.EDGE_AREA)
 
 """
 An Agglomeration is syntactic sugar for representing

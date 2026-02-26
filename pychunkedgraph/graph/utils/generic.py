@@ -203,3 +203,15 @@ def get_parents_at_timestamp(nodes, parents_ts_map, time_stamp, unique: bool = F
         except KeyError:
             skipped_nodes.append(node)
     return list(parents), skipped_nodes
+
+
+
+def get_local_segmentation(meta, bbox_start, bbox_end) -> np.ndarray:
+    result = None
+    xL, yL, zL = bbox_start
+    xH, yH, zH = bbox_end
+    if meta.ocdbt_seg:
+        result = meta.ws_ocdbt[xL:xH, yL:yH, zL:zH].read().result()
+    else:
+        result = meta.cv[xL:xH, yL:yH, zL:zH]
+    return result
