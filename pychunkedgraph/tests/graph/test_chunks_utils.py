@@ -125,9 +125,107 @@ class TestNormalizeBoundingBox:
         assert chunk_utils.normalize_bounding_box(graph.meta, None, False) is None
 
 
+class TestChunksOverlappingBbox:
+    def test_single_chunk(self):
+        result = chunk_utils.chunks_overlapping_bbox(
+            bbox_min=[0, 0, 0], bbox_max=[63, 63, 63], chunk_size=[64, 64, 64]
+        )
+        assert (0, 0, 0) in result
+        assert len(result) == 1
+
+    def test_multiple_chunks(self):
+        result = chunk_utils.chunks_overlapping_bbox(
+            bbox_min=[0, 0, 0], bbox_max=[128, 64, 64], chunk_size=[64, 64, 64]
+        )
+        assert (0, 0, 0) in result
+        assert (1, 0, 0) in result
+        assert len(result) >= 2
+
+    def test_clipping(self):
+        result = chunk_utils.chunks_overlapping_bbox(
+            bbox_min=[10, 10, 10], bbox_max=[60, 60, 60], chunk_size=[64, 64, 64]
+        )
+        assert (0, 0, 0) in result
+        bbox = result[(0, 0, 0)]
+        np.testing.assert_array_equal(bbox[0], [10, 10, 10])
+        np.testing.assert_array_equal(bbox[1], [60, 60, 60])
+
+    def test_multi_chunk_clipping(self):
+        result = chunk_utils.chunks_overlapping_bbox(
+            bbox_min=[30, 0, 0], bbox_max=[100, 64, 64], chunk_size=[64, 64, 64]
+        )
+        # chunk (0,0,0): min clipped to 30, max clipped to 64
+        assert (0, 0, 0) in result
+        assert (1, 0, 0) in result
+        np.testing.assert_array_equal(result[(0, 0, 0)][0], [30, 0, 0])
+
+
+class TestGetNeighbors:
+    def test_inclusive(self):
+        neighbors = chunk_utils.get_neighbors([1, 1, 1], inclusive=True)
+        # 3^3 = 27 including the center
+        assert len(neighbors) == 27
+
+    def test_exclusive(self):
+        neighbors = chunk_utils.get_neighbors([1, 1, 1], inclusive=False)
+        assert len(neighbors) == 26
+        # Center should not be in neighbors
+        has_center = any(np.array_equal(n, [1, 1, 1]) for n in neighbors)
+        assert not has_center
+
+    def test_min_coord_clipping(self):
+        neighbors = chunk_utils.get_neighbors(
+            [0, 0, 0], inclusive=True, min_coord=[0, 0, 0]
+        )
+        # Only non-negative coordinates; the 0,0,0 center has offsets going to -1,-1,-1
+        for n in neighbors:
+            assert np.all(n >= 0)
+
+    def test_max_coord_clipping(self):
+        neighbors = chunk_utils.get_neighbors(
+            [5, 5, 5], inclusive=True, max_coord=[5, 5, 5]
+        )
+        for n in neighbors:
+            assert np.all(n <= 5)
+
+    def test_corner_with_bounds(self):
+        neighbors = chunk_utils.get_neighbors(
+            [0, 0, 0], inclusive=True, min_coord=[0, 0, 0], max_coord=[2, 2, 2]
+        )
+        # Should only include non-negative neighbors
+        for n in neighbors:
+            assert np.all(n >= 0)
+            assert np.all(n <= 2)
+
+
+class TestGetL2ChunkIdsAlongBoundary:
+    def test_basic(self, gen_graph):
+        graph = gen_graph(n_layers=5)
+        coord_a = (0, 0, 0)
+        coord_b = (1, 0, 0)
+        chunk_utils.get_l2chunkids_along_boundary.cache_clear()
+        ids_a, ids_b = chunk_utils.get_l2chunkids_along_boundary(
+            graph.meta, 3, coord_a, coord_b
+        )
+        assert len(ids_a) > 0
+        assert len(ids_b) > 0
+
+    def test_with_padding(self, gen_graph):
+        graph = gen_graph(n_layers=5)
+        coord_a = (0, 0, 0)
+        coord_b = (1, 0, 0)
+        chunk_utils.get_l2chunkids_along_boundary.cache_clear()
+        ids_a, ids_b = chunk_utils.get_l2chunkids_along_boundary(
+            graph.meta, 3, coord_a, coord_b, padding=1
+        )
+        assert len(ids_a) > 0
+        assert len(ids_b) > 0
+
+
 class TestGetBoundingChildrenChunks:
     def test_basic(self, gen_graph):
         graph = gen_graph(n_layers=5)
+        chunk_utils.get_bounding_children_chunks.cache_clear()
         result = chunk_utils.get_bounding_children_chunks(graph.meta, 3, (0, 0, 0), 2)
         assert len(result) > 0
         assert result.shape[1] == 3
