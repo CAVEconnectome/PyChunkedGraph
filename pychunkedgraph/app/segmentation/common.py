@@ -227,7 +227,9 @@ def handle_find_minimal_covering_nodes(table_id, is_binary=True):
         node_queue[layer].clear()
 
     # Return the download list
-    download_list = np.concatenate([np.array(list(v), dtype=np.uint64) for v in download_list.values()])
+    download_list = np.concatenate(
+        [np.array(list(v), dtype=np.uint64) for v in download_list.values()]
+    )
 
     return download_list
 
@@ -474,8 +476,8 @@ def handle_split(table_id):
         )
         overlap_mask = np.isin(sources_remapped, sinks_remapped)
         for sv_to_split in np.unique(sources_remapped[overlap_mask]):
-            _mask0 = sources_remapped[sources_remapped == sv_to_split]
-            _mask1 = sinks_remapped[sinks_remapped == sv_to_split]
+            _mask0 = sources_remapped == sv_to_split
+            _mask1 = sinks_remapped == sv_to_split
             split_supervoxel(
                 cg,
                 sv_to_split,
@@ -643,7 +645,9 @@ def all_user_operations(
     target_user_id = request.args.get("user_id", None)
 
     start_time = _parse_timestamp("start_time", 0, return_datetime=True)
-    end_time = _parse_timestamp("end_time", datetime.now(timezone.utc), return_datetime=True)
+    end_time = _parse_timestamp(
+        "end_time", datetime.now(timezone.utc), return_datetime=True
+    )
     # Call ChunkedGraph
     cg = app_utils.get_cg(table_id)
 

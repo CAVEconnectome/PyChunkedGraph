@@ -18,6 +18,7 @@ from pychunkedgraph.graph.exceptions import (
     ServerError,
     InternalServerError,
     GatewayTimeout,
+    SupervoxelSplitRequiredError,
 )
 
 
@@ -68,3 +69,26 @@ class TestExceptionHierarchy:
 
     def test_gateway_timeout(self):
         assert GatewayTimeout.status_code == GATEWAY_TIMEOUT
+
+
+class TestSupervoxelSplitRequiredError:
+    def test_inherits_chunkedgraph_error(self):
+        assert issubclass(SupervoxelSplitRequiredError, ChunkedGraphError)
+
+    def test_stores_sv_remapping(self):
+        remap = {1: 10, 2: 20}
+        err = SupervoxelSplitRequiredError("split needed", remap)
+        assert err.sv_remapping == remap
+        assert str(err) == "split needed"
+
+    def test_stores_operation_id(self):
+        err = SupervoxelSplitRequiredError("msg", {}, operation_id=42)
+        assert err.operation_id == 42
+
+    def test_operation_id_default_none(self):
+        err = SupervoxelSplitRequiredError("msg", {})
+        assert err.operation_id is None
+
+    def test_can_be_caught_as_chunkedgraph_error(self):
+        with pytest.raises(ChunkedGraphError):
+            raise SupervoxelSplitRequiredError("test", {1: 2})

@@ -56,10 +56,11 @@ def _get_whole_sv(
         mask = _cx_edges[:, 0] == vertex
         neighbors = _cx_edges[mask][:, 1]
 
-        neighbor_coords = cg.get_chunk_coordinates_multiple(neighbors)
-        min_mask = (neighbor_coords >= min_coord).all(axis=1)
-        max_mask = (neighbor_coords < max_coord).all(axis=1)
-        neighbors = neighbors[min_mask & max_mask]
+        if len(neighbors) > 0:
+            neighbor_coords = cg.get_chunk_coordinates_multiple(neighbors)
+            min_mask = (neighbor_coords >= min_coord).all(axis=1)
+            max_mask = (neighbor_coords < max_coord).all(axis=1)
+            neighbors = neighbors[min_mask & max_mask]
 
         for neighbor in neighbors:
             if neighbor in explored_nodes:
