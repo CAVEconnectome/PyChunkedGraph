@@ -11,14 +11,11 @@ from typing import Sequence
 
 import numpy as np
 
-from ...graph import attributes
+from ...graph import attributes, basetypes, serializers, get_valid_timestamp
 from ...graph.chunkedgraph import ChunkedGraph
-from ...graph.utils import basetypes
-from ...graph.utils import serializers
 from ...graph.edges import Edges
 from ...graph.edges import EDGE_TYPES
 from ...graph.utils.generic import compute_indices_pandas
-from ...graph.utils.generic import get_valid_timestamp
 from ...graph.utils.flatgraph import build_gt_graph
 from ...graph.utils.flatgraph import connected_components
 

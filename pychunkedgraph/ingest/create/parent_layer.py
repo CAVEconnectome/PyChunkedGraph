@@ -14,15 +14,11 @@ import fastremap
 import numpy as np
 from multiwrapper import multiprocessing_utils as mu
 
-from ...graph import types
-from ...graph import attributes
+from ...graph import types, attributes, basetypes, serializers, get_valid_timestamp
 from ...utils.general import chunked
 from ...graph.utils import flatgraph
-from ...graph.utils import basetypes
-from ...graph.utils import serializers
 from ...graph.chunkedgraph import ChunkedGraph
 from ...graph.edges.utils import concatenate_cross_edge_dicts
-from ...graph.utils.generic import get_valid_timestamp
 from ...graph.utils.generic import filter_failed_node_ids
 from ...graph.chunks.hierarchy import get_children_chunk_coords
 from .cross_edges import get_children_chunk_cross_edges

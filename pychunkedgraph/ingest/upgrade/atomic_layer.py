@@ -8,8 +8,7 @@ from copy import copy
 import fastremap
 import numpy as np
 from pychunkedgraph.graph import ChunkedGraph, types
-from pychunkedgraph.graph.attributes import Connectivity, Hierarchy
-from pychunkedgraph.graph.utils import serializers
+from pychunkedgraph.graph import attributes, serializers
 from pychunkedgraph.graph.utils.generic import get_parents_at_timestamp
 
 from .utils import fix_corrupt_nodes, get_end_timestamps, get_parent_timestamps
@@ -54,7 +53,7 @@ def update_cross_edges(
             )
             layer_edges[:, 0] = node
             layer_edges = np.unique(layer_edges, axis=0)
-            col = Connectivity.CrossChunkEdge[layer]
+            col = attributes.Connectivity.CrossChunkEdge[layer]
             val_dict[col] = layer_edges
         row_id = serializers.serialize_uint64(node)
         rows.append(cg.client.mutate_row(row_id, val_dict, time_stamp=ts))
@@ -90,7 +89,7 @@ def update_nodes(cg: ChunkedGraph, nodes, nodes_ts, children_map=None) -> list:
         if is_stale:
             end_ts -= timedelta(milliseconds=1)
             row_id = serializers.serialize_uint64(node)
-            val_dict = {Hierarchy.StaleTimeStamp: 0}
+            val_dict = {attributes.Hierarchy.StaleTimeStamp: 0}
             rows.append(cg.client.mutate_row(row_id, val_dict, time_stamp=end_ts))
 
         if not _cx_edges_d:
@@ -130,9 +129,9 @@ def update_chunk(cg: ChunkedGraph, chunk_coords: list[int]):
     corrupt_nodes = []
     for k, v in rr.items():
         try:
-            CHILDREN[k] = v[Hierarchy.Child][0].value
-            ts = v[Hierarchy.Child][0].timestamp
-            _ = v[Hierarchy.Parent]
+            CHILDREN[k] = v[attributes.Hierarchy.Child][0].value
+            ts = v[attributes.Hierarchy.Child][0].timestamp
+            _ = v[attributes.Hierarchy.Parent]
             nodes.append(k)
             nodes_ts.append(earliest_ts if ts < earliest_ts else ts)
         except KeyError:

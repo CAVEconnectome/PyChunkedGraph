@@ -9,7 +9,7 @@ from datetime import datetime
 
 import numpy as np
 
-from . import basetypes
+from pychunkedgraph.graph import basetypes
 from ..meta import ChunkedGraphMeta
 from ..chunks import utils as chunk_utils
 
@@ -20,7 +20,7 @@ def get_segment_id_limit(
     """Get maximum possible Segment ID for given Node ID or Chunk ID."""
     layer = chunk_utils.get_chunk_layer(meta, node_or_chunk_id)
     chunk_offset = 64 - meta.graph_config.LAYER_ID_BITS - 3 * meta.bitmasks[layer]
-    return np.uint64(2 ** chunk_offset - 1)
+    return np.uint64(2**chunk_offset - 1)
 
 
 def get_segment_id(
@@ -60,8 +60,8 @@ def get_atomic_id_from_coord(
     time_stamp: Optional[datetime] = None,
 ) -> np.uint64:
     """Determines atomic id given a coordinate."""
-    x = int(x / 2 ** meta.data_source.CV_MIP)
-    y = int(y / 2 ** meta.data_source.CV_MIP)
+    x = int(x / 2**meta.data_source.CV_MIP)
+    y = int(y / 2**meta.data_source.CV_MIP)
     z = int(z)
 
     checked = []
@@ -161,7 +161,7 @@ def get_atomic_ids_from_coords(
         local_sv_ids,
         time_stamp=parent_ts,
         stop_layer=parent_id_layer,
-        fail_to_zero=True
+        fail_to_zero=True,
     )
 
     local_parent_seg = fastremap.remap(

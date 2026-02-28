@@ -16,7 +16,7 @@ import numpy as np
 
 from . import Edges
 from . import EDGE_TYPES
-from ..utils import basetypes
+from pychunkedgraph.graph import basetypes
 from ..chunks import utils as chunk_utils
 from ..meta import ChunkedGraphMeta
 from ...utils.general import in2d

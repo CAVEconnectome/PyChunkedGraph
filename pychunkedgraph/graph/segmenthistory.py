@@ -6,8 +6,8 @@ import numpy as np
 import fastremap
 from networkx.algorithms.dag import ancestors as nx_ancestors
 
-from .attributes import OperationLogs
-from .utils import basetypes
+from pychunkedgraph.graph import attributes
+from pychunkedgraph.graph import basetypes
 
 
 class SegmentHistory:
@@ -379,11 +379,11 @@ class LogEntry:
 
     @property
     def is_merge(self):
-        return OperationLogs.AddedEdge in self.row
+        return attributes.OperationLogs.AddedEdge in self.row
 
     @property
     def user_id(self):
-        return self.row[OperationLogs.UserID]
+        return self.row[attributes.OperationLogs.UserID]
 
     @property
     def log_type(self):
@@ -391,7 +391,7 @@ class LogEntry:
 
     @property
     def root_ids(self):
-        return self.row[OperationLogs.RootID]
+        return self.row[attributes.OperationLogs.RootID]
 
     @property
     def edges_failsafe(self):
@@ -407,27 +407,27 @@ class LogEntry:
     def sink_source_ids(self):
         return np.concatenate(
             [
-                self.row[OperationLogs.SinkID],
-                self.row[OperationLogs.SourceID],
+                self.row[attributes.OperationLogs.SinkID],
+                self.row[attributes.OperationLogs.SourceID],
             ]
         )
 
     @property
     def added_edges(self):
         assert self.is_merge, "Not a merge operation."
-        return self.row[OperationLogs.AddedEdge]
+        return self.row[attributes.OperationLogs.AddedEdge]
 
     @property
     def removed_edges(self):
         assert not self.is_merge, "Not a split operation."
-        return self.row[OperationLogs.RemovedEdge]
+        return self.row[attributes.OperationLogs.RemovedEdge]
 
     @property
     def coordinates(self):
         return np.array(
             [
-                self.row[OperationLogs.SourceCoordinate],
-                self.row[OperationLogs.SinkCoordinate],
+                self.row[attributes.OperationLogs.SourceCoordinate],
+                self.row[attributes.OperationLogs.SinkCoordinate],
             ]
         )
 

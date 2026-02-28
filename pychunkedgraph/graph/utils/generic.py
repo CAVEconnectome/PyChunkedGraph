@@ -15,7 +15,6 @@ from collections import defaultdict
 
 import numpy as np
 import pandas as pd
-import pytz
 
 from ..chunks import utils as chunk_utils
 
@@ -75,36 +74,6 @@ def compute_bitmasks(n_layers: int, s_bits_atomic_layer: int = 8) -> Dict[int, i
     return bitmask_dict
 
 
-def get_max_time():
-    """Returns the (almost) max time in datetime.datetime
-    :return: datetime.datetime
-    """
-    return datetime.datetime(9999, 12, 31, 23, 59, 59, 0)
-
-
-def get_min_time():
-    """Returns the min time in datetime.datetime
-    :return: datetime.datetime
-    """
-    return datetime.datetime.strptime("01/01/00 00:00", "%d/%m/%y %H:%M")
-
-
-def time_min():
-    """Returns a minimal time stamp that still works with google
-    :return: datetime.datetime
-    """
-    return datetime.datetime.strptime("01/01/00 00:00", "%d/%m/%y %H:%M")
-
-
-def get_valid_timestamp(timestamp):
-    if timestamp is None:
-        timestamp = datetime.datetime.now(datetime.timezone.utc)
-    if timestamp.tzinfo is None:
-        timestamp = pytz.UTC.localize(timestamp)
-    # Comply to resolution of BigTables TimeRange
-    return _get_google_compatible_time_stamp(timestamp, round_up=False)
-
-
 def get_bounding_box(
     source_coords: Sequence[Sequence[int]],
     sink_coords: Sequence[Sequence[int]],
@@ -135,27 +104,6 @@ def filter_failed_node_ids(row_ids, segment_ids, max_children_ids):
         max_child_ids_occ_so_far[i_row] = counter[max_child_ids[i_row]]
         counter[max_child_ids[i_row]] += 1
     return row_ids[max_child_ids_occ_so_far == 0]
-
-
-def _get_google_compatible_time_stamp(
-    time_stamp: datetime.datetime, round_up: bool = False
-) -> datetime.datetime:
-    """Makes a datetime.datetime time stamp compatible with googles' services.
-    Google restricts the accuracy of time stamps to milliseconds. Hence, the
-    microseconds are cut of. By default, time stamps are rounded to the lower
-    number.
-    :param time_stamp: datetime.datetime
-    :param round_up: bool
-    :return: datetime.datetime
-    """
-    micro_s_gap = datetime.timedelta(microseconds=time_stamp.microsecond % 1000)
-    if micro_s_gap == 0:
-        return time_stamp
-    if round_up:
-        time_stamp += datetime.timedelta(microseconds=1000) - micro_s_gap
-    else:
-        time_stamp -= micro_s_gap
-    return time_stamp
 
 
 def mask_nodes_by_bounding_box(

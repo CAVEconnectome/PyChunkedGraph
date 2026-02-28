@@ -10,28 +10,29 @@ from typing import List
 from typing import Type
 from typing import Tuple
 from typing import Union
+from typing import Any
 from typing import Optional
 from typing import Sequence
 from functools import reduce
 
 import numpy as np
-from google.cloud import bigtable
 
 logger = logging.getLogger(__name__)
 
 from . import locks
 from . import edits
 from . import types
-from . import attributes
+from pychunkedgraph.graph import attributes
 from .edges import Edges
 from .edges.utils import get_edges_status
-from .utils import basetypes
-from .utils import serializers
+from pychunkedgraph.graph import basetypes
+from pychunkedgraph.graph import serializers
 from .cache import CacheService
 from .cutting import run_multicut
 from .exceptions import PreconditionError
 from .exceptions import PostconditionError
-from .utils.generic import get_bounding_box as get_bbox, get_valid_timestamp
+from .utils.generic import get_bounding_box as get_bbox
+from pychunkedgraph.graph import get_valid_timestamp
 from ..logging.log_db import TimeIt
 
 if TYPE_CHECKING:
@@ -365,10 +366,10 @@ class GraphEditOperation(ABC):
     @abstractmethod
     def _apply(
         self, *, operation_id, timestamp
-    ) -> Tuple[np.ndarray, np.ndarray, List["bigtable.row.Row"]]:
+    ) -> Tuple[np.ndarray, np.ndarray, List[Any]]:
         """Initiates the graph operation calculation.
         :return: New root IDs, new Lvl2 node IDs, and affected records
-        :rtype: Tuple[np.ndarray, np.ndarray, List["bigtable.row.Row"]]
+        :rtype: Tuple[np.ndarray, np.ndarray, List[Any]]
         """
 
     @abstractmethod
@@ -381,11 +382,11 @@ class GraphEditOperation(ABC):
         new_root_ids,
         status=1,
         exception="",
-    ) -> "bigtable.row.Row":
+    ) -> Any:
         """Creates a log record with all necessary information to replay the current
             GraphEditOperation
         :return: Bigtable row containing the log record
-        :rtype: bigtable.row.Row
+        :rtype: row mutation object
         """
 
     @abstractmethod
@@ -623,7 +624,7 @@ class MergeOperation(GraphEditOperation):
 
     def _apply(
         self, *, operation_id, timestamp
-    ) -> Tuple[np.ndarray, np.ndarray, List["bigtable.row.Row"]]:
+    ) -> Tuple[np.ndarray, np.ndarray, List[Any]]:
         root_ids = set(
             self.cg.get_roots(
                 self.added_edges.ravel(), assert_roots=True, time_stamp=self.parent_ts
@@ -683,7 +684,7 @@ class MergeOperation(GraphEditOperation):
         new_root_ids: Sequence[np.uint64],
         status: int = 1,
         exception: str = "",
-    ) -> "bigtable.row.Row":
+    ) -> Any:
         val_dict = {
             attributes.OperationLogs.UserID: self.user_id,
             attributes.OperationLogs.RootID: new_root_ids,
@@ -768,7 +769,7 @@ class SplitOperation(GraphEditOperation):
 
     def _apply(
         self, *, operation_id, timestamp
-    ) -> Tuple[np.ndarray, np.ndarray, List["bigtable.row.Row"]]:
+    ) -> Tuple[np.ndarray, np.ndarray, List[Any]]:
         if (
             len(
                 set(
@@ -802,7 +803,7 @@ class SplitOperation(GraphEditOperation):
         new_root_ids: Sequence[np.uint64],
         status: int = 1,
         exception: str = "",
-    ) -> "bigtable.row.Row":
+    ) -> Any:
         val_dict = {
             attributes.OperationLogs.UserID: self.user_id,
             attributes.OperationLogs.RootID: new_root_ids,
@@ -912,7 +913,7 @@ class MulticutOperation(GraphEditOperation):
 
     def _apply(
         self, *, operation_id, timestamp
-    ) -> Tuple[np.ndarray, np.ndarray, List["bigtable.row.Row"]]:
+    ) -> Tuple[np.ndarray, np.ndarray, List[Any]]:
         # Verify that sink and source are from the same root object
         root_ids = set(
             self.cg.get_roots(
@@ -976,7 +977,7 @@ class MulticutOperation(GraphEditOperation):
         new_root_ids: Sequence[np.uint64],
         status: int = 1,
         exception: str = "",
-    ) -> "bigtable.row.Row":
+    ) -> Any:
         val_dict = {
             attributes.OperationLogs.UserID: self.user_id,
             attributes.OperationLogs.RootID: new_root_ids,
@@ -1072,7 +1073,7 @@ class RedoOperation(GraphEditOperation):
 
     def _apply(
         self, *, operation_id, timestamp
-    ) -> Tuple[np.ndarray, np.ndarray, List["bigtable.row.Row"]]:
+    ) -> Tuple[np.ndarray, np.ndarray, List[Any]]:
         return self.superseded_operation._apply(
             operation_id=operation_id, timestamp=timestamp
         )
@@ -1086,7 +1087,7 @@ class RedoOperation(GraphEditOperation):
         new_root_ids: Sequence[np.uint64],
         status: int = 1,
         exception: str = "",
-    ) -> "bigtable.row.Row":
+    ) -> Any:
         val_dict = {
             attributes.OperationLogs.UserID: self.user_id,
             attributes.OperationLogs.RedoOperationID: self.superseded_operation_id,
@@ -1205,7 +1206,7 @@ class UndoOperation(GraphEditOperation):
 
     def _apply(
         self, *, operation_id, timestamp
-    ) -> Tuple[np.ndarray, np.ndarray, List["bigtable.row.Row"]]:
+    ) -> Tuple[np.ndarray, np.ndarray, List[Any]]:
         if isinstance(self.inverse_superseded_operation, MergeOperation):
             return edits.add_edges(
                 self.inverse_superseded_operation.cg,
@@ -1228,7 +1229,7 @@ class UndoOperation(GraphEditOperation):
         new_root_ids: Sequence[np.uint64],
         status: int = 1,
         exception: str = "",
-    ) -> "bigtable.row.Row":
+    ) -> Any:
         val_dict = {
             attributes.OperationLogs.UserID: self.user_id,
             attributes.OperationLogs.UndoOperationID: self.superseded_operation_id,

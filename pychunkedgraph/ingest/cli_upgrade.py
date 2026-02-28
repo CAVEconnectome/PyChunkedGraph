@@ -63,7 +63,7 @@ def upgrade_graph(graph_id: str, test: bool, ocdbt: bool):
     redis.set(r_keys.JOB_TYPE, group_name)
     ingest_config = IngestConfig(TEST_RUN=test)
     cg = ChunkedGraph(graph_id=graph_id)
-    cg.client.add_graph_version(__version__, overwrite=True)
+    cg.client.add_table_version(__version__, overwrite=True)
 
     if graph_id != cg.graph_id:
         gc = cg.meta.graph_config._asdict()
@@ -76,8 +76,7 @@ def upgrade_graph(graph_id: str, test: bool, ocdbt: bool):
 
     try:
         # create new column family for cross chunk edges
-        f = cg.client._table.column_family("4")
-        f.create()
+        cg.client.create_column_family("4")
     except Exception:
         ...
 
@@ -99,7 +98,7 @@ def upgrade_graph(graph_id: str, test: bool, ocdbt: bool):
 @click.argument("parent_layer", type=int)
 @click.option("--splits", default=0, help="Split chunks into multiple tasks.")
 @job_type_guard(group_name)
-def queue_layer(parent_layer:int, splits:int=0):
+def queue_layer(parent_layer: int, splits: int = 0):
     """
     Queue all chunk tasks at a given layer.
     Must be used when all the chunks at `parent_layer - 1` have completed.

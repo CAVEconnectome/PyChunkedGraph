@@ -16,7 +16,7 @@ from ..meshgen_utils import get_mesh_name
 from ..meshgen_utils import get_json_info
 from ...graph import ChunkedGraph
 from ...graph.types import empty_1d
-from ...graph.utils.basetypes import NODE_ID
+from ...graph.basetypes import NODE_ID
 from ...graph.utils import generic as misc_utils
 
 

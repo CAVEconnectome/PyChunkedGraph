@@ -11,17 +11,19 @@ from pychunkedgraph import __version__
 
 from . import types
 from . import operation
-from . import attributes
+from pychunkedgraph.graph import attributes
 from . import exceptions
-from .client import base
-from .client import BigTableClient
-from .client import BackendClientInfo
-from .client import get_default_client_info
+from pychunkedgraph.graph import client_base as base
+from pychunkedgraph.graph import BackendClientInfo
+from pychunkedgraph.graph import ClientType
+from pychunkedgraph.graph import get_client_class
+from pychunkedgraph.graph import get_default_client_info
 from .cache import CacheService
 from .meta import ChunkedGraphMeta, GraphConfig
-from .utils import basetypes
+from pychunkedgraph.graph import basetypes
 from .utils import id_helpers
-from .utils import serializers
+from pychunkedgraph.graph import serializers
+from pychunkedgraph.graph import get_valid_timestamp
 from .utils import generic as misc_utils
 from .edges import Edges
 from .edges import utils as edge_utils
@@ -48,21 +50,24 @@ class ChunkedGraph:
         3. Existing graphs in other projects/clients,
            Requires `graph_id` and `client_info`.
         """
-        # create client based on type
-        # for now, just use BigTableClient
+        ClientClass = get_client_class(client_info.TYPE)
 
         if meta:
             graph_id = meta.graph_config.ID_PREFIX + meta.graph_config.ID
-            bt_client = BigTableClient(
-                graph_id, config=client_info.CONFIG, graph_meta=meta
+            _client = ClientClass(
+                graph_id,
+                config=client_info.CONFIG,
+                table_meta=meta,
+                lock_expiry=meta.graph_config.ROOT_LOCK_EXPIRY,
             )
             self._meta = meta
         else:
-            bt_client = BigTableClient(graph_id, config=client_info.CONFIG)
-            self._meta = bt_client.read_graph_meta()
+            _client = ClientClass(graph_id, config=client_info.CONFIG)
+            self._meta = _client.read_table_meta()
+            _client._lock_expiry = self._meta.graph_config.ROOT_LOCK_EXPIRY
 
-        self._client = bt_client
-        self._id_client = bt_client
+        self._client = _client
+        self._id_client = _client
         self._cache_service = None
         self.mock_edges = None  # hack for unit tests
 
@@ -86,10 +91,10 @@ class ChunkedGraph:
 
     @property
     def version(self) -> str:
-        return self.client.read_graph_version()
+        return self.client.read_table_version()
 
     @property
-    def client(self) -> BigTableClient:
+    def client(self) -> ClientType:
         return self._client
 
     @property
@@ -110,11 +115,11 @@ class ChunkedGraph:
 
     def create(self):
         """Creates the graph in storage client and stores meta."""
-        self._client.create_graph(self._meta, version=__version__)
+        self._client.create_table(self._meta, version=__version__)
 
     def update_meta(self, meta: ChunkedGraphMeta, overwrite: bool):
         """Update meta of an already existing graph."""
-        self.client.update_graph_meta(meta, overwrite=overwrite)
+        self.client.update_table_meta(meta, overwrite=overwrite)
 
     def range_read_chunk(
         self,
@@ -207,7 +212,7 @@ class ChunkedGraph:
         Else all parents along with timestamps.
         """
         if raw_only or not self.cache:
-            time_stamp = misc_utils.get_valid_timestamp(time_stamp)
+            time_stamp = get_valid_timestamp(time_stamp)
             parent_rows = self.client.read_nodes(
                 node_ids=node_ids,
                 properties=attributes.Hierarchy.Parent,
@@ -254,7 +259,7 @@ class ChunkedGraph:
         time_stamp: typing.Optional[datetime.datetime] = None,
     ) -> typing.Union[typing.List[typing.Tuple], np.uint64]:
         if raw_only or not self.cache:
-            time_stamp = misc_utils.get_valid_timestamp(time_stamp)
+            time_stamp = get_valid_timestamp(time_stamp)
             parents = self.client.read_node(
                 node_id,
                 properties=attributes.Hierarchy.Parent,
@@ -347,7 +352,7 @@ class ChunkedGraph:
         Returns cross edges for `node_ids`.
         A dict of the form `{node_id: {layer: cross_edges}}`.
         """
-        time_stamp = misc_utils.get_valid_timestamp(time_stamp)
+        time_stamp = get_valid_timestamp(time_stamp)
         if raw_only or not self.cache:
             result = {}
             node_ids = np.array(node_ids, dtype=basetypes.NODE_ID)
@@ -395,7 +400,7 @@ class ChunkedGraph:
         When `assert_roots=False`, returns highest available IDs and
         cases where there are no root IDs are silently ignored.
         """
-        time_stamp = misc_utils.get_valid_timestamp(time_stamp)
+        time_stamp = get_valid_timestamp(time_stamp)
         stop_layer = self.meta.layer_count if not stop_layer else stop_layer
         assert stop_layer <= self.meta.layer_count
         layer_mask = np.ones(len(node_ids), dtype=bool)
@@ -472,7 +477,7 @@ class ChunkedGraph:
         n_tries: int = 1,
     ) -> typing.Union[typing.List[np.uint64], np.uint64]:
         """Takes a node id and returns the associated agglomeration ids."""
-        time_stamp = misc_utils.get_valid_timestamp(time_stamp)
+        time_stamp = get_valid_timestamp(time_stamp)
         parent_id = node_id
         all_parent_ids = []
         stop_layer = self.meta.layer_count if not stop_layer else stop_layer
@@ -527,7 +532,7 @@ class ChunkedGraph:
         time_stamp: typing.Optional[datetime.datetime] = None,
     ) -> typing.Iterable:
         """Determines whether root ids are superseded."""
-        time_stamp = misc_utils.get_valid_timestamp(time_stamp)
+        time_stamp = get_valid_timestamp(time_stamp)
 
         row_dict = self.client.read_nodes(
             node_ids=root_ids,
@@ -1028,9 +1033,9 @@ class ChunkedGraph:
             if timestamp is not None:
                 return timestamp - timedelta(milliseconds=500)
             if _log:
-                return self.client._read_byte_row(serializers.serialize_uint64(op_id))[
-                    attributes.OperationLogs.Status
-                ][-1].timestamp
+                return self.client.read_node(
+                    op_id, properties=attributes.OperationLogs.Status
+                )[-1].timestamp
 
     def get_operation_ids(self, node_ids: typing.Sequence):
         response = self.client.read_nodes(node_ids=node_ids)

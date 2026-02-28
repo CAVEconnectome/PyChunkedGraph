@@ -5,16 +5,16 @@ from datetime import datetime, timedelta
 
 import numpy as np
 from pychunkedgraph.graph import ChunkedGraph
-from pychunkedgraph.graph.attributes import Hierarchy
-from pychunkedgraph.graph.utils import serializers
-from google.cloud.bigtable.row_filters import TimestampRange
+from pychunkedgraph.graph import attributes, serializers
 
 
 def exists_as_parent(cg: ChunkedGraph, parent, nodes) -> bool:
     """
     Check if a given l2 parent is in the history of given nodes.
     """
-    response = cg.client.read_nodes(node_ids=nodes, properties=Hierarchy.Parent)
+    response = cg.client.read_nodes(
+        node_ids=nodes, properties=attributes.Hierarchy.Parent
+    )
     parents = set()
     for cells in response.values():
         parents.update([cell.value for cell in cells])
@@ -37,7 +37,9 @@ def get_edit_timestamps(cg: ChunkedGraph, edges_d, start_ts, end_ts) -> list:
 
 def _get_end_timestamps_helper(cg: ChunkedGraph, nodes: list) -> defaultdict[int, set]:
     result = defaultdict(set)
-    response = cg.client.read_nodes(node_ids=nodes, properties=Hierarchy.StaleTimeStamp)
+    response = cg.client.read_nodes(
+        node_ids=nodes, properties=attributes.Hierarchy.StaleTimeStamp
+    )
     for k, v in response.items():
         result[k].add(v[0].timestamp)
     return result
@@ -92,7 +94,7 @@ def get_parent_timestamps(
     earliest_ts = cg.get_earliest_timestamp()
     response = cg.client.read_nodes(
         node_ids=nodes,
-        properties=[Hierarchy.Parent],
+        properties=[attributes.Hierarchy.Parent],
         start_time=start_time,
         end_time=end_time,
         end_time_inclusive=False,
@@ -100,7 +102,7 @@ def get_parent_timestamps(
 
     result = defaultdict(set)
     for k, v in response.items():
-        for cell in v[Hierarchy.Parent]:
+        for cell in v[attributes.Hierarchy.Parent]:
             ts = cell.timestamp
             result[k].add(earliest_ts if ts < earliest_ts else ts)
     return result
@@ -111,27 +113,27 @@ def fix_corrupt_nodes(cg: ChunkedGraph, nodes: list, children_d: dict):
     For each node: delete it from parent column of its children.
     Then deletes the node itself, effectively erasing it from hierarchy.
     """
-    table = cg.client._table
-    batcher = table.mutations_batcher(flush_count=500)
+    mutations = []
+    row_keys_to_delete = []
     for node in nodes:
         children = children_d[node]
-        _map = cg.client.read_nodes(node_ids=children, properties=Hierarchy.Parent)
+        _map = cg.client.read_nodes(
+            node_ids=children, properties=attributes.Hierarchy.Parent
+        )
 
         for child, parent_cells in _map.items():
-            row = table.direct_row(serializers.serialize_uint64(child))
-            for cell in parent_cells:
-                if cell.value == node:
-                    start = cell.timestamp
-                    end = start + timedelta(microseconds=1)
-                    row.delete_cell(
-                        column_family_id=Hierarchy.Parent.family_id,
-                        column=Hierarchy.Parent.key,
-                        time_range=TimestampRange(start=start, end=end),
+            timestamps_to_delete = [
+                cell.timestamp for cell in parent_cells if cell.value == node
+            ]
+            if timestamps_to_delete:
+                mutations.append(
+                    (
+                        serializers.serialize_uint64(child),
+                        attributes.Hierarchy.Parent,
+                        timestamps_to_delete,
                     )
-                    batcher.mutate(row)
+                )
+        row_keys_to_delete.append(serializers.serialize_uint64(node))
 
-        row = table.direct_row(serializers.serialize_uint64(node))
-        row.delete()
-        batcher.mutate(row)
-
-    batcher.flush()
+    if mutations or row_keys_to_delete:
+        cg.client.delete_cells(mutations, row_keys_to_delete=row_keys_to_delete)

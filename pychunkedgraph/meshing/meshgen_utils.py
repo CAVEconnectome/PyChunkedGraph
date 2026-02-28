@@ -12,7 +12,7 @@ from cloudvolume import CloudVolume
 from cloudvolume.lib import Vec
 from multiwrapper import multiprocessing_utils as mu
 
-from pychunkedgraph.graph.utils.basetypes import NODE_ID  # noqa
+from pychunkedgraph.graph.basetypes import NODE_ID  # noqa
 from ..graph.types import empty_1d
 
 

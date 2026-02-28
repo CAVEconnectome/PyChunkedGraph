@@ -9,9 +9,8 @@ from typing import Dict
 import numpy as np
 from multiwrapper.multiprocessing_utils import multiprocess_func
 
-from ...graph import attributes
+from ...graph import attributes, basetypes
 from ...graph.types import empty_2d
-from ...graph.utils import basetypes
 from ...graph.chunkedgraph import ChunkedGraph
 from ...graph.utils.generic import filter_failed_node_ids
 from ...graph.chunks.atomic import get_touching_atomic_chunks
@@ -63,7 +62,9 @@ def _get_children_chunk_cross_edges_helper(args) -> None:
     edge_ids_shared.append(_get_children_chunk_cross_edges(cg, atomic_chunks, layer))
 
 
-def _get_children_chunk_cross_edges(cg: ChunkedGraph, atomic_chunks, layer) -> np.ndarray:
+def _get_children_chunk_cross_edges(
+    cg: ChunkedGraph, atomic_chunks, layer
+) -> np.ndarray:
     """
     Non parallelized version
     Cross edges that connect children chunks.

@@ -2,6 +2,7 @@
 """
 Cache nodes, parents, children and cross edges.
 """
+
 import traceback
 from collections import defaultdict as defaultd
 from sys import maxsize
@@ -13,7 +14,7 @@ from cachetools import LRUCache
 import numpy as np
 
 
-from .utils.basetypes import NODE_ID
+from pychunkedgraph.graph import basetypes
 
 
 def update(cache, keys, vals):
@@ -148,7 +149,9 @@ class CacheService:
         @cached(cache=self.cross_chunk_edges_cache, key=lambda node_id: node_id)
         def cross_edges_decorated(node_id):
             edges = self._cg.get_cross_chunk_edges(
-                np.array([node_id], dtype=NODE_ID), raw_only=True, time_stamp=time_stamp
+                np.array([node_id], dtype=basetypes.NODE_ID),
+                raw_only=True,
+                time_stamp=time_stamp,
             )
             return edges[node_id]
 
@@ -161,11 +164,13 @@ class CacheService:
         time_stamp: datetime = None,
         fail_to_zero: bool = False,
     ):
-        node_ids = np.asarray(node_ids, dtype=NODE_ID)
+        node_ids = np.asarray(node_ids, dtype=basetypes.NODE_ID)
         if not node_ids.size:
             return node_ids
         self.stats["parents"]["calls"] += 1
-        mask = np.isin(node_ids, np.fromiter(self.parents_cache.keys(), dtype=NODE_ID))
+        mask = np.isin(
+            node_ids, np.fromiter(self.parents_cache.keys(), dtype=basetypes.NODE_ID)
+        )
         hits = int(np.sum(mask))
         misses = len(node_ids) - hits
         self.stats["parents"]["hits"] += hits
@@ -185,11 +190,13 @@ class CacheService:
 
     def children_multiple(self, node_ids: np.ndarray, *, flatten=False):
         result = {}
-        node_ids = np.asarray(node_ids, dtype=NODE_ID)
+        node_ids = np.asarray(node_ids, dtype=basetypes.NODE_ID)
         if not node_ids.size:
             return result
         self.stats["children"]["calls"] += 1
-        mask = np.isin(node_ids, np.fromiter(self.children_cache.keys(), dtype=NODE_ID))
+        mask = np.isin(
+            node_ids, np.fromiter(self.children_cache.keys(), dtype=basetypes.NODE_ID)
+        )
         hits = int(np.sum(mask))
         misses = len(node_ids) - hits
         self.stats["children"]["hits"] += hits
@@ -209,12 +216,13 @@ class CacheService:
         self, node_ids: np.ndarray, *, time_stamp: datetime = None
     ):
         result = {}
-        node_ids = np.asarray(node_ids, dtype=NODE_ID)
+        node_ids = np.asarray(node_ids, dtype=basetypes.NODE_ID)
         if not node_ids.size:
             return result
         self.stats["cross_chunk_edges"]["calls"] += 1
         mask = np.isin(
-            node_ids, np.fromiter(self.cross_chunk_edges_cache.keys(), dtype=NODE_ID)
+            node_ids,
+            np.fromiter(self.cross_chunk_edges_cache.keys(), dtype=basetypes.NODE_ID),
         )
         hits = int(np.sum(mask))
         misses = len(node_ids) - hits

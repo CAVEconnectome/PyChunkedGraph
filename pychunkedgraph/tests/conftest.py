@@ -24,9 +24,20 @@ from .helpers import (
     to_label,
     get_layer_chunk_bounds,
 )
+from .hbase_mock_server import start_hbase_mock_server
 
 _emulator_proc = None
 _emulator_cleaned = False
+
+
+def _delete_test_table(graph, backend="bigtable"):
+    """Test-only: delete the backing table for cleanup."""
+    if backend == "bigtable":
+        graph.client._admin_table.delete()
+    else:
+        resp = graph.client._session.delete(graph.client._table_url("/schema"))
+        if resp.status_code not in (200, 404):
+            resp.raise_for_status()
 
 
 def _cleanup_emulator():
@@ -118,9 +129,40 @@ def bigtable_emulator(request):
     request.addfinalizer(_cleanup_emulator)
 
 
-@pytest.fixture(scope="function")
-def gen_graph(request):
+@pytest.fixture(scope="session")
+def hbase_emulator():
+    """Start an in-process mock HBase REST server for the session."""
+    _data, server, port = start_hbase_mock_server()
+    yield port
+    server.shutdown()
+
+
+@pytest.fixture(scope="function", params=["bigtable", "hbase"])
+def gen_graph(request, bigtable_emulator, hbase_emulator):
+    backend = request.param
+
     def _cgraph(request, n_layers=10, atomic_chunk_bounds: np.ndarray = np.array([])):
+        if backend == "bigtable":
+            backend_client = {
+                "TYPE": "bigtable",
+                "CONFIG": {
+                    "ADMIN": True,
+                    "READ_ONLY": False,
+                    "PROJECT": "IGNORE_ENVIRONMENT_PROJECT",
+                    "INSTANCE": "emulated_instance",
+                    "CREDENTIALS": credentials.AnonymousCredentials(),
+                    "MAX_ROW_KEY_COUNT": 1000,
+                },
+            }
+        else:
+            backend_client = {
+                "TYPE": "hbase",
+                "CONFIG": {
+                    "BASE_URL": f"http://127.0.0.1:{hbase_emulator}",
+                    "MAX_ROW_KEY_COUNT": 1000,
+                },
+            }
+
         config = {
             "data_source": {
                 "EDGES": "gs://chunked-graph/minnie65_0/edges",
@@ -134,17 +176,7 @@ def gen_graph(request):
                 "ID_PREFIX": "",
                 "ROOT_LOCK_EXPIRY": timedelta(seconds=5),
             },
-            "backend_client": {
-                "TYPE": "bigtable",
-                "CONFIG": {
-                    "ADMIN": True,
-                    "READ_ONLY": False,
-                    "PROJECT": "IGNORE_ENVIRONMENT_PROJECT",
-                    "INSTANCE": "emulated_instance",
-                    "CREDENTIALS": credentials.AnonymousCredentials(),
-                    "MAX_ROW_KEY_COUNT": 1000,
-                },
-            },
+            "backend_client": backend_client,
             "ingest_config": {},
         }
 
@@ -159,9 +191,8 @@ def gen_graph(request):
 
         graph.create()
 
-        # setup Chunked Graph - Finalizer
         def fin():
-            graph.client._table.delete()
+            _delete_test_table(graph, backend)
 
         request.addfinalizer(fin)
         return graph
@@ -169,13 +200,36 @@ def gen_graph(request):
     return partial(_cgraph, request)
 
 
-@pytest.fixture(scope="function")
-def gen_graph_with_edges(request, tmp_path):
+@pytest.fixture(scope="function", params=["bigtable", "hbase"])
+def gen_graph_with_edges(request, tmp_path, bigtable_emulator, hbase_emulator):
     """Like gen_graph but with real edge/component I/O via local filesystem (file:// protocol)."""
+    backend = request.param
 
     def _cgraph(request, n_layers=10, atomic_chunk_bounds: np.ndarray = np.array([])):
         edges_dir = f"file://{tmp_path}/edges"
         components_dir = f"file://{tmp_path}/components"
+
+        if backend == "bigtable":
+            backend_client = {
+                "TYPE": "bigtable",
+                "CONFIG": {
+                    "ADMIN": True,
+                    "READ_ONLY": False,
+                    "PROJECT": "IGNORE_ENVIRONMENT_PROJECT",
+                    "INSTANCE": "emulated_instance",
+                    "CREDENTIALS": credentials.AnonymousCredentials(),
+                    "MAX_ROW_KEY_COUNT": 1000,
+                },
+            }
+        else:
+            backend_client = {
+                "TYPE": "hbase",
+                "CONFIG": {
+                    "BASE_URL": f"http://127.0.0.1:{hbase_emulator}",
+                    "MAX_ROW_KEY_COUNT": 1000,
+                },
+            }
+
         config = {
             "data_source": {
                 "EDGES": edges_dir,
@@ -189,17 +243,7 @@ def gen_graph_with_edges(request, tmp_path):
                 "ID_PREFIX": "",
                 "ROOT_LOCK_EXPIRY": timedelta(seconds=5),
             },
-            "backend_client": {
-                "TYPE": "bigtable",
-                "CONFIG": {
-                    "ADMIN": True,
-                    "READ_ONLY": False,
-                    "PROJECT": "IGNORE_ENVIRONMENT_PROJECT",
-                    "INSTANCE": "emulated_instance",
-                    "CREDENTIALS": credentials.AnonymousCredentials(),
-                    "MAX_ROW_KEY_COUNT": 1000,
-                },
-            },
+            "backend_client": backend_client,
             "ingest_config": {},
         }
 
@@ -215,7 +259,7 @@ def gen_graph_with_edges(request, tmp_path):
         graph.create()
 
         def fin():
-            graph.client._table.delete()
+            _delete_test_table(graph, backend)
 
         request.addfinalizer(fin)
         return graph

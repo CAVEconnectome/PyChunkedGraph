@@ -10,7 +10,7 @@ import fastremap
 import numpy as np
 
 from . import ChunkedGraph
-from . import attributes
+from pychunkedgraph.graph import attributes
 from .edges import Edges
 from .utils import flatgraph
 from .types import Agglomeration

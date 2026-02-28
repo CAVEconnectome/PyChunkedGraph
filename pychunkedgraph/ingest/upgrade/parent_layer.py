@@ -13,13 +13,11 @@ from cachetools import LRUCache
 
 from pychunkedgraph.graph import ChunkedGraph
 from pychunkedgraph.graph.edges import stale, get_latest_edges_wrapper
-from pychunkedgraph.graph.attributes import Connectivity, Hierarchy
-from pychunkedgraph.graph.utils import serializers, basetypes
+from pychunkedgraph.graph import attributes, serializers, basetypes
 from pychunkedgraph.graph.types import empty_2d
 from pychunkedgraph.utils.general import chunked
 
 from .utils import fix_corrupt_nodes, get_end_timestamps, get_parent_timestamps
-
 
 CHILDREN = {}
 CX_EDGES = {}
@@ -37,7 +35,7 @@ def _populate_nodes_and_children(
             if len(v):
                 CHILDREN[k] = v
         return
-    response = cg.range_read_chunk(chunk_id, properties=Hierarchy.Child)
+    response = cg.range_read_chunk(chunk_id, properties=attributes.Hierarchy.Child)
     for k, v in response.items():
         CHILDREN[k] = v[0].value
 
@@ -78,7 +76,10 @@ def _populate_cx_edges_with_timestamps(
 
     start = time.time()
     global CX_EDGES
-    attrs = [Connectivity.CrossChunkEdge[l] for l in range(layer, cg.meta.layer_count)]
+    attrs = [
+        attributes.Connectivity.CrossChunkEdge[l]
+        for l in range(layer, cg.meta.layer_count)
+    ]
     all_children = np.concatenate(list(CHILDREN.values()))
     response = cg.client.read_nodes(node_ids=all_children, properties=attrs)
     timestamps_d = get_parent_timestamps(cg, nodes)
@@ -113,7 +114,7 @@ def _populate_cx_edges_with_timestamps(
 
         if is_stale:
             row_id = serializers.serialize_uint64(node)
-            val_dict = {Hierarchy.StaleTimeStamp: 0}
+            val_dict = {attributes.Hierarchy.StaleTimeStamp: 0}
             rows.append(cg.client.mutate_row(row_id, val_dict, time_stamp=node_end_ts))
     cg.client.write(rows)
 
@@ -141,7 +142,7 @@ def update_cross_edges(cg: ChunkedGraph, layer, node, node_ts) -> list:
             )
             layer_edges[:, 0] = node
             layer_edges = np.unique(layer_edges, axis=0)
-            col = Connectivity.CrossChunkEdge[_layer]
+            col = attributes.Connectivity.CrossChunkEdge[_layer]
             val_dict[col] = layer_edges
         rows.append(cg.client.mutate_row(row_id, val_dict, time_stamp=ts))
     return rows

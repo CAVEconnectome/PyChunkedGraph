@@ -14,14 +14,14 @@ import numpy as np
 from pychunkedgraph.debug.profiler import HierarchicalProfiler, get_profiler
 
 from . import types
-from . import attributes
+from pychunkedgraph.graph import attributes
 from . import cache as cache_utils
 from .edges import get_latest_edges_wrapper, get_new_nodes
 from .edges.utils import concatenate_cross_edge_dicts
 from .edges.utils import merge_cross_edge_dicts
-from .utils import basetypes
+from pychunkedgraph.graph import basetypes
 from .utils import flatgraph
-from .utils.serializers import serialize_uint64
+from pychunkedgraph.graph import serializers
 from ..utils.general import in2d
 from ..debug.utils import sanity_check, sanity_check_single
 
@@ -186,7 +186,7 @@ def check_fake_edges(
         val_dict[attributes.Connectivity.FakeEdges] = np.array(
             [[edge]], dtype=basetypes.NODE_ID
         )
-        id1 = serialize_uint64(id1, fake_edges=True)
+        id1 = serializers.serialize_uint64(id1, fake_edges=True)
         rows.append(
             cg.client.mutate_row(
                 id1,
@@ -198,7 +198,7 @@ def check_fake_edges(
         val_dict[attributes.Connectivity.FakeEdges] = np.array(
             [edge[::-1]], dtype=basetypes.NODE_ID
         )
-        id2 = serialize_uint64(id2, fake_edges=True)
+        id2 = serializers.serialize_uint64(id2, fake_edges=True)
         rows.append(
             cg.client.mutate_row(
                 id2,
@@ -574,7 +574,7 @@ def _update_neighbor_cx_edges(
         updated_counterparts.update(result)
     updated_entries = []
     for node, val_dict in updated_counterparts.items():
-        rowkey = serialize_uint64(node)
+        rowkey = serializers.serialize_uint64(node)
         row = cg.client.mutate_row(rowkey, val_dict, time_stamp=time_stamp)
         updated_entries.append(row)
     return updated_entries
@@ -696,7 +696,7 @@ class CreateParentNodes:
 
         for c, cx_edges_map in children_cx_edges.items():
             self.cg.cache.cross_chunk_edges_cache[c] = cx_edges_map
-            rowkey = serialize_uint64(c)
+            rowkey = serializers.serialize_uint64(c)
             row = self.cg.client.mutate_row(rowkey, val_ds[c], time_stamp=self._last_ts)
             updated_entries.append(row)
 
@@ -857,7 +857,7 @@ class CreateParentNodes:
             }
             self.new_entries.append(
                 self.cg.client.mutate_row(
-                    serialize_uint64(new_root_id),
+                    serializers.serialize_uint64(new_root_id),
                     val_dict,
                     time_stamp=self._time_stamp,
                 )
@@ -872,7 +872,7 @@ class CreateParentNodes:
             }
             self.new_entries.append(
                 self.cg.client.mutate_row(
-                    serialize_uint64(former_root_id),
+                    serializers.serialize_uint64(former_root_id),
                     val_dict,
                     time_stamp=self._time_stamp,
                 )
@@ -920,7 +920,7 @@ class CreateParentNodes:
                 val_dict[attributes.Hierarchy.Child] = children
                 self.new_entries.append(
                     self.cg.client.mutate_row(
-                        serialize_uint64(id_),
+                        serializers.serialize_uint64(id_),
                         val_dict,
                         time_stamp=self._time_stamp,
                     )
@@ -928,7 +928,7 @@ class CreateParentNodes:
                 for child_id in children:
                     self.new_entries.append(
                         self.cg.client.mutate_row(
-                            serialize_uint64(child_id),
+                            serializers.serialize_uint64(child_id),
                             {attributes.Hierarchy.Parent: id_},
                             time_stamp=self._time_stamp,
                         )

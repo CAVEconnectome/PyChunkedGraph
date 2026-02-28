@@ -27,18 +27,27 @@ from .upgrade.parent_layer import update_chunk as update_parent_chunk
 from ..graph.edges import EDGE_TYPES, Edges, put_edges
 from ..graph import ChunkedGraph, ChunkedGraphMeta
 from ..graph.chunks.hierarchy import get_children_chunk_coords
-from ..graph.utils.basetypes import NODE_ID
+from ..graph.basetypes import NODE_ID
 from ..io.edges import get_chunk_edges
 from ..io.components import get_chunk_components
 from ..utils.redis import keys as r_keys, get_redis_connection
 from ..utils.general import chunked
 
+_CACHED_IMANAGER = None
+
+
+def _get_imanager():
+    """Cache IngestionManager per worker process to avoid repeated Redis GETs + deserializations."""
+    global _CACHED_IMANAGER
+    if _CACHED_IMANAGER is not None:
+        return _CACHED_IMANAGER
+    redis = get_redis_connection()
+    _CACHED_IMANAGER = IngestionManager.from_pickle(redis.get(r_keys.INGESTION_MANAGER))
+    return _CACHED_IMANAGER
+
 
 def _post_task_completion(
-    imanager: IngestionManager,
-    layer: int,
-    coords: np.ndarray,
-    split:int=None
+    imanager: IngestionManager, layer: int, coords: np.ndarray, split: int = None
 ):
     chunk_str = "_".join(map(str, coords))
     if split is not None:
@@ -52,8 +61,7 @@ def create_parent_chunk(
     parent_layer: int,
     parent_coords: Sequence[int],
 ) -> None:
-    redis = get_redis_connection()
-    imanager = IngestionManager.from_pickle(redis.get(r_keys.INGESTION_MANAGER))
+    imanager = _get_imanager()
     add_parent_chunk(
         imanager.cg,
         parent_layer,
@@ -70,12 +78,13 @@ def create_parent_chunk(
 def upgrade_parent_chunk(
     parent_layer: int,
     parent_coords: Sequence[int],
-    split:int=None,
-    splits:int=None
+    split: int = None,
+    splits: int = None,
 ) -> None:
-    redis = get_redis_connection()
-    imanager = IngestionManager.from_pickle(redis.get(r_keys.INGESTION_MANAGER))
-    update_parent_chunk(imanager.cg, parent_coords, layer=parent_layer, split=split, splits=splits)
+    imanager = _get_imanager()
+    update_parent_chunk(
+        imanager.cg, parent_coords, layer=parent_layer, split=split, splits=splits
+    )
     _post_task_completion(imanager, parent_layer, parent_coords, split=split)
 
 
@@ -121,8 +130,7 @@ def _check_edges_direction(
 
 def create_atomic_chunk(coords: Sequence[int]):
     """Creates single atomic chunk"""
-    redis = get_redis_connection()
-    imanager = IngestionManager.from_pickle(redis.get(r_keys.INGESTION_MANAGER))
+    imanager = _get_imanager()
     coords = np.array(list(coords), dtype=int)
 
     chunk_edges_all, mapping = _get_atomic_chunk_data(imanager, coords)
@@ -138,8 +146,7 @@ def create_atomic_chunk(coords: Sequence[int]):
 
 def upgrade_atomic_chunk(coords: Sequence[int]):
     """Upgrades single atomic chunk"""
-    redis = get_redis_connection()
-    imanager = IngestionManager.from_pickle(redis.get(r_keys.INGESTION_MANAGER))
+    imanager = _get_imanager()
     coords = np.array(list(coords), dtype=int)
     update_atomic_chunk(imanager.cg, coords)
     _post_task_completion(imanager, 2, coords)
@@ -149,8 +156,7 @@ def convert_to_ocdbt(coords: Sequence[int]):
     """
     Convert edges stored per chunk to ajacency list in the tensorstore ocdbt kv store.
     """
-    redis = get_redis_connection()
-    imanager = IngestionManager.from_pickle(redis.get(r_keys.INGESTION_MANAGER))
+    imanager = _get_imanager()
     coords = np.array(list(coords), dtype=int)
     chunk_edges_all, mapping = _get_atomic_chunk_data(imanager, coords)
 
@@ -200,13 +206,15 @@ def _queue_tasks(imanager: IngestionManager, chunk_fn: Callable, coords: Iterabl
     batches = chunked(coords, batch_size)
     retry = int(environ.get("RETRY_COUNT", 0))
     failure_ttl = int(environ.get("FAILURE_TTL", 300))
+    max_queue_size = int(environ.get("QUEUE_SIZE", 1000000))
     for batch in batches:
         _coords = get_chunks_not_done(imanager, 2, batch)
         # buffer for optimal use of redis memory
-        if len(q) > int(environ.get("QUEUE_SIZE", 1000000)):
-            interval = int(environ.get("QUEUE_INTERVAL", 300))
-            logging.info(f"Queue full; sleeping {interval}s...")
-            sleep(interval)
+        while len(q) > max_queue_size:
+            logging.info(
+                f"Queue has {len(q)} items (limit {max_queue_size}), waiting..."
+            )
+            sleep(10)
 
         job_datas = []
         for chunk_coord in _coords:
@@ -219,7 +227,7 @@ def _queue_tasks(imanager: IngestionManager, chunk_fn: Callable, coords: Iterabl
                     job_id=chunk_id_str(2, chunk_coord),
                     retry=Retry(retry) if retry > 1 else None,
                     description="",
-                    failure_ttl=failure_ttl
+                    failure_ttl=failure_ttl,
                 )
             )
         q.enqueue_many(job_datas)

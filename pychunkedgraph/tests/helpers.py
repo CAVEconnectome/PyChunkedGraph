@@ -4,7 +4,7 @@ import numpy as np
 
 from ..graph.edges import Edges
 from ..graph.edges import EDGE_TYPES
-from ..graph.utils import basetypes
+from ..graph import basetypes
 from ..ingest.create.atomic_layer import add_atomic_chunk
 
 

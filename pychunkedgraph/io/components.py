@@ -4,7 +4,7 @@ import numpy as np
 from cloudfiles import CloudFiles
 
 from .protobuf.chunkComponents_pb2 import ChunkComponentsMsg
-from ..graph.utils import basetypes
+from ..graph import basetypes
 
 
 def serialize(connected_components: Iterable) -> ChunkComponentsMsg:

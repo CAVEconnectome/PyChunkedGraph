@@ -113,7 +113,7 @@ google-auth==2.48.0
     #   google-cloud-storage
     #   task-queue
 google-cloud-bigtable==2.35.0
-    # via -r requirements.in
+    # via kvdbclient
 google-cloud-core==2.5.0
     # via
     #   cloud-files
@@ -190,6 +190,8 @@ jsonschema==4.26.0
     #   python-jsonschema-objects
 jsonschema-specifications==2025.9.1
     # via jsonschema
+kvdbclient==0.2.0
+    # via -r requirements.in
 markdown==3.10.2
     # via python-jsonschema-objects
 markupsafe==3.0.3
@@ -221,6 +223,7 @@ numpy==2.4.2
     #   cloud-volume
     #   compressed-segmentation
     #   fastremap
+    #   kvdbclient
     #   messagingclient
     #   microviewer
     #   ml-dtypes
@@ -315,7 +318,9 @@ python-json-logger==4.0.0
 python-jsonschema-objects==0.5.7
     # via cloud-volume
 pytz==2025.2
-    # via croniter
+    # via
+    #   croniter
+    #   kvdbclient
 pyyaml==6.0.3
     # via -r requirements.in
 redis==7.2.0
@@ -333,6 +338,7 @@ requests==2.32.5
     #   cloud-volume
     #   google-api-core
     #   google-cloud-storage
+    #   kvdbclient
     #   middle-auth-client
     #   task-queue
 rpds-py==0.30.0
@@ -363,6 +369,7 @@ tenacity==9.1.4
     # via
     #   cloud-files
     #   cloud-volume
+    #   kvdbclient
     #   task-queue
 tensorstore==0.1.81
     # via -r requirements.in
@@ -401,6 +408,7 @@ zstandard==0.25.0
     # via
     #   -r requirements.in
     #   cloud-files
+    #   kvdbclient
 
 # The following packages are considered to be unsafe in a requirements file:
 # setuptools

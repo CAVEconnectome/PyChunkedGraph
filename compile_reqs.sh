@@ -1,1 +1,0 @@
-docker run -v ${PWD}:/app caveconnectome/pychunkedgraph:v2.4.0 /bin/bash -c "pip install pip-tools && pip-compile requirements.in --resolver=backtracking -v --output-file requirements.txt"

@@ -7,8 +7,7 @@ from typing import Optional
 
 import numpy as np
 
-from ..utils import basetypes
-
+from pychunkedgraph.graph import basetypes
 
 _edge_type_fileds = ("in_chunk", "between_chunk", "cross_chunk")
 _edge_type_defaults = ("in", "between", "cross")

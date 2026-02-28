@@ -13,9 +13,8 @@ from cachetools import LRUCache
 from pychunkedgraph.graph import types
 from pychunkedgraph.graph.chunks.utils import get_l2chunkids_along_boundary
 
-from ..utils import basetypes
+from pychunkedgraph.graph import basetypes
 from ..utils.generic import get_parents_at_timestamp
-
 
 PARENTS_CACHE: LRUCache = None
 CHILDREN_CACHE: LRUCache = None
@@ -210,9 +209,7 @@ class LatestEdgesFinder:
             _children = _children[_children_layers > 2]
             while _children.size:
                 _hierarchy.append(_children)
-                _children = self.cg.get_children(
-                    _children, flatten=True, raw_only=True
-                )
+                _children = self.cg.get_children(_children, flatten=True, raw_only=True)
                 _children_layers = self.cg.get_chunk_layers(_children)
                 _hierarchy.append(_children[_children_layers == 2])
                 _children = _children[_children_layers > 2]
@@ -281,9 +278,7 @@ class LatestEdgesFinder:
             # this cache is set only during migration
             # also, fallback is not applicable if no migration
             children_b = self.cg.get_children(edges[:, 1], flatten=True)
-            parents_b = np.unique(
-                self.cg.get_parents(children_b, time_stamp=parent_ts)
-            )
+            parents_b = np.unique(self.cg.get_parents(children_b, time_stamp=parent_ts))
             fallback = False
         else:
             children_b = self._get_children_from_cache(edges[:, 1])
@@ -314,9 +309,7 @@ class LatestEdgesFinder:
         _parents_b = []
         for _node, _edges_d in _cx_edges_d.items():
             _edges = _edges_d.get(layer, types.empty_2d)
-            if self._check_cross_edges_from_a(
-                _node, _edges[:, 1], layer, parent_ts
-            ):
+            if self._check_cross_edges_from_a(_node, _edges[:, 1], layer, parent_ts):
                 _parents_b.append(_node)
             elif self._check_hierarchy_a_from_b(
                 parents_a, _edges[:, 1], layer, parent_ts
@@ -361,9 +354,7 @@ class LatestEdgesFinder:
             _node_a, _node_b = _edge
             _nodes_b = self.cg.get_l2children([_node_b])
             _l2_edges.append(
-                np.array(
-                    [[_node_a, _b] for _b in _nodes_b], dtype=basetypes.NODE_ID
-                )
+                np.array([[_node_a, _b] for _b in _nodes_b], dtype=basetypes.NODE_ID)
             )
         return np.unique(np.concatenate(_l2_edges), axis=0)
 
@@ -391,9 +382,7 @@ class LatestEdgesFinder:
             try:
                 _edges = self._get_cx_edges(l2ids_a, max_ts, edge_layer)
             except ValueError:
-                _edges = self._get_cx_edges(
-                    l2ids_a, max_ts, edge_layer, raw_only=False
-                )
+                _edges = self._get_cx_edges(l2ids_a, max_ts, edge_layer, raw_only=False)
             except ValueError:
                 return types.empty_2d.copy()
 
@@ -405,9 +394,7 @@ class LatestEdgesFinder:
             _edges = self._get_dilated_edges(_edges)
             mask = np.isin(_edges[:, 1], l2ids_b)
             if np.any(mask):
-                parents_b = self._get_parents_b(
-                    _edges[mask], parent_ts, edge_layer
-                )
+                parents_b = self._get_parents_b(_edges[mask], parent_ts, edge_layer)
             else:
                 # if none of `l2ids_b` were found in edges, `l2ids_a` already have new edges
                 # so get the new identities of `l2ids_b` by using chunk mask
@@ -422,9 +409,7 @@ class LatestEdgesFinder:
                             _edges, parent_ts, edge_layer, True
                         )
 
-        parents_b = np.unique(
-            get_new_nodes(self.cg, parents_b, mlayer, parent_ts)
-        )
+        parents_b = np.unique(get_new_nodes(self.cg, parents_b, mlayer, parent_ts))
         parents_a = np.array([node_a] * parents_b.size, dtype=basetypes.NODE_ID)
         return np.column_stack((parents_a, parents_b))
 
@@ -449,6 +434,7 @@ class LatestEdgesFinder:
             ), f"No new edge found {_edge}; {edge_layer}, {self.parent_ts}"
             result.append(_new_edges)
         return np.concatenate(result)
+
 
 def get_latest_edges(
     cg,

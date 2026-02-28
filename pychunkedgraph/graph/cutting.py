@@ -14,7 +14,7 @@ from typing import Sequence
 from typing import Iterable
 
 from .utils import flatgraph
-from .utils import basetypes
+from pychunkedgraph.graph import basetypes
 from .utils.generic import get_bounding_box
 from .edges import Edges
 from .exceptions import PreconditionError
@@ -398,7 +398,9 @@ class LocalMincutGraph:
         remapped_cutset_flattened_view = remapped_cutset.view(dtype="u8,u8")
         edges_flattened_view = self.cg_edges.view(dtype="u8,u8")
 
-        cutset_mask = np.isin(remapped_cutset_flattened_view, edges_flattened_view).ravel()
+        cutset_mask = np.isin(
+            remapped_cutset_flattened_view, edges_flattened_view
+        ).ravel()
 
         return remapped_cutset[cutset_mask]
 

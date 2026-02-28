@@ -15,8 +15,8 @@ from rq.worker import WorkerStatus
 from . import IngestConfig
 from .manager import IngestionManager
 from ..graph.meta import ChunkedGraphMeta, DataSource, GraphConfig
-from ..graph.client import BackendClientInfo
-from ..graph.client.bigtable import BigTableConfig
+from ..graph import BackendClientInfo
+from kvdbclient import BigTableConfig, HBaseConfig
 from ..utils.general import chunked
 from ..utils.redis import get_redis_connection
 from ..utils.redis import keys as r_keys
@@ -37,8 +37,12 @@ def bootstrap(
         USE_RAW_COMPONENTS=raw,
         TEST_RUN=test_run,
     )
-    client_config = BigTableConfig(**config["backend_client"]["CONFIG"])
-    client_info = BackendClientInfo(config["backend_client"]["TYPE"], client_config)
+    backend_type = config["backend_client"].get("TYPE", "bigtable")
+    if backend_type == "hbase":
+        client_config = HBaseConfig(**config["backend_client"]["CONFIG"])
+    else:
+        client_config = BigTableConfig(**config["backend_client"]["CONFIG"])
+    client_info = BackendClientInfo(backend_type, client_config)
 
     graph_config = GraphConfig(
         ID=f"{graph_id}",
@@ -215,16 +219,18 @@ def queue_layer_helper(
     timeout_scale = int(environ.get("TIMEOUT_SCALE_FACTOR", 1))
     batches = chunked(chunk_coords, batch_size)
     failure_ttl = int(environ.get("FAILURE_TTL", 300))
+    retry = int(environ.get("RETRY_COUNT", 0))
+    max_queue_size = int(environ.get("QUEUE_SIZE", 100000))
     for batch in batches:
         _coords = get_chunks_not_done(imanager, parent_layer, batch, splits=splits)
         # buffer for optimal use of redis memory
-        if len(q) > int(environ.get("QUEUE_SIZE", 100000)):
-            interval = int(environ.get("QUEUE_INTERVAL", 300))
-            logging.info(f"Queue full; sleeping {interval}s...")
-            sleep(interval)
+        while len(q) > max_queue_size:
+            logging.info(
+                f"Queue has {len(q)} items (limit {max_queue_size}), waiting..."
+            )
+            sleep(10)
 
         job_datas = []
-        retry = int(environ.get("RETRY_COUNT", 0))
         for chunk_coord in _coords:
             if splits > 0:
                 coord, split = chunk_coord

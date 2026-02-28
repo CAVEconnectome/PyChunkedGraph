@@ -9,7 +9,7 @@ import tensorstore as ts
 import zstandard as zstd
 from graph_tool import Graph
 
-from ..utils import basetypes
+from pychunkedgraph.graph import basetypes
 from .definitions import ADJACENCY_DTYPE, ZSTD_EDGE_COMPRESSION, Edges
 
 

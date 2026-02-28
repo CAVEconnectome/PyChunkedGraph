@@ -19,7 +19,7 @@ from .manager import IngestionManager
 from .utils import postprocess_edge_data
 from ..io.edges import put_chunk_edges
 from ..io.components import put_chunk_components
-from ..graph.utils import basetypes
+from ..graph import basetypes
 from ..graph.edges import EDGE_TYPES, Edges
 from ..graph.types import empty_2d
 from ..graph.chunks.utils import get_chunk_id

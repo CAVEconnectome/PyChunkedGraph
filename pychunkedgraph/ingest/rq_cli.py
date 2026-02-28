@@ -3,10 +3,10 @@
 """
 cli for redis jobs
 """
+
 import sys
 
 import click
-from redis import Redis
 from rq import Queue
 from rq.job import Job
 from rq.exceptions import InvalidJobOperationError
@@ -15,14 +15,11 @@ from rq.registry import StartedJobRegistry
 from rq.registry import FailedJobRegistry
 from flask.cli import AppGroup
 
-from ..utils.redis import REDIS_HOST
-from ..utils.redis import REDIS_PORT
-from ..utils.redis import REDIS_PASSWORD
-
+from ..utils.redis import get_redis_connection
 
 # rq extended
 rq_cli = AppGroup("rq")
-connection = Redis(host=REDIS_HOST, port=REDIS_PORT, db=0, password=REDIS_PASSWORD)
+connection = get_redis_connection()
 
 
 @rq_cli.command("failed")
