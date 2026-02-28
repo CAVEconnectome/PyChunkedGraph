@@ -1,113 +1,68 @@
+# pylint: disable=invalid-name, missing-function-docstring, import-outside-toplevel
+
 """
-Ingest / create chunkedgraph with workers.
+Ingest / create chunkedgraph with workers on a cluster.
 """
 
-from typing import Sequence, Tuple
+import logging
+from os import environ
+from time import sleep
+from typing import Callable, Dict, Iterable, Tuple, Sequence
 
 import numpy as np
+from rq import Queue as RQueue, Retry
 
-from .utils import chunk_id_str
+
+from .utils import chunk_id_str, get_chunks_not_done, randomize_grid_points
 from .manager import IngestionManager
-from .common import get_atomic_chunk_data
-from .ran_agglomeration import get_active_edges
-from .create.atomic_layer import add_atomic_edges
-from .create.abstract_layers import add_layer
-from ..graph.meta import ChunkedGraphMeta
+from .ran_agglomeration import (
+    get_active_edges,
+    read_raw_edge_data,
+    read_raw_agglomeration_data,
+)
+from .create.atomic_layer import add_atomic_chunk
+from .create.parent_layer import add_parent_chunk
+from .upgrade.atomic_layer import update_chunk as update_atomic_chunk
+from .upgrade.parent_layer import update_chunk as update_parent_chunk
+from ..graph.edges import EDGE_TYPES, Edges, put_edges
+from ..graph import ChunkedGraph, ChunkedGraphMeta
 from ..graph.chunks.hierarchy import get_children_chunk_coords
-from ..utils.redis import keys as r_keys
-from ..utils.redis import get_redis_connection
+from ..graph.basetypes import NODE_ID
+from ..io.edges import get_chunk_edges
+from ..io.components import get_chunk_components
+from ..utils.redis import keys as r_keys, get_redis_connection
+from ..utils.general import chunked
+
+_CACHED_IMANAGER = None
 
 
-def _post_task_completion(imanager: IngestionManager, layer: int, coords: np.ndarray):
-    from os import environ
+def _get_imanager():
+    """Cache IngestionManager per worker process to avoid repeated Redis GETs + deserializations."""
+    global _CACHED_IMANAGER
+    if _CACHED_IMANAGER is not None:
+        return _CACHED_IMANAGER
+    redis = get_redis_connection()
+    _CACHED_IMANAGER = IngestionManager.from_pickle(redis.get(r_keys.INGESTION_MANAGER))
+    return _CACHED_IMANAGER
 
+
+def _post_task_completion(
+    imanager: IngestionManager, layer: int, coords: np.ndarray, split: int = None
+):
     chunk_str = "_".join(map(str, coords))
+    if split is not None:
+        chunk_str += f"_{split}"
     # mark chunk as completed - "c"
     imanager.redis.sadd(f"{layer}c", chunk_str)
-
-    if environ.get("DO_NOT_AUTOQUEUE_PARENT_CHUNKS", None) is not None:
-        return
-
-    parent_layer = layer + 1
-    if parent_layer > imanager.cg_meta.layer_count:
-        return
-
-    parent_coords = np.array(coords, int) // imanager.cg_meta.graph_config.FANOUT
-    parent_id_str = chunk_id_str(parent_layer, parent_coords)
-    imanager.redis.sadd(parent_id_str, chunk_str)
-
-    parent_chunk_str = "_".join(map(str, parent_coords))
-    if not imanager.redis.hget(parent_layer, parent_chunk_str):
-        # cache children chunk count
-        # checked by tracker worker to enqueue parent chunk
-        children_count = len(
-            get_children_chunk_coords(imanager.cg_meta, parent_layer, parent_coords)
-        )
-        imanager.redis.hset(parent_layer, parent_chunk_str, children_count)
-
-    tracker_queue = imanager.get_task_queue(f"t{layer}")
-    tracker_queue.enqueue(
-        enqueue_parent_task,
-        job_id=f"t{layer}_{chunk_str}",
-        job_timeout=f"30s",
-        result_ttl=0,
-        args=(
-            parent_layer,
-            parent_coords,
-        ),
-    )
-
-
-def enqueue_parent_task(
-    parent_layer: int,
-    parent_coords: Sequence[int],
-):
-    redis = get_redis_connection()
-    imanager = IngestionManager.from_pickle(redis.get(r_keys.INGESTION_MANAGER))
-    parent_id_str = chunk_id_str(parent_layer, parent_coords)
-    parent_chunk_str = "_".join(map(str, parent_coords))
-
-    children_done = redis.scard(parent_id_str)
-    # if zero then this key was deleted and parent already queued.
-    if children_done == 0:
-        print("parent already queued.")
-        return
-
-    # if the previous layer is complete
-    # no need to check children progress for each parent chunk
-    child_layer = parent_layer - 1
-    child_layer_done = redis.scard(f"{child_layer}c")
-    child_layer_count = imanager.cg_meta.layer_chunk_counts[child_layer - 2]
-    child_layer_finished = child_layer_done == child_layer_count
-
-    if not child_layer_finished:
-        children_count = int(redis.hget(parent_layer, parent_chunk_str).decode("utf-8"))
-        if children_done != children_count:
-            print("children not done.")
-            return
-
-    queue = imanager.get_task_queue(f"l{parent_layer}")
-    queue.enqueue(
-        create_parent_chunk,
-        job_id=parent_id_str,
-        job_timeout=f"{int(parent_layer * parent_layer)}m",
-        result_ttl=0,
-        args=(
-            parent_layer,
-            parent_coords,
-        ),
-    )
-    redis.hdel(parent_layer, parent_chunk_str)
-    redis.delete(parent_id_str)
+    logging.info(f"{chunk_str} marked as complete")
 
 
 def create_parent_chunk(
     parent_layer: int,
     parent_coords: Sequence[int],
 ) -> None:
-    redis = get_redis_connection()
-    imanager = IngestionManager.from_pickle(redis.get(r_keys.INGESTION_MANAGER))
-    add_layer(
+    imanager = _get_imanager()
+    add_parent_chunk(
         imanager.cg,
         parent_layer,
         parent_coords,
@@ -120,76 +75,174 @@ def create_parent_chunk(
     _post_task_completion(imanager, parent_layer, parent_coords)
 
 
-def randomize_grid_points(X: int, Y: int, Z: int) -> Tuple[int, int, int]:
-    indices = np.arange(X * Y * Z)
-    np.random.shuffle(indices)
-    for index in indices:
-        yield np.unravel_index(index, (X, Y, Z))
+def upgrade_parent_chunk(
+    parent_layer: int,
+    parent_coords: Sequence[int],
+    split: int = None,
+    splits: int = None,
+) -> None:
+    imanager = _get_imanager()
+    update_parent_chunk(
+        imanager.cg, parent_coords, layer=parent_layer, split=split, splits=splits
+    )
+    _post_task_completion(imanager, parent_layer, parent_coords, split=split)
 
 
-def enqueue_atomic_tasks(imanager: IngestionManager):
-    from os import environ
-    from time import sleep
-    from rq import Queue as RQueue
+def _get_atomic_chunk_data(
+    imanager: IngestionManager, coord: Sequence[int]
+) -> Tuple[Dict, Dict]:
+    """
+    Helper to read either raw data or processed data
+    If reading from raw data, save it as processed data
+    """
+    chunk_edges = (
+        read_raw_edge_data(imanager, coord)
+        if imanager.config.USE_RAW_EDGES
+        else get_chunk_edges(imanager.cg_meta.data_source.EDGES, [coord])
+    )
 
+    _check_edges_direction(chunk_edges, imanager.cg, coord)
+
+    mapping = (
+        read_raw_agglomeration_data(imanager, coord)
+        if imanager.config.USE_RAW_COMPONENTS
+        else get_chunk_components(imanager.cg_meta.data_source.COMPONENTS, coord)
+    )
+    return chunk_edges, mapping
+
+
+def _check_edges_direction(
+    chunk_edges: dict, cg: ChunkedGraph, coord: Sequence[int]
+) -> None:
+    """
+    For between and cross chunk edges:
+    Checks and flips edges such that nodes1 are always within a chunk and nodes2 outside the chunk.
+    Where nodes1 = edges[:,0] and nodes2 = edges[:,1].
+    """
+    x, y, z = coord
+    chunk_id = cg.get_chunk_id(layer=1, x=x, y=y, z=z)
+    for edge_type in [EDGE_TYPES.between_chunk, EDGE_TYPES.cross_chunk]:
+        edges = chunk_edges[edge_type]
+        chunk_ids = cg.get_chunk_ids_from_node_ids(edges.node_ids1)
+        mask = chunk_ids == chunk_id
+        assert np.all(mask), "all IDs must belong to same chunk"
+
+
+def create_atomic_chunk(coords: Sequence[int]):
+    """Creates single atomic chunk"""
+    imanager = _get_imanager()
+    coords = np.array(list(coords), dtype=int)
+
+    chunk_edges_all, mapping = _get_atomic_chunk_data(imanager, coords)
+    chunk_edges_active, isolated_ids = get_active_edges(chunk_edges_all, mapping)
+    add_atomic_chunk(imanager.cg, coords, chunk_edges_active, isolated=isolated_ids)
+
+    for k, v in chunk_edges_all.items():
+        logging.debug(f"{k}: {len(v)}")
+    for k, v in chunk_edges_active.items():
+        logging.debug(f"active_{k}: {len(v)}")
+    _post_task_completion(imanager, 2, coords)
+
+
+def upgrade_atomic_chunk(coords: Sequence[int]):
+    """Upgrades single atomic chunk"""
+    imanager = _get_imanager()
+    coords = np.array(list(coords), dtype=int)
+    update_atomic_chunk(imanager.cg, coords)
+    _post_task_completion(imanager, 2, coords)
+
+
+def convert_to_ocdbt(coords: Sequence[int]):
+    """
+    Convert edges stored per chunk to ajacency list in the tensorstore ocdbt kv store.
+    """
+    imanager = _get_imanager()
+    coords = np.array(list(coords), dtype=int)
+    chunk_edges_all, mapping = _get_atomic_chunk_data(imanager, coords)
+
+    node_ids1 = []
+    node_ids2 = []
+    affinities = []
+    areas = []
+    for edges in chunk_edges_all.values():
+        node_ids1.extend(edges.node_ids1)
+        node_ids2.extend(edges.node_ids2)
+        affinities.extend(edges.affinities)
+        areas.extend(edges.areas)
+
+    edges = Edges(node_ids1, node_ids2, affinities=affinities, areas=areas)
+    nodes = np.concatenate(
+        [edges.node_ids1, edges.node_ids2, np.fromiter(mapping.keys(), dtype=NODE_ID)]
+    )
+    nodes = np.unique(nodes)
+
+    chunk_id = imanager.cg.get_chunk_id(layer=1, x=coords[0], y=coords[1], z=coords[2])
+    chunk_ids = imanager.cg.get_chunk_ids_from_node_ids(nodes)
+
+    host = imanager.redis.get("OCDBT_COORDINATOR_HOST").decode()
+    port = imanager.redis.get("OCDBT_COORDINATOR_PORT").decode()
+    environ["OCDBT_COORDINATOR_HOST"] = host
+    environ["OCDBT_COORDINATOR_PORT"] = port
+    logging.info(f"OCDBT Coordinator address {host}:{port}")
+
+    put_edges(
+        f"{imanager.cg.meta.data_source.EDGES}/ocdbt",
+        nodes[chunk_ids == chunk_id],
+        edges,
+    )
+    _post_task_completion(imanager, 2, coords)
+
+
+def _get_test_chunks(meta: ChunkedGraphMeta):
+    """Chunks at the center most likely not to be empty"""
+    parent_coords = np.array(meta.layer_chunk_bounds[3]) // 2
+    return get_children_chunk_coords(meta, 3, parent_coords)
+
+
+def _queue_tasks(imanager: IngestionManager, chunk_fn: Callable, coords: Iterable):
+    queue_name = "l2"
+    q = imanager.get_task_queue(queue_name)
+    batch_size = int(environ.get("JOB_BATCH_SIZE", 10000))
+    batches = chunked(coords, batch_size)
+    retry = int(environ.get("RETRY_COUNT", 0))
+    failure_ttl = int(environ.get("FAILURE_TTL", 300))
+    max_queue_size = int(environ.get("QUEUE_SIZE", 1000000))
+    for batch in batches:
+        _coords = get_chunks_not_done(imanager, 2, batch)
+        # buffer for optimal use of redis memory
+        while len(q) > max_queue_size:
+            logging.info(
+                f"Queue has {len(q)} items (limit {max_queue_size}), waiting..."
+            )
+            sleep(10)
+
+        job_datas = []
+        for chunk_coord in _coords:
+            job_datas.append(
+                RQueue.prepare_data(
+                    chunk_fn,
+                    args=(chunk_coord,),
+                    timeout=environ.get("L2JOB_TIMEOUT", "3m"),
+                    result_ttl=0,
+                    job_id=chunk_id_str(2, chunk_coord),
+                    retry=Retry(retry) if retry > 1 else None,
+                    description="",
+                    failure_ttl=failure_ttl,
+                )
+            )
+        q.enqueue_many(job_datas)
+        logging.info(f"Queued {len(job_datas)} chunks.")
+
+
+def enqueue_l2_tasks(imanager: IngestionManager, chunk_fn: Callable):
+    """
+    `chunk_fn`: function to process a given layer 2 chunk.
+    """
     chunk_coords = _get_test_chunks(imanager.cg.meta)
     chunk_count = len(chunk_coords)
     if not imanager.config.TEST_RUN:
         atomic_chunk_bounds = imanager.cg_meta.layer_chunk_bounds[2]
         chunk_coords = randomize_grid_points(*atomic_chunk_bounds)
         chunk_count = imanager.cg_meta.layer_chunk_counts[0]
-
-    print(f"total chunk count: {chunk_count}, queuing...")
-    batch_size = int(environ.get("L2JOB_BATCH_SIZE", 1000))
-
-    job_datas = []
-    for chunk_coord in chunk_coords:
-        q = imanager.get_task_queue(imanager.config.CLUSTER.ATOMIC_Q_NAME)
-        # buffer for optimal use of redis memory
-        if len(q) > imanager.config.CLUSTER.ATOMIC_Q_LIMIT:
-            print(f"Sleeping {imanager.config.CLUSTER.ATOMIC_Q_INTERVAL}s...")
-            sleep(imanager.config.CLUSTER.ATOMIC_Q_INTERVAL)
-
-        x, y, z = chunk_coord
-        chunk_str = f"{x}_{y}_{z}"
-        if imanager.redis.sismember("2c", chunk_str):
-            # already done, skip
-            continue
-        job_datas.append(
-            RQueue.prepare_data(
-                _create_atomic_chunk,
-                args=(chunk_coord,),
-                timeout=environ.get("L2JOB_TIMEOUT", "3m"),
-                result_ttl=0,
-                job_id=chunk_id_str(2, chunk_coord),
-            )
-        )
-        if len(job_datas) % batch_size == 0:
-            q.enqueue_many(job_datas)
-            job_datas = []
-    q.enqueue_many(job_datas)
-
-
-def _create_atomic_chunk(coords: Sequence[int]):
-    """Creates single atomic chunk"""
-    redis = get_redis_connection()
-    imanager = IngestionManager.from_pickle(redis.get(r_keys.INGESTION_MANAGER))
-    coords = np.array(list(coords), dtype=int)
-    chunk_edges_all, mapping = get_atomic_chunk_data(imanager, coords)
-    chunk_edges_active, isolated_ids = get_active_edges(chunk_edges_all, mapping)
-    add_atomic_edges(imanager.cg, coords, chunk_edges_active, isolated=isolated_ids)
-    if imanager.config.TEST_RUN:
-        # print for debugging
-        for k, v in chunk_edges_all.items():
-            print(k, len(v))
-        for k, v in chunk_edges_active.items():
-            print(f"active_{k}", len(v))
-    _post_task_completion(imanager, 2, coords)
-
-
-def _get_test_chunks(meta: ChunkedGraphMeta):
-    """Chunks at center of the dataset most likely not to be empty"""
-    parent_coords = np.array(meta.layer_chunk_bounds[3]) // 2
-    return get_children_chunk_coords(meta, 3, parent_coords)
-    # f = lambda r1, r2, r3: np.array(np.meshgrid(r1, r2, r3), dtype=int).T.reshape(-1, 3)
-    # return f((x, x + 1), (y, y + 1), (z, z + 1))
+    logging.info(f"Chunk count: {chunk_count}, queuing...")
+    _queue_tasks(imanager, chunk_fn, chunk_coords)

@@ -1,8 +1,8 @@
 # PyChunkedGraph
 
 
-[![Build Status](https://travis-ci.org/seung-lab/PyChunkedGraph.svg?branch=master)](https://travis-ci.org/seung-lab/PyChunkedGraph)
-[![codecov](https://codecov.io/gh/seung-lab/PyChunkedGraph/branch/master/graph/badge.svg)](https://codecov.io/gh/seung-lab/PyChunkedGraph)
+[![Tests](https://github.com/CAVEconnectome/PyChunkedGraph/actions/workflows/main.yml/badge.svg)](https://github.com/CAVEconnectome/PyChunkedGraph/actions/workflows/main.yml)
+[![codecov](https://codecov.io/gh/CAVEconnectome/PyChunkedGraph/branch/main/graph/badge.svg)](https://codecov.io/gh/CAVEconnectome/PyChunkedGraph)
 
 The PyChunkedGraph is a proofreading and segmentation data management backend powering FlyWire and other proofreading platforms. It builds on an initial agglomeration of supervoxels and facilitates fast and parallel editing of connected components in the agglomeration graph by many users.
 

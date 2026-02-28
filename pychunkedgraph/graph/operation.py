@@ -1,5 +1,6 @@
-# pylint: disable=invalid-name, missing-docstring, too-many-lines, protected-access
+# pylint: disable=invalid-name, missing-docstring, too-many-lines, protected-access, broad-exception-raised
 
+import logging
 from abc import ABC, abstractmethod
 from collections import namedtuple
 from datetime import datetime
@@ -9,28 +10,30 @@ from typing import List
 from typing import Type
 from typing import Tuple
 from typing import Union
+from typing import Any
 from typing import Optional
 from typing import Sequence
 from functools import reduce
 
 import numpy as np
-from google.cloud import bigtable
+
+logger = logging.getLogger(__name__)
 
 from . import locks
 from . import edits
 from . import types
-from . import attributes
+from pychunkedgraph.graph import attributes
 from .edges import Edges
 from .edges.utils import get_edges_status
-from .utils import basetypes
-from .utils import serializers
+from pychunkedgraph.graph import basetypes
+from pychunkedgraph.graph import serializers
 from .cache import CacheService
 from .cutting import run_multicut
 from .exceptions import PreconditionError
 from .exceptions import PostconditionError
 from .utils.generic import get_bounding_box as get_bbox
+from pychunkedgraph.graph import get_valid_timestamp
 from ..logging.log_db import TimeIt
-
 
 if TYPE_CHECKING:
     from .chunkedgraph import ChunkedGraph
@@ -44,6 +47,7 @@ class GraphEditOperation(ABC):
         "sink_coords",
         "parent_ts",
         "privileged_mode",
+        "do_sanity_check",
     ]
     Result = namedtuple(
         "Result", ["operation_id", "new_root_ids", "new_lvl2_ids", "old_root_ids"]
@@ -362,10 +366,10 @@ class GraphEditOperation(ABC):
     @abstractmethod
     def _apply(
         self, *, operation_id, timestamp
-    ) -> Tuple[np.ndarray, np.ndarray, List["bigtable.row.Row"]]:
+    ) -> Tuple[np.ndarray, np.ndarray, List[Any]]:
         """Initiates the graph operation calculation.
         :return: New root IDs, new Lvl2 node IDs, and affected records
-        :rtype: Tuple[np.ndarray, np.ndarray, List["bigtable.row.Row"]]
+        :rtype: Tuple[np.ndarray, np.ndarray, List[Any]]
         """
 
     @abstractmethod
@@ -378,11 +382,11 @@ class GraphEditOperation(ABC):
         new_root_ids,
         status=1,
         exception="",
-    ) -> "bigtable.row.Row":
+    ) -> Any:
         """Creates a log record with all necessary information to replay the current
             GraphEditOperation
         :return: Bigtable row containing the log record
-        :rtype: bigtable.row.Row
+        :rtype: row mutation object
         """
 
     @abstractmethod
@@ -430,6 +434,8 @@ class GraphEditOperation(ABC):
                 lock.locked_root_ids,
                 np.array([lock.operation_id] * len(lock.locked_root_ids)),
             )
+            if timestamp is None:
+                timestamp = get_valid_timestamp(timestamp)
 
             log_record_before_edit = self._create_log_record(
                 operation_id=lock.operation_id,
@@ -460,6 +466,9 @@ class GraphEditOperation(ABC):
             except PostconditionError as err:
                 self.cg.cache = None
                 raise PostconditionError(err) from err
+            except (AssertionError, RuntimeError) as err:
+                self.cg.cache = None
+                raise RuntimeError(err) from err
             except Exception as err:
                 # unknown exception, update log record with error
                 self.cg.cache = None
@@ -472,7 +481,7 @@ class GraphEditOperation(ABC):
                     exception=repr(err),
                 )
                 self.cg.client.write([log_record_error])
-                raise Exception(err)
+                raise Exception(err) from err
 
             with TimeIt(f"{op_type}.write", self.cg.graph_id, lock.operation_id):
                 result = self._write(
@@ -512,6 +521,7 @@ class GraphEditOperation(ABC):
             lock.operation_id,
             lock.locked_root_ids,
             privileged_mode=lock.privileged_mode,
+            future_root_ids_d=lock.future_root_ids_d,
         ):
             # indefinite lock for writing, if a node instance or pod dies during this
             # the roots must stay locked indefinitely to prevent further corruption.
@@ -565,6 +575,8 @@ class MergeOperation(GraphEditOperation):
         "affinities",
         "bbox_offset",
         "allow_same_segment_merge",
+        "do_sanity_check",
+        "stitch_mode",
     ]
 
     def __init__(
@@ -578,6 +590,8 @@ class MergeOperation(GraphEditOperation):
         bbox_offset: Tuple[int, int, int] = (240, 240, 24),
         affinities: Optional[Sequence[np.float32]] = None,
         allow_same_segment_merge: Optional[bool] = False,
+        do_sanity_check: Optional[bool] = True,
+        stitch_mode: bool = False,
     ) -> None:
         super().__init__(
             cg, user_id=user_id, source_coords=source_coords, sink_coords=sink_coords
@@ -585,6 +599,8 @@ class MergeOperation(GraphEditOperation):
         self.added_edges = np.atleast_2d(added_edges).astype(basetypes.NODE_ID)
         self.bbox_offset = np.atleast_1d(bbox_offset).astype(basetypes.COORDINATES)
         self.allow_same_segment_merge = allow_same_segment_merge
+        self.do_sanity_check = do_sanity_check
+        self.stitch_mode = stitch_mode
 
         self.affinities = None
         if affinities is not None:
@@ -608,7 +624,7 @@ class MergeOperation(GraphEditOperation):
 
     def _apply(
         self, *, operation_id, timestamp
-    ) -> Tuple[np.ndarray, np.ndarray, List["bigtable.row.Row"]]:
+    ) -> Tuple[np.ndarray, np.ndarray, List[Any]]:
         root_ids = set(
             self.cg.get_roots(
                 self.added_edges.ravel(), assert_roots=True, time_stamp=self.parent_ts
@@ -616,8 +632,11 @@ class MergeOperation(GraphEditOperation):
         )
         if len(root_ids) < 2 and not self.allow_same_segment_merge:
             raise PreconditionError("Supervoxels must belong to different objects.")
-        bbox = get_bbox(self.source_coords, self.sink_coords, self.bbox_offset)
-        with TimeIt("subgraph", self.cg.graph_id, operation_id):
+
+        atomic_edges = self.added_edges
+        fake_edge_rows = []
+        if not self.stitch_mode:
+            bbox = get_bbox(self.source_coords, self.sink_coords, self.bbox_offset)
             edges = self.cg.get_subgraph(
                 root_ids,
                 bbox=bbox,
@@ -625,21 +644,24 @@ class MergeOperation(GraphEditOperation):
                 edges_only=True,
             )
 
-        with TimeIt("preprocess", self.cg.graph_id, operation_id):
-            inactive_edges = edits.merge_preprocess(
+            if self.allow_same_segment_merge:
+                inactive_edges = types.empty_2d
+            else:
+                inactive_edges = edits.merge_preprocess(
+                    self.cg,
+                    subgraph_edges=edges,
+                    supervoxels=self.added_edges.ravel(),
+                    parent_ts=self.parent_ts,
+                )
+
+            atomic_edges, fake_edge_rows = edits.check_fake_edges(
                 self.cg,
-                subgraph_edges=edges,
-                supervoxels=self.added_edges.ravel(),
+                atomic_edges=self.added_edges,
+                inactive_edges=inactive_edges,
+                time_stamp=timestamp,
                 parent_ts=self.parent_ts,
             )
 
-        atomic_edges, fake_edge_rows = edits.check_fake_edges(
-            self.cg,
-            atomic_edges=self.added_edges,
-            inactive_edges=inactive_edges,
-            time_stamp=timestamp,
-            parent_ts=self.parent_ts,
-        )
         with TimeIt("add_edges", self.cg.graph_id, operation_id):
             new_roots, new_l2_ids, new_entries = edits.add_edges(
                 self.cg,
@@ -647,6 +669,9 @@ class MergeOperation(GraphEditOperation):
                 operation_id=operation_id,
                 time_stamp=timestamp,
                 parent_ts=self.parent_ts,
+                allow_same_segment_merge=self.allow_same_segment_merge,
+                do_sanity_check=self.do_sanity_check,
+                stitch_mode=self.stitch_mode,
             )
         return new_roots, new_l2_ids, fake_edge_rows + new_entries
 
@@ -659,7 +684,7 @@ class MergeOperation(GraphEditOperation):
         new_root_ids: Sequence[np.uint64],
         status: int = 1,
         exception: str = "",
-    ) -> "bigtable.row.Row":
+    ) -> Any:
         val_dict = {
             attributes.OperationLogs.UserID: self.user_id,
             attributes.OperationLogs.RootID: new_root_ids,
@@ -705,7 +730,7 @@ class SplitOperation(GraphEditOperation):
     :type sink_coords: Optional[Sequence[Sequence[int]]], optional
     """
 
-    __slots__ = ["removed_edges", "bbox_offset"]
+    __slots__ = ["removed_edges", "bbox_offset", "do_sanity_check"]
 
     def __init__(
         self,
@@ -716,12 +741,14 @@ class SplitOperation(GraphEditOperation):
         source_coords: Optional[Sequence[Sequence[int]]] = None,
         sink_coords: Optional[Sequence[Sequence[int]]] = None,
         bbox_offset: Tuple[int] = (240, 240, 24),
+        do_sanity_check: Optional[bool] = True,
     ) -> None:
         super().__init__(
             cg, user_id=user_id, source_coords=source_coords, sink_coords=sink_coords
         )
         self.removed_edges = np.atleast_2d(removed_edges).astype(basetypes.NODE_ID)
         self.bbox_offset = np.atleast_1d(bbox_offset).astype(basetypes.COORDINATES)
+        self.do_sanity_check = do_sanity_check
         if np.any(np.equal(self.removed_edges[:, 0], self.removed_edges[:, 1])):
             raise PreconditionError("Requested split contains at least 1 self-loop.")
 
@@ -742,7 +769,7 @@ class SplitOperation(GraphEditOperation):
 
     def _apply(
         self, *, operation_id, timestamp
-    ) -> Tuple[np.ndarray, np.ndarray, List["bigtable.row.Row"]]:
+    ) -> Tuple[np.ndarray, np.ndarray, List[Any]]:
         if (
             len(
                 set(
@@ -757,20 +784,14 @@ class SplitOperation(GraphEditOperation):
         ):
             raise PreconditionError("Supervoxels must belong to the same object.")
 
-        with TimeIt("subgraph", self.cg.graph_id, operation_id):
-            l2id_agglomeration_d, _ = self.cg.get_l2_agglomerations(
-                self.cg.get_parents(
-                    self.removed_edges.ravel(), time_stamp=self.parent_ts
-                ),
-            )
         with TimeIt("remove_edges", self.cg.graph_id, operation_id):
             return edits.remove_edges(
                 self.cg,
                 operation_id=operation_id,
                 atomic_edges=self.removed_edges,
-                l2id_agglomeration_d=l2id_agglomeration_d,
                 time_stamp=timestamp,
                 parent_ts=self.parent_ts,
+                do_sanity_check=self.do_sanity_check,
             )
 
     def _create_log_record(
@@ -782,7 +803,7 @@ class SplitOperation(GraphEditOperation):
         new_root_ids: Sequence[np.uint64],
         status: int = 1,
         exception: str = "",
-    ) -> "bigtable.row.Row":
+    ) -> Any:
         val_dict = {
             attributes.OperationLogs.UserID: self.user_id,
             attributes.OperationLogs.RootID: new_root_ids,
@@ -839,6 +860,7 @@ class MulticutOperation(GraphEditOperation):
         "bbox_offset",
         "path_augment",
         "disallow_isolating_cut",
+        "do_sanity_check",
     ]
 
     def __init__(
@@ -854,6 +876,7 @@ class MulticutOperation(GraphEditOperation):
         removed_edges: Sequence[Sequence[np.uint64]] = types.empty_2d,
         path_augment: bool = True,
         disallow_isolating_cut: bool = True,
+        do_sanity_check: Optional[bool] = True,
     ) -> None:
         super().__init__(
             cg, user_id=user_id, source_coords=source_coords, sink_coords=sink_coords
@@ -864,18 +887,21 @@ class MulticutOperation(GraphEditOperation):
         self.bbox_offset = np.atleast_1d(bbox_offset).astype(basetypes.COORDINATES)
         self.path_augment = path_augment
         self.disallow_isolating_cut = disallow_isolating_cut
-        if np.any(np.in1d(self.sink_ids, self.source_ids)):
+        self.do_sanity_check = do_sanity_check
+        if np.any(np.isin(self.sink_ids, self.source_ids)):
             raise PreconditionError(
                 "Supervoxels exist in both sink and source, "
                 "try placing the points further apart."
             )
 
-        ids = np.concatenate([self.source_ids, self.sink_ids])
+        ids = np.concatenate([self.source_ids, self.sink_ids]).astype(basetypes.NODE_ID)
         layers = self.cg.get_chunk_layers(ids)
         assert np.sum(layers) == layers.size, "IDs must be supervoxels."
 
     def _update_root_ids(self) -> np.ndarray:
-        sink_and_source_ids = np.concatenate((self.source_ids, self.sink_ids))
+        sink_and_source_ids = np.concatenate((self.source_ids, self.sink_ids)).astype(
+            basetypes.NODE_ID
+        )
         root_ids = np.unique(
             self.cg.get_roots(
                 sink_and_source_ids, assert_roots=True, time_stamp=self.parent_ts
@@ -887,11 +913,13 @@ class MulticutOperation(GraphEditOperation):
 
     def _apply(
         self, *, operation_id, timestamp
-    ) -> Tuple[np.ndarray, np.ndarray, List["bigtable.row.Row"]]:
+    ) -> Tuple[np.ndarray, np.ndarray, List[Any]]:
         # Verify that sink and source are from the same root object
         root_ids = set(
             self.cg.get_roots(
-                np.concatenate([self.source_ids, self.sink_ids]),
+                np.concatenate([self.source_ids, self.sink_ids]).astype(
+                    basetypes.NODE_ID
+                ),
                 assert_roots=True,
                 time_stamp=self.parent_ts,
             )
@@ -905,16 +933,16 @@ class MulticutOperation(GraphEditOperation):
             self.cg.meta.split_bounding_offset,
         )
         with TimeIt("get_subgraph", self.cg.graph_id, operation_id):
-            l2id_agglomeration_d, edges = self.cg.get_subgraph(
+            l2id_agglomeration_d, edges_tuple = self.cg.get_subgraph(
                 root_ids.pop(), bbox=bbox, bbox_is_coordinate=True
             )
 
-            edges = reduce(lambda x, y: x + y, edges, Edges([], []))
+            edges = reduce(lambda x, y: x + y, edges_tuple, Edges([], []))
             supervoxels = np.concatenate(
                 [agg.supervoxels for agg in l2id_agglomeration_d.values()]
-            )
-            mask0 = np.in1d(edges.node_ids1, supervoxels)
-            mask1 = np.in1d(edges.node_ids2, supervoxels)
+            ).astype(basetypes.NODE_ID)
+            mask0 = np.isin(edges.node_ids1, supervoxels)
+            mask1 = np.isin(edges.node_ids2, supervoxels)
             edges = edges[mask0 & mask1]
         if len(edges) == 0:
             raise PreconditionError("No local edges found.")
@@ -935,9 +963,9 @@ class MulticutOperation(GraphEditOperation):
                 self.cg,
                 operation_id=operation_id,
                 atomic_edges=self.removed_edges,
-                l2id_agglomeration_d=l2id_agglomeration_d,
                 time_stamp=timestamp,
                 parent_ts=self.parent_ts,
+                do_sanity_check=self.do_sanity_check,
             )
 
     def _create_log_record(
@@ -949,7 +977,7 @@ class MulticutOperation(GraphEditOperation):
         new_root_ids: Sequence[np.uint64],
         status: int = 1,
         exception: str = "",
-    ) -> "bigtable.row.Row":
+    ) -> Any:
         val_dict = {
             attributes.OperationLogs.UserID: self.user_id,
             attributes.OperationLogs.RootID: new_root_ids,
@@ -1045,7 +1073,7 @@ class RedoOperation(GraphEditOperation):
 
     def _apply(
         self, *, operation_id, timestamp
-    ) -> Tuple[np.ndarray, np.ndarray, List["bigtable.row.Row"]]:
+    ) -> Tuple[np.ndarray, np.ndarray, List[Any]]:
         return self.superseded_operation._apply(
             operation_id=operation_id, timestamp=timestamp
         )
@@ -1059,7 +1087,7 @@ class RedoOperation(GraphEditOperation):
         new_root_ids: Sequence[np.uint64],
         status: int = 1,
         exception: str = "",
-    ) -> "bigtable.row.Row":
+    ) -> Any:
         val_dict = {
             attributes.OperationLogs.UserID: self.user_id,
             attributes.OperationLogs.RedoOperationID: self.superseded_operation_id,
@@ -1178,7 +1206,7 @@ class UndoOperation(GraphEditOperation):
 
     def _apply(
         self, *, operation_id, timestamp
-    ) -> Tuple[np.ndarray, np.ndarray, List["bigtable.row.Row"]]:
+    ) -> Tuple[np.ndarray, np.ndarray, List[Any]]:
         if isinstance(self.inverse_superseded_operation, MergeOperation):
             return edits.add_edges(
                 self.inverse_superseded_operation.cg,
@@ -1201,7 +1229,7 @@ class UndoOperation(GraphEditOperation):
         new_root_ids: Sequence[np.uint64],
         status: int = 1,
         exception: str = "",
-    ) -> "bigtable.row.Row":
+    ) -> Any:
         val_dict = {
             attributes.OperationLogs.UserID: self.user_id,
             attributes.OperationLogs.UndoOperationID: self.superseded_operation_id,

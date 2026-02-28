@@ -32,10 +32,10 @@ There are three types of edges:
 2. `cross_chunk`: edges between parts of "the same" supervoxel in the unchunked segmentation that has been split across chunk boundary 
 3. `between_chunk`: edges between supervoxels across chunks
 
-Every pair of touching supervoxels has an edge between them. All edges are stored using [protobuf](https://github.com/seung-lab/PyChunkedGraph/blob/pcgv2/pychunkedgraph/io/protobuf/chunkEdges.proto). During ingest only edges of type 2. and 3. are copied into BigTable, whereas edges of type 1. are always read from storage to reduce cost. Similar to the supervoxel segmentation, we recommed storing these on GCloud in the same zone the ChunkedGraph server will be deployed in to reduce latency. 
+Every pair of touching supervoxels has an edge between them. All edges are stored using [protobuf](https://github.com/CAVEconnectome/PyChunkedGraph/blob/pcgv2/pychunkedgraph/io/protobuf/chunkEdges.proto). During ingest only edges of type 2. and 3. are copied into BigTable, whereas edges of type 1. are always read from storage to reduce cost. Similar to the supervoxel segmentation, we recommed storing these on GCloud in the same zone the ChunkedGraph server will be deployed in to reduce latency. 
 
 To denote which edges form a connected component within a chunk, a component mapping needs to be created. This mapping is only used during ingest. 
 
-More details on how to create these protobuf files can be found [here](https://github.com/seung-lab/PyChunkedGraph/blob/pcgv2/docs/storage.md).
+More details on how to create these protobuf files can be found [here](https://github.com/CAVEconnectome/PyChunkedGraph/blob/pcgv2/docs/storage.md).
 
 

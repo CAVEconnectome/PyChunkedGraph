@@ -1,10 +1,9 @@
-from typing import Dict
-from typing import Iterable
+# pylint: disable=invalid-name, missing-docstring
 from collections import namedtuple
 
 import numpy as np
 
-from .utils import basetypes
+from pychunkedgraph.graph import basetypes
 
 empty_1d = np.empty(0, dtype=basetypes.NODE_ID)
 empty_2d = np.empty((0, 2), dtype=basetypes.NODE_ID)

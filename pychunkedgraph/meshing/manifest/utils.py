@@ -16,7 +16,7 @@ from ..meshgen_utils import get_mesh_name
 from ..meshgen_utils import get_json_info
 from ...graph import ChunkedGraph
 from ...graph.types import empty_1d
-from ...graph.utils.basetypes import NODE_ID
+from ...graph.basetypes import NODE_ID
 from ...graph.utils import generic as misc_utils
 
 
@@ -40,7 +40,7 @@ def _get_children(cg, node_ids: Sequence[np.uint64], children_cache: Dict):
     if len(node_ids) == 0:
         return empty_1d.copy()
     node_ids = np.array(node_ids, dtype=NODE_ID)
-    mask = np.in1d(node_ids, np.fromiter(children_cache.keys(), dtype=NODE_ID))
+    mask = np.isin(node_ids, np.fromiter(children_cache.keys(), dtype=NODE_ID))
     children_d = cg.get_children(node_ids[~mask])
     children_cache.update(children_d)
 

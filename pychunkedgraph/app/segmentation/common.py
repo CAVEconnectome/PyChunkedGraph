@@ -3,7 +3,7 @@
 import json
 import os
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 from functools import reduce
 from collections import deque, defaultdict
 
@@ -26,10 +26,9 @@ from pychunkedgraph.graph import (
     exceptions as cg_exceptions,
 )
 from pychunkedgraph.graph.analysis import pathing
-from pychunkedgraph.graph.attributes import OperationLogs
 from pychunkedgraph.graph.misc import get_contact_sites
 from pychunkedgraph.graph.operation import GraphEditOperation
-from pychunkedgraph.graph.utils import basetypes
+from pychunkedgraph.graph import basetypes
 from pychunkedgraph.meshing import mesh_analysis
 
 __api_versions__ = [0, 1]
@@ -229,7 +228,9 @@ def handle_find_minimal_covering_nodes(table_id, is_binary=True):
         node_queue[layer].clear()
 
     # Return the download list
-    download_list = np.concatenate([np.array(list(v)) for v in download_list.values()])
+    download_list = np.concatenate(
+        [np.array(list(v), dtype=np.uint64) for v in download_list.values()]
+    )
 
     return download_list
 
@@ -384,6 +385,7 @@ def handle_merge(table_id, allow_same_segment_merge=False):
             source_coords=coords[:1],
             sink_coords=coords[1:],
             allow_same_segment_merge=allow_same_segment_merge,
+            do_sanity_check=True,
         )
 
     except cg_exceptions.LockingError as e:
@@ -451,6 +453,7 @@ def handle_split(table_id):
             source_coords=coords[node_idents == 0],
             sink_coords=coords[node_idents == 1],
             mincut=mincut,
+            do_sanity_check=True,
         )
     except cg_exceptions.LockingError as e:
         raise cg_exceptions.InternalServerError(e)
@@ -601,7 +604,9 @@ def all_user_operations(
     target_user_id = request.args.get("user_id", None)
 
     start_time = _parse_timestamp("start_time", 0, return_datetime=True)
-    end_time = _parse_timestamp("end_time", datetime.utcnow(), return_datetime=True)
+    end_time = _parse_timestamp(
+        "end_time", datetime.now(timezone.utc), return_datetime=True
+    )
     # Call ChunkedGraph
     cg = app_utils.get_cg(table_id)
 
@@ -611,23 +616,24 @@ def all_user_operations(
 
     valid_entry_ids = []
     timestamp_list = []
-    undone_ids = np.array([])
+    undone_ids = np.array([], dtype=np.uint64)
 
     entry_ids = np.sort(list(log_rows.keys()))
     for entry_id in entry_ids:
         entry = log_rows[entry_id]
-        user_id = entry[OperationLogs.UserID]
+        user_id = entry[attributes.OperationLogs.UserID]
 
         should_check = (
-            OperationLogs.Status not in entry
-            or entry[OperationLogs.Status] == OperationLogs.StatusCodes.SUCCESS.value
+            attributes.OperationLogs.Status not in entry
+            or entry[attributes.OperationLogs.Status]
+            == attributes.OperationLogs.StatusCodes.SUCCESS.value
         )
 
         split_valid = (
             include_partial_splits
-            or (OperationLogs.AddedEdge in entry)
-            or (OperationLogs.RootID not in entry)
-            or (len(entry[OperationLogs.RootID]) > 1)
+            or (attributes.OperationLogs.AddedEdge in entry)
+            or (attributes.OperationLogs.RootID not in entry)
+            or (len(entry[attributes.OperationLogs.RootID]) > 1)
         )
         if not split_valid:
             print("excluding partial split", entry_id)
@@ -641,13 +647,13 @@ def all_user_operations(
 
         if should_check:
             # if it is an undo of another operation, mark it as undone
-            if OperationLogs.UndoOperationID in entry:
-                undone_id = entry[OperationLogs.UndoOperationID]
+            if attributes.OperationLogs.UndoOperationID in entry:
+                undone_id = entry[attributes.OperationLogs.UndoOperationID]
                 undone_ids = np.append(undone_ids, undone_id)
 
             # if it is a redo of another operation, unmark it as undone
-            if OperationLogs.RedoOperationID in entry:
-                redone_id = entry[OperationLogs.RedoOperationID]
+            if attributes.OperationLogs.RedoOperationID in entry:
+                redone_id = entry[attributes.OperationLogs.RedoOperationID]
                 undone_ids = np.delete(undone_ids, np.argwhere(undone_ids == redone_id))
 
     if include_undone:
@@ -660,8 +666,8 @@ def all_user_operations(
         entry = log_rows[entry_id]
 
         if (
-            OperationLogs.UndoOperationID in entry
-            or OperationLogs.RedoOperationID in entry
+            attributes.OperationLogs.UndoOperationID in entry
+            or attributes.OperationLogs.RedoOperationID in entry
         ):
             continue
 
@@ -689,7 +695,7 @@ def handle_children(table_id, parent_id):
     if layer > 1:
         children = cg.get_children(parent_id)
     else:
-        children = np.array([])
+        children = np.array([], dtype=np.uint64)
 
     return children
 
@@ -792,8 +798,8 @@ def handle_subgraph(table_id, root_id, only_internal_edges=True):
         supervoxels = np.concatenate(
             [agg.supervoxels for agg in l2id_agglomeration_d.values()]
         )
-        mask0 = np.in1d(edges.node_ids1, supervoxels)
-        mask1 = np.in1d(edges.node_ids2, supervoxels)
+        mask0 = np.isin(edges.node_ids1, supervoxels)
+        mask1 = np.isin(edges.node_ids2, supervoxels)
         edges = edges[mask0 & mask1]
 
     return edges
