@@ -10,7 +10,7 @@ from pychunkedgraph.graph.edits_sv import (
     _parse_results,
     _get_new_edges,
 )
-from pychunkedgraph.graph.utils import basetypes
+from pychunkedgraph.graph import basetypes
 
 
 # ============================================================
