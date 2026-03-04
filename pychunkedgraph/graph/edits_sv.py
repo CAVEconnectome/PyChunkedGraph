@@ -23,9 +23,9 @@ from pychunkedgraph.graph.cutting_sv import (
 from pychunkedgraph.graph.attributes import Hierarchy, OperationLogs
 from pychunkedgraph.graph.edges import Edges
 from pychunkedgraph.graph.types import empty_2d
-from pychunkedgraph.graph.utils import basetypes
+from pychunkedgraph.graph import basetypes
+from pychunkedgraph.graph import serializers
 from pychunkedgraph.graph.utils import get_local_segmentation
-from pychunkedgraph.graph.utils.serializers import serialize_uint64
 from pychunkedgraph.io.edges import get_chunk_edges
 
 
@@ -286,7 +286,7 @@ def _add_new_edges(cg: ChunkedGraph, edges_tuple: tuple, time_stamp: datetime = 
         val_dict[Connectivity.Area] = areas[mask]
         rows.append(
             cg.client.mutate_row(
-                serialize_uint64(chunk_id, fake_edges=True),
+                serializers.serialize_uint64(chunk_id, fake_edges=True),
                 val_dict=val_dict,
                 time_stamp=time_stamp,
             )
@@ -404,19 +404,23 @@ def copy_parents_and_add_lineage(
                 Hierarchy.FormerIdentity: np.array([old_id], dtype=basetypes.NODE_ID),
                 OperationLogs.OperationID: operation_id,
             }
-            result.append(cg.client.mutate_row(serialize_uint64(new_id), val_dict))
+            result.append(
+                cg.client.mutate_row(serializers.serialize_uint64(new_id), val_dict)
+            )
             for cell in parent_cells_map[old_id]:
                 cache_utils.update(cg.cache.parents_cache, [new_id], cell.value)
                 parents.add(cell.value)
                 result.append(
                     cg.client.mutate_row(
-                        serialize_uint64(new_id),
+                        serializers.serialize_uint64(new_id),
                         {Hierarchy.Parent: cell.value},
                         time_stamp=cell.timestamp,
                     )
                 )
         val_dict = {Hierarchy.NewIdentity: np.array(new_ids, dtype=basetypes.NODE_ID)}
-        result.append(cg.client.mutate_row(serialize_uint64(old_id), val_dict))
+        result.append(
+            cg.client.mutate_row(serializers.serialize_uint64(old_id), val_dict)
+        )
 
     children_cells_map = cg.client.read_nodes(
         node_ids=list(parents), properties=Hierarchy.Child
@@ -432,7 +436,7 @@ def copy_parents_and_add_lineage(
             cg.cache.children_cache[parent] = children
             result.append(
                 cg.client.mutate_row(
-                    serialize_uint64(parent),
+                    serializers.serialize_uint64(parent),
                     {Hierarchy.Child: children},
                     time_stamp=cell.timestamp,
                 )
