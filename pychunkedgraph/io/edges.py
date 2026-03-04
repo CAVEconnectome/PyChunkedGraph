@@ -2,6 +2,7 @@
 """
 Functions for reading and writing edges from cloud storage.
 """
+
 import os
 from typing import Dict
 from typing import List
@@ -15,7 +16,7 @@ from .protobuf.chunkEdges_pb2 import EdgesMsg
 from .protobuf.chunkEdges_pb2 import ChunkEdgesMsg
 from ..graph.edges import Edges
 from ..graph.edges import EDGE_TYPES
-from ..graph.utils import basetypes
+from ..graph import basetypes
 from ..graph.edges.utils import concatenate_chunk_edges
 
 
@@ -38,7 +39,7 @@ def deserialize(edges_message: EdgesMsg) -> Tuple[np.ndarray, np.ndarray, np.nda
 
 def _parse_edges(compressed: List[bytes]) -> List[Dict]:
     result = []
-    if(len(compressed) == 0):
+    if len(compressed) == 0:
         return result
     zdc = zstd.ZstdDecompressor()
     try:

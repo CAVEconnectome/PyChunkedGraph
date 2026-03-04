@@ -8,7 +8,7 @@ from cloudvolume import CloudVolume
 from .utils import get_children_before_start_layer
 from ...graph import ChunkedGraph
 from ...graph.types import empty_1d
-from ...graph.utils.basetypes import NODE_ID
+from ...graph.basetypes import NODE_ID
 from ...graph.chunks import utils as chunk_utils
 
 

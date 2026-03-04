@@ -2,12 +2,12 @@ name: pychunkedgraph
 channels:
   - conda-forge
 dependencies:
-  - python==3.11.4
+  - python==3.12.8
   - pip
   - tox
-  - uwsgi==2.0.21
-  - graph-tool-base==2.58
-  - zstandard==0.19.0  # ugly hack to force PyPi install 0.21.0
+  - numpy
+  - uwsgi
+  - graph-tool-base==2.98
   - pip:
     - -r requirements.txt
     - -r requirements-dev.txt

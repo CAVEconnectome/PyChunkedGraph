@@ -3,7 +3,7 @@ generic helper functions
 TODO categorize properly
 """
 
-
+import bisect
 import datetime
 from typing import Dict
 from typing import Iterable
@@ -15,7 +15,6 @@ from collections import defaultdict
 
 import numpy as np
 import pandas as pd
-import pytz
 
 from ..chunks import utils as chunk_utils
 
@@ -75,36 +74,6 @@ def compute_bitmasks(n_layers: int, s_bits_atomic_layer: int = 8) -> Dict[int, i
     return bitmask_dict
 
 
-def get_max_time():
-    """Returns the (almost) max time in datetime.datetime
-    :return: datetime.datetime
-    """
-    return datetime.datetime(9999, 12, 31, 23, 59, 59, 0)
-
-
-def get_min_time():
-    """Returns the min time in datetime.datetime
-    :return: datetime.datetime
-    """
-    return datetime.datetime.strptime("01/01/00 00:00", "%d/%m/%y %H:%M")
-
-
-def time_min():
-    """Returns a minimal time stamp that still works with google
-    :return: datetime.datetime
-    """
-    return datetime.datetime.strptime("01/01/00 00:00", "%d/%m/%y %H:%M")
-
-
-def get_valid_timestamp(timestamp):
-    if timestamp is None:
-        timestamp = datetime.datetime.utcnow()
-    if timestamp.tzinfo is None:
-        timestamp = pytz.UTC.localize(timestamp)
-    # Comply to resolution of BigTables TimeRange
-    return _get_google_compatible_time_stamp(timestamp, round_up=False)
-
-
 def get_bounding_box(
     source_coords: Sequence[Sequence[int]],
     sink_coords: Sequence[Sequence[int]],
@@ -137,27 +106,6 @@ def filter_failed_node_ids(row_ids, segment_ids, max_children_ids):
     return row_ids[max_child_ids_occ_so_far == 0]
 
 
-def _get_google_compatible_time_stamp(
-    time_stamp: datetime.datetime, round_up: bool = False
-) -> datetime.datetime:
-    """Makes a datetime.datetime time stamp compatible with googles' services.
-    Google restricts the accuracy of time stamps to milliseconds. Hence, the
-    microseconds are cut of. By default, time stamps are rounded to the lower
-    number.
-    :param time_stamp: datetime.datetime
-    :param round_up: bool
-    :return: datetime.datetime
-    """
-    micro_s_gap = datetime.timedelta(microseconds=time_stamp.microsecond % 1000)
-    if micro_s_gap == 0:
-        return time_stamp
-    if round_up:
-        time_stamp += datetime.timedelta(microseconds=1000) - micro_s_gap
-    else:
-        time_stamp -= micro_s_gap
-    return time_stamp
-
-
 def mask_nodes_by_bounding_box(
     meta,
     nodes: Union[Iterable[np.uint64], np.uint64],
@@ -173,9 +121,7 @@ def mask_nodes_by_bounding_box(
         adapt_layers = layers - 2
         adapt_layers[adapt_layers < 0] = 0
         fanout = meta.graph_config.FANOUT
-        bounding_box_layer = (
-            bounding_box[None] / (fanout ** adapt_layers)[:, None, None]
-        )
+        bounding_box_layer = bounding_box[None] / (fanout**adapt_layers)[:, None, None]
         bound_check = np.array(
             [
                 np.all(chunk_coordinates < bounding_box_layer[:, 1], axis=1),
@@ -184,3 +130,24 @@ def mask_nodes_by_bounding_box(
         ).T
 
         return np.all(bound_check, axis=1)
+
+
+def get_parents_at_timestamp(nodes, parents_ts_map, time_stamp, unique: bool = False):
+    """
+    Search for the first parent with ts <= `time_stamp`.
+    `parents_ts_map[node]` is a map of ts:parent with sorted timestamps (desc).
+    """
+    skipped_nodes = []
+    parents = set() if unique else []
+    for node in nodes:
+        try:
+            ts_parent_map = parents_ts_map[node]
+            ts_list = list(ts_parent_map.keys())
+            asc_ts_list = ts_list[::-1]
+            idx = bisect.bisect_right(asc_ts_list, time_stamp)
+            ts = asc_ts_list[idx - 1]
+            parent = ts_parent_map[ts]
+            parents.add(parent) if unique else parents.append(parent)
+        except KeyError:
+            skipped_nodes.append(node)
+    return list(parents), skipped_nodes

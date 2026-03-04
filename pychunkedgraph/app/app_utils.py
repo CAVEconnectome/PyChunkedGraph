@@ -14,9 +14,8 @@ from werkzeug.datastructures import ImmutableMultiDict
 
 from pychunkedgraph import __version__
 from pychunkedgraph.graph import ChunkedGraph
-from pychunkedgraph.graph.client import get_default_client_info
+from pychunkedgraph.graph import get_default_client_info
 from pychunkedgraph.graph import exceptions as cg_exceptions
-
 
 PCG_CACHE = {}
 

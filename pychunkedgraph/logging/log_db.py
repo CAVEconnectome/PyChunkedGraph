@@ -4,7 +4,7 @@ import os
 import threading
 import time
 import queue
-from datetime import datetime
+from datetime import datetime, timezone
 
 from google.api_core.exceptions import GoogleAPIError
 from datastoreflex import DatastoreFlex
@@ -109,7 +109,7 @@ class TimeIt:
         self.names.append(name)
         self._start = None
         self._graph_id = graph_id
-        self._ts = datetime.utcnow()
+        self._ts = datetime.now(timezone.utc)
         self._kwargs = kwargs
         if operation_id != -1:
             self.operation_id = operation_id
