@@ -26,6 +26,7 @@ from .upgrade.atomic_layer import update_chunk as update_atomic_chunk
 from .upgrade.parent_layer import update_chunk as update_parent_chunk
 from ..graph.edges import EDGE_TYPES, Edges, put_edges
 from ..graph import ChunkedGraph, ChunkedGraphMeta
+from ..graph.ocdbt import copy_ws_chunk, get_seg_source_and_destination_ocdbt
 from ..graph.chunks.hierarchy import get_children_chunk_coords
 from ..graph.basetypes import NODE_ID
 from ..io.edges import get_chunk_edges
@@ -141,6 +142,18 @@ def create_atomic_chunk(coords: Sequence[int]):
         logging.debug(f"{k}: {len(v)}")
     for k, v in chunk_edges_active.items():
         logging.debug(f"active_{k}: {len(v)}")
+
+    src, dst = get_seg_source_and_destination_ocdbt(
+        imanager.cg.meta.data_source.WATERSHED
+    )
+    if imanager.ocdbt_seg:
+        copy_ws_chunk(
+            src,
+            dst,
+            imanager.cg.meta.graph_config.CHUNK_SIZE,
+            coords,
+            imanager.cg.meta.voxel_bounds,
+        )
     _post_task_completion(imanager, 2, coords)
 
 

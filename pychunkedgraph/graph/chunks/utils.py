@@ -169,9 +169,7 @@ def _compute_chunk_id(
     z: int,
 ) -> np.uint64:
     s_bits_per_dim = meta.bitmasks[layer]
-    if not (
-        x < 2**s_bits_per_dim and y < 2**s_bits_per_dim and z < 2**s_bits_per_dim
-    ):
+    if not (x < 2**s_bits_per_dim and y < 2**s_bits_per_dim and z < 2**s_bits_per_dim):
         raise ValueError(
             f"Coordinate is out of range \
             layer: {layer} bits/dim {s_bits_per_dim}. \
@@ -284,3 +282,53 @@ def get_l2chunkids_along_boundary(cg_meta, mlayer: int, coord_a, coord_b, paddin
     l2chunk_ids_a = get_chunk_ids_from_coords(cg_meta, 2, l2chunks_a)
     l2chunk_ids_b = get_chunk_ids_from_coords(cg_meta, 2, l2chunks_b)
     return l2chunk_ids_a, l2chunk_ids_b
+
+
+def chunks_overlapping_bbox(bbox_min, bbox_max, chunk_size) -> dict:
+    """
+    Find octree chunks overlapping with a bounding box in 3D
+    and return a dictionary mapping chunk indices to clipped bounding boxes.
+    """
+    bbox_min = np.asarray(bbox_min, dtype=int)
+    bbox_max = np.asarray(bbox_max, dtype=int)
+    chunk_size = np.asarray(chunk_size, dtype=int)
+
+    start_idx = np.floor_divide(bbox_min, chunk_size).astype(int)
+    end_idx = np.floor_divide(bbox_max, chunk_size).astype(int)
+
+    ix = np.arange(start_idx[0], end_idx[0] + 1)
+    iy = np.arange(start_idx[1], end_idx[1] + 1)
+    iz = np.arange(start_idx[2], end_idx[2] + 1)
+    grid = np.stack(np.meshgrid(ix, iy, iz, indexing="ij"), axis=-1, dtype=int)
+    grid = grid.reshape(-1, 3)
+
+    chunk_min = grid * chunk_size
+    chunk_max = chunk_min + chunk_size
+    clipped_min = np.maximum(chunk_min, bbox_min)
+    clipped_max = np.minimum(chunk_max, bbox_max)
+    return {
+        tuple(idx): np.stack([cmin, cmax], axis=0, dtype=int)
+        for idx, cmin, cmax in zip(grid, clipped_min, clipped_max)
+    }
+
+
+def get_neighbors(coord, inclusive: bool = True, min_coord=None, max_coord=None):
+    """
+    Get all valid coordinates in the 3×3×3 cube around a given chunk,
+    including the chunk itself (if inclusive=True),
+    respecting bounding box constraints.
+    """
+    offsets = np.array(np.meshgrid([-1, 0, 1], [-1, 0, 1], [-1, 0, 1])).T.reshape(-1, 3)
+    if not inclusive:
+        offsets = offsets[~np.all(offsets == 0, axis=1)]
+
+    neighbors = np.array(coord) + offsets
+    if min_coord is None:
+        min_coord = (0, 0, 0)
+    min_coord = np.array(min_coord)
+    neighbors = neighbors[(neighbors >= min_coord).all(axis=1)]
+
+    if max_coord is not None:
+        max_coord = np.array(max_coord)
+        neighbors = neighbors[(neighbors <= max_coord).all(axis=1)]
+    return neighbors

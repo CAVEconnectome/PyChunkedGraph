@@ -83,3 +83,21 @@ class GatewayTimeout(ServerError):
     """Exception mapping a ``504 Gateway Timeout`` response."""
 
     status_code = http_client.GATEWAY_TIMEOUT
+
+
+class SupervoxelSplitRequiredError(ChunkedGraphError):
+    """
+    Raised when supervoxel splitting is necessary.
+    Edit process should catch this error and retry after supervoxel has been split.
+    Saves remapping required for detecting which supervoxels need to be split.
+    """
+
+    def __init__(
+        self,
+        message: str,
+        sv_remapping: dict,
+        operation_id: int | None = None,
+    ):
+        super().__init__(message)
+        self.sv_remapping = sv_remapping
+        self.operation_id = operation_id

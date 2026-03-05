@@ -5,6 +5,7 @@ cli for running ingest
 """
 
 import logging
+import os
 
 import click
 import yaml
@@ -23,6 +24,7 @@ from .utils import (
 from .simple_tests import run_all
 from .create.parent_layer import add_parent_chunk
 from ..graph.chunkedgraph import ChunkedGraph
+from ..graph.ocdbt import get_seg_source_and_destination_ocdbt
 from ..utils.redis import get_redis_connection, keys as r_keys
 
 group_name = "ingest"
@@ -45,12 +47,13 @@ def flush_redis():
 @ingest_cli.command("graph")
 @click.argument("graph_id", type=str)
 @click.argument("dataset", type=click.Path(exists=True))
+@click.option("--ocdbt", is_flag=True, help="Precomputed supervoxel seg into ocdbt.")
 @click.option("--raw", is_flag=True, help="Read edges from agglomeration output.")
-@click.option("--test", is_flag=True, help="Test 8 chunks at the center of dataset.")
 @click.option("--retry", is_flag=True, help="Rerun without creating a new table.")
+@click.option("--test", is_flag=True, help="Test 8 chunks at the center of dataset.")
 @job_type_guard(group_name)
 def ingest_graph(
-    graph_id: str, dataset: click.Path, raw: bool, test: bool, retry: bool
+    graph_id: str, dataset: click.Path, ocdbt: bool, raw: bool, retry: bool, test: bool
 ):
     """
     Main ingest command.
@@ -69,8 +72,11 @@ def ingest_graph(
     if not retry:
         cg.create()
 
-    imanager = IngestionManager(ingest_config, meta)
+    if ocdbt:
+        get_seg_source_and_destination_ocdbt(cg.meta.data_source.WATERSHED, create=True)
+    imanager = IngestionManager(ingest_config, meta, ocdbt_seg=ocdbt)
     enqueue_l2_tasks(imanager, create_atomic_chunk)
+    os._exit(0)
 
 
 @ingest_cli.command("imanager")

@@ -15,6 +15,7 @@ class IngestionManager:
         self,
         config: IngestConfig,
         chunkedgraph_meta: ChunkedGraphMeta,
+        ocdbt_seg: bool = False,
         _from_pickle: bool = False,
     ):
         self._config = config
@@ -23,6 +24,7 @@ class IngestionManager:
         self._redis = None
         self._task_queues = {}
         self._from_pickle = _from_pickle
+        self.ocdbt_seg = ocdbt_seg
 
         if not _from_pickle:
             # initiate redis and store serialized state
