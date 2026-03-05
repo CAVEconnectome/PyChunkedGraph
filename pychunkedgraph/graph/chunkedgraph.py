@@ -672,7 +672,7 @@ class ChunkedGraph:
             self, node_id_or_ids, bbox, bbox_is_coordinate, False, True
         )
 
-    def get_edited_edges(
+    def get_edges_from_edits(
         self, chunk_ids: np.ndarray, time_stamp: datetime.datetime = None
     ) -> typing.Dict:
         """
@@ -748,7 +748,7 @@ class ChunkedGraph:
         if self.mock_edges is None:
             edges_d = self.read_chunk_edges(chunk_ids)
 
-        edited_edges = self.get_edited_edges(chunk_ids)
+        edited_edges = self.get_edges_from_edits(chunk_ids)
         all_chunk_edges = reduce(
             lambda x, y: x + y,
             chain(edges_d.values(), edited_edges.values()),

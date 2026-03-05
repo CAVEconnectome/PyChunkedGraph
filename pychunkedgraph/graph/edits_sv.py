@@ -5,22 +5,20 @@ Manage new supervoxels after a supervoxel split.
 from functools import reduce
 import logging
 import multiprocessing as mp
-from typing import Callable, Iterable
+from typing import Callable
 from datetime import datetime
 from collections import defaultdict, deque
 
 import fastremap
 import numpy as np
 from tqdm import tqdm
-from pychunkedgraph.graph import ChunkedGraph, cache as cache_utils
-from pychunkedgraph.graph.attributes import Connectivity
+from pychunkedgraph.graph import attributes, ChunkedGraph, cache as cache_utils
 from pychunkedgraph.graph.chunks.utils import chunks_overlapping_bbox, get_neighbors
 from pychunkedgraph.graph.cutting_sv import (
     build_kdtrees_by_label,
     pairwise_min_distance_two_sets,
     split_supervoxel_helper,
 )
-from pychunkedgraph.graph.attributes import Hierarchy, OperationLogs
 from pychunkedgraph.graph.edges import Edges
 from pychunkedgraph.graph.types import empty_2d
 from pychunkedgraph.graph import basetypes
@@ -281,9 +279,9 @@ def _add_new_edges(cg: ChunkedGraph, edges_tuple: tuple, time_stamp: datetime = 
     for chunk_id in np.unique(chunks):
         val_dict = {}
         mask = chunks_arr[:, 0] == chunk_id
-        val_dict[Connectivity.SplitEdges] = edges[mask]
-        val_dict[Connectivity.Affinity] = affinites[mask]
-        val_dict[Connectivity.Area] = areas[mask]
+        val_dict[attributes.Connectivity.SplitEdges] = edges[mask]
+        val_dict[attributes.Connectivity.Affinity] = affinites[mask]
+        val_dict[attributes.Connectivity.Area] = areas[mask]
         rows.append(
             cg.client.mutate_row(
                 serializers.serialize_uint64(chunk_id, fake_edges=True),
@@ -396,13 +394,15 @@ def copy_parents_and_add_lineage(
     parents = set()
     old_new_map = {k: list(v) for k, v in old_new_map.items()}
     parent_cells_map = cg.client.read_nodes(
-        node_ids=list(old_new_map.keys()), properties=Hierarchy.Parent
+        node_ids=list(old_new_map.keys()), properties=attributes.Hierarchy.Parent
     )
     for old_id, new_ids in old_new_map.items():
         for new_id in new_ids:
             val_dict = {
-                Hierarchy.FormerIdentity: np.array([old_id], dtype=basetypes.NODE_ID),
-                OperationLogs.OperationID: operation_id,
+                attributes.Hierarchy.FormerIdentity: np.array(
+                    [old_id], dtype=basetypes.NODE_ID
+                ),
+                attributes.OperationLogs.OperationID: operation_id,
             }
             result.append(
                 cg.client.mutate_row(serializers.serialize_uint64(new_id), val_dict)
@@ -413,17 +413,19 @@ def copy_parents_and_add_lineage(
                 result.append(
                     cg.client.mutate_row(
                         serializers.serialize_uint64(new_id),
-                        {Hierarchy.Parent: cell.value},
+                        {attributes.Hierarchy.Parent: cell.value},
                         time_stamp=cell.timestamp,
                     )
                 )
-        val_dict = {Hierarchy.NewIdentity: np.array(new_ids, dtype=basetypes.NODE_ID)}
+        val_dict = {
+            attributes.Hierarchy.NewIdentity: np.array(new_ids, dtype=basetypes.NODE_ID)
+        }
         result.append(
             cg.client.mutate_row(serializers.serialize_uint64(old_id), val_dict)
         )
 
     children_cells_map = cg.client.read_nodes(
-        node_ids=list(parents), properties=Hierarchy.Child
+        node_ids=list(parents), properties=attributes.Hierarchy.Child
     )
     for parent, children_cells in children_cells_map.items():
         assert len(children_cells) == 1, children_cells
@@ -437,7 +439,7 @@ def copy_parents_and_add_lineage(
             result.append(
                 cg.client.mutate_row(
                     serializers.serialize_uint64(parent),
-                    {Hierarchy.Child: children},
+                    {attributes.Hierarchy.Child: children},
                     time_stamp=cell.timestamp,
                 )
             )
