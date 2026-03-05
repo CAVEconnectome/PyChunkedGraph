@@ -5,6 +5,7 @@ cli for running ingest
 """
 
 import logging
+import os
 
 import click
 import yaml
@@ -70,9 +71,10 @@ def ingest_graph(
     if not retry:
         cg.create()
 
+    get_seg_source_and_destination_ocdbt(cg.meta.data_source.WATERSHED, create=True)
     imanager = IngestionManager(ingest_config, meta)
     enqueue_l2_tasks(imanager, create_atomic_chunk)
-    get_seg_source_and_destination_ocdbt(cg.meta, create=True)
+    os._exit(0)
 
 
 @ingest_cli.command("imanager")
