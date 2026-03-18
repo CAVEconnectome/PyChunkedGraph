@@ -461,6 +461,7 @@ class GraphEditOperation(ABC):
                         old_root_ids=root_ids,
                     )
             except SupervoxelSplitRequiredError as err:
+                # no need for self.cg.cache = None, the cache must be retained after sv split
                 raise SupervoxelSplitRequiredError(
                     str(err), err.sv_remapping, operation_id=lock.operation_id
                 ) from err
