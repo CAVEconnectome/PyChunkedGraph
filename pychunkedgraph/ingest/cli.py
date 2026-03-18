@@ -73,6 +73,8 @@ def ingest_graph(
         cg.create()
 
     if ocdbt:
+        cg.meta.custom_data["seg"] = {"ocdbt": True}
+        cg.update_meta(cg.meta, overwrite=True)
         get_seg_source_and_destination_ocdbt(cg.meta.data_source.WATERSHED, create=True)
     imanager = IngestionManager(ingest_config, meta, ocdbt_seg=ocdbt)
     enqueue_l2_tasks(imanager, create_atomic_chunk)
