@@ -384,7 +384,6 @@ def handle_merge(table_id, allow_same_segment_merge=False):
             source_coords=coords[:1],
             sink_coords=coords[1:],
             allow_same_segment_merge=allow_same_segment_merge,
-            do_sanity_check=True,
         )
 
     except cg_exceptions.LockingError as e:
@@ -410,7 +409,6 @@ def handle_merge(table_id, allow_same_segment_merge=False):
 
 
 def _get_sources_and_sinks(cg: ChunkedGraph, data):
-    current_app.logger.debug(data)
     node_idents = []
     node_ident_map = {"sources": 0, "sinks": 1}
     coords = []
@@ -426,13 +424,7 @@ def _get_sources_and_sinks(cg: ChunkedGraph, data):
     coords = np.array(coords)
     node_idents = np.array(node_idents)
 
-    start = time.time()
     sv_ids = app_utils.handle_supervoxel_id_lookup(cg, coords, node_ids)
-    current_app.logger.info(f"SV lookup took {time.time() - start}s.")
-    current_app.logger.debug(
-        {"node_id": node_ids, "sv_id": sv_ids, "node_ident": node_idents}
-    )
-
     source_ids = sv_ids[node_idents == 0]
     sink_ids = sv_ids[node_idents == 1]
     source_coords = coords[node_idents == 0]
@@ -450,6 +442,7 @@ def handle_split(table_id):
     mincut = request.args.get("mincut", True, type=str2bool)
 
     cg = app_utils.get_cg(table_id, skip_cache=True)
+    current_app.logger.debug(data)
     sources, sinks, source_coords, sink_coords = _get_sources_and_sinks(cg, data)
     try:
         ret = cg.remove_edges(
@@ -494,7 +487,6 @@ def handle_split(table_id):
             source_coords=source_coords,
             sink_coords=sink_coords,
             mincut=mincut,
-            do_sanity_check=True,
         )
     except cg_exceptions.LockingError as e:
         raise cg_exceptions.InternalServerError(e)
