@@ -143,10 +143,10 @@ def create_atomic_chunk(coords: Sequence[int]):
     for k, v in chunk_edges_active.items():
         logging.debug(f"active_{k}: {len(v)}")
 
-    src, dst = get_seg_source_and_destination_ocdbt(
-        imanager.cg.meta.data_source.WATERSHED
-    )
     if imanager.ocdbt_seg:
+        src, dst = get_seg_source_and_destination_ocdbt(
+            imanager.cg.meta.data_source.WATERSHED
+        )
         copy_ws_chunk(
             src,
             dst,
