@@ -12,8 +12,6 @@ from typing import Sequence
 
 import fastremap
 import numpy as np
-from multiwrapper import multiprocessing_utils as mu
-
 from ...graph import types, attributes, basetypes, serializers, get_valid_timestamp
 from ...utils.general import chunked
 from ...graph.utils import flatgraph
@@ -83,11 +81,8 @@ def _read_children_chunks(
                     child_coord,
                 )
             )
-        mu.multiprocess_func(
-            _read_chunk_helper,
-            multi_args,
-            n_threads=min(len(multi_args), mp.cpu_count()),
-        )
+        with mp.Pool(processes=min(len(multi_args), mp.cpu_count())) as pool:
+            pool.map(_read_chunk_helper, multi_args)
         return np.concatenate(children_ids_shared).astype(basetypes.NODE_ID)
 
 
@@ -137,11 +132,8 @@ def _write_connected_components(
     for ccs in chunked_ccs:
         args = (cg_info, layer, pcoords, ccs, node_layer_d, time_stamp)
         multi_args.append(args)
-    mu.multiprocess_func(
-        _write_components_helper,
-        multi_args,
-        n_threads=min(len(multi_args), mp.cpu_count()),
-    )
+    with mp.Pool(processes=min(len(multi_args), mp.cpu_count())) as pool:
+        pool.map(_write_components_helper, multi_args)
 
 
 def _write_components_helper(args):

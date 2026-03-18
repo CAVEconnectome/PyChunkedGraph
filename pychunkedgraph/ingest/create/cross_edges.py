@@ -7,8 +7,6 @@ from typing import Sequence
 from typing import Dict
 
 import numpy as np
-from multiwrapper.multiprocessing_utils import multiprocess_func
-
 from ...graph import attributes, basetypes
 from ...graph.types import empty_2d
 from ...graph.chunkedgraph import ChunkedGraph
@@ -44,11 +42,8 @@ def get_children_chunk_cross_edges(
                 (edge_ids_shared, cg.get_serialized_info(), atomic_chunks, layer - 1)
             )
 
-        multiprocess_func(
-            _get_children_chunk_cross_edges_helper,
-            multi_args,
-            n_threads=min(len(multi_args), mp.cpu_count()),
-        )
+        with mp.Pool(processes=min(len(multi_args), mp.cpu_count())) as pool:
+            pool.map(_get_children_chunk_cross_edges_helper, multi_args)
 
         cross_edges = np.concatenate(edge_ids_shared)
         if cross_edges.size:
@@ -137,11 +132,8 @@ def get_chunk_nodes_cross_edge_layer(
             (node_ids_shared, node_layers_shared, cg_info, atomic_chunks, layer)
         )
 
-    multiprocess_func(
-        _get_chunk_nodes_cross_edge_layer_helper,
-        multi_args,
-        n_threads=min(len(multi_args), mp.cpu_count()),
-    )
+    with mp.Pool(processes=min(len(multi_args), mp.cpu_count())) as pool:
+        pool.map(_get_chunk_nodes_cross_edge_layer_helper, multi_args)
 
     node_layer_d_shared = manager.dict()
     _find_min_layer(node_layer_d_shared, node_ids_shared, node_layers_shared)
