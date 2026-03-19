@@ -30,29 +30,23 @@ from pychunkedgraph.io.edges import get_chunk_edges
 def _get_whole_sv(
     cg: ChunkedGraph, node: basetypes.NODE_ID, min_coord, max_coord
 ) -> set:
-    cx_edges = [empty_2d]
-    explored_chunks = set()
+    all_chunks = [
+        (x, y, z)
+        for x in range(min_coord[0], max_coord[0])
+        for y in range(min_coord[1], max_coord[1])
+        for z in range(min_coord[2], max_coord[2])
+    ]
+    edges = get_chunk_edges(cg.meta.data_source.EDGES, all_chunks)
+    cx_edges = edges["cross"].get_pairs()
+    if len(cx_edges) == 0:
+        return {node}
+
     explored_nodes = set([node])
     queue = deque([node])
-
-    while len(queue) > 0:
+    while queue:
         vertex = queue.popleft()
-        chunk = cg.get_chunk_coordinates(vertex)
-        chunks = get_neighbors(chunk, min_coord=min_coord, max_coord=max_coord)
-
-        unexplored_chunks = []
-        for _chunk in chunks:
-            if tuple(_chunk) not in explored_chunks:
-                unexplored_chunks.append(tuple(_chunk))
-
-        edges = get_chunk_edges(cg.meta.data_source.EDGES, unexplored_chunks)
-        explored_chunks.update(unexplored_chunks)
-        _cx_edges = edges["cross"].get_pairs()
-        cx_edges.append(_cx_edges)
-        _cx_edges = np.concatenate(cx_edges)
-
-        mask = _cx_edges[:, 0] == vertex
-        neighbors = _cx_edges[mask][:, 1]
+        mask = cx_edges[:, 0] == vertex
+        neighbors = cx_edges[mask][:, 1]
 
         if len(neighbors) > 0:
             neighbor_coords = cg.get_chunk_coordinates_multiple(neighbors)
@@ -61,10 +55,9 @@ def _get_whole_sv(
             neighbors = neighbors[min_mask & max_mask]
 
         for neighbor in neighbors:
-            if neighbor in explored_nodes:
-                continue
-            explored_nodes.add(neighbor)
-            queue.append(neighbor)
+            if neighbor not in explored_nodes:
+                explored_nodes.add(neighbor)
+                queue.append(neighbor)
     return explored_nodes
 
 
@@ -191,8 +184,8 @@ def _get_new_edges(
     dist_vec: Callable,
     new_dist_vec: Callable,
     new_id_label_map: dict = None,
+    threshold: int = 10,
 ):
-    THRESHOLD = 10
     new_edges, new_affs, new_areas = [], [], []
     edges, affinities, areas = edges_info
 
@@ -256,7 +249,7 @@ def _get_new_edges(
                     aff,
                     active_areas[i],
                     distances_[i],
-                    THRESHOLD,
+                    threshold,
                 )
             new_edges.extend(e)
             new_affs.extend(a)
@@ -270,9 +263,15 @@ def _get_new_edges(
                 new_affs.append(0.001)
                 new_areas.append(0)
 
+    if len(new_edges) == 0:
+        return (
+            np.array([], dtype=basetypes.NODE_ID),
+            np.array([], dtype=basetypes.EDGE_AFFINITY),
+            np.array([], dtype=basetypes.EDGE_AREA),
+        )
     affinites = np.array(new_affs, dtype=basetypes.EDGE_AFFINITY)
     areas = np.array(new_areas, dtype=basetypes.EDGE_AREA)
-    edges = np.array(new_edges, dtype=basetypes.NODE_ID)
+    edges = np.sort(np.array(new_edges, dtype=basetypes.NODE_ID), axis=1)
     edges, idx = np.unique(edges, return_index=True, axis=0)
     return edges, affinites[idx], areas[idx]
 
@@ -320,6 +319,7 @@ def _update_edges(
         dist_vec,
         new_dist_vec,
         new_id_label_map,
+        threshold=cg.meta.sv_split_threshold,
     )
 
 
@@ -372,18 +372,21 @@ def split_supervoxel(
     vol_end = cg.meta.voxel_bounds[:, 1]
     chunk_size = cg.meta.graph_config.CHUNK_SIZE
     _coords = np.concatenate([source_coords, sink_coords])
-    _padding = np.array([64] * 3) / cg.meta.resolution
+    _padding = np.array([cg.meta.resolution[-1] * 2] * 3) / cg.meta.resolution
 
     bbs = np.clip((np.min(_coords, 0) - _padding).astype(int), vol_start, vol_end)
     bbe = np.clip((np.max(_coords, 0) + _padding).astype(int), vol_start, vol_end)
     chunk_min, chunk_max = bbs // chunk_size, np.ceil(bbe / chunk_size).astype(int)
     bbs, bbe = chunk_min * chunk_size, chunk_max * chunk_size
-    logging.info(f"cg.meta.ws_ocdbt: {cg.meta.ws_ocdbt.shape}")
-    logging.info(f"{chunk_size}; {_padding}; {(bbs, bbe)}; {(chunk_min, chunk_max)}")
+    logging.info(
+        f"cg.meta.ws_ocdbt: {cg.meta.ws_ocdbt.shape}; res {cg.meta.resolution}"
+    )
+    logging.info(f"chunk and padding {chunk_size}; {_padding}")
+    logging.info(f"bbox and chunk min max {(bbs, bbe)}; {(chunk_min, chunk_max)}")
 
     cut_supervoxels = _get_whole_sv(cg, sv_id, min_coord=chunk_min, max_coord=chunk_max)
     supervoxel_ids = np.array(list(cut_supervoxels), dtype=basetypes.NODE_ID)
-    logging.info(f"{sv_id} -> {cut_supervoxels}")
+    logging.info(f"whole sv {sv_id} -> {cut_supervoxels}")
 
     # one voxel overlap for neighbors
     bbs_ = np.clip(bbs - 1, vol_start, vol_end)
@@ -421,7 +424,7 @@ def split_supervoxel(
     seg_roots = fastremap.remap(seg_roots, dict(zip(sv_ids, roots)), in_place=True)
 
     root = cg.get_root(sv_id)
-    logging.info(f"root {root}")
+    logging.info(f"{sv_id} root = {root}")
 
     seg_masked = seg.copy()
     seg_masked[seg_roots != root] = 0
@@ -443,8 +446,8 @@ def split_supervoxel(
     rows = rows0 + rows1
     logging.info(f"{operation_id}: writing {len(rows)} new rows")
 
-    cg.client.write(rows)
     cg.meta.ws_ocdbt[slices] = new_seg[..., np.newaxis]
+    cg.client.write(rows)
     return old_new_map, edges_tuple
 
 

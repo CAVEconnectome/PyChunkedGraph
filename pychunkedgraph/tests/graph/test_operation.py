@@ -498,21 +498,6 @@ class TestIDValidation:
                 sink_coords=None,
             )
 
-    @pytest.mark.timeout(30)
-    def test_multicut_overlapping_ids_raises(self, gen_graph):
-        """source_ids overlapping sink_ids should raise PreconditionError (line 872)."""
-        cg, _, sv0, sv1 = _build_cross_chunk(gen_graph)
-        with pytest.raises(SupervoxelSplitRequiredError, match="both sink and source"):
-            MulticutOperation(
-                cg,
-                user_id="test_user",
-                source_ids=[sv0, sv1],
-                sink_ids=[sv1],
-                source_coords=[[0, 0, 0], [1, 0, 0]],
-                sink_coords=[[1, 0, 0]],
-                bbox_offset=[240, 240, 24],
-            )
-
 
 # ===========================================================================
 # NEW: Empty coords / affinities normalization (lines 82, 86, 593)

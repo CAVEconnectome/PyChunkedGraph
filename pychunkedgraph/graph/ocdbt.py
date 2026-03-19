@@ -2,7 +2,7 @@ import os
 import numpy as np
 import tensorstore as ts
 
-OCDBT_SEG_COMPRESSION_LEVEL = 17
+OCDBT_SEG_COMPRESSION_LEVEL = 12
 
 
 def get_seg_source_and_destination_ocdbt(ws_path: str, create: bool = False) -> tuple:
