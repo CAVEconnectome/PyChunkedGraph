@@ -48,12 +48,24 @@ def flush_redis():
 @click.argument("graph_id", type=str)
 @click.argument("dataset", type=click.Path(exists=True))
 @click.option("--ocdbt", is_flag=True, help="Precomputed supervoxel seg into ocdbt.")
+@click.option(
+    "--sv-split-threshold",
+    type=int,
+    default=10,
+    help="Distance threshold for SV split edge matching.",
+)
 @click.option("--raw", is_flag=True, help="Read edges from agglomeration output.")
 @click.option("--retry", is_flag=True, help="Rerun without creating a new table.")
 @click.option("--test", is_flag=True, help="Test 8 chunks at the center of dataset.")
 @job_type_guard(group_name)
 def ingest_graph(
-    graph_id: str, dataset: click.Path, ocdbt: bool, raw: bool, retry: bool, test: bool
+    graph_id: str,
+    dataset: click.Path,
+    ocdbt: bool,
+    sv_split_threshold: int,
+    raw: bool,
+    retry: bool,
+    test: bool,
 ):
     """
     Main ingest command.
@@ -73,7 +85,10 @@ def ingest_graph(
         cg.create()
 
     if ocdbt:
-        cg.meta.custom_data["seg"] = {"ocdbt": True}
+        cg.meta.custom_data["seg"] = {
+            "ocdbt": True,
+            "sv_split_threshold": sv_split_threshold,
+        }
         cg.update_meta(cg.meta, overwrite=True)
         get_seg_source_and_destination_ocdbt(cg.meta.data_source.WATERSHED, create=True)
     imanager = IngestionManager(ingest_config, meta, ocdbt_seg=ocdbt)

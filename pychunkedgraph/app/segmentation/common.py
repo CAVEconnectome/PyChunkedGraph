@@ -473,7 +473,7 @@ def handle_split(table_id):
             _mask1 = sinks_remapped == sv_to_split
             split_supervoxel(
                 cg,
-                sv_to_split,
+                sources[_mask0][0],
                 source_coords[_mask0],
                 sink_coords[_mask1],
                 e.operation_id,
