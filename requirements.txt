@@ -124,14 +124,17 @@ google-cloud-core==2.5.0
     #   cloud-volume
     #   google-cloud-bigtable
     #   google-cloud-datastore
+    #   google-cloud-pubsub
     #   google-cloud-storage
     #   task-queue
 google-cloud-datastore==2.23.0
     # via
     #   -r requirements.in
     #   datastoreflex
-google-cloud-pubsub==2.35.0
-    # via messagingclient
+google-cloud-pubsub==2.12.1
+    # via
+    #   -r requirements.in
+    #   messagingclient
 google-cloud-storage==3.9.0
     # via
     #   cloud-files
@@ -151,7 +154,7 @@ googleapis-common-protos[grpc]==1.72.0
     #   grpcio-status
 greenlet==3.3.1
     # via gevent
-grpc-google-iam-v1==0.14.3
+grpc-google-iam-v1==0.12.4
     # via
     #   google-cloud-bigtable
     #   google-cloud-pubsub
@@ -171,8 +174,6 @@ idna==3.11
     # via requests
 imageio==2.37.2
     # via scikit-image
-importlib-metadata==8.7.1
-    # via opentelemetry-api
 inflection==0.5.1
     # via python-jsonschema-objects
 iniconfig==2.3.0
@@ -248,15 +249,6 @@ numpy==2.4.2
     #   tensorstore
     #   tifffile
     #   zmesh
-opentelemetry-api==1.39.1
-    # via
-    #   google-cloud-pubsub
-    #   opentelemetry-sdk
-    #   opentelemetry-semantic-conventions
-opentelemetry-sdk==1.39.1
-    # via google-cloud-pubsub
-opentelemetry-semantic-conventions==0.60b1
-    # via opentelemetry-sdk
 orderedmultidict==1.0.2
     # via furl
 orjson==3.11.7
@@ -305,9 +297,7 @@ protobuf==6.33.5
     #   google-api-core
     #   google-cloud-bigtable
     #   google-cloud-datastore
-    #   google-cloud-pubsub
     #   googleapis-common-protos
-    #   grpc-google-iam-v1
     #   grpcio-status
     #   proto-plus
 psutil==7.2.2
@@ -408,9 +398,6 @@ tqdm==4.67.3
 typing-extensions==4.15.0
     # via
     #   grpcio
-    #   opentelemetry-api
-    #   opentelemetry-sdk
-    #   opentelemetry-semantic-conventions
     #   referencing
 urllib3[brotli]==2.6.3
     # via
@@ -423,8 +410,6 @@ werkzeug==3.1.6
     #   -r requirements.in
     #   flask
     #   flask-cors
-zipp==3.23.0
-    # via importlib-metadata
 zmesh==1.10.0
     # via -r requirements.in
 zope-event==6.1

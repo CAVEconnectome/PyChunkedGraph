@@ -128,7 +128,7 @@ def get_atomic_ids_from_coords(
     """
     import fastremap
 
-    if parent_id_layer == 1:
+    if parent_id_layer == 1 and not meta.ocdbt_seg:
         return np.array([parent_id] * len(coordinates), dtype=np.uint64)
 
     coordinates_nm = coordinates * np.array(meta.resolution)

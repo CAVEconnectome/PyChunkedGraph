@@ -183,7 +183,7 @@ class ChunkedGraph:
         :param max_dist_nm: max distance explored
         :return: supervoxel ids; returns None if no solution was found
         """
-        if self.get_chunk_layer(parent_id) == 1:
+        if self.get_chunk_layer(parent_id) == 1 and not self.meta.ocdbt_seg:
             return np.array([parent_id] * len(coordinates), dtype=np.uint64)
 
         # Enable search with old parent by using its timestamp and map to parents
