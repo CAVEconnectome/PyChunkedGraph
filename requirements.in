@@ -26,7 +26,7 @@ middle-auth-client>=3.11.0
 zmesh>=1.7.0
 fastremap>=1.14.0
 task-queue>=2.14.0
-messagingclient
+messagingclient>0.3.0
 dracopy>=1.5.0
 datastoreflex>=0.5.0
 kvdbclient>=0.4.0
