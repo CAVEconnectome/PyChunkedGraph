@@ -67,6 +67,7 @@ class ChunkedGraphMeta:
         self._layer_count = None
         self._bitmasks = None
         self._ocdbt_seg = None
+        self._ocdbt_path = None
 
     @property
     def graph_config(self):
@@ -107,6 +108,14 @@ class ChunkedGraphMeta:
         if self._ocdbt_seg is None:
             self._ocdbt_seg = self._custom_data.get("seg", {}).get("ocdbt", False)
         return self._ocdbt_seg
+
+    @property
+    def ocdbt_path(self) -> bool:
+        if self._ocdbt_path is None:
+            self._ocdbt_path = self._custom_data.get("seg", {}).get(
+                "ocdbt_path", "ocdbt/base"
+            )
+        return self._ocdbt_path
 
     @property
     def ws_ocdbt(self):
@@ -260,11 +269,7 @@ class ChunkedGraphMeta:
         info.update(
             {
                 "chunks_start_at_voxel_offset": True,
-                "data_dir": (
-                    self.ws_ocdbt.kvstore.base.url
-                    if self.ocdbt_seg
-                    else self.data_source.WATERSHED
-                ),
+                "data_dir": self.data_source.WATERSHED,
                 "graph": {
                     "chunk_size": self.graph_config.CHUNK_SIZE,
                     "bounding_box": [2048, 2048, 512],
@@ -272,6 +277,8 @@ class ChunkedGraphMeta:
                     "cv_mip": self.data_source.CV_MIP,
                     "n_layers": self.layer_count,
                     "spatial_bit_masks": self.bitmasks,
+                    "ocdbt_seg": self.ocdbt_seg,
+                    "ocdbt_path": self.ocdbt_path,
                 },
             }
         )
