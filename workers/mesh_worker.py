@@ -10,9 +10,8 @@ import numpy as np
 from messagingclient import MessagingClient
 
 from pychunkedgraph.graph import ChunkedGraph
-from pychunkedgraph.graph.utils import basetypes
+from pychunkedgraph.graph import basetypes
 from pychunkedgraph.meshing import meshgen
-
 
 PCG_CACHE = {}
 
@@ -54,7 +53,6 @@ def callback(payload):
     mesh_path = path.join(
         cg.meta.data_source.WATERSHED, mesh_dir, cv_unsharded_mesh_dir
     )
-
 
     logging.log(INFO_HIGH, f"remeshing {l2ids}; graph {table_id} operation {op_id}.")
     meshgen.remeshing(

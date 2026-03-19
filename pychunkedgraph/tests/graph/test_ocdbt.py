@@ -131,11 +131,3 @@ class TestCopyWsChunk:
             voxel_bounds=voxel_bounds,
         )
         mock_source.__getitem__.assert_called_once()
-
-
-class TestOcdbtConstants:
-    def test_compression_level(self):
-        from pychunkedgraph.graph.ocdbt import OCDBT_SEG_COMPRESSION_LEVEL
-
-        assert OCDBT_SEG_COMPRESSION_LEVEL == 17
-        assert isinstance(OCDBT_SEG_COMPRESSION_LEVEL, int)

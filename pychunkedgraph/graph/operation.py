@@ -893,12 +893,6 @@ class MulticutOperation(GraphEditOperation):
         self.path_augment = path_augment
         self.disallow_isolating_cut = disallow_isolating_cut
         self.do_sanity_check = do_sanity_check
-        if np.any(np.isin(self.sink_ids, self.source_ids)):
-            raise SupervoxelSplitRequiredError(
-                "Supervoxels exist in both sink and source, "
-                "try placing the points further apart.",
-                None,
-            )
 
         ids = np.concatenate([self.source_ids, self.sink_ids]).astype(basetypes.NODE_ID)
         layers = self.cg.get_chunk_layers(ids)

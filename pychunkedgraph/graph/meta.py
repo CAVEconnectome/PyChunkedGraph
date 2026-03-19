@@ -14,7 +14,6 @@ from .utils.generic import compute_bitmasks
 from .chunks.utils import get_chunks_boundary
 from ..utils.redis import get_redis_connection
 
-
 _datasource_fields = ("EDGES", "COMPONENTS", "WATERSHED", "DATA_VERSION", "CV_MIP")
 _datasource_defaults = (None, None, None, None, 0)
 DataSource = namedtuple(
@@ -243,6 +242,10 @@ class ChunkedGraphMeta:
     @property
     def READ_ONLY(self):
         return self.custom_data.get("READ_ONLY", False)
+
+    @property
+    def sv_split_threshold(self) -> int:
+        return self._custom_data.get("seg", {}).get("sv_split_threshold", 10)
 
     @property
     def split_bounding_offset(self):
