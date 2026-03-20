@@ -1,6 +1,6 @@
 # pylint: disable=invalid-name, missing-docstring, too-many-locals, c-extension-no-member
 
-import datetime, logging, random
+import datetime, random
 from typing import Dict
 from typing import List
 from typing import Tuple
@@ -11,6 +11,7 @@ from collections import defaultdict
 import fastremap
 import numpy as np
 
+from pychunkedgraph import get_logger
 from pychunkedgraph.debug.profiler import HierarchicalProfiler, get_profiler
 
 from . import types
@@ -25,7 +26,7 @@ from pychunkedgraph.graph import serializers
 from ..utils.general import in2d
 from ..debug.utils import sanity_check, sanity_check_single
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 def _init_old_hierarchy(cg, l2ids: np.ndarray, parent_ts: datetime.datetime = None):

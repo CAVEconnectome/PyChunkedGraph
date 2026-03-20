@@ -14,6 +14,7 @@ from flask.logging import default_handler
 from flask_cors import CORS
 from rq import Queue
 
+from pychunkedgraph import NOTICE, configure_logging
 from pychunkedgraph.logging import jsonformatter
 
 from . import config
@@ -99,9 +100,9 @@ def configure_app(app):
     app.logger.setLevel(app.config["LOGGING_LEVEL"])
     app.logger.propagate = False
 
-    # Also configure root logger so logging.info() calls in library code are captured
-    logging.root.addHandler(handler)
-    logging.root.setLevel(logging.INFO)
+    # Ensure pychunkedgraph logger always works at NOTICE level
+    # regardless of app config or environment log level
+    configure_logging(level=NOTICE)
 
     if app.config["USE_REDIS_JOBS"]:
         app.redis = redis.Redis.from_url(app.config["REDIS_URL"])

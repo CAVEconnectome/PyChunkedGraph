@@ -3,8 +3,11 @@ Manage new supervoxels after a supervoxel split.
 """
 
 from functools import reduce
-import logging
 import multiprocessing as mp
+
+from pychunkedgraph import get_logger
+
+logger = get_logger(__name__)
 from typing import Callable
 from datetime import datetime
 from collections import defaultdict, deque
@@ -323,7 +326,7 @@ def _update_edges(
 
 def _add_new_edges(cg: ChunkedGraph, edges_tuple: tuple, time_stamp: datetime = None):
     edges_, affinites_, areas_ = edges_tuple
-    logging.info(f"new edges: {edges_.shape}")
+    logger.note(f"new edges: {edges_.shape}")
 
     nodes = fastremap.unique(edges_)
     chunks = cg.get_chunk_ids_from_node_ids(cg.get_parents(nodes))
@@ -348,7 +351,7 @@ def _add_new_edges(cg: ChunkedGraph, edges_tuple: tuple, time_stamp: datetime = 
                 time_stamp=time_stamp,
             )
         )
-        logging.info(f"writing {edges[mask].shape} edges to {chunk_id}")
+        logger.note(f"writing {edges[mask].shape} edges to {chunk_id}")
     return rows
 
 
@@ -376,15 +379,13 @@ def split_supervoxel(
     bbe = np.clip((np.max(_coords, 0) + _padding).astype(int), vol_start, vol_end)
     chunk_min, chunk_max = bbs // chunk_size, np.ceil(bbe / chunk_size).astype(int)
     bbs, bbe = chunk_min * chunk_size, chunk_max * chunk_size
-    logging.info(
-        f"cg.meta.ws_ocdbt: {cg.meta.ws_ocdbt.shape}; res {cg.meta.resolution}"
-    )
-    logging.info(f"chunk and padding {chunk_size}; {_padding}")
-    logging.info(f"bbox and chunk min max {(bbs, bbe)}; {(chunk_min, chunk_max)}")
+    logger.note(f"cg.meta.ws_ocdbt: {cg.meta.ws_ocdbt.shape}; res {cg.meta.resolution}")
+    logger.note(f"chunk and padding {chunk_size}; {_padding}")
+    logger.note(f"bbox and chunk min max {(bbs, bbe)}; {(chunk_min, chunk_max)}")
 
     cut_supervoxels = _get_whole_sv(cg, sv_id, min_coord=chunk_min, max_coord=chunk_max)
     supervoxel_ids = np.array(list(cut_supervoxels), dtype=basetypes.NODE_ID)
-    logging.info(f"whole sv {sv_id} -> {supervoxel_ids.tolist()}")
+    logger.note(f"whole sv {sv_id} -> {supervoxel_ids.tolist()}")
 
     # one voxel overlap for neighbors
     bbs_ = np.clip(bbs - 1, vol_start, vol_end)
@@ -399,14 +400,14 @@ def split_supervoxel(
         cg.meta.resolution,
         verbose=verbose,
     )
-    logging.info(f"split_result: {split_result.shape}")
+    logger.note(f"split_result: {split_result.shape}")
 
     chunks_bbox_map = chunks_overlapping_bbox(bbs, bbe, cg.meta.graph_config.CHUNK_SIZE)
     tasks = [
         (cg.graph_id, *item, seg[voxel_overlap_crop], split_result, bbs)
         for item in chunks_bbox_map.items()
     ]
-    logging.info(f"tasks count: {len(tasks)}")
+    logger.note(f"tasks count: {len(tasks)}")
     with mp.Pool() as pool:
         results = [*tqdm(pool.imap_unordered(_update_chunk, tasks), total=len(tasks))]
     seg_cropped = seg[voxel_overlap_crop].copy()
@@ -418,7 +419,7 @@ def split_supervoxel(
     roots = cg.get_roots(sv_ids)
     sv_root_map = dict(zip(sv_ids, roots))
     root = sv_root_map[sv_id]
-    logging.info(f"{sv_id} -> {root}")
+    logger.note(f"{sv_id} -> {root}")
 
     root_mask = fastremap.remap(seg, sv_root_map, in_place=False) == root
     seg[~root_mask] = 0
@@ -437,7 +438,7 @@ def split_supervoxel(
     rows0 = copy_parents_and_add_lineage(cg, operation_id, old_new_map)
     rows1 = _add_new_edges(cg, edges_tuple, time_stamp=time_stamp)
     rows = rows0 + rows1
-    logging.info(f"{operation_id}: writing {len(rows)} new rows")
+    logger.note(f"{operation_id}: writing {len(rows)} new rows")
 
     cg.meta.ws_ocdbt[slices] = new_seg[..., np.newaxis]
     cg.client.write(rows)

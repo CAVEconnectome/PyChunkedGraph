@@ -1,7 +1,11 @@
 # pylint: disable=invalid-name, missing-docstring, c-extension-no-member
 
 from math import ceil
-import bisect, logging, random, time, os, gc
+import bisect, random, time, os, gc
+
+from pychunkedgraph import get_logger
+
+logger = get_logger(__name__)
 import multiprocessing as mp
 from collections import defaultdict
 from datetime import datetime, timezone
@@ -54,7 +58,7 @@ def _get_cx_edges_at_timestamp(node, response, ts):
                 try:
                     result[key.index].append(cells[idx].value)
                 except IndexError as e:
-                    logging.error(f"{k}, {idx}, {len(cells)}, {asc_ts}")
+                    logger.error(f"{k}, {idx}, {len(cells)}, {asc_ts}")
                     raise IndexError from e
     for layer, edges in result.items():
         result[layer] = np.concatenate(edges)
@@ -84,7 +88,7 @@ def _populate_cx_edges_with_timestamps(
     response = cg.client.read_nodes(node_ids=all_children, properties=attrs)
     timestamps_d = get_parent_timestamps(cg, nodes)
     end_timestamps = get_end_timestamps(cg, nodes, nodes_ts, CHILDREN, layer=layer)
-    logging.info(f"_populate_cx_edges_with_timestamps init: {time.time() - start}")
+    logger.note(f"_populate_cx_edges_with_timestamps init: {time.time() - start}")
 
     start = time.time()
     partners_map = {}
@@ -97,7 +101,7 @@ def _populate_cx_edges_with_timestamps(
 
     partners = np.unique(np.concatenate([*partners_map.values()]))
     partner_parent_ts_d = get_parent_timestamps(cg, partners)
-    logging.info(f"get partners timestamps init: {time.time() - start}")
+    logger.note(f"get partners timestamps init: {time.time() - start}")
 
     rows = []
     for node, node_ts, node_end_ts in zip(nodes, nodes_ts, end_timestamps):
@@ -180,7 +184,7 @@ def _update_cross_edges_helper(args):
             tasks.append((cg, layer, node, node_ts))
 
     if clean_task:
-        logging.info(f"found {len(corrupt_nodes)} corrupt nodes {corrupt_nodes[:3]}...")
+        logger.note(f"found {len(corrupt_nodes)} corrupt nodes {corrupt_nodes[:3]}...")
         fix_corrupt_nodes(cg, corrupt_nodes, CHILDREN)
         return
 
@@ -224,31 +228,31 @@ def update_chunk(
         nodes = _get_split_nodes(cg, chunk_id, split, splits)
 
     _populate_nodes_and_children(cg, chunk_id, nodes=nodes)
-    logging.info(f"_populate_nodes_and_children: {time.time() - start}")
+    logger.note(f"_populate_nodes_and_children: {time.time() - start}")
     nodes = list(CHILDREN.keys())
     if len(nodes) == 0:
         return
 
-    logging.info(f"processing {len(nodes)} nodes.")
+    logger.note(f"processing {len(nodes)} nodes.")
     random.shuffle(nodes)
     start = time.time()
     nodes_ts = cg.get_node_timestamps(nodes, return_numpy=False, normalize=True)
-    logging.info(f"get_node_timestamps: {time.time() - start}")
+    logger.note(f"get_node_timestamps: {time.time() - start}")
 
     start = time.time()
     _populate_cx_edges_with_timestamps(cg, layer, nodes, nodes_ts)
-    logging.info(f"_populate_cx_edges_with_timestamps: {time.time() - start}")
+    logger.note(f"_populate_cx_edges_with_timestamps: {time.time() - start}")
 
     if debug:
         rows = []
         stale.PARENTS_CACHE = LRUCache(PARENT_CACHE_LIMIT)
         stale.CHILDREN_CACHE = LRUCache(1 * 1024)
-        logging.info(f"processing {len(nodes)} nodes with 1 worker.")
+        logger.note(f"processing {len(nodes)} nodes with 1 worker.")
         for node, node_ts in zip(nodes, nodes_ts):
             rows.extend(update_cross_edges(cg, layer, node, node_ts))
         stale.PARENTS_CACHE.clear()
         stale.CHILDREN_CACHE.clear()
-        logging.info(f"total elaspsed time: {time.time() - start}")
+        logger.note(f"total elaspsed time: {time.time() - start}")
         return
 
     task_size = int(os.environ.get("TASK_SIZE", 1))
@@ -263,7 +267,7 @@ def update_chunk(
 
     process_multiplier = int(os.environ.get("PROCESS_MULTIPLIER", 5))
     processes = min(mp.cpu_count() * process_multiplier, len(tasks))
-    logging.info(f"processing {len(nodes)} nodes with {processes} workers.")
+    logger.note(f"processing {len(nodes)} nodes with {processes} workers.")
     with mp.Pool(processes) as pool:
         _ = list(
             tqdm(
@@ -271,4 +275,4 @@ def update_chunk(
                 total=len(tasks),
             )
         )
-    logging.info(f"total elaspsed time: {time.time() - start}")
+    logger.note(f"total elaspsed time: {time.time() - start}")
