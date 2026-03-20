@@ -146,6 +146,12 @@ def update_chunk(cg: ChunkedGraph, chunk_coords: list[int]):
         fix_corrupt_nodes(cg, corrupt_nodes, CHILDREN)
         return
 
+    # Set max node ID for the L1 chunk (needed for SV splitting to create new IDs)
+    l1_chunk_id = cg.get_chunk_id(layer=1, x=x, y=y, z=z)
+    if CHILDREN:
+        all_svs = np.concatenate(list(CHILDREN.values()))
+        cg.id_client.set_max_node_id(l1_chunk_id, np.max(all_svs))
+
     cg.copy_fake_edges(chunk_id)
     if len(nodes) == 0:
         return

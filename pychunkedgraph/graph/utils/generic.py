@@ -153,7 +153,6 @@ def get_parents_at_timestamp(nodes, parents_ts_map, time_stamp, unique: bool = F
     return list(parents), skipped_nodes
 
 
-
 def get_local_segmentation(meta, bbox_start, bbox_end) -> np.ndarray:
     result = None
     xL, yL, zL = bbox_start
@@ -163,3 +162,12 @@ def get_local_segmentation(meta, bbox_start, bbox_end) -> np.ndarray:
     else:
         result = meta.cv[xL:xH, yL:yH, zL:zH]
     return result
+
+
+def lookup_svs_from_seg(meta, coordinates):
+    """Read SV IDs directly from OCDBT segmentation at given coordinates."""
+    bbox_start = np.min(coordinates, axis=0)
+    bbox_end = np.max(coordinates, axis=0) + 1
+    seg = get_local_segmentation(meta, bbox_start, bbox_end)[..., 0]
+    local_coords = coordinates - bbox_start
+    return np.array([seg[tuple(c)] for c in local_coords], dtype=np.uint64)
