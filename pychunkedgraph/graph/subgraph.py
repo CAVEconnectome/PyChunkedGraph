@@ -186,8 +186,8 @@ def _get_subgraph_multiple_nodes(
     return_flattened: bool = False,
 ):
     from collections import ChainMap
-    from multiwrapper.multiprocessing_utils import n_cpus
-    from multiwrapper.multiprocessing_utils import multithread_func
+    import os
+    from concurrent.futures import ThreadPoolExecutor
 
     from .utils.generic import mask_nodes_by_bounding_box
 
@@ -223,20 +223,26 @@ def _get_subgraph_multiple_nodes(
 
     subgraph = SubgraphProgress(cg.meta, node_ids, return_layers, serializable)
     while not subgraph.done_processing():
-        this_n_threads = min([int(len(subgraph.cur_nodes) // 50000) + 1, n_cpus])
-        cur_nodes_child_maps = multithread_func(
-            _get_subgraph_multiple_nodes_threaded,
-            np.array_split(subgraph.cur_nodes, this_n_threads),
-            n_threads=this_n_threads,
-            debug=this_n_threads == 1,
+        this_n_threads = min(
+            [int(len(subgraph.cur_nodes) // 50000) + 1, os.cpu_count()]
         )
+        batches = np.array_split(subgraph.cur_nodes, this_n_threads)
+        if this_n_threads == 1:
+            cur_nodes_child_maps = [
+                _get_subgraph_multiple_nodes_threaded(b) for b in batches
+            ]
+        else:
+            with ThreadPoolExecutor(max_workers=this_n_threads) as executor:
+                cur_nodes_child_maps = list(
+                    executor.map(_get_subgraph_multiple_nodes_threaded, batches)
+                )
         cur_nodes_children = dict(ChainMap(*cur_nodes_child_maps))
         subgraph.process_batch_of_children(cur_nodes_children)
 
     if return_flattened and len(return_layers) == 1:
         for node_id in node_ids:
-            subgraph.node_to_subgraph[
-                _get_dict_key(node_id)
-            ] = subgraph.node_to_subgraph[_get_dict_key(node_id)][return_layers[0]]
+            subgraph.node_to_subgraph[_get_dict_key(node_id)] = (
+                subgraph.node_to_subgraph[_get_dict_key(node_id)][return_layers[0]]
+            )
 
     return subgraph.node_to_subgraph

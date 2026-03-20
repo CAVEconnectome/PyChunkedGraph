@@ -7,19 +7,23 @@ import os
 import networkx as nx
 
 import cloudvolume
-from multiwrapper import multiprocessing_utils as mu
+from concurrent.futures import ProcessPoolExecutor
+
 
 def read_mesh_h5():
     pass
 
+
 def write_mesh_h5():
     pass
+
 
 def read_obj(path):
     return Mesh(path)
 
+
 def _download_meshes_thread(args):
-    """ Downloads meshes into target directory
+    """Downloads meshes into target directory
 
     :param args: list
     """
@@ -33,7 +37,7 @@ def _download_meshes_thread(args):
 
 
 def download_meshes(seg_ids, target_dir, cv_path, n_threads=1):
-    """ Downloads meshes in target directory (parallel)
+    """Downloads meshes in target directory (parallel)
 
     :param seg_ids: list of ints
     :param target_dir: str
@@ -52,12 +56,11 @@ def download_meshes(seg_ids, target_dir, cv_path, n_threads=1):
         multi_args.append([seg_id_block, cv_path, target_dir])
 
     if n_jobs == 1:
-        mu.multiprocess_func(_download_meshes_thread,
-                             multi_args, debug=True,
-                             verbose=True, n_threads=1)
+        for args in multi_args:
+            _download_meshes_thread(args)
     else:
-        mu.multisubprocess_func(_download_meshes_thread,
-                                multi_args, n_threads=n_threads)
+        with ProcessPoolExecutor(max_workers=n_threads) as executor:
+            list(executor.map(_download_meshes_thread, multi_args))
 
 
 def refine_mesh():
@@ -76,6 +79,7 @@ class MeshMeta(object):
                 self.filename_dict[filename] = None
 
         return self.filename_dict[filename]
+
 
 class Mesh(object):
     def __init__(self, filename):
@@ -117,8 +121,9 @@ class Mesh(object):
     @property
     def edges(self):
         if self._edges is None:
-            self._edges = np.concatenate([self.faces[:, :2],
-                                          self.faces[:, 1:3]], axis=0)
+            self._edges = np.concatenate(
+                [self.faces[:, :2], self.faces[:, 1:3]], axis=0
+            )
         return self._edges
 
     @property
@@ -141,21 +146,23 @@ class Mesh(object):
         normals = []
 
         for line in open(self.filename, "r"):
-            if line.startswith('#'): continue
+            if line.startswith("#"):
+                continue
             values = line.split()
-            if not values: continue
-            if values[0] == 'v':
+            if not values:
+                continue
+            if values[0] == "v":
                 v = values[1:4]
                 vertices.append(v)
-            elif values[0] == 'vn':
+            elif values[0] == "vn":
                 v = map(float, values[1:4])
                 normals.append(v)
-            elif values[0] == 'f':
+            elif values[0] == "f":
                 face = []
                 texcoords = []
                 norms = []
                 for v in values[1:]:
-                    w = v.split('/')
+                    w = v.split("/")
                     face.append(int(w[0]))
                     if len(w) >= 2 and len(w[1]) > 0:
                         texcoords.append(int(w[1]))
@@ -191,7 +198,8 @@ class Mesh(object):
 
         tweaked_array = np.array(
             list(zip(coords[:, 0], coords[:, 1], coords[:, 2])),
-            dtype=[('x', 'f4'), ('y', 'f4'), ('z', 'f4')])
+            dtype=[("x", "f4"), ("y", "f4"), ("z", "f4")],
+        )
 
         vertex_element = plyfile.PlyElement.describe(tweaked_array, "vertex")
 
@@ -200,8 +208,15 @@ class Mesh(object):
 
         plyfile.PlyData([vertex_element]).write(out_fname)
 
-    def get_local_view(self, n_points, pc_align=False, center_node_id=None,
-                       center_coord=None, method="kdtree", verbose=False):
+    def get_local_view(
+        self,
+        n_points,
+        pc_align=False,
+        center_node_id=None,
+        center_coord=None,
+        method="kdtree",
+        verbose=False,
+    ):
         if center_node_id is None and center_coord is None:
             center_node_id = np.random.randint(len(self.vertices))
 
@@ -215,11 +230,11 @@ class Mesh(object):
             if verbose:
                 print(np.mean(dists), np.max(dists), np.min(dists))
         elif method == "graph":
-           dist_dict = nx.single_source_dijkstra_path_length(self.graph,
-                                                             center_node_id,
-                                                             weight="weight")
-           sorting = np.argsort(np.array(list(dist_dict.values())))
-           node_ids = np.array(list(dist_dict.keys()))[sorting[:n_points]]
+            dist_dict = nx.single_source_dijkstra_path_length(
+                self.graph, center_node_id, weight="weight"
+            )
+            sorting = np.argsort(np.array(list(dist_dict.values())))
+            node_ids = np.array(list(dist_dict.keys()))[sorting[:n_points]]
         else:
             raise Exception("unknow method")
 
@@ -236,7 +251,9 @@ class Mesh(object):
         return pca.transform(vertices)
 
     def create_nx_graph(self):
-        weights = np.linalg.norm(self.vertices[self.edges[:, 0]] - self.vertices[self.edges[:, 1]], axis=1)
+        weights = np.linalg.norm(
+            self.vertices[self.edges[:, 0]] - self.vertices[self.edges[:, 1]], axis=1
+        )
 
         print(weights.shape)
 
@@ -244,8 +261,6 @@ class Mesh(object):
         weighted_graph.add_edges_from(self.edges)
 
         for i_edge, edge in enumerate(self.edges):
-            weighted_graph[edge[0]][edge[1]]['weight'] = weights[i_edge]
+            weighted_graph[edge[0]][edge[1]]["weight"] = weights[i_edge]
 
         return weighted_graph
-
-

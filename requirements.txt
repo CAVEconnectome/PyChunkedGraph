@@ -216,8 +216,6 @@ ml-dtypes==0.5.4
     # via tensorstore
 multiprocess==0.70.19
     # via pathos
-multiwrapper==0.1.1
-    # via -r requirements.in
 networkx==3.6.1
     # via
     #   -r requirements.in
@@ -238,7 +236,6 @@ numpy==2.4.2
     #   messagingclient
     #   microviewer
     #   ml-dtypes
-    #   multiwrapper
     #   osteoid
     #   pandas
     #   scikit-image

@@ -10,7 +10,7 @@ import datetime
 import pytz
 from scipy import ndimage
 
-from multiwrapper import multiprocessing_utils as mu
+from concurrent.futures import ThreadPoolExecutor
 from cloudfiles import CloudFiles
 from cloudvolume import CloudVolume
 from cloudvolume.datasource.precomputed.sharding import ShardingSpecification
@@ -22,7 +22,6 @@ from pychunkedgraph.graph.chunkedgraph import ChunkedGraph  # noqa
 from pychunkedgraph.graph import attributes  # noqa
 from pychunkedgraph.meshing import meshgen_utils  # noqa
 from pychunkedgraph.meshing.manifest.cache import ManifestCache
-
 
 UTC = pytz.UTC
 
@@ -263,7 +262,12 @@ def get_root_lx_remapping(cg, chunk_id, stop_layer, time_stamp, n_threads=1):
         multi_args.append([start_ids[i_block], start_ids[i_block + 1]])
 
     if n_jobs > 0:
-        mu.multithread_func(_get_root_ids, multi_args, n_threads=n_threads)
+        if n_threads == 1:
+            for args in multi_args:
+                _get_root_ids(args)
+        else:
+            with ThreadPoolExecutor(max_workers=n_threads) as executor:
+                list(executor.map(_get_root_ids, multi_args))
 
     return lx_ids, np.array(root_ids), lx_id_remap
 
@@ -443,7 +447,12 @@ def get_root_remapping_for_nodes_and_svs(
         multi_args.append([start_ids[i_block], start_ids[i_block + 1]])
 
     if n_jobs > 0:
-        mu.multithread_func(_get_root_ids, multi_args, n_threads=n_threads)
+        if n_threads == 1:
+            for args in multi_args:
+                _get_root_ids(args)
+        else:
+            with ThreadPoolExecutor(max_workers=n_threads) as executor:
+                list(executor.map(_get_root_ids, multi_args))
 
     sv_ids_index = len(node_ids)
     chunk_ids_index = len(node_ids) + len(sv_ids)
@@ -1040,7 +1049,8 @@ def get_multi_child_nodes(cg, chunk_id, node_id_subset=None, chunk_bbox_string=F
             fragment.value
             for child_fragments_for_node in node_rows
             for fragment in child_fragments_for_node
-        ], dtype=object
+        ],
+        dtype=object,
     )
     # Filter out node ids that do not have roots (caused by failed ingest tasks)
     root_ids = cg.get_roots(node_ids, fail_to_zero=True)

@@ -21,7 +21,6 @@ scikit-image
 # PyPI only:
 cloud-files>=6.0.0
 cloud-volume>=12.0.0
-multiwrapper
 middle-auth-client>=3.11.0
 zmesh>=1.7.0
 fastremap>=1.14.0
