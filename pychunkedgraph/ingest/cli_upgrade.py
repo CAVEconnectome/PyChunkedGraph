@@ -4,8 +4,11 @@
 cli for running upgrade
 """
 
-import logging
 from time import sleep
+
+from pychunkedgraph import get_logger
+
+logger = get_logger(__name__)
 
 import click
 import tensorstore as ts
@@ -89,7 +92,7 @@ def upgrade_graph(graph_id: str, test: bool, ocdbt: bool):
     enqueue_l2_tasks(imanager, fn)
 
     if ocdbt:
-        logging.info("All tasks queued. Keep this alive for ocdbt coordinator server.")
+        logger.note("All tasks queued. Keep this alive for ocdbt coordinator server.")
         while True:
             sleep(60)
 

@@ -1,5 +1,4 @@
 from concurrent.futures import ThreadPoolExecutor, as_completed
-import logging
 from typing import Union
 from typing import Sequence
 from collections import defaultdict
@@ -7,11 +6,14 @@ from collections import defaultdict
 import networkx as nx
 import numpy as np
 
+from pychunkedgraph import get_logger
+
 from . import exceptions
 from .types import empty_1d
 from .lineage import lineage_graph
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
+
 
 class RootLock:
     """Attempts to lock the requested root IDs using a unique operation ID.

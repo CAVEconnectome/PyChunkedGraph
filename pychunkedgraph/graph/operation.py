@@ -1,6 +1,5 @@
 # pylint: disable=invalid-name, missing-docstring, too-many-lines, protected-access, broad-exception-raised
 
-import logging
 from abc import ABC, abstractmethod
 from collections import namedtuple
 from datetime import datetime
@@ -16,8 +15,9 @@ from typing import Sequence
 from functools import reduce
 
 import numpy as np
+from pychunkedgraph import get_logger
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 from . import locks
 from . import edits

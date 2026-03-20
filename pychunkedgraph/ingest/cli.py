@@ -4,8 +4,9 @@
 cli for running ingest
 """
 
-import logging
 import os
+
+from pychunkedgraph import configure_logging, DEBUG
 
 import click
 import yaml
@@ -77,7 +78,7 @@ def ingest_graph(
         config = yaml.safe_load(stream)
 
     if test:
-        logging.basicConfig(format="%(levelname)s:%(message)s", level=logging.DEBUG)
+        configure_logging(level=DEBUG)
 
     meta, ingest_config, client_info = bootstrap(graph_id, config, raw, test)
     cg = ChunkedGraph(meta=meta, client_info=client_info)

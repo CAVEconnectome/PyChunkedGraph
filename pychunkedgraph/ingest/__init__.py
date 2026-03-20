@@ -1,7 +1,8 @@
-import logging
 from collections import namedtuple
 
-logging.basicConfig(format="%(levelname)s:%(message)s", level=logging.INFO)
+from pychunkedgraph import configure_logging, NOTICE
+
+configure_logging(level=NOTICE)
 
 _ingestconfig_fields = (
     "AGGLOMERATION",

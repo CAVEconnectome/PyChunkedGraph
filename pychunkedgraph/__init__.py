@@ -9,6 +9,26 @@ warnings.filterwarnings(
     "ignore", message="Schema id not specified", module="python_jsonschema_objects"
 )
 
+# Custom log level between INFO (20) and WARNING (30)
+# Use logger.notice() for pychunkedgraph logs that should always show
+# even when third-party INFO is suppressed
+NOTICE = 25
+stdlib_logging.addLevelName(NOTICE, "NOTICE")
+
+
+class PCGLogger(stdlib_logging.Logger):
+    def note(self, message, *args, **kwargs):
+        if self.isEnabledFor(NOTICE):
+            self._log(NOTICE, message, args, stacklevel=2, **kwargs)
+
+
+stdlib_logging.setLoggerClass(PCGLogger)
+
+
+def get_logger(name: str) -> PCGLogger:
+    return stdlib_logging.getLogger(name)  # type: ignore[return-value]
+
+
 # Export logging levels for convenience
 DEBUG = stdlib_logging.DEBUG
 INFO = stdlib_logging.INFO
@@ -36,7 +56,7 @@ def configure_logging(level=stdlib_logging.INFO, format_str=None, stream=None):
         pychunkedgraph.configure_logging(pychunkedgraph.DEBUG)  # Enable DEBUG level
     """
     if format_str is None:
-        format_str = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+        format_str = "%(asctime)s %(module)s:%(funcName)s:%(lineno)d %(message)s"
     if stream is None:
         stream = sys.stdout
 
@@ -54,10 +74,12 @@ def configure_logging(level=stdlib_logging.INFO, format_str=None, stream=None):
 
     handler = stdlib_logging.StreamHandler(stream)
     handler.setLevel(level)
-    handler.setFormatter(stdlib_logging.Formatter(format_str))
+    formatter = stdlib_logging.Formatter(format_str)
+    formatter.default_msec_format = "%s.%03d"
+    handler.setFormatter(formatter)
     logger.addHandler(handler)
 
     return logger
 
 
-configure_logging()
+configure_logging(level=NOTICE)
