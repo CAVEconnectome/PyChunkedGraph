@@ -72,11 +72,6 @@ def _update_chunk(args):
     x, y, z = chunk_coord
     chunk_id = cg.get_chunk_id(layer=1, x=x, y=y, z=z)
 
-    # TODO: remove these 3 lines, testing only
-    rr = cg.range_read_chunk(chunk_id)
-    max_node_id = max(rr.keys())
-    cg.id_client.set_max_node_id(chunk_id, max_node_id)
-
     _s, _e = chunk_bbox - bb_start
     og_chunk_seg = seg[_s[0] : _e[0], _s[1] : _e[1], _s[2] : _e[2]]
     chunk_seg = result_seg[_s[0] : _e[0], _s[1] : _e[1], _s[2] : _e[2]]
@@ -91,16 +86,15 @@ def _update_chunk(args):
     _label_id_map = {}
     for _id in labels:
         _mask = chunk_seg == _id
-        if np.any(_mask):
-            _idx = np.unravel_index(np.flatnonzero(_mask)[0], og_chunk_seg.shape)
-            _og_value = og_chunk_seg[_idx]
-            _index = np.argwhere(_mask)
-            _indices.append(_index)
-            _ones = np.ones(len(_index), dtype=basetypes.NODE_ID)
-            _old_values.append(_ones * _og_value)
-            new_id = cg.id_client.create_node_id(chunk_id)
-            _new_values.append(_ones * new_id)
-            _label_id_map[int(_id)] = new_id
+        _idx = np.unravel_index(np.flatnonzero(_mask)[0], og_chunk_seg.shape)
+        _og_value = og_chunk_seg[_idx]
+        _index = np.argwhere(_mask)
+        _indices.append(_index)
+        _ones = np.ones(len(_index), dtype=basetypes.NODE_ID)
+        _old_values.append(_ones * _og_value)
+        new_id = cg.id_client.create_node_id(chunk_id)
+        _new_values.append(_ones * new_id)
+        _label_id_map[int(_id)] = new_id
 
     _indices = np.concatenate(_indices) + (chunk_bbox[0] - bb_start)
     _old_values = np.concatenate(_old_values)
@@ -112,7 +106,6 @@ def _voxel_crop(bbs, bbe, bbs_, bbe_):
     xS, yS, zS = bbs - bbs_
     xE, yE, zE = (None if i == 0 else -1 for i in bbe_ - bbe)
     voxel_overlap_crop = np.s_[xS:xE, yS:yE, zS:zE]
-    logging.info(f"voxel_overlap_crop: {voxel_overlap_crop}")
     return voxel_overlap_crop
 
 
@@ -130,7 +123,6 @@ def _parse_results(results, seg, bbs, bbe):
 
     assert np.all(seg.shape == bbe - bbs), f"{seg.shape} != {bbe - bbs}"
     slices = tuple(slice(start, end) for start, end in zip(bbs, bbe)) + (slice(None),)
-    logging.info(f"slices {slices}")
     return seg, old_new_map, slices, new_id_label_map
 
 
@@ -176,6 +168,42 @@ def _match_by_proximity(new_ids, partner, aff, area, distances_row, threshold):
     )
 
 
+def _match_inf_unsplit(new_ids, partner, aff, area, distances_row):
+    """Inf-affinity edge to an unsplit partner: assign to closest fragment only.
+    Connecting all fragments would create an uncuttable bridge between source/sink sides.
+    """
+    closest = new_ids[np.argmin(distances_row)]
+    return (
+        np.array([[closest, partner]], dtype=np.uint64),
+        np.array([aff], dtype=basetypes.EDGE_AFFINITY),
+        np.array([area], dtype=basetypes.EDGE_AREA),
+    )
+
+
+def _match_partner(
+    new_ids, partner, aff, area, distances_row, new_id_label_map, threshold
+):
+    """Route a single old edge to the appropriate new fragment(s)."""
+    if np.isinf(aff):
+        if new_id_label_map and partner in new_id_label_map:
+            return _match_by_label(
+                new_ids, partner, aff, area, new_id_label_map, distances_row
+            )
+        return _match_inf_unsplit(new_ids, partner, aff, area, distances_row)
+    return _match_by_proximity(new_ids, partner, aff, area, distances_row, threshold)
+
+
+def _expand_partners(active_partners, active_affs, active_areas, old_new_map):
+    """If a partner was also split, expand it to its new fragment IDs."""
+    partners, affs, areas = [], [], []
+    for i in range(len(active_partners)):
+        remapped = old_new_map.get(active_partners[i], [active_partners[i]])
+        partners.extend(remapped)
+        affs.extend([active_affs[i]] * len(remapped))
+        areas.extend([active_areas[i]] * len(remapped))
+    return partners, affs, areas
+
+
 def _get_new_edges(
     edges_info: tuple,
     sv_ids: np.ndarray,
@@ -190,7 +218,6 @@ def _get_new_edges(
     edges, affinities, areas = edges_info
 
     for old, new in old_new_map.items():
-        logging.info(f"old and new {old, new}")
         new_ids = np.array(list(new), dtype=basetypes.NODE_ID)
         edges_m = np.any(edges == old, axis=1)
         selected_edges = edges[edges_m]
@@ -198,68 +225,41 @@ def _get_new_edges(
         assert np.all(np.sum(sel_m, axis=1) == 1)
 
         partners = selected_edges[sel_m]
+        edge_affs = affinities[edges_m]
+        edge_areas = areas[edges_m]
         active_m = np.isin(partners, sv_ids)
 
-        logging.info(f"sv_ids: {np.sum(sv_ids > 0)}")
-        logging.info(f"edges: {edges.shape} {np.sum(edges_m)} {np.sum(sel_m)}")
-        logging.info(f"selected_edges: {selected_edges.shape}")
+        # Inactive partners (different root, outside distance map): all fragments get the edge
+        for k in np.where(~active_m)[0]:
+            for new_id in new_ids:
+                new_edges.append(np.array([new_id, partners[k]], dtype=np.uint64))
+                new_affs.append(edge_affs[k])
+                new_areas.append(edge_areas[k])
 
-        # inactive
-        for new_id in new_ids:
-            _a = [[new_id] * np.sum(~active_m), partners[~active_m]]
-            new_edges.extend(np.array(_a, dtype=np.uint64).T)
-            new_affs.extend(affinities[edges_m][np.any(sel_m, axis=1)][~active_m])
-            new_areas.extend(areas[edges_m][np.any(sel_m, axis=1)][~active_m])
-
-        # active
-        active_partners_ = partners[active_m]
-        active_affs_ = affinities[edges_m][np.any(sel_m, axis=1)][active_m]
-        active_areas_ = areas[edges_m][np.any(sel_m, axis=1)][active_m]
-
-        logging.info(f"partners: {partners.shape} {active_partners_.shape}")
-
-        active_partners = []
-        active_affs = []
-        active_areas = []
-        for i in range(len(active_partners_)):
-            remapped_ = old_new_map.get(active_partners_[i], [active_partners_[i]])
-            active_partners.extend(remapped_)
-            active_affs.extend([active_affs_[i]] * len(remapped_))
-            active_areas.extend([active_areas_[i]] * len(remapped_))
-
-        logging.info(f"new_ids, active_partners: {new_ids, len(active_partners)}")
-        logging.info(f"new_dist_vec(new_ids): {new_dist_vec(new_ids)}")
-        logging.info(f"dist_vec(active_partners): {dist_vec(active_partners)}")
-        distances_ = distances[new_dist_vec(new_ids)][:, dist_vec(active_partners)].T
-        for i, partner in enumerate(active_partners):
-            aff = active_affs[i]
-            if np.isinf(aff) and new_id_label_map and partner in new_id_label_map:
-                e, a, ar = _match_by_label(
-                    new_ids,
-                    partner,
-                    aff,
-                    active_areas[i],
-                    new_id_label_map,
-                    distances_[i],
-                )
-            else:
-                e, a, ar = _match_by_proximity(
-                    new_ids,
-                    partner,
-                    aff,
-                    active_areas[i],
-                    distances_[i],
-                    threshold,
-                )
+        # Active partners (same root): route based on affinity type
+        active_partners, act_affs, act_areas = _expand_partners(
+            partners[active_m], edge_affs[active_m], edge_areas[active_m], old_new_map
+        )
+        new_id_rows = new_dist_vec(new_ids)
+        act_dists = distances[new_id_rows][:, dist_vec(active_partners)].T
+        for k, partner in enumerate(active_partners):
+            e, a, ar = _match_partner(
+                new_ids,
+                partner,
+                act_affs[k],
+                act_areas[k],
+                act_dists[k],
+                new_id_label_map,
+                threshold,
+            )
             new_edges.extend(e)
             new_affs.extend(a)
             new_areas.extend(ar)
 
-        # edges between split fragments
+        # Low-affinity edges between split fragments (cuttable by mincut)
         for i in range(len(new_ids)):
-            for j in range(i + 1, len(new_ids)):  # includes no selfedges
-                _a = [new_ids[i], new_ids[j]]
-                new_edges.append(np.array(_a, dtype=np.uint64))
+            for j in range(i + 1, len(new_ids)):
+                new_edges.append(np.array([new_ids[i], new_ids[j]], dtype=np.uint64))
                 new_affs.append(0.001)
                 new_areas.append(0)
 
@@ -269,11 +269,11 @@ def _get_new_edges(
             np.array([], dtype=basetypes.EDGE_AFFINITY),
             np.array([], dtype=basetypes.EDGE_AREA),
         )
-    affinites = np.array(new_affs, dtype=basetypes.EDGE_AFFINITY)
-    areas = np.array(new_areas, dtype=basetypes.EDGE_AREA)
-    edges = np.sort(np.array(new_edges, dtype=basetypes.NODE_ID), axis=1)
-    edges, idx = np.unique(edges, return_index=True, axis=0)
-    return edges, affinites[idx], areas[idx]
+    affinities_ = np.array(new_affs, dtype=basetypes.EDGE_AFFINITY)
+    areas_ = np.array(new_areas, dtype=basetypes.EDGE_AREA)
+    edges_ = np.sort(np.array(new_edges, dtype=basetypes.NODE_ID), axis=1)
+    edges_, idx = np.unique(edges_, return_index=True, axis=0)
+    return edges_, affinities_[idx], areas_[idx]
 
 
 def _update_edges(
@@ -304,8 +304,6 @@ def _update_edges(
     edges = edges[edges_idx]
     affinities = affinities[edges_idx]
     areas = areas[edges_idx]
-    logging.info(f"edges.shape, affinities.shape {edges.shape, affinities.shape}")
-
     new_ids = np.array(list(set.union(*old_new_map.values())), dtype=basetypes.NODE_ID)
     new_kdtrees = [kdtrees[k] for k in new_ids]
     new_disance_map = dict(zip(new_ids, np.arange(len(new_ids))))
@@ -360,7 +358,7 @@ def split_supervoxel(
     source_coords: np.ndarray,
     sink_coords: np.ndarray,
     operation_id: int,
-    verbose: bool = True,
+    verbose: bool = False,
     time_stamp: datetime = None,
 ) -> dict[int, set]:
     """
@@ -386,15 +384,13 @@ def split_supervoxel(
 
     cut_supervoxels = _get_whole_sv(cg, sv_id, min_coord=chunk_min, max_coord=chunk_max)
     supervoxel_ids = np.array(list(cut_supervoxels), dtype=basetypes.NODE_ID)
-    logging.info(f"whole sv {sv_id} -> {cut_supervoxels}")
+    logging.info(f"whole sv {sv_id} -> {supervoxel_ids.tolist()}")
 
     # one voxel overlap for neighbors
     bbs_ = np.clip(bbs - 1, vol_start, vol_end)
     bbe_ = np.clip(bbe + 1, vol_start, vol_end)
     seg = get_local_segmentation(cg.meta, bbs_, bbe_).squeeze()
     binary_seg = np.isin(seg, supervoxel_ids)
-    logging.info(f"{seg.shape}; {binary_seg.shape}; {bbs, bbe}; {bbs_, bbe_}")
-
     voxel_overlap_crop = _voxel_crop(bbs, bbe, bbs_, bbe_)
     split_result = split_supervoxel_helper(
         binary_seg[voxel_overlap_crop],
@@ -418,25 +414,22 @@ def split_supervoxel(
         results, seg_cropped, bbs, bbe
     )
 
-    seg_roots = seg.copy()
     sv_ids = fastremap.unique(seg)
     roots = cg.get_roots(sv_ids)
-    seg_roots = fastremap.remap(seg_roots, dict(zip(sv_ids, roots)), in_place=True)
+    sv_root_map = dict(zip(sv_ids, roots))
+    root = sv_root_map[sv_id]
+    logging.info(f"{sv_id} -> {root}")
 
-    root = cg.get_root(sv_id)
-    logging.info(f"{sv_id} root = {root}")
-
-    seg_masked = seg.copy()
-    seg_masked[seg_roots != root] = 0
-    sv_ids = fastremap.unique(seg_masked)
-
-    seg_masked[voxel_overlap_crop] = new_seg
+    root_mask = fastremap.remap(seg, sv_root_map, in_place=False) == root
+    seg[~root_mask] = 0
+    sv_ids = fastremap.unique(seg)
+    seg[voxel_overlap_crop] = new_seg
     edges_tuple = _update_edges(
         cg,
         sv_ids,
         root,
         np.array([bbs, bbe]),
-        seg_masked,
+        seg,
         old_new_map,
         new_id_label_map,
     )
@@ -502,11 +495,9 @@ def copy_parents_and_add_lineage(
     for parent, children_cells in children_cells_map.items():
         assert len(children_cells) == 1, children_cells
         for cell in children_cells:
-            logging.info(f"{parent}: {cell.value}")
             mask = np.isin(cell.value, list(old_new_map.keys()))
             replace = np.concatenate([old_new_map[x] for x in cell.value[mask]])
             children = np.concatenate([cell.value[~mask], replace])
-            logging.info(f"{parent}: {children}")
             cg.cache.children_cache[parent] = children
             result.append(
                 cg.client.mutate_row(

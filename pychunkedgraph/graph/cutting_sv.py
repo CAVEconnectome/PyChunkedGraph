@@ -4,7 +4,6 @@ import numpy as np
 from typing import Dict, Tuple, Optional, Sequence
 from scipy.spatial import cKDTree
 
-
 # EDT backends: prefer Seung-Lab edt, fallback to scipy.ndimage
 try:
     from edt import edt as _edt_fast
@@ -385,7 +384,7 @@ def connect_both_seeds_via_ridge(
     refine_fullres_when_fail: bool = True,
     snap_method: str = "kdtree",
     snap_kwargs: dict | None = None,
-    verbose: bool = True,
+    verbose: bool = False,
 ):
     def log(msg: str):
         if verbose:
@@ -726,7 +725,7 @@ def split_supervoxel_growing(
     snap_method: str = "kdtree",
     snap_kwargs: dict | None = None,
     # logging
-    verbose: bool = True,
+    verbose: bool = False,
 ):
     def log(msg: str):
         if verbose:

@@ -10,7 +10,7 @@ from datetime import datetime
 import numpy as np
 
 from pychunkedgraph.graph import basetypes
-from .generic import get_local_segmentation
+from .generic import get_local_segmentation, lookup_svs_from_seg
 from ..meta import ChunkedGraphMeta
 from ..chunks import utils as chunk_utils
 
@@ -128,7 +128,10 @@ def get_atomic_ids_from_coords(
     """
     import fastremap
 
-    if parent_id_layer == 1:
+    if parent_id_layer == 1 and meta.ocdbt_seg:
+        return lookup_svs_from_seg(meta, coordinates)
+
+    if parent_id_layer == 1 and not meta.ocdbt_seg:
         return np.array([parent_id] * len(coordinates), dtype=np.uint64)
 
     coordinates_nm = coordinates * np.array(meta.resolution)
