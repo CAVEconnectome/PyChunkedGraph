@@ -153,6 +153,7 @@ class TestGetAtomicIdsFromCoords:
         meta = MagicMock()
         meta.data_source.CV_MIP = 0
         meta.resolution = np.array([1, 1, 1])
+        meta.ocdbt_seg = False
 
         parent_id = np.uint64(42)
         coordinates = np.array([[10, 20, 30], [40, 50, 60]])

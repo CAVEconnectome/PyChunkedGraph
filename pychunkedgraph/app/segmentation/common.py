@@ -444,6 +444,7 @@ def handle_split(table_id):
     cg = app_utils.get_cg(table_id, skip_cache=True)
     current_app.logger.debug(data)
     sources, sinks, source_coords, sink_coords = _get_sources_and_sinks(cg, data)
+    current_app.logger.info(f"sv_lookup pre-split: sources={sources}, sinks={sinks}")
     try:
         ret = cg.remove_edges(
             user_id=user_id,
@@ -480,6 +481,9 @@ def handle_split(table_id):
             )
 
         sources, sinks, source_coords, sink_coords = _get_sources_and_sinks(cg, data)
+        current_app.logger.info(
+            f"sv_lookup post-split: sources={sources}, sinks={sinks}"
+        )
         ret = cg.remove_edges(
             user_id=user_id,
             source_ids=sources,

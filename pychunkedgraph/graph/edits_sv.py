@@ -112,7 +112,6 @@ def _voxel_crop(bbs, bbe, bbs_, bbe_):
     xS, yS, zS = bbs - bbs_
     xE, yE, zE = (None if i == 0 else -1 for i in bbe_ - bbe)
     voxel_overlap_crop = np.s_[xS:xE, yS:yE, zS:zE]
-    logging.info(f"voxel_overlap_crop: {voxel_overlap_crop}")
     return voxel_overlap_crop
 
 
@@ -130,7 +129,6 @@ def _parse_results(results, seg, bbs, bbe):
 
     assert np.all(seg.shape == bbe - bbs), f"{seg.shape} != {bbe - bbs}"
     slices = tuple(slice(start, end) for start, end in zip(bbs, bbe)) + (slice(None),)
-    logging.info(f"slices {slices}")
     return seg, old_new_map, slices, new_id_label_map
 
 
@@ -190,7 +188,6 @@ def _get_new_edges(
     edges, affinities, areas = edges_info
 
     for old, new in old_new_map.items():
-        logging.info(f"old and new {old, new}")
         new_ids = np.array(list(new), dtype=basetypes.NODE_ID)
         edges_m = np.any(edges == old, axis=1)
         selected_edges = edges[edges_m]
@@ -199,10 +196,6 @@ def _get_new_edges(
 
         partners = selected_edges[sel_m]
         active_m = np.isin(partners, sv_ids)
-
-        logging.info(f"sv_ids: {np.sum(sv_ids > 0)}")
-        logging.info(f"edges: {edges.shape} {np.sum(edges_m)} {np.sum(sel_m)}")
-        logging.info(f"selected_edges: {selected_edges.shape}")
 
         # inactive
         for new_id in new_ids:
@@ -216,8 +209,6 @@ def _get_new_edges(
         active_affs_ = affinities[edges_m][np.any(sel_m, axis=1)][active_m]
         active_areas_ = areas[edges_m][np.any(sel_m, axis=1)][active_m]
 
-        logging.info(f"partners: {partners.shape} {active_partners_.shape}")
-
         active_partners = []
         active_affs = []
         active_areas = []
@@ -227,9 +218,6 @@ def _get_new_edges(
             active_affs.extend([active_affs_[i]] * len(remapped_))
             active_areas.extend([active_areas_[i]] * len(remapped_))
 
-        logging.info(f"new_ids, active_partners: {new_ids, len(active_partners)}")
-        logging.info(f"new_dist_vec(new_ids): {new_dist_vec(new_ids)}")
-        logging.info(f"dist_vec(active_partners): {dist_vec(active_partners)}")
         distances_ = distances[new_dist_vec(new_ids)][:, dist_vec(active_partners)].T
         for i, partner in enumerate(active_partners):
             aff = active_affs[i]
@@ -304,8 +292,6 @@ def _update_edges(
     edges = edges[edges_idx]
     affinities = affinities[edges_idx]
     areas = areas[edges_idx]
-    logging.info(f"edges.shape, affinities.shape {edges.shape, affinities.shape}")
-
     new_ids = np.array(list(set.union(*old_new_map.values())), dtype=basetypes.NODE_ID)
     new_kdtrees = [kdtrees[k] for k in new_ids]
     new_disance_map = dict(zip(new_ids, np.arange(len(new_ids))))
@@ -360,7 +346,7 @@ def split_supervoxel(
     source_coords: np.ndarray,
     sink_coords: np.ndarray,
     operation_id: int,
-    verbose: bool = True,
+    verbose: bool = False,
     time_stamp: datetime = None,
 ) -> dict[int, set]:
     """
@@ -393,8 +379,6 @@ def split_supervoxel(
     bbe_ = np.clip(bbe + 1, vol_start, vol_end)
     seg = get_local_segmentation(cg.meta, bbs_, bbe_).squeeze()
     binary_seg = np.isin(seg, supervoxel_ids)
-    logging.info(f"{seg.shape}; {binary_seg.shape}; {bbs, bbe}; {bbs_, bbe_}")
-
     voxel_overlap_crop = _voxel_crop(bbs, bbe, bbs_, bbe_)
     split_result = split_supervoxel_helper(
         binary_seg[voxel_overlap_crop],
@@ -502,11 +486,9 @@ def copy_parents_and_add_lineage(
     for parent, children_cells in children_cells_map.items():
         assert len(children_cells) == 1, children_cells
         for cell in children_cells:
-            logging.info(f"{parent}: {cell.value}")
             mask = np.isin(cell.value, list(old_new_map.keys()))
             replace = np.concatenate([old_new_map[x] for x in cell.value[mask]])
             children = np.concatenate([cell.value[~mask], replace])
-            logging.info(f"{parent}: {children}")
             cg.cache.children_cache[parent] = children
             result.append(
                 cg.client.mutate_row(
