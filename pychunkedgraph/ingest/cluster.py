@@ -4,8 +4,11 @@
 Ingest / create chunkedgraph with workers on a cluster.
 """
 
-import logging
 from os import environ
+
+from pychunkedgraph import get_logger
+
+logger = get_logger(__name__)
 from time import sleep
 from typing import Callable, Dict, Iterable, Tuple, Sequence
 
@@ -55,7 +58,7 @@ def _post_task_completion(
         chunk_str += f"_{split}"
     # mark chunk as completed - "c"
     imanager.redis.sadd(f"{layer}c", chunk_str)
-    logging.info(f"{chunk_str} marked as complete")
+    logger.note(f"{chunk_str} marked as complete")
 
 
 def create_parent_chunk(
@@ -139,9 +142,9 @@ def create_atomic_chunk(coords: Sequence[int]):
     add_atomic_chunk(imanager.cg, coords, chunk_edges_active, isolated=isolated_ids)
 
     for k, v in chunk_edges_all.items():
-        logging.debug(f"{k}: {len(v)}")
+        logger.debug(f"{k}: {len(v)}")
     for k, v in chunk_edges_active.items():
-        logging.debug(f"active_{k}: {len(v)}")
+        logger.debug(f"active_{k}: {len(v)}")
 
     if imanager.ocdbt_seg:
         src, dst = get_seg_source_and_destination_ocdbt(
@@ -196,7 +199,7 @@ def convert_to_ocdbt(coords: Sequence[int]):
     port = imanager.redis.get("OCDBT_COORDINATOR_PORT").decode()
     environ["OCDBT_COORDINATOR_HOST"] = host
     environ["OCDBT_COORDINATOR_PORT"] = port
-    logging.info(f"OCDBT Coordinator address {host}:{port}")
+    logger.note(f"OCDBT Coordinator address {host}:{port}")
 
     put_edges(
         f"{imanager.cg.meta.data_source.EDGES}/ocdbt",
@@ -224,7 +227,7 @@ def _queue_tasks(imanager: IngestionManager, chunk_fn: Callable, coords: Iterabl
         _coords = get_chunks_not_done(imanager, 2, batch)
         # buffer for optimal use of redis memory
         while len(q) > max_queue_size:
-            logging.info(
+            logger.note(
                 f"Queue has {len(q)} items (limit {max_queue_size}), waiting..."
             )
             sleep(10)
@@ -244,7 +247,7 @@ def _queue_tasks(imanager: IngestionManager, chunk_fn: Callable, coords: Iterabl
                 )
             )
         q.enqueue_many(job_datas)
-        logging.info(f"Queued {len(job_datas)} chunks.")
+        logger.note(f"Queued {len(job_datas)} chunks.")
 
 
 def enqueue_l2_tasks(imanager: IngestionManager, chunk_fn: Callable):
@@ -257,5 +260,5 @@ def enqueue_l2_tasks(imanager: IngestionManager, chunk_fn: Callable):
         atomic_chunk_bounds = imanager.cg_meta.layer_chunk_bounds[2]
         chunk_coords = randomize_grid_points(*atomic_chunk_bounds)
         chunk_count = imanager.cg_meta.layer_chunk_counts[0]
-    logging.info(f"Chunk count: {chunk_count}, queuing...")
+    logger.note(f"Chunk count: {chunk_count}, queuing...")
     _queue_tasks(imanager, chunk_fn, chunk_coords)

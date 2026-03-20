@@ -1,7 +1,10 @@
 # pylint: disable=invalid-name, missing-docstring
 
-import logging
 import functools
+
+from pychunkedgraph import get_logger
+
+logger = get_logger(__name__)
 import math, random, sys
 from os import environ
 from time import sleep
@@ -99,7 +102,7 @@ def start_ocdbt_server(imanager: IngestionManager, server: Any):
     imanager.redis.set("OCDBT_COORDINATOR_PORT", str(server.port))
     ocdbt_host = environ.get("MY_POD_IP", "localhost")
     imanager.redis.set("OCDBT_COORDINATOR_HOST", ocdbt_host)
-    logging.info(f"OCDBT Coordinator address {ocdbt_host}:{server.port}")
+    logger.note(f"OCDBT Coordinator address {ocdbt_host}:{server.port}")
 
 
 def randomize_grid_points(X: int, Y: int, Z: int) -> Generator[int, int, int]:
@@ -225,7 +228,7 @@ def queue_layer_helper(
         _coords = get_chunks_not_done(imanager, parent_layer, batch, splits=splits)
         # buffer for optimal use of redis memory
         while len(q) > max_queue_size:
-            logging.info(
+            logger.note(
                 f"Queue has {len(q)} items (limit {max_queue_size}), waiting..."
             )
             sleep(10)
@@ -261,7 +264,7 @@ def queue_layer_helper(
                     )
                 )
         q.enqueue_many(job_datas)
-        logging.info(f"Queued {len(job_datas)} chunks.")
+        logger.note(f"Queued {len(job_datas)} chunks.")
 
 
 def job_type_guard(job_type: str):

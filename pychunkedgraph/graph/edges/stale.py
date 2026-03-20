@@ -3,8 +3,11 @@ Stale node detection and edge update logic.
 """
 
 import datetime
-import logging
 from os import environ
+
+from pychunkedgraph import get_logger
+
+logger = get_logger(__name__)
 from typing import Iterable
 
 import numpy as np
@@ -428,7 +431,7 @@ class LatestEdgesFinder:
                 )
                 if _new_edges.size:
                     break
-                logging.info(f"{_edge}, expanding search with padding {pad+1}.")
+                logger.note(f"{_edge}, expanding search with padding {pad+1}.")
             assert (
                 _new_edges.size
             ), f"No new edge found {_edge}; {edge_layer}, {self.parent_ts}"
@@ -490,7 +493,7 @@ def get_latest_edges_wrapper(
                 stale_edge_layers,
                 parent_ts=parent_ts,
             )
-            logging.debug(f"{stale_edges} -> {latest_edges}; {parent_ts}")
+            logger.debug(f"{stale_edges} -> {latest_edges}; {parent_ts}")
             _new_cx_edges.append(latest_edges)
         new_cx_edges_d[layer] = np.concatenate(_new_cx_edges)
         nodes.append(np.unique(new_cx_edges_d[layer]))

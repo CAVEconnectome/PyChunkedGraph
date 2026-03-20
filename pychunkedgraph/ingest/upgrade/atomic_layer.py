@@ -2,7 +2,11 @@
 
 from collections import defaultdict
 from datetime import datetime, timedelta, timezone
-import logging, time, os
+import time, os
+
+from pychunkedgraph import get_logger
+
+logger = get_logger(__name__)
 from copy import copy
 
 import fastremap
@@ -79,7 +83,7 @@ def update_nodes(cg: ChunkedGraph, nodes, nodes_ts, children_map=None) -> list:
     for partner, parents in zip(all_partners, all_parents):
         for parent, ts in parents:
             parents_ts_map[partner][ts] = parent
-    logging.info(f"update_nodes init {len(nodes)}: {time.time() - start}")
+    logger.note(f"update_nodes init {len(nodes)}: {time.time() - start}")
 
     rows = []
     skipped = []
@@ -142,7 +146,7 @@ def update_chunk(cg: ChunkedGraph, chunk_coords: list[int]):
 
     clean_task = os.environ.get("CLEAN_CHUNKS", "false") == "clean"
     if clean_task:
-        logging.info(f"found {len(corrupt_nodes)} corrupt nodes {corrupt_nodes[:3]}...")
+        logger.note(f"found {len(corrupt_nodes)} corrupt nodes {corrupt_nodes[:3]}...")
         fix_corrupt_nodes(cg, corrupt_nodes, CHILDREN)
         return
 
@@ -156,8 +160,8 @@ def update_chunk(cg: ChunkedGraph, chunk_coords: list[int]):
     if len(nodes) == 0:
         return
 
-    logging.info(f"processing {len(nodes)} nodes.")
+    logger.note(f"processing {len(nodes)} nodes.")
     assert len(CHILDREN) > 0, (nodes, CHILDREN)
     rows = update_nodes(cg, nodes, nodes_ts)
     cg.client.write(rows)
-    logging.info(f"mutations: {len(rows)}, time: {time.time() - start}")
+    logger.note(f"mutations: {len(rows)}, time: {time.time() - start}")
