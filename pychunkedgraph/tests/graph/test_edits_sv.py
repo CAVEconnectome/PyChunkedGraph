@@ -8,9 +8,7 @@ from unittest.mock import MagicMock, patch
 from pychunkedgraph.graph.edits_sv import (
     _voxel_crop,
     _parse_results,
-    _get_new_edges,
-    _match_by_label,
-    _match_by_proximity,
+    copy_parents_and_add_lineage,
 )
 from pychunkedgraph.graph import basetypes
 
@@ -112,234 +110,132 @@ class TestParseResults:
 
 
 # ============================================================
-# Tests: _get_new_edges
+# Tests: copy_parents_and_add_lineage
 # ============================================================
-class TestGetNewEdges:
-    def test_with_active_and_inactive_partners(self):
-        """Test with both active partners (in sv_ids) and inactive (not in sv_ids)."""
-        old_sv = np.uint64(10)
-        new_sv1 = np.uint64(101)
-        new_sv2 = np.uint64(102)
-        active_partner = np.uint64(50)  # in sv_ids -> active
-        inactive_partner = np.uint64(99)  # not in sv_ids -> inactive
+class _FakeCell:
+    """Mimics a bigtable cell with .value and .timestamp."""
 
-        edges = np.array(
-            [
-                [10, 50],
-                [10, 99],
-            ],
-            dtype=basetypes.NODE_ID,
+    def __init__(self, value, timestamp=None):
+        self.value = value
+        self.timestamp = timestamp
+
+
+class TestCopyParentsAndAddLineage:
+    def _make_cg(self, parent_cells_map, children_cells_map=None):
+        from pychunkedgraph.graph import attributes
+
+        cg = MagicMock()
+        cg.client.read_nodes.side_effect = lambda node_ids, properties: (
+            parent_cells_map
+            if properties is attributes.Hierarchy.Parent
+            else (children_cells_map or {})
         )
-        affinities = np.array([0.9, 0.5], dtype=basetypes.EDGE_AFFINITY)
-        areas = np.array([100, 200], dtype=basetypes.EDGE_AREA)
+        cg.client.mutate_row.side_effect = lambda key, val_dict, **kw: (
+            key,
+            val_dict,
+            kw,
+        )
+        cg.cache.parents_cache = {}
+        cg.cache.children_cache = {}
+        return cg
 
-        old_new_map = {old_sv: {new_sv1, new_sv2}}
-        sv_ids = np.array([10, 50, 101, 102], dtype=basetypes.NODE_ID)
+    def test_single_old_to_two_new(self):
+        """One old SV split into two new SVs. Each new SV gets the parent copied."""
+        old = np.uint64(10)
+        new1, new2 = np.uint64(101), np.uint64(102)
+        parent = np.uint64(1000)
 
-        # distance_map: maps each label to its column index in the distance matrix
-        distance_map = {
-            np.uint64(10): 0,
-            np.uint64(50): 1,
-            np.uint64(101): 2,
-            np.uint64(102): 3,
-        }
-        dist_vec = np.vectorize(distance_map.get)
-        new_distance_map = {np.uint64(101): 0, np.uint64(102): 1}
-        new_dist_vec = np.vectorize(new_distance_map.get)
-
-        # Distances: (new_ids x all_ids)
-        distances = np.array(
-            [
-                [5.0, 3.0, 0.0, 8.0],  # new_sv1
-                [6.0, 4.0, 8.0, 0.0],  # new_sv2
+        parent_cells_map = {old: [_FakeCell(parent, timestamp=42)]}
+        children_cells_map = {
+            parent: [
+                _FakeCell(
+                    np.array([old, np.uint64(20)], dtype=basetypes.NODE_ID),
+                    timestamp=42,
+                )
             ]
-        )
-
-        result_edges, result_affs, result_areas = _get_new_edges(
-            (edges, affinities, areas),
-            sv_ids,
-            old_new_map,
-            distances,
-            dist_vec,
-            new_dist_vec,
-        )
-        # Should have:
-        # - Inactive edges: new_sv1->99, new_sv2->99
-        # - Active edges: new_ids -> 50 based on distance
-        # - Fragment edges: new_sv1 <-> new_sv2
-        assert len(result_edges) >= 3
-
-    def test_edge_between_split_fragments(self):
-        """Split fragments should have edges between them with low affinity."""
-        old_sv = np.uint64(10)
-        new_sv1 = np.uint64(101)
-        new_sv2 = np.uint64(102)
-        partner = np.uint64(50)
-
-        edges = np.array([[10, 50]], dtype=basetypes.NODE_ID)
-        affinities = np.array([0.9], dtype=basetypes.EDGE_AFFINITY)
-        areas = np.array([100], dtype=basetypes.EDGE_AREA)
-
-        old_new_map = {old_sv: {new_sv1, new_sv2}}
-        sv_ids = np.array([10, 50, 101, 102], dtype=basetypes.NODE_ID)
-
-        distance_map = {
-            np.uint64(10): 0,
-            np.uint64(50): 1,
-            np.uint64(101): 2,
-            np.uint64(102): 3,
         }
-        dist_vec = np.vectorize(distance_map.get)
-        new_distance_map = {np.uint64(101): 0, np.uint64(102): 1}
-        new_dist_vec = np.vectorize(new_distance_map.get)
-        distances = np.array(
-            [
-                [5.0, 3.0, 0.0, 8.0],
-                [6.0, 4.0, 8.0, 0.0],
-            ]
+        cg = self._make_cg(parent_cells_map, children_cells_map)
+
+        result = copy_parents_and_add_lineage(
+            cg, operation_id=5, old_new_map={old: {new1, new2}}
         )
 
-        result_edges, result_affs, result_areas = _get_new_edges(
-            (edges, affinities, areas),
-            sv_ids,
-            old_new_map,
-            distances,
-            dist_vec,
-            new_dist_vec,
+        # Should produce mutations:
+        # - FormerIdentity + OperationID for each new SV (2)
+        # - Parent copy for each new SV (2)
+        # - NewIdentity on old SV (1)
+        # - Updated children on parent (1)
+        assert len(result) >= 5
+        # Parent cache should have entries for both new SVs
+        assert new1 in cg.cache.parents_cache or new2 in cg.cache.parents_cache
+        # Children cache should replace old with new1, new2
+        assert parent in cg.cache.children_cache
+        children = cg.cache.children_cache[parent]
+        assert new1 in children or int(new1) in children
+        assert new2 in children or int(new2) in children
+
+    def test_multiple_old_svs(self):
+        """Two old SVs each split into new SVs, sharing the same parent."""
+        old1, old2 = np.uint64(10), np.uint64(20)
+        new1, new2, new3 = np.uint64(101), np.uint64(102), np.uint64(201)
+        parent = np.uint64(1000)
+
+        parent_cells_map = {
+            old1: [_FakeCell(parent, timestamp=42)],
+            old2: [_FakeCell(parent, timestamp=42)],
+        }
+        children_cells_map = {
+            parent: [
+                _FakeCell(
+                    np.array([old1, old2, np.uint64(30)], dtype=basetypes.NODE_ID),
+                    timestamp=42,
+                )
+            ]
+        }
+        cg = self._make_cg(parent_cells_map, children_cells_map)
+
+        old_new_map = {old1: {new1, new2}, old2: {new3}}
+        result = copy_parents_and_add_lineage(
+            cg, operation_id=7, old_new_map=old_new_map
         )
-        # Check that a fragment-to-fragment edge exists
-        fragment_edge_found = False
-        for e in result_edges:
-            if set(e) == {new_sv1, new_sv2}:
-                fragment_edge_found = True
-                break
-        assert fragment_edge_found
+
+        assert len(result) > 0
+        # Children should replace old1 and old2 with new1, new2, new3, keep 30
+        children = cg.cache.children_cache[parent]
+        assert np.uint64(30) in children
+        for nid in [new1, new2, new3]:
+            assert nid in children or int(nid) in children
 
     def test_empty_old_new_map(self):
-        """Empty old_new_map should return empty results."""
-        edges = np.array([[10, 50]], dtype=basetypes.NODE_ID)
-        affinities = np.array([0.9], dtype=basetypes.EDGE_AFFINITY)
-        areas = np.array([100], dtype=basetypes.EDGE_AREA)
+        """Empty map produces no mutations."""
+        cg = self._make_cg({})
+        result = copy_parents_and_add_lineage(cg, operation_id=1, old_new_map={})
+        assert len(result) == 0
 
-        result_edges, result_affs, result_areas = _get_new_edges(
-            (edges, affinities, areas),
-            np.array([10], dtype=basetypes.NODE_ID),
-            {},
-            np.zeros((0, 0)),
-            np.vectorize(lambda x: x),
-            np.vectorize(lambda x: x),
-        )
-        assert len(result_edges) == 0
+    def test_operation_id_stored(self):
+        """Each new SV mutation includes the operation_id."""
+        old = np.uint64(10)
+        new1 = np.uint64(101)
+        parent = np.uint64(1000)
 
-    def test_inf_affinity_uses_label_matching(self):
-        """Inf-affinity (cross-chunk) edges should connect only same-label fragments."""
-        old_sv = np.uint64(10)
-        new_sv1 = np.uint64(101)  # label 1
-        new_sv2 = np.uint64(102)  # label 2
-        # partner is a cross-chunk fragment also from the split, label 1
-        partner = np.uint64(201)
-
-        edges = np.array([[10, 201]], dtype=basetypes.NODE_ID)
-        affinities = np.array([np.inf], dtype=basetypes.EDGE_AFFINITY)
-        areas = np.array([0], dtype=basetypes.EDGE_AREA)
-
-        old_new_map = {old_sv: {new_sv1, new_sv2}}
-        sv_ids = np.array([10, 101, 102, 201], dtype=basetypes.NODE_ID)
-
-        distance_map = {
-            np.uint64(10): 0,
-            np.uint64(101): 1,
-            np.uint64(102): 2,
-            np.uint64(201): 3,
+        parent_cells_map = {old: [_FakeCell(parent, timestamp=1)]}
+        children_cells_map = {
+            parent: [_FakeCell(np.array([old], dtype=basetypes.NODE_ID), timestamp=1)]
         }
-        dist_vec = np.vectorize(distance_map.get)
-        new_distance_map = {np.uint64(101): 0, np.uint64(102): 1}
-        new_dist_vec = np.vectorize(new_distance_map.get)
+        cg = self._make_cg(parent_cells_map, children_cells_map)
 
-        # new_sv2 (label 2) is closer to partner 201, but label doesn't match
-        distances = np.array(
-            [
-                [5.0, 0.0, 8.0, 9.0],  # new_sv1 (label 1) — far from partner
-                [6.0, 8.0, 0.0, 2.0],  # new_sv2 (label 2) — close to partner
-            ]
+        result = copy_parents_and_add_lineage(
+            cg, operation_id=99, old_new_map={old: {new1}}
         )
 
-        new_id_label_map = {
-            np.uint64(101): 1,
-            np.uint64(102): 2,
-            np.uint64(201): 1,  # same label as new_sv1
-        }
+        # Check that mutate_row was called with OperationID=99
+        calls = cg.client.mutate_row.call_args_list
+        op_id_found = False
+        from pychunkedgraph.graph import attributes
 
-        result_edges, result_affs, result_areas = _get_new_edges(
-            (edges, affinities, areas),
-            sv_ids,
-            old_new_map,
-            distances,
-            dist_vec,
-            new_dist_vec,
-            new_id_label_map,
-        )
-
-        # The inf-affinity edge should connect new_sv1 (label 1) to partner 201 (label 1)
-        # NOT new_sv2 (label 2) even though it's closer
-        inf_edges = result_edges[np.isinf(result_affs)]
-        for e in inf_edges:
-            assert (
-                new_sv2 not in e
-            ), f"Inf-affinity edge {e} should not connect label-2 fragment to label-1 partner"
-        # Verify new_sv1 <-> 201 inf edge exists
-        found = any(set(e) == {new_sv1, partner} for e in inf_edges)
-        assert found, "Expected inf-affinity edge between same-label fragments"
-
-
-# ============================================================
-# Tests: _match_by_label / _match_by_proximity
-# ============================================================
-class TestMatchByLabel:
-    def test_matching_label(self):
-        new_ids = np.array([101, 102], dtype=basetypes.NODE_ID)
-        new_id_label_map = {np.uint64(101): 1, np.uint64(102): 2, np.uint64(201): 1}
-        distances_row = np.array([9.0, 2.0])  # 102 is closer
-
-        edges, affs, areas = _match_by_label(
-            new_ids, np.uint64(201), np.inf, 0, new_id_label_map, distances_row
-        )
-        # Should pick 101 (label 1) not 102 (label 2, closer)
-        assert all(np.uint64(101) in e for e in edges)
-        assert np.uint64(102) not in edges.flatten()
-
-    def test_fallback_to_closest(self):
-        new_ids = np.array([101, 102], dtype=basetypes.NODE_ID)
-        # partner label 3 doesn't match any new_id
-        new_id_label_map = {np.uint64(101): 1, np.uint64(102): 2, np.uint64(201): 3}
-        distances_row = np.array([9.0, 2.0])
-
-        edges, affs, areas = _match_by_label(
-            new_ids, np.uint64(201), np.inf, 0, new_id_label_map, distances_row
-        )
-        # Fallback: closest = 102
-        assert np.uint64(102) in edges.flatten()
-
-
-class TestMatchByProximity:
-    def test_within_threshold(self):
-        new_ids = np.array([101, 102], dtype=basetypes.NODE_ID)
-        distances_row = np.array([3.0, 15.0])
-
-        edges, affs, areas = _match_by_proximity(
-            new_ids, np.uint64(50), 0.9, 100, distances_row, threshold=10
-        )
-        # Only 101 is within threshold
-        assert len(edges) == 1
-        assert np.uint64(101) in edges[0]
-
-    def test_fallback_to_closest(self):
-        new_ids = np.array([101, 102], dtype=basetypes.NODE_ID)
-        distances_row = np.array([15.0, 20.0])  # both outside threshold
-
-        edges, affs, areas = _match_by_proximity(
-            new_ids, np.uint64(50), 0.9, 100, distances_row, threshold=10
-        )
-        # Fallback: closest = 101
-        assert len(edges) == 1
-        assert np.uint64(101) in edges[0]
+        for call in calls:
+            val_dict = call[0][1] if len(call[0]) > 1 else call[1].get("val_dict", {})
+            if attributes.OperationLogs.OperationID in val_dict:
+                assert val_dict[attributes.OperationLogs.OperationID] == 99
+                op_id_found = True
+        assert op_id_found
