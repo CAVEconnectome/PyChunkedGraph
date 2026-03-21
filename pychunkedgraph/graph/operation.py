@@ -954,6 +954,7 @@ class MulticutOperation(GraphEditOperation):
                 self.sink_ids,
                 path_augment=self.path_augment,
                 disallow_isolating_cut=self.disallow_isolating_cut,
+                sv_split_supported=self.cg.meta.ocdbt_seg,
             )
         if not self.removed_edges.size:
             raise PostconditionError("Mincut could not find any edges to remove.")
