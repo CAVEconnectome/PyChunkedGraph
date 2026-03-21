@@ -291,7 +291,7 @@ class TestPartnerExpansion:
         partners = np.array([np.uint64(50)])
         affs = np.array([0.9])
         areas = np.array([100])
-        old_new_map = {np.uint64(50): [np.uint64(501), np.uint64(502)]}
+        old_new_map = {np.uint64(50): {np.uint64(501), np.uint64(502)}}
 
         expanded_partners, expanded_affs, expanded_areas = _expand_partners(
             partners,
@@ -390,103 +390,144 @@ class TestFragmentEdges:
 # Validation
 # ============================================================
 class TestValidateSplitEdges:
-    def test_valid_edges_pass(self):
-        """Well-formed edges pass validation without error."""
-        n1, n2 = np.uint64(101), np.uint64(102)
-        partner = np.uint64(50)
-        old_new_map = {np.uint64(10): {n1, n2}}
+    """All tests use multi-SV old_new_map to match production scenarios."""
 
-        edges = np.array(
-            [
-                [n1, partner],
-                [n1, n2],
-            ],
-            dtype=basetypes.NODE_ID,
+    def _make_multi_sv_map(self):
+        """Two old SVs split into 2 fragments each."""
+        return {
+            np.uint64(10): {np.uint64(101), np.uint64(102)},
+            np.uint64(20): {np.uint64(201), np.uint64(202)},
+        }
+
+    def _make_valid_edges(self, old_new_map, extra_edges=None, extra_affs=None):
+        """Build a valid edge set: inter-fragment + cross-SV finite edges."""
+        edge_list = []
+        aff_list = []
+        # Inter-fragment edges for each old SV
+        for new_ids in old_new_map.values():
+            ids = sorted(new_ids)
+            for i in range(len(ids)):
+                for j in range(i + 1, len(ids)):
+                    edge_list.append([ids[i], ids[j]])
+                    aff_list.append(0.001)
+        # Cross-SV edges (fragments from different old SVs connected)
+        all_frags = [list(v) for v in old_new_map.values()]
+        if len(all_frags) > 1:
+            edge_list.append([sorted(all_frags[0])[0], sorted(all_frags[1])[0]])
+            aff_list.append(0.5)
+        if extra_edges is not None:
+            edge_list.extend(extra_edges)
+            aff_list.extend(extra_affs)
+        return (
+            np.array(edge_list, dtype=basetypes.NODE_ID),
+            np.array(aff_list, dtype=basetypes.EDGE_AFFINITY),
         )
-        affs = np.array([np.inf, 0.001], dtype=basetypes.EDGE_AFFINITY)
 
-        validate_split_edges(edges, affs, old_new_map)  # should not raise
-
-    def test_catches_inf_broadcast(self):
-        """Validation rejects inf edges from multiple fragments to same unsplit partner."""
-        n1, n2 = np.uint64(101), np.uint64(102)
+    def test_valid_multi_sv_edges_pass(self):
+        """Well-formed edges with multiple split SVs pass validation."""
+        old_new_map = self._make_multi_sv_map()
         partner = np.uint64(50)
-        old_new_map = {np.uint64(10): {n1, n2}}
-
-        edges = np.array(
-            [
-                [n1, partner],
-                [n2, partner],
-                [n1, n2],
-            ],
-            dtype=basetypes.NODE_ID,
+        edges, affs = self._make_valid_edges(
+            old_new_map,
+            extra_edges=[[101, partner]],
+            extra_affs=[np.inf],
         )
-        affs = np.array([np.inf, np.inf, 0.001], dtype=basetypes.EDGE_AFFINITY)
+        validate_split_edges(edges, affs, old_new_map)
 
-        with pytest.raises(PostconditionError, match="unsplit partner"):
-            validate_split_edges(edges, affs, old_new_map)
+    def test_unsplit_partner_inf_to_fragments_from_different_old_svs(self):
+        """Unsplit partner connecting via inf to fragments from different old SVs is valid."""
+        old_new_map = self._make_multi_sv_map()
+        label_map = {101: 0, 102: 1, 201: 0, 202: 1}
+        partner = np.uint64(50)
+        # Partner connects to one fragment from each old SV — different old SVs, same label
+        edges, affs = self._make_valid_edges(
+            old_new_map,
+            extra_edges=[[101, partner], [201, partner]],
+            extra_affs=[np.inf, np.inf],
+        )
+        validate_split_edges(edges, affs, old_new_map, label_map)
+
+    def test_allows_same_label_inf_to_unsplit_partner(self):
+        """Multiple fragments with same label connecting to unsplit partner is valid."""
+        old_new_map = self._make_multi_sv_map()
+        label_map = {101: 0, 102: 0, 201: 0, 202: 1}
+        partner = np.uint64(50)
+        edges, affs = self._make_valid_edges(
+            old_new_map,
+            extra_edges=[[101, partner], [102, partner]],
+            extra_affs=[np.inf, np.inf],
+        )
+        validate_split_edges(edges, affs, old_new_map, label_map)
+
+    def test_catches_cross_label_inf_bridge(self):
+        """Fragments with different labels connecting to unsplit partner via inf is invalid."""
+        old_new_map = self._make_multi_sv_map()
+        label_map = {101: 0, 102: 1, 201: 0, 202: 1}
+        partner = np.uint64(50)
+        edges, affs = self._make_valid_edges(
+            old_new_map,
+            extra_edges=[[101, partner], [102, partner]],
+            extra_affs=[np.inf, np.inf],
+        )
+        with pytest.raises(PostconditionError, match="different labels"):
+            validate_split_edges(edges, affs, old_new_map, label_map)
+
+    def test_no_label_map_skips_inf_check(self):
+        """Without label map, inf check is skipped (no false positives)."""
+        old_new_map = self._make_multi_sv_map()
+        partner = np.uint64(50)
+        edges, affs = self._make_valid_edges(
+            old_new_map,
+            extra_edges=[[101, partner], [102, partner]],
+            extra_affs=[np.inf, np.inf],
+        )
+        validate_split_edges(edges, affs, old_new_map)  # no label_map, should not raise
 
     def test_catches_self_loop(self):
         """Validation rejects self-loop edges."""
-        n1, n2 = np.uint64(101), np.uint64(102)
-        old_new_map = {np.uint64(10): {n1, n2}}
-
-        edges = np.array([[n1, n1], [n1, n2]], dtype=basetypes.NODE_ID)
-        affs = np.array([0.5, 0.001], dtype=basetypes.EDGE_AFFINITY)
-
+        old_new_map = self._make_multi_sv_map()
+        edges, affs = self._make_valid_edges(
+            old_new_map,
+            extra_edges=[[101, 101]],
+            extra_affs=[0.5],
+        )
         with pytest.raises(PostconditionError, match="Self-loop"):
             validate_split_edges(edges, affs, old_new_map)
 
     def test_catches_missing_fragment_edges(self):
         """Validation rejects missing inter-fragment edges."""
-        n1, n2 = np.uint64(101), np.uint64(102)
-        partner = np.uint64(50)
-        old_new_map = {np.uint64(10): {n1, n2}}
-
-        # Missing inter-fragment edge between n1 and n2
-        edges = np.array([[n1, partner]], dtype=basetypes.NODE_ID)
-        affs = np.array([0.9], dtype=basetypes.EDGE_AFFINITY)
-
+        old_new_map = self._make_multi_sv_map()
+        # Only include inter-fragment for second old SV, missing first
+        edges = np.array([[201, 202], [101, 201]], dtype=basetypes.NODE_ID)
+        affs = np.array([0.001, 0.5], dtype=basetypes.EDGE_AFFINITY)
         with pytest.raises(PostconditionError, match="Missing inter-fragment"):
             validate_split_edges(edges, affs, old_new_map)
 
     def test_catches_missing_replacement_edges(self):
         """Validation rejects old SV with no edges from any fragment."""
-        n1, n2 = np.uint64(101), np.uint64(102)
-        n3, n4 = np.uint64(201), np.uint64(202)
-        old_new_map = {np.uint64(10): {n1, n2}, np.uint64(20): {n3, n4}}
-
-        # Only edges for first old SV's fragments, none for second
-        edges = np.array([[n1, n2]], dtype=basetypes.NODE_ID)
+        old_new_map = self._make_multi_sv_map()
+        # Only edges for first old SV's fragments
+        edges = np.array([[101, 102]], dtype=basetypes.NODE_ID)
         affs = np.array([0.001], dtype=basetypes.EDGE_AFFINITY)
-
         with pytest.raises(PostconditionError, match="no replacement edges"):
             validate_split_edges(edges, affs, old_new_map)
 
     def test_empty_edges_pass(self):
-        """Empty edge set passes validation (nothing to validate)."""
+        """Empty edge set passes validation."""
         validate_split_edges(
             np.array([], dtype=basetypes.NODE_ID).reshape(0, 2),
             np.array([], dtype=basetypes.EDGE_AFFINITY),
             {},
         )
 
-    def test_inf_to_split_partner_allowed_multiple(self):
+    def test_inf_to_split_partner_allowed(self):
         """Inf edges to a split partner (in all_new_ids) are allowed from multiple fragments."""
-        n1, n2 = np.uint64(101), np.uint64(102)
-        # partner 201 is also a new fragment (split partner)
-        partner = np.uint64(201)
-        old_new_map = {np.uint64(10): {n1, n2}, np.uint64(20): {partner}}
-
-        edges = np.array(
-            [
-                [n1, partner],
-                [n2, partner],
-                [n1, n2],
-            ],
-            dtype=basetypes.NODE_ID,
+        old_new_map = self._make_multi_sv_map()
+        label_map = {101: 0, 102: 1, 201: 0, 202: 1}
+        # 201 is a split partner (in all_new_ids), so inf from both 101 and 102 is fine
+        edges, affs = self._make_valid_edges(
+            old_new_map,
+            extra_edges=[[101, 201], [102, 201]],
+            extra_affs=[np.inf, np.inf],
         )
-        affs = np.array([np.inf, np.inf, 0.001], dtype=basetypes.EDGE_AFFINITY)
-
-        # Should NOT raise — partner is also split (in all_new_ids)
-        validate_split_edges(edges, affs, old_new_map)
+        validate_split_edges(edges, affs, old_new_map, label_map)

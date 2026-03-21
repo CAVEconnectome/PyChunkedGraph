@@ -120,7 +120,10 @@ def _match_partner(
 
 def _expand_partners(active_partners, active_affs, active_areas, old_new_map):
     """If a partner was also split, expand it to its new fragment IDs."""
-    remapped_lists = [old_new_map.get(p, [p]) for p in active_partners]
+    remapped_lists = [
+        np.asarray(list(old_new_map.get(p, {p})), dtype=np.uint64)
+        for p in active_partners
+    ]
     if not remapped_lists:
         return (
             [],
@@ -250,16 +253,13 @@ def _get_new_edges(
     return edges_, all_affs[idx], all_areas[idx]
 
 
-def validate_split_edges(edges, affinities, old_new_map):
+def validate_split_edges(edges, affinities, old_new_map, new_id_label_map=None):
     """Validate edge routing results before writing to prevent graph corruption.
 
     Checks:
-    A. No inf-broadcast to unsplit partners — inf-aff edges represent cross-chunk
-       identity (same logical SV across chunk boundaries). After splitting SV A into
-       fragments A1, A2, only one fragment's voxels physically touch partner B at
-       the chunk boundary. If multiple fragments connect via inf to the same unsplit
-       partner, merge_cross_chunk_edges_graph_tool merges them all into one
-       representative, making the split uncuttable by mincut.
+    A. No cross-label inf bridges — if an unsplit partner connects via inf edges
+       to fragments with different labels (different sides of the split), that
+       creates an uncuttable bridge through mincut.
     B. No self-loops.
     C. All old SVs have replacement edges from their fragments.
     D. Inter-fragment edges exist between all fragment pairs.
@@ -278,34 +278,36 @@ def validate_split_edges(edges, affinities, old_new_map):
     if self_loops.any():
         raise PostconditionError(f"Self-loop edges detected: {edges[self_loops]}")
 
-    # A. No inf-broadcast to unsplit partners
-    inf_mask = np.isinf(affinities)
-    if inf_mask.any():
-        inf_edges = edges[inf_mask]
-        is_frag_0 = np.isin(inf_edges[:, 0], all_new_ids_arr)
-        is_frag_1 = np.isin(inf_edges[:, 1], all_new_ids_arr)
-        # Edges where exactly one endpoint is a fragment, other is unsplit partner
-        mixed_mask = is_frag_0 ^ is_frag_1
-        if mixed_mask.any():
-            mixed = inf_edges[mixed_mask]
-            mixed_frag0 = is_frag_0[mixed_mask]
-            # Extract partner and fragment columns
-            partners = np.where(mixed_frag0, mixed[:, 1], mixed[:, 0])
-            fragments = np.where(mixed_frag0, mixed[:, 0], mixed[:, 1])
-            # Exclude partners that are also new fragments (split partners)
-            unsplit_mask = ~np.isin(partners, all_new_ids_arr)
-            if unsplit_mask.any():
-                unsplit_partners = partners[unsplit_mask]
-                unsplit_fragments = fragments[unsplit_mask]
-                # For each unique unsplit partner, count distinct fragments
-                for p in np.unique(unsplit_partners):
-                    n_frags = len(np.unique(unsplit_fragments[unsplit_partners == p]))
-                    if n_frags > 1:
-                        raise PostconditionError(
-                            f"Inf-affinity edge to unsplit partner {p} connects "
-                            f"{n_frags} fragments. "
-                            f"Must connect to exactly 1 to prevent uncuttable bridges."
-                        )
+    # A. No cross-label inf bridges to unsplit partners
+    if new_id_label_map:
+        inf_mask = np.isinf(affinities)
+        if inf_mask.any():
+            inf_edges = edges[inf_mask]
+            is_frag_0 = np.isin(inf_edges[:, 0], all_new_ids_arr)
+            is_frag_1 = np.isin(inf_edges[:, 1], all_new_ids_arr)
+            mixed_mask = is_frag_0 ^ is_frag_1
+            if mixed_mask.any():
+                mixed = inf_edges[mixed_mask]
+                mixed_frag0 = is_frag_0[mixed_mask]
+                partners = np.where(mixed_frag0, mixed[:, 1], mixed[:, 0])
+                fragments = np.where(mixed_frag0, mixed[:, 0], mixed[:, 1])
+                unsplit_mask = ~np.isin(partners, all_new_ids_arr)
+                if unsplit_mask.any():
+                    unsplit_partners = partners[unsplit_mask]
+                    unsplit_fragments = fragments[unsplit_mask]
+                    for p in np.unique(unsplit_partners):
+                        p_frags = unsplit_fragments[unsplit_partners == p]
+                        labels = {
+                            new_id_label_map[int(f)]
+                            for f in p_frags
+                            if int(f) in new_id_label_map
+                        }
+                        if len(labels) > 1:
+                            raise PostconditionError(
+                                f"Inf-affinity edge to unsplit partner {p} bridges "
+                                f"fragments with different labels {labels}. "
+                                f"This creates an uncuttable bridge in mincut."
+                            )
 
     # C. All old SVs have replacement edges
     edge_svs = np.unique(edges.ravel())
@@ -378,7 +380,7 @@ def update_edges(
         new_id_label_map,
         threshold=cg.meta.sv_split_threshold,
     )
-    validate_split_edges(result[0], result[1], old_new_map)
+    validate_split_edges(result[0], result[1], old_new_map, new_id_label_map)
     return result
 
 
@@ -409,5 +411,5 @@ def add_new_edges(cg: "ChunkedGraph", edges_tuple: tuple, time_stamp: datetime =
                 time_stamp=time_stamp,
             )
         )
-        logger.note(f"writing {edges[mask].shape} edges to {chunk_id}")
+        # logger.note(f"writing {edges[mask].shape} edges to {chunk_id}")
     return rows
