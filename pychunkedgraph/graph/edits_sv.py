@@ -2,6 +2,7 @@
 Manage new supervoxels after a supervoxel split.
 """
 
+import time
 import multiprocessing as mp
 from datetime import datetime
 from collections import defaultdict, deque
@@ -154,16 +155,23 @@ def split_supervoxel(
     logger.note(f"chunk and padding {chunk_size}; {_padding}")
     logger.note(f"bbox and chunk min max {(bbs, bbe)}; {(chunk_min, chunk_max)}")
 
+    t0 = time.time()
     cut_supervoxels = _get_whole_sv(cg, sv_id, min_coord=chunk_min, max_coord=chunk_max)
     supervoxel_ids = np.array(list(cut_supervoxels), dtype=basetypes.NODE_ID)
-    logger.note(f"whole sv {sv_id} -> {supervoxel_ids.tolist()}")
+    logger.note(
+        f"whole sv {sv_id} -> {supervoxel_ids.tolist()} ({time.time() - t0:.2f}s)"
+    )
 
     # one voxel overlap for neighbors
     bbs_ = np.clip(bbs - 1, vol_start, vol_end)
     bbe_ = np.clip(bbe + 1, vol_start, vol_end)
+    t0 = time.time()
     seg = get_local_segmentation(cg.meta, bbs_, bbe_).squeeze()
+    logger.note(f"segmentation read {seg.shape} ({time.time() - t0:.2f}s)")
+
     binary_seg = np.isin(seg, supervoxel_ids)
     voxel_overlap_crop = _voxel_crop(bbs, bbe, bbs_, bbe_)
+    t0 = time.time()
     split_result = split_supervoxel_helper(
         binary_seg[voxel_overlap_crop],
         source_coords - bbs,
@@ -171,16 +179,18 @@ def split_supervoxel(
         cg.meta.resolution,
         verbose=verbose,
     )
-    logger.note(f"split_result: {split_result.shape}")
+    logger.note(f"split computation {split_result.shape} ({time.time() - t0:.2f}s)")
 
     chunks_bbox_map = chunks_overlapping_bbox(bbs, bbe, cg.meta.graph_config.CHUNK_SIZE)
     tasks = [
         (cg.graph_id, *item, seg[voxel_overlap_crop], split_result, bbs)
         for item in chunks_bbox_map.items()
     ]
-    logger.note(f"tasks count: {len(tasks)}")
+    t0 = time.time()
     with mp.Pool() as pool:
         results = [*tqdm(pool.imap_unordered(_update_chunk, tasks), total=len(tasks))]
+    logger.note(f"chunk updates {len(tasks)} tasks ({time.time() - t0:.2f}s)")
+
     seg_cropped = seg[voxel_overlap_crop].copy()
     new_seg, old_new_map, slices, new_id_label_map = _parse_results(
         results, seg_cropped, bbs, bbe
@@ -196,6 +206,7 @@ def split_supervoxel(
     seg[~root_mask] = 0
     sv_ids = fastremap.unique(seg)
     seg[voxel_overlap_crop] = new_seg
+    t0 = time.time()
     edges_tuple = update_edges(
         cg,
         root,
@@ -204,14 +215,16 @@ def split_supervoxel(
         old_new_map,
         new_id_label_map,
     )
+    logger.note(f"edge update ({time.time() - t0:.2f}s)")
 
     rows0 = copy_parents_and_add_lineage(cg, operation_id, old_new_map)
     rows1 = add_new_edges(cg, edges_tuple, time_stamp=time_stamp)
     rows = rows0 + rows1
-    logger.note(f"{operation_id}: writing {len(rows)} new rows")
 
+    t0 = time.time()
     cg.meta.ws_ocdbt[slices] = new_seg[..., np.newaxis]
     cg.client.write(rows)
+    logger.note(f"write seg + {len(rows)} rows ({time.time() - t0:.2f}s)")
     return old_new_map, edges_tuple
 
 

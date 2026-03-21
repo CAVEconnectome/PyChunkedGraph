@@ -13,7 +13,9 @@ import fastremap
 from flask import current_app, g, jsonify, make_response, request
 from pytz import UTC
 
-from pychunkedgraph import __version__
+from pychunkedgraph import __version__, get_logger
+
+logger = get_logger(__name__)
 from pychunkedgraph.app import app_utils
 from pychunkedgraph.graph import attributes, cutting, segmenthistory, ChunkedGraph
 from pychunkedgraph.graph import (
@@ -23,7 +25,6 @@ from pychunkedgraph.graph import (
     exceptions as cg_exceptions,
 )
 from pychunkedgraph.graph.analysis import pathing
-from pychunkedgraph.graph.attributes import OperationLogs
 from pychunkedgraph.graph.edits_sv import split_supervoxel
 from pychunkedgraph.graph.misc import get_contact_sites
 from pychunkedgraph.graph.operation import GraphEditOperation
@@ -444,7 +445,8 @@ def handle_split(table_id):
     cg = app_utils.get_cg(table_id, skip_cache=True)
     current_app.logger.debug(data)
     sources, sinks, source_coords, sink_coords = _get_sources_and_sinks(cg, data)
-    current_app.logger.info(f"sv_lookup pre-split: sources={sources}, sinks={sinks}")
+    logger.note(f"pre-split: sources={sources}, sinks={sinks}")
+    t0 = time.time()
     try:
         ret = cg.remove_edges(
             user_id=user_id,
@@ -454,8 +456,9 @@ def handle_split(table_id):
             sink_coords=sink_coords,
             mincut=mincut,
         )
+        logger.note(f"remove_edges ({time.time() - t0:.2f}s)")
     except cg_exceptions.SupervoxelSplitRequiredError as e:
-        current_app.logger.info(e)
+        logger.note(f"sv split required ({time.time() - t0:.2f}s): {e}")
         sources_remapped = fastremap.remap(
             sources,
             e.sv_remapping,
@@ -469,6 +472,7 @@ def handle_split(table_id):
             in_place=False,
         )
         overlap_mask = np.isin(sources_remapped, sinks_remapped)
+        t1 = time.time()
         for sv_to_split in np.unique(sources_remapped[overlap_mask]):
             _mask0 = sources_remapped == sv_to_split
             _mask1 = sinks_remapped == sv_to_split
@@ -479,11 +483,11 @@ def handle_split(table_id):
                 sink_coords[_mask1],
                 e.operation_id,
             )
+        logger.note(f"sv splits done ({time.time() - t1:.2f}s)")
 
         sources, sinks, source_coords, sink_coords = _get_sources_and_sinks(cg, data)
-        current_app.logger.info(
-            f"sv_lookup post-split: sources={sources}, sinks={sinks}"
-        )
+        logger.note(f"post-split: sources={sources}, sinks={sinks}")
+        t1 = time.time()
         ret = cg.remove_edges(
             user_id=user_id,
             source_ids=sources,
@@ -492,6 +496,7 @@ def handle_split(table_id):
             sink_coords=sink_coords,
             mincut=mincut,
         )
+        logger.note(f"remove_edges after sv split ({time.time() - t1:.2f}s)")
     except cg_exceptions.LockingError as e:
         raise cg_exceptions.InternalServerError(e)
     except cg_exceptions.PreconditionError as e:
