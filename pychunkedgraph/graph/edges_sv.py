@@ -29,6 +29,7 @@ Distance computation:
 
 from __future__ import annotations
 
+import time
 from functools import reduce
 from typing import TYPE_CHECKING
 from datetime import datetime
@@ -39,10 +40,8 @@ import numpy as np
 from pychunkedgraph import get_logger
 from pychunkedgraph.graph import attributes, basetypes, serializers
 from pychunkedgraph.graph.exceptions import PostconditionError
-from pychunkedgraph.graph.cutting_sv import (
-    build_kdtrees_by_label,
-    pairwise_min_distance_two_sets,
-)
+from scipy.spatial import cKDTree
+from pychunkedgraph.graph.cutting_sv import build_coords_by_label
 from pychunkedgraph.graph.edges import Edges
 
 if TYPE_CHECKING:
@@ -137,6 +136,19 @@ def _expand_partners(active_partners, active_affs, active_areas, old_new_map):
     return partners, affs, areas
 
 
+def _compute_partner_distances(new_kdtrees, partner_coords):
+    """Compute min distance from each new fragment kdtree to a partner's voxel coords."""
+    partner_tree = cKDTree(partner_coords)
+    distances = np.empty(len(new_kdtrees), dtype=float)
+    for i, kt in enumerate(new_kdtrees):
+        if kt.n <= partner_tree.n:
+            d, _ = partner_tree.query(kt.data, k=1, workers=-1)
+        else:
+            d, _ = kt.query(partner_tree.data, k=1, workers=-1)
+        distances[i] = float(np.min(d))
+    return distances
+
+
 def _compute_boundary_distances(cg, new_kdtrees, partner, old_chunk, chunk_size):
     """Compute distance from each new fragment to a partner's chunk boundary.
     Used for active partners outside the bbox that have no kdtree entry.
@@ -155,13 +167,12 @@ def _compute_boundary_distances(cg, new_kdtrees, partner, old_chunk, chunk_size)
 def _get_new_edges(
     edges_info: tuple,
     old_new_map: dict,
-    distances: np.ndarray,
-    distance_map: dict,
-    new_distance_map: dict,
+    coords_by_label: dict,
     root_id: basetypes.NODE_ID,
     sv_root_map: dict,
     cg: "ChunkedGraph",
     new_kdtrees: list,
+    new_ids_arr: np.ndarray,
     new_id_label_map: dict = None,
     threshold: int = 10,
 ):
@@ -203,19 +214,19 @@ def _get_new_edges(
             partners[active_m], edge_affs[active_m], edge_areas[active_m], old_new_map
         )
         if len(active_partners) > 0:
-            new_id_rows = np.array(
-                [new_distance_map[nid] for nid in new_ids], dtype=int
-            )
-            # Precompute chunk info for boundary distance fallback
+            # Build kdtrees for this old SV's fragments only
+            frag_kdtrees = [cKDTree(coords_by_label[int(nid)]) for nid in new_ids]
             old_chunk = cg.get_chunk_coordinates(new_ids[0]) if cg else None
             chunk_size = cg.meta.graph_config.CHUNK_SIZE if cg else None
             for k, partner in enumerate(active_partners):
-                dist_col = distance_map.get(partner)
-                if dist_col is not None:
-                    act_dist_row = distances[new_id_rows, dist_col]
+                partner_coords = coords_by_label.get(int(partner))
+                if partner_coords is not None:
+                    act_dist_row = _compute_partner_distances(
+                        frag_kdtrees, partner_coords
+                    )
                 else:
                     act_dist_row = _compute_boundary_distances(
-                        cg, new_kdtrees, partner, old_chunk, chunk_size
+                        cg, frag_kdtrees, partner, old_chunk, chunk_size
                     )
                 e, a, ar = _match_partner(
                     new_ids,
@@ -340,11 +351,20 @@ def update_edges(
     new_id_label_map: dict = None,
 ):
     old_new_map = dict(old_new_map)
-    kdtrees, _ = build_kdtrees_by_label(new_seg)
-    distance_map = {k: int(i) for k, i in zip(kdtrees.keys(), range(len(kdtrees)))}
+    t0 = time.time()
+    coords_by_label = build_coords_by_label(new_seg)
+    new_ids = np.array(list(set.union(*old_new_map.values())), dtype=basetypes.NODE_ID)
+    new_kdtrees = [cKDTree(coords_by_label[int(k)]) for k in new_ids]
+    logger.note(
+        f"build_coords {len(coords_by_label)} labels, {len(new_ids)} fragment trees ({time.time() - t0:.2f}s)"
+    )
 
+    t0 = time.time()
     _, edges_tuple = cg.get_subgraph(root_id, bbox, bbox_is_coordinate=True)
     edges_ = reduce(lambda x, y: x + y, edges_tuple, Edges([], []))
+    logger.note(
+        f"get_subgraph {len(edges_.get_pairs())} edges ({time.time() - t0:.2f}s)"
+    )
 
     edges = edges_.get_pairs()
     affinities = edges_.affinities
@@ -358,28 +378,27 @@ def update_edges(
     affinities = affinities[edges_idx]
     areas = areas[edges_idx]
 
-    # Batch-fetch roots for all edge partners to define active vs inactive
+    t0 = time.time()
     all_edge_svs = np.unique(edges)
     all_roots = cg.get_roots(all_edge_svs)
     sv_root_map = dict(zip(all_edge_svs, all_roots))
+    logger.note(f"get_roots {len(all_edge_svs)} svs ({time.time() - t0:.2f}s)")
 
-    new_ids = np.array(list(set.union(*old_new_map.values())), dtype=basetypes.NODE_ID)
-    new_kdtrees = [kdtrees[k] for k in new_ids]
-    new_distance_map = {k: int(i) for k, i in zip(new_ids, range(len(new_ids)))}
-    distances = pairwise_min_distance_two_sets(new_kdtrees, list(kdtrees.values()))
+    t0 = time.time()
     result = _get_new_edges(
         (edges, affinities, areas),
         old_new_map,
-        distances,
-        distance_map,
-        new_distance_map,
+        coords_by_label,
         root_id,
         sv_root_map,
         cg,
         new_kdtrees,
+        new_ids,
         new_id_label_map,
         threshold=cg.meta.sv_split_threshold,
     )
+    logger.note(f"_get_new_edges {result[0].shape} ({time.time() - t0:.2f}s)")
+
     validate_split_edges(result[0], result[1], old_new_map, new_id_label_map)
     return result
 

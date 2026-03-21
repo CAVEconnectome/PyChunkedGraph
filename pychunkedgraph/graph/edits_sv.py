@@ -3,13 +3,11 @@ Manage new supervoxels after a supervoxel split.
 """
 
 import time
-import multiprocessing as mp
 from datetime import datetime
 from collections import defaultdict, deque
 
 import fastremap
 import numpy as np
-from tqdm import tqdm
 
 from pychunkedgraph import get_logger
 from pychunkedgraph.graph import (
@@ -62,45 +60,48 @@ def _get_whole_sv(
     return explored_nodes
 
 
-def _update_chunk(args):
+def _update_chunks(cg, chunks_bbox_map, seg, result_seg, bb_start):
+    """Process all chunks in a single pass: assign new SV IDs to split fragments.
+
+    For each chunk overlapping the split bbox, finds split labels and
+    batch-allocates new IDs. No multiprocessing needed.
     """
-    For a chunk that overlaps bounding box for supervoxel split,
-      If chunk contains mask for the split supervoxel,
-      return indices of mask, old and new supervoxel IDs from this chunk.
-    """
-    graph_id, chunk_coord, chunk_bbox, seg, result_seg, bb_start = args
-    cg = ChunkedGraph(graph_id=graph_id)
-    x, y, z = chunk_coord
-    chunk_id = cg.get_chunk_id(layer=1, x=x, y=y, z=z)
+    results = []
+    for chunk_coord, chunk_bbox in chunks_bbox_map.items():
+        x, y, z = chunk_coord
+        chunk_id = cg.get_chunk_id(layer=1, x=x, y=y, z=z)
 
-    _s, _e = chunk_bbox - bb_start
-    og_chunk_seg = seg[_s[0] : _e[0], _s[1] : _e[1], _s[2] : _e[2]]
-    chunk_seg = result_seg[_s[0] : _e[0], _s[1] : _e[1], _s[2] : _e[2]]
+        _s, _e = chunk_bbox - bb_start
+        og_chunk_seg = seg[_s[0] : _e[0], _s[1] : _e[1], _s[2] : _e[2]]
+        chunk_seg = result_seg[_s[0] : _e[0], _s[1] : _e[1], _s[2] : _e[2]]
 
-    labels = fastremap.unique(chunk_seg[chunk_seg != 0])
-    if labels.size < 2:
-        return None
+        labels = fastremap.unique(chunk_seg[chunk_seg != 0])
+        if labels.size < 2:
+            continue
 
-    _indices = []
-    _old_values = []
-    _new_values = []
-    _label_id_map = {}
-    for _id in labels:
-        _mask = chunk_seg == _id
-        voxel_locs = np.where(_mask)
-        _og_value = og_chunk_seg[voxel_locs[0][0], voxel_locs[1][0], voxel_locs[2][0]]
-        _index = np.column_stack(voxel_locs)
-        n = len(_index)
-        _indices.append(_index)
-        _old_values.append(np.full(n, _og_value, dtype=basetypes.NODE_ID))
-        new_id = cg.id_client.create_node_id(chunk_id)
-        _new_values.append(np.full(n, new_id, dtype=basetypes.NODE_ID))
-        _label_id_map[int(_id)] = new_id
+        new_ids = cg.id_client.create_node_ids(chunk_id, size=len(labels))
+        _indices = []
+        _old_values = []
+        _new_values = []
+        _label_id_map = {}
+        for _id, new_id in zip(labels, new_ids):
+            _mask = chunk_seg == _id
+            voxel_locs = np.where(_mask)
+            _og_value = og_chunk_seg[
+                voxel_locs[0][0], voxel_locs[1][0], voxel_locs[2][0]
+            ]
+            _index = np.column_stack(voxel_locs)
+            n = len(_index)
+            _indices.append(_index)
+            _old_values.append(np.full(n, _og_value, dtype=basetypes.NODE_ID))
+            _new_values.append(np.full(n, new_id, dtype=basetypes.NODE_ID))
+            _label_id_map[int(_id)] = new_id
 
-    _indices = np.concatenate(_indices) + (chunk_bbox[0] - bb_start)
-    _old_values = np.concatenate(_old_values)
-    _new_values = np.concatenate(_new_values)
-    return (_indices, _old_values, _new_values, _label_id_map)
+        _indices = np.concatenate(_indices) + (chunk_bbox[0] - bb_start)
+        _old_values = np.concatenate(_old_values)
+        _new_values = np.concatenate(_new_values)
+        results.append((_indices, _old_values, _new_values, _label_id_map))
+    return results
 
 
 def _voxel_crop(bbs, bbe, bbs_, bbe_):
@@ -182,14 +183,13 @@ def split_supervoxel(
     logger.note(f"split computation {split_result.shape} ({time.time() - t0:.2f}s)")
 
     chunks_bbox_map = chunks_overlapping_bbox(bbs, bbe, cg.meta.graph_config.CHUNK_SIZE)
-    tasks = [
-        (cg.graph_id, *item, seg[voxel_overlap_crop], split_result, bbs)
-        for item in chunks_bbox_map.items()
-    ]
     t0 = time.time()
-    with mp.Pool() as pool:
-        results = [*tqdm(pool.imap_unordered(_update_chunk, tasks), total=len(tasks))]
-    logger.note(f"chunk updates {len(tasks)} tasks ({time.time() - t0:.2f}s)")
+    results = _update_chunks(
+        cg, chunks_bbox_map, seg[voxel_overlap_crop], split_result, bbs
+    )
+    logger.note(
+        f"chunk updates {len(chunks_bbox_map)} chunks, {len(results)} with splits ({time.time() - t0:.2f}s)"
+    )
 
     seg_cropped = seg[voxel_overlap_crop].copy()
     new_seg, old_new_map, slices, new_id_label_map = _parse_results(
