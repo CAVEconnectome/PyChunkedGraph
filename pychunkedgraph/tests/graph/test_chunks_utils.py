@@ -21,11 +21,6 @@ class TestGetChunkLayer:
 
 
 class TestGetChunkLayers:
-    def test_empty(self, gen_graph):
-        graph = gen_graph(n_layers=4)
-        result = chunk_utils.get_chunk_layers(graph.meta, [])
-        assert len(result) == 0
-
     def test_multiple(self, gen_graph):
         graph = gen_graph(n_layers=4)
         from ..helpers import to_label

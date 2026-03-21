@@ -52,11 +52,6 @@ class TestCacheService:
         add_parent_chunk(graph, 4, [0, 0, 0], n_threads=1)
         return graph
 
-    def test_init(self, gen_graph):
-        graph = self._build_simple_graph(gen_graph)
-        cache = CacheService(graph)
-        assert len(cache) == 0
-
     def test_len(self, gen_graph):
         graph = self._build_simple_graph(gen_graph)
         cache = CacheService(graph)

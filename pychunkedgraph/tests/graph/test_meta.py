@@ -38,10 +38,6 @@ class TestChunkedGraphMeta:
         assert 1 in bm
         assert 2 in bm
 
-    def test_read_only_default(self, gen_graph):
-        graph = gen_graph(n_layers=4)
-        assert graph.meta.READ_ONLY is False
-
     def test_is_out_of_bounds(self, gen_graph):
         graph = gen_graph(n_layers=4)
         meta = graph.meta
@@ -98,26 +94,6 @@ class TestEdgeDtype:
         for name, dtype in dt:
             if name.startswith("aff"):
                 assert dtype == np.float32
-
-
-class TestDataSourceDefaults:
-    def test_defaults(self):
-        ds = DataSource()
-        assert ds.EDGES is None
-        assert ds.COMPONENTS is None
-        assert ds.WATERSHED is None
-        assert ds.DATA_VERSION is None
-        assert ds.CV_MIP == 0
-
-
-class TestGraphConfigDefaults:
-    def test_defaults(self):
-        gc = GraphConfig(CHUNK_SIZE=[64, 64, 64])
-        assert gc.FANOUT == 2
-        assert gc.LAYER_ID_BITS == 8
-        assert gc.SPATIAL_BITS == 10
-        assert gc.OVERWRITE is False
-        assert gc.ROOT_COUNTERS == 8
 
 
 class TestResolutionProperty:

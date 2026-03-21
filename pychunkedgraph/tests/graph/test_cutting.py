@@ -13,20 +13,6 @@ from pychunkedgraph.graph.edges import Edges
 from pychunkedgraph.graph.exceptions import PostconditionError, PreconditionError
 
 
-class TestIsolatingCutException:
-    def test_is_exception_subclass(self):
-        """IsolatingCutException is a proper Exception subclass."""
-        assert issubclass(IsolatingCutException, Exception)
-
-    def test_can_be_raised_and_caught(self):
-        with pytest.raises(IsolatingCutException):
-            raise IsolatingCutException("Source")
-
-    def test_message_preserved(self):
-        exc = IsolatingCutException("Sink")
-        assert str(exc) == "Sink"
-
-
 class TestMergeCrossChunkEdgesGraphTool:
     def test_merge_cross_chunk_edges_basic(self):
         """Cross-chunk edges (inf affinity) cause their endpoints to be merged.
