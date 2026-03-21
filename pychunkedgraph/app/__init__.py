@@ -103,6 +103,16 @@ def configure_app(app):
     # Ensure pychunkedgraph logger always works at NOTICE level
     # regardless of app config or environment log level
     configure_logging(level=NOTICE)
+    # app.logger.propagate = False blocks children under pychunkedgraph.app
+    # from reaching the pychunkedgraph handler — attach it directly
+    pcg_logger = logging.getLogger("pychunkedgraph")
+    app_ns_logger = logging.getLogger("pychunkedgraph.app")
+    for h in pcg_logger.handlers:
+        if isinstance(h, logging.StreamHandler) and not isinstance(
+            h, logging.NullHandler
+        ):
+            app_ns_logger.addHandler(h)
+            break
 
     if app.config["USE_REDIS_JOBS"]:
         app.redis = redis.Redis.from_url(app.config["REDIS_URL"])
