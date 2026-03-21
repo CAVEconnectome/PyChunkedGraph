@@ -1402,3 +1402,41 @@ class TestRerunPathsWithoutOverlap:
         assert isinstance(supervoxel_ccs, list)
         assert len(supervoxel_ccs) >= 2
         assert isinstance(illegal_split, bool)
+
+
+class TestSvSplitSupportedFlag:
+    """Test that sv_split_supported controls exception type."""
+
+    def test_overlap_raises_precondition_when_unsupported(self):
+        """Non-ocdbt graphs raise PreconditionError on source/sink overlap."""
+        edges = np.array([[1, 2], [2, 3], [3, 4]], dtype=np.uint64)
+        affs = np.array([0.5, np.inf, 0.5], dtype=np.float32)
+        sources = np.array([2], dtype=np.uint64)
+        sinks = np.array([3], dtype=np.uint64)
+
+        with pytest.raises(PreconditionError, match="cross-chunk edge representative"):
+            LocalMincutGraph(
+                edges,
+                affs,
+                sources,
+                sinks,
+                sv_split_supported=False,
+            )
+
+    def test_overlap_raises_sv_split_when_supported(self):
+        """OCDBT graphs raise SupervoxelSplitRequiredError on source/sink overlap."""
+        from pychunkedgraph.graph.exceptions import SupervoxelSplitRequiredError
+
+        edges = np.array([[1, 2], [2, 3], [3, 4]], dtype=np.uint64)
+        affs = np.array([0.5, np.inf, 0.5], dtype=np.float32)
+        sources = np.array([2], dtype=np.uint64)
+        sinks = np.array([3], dtype=np.uint64)
+
+        with pytest.raises(SupervoxelSplitRequiredError):
+            LocalMincutGraph(
+                edges,
+                affs,
+                sources,
+                sinks,
+                sv_split_supported=True,
+            )
