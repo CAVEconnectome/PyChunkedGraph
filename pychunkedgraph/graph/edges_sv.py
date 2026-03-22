@@ -403,32 +403,83 @@ def update_edges(
     return result
 
 
-def add_new_edges(cg: "ChunkedGraph", edges_tuple: tuple, time_stamp: datetime = None):
-    edges_, affinites_, areas_ = edges_tuple
+def _edges_to_bidirectional(edges_, affinities_, areas_):
+    """Duplicate edges in both directions and map nodes to chunks."""
+    return (
+        np.r_[edges_, edges_[:, ::-1]],
+        np.r_[affinities_, affinities_],
+        np.r_[areas_, areas_],
+    )
+
+
+def _compact_chunk_edges(prev_data, new_edges, new_affs, new_areas, stale_svs):
+    """Merge new edges with existing compacted edges, filtering stale SVs."""
+    prev_cells = prev_data.get(attributes.Connectivity.CompactedSplitEdges, [])
+    if prev_cells:
+        prev_e = prev_cells[-1].value
+        prev_a = prev_data[attributes.Connectivity.CompactedAffinity][-1].value
+        prev_ar = prev_data[attributes.Connectivity.CompactedArea][-1].value
+        keep = ~np.isin(prev_e[:, 0], stale_svs) & ~np.isin(prev_e[:, 1], stale_svs)
+        new_edges = np.concatenate([prev_e[keep], new_edges])
+        new_affs = np.concatenate([prev_a[keep], new_affs])
+        new_areas = np.concatenate([prev_ar[keep], new_areas])
+    return {
+        attributes.Connectivity.CompactedSplitEdges: new_edges,
+        attributes.Connectivity.CompactedAffinity: new_affs,
+        attributes.Connectivity.CompactedArea: new_areas,
+    }
+
+
+def add_new_edges(
+    cg: "ChunkedGraph",
+    edges_tuple: tuple,
+    old_new_map: dict,
+    time_stamp: datetime = None,
+):
+    edges_, affinities_, areas_ = edges_tuple
     logger.note(f"new edges: {edges_.shape}")
 
     nodes = fastremap.unique(edges_)
     chunks = cg.get_chunk_ids_from_node_ids(cg.get_parents(nodes))
     node_chunks = dict(zip(nodes, chunks))
 
-    edges = np.r_[edges_, edges_[:, ::-1]]
-    affinites = np.r_[affinites_, affinites_]
-    areas = np.r_[areas_, areas_]
+    edges, affinities, areas = _edges_to_bidirectional(edges_, affinities_, areas_)
+    stale_svs = np.array(list(old_new_map.keys()), dtype=basetypes.NODE_ID)
+    unique_chunks = np.unique(chunks)
+
+    existing = cg.client.read_nodes(
+        node_ids=unique_chunks,
+        properties=[
+            attributes.Connectivity.CompactedSplitEdges,
+            attributes.Connectivity.CompactedAffinity,
+            attributes.Connectivity.CompactedArea,
+        ],
+        fake_edges=True,
+    )
 
     rows = []
     chunks_arr = fastremap.remap(edges, node_chunks)
-    for chunk_id in np.unique(chunks):
-        val_dict = {}
+    for chunk_id in unique_chunks:
         mask = chunks_arr[:, 0] == chunk_id
-        val_dict[attributes.Connectivity.SplitEdges] = edges[mask]
-        val_dict[attributes.Connectivity.Affinity] = affinites[mask]
-        val_dict[attributes.Connectivity.Area] = areas[mask]
+        new_e, new_a, new_ar = edges[mask], affinities[mask], areas[mask]
+        row_key = serializers.serialize_uint64(chunk_id, fake_edges=True)
+
+        # Append to SplitEdges (history, preserves all timestamps)
         rows.append(
             cg.client.mutate_row(
-                serializers.serialize_uint64(chunk_id, fake_edges=True),
-                val_dict=val_dict,
+                row_key,
+                {
+                    attributes.Connectivity.SplitEdges: new_e,
+                    attributes.Connectivity.Affinity: new_a,
+                    attributes.Connectivity.Area: new_ar,
+                },
                 time_stamp=time_stamp,
             )
         )
-        # logger.note(f"writing {edges[mask].shape} edges to {chunk_id}")
+
+        # Write compacted edges (latest valid only)
+        compact_dict = _compact_chunk_edges(
+            existing.get(chunk_id, {}), new_e, new_a, new_ar, stale_svs
+        )
+        rows.append(cg.client.mutate_row(row_key, compact_dict, time_stamp=time_stamp))
     return rows

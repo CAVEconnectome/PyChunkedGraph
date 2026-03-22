@@ -56,7 +56,7 @@ def configure_logging(level=stdlib_logging.INFO, format_str=None, stream=None):
         pychunkedgraph.configure_logging(pychunkedgraph.DEBUG)  # Enable DEBUG level
     """
     if format_str is None:
-        format_str = "%(asctime)s %(module)s:%(funcName)s:%(lineno)d %(message)s"
+        format_str = "%(asctime)s [%(module)s:%(funcName)s:%(lineno)d] %(message)s"
     if stream is None:
         stream = sys.stdout
 
