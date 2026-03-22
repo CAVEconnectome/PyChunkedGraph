@@ -134,6 +134,7 @@ def split_supervoxel(
     source_coords: np.ndarray,
     sink_coords: np.ndarray,
     operation_id: int,
+    sv_remapping: dict,
     verbose: bool = False,
     time_stamp: datetime = None,
 ) -> dict[int, set]:
@@ -157,7 +158,14 @@ def split_supervoxel(
     logger.note(f"bbox and chunk min max {(bbs, bbe)}; {(chunk_min, chunk_max)}")
 
     t0 = time.time()
-    cut_supervoxels = _get_whole_sv(cg, sv_id, min_coord=chunk_min, max_coord=chunk_max)
+    rep = sv_remapping.get(sv_id, sv_id)
+    all_svs = np.array(
+        [sv for sv, r in sv_remapping.items() if r == rep],
+        dtype=basetypes.NODE_ID,
+    )
+    coords = cg.get_chunk_coordinates_multiple(all_svs)
+    in_bbox = (coords >= chunk_min).all(axis=1) & (coords < chunk_max).all(axis=1)
+    cut_supervoxels = set(all_svs[in_bbox].tolist())
     supervoxel_ids = np.array(list(cut_supervoxels), dtype=basetypes.NODE_ID)
     logger.note(
         f"whole sv {sv_id} -> {supervoxel_ids.tolist()} ({time.time() - t0:.2f}s)"
@@ -195,6 +203,12 @@ def split_supervoxel(
     new_seg, old_new_map, slices, new_id_label_map = _parse_results(
         results, seg_cropped, bbs, bbe
     )
+    logger.note(
+        f"old_new_map: {len(old_new_map)} SVs split, whole_sv: {len(cut_supervoxels)} SVs"
+    )
+    unsplit = cut_supervoxels - set(old_new_map.keys())
+    if unsplit:
+        logger.note(f"unsplit SVs (kept IDs): {unsplit}")
 
     sv_ids = fastremap.unique(seg)
     roots = cg.get_roots(sv_ids)
@@ -218,7 +232,7 @@ def split_supervoxel(
     logger.note(f"edge update ({time.time() - t0:.2f}s)")
 
     rows0 = copy_parents_and_add_lineage(cg, operation_id, old_new_map)
-    rows1 = add_new_edges(cg, edges_tuple, time_stamp=time_stamp)
+    rows1 = add_new_edges(cg, edges_tuple, old_new_map, time_stamp=time_stamp)
     rows = rows0 + rows1
 
     t0 = time.time()

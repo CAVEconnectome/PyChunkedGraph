@@ -684,14 +684,32 @@ class ChunkedGraph:
         Edges stored within a pcg that were created as a result of edits.
         Either 'fake' edges that were adding for a merge edit;
         Or 'split' edges resulting from a supervoxel split.
+
+        SplitEdges accumulate across operations (append-only, preserves history).
+        CompactedSplitEdges is a single cell per chunk with only currently-valid
+        edges — updated by add_new_edges on each SV split (reads existing, filters
+        out edges referencing replaced SVs, merges with new edges, overwrites).
+
+        For current-time queries (time_stamp=None), reads CompactedSplitEdges
+        for O(1) cells per chunk. For historical queries, reads all SplitEdges
+        up to that timestamp.
         """
+        use_compacted = time_stamp is None and self.meta.ocdbt_seg
+        if use_compacted:
+            properties = [
+                attributes.Connectivity.FakeEdges,
+                attributes.Connectivity.CompactedSplitEdges,
+                attributes.Connectivity.CompactedAffinity,
+                attributes.Connectivity.CompactedArea,
+            ]
+        else:
+            properties = [
+                attributes.Connectivity.FakeEdges,
+                attributes.Connectivity.SplitEdges,
+                attributes.Connectivity.Affinity,
+                attributes.Connectivity.Area,
+            ]
         result = {}
-        properties = [
-            attributes.Connectivity.FakeEdges,
-            attributes.Connectivity.SplitEdges,
-            attributes.Connectivity.Affinity,
-            attributes.Connectivity.Area,
-        ]
         _edges_d = self.client.read_nodes(
             node_ids=chunk_ids,
             properties=properties,
@@ -704,14 +722,18 @@ class ChunkedGraph:
             edges = np.concatenate([types.empty_2d, *[e.value for e in edges]])
             fake_edges_ = Edges(edges[:, 0], edges[:, 1])
 
-            edges = val.get(attributes.Connectivity.SplitEdges, [])
-            edges = np.concatenate([types.empty_2d, *[e.value for e in edges]])
+            if use_compacted:
+                se = val.get(attributes.Connectivity.CompactedSplitEdges, [])
+                af = val.get(attributes.Connectivity.CompactedAffinity, [])
+                ar = val.get(attributes.Connectivity.CompactedArea, [])
+            else:
+                se = val.get(attributes.Connectivity.SplitEdges, [])
+                af = val.get(attributes.Connectivity.Affinity, [])
+                ar = val.get(attributes.Connectivity.Area, [])
 
-            aff = val.get(attributes.Connectivity.Affinity, [])
-            aff = np.concatenate([types.empty_affinities, *[e.value for e in aff]])
-
-            areas = val.get(attributes.Connectivity.Area, [])
-            areas = np.concatenate([types.empty_areas, *[e.value for e in areas]])
+            edges = np.concatenate([types.empty_2d, *[e.value for e in se]])
+            aff = np.concatenate([types.empty_affinities, *[e.value for e in af]])
+            areas = np.concatenate([types.empty_areas, *[e.value for e in ar]])
             split_edges_ = Edges(edges[:, 0], edges[:, 1], affinities=aff, areas=areas)
 
             result[id_] = fake_edges_ + split_edges_
@@ -781,6 +803,7 @@ class ChunkedGraph:
                     raise ValueError("Found conflicting parents.")
             sv_parent_d.update(dict(zip(svs.tolist(), [l2id] * len(svs))))
 
+        all_chunk_edges = self._filter_stale_svs(all_chunk_edges, sv_parent_d)
         if active:
             all_chunk_edges = edge_utils.filter_inactive_cross_edges(
                 self, all_chunk_edges, time_stamp=time_stamp
@@ -801,6 +824,35 @@ class ChunkedGraph:
                 else (in_edges, out_edges, cross_edges)
             ),
         )
+
+    def _filter_stale_svs(self, edges: Edges, sv_parent_d: dict) -> Edges:
+        """Filter edges referencing SVs replaced by prior SV splits.
+
+        Stale SVs have NewIdentity set (replaced by split fragments) but are
+        not in sv_parent_d. Cross-root SVs also aren't in sv_parent_d but
+        don't have NewIdentity — those edges are legitimate and kept.
+        Only applies to ocdbt_seg graphs (SV splitting is not possible otherwise).
+        """
+        if not self.meta.ocdbt_seg or len(edges) == 0:
+            return edges
+        all_svs = np.unique(np.concatenate([edges.node_ids1, edges.node_ids2]))
+        unknown_svs = np.array(
+            [sv for sv in all_svs if sv not in sv_parent_d], dtype=np.uint64
+        )
+        if len(unknown_svs) == 0:
+            return edges
+        new_id_cells = self.client.read_nodes(
+            node_ids=unknown_svs,
+            properties=attributes.Hierarchy.NewIdentity,
+        )
+        stale_svs = set(int(sv) for sv in unknown_svs if new_id_cells.get(sv))
+        if not stale_svs:
+            return edges
+        stale_arr = np.array(list(stale_svs), dtype=np.uint64)
+        keep_m = ~np.isin(edges.node_ids1, stale_arr) & ~np.isin(
+            edges.node_ids2, stale_arr
+        )
+        return edges[keep_m]
 
     def get_node_timestamps(
         self, node_ids: typing.Sequence[np.uint64], return_numpy=True, normalize=False
