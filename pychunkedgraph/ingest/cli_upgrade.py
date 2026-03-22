@@ -18,7 +18,7 @@ from pychunkedgraph.graph.meta import GraphConfig
 
 from . import IngestConfig
 from .cluster import (
-    convert_to_ocdbt,
+    convert_edges_to_ocdbt,
     enqueue_l2_tasks,
     upgrade_atomic_chunk,
     upgrade_parent_chunk,
@@ -33,6 +33,7 @@ from .utils import (
     job_type_guard,
 )
 from ..graph.chunkedgraph import ChunkedGraph, ChunkedGraphMeta
+from ..graph.ocdbt import get_seg_source_and_destination_ocdbt
 from ..utils.redis import get_redis_connection
 from ..utils.redis import keys as r_keys
 
@@ -56,9 +57,18 @@ def flush_redis():
 @upgrade_cli.command("graph")
 @click.argument("graph_id", type=str)
 @click.option("--test", is_flag=True, help="Test 8 chunks at the center of dataset.")
-@click.option("--ocdbt", is_flag=True, help="Store edges using ts ocdbt kv store.")
+@click.option("--ocdbt", is_flag=True, help="Enable ocdbt seg (SV splitting support).")
+@click.option("--ocdbt-edges", is_flag=True, help="Convert edges to ocdbt kv store.")
+@click.option(
+    "--sv-split-threshold",
+    type=int,
+    default=10,
+    help="Distance threshold for SV split edge matching.",
+)
 @job_type_guard(group_name)
-def upgrade_graph(graph_id: str, test: bool, ocdbt: bool):
+def upgrade_graph(
+    graph_id: str, test: bool, ocdbt: bool, ocdbt_edges: bool, sv_split_threshold: int
+):
     """
     Main upgrade command. Queues atomic tasks.
     """
@@ -77,21 +87,28 @@ def upgrade_graph(graph_id: str, test: bool, ocdbt: bool):
         cg.update_meta(new_meta, overwrite=True)
         cg = ChunkedGraph(graph_id=graph_id)
 
+    if ocdbt:
+        cg.meta.custom_data["seg"] = {
+            "ocdbt": True,
+            "sv_split_threshold": sv_split_threshold,
+        }
+        cg.update_meta(cg.meta, overwrite=True)
+        logger.note(f"enabled ocdbt seg with sv_split_threshold={sv_split_threshold}")
+        get_seg_source_and_destination_ocdbt(cg.meta.data_source.WATERSHED, create=True)
     try:
-        # create new column family for cross chunk edges
         cg.client.create_column_family("4")
     except Exception:
         ...
 
     imanager = IngestionManager(ingest_config, cg.meta)
-    server = ts.ocdbt.DistributedCoordinatorServer()
-    if ocdbt:
+    if ocdbt_edges:
+        server = ts.ocdbt.DistributedCoordinatorServer()
         start_ocdbt_server(imanager, server)
 
-    fn = convert_to_ocdbt if ocdbt else upgrade_atomic_chunk
+    fn = convert_edges_to_ocdbt if ocdbt_edges else upgrade_atomic_chunk
     enqueue_l2_tasks(imanager, fn)
 
-    if ocdbt:
+    if ocdbt_edges:
         logger.note("All tasks queued. Keep this alive for ocdbt coordinator server.")
         while True:
             sleep(60)

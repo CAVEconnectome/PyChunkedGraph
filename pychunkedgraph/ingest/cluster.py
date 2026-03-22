@@ -168,7 +168,7 @@ def upgrade_atomic_chunk(coords: Sequence[int]):
     _post_task_completion(imanager, 2, coords)
 
 
-def convert_to_ocdbt(coords: Sequence[int]):
+def convert_edges_to_ocdbt(coords: Sequence[int]):
     """
     Convert edges stored per chunk to ajacency list in the tensorstore ocdbt kv store.
     """
