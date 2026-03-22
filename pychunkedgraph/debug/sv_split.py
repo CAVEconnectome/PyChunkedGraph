@@ -5,7 +5,8 @@ from functools import reduce
 import numpy as np
 import fastremap
 
-from ..app.segmentation.common import _get_sources_and_sinks as get_sources_and_sinks
+from ..app.app_utils import handle_supervoxel_id_lookup
+from ..graph import attributes
 from ..graph.chunkedgraph import ChunkedGraph
 from ..graph.edges import Edges
 
@@ -126,7 +127,23 @@ def inspect_edited_edges(cg: ChunkedGraph, svs):
 
 def inspect_split(cg: ChunkedGraph, data: dict):
     """Full diagnostic for a split request: edges, inf bridges, L2 state."""
-    sources, sinks, src_coords, snk_coords = get_sources_and_sinks(cg, data)
+    node_idents = []
+    node_ident_map = {"sources": 0, "sinks": 1}
+    coords = []
+    node_ids = []
+    for k in ["sources", "sinks"]:
+        for node in data[k]:
+            node_ids.append(node[0])
+            coords.append(np.array(node[1:]) / cg.segmentation_resolution)
+            node_idents.append(node_ident_map[k])
+    node_ids = np.array(node_ids, dtype=np.uint64)
+    coords = np.array(coords)
+    node_idents = np.array(node_idents)
+    sv_ids = handle_supervoxel_id_lookup(cg, coords, node_ids)
+    sources = sv_ids[node_idents == 0]
+    sinks = sv_ids[node_idents == 1]
+    src_coords = coords[node_idents == 0]
+    snk_coords = coords[node_idents == 1]
     all_svs = np.concatenate([sources, sinks])
     bbox = compute_bbox(src_coords, snk_coords)
 
@@ -149,3 +166,198 @@ def inspect_split(cg: ChunkedGraph, data: dict):
 
     print("=== L2 Children ===")
     check_l2_children(cg, data, all_svs)
+
+
+def check_unsplit_sv_bridges(cg: ChunkedGraph, sv_remapping: dict, sources, sinks):
+    """Check if unsplit SVs on opposite sides still have inf edges bridging them.
+
+    After an SV split, SVs that kept their original IDs (chunk had only 1 label)
+    may still have inf edges to SVs on the opposite side in raw chunk data.
+    """
+    # Find which SVs map to overlapping representatives
+    source_set = set(int(s) for s in sources)
+    sink_set = set(int(s) for s in sinks)
+    all_svs = source_set | sink_set
+
+    # Group by representative
+    rep_groups = {}
+    for sv, rep in sv_remapping.items():
+        rep_groups.setdefault(rep, []).append(sv)
+
+    # Find overlapping reps
+    for rep, svs in rep_groups.items():
+        src_in = [sv for sv in svs if sv in source_set]
+        snk_in = [sv for sv in svs if sv in sink_set]
+        if not src_in or not snk_in:
+            continue
+
+        print(f"\n=== Overlapping rep {rep} ===")
+        print(f"  sources in group: {src_in}")
+        print(f"  sinks in group: {snk_in}")
+
+        # Check which SVs have NewIdentity (were split) vs kept original IDs
+        all_group_svs = np.array(svs, dtype=np.uint64)
+        new_id_cells = cg.client.read_nodes(
+            node_ids=all_group_svs,
+            properties=attributes.Hierarchy.NewIdentity,
+        )
+        for sv in svs:
+            has_new = bool(new_id_cells.get(sv))
+            side = "src" if sv in source_set else "sink" if sv in sink_set else "other"
+            print(f"  SV {sv}: side={side}, was_split={has_new}")
+
+        # Check inf edges between unsplit SVs on opposite sides
+        unsplit = [sv for sv in svs if not new_id_cells.get(sv)]
+        unsplit_src = [sv for sv in unsplit if sv in source_set]
+        unsplit_snk = [sv for sv in unsplit if sv in sink_set]
+        if unsplit_src and unsplit_snk:
+            print(
+                f"  WARNING: unsplit SVs on both sides: src={unsplit_src}, sink={unsplit_snk}"
+            )
+            print(f"  These have inf edges in raw data that were never updated")
+
+        # Show full lineage for the group
+        print()
+        inspect_split_lineage(cg, svs)
+
+
+def inspect_split_lineage(cg: ChunkedGraph, whole_sv_ids, old_new_map=None):
+    """Inspect NewIdentity/FormerIdentity and old_new_map for a whole SV group.
+
+    Shows which SVs were actually split (got new IDs), which kept their IDs,
+    and whether NewIdentity was written correctly.
+    """
+    sv_arr = np.asarray(whole_sv_ids, dtype=np.uint64)
+    print(f"=== Split Lineage for {len(sv_arr)} SVs ===")
+
+    # Read NewIdentity for all SVs in the group
+    new_id_cells = cg.client.read_nodes(
+        node_ids=sv_arr,
+        properties=attributes.Hierarchy.NewIdentity,
+    )
+    # Read FormerIdentity too
+    former_id_cells = cg.client.read_nodes(
+        node_ids=sv_arr,
+        properties=attributes.Hierarchy.FormerIdentity,
+    )
+
+    in_old_new = set()
+    if old_new_map:
+        in_old_new = set(int(k) for k in old_new_map.keys())
+        print(f"\nold_new_map keys: {sorted(in_old_new)}")
+        for old, new in old_new_map.items():
+            print(f"  {old} -> {new}")
+
+    print(f"\nLineage status:")
+    for sv in sv_arr:
+        sv_int = int(sv)
+        new_id = new_id_cells.get(sv)
+        former_id = former_id_cells.get(sv)
+        new_vals = [c.value for c in new_id] if new_id else None
+        former_vals = [c.value for c in former_id] if former_id else None
+        in_map = sv_int in in_old_new
+        chunk = cg.get_chunk_coordinates(sv)
+
+        status = []
+        if new_vals:
+            status.append(f"NewIdentity={new_vals}")
+        if former_vals:
+            status.append(f"FormerIdentity={former_vals}")
+        if in_map:
+            status.append("in old_new_map")
+        if not status:
+            status.append("UNCHANGED (no lineage, not in old_new_map)")
+
+        print(f"  {sv} chunk={chunk}: {', '.join(status)}")
+
+    # Check for SVs that were split (have new fragments) but missing NewIdentity
+    if old_new_map:
+        missing = [k for k in old_new_map if not new_id_cells.get(np.uint64(k))]
+        if missing:
+            print(f"\n  WARNING: SVs in old_new_map but missing NewIdentity: {missing}")
+
+
+def trace_stale_sv(cg: ChunkedGraph, sv_id, bbox=None, root_id=None):
+    """Trace why a stale SV still appears in edges after a split.
+
+    Checks: parent, NewIdentity, L2 children membership,
+    and where edges referencing it come from.
+    """
+    sv_id = np.uint64(sv_id)
+    print(f"=== Tracing SV {sv_id} ===")
+
+    # Parent
+    parents = cg.get_parents([sv_id])
+    parent = list(parents.values())[0] if parents else None
+    print(f"  parent: {parent}")
+
+    # NewIdentity (set on old SVs after split)
+    cells = cg.client.read_nodes(
+        node_ids=[sv_id], properties=attributes.Hierarchy.NewIdentity
+    )
+    if cells.get(sv_id):
+        new_ids = [c.value for c in cells[sv_id]]
+        print(f"  NewIdentity: {new_ids} (SV was replaced)")
+    else:
+        print(f"  NewIdentity: not set (SV was NOT replaced)")
+
+    # Is it still in its L2 parent's children?
+    if parent is not None:
+        children = cg.get_children(parent)
+        in_children = sv_id in children
+        print(f"  in L2 {parent} children: {in_children}")
+        if in_children:
+            print(f"    children: {children}")
+
+    # Root
+    root = cg.get_root(sv_id)
+    print(f"  root: {root}")
+
+    # Check edges in subgraph if bbox provided
+    if bbox is not None and root_id is not None:
+        print(f"\n  --- Edges referencing {sv_id} in subgraph ---")
+        _, edges_tuple = cg.get_subgraph(root_id, bbox, bbox_is_coordinate=True)
+        edges_all = reduce(lambda x, y: x + y, edges_tuple, Edges([], []))
+        pairs = edges_all.get_pairs()
+        affs = edges_all.affinities
+        mask = np.any(pairs == sv_id, axis=1)
+        print(f"  total edges with this SV: {mask.sum()}")
+        if mask.any():
+            for p, a in zip(pairs[mask][:10], affs[mask][:10]):
+                aff_str = "inf" if np.isinf(a) else f"{a:.4f}"
+                print(f"    {p[0]} -- {p[1]}  aff={aff_str}")
+
+        # Check origin: chunk edges vs edit edges
+        l2ids = list(
+            cg.get_subgraph(
+                root_id,
+                bbox,
+                bbox_is_coordinate=True,
+                nodes_only=True,
+                return_flattened=True,
+            ).values()
+        )[0]
+        chunk_ids = np.unique(cg.get_chunk_ids_from_node_ids(l2ids))
+
+        from ..io.edges import get_chunk_edges
+
+        chunk_edges_d = cg.read_chunk_edges(chunk_ids)
+        chunk_edges_all = reduce(
+            lambda x, y: x + y, chunk_edges_d.values(), Edges([], [])
+        )
+        chunk_pairs = chunk_edges_all.get_pairs()
+        chunk_mask = np.any(chunk_pairs == sv_id, axis=1)
+        print(f"  from chunk edges (cloud storage): {chunk_mask.sum()}")
+
+        edit_edges_d = cg.get_edges_from_edits(chunk_ids)
+        edit_edges_all = reduce(
+            lambda x, y: x + y, edit_edges_d.values(), Edges([], [])
+        )
+        edit_pairs = edit_edges_all.get_pairs()
+        edit_mask = np.any(edit_pairs == sv_id, axis=1)
+        print(f"  from edit edges (SplitEdges): {edit_mask.sum()}")
+        if edit_mask.any():
+            edit_affs = edit_edges_all.affinities
+            for p, a in zip(edit_pairs[edit_mask][:10], edit_affs[edit_mask][:10]):
+                aff_str = "inf" if np.isinf(a) else f"{a:.4f}"
+                print(f"    {p[0]} -- {p[1]}  aff={aff_str}")
