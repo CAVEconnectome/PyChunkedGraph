@@ -74,10 +74,31 @@ Uses `_resolve_sv_to_layer` with the fully-built `child_to_parent` map. Stores r
 
 ## Phase 4: Write mutations
 
-Build all BigTable mutations and write in one batch:
-- **New nodes (all layers):** `Child`, `CrossChunkEdge[layer]`, `Parent` columns
-- **New L2 nodes:** also `AtomicCrossChunkEdge[layer]` (raw `[sv, sv]` format) — critical for future stitches
-- **All children of new nodes:** `Parent` pointer updated to new parent
+Two-phase write for crash safety:
+
+**1. Node entries (first):**
+
+| Node type | Child | CrossChunkEdge | AtomicCrossChunkEdge |
+|-----------|-------|---------------|---------------------|
+| New L2 | SVs | Resolved at L2 layer | Raw [sv, sv] (merged) |
+| L3-L6 (new) | children | Resolved at that layer | — |
+| Root (new) | children at L6 | Empty | — |
+| L2 siblings (existing) | — (skip, unchanged) | Resolved (updated) | — (skip, unchanged) |
+
+**2. Parent entries (second):** For all children of new nodes (includes siblings as children of new L3+ parents).
+
+Root nodes are added to `ctx.new_node_ids` after the hierarchy loop.
+
+All state stored in `StitchContext` dataclass — no `cg.cache` usage.
+
+### Deferred root ID allocation
+Root IDs are NOT allocated during the layer-by-layer hierarchy build. Instead, CCs that skip to root are collected in `deferred_roots`. After the hierarchy loop, `_allocate_deferred_roots` batch-allocates all root IDs in a single `create_node_ids` call + one collision check.
+
+This is safe because roots have no cross edges (empty at root layer), are never resolved by `_resolve_sv_to_layer` (walk always breaks before root), and don't participate in CC building.
+
+**Why deferred:** Root layer uses 256 sharded counters. On backup-restored tables, new allocations collide with existing roots. The collision check (`read_nodes`) is an RPC — deferring consolidates multiple per-layer RPCs into one. All root IDs share one chunk (layer_count, 0, 0, 0).
+
+Non-root layers use sequential per-chunk counters — no collision possible, no deferral needed.
 
 ## Key design decisions
 
@@ -89,6 +110,37 @@ We get L2 descendants of old parents, not direct children. This means siblings a
 
 ### AtomicCrossChunkEdge written on new L2 nodes
 Future stitches will call `get_atomic_cross_edges` on these new L2 nodes. The merged atomic edges must be present.
+
+### No neighbor CrossChunkEdge updates
+Partner nodes' `CrossChunkEdge` is NOT updated (goes stale). This is acceptable because:
+- Future proposed stitches read `AtomicCrossChunkEdge` (immutable), not `CrossChunkEdge`
+- Human proofreading edits via `add_edges` already handle stale edges via `LatestEdgesFinder`
+
+### No locks
+Lock-free design enables true parallelism within waves. Edge files within a wave touch independent boundary regions with independent roots — no coordination needed.
+
+### No FormerParent
+Proposed path does not write FormerParent/deprecation entries. Only relevant for proofreading edit history (bookmarks, annotations), not bulk stitching.
+
+## What gets written to BigTable per node type
+
+| Node type | Child | CrossChunkEdge | AtomicCrossChunkEdge | Parent (on children) |
+|-----------|-------|---------------|---------------------|---------------------|
+| New L2 | SVs | Resolved at L2 layer | Raw [sv, sv] merged from old L2s + stitch edges | Yes |
+| L3-L6 | children at layer below | Resolved at that layer | — | Yes |
+| Root (L7) | children at L6 | Empty (no cx at root) | — | Yes |
+
+**CrossChunkEdge format**: `[node_id, resolved_partner_id]` — partner resolved to their identity at the node's layer. Written for the current `add_edges` path's consumption (proofreading).
+
+**AtomicCrossChunkEdge format**: `[sv, sv]` — immutable, raw. Only on L2 nodes. This is what the proposed path reads for future stitches.
+
+## Cross edge data flow through the algorithm
+
+1. **Read** (Phase 1): `get_atomic_cross_edges(l2ids)` → `{l2: {layer: [[sv, partner_sv]]}}`
+2. **Merge** (Phase 2): old L2 edges + stitch edges → `l2_atomic_cx[new_l2]` (raw, deduplicated)
+3. **Propagate** (Phase 3): `node_cx[node] = {layer: [[node_id, partner_sv]]}` — col 0 remapped to current node, col 1 still raw SV. Parent inherits child edges at layers >= parent_layer.
+4. **Resolve** (Phase 3b): `_resolve_sv_to_layer` transforms col 1 from raw SV → partner identity at node's layer. Uses resolver (upfront parent chains) + old_to_new + child_to_parent.
+5. **Write** (Phase 4): `CrossChunkEdge[L]` = resolved. `AtomicCrossChunkEdge[L]` = raw (L2 only).
 
 ## What makes this different from the current path
 

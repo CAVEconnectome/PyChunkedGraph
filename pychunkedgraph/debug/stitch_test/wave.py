@@ -6,6 +6,7 @@ Uses multiprocessing to run edge files in parallel within each wave.
 import json
 import os
 import pickle
+import random
 import shutil
 import time
 from datetime import datetime, timezone
@@ -16,26 +17,71 @@ from tqdm import tqdm
 
 import numpy as np
 from cloudfiles import CloudFile, CloudFiles
+from cloudvolume import CloudVolume
 
 from pychunkedgraph.graph import ChunkedGraph, basetypes
-from pychunkedgraph.graph.cache import CacheService
+
 
 from .current import run_current_stitch
+from . import proposed as proposed_mod
+from . import reader as reader_mod
 from .proposed import stitch, run_proposed_stitch
-from .tables import restore_test_table, setup_env, set_autoscaling_cpu, PREFIX, EDGES_SRC
+from .tables import restore_test_table, setup_env, set_autoscaling, set_autoscaling_cpu, PREFIX, EDGES_SRC
 from .utils import extract_structure, batched_extract_structure, batched_extract_and_compare, layer_counts_from_shards
 from .compare import (
     LOGS_ROOT,
     generate_run_id,
     _save_run_result,
+    _load_result,
     compare_stitch_results,
 )
 from .utils import _convert_for_json
 
+_CG_INIT_RETRIES = 5
+_CG_INIT_DELAY = 2
 
-# ─────────────────────────────────────────────────────────────────────
-# Edge file discovery
-# ─────────────────────────────────────────────────────────────────────
+# set per-worker via Pool initializer
+_worker_meta = None
+_worker_cv_info = None
+
+
+def _pool_init(meta_bytes, cv_info):
+    """Pool initializer: deserialize meta + cv_info once per worker process."""
+    global _worker_meta, _worker_cv_info
+    _worker_meta = pickle.loads(meta_bytes)
+    _worker_cv_info = cv_info
+
+
+def _create_cg_worker(graph_id):
+    """Create ChunkedGraph in worker using pre-loaded meta. No BigTable or GCS reads."""
+    if _worker_meta is not None:
+        cg = ChunkedGraph(meta=_worker_meta)
+        if _worker_cv_info is not None:
+            cg.meta._ws_cv = CloudVolume(
+                cg.meta._data_source.WATERSHED, info=_worker_cv_info, progress=False
+            )
+        return cg
+    return _create_cg(graph_id)
+
+
+def _create_cg(graph_id):
+    """Create ChunkedGraph with retry — meta read can transiently fail."""
+    for attempt in range(_CG_INIT_RETRIES):
+        cg = ChunkedGraph(graph_id=graph_id)
+        if cg.meta is not None:
+            return cg
+        time.sleep(_CG_INIT_DELAY * (attempt + 1))
+    raise RuntimeError(f"ChunkedGraph meta is None after {_CG_INIT_RETRIES} retries for {graph_id}")
+
+
+def _prepare_shared_init(table_name):
+    """Read meta + cv info once in parent process, return bytes for Pool initializer."""
+    cg = _create_cg(table_name)
+    cv_info = cg.meta.ws_cv.info
+    meta_bytes = pickle.dumps(cg.meta)
+    return meta_bytes, cv_info
+
+
 
 
 def list_wave_files(wave: int = 0) -> list[str]:
@@ -66,9 +112,6 @@ def _default_n_workers(n_tasks):
     return min(n_tasks, 4 * os.cpu_count())
 
 
-# ─────────────────────────────────────────────────────────────────────
-# Per-worker functions (run in separate processes)
-# ─────────────────────────────────────────────────────────────────────
 
 
 def _worker_current(args):
@@ -77,7 +120,7 @@ def _worker_current(args):
     os.environ["PCG_PROFILER_ENABLED"] = "0"
 
     edges = _load_edges(edge_path)
-    cg = ChunkedGraph(graph_id=graph_id)
+    cg = _create_cg_worker(graph_id)
 
     t0 = time.time()
     result = cg.add_edges(
@@ -102,16 +145,16 @@ def _worker_proposed(args):
     setup_env()
 
     edges = _load_edges(edge_path)
-    cg = ChunkedGraph(graph_id=graph_id)
-    cg.cache = CacheService(cg)
+    cg = _create_cg_worker(graph_id)
+
 
     t0 = time.time()
     result = stitch(cg, edges, verbose=False)
     t_stitch = time.time() - t0
 
     t0 = time.time()
-    cg.client.write(result["node_entries"])
-    cg.client.write(result["parent_entries"])
+    cg.client.write(result.node_entries)
+    cg.client.write(result.parent_entries)
     t_write = time.time() - t0
 
     elapsed = t_stitch + t_write
@@ -119,17 +162,14 @@ def _worker_proposed(args):
         "idx": idx,
         "edge_file": edge_path,
         "n_edges": len(edges),
-        "new_roots": [int(r) for r in result["new_roots"]],
+        "new_roots": [int(r) for r in result.new_roots],
         "elapsed": elapsed,
         "t_stitch": t_stitch,
         "t_write": t_write,
-        "perf": result["perf"],
+        "perf": result.perf,
     }
 
 
-# ─────────────────────────────────────────────────────────────────────
-# Internal: run one wave on a table
-# ─────────────────────────────────────────────────────────────────────
 
 
 def _run_wave(table_name, wave, worker_fn, n_workers=None):
@@ -139,10 +179,12 @@ def _run_wave(table_name, wave, worker_fn, n_workers=None):
         n_workers = _default_n_workers(len(edge_files))
     n = len(edge_files)
 
+    meta_bytes, cv_info = _prepare_shared_init(table_name)
     args = [(table_name, f, i) for i, f in enumerate(edge_files)]
+    random.shuffle(args)
     t0 = time.time()
     file_results = []
-    with Pool(n_workers) as pool:
+    with Pool(n_workers, initializer=_pool_init, initargs=(meta_bytes, cv_info)) as pool:
         for result in tqdm(
             pool.imap_unordered(worker_fn, args),
             total=n,
@@ -153,15 +195,15 @@ def _run_wave(table_name, wave, worker_fn, n_workers=None):
     return file_results, elapsed
 
 
-# ─────────────────────────────────────────────────────────────────────
-# Unified entry points
-# ─────────────────────────────────────────────────────────────────────
 
 
 def _clear_log_dir(log_dir):
     if log_dir.exists():
         shutil.rmtree(log_dir)
     log_dir.mkdir(parents=True, exist_ok=True)
+
+
+SINGLE_EDGE_FILE = "task_0_591.edges"
 
 
 def run_current(experiment: str = "single", n_workers: int = None):
@@ -176,14 +218,14 @@ def run_current(experiment: str = "single", n_workers: int = None):
     log_dir = LOGS_ROOT / experiment / "current"
     log_dir.mkdir(parents=True, exist_ok=True)
 
-    print(f"[current] experiment={experiment}")
+    print(f"[current] experiment={experiment}" + (f", file={SINGLE_EDGE_FILE}" if experiment == "single" else ""))
     if experiment != "single":
-        set_autoscaling_cpu(25)
+        set_autoscaling(target_cpu=25, min_nodes=5)
     try:
         return _run_current_impl(experiment, table_name, log_dir, n_workers)
     finally:
         if experiment != "single":
-            set_autoscaling_cpu(60)
+            set_autoscaling(target_cpu=60, min_nodes=1)
 
 
 def _run_current_impl(experiment, table_name, log_dir, n_workers):
@@ -199,11 +241,11 @@ def _run_current_impl(experiment, table_name, log_dir, n_workers):
     elif experiment == "single":
         _clear_log_dir(log_dir)
         restore_test_table(table_name)
-        edge_file = f"{EDGES_SRC}/task_0_0.edges"
+        edge_file = f"{EDGES_SRC}/{SINGLE_EDGE_FILE}"
         edges = _load_edges(edge_file)
         result = run_current_stitch(table_name, edges, do_sanity_check=False)
         _save_run_result(log_dir, "current", result)
-        print(f"current done: {result['elapsed']:.1f}s")
+        print(f"current done: {result.elapsed:.1f}s")
         return result
     else:
         _clear_log_dir(log_dir)
@@ -258,12 +300,12 @@ def run_proposed_and_compare(experiment: str = "single", n_workers: int = None, 
     """
     setup_env()
     if experiment != "single":
-        set_autoscaling_cpu(25)
+        set_autoscaling(target_cpu=25, min_nodes=5)
     try:
         return _run_proposed_impl(experiment, n_workers, run_id)
     finally:
         if experiment != "single":
-            set_autoscaling_cpu(60)
+            set_autoscaling(target_cpu=60, min_nodes=1)
 
 
 def _run_proposed_impl(experiment, n_workers, run_id):
@@ -273,11 +315,11 @@ def _run_proposed_impl(experiment, n_workers, run_id):
     log_dir = LOGS_ROOT / experiment / run_id
     stitch_results_path = log_dir / "stitch_results.json"
 
-    print(f"[proposed] experiment={experiment}, run_id={run_id}{' (resume)' if resume else ''}")
+    print(f"[proposed] experiment={experiment}, run_id={run_id}{' (resume)' if resume else ''}" + (f", file={SINGLE_EDGE_FILE}" if experiment == "single" else ""))
     print(f"logs: {log_dir}")
 
     current_log_dir = LOGS_ROOT / experiment / "current"
-    result_current = _load_current_result(current_log_dir) if experiment == "single" else {}
+    result_current = _load_current_result(current_log_dir) if experiment == "single" else None
 
     if resume and stitch_results_path.exists():
         print("resuming from saved stitch results...")
@@ -296,13 +338,15 @@ def _run_proposed_impl(experiment, n_workers, run_id):
         restore_test_table(table_name)
 
         if experiment == "single":
-            edge_file = f"{EDGES_SRC}/task_0_0.edges"
+            reader_mod.VERBOSE = True
+            edge_file = f"{EDGES_SRC}/{SINGLE_EDGE_FILE}"
             edges = _load_edges(edge_file)
             result_proposed = run_proposed_stitch(table_name, edges)
-            result_proposed["table_name"] = table_name
+            reader_mod.VERBOSE = False
+            result_proposed.table_name = table_name
             _save_run_result(log_dir, "proposed", result_proposed)
             with open(stitch_results_path, "w") as f:
-                json.dump(_convert_for_json(result_proposed), f)
+                json.dump(_convert_for_json(result_proposed.meta), f)
         else:
             waves = [0] if experiment == "wave" else list_all_waves()
             all_file_results = []
@@ -319,8 +363,8 @@ def _run_proposed_impl(experiment, n_workers, run_id):
                 }), f)
 
     if experiment == "single":
-        t_pro = result_proposed["elapsed"]
-        t_cur = result_current["elapsed"]
+        t_pro = result_proposed.elapsed
+        t_cur = result_current.elapsed
         print(f"\ncurrent: {t_cur:.1f}s, proposed: {t_pro:.1f}s")
         match = compare_stitch_results(result_current, result_proposed)
     else:
@@ -330,7 +374,8 @@ def _run_proposed_impl(experiment, n_workers, run_id):
         roots_proposed = np.array(all_roots, dtype=basetypes.NODE_ID)
 
         total_stitch = sum(r["elapsed"] for r in all_file_results)
-        print(f"\nproposed {experiment}: {total_wall:.1f}s wall, {total_stitch:.1f}s total stitch, {len(roots_proposed)} roots")
+        total_edges = sum(r["n_edges"] for r in all_file_results)
+        print(f"\nproposed {experiment}: {total_wall:.1f}s wall, {total_stitch:.1f}s total stitch, {len(roots_proposed)} roots, {total_edges} edges")
 
         with open(current_log_dir / "wave_meta.json") as f:
             current_meta = json.load(f)
@@ -342,6 +387,7 @@ def _run_proposed_impl(experiment, n_workers, run_id):
             table_current, roots_current,
             table_name, roots_proposed,
             save_dir=log_dir,
+            current_extract_dir=current_log_dir,
         )
 
         result_proposed = {
@@ -360,8 +406,8 @@ def _run_proposed_impl(experiment, n_workers, run_id):
         "experiment": experiment,
         "timestamp": datetime.now(timezone.utc).isoformat(),
         "match": match,
-        "time_current": result_current.get("elapsed", 0),
-        "time_proposed": total_wall if experiment != "single" else result_proposed["elapsed"],
+        "time_current": result_current.elapsed if result_current else 0,
+        "time_proposed": total_wall if experiment != "single" else result_proposed.elapsed,
     }
     with open(log_dir / "summary.json", "w") as f:
         json.dump(_convert_for_json(summary), f, indent=2)
@@ -374,23 +420,9 @@ def _run_proposed_impl(experiment, n_workers, run_id):
 def _load_current_result(log_dir):
     """Load current baseline result from saved files."""
     meta_path = log_dir / "current_meta.json"
-    struct_path = log_dir / "current_structure.json"
+    struct_path = log_dir / "current_structure.pkl.gz"
     if not meta_path.exists() or not struct_path.exists():
         raise FileNotFoundError(
             f"current baseline not found in {log_dir}. Run run_current('{log_dir.parent.name}') first."
         )
-    with open(meta_path) as f:
-        result = json.load(f)
-    with open(struct_path) as f:
-        data = json.load(f)
-    result["structure"] = {
-        "components": {
-            int(layer): [frozenset(c) for c in ccs]
-            for layer, ccs in data.get("components", {}).items()
-        },
-        "cross_edges": {
-            int(layer): [(frozenset(src), frozenset(dst)) for src, dst in pairs]
-            for layer, pairs in data.get("cross_edges", {}).items()
-        },
-    }
-    return result
+    return _load_result(log_dir, "current")

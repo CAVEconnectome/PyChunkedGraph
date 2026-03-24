@@ -12,7 +12,8 @@ from pychunkedgraph.graph import basetypes
 from .current import run_current_stitch
 from .proposed import run_proposed_stitch
 from .tables import restore_test_table, setup_env, PREFIX, EDGES_SRC, _get_instance
-from .utils import _compare_components, _compare_cross_edges, _convert_for_json
+from .utils import compare_structures, _convert_for_json, _save_structure_file, _load_structure_file
+from .stitch_types import RunResult
 
 LOGS_ROOT = Path("/home/akhilesh/opt/zetta_utils/.env/pcg/.env/stitching/runs")
 
@@ -38,7 +39,7 @@ def run_current_baseline(experiment: str = "single", edge_file: str = None):
     table_name = f"{PREFIX}hsmith_mec_current_{experiment}"
     log_dir = LOGS_ROOT / experiment / "current"
     log_dir.mkdir(parents=True, exist_ok=True)
-    structure_path = log_dir / "current_structure.json"
+    structure_path = log_dir / "current_structure.pkl.gz"
 
     instance = _get_instance()
     if instance.table(table_name).exists() and structure_path.exists():
@@ -105,16 +106,15 @@ def run_proposed_and_compare(experiment: str = "single", edge_file: str = None):
 # ─────────────────────────────────────────────────────────────────────
 
 
-def compare_stitch_results(result_a: dict, result_b: dict) -> bool:
+def compare_stitch_results(result_a: RunResult, result_b: RunResult) -> bool:
     ids_match = _compare_new_ids_per_layer(result_a, result_b)
-    comp_match = _compare_components(result_a["structure"], result_b["structure"])
-    cx_match = _compare_cross_edges(result_a["structure"], result_b["structure"])
-    return ids_match and comp_match and cx_match
+    struct_match = compare_structures(result_a.structure, result_b.structure)
+    return ids_match and struct_match
 
 
-def _compare_new_ids_per_layer(result_a, result_b):
-    lc_a = {int(k): v for k, v in result_a.get("layer_counts", {}).items()}
-    lc_b = {int(k): v for k, v in result_b.get("layer_counts", {}).items()}
+def _compare_new_ids_per_layer(result_a: RunResult, result_b: RunResult):
+    lc_a = {int(k): v for k, v in result_a.layer_counts.items()}
+    lc_b = {int(k): v for k, v in result_b.layer_counts.items()}
     all_layers = sorted(set(lc_a.keys()) | set(lc_b.keys()))
     match = True
     for layer in all_layers:
@@ -131,45 +131,14 @@ def _compare_new_ids_per_layer(result_a, result_b):
 # ─────────────────────────────────────────────────────────────────────
 
 
-def _save_structure(log_dir, name, structure):
-    serializable = {}
-    comps = structure.get("components", {})
-    serializable["components"] = {
-        str(layer): [sorted(c) for c in ccs] for layer, ccs in comps.items()
-    }
-    cx = structure.get("cross_edges", {})
-    serializable["cross_edges"] = {
-        str(layer): [[sorted(src), sorted(dst)] for src, dst in pairs]
-        for layer, pairs in cx.items()
-    }
-    with open(log_dir / f"{name}_structure.json", "w") as f:
-        json.dump(_convert_for_json(serializable), f, indent=2)
-
-
-def _save_run_result(log_dir, name, result):
-    _save_structure(log_dir, name, result["structure"])
-    meta = {k: v for k, v in result.items() if k != "structure"}
+def _save_run_result(log_dir, name, result: RunResult):
+    _save_structure_file(str(log_dir / f"{name}_structure.json"), result.structure)
     with open(log_dir / f"{name}_meta.json", "w") as f:
-        json.dump(_convert_for_json(meta), f, indent=2)
+        json.dump(_convert_for_json(result.meta), f, indent=2)
 
 
-def _load_structure(path):
-    with open(path) as f:
-        data = json.load(f)
-    return {
-        "components": {
-            int(layer): [frozenset(c) for c in ccs]
-            for layer, ccs in data.get("components", {}).items()
-        },
-        "cross_edges": {
-            int(layer): [(frozenset(src), frozenset(dst)) for src, dst in pairs]
-            for layer, pairs in data.get("cross_edges", {}).items()
-        },
-    }
-
-
-def _load_result(log_dir, name):
+def _load_result(log_dir, name) -> RunResult:
     with open(log_dir / f"{name}_meta.json") as f:
-        result = json.load(f)
-    result["structure"] = _load_structure(log_dir / f"{name}_structure.json")
-    return result
+        meta = json.load(f)
+    structure = _load_structure_file(str(log_dir / f"{name}_structure.json"))
+    return RunResult(structure=structure, **{k: v for k, v in meta.items() if k in RunResult.__dataclass_fields__})

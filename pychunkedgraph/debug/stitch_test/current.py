@@ -9,6 +9,7 @@ import pychunkedgraph.debug.profiler as profiler_mod
 from pychunkedgraph.debug.profiler import HierarchicalProfiler
 from pychunkedgraph.graph import ChunkedGraph, basetypes
 from .utils import extract_structure
+from .stitch_types import RunResult
 
 
 def run_current_stitch(graph_id: str, atomic_edges: np.ndarray, do_sanity_check: bool = True) -> dict:
@@ -55,14 +56,14 @@ def run_current_stitch(graph_id: str, atomic_edges: np.ndarray, do_sanity_check:
     structure = extract_structure(cg, new_roots)
     print(f"  [current] structure: {time.time() - t0:.1f}s")
 
-    return {
-        "structure": structure,
-        "new_roots": new_roots.tolist(),
-        "new_l2_ids": [int(x) for x in new_l2_ids],
-        "operation_id": int(result.operation_id) if result.operation_id else None,
-        "elapsed": elapsed,
-        "graph_id": graph_id,
-        "n_edges": len(atomic_edges),
-        "layer_counts": {layer: len(ccs) for layer, ccs in structure["components"].items()},
-        "perf": perf,
-    }
+    return RunResult(
+        structure=structure,
+        new_roots=new_roots.tolist(),
+        new_l2_ids=[int(x) for x in new_l2_ids],
+        operation_id=int(result.operation_id) if result.operation_id else None,
+        elapsed=elapsed,
+        graph_id=graph_id,
+        n_edges=len(atomic_edges),
+        layer_counts={layer: len(nodes) for layer, nodes in structure["nodes"].items()},
+        perf=perf,
+    )

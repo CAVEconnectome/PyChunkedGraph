@@ -1,4 +1,4 @@
-import os
+import os, time
 
 import cloudfiles.secrets
 from google.cloud.bigtable import Client
@@ -47,17 +47,36 @@ def restore_test_table(table_name: str) -> str:
     op = backup.restore(table_name)
     op.result()
     print(f"restored {table_name}")
+    time.sleep(10)
     return table_name
 
 
-def set_autoscaling_cpu(target_pct):
-    """Set the autoscaling CPU utilization target. Returns the previous value."""
+def set_autoscaling(target_cpu=None, min_nodes=None):
+    """Set autoscaling CPU target and/or min nodes. Returns previous values."""
     instance = _get_instance()
     clusters, _ = instance.list_clusters()
     cluster = clusters[0]
-    prev = cluster.cpu_utilization_percent
-    if prev != target_pct:
-        cluster.cpu_utilization_percent = target_pct
+    prev_cpu = cluster.cpu_utilization_percent
+    prev_min = cluster.min_serve_nodes
+    changed = False
+    if target_cpu is not None and prev_cpu != target_cpu:
+        cluster.cpu_utilization_percent = target_cpu
+        changed = True
+    if min_nodes is not None and prev_min != min_nodes:
+        cluster.min_serve_nodes = min_nodes
+        changed = True
+    if changed:
         cluster.update()
-        print(f"autoscaling cpu: {prev}% → {target_pct}%")
-    return prev
+        parts = []
+        if target_cpu is not None and prev_cpu != target_cpu:
+            parts.append(f"cpu: {prev_cpu}% → {target_cpu}%")
+        if min_nodes is not None and prev_min != min_nodes:
+            parts.append(f"min_nodes: {prev_min} → {min_nodes}")
+        print(f"autoscaling: {', '.join(parts)}")
+    return prev_cpu, prev_min
+
+
+def set_autoscaling_cpu(target_pct):
+    """Convenience wrapper for backwards compatibility."""
+    prev_cpu, _ = set_autoscaling(target_cpu=target_pct)
+    return prev_cpu
