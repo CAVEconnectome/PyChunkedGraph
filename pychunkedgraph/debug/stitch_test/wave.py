@@ -16,13 +16,10 @@ from pathlib import Path
 from tqdm import tqdm
 
 import numpy as np
-from cloudfiles import CloudFile, CloudFiles
-from cloudvolume import CloudVolume
 
-from pychunkedgraph.graph import ChunkedGraph, basetypes
+from pychunkedgraph.graph import basetypes
 
-
-from .current import run_current_stitch
+from .baseline import run_baseline_stitch
 from . import proposed as proposed_mod
 from . import reader as reader_mod
 from .proposed import stitch, run_proposed_stitch
@@ -36,91 +33,27 @@ from .compare import (
     compare_stitch_results,
 )
 from .utils import _convert_for_json
-
-_CG_INIT_RETRIES = 5
-_CG_INIT_DELAY = 2
-
-# set per-worker via Pool initializer
-_worker_meta = None
-_worker_cv_info = None
-
-
-def _pool_init(meta_bytes, cv_info):
-    """Pool initializer: deserialize meta + cv_info once per worker process."""
-    global _worker_meta, _worker_cv_info
-    _worker_meta = pickle.loads(meta_bytes)
-    _worker_cv_info = cv_info
-
-
-def _create_cg_worker(graph_id):
-    """Create ChunkedGraph in worker using pre-loaded meta. No BigTable or GCS reads."""
-    if _worker_meta is not None:
-        cg = ChunkedGraph(meta=_worker_meta)
-        if _worker_cv_info is not None:
-            cg.meta._ws_cv = CloudVolume(
-                cg.meta._data_source.WATERSHED, info=_worker_cv_info, progress=False
-            )
-        return cg
-    return _create_cg(graph_id)
-
-
-def _create_cg(graph_id):
-    """Create ChunkedGraph with retry — meta read can transiently fail."""
-    for attempt in range(_CG_INIT_RETRIES):
-        cg = ChunkedGraph(graph_id=graph_id)
-        if cg.meta is not None:
-            return cg
-        time.sleep(_CG_INIT_DELAY * (attempt + 1))
-    raise RuntimeError(f"ChunkedGraph meta is None after {_CG_INIT_RETRIES} retries for {graph_id}")
-
-
-def _prepare_shared_init(table_name):
-    """Read meta + cv info once in parent process, return bytes for Pool initializer."""
-    cg = _create_cg(table_name)
-    cv_info = cg.meta.ws_cv.info
-    meta_bytes = pickle.dumps(cg.meta)
-    return meta_bytes, cv_info
+from .worker_utils import (
+    pool_init,
+    create_cg_worker,
+    prepare_shared_init,
+    load_edges,
+    default_n_workers,
+    list_wave_files,
+    list_all_waves,
+)
+from .proposed_v2 import run_multiwave_v2
 
 
 
 
-def list_wave_files(wave: int = 0) -> list[str]:
-    """List all edge files for a wave, sorted by subtask index."""
-    cf = CloudFiles(EDGES_SRC)
-    prefix = f"task_{wave}_"
-    files = [f for f in cf.list() if f.startswith(prefix)]
-    files.sort(key=lambda f: int(f.split("_")[2].split(".")[0]))
-    return [f"{EDGES_SRC}/{f}" for f in files]
-
-
-def list_all_waves() -> list[int]:
-    """List all wave indices available."""
-    cf = CloudFiles(EDGES_SRC)
-    waves = set()
-    for f in cf.list():
-        parts = f.replace(".edges", "").split("_")
-        if len(parts) >= 3 and parts[0] == "task":
-            waves.add(int(parts[1]))
-    return sorted(waves)
-
-
-def _load_edges(path: str) -> np.ndarray:
-    return np.asarray(pickle.loads(CloudFile(path).get()), dtype=basetypes.NODE_ID)
-
-
-def _default_n_workers(n_tasks):
-    return min(n_tasks, 4 * os.cpu_count())
-
-
-
-
-def _worker_current(args):
+def _worker_baseline(args):
     graph_id, edge_path, idx = args
     setup_env()
     os.environ["PCG_PROFILER_ENABLED"] = "0"
 
-    edges = _load_edges(edge_path)
-    cg = _create_cg_worker(graph_id)
+    edges = load_edges(edge_path)
+    cg = create_cg_worker(graph_id)
 
     t0 = time.time()
     result = cg.add_edges(
@@ -144,8 +77,8 @@ def _worker_proposed(args):
     graph_id, edge_path, idx = args
     setup_env()
 
-    edges = _load_edges(edge_path)
-    cg = _create_cg_worker(graph_id)
+    edges = load_edges(edge_path)
+    cg = create_cg_worker(graph_id)
 
 
     t0 = time.time()
@@ -153,8 +86,7 @@ def _worker_proposed(args):
     t_stitch = time.time() - t0
 
     t0 = time.time()
-    cg.client.write(result.node_entries)
-    cg.client.write(result.parent_entries)
+    cg.client.write(result.entries)
     t_write = time.time() - t0
 
     elapsed = t_stitch + t_write
@@ -172,19 +104,21 @@ def _worker_proposed(args):
 
 
 
-def _run_wave(table_name, wave, worker_fn, n_workers=None):
+def _run_wave(table_name, wave, worker_fn, n_workers=None, shared_init=None):
     """Run all files in a wave in parallel. Returns list of per-file results."""
     edge_files = list_wave_files(wave)
     if n_workers is None:
-        n_workers = _default_n_workers(len(edge_files))
+        n_workers = default_n_workers(len(edge_files))
     n = len(edge_files)
 
-    meta_bytes, cv_info = _prepare_shared_init(table_name)
+    if shared_init is None:
+        shared_init = prepare_shared_init(table_name)
+    meta_bytes, cv_info = shared_init
     args = [(table_name, f, i) for i, f in enumerate(edge_files)]
     random.shuffle(args)
     t0 = time.time()
     file_results = []
-    with Pool(n_workers, initializer=_pool_init, initargs=(meta_bytes, cv_info)) as pool:
+    with Pool(n_workers, initializer=pool_init, initargs=(meta_bytes, cv_info)) as pool:
         for result in tqdm(
             pool.imap_unordered(worker_fn, args),
             total=n,
@@ -206,29 +140,29 @@ def _clear_log_dir(log_dir):
 SINGLE_EDGE_FILE = "task_0_591.edges"
 
 
-def run_current(experiment: str = "single", n_workers: int = None):
+def run_baseline(experiment: str = "single", n_workers: int = None):
     """
-    Run the current stitch path.
+    Run the baseline stitch path.
       "single"    — one file (task_0_0.edges)
       "wave"      — all files in wave 0 in parallel
       "multiwave" — all waves sequentially, files within each wave in parallel
     """
     setup_env()
-    table_name = f"{PREFIX}hsmith_mec_current_{experiment}"
-    log_dir = LOGS_ROOT / experiment / "current"
+    table_name = f"{PREFIX}hsmith_mec_baseline_{experiment}"
+    log_dir = LOGS_ROOT / experiment / "baseline"
     log_dir.mkdir(parents=True, exist_ok=True)
 
-    print(f"[current] experiment={experiment}" + (f", file={SINGLE_EDGE_FILE}" if experiment == "single" else ""))
+    print(f"[baseline] experiment={experiment}" + (f", file={SINGLE_EDGE_FILE}" if experiment == "single" else ""))
     if experiment != "single":
         set_autoscaling(target_cpu=25, min_nodes=5)
     try:
-        return _run_current_impl(experiment, table_name, log_dir, n_workers)
+        return _run_baseline_impl(experiment, table_name, log_dir, n_workers)
     finally:
         if experiment != "single":
             set_autoscaling(target_cpu=60, min_nodes=1)
 
 
-def _run_current_impl(experiment, table_name, log_dir, n_workers):
+def _run_baseline_impl(experiment, table_name, log_dir, n_workers):
 
     # check for resumable stitch (extraction crashed after stitch completed)
     stitch_results_path = log_dir / "stitch_results.json"
@@ -242,24 +176,24 @@ def _run_current_impl(experiment, table_name, log_dir, n_workers):
         _clear_log_dir(log_dir)
         restore_test_table(table_name)
         edge_file = f"{EDGES_SRC}/{SINGLE_EDGE_FILE}"
-        edges = _load_edges(edge_file)
-        result = run_current_stitch(table_name, edges, do_sanity_check=False)
-        _save_run_result(log_dir, "current", result)
-        print(f"current done: {result.elapsed:.1f}s")
+        edges = load_edges(edge_file)
+        result = run_baseline_stitch(table_name, edges, do_sanity_check=False)
+        _save_run_result(log_dir, "baseline", result)
+        print(f"baseline done: {result.elapsed:.1f}s")
         return result
     else:
         _clear_log_dir(log_dir)
         restore_test_table(table_name)
+        shared_init = prepare_shared_init(table_name)
         waves = [0] if experiment == "wave" else list_all_waves()
         all_file_results = []
         total_wall = 0
         for wave in waves:
-            file_results, wave_wall = _run_wave(table_name, wave, _worker_current, n_workers)
+            file_results, wave_wall = _run_wave(table_name, wave, _worker_baseline, n_workers, shared_init)
             all_file_results.extend(file_results)
             total_wall += wave_wall
-        # save stitch results immediately so we can resume
-        with open(stitch_results_path, "w") as f:
-            json.dump(_convert_for_json({"file_results": all_file_results, "elapsed": total_wall}), f)
+            with open(stitch_results_path, "w") as f:
+                json.dump(_convert_for_json({"file_results": all_file_results, "elapsed": total_wall, "table_name": table_name}), f)
 
     all_roots = []
     for fr in all_file_results:
@@ -285,18 +219,18 @@ def _run_current_impl(experiment, table_name, log_dir, n_workers):
         json.dump(_convert_for_json(result), f, indent=2)
 
     total_stitch = sum(r["elapsed"] for r in all_file_results)
-    print(f"\ncurrent {experiment}: {total_wall:.1f}s wall, {total_stitch:.1f}s total stitch, {len(roots_arr)} roots")
+    print(f"\nbaseline {experiment}: {total_wall:.1f}s wall, {total_stitch:.1f}s total stitch, {len(roots_arr)} roots")
     return result
 
 
 def run_proposed_and_compare(experiment: str = "single", n_workers: int = None, run_id: str = None):
     """
-    Run the proposed stitch path and compare against the current baseline.
+    Run the proposed stitch path and compare against the baseline.
       "single"    — one file (task_0_0.edges)
       "wave"      — all files in wave 0 in parallel
       "multiwave" — all waves sequentially, files within each wave in parallel
     Pass run_id to resume a failed run (skips stitch, goes to extraction/comparison).
-    Returns (match, result_current, result_proposed).
+    Returns (match, result_baseline, result_proposed).
     """
     setup_env()
     if experiment != "single":
@@ -318,8 +252,8 @@ def _run_proposed_impl(experiment, n_workers, run_id):
     print(f"[proposed] experiment={experiment}, run_id={run_id}{' (resume)' if resume else ''}" + (f", file={SINGLE_EDGE_FILE}" if experiment == "single" else ""))
     print(f"logs: {log_dir}")
 
-    current_log_dir = LOGS_ROOT / experiment / "current"
-    result_current = _load_current_result(current_log_dir) if experiment == "single" else None
+    baseline_log_dir = LOGS_ROOT / experiment / "baseline"
+    result_baseline = _load_baseline_result(baseline_log_dir) if experiment == "single" else None
 
     if resume and stitch_results_path.exists():
         print("resuming from saved stitch results...")
@@ -336,11 +270,12 @@ def _run_proposed_impl(experiment, n_workers, run_id):
             _clear_log_dir(log_dir)
         table_name = f"{PREFIX}hsmith_mec_{run_id}_proposed"
         restore_test_table(table_name)
+        shared_init = prepare_shared_init(table_name)
 
         if experiment == "single":
             reader_mod.VERBOSE = True
             edge_file = f"{EDGES_SRC}/{SINGLE_EDGE_FILE}"
-            edges = _load_edges(edge_file)
+            edges = load_edges(edge_file)
             result_proposed = run_proposed_stitch(table_name, edges)
             reader_mod.VERBOSE = False
             result_proposed.table_name = table_name
@@ -352,21 +287,21 @@ def _run_proposed_impl(experiment, n_workers, run_id):
             all_file_results = []
             total_wall = 0
             for wave in waves:
-                file_results, wave_wall = _run_wave(table_name, wave, _worker_proposed, n_workers)
+                file_results, wave_wall = _run_wave(table_name, wave, _worker_proposed, n_workers, shared_init)
                 all_file_results.extend(file_results)
                 total_wall += wave_wall
-            with open(stitch_results_path, "w") as f:
-                json.dump(_convert_for_json({
-                    "file_results": all_file_results,
-                    "elapsed": total_wall,
-                    "table_name": table_name,
-                }), f)
+                with open(stitch_results_path, "w") as f:
+                    json.dump(_convert_for_json({
+                        "file_results": all_file_results,
+                        "elapsed": total_wall,
+                        "table_name": table_name,
+                    }), f)
 
     if experiment == "single":
         t_pro = result_proposed.elapsed
-        t_cur = result_current.elapsed
-        print(f"\ncurrent: {t_cur:.1f}s, proposed: {t_pro:.1f}s")
-        match = compare_stitch_results(result_current, result_proposed)
+        t_base = result_baseline.elapsed
+        print(f"\nbaseline: {t_base:.1f}s, proposed: {t_pro:.1f}s")
+        match = compare_stitch_results(result_baseline, result_proposed)
     else:
         all_roots = []
         for fr in all_file_results:
@@ -377,17 +312,17 @@ def _run_proposed_impl(experiment, n_workers, run_id):
         total_edges = sum(r["n_edges"] for r in all_file_results)
         print(f"\nproposed {experiment}: {total_wall:.1f}s wall, {total_stitch:.1f}s total stitch, {len(roots_proposed)} roots, {total_edges} edges")
 
-        with open(current_log_dir / "wave_meta.json") as f:
-            current_meta = json.load(f)
-        roots_current = np.array(current_meta["new_roots"], dtype=basetypes.NODE_ID)
-        table_current = current_meta["table_name"]
+        with open(baseline_log_dir / "wave_meta.json") as f:
+            baseline_meta = json.load(f)
+        roots_baseline = np.array(baseline_meta["new_roots"], dtype=basetypes.NODE_ID)
+        table_baseline = baseline_meta["table_name"]
 
-        print(f"\ncomparing: {len(roots_current)} current vs {len(roots_proposed)} proposed roots")
+        print(f"\ncomparing: {len(roots_baseline)} baseline vs {len(roots_proposed)} proposed roots")
         match = batched_extract_and_compare(
-            table_current, roots_current,
+            table_baseline, roots_baseline,
             table_name, roots_proposed,
             save_dir=log_dir,
-            current_extract_dir=current_log_dir,
+            baseline_extract_dir=baseline_log_dir,
         )
 
         result_proposed = {
@@ -406,7 +341,7 @@ def _run_proposed_impl(experiment, n_workers, run_id):
         "experiment": experiment,
         "timestamp": datetime.now(timezone.utc).isoformat(),
         "match": match,
-        "time_current": result_current.elapsed if result_current else 0,
+        "time_baseline": result_baseline.elapsed if result_baseline else 0,
         "time_proposed": total_wall if experiment != "single" else result_proposed.elapsed,
     }
     with open(log_dir / "summary.json", "w") as f:
@@ -414,15 +349,105 @@ def _run_proposed_impl(experiment, n_workers, run_id):
 
     print(f"\n{'MATCH' if match else 'MISMATCH'}")
 
-    return match, result_current, result_proposed
+    return match, result_baseline, result_proposed
 
 
-def _load_current_result(log_dir):
-    """Load current baseline result from saved files."""
-    meta_path = log_dir / "current_meta.json"
-    struct_path = log_dir / "current_structure.pkl.gz"
+def _load_baseline_result(log_dir):
+    """Load baseline result from saved files."""
+    meta_path = log_dir / "baseline_meta.json"
+    struct_path = log_dir / "baseline_structure.pkl.gz"
     if not meta_path.exists() or not struct_path.exists():
         raise FileNotFoundError(
-            f"current baseline not found in {log_dir}. Run run_current('{log_dir.parent.name}') first."
+            f"baseline not found in {log_dir}. Run run_baseline('{log_dir.parent.name}') first."
         )
-    return _load_result(log_dir, "current")
+    return _load_result(log_dir, "baseline")
+
+
+def run_proposed_v2_and_compare(experiment: str = "multiwave", n_workers: int = None, run_id: str = None):
+    """
+    Run proposed stitch v2 (cache retention between waves) and compare against baseline.
+    Returns (match, result_baseline, result_proposed).
+    """
+    setup_env()
+    set_autoscaling(target_cpu=25, min_nodes=5)
+    try:
+        return _run_proposed_v2_impl(experiment, n_workers, run_id)
+    finally:
+        set_autoscaling(target_cpu=60, min_nodes=1)
+
+
+def _run_proposed_v2_impl(experiment, n_workers, run_id):
+    resume = run_id is not None
+    if not resume:
+        run_id = generate_run_id()
+    log_dir = LOGS_ROOT / experiment / run_id
+    stitch_results_path = log_dir / "stitch_results.json"
+
+    print(f"[proposed_v2] experiment={experiment}, run_id={run_id}{' (resume)' if resume else ''}")
+    print(f"logs: {log_dir}")
+
+    baseline_log_dir = LOGS_ROOT / experiment / "baseline"
+
+    if resume and stitch_results_path.exists():
+        print("resuming from saved stitch results...")
+        with open(stitch_results_path) as f:
+            saved = json.load(f)
+        table_name = saved["table_name"]
+        all_file_results = saved["file_results"]
+        total_wall = saved["elapsed"]
+    else:
+        if not resume:
+            _clear_log_dir(log_dir)
+        table_name = f"{PREFIX}hsmith_mec_{run_id}_proposed"
+        restore_test_table(table_name)
+        shared_init = prepare_shared_init(table_name)
+
+        all_file_results, total_wall = run_multiwave_v2(
+            table_name, shared_init, n_workers, save_path=str(stitch_results_path),
+        )
+
+    all_roots = []
+    for fr in all_file_results:
+        all_roots.extend(fr["new_roots"])
+    roots_proposed = np.array(all_roots, dtype=basetypes.NODE_ID)
+
+    total_stitch = sum(r["elapsed"] for r in all_file_results)
+    total_edges = sum(r["n_edges"] for r in all_file_results)
+    print(f"\nproposed_v2 {experiment}: {total_wall:.1f}s wall, {total_stitch:.1f}s total stitch, {len(roots_proposed)} roots, {total_edges} edges")
+
+    with open(baseline_log_dir / "wave_meta.json") as f:
+        baseline_meta = json.load(f)
+    roots_baseline = np.array(baseline_meta["new_roots"], dtype=basetypes.NODE_ID)
+    table_baseline = baseline_meta["table_name"]
+
+    print(f"\ncomparing: {len(roots_baseline)} baseline vs {len(roots_proposed)} proposed roots")
+    match = batched_extract_and_compare(
+        table_baseline, roots_baseline,
+        table_name, roots_proposed,
+        save_dir=log_dir,
+        baseline_extract_dir=baseline_log_dir,
+    )
+
+    result_proposed = {
+        "new_roots": [int(r) for r in roots_proposed],
+        "elapsed": total_wall,
+        "table_name": table_name,
+        "n_files": len(all_file_results),
+        "file_results": all_file_results,
+    }
+    with open(log_dir / "wave_meta.json", "w") as f:
+        json.dump(_convert_for_json(result_proposed), f, indent=2)
+
+    summary = {
+        "run_id": run_id,
+        "experiment": experiment,
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "match": match,
+        "time_baseline": 0,
+        "time_proposed": total_wall,
+    }
+    with open(log_dir / "summary.json", "w") as f:
+        json.dump(_convert_for_json(summary), f, indent=2)
+
+    print(f"\n{'MATCH' if match else 'MISMATCH'}")
+    return match, baseline_meta, result_proposed

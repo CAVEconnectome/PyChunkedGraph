@@ -22,7 +22,6 @@ from pychunkedgraph.graph.utils import flatgraph
 
 from pychunkedgraph.graph.edges.utils import get_cross_chunk_edges_layer
 
-
 from .utils import extract_structure, batch_get_l2children
 from .reader import (
     CachedReader,
@@ -35,13 +34,10 @@ from .reader import (
 )
 from .hierarchy import (
     resolve_cx_at_layer,
-    resolve_sv_to_layer,
     create_parents,
     allocate_deferred_roots,
     resolve_cx_for_write,
 )
-
-
 from .stitch_types import StitchResult, StitchContext, RunResult
 
 
@@ -56,8 +52,7 @@ def run_proposed_stitch(graph_id: str, atomic_edges: np.ndarray) -> dict:
     t_stitch = time.time() - t0
 
     t_write = time.time()
-    cg.client.write(result.node_entries)
-    cg.client.write(result.parent_entries)
+    cg.client.write(result.entries)
     result.perf["write_entries"] = time.time() - t_write
 
     elapsed = t_stitch + result.perf["write_entries"]
@@ -77,7 +72,7 @@ def run_proposed_stitch(graph_id: str, atomic_edges: np.ndarray) -> dict:
         elapsed=elapsed,
         graph_id=graph_id,
         n_edges=len(atomic_edges),
-        n_entries_written=len(result.node_entries) + len(result.parent_entries),
+        n_entries_written=len(result.entries),
         layer_counts={layer: len(nodes) for layer, nodes in structure["nodes"].items()},
         perf=result.perf,
     )
@@ -86,7 +81,7 @@ def run_proposed_stitch(graph_id: str, atomic_edges: np.ndarray) -> dict:
 # Core algorithm
 
 
-def stitch(cg: ChunkedGraph, atomic_edges: np.ndarray, verbose: bool = True) -> dict:
+def stitch(cg: ChunkedGraph, atomic_edges: np.ndarray, verbose: bool = True, reader: CachedReader = None) -> dict:
     """
     Stitch algorithm: add cross-boundary edges and build hierarchy.
 
@@ -100,7 +95,7 @@ def stitch(cg: ChunkedGraph, atomic_edges: np.ndarray, verbose: bool = True) -> 
 
     # ── Phase 1: batch BigTable reads ────────────────────────────────
     t0 = time.time()
-    ctx = _read_upfront(cg, atomic_edges, perf, log)
+    ctx = _read_upfront(cg, atomic_edges, perf, log, reader=reader)
     perf["phase1_total"] = time.time() - t0
     log(f"    [stitch] phase 1 (reads): {perf['phase1_total']:.1f}s")
 
@@ -134,10 +129,9 @@ def stitch(cg: ChunkedGraph, atomic_edges: np.ndarray, verbose: bool = True) -> 
 
     # ── Phase 4: build mutations ─────────────────────────────────────
     t0 = time.time()
-    node_entries, parent_entries = _build_entries(cg, ctx)
+    entries = _build_entries(cg, ctx)
     perf["phase4_total"] = time.time() - t0
 
-    # log RPC summary
     if ctx.reader and ctx.reader.rpc_log:
         log("    [stitch] RPC summary:")
         for method, n_req, n_read, elapsed in ctx.reader.rpc_log:
@@ -150,9 +144,9 @@ def stitch(cg: ChunkedGraph, atomic_edges: np.ndarray, verbose: bool = True) -> 
         new_roots=[int(r) for r in new_roots],
         new_l2_ids=[int(x) for x in new_l2_ids],
         new_ids_per_layer=new_ids_per_layer,
-        node_entries=node_entries,
-        parent_entries=parent_entries,
+        entries=entries,
         perf=perf,
+        ctx=ctx,
     )
 
 
@@ -168,13 +162,14 @@ def _acx_to_node_cx(acx_dict: dict, node_id: basetypes.NODE_ID) -> dict:
 
 
 def _read_upfront(
-    cg: ChunkedGraph, atomic_edges: np.ndarray, perf: dict, log=print
+    cg: ChunkedGraph, atomic_edges: np.ndarray, perf: dict, log=print, reader: CachedReader = None
 ) -> "StitchContext":
     """
     All BigTable reads happen here. Returns a context dict
     with everything needed for in-memory processing.
     """
-    reader = CachedReader(cg)
+    if reader is None:
+        reader = CachedReader(cg)
 
     # 1. Classify edges by layer, get L2 parents of all SVs
     t0 = time.time()
@@ -568,55 +563,39 @@ def _build_hierarchy(
     return roots, layer_perf
 
 
-def _build_entries(cg: ChunkedGraph, ctx: StitchContext) -> tuple:
-    """Build BigTable mutation entries for all new nodes.
-    Returns (node_entries, parent_entries) — write node rows first so
-    Parent pointers only ever reference existing rows. This makes
-    partial write failures safe to retry.
-    """
-    node_entries = []
-    parent_entries = []
+def _build_entries(cg: ChunkedGraph, ctx: StitchContext) -> list:
+    """Build BigTable mutation entries. One entry per unique row key with all columns merged."""
+    rows = {}
     ts = None
-    l2_atomic_cx = ctx.l2_atomic_cx
-    sibling_ids = ctx.sibling_ids
 
-    # new nodes: write Child + CrossChunkEdge + AtomicCrossChunkEdge (L2 only)
     for node_id in ctx.new_node_ids:
         children = ctx.children_cache.get(node_id)
         if children is None:
             continue
-        val_dict = {attributes.Hierarchy.Child: children}
-        cx = ctx.cx_cache.get(node_id, {})
-        for layer, cx_edges in cx.items():
-            val_dict[attributes.Connectivity.CrossChunkEdge[layer]] = cx_edges
-        acx = l2_atomic_cx.get(int(node_id), {})
-        for layer, acx_edges in acx.items():
-            val_dict[attributes.Connectivity.AtomicCrossChunkEdge[layer]] = acx_edges
         row_key = serializers.serialize_uint64(node_id)
-        node_entries.append(cg.client.mutate_row(row_key, val_dict, time_stamp=ts))
+        val_dict = rows.setdefault(row_key, {})
+        val_dict[attributes.Hierarchy.Child] = children
+        for layer, cx_edges in ctx.cx_cache.get(node_id, {}).items():
+            val_dict[attributes.Connectivity.CrossChunkEdge[layer]] = cx_edges
+        for layer, acx_edges in ctx.l2_atomic_cx.get(int(node_id), {}).items():
+            val_dict[attributes.Connectivity.AtomicCrossChunkEdge[layer]] = acx_edges
 
-    # siblings: write only CrossChunkEdge (resolved to new hierarchy IDs)
-    for node_id in sibling_ids:
+    for node_id in ctx.sibling_ids:
         cx = ctx.cx_cache.get(node_id, {})
         if not cx:
             continue
-        val_dict = {}
+        row_key = serializers.serialize_uint64(np.uint64(node_id))
+        val_dict = rows.setdefault(row_key, {})
         for layer, cx_edges in cx.items():
             val_dict[attributes.Connectivity.CrossChunkEdge[layer]] = cx_edges
-        row_key = serializers.serialize_uint64(np.uint64(node_id))
-        node_entries.append(cg.client.mutate_row(row_key, val_dict, time_stamp=ts))
 
-    # Parent pointers — for new nodes' children only
-    # siblings get their Parent updated here because they're children of new L3+ nodes
     for node_id in ctx.new_node_ids:
         children = ctx.children_cache.get(node_id)
         if children is None:
             continue
         for child in children:
-            val_dict = {attributes.Hierarchy.Parent: node_id}
             row_key = serializers.serialize_uint64(child)
-            parent_entries.append(
-                cg.client.mutate_row(row_key, val_dict, time_stamp=ts)
-            )
+            val_dict = rows.setdefault(row_key, {})
+            val_dict[attributes.Hierarchy.Parent] = node_id
 
-    return node_entries, parent_entries
+    return [cg.client.mutate_row(rk, vd, time_stamp=ts) for rk, vd in rows.items()]

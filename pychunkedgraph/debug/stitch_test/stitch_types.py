@@ -12,9 +12,9 @@ class StitchResult:
     new_roots: list
     new_l2_ids: list
     new_ids_per_layer: dict
-    node_entries: list
-    parent_entries: list
+    entries: list
     perf: dict = field(default_factory=dict)
+    ctx: Any = None
 
 
 @dataclass

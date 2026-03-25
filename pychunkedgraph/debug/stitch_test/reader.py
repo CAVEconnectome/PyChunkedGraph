@@ -4,12 +4,22 @@ Separated from proposed.py to keep the core algorithm focused.
 """
 
 import time
+from collections import ChainMap
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import numpy as np
 
+from google.cloud.bigtable.data.row_filters import CellsRowLimitFilter, RowFilterChain, StripValueTransformerFilter
+
+from kvdbclient.serializers import deserialize_uint64, serialize_uint64_batch
+
 from pychunkedgraph.graph import ChunkedGraph, attributes, basetypes
 from pychunkedgraph.graph.utils.generic import filter_failed_node_ids
+
+_EXIST_FILTER = RowFilterChain(filters=[
+    CellsRowLimitFilter(1),
+    StripValueTransformerFilter(True),
+])
 
 
 USE_BULK_READ = True
@@ -28,12 +38,18 @@ class CachedReader:
     Cache is never invalidated — all reads happen before any writes.
     """
 
-    def __init__(self, cg):
+    def __init__(self, cg, preloaded: tuple = None):
         self.cg = cg
-        self._parents = {}    # {node_id_int: parent_id_int}
-        self._children = {}   # {node_id_int: np.ndarray}
-        self._atomic_cx = {}  # {node_id_int: {layer: np.ndarray}}
-        self.rpc_log = []     # [(method, n_requested, n_read, elapsed)]
+        ro_parents = preloaded[0] if preloaded else {}
+        ro_children = preloaded[1] if preloaded else {}
+        ro_acx = preloaded[2] if preloaded else {}
+        self._parents_local = {}
+        self._children_local = {}
+        self._acx_local = {}
+        self._parents = ChainMap(self._parents_local, ro_parents)
+        self._children = ChainMap(self._children_local, ro_children)
+        self._atomic_cx = ChainMap(self._acx_local, ro_acx)
+        self.rpc_log = []
 
     def _populate_from_raw(self, node_ids: np.ndarray, raw: dict, with_acx: bool = False) -> None:
         """Parse raw read_nodes response into caches."""
@@ -48,7 +64,8 @@ class CachedReader:
 
             if n_int not in self._children:
                 child_cells = node_data.get(attributes.Hierarchy.Child, [])
-                self._children[n_int] = child_cells[0].value if child_cells else np.array([], dtype=basetypes.NODE_ID)
+                if child_cells:
+                    self._children[n_int] = child_cells[0].value
 
             if with_acx and n_int not in self._atomic_cx:
                 acx_d = {}
@@ -322,8 +339,10 @@ def batch_create_node_ids(cg, size_map: dict, root_chunks: set = None) -> dict:
                 size=batch_size,
                 root_chunk=True,
             )
-            existing = cg.client.read_nodes(node_ids=candidate_ids)
-            non_existing = set(candidate_ids) - existing.keys()
+            row_keys = serialize_uint64_batch(candidate_ids)
+            existing_rows = cg.client._read(row_keys=row_keys, row_filter=_EXIST_FILTER)
+            existing_ids = {deserialize_uint64(k) for k in existing_rows}
+            non_existing = set(candidate_ids) - existing_ids
             new_ids.extend(non_existing)
             batch_size = min(batch_size * 2, 2**16)
         return chunk_id, new_ids[:count]

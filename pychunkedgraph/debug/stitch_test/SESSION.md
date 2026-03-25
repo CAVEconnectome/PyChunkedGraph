@@ -9,14 +9,14 @@ For a new Claude session to pick up this work, tell it:
 - `pychunkedgraph/debug/stitch_test/wave.py` — unified test runner (single/wave/multiwave experiments)
 - `pychunkedgraph/debug/stitch_test/utils.py` — structure extraction, batched parallel extraction, per-node comparison
 - `pychunkedgraph/debug/stitch_test/compare.py` — orchestration, persistence helpers
-- `pychunkedgraph/debug/stitch_test/current.py` — wrapper for current `add_edges` baseline
+- `pychunkedgraph/debug/stitch_test/baseline.py` — wrapper for baseline `add_edges` stitch path
 - `pychunkedgraph/debug/stitch_test/tables.py` — BigTable backup/restore, env setup, autoscaling
 - `.env/stitching/hsmith_mec.ipynb` — test notebook
 
 ## Module structure (no cycles)
 
 `stitch_types` → `tables` → `reader` → `hierarchy` → `proposed` → `compare` → `wave`
-                  `tables` → `utils` → `{current, proposed}` → `compare` → `wave`
+                  `tables` → `utils` → `{baseline, proposed}` → `compare` → `wave`
 
 - `stitch_types.py` — shared dataclasses: StitchResult, StitchContext, RunResult
 - `reader.py` — CachedReader (bulk_read_l2, get_parents/children/acx with cache), get_all_parents_filtered, filter_orphaned_nodes, resolve_partner_sv_parents (sampling), batch_create_node_ids, collect_and_resolve_partner_svs
@@ -94,7 +94,7 @@ For a new Claude session to pick up this work, tell it:
 - **ThreadPoolExecutor capped**: max_workers=min(len(tasks), 16) for ID allocation to avoid BigTable counter row contention.
 
 ### Test infrastructure
-- **Entry points**: `run_current(experiment)` and `run_proposed_and_compare(experiment, run_id=None)`
+- **Entry points**: `run_baseline(experiment)` and `run_proposed_and_compare(experiment, run_id=None)`
 - **Experiment types**: "single" (one file), "wave" (wave 0), "multiwave" (all waves)
 - **Extraction**: 500K root batches, 250 roots/shard, `4 * cpu_count` pool
 - **Retries**: tenacity on extraction reads (3 attempts, exponential backoff)
@@ -104,30 +104,29 @@ For a new Claude session to pick up this work, tell it:
 
 ### Performance
 
-**Single file (task_0_0.edges, 1024 edges)**:
-- Proposed ~129s vs current ~211s (1.63x)
-
 **Single file straggler (task_0_591.edges, 1024 edges, 17143 L2 CCs, 49942 siblings)**:
-- Current: 303.7s
-- Proposed: 261.3s (stitch+write, with sampling+bulk) — 1.16x
-- RPC log shows: bulk_read_l2 49942 nodes 54s, get_parents 2048 SVs 34s (cold start latency)
-- BigTable cold start after restore causes elevated read latency for first few reads
+- Baseline: 269.4s, Proposed: 137.3s — **1.96x, MATCH**
+- With cache warm-up: first read 8.8s (was 12.7s cold), sibling bulk_read_l2 21s (was 39.6s)
 
 **Wave 0 (606 files, 311K roots, 617K edges)**:
-- Current: ~1050s wall (with lock contention from 512 workers)
-- Proposed: ~340s wall (3.1x, lock-free) — **MATCH verified**
-- Per-file: mean=206s, median=228s, p95=246s, max=329s
-- Extraction: ~37-51s for 311K roots (1248 shards)
-- Comparison: ~143-157s (parallel shard loading, canonical ID based)
+- Baseline: 821s wall (with cache warm-up, 512 workers)
+- Proposed: 303s wall — **2.71x, MATCH at all layers (L2-L6)**
+- Cache warm-up: 46s (10% random sampling, 9M rows across 23 tablets)
+- Extraction: ~49s for 311K roots (1248 shards)
+- Comparison: ~162s (parallel shard loading, canonical ID based)
 
-### BigTable cold start latency
-- After backup restore, BigTable needs time to optimize + warm block cache
-- No direct cache priming API — must send actual read traffic
+### BigTable cold start latency (fixed 2026-03-24)
+- After backup restore, BigTable block cache is empty + table is in READY_OPTIMIZING state
 - First RPC after restore consistently 30-40s for small batches (2048 rows)
-- Subsequent reads on same/nearby rows are fast (block cache populated)
-- Sampling partner SVs helps warm cache for subsequent reads
-- `time.sleep(10)` after restore is NOT sufficient — need read traffic to warm
-- TODO: add warm-up read step after restore to prime block cache before stitch starts
+- `time.sleep(10)` was NOT sufficient — only real reads populate the cache
+- **Fix**: `warm_cache()` in tables.py, called automatically after restore:
+  1. `sample_row_keys()` discovers tablet split boundaries
+  2. Scatter-reads across all tablets in parallel (8 threads)
+  3. Two strategies via `WARM_RANDOM` flag:
+     - `True` (default): `RowSampleFilter(0.01)` full-table scan — random block distribution
+     - `False`: sequential reads of first N rows per tablet
+  4. All reads use `CellsRowLimitFilter(1) + StripValueTransformerFilter(True)` — minimal transfer
+- BigTable also has `READY_OPTIMIZING` replication state (enum=5) after restore, transitions to `READY` (4) when optimization completes. Optimization can take minutes to hours but table is usable during.
 
 ### Read optimization flags (reader.py)
 - `USE_BULK_READ=True` — combined Parent+Child+AtomicCX in one RPC (default)
@@ -135,11 +134,66 @@ For a new Claude session to pick up this work, tell it:
 - `VERBOSE=False` — logging for sampling/read dispatch (set True for single mode)
 - `_SAMPLE_SIZE=1000`, `_SAMPLING_THRESHOLD=25000`, `_SAMPLING_STOP=10000`
 
+### Warm-up flags (tables.py)
+- `WARM_RANDOM=True` — use RowSampleFilter for random distribution (default)
+- `WARM_SAMPLE_RATE=0.1` — 10% of rows sampled in random mode
+- `WARM_ROWS_PER_TABLET=2000` — rows per tablet in sequential mode
+
+### Sampling batch size benchmarks (wave 0, all MATCH)
+Batch size = `_SAMPLE_SIZE` in reader.py (partner SV sampling).
+BigTable latencies vary ~20s between runs.
+
+| Config | Wave time | vs baseline (821s) |
+|--------|-----------|---------------------|
+| batch=2500, bulk=True (default) | **303s** | **2.71x** |
+| batch=1000, bulk=True | 322s | 2.55x |
+| batch=5000, bulk=False | 331s | 2.48x |
+| batch=5000, bulk=True | 357s | 2.30x |
+| no sampling, no bulk | 463s | 1.77x |
+
+### Recent fixes (2026-03-24)
+- **Collision check optimization**: `batch_create_node_ids` now uses `_EXIST_FILTER` (CellsRowLimitFilter + StripValueTransformerFilter) instead of full `read_nodes` for root ID collision checks. Uses `cg.client._read` directly with serialized row keys.
+- **CachedReader `_populate_from_raw` bug**: `_children` cache was populated with empty arrays when `Child` column wasn't requested (e.g., by `get_atomic_cross_edges`). Fixed by guarding `_children` same as `_parents` — only cache when `child_cells` is truthy. Only affected `USE_BULK_READ=False` parallel path.
+- **Cache warm-up after restore**: `warm_cache()` in tables.py, called automatically after restore. Uses `sample_row_keys()` for tablet boundaries + `RowSampleFilter(0.1)` scatter reads across all tablets in parallel (one thread per tablet). 46s for 18.5 GB table, reads ~9M rows.
+- **Renamed current → baseline**: `current.py` → `baseline.py`, `run_current` → `run_baseline`, all variables/paths/labels updated.
+- **Shared init for multiwave**: `_prepare_shared_init` called once after restore, passed to all `_run_wave` calls. Meta + CloudVolume info read once per experiment.
+
+### Write consolidation (2026-03-25)
+- Merged `node_entries` + `parent_entries` into single list with one `mutate_row` per unique row key
+- Single `cg.client.write(result.entries)` call instead of two
+- `StitchResult` now has `entries` (single list) and `ctx` (for cache extraction)
+- Write median dropped from 38s to 17s on wave 0
+
+### Multiwave results (proposed v1, run 69673472 — MISMATCH)
+- 32 waves, 641 files total (wave 0: 606, waves 1-31: 1-9 each)
+- Wave 0: 312s (3.2x vs baseline). Waves 14+: slower than baseline (0.5-0.9x).
+- Bottleneck: phase 2b (siblings) re-reads entire subtree from BigTable every wave. 10s→86s.
+- **MISMATCH**: cx edge count differences at all layers. 7954/2.7M L2 nodes differ.
+  - Root counts match per-wave. Structure differs — different SV→L2 groupings.
+  - Likely cx edge resolution bug when building on prior waves' hierarchy.
+- Worker count: 4×cpu (512) — contributed to BigTable contention.
+
+### Proposed v2: fork COW cache retention (2026-03-25, run 42ad723c — in progress)
+- `proposed_v2.py` — module-level `_shared_cache` global, workers inherit via fork COW
+- `CachedReader` uses `ChainMap(local_dict, ro_dict)` — reads check both, writes go to local only
+- Workers return only NEW entries (`_parents_local`, `_children_local`, `_acx_local` + ctx caches)
+- Parent merges incrementally as workers complete. No serialization for cache reads.
+- Worker count: 3×cpu (384) — less BigTable contention than v1's 512.
+- `worker_utils.py` — shared Pool utilities extracted from wave.py to break circular import
+- Entry point: `run_proposed_v2_and_compare("multiwave")`
+- Incremental stitch_results.json save after each wave
+- Per-wave log: elapsed, read counts, cache hit %, cache size
+
+**Early v2 results:**
+- Wave 0: **197s** (4.16x vs baseline 821s) — no cache, speedup from fewer workers
+- Wave 1: **100s** with 77% cache hit rate (514K/670K rows from cache)
+- Awaiting full run completion
+
 ### Remaining work
-- Warm-up reads after restore to mitigate cold start latency
-- Run multiwave test (wave 0 validated)
-- Further optimize straggler file (task_0_591)
-- Add incremental file result saving during wave runs
+- v2 multiwave completion + comparison
+- Investigate v1 multiwave MISMATCH
+- Add per-wave extraction + comparison for debugging
+- 3-way comparison: baseline vs v1 vs v2
 
 ## User preferences (critical)
 - **Never describe how code works without reading it first** — use Read/Grep, or say "I haven't verified this"

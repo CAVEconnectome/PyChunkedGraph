@@ -9,16 +9,12 @@ import pickle
 import shutil
 import time
 
-
 import numpy as np
 from tenacity import retry, stop_after_attempt, wait_exponential
 from tqdm import tqdm
 
 from pychunkedgraph.graph import ChunkedGraph, basetypes
 from .tables import setup_env
-
-
-from .stitch_types import RunResult
 
 
 def batch_get_l2children(cg_or_reader, node_ids: np.ndarray) -> dict:
@@ -313,18 +309,18 @@ def layer_counts_from_shards(save_dir):
 
 
 def batched_extract_and_compare(
-    graph_id_a, roots_a, graph_id_b, roots_b, save_dir, current_extract_dir=None
+    graph_id_a, roots_a, graph_id_b, roots_b, save_dir, baseline_extract_dir=None
 ):
     """
     Extract structure from both tables, then compare per-node at each layer.
     Each node is identified by its SV set, compared with its cross edges at all layers.
-    If current_extract_dir is provided, skips current extraction and loads from there.
+    If baseline_extract_dir is provided, skips baseline extraction and loads from there.
     """
-    dir_a = Path(current_extract_dir) if current_extract_dir else save_dir / "current"
+    dir_a = Path(baseline_extract_dir) if baseline_extract_dir else save_dir / "baseline"
     dir_b = save_dir / "proposed"
 
-    if not current_extract_dir:
-        print("extracting current...")
+    if not baseline_extract_dir:
+        print("extracting baseline...")
         batched_extract_structure(graph_id_a, roots_a, save_dir=dir_a)
     print("extracting proposed...")
     batched_extract_structure(graph_id_b, roots_b, save_dir=dir_b)

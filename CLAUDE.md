@@ -6,7 +6,7 @@
 - Add type hints to all function signatures.
 
 # Rules
-- Do what's asked, nothing more/less. NEVER create files unless absolutely necessary.
+- Do what's asked, nothing more/less.
 - NEVER add comments about what code used to be or what was moved/removed.
 - Follow instructions precisely. If asked to implement but not integrate, don't integrate.
 - NEVER use unittest mocks — only mocker fixture.

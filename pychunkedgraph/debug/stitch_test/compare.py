@@ -9,7 +9,7 @@ from cloudfiles import CloudFile
 
 from pychunkedgraph.graph import basetypes
 
-from .current import run_current_stitch
+from .baseline import run_baseline_stitch
 from .proposed import run_proposed_stitch
 from .tables import restore_test_table, setup_env, PREFIX, EDGES_SRC, _get_instance
 from .utils import compare_structures, _convert_for_json, _save_structure_file, _load_structure_file
@@ -27,38 +27,38 @@ def generate_run_id() -> str:
 # ─────────────────────────────────────────────────────────────────────
 
 
-def run_current_baseline(experiment: str = "single", edge_file: str = None):
+def run_baseline_single(experiment: str = "single", edge_file: str = None):
     """
-    Run the current stitch path once for an experiment type.
+    Run the baseline stitch path once for an experiment type.
     If the table + saved results already exist, skips and prints "reusing".
     """
     setup_env()
     if edge_file is None:
         edge_file = f"{EDGES_SRC}/task_0_0.edges"
 
-    table_name = f"{PREFIX}hsmith_mec_current_{experiment}"
-    log_dir = LOGS_ROOT / experiment / "current"
+    table_name = f"{PREFIX}hsmith_mec_baseline_{experiment}"
+    log_dir = LOGS_ROOT / experiment / "baseline"
     log_dir.mkdir(parents=True, exist_ok=True)
-    structure_path = log_dir / "current_structure.pkl.gz"
+    structure_path = log_dir / "baseline_structure.pkl.gz"
 
     instance = _get_instance()
     if instance.table(table_name).exists() and structure_path.exists():
         print(f"reusing {table_name}")
         return
 
-    print(f"restoring and running current path for '{experiment}'")
+    print(f"restoring and running baseline path for '{experiment}'")
     restore_test_table(table_name)
     edges = pickle.loads(CloudFile(edge_file).get())
     edges = np.asarray(edges, dtype=basetypes.NODE_ID)
-    result = run_current_stitch(table_name, edges, do_sanity_check=False)
-    _save_run_result(log_dir, "current", result)
-    print(f"current {experiment} done: {result['elapsed']:.1f}s")
+    result = run_baseline_stitch(table_name, edges, do_sanity_check=False)
+    _save_run_result(log_dir, "baseline", result)
+    print(f"baseline {experiment} done: {result['elapsed']:.1f}s")
 
 
 def run_proposed_and_compare(experiment: str = "single", edge_file: str = None):
     """
-    Run the proposed stitch path and compare against the current baseline.
-    Returns (match, result_current, result_proposed).
+    Run the proposed stitch path and compare against the baseline.
+    Returns (match, result_baseline, result_proposed).
     """
     setup_env()
     if edge_file is None:
@@ -72,8 +72,8 @@ def run_proposed_and_compare(experiment: str = "single", edge_file: str = None):
     print(f"run_id: {run_id}")
     print(f"logs: {log_dir}")
 
-    current_log_dir = LOGS_ROOT / experiment / "current"
-    result_current = _load_result(current_log_dir, "current")
+    baseline_log_dir = LOGS_ROOT / experiment / "baseline"
+    result_baseline = _load_result(baseline_log_dir, "baseline")
 
     restore_test_table(table_proposed)
     edges = pickle.loads(CloudFile(edge_file).get())
@@ -81,8 +81,8 @@ def run_proposed_and_compare(experiment: str = "single", edge_file: str = None):
     result_proposed = run_proposed_stitch(table_proposed, edges)
     _save_run_result(log_dir, "proposed", result_proposed)
 
-    print(f"\ncurrent: {result_current['elapsed']:.1f}s, proposed: {result_proposed['elapsed']:.1f}s")
-    match = compare_stitch_results(result_current, result_proposed)
+    print(f"\nbaseline: {result_baseline['elapsed']:.1f}s, proposed: {result_proposed['elapsed']:.1f}s")
+    match = compare_stitch_results(result_baseline, result_proposed)
 
     summary = {
         "run_id": run_id,
@@ -90,7 +90,7 @@ def run_proposed_and_compare(experiment: str = "single", edge_file: str = None):
         "timestamp": datetime.now(timezone.utc).isoformat(),
         "edge_file": edge_file,
         "match": match,
-        "time_current": result_current["elapsed"],
+        "time_baseline": result_baseline["elapsed"],
         "time_proposed": result_proposed["elapsed"],
         "proposed_perf": result_proposed.get("perf", {}),
     }
@@ -98,7 +98,7 @@ def run_proposed_and_compare(experiment: str = "single", edge_file: str = None):
         json.dump(_convert_for_json(summary), f, indent=2)
 
     print(f"\n{'MATCH' if match else 'MISMATCH'}")
-    return match, result_current, result_proposed
+    return match, result_baseline, result_proposed
 
 
 # ─────────────────────────────────────────────────────────────────────

@@ -1,8 +1,12 @@
-import os, time
+import os
+import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import cloudfiles.secrets
 from google.cloud.bigtable import Client
 from google.cloud.bigtable.backup import Backup
+from google.cloud.bigtable.data import BigtableDataClient, ReadRowsQuery, RowRange
+from google.cloud.bigtable.data.row_filters import CellsRowLimitFilter, RowFilterChain, RowSampleFilter, StripValueTransformerFilter
 
 BACKUP_ID = "hsmith-mec-100gvx-exp16-0.26-backup"
 CLUSTER_ID = "pychunkedgraph-c1"
@@ -10,6 +14,11 @@ PROJECT = "zetta-proofreading"
 INSTANCE = "pychunkedgraph"
 PREFIX = "stitch_redesign_test_"
 EDGES_SRC = "gs://dodam_exp/hammerschmith_mec/100GVx_cutout/proofreadable_exp16_0.26/agg_chunk_ext_edges"
+
+_STRIP_FILTER = RowFilterChain(filters=[
+    CellsRowLimitFilter(1),
+    StripValueTransformerFilter(True),
+])
 
 # suppress cloudfiles "Using default Google credentials" warning
 cloudfiles.secrets.GOOGLE_CREDENTIALS_CACHE[""] = (PROJECT, None)
@@ -47,8 +56,71 @@ def restore_test_table(table_name: str) -> str:
     op = backup.restore(table_name)
     op.result()
     print(f"restored {table_name}")
-    time.sleep(10)
+
+    warm_cache(table_name)
     return table_name
+
+
+WARM_RANDOM = True
+WARM_SAMPLE_RATE = 0.1
+WARM_ROWS_PER_TABLET = 2000
+
+
+def warm_cache(table_name: str) -> None:
+    """Scatter-read across tablets to prime BigTable block cache after restore.
+    Two strategies via WARM_RANDOM:
+      True  — RowSampleFilter scan (random block distribution)
+      False — first N rows per tablet (sequential)
+    All use CellsRowLimitFilter(1) + StripValueTransformerFilter to minimize transfer.
+    One thread per tablet range for max parallelism.
+    """
+    instance = _get_instance()
+    table = instance.table(table_name)
+
+    samples = list(table.sample_row_keys())
+    split_keys = [s.row_key for s in samples if s.row_key]
+    total_bytes = samples[-1].offset_bytes if samples else 0
+    print(f"  warm_cache: {len(split_keys)} tablet splits, ~{total_bytes / 1e9:.1f} GB, random={WARM_RANDOM}")
+
+    data_client = BigtableDataClient(project=PROJECT)
+    data_table = data_client.get_table(INSTANCE, table_name)
+
+    ranges = []
+    prev_key = b""
+    for key in split_keys:
+        ranges.append((prev_key, key))
+        prev_key = key
+    ranges.append((prev_key, b""))
+
+    if WARM_RANDOM:
+        row_filter = RowFilterChain(filters=[
+            RowSampleFilter(WARM_SAMPLE_RATE),
+            CellsRowLimitFilter(1),
+            StripValueTransformerFilter(True),
+        ])
+        limit = None
+    else:
+        row_filter = _STRIP_FILTER
+        limit = WARM_ROWS_PER_TABLET
+
+    t0 = time.time()
+
+    def _read_range(start_key: bytes, end_key: bytes) -> int:
+        row_range = RowRange(
+            start_key=start_key if start_key else None,
+            end_key=end_key if end_key else None,
+        )
+        query = ReadRowsQuery(row_ranges=[row_range], row_filter=row_filter, limit=limit)
+        return sum(1 for _ in data_table.read_rows(query))
+
+    total_rows = 0
+    with ThreadPoolExecutor(max_workers=len(ranges)) as executor:
+        futures = {executor.submit(_read_range, s, e): (s, e) for s, e in ranges}
+        for fut in as_completed(futures):
+            total_rows += fut.result()
+
+    data_client.close()
+    print(f"  warm_cache: read {total_rows} rows across {len(ranges)} tablets in {time.time() - t0:.1f}s")
 
 
 def set_autoscaling(target_cpu=None, min_nodes=None):
