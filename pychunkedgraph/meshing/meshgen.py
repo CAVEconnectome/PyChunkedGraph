@@ -23,7 +23,6 @@ from pychunkedgraph.graph import attributes  # noqa
 from pychunkedgraph.meshing import meshgen_utils  # noqa
 from pychunkedgraph.meshing.manifest.cache import ManifestCache
 
-
 UTC = pytz.UTC
 
 # Change below to true if debugging and want to see results in stdout
@@ -298,10 +297,13 @@ def calculate_stop_layer(cg, chunk_id):
 
     # Find lowest common chunk
     neigh_parent_chunk_ids = np.array(neigh_parent_chunk_ids)
-    layer_agreement = np.all(
-        (neigh_parent_chunk_ids - neigh_parent_chunk_ids[0]) == 0, axis=0
-    )
-    stop_layer = np.where(layer_agreement)[0][0] + chunk_layer
+    if chunk_layer + 1 == cg.meta.layer_count:
+        stop_layer = cg.meta.layer_count
+    else:
+        layer_agreement = np.all(
+            (neigh_parent_chunk_ids - neigh_parent_chunk_ids[0]) == 0, axis=0
+        )
+        stop_layer = np.where(layer_agreement)[0][0] + chunk_layer
 
     return stop_layer, neigh_chunk_ids
 
@@ -1040,7 +1042,8 @@ def get_multi_child_nodes(cg, chunk_id, node_id_subset=None, chunk_bbox_string=F
             fragment.value
             for child_fragments_for_node in node_rows
             for fragment in child_fragments_for_node
-        ], dtype=object
+        ],
+        dtype=object,
     )
     # Filter out node ids that do not have roots (caused by failed ingest tasks)
     root_ids = cg.get_roots(node_ids, fail_to_zero=True)
